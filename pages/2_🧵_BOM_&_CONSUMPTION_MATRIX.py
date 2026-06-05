@@ -265,7 +265,6 @@ def process_single_pdf_batch(file_bytes, file_name):
             "success": False, 
             "error": f"SYSTEM EXECUTION EXCEPTION: Critical pipeline breakdown during AI processing. Details: {str(e)}"
         }
-# =============================================================================
 # PHASE 5: USER INTERFACE STRUCTURE & AUTOMATION FACTORY 
 # =============================================================================
 with st.sidebar:
@@ -277,9 +276,11 @@ with st.sidebar:
     """, unsafe_allow_html=True)
     
     st.markdown("<p style='font-size:11px; font-weight:700; color:#64748B; margin: 15px 0 5px 5px; letter-spacing:0.5px;'>🏭 AUTOMATION FACTORY</p>", unsafe_allow_html=True)
+    
+    # ĐÃ ĐỒNG BỘ: Sửa thành "📊 Upload Techpack" (Viết hoa chữ U, xóa khoảng trắng thừa ở cuối)
     menu_selection = st.radio(
         label="Chức năng hệ thống",
-        options=["📊 Upload Techpack ", "🔄 Pattern Spec Comparison", "🧵 BOM & Consumption Matrix"],
+        options=["📊 Upload Techpack", "🔄 Pattern Spec Comparison", "🧵 BOM & Consumption Matrix"],
         label_visibility="collapsed"
     )
     st.markdown("---")
@@ -289,17 +290,16 @@ with st.sidebar:
 if "processed_styles" not in st.session_state:
     st.session_state["processed_styles"] = {}
 
-# -----------------------------------------------------------------------------
+
 # CHỨC NĂNG 1: QUÉT TỰ ĐỘNG BẰNG AI VÀ LƯU HÀNG LOẠT (BULK SAVE MULTI-BATCH)
 # -----------------------------------------------------------------------------
-# Đã sửa "upload Techpack" thành "Upload Techpack" chuẩn tiếng Anh chuyên nghiệp
+# Đã khớp hoàn toàn với lựa chọn trong st.radio ở trên
 if menu_selection == "📊 Upload Techpack":
     st.markdown('<div class="component-title-box">📊 MULTI-BATCH GARMENT SPECIFICATION MATRIX</div>', unsafe_allow_html=True)
     
     st.markdown("""<div class="card-container"><div class="card-section-header">📥 INGESTION ENGINE</div>
     <p style="color: #64748B; font-size:13px; margin:0 0 15px 0;">Hệ thống tự động cắt trang, khử nhiễu đồ họa phẳng và gọi API mạng nơ-ron tích hợp để bóc tách thông số hàng loạt.</p></div>""", unsafe_allow_html=True)
     
-    # Đổi label text gợi ý hành động chuẩn UI/UX
     uploaded_files = st.file_uploader("Upload Techpack PDFs Here", type=["pdf"], accept_multiple_files=True, label_visibility="collapsed")
     
     if uploaded_files:
@@ -342,12 +342,11 @@ if menu_selection == "📊 Upload Techpack":
                         table_html = '<div class="data-table-container"><table class="industrial-table"><thead><tr><th>Point of Measurement</th><th>Target Spec</th></tr></thead><tbody>'
                         for k, v in data.get("measurements", {}).items():
                             table_html += f"<tr><td>{k}</td><td>{v}</td></tr>"
-                        table_html += "</tbody></table></div>" # Đóng thẻ đúng cấu trúc HTML
+                        table_html += "</tbody></table></div>"
                         st.markdown(table_html, unsafe_allow_html=True)
                     with sub_col2:
                         st.markdown("<p style='font-weight:700; font-size:12px; color:#1E293B;'>📐 GARMENT FLAT SKETCH</p>", unsafe_allow_html=True)
                         if data.get("sketch_image"): 
-                            # Thay use_column_width=True bằng use_container_width=True theo chuẩn Streamlit mới
                             st.image(base64.b64decode(data["sketch_image"]), use_container_width=True)
                     st.markdown("<br><hr style='border-color:#E2E8F0;'><br>", unsafe_allow_html=True)
     else:
