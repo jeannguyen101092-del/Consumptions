@@ -309,7 +309,7 @@ elif menu_selection == "🧵 Fabric Consumption Assistant (Cons)":
     <p style="color: #64748B; font-size:14px; margin:0;">Tải lên tài liệu Techpack mới, AI sẽ tự động bóc tách hình ảnh/thông số, truy vấn mã hàng tương đồng trong kho Supabase và lập luận toán học để tự động tính định mức vải mới.</p></div>""", unsafe_allow_html=True)
     
     # Thiết lập giao diện hàng ngang gồm 2 cột: Ô tải file (rộng) và Nút xóa lịch sử (hẹp)
-    control_col1, control_col2 = st.columns([3, 1])
+    control_col1, control_col2 = st.columns()
     
     with control_col1:
         st.markdown("##### 📁 TẢI LÊN FILE TECHPACK MỚI ĐỂ AI PHÂN TÍCH & TÍNH TOÁN ĐỊNH MỨC VẢI")
@@ -320,6 +320,8 @@ elif menu_selection == "🧵 Fabric Consumption Assistant (Cons)":
     with control_col2:
         st.markdown("##### 🧹 LÀM LÀM MỚI")
         if st.button("🗑️ XÓA LỊCH SỬ CHAT", use_container_width=True, type="secondary"):
+            # ✨ ĐÃ SỬA LỖI: Nhúng trực tiếp import nội bộ để tránh lỗi thiếu thư viện cục bộ giữa các trang
+            import time
             if "chat_history" in st.session_state:
                 del st.session_state["chat_history"]
             st.success("🔄 Đã xóa lịch sử! Sẵn sàng làm việc với mã hàng mới.")
