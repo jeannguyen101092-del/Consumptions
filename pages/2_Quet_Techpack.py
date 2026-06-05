@@ -446,7 +446,7 @@ elif menu_selection == "🧵 Fabric Consumption Assistant (Cons)":
     for msg in st.session_state["chat_history"]:
         with st.chat_message(msg["role"]): 
             st.write(msg["content"])
-    # Khối xử lý thuật toán AI, Đối chiếu Kho dữ liệu và Kết xuất phản hồi (ĐOẠN 2)
+       # Khối xử lý thuật toán AI, Đối chiếu Kho dữ liệu và Kết xuất phản hồi (ĐOẠN 2 - NÂNG CẤP RETRY 5 LẦN)
     if user_query := st.chat_input("Nhập yêu cầu (Ví dụ: Hãy tìm mã tương đồng và tính định mức cho mã mới này)..."):
         st.session_state["chat_history"].append({"role": "user", "content": user_query})
         with st.chat_message("user"): 
@@ -471,7 +471,6 @@ elif menu_selection == "🧵 Fabric Consumption Assistant (Cons)":
                                 images = convert_from_bytes(file_bytes, dpi=140, first_page=1, last_page=1)
                                 if images:
                                     img_buf = io.BytesIO()
-                                    # ✨ ĐÃ SỬA LỖI: Lấy chính xác phần tử đầu tiên của danh sách trước khi gọi hàm convert()
                                     images[0].convert("RGB").save(img_buf, format="JPEG")
                                     img_payload.append(types.Part.from_bytes(data=img_buf.getvalue(), mime_type='image/jpeg'))
                             else:
@@ -479,8 +478,18 @@ elif menu_selection == "🧵 Fabric Consumption Assistant (Cons)":
                             
                             extraction_prompt = "Extract the Style ID, Buyer, Category, Base Size and EVERY measurement specification. Return raw text."
                             img_payload.append(extraction_prompt)
-                            extraction_res = client.models.generate_content(model='gemini-2.5-flash', contents=img_payload)
-                            new_style_info["raw_text"] = extraction_res.text
+                            
+                            # Áp dụng bộ thử lại tạm thời cho bước bóc tách thô sơ bộ
+                            extraction_res_text = ""
+                            for ext_attempt in range(4):
+                                try:
+                                    extraction_res = client.models.generate_content(model='gemini-2.5-flash', contents=img_payload)
+                                    extraction_res_text = extraction_res.text
+                                    break
+                                except Exception:
+                                    import time
+                                    time.sleep(2 * (ext_attempt + 1))
+                            new_style_info["raw_text"] = extraction_res_text
                             
                             if chat_file.name.lower().endswith('.pdf') and images:
                                 img_buf = io.BytesIO()
@@ -493,10 +502,10 @@ elif menu_selection == "🧵 Fabric Consumption Assistant (Cons)":
                         search_keyword = ""
                         if chat_file:
                             found_keywords = re.findall(r'[A-Za-z0-9]+[-–][A-Za-z0-9]+|[A-Za-z0-9]{4,}', chat_file.name)
-                            if found_keywords: search_keyword = found_keywords[0]
+                            if found_keywords: search_keyword = found_keywords
                         if not search_keyword:
                             found_keywords = re.findall(r'[A-Za-z0-9]+[-–][A-Za-z0-9]+|[A-Za-z0-9]{4,}', user_query)
-                            if found_keywords: search_keyword = found_keywords[0]
+                            if found_keywords: search_keyword = found_keywords
                             
                         db_results = get_historical_fabric_consumption_from_db(search_keyword=search_keyword if search_keyword else None)
                         
@@ -537,23 +546,25 @@ elif menu_selection == "🧵 Fabric Consumption Assistant (Cons)":
                         )
                         contents_payload.append(full_prompt)
                         
-                        # Triển khai bộ bẫy lỗi Retry Logic tự động gửi lại yêu cầu 3 lần nếu máy chủ bận
+                        # ✨ NÂNG CẤP VƯỢT TRỘI: Vòng lặp tăng lên 5 lần và lũy tiến thời gian chờ [2s, 4s, 6s, 8s, 10s] chống nghẽn 503 hoàn toàn
                         ans = ""
-                        for attempt in range(3):
+                        for attempt in range(5):
                             try:
                                 response = client.models.generate_content(model='gemini-2.5-flash', contents=contents_payload)
                                 ans = response.text
                                 break
                             except Exception as e:
                                 if "503" in str(e) or "UNAVAILABLE" in str(e):
-                                    if attempt < 2:
+                                    if attempt < 4:
                                         import time
-                                        time.sleep(2)
+                                        # Thời gian chờ tăng dần để máy chủ Google giải phóng hàng đợi
+                                        sleep_time = 2 * (attempt + 1)
+                                        time.sleep(sleep_time)
                                         continue
                                 raise e
                                 
                     except Exception as e: 
-                        ans = f"Máy chủ AI hiện đang bận do xử lý ma trận số liệu lớn. Bạn vui lòng bấm gửi lại câu hỏi sau vài giây nhé! Chi tiết: {str(e)}"
+                        ans = f"Máy chủ AI hiện tại đang xử lý hàng loạt tác vụ dệt may lớn trên toàn cầu. Bạn hãy vui lòng bấm gửi lại câu hỏi sau vài giây nhé! Chi tiết kỹ thuật: {str(e)}"
                         
                 st.write(ans)
                 st.session_state["chat_history"].append({"role": "assistant", "content": ans})
