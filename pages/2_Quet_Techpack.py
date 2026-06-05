@@ -376,11 +376,14 @@ elif st.session_state.current_menu == "Trợ Lý Tính Định Mức":
     st.write("")
     st.markdown("**💬 Khung hội thoại tư vấn chuyên gia Gemini thật:**")
 
-    chat_container = st.container(border=True)
+        chat_container = st.container(border=True)
     with chat_container:
         for message in st.session_state.chat_history:
-            with st.chat_message(message["role"]):
-                st.markdown(message["content"])
+            with st.chat_message(message.get("role", "assistant")):
+                # ✨ CƠ CHẾ AN TOÀN TUYỆT ĐỐI: Quét cả hai cấu trúc khóa để tương thích hoàn toàn dữ liệu cũ và mới
+                msg_content = message.get("content") or message.get("text") or ""
+                st.markdown(msg_content)
+
 
     if user_query := st.chat_input("Nhập câu hỏi của bạn tại đây..."):
         st.session_state.chat_history.append({"role": "user", "content": user_query})
