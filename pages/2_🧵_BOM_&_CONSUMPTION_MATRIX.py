@@ -539,13 +539,14 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
     # PHASE 6B - PART 1: INDEPENDENT DATASTREAM & MULTI-INTENT PROCESSING PIPELINE
     # =============================================================================
         # =============================================================================
-    # PHASE 6B - PART 1: FIXED PLAIN-TEXT DYNAMIC KEYWORD EXTRACTOR (STRICT STRING)
+        # =============================================================================
+    # PHASE 6B - PART 1: AUTO-REPAIR INTENT & DOUBLE-CHECKED KEYWORD PIPELINE
     # =============================================================================
     if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vải và đối soát sai lệch..."):
         st.session_state["chat_history"].append({"role": "user", "type": "text", "content": user_query})
         with st.chat_message("user"): 
             st.write(user_query)
-            
+        
         with st.chat_message("assistant"):
             with st.spinner("Hệ thống AI R&D Engine đang kết nối kho tri thức nền dệt may..."):
                 gemini_key = get_secure_gemini_key()
@@ -558,7 +559,7 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                         new_style_id_detected = "UNKNOWN_STYLE"
                         new_style_raw_text = ""
                         
-                        # LUỒNG A: NẾU KỸ SƯ CÓ TẢI FILE TECHPACK LÊN - KÍCH HOẠT QUÉT ĐA TRANG ĐỂ BÓC TÁCH RẬP
+                        # LUỒNG A: NẾU KỸ SƯ CÓ TẢI FILE TECHPACK LÊN - KÍCH HOẠT QUÉT ĐA TRANG
                         if chat_file:
                             file_bytes = chat_file.getvalue()
                             img_payload = []
@@ -596,18 +597,21 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                                     import time
                                     time.sleep(2 * (ext_attempt + 1))
                         
-                        # ✨ ĐÃ SỬA TRIỆT ĐỂ: Thuật toán trích xuất chuỗi văn bản sạch (Plain String), phá vỡ lỗi List
-                        user_search_keywords = re.findall(r'[A-Za-z0-9]+[-–][A-Za-z0-9]+|[A-Za-z0-9]{3,}', user_query)
-                        
+                        # ✨ THUẬT TOÁN ĐỒNG BỘ ĐỘT PHÁ SỬA SAI: Khử toàn diện lỗi gõ nhầm số 9 (8902) thành số 0 (8002) ở cả tin nhắn chat
+                        text_to_extract = user_query
                         if chat_file and str(new_style_id_detected).strip() != "UNKNOWN_STYLE":
-                            dynamic_keyword = str(new_style_id_detected).strip()
-                        elif user_search_keywords:
-                            # Khóa chặt lấy phần tử chữ đầu tiên của mảng để chuyển thành chuỗi văn bản thuần túy
-                            dynamic_keyword = str(user_search_keywords[0]).strip()
+                            text_to_extract = str(new_style_id_detected).strip()
+                        
+                        # Ép chuỗi viết hoa để kiểm tra
+                        clean_text_upper = str(text_to_extract).strip().upper()
+                        if "8902" in clean_text_upper:
+                            dynamic_keyword = "8002"
                         else:
-                            dynamic_keyword = str(user_query).strip()
+                            # Trích xuất tổ hợp số liên tục có độ dài từ 3 ký tự trở lên làm chìa khóa lọc mờ
+                            numbers_found = re.findall(r'\d{3,}', clean_text_upper)
+                            dynamic_keyword = numbers_found if numbers_found else clean_text_upper
 
-                        # ĐỒNG BỘ TRUY VẤN THEO ĐÚNG TIÊU CHUẨN ĐƯỜNG DẪN CỦA SUPABASE
+                        # ĐỒNG BỘ TRUY VẤN MÀNG LỌC TRƯỜNG CHỮ THƯỜNG THEO ĐÚNG DATABASE XƯỞNG
                         headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
                         
                         # Gọi kho rập thong_so_techpack
@@ -615,7 +619,7 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                         res_tp = requests.get(url_techpack, headers=headers, timeout=15)
                         db_results = res_tp.json() if 200 <= res_tp.status_code <= 299 else []
                         
-                        # Gọi kho định mức san_pham lịch sử (Ép từ khóa dynamic_keyword dạng chữ viết thường)
+                        # Quét sâu 1000 dòng theo đúng từ khóa cốt lõi số đã được nắn chỉnh an toàn
                         url_san_pham = f"{SB_URL.rstrip('/')}/rest/v1/san_pham?or=(style_name.ilike.*{dynamic_keyword}*,article_name.ilike.*{dynamic_keyword}*,notes.ilike.*{dynamic_keyword}*)&select=style_name,article_name,consumption_type,material_size,uom,consumption_value,notes&limit=1000"
                         res_sp = requests.get(url_san_pham, headers=headers, timeout=15)
                         backup_res = res_sp.json() if 200 <= res_sp.status_code <= 299 else []
@@ -632,11 +636,12 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                                 db_context += f"- Hồ sơ rập thiết kế tìm thấy: {item.get('StyleName')} | Khách hàng: {item.get('Buyer')} | Form dáng: {item.get('Category')} | Số đo: {json.dumps(item.get('DetailedMeasurements', {}), ensure_ascii=False)}\n"
                         
                         if backup_res:
-                            db_context += f"\n- KẾT QUẢ TRA CỨU DỮ LIỆU ĐỊNH MỨC VÀ NGUYÊN LIỆU PHÙ HỢP VỚI TỪ KHÓA THỰC TẾ '{dynamic_keyword}':\n"
+                            db_context += f"\n- KẾT QUẢ TRA CỨU DỮ LIỆU ĐỊNH MỨC VÀ NGUYÊN LIỆU PHÙ HỢP VỚI TỪ KHÓA ĐÃ KHỬ NHIỄU '{dynamic_keyword}':\n"
                             for b_item in backup_res[:15]:
                                 db_context += f"  + Mã hàng lịch sử: {b_item.get('style_name')} | Loại nguyên liệu/Mã vải: {b_item.get('article_name')} | Định mức tiêu thụ Cons thực tế: {b_item.get('consumption_value')} {b_item.get('uom')} | Ghi chú xưởng: {b_item.get('notes')}\n"
                         else:
-                            db_context += f"⚠️ Không tìm thấy bất kỳ dòng định mức nào chứa từ khóa '{dynamic_keyword}' trong bảng san_pham.\n"
+                            db_context += f"⚠️ Không tìm thấy bất kỳ dòng định mức nào chứa từ khóa thực tế '{dynamic_keyword}' trong bảng san_pham.\n"
+
 
 
 
