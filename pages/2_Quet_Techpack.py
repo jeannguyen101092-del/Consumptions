@@ -222,44 +222,62 @@ with st.sidebar:
 # =============================================================================
 # PHASE 2: GLOBAL INDUSTRIAL LIGHT COMPONENT STYLING (HIGH-CONTRAST)
 # =============================================================================
+# =============================================================================
+# PHASE 2: PREMIUM HIGH-CONTRAST INDUSTRIAL LIGHT THEME (VISUAL ANCHORS)
+# =============================================================================
 st.markdown("""
     <style>
-    /* Ép toàn bộ nền ứng dụng về màu trắng sáng, sạch sẽ và khoa học */
+    /* Ép toàn bộ nền ứng dụng về màu xám trắng phòng thí nghiệm sạch sẽ */
     .stApp { 
-        background-color: #FFFFFF !important; 
+        background-color: #F8FAFC !important; 
     }
     
-    /* Thiết kế thanh điều hướng Sidebar màu xám sáng thanh lịch */
+    /* Thiết kế thanh điều hướng Sidebar màu trắng tinh, có đường chia cắt rõ ràng */
     [data-testid="stSidebar"] { 
-        background-color: #F8FAFC !important; 
-        border-right: 1px solid #E2E8F0 !important;
-        min-width: 300px; 
+        background-color: #FFFFFF !important; 
+        border-right: 1px solid #CBD5E1 !important;
+        min-width: 320px; 
     }
     [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p { 
-        color: #334155 !important; 
-        font-weight: 500;
+        color: #1E293B !important; 
+        font-weight: 600;
+        font-size: 13.5px;
     }
     
-    /* Khung thương hiệu PPJ Group nổi bật ở góc trên bên trái */
+    /* Khung thương hiệu PPJ Group hiệu ứng Gradient cao cấp */
     .sidebar-brand-container {
-        background: linear-gradient(135deg, #1E3A8A 0%, #2563EB 100%);
-        padding: 20px; 
-        border-radius: 10px; 
+        background: linear-gradient(135deg, #1E3A8A 0%, #3B82F6 100%);
+        padding: 22px; 
+        border-radius: 14px; 
         text-align: center; 
-        margin-bottom: 25px;
-        box-shadow: 0 4px 12px rgba(37, 99, 235, 0.15);
+        margin-bottom: 30px;
+        box-shadow: 0 4px 14px rgba(37, 99, 235, 0.2);
     }
-    .sidebar-brand-title { font-size: 22px; font-weight: 800; color: #FFFFFF; margin: 0; letter-spacing: 1px; }
-    .sidebar-brand-subtitle { font-size: 11px; color: #93C5FD; margin-top: 4px; font-weight: 600; text-transform: uppercase; }
+    .sidebar-brand-title { font-size: 24px; font-weight: 800; color: #FFFFFF; margin: 0; letter-spacing: 1px; }
+    .sidebar-brand-subtitle { font-size: 11px; color: #BFDBFE; margin-top: 5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
     
-    /* Thiết kế các Khung Container chính (Card nền trắng, viền xám rõ ràng) */
+    /* Thiết kế tiêu đề phân hệ lớn dạng dải màu công nghệ hoành tráng */
+    .component-title-box {
+        background: linear-gradient(90deg, #1E3A8A 0%, #2563EB 100%);
+        color: #FFFFFF !important;
+        font-size: 16px; 
+        font-weight: 700; 
+        padding: 14px 20px;
+        border-radius: 10px;
+        margin-bottom: 25px;
+        letter-spacing: 0.5px;
+        text-transform: uppercase;
+        box-shadow: 0 4px 12px rgba(30, 58, 138, 0.1);
+    }
+    
+    /* Thiết kế Khung Container (Card hoành tráng, có đổ bóng tách biệt không gian) */
     .card-container {
-        background-color: #F8FAFC !important; 
-        border: 1px solid #CBD5E1 !important; 
-        border-radius: 12px !important;
-        padding: 20px; 
-        margin-bottom: 20px; 
-        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.02) !important;
+        background-color: #FFFFFF !important; 
+        border: 1px solid #E2E8F0 !important; 
+        border-radius: 14px !important;
+        padding: 24px; 
+        margin-bottom: 25px; 
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.03), 0 2px 4px -1px rgba(0, 0, 0, 0.02) !important;
     }
     .card-section-header { 
         font-size: 14px; 
@@ -267,51 +285,43 @@ st.markdown("""
         color: #1E3A8A; 
         text-transform: uppercase; 
         letter-spacing: 0.5px; 
-        margin-bottom: 10px;
-    }
-    
-    /* Tiêu đề phân hệ chức năng lớn */
-    .component-title-box {
-        font-size: 20px; 
-        font-weight: 700; 
-        color: #0F172A; 
-        border-bottom: 2px solid #E2E8F0; 
-        padding-bottom: 10px; 
-        margin-bottom: 25px;
-        letter-spacing: -0.5px;
+        margin-bottom: 12px;
+        border-left: 4px solid #2563EB;
+        padding-left: 10px;
     }
     
     /* Thẻ tiêu đề con của từng mã rập */
     .tech-card-header {
-        font-size: 16px; 
-        font-weight: 700; 
-        color: #1E3A8A; 
-        margin-bottom: 12px;
+        font-size: 18px; 
+        font-weight: 800; 
+        color: #0F172A; 
+        margin-bottom: 15px;
     }
     
-    /* Lưới thông tin Metadata hàng dọc */
+    /* Lưới thông tin Metadata bọc khung titan xám nhẹ */
     .metric-grid-box {
         display: flex; 
-        gap: 20px; 
-        background: #FFFFFF; 
-        padding: 12px; 
-        border-radius: 8px; 
+        gap: 25px; 
+        background: #F8FAFC; 
+        padding: 14px 20px; 
+        border-radius: 10px; 
         border: 1px solid #E2E8F0;
+        margin-bottom: 20px;
     }
-    .metric-label { font-size: 11px; font-weight: 700; color: #64748B; margin: 0; text-transform: uppercase; }
-    .metric-value { font-size: 13.5px; font-weight: 600; color: #0F172A; margin: 2px 0 0 0; }
+    .metric-label { font-size: 11px; font-weight: 700; color: #64748B; margin: 0; text-transform: uppercase; letter-spacing: 0.5px; }
+    .metric-value { font-size: 14px; font-weight: 700; color: #1E3A8A; margin: 3px 0 0 0; }
     
     /* Bộ khung chứa bảng thông số kỹ thuật mượt mà */
     .data-table-container {
-        max-height: 400px; 
+        max-height: 420px; 
         overflow-y: auto; 
-        border: 1px solid #E2E8F0; 
-        border-radius: 8px; 
-        margin-top: 10px;
-        background-color: #FFFFFF;
+        border: 1px solid #CBD5E1; 
+        border-radius: 10px; 
+        margin-top: 12px;
+        box-shadow: inset 0 2px 4px rgba(0,0,0,0.01);
     }
     
-    /* Định dạng bảng dữ liệu may mặc cao cấp màu sáng */
+    /* Định dạng bảng dữ liệu dệt may công nghiệp */
     .industrial-table { 
         width: 100%; 
         border-collapse: collapse; 
@@ -321,16 +331,16 @@ st.markdown("""
         background-color: #F1F5F9 !important; 
         color: #1E3A8A !important; 
         font-weight: 700 !important; 
-        padding: 10px 14px; 
-        font-size: 12.5px; 
+        padding: 12px 16px; 
+        font-size: 13px; 
         position: sticky; 
         top: 0; 
         z-index: 5;
         border-bottom: 2px solid #CBD5E1 !important;
     }
     .industrial-table td { 
-        padding: 10px 14px; 
-        border-bottom: 1px solid #F1F5F9; 
+        padding: 11px 16px; 
+        border-bottom: 1px solid #E2E8F0; 
         color: #334155 !important; 
         font-size: 13px; 
         font-weight: 500;
@@ -339,9 +349,21 @@ st.markdown("""
         background-color: #F8FAFC !important; 
     }
     
-    /* Ép văn bản thông báo hệ thống hiển thị sắc nét trên nền sáng */
+    /* Khung thông báo trạng thái rỗng (Hệ thống IDLE) */
+    .idle-alert-box {
+        background-color: #FFFBEB; 
+        border-left: 5px solid #F59E0B; 
+        padding: 16px 20px; 
+        border-radius: 4px 12px 12px 4px; 
+        color: #B45309; 
+        font-size: 13.5px; 
+        font-weight: 600;
+        box-shadow: 0 2px 4px rgba(245, 158, 11, 0.05);
+    }
+    
+    /* Đồng bộ màu chữ cho văn bản Streamlit tiêu chuẩn */
     [data-testid="stMarkdownContainer"] p, [data-testid="stMarkdownContainer"] h5 {
-        color: #0F172A !important;
+        color: #1E293B !important;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -395,18 +417,21 @@ if menu_selection == "📊 Quét Techpack Document":
                         for k, v in data.get("measurements", {}).items():
                             table_html += f"<tr><td>{k}</td><td>{v}</td></tr>"
                         st.markdown(table_html + "</table></div>", unsafe_allow_html=True)
-                    with sub_col2:
-                        st.markdown("<p style='font-weight:700; font-size:13px;'>🤖 GARMENT REPLICAS</p>", unsafe_allow_html=True)
-                        if data.get("sketch_image"): st.image(base64.b64decode(data["sketch_image"]), use_column_width=True)
-                    st.markdown("<br><hr style='border-color:#E2E8F0;'><br>", unsafe_allow_html=True)
-    else: st.warning("⚠️ Hiện tại chưa có tệp dữ liệu Techpack nào được đưa vào hệ thống xử lý.")
-
+                                        with sub_col2:
+                        st.markdown("<p style='font-weight:700; font-size:12px; color:#F8FAFC; letter-spacing:0.5px;'>📐 GARMENT FLAT SKETCH</p>", unsafe_allow_html=True)
+                        if data.get("sketch_image"): 
+                            st.image(base64.b64decode(data["sketch_image"]), use_column_width=True)
+                    st.markdown("<br><hr style='border-color:#334155;'><br>", unsafe_allow_html=True)
+    else:
+        # ✨ CHÍNH LÀ DÒNG LỆNH NÀY TẠI ĐÂY:
+        st.markdown('<div class="idle-alert-box">⚠️ INITIALIZATION SYSTEM IDLE: Hiện tại chưa có tệp dữ liệu Techpack nào được nạp vào hệ thống để AI khởi chạy mô hình.</div>', unsafe_allow_html=True)
 
 # -----------------------------------------------------------------------------
-# CHỨC NĂNG 2 (TIẾP THEO): ĐỐI CHIẾU SO SÁNH HAI MÃ RẬP KHÁC NHAU (FIX LỖI HIỂN THỊ TUYỆT ĐỐI)
+# CHỨC NĂNG 2: ĐỐI CHIẾU SO SÁNH HAI MÃ RẬP KHÁC NHAU (PATTERN SPEC COMPARISON)
 # -----------------------------------------------------------------------------
 elif menu_selection == "🔄 Pattern Spec Comparison":
-    st.markdown("""<div class="tech-card"><div class="tech-header">🔄 CHỨC NĂNG ĐỐI CHIẾU SỐ ĐO & PHÂN TÍCH SAI LỆCH (DELTA SPEC)</div></div>""", unsafe_allow_html=True)
+    st.markdown('<div class="component-title-box">🔄 DIFFERENTIAL GEOMETRY & DELTA SPEC EVALUATOR</div>', unsafe_allow_html=True)
+
     sc1, sc2 = st.columns(2)
     with sc1: file1 = st.file_uploader("Chọn file mẫu Techpack Gốc (File A)", type=["pdf"], key="f1")
     with sc2: file2 = st.file_uploader("Chọn file mẫu Techpack Sửa đổi (File B)", type=["pdf"], key="f2")
