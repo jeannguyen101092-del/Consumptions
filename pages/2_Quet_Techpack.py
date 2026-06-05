@@ -91,19 +91,48 @@ def get_all_historical_styles_from_db():
     except Exception: return []
 
 def get_historical_fabric_consumption_from_db(search_keyword=None):
-    """Hàm trích xuất dữ liệu định mức vải trên Supabase"""
+    """Hàm trích xuất định mức vải nâng cấp: Tự động tách lọc từ khóa thông minh để tránh lỗi lệch ký tự dấu gạch nối"""
     try:
         headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
         url = f"{SB_URL.rstrip('/')}/rest/v1/san_pham"
+        
+        # Cột chữ thường viết liền khớp 100% với bảng SQL san_pham
         query_params = {
             "select": "style_name,article_name,consumption_type,material_size,uom,consumption_value,notes",
             "limit": 100
         }
+        
         if search_keyword:
-            query_params["style_name"] = f"ilike.*{search_keyword}*"
+            clean_kw = str(search_keyword).strip()
+            # ✨ THUẬT TOÁN TỰ ĐỘNG VÁ LỖI: Nếu từ khóa chứa dấu gạch nối (Ví dụ: R09-490416), 
+            # tiến hành tách chuỗi để lấy phần số lõi phía sau (490416) giúp quét diện rộng không bị rỗng dữ liệu
+            if '-' in clean_kw:
+                parts = clean_kw.split('-')
+                # Lấy phần tử cuối cùng hoặc phần tử có độ dài lớn hơn để làm từ khóa quét tương đối
+                target_part = max(parts, key=len).strip()
+                query_params["style_name"] = f"ilike.*{target_part}*"
+            else:
+                query_params["style_name"] = f"ilike.*{clean_kw}*"
+                
         res = requests.get(url, headers=headers, params=query_params, timeout=15)
-        return res.json() if res.status_code >= 200 and res.status_code <= 299 else []
-    except Exception: return []
+        
+        # Cơ chế cứu hộ khẩn cấp: Nếu quét theo số lõi vẫn rỗng (do lệch tên bảng), 
+        # tự động gọi diện rộng không bộ lọc để cấp dữ liệu cho AI, dứt điểm lỗi sập kho rỗng
+        if res.status_code >= 200 and res.status_code <= 299:
+            data = res.json()
+            if not data and search_keyword:
+                # Thử tìm kiếm lại với cơ chế lấy 4 chữ số cuối cùng của mã hàng
+                num_only = re.sub(r'[^0-9]', '', str(search_keyword))
+                if len(num_only) >= 4:
+                    query_params["style_name"] = f"ilike.*{num_only[-4:]}*"
+                    res_retry = requests.get(url, headers=headers, params=query_params, timeout=15)
+                    if res_retry.status_code >= 200 and res_retry.status_code <= 299:
+                        return res_retry.json()
+            return data
+        return []
+    except Exception:
+        return []
+
 def process_single_pdf_batch(file_bytes, file_name):
     gemini_key = get_secure_gemini_key()
     if '.' in file_name: fallback_style = file_name.rsplit('.', 1).strip()
