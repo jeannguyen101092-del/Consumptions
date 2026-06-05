@@ -410,11 +410,11 @@ elif menu_selection == "🔄 Pattern Spec Comparison":
 
 
 # =============================================================================
-# CHỨC NĂNG 3: TRỢ LÝ ĐỊNH MỨC VẢI THÔNG MINH (ĐOẠN 1)
+# CHỨC NĂNG 3: TRỢ LÝ ĐỊNH MỨC VẢI (ĐOẠN 1 - GIAO DIỆN & KHUNG ĐIỀU KHIỂN ĐÓNG BĂNG)
 # =============================================================================
 elif menu_selection == "🧵 Fabric Consumption Assistant (Cons)":
     st.markdown("""<div class="tech-card"><div class="tech-header">🧵 PPJ INTELLIGENT FABRIC CONSUMPTION ASSISTANT (R&D ENGINE)</div>
-    <p style="color: #64748B; font-size:14px; margin:0;">Tải lên tài liệu Techpack mới, AI sẽ tự động bóc tách hình ảnh/thông số, truy vấn mã hàng tương đồng trong kho Supabase và lập luận toán học để tự động tính định mức vải mới.</p></div>""", unsafe_allow_html=True)
+    <p style="color: #64748B; font-size:14px; margin:0;">Tải lên tài liệu Techpack mới, AI sẽ tự động bóc tách thông số mã mới và chỉ truy vấn các mã hàng tương đồng của CHÍNH MÃ ĐÓ trong kho Supabase để lập luận toán học định mức vật tư.</p></div>""", unsafe_allow_html=True)
     
     # Thiết lập lưới hiển thị tỷ lệ [80% : 20%] cố định chống crash giao diện
     control_col1, control_col2 = st.columns([3.2, 0.8])
@@ -446,7 +446,7 @@ elif menu_selection == "🧵 Fabric Consumption Assistant (Cons)":
     for msg in st.session_state["chat_history"]:
         with st.chat_message(msg["role"]): 
             st.write(msg["content"])
-       # Khối xử lý thuật toán AI, Đối chiếu Kho dữ liệu và Kết xuất phản hồi (ĐOẠN 2 - NÂNG CẤP RETRY 5 LẦN)
+    # LUỒNG XỬ LÝ ĐÓNG BĂNG DỮ LIỆU THEO TỪNG FILE ĐỘC LẬP (ĐOẠN 2)
     if user_query := st.chat_input("Nhập yêu cầu (Ví dụ: Hãy tìm mã tương đồng và tính định mức cho mã mới này)..."):
         st.session_state["chat_history"].append({"role": "user", "content": user_query})
         with st.chat_message("user"): 
@@ -461,9 +461,10 @@ elif menu_selection == "🧵 Fabric Consumption Assistant (Cons)":
                     try:
                         client = genai.Client(api_key=gemini_key)
                         contents_payload = []
-                        new_style_info = {}
+                        new_style_id_detected = "UNKNOWN_STYLE"
+                        new_style_raw_text = ""
                         
-                        # BƯỚC 1: Xử lý bóc tách File mã hàng mới đính kèm bằng AI (Nếu người dùng có upload file)
+                        # 1. BÓC TÁCH MÃ MỚI VÀ TRÍCH XUẤT CHÍNH XÁC MÃ SỐ ID TỪ NỘI DUNG FILE
                         if chat_file:
                             file_bytes = chat_file.getvalue()
                             img_payload = []
@@ -476,20 +477,27 @@ elif menu_selection == "🧵 Fabric Consumption Assistant (Cons)":
                             else:
                                 img_payload.append(types.Part.from_bytes(data=file_bytes, mime_type='image/jpeg'))
                             
-                            extraction_prompt = "Extract the Style ID, Buyer, Category, Base Size and EVERY measurement specification. Return raw text."
+                            extraction_prompt = """
+                            Analyze this technical sheet image. You must extract the genuine 'Style ID' / 'Style Number' / 'Mã hàng'.
+                            Return a valid JSON with this exact schema:
+                            {
+                              "detected_style_id": "The actual text of Style ID",
+                              "all_specs_text": "Put every measurement name and value here as plain text"
+                            }
+                            """
                             img_payload.append(extraction_prompt)
                             
-                            # Áp dụng bộ thử lại tạm thời cho bước bóc tách thô sơ bộ
-                            extraction_res_text = ""
-                            for ext_attempt in range(4):
+                            # Bộ chống nghẽn mạng 503 Exponential Backoff cho khâu bóc tách sơ bộ
+                            for ext_attempt in range(3):
                                 try:
-                                    extraction_res = client.models.generate_content(model='gemini-2.5-flash', contents=img_payload)
-                                    extraction_res_text = extraction_res.text
+                                    extraction_res = client.models.generate_content(model='gemini-2.5-flash', contents=img_payload, config=types.GenerateContentConfig(response_mime_type="application/json", temperature=0.0))
+                                    parsed_meta = json.loads(extraction_res.text.strip())
+                                    new_style_id_detected = parsed_meta.get("detected_style_id", "UNKNOWN_STYLE").strip()
+                                    new_style_raw_text = parsed_meta.get("all_specs_text", "")
                                     break
                                 except Exception:
                                     import time
                                     time.sleep(2 * (ext_attempt + 1))
-                            new_style_info["raw_text"] = extraction_res_text
                             
                             if chat_file.name.lower().endswith('.pdf') and images:
                                 img_buf = io.BytesIO()
@@ -498,55 +506,56 @@ elif menu_selection == "🧵 Fabric Consumption Assistant (Cons)":
                             elif not chat_file.name.lower().endswith('.pdf'):
                                 contents_payload.append(types.Part.from_bytes(data=file_bytes, mime_type='image/jpeg'))
                         
-                        # BƯỚC 2: Tự động trích xuất từ khóa từ file mới hoặc câu lệnh để truy vấn kho Supabase
-                        search_keyword = ""
-                        if chat_file:
-                            found_keywords = re.findall(r'[A-Za-z0-9]+[-–][A-Za-z0-9]+|[A-Za-z0-9]{4,}', chat_file.name)
-                            if found_keywords: search_keyword = found_keywords
-                        if not search_keyword:
+                        if new_style_id_detected == "UNKNOWN_STYLE" or not chat_file:
                             found_keywords = re.findall(r'[A-Za-z0-9]+[-–][A-Za-z0-9]+|[A-Za-z0-9]{4,}', user_query)
-                            if found_keywords: search_keyword = found_keywords
-                            
-                        db_results = get_historical_fabric_consumption_from_db(search_keyword=search_keyword if search_keyword else None)
+                            if found_keywords:
+                                new_style_id_detected = found_keywords[0]
+
+                        # 2. KHÓA CHẶT TRUY VẤN: CHỈ GỌI ĐỊNH MỨC CỦA CHÍNH ID VỪA TRÍCH XUẤT TỪ FILE TỪ SUPABASE
+                        db_results = get_historical_fabric_consumption_from_db(search_keyword=new_style_id_detected)
                         
-                        db_context = ""
+                        db_context = f"\n\n[DỮ LIỆU LỊCH SỬ ĐỐI CHIẾU TRONG KHO CHO MÃ HÀNG: {new_style_id_detected}]:\n"
                         if db_results:
-                            db_context = "\n\n[KHO DỮ LIỆU LỊCH SỬ SUPABASE PHÙ HỢP ĐỂ ĐỐI CHIẾU VÀ TÍNH TOÁN]:\n"
                             for item in db_results:
                                 db_context += (
-                                    f"- Mã hàng lịch sử: {item.get('style_name')}\n"
+                                    f"- Mã hàng lịch sử tìm thấy: {item.get('style_name')}\n"
                                     f"  + Loại nguyên liệu/Vải: {item.get('article_name')}\n"
-                                    f"  + Định mức tiêu thụ (Cons) gốc trong kho: {item.get('consumption_value')} {item.get('uom')}\n"
-                                    f"  + Ghi chú cấu trúc: {item.get('notes')}\n"
+                                    f"  + Định mức gốc trong kho: {item.get('consumption_value')} {item.get('uom')}\n"
+                                    f"  + Cấu trúc/Ghi chú rập cũ: {item.get('notes')}\n"
                                 )
                         else:
-                            backup_results = get_historical_fabric_consumption_from_db(search_keyword=None)
-                            db_context = "\n\n[KHO DỮ LIỆU LỊCH SỬ THAM KHẢO]:\n"
-                            for item in backup_results[:5]:
-                                db_context += f"- Mã hàng: {item.get('style_name')}, Vải: {item.get('article_name')}, Định mức gốc: {item.get('consumption_value')} {item.get('uom')}, Cấu trúc: {item.get('notes')}\n"
+                            fallback_key = new_style_id_detected.split('-')[0] if '-' in new_style_id_detected else new_style_id_detected[:4]
+                            backup_results = get_historical_fabric_consumption_from_db(search_keyword=fallback_key)
+                            if backup_results:
+                                db_context += f"⚠️ Không có dữ liệu định mức trực tiếp cho mã {new_style_id_detected}. Dưới đây là các mã hàng thuộc cùng nhóm cấu trúc rập cơ sở để đối chiếu:\n"
+                                for item in backup_results[:4]:
+                                    db_context += f"- Mã hàng nhóm: {item.get('style_name')}, Vải: {item.get('article_name')}, Định mức gốc: {item.get('consumption_value')} {item.get('uom')}, Cấu trúc: {item.get('notes')}\n"
+                            else:
+                                db_context += "❌ Không tìm thấy mã hàng dệt may nào có cấu trúc tương quan trong kho dữ liệu Supabase."
 
-                        # BƯỚC 3: Thiết lập Prompt kỹ thuật cao, chỉ thị AI thực hiện quy trình nghiệp vụ R&D 3 bước
+                        # 3. RÀNG BUỘC PHÂN TÍCH THEO CẶP ( STRICT PAIRED CONTEXT )
                         system_instruction = (
                             "You are the Lead R&D Expert and Garment Technical Auditor at PPJ Group.\n"
-                            "Your job is to calculate the fabric consumption (Cons) for a NEW garment style by comparing it with SIMILAR historical styles in the database.\n\n"
-                            "EXECUTE THIS STRICT 3-STEP WORKFLOW IN YOUR RESPONSE:\n"
-                            "1. TRÍCH XUẤT MÃ MỚI: Liệt kê rõ Style ID, Buyer, hình dáng bản vẽ (Sketch) và toàn bộ bảng thông số kích cỡ cơ bản trích xuất được từ tài liệu mới tải lên.\n"
-                            "2. ĐỐI CHIẾU MÃ TƯƠNG ĐỒNG: Chọn ra mã hàng tương đồng nhất từ danh sách Kho dữ liệu Supabase được cung cấp bên dưới. Chỉ rõ mã cũ đó có kiểu dáng, chất liệu vải và định mức tiêu thụ gốc là bao nhiêu.\n"
-                            "3. PHÂN TÍCH DELTA SPEC & TÍNH ĐỊNH MỨC MỚI: So sánh chi tiết thông số kích thước giữa Mã mới và Mã tương đồng vừa chọn (ví dụ: Waist, Hip, Inseam, Thigh opening lệch bao nhiêu inch/cm). "
-                            "Dựa trên các độ lệch kích thước này (Delta Spec), áp dụng lập luận kỹ thuật ngành may để tăng hoặc giảm định mức tiêu thụ vải từ định mức gốc của mã cũ, "
-                            "đưa ra con số định mức tiêu thụ vải dự kiến cuối cùng (Cons value) cho mã hàng mới một cách chính xác.\n\n"
-                            "Trình bày báo cáo rõ ràng, chuyên nghiệp bằng tiếng Việt kỹ thuật."
+                            "CRITICAL DATA INTEGRITY RULE:\n"
+                            "You must ONLY compare the newly uploaded garment style with the historical database records provided inside the context below. "
+                            "Do NOT mix data from different styles. Do NOT create or guess historical styles that are not listed in the provided database context.\n\n"
+                            "REQUIRED 3-STEP REPORT FORMAT:\n"
+                            f"1. PHÂN TÍCH MÃ MỚI ĐÃ BÓC TÁCH: Xác nhận rõ mã số ID vừa đọc được từ file là '{new_style_id_detected}' và liệt kê tóm tắt ma trận thông số kích thước của nó.\n"
+                            f"2. ĐỐI CHIẾU MÃ KHO TƯƠNG ĐỒNG: Chỉ được chọn mã hàng xuất hiện trong danh sách đối chiếu kho của mã '{new_style_id_detected}' bên dưới. Chỉ rõ mã cũ tương đồng đó có định mức tiêuthu gốc là bao nhiêu.\n"
+                            "3. LẬP LUẬN TOÁN HỌC TÍNH ĐỊNH MỨC THEO DELTA SPEC: Đo lường sự chênh lệch kích cỡ số đo (Delta Spec) giữa mã hàng mới và mã cũ tương đồng vừa chọn. "
+                            "Dựa trên độ lệch đó để cộng thêm hoặc giảm trừ vật tư, đưa ra kết quả định mức tiêu thụ vải dự kiến cuối cùng cho mã mới.\n\n"
+                            "Trình bày chuyên nghiệp bằng tiếng Việt kỹ thuật dệt may."
                         )
                         
                         full_prompt = (
                             f"{system_instruction}\n\n"
                             f"Yêu cầu của kỹ sư: {user_query}\n\n"
-                            f"[Dữ liệu bóc tách thô của mã mới]: {new_style_info.get('raw_text', 'Không có file đính kèm')}\n"
+                            f"[Thông số kích thước thực tế của mã mới]:\n{new_style_raw_text if new_style_raw_text else 'Không có file đính kèm'}\n"
                             f"{db_context}"
                         )
                         contents_payload.append(full_prompt)
                         
-                        # ✨ NÂNG CẤP VƯỢT TRỘI: Vòng lặp tăng lên 5 lần và lũy tiến thời gian chờ [2s, 4s, 6s, 8s, 10s] chống nghẽn 503 hoàn toàn
+                        # Bộ lọc Backoff chống lỗi nghẽn 503 (Thử 5 lần tối đa tăng thời gian chờ)
                         ans = ""
                         for attempt in range(5):
                             try:
@@ -557,14 +566,12 @@ elif menu_selection == "🧵 Fabric Consumption Assistant (Cons)":
                                 if "503" in str(e) or "UNAVAILABLE" in str(e):
                                     if attempt < 4:
                                         import time
-                                        # Thời gian chờ tăng dần để máy chủ Google giải phóng hàng đợi
-                                        sleep_time = 2 * (attempt + 1)
-                                        time.sleep(sleep_time)
+                                        time.sleep(2 * (attempt + 1))
                                         continue
                                 raise e
                                 
                     except Exception as e: 
-                        ans = f"Máy chủ AI hiện tại đang xử lý hàng loạt tác vụ dệt may lớn trên toàn cầu. Bạn hãy vui lòng bấm gửi lại câu hỏi sau vài giây nhé! Chi tiết kỹ thuật: {str(e)}"
+                        ans = f"Hệ thống lõi đang bận xử lý dữ liệu ma trận. Vui lòng thử lại sau vài giây! Chi tiết: {str(e)}"
                         
                 st.write(ans)
                 st.session_state["chat_history"].append({"role": "assistant", "content": ans})
