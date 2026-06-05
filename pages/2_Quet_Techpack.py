@@ -373,32 +373,34 @@ if "processed_styles" not in st.session_state:
     st.session_state["processed_styles"] = {}
 
 # -----------------------------------------------------------------------------
-# CHỨC NĂNG 1: QUÉT TỰ ĐỘNG BẰNG AI VÀ LƯU HÀNG LOẠT (BULK SAVE)
+# CHỨC NĂNG 1: QUÉT TỰ ĐỘNG BẰNG AI VÀ LƯU HÀNG LOẠT (BULK SAVE MULTI-BATCH)
 # -----------------------------------------------------------------------------
 if menu_selection == "📊 Quét Techpack Document":
-    st.markdown("""<div class="tech-card"><div class="tech-header">📥 STEP 1: GARMENT TECHPACK DATA INGESTION</div></div>""", unsafe_allow_html=True)
-    uploaded_files = st.file_uploader("Upload PDF", type=["pdf"], accept_multiple_files=True, label_visibility="collapsed")
-    st.markdown("""<div class="tech-card"><div class="tech-header">🔍 STEP 2: METRIC EXTRACTION & VISUAL RENDERING MATRIX</div></div>""", unsafe_allow_html=True)
+    st.markdown('<div class="component-title-box">📊 MULTI-BATCH GARMENT SPECIFICATION MATRIX</div>', unsafe_allow_html=True)
+    
+    st.markdown("""<div class="card-container"><div class="card-section-header">📥 INGESTION ENGINE</div>
+    <p style="color: #94A3B8; font-size:13px; margin:0 0 15px 0;">Hệ thống tự động cắt trang, khử nhiễu đồ họa phẳng và gọi API mạng nơ-ron tích hợp để bóc tách thông số hàng loạt.</p></div>""", unsafe_allow_html=True)
+    uploaded_files = st.file_uploader("Upload Techpack PDF", type=["pdf"], accept_multiple_files=True, label_visibility="collapsed")
     
     if uploaded_files:
         files_to_render = []
         for file in uploaded_files:
             if file.name not in st.session_state["processed_styles"]:
-                with st.spinner(f"AI đang bóc tách file {file.name}..."):
+                with st.spinner(f"Core AI đang bóc tách mô hình {file.name}..."):
                     res = process_single_pdf_batch(file.getvalue(), file.name)
                     if res["success"]: st.session_state["processed_styles"][file.name] = res["data"]
-                    else: st.error(f"Lỗi file {file.name}: {res['error']}")
-            if file.name in st.session_state["processed_styles"]: files_to_render.append(file.name)
+                    else: st.error(f"FAIL ENGINE [{file.name}]: {res['error']}")
+            if file.name in st.session_state["processed_styles"]:
+                files_to_render.append(file.name)
 
         if files_to_render:
-            st.markdown("### 📊 THAO TÁC HỆ THỐNG HÀNG LOẠT")
-            if st.button("💾 LƯU TẤT CẢ CÁC MÃ HÀNG ĐÃ QUÉT VÀO MASTER DB", key="bulk_save_all_btn", type="primary", use_container_width=True):
+            if st.button("💾 SAVE ALL PROCESSED MATRIX TO SUPABASE MASTER DB", key="bulk_save_all_btn", type="primary", use_container_width=True):
                 success_count = 0
-                with st.spinner("Đang đồng bộ dữ liệu hàng loạt lên máy chủ Supabase..."):
+                with st.spinner("Đang đồng bộ cổng dữ liệu nhị phân hàng loạt lên Supabase Cloud..."):
                     for f_name in files_to_render:
                         style_data = st.session_state["processed_styles"][f_name]
                         if save_to_supabase_techpack_table(style_data): success_count += 1
-                st.success(f"🎉 Đồng bộ thành công {success_count}/{len(files_to_render)} mã hàng vào Database!")
+                st.success(f"🎉 PATTERN DATA PIPELINE: Đã ghi nhận và lưu trữ thành công {success_count}/{len(files_to_render)} mã hàng vào Database!")
             st.markdown("---")
 
             cols = st.columns(2)
@@ -406,25 +408,26 @@ if menu_selection == "📊 Quét Techpack Document":
                 col_target = cols[idx % 2]
                 data = st.session_state["processed_styles"][f_name]
                 with col_target:
-                    st.markdown(f"""<div class="matrix-node"><div class="matrix-title">{data.get('style_number_parsed')}</div>
-                        <p style="margin:2px 0; font-size:13px;"><b>Buyer:</b> {data.get('buyer')}</p>
-                        <p style="margin:2px 0; font-size:13px;"><b>Product Line:</b> {data.get('category')}</p></div>""", unsafe_allow_html=True)
+                    st.markdown(f"""<div class="card-container"><div class="tech-card-header">{data.get('style_number_parsed')}</div>
+                        <div class="metric-grid-box"><div><p class="metric-label">BUYER</p><p class="metric-value">{data.get('buyer')}</p></div>
+                        <div><p class="metric-label">PRODUCT LINE</p><p class="metric-value">{data.get('category')}</p></div>
+                        <div><p class="metric-label">BASE SIZE</p><p class="metric-value">{data.get('base_size_name')}</p></div></div></div>""", unsafe_allow_html=True)
                     
                     sub_col1, sub_col2 = st.columns([1.2, 0.8])
                     with sub_col1:
-                        st.markdown("<p style='font-weight:700; font-size:13px;'>📋 SPECIFICATION MATRIX</p>", unsafe_allow_html=True)
-                        table_html = '<div class="cyber-table-wrapper"><table class="cyber-table"><tr><th>Garment Attribute</th><th>Target Spec</th></tr>'
+                        st.markdown("<p style='font-weight:700; font-size:12px; color:#F8FAFC; letter-spacing:0.5px;'>📋 SPECIFICATION DATA GRID</p>", unsafe_allow_html=True)
+                        table_html = '<div class="data-table-container"><table class="industrial-table"><thead><tr><th>Point of Measurement</th><th>Target Spec</th></tr></thead><tbody>'
                         for k, v in data.get("measurements", {}).items():
                             table_html += f"<tr><td>{k}</td><td>{v}</td></tr>"
-                        st.markdown(table_html + "</table></div>", unsafe_allow_html=True)
-                                        with sub_col2:
+                        st.markdown(table_html + "</tbody></table></div>", unsafe_allow_html=True)
+                    with sub_col2:
                         st.markdown("<p style='font-weight:700; font-size:12px; color:#F8FAFC; letter-spacing:0.5px;'>📐 GARMENT FLAT SKETCH</p>", unsafe_allow_html=True)
                         if data.get("sketch_image"): 
                             st.image(base64.b64decode(data["sketch_image"]), use_column_width=True)
                     st.markdown("<br><hr style='border-color:#334155;'><br>", unsafe_allow_html=True)
     else:
-        # ✨ CHÍNH LÀ DÒNG LỆNH NÀY TẠI ĐÂY:
         st.markdown('<div class="idle-alert-box">⚠️ INITIALIZATION SYSTEM IDLE: Hiện tại chưa có tệp dữ liệu Techpack nào được nạp vào hệ thống để AI khởi chạy mô hình.</div>', unsafe_allow_html=True)
+
 
 # -----------------------------------------------------------------------------
 # CHỨC NĂNG 2: ĐỐI CHIẾU SO SÁNH HAI MÃ RẬP KHÁC NHAU (PATTERN SPEC COMPARISON)
