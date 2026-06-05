@@ -683,6 +683,9 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                         contents_payload.append(full_prompt)
                         
                         # Bộ bẫy lỗi lũy tiến Backoff 5 lần tránh sập mạng
+                                                # =============================================================================
+                        # PHASE 6B - PART 2: DYNAMIC STORAGE IMAGE LINKING ENGINE & RETRY PIPELINE
+                        # =============================================================================
                         ans = ""
                         for attempt in range(5):
                             try:
@@ -700,10 +703,35 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                         st.write(ans)
                         st.session_state["chat_history"].append({"role": "assistant", "type": "text", "content": ans})
                         
-                        # Chỉ bắn ảnh phác thảo Sketch cũ lên nếu tìm thấy liên kết thực tế trong thong_so_techpack
+                        # ✨ ĐỘT PHÁ TỰ ĐỘNG GỌI KHO ẢNH CHUYÊN NGHIỆP:
+                        # Nếu database thong_so_techpack không trả về URL, hệ thống sẽ tự động lấy từ khóa sạch 'dynamic_keyword' (ví dụ: R09-490416)
+                        # Để tự cấu trúc chính xác đường link public dẫn thẳng đến file ảnh .jpg trong bucket kho_anh của bạn!
+                        final_render_url = ""
+                        final_caption_title = ""
+                        
                         if detected_image_url_to_render:
-                            st.image(detected_image_url_to_render, caption=f"Bản vẽ Sketch lịch sử đối chiếu của Mã hàng {detected_style_title_to_render}", width=220)
-                            st.session_state["chat_history"].append({"role": "assistant", "type": "visual", "content": f"[Hệ thống đã kết xuất hình ảnh tham chiếu mã {detected_style_title_to_render}]", "image_url": detected_image_url_to_render, "style_title": detected_style_title_to_render})
+                            final_render_url = detected_image_url_to_render
+                            final_caption_title = detected_style_title_to_render
+                        elif dynamic_keyword and str(dynamic_keyword).strip() != "":
+                            clean_style_id = str(dynamic_keyword).strip()
+                            # Tự động ghép nối đường dẫn URL công khai dẫn thẳng tới file ảnh lưu trữ thực tế trong kho của bạn
+                            final_render_url = f"{SB_URL.rstrip('/')}/storage/v1/object/public/kho_anh/{clean_style_id}.jpg"
+                            final_caption_title = clean_style_id
+
+                        # Kích hoạt hiển thị trực quan sơ đồ phác thảo phẳng (Garment Flat Sketch) lên khung chat
+                        if final_render_url:
+                            st.markdown("<br>", unsafe_allow_html=True)
+                            # Hiển thị ảnh dạng Card thu nhỏ chuyên nghiệp, tránh tràn khung hình
+                            st.image(final_render_url, caption=f"📐 Bản vẽ Sketch thiết kế đối chiếu của Mã hàng: {final_caption_title}", width=240)
+                            
+                            # Lưu hình ảnh này vào lịch sử trò chuyện để không bị biến mất khi trang web làm mới (Rerun)
+                            st.session_state["chat_history"].append({
+                                "role": "assistant", 
+                                "type": "visual", 
+                                "content": f"[Hệ thống đã xuất hình ảnh tham chiếu công khai của mã {final_caption_title} từ kho lưu trữ lên màn hình]",
+                                "image_url": final_render_url,
+                                "style_title": final_caption_title
+                            })
                             
                     except Exception as e: 
                         ans = f"⚠️ Máy chủ AI đang xử lý tác vụ tra cứu kho lớn. Vui lòng thử lại sau vài giây! Chi tiết: {str(e)}"
