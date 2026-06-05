@@ -90,7 +90,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 # Cấu hình cổng kết nối Master DB của Tập đoàn PPJ Group
-SB_URL = "https://supabase.co"
+SB_URL = "https://ewqqodsfvlvnrzsylawy.supabase.co"
 SB_KEY = st.secrets.get("SUPABASE_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInRefI6ImV3cXFvZHNmdmx2bnJ6c3lsYXd5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUxMTkyOTAsImV4cCI6MjA5MDY5NTI5MH0.BWPxOsyswBT5CLrZgluRC1F2x5EpU06oexUFyakGhyc")
 
 def get_secure_gemini_key():
