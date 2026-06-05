@@ -283,7 +283,6 @@ def generate_real_gemini_chat_response(user_query, attached_file):
         ai_contents_payload = []
         pdf_context = "Không có tệp phụ trợ đính kèm."
 
-        # 1. Chuyển đổi tệp Techpack/Sơ đồ rập mới tải lên thành ảnh đa phương tiện gửi sang AI
         if attached_file:
             file_bytes = attached_file.getvalue()
             if attached_file.name.lower().endswith('.pdf'):
@@ -299,11 +298,9 @@ def generate_real_gemini_chat_response(user_query, attached_file):
                 ai_contents_payload.append(types.Part.from_bytes(data=file_bytes, mime_type='image/jpeg'))
                 pdf_context = f"[Hình ảnh đính kèm: Đã nạp ảnh cấu trúc bản vẽ mã mới {attached_file.name}]"
 
-        # 2. Truy xuất toàn bộ bảng định mức nguyên phụ liệu thực tế từ kho Supabase (bảng san_pham)
         db_data = get_historical_fabric_consumption_from_db()
         warehouse_context = f"\n[KHO DỮ LIỆU ĐỊNH MỨC THỰC TẾ TRONG SUPABASE]: {json.dumps(db_data, ensure_ascii=False)}"
 
-        # 3. Ép cấu trúc Prompt bắt buộc AI phải tính toán công thức cơ học sai lệch hình học rập mẫu
         system_instruction = f"""
         Bạn là một Chuyên viên tính toán Định mức nguyên phụ liệu dệt may thực thụ thuộc phòng Kỹ thuật PPJ Group.
         Tài liệu Techpack mã hàng mới gửi lên: {pdf_context}.
@@ -326,10 +323,10 @@ def generate_real_gemini_chat_response(user_query, attached_file):
         return response.text.strip()
     except Exception as e:
         return f"Lỗi truy vấn máy chủ AI xử lý định mức: {str(e)}"
+
 elif st.session_state.current_menu == "Trợ Lý Tính Định Mức":
     st.markdown('<div style="background-color:#EFF6FF; padding:10px; border-radius:4px; font-weight:bold; color:#1E3A8A; margin-bottom:15px;">💡 Trợ lý chuyên gia đối chiếu & Tính định mức vải</div>', unsafe_allow_html=True)
 
-    # 1. Khởi tạo lưu trữ lịch sử chat nội bộ nếu chưa có
     if "chat_history" not in st.session_state or not st.session_state.chat_history:
         st.session_state.chat_history = [
             {
@@ -338,47 +335,35 @@ elif st.session_state.current_menu == "Trợ Lý Tính Định Mức":
             }
         ]
 
-    # 2. Khung Tải sơ đồ rập kết hợp nút Xóa lịch sử Chat nằm song song
     with st.container(border=True):
-        col_file, col_clear = st.columns([4, 1])  # Chia tỷ lệ khung tải file rộng, nút bấm gọn bên phải
+        col_file, col_clear = st.columns([4, 1])
         
         with col_file:
             st.markdown("**📁 Cung cấp dữ liệu phụ trợ (Tùy chọn):**")
-            attached_file = st.file_uploader(
-                "Upload sơ đồ rập phụ trợ",
-                type=["pdf", "png", "jpg"],
-                label_visibility="collapsed",
-            )
+            attached_file = st.file_uploader("Upload sơ đồ rập phụ trợ", type=["pdf", "png", "jpg"], label_visibility="collapsed")
             
         with col_clear:
             st.markdown("**⚙️ Thao tác:**")
-            # Nút bấm xóa chat thiết kế nổi bật, kích thước full viền ô chứa
             if st.button("🗑️ XÓA LỊCH SỬ CHAT", type="secondary", use_container_width=True):
-                # Làm sạch session_state đưa về trạng thái lời chào ban đầu
                 st.session_state.chat_history = [
                     {
                         "role": "assistant",
                         "content": "🤖 Chào kỹ sư PPJ! Tôi đã được liên kết với cơ sở dữ liệu kho mẫu và bảng định mức vải sản phẩm. Hãy tải sơ đồ rập lên (nếu có) và đặt câu hỏi cho tôi nhé!",
                     }
                 ]
-                # Làm mới trang để cập nhật màn hình trống ngay lập tức
                 st.rerun()
 
     st.write("")
     st.markdown("**💬 Khung hội thoại tư vấn chuyên gia Gemini thật:**")
 
-    # 3. Khung chứa hiển thị dòng chảy cuộc hội thoại chat
     chat_container = st.container(border=True)
     with chat_container:
         for message in st.session_state.chat_history:
             with st.chat_message(message["role"]):
                 st.markdown(message["content"])
 
-    # 4. Nhận câu hỏi thời gian thực từ ô Chat Input chuyên nghiệp
     if user_query := st.chat_input("Nhập câu hỏi của bạn tại đây..."):
-        st.session_state.chat_history.append(
-            {"role": "user", "content": user_query}
-        )
+        st.session_state.chat_history.append({"role": "user", "content": user_query})
 
         with chat_container:
             with st.chat_message("user"):
@@ -387,12 +372,8 @@ elif st.session_state.current_menu == "Trợ Lý Tính Định Mức":
         with chat_container:
             with st.chat_message("assistant"):
                 with st.spinner("Gemini đang truy vấn dữ liệu kho PPJ..."):
-                    ai_response = generate_real_gemini_chat_response(
-                        user_query, attached_file
-                    )
+                    ai_response = generate_real_gemini_chat_response(user_query, attached_file)
                     st.markdown(ai_response)
 
-        st.session_state.chat_history.append(
-            {"role": "assistant", "content": ai_response}
-        )
+        st.session_state.chat_history.append({"role": "assistant", "content": ai_response})
         st.rerun()
