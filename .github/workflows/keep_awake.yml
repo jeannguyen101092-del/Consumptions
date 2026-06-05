@@ -1,0 +1,16 @@
+name: Keep App Awake
+
+on:
+  schedule:
+    # Chạy mỗi 15 phút một lần (Từ thứ 2 đến chủ nhật)
+    - cron: '*/15 * * * *'
+  # Cho phép bạn bấm nút chạy thủ công từ tab Actions nếu muốn
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send ping request to app
+        run: |
+          curl -I "https://onrender.com"
