@@ -303,7 +303,7 @@ elif menu_selection == "🔄 Pattern Spec Comparison":
             with pd.ExcelWriter(towrite, engine='xlsxwriter') as writer: df_compare.to_excel(writer, index=False, sheet_name='Report')
             towrite.seek(0)
             st.download_button(label="📥 XUẤT BÁO CÁO ĐỐI CHIẾU THÔNG SỐ (EXCEL)", data=towrite, file_name="PPJ_Spec_Comparison.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-# CHỨC NĂNG 3: TRỢ LÝ ĐỊNH MỨC VẢI THÔNG MINH, CÓ UPLOAD FILE & ĐỐI CHIẾU KHO
+# CHỨC NĂNG 3: TRỢ LÝ ĐỊNH MỨC VẢI THÔNG MINH, CÓ UPLOAD FILE & ĐỐI CHIẾU KHO (ĐÃ SỬA LỖI 503)
 elif menu_selection == "🧵 Fabric Consumption Assistant (Cons)":
     st.markdown("""<div class="tech-card"><div class="tech-header">🧵 PPJ INTELLIGENT FABRIC CONSUMPTION ASSISTANT</div>
     <p style="color: #64748B; font-size:14px; margin:0;">Hỏi đáp và tải lên tài liệu mới để AI tự động trích xuất thông số, đồng thời truy tìm các mã hàng có định mức tương đồng trong kho dữ liệu lịch sử Supabase.</p></div>""", unsafe_allow_html=True)
@@ -328,11 +328,12 @@ elif menu_selection == "🧵 Fabric Consumption Assistant (Cons)":
         with st.chat_message("assistant"):
             with st.spinner("AI đang giải mã văn bản và thực hiện quét kho dữ liệu lịch sử Supabase..."):
                 gemini_key = get_secure_gemini_key()
-                if not gemini_key: ans = "Hệ thống chưa được cấu hình khóa bảo mật GEMINI_API_KEY."
+                if not gemini_key: 
+                    ans = "Hệ thống chưa được cấu hình khóa bảo mật GEMINI_API_KEY."
                 else:
                     try:
                         extracted_keywords = re.findall(r'[A-Za-z0-9]+[-–][A-Za-z0-9]+|[A-Za-z0-9]{4,}', user_query)
-                        search_key = extracted_keywords[0] if extracted_keywords else user_query
+                        search_key = extracted_keywords if extracted_keywords else user_query
                         db_results = get_historical_fabric_consumption_from_db(search_keyword=search_key)
                         
                         db_context = ""
@@ -364,9 +365,22 @@ elif menu_selection == "🧵 Fabric Consumption Assistant (Cons)":
                         full_prompt = system_instruction + f"Câu hỏi của kỹ sư: {user_query}" + db_context
                         contents_payload.append(full_prompt)
                         
-                        response = client.models.generate_content(model='gemini-2.5-flash', contents=contents_payload)
-                        ans = response.text
-                    except Exception as e: ans = f"Có lỗi xảy ra trong quá trình tính toán hoặc đối chiếu dữ liệu: {str(e)}"
+                        # ✨ CƠ CHẾ SỬA LỖI 503: Vòng lặp tự động gửi lại yêu cầu tối đa 3 lần nếu máy chủ quá tải
+                        ans = ""
+                        for attempt in range(3):
+                            try:
+                                response = client.models.generate_content(model='gemini-2.5-flash', contents=contents_payload)
+                                ans = response.text
+                                break # Nếu thành công thì thoát vòng lặp ngay lập tức
+                            except Exception as e:
+                                if "503" in str(e) or "UNAVAILABLE" in str(e):
+                                    if attempt < 2:
+                                        time.sleep(2) # Đợi 2 giây rồi thử lại
+                                        continue
+                                raise e # Nếu quá 3 lần vẫn lỗi thì mới ném ra ngoài
+                                
+                    except Exception as e: 
+                        ans = f"Máy chủ AI hiện đang bận do lượng truy cập cao toàn cầu. Bạn vui lòng bấm gửi lại câu hỏi sau vài giây nhé! Chi tiết: {str(e)}"
                         
                 st.write(ans)
                 st.session_state["chat_history"].append({"role": "assistant", "content": ans})
