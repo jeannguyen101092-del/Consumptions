@@ -308,8 +308,8 @@ elif menu_selection == "🧵 Fabric Consumption Assistant (Cons)":
     st.markdown("""<div class="tech-card"><div class="tech-header">🧵 PPJ INTELLIGENT FABRIC CONSUMPTION ASSISTANT (R&D ENGINE)</div>
     <p style="color: #64748B; font-size:14px; margin:0;">Tải lên tài liệu Techpack mới, AI sẽ tự động bóc tách hình ảnh/thông số, truy vấn mã hàng tương đồng trong kho Supabase và lập luận toán học để tự động tính định mức vải mới.</p></div>""", unsafe_allow_html=True)
     
-    # Thiết lập giao diện hàng ngang gồm 2 cột: Ô tải file (rộng) và Nút xóa lịch sử (hẹp)
-    control_col1, control_col2 = st.columns()
+    # ✨ ĐÃ SỬA LỖI: Chia cột theo tỷ lệ rõ ràng [3.2, 0.8] (Cột 1 rộng 80% chứa file, Cột 2 rộng 20% chứa nút xóa)
+    control_col1, control_col2 = st.columns([3.2, 0.8])
     
     with control_col1:
         st.markdown("##### 📁 TẢI LÊN FILE TECHPACK MỚI ĐỂ AI PHÂN TÍCH & TÍNH TOÁN ĐỊNH MỨC VẢI")
@@ -320,7 +320,6 @@ elif menu_selection == "🧵 Fabric Consumption Assistant (Cons)":
     with control_col2:
         st.markdown("##### 🧹 LÀM LÀM MỚI")
         if st.button("🗑️ XÓA LỊCH SỬ CHAT", use_container_width=True, type="secondary"):
-            # ✨ ĐÃ SỬA LỖI: Nhúng trực tiếp import nội bộ để tránh lỗi thiếu thư viện cục bộ giữa các trang
             import time
             if "chat_history" in st.session_state:
                 del st.session_state["chat_history"]
@@ -339,7 +338,8 @@ elif menu_selection == "🧵 Fabric Consumption Assistant (Cons)":
         with st.chat_message(msg["role"]): st.write(msg["content"])
     if user_query := st.chat_input("Nhập yêu cầu (Ví dụ: Hãy tìm mã tương đồng và tính định mức cho mã mới này)..."):
         st.session_state["chat_history"].append({"role": "user", "content": user_query})
-        with st.chat_message("user"): st.write(user_query)
+        with st.chat_message("user"): 
+            st.write(user_query)
             
         with st.chat_message("assistant"):
             with st.spinner("Hệ thống R&D Core AI đang chạy chu trình phân tích, đối chiếu kho và lập ma trận toán học..."):
@@ -352,6 +352,7 @@ elif menu_selection == "🧵 Fabric Consumption Assistant (Cons)":
                         contents_payload = []
                         new_style_info = {}
                         
+                        # BƯỚC 1: Xử lý bóc tách File mã hàng mới đính kèm bằng AI (Nếu người dùng có upload file)
                         if chat_file:
                             file_bytes = chat_file.getvalue()
                             img_payload = []
@@ -359,7 +360,7 @@ elif menu_selection == "🧵 Fabric Consumption Assistant (Cons)":
                                 images = convert_from_bytes(file_bytes, dpi=140, first_page=1, last_page=1)
                                 if images:
                                     img_buf = io.BytesIO()
-                                    images[0].convert("RGB").save(img_buf, format="JPEG")
+                                    images.convert("RGB").save(img_buf, format="JPEG")
                                     img_payload.append(types.Part.from_bytes(data=img_buf.getvalue(), mime_type='image/jpeg'))
                             else:
                                 img_payload.append(types.Part.from_bytes(data=file_bytes, mime_type='image/jpeg'))
@@ -371,18 +372,19 @@ elif menu_selection == "🧵 Fabric Consumption Assistant (Cons)":
                             
                             if chat_file.name.lower().endswith('.pdf') and images:
                                 img_buf = io.BytesIO()
-                                images[0].convert("RGB").save(img_buf, format="JPEG")
+                                images.convert("RGB").save(img_buf, format="JPEG")
                                 contents_payload.append(types.Part.from_bytes(data=img_buf.getvalue(), mime_type='image/jpeg'))
                             elif not chat_file.name.lower().endswith('.pdf'):
                                 contents_payload.append(types.Part.from_bytes(data=file_bytes, mime_type='image/jpeg'))
                         
+                        # BƯỚC 2: Tự động trích xuất từ khóa từ file mới hoặc câu lệnh để truy vấn kho Supabase
                         search_keyword = ""
                         if chat_file:
                             found_keywords = re.findall(r'[A-Za-z0-9]+[-–][A-Za-z0-9]+|[A-Za-z0-9]{4,}', chat_file.name)
-                            if found_keywords: search_keyword = found_keywords[0]
+                            if found_keywords: search_keyword = found_keywords
                         if not search_keyword:
                             found_keywords = re.findall(r'[A-Za-z0-9]+[-–][A-Za-z0-9]+|[A-Za-z0-9]{4,}', user_query)
-                            if found_keywords: search_keyword = found_keywords[0]
+                            if found_keywords: search_keyword = found_keywords
                             
                         db_results = get_historical_fabric_consumption_from_db(search_keyword=search_keyword if search_keyword else None)
                         
@@ -402,6 +404,7 @@ elif menu_selection == "🧵 Fabric Consumption Assistant (Cons)":
                             for item in backup_results[:5]:
                                 db_context += f"- Mã hàng: {item.get('style_name')}, Vải: {item.get('article_name')}, Định mức gốc: {item.get('consumption_value')} {item.get('uom')}, Cấu trúc: {item.get('notes')}\n"
 
+                        # BƯỚC 3: Thiết lập Prompt kỹ thuật cao, chỉ thị AI thực hiện quy trình nghiệp vụ R&D 3 bước
                         system_instruction = (
                             "You are the Lead R&D Expert and Garment Technical Auditor at PPJ Group.\n"
                             "Your job is to calculate the fabric consumption (Cons) for a NEW garment style by comparing it with SIMILAR historical styles in the database.\n\n"
@@ -431,6 +434,7 @@ elif menu_selection == "🧵 Fabric Consumption Assistant (Cons)":
                             except Exception as e:
                                 if "503" in str(e) or "UNAVAILABLE" in str(e):
                                     if attempt < 2:
+                                        import time
                                         time.sleep(2)
                                         continue
                                 raise e
