@@ -9,52 +9,15 @@ from pdf2image import convert_from_bytes, pdfinfo_from_bytes
 from google import genai
 from google.genai import types
 
-# BẮT BUỘC: Câu lệnh cấu hình trang phải nằm đầu tiên trong file Streamlit
+# BẮT BUỘC: Câu lệnh cấu hình trang phải nằm đầu tiên trong file Streamlit chính
 st.set_page_config(
     page_title="PPJ Techpack AI - Management System",
     page_icon="⚙️",
     layout="wide",
     initial_sidebar_state="expanded"
 )
-st.markdown("""
-    <style>
-    /* Tổng thể nền và Sidebar màu tối chuyên nghiệp */
-    .stApp { background-color: #F8FAFC; }
-    [data-testid="stSidebar"] { background-color: #0F172A; color: #FFFFFF; min-width: 300px; }
-    [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p { color: #E2E8F0; }
-    
-    /* Thương hiệu PPJ Group ở Sidebar */
-    .sidebar-brand-container {
-        background: linear-gradient(135deg, #1E3A8A 0%, #3B82F6 100%);
-        padding: 20px; border-radius: 12px; text-align: center; margin-bottom: 25px;
-        box-shadow: 0 4px 12px rgba(37, 99, 235, 0.2);
-    }
-    .sidebar-brand-title { font-size: 22px; font-weight: 800; color: #FFFFFF; margin: 0; letter-spacing: 1px; }
-    .sidebar-brand-subtitle { font-size: 11px; color: #93C5FD; margin-top: 4px; font-weight: 500; }
-    
-    /* Thiết kế Khung Container chính (Card hoành tráng) */
-    .tech-card {
-        background-color: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 16px;
-        padding: 24px; margin-bottom: 24px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
-    }
-    .tech-header { font-size: 18px; font-weight: 700; color: #1E293B; border-bottom: 2px solid #F1F5F9; padding-bottom: 12px; margin-bottom: 20px; }
-    
-    /* Khung kết quả chi tiết từng sản phẩm (Matrix Node) */
-    .matrix-node { background: #FFFFFF; border: 1px solid #CBD5E1; border-top: 4px solid #2563EB; border-radius: 12px; padding: 20px; margin-bottom: 20px; }
-    .matrix-title { font-size: 16px; font-weight: 700; color: #1E3A8A; margin-bottom: 12px; }
-    
-    .badge-container { display: flex; gap: 8px; margin-bottom: 15px; }
-    .badge-custom { padding: 4px 10px; border-radius: 6px; font-size: 11px; font-weight: 700; text-transform: uppercase; }
-    .badge-offline { background-color: #FEF3C7; color: #D97706; border: 1px solid #FCD34D; }
-    .badge-match { background-color: #DBEAFE; color: #2563EB; border: 1px solid #BFDBFE; }
-    
-    /* Định dạng bảng dữ liệu kỹ thuật */
-    .tech-table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-    .tech-table th { background-color: #F8FAFC; color: #64748B; font-weight: 600; text-align: left; padding: 10px; border-bottom: 2px solid #E2E8F0; font-size: 13px; }
-    .tech-table td { padding: 10px; border-bottom: 1px solid #F1F5F9; color: #334155; font-size: 13px; }
-    </style>
-""", unsafe_allow_html=True)
-# Cấu hình kết nối cơ sở dữ liệu Supabase Master DB của PPJ Group
+
+# Cấu hình cổng cơ sở dữ liệu Supabase Master DB của PPJ Group
 SB_URL = "https://ewqqodsfvlvnrzsylawy.supabase.co"
 SB_KEY = st.secrets.get("SUPABASE_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV3cXFvZHNmdmx2bnJ6c3lsYXd5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUxMTkyOTAsImV4cCI6MjA5MDY5NTI5MH0.BWPxOsyswBT5CLrZgluRC1F2x5EpU06oexUFyakGhyc")
 
@@ -62,7 +25,65 @@ def get_secure_gemini_key():
     if "GEMINI_API_KEY" in st.secrets:
         return st.secrets["GEMINI_API_KEY"].strip()
     return None
-
+st.markdown("""
+    <style>
+    /* Ép toàn bộ nền ứng dụng về màu xám trắng phòng thí nghiệm sạch sẽ */
+    .stApp { background-color: #F8FAFC !important; }
+    
+    /* Thiết kế thanh điều hướng Sidebar màu trắng tinh, có đường chia cắt rõ ràng */
+    [data-testid="stSidebar"] { 
+        background-color: #FFFFFF !important; 
+        border-right: 1px solid #CBD5E1 !important;
+        min-width: 320px; 
+    }
+    [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p { 
+        color: #1E293B !important; font-weight: 600; font-size: 13.5px;
+    }
+    
+    /* Khung thương hiệu PPJ Group hiệu ứng Gradient cao cấp */
+    .sidebar-brand-container {
+        background: linear-gradient(135deg, #1E3A8A 0%, #3B82F6 100%);
+        padding: 22px; border-radius: 14px; text-align: center; margin-bottom: 30px;
+        box-shadow: 0 4px 14px rgba(37, 99, 235, 0.2);
+    }
+    .sidebar-brand-title { font-size: 24px; font-weight: 800; color: #FFFFFF; margin: 0; letter-spacing: 1px; }
+    .sidebar-brand-subtitle { font-size: 11px; color: #BFDBFE; margin-top: 5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
+    
+    /* Thiết kế tiêu đề phân hệ lớn dạng dải màu công nghệ hoành tráng */
+    .component-title-box {
+        background: linear-gradient(90deg, #1E3A8A 0%, #2563EB 100%);
+        color: #FFFFFF !important; font-size: 16px; font-weight: 700; padding: 14px 20px;
+        border-radius: 10px; margin-bottom: 25px; letter-spacing: 0.5px; text-transform: uppercase;
+        box-shadow: 0 4px 12px rgba(30, 58, 138, 0.1);
+    }
+    
+    /* Thiết kế Khung Container (Card hoành tráng, có đổ bóng tách biệt không gian) */
+    .card-container {
+        background-color: #FFFFFF !important; border: 1px solid #E2E8F0 !important; border-radius: 14px !important;
+        padding: 24px; margin-bottom: 25px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.03) !important;
+    }
+    .card-section-header { 
+        font-size: 14px; font-weight: 700; color: #1E3A8A; text-transform: uppercase; 
+        letter-spacing: 0.5px; margin-bottom: 12px; border-left: 4px solid #2563EB; padding-left: 10px;
+    }
+    
+    .tech-card-header { font-size: 18px; font-weight: 800; color: #0F172A; margin-bottom: 15px; }
+    .metric-grid-box { display: flex; gap: 25px; background: #F8FAFC; padding: 14px 20px; border-radius: 10px; border: 1px solid #E2E8F0; margin-bottom: 20px; }
+    .metric-label { font-size: 11px; font-weight: 700; color: #64748B; margin: 0; text-transform: uppercase; letter-spacing: 0.5px; }
+    .metric-value { font-size: 14px; font-weight: 700; color: #1E3A8A; margin: 3px 0 0 0; }
+    
+    .data-table-container { max-height: 420px; overflow-y: auto; border: 1px solid #CBD5E1; border-radius: 10px; margin-top: 12px; }
+    .industrial-table { width: 100%; border-collapse: collapse; text-align: left; font-family: sans-serif; }
+    .industrial-table th { background-color: #F1F5F9 !important; color: #1E3A8A !important; font-weight: 700 !important; padding: 12px 16px; font-size: 13px; position: sticky; top: 0; z-index: 5; border-bottom: 2px solid #CBD5E1 !important; }
+    .industrial-table td { padding: 11px 16px; border-bottom: 1px solid #E2E8F0; color: #334155 !important; font-size: 13px; font-weight: 500; }
+    .industrial-table tr:hover { background-color: #F8FAFC !important; }
+    
+    .idle-alert-box { background-color: #FFFBEB; border-left: 5px solid #F59E0B; padding: 16px 20px; border-radius: 4px 12px 12px 4px; color: #B45309; font-size: 13.5px; font-weight: 600; }
+    [data-testid="stChatMessage"] { background-color: #FFFFFF !important; border: 1px solid #E2E8F0 !important; border-radius: 8px !important; }
+    [data-testid="stChatMessage"] p { color: #1E293B !important; font-size: 14px !important; font-weight: 500 !important; }
+    [data-testid="stMarkdownContainer"] p, [data-testid="stMarkdownContainer"] h5 { color: #1E293B !important; }
+    </style>
+""", unsafe_allow_html=True)
 def save_to_supabase_techpack_table(payload_data):
     """Hàm xử lý lưu trữ hình ảnh rập/sketch và đồng bộ bảng thông số kĩ thuật vào Supabase Database"""
     try:
@@ -95,12 +116,8 @@ def save_to_supabase_techpack_table(payload_data):
         clean_dict = {str(k): str(v) for k, v in dict(raw_measurements).items()}
 
         db_payload = {
-            "StyleName": style_name_db,
-            "Buyer": payload_data.get("buyer"),
-            "Category": payload_data.get("category"),
-            "BaseSize": payload_data.get("base_size_name"),
-            "DetailedMeasurements": clean_dict,
-            "SketchURL": public_image_url
+            "StyleName": style_name_db, "Buyer": payload_data.get("buyer"), "Category": payload_data.get("category"),
+            "BaseSize": payload_data.get("base_size_name"), "DetailedMeasurements": clean_dict, "SketchURL": public_image_url
         }
         response = requests.post(insert_url, headers=headers, json=[db_payload], timeout=15)
         return 200 <= response.status_code <= 299
@@ -112,26 +129,21 @@ def get_historical_fabric_consumption_from_db(search_keyword=None):
         headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
         url = f"{SB_URL.rstrip('/')}/rest/v1/san_pham"
         query_params = {
-            "select": "style_name,article_name,consumption_type,material_size,uom,consumption_value,notes",
-            "limit": 10
+            "select": "style_name,article_name,consumption_type,material_size,uom,consumption_value,notes", "limit": 10
         }
         if search_keyword:
             clean_kw = str(search_keyword).strip()
-            if '-' in clean_kw:
-                query_params["style_name"] = f"ilike.*{clean_kw.split('-')[-1].strip()}*"
-            else:
-                query_params["style_name"] = f"ilike.*{clean_kw}*"
-                
+            if '-' in clean_kw: query_params["style_name"] = f"ilike.*{clean_kw.split('-')[-1].strip()}*"
+            else: query_params["style_name"] = f"ilike.*{clean_kw}*"
         res = requests.get(url, headers=headers, params=query_params, timeout=15)
         return res.json() if 200 <= res.status_code <= 299 else []
     except Exception: return []
 def process_single_pdf_batch(file_bytes, file_name):
-    """Xử lý cắt trang PDF thành ảnh và dùng Gemini AI bóc tách TOÀN BỘ ma trận thông số cấu trúc thực tế"""
+    """Hệ thống bóc tách tự động đa tầng bằng AI Gemini"""
     gemini_key = get_secure_gemini_key()
-    if not gemini_key: 
-        return {"success": False, "error": "Chưa cấu hình khóa Secrets GEMINI_API_KEY trên Streamlit."}
+    if not gemini_key: return {"success": False, "error": "Chưa cấu hình khóa Secrets GEMINI_API_KEY."}
     
-    # ✨ ĐÃ SỬA TRIỆT ĐỂ LỖI: Lấy chính xác phần tử đầu tiên của List [0] trước khi dùng .strip()
+    # ✨ ĐÃ SỬA LỖI CHỈ MỤC: Lấy phần tử đầu tiên của danh sách rsplit trước khi strip()
     if '.' in file_name:
         fallback_style = file_name.rsplit('.', 1)[0].strip()
     else:
@@ -147,59 +159,43 @@ def process_single_pdf_batch(file_bytes, file_name):
             try:
                 images = convert_from_bytes(file_bytes, dpi=160, first_page=p_num, last_page=p_num)
                 if images:
-                    img = images[0].convert("RGB") # ĐÃ SỬA LỖI: Lấy phần tử ảnh đầu tiên của danh sách
+                    img = images[0].convert("RGB") # ✨ ĐÃ SỬA LỖI LIST OBJECT: Trích xuất trang ảnh [0] chuẩn xác
                     img_buffer = io.BytesIO()
                     img.save(img_buffer, format="JPEG", quality=95)
                     contents_payload.append(types.Part.from_bytes(data=img_buffer.getvalue(), mime_type='image/jpeg'))
                     
                     if p_num == 1 and not sketch_base64:
-                        if img.width > 450: 
-                            img = img.resize((450, int(img.height * (450 / img.width))))
+                        if img.width > 450: img = img.resize((450, int(img.height * (450 / img.width))))
                         bk_buf = io.BytesIO()
-                        img.save(bk_buf, format="JPEG", quality=80)
+                        img.save(bk_buf, format="JPEG", quality=85)
                         sketch_base64 = base64.b64encode(bk_buf.getvalue()).decode("utf-8")
             except Exception: pass
 
-        if not contents_payload: 
-            return {"success": False, "error": "Không thể giải mã hình ảnh từ file PDF."}
+        if not contents_payload: return {"success": False, "error": "Không thể giải mã hình ảnh PDF."}
 
         user_prompt = """
-        You are a strict garment technical auditor. Analyze all the attached images from the techpack PDF.
-        
-        CRITICAL INSTRUCTIONS:
-        1. Identify the main specification grid/table containing Point of Measurements (POM Description / Vị trí đo) and their target spec values for the sample base size.
-        2. Read the grid ROW-BY-ROW. You MUST extract EVERY SINGLE measurement row found in the document. Do not truncate, do not skip, and do not summarize.
-        3. For the "measurements" object, map each detected POM name directly to its target measurement value. Extract all available rows.
-
-        Return a valid JSON object with this exact schema:
+        You are an elite Garment Technical Auditor at PPJ Group. Extract specification chart grid.
+        Return valid JSON strictly matching this schema:
         {
-          "style_number_parsed": "Extract real Style ID from text",
-          "buyer": "Extract real Buyer Account name",
-          "category": "Extract real Product Category line",
-          "base_size_name": "Extract Sample Base Size",
-          "measurements": {
-             "Detected POM Name 1": "Value 1",
-             "Detected POM Name 2": "Value 2"
-          }
+          "style_number_parsed": "Style ID", "buyer": "Buyer Account", "category": "Product Category", "base_size_name": "Base Size",
+          "measurements": { "POM Name 1": "Value 1", "POM Name 2": "Value 2" }
         }
         """
         contents_payload.append(user_prompt)
-
         client = genai.Client(api_key=gemini_key)
         response = client.models.generate_content(
-            model='gemini-2.5-flash', 
-            contents=contents_payload, 
+            model='gemini-2.5-flash', contents=contents_payload,
             config=types.GenerateContentConfig(response_mime_type="application/json", temperature=0.0)
         )
-        
         parsed_data = json.loads(response.text.strip())
         parsed_data["sketch_image"] = sketch_base64
-        if not parsed_data.get("style_number_parsed"):
-            parsed_data["style_number_parsed"] = fallback_style
-            
+        if not parsed_data.get("style_number_parsed"): parsed_data["style_number_parsed"] = fallback_style
         return {"success": True, "data": parsed_data}
-    except Exception as e: 
-        return {"success": False, "error": f"Lỗi hệ thống khi gọi AI: {str(e)}"}
+    except Exception as e:
+        return {"success": False, "error": f"Lỗi hệ thống AI: {str(e)}"}
+# =============================================================================
+# PHASE 3: SIDEBAR CONTROL & NAVIGATION BRANDING
+# =============================================================================
 with st.sidebar:
     st.markdown("""
         <div class="sidebar-brand-container">
@@ -208,176 +204,25 @@ with st.sidebar:
         </div>
     """, unsafe_allow_html=True)
     
-    st.markdown("### 💻 WORKSHOP MANAGEMENT")
-    menu_selection = st.radio(
+    st.markdown("<p style='font-size:11px; font-weight:700; color:#64748B; margin: 15px 0 5px 5px; letter-spacing:0.5px;'>🏭 AUTOMATION FACTORY</p>", unsafe_allow_html=True)
+    
+    # ✨ ĐÃ SỬA: Tên hiển thị menu cao cấp chuẩn dệt may quốc tế
+    menu_selection = st.sidebar.radio(
         label="Chức năng hệ thống",
-        options=["📊 Quét Techpack Document", "🔄 Pattern Spec Comparison", "🧵 Fabric Consumption Assistant (Cons)"],
+        options=["📊 Quét Techpack Document", "🔄 Pattern Spec Comparison", "🧵 BOM & Consumption Matrix"],
         label_visibility="collapsed"
     )
     st.markdown("---")
-    st.success("Database Status: ONLINE")
-    st.info("Core Engine: Gemini-2.5-Flash")
-
-# Nhúng bổ sung CSS nâng cấp giao diện bảng dữ liệu Cyber chuyên sâu
-# =============================================================================
-# PHASE 2: GLOBAL INDUSTRIAL LIGHT COMPONENT STYLING (HIGH-CONTRAST)
-# =============================================================================
-# =============================================================================
-# PHASE 2: PREMIUM HIGH-CONTRAST INDUSTRIAL LIGHT THEME (VISUAL ANCHORS)
-# =============================================================================
-st.markdown("""
-    <style>
-    /* Ép toàn bộ nền ứng dụng về màu xám trắng phòng thí nghiệm sạch sẽ */
-    .stApp { 
-        background-color: #F8FAFC !important; 
-    }
-    
-    /* Thiết kế thanh điều hướng Sidebar màu trắng tinh, có đường chia cắt rõ ràng */
-    [data-testid="stSidebar"] { 
-        background-color: #FFFFFF !important; 
-        border-right: 1px solid #CBD5E1 !important;
-        min-width: 320px; 
-    }
-    [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p { 
-        color: #1E293B !important; 
-        font-weight: 600;
-        font-size: 13.5px;
-    }
-    
-    /* Khung thương hiệu PPJ Group hiệu ứng Gradient cao cấp */
-    .sidebar-brand-container {
-        background: linear-gradient(135deg, #1E3A8A 0%, #3B82F6 100%);
-        padding: 22px; 
-        border-radius: 14px; 
-        text-align: center; 
-        margin-bottom: 30px;
-        box-shadow: 0 4px 14px rgba(37, 99, 235, 0.2);
-    }
-    .sidebar-brand-title { font-size: 24px; font-weight: 800; color: #FFFFFF; margin: 0; letter-spacing: 1px; }
-    .sidebar-brand-subtitle { font-size: 11px; color: #BFDBFE; margin-top: 5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
-    
-    /* Thiết kế tiêu đề phân hệ lớn dạng dải màu công nghệ hoành tráng */
-    .component-title-box {
-        background: linear-gradient(90deg, #1E3A8A 0%, #2563EB 100%);
-        color: #FFFFFF !important;
-        font-size: 16px; 
-        font-weight: 700; 
-        padding: 14px 20px;
-        border-radius: 10px;
-        margin-bottom: 25px;
-        letter-spacing: 0.5px;
-        text-transform: uppercase;
-        box-shadow: 0 4px 12px rgba(30, 58, 138, 0.1);
-    }
-    
-    /* Thiết kế Khung Container (Card hoành tráng, có đổ bóng tách biệt không gian) */
-    .card-container {
-        background-color: #FFFFFF !important; 
-        border: 1px solid #E2E8F0 !important; 
-        border-radius: 14px !important;
-        padding: 24px; 
-        margin-bottom: 25px; 
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.03), 0 2px 4px -1px rgba(0, 0, 0, 0.02) !important;
-    }
-    .card-section-header { 
-        font-size: 14px; 
-        font-weight: 700; 
-        color: #1E3A8A; 
-        text-transform: uppercase; 
-        letter-spacing: 0.5px; 
-        margin-bottom: 12px;
-        border-left: 4px solid #2563EB;
-        padding-left: 10px;
-    }
-    
-    /* Thẻ tiêu đề con của từng mã rập */
-    .tech-card-header {
-        font-size: 18px; 
-        font-weight: 800; 
-        color: #0F172A; 
-        margin-bottom: 15px;
-    }
-    
-    /* Lưới thông tin Metadata bọc khung titan xám nhẹ */
-    .metric-grid-box {
-        display: flex; 
-        gap: 25px; 
-        background: #F8FAFC; 
-        padding: 14px 20px; 
-        border-radius: 10px; 
-        border: 1px solid #E2E8F0;
-        margin-bottom: 20px;
-    }
-    .metric-label { font-size: 11px; font-weight: 700; color: #64748B; margin: 0; text-transform: uppercase; letter-spacing: 0.5px; }
-    .metric-value { font-size: 14px; font-weight: 700; color: #1E3A8A; margin: 3px 0 0 0; }
-    
-    /* Bộ khung chứa bảng thông số kỹ thuật mượt mà */
-    .data-table-container {
-        max-height: 420px; 
-        overflow-y: auto; 
-        border: 1px solid #CBD5E1; 
-        border-radius: 10px; 
-        margin-top: 12px;
-        box-shadow: inset 0 2px 4px rgba(0,0,0,0.01);
-    }
-    
-    /* Định dạng bảng dữ liệu dệt may công nghiệp */
-    .industrial-table { 
-        width: 100%; 
-        border-collapse: collapse; 
-        text-align: left; 
-    }
-    .industrial-table th {
-        background-color: #F1F5F9 !important; 
-        color: #1E3A8A !important; 
-        font-weight: 700 !important; 
-        padding: 12px 16px; 
-        font-size: 13px; 
-        position: sticky; 
-        top: 0; 
-        z-index: 5;
-        border-bottom: 2px solid #CBD5E1 !important;
-    }
-    .industrial-table td { 
-        padding: 11px 16px; 
-        border-bottom: 1px solid #E2E8F0; 
-        color: #334155 !important; 
-        font-size: 13px; 
-        font-weight: 500;
-    }
-    .industrial-table tr:hover { 
-        background-color: #F8FAFC !important; 
-    }
-    
-    /* Khung thông báo trạng thái rỗng (Hệ thống IDLE) */
-    .idle-alert-box {
-        background-color: #FFFBEB; 
-        border-left: 5px solid #F59E0B; 
-        padding: 16px 20px; 
-        border-radius: 4px 12px 12px 4px; 
-        color: #B45309; 
-        font-size: 13.5px; 
-        font-weight: 600;
-        box-shadow: 0 2px 4px rgba(245, 158, 11, 0.05);
-    }
-    
-    /* Đồng bộ màu chữ cho văn bản Streamlit tiêu chuẩn */
-    [data-testid="stMarkdownContainer"] p, [data-testid="stMarkdownContainer"] h5 {
-        color: #1E293B !important;
-    }
-    </style>
-""", unsafe_allow_html=True)
-
+    st.success("DATABASE ACCESS: SECURED")
+    st.info("ANALYTICS ENGINE: COMPLY")
 
 if "processed_styles" not in st.session_state:
     st.session_state["processed_styles"] = {}
-
 # -----------------------------------------------------------------------------
-# CHỨC NĂNG 1: QUÉT TỰ ĐỘNG BẰNG AI VÀ LƯU HÀNG LOẠT (BULK SAVE MULTI-BATCH)
+# CHỨC NĂNG 1: QUÉT TỰ ĐỘNG BẰNG AI VÀ LƯU HÀNG LOẠT
 # -----------------------------------------------------------------------------
 if menu_selection == "📊 Quét Techpack Document":
     st.markdown('<div class="component-title-box">📊 MULTI-BATCH GARMENT SPECIFICATION MATRIX</div>', unsafe_allow_html=True)
-    
     st.markdown("""<div class="card-container"><div class="card-section-header">📥 INGESTION ENGINE</div>
     <p style="color: #94A3B8; font-size:13px; margin:0 0 15px 0;">Hệ thống tự động cắt trang, khử nhiễu đồ họa phẳng và gọi API mạng nơ-ron tích hợp để bóc tách thông số hàng loạt.</p></div>""", unsafe_allow_html=True)
     uploaded_files = st.file_uploader("Upload Techpack PDF", type=["pdf"], accept_multiple_files=True, label_visibility="collapsed")
@@ -390,8 +235,7 @@ if menu_selection == "📊 Quét Techpack Document":
                     res = process_single_pdf_batch(file.getvalue(), file.name)
                     if res["success"]: st.session_state["processed_styles"][file.name] = res["data"]
                     else: st.error(f"FAIL ENGINE [{file.name}]: {res['error']}")
-            if file.name in st.session_state["processed_styles"]:
-                files_to_render.append(file.name)
+            if file.name in st.session_state["processed_styles"]: files_to_render.append(file.name)
 
         if files_to_render:
             if st.button("💾 SAVE ALL PROCESSED MATRIX TO SUPABASE MASTER DB", key="bulk_save_all_btn", type="primary", use_container_width=True):
@@ -400,7 +244,7 @@ if menu_selection == "📊 Quét Techpack Document":
                     for f_name in files_to_render:
                         style_data = st.session_state["processed_styles"][f_name]
                         if save_to_supabase_techpack_table(style_data): success_count += 1
-                st.success(f"🎉 PATTERN DATA PIPELINE: Đã ghi nhận và lưu trữ thành công {success_count}/{len(files_to_render)} mã hàng vào Database!")
+                st.success(f"🎉 PATTERN DATA PIPELINE: Đã lưu trữ thành công {success_count}/{len(files_to_render)} mã hàng vào Database!")
             st.markdown("---")
 
             cols = st.columns(2)
@@ -415,317 +259,213 @@ if menu_selection == "📊 Quét Techpack Document":
                     
                     sub_col1, sub_col2 = st.columns([1.2, 0.8])
                     with sub_col1:
-                        st.markdown("<p style='font-weight:700; font-size:12px; color:#F8FAFC; letter-spacing:0.5px;'>📋 SPECIFICATION DATA GRID</p>", unsafe_allow_html=True)
+                        st.markdown("<p style='font-weight:700; font-size:12px; color:#1E293B;'>📋 SPECIFICATION DATA GRID</p>", unsafe_allow_html=True)
                         table_html = '<div class="data-table-container"><table class="industrial-table"><thead><tr><th>Point of Measurement</th><th>Target Spec</th></tr></thead><tbody>'
-                        for k, v in data.get("measurements", {}).items():
-                            table_html += f"<tr><td>{k}</td><td>{v}</td></tr>"
+                        for k, v in data.get("measurements", {}).items(): table_html += f"<tr><td>{k}</td><td>{v}</td></tr>"
                         st.markdown(table_html + "</tbody></table></div>", unsafe_allow_html=True)
                     with sub_col2:
-                        st.markdown("<p style='font-weight:700; font-size:12px; color:#F8FAFC; letter-spacing:0.5px;'>📐 GARMENT FLAT SKETCH</p>", unsafe_allow_html=True)
-                        if data.get("sketch_image"): 
-                            st.image(base64.b64decode(data["sketch_image"]), use_column_width=True)
-                    st.markdown("<br><hr style='border-color:#334155;'><br>", unsafe_allow_html=True)
+                        st.markdown("<p style='font-weight:700; font-size:12px; color:#1E293B;'>📐 GARMENT FLAT SKETCH</p>", unsafe_allow_html=True)
+                        if data.get("sketch_image"): st.image(base64.b64decode(data["sketch_image"]), use_column_width=True)
+                    st.markdown("<br><hr style='border-color:#E2E8F0;'><br>", unsafe_allow_html=True)
     else:
         st.markdown('<div class="idle-alert-box">⚠️ INITIALIZATION SYSTEM IDLE: Hiện tại chưa có tệp dữ liệu Techpack nào được nạp vào hệ thống để AI khởi chạy mô hình.</div>', unsafe_allow_html=True)
+import base64
+import io
+import json
+import re
+import requests
+import streamlit as st
+import pandas as pd
+from pdf2image import convert_from_bytes, pdfinfo_from_bytes
+from google import genai
+from google.genai import types
 
+# Cấu hình kết nối cơ sở dữ liệu Supabase Master DB của PPJ Group
+SB_URL = "https://ewqqodsfvlvnrzsylawy.supabase.co"
+SB_KEY = st.secrets.get("SUPABASE_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV3cXFvZHNmdmx2bnJ6c3lsYXd5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUxMTkyOTAsImV4cCI6MjA5MDY5NTI5MH0.BWPxOsyswBT5CLrZgluRC1F2x5EpU06oexUFyakGhyc")
 
-# -----------------------------------------------------------------------------
-# CHỨC NĂNG 2: ĐỐI CHIẾU SO SÁNH HAI MÃ RẬP KHÁC NHAU (PATTERN SPEC COMPARISON)
-# -----------------------------------------------------------------------------
-elif menu_selection == "🔄 Pattern Spec Comparison":
-    st.markdown('<div class="component-title-box">🔄 DIFFERENTIAL GEOMETRY & DELTA SPEC EVALUATOR</div>', unsafe_allow_html=True)
+def get_secure_gemini_key():
+    if "GEMINI_API_KEY" in st.secrets:
+        return st.secrets["GEMINI_API_KEY"].strip()
+    return None
 
-    sc1, sc2 = st.columns(2)
-    with sc1: file1 = st.file_uploader("Chọn file mẫu Techpack Gốc (File A)", type=["pdf"], key="f1")
-    with sc2: file2 = st.file_uploader("Chọn file mẫu Techpack Sửa đổi (File B)", type=["pdf"], key="f2")
-    
-    if file1 and file2:
-        if file1.name not in st.session_state["processed_styles"]:
-            res1 = process_single_pdf_batch(file1.getvalue(), file1.name)
-            if res1["success"]: st.session_state["processed_styles"][file1.name] = res1["data"]
-        if file2.name not in st.session_state["processed_styles"]:
-            res2 = process_single_pdf_batch(file2.getvalue(), file2.name)
-            if res2["success"]: st.session_state["processed_styles"][file2.name] = res2["data"]
-            
-        d1 = st.session_state["processed_styles"].get(file1.name)
-        d2 = st.session_state["processed_styles"].get(file2.name)
+def get_historical_fabric_consumption_from_db(search_keyword=None):
+    """Hàm trích xuất dữ liệu định mức phụ liệu dệt may trên Supabase"""
+    try:
+        headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
+        url = f"{SB_URL.rstrip('/')}/rest/v1/san_pham"
+        query_params = {
+            "select": "style_name,article_name,consumption_type,material_size,uom,consumption_value,notes",
+            "limit": 10
+        }
+        if search_keyword:
+            clean_kw = str(search_keyword).strip()
+            if '-' in clean_kw:
+                query_params["style_name"] = f"ilike.*{clean_kw.split('-')[-1].strip()}*"
+            else:
+                query_params["style_name"] = f"ilike.*{clean_kw}*"
+        res = requests.get(url, headers=headers, params=query_params, timeout=15)
+        return res.json() if 200 <= res.status_code <= 299 else []
+    except Exception:
+        return []
+
+# Ép toàn bộ màu chữ của bong bóng Chatbot về màu xám đậm trên nền trắng để nhìn rõ 100%
+st.markdown("""
+    <style>
+    .stApp { background-color: #F8FAFC !important; }
+    [data-testid="stChatMessage"] { background-color: #FFFFFF !important; border: 1px solid #E2E8F0 !important; border-radius: 8px !important; }
+    [data-testid="stChatMessage"] p { color: #1E293B !important; font-size: 14px !important; font-weight: 500 !important; }
+    [data-testid="stMarkdownContainer"] p, [data-testid="stMarkdownContainer"] h5 { color: #1E293B !important; }
+    </style>
+""", unsafe_allow_html=True)
+
+st.markdown('<div style="background: linear-gradient(90deg, #1E3A8A 0%, #2563EB 100%); padding: 16px 20px; border-radius: 12px; font-size: 18px; font-weight: 700; color: #FFFFFF; box-shadow: 0 4px 12px rgba(30,58,138,0.15); margin-bottom: 24px;">🧵 PPJ INTELLIGENT BOM & CONSUMPTION MATRIX ENGINE</div>', unsafe_allow_html=True)
+
+control_col1, control_col2 = st.columns([3.2, 0.8])
+with control_col1:
+    st.markdown("<p style='font-weight:700; font-size:13px; color:#1E293B;'>📁 INGEST NEW TECHPACK BATCH (PDF/IMAGE)</p>", unsafe_allow_html=True)
+    chat_file = st.file_uploader("Upload Techpack file", type=["pdf", "jpg", "jpeg", "png"], key="chat_uploader", label_visibility="collapsed")
+    if chat_file: st.success(f"🎉 DATASTREAM PIPELINE BOUND: Tiếp nhận thành công file {chat_file.name}")
         
-        if d1 and d2:
-            st.markdown(f"""<div style="background-color: #FFFFFF; border-left: 5px solid #3B82F6; padding: 12px 20px; border-radius: 4px 12px 12px 4px; margin-bottom: 20px; box-shadow: 0 2px 5px rgba(0,0,0,0.02);"><h5 style="margin:0; color:#1E3A8A; font-weight:700; font-size:16px;">⚙️ ĐANG ĐỐI CHIẾU MA TRẬN PHÁT TRIỂN MẪU</h5><p style="margin:4px 0 0 0; font-size:13px; color:#64748B;"><b>Mẫu Gốc A:</b> {d1['style_number_parsed']} [Size: {d1.get('base_size_name','N/A')}] &nbsp;|&nbsp; <b>Mẫu Sửa B:</b> {d2['style_number_parsed']} [Size: {d2.get('base_size_name','N/A')}]</p></div>""", unsafe_allow_html=True)
-            
-            def clean_garment_fraction(v_str):
-                if not v_str or str(v_str).strip().upper() in ["N/A", "N/A INCH", ""]: return 0.0
+with control_col2:
+    st.markdown("<p style='font-weight:700; font-size:13px; color:#1E293B;'>🧹 PURGE LAB MEMORY</p>", unsafe_allow_html=True)
+    if st.button("🗑️ XÓA LỊCH SỬ CHAT", use_container_width=True, type="secondary"):
+        import time
+        if "chat_history" in st.session_state: 
+            del st.session_state["chat_history"]
+        st.success("🔄 MEMORY PURGED")
+        time.sleep(0.5)
+        st.rerun()
+
+st.markdown("<hr style='border-color:#E2E8F0; margin: 20px 0;'>", unsafe_allow_html=True)
+
+if "chat_history" not in st.session_state:
+    st.session_state["chat_history"] = [
+        {"role": "assistant", "type": "text", "content": "Welcome to PPJ Textile Visual R&D Engine. Hãy tải lên sơ đồ rập/Techpack mã mới, hệ thống sẽ bóc tách biệt lập, tự động đối soát kho Master DB và lập luận toán học để kết xuất định mức vải cùng bảng phụ liệu BOM chính xác."}
+    ]
+    
+for msg in st.session_state["chat_history"]:
+    with st.chat_message(msg["role"]): st.write(msg["content"])
+if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vải và đối soát sai lệch..."):
+    st.session_state["chat_history"].append({"role": "user", "type": "text", "content": user_query})
+    with st.chat_message("user"): st.write(user_query)
+        
+    with st.chat_message("assistant"):
+        with st.spinner("Hệ thống AI R&D Engine đang thiết lập ma trận đối soát và phân tích cấu trúc BOM..."):
+            gemini_key = get_secure_gemini_key()
+            if not gemini_key: 
+                ans = "CRITICAL SERVER BREAKDOWN: AI API Token is missing."
+            else:
                 try:
-                    s = str(v_str).replace("INCH", "").strip()
-                    if " " in s:
-                        parts = s.split()
-                        whole = float(parts[0])
-                        frac = parts[1].split('/')
-                        return whole + (float(frac[0]) / float(frac[1]))
-                    elif "/" in s:
-                        frac = s.split('/')
-                        return float(frac[0]) / float(frac[1])
-                    return float(s)
-                except:
-                    nums = re.findall(r"[-+]?\d*\.\d+|\d+", str(v_str))
-                    return float(nums[0]) if nums else 0.0
-
-            size_a = d1.get("base_size_name", "BASE SIZE").strip()
-            size_b = d2.get("base_size_name", "BASE SIZE").strip()
-            col_title_a = f"Mẫu A ({d1['style_number_parsed']}) [Size: {size_a}]"
-            col_title_b = f"Mẫu B ({d2['style_number_parsed']}) [Size: {size_b}]"
-
-            all_poms = set(list(d1["measurements"].keys()) + list(d2["measurements"].keys()))
-            
-            # ✨ BIẾN ĐỔI QUAN TRỌNG: Nối chuỗi liên tục trên một dòng, triệt tiêu toàn bộ ký tự xuống dòng chắp vá
-            table_body_html = ""
-            compare_rows_for_df = []
-            
-            for pom in sorted(all_poms):
-                val1 = d1["measurements"].get(pom, "N/A")
-                val2 = d2["measurements"].get(pom, "N/A")
-                num1 = clean_garment_fraction(val1)
-                num2 = clean_garment_fraction(val2)
-                
-                delta = round(num2 - num1, 3) if val1 != "N/A" and val2 != "N/A" else 0.0
-                compare_rows_for_df.append({"Vị trí đo (POM)": pom, col_title_a: val1, col_title_b: val2, "Sai lệch (Delta)": delta})
-                
-                if delta > 0:
-                    delta_td = f'<td style="padding:10px 14px;border-bottom:1px solid #E2E8F0;text-align:center;"><span style="background-color:#DCFCE7;color:#166534;font-weight:700;padding:2px 6px;border-radius:4px;font-size:12px;">+{delta}</span></td>'
-                elif delta < 0:
-                    delta_td = f'<td style="padding:10px 14px;border-bottom:1px solid #E2E8F0;text-align:center;"><span style="background-color:#FEE2E2;color:#991B1B;font-weight:700;padding:2px 6px;border-radius:4px;font-size:12px;">{delta}</span></td>'
-                else:
-                    delta_td = f'<td style="padding:10px 14px;border-bottom:1px solid #E2E8F0;text-align:center;color:#94A3B8;font-size:12px;">0</td>'
-                
-                # Gom gọn dòng TR thành một chuỗi văn bản không xuống hàng
-                table_body_html += f'<tr style="background-color:#FFFFFF;"><td style="padding:10px 14px;border-bottom:1px solid #E2E8F0;font-weight:600;color:#1E293B;font-size:13px;">{pom}</td><td style="padding:10px 14px;border-bottom:1px solid #E2E8F0;color:#334155;font-size:13px;">{val1}</td><td style="padding:10px 14px;border-bottom:1px solid #E2E8F0;color:#334155;font-size:13px;">{val2}</td>{delta_td}</tr>'
-            
-            # Đóng gói toàn bộ cấu trúc Table trên một dòng lệnh duy nhất để Streamlit không chèn thẻ code lỗi
-            full_table_render = f'<div style="max-height:450px;overflow-y:auto;border:1px solid #CBD5E1;border-radius:12px;margin-top:15px;"><table style="width:100%;border-collapse:collapse;text-align:left;font-family:sans-serif;"><thead><tr style="background:linear-gradient(90deg,#1E3A8A 0%,#2563EB 100%);"><th style="color:#FFFFFF;font-weight:600;padding:12px 14px;font-size:13px;position:sticky;top:0;z-index:10;">Vị trí đo (POM Description)</th><th style="color:#FFFFFF;font-weight:600;padding:12px 14px;font-size:13px;position:sticky;top:0;z-index:10;">{col_title_a}</th><th style="color:#FFFFFF;font-weight:600;padding:12px 14px;font-size:13px;position:sticky;top:0;z-index:10;">{col_title_b}</th><th style="color:#FFFFFF;font-weight:600;padding:12px 14px;font-size:13px;text-align:center;width:140px;position:sticky;top:0;z-index:10;">Sai lệch (Delta)</th></tr></thead><tbody>{table_body_html}</tbody></table></div>'
-            
-            # Thực thi ép buộc render giao diện
-            st.markdown(full_table_render, unsafe_allow_html=True)
-            st.markdown("<br>", unsafe_allow_html=True)
-            
-            # Luồng xuất file Excel kỹ thuật giữ nguyên
-            df_compare = pd.DataFrame(compare_rows_for_df)
-            towrite = io.BytesIO()
-            with pd.ExcelWriter(towrite, engine='xlsxwriter') as writer: 
-                df_compare.to_excel(writer, index=False, sheet_name='Spec_Report')
-                workbook  = writer.book
-                worksheet = writer.sheets['Spec_Report']
-                header_format = workbook.add_format({'bold':True,'text_wrap':True,'fg_color':'#1E3A8A','font_color':'white','border':1,'align':'center','valign':'vcenter'})
-                center_format = workbook.add_format({'align':'center','valign':'vcenter','border':1})
-                left_format = workbook.add_format({'align':'left','valign':'vcenter','border':1})
-                
-                for col_num, column_title in enumerate(df_compare.columns):
-                    worksheet.write(0, col_num, column_title, header_format)
-                for i, col in enumerate(df_compare.columns):
-                    max_len = max(df_compare[col].astype(str).map(len).max(), len(col)) + 4
-                    if i == 0: worksheet.set_column(i, i, max_len, left_format)
-                    else: worksheet.set_column(i, i, max_len, center_format)
-            towrite.seek(0)
-            
-            st.download_button(
-                label="📥 XUẤT BÁO CÁO ĐỐI CHIẾU THÔNG SỐ (EXCEL PRODUCTION)", 
-                data=towrite, 
-                file_name=f"PPJ_Spec_Comparison_Premium.xlsx", 
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
-
-
-
-# =============================================================================
-# PHASE 6A: MULTI-MODAL VISUAL R&D ENGINE (INTERFACE & STORAGE CONNECT)
-# =============================================================================
-elif menu_selection == "🧵 Fabric Consumption Assistant (Cons)":
-    st.markdown('<div style="background: #1E3A8A; padding: 16px 20px; border-radius: 12px; font-size: 18px; font-weight: 700; color: #FFFFFF; box-shadow: 0 4px 12px rgba(30,58,138,0.15); margin-bottom: 24px;">🧵 PPJ INTELLIGENT FABRIC CONSUMPTION ASSISTANT (R&D CORES)</div>', unsafe_allow_html=True)
-    
-    st.markdown("""
-        <style>
-        [data-testid="stChatMessage"] { background-color: #FFFFFF !important; border: 1px solid #E2E8F0 !important; border-radius: 8px !important; }
-        [data-testid="stChatMessage"] p { color: #1E293B !important; font-size: 14px !important; font-weight: 500 !important; }
-        .db-photo-box { border: 1px solid #CBD5E1; border-radius: 8px; padding: 6px; background-color: #F8FAFC; text-align: center; margin-top: 10px; }
-        </style>
-    """, unsafe_allow_html=True)
-    
-    control_col1, control_col2 = st.columns([3.2, 0.8])
-    with control_col1:
-        st.markdown("<p style='font-weight:700; font-size:13px; color:#1E293B;'>📁 INGEST NEW STYLE BATCH REPRINTS</p>", unsafe_allow_html=True)
-        chat_file = st.file_uploader("Upload Techpack file", type=["pdf", "jpg", "jpeg", "png"], key="chat_uploader", label_visibility="collapsed")
-        if chat_file: st.success(f"📎 DATASTREAM PIPELINE BOUND: Tiếp nhận thành công file {chat_file.name}")
-            
-    with control_col2:
-        st.markdown("<p style='font-weight:700; font-size:13px; color:#1E293B;'>🧹 PURGE LAB MEMORY</p>", unsafe_allow_html=True)
-        if st.button("🗑️ XÓA LỊCH SỬ CHAT", use_container_width=True, type="secondary"):
-            import time
-            if "chat_history" in st.session_state: del st.session_state["chat_history"]
-            st.success("🔄 MEMORY PURGED")
-            time.sleep(0.5)
-            st.rerun()
-
-    st.markdown("<hr style='border-color:#E2E8F0; margin: 20px 0;'>", unsafe_allow_html=True)
-    
-    if "chat_history" not in st.session_state:
-        st.session_state["chat_history"] = [
-            {"role": "assistant", "type": "text", "content": "Welcome to PPJ Textile Visual R&D Engine. Hãy tải lên sơ đồ rập mã mới, hệ thống sẽ bóc tách biệt lập, tự động truy xuất hình ảnh/thông số từ kho Master DB để đối soát lập luận và tính toán định mức vải chính xác."}
-        ]
-        
-    for msg in st.session_state["chat_history"]:
-        with st.chat_message(msg["role"]):
-            st.write(msg["content"])
-            # Cơ chế dựng ảnh động lưu trong lịch sử hội thoại nếu có kết quả thị giác từ database
-            if msg.get("type") == "visual" and msg.get("image_url"):
-                st.image(msg["image_url"], caption=f"Bản vẽ Sketch lịch sử của Mã hàng {msg.get('style_title')}", width=220)
-        # =============================================================================
-    # PHASE 6B - PART 1: MULTI-PAGE TEXTILE INGESTION & MASTER DB ISOLATED LOOKUP
-    # =============================================================================
-    if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vải và đối soát sai lệch..."):
-        st.session_state["chat_history"].append({"role": "user", "type": "text", "content": user_query})
-        with st.chat_message("user"): st.write(user_query)
-            
-        with st.chat_message("assistant"):
-            with st.spinner("Hệ thống R&D Core AI đang quét kho thị giác và lập ma trận toán học..."):
-                gemini_key = get_secure_gemini_key()
-                if not gemini_key: 
-                    ans = "CRITICAL SERVER BREAKDOWN: AI API Token is missing."
-                else:
-                    try:
-                        client = genai.Client(api_key=gemini_key)
-                        contents_payload = []
-                        new_style_id_detected = "UNKNOWN_STYLE"
-                        new_style_raw_text = ""
-                        
-                        # 1. BÓC TÁCH MÃ MỚI TỪ FILE PDF/IMAGE (VÒNG LẶP QUÉT CẠN KIỆT ĐA TRANG)
-                        if chat_file:
-                            file_bytes = chat_file.getvalue()
-                            img_payload = []
-                            
-                            if chat_file.name.lower().endswith('.pdf'):
-                                info_chat = pdfinfo_from_bytes(file_bytes)
-                                total_chat_pages = int(info_chat.get("Pages", 1))
-                                
-                                # Chuyển đổi và nạp toàn bộ các trang PDF vào mảng hình ảnh xử lý của AI
-                                chat_images = convert_from_bytes(file_bytes, dpi=140, first_page=1, last_page=total_chat_pages)
-                                for page_img in chat_images:
-                                    img_buf = io.BytesIO()
-                                    page_img.convert("RGB").save(img_buf, format="JPEG", quality=90)
-                                    img_payload.append(types.Part.from_bytes(data=img_buf.getvalue(), mime_type='image/jpeg'))
-                                    if not contents_payload:
-                                        contents_payload.append(types.Part.from_bytes(data=img_buf.getvalue(), mime_type='image/jpeg'))
-                            else:
-                                img_payload.append(types.Part.from_bytes(data=file_bytes, mime_type='image/jpeg'))
-                                contents_payload.append(types.Part.from_bytes(data=file_bytes, mime_type='image/jpeg'))
-                            
-                            extraction_prompt = """
-                            Analyze ALL the attached technical pack (Techpack) images page by page.
-                            1. Locate and extract the genuine 'Style ID' / 'Style Number' / 'Mã hàng'.
-                            2. Locate the Specification table and extract ALL measurement positions and target values.
-                            3. Locate the Bill of Materials (BOM) section. Extract EVERY SINGLE trim, thread, zipper, button, label, elastic or accessory along with its specific description and target consumption/yield.
-                            Return a valid JSON with this exact schema:
-                            {"detected_style_id": "Text of Style ID", "all_specs_text": "Specs list and complete raw BOM text from all pages"}
-                            """
-                            img_payload.append(extraction_prompt)
-                            
-                            # Bộ chống nghẽn mạng Exponential Backoff
-                            for ext_attempt in range(3):
-                                try:
-                                    extraction_res = client.models.generate_content(model='gemini-2.5-flash', contents=img_payload, config=types.GenerateContentConfig(response_mime_type="application/json", temperature=0.0))
-                                    parsed_meta = json.loads(extraction_res.text.strip())
-                                    new_style_id_detected = parsed_meta.get("detected_style_id", "UNKNOWN_STYLE").strip()
-                                    new_style_raw_text = parsed_meta.get("all_specs_text", "")
-                                    break
-                                except Exception:
-                                    import time
-                                    time.sleep(2 * (ext_attempt + 1))
-                        
-                        if new_style_id_detected == "UNKNOWN_STYLE" or not chat_file:
-                            found_keywords = re.findall(r'[A-Za-z0-9]+[-–][A-Za-z0-9]+|[A-Za-z0-9]{4,}', user_query)
-                            if found_keywords: new_style_id_detected = found_keywords
-
-                        # 2. TRUY VẤN ĐỒNG BỘ ĐỊNH MỨC VÀ LỊCH SỬ KHO TỪ SUPABASE
-                        headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
-                        url = f"{SB_URL.rstrip('/')}/rest/v1/thong_so_techpack?StyleName=ilike.*{new_style_id_detected}*&select=StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL&limit=3"
-                        res = requests.get(url, headers=headers, timeout=15)
-                        db_results = res.json() if 200 <= res.status_code <= 299 else []
-                        
-                        db_context = f"\n\n[ KHO DỮ LIỆU THỊ GIÁC VÀ THÔNG SỐ LỊCH SỬ CHO MÃ HÀNG: {new_style_id_detected} ]:\n"
-                        detected_image_url_to_render = ""
-                        detected_style_title_to_render = ""
-                        
-                        if db_results:
-                            for item in db_results:
-                                if item.get("SketchURL") and not detected_image_url_to_render:
-                                    detected_image_url_to_render = item.get("SketchURL")
-                                    detected_style_title_to_render = item.get("StyleName")
-                                    
-                                db_context += (
-                                    f"- Mã hàng lịch sử đối chiếu: {item.get('StyleName')}\n"
-                                    f"  + Khách hàng (Buyer): {item.get('Buyer')}\n"
-                                    f"  + Cấu trúc ma trận số đo cũ: {json.dumps(item.get('DetailedMeasurements', {}), ensure_ascii=False)}\n"
-                                    f"  + Đường dẫn hình ảnh Sketch lưu kho: {item.get('SketchURL', 'Không có ảnh')}\n"
-                                )
+                    client = genai.Client(api_key=gemini_key)
+                    contents_payload = []
+                    new_style_id_detected = "UNKNOWN_STYLE"
+                    new_style_raw_text = ""
+                    
+                    if chat_file:
+                        file_bytes = chat_file.getvalue()
+                        img_payload = []
+                        if chat_file.name.lower().endswith('.pdf'):
+                            info_chat = pdfinfo_from_bytes(file_bytes)
+                            total_chat_pages = int(info_chat.get("Pages", 1))
+                            chat_images = convert_from_bytes(file_bytes, dpi=140, first_page=1, last_page=total_chat_pages)
+                            for page_img in chat_images:
+                                img_buf = io.BytesIO()
+                                page_img.convert("RGB").save(img_buf, format="JPEG", quality=90)
+                                img_payload.append(types.Part.from_bytes(data=img_buf.getvalue(), mime_type='image/jpeg'))
+                                if not contents_payload:
+                                    contents_payload.append(types.Part.from_bytes(data=img_buf.getvalue(), mime_type='image/jpeg'))
                         else:
-                            fallback_key = new_style_id_detected.split('-')[-1] if '-' in str(new_style_id_detected) else str(new_style_id_detected)[:4]
-                            backup_res = get_historical_fabric_consumption_from_db(search_keyword=fallback_key)
-                            if backup_res:
-                                db_context += f"⚠️ Không có dữ liệu cấu trúc rập trực tiếp cho mã {new_style_id_detected}. Dưới đây là dữ liệu định mức phụ trợ gốc của các mã hàng anh em trong kho để so sánh mẫu:\n"
-                                for b_item in backup_res[:4]:
-                                    db_context += f"- Mã gốc: {b_item.get('style_name')}, Nguyên liệu: {b_item.get('article_name')}, Định mức gốc: {b_item.get('consumption_value')} {b_item.get('uom')}, Ghi chú: {b_item.get('notes')}\n"
-                            else:
-                                db_context += "❌ HỆ THỐNG PHÁT HIỆN: Mã hàng này hoàn toàn mới, chưa từng tồn tại dữ liệu trùng khớp hoặc hình ảnh phác thảo tương đồng trong kho dữ liệu Master DB.\n"
-                        # =============================================================================
-                        # PHASE 6B - PART 2: UPGRADED BOM ANALYSIS PROMPT & BACKOFF RESILIENCY LAB
-                        # =============================================================================
-                        # 3. CHỈ THỊ THUẬT TOÁN ĐỌC HIỂU CẠN KIỆT BOM (UPGRADED INDUSTRIAL PROMPT)
-                        system_instruction = (
-                            "You are the Lead Technical Director and Senior R&D Data Auditor at PPJ Group.\n"
-                            "Your objective is to conduct a complete analysis of the newly uploaded Techpack, covering BOTH Fabric Specifications and the Bill of Materials (BOM).\n\n"
-                            "MANDATORY 4-STEP TECHNICAL WORKFLOW:\n"
-                            f"1. PHÂN TÍCH THÔNG TIN SƠ BỘ: Xác nhận Style ID '{new_style_id_detected}', khách hàng, dải kích cỡ và tóm tắt nhanh ma trận số đo rập mẫu.\n"
-                            f"2. ĐỐI CHIẾU DỮ LIỆU LỊCH SỬ DB: Đối soát mã '{new_style_id_detected}' với bộ dữ liệu kho được cung cấp để rút ra mã hàng tương đồng, chỉ rõ kiểu dáng, nguyên liệu và định mức tiêu thụ vật tư gốc.\n"
-                            "3. LẬP LUẬN TÍNH ĐỊNH MỨC VẢI CHÍNH (MAIN FABRIC): So sánh chi tiết sai lệch kích thước hình học (Delta Spec) giữa mã mới và mã tương đồng. "
-                            "Ứng dụng lập luận kỹ thuật dệt may để điều chỉnh tăng/giảm định mức vải tiêu thụ cuối cùng (kèm hệ số hao hụt cắt xưởng 15%), đưa ra kết quả Cons Value cụ thể (YARDS/UNIT).\n"
-                            "4. BẢNG BÓC TÁCH ĐỊNH MỨC NGUYÊN PHỤ LIỆU CHI TIẾT (COMPLETE BOM BREAKDOWN): Quét toàn bộ dữ liệu phụ liệu tìm thấy từ Techpack mới. "
-                            "Bạn phải lập bảng trích xuất cạn kiệt từng hạng mục phụ liệu: Chỉ may (Sewing Thread), Nhãn mác (Main/Care Labels), Cúc (Buttons), Khóa (Zippers), Chun (Elastic), Đinh tán (Rivets), Bao bì túi đóng gói (Polybag)... "
-                            "Mỗi hạng mục phải ghi rõ: Tên phụ liệu, Mô tả chi tiết, Định mức chỉ định gốc (Target Yield) và Định mức dự kiến thực tế sau khi cộng hệ số hao hụt xưởng (ví dụ: +5% cho mác, +10% cho chỉ...). "
-                            "Nếu Techpack không có bảng BOM, bạn phải dựa vào kết cấu kiểu dáng của sản phẩm để chủ động lập một bảng BOM kỹ thuật khuyến nghị chuẩn cho dòng sản phẩm may mặc này.\n\n"
-                            "Yêu cầu kết xuất báo cáo sắc bén, khoa học, trình bày bằng tiếng Việt chuyên ngành dệt may cao cấp."
-                        )
+                            img_payload.append(types.Part.from_bytes(data=file_bytes, mime_type='image/jpeg'))
+                            contents_payload.append(types.Part.from_bytes(data=file_bytes, mime_type='image/jpeg'))
                         
-                        full_prompt = f"{system_instruction}\n\nYêu cầu kỹ sư: {user_query}\n\n[Thông số và dữ liệu thô từ toàn bộ trang Techpack mới]:\n{new_style_raw_text if new_style_raw_text else 'Không đính kèm file'}\n{db_context}"
-                        contents_payload.append(full_prompt)
+                        extraction_prompt = """
+                        Analyze ALL the attached technical pack images page by page.
+                        1. Locate and extract the genuine 'Style ID' / 'Style Number' / 'Mã hàng'.
+                        2. Locate the Specification table and extract ALL measurement positions and target values.
+                        3. Locate the Bill of Materials (BOM) section. Extract EVERY SINGLE trim, thread, zipper, button, label, elastic or accessory along with its specific description and target consumption/yield.
+                        Return a valid JSON with this exact schema:
+                        {"detected_style_id": "Text of Style ID", "all_specs_text": "Specs list and complete raw BOM text from all pages"}
+                        """
+                        img_payload.append(extraction_prompt)
                         
-                        # Bộ xử lý Lũy tiến Backoff chống nghẽn 503 / Quota 429 hoàn toàn [Thử tối đa 5 lần]
-                        ans = ""
-                        for attempt in range(5):
+                        for ext_attempt in range(3):
                             try:
-                                response = client.models.generate_content(model='gemini-2.5-flash', contents=contents_payload)
-                                ans = response.text
+                                extraction_res = client.models.generate_content(model='gemini-2.5-flash', contents=img_payload, config=types.GenerateContentConfig(response_mime_type="application/json", temperature=0.0))
+                                parsed_meta = json.loads(extraction_res.text.strip())
+                                new_style_id_detected = parsed_meta.get("detected_style_id", "UNKNOWN_STYLE").strip()
+                                new_style_raw_text = parsed_meta.get("all_specs_text", "")
                                 break
-                            except Exception as e:
-                                if "503" in str(e) or "UNAVAILABLE" in str(e) or "429" in str(e) or "EXHAUSTED" in str(e):
-                                    if attempt < 4:
-                                        import time
-                                        time.sleep(3 * (attempt + 1))
-                                        continue
-                                raise e
-                                
-                        st.write(ans)
-                        st.session_state["chat_history"].append({"role": "assistant", "type": "text", "content": ans})
-                        
-                        # Nếu phát hiện ra đường dẫn hình ảnh lưu kho từ Supabase, hiển thị trực quan lên khung chat
-                        if detected_image_url_to_render:
-                            st.image(detected_image_url_to_render, caption=f"Bản vẽ Sketch lịch sử đối chiếu của Mã hàng {detected_style_title_to_render}", width=220)
-                            st.session_state["chat_history"].append({
-                                "role": "assistant", 
-                                "type": "visual", 
-                                "content": f"[Hệ thống đã kết xuất hình ảnh tham chiếu của mã {detected_style_title_to_render} từ database lên màn hình]",
-                                "image_url": detected_image_url_to_render,
-                                "style_title": detected_style_title_to_render
-                            })
-                                
-                    except Exception as e: 
-                        ans = f"⚠️ Máy chủ AI bận xử lý ma trận BOM lớn. Vui lòng thử lại sau vài giây! Chi tiết: {str(e)}"
-                        st.write(ans)
-                        st.session_state["chat_history"].append({"role": "assistant", "type": "text", "content": ans})
+                            except Exception:
+                                import time
+                                time.sleep(2 * (ext_attempt + 1))
+                    
+                    if new_style_id_detected == "UNKNOWN_STYLE" or not chat_file:
+                        found_keywords = re.findall(r'[A-Za-z0-9]+[-–][A-Za-z0-9]+|[A-Za-z0-9]{4,}', user_query)
+                        if found_keywords: new_style_id_detected = found_keywords
+
+                    headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
+                    url = f"{SB_URL.rstrip('/')}/rest/v1/thong_so_techpack?StyleName=ilike.*{new_style_id_detected}*&select=StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL&limit=3"
+                    res = requests.get(url, headers=headers, timeout=15)
+                    db_results = res.json() if 200 <= res.status_code <= 299 else []
+                    
+                    db_context = f"\n\n[ KHO DỮ LIỆU THỊ GIÁC VÀ THÔNG SỐ LỊCH SỬ CHO MÃ HÀNG: {new_style_id_detected} ]:\n"
+                    detected_image_url_to_render = ""
+                    detected_style_title_to_render = ""
+                    
+                    if db_results:
+                        for item in db_results:
+                            if item.get("SketchURL") and not detected_image_url_to_render:
+                                detected_image_url_to_render = item.get("SketchURL")
+                                detected_style_title_to_render = item.get("StyleName")
+                            db_context += f"- Mã hàng lịch sử đối chiếu: {item.get('StyleName')}\n  + Khách hàng (Buyer): {item.get('Buyer')}\n  + Cấu trúc ma trận số đo cũ: {json.dumps(item.get('DetailedMeasurements', {}), ensure_ascii=False)}\n  + Đường dẫn hình ảnh Sketch lưu kho: {item.get('SketchURL', 'Không có ảnh')}\n"
+                    else:
+                        fallback_key = new_style_id_detected.split('-')[-1] if '-' in str(new_style_id_detected) else str(new_style_id_detected)[:4]
+                        backup_res = get_historical_fabric_consumption_from_db(search_keyword=fallback_key)
+                        if backup_res:
+                            db_context += f"⚠️ Không có dữ liệu cấu trúc rập trực tiếp cho mã {new_style_id_detected}. Dưới đây là dữ liệu định mức phụ trợ gốc của các mã hàng anh em trong kho để so sánh mẫu:\n"
+                            for b_item in backup_res[:4]:
+                                db_context += f"- Mã gốc: {b_item.get('style_name')}, Nguyên liệu: {b_item.get('article_name')}, Định mức gốc: {b_item.get('consumption_value')} {b_item.get('uom')}, Ghi chú: {b_item.get('notes')}\n"
+                        else:
+                            db_context += "❌ HỆ THỐNG PHÁT HIỆN: Mã hàng này hoàn toàn mới, chưa từng tồn tại dữ liệu trùng khớp hoặc hình ảnh phác thảo tương đồng trong kho dữ liệu Master DB.\n"
+                    # Chỉ thị thuật toán phân tích kết hợp Spec toán học và bóc tách cấu trúc BOM
+                    system_instruction = (
+                        "You are the Lead Technical Director and Senior R&D Data Auditor at PPJ Group.\n"
+                        "Your objective is to conduct a complete analysis of the newly uploaded Techpack, covering BOTH Fabric Specifications and the Bill of Materials (BOM).\n\n"
+                        "MANDATORY 4-STEP TECHNICAL WORKFLOW:\n"
+                        "1. PHÂN TÍCH THÔNG TIN SƠ BỘ: Xác nhận Style ID, khách hàng, dải kích cỡ và tóm tắt nhanh ma trận số đo rập mẫu.\n"
+                        "2. ĐỐI CHIẾU DỮ LIỆU LỊCH SỬ DB: Đối soát mã với bộ dữ liệu kho được cung cấp để rút ra mã hàng tương đồng.\n"
+                        "3. LẬP LUẬN TÍNH ĐỊNH MỨC VẢI CHÍNH (MAIN FABRIC): So sánh chi tiết sai lệch kích thước hình học (Delta Spec) giữa mã mới và mã tương đồng. Điều chỉnh tăng/giảm định mức vải tiêu thụ cuối cùng kèm hệ số hao hụt cắt xưởng 15%, đưa ra kết quả Cons Value cụ thể (YARDS/UNIT).\n"
+                        "4. BẢNG BÓC TÁCH ĐỊNH MỨC NGUYÊN PHỤ LIỆU CHI TIẾT (COMPLETE BOM BREAKDOWN): Quét toàn bộ dữ liệu phụ liệu tìm thấy từ Techpack mới. Bạn phải lập bảng trích xuất cạn kiệt từng hạng mục phụ liệu: Chỉ may, Nhãn mác, Cúc, Khóa, Chun... Mỗi hạng mục phải ghi rõ: Tên phụ liệu, Mô tả chi tiết, Định mức chỉ định gốc và Định mức dự kiến thực tế sau khi cộng hệ số hao hụt xưởng. Nếu Techpack không có bảng BOM, bạn phải dựa vào kết cấu kiểu dáng của sản phẩm để chủ động lập một bảng BOM kỹ thuật khuyến nghị chuẩn.\n\n"
+                        "Yêu cầu kết xuất báo cáo sắc bén, khoa học, trình bày bằng tiếng Việt chuyên ngành dệt may cao cấp."
+                    )
+                    
+                    full_prompt = f"{system_instruction}\n\nYêu cầu kỹ sư: {user_query}\n\n[Thông số và dữ liệu thô từ toàn bộ trang Techpack mới]:\n{new_style_raw_text if new_style_raw_text else 'Không đính kèm file'}\n{db_context}"
+                    contents_payload.append(full_prompt)
+                    
+                    # Bộ bẫy lỗi lũy tiến Backoff 5 lần tránh sập mạng
+                    ans = ""
+                    for attempt in range(5):
+                        try:
+                            response = client.models.generate_content(model='gemini-2.5-flash', contents=contents_payload)
+                            ans = response.text
+                            break
+                        except Exception as e:
+                            if "503" in str(e) or "UNAVAILABLE" in str(e) or "429" in str(e) or "EXHAUSTED" in str(e):
+                                if attempt < 4:
+                                    import time
+                                    time.sleep(3 * (attempt + 1))
+                                    continue
+                            raise e
+                            
+                    st.write(ans)
+                    st.session_state["chat_history"].append({"role": "assistant", "type": "text", "content": ans})
+                    
+                    if detected_image_url_to_render:
+                        st.image(detected_image_url_to_render, caption=f"Bản vẽ Sketch lịch sử đối chiếu của Mã hàng {detected_style_title_to_render}", width=220)
+                        st.session_state["chat_history"].append({"role": "assistant", "type": "visual", "content": f"[Hệ thống đã kết xuất hình ảnh tham chiếu]", "image_url": detected_image_url_to_render, "style_title": detected_style_title_to_render})
+                            
+                except Exception as e: 
+                    ans = f"⚠️ Máy chủ AI bận hoặc đạt giới hạn (15 lần/phút) khi xử lý ma trận BOM lớn. Vui lòng bấm thử lại sau 15-30 giây! Chi tiết: {str(e)}"
+                    st.write(ans)
+                    st.session_state["chat_history"].append({"role": "assistant", "type": "text", "content": ans})
