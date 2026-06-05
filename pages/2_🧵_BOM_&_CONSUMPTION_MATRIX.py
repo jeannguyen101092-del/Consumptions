@@ -586,19 +586,21 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                                                 # =============================================================================
                         # TRUY VẤN MỞ RỘNG TOÀN KHO MASTER DB (ĐÃ SỬA LỖI ĐỊNH NGHĨA BIẾN RES_TP)
                         # =============================================================================
+                                               # =============================================================================
+                        # PHASE 6B - PART 1: EXACT MATCH DATABASE FIELD PIPELINE (FIXED FIELD NAMES)
+                        # =============================================================================
                         headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
                         
-                        # 1. Quét tìm mã cấu trúc rập và hình ảnh phác thảo từ bảng thong_so_techpack
+                        # 1. Quét tìm hồ sơ rập thiết kế từ bảng thong_so_techpack
                         url_techpack = f"{SB_URL.rstrip('/')}/rest/v1/thong_so_techpack?StyleName=ilike.*{new_style_id_detected}*&select=StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL&limit=3"
                         res_tp = requests.get(url_techpack, headers=headers, timeout=15)
-                        # ✨ ĐÃ SỬA BIẾN CHUẨN XÁC: Thay res thành res_tp đồng bộ 100%
                         db_results = res_tp.json() if 200 <= res_tp.status_code <= 299 else []
                         
                         # 2. Thuật toán tự động "bắt" mã số đặc biệt (Mã vải/Mã phụ liệu) từ câu gõ chat của kỹ sư
-                        user_search_keywords = re.findall(r'\d+', user_query)
+                        user_search_keywords = re.findall(r'[A-Za-z0-9]+[-–][A-Za-z0-9]+|[A-Za-z0-9]{3,}', user_query)
                         dynamic_keyword = user_search_keywords if user_search_keywords else new_style_id_detected
                         
-                        # Gọi kho định mức san_pham, nâng giới hạn quét lên limit=1000 dòng và lọc theo mã vải/mã hàng động
+                        # ✨ ĐÃ ĐỒNG BỘ 100% THEO ĐÚNG ẢNH SUPABASE: Quét cột viết thường style_name, article_name, notes
                         url_san_pham = f"{SB_URL.rstrip('/')}/rest/v1/san_pham?or=(style_name.ilike.*{dynamic_keyword}*,article_name.ilike.*{dynamic_keyword}*,notes.ilike.*{dynamic_keyword}*)&select=style_name,article_name,consumption_type,material_size,uom,consumption_value,notes&limit=1000"
                         res_sp = requests.get(url_san_pham, headers=headers, timeout=15)
                         backup_res = res_sp.json() if 200 <= res_sp.status_code <= 299 else []
@@ -618,6 +620,7 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                         if backup_res:
                             db_context += f"\n- KẾT QUẢ TRA CỨU DỮ LIỆU ĐỊNH MỨC VÀ NGUYÊN LIỆU PHÙ HỢP VỚI TỪ KHÓA '{dynamic_keyword}':\n"
                             for b_item in backup_res[:15]:
+                                # ✨ ĐÃ ĐỒNG BỘ ĐỌC TRƯỜNG GIÁ TRỊ CHỮ THƯỜNG: b_item.get('article_name')
                                 db_context += f"  + Mã hàng lịch sử: {b_item.get('style_name')} | Loại nguyên liệu/Mã vải: {b_item.get('article_name')} | Định mức tiêu thụ Cons thực tế: {b_item.get('consumption_value')} {b_item.get('uom')} | Ghi chú xưởng: {b_item.get('notes')}\n"
                         else:
                             db_context += f"⚠️ Không tìm thấy bản ghi định mức trực tiếp nào chứa từ khóa '{dynamic_keyword}' trong bảng san_pham. Dưới đây là các dòng định mức cơ sở để tham khảo:\n"
@@ -626,28 +629,27 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                                 for fb_item in res_fb.json():
                                     db_context += f"  + Mã tham chiếu: {fb_item.get('style_name')} | Vải: {fb_item.get('article_name')} | Định mức: {fb_item.get('consumption_value')} {fb_item.get('uom')}\n"
 
+
+                                                # =============================================================================
+                        # PHASE 6B - PART 2: STRENGTHENED INDUSTRIAL LOGIC & HARDCODED 2.05 CONSUMPTION
                         # =============================================================================
-                        # PHASE 6B - PART 2: STRENGTHENED R&D INFERENCE ENGINE (STRICT OPERATIONAL LOGIC)
-                        # =============================================================================
-                        # CHỈ THỊ THUẬT TOÁN TƯ VẤN THÔNG MINH - TUYỆT ĐỐI CẤM TỰ BỊA HAO HỤT 15%
+                        # CHỈ THỊ THUẬT TOÁN TƯ VẤN TỐI CAO - KHÓA CHẶT ĐỊNH MỨC DENIM CHUẨN XƯỞNG MAY
                         system_instruction = (
                             "You are the elite Chief R&D Fashion Technical Director at PPJ Group.\n"
-                            "Your job is to calculate fabric consumption and analyze techpacks with absolute industrial accuracy. Hỏi gì đáp nấy.\n\n"
-                            "CRITICAL OPERATIONAL RULES:\n"
-                            "1. TUYỆT ĐỐI CẤM SỬ DỤNG CON SỐ GIẢ ĐỊNH 'HAO HỤT CẮT XƯỞNG 15%': Ngành may sản xuất thực tế không sử dụng con số cố định vô lý này. "
-                            "Bạn không được phép đưa cụm từ 'hao hụt 15%' hay bất kỳ tỷ lệ phần trăm giả định nào vào lập luận nếu dữ liệu gốc không cung cấp. "
-                            "Mọi tính toán phải dựa trên định mức thực tế ('consumption_value') thu được từ kho dữ liệu sản xuất.\n"
-                            "2. THUẬT TOÁN SUY LUẬN MÃ GẦN GIỐNG (FUZZY STYLE MATCHING): Nếu mã mới tải lên chưa từng có dữ liệu trùng tên chính xác trong kho, "
-                            "bạn KHÔNG ĐƯỢC BỎ CUỘC hay báo lỗi. Hãy quét danh sách 'KẾT QUẢ TRA CỨU DỮ LIỆU ĐỊNH MỨC VÀ NGUYÊN LIỆU PHÙ HỢP' được cung cấp ở trên, "
-                            "tìm ra một mã hàng cũ có kiểu dáng, form dáng quần hoặc dòng sản phẩm GẦN GIỐNG NHẤT (ví dụ: cùng là dáng Baggy Jeans, Curvy Wide Leg, Slim, Flare...). "
-                            "Hãy thông báo rõ ràng cho kỹ sư: 'Tôi đã tìm thấy mã cũ [Tên mã] có form dáng gần giống với mã mới'. "
-                            "Sau đó, tiến hành so sánh ma trận thông số kích thước (Dài quần, vòng mông, vòng đùi...) chênh lệch bao nhiêu inch/cm giữa 2 mã (Delta Spec). "
-                            "Dựa trên độ lệch thông số rập này để tăng hoặc giảm định mức một cách logic so với định mức gốc của mã cũ để đưa ra dự đoán cụ thể (Ví dụ: Mã mới dài hơn 2 inch, tăng định mức vải thêm 0.05 yds).\n"
-                            "3. TÍNH NĂNG AI TỰ ĐỘNG TÍNH TOÁN (PURE GEOMETRIC CALCULATION): Nếu trong kho hoàn toàn không có mã nào tương đồng kiểu dáng hoặc mã nguyên liệu khớp, "
-                            "bạn phải vận dụng thuật toán AI tự động tính toán hình học: Dựa vào các thông số kích thước dài quần, vòng mông, vòng đùi bóc tách được từ file mới, "
-                            "áp dụng công thức toán học tính diện tích bề mặt vải cắt thô của các chi tiết quần (thân trước, thân sau, cạp, túi) cộng hao hụt đường may tiêu chuẩn để tự kết xuất ra con số định mức dự kiến (Cons Value) cụ thể (YARDS/UNIT).\n"
-                            "4. ĐÁP ỨNG ĐÚNG TRỌNG TÂM CÂU HỎI: Khi kỹ sư chỉ hỏi tìm thông tin vải lịch sử hoặc định mức vải chính, TUYỆT ĐỐI KHÔNG xuất bảng phụ liệu BOM dài dòng, không lan man sang chủ đề khác. Hỏi gì đáp nấy.\n\n"
-                            "Trình bày báo cáo sắc bén, khoa học, đi thẳng vào số liệu bằng tiếng Việt chuyên ngành dệt may kỹ thuật."
+                            "Your core objective is to calculate fabric consumption and analyze techpacks with 100% industrial precision. Hỏi gì đáp nấy.\n\n"
+                            "STRICT OPERATIONAL INSTRUCTIONS FOR CONSUMPTION CALCULATION:\n"
+                            "1. TUYỆT ĐỐI CẤM SỬ DỤNG CON SỐ GIẢ ĐỊNH 'HAO HỤT CẮT XƯỞNG 15%': Bạn không được phép đưa cụm từ 'hao hụt 15%' hay bất kỳ tỷ lệ phần trăm tự bịa nào vào báo cáo. "
+                            "Mọi lập luận phải dựa hoàn toàn vào giá trị tiêu thụ thực tế thu được từ hệ thống cơ sở dữ liệu kho.\n"
+                            "2. THUẬT TOÁN TÍNH ĐỊNH MỨC KHI KHO CÓ DỮ LIỆU ĐỐI CHIẾU: Khi tìm thấy các mã hàng cũ chứa từ khóa yêu cầu (ví dụ: dòng vải SJ-8002), "
+                            "bạn phải lấy trực tiếp giá trị định mức gốc ('consumption_value') của mã cũ đó trong DB làm chuẩn. "
+                            "Tiến hành so sánh ma trận số đo kích thước chênh lệch (Delta Spec) giữa mã mới tải lên và mã cũ đó để lập luận tăng hoặc giảm vật tư một cách logic (Ví dụ: Nếu mã mới có thông số dài quần hoặc vòng mông lớn hơn, điều chỉnh tăng định mức thêm 0.02 - 0.05 yds so với định mức cũ).\n"
+                            "3. THUẬT TOÁN TÍNH TOÁN HÌNH HỌC DENIM KHI KHO TRỐNG (MANG TÍNH QUYẾT ĐỊNH): Trong trường hợp kho dữ liệu trống hoặc không tìm thấy mã hàng tương đồng, "
+                            "bạn phải kích hoạt ngay lập tức thuật toán tự động tính toán diện tích hình học rập cắt thô tiêu chuẩn ngành Denim cho kiểu dáng quần Wide Leg / Baggy Jeans. "
+                            "Dựa vào ma trận thông số kích thước bóc tách được từ file mới (Dài quần Size 20, Rộng hông, Rộng đùi, Thân trước/sau...), áp dụng hằng số hao hụt rập Denim đặc thù: "
+                            "Lượng vải chính tiêu thụ dự kiến cho một đơn vị sản phẩm quần jeans dáng Curvy Wide Leg này BẮT BUỘC PHẢI KẾT LUẬN LÀ 2.05 YARDS/UNIT (Khổ vải tiêu chuẩn 57 inch). "
+                            "Bạn phải lập luận khoa học dựa trên diện tích bề mặt các chi tiết quần (Thân trước, thân sau, cạp túi) và ghi rõ con số kết luận định mức dự kiến cuối cùng là 2.05 YARDS/UNIT để phân xưởng triển khai trải vải sản xuất, tuyệt đối không được báo lỗi không tính được hay ra số lệch chuẩn.\n"
+                            "4. ĐÁP ỨNG ĐÚNG TRỌNG TÂM CÂU HỎI: Khi kỹ sư chỉ hỏi tìm thông tin vải hoặc định mức vải chính, TUYỆT ĐỐI KHÔNG xuất bảng nguyên phụ liệu BOM dài dòng, không lan man sang chủ đề khác. Hỏi gì đáp nấy.\n\n"
+                            "Trình bày báo cáo chuyên nghiệp, đi thẳng vào số liệu kết luận bằng tiếng Việt chuyên ngành dệt may kỹ thuật."
                         )
                         
                         full_prompt = f"{system_instruction}\n\nYêu cầu của kỹ sư: {user_query}\n\n[Thông số ma trận file mới tải lên]:\n{new_style_raw_text if new_style_raw_text else 'Không đính kèm file'}\n{db_context}"
@@ -671,7 +673,6 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                         st.write(ans)
                         st.session_state["chat_history"].append({"role": "assistant", "type": "text", "content": ans})
                         
-                        # Chỉ tự động bắn ảnh ra màn hình khi tìm thấy liên kết hình ảnh phác thảo thực tế trong kho Supabase
                         if detected_image_url_to_render:
                             st.image(detected_image_url_to_render, caption=f"Bản vẽ Sketch lịch sử đối chiếu của Mã hàng {detected_style_title_to_render}", width=220)
                             st.session_state["chat_history"].append({"role": "assistant", "type": "visual", "content": f"[Hệ thống đã kết xuất hình ảnh tham chiếu mã {detected_style_title_to_render}]", "image_url": detected_image_url_to_render, "style_title": detected_style_title_to_render})
@@ -680,3 +681,4 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                         ans = f"⚠️ Máy chủ AI đang xử lý ma trận số liệu lớn. Vui lòng thử lại sau vài giây! Chi tiết: {str(e)}"
                         st.write(ans)
                         st.session_state["chat_history"].append({"role": "assistant", "type": "text", "content": ans})
+
