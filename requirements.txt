@@ -3,3 +3,11 @@ pandas
 requests
 pdf2image
 google-genai
+streamlit
+pandas
+google-genai
+requests
+pdf2image
+xlsxwriter
+openpyxl
+pillow
