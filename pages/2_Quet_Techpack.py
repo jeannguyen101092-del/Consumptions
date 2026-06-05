@@ -305,7 +305,7 @@ if menu_selection == "📊 Quét Techpack Document":
 
 
 # -----------------------------------------------------------------------------
-# CHỨC NĂNG 2: ĐỐI CHIẾU SO SÁNH HAI MÃ RẬP KHÁC NHAU (BẢNG SAO SÀNG CARD SIÊU CẤP)
+# CHỨC NĂNG 2 (TIẾP THEO): ĐỐI CHIẾU SO SÁNH HAI MÃ RẬP KHÁC NHAU (RÊN BẢNG HTML CHUẨN)
 # -----------------------------------------------------------------------------
 elif menu_selection == "🔄 Pattern Spec Comparison":
     st.markdown("""<div class="tech-card"><div class="tech-header">🔄 CHỨC NĂNG ĐỐI CHIẾU SỐ ĐO & PHÂN TÍCH SAI LỆCH (DELTA SPEC)</div></div>""", unsafe_allow_html=True)
@@ -360,19 +360,10 @@ elif menu_selection == "🔄 Pattern Spec Comparison":
 
             all_poms = set(list(d1["measurements"].keys()) + list(d2["measurements"].keys()))
             
-            # Khởi tạo bảng HTML cao cấp có hiệu ứng đổ màu sai lệch Delta
-            table_html = f"""
-            <div class="cyber-table-wrapper">
-                <table class="cyber-table">
-                    <tr>
-                        <th>Vị trí đo (POM Description)</th>
-                        <th>{col_title_a}</th>
-                        <th>{col_title_b}</th>
-                        <th style="text-align:center; width:140px;">Sai lệch (Delta)</th>
-                    </tr>
-            """
-            
+            # ✨ SỬA CÚ PHÁP KHỞI TẠO CHUỖI HTML HOÀN CHỈNH: Tránh rò rỉ mã thô
+            table_body_html = ""
             compare_rows_for_df = []
+            
             for pom in sorted(all_poms):
                 val1 = d1["measurements"].get(pom, "N/A")
                 val2 = d2["measurements"].get(pom, "N/A")
@@ -382,7 +373,6 @@ elif menu_selection == "🔄 Pattern Spec Comparison":
                 delta = round(num2 - num1, 3) if val1 != "N/A" and val2 != "N/A" else 0.0
                 compare_rows_for_df.append({"Vị trí đo (POM)": pom, col_title_a: val1, col_title_b: val2, "Sai lệch (Delta)": delta})
                 
-                # Biện pháp render HTML gán class CSS màu cảnh báo
                 if delta > 0:
                     delta_td = f'<td style="text-align:center;"><span class="delta-positive">+{delta}</span></td>'
                 elif delta < 0:
@@ -390,7 +380,7 @@ elif menu_selection == "🔄 Pattern Spec Comparison":
                 else:
                     delta_td = f'<td style="text-align:center; color:#94A3B8;"><span class="delta-zero">0</span></td>'
                 
-                table_html += f"""
+                table_body_html += f"""
                     <tr>
                         <td style="font-weight:600; color:#1E293B;">{pom}</td>
                         <td>{val1}</td>
@@ -398,13 +388,31 @@ elif menu_selection == "🔄 Pattern Spec Comparison":
                         {delta_td}
                     </tr>
                 """
-            table_html += "</table></div>"
             
-            # Hiển thị bảng Cyber Matrix lên Streamlit
-            st.markdown(table_html, unsafe_allow_html=True)
+            # ✨ ĐÓNG GÓI CHUỖI HTML THÀNH MỘT KHỐI THỐNG NHẤT TRƯỚC KHI RENDER
+            full_table_render = f"""
+            <div class="cyber-table-wrapper">
+                <table class="cyber-table">
+                    <thead>
+                        <tr>
+                            <th>Vị trí đo (POM Description)</th>
+                            <th>{col_title_a}</th>
+                            <th>{col_title_b}</th>
+                            <th style="text-align:center; width:140px;">Sai lệch (Delta)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {table_body_html}
+                    </tbody>
+                </table>
+            </div>
+            """
+            
+            # Đẩy HTML ra màn hình Streamlit an toàn 100%
+            st.markdown(full_table_render, unsafe_allow_html=True)
             st.markdown("<br>", unsafe_allow_html=True)
             
-            # Xử lý xuất File Excel chuẩn qua xlsxwriter giữ nguyên logic gốc
+            # Xử lý xuất báo cáo Excel nâng cao qua xlsxwriter
             df_compare = pd.DataFrame(compare_rows_for_df)
             towrite = io.BytesIO()
             with pd.ExcelWriter(towrite, engine='xlsxwriter') as writer: 
@@ -429,6 +437,7 @@ elif menu_selection == "🔄 Pattern Spec Comparison":
                 file_name=f"PPJ_Spec_Comparison_Premium.xlsx", 
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
+
 
 # CHỨC NĂNG 3: TRỢ LÝ ĐỊNH MỨC VẢI THÔNG MINH (BÓC TÁCH MÃ MỚI -> QUÉT KHO TƯƠNG ĐỒNG -> TỰ ĐỘNG TÍNH ĐỊNH MỨC THEO DELTA SPEC)
 elif menu_selection == "🧵 Fabric Consumption Assistant (Cons)":
