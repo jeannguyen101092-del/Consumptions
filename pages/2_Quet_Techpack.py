@@ -178,38 +178,73 @@ def generate_real_gemini_chat_response(user_query, attached_file):
         gemini_key = get_secure_gemini_key()
         ai_contents_payload = []
         pdf_context = "Không có tệp phụ trợ đính kèm."
+        search_keyword = None
 
+        # 1. Tự động bóc tách từ khóa mã hàng từ tên file phụ trợ tải lên
         if attached_file:
+            file_name = attached_file.name
+            # Trích xuất chuỗi ký tự/mã số đứng đầu file làm từ khóa tìm kiếm (Ví dụ: S6BT065 -> S6BT065)
+            clean_name = re.sub(r'[^a-zA-Z0-9_-]', ' ', file_name)
+            name_parts = clean_name.split()
+            if name_parts:
+                # Lấy phần tử đầu tiên hoặc phần tử dài nhất thường chứa mã hàng
+                search_keyword = max(name_parts, key=len)
+                
             file_bytes = attached_file.getvalue()
             if attached_file.name.lower().endswith('.pdf'):
                 try:
-                    pdf_images = convert_from_bytes(file_bytes, dpi=140, first_page=1, last_page=min(3, int(pdfinfo_from_bytes(file_bytes).get("Pages", 1))))
+                    pdf_images = convert_from_bytes(file_bytes, dpi=140, first_page=1, last_page=min(2, int(pdfinfo_from_bytes(file_bytes).get("Pages", 1))))
                     for img_obj in pdf_images:
                         img_buf = io.BytesIO()
                         img_obj.convert("RGB").save(img_buf, format="JPEG", quality=90)
                         ai_contents_payload.append(types.Part.from_bytes(data=img_buf.getvalue(), mime_type='image/jpeg'))
-                    pdf_context = f"[Tài liệu Techpack mới đính kèm: AI đã quét ảnh cấu trúc bản vẽ rập phom dáng và bảng thông số POM của file {attached_file.name}]"
+                    pdf_context = f"[Tài liệu Techpack mới đính kèm: AI đã quét ảnh sơ đồ cấu trúc bản vẽ rập phom dáng mã {search_keyword}]"
                 except Exception: pass
             elif attached_file.name.lower().endswith(('.png', '.jpg', '.jpeg')):
                 ai_contents_payload.append(types.Part.from_bytes(data=file_bytes, mime_type='image/jpeg'))
-                pdf_context = f"[Hình ảnh đính kèm: Đã nạp ảnh cấu trúc bản vẽ mã mới {attached_file.name}]"
+                pdf_context = f"[Hình ảnh đính kèm: Đã nạp ảnh cấu trúc bản vẽ mã mới {search_keyword}]"
 
-        db_data = get_historical_fabric_consumption_from_db()
-        warehouse_context = f"\n[KHO DỮ LIỆU ĐỊNH MỨC THỰC TẾ TRONG SUPABASE]: {json.dumps(db_data, ensure_ascii=False)}"
+        # Nếu không có file đính kèm, cố gắng tìm kiếm từ khóa mã hàng nằm trong câu gõ chat của kỹ sư
+        if not search_keyword and user_query:
+            clean_query = re.sub(r'[^a-zA-Z0-9_-]', ' ', user_query)
+            query_parts = clean_query.split()
+            # Lấy chuỗi ký tự có độ dài từ 4 ký tự trở lên (thường là mã hàng)
+            long_parts = [p for p in query_parts if len(p) >= 4]
+            if long_parts:
+                search_keyword = long_parts[0]
 
+        # 2. TRUY XUẤT KHO THÔNG SỐ ĐO RẬP LỊCH SỬ
+        db_spec_data = get_all_historical_styles_from_db()
+        spec_context = f"\n[KHO LỊCH SỬ THÔNG SỐ ĐO RẬP BLUEPRINT (BẢNG thong_so_techpack)]:\n{json.dumps(db_spec_data, ensure_ascii=False)}"
+
+        # 3. ✨ ĐÃ SỬA: Ép truyền từ khóa tìm kiếm để Supabase trả về chính xác dòng dữ liệu thật, gạt bỏ lỗi trả về mảng rỗng []
+        db_consumption_data = get_historical_fabric_consumption_from_db(search_keyword)
+        
+        # Cơ chế dự phòng cứu hộ: Nếu truyền từ khóa hẹp không ra kết quả, gọi diện rộng để lấy dữ liệu làm căn cứ tính toán
+        if not db_consumption_data:
+            db_consumption_data = get_historical_fabric_consumption_from_db(None)
+            
+        consumption_context = f"\n[KHO ĐỊNH MỨC NGUYÊN PHỤ LIỆU THỰC TẾ (BẢNG san_pham)]:\n{json.dumps(db_consumption_data, ensure_ascii=False)}"
+
+        # 4. CHỈ THỊ NGHIỆP VỤ ĐỊNH MỨC MAY MẶC CHẶT CHẼ
         system_instruction = f"""
         Bạn là một Chuyên viên tính toán Định mức nguyên phụ liệu dệt may thực thụ thuộc phòng Kỹ thuật PPJ Group.
-        Tài liệu Techpack mã hàng mới gửi lên: {pdf_context}.
-        Kho dữ liệu định mức thực tế lưu trong kho Supabase của xưởng: {warehouse_context}.
+        Từ khóa mã hàng được hệ thống xác định: {search_keyword or 'Chưa xác định'}.
+        Tài liệu Techpack mới người dùng tải lên cần phân tích: {pdf_context}.
         
-        Nhiệm vụ nghiêm ngặt của bạn khi xử lý câu hỏi:
-        1. [QUÉT FILE MỚI]: Phân tích ảnh sơ đồ rập dáng và bóc tách bảng thông số đo (vòng eo, mông, đùi, hạ đũi, rộng ống...) của mã mới gửi lên.
-        2. [TÌM MÃ TƯƠNG ĐỒNG]: So sánh đối chiếu phom dáng và số đo đo được với kho dữ liệu thật của xưởng may. Chỉ đích danh mã hàng cũ (style_name) nào tương đồng cấu trúc nhất.
-        3. [PHÂN TÍCH TỶ LỆ CHÊNH LỆCH %]: Phân tích chi tiết từng vị trí đo (POM) giữa mã mới và mã cũ trong kho xem lớn hơn hay nhỏ hơn bao nhiêu % ở các vị trí cốt lõi.
-        4. [TÍNH TOÁN DỰ ĐOÁN ĐM CHO MÃ MỚI]: Lấy định mức vải thật (consumption_value) của mã cũ tương đồng làm gốc, tính toán tăng hoặc giảm định mức vải/phụ liệu tương ứng theo tỷ lệ phần trăm chênh lệch rập hình học (Cộng thêm % hao hụt sản xuất thực tế tiêu chuẩn).
-        5. [KẾT LUẬN ĐƠN HÀNG]: Trình bày ma trận đối chiếu thông số và bảng định mức dự đoán (Vải chính, vải lót, mếch dựng, đơn vị YRD) rõ ràng dưới dạng bảng Markdown.
+        Dữ liệu thực tế truy xuất được từ cơ sở dữ liệu Supabase Master DB của nhà xưởng:
+        - Kho thông số đo rập dáng cũ: {spec_context}
+        - Kho định mức vật tư tiêu hao cũ: {consumption_context}
         
-        Văn phong yêu cầu: Đanh thép, chuyên nghiệp của nhân viên kỹ thuật phòng Định mức PPJ. Chỉ dùng số liệu thật từ kho được cung cấp, tuyệt đối không tự bịa số nằm ngoài bảng.
+        Nhiệm vụ nghiêm ngặt của bạn:
+        1. [QUÉT FILE MỚI]: Hãy phân tích hình ảnh sơ đồ rập, ảnh sketch sản phẩm đính kèm để bóc tách bảng thông số đo (vòng eo, mông, hạ đũi trước/sau, dài quần...) của mã hàng mới gửi lên. Nếu hình ảnh mờ không đọc được POM chi tiết, hãy lấy thông số mẫu tiêu chuẩn ngành của dòng sản phẩm quần Denim/Cargo tương ứng làm cơ sở.
+        2. [SO KHỚP TÌM MÃ TƯƠNG ĐỒNG HÌNH HỌC]: Đối chiếu ma trận thông số đo được với kho 'DetailedMeasurements' của bảng 'thong_so_techpack'. Tìm ra tên mã hàng cũ (StyleName) có độ tương đồng cấu trúc cao nhất về hình dáng.
+        3. [PHÂN TÍCH TỶ LỆ CHÊNH LỆCH %]: So sánh chi tiết từng vị trí đo (POM) giữa mã mới và mã cũ vừa tìm được. Tính toán cụ thể xem mã hàng mới lớn hơn hoặc nhỏ hơn mã cũ bao nhiêu % ở các vị trí cốt lõi (Ví dụ: Vòng mông rộng hơn bao nhiêu %, dài quần lệch bao nhiêu).
+        4. [TÍNH TOÁN DỰ ĐOÁN ĐM CHO MÃ MỚI]: Tra cứu sang kho định mức 'san_pham' để lấy chính xác các dòng định mức vật tư thật của mã tương đồng cũ đó (gồm article_name, consumption_type, material_size, consumption_value). 
+        Dựa vào tỷ lệ phần trăm chênh lệch kích thước hình học rập vừa phân tích ở bước 3, tính toán tăng hoặc giảm định mức nguyên phụ liệu tương ứng cho mã hàng mới (Cộng thêm 5% hao hụt sản xuất thực tế bàn cắt tấm tiêu chuẩn).
+        5. [KẾT LUẬN đơn hàng]: Xuất ra bảng đối chiếu dạng Markdown thể hiện rõ ma trận chênh lệch thông số rập và bảng dự đoán định mức chi tiết (Vải chính, vải lót, mếch dựng, đơn vị YRD) cho mã hàng mới này.
+        
+        Văn phong yêu cầu: Đanh thép, chuyên nghiệp của nhân viên kỹ thuật phòng Định mức PPJ. Tuyệt đối không báo kho trống hay yêu cầu người dùng nhập thủ công nếu đã có dữ liệu kho nạp vào ngữ cảnh.
         """
         ai_contents_payload.append(system_instruction)
         ai_contents_payload.append(f"Yêu cầu thực tế của kỹ sư PPJ: {user_query}")
@@ -217,7 +252,9 @@ def generate_real_gemini_chat_response(user_query, attached_file):
         client = genai.Client(api_key=gemini_key)
         response = client.models.generate_content(model='gemini-2.5-flash', contents=ai_contents_payload)
         return response.text.strip()
-    except Exception as e: return f"Lỗi truy vấn máy chủ AI xử lý định mức: {str(e)}"
+    except Exception as e:
+        return f"Lỗi truy vấn máy chủ AI xử lý định mức: {str(e)}"
+
 if "current_menu" not in st.session_state: st.session_state.current_menu = "Quét Tài Liệu Techpack"
 
 with st.sidebar:
