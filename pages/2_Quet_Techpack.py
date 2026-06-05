@@ -303,84 +303,133 @@ elif menu_selection == "🔄 Pattern Spec Comparison":
             with pd.ExcelWriter(towrite, engine='xlsxwriter') as writer: df_compare.to_excel(writer, index=False, sheet_name='Report')
             towrite.seek(0)
             st.download_button(label="📥 XUẤT BÁO CÁO ĐỐI CHIẾU THÔNG SỐ (EXCEL)", data=towrite, file_name="PPJ_Spec_Comparison.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-# CHỨC NĂNG 3: TRỢ LÝ ĐỊNH MỨC VẢI THÔNG MINH, CÓ UPLOAD FILE & ĐỐI CHIẾU KHO (ĐÃ SỬA LỖI 503)
+# CHỨC NĂNG 3: TRỢ LÝ ĐỊNH MỨC VẢI THÔNG MINH (BÓC TÁCH MÃ MỚI -> QUÉT KHO TƯƠNG ĐỒNG -> TỰ ĐỘNG TÍNH ĐỊNH MỨC THEO DELTA SPEC)
 elif menu_selection == "🧵 Fabric Consumption Assistant (Cons)":
-    st.markdown("""<div class="tech-card"><div class="tech-header">🧵 PPJ INTELLIGENT FABRIC CONSUMPTION ASSISTANT</div>
-    <p style="color: #64748B; font-size:14px; margin:0;">Hỏi đáp và tải lên tài liệu mới để AI tự động trích xuất thông số, đồng thời truy tìm các mã hàng có định mức tương đồng trong kho dữ liệu lịch sử Supabase.</p></div>""", unsafe_allow_html=True)
+    st.markdown("""<div class="tech-card"><div class="tech-header">🧵 PPJ INTELLIGENT FABRIC CONSUMPTION ASSISTANT (R&D ENGINE)</div>
+    <p style="color: #64748B; font-size:14px; margin:0;">Tải lên tài liệu Techpack mới, AI sẽ tự động bóc tách hình ảnh/thông số, truy vấn mã hàng tương đồng trong kho Supabase và lập luận toán học để tự động tính định mức vải mới.</p></div>""", unsafe_allow_html=True)
     
-    st.markdown("##### 📁 TẢI LÊN FILE SƠ ĐỒ HOẶC TECHPACK MỚI ĐỂ ĐỐI CHIẾU ĐỊNH MỨC KHO")
-    chat_file = st.file_uploader("Upload tài liệu vật tư phụ trợ tại đây", type=["pdf", "jpg", "jpeg", "png"], key="chat_uploader")
-    if chat_file: st.success(f"📎 Đã tiếp nhận thành công tài liệu: {chat_file.name}")
+    st.markdown("##### 📁 TẢI LÊN FILE TECHPACK MỚI ĐỂ AI PHÂN TÍCH & TÍNH TOÁN ĐỊNH MỨC VẢI")
+    chat_file = st.file_uploader("Upload tài liệu vật tư kỹ thuật tại đây", type=["pdf", "jpg", "jpeg", "png"], key="chat_uploader")
+    if chat_file: 
+        st.success(f"📎 Hệ thống tiếp nhận thành công tài liệu: {chat_file.name}")
     st.markdown("---")
     
     if "chat_history" not in st.session_state:
         st.session_state["chat_history"] = [
-            {"role": "assistant", "content": "Xin chào! Tôi là Trợ lý Vật tư AI của PPJ Group. Hãy nhập mã hàng hoặc tải lên bản vẽ, tôi sẽ giúp bạn trích xuất thông số định mức vật tư và đối chiếu mã hàng tương đồng trong kho!"}
+            {"role": "assistant", "content": "Xin chào! Tôi là Trợ lý Nghiên cứu & Phát triển Vật tư (R&D AI) của PPJ Group. Hãy tải sơ đồ rập/Techpack mã mới lên và ra lệnh cho tôi, tôi sẽ bóc tách dữ liệu, đối chiếu kho để tự động tính toán định mức vải chính xác cho bạn!"}
         ]
         
     for msg in st.session_state["chat_history"]:
         with st.chat_message(msg["role"]): st.write(msg["content"])
             
-    if user_query := st.chat_input("Nhập yêu cầu hỏi đáp hoặc tra cứu mã hàng tại đây..."):
+    if user_query := st.chat_input("Nhập yêu cầu (Ví dụ: Hãy tìm mã tương đồng và tính định mức cho mã mới này)..."):
         st.session_state["chat_history"].append({"role": "user", "content": user_query})
         with st.chat_message("user"): st.write(user_query)
             
         with st.chat_message("assistant"):
-            with st.spinner("AI đang giải mã văn bản và thực hiện quét kho dữ liệu lịch sử Supabase..."):
+            with st.spinner("Hệ thống R&D Core AI đang chạy chu trình phân tích, đối chiếu kho và lập ma trận toán học..."):
                 gemini_key = get_secure_gemini_key()
                 if not gemini_key: 
                     ans = "Hệ thống chưa được cấu hình khóa bảo mật GEMINI_API_KEY."
                 else:
                     try:
-                        extracted_keywords = re.findall(r'[A-Za-z0-9]+[-–][A-Za-z0-9]+|[A-Za-z0-9]{4,}', user_query)
-                        search_key = extracted_keywords if extracted_keywords else user_query
-                        db_results = get_historical_fabric_consumption_from_db(search_keyword=search_key)
-                        
-                        db_context = ""
-                        if db_results:
-                            db_context = "\n\n[DỮ LIỆU THỰC TẾ TRONG KHO SUPABASE PHÙ HỢP TÌM THẤY]:\n"
-                            for item in db_results:
-                                db_context += f"- Mã hàng: {item.get('style_name')}, Nguyên liệu: {item.get('article_name')}, Định mức thực tế: {item.get('consumption_value')} {item.get('uom')}, Ghi chú kỹ thuật: {item.get('notes')}\n"
-                        else:
-                            db_context = "\n\n[DỮ LIỆU KHO]: Không tìm thấy mã hàng nào khớp hoàn toàn trong danh sách lịch sử hiện tại. Cần tính toán định mức mới dựa trên tài liệu đính kèm."
-
                         client = genai.Client(api_key=gemini_key)
                         contents_payload = []
+                        new_style_info = {}
+                        
+                        # BƯỚC 1: Xử lý bóc tách File mã hàng mới đính kèm bằng AI (Nếu người dùng có upload file)
                         if chat_file:
                             file_bytes = chat_file.getvalue()
+                            img_payload = []
                             if chat_file.name.lower().endswith('.pdf'):
-                                images = convert_from_bytes(file_bytes, dpi=130, first_page=1, last_page=1)
+                                images = convert_from_bytes(file_bytes, dpi=140, first_page=1, last_page=1)
                                 if images:
                                     img_buf = io.BytesIO()
                                     images[0].convert("RGB").save(img_buf, format="JPEG")
-                                    contents_payload.append(types.Part.from_bytes(data=img_buf.getvalue(), mime_type='image/jpeg'))
+                                    img_payload.append(types.Part.from_bytes(data=img_buf.getvalue(), mime_type='image/jpeg'))
                             else:
+                                img_payload.append(types.Part.from_bytes(data=file_bytes, mime_type='image/jpeg'))
+                            
+                            # Ép AI bóc tách nhanh thông số file mới làm tiền đề tra cứu kho
+                            extraction_prompt = "Extract the Style ID, Buyer, Category, Base Size and EVERY measurement specification. Return raw text."
+                            img_payload.append(extraction_prompt)
+                            extraction_res = client.models.generate_content(model='gemini-2.5-flash', contents=img_payload)
+                            new_style_info["raw_text"] = extraction_res.text
+                            
+                            # Đính kèm ảnh vào luồng phản hồi cuối cùng để hiển thị trực quan
+                            if chat_file.name.lower().endswith('.pdf') and images:
+                                img_buf = io.BytesIO()
+                                images[0].convert("RGB").save(img_buf, format="JPEG")
+                                contents_payload.append(types.Part.from_bytes(data=img_buf.getvalue(), mime_type='image/jpeg'))
+                            elif not chat_file.name.lower().endswith('.pdf'):
                                 contents_payload.append(types.Part.from_bytes(data=file_bytes, mime_type='image/jpeg'))
                         
+                        # BƯỚC 2: Tự động trích xuất từ khóa từ file mới hoặc câu lệnh để truy vấn kho Supabase
+                        search_keyword = ""
+                        if chat_file:
+                            found_keywords = re.findall(r'[A-Za-z0-9]+[-–][A-Za-z0-9]+|[A-Za-z0-9]{4,}', chat_file.name)
+                            if found_keywords: search_keyword = found_keywords[0]
+                        if not search_keyword:
+                            found_keywords = re.findall(r'[A-Za-z0-9]+[-–][A-Za-z0-9]+|[A-Za-z0-9]{4,}', user_query)
+                            if found_keywords: search_keyword = found_keywords[0]
+                            
+                        # Gọi hàm truy vấn kho Supabase lấy dữ liệu các mã hàng lịch sử liên quan
+                        db_results = get_historical_fabric_consumption_from_db(search_keyword=search_keyword if search_keyword else None)
+                        
+                        db_context = ""
+                        if db_results:
+                            db_context = "\n\n[KHO DỮ LIỆU LỊCH SỬ SUPABASE PHÙ HỢP ĐỂ ĐỐI CHIẾU VÀ TÍNH TOÁN]:\n"
+                            for item in db_results:
+                                db_context += (
+                                    f"- Mã hàng lịch sử: {item.get('style_name')}\n"
+                                    f"  + Loại nguyên liệu/Vải: {item.get('article_name')}\n"
+                                    f"  + Định mức tiêu thụ (Cons) gốc trong kho: {item.get('consumption_value')} {item.get('uom')}\n"
+                                    f"  + Ghi chú cấu trúc: {item.get('notes')}\n"
+                                )
+                        else:
+                            # Nếu không tìm kiếm được từ khóa chỉ định, lôi 5 mã hàng gần nhất ra làm dữ liệu nền tham chiếu
+                            backup_results = get_historical_fabric_consumption_from_db(search_keyword=None)
+                            db_context = "\n\n[KHO DỮ LIỆU LỊCH SỬ THAM KHẢO]:\n"
+                            for item in backup_results[:5]:
+                                db_context += f"- Mã hàng: {item.get('style_name')}, Vải: {item.get('article_name')}, Định mức gốc: {item.get('consumption_value')} {item.get('uom')}, Cấu trúc: {item.get('notes')}\n"
+
+                        # BƯỚC 3: Thiết lập Prompt kỹ thuật cao, chỉ thị AI thực hiện quy trình nghiệp vụ R&D 3 bước
                         system_instruction = (
-                            "You are an elite garment technical auditor and fabric consumption expert at PPJ Group. "
-                            "Analyze the engineer prompt and use the provided database history records to perform calculations, "
-                            "compare consumption values (Cons), or find highly similar garments. Answer professionally in Vietnamese.\n"
+                            "You are the Lead R&D Expert and Garment Technical Auditor at PPJ Group.\n"
+                            "Your job is to calculate the fabric consumption (Cons) for a NEW garment style by comparing it with SIMILAR historical styles in the database.\n\n"
+                            "EXECUTE THIS STRICT 3-STEP WORKFLOW IN YOUR RESPONSE:\n"
+                            "1. TRÍCH XUẤT MÃ MỚI: Liệt kê rõ Style ID, Buyer, hình dáng bản vẽ (Sketch) và toàn bộ bảng thông số kích cỡ cơ bản trích xuất được từ tài liệu mới tải lên.\n"
+                            "2. ĐỐI CHIẾU MÃ TƯƠNG ĐỒNG: Chọn ra mã hàng tương đồng nhất từ danh sách Kho dữ liệu Supabase được cung cấp bên dưới. Chỉ rõ mã cũ đó có kiểu dáng, chất liệu vải và định mức tiêu thụ gốc là bao nhiêu.\n"
+                            "3. PHÂN TÍCH DELTA SPEC & TÍNH ĐỊNH MỨC MỚI: So sánh chi tiết thông số kích thước giữa Mã mới và Mã tương đồng vừa chọn (ví dụ: Waist, Hip, Inseam, Thigh opening lệch bao nhiêu inch/cm). "
+                            "Dựa trên các độ lệch kích thước này (Delta Spec), áp dụng lập luận kỹ thuật ngành may để tăng hoặc giảm định mức tiêu thụ vải từ định mức gốc của mã cũ, "
+                            "đưa ra con số định mức tiêu thụ vải dự kiến cuối cùng (Cons value) cho mã hàng mới một cách chính xác.\n\n"
+                            "Trình bày báo cáo rõ ràng, chuyên nghiệp bằng tiếng Việt kỹ thuật."
                         )
-                        full_prompt = system_instruction + f"Câu hỏi của kỹ sư: {user_query}" + db_context
+                        
+                        full_prompt = (
+                            f"{system_instruction}\n\n"
+                            f"Yêu cầu của kỹ sư: {user_query}\n\n"
+                            f"[Dữ liệu bóc tách thô của mã mới]: {new_style_info.get('raw_text', 'Không có file đính kèm')}\n"
+                            f"{db_context}"
+                        )
                         contents_payload.append(full_prompt)
                         
-                        # ✨ CƠ CHẾ SỬA LỖI 503: Vòng lặp tự động gửi lại yêu cầu tối đa 3 lần nếu máy chủ quá tải
+                        # Triển khai bộ bẫy lỗi Retry Logic chống nghẽn mạng 503
                         ans = ""
                         for attempt in range(3):
                             try:
                                 response = client.models.generate_content(model='gemini-2.5-flash', contents=contents_payload)
                                 ans = response.text
-                                break # Nếu thành công thì thoát vòng lặp ngay lập tức
+                                break
                             except Exception as e:
                                 if "503" in str(e) or "UNAVAILABLE" in str(e):
                                     if attempt < 2:
-                                        time.sleep(2) # Đợi 2 giây rồi thử lại
+                                        time.sleep(2)
                                         continue
-                                raise e # Nếu quá 3 lần vẫn lỗi thì mới ném ra ngoài
+                                raise e
                                 
                     except Exception as e: 
-                        ans = f"Máy chủ AI hiện đang bận do lượng truy cập cao toàn cầu. Bạn vui lòng bấm gửi lại câu hỏi sau vài giây nhé! Chi tiết: {str(e)}"
+                        ans = f"Máy chủ AI hiện đang bận do xử lý ma trận tính toán lớn. Vui lòng bấm gửi lại yêu cầu nhé! Chi tiết: {str(e)}"
                         
                 st.write(ans)
                 st.session_state["chat_history"].append({"role": "assistant", "content": ans})
