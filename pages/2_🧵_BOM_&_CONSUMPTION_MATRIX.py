@@ -1,5 +1,4 @@
 import base64
-iimport base64
 import io
 import json
 import re
@@ -10,50 +9,13 @@ from pdf2image import convert_from_bytes, pdfinfo_from_bytes
 from google import genai
 from google.genai import types
 
-# * BẮT BUỘC: Câu lệnh cấu hình trang phải nằm đầu tiên trong file Streamlit
+# BẮT BUỘC: Câu lệnh cấu hình trang phải nằm đầu tiên trong file Streamlit
 st.set_page_config(
     page_title="PPJ Techpack AI - Management System",
     page_icon="⚙️",
     layout="wide",
     initial_sidebar_state="expanded"
 )
-
-# ✨ BẢN NÂNG CẤP ĐỒ HỌA: Khử hoàn toàn chữ "app" thô sơ và đồng bộ nền sáng High-Contrast
-st.markdown("""
-    <style>
-    /* Ép toàn bộ nền ứng dụng về màu xám trắng phòng thiết nghiệm sạch sẽ */
-    .stApp { background-color: #F8FAFC !important; }
-    
-    /* Thiết kế thanh điều hướng Sidebar màu trắng tinh, chữ xanh đen tương phản */
-    [data-testid="stSidebar"] { 
-        background-color: #FFFFFF !important; 
-        border-right: 1px solid #CBD5E1 !important;
-        min-width: 320px; 
-    }
-    [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p { 
-        color: #1E293B !important; font-weight: 600; font-size: 13.5px;
-    }
-    
-    /* 🛠️ BỘ KHỬ CHỮ "app" TOÀN DIỆN CHO TRANG CON: Giấu chữ thô và ép hiển thị MAIN DASHBOARD */
-    [data-testid="stSidebarNav"] ul li:first-child a span {
-        visibility: hidden !important;
-        position: relative !important;
-        display: inline-block !important;
-        min-width: 180px !important;
-    }
-    [data-testid="stSidebarNav"] ul li:first-child a span::after {
-        content: "MAIN DASHBOARD" !important;
-        visibility: visible !important;
-        position: absolute !important;
-        left: 0 !important;
-        top: 0 !important;
-        font-weight: 700 !important;
-        color: #1E293B !important;
-        letter-spacing: 0.5px !important;
-    }
-    </style>
-""", unsafe_allow_html=True)
-
 
 # ĐỒ HỌA HIGH-CONTRAST INDUSTRIAL LIGHT THEME (XÓA BỎ BÓNG TỐI, CỐ ĐỊNH CHỮ RÕ NÉT)
 st.markdown("""
