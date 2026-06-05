@@ -479,9 +479,9 @@ elif menu_selection == "🔄 Pattern Spec Comparison":
                 file_name=f"PPJ_Delta_Spec_Comparison.xlsx", 
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
-# -----------------------------------------------------------------------------
-# CHỨC NĂNG 3: TRỢ LÝ ĐỊNH MỨC VẢI (ISOLATED DATA PIPELINE & RETRY LAB - PHẦN 6A)
-# -----------------------------------------------------------------------------
+# =============================================================================
+# CHỨC NĂNG 3: TRỢ LÝ ĐỊNH MỨC VẢI (ISOLATED DATA PIPELINE & INTENT LAB - PHẦN 6A)
+# =============================================================================
 elif menu_selection == "🧵 BOM & Consumption Matrix":
     st.markdown('<div class="component-title-box">🧵 INTELLIGENT BOM & CONSUMPTION MATRIX ENGINE</div>', unsafe_allow_html=True)
     
@@ -508,7 +508,7 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
     # Khởi tạo mảng lưu lịch sử hội thoại chuẩn hóa
     if "chat_history" not in st.session_state:
         st.session_state["chat_history"] = [
-            {"role": "assistant", "type": "text", "content": "Welcome to PPJ Textile Visual R&D Engine. Hãy tải lên sơ đồ rập/Techpack mã mới, hệ thống sẽ bóc tách biệt lập, tự động đối soát kho Master DB và lập luận toán học để kết xuất định mức vải cùng bảng phụ liệu BOM chính xác."}
+            {"role": "assistant", "type": "text", "content": "Welcome to PPJ Textile Visual R&D Engine. Hãy tải lên sơ đồ rập/Techpack mã mới và ra lệnh. Tôi sẽ tìm chính xác mã tương đồng, xuất ảnh Sketch và tính định mức vải/phụ liệu theo đúng yêu cầu, không trả lời lan man."}
         ]
         
     for msg in st.session_state["chat_history"]:
@@ -516,14 +516,14 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
             st.write(msg["content"])
             if msg.get("type") == "visual" and msg.get("image_url"):
                 st.image(msg["image_url"], caption=f"Bản vẽ Sketch lịch sử đối chiếu mã {msg.get('style_title')}", width=220)
-    # LUỒNG XỬ LÝ ĐÓNG BĂNG DỮ LIỆU CHỐNG LẪN LỘN MÃ HÀNG GIAO TIẾP ĐỘNG (PHẦN 6B - KHÚC ĐẦU)
+    # LUỒNG XỬ LÝ ĐÓNG BĂNG DỮ LIỆU CHỐNG LẪN LỘN MÃ HÀNG GIAO TIẾP ĐỘNG (PHẦN 6B - PHẦN 1)
     if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vải và đối soát sai lệch..."):
         st.session_state["chat_history"].append({"role": "user", "type": "text", "content": user_query})
         with st.chat_message("user"): 
             st.write(user_query)
             
         with st.chat_message("assistant"):
-            with st.spinner("Hệ thống AI R&D Engine đang thiết lập ma trận đối soát và phân tích cấu trúc BOM..."):
+            with st.spinner("Hệ thống AI R&D Engine đang đối soát tri thức nền xưởng may..."):
                 gemini_key = get_secure_gemini_key()
                 if not gemini_key: 
                     ans = "CRITICAL SERVER BREAKDOWN: AI API Token is missing."
@@ -534,7 +534,6 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                         new_style_id_detected = "UNKNOWN_STYLE"
                         new_style_raw_text = ""
                         
-                        # 1. BÓC TÁCH MÃ MỚI VÀ QUÉT CẠN KIỆT ĐA TRANG (SPEC SHEET VÀ BẢNG BOM)
                         if chat_file:
                             file_bytes = chat_file.getvalue()
                             img_payload = []
@@ -555,10 +554,9 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                             extraction_prompt = """
                             Analyze ALL the attached technical pack images page by page.
                             1. Locate and extract the genuine 'Style ID' / 'Style Number' / 'Mã hàng'.
-                            2. Locate the Specification table and extract ALL measurement positions and target values.
-                            3. Locate the Bill of Materials (BOM) section. Extract EVERY SINGLE trim, thread, zipper, button, label, elastic or accessory along with its specific description and target consumption/yield.
+                            2. Extract ALL specification charts and raw Bill of Materials (BOM) fields.
                             Return a valid JSON with this exact schema:
-                            {"detected_style_id": "Text of Style ID", "all_specs_text": "Specs list and complete raw BOM text from all pages"}
+                            {"detected_style_id": "Text of Style ID", "all_specs_text": "Complete specifications and raw BOM data text from all pages"}
                             """
                             img_payload.append(extraction_prompt)
                             
@@ -575,16 +573,15 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                         
                         if new_style_id_detected == "UNKNOWN_STYLE" or not chat_file:
                             found_keywords = re.findall(r'[A-Za-z0-9]+[-–][A-Za-z0-9]+|[A-Za-z0-9]{4,}', user_query)
-                            if found_keywords: 
-                                new_style_id_detected = found_keywords
+                            if found_keywords: new_style_id_detected = found_keywords
 
-                        # 2. TRUY VẤN ĐỒNG BỘ ĐỊNH MỨC VÀ LỊCH SỬ KHO TỪ SYSTEM DATABASE
+                        # TRUY VẤN ĐỐI SOÁT CHÍNH XÁC KHO THỊ GIÁC TỪ DATABASE
                         headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
                         url = f"{SB_URL.rstrip('/')}/rest/v1/thong_so_techpack?StyleName=ilike.*{new_style_id_detected}*&select=StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL&limit=3"
                         res = requests.get(url, headers=headers, timeout=15)
                         db_results = res.json() if 200 <= res.status_code <= 299 else []
                         
-                        db_context = f"\n\n[ KHO DỮ LIỆU THỊ GIÁC VÀ THÔNG SỐ LỊCH SỬ CHO MÃ HÀNG: {new_style_id_detected} ]:\n"
+                        db_context = f"\n\n[ DỮ LIỆU THỰC TẾ TRONG HỆ THỐNG KHO CHO MÃ HÀNG: {new_style_id_detected} ]:\n"
                         detected_image_url_to_render = ""
                         detected_style_title_to_render = ""
                         
@@ -593,32 +590,31 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                                 if item.get("SketchURL") and not detected_image_url_to_render:
                                     detected_image_url_to_render = item.get("SketchURL")
                                     detected_style_title_to_render = item.get("StyleName")
-                                db_context += f"- Mã hàng lịch sử đối chiếu: {item.get('StyleName')}\n  + Khách hàng (Buyer): {item.get('Buyer')}\n  + Cấu trúc ma trận số đo cũ: {json.dumps(item.get('DetailedMeasurements', {}), ensure_ascii=False)}\n  + Đường dẫn hình ảnh Sketch lưu kho: {item.get('SketchURL', 'Không có ảnh')}\n"
+                                db_context += f"- Mã gốc đối chiếu tìm thấy: {item.get('StyleName')}\n  + Khách hàng: {item.get('Buyer')}\n  + Ma trận thông số kích thước kích cỡ: {json.dumps(item.get('DetailedMeasurements', {}), ensure_ascii=False)}\n  + Liên kết ảnh vẽ phác thảo phẳng (SketchURL): {item.get('SketchURL', '')}\n"
                         else:
                             fallback_key = new_style_id_detected.split('-')[-1] if '-' in str(new_style_id_detected) else str(new_style_id_detected)[:4]
                             backup_res = get_historical_fabric_consumption_from_db(search_keyword=fallback_key)
                             if backup_res:
-                                db_context += f"⚠️ Không có dữ liệu cấu trúc rập trực tiếp cho mã {new_style_id_detected}. Dưới đây là dữ liệu định mức phụ trợ gốc của các mã hàng anh em trong kho để so sánh mẫu:\n"
+                                db_context += f"⚠️ Không có dữ liệu rập trực tiếp cho mã {new_style_id_detected}. Dưới đây là định mức vải thực tế của các mã hàng anh em trong kho sản xuất:\n"
                                 for b_item in backup_res[:4]:
-                                    db_context += f"- Mã gốc: {b_item.get('style_name')}, Nguyên liệu: {b_item.get('article_name')}, Định mức gốc: {b_item.get('consumption_value')} {b_item.get('uom')}, Ghi chú: {b_item.get('notes')}\n"
+                                    db_context += f"- Mã sản xuất: {b_item.get('style_name')}\n  + Loại vải: {b_item.get('article_name')}\n  + Định mức tiêu thụ vải thực tế trong kho: {b_item.get('consumption_value')} {b_item.get('uom')}\n  + Ghi chú hao hụt rập: {b_item.get('notes')}\n"
                             else:
-                                db_context += "❌ HỆ THỐNG PHÁT HIỆN: Mã hàng này hoàn toàn mới, chưa từng tồn tại dữ liệu trùng khớp hoặc hình ảnh phác thảo tương đồng trong kho dữ liệu Master DB.\n"
-                        # 3. CHỈ THỊ R&D PROMPT ĐỌC HIỂU CẠN KIỆT BOM CHI TIẾT (PHẦN 6B - KHÚC CUỐI)
+                                db_context += "❌ HỆ THỐNG PHÁT HIỆN: Mã hàng này hoàn toàn mới, chưa từng tồn tại dữ liệu hay hình ảnh phác thảo tương đồng trong Master DB.\n"
+                        # CHỈ THỊ NGHIÊM NGẶT: HỎI GÌ ĐÁP NẤY - TUYỆT ĐỐI KHÔNG TRẢ LỜI LAN MAN TRÀN LAN (PHẦN 6B - PHẦN 2)
                         system_instruction = (
-                            "You are the Lead Technical Director and Senior R&D Data Auditor at PPJ Group.\n"
-                            "Your objective is to conduct a complete analysis of the newly uploaded Techpack, covering BOTH Fabric Specifications and the Bill of Materials (BOM).\n\n"
-                            "MANDATORY 4-STEP TECHNICAL WORKFLOW:\n"
-                            "1. PHÂN TÍCH THÔNG TIN SƠ BỘ: Xác nhận Style ID, khách hàng, dải kích cỡ và tóm tắt nhanh ma trận số đo rập mẫu.\n"
-                            "2. ĐỐI CHIẾU DỮ LIỆU LỊCH SỬ DB: Đối soát mã với bộ dữ liệu kho được cung cấp để rút ra mã hàng tương đồng.\n"
-                            "3. LẬP LUẬN TÍNH ĐỊNH MỨC VẢI CHÍNH (MAIN FABRIC): So sánh chi tiết sai lệch kích thước hình học (Delta Spec) giữa mã mới và mã tương đồng. Điều chỉnh tăng/giảm định mức vải tiêu thụ cuối cùng kèm hệ số hao hụt cắt xưởng 15%, đưa ra kết quả Cons Value cụ thể (YARDS/UNIT).\n"
-                            "4. BẢNG BÓC TÁCH ĐỊNH MỨC NGUYÊN PHỤ LIỆU CHI TIẾT (COMPLETE BOM BREAKDOWN): Quét toàn bộ dữ liệu phụ liệu tìm thấy từ Techpack mới. Bạn phải lập bảng trích xuất cạn kiệt từng hạng mục phụ liệu: Chỉ may, Nhãn mác, Cúc, Khóa, Chun... Mỗi hạng mục phải ghi rõ: Tên phụ liệu, Mô tả chi tiết, Định mức chỉ định gốc và Định mức dự kiến thực tế sau khi cộng hệ số hao hụt xưởng. Nếu Techpack không có bảng BOM, bạn phải dựa vào kết cấu kiểu dáng của sản phẩm để chủ động lập một bảng BOM kỹ thuật khuyến nghị chuẩn.\n\n"
-                            "Yêu cầu kết xuất báo cáo sắc bén, khoa học, trình bày bằng tiếng Việt chuyên ngành dệt may cao cấp."
+                            "You are the Lead R&D Expert and Garment Auditor at PPJ Group.\n"
+                            "STRICT OPERATIONAL FOCUS (HỎI GÌ ĐÁP NẤY):\n"
+                            "1. Nếu người dùng yêu cầu 'Tìm mã tương đồng' hoặc đối chiếu số đo: Bạn chỉ được liệt kê mã cũ tương đồng nhất từ dữ liệu kho bên dưới, "
+                            "so sánh sai lệch kích thước hình học (Delta Spec). TUYỆT ĐỐI KHÔNG xuất bảng nguyên phụ liệu BOM, không lan man sang chủ đề khác.\n"
+                            "2. Nếu người dùng gõ từ khóa liên quan đến 'BOM', 'Phụ liệu', 'Phụ kiện': Lúc này bạn mới được quyền lập bảng bóc tách chi tiết nguyên phụ liệu.\n"
+                            "3. BẢO TOÀN SỐ LIỆU ĐỊNH MỨC VẢI: Khi phân tích định mức vải tiêu thụ, bạn phải căn cứ 100% vào cột số liệu định mức gốc ('consumption_value') và ghi chú rập thực tế từ dữ liệu kho được cung cấp. "
+                            "TUYỆT ĐỐI KHÔNG tự ý giả định hay đưa con số 'hao hụt cắt xưởng 15%' vô lý vào báo cáo nếu dữ liệu gốc không yêu cầu.\n\n"
+                            "Trình bày ngắn gọn, tập trung thẳng vào câu hỏi, dùng tiếng Việt chuyên ngành dệt may kỹ thuật."
                         )
                         
-                        full_prompt = f"{system_instruction}\n\nYêu cầu kỹ sư: {user_query}\n\n[Thông số và dữ liệu thô từ toàn bộ trang Techpack mới]:\n{new_style_raw_text if new_style_raw_text else 'Không đính kèm file'}\n{db_context}"
+                        full_prompt = f"{system_instruction}\n\nYêu cầu của kỹ sư: {user_query}\n\n[Thông số file mới tải lên]:\n{new_style_raw_text if new_style_raw_text else 'Không đính kèm file'}\n{db_context}"
                         contents_payload.append(full_prompt)
                         
-                        # Bộ bẫy lỗi lũy tiến Backoff 5 lần tránh sập mạng
                         ans = ""
                         for attempt in range(5):
                             try:
@@ -636,11 +632,12 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                         st.write(ans)
                         st.session_state["chat_history"].append({"role": "assistant", "type": "text", "content": ans})
                         
+                        # Chỉ tự động bắn ảnh ra màn hình khi tìm thấy ảnh lưu trữ thực tế trong kho Supabase
                         if detected_image_url_to_render:
                             st.image(detected_image_url_to_render, caption=f"Bản vẽ Sketch lịch sử đối chiếu của Mã hàng {detected_style_title_to_render}", width=220)
-                            st.session_state["chat_history"].append({"role": "assistant", "type": "visual", "content": f"[Hệ thống đã kết xuất hình ảnh tham chiếu]", "image_url": detected_image_url_to_render, "style_title": detected_style_title_to_render})
+                            st.session_state["chat_history"].append({"role": "assistant", "type": "visual", "content": f"[Hệ thống đã kết xuất hình ảnh tham chiếu mã {detected_style_title_to_render}]", "image_url": detected_image_url_to_render, "style_title": detected_style_title_to_render})
                             
                     except Exception as e: 
-                        ans = f"⚠️ Máy chủ AI bận hoặc đạt giới hạn (15 lần/phút) khi xử lý ma trận BOM lớn. Vui lòng bấm thử lại sau 15-30 giây! Chi tiết: {str(e)}"
+                        ans = f"⚠️ Máy chủ AI đang xử lý ma trận số liệu lớn. Vui lòng thử lại sau vài giây! Chi tiết: {str(e)}"
                         st.write(ans)
                         st.session_state["chat_history"].append({"role": "assistant", "type": "text", "content": ans})
