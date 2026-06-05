@@ -219,35 +219,133 @@ with st.sidebar:
     st.info("Core Engine: Gemini-2.5-Flash")
 
 # Nhúng bổ sung CSS nâng cấp giao diện bảng dữ liệu Cyber chuyên sâu
+# =============================================================================
+# PHASE 2: GLOBAL INDUSTRIAL LIGHT COMPONENT STYLING (HIGH-CONTRAST)
+# =============================================================================
 st.markdown("""
     <style>
-    /* Bo mạch lưới bảng dữ liệu may mặc cao cấp */
-    .cyber-table-wrapper {
-        max-height: 480px; overflow-y: auto; border: 1px solid #CBD5E1; 
-        border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.03); margin-top: 15px;
+    /* Ép toàn bộ nền ứng dụng về màu trắng sáng, sạch sẽ và khoa học */
+    .stApp { 
+        background-color: #FFFFFF !important; 
     }
-    .cyber-table { width: 100%; border-collapse: collapse; text-align: left; font-family: sans-serif; }
-    .cyber-table th {
-        background: linear-gradient(90deg, #1E3A8A 0%, #2563EB 100%);
-        color: #FFFFFF; font-weight: 600; padding: 12px 16px; 
-        font-size: 13px; letter-spacing: 0.5px; position: sticky; top: 0; z-index: 10;
+    
+    /* Thiết kế thanh điều hướng Sidebar màu xám sáng thanh lịch */
+    [data-testid="stSidebar"] { 
+        background-color: #F8FAFC !important; 
+        border-right: 1px solid #E2E8F0 !important;
+        min-width: 300px; 
     }
-    .cyber-table td { padding: 12px 16px; border-bottom: 1px solid #E2E8F0; color: #334155; font-size: 13.5px; font-weight: 500; }
-    .cyber-table tr:hover { background-color: #F8FAFC; }
+    [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p { 
+        color: #334155 !important; 
+        font-weight: 500;
+    }
     
-    /* Hệ thống mã màu nhận diện sai lệch Delta tự động */
-    .delta-positive { background-color: #DCFCE7 !important; color: #166534 !important; font-weight: 700 !important; border-radius: 4px; padding: 2px 6px; }
-    .delta-negative { background-color: #FEE2E2 !important; color: #991B1B !important; font-weight: 700 !important; border-radius: 4px; padding: 2px 6px; }
-    .delta-zero { color: #64748B; font-weight: 400; }
+    /* Khung thương hiệu PPJ Group nổi bật ở góc trên bên trái */
+    .sidebar-brand-container {
+        background: linear-gradient(135deg, #1E3A8A 0%, #2563EB 100%);
+        padding: 20px; 
+        border-radius: 10px; 
+        text-align: center; 
+        margin-bottom: 25px;
+        box-shadow: 0 4px 12px rgba(37, 99, 235, 0.15);
+    }
+    .sidebar-brand-title { font-size: 22px; font-weight: 800; color: #FFFFFF; margin: 0; letter-spacing: 1px; }
+    .sidebar-brand-subtitle { font-size: 11px; color: #93C5FD; margin-top: 4px; font-weight: 600; text-transform: uppercase; }
     
-    /* Tiêu đề vùng đối chiếu kiểu dáng đặc thù */
-    .comp-header-box {
-        background-color: #FFFFFF; border-left: 5px solid #3B82F6; 
-        padding: 12px 20px; border-radius: 4px 12px 12px 4px; margin-bottom: 20px;
-        box-shadow: 0 2px 5px rgba(0,0,0,0.02);
+    /* Thiết kế các Khung Container chính (Card nền trắng, viền xám rõ ràng) */
+    .card-container {
+        background-color: #F8FAFC !important; 
+        border: 1px solid #CBD5E1 !important; 
+        border-radius: 12px !important;
+        padding: 20px; 
+        margin-bottom: 20px; 
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.02) !important;
+    }
+    .card-section-header { 
+        font-size: 14px; 
+        font-weight: 700; 
+        color: #1E3A8A; 
+        text-transform: uppercase; 
+        letter-spacing: 0.5px; 
+        margin-bottom: 10px;
+    }
+    
+    /* Tiêu đề phân hệ chức năng lớn */
+    .component-title-box {
+        font-size: 20px; 
+        font-weight: 700; 
+        color: #0F172A; 
+        border-bottom: 2px solid #E2E8F0; 
+        padding-bottom: 10px; 
+        margin-bottom: 25px;
+        letter-spacing: -0.5px;
+    }
+    
+    /* Thẻ tiêu đề con của từng mã rập */
+    .tech-card-header {
+        font-size: 16px; 
+        font-weight: 700; 
+        color: #1E3A8A; 
+        margin-bottom: 12px;
+    }
+    
+    /* Lưới thông tin Metadata hàng dọc */
+    .metric-grid-box {
+        display: flex; 
+        gap: 20px; 
+        background: #FFFFFF; 
+        padding: 12px; 
+        border-radius: 8px; 
+        border: 1px solid #E2E8F0;
+    }
+    .metric-label { font-size: 11px; font-weight: 700; color: #64748B; margin: 0; text-transform: uppercase; }
+    .metric-value { font-size: 13.5px; font-weight: 600; color: #0F172A; margin: 2px 0 0 0; }
+    
+    /* Bộ khung chứa bảng thông số kỹ thuật mượt mà */
+    .data-table-container {
+        max-height: 400px; 
+        overflow-y: auto; 
+        border: 1px solid #E2E8F0; 
+        border-radius: 8px; 
+        margin-top: 10px;
+        background-color: #FFFFFF;
+    }
+    
+    /* Định dạng bảng dữ liệu may mặc cao cấp màu sáng */
+    .industrial-table { 
+        width: 100%; 
+        border-collapse: collapse; 
+        text-align: left; 
+    }
+    .industrial-table th {
+        background-color: #F1F5F9 !important; 
+        color: #1E3A8A !important; 
+        font-weight: 700 !important; 
+        padding: 10px 14px; 
+        font-size: 12.5px; 
+        position: sticky; 
+        top: 0; 
+        z-index: 5;
+        border-bottom: 2px solid #CBD5E1 !important;
+    }
+    .industrial-table td { 
+        padding: 10px 14px; 
+        border-bottom: 1px solid #F1F5F9; 
+        color: #334155 !important; 
+        font-size: 13px; 
+        font-weight: 500;
+    }
+    .industrial-table tr:hover { 
+        background-color: #F8FAFC !important; 
+    }
+    
+    /* Ép văn bản thông báo hệ thống hiển thị sắc nét trên nền sáng */
+    [data-testid="stMarkdownContainer"] p, [data-testid="stMarkdownContainer"] h5 {
+        color: #0F172A !important;
     }
     </style>
 """, unsafe_allow_html=True)
+
 
 if "processed_styles" not in st.session_state:
     st.session_state["processed_styles"] = {}
