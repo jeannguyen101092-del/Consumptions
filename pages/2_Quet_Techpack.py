@@ -73,7 +73,7 @@ def get_all_historical_styles_from_db():
         res = requests.get(url, headers=headers, timeout=15)
         return res.json() if res.status_code >= 200 and res.status_code <= 299 else []
     except Exception: return []
-def process_single_pdf_batch(file_bytes, file_name, manual_page=None):
+def process_single_pdf_batch(file_bytes, file_name):
     gemini_key = get_secure_gemini_key()
     if '.' in file_name: fallback_style = file_name.rsplit('.', 1)[0].strip()
     else: fallback_style = file_name.strip()
@@ -81,35 +81,47 @@ def process_single_pdf_batch(file_bytes, file_name, manual_page=None):
     try:
         info = pdfinfo_from_bytes(file_bytes)
         total_pages = int(info.get("Pages", 1))
-        target_page = manual_page if manual_page else (total_pages - 1 if total_pages >= 3 else total_pages)
-        if target_page > total_pages or target_page < 1: target_page = total_pages
+        
+        # Quét diện rộng các trang đầu và các trang cuối để không bị sót bảng thông số
+        pages_to_convert = list(range(1, min(total_pages + 1, 6)))
+        if total_pages > 5:
+            pages_to_convert.extend(list(range(max(1, total_pages - 2), total_pages + 1)))
+        pages_to_convert = sorted(list(set(pages_to_convert)))
 
-        images = convert_from_bytes(file_bytes, dpi=160, first_page=target_page, last_page=target_page)
-        if not images: return {"success": False, "error": "Không trích xuất được ảnh"}
-        target_img = images[0].convert("RGB")
-        img_buffer = io.BytesIO()
-        target_img.save(img_buffer, format="JPEG", quality=95)
-        raw_img_bytes = img_buffer.getvalue()
-
+        contents_payload = []
         sketch_base64 = ""
-        try:
-            backup_imgs = convert_from_bytes(file_bytes, dpi=120, first_page=1, last_page=1)
-            if backup_imgs:
-                bk_img = backup_imgs[0].convert("RGB")
-                if bk_img.width > 450: bk_img = bk_img.resize((450, int(bk_img.height * (450 / bk_img.width))))
-                bk_buf = io.BytesIO()
-                bk_img.save(bk_buf, format="JPEG", quality=75)
-                sketch_base64 = base64.b64encode(bk_buf.getvalue()).decode("utf-8")
-        except Exception: pass
+
+        for p_num in pages_to_convert:
+            try:
+                images = convert_from_bytes(file_bytes, dpi=140, first_page=p_num, last_page=p_num)
+                if images:
+                    img = images[0].convert("RGB")
+                    img_buffer = io.BytesIO()
+                    img.save(img_buffer, format="JPEG", quality=85)
+                    img_bytes = img_buffer.getvalue()
+                    contents_payload.append(types.Part.from_bytes(data=img_bytes, mime_type='image/jpeg'))
+                    
+                    if p_num == 1 and not sketch_base64:
+                        if img.width > 400:
+                            img = img.resize((400, int(img.height * (400 / img.width))))
+                        bk_buf = io.BytesIO()
+                        img.save(bk_buf, format="JPEG", quality=75)
+                        sketch_base64 = base64.b64encode(bk_buf.getvalue()).decode("utf-8")
+            except Exception: pass
+
+        if not contents_payload:
+            return {"success": False, "error": "Không trích xuất được ảnh hệ thống"}
 
         key_value_schema = types.Schema(type=types.Type.OBJECT, properties={"pom_name": types.Schema(type=types.Type.STRING), "value": types.Schema(type=types.Type.STRING)}, required=["pom_name", "value"])
         techpack_schema = types.Schema(type=types.Type.OBJECT, properties={"style_number_parsed": types.Schema(type=types.Type.STRING), "buyer": types.Schema(type=types.Type.STRING), "category": types.Schema(type=types.Type.STRING), "base_size_name": types.Schema(type=types.Type.STRING), "measurements_list": types.Schema(type=types.Type.ARRAY, items=key_value_schema)}, required=["style_number_parsed", "buyer", "category", "base_size_name", "measurements_list"])
 
-        user_prompt = "Extract Style ID, Buyer, Category, Base Size, and all measurement row values."
+        user_prompt = "Analyze all attached techpack document pages. Extract the exact Style Number/ID, Buyer, Category, Base Size Name, and all detailed measurement specification row values found in the grid."
+        contents_payload.append(user_prompt)
+
         client = genai.Client(api_key=gemini_key)
         response = client.models.generate_content(
             model='gemini-2.5-flash',
-            contents=[types.Part.from_bytes(data=raw_img_bytes, mime_type='image/jpeg'), user_prompt],
+            contents=contents_payload,
             config=types.GenerateContentConfig(response_mime_type="application/json", response_schema=techpack_schema, temperature=0.0)
         )
 
@@ -122,10 +134,10 @@ def process_single_pdf_batch(file_bytes, file_name, manual_page=None):
                 if pom: dict_measurements[pom] = val
 
         return {"success": True, "data": {
-            "style_number_db": parsed_data.get("style_number_parsed", fallback_style),
-            "buyer": parsed_data.get("buyer", "DULUTH TRADING CO"),
-            "category": parsed_data.get("category", "DENIM WORK PANTS"),
-            "base_size_name": parsed_data.get("base_size_name", "32 x 30"),
+            "style_number_db": parsed_data.get("style_number_parsed") or fallback_style,
+            "buyer": parsed_data.get("buyer") or "PPJ BUYER ACCOUNT",
+            "category": parsed_data.get("category") or "PRODUCTION GARMENT",
+            "base_size_name": parsed_data.get("base_size_name") or "STANDARD SIZE",
             "detailed_measurements": dict_measurements,
             "sketch_image": sketch_base64
         }}
@@ -146,7 +158,7 @@ st.markdown("---")
 if st.session_state.current_menu == "Quét Tài Liệu Techpack":
     uploaded_files = st.file_uploader("Kéo thả tài liệu PDF vào đây", type=["pdf"], accept_multiple_files=True)
     if uploaded_files:
-        with st.spinner("Đang trích xuất..."):
+        with st.spinner("Hệ thống AI đang đọc quét toàn diện tài liệu đa trang..."):
             all_results = []
             for f in uploaded_files:
                 res = process_single_pdf_batch(f.getvalue(), f.name)
@@ -154,18 +166,27 @@ if st.session_state.current_menu == "Quét Tài Liệu Techpack":
                     all_results.append(res["data"])
                     
             if all_results:
+                st.success("Comprehensive structural grid compilation successful!")
                 cols = st.columns(len(all_results))
                 for idx, data in enumerate(all_results):
                     with cols[idx]:
                         st.markdown(f"### {data['style_number_db']}")
-                        st.markdown(f"<p style='font-size:13px;'><b>Buyer:</b> {data['buyer']}<br><b>Category:</b> {data['category']}</p>", unsafe_allow_html=True)
+                        st.markdown(f"<p style='font-size:13px;'><b>Buyer:</b> {data['buyer']}<br><b>Category:</b> {data['category']}<br><b>Scale:</b> {data['base_size_name']}</p>", unsafe_allow_html=True)
+                        
                         sc1, sc2 = st.columns(2)
-                        with sc1: st.dataframe(pd.DataFrame([{"Garment Attribute": k, "Target Spec": v} for k, v in data['detailed_measurements'].items()]), hide_index=True)
+                        with sc1: 
+                            if data['detailed_measurements']:
+                                st.dataframe(pd.DataFrame([{"Garment Attribute": k, "Target Spec": v} for k, v in data['detailed_measurements'].items()]), hide_index=True)
+                            else:
+                                st.warning("Không tìm thấy bảng lưới thông số.")
                         with sc2:
                             if data.get("sketch_image"): st.image(f"data:image/jpeg;base64,{data['sketch_image']}", use_container_width=True)
+                        
                         if st.button(f"💾 LƯU MÃ HÀNG {data['style_number_db']}", key=f"sv_{idx}", use_container_width=True, type="primary"):
-                            if save_to_supabase_techpack_table(data): st.success("Đã lưu Supabase!")
-                            else: st.error("Lỗi kết nối!")
+                            if save_to_supabase_techpack_table(data): st.success("Đã đồng bộ lưu vào Supabase Database!")
+                            else: st.error("Lỗi đồng bộ cơ sở dữ liệu!")
+            else:
+                st.error("Không bóc tách được thông số rập mẫu từ tệp tài liệu này.")
 
 elif st.session_state.current_menu == "So Sánh Thông Số Rập":
     up1, up2 = st.columns(2)
