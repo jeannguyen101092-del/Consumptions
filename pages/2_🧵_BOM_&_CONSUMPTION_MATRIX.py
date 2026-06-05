@@ -147,32 +147,31 @@ def save_to_supabase_techpack_table(payload_data):
 def get_historical_fabric_consumption_from_db(search_keyword=None):
     """
     Hàm tra cứu kho dữ liệu san_pham lịch sử nâng cao.
-    ✨ ĐÃ SỬA ĐỘT PHÁ: Sử dụng toán tử lọc điều kiện 'or' đa cột của PostgREST Supabase.
-    Tìm kiếm đồng thời trên cả Mã hàng (style_name), Mã vải (article_name) và Ghi chú (notes).
+    ✨ ĐÃ SỬA LỖI CHÍ MẠNG: Loại bỏ bộ cắt chuỗi dấu gạch ngang sai nghiệp vụ mã vải.
+    Sử dụng thuật toán bóc tách cụm số hoặc giữ nguyên cụm từ khóa sạch để tra cứu or đa cột.
     """
     try:
         headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
         url = f"{SB_URL.rstrip('/')}/rest/v1/san_pham"
         
-        # Mở rộng giới hạn quét từ 10 lên hẳn 1000 dòng để không bỏ sót vải 8002 nằm sâu trong kho
         query_params = {
             "select": "style_name,article_name,consumption_type,material_size,uom,consumption_value,notes",
             "limit": 1000
         }
         
         if search_keyword:
-            clean_kw = str(search_keyword).strip()
-            # Khử nhiễu OCR: Nếu tệp tin bị lem mực đọc nhầm thành số 9 (8902), ép về số 0 (8002) chuẩn xưởng
+            # Chuyển đổi về dạng chuỗi văn bản sạch viết hoa
+            clean_kw = str(search_keyword).strip().upper()
+            
+            # Khử nhiễu OCR khi tải tệp tin bị lem mực
             if "8902" in clean_kw:
-                clean_kw = "SJ-8002"
-                
-            # Xử lý tách chuỗi nếu từ khóa chứa dấu gạch ngang của mã hàng
-            if '-' in clean_kw:
-                kw_target = clean_kw.split('-')[-1].strip()
+                kw_target = "8002"
             else:
-                kw_target = clean_kw
+                # Trích xuất cụm số liên tục dài từ 3 số trở lên (ví dụ: bóc từ 'SJ-8002' ra chuỗi số '8002')
+                numbers_found = re.findall(r'\d{3,}', clean_kw)
+                kw_target = numbers_found[0] if numbers_found else clean_kw
                 
-            # ✨ ĐÃ HIỆU CHUẨN ĐỒNG BỘ: Sử dụng cú pháp 'or' lọc chuỗi ilike trên cả 3 trường chữ thường của database thực tế
+            # Thực hiện lệnh tìm kiếm mờ đa cột PostgREST SQL đồng bộ chữ thường theo đúng ảnh Supabase
             query_params["or"] = f"(style_name.ilike.*{kw_target}*,article_name.ilike.*{kw_target}*,notes.ilike.*{kw_target}*)"
                 
         res = requests.get(url, headers=headers, params=query_params, timeout=15)
