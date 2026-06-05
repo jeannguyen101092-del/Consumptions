@@ -342,7 +342,7 @@ elif st.session_state.current_menu == "So Sánh Thông Số Rập":
                     towrite.seek(0)
                     st.download_button(label="📥 XUẤT PHÂN TÍCH RA FILE EXCEL (.XLSX)", data=towrite, file_name=f"So_Sanh_Thong_So_PPJ_{int(time.time())}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
                 else: st.error("Sự cố trích xuất dữ liệu.")
-# PHÂN HỆ 3: TRỢ LÝ ĐỊNH MỨC - ĐÃ SỬA LỖI TRUYỀN THAM SỐ 2 CỘT CHUẨN UI
+# PHÂN HỆ 3: TRỢ LÝ ĐỊNH MỨC - ĐÃ ĐỒNG BỘ CĂN LỀ CHUẨN CHỐNG LỖI INDENTATION
 elif st.session_state.current_menu == "Trợ Lý Tính Định Mức":
     st.markdown('<div style="background-color:#EFF6FF; padding:10px; border-radius:4px; font-weight:bold; color:#1E3A8A; margin-bottom:15px;">💡 Trợ lý chuyên gia đối chiếu & Tính định mức vải</div>', unsafe_allow_html=True)
 
@@ -354,7 +354,6 @@ elif st.session_state.current_menu == "Trợ Lý Tính Định Mức":
             }
         ]
 
-    # ĐÃ SỬA: Khai báo số lượng 2 cột chính xác để làm khung upload file và nút Clear chat
     with st.container(border=True):
         col_file, col_clear = st.columns(2)
         
@@ -376,14 +375,12 @@ elif st.session_state.current_menu == "Trợ Lý Tính Định Mức":
     st.write("")
     st.markdown("**💬 Khung hội thoại tư vấn chuyên gia Gemini thật:**")
 
-        chat_container = st.container(border=True)
+    chat_container = st.container(border=True)
     with chat_container:
         for message in st.session_state.chat_history:
             with st.chat_message(message.get("role", "assistant")):
-                # ✨ CƠ CHẾ AN TOÀN TUYỆT ĐỐI: Quét cả hai cấu trúc khóa để tương thích hoàn toàn dữ liệu cũ và mới
                 msg_content = message.get("content") or message.get("text") or ""
                 st.markdown(msg_content)
-
 
     if user_query := st.chat_input("Nhập câu hỏi của bạn tại đây..."):
         st.session_state.chat_history.append({"role": "user", "content": user_query})
