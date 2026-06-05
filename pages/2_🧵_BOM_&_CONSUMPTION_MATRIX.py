@@ -279,7 +279,7 @@ with st.sidebar:
     st.markdown("<p style='font-size:11px; font-weight:700; color:#64748B; margin: 15px 0 5px 5px; letter-spacing:0.5px;'>🏭 AUTOMATION FACTORY</p>", unsafe_allow_html=True)
     menu_selection = st.radio(
         label="Chức năng hệ thống",
-        options=["📊 Quét Techpack Document", "🔄 Pattern Spec Comparison", "🧵 BOM & Consumption Matrix"],
+        options=["📊 upload Techpack ", "🔄 Pattern Spec Comparison", "🧵 BOM & Consumption Matrix"],
         label_visibility="collapsed"
     )
     st.markdown("---")
