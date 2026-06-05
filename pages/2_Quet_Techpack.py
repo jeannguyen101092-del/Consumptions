@@ -218,10 +218,43 @@ with st.sidebar:
     st.success("Database Status: ONLINE")
     st.info("Core Engine: Gemini-2.5-Flash")
 
+# Nhúng bổ sung CSS nâng cấp giao diện bảng dữ liệu Cyber chuyên sâu
+st.markdown("""
+    <style>
+    /* Bo mạch lưới bảng dữ liệu may mặc cao cấp */
+    .cyber-table-wrapper {
+        max-height: 480px; overflow-y: auto; border: 1px solid #CBD5E1; 
+        border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.03); margin-top: 15px;
+    }
+    .cyber-table { width: 100%; border-collapse: collapse; text-align: left; font-family: sans-serif; }
+    .cyber-table th {
+        background: linear-gradient(90deg, #1E3A8A 0%, #2563EB 100%);
+        color: #FFFFFF; font-weight: 600; padding: 12px 16px; 
+        font-size: 13px; letter-spacing: 0.5px; position: sticky; top: 0; z-index: 10;
+    }
+    .cyber-table td { padding: 12px 16px; border-bottom: 1px solid #E2E8F0; color: #334155; font-size: 13.5px; font-weight: 500; }
+    .cyber-table tr:hover { background-color: #F8FAFC; }
+    
+    /* Hệ thống mã màu nhận diện sai lệch Delta tự động */
+    .delta-positive { background-color: #DCFCE7 !important; color: #166534 !important; font-weight: 700 !important; border-radius: 4px; padding: 2px 6px; }
+    .delta-negative { background-color: #FEE2E2 !important; color: #991B1B !important; font-weight: 700 !important; border-radius: 4px; padding: 2px 6px; }
+    .delta-zero { color: #64748B; font-weight: 400; }
+    
+    /* Tiêu đề vùng đối chiếu kiểu dáng đặc thù */
+    .comp-header-box {
+        background-color: #FFFFFF; border-left: 5px solid #3B82F6; 
+        padding: 12px 20px; border-radius: 4px 12px 12px 4px; margin-bottom: 20px;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.02);
+    }
+    </style>
+""", unsafe_allow_html=True)
+
 if "processed_styles" not in st.session_state:
     st.session_state["processed_styles"] = {}
 
+# -----------------------------------------------------------------------------
 # CHỨC NĂNG 1: QUÉT TỰ ĐỘNG BẰNG AI VÀ LƯU HÀNG LOẠT (BULK SAVE)
+# -----------------------------------------------------------------------------
 if menu_selection == "📊 Quét Techpack Document":
     st.markdown("""<div class="tech-card"><div class="tech-header">📥 STEP 1: GARMENT TECHPACK DATA INGESTION</div></div>""", unsafe_allow_html=True)
     uploaded_files = st.file_uploader("Upload PDF", type=["pdf"], accept_multiple_files=True, label_visibility="collapsed")
@@ -235,11 +268,9 @@ if menu_selection == "📊 Quét Techpack Document":
                     res = process_single_pdf_batch(file.getvalue(), file.name)
                     if res["success"]: st.session_state["processed_styles"][file.name] = res["data"]
                     else: st.error(f"Lỗi file {file.name}: {res['error']}")
-            if file.name in st.session_state["processed_styles"]:
-                files_to_render.append(file.name)
+            if file.name in st.session_state["processed_styles"]: files_to_render.append(file.name)
 
         if files_to_render:
-            # ✨ TÍNH NĂNG MỚI: NÚT BẤM LƯU TẤT CẢ CÙNG LÚC LÊN SUPABASE DB
             st.markdown("### 📊 THAO TÁC HỆ THỐNG HÀNG LOẠT")
             if st.button("💾 LƯU TẤT CẢ CÁC MÃ HÀNG ĐÃ QUÉT VÀO MASTER DB", key="bulk_save_all_btn", type="primary", use_container_width=True):
                 success_count = 0
@@ -262,22 +293,26 @@ if menu_selection == "📊 Quét Techpack Document":
                     sub_col1, sub_col2 = st.columns([1.2, 0.8])
                     with sub_col1:
                         st.markdown("<p style='font-weight:700; font-size:13px;'>📋 SPECIFICATION MATRIX</p>", unsafe_allow_html=True)
-                        table_html = '<table class="tech-table"><tr><th>Garment Attribute</th><th>Target Spec</th></tr>'
+                        table_html = '<div class="cyber-table-wrapper"><table class="cyber-table"><tr><th>Garment Attribute</th><th>Target Spec</th></tr>'
                         for k, v in data.get("measurements", {}).items():
                             table_html += f"<tr><td>{k}</td><td>{v}</td></tr>"
-                        st.markdown(table_html + "</table>", unsafe_allow_html=True)
+                        st.markdown(table_html + "</table></div>", unsafe_allow_html=True)
                     with sub_col2:
                         st.markdown("<p style='font-weight:700; font-size:13px;'>🤖 GARMENT REPLICAS</p>", unsafe_allow_html=True)
                         if data.get("sketch_image"): st.image(base64.b64decode(data["sketch_image"]), use_column_width=True)
                     st.markdown("<br><hr style='border-color:#E2E8F0;'><br>", unsafe_allow_html=True)
     else: st.warning("⚠️ Hiện tại chưa có tệp dữ liệu Techpack nào được đưa vào hệ thống xử lý.")
 
-# CHỨC NĂNG 2: ĐỐI CHIẾU SO SÁNH HAI MÃ RẬP KHÁC NHAU VÀ XUẤT EXCEL
+
+# -----------------------------------------------------------------------------
+# CHỨC NĂNG 2: ĐỐI CHIẾU SO SÁNH HAI MÃ RẬP KHÁC NHAU (BẢNG SAO SÀNG CARD SIÊU CẤP)
+# -----------------------------------------------------------------------------
 elif menu_selection == "🔄 Pattern Spec Comparison":
     st.markdown("""<div class="tech-card"><div class="tech-header">🔄 CHỨC NĂNG ĐỐI CHIẾU SỐ ĐO & PHÂN TÍCH SAI LỆCH (DELTA SPEC)</div></div>""", unsafe_allow_html=True)
     sc1, sc2 = st.columns(2)
     with sc1: file1 = st.file_uploader("Chọn file mẫu Techpack Gốc (File A)", type=["pdf"], key="f1")
     with sc2: file2 = st.file_uploader("Chọn file mẫu Techpack Sửa đổi (File B)", type=["pdf"], key="f2")
+    
     if file1 and file2:
         if file1.name not in st.session_state["processed_styles"]:
             res1 = process_single_pdf_batch(file1.getvalue(), file1.name)
@@ -285,24 +320,116 @@ elif menu_selection == "🔄 Pattern Spec Comparison":
         if file2.name not in st.session_state["processed_styles"]:
             res2 = process_single_pdf_batch(file2.getvalue(), file2.name)
             if res2["success"]: st.session_state["processed_styles"][file2.name] = res2["data"]
+            
         d1 = st.session_state["processed_styles"].get(file1.name)
         d2 = st.session_state["processed_styles"].get(file2.name)
+        
         if d1 and d2:
-            def clean_val(v_str):
-                try: return float(re.findall(r"[-+]?\d*\.\d+|\d+", str(v_str))[0])
-                except: return 0.0
+            st.markdown(f"""
+                <div class="comp-header-box">
+                    <h5 style="margin:0; color:#1E3A8A; font-weight:700;">⚙️ ĐANG ĐỐI CHIẾU MA TRẬN PHÁT TRIỂN MẪU</h5>
+                    <p style="margin:4px 0 0 0; font-size:13px; color:#64748B;">
+                        <b>Mẫu Gốc A:</b> {d1['style_number_parsed']} [Size: {d1.get('base_size_name','N/A')}] 
+                        &nbsp;|&nbsp; 
+                        <b>Mẫu Sửa B:</b> {d2['style_number_parsed']} [Size: {d2.get('base_size_name','N/A')}]
+                    </p>
+                </div>
+            """, unsafe_allow_html=True)
+            
+            def clean_garment_fraction(v_str):
+                if not v_str or str(v_str).strip().upper() in ["N/A", "N/A INCH", ""]: return 0.0
+                try:
+                    s = str(v_str).replace("INCH", "").strip()
+                    if " " in s:
+                        parts = s.split()
+                        whole = float(parts[0])
+                        frac = parts[1].split('/')
+                        return whole + (float(frac[0]) / float(frac[1]))
+                    elif "/" in s:
+                        frac = s.split('/')
+                        return float(frac[0]) / float(frac[1])
+                    return float(s)
+                except:
+                    nums = re.findall(r"[-+]?\d*\.\d+|\d+", str(v_str))
+                    return float(nums[0]) if nums else 0.0
+
+            size_a = d1.get("base_size_name", "BASE SIZE").strip()
+            size_b = d2.get("base_size_name", "BASE SIZE").strip()
+            col_title_a = f"Mẫu A ({d1['style_number_parsed']}) [Size: {size_a}]"
+            col_title_b = f"Mẫu B ({d2['style_number_parsed']}) [Size: {size_b}]"
+
             all_poms = set(list(d1["measurements"].keys()) + list(d2["measurements"].keys()))
-            compare_rows = []
-            for pom in all_poms:
-                val1 = d1["measurements"].get(pom, "N/A"); val2 = d2["measurements"].get(pom, "N/A")
-                delta = round(clean_val(val2) - clean_val(val1), 3) if val1 != "N/A" and val2 != "N/A" else 0.0
-                compare_rows.append({"Vị trí đo (POM)": pom, f"Mẫu A ({d1['style_number_parsed']})": val1, f"Mẫu B ({d2['style_number_parsed']})": val2, "Sai lệch (Delta)": delta})
-            df_compare = pd.DataFrame(compare_rows)
-            st.dataframe(df_compare, use_container_width=True, hide_index=True)
+            
+            # Khởi tạo bảng HTML cao cấp có hiệu ứng đổ màu sai lệch Delta
+            table_html = f"""
+            <div class="cyber-table-wrapper">
+                <table class="cyber-table">
+                    <tr>
+                        <th>Vị trí đo (POM Description)</th>
+                        <th>{col_title_a}</th>
+                        <th>{col_title_b}</th>
+                        <th style="text-align:center; width:140px;">Sai lệch (Delta)</th>
+                    </tr>
+            """
+            
+            compare_rows_for_df = []
+            for pom in sorted(all_poms):
+                val1 = d1["measurements"].get(pom, "N/A")
+                val2 = d2["measurements"].get(pom, "N/A")
+                num1 = clean_garment_fraction(val1)
+                num2 = clean_garment_fraction(val2)
+                
+                delta = round(num2 - num1, 3) if val1 != "N/A" and val2 != "N/A" else 0.0
+                compare_rows_for_df.append({"Vị trí đo (POM)": pom, col_title_a: val1, col_title_b: val2, "Sai lệch (Delta)": delta})
+                
+                # Biện pháp render HTML gán class CSS màu cảnh báo
+                if delta > 0:
+                    delta_td = f'<td style="text-align:center;"><span class="delta-positive">+{delta}</span></td>'
+                elif delta < 0:
+                    delta_td = f'<td style="text-align:center;"><span class="delta-negative">{delta}</span></td>'
+                else:
+                    delta_td = f'<td style="text-align:center; color:#94A3B8;"><span class="delta-zero">0</span></td>'
+                
+                table_html += f"""
+                    <tr>
+                        <td style="font-weight:600; color:#1E293B;">{pom}</td>
+                        <td>{val1}</td>
+                        <td>{val2}</td>
+                        {delta_td}
+                    </tr>
+                """
+            table_html += "</table></div>"
+            
+            # Hiển thị bảng Cyber Matrix lên Streamlit
+            st.markdown(table_html, unsafe_allow_html=True)
+            st.markdown("<br>", unsafe_allow_html=True)
+            
+            # Xử lý xuất File Excel chuẩn qua xlsxwriter giữ nguyên logic gốc
+            df_compare = pd.DataFrame(compare_rows_for_df)
             towrite = io.BytesIO()
-            with pd.ExcelWriter(towrite, engine='xlsxwriter') as writer: df_compare.to_excel(writer, index=False, sheet_name='Report')
+            with pd.ExcelWriter(towrite, engine='xlsxwriter') as writer: 
+                df_compare.to_excel(writer, index=False, sheet_name='Spec_Report')
+                workbook  = writer.book
+                worksheet = writer.sheets['Spec_Report']
+                header_format = workbook.add_format({'bold':True,'text_wrap':True,'fg_color':'#1E3A8A','font_color':'white','border':1,'align':'center','valign':'vcenter'})
+                center_format = workbook.add_format({'align':'center','valign':'vcenter','border':1})
+                left_format = workbook.add_format({'align':'left','valign':'vcenter','border':1})
+                
+                for col_num, column_title in enumerate(df_compare.columns):
+                    worksheet.write(0, col_num, column_title, header_format)
+                for i, col in enumerate(df_compare.columns):
+                    max_len = max(df_compare[col].astype(str).map(len).max(), len(col)) + 4
+                    if i == 0: worksheet.set_column(i, i, max_len, left_format)
+                    else: worksheet.set_column(i, i, max_len, center_format)
             towrite.seek(0)
-            st.download_button(label="📥 XUẤT BÁO CÁO ĐỐI CHIẾU THÔNG SỐ (EXCEL)", data=towrite, file_name="PPJ_Spec_Comparison.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            
+            st.download_button(
+                label="📥 XUẤT BÁO CÁO ĐỐI CHIẾU THÔNG SỐ (EXCEL PRODUCTION)", 
+                data=towrite, 
+                file_name=f"PPJ_Spec_Comparison_Premium.xlsx", 
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+
 # CHỨC NĂNG 3: TRỢ LÝ ĐỊNH MỨC VẢI THÔNG MINH (BÓC TÁCH MÃ MỚI -> QUÉT KHO TƯƠNG ĐỒNG -> TỰ ĐỘNG TÍNH ĐỊNH MỨC THEO DELTA SPEC)
 elif menu_selection == "🧵 Fabric Consumption Assistant (Cons)":
     st.markdown("""<div class="tech-card"><div class="tech-header">🧵 PPJ INTELLIGENT FABRIC CONSUMPTION ASSISTANT (R&D ENGINE)</div>
