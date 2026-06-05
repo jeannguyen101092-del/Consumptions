@@ -583,23 +583,27 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                             found_keywords = re.findall(r'[A-Za-z0-9]+[-–][A-Za-z0-9]+|[A-Za-z0-9]{4,}', user_query)
                             if found_keywords: new_style_id_detected = found_keywords
 
-                        # 2. TRUY VẤN MỞ RỘNG TOÀN KHO MASTER DB (HỖ TRỢ TÌM KIẾM THEO TÊN VÀ MÃ VẢI ĐỘNG)
+                                                # =============================================================================
+                        # TRUY VẤN MỞ RỘNG TOÀN KHO MASTER DB (ĐÃ SỬA LỖI ĐỊNH NGHĨA BIẾN RES_TP)
+                        # =============================================================================
                         headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
                         
-                        # Quét tìm hồ sơ rập thiết kế từ bảng thong_so_techpack
+                        # 1. Quét tìm mã cấu trúc rập và hình ảnh phác thảo từ bảng thong_so_techpack
                         url_techpack = f"{SB_URL.rstrip('/')}/rest/v1/thong_so_techpack?StyleName=ilike.*{new_style_id_detected}*&select=StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL&limit=3"
                         res_tp = requests.get(url_techpack, headers=headers, timeout=15)
-                        db_results = res_tp.json() if 200 <= res.status_code <= 299 else []
+                        # ✨ ĐÃ SỬA BIẾN CHUẨN XÁC: Thay res thành res_tp đồng bộ 100%
+                        db_results = res_tp.json() if 200 <= res_tp.status_code <= 299 else []
                         
-                        # Thuật toán tự động "bắt" mã số đặc biệt (Mã vải/Mã phụ liệu) từ câu gõ chat của kỹ sư
+                        # 2. Thuật toán tự động "bắt" mã số đặc biệt (Mã vải/Mã phụ liệu) từ câu gõ chat của kỹ sư
                         user_search_keywords = re.findall(r'\d+', user_query)
                         dynamic_keyword = user_search_keywords if user_search_keywords else new_style_id_detected
                         
-                        # ✨ ĐỘT PHÁ: Mở toang bộ lọc Supabase quét sâu 1000 dòng đa điều kiện theo từ khóa động
+                        # Gọi kho định mức san_pham, nâng giới hạn quét lên limit=1000 dòng và lọc theo mã vải/mã hàng động
                         url_san_pham = f"{SB_URL.rstrip('/')}/rest/v1/san_pham?or=(style_name.ilike.*{dynamic_keyword}*,article_name.ilike.*{dynamic_keyword}*,notes.ilike.*{dynamic_keyword}*)&select=style_name,article_name,consumption_type,material_size,uom,consumption_value,notes&limit=1000"
                         res_sp = requests.get(url_san_pham, headers=headers, timeout=15)
                         backup_res = res_sp.json() if 200 <= res_sp.status_code <= 299 else []
                         
+                        # 3. Gom tri thức nền truyền vào bộ não AI lập luận
                         db_context = f"\n\n[ KHO DỮ LIỆU TRI THỨC NỀN THỰC TẾ TRONG HỆ THỐNG MASTER DB PHÒNG R&D ]: \n"
                         detected_image_url_to_render = ""
                         detected_style_title_to_render = ""
@@ -621,6 +625,7 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                             if res_fb.status_code == 200:
                                 for fb_item in res_fb.json():
                                     db_context += f"  + Mã tham chiếu: {fb_item.get('style_name')} | Vải: {fb_item.get('article_name')} | Định mức: {fb_item.get('consumption_value')} {fb_item.get('uom')}\n"
+
                         # =============================================================================
                         # PHASE 6B - PART 2: STRENGTHENED R&D INFERENCE ENGINE (STRICT OPERATIONAL LOGIC)
                         # =============================================================================
