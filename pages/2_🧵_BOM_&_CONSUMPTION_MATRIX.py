@@ -292,7 +292,7 @@ if "processed_styles" not in st.session_state:
 # -----------------------------------------------------------------------------
 # CHỨC NĂNG 1: QUÉT TỰ ĐỘNG BẰNG AI VÀ LƯU HÀNG LOẠT (BULK SAVE MULTI-BATCH)
 # -----------------------------------------------------------------------------
-if menu_selection == "📊 Quét Techpack Document":
+if menu_selection == "📊 upload Techpack":
     st.markdown('<div class="component-title-box">📊 MULTI-BATCH GARMENT SPECIFICATION MATRIX</div>', unsafe_allow_html=True)
     
     st.markdown("""<div class="card-container"><div class="card-section-header">📥 INGESTION ENGINE</div>
