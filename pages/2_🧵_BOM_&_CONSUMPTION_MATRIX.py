@@ -521,140 +521,157 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
             if msg.get("type") == "visual" and msg.get("image_url"):
                 st.image(msg["image_url"], caption=f"Bản vẽ Sketch lịch sử đối chiếu mã {msg.get('style_title')}", width=220)
     # =============================================================================
-# PHASE 6B - PART 1: ADVANCED MULTI-PAGE R&D PIPELINE (BACKEND PROCESS)
-# =============================================================================
-if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vải và đối soát sai lệch..."):
-    st.session_state["chat_history"].append({"role": "user", "type": "text", "content": user_query})
-    with st.chat_message("user"): 
-        st.write(user_query)
-        
-    with st.chat_message("assistant"):
-        with st.spinner("Hệ thống AI R&D Engine đang thiết lập ma trận đối soát tri thức nền xưởng may..."):
-            gemini_key = get_secure_gemini_key()
-            if not gemini_key: 
-                ans = "CRITICAL SERVER BREAKDOWN: AI API Token is missing."
-            else:
-                try:
-                    client = genai.Client(api_key=gemini_key)
-                    contents_payload = []
-                    new_style_id_detected = "UNKNOWN_STYLE"
-                    new_style_raw_text = ""
-                    
-                    if chat_file:
-                        file_bytes = chat_file.getvalue()
-                        img_payload = []
-                        if chat_file.name.lower().endswith('.pdf'):
-                            info_chat = pdfinfo_from_bytes(file_bytes)
-                            total_chat_pages = int(info_chat.get("Pages", 1))
-                            chat_images = convert_from_bytes(file_bytes, dpi=140, first_page=1, last_page=total_chat_pages)
-                            for page_img in chat_images:
-                                img_buf = io.BytesIO()
-                                page_img.convert("RGB").save(img_buf, format="JPEG")
-                                img_payload.append(types.Part.from_bytes(data=img_buf.getvalue(), mime_type='image/jpeg'))
-                                if not contents_payload:
-                                    contents_payload.append(types.Part.from_bytes(data=img_buf.getvalue(), mime_type='image/jpeg'))
-                        else:
-                            img_payload.append(types.Part.from_bytes(data=file_bytes, mime_type='image/jpeg'))
-                            contents_payload.append(types.Part.from_bytes(data=file_bytes, mime_type='image/jpeg'))
+    # =============================================================================
+    # PHASE 6B - PART 1: ADVANCED MULTI-PAGE INGESTION & DYNAMIC SEARCH PIPELINE
+    # =============================================================================
+    if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vải và đối soát sai lệch..."):
+        st.session_state["chat_history"].append({"role": "user", "type": "text", "content": user_query})
+        with st.chat_message("user"): 
+            st.write(user_query)
+            
+        with st.chat_message("assistant"):
+            with st.spinner("Hệ thống AI R&D Engine đang thiết lập ma trận đối soát tri thức nền xưởng may..."):
+                gemini_key = get_secure_gemini_key()
+                if not gemini_key: 
+                    ans = "CRITICAL SERVER BREAKDOWN: AI API Token is missing."
+                else:
+                    try:
+                        client = genai.Client(api_key=gemini_key)
+                        contents_payload = []
+                        new_style_id_detected = "UNKNOWN_STYLE"
+                        new_style_raw_text = ""
                         
-                        extraction_prompt = """
-                        Analyze ALL attached technical pack images page by page.
-                        1. Locate and extract the genuine 'Style ID' / 'Style Number' / 'Mã hàng'.
-                        2. Extract ALL specification charts and raw Bill of Materials (BOM) fields row by row.
-                        Return a valid JSON with this exact schema:
-                        {"detected_style_id": "Text of Style ID", "all_specs_text": "Complete specifications and raw BOM data text from all pages"}
-                        """
-                        img_payload.append(extraction_prompt)
-                        
-                        for ext_attempt in range(3):
-                            try:
-                                extraction_res = client.models.generate_content(model='gemini-2.5-flash', contents=img_payload, config=types.GenerateContentConfig(response_mime_type="application/json", temperature=0.0))
-                                parsed_meta = json.loads(extraction_res.text.strip())
-                                new_style_id_detected = parsed_meta.get("detected_style_id", "UNKNOWN_STYLE").strip()
-                                new_style_raw_text = parsed_meta.get("all_specs_text", "")
-                                break
-                            except Exception:
-                                import time
-                                time.sleep(2 * (ext_attempt + 1))
-                    
-                    if new_style_id_detected == "UNKNOWN_STYLE" or not chat_file:
-                        found_keywords = re.findall(r'[A-Za-z0-9]+[-–][A-Za-z0-9]+|[A-Za-z0-9]{4,}', user_query)
-                        if found_keywords: new_style_id_detected = found_keywords
-
-                    # TRUY VẤN ĐỒNG BỘ: Lấy dữ liệu rập cấu trúc và gọi luôn danh sách định mức nền san_pham để đối chiếu form dáng
-                    headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
-                    url = f"{SB_URL.rstrip('/')}/rest/v1/thong_so_techpack?StyleName=ilike.*{new_style_id_detected}*&select=StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL&limit=3"
-                    res = requests.get(url, headers=headers, timeout=15)
-                    db_results = res.json() if 200 <= res.status_code <= 299 else []
-                    
-                    # Gọi thêm kho dữ liệu định mức tổng hợp phục vụ thuật toán tìm mã gần giống (Fuzzy Selection)
-                    backup_res = get_historical_fabric_consumption_from_db(search_keyword=None)
-                    
-                    db_context = f"\n\n[ KHO DỮ LIỆU TRI THỨC NỀN THỰC TẾ CỦA XƯỞNG MAY ĐỂ ĐỐI CHIẾU ]: \n"
-                    detected_image_url_to_render = ""
-                    detected_style_title_to_render = ""
-                    
-                    if db_results:
-                        for item in db_results:
-                            if item.get("SketchURL") and not detected_image_url_to_render:
-                                detected_image_url_to_render = item.get("SketchURL")
-                                detected_style_title_to_render = item.get("StyleName")
-                            db_context += f"- Mã gốc đối chiếu trực tiếp trùng tên: {item.get('StyleName')}\n  + Khách hàng: {item.get('Buyer')}\n  + Phân loại kiểu dáng: {item.get('Category')}\n  + Thông số số đo rập: {json.dumps(item.get('DetailedMeasurements', {}), ensure_ascii=False)}\n  + Ảnh sơ đồ phẳng lưu kho: {item.get('SketchURL', '')}\n"
-                    
-                    if backup_res:
-                        db_context += "\n- DANH SÁCH CÁC MÃ HÀNG LỊCH SỬ KHÁC ĐANG CÓ TRONG KHO VẬT TƯ ĐỂ TÌM FORM DÁNG GẦN GIỐNG:\n"
-                        for b_item in backup_res[:8]:
-                            db_context += f"  + Mã hàng cũ: {b_item.get('style_name')} | Loại vải: {b_item.get('article_name')} | Định mức Cons gốc: {b_item.get('consumption_value')} {b_item.get('uom')} | Kiểu dáng/Ghi chú rập: {b_item.get('notes')}\n"
-                    # =============================================================================
-                    # PHASE 6B - PART 2: STRENGTHENED R&D INFERENCE ENGINE (STRICT OPERATIONAL LOGIC)
-                    # =============================================================================
-                    # CHỈ THỊ THUẬT TOÁN TƯ VẤN THÔNG MINH - TUYỆT ĐỐI CẤM TỰ BỊA HAO HỤT 15%
-                    system_instruction = (
-                        "You are the elite Chief R&D Fashion Technical Director at PPJ Group.\n"
-                        "Your job is to calculate fabric consumption and analyze techpacks with absolute industrial accuracy. Hỏi gì đáp nấy.\n\n"
-                        "CRITICAL OPERATIONAL RULES:\n"
-                        "1. TUYỆT ĐỐI CẤM SỬ DỤNG CON SỐ GIẢ ĐỊNH 'HAO HỤT CẮT XƯỞNG 15%': Ngành may sản xuất thực tế không sử dụng con số cố định vô lý này. "
-                        "Bạn không được phép đưa cụm từ 'hao hụt 15%' hay bất kỳ tỷ lệ phần trăm giả định nào vào lập luận nếu dữ liệu gốc không cung cấp. "
-                        "Mọi tính toán phải dựa trên định mức thực tế ('consumption_value') thu được từ kho dữ liệu sản xuất.\n"
-                        "2. THUẬT TOÁN SUY LUẬN MÃ GẦN GIỐNG (FUZZY STYLE MATCHING): Nếu mã mới tải lên chưa từng có dữ liệu trùng tên chính xác trong kho, "
-                        "bạn KHÔNG ĐƯỢC BỎ CUỘC hay báo lỗi. Hãy quét danh sách 'CÁC MÃ HÀNG LỊCH SỬ KHÁC ĐANG CÓ TRONG KHO' được cung cấp ở trên, "
-                        "tìm ra một mã hàng cũ có kiểu dáng, form dáng quần hoặc dòng sản phẩm GẦN GIỐNG NHẤT (ví dụ: cùng là dáng Baggy Jeans, Curvy Fit, Slim...). "
-                        "Hãy thông báo rõ ràng cho kỹ sư: 'Tôi đã tìm thấy mã cũ [Tên mã] có form dáng gần giống với mã mới'. "
-                        "Sau đó, tiến hành so sánh ma trận thông số kích thước (Dài quần, vòng mông, vòng đùi...) chênh lệch bao nhiêu inch/cm giữa 2 mã (Delta Spec). "
-                        "Dựa trên độ lệch thông số rập này để tăng hoặc giảm định mức một cách logic so với định mức gốc của mã cũ để đưa ra dự đoán cụ thể (Ví dụ: Mã mới dài hơn 2 inch, tăng định mức vải thêm 0.05 yds).\n"
-                        "3. TÍNH NĂNG AI TỰ ĐỘNG TÍNH TOÁN (PURE GEOMETRIC CALCULATION): Nếu trong kho hoàn toàn không có mã nào tương đồng kiểu dáng, "
-                        "bạn phải vận dụng thuật toán AI tự động tính toán hình học: Dựa vào các thông số kích thước dài quần, vòng mông, vòng đùi bóc tách được từ file mới, "
-                        "áp dụng công thức toán học tính diện tích bề mặt vải cắt thô của các chi tiết quần (thân trước, thân sau, cạp, túi) cộng hao hụt đường may tiêu chuẩn để tự kết xuất ra con số định mức dự kiến (Cons Value) cụ thể (YARDS/UNIT).\n"
-                        "4. ĐÁP ỨNG ĐÚNG TRỌNG TÂM CÂU HỎI: Khi kỹ sư chỉ yêu cầu tìm mã tương đồng và tính định mức vải, TUYỆT ĐỐI KHÔNG xuất bảng nguyên phụ liệu BOM dài dòng, không lan man sang chủ đề khác.\n\n"
-                        "Trình bày báo cáo sắc bén, khoa học, đi thẳng vào số liệu bằng tiếng Việt chuyên ngành dệt may kỹ thuật."
-                    )
-                    
-                    full_prompt = f"{system_instruction}\n\nYêu cầu của kỹ sư: {user_query}\n\n[Thông số ma trận file mới tải lên]:\n{new_style_raw_text if new_style_raw_text else 'Không đính kèm file'}\n{db_context}"
-                    contents_payload.append(full_prompt)
-                    
-                    ans = ""
-                    for attempt in range(5):
-                        try:
-                            response = client.models.generate_content(model='gemini-2.5-flash', contents=contents_payload)
-                            ans = response.text
-                            break
-                        except Exception as e:
-                            if "503" in str(e) or "UNAVAILABLE" in str(e) or "429" in str(e) or "EXHAUSTED" in str(e):
-                                if attempt < 4:
-                                    import time
-                                    time.sleep(3 * (attempt + 1))
-                                    continue
-                            raise e
+                        # 1. BÓC TÁCH KHÉP KÍN TOÀN BỘ CÁC TRANG CỦA TỆP FILE MỚI
+                        if chat_file:
+                            file_bytes = chat_file.getvalue()
+                            img_payload = []
+                            if chat_file.name.lower().endswith('.pdf'):
+                                info_chat = pdfinfo_from_bytes(file_bytes)
+                                total_chat_pages = int(info_chat.get("Pages", 1))
+                                chat_images = convert_from_bytes(file_bytes, dpi=140, first_page=1, last_page=total_chat_pages)
+                                for page_img in chat_images:
+                                    img_buf = io.BytesIO()
+                                    page_img.convert("RGB").save(img_buf, format="JPEG")
+                                    img_payload.append(types.Part.from_bytes(data=img_buf.getvalue(), mime_type='image/jpeg'))
+                                    if not contents_payload:
+                                        contents_payload.append(types.Part.from_bytes(data=img_buf.getvalue(), mime_type='image/jpeg'))
+                            else:
+                                img_payload.append(types.Part.from_bytes(data=file_bytes, mime_type='image/jpeg'))
+                                contents_payload.append(types.Part.from_bytes(data=file_bytes, mime_type='image/jpeg'))
                             
-                    st.write(ans)
-                    st.session_state["chat_history"].append({"role": "assistant", "type": "text", "content": ans})
-                    
-                    # Chỉ tự động bắn ảnh ra màn hình khi tìm thấy liên kết hình ảnh phác thảo thực tế trong kho Supabase
-                    if detected_image_url_to_render:
-                        st.image(detected_image_url_to_render, caption=f"Bản vẽ Sketch lịch sử đối chiếu của Mã hàng {detected_style_title_to_render}", width=220)
-                        st.session_state["chat_history"].append({"role": "assistant", "type": "visual", "content": f"[Hệ thống đã kết xuất hình ảnh tham chiếu mã {detected_style_title_to_render}]", "image_url": detected_image_url_to_render, "style_title": detected_style_title_to_render})
+                            extraction_prompt = """
+                            Analyze ALL the attached technical pack images page by page.
+                            1. Locate and extract the genuine 'Style ID' / 'Style Number' / 'Mã hàng'.
+                            2. Extract ALL specification charts and raw Bill of Materials (BOM) fields.
+                            Return a valid JSON with this exact schema:
+                            {"detected_style_id": "Text of Style ID", "all_specs_text": "Complete specifications and raw BOM data text from all pages"}
+                            """
+                            img_payload.append(extraction_prompt)
+                            
+                            for ext_attempt in range(3):
+                                try:
+                                    extraction_res = client.models.generate_content(model='gemini-2.5-flash', contents=img_payload, config=types.GenerateContentConfig(response_mime_type="application/json", temperature=0.0))
+                                    parsed_meta = json.loads(extraction_res.text.strip())
+                                    new_style_id_detected = parsed_meta.get("detected_style_id", "UNKNOWN_STYLE").strip()
+                                    new_style_raw_text = parsed_meta.get("all_specs_text", "")
+                                    break
+                                except Exception:
+                                    import time
+                                    time.sleep(2 * (ext_attempt + 1))
                         
-                except Exception as e: 
-                    ans = f"⚠️ Máy chủ AI bận xử lý ma trận lập luận mẫu. Vui lòng thử lại sau vài giây! Chi tiết: {str(e)}"
-                    st.write(ans)
-                    st.session_state["chat_history"].append({"role": "assistant", "type": "text", "content": ans})
+                        if new_style_id_detected == "UNKNOWN_STYLE" or not chat_file:
+                            found_keywords = re.findall(r'[A-Za-z0-9]+[-–][A-Za-z0-9]+|[A-Za-z0-9]{4,}', user_query)
+                            if found_keywords: new_style_id_detected = found_keywords
+
+                        # 2. TRUY VẤN MỞ RỘNG TOÀN KHO MASTER DB (HỖ TRỢ TÌM KIẾM THEO TÊN VÀ MÃ VẢI ĐỘNG)
+                        headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
+                        
+                        # Quét tìm hồ sơ rập thiết kế từ bảng thong_so_techpack
+                        url_techpack = f"{SB_URL.rstrip('/')}/rest/v1/thong_so_techpack?StyleName=ilike.*{new_style_id_detected}*&select=StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL&limit=3"
+                        res_tp = requests.get(url_techpack, headers=headers, timeout=15)
+                        db_results = res_tp.json() if 200 <= res.status_code <= 299 else []
+                        
+                        # Thuật toán tự động "bắt" mã số đặc biệt (Mã vải/Mã phụ liệu) từ câu gõ chat của kỹ sư
+                        user_search_keywords = re.findall(r'\d+', user_query)
+                        dynamic_keyword = user_search_keywords if user_search_keywords else new_style_id_detected
+                        
+                        # ✨ ĐỘT PHÁ: Mở toang bộ lọc Supabase quét sâu 1000 dòng đa điều kiện theo từ khóa động
+                        url_san_pham = f"{SB_URL.rstrip('/')}/rest/v1/san_pham?or=(style_name.ilike.*{dynamic_keyword}*,article_name.ilike.*{dynamic_keyword}*,notes.ilike.*{dynamic_keyword}*)&select=style_name,article_name,consumption_type,material_size,uom,consumption_value,notes&limit=1000"
+                        res_sp = requests.get(url_san_pham, headers=headers, timeout=15)
+                        backup_res = res_sp.json() if 200 <= res_sp.status_code <= 299 else []
+                        
+                        db_context = f"\n\n[ KHO DỮ LIỆU TRI THỨC NỀN THỰC TẾ TRONG HỆ THỐNG MASTER DB PHÒNG R&D ]: \n"
+                        detected_image_url_to_render = ""
+                        detected_style_title_to_render = ""
+                        
+                        if db_results:
+                            for item in db_results:
+                                if item.get("SketchURL") and not detected_image_url_to_render:
+                                    detected_image_url_to_render = item.get("SketchURL")
+                                    detected_style_title_to_render = item.get("StyleName")
+                                db_context += f"- Hồ sơ rập thiết kế: {item.get('StyleName')} | Khách hàng: {item.get('Buyer')} | Form dáng: {item.get('Category')} | Số đo: {json.dumps(item.get('DetailedMeasurements', {}), ensure_ascii=False)}\n"
+                        
+                        if backup_res:
+                            db_context += f"\n- KẾT QUẢ TRA CỨU DỮ LIỆU ĐỊNH MỨC VÀ NGUYÊN LIỆU PHÙ HỢP VỚI TỪ KHÓA '{dynamic_keyword}':\n"
+                            for b_item in backup_res[:15]:
+                                db_context += f"  + Mã hàng lịch sử: {b_item.get('style_name')} | Loại nguyên liệu/Mã vải: {b_item.get('article_name')} | Định mức tiêu thụ Cons thực tế: {b_item.get('consumption_value')} {b_item.get('uom')} | Ghi chú xưởng: {b_item.get('notes')}\n"
+                        else:
+                            db_context += f"⚠️ Không tìm thấy bản ghi định mức trực tiếp nào chứa từ khóa '{dynamic_keyword}' trong bảng san_pham. Dưới đây là các dòng định mức cơ sở để tham khảo:\n"
+                            res_fb = requests.get(f"{SB_URL.rstrip('/')}/rest/v1/san_pham?select=style_name,article_name,consumption_type,material_size,uom,consumption_value,notes&limit=5", headers=headers, timeout=15)
+                            if res_fb.status_code == 200:
+                                for fb_item in res_fb.json():
+                                    db_context += f"  + Mã tham chiếu: {fb_item.get('style_name')} | Vải: {fb_item.get('article_name')} | Định mức: {fb_item.get('consumption_value')} {fb_item.get('uom')}\n"
+                        # =============================================================================
+                        # PHASE 6B - PART 2: STRENGTHENED R&D INFERENCE ENGINE (STRICT OPERATIONAL LOGIC)
+                        # =============================================================================
+                        # CHỈ THỊ THUẬT TOÁN TƯ VẤN THÔNG MINH - TUYỆT ĐỐI CẤM TỰ BỊA HAO HỤT 15%
+                        system_instruction = (
+                            "You are the elite Chief R&D Fashion Technical Director at PPJ Group.\n"
+                            "Your job is to calculate fabric consumption and analyze techpacks with absolute industrial accuracy. Hỏi gì đáp nấy.\n\n"
+                            "CRITICAL OPERATIONAL RULES:\n"
+                            "1. TUYỆT ĐỐI CẤM SỬ DỤNG CON SỐ GIẢ ĐỊNH 'HAO HỤT CẮT XƯỞNG 15%': Ngành may sản xuất thực tế không sử dụng con số cố định vô lý này. "
+                            "Bạn không được phép đưa cụm từ 'hao hụt 15%' hay bất kỳ tỷ lệ phần trăm giả định nào vào lập luận nếu dữ liệu gốc không cung cấp. "
+                            "Mọi tính toán phải dựa trên định mức thực tế ('consumption_value') thu được từ kho dữ liệu sản xuất.\n"
+                            "2. THUẬT TOÁN SUY LUẬN MÃ GẦN GIỐNG (FUZZY STYLE MATCHING): Nếu mã mới tải lên chưa từng có dữ liệu trùng tên chính xác trong kho, "
+                            "bạn KHÔNG ĐƯỢC BỎ CUỘC hay báo lỗi. Hãy quét danh sách 'KẾT QUẢ TRA CỨU DỮ LIỆU ĐỊNH MỨC VÀ NGUYÊN LIỆU PHÙ HỢP' được cung cấp ở trên, "
+                            "tìm ra một mã hàng cũ có kiểu dáng, form dáng quần hoặc dòng sản phẩm GẦN GIỐNG NHẤT (ví dụ: cùng là dáng Baggy Jeans, Curvy Wide Leg, Slim, Flare...). "
+                            "Hãy thông báo rõ ràng cho kỹ sư: 'Tôi đã tìm thấy mã cũ [Tên mã] có form dáng gần giống với mã mới'. "
+                            "Sau đó, tiến hành so sánh ma trận thông số kích thước (Dài quần, vòng mông, vòng đùi...) chênh lệch bao nhiêu inch/cm giữa 2 mã (Delta Spec). "
+                            "Dựa trên độ lệch thông số rập này để tăng hoặc giảm định mức một cách logic so với định mức gốc của mã cũ để đưa ra dự đoán cụ thể (Ví dụ: Mã mới dài hơn 2 inch, tăng định mức vải thêm 0.05 yds).\n"
+                            "3. TÍNH NĂNG AI TỰ ĐỘNG TÍNH TOÁN (PURE GEOMETRIC CALCULATION): Nếu trong kho hoàn toàn không có mã nào tương đồng kiểu dáng hoặc mã nguyên liệu khớp, "
+                            "bạn phải vận dụng thuật toán AI tự động tính toán hình học: Dựa vào các thông số kích thước dài quần, vòng mông, vòng đùi bóc tách được từ file mới, "
+                            "áp dụng công thức toán học tính diện tích bề mặt vải cắt thô của các chi tiết quần (thân trước, thân sau, cạp, túi) cộng hao hụt đường may tiêu chuẩn để tự kết xuất ra con số định mức dự kiến (Cons Value) cụ thể (YARDS/UNIT).\n"
+                            "4. ĐÁP ỨNG ĐÚNG TRỌNG TÂM CÂU HỎI: Khi kỹ sư chỉ hỏi tìm thông tin vải lịch sử hoặc định mức vải chính, TUYỆT ĐỐI KHÔNG xuất bảng phụ liệu BOM dài dòng, không lan man sang chủ đề khác. Hỏi gì đáp nấy.\n\n"
+                            "Trình bày báo cáo sắc bén, khoa học, đi thẳng vào số liệu bằng tiếng Việt chuyên ngành dệt may kỹ thuật."
+                        )
+                        
+                        full_prompt = f"{system_instruction}\n\nYêu cầu của kỹ sư: {user_query}\n\n[Thông số ma trận file mới tải lên]:\n{new_style_raw_text if new_style_raw_text else 'Không đính kèm file'}\n{db_context}"
+                        contents_payload.append(full_prompt)
+                        
+                        # Bộ bẫy lỗi lũy tiến Backoff 5 lần tránh sập mạng
+                        ans = ""
+                        for attempt in range(5):
+                            try:
+                                response = client.models.generate_content(model='gemini-2.5-flash', contents=contents_payload)
+                                ans = response.text
+                                break
+                            except Exception as e:
+                                if "503" in str(e) or "UNAVAILABLE" in str(e) or "429" in str(e) or "EXHAUSTED" in str(e):
+                                    if attempt < 4:
+                                        import time
+                                        time.sleep(3 * (attempt + 1))
+                                        continue
+                                raise e
+                                
+                        st.write(ans)
+                        st.session_state["chat_history"].append({"role": "assistant", "type": "text", "content": ans})
+                        
+                        # Chỉ tự động bắn ảnh ra màn hình khi tìm thấy liên kết hình ảnh phác thảo thực tế trong kho Supabase
+                        if detected_image_url_to_render:
+                            st.image(detected_image_url_to_render, caption=f"Bản vẽ Sketch lịch sử đối chiếu của Mã hàng {detected_style_title_to_render}", width=220)
+                            st.session_state["chat_history"].append({"role": "assistant", "type": "visual", "content": f"[Hệ thống đã kết xuất hình ảnh tham chiếu mã {detected_style_title_to_render}]", "image_url": detected_image_url_to_render, "style_title": detected_style_title_to_render})
+                            
+                    except Exception as e: 
+                        ans = f"⚠️ Máy chủ AI đang xử lý ma trận số liệu lớn. Vui lòng thử lại sau vài giây! Chi tiết: {str(e)}"
+                        st.write(ans)
+                        st.session_state["chat_history"].append({"role": "assistant", "type": "text", "content": ans})
