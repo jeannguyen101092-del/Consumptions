@@ -577,7 +577,7 @@ elif menu_selection == "🧵 Fabric Consumption Assistant (Cons)":
             # Cơ chế dựng ảnh động lưu trong lịch sử hội thoại nếu có kết quả thị giác từ database
             if msg.get("type") == "visual" and msg.get("image_url"):
                 st.image(msg["image_url"], caption=f"Bản vẽ Sketch lịch sử của Mã hàng {msg.get('style_title')}", width=220)
-    # =============================================================================
+        # =============================================================================
     # PHASE 6B - PART 1: MULTI-PAGE TEXTILE INGESTION & MASTER DB ISOLATED LOOKUP
     # =============================================================================
     if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vải và đối soát sai lệch..."):
@@ -618,11 +618,12 @@ elif menu_selection == "🧵 Fabric Consumption Assistant (Cons)":
                                 contents_payload.append(types.Part.from_bytes(data=file_bytes, mime_type='image/jpeg'))
                             
                             extraction_prompt = """
-                            Analyze ALL the attached technical sheet images page by page.
-                            1. Extract the genuine 'Style ID' / 'Style Number' / 'Mã hàng'.
-                            2. Scan row-by-row and extract EVERY measurement description and its target value from the spec tables.
+                            Analyze ALL the attached technical pack (Techpack) images page by page.
+                            1. Locate and extract the genuine 'Style ID' / 'Style Number' / 'Mã hàng'.
+                            2. Locate the Specification table and extract ALL measurement positions and target values.
+                            3. Locate the Bill of Materials (BOM) section. Extract EVERY SINGLE trim, thread, zipper, button, label, elastic or accessory along with its specific description and target consumption/yield.
                             Return a valid JSON with this exact schema:
-                            {"detected_style_id": "Text of Style ID", "all_specs_text": "Specs list as plain text"}
+                            {"detected_style_id": "Text of Style ID", "all_specs_text": "Specs list and complete raw BOM text from all pages"}
                             """
                             img_payload.append(extraction_prompt)
                             
@@ -642,7 +643,7 @@ elif menu_selection == "🧵 Fabric Consumption Assistant (Cons)":
                             found_keywords = re.findall(r'[A-Za-z0-9]+[-–][A-Za-z0-9]+|[A-Za-z0-9]{4,}', user_query)
                             if found_keywords: new_style_id_detected = found_keywords
 
-                        # 2. TRUY VẤN ĐỒNG BỘ: KẾT NỐI VÀ LÔI DỮ LIỆU THỊ GIÁC HÌNH ẢNH SKETCH TỪ DATABASE
+                        # 2. TRUY VẤN ĐỒNG BỘ ĐỊNH MỨC VÀ LỊCH SỬ KHO TỪ SUPABASE
                         headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
                         url = f"{SB_URL.rstrip('/')}/rest/v1/thong_so_techpack?StyleName=ilike.*{new_style_id_detected}*&select=StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL&limit=3"
                         res = requests.get(url, headers=headers, timeout=15)
@@ -674,22 +675,25 @@ elif menu_selection == "🧵 Fabric Consumption Assistant (Cons)":
                             else:
                                 db_context += "❌ HỆ THỐNG PHÁT HIỆN: Mã hàng này hoàn toàn mới, chưa từng tồn tại dữ liệu trùng khớp hoặc hình ảnh phác thảo tương đồng trong kho dữ liệu Master DB.\n"
                         # =============================================================================
-                        # PHASE 6B - PART 2: MULTI-MODAL PROMPT ANALYSIS & BACKOFF RESILIENCY LAB
+                        # PHASE 6B - PART 2: UPGRADED BOM ANALYSIS PROMPT & BACKOFF RESILIENCY LAB
                         # =============================================================================
-                        # 3. CHỈ THỊ R&D MULTI-MODAL PROMPT CAO CẤP CHUYÊN SÂU TIÊU CHUẨN PPJ
+                        # 3. CHỈ THỊ THUẬT TOÁN ĐỌC HIỂU CẠN KIỆT BOM (UPGRADED INDUSTRIAL PROMPT)
                         system_instruction = (
-                            "You are the Chief R&D Fashion Technical Director at PPJ Group.\n"
-                            "Your objective is to examine a newly uploaded techpack and analyze it against historical styles extracted from the database.\n\n"
-                            "STRICT OPERATIONAL LOGIC:\n"
-                            "1. IF HISTORICAL DATA EXISTS WITH IMAGE URL: Bạn phải thông báo cho kỹ sư biết đã tìm thấy hình ảnh phác thảo (Sketch) và thông số tương đồng của mã cũ nào trong kho. "
-                            "Tiến hành so sánh trực quan sơ đồ kiểu dáng, bóc tách sai lệch kích cỡ (Delta Spec) giữa mã mới và mã cũ để ước lượng sự thay đổi lượng vải tiêu thụ.\n"
-                            "2. IF NO MATCHING DATA EXISTS (MÃ HÀNG HOÀN TOÀN MỚI): Hãy giải thích rõ ràng cho kỹ sư rằng không tìm thấy bất kỳ mã hàng lịch sử nào trùng khớp kiểu dáng hay hình ảnh trong kho. "
-                            "Ngay lập tức, bạn phải chuyển sang chế độ tự động tính toán độc lập: Dựa hoàn toàn vào ma trận thông số số đo bóc tách được của file mới tải lên, áp dụng thuật toán tính toán định mức vải "
-                            "ngành may tiêu chuẩn (bằng công thức toán học tính diện tích thân trước, thân sau, các chi tiết phụ cộng hao hụt bo/vải) để đưa ra con số định mức dự kiến (Cons Value) cụ thể cho mã mới này.\n\n"
-                            "Trình bày khoa học, chuyên nghiệp, rõ ràng bằng tiếng Việt chuyên ngành dệt may."
+                            "You are the Lead Technical Director and Senior R&D Data Auditor at PPJ Group.\n"
+                            "Your objective is to conduct a complete analysis of the newly uploaded Techpack, covering BOTH Fabric Specifications and the Bill of Materials (BOM).\n\n"
+                            "MANDATORY 4-STEP TECHNICAL WORKFLOW:\n"
+                            f"1. PHÂN TÍCH THÔNG TIN SƠ BỘ: Xác nhận Style ID '{new_style_id_detected}', khách hàng, dải kích cỡ và tóm tắt nhanh ma trận số đo rập mẫu.\n"
+                            f"2. ĐỐI CHIẾU DỮ LIỆU LỊCH SỬ DB: Đối soát mã '{new_style_id_detected}' với bộ dữ liệu kho được cung cấp để rút ra mã hàng tương đồng, chỉ rõ kiểu dáng, nguyên liệu và định mức tiêu thụ vật tư gốc.\n"
+                            "3. LẬP LUẬN TÍNH ĐỊNH MỨC VẢI CHÍNH (MAIN FABRIC): So sánh chi tiết sai lệch kích thước hình học (Delta Spec) giữa mã mới và mã tương đồng. "
+                            "Ứng dụng lập luận kỹ thuật dệt may để điều chỉnh tăng/giảm định mức vải tiêu thụ cuối cùng (kèm hệ số hao hụt cắt xưởng 15%), đưa ra kết quả Cons Value cụ thể (YARDS/UNIT).\n"
+                            "4. BẢNG BÓC TÁCH ĐỊNH MỨC NGUYÊN PHỤ LIỆU CHI TIẾT (COMPLETE BOM BREAKDOWN): Quét toàn bộ dữ liệu phụ liệu tìm thấy từ Techpack mới. "
+                            "Bạn phải lập bảng trích xuất cạn kiệt từng hạng mục phụ liệu: Chỉ may (Sewing Thread), Nhãn mác (Main/Care Labels), Cúc (Buttons), Khóa (Zippers), Chun (Elastic), Đinh tán (Rivets), Bao bì túi đóng gói (Polybag)... "
+                            "Mỗi hạng mục phải ghi rõ: Tên phụ liệu, Mô tả chi tiết, Định mức chỉ định gốc (Target Yield) và Định mức dự kiến thực tế sau khi cộng hệ số hao hụt xưởng (ví dụ: +5% cho mác, +10% cho chỉ...). "
+                            "Nếu Techpack không có bảng BOM, bạn phải dựa vào kết cấu kiểu dáng của sản phẩm để chủ động lập một bảng BOM kỹ thuật khuyến nghị chuẩn cho dòng sản phẩm may mặc này.\n\n"
+                            "Yêu cầu kết xuất báo cáo sắc bén, khoa học, trình bày bằng tiếng Việt chuyên ngành dệt may cao cấp."
                         )
                         
-                        full_prompt = f"{system_instruction}\n\nYêu cầu kỹ sư: {user_query}\n\n[Thông số cấu trúc file mới]:\n{new_style_raw_text if new_style_raw_text else 'Không đính kèm file tài liệu'}\n{db_context}"
+                        full_prompt = f"{system_instruction}\n\nYêu cầu kỹ sư: {user_query}\n\n[Thông số và dữ liệu thô từ toàn bộ trang Techpack mới]:\n{new_style_raw_text if new_style_raw_text else 'Không đính kèm file'}\n{db_context}"
                         contents_payload.append(full_prompt)
                         
                         # Bộ xử lý Lũy tiến Backoff chống nghẽn 503 / Quota 429 hoàn toàn [Thử tối đa 5 lần]
@@ -722,6 +726,6 @@ elif menu_selection == "🧵 Fabric Consumption Assistant (Cons)":
                             })
                                 
                     except Exception as e: 
-                        ans = f"⚠️ Máy chủ AI phản hồi chậm hoặc đang xử lý thuật toán may phức tạp. Vui lòng bấm gửi lại sau vài giây! Chi tiết: {str(e)}"
+                        ans = f"⚠️ Máy chủ AI bận xử lý ma trận BOM lớn. Vui lòng thử lại sau vài giây! Chi tiết: {str(e)}"
                         st.write(ans)
                         st.session_state["chat_history"].append({"role": "assistant", "type": "text", "content": ans})
