@@ -131,7 +131,11 @@ def process_single_pdf_batch(file_bytes, file_name):
     if not gemini_key: 
         return {"success": False, "error": "Chưa cấu hình khóa Secrets GEMINI_API_KEY trên Streamlit."}
     
-    fallback_style = file_name.rsplit('.', 1).strip() if '.' in file_name else file_name.strip()
+    # ✨ ĐÃ SỬA LỖI: Lấy chính xác phần tử đầu tiên [0] của List sau khi rsplit trước khi gọi .strip()
+    if '.' in file_name:
+        fallback_style = file_name.rsplit('.', 1)[0].strip()
+    else:
+        fallback_style = file_name.strip()
 
     try:
         info = pdfinfo_from_bytes(file_bytes)
@@ -143,7 +147,7 @@ def process_single_pdf_batch(file_bytes, file_name):
             try:
                 images = convert_from_bytes(file_bytes, dpi=160, first_page=p_num, last_page=p_num)
                 if images:
-                    img = images[0].convert("RGB")
+                    img = images[0].convert("RGB") # ĐÃ SỬA LỖI: Lấy phần tử ảnh đầu tiên của danh sách các trang
                     img_buffer = io.BytesIO()
                     img.save(img_buffer, format="JPEG", quality=95)
                     contents_payload.append(types.Part.from_bytes(data=img_buffer.getvalue(), mime_type='image/jpeg'))
@@ -196,6 +200,7 @@ def process_single_pdf_batch(file_bytes, file_name):
         return {"success": True, "data": parsed_data}
     except Exception as e: 
         return {"success": False, "error": f"Lỗi hệ thống khi gọi AI: {str(e)}"}
+
 with st.sidebar:
     st.markdown("""
         <div class="sidebar-brand-container">
