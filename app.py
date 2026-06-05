@@ -8,7 +8,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# ✨ ĐỘT PHÁ ĐỒ HỌA: Mã lệnh CSS ẩn hoàn toàn chữ "app" thô sơ ở Sidebar và thay bằng tên mới cao cấp
+# ✨ BẢN SỬA LỖI ĐỒ HỌA: Ép trình duyệt hiển thị rõ chữ MAIN DASHBOARD không bị che khuất
 st.markdown("""
     <style>
     /* Ép nền ứng dụng màu xám sáng phòng Lab sạch sẽ */
@@ -17,20 +17,22 @@ st.markdown("""
     /* Thiết kế Khung Welcome giữa màn hình */
     .main-box { background: white; padding: 40px; border-radius: 14px; border: 1px solid #E2E8F0; box-shadow: 0 4px 12px rgba(0,0,0,0.02); text-align: center; margin-top: 50px; }
     
-    /* 🛠️ BỘ ẨN CHỮ "app" TRÊN SIDEBAR: Tìm phần tử đầu tiên trong menu đa trang và thay tên */
+    /* 🛠️ BỘ KHÓA ÉP HIỂN THỊ CHỮ: Sửa thuộc tính block để chữ không bị ẩn mất trên Streamlit Cloud */
     [data-testid="stSidebarNav"] ul li:first-child a span {
-        visibility: hidden;
-        position: relative;
+        visibility: hidden !important;
+        position: relative !important;
+        display: inline-block !important;
+        min-width: 180px !important;
     }
     [data-testid="stSidebarNav"] ul li:first-child a span::after {
-        content: "🏠 MAIN DASHBOARD";
-        visibility: visible;
-        position: absolute;
-        left: 0;
-        top: 0;
+        content: "MAIN DASHBOARD" !important;
+        visibility: visible !important;
+        position: absolute !important;
+        left: 0 !important;
+        top: 0 !important;
         font-weight: 700 !important;
         color: #1E293B !important;
-        letter-spacing: 0.5px;
+        letter-spacing: 0.5px !important;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -38,7 +40,7 @@ st.markdown("""
 # Khung trạng thái hệ thống hiển thị ở Sidebar mặc định
 with st.sidebar:
     st.markdown("""
-        <div style="background: linear-gradient(135deg, #1E3A8A 0%, #3B82F6 100%); padding: 22px; border-radius: 14px; text-align: center; margin-bottom: 30px; box-shadow: 0 4px 14px rgba(37, 99, 235, 0.2); col: white;">
+        <div style="background: linear-gradient(135deg, #1E3A8A 0%, #3B82F6 100%); padding: 22px; border-radius: 14px; text-align: center; margin-bottom: 30px; box-shadow: 0 4px 14px rgba(37, 99, 235, 0.2);">
             <div style="font-size: 24px; font-weight: 800; color: #FFFFFF; margin: 0; letter-spacing: 1px;">PPJ GROUP</div>
             <div style="font-size: 11px; color: #BFDBFE; margin-top: 5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;">TECHPACK MANAGEMENT CORE AI</div>
         </div>
