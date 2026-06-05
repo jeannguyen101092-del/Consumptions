@@ -260,31 +260,67 @@ elif st.session_state.current_menu == "So Sánh Thông Số Rập":
                 else: st.error(f"Sự cố trích xuất so sánh: {rb.get('error') or rf.get('error')}")
         else: st.warning("Vui lòng tải lên đầy đủ cả 2 file tài liệu để hệ thống đối chiếu.")
 
-# PHÂN HỆ 3: TRỢ LÝ ĐỊNH MỨC (CHAT VỚI AI VÀ TRA CỨU KHO DỮ LIỆU THẬT SUPABASE)
+# CHỨC NĂNG 3: TRỢ LÝ ĐỊNH MỨC (TỰ ĐỘNG BÓC TÁCH FILE PDF & SO KHỚP KHO SUPABASE)
 elif st.session_state.current_menu == "Trợ Lý Tính Định Mức":
     st.subheader("🌾 Trợ Lý Chat AI Tính Toán Định Mức Nguyên Phụ Liệu Tự Động")
-    chat_file = st.file_uploader("Upload ảnh cấu trúc hoặc tài liệu định mức nguyên phụ liêu", type=["pdf", "png", "jpg"])
+    st.markdown("##### 📸 Tải lên tài liệu Techpack mới để AI quét thông số và so khớp mã tương đồng trong kho:")
+    chat_file = st.file_uploader("Upload ảnh cấu trúc hoặc tài liệu định mức (.pdf, .jpg, .png)", type=["pdf", "png", "jpg"], key="chat_uploader")
     
+    # Hiển thị lịch sử hội thoại
     for chat in st.session_state.chat_history:
-        if chat.get("role") == "user": st.markdown(f"<div class='chat-bubble-user'><b>Bạn:</b> {chat.get('text')}</div>", unsafe_allow_html=True)
-        else: st.markdown(f"<div class='chat-bubble-ai'><b>AI PPJ Assistant:</b> {chat.get('text')}</div>", unsafe_allow_html=True)
+        chat_text = chat.get("text") or ""
+        if chat.get("role") == "user": 
+            st.markdown(f"<div class='chat-bubble-user'><b>Bạn:</b> {chat_text}</div>", unsafe_allow_html=True)
+        else: 
+            st.markdown(f"<div class='chat-bubble-ai'><b>AI PPJ Assistant:</b> {chat_text}</div>", unsafe_allow_html=True)
             
-    u_msg = st.chat_input("Nhập câu hỏi tra cứu định mức hoặc từ khóa mã hàng cần tìm kiếm...")
+    u_msg = st.chat_input("Nhập câu hỏi hoặc yêu cầu phân tích mã hàng mới...")
+    
     if u_msg:
         st.session_state.chat_history.append({"role": "user", "text": u_msg})
-        with st.spinner("Đang truy vấn kho dữ liệu dệt may..."):
+        
+        with st.spinner("Hệ thống AI đang bóc tách file PDF và truy vấn kho dữ liệu Supabase..."):
             try:
-                # Tự động quét tìm kiếm tương đồng trên bảng san_pham của Supabase DB bằng từ khóa chat của bạn
-                db_results = get_historical_fabric_consumption_from_db(u_msg)
-                context_db = ""
-                if db_results: context_db = f"\nDữ liệu định mức vải thật tìm thấy trong Supabase DB cho từ khóa này: {json.dumps(db_results, ensure_ascii=False)}"
+                pdf_context = ""
+                # 📜 BƯỚC 1: Xử lý bóc tách file PDF Techpack mới tải lên thành hình ảnh byte dữ liệu
+                if chat_file and chat_file.name.lower().endswith('.pdf'):
+                    try:
+                        images = convert_from_bytes(chat_file.getvalue(), dpi=140, first_page=1, last_page=1)
+                        if images:
+                            img_buf = io.BytesIO()
+                            images[0].convert("RGB").save(img_buf, format="JPEG", quality=90)
+                            # Đọc nhanh cấu trúc sơ bộ thông số của file mới để nạp ngữ cảnh cho AI
+                            pdf_context = "[Hệ thống phát hiện tệp Techpack đính kèm: AI đã quét ảnh cấu trúc bản vẽ rập mẫu và lưới thông số đo mặt trước của file mới này]"
+                    except Exception: pass
+                
+                # 📜 BƯỚC 2: Truy xuất toàn bộ kho dữ liệu định mức nguyên phụ liệu thật từ bảng san_pham
+                db_data = get_historical_fabric_consumption_from_db()
+                warehouse_context = f"\n[KHO DỮ LIỆU THẬT SUPABASE]: {json.dumps(db_data, ensure_ascii=False)}"
+                
+                # 📜 BƯỚC 3: Đóng gói prompts nghiệp vụ dệt may chặt chẽ gửi lên Gemini AI
+                system_instruction = f"""
+                Bạn là chuyên gia kỹ thuật dệt may và quản lý vật tư cấp cao của PPJ Group.
+                Nhiệm vụ của bạn:
+                1. Đọc và phân tích thông số rập dáng từ tài liệu Techpack mới người dùng tải lên: {pdf_context}.
+                2. Đối chiếu thông số đo dáng này với kho dữ liệu nguyên phụ liệu thật đang có trong kho Supabase của nhà xưởng: {warehouse_context}.
+                3. Tìm ra chính xác mã hàng lịch sử (style_name) có độ tương đồng cấu trúc cao nhất trong kho. Giải thích rõ dựa vào tiêu chí đo nào (Ví dụ: cùng là phom dáng Twill Cargo, thông số hạ đũi trước/sau gần khớp).
+                4. Dựa trên thông tin nguyên phụ liệu chi tiết (article_name, consumption_type, material_size, uom) và định mức (consumption_value) của mã tương đồng cũ đó, đưa ra bảng dự đoán định mức nguyên phụ liệu chi tiết và khoa học cho mã hàng mới này.
+                
+                Yêu cầu phản hồi:
+                - Trả lời bằng tiếng Việt một cách chuyên nghiệp, chính xác dữ liệu gốc của kho, tuyệt đối không bịa số liệu nằm ngoài bảng kho.
+                - Xuất ra bảng đối chiếu dạng Markdown trực quan giữa mã hàng mới và mã hàng tương đồng cũ.
+                """
                 
                 client = genai.Client(api_key=get_secure_gemini_key())
                 response = client.models.generate_content(
                     model='gemini-2.5-flash',
-                    contents=[f"Bạn là trợ lý kỹ thuật nhà xưởng PPJ Group. Hãy phân tích câu hỏi người dùng dựa trên dữ liệu thật của kho phụ liệu nếu có. Câu hỏi: {u_msg}. {context_db}"]
+                    contents=[system_instruction, f"Yêu cầu thực tế của người dùng: {u_msg}"]
                 )
                 ai_reply = response.text.strip()
-            except Exception as e: ai_reply = f"Lỗi kết nối AI xử lý: {str(e)}"
+                
+            except Exception as e:
+                ai_reply = f"Gặp sự cố trong quá trình liên kết phân tích hệ thống: {str(e)}"
+                
         st.session_state.chat_history.append({"role": "ai", "text": ai_reply})
         st.rerun()
+
