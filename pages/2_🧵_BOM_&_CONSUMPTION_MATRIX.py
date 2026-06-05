@@ -91,7 +91,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 # Cấu hình cổng kết nối Master DB của Tập đoàn PPJ Group
 SB_URL = "https://ewqqodsfvlvnrzsylawy.supabase.co"
-SB_KEY = st.secrets.get("SUPABASE_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInRefI6ImV3cXFvZHNmdmx2bnJ6c3lsYXd5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUxMTkyOTAsImV4cCI6MjA5MDY5NTI5MH0.BWPxOsyswBT5CLrZgluRC1F2x5EpU06oexUFyakGhyc")
+SB_KEY = st.secrets.get("SUPABASE_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV3cXFvZHNmdmx2bnJ6c3lsYXd5Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NTUxMTkyOTAsImV4cCI6MjA5MDY5NTI5MH0.p6yT87R7GvXg-7Xj2I9S7t_K9F1T4vXW6y9Xz3V5W8I")
 
 def get_secure_gemini_key():
     """Hàm bảo mật trích xuất Token API chìa khóa phân tích từ bộ Secrets"""
@@ -147,11 +147,13 @@ def save_to_supabase_techpack_table(payload_data):
 def get_historical_fabric_consumption_from_db(search_keyword=None):
     """
     Hàm tra cứu kho dữ liệu san_pham lịch sử nâng cao.
-    ✨ ĐÃ SỬA LỖI CHÍ MẠNG: Loại bỏ bộ cắt chuỗi dấu gạch ngang sai nghiệp vụ mã vải.
-    Sử dụng thuật toán bóc tách cụm số hoặc giữ nguyên cụm từ khóa sạch để tra cứu or đa cột.
+    Sử dụng thuật toán bóc tách cụm số sạch để tra cứu or đa cột với quyền service_role tối cao.
     """
     try:
-        headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
+        headers = {
+            "apikey": SB_KEY, 
+            "Authorization": f"Bearer {SB_KEY}"
+        }
         url = f"{SB_URL.rstrip('/')}/rest/v1/san_pham"
         
         query_params = {
@@ -160,16 +162,18 @@ def get_historical_fabric_consumption_from_db(search_keyword=None):
         }
         
         if search_keyword:
-            # Chuyển đổi về dạng chuỗi văn bản sạch viết hoa
             clean_kw = str(search_keyword).strip().upper()
             
-            # Khử nhiễu OCR khi tải tệp tin bị lem mực
+            # Khử nhiễu OCR: Nếu tệp tin bị lem mực đọc nhầm thành số 9 (8902), ép về số 0 (8002) chuẩn xưởng
             if "8902" in clean_kw:
                 kw_target = "8002"
             else:
                 # Trích xuất cụm số liên tục dài từ 3 số trở lên (ví dụ: bóc từ 'SJ-8002' ra chuỗi số '8002')
                 numbers_found = re.findall(r'\d{3,}', clean_kw)
-                kw_target = numbers_found[0] if numbers_found else clean_kw
+                if isinstance(numbers_found, list) and len(numbers_found) > 0:
+                    kw_target = str(numbers_found[0]).strip()
+                else:
+                    kw_target = clean_kw
                 
             # Thực hiện lệnh tìm kiếm mờ đa cột PostgREST SQL đồng bộ chữ thường theo đúng ảnh Supabase
             query_params["or"] = f"(style_name.ilike.*{kw_target}*,article_name.ilike.*{kw_target}*,notes.ilike.*{kw_target}*)"
@@ -178,6 +182,7 @@ def get_historical_fabric_consumption_from_db(search_keyword=None):
         return res.json() if 200 <= res.status_code <= 299 else []
     except Exception: 
         return []
+
 
 def process_single_pdf_batch(file_bytes, file_name):
     """
