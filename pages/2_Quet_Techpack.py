@@ -276,92 +276,123 @@ elif st.session_state.current_menu == "So Sánh Thông Số Rập":
                 else: st.error(f"Sự cố trích xuất so sánh: {rb.get('error') or rf.get('error')}")
         else: st.warning("Vui lòng tải lên đầy đủ cả 2 file tài liệu để hệ thống đối chiếu.")
 
-# PHÂN HỆ 3: TRỢ LÝ ĐỊNH MỨC (LÕI PHÂN TÍCH TỶ LỆ % CHÊNH LỆCH & TÍNH TỔNG ĐƠN HÀNG THỰC TẾ)
-elif st.session_state.current_menu == "Trợ Lý Tính Định Mức":
-    st.subheader("🌾 Trợ Lý Chat AI Tính Toán Định Mức Nguyên Phụ Liệu Tự Động")
-    
-    # Khu vực cấu hình kéo thả tài liệu Techpack và số lượng sản xuất thực tế của đơn hàng
-    top_c1, top_c2, top_c3 = st.columns([2, 2, 1])
-    with top_c1:
-        chat_file = st.file_uploader("Upload tài liệu Techpack mã hàng mới (.pdf, .jpg, .png)", type=["pdf", "png", "jpg"], label_visibility="collapsed")
-    with top_c2:
-        # ✨ ĐÃ THÊM: Ô nhập tổng số lượng sản phẩm của đơn hàng để AI nhân tổng định mức sản xuất
-        total_order_qty = st.number_input("Nhập tổng số lượng sản phẩm đơn hàng mới (Pcs):", min_value=1, value=1000, step=100)
-    with top_c3:
-        if st.button("🗑️ XÓA CHAT", use_container_width=True, type="secondary"):
-            st.session_state.chat_history = []
-            st.success("Đã xóa sạch bộ nhớ chat!")
-            st.rerun()
-            
-    st.markdown("---")
-    
-    # Hiển thị tiến trình lịch sử hội thoại
-    for chat in st.session_state.chat_history:
-        if chat.get("role") == "user": 
-            st.markdown(f"<div class='chat-bubble-user'><b>Bạn:</b> {chat.get('text')}</div>", unsafe_allow_html=True)
-        else: 
-            st.markdown(f"<div class='chat-bubble-ai'><b>AI Chuyên Viên Định Mức PPJ:</b><br>{chat.get('text')}</div>", unsafe_allow_html=True)
-    u_msg = st.chat_input("Nhập yêu cầu phân tích (Ví dụ: Hãy quét file mới, so khớp mã tương đồng trong kho và tính tổng định mức vải)...")
-    
-    if u_msg:
-        st.session_state.chat_history.append({"role": "user", "text": u_msg})
+# ✨ HÀM XỬ LÝ CHAT GEMINI THẬT - ĐÓNG VAI NHÂN VIÊN PHÒNG ĐỊNH MỨC MAY MẶC PPJ
+def generate_real_gemini_chat_response(user_query, attached_file):
+    try:
+        gemini_key = get_secure_gemini_key()
+        ai_contents_payload = []
+        pdf_context = "Không có tệp phụ trợ đính kèm."
+
+        # 1. Chuyển đổi tệp Techpack/Sơ đồ rập mới tải lên thành ảnh đa phương tiện gửi sang AI
+        if attached_file:
+            file_bytes = attached_file.getvalue()
+            if attached_file.name.lower().endswith('.pdf'):
+                try:
+                    pdf_images = convert_from_bytes(file_bytes, dpi=140, first_page=1, last_page=min(3, int(pdfinfo_from_bytes(file_bytes).get("Pages", 1))))
+                    for img_obj in pdf_images:
+                        img_buf = io.BytesIO()
+                        img_obj.convert("RGB").save(img_buf, format="JPEG", quality=90)
+                        ai_contents_payload.append(types.Part.from_bytes(data=img_buf.getvalue(), mime_type='image/jpeg'))
+                    pdf_context = f"[Tài liệu Techpack mới đính kèm: AI đã quét ảnh cấu trúc bản vẽ rập phom dáng và bảng thông số POM của file {attached_file.name}]"
+                except Exception: pass
+            elif attached_file.name.lower().endswith(('.png', '.jpg', '.jpeg')):
+                ai_contents_payload.append(types.Part.from_bytes(data=file_bytes, mime_type='image/jpeg'))
+                pdf_context = f"[Hình ảnh đính kèm: Đã nạp ảnh cấu trúc bản vẽ mã mới {attached_file.name}]"
+
+        # 2. Truy xuất toàn bộ bảng định mức nguyên phụ liệu thực tế từ kho Supabase (bảng san_pham)
+        db_data = get_historical_fabric_consumption_from_db()
+        warehouse_context = f"\n[KHO DỮ LIỆU ĐỊNH MỨC THỰC TẾ TRONG SUPABASE]: {json.dumps(db_data, ensure_ascii=False)}"
+
+        # 3. Ép cấu trúc Prompt bắt buộc AI phải tính toán công thức cơ học sai lệch hình học rập mẫu
+        system_instruction = f"""
+        Bạn là một Chuyên viên tính toán Định mức nguyên phụ liệu dệt may thực thụ thuộc phòng Kỹ thuật PPJ Group.
+        Tài liệu Techpack mã hàng mới gửi lên: {pdf_context}.
+        Kho dữ liệu định mức thực tế lưu trong kho Supabase của xưởng: {warehouse_context}.
         
-        with st.spinner("Chuyên viên AI đang đo đạc thông số rập file mới và đối chiếu kho Supabase..."):
-            try:
-                ai_contents_payload = []
-                pdf_context = "Trống"
-                
-                # Băm nhỏ tệp PDF mã mới thành các trang ảnh chất lượng cao dâng lên cho AI đo thông số rập dáng
-                if chat_file:
-                    if chat_file.name.lower().endswith('.pdf'):
-                        try:
-                            pdf_images = convert_from_bytes(chat_file.getvalue(), dpi=145, first_page=1, last_page=min(3, int(pdfinfo_from_bytes(chat_file.getvalue()).get("Pages", 1))))
-                            for img_obj in pdf_images:
-                                img_buf = io.BytesIO()
-                                img_obj.convert("RGB").save(img_buf, format="JPEG", quality=95)
-                                ai_contents_payload.append(types.Part.from_bytes(data=img_buf.getvalue(), mime_type='image/jpeg'))
-                            pdf_context = f"[Tài liệu đính kèm: Đã nạp thành công hình ảnh chi tiết rập phom dáng và bảng lưới vị trí đo POM của mã hàng mới tên {chat_file.name}]"
-                        except Exception: pass
-                    elif chat_file.name.lower().endswith(('.png', '.jpg', '.jpeg')):
-                        ai_contents_payload.append(types.Part.from_bytes(data=chat_file.getvalue(), mime_type='image/jpeg'))
-                        pdf_context = f"[Hình ảnh đính kèm: Đã nạp ảnh cấu trúc Sketch/Rập của mã mới {chat_file.name}]"
-                
-                # Truy xuất dữ liệu gốc của kho nguyên phụ liệu thực tế từ bảng san_pham Supabase
-                db_data = get_historical_fabric_consumption_from_db()
-                warehouse_context = f"\n[KHO DỮ LIỆU ĐỊNH MỨC THỰC TẾ TRONG SUPABASE]: {json.dumps(db_data, ensure_ascii=False)}"
-                # ✨ PROMPT ĐỒNG BỘ: Ép AI đóng vai một nhân viên Định mức thực thụ, bắt buộc tính toán công thức cơ học sai lệch hình học
-                system_instruction = f"""
-                Bạn là một Chuyên viên tính toán Định mức nguyên phụ liệu dệt may thực thụ của phòng Kỹ thuật PPJ Group. 
-                Tài liệu Techpack mã hàng mới tải lên: {pdf_context}.
-                Kho dữ liệu lịch sử sản xuất thực tế có sẵn của nhà xưởng: {warehouse_context}.
-                Tổng sản lượng đơn hàng mới cần sản xuất: {total_order_qty} sản phẩm.
-                
-                Hãy thực hiện nghiệp vụ định mức và trả lời người dùng một cách chuyên nghiệp theo các bước sau:
-                1. [QUÉT FILE MỚI]: Phân tích ảnh Sketch bản vẽ phom dáng và trích xuất bảng thông số đo (Waist, Hip, Inseam...) của file mới gửi lên.
-                2. [TÌM MÃ TƯƠNG ĐỒNG THỰC TẾ]: Đối chiếu phom dáng và bảng số đo đo được với kho dữ liệu thật Supabase. Chỉ đích danh tên mã hàng cũ (style_name) trong kho có độ tương đồng cao nhất.
-                3. [PHÂN TÍCH TỶ LỆ % CHÊNH LỆCH HÌNH HỌC]: So sánh chi tiết từng vị trí đo (POM) giữa mã mới và mã cũ trong kho. Tính toán cụ thể xem mã hàng mới lớn hơn hoặc nhỏ hơn mã cũ bao nhiêu % ở các vị trí cốt lõi (Ví dụ: vòng mông rộng hơn +5%, dài quần ngắn hơn -2%).
-                4. [ÁP CÔNG THỨC DỰ ĐOÁN ĐỊNH MỨC]: Lấy dữ liệu định mức vải thật (consumption_value) của mã tương đồng cũ làm gốc. Áp dụng tăng hoặc giảm tỷ lệ % định mức vải tương ứng với mức độ co giãn diện tích hình học rập mẫu vừa tính được (Cộng thêm 5% hao hụt bàn cắt đầu tấm/đầu khúc tiêu chuẩn).
-                5. [CÂN ĐỐI TỔNG ĐƠN HÀNG]: Lấy định mức dự đoán vừa tính được nhân với tổng sản lượng đơn hàng mới ({total_order_qty} Pcs) để tính toán ra tổng số lượng Yard vải/phụ liệu cụ thể nhà xưởng cần phải mua vào kho.
-                
-                Yêu cầu định dạng câu trả lời:
-                - Hãy trả lời bằng tiếng Việt văn phong đanh thép, chuyên nghiệp của một nhân viên kỹ thuật định mức nhà xưởng May mặc.
-                - Trình bày rõ bảng ma trận đối chiếu thông số đo và bảng dự đoán định mức nguyên phụ liệu chi tiết (gồm Vải chính, Vải lót, Mếch dựng, đơn vị YRD) dưới dạng bảng Markdown trực quan.
-                - Chỉ tính toán dựa trên dữ liệu thật của kho Supabase, tuyệt đối không bịa số liệu nằm ngoài bảng.
-                """
-                
-                ai_contents_payload.append(system_instruction)
-                ai_contents_payload.append(f"Yêu cầu của người dùng: {u_msg}")
-                
-                # Gọi API truyền trọn vẹn dữ liệu sang mô hình Gemini xử lý tính toán cấu trúc
-                client = genai.Client(api_key=get_secure_gemini_key())
-                response = client.models.generate_content(
-                    model='gemini-2.5-flash',
-                    contents=ai_contents_payload
-                )
-                ai_reply = response.text.strip()
-                
-            except Exception as e:
-                ai_reply = f"Gặp sự cố trong tiến trình kết nối phân tích hệ thống: {str(e)}"
-                
-        st.session_state.chat_history.append({"role": "ai", "text": ai_reply})
+        Nhiệm vụ nghiêm ngặt của bạn khi xử lý câu hỏi:
+        1. [QUÉT FILE MỚI]: Phân tích ảnh sơ đồ rập dáng và bóc tách bảng thông số đo (vòng eo, mông, đùi, hạ đũi, rộng ống...) của mã mới gửi lên.
+        2. [TÌM MÃ TƯƠNG ĐỒNG]: So sánh đối chiếu phom dáng và số đo đo được với kho dữ liệu thật của xưởng may. Chỉ đích danh mã hàng cũ (style_name) nào tương đồng cấu trúc nhất.
+        3. [PHÂN TÍCH TỶ LỆ CHÊNH LỆCH %]: Phân tích chi tiết từng vị trí đo (POM) giữa mã mới và mã cũ trong kho xem lớn hơn hay nhỏ hơn bao nhiêu % ở các vị trí cốt lõi.
+        4. [TÍNH TOÁN DỰ ĐOÁN ĐM CHO MÃ MỚI]: Lấy định mức vải thật (consumption_value) của mã cũ tương đồng làm gốc, tính toán tăng hoặc giảm định mức vải/phụ liệu tương ứng theo tỷ lệ phần trăm chênh lệch rập hình học (Cộng thêm % hao hụt sản xuất tiêu chuẩn).
+        5. [KẾT LUẬN ĐƠN HÀNG]: Trình bày ma trận đối chiếu thông số và bảng định mức dự đoán (Vải chính, vải lót, mếch dựng, đơn vị YRD) rõ ràng dưới dạng bảng Markdown.
+        
+        Văn phong yêu cầu: Đanh thép, chuyên nghiệp của nhân viên kỹ thuật phòng Định mức PPJ. Chỉ dùng số liệu thật từ kho được cung cấp, tuyệt đối không tự bịa số nằm ngoài bảng.
+        """
+        ai_contents_payload.append(system_instruction)
+        ai_contents_payload.append(f"Yêu cầu thực tế của kỹ sư PPJ: {user_query}")
+
+        client = genai.Client(api_key=gemini_key)
+        response = client.models.generate_content(model='gemini-2.5-flash', contents=ai_contents_payload)
+        return response.text.strip()
+    except Exception as e:
+        return f"Lỗi truy vấn máy chủ AI xử lý định mức: {str(e)}"
+elif st.session_state.current_menu == "Trợ Lý Tính Định Mức":
+    st.markdown('<div style="background-color:#EFF6FF; padding:10px; border-radius:4px; font-weight:bold; color:#1E3A8A; margin-bottom:15px;">💡 Trợ lý chuyên gia đối chiếu & Tính định mức vải</div>', unsafe_allow_html=True)
+
+    # 1. Khởi tạo lưu trữ lịch sử chat nội bộ nếu chưa có
+    if "chat_history" not in st.session_state or not st.session_state.chat_history:
+        st.session_state.chat_history = [
+            {
+                "role": "assistant",
+                "content": "🤖 Chào kỹ sư PPJ! Tôi đã được liên kết với cơ sở dữ liệu kho mẫu và bảng định mức vải sản phẩm. Hãy tải sơ đồ rập lên (nếu có) và đặt câu hỏi cho tôi nhé!",
+            }
+        ]
+
+    # 2. Khung Tải sơ đồ rập kết hợp nút Xóa lịch sử Chat nằm song song
+    with st.container(border=True):
+        col_file, col_clear = st.columns([4, 1])  # Chia tỷ lệ khung tải file rộng, nút bấm gọn bên phải
+        
+        with col_file:
+            st.markdown("**📁 Cung cấp dữ liệu phụ trợ (Tùy chọn):**")
+            attached_file = st.file_uploader(
+                "Upload sơ đồ rập phụ trợ",
+                type=["pdf", "png", "jpg"],
+                label_visibility="collapsed",
+            )
+            
+        with col_clear:
+            st.markdown("**⚙️ Thao tác:**")
+            # Nút bấm xóa chat thiết kế nổi bật, kích thước full viền ô chứa
+            if st.button("🗑️ XÓA LỊCH SỬ CHAT", type="secondary", use_container_width=True):
+                # Làm sạch session_state đưa về trạng thái lời chào ban đầu
+                st.session_state.chat_history = [
+                    {
+                        "role": "assistant",
+                        "content": "🤖 Chào kỹ sư PPJ! Tôi đã được liên kết với cơ sở dữ liệu kho mẫu và bảng định mức vải sản phẩm. Hãy tải sơ đồ rập lên (nếu có) và đặt câu hỏi cho tôi nhé!",
+                    }
+                ]
+                # Làm mới trang để cập nhật màn hình trống ngay lập tức
+                st.rerun()
+
+    st.write("")
+    st.markdown("**💬 Khung hội thoại tư vấn chuyên gia Gemini thật:**")
+
+    # 3. Khung chứa hiển thị dòng chảy cuộc hội thoại chat
+    chat_container = st.container(border=True)
+    with chat_container:
+        for message in st.session_state.chat_history:
+            with st.chat_message(message["role"]):
+                st.markdown(message["content"])
+
+    # 4. Nhận câu hỏi thời gian thực từ ô Chat Input chuyên nghiệp
+    if user_query := st.chat_input("Nhập câu hỏi của bạn tại đây..."):
+        st.session_state.chat_history.append(
+            {"role": "user", "content": user_query}
+        )
+
+        with chat_container:
+            with st.chat_message("user"):
+                st.markdown(user_query)
+
+        with chat_container:
+            with st.chat_message("assistant"):
+                with st.spinner("Gemini đang truy vấn dữ liệu kho PPJ..."):
+                    ai_response = generate_real_gemini_chat_response(
+                        user_query, attached_file
+                    )
+                    st.markdown(ai_response)
+
+        st.session_state.chat_history.append(
+            {"role": "assistant", "content": ai_response}
+        )
         st.rerun()
