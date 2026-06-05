@@ -147,7 +147,8 @@ def save_to_supabase_techpack_table(payload_data):
 def get_historical_fabric_consumption_from_db(search_keyword=None):
     """
     Hàm tra cứu kho dữ liệu san_pham lịch sử nâng cao.
-    Sử dụng thuật toán bóc tách cụm số sạch để tra cứu or đa cột với quyền service_role tối cao.
+    ✨ ĐÃ SỬA LỖI TRÍCH XUẤT CHUỖI SẠCH: Giải nén chính xác phần tử index [0] của List số.
+    Bảo đảm gửi chuỗi văn bản thuần túy 8002 lên database với quyền quản trị service_role tối cao.
     """
     try:
         headers = {
@@ -165,11 +166,12 @@ def get_historical_fabric_consumption_from_db(search_keyword=None):
             clean_kw = str(search_keyword).strip().upper()
             
             # Khử nhiễu OCR: Nếu tệp tin bị lem mực đọc nhầm thành số 9 (8902), ép về số 0 (8002) chuẩn xưởng
-            if "8902" in clean_kw:
+            if "8902" in clean_kw or "8902" in clean_kw:
                 kw_target = "8002"
             else:
-                # Trích xuất cụm số liên tục dài từ 3 số trở lên (ví dụ: bóc từ 'SJ-8002' ra chuỗi số '8002')
+                # Trích xuất cụm số liên tục dài từ 3 số trở lên
                 numbers_found = re.findall(r'\d{3,}', clean_kw)
+                # ✨ HIỆU CHUẨN ĐỘT PHÁ: Lấy chính xác phần tử đầu tiên [0] của mảng để phá bỏ dấu ngoặc vuông
                 if isinstance(numbers_found, list) and len(numbers_found) > 0:
                     kw_target = str(numbers_found[0]).strip()
                 else:
@@ -182,6 +184,7 @@ def get_historical_fabric_consumption_from_db(search_keyword=None):
         return res.json() if 200 <= res.status_code <= 299 else []
     except Exception: 
         return []
+
 
 
 def process_single_pdf_batch(file_bytes, file_name):
@@ -607,14 +610,15 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                         if chat_file and str(new_style_id_detected).strip() != "UNKNOWN_STYLE":
                             text_to_extract = str(new_style_id_detected).strip()
                         
-                        # Ép chuỗi viết hoa để kiểm tra
+                                                # Ép chuỗi viết hoa để kiểm tra
                         clean_text_upper = str(text_to_extract).strip().upper()
                         if "8902" in clean_text_upper:
                             dynamic_keyword = "8002"
                         else:
-                            # Trích xuất tổ hợp số liên tục có độ dài từ 3 ký tự trở lên làm chìa khóa lọc mờ
+                            # ✨ ĐÃ ĐỒNG BỘ: Trích xuất phần tử đầu tiên [0] phá dấu ngoặc vuông ở đáy file
                             numbers_found = re.findall(r'\d{3,}', clean_text_upper)
-                            dynamic_keyword = numbers_found if numbers_found else clean_text_upper
+                            dynamic_keyword = str(numbers_found[0]).strip() if numbers_found else clean_text_upper
+
 
                         # ĐỒNG BỘ TRUY VẤN MÀNG LỌC TRƯỜNG CHỮ THƯỜNG THEO ĐÚNG DATABASE XƯỞNG
                         headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
