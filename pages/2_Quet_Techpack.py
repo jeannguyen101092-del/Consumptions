@@ -286,7 +286,63 @@ elif st.session_state.current_menu == "So Sánh Thông Số Rập":
                     st.download_button(label="📥 XUẤT PHÂN TÍCH RA FILE EXCEL (.XLSX)", data=towrite, file_name=f"So_Sanh_Thong_So_PPJ_{int(time.time())}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
                 else: st.error("Sự cố trích xuất dữ liệu.")
 
-# PHÂN HỆ 3: TRỢ LÝ ĐỊNH MỨC - ĐỒNG BỘ 100% CẤU TRÚC LOGIC KHUNG HỘP CHAT GỐC CỦA BẠN
+# PHÂN HỆ 1: QUÉT TÀI LIỆU TECHPACK
+if st.session_state.current_menu == "Quét Tài Liệu Techpack":
+    uploaded_files = st.file_uploader("Kéo thả tài liệu PDF vào đây", type=["pdf"], accept_multiple_files=True)
+    if uploaded_files:
+        with st.spinner("Hệ thống AI đang bóc tách chính xác ma trận dữ liệu gốc..."):
+            all_results, errors_occurred = [], []
+            for f in uploaded_files:
+                res = process_single_pdf_batch(f.getvalue(), f.name)
+                if res["success"]: all_results.append(res["data"])
+                else: errors_occurred.append(f"{f.name}: {res['error']}")
+                    
+            if all_results:
+                st.success("Bóc tách cấu trúc dữ liệu tệp thành công!")
+                cols = st.columns(len(all_results))
+                for idx, data in enumerate(all_results):
+                    with cols[idx]:
+                        st.markdown(f"### <span style='color:#1E3A8A;'>{data['style_number_db']}</span>", unsafe_allow_html=True)
+                        st.markdown("<span class='badge-offline'>OFFLINE PREVIEW</span> <span class='badge-match'>BEST MATCH</span>", unsafe_allow_html=True)
+                        st.markdown(f"<p style='font-size:13px;'><b>Buyer:</b> {data['buyer']}<br><b>Category:</b> {data['category']}<br><b>Scale:</b> {data['base_size_name']}</p>", unsafe_allow_html=True)
+                        sc1, sc2 = st.columns(2)
+                        with sc1:
+                            df = pd.DataFrame([{"Garment Attribute": k, "Target Spec": v} for k, v in data['detailed_measurements'].items()])
+                            st.dataframe(df, hide_index=True, use_container_width=True)
+                        with sc2:
+                            if data.get("sketch_image"): st.image(f"data:image/jpeg;base64,{data['sketch_image']}", use_container_width=True)
+                        if st.button(f"💾 LƯU MÃ HÀNG {data['style_number_db']}", key=f"sv_{idx}", use_container_width=True, type="primary"):
+                            if save_to_supabase_techpack_table(data): st.success("Đã đồng bộ lưu vào Supabase Database!")
+                            else: st.error("Lỗi cơ sở dữ liệu!")
+            for err in errors_occurred: st.error(err)
+
+# PHÂN HỆ 2: SO SÁNH THÔNG SỐ RẬP
+elif st.session_state.current_menu == "So Sánh Thông Số Rập":
+    st.subheader("📊 Phân hệ Đối Chiếu & Kiểm Tra Sai Lệch Thông Số Rập Mẫu")
+    up1, up2 = st.columns(2)
+    with up1: buyer_file = st.file_uploader("Upload tài liệu gốc khách hàng (Buyer Techpack PDF)", type=["pdf"])
+    with up2: factory_file = st.file_uploader("Upload tài liệu sản xuất thực tế (PDF)", type=["pdf"])
+    
+    if st.button("🚀 Tiến hành đối chiếu song song", type="primary", use_container_width=True):
+        if buyer_file and factory_file:
+            with st.spinner("Hệ thống AI đang đối chiếu song song tệp dữ liệu..."):
+                rb = process_single_pdf_batch(buyer_file.getvalue(), buyer_file.name)
+                rf = process_single_pdf_batch(factory_file.getvalue(), factory_file.name)
+                if rb["success"] and rf["success"]:
+                    data_b, data_f = rb["data"]["detailed_measurements"], rf["data"]["detailed_measurements"]
+                    compare_rows = []
+                    for k in data_b.keys():
+                        v_b, v_f = data_b.get(k, "N/A"), data_f.get(k, "N/A")
+                        compare_rows.append({"Vị trí đo (Garment Attribute)": k, "Mẫu gốc (Buyer Spec)": v_b, "Thực tế xưởng (Factory Spec)": v_f, "Trạng thái": "✅ Khớp" if v_b == v_f else "⚠️ Lệch thông số"})
+                    df_compare = pd.DataFrame(compare_rows)
+                    st.success("Phân tích so khớp hoàn tất!")
+                    st.table(df_compare)
+                    towrite = io.BytesIO()
+                    with pd.ExcelWriter(towrite, engine='xlsxwriter') as writer: df_compare.to_excel(writer, index=False, sheet_name='Spec_Comparison')
+                    towrite.seek(0)
+                    st.download_button(label="📥 XUẤT PHÂN TÍCH RA FILE EXCEL (.XLSX)", data=towrite, file_name=f"So_Sanh_Thong_So_PPJ_{int(time.time())}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
+                else: st.error("Sự cố trích xuất dữ liệu.")
+# PHÂN HỆ 3: TRỢ LÝ ĐỊNH MỨC - ĐÃ SỬA LỖI TRUYỀN THAM SỐ 2 CỘT CHUẨN UI
 elif st.session_state.current_menu == "Trợ Lý Tính Định Mức":
     st.markdown('<div style="background-color:#EFF6FF; padding:10px; border-radius:4px; font-weight:bold; color:#1E3A8A; margin-bottom:15px;">💡 Trợ lý chuyên gia đối chiếu & Tính định mức vải</div>', unsafe_allow_html=True)
 
@@ -298,8 +354,9 @@ elif st.session_state.current_menu == "Trợ Lý Tính Định Mức":
             }
         ]
 
+    # ĐÃ SỬA: Khai báo số lượng 2 cột chính xác để làm khung upload file và nút Clear chat
     with st.container(border=True):
-        col_file, col_clear = st.columns()
+        col_file, col_clear = st.columns(2)
         
         with col_file:
             st.markdown("**📁 Cung cấp dữ liệu phụ trợ (Tùy chọn):**")
