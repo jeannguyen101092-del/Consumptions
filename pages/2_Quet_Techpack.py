@@ -308,10 +308,24 @@ elif menu_selection == "🧵 Fabric Consumption Assistant (Cons)":
     st.markdown("""<div class="tech-card"><div class="tech-header">🧵 PPJ INTELLIGENT FABRIC CONSUMPTION ASSISTANT (R&D ENGINE)</div>
     <p style="color: #64748B; font-size:14px; margin:0;">Tải lên tài liệu Techpack mới, AI sẽ tự động bóc tách hình ảnh/thông số, truy vấn mã hàng tương đồng trong kho Supabase và lập luận toán học để tự động tính định mức vải mới.</p></div>""", unsafe_allow_html=True)
     
-    st.markdown("##### 📁 TẢI LÊN FILE TECHPACK MỚI ĐỂ AI PHÂN TÍCH & TÍNH TOÁN ĐỊNH MỨC VẢI")
-    chat_file = st.file_uploader("Upload tài liệu vật tư kỹ thuật tại đây", type=["pdf", "jpg", "jpeg", "png"], key="chat_uploader")
-    if chat_file: 
-        st.success(f"📎 Hệ thống tiếp nhận thành công tài liệu: {chat_file.name}")
+    # Thiết lập giao diện hàng ngang gồm 2 cột: Ô tải file (rộng) và Nút xóa lịch sử (hẹp)
+    control_col1, control_col2 = st.columns([3, 1])
+    
+    with control_col1:
+        st.markdown("##### 📁 TẢI LÊN FILE TECHPACK MỚI ĐỂ AI PHÂN TÍCH & TÍNH TOÁN ĐỊNH MỨC VẢI")
+        chat_file = st.file_uploader("Upload tài liệu vật tư kỹ thuật tại đây", type=["pdf", "jpg", "jpeg", "png"], key="chat_uploader", label_visibility="collapsed")
+        if chat_file: 
+            st.success(f"📎 Hệ thống tiếp nhận thành công tài liệu: {chat_file.name}")
+            
+    with control_col2:
+        st.markdown("##### 🧹 LÀM LÀM MỚI")
+        if st.button("🗑️ XÓA LỊCH SỬ CHAT", use_container_width=True, type="secondary"):
+            if "chat_history" in st.session_state:
+                del st.session_state["chat_history"]
+            st.success("🔄 Đã xóa lịch sử! Sẵn sàng làm việc với mã hàng mới.")
+            time.sleep(1)
+            st.rerun()
+
     st.markdown("---")
     
     if "chat_history" not in st.session_state:
@@ -321,7 +335,6 @@ elif menu_selection == "🧵 Fabric Consumption Assistant (Cons)":
         
     for msg in st.session_state["chat_history"]:
         with st.chat_message(msg["role"]): st.write(msg["content"])
-            
     if user_query := st.chat_input("Nhập yêu cầu (Ví dụ: Hãy tìm mã tương đồng và tính định mức cho mã mới này)..."):
         st.session_state["chat_history"].append({"role": "user", "content": user_query})
         with st.chat_message("user"): st.write(user_query)
@@ -337,7 +350,6 @@ elif menu_selection == "🧵 Fabric Consumption Assistant (Cons)":
                         contents_payload = []
                         new_style_info = {}
                         
-                        # BƯỚC 1: Xử lý bóc tách File mã hàng mới đính kèm bằng AI (Nếu người dùng có upload file)
                         if chat_file:
                             file_bytes = chat_file.getvalue()
                             img_payload = []
@@ -350,13 +362,11 @@ elif menu_selection == "🧵 Fabric Consumption Assistant (Cons)":
                             else:
                                 img_payload.append(types.Part.from_bytes(data=file_bytes, mime_type='image/jpeg'))
                             
-                            # Ép AI bóc tách nhanh thông số file mới làm tiền đề tra cứu kho
                             extraction_prompt = "Extract the Style ID, Buyer, Category, Base Size and EVERY measurement specification. Return raw text."
                             img_payload.append(extraction_prompt)
                             extraction_res = client.models.generate_content(model='gemini-2.5-flash', contents=img_payload)
                             new_style_info["raw_text"] = extraction_res.text
                             
-                            # Đính kèm ảnh vào luồng phản hồi cuối cùng để hiển thị trực quan
                             if chat_file.name.lower().endswith('.pdf') and images:
                                 img_buf = io.BytesIO()
                                 images[0].convert("RGB").save(img_buf, format="JPEG")
@@ -364,7 +374,6 @@ elif menu_selection == "🧵 Fabric Consumption Assistant (Cons)":
                             elif not chat_file.name.lower().endswith('.pdf'):
                                 contents_payload.append(types.Part.from_bytes(data=file_bytes, mime_type='image/jpeg'))
                         
-                        # BƯỚC 2: Tự động trích xuất từ khóa từ file mới hoặc câu lệnh để truy vấn kho Supabase
                         search_keyword = ""
                         if chat_file:
                             found_keywords = re.findall(r'[A-Za-z0-9]+[-–][A-Za-z0-9]+|[A-Za-z0-9]{4,}', chat_file.name)
@@ -373,7 +382,6 @@ elif menu_selection == "🧵 Fabric Consumption Assistant (Cons)":
                             found_keywords = re.findall(r'[A-Za-z0-9]+[-–][A-Za-z0-9]+|[A-Za-z0-9]{4,}', user_query)
                             if found_keywords: search_keyword = found_keywords[0]
                             
-                        # Gọi hàm truy vấn kho Supabase lấy dữ liệu các mã hàng lịch sử liên quan
                         db_results = get_historical_fabric_consumption_from_db(search_keyword=search_keyword if search_keyword else None)
                         
                         db_context = ""
@@ -387,13 +395,11 @@ elif menu_selection == "🧵 Fabric Consumption Assistant (Cons)":
                                     f"  + Ghi chú cấu trúc: {item.get('notes')}\n"
                                 )
                         else:
-                            # Nếu không tìm kiếm được từ khóa chỉ định, lôi 5 mã hàng gần nhất ra làm dữ liệu nền tham chiếu
                             backup_results = get_historical_fabric_consumption_from_db(search_keyword=None)
                             db_context = "\n\n[KHO DỮ LIỆU LỊCH SỬ THAM KHẢO]:\n"
                             for item in backup_results[:5]:
                                 db_context += f"- Mã hàng: {item.get('style_name')}, Vải: {item.get('article_name')}, Định mức gốc: {item.get('consumption_value')} {item.get('uom')}, Cấu trúc: {item.get('notes')}\n"
 
-                        # BƯỚC 3: Thiết lập Prompt kỹ thuật cao, chỉ thị AI thực hiện quy trình nghiệp vụ R&D 3 bước
                         system_instruction = (
                             "You are the Lead R&D Expert and Garment Technical Auditor at PPJ Group.\n"
                             "Your job is to calculate the fabric consumption (Cons) for a NEW garment style by comparing it with SIMILAR historical styles in the database.\n\n"
@@ -414,7 +420,6 @@ elif menu_selection == "🧵 Fabric Consumption Assistant (Cons)":
                         )
                         contents_payload.append(full_prompt)
                         
-                        # Triển khai bộ bẫy lỗi Retry Logic chống nghẽn mạng 503
                         ans = ""
                         for attempt in range(3):
                             try:
@@ -429,7 +434,7 @@ elif menu_selection == "🧵 Fabric Consumption Assistant (Cons)":
                                 raise e
                                 
                     except Exception as e: 
-                        ans = f"Máy chủ AI hiện đang bận do xử lý ma trận tính toán lớn. Vui lòng bấm gửi lại yêu cầu nhé! Chi tiết: {str(e)}"
+                        ans = f"Máy chủ AI hiện đang bận do xử lý ma trận tính toán lớn. Vui lòng bấm gửi lại câu hỏi sau vài giây nhé! Chi tiết: {str(e)}"
                         
                 st.write(ans)
                 st.session_state["chat_history"].append({"role": "assistant", "content": ans})
