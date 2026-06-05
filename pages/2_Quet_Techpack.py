@@ -276,87 +276,74 @@ elif st.session_state.current_menu == "So Sánh Thông Số Rập":
                 else: st.error(f"Sự cố trích xuất so sánh: {rb.get('error') or rf.get('error')}")
         else: st.warning("Vui lòng tải lên đầy đủ cả 2 file tài liệu để hệ thống đối chiếu.")
 
-# PHÂN HỆ 3: TRỢ LÝ ĐỊNH MỨC (KẾT NỐI API MULTIMODAL ĐỌC FILE TECHPACK MỚI & TRUY VẤN KHO SUPABASE)
-elif st.session_state.current_menu == "Trợ Lý Tính Định Mức":
-    st.subheader("🌾 Trợ Lý Chat AI Tính Toán Định Mức Nguyên Phụ Liệu Tự Động")
-    
-    # Giao diện hàng ngang gồm ô tải tệp và nút xóa cuộc hội thoại
-    top_c1, top_c2 = st.columns([3, 1])
-    with top_c1:
-        chat_file = st.file_uploader("Upload ảnh cấu trúc hoặc tài liệu định mức nguyên phụ liệu", type=["pdf", "png", "jpg"], label_visibility="collapsed")
-    with top_c2:
-        if st.button("🗑️ XÓA CHAT", use_container_width=True, type="secondary"):
-            st.session_state.chat_history = []
-            st.success("Đã xóa sạch bộ nhớ chat!")
-            st.rerun()
-            
-    st.markdown("---")
-    
-    # Hiển thị lịch sử hội thoại
-    for chat in st.session_state.chat_history:
-        if chat.get("role") == "user": 
-            st.markdown(f"<div class='chat-bubble-user'><b>Bạn:</b> {chat.get('text')}</div>", unsafe_allow_html=True)
-        else: 
-            st.markdown(f"<div class='chat-bubble-ai'><b>AI PPJ Assistant:</b> {chat.get('text')}</div>", unsafe_allow_html=True)
-            
-    u_msg = st.chat_input("Nhập yêu cầu phân tích mã hàng mới (Ví dụ: Kiểm tra mã mới này và tìm mã tương đồng trong kho)...")
-    
-    if u_msg:
-        st.session_state.chat_history.append({"role": "user", "text": u_msg})
+# --- TAB 3: TRỢ LÝ TÍNH ĐỊNH MỨC VÀ CHAT GEMINI THẬT (BỔ SUNG NÚT XÓA CHAT) ---
+elif current_tab == "📏 Trợ Lý Tính Định Mức (Cons)":
+    st.markdown('<div class="section-header">💡 Trợ lý chuyên gia đối chiếu & Tính định mức vải</div>', unsafe_allow_html=True)
+
+    # 1. Khởi tạo lưu trữ lịch sử chat nội bộ nếu chưa có
+    if "chat_history" not in st.session_state:
+        st.session_state.chat_history = [
+            {
+                "role": "assistant",
+                "content": "🤖 Chào kỹ sư PPJ! Tôi đã được liên kết với cơ sở dữ liệu kho mẫu và bảng định mức vải sản phẩm. Hãy tải sơ đồ rập lên (nếu có) và đặt câu hỏi cho tôi nhé!",
+            }
+        ]
+
+    # 2. Khung Tải sơ đồ rập kết hợp nút Xóa lịch sử Chat nằm song song
+    with st.container(border=True):
+        col_file, col_clear = st.columns([4, 1])  # Chia tỷ lệ khung tải file rộng, nút bấm gọn bên phải
         
-        with st.spinner("Hệ thống AI đang đọc quét tài liệu Techpack mới và truy vấn kho dữ liệu Supabase..."):
-            try:
-                # Mảng chứa toàn bộ dữ liệu ngữ cảnh gửi sang AI (Văn bản + Hình ảnh tệp TP)
-                ai_contents_payload = []
-                
-                # ✨ ĐÃ SỬA ĐỔI: Chuyển đổi file tài liệu tải lên thành dữ liệu hình ảnh truyền thẳng vào luồng gọi AI
-                if chat_file:
-                    if chat_file.name.lower().endswith('.pdf'):
-                        try:
-                            # Quét các trang đầu của tài liệu Techpack mới để AI đọc ma trận thông số
-                            pdf_images = convert_from_bytes(chat_file.getvalue(), dpi=140, first_page=1, last_page=min(3, int(pdfinfo_from_bytes(chat_file.getvalue()).get("Pages", 1))))
-                            for img_obj in pdf_images:
-                                img_buf = io.BytesIO()
-                                img_obj.convert("RGB").save(img_buf, format="JPEG", quality=90)
-                                ai_contents_payload.append(types.Part.from_bytes(data=img_buf.getvalue(), mime_type='image/jpeg'))
-                        except Exception: pass
-                    elif chat_file.name.lower().endswith(('.png', '.jpg', '.jpeg')):
-                        ai_contents_payload.append(types.Part.from_bytes(data=chat_file.getvalue(), mime_type='image/jpeg'))
-                
-                # Truy xuất kho dữ liệu phụ liệu thật từ bảng san_pham Supabase
-                db_data = get_historical_fabric_consumption_from_db()
-                warehouse_context = f"\n[KHO DỮ LIỆU ĐỊNH MỨC THỰC TẾ TRONG SUPABASE]: {json.dumps(db_data, ensure_ascii=False)}"
-                
-                # Hệ thống chỉ dẫn nghiệp vụ dệt may cấp cao
-                system_instruction = f"""
-                Bạn là chuyên gia kỹ thuật dệt may và quản lý vật tư của PPJ Group.
-                Người dùng đã tải lên một tài liệu Techpack (TP) mã hàng mới (hình ảnh đính kèm nếu có).
-                Nhiệm vụ nghiêm ngặt của bạn:
-                1. Hãy đọc và bóc tách ma trận thông số rập dáng chi tiết có trên tài liệu Techpack mới tải lên.
-                2. Đối chiếu các vị trí đo thông số này với toàn bộ kho dữ liệu thực tế đang có trong kho Supabase của nhà xưởng: {warehouse_context}.
-                3. Tìm ra chính xác mã hàng lịch sử (style_name) có phom dáng tương đồng cao nhất đang lưu trong bảng kho. Giải thích rõ độ tương thích (Ví dụ: Giống phom dáng Cargo, thông số hạ đũi gần khớp).
-                4. Dựa trên thông tin định mức nguyên phụ liệu chi tiết (article_name, consumption_type, material_size, uom, consumption_value) của mã cũ tương đồng đó, đưa ra bảng dự đoán định mức chi tiết cho mã hàng mới này.
-                
-                Quy định phản hồi:
-                - Trả lời bằng tiếng Việt chuyên ngành dệt may rõ ràng, mạch lạc.
-                - Sử dụng bảng Markdown đặt song song để đối chiếu thông số giữa mã mới và mã tương đồng cũ trong kho.
-                - Chỉ sử dụng số liệu có thật từ kho Supabase được cung cấp, không tự bịa định mức.
-                """
-                
-                # Thêm chỉ dẫn hệ thống và câu hỏi của kỹ sư vào luồng dữ liệu gửi đi
-                ai_contents_payload.append(system_instruction)
-                ai_contents_payload.append(f"Yêu cầu thực tế của người dùng: {u_msg}")
-                
-                # Thực hiện gọi API gửi trọn vẹn cả Ảnh file TP mới và Kho dữ liệu lên máy chủ Google
-                client = genai.Client(api_key=get_secure_gemini_key())
-                response = client.models.generate_content(
-                    model='gemini-2.5-flash',
-                    contents=ai_contents_payload
-                )
-                ai_reply = response.text.strip()
-                
-            except Exception as e:
-                ai_reply = f"Gặp sự cố trong tiến trình kết nối phân tích hệ thống: {str(e)}"
-                
-        st.session_state.chat_history.append({"role": "ai", "text": ai_reply})
+        with col_file:
+            st.markdown("**📁 Cung cấp dữ liệu phụ trợ (Tùy chọn):**")
+            attached_file = st.file_uploader(
+                "Upload sơ đồ rập phụ trợ",
+                type=["pdf", "png", "jpg"],
+                label_visibility="collapsed",
+            )
+            
+        with col_clear:
+            st.markdown("**⚙️ Thao tác:**")
+            # Nút bấm xóa chat thiết kế nổi bật, kích thước full viền ô chứa
+            if st.button("🗑️ XÓA LỊCH SỬ CHAT", type="secondary", use_container_width=True):
+                # Làm sạch session_state đưa về trạng thái lời chào ban đầu
+                st.session_state.chat_history = [
+                    {
+                        "role": "assistant",
+                        "content": "🤖 Chào kỹ sư PPJ! Tôi đã được liên kết với cơ sở dữ liệu kho mẫu và bảng định mức vải sản phẩm. Hãy tải sơ đồ rập lên (nếu có) và đặt câu hỏi cho tôi nhé!",
+                    }
+                ]
+                # Làm mới trang để cập nhật màn hình trống ngay lập tức
+                st.rerun()
+
+    st.write("")
+    st.markdown("**💬 Khung hội thoại tư vấn chuyên gia Gemini thật:**")
+
+    # 3. Khung chứa hiển thị dòng chảy cuộc hội thoại chat
+    chat_container = st.container(border=True)
+    with chat_container:
+        for message in st.session_state.chat_history:
+            with st.chat_message(message["role"]):
+                st.markdown(message["content"])
+
+    # 4. Nhận câu hỏi thời gian thực từ ô Chat Input chuyên nghiệp
+    if user_query := st.chat_input("Nhập câu hỏi của bạn tại đây..."):
+        st.session_state.chat_history.append(
+            {"role": "user", "content": user_query}
+        )
+
+        with chat_container:
+            with st.chat_message("user"):
+                st.markdown(user_query)
+
+        with chat_container:
+            with st.chat_message("assistant"):
+                with st.spinner("Gemini đang truy vấn dữ liệu kho PPJ..."):
+                    ai_response = generate_real_gemini_chat_response(
+                        user_query, attached_file
+                    )
+                    st.markdown(ai_response)
+
+        st.session_state.chat_history.append(
+            {"role": "assistant", "content": ai_response}
+        )
         st.rerun()
