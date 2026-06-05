@@ -204,232 +204,90 @@ def process_single_pdf_batch(file_bytes, file_name):
     except Exception as e: return {"success": False, "error": f"Lỗi AI: {str(e)}"}
 with st.sidebar:
     st.markdown("""
-        <div class="ppj-brand-card">
-            <div class="ppj-brand-main">PPJ CORE AI</div>
-            <div class="ppj-brand-sub">R&D Techpack Matrix</div>
+        <div class="sidebar-brand-container">
+            <div class="sidebar-brand-title">PPJ GROUP</div>
+            <div class="sidebar-brand-subtitle">TECHPACK MANAGEMENT CORE AI</div>
         </div>
     """, unsafe_allow_html=True)
-    menu_selection = st.radio(
-        label="HỆ THỐNG ĐIỀU HÀNH",
-        options=["📊 Quét Techpack Document", "🔄 Pattern Spec Comparison", "🧵 Fabric Consumption Assistant (Cons)"]
+    
+    st.markdown("<p style='font-size:11px; font-weight:700; color:#64748B; margin: 15px 0 5px 5px; letter-spacing:0.5px;'>🏭 AUTOMATION FACTORY</p>", unsafe_allow_html=True)
+    menu_selection = st.sidebar.radio(
+        label="Chức năng hệ thống",
+        options=["📊 Quét Techpack Document", "🔄 Pattern Spec Comparison", "🧵 Fabric Consumption Assistant (Cons)"],
+        label_visibility="collapsed"
     )
-    st.markdown("<br><br>", unsafe_allow_html=True)
-    st.markdown("""
-        <div class="sys-status-bar">
-            🟢 SYSTEM STATUS: ONLINE<br>
-            🤖 CORE ENGINE: GEMINI-2.5
-        </div>
-    """, unsafe_allow_html=True)
+    st.markdown("---")
+    st.success("DATABASE ACCESS: SECURED")
+    st.info("ANALYTICS ENGINE: COMPLY")
 
-if "processed_styles" not in st.session_state: st.session_state["processed_styles"] = {}
+if "processed_styles" not in st.session_state:
+    st.session_state["processed_styles"] = {}
 
-# CHỨC NĂNG 1: QUÉT TỰ ĐỘNG BẰNG AI VÀ LƯU HÀNG LOẠT
+# -----------------------------------------------------------------------------
+# CHỨC NĂNG 1: QUÉT TỰ ĐỘNG BẰNG AI VÀ LƯU HÀNG LOẠT (BULK SAVE MULTI-BATCH)
+# -----------------------------------------------------------------------------
 if menu_selection == "📊 Quét Techpack Document":
-    st.markdown('<div class="tech-panel"><div class="tech-panel-title">📥 DATA INGESTION: UPLOAD CLIENT TECHPACK</div></div>', unsafe_allow_html=True)
-    uploaded_files = st.file_uploader("Upload PDF", type=["pdf"], accept_multiple_files=True, label_visibility="collapsed")
+    st.markdown('<div class="component-title-box">📊 MULTI-BATCH GARMENT SPECIFICATION MATRIX</div>', unsafe_allow_html=True)
+    
+    st.markdown("""<div class="card-container"><div class="card-section-header">📥 INGESTION ENGINE</div>
+    <p style="color: #94A3B8; font-size:13px; margin:0 0 15px 0;">Hệ thống tự động cắt trang, khử nhiễu đồ họa phẳng và gọi API mạng nơ-ron tích hợp để bóc tách thông số hàng loạt.</p></div>""", unsafe_allow_html=True)
+    uploaded_files = st.file_uploader("Upload Techpack PDF", type=["pdf"], accept_multiple_files=True, label_visibility="collapsed")
     
     if uploaded_files:
         files_to_render = []
         for file in uploaded_files:
             if file.name not in st.session_state["processed_styles"]:
-                with st.spinner(f"AI ĐANG GIẢI MÃ FILE {file.name}..."):
+                with st.spinner(f"Core AI đang bóc tách mô hình {file.name}..."):
                     res = process_single_pdf_batch(file.getvalue(), file.name)
                     if res["success"]: st.session_state["processed_styles"][file.name] = res["data"]
-                    else: st.error(res["error"])
-            if file.name in st.session_state["processed_styles"]: files_to_render.append(file.name)
+                    else: st.error(f"FAIL ENGINE [{file.name}]: {res['error']}")
+            if file.name in st.session_state["processed_styles"]:
+                files_to_render.append(file.name)
 
         if files_to_render:
-            if st.button("💾 ĐỒNG BỘ HÀNG LOẠT LÊN MASTER DATABASE (SUPABASE)", type="primary", use_container_width=True):
+            if st.button("💾 SAVE ALL PROCESSED MATRIX TO SUPABASE MASTER DB", key="bulk_save_all_btn", type="primary", use_container_width=True):
                 success_count = 0
-                for f_name in files_to_render:
-                    if save_to_supabase_techpack_table(st.session_state["processed_styles"][f_name]): success_count += 1
-                st.success(f"🎉 ĐÃ ĐỒNG BỘ THÀNH CÔNG {success_count}/{len(files_to_render)} MÃ HÀNG VÀO DATABASE!")
+                with st.spinner("Đang đồng bộ cổng dữ liệu nhị phân hàng loạt lên Supabase Cloud..."):
+                    for f_name in files_to_render:
+                        style_data = st.session_state["processed_styles"][f_name]
+                        if save_to_supabase_techpack_table(style_data): success_count += 1
+                st.success(f"🎉 PATTERN DATA PIPELINE: Đã ghi nhận và lưu trữ thành công {success_count}/{len(files_to_render)} mã hàng vào Database!")
+            st.markdown("---")
 
             cols = st.columns(2)
             for idx, f_name in enumerate(files_to_render):
+                col_target = cols[idx % 2]
                 data = st.session_state["processed_styles"][f_name]
-                with cols[idx % 2]:
-                    st.markdown(f"""
-                        <div class="tech-panel">
-                            <div class="tech-panel-title">⚙️ PATTERN SPEC MATRIX: {data.get('style_number_parsed')}</div>
-                            <div class="spec-label">BUYER ACCOUNT</div><div class="spec-value">{data.get('buyer')}</div>
-                            <div class="spec-label">PRODUCT LINE</div><div class="spec-value">{data.get('category')}</div>
-                            <div class="spec-label">SAMPLE BASE SIZE</div><div class="spec-value">{data.get('base_size_name')}</div>
-                        </div>
-                    """, unsafe_allow_html=True)
+                with col_target:
+                    st.markdown(f"""<div class="card-container"><div class="tech-card-header">{data.get('style_number_parsed')}</div>
+                        <div class="metric-grid-box"><div><p class="metric-label">BUYER</p><p class="metric-value">{data.get('buyer')}</p></div>
+                        <div><p class="metric-label">PRODUCT LINE</p><p class="metric-value">{data.get('category')}</p></div>
+                        <div><p class="metric-label">BASE SIZE</p><p class="metric-value">{data.get('base_size_name')}</p></div></div></div>""", unsafe_allow_html=True)
                     
-                    sub_col1, sub_col2 = st.columns([1.3, 0.7])
+                    sub_col1, sub_col2 = st.columns([1.2, 0.8])
                     with sub_col1:
-                        table_html = '<div class="matrix-wrapper"><table class="matrix-table"><thead><tr><th>POM DESCRIPTION</th><th>TARGET SPEC</th></tr></thead><tbody>'
+                        st.markdown("<p style='font-weight:700; font-size:12px; color:#F8FAFC; letter-spacing:0.5px;'>📋 SPECIFICATION DATA GRID</p>", unsafe_allow_html=True)
+                        table_html = '<div class="data-table-container"><table class="industrial-table"><thead><tr><th>Point of Measurement</th><th>Target Spec</th></tr></thead><tbody>'
                         for k, v in data.get("measurements", {}).items():
-                            table_html += f"<tr><td><b>{k}</b></td><td>{v}</td></tr>"
+                            table_html += f"<tr><td>{k}</td><td>{v}</td></tr>"
                         st.markdown(table_html + "</tbody></table></div>", unsafe_allow_html=True)
                     with sub_col2:
-                        if data.get("sketch_image"): st.image(base64.b64decode(data["sketch_image"]), use_column_width=True)
-
-# CHỨC NĂNG 2: ĐỐI CHIẾU SO SÁNH HAI MÃ RẬP (BẢNG TRÊN 1 DÒNG CHỐNG LỖI)
-elif menu_selection == "🔄 Pattern Spec Comparison":
-    st.markdown('<div class="tech-panel"><div class="tech-panel-title">🔄 PATTERN SPEC COMPARISON & DELTA ANALYTICS</div></div>', unsafe_allow_html=True)
-    sc1, sc2 = st.columns(2)
-    with sc1: file1 = st.file_uploader("Mẫu Gốc A (PDF)", type=["pdf"], key="f1")
-    with sc2: file2 = st.file_uploader("Mẫu Sửa B (PDF)", type=["pdf"], key="f2")
-    
-    if file1 and file2:
-        if file1.name not in st.session_state["processed_styles"]:
-            res1 = process_single_pdf_batch(file1.getvalue(), file1.name)
-            if res1["success"]: st.session_state["processed_styles"][file1.name] = res1["data"]
-        if file2.name not in st.session_state["processed_styles"]:
-            res2 = process_single_pdf_batch(file2.getvalue(), file2.name)
-            if res2["success"]: st.session_state["processed_styles"][file2.name] = res2["data"]
-        d1 = st.session_state["processed_styles"].get(file1.name)
-        d2 = st.session_state["processed_styles"].get(file2.name)
-        
-        if d1 and d2:
-            def clean_garment_fraction(v_str):
-                if not v_str or str(v_str).strip().upper() in ["N/A", ""]: return 0.0
-                try:
-                    s = str(v_str).replace("INCH", "").strip()
-                    if " " in s:
-                        parts = s.split()
-                        return float(parts[0]) + (float(parts[1].split('/')[0]) / float(parts[1].split('/')[1]))
-                    elif "/" in s: return float(s.split('/')[0]) / float(s.split('/')[1])
-                    return float(s)
-                except:
-                    nums = re.findall(r"[-+]?\d*\.\d+|\d+", str(v_str))
-                    return float(nums[0]) if nums else 0.0
-
-            col_title_a = f"Mẫu A ({d1['style_number_parsed']}) [Size: {d1.get('base_size_name','N/A')}]"
-            col_title_b = f"Mẫu B ({d2['style_number_parsed']}) [Size: {d2.get('base_size_name','N/A')}]"
-            
-            table_body_html = ""
-            compare_rows_for_df = []
-            for pom in sorted(set(list(d1["measurements"].keys()) + list(d2["measurements"].keys()))):
-                val1 = d1["measurements"].get(pom, "N/A"); val2 = d2["measurements"].get(pom, "N/A")
-                delta = round(clean_garment_fraction(val2) - clean_garment_fraction(val1), 3) if val1 != "N/A" and val2 != "N/A" else 0.0
-                compare_rows_for_df.append({"Vị trí đo (POM)": pom, col_title_a: val1, col_title_b: val2, "Sai lệch (Delta)": delta})
-                delta_td = f'<td><span class="delta-up">+{delta}</span></td>' if delta > 0 else (f'<td><span class="delta-down">{delta}</span></td>' if delta < 0 else '<td><span class="delta-steady">0</span></td>')
-                table_body_html += f'<tr><td><b>{pom}</b></td><td>{val1}</td><td>{val2}</td>{delta_td}</tr>'
-            
-            full_table_render = f'<div class="tech-panel"><div class="matrix-wrapper"><table class="matrix-table"><thead><tr><th>POM DESCRIPTION</th><th>{col_title_a}</th><th>{col_title_b}</th><th>DELTA SPEC</th></tr></thead><tbody>{table_body_html}</tbody></table></div></div>'
-            st.markdown(full_table_render, unsafe_allow_html=True)
-            
-            df_compare = pd.DataFrame(compare_rows_for_df)
-            towrite = io.BytesIO()
-            with pd.ExcelWriter(towrite, engine='xlsxwriter') as writer:
-                df_compare.to_excel(writer, index=False, sheet_name='Spec_Report')
-                workbook = writer.book; worksheet = writer.sheets['Spec_Report']
-                header_format = workbook.add_format({'bold':True,'fg_color':'#1E3A8A','font_color':'white','border':1,'align':'center'})
-                for c_idx, col_title in enumerate(df_compare.columns): worksheet.write(0, c_idx, col_title, header_format)
-            st.download_button(label="📥 DOWNLOAD EXCEL PRODUCTION REPORT", data=towrite.getvalue(), file_name="PPJ_Spec_Comparison.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
-# =============================================================================
-# PHASE 4: COGNITIVE TEXTILE INTELLIGENCE PIPELINE (CORE ENGINE)
-# =============================================================================
-def process_single_pdf_batch(file_bytes, file_name):
-    """
-    Hệ thống bóc tách tự động đa tầng: Chuyển đổi mã nhị phân PDF sang mô hình 
-    đồ họa mặt phẳng (Sketch) và cấu trúc lại toàn bộ ma trận số đo Spec Grid.
-    """
-    gemini_key = get_secure_gemini_key()
-    if not gemini_key: 
-        return {
-            "success": False, 
-            "error": "CRITICAL CONFIGURATION ERROR: GEMINI_API_KEY environment variable is uninitialized."
-        }
-    
-    # Chuẩn hóa chuỗi định danh mã hàng phòng ngừa crash hệ thống rsplit
-    if '.' in file_name:
-        fallback_style = file_name.rsplit('.', 1)[0].strip()
+                        st.markdown("<p style='font-weight:700; font-size:12px; color:#F8FAFC; letter-spacing:0.5px;'>📐 GARMENT FLAT SKETCH</p>", unsafe_allow_html=True)
+                        if data.get("sketch_image"): 
+                            st.image(base64.b64decode(data["sketch_image"]), use_column_width=True)
+                    st.markdown("<br><hr style='border-color:#334155;'><br>", unsafe_allow_html=True)
     else:
-        fallback_style = file_name.strip()
-
-    try:
-        # Trích xuất dữ liệu metadata cấu trúc trang từ tệp tài liệu kỹ thuật
-        info = pdfinfo_from_bytes(file_bytes)
-        total_pages = int(info.get("Pages", 1))
-        contents_payload = []
-        sketch_base64 = ""
-
-        # Chu trình quét và chụp lại mô hình đồ họa phẳng (Rasterization)
-        for p_num in range(1, total_pages + 1):
-            try:
-                images = convert_from_bytes(file_bytes, dpi=160, first_page=p_num, last_page=p_num)
-                if images:
-                    img = images[0].convert("RGB") # Cô lập chính xác đối tượng Image từ danh sách cấu trúc trang
-                    img_buffer = io.BytesIO()
-                    img.save(img_buffer, format="JPEG", quality=95)
-                    contents_payload.append(types.Part.from_bytes(data=img_buffer.getvalue(), mime_type='image/jpeg'))
-                    
-                    # Bóc tách và mã hóa trang đầu tiên làm sơ đồ thiết kế cơ sở (Technical Sketch)
-                    if p_num == 1 and not sketch_base64:
-                        if img.width > 450: 
-                            img = img.resize((450, int(img.height * (450 / img.width))))
-                        bk_buf = io.BytesIO()
-                        img.save(bk_buf, format="JPEG", quality=85)
-                        sketch_base64 = base64.b64encode(bk_buf.getvalue()).decode("utf-8")
-            except Exception: 
-                pass
-
-        if not contents_payload: 
-            return {
-                "success": False, 
-                "error": "DATA CORRUPTION DETECTED: Unable to extract image buffers from target PDF matrix."
-            }
-
-        # Hệ thống chỉ thị AI chuyên ngành dệt may toàn cầu (Strict Garment Spec Prompt)
-        user_prompt = """
-        You are an elite Garment Technical Auditor and QA/QC Data Engineer at PPJ Group.
-        Your task is to analyze the attached images from the technical pack (Techpack) PDF and extract data with absolute precision.
-        
-        CRITICAL OPERATIONAL INSTRUCTIONS:
-        1. Identify the primary specification chart/grid containing the Point of Measurements (POM Description) and target values.
-        2. Scan the document ROW-BY-ROW from top to bottom. You MUST extract EVERY SINGLE measurement position. Do not drop, truncate, or group any rows.
-        3. Isolate the exact data column assigned for the sample 'Base Size' (e.g., Sample Size, M, or the baseline dimensions stated in the chart header).
-        
-        You must return a valid JSON object strictly conforming to this exact schema (no additional text, markdown, or wrapping):
-        {
-          "style_number_parsed": "The official product Style ID or Code",
-          "buyer": "The official Client/Buyer account name",
-          "category": "The specific garment product line or category",
-          "base_size_name": "The extracted sample base size used for values",
-          "measurements": {
-             "Exact POM Name 1": "Value 1 with UOM",
-             "Exact POM Name 2": "Value 2 with UOM",
-             "Exact POM Name 3": "Value 3 with UOM"
-          }
-        }
-        """
-        contents_payload.append(user_prompt)
-
-        # Kích hoạt Core Engine xử lý đa phương thức với tham số chính xác tuyệt đối
-        client = genai.Client(api_key=gemini_key)
-        response = client.models.generate_content(
-            model='gemini-2.5-flash', 
-            contents=contents_payload, 
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json", 
-                temperature=0.0 # Thiết lập mức chính xác tuyệt đối, triệt tiêu sự sáng tạo tự do của AI
-            )
-        )
-        
-        # Đồng bộ hóa cấu trúc dữ liệu JSON phản hồi
-        parsed_data = json.loads(response.text.strip())
-        parsed_data["sketch_image"] = sketch_base64
-        
-        if not parsed_data.get("style_number_parsed"):
-            parsed_data["style_number_parsed"] = fallback_style
-            
-        return {"success": True, "data": parsed_data}
-        
-    except Exception as e: 
-        return {
-            "success": False, 
-            "error": f"SYSTEM EXECUTION EXCEPTION: Critical pipeline breakdown during AI processing. Details: {str(e)}"
-        }
-# =============================================================================
-# CHỨC NĂNG 2 (TIẾP THEO): ĐỐI CHIẾU SO SÁNH (BẢN SỬA LỖI ĐỊNH DẠNG CHUỖI TUYỆT ĐỐI)
-# =============================================================================
+        st.markdown("""<div style="background-color: #1E293B; border-left: 4px solid #F59E0B; padding: 15px; border-radius: 6px; color: #FBBF24; font-size: 13.5px; font-weight: 500;">
+        ⚠️ INITIALIZATION SYSTEM IDLE: Hiện tại chưa có tệp dữ liệu Techpack nào được nạp vào hệ thống để AI khởi chạy mô hình.</div>""", unsafe_allow_html=True)
+# -----------------------------------------------------------------------------
+# CHỨC NĂNG 2: ĐỐI CHIẾU SO SÁNH HAI MÃ RẬP KHÁC NHAU (PATTERN SPEC COMPARISON)
+# -----------------------------------------------------------------------------
 elif menu_selection == "🔄 Pattern Spec Comparison":
-    st.markdown("""<div class="tech-card"><div class="tech-header">🔄 CHỨC NĂNG ĐỐI CHIẾU SỐ ĐO & PHÂN TÍCH SAI LỆCH (DELTA SPEC)</div></div>""", unsafe_allow_html=True)
+    st.markdown('<div class="component-title-box">🔄 DIFFERENTIAL GEOMETRY & DELTA SPEC EVALUATOR</div>', unsafe_allow_html=True)
+    
+    st.markdown("""<div class="card-container"><div class="card-section-header">🔍 CONFIGURATION SELECTION</div>
+    <p style="color: #94A3B8; font-size:13px; margin:0 0 15px 0;">Tải lên hai tệp bản vẽ kỹ thuật dệt may độc lập để tiến hành lập luận so sánh và tính toán toán học các khoảng chênh lệch rập mẫu.</p></div>""", unsafe_allow_html=True)
+    
     sc1, sc2 = st.columns(2)
     with sc1: file1 = st.file_uploader("Chọn file mẫu Techpack Gốc (File A)", type=["pdf"], key="f1")
     with sc2: file2 = st.file_uploader("Chọn file mẫu Techpack Sửa đổi (File B)", type=["pdf"], key="f2")
@@ -446,17 +304,6 @@ elif menu_selection == "🔄 Pattern Spec Comparison":
         d2 = st.session_state["processed_styles"].get(file2.name)
         
         if d1 and d2:
-            st.markdown(f"""
-                <div style="background-color: #FFFFFF; border-left: 5px solid #3B82F6; padding: 12px 20px; border-radius: 4px 12px 12px 4px; margin-bottom: 20px; box-shadow: 0 2px 5px rgba(0,0,0,0.02);">
-                    <h5 style="margin:0; color:#1E3A8A; font-weight:700; font-size:16px;">⚙️ ĐANG ĐỐI CHIẾU MA TRẬN PHÁT TRIỂN MẪU</h5>
-                    <p style="margin:4px 0 0 0; font-size:13px; color:#64748B;">
-                        <b>Mẫu Gốc A:</b> {d1['style_number_parsed']} [Size: {d1.get('base_size_name','N/A')}] 
-                        &nbsp;|&nbsp; 
-                        <b>Mẫu Sửa B:</b> {d2['style_number_parsed']} [Size: {d2.get('base_size_name','N/A')}]
-                    </p>
-                </div>
-            """, unsafe_allow_html=True)
-            
             def clean_garment_fraction(v_str):
                 if not v_str or str(v_str).strip().upper() in ["N/A", "N/A INCH", ""]: return 0.0
                 try:
@@ -480,7 +327,6 @@ elif menu_selection == "🔄 Pattern Spec Comparison":
             col_title_b = f"Mẫu B ({d2['style_number_parsed']}) [{size_b}]"
             all_poms = set(list(d1["measurements"].keys()) + list(d2["measurements"].keys()))
             
-            # Khởi tạo chuỗi rỗng để gom lũy tiến hàng trích xuất
             table_body_html = ""
             compare_rows_for_df = []
             
@@ -493,18 +339,16 @@ elif menu_selection == "🔄 Pattern Spec Comparison":
                 delta = round(num2 - num1, 3) if val1 != "N/A" and val2 != "N/A" else 0.0
                 compare_rows_for_df.append({"Vị trí đo (POM)": pom, col_title_a: val1, col_title_b: val2, "Sai lệch (Delta)": delta})
                 
-                # Cô lập hoàn toàn HTML của cột Delta, loại bỏ xung đột dấu nháy kép/nháy đơn lồng nhau
                 if delta > 0:
-                    delta_style = "background-color:#DCFCE7; color:#166534; font-weight:700; padding:2px 8px; border-radius:4px; font-size:12px; border:1px solid #BBF7D0;"
+                    delta_style = "background-color:rgba(16,185,129,0.15); color:#34D399; font-weight:700; padding:2px 8px; border-radius:4px; font-size:12px; border:1px solid rgba(16,185,129,0.3);"
                     delta_text = f"+{delta}"
                 elif delta < 0:
-                    delta_style = "background-color:#FEE2E2; color:#991B1B; font-weight:700; padding:2px 8px; border-radius:4px; font-size:12px; border:1px solid #FECACA;"
+                    delta_style = "background-color:rgba(239,68,68,0.15); color:#F87171; font-weight:700; padding:2px 8px; border-radius:4px; font-size:12px; border:1px solid rgba(239,68,68,0.3);"
                     delta_text = f"{delta}"
                 else:
-                    delta_style = "color:#94A3B8; font-size:12px;"
-                    delta_text = "0.0"
-
-                # Ghép chuỗi trơn tru không xuống hàng gây lỗi Markdown của Streamlit
+                    delta_style = "color:#64748B; font-size:12px;"
+                    delta_text = "0.00"
+                
                 table_body_html += f"""<tr style="background-color: #FFFFFF;">
                     <td style="padding: 10px 14px; border-bottom: 1px solid #E2E8F0; font-weight: 600; color: #1E293B; font-size: 13px;">{pom}</td>
                     <td style="padding: 10px 14px; border-bottom: 1px solid #E2E8F0; color: #334155; font-size: 13px;">{val1}</td>
@@ -512,7 +356,6 @@ elif menu_selection == "🔄 Pattern Spec Comparison":
                     <td style="padding: 10px 14px; border-bottom: 1px solid #E2E8F0; text-align: center;"><span style="{delta_style}">{delta_text}</span></td>
                 </tr>"""
             
-            # Đóng gói toàn bộ cấu trúc khối Card Table Công nghiệp hoàn chỉnh
             full_table_render = f"""
             <div style="max-height: 460px; overflow-y: auto; border: 1px solid #CBD5E1; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.02); margin-top: 15px;">
                 <table style="width: 100%; border-collapse: collapse; text-align: left; font-family: sans-serif;">
@@ -530,18 +373,16 @@ elif menu_selection == "🔄 Pattern Spec Comparison":
                 </table>
             </div>
             """
-            
-            # Kích hoạt lệnh Render bắt buộc ra màn hình
             st.markdown(full_table_render, unsafe_allow_html=True)
             st.markdown("<br>", unsafe_allow_html=True)
             
-            # Xuất dữ liệu Excel qua xlsxwriter
             df_compare = pd.DataFrame(compare_rows_for_df)
             towrite = io.BytesIO()
             with pd.ExcelWriter(towrite, engine='xlsxwriter') as writer: 
                 df_compare.to_excel(writer, index=False, sheet_name='Spec_Report')
                 workbook  = writer.book
                 worksheet = writer.sheets['Spec_Report']
+                # ✨ ĐÃ SỬA LỖI CÚ PHÁP: Bổ sung dấu phẩy ngăn cách giữa các thuộc tính định dạng xlsxwriter
                 header_format = workbook.add_format({'bold':True,'text_wrap':True,'fg_color':'#1E3A8A','font_color':'white','border':1,'align':'center','valign':'vcenter'})
                 center_format = workbook.add_format({'align':'center','valign':'vcenter','border':1})
                 left_format = workbook.add_format({'align':'left','valign':'vcenter','border':1})
@@ -555,57 +396,48 @@ elif menu_selection == "🔄 Pattern Spec Comparison":
             towrite.seek(0)
             
             st.download_button(
-                label="📥 XUẤT BÁO CÁO ĐỐI CHIẾU THÔNG SỐ (EXCEL PRODUCTION)", 
+                label="📥 EXPORT PRODUCTION DELTA SHEET (EXCEL)", 
                 data=towrite, 
-                file_name=f"PPJ_Spec_Comparison_Premium.xlsx", 
+                file_name=f"PPJ_Delta_Spec_Comparison.xlsx", 
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
-# =============================================================================
-# PHASE 6A: INTELLIGENT FABRIC CONSUMPTION ASSISTANT (UI & CONTROLS CONTROL)
-# =============================================================================
+# -----------------------------------------------------------------------------
+# CHỨC NĂNG 3: TRỢ LÝ ĐỊNH MỨC VẢI (ISOLATED DATA PIPELINE & RETRY LAB - ĐOẠN 6A)
+# -----------------------------------------------------------------------------
 elif menu_selection == "🧵 Fabric Consumption Assistant (Cons)":
-    st.markdown('<div style="background: linear-gradient(90deg, #1E3A8A 0%, #2563EB 100%); padding: 16px 20px; border-radius: 12px; font-size: 18px; font-weight: 700; color: #FFFFFF; box-shadow: 0 4px 12px rgba(37,99,235,0.15); margin-bottom: 24px;">🧵 PPJ INTELLIGENT FABRIC CONSUMPTION ASSISTANT (R&D CORES)</div>', unsafe_allow_html=True)
+    st.markdown('<div class="component-title-box">🧵 INTELLIGENT FABRIC CONSUMPTION ASSISTANT (R&D CORES)</div>', unsafe_allow_html=True)
     
-    # Thiết lập lưới hiển thị tỷ lệ [80% : 20%] cố định, đóng khung sang trọng
-    control_col1, control_col2 = st.columns([3.2, 0.8])
-    
+    control_col1, control_col2 = st.columns([3.3, 0.7])
     with control_col1:
-        st.markdown("<p style='font-weight:700; font-size:13px; color:#1E293B; margin-bottom:8px;'>📁 INGEST NEW STYLE BATCH REPRINTS</p>", unsafe_allow_html=True)
+        st.markdown("<p style='font-weight:700; font-size:12px; color:#F8FAFC;'>📁 INGEST NEW STYLE REPRINTS</p>", unsafe_allow_html=True)
         chat_file = st.file_uploader("Upload Techpack file", type=["pdf", "jpg", "jpeg", "png"], key="chat_uploader", label_visibility="collapsed")
-        if chat_file: 
-            st.success(f"🎉 PIPELINE CONNECTED: Tiếp nhận thành công file {chat_file.name}")
+        if chat_file: st.success(f"📎 DATASTREAM PIPELINE BOUND: Tiếp nhận thành công file {chat_file.name}")
             
     with control_col2:
-        st.markdown("<p style='font-weight:700; font-size:13px; color:#1E293B; margin-bottom:8px;'>🧹 PURGE LAB MEMORY</p>", unsafe_allow_html=True)
-        if st.button("🗑️ XÓA LỊCH SỬ CHAT", use_container_width=True, type="secondary"):
+        st.markdown("<p style='font-weight:700; font-size:12px; color:#F8FAFC;'>🧹 RESET CORE</p>", unsafe_allow_html=True)
+        if st.button("🗑️ PURGE CHAT CACHE", use_container_width=True, type="secondary"):
             import time
-            if "chat_history" in st.session_state: 
-                del st.session_state["chat_history"]
-            st.success("🔄 MEMORY PURGED")
+            if "chat_history" in st.session_state: del st.session_state["chat_history"]
+            st.success("🔄 MEMORY CLEARED")
             time.sleep(0.5)
             st.rerun()
 
-    st.markdown("<hr style='border-color:#E2E8F0; margin: 20px 0;'>", unsafe_allow_html=True)
+    st.markdown("---")
     
-    # Khởi tạo khung hội thoại mặc định ban đầu
     if "chat_history" not in st.session_state:
         st.session_state["chat_history"] = [
             {"role": "assistant", "content": "Welcome to PPJ Textile R&D Engine. Hãy tải lên sơ đồ rập mã mới, hệ thống sẽ bóc tách biệt lập, tự động đối soát kho Master DB và lập luận toán học để kết xuất định mức vải chính xác."}
         ]
         
     for msg in st.session_state["chat_history"]:
-        with st.chat_message(msg["role"]): 
-            st.write(msg["content"])
-    # =============================================================================
-    # PHASE 6B: COGNITIVE DATASTREAM PIPELINE & RETRY LAB (BACKEND)
-    # =============================================================================
+        with st.chat_message(msg["role"]): st.write(msg["content"])
+    # LUỒNG PHÂN TÍCH ĐÓNG BĂNG DỮ LIỆU CHỐNG LẪN LỘN MÃ HÀNG (ĐOẠN 6B)
     if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vải và đối soát sai lệch..."):
         st.session_state["chat_history"].append({"role": "user", "content": user_query})
-        with st.chat_message("user"): 
-            st.write(user_query)
+        with st.chat_message("user"): st.write(user_query)
             
         with st.chat_message("assistant"):
-            with st.spinner("Hệ thống R&D Core AI đang chạy chu trình phân tích, đối chiếu kho và lập ma trận toán học..."):
+            with st.spinner("AI R&D Engine đang thiết lập ma trận đối soát và tính toán toán học..."):
                 gemini_key = get_secure_gemini_key()
                 if not gemini_key: 
                     ans = "CRITICAL SERVER BREAKDOWN: AI API Token is missing."
@@ -616,7 +448,6 @@ elif menu_selection == "🧵 Fabric Consumption Assistant (Cons)":
                         new_style_id_detected = "UNKNOWN_STYLE"
                         new_style_raw_text = ""
                         
-                        # 1. BÓC TÁCH MÃ MỚI VÀ TRÍCH XUẤT CHÍNH XÁC MÃ SỐ ID TỪ NỘI DUNG FILE
                         if chat_file:
                             file_bytes = chat_file.getvalue()
                             img_payload = []
@@ -624,23 +455,18 @@ elif menu_selection == "🧵 Fabric Consumption Assistant (Cons)":
                                 images = convert_from_bytes(file_bytes, dpi=140, first_page=1, last_page=1)
                                 if images:
                                     img_buf = io.BytesIO()
-                                    # Lấy chính xác phần tử đầu tiên của danh sách trang PDF
                                     images[0].convert("RGB").save(img_buf, format="JPEG")
                                     img_payload.append(types.Part.from_bytes(data=img_buf.getvalue(), mime_type='image/jpeg'))
                             else:
                                 img_payload.append(types.Part.from_bytes(data=file_bytes, mime_type='image/jpeg'))
                             
                             extraction_prompt = """
-                            Analyze this technical sheet image. You must extract the genuine 'Style ID' / 'Style Number' / 'Mã hàng'.
+                            Analyze this technical sheet image. Extract the genuine 'Style ID' / 'Mã hàng'.
                             Return a valid JSON with this exact schema:
-                            {
-                              "detected_style_id": "The actual text of Style ID",
-                              "all_specs_text": "Put every measurement name and value here as plain text"
-                            }
+                            {"detected_style_id": "Text of Style ID", "all_specs_text": "Specs list as plain text"}
                             """
                             img_payload.append(extraction_prompt)
                             
-                            # Bộ chống nghẽn mạng 503 Exponential Backoff cho khâu bóc tách sơ bộ
                             for ext_attempt in range(3):
                                 try:
                                     extraction_res = client.models.generate_content(model='gemini-2.5-flash', contents=img_payload, config=types.GenerateContentConfig(response_mime_type="application/json", temperature=0.0))
@@ -661,54 +487,38 @@ elif menu_selection == "🧵 Fabric Consumption Assistant (Cons)":
                         
                         if new_style_id_detected == "UNKNOWN_STYLE" or not chat_file:
                             found_keywords = re.findall(r'[A-Za-z0-9]+[-–][A-Za-z0-9]+|[A-Za-z0-9]{4,}', user_query)
-                            if found_keywords:
-                                new_style_id_detected = found_keywords[0]
+                            if found_keywords: new_style_id_detected = found_keywords[0]
 
-                        # 2. KHÓA CHẶT TRUY VẤN: CHỈ GỌI ĐỊNH MỨC CỦA CHÍNH ID VỪA TRÍCH XUẤT TỪ FILE TỪ SUPABASE
                         db_results = get_historical_fabric_consumption_from_db(search_keyword=new_style_id_detected)
                         
                         db_context = f"\n\n[SUPABASE DB ISOLATED RECORDS FOR STYLE: {new_style_id_detected}]:\n"
                         if db_results:
                             for item in db_results:
-                                db_context += (
-                                    f"- Mã hàng lịch sử tìm thấy: {item.get('style_name')}\n"
-                                    f"  + Loại nguyên liệu/Vải: {item.get('article_name')}\n"
-                                    f"  + Định mức gốc trong kho: {item.get('consumption_value')} {item.get('uom')}\n"
-                                    f"  + Cấu trúc/Ghi chú rập cũ: {item.get('notes')}\n"
-                                )
+                                db_context += f"- Mã gốc: {item.get('style_name')}\n  + Vải: {item.get('article_name')}\n  + Định mức (Cons): {item.get('consumption_value')} {item.get('uom')}\n  + Ghi chú: {item.get('notes')}\n"
                         else:
-                            fallback_key = new_style_id_detected.split('-')[0] if '-' in new_style_id_detected else new_style_id_detected[:4]
+                            fallback_key = new_style_id_detected.split('-')[-1] if '-' in new_style_id_detected else new_style_id_detected[:4]
                             backup_results = get_historical_fabric_consumption_from_db(search_keyword=fallback_key)
                             if backup_results:
-                                db_context += f"⚠️ Không có dữ liệu định mức trực tiếp cho mã {new_style_id_detected}. Dưới đây là các mã hàng thuộc cùng nhóm cấu trúc rập cơ sở để đối chiếu:\n"
+                                db_context += f"⚠️ Không có định mức trực tiếp cho mã {new_style_id_detected}. Dưới đây là các mã cơ sở cùng dòng rập gốc để đối sánh:\n"
                                 for item in backup_results[:4]:
                                     db_context += f"- Mã hàng nhóm: {item.get('style_name')}, Vải: {item.get('article_name')}, Định mức gốc: {item.get('consumption_value')} {item.get('uom')}, Cấu trúc: {item.get('notes')}\n"
                             else:
-                                db_context += "❌ Không tìm thấy mã hàng dệt may nào có cấu trúc tương quan trong kho dữ liệu Supabase."
+                                db_context += "❌ Không tìm thấy mã hàng dệt may khả nghi tương thích trong Master DB."
 
-                        # 3. RÀNG BUỘC PHÂN TÍCH THEO CẶP ( STRICT PAIRED CONTEXT )
                         system_instruction = (
                             "You are the Lead R&D Expert and Garment Technical Auditor at PPJ Group.\n"
                             "CRITICAL DATA INTEGRITY RULE:\n"
-                            "You must ONLY compare the newly uploaded garment style with the historical database records provided inside the context below. "
-                            "Do NOT mix data from different styles. Do NOT create or guess historical styles that are not listed in the provided database context.\n\n"
+                            "You must ONLY compare the newly uploaded garment style with the historical database records provided inside the context below. Do NOT mix data from different styles.\n\n"
                             "REQUIRED 3-STEP REPORT FORMAT:\n"
                             f"1. PHÂN TÍCH MÃ MỚI ĐÃ BÓC TÁCH: Xác nhận rõ mã số ID vừa đọc được từ file là '{new_style_id_detected}' và liệt kê tóm tắt ma trận thông số kích thước của nó.\n"
                             f"2. ĐỐI CHIẾU MÃ KHO TƯƠNG ĐỒNG: Chỉ được chọn mã hàng xuất hiện trong danh sách đối chiếu kho của mã '{new_style_id_detected}' bên dưới. Chỉ rõ mã cũ tương đồng đó có định mức tiêuthu gốc là bao nhiêu.\n"
-                            "3. LẬP LUẬN TOÁN HỌC TÍNH ĐỊNH MỨC THEO DELTA SPEC: Đo lường sự chênh lệch kích cỡ số đo (Delta Spec) giữa mã hàng mới và mã cũ tương đồng vừa chọn. "
-                            "Dựa trên độ lệch đó để cộng thêm hoặc giảm trừ vật tư, đưa ra kết quả định mức tiêu thụ vải dự kiến cuối cùng cho mã mới.\n\n"
+                            "3. LẬP LUẬN TOÁN HỌC TÍNH ĐỊNH MỨC THEO DELTA SPEC: Đo lường sự chênh lệch kích cỡ số đo (Delta Spec) giữa mã hàng mới và mã cũ tương đồng vừa chọn. Dựa trên độ lệch đó để cộng thêm hoặc giảm trừ vật tư, đưa ra kết quả định mức tiêu thụ vải dự kiến cuối cùng cho mã mới.\n\n"
                             "Trình bày chuyên nghiệp bằng tiếng Việt kỹ thuật dệt may."
                         )
                         
-                        full_prompt = (
-                            f"{system_instruction}\n\n"
-                            f"Yêu cầu của kỹ sư: {user_query}\n\n"
-                            f"[Thông số kích thước thực tế của mã mới]:\n{new_style_raw_text if new_style_raw_text else 'Không có file đính kèm'}\n"
-                            f"{db_context}"
-                        )
+                        full_prompt = f"{system_instruction}\n\nYêu cầu kỹ sư: {user_query}\n\n[Thông số file mới]:\n{new_style_raw_text if new_style_raw_text else 'Không đính kèm file'}\n{db_context}"
                         contents_payload.append(full_prompt)
                         
-                        # Bộ lọc Backoff chống lỗi nghẽn 503 (Thử 5 lần tối đa tăng thời gian chờ)
                         ans = ""
                         for attempt in range(5):
                             try:
@@ -724,7 +534,7 @@ elif menu_selection == "🧵 Fabric Consumption Assistant (Cons)":
                                 raise e
                                 
                     except Exception as e: 
-                        ans = f"Hệ thống lõi đang bận xử lý dữ liệu ma trận. Vui lòng thử lại sau vài giây! Chi tiết: {str(e)}"
+                        ans = f"Hệ thống đang điều phối hàng đợi mạng nơ-ron quốc tế. Hãy gửi lại sau vài giây! Chi tiết: {str(e)}"
                         
                 st.write(ans)
                 st.session_state["chat_history"].append({"role": "assistant", "content": ans})
