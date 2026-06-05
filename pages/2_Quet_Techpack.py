@@ -442,7 +442,7 @@ elif menu_selection == "🧵 Fabric Consumption Assistant (Cons)":
         
     for msg in st.session_state["chat_history"]:
         with st.chat_message(msg["role"]): st.write(msg["content"])
-    if user_query := st.chat_input("Nhập yêu cầu (Ví dụ: Hãy tìm mã tương đồng và tính định mức cho mã mới này)..."):
+        if user_query := st.chat_input("Nhập yêu cầu (Ví dụ: Hãy tìm mã tương đồng và tính định mức cho mã mới này)..."):
         st.session_state["chat_history"].append({"role": "user", "content": user_query})
         with st.chat_message("user"): 
             st.write(user_query)
@@ -466,7 +466,8 @@ elif menu_selection == "🧵 Fabric Consumption Assistant (Cons)":
                                 images = convert_from_bytes(file_bytes, dpi=140, first_page=1, last_page=1)
                                 if images:
                                     img_buf = io.BytesIO()
-                                    images.convert("RGB").save(img_buf, format="JPEG")
+                                    # ✨ ĐÃ SỬA LỖI: Thêm [0] để lấy chính xác trang ảnh đầu tiên từ danh sách trang PDF
+                                    images[0].convert("RGB").save(img_buf, format="JPEG")
                                     img_payload.append(types.Part.from_bytes(data=img_buf.getvalue(), mime_type='image/jpeg'))
                             else:
                                 img_payload.append(types.Part.from_bytes(data=file_bytes, mime_type='image/jpeg'))
@@ -478,7 +479,8 @@ elif menu_selection == "🧵 Fabric Consumption Assistant (Cons)":
                             
                             if chat_file.name.lower().endswith('.pdf') and images:
                                 img_buf = io.BytesIO()
-                                images.convert("RGB").save(img_buf, format="JPEG")
+                                # ✨ ĐÃ SỬA LỖI: Thêm [0] để lấy ảnh đính kèm vào luồng phản hồi cuối cùng hiển thị trực quan
+                                images[0].convert("RGB").save(img_buf, format="JPEG")
                                 contents_payload.append(types.Part.from_bytes(data=img_buf.getvalue(), mime_type='image/jpeg'))
                             elif not chat_file.name.lower().endswith('.pdf'):
                                 contents_payload.append(types.Part.from_bytes(data=file_bytes, mime_type='image/jpeg'))
