@@ -305,7 +305,7 @@ if menu_selection == "📊 Quét Techpack Document":
 
 
 # -----------------------------------------------------------------------------
-# CHỨC NĂNG 2 (TIẾP THEO): ĐỐI CHIẾU SO SÁNH HAI MÃ RẬP KHÁC NHAU (RÊN BẢNG HTML CHUẨN)
+# CHỨC NĂNG 2 (TIẾP THEO): ĐỐI CHIẾU SO SÁNH HAI MÃ RẬP KHÁC NHAU (INLINE CSS CHỐNG LỖI)
 # -----------------------------------------------------------------------------
 elif menu_selection == "🔄 Pattern Spec Comparison":
     st.markdown("""<div class="tech-card"><div class="tech-header">🔄 CHỨC NĂNG ĐỐI CHIẾU SỐ ĐO & PHÂN TÍCH SAI LỆCH (DELTA SPEC)</div></div>""", unsafe_allow_html=True)
@@ -326,8 +326,8 @@ elif menu_selection == "🔄 Pattern Spec Comparison":
         
         if d1 and d2:
             st.markdown(f"""
-                <div class="comp-header-box">
-                    <h5 style="margin:0; color:#1E3A8A; font-weight:700;">⚙️ ĐANG ĐỐI CHIẾU MA TRẬN PHÁT TRIỂN MẪU</h5>
+                <div style="background-color: #FFFFFF; border-left: 5px solid #3B82F6; padding: 12px 20px; border-radius: 4px 12px 12px 4px; margin-bottom: 20px; box-shadow: 0 2px 5px rgba(0,0,0,0.02);">
+                    <h5 style="margin:0; color:#1E3A8A; font-weight:700; font-size:16px;">⚙️ ĐANG ĐỐI CHIẾU MA TRẬN PHÁT TRIỂN MẪU</h5>
                     <p style="margin:4px 0 0 0; font-size:13px; color:#64748B;">
                         <b>Mẫu Gốc A:</b> {d1['style_number_parsed']} [Size: {d1.get('base_size_name','N/A')}] 
                         &nbsp;|&nbsp; 
@@ -360,7 +360,7 @@ elif menu_selection == "🔄 Pattern Spec Comparison":
 
             all_poms = set(list(d1["measurements"].keys()) + list(d2["measurements"].keys()))
             
-            # ✨ SỬA CÚ PHÁP KHỞI TẠO CHUỖI HTML HOÀN CHỈNH: Tránh rò rỉ mã thô
+            # ✨ DÙNG TRỰC TIẾP INLINE CSS TRÊN TỪNG THẺ TABLE ĐỂ ÉP TRÌNH DUYỆT RENDER RA GIAO DIỆN ĐẸP TRÊN MỌI THIẾT BỊ
             table_body_html = ""
             compare_rows_for_df = []
             
@@ -373,32 +373,33 @@ elif menu_selection == "🔄 Pattern Spec Comparison":
                 delta = round(num2 - num1, 3) if val1 != "N/A" and val2 != "N/A" else 0.0
                 compare_rows_for_df.append({"Vị trí đo (POM)": pom, col_title_a: val1, col_title_b: val2, "Sai lệch (Delta)": delta})
                 
+                # Gán mã màu Inline trực tiếp vào ô dữ liệu
                 if delta > 0:
-                    delta_td = f'<td style="text-align:center;"><span class="delta-positive">+{delta}</span></td>'
+                    delta_td = f'<td style="padding: 12px 16px; border-bottom: 1px solid #E2E8F0; text-align:center;"><span style="background-color: #DCFCE7; color: #166534; font-weight: 700; padding: 3px 8px; border-radius: 6px; font-size:12px;">+{delta}</span></td>'
                 elif delta < 0:
-                    delta_td = f'<td style="text-align:center;"><span class="delta-negative">{delta}</span></td>'
+                    delta_td = f'<td style="padding: 12px 16px; border-bottom: 1px solid #E2E8F0; text-align:center;"><span style="background-color: #FEE2E2; color: #991B1B; font-weight: 700; padding: 3px 8px; border-radius: 6px; font-size:12px;">{delta}</span></td>'
                 else:
-                    delta_td = f'<td style="text-align:center; color:#94A3B8;"><span class="delta-zero">0</span></td>'
+                    delta_td = f'<td style="padding: 12px 16px; border-bottom: 1px solid #E2E8F0; text-align:center; color:#94A3B8; font-size:13px;">0</td>'
                 
                 table_body_html += f"""
-                    <tr>
-                        <td style="font-weight:600; color:#1E293B;">{pom}</td>
-                        <td>{val1}</td>
-                        <td>{val2}</td>
+                    <tr style="background-color: #FFFFFF;">
+                        <td style="padding: 12px 16px; border-bottom: 1px solid #E2E8F0; font-weight:600; color:#1E293B; font-size:13px;">{pom}</td>
+                        <td style="padding: 12px 16px; border-bottom: 1px solid #E2E8F0; color:#334155; font-size:13px;">{val1}</td>
+                        <td style="padding: 12px 16px; border-bottom: 1px solid #E2E8F0; color:#334155; font-size:13px;">{val2}</td>
                         {delta_td}
                     </tr>
                 """
             
-            # ✨ ĐÓNG GÓI CHUỖI HTML THÀNH MỘT KHỐI THỐNG NHẤT TRƯỚC KHI RENDER
+            # Cấu trúc khối Table hoàn chỉnh dùng Style Inline thuần 100%
             full_table_render = f"""
-            <div class="cyber-table-wrapper">
-                <table class="cyber-table">
+            <div style="max-height: 480px; overflow-y: auto; border: 1px solid #CBD5E1; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.03); margin-top: 15px;">
+                <table style="width: 100%; border-collapse: collapse; text-align: left; font-family: sans-serif;">
                     <thead>
-                        <tr>
-                            <th>Vị trí đo (POM Description)</th>
-                            <th>{col_title_a}</th>
-                            <th>{col_title_b}</th>
-                            <th style="text-align:center; width:140px;">Sai lệch (Delta)</th>
+                        <tr style="background: linear-gradient(90deg, #1E3A8A 0%, #2563EB 100%);">
+                            <th style="color: #FFFFFF; font-weight: 600; padding: 14px 16px; font-size: 13px; letter-spacing: 0.5px;">Vị trí đo (POM Description)</th>
+                            <th style="color: #FFFFFF; font-weight: 600; padding: 14px 16px; font-size: 13px; letter-spacing: 0.5px;">{col_title_a}</th>
+                            <th style="color: #FFFFFF; font-weight: 600; padding: 14px 16px; font-size: 13px; letter-spacing: 0.5px;">{col_title_b}</th>
+                            <th style="color: #FFFFFF; font-weight: 600; padding: 14px 16px; font-size: 13px; letter-spacing: 0.5px; text-align:center; width:150px;">Sai lệch (Delta)</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -408,11 +409,11 @@ elif menu_selection == "🔄 Pattern Spec Comparison":
             </div>
             """
             
-            # Đẩy HTML ra màn hình Streamlit an toàn 100%
+            # Đẩy mã HTML ra giao diện một cách an toàn và bắt buộc render
             st.markdown(full_table_render, unsafe_allow_html=True)
             st.markdown("<br>", unsafe_allow_html=True)
             
-            # Xử lý xuất báo cáo Excel nâng cao qua xlsxwriter
+            # Luồng xuất báo cáo Excel Production giữ nguyên độ chính xác cao
             df_compare = pd.DataFrame(compare_rows_for_df)
             towrite = io.BytesIO()
             with pd.ExcelWriter(towrite, engine='xlsxwriter') as writer: 
