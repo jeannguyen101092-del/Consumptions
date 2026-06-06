@@ -630,17 +630,18 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
 
                                                 # =============================================================================
                                                 # =============================================================================
+                                                # =============================================================================
                         # TRUY VẤN SONG SONG KHO DATA & THIẾT LẬP LUỒNG CÔNG THỨC TOÁN HỌC DỆT MAY (PHẦN 3C)
                         # =============================================================================
                         db_historical_consumption = get_historical_fabric_consumption_from_db(dynamic_keyword)
                         db_techpack_specs = get_techpack_spec_from_db(dynamic_keyword)
                         
-                        # Khởi tạo biến bóc tách dữ liệu an toàn chống lỗi dữ liệu trống (Null)
+                        # ✨ ĐÃ SỬA LỖI GIẢI NÉN MẢNG: Trích xuất chính xác phần tử [0] để lấy link ảnh và thông số hình học
                         found_sketch_url = None
                         extracted_specs_data = {}
                         
                         if db_techpack_specs and isinstance(db_techpack_specs, list) and len(db_techpack_specs) > 0:
-                            # Lấy bản ghi đầu tiên khớp từ khóa tìm kiếm trong danh sách bản ghi trả về
+                            # Lấy chính xác phần tử đầu tiên [0] của danh sách bản ghi trả về từ Supabase
                             first_record = db_techpack_specs[0]
                             found_sketch_url = first_record.get("SketchURL")
                             extracted_specs_data = first_record.get("DetailedMeasurements", {})
@@ -672,7 +673,7 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                         
                         QUY TẮC 2: Nếu ma trận thông số hình học POM trích xuất được ở trên có dữ liệu, hãy tự động trình bày thành một bảng thông số kỹ thuật chi tiết rõ ràng cho người dùng xem đối soát.
                         
-                        QUY TẮC 3: Nếu đây là MÃ HÀNG MỚI HOÀN TOÀN (Dữ liệu lịch sử rỗng), bạn BẮT BUỘC phải thực hiện thuật toán tính định mức vải chuẩn ngành dệt may dựa trên thông số hình học rập mẫu:
+                        QUY TẮC 3: Nếu đây là MÃ HÀNG MỚI HOÀN TOÀN (Dữ liệu lịch sử rỗng), bạn BẮT BUỘC phải thực hiện thuật toán tính định mức vải chuẩn ngành dệt may dựa trên thông số hình học rập mẫu thu được từ ma trận thông số POM ở trên:
                            - Công thức cho Áo (Shirt/T-Shirt): Định mức vải = ((Dài áo + Rộng áo + Hao hụt) * (Rộng tay/2 + Hao hụt) * 2) / Khổ vải hữu dụng.
                            - Công thức cho Quần (Pants/Jeans): Định mức vải = ((Dài quần + Hao hụt) * (Vòng mông + Hao hụt) * 4) / Khổ vải hữu dụng.
                         
