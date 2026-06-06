@@ -634,9 +634,10 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                         
                         clean_text_upper = str(text_to_extract).strip().upper()
                         
-                        # Bộ lọc dọn sạch các từ khóa chatbot thông dụng bằng biểu thức chính quy Regex
-                        patterns_to_remove = r"TÌM HÌNH ẢNH VÀ THÔNG SỐ MÃ HÀNG|TÌM CODE VẢI MÃ NÀY|TÌM CODE VẢI NÀY|TÌM CODE VẢI MÃ|TÌM CODE VẢI|TÌM MÃ HÀNG|TÌM MÃ|TÌM"
-                        raw_keyword = re.sub(patterns_to_remove, "", clean_text_upper).strip()
+                        # Bộ lọc mở rộng để dọn sạch tất cả các cụm từ yêu cầu thông số thông dụng
+patterns_to_remove = r"TÌM HÌNH ẢNH VÀ THÔNG SỐ MÃ HÀNG|TÌM THÔNG SỐ MÃ HÀNG|TÌM THÔNG SỐ MÃ|TÌM CODE VẢI MÃ NÀY|TÌM CODE VẢI NÀY|TÌM CODE VẢI MÃ|TÌM CODE VẢI|TÌM MÃ HÀNG|THÔNG SỐ MÃ|TÌM MÃ|THÔNG SỐ|TÌM"
+raw_keyword = re.sub(patterns_to_remove, "", clean_text_upper).strip()
+
                         
                         # Thuật toán chuẩn hóa dấu gạch ngang chuẩn xác từng chữ (Ví dụ: SJ 8902 -> SJ-8902)
                         if "SJ" in raw_keyword:
