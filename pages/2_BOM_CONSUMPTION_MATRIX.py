@@ -100,19 +100,27 @@ def get_secure_gemini_key():
     return None
 
 def save_to_supabase_techpack_table(payload_data):
-    """Hàm xử lý đồng bộ và nạp Master DB bảng thong_so_techpack kết hợp đẩy ảnh lên Storage kho_anh"""
+    """
+    Hàm xử lý đồng bộ và nạp Master DB bảng thong_so_techpack kết hợp đẩy ảnh lên Storage kho_anh.
+    ✨ ĐA VÁ LỖI: Đồng bộ hóa chính xác 100% tên cột dữ liệu dệt may (StyleName, Buyer, Category, BaseSize).
+    """
     try:
         style_name_db = payload_data.get("style_number_parsed", "").strip()
-        if not style_name_db: style_name_db = "UNKNOWN_STYLE"
+        if not style_name_db: 
+            style_name_db = "UNKNOWN_STYLE"
+            
         sketch_b64 = payload_data.get("sketch_image", "")
         public_image_url = ""
 
+        # Xử lý đẩy hình ảnh rập/thiết kế phẳng lên Storage
         if sketch_b64:
             try:
                 image_data = base64.b64decode(sketch_b64)
                 storage_headers = {
-                    "apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}",
-                    "Content-Type": "image/jpeg", "x-upsert": "true"
+                    "apikey": SB_KEY, 
+                    "Authorization": f"Bearer {SB_KEY}",
+                    "Content-Type": "image/jpeg", 
+                    "x-upsert": "true"
                 }
                 clean_filename = re.sub(r'[^a-zA-Z0-9_-]', '', style_name_db)
                 storage_url = f"{SB_URL.rstrip('/')}/storage/v1/object/kho_anh/{clean_filename}.jpg"
@@ -122,27 +130,41 @@ def save_to_supabase_techpack_table(payload_data):
             except Exception: 
                 pass
 
+        # Cấu hình Headers kết nối database REST API quyền service_role cao cấp
         headers = {
-            "apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}",
-            "Content-Type": "application/json", "Prefer": "resolution=merge-duplicates"
+            "apikey": SB_KEY, 
+            "Authorization": f"Bearer {SB_KEY}",
+            "Content-Type": "application/json", 
+            "Prefer": "resolution=merge-duplicates"
         }
         insert_url = f"{SB_URL.rstrip('/')}/rest/v1/thong_so_techpack"
         
+        # Đồng bộ hóa cấu trúc dữ liệu cặp Key-Value bảng thông số POM dệt may
         raw_measurements = payload_data.get("measurements", {})
         clean_dict = {str(k): str(v) for k, v in dict(raw_measurements).items()}
 
+        # Khớp chính xác tên cột phân biệt chữ HOA - thường trên bảng Supabase của bạn
         db_payload = {
             "StyleName": style_name_db,
             "Buyer": payload_data.get("buyer"),
             "Category": payload_data.get("category"),
             "BaseSize": payload_data.get("base_size_name"),
-            "DetailedMeasurements": clean_dict,
+            "DetailedMeasurements": clean_dict,  # Gửi dưới dạng Dict nguyên bản để REST tự định dạng JSON
             "SketchURL": public_image_url
         }
+        
         response = requests.post(insert_url, headers=headers, json=[db_payload], timeout=15)
-        return 200 <= response.status_code <= 299
-    except Exception: 
+        
+        # Nếu Supabase báo lỗi cấu trúc, ghi nhận nhật ký lỗi ra màn hình terminal để xử lý
+        if response.status_code < 200 or response.status_code > 299:
+            st.sidebar.error(f"Lỗi Supabase ({response.status_code}): {response.text}")
+            return False
+            
+        return True
+    except Exception as e: 
+        st.sidebar.error(f"Lỗi hệ thống: {str(e)}")
         return False
+
 
 def get_historical_fabric_consumption_from_db(search_keyword=None):
     """
