@@ -528,53 +528,9 @@ elif menu_selection == "🔄 Pattern Spec Comparison":
                 use_container_width=True
             )
 
-    # =============================================================================
-# =============================================================================
-# CHỨC NĂNG 3: TRỢ LÝ ĐỊNH MỨC VẢI (ISOLATED DATA PIPELINE & INTENT LAB - PHẦN 6A)
-# =============================================================================
-elif menu_selection == "🧵 BOM & Consumption Matrix":
-    st.markdown('<div class="component-title-box">🧵 INTELLIGENT BOM & CONSUMPTION MATRIX ENGINE</div>', unsafe_allow_html=True)
-    
-    control_col1, control_col2 = st.columns([3.3, 0.7])
-    with control_col1:
-        st.markdown("<p style='font-weight:700; font-size:12px; color:#1E293B;'>📁 INGEST NEW STYLE REPRINTS (PDF/IMAGE)</p>", unsafe_allow_html=True)
-        chat_file = st.file_uploader("Upload Techpack file", type=["pdf", "jpg", "jpeg", "png"], key="chat_uploader", label_visibility="collapsed")
-        if chat_file: 
-            st.success(f"📎 DATASTREAM PIPELINE BOUND: Tiếp nhận thành công file {chat_file.name}")
-            
-    with control_col2:
-        st.markdown("<p style='font-weight:700; font-size:12px; color:#1E293B;'>🧹 RESET CORE</p>", unsafe_allow_html=True)
-        if st.button("🗑️ PURGE CHAT CACHE", use_container_width=True, type="secondary"):
-            import time
-            if "chat_history" in st.session_state: 
-                del st.session_state["chat_history"]
-            st.success("🔄 MEMORY CLEARED")
-            time.sleep(0.5)
-            st.rerun()
-
-    st.markdown("---")
-    if "chat_history" not in st.session_state:
-        st.session_state["chat_history"] = [{"role": "assistant", "type": "text", "content": "Welcome to PPJ Textile Visual R&D Engine. Hãy tải lên sơ đồ rập/Techpack mã mới và ra lệnh. Tôi sẽ tìm chính xác mã tương đồng bằng hình ảnh phom dáng/cấu trúc túi, xuất ảnh Sketch và đối soát thông số tính định mức vải chính xác, không trả lời lan man."}]
-        
-    for msg in st.session_state["chat_history"]:
-        with st.chat_message(msg["role"]):
-            st.write(msg["content"])
-            if msg.get("type") == "visual" and msg.get("image_url") and "R09-496091" not in msg.get("image_url"):
-                st.image(msg["image_url"], caption=f"Bản vẽ Sketch đối chiếu mã {msg.get('style_title')}", width=220)
-
-    if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vải và đối soát sai lệch..."):
-        st.session_state["chat_history"].append({"role": "user", "type": "text", "content": user_query})
-        with st.chat_message("user"): 
-            st.write(user_query)
-        
-        with st.chat_message("assistant"):
-            with st.spinner("Hệ thống AI R&D Engine đang kết nối kho tri thức nền dệt may..."):
-                # Gọi duy nhất 1 dòng hàm độc lập đã đóng gói an toàn ở Đoạn 3.1
-                run_bom_and_consumption_matrix_engine(chat_file, user_query, SB_URL, SB_KEY)
-
-       def run_bom_and_consumption_matrix_engine(chat_file, user_query, SB_URL, SB_KEY):
+   def run_bom_and_consumption_matrix_engine(chat_file, user_query, SB_URL, SB_KEY):
     """
-    Hàm độc lập xử lý trọn vẹn Chức năng 3 dệt may đa sản phẩm, tự động chặn lỗi lề luồng chính.
+    Hàm xử lý độc lập Chức năng 3 dệt may đa sản phẩm, tự động chặn lỗi lề luồng chính.
     """
     import json
     import re
@@ -623,7 +579,7 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
         res_m_img = requests.get(f"{SB_URL.rstrip('/')}/rest/v1/thong_so_techpack", headers=headers, params={"select": "StyleName,Category,SketchURL", "limit": 1000}, timeout=15)
         db_master_images = res_m_img.json() if res_m_img.status_code == 200 else []
 
-        image_matching_prompt = f"Bạn là chuyên gia R&D PPJ. Quét kho tìm mã trùng chủng loại và kết cấu túi/cổ với mã mới {dynamic_keyword}: {json.dumps(db_master_images[:100], ensure_ascii=False)}. Nếu lệch hệ sản phẩm hoặc kho trống, trả về 'NONE'. Trả về JSON: {{\"matched_style_id\": \"MÃ_HOẶC_NONE\", \"reason\": \"Lý do\"}}"
+        image_matching_prompt = f"Bạn là chuyên gia phom dáng PPJ. Quét kho ảnh tìm mã trùng khớp chủng loại sản phẩm và kết cấu túi/cổ áo với mã mới {dynamic_keyword}: {json.dumps(db_master_images[:100], ensure_ascii=False)}. Nếu lệch chủng loại (như Áo so với Quần) hoặc kho trống, trả về 'NONE'. Trả về JSON: {{\"matched_style_id\": \"MÃ_HOẶC_NONE\", \"reason\": \"Lý do\"}}"
         match_res = client.models.generate_content(model='gemini-2.5-flash', contents=contents_payload + [image_matching_prompt] if chat_file else [image_matching_prompt], config=types.GenerateContentConfig(response_mime_type="application/json", temperature=0.0))
         
         clean_json = match_res.text.strip()
@@ -633,7 +589,6 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
         matched_style = str(parsed_match.get("matched_style_id", "")).strip().upper()
         match_reason = parsed_match.get("reason", "")
 
-        # Tra cứu số liệu Supabase mã mới
         res_specs = requests.get(f"{SB_URL.rstrip('/')}/rest/v1/thong_so_techpack", headers=headers, params={"StyleName": f"ilike.*{dynamic_keyword}*"})
         db_techpack_specs = res_specs.json() if res_specs.status_code == 200 else []
         extracted_specs_data, found_sketch_url = {}, None
@@ -667,13 +622,13 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
             st.warning("⚠️ KHO KHÔNG CÓ MÃ TƯƠNG ĐỒNG TRÙNG KHỚP CẤU TRÚC CHỦNG LOẠI PHOM DÁNG.")
             matched_sketch_url = None
             if not any(x in user_query.upper() for x in ["KHỔ", "KHO", "WIDTH", "CO RÚT", "SHRINKAGE"]):
-                reasoning_prompt = f"Bạn là trợ lý R&D PPJ Group. Kho chưa có mẫu trùng kết cấu phom dáng với mã mới {dynamic_keyword}. Yêu cầu kỹ sư cung cấp thông tin sản xuất (HỎI GÌ NÓI NẤY, KHÔNG LAN MAN): Thông báo hệ thống đã quét thành công Specs. Yêu cầu nhập tiếp vào ô chat: Khổ vải thực tế sử dụng; Tỷ lệ co rút dọc/ngang; % Hao hụt cắt rập để kích hoạt lõi toán học hình học đa sản phẩm."
+                reasoning_prompt = f"Bạn là trợ lý định mức R&D PPJ Group. Kho chưa có mẫu trùng kết cấu phom dáng với mã mới {dynamic_keyword}. Yêu cầu kỹ sư cung cấp thông tin sản xuất (HỎI GÌ NÓI NẤY, KHÔNG LAN MAN): Thông báo hệ thống đã quét thành công Specs. Yêu cầu nhập tiếp vào ô chat: Khổ vải thực tế sử dụng; Tỷ lệ co rút dọc/ngang; % Hao hụt cắt rập để kích hoạt lõi toán học hình học đa sản phẩm."
             else:
                 reasoning_prompt = f"Bạn là chuyên gia định mức tại PPJ. Kỹ sư đã nhập thông số: '{user_query}'. Dùng bảng Specs mã mới: {json.dumps(extracted_specs_data, ensure_ascii=False) if extracted_specs_data else new_style_raw_text} kết hợp Khổ vải và Độ co rút vừa cung cấp để tính định mức phẳng từ con số 0 cho mã {dynamic_keyword}. MA TRẬN TOÁN HỌC KHUNG SƠ ĐỒ ĐA SẢN PHẨM (KHÔNG CỘNG DỒN CHI TIẾT VỤN): 1. QUẦN: L_body = [Dài quần + 2 inch] x (1 + % Co rút dọc). Định mức cuối = (L_body / 36) x (1 + % Hao hụt). Hạn mức: 1.15 - 1.65 Yds. 2. ÁO LỚP ĐƠN: L_body = [Dài áo + Dài tay + 2.5 inch] x (1 + % Co rút dọc). Định mức = (L_body / 36) x (1 + % Hao hụt). Hạn mức: 1.20 - 1.60 Yds. 3. ÁO VEST / BLAZER CÓ LÓT: L_body = [Dài áo x 1.2 + Dài tay + 3 inch] x (1 + % Co rút dọc). Định mức = (L_body / 36) x (1 + % Hao hụt). Hạn mức: 1.65 - 2.10 Yds. 4. ĐẦM / VÁY: L_body = [Dài đầm + 2 inch] x (1 + % Co rút dọc) x (Hệ số 1.5 nếu dáng xòe rộng/Maxi). Định mức = (L_body / 36) x (1 + % Hao hụt). Hạn mức: 1.40 - 2.20 Yds. TRÌNH BÀY TỐI GIẢN DẠNG BẢNG MARKDOWN, KHÔNG GIẢI THÍCH LAN MAN."
 
         final_res = client.models.generate_content(model='gemini-2.5-flash', contents=contents_payload + [reasoning_prompt] if chat_file and len(contents_payload) > 0 else [reasoning_prompt])
-        ans_text = title_prefix = f"### 🧵 KẾT QUẢ ĐỐI SOÁT ĐỊNH MỨC (DỰA TRÊN MÃ {matched_style})\n\n" if matched_style != "NONE" else "### 📐 KẾT QUẢ TỰ TÍNH TOÁN ĐỊNH MỨC ĐỘC LẬP (KHO KHÔNG CÓ MẪU TRÙNG CẤU TRÚC)\n\n"
-        ans_text += final_res.text.strip()
+        title_prefix = f"### 🧵 KẾT QUẢ ĐỐI SOÁT ĐỊNH MỨC (DỰA TRÊN MÃ {matched_style})\n\n" if matched_style != "NONE" else "### 📐 KẾT QUẢ TỰ TÍNH TOÁN ĐỊNH MỨC ĐỘC LẬP (KHO KHÔNG CÓ MẪU TRÙNG CẤU TRÚC)\n\n"
+        ans_text = title_prefix + final_res.text.strip()
         st.write(ans_text)
         
         chat_node = {"role": "assistant", "type": "text", "content": ans_text}
@@ -683,3 +638,42 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
         st.session_state["chat_history"].append(chat_node)
     except Exception as e:
         st.error(f"🔴 PIPELINE ERROR: {str(e)}")
+elif menu_selection == "🧵 BOM & Consumption Matrix":
+    st.markdown('<div class="component-title-box">🧵 INTELLIGENT BOM & CONSUMPTION MATRIX ENGINE</div>', unsafe_allow_html=True)
+    
+    control_col1, control_col2 = st.columns([3.3, 0.7])
+    with control_col1:
+        st.markdown("<p style='font-weight:700; font-size:12px; color:#1E293B;'>📁 INGEST NEW STYLE REPRINTS (PDF/IMAGE)</p>", unsafe_allow_html=True)
+        chat_file = st.file_uploader("Upload Techpack file", type=["pdf", "jpg", "jpeg", "png"], key="chat_uploader", label_visibility="collapsed")
+        if chat_file: 
+            st.success(f"📎 DATASTREAM PIPELINE BOUND: Tiếp nhận thành công file {chat_file.name}")
+            
+    with control_col2:
+        st.markdown("<p style='font-weight:700; font-size:12px; color:#1E293B;'>🧹 RESET CORE</p>", unsafe_allow_html=True)
+        if st.button("🗑️ PURGE CHAT CACHE", use_container_width=True, type="secondary"):
+            import time
+            if "chat_history" in st.session_state: 
+                del st.session_state["chat_history"]
+            st.success("🔄 MEMORY CLEARED")
+            time.sleep(0.5)
+            st.rerun()
+
+    st.markdown("---")
+    if "chat_history" not in st.session_state:
+        st.session_state["chat_history"] = [{"role": "assistant", "type": "text", "content": "Welcome to PPJ Textile Visual R&D Engine. Hãy tải lên sơ đồ rập/Techpack mã mới và ra lệnh. Tôi sẽ tìm chính xác mã tương đồng bằng hình ảnh phom dáng/cấu trúc túi, xuất ảnh Sketch và đối soát thông số tính định mức vải chính xác, không trả lời lan man."}]
+        
+    for msg in st.session_state["chat_history"]:
+        with st.chat_message(msg["role"]):
+            st.write(msg["content"])
+            if msg.get("type") == "visual" and msg.get("image_url") and "R09-496091" not in msg.get("image_url"):
+                st.image(msg["image_url"], caption=f"Bản vẽ Sketch đối chiếu mã {msg.get('style_title')}", width=220)
+
+    if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vải và đối soát sai lệch..."):
+        st.session_state["chat_history"].append({"role": "user", "type": "text", "content": user_query})
+        with st.chat_message("user"): 
+            st.write(user_query)
+        
+        with st.chat_message("assistant"):
+            with st.spinner("Hệ thống AI R&D Engine đang kết nối kho tri thức nền dệt may..."):
+                # Gọi duy nhất 1 dòng hàm độc lập đã đóng gói an toàn ở Đoạn 3.1 (Được căn lề 16 khoảng trắng thẳng tắp)
+                run_bom_and_consumption_matrix_engine(chat_file, user_query, SB_URL, SB_KEY)
