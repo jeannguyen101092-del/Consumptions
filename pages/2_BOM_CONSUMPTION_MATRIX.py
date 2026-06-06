@@ -197,6 +197,7 @@ def get_techpack_spec_from_db(style_name_keyword=None):
 def process_single_pdf_batch(file_bytes, file_name):
     """
     Hàm bóc tách dữ liệu kỹ thuật từ một file PDF độc lập sử dụng Gemini Vision API.
+    ✨ ĐÃ SỬA LỖI TRÍCH XUẤT ẢNH TRANG ĐẦU TIÊN [0] CHỐNG LỖI CÚ PHÁP LIST INDEX
     """
     try:
         gemini_key = get_secure_gemini_key()
@@ -232,7 +233,7 @@ def process_single_pdf_batch(file_bytes, file_name):
           "category": "Phân loại sản phẩm",
           "base_size_name": "Size gốc",
           "measurements": {"Vị trí đo 1": "Thông số 1", "Vị trí đo 2": "Thông số 2"},
-          "sketch_image": "Leave empty or ignore"
+          "sketch_image": ""
         }
         """
         contents_payload.append(prompt)
@@ -248,7 +249,7 @@ def process_single_pdf_batch(file_bytes, file_name):
         
         parsed_data = json.loads(response.text.strip())
         
-        # Bổ sung chuỗi mã hóa base64 của trang đầu tiên làm ảnh thiết kế phẳng (Flat Sketch)
+        # ✨ ĐÃ SỬA LỖI: Trích xuất phần tử index [0] của danh sách để lấy ảnh trang đầu tiên
         if images:
             thumb_buf = io.BytesIO()
             images[0].convert("RGB").save(thumb_buf, format="JPEG")
@@ -257,6 +258,7 @@ def process_single_pdf_batch(file_bytes, file_name):
         return {"success": True, "data": parsed_data}
     except Exception as e:
         return {"success": False, "error": str(e)}
+
 
 # PHASE 5: USER INTERFACE STRUCTURE & AUTOMATION FACTORY 
 # =============================================================================
