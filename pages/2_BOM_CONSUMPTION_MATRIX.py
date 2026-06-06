@@ -647,14 +647,17 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                             extracted_specs_data = db_techpack_specs.get("DetailedMeasurements", {})
 
 
-                        # HOÀN THIỆN PROMPT ĐIỀU HƯỚNG AI ĐỌC KHO VÀ TÍNH TOÁN TOÁN HỌC ĐỊNH MỨC VẢI
+                                                # HOÀN THIỆN PROMPT ĐIỀU HƯỚNG AI TỰ ĐỘNG LẬP LUẬN TOÁN HỌC ĐỊNH MỨC VẢI
                         intel_prompt = f"""
                         Bạn là hệ thống Core AI R&D phân tích kỹ thuật dệt may tối cao của Tập đoàn PPJ Group.
-                        Hãy đọc hiểu yêu cầu, kết hợp dữ liệu đối soát thực tế từ database dưới đây để trả lời người dùng:
+                        Hãy trực tiếp đọc hình ảnh file đính kèm vừa tải lên (nếu có), kết hợp dữ liệu đối soát thực tế từ database dưới đây để trả lời người dùng:
 
                         YÊU CẦU NGƯỜI DÙNG: "{user_query}"
                         MÃ HÀNG HOẶC MÃ VẢI ĐANG ĐỐI SOÁT HỆ THỐNG: "{dynamic_keyword}"
-                        DỮ LIỆU FILE MỚI ĐANG QUÉT (NẾU CÓ): {new_style_raw_text}
+                        
+                        --- DỮ LIỆU BÓC TÁCH OCR TỪ FILE TECHPACK MỚI VỪA TẢI LÊN ---
+                        Mã hàng nhận diện trên file mới: {new_style_id_detected}
+                        Chi tiết thông số/BOM quét được từ file mới: {new_style_raw_text}
 
                         --- DỮ LIỆU THỰC TẾ TRUY VẤN TỪ SUPABASE CLOUD ---
                         1. KHO ĐỊNH MỨC LỊCH SỬ (Table san_pham): 
@@ -663,20 +666,25 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                         2. KHO THÔNG SỐ KỸ THUẬT CHI TIẾT (Table thong_so_techpack):
                         {json.dumps(db_techpack_specs, ensure_ascii=False, indent=2)}
 
-                        MA TRẬN THÔNG SỐ HÌNH HỌC POM TRÍCH XUẤT ĐƯỢC:
+                        MA TRẬN THÔNG SỐ HÌNH HỌC POM LỊCH SỬ TRÍCH XUẤT ĐƯỢC:
                         {json.dumps(extracted_specs_data, ensure_ascii=False, indent=2)}
 
-                        --- THUẬT TOÁN RA QUYẾT ĐỊNH & CÔNG THỨC TOÁN HỌC ĐỊNH MỨC BẮT BUỘC ---
-                        QUY TẮC 1: Nếu dữ liệu lịch sử thu được (Table san_pham) CÓ dữ liệu, hãy hiển thị bảng định mức thực tế của mã này lên màn hình.
+                        --- 🚨 QUY TRÌNH RA QUYẾT ĐỊNH & THUẬT TOÁN TÍNH TOÁN BẮT BUỘC ---
+                        QUY TẮC 1: Nếu dữ liệu lịch sử thu được (Table san_pham) CÓ dữ liệu của mã tương đồng, hãy hiển thị bảng định mức thực tế cũ của mã đó lên màn hình để tham khảo.
                         
-                        QUY TẮC 2: Nếu ma trận thông số hình học POM trích xuất được ở trên có dữ liệu, hãy tự động trình bày thành một bảng thông số kỹ thuật chi tiết rõ ràng cho người dùng xem đối soát.
+                        QUY TẮC 2 (TỰ ĐỘNG TÍNH TOÁN THEO YÊU CẦU): Hệ thống BẮT BUỘC phải tự động tính toán toán học để đưa ra định mức vải dự đoán cụ thể cho đơn hàng dựa trên các thông số kỹ thuật thực tế thu thập được, TUYỆT ĐỐI KHÔNG sử dụng các con số mặc định chung chung (như 1.2m hay 1.5m). 
                         
-                        QUY TẮC 3: Nếu đây là MÃ HÀNG MỚI HOÀN TOÀN (Dữ liệu lịch sử rỗng), bạn BẮT BUỘC phải thực hiện thuật toán tính định mức vải chuẩn ngành dệt may dựa trên thông số hình học rập mẫu:
-                           - Công thức cho Áo (Shirt/T-Shirt): Định mức vải = ((Dài áo + Rộng áo + Hao hụt) * (Rộng tay/2 + Hao hụt) * 2) / Khổ vải hữu dụng.
-                           - Công thức cho Quần (Pants/Jeans): Định mức vải = ((Dài quần + Hao hụt) * (Vòng mông + Hao hụt) * 4) / Khổ vải hữu dụng.
+                        Các bước tự động tính toán logic của bạn phải tuân theo quy trình dệt may:
+                           - Bước 1: Trích xuất các biến đầu vào từ câu lệnh chat của người dùng (Ví dụ: Khổ vải hữu dụng = 67 inch, Độ co ngang = 4%, Độ co dọc = 4%).
+                           - Bước 2: Bóc tách các thông số hình học rập mẫu cốt lõi từ bảng thông số (như Dài quần/Dài áo, Rộng mông/Rộng thân, Rộng tay,...) từ file mới tải lên hoặc ma trận thông số POM lịch sử.
+                           - Bước 3: Thực hiện phép tính toán học áp dụng tỷ lệ co rút dệt nhuộm:
+                             + Chiều dài chi tiết rập sau co rút = Thông số gốc * (1 + Độ co dọc/100) + Hao hụt đường may (khoảng 1-2 inch).
+                             + Chiều rộng chi tiết rập sau co rút = Thông số gốc * (1 + Độ co ngang/100) + Hao hụt đường may.
+                           - Bước 4: Tính toán diện tích bề mặt hình học tổng thể của sản phẩm và chia cho khổ vải hữu dụng để tự động suy luận ra con số Định mức Vải dự kiến (đơn vị YRD hoặc Mét) chính xác cho mã này.
 
-                        HÃY HIỂN THỊ CÂU TRẢ LỜI DẠNG BẢNG ĐẸP MẮT, NGẮN GỌN THEO PHONG CÁCH KỸ SƯ CÔNG NGHIỆP PPJ.
+                        HÃY TRÌNH BÀY CHI TIẾT TỪNG BƯỚC TÍNH TOÁN TOÁN HỌC, CÔNG THỨC VÀ CON SỐ CỤ THỂ DẠNG BẢNG ĐỂ KỸ SƯ PPJ KIỂM TRA ĐỐI SOÁT LUỒNG TƯ DUY CỦA AI.
                         """
+
                         
                         contents_payload.append(intel_prompt)
                         ai_response = client.models.generate_content(
