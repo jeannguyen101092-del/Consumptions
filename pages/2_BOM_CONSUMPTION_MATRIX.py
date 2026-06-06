@@ -169,7 +169,7 @@ def save_to_supabase_techpack_table(payload_data):
 def get_historical_fabric_consumption_from_db(search_keyword=None):
     """
     Hàm tra cứu kho dữ liệu san_pham lịch sử nâng cao.
-    ✨ ĐÃ SỬA LỖI TRÍCH XUẤT CHUỖI SẠCH: Kết nối chuẩn xác qua Supabase REST API
+    ✨ ĐÃ SỬA LỖI ĐỘT PHÁ: Tự động tìm kiếm song song theo cả Mã hàng (style_name) HOẶC Code vải (article_name)
     """
     try:
         headers = {
@@ -184,13 +184,15 @@ def get_historical_fabric_consumption_from_db(search_keyword=None):
         }
         
         if search_keyword:
-            clean_kw = str(search_keyword).strip().upper()
-            query_params["style_name"] = f"ilike.*{clean_kw}*"
+            clean_kw = str(search_keyword).strip()
+            # Sử dụng toán tử toán lý .or để tìm kiếm đồng thời trên cả hai cột dữ liệu dệt may
+            query_params["or"] = f"(style_name.ilike.*{clean_kw}*,article_name.ilike.*{clean_kw}*)"
         
         response = requests.get(url, headers=headers, params=query_params, timeout=15)
         return response.json() if response.status_code == 200 else []
     except Exception: 
         return []
+
 
 def get_techpack_spec_from_db(style_name_keyword=None):
     """
@@ -602,12 +604,14 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                                     import time
                                     time.sleep(2 * (ext_attempt + 1))
                         
-                                                # ✨ THUẬT TOÁN ĐỒNG BỘ: Tự động trích xuất chuỗi mã sạch chữ và số nguyên bản từ câu lệnh chat
+                                                                        # ✨ THUẬT TOÁN ĐỒNG BỘ: Giữ nguyên văn bản thô sạch (Bao gồm cả chữ và số như SJ 8902) để đối soát Code vải
                         text_to_extract = user_query
                         if chat_file and str(new_style_id_detected).strip() != "UNKNOWN_STYLE":
                             text_to_extract = str(new_style_id_detected).strip()
                         
-                        clean_text_upper = str(text_to_extract).strip().upper()
+                        # Cắt bỏ khoảng trắng thừa, loại bỏ dấu vết ngoặc vuông ký tự đặc biệt
+                        dynamic_keyword = str(text_to_extract).replace("tìm code vải", "").replace("tìm", "").replace("[", "").replace("]", "").strip()
+
                         
                         # Tìm chuỗi số liên tiếp có từ 3 ký tự trở lên (Ví dụ: 8902)
                         numbers_found = re.findall(r'\d{3,}', clean_text_upper)
