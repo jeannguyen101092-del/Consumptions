@@ -577,8 +577,6 @@ from pdf2image.exceptions import PDFInfoNotInstalledError
 from google import genai
 from google.genai import types
 
-
-# Giả định các hàm lấy dữ liệu từ DB và cấu hình Token của bạn
 def get_secure_gemini_key():
     return st.secrets.get("GEMINI_API_KEY", "")
 
@@ -587,19 +585,16 @@ def get_historical_fabric_consumption_from_db(kw):
         headers = {"apikey": st.secrets["SB_KEY"], "Authorization": f"Bearer {st.secrets['SB_KEY']}"}
         res = requests.get(f"{st.secrets['SB_URL'].rstrip('/')}/rest/v1/san_pham", headers=headers, params={"style_name": f"ilike.*{kw}*"})
         return res.json() if res.status_code == 200 else []
-    except: return []
+    except:
+        return []
 
 def get_techpack_spec_from_db(kw):
     try:
         headers = {"apikey": st.secrets["SB_KEY"], "Authorization": f"Bearer {st.secrets['SB_KEY']}"}
         res = requests.get(f"{st.secrets['SB_URL'].rstrip('/')}/rest/v1/thong_so_techpack", headers=headers, params={"StyleName": f"ilike.*{kw}*"})
         return res.json() if res.status_code == 200 else []
-    except: return []
-
-# Tiếp nhận trạng thái Menu từ file app.py truyền sang
-menu_selection = st.session_state.get("menu_selection", "🧵 BOM & Consumption Matrix")
-SB_URL = st.secrets.get("SB_URL", "")
-SB_KEY = st.secrets.get("SB_KEY", "")
+    except:
+        return []
 def process_intelligent_bom_engine(client, chat_file, contents_payload, user_query, dynamic_keyword, new_style_raw_text, SB_URL, SB_KEY):
     headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
     url_tp = f"{SB_URL.rstrip('/')}/rest/v1/thong_so_techpack"
@@ -608,7 +603,7 @@ def process_intelligent_bom_engine(client, chat_file, contents_payload, user_que
     db_master_images = res_master_images.json() if res_master_images.status_code == 200 else []
 
     image_matching_prompt = f"""
-    Bạn là chuyên gia nhận diện phom dáng dệt may tại PPJ Group. Phân tích cấu trúc hình học của mã mới: {dynamic_keyword}.
+    Bạn là chuyên gia nhận diện phom dáng dệt may tại PPJ Group. Phan tích cấu trúc hình học của mã mới: {dynamic_keyword}.
     1. Chủ chủng loại: Áo (Shirt/Jacket), Quần (Pant/Short), Đầm/Váy (Dress/Skirt) hay Áo Vest/Blazer?
     2. Chi tiết kết cấu: Kiểu túi (Jeans 5 túi, túi xéo Chinos, túi mổ)? Kiểu cổ áo, lớp lót, chiều dài đầm?
     Đối chiếu quét kho để tìm mã trùng khớp hoàn toàn cả chủng loại và phom dáng thiết kế:
@@ -623,7 +618,8 @@ def process_intelligent_bom_engine(client, chat_file, contents_payload, user_que
     clean_json_text = match_res.text.strip()
     if clean_json_text.startswith("```"):
         clean_json_text = clean_json_text.split("```")
-        if clean_json_text.startswith("json"): clean_json_text = clean_json_text[4:]
+        if clean_json_text.startswith("json"): 
+            clean_json_text = clean_json_text[4:]
     clean_json_text = clean_json_text.strip()
     
     try:
@@ -638,7 +634,7 @@ def process_intelligent_bom_engine(client, chat_file, contents_payload, user_que
     extracted_specs_data = {}
     found_sketch_url = None
     if db_techpack_specs and isinstance(db_techpack_specs, list) and len(db_techpack_specs) > 0:
-        first_record = db_techpack_specs[0]
+        first_record = db_techpack_specs
         found_sketch_url = first_record.get("SketchURL")
         extracted_specs_data = first_record.get("DetailedMeasurements", {})
 
@@ -649,7 +645,7 @@ def process_intelligent_bom_engine(client, chat_file, contents_payload, user_que
         db_matched_specs = get_techpack_spec_from_db(matched_style)
         db_matched_consumption = get_historical_fabric_consumption_from_db(matched_style)
         if db_matched_specs and isinstance(db_matched_specs, list) and len(db_matched_specs) > 0:
-            first_matched = db_matched_specs[0]
+            first_matched = db_matched_specs
             matched_specs_clean = first_matched.get("DetailedMeasurements", {})
             matched_sketch_url = first_matched.get("SketchURL", "")
 
@@ -685,6 +681,10 @@ def process_intelligent_bom_engine(client, chat_file, contents_payload, user_que
     final_res = client.models.generate_content(model='gemini-2.5-flash', contents=(contents_payload + [reasoning_prompt] if chat_file and len(contents_payload) > 0 else [reasoning_prompt]))
     title_prefix = f"### 🧵 KẾT QUẢ ĐỐI SOÁT ĐỊNH MỨC (DỰA TRÊN MÃ {matched_style})\n\n" if matched_style != "NONE" else "### 📐 KẾT QUẢ TỰ TÍNH TOÁN ĐỊNH MỨC ĐỘC LẬP (KHO KHÔNG CÓ MẪU TRÙNG)\n\n"
     return title_prefix + final_res.text.strip(), matched_sketch_url, matched_style
+menu_selection = st.session_state.get("menu_selection", "🧵 BOM & Consumption Matrix")
+SB_URL = st.secrets.get("SB_URL", "")
+SB_KEY = st.secrets.get("SB_KEY", "")
+
 if menu_selection == "🧵 BOM & Consumption Matrix":
     st.markdown('<div class="component-title-box">🧵 INTELLIGENT BOM & CONSUMPTION MATRIX ENGINE</div>', unsafe_allow_html=True)
     
@@ -692,13 +692,15 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
     with control_col1:
         st.markdown("<p style='font-weight:700; font-size:12px; color:#1E293B;'>📁 INGEST NEW STYLE REPRINTS (PDF/IMAGE)</p>", unsafe_allow_html=True)
         chat_file = st.file_uploader("Upload Techpack file", type=["pdf", "jpg", "jpeg", "png"], key="chat_uploader", label_visibility="collapsed")
-        if chat_file: st.success(f"📎 DATASTREAM PIPELINE BOUND: Tiếp nhận thành công file {chat_file.name}")
+        if chat_file: 
+            st.success(f"📎 DATASTREAM PIPELINE BOUND: Tiếp nhận thành công file {chat_file.name}")
             
     with control_col2:
         st.markdown("<p style='font-weight:700; font-size:12px; color:#1E293B;'>🧹 RESET CORE</p>", unsafe_allow_html=True)
         if st.button("🗑️ PURGE CHAT CACHE", use_container_width=True, type="secondary"):
             import time
-            if "chat_history" in st.session_state: del st.session_state["chat_history"]
+            if "chat_history" in st.session_state: 
+                del st.session_state["chat_history"]
             st.success("🔄 MEMORY CLEARED")
             time.sleep(0.5)
             st.rerun()
@@ -712,14 +714,17 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
             st.write(msg["content"])
             if msg.get("type") == "visual" and msg.get("image_url") and "R09-496091" not in msg.get("image_url"):
                 st.image(msg["image_url"], caption=f"Bản vẽ Sketch đối chiếu mã {msg.get('style_title')}", width=220)
+
     if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vải và đối soát sai lệch..."):
         st.session_state["chat_history"].append({"role": "user", "type": "text", "content": user_query})
-        with st.chat_message("user"): st.write(user_query)
+        with st.chat_message("user"): 
+            st.write(user_query)
         
         with st.chat_message("assistant"):
             with st.spinner("Hệ thống AI R&D Engine đang kết nối kho tri thức nền dệt may..."):
                 gemini_key = get_secure_gemini_key()
-                if not gemini_key: st.write("CRITICAL SERVER BREAKDOWN: AI API Token is missing.")
+                if not gemini_key: 
+                    st.write("CRITICAL SERVER BREAKDOWN: AI API Token is missing.")
                 else:
                     try:
                         client = genai.Client(api_key=gemini_key)
@@ -729,14 +734,12 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                         
                         if chat_file:
                             file_bytes = chat_file.getvalue()
-                                if chat_file.name.lower().endswith('.pdf'):
-                                # Chuyển đổi toàn bộ các trang PDF thành mảng ảnh nhị phân an toàn
+                            if chat_file.name.lower().endswith('.pdf'):
                                 chat_images = convert_from_bytes(file_bytes, dpi=130)
                                 for page_img in chat_images:
                                     img_buf = io.BytesIO()
                                     page_img.convert("RGB").save(img_buf, format="JPEG")
                                     contents_payload.append(types.Part.from_bytes(data=img_buf.getvalue(), mime_type='image/jpeg'))
-
                             else:
                                 contents_payload.append(types.Part.from_bytes(data=file_bytes, mime_type='image/jpeg'))
                             
@@ -744,7 +747,8 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                             extraction_res = client.models.generate_content(model='gemini-2.5-flash', contents=contents_payload + [extraction_prompt], config=types.GenerateContentConfig(response_mime_type="application/json", temperature=0.0))
                             parsed_meta = json.loads(extraction_res.text.strip())
                             new_style_id_detected = parsed_meta.get("detected_style_id", "UNKNOWN_STYLE").strip()
-                            new_style_raw_text = str(parsed_meta.get("all_specs_text", ""))
+                            parsed_specs_text = parsed_meta.get("all_specs_text", "")
+                            new_style_raw_text = str(parsed_specs_text)
 
                         text_to_extract = str(new_style_id_detected).strip() if chat_file and str(new_style_id_detected).strip() != "UNKNOWN_STYLE" else user_query
                         clean_text_upper = str(text_to_extract).strip().upper()
@@ -753,8 +757,9 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                         
                         if "SJ" in raw_keyword:
                             nums_list = re.findall(r"\d+", raw_keyword)
-                            dynamic_keyword = f"SJ-{nums_list[0]}" if nums_list else raw_keyword
-                        else: dynamic_keyword = raw_keyword
+                            dynamic_keyword = f"SJ-{nums_list}" if nums_list else raw_keyword
+                        else: 
+                            dynamic_keyword = raw_keyword
 
                         ans_text, matched_sketch_url, matched_style = process_intelligent_bom_engine(
                             client, chat_file, contents_payload, user_query, dynamic_keyword, new_style_raw_text, SB_URL, SB_KEY
@@ -766,6 +771,8 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                             chat_node = {"role": "assistant", "type": "visual", "content": ans_text, "image_url": matched_sketch_url, "style_title": matched_style}
                             st.image(matched_sketch_url, caption=f"Ảnh Sketch của mã tương đồng ({matched_style}) bốc từ kho", width=220)
                             
+                        st.sidebar.markdown(f"**Extracted Keyword:** {dynamic_keyword}")
                         st.session_state["chat_history"].append(chat_node)
+                        
                     except Exception as system_err:
                         st.error(f"🔴 PIPELINE ERROR: {str(system_err)}")
