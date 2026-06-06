@@ -729,7 +729,7 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                         
                         if chat_file:
                             file_bytes = chat_file.getvalue()
-                                                        if chat_file.name.lower().endswith('.pdf'):
+                                if chat_file.name.lower().endswith('.pdf'):
                                 # Chuyển đổi toàn bộ các trang PDF thành mảng ảnh nhị phân an toàn
                                 chat_images = convert_from_bytes(file_bytes, dpi=130)
                                 for page_img in chat_images:
