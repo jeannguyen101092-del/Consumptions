@@ -777,17 +777,34 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                             has_fabric_info = any(x in user_query_upper for x in ["KHỔ", "KHO", "WIDTH", "CO RÚT", "CO RUT", "SHRINKAGE"])
                             
                             if not has_fabric_info:
+                                                                # Kịch bản B2: Kỹ sư đã trả lời -> AI tiến hành tính toán số học từ Specs bằng thuật toán Khung Chiếm Dụng Sơ Đồ
                                 reasoning_prompt = f"""
-                                Bạn là trợ lý định mức R&D tại PPJ Group. Kho dữ liệu hiện chưa có mã tương đồng phù hợp với kết cấu túi/thiết kế này (Mã mới là quần Jeans 5 túi, kho chỉ có quần tây túi xéo).
-                                Để có thể tính toán định mức vải chính xác từ con số 0 dựa trên bảng thông số Specs vừa quét, bạn KHÔNG ĐƯỢC ĐOÁN MÒ mà phải yêu cầu kỹ sư cung cấp dữ liệu sản xuất thực tế.
+                                Bạn là Bộ não chuyên gia định mức R&D dệt may lão luyện tại PPJ Group. 
+                                Kỹ sư đã cung cấp thông số sản xuất thực tế trong câu lệnh: "{user_query}"
                                 
-                                Hãy phản hồi cho kỹ sư theo cấu trúc sau:
-                                1. Thông báo hệ thống không tìm thấy mã tương đồng khớp cấu trúc túi (Mã mới nhận diện: {dynamic_keyword}).
-                                2. Đưa ra danh sách 3 thông số bắt buộc yêu cầu kỹ sư nhập vào ô chat tiếp theo để kích hoạt lõi tính toán hình học:
-                                   - Khổ vải thực tế sử dụng (Ví dụ: 57", 58", 60"...)
-                                   - Tỷ lệ co rút dự kiến sau giặt/nhuộm (Garment Wash/Dye Shrinkage % dọc và ngang)
-                                   - Tỷ lệ hao hụt cắt rập mong muốn (Wastage %, thường nhà máy là 4%)
+                                Nhiệm vụ: Hãy sử dụng thông số Specs của mã mới: {json.dumps(extracted_specs_data, ensure_ascii=False) if extracted_specs_data else new_style_raw_text}
+                                Kết hợp với Khổ vải và Độ co rút được cung cấp để tính toán định mức hình học chuẩn xác từ con số 0 cho mã {dynamic_keyword}.
+
+                                🚨 THUẬT TOÁN KHUNG CHIẾM DỤNG SƠ ĐỒ QUẦN JEANS (BẮT BUỘC):
+                                1. TUYỆT ĐỐI KHÔNG DÙNG phương pháp cộng dồn diện tích các chi tiết nhỏ (đỉa, cạp, nẹp, túi xu). Các chi tiết này mặc định xếp chen vào khoảng trống sơ đồ của thân lớn.
+                                2. CÔNG THỨC BẮT BUỘC TÍNH THEO CHIỀU DÀI CHU KỲ SƠ ĐỒ (MARKER LENGTH):
+                                   - Bước 1: Tính Chiều dài Khung Cắt Thân (L_body) = [Thông số Dài quần (Outseam) + Hao hụt đường may/gấu 2 inch] x (1 + % Co rút dọc dự kiến).
+                                   - Bước 2: Đối với quần Jeans nữ thông thường, cấu trúc sơ đồ chuẩn của nhà máy là xếp cặp Thân trước + Thân sau lồng vào nhau theo chiều ngang khổ vải (58"). Do đó, Chiều dài sơ đồ thực tế cho 1 chiếc quần chính bằng Chiều dài Khung Cắt Thân (L_body).
+                                   - Bước 3: Tính Định mức vải chính thô (Yard) = L_body / 36 inch.
+                                   - Bước 4: Định mức vải chính cuối cùng (bao gồm hao hụt) = Định mức vải chính thô x (1 + % Hao hụt cắt rập Wastage dự kiến).
+
+                                3. KHÓA HẠN MỨC AN TOÀN (SAFETY LIMIT):
+                                   - Đây là quần Jeans 5 túi tiêu chuẩn của NỮ. Định mức vải chính thực tế tại PPJ bắt buộc phải nằm trong khoảng từ 1.15 Yards đến 1.40 Yards/cái.
+                                   - Nếu kết quả phép tính ở Bước 4 của bạn vượt quá 1.45 Yards, bạn đã tính sai logic xếp rập. Hãy tự động rà soát và điều chỉnh công thức bao khung rập về đúng biên độ an toàn sản xuất này.
+
+                                YÊU CẦU TRÌNH BÀY:
+                                Xuất kết quả rõ ràng dưới dạng bảng Markdown tối giản bao gồm:
+                                - Các thông số cốt lõi trích xuất từ Specs (Dài quần, Vòng mông, Vòng đùi).
+                                - Khổ vải, % co rút dọc/ngang, % hao hụt wastage áp dụng.
+                                - Chiều dài khung cắt rập thân quần (L_body) tính được sau co rút.
+                                - Con số định mức vải chính dự kiến cuối cùng (Yards/Cái) hiển thị gãy gọn. Không liệt kê các phép tính diện tích chi tiết vụn vặt làm phình to định mức.
                                 """
+
                             else:
                                 reasoning_prompt = f"""
                                 Bạn là chuyên gia định mức R&D dệt may độc lập tại PPJ Group. 
