@@ -704,17 +704,19 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                                                 # =========================================================================
                                                 # =========================================================================
                                               # =========================================================================
-                        # BƯỚC 2: BỐC BIẾN SỐ SPECS MÃ MỚI & SỬA LỖI MẢNG TRUY VẤN (DÙNG POP ĐỂ DIỆT LỖI)
+                                                # =========================================================================
+                        # BƯỚC 2: BỐC BIẾN SỐ SPECS MÃ MỚI & SỬA LỖI MẢNG TRUY VẤN (SỬA LỖI CHỮ ĐỎ THỰC TẾ)
                         # =========================================================================
                         db_techpack_specs = get_techpack_spec_from_db(dynamic_keyword)
                         extracted_specs_data = {}
                         found_sketch_url = None
                         
-                        # Sử dụng hàm .pop(0) để rút phần tử đầu tiên ra khỏi danh sách mảng một cách an toàn tuyệt đối
+                        # Chuyển đổi mảng List thành Dict một cách an toàn bằng vòng lặp để tránh lỗi .get()
                         if db_techpack_specs and isinstance(db_techpack_specs, list) and len(db_techpack_specs) > 0:
-                            first_record = db_techpack_specs.pop(0)
-                            found_sketch_url = first_record.get("SketchURL")
-                            extracted_specs_data = first_record.get("DetailedMeasurements", {})
+                            for record in db_techpack_specs:
+                                found_sketch_url = record.get("SketchURL")
+                                extracted_specs_data = record.get("DetailedMeasurements", {})
+                                break
                         elif db_techpack_specs and isinstance(db_techpack_specs, dict):
                             found_sketch_url = db_techpack_specs.get("SketchURL")
                             extracted_specs_data = db_techpack_specs.get("DetailedMeasurements", {})
@@ -731,11 +733,11 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                             matched_specs_clean = {}
                             matched_sketch_url = ""
                             
-                            # Sử dụng hàm .pop(0) tương tự cho mảng dữ liệu đối chứng bốc từ DB lên
                             if db_matched_specs and isinstance(db_matched_specs, list) and len(db_matched_specs) > 0:
-                                first_matched = db_matched_specs.pop(0)
-                                matched_specs_clean = first_matched.get("DetailedMeasurements", {})
-                                matched_sketch_url = first_matched.get("SketchURL", "")
+                                for m_rec in db_matched_specs:
+                                    matched_specs_clean = m_rec.get("DetailedMeasurements", {})
+                                    matched_sketch_url = m_rec.get("SketchURL", "")
+                                    break
                             elif db_matched_specs and isinstance(db_matched_specs, dict):
                                 matched_specs_clean = db_matched_specs.get("DetailedMeasurements", {})
                                 matched_sketch_url = db_matched_specs.get("SketchURL", "")
@@ -744,7 +746,6 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                             matched_specs_str = str(matched_specs_clean).upper()
                             current_specs_str = str(extracted_specs_data).upper() if extracted_specs_data else new_style_raw_text.upper()
                             
-                            # Kiểm tra chéo cấu trúc túi thực tế
                             is_current_jeans = any(x in current_specs_str for x in ["PATCH POCKET", "5 POCKET", "TÚI ĐẮP", "5 TÚI"])
                             is_matched_slant = any(x in matched_specs_str for x in ["SLANT", "WELT", "TÚI XÉO", "TÚI MỔ"])
                             
@@ -752,9 +753,6 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                                 st.warning(f"⚠️ HỦY MÃ TƯƠNG ĐỒNG {matched_style}: Phát hiện lệch cấu trúc (Mã mới là Jeans túi đắp, mã trong kho là quần túi xéo). Chuyển sang lõi tự tính hình học...")
                                 matched_style = "NONE"
                                 matched_sketch_url = None
-
-
-
                         # Thực hiện kiểm tra lại cờ hiệu sau khi lọc cấu trúc túi
                         if matched_style and matched_style != "NONE":
                             reasoning_prompt = f"""
@@ -770,6 +768,7 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                             - Lập bảng đối soát độ lệch kích thước ở các vị trí POM chủ chốt giữa 2 mã.
                             - Dựa vào định mức của mã cũ và độ tăng/giảm số đo của mã mới để cộng/trừ định mức vải chính xác (Yard/Cái).
                             - Giải thích lý do chọn mã này: {match_reason}
+                            - TRẢ LỜI NGẮN GỌN, VÀO THẲNG VẤN ĐỀ, KHÔNG LAN MAN.
                             """
                         else:
                             # 👉 LUỒNG B: KHÔNG CÓ MÃ TƯƠNG ĐỒNG ĐỒNG NHẤT CẤU TRÚC (Yêu cầu thông số sản xuất)
@@ -780,34 +779,17 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                             has_fabric_info = any(x in user_query_upper for x in ["KHỔ", "KHO", "WIDTH", "CO RÚT", "CO RUT", "SHRINKAGE"])
                             
                             if not has_fabric_info:
-                                                                # Kịch bản B2: Kỹ sư đã trả lời -> AI tiến hành tính toán số học từ Specs bằng thuật toán Khung Chiếm Dụng Sơ Đồ
                                 reasoning_prompt = f"""
-                                Bạn là Bộ não chuyên gia định mức R&D dệt may lão luyện tại PPJ Group. 
-                                Kỹ sư đã cung cấp thông số sản xuất thực tế trong câu lệnh: "{user_query}"
+                                Bạn là trợ lý định mức R&D tại PPJ Group. Kho dữ liệu hiện chưa có mã tương đồng phù hợp với kết cấu túi/thiết kế này (Mã mới là quần Jeans 5 túi, kho chỉ có quần tây túi xéo).
+                                Bạn KHÔNG ĐƯỢC đoán mò thông số mà phải yêu cầu kỹ sư cung cấp dữ liệu sản xuất thực tế.
                                 
-                                Nhiệm vụ: Hãy sử dụng thông số Specs của mã mới: {json.dumps(extracted_specs_data, ensure_ascii=False) if extracted_specs_data else new_style_raw_text}
-                                Kết hợp với Khổ vải và Độ co rút được cung cấp để tính toán định mức hình học chuẩn xác từ con số 0 cho mã {dynamic_keyword}.
-
-                                🚨 THUẬT TOÁN KHUNG CHIẾM DỤNG SƠ ĐỒ QUẦN JEANS (BẮT BUỘC):
-                                1. TUYỆT ĐỐI KHÔNG DÙNG phương pháp cộng dồn diện tích các chi tiết nhỏ (đỉa, cạp, nẹp, túi xu). Các chi tiết này mặc định xếp chen vào khoảng trống sơ đồ của thân lớn.
-                                2. CÔNG THỨC BẮT BUỘC TÍNH THEO CHIỀU DÀI CHU KỲ SƠ ĐỒ (MARKER LENGTH):
-                                   - Bước 1: Tính Chiều dài Khung Cắt Thân (L_body) = [Thông số Dài quần (Outseam) + Hao hụt đường may/gấu 2 inch] x (1 + % Co rút dọc dự kiến).
-                                   - Bước 2: Đối với quần Jeans nữ thông thường, cấu trúc sơ đồ chuẩn của nhà máy là xếp cặp Thân trước + Thân sau lồng vào nhau theo chiều ngang khổ vải (58"). Do đó, Chiều dài sơ đồ thực tế cho 1 chiếc quần chính bằng Chiều dài Khung Cắt Thân (L_body).
-                                   - Bước 3: Tính Định mức vải chính thô (Yard) = L_body / 36 inch.
-                                   - Bước 4: Định mức vải chính cuối cùng (bao gồm hao hụt) = Định mức vải chính thô x (1 + % Hao hụt cắt rập Wastage dự kiến).
-
-                                3. KHÓA HẠN MỨC AN TOÀN (SAFETY LIMIT):
-                                   - Đây là quần Jeans 5 túi tiêu chuẩn của NỮ. Định mức vải chính thực tế tại PPJ bắt buộc phải nằm trong khoảng từ 1.15 Yards đến 1.40 Yards/cái.
-                                   - Nếu kết quả phép tính ở Bước 4 của bạn vượt quá 1.45 Yards, bạn đã tính sai logic xếp rập. Hãy tự động rà soát và điều chỉnh công thức bao khung rập về đúng biên độ an toàn sản xuất này.
-
-                                YÊU CẦU TRÌNH BÀY:
-                                Xuất kết quả rõ ràng dưới dạng bảng Markdown tối giản bao gồm:
-                                - Các thông số cốt lõi trích xuất từ Specs (Dài quần, Vòng mông, Vòng đùi).
-                                - Khổ vải, % co rút dọc/ngang, % hao hụt wastage áp dụng.
-                                - Chiều dài khung cắt rập thân quần (L_body) tính được sau co rút.
-                                - Con số định mức vải chính dự kiến cuối cùng (Yards/Cái) hiển thị gãy gọn. Không liệt kê các phép tính diện tích chi tiết vụn vặt làm phình to định mức.
+                                Hãy phản hồi cho kỹ sư theo cấu trúc sau (HỎI GÌ NÓI NẤY, KHÔNG LAN MAN):
+                                1. Thông báo hệ thống không tìm thấy mã tương đồng khớp cấu trúc túi (Mã mới nhận diện: {dynamic_keyword}).
+                                2. Đưa ra danh sách 3 thông số bắt buộc yêu cầu kỹ sư nhập vào ô chat tiếp theo để kích hoạt lõi tính toán hình học:
+                                   - Khổ vải thực tế sử dụng (Ví dụ: 57", 58", 60"...)
+                                   - Tỷ lệ co rút dự kiến sau giặt/nhuộm (Garment Wash/Dye Shrinkage % dọc và ngang)
+                                   - Tỷ lệ hao hụt cắt rập mong muốn (Wastage %, thường nhà máy là 4%)
                                 """
-
                             else:
                                 reasoning_prompt = f"""
                                 Bạn là chuyên gia định mức R&D dệt may độc lập tại PPJ Group. 
@@ -815,6 +797,16 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                                 
                                 Nhiệm vụ: Hãy sử dụng thông số Specs của mã mới: {json.dumps(extracted_specs_data, ensure_ascii=False) if extracted_specs_data else new_style_raw_text}
                                 Kết hợp với Khổ vải và Độ co rút mà kỹ sư vừa nhập để tự động tính toán định mức hình học chuẩn xác từ con số 0 cho mã {dynamic_keyword}.
+                                
+                                🚨 THUẬT TOÁN KHUNG CHIẾM DỤNG SƠ ĐỒ QUẦN JEANS:
+                                1. TUYỆT ĐỐI KHÔNG DÙNG phương pháp cộng dồn diện tích các chi tiết nhỏ (đỉa, cạp, nẹp, túi xu). Các chi tiết này mặc định xếp chen vào khoảng trống sơ đồ của thân lớn.
+                                2. CÔNG THỨC BẮT BUỘC TÍNH THEO CHIỀU DÀI CHU KỲ SƠ ĐỒ (MARKER LENGTH):
+                                   - Chiều dài Khung Cắt Thân (L_body) = [Thông số Dài quần (Outseam) + Hao hụt đường may/gấu 2 inch] x (1 + % Co rút dọc dự kiến).
+                                   - Định mức vải chính thô (Yard) = L_body / 36 inch.
+                                   - Định mức vải chính cuối cùng = Định mức vải chính thô x (1 + % Hao hụt cắt rập Wastage dự kiến).
+                                3. KHÓA HẠN MỨC AN TOÀN (SAFETY LIMIT): Đây là quần Jeans 5 túi tiêu chuẩn của NỮ, định mức bắt buộc phải nằm trong khoảng từ 1.15 Yards đến 1.40 Yards/cái.
+                                
+                                TRÌNH BÀY TỐI GIẢN DẠNG BẢNG MARKDOWN, KHÔNG GIẢI THÍCH LAN MAN.
                                 """
 
                         # Gọi Gemini thực thi luồng prompt tương ứng
