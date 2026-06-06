@@ -169,7 +169,7 @@ def save_to_supabase_techpack_table(payload_data):
 def get_historical_fabric_consumption_from_db(search_keyword=None):
     """
     Hàm tra cứu kho dữ liệu san_pham lịch sử nâng cao.
-    ✨ ĐÃ SỬA LỖI ĐỘT PHÁ: Tự động tìm kiếm song song theo cả Mã hàng (style_name) HOẶC Code vải (article_name)
+    ✨ ĐÃ SỬA: Tìm kiếm mờ thông minh, tự động quét cả dạng viết liền, dấu cách và dấu gạch ngang!
     """
     try:
         headers = {
@@ -184,9 +184,22 @@ def get_historical_fabric_consumption_from_db(search_keyword=None):
         }
         
         if search_keyword:
-            clean_kw = str(search_keyword).strip()
-            # Sử dụng toán tử toán lý .or để tìm kiếm đồng thời trên cả hai cột dữ liệu dệt may
-            query_params["or"] = f"(style_name.ilike.*{clean_kw}*,article_name.ilike.*{clean_kw}*)"
+            # Làm sạch từ khóa thô ban đầu
+            kw_raw = str(search_keyword).strip().upper()
+            # Tự động tạo ra các biến thể tìm kiếm khác nhau để đối soát chéo
+            kw_clean = kw_raw.replace("-", "").replace(" ", "") # Dạng viết liền: NP430, SJ8902
+            
+            # Trích xuất phần chữ và số để tạo dạng gạch ngang và khoảng trắng dự phòng
+            letters = "".join(re.findall(r'[A-Z]+', kw_clean))
+            digits = "".join(re.findall(r'\d+', kw_clean))
+            
+            # Xây dựng màng lọc ma trận or của Supabase PostgREST
+            if letters and digits:
+                or_filter = f"(style_name.ilike.*{letters}*{digits}*,article_name.ilike.*{letters}*{digits}*)"
+            else:
+                or_filter = f"(style_name.ilike.*{kw_raw}*,article_name.ilike.*{kw_raw}*)"
+                
+            query_params["or"] = or_filter
         
         response = requests.get(url, headers=headers, params=query_params, timeout=15)
         return response.json() if response.status_code == 200 else []
@@ -615,7 +628,7 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                                     import time
                                     time.sleep(2 * (ext_attempt + 1))
                         
-                        # ✨ THUẬT TOÁN ĐỒNG BỘ: Chuẩn hóa từ khóa trích xuất sạch chữ tiếng Việt
+                                                # ✨ THUẬT TOÁN ĐỒNG BỘ: Chuẩn hóa từ khóa trích xuất sạch chữ tiếng Việt
                         text_to_extract = user_query
                         if chat_file and str(new_style_id_detected).strip() != "UNKNOWN_STYLE":
                             text_to_extract = str(new_style_id_detected).strip()
@@ -631,9 +644,10 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                             dynamic_keyword = f"SJ-{extract_num[0]}" if extract_num else raw_keyword
                         else:
                             dynamic_keyword = raw_keyword
-                        # =============================================================================
-                        # TRUY VẤN SONG SONG KHO DATA BẰNG TỪ KHÓA CHUẨN XÁC VÀ GIẢI NÉN MẢNG (PHẦN 3)
-                        # =============================================================================
+                        
+                        # =========================================================================
+                        # TRUY VẤN SONG SONG KHO DATA BẢNG TỪ KHÓA CHUẨN XÁC VÀ GIẢI NÉN MÃNG (PHẦN 3)
+                        # =========================================================================
                         db_historical_consumption = get_historical_fabric_consumption_from_db(dynamic_keyword)
                         db_techpack_specs = get_techpack_spec_from_db(dynamic_keyword)
                         
@@ -642,11 +656,12 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                         
                         if db_techpack_specs and isinstance(db_techpack_specs, list) and len(db_techpack_specs) > 0:
                             first_record = db_techpack_specs[0]
-                            found_sketch_url = first_record.get("SketchURL")
+                            found_sketch_url = first_record.get("sketch_url")
                             extracted_specs_data = first_record.get("DetailedMeasurements", {})
                         elif db_techpack_specs and isinstance(db_techpack_specs, dict):
-                            found_sketch_url = db_techpack_specs.get("SketchURL")
+                            found_sketch_url = db_techpack_specs.get("sketch_url")
                             extracted_specs_data = db_techpack_specs.get("DetailedMeasurements", {})
+
 
                         # HOÀN THIỆN PROMPT ĐIỀU HƯỚNG TƯ DUY AI THEO ĐÚNG 3 QUY TẮC CỐT LÕI CỦA BẠN
                         intel_prompt = f"""
