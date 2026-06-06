@@ -627,22 +627,17 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                         clean_text_upper = str(text_to_extract).strip().upper()
                         dynamic_keyword = clean_text_upper.replace("TÌM HÌNH ẢNH VÀ THÔNG SỐ MÃ HÀNG", "").replace("TÌM CODE VẢI MÃ", "").replace("TÌM CODE VẢI", "").replace("TÌM MÃ HÀNG", "").replace("TÌM MÃ", "").replace("TÌM", "").strip()
                         # =============================================================================
-                        # TRUY VẤN SONG SONG KHO DATA & THIẾT LẬP LUỒNG CÔNG THỨC TOÁN HỌC DỆT MAY (PHẦN 3C)
-                        # =============================================================================
-                                                # =============================================================================
-                                               # =============================================================================
                                                 # =============================================================================
                         # TRUY VẤN SONG SONG KHO DATA & THIẾT LẬP LUỒNG CÔNG THỨC TOÁN HỌC DỆT MAY (PHẦN 3C)
                         # =============================================================================
                         db_historical_consumption = get_historical_fabric_consumption_from_db(dynamic_keyword)
                         db_techpack_specs = get_techpack_spec_from_db(dynamic_keyword)
                         
-                        # ✨ ĐÃ SỬA LỖI GIẢI NÉN MẢNG CHUẨN XÁC: Thêm chỉ mục [0] để lấy trúng dòng dữ liệu đầu tiên
+                        # Trích xuất chính xác bản ghi đầu tiên của danh sách để bóc dữ liệu
                         found_sketch_url = None
                         extracted_specs_data = {}
                         
                         if db_techpack_specs and isinstance(db_techpack_specs, list) and len(db_techpack_specs) > 0:
-                            # SỬA LỖI: Thêm [0] để giải nén lớp danh sách bên ngoài của Supabase REST API
                             first_record = db_techpack_specs[0]
                             found_sketch_url = first_record.get("SketchURL")
                             extracted_specs_data = first_record.get("DetailedMeasurements", {})
@@ -650,17 +645,14 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                             found_sketch_url = db_techpack_specs.get("SketchURL")
                             extracted_specs_data = db_techpack_specs.get("DetailedMeasurements", {})
 
-                        # HOÀN THIỆN PROMPT ĐIỀU HƯỚNG AI ĐỌC HIỂU ĐỒNG THỜI FILE MỚI VÀ FILE CŨ LỊCH SỬ
+                        # HOÀN THIỆN PROMPT ĐIỀU HƯỚNG AI ĐỌC KHO VÀ TÍNH TOÁN TOÁN HỌC ĐỊNH MỨC VẢI
                         intel_prompt = f"""
                         Bạn là hệ thống Core AI R&D phân tích kỹ thuật dệt may tối cao của Tập đoàn PPJ Group.
-                        Hãy trực tiếp đọc hình ảnh file đính kèm vừa tải lên (nếu có), kết hợp dữ liệu đối soát thực tế từ database dưới đây để trả lời người dùng:
+                        Hãy đọc hiểu yêu cầu, kết hợp dữ liệu đối soát thực tế từ database dưới đây để trả lời người dùng:
 
                         YÊU CẦU NGƯỜI DÙNG: "{user_query}"
                         MÃ HÀNG HOẶC MÃ VẢI ĐANG ĐỐI SOÁT HỆ THỐNG: "{dynamic_keyword}"
-                        
-                        --- DỮ LIỆU BÓC TÁCH OCR TỪ FILE TECHPACK MỚI VỪA TẢI LÊN ---
-                        Mã hàng nhận diện trên file mới: {new_style_id_detected}
-                        Chi tiết thông số/BOM quét được từ file mới: {new_style_raw_text}
+                        DỮ LIỆU FILE MỚI ĐANG QUÉT (NẾU CÓ): {new_style_raw_text}
 
                         --- DỮ LIỆU THỰC TẾ TRUY VẤN TỪ SUPABASE CLOUD ---
                         1. KHO ĐỊNH MỨC LỊCH SỬ (Table san_pham): 
@@ -669,21 +661,22 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                         2. KHO THÔNG SỐ KỸ THUẬT CHI TIẾT (Table thong_so_techpack):
                         {json.dumps(db_techpack_specs, ensure_ascii=False, indent=2)}
 
-                        MA TRẬN THÔNG SỐ HÌNH HỌC POM LỊCH SỬ TRÍCH XUẤT ĐƯỢC:
+                        MA TRẬN THÔNG SỐ HÌNH HỌC POM TRÍCH XUẤT ĐƯỢC:
                         {json.dumps(extracted_specs_data, ensure_ascii=False, indent=2)}
 
                         --- THUẬT TOÁN RA QUYẾT ĐỊNH & CÔNG THỨC TOÁN HỌC ĐỊNH MỨC BẮT BUỘC ---
                         QUY TẮC 1: Nếu dữ liệu lịch sử thu được (Table san_pham) CÓ dữ liệu, hãy hiển thị bảng định mức thực tế của mã này lên màn hình.
                         
-                        QUY TẮC 2: Hãy so sánh đối chiếu trực tiếp các vị trí đo POM giữa File Techpack mới (bóc tách từ hình ảnh đính kèm) và Ma trận thông số POM lịch sử trong kho để chỉ ra các điểm sai lệch (Delta Spec) cho kỹ sư dệt may biết.
+                        QUY TẮC 2: Nếu ma trận thông số hình học POM trích xuất được ở trên có dữ liệu, hãy tự động trình bày thành một bảng thông số kỹ thuật chi tiết rõ ràng cho người dùng xem đối soát.
                         
-                        QUY TẮC 3: Nếu file mới tải lên là MÃ HÀNG MỚI HOÀN TOÀN, bạn BẮT BUỘC phải sử dụng hình ảnh đính kèm để bóc tách thông số hình học và áp dụng thuật toán tính toán toán học định mức vải.
+                        QUY TẮC 3: Nếu đây là MÃ HÀNG MỚI HOÀN TOÀN (Dữ liệu lịch sử rỗng), bạn BẮT BUỘC phải thực hiện thuật toán tính định mức vải chuẩn ngành dệt may dựa trên thông số hình học rập mẫu:
+                           - Công thức cho Áo (Shirt/T-Shirt): Định mức vải = ((Dài áo + Rộng áo + Hao hụt) * (Rộng tay/2 + Hao hụt) * 2) / Khổ vải hữu dụng.
+                           - Công thức cho Quần (Pants/Jeans): Định mức vải = ((Dài quần + Hao hụt) * (Vòng mông + Hao hụt) * 4) / Khổ vải hữu dụng.
 
-                        HÃY HIỂN THỊ CÂU TRẢ LỜI DẠNG BẢNG ĐẸP MẮT, NGẮN GỌN THEO ĐÚNG PHONG CÁCH KỸ SƯ CÔNG NGHIỆP PPJ.
+                        HÃY HIỂN THỊ CÂU TRẢ LỜI DẠNG BẢNG ĐẸP MẮT, NGẮN GỌN THEO PHONG CÁCH KỸ SƯ CÔNG NGHIỆP PPJ.
                         """
-
                         
-                                                contents_payload.append(intel_prompt)
+                        contents_payload.append(intel_prompt)
                         ai_response = client.models.generate_content(
                             model='gemini-2.5-flash',
                             contents=contents_payload
@@ -697,18 +690,14 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                         # =============================================================================
                         # BẢN VÁ TỐI CAO: ÉP HIỂN THỊ ẢNH TRỰC TIẾP RA MÀN HÌNH BẰNG PYTHON PYTHON
                         # =============================================================================
-                        # Thuật toán tự động sửa sai link: Nếu link trong database lỗi, tự kết nối thẳng tới Storage công khai
                         image_url_to_render = ""
                         if found_sketch_url and str(found_sketch_url).strip() != "" and str(found_sketch_url).strip().lower() != "null":
                             image_url_to_render = str(found_sketch_url).strip()
                         else:
-                            # Tự động bắc cầu tạo link chuẩn theo mã hàng dệt may PPJ (Dùng đuôi .jpg)
                             image_url_to_render = f"https://supabase.co{dynamic_keyword}.jpg"
 
-                        # Kiểm tra nhanh xem file ảnh có tồn tại trên Supabase Storage hay không trước khi render
                         try:
                             img_check = requests.head(image_url_to_render, timeout=5)
-                            # Nếu link .jpg bị lỗi 404, tự động chuyển hướng kiểm tra sang mã hàng Regular gốc R09-496091
                             if img_check.status_code != 200:
                                 image_url_to_render = "https://supabase.coR09-496091.jpg"
                                 img_check = requests.head(image_url_to_render, timeout=5)
@@ -718,7 +707,6 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                                 new_msg_entry["image_url"] = image_url_to_render
                                 new_msg_entry["style_title"] = dynamic_keyword
                                 
-                                # Tạo một vạch ngăn cách đồ họa và ép Streamlit vẽ bức ảnh ra màn hình chat
                                 st.markdown("---")
                                 st.image(image_url_to_render, caption=f"📸 Bản vẽ Sketch kỹ thuật đối chiếu thực tế mã hàng: {dynamic_keyword}", use_container_width=True)
                             else:
