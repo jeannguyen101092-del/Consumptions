@@ -394,144 +394,6 @@ if menu_selection == "📊 Upload Techpack":
 # -----------------------------------------------------------------------------
 # CHỨC NĂNG 2: ĐỐI CHIẾU SO SÁNH HAI MÃ RẬP KHÁC NHAU (PATTERN SPEC COMPARISON)
 # -----------------------------------------------------------------------------
-elif menu_selection == "🔄 Pattern Spec Comparison":
-    st.markdown('<div class="component-title-box">🔄 DIFFERENTIAL GEOMETRY & DELTA SPEC EVALUATOR</div>', unsafe_allow_html=True)
-    
-    st.markdown("""<div class="card-container"><div class="card-section-header">🔍 CONFIGURATION SELECTION</div>
-    <p style="color: #64748B; font-size:13px; margin:0 0 15px 0;">Tải lên hai tệp bản vẽ kỹ thuật dệt may độc lập để tiến hành lập luận so sánh và tính toán toán học các khoảng chênh lệch rập mẫu.</p></div>""", unsafe_allow_html=True)
-    
-    sc1, sc2 = st.columns(2)
-    with sc1: file1 = st.file_uploader("Chọn file mẫu Techpack Gốc (File A)", type=["pdf"], key="f1")
-    with sc2: file2 = st.file_uploader("Chọn file mẫu Techpack Sửa đổi (File B)", type=["pdf"], key="f2")
-    
-    if file1 and file2:
-        if file1.name not in st.session_state["processed_styles"]:
-            res1 = process_single_pdf_batch(file1.getvalue(), file1.name)
-            if res1["success"]: st.session_state["processed_styles"][file1.name] = res1["data"]
-        if file2.name not in st.session_state["processed_styles"]:
-            res2 = process_single_pdf_batch(file2.getvalue(), file2.name)
-            if res2["success"]: st.session_state["processed_styles"][file2.name] = res2["data"]
-            
-        d1 = st.session_state["processed_styles"].get(file1.name)
-        d2 = st.session_state["processed_styles"].get(file2.name)
-        
-        if d1 and d2:
-            st.markdown(f"""
-                <div style="background-color: #FFFFFF; border-left: 5px solid #3B82F6; padding: 12px 20px; border-radius: 4px 12px 12px 4px; margin-bottom: 20px; box-shadow: 0 2px 5px rgba(0,0,0,0.02);">
-                    <h5 style="margin:0; color:#1E3A8A; font-weight:700; font-size:16px;">⚙️ ĐANG ĐỐI CHIẾU MA TRẬN PHÁT TRIỂN MẪU</h5>
-                    <p style="margin:4px 0 0 0; font-size:13px; color:#64748B;">
-                        <b>Mẫu Gốc A:</b> {d1['style_number_parsed']} [Size: {d1.get('base_size_name','N/A')}] 
-                        &nbsp;|&nbsp; 
-                        <b>Mẫu Sửa B:</b> {d2['style_number_parsed']} [Size: {d2.get('base_size_name','N/A')}]
-                    </p>
-                </div>
-            """, unsafe_allow_html=True)
-            
-            def clean_garment_fraction(v_str):
-                if not v_str or str(v_str).strip().upper() in ["N/A", "N/A INCH", ""]: return 0.0
-                try:
-                    s = str(v_str).replace("INCH", "").strip()
-                    if " " in s:
-                        parts = s.split()
-                        whole = float(parts[0])
-                        frac = parts[1].split('/')
-                        return whole + (float(frac[0]) / float(frac[1]))
-                    elif "/" in s:
-                        frac = s.split('/')
-                        return float(frac[0]) / float(frac[1])
-                    return float(s)
-                except:
-                    nums = re.findall(r"[-+]?\d*\.\d+|\d+", str(v_str))
-                    return float(nums[0]) if nums else 0.0
-
-            size_a = d1.get("base_size_name", "BASE").strip()
-            size_b = d2.get("base_size_name", "BASE").strip()
-            col_title_a = f"Mẫu A ({d1['style_number_parsed']}) [{size_a}]"
-            col_title_b = f"Mẫu B ({d2['style_number_parsed']}) [{size_b}]"
-            all_poms = set(list(d1["measurements"].keys()) + list(d2["measurements"].keys()))
-            
-            table_body_html = ""
-            compare_rows_for_df = []
-            
-            for pom in sorted(all_poms):
-                val1 = d1["measurements"].get(pom, "N/A")
-                val2 = d2["measurements"].get(pom, "N/A")
-                num1 = clean_garment_fraction(val1)
-                num2 = clean_garment_fraction(val2)
-                
-                delta = round(num2 - num1, 3) if val1 != "N/A" and val2 != "N/A" else 0.0
-                compare_rows_for_df.append({"Vị trí đo (POM)": pom, col_title_a: val1, col_title_b: val2, "Sai lệch (Delta)": delta})
-                
-                if delta > 0:
-                    delta_style = "background-color:rgba(16,185,129,0.15); color:#166534; font-weight:700; padding:2px 8px; border-radius:4px; font-size:12px; border:1px solid #BBF7D0;"
-                    delta_text = f"+{delta}"
-                elif delta < 0:
-                    delta_style = "background-color:rgba(239,68,68,0.15); color:#991B1B; font-weight:700; padding:2px 8px; border-radius:4px; font-size:12px; border:1px solid #FECACA;"
-                    delta_text = f"{delta}"
-                else:
-                    delta_style = "color:#64748B; font-size:12px;"
-                    delta_text = "0.00"
-                
-                table_body_html += f"""<tr style="background-color: #FFFFFF;">
-                    <td style="padding: 10px 14px; border-bottom: 1px solid #E2E8F0; font-weight: 600; color: #1E293B; font-size: 13px;">{pom}</td>
-                    <td style="padding: 10px 14px; border-bottom: 1px solid #E2E8F0; color: #334155; font-size: 13px;">{val1}</td>
-                    <td style="padding: 10px 14px; border-bottom: 1px solid #E2E8F0; color: #334155; font-size: 13px;">{val2}</td>
-                    <td style="padding: 10px 14px; border-bottom: 1px solid #E2E8F0; text-align: center;"><span style="{delta_style}">{delta_text}</span></td>
-                </tr>"""
-            
-            full_table_render = f"""
-            <div style="max-height: 460px; overflow-y: auto; border: 1px solid #CBD5E1; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.02); margin-top: 15px;">
-                <table style="width: 100%; border-collapse: collapse; text-align: left; font-family: sans-serif;">
-                    <thead>
-                        <tr style="background: linear-gradient(90deg, #1E3A8A 0%, #2563EB 100%);">
-                            <th style="color: #FFFFFF; font-weight: 600; padding: 14px 16px; font-size: 13px; position: sticky; top: 0; z-index: 10;">Vị trí đo (POM Description)</th>
-                            <th style="color: #FFFFFF; font-weight: 600; padding: 14px 16px; font-size: 13px; position: sticky; top: 0; z-index: 10;">{col_title_a}</th>
-                            <th style="color: #FFFFFF; font-weight: 600; padding: 14px 16px; font-size: 13px; position: sticky; top: 0; z-index: 10;">{col_title_b}</th>
-                            <th style="color: #FFFFFF; font-weight: 600; padding: 14px 16px; font-size: 13px; text-align: center; width: 150px; position: sticky; top: 0; z-index: 10;">Sai lệch (Delta)</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {table_body_html}
-                    </tbody>
-                </table>
-            </div>
-            """
-            st.markdown(full_table_render, unsafe_allow_html=True)
-            st.markdown("<br>", unsafe_allow_html=True)
-            
-            # ĐÃ VÁ LỖI CỤT: Hoàn thiện logic định dạng cột và sinh tệp Excel tự động
-            df_compare = pd.DataFrame(compare_rows_for_df)
-            towrite = io.BytesIO()
-            with pd.ExcelWriter(towrite, engine='xlsxwriter') as writer: 
-                df_compare.to_excel(writer, index=False, sheet_name='Spec_Report')
-                workbook  = writer.book
-                worksheet = writer.sheets['Spec_Report']
-                header_format = workbook.add_format({'bold':True,'text_wrap':True,'fg_color':'#1E3A8A','font_color':'white','border':1,'align':'center','valign':'vcenter'})
-                center_format = workbook.add_format({'align':'center','valign':'vcenter','border':1})
-                left_format = workbook.add_format({'align':'left','valign':'vcenter','border':1})
-                
-                for col_num, column_title in enumerate(df_compare.columns):
-                    worksheet.write(0, col_num, column_title, header_format)
-                    
-                for i, col in enumerate(df_compare.columns):
-                    max_len = max(df_compare[col].astype(str).map(len).max(), len(col)) + 3
-                    if col == "Vị trí đo (POM)":
-                        worksheet.set_column(i, i, max_len, left_format)
-                    else:
-                        worksheet.set_column(i, i, max_len, center_format)
-                        
-            st.download_button(
-                label="📥 DOWNLOAD COMPARISON EXCEL REPORT",
-                data=towrite.getvalue(),
-                file_name=f"Spec_Comparison_{d1['style_number_parsed']}_vs_{d2['style_number_parsed']}.xlsx",
-                mime="application/vnd.ms-excel",
-                use_container_width=True
-            )
-
-# =============================================================================
-# CHỨC NĂNG 3: TRỢ LÝ ĐỊNH MỨC VẢI (INTELLIGENT DATA PIPELINE - PHẦN 1)
-# =============================================================================
-elif menu_selection == "🧵 BOM & Consumption Matrix":
     st.markdown('<div class="component-title-box">🧵 INTELLIGENT BOM & CONSUMPTION MATRIX ENGINE</div>', unsafe_allow_html=True)
     
     # Thiết lập giao diện điều khiển hàng ngang cố định chống tràn trang
@@ -557,7 +419,7 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
     # Khởi tạo mảng lưu lịch sử hội thoại chuẩn hóa
     if "chat_history" not in st.session_state:
         st.session_state["chat_history"] = [
-            {"role": "assistant", "type": "text", "content": "Welcome to PPJ Textile Visual R&D Engine. Hãy tải lên sơ đồ rập/Techpack mã mới và ra lệnh. Tôi sẽ tìm chính xác mã tương đồng, xuất ảnh Sketch và tính định mức vải/phụ liệu theo đúng yêu cầu, không trả lời lan man."}
+            {"role": "assistant", "type": "text", "content": "Welcome to PPJ Textile Visual R&D Engine. Hãy tải lên sơ đồ rập/Techpack mã mới và ra lệnh. Tôi sẽ tìm chính xác mã tương đồng bằng hình ảnh phom dáng/cấu trúc túi, xuất ảnh Sketch và đối soát thông số tính định mức vải chính xác, không trả lời lan man."}
         ]
         
     # HIỂN THỊ LỊCH SỬ CHAT SẠCH: Loại bỏ ảnh vỡ cũ khỏi bộ nhớ đệm
@@ -629,109 +491,153 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                                 except Exception:
                                     import time
                                     time.sleep(2 * (ext_attempt + 1))
-                                                # ✨ THUẬT TOÁN ĐỒNG BỘ: Chuẩn hóa từ khóa trích xuất sạch chữ tiếng Việt
+                        # ✨ THUẬT TOÁN ĐỒNG BỘ: Chuẩn hóa từ khóa trích xuất sạch chữ tiếng Việt
                         text_to_extract = user_query
                         if chat_file and str(new_style_id_detected).strip() != "UNKNOWN_STYLE":
                             text_to_extract = str(new_style_id_detected).strip()
                         
                         clean_text_upper = str(text_to_extract).strip().upper()
                         
-                        # Bộ lọc mở rộng để dọn sạch tất cả các cụm từ yêu cầu thông số thông dụng bằng Regex
-                        patterns_to_remove = r"TÌM HÌNH ẢNH VÀ THÔNG SỐ MÃ HÀNG|TÌM THÔNG SỐ MÃ HÀNG|TÌM THÔNG SỐ MÃ|TÌM CODE VẢI MÃ NÀY|TÌM CODE VẢI NÀY|TÌM CODE VẢI MÃ|TÌM CODE VẢI|TÌM MÃ HÀNG|THÔNG SỐ MÃ|TÌM MÃ|THÔNG SỐ|TÌM"
+                        # Bộ lọc tối ưu cao: Ưu tiên xếp các cụm từ dài nhất lên trước để tránh sót chữ nhiễu
+                        patterns_to_remove = r"TÌM HÌNH ẢNH VÀ THÔNG SỐ MÃ HÀNG|THÔNG SỐ CHI TIẾT MÃ HÀNG|THÔNG SỐ CHI TIẾT MÃ|TÌM THÔNG SỐ MÃ HÀNG|TÌM CODE VẢI MÃ NÀY|TÌM THÔNG SỐ MÃ|TÌM CODE VẢI NÀY|TÌM CODE VẢI MÃ|THÔNG SỐ MÃ HÀNG|TÌM MÃ HÀNG KHÔNG|TÌM MÃ HÀNG NÀY|TÌM MÃ HÀNG|THÔNG SỐ MÃ|TÌM HÀNG|TÌM CODE VẢI|THÔNG SỐ|TÌM MÃ|TÌM"
                         raw_keyword = re.sub(patterns_to_remove, "", clean_text_upper).strip()
                         
                         # Thuật toán chuẩn hóa dấu gạch ngang chuẩn xác từng chữ (Ví dụ: SJ 8902 -> SJ-8902)
                         if "SJ" in raw_keyword:
                             extract_num = re.findall(r"\d+", raw_keyword)
-                            dynamic_keyword = f"SJ-{extract_num[0]}" if extract_num else raw_keyword
+                            dynamic_keyword = f"SJ-{extract_num}" if extract_num else raw_keyword
                         else:
                             dynamic_keyword = raw_keyword
-                        
+
                         # =========================================================================
-                                                # =========================================================================
-                                                # =========================================================================
-                                                # =========================================================================
-                        # BƯỚC 1: TRUY VẤN DANH SÁCH HÌNH ẢNH SKETCH TRONG KHO (CHẠY SIÊU NHANH)
+                        # BƯỚC 1: TRUY VẤN DANH SÁCH HÌNH ẢNH SKETCH TRONG KHO (QUÉT TÌM KIẾM NHANH)
                         # =========================================================================
-                        # Chỉ lấy các trường định danh và hình ảnh để AI quét nhanh, không lấy cục thông số nặng
                         headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
                         url_tp = f"{SB_URL.rstrip('/')}/rest/v1/thong_so_techpack"
                         
-                        # Chỉ lấy StyleName, Category và SketchURL để AI nhận diện hình ảnh
                         res_master_images = requests.get(url_tp, headers=headers, params={"select": "StyleName,Category,SketchURL", "limit": 1000}, timeout=15)
                         db_master_images = res_master_images.json() if res_master_images.status_code == 200 else []
 
-                        # Gửi ảnh Techpack mới và danh sách ảnh trong kho để AI chọn ra mã giống dáng nhất
+                        # Ép AI nhận diện chi tiết kết cấu túi trước/sau để tìm phom trùng khớp hoặc trả về NONE
                         image_matching_prompt = f"""
-                        Bạn là chuyên gia nhận diện phom dáng dệt may. Hãy nhìn vào ảnh Techpack mới tải lên này (Mã tạm gọi: {dynamic_keyword}).
-                        Đối chiếu hình ảnh thiết kế phẳng/Sketch của nó với danh sách hình ảnh các mã trong kho dưới đây:
-                        {json.dumps(db_master_images[:100], ensure_ascii=False)} # Quét nhanh 100 mã cùng danh mục trước
+                        Bạn là chuyên gia nhận diện phom dáng và cấu trúc kỹ thuật dệt may tại PPJ Group. 
+                        Hãy nhìn kỹ vào ảnh Techpack mới tải lên này (Mã: {dynamic_keyword}).
+
+                        Nhiệm vụ: Bạn phải phân tích CẤU TRÚC CHI TIẾT của sản phẩm mới để tìm mã tương đồng, KHÔNG ĐƯỢC CHỈ NHÌN VÀO TIÊU ĐỀ CATEGORY CHUNG CHUNG.
+
+                        QUY TẮC NHẬN DIỆN CẤU TRÚC (BẮT BUỘC):
+                        1. Phân loại cấu trúc túi:
+                           - Nhìn kỹ túi trước: Là túi cong 5 túi kiểu Jeans (Western 5-pocket) có túi xu (coin pocket) hay là túi xéo kiểu quần Tây/Chinos (Slant pockets)?
+                           - Nhìn kỹ túi sau: Là túi đắp (Patch pockets) may nổi bên ngoài hay là túi mổ (Welt pockets / Chapa pocket) ẩn bên trong?
+                        2. Phân loại kiểu dáng & Vải:
+                           - Là Denim/Jeans (Sateen, Twill dày) hay quần kaki/quần tây vải nhẹ?
+
+                        ĐỐI CHIẾU VỚI DANH SÁCH TRONG KHO:
+                        Hãy quét danh sách trong kho dưới đây và CHỈ ĐƯỢC CHỌN mã nào TRÙNG KHỚP CẢ CẤU TRÚC TÚI VÀ PHOM DÁNG (Ví dụ: Jeans 5 túi chỉ được so sánh với Jeans 5 túi; Quần tây túi xéo chỉ được so sánh với quần tây túi xéo):
+                        {json.dumps(db_master_images[:120], ensure_ascii=False)}
                         
-                        Nhiệm vụ: Tìm ra duy nhất một Mã hàng (StyleName) có hình ảnh vẽ phẳng, kiểu dáng (Jeans, Jacket, Short...) giống mã mới này nhất.
-                        Trả về kết quả dưới dạng JSON chính xác: {{"matched_style_id": "TÊN_MÃ_TÌM_ĐƯỢC", "reason": "Lý do chọn vì dáng giống nhau ở điểm nào"}}
+                        - Nếu trong kho KHÔNG CÓ mã nào có cấu trúc túi và phom dáng trùng khớp (ví dụ kho chỉ có quần túi mổ mà mã mới là quần túi đắp), bạn BẮT BUỘC phải trả về chữ "NONE" để hệ thống chuyển sang luồng tự tính toán độc lập. Không được đoán mò hoặc ép so sánh lệch form!
+                        
+                        Trả về JSON chính xác: {{"matched_style_id": "TÊN_MÃ_HOẶC_NONE", "reason": "Mô tả chi tiết cấu trúc túi trước/sau của mã mới và mã tương đồng để chứng minh độ trùng khớp"}}
                         """
                         
                         match_payload = contents_payload + [image_matching_prompt] if chat_file and len(contents_payload) > 0 else [image_matching_prompt]
                         
-                        # Gọi Gemini quét ảnh nhanh
                         match_res = client.models.generate_content(
                             model='gemini-2.5-flash',
                             contents=match_payload,
                             config=types.GenerateContentConfig(response_mime_type="application/json", temperature=0.0)
                         )
                         parsed_match = json.loads(match_res.text.strip())
-                        matched_style = parsed_match.get("matched_style_id", "").strip()
+                        matched_style = str(parsed_match.get("matched_style_id", "")).strip().upper()
                         match_reason = parsed_match.get("reason", "")
-
-                        # =========================================================================
-                        # BƯỚC 2: BỐC CHI TIẾT SỐ LIỆU CỦA MÃ TƯƠNG ĐỒNG ĐỂ ĐỐI SOÁT & TÍNH ĐỊNH MỨC
-                        # =========================================================================
-                        st.info(f"🔍 ĐÃ TÌM THẤY MÃ TƯƠNG ĐỒNG BẰNG HÌNH ẢNH: **{matched_style}**")
-                        
-                        # Bốc thông số hiện tại từ file mới quét (nếu có)
+                        # Lấy thông số thô của chính mã mới vừa tải lên
                         db_techpack_specs = get_techpack_spec_from_db(dynamic_keyword)
                         extracted_specs_data = {}
                         if db_techpack_specs and isinstance(db_techpack_specs, list) and len(db_techpack_specs) > 0:
-                            extracted_specs_data = db_techpack_specs[0].get("DetailedMeasurements", {})
+                            first_record = db_techpack_specs
+                            found_sketch_url = first_record.get("SketchURL")
+                            extracted_specs_data = first_record.get("DetailedMeasurements", {})
                         elif db_techpack_specs and isinstance(db_techpack_specs, dict):
+                            found_sketch_url = db_techpack_specs.get("SketchURL")
                             extracted_specs_data = db_techpack_specs.get("DetailedMeasurements", {})
 
-                        # Chỉ lôi đúng dữ liệu của mã tương đồng vừa tìm được lên (Không lôi cả kho)
-                        db_matched_specs = get_techpack_spec_from_db(matched_style)
-                        db_matched_consumption = get_historical_fabric_consumption_from_db(matched_style)
-                        
-                        matched_specs_clean = db_matched_specs[0].get("DetailedMeasurements", {}) if db_matched_specs else {}
-                        matched_sketch_url = db_matched_specs[0].get("SketchURL", "") if db_matched_specs else ""
-
                         # =========================================================================
-                        # BƯỚC 3: ĐẨY SỐ LIỆU CO ĐỌNG CHO AI TÍNH TOÁN
+                        # LUỒNG RẼ NHÁNH TỰ ĐỘNG TÍNH TOÁN THEO KỊCH BẢN KHẢ DỤNG
                         # =========================================================================
-                        reasoning_prompt = f"""
-                        Bạn là chuyên gia định mức R&D tại PPJ Group.
-                        Hệ thống định vị hình ảnh đã chọn mã **{matched_style}** trong kho làm mã tương đồng với mã mới **{dynamic_keyword}** của bạn vì: "{match_reason}"
-                        
-                        Nhiệm vụ: Hãy so sánh bảng thông số hình học (Specs) và tính định mức tiêu hao vải/phụ liệu mới.
+                        if matched_style and matched_style != "NONE":
+                            # 👉 LUỒNG A: TÌM THẤY MÃ TƯƠNG ĐỒNG (Tính dựa trên đối soát lệch thông số)
+                            st.info(f"🔍 ĐÃ TÌM THẤY MÃ TƯƠNG ĐỒNG BẰNG HÌNH ẢNH CẤU TRÚC: **{matched_style}**")
+                            db_matched_specs = get_techpack_spec_from_db(matched_style)
+                            db_matched_consumption = get_historical_fabric_consumption_from_db(matched_style)
+                            
+                            matched_specs_clean = db_matched_specs.get("DetailedMeasurements", {}) if db_matched_specs else {}
+                            matched_sketch_url = db_matched_specs.get("SketchURL", "") if db_matched_specs else ""
 
-                        DỮ LIỆU ĐỐI CHIẾU:
-                        1. Thông số chi tiết mã mới ({dynamic_keyword}): {json.dumps(extracted_specs_data, ensure_ascii=False) if extracted_specs_data else new_style_raw_text}
-                        2. Thông số gốc của mã tương đồng ({matched_style}): {json.dumps(matched_specs_clean, ensure_ascii=False)}
-                        3. Định mức vải/phụ liệu lịch sử mã tương đồng ({matched_style}): {json.dumps(db_matched_consumption, ensure_ascii=False)}
+                            reasoning_prompt = f"""
+                            Bạn là chuyên gia định mức R&D dệt may tại PPJ Group. 
+                            Hãy so sánh bảng thông số hình học và tính định mức tiêu hao vải mới dựa trên mã tương đồng **{matched_style}** đã khớp cấu trúc phom/túi.
 
-                        HÃY THỰC HIỆN:
-                        1. Đối soát kích thước: So sánh chi tiết các vị trí (Dài quần, Vòng bụng, Rộng đùi, Rộng ống...) của mã mới so với mã tương đồng. Lập bảng chỉ ra độ lệch (cm/inch).
-                        2. Tính định mức vải mới: Dựa vào định mức gốc của mã tương đồng và mức độ tăng/giảm thông số cơ thể ở bước trên để cộng/trừ định mức vải chính xác. (Nếu thiếu khổ vải, tự giả định khổ tiêu chuẩn 58" và hao hụt cắt rập 4%).
-                        3. Kết luận: Trình bày bảng kết quả định mức dự kiến rõ ràng cho mã mới {dynamic_keyword}.
-                        """
-                        
+                            DỮ LIỆU ĐỐI CHIẾU:
+                            1. Thông số chi tiết mã mới ({dynamic_keyword}): {json.dumps(extracted_specs_data, ensure_ascii=False) if extracted_specs_data else new_style_raw_text}
+                            2. Thông số gốc mã tương đồng ({matched_style}): {json.dumps(matched_specs_clean, ensure_ascii=False)}
+                            3. Định mức gốc mã tương đồng ({matched_style}): {json.dumps(db_matched_consumption, ensure_ascii=False)}
+
+                            HÃY THỰC HIỆN:
+                            - Lập bảng đối soát độ lệch kích thước ở các vị trí POM chủ chốt giữa 2 mã.
+                            - Dựa vào định mức của mã cũ và độ tăng/giảm số đo của mã mới để cộng/trừ định mức vải chính xác (Yard/Cái hoặc Mét/Cái).
+                            - Giải thích lý do chọn mã này: {match_reason}
+                            """
+                        else:
+                            # 👉 LUỒNG B: KHÔNG CÓ MÃ TƯƠNG ĐỒNG (Yêu cầu kỹ sư cung cấp thông số cốt lõi để tính toán)
+                            st.warning("⚠️ KHO KHÔNG CÓ MÃ TƯƠNG ĐỒNG ĐỒNG NHẤT CẤU TRÚC TÚI/PHOM DÁNG.")
+                            matched_sketch_url = None
+                            
+                            # Kiểm tra xem trong câu lệnh của người dùng đã có các từ khóa về khổ vải hoặc co rút chưa
+                            user_query_upper = user_query.upper()
+                            has_fabric_info = any(x in user_query_upper for x in ["KHỔ", "KHO", "WIDTH", "CO RÚT", "CO RUT", "SHRINKAGE"])
+                            
+                            if not has_fabric_info:
+                                # Kịch bản B1: Nếu kỹ sư chưa nhập thông số sản xuất, AI dừng lại và đưa ra form yêu cầu phỏng vấn ngược
+                                reasoning_prompt = f"""
+                                Bạn là trợ lý định mức R&D tại PPJ Group. Kho dữ liệu hiện chưa có mã tương đồng phù hợp với kết cấu túi/thiết kế này.
+                                Để có thể tính toán định mức vải chính xác từ con số 0 dựa trên bảng thông số Specs vừa quét, bạn KHÔNG ĐƯỢC ĐOÁN MÒ mà phải yêu cầu kỹ sư cung cấp dữ liệu sản xuất thực tế.
+                                
+                                Hãy phản hồi cho kỹ sư theo cấu trúc sau:
+                                1. Thông báo hệ thống không tìm thấy mã tương đồng khớp cấu trúc túi (Ví dụ: mã mới là quần 5 túi Jeans nhưng kho chỉ có quần tây túi xéo/mổ). Hệ thống đã bóc tách thành công bảng thông số Specs của mã {dynamic_keyword}.
+                                2. Đưa ra danh sách 3 thông số bắt buộc yêu cầu kỹ sư nhập vào ô chat tiếp theo để kích hoạt lõi tính toán hình học:
+                                   - Khổ vải thực tế sử dụng (Ví dụ: 57", 58", 60"...)
+                                   - Tỷ lệ co rút dự kiến sau giặt/nhuộm (Garment Wash/Dye Shrinkage % dọc và ngang)
+                                   - Tỷ lệ hao hụt cắt rập mong muốn (Wastage %, thường nhà máy là 4%)
+                                3. Trình bày ngắn gọn, đặt câu hỏi rõ ràng bằng các gạch đầu dòng để kỹ sư phản hồi.
+                                """
+                            else:
+                                # Kịch bản B2: Kỹ sư đã trả lời và cung cấp thông số -> AI tiến hành tính toán số học chính xác từ Specs
+                                reasoning_prompt = f"""
+                                Bạn là chuyên gia định mức R&D dệt may độc lập tại PPJ Group. 
+                                Kỹ sư đã cung cấp thông số sản xuất thực tế trong câu lệnh: "{user_query}"
+                                
+                                Nhiệm vụ: Hãy sử dụng thông số Specs của mã mới: {json.dumps(extracted_specs_data, ensure_ascii=False) if extracted_specs_data else new_style_raw_text}
+                                Kết hợp với Khổ vải và Độ co rút mà kỹ sư vừa nhập để tự động tính toán định mức hình học chuẩn xác từ con số 0 cho mã {dynamic_keyword}.
+                                
+                                YÊU CẦU TÍNH TOÁN:
+                                1. Áp dụng công thức tính định mức hình học cho loại sản phẩm này (Ví dụ với quần Jeans: [Dài quần + Hạ đũng + Hao hụt] x [Vòng mông + Rộng đùi + Hao hụt] / Khổ vải x 2 thân / Hệ số giác sơ đồ), có cộng thêm % co rút và % hao hụt cắt rập thực tế được cung cấp.
+                                2. Xuất kết quả rõ ràng dưới dạng bảng Markdown: Tên chi tiết (Vải chính), Khổ vải, % Co rút áp dụng, Định mức vải dự kiến dự trên một sản phẩm (Yard hoặc Mét).
+                                """
+
+                        # Gọi Gemini thực thi luồng prompt tương ứng
+                        final_payload = contents_payload + [reasoning_prompt] if chat_file and len(contents_payload) > 0 else [reasoning_prompt]
                         final_res = client.models.generate_content(
                             model='gemini-2.5-flash',
-                            contents=[reasoning_prompt]
+                            contents=final_payload
                         )
                         
-                        ans_text = f"### 🧵 KẾT QUẢ ĐỐI SOÁT ĐỊNH MỨC TỰ ĐỘNG\n\n**Mã tương đồng lựa chọn:** {matched_style}\n\n*Lý do lựa chọn form dáng:* {match_reason}\n\n" + final_res.text.strip()
+                        # Hiển thị tiêu đề kết quả động dựa theo tình huống rẽ nhánh
+                        title_prefix = f"### 🧵 KẾT QUẢ ĐỐI SOÁT ĐỊNH MỨC (DỰA TRÊN MÃ {matched_style})\n\n" if matched_style != "NONE" else "### 📐 KẾT QUẢ TỰ TÍNH TOÁN ĐỊNH MỨC ĐỘC LẬP (KHO KHÔNG CÓ MẪU TRÙNG CẤU TRÚC)\n\n"
+                        ans_text = title_prefix + final_res.text.strip()
                         st.write(ans_text)
                         
-                        # Lưu lịch sử và kết xuất hình ảnh đối chứng lên màn hình
+                        # Lưu lịch sử hội thoại và hiển thị hình ảnh đối chứng nếu có
                         chat_node = {"role": "assistant", "type": "text", "content": ans_text}
                         if matched_sketch_url:
                             chat_node = {"role": "assistant", "type": "visual", "content": ans_text, "image_url": matched_sketch_url, "style_title": matched_style}
