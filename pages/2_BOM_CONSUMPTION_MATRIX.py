@@ -703,7 +703,7 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                         """
 
                         
-                        contents_payload.append(intel_prompt)
+                                                contents_payload.append(intel_prompt)
                         ai_response = client.models.generate_content(
                             model='gemini-2.5-flash',
                             contents=contents_payload
@@ -715,39 +715,45 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                         new_msg_entry = {"role": "assistant", "type": "text", "content": final_text}
                         
                         # =============================================================================
-                        # BẢN VÁ TỐI CAO: ÉP HIỂN THỊ ẢNH TRỰC TIẾP RA MÀN HÌNH BẰNG PYTHON PYTHON
+                        # ĐỒ HỌA ĐỒNG BỘ CHUẨN XÁC: CHỈ HIỂN THỊ ẢNH KHI THỰC SỰ TỒN TẠI TRONG KHO (ĐOẠN CUỐI 3C)
                         # =============================================================================
-                        image_url_to_render = ""
-                        if found_sketch_url and str(found_sketch_url).strip() != "" and str(found_sketch_url).strip().lower() != "null":
-                            image_url_to_render = str(found_sketch_url).strip()
-                        else:
-                            clean_filename_target = str(new_style_id_detected).strip()
-                            if clean_filename_target == "UNKNOWN_STYLE" or not clean_filename_target:
-                                clean_filename_target = str(dynamic_keyword).strip()
-                            clean_filename_target = re.sub(r'[^a-zA-Z0-9_-]', '', clean_filename_target)
-                            image_url_to_render = f"https://supabase.co{clean_filename_target}.jpg"
-
-                        try:
-                            img_check = requests.head(image_url_to_render, timeout=5)
-                            if img_check.status_code != 200:
-                                image_url_to_render = "https://supabase.coR09-496091.jpg"
-                                img_check = requests.head(image_url_to_render, timeout=5)
-                                
-                            if img_check.status_code == 200:
-                                new_msg_entry["type"] = "visual"
-                                new_msg_entry["image_url"] = image_url_to_render
-                                new_msg_entry["style_title"] = dynamic_keyword
-                                
-                                st.markdown("---")
-                                st.image(image_url_to_render, caption=f"📸 Bản vẽ Sketch kỹ thuật đối chiếu thực tế mã hàng: {new_style_id_detected}", width=380)
-                            else:
-                                st.markdown("---")
-                                st.image("https://supabase.coR09-496091.jpg", caption=f"📸 Bản vẽ Sketch kỹ thuật đối chiếu mã hàng gốc: R09-496091", width=380)
-                        except Exception:
-                            st.markdown("---")
-                            st.image("https://supabase.coR09-496091.jpg", caption=f"📸 Bản vẽ Sketch kỹ thuật đối chiếu mã hàng gốc: R09-496091", width=380)
+                        final_image_url = None
+                        
+                        # 1. Kiểm tra nếu link ảnh bốc ra từ database thong_so_techpack hợp lệ thì lấy dùng
+                        if db_techpack_specs and isinstance(db_techpack_specs, list) and len(db_techpack_specs) > 0:
+                            first_record = db_techpack_specs[0]
+                            found_sketch_url = first_record.get("SketchURL")
+                        elif db_techpack_specs and isinstance(db_techpack_specs, dict):
+                            found_sketch_url = db_techpack_specs.get("SketchURL")
                             
+                        if found_sketch_url and str(found_sketch_url).strip() != "" and str(found_sketch_url).strip().lower() != "null":
+                            final_image_url = str(found_sketch_url).strip()
+                        else:
+                            # 2. Nếu db trống, thử kiểm tra xem trong Storage kho_anh có file ảnh nào trùng tên mã hàng hay không
+                            clean_filename_target = re.sub(r'[^a-zA-Z0-9_-]', '', str(new_style_id_detected).strip())
+                            if clean_filename_target and clean_filename_target != "UNKNOWN_STYLE":
+                                test_url = f"https://supabase.co{clean_filename_target}.jpg"
+                                try:
+                                    if requests.head(test_url, timeout=3).status_code == 200:
+                                        final_image_url = test_url
+                                except Exception:
+                                    pass
+
+                        # 3. Ép Streamlit hiển thị ảnh: CHỈ vẽ ra màn hình khi link ảnh thực sự tồn tại hợp lệ
+                        if final_image_url:
+                            st.markdown("---")
+                            st.image(
+                                final_image_url, 
+                                caption=f"🖼 *Bản vẽ sơ đồ phác thảo phẳng thiết kế mẫu kỹ thuật mã {dynamic_keyword}*", 
+                                use_container_width=True
+                            )
+                            new_msg_entry["type"] = "visual"
+                            new_msg_entry["image_url"] = final_image_url
+                            new_msg_entry["style_title"] = dynamic_keyword
+                        
+                        # Lưu dữ liệu văn bản vào bộ nhớ lưu trữ lịch sử cuộc hội thoại chat
                         st.session_state["chat_history"].append(new_msg_entry)
                         
                     except Exception as e:
                         st.error(f"FAIL PIPELINE COUPLING: {str(e)}")
+
