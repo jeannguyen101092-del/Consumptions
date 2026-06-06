@@ -627,18 +627,6 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                                 except Exception:
                                     import time
                                     time.sleep(2 * (ext_attempt + 1))
-                        # ✨ THUẬT TOÁN ĐỒNG BỘ: Chuẩn hóa từ khóa trích xuất sạch chữ tiếng Việt
-                        text_to_extract = user_query
-                        if chat_file and str(new_style_id_detected).strip() != "UNKNOWN_STYLE":
-                            text_to_extract = str(new_style_id_detected).strip()
-                        
-                        clean_text_upper = str(text_to_extract).strip().upper()
-                        
-                        # Bộ lọc mở rộng để dọn sạch tất cả các cụm từ yêu cầu thông số thông dụng
-patterns_to_remove = r"TÌM HÌNH ẢNH VÀ THÔNG SỐ MÃ HÀNG|TÌM THÔNG SỐ MÃ HÀNG|TÌM THÔNG SỐ MÃ|TÌM CODE VẢI MÃ NÀY|TÌM CODE VẢI NÀY|TÌM CODE VẢI MÃ|TÌM CODE VẢI|TÌM MÃ HÀNG|THÔNG SỐ MÃ|TÌM MÃ|THÔNG SỐ|TÌM"
-raw_keyword = re.sub(patterns_to_remove, "", clean_text_upper).strip()
-
-                        
                                                 # ✨ THUẬT TOÁN ĐỒNG BỘ: Chuẩn hóa từ khóa trích xuất sạch chữ tiếng Việt
                         text_to_extract = user_query
                         if chat_file and str(new_style_id_detected).strip() != "UNKNOWN_STYLE":
@@ -674,7 +662,6 @@ raw_keyword = re.sub(patterns_to_remove, "", clean_text_upper).strip()
                             found_sketch_url = db_techpack_specs.get("sketch_url")
                             extracted_specs_data = db_techpack_specs.get("DetailedMeasurements", {})
 
-
                         # =========================================================================
                         # TIẾN HÀNH TÍNH TOÁN ĐỊNH MỨC VÀ TRẢ LỜI NGƯỜI DÙNG QUA GEMINI
                         # =========================================================================
@@ -685,7 +672,7 @@ raw_keyword = re.sub(patterns_to_remove, "", clean_text_upper).strip()
                         Dữ liệu hệ thống bóc tách được:
                         - Mã hàng nhận diện (Dynamic Keyword): {dynamic_keyword}
                         - Thông tin BOM/Thông số quét từ file mới tải lên: {new_style_raw_text if new_style_raw_text else "Không có file mới"}
-                        - Định mức lịch sử trong kho dữ liệu PPJ (Nếu có): {json.dumps(db_historical_consumption, ensure_ascii=False)}
+                        - Định mức lịch sử trong kho dữ liệu PPJ (Nếu có): {json.dumps(db_historical_consumption, ensure_ascii=False) if db_historical_consumption else "[]"}
                         - Thông số kỹ thuật chi tiết từ kho dữ liệu (Nếu có): {json.dumps(extracted_specs_data, ensure_ascii=False)}
                         
                         Yêu cầu phản hồi:
