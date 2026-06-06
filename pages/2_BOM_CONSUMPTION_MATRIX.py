@@ -91,7 +91,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 # Cấu hình cổng kết nối Master DB của Tập đoàn PPJ Group
 SB_URL = "https://ewqqodsfvlvnrzsylawy.supabase.co"
-SB_KEY = st.secrets.get("SUPABASE_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV3cXFvZHNmdmx2bnJ6c3lsYXd5Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NTUxMTkyOTAsImV4cCI6MjA5MDY5NTI5MH0.p6yT87R7GvXg-7Xj2I9S7t_K9F1T4vXW6y9Xz3V5W8I")
+SB_KEY = st.secrets.get("SUPABASE_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV3cXFvZHNmdmx2bnJ6c3lsYXd5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUxMTkyOTAsImV4cCI6MjA5MDY5NTI5MH0.BWPxOsyswBT5CLrZgluRC1F2x5EpU06oexUFyakGhyc")
 
 def get_secure_gemini_key():
     """Hàm bảo mật trích xuất Token API chìa khóa phân tích từ bộ Secrets"""
