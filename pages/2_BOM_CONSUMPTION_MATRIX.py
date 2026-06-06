@@ -602,19 +602,22 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                                     import time
                                     time.sleep(2 * (ext_attempt + 1))
                         
-                        # ✨ THUẬT TOÁN ĐỒNG BỘ: Sửa lỗi bẻ mã cũ, tự động lấy chuỗi ký tự/số nguyên bản từ text chat hoặc OCR
+                                                # ✨ THUẬT TOÁN ĐỒNG BỘ: Tự động trích xuất chuỗi mã sạch chữ và số nguyên bản từ câu lệnh chat
                         text_to_extract = user_query
                         if chat_file and str(new_style_id_detected).strip() != "UNKNOWN_STYLE":
                             text_to_extract = str(new_style_id_detected).strip()
                         
                         clean_text_upper = str(text_to_extract).strip().upper()
                         
-                        # Trích xuất chuỗi số định danh chính xác không bị bọc bởi cặp dấu ngoặc vuông []
+                        # Tìm chuỗi số liên tiếp có từ 3 ký tự trở lên (Ví dụ: 8902)
                         numbers_found = re.findall(r'\d{3,}', clean_text_upper)
                         if numbers_found:
+                            # SỬA LỖI: Lấy phần tử đầu tiên [0] để biến thành chuỗi text thuần túy "8902", loại bỏ dấu ngoặc vuông []
                             dynamic_keyword = str(numbers_found[0]).strip()
                         else:
+                            # Nếu không tìm thấy số, giữ nguyên ký tự chữ thô sạch để tra cứu công khai
                             dynamic_keyword = clean_text_upper
+
                         # =============================================================================
                         # TRUY VẤN SONG SONG 3 KHO TRÊN SUPABASE BẰNG TỪ KHÓA CHUẨN
                         # =============================================================================
