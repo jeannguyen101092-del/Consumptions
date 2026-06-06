@@ -147,8 +147,7 @@ def save_to_supabase_techpack_table(payload_data):
 def get_historical_fabric_consumption_from_db(search_keyword=None):
     """
     Hàm tra cứu kho dữ liệu san_pham lịch sử nâng cao.
-    ✨ ĐÃ SỬA LỖI TRÍCH XUẤT CHUỖI SẠCH: Giải nén chính xác phần tử index [0] của List số.
-    Bảo đảm gửi chuỗi văn bản thuần túy 8002 lên database với quyền quản trị service_role tối cao.
+    ✨ ĐÃ SỬA LỖI TRÍCH XUẤT CHUỖI SẠCH: Kết nối chuẩn xác qua Supabase REST API
     """
     try:
         headers = {
@@ -164,130 +163,38 @@ def get_historical_fabric_consumption_from_db(search_keyword=None):
         
         if search_keyword:
             clean_kw = str(search_keyword).strip().upper()
-            
-            # Khử nhiễu OCR: Nếu tệp tin bị lem mực đọc nhầm thành số 9 (8902), ép về số 0 (8002) chuẩn xưởng
-            if "8902" in clean_kw or "8902" in clean_kw:
-                kw_target = "8002"
-            else:
-                # Trích xuất cụm số liên tục dài từ 3 số trở lên
-                numbers_found = re.findall(r'\d{3,}', clean_kw)
-                # ✨ HIỆU CHUẨN ĐỘT PHÁ: Lấy chính xác phần tử đầu tiên [0] của mảng để phá bỏ dấu ngoặc vuông
-                if isinstance(numbers_found, list) and len(numbers_found) > 0:
-                    kw_target = str(numbers_found[0]).strip()
-                else:
-                    kw_target = clean_kw
-                
-            # Thực hiện lệnh tìm kiếm mờ đa cột PostgREST SQL đồng bộ chữ thường theo đúng ảnh Supabase
-            query_params["or"] = f"(style_name.ilike.*{kw_target}*,article_name.ilike.*{kw_target}*,notes.ilike.*{kw_target}*)"
-                
-        res = requests.get(url, headers=headers, params=query_params, timeout=15)
-        return res.json() if 200 <= res.status_code <= 299 else []
+            query_params["style_name"] = f"ilike.*{clean_kw}*"
+        
+        response = requests.get(url, headers=headers, params=query_params, timeout=15)
+        return response.json() if response.status_code == 200 else []
     except Exception: 
         return []
 
-
-
-def process_single_pdf_batch(file_bytes, file_name):
+def get_techpack_spec_from_db(style_name_keyword=None):
     """
-    Hệ thống bóc tách tự động đa tầng: Chuyển đổi mã nhị phân PDF sang mô hình 
-    đồ họa mặt phẳng (Sketch) và cấu trúc lại toàn bộ ma trận số đo Spec Grid.
+    Hàm cho phép AI tự động tra cứu thông số từ bảng thong_so_techpack.
+    Tích hợp thêm liên kết để AI đọc đồng thời kho thông số.
     """
-    gemini_key = get_secure_gemini_key()
-    if not gemini_key: 
-        return {
-            "success": False, 
-            "error": "CRITICAL CONFIGURATION ERROR: GEMINI_API_KEY environment variable is uninitialized."
-        }
-    
-    # ✨ ĐÃ SỬA TRIỆT ĐỂ LỖI CHỈ MỤC: Lấy phần tử index 0 của mảng rsplit trước khi ép hàm .strip()
-    if '.' in file_name:
-        fallback_style = file_name.rsplit('.', 1)[0].strip()
-    else:
-        fallback_style = file_name.strip()
-
     try:
-        # Trích xuất dữ liệu cấu trúc trang để định vị không gian tài liệu
-        info = pdfinfo_from_bytes(file_bytes)
-        total_pages = int(info.get("Pages", 1))
-        contents_payload = []
-        sketch_base64 = ""
-
-        # Chu trình quét cắt trang tự động (Rasterization)
-        for p_num in range(1, total_pages + 1):
-            try:
-                images = convert_from_bytes(file_bytes, dpi=160, first_page=p_num, last_page=p_num)
-                if images:
-                    # ✨ ĐÃ SỬA LỖI LIST OBJECT: Trích xuất phần tử ảnh đầu tiên [0] từ thư viện pdf2image
-                    img = images[0].convert("RGB") 
-                    img_buffer = io.BytesIO()
-                    img.save(img_buffer, format="JPEG", quality=95)
-                    contents_payload.append(types.Part.from_bytes(data=img_buffer.getvalue(), mime_type='image/jpeg'))
-                    
-                    # Trích xuất trang đầu tiên làm sơ đồ thiết kế cơ sở (Technical Sketch)
-                    if p_num == 1 and not sketch_base64:
-                        if img.width > 450: 
-                            img = img.resize((450, int(img.height * (450 / img.width))))
-                        bk_buf = io.BytesIO()
-                        img.save(bk_buf, format="JPEG", quality=85)
-                        sketch_base64 = base64.b64encode(bk_buf.getvalue()).decode("utf-8")
-            except Exception: 
-                pass
-
-        if not contents_payload: 
-            return {
-                "success": False, 
-                "error": "DATA CORRUPTION DETECTED: Unable to extract image buffers from target PDF matrix."
-            }
-
-        # Hệ thống chỉ thị AI chuyên ngành dệt may toàn cầu (Strict Garment Spec Prompt)
-        user_prompt = """
-        You are an elite Garment Technical Auditor and QA/QC Data Engineer at PPJ Group.
-        Your task is to analyze the attached images from the technical pack (Techpack) PDF and extract data with absolute precision.
-        
-        CRITICAL OPERATIONAL INSTRUCTIONS:
-        1. Identify the primary specification chart/grid containing the Point of Measurements (POM Description) and target values.
-        2. Scan the document ROW-BY-ROW from top to bottom. You MUST extract EVERY SINGLE measurement position. Do not drop, truncate, or group any rows.
-        3. Isolate the exact data column assigned for the sample 'Base Size' (e.g., Sample Size, M, or the baseline dimensions stated in the chart header).
-        
-        You must return a valid JSON object strictly conforming to this exact schema (no additional text, markdown, or wrapping):
-        {
-          "style_number_parsed": "The official product Style ID or Code",
-          "buyer": "The official Client/Buyer account name",
-          "category": "The specific garment product line or category",
-          "base_size_name": "The extracted sample base size used for values",
-          "measurements": {
-             "Exact POM Name 1": "Value 1 with UOM",
-             "Exact POM Name 2": "Value 2 with UOM"
-          }
+        headers = {
+            "apikey": SB_KEY, 
+            "Authorization": f"Bearer {SB_KEY}"
         }
-        """
-        contents_payload.append(user_prompt)
-
-        # Kích hoạt Core Engine xử lý đa phương thức với tham số chính xác cơ khí
-        client = genai.Client(api_key=gemini_key)
-        response = client.models.generate_content(
-            model='gemini-2.5-flash', 
-            contents=contents_payload, 
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json", 
-                temperature=0.0
-            )
-        )
+        url = f"{SB_URL.rstrip('/')}/rest/v1/thong_so_techpack"
         
-        # Đồng bộ hóa cấu trúc dữ liệu JSON phản hồi
-        parsed_data = json.loads(response.text.strip())
-        parsed_data["sketch_image"] = sketch_base64
-        
-        if not parsed_data.get("style_number_parsed"):
-            parsed_data["style_number_parsed"] = fallback_style
+        query_params = {
+            "select": "StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL",
+            "limit": 500
+        }
+        if style_name_keyword:
+            clean_kw = str(style_name_keyword).strip()
+            query_params["StyleName"] = f"ilike.*{clean_kw}*"
             
-        return {"success": True, "data": parsed_data}
-        
-    except Exception as e: 
-        return {
-            "success": False, 
-            "error": f"SYSTEM EXECUTION EXCEPTION: Critical pipeline breakdown during AI processing. Details: {str(e)}"
-        }
+        res = requests.get(url, headers=headers, params=query_params, timeout=15)
+        return res.json() if res.status_code == 200 else []
+    except Exception:
+        return []
+
 # PHASE 5: USER INTERFACE STRUCTURE & AUTOMATION FACTORY 
 # =============================================================================
 with st.sidebar:
