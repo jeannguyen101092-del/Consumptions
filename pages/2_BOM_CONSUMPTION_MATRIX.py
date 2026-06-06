@@ -608,15 +608,24 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                                     import time
                                     time.sleep(2 * (ext_attempt + 1))
                         
-                        # ✨ THUẬT TOÁN ĐỒNG BỘ: Định nghĩa lại biến clean_text_upper chống lỗi NameError
+                                               # ✨ THUẬT TOÁN ĐỒNG BỘ: Tự động trích xuất chuỗi mã sạch dệt may (Khử toàn bộ nhiễu chữ tiếng Việt)
                         text_to_extract = user_query
                         if chat_file and str(new_style_id_detected).strip() != "UNKNOWN_STYLE":
                             text_to_extract = str(new_style_id_detected).strip()
                         
                         clean_text_upper = str(text_to_extract).strip().upper()
                         
-                        # ✨ ĐÃ SỬA: Loại bỏ từ khóa thừa để lấy mã vải thô sạch (Ví dụ: "SJ 8902" hoặc "SJ-8002")
-                        dynamic_keyword = clean_text_upper.replace("TÌM CODE VẢI MÃ", "").replace("TÌM CODE VẢI", "").replace("TÌM MÃ", "").replace("TÌM", "").strip()
+                        # Sử dụng biểu thức chính quy Regex thông minh bóc tách định dạng mã dệt may PPJ (Ví dụ: P09-488051 hoặc MR1705)
+                        # Biểu thức này tìm chuỗi ký tự kết hợp dấu gạch ngang và số ở cuối câu lệnh
+                        match_style_code = re.search(r'([A-Z0-9]+-[A-Z0-9]+|[A-Z0-9]{3,})', clean_text_upper)
+                        
+                        if match_style_code:
+                            # Trích xuất trúng chuỗi mã cốt lõi "P09-488051" hoặc "MR1705" không kèm chữ nhiễu
+                            dynamic_keyword = match_style_code.group(1).strip()
+                        else:
+                            # Lớp bảo vệ phụ: Nếu không khớp rập, tự động dọn sạch các từ khóa chatbot thông dụng
+                            dynamic_keyword = clean_text_upper.replace("TÌM HÌNH ẢNH VÀ THÔNG SỐ MÃ HÀNG", "").replace("TÌM CODE VẢI MÃ", "").replace("TÌM CODE VẢI", "").replace("TÌM MÃ HÀNG", "").replace("TÌM MÃ", "").replace("TÌM", "").strip()
+
 
                                                 # =============================================================================
                                                 # =============================================================================
