@@ -633,10 +633,11 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                         db_historical_consumption = get_historical_fabric_consumption_from_db(dynamic_keyword)
                         db_techpack_specs = get_techpack_spec_from_db(dynamic_keyword)
                         
-                        # Trích xuất chính xác bản ghi đầu tiên của danh sách để bóc dữ liệu
+                                                # Trích xuất chính xác bản ghi đầu tiên của danh sách để bóc dữ liệu
                         found_sketch_url = None
                         extracted_specs_data = {}
                         
+                        # SỬA LẠI DÒNG DƯỚI ĐÂY: Thêm lại chữ 'if' và thụt lề vào 24 khoảng trắng (6 cái Tab)
                         if db_techpack_specs and isinstance(db_techpack_specs, list) and len(db_techpack_specs) > 0:
                             first_record = db_techpack_specs[0]
                             found_sketch_url = first_record.get("SketchURL")
@@ -644,6 +645,7 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                         elif db_techpack_specs and isinstance(db_techpack_specs, dict):
                             found_sketch_url = db_techpack_specs.get("SketchURL")
                             extracted_specs_data = db_techpack_specs.get("DetailedMeasurements", {})
+
 
                         # HOÀN THIỆN PROMPT ĐIỀU HƯỚNG AI ĐỌC KHO VÀ TÍNH TOÁN TOÁN HỌC ĐỊNH MỨC VẢI
                         intel_prompt = f"""
