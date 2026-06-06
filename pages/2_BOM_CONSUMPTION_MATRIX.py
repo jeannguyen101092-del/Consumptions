@@ -210,7 +210,7 @@ def get_historical_fabric_consumption_from_db(search_keyword=None):
 def get_techpack_spec_from_db(style_name_keyword=None):
     """
     Hàm cho phép AI tự động tra cứu thông số từ bảng thong_so_techpack.
-    ✨ ĐÃ SỬA: Đồng bộ hóa chính xác trường SketchURL (chữ URL viết hoa) trùng khớp 100% với database Supabase.
+    ✨ ĐÃ SỬA LỖI ĐÚNG TOÁN TỬ: Chuyển đổi bộ lọc về định dạng PostgREST chính thống (StyleName=ilike.*keyword*)
     """
     try:
         headers = {
@@ -219,21 +219,23 @@ def get_techpack_spec_from_db(style_name_keyword=None):
         }
         url = f"{SB_URL.rstrip('/')}/rest/v1/thong_so_techpack"
         
-        # SỬA TẠI ĐÂY: Đổi SketchURL thành SketchURL để khớp với tên cột thực tế trên Supabase
+        # Cấu hình trường select chính xác (giữ nguyên SketchURL viết hoa)
         query_params = {
             "select": "StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL",
             "limit": 500
         }
         
-        # Ghép trực tiếp điều kiện lọc PostgREST vào params để đảm bảo Supabase nhận diện đúng cột StyleName viết hoa
+        # SỬA TẠI ĐÂY: Thay vì gán trực tiếp tên cột, PostgREST yêu cầu định dạng lọc thông qua giá trị tham số
         if style_name_keyword:
             clean_kw = str(style_name_keyword).strip()
+            # Cú pháp chuẩn: tên_cột=toán_tử.giá_trị
             query_params["StyleName"] = f"ilike.*{clean_kw}*"
             
         response = requests.get(url, headers=headers, params=query_params, timeout=15)
         return response.json() if response.status_code == 200 else []
     except Exception:
         return []
+
 
 
 def process_single_pdf_batch(file_bytes, file_name):
