@@ -631,17 +631,18 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                         # =============================================================================
                                                 # =============================================================================
                                                # =============================================================================
+                                                # =============================================================================
                         # TRUY VẤN SONG SONG KHO DATA & THIẾT LẬP LUỒNG CÔNG THỨC TOÁN HỌC DỆT MAY (PHẦN 3C)
                         # =============================================================================
                         db_historical_consumption = get_historical_fabric_consumption_from_db(dynamic_keyword)
                         db_techpack_specs = get_techpack_spec_from_db(dynamic_keyword)
                         
-                        # ✨ ĐÃ SỬA LỖI GIẢI NÉN MẢNG CHUẨN XÁC: Ép lấy phần tử [0] để bóc tách URL ảnh
+                        # ✨ ĐÃ SỬA LỖI GIẢI NÉN MẢNG CHUẨN XÁC: Thêm chỉ mục [0] để lấy trúng dòng dữ liệu đầu tiên
                         found_sketch_url = None
                         extracted_specs_data = {}
                         
                         if db_techpack_specs and isinstance(db_techpack_specs, list) and len(db_techpack_specs) > 0:
-                            # Lấy chính xác phần tử đầu tiên [0] của mảng danh sách bản ghi trả về từ Supabase
+                            # SỬA LỖI: Thêm [0] để giải nén lớp danh sách bên ngoài của Supabase REST API
                             first_record = db_techpack_specs[0]
                             found_sketch_url = first_record.get("SketchURL")
                             extracted_specs_data = first_record.get("DetailedMeasurements", {})
