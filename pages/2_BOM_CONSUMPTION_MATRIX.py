@@ -491,7 +491,7 @@ if menu_selection == "📊 Upload Techpack":
                                 except Exception:
                                     import time
                                     time.sleep(2 * (ext_attempt + 1))
-                        # ✨ THUẬT TOÁN ĐỒNG BỘ: Chuẩn hóa từ khóa trích xuất sạch chữ tiếng Việt
+                                               # ✨ THUẬT TOÁN ĐỒNG BỘ: Chuẩn hóa từ khóa trích xuất sạch chữ tiếng Việt
                         text_to_extract = user_query
                         if chat_file and str(new_style_id_detected).strip() != "UNKNOWN_STYLE":
                             text_to_extract = str(new_style_id_detected).strip()
@@ -505,7 +505,7 @@ if menu_selection == "📊 Upload Techpack":
                         # Thuật toán chuẩn hóa dấu gạch ngang chuẩn xác từng chữ (Ví dụ: SJ 8902 -> SJ-8902)
                         if "SJ" in raw_keyword:
                             extract_num = re.findall(r"\d+", raw_keyword)
-                            dynamic_keyword = f"SJ-{extract_num}" if extract_num else raw_keyword
+                            dynamic_keyword = f"SJ-{extract_num[0]}" if extract_num else raw_keyword
                         else:
                             dynamic_keyword = raw_keyword
 
@@ -555,7 +555,7 @@ if menu_selection == "📊 Upload Techpack":
                         db_techpack_specs = get_techpack_spec_from_db(dynamic_keyword)
                         extracted_specs_data = {}
                         if db_techpack_specs and isinstance(db_techpack_specs, list) and len(db_techpack_specs) > 0:
-                            first_record = db_techpack_specs
+                            first_record = db_techpack_specs[0] if isinstance(db_techpack_specs, list) else db_techpack_specs
                             found_sketch_url = first_record.get("SketchURL")
                             extracted_specs_data = first_record.get("DetailedMeasurements", {})
                         elif db_techpack_specs and isinstance(db_techpack_specs, dict):
@@ -571,8 +571,9 @@ if menu_selection == "📊 Upload Techpack":
                             db_matched_specs = get_techpack_spec_from_db(matched_style)
                             db_matched_consumption = get_historical_fabric_consumption_from_db(matched_style)
                             
-                            matched_specs_clean = db_matched_specs.get("DetailedMeasurements", {}) if db_matched_specs else {}
-                            matched_sketch_url = db_matched_specs.get("SketchURL", "") if db_matched_specs else ""
+                            first_matched = db_matched_specs[0] if isinstance(db_matched_specs, list) and len(db_matched_specs) > 0 else db_matched_specs
+                            matched_specs_clean = first_matched.get("DetailedMeasurements", {}) if first_matched else {}
+                            matched_sketch_url = first_matched.get("SketchURL", "") if first_matched else ""
 
                             reasoning_prompt = f"""
                             Bạn là chuyên gia định mức R&D dệt may tại PPJ Group. 
@@ -583,7 +584,7 @@ if menu_selection == "📊 Upload Techpack":
                             2. Thông số gốc mã tương đồng ({matched_style}): {json.dumps(matched_specs_clean, ensure_ascii=False)}
                             3. Định mức gốc mã tương đồng ({matched_style}): {json.dumps(db_matched_consumption, ensure_ascii=False)}
 
-                            HÃY THỰC HIỆN:
+                            HÃY THỰC HIỆY:
                             - Lập bảng đối soát độ lệch kích thước ở các vị trí POM chủ chốt giữa 2 mã.
                             - Dựa vào định mức của mã cũ và độ tăng/giảm số đo của mã mới để cộng/trừ định mức vải chính xác (Yard/Cái hoặc Mét/Cái).
                             - Giải thích lý do chọn mã này: {match_reason}
@@ -593,18 +594,17 @@ if menu_selection == "📊 Upload Techpack":
                             st.warning("⚠️ KHO KHÔNG CÓ MÃ TƯƠNG ĐỒNG ĐỒNG NHẤT CẤU TRÚC TÚI/PHOM DÁNG.")
                             matched_sketch_url = None
                             
-                            # Kiểm tra xem trong câu lệnh của người dùng đã có các từ khóa về khổ vải hoặc co rút chưa
                             user_query_upper = user_query.upper()
                             has_fabric_info = any(x in user_query_upper for x in ["KHỔ", "KHO", "WIDTH", "CO RÚT", "CO RUT", "SHRINKAGE"])
                             
                             if not has_fabric_info:
-                                # Kịch bản B1: Nếu kỹ sư chưa nhập thông số sản xuất, AI dừng lại và đưa ra form yêu cầu phỏng vấn ngược
+                                # Kịch bản B1: Nếu kỹ sư chưa nhập thông số sản xuất -> Hỏi ngược lại kỹ sư
                                 reasoning_prompt = f"""
                                 Bạn là trợ lý định mức R&D tại PPJ Group. Kho dữ liệu hiện chưa có mã tương đồng phù hợp với kết cấu túi/thiết kế này.
                                 Để có thể tính toán định mức vải chính xác từ con số 0 dựa trên bảng thông số Specs vừa quét, bạn KHÔNG ĐƯỢC ĐOÁN MÒ mà phải yêu cầu kỹ sư cung cấp dữ liệu sản xuất thực tế.
                                 
                                 Hãy phản hồi cho kỹ sư theo cấu trúc sau:
-                                1. Thông báo hệ thống không tìm thấy mã tương đồng khớp cấu trúc túi (Ví dụ: mã mới là quần 5 túi Jeans nhưng kho chỉ có quần tây túi xéo/mổ). Hệ thống đã bóc tách thành công bảng thông số Specs của mã {dynamic_keyword}.
+                                1. Thông báo hệ thống không tìm thấy mã tương đồng khớp cấu trúc túi (Mã mới nhận diện: {dynamic_keyword}).
                                 2. Đưa ra danh sách 3 thông số bắt buộc yêu cầu kỹ sư nhập vào ô chat tiếp theo để kích hoạt lõi tính toán hình học:
                                    - Khổ vải thực tế sử dụng (Ví dụ: 57", 58", 60"...)
                                    - Tỷ lệ co rút dự kiến sau giặt/nhuộm (Garment Wash/Dye Shrinkage % dọc và ngang)
@@ -612,7 +612,7 @@ if menu_selection == "📊 Upload Techpack":
                                 3. Trình bày ngắn gọn, đặt câu hỏi rõ ràng bằng các gạch đầu dòng để kỹ sư phản hồi.
                                 """
                             else:
-                                # Kịch bản B2: Kỹ sư đã trả lời và cung cấp thông số -> AI tiến hành tính toán số học chính xác từ Specs
+                                # Kịch bản B2: Kỹ sư đã trả lời -> AI tiến hành tính toán số học từ Specs
                                 reasoning_prompt = f"""
                                 Bạn là chuyên gia định mức R&D dệt may độc lập tại PPJ Group. 
                                 Kỹ sư đã cung cấp thông số sản xuất thực tế trong câu lệnh: "{user_query}"
@@ -621,7 +621,7 @@ if menu_selection == "📊 Upload Techpack":
                                 Kết hợp với Khổ vải và Độ co rút mà kỹ sư vừa nhập để tự động tính toán định mức hình học chuẩn xác từ con số 0 cho mã {dynamic_keyword}.
                                 
                                 YÊU CẦU TÍNH TOÁN:
-                                1. Áp dụng công thức tính định mức hình học cho loại sản phẩm này (Ví dụ với quần Jeans: [Dài quần + Hạ đũng + Hao hụt] x [Vòng mông + Rộng đùi + Hao hụt] / Khổ vải x 2 thân / Hệ số giác sơ đồ), có cộng thêm % co rút và % hao hụt cắt rập thực tế được cung cấp.
+                                1. Áp dụng công thức tính định mức hình học cho loại sản phẩm này, có cộng thêm % co rút và % hao hụt cắt rập thực tế được cung cấp.
                                 2. Xuất kết quả rõ ràng dưới dạng bảng Markdown: Tên chi tiết (Vải chính), Khổ vải, % Co rút áp dụng, Định mức vải dự kiến dự trên một sản phẩm (Yard hoặc Mét).
                                 """
 
@@ -632,12 +632,10 @@ if menu_selection == "📊 Upload Techpack":
                             contents=final_payload
                         )
                         
-                        # Hiển thị tiêu đề kết quả động dựa theo tình huống rẽ nhánh
                         title_prefix = f"### 🧵 KẾT QUẢ ĐỐI SOÁT ĐỊNH MỨC (DỰA TRÊN MÃ {matched_style})\n\n" if matched_style != "NONE" else "### 📐 KẾT QUẢ TỰ TÍNH TOÁN ĐỊNH MỨC ĐỘC LẬP (KHO KHÔNG CÓ MẪU TRÙNG CẤU TRÚC)\n\n"
                         ans_text = title_prefix + final_res.text.strip()
                         st.write(ans_text)
                         
-                        # Lưu lịch sử hội thoại và hiển thị hình ảnh đối chứng nếu có
                         chat_node = {"role": "assistant", "type": "text", "content": ans_text}
                         if matched_sketch_url:
                             chat_node = {"role": "assistant", "type": "visual", "content": ans_text, "image_url": matched_sketch_url, "style_title": matched_style}
