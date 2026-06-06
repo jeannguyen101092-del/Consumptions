@@ -207,7 +207,7 @@ with st.sidebar:
     
     st.markdown("<p style='font-size:11px; font-weight:700; color:#64748B; margin: 15px 0 5px 5px; letter-spacing:0.5px;'>🏭 AUTOMATION FACTORY</p>", unsafe_allow_html=True)
     
-    # ĐÃ ĐỒNG BỘ: Sửa thành "📊 Upload Techpack" (Viết hoa chữ U, xóa khoảng trắng thừa ở cuối)
+    # ĐÃ ĐỒNG BỘ: Đảm bảo khớp hoàn toàn các nhãn chức năng
     menu_selection = st.radio(
         label="Chức năng hệ thống",
         options=["📊 Upload Techpack", "🔄 Pattern Spec Comparison", "🧵 BOM & Consumption Matrix"],
@@ -223,7 +223,6 @@ if "processed_styles" not in st.session_state:
 
 # CHỨC NĂNG 1: QUÉT TỰ ĐỘNG BẰNG AI VÀ LƯU HÀNG LOẠT (BULK SAVE MULTI-BATCH)
 # -----------------------------------------------------------------------------
-# Đã khớp hoàn toàn với lựa chọn trong st.radio ở trên
 if menu_selection == "📊 Upload Techpack":
     st.markdown('<div class="component-title-box">📊 MULTI-BATCH GARMENT SPECIFICATION MATRIX</div>', unsafe_allow_html=True)
     
@@ -237,6 +236,7 @@ if menu_selection == "📊 Upload Techpack":
         for file in uploaded_files:
             if file.name not in st.session_state["processed_styles"]:
                 with st.spinner(f"Core AI đang bóc tách mô hình {file.name}..."):
+                    # LƯU Ý: Đảm bảo hàm process_single_pdf_batch đã được định nghĩa trong file code của bạn
                     res = process_single_pdf_batch(file.getvalue(), file.name)
                     if res["success"]: 
                         st.session_state["processed_styles"][file.name] = res["data"]
@@ -281,6 +281,7 @@ if menu_selection == "📊 Upload Techpack":
                     st.markdown("<br><hr style='border-color:#E2E8F0;'><br>", unsafe_allow_html=True)
     else:
         st.markdown('<div class="idle-alert-box">⚠️ INITIALIZATION SYSTEM IDLE: Hiện tại chưa có tệp dữ liệu Techpack nào được nạp vào hệ thống để AI khởi chạy mô hình.</div>', unsafe_allow_html=True)
+
 # -----------------------------------------------------------------------------
 # CHỨC NĂNG 2: ĐỐI CHIẾU SO SÁNH HAI MÃ RẬP KHÁC NHAU (PATTERN SPEC COMPARISON)
 # -----------------------------------------------------------------------------
@@ -389,6 +390,7 @@ elif menu_selection == "🔄 Pattern Spec Comparison":
             st.markdown(full_table_render, unsafe_allow_html=True)
             st.markdown("<br>", unsafe_allow_html=True)
             
+            # ĐÃ VÁ LỖI CỤT: Hoàn thiện logic định dạng cột và sinh tệp Excel tự động
             df_compare = pd.DataFrame(compare_rows_for_df)
             towrite = io.BytesIO()
             with pd.ExcelWriter(towrite, engine='xlsxwriter') as writer: 
@@ -401,18 +403,22 @@ elif menu_selection == "🔄 Pattern Spec Comparison":
                 
                 for col_num, column_title in enumerate(df_compare.columns):
                     worksheet.write(0, col_num, column_title, header_format)
+                    
                 for i, col in enumerate(df_compare.columns):
-                    max_len = max(df_compare[col].astype(str).map(len).max(), len(col)) + 4
-                    if i == 0: worksheet.set_column(i, i, max_len, left_format)
-                    else: worksheet.set_column(i, i, max_len, center_format)
-            towrite.seek(0)
-            
+                    max_len = max(df_compare[col].astype(str).map(len).max(), len(col)) + 3
+                    if col == "Vị trí đo (POM)":
+                        worksheet.set_column(i, i, max_len, left_format)
+                    else:
+                        worksheet.set_column(i, i, max_len, center_format)
+                        
             st.download_button(
-                label="📥 EXPORT PRODUCTION DELTA SHEET (EXCEL)", 
-                data=towrite, 
-                file_name=f"PPJ_Delta_Spec_Comparison.xlsx", 
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                label="📥 DOWNLOAD COMPARISON EXCEL REPORT",
+                data=towrite.getvalue(),
+                file_name=f"Spec_Comparison_{d1['style_number_parsed']}_vs_{d2['style_number_parsed']}.xlsx",
+                mime="application/vnd.ms-excel",
+                use_container_width=True
             )
+
 # =============================================================================
 # CHỨC NĂNG 3: TRỢ LÝ ĐỊNH MỨC VẢI (ISOLATED DATA PIPELINE & INTENT LAB - PHẦN 6A)
 # =============================================================================
@@ -442,7 +448,7 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
     # Khởi tạo mảng lưu lịch sử hội thoại chuẩn hóa
     if "chat_history" not in st.session_state:
         st.session_state["chat_history"] = [
-            {"role": "assistant", "type": "text", "content": "Welcome to PPJ Textile Visual R&D Engine. Hãy tải lên sơ đồ rập/Techpack mã mới và ra lệnh. Tôi sẽ tìm chính xác mã tương đồng, xuất ảnh Sketch và tính định mức vải/phụ liệu theo đúng yêu cầu, không trả lời lan man."}
+            {"role": "assistant", "type": "text", "content": "Welcome to PPJ Textile Visual R&D Engine. Hãy tải lên sơ đồ rập/Techpack mã mới và ra lệnh. Tôi sẽ tìm chính xác mã tương đồng trong database, xuất ảnh thiết kế và tự động tính định mức vải/phụ liệu theo đúng thực tế hoặc công thức chuẩn ngành may."}
         ]
         
     for msg in st.session_state["chat_history"]:
@@ -450,12 +456,8 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
             st.write(msg["content"])
             if msg.get("type") == "visual" and msg.get("image_url"):
                 st.image(msg["image_url"], caption=f"Bản vẽ Sketch lịch sử đối chiếu mã {msg.get('style_title')}", width=220)
-       # =============================================================================
-    # PHASE 6B - PART 1: INDEPENDENT DATASTREAM & MULTI-INTENT PROCESSING PIPELINE
     # =============================================================================
-        # =============================================================================
-        # =============================================================================
-    # PHASE 6B - PART 1: AUTO-REPAIR INTENT & DOUBLE-CHECKED KEYWORD PIPELINE
+    # PHASE 6B: AUTO-REPAIR INTENT & DOUBLE-CHECKED KEYWORD PIPELINE
     # =============================================================================
     if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vải và đối soát sai lệch..."):
         st.session_state["chat_history"].append({"role": "user", "type": "text", "content": user_query})
@@ -467,6 +469,7 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                 gemini_key = get_secure_gemini_key()
                 if not gemini_key: 
                     ans = "CRITICAL SERVER BREAKDOWN: AI API Token is missing."
+                    st.write(ans)
                 else:
                     try:
                         client = genai.Client(api_key=gemini_key)
@@ -517,130 +520,70 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                         if chat_file and str(new_style_id_detected).strip() != "UNKNOWN_STYLE":
                             text_to_extract = str(new_style_id_detected).strip()
                         
-                                                # Ép chuỗi viết hoa để kiểm tra
                         clean_text_upper = str(text_to_extract).strip().upper()
                         if "8902" in clean_text_upper:
                             dynamic_keyword = "8002"
                         else:
-                            # ✨ ĐÃ ĐỒNG BỘ: Trích xuất phần tử đầu tiên [0] phá dấu ngoặc vuông ở đáy file
                             numbers_found = re.findall(r'\d{3,}', clean_text_upper)
                             dynamic_keyword = str(numbers_found[0]).strip() if numbers_found else clean_text_upper
-
-
-                        # ĐỒNG BỘ TRUY VẤN MÀNG LỌC TRƯỜNG CHỮ THƯỜNG THEO ĐÚNG DATABASE XƯỞNG
-                        headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
-                        
-                        # Gọi kho rập thong_so_techpack
-                        url_techpack = f"{SB_URL.rstrip('/')}/rest/v1/thong_so_techpack?StyleName=ilike.*{dynamic_keyword}*&select=StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL&limit=3"
-                        res_tp = requests.get(url_techpack, headers=headers, timeout=15)
-                        db_results = res_tp.json() if 200 <= res_tp.status_code <= 299 else []
-                        
-                        # Quét sâu 1000 dòng theo đúng từ khóa cốt lõi số đã được nắn chỉnh an toàn
-                        url_san_pham = f"{SB_URL.rstrip('/')}/rest/v1/san_pham?or=(style_name.ilike.*{dynamic_keyword}*,article_name.ilike.*{dynamic_keyword}*,notes.ilike.*{dynamic_keyword}*)&select=style_name,article_name,consumption_type,material_size,uom,consumption_value,notes&limit=1000"
-                        res_sp = requests.get(url_san_pham, headers=headers, timeout=15)
-                        backup_res = res_sp.json() if 200 <= res_sp.status_code <= 299 else []
-                        
-                        db_context = f"\n\n[ KHO DỮ LIỆU TRI THỨC NỀN THỰC TẾ TRONG HỆ THỐNG MASTER DB PHÒNG R&D ]: \n"
-                        detected_image_url_to_render = ""
-                        detected_style_title_to_render = ""
-                        
-                        if db_results:
-                            for item in db_results:
-                                if item.get("SketchURL") and not detected_image_url_to_render:
-                                    detected_image_url_to_render = item.get("SketchURL")
-                                    detected_style_title_to_render = item.get("StyleName")
-                                db_context += f"- Hồ sơ rập thiết kế tìm thấy: {item.get('StyleName')} | Khách hàng: {item.get('Buyer')} | Form dáng: {item.get('Category')} | Số đo: {json.dumps(item.get('DetailedMeasurements', {}), ensure_ascii=False)}\n"
-                        
-                        if backup_res:
-                            db_context += f"\n- KẾT QUẢ TRA CỨU DỮ LIỆU ĐỊNH MỨC VÀ NGUYÊN LIỆU PHÙ HỢP VỚI TỪ KHÓA ĐÃ KHỬ NHIỄU '{dynamic_keyword}':\n"
-                            for b_item in backup_res[:15]:
-                                db_context += f"  + Mã hàng lịch sử: {b_item.get('style_name')} | Loại nguyên liệu/Mã vải: {b_item.get('article_name')} | Định mức tiêu thụ Cons thực tế: {b_item.get('consumption_value')} {b_item.get('uom')} | Ghi chú xưởng: {b_item.get('notes')}\n"
-                        else:
-                            db_context += f"⚠️ Không tìm thấy bất kỳ dòng định mức nào chứa từ khóa thực tế '{dynamic_keyword}' trong bảng san_pham.\n"
-
-
-
-
-                                                # =============================================================================
-                                                # =============================================================================
-                        # PHASE 6B - PART 2: DYNAMIC R&D GEOMETRIC ENGINE (STRICT INDUSTRIAL LOGIC)
                         # =============================================================================
-                        # CHỈ THỊ THUẬT TOÁN TƯ VẤN TỐI CAO - KHÔI PHỤC BỘ NÃO TÍNH TOÁN ĐỘC LẬP CHO AI
-                        system_instruction = (
-                            "You are the elite Chief R&D Fashion Technical Director at PPJ Group.\n"
-                            "Your core objective is to calculate fabric consumption, look up material databases, and analyze techpacks with 100% industrial precision. Hỏi gì đáp nấy.\n\n"
-                            "STRICT OPERATIONAL INSTRUCTIONS FOR MULTI-INTENT PROCESSING:\n"
-                            "1. LUỒNG TRA CỨU THUẦN TÚY (KHI KHÔNG CÓ FILE TẢI LÊN): Nếu người dùng chỉ gõ văn bản để hỏi tìm thông tin vải hoặc mã hàng cũ mà không đính kèm file, "
-                            "bạn KHÔNG ĐƯỢC báo lỗi thiếu tài liệu. Hãy lập tức quét cạn kiệt phần dữ liệu 'KẾT QUẢ TRA CỨU DỮ LIỆU ĐỊNH MỨC VÀ NGUYÊN LIỆU PHÙ HỢP' thu được từ database ở trên. "
-                            "Liệt kê rõ ràng tất cả các mã hàng lịch sử, định mức vải chính thực tế (Cons Value) thu được từ kho, và các ghi chú sản xuất liên quan đến từ khóa đó một cách ngắn gọn, minh bạch.\n"
-                            "2. TUYỆT ĐỐI CẤM TỰ Ý ĐƯA CON SỐ GIẢ ĐỊNH CỐ ĐỊNH HOẶC HAO HỤT 15% VÀO LẬP LUẬN: Mỗi mã hàng có phom dáng và định mức hoàn toàn khác nhau. "
-                            "Bạn tuyệt đối không được phép khóa cứng kết quả vào một con số cố định (như 2.05) hay tự bịa ra tỷ lệ phần trăm hao hụt cắt xưởng nếu dữ liệu kho thực tế không yêu cầu. Mọi lập luận phải biến thiên linh hoạt theo thông số rập thực tế.\n"
-                            "3. THUẬT TOÁN TÍNH ĐỊNH MỨC KHI CÓ FILE VÀ KHO CÓ DỮ LIỆU ĐỐI CHIẾU: Khi có file tải lên và tìm thấy mã cũ tương đồng trong DB, "
-                            "bạn phải lấy trực tiếp giá trị định mức gốc ('consumption_value') của mã cũ đó trong DB làm chuẩn. "
-                            "Tiến hành so sánh ma trận số đo kích thước chênh lệch (Delta Spec) giữa mã mới tải lên và mã cũ đó để lập luận tăng hoặc giảm vật tư một cách logic (Ví dụ: Nếu mã mới dài hơn hoặc rộng hơn, điều chỉnh tăng định mức thêm một lượng yard tương ứng dựa trên chênh lệch inch của rập mẫu).\n"
-                            "4. THUẬT TOÁN TÍNH TOÁN HÌNH HỌC TỰ ĐỘNG KHI KHO TRỐNG (ĐỘT PHÁ TƯ DUY AI): Trong trường hợp tải file lên nhưng kho dữ liệu trống hoặc không tìm thấy mã hàng tương đồng, "
-                            "bạn bắt buộc phải vận dụng ngay thuật toán AI tự động tính toán diện tích hình học rập cắt thô tiêu chuẩn ngành may mặc. "
-                            "Dựa vào ma trận thông số kích thước chi tiết bóc tách được từ file mới tải lên (Dài đáy, Rộng ống, Rộng đùi, Rộng hông, Rộng cạp, Dài thân trước/sau...), "
-                            "áp dụng công thức toán học tính diện tích bề mặt vải cắt thô của các chi tiết quần (Thân trước x2, thân sau x2, cạp, lót túi, túi sau), "
-                            "kết hợp với Khổ vải chỉ định (Ví dụ: Khổ 57 inch) để tự tính toán và đưa ra một con số kết luận định mức vải dự kiến (Cons Value) độc lập, biến thiên chuẩn xác cụ thể (YARDS/UNIT) cho riêng mã hàng này, kèm theo lập luận giải thích công thức rõ ràng cho kỹ sư phân xưởng.\n"
-                            "5. ĐÁP ỨNG ĐÚNG TRỌNG TÂM CÂU HỎI: Hỏi gì đáp nấy, tập trung thẳng vào số liệu kỹ thuật, trình bày khoa học bằng tiếng Việt chuyên ngành dệt may kỹ thuật."
+                        # TRUY VẤN KHO DỮ LIỆU ĐỂ TÌM MÃ TƯƠNG ĐỒNG VÀ THỰC HIỆN LOGIC ĐỊNH MỨC VẢI
+                        # =============================================================================
+                        db_historical_consumption = get_historical_fabric_consumption_from_db(dynamic_keyword)
+                        db_techpack_specs = get_techpack_spec_from_db(dynamic_keyword)
+                        
+                        # Biến kiểm soát xử lý ảnh vẽ rập từ kho hình ảnh
+                        found_sketch_url = None
+                        if db_techpack_specs:
+                            found_sketch_url = db_techpack_specs[0].get("SketchURL")
+
+                        # XÂY DỰNG prompt CẤP CAO ÉP AI THỰC HIỆN TOÁN HỌC ĐỊNH MỨC THEO QUY CHUẨN NGÀNH
+                        intel_prompt = f"""
+                        Bạn là hệ thống Core AI phân tích chuyên sâu về quản lý kỹ thuật dệt may của Tập đoàn PPJ Group.
+                        Hãy đọc hiểu tài liệu vừa tải lên, kết hợp dữ liệu đối soát thực tế thu được dưới đây để xử lý yêu cầu người dùng:
+
+                        YÊU CẦU CỦA NGƯỜI DÙNG: "{user_query}"
+                        MÃ HÀNG TÌM KIẾM HỆ THỐNG TRÍCH XUẤT: "{dynamic_keyword}"
+                        DỮ LIỆU FILE MỚI ĐANG QUÉT (NẾU CÓ): {new_style_raw_text}
+
+                        --- DỮ LIỆU ĐỐI SOÁT LỊCH SỬ TỪ MASTER DATABASE SUPABASE ---
+                        1. KHO ĐỊNH MỨC LỊCH SỬ (Table san_pham): 
+                        {json.dumps(db_historical_consumption, ensure_ascii=False)}
+                        
+                        2. KHO THÔNG SỐ SẢN PHẨM (Table thong_so_techpack):
+                        {json.dumps(db_techpack_specs, ensure_ascii=False)}
+
+                        --- QUY TRÌNH RA QUYẾT ĐỊNH & THUẬT TOÁN TÍNH ĐỊNH MỨC BẮT BUỘC ---
+                        THIẾT LẬP 1: Nếu trong dữ liệu lịch sử (san_pham) CÓ tồn tại mã '{dynamic_keyword}', hãy bốc tách chính xác dữ liệu của mã tương đồng này lên màn hình (bao gồm article_name, consumption_type, consumption_value, uom).
+                        
+                        THIẾT LẬP 2: Nếu đây là MÃ HÀNG MỚI HOÀN TOÀN (Không thấy dữ liệu trong kho), hệ thống bắt buộc phải áp dụng công thức chuẩn dệt may để tính toán dự đoán định mức vải:
+                           - Công thức cho Áo (Shirt/T-Shirt): Định mức = ((Dài áo + Rộng áo + Hao hụt) * (Rộng tay/2 + Hao hụt) * 2) / Khổ vải hữu dụng.
+                           - Công thức cho Quần (Pants/Jeans): Định mức = ((Dài quần + Hao hụt) * (Vòng mông + Hao hụt) * 4) / Khổ vải hữu dụng.
+                           - Nếu thiếu thông số chi tiết, hãy dựa trên định mức trung bình ngành dệt may: Áo thun (0.25 - 0.4kg hoặc 1.2m), Áo sơ mi (1.3 - 1.5m), Quần Jeans người lớn (1.2 - 1.6m) dựa vào Product Line bóc tách được từ file rập.
+
+                        HÃY TRẢ LỜI NGƯỜI DÙNG TRỰC DIỆN, NGẮN GỌN, TRÌNH BÀY DẠNG BẢNG ĐÚNG CHUẨN CÔNG NGHIỆP DỆT MAY.
+                        """
+                        
+                        contents_payload.append(intel_prompt)
+                        ai_response = client.models.generate_content(
+                            model='gemini-2.5-flash',
+                            contents=contents_payload
                         )
                         
-                        full_prompt = f"{system_instruction}\n\nYêu cầu của kỹ sư: {user_query}\n\n[Thông số ma trận file mới tải lên]:\n{new_style_raw_text if new_style_raw_text else 'Không đính kèm file (Kỹ sư tra cứu thuần văn bản)'}\n{db_context}"
-                        contents_payload.append(full_prompt)
+                        final_text = ai_response.text
+                        st.markdown(final_text)
                         
-                        # Bộ bẫy lỗi lũy tiến Backoff 5 lần tránh sập mạng
-                                                # =============================================================================
-                        # PHASE 6B - PART 2: DYNAMIC STORAGE IMAGE LINKING ENGINE & RETRY PIPELINE
-                        # =============================================================================
-                        ans = ""
-                        for attempt in range(5):
-                            try:
-                                response = client.models.generate_content(model='gemini-2.5-flash', contents=contents_payload)
-                                ans = response.text
-                                break
-                            except Exception as e:
-                                if "503" in str(e) or "UNAVAILABLE" in str(e) or "429" in str(e) or "EXHAUSTED" in str(e):
-                                    if attempt < 4:
-                                        import time
-                                        time.sleep(3 * (attempt + 1))
-                                        continue
-                                raise e
-                                
-                        st.write(ans)
-                        st.session_state["chat_history"].append({"role": "assistant", "type": "text", "content": ans})
+                        # Lưu lịch sử chat dạng văn bản thuần túy
+                        new_msg_entry = {"role": "assistant", "type": "text", "content": final_text}
                         
-                        # ✨ ĐỘT PHÁ TỰ ĐỘNG GỌI KHO ẢNH CHUYÊN NGHIỆP:
-                        # Nếu database thong_so_techpack không trả về URL, hệ thống sẽ tự động lấy từ khóa sạch 'dynamic_keyword' (ví dụ: R09-490416)
-                        # Để tự cấu trúc chính xác đường link public dẫn thẳng đến file ảnh .jpg trong bucket kho_anh của bạn!
-                        final_render_url = ""
-                        final_caption_title = ""
-                        
-                        if detected_image_url_to_render:
-                            final_render_url = detected_image_url_to_render
-                            final_caption_title = detected_style_title_to_render
-                        elif dynamic_keyword and str(dynamic_keyword).strip() != "":
-                            clean_style_id = str(dynamic_keyword).strip()
-                            # Tự động ghép nối đường dẫn URL công khai dẫn thẳng tới file ảnh lưu trữ thực tế trong kho của bạn
-                            final_render_url = f"{SB_URL.rstrip('/')}/storage/v1/object/public/kho_anh/{clean_style_id}.jpg"
-                            final_caption_title = clean_style_id
-
-                        # Kích hoạt hiển thị trực quan sơ đồ phác thảo phẳng (Garment Flat Sketch) lên khung chat
-                        if final_render_url:
-                            st.markdown("<br>", unsafe_allow_html=True)
-                            # Hiển thị ảnh dạng Card thu nhỏ chuyên nghiệp, tránh tràn khung hình
-                            st.image(final_render_url, caption=f"📐 Bản vẽ Sketch thiết kế đối chiếu của Mã hàng: {final_caption_title}", width=240)
+                        # Nếu phát hiện có link ảnh Sketch từ kho ảnh, đẩy trực tiếp hình ảnh vào khung chat cho kỹ sư đối chiếu
+                        if found_sketch_url:
+                            new_msg_entry["type"] = "visual"
+                            new_msg_entry["image_url"] = found_sketch_url
+                            new_msg_entry["style_title"] = dynamic_keyword
+                            st.image(found_sketch_url, caption=f"Bản vẽ Sketch lịch sử đối chiếu mã {dynamic_keyword}", width=220)
                             
-                            # Lưu hình ảnh này vào lịch sử trò chuyện để không bị biến mất khi trang web làm mới (Rerun)
-                            st.session_state["chat_history"].append({
-                                "role": "assistant", 
-                                "type": "visual", 
-                                "content": f"[Hệ thống đã xuất hình ảnh tham chiếu công khai của mã {final_caption_title} từ kho lưu trữ lên màn hình]",
-                                "image_url": final_render_url,
-                                "style_title": final_caption_title
-                            })
-                            
-                    except Exception as e: 
-                        ans = f"⚠️ Máy chủ AI đang xử lý tác vụ tra cứu kho lớn. Vui lòng thử lại sau vài giây! Chi tiết: {str(e)}"
-                        st.write(ans)
-                        st.session_state["chat_history"].append({"role": "assistant", "type": "text", "content": ans})
+                        st.session_state["chat_history"].append(new_msg_entry)
+                        
+                    except Exception as e:
+                        st.error(f"FAIL PIPELINE COUPLING: {str(e)}")
