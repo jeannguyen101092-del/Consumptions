@@ -567,7 +567,7 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
             if msg.get("type") == "visual" and msg.get("image_url"):
                 st.image(msg["image_url"], caption=f"Bản vẽ Sketch lịch sử đối chiếu mã {msg.get('style_title')}", width=220)
        # =============================================================================
-       if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vải và đối soát sai lệch..."):
+           if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vải và đối soát sai lệch..."):
         st.session_state["chat_history"].append({"role": "user", "type": "text", "content": user_query})
         with st.chat_message("user"):
             st.write(user_query)
@@ -605,7 +605,7 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                         clean_text_upper = str(text_to_extract).strip().upper()
                         patterns_to_remove = r"TÌM HÌNH ẢNH VÀ THÔNG SỐ MÃ HÀNG|THÔNG SỐ CHI TIẾT MÃ HÀNG|THÔNG SỐ CHI TIẾT MÃ|TÌM THÔNG SỐ MÃ HÀNG|TÌM CODE VẢI MÃ NÀY|TÌM THÔNG SỐ MÃ|TÌM CODE VẢI NÀY|TÌM CODE VẢI MÃ|THÔNG SỐ MÃ HÀNG|TÌM MÃ HÀNG KHÔNG|TÌM MÃ HÀNG NÀY|TÌM MÃ HÀNG|THÔNG SỐ MÃ|TÌM HÀNG|TÌM CODE VẢI|THÔNG SỐ|TÌM MÃ|TÌM"
                         raw_keyword = re.sub(patterns_to_remove, "", clean_text_upper).strip()
-                        dynamic_keyword = f"SJ-{re.findall(r'\d+', raw_keyword)}" if "SJ" in raw_keyword and re.findall(r"\d+", raw_keyword) else raw_keyword
+                        dynamic_keyword = f"SJ-{re.findall(r'\d+', raw_keyword)[0]}" if "SJ" in raw_keyword and re.findall(r"\d+", raw_keyword) else raw_keyword
 
                         headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
                         res_m_img = requests.get(f"{SB_URL.rstrip('/')}/rest/v1/thong_so_techpack", headers=headers, params={"select": "StyleName,Category,SketchURL", "limit": 1000}, timeout=15)
