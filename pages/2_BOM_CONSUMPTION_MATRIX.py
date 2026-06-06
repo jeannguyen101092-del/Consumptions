@@ -394,6 +394,144 @@ if menu_selection == "📊 Upload Techpack":
 # -----------------------------------------------------------------------------
 # CHỨC NĂNG 2: ĐỐI CHIẾU SO SÁNH HAI MÃ RẬP KHÁC NHAU (PATTERN SPEC COMPARISON)
 # -----------------------------------------------------------------------------
+elif menu_selection == "🔄 Pattern Spec Comparison":
+    st.markdown('<div class="component-title-box">🔄 DIFFERENTIAL GEOMETRY & DELTA SPEC EVALUATOR</div>', unsafe_allow_html=True)
+    
+    st.markdown("""<div class="card-container"><div class="card-section-header">🔍 CONFIGURATION SELECTION</div>
+    <p style="color: #64748B; font-size:13px; margin:0 0 15px 0;">Tải lên hai tệp bản vẽ kỹ thuật dệt may độc lập để tiến hành lập luận so sánh và tính toán toán học các khoảng chênh lệch rập mẫu.</p></div>""", unsafe_allow_html=True)
+    
+    sc1, sc2 = st.columns(2)
+    with sc1: file1 = st.file_uploader("Chọn file mẫu Techpack Gốc (File A)", type=["pdf"], key="f1")
+    with sc2: file2 = st.file_uploader("Chọn file mẫu Techpack Sửa đổi (File B)", type=["pdf"], key="f2")
+    
+    if file1 and file2:
+        if file1.name not in st.session_state["processed_styles"]:
+            res1 = process_single_pdf_batch(file1.getvalue(), file1.name)
+            if res1["success"]: st.session_state["processed_styles"][file1.name] = res1["data"]
+        if file2.name not in st.session_state["processed_styles"]:
+            res2 = process_single_pdf_batch(file2.getvalue(), file2.name)
+            if res2["success"]: st.session_state["processed_styles"][file2.name] = res2["data"]
+            
+        d1 = st.session_state["processed_styles"].get(file1.name)
+        d2 = st.session_state["processed_styles"].get(file2.name)
+        
+        if d1 and d2:
+            st.markdown(f"""
+                <div style="background-color: #FFFFFF; border-left: 5px solid #3B82F6; padding: 12px 20px; border-radius: 4px 12px 12px 4px; margin-bottom: 20px; box-shadow: 0 2px 5px rgba(0,0,0,0.02);">
+                    <h5 style="margin:0; color:#1E3A8A; font-weight:700; font-size:16px;">⚙️ ĐANG ĐỐI CHIẾU MA TRẬN PHÁT TRIỂN MẪU</h5>
+                    <p style="margin:4px 0 0 0; font-size:13px; color:#64748B;">
+                        <b>Mẫu Gốc A:</b> {d1['style_number_parsed']} [Size: {d1.get('base_size_name','N/A')}] 
+                        &nbsp;|&nbsp; 
+                        <b>Mẫu Sửa B:</b> {d2['style_number_parsed']} [Size: {d2.get('base_size_name','N/A')}]
+                    </p>
+                </div>
+            """, unsafe_allow_html=True)
+            
+            def clean_garment_fraction(v_str):
+                if not v_str or str(v_str).strip().upper() in ["N/A", "N/A INCH", ""]: return 0.0
+                try:
+                    s = str(v_str).replace("INCH", "").strip()
+                    if " " in s:
+                        parts = s.split()
+                        whole = float(parts[0])
+                        frac = parts[1].split('/')
+                        return whole + (float(frac[0]) / float(frac[1]))
+                    elif "/" in s:
+                        frac = s.split('/')
+                        return float(frac[0]) / float(frac[1])
+                    return float(s)
+                except:
+                    nums = re.findall(r"[-+]?\d*\.\d+|\d+", str(v_str))
+                    return float(nums[0]) if nums else 0.0
+
+            size_a = d1.get("base_size_name", "BASE").strip()
+            size_b = d2.get("base_size_name", "BASE").strip()
+            col_title_a = f"Mẫu A ({d1['style_number_parsed']}) [{size_a}]"
+            col_title_b = f"Mẫu B ({d2['style_number_parsed']}) [{size_b}]"
+            all_poms = set(list(d1["measurements"].keys()) + list(d2["measurements"].keys()))
+            
+            table_body_html = ""
+            compare_rows_for_df = []
+            
+            for pom in sorted(all_poms):
+                val1 = d1["measurements"].get(pom, "N/A")
+                val2 = d2["measurements"].get(pom, "N/A")
+                num1 = clean_garment_fraction(val1)
+                num2 = clean_garment_fraction(val2)
+                
+                delta = round(num2 - num1, 3) if val1 != "N/A" and val2 != "N/A" else 0.0
+                compare_rows_for_df.append({"Vị trí đo (POM)": pom, col_title_a: val1, col_title_b: val2, "Sai lệch (Delta)": delta})
+                
+                if delta > 0:
+                    delta_style = "background-color:rgba(16,185,129,0.15); color:#166534; font-weight:700; padding:2px 8px; border-radius:4px; font-size:12px; border:1px solid #BBF7D0;"
+                    delta_text = f"+{delta}"
+                elif delta < 0:
+                    delta_style = "background-color:rgba(239,68,68,0.15); color:#991B1B; font-weight:700; padding:2px 8px; border-radius:4px; font-size:12px; border:1px solid #FECACA;"
+                    delta_text = f"{delta}"
+                else:
+                    delta_style = "color:#64748B; font-size:12px;"
+                    delta_text = "0.00"
+                
+                table_body_html += f"""<tr style="background-color: #FFFFFF;">
+                    <td style="padding: 10px 14px; border-bottom: 1px solid #E2E8F0; font-weight: 600; color: #1E293B; font-size: 13px;">{pom}</td>
+                    <td style="padding: 10px 14px; border-bottom: 1px solid #E2E8F0; color: #334155; font-size: 13px;">{val1}</td>
+                    <td style="padding: 10px 14px; border-bottom: 1px solid #E2E8F0; color: #334155; font-size: 13px;">{val2}</td>
+                    <td style="padding: 10px 14px; border-bottom: 1px solid #E2E8F0; text-align: center;"><span style="{delta_style}">{delta_text}</span></td>
+                </tr>"""
+            
+            full_table_render = f"""
+            <div style="max-height: 460px; overflow-y: auto; border: 1px solid #CBD5E1; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.02); margin-top: 15px;">
+                <table style="width: 100%; border-collapse: collapse; text-align: left; font-family: sans-serif;">
+                    <thead>
+                        <tr style="background: linear-gradient(90deg, #1E3A8A 0%, #2563EB 100%);">
+                            <th style="color: #FFFFFF; font-weight: 600; padding: 14px 16px; font-size: 13px; position: sticky; top: 0; z-index: 10;">Vị trí đo (POM Description)</th>
+                            <th style="color: #FFFFFF; font-weight: 600; padding: 14px 16px; font-size: 13px; position: sticky; top: 0; z-index: 10;">{col_title_a}</th>
+                            <th style="color: #FFFFFF; font-weight: 600; padding: 14px 16px; font-size: 13px; position: sticky; top: 0; z-index: 10;">{col_title_b}</th>
+                            <th style="color: #FFFFFF; font-weight: 600; padding: 14px 16px; font-size: 13px; text-align: center; width: 150px; position: sticky; top: 0; z-index: 10;">Sai lệch (Delta)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {table_body_html}
+                    </tbody>
+                </table>
+            </div>
+            """
+            st.markdown(full_table_render, unsafe_allow_html=True)
+            st.markdown("<br>", unsafe_allow_html=True)
+            
+            # ĐÃ VÁ LỖI CỤT: Hoàn thiện logic định dạng cột và sinh tệp Excel tự động
+            df_compare = pd.DataFrame(compare_rows_for_df)
+            towrite = io.BytesIO()
+            with pd.ExcelWriter(towrite, engine='xlsxwriter') as writer: 
+                df_compare.to_excel(writer, index=False, sheet_name='Spec_Report')
+                workbook  = writer.book
+                worksheet = writer.sheets['Spec_Report']
+                header_format = workbook.add_format({'bold':True,'text_wrap':True,'fg_color':'#1E3A8A','font_color':'white','border':1,'align':'center','valign':'vcenter'})
+                center_format = workbook.add_format({'align':'center','valign':'vcenter','border':1})
+                left_format = workbook.add_format({'align':'left','valign':'vcenter','border':1})
+                
+                for col_num, column_title in enumerate(df_compare.columns):
+                    worksheet.write(0, col_num, column_title, header_format)
+                    
+                for i, col in enumerate(df_compare.columns):
+                    max_len = max(df_compare[col].astype(str).map(len).max(), len(col)) + 3
+                    if col == "Vị trí đo (POM)":
+                        worksheet.set_column(i, i, max_len, left_format)
+                    else:
+                        worksheet.set_column(i, i, max_len, center_format)
+                        
+            st.download_button(
+                label="📥 DOWNLOAD COMPARISON EXCEL REPORT",
+                data=towrite.getvalue(),
+                file_name=f"Spec_Comparison_{d1['style_number_parsed']}_vs_{d2['style_number_parsed']}.xlsx",
+                mime="application/vnd.ms-excel",
+                use_container_width=True
+            )
+
+    # =============================================================================
+# CHỨC NĂNG 3: TRỢ LÝ ĐỊNH MỨC VẢI (ISOLATED DATA PIPELINE & INTENT LAB - PHẦN 6A)
+# =============================================================================
+elif menu_selection == "🧵 BOM & Consumption Matrix":
     st.markdown('<div class="component-title-box">🧵 INTELLIGENT BOM & CONSUMPTION MATRIX ENGINE</div>', unsafe_allow_html=True)
     
     # Thiết lập giao diện điều khiển hàng ngang cố định chống tràn trang
@@ -419,15 +557,14 @@ if menu_selection == "📊 Upload Techpack":
     # Khởi tạo mảng lưu lịch sử hội thoại chuẩn hóa
     if "chat_history" not in st.session_state:
         st.session_state["chat_history"] = [
-            {"role": "assistant", "type": "text", "content": "Welcome to PPJ Textile Visual R&D Engine. Hãy tải lên sơ đồ rập/Techpack mã mới và ra lệnh. Tôi sẽ tìm chính xác mã tương đồng bằng hình ảnh phom dáng/cấu trúc túi, xuất ảnh Sketch và đối soát thông số tính định mức vải chính xác, không trả lời lan man."}
+            {"role": "assistant", "type": "text", "content": "Welcome to PPJ Textile Visual R&D Engine. Hãy tải lên sơ đồ rập/Techpack mã mới và ra lệnh. Tôi sẽ tìm chính xác mã tương đồng trong database, xuất ảnh thiết kế và tự động tính định mức vải/phụ liệu theo đúng thực tế hoặc công thức chuẩn ngành may."}
         ]
         
-    # HIỂN THỊ LỊCH SỬ CHAT SẠCH: Loại bỏ ảnh vỡ cũ khỏi bộ nhớ đệm
     for msg in st.session_state["chat_history"]:
         with st.chat_message(msg["role"]): 
             st.write(msg["content"])
-            if msg.get("type") == "visual" and msg.get("image_url") and "R09-496091" not in msg.get("image_url"):
-                st.image(msg["image_url"], caption=f"Bản vẽ Sketch đối chiếu mã {msg.get('style_title')}", width=220)
+            if msg.get("type") == "visual" and msg.get("image_url"):
+                st.image(msg["image_url"], caption=f"Bản vẽ Sketch lịch sử đối chiếu mã {msg.get('style_title')}", width=220)
     # =============================================================================
     # PHASE 6B: AUTO-REPAIR INTENT & DOUBLE-CHECKED KEYWORD PIPELINE (PHẦN 2)
     # =============================================================================
@@ -491,7 +628,7 @@ if menu_selection == "📊 Upload Techpack":
                                 except Exception:
                                     import time
                                     time.sleep(2 * (ext_attempt + 1))
-                                                # ✨ THUẬT TOÁN ĐỒNG BỘ: Chuẩn hóa từ khóa trích xuất sạch chữ tiếng Việt
+                        # ✨ THUẬT TOÁN ĐỒNG BỘ: Chuẩn hóa từ khóa trích xuất sạch chữ tiếng Việt
                         text_to_extract = user_query
                         if chat_file and str(new_style_id_detected).strip() != "UNKNOWN_STYLE":
                             text_to_extract = str(new_style_id_detected).strip()
@@ -502,10 +639,10 @@ if menu_selection == "📊 Upload Techpack":
                         patterns_to_remove = r"TÌM HÌNH ẢNH VÀ THÔNG SỐ MÃ HÀNG|THÔNG SỐ CHI TIẾT MÃ HÀNG|THÔNG SỐ CHI TIẾT MÃ|TÌM THÔNG SỐ MÃ HÀNG|TÌM CODE VẢI MÃ NÀY|TÌM THÔNG SỐ MÃ|TÌM CODE VẢI NÀY|TÌM CODE VẢI MÃ|THÔNG SỐ MÃ HÀNG|TÌM MÃ HÀNG KHÔNG|TÌM MÃ HÀNG NÀY|TÌM MÃ HÀNG|THÔNG SỐ MÃ|TÌM HÀNG|TÌM CODE VẢI|THÔNG SỐ|TÌM MÃ|TÌM"
                         raw_keyword = re.sub(patterns_to_remove, "", clean_text_upper).strip()
                         
-                        # Thuật toán chuẩn hóa dấu gạch ngang chuẩn xác (Fix triệt để lỗi ép mảng chuỗi)
+                        # Thuật toán chuẩn hóa dấu gạch ngang chuẩn xác (Fix bảo vệ lỗi ép mảng chuỗi)
                         if "SJ" in raw_keyword:
                             nums_list = re.findall(r"\d+", raw_keyword)
-                            dynamic_keyword = f"SJ-{nums_list[0]}" if nums_list else raw_keyword
+                            dynamic_keyword = f"SJ-{nums_list}" if nums_list else raw_keyword
                         else:
                             dynamic_keyword = raw_keyword
 
@@ -533,7 +670,7 @@ if menu_selection == "📊 Upload Techpack":
                            - Là Denim/Jeans (Sateen, Twill dày) hay quần kaki/quần tây vải nhẹ?
 
                         ĐỐI CHIẾU VỚI DANH SÁCH TRONG KHO:
-                        Hãy quét danh sách trong kho dưới đây và CHỈ ĐƯỢC CHỌN mã nào TRÙNG KHỚP CẢ CẤU TRÚC TÚI VÀ PHOM DÁNG (Ví dụ: Jeans 5 túi chỉ được so sánh with Jeans 5 túi; Quần tây túi xéo chỉ được so sánh với quần tây túi xéo):
+                        Hãy quét danh sách trong kho dưới đây và CHỈ ĐƯỢC CHỌN mã nào TRÙNG KHỚP CẢ CẤU TRÚC TÚI VÀ PHOM DÁNG (Ví dụ: Jeans 5 túi chỉ được so sánh với Jeans 5 túi; Quần tây túi xéo chỉ được so sánh với quần tây túi xéo):
                         {json.dumps(db_master_images[:120], ensure_ascii=False)}
                         
                         - Nếu trong kho KHÔNG CÓ mã nào có cấu trúc túi và phom dáng trùng khớp, bạn BẮT BUỘC phải trả về chữ "NONE" để hệ thống chuyển sang luồng tự tính toán độc lập. Không được đoán mò hoặc ép so sánh lệch form!
@@ -557,7 +694,7 @@ if menu_selection == "📊 Upload Techpack":
                         found_sketch_url = None
                         
                         if db_techpack_specs and isinstance(db_techpack_specs, list) and len(db_techpack_specs) > 0:
-                            first_record = db_techpack_specs[0]
+                            first_record = db_techpack_specs
                             found_sketch_url = first_record.get("SketchURL")
                             extracted_specs_data = first_record.get("DetailedMeasurements", {})
                         elif db_techpack_specs and isinstance(db_techpack_specs, dict):
@@ -576,8 +713,9 @@ if menu_selection == "📊 Upload Techpack":
                             matched_specs_clean = {}
                             matched_sketch_url = ""
                             if db_matched_specs and isinstance(db_matched_specs, list) and len(db_matched_specs) > 0:
-                                matched_specs_clean = db_matched_specs[0].get("DetailedMeasurements", {})
-                                matched_sketch_url = db_matched_specs[0].get("SketchURL", "")
+                                first_matched = db_matched_specs
+                                matched_specs_clean = first_matched.get("DetailedMeasurements", {})
+                                matched_sketch_url = first_matched.get("SketchURL", "")
                             elif db_matched_specs and isinstance(db_matched_specs, dict):
                                 matched_specs_clean = db_matched_specs.get("DetailedMeasurements", {})
                                 matched_sketch_url = db_matched_specs.get("SketchURL", "")
@@ -593,7 +731,7 @@ if menu_selection == "📊 Upload Techpack":
 
                             HÃY THỰC HIỆN:
                             - Lập bảng đối soát độ lệch kích thước ở các vị trí POM chủ chốt giữa 2 mã.
-                            - Dựa vào định mức của mã cũ và độ tăng/giảm số đo của mã mới để cộng/trừ định mức vải chính xác.
+                            - Dựa vào định mức của mã cũ và độ tăng/giảm số đo của mã mới để cộng/trừ định mức vải chính xác (Yard/Cái).
                             - Giải thích lý do chọn mã này: {match_reason}
                             """
                         else:
