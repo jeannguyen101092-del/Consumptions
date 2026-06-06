@@ -550,8 +550,8 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
             st.write(msg["content"])
             if msg.get("type") == "visual" and msg.get("image_url"):
                 st.image(msg["image_url"], caption=f"Bản vẽ Sketch lịch sử đối chiếu mã {msg.get('style_title')}", width=220)
-       # =============================================================================
-    # PHASE 6B: AUTO-REPAIR INTENT & DOUBLE-CHECKED KEYWORD PIPELINE (PHẦN 3B)
+         # =============================================================================
+    # PHASE 6B: AUTO-REPAIR INTENT & DOUBLE-CHECKED KEYWORD PIPELINE (PHẦN 3A-MỚI)
     # =============================================================================
     if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vải và đối soát sai lệch..."):
         st.session_state["chat_history"].append({"role": "user", "type": "text", "content": user_query})
@@ -567,11 +567,13 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                 else:
                     try:
                         client = genai.Client(api_key=gemini_key)
+                        
+                        # Khởi tạo cổng chứa dữ liệu hỗn hợp (Cả chữ câu hỏi và toàn bộ ảnh file TP mới)
                         contents_payload = []
                         new_style_id_detected = "UNKNOWN_STYLE"
                         new_style_raw_text = ""
                         
-                        # LUỒNG A: NẾU KỸ SƯ CÓ TẢI FILE TECHPACK LÊN - KÍCH HOẠT QUÉT ĐA TRANG
+                        # LUỒNG A: NẾU KỸ SƯ CÓ TẢI FILE TECHPACK MỚI LÊN - KÍCH HOẠT QUÉT ĐA TRANG
                         if chat_file:
                             file_bytes = chat_file.getvalue()
                             img_payload = []
@@ -582,12 +584,15 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                                 for page_img in chat_images:
                                     img_buf = io.BytesIO()
                                     page_img.convert("RGB").save(img_buf, format="JPEG")
-                                    img_payload.append(types.Part.from_bytes(data=img_buf.getvalue(), mime_type='image/jpeg'))
-                                    if not contents_payload:
-                                        contents_payload.append(types.Part.from_bytes(data=img_buf.getvalue(), mime_type='image/jpeg'))
+                                    # Nạp ảnh vào danh sách quét metadata độc lập
+                                    binary_part = types.Part.from_bytes(data=img_buf.getvalue(), mime_type='image/jpeg')
+                                    img_payload.append(binary_part)
+                                    # ✨ ĐÃ ĐỒNG BỘ: Nạp thẳng ảnh vào payload chính để AI hội thoại nhìn thấy file
+                                    contents_payload.append(binary_part)
                             else:
-                                img_payload.append(types.Part.from_bytes(data=file_bytes, mime_type='image/jpeg'))
-                                contents_payload.append(types.Part.from_bytes(data=file_bytes, mime_type='image/jpeg'))
+                                binary_part = types.Part.from_bytes(data=file_bytes, mime_type='image/jpeg')
+                                img_payload.append(binary_part)
+                                contents_payload.append(binary_part)
                             
                             extraction_prompt = """
                             Analyze ALL the attached technical pack images page by page.
@@ -596,11 +601,16 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                             Return a valid JSON with this exact schema:
                             {"detected_style_id": "Text of Style ID", "all_specs_text": "Complete specifications and raw BOM data text from all pages"}
                             """
-                            img_payload.append(extraction_prompt)
+                            # Thực hiện quét nhanh bóc tách metadata nhãn hàng độc lập
+                            metadata_payload = list(img_payload) + [extraction_prompt]
                             
                             for ext_attempt in range(3):
                                 try:
-                                    extraction_res = client.models.generate_content(model='gemini-2.5-flash', contents=img_payload, config=types.GenerateContentConfig(response_mime_type="application/json", temperature=0.0))
+                                    extraction_res = client.models.generate_content(
+                                        model='gemini-2.5-flash', 
+                                        contents=metadata_payload, 
+                                        config=types.GenerateContentConfig(response_mime_type="application/json", temperature=0.0)
+                                    )
                                     parsed_meta = json.loads(extraction_res.text.strip())
                                     new_style_id_detected = parsed_meta.get("detected_style_id", "UNKNOWN_STYLE").strip()
                                     new_style_raw_text = parsed_meta.get("all_specs_text", "")
@@ -609,39 +619,23 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                                     import time
                                     time.sleep(2 * (ext_attempt + 1))
                         
-                                               # ✨ THUẬT TOÁN ĐỒNG BỘ: Tự động trích xuất chuỗi mã sạch dệt may (Khử toàn bộ nhiễu chữ tiếng Việt)
+                        # ✨ THUẬT TOÁN ĐỒNG BỘ: Chuẩn hóa từ khóa trích xuất sạch
                         text_to_extract = user_query
                         if chat_file and str(new_style_id_detected).strip() != "UNKNOWN_STYLE":
                             text_to_extract = str(new_style_id_detected).strip()
                         
                         clean_text_upper = str(text_to_extract).strip().upper()
-                        
-                        # Sử dụng biểu thức chính quy Regex thông minh bóc tách định dạng mã dệt may PPJ (Ví dụ: P09-488051 hoặc MR1705)
-                        # Biểu thức này tìm chuỗi ký tự kết hợp dấu gạch ngang và số ở cuối câu lệnh
-                        match_style_code = re.search(r'([A-Z0-9]+-[A-Z0-9]+|[A-Z0-9]{3,})', clean_text_upper)
-                        
-                        if match_style_code:
-                            # Trích xuất trúng chuỗi mã cốt lõi "P09-488051" hoặc "MR1705" không kèm chữ nhiễu
-                            dynamic_keyword = match_style_code.group(1).strip()
-                        else:
-                            # Lớp bảo vệ phụ: Nếu không khớp rập, tự động dọn sạch các từ khóa chatbot thông dụng
-                            dynamic_keyword = clean_text_upper.replace("TÌM HÌNH ẢNH VÀ THÔNG SỐ MÃ HÀNG", "").replace("TÌM CODE VẢI MÃ", "").replace("TÌM CODE VẢI", "").replace("TÌM MÃ HÀNG", "").replace("TÌM MÃ", "").replace("TÌM", "").strip()
-
-
-                                                # =============================================================================
-                                                # =============================================================================
-                                                # =============================================================================
+                        dynamic_keyword = clean_text_upper.replace("TÌM HÌNH ẢNH VÀ THÔNG SỐ MÃ HÀNG", "").replace("TÌM CODE VẢI MÃ", "").replace("TÌM CODE VẢI", "").replace("TÌM MÃ HÀNG", "").replace("TÌM MÃ", "").replace("TÌM", "").strip()
+                        # =============================================================================
                         # TRUY VẤN SONG SONG KHO DATA & THIẾT LẬP LUỒNG CÔNG THỨC TOÁN HỌC DỆT MAY (PHẦN 3C)
                         # =============================================================================
                         db_historical_consumption = get_historical_fabric_consumption_from_db(dynamic_keyword)
                         db_techpack_specs = get_techpack_spec_from_db(dynamic_keyword)
                         
-                        # ✨ ĐÃ SỬA LỖI GIẢI NÉN MẢNG: Trích xuất chính xác phần tử [0] để lấy link ảnh và thông số hình học
                         found_sketch_url = None
                         extracted_specs_data = {}
                         
                         if db_techpack_specs and isinstance(db_techpack_specs, list) and len(db_techpack_specs) > 0:
-                            # Lấy chính xác phần tử đầu tiên [0] của danh sách bản ghi trả về từ Supabase
                             first_record = db_techpack_specs[0]
                             found_sketch_url = first_record.get("SketchURL")
                             extracted_specs_data = first_record.get("DetailedMeasurements", {})
@@ -649,14 +643,17 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                             found_sketch_url = db_techpack_specs.get("SketchURL")
                             extracted_specs_data = db_techpack_specs.get("DetailedMeasurements", {})
 
-                        # HOÀN THIỆN PROMPT ĐIỀU HƯỚNG AI ĐỌC KHO VÀ TÍNH TOÁN TOÁN HỌC ĐỊNH MỨC VẢI
+                        # HOÀN THIỆN PROMPT ĐIỀU HƯỚNG AI ĐỌC HIỂU ĐỒNG THỜI FILE MỚI VÀ FILE CŨ LỊCH SỬ
                         intel_prompt = f"""
                         Bạn là hệ thống Core AI R&D phân tích kỹ thuật dệt may tối cao của Tập đoàn PPJ Group.
-                        Hãy đọc hiểu yêu cầu, kết hợp dữ liệu đối soát thực tế từ database dưới đây để trả lời người dùng:
+                        Hãy trực tiếp đọc hình ảnh file đính kèm vừa tải lên (nếu có), kết hợp dữ liệu đối soát thực tế từ database dưới đây để trả lời người dùng:
 
                         YÊU CẦU NGƯỜI DÙNG: "{user_query}"
                         MÃ HÀNG HOẶC MÃ VẢI ĐANG ĐỐI SOÁT HỆ THỐNG: "{dynamic_keyword}"
-                        DỮ LIỆU FILE MỚI ĐANG QUÉT (NẾU CÓ): {new_style_raw_text}
+                        
+                        --- DỮ LIỆU BÓC TÁCH OCR TỪ FILE TECHPACK MỚI VỪA TẢI LÊN ---
+                        Mã hàng nhận diện trên file mới: {new_style_id_detected}
+                        Chi tiết thông số/BOM quét được từ file mới: {new_style_raw_text}
 
                         --- DỮ LIỆU THỰC TẾ TRUY VẤN TỪ SUPABASE CLOUD ---
                         1. KHO ĐỊNH MỨC LỊCH SỬ (Table san_pham): 
@@ -665,21 +662,19 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                         2. KHO THÔNG SỐ KỸ THUẬT CHI TIẾT (Table thong_so_techpack):
                         {json.dumps(db_techpack_specs, ensure_ascii=False, indent=2)}
 
-                        MA TRẬN THÔNG SỐ HÌNH HỌC POM TRÍCH XUẤT ĐƯỢC:
+                        MA TRẬN THÔNG SỐ HÌNH HỌC POM LỊCH SỬ TRÍCH XUẤT ĐƯỢC:
                         {json.dumps(extracted_specs_data, ensure_ascii=False, indent=2)}
 
                         --- THUẬT TOÁN RA QUYẾT ĐỊNH & CÔNG THỨC TOÁN HỌC ĐỊNH MỨC BẮT BUỘC ---
-                        QUY TẮC 1: Nếu dữ liệu lịch sử thu được (Table san_pham) CÓ dữ liệu, hãy hiển thị bảng định mức thực tế của mã này lên màn hình (bao gồm các trường: style_name, article_name, consumption_type, consumption_value, uom).
+                        QUY TẮC 1: Nếu dữ liệu lịch sử thu được (Table san_pham) CÓ dữ liệu, hãy hiển thị bảng định mức thực tế của mã này lên màn hình.
                         
-                        QUY TẮC 2: Nếu ma trận thông số hình học POM trích xuất được ở trên có dữ liệu, hãy tự động trình bày thành một bảng thông số kỹ thuật chi tiết rõ ràng cho người dùng xem đối soát.
+                        QUY TẮC 2: Hãy so sánh đối chiếu trực tiếp các vị trí đo POM giữa File Techpack mới (bóc tách từ hình ảnh đính kèm) và Ma trận thông số POM lịch sử trong kho để chỉ ra các điểm sai lệch (Delta Spec) cho kỹ sư dệt may biết.
                         
-                        QUY TẮC 3: Nếu đây là MÃ HÀNG MỚI HOÀN TOÀN (Dữ liệu lịch sử rỗng), bạn BẮT BUỘC phải thực hiện thuật toán tính định mức vải chuẩn ngành dệt may dựa trên thông số hình học rập mẫu thu được từ ma trận thông số POM ở trên:
-                           - Công thức cho Áo (Shirt/T-Shirt): Định mức vải = ((Dài áo + Rộng áo + Hao hụt) * (Rộng tay/2 + Hao hụt) * 2) / Khổ vải hữu dụng.
-                           - Công thức cho Quần (Pants/Jeans): Định mức vải = ((Dài quần + Hao hụt) * (Vòng mông + Hao hụt) * 4) / Khổ vải hữu dụng.
-                        
-                        QUY TẮC 4: Nếu không tìm thấy link ảnh phác thảo Sketch từ hệ thống, hãy lịch sự thông báo cho người dùng biết là mã hàng hiện tại chưa được cập nhật hình ảnh bản vẽ kỹ thuật phẳng trong kho lưu trữ của Tập đoàn.
+                        QUY TẮC 3: Nếu file mới tải lên là MÃ HÀNG MỚI HOÀN TOÀN, bạn BẮT BUỘC phải sử dụng hình ảnh đính kèm để bóc tách thông số hình học và áp dụng thuật toán tính toán toán học định mức vải:
+                           - Công thức cho Áo: Định mức vải = ((Dài áo + Rộng áo + Hao hụt) * (Rộng tay/2 + Hao hụt) * 2) / Khổ vải hữu dụng.
+                           - Công thức cho Quần: Định mức vải = ((Dài quần + Hao hụt) * (Vòng mông + Hao hụt) * 4) / Khổ vải hữu dụng.
 
-                        HÃY HIỂN THỊ CÂU TRẢ LỜI DẠNG BẢNG ĐẸP MẮT, NGẮN GỌN THEO PHONG CÁCH KỸ SƯ CÔNG NGHIỆP PPJ.
+                        HÃY HIỂN THỊ CÂU TRẢ LỜI DẠNG BẢNG ĐẸP MẮT, NGẮN GỌN THEO ĐÚNG PHONG CÁCH KỸ SƯ CÔNG NGHIỆP PPJ.
                         """
                         
                         contents_payload.append(intel_prompt)
@@ -693,7 +688,7 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                         
                         new_msg_entry = {"role": "assistant", "type": "text", "content": final_text}
                         
-                        # Kiểm tra điều kiện nghiêm ngặt, chỉ xuất khung ảnh st.image khi URL thực sự tồn tại hợp lệ
+                        # Tự động hiển thị ảnh rập phẳng từ Storage kho_anh ra màn hình chat nếu khớp mã lịch sử
                         if found_sketch_url and str(found_sketch_url).strip() != "" and str(found_sketch_url).strip().lower() != "null":
                             new_msg_entry["type"] = "visual"
                             new_msg_entry["image_url"] = found_sketch_url
