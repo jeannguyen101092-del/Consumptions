@@ -657,28 +657,44 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                             extracted_specs_data = db_techpack_specs.get("DetailedMeasurements", {})
 
                                                 # HOÀN THIỆN PROMPT RÚT GỌN: ÉP AI TRẢ LỜI TRỰC DIỆN THEO CÂU HỎI CỦA KỸ SƯ
+                                                # =============================================================================
+                        # PROMPT ĐIỀU HƯỚNG TƯ DUY AI THEO 3 QUY TẮC CỐT LÕI NGÀNH MAY PPJ GROUP
+                        # =============================================================================
                         intel_prompt = f"""
-                        Bạn là hệ thống Core AI R&D phân tích kỹ thuật dệt may tối cao của Tập đoàn PPJ Group.
-                        Hãy đọc hiểu yêu cầu và trả lời TRỰC DIỆN vào câu hỏi của người dùng dựa trên dữ liệu thu được từ database:
+                        Bạn là hệ thống Trợ lý AI R&D tối cao thuộc Ban Kỹ thuật Tập đoàn PPJ Group.
+                        Hãy phân tích dữ liệu hình ảnh file đính kèm vừa tải lên (nếu có), kết hợp dữ liệu truy vấn thời gian thực từ 3 kho Database dưới đây để phản hồi người dùng.
 
-                        YÊU CẦU NGƯỜI DÙNG: "{user_query}"
-                        TỪ KHÓA TRA CỨU HỆ THỐNG: "{dynamic_keyword}"
+                        YÊU CẦU CỦA NGƯỜI DÙNG: "{user_query}"
+                        TỪ KHÓA ĐỊNH DANH HỆ THỐNG: "{dynamic_keyword}"
 
-                        --- DỮ LIỆU THỰC TẾ TRUY VẤN TỪ SUPABASE CLOUD ---
-                        1. KHO ĐỊNH MỨC LỊCH SỬ VÀ MÃ VẢI (Table san_pham): 
+                        --- DỮ LIỆU THỰC TẾ TRUY VẤN TỪ 3 KHO SUPABASE CLOUD ---
+                        1. KHO ĐỊNH MỨC LỊCH SỬ (Table san_pham): 
                         {json.dumps(db_historical_consumption, ensure_ascii=False, indent=2)}
                         
                         2. KHO THÔNG SỐ KỸ THUẬT CHI TIẾT (Table thong_so_techpack):
                         {json.dumps(db_techpack_specs, ensure_ascii=False, indent=2)}
 
-                        MA TRẬN THÔNG SỐ HÌNH HỌC POM TRÍCH XUẤT ĐƯỢC:
+                        MA TRẬN THÔNG SỐ HÌNH HỌC POM LỊCH SỬ TRÍCH XUẤT ĐƯỢC:
                         {json.dumps(extracted_specs_data, ensure_ascii=False, indent=2)}
 
-                        --- 🚨 QUY TẮC PHẢN HỒI NGHIÊM NGẶT ---
-                        1. Người dùng hỏi gì thì trả lời chính xác cái đó. Tuyệt đối KHÔNG trả lời lan man, KHÔNG tự ý đưa ra các bước lập luận hay quy trình tính định mức dài dòng nếu người dùng không yêu cầu.
-                        2. Nếu người dùng hỏi tìm CODE VẢI (article_name) hoặc tìm thông tin từ kho, hãy kiểm tra dữ liệu trong `Table san_pham`. Nếu có dữ liệu, hãy liệt kê rõ ràng tên Mã hàng (style_name) và Code vải (article_name) tương ứng đang lưu trong kho dưới dạng bảng.
-                        3. Nếu ma trận thông số kỹ thuật chi tiết (`extracted_specs_data`) có dữ liệu và người dùng cần xem thông số, hãy in bảng thông số POM ra.
-                        4. Nếu không tìm thấy bất kỳ dữ liệu nào khớp với từ khóa "{dynamic_keyword}" trong cả 3 kho, hãy lịch sự thông báo: "Hệ thống không tìm thấy Mã hàng hoặc Code vải '{dynamic_keyword}' trong kho dữ liệu." và dừng lại, KHÔNG tự tính toán định mức bừa bãi.
+                        --- 🚨 3 QUY TẮC BẮT BUỘC AI PHẢI TUÂN THỦ TUYỆT ĐỐI ---
+
+                        📌 QUY TẮC 1: HỎI GÌ ĐÁP NẤY (ĐỐI SOÁT KHO NỘI BỘ)
+                        - Nếu người dùng chỉ yêu cầu tìm kiếm đơn lẻ (Ví dụ: tìm mã hàng, tìm code vải, xem hình ảnh phác thảo rập trong kho), bạn chỉ được phép trả lời đúng nội dung đó dưới dạng bảng ngắn gọn. 
+                        - Tuyệt đối KHÔNG tự ý giải thích dài dòng, KHÔNG đưa ra quy trình hay tính toán định mức nếu người dùng không yêu cầu. Nếu kho trống, chỉ báo: "Không tìm thấy dữ liệu '{dynamic_keyword}' trong hệ thống".
+
+                        📌 QUY TẮC 2: ĐỐI SOÁT CHÉO MÃ TƯƠNG ĐỒNG (KHI KỸ SƯ UPLOAD FILE TECHPACK MỚI)
+                        Khi kỹ sư tải một file Techpack mới lên kèm yêu cầu "Tìm mã hàng tương đồng/giống nhất trong kho", bạn phải thực hiện chuỗi tư duy:
+                           - Bước A: Quét toàn bộ kho hình ảnh, thông số POM, định mức lịch sử được cung cấp ở trên để tìm ra Mã hàng cũ giống nhất (Mã tương đồng). Chỉ rõ tên mã tương đồng đó ra.
+                           - Bước B: Lập bảng so sánh đối chiếu từng vị trí đo (POM Description) giữa dữ liệu bóc tách của File mới và Ma trận thông số lịch sử của mã tương đồng trong kho để tính toán Sai số lệch rập (Delta Spec = Thông số mới - Thông số cũ).
+                           - Bước C: Dựa trên dữ liệu định mức thực tế của mã tương đồng trong kho và các sai số Delta Spec, tự động lập luận tính toán đưa ra con số dự đoán định mức chính xác cho đơn hàng mới này.
+
+                        📌 QUY TẮC 3: XỬ LÝ MÃ MỚI HOÀN TOÀN (KHÔNG CÓ MÃ TƯƠNG ĐỒNG)
+                        - Nếu file Techpack mới tải lên hoàn toàn mới và bạn quét kho không tìm thấy mã nào tương đồng để đối soát, bạn tuyệt đối KHÔNG được lấy con số mặc định chung chung (như 1.2m hay 1.4m).
+                        - Bạn phải tự bóc tách các thông số hình học rập mẫu cốt lõi (Dài quần/áo, Vòng mông/ngực,...) trực tiếp từ file Techpack mới đó.
+                        - Xuất bảng yêu cầu kỹ sư cung cấp thêm thông tin vật lý: Khổ vải hữu dụng (inch) và Độ co rút dệt nhuộm (Co ngang %, Co dọc %) để hệ thống kích hoạt thuật toán diện tích hình học rập mẫu để tự động tính toán ra định mức chính xác.
+
+                        HÃY TRẢ LỜI NGẮN GỌN, RÕ RÀNG, DÙNG BẢNG BIỂU CÔNG NGHIỆP DỆT MAY. KHÔNG TRẢ LỜI LAN MAN.
                         """
 
                         
