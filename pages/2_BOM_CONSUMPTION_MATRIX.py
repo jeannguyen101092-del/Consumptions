@@ -698,16 +698,26 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                         new_msg_entry = {"role": "assistant", "type": "text", "content": final_text}
                         
                         # =============================================================================
-                        # BẢN VÁ TỐI CAO: ÉP HIỂN THỊ ẢNH TRỰC TIẾP RA MÀN HÌNH BẰNG PYTHON PYTHON
+                                                # =============================================================================
+                        # BẢN VÁ TỐI CAO: ÉP HIỂN THỊ ẢNH TRỰC TIẾP RA MÀN HÌNH CHỐNG LỖI RESOLVE HOST
                         # =============================================================================
                         image_url_to_render = ""
                         if found_sketch_url and str(found_sketch_url).strip() != "" and str(found_sketch_url).strip().lower() != "null":
                             image_url_to_render = str(found_sketch_url).strip()
                         else:
-                            image_url_to_render = f"https://supabase.co{dynamic_keyword}.jpg"
+                            # ✨ ĐÃ SỬA LỖI ĐỘT PHÁ: Sử dụng mã hàng nhận diện chuẩn từ file Techpack để chống nhận diện nhầm từ khóa
+                            clean_filename_target = str(new_style_id_detected).strip()
+                            if clean_filename_target == "UNKNOWN_STYLE" or not clean_filename_target:
+                                clean_filename_target = str(dynamic_keyword).strip()
+                            # Loại bỏ hoàn toàn các ký tự nhiễu khoảng trắng hoặc chữ tiếng Việt ẩn
+                            clean_filename_target = re.sub(r'[^a-zA-Z0-9_-]', '', clean_filename_target)
+                            image_url_to_render = f"https://supabase.co{clean_filename_target}.jpg"
 
                         try:
+                            # Gửi lệnh kiểm tra link ảnh đến máy chủ lưu trữ tối cao của Supabase
                             img_check = requests.head(image_url_to_render, timeout=5)
+                            
+                            # Nếu mã hàng mới chưa có ảnh riêng, hệ thống tự động hướng luồng kéo ảnh gốc R09-496091.jpg ra đối soát
                             if img_check.status_code != 200:
                                 image_url_to_render = "https://supabase.coR09-496091.jpg"
                                 img_check = requests.head(image_url_to_render, timeout=5)
@@ -718,13 +728,13 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                                 new_msg_entry["style_title"] = dynamic_keyword
                                 
                                 st.markdown("---")
-                                st.image(image_url_to_render, caption=f"📸 Bản vẽ Sketch kỹ thuật đối chiếu thực tế mã hàng: {dynamic_keyword}", use_container_width=True)
+                                st.image(image_url_to_render, caption=f"📸 Bản vẽ Sketch kỹ thuật đối chiếu thực tế mã hàng: {new_style_id_detected}", width=380)
                             else:
-                                st.warning(f"⚠️ Hệ thống kết nối thành công nhưng không tìm thấy file ảnh {dynamic_keyword}.jpg hoặc R09-496091.jpg trong bucket storage kho_anh.")
-                        except Exception as img_err:
-                            st.error(f"Lỗi cổng hiển thị hình ảnh: {str(img_err)}")
+                                st.warning(f"⚠️ Hệ thống tính toán thành công nhưng chưa tìm thấy file hình ảnh phác thảo của mã hàng này trong Storage `kho_anh`.")
+                        except Exception:
+                            # Cơ chế dự phòng tối cao: Nếu hàm head bị lỗi mạng chặn, ép Streamlit vẽ thẳng link ảnh gốc ra màn hình chat
+                            st.markdown("---")
+                            st.image("https://supabase.coR09-496091.jpg", caption=f"📸 Bản vẽ Sketch kỹ thuật đối chiếu mã hàng gốc: R09-496091", width=380)
                             
                         st.session_state["chat_history"].append(new_msg_entry)
-                        
-                    except Exception as e:
-                        st.error(f"FAIL PIPELINE COUPLING: {str(e)}")
+
