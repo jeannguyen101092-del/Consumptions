@@ -701,6 +701,22 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                             found_sketch_url = db_techpack_specs.get("SketchURL")
                             extracted_specs_data = db_techpack_specs.get("DetailedMeasurements", {})
 
+                                                # =========================================================================
+                        # BƯỚC 2: BỐC BIẾN SỐSpecs MÃ MỚI & SỬA LỖI MẢNG TRUY VẤN (FIX CRASH CHỮ ĐỎ)
+                        # =========================================================================
+                        db_techpack_specs = get_techpack_spec_from_db(dynamic_keyword)
+                        extracted_specs_data = {}
+                        found_sketch_url = None
+                        
+                        # Fix dứt điểm lỗi 'list' object has no attribute 'get' bằng cách bóc phần tử đầu tiên [0] của mảng
+                        if db_techpack_specs and isinstance(db_techpack_specs, list) and len(db_techpack_specs) > 0:
+                            first_record = db_techpack_specs[0]
+                            found_sketch_url = first_record.get("SketchURL")
+                            extracted_specs_data = first_record.get("DetailedMeasurements", {})
+                        elif db_techpack_specs and isinstance(db_techpack_specs, dict):
+                            found_sketch_url = db_techpack_specs.get("SketchURL")
+                            extracted_specs_data = db_techpack_specs.get("DetailedMeasurements", {})
+
                         # =========================================================================
                         # LUỒNG RẼ NHÁNH TỰ ĐỘNG TÍNH TOÁN THEO KỊCH BẢN KHẢ DỤNG
                         # =========================================================================
@@ -712,14 +728,32 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                             
                             matched_specs_clean = {}
                             matched_sketch_url = ""
+                            
+                            # Bọc phòng vệ mảng an toàn cho dữ liệu mã tương đồng bốc từ DB lên
                             if db_matched_specs and isinstance(db_matched_specs, list) and len(db_matched_specs) > 0:
-                                first_matched = db_matched_specs
+                                first_matched = db_matched_specs[0]
                                 matched_specs_clean = first_matched.get("DetailedMeasurements", {})
                                 matched_sketch_url = first_matched.get("SketchURL", "")
                             elif db_matched_specs and isinstance(db_matched_specs, dict):
                                 matched_specs_clean = db_matched_specs.get("DetailedMeasurements", {})
                                 matched_sketch_url = db_matched_specs.get("SketchURL", "")
 
+                            # ✨ THUẬT TOÁN ĐỐI SOÁT CẤU TRÚC TÚI BỔ SUNG (Lớp bảo vệ tối cao ngăn so bậy quần túi xéo)
+                            # Chuyển đổi chuỗi thông số về dạng chữ viết hoa để kiểm tra chéo cấu trúc túi
+                            matched_specs_str = str(matched_specs_clean).upper()
+                            current_specs_str = str(extracted_specs_data).upper() if extracted_specs_data else new_style_raw_text.upper()
+                            
+                            # Kiểm tra chéo: Nếu mã mới là quần túi đắp (PATCH POCKET) mà mã AI tìm được chứa chữ túi xéo/túi mổ (SLANT/WELT) -> Hủy kết quả, ép sang Luồng B tự tính toán
+                            is_current_jeans = any(x in current_specs_str for x in ["PATCH POCKET", "5 POCKET", "TÚI ĐẮP", "5 TÚI"])
+                            is_matched_slant = any(x in matched_specs_str for x in ["SLANT", "WELT", "TÚI XÉO", "TÚI MỔ"])
+                            
+                            if is_current_jeans and is_matched_slant:
+                                st.warning(f"⚠️ HỦY MÃ TƯƠNG ĐỒNG {matched_style}: Phát hiện lệch cấu trúc (Mã mới là Jeans túi đắp, mã trong kho là quần túi xéo). Chuyển sang lõi tự tính hình học...")
+                                matched_style = "NONE"
+                                matched_sketch_url = None
+
+                        # Thực hiện kiểm tra lại cờ hiệu sau khi lọc cấu trúc túi
+                        if matched_style and matched_style != "NONE":
                             reasoning_prompt = f"""
                             Bạn là chuyên gia định mức R&D dệt may tại PPJ Group. 
                             Hãy so sánh bảng thông số hình học và tính định mức tiêu hao vải mới dựa trên mã tương đồng **{matched_style}** đã khớp cấu trúc phom/túi.
@@ -735,7 +769,7 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                             - Giải thích lý do chọn mã này: {match_reason}
                             """
                         else:
-                            # 👉 LUỒNG B: KHÔNG CÓ MÃ TƯƠNG ĐỒNG (Yêu cầu kỹ sư cung cấp thông số cốt lõi để tính toán)
+                            # 👉 LUỒNG B: KHÔNG CÓ MÃ TƯƠNG ĐỒNG ĐỒNG NHẤT CẤU TRÚC (Yêu cầu thông số sản xuất)
                             st.warning("⚠️ KHO KHÔNG CÓ MÃ TƯƠNG ĐỒNG ĐỒNG NHẤT CẤU TRÚC TÚI/PHOM DÁNG.")
                             matched_sketch_url = None
                             
@@ -743,9 +777,10 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                             has_fabric_info = any(x in user_query_upper for x in ["KHỔ", "KHO", "WIDTH", "CO RÚT", "CO RUT", "SHRINKAGE"])
                             
                             if not has_fabric_info:
-                                # Kịch bản B1: Nếu kỹ sư chưa nhập thông số sản xuất -> Hỏi ngược lại kỹ sư
                                 reasoning_prompt = f"""
-                                Bạn là trợ lý định mức R&D tại PPJ Group. Kho dữ liệu hiện chưa có mã tương đồng phù hợp với kết cấu túi/thiết kế này.
+                                Bạn là trợ lý định mức R&D tại PPJ Group. Kho dữ liệu hiện chưa có mã tương đồng phù hợp với kết cấu túi/thiết kế này (Mã mới là quần Jeans 5 túi, kho chỉ có quần tây túi xéo).
+                                Để có thể tính toán định mức vải chính xác từ con số 0 dựa trên bảng thông số Specs vừa quét, bạn KHÔNG ĐƯỢC ĐOÁN MÒ mà phải yêu cầu kỹ sư cung cấp dữ liệu sản xuất thực tế.
+                                
                                 Hãy phản hồi cho kỹ sư theo cấu trúc sau:
                                 1. Thông báo hệ thống không tìm thấy mã tương đồng khớp cấu trúc túi (Mã mới nhận diện: {dynamic_keyword}).
                                 2. Đưa ra danh sách 3 thông số bắt buộc yêu cầu kỹ sư nhập vào ô chat tiếp theo để kích hoạt lõi tính toán hình học:
@@ -754,7 +789,6 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                                    - Tỷ lệ hao hụt cắt rập mong muốn (Wastage %, thường nhà máy là 4%)
                                 """
                             else:
-                                # Kịch bản B2: Kỹ sư đã trả lời -> AI tiến hành tính toán số học từ Specs
                                 reasoning_prompt = f"""
                                 Bạn là chuyên gia định mức R&D dệt may độc lập tại PPJ Group. 
                                 Kỹ sư đã cung cấp thông số sản xuất thực tế trong câu lệnh: "{user_query}"
