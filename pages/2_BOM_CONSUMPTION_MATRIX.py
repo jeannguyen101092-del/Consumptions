@@ -568,7 +568,7 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
     # =============================================================================
     # PHASE 6B: AUTO-REPAIR INTENT & DOUBLE-CHECKED KEYWORD PIPELINE (PHẦN 2)
     # =============================================================================
-        if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vải và đối soát sai lệch..."):
+            if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vải và đối soát sai lệch..."):
         st.session_state["chat_history"].append({"role": "user", "type": "text", "content": user_query})
         with st.chat_message("user"): 
             st.write(user_query)
@@ -667,7 +667,7 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                            - Nếu là Áo/Jacket/Vest: Có mấy thân? Kiểu cổ áo (Cổ sơ mi, cổ tròn, cổ bẻ Vest)? Có lót trong (Lining) hay jacket 1 lớp? Có túi cơi, túi mổ hay túi ốp trước ngực?
                            - Nếu là Đầm/Dress: Chiều dài đầm (Mini, Midi, Maxi)? Kết cấu eo liền hay rã eo?
                         ĐỐI CHIẾU VỚI DANH SÁCH TRONG KHO:
-                        Hãy quét kho dưới đây và CHỈ ĐƯỢC CHỌN mã nào TRÙNG KHỚP HOÀN TOÀN CẢ CHỦNG LOẠI VÀ CẤU TRÚC PHOM DÁNG ĐẶC TRƯNG:
+                        Hãy quét kho dưới đây và CHỈ ĐƯỢC CHỌN mã nào TRÙNG KHỚP COAN TOÀN CẢ CHỦNG LOẠI VÀ CẤU TRÚC PHOM DÁNG ĐẶC TRƯNG:
                         {json.dumps(db_master_images[:120], ensure_ascii=False)}
                         - Nếu trong kho KHÔNG CÓ mã nào có chủng loại và cấu trúc trùng khớp, bạn BẮT BUỘC phải trả về chữ "NONE" để hệ thống chuyển sang luồng tự tính toán độc lập. Không được ép so sánh lệch chủng loại sản phẩm!
                         Trả về JSON chính xác: {{"matched_style_id": "TÊN_MÃ_HOẶC_NONE", "reason": "Mô tả chủng loại (Áo/Quần/Đầm/Vest) và kết cấu chi tiết túi/cổ/thân của mã mới và mã tương đồng để chứng minh độ trùng khớp"}}
@@ -695,7 +695,7 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                         except Exception:
                             matched_style = "NONE"
                             match_reason = "Không thể bóc tách cấu trúc JSON hình ảnh, tự động kích hoạt luồng toán học độc lập."
-# Lấy thông số thô của chính mã mới vừa tải lên
+                        # Lấy thông số thô của chính mã mới vừa tải lên
                         db_techpack_specs = get_techpack_spec_from_db(dynamic_keyword)
                         extracted_specs_data = {}
                         found_sketch_url = None
@@ -743,7 +743,7 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                                 st.warning(f"⚠️ HỦY MÃ TƯƠNG ĐỒNG {matched_style}: Phát hiện lệch chủng loại nghiêm trọng (Mã mới là Quần, mã đối chiếu tìm được là Áo Jacket/Vest). Chuyển sang lõi tự tính hình học...")
                                 matched_style = "NONE"
                                 matched_sketch_url = None
-                                    # Thực hiện kiểm tra lại cờ hiệu sau khi lọc chủng loại cấu trúc
+                        # Thực hiện kiểm tra lại cờ hiệu sau khi lọc chủng loại cấu trúc
                         if matched_style and matched_style != "NONE":
                             reasoning_prompt = f"""
                             Bạn là chuyên gia định mức R&D dệt may tại PPJ Group. 
