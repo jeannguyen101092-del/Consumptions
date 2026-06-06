@@ -194,6 +194,69 @@ def get_techpack_spec_from_db(style_name_keyword=None):
         return res.json() if res.status_code == 200 else []
     except Exception:
         return []
+def process_single_pdf_batch(file_bytes, file_name):
+    """
+    Hàm bóc tách dữ liệu kỹ thuật từ một file PDF độc lập sử dụng Gemini Vision API.
+    """
+    try:
+        gemini_key = get_secure_gemini_key()
+        if not gemini_key:
+            return {"success": False, "error": "API Key cho Gemini đang bị thiếu trong Secrets."}
+            
+        client = genai.Client(api_key=gemini_key)
+        
+        # Chuyển đổi PDF sang hình ảnh JPEG để mô hình Vision quét dữ liệu
+        info = pdfinfo_from_bytes(file_bytes)
+        total_pages = int(info.get("Pages", 1))
+        images = convert_from_bytes(file_bytes, dpi=140, first_page=1, last_page=total_pages)
+        
+        contents_payload = []
+        for img in images:
+            img_buf = io.BytesIO()
+            img.convert("RGB").save(img_buf, format="JPEG")
+            contents_payload.append(types.Part.from_bytes(data=img_buf.getvalue(), mime_type='image/jpeg'))
+            
+        # Prompt cấu trúc ép AI trả về định dạng JSON chuẩn dệt may
+        prompt = """
+        You are an expert garment technical auditor. Analyze this Techpack image page by page.
+        1. Extract the genuine 'Style ID' / 'Style Number'.
+        2. Identify the 'Buyer' or Brand name.
+        3. Identify the Product Line 'Category' (e.g., Blouses, Jacket, Pants).
+        4. Detect the 'Base Size' utilized.
+        5. Extract all points of measurement (POM) and their target specifications into a flat key-value dictionary.
+        
+        Return a strict JSON format with this exact schema:
+        {
+          "style_number_parsed": "Mã hàng",
+          "buyer": "Tên khách hàng",
+          "category": "Phân loại sản phẩm",
+          "base_size_name": "Size gốc",
+          "measurements": {"Vị trí đo 1": "Thông số 1", "Vị trí đo 2": "Thông số 2"},
+          "sketch_image": "Leave empty or ignore"
+        }
+        """
+        contents_payload.append(prompt)
+        
+        response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=contents_payload,
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                temperature=0.0
+            )
+        )
+        
+        parsed_data = json.loads(response.text.strip())
+        
+        # Bổ sung chuỗi mã hóa base64 của trang đầu tiên làm ảnh thiết kế phẳng (Flat Sketch)
+        if images:
+            thumb_buf = io.BytesIO()
+            images[0].convert("RGB").save(thumb_buf, format="JPEG")
+            parsed_data["sketch_image"] = base64.b64encode(thumb_buf.getvalue()).decode("utf-8")
+            
+        return {"success": True, "data": parsed_data}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
 
 # PHASE 5: USER INTERFACE STRUCTURE & AUTOMATION FACTORY 
 # =============================================================================
