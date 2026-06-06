@@ -702,13 +702,14 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                             extracted_specs_data = db_techpack_specs.get("DetailedMeasurements", {})
 
                                                 # =========================================================================
-                        # BƯỚC 2: BỐC BIẾN SỐSpecs MÃ MỚI & SỬA LỖI MẢNG TRUY VẤN (FIX CRASH CHỮ ĐỎ)
+                                                # =========================================================================
+                        # BƯỚC 2: BỐC BIẾN SỐ SPECS MÃ MỚI & SỬA LỖI MẢNG TRUY VẤN (FIX DỨT ĐIỂM CHỮ ĐỎ)
                         # =========================================================================
                         db_techpack_specs = get_techpack_spec_from_db(dynamic_keyword)
                         extracted_specs_data = {}
                         found_sketch_url = None
                         
-                        # Fix dứt điểm lỗi 'list' object has no attribute 'get' bằng cách bóc phần tử đầu tiên [0] của mảng
+                        # Sử dụng chỉ mục [0] để lấy bản ghi đầu tiên trong mảng List do Supabase trả về
                         if db_techpack_specs and isinstance(db_techpack_specs, list) and len(db_techpack_specs) > 0:
                             first_record = db_techpack_specs[0]
                             found_sketch_url = first_record.get("SketchURL")
@@ -729,7 +730,7 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                             matched_specs_clean = {}
                             matched_sketch_url = ""
                             
-                            # Bọc phòng vệ mảng an toàn cho dữ liệu mã tương đồng bốc từ DB lên
+                            # Bọc phòng vệ mảng [0] tương tự cho dữ liệu mã tương đồng đối chứng bốc từ DB lên
                             if db_matched_specs and isinstance(db_matched_specs, list) and len(db_matched_specs) > 0:
                                 first_matched = db_matched_specs[0]
                                 matched_specs_clean = first_matched.get("DetailedMeasurements", {})
@@ -739,11 +740,10 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                                 matched_sketch_url = db_matched_specs.get("SketchURL", "")
 
                             # ✨ THUẬT TOÁN ĐỐI SOÁT CẤU TRÚC TÚI BỔ SUNG (Lớp bảo vệ tối cao ngăn so bậy quần túi xéo)
-                            # Chuyển đổi chuỗi thông số về dạng chữ viết hoa để kiểm tra chéo cấu trúc túi
                             matched_specs_str = str(matched_specs_clean).upper()
                             current_specs_str = str(extracted_specs_data).upper() if extracted_specs_data else new_style_raw_text.upper()
                             
-                            # Kiểm tra chéo: Nếu mã mới là quần túi đắp (PATCH POCKET) mà mã AI tìm được chứa chữ túi xéo/túi mổ (SLANT/WELT) -> Hủy kết quả, ép sang Luồng B tự tính toán
+                            # Kiểm tra chéo cấu trúc túi thực tế
                             is_current_jeans = any(x in current_specs_str for x in ["PATCH POCKET", "5 POCKET", "TÚI ĐẮP", "5 TÚI"])
                             is_matched_slant = any(x in matched_specs_str for x in ["SLANT", "WELT", "TÚI XÉO", "TÚI MỔ"])
                             
@@ -751,6 +751,7 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                                 st.warning(f"⚠️ HỦY MÃ TƯƠNG ĐỒNG {matched_style}: Phát hiện lệch cấu trúc (Mã mới là Jeans túi đắp, mã trong kho là quần túi xéo). Chuyển sang lõi tự tính hình học...")
                                 matched_style = "NONE"
                                 matched_sketch_url = None
+
 
                         # Thực hiện kiểm tra lại cờ hiệu sau khi lọc cấu trúc túi
                         if matched_style and matched_style != "NONE":
