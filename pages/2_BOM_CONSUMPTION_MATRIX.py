@@ -568,7 +568,7 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
     # =============================================================================
     # PHASE 6B: AUTO-REPAIR INTENT & DOUBLE-CHECKED KEYWORD PIPELINE (PHẦN 2)
     # =============================================================================
-    if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vải và đối soát sai lệch..."):
+        if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vải và đối soát sai lệch..."):
         st.session_state["chat_history"].append({"role": "user", "type": "text", "content": user_query})
         with st.chat_message("user"): 
             st.write(user_query)
@@ -655,58 +655,47 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                         res_master_images = requests.get(url_tp, headers=headers, params={"select": "StyleName,Category,SketchURL", "limit": 1000}, timeout=15)
                         db_master_images = res_master_images.json() if res_master_images.status_code == 200 else []
 
-                        # Ép AI nhận diện chi tiết kết cấu túi trước/sau để tìm phom trùng khớp hoặc trả về NONE
+                        # Ép AI nhận diện ĐA CHỦNG LOẠI sản phẩm để đối chiếu cấu trúc rập trùng khớp
                         image_matching_prompt = f"""
                         Bạn là chuyên gia nhận diện phom dáng và cấu trúc kỹ thuật dệt may tại PPJ Group. 
                         Hãy nhìn kỹ vào ảnh Techpack mới tải lên này (Mã: {dynamic_keyword}).
-
-                        Nhiệm vụ: Bạn phải phân tích CẤU TRÚC CHI TIẾT của sản phẩm mới để tìm mã tương đồng, KHÔNG ĐƯỢC CHỈ NHÌN VÀO TIÊU ĐỀ CATEGORY CHUNG CHUNG.
-
-                        QUY TẮC NHẬN DIỆN CẤU TRÚC (BẮT BUỘC):
-                        1. Phân loại cấu trúc túi:
-                           - Nhìn kỹ túi trước: Là túi cong 5 túi kiểu Jeans (Western 5-pocket) có túi xu (coin pocket) hay là túi xéo kiểu quần Tây/Chinos (Slant pockets)?
-                           - Nhìn kỹ túi sau: Là túi đắp (Patch pockets) may nổi bên ngoài hay là túi mổ (Welt pockets / Chapa pocket) ẩn bên trong?
-                        2. Phân loại kiểu dáng & Vải:
-                           - Là Denim/Jeans (Sateen, Twill dày) hay quần kaki/quần tây vải nhẹ?
-
+                        NHIỆM VỤ: Phân tích cấu trúc hình học của sản phẩm để tìm mã tương đồng trong kho. KHÔNG ĐƯỢC CHỈ NHÌN VÀO CATEGORY CHUNG CHUNG.
+                        QUY TẮC PHÂN LOẠI CHỦNG LOẠI & CẤU TRÚC (BẮT BUỘC):
+                        1. Phân loại Chủng loại gốc: Sản phẩm mới là Áo (Shirt/T-Shirt/Jacket), Quần (Pant/Short), Đầm/Váy (Dress/Skirt) hay Áo Vest/Blazer?
+                        2. Chi tiết kết cấu đặc trưng:
+                           - Nếu là Quần/Váy: Kết cấu túi kiểu gì (Túi cong Jeans 5 túi, túi xéo Chinos, hay túi mổ)? Có lót túi không?
+                           - Nếu là Áo/Jacket/Vest: Có mấy thân? Kiểu cổ áo (Cổ sơ mi, cổ tròn, cổ bẻ Vest)? Có lót trong (Lining) hay jacket 1 lớp? Có túi cơi, túi mổ hay túi ốp trước ngực?
+                           - Nếu là Đầm/Dress: Chiều dài đầm (Mini, Midi, Maxi)? Kết cấu eo liền hay rã eo?
                         ĐỐI CHIẾU VỚI DANH SÁCH TRONG KHO:
-                        Hãy quét danh sách trong kho dưới đây và CHỈ ĐƯỢC CHỌN mã nào TRÙNG KHỚP CẢ CẤU TRÚC TÚI VÀ PHOM DÁNG (Ví dụ: Jeans 5 túi chỉ được so sánh với Jeans 5 túi; Quần tây túi xéo chỉ được so sánh với quần tây túi xéo):
+                        Hãy quét kho dưới đây và CHỈ ĐƯỢC CHỌN mã nào TRÙNG KHỚP HOÀN TOÀN CẢ CHỦNG LOẠI VÀ CẤU TRÚC PHOM DÁNG ĐẶC TRƯNG:
                         {json.dumps(db_master_images[:120], ensure_ascii=False)}
-                        
-                        - Nếu trong kho KHÔNG CÓ mã nào có cấu trúc túi và phom dáng trùng khớp, bạn BẮT BUỘC phải trả về chữ "NONE" để hệ thống chuyển sang luồng tự tính toán độc lập. Không được đoán mò hoặc ép so sánh lệch form!
-                        
-                        Trả về JSON chính xác: {{"matched_style_id": "TÊN_MÃ_HOẶC_NONE", "reason": "Mô tả chi tiết cấu trúc túi trước/sau của mã mới và mã tương đồng để chứng minh độ trùng khớp"}}
+                        - Nếu trong kho KHÔNG CÓ mã nào có chủng loại và cấu trúc trùng khớp, bạn BẮT BUỘC phải trả về chữ "NONE" để hệ thống chuyển sang luồng tự tính toán độc lập. Không được ép so sánh lệch chủng loại sản phẩm!
+                        Trả về JSON chính xác: {{"matched_style_id": "TÊN_MÃ_HOẶC_NONE", "reason": "Mô tả chủng loại (Áo/Quần/Đầm/Vest) và kết cấu chi tiết túi/cổ/thân của mã mới và mã tương đồng để chứng minh độ trùng khớp"}}
                         """
                         
                         match_payload = contents_payload + [image_matching_prompt] if chat_file and len(contents_payload) > 0 else [image_matching_prompt]
-                        
                         match_res = client.models.generate_content(
                             model='gemini-2.5-flash',
                             contents=match_payload,
                             config=types.GenerateContentConfig(response_mime_type="application/json", temperature=0.0)
                         )
-                        parsed_match = json.loads(match_res.text.strip())
-                        matched_style = str(parsed_match.get("matched_style_id", "")).strip().upper()
-                        match_reason = parsed_match.get("reason", "")
-                        # Lấy thông số thô của chính mã mới vừa tải lên
-                        db_techpack_specs = get_techpack_spec_from_db(dynamic_keyword)
-                        extracted_specs_data = {}
-                        found_sketch_url = None
                         
-                        if db_techpack_specs and isinstance(db_techpack_specs, list) and len(db_techpack_specs) > 0:
-                            first_record = db_techpack_specs
-                            found_sketch_url = first_record.get("SketchURL")
-                            extracted_specs_data = first_record.get("DetailedMeasurements", {})
-                        elif db_techpack_specs and isinstance(db_techpack_specs, dict):
-                            found_sketch_url = db_techpack_specs.get("SketchURL")
-                            extracted_specs_data = db_techpack_specs.get("DetailedMeasurements", {})
-
-                                                # =========================================================================
-                                                # =========================================================================
-                                              # =========================================================================
-                                                # =========================================================================
-                        # BƯỚC 2: BỐC BIẾN SỐ SPECS MÃ MỚI & SỬA LỖI MẢNG TRUY VẤN (SỬA LỖI CHỮ ĐỎ THỰC TẾ)
-                        # =========================================================================
+                        # ✨ THUẬT TOÁN DỌN RÁC VĂN BẢN ĐỂ GIẢI NÉN JSON AN TOÀN TRÁNH NGHỄN NGẦM
+                        clean_json_text = match_res.text.strip()
+                        if clean_json_text.startswith("```"):
+                            clean_json_text = clean_json_text.split("```")
+                            if clean_json_text.startswith("json"):
+                                clean_json_text = clean_json_text[4:]
+                        clean_json_text = clean_json_text.strip()
+                        
+                        try:
+                            parsed_match = json.loads(clean_json_text)
+                            matched_style = str(parsed_match.get("matched_style_id", "")).strip().upper()
+                            match_reason = parsed_match.get("reason", "")
+                        except Exception:
+                            matched_style = "NONE"
+                            match_reason = "Không thể bóc tách cấu trúc JSON hình ảnh, tự động kích hoạt luồng toán học độc lập."
+# Lấy thông số thô của chính mã mới vừa tải lên
                         db_techpack_specs = get_techpack_spec_from_db(dynamic_keyword)
                         extracted_specs_data = {}
                         found_sketch_url = None
@@ -742,37 +731,36 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                                 matched_specs_clean = db_matched_specs.get("DetailedMeasurements", {})
                                 matched_sketch_url = db_matched_specs.get("SketchURL", "")
 
-                            # ✨ THUẬT TOÁN ĐỐI SOÁT CẤU TRÚC TÚI BỔ SUNG (Lớp bảo vệ tối cao ngăn so bậy quần túi xéo)
+                            # ✨ THUẬT TOÁN ĐỐI SOÁT KIỂM TRA CHÉO CHỦNG LOẠI (Bảo vệ tối cao ngăn so bậy Áo với Quần)
                             matched_specs_str = str(matched_specs_clean).upper()
                             current_specs_str = str(extracted_specs_data).upper() if extracted_specs_data else new_style_raw_text.upper()
                             
-                            is_current_jeans = any(x in current_specs_str for x in ["PATCH POCKET", "5 POCKET", "TÚI ĐẮP", "5 TÚI"])
-                            is_matched_slant = any(x in matched_specs_str for x in ["SLANT", "WELT", "TÚI XÉO", "TÚI MỔ"])
+                            # Kiểm tra chéo từ khóa chủng loại
+                            is_current_pant = any(x in current_specs_str for x in ["PANT", "OUTSEAM", "INSEAM", "QUẦN", "ĐŨNG"])
+                            is_matched_jacket_vest = any(x in matched_specs_str for x in ["JACKET", "BLAZER", "VEST", "SLEEVE", "ÁO KHOÁC", "TAY ÁO"])
                             
-                            if is_current_jeans and is_matched_slant:
-                                st.warning(f"⚠️ HỦY MÃ TƯƠNG ĐỒNG {matched_style}: Phát hiện lệch cấu trúc (Mã mới là Jeans túi đắp, mã trong kho là quần túi xéo). Chuyển sang lõi tự tính hình học...")
+                            if is_current_pant and is_matched_jacket_vest:
+                                st.warning(f"⚠️ HỦY MÃ TƯƠNG ĐỒNG {matched_style}: Phát hiện lệch chủng loại nghiêm trọng (Mã mới là Quần, mã đối chiếu tìm được là Áo Jacket/Vest). Chuyển sang lõi tự tính hình học...")
                                 matched_style = "NONE"
                                 matched_sketch_url = None
-                        # Thực hiện kiểm tra lại cờ hiệu sau khi lọc cấu trúc túi
+                                    # Thực hiện kiểm tra lại cờ hiệu sau khi lọc chủng loại cấu trúc
                         if matched_style and matched_style != "NONE":
                             reasoning_prompt = f"""
                             Bạn là chuyên gia định mức R&D dệt may tại PPJ Group. 
-                            Hãy so sánh bảng thông số hình học và tính định mức tiêu hao vải mới dựa trên mã tương đồng **{matched_style}** đã khớp cấu trúc phom/túi.
-
+                            Hãy so sánh bảng thông số hình học và tính định mức tiêu hao vải mới dựa trên mã tương đồng **{matched_style}** đã khớp chuẩn xác chủng loại sản phẩm.
                             DỮ LIỆU ĐỐI CHIẾU:
                             1. Thông số chi tiết mã mới ({dynamic_keyword}): {json.dumps(extracted_specs_data, ensure_ascii=False) if extracted_specs_data else new_style_raw_text}
                             2. Thông số gốc mã tương đồng ({matched_style}): {json.dumps(matched_specs_clean, ensure_ascii=False)}
                             3. Định mức gốc mã tương đồng ({matched_style}): {json.dumps(db_matched_consumption, ensure_ascii=False)}
-
                             HÃY THỰC HIỆN:
                             - Lập bảng đối soát độ lệch kích thước ở các vị trí POM chủ chốt giữa 2 mã.
-                            - Dựa vào định mức của mã cũ và độ tăng/giảm số đo của mã mới để cộng/trừ định mức vải chính xác (Yard/Cái).
+                            - Dựa vào định mức của mã cũ và độ tăng/giảm số đo của mã mới để cộng/trừ định mức vải chính xác.
                             - Giải thích lý do chọn mã này: {match_reason}
                             - TRẢ LỜI NGẮN GỌN, VÀO THẲNG VẤN ĐỀ, KHÔNG LAN MAN.
                             """
                         else:
-                            # 👉 LUỒNG B: KHÔNG CÓ MÃ TƯƠNG ĐỒNG ĐỒNG NHẤT CẤU TRÚC (Yêu cầu thông số sản xuất)
-                            st.warning("⚠️ KHO KHÔNG CÓ MÃ TƯƠNG ĐỒNG ĐỒNG NHẤT CẤU TRÚC TÚI/PHOM DÁNG.")
+                            # 👉 LUỒNG B: KHÔNG CÓ MÃ TƯƠNG ĐỒNG (Yêu cầu thông số sản xuất từ kỹ sư)
+                            st.warning("⚠️ KHO KHÔNG CÓ MÃ TƯƠNG ĐỒNG TRÙNG KHỚP CẤU TRÚC CHỦNG LOẠI PHOM DÁNG.")
                             matched_sketch_url = None
                             
                             user_query_upper = user_query.upper()
@@ -780,32 +768,20 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                             
                             if not has_fabric_info:
                                 reasoning_prompt = f"""
-                                Bạn là trợ lý định mức R&D tại PPJ Group. Kho dữ liệu hiện chưa có mã tương đồng phù hợp với kết cấu túi/thiết kế này (Mã mới là quần Jeans 5 túi, kho chỉ có quần tây túi xéo).
-                                Bạn KHÔNG ĐƯỢC đoán mò thông số mà phải yêu cầu kỹ sư cung cấp dữ liệu sản xuất thực tế.
-                                
+                                Bạn là trợ lý định mức R&D tại PPJ Group. Kho dữ liệu hiện chưa có mã tương đồng phù hợp với thiết kế đặc thù này. Bạn KHÔNG ĐƯỢC đoán mò thông số mà phải yêu cầu kỹ sư cung cấp dữ liệu sản xuất thực tế.
                                 Hãy phản hồi cho kỹ sư theo cấu trúc sau (HỎI GÌ NÓI NẤY, KHÔNG LAN MAN):
-                                1. Thông báo hệ thống không tìm thấy mã tương đồng khớp cấu trúc túi (Mã mới nhận diện: {dynamic_keyword}).
-                                2. Đưa ra danh sách 3 thông số bắt buộc yêu cầu kỹ sư nhập vào ô chat tiếp theo để kích hoạt lõi tính toán hình học:
-                                   - Khổ vải thực tế sử dụng (Ví dụ: 57", 58", 60"...)
-                                   - Tỷ lệ co rút dự kiến sau giặt/nhuộm (Garment Wash/Dye Shrinkage % dọc và ngang)
-                                   - Tỷ lệ hao hụt cắt rập mong muốn (Wastage %, thường nhà máy là 4%)
+                                1. Thông báo hệ thống không tìm thấy mã tương đồng khớp chủng loại cấu trúc (Mã mới nhận diện: {dynamic_keyword}).
+                                2. Đưa ra danh sách 3 thông số bắt buộc yêu cầu kỹ sư nhập vào ô chat tiếp theo để kích hoạt lõi tính toán hình học: Khổ vải thực tế sử dụng; Tỷ lệ co rút dự kiến dọc/ngang; Tỷ lệ hao hụt cắt rập.
                                 """
                             else:
                                 reasoning_prompt = f"""
-                                Bạn là chuyên gia định mức R&D dệt may độc lập tại PPJ Group. 
-                                Kỹ sư đã cung cấp thông số sản xuất thực tế trong câu lệnh: "{user_query}"
-                                
-                                Nhiệm vụ: Hãy sử dụng thông số Specs của mã mới: {json.dumps(extracted_specs_data, ensure_ascii=False) if extracted_specs_data else new_style_raw_text}
-                                Kết hợp với Khổ vải và Độ co rút mà kỹ sư vừa nhập để tự động tính toán định mức hình học chuẩn xác từ con số 0 cho mã {dynamic_keyword}.
-                                
-                                🚨 THUẬT TOÁN KHUNG CHIẾM DỤNG SƠ ĐỒ QUẦN JEANS:
-                                1. TUYỆT ĐỐI KHÔNG DÙNG phương pháp cộng dồn diện tích các chi tiết nhỏ (đỉa, cạp, nẹp, túi xu). Các chi tiết này mặc định xếp chen vào khoảng trống sơ đồ của thân lớn.
-                                2. CÔNG THỨC BẮT BUỘC TÍNH THEO CHIỀU DÀI CHU KỲ SƠ ĐỒ (MARKER LENGTH):
-                                   - Chiều dài Khung Cắt Thân (L_body) = [Thông số Dài quần (Outseam) + Hao hụt đường may/gấu 2 inch] x (1 + % Co rút dọc dự kiến).
-                                   - Định mức vải chính thô (Yard) = L_body / 36 inch.
-                                   - Định mức vải chính cuối cùng = Định mức vải chính thô x (1 + % Hao hụt cắt rập Wastage dự kiến).
-                                3. KHÓA HẠN MỨC AN TOÀN (SAFETY LIMIT): Đây là quần Jeans 5 túi tiêu chuẩn của NỮ, định mức bắt buộc phải nằm trong khoảng từ 1.15 Yards đến 1.40 Yards/cái.
-                                
+                                Bạn là chuyên gia định mức R&D dệt may độc lập tại PPJ Group. Kỹ sư đã cung cấp thông số sản xuất thực tế trong câu lệnh: "{user_query}"
+                                Nhiệm vụ: Sử dụng thông số Specs của mã mới: {json.dumps(extracted_specs_data, ensure_ascii=False) if extracted_specs_data else new_style_raw_text} kết hợp Khổ vải và Độ co rút kỹ sư vừa nhập để tính định mức phẳng từ con số 0 cho mã {dynamic_keyword}.
+                                🚨 MA TRẬN TOÁN HỌC KHUNG SƠ ĐỒ ĐA SẢN PHẨM: Tuyệt đối không cộng dồn diện tích chi tiết phụ (đỉa, cạp, nẹp, túi xu).
+                                1. NẾU LÀ QUẦN (Pant/Short): Chiều dài sơ đồ (L_body) = [Dài quần + 2 inch] x (1 + % Co rút dọc). Định mức cuối = (L_body / 36) x (1 + % Hao hụt). Hạn mức an toàn Quần: 1.15 - 1.65 Yds.
+                                2. NẾU LÀ ÁO SƠ MI / T-SHIRT / JACKET 1 LỚP: Chiều dài sơ đồ (L_body) = [Dài áo + Dài tay + 2.5 inch] x (1 + % Co rút dọc). Định mức cuối = (L_body / 36) x (1 + % Hao hụt). Hạn mức: 1.20 - 1.60 Yds.
+                                3. NẾU LÀ ÁO VEST / BLAZER / JACKET CÓ LÓT NẶNG: Chiều dài sơ đồ (L_body) = [Dài áo x 1.2 + Dài tay + 3 inch] x (1 + % Co rút dọc). Định mức cuối = (L_body / 36) x (1 + % Hao hụt). Hạn mức: 1.65 - 2.10 Yds.
+                                4. NẾU LÀ ĐẦM / VÁY (Dress/Skirt): Chiều dài sơ đồ (L_body) = [Dài đầm + 2 inch] x (1 + % Co rút dọc) x (Hệ số 1.5 nếu là dáng đầm xòe rộng/Maxi). Định mức cuối = (L_body / 36) x (1 + % Hao hụt). Hạn mức: 1.40 - 2.20 Yds.
                                 TRÌNH BÀY TỐI GIẢN DẠNG BẢNG MARKDOWN, KHÔNG GIẢI THÍCH LAN MAN.
                                 """
 
