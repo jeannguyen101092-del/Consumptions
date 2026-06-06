@@ -615,17 +615,24 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                         dynamic_keyword = clean_text_upper.replace("TÌM CODE VẢI MÃ", "").replace("TÌM CODE VẢI", "").replace("TÌM MÃ", "").replace("TÌM", "").strip()
 
                                                 # =============================================================================
+                                                # =============================================================================
                         # TRUY VẤN SONG SONG KHO DATA & THIẾT LẬP LUỒNG CÔNG THỨC TOÁN HỌC DỆT MAY (PHẦN 3C)
                         # =============================================================================
                         db_historical_consumption = get_historical_fabric_consumption_from_db(dynamic_keyword)
                         db_techpack_specs = get_techpack_spec_from_db(dynamic_keyword)
                         
-                        # Trích xuất link ảnh sơ đồ thiết kế từ kho ảnh Storage công khai
+                        # Khởi tạo biến bóc tách dữ liệu an toàn chống lỗi dữ liệu trống (Null)
                         found_sketch_url = None
+                        extracted_specs_data = {}
+                        
                         if db_techpack_specs and isinstance(db_techpack_specs, list) and len(db_techpack_specs) > 0:
-                            found_sketch_url = db_techpack_specs[0].get("SketchURL")
+                            # Lấy bản ghi đầu tiên khớp từ khóa tìm kiếm trong danh sách bản ghi trả về
+                            first_record = db_techpack_specs[0]
+                            found_sketch_url = first_record.get("SketchURL")
+                            extracted_specs_data = first_record.get("DetailedMeasurements", {})
                         elif db_techpack_specs and isinstance(db_techpack_specs, dict):
                             found_sketch_url = db_techpack_specs.get("SketchURL")
+                            extracted_specs_data = db_techpack_specs.get("DetailedMeasurements", {})
 
                         # HOÀN THIỆN PROMPT ĐIỀU HƯỚNG AI ĐỌC KHO VÀ TÍNH TOÁN TOÁN HỌC ĐỊNH MỨC VẢI
                         intel_prompt = f"""
@@ -640,16 +647,22 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                         1. KHO ĐỊNH MỨC LỊCH SỬ (Table san_pham): 
                         {json.dumps(db_historical_consumption, ensure_ascii=False, indent=2)}
                         
-                        2. KHO THÔNG SỐ SẢN PHẨM (Table thong_so_techpack):
+                        2. KHO THÔNG SỐ KỸ THUẬT CHI TIẾT (Table thong_so_techpack):
                         {json.dumps(db_techpack_specs, ensure_ascii=False, indent=2)}
+
+                        MA TRẬN THÔNG SỐ HÌNH HỌC POM TRÍCH XUẤT ĐƯỢC:
+                        {json.dumps(extracted_specs_data, ensure_ascii=False, indent=2)}
 
                         --- THUẬT TOÁN RA QUYẾT ĐỊNH & CÔNG THỨC TOÁN HỌC ĐỊNH MỨC BẮT BUỘC ---
                         QUY TẮC 1: Nếu dữ liệu lịch sử thu được (Table san_pham) CÓ dữ liệu, hãy hiển thị bảng định mức thực tế của mã này lên màn hình (bao gồm các trường: style_name, article_name, consumption_type, consumption_value, uom).
                         
-                        QUY TẮC 2: Nếu không thấy dữ liệu trong kho dữ liệu lịch sử, bạn BẮT BUỘC phải thực hiện thuật toán tính định mức vải chuẩn ngành dệt may dựa trên thông số hình học rập mẫu:
+                        QUY TẮC 2: Nếu ma trận thông số hình học POM trích xuất được ở trên có dữ liệu, hãy tự động trình bày thành một bảng thông số kỹ thuật chi tiết rõ ràng cho người dùng xem đối soát.
+                        
+                        QUY TẮC 3: Nếu đây là MÃ HÀNG MỚI HOÀN TOÀN (Dữ liệu lịch sử rỗng), bạn BẮT BUỘC phải thực hiện thuật toán tính định mức vải chuẩn ngành dệt may dựa trên thông số hình học rập mẫu:
                            - Công thức cho Áo (Shirt/T-Shirt): Định mức vải = ((Dài áo + Rộng áo + Hao hụt) * (Rộng tay/2 + Hao hụt) * 2) / Khổ vải hữu dụng.
                            - Công thức cho Quần (Pants/Jeans): Định mức vải = ((Dài quần + Hao hụt) * (Vòng mông + Hao hụt) * 4) / Khổ vải hữu dụng.
-                           - Trường hợp thiếu thông số rập chi tiết trong file quét, hãy dùng định mức an toàn trung bình của ngành để đưa ra dự đoán: Áo thun (1.2m), Áo sơ mi (1.4m), Quần Jeans người lớn (1.3 - 1.5m) tùy theo phân loại dòng sản phẩm (Product Line).
+                        
+                        QUY TẮC 4: Nếu không tìm thấy link ảnh phác thảo Sketch từ hệ thống, hãy lịch sự thông báo cho người dùng biết là mã hàng hiện tại chưa được cập nhật hình ảnh bản vẽ kỹ thuật phẳng trong kho lưu trữ của Tập đoàn.
 
                         HÃY HIỂN THỊ CÂU TRẢ LỜI DẠNG BẢNG ĐẸP MẮT, NGẮN GỌN THEO PHONG CÁCH KỸ SƯ CÔNG NGHIỆP PPJ.
                         """
@@ -665,12 +678,12 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                         
                         new_msg_entry = {"role": "assistant", "type": "text", "content": final_text}
                         
-                        # Tự động hiển thị ảnh rập phẳng từ Storage kho_anh ra màn hình chat
-                        if found_sketch_url:
+                        # Kiểm tra điều kiện nghiêm ngặt, chỉ xuất khung ảnh st.image khi URL thực sự tồn tại hợp lệ
+                        if found_sketch_url and str(found_sketch_url).strip() != "" and str(found_sketch_url).strip().lower() != "null":
                             new_msg_entry["type"] = "visual"
                             new_msg_entry["image_url"] = found_sketch_url
                             new_msg_entry["style_title"] = dynamic_keyword
-                            st.image(found_sketch_url, caption=f"Bản vẽ Sketch lịch sử đối chiếu mã {dynamic_keyword}", width=220)
+                            st.image(found_sketch_url, caption=f"Bản vẽ Sketch lịch sử đối chiếu mã {dynamic_keyword}", width=380)
                             
                         st.session_state["chat_history"].append(new_msg_entry)
                         
