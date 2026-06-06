@@ -630,24 +630,24 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                         # TRUY VẤN SONG SONG KHO DATA & THIẾT LẬP LUỒNG CÔNG THỨC TOÁN HỌC DỆT MAY (PHẦN 3C)
                         # =============================================================================
                                                 # =============================================================================
+                                               # =============================================================================
                         # TRUY VẤN SONG SONG KHO DATA & THIẾT LẬP LUỒNG CÔNG THỨC TOÁN HỌC DỆT MAY (PHẦN 3C)
                         # =============================================================================
                         db_historical_consumption = get_historical_fabric_consumption_from_db(dynamic_keyword)
                         db_techpack_specs = get_techpack_spec_from_db(dynamic_keyword)
                         
-                        # ✨ ĐÃ SỬA LỖI TRÍCH XUẤT CHỈ MỤC [0]: Giải nén chính xác phần tử đầu tiên của danh sách để bóc dữ liệu
+                        # ✨ ĐÃ SỬA LỖI GIẢI NÉN MẢNG CHUẨN XÁC: Ép lấy phần tử [0] để bóc tách URL ảnh
                         found_sketch_url = None
                         extracted_specs_data = {}
                         
                         if db_techpack_specs and isinstance(db_techpack_specs, list) and len(db_techpack_specs) > 0:
-                            # THÊM [0] ĐỂ LẤY CHÍNH XÁC DÒNG DỮ LIỆU ĐẦU TIÊN KHỚP TRONG KHO
+                            # Lấy chính xác phần tử đầu tiên [0] của mảng danh sách bản ghi trả về từ Supabase
                             first_record = db_techpack_specs[0]
                             found_sketch_url = first_record.get("SketchURL")
                             extracted_specs_data = first_record.get("DetailedMeasurements", {})
                         elif db_techpack_specs and isinstance(db_techpack_specs, dict):
                             found_sketch_url = db_techpack_specs.get("SketchURL")
                             extracted_specs_data = db_techpack_specs.get("DetailedMeasurements", {})
-
 
                         # HOÀN THIỆN PROMPT ĐIỀU HƯỚNG AI ĐỌC HIỂU ĐỒNG THỜI FILE MỚI VÀ FILE CŨ LỊCH SỬ
                         intel_prompt = f"""
@@ -676,12 +676,11 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                         
                         QUY TẮC 2: Hãy so sánh đối chiếu trực tiếp các vị trí đo POM giữa File Techpack mới (bóc tách từ hình ảnh đính kèm) và Ma trận thông số POM lịch sử trong kho để chỉ ra các điểm sai lệch (Delta Spec) cho kỹ sư dệt may biết.
                         
-                        QUY TẮC 3: Nếu file mới tải lên là MÃ HÀNG MỚI HOÀN TOÀN, bạn BẮT BUỘC phải sử dụng hình ảnh đính kèm để bóc tách thông số hình học và áp dụng thuật toán tính toán toán học định mức vải:
-                           - Công thức cho Áo: Định mức vải = ((Dài áo + Rộng áo + Hao hụt) * (Rộng tay/2 + Hao hụt) * 2) / Khổ vải hữu dụng.
-                           - Công thức cho Quần: Định mức vải = ((Dài quần + Hao hụt) * (Vòng mông + Hao hụt) * 4) / Khổ vải hữu dụng.
+                        QUY TẮC 3: Nếu file mới tải lên là MÃ HÀNG MỚI HOÀN TOÀN, bạn BẮT BUỘC phải sử dụng hình ảnh đính kèm để bóc tách thông số hình học và áp dụng thuật toán tính toán toán học định mức vải.
 
                         HÃY HIỂN THỊ CÂU TRẢ LỜI DẠNG BẢNG ĐẸP MẮT, NGẮN GỌN THEO ĐÚNG PHONG CÁCH KỸ SƯ CÔNG NGHIỆP PPJ.
                         """
+
                         
                         contents_payload.append(intel_prompt)
                         ai_response = client.models.generate_content(
