@@ -703,15 +703,16 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
 
                                                 # =========================================================================
                                                 # =========================================================================
-                        # BƯỚC 2: BỐC BIẾN SỐ SPECS MÃ MỚI & SỬA LỖI MẢNG TRUY VẤN (FIX DỨT ĐIỂM CHỮ ĐỎ)
+                                              # =========================================================================
+                        # BƯỚC 2: BỐC BIẾN SỐ SPECS MÃ MỚI & SỬA LỖI MẢNG TRUY VẤN (DÙNG POP ĐỂ DIỆT LỖI)
                         # =========================================================================
                         db_techpack_specs = get_techpack_spec_from_db(dynamic_keyword)
                         extracted_specs_data = {}
                         found_sketch_url = None
                         
-                        # Sử dụng chỉ mục [0] để lấy bản ghi đầu tiên trong mảng List do Supabase trả về
+                        # Sử dụng hàm .pop(0) để rút phần tử đầu tiên ra khỏi danh sách mảng một cách an toàn tuyệt đối
                         if db_techpack_specs and isinstance(db_techpack_specs, list) and len(db_techpack_specs) > 0:
-                            first_record = db_techpack_specs[0]
+                            first_record = db_techpack_specs.pop(0)
                             found_sketch_url = first_record.get("SketchURL")
                             extracted_specs_data = first_record.get("DetailedMeasurements", {})
                         elif db_techpack_specs and isinstance(db_techpack_specs, dict):
@@ -730,9 +731,9 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                             matched_specs_clean = {}
                             matched_sketch_url = ""
                             
-                            # Bọc phòng vệ mảng [0] tương tự cho dữ liệu mã tương đồng đối chứng bốc từ DB lên
+                            # Sử dụng hàm .pop(0) tương tự cho mảng dữ liệu đối chứng bốc từ DB lên
                             if db_matched_specs and isinstance(db_matched_specs, list) and len(db_matched_specs) > 0:
-                                first_matched = db_matched_specs[0]
+                                first_matched = db_matched_specs.pop(0)
                                 matched_specs_clean = first_matched.get("DetailedMeasurements", {})
                                 matched_sketch_url = first_matched.get("SketchURL", "")
                             elif db_matched_specs and isinstance(db_matched_specs, dict):
@@ -751,6 +752,7 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                                 st.warning(f"⚠️ HỦY MÃ TƯƠNG ĐỒNG {matched_style}: Phát hiện lệch cấu trúc (Mã mới là Jeans túi đắp, mã trong kho là quần túi xéo). Chuyển sang lõi tự tính hình học...")
                                 matched_style = "NONE"
                                 matched_sketch_url = None
+
 
 
                         # Thực hiện kiểm tra lại cờ hiệu sau khi lọc cấu trúc túi
