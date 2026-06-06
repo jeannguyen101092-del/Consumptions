@@ -627,26 +627,26 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                                 except Exception:
                                     import time
                                     time.sleep(2 * (ext_attempt + 1))
-                        
-                                                # ✨ THUẬT TOÁN ĐỒNG BỘ: Chuẩn hóa từ khóa trích xuất sạch chữ tiếng Việt
+                        # ✨ THUẬT TOÁN ĐỒNG BỘ: Chuẩn hóa từ khóa trích xuất sạch chữ tiếng Việt
                         text_to_extract = user_query
                         if chat_file and str(new_style_id_detected).strip() != "UNKNOWN_STYLE":
                             text_to_extract = str(new_style_id_detected).strip()
                         
                         clean_text_upper = str(text_to_extract).strip().upper()
                         
-                        # Bộ lọc dọn sạch các từ khóa chatbot thông dụng để lấy mã hàng/mã vải gốc
-                        raw_keyword = clean_text_upper.replace("TÌM HÌNH ẢNH VÀ THÔNG SỐ MÃ HÀNG", "").replace("TÌM CODE VẢI MÃ NÀY", "").replace("TÌM CODE VẢI NÀY", "").replace("TÌM CODE VẢI MÃ", "").replace("TÌM CODE VẢI", "").replace("TÌM MÃ HÀNG", "").replace("TÌM MÃ", "").replace("TÌM", "").strip()
+                        # Bộ lọc dọn sạch các từ khóa chatbot thông dụng bằng biểu thức chính quy Regex
+                        patterns_to_remove = r"TÌM HÌNH ẢNH VÀ THÔNG SỐ MÃ HÀNG|TÌM CODE VẢI MÃ NÀY|TÌM CODE VẢI NÀY|TÌM CODE VẢI MÃ|TÌM CODE VẢI|TÌM MÃ HÀNG|TÌM MÃ|TÌM"
+                        raw_keyword = re.sub(patterns_to_remove, "", clean_text_upper).strip()
                         
                         # Thuật toán chuẩn hóa dấu gạch ngang chuẩn xác từng chữ (Ví dụ: SJ 8902 -> SJ-8902)
                         if "SJ" in raw_keyword:
                             extract_num = re.findall(r'\d+', raw_keyword)
-                            dynamic_keyword = f"SJ-{extract_num[0]}" if extract_num else raw_keyword
+                            dynamic_keyword = f"SJ-{extract_num}" if extract_num else raw_keyword
                         else:
                             dynamic_keyword = raw_keyword
                         
                         # =========================================================================
-                        # TRUY VẤN SONG SONG KHO DATA BẢNG TỪ KHÓA CHUẨN XÁC VÀ GIẢI NÉN MÃNG (PHẦN 3)
+                        # TRUY VẤN SONG SONG KHO DATA BẢNG TỪ KHÓA CHUẨN XÁC VÀ GIẢI NÉN MẢNG (PHẦN 3)
                         # =========================================================================
                         db_historical_consumption = get_historical_fabric_consumption_from_db(dynamic_keyword)
                         db_techpack_specs = get_techpack_spec_from_db(dynamic_keyword)
@@ -655,92 +655,53 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                         extracted_specs_data = {}
                         
                         if db_techpack_specs and isinstance(db_techpack_specs, list) and len(db_techpack_specs) > 0:
-                            first_record = db_techpack_specs[0]
+                            first_record = db_techpack_specs
                             found_sketch_url = first_record.get("sketch_url")
                             extracted_specs_data = first_record.get("DetailedMeasurements", {})
                         elif db_techpack_specs and isinstance(db_techpack_specs, dict):
                             found_sketch_url = db_techpack_specs.get("sketch_url")
                             extracted_specs_data = db_techpack_specs.get("DetailedMeasurements", {})
 
-
-                        # HOÀN THIỆN PROMPT ĐIỀU HƯỚNG TƯ DUY AI THEO ĐÚNG 3 QUY TẮC CỐT LÕI CỦA BẠN
-                        intel_prompt = f"""
-                        Bạn là hệ thống Trợ lý AI R&D tối cao thuộc Ban Kỹ thuật Tập đoàn PPJ Group.
-                        Hãy phân tích dữ liệu hình ảnh file đính kèm vừa tải lên (nếu có), kết hợp dữ liệu truy vấn thời gian thực từ 3 kho Database dưới đây để phản hồi người dùng.
-
-                        YÊU CẦU CỦA NGƯỜI DÙNG: "{user_query}"
-                        TỪ KHÓA ĐỊNH DANH HỆ THỐNG: "{dynamic_keyword}"
-
-                        --- DỮ LIỆU THỰC TẾ TRUY VẤN TỪ 3 KHO SUPABASE CLOUD ---
-                        1. KHO ĐỊNH MỨC LỊCH SỬ (Table san_pham): 
-                        {json.dumps(db_historical_consumption, ensure_ascii=False, indent=2)}
+                        # =========================================================================
+                        # TIẾN HÀNH TÍNH TOÁN ĐỊNH MỨC VÀ TRẢ LỜI NGƯỜI DÙNG QUA GEMINI
+                        # =========================================================================
+                        reasoning_prompt = f"""
+                        Bạn là chuyên gia định mức R&D dệt may tại PPJ Group.
+                        Nhiệm vụ của bạn là giải quyết yêu cầu của người dùng: "{user_query}"
                         
-                        2. KHO THÔNG SỐ KỸ THUẬT CHI TIẾT (Table thong_so_techpack):
-                        {json.dumps(db_techpack_specs, ensure_ascii=False, indent=2)}
-
-                        MA TRẬN THÔNG SỐ HÌNH HỌC POM LỊCH SỬ TRÍCH XUẤT ĐƯỢC:
-                        {json.dumps(extracted_specs_data, ensure_ascii=False, indent=2)}
-
-                        --- 🚨 3 QUY TẮC BẮT BUỘC AI PHẢI TUÂN THỦ TUYỆT ĐỐI ---
-
-                        📌 QUY TẮC 1: HỎI GÌ ĐÁP NẤY (ĐỐI SOÁT KHO NỘI BỘ)
-                        - Nếu người dùng chỉ yêu cầu tìm kiếm đơn lẻ (Ví dụ: tìm mã hàng, tìm code vải, xem hình ảnh phác thảo rập trong kho), bạn chỉ được phép trả lời đúng nội dung đó dưới dạng bảng ngắn gọn. 
-                        - Tuyệt đối KHÔNG tự ý giải thích dài dòng, KHÔNG đưa ra quy trình hay tính toán định mức nếu người dùng không yêu cầu. Nếu kho trống, chỉ báo: "Không tìm thấy dữ liệu '{dynamic_keyword}' trong hệ thống".
-
-                        📌 QUY TẮC 2: ĐỐI SOÁT CHÉO MÃ TƯƠNG ĐỒNG (KHI KỸ SƯ UPLOAD FILE TECHPACK MỚI)
-                        Khi kỹ sư tải một file Techpack mới lên kèm yêu cầu "Tìm mã hàng tương đồng/giống nhất trong kho", bạn phải thực hiện chuỗi tư duy:
-                           - Bước A: Quét toàn bộ kho hình ảnh, thông số POM, định mức lịch sử được cung cấp ở trên để tìm ra Mã hàng cũ giống nhất (Mã tương đồng). Chỉ rõ tên mã tương đồng đó ra.
-                           - Bước B: Lập bảng so sánh đối chiếu từng vị trí đo (POM Description) giữa dữ liệu bóc tách của File mới và Ma trận thông số lịch sử của mã tương đồng trong kho để tính toán Sai số lệch rập (Delta Spec = Thông số mới - Thông số cũ).
-                           - Bước C: Dựa trên dữ liệu định mức thực tế của mã tương đồng trong kho và các sai số Delta Spec, tự động lập luận tính toán đưa ra con số dự đoán định mức chính xác cho đơn hàng mới này.
-
-                        📌 QUY TẮC 3: XỬ LÝ MÃ MỚI HOÀN TOÀN (KHÔNG CÓ MÃ TƯƠNG ĐỒNG)
-                        - Nếu file Techpack mới tải lên hoàn toàn mới và bạn quét kho không tìm thấy mã nào tương đồng để đối soát, bạn tuyệt đối KHÔNG được lấy con số mặc định chung chung.
-                        - Bạn phải tự bóc tách các thông số hình học rập mẫu cốt lõi (Dài quần/áo, Vòng mông/ngực,...) trực tiếp từ file Techpack mới đó.
-                        - Xuất bảng yêu cầu kỹ sư cung cấp thêm thông tin vật lý: Khổ vải hữu dụng (inch) và Độ co rút dệt nhuộm (Co ngang %, Co dọc %) để hệ thống kích hoạt thuật toán diện tích hình học rập mẫu để tự động tính toán ra định mức chính xác.
-
-                        HÃY TRẢ LỜI NGẮN GỌN, RÕ RÀNG, DÙNG BẢNG BIỂU CÔNG NGHIỆP DỆT MAY. KHÔNG TRẢ LỜI LAN MAN.
+                        Dữ liệu hệ thống bóc tách được:
+                        - Mã hàng nhận diện (Dynamic Keyword): {dynamic_keyword}
+                        - Thông tin BOM/Thông số quét từ file mới tải lên: {new_style_raw_text if new_style_raw_text else "Không có file mới"}
+                        - Định mức lịch sử trong kho dữ liệu PPJ (Nếu có): {json.dumps(db_historical_consumption, ensure_ascii=False)}
+                        - Thông số kỹ thuật chi tiết từ kho dữ liệu (Nếu có): {json.dumps(extracted_specs_data, ensure_ascii=False)}
+                        
+                        Yêu cầu phản hồi:
+                        1. Tập trung tính toán định mức vải/phụ liệu chính xác dựa trên dữ liệu được cung cấp.
+                        2. Đối soát sai lệch giữa dữ liệu cũ và dữ liệu mới (nếu có).
+                        3. Trình bày ngắn gọn, rõ ràng dưới dạng bảng hoặc các gạch đầu dòng chuyên nghiệp, không trả lời lan man.
                         """
                         
-                        contents_payload.append(intel_prompt)
-                        ai_response = client.models.generate_content(
+                        if chat_file and len(contents_payload) > 0:
+                            final_payload = contents_payload + [reasoning_prompt]
+                        else:
+                            final_payload = [reasoning_prompt]
+                            
+                        final_res = client.models.generate_content(
                             model='gemini-2.5-flash',
-                            contents=contents_payload
+                            contents=final_payload
                         )
                         
-                        final_text = ai_response.text
-                        st.markdown(final_text)
+                        ans_text = final_res.text.strip()
+                        st.write(ans_text)
                         
-                        new_msg_entry = {"role": "assistant", "type": "text", "content": final_text}
+                        chat_node = {"role": "assistant", "type": "text", "content": ans_text}
+                        if found_sketch_url:
+                            chat_node["type"] = "visual"
+                            chat_node["image_url"] = found_sketch_url
+                            chat_node["style_title"] = dynamic_keyword
+                            st.image(found_sketch_url, caption=f"Bản vẽ Sketch đối chiếu mã {dynamic_keyword}", width=220)
+                            
+                        st.session_state["chat_history"].append(chat_node)
                         
-                        # =============================================================================
-                        # ĐỒ HỌA ĐỒNG BỘ CHUẨN XÁC: CHỈ HIỂN THỊ ẢNH KHI THỰC SỰ TỒN TẠI TRONG KHO
-                        # =============================================================================
-                        final_image_url = None
-                        if found_sketch_url and str(found_sketch_url).strip() != "" and str(found_sketch_url).strip().lower() != "null":
-                            final_image_url = str(found_sketch_url).strip()
-                        else:
-                            clean_filename_target = re.sub(r'[^a-zA-Z0-9_-]', '', str(new_style_id_detected).strip())
-                            if clean_filename_target and clean_filename_target != "UNKNOWN_STYLE":
-                                test_url = f"https://supabase.co{clean_filename_target}.jpg"
-                                try:
-                                    if requests.head(test_url, timeout=3).status_code == 200:
-                                        final_image_url = test_url
-                                except Exception:
-                                    pass
-
-                        # CHỈ hiển thị khung hình ảnh st.image khi đường dẫn thực sự tồn tại
-                        if final_image_url:
-                            st.markdown("---")
-                            st.image(
-                                final_image_url, 
-                                caption=f"🖼️ Bản vẽ sơ đồ phác thảo phẳng thiết kế mẫu kỹ thuật mã {dynamic_keyword}", 
-                                use_container_width=True
-                            )
-                            new_msg_entry["type"] = "visual"
-                            new_msg_entry["image_url"] = final_image_url
-                            new_msg_entry["style_title"] = dynamic_keyword
-                        
-                        st.session_state["chat_history"].append(new_msg_entry)
-                        
-                    except Exception as e:
-                        st.error(f"FAIL PIPELINE COUPLING: {str(e)}")
+                    except Exception as system_err:
+                        st.error(f"🔴 PIPELINE ERROR: Không thể xử lý yêu cầu dữ liệu. Chi tiết: {str(system_err)}")
