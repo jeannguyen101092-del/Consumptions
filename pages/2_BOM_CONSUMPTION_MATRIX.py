@@ -545,8 +545,8 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
             st.write(msg["content"])
             if msg.get("type") == "visual" and msg.get("image_url"):
                 st.image(msg["image_url"], caption=f"Bản vẽ Sketch lịch sử đối chiếu mã {msg.get('style_title')}", width=220)
-    # =============================================================================
-    # PHASE 6B: AUTO-REPAIR INTENT & DOUBLE-CHECKED KEYWORD PIPELINE
+       # =============================================================================
+    # PHASE 6B: AUTO-REPAIR INTENT & DOUBLE-CHECKED KEYWORD PIPELINE (PHẦN 3B)
     # =============================================================================
     if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vải và đối soát sai lệch..."):
         st.session_state["chat_history"].append({"role": "user", "type": "text", "content": user_query})
@@ -604,23 +604,15 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                                     import time
                                     time.sleep(2 * (ext_attempt + 1))
                         
-                                                                        # ✨ THUẬT TOÁN ĐỒNG BỘ: Giữ nguyên văn bản thô sạch (Bao gồm cả chữ và số như SJ 8902) để đối soát Code vải
+                        # ✨ THUẬT TOÁN ĐỒNG BỘ: Định nghĩa lại biến clean_text_upper chống lỗi NameError
                         text_to_extract = user_query
                         if chat_file and str(new_style_id_detected).strip() != "UNKNOWN_STYLE":
                             text_to_extract = str(new_style_id_detected).strip()
                         
-                        # Cắt bỏ khoảng trắng thừa, loại bỏ dấu vết ngoặc vuông ký tự đặc biệt
-                        dynamic_keyword = str(text_to_extract).replace("tìm code vải", "").replace("tìm", "").replace("[", "").replace("]", "").strip()
-
+                        clean_text_upper = str(text_to_extract).strip().upper()
                         
-                        # Tìm chuỗi số liên tiếp có từ 3 ký tự trở lên (Ví dụ: 8902)
-                        numbers_found = re.findall(r'\d{3,}', clean_text_upper)
-                        if numbers_found:
-                            # SỬA LỖI: Lấy phần tử đầu tiên [0] để biến thành chuỗi text thuần túy "8902", loại bỏ dấu ngoặc vuông []
-                            dynamic_keyword = str(numbers_found[0]).strip()
-                        else:
-                            # Nếu không tìm thấy số, giữ nguyên ký tự chữ thô sạch để tra cứu công khai
-                            dynamic_keyword = clean_text_upper
+                        # ✨ ĐÃ SỬA: Loại bỏ từ khóa thừa để lấy mã vải thô sạch (Ví dụ: "SJ 8902" hoặc "SJ-8002")
+                        dynamic_keyword = clean_text_upper.replace("TÌM CODE VẢI MÃ", "").replace("TÌM CODE VẢI", "").replace("TÌM MÃ", "").replace("TÌM", "").strip()
 
                         # =============================================================================
                         # TRUY VẤN SONG SONG 3 KHO TRÊN SUPABASE BẰNG TỪ KHÓA CHUẨN
