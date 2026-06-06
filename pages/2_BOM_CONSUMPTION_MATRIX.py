@@ -614,44 +614,44 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                         # ✨ ĐÃ SỬA: Loại bỏ từ khóa thừa để lấy mã vải thô sạch (Ví dụ: "SJ 8902" hoặc "SJ-8002")
                         dynamic_keyword = clean_text_upper.replace("TÌM CODE VẢI MÃ", "").replace("TÌM CODE VẢI", "").replace("TÌM MÃ", "").replace("TÌM", "").strip()
 
-                        # =============================================================================
-                        # TRUY VẤN SONG SONG 3 KHO TRÊN SUPABASE BẰNG TỪ KHÓA CHUẨN
+                                                # =============================================================================
+                        # TRUY VẤN SONG SONG KHO DATA & THIẾT LẬP LUỒNG CÔNG THỨC TOÁN HỌC DỆT MAY (PHẦN 3C)
                         # =============================================================================
                         db_historical_consumption = get_historical_fabric_consumption_from_db(dynamic_keyword)
                         db_techpack_specs = get_techpack_spec_from_db(dynamic_keyword)
                         
-                        # Tìm kiếm liên kết ảnh rập từ kho ảnh Supabase Storage
+                        # Trích xuất link ảnh sơ đồ thiết kế từ kho ảnh Storage công khai
                         found_sketch_url = None
                         if db_techpack_specs and isinstance(db_techpack_specs, list) and len(db_techpack_specs) > 0:
                             found_sketch_url = db_techpack_specs[0].get("SketchURL")
                         elif db_techpack_specs and isinstance(db_techpack_specs, dict):
                             found_sketch_url = db_techpack_specs.get("SketchURL")
 
-                        # HOÀN THIỆN PROMPT ĐIỀU HƯỚNG AI ĐỌC HIỂU KHO VÀ TÍNH TOÁN THEO CÔNG THỨC DỆT MAY
+                        # HOÀN THIỆN PROMPT ĐIỀU HƯỚNG AI ĐỌC KHO VÀ TÍNH TOÁN TOÁN HỌC ĐỊNH MỨC VẢI
                         intel_prompt = f"""
-                        Bạn là hệ thống Core AI R&D cao cấp phân tích và quản lý kỹ thuật dệt may của Tập đoàn PPJ Group.
-                        Hãy xử lý yêu cầu của người dùng một cách chuyên nghiệp bằng cách đối soát tài liệu tải lên với kho tri thức database được cung cấp dưới đây:
+                        Bạn là hệ thống Core AI R&D phân tích kỹ thuật dệt may tối cao của Tập đoàn PPJ Group.
+                        Hãy đọc hiểu yêu cầu, kết hợp dữ liệu đối soát thực tế từ database dưới đây để trả lời người dùng:
 
                         YÊU CẦU NGƯỜI DÙNG: "{user_query}"
-                        MÃ HÀNG HỆ THỐNG TRÍCH XUẤT ĐỐI SOÁT: "{dynamic_keyword}"
+                        MÃ HÀNG HOẶC MÃ VẢI ĐANG ĐỐI SOÁT HỆ THỐNG: "{dynamic_keyword}"
                         DỮ LIỆU FILE MỚI ĐANG QUÉT (NẾU CÓ): {new_style_raw_text}
 
-                        --- DỮ LIỆU THỰC TẾ TRUY VẤN TỪ SUPABASE DATABASE ---
+                        --- DỮ LIỆU THỰC TẾ TRUY VẤN TỪ SUPABASE CLOUD ---
                         1. KHO ĐỊNH MỨC LỊCH SỬ (Table san_pham): 
-                        {json.dumps(db_historical_consumption, ensure_ascii=False)}
+                        {json.dumps(db_historical_consumption, ensure_ascii=False, indent=2)}
                         
-                        2. KHO THÔNG SỐ PHÁT TRIỂN MẪU (Table thong_so_techpack):
-                        {json.dumps(db_techpack_specs, ensure_ascii=False)}
+                        2. KHO THÔNG SỐ SẢN PHẨM (Table thong_so_techpack):
+                        {json.dumps(db_techpack_specs, ensure_ascii=False, indent=2)}
 
-                        --- QUY TRÌNH LUỒNG TƯ DUY & THUẬT TOÁN TÍNH ĐỊNH MỨC BẮT BUỘC ---
-                        TRƯỜNG HỢP 1: Nếu dữ liệu lịch sử thu được (Table san_pham) CÓ chứa mã '{dynamic_keyword}', hãy hiển thị bảng định mức thực tế của mã tương đồng này lên màn hình (article_name, consumption_type, consumption_value, uom).
+                        --- THUẬT TOÁN RA QUYẾT ĐỊNH & CÔNG THỨC TOÁN HỌC ĐỊNH MỨC BẮT BUỘC ---
+                        QUY TẮC 1: Nếu dữ liệu lịch sử thu được (Table san_pham) CÓ dữ liệu, hãy hiển thị bảng định mức thực tế của mã này lên màn hình (bao gồm các trường: style_name, article_name, consumption_type, consumption_value, uom).
                         
-                        TRƯỜNG HỢP 2: Nếu đây là MÃ HÀNG MỚI HOÀN TOÀN (Dữ liệu lịch sử rỗng), bạn BẮT BUỘC phải thực hiện thuật toán tính toán toán học định mức vải chuẩn ngành may dựa trên thông số hình học bóc tách được:
+                        QUY TẮC 2: Nếu không thấy dữ liệu trong kho dữ liệu lịch sử, bạn BẮT BUỘC phải thực hiện thuật toán tính định mức vải chuẩn ngành dệt may dựa trên thông số hình học rập mẫu:
                            - Công thức cho Áo (Shirt/T-Shirt): Định mức vải = ((Dài áo + Rộng áo + Hao hụt) * (Rộng tay/2 + Hao hụt) * 2) / Khổ vải hữu dụng.
                            - Công thức cho Quần (Pants/Jeans): Định mức vải = ((Dài quần + Hao hụt) * (Vòng mông + Hao hụt) * 4) / Khổ vải hữu dụng.
-                           - Trong trường hợp tài liệu thiếu thông số chi tiết, hãy áp dụng định mức trung bình an toàn của ngành để đưa ra dự báo: Áo thun (1.2m), Áo sơ mi (1.4m), Quần Jeans người lớn (1.3 - 1.5m) tùy theo phân loại dòng sản phẩm (Product Line).
+                           - Trường hợp thiếu thông số rập chi tiết trong file quét, hãy dùng định mức an toàn trung bình của ngành để đưa ra dự đoán: Áo thun (1.2m), Áo sơ mi (1.4m), Quần Jeans người lớn (1.3 - 1.5m) tùy theo phân loại dòng sản phẩm (Product Line).
 
-                        HÃY TRẢ LỜI NGƯỜI DÙNG TRỰC DIỆN, HIỂN THỊ DẠNG BẢNG ĐẸP MẮT VÀ NGẮN GỌN THEO ĐÚNG PHONG CÁCH KỸ SƯ CÔNG NGHIỆP DỆT MAY PPJ.
+                        HÃY HIỂN THỊ CÂU TRẢ LỜI DẠNG BẢNG ĐẸP MẮT, NGẮN GỌN THEO PHONG CÁCH KỸ SƯ CÔNG NGHIỆP PPJ.
                         """
                         
                         contents_payload.append(intel_prompt)
@@ -665,7 +665,7 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                         
                         new_msg_entry = {"role": "assistant", "type": "text", "content": final_text}
                         
-                        # Tự động xuất ảnh rập thiết kế phẳng từ Storage kho_anh nếu mã hàng tồn tại
+                        # Tự động hiển thị ảnh rập phẳng từ Storage kho_anh ra màn hình chat
                         if found_sketch_url:
                             new_msg_entry["type"] = "visual"
                             new_msg_entry["image_url"] = found_sketch_url
