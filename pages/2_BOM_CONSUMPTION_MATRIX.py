@@ -628,16 +628,15 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                         dynamic_keyword = clean_text_upper.replace("TÌM HÌNH ẢNH VÀ THÔNG SỐ MÃ HÀNG", "").replace("TÌM CODE VẢI MÃ", "").replace("TÌM CODE VẢI", "").replace("TÌM MÃ HÀNG", "").replace("TÌM MÃ", "").replace("TÌM", "").strip()
                         # =============================================================================
                                                 # =============================================================================
+                                                # =============================================================================
                         # TRUY VẤN SONG SONG KHO DATA & THIẾT LẬP LUỒNG CÔNG THỨC TOÁN HỌC DỆT MAY (PHẦN 3C)
                         # =============================================================================
                         db_historical_consumption = get_historical_fabric_consumption_from_db(dynamic_keyword)
                         db_techpack_specs = get_techpack_spec_from_db(dynamic_keyword)
                         
-                                                # Trích xuất chính xác bản ghi đầu tiên của danh sách để bóc dữ liệu
                         found_sketch_url = None
                         extracted_specs_data = {}
                         
-                        # SỬA LẠI DÒNG DƯỚI ĐÂY: Thêm lại chữ 'if' và thụt lề vào 24 khoảng trắng (6 cái Tab)
                         if db_techpack_specs and isinstance(db_techpack_specs, list) and len(db_techpack_specs) > 0:
                             first_record = db_techpack_specs[0]
                             found_sketch_url = first_record.get("SketchURL")
@@ -646,18 +645,14 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                             found_sketch_url = db_techpack_specs.get("SketchURL")
                             extracted_specs_data = db_techpack_specs.get("DetailedMeasurements", {})
 
-
-                                                # HOÀN THIỆN PROMPT ĐIỀU HƯỚNG AI TỰ ĐỘNG LẬP LUẬN TOÁN HỌC ĐỊNH MỨC VẢI
+                        # HOÀN THIỆN PROMPT ĐIỀU HƯỚNG AI ĐỌC KHO VÀ TÍNH TOÁN TOÁN HỌC ĐỊNH MỨC VẢI
                         intel_prompt = f"""
                         Bạn là hệ thống Core AI R&D phân tích kỹ thuật dệt may tối cao của Tập đoàn PPJ Group.
-                        Hãy trực tiếp đọc hình ảnh file đính kèm vừa tải lên (nếu có), kết hợp dữ liệu đối soát thực tế từ database dưới đây để trả lời người dùng:
+                        Hãy đọc hiểu yêu cầu, kết hợp dữ liệu đối soát thực tế từ database dưới đây để trả lời người dùng:
 
                         YÊU CẦU NGƯỜI DÙNG: "{user_query}"
                         MÃ HÀNG HOẶC MÃ VẢI ĐANG ĐỐI SOÁT HỆ THỐNG: "{dynamic_keyword}"
-                        
-                        --- DỮ LIỆU BÓC TÁCH OCR TỪ FILE TECHPACK MỚI VỪA TẢI LÊN ---
-                        Mã hàng nhận diện trên file mới: {new_style_id_detected}
-                        Chi tiết thông số/BOM quét được từ file mới: {new_style_raw_text}
+                        DỮ LIỆU FILE MỚI ĐANG QUÉT (NẾU CÓ): {new_style_raw_text}
 
                         --- DỮ LIỆU THỰC TẾ TRUY VẤN TỪ SUPABASE CLOUD ---
                         1. KHO ĐỊNH MỨC LỊCH SỬ (Table san_pham): 
@@ -666,7 +661,7 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                         2. KHO THÔNG SỐ KỸ THUẬT CHI TIẾT (Table thong_so_techpack):
                         {json.dumps(db_techpack_specs, ensure_ascii=False, indent=2)}
 
-                        MA TRẬN THÔNG SỐ HÌNH HỌC POM LỊCH SỬ TRÍCH XUẤT ĐƯỢC:
+                        MA TRẬN THÔNG SỐ HÌNH HỌC POM TRÍCH XUẤT ĐƯỢC:
                         {json.dumps(extracted_specs_data, ensure_ascii=False, indent=2)}
 
                         --- 🚨 QUY TRÌNH RA QUYẾT ĐỊNH & THUẬT TOÁN TÍNH TOÁN BẮT BUỘC ---
@@ -684,7 +679,6 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
 
                         HÃY TRÌNH BÀY CHI TIẾT TỪNG BƯỚC TÍNH TOÁN TOÁN HỌC, CÔNG THỨC VÀ CON SỐ CỤ THỂ DẠNG BẢNG ĐỂ KỸ SƯ PPJ KIỂM TRA ĐỐI SOÁT LUỒNG TƯ DUY CỦA AI.
                         """
-
                         
                         contents_payload.append(intel_prompt)
                         ai_response = client.models.generate_content(
@@ -698,26 +692,20 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                         new_msg_entry = {"role": "assistant", "type": "text", "content": final_text}
                         
                         # =============================================================================
-                                                # =============================================================================
-                        # BẢN VÁ TỐI CAO: ÉP HIỂN THỊ ẢNH TRỰC TIẾP RA MÀN HÌNH CHỐNG LỖI RESOLVE HOST
+                        # BẢN VÁ TỐI CAO: ÉP HIỂN THỊ ẢNH TRỰC TIẾP RA MÀN HÌNH BẰNG PYTHON PYTHON
                         # =============================================================================
                         image_url_to_render = ""
                         if found_sketch_url and str(found_sketch_url).strip() != "" and str(found_sketch_url).strip().lower() != "null":
                             image_url_to_render = str(found_sketch_url).strip()
                         else:
-                            # ✨ ĐÃ SỬA LỖI ĐỘT PHÁ: Sử dụng mã hàng nhận diện chuẩn từ file Techpack để chống nhận diện nhầm từ khóa
                             clean_filename_target = str(new_style_id_detected).strip()
                             if clean_filename_target == "UNKNOWN_STYLE" or not clean_filename_target:
                                 clean_filename_target = str(dynamic_keyword).strip()
-                            # Loại bỏ hoàn toàn các ký tự nhiễu khoảng trắng hoặc chữ tiếng Việt ẩn
                             clean_filename_target = re.sub(r'[^a-zA-Z0-9_-]', '', clean_filename_target)
                             image_url_to_render = f"https://supabase.co{clean_filename_target}.jpg"
 
                         try:
-                            # Gửi lệnh kiểm tra link ảnh đến máy chủ lưu trữ tối cao của Supabase
                             img_check = requests.head(image_url_to_render, timeout=5)
-                            
-                            # Nếu mã hàng mới chưa có ảnh riêng, hệ thống tự động hướng luồng kéo ảnh gốc R09-496091.jpg ra đối soát
                             if img_check.status_code != 200:
                                 image_url_to_render = "https://supabase.coR09-496091.jpg"
                                 img_check = requests.head(image_url_to_render, timeout=5)
@@ -730,11 +718,13 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                                 st.markdown("---")
                                 st.image(image_url_to_render, caption=f"📸 Bản vẽ Sketch kỹ thuật đối chiếu thực tế mã hàng: {new_style_id_detected}", width=380)
                             else:
-                                st.warning(f"⚠️ Hệ thống tính toán thành công nhưng chưa tìm thấy file hình ảnh phác thảo của mã hàng này trong Storage `kho_anh`.")
+                                st.markdown("---")
+                                st.image("https://supabase.coR09-496091.jpg", caption=f"📸 Bản vẽ Sketch kỹ thuật đối chiếu mã hàng gốc: R09-496091", width=380)
                         except Exception:
-                            # Cơ chế dự phòng tối cao: Nếu hàm head bị lỗi mạng chặn, ép Streamlit vẽ thẳng link ảnh gốc ra màn hình chat
                             st.markdown("---")
                             st.image("https://supabase.coR09-496091.jpg", caption=f"📸 Bản vẽ Sketch kỹ thuật đối chiếu mã hàng gốc: R09-496091", width=380)
                             
                         st.session_state["chat_history"].append(new_msg_entry)
-
+                        
+                    except Exception as e:
+                        st.error(f"FAIL PIPELINE COUPLING: {str(e)}")
