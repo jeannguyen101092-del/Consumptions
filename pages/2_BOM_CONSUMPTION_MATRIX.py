@@ -507,7 +507,7 @@ elif menu_selection == "🔄 Pattern Spec Comparison":
             )
 
 # =============================================================================
-# CHỨC NĂNG 3: TRỢ LÝ ĐỊNH MỨC VẢI (ISOLATED DATA PIPELINE & INTENT LAB - PHẦN 6A)
+# CHỨC NĂNG 3: TRỢ LÝ ĐỊNH MỨC VẢI (INTELLIGENT DATA PIPELINE - PHẦN 1)
 # =============================================================================
 elif menu_selection == "🧵 BOM & Consumption Matrix":
     st.markdown('<div class="component-title-box">🧵 INTELLIGENT BOM & CONSUMPTION MATRIX ENGINE</div>', unsafe_allow_html=True)
@@ -535,7 +535,7 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
     # Khởi tạo mảng lưu lịch sử hội thoại chuẩn hóa
     if "chat_history" not in st.session_state:
         st.session_state["chat_history"] = [
-            {"role": "assistant", "type": "text", "content": "Welcome to PPJ Textile Visual R&D Engine. Hãy tải lên sơ đồ rập/Techpack mã mới và ra lệnh. Tôi sẽ tìm chính xác mã tương đồng trong database, xuất ảnh thiết kế và tự động tính định mức vải/phụ liệu theo đúng thực tế hoặc công thức chuẩn ngành may."}
+            {"role": "assistant", "type": "text", "content": "Welcome to PPJ Textile Visual R&D Engine. Hãy tải lên sơ đồ rập/Techpack mã mới và ra lệnh. Tôi sẽ tìm chính xác mã tương đồng, xuất ảnh Sketch và tính định mức vải/phụ liệu theo đúng yêu cầu, không trả lời lan man."}
         ]
         
     for msg in st.session_state["chat_history"]:
@@ -602,53 +602,57 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                                     import time
                                     time.sleep(2 * (ext_attempt + 1))
                         
-                        # ✨ THUẬT TOÁN ĐỒNG BỘ ĐỘT PHÁ SỬA SAI: Khử toàn diện lỗi gõ nhầm số 9 (8902) thành số 0 (8002) ở cả tin nhắn chat
+                        # ✨ THUẬT TOÁN ĐỒNG BỘ: Sửa lỗi bẻ mã cũ, tự động lấy chuỗi ký tự/số nguyên bản từ text chat hoặc OCR
                         text_to_extract = user_query
                         if chat_file and str(new_style_id_detected).strip() != "UNKNOWN_STYLE":
                             text_to_extract = str(new_style_id_detected).strip()
                         
                         clean_text_upper = str(text_to_extract).strip().upper()
-                        if "8902" in clean_text_upper:
-                            dynamic_keyword = "8002"
+                        
+                        # Trích xuất chuỗi số định danh chính xác không bị bọc bởi cặp dấu ngoặc vuông []
+                        numbers_found = re.findall(r'\d{3,}', clean_text_upper)
+                        if numbers_found:
+                            dynamic_keyword = str(numbers_found[0]).strip()
                         else:
-                            numbers_found = re.findall(r'\d{3,}', clean_text_upper)
-                            dynamic_keyword = str(numbers_found[0]).strip() if numbers_found else clean_text_upper
+                            dynamic_keyword = clean_text_upper
                         # =============================================================================
-                        # TRUY VẤN KHO DỮ LIỆU ĐỂ TÌM MÃ TƯƠNG ĐỒNG VÀ THỰC HIỆN LOGIC ĐỊNH MỨC VẢI
+                        # TRUY VẤN SONG SONG 3 KHO TRÊN SUPABASE BẰNG TỪ KHÓA CHUẨN
                         # =============================================================================
                         db_historical_consumption = get_historical_fabric_consumption_from_db(dynamic_keyword)
                         db_techpack_specs = get_techpack_spec_from_db(dynamic_keyword)
                         
-                        # Biến kiểm soát xử lý ảnh vẽ rập từ kho hình ảnh
+                        # Tìm kiếm liên kết ảnh rập từ kho ảnh Supabase Storage
                         found_sketch_url = None
-                        if db_techpack_specs:
+                        if db_techpack_specs and isinstance(db_techpack_specs, list) and len(db_techpack_specs) > 0:
                             found_sketch_url = db_techpack_specs[0].get("SketchURL")
+                        elif db_techpack_specs and isinstance(db_techpack_specs, dict):
+                            found_sketch_url = db_techpack_specs.get("SketchURL")
 
-                        # XÂY DỰNG prompt CẤP CAO ÉP AI THỰC HIỆN TOÁN HỌC ĐỊNH MỨC THEO QUY CHUẨN NGÀNH
+                        # HOÀN THIỆN PROMPT ĐIỀU HƯỚNG AI ĐỌC HIỂU KHO VÀ TÍNH TOÁN THEO CÔNG THỨC DỆT MAY
                         intel_prompt = f"""
-                        Bạn là hệ thống Core AI phân tích chuyên sâu về quản lý kỹ thuật dệt may của Tập đoàn PPJ Group.
-                        Hãy đọc hiểu tài liệu vừa tải lên, kết hợp dữ liệu đối soát thực tế thu được dưới đây để xử lý yêu cầu người dùng:
+                        Bạn là hệ thống Core AI R&D cao cấp phân tích và quản lý kỹ thuật dệt may của Tập đoàn PPJ Group.
+                        Hãy xử lý yêu cầu của người dùng một cách chuyên nghiệp bằng cách đối soát tài liệu tải lên với kho tri thức database được cung cấp dưới đây:
 
-                        YÊU CẦU CỦA NGƯỜI DÙNG: "{user_query}"
-                        MÃ HÀNG TÌM KIẾM HỆ THỐNG TRÍCH XUẤT: "{dynamic_keyword}"
+                        YÊU CẦU NGƯỜI DÙNG: "{user_query}"
+                        MÃ HÀNG HỆ THỐNG TRÍCH XUẤT ĐỐI SOÁT: "{dynamic_keyword}"
                         DỮ LIỆU FILE MỚI ĐANG QUÉT (NẾU CÓ): {new_style_raw_text}
 
-                        --- DỮ LIỆU ĐỐI SOÁT LỊCH SỬ TỪ MASTER DATABASE SUPABASE ---
+                        --- DỮ LIỆU THỰC TẾ TRUY VẤN TỪ SUPABASE DATABASE ---
                         1. KHO ĐỊNH MỨC LỊCH SỬ (Table san_pham): 
                         {json.dumps(db_historical_consumption, ensure_ascii=False)}
                         
-                        2. KHO THÔNG SỐ SẢN PHẨM (Table thong_so_techpack):
+                        2. KHO THÔNG SỐ PHÁT TRIỂN MẪU (Table thong_so_techpack):
                         {json.dumps(db_techpack_specs, ensure_ascii=False)}
 
-                        --- QUY TRÌNH RA QUYẾT ĐỊNH & THUẬT TOÁN TÍNH ĐỊNH MỨC BẮT BUỘC ---
-                        THIẾT LẬP 1: Nếu trong dữ liệu lịch sử (san_pham) CÓ tồn tại mã '{dynamic_keyword}', hãy bốc tách chính xác dữ liệu của mã tương đồng này lên màn hình (bao gồm article_name, consumption_type, consumption_value, uom).
+                        --- QUY TRÌNH LUỒNG TƯ DUY & THUẬT TOÁN TÍNH ĐỊNH MỨC BẮT BUỘC ---
+                        TRƯỜNG HỢP 1: Nếu dữ liệu lịch sử thu được (Table san_pham) CÓ chứa mã '{dynamic_keyword}', hãy hiển thị bảng định mức thực tế của mã tương đồng này lên màn hình (article_name, consumption_type, consumption_value, uom).
                         
-                        THIẾT LẬP 2: Nếu đây là MÃ HÀNG MỚI HOÀN TOÀN (Không thấy dữ liệu trong kho), hệ thống bắt buộc phải áp dụng công thức chuẩn dệt may để tính toán dự đoán định mức vải:
-                           - Công thức cho Áo (Shirt/T-Shirt): Định mức = ((Dài áo + Rộng áo + Hao hụt) * (Rộng tay/2 + Hao hụt) * 2) / Khổ vải hữu dụng.
-                           - Công thức cho Quần (Pants/Jeans): Định mức = ((Dài quần + Hao hụt) * (Vòng mông + Hao hụt) * 4) / Khổ vải hữu dụng.
-                           - Nếu thiếu thông số chi tiết, hãy dựa trên định mức trung bình ngành dệt may: Áo thun (0.25 - 0.4kg hoặc 1.2m), Áo sơ mi (1.3 - 1.5m), Quần Jeans người lớn (1.2 - 1.6m) dựa vào Product Line bóc tách được từ file rập.
+                        TRƯỜNG HỢP 2: Nếu đây là MÃ HÀNG MỚI HOÀN TOÀN (Dữ liệu lịch sử rỗng), bạn BẮT BUỘC phải thực hiện thuật toán tính toán toán học định mức vải chuẩn ngành may dựa trên thông số hình học bóc tách được:
+                           - Công thức cho Áo (Shirt/T-Shirt): Định mức vải = ((Dài áo + Rộng áo + Hao hụt) * (Rộng tay/2 + Hao hụt) * 2) / Khổ vải hữu dụng.
+                           - Công thức cho Quần (Pants/Jeans): Định mức vải = ((Dài quần + Hao hụt) * (Vòng mông + Hao hụt) * 4) / Khổ vải hữu dụng.
+                           - Trong trường hợp tài liệu thiếu thông số chi tiết, hãy áp dụng định mức trung bình an toàn của ngành để đưa ra dự báo: Áo thun (1.2m), Áo sơ mi (1.4m), Quần Jeans người lớn (1.3 - 1.5m) tùy theo phân loại dòng sản phẩm (Product Line).
 
-                        HÃY TRẢ LỜI NGƯỜI DÙNG TRỰC DIỆN, NGẮN GỌN, TRÌNH BÀY DẠNG BẢNG ĐÚNG CHUẨN CÔNG NGHIỆP DỆT MAY.
+                        HÃY TRẢ LỜI NGƯỜI DÙNG TRỰC DIỆN, HIỂN THỊ DẠNG BẢNG ĐẸP MẮT VÀ NGẮN GỌN THEO ĐÚNG PHONG CÁCH KỸ SƯ CÔNG NGHIỆP DỆT MAY PPJ.
                         """
                         
                         contents_payload.append(intel_prompt)
@@ -660,10 +664,9 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                         final_text = ai_response.text
                         st.markdown(final_text)
                         
-                        # Lưu lịch sử chat dạng văn bản thuần túy
                         new_msg_entry = {"role": "assistant", "type": "text", "content": final_text}
                         
-                        # Nếu phát hiện có link ảnh Sketch từ kho ảnh, đẩy trực tiếp hình ảnh vào khung chat cho kỹ sư đối chiếu
+                        # Tự động xuất ảnh rập thiết kế phẳng từ Storage kho_anh nếu mã hàng tồn tại
                         if found_sketch_url:
                             new_msg_entry["type"] = "visual"
                             new_msg_entry["image_url"] = found_sketch_url
