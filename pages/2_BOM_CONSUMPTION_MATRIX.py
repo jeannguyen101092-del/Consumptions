@@ -210,7 +210,7 @@ def get_historical_fabric_consumption_from_db(search_keyword=None):
 def get_techpack_spec_from_db(style_name_keyword=None):
     """
     Hàm cho phép AI tự động tra cứu thông số từ bảng thong_so_techpack.
-    ✨ ĐÃ SỬA LỖI ĐỘT PHÁ: Sử dụng cấu trúc params sạch của requests để giữ nguyên chữ StyleName phân biệt hoa thường.
+    ✨ ĐÃ SỬA: Đồng bộ hóa chính xác trường SketchURL (chữ URL viết hoa) trùng khớp 100% với database Supabase.
     """
     try:
         headers = {
@@ -219,7 +219,7 @@ def get_techpack_spec_from_db(style_name_keyword=None):
         }
         url = f"{SB_URL.rstrip('/')}/rest/v1/thong_so_techpack"
         
-        # Tạo cấu hình màng lọc mặc định
+        # SỬA TẠI ĐÂY: Đổi SketchURL thành SketchURL để khớp với tên cột thực tế trên Supabase
         query_params = {
             "select": "StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL",
             "limit": 500
@@ -646,6 +646,7 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                             dynamic_keyword = raw_keyword
                         
                         # =========================================================================
+                                                # =========================================================================
                         # TRUY VẤN SONG SONG KHO DATA BẢNG TỪ KHÓA CHUẨN XÁC VÀ GIẢI NÉN MẢNG (PHẦN 3)
                         # =========================================================================
                         db_historical_consumption = get_historical_fabric_consumption_from_db(dynamic_keyword)
@@ -654,13 +655,17 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                         found_sketch_url = None
                         extracted_specs_data = {}
                         
+                        # Sử dụng cơ chế phòng vệ if bọc ngoài để tránh lỗi sập app (IndexError) nếu mảng rỗng
                         if db_techpack_specs and isinstance(db_techpack_specs, list) and len(db_techpack_specs) > 0:
                             first_record = db_techpack_specs[0]
-                            found_sketch_url = first_record.get("sketch_url")
+                            # SỬA TẠI ĐÂY: Phải dùng .get("SketchURL") viết hoa khớp với hàm API đọc dữ liệu
+                            found_sketch_url = first_record.get("SketchURL")
                             extracted_specs_data = first_record.get("DetailedMeasurements", {})
                         elif db_techpack_specs and isinstance(db_techpack_specs, dict):
-                            found_sketch_url = db_techpack_specs.get("sketch_url")
+                            # SỬA TẠI ĐÂY: Dự phòng trường hợp trả về dạng đơn dữ liệu đối tượng Dict
+                            found_sketch_url = db_techpack_specs.get("SketchURL")
                             extracted_specs_data = db_techpack_specs.get("DetailedMeasurements", {})
+
 
                         # =========================================================================
                         # TIẾN HÀNH TÍNH TOÁN ĐỊNH MỨC VÀ TRẢ LỜI NGƯỜI DÙNG QUA GEMINI
