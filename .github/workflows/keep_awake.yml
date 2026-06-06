@@ -2,9 +2,8 @@ name: Keep App Awake
 
 on:
   schedule:
-    # Chạy mỗi 15 phút một lần (Từ thứ 2 đến chủ nhật)
+    # Chạy mỗi 15 phút một lần từ thứ 2 đến chủ nhật để giữ app luôn thức
     - cron: '*/15 * * * *'
-  # Cho phép bạn bấm nút chạy thủ công từ tab Actions nếu muốn
   workflow_dispatch:
 
 jobs:
@@ -13,4 +12,4 @@ jobs:
     steps:
       - name: Send ping request to app
         run: |
-          curl -I "https://onrender.com"
+          curl -I "https://streamlit.app"
