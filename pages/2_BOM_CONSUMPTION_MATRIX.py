@@ -566,6 +566,7 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
             if msg.get("type") == "visual" and msg.get("image_url"):
                 st.image(msg["image_url"], caption=f"Bản vẽ Sketch lịch sử đối chiếu mã {msg.get('style_title')}", width=220)
     import streamlit as st
+import streamlit as st
 import io
 import json
 import re
@@ -573,9 +574,9 @@ import requests
 import base64
 from pdf2image import convert_from_bytes
 from pdf2image.exceptions import PDFInfoNotInstalledError
-from pypdf import pdfinfo_from_bytes
 from google import genai
 from google.genai import types
+
 
 # Giả định các hàm lấy dữ liệu từ DB và cấu hình Token của bạn
 def get_secure_gemini_key():
@@ -728,14 +729,14 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                         
                         if chat_file:
                             file_bytes = chat_file.getvalue()
-                            if chat_file.name.lower().endswith('.pdf'):
-                                info_chat = pdfinfo_from_bytes(file_bytes)
-                                total_chat_pages = int(info_chat.get("Pages", 1))
-                                chat_images = convert_from_bytes(file_bytes, dpi=140, first_page=1, last_page=total_chat_pages)
+                                                        if chat_file.name.lower().endswith('.pdf'):
+                                # Chuyển đổi toàn bộ các trang PDF thành mảng ảnh nhị phân an toàn
+                                chat_images = convert_from_bytes(file_bytes, dpi=130)
                                 for page_img in chat_images:
                                     img_buf = io.BytesIO()
                                     page_img.convert("RGB").save(img_buf, format="JPEG")
                                     contents_payload.append(types.Part.from_bytes(data=img_buf.getvalue(), mime_type='image/jpeg'))
+
                             else:
                                 contents_payload.append(types.Part.from_bytes(data=file_bytes, mime_type='image/jpeg'))
                             
