@@ -656,17 +656,16 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                             found_sketch_url = db_techpack_specs.get("SketchURL")
                             extracted_specs_data = db_techpack_specs.get("DetailedMeasurements", {})
 
-                        # HOÀN THIỆN PROMPT ĐIỀU HƯỚNG AI ĐỌC KHO VÀ TÍNH TOÁN TOÁN HỌC ĐỊNH MỨC VẢI
+                                                # HOÀN THIỆN PROMPT RÚT GỌN: ÉP AI TRẢ LỜI TRỰC DIỆN THEO CÂU HỎI CỦA KỸ SƯ
                         intel_prompt = f"""
                         Bạn là hệ thống Core AI R&D phân tích kỹ thuật dệt may tối cao của Tập đoàn PPJ Group.
-                        Hãy đọc hiểu yêu cầu, kết hợp dữ liệu đối soát thực tế từ database dưới đây để trả lời người dùng:
+                        Hãy đọc hiểu yêu cầu và trả lời TRỰC DIỆN vào câu hỏi của người dùng dựa trên dữ liệu thu được từ database:
 
                         YÊU CẦU NGƯỜI DÙNG: "{user_query}"
-                        MÃ HÀNG HOẶC MÃ VẢI ĐANG ĐỐI SOÁT HỆ THỐNG: "{dynamic_keyword}"
-                        DỮ LIỆU FILE MỚI ĐANG QUÉT (NẾU CÓ): {new_style_raw_text}
+                        TỪ KHÓA TRA CỨU HỆ THỐNG: "{dynamic_keyword}"
 
                         --- DỮ LIỆU THỰC TẾ TRUY VẤN TỪ SUPABASE CLOUD ---
-                        1. KHO ĐỊNH MỨC LỊCH SỬ (Table san_pham): 
+                        1. KHO ĐỊNH MỨC LỊCH SỬ VÀ MÃ VẢI (Table san_pham): 
                         {json.dumps(db_historical_consumption, ensure_ascii=False, indent=2)}
                         
                         2. KHO THÔNG SỐ KỸ THUẬT CHI TIẾT (Table thong_so_techpack):
@@ -675,21 +674,13 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                         MA TRẬN THÔNG SỐ HÌNH HỌC POM TRÍCH XUẤT ĐƯỢC:
                         {json.dumps(extracted_specs_data, ensure_ascii=False, indent=2)}
 
-                        --- 🚨 QUY TRÌNH RA QUYẾT ĐỊNH & THUẬT TOÁN TÍNH TOÁN BẮT BUỘC ---
-                        QUY TẮC 1: Nếu dữ liệu lịch sử thu được (Table san_pham) CÓ dữ liệu của mã tương đồng, hãy hiển thị bảng định mức thực tế cũ của mã đó lên màn hình để tham khảo.
-                        
-                        QUY TẮC 2 (TỰ ĐỘNG TÍNH TOÁN THEO YÊU CẦU): Hệ thống BẮT BUỘC phải tự động tính toán toán học để đưa ra định mức vải dự đoán cụ thể cho đơn hàng dựa trên các thông số kỹ thuật thực tế thu thập được, TUYỆT ĐỐI KHÔNG sử dụng các con số mặc định chung chung (như 1.2m hay 1.5m). 
-                        
-                        Các bước tự động tính toán logic của bạn phải tuân theo quy trình dệt may:
-                           - Bước 1: Trích xuất các biến đầu vào từ câu lệnh chat của người dùng (Ví dụ: Khổ vải hữu dụng = 67 inch, Độ co ngang = 4%, Độ co dọc = 4%).
-                           - Bước 2: Bóc tách các thông số hình học rập mẫu cốt lõi từ bảng thông số (như Dài quần/Dài áo, Rộng mông/Rộng thân, Rộng tay,...) từ file mới tải lên hoặc ma trận thông số POM lịch sử.
-                           - Bước 3: Thực hiện phép tính toán học áp dụng tỷ lệ co rút dệt nhuộm:
-                             + Chiều dài chi tiết rập sau co rút = Thông số gốc * (1 + Độ co dọc/100) + Hao hụt đường may (khoảng 1-2 inch).
-                             + Chiều rộng chi tiết rập sau co rút = Thông số gốc * (1 + Độ co ngang/100) + Hao hụt đường may.
-                           - Bước 4: Tính toán diện tích bề mặt hình học tổng thể của sản phẩm và chia cho khổ vải hữu dụng để tự động suy luận ra con số Định mức Vải dự kiến (đơn vị YRD hoặc Mét) chính xác cho mã này.
-
-                        HÃY TRÌNH BÀY CHI TIẾT TỪNG BƯỚC TÍNH TOÁN TOÁN HỌC, CÔNG THỨC VÀ CON SỐ CỤ THỂ DẠNG BẢNG ĐỂ KỸ SƯ PPJ KIỂM TRA ĐỐI SOÁT LUỒNG TƯ DUY CỦA AI.
+                        --- 🚨 QUY TẮC PHẢN HỒI NGHIÊM NGẶT ---
+                        1. Người dùng hỏi gì thì trả lời chính xác cái đó. Tuyệt đối KHÔNG trả lời lan man, KHÔNG tự ý đưa ra các bước lập luận hay quy trình tính định mức dài dòng nếu người dùng không yêu cầu.
+                        2. Nếu người dùng hỏi tìm CODE VẢI (article_name) hoặc tìm thông tin từ kho, hãy kiểm tra dữ liệu trong `Table san_pham`. Nếu có dữ liệu, hãy liệt kê rõ ràng tên Mã hàng (style_name) và Code vải (article_name) tương ứng đang lưu trong kho dưới dạng bảng.
+                        3. Nếu ma trận thông số kỹ thuật chi tiết (`extracted_specs_data`) có dữ liệu và người dùng cần xem thông số, hãy in bảng thông số POM ra.
+                        4. Nếu không tìm thấy bất kỳ dữ liệu nào khớp với từ khóa "{dynamic_keyword}" trong cả 3 kho, hãy lịch sự thông báo: "Hệ thống không tìm thấy Mã hàng hoặc Code vải '{dynamic_keyword}' trong kho dữ liệu." và dừng lại, KHÔNG tự tính toán định mức bừa bãi.
                         """
+
                         
                         contents_payload.append(intel_prompt)
                         ai_response = client.models.generate_content(
