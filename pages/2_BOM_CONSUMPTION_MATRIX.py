@@ -567,16 +567,15 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
             if msg.get("type") == "visual" and msg.get("image_url"):
                 st.image(msg["image_url"], caption=f"Bản vẽ Sketch lịch sử đối chiếu mã {msg.get('style_title')}", width=220)
        # =============================================================================
-    # PHASE 6B - PART 1: INDEPENDENT DATASTREAM & MULTI-INTENT PROCESSING PIPELINE
        if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vải và đối soát sai lệch..."):
         st.session_state["chat_history"].append({"role": "user", "type": "text", "content": user_query})
-        with st.chat_message("user"): 
+        with st.chat_message("user"):
             st.write(user_query)
         
         with st.chat_message("assistant"):
             with st.spinner("Hệ thống AI R&D Engine đang kết nối kho tri thức nền dệt may..."):
                 gemini_key = get_secure_gemini_key()
-                if not gemini_key: 
+                if not gemini_key:
                     st.write("CRITICAL SERVER BREAKDOWN: AI API Token is missing.")
                 else:
                     try:
@@ -585,7 +584,6 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                         new_style_id_detected = "UNKNOWN_STYLE"
                         new_style_raw_text = ""
                         
-                        # LUỒNG A: NẾU KỸ SƯ CÓ TẢI FILE TECHPACK LÊN - KÍCH HOẠT QUÉT ĐA TRANG
                         if chat_file:
                             file_bytes = chat_file.getvalue()
                             if chat_file.name.lower().endswith('.pdf'):
@@ -603,151 +601,59 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                             new_style_id_detected = parsed_meta.get("detected_style_id", "UNKNOWN_STYLE").strip()
                             new_style_raw_text = str(parsed_meta.get("all_specs_text", ""))
 
-                        # ✨ THUẬT TOÁN ĐỒNG BỘ TỪ KHÓA BẰNG REGEX
                         text_to_extract = str(new_style_id_detected).strip() if chat_file and str(new_style_id_detected).strip() != "UNKNOWN_STYLE" else user_query
                         clean_text_upper = str(text_to_extract).strip().upper()
                         patterns_to_remove = r"TÌM HÌNH ẢNH VÀ THÔNG SỐ MÃ HÀNG|THÔNG SỐ CHI TIẾT MÃ HÀNG|THÔNG SỐ CHI TIẾT MÃ|TÌM THÔNG SỐ MÃ HÀNG|TÌM CODE VẢI MÃ NÀY|TÌM THÔNG SỐ MÃ|TÌM CODE VẢI NÀY|TÌM CODE VẢI MÃ|THÔNG SỐ MÃ HÀNG|TÌM MÃ HÀNG KHÔNG|TÌM MÃ HÀNG NÀY|TÌM MÃ HÀNG|THÔNG SỐ MÃ|TÌM HÀNG|TÌM CODE VẢI|THÔNG SỐ|TÌM MÃ|TÌM"
                         raw_keyword = re.sub(patterns_to_remove, "", clean_text_upper).strip()
-                        
-                        if "SJ" in raw_keyword:
-                            nums_list = re.findall(r"\d+", raw_keyword)
-                            dynamic_keyword = f"SJ-{nums_list}" if nums_list else raw_keyword
-                        else: 
-                            dynamic_keyword = raw_keyword
+                        dynamic_keyword = f"SJ-{re.findall(r'\d+', raw_keyword)}" if "SJ" in raw_keyword and re.findall(r"\d+", raw_keyword) else raw_keyword
 
-                        # =========================================================================
-                        # BƯỚC 1: TRUY VẤN DANH SÁCH HÌNH ẢNH SKETCH TRONG KHO (QUÉT TÌM KIẾM NHANH)
-                        # =========================================================================
                         headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
-                        url_tp = f"{SB_URL.rstrip('/')}/rest/v1/thong_so_techpack"
-                        
-                        res_master_images = requests.get(url_tp, headers=headers, params={"select": "StyleName,Category,SketchURL", "limit": 1000}, timeout=15)
-                        db_master_images = res_master_images.json() if res_master_images.status_code == 200 else []
+                        res_m_img = requests.get(f"{SB_URL.rstrip('/')}/rest/v1/thong_so_techpack", headers=headers, params={"select": "StyleName,Category,SketchURL", "limit": 1000}, timeout=15)
+                        db_master_images = res_m_img.json() if res_m_img.status_code == 200 else []
 
-                        # Ép AI nhận diện ĐA CHỦNG LOẠI sản phẩm để đối chiếu cấu trúc rập trùng khớp
-                        image_matching_prompt = f"""
-                        Bạn là chuyên gia nhận diện phom dáng dệt may tại PPJ Group. Phân tích cấu trúc hình học của mã mới: {dynamic_keyword}.
-                        1. Chủ chủng loại: Áo (Shirt/Jacket), Quần (Pant/Short), Đầm/Váy (Dress/Skirt) hay Áo Vest/Blazer?
-                        2. Chi tiết kết cấu: Kiểu túi (Jeans 5 túi, túi xéo Chinos, túi mổ)? Kiểu cổ áo, lớp lót, chiều dài đầm?
-                        Đối chiếu quét kho để tìm mã trùng khớp hoàn toàn cả chủng loại và phom dáng thiết kế:
-                        {json.dumps(db_master_images[:100], ensure_ascii=False)}
-                        Nếu không có mã trùng khớp cấu trúc đặc trưng, bắt buộc trả về "NONE". Không được so sánh lệch chủng loại!
-                        Trả về JSON chính xác: {{"matched_style_id": "TÊN_MÃ_HOẶC_NONE", "reason": "Lý do lựa chọn"}}
-                        """
+                        image_matching_prompt = f"Bạn là chuyên gia R&D PPJ. Hãy quét danh sách ảnh trong kho để tìm mã trùng khớp hoàn toàn chủng loại sản phẩm và kết cấu túi/cổ áo với mã mới {dynamic_keyword}: {json.dumps(db_master_images[:100], ensure_ascii=False)}. Nếu lệch chủng loại (như Áo so với Quần) hoặc kho trống, trả về 'NONE'. Trả về JSON: {{\"matched_style_id\": \"MÃ_HOẶC_NONE\", \"reason\": \"Lý do\"}}"
+                        match_res = client.models.generate_content(model='gemini-2.5-flash', contents=contents_payload + [image_matching_prompt] if chat_file else [image_matching_prompt], config=types.GenerateContentConfig(response_mime_type="application/json", temperature=0.0))
                         
-                        match_payload = contents_payload + [image_matching_prompt] if chat_file and len(contents_payload) > 0 else [image_matching_prompt]
-                        match_res = client.models.generate_content(model='gemini-2.5-flash', contents=match_payload, config=types.GenerateContentConfig(response_mime_type="application/json", temperature=0.0))
-                        
-                        clean_json_text = match_res.text.strip()
-                        if clean_json_text.startswith("```"):
-                            clean_json_text = clean_json_text.split("```")
-                            if clean_json_text.startswith("json"): 
-                                clean_json_text = clean_json_text[4:]
-                        clean_json_text = clean_json_text.strip()
-                        
-                        try:
-                            parsed_match = json.loads(clean_json_text)
-                            matched_style = str(parsed_match.get("matched_style_id", "")).strip().upper()
-                            match_reason = parsed_match.get("reason", "")
-                        except Exception:
-                            matched_style = "NONE"
-                            match_reason = "Không thể bóc tách JSON hình ảnh, tự động kích hoạt luồng toán học độc lập."
-                        # Lấy thông số thô của chính mã mới vừa tải lên từ Supabase
+                        clean_json = match_res.text.strip()
+                        if clean_json.startswith("```"):
+                            clean_json = clean_json.split("```")[1].replace("json", "").strip()
+                        parsed_match = json.loads(clean_json)
+                        matched_style = str(parsed_match.get("matched_style_id", "")).strip().upper()
+                        match_reason = parsed_match.get("reason", "")
                         db_techpack_specs = get_techpack_spec_from_db(dynamic_keyword)
                         extracted_specs_data = {}
                         found_sketch_url = None
-                        
-                        # Chuyển đổi mảng List thành Dict một cách an toàn bằng vòng lặp để diệt tận gốc lỗi chữ đỏ .get()
                         if db_techpack_specs and isinstance(db_techpack_specs, list) and len(db_techpack_specs) > 0:
                             for record in db_techpack_specs:
                                 found_sketch_url = record.get("SketchURL")
                                 extracted_specs_data = record.get("DetailedMeasurements", {})
                                 break
-                        elif db_techpack_specs and isinstance(db_techpack_specs, dict):
-                            found_sketch_url = db_techpack_specs.get("SketchURL")
-                            extracted_specs_data = db_techpack_specs.get("DetailedMeasurements", {})
 
-                        # =========================================================================
-                        # LUỒNG RẼ NHÁNH TỰ ĐỘNG TÍNH TOÁN THEO KỊCH BẢN KHẢ DỤNG
-                        # =========================================================================
                         if matched_style and matched_style != "NONE":
-                            # 👉 LUỒNG A: TÌM THẤY MÃ TƯƠNG ĐỒNG (Tính dựa trên đối soát lệch thông số)
-                            st.info(f"🔍 ĐÃ TÌM THẤY MÃ TƯƠNG ĐỒNG BẰNG HÌNH ẢNH CẤU TRÚC: **{matched_style}**")
                             db_matched_specs = get_techpack_spec_from_db(matched_style)
                             db_matched_consumption = get_historical_fabric_consumption_from_db(matched_style)
-                            
-                            matched_specs_clean = {}
-                            matched_sketch_url = ""
-                            
+                            matched_specs_clean, matched_sketch_url = {}, ""
                             if db_matched_specs and isinstance(db_matched_specs, list) and len(db_matched_specs) > 0:
                                 for m_rec in db_matched_specs:
                                     matched_specs_clean = m_rec.get("DetailedMeasurements", {})
                                     matched_sketch_url = m_rec.get("SketchURL", "")
                                     break
-                            elif db_matched_specs and isinstance(db_matched_specs, dict):
-                                matched_specs_clean = db_matched_specs.get("DetailedMeasurements", {})
-                                matched_sketch_url = db_matched_specs.get("SketchURL", "")
+                            
+                            if any(x in str(extracted_specs_data).upper() for x in ["PANT", "QUẦN"]) and any(x in str(matched_specs_clean).upper() for x in ["JACKET", "VEST", "ÁO"]):
+                                matched_style, matched_sketch_url = "NONE", None
 
-                            # ✨ THUẬT TOÁN ĐỐI SOÁT KIỂM TRA CHÉO CHỦNG LOẠI (Bảo vệ tối cao ngăn so bậy Áo với Quần)
-                            matched_specs_str = str(matched_specs_clean).upper()
-                            current_specs_str = str(extracted_specs_data).upper() if extracted_specs_data else new_style_raw_text.upper()
-                            
-                            is_current_pant = any(x in current_specs_str for x in ["PANT", "OUTSEAM", "INSEAM", "QUẦN", "ĐŨNG"])
-                            is_matched_jacket_vest = any(x in matched_specs_str for x in ["JACKET", "BLAZER", "VEST", "SLEEVE", "ÁO KHOÁC", "TAY ÁO"])
-                            
-                            if is_current_pant and is_matched_jacket_vest:
-                                st.warning(f"⚠️ HỦY MÃ TƯƠNG ĐỒNG {matched_style}: Phát hiện lệch chủng loại nghiêm trọng (Mã mới là Quần, mã đối chiếu tìm được là Áo Jacket/Vest). Chuyển sang lõi tự tính hình học...")
-                                matched_style = "NONE"
-                                matched_sketch_url = None
-                        # Thực hiện kiểm tra lại cờ hiệu sau khi lọc chủng loại cấu trúc sản phẩm
                         if matched_style and matched_style != "NONE":
-                            reasoning_prompt = f"""
-                            Bạn là chuyên gia định mức R&D dệt may tại PPJ Group. 
-                            Hãy so sánh bảng thông số hình học và tính định mức tiêu hao vải mới dựa trên mã tương đồng **{matched_style}** đã khớp chuẩn xác chủng loại sản phẩm.
-                            DỮ LIỆU ĐỐI CHIẾU:
-                            1. Thông số chi tiết mã mới ({dynamic_keyword}): {json.dumps(extracted_specs_data, ensure_ascii=False) if extracted_specs_data else new_style_raw_text}
-                            2. Thông số gốc mã tương đồng ({matched_style}): {json.dumps(matched_specs_clean, ensure_ascii=False)}
-                            3. Định mức gốc mã tương đồng ({matched_style}): {json.dumps(db_matched_consumption, ensure_ascii=False)}
-                            HÃY THỰC HIỆN:
-                            - Lập bảng đối soát độ lệch kích thước ở các vị trí POM chủ chốt giữa 2 mã.
-                            - Dựa vào định mức của mã cũ và độ tăng/giảm số đo của mã mới để cộng/trừ định mức vải chính xác (Yard/Cái).
-                            - Giải thích lý do chọn mã này: {match_reason}
-                            - TRẢ LỜI NGẮN GỌN, VÀO THẲNG VẤN ĐỀ, KHÔNG LAN MAN.
-                            """
+                            st.info(f"🔍 ĐÃ TÌM THẤY MÃ TƯƠNG ĐỒNG BẰNG HÌNH ẢNH CẤU TRÚC: **{matched_style}**")
+                            reasoning_prompt = f"Bạn là chuyên gia R&D PPJ Group. So sánh thông số hình học và tính định mức tiêu hao vải mới dựa trên mã cũ **{matched_style}**. Mã mới ({dynamic_keyword}): {json.dumps(extracted_specs_data, ensure_ascii=False) if extracted_specs_data else new_style_raw_text} | Mã cũ ({matched_style}): {json.dumps(matched_specs_clean, ensure_ascii=False)} | Định mức cũ: {json.dumps(db_matched_consumption, ensure_ascii=False)}. Lập bảng đối soát kích thước POM và tính tăng/giảm định mức vải chính xác. Trả lời ngắn gọn, hỏi gì nói nấy, không lan man. Lý do chọn mã cũ: {match_reason}"
                         else:
-                            # 👉 LUỒNG B: KHÔNG CÓ MÃ TƯƠNG ĐỒNG (Yêu cầu thông số sản xuất thực tế từ kỹ sư)
                             st.warning("⚠️ KHO KHÔNG CÓ MÃ TƯƠNG ĐỒNG TRÙNG KHỚP CẤU TRÚC CHỦNG LOẠI PHOM DÁNG.")
                             matched_sketch_url = None
-                            
-                            user_query_upper = user_query.upper()
-                            has_fabric_info = any(x in user_query_upper for x in ["KHỔ", "KHO", "WIDTH", "CO RÚT", "CO RUT", "SHRINKAGE"])
-                            
-                            if not has_fabric_info:
-                                reasoning_prompt = f"""
-                                Bạn là trợ lý định mức R&D tại PPJ Group. Kho dữ liệu hiện chưa có mã tương đồng phù hợp với thiết kế đặc thù này. Bạn KHÔNG ĐƯỢC đoán mò thông số mà phải yêu cầu kỹ sư cung cấp dữ liệu sản xuất thực tế.
-                                Hãy phản hồi cho kỹ sư theo cấu trúc sau (HỎI GÌ NÓI NẤY, KHÔNG LAN MAN):
-                                1. Thông báo hệ thống không tìm thấy mã tương đồng khớp chủng loại cấu trúc (Mã mới nhận diện: {dynamic_keyword}).
-                                2. Đưa ra danh sách 3 thông số bắt buộc yêu cầu kỹ sư nhập vào ô chat tiếp theo để kích hoạt lõi tính toán hình học: Khổ vải thực tế sử dụng; Tỷ lệ co rút dự kiến dọc/ngang; Tỷ lệ hao hụt cắt rập.
-                                """
+                            if not any(x in user_query.upper() for x in ["KHỔ", "KHO", "WIDTH", "CO RÚT", "SHRINKAGE"]):
+                                reasoning_prompt = f"Bạn là trợ lý định mức R&D PPJ Group. Kho chưa có mẫu trùng kết cấu phom dáng với mã mới {dynamic_keyword}. Bạn không được đoán mò thông số sản xuất. Hãy yêu cầu kỹ sư cung cấp thông tin sản xuất (HỎI GÌ NÓI NẤY, KHÔNG LAN MAN): Thông báo hệ thống đã quét thành công Specs. Yêu cầu nhập tiếp vào ô chat: Khổ vải thực tế sử dụng; Tỷ lệ co rút dọc/ngang; % Hao hụt cắt rập để kích hoạt lõi toán học hình học đa sản phẩm."
                             else:
-                                reasoning_prompt = f"""
-                                Bạn là chuyên gia định mức R&D dệt may độc lập tại PPJ Group. Kỹ sư đã cung cấp thông số sản xuất thực tế trong câu lệnh: "{user_query}"
-                                Nhiệm vụ: Sử dụng thông số Specs của mã mới: {json.dumps(extracted_specs_data, ensure_ascii=False) if extracted_specs_data else new_style_raw_text} kết hợp Khổ vải và Độ co rút kỹ sư vừa nhập để tính định mức phẳng từ con số 0 cho mã {dynamic_keyword}.
-                                🚨 MA TRẬN TOÁN HỌC KHUNG SƠ ĐỒ ĐA SẢN PHẨM: Tuyệt đối không cộng dồn diện tích chi tiết phụ (đỉa, cạp, nẹp, túi xu).
-                                1. NẾU LÀ QUẦN (Pant/Short): Chiều dài sơ đồ (L_body) = [Dài quần + 2 inch] x (1 + % Co rút dọc). Định mức cuối = (L_body / 36) x (1 + % Hao hụt). Hạn mức an toàn Quần: 1.15 - 1.65 Yds.
-                                2. NẾU LÀ ÁO SƠ MI / T-SHIRT / JACKET 1 LỚP: Chiều dài sơ đồ (L_body) = [Dài áo + Dài tay + 2.5 inch] x (1 + % Co rút dọc). Định mức cuối = (L_body / 36) x (1 + % Hao hụt). Hạn mức: 1.20 - 1.60 Yds.
-                                3. NẾU LÀ ÁO VEST / BLAZER / JACKET CÓ LÓT NẶNG: Chiều dài sơ đồ (L_body) = [Dài áo x 1.2 + Dài tay + 3 inch] x (1 + % Co rút dọc). Định mức cuối = (L_body / 36) x (1 + % Hao hụt). Hạn mức: 1.65 - 2.10 Yds.
-                                4. NẾU LÀ ĐẦM / VÁY (Dress/Skirt): Chiều dài sơ đồ (L_body) = [Dài đầm + 2 inch] x (1 + % Co rút dọc) x (Hệ số 1.5 nếu là dáng đầm xòe rộng/Maxi). Định mức cuối = (L_body / 36) x (1 + % Hao hụt). Hạn mức: 1.40 - 2.20 Yds.
-                                TRÌNH BÀY TỐI GIẢN DẠNG BẢNG MARKDOWN, KHÔNG GIẢI THÍCH LAN MAN.
-                                """
+                                reasoning_prompt = f"Bạn là chuyên gia định mức độc lập tại PPJ Group. Kỹ sư đã nhập thông số: '{user_query}'. Hãy sử dụng bảng Specs mã mới: {json.dumps(extracted_specs_data, ensure_ascii=False) if extracted_specs_data else new_style_raw_text} kết hợp Khổ vải và Độ co rút vừa cung cấp để tính định mức phẳng từ con số 0 cho mã {dynamic_keyword}. MA TRẬN TOÁN HỌC KHUNG SƠ ĐỒ ĐA SẢN PHẨM (KHÔNG CỘNG DỒN CHI TIẾT VỤN): 1. QUẦN: L_body = [Dài quần + 2 inch] x (1 + % Co rút dọc). Định mức cuối = (L_body / 36) x (1 + % Hao hụt). Hạn mức: 1.15 - 1.65 Yds. 2. ÁO LỚP ĐƠN: L_body = [Dài áo + Dài tay + 2.5 inch] x (1 + % Co rút dọc). Định mức = (L_body / 36) x (1 + % Hao hụt). Hạn mức: 1.20 - 1.60 Yds. 3. ÁO VEST / BLAZER CÓ LÓT: L_body = [Dài áo x 1.2 + Dài tay + 3 inch] x (1 + % Co rút dọc). Định mức = (L_body / 36) x (1 + % Hao hụt). Hạn mức: 1.65 - 2.10 Yds. 4. ĐẦM / VÁY: L_body = [Dài đầm + 2 inch] x (1 + % Co rút dọc) x (Hệ số 1.5 nếu dáng xòe rộng/Maxi). Định mức = (L_body / 36) x (1 + % Hao hụt). Hạn mức: 1.40 - 2.20 Yds. TRÌNH BÀY TỐI GIẢN DẠNG BẢNG MARKDOWN, KHÔNG GIẢI THÍCH LAN MAN."
 
-                        # Gọi Gemini thực thi luồng prompt tương ứng
-                        final_payload = contents_payload + [reasoning_prompt] if chat_file and len(contents_payload) > 0 else [reasoning_prompt]
-                        final_res = client.models.generate_content(
-                            model='gemini-2.5-flash',
-                            contents=final_payload
-                        )
-                        
+                        final_res = client.models.generate_content(model='gemini-2.5-flash', contents=contents_payload + [reasoning_prompt] if chat_file and len(contents_payload) > 0 else [reasoning_prompt])
                         title_prefix = f"### 🧵 KẾT QUẢ ĐỐI SOÁT ĐỊNH MỨC (DỰA TRÊN MÃ {matched_style})\n\n" if matched_style != "NONE" else "### 📐 KẾT QUẢ TỰ TÍNH TOÁN ĐỊNH MỨC ĐỘC LẬP (KHO KHÔNG CÓ MẪU TRÙNG CẤU TRÚC)\n\n"
                         ans_text = title_prefix + final_res.text.strip()
                         st.write(ans_text)
@@ -756,8 +662,6 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                         if matched_sketch_url:
                             chat_node = {"role": "assistant", "type": "visual", "content": ans_text, "image_url": matched_sketch_url, "style_title": matched_style}
                             st.image(matched_sketch_url, caption=f"Ảnh Sketch của mã tương đồng ({matched_style}) bốc từ kho", width=220)
-                            
                         st.session_state["chat_history"].append(chat_node)
-                        
                     except Exception as system_err:
                         st.error(f"🔴 PIPELINE ERROR: {str(system_err)}")
