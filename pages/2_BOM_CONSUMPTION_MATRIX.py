@@ -629,19 +629,25 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                         # =============================================================================
                         # TRUY VẤN SONG SONG KHO DATA & THIẾT LẬP LUỒNG CÔNG THỨC TOÁN HỌC DỆT MAY (PHẦN 3C)
                         # =============================================================================
+                                                # =============================================================================
+                        # TRUY VẤN SONG SONG KHO DATA & THIẾT LẬP LUỒNG CÔNG THỨC TOÁN HỌC DỆT MAY (PHẦN 3C)
+                        # =============================================================================
                         db_historical_consumption = get_historical_fabric_consumption_from_db(dynamic_keyword)
                         db_techpack_specs = get_techpack_spec_from_db(dynamic_keyword)
                         
+                        # ✨ ĐÃ SỬA LỖI TRÍCH XUẤT CHỈ MỤC [0]: Giải nén chính xác phần tử đầu tiên của danh sách để bóc dữ liệu
                         found_sketch_url = None
                         extracted_specs_data = {}
                         
                         if db_techpack_specs and isinstance(db_techpack_specs, list) and len(db_techpack_specs) > 0:
+                            # THÊM [0] ĐỂ LẤY CHÍNH XÁC DÒNG DỮ LIỆU ĐẦU TIÊN KHỚP TRONG KHO
                             first_record = db_techpack_specs[0]
                             found_sketch_url = first_record.get("SketchURL")
                             extracted_specs_data = first_record.get("DetailedMeasurements", {})
                         elif db_techpack_specs and isinstance(db_techpack_specs, dict):
                             found_sketch_url = db_techpack_specs.get("SketchURL")
                             extracted_specs_data = db_techpack_specs.get("DetailedMeasurements", {})
+
 
                         # HOÀN THIỆN PROMPT ĐIỀU HƯỚNG AI ĐỌC HIỂU ĐỒNG THỜI FILE MỚI VÀ FILE CŨ LỊCH SỬ
                         intel_prompt = f"""
