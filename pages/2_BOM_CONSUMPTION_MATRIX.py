@@ -649,45 +649,69 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                         
                         # =========================================================================
                                                 # =========================================================================
-                        # TRUY VẤN SONG SONG KHO DATA BẢNG TỪ KHÓA CHUẨN XÁC VÀ GIẢI NÉN MẢNG (PHẦN 3)
+                                                # =========================================================================
+                        # TRUY VẤN SONG SONG KHO DATA BẢNG TỪ KHÓA CHUẨN XÁC VÀ NẠP DỮ LIỆU ĐỐI CHIẾU
                         # =========================================================================
                         db_historical_consumption = get_historical_fabric_consumption_from_db(dynamic_keyword)
                         db_techpack_specs = get_techpack_spec_from_db(dynamic_keyword)
                         
+                        # ✨ THUẬT TOÁN ĐA LỒNG KHO: Nạp thêm danh sách các mã hàng Master trong DB để AI tự tìm mã tương đồng
+                        db_master_specs = get_techpack_spec_from_db(None)  # Lấy danh sách thông số các mã khác trong kho
+                        db_master_consumption = get_historical_fabric_consumption_from_db(None)  # Lấy danh sách định mức các mã khác
+                        
                         found_sketch_url = None
                         extracted_specs_data = {}
                         
-                        # Sử dụng cơ chế phòng vệ if bọc ngoài để tránh lỗi sập app (IndexError) nếu mảng rỗng
                         if db_techpack_specs and isinstance(db_techpack_specs, list) and len(db_techpack_specs) > 0:
                             first_record = db_techpack_specs[0]
-                            # SỬA TẠI ĐÂY: Phải dùng .get("SketchURL") viết hoa khớp với hàm API đọc dữ liệu
                             found_sketch_url = first_record.get("SketchURL")
                             extracted_specs_data = first_record.get("DetailedMeasurements", {})
                         elif db_techpack_specs and isinstance(db_techpack_specs, dict):
-                            # SỬA TẠI ĐÂY: Dự phòng trường hợp trả về dạng đơn dữ liệu đối tượng Dict
                             found_sketch_url = db_techpack_specs.get("SketchURL")
                             extracted_specs_data = db_techpack_specs.get("DetailedMeasurements", {})
-
 
                         # =========================================================================
                         # TIẾN HÀNH TÍNH TOÁN ĐỊNH MỨC VÀ TRẢ LỜI NGƯỜI DÙNG QUA GEMINI
                         # =========================================================================
                         reasoning_prompt = f"""
-                        Bạn là chuyên gia định mức R&D dệt may tại PPJ Group.
-                        Nhiệm vụ của bạn là giải quyết yêu cầu của người dùng: "{user_query}"
+                        Bạn là Bộ não AI R&D dệt may cấp cao tại PPJ Group, chuyên trách định mức và đối soát form dáng rập.
                         
-                        Dữ liệu hệ thống bóc tách được:
-                        - Mã hàng nhận diện (Dynamic Keyword): {dynamic_keyword}
-                        - Thông tin BOM/Thông số quét từ file mới tải lên: {new_style_raw_text if new_style_raw_text else "Không có file mới"}
-                        - Định mức lịch sử trong kho dữ liệu PPJ (Nếu có): {json.dumps(db_historical_consumption, ensure_ascii=False) if db_historical_consumption else "[]"}
-                        - Thông số kỹ thuật chi tiết từ kho dữ liệu (Nếu có): {json.dumps(extracted_specs_data, ensure_ascii=False)}
+                        Nhiệm vụ cốt lõi: 
+                        1. Phân tích dữ liệu/hình ảnh từ Techpack mới tải lên (Mã hiện tại nhận diện: {dynamic_keyword}).
+                        2. Quét kho dữ liệu Master để tìm mã tương đồng nhất về hình ảnh Sketch và cấu trúc thông số.
+                        3. Đo đạc độ chênh lệch form dáng và tính định mức tiêu hao chính xác cho mã mới.
+
+                        DỮ LIỆU ĐẦU VÀO CỦA MÃ HÀNG MỚI ({dynamic_keyword}):
+                        - Thông tin BOM/Thông số quét từ file Techpack mới: {new_style_raw_text if new_style_raw_text else "Không có dữ liệu văn bản thô, hãy phân tích trực tiếp từ hình ảnh file đính kèm"}
+                        - Thông số POM chi tiết của mã mới nếu có trong hệ thống: {json.dumps(extracted_specs_data, ensure_ascii=False)}
+                        - Yêu cầu từ kỹ sư: "{user_query}"
                         
-                        Yêu cầu phản hồi:
-                        1. Tập trung tính toán định mức vải/phụ liệu chính xác dựa trên dữ liệu được cung cấp.
-                        2. Đối soát sai lệch giữa dữ liệu cũ và dữ liệu mới (nếu có).
-                        3. Trình bày ngắn gọn, rõ ràng dưới dạng bảng hoặc các gạch đầu dòng chuyên nghiệp, không trả lời lan man.
+                        KHO TRI THỨC ĐỐI CHIẾU LỊCH SỬ MASTER DB (PPJ KNOWLEDGE BASE):
+                        - Danh sách thông số kỹ thuật & Link ảnh Sketch các mã hàng có sẵn trong kho: {json.dumps(db_master_specs[:15], ensure_ascii=False) if db_master_specs else "[]"}
+                        - Danh sách định mức tiêu hao lịch sử của các mã hàng có sẵn trong kho: {json.dumps(db_master_consumption[:20], ensure_ascii=False) if db_master_consumption else "[]"}
+
+                        QUY TRÌNH BA BƯỚC AI PHẢI THỰC HIỆN ĐỂ RA KẾT QUẢ (BẮT BUỘC):
+                        
+                        BƯỚC 1: XÁC ĐỊNH MÃ TƯƠNG ĐỒNG NHẤT (STYLE MATCHING)
+                        - Đối chiếu hình ảnh Sketch (Bản vẽ phẳng), chủng loại sản phẩm (Ví dụ: Skinny, Baggy, Slim Fit) và thành phần vải của Techpack mới với danh sách Master DB.
+                        - Tìm ra mã hàng trong kho giống mã mới này nhất về phom dáng/thiết kế.
+                        - Xuất rõ ràng: "Mã hàng tương đồng được chọn từ kho: [Tên Mã]" kèm theo lý do chọn dựa trên hình ảnh/chủng loại.
+
+                        BƯỚC 2: BẢNG ĐỐI SOÁT CHÊNH LỆCH FORM DÁNG (POM SPECS COMPARISON)
+                        - So sánh chi tiết thông số kích thước (Kích thước các vị trí POM: Dài quần, Vòng bụng, Hạ đũng, Rộng ống...) giữa mã hàng mới và mã tương đồng lịch sử vừa tìm được ở Bước 1.
+                        - Lập bảng đối soát chỉ ra vị trí nào lệch bao nhiêu inch/cm (Ví dụ: Mã mới rộng đùi hơn 1.5 cm, dài hơn 2 cm).
+
+                        BƯỚC 3: THUẬT TOÁN TÍNH TOÁN ĐỊNH MỨC MỚI (CONSUMPTION ENGINE)
+                        - Bốc định mức vải chính và phụ liệu gốc của mã tương đồng ra làm mốc tính toán (Ví dụ: Định mức gốc = 1.25 yard/cái).
+                        - Dựa vào bảng độ lệch thông số kích thước ở Bước 2, kết hợp với các tiêu chuẩn kỹ thuật dệt may (khổ vải mặc định nếu thiếu, hiệu suất sơ đồ cắt, hao hụt quy trình nhuộm thành phẩm Garment Dye nếu có) để tính toán cộng/trừ chính xác lượng vải chênh lệch.
+                        - Đưa ra con số định mức dự kiến cuối cùng rõ ràng cho mã hàng mới.
+
+                        YÊU CẦU PHẢN HỒI:
+                        - Trình bày mạch lạc, chia rõ 3 phần tương ứng với 3 bước xử lý trên.
+                        - Sử dụng các bảng dữ liệu Markdown để đối soát thông số trực quan cho kỹ sư dễ đọc. Đưa ra con số tính toán định mức cụ thể, tuyệt đối không trả lời chung chung hoặc từ chối thực hiện.
                         """
                         
+                        # Đóng gói payload gửi lên Gemini bao gồm cả file ảnh Techpack đính kèm để AI nhìn và so sánh hình ảnh Sketch
                         if chat_file and len(contents_payload) > 0:
                             final_payload = contents_payload + [reasoning_prompt]
                         else:
