@@ -197,7 +197,7 @@ def get_historical_fabric_consumption_from_db(search_keyword=None):
 def get_techpack_spec_from_db(style_name_keyword=None):
     """
     Hàm cho phép AI tự động tra cứu thông số từ bảng thong_so_techpack.
-    Tích hợp thêm liên kết để AI đọc đồng thời kho thông số.
+    ✨ ĐÁ VÁ LỖI CÚ PHÁP: Cố định tham số StyleName viết hoa chuẩn REST API Supabase.
     """
     try:
         headers = {
@@ -206,18 +206,22 @@ def get_techpack_spec_from_db(style_name_keyword=None):
         }
         url = f"{SB_URL.rstrip('/')}/rest/v1/thong_so_techpack"
         
+        # Cấu hình danh sách cột cần lấy
         query_params = {
             "select": "StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL",
             "limit": 500
         }
+        
+        # SỬA LỖI: Ghép trực tiếp chuỗi lọc phân biệt chữ HOA thường của Supabase PostgREST
         if style_name_keyword:
             clean_kw = str(style_name_keyword).strip()
-            query_params["StyleName"] = f"ilike.*{clean_kw}*"
+            url = f"{url}?StyleName=ilike.*{clean_kw}*"
             
         res = requests.get(url, headers=headers, params=query_params, timeout=15)
         return res.json() if res.status_code == 200 else []
     except Exception:
         return []
+
 def process_single_pdf_batch(file_bytes, file_name):
     """
     Hàm bóc tách dữ liệu kỹ thuật từ một file PDF độc lập sử dụng Gemini Vision API.
