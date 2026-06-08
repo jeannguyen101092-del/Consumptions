@@ -703,13 +703,13 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     base_sb_url = SB_URL.rstrip('/')
                     headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
 
-                    # Kích hoạt tìm kiếm khi người dùng hỏi bất kỳ thông tin gì liên quan đến mã hàng
                     is_similarity_requested = True
                     fabric_records = []
                     techpack_records = []
 
                     if is_similarity_requested:
-                        short_keyword = dynamic_keyword.strip()
+                        # ĐẢM BẢO TỪ KHÓA ĐƯỢC IN HOA ĐỂ KHỚP VỚI MÃ 'MR1705' TRONG DATABASE
+                        short_keyword = dynamic_keyword.strip().upper()
                         
                         if is_searching_fabric:
                             url_san_pham = f"{base_sb_url}/rest/v1/san_pham?article_name=ilike.*{quote(short_keyword)}*&select=*"
@@ -731,6 +731,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                                 techpack_records = res_tp.json()
                         except Exception as e:
                             st.warning(f"Lỗi kết nối bảng thong_so_techpack: {e}")
+
 
 
 # =============================================================================
