@@ -681,16 +681,131 @@ for msg in st.session_state["chat_history"]:
         if msg.get("type") == "visual" and msg.get("image_url"):
             st.image(msg["image_url"], caption="Hình vẽ kỹ thuật", width=220)
 
-if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vải và đối soát sai lệch..."):
-    st.session_state["chat_history"].append({"role": "user", "type": "text", "content": user_query})
-    with st.chat_message("user"): 
-        st.write(user_query)
+    if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vải và đối soát sai lệch..."):
+        st.session_state["chat_history"].append({"role": "user", "type": "text", "content": user_query})
+        with st.chat_message("user"): 
+            st.write(user_query)
         
-    with st.chat_message("assistant"):
-        with st.spinner("Hệ thống AI R&D Engine đang kết nối kho tri thức nền dệt may..."):
-            gemini_key = get_secure_gemini_key()
-            if not gemini_key: 
-                st.error("CRITICAL SERVER BREAKDOWN: AI API Token is missing.")
-            else:
-                client_gen = genai.Client(api_key=gemini_key)
-                thuc_thi_pipeline_rd(user_query, chat_file, SB_URL, SB_KEY, client_gen, types, json, requests, pdfinfo_from_bytes, convert_from_bytes, io, re, st)
+        with st.chat_message("assistant"):
+            with st.spinner("Hệ thống AI R&D Engine đang kết nối kho tri thức nền dệt may..."):
+                gemini_key = get_secure_gemini_key()
+                if not gemini_key: 
+                    st.error("CRITICAL SERVER BREAKDOWN: AI API Token is missing.")
+                else:
+                    try:
+                        client = genai.Client(api_key=gemini_key)
+                        new_style_id_detected = "UNKNOWN_STYLE"
+                        new_style_raw_text = ""
+                        
+                        # LUỒNG A: XỬ LÝ FILE TECHPACK PDF/IMAGE NẾU CÓ ĐÍNH KÈM
+                        if chat_file:
+                            file_bytes = chat_file.getvalue()
+                            img_payload = []
+                            if chat_file.name.lower().endswith('.pdf'):
+                                try:
+                                    info_chat = pdfinfo_from_bytes(file_bytes)
+                                    total_chat_pages = int(info_chat.get("Pages", 1))
+                                    max_pages_to_scan = min(total_chat_pages, 3)
+                                    chat_images = convert_from_bytes(file_bytes, dpi=100, first_page=1, last_page=max_pages_to_scan)
+                                    for page_img in chat_images:
+                                        img_buf = io.BytesIO()
+                                        page_img.convert("RGB").save(img_buf, format="JPEG", quality=85)
+                                        img_payload.append(types.Part.from_bytes(data=img_buf.getvalue(), mime_type='image/jpeg'))
+                                except Exception:
+                                    st.warning("Không thể phân tách trang PDF. Đang quét text...")
+                            else:
+                                img_payload.append(types.Part.from_bytes(data=file_bytes, mime_type='image/jpeg'))
+                            
+                            if img_payload:
+                                extraction_prompt = "Analyze the techpack. Return JSON: {\"detected_style_id\": \"Pure code only\", \"all_specs_text\": \"BOM text\"}"
+                                extraction_payload = list(img_payload)
+                                extraction_payload.append(extraction_prompt)
+                                try:
+                                    extraction_res = client.models.generate_content(model='gemini-2.5-flash', contents=extraction_payload, config=types.GenerateContentConfig(response_mime_type="application/json", temperature=0.0))
+                                    parsed_meta = json.loads(extraction_res.text.strip())
+                                    new_style_id_detected = parsed_meta.get("detected_style_id", "UNKNOWN_STYLE").strip()
+                                    new_style_raw_text = parsed_meta.get("all_specs_text", "")
+                                except Exception:
+                                    pass
+
+                        # ✨ THUẬT TOÁN BÓC TÁCH TỪ KHÓA TRẦN (MÃ CÓ DẤU GẠCH NGANG NHƯ SJ-8902 SẼ KHÔNG BỊ LỖI)
+                        clean_text_upper = str(user_query).strip().upper()
+                        stop_words = ["TÌM", "CODE", "VẢI", "MÃ", "HÀNG", "ĐỊNH MỨC", "CHO", "KIỂM TRA", "XEM", "THÔNG", "SỐ"]
+                        query_words = clean_text_upper.split()
+                        filtered_words = [w for w in query_words if w not in stop_words]
+                        
+                        raw_keyword = " ".join(filtered_words) if filtered_words else clean_text_upper
+                        if chat_file and new_style_id_detected != "UNKNOWN_STYLE" and not filtered_words:
+                            dynamic_keyword = str(new_style_id_detected).strip()
+                        else:
+                            dynamic_keyword = raw_keyword
+
+                        dynamic_keyword = re.sub(r"[\[\]'\"*?%#&]", "", dynamic_keyword).strip()
+                        if not dynamic_keyword:
+                            dynamic_keyword = "UNKNOWN"
+
+                        # ĐỒNG BỘ GỌI API TRUY VẤN SONG SANG CƠ SỞ DỮ LIỆU SUPABASE
+                        headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
+                        
+                        # 1. Quét bảng san_pham lấy dữ liệu định mức vải
+                        url_san_pham = f"{SB_URL.rstrip('/')}/rest/v1/san_pham?or=(style_name.ilike.*{dynamic_keyword}*,article_name.ilike.*{dynamic_keyword}*,notes.ilike.*{dynamic_keyword}*)&select=style_name,article_name,consumption_type,material_size,uom,consumption_value,notes&limit=1000"
+                        res_sp = requests.get(url_san_pham, headers=headers, timeout=5)
+                        backup_res = res_sp.json() if 200 <= res_sp.status_code <= 299 else []
+                        
+                        # Thiết lập từ khóa tìm kiếm chéo thông minh cho bảng rập thông số
+                        tp_search_keyword = dynamic_keyword
+                        if backup_res and not chat_file:
+                            for b_item in backup_res:
+                                if b_item.get('style_name'):
+                                    tp_search_keyword = str(b_item.get('style_name')).strip()
+                                    break
+                        
+                        # 2. Quét bảng thong_so_techpack lấy thông số rập kỹ thuật
+                        url_techpack = f"{SB_URL.rstrip('/')}/rest/v1/thong_so_techpack?StyleName=ilike.*{tp_search_keyword}*&select=StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL&limit=3"
+                        res_tp = requests.get(url_techpack, headers=headers, timeout=5)
+                        db_results = res_tp.json() if 200 <= res_tp.status_code <= 299 else []
+                        
+                        db_context = f"\n\n[ KHO DỮ LIỆU TRI THỨC NỀN THỰC TẾ TRONG HỆ THỐNG MASTER DB PHÒNG R&D ]: \n"
+                        detected_image_url_to_render = ""
+                        detected_style_title_to_render = ""
+                        
+                        if db_results:
+                            target_item = db_results[0] if isinstance(db_results, list) and len(db_results) > 0 else db_results
+                            if isinstance(target_item, dict):
+                                detected_style_title_to_render = target_item.get("StyleName", tp_search_keyword)
+                                if target_item.get("SketchURL"):
+                                    detected_image_url_to_render = target_item.get("SketchURL")
+                                db_context += f"- Hồ sơ rập thiết kế tìm thấy: {target_item.get('StyleName')} | Khách hàng: {target_item.get('Buyer')} | Form dáng: {target_item.get('Category')} | Số đo: {json.dumps(target_item.get('DetailedMeasurements', {}), ensure_ascii=False)}\n"
+                        else:
+                            db_context += f"- Không tìm thấy thông số kỹ thuật trực tiếp cho từ khóa '{tp_search_keyword}' trong bảng thong_so_techpack.\n"
+                        
+                        if backup_res:
+                            exact_matched_items = []
+                            for b_item in backup_res:
+                                s_n = str(b_item.get('style_name', '')).strip().upper()
+                                a_n = str(b_item.get('article_name', '')).strip().upper()
+                                n_s = str(b_item.get('notes', '')).strip().upper()
+                                if dynamic_keyword in s_n or dynamic_keyword in a_n or dynamic_keyword in n_s:
+                                    exact_matched_items.append(b_item)
+                            
+                            if exact_matched_items:
+                                db_context += f"\n- KẾT QUẢ TRA CỨU DỮ LIỆU ĐỊNH MỨC CHO TỪ KHÓA '{dynamic_keyword}':\n"
+                                values = [float(i.get('consumption_value')) for i in exact_matched_items if i.get('consumption_value') is not None]
+                                for item in exact_matched_items:
+                                    db_context += f"  + Mã hàng liên quan: {item.get('style_name')} | Mã vật tư: {item.get('article_name')} | Thành phần: {item.get('consumption_type')} | Định mức: {item.get('consumption_value')} {item.get('uom')} | Khổ: {item.get('material_size')} | Ghi chú: {item.get('notes')}\n"
+                                if values:
+                                    avg_c = sum(values) / len(values)
+                                    db_context += f"  => Định mức trung bình tính toán thực tế (Avg Cons): {avg_c:.3f} (Gồm 5% hao hụt sản xuất đề xuất: {avg_c * 1.05:.3f})\n"
+
+                        if new_style_raw_text:
+                            db_context += f"\n- DỮ LIỆU THÔ ĐỌC ĐƯỢC TỪ FILE TECHPACK ĐÍNH KÈM:\n{new_style_raw_text}\n"
+
+                        # Tự động ghép nối link ảnh công khai dự phòng trỏ thẳng vào Bucket kho_anh
+                        if not detected_image_url_to_render and tp_search_keyword and tp_search_keyword != "UNKNOWN":
+                            detected_style_title_to_render = tp_search_keyword
+                            detected_image_url_to_render = f"{SB_URL.rstrip('/')}/storage/v1/object/public/kho_anh/{tp_search_keyword}.jpg"
+
+                        # ĐỒNG BỘ PROMPT VÀ GỬI LỆNH PHÂN TÍCH SANG GEMINI AI ĐỂ ÉP "HỎI GÌ ĐÁP NẤY"
+                        final_prompt = f"""
+                        Bạn là một trợ lý AI phòng R&D dệt may. Hãy trả lời TRỰC DIỆN, NGẮN GỌN và CHÍNH XÁC vào câu hỏi.
+                        Yêu cầu hiện tại của người dùng: "{user_query}"
