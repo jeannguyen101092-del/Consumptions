@@ -682,95 +682,86 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                             db_context += f"\n- DỮ LIỆU THÔ ĐỌC ĐƯỢC TỪ FILE TECHPACK ĐÍNH KÈM:\n{new_style_raw_text}\n"
                         # =============================================================================
                                                 # =============================================================================
-                        # TÍNH TOÁN TOÀN BỘ NGUYÊN LIỆU (VẢI CHÍNH, PHỐI, KEO LÓT, TAPE...) THEO CẤU TRÚC BOM
+                                                # =============================================================================
+                        # TÍNH TOÁN VÀ LỌC DỮ LIỆU ĐỊNH MỨC CHÍNH XÁC THEO TỪ KHÓA (HỎI GÌ ĐÁP NẤY)
                         # =============================================================================
                         calculation_summary = ""
                         
                         if backup_res:
-                            bom_groups = {}
+                            # Khởi tạo danh sách lưu trữ các dòng khớp trực tiếp với từ khóa người dùng yêu cầu
+                            exact_matched_items = []
                             
                             for b_item in backup_res:
-                                val = b_item.get('consumption_value')
-                                uom = b_item.get('uom', 'đơn vị').strip().upper()
-                                raw_type = b_item.get('consumption_type') or b_item.get('article_name') or "Nguyên liệu khác"
-                                raw_type_upper = str(raw_type).strip().upper()
+                                style_name = str(b_item.get('style_name', '')).strip().upper()
+                                article_name = str(b_item.get('article_name', '')).strip().upper()
+                                notes = str(b_item.get('notes', '')).strip().upper()
                                 
-                                # Phân nhóm nguyên phụ liệu thông minh dựa trên từ khóa kí tự may mặc
-                                if "CHÍNH" in raw_type_upper or "MAIN" in raw_type_upper:
-                                    material_key = "VẢI CHÍNH (MAIN FABRIC)"
-                                elif "PHỐI" in raw_type_upper or "CONTRAST" in raw_type_upper or "COMBO" in raw_type_upper:
-                                    material_key = "VẢI PHỐI (CONTRAST FABRIC)"
-                                elif "LÓT" in raw_type_upper or "LINING" in raw_type_upper:
-                                    material_key = "VẢI LÓT / KEO LÓT (LINING / INTERLINING)"
-                                elif "KEO" in raw_type_upper or "FUSIBLE" in raw_type_upper or "DỰNG" in raw_type_upper:
-                                    material_key = "KEO / DỰNG (INTERLINING / FUSIBLE)"
-                                elif "TAPE" in raw_type_upper or "BĂNG" in raw_type_upper or "REINFORCE" in raw_type_upper:
-                                    material_key = "DÂY TAPE / BĂNG TĂNG CƯỜNG (TAPE)"
-                                else:
-                                    material_key = f"NGUYÊN PHỤ LIỆU KHÁC ({raw_type})"
-
-                                if val is not None:
-                                    try:
-                                        cons_float = float(val)
-                                        if material_key not in bom_groups:
-                                            bom_groups[material_key] = []
-                                        bom_groups[material_key].append({"value": cons_float, "uom": uom})
-                                    except ValueError:
-                                        continue
-
-                            # Thực hiện các phép toán thống kê toán học và gán hệ số hao hụt
-                            if bom_groups:
-                                calculation_summary = f"\n[ BẢNG PHÂN TÍCH & TÍNH TOÁN ĐỊNH MỨC NGUYÊN PHỤ LIỆU CHI TIẾT (BOM) ]:\n"
+                                # Chỉ giữ lại các dòng chứa đúng từ khóa cốt lõi (Ví dụ: Chứa chữ P3026 hoặc mã hàng tương ứng)
+                                if dynamic_keyword in style_name or dynamic_keyword in article_name or dynamic_keyword in notes:
+                                    exact_matched_items.append(b_item)
+                            
+                            # Tiến hành phân tích số liệu dựa trên tập dữ liệu đã được lọc sạch
+                            if exact_matched_items:
+                                calculation_summary = f"\n[ KẾT QUẢ ĐỐI SOÁT TOÁN HỌC THỰC TẾ CHO TỪ KHÓA '{dynamic_keyword}' ]:\n"
+                                values = []
+                                uoms = []
                                 
-                                for mat_name, items in bom_groups.items():
-                                    values = [i["value"] for i in items]
-                                    uoms = [i["uom"] for i in items]
-                                    common_uom = max(set(uoms), key=uoms.count) if uoms else "YDS/M"
-                                    
+                                for item in exact_matched_items:
+                                    val = item.get('consumption_value')
+                                    uom = str(item.get('uom', 'YRD')).strip().upper()
+                                    if val is not None:
+                                        try:
+                                            values.append(float(val))
+                                            uoms.append(uom)
+                                        except ValueError:
+                                            continue
+                                            
+                                    # Liệt kê chi tiết từng dòng dữ liệu thô xuất hiện trong Database để AI đọc dữ liệu gốc
+                                    calculation_summary += f"- Mã hàng: {item.get('style_name')} | Mã vật tư: {item.get('article_name')} | Thành phần: {item.get('consumption_type')} | Định mức gốc: {item.get('consumption_value')} {uom} | Khổ vải: {item.get('material_size')} | Ghi chú xưởng: {item.get('notes')}\n"
+                                
+                                # Tính toán nhanh các chỉ số thống kê nếu có dữ liệu số
+                                if values:
                                     avg_cons = sum(values) / len(values)
                                     max_cons = max(values)
                                     min_cons = min(values)
+                                    common_uom = max(set(uoms), key=uoms.count) if uoms else "YRD"
                                     
-                                    # Áp hao hụt chuyên ngành: Vật tư cuộn/Tape hao hụt 3%, Vải dệt cuộn/Keo lót hao hụt 5%
-                                    loss_rate = 1.03 if "TAPE" in mat_name else 1.05
+                                    # Áp hao hụt chuyên ngành (3% cho tape, 5% cho các loại vải bao gồm Pocketing/Main)
+                                    loss_rate = 1.03 if "TAPE" in dynamic_keyword else 1.05
                                     safety_cons = avg_cons * loss_rate
                                     
-                                    calculation_summary += f"""
-+ {mat_name}:
-  - Số lượng mẫu đối soát: {len(values)} dòng lịch sử.
-  - Định mức trung bình (Avg): {avg_cons:.3f} {common_uom}/sp.
-  - Biến động định mức thực tế: từ {min_cons:.3f} đến {max_cons:.3f} {common_uom}/sp.
-  - Định mức sản xuất khuyến nghị (Gồm hao hụt): {safety_cons:.3f} {common_uom}/sp.
+                                    calculation_summary += f"""\n* Thống kê định mức lịch sử liên quan đến '{dynamic_keyword}':
+  - Định mức trung bình (Avg): {avg_cons:.3f} {common_uom}/sp
+  - Định mức cao nhất (Max): {max_cons:.3f} {common_uom}/sp
+  - Định mức thấp nhất (Min): {min_cons:.3f} {common_uom}/sp
+  - Định mức đề xuất sản xuất (Gồm hao hụt): {safety_cons:.3f} {common_uom}/sp
 """
                                 db_context += calculation_summary
                             else:
-                                db_context += "\n- CẢNH BÁO: Dữ liệu trống hoặc không chứa số liệu hợp lệ để xử lý toán học định mức.\n"
+                                db_context += f"\n- CẢNH BÁO: Không tìm thấy bất kỳ dòng dữ liệu nào khớp trực tiếp với từ khóa '{dynamic_keyword}' trong bảng san_pham.\n"
 
-                        # ✨ THUẬT TOÁN DỰ PHÒNG LINK ẢNH SKETCH TỰ ĐỘNG TỪ BUCKET KHO_ANH
-                        # Nếu DB tìm ra StyleName nhưng cột SketchURL bị lỗi/trống, hệ thống tự động ghép nối trực tiếp
+                        # ✨ THUẬT TOÁN TỰ ĐỘNG ĐỒNG BỘ ẢNH CHUẨN THEO BUCKET KHO_ANH
                         if db_results and not detected_image_url_to_render:
-                            style_title = db_results[0].get("StyleName")
+                            style_title = db_results[0].get("StyleName") if isinstance(db_results, list) else db_results.get("StyleName")
                             if style_title:
                                 detected_style_title_to_render = style_title
-                                # Tạo đường dẫn công khai chuẩn hóa đến Bucket kho_anh của Supabase
                                 detected_image_url_to_render = f"{SB_URL.rstrip('/')}/storage/v1/object/public/kho_anh/{style_title}.jpg"
 
                         # =============================================================================
-                                               # =============================================================================
-                        # GỬI TOÀN BỘ NGỮ CẢNH SANG GEMINI - ÉP AI TRẢ LỜI TRỰC DIỆN (HỎI GÌ ĐÁP NẤY)
+                        # GỬI NGỮ CẢNH TINH LỌC SANG GEMINI - BẮT BUỘC TRẢ LỜI ĐÚNG TRỌNG TÂM CÂU HỎI
                         # =============================================================================
                         final_prompt = f"""
                         Bạn là một trợ lý AI phòng R&D dệt may, có nhiệm vụ trả lời TRỰC DIỆN, NGẮN GỌN và CHÍNH XÁC vào câu hỏi.
                         
-                        Yêu cầu của người dùng: "{user_query}"
+                        Yêu cầu hiện tại của người dùng: "{user_query}"
                         
-                        Dữ liệu hệ thống thực tế thu thập & tính toán được:
+                        Toàn bộ kho dữ liệu thực tế trích xuất từ hệ thống:
                         {db_context}
                         
-                        Nhiệm vụ và quy tắc bắt buộc:
-                        1. Tuyệt đối KHÔNG trả lời lan man. Người dùng hỏi gì thì chỉ cung cấp đúng thông tin đó dựa trên dữ liệu hệ thống ở trên.
-                        2. Nếu hỏi về một mã vải (ví dụ: P3026), chỉ hiển thị thông tin, định mức và các dữ liệu liên quan đến đúng mã vải đó. Không tự ý lập bảng tổng thể các phụ liệu khác nếu không được yêu cầu.
-                        3. Trình bày súc tích dưới dạng gạch đầu dòng hoặc bảng ngắn gọn để người dùng nhìn thấy ngay kết quả.
+                        Quy tắc phản hồi bắt buộc (Phạt nặng nếu vi phạm):
+                        1. Tuyệt đối KHÔNG trả lời lan man, không giới thiệu tổng quan hệ thống. Người dùng hỏi gì thì trả lời ngay vào đáp án đó.
+                        2. Nếu người dùng tra cứu mã vải (Ví dụ: P3026), chỉ hiển thị danh sách các mã hàng đang sử dụng mã vải này kèm thông số định mức tương ứng của nó. Không được tự ý vẽ bảng BOM của các vật tư khác (như Vải chính, Keo) nếu người dùng không nhắc tới.
+                        3. Trình bày thông tin ngắn gọn, mạch lạc bằng bảng hoặc gạch đầu dòng, không sử dụng các từ ngữ chào hỏi thừa thãi ở đầu câu trả lời.
                         """
                         
                         final_res = client.models.generate_content(
@@ -780,14 +771,13 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                         
                         st.markdown(final_res.text)
                         
-                        # Chỉ hiển thị hình ảnh nếu tìm thấy dữ liệu và câu hỏi liên quan đến việc xem mẫu/mã hàng
+                        # Chỉ hiển thị hình ảnh Sketch khi người dùng hỏi các câu liên quan đến xem hình mẫu hoặc tra cứu mã hàng
                         if detected_image_url_to_render and any(word in clean_text_upper for word in ["ẢNH", "SKETCH", "HÌNH", "MẪU", "MÃ HÀNG"]):
                             st.image(
                                 detected_image_url_to_render, 
                                 caption=f"Hình ảnh Sketch kỹ thuật hệ thống: {detected_style_title_to_render}", 
                                 use_container_width=True
                             )
-
                         
                     except Exception as e:
                         st.error(f"Lỗi vận hành hệ thống pipeline dữ liệu: {str(e)}")
