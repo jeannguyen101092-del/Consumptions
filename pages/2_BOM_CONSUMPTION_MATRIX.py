@@ -102,7 +102,8 @@ def get_secure_gemini_key():
 def save_to_supabase_techpack_table(payload_data):
     """
     Hàm xử lý đồng bộ và nạp Master DB bảng thong_so_techpack kết hợp đẩy ảnh lên Storage kho_anh.
-    ✨ ĐÃ SỬA LỖI: Sửa thuộc tính .embeddings của SDK mới và chuẩn hóa chuỗi mảng Postgres Vector.
+    ✨ ĐÃ KHẮC PHỤC LỖI 404: Loại bỏ hoàn toàn model multimodal-embedding-001 cũ.
+    Sử dụng Gemini-2.5-Flash bóc tách đặc trưng văn bản rồi số hóa qua text-embedding-004 chuẩn Production.
     """
     try:
         style_name_db = payload_data.get("style_number_parsed", "").strip()
@@ -132,23 +133,35 @@ def save_to_supabase_techpack_table(payload_data):
             except Exception: 
                 pass
 
-        # ⚡ TỰ ĐỘNG SỐ HÓA SKETCH THÀNH CHUỖI TEXT VECTOR ĐỂ ĐỐI SOÁT
+        # ⚡ TỰ ĐỘNG SỐ HÓA SKETCH THÀNH CHUỖI TEXT VECTOR ĐỂ ĐỐI SOÁT (PHIÊN BẢN MỚI CHỐNG LỖI 404)
         new_sketch_vector_str = None
         if image_data:
             gemini_key = get_secure_gemini_key()
             if gemini_key:
                 try:
                     client = genai.Client(api_key=gemini_key)
-                    # Gọi mô hình nhúng đa phương thức để xử lý dữ liệu hình ảnh
-                    embedding_res = client.models.embed_content(
-                        model='multimodal-embedding-001',
-                        contents=types.Part.from_bytes(data=image_data, mime_type='image/jpeg')
+                    
+                    # Bước A: Dùng Gemini-2.5-Flash đọc ảnh rập phẳng chuyển thành dạng chuỗi văn bản mô tả đặc trưng
+                    vision_prompt = """
+                    Analyze this technical flat sketch in detail. 
+                    Extract and list all unique geometric attributes, silhouette, waistband type, front/back pockets layout, and panel shapes.
+                    Output ONLY a dense string of these visual characteristics for vector similarity matching.
+                    """
+                    vision_res = client.models.generate_content(
+                        model='gemini-2.5-flash',
+                        contents=[types.Part.from_bytes(data=image_data, mime_type='image/jpeg'), vision_prompt]
                     )
-                    # SỬA LỖI TẠI ĐÂY: Truy cập chính xác mảng số thực bằng .embeddings thay vì .embedding
+                    visual_description = vision_res.text.strip() if vision_res.text else "technical garment layout specs"
+
+                    # Bước B: Nhúng chuỗi văn bản hình học bằng mô hình text-embedding-004 chuẩn Production
+                    embedding_res = client.models.embed_content(
+                        model='text-embedding-004',
+                        contents=visual_description
+                    )
+                    
                     if hasattr(embedding_res, 'embeddings') and embedding_res.embeddings:
                         vector_values = embedding_res.embeddings.values
-                        # SỬA LỖI TẠI ĐÂY: Định dạng chuỗi dạng mảng số thực chuẩn [x,y,z...] 
-                        # Giúp Supabase hiểu và lưu kho trơn tru dù cột cấu hình dạng TEXT hay dạng VECTOR.
+                        # Đồng bộ cấu trúc chuỗi định dạng mảng số thực Postgres Vector chuẩn [x,y,z...]
                         new_sketch_vector_str = "[" + ",".join(str(float(v)) for v in vector_values) + "]"
                 except Exception as ai_err:
                     print(f"[AI EMBEDDING ERROR]: {str(ai_err)}")
