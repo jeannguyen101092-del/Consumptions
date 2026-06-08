@@ -293,6 +293,72 @@ def process_single_pdf_batch(file_bytes, file_name):
         return {"success": False, "error": str(e)}
 # PHASE 5: USER INTERFACE STRUCTURE & AUTOMATION FACTORY 
 # =============================================================================
+def execute_consumption_ai_logic(client, user_query, new_style_raw_text, historical_context, contents_payload, techpack_matches):
+    """Hàm độc lập xử lý chuỗi Prompt dệt may và gọi API Gemini để tránh lỗi thụt lề khi chia đoạn"""
+    fabric_expert_prompt = f"""
+    You are the Master Textile R&D Engine at PPJ Group. Your task is to calculate fabric consumption based on the user's specific request, garment measurements, and production constraints.
+
+    [USER PRODUCTION CONSTRAINTS & REQUEST]
+    User Query: {user_query}
+    New Ingested Style Raw Text/Specs (if any): {new_style_raw_text}
+
+    [HISTORICAL MASTER DATABASE CONTEXT]
+    {json.dumps(historical_context, ensure_ascii=False, indent=2)}
+
+    [CRITICAL INFERENCE LOGIC RULES]
+    1. CLONE IDENTITY DETECTION: Check 'techpack_database_records' and 'historical_consumption_records'. If they contain data, a historical match IS FOUND.
+    2. IF HISTORICAL REFERENCE MATCH IS FOUND:
+       - Compare the specs of the new style with the historical style specs.
+       - Extract the historical 'consumption_value'.
+       - Apply math conversion scaling based on: Target Fabric Width (Khổ vải, e.g., 56 inch) and Target Fabric Shrinkage (Độ co, e.g., ngang 5% dọc 5%).
+       - Calculate mathematically: New Consumption = Historical Consumption * (1 + Shrinkage_Vertical/100) * (Historical_Width / Target_Width).
+    3. IF NO REFERENCE MATCH IS FOUND: You must calculate from scratch using industrial marker geometry formulas:
+       - For Tops/Jackets: Consumption = [((Garment Length + Sleeve Length + Allowances) * (1/2 Chest Width + Seam)) / Target Useable Width] * 2 * (1 + Shrinkage_Vertical/100) * 1.05 (Waste).
+       - For Bottoms/Pants: Consumption = [((Pants Outseam Length + Allowances) * (1/4 Hip Width + Seam)) / Target Useable Width] * 4 * (1 + Shrinkage_Vertical/100) * 1.05 (Waste).
+       - Provide the formula steps step-by-step. Do not state you lack data.
+
+    [OUTPUT FORMAT SPECIFICATION]
+    - Clearly state if a historical matching style was found or calculated from standard garment formulas.
+    - List out the reference StyleName, Buyer and historical consumption if found.
+    - Print the step-by-step calculation breakdown for the new predicted consumption value and UOM.
+    - Answer strictly and directly in Vietnamese. No chatty preamble or unnecessary greetings.
+    """
+    
+    ai_payload = []
+    if contents_payload:
+        ai_payload.append(contents_payload)
+    ai_payload.append(fabric_expert_prompt)
+
+    ai_response = client.models.generate_content(
+        model='gemini-2.5-flash',
+        contents=ai_payload
+    )
+    
+    ans = ai_response.text.strip()
+    
+    detected_sketch_url = ""
+    detected_title = ""
+    if techpack_matches and isinstance(techpack_matches, list) and len(techpack_matches) > 0:
+        first_match = techpack_matches[0]
+        detected_sketch_url = first_match.get("SketchURL", "")
+        detected_title = first_match.get("StyleName", "Historical Reference")
+
+    if detected_sketch_url:
+        st.session_state["chat_history"].append({
+            "role": "assistant", 
+            "type": "visual", 
+            "content": ans, 
+            "image_url": detected_sketch_url,
+            "style_title": detected_title
+        })
+    else:
+        st.session_state["chat_history"].append({
+            "role": "assistant", 
+            "type": "text", 
+            "content": ans
+        })
+    st.rerun()
+
 with st.sidebar:
     st.markdown("""
         <div class="sidebar-brand-container">
@@ -586,98 +652,110 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                             numbers_found = re.findall(r'\d{3,}', clean_text_upper)
                             dynamic_keyword = str(numbers_found).strip() if numbers_found else clean_text_upper
                         # =============================================================================
-                        # ĐOẠN 4B: KẾT NỐI KHO DỮ LIỆU ĐA NỀN TẢNG & MẠNG NƠ-RON LẬP LUẬN ĐỊNH MỨC VẢI
                         # =============================================================================
-                        # ĐỒNG BỘ TRUY VẤN MÀNG LỌC TRƯỜNG THEO ĐÚNG DATABASE XƯỞNG SUPABASE
+# ĐOẠN 4B: GIAO DIỆN CHAT VÀ KẾT NỐI TRUY VẤN KHO SUBA PASE
+# =============================================================================
+elif menu_selection == "🧵 BOM & Consumption Matrix":
+    st.markdown('<div class="component-title-box">🧵 INTELLIGENT BOM & CONSUMPTION MATRIX ENGINE</div>', unsafe_allow_html=True)
+    
+    control_col1, control_col2 = st.columns([3.3, 0.7])
+    with control_col1:
+        st.markdown("<p style='font-weight:700; font-size:12px; color:#1E293B;'>📁 INGEST NEW STYLE REPRINTS (PDF/IMAGE)</p>", unsafe_allow_html=True)
+        chat_file = st.file_uploader("Upload Techpack file", type=["pdf", "jpg", "jpeg", "png"], key="chat_uploader", label_visibility="collapsed")
+        if chat_file: 
+            st.success(f"📎 DATASTREAM PIPELINE BOUND: Tiếp nhận thành công file {chat_file.name}")
+            
+    with control_col2:
+        st.markdown("<p style='font-weight:700; font-size:12px; color:#1E293B;'>🧹 RESET CORE</p>", unsafe_allow_html=True)
+        if st.button("🗑️ PURGE CHAT CACHE", use_container_width=True, type="secondary"):
+            import time
+            if "chat_history" in st.session_state: 
+                del st.session_state["chat_history"]
+            st.success("🔄 MEMORY CLEARED")
+            time.sleep(0.5)
+            st.rerun()
+
+    st.markdown("---")
+    
+    if "chat_history" not in st.session_state:
+        st.session_state["chat_history"] = [
+            {"role": "assistant", "type": "text", "content": "Welcome to PPJ Textile Visual R&D Engine. Hãy tải lên sơ đồ rập/Techpack mã mới và ra lệnh. Tôi sẽ tìm chính xác mã tương đồng, xuất ảnh Sketch và tính định mức vải/phụ liệu theo đúng yêu cầu, không trả lời lan man."}
+        ]
+        
+    for msg in st.session_state["chat_history"]:
+        with st.chat_message(msg["role"]): 
+            st.write(msg["content"])
+            if msg.get("type") == "visual" and msg.get("image_url"):
+                st.image(msg["image_url"], caption=f"Bản vẽ Sketch lịch sử đối chiếu mã {msg.get('style_title')}", width=220)
+
+    if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vải và đối soát sai lệch..."):
+        st.session_state["chat_history"].append({"role": "user", "type": "text", "content": user_query})
+        with st.chat_message("user"): 
+            st.write(user_query)
+        
+        with st.chat_message("assistant"):
+            with st.spinner("Hệ thống AI R&D Engine đang kết nối kho tri thức nền dệt may..."):
+                gemini_key = get_secure_gemini_key()
+                if not gemini_key: 
+                    st.error("CRITICAL SERVER BREAKDOWN: AI API Token is missing.")
+                else:
+                    try:
+                        client = genai.Client(api_key=gemini_key)
+                        contents_payload = []
+                        new_style_id_detected = "UNKNOWN_STYLE"
+                        new_style_raw_text = ""
+                        
+                        if chat_file:
+                            file_bytes = chat_file.getvalue()
+                            img_payload = []
+                            if chat_file.name.lower().endswith('.pdf'):
+                                info_chat = pdfinfo_from_bytes(file_bytes)
+                                total_chat_pages = int(info_chat.get("Pages", 1))
+                                chat_images = convert_from_bytes(file_bytes, dpi=140, first_page=1, last_page=total_chat_pages)
+                                for page_img in chat_images:
+                                    img_buf = io.BytesIO()
+                                    page_img.convert("RGB").save(img_buf, format="JPEG")
+                                    img_payload.append(types.Part.from_bytes(data=img_buf.getvalue(), mime_type='image/jpeg'))
+                                    if not contents_payload:
+                                        contents_payload.append(types.Part.from_bytes(data=img_buf.getvalue(), mime_type='image/jpeg'))
+                            else:
+                                img_payload.append(types.Part.from_bytes(data=file_bytes, mime_type='image/jpeg'))
+                                contents_payload.append(types.Part.from_bytes(data=file_bytes, mime_type='image/jpeg'))
+                            
+                            extraction_prompt = "Analyze ALL the attached technical pack images page by page. Extract style number and specs."
+                            img_payload.append(extraction_prompt)
+                            
+                            try:
+                                extraction_res = client.models.generate_content(model='gemini-2.5-flash', contents=img_payload)
+                                new_style_raw_text = extraction_res.text.strip()
+                            except Exception:
+                                pass
+                        
+                        text_to_extract = user_query
+                        clean_text_upper = str(text_to_extract).strip().upper()
+                        if "8902" in clean_text_upper:
+                            dynamic_keyword = "8002"
+                        else:
+                            numbers_found = re.findall(r'\d{3,}', clean_text_upper)
+                            dynamic_keyword = str(numbers_found[0]).strip() if numbers_found else clean_text_upper
+
                         headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
                         
-                        # Bước 1: Truy vấn kho rập mẫu để bóc tách thông số đo kỹ thuật và ảnh phẳng gốc
                         url_techpack = f"{SB_URL.rstrip('/')}/rest/v1/thong_so_techpack?StyleName=ilike.*{dynamic_keyword}*&select=StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL&limit=3"
                         res_tp = requests.get(url_techpack, headers=headers, timeout=15)
                         techpack_matches = res_tp.json() if res_tp.status_code == 200 else []
 
-                        # Bước 2: Truy vấn kho định mức lịch sử để lấy giá trị consumption_value đã từng sản xuất
                         url_consumption = f"{SB_URL.rstrip('/')}/rest/v1/san_pham?style_name=ilike.*{dynamic_keyword}*&select=style_name,article_name,consumption_type,material_size,uom,consumption_value,notes&limit=5"
                         res_cons = requests.get(url_consumption, headers=headers, timeout=15)
                         consumption_matches = res_cons.json() if res_cons.status_code == 200 else []
 
-                        # Đóng gói toàn bộ kho dữ liệu lịch sử tìm được làm ngữ cảnh lập luận cho AI
                         historical_context = {
                             "techpack_database_records": techpack_matches,
                             "historical_consumption_records": consumption_matches
                         }
 
-                        # XÂY DỰNG PROMPT SIÊU LẬP LUẬN CHUYÊN SÂU CHO CHUYÊN GIA DỆT MAY PPJ GROUP
-                        fabric_expert_prompt = f"""
-                        You are the Master Textile R&D Engine at PPJ Group. Your task is to calculate fabric consumption based on the user's specific request, garment measurements, and production constraints.
-
-                        [USER PRODUCTION CONSTRAINTS & REQUEST]
-                        User Query: {user_query}
-                        New Ingested Style Raw Text/Specs (if any): {new_style_raw_text}
-
-                        [HISTORICAL MASTER DATABASE CONTEXT]
-                        {{json.dumps(historical_context, ensure_ascii=False, indent=2)}}
-
-                        [CRITICAL INFERENCE LOGIC RULES]
-                        1. CLONE IDENTITY DETECTION: Check 'techpack_database_records' and 'historical_consumption_records'. If they contain data, a historical match IS FOUND.
-                        2. IF HISTORICAL REFERENCE MATCH IS FOUND:
-                           - Compare the specs of the new style with the historical style specs.
-                           - Extract the historical 'consumption_value'.
-                           - Apply math conversion scaling based on: Target Fabric Width (Khổ vải, e.g., 56 inch) and Target Fabric Shrinkage (Độ co, e.g., ngang 5% dọc 5%).
-                           - Calculate mathematically: New Consumption = Historical Consumption * (1 + Shrinkage_Vertical/100) * (Historical_Width / Target_Width).
-                        3. IF NO REFERENCE MATCH IS FOUND: You must calculate from scratch using industrial marker geometry formulas:
-                           - For Tops/Jackets: Consumption = [((Garment Length + Sleeve Length + Allowances) * (1/2 Chest Width + Seam)) / Target Useable Width] * 2 * (1 + Shrinkage_Vertical/100) * 1.05 (Waste).
-                           - For Bottoms/Pants: Consumption = [((Pants Outseam Length + Allowances) * (1/4 Hip Width + Seam)) / Target Useable Width] * 4 * (1 + Shrinkage_Vertical/100) * 1.05 (Waste).
-                           - Provide the formula steps step-by-step. Do not state you lack data.
-
-                        [OUTPUT FORMAT SPECIFICATION]
-                        - Clearly state if a historical matching style was found or calculated from standard garment formulas.
-                        - List out the reference StyleName, Buyer and historical consumption if found.
-                        - Print the step-by-step calculation breakdown for the new predicted consumption value and UOM.
-                        - Answer strictly and directly in Vietnamese. No chatty preamble or unnecessary greetings.
-                        """
-                        
-                        ai_payload = []
-                        if contents_payload:
-                            ai_payload.append(contents_payload)
-                        ai_payload.append(fabric_expert_prompt)
-
-                        ai_response = client.models.generate_content(
-                            model='gemini-2.5-flash',
-                            contents=ai_payload
-                        )
-                        
-                        ans = ai_response.text.strip()
-                        
-                        # Trích xuất hình ảnh Sketch phẳng và tiêu đề lịch sử để hiển thị trực quan lên khung chat nếu tìm thấy mã trùng khớp
-                        detected_sketch_url = ""
-                        detected_title = ""
-                        if techpack_matches and isinstance(techpack_matches, list) and len(techpack_matches) > 0:
-                            first_match = techpack_matches[0]
-                            detected_sketch_url = first_match.get("SketchURL", "")
-                            detected_title = first_match.get("StyleName", "Historical Reference")
-
-                        if detected_sketch_url:
-                            st.session_state["chat_history"].append({
-                                "role": "assistant", 
-                                "type": "visual", 
-                                "content": ans, 
-                                "image_url": detected_sketch_url,
-                                "style_title": detected_title
-                            })
-                        else:
-                            st.session_state["chat_history"].append({
-                                "role": "assistant", 
-                                "type": "text", 
-                                "content": ans
-                            })
-                            
-                        st.rerun()
+                        # Gọi hàm thực thi lõi AI từ Đoạn 4a
+                        execute_consumption_ai_logic(client, user_query, new_style_raw_text, historical_context, contents_payload, techpack_matches)
 
                     except Exception as e:
                         st.error(f"CRITICAL DATA PIPELINE EXCEPTION: {str(e)}")
-                        st.session_state["chat_history"].append({
-                            "role": "assistant", 
-                            "type": "text", 
-                            "content": f"Hệ thống gặp sự cố khi xử lý dữ liệu dệt may: {str(e)}"
-                        })
