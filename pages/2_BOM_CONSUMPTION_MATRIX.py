@@ -712,7 +712,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
 
 
 # =============================================================================
-# ĐOẠN 2 - PHẦN A: TRUY VẤN TRỰC TIẾP STORAGE BUCKET TÌM MÃ ẢNH TƯƠNG ĐỒNG
+# ĐOẠN 2 - PHẦN A: TRUY VẤN TRỰC TIẾP STORAGE BUCKET TÌM MÃ ẢNH TƯƠNG ĐỒNG CHUẨN
 # =============================================================================
                     base_sb_url = SB_URL.rstrip('/')
                     headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
@@ -726,7 +726,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     if is_similarity_requested:
                         short_keyword = dynamic_keyword.strip().upper()
                         
-                        # BƯỚC 1: KIỂM TRA THỬ XEM MÃ NÀY ĐÃ CÓ SẴN TRONG BẢNG THÔNG SỐ CHƯA
+                        # 1. KIỂM TRA THỬ XEM MÃ NÀY ĐA CÓ SẴN TRONG BẢNG THÔNG SỐ CHƯA
                         check_url = f"{base_sb_url}/rest/v1/thong_so_techpack?StyleName=eq.{quote(short_keyword)}&select=StyleName"
                         has_in_techpack = False
                         try:
@@ -736,14 +736,12 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                         except Exception:
                             has_in_techpack = False
 
-                        # BƯỚC 2: RẼ NHÁNH XỬ LÝ THEO THỰC TẾ
+                        # 2. RẼ NHÁNH XỬ LÝ THEO THỰC TẾ
                         if has_in_techpack:
-                            # Tình huống A: Mã đã có sẵn rập -> Dùng luôn mã gốc
                             matched_style_name = short_keyword
                         elif has_file and target_new_sketch_bytes:
-                            # Tình huống B: Mã mới tinh chưa có rập (1P001452) -> GỌI STORAGE BUCKET LẤY DANH SÁCH FILE ẢNH THẬT
-                            with st.spinner("🔍 Mã mới. AI đang truy cập Storage Bucket 'kho_anh' để đối chiếu thị giác trực tiếp..."):
-                                # Sử dụng API chuẩn của Supabase để liệt kê toàn bộ tệp tin trong bucket 'kho_anh'
+                            # MÃ MỚI TINH -> GỌI API LẤY TRỰC TIẾP TOÀN BỘ FILE ẢNH TRONG STORAGE BUCKET KHO_ANH
+                            with st.spinner("🔍 Hệ thống đang kết nối trực tiếp kho ảnh Storage Bucket để đối chiếu kiểu dáng..."):
                                 storage_endpoint = f"{base_sb_url}/storage/v1/object/list/kho_anh"
                                 storage_payload = {
                                     "prefix": "",
@@ -759,12 +757,12 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                                 try:
                                     res_storage = requests.post(storage_endpoint, json=storage_payload, headers=storage_headers, timeout=5)
                                     if res_storage.status_code == 200:
-                                        # Tạo danh sách chứa cấu trúc tên file kèm link ảnh Public URL thực tế trong Storage
                                         warehouse_list = []
                                         for file_obj in res_storage.json():
                                             f_name = file_obj.get("name", "")
                                             if f_name.lower().endswith(('.jpg', '.jpeg', '.png')):
-                                                style_code = f_name.rsplit('.', 1)[0] # Tách lấy '1P001451' từ '1P001451.jpg'
+                                                # VÁ LỖI CỐT LÕI: Thêm chỉ mục [0] để lấy chuỗi text tên mã sạch (Ví dụ: "1P001363")
+                                                style_code = f_name.rsplit('.', 1)[0].strip()
                                                 public_url = f"{SUPABASE_PROJECT_URL}/storage/v1/object/public/kho_anh/{f_name}"
                                                 warehouse_list.append({"StyleName": style_code, "SketchURL": public_url})
                                     else:
@@ -772,7 +770,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                                 except Exception:
                                     warehouse_list = []
 
-                                # Tiến hành đưa ảnh mới bóc tách và danh mục link ảnh thật từ Storage Bucket cho Gemini phân tích
+                                # Giao cho Vision AI đối chiếu thị giác ảnh mới bóc tách với danh mục link ảnh thật trong kho
                                 if warehouse_list:
                                     vision_payload = [
                                         types.Part.from_bytes(data=target_new_sketch_bytes, mime_type='image/jpeg'),
@@ -800,7 +798,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                         # Khóa từ khóa tìm kiếm cuối cùng dựa trên kết quả phân tích thị giác của AI
                         final_search_key = matched_style_name if matched_style_name else short_keyword
 
-                        # BƯỚC 3: TRUY VẤN SONG SONG ĐA BẢNG ĐỒNG THỜI THEO MÃ TƯƠNG ĐỒNG CHUẨN XÁC VỪA TÌM ĐƯỢC
+                        # 3. TRUY VẤN SONG SONG ĐA BẢNG ĐỒNG THỜI THEO MÃ TƯƠNG ĐỒNG CHUẨN XÁC VỪA TÌM ĐƯỢC
                         url_san_pham = f"{base_sb_url}/rest/v1/san_pham?or=(style_name.ilike.*{quote(short_keyword)}*,article_name.ilike.*{quote(short_keyword)}*)&select=*"
                         url_techpack = f"{base_sb_url}/rest/v1/thong_so_techpack?StyleName=ilike.*{quote(final_search_key)}*&select=*"
 
