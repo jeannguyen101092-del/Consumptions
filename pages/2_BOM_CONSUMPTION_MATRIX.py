@@ -566,7 +566,7 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
             if msg.get("type") == "visual" and msg.get("image_url"):
                 st.image(msg["image_url"], caption=f"Bản vẽ Sketch lịch sử đối chiếu mã {msg.get('style_title')}", width=220)
 # =============================================================================
-# ĐOẠN 1: CHUẨN HÓA TỪ KHÓA, TRUY VẤN GỐC & HIỂN THỊ HÌNH ẢNH TRỰC QUAN
+# ĐOẠN 1: CHUẨN HÓA TỪ KHÓA ĐỘNG, TRUY VẤN GỐC & HIỂN THỊ HÌNH ẢNH TRỰC QUAN
 # =============================================================================
 import re
 import io
@@ -632,9 +632,9 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                                 import time
                                 time.sleep(2 * (ext_attempt + 1))
                     
-                    # Thuật toán xử lý chuỗi: Khử sạch khẩu lệnh thừa ở mọi vị trí
+                    # Thuật toán xử lý chuỗi nâng cao: Loại bỏ khẩu lệnh thừa
                     clean_text_upper = str(user_query).strip().upper()
-                    pattern_remove = r"\b(TÌM|TIM|KIỂM TRA|KIEM TRA|XEM|CHECK|CHO TOI|XIN|MÃ HÀNG|MA HANG|MÃ|MA|VẢI|VAI|ĐỊNH MỨC|DINH MUC|CODE)\b"
+                    pattern_remove = r"\b(TÌM|TIM|KIỂM TRA|KIEM TRA|XEM|CHECK|CHO TOI|XIN|MÃ HÀNG|MA HANG|MÃ|MA|VẢI|VAI|ĐỊNH MỨC|DINH MUC|CODE|TRÍCH XUẤT|TRICH XUAT|HÌNH ẢNH|HINH ANH)\b"
                     clean_query = re.sub(pattern_remove, "", clean_text_upper).strip()
                     
                     if has_file and new_style_id_detected != "UNKNOWN_STYLE" and not clean_query:
@@ -642,33 +642,35 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     else:
                         dynamic_keyword = clean_query
 
-                    # Dọn dẹp ký tự phá hoại đường link URL
+                    # Dọn dẹp ký tự phá hoại đường link URL ban đầu
                     dynamic_keyword = re.sub(r"[\[\]'\"*?%#&]", "", dynamic_keyword).strip()
                     
-                    # Tự động sửa lỗi dấu cách hoặc dấu chấm viết lệch thành dấu gạch ngang (Ví dụ: "SJ 8902" -> "SJ-8902")
-                    dynamic_keyword = re.sub(r"([A-Z]+)[\s\.]+(\d+)", r"\1-\2", dynamic_keyword)
-
                     if not dynamic_keyword:
                         dynamic_keyword = "UNKNOWN"
 
-                    # THAY ĐỔI CỐT LÕI: Sử dụng cơ chế truyền params của thư viện requests để bảo vệ cú pháp query
+                    # ✨ THUẬT TOÁN TỰ ĐỘNG VÁ MÃ CÓ DẤU GẠCH CHÉO VÀ DẤU GẠCH NGANG TRONG MÃ HÀNG:
+                    # Chuyển đổi các khoảng trắng hoặc ký tự đặc biệt thành dấu đại diện '%' để tìm kiếm tương đối diện rộng trong PostgREST
+                    # Ví dụ: "P01 495544" hoặc "P01-495544" đều biến thành cấu trúc tìm kiếm "*P01*495544*"
+                    flexible_keyword = re.sub(r"[\s\-_]+", "*", dynamic_keyword)
+
+                    # Khởi tạo kết nối Supabase PostgREST Parameters
                     headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
                     base_sb_url = SB_URL.rstrip('/')
                     
-                    # 1. Gọi bảng thong_so_techpack bằng tham số an toàn
+                    # 1. Truy vấn bảng thong_so_techpack
                     url_techpack = f"{base_sb_url}/rest/v1/thong_so_techpack"
                     params_tp = {
-                        "StyleName": f"ilike.*{dynamic_keyword}*",
+                        "StyleName": f"ilike.*{flexible_keyword}*",
                         "select": "StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL",
                         "limit": "3"
                     }
                     res_tp = requests.get(url_techpack, headers=headers, params=params_tp, timeout=15)
                     db_results = res_tp.json() if 200 <= res_tp.status_code <= 299 else []
                     
-                    # 2. Gọi bảng san_pham bằng tham số cấu trúc điều kiện OR phân tách độc lập mã hóa chuẩn PostgREST
+                    # 2. Truy vấn bảng san_pham
                     url_san_pham = f"{base_sb_url}/rest/v1/san_pham"
                     params_sp = {
-                        "or": f"(style_name.ilike.*{dynamic_keyword}*,article_name.ilike.*{dynamic_keyword}*)",
+                        "or": f"(style_name.ilike.*{flexible_keyword}*,article_name.ilike.*{flexible_keyword}*)",
                         "select": "style_name,article_name,consumption_type,material_size,uom,consumption_value,notes",
                         "limit": "100"
                     }
@@ -685,6 +687,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     
                     if sketch_url_found:
                         st.image(sketch_url_found, caption=f"Hình ảnh phác thảo thiết kế tìm thấy trong kho cho mã hàng: {dynamic_keyword}", use_container_width=True)
+
 
 
 
