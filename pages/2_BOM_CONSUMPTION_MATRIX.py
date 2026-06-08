@@ -594,8 +594,14 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     new_style_id_detected = "UNKNOWN_STYLE"
                     new_style_raw_text = ""
                     
-                    # LUỒNG A: NẾU KỸ SƯ CÓ TẢI FILE TECHPACK LÊN - KÍCH HOẠT QUÉT ĐA TRANG
-                    if chat_file:
+                                        # LUỒNG A: NẾU KỸ SƯ CÓ TẢI FILE TECHPACK LÊN - KÍCH HOẠT QUÉT ĐA TRANG
+                    # Kiểm tra an toàn xem biến chat_file có tồn tại trong hệ thống không
+                    if 'chat_file' in locals() or 'chat_file' in globals():
+                        has_file = chat_file is not None
+                    else:
+                        has_file = False
+                        
+                    if has_file:
                         file_bytes = chat_file.getvalue()
                         img_payload = []
                         if chat_file.name.lower().endswith('.pdf'):
@@ -633,6 +639,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                             except Exception:
                                 import time
                                 time.sleep(2 * (ext_attempt + 1))
+
                     
                     # ✨ THUẬT TOÁN XÁC ĐỊNH TỪ KHÓA TRUY VẤN THÔNG MINH - ĐÃ CẢI TIẾN
                     dynamic_keyword = ""
