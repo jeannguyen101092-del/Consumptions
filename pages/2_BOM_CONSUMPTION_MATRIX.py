@@ -637,8 +637,15 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                         else:
                             img_payload.append(types.Part.from_bytes(data=file_bytes, mime_type='image/jpeg'))
                         
+                        # TINH CHỈNH PROMPT: Ép AI loại bỏ trang ảnh chụp, chỉ lấy trang bản vẽ phẳng nét đen trắng
                         extraction_prompt = """
                         Analyze ALL the attached technical pack images page by page.
+                        1. Locate the genuine 'Style ID' / 'Style Number' / 'Mã hàng'. Clean it.
+                        2. Identify the Product Line 'Category' (e.g., Pants, Jeans, Jacket).
+                        3. Extract all points of measurement (POM) into a strict key-value flat dictionary.
+                        4. CRITICAL VISION TASK: Find the exact 'PAGE INDEX' (starting from 0) that contains the TECHNICAL BLACK AND WHITE FLAT SKETCH / DRAWING. 
+                           DO NOT select pages containing real product photographs, fabrics, or 'Labeled Images' wash denim sheets. Only pick the pure line art design drawing page.
+                        
                         Return a valid JSON with this exact schema:
                         {"detected_style_id": "Pure code only", "category": "Pants or Jacket", "fabric_code": "Pure fabric code", "measurements": {"Vị trí đo": "Thông số"}, "sketch_page_index_detected": 0}
                         """
@@ -671,10 +678,9 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     clean_text_upper = str(user_query).strip().upper()
                     is_searching_fabric = any(word in clean_text_upper for word in ["CODE VẢI", "CODE VAI", "MÃ VẢI", "MA VAI", "LOẠI VẢI", "LOAI VAI", "TÌM VẢI", "TIM VAI"])
                     
-                    # Trích xuất chính xác cụm ký tự chữ và số (Mã hàng/Mã vải gốc)
                     codes_found = re.findall(r'\b[A-Z]*\d+[A-Z0-9]*\b|\b[A-Z0-9]+-\d+[A-Z0-9-]*\b', clean_text_upper)
                     if codes_found:
-                        clean_query = codes_found[0]
+                        clean_query = codes_found
                     else:
                         pattern_remove = r"\b(TÌM|TIM|KIỂM TRA|KIEM TRA|XEM|CHECK|CHO TOI|XIN|MÃ HÀNG|MA HANG|MÃ|MA|VẢI|VAI|ĐỊNH MỨC|DINH MUC|CODE|TRÍCH XUẤT|TRICH XUAT|HÌNH ẢNH|HINH ANH|HÌNH|HINH|ẢNH|ANH|TÍNH|TINH|THÔNG TIN|THONG TIN|NÀY|NAY|TƯƠNG ĐỒNG|TUONG DONG|VỚI|KHO)\b"
                         clean_query = re.sub(pattern_remove, "", clean_text_upper).strip()
@@ -703,39 +709,78 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
 
 
 
+
 # =============================================================================
-# ĐOẠN 2 - PHẦN A: BẢN THÔNG MẠCH TUYỆT ĐỐI TRUY VẤN ĐA BẢNG ĐỒNG THỜI
+# ĐOẠN 2 - PHẦN A: ĐỐI CHIẾU THỊ GIÁC ĐỘNG VỚI KHO ĐỂ XÁC ĐỊNH MÃ TƯƠNG ĐỒNG CHUẨN
 # =============================================================================
                     base_sb_url = SB_URL.rstrip('/')
                     headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
 
-                    is_similarity_requested = True
+                    is_similarity_requested = any(word in clean_text_upper for word in ["TƯƠNG ĐỒNG", "TUONG DONG", "GIỐNG", "GIONG", "SO SÁNH", "SO SANH", "ĐỊNH MỨC", "DINH MUC", "THÔNG SỐ", "THONG SO", "VẢI", "VAI"])
                     fabric_records = []
                     techpack_records = []
+                    matched_style_name = None
 
                     if is_similarity_requested:
                         short_keyword = dynamic_keyword.strip().upper()
                         
-                        # Quét đồng thời theo cả mã vải (article_name) hoặc mã hàng (style_name)
-                        url_san_pham = f"{base_sb_url}/rest/v1/san_pham?or=(style_name.ilike.*{quote(short_keyword)}*,article_name.ilike.*{quote(short_keyword)}*)&select=*"
-                        # Quét bảng thông số rập và lưu trữ hình ảnh SketchURL
-                        url_techpack = f"{base_sb_url}/rest/v1/thong_so_techpack?StyleName=ilike.*{quote(short_keyword)}*&select=*"
+                        # 1. Trường hợp người dùng gõ lệnh tra cứu có chứa mã cụ thể -> Dùng mã chữ quét DB luôn
+                        if short_keyword and short_keyword != "UNKNOWN" and short_keyword != "VỚI MÃ NÀY" and short_keyword != "VOI MA NAY":
+                            matched_style_name = short_keyword
+                        
+                        # 2. Luồng Tìm Mã Tương Đồng Động: Lấy toàn bộ danh sách ảnh thật trong DB ra để Vision AI đối chiếu
+                        elif has_file and target_new_sketch_bytes:
+                            with st.spinner("Vision AI đang đối chiếu hình ảnh nét phẳng với danh mục kho dữ liệu..."):
+                                url_all_warehouse = f"{base_sb_url}/rest/v1/thong_so_techpack?select=StyleName,SketchURL"
+                                try:
+                                    res_all = requests.get(url_all_warehouse, headers=headers, timeout=5)
+                                    warehouse_list = res_all.json() if res_all.status_code == 200 else []
+                                except Exception:
+                                    warehouse_list = []
 
-                        # Hàm gọi dữ liệu nhanh
-                        def fetch_url(url):
-                            try:
-                                res = requests.get(url, headers=headers, timeout=5)
-                                return res.json() if res.status_code == 200 else []
-                            except Exception:
-                                return []
+                                if warehouse_list:
+                                    vision_payload = [
+                                        types.Part.from_bytes(data=target_new_sketch_bytes, mime_type='image/jpeg'),
+                                        f"""
+                                        Compare the geometric structure of this uploaded flat line sketch with the available warehouse database entries:
+                                        Database entries: {json.dumps(warehouse_list, ensure_ascii=False)}
+                                        
+                                        Task: Based purely on drawing outlines (pockets, fly, sewing lines), match it to the single most similar 'StyleName' from the database list.
+                                        Return a clean JSON with this exact schema: {{"most_similar_style": "StyleName from list or null"}}
+                                        """
+                                    ]
+                                    try:
+                                        v_res = client.models.generate_content(
+                                            model='gemini-2.5-flash', 
+                                            contents=vision_payload,
+                                            config=types.GenerateContentConfig(response_mime_type="application/json", temperature=0.0)
+                                        )
+                                        matched_style_name = json.loads(v_res.text.strip()).get("most_similar_style")
+                                    except Exception:
+                                        matched_style_name = None
 
-                        # Kích hoạt truy vấn đa luồng song song để tối ưu tốc độ quét kho
-                        with concurrent.futures.ThreadPoolExecutor() as executor:
-                            future_sp = executor.submit(fetch_url, url_san_pham)
-                            future_tp = executor.submit(fetch_url, url_techpack)
-                            
-                            fabric_records = future_sp.result()
-                            techpack_records = future_tp.result()
+                        # Khóa từ khóa chuẩn sau khi đối chiếu ảnh thành công để truyền xuống bước sau
+                        final_search_key = matched_style_name if (matched_style_name and matched_style_name != "null") else short_keyword
+
+                        # 3. Tiến hành gọi API đa luồng song song quét sâu thông tin rập và định mức của mã tương đồng
+                        if final_search_key and final_search_key != "UNKNOWN":
+                            url_san_pham = f"{base_sb_url}/rest/v1/san_pham?or=(style_name.ilike.*{quote(final_search_key)}*,article_name.ilike.*{quote(final_search_key)}*)&select=*"
+                            url_techpack = f"{base_sb_url}/rest/v1/thong_so_techpack?StyleName=ilike.*{quote(final_search_key)}*&select=*"
+
+                            def fetch_url(url):
+                                try:
+                                    res = requests.get(url, headers=headers, timeout=5)
+                                    return res.json() if res.status_code == 200 else []
+                                except Exception:
+                                    return []
+
+                            with concurrent.futures.ThreadPoolExecutor() as executor:
+                                future_sp = executor.submit(fetch_url, url_san_pham)
+                                future_tp = executor.submit(fetch_url, url_techpack)
+                                
+                                fabric_records = future_sp.result()
+                                techpack_records = future_tp.result()
+
 
 
 # =============================================================================
