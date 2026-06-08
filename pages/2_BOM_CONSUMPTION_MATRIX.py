@@ -102,7 +102,7 @@ def get_secure_gemini_key():
 def save_to_supabase_techpack_table(payload_data):
     """
     Hàm xử lý đồng bộ và nạp Master DB bảng thong_so_techpack kết hợp đẩy ảnh lên Storage kho_anh.
-    ✨ ĐÃ VẬT TƯ: Tự động số hóa ảnh Sketch thành chuỗi Text Vector nạp vào database để đối soát siêu tốc.
+    ✨ ĐÃ SỬA LỖI: Sửa thuộc tính .embeddings của SDK mới và chuẩn hóa chuỗi mảng Postgres Vector.
     """
     try:
         style_name_db = payload_data.get("style_number_parsed", "").strip()
@@ -139,18 +139,18 @@ def save_to_supabase_techpack_table(payload_data):
             if gemini_key:
                 try:
                     client = genai.Client(api_key=gemini_key)
-                    # SỬA LỖI: Chuyển đổi sang model 'multimodal-embedding-001' để xử lý được dữ liệu hình ảnh
+                    # Gọi mô hình nhúng đa phương thức để xử lý dữ liệu hình ảnh
                     embedding_res = client.models.embed_content(
                         model='multimodal-embedding-001',
                         contents=types.Part.from_bytes(data=image_data, mime_type='image/jpeg')
                     )
-                    # SỬA LỖI: Lấy chính xác mảng giá trị số từ thuộc tính .embedding.values của SDK mới
-                    if hasattr(embedding_res, 'embedding') and embedding_res.embedding:
-                        vector_values = embedding_res.embedding.values
-                        # Ép mảng số về dạng chuỗi Text JSON để lưu vào cột text của database
-                        new_sketch_vector_str = json.dumps(vector_values)
+                    # SỬA LỖI TẠI ĐÂY: Truy cập chính xác mảng số thực bằng .embeddings thay vì .embedding
+                    if hasattr(embedding_res, 'embeddings') and embedding_res.embeddings:
+                        vector_values = embedding_res.embeddings.values
+                        # SỬA LỖI TẠI ĐÂY: Định dạng chuỗi dạng mảng số thực chuẩn [x,y,z...] 
+                        # Giúp Supabase hiểu và lưu kho trơn tru dù cột cấu hình dạng TEXT hay dạng VECTOR.
+                        new_sketch_vector_str = "[" + ",".join(str(float(v)) for v in vector_values) + "]"
                 except Exception as ai_err:
-                    # Ghi nhận lỗi cụ thể của AI ra log để dễ cấu hình debug nếu có sự cố mạng
                     print(f"[AI EMBEDDING ERROR]: {str(ai_err)}")
                     new_sketch_vector_str = None
 
@@ -175,12 +175,11 @@ def save_to_supabase_techpack_table(payload_data):
             "BaseSize": payload_data.get("base_size_name"),
             "DetailedMeasurements": clean_dict,
             "SketchURL": public_image_url,
-            "sketch_vector": new_sketch_vector_str # Luôn nạp kèm dữ liệu số hóa hình ảnh này vào DB
+            "sketch_vector": new_sketch_vector_str 
         }
         
         response = requests.post(insert_url, headers=headers, json=[db_payload], timeout=15)
         
-        # Nếu Supabase báo lỗi cấu trúc, ghi nhận nhật ký lỗi ra màn hình để xử lý
         if response.status_code < 200 or response.status_code > 299:
             st.sidebar.error(f"Lỗi Supabase ({response.status_code}): {response.text}")
             return False
@@ -189,6 +188,7 @@ def save_to_supabase_techpack_table(payload_data):
     except Exception as e:
         st.sidebar.error(f"Lỗi xử lý hệ thống: {str(e)}")
         return False
+
 
 
 
@@ -237,8 +237,7 @@ def get_historical_fabric_consumption_from_db(search_keyword=None):
 def get_techpack_spec_from_db(style_name_keyword=None):
     """
     Hàm cho phép AI tự động tra cứu thông số từ bảng thong_so_techpack.
-    ✨ SỬA LỖI TOÁN TỬ GỐC: Đổi từ toán tử dạng Regex (.*) sang toán tử chuẩn PostgREST (%) 
-    để bắt trúng mã 1P001451 trong kho lưu trữ của bạn.
+    ✨ ĐÃ SỬA LỖI: Ép kiểu dữ liệu tham số limit về kiểu số nguyên integer chuẩn để tránh lỗi Supabase API.
     """
     try:
         headers = {
@@ -248,13 +247,12 @@ def get_techpack_spec_from_db(style_name_keyword=None):
         url = f"{SB_URL.rstrip('/')}/rest/v1/thong_so_techpack"
         
         query_params = {
-            "select": "StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL",
-            "limit": "500"
+            "select": "StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL,sketch_vector",
+            "limit": 500  # SỬA LỖI TẠI ĐÂY: Đổi từ chuỗi "500" sang số nguyên 500
         }
         
         if style_name_keyword:
             clean_kw = str(style_name_keyword).strip()
-            # Đổi từ ilike.*{clean_kw}* sang ilike.%{clean_kw}% chuẩn cú pháp Supabase PostgREST
             query_params["StyleName"] = f"ilike.%{clean_kw}%"
             
         response = requests.get(url, headers=headers, params=query_params, timeout=15)
@@ -265,83 +263,59 @@ def get_techpack_spec_from_db(style_name_keyword=None):
 
 
 
+
 def process_single_pdf_batch(file_bytes, file_name):
     """
     Hàm bóc tách dữ liệu kỹ thuật từ một file PDF độc lập sử dụng Gemini Vision API.
-    ✨ ĐÃ ĐỒNG BỘ MỤC 3: Ép AI tự dò tìm trang chứa hình vẽ thiết kế sơ đồ phẳng (Sketch) 
-    để lưu kho chuẩn xác, giúp mắt thần AI ở Mục 3 đối chiếu hình ảnh chính xác 100%.
+    ✨ ĐÃ VIẾT HOÀN CHỈNH: Sửa lỗi cú pháp bị cắt ngang, bóc tách block ảnh Sketch mã hóa Base64 và nạp vào DB.
     """
     try:
+        import base64
         gemini_key = get_secure_gemini_key()
         if not gemini_key:
             return {"success": False, "error": "API Key cho Gemini đang bị thiếu trong Secrets."}
             
         client = genai.Client(api_key=gemini_key)
         
-        # Chuyển đổi PDF sang hình ảnh JPEG để mô hình Vision quét dữ liệu diện rộng
         info = pdfinfo_from_bytes(file_bytes)
         total_pages = int(info.get("Pages", 1))
         images = convert_from_bytes(file_bytes, dpi=140, first_page=1, last_page=total_pages)
         
         contents_payload = []
-        # Duyệt và đóng gói toàn bộ các trang ảnh kèm số thứ tự index để AI tự đếm trang
-        for idx, img in enumerate(images):
+        for idx, page_img in enumerate(images):
             img_buf = io.BytesIO()
-            img.convert("RGB").save(img_buf, format="JPEG")
-            # Đính kèm ảnh kèm nhãn trang để AI chỉ định chính xác trang chứa hình vẽ
-            contents_payload.append(f"--- IMAGE OF PAGE INDEX {idx} ---")
+            page_img.convert("RGB").save(img_buf, format="JPEG", quality=85)
             contents_payload.append(types.Part.from_bytes(data=img_buf.getvalue(), mime_type='image/jpeg'))
             
-        # PROMPT CẢI TIẾN: Ép AI chỉ định số trang chứa hình vẽ phác thảo (Technical Sketch)
-        prompt = """
-        You are an expert garment technical auditor. Analyze this Techpack image page by page.
-        1. Extract the genuine 'Style ID' / 'Style Number'.
-        2. Identify the 'Buyer' or Brand name.
-        3. Identify the Product Line 'Category' (e.g., Blouses, Jacket, Pants).
-        4. Detect the 'Base Size' utilized.
-        5. Extract all points of measurement (POM) and their target specifications into a flat key-value dictionary.
-        6. CRITICAL VISION TASK: Look at all pages and identify the exact 'PAGE INDEX' that contains the main technical sketch drawing (hình vẽ phẳng mô tả kết cấu quần/áo, chi tiết túi hộp, cạp). Ignore text-only layout pages or cover pages.
-        
-        Return a strict JSON format with this exact schema:
-        {
-          "style_number_parsed": "Mã hàng",
-          "buyer": "Tên khách hàng",
-          "category": "Phân loại sản phẩm",
-          "base_size_name": "Size gốc",
-          "measurements": {"Vị trí đo 1": "Thông số 1", "Vị trí đo 2": "Thông số 2"},
-          "sketch_page_index_detected": 0
-        }
+        extraction_prompt = """
+        Analyze all technical sheets. Find: 'Style ID', 'Buyer', 'Category', 'Base Size', 'Detailed Measurements'.
+        Identify the 0-based page index containing the black & white technical flat design sketch.
+        Return raw JSON schema:
+        {"style_number_parsed": "string", "buyer": "string", "category": "string", "base_size_name": "string", "measurements": {}, "sketch_page_index_detected": 0}
         """
-        contents_payload.append(prompt)
+        contents_payload.append(extraction_prompt)
         
-        response = client.models.generate_content(
+        res = client.models.generate_content(
             model='gemini-2.5-flash',
             contents=contents_payload,
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json",
-                temperature=0.0
-            )
+            config=types.GenerateContentConfig(response_mime_type="application/json", temperature=0.0)
         )
         
-        parsed_data = json.loads(response.text.strip())
+        parsed_data = json.loads(res.text.strip())
         
-        # ✨ THUẬT TOÁN ĐỒNG BỘ THỊ GIÁC MỚI: Bốc đúng trang chứa ảnh Sketch do AI chỉ định
-        sketch_index = int(parsed_data.get("sketch_page_index_detected", 0))
+        detected_idx = int(parsed_data.get("sketch_page_index_detected", 0))
+        if not (0 <= detected_idx < len(images)):
+            detected_idx = 0
+            
+        sketch_buf = io.BytesIO()
+        images[detected_idx].convert("RGB").save(sketch_buf, format="JPEG", quality=90)
+        parsed_data["sketch_image"] = base64.b64encode(sketch_buf.getvalue()).decode('utf-8')
         
-        # Kiểm tra an toàn chỉ mục trang để tránh lỗi crash List Index Out Of Range
-        if sketch_index >= len(images) or sketch_index < 0:
-            sketch_index = 0 # Trả về trang đầu làm dự phòng nếu AI nhận diện vượt ngưỡng
-            
-        if images:
-            thumb_buf = io.BytesIO()
-            # Trích xuất chính xác trang chứa sơ đồ phẳng công nghệ thực tế
-            images[sketch_index].convert("RGB").save(thumb_buf, format="JPEG")
-            # Ghi đè chuỗi Base64 sạch để đẩy thẳng vào trường dữ liệu lưu kho
-            parsed_data["sketch_image"] = base64.b64encode(thumb_buf.getvalue()).decode("utf-8")
-            
-        return {"success": True, "data": parsed_data}
+        save_success = save_to_supabase_techpack_table(parsed_data)
+        return {"success": save_success, "data": parsed_data}
     except Exception as e:
         return {"success": False, "error": str(e)}
+
 
 
 # PHASE 5: USER INTERFACE STRUCTURE & AUTOMATION FACTORY 
