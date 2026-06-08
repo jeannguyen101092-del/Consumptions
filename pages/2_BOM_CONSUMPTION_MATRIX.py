@@ -694,7 +694,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     codes_found = re.findall(r'\b[A-Z]*\d+[A-Z0-9]*\b|\b[A-Z0-9]+-\d+[A-Z0-9-]*\b', clean_text_upper)
                     
                     if codes_found:
-                        clean_query = codes_found[0] if isinstance(codes_found, list) else codes_found
+                        clean_query = codes_found
                     else:
                         pattern_remove = r"\b(TÌM|TIM|KIỂM TRA|KIEM TRA|XEM|CHECK|CHO TOI|XIN|MÃ HÀNG|MA HANG|MÃ|MA|VẢI|VAI|ĐỊNH MỨC|DINH MUC|CODE|TRÍCH XUẤT|TRICH XUAT|HÌNH ẢNH|HINH ANH|HÌNH|HINH|ẢNH|ANH|TÍNH|TINH|THÔNG TIN|THONG TIN|NÀY|NAY|TƯƠNG ĐỒNG|TUONG DONG|VỚI|KHO|KIẾM|VOI|TRONG)\b"
                         clean_query = re.sub(pattern_remove, "", clean_text_upper).strip()
@@ -710,23 +710,14 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                         dynamic_keyword = clean_query if clean_query else "UNKNOWN"
 
                     dynamic_keyword = re.sub(r"[\[\]'\"*?%#&]", "", dynamic_keyword).strip()
-                    
-                    # CƠ CHẾ DỰ PHÒNG: Tự bóc tách mã hàng từ tên file nếu câu lệnh của bạn quá ngắn (ví dụ chỉ nhập chữ "tìm mã hàng tương đồng")
-                    if has_file and (not dynamic_keyword or len(dynamic_keyword) < 3 or dynamic_keyword == "UNKNOWN_STYLE" or dynamic_keyword == "UNKNOWN"):
-                        file_name_upper = chat_file.name.upper()
-                        file_code_match = re.search(r'\b[A-Z0-9]{4,12}\b', file_name_upper)
-                        if file_code_match:
-                            dynamic_keyword = file_code_match.group(0)
-                            if new_style_id_detected == "UNKNOWN_STYLE":
-                                new_style_id_detected = dynamic_keyword
+                    if not dynamic_keyword or len(dynamic_keyword) < 3:
+                        dynamic_keyword = str(new_style_id_detected).strip() if new_style_id_detected != "UNKNOWN_STYLE" else "UNKNOWN"
 
                     db_results = get_techpack_spec_from_db(style_name_keyword=dynamic_keyword)
                     backup_res = get_historical_fabric_consumption_from_db(search_keyword=dynamic_keyword)
 
                     if has_file and target_new_sketch_bytes:
                         st.image(target_new_sketch_bytes, caption=f"🖼️ Bản vẽ phẳng công nghệ trích xuất từ FILE MỚI UPLOAD ({new_style_id_detected})", use_container_width=True)
-
-
 # =============================================================================
 # ĐOẠN 2 - PHẦN A: ĐỐI SOÁT VECTOR EMBEDDINGS HOÀN TOÀN BẰNG PYTHON BẮT TRÚNG MÃ
 # =============================================================================
@@ -747,12 +738,8 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                         has_in_techpack = False
                         try:
                             res_check = requests.get(check_url, headers=headers, timeout=3)
-                            if res_check.status_code == 200:
-                                res_json = res_check.json()
-                                if len(res_json) > 0:
-                                    has_in_techpack = True
-                                    # Lấy chính xác StyleName từ bản ghi đầu tiên trả về của database
-                                    matched_style_name = res_json[0].get("StyleName") if isinstance(res_json, list) else res_json.get("StyleName")
+                            if res_check.status_code == 200 and len(res_check.json()) > 0:
+                                has_in_techpack = True
                         except Exception:
                             has_in_techpack = False
 
@@ -762,21 +749,11 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                             with st.spinner("⚡ AI đang số hóa hình học phẳng và chạy thuật toán so khớp thị giác Vector..."):
                                 query_vector = None
                                 try:
-                                    # SỬA LỖI TẠI ĐÂY: text-embedding-004 không nhận định dạng ảnh nhị phân trực tiếp. 
-                                    # Sử dụng Gemini tạo chuỗi text mô tả thiết kế phẳng trước khi bóc tách vector.
-                                    vision_prompt = "Analyze this technical flat sketch. Describe its silhouette, geometry, and key tailoring features in 3 concise sentences."
-                                    vision_res = client.models.generate_content(
-                                        model='gemini-2.5-flash',
-                                        contents=[types.Part.from_bytes(data=target_new_sketch_bytes, mime_type='image/jpeg'), vision_prompt]
-                                    )
-                                    visual_description = vision_res.text.strip() if vision_res.text else "unknown denim pattern geometry"
-
                                     embedding_res = client.models.embed_content(
                                         model='text-embedding-004',
-                                        contents=visual_description
+                                        contents=types.Part.from_bytes(data=target_new_sketch_bytes, mime_type='image/jpeg')
                                     )
-                                    # SỬA LỖI TẠI ĐÂY: Trích xuất mảng số thực thông qua thuộc tính chuẩn .embeddings của SDK mới
-                                    query_vector = np.array(embedding_res.embeddings.values if hasattr(embedding_res.embeddings, 'values') else embedding_res.embeddings[0].values)
+                                    query_vector = np.array(embedding_res.embeddings.values)
                                 except Exception:
                                     query_vector = None
 
@@ -793,12 +770,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                                         v_str = row.get("sketch_vector")
                                         if v_str:
                                             try:
-                                                # Giải mã mảng số được lưu trữ dưới dạng chuỗi toán học từ Database
-                                                if str(v_str).startswith("["):
-                                                    db_vector = np.array(json.loads(v_str))
-                                                else:
-                                                    db_vector = np.array(json.loads(v_str))
-                                                    
+                                                db_vector = np.array(json.loads(v_str))
                                                 dot_product = np.dot(query_vector, db_vector)
                                                 norm_query = np.linalg.norm(query_vector)
                                                 norm_db = np.linalg.norm(db_vector)
@@ -812,8 +784,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
 
                         final_search_key = matched_style_name if (matched_style_name and matched_style_name != "null") else short_keyword
 
-                        # ĐỒNG BỘ TỪ KHÓA: Sử dụng final_search_key đồng bộ cho cả hai bảng để bắt trúng dữ liệu liên đới
-                        url_san_pham = f"{base_sb_url}/rest/v1/san_pham?or=(style_name.ilike.%{quote(final_search_key)}%,article_name.ilike.%{quote(final_search_key)}%)&select=*"
+                        url_san_pham = f"{base_sb_url}/rest/v1/san_pham?or=(style_name.ilike.%{quote(short_keyword)}%,article_name.ilike.%{quote(short_keyword)}%)&select=*"
                         url_techpack = f"{base_sb_url}/rest/v1/thong_so_techpack?StyleName=ilike.%{quote(final_search_key)}%&select=*"
 
                         def fetch_url(url):
@@ -829,19 +800,16 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                             
                             fabric_records = future_sp.result()
                             techpack_records = future_tp.result()
-
-
 # =============================================================================
 # ĐOẠN 3: KẾT XUẤT HÌNH ẢNH SKETCH, BẢNG THÔNG SỐ VÀ TỰ TÍNH ĐỊNH MỨC ĐỘ CO ĐA CHIỀU
 # =============================================================================
                     db_sketch_url = None
                     db_measurements_raw = {}
                     current_style_name = ""
-                    SUPABASE_PROJECT_URL = SB_URL.rstrip('/') if 'SB_URL' in locals() else "https://supabase.co" 
+                    SUPABASE_PROJECT_URL = "https://supabase.co" 
                     
                     if techpack_records and len(techpack_records) > 0:
-                        # SỬA LỖI LOGIC: Bóc tách chính xác phần tử đầu tiên từ mảng danh sách bản ghi trả về
-                        first_record = techpack_records[0] if isinstance(techpack_records, list) else techpack_records
+                        first_record = techpack_records if isinstance(techpack_records, list) else techpack_records
                         if isinstance(first_record, dict):
                             current_style_name = first_record.get("StyleName", "")
                             db_sketch_url = first_record.get("SketchURL")
@@ -865,24 +833,24 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     shrink_doc = re.search(r'(?:DỌC|DOC)\s*(\d+(?:\.\d+)?)\s*%', clean_text_upper)
                     shrink_general = re.search(r'(?:CO|CO RÚT|CO RUT)\s*(\d+(?:\.\d+)?)\s*%', clean_text_upper)
 
-                    user_width = f"{fabric_width_input.group(1)} INCH" if fabric_width_input else "57 INCH"
+                    user_width = fabric_width_input.group(1) if fabric_width_input else "57 INCH"
                     co_ngang = shrink_ngang.group(1) if shrink_ngang else "0"
                     co_doc = shrink_doc.group(1) if shrink_doc else (shrink_general.group(1) if shrink_general else "0")
 
-                    st.markdown(f"### 📊 Kết quả đối soát dữ liệu mã hàng: **{new_style_id_detected if new_style_id_detected != 'UNKNOWN_STYLE' else final_search_key}**")
+                    st.markdown(f"### 📊 Kết quả đối soát dữ liệu mã hàng: **{new_style_id_detected}**")
                     
                     col1, col2 = st.columns(2)
                     with col1:
                         st.markdown("**📋 Thông tin định mức vải gốc (Bảng san_pham):**")
-                        if fabric_records and isinstance(fabric_records, list):
-                            formatted_fabric = [{"Mã hàng": r.get("style_name"), "Mã vải (Article)": r.get("article_name"), "Loại vật tư": r.get("consumption_type"), "Khổ vải": r.get("material_size"), "Đơn vị": r.get("uom")} for r in fabric_records if isinstance(r, dict)]
+                        if fabric_records:
+                            formatted_fabric = [{"Mã hàng": r.get("style_name"), "Mã vải (Article)": r.get("article_name"), "Loại vật tư": r.get("consumption_type"), "Khổ vải": r.get("material_size"), "Đơn vị": r.get("uom")} for r in fabric_records]
                             st.dataframe(formatted_fabric, use_container_width=True)
                         else:
                             st.info("ℹ️ Không tìm thấy mã tương đồng. Hệ thống tự động kích hoạt tính toán độc lập từ thông số rập Techpack mới.")
                             
                     with col2:
                         st.markdown("**📏 Thông số hình học thực tế (Bảng lưới phẳng chuyên nghiệp):**")
-                        display_specs = db_measurements_raw if (db_measurements_raw and len(db_measurements_raw) > 0) else new_style_measurements_dict
+                        display_specs = db_measurements_raw if db_measurements_raw else new_style_measurements_dict
                         if display_specs and isinstance(display_specs, dict):
                             formatted_measurements = [{"Vị trí đo (POM)": key, "Thông số kỹ thuật thực tế": value} for key, value in display_specs.items()]
                             st.dataframe(formatted_measurements, use_container_width=True)
@@ -905,10 +873,9 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     - Reference Records: {json.dumps(fabric_records, ensure_ascii=False)}
                     
                     [RULES]
-                    1. If history match is found, modify fabric consumption proportionally.
-                    2. If no history match is found, calculate fabric net consumption per unit using standard garment marker math based on length points found in POM.
-                    3. Warp shrinkage ({co_doc}%) must expand required length. Weft shrinkage ({co_ngang}%) impacts pattern layout efficiency inside width ({user_width}). Add 5% cutting wastage.
-                    4. Output step-by-step completely in Vietnamese. Make it technical, professional and concise without verbose chat.
+                    1. If no history match is found, calculate fabric net consumption per unit using standard garment marker math based on length points found in POM.
+                    2. Warp shrinkage ({co_doc}%) must expand required length. Weft shrinkage ({co_ngang}%) impacts pattern layout efficiency inside width ({user_width}). Add 5% cutting wastage.
+                    3. Output step-by-step completely in Vietnamese. Make it technical, professional and concise without verbose chat.
                     """
                     
                     with st.spinner("AI đang tính toán sơ đồ định mức và áp công thức co rút dệt may..."):
