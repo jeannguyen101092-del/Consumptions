@@ -688,10 +688,14 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                             extraction_payload.append(extraction_prompt)
                             
                             try:
+                                # ĐÃ SỬA: Chuẩn hóa tham số config theo đúng tài liệu SDK Google mới nhất
                                 extraction_res = client.models.generate_content(
                                     model='gemini-2.5-flash', 
                                     contents=extraction_payload, 
-                                    config=types.GenerateContentConfig(response_mime_type="application/json", temperature=0.0)
+                                    config=types.GenerateContentConfig(
+                                        response_mime_type="application/json", 
+                                        temperature=0.0
+                                    )
                                 )
                                 parsed_meta = json.loads(extraction_res.text.strip())
                                 new_style_id_detected = parsed_meta.get("detected_style_id", "UNKNOWN_STYLE").strip()
@@ -733,7 +737,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     if codes_found:
                         valid_codes = [c for c in codes_found if len(c) >= 3 and not c.isdigit()]
                         if valid_codes:
-                            clean_query = str(valid_codes).strip()
+                            clean_query = str(valid_codes[0]).strip() # Lấy phần tử chuỗi đầu tiên tránh lỗi ngoặc vuông []
                     
                     if not clean_query:
                         pattern_remove = r"\b(TÌM|TIM|KIỂM TRA|KIEM TRA|XEM|CHECK|CHO TOI|XIN|MÃ HÀNG|MA HANG|MÃ|MA|VẢI|VAI|ĐỊNH MỨC|DINH MUC|CODE|TRÍCH XUẤT|TRICH XUAT|HÌNH ẢNH|HINH ANH|HÌNH|HINH|ẢNH|ANH|TÍNH|TINH|THÔNG TIN|THONG TIN|NÀY|NAY|VỚI|KHO|KIẾM|VOI|TRONG)\b"
@@ -762,6 +766,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
 
                     if has_file and target_new_sketch_bytes:
                         st.image(target_new_sketch_bytes, caption=f"🖼️ Bản vẽ phẳng công nghệ trích xuất từ FILE MỚI UPLOAD ({new_style_id_detected})", use_container_width=True)
+
                     # Thực hiện so khớp ma trận hình học khi cơ sở dữ liệu trả về bản ghi liên quan
                     if db_results:
                         import numpy as np
