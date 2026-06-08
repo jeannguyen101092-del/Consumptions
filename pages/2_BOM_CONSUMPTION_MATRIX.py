@@ -669,3 +669,28 @@ def thuc_thi_pipeline_rd(user_query, chat_file, SB_URL, SB_KEY, client, types, j
                     client_gen = genai.Client(api_key=gemini_key)
                     # Triệu gọi hàm xử lý R&D độc lập để phản hồi "Hỏi gì đáp nấy"
                     thuc_thi_pipeline_rd(user_query, chat_file, SB_URL, SB_KEY, client_gen, types, json, requests, pdfinfo_from_bytes, convert_from_bytes, io, re, st)
+# =============================================================================
+# KHÔI PHỤC THANH CHAT INPUT GỐC - ĐƯA RA SÁT LỀ TRÁI NGOÀI CÙNG
+# =============================================================================
+if "chat_history" not in st.session_state:
+    st.session_state["chat_history"] = []
+
+for msg in st.session_state["chat_history"]:
+    with st.chat_message(msg["role"]):
+        st.write(msg["content"])
+        if msg.get("type") == "visual" and msg.get("image_url"):
+            st.image(msg["image_url"], caption="Hình vẽ kỹ thuật", width=220)
+
+if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vải và đối soát sai lệch..."):
+    st.session_state["chat_history"].append({"role": "user", "type": "text", "content": user_query})
+    with st.chat_message("user"): 
+        st.write(user_query)
+        
+    with st.chat_message("assistant"):
+        with st.spinner("Hệ thống AI R&D Engine đang kết nối kho tri thức nền dệt may..."):
+            gemini_key = get_secure_gemini_key()
+            if not gemini_key: 
+                st.error("CRITICAL SERVER BREAKDOWN: AI API Token is missing.")
+            else:
+                client_gen = genai.Client(api_key=gemini_key)
+                thuc_thi_pipeline_rd(user_query, chat_file, SB_URL, SB_KEY, client_gen, types, json, requests, pdfinfo_from_bytes, convert_from_bytes, io, re, st)
