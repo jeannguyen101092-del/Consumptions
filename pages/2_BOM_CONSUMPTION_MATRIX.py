@@ -650,7 +650,6 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     target_new_sketch_bytes = None 
                     target_new_sketch_vector = None
                     
-                    # Kiểm tra tệp đính kèm từ session_state một cách an toàn
                     has_file = False
                     chat_file = st.session_state.get('chat_file', None)
                     if chat_file is not None:
@@ -661,21 +660,24 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                         if chat_file.name.lower().endswith('.pdf'):
                             info_chat = pdfinfo_from_bytes(file_bytes)
                             total_chat_pages = int(info_chat.get("Pages", 1))
-                            chat_images = convert_from_bytes(file_bytes, dpi=110, first_page=1, last_page=total_chat_pages)
+                            
+                            # TỐI ƯU HÓA CỐT LÕI: Chỉ quét tối đa 3 trang đầu để lấy mã hàng, tránh tràn băng thông API
+                            max_pages_to_read = min(total_chat_pages, 3)
+                            chat_images = convert_from_bytes(file_bytes, dpi=110, first_page=1, last_page=max_pages_to_read)
+                            
                             for idx, page_img in enumerate(chat_images):
                                 img_buf = io.BytesIO()
-                                page_img.convert("RGB").save(img_buf, format="JPEG", quality=85)
+                                page_img.convert("RGB").save(img_buf, format="JPEG", quality=80) # Giảm nhẹ quality xuống 80 để tối ưu dung lượng
                                 img_payload.append(types.Part.from_bytes(data=img_buf.getvalue(), mime_type='image/jpeg'))
                         else:
                             img_payload.append(types.Part.from_bytes(data=file_bytes, mime_type='image/jpeg'))
                         
                         extraction_prompt = """
-                        Analyze ALL the attached technical pack images page by page.
-                        1. Locate the genuine 'Style ID' / 'Style Number' / 'Mã hàng'. Clean it.
+                        Analyze the attached technical pack front pages.
+                        1. Locate the genuine 'Style ID' / 'Style Number' / 'Mã hàng' (e.g., 1P001363). Clean it.
                         2. Identify the Product Line 'Category' (e.g., Pants, Jeans, Jacket).
                         3. Extract all points of measurement (POM) into a strict key-value flat dictionary.
-                        4. CRITICAL VISION TASK: Find the exact 'PAGE INDEX' (starting from 0) that contains the TECHNICAL BLACK AND WHITE FLAT SKETCH / DRAWING. 
-                           DO NOT select pages containing real product photographs, fabrics, or 'Labeled Images' wash denim sheets. Only pick the pure line art design drawing page.
+                        4. Find the exact 'PAGE INDEX' (starting from 0) that contains the TECHNICAL BLACK AND WHITE FLAT SKETCH / DRAWING.
                         
                         Return a valid JSON with this exact schema:
                         {"detected_style_id": "Pure code only", "category": "Pants or Jacket", "fabric_code": "Pure fabric code", "measurements": {"Vị trí đo": "Thông số"}, "sketch_page_index_detected": 0}
@@ -704,7 +706,6 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                             else:
                                 target_new_sketch_bytes = file_bytes
                                 
-                            # Số hóa hình ảnh bản vẽ phẳng bằng mô hình Multimodal Embedding chuyên dụng (Đã bọc Content chuẩn SDK mới)
                             if target_new_sketch_bytes:
                                 try:
                                     image_content = types.Content(
@@ -718,10 +719,11 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                                         target_new_sketch_vector = embedding_res.embedding.values
                                 except Exception:
                                     target_new_sketch_vector = None
-                        except Exception:
-                            pass
+                        except Exception as extract_err:
+                            # In lỗi ra màn hình debug nội bộ nếu quá trình gọi AI bóc tách gặp sự cố cấu trúc
+                            st.sidebar.error(f"Lỗi phân tích cú pháp AI: {str(extract_err)}")
                     
-                    # --- SỬA LỖI TRÍCH XUẤT TỪ KHÓA VÀ LỌC CHỮ 'TƯƠNG ĐỒNG' ---
+                    # --- XỬ LÝ LỌC TỪ KHÓA ---
                     clean_text_upper = str(user_query).strip().upper()
                     is_searching_fabric = any(word in clean_text_upper for word in ["CODE VẢI", "CODE VAI", "MÃ VẢI", "MA VAI", "LOẠI VẢI", "LOAI VAI", "TÌM VẢI", "TIM VAI"])
                     
@@ -731,7 +733,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     if codes_found:
                         valid_codes = [c for c in codes_found if len(c) >= 3 and not c.isdigit()]
                         if valid_codes:
-                            clean_query = str(valid_codes[0]).strip()
+                            clean_query = str(valid_codes).strip()
                     
                     if not clean_query:
                         pattern_remove = r"\b(TÌM|TIM|KIỂM TRA|KIEM TRA|XEM|CHECK|CHO TOI|XIN|MÃ HÀNG|MA HANG|MÃ|MA|VẢI|VAI|ĐỊNH MỨC|DINH MUC|CODE|TRÍCH XUẤT|TRICH XUAT|HÌNH ẢNH|HINH ANH|HÌNH|HINH|ẢNH|ANH|TÍNH|TINH|THÔNG TIN|THONG TIN|NÀY|NAY|VỚI|KHO|KIẾM|VOI|TRONG)\b"
@@ -740,7 +742,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                             clean_query = clean_query.replace(word, "")
                         clean_query = clean_query.strip()
                     
-                    # QUYẾT ĐỊNH TỪ KHÓA TRUY VẤN (ƯU TIÊN MÃ HÀNG AI TỰ BÓC TỪ FILE PDF)
+                    # ĐỊNH ĐOẠT TỪ KHÓA TRUY VẤN
                     dynamic_keyword = ""
                     if has_file:
                         if is_searching_fabric and new_style_fabric_detected != "UNKNOWN_FABRIC":
@@ -761,6 +763,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
 
                     if has_file and target_new_sketch_bytes:
                         st.image(target_new_sketch_bytes, caption=f"🖼️ Bản vẽ phẳng công nghệ trích xuất từ FILE MỚI UPLOAD ({new_style_id_detected})", use_container_width=True)
+
                     # Thực hiện so khớp ma trận hình học khi cơ sở dữ liệu trả về bản ghi liên quan
                     if db_results:
                         import numpy as np
