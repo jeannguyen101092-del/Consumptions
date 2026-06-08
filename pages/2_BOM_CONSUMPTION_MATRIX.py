@@ -641,7 +641,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                         Analyze ALL the attached technical pack images page by page.
                         1. Locate the genuine 'Style ID' / 'Style Number' / 'Mã hàng'. Clean it.
                         2. Identify the Product Line 'Category' (e.g., Pants, Jeans, Jacket).
-                        3. Extract all points of measurement (POM) into a strict key-value flat dictionary.
+                        3. Extract all points of measurement (POM) and their specifications into a strict key-value flat dictionary.
                         4. CRITICAL VISION TASK: Find the exact 'PAGE INDEX' (starting from 0) that contains the TECHNICAL BLACK AND WHITE FLAT SKETCH / DRAWING. 
                            DO NOT select pages containing real product photographs, fabrics, or 'Labeled Images' wash denim sheets. Only pick the pure line art design drawing page.
                         
@@ -677,109 +677,71 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     clean_text_upper = str(user_query).strip().upper()
                     is_searching_fabric = any(word in clean_text_upper for word in ["CODE VẢI", "CODE VAI", "MÃ VẢI", "MA VAI", "LOẠI VẢI", "LOAI VAI", "TÌM VẢI", "TIM VAI"])
                     
-                    # Ưu tiên quét tìm mã liên tiếp (Mã chữ + số)
-                    codes_found = re.findall(r'\b[A-Z]*\d+[A-Z0-9]*\b|\b[A-Z0-9]+-\d+[A-Z0-9-]*\b', clean_text_upper)
+                    # Quét tìm xem câu chat có chứa mã chữ+số rõ ràng nào không (Ví dụ: MR1705)
+                    codes_found = re.findall(r'\b[A-Z]+\d+[A-Z0-9]*\b|\b\d+[A-Z]+\d*\b', clean_text_upper)
+                    
                     if codes_found:
-                        clean_query = codes_found[0]
+                        clean_query = codes_found[0] # Lấy mã tìm kiếm đích danh từ câu chat
                     else:
-                        # BỘ LỌC TỐI ƯU MỚI: Dọn dẹp triệt để các cụm từ thừa để tránh chữ rác lọt vào DB
-                        pattern_remove = r"\b(TÌM|TIM|KIỂM TRA|KIEM TRA|XEM|CHECK|CHO TOI|XIN|MÃ HÀNG|MA HANG|MÃ|MA|VẢI|VAI|ĐỊNH MỨC|DINH MUC|CODE|TRÍCH XUẤT|TRICH XUAT|HÌNH ẢNH|HINH ANH|HÌNH|HINH|ẢNH|ANH|TÍNH|TINH|THÔNG TIN|THONG TIN|NÀY|NAY|TƯƠNG ĐỒNG|TUONG DONG|VỚI|KHO|KIẾM|VOI)\b"
+                        # Nếu câu chat chỉ có chữ rác ("tìm tương đồng với mã này"), xóa hết chữ thừa đi
+                        pattern_remove = r"\b(TÌM|TIM|KIỂM TRA|KIEM TRA|XEM|CHECK|CHO TOI|XIN|MÃ HÀNG|MA HANG|MÃ|MA|VẢI|VAI|ĐỊNH MỨC|DINH MUC|CODE|TRÍCH XUẤT|TRICH XUAT|HÌNH ẢNH|HINH ANH|HÌNH|HINH|ẢNH|ANH|TÍNH|TINH|THÔNG TIN|THONG TIN|NÀY|NAY|TƯƠNG ĐỒNG|TUONG DONG|VỚI|KHO|KIẾM|VOI|TRONG|MÃ|HÀNG)\b"
                         clean_query = re.sub(pattern_remove, "", clean_text_upper).strip()
                     
+                    # BIỆN PHÁP CHẶN CHỮ RÁC: Nếu từ câu chat không lọc ra được mã chuẩn, ép lấy mã nhận diện từ file
                     if has_file:
                         if is_searching_fabric and new_style_fabric_detected != "UNKNOWN_FABRIC":
                             dynamic_keyword = str(new_style_fabric_detected).strip()
-                        elif new_style_id_detected != "UNKNOWN_STYLE" and not clean_query:
-                            dynamic_keyword = str(new_style_id_detected).strip()
+                        elif clean_query and len(clean_query) >= 4 and not any(w in clean_query for w in ["VỚI", "KHO", "TRONG"]):
+                            dynamic_keyword = clean_query
                         else:
-                            dynamic_keyword = clean_query if clean_query else str(new_style_id_detected).strip()
+                            dynamic_keyword = str(new_style_id_detected).strip() # Ép lấy 1P001452 từ file
                     else:
-                        dynamic_keyword = clean_query
+                        dynamic_keyword = clean_query if clean_query else "UNKNOWN"
 
                     dynamic_keyword = re.sub(r"[\[\]'\"*?%#&]", "", dynamic_keyword).strip()
-                    if not dynamic_keyword:
-                        dynamic_keyword = "UNKNOWN"
+                    if not dynamic_keyword or len(dynamic_keyword) < 3:
+                        dynamic_keyword = str(new_style_id_detected).strip() if new_style_id_detected != "UNKNOWN_STYLE" else "UNKNOWN"
 
                     db_results = get_techpack_spec_from_db(style_name_keyword=dynamic_keyword)
                     backup_res = get_historical_fabric_consumption_from_db(search_keyword=dynamic_keyword)
 
                     if has_file and target_new_sketch_bytes:
-                        st.image(target_new_sketch_bytes, caption=f"🖼️ Bản vẽ phẳng công nghệ trích xuất từ FILE MỚI UPLOAD ({new_style_id_detected})", use_container_width=True)
+                        st.image(target_new_sketch_bytes, caption=f"收藏 Bản vẽ phẳng công nghệ trích xuất từ FILE MỚI UPLOAD ({new_style_id_detected})", use_container_width=True)
 
 
 
 
 
 # =============================================================================
-# ĐOẠN 2 - PHẦN A: ĐỐI CHIẾU THỊ GIÁC ĐỘNG VỚI KHO ĐỂ XÁC ĐỊNH MÃ TƯƠNG ĐỒNG CHUẨN
+# ĐOẠN 2 - PHẦN A: BẢN THÔNG MẠCH TUYỆT ĐỐI TRUY VẤN ĐA BẢNG ĐỒNG THỜI
 # =============================================================================
                     base_sb_url = SB_URL.rstrip('/')
                     headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
 
-                    is_similarity_requested = any(word in clean_text_upper for word in ["TƯƠNG ĐỒNG", "TUONG DONG", "GIỐNG", "GIONG", "SO SÁNH", "SO SANH", "ĐỊNH MỨC", "DINH MUC", "THÔNG SỐ", "THONG SO", "VẢI", "VAI"])
+                    is_similarity_requested = True
                     fabric_records = []
                     techpack_records = []
-                    matched_style_name = None
 
                     if is_similarity_requested:
                         short_keyword = dynamic_keyword.strip().upper()
                         
-                        # 1. Trường hợp người dùng gõ lệnh tra cứu có chứa mã cụ thể -> Dùng mã chữ quét DB luôn
-                        if short_keyword and short_keyword != "UNKNOWN" and short_keyword != "VỚI MÃ NÀY" and short_keyword != "VOI MA NAY":
-                            matched_style_name = short_keyword
-                        
-                        # 2. Luồng Tìm Mã Tương Đồng Động: Lấy toàn bộ danh sách ảnh thật trong DB ra để Vision AI đối chiếu
-                        elif has_file and target_new_sketch_bytes:
-                            with st.spinner("Vision AI đang đối chiếu hình ảnh nét phẳng với danh mục kho dữ liệu..."):
-                                url_all_warehouse = f"{base_sb_url}/rest/v1/thong_so_techpack?select=StyleName,SketchURL"
-                                try:
-                                    res_all = requests.get(url_all_warehouse, headers=headers, timeout=5)
-                                    warehouse_list = res_all.json() if res_all.status_code == 200 else []
-                                except Exception:
-                                    warehouse_list = []
+                        # Gọi API quét đồng thời cả 2 bảng dựa trên từ khóa sạch (Ví dụ: 1P001452)
+                        url_san_pham = f"{base_sb_url}/rest/v1/san_pham?or=(style_name.ilike.*{quote(short_keyword)}*,article_name.ilike.*{quote(short_keyword)}*)&select=*"
+                        url_techpack = f"{base_sb_url}/rest/v1/thong_so_techpack?StyleName=ilike.*{quote(short_keyword)}*&select=*"
 
-                                if warehouse_list:
-                                    vision_payload = [
-                                        types.Part.from_bytes(data=target_new_sketch_bytes, mime_type='image/jpeg'),
-                                        f"""
-                                        Compare the geometric structure of this uploaded flat line sketch with the available warehouse database entries:
-                                        Database entries: {json.dumps(warehouse_list, ensure_ascii=False)}
-                                        
-                                        Task: Based purely on drawing outlines (pockets, fly, sewing lines), match it to the single most similar 'StyleName' from the database list.
-                                        Return a clean JSON with this exact schema: {{"most_similar_style": "StyleName from list or null"}}
-                                        """
-                                    ]
-                                    try:
-                                        v_res = client.models.generate_content(
-                                            model='gemini-2.5-flash', 
-                                            contents=vision_payload,
-                                            config=types.GenerateContentConfig(response_mime_type="application/json", temperature=0.0)
-                                        )
-                                        matched_style_name = json.loads(v_res.text.strip()).get("most_similar_style")
-                                    except Exception:
-                                        matched_style_name = None
+                        def fetch_url(url):
+                            try:
+                                res = requests.get(url, headers=headers, timeout=5)
+                                return res.json() if res.status_code == 200 else []
+                            except Exception:
+                                return []
 
-                        # Khóa từ khóa chuẩn sau khi đối chiếu ảnh thành công để truyền xuống bước sau
-                        final_search_key = matched_style_name if (matched_style_name and matched_style_name != "null") else short_keyword
-
-                        # 3. Tiến hành gọi API đa luồng song song quét sâu thông tin rập và định mức của mã tương đồng
-                        if final_search_key and final_search_key != "UNKNOWN":
-                            url_san_pham = f"{base_sb_url}/rest/v1/san_pham?or=(style_name.ilike.*{quote(final_search_key)}*,article_name.ilike.*{quote(final_search_key)}*)&select=*"
-                            url_techpack = f"{base_sb_url}/rest/v1/thong_so_techpack?StyleName=ilike.*{quote(final_search_key)}*&select=*"
-
-                            def fetch_url(url):
-                                try:
-                                    res = requests.get(url, headers=headers, timeout=5)
-                                    return res.json() if res.status_code == 200 else []
-                                except Exception:
-                                    return []
-
-                            with concurrent.futures.ThreadPoolExecutor() as executor:
-                                future_sp = executor.submit(fetch_url, url_san_pham)
-                                future_tp = executor.submit(fetch_url, url_techpack)
-                                
-                                fabric_records = future_sp.result()
-                                techpack_records = future_tp.result()
+                        with concurrent.futures.ThreadPoolExecutor() as executor:
+                            future_sp = executor.submit(fetch_url, url_san_pham)
+                            future_tp = executor.submit(fetch_url, url_techpack)
+                            
+                            fabric_records = future_sp.result()
+                            techpack_records = future_tp.result()
 
 
 
@@ -792,13 +754,12 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     SUPABASE_PROJECT_URL = "https://supabase.co" 
                     
                     if techpack_records and len(techpack_records) > 0:
-                        first_record = techpack_records[0] if isinstance(techpack_records, list) else techpack_records
+                        first_record = techpack_records if isinstance(techpack_records, list) else techpack_records
                         if isinstance(first_record, dict):
                             current_style_name = first_record.get("StyleName", "")
                             db_sketch_url = first_record.get("SketchURL")
                             db_measurements_raw = first_record.get("DetailedMeasurements", {})
                         
-                        # Kiểm tra hiển thị hình ảnh Sketch tìm kiếm được từ Database
                         if db_sketch_url and str(db_sketch_url).startswith("http"):
                             st.image(db_sketch_url, caption=f"🖼️ Ảnh Sketch đối soát mã hàng trong kho: {current_style_name}", use_container_width=True)
                         elif current_style_name:
@@ -813,7 +774,6 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     
                     col1, col2 = st.columns(2)
                     with col1:
-                        # 1. Hiển thị bảng thông tin định mức vật tư và mã vải
                         st.markdown("**📋 Thông tin định mức vải (Bảng san_pham):**")
                         if fabric_records:
                             formatted_fabric = [{
@@ -828,7 +788,6 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                             st.info("Không có dữ liệu vải lịch sử trùng khớp.")
                             
                     with col2:
-                        # 2. Hiển thị bảng thông số hình học rập phẳng chuyên nghiệp
                         st.markdown("**📏 Thông số hình học gốc (Bảng thong_so_techpack):**")
                         if db_measurements_raw and isinstance(db_measurements_raw, dict):
                             formatted_measurements = [
