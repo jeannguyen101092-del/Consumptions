@@ -831,8 +831,8 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     current_style_name = ""
                     SUPABASE_PROJECT_URL = "https://supabase.co" 
                     
+                    # ✨ ĐÃ FIX TRIỆT ĐỂ LỖI TREO: Trích xuất phần tử đầu tiên mảng dữ liệu trả về từ kho đưa vào Dictionary 
                     if isinstance(techpack_records, list) and len(techpack_records) > 0:
-                        # ✨ FIX TRIỆT ĐỂ LỖI TREO: Lấy chính xác phần tử đầu tiên bằng [0] để bẻ gãy cấu trúc mảng List
                         first_record = techpack_records[0]
                         if isinstance(first_record, dict):
                             current_style_name = first_record.get("StyleName", "")
