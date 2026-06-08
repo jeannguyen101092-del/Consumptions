@@ -694,7 +694,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
 
 
 # =============================================================================
-# ĐOẠN 2 - PHẦN A: BẢN VÁ ĐỒNG BỘ TOÀN DIỆN % (TRÍCH XUẤT ẢNH VÀ SỐ ĐO THẬT TỪ KHO)
+# ĐOẠN 2 - PHẦN A: BẢN NÂNG CẤP MÁY QUÉT ẢNH CHỐNG VỠ LINK STORAGE CHỮ HOA
 # =============================================================================
                     # Hệ thống tự động kiểm tra xem câu lệnh có yêu cầu so sánh mã tương đồng hoặc tính định mức hay không
                     is_similarity_requested = any(word in clean_text_upper for word in ["TƯƠNG ĐỒNG", "TUONG DONG", "GIỐNG", "GIONG", "SO SÁNH", "SO SANH", "ĐỊNH MỨC", "DINH MUC"])
@@ -705,16 +705,32 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                         # Xác định rõ mã hàng hiện tại của file mới upload để loại trừ
                         current_style_id = new_style_id_detected if new_style_id_detected != "UNKNOWN_STYLE" else dynamic_keyword
                         
-                        # Thuật toán gọt đuôi sê-ri số thông minh (Ví dụ: 1P001452 -> giữ lại 1P0014)
+                        # Thuật toán gọt đuôi sê-ri thông minh đồng bộ (Ví dụ: 1P001452 -> giữ lại 1P0014)
                         if len(dynamic_keyword) >= 6:
                             similarity_keyword = dynamic_keyword[:-2] 
                         else:
                             prefix_match = re.match(r"^([A-Z0-9]+)", dynamic_keyword)
                             similarity_keyword = prefix_match.group(1) if prefix_match else dynamic_keyword[:3]
                         
-                        # Gọi hàm bổ trợ đã được sửa dấu % chuẩn ở Bước 1
-                        raw_techpacks = get_techpack_spec_from_db(style_name_keyword=similarity_keyword)
-                        raw_sp_data = get_historical_fabric_consumption_from_db(search_keyword=similarity_keyword)
+                        # Sử dụng cú pháp gọi trực tiếp chuẩn PostgREST dấu phần trăm (%) để lôi dữ liệu thật bảng thong_so_techpack
+                        url_tp_direct = f"{base_sb_url}/rest/v1/thong_so_techpack"
+                        params_tp_direct = {
+                            "StyleName": f"ilike.%{similarity_keyword}%", # Bắt trúng mã 1P001451 chứa chuỗi 1P0014
+                            "select": "StyleName,Category,DetailedMeasurements,SketchURL",
+                            "limit": "5"
+                        }
+                        res_tp_direct = requests.get(url_techpack, headers=headers, params=params_tp_direct, timeout=15)
+                        raw_techpacks = res_tp_direct.json() if 200 <= res_tp_direct.status_code <= 299 else []
+                        
+                        # Đồng thời gọi dữ liệu bảng san_pham lịch sử tiêu hao tương ứng bằng dấu phần trăm (%)
+                        url_sp_direct = f"{base_sb_url}/rest/v1/san_pham"
+                        params_sp_direct = {
+                            "or": f"(style_name.ilike.%{similarity_keyword}%,article_name.ilike.%{similarity_keyword}%)",
+                            "select": "style_name,article_name,consumption_type,material_size,uom,consumption_value",
+                            "limit": "30"
+                        }
+                        res_sp_direct = requests.get(url_sp_direct, headers=headers, params=params_sp_direct, timeout=15)
+                        raw_sp_data = res_sp_direct.json() if 200 <= res_sp_direct.status_code <= 299 else []
                         
                         # Bộ lọc ma trận dự phòng nếu quét theo mã chữ bị thiếu hụt dữ liệu (Fallback chủng loại)
                         detected_cat = ""
@@ -727,20 +743,33 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                             words_list = re.findall(r'\w+', detected_cat)
                             core_str_keyword = words_list[-1] if words_list else detected_cat
                             
-                            raw_techpacks = get_techpack_spec_from_db(style_name_keyword=core_str_keyword)
+                            params_cat = {
+                                "Category": f"ilike.%{core_str_keyword}%",
+                                "select": "StyleName,Category,DetailedMeasurements,SketchURL",
+                                "limit": "6"
+                            }
+                            res_cat_backup = requests.get(url_tp_direct, headers=headers, params=params_cat, timeout=15)
+                            raw_techpacks = res_cat_backup.json() if 200 <= res_cat_backup.status_code <= 299 else []
+                            
                             if not raw_sp_data:
-                                raw_sp_data = get_historical_fabric_consumption_from_db(search_keyword=core_str_keyword)
+                                params_sp_cat = {
+                                    "or": f"(style_name.ilike.%{core_str_keyword}%,article_name.ilike.%{core_str_keyword}%)",
+                                    "select": "style_name,article_name,consumption_type,material_size,uom,consumption_value",
+                                    "limit": "30"
+                                }
+                                res_sp_cat = requests.get(url_sp_direct, headers=headers, params=params_sp_cat, timeout=15)
+                                raw_sp_data = res_sp_cat.json() if 200 <= res_sp_cat.status_code <= 299 else []
 
-                        # Đảm bảo ép kiểu dữ liệu danh sách an toàn để lặp dòng
+                        # Ép kiểu danh sách bảo vệ vòng lặp an toàn
                         list_techpacks = raw_techpacks if isinstance(raw_techpacks, list) else [raw_techpacks]
                         list_sp_data = raw_sp_data if isinstance(raw_sp_data, list) else [raw_sp_data]
 
-                        # Thuật toán lọc loại trừ chính xác mã hàng hiện tại của file mới upload
+                        # Lọc loại trừ chính mã hàng hiện tại của file mới upload để ép tìm mã cũ
                         filtered_techpacks = [tp for tp in list_techpacks if str(tp.get("StyleName", "")).strip().upper() != str(current_style_id).strip().upper()]
                         if not filtered_techpacks:
                             filtered_techpacks = list_techpacks
 
-                        # LUỒNG MULTIMODAL: Tải ngầm file ảnh thật từ kho về chuyển sang nhị phân gửi vào mắt thần AI
+                        # LUỒNG MULTIMODAL CẢI TIẾN: Bảo vệ và xử lý độc lập đường link public URL chứa chữ HOA của file ảnh
                         for tp in filtered_techpacks[:4]:
                             st_name = tp.get("StyleName", "")
                             sketch_url = tp.get("SketchURL", "")
@@ -749,7 +778,13 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                             img_part = None
                             if sketch_url:
                                 try:
-                                    img_res = requests.get(sketch_url, timeout=10)
+                                    # ✨ THUẬT TOÁN BẢO VỆ URL AN TOÀN TUYỆT ĐỐI CHO FILE ẢNH CHỮ HOA:
+                                    # Tách riêng phần tên file ảnh ở đuôi đường link để mã hóa độc lập bằng hàm quote
+                                    base_route, filename_part = sketch_url.rsplit('/', 1)
+                                    # Tạo đường dẫn link public chuẩn hóa không phân biệt chữ hoa thường phá link
+                                    secure_public_url = f"{base_route}/{quote(filename_part)}"
+                                    
+                                    img_res = requests.get(secure_public_url, timeout=10)
                                     if img_res.status_code == 200:
                                         img_part = types.Part.from_bytes(data=img_res.content, mime_type='image/jpeg')
                                         vision_payload.append(img_part)
@@ -764,6 +799,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                                 "measurements": tp.get("DetailedMeasurements"),
                                 "bom_data": match_sp if match_sp else []
                             })
+
 
 
 
