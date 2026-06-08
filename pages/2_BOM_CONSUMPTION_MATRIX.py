@@ -632,9 +632,9 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                                 import time
                                 time.sleep(2 * (ext_attempt + 1))
                     
-                    # Thuật toán xử lý chuỗi nâng cao: Loại bỏ khẩu lệnh thừa
+                    # Thuật toán xử lý chuỗi: Khử sạch khẩu lệnh thừa ở mọi vị trí
                     clean_text_upper = str(user_query).strip().upper()
-                    pattern_remove = r"\b(TÌM|TIM|KIỂM TRA|KIEM TRA|XEM|CHECK|CHO TOI|XIN|MÃ HÀNG|MA HANG|MÃ|MA|VẢI|VAI|ĐỊNH MỨC|DINH MUC|CODE|TRÍCH XUẤT|TRICH XUAT|HÌNH ẢNH|HINH ANH)\b"
+                    pattern_remove = r"\b(TÌM|TIM|KIỂM TRA|KIEM TRA|XEM|CHECK|CHO TOI|XIN|MÃ HÀNG|MA HANG|MÃ|MA|VẢI|VAI|ĐỊNH MỨC|DINH MUC|CODE|TRÍCH XUẤT|TRICH XUAT|HÌNH ẢNH|HINH ANH|THÔNG TIN|THONG TIN)\b"
                     clean_query = re.sub(pattern_remove, "", clean_text_upper).strip()
                     
                     if has_file and new_style_id_detected != "UNKNOWN_STYLE" and not clean_query:
@@ -648,33 +648,22 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     if not dynamic_keyword:
                         dynamic_keyword = "UNKNOWN"
 
-                    # ✨ THUẬT TOÁN TỰ ĐỘNG VÁ MÃ CÓ DẤU GẠCH CHÉO VÀ DẤU GẠCH NGANG TRONG MÃ HÀNG:
-                    # Chuyển đổi các khoảng trắng hoặc ký tự đặc biệt thành dấu đại diện '%' để tìm kiếm tương đối diện rộng trong PostgREST
-                    # Ví dụ: "P01 495544" hoặc "P01-495544" đều biến thành cấu trúc tìm kiếm "*P01*495544*"
+                    # Thuật toán chuẩn hóa ký tự gạch ngang/khoảng trắng để Supabase PostgREST quét chứa chuỗi diện rộng
                     flexible_keyword = re.sub(r"[\s\-_]+", "*", dynamic_keyword)
+                    val_encoded = quote(flexible_keyword)
 
-                    # Khởi tạo kết nối Supabase PostgREST Parameters
+                    # KẾT NỐI URL CỨNG NGUYÊN BẢN: Đảm bảo giữ nguyên cú pháp PostgREST của Supabase
                     headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
                     base_sb_url = SB_URL.rstrip('/')
                     
-                    # 1. Truy vấn bảng thong_so_techpack
-                    url_techpack = f"{base_sb_url}/rest/v1/thong_so_techpack"
-                    params_tp = {
-                        "StyleName": f"ilike.*{flexible_keyword}*",
-                        "select": "StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL",
-                        "limit": "3"
-                    }
-                    res_tp = requests.get(url_techpack, headers=headers, params=params_tp, timeout=15)
+                    # 1. Gọi cứng URL bảng thong_so_techpack
+                    url_techpack = f"{base_sb_url}/rest/v1/thong_so_techpack?StyleName=ilike.*{val_encoded}*&select=StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL&limit=3"
+                    res_tp = requests.get(url_techpack, headers=headers, timeout=15)
                     db_results = res_tp.json() if 200 <= res_tp.status_code <= 299 else []
                     
-                    # 2. Truy vấn bảng san_pham
-                    url_san_pham = f"{base_sb_url}/rest/v1/san_pham"
-                    params_sp = {
-                        "or": f"(style_name.ilike.*{flexible_keyword}*,article_name.ilike.*{flexible_keyword}*)",
-                        "select": "style_name,article_name,consumption_type,material_size,uom,consumption_value,notes",
-                        "limit": "100"
-                    }
-                    res_sp = requests.get(url_san_pham, headers=headers, params=params_sp, timeout=15)
+                    # 2. Gọi cứng URL điều kiện OR bảng san_pham (Không bọc hàm quote() lên toàn bộ chuỗi)
+                    url_san_pham = f"{base_sb_url}/rest/v1/san_pham?or=(style_name.ilike.*{val_encoded}*,article_name.ilike.*{val_encoded}*)&select=style_name,article_name,consumption_type,material_size,uom,consumption_value,notes&limit=100"
+                    res_sp = requests.get(url_san_pham, headers=headers, timeout=15)
                     backup_res = res_sp.json() if 200 <= res_sp.status_code <= 299 else []
 
                     # HIỂN THỊ HÌNH ẢNH TRỰC QUAN NGAY TRÊN GIAO DIỆN CHAT NẾU CÓ TRONG KHO
@@ -687,6 +676,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     
                     if sketch_url_found:
                         st.image(sketch_url_found, caption=f"Hình ảnh phác thảo thiết kế tìm thấy trong kho cho mã hàng: {dynamic_keyword}", use_container_width=True)
+
 
 
 
