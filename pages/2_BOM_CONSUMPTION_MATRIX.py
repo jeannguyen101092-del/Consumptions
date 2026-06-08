@@ -699,32 +699,31 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                         except Exception:
                             pass
                     
-                                       clean_text_upper = str(user_query).strip().upper()
+                    clean_text_upper = str(user_query).strip().upper()
                     is_searching_fabric = any(word in clean_text_upper for word in ["CODE VẢI", "CODE VAI", "MÃ VẢI", "MA VAI", "LOẠI VẢI", "LOAI VAI", "TÌM VẢI", "TIM VAI"])
                     
-                    # Trích xuất các mã tiềm năng bằng Regex
+                    # Trích xuất danh sách mã hàng bằng Regex
                     codes_found = re.findall(r'\b[A-Z]*\d+[A-Z0-9]*\b|\b[A-Z0-9]+-\d+[A-Z0-9-]*\b', clean_text_upper)
                     
-                    # 1. TỐI ƯU HÓA KEYWORD TÌM KIẾM TỪ USER QUERY
+                    # 1. LẤY PHẦN TỬ CHUỖI ĐẦU TIÊN TRÁNH LỖI ÉP KIỂU NGUYÊN DANH SÁCH (LIST)
                     if codes_found:
-                        # Lấy mã đầu tiên tìm được dưới dạng chuỗi tinh khiết
                         dynamic_keyword = str(codes_found[0]).strip()
                     else:
-                        # Nếu không khớp regex, lọc bớt từ khóa thừa nhưng bảo toàn ký tự của mã hàng
-                        pattern_remove = r"\b(TÌM|TIM|KIỂM TRA|KIEM TRA|XEM|CHECK|CHO TOI|XIN|MÃ HÀNG|MA HANG|MÃ|MA|VẢI|VAI|ĐỊNH MỨC|DINH MUC|CODE|TRÍCH XUẤT|TRICH XUẤT|HÌNH ẢNH|HINH ANH|HÌNH|HINH|ẢNH|ANH|TÍNH|TINH|THÔNG TIN|THONG TIN|NÀY|NAY|TƯƠNG ĐỒNG|TUONG DONG|VỚI|KHO|KIẾM|VOI|TRONG)\b"
+                        # Nếu không khớp mẫu, thực hiện lọc từ khóa thừa nhưng giữ nguyên mã hàng
+                        pattern_remove = r"\b(TÌM|TIM|KIỂM TRA|KIEM TRA|XEM|CHECK|CHO TOI|XIN|MÃ HÀNG|MA HANG|MÃ|MA|VẢI|VAI|ĐỊNH MỨC|DINH MUC|CODE|TRÍCH XUẤT|TRICH XUAT|HÌNH ẢNH|HINH ANH|HÌNH|HINH|ẢNH|ANH|TÍNH|TINH|THÔNG TIN|THONG TIN|NÀY|NAY|TƯƠNG ĐỒNG|TUONG DONG|VỚI|KHO|KIẾM|VOI|TRONG)\b"
                         dynamic_keyword = re.sub(pattern_remove, "", clean_text_upper).strip()
                     
-                    # 2. ĐẶT ĐỘ ƯU TIÊN TUYỆT ĐỐI CHO MÃ TRÍCH XUẤT TỪ FILE (ĐỂ BẮT TRÚNG 1P001363)
+                    # 2. ĐẶT ĐỘ ƯU TIÊN TUYỆT ĐỐI CHO MÃ HÀNG HOẶC MÃ VẢI TRÍCH XUẤT TỪ FILE
                     if has_file:
                         if is_searching_fabric and new_style_fabric_detected != "UNKNOWN_FABRIC":
                             dynamic_keyword = str(new_style_fabric_detected).strip()
                         elif new_style_id_detected != "UNKNOWN_STYLE":
                             dynamic_keyword = str(new_style_id_detected).strip()
                     
-                    # Làm sạch triệt để các ký tự đặc biệt gây vỡ URL
+                    # Loại bỏ triệt để dấu ngoặc vuông và ký tự đặc biệt gây lỗi bẻ gãy liên kết URL
                     dynamic_keyword = re.sub(r"[\[\]'\"*?%#&]", "", dynamic_keyword).strip()
                     
-                    # Chặn đứng trường hợp nhiễu từ hoặc từ khóa quá ngắn vô nghĩa
+                    # Chặn các trường hợp nhiễu từ hoặc từ nối tiếng Việt quá ngắn vô nghĩa
                     if not dynamic_keyword or dynamic_keyword in ["VỚI", "KHO", "TRONG", "UNKNOWN"] or len(dynamic_keyword) < 3:
                         if new_style_id_detected != "UNKNOWN_STYLE":
                             dynamic_keyword = str(new_style_id_detected).strip()
@@ -732,6 +731,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                             dynamic_keyword = "UNKNOWN"
                 except Exception:
                     pass
+
 
 # =============================================================================
 # ĐOẠN 2 - PHẦN A: ĐỐI SOÁT VECTOR EMBEDDINGS HOÀN TOÀN BẰNG PYTHON BẮT TRÚNG MÃ
