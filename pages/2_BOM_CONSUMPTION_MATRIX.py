@@ -621,9 +621,15 @@ try:
 except ImportError:
     pass
 
-# Đảm bảo khởi tạo các biến lưu trữ lịch sử chat trong session_state
+# Đảm bảo khởi tạo các biến lưu trữ toàn cục trong phiên chạy Streamlit
 if "chat_history" not in st.session_state:
     st.session_state["chat_history"] = []
+if "new_style_id_detected" not in st.session_state:
+    st.session_state["new_style_id_detected"] = "UNKNOWN_STYLE"
+if "new_style_measurements_dict" not in st.session_state:
+    st.session_state["new_style_measurements_dict"] = {}
+if "target_new_sketch_vector" not in st.session_state:
+    st.session_state["target_new_sketch_vector"] = None
 
 # Đồng bộ dữ liệu tệp tải lên từ widget uploader vào hệ thống lưu trữ phiên
 if 'uploaded_file' in st.session_state and st.session_state['uploaded_file'] is not None:
@@ -631,7 +637,7 @@ if 'uploaded_file' in st.session_state and st.session_state['uploaded_file'] is 
 
 
 # =========================================================================
-# ĐOẠN 1: TIẾP NHẬN YÊU CẦU CHAT VÀ KIỂM TRA ĐIỀU KIỆN KẾT NỐI API GEMINI
+# ĐOẠN 1: TIẾP NHẬN CHAT INPUT VÀ KHỞI TẠO BỘ KẾT NỐI GEMINI CLIENT
 # =========================================================================
 if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vải và đối soát sai lệch..."):
     st.session_state["chat_history"].append({"role": "user", "type": "text", "content": user_query})
@@ -648,22 +654,23 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                 st.stop()
                 
             client = genai.Client(api_key=gemini_key)
-            new_style_id_detected = "UNKNOWN_STYLE"
-            new_style_raw_text = ""
-            new_style_category_detected = ""
-            new_style_fabric_detected = "UNKNOWN_FABRIC"
-            new_style_measurements_dict = {}
             img_payload = [] 
-            target_new_sketch_bytes = None 
-            target_new_sketch_vector = None
+            target_new_sketch_bytes = None
 
 
 # =========================================================================
-# ĐOẠN 2: TRÍCH XUẤT THÔNG TIN TECHPACK (PDF/IMAGE) BẰNG MULTIMODAL AI
+# ĐOẠN 2: PHÂN TÍCH TECHPACK & TRÍCH XUẤT MÃ HÀNG BẰNG MULTIMODAL AI
 # =========================================================================
 if 'client' in locals() and st.session_state.get('chat_file') is not None:
     chat_file = st.session_state['chat_file']
     file_bytes = chat_file.getvalue()
+    
+    # Bước dự phòng (Fallback): Bốc tách mã hàng từ TÊN FILE bằng Regex trước đề phòng AI lỗi
+    file_name_upper = str(chat_file.name).upper()
+    file_codes = re.findall(r'\b[A-Z0-9]*\d+[A-Z0-9]*\b', file_name_upper)
+    if file_codes:
+        # Nếu tìm thấy chuỗi chứa số dạng mã hàng (ví dụ: 1P001363), gán làm mã mặc định trước
+        st.session_state["new_style_id_detected"] = file_codes[0]
     
     try:
         if chat_file.name.lower().endswith('.pdf'):
@@ -702,11 +709,13 @@ if 'client' in locals() and st.session_state.get('chat_file') is not None:
                 config=types.GenerateContentConfig(response_mime_type="application/json", temperature=0.0)
             )
             parsed_meta = json.loads(extraction_res.text.strip())
-            new_style_id_detected = parsed_meta.get("detected_style_id", "UNKNOWN_STYLE").strip()
-            new_style_category_detected = parsed_meta.get("category", "").strip()
-            new_style_fabric_detected = parsed_meta.get("fabric_code", "UNKNOWN_FABRIC").strip()
-            new_style_measurements_dict = parsed_meta.get("measurements", {})
-            new_style_raw_text = json.dumps(new_style_measurements_dict, ensure_ascii=False)
+            
+            # Ghi nhận kết quả từ AI vào session_state (Nếu AI quét ra chuỗi hợp lệ)
+            ai_style_id = parsed_meta.get("detected_style_id", "").strip()
+            if ai_style_id and ai_style_id != "Pure code only" and ai_style_id != "":
+                st.session_state["new_style_id_detected"] = ai_style_id
+                
+            st.session_state["new_style_measurements_dict"] = parsed_meta.get("measurements", {})
             
             detected_idx = int(parsed_meta.get("sketch_page_index_detected", 0))
             if chat_file.name.lower().endswith('.pdf') and 'chat_images' in locals() and 0 <= detected_idx < len(chat_images):
@@ -721,7 +730,7 @@ if 'client' in locals() and st.session_state.get('chat_file') is not None:
                     image_content = types.Content(parts=[types.Part.from_bytes(data=target_new_sketch_bytes, mime_type='image/jpeg')])
                     embedding_res = client.models.embed_content(model='multimodal-embedding-001', contents=image_content)
                     if hasattr(embedding_res, 'embedding') and embedding_res.embedding:
-                        target_new_sketch_vector = embedding_res.embedding.values
+                        st.session_state["target_new_sketch_vector"] = embedding_res.embedding.values
                 except Exception as emb_err:
                     st.sidebar.warning(f"Không thể tạo Vector ảnh: {str(emb_err)}")
         except Exception as ai_err:
@@ -729,36 +738,34 @@ if 'client' in locals() and st.session_state.get('chat_file') is not None:
 
 
 # =========================================================================
-# ĐOẠN 3: XỬ LÝ SEARCH THEO MÃ HOẶC TRA CỨU MÃ TƯƠNG ĐỒNG TRONG KHO DATA
+# ĐOẠN 3: ĐỐI SOÁT DỮ LIỆU KHO VÀ OUTPUT KẾT QUẢ RA GIAO DIỆN
 # =========================================================================
 if 'client' in locals():
     clean_text_upper = str(user_query).strip().upper()
-    is_searching_fabric = any(word in clean_text_upper for word in ["CODE VẢI", "CODE VAI", "MÃ VẢI", "MA VAI", "LOẠI VẢI", "LOAI VAI", "TÌM VẢI", "TIM VAI"])
     
-    # Trích xuất mã hàng từ câu hỏi hoặc lấy trực tiếp mã hàng AI vừa quét được từ Techpack
+    # Trích xuất mã hàng từ tin nhắn chat của người dùng (nếu có gõ kèm mã số)
     codes_found = re.findall(r'\b[A-Z]*\d+[A-Z0-9]*\b|\b[A-Z0-9]+-\d+[A-Z0-9-]*\b', clean_text_upper)
     
-    clean_query = ""
+    # Ưu tiên lấy mã từ tin nhắn chat -> rồi đến mã từ session_state (tên file hoặc AI quét)
     if codes_found:
         clean_query = codes_found[0]
-    elif new_style_id_detected != "UNKNOWN_STYLE":
-        clean_query = new_style_id_detected
+    else:
+        clean_query = st.session_state["new_style_id_detected"]
 
-    # Khởi tạo danh sách kết quả đối soát từ kho dữ liệu
+    # Khởi tạo danh sách chứa kết quả khớp từ Database
     matching_items = [] 
     
-    # Giả lập hàm gọi dữ liệu kho dựa trên Vector ảnh dập hoặc Mã hàng (Cần kết nối tới Database của bạn)
-    # Ví dụ: matching_items = query_historical_consumption_db(clean_query, target_new_sketch_vector)
+    # [Nơi chèn hàm truy vấn database thực tế của bạn]
+    # Ví dụ: matching_items = query_historical_consumption_db(clean_query, st.session_state["target_new_sketch_vector"])
 
-    # Hiển thị phản hồi trực quan trên giao diện Streamlit đúng theo trạng thái ảnh lỗi
-    if not clean_query or ("TƯƠNG ĐỒNG" in clean_text_upper and not matching_items):
-        st.warning(f"⚠️ Hệ thống chưa tìm thấy dữ liệu đối soát hoặc mã hàng tương đồng cho mã `{new_style_id_detected}` trong kho lưu trữ.")
+    # Hiển thị thông tin phản hồi ra khung chat assistant
+    if not matching_items or "TƯƠNG ĐỒNG" in clean_text_upper:
+        # Thay thế hoàn toàn lỗi hiển thị UNKNOWN_STYLE bằng mã hàng tường minh
+        st.warning(f"⚠️ Hệ thống chưa tìm thấy dữ liệu đối soát hoặc mã hàng tương đồng cho mã `{clean_query}` trong kho lưu trữ.")
         st.info("💡 **Gợi ý hành động:** Bạn có thể kiểm tra lại tên file Techpack hoặc yêu cầu AI so sánh thủ công dựa trên bảng thông số đo vừa trích xuất.")
         
-        # Hiển thị cấu trúc thông số đo được dưới dạng bảng để người dùng tiện đối soát thủ công
-        if new_style_measurements_dict:
+        if st.session_state["new_style_measurements_dict"]:
             with st.expander("📊 Xem bảng thông số kích thước (POM) vừa quét từ Techpack"):
-                st.json(new_style_measurements_dict)
+                st.json(st.session_state["new_style_measurements_dict"])
     else:
-        st.success(f"✅ Đã tìm thấy mã hàng tương đồng cho dữ liệu: `{clean_query}`")
-        # Điền logic hiển thị bảng BOM so sánh sai lệch tại đây...
+        st.success(f"✅ Đã tìm thấy các mã hàng tương đồng liên quan đến: `{clean_query}`")
