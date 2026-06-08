@@ -681,6 +681,7 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                         if new_style_raw_text:
                             db_context += f"\n- DỮ LIỆU THÔ ĐỌC ĐƯỢC TỪ FILE TECHPACK ĐÍNH KÈM:\n{new_style_raw_text}\n"
                         # =============================================================================
+                                                # =============================================================================
                         # TÍNH TOÁN TOÀN BỘ NGUYÊN LIỆU (VẢI CHÍNH, PHỐI, KEO LÓT, TAPE...) THEO CẤU TRÚC BOM
                         # =============================================================================
                         calculation_summary = ""
@@ -745,6 +746,15 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                             else:
                                 db_context += "\n- CẢNH BÁO: Dữ liệu trống hoặc không chứa số liệu hợp lệ để xử lý toán học định mức.\n"
 
+                        # ✨ THUẬT TOÁN DỰ PHÒNG LINK ẢNH SKETCH TỰ ĐỘNG TỪ BUCKET KHO_ANH
+                        # Nếu DB tìm ra StyleName nhưng cột SketchURL bị lỗi/trống, hệ thống tự động ghép nối trực tiếp
+                        if db_results and not detected_image_url_to_render:
+                            style_title = db_results[0].get("StyleName")
+                            if style_title:
+                                detected_style_title_to_render = style_title
+                                # Tạo đường dẫn công khai chuẩn hóa đến Bucket kho_anh của Supabase
+                                detected_image_url_to_render = f"{SB_URL.rstrip('/')}/storage/v1/object/public/kho_anh/{style_title}.jpg"
+
                         # =============================================================================
                         # GỬI TOÀN BỘ NGỮ CẢNH (DỮ LIỆU DB + BẢNG TÍNH TOÁN) SANG GEMINI ĐỂ ĐỐI SOÁT CUỐI
                         # =============================================================================
@@ -769,11 +779,12 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                         
                         st.markdown(final_res.text)
                         
+                        # Hiển thị trực quan hình ảnh Sketch kỹ thuật nếu tìm thấy liên kết URL hoặc kích hoạt luồng dự phòng
                         if detected_image_url_to_render:
                             st.image(
                                 detected_image_url_to_render, 
                                 caption=f"Hình ảnh Sketch kỹ thuật hệ thống: {detected_style_title_to_render}", 
-                                use_column_width=True
+                                use_container_width=True
                             )
                         
                     except Exception as e:
