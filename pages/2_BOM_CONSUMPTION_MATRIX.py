@@ -102,7 +102,7 @@ def get_secure_gemini_key():
 def save_to_supabase_techpack_table(payload_data):
     """
     Hàm xử lý đồng bộ và nạp Master DB bảng thong_so_techpack kết hợp đẩy ảnh lên Storage kho_anh.
-    ✨ ĐÃ VẬT TƯ: Tự động số hóa ảnh Sketch thành chuỗi Text Vector nạp vào database để đối soát siêu tốc.
+    ✨ ĐÃ SỬA: Sửa cấu trúc bóc tách mảng Embedding của Google GenAI SDK mới và chuẩn hóa cấu trúc mảng Vector.
     """
     try:
         style_name_db = payload_data.get("style_number_parsed", "").strip()
@@ -116,7 +116,6 @@ def save_to_supabase_techpack_table(payload_data):
         # Xử lý đẩy hình ảnh rập/thiết kế phẳng lên Storage
         if sketch_b64:
             try:
-                import base64
                 image_data = base64.b64decode(sketch_b64)
                 storage_headers = {
                     "apikey": SB_KEY, 
@@ -129,28 +128,30 @@ def save_to_supabase_techpack_table(payload_data):
                 upload_res = requests.post(storage_url, headers=storage_headers, data=image_data, timeout=20)
                 if 200 <= upload_res.status_code <= 299:
                     public_image_url = f"{SB_URL.rstrip('/')}/storage/v1/object/public/kho_anh/{clean_filename}.jpg"
-            except Exception: 
-                pass
+            except Exception as e: 
+                print(f"[STORAGE UPLOAD ERROR]: {str(e)}")
 
-        # ⚡ TỰ ĐỘNG SỐ HÓA SKETCH THÀNH CHUỖI TEXT VECTOR ĐỂ ĐỐI SOÁT
+        # ⚡ TỰ ĐỘNG SỐ HÓA SKETCH THÀNH MẢNG SỐ THỰC CHUẨN ĐỂ ĐỐI SOÁT
         new_sketch_vector_str = None
         if image_data:
             gemini_key = get_secure_gemini_key()
             if gemini_key:
                 try:
                     client = genai.Client(api_key=gemini_key)
-                    # SỬA LỖI: Chuyển đổi sang model 'multimodal-embedding-001' để xử lý được dữ liệu hình ảnh
                     embedding_res = client.models.embed_content(
                         model='multimodal-embedding-001',
                         contents=types.Part.from_bytes(data=image_data, mime_type='image/jpeg')
                     )
-                    # SỬA LỖI: Lấy chính xác mảng giá trị số từ thuộc tính .embedding.values của SDK mới
-                    if hasattr(embedding_res, 'embedding') and embedding_res.embedding:
-                        vector_values = embedding_res.embedding.values
-                        # Ép mảng số về dạng chuỗi Text JSON để lưu vào cột text của database
-                        new_sketch_vector_str = json.dumps(vector_values)
+                    
+                    # SỬA LỖI TẠI ĐÂY: Trích xuất chính xác cấu trúc dữ liệu .embeddings từ SDK mới
+                    if hasattr(embedding_res, 'embeddings') and embedding_res.embeddings:
+                        # Lấy phần tử mảng đầu tiên và bóc tách danh sách tọa độ vector (.values)
+                        vector_values = embedding_res.embeddings[0].values
+                        
+                        # CHUẨN HÓA ĐẦU RA: Định dạng thành chuỗi mảng Postgres Vector chuẩn format [x,y,z...] 
+                        # giúp Supabase hiểu được dù cột lưu trữ cấu hình ở dạng TEXT hay mảng VECTOR chuyên dụng.
+                        new_sketch_vector_str = "[" + ",".join(str(float(v)) for v in vector_values) + "]"
                 except Exception as ai_err:
-                    # Ghi nhận lỗi cụ thể của AI ra log để dễ cấu hình debug nếu có sự cố mạng
                     print(f"[AI EMBEDDING ERROR]: {str(ai_err)}")
                     new_sketch_vector_str = None
 
@@ -175,12 +176,11 @@ def save_to_supabase_techpack_table(payload_data):
             "BaseSize": payload_data.get("base_size_name"),
             "DetailedMeasurements": clean_dict,
             "SketchURL": public_image_url,
-            "sketch_vector": new_sketch_vector_str # Luôn nạp kèm dữ liệu số hóa hình ảnh này vào DB
+            "sketch_vector": new_sketch_vector_str
         }
         
         response = requests.post(insert_url, headers=headers, json=[db_payload], timeout=15)
         
-        # Nếu Supabase báo lỗi cấu trúc, ghi nhận nhật ký lỗi ra màn hình để xử lý
         if response.status_code < 200 or response.status_code > 299:
             st.sidebar.error(f"Lỗi Supabase ({response.status_code}): {response.text}")
             return False
@@ -191,12 +191,10 @@ def save_to_supabase_techpack_table(payload_data):
         return False
 
 
-
-
 def get_historical_fabric_consumption_from_db(search_keyword=None):
     """
     Hàm tra cứu kho dữ liệu san_pham lịch sử nâng cao.
-    ✨ ĐÃ SỬA: Sửa lại ma trận OR và wildcard (*) chuẩn Supabase PostgREST, bảo toàn thứ tự chữ/số.
+    ✨ ĐÃ BẢO TRÌ: Giữ nguyên cơ chế lọc đa chiều PostgREST bằng ký tự dại diện (*).
     """
     try:
         headers = {
@@ -210,20 +208,16 @@ def get_historical_fabric_consumption_from_db(search_keyword=None):
             "limit": 1000
         }
         
-        if search_keyword:
-            # 1. Làm sạch từ khóa (Bỏ khoảng trắng và dấu gạch ngang để tìm kiếm linh hoạt)
+        if search_keyword and str(search_keyword).strip().upper() != "UNKNOWN":
             kw_raw = str(search_keyword).strip().upper()
             kw_clean = kw_raw.replace("-", "").replace(" ", "") 
             
-            # 2. Xây dựng bộ lọc OR chuẩn cú pháp PostgREST (Dùng dấu * thay vì %)
-            # Tìm kiếm theo cả chuỗi thô người dùng nhập HOẶC chuỗi đã viết liền
             or_filter = (
                 f"style_name.ilike.*{kw_raw}*,"
                 f"style_name.ilike.*{kw_clean}*,"
                 f"article_name.ilike.*{kw_raw}*,"
                 f"article_name.ilike.*{kw_clean}*"
             )
-            
             query_params["or"] = f"({or_filter})"
         
         response = requests.get(url, headers=headers, params=query_params, timeout=15)
@@ -232,11 +226,10 @@ def get_historical_fabric_consumption_from_db(search_keyword=None):
         return []
 
 
-
 def get_techpack_spec_from_db(style_name_keyword=None):
     """
     Hàm cho phép AI tự động tra cứu thông số từ bảng thong_so_techpack.
-    ✨ ĐÃ SỬA: Thay thế hoàn toàn dấu (%) bằng toán tử dấu (*) chuẩn PostgREST của Supabase.
+    ✨ ĐÃ SỬA: Ép kiểu dữ liệu tham số 'limit' về định dạng số nguyên nguyên bản tránh lỗi PostgREST.
     """
     try:
         headers = {
@@ -246,22 +239,18 @@ def get_techpack_spec_from_db(style_name_keyword=None):
         url = f"{SB_URL.rstrip('/')}/rest/v1/thong_so_techpack"
         
         query_params = {
-            "select": "StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL",
-            "limit": "500"
+            "select": "StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL,sketch_vector",
+            "limit": 500  # SỬA LỖI: Chuyển đổi từ chuỗi "500" sang số nguyên 500 chuẩn API
         }
         
-        if style_name_keyword:
-            # Làm sạch từ khóa và đồng bộ chữ hoa
+        if style_name_keyword and str(style_name_keyword).strip().upper() != "UNKNOWN":
             clean_kw = str(style_name_keyword).strip().upper()
-            
-            # CÚ PHÁP ĐÚNG CỦA SUPABASE: dùng ilike.*từ_khóa* thay vì dùng dấu %
             query_params["StyleName"] = f"ilike.*{clean_kw}*"
             
         response = requests.get(url, headers=headers, params=query_params, timeout=15)
         return response.json() if response.status_code == 200 else []
     except Exception:
         return []
-
 
 
 
