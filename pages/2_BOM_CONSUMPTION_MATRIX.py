@@ -568,10 +568,14 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
        # =============================================================================
           # PHASE 6B - PART 1: INDEPENDENT DATASTREAM & MULTI-INTENT PROCESSING PIPELINE
    # =============================================================================
+# =============================================================================
 # PHASE 6B - PART 1: AUTO-REPAIR INTENT & DOUBLE-CHECKED KEYWORD PIPELINE
 # =============================================================================
 import re
-from urllib.parse import quote  # Import để mã hóa URL an toàn
+from urllib.parse import quote
+import json
+import io
+import requests
 
 if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vải và đối soát sai lệch..."):
     st.session_state["chat_history"].append({"role": "user", "type": "text", "content": user_query})
@@ -579,10 +583,10 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
         st.write(user_query)
     
     with st.chat_message("assistant"):
-        with st.spinner("Hệ thống AI R&D Engine đang kết nối kho tri thức nền dệt may..."):
+        with st.spinner("Hệ thống AI R&D Engine đang kết nối kho tri thức nền dệt mai..."):
             gemini_key = get_secure_gemini_key()
             if not gemini_key: 
-                ans = "CRITICAL SERVER BREAKDOWN: AI API Token is missing."
+                st.error("CRITICAL SERVER BREAKDOWN: AI API Token is missing.")
             else:
                 try:
                     client = genai.Client(api_key=gemini_key)
@@ -630,22 +634,17 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                                 import time
                                 time.sleep(2 * (ext_attempt + 1))
                     
-                    # ✨ THUẬT TOÁN XÁC ĐỊNH TỪ KHÓA TRUY VẤN THÔNG MINH - ĐÃ CẢI TIẾN ĐỘ CHÍNH XÁC
+                    # ✨ THUẬT TOÁN XÁC ĐỊNH TỪ KHÓA TRUY VẤN THÔNG MINH - ĐÃ CẢI TIẾN
                     dynamic_keyword = ""
                     clean_text_upper = str(user_query).strip().upper()
                     
-                    # Cải tiến 1: Dùng Regex tìm các cụm ký tự dạng Mã hàng (chứa chữ, số, dấu gạch ngang, dấu cách nhẹ)
-                    # Loại bỏ các từ khẩu lệnh phổ biến ở đầu câu trước
                     clean_query = re.sub(r"^(TÌM|KIỂM TRA|XEM|CHECK|CHO TOI|XIN)\s+(MÃ HÀNG|MÃ|CODE|VẢI|ĐỊNH MỨC)?\s*", "", clean_text_upper)
                     
                     if chat_file and new_style_id_detected != "UNKNOWN_STYLE" and not clean_query.strip():
-                        # Nếu người dùng chỉ up file và không nhập text câu lệnh
                         dynamic_keyword = str(new_style_id_detected).strip()
                     else:
-                        # Giữ nguyên cấu trúc chữ + khoảng cách của từ khóa trần (Ví dụ: "P3026" hoặc "SJ-8902" hoặc "JACKET 01")
                         dynamic_keyword = clean_query.strip()
 
-                    # CHUẨN HÓA AN TOÀN: Giữ lại dấu gạch ngang, gạch dưới và dấu cách. Xóa ký tự phá hoại query.
                     dynamic_keyword = re.sub(r"[\[\]'\"*?%#&]", "", dynamic_keyword).strip()
                     
                     if not dynamic_keyword:
@@ -655,14 +654,11 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
                     base_sb_url = SB_URL.rstrip('/')
                     
-                    # Cải tiến 2: Sử dụng url_keyword đã qua mã hóa quote() để tránh lỗi vỡ cấu trúc URL API Supabase
                     url_keyword = quote(f"*{dynamic_keyword}*")
-                    
                     url_techpack = f"{base_sb_url}/rest/v1/thong_so_techpack?StyleName=ilike.{url_keyword}&select=StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL&limit=3"
                     res_tp = requests.get(url_techpack, headers=headers, timeout=15)
                     db_results = res_tp.json() if 200 <= res_tp.status_code <= 299 else []
                     
-                    # Định dạng lại chuỗi điều kiện OR trong Supabase PostgREST
                     or_filter = quote(f"style_name.ilike.*{dynamic_keyword}*,article_name.ilike.*{dynamic_keyword}*,notes.ilike.*{dynamic_keyword}*")
                     url_san_pham = f"{base_sb_url}/rest/v1/san_pham?or=({or_filter})&select=style_name,article_name,consumption_type,material_size,uom,consumption_value,notes&limit=1000"
                     
@@ -683,5 +679,16 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                         db_context += f"- Không tìm thấy thông số kỹ thuật trực tiếp cho từ khóa '{dynamic_keyword}' trong bảng thong_so_techpack.\n"
                     
                     if backup_res:
-                        # (Đoạn xử lý chuỗi db_context tiếp theo của bạn...)
-                        pass
+                        db_context += f"\n- Kết quả tra cứu định mức sản phẩm: Tìm thấy {len(backup_res)} dòng dữ liệu.\n"
+                        for sp in backup_res[:5]: # Giới hạn hiển thị mẫu 5 dòng tránh tràn context
+                            db_context += f"  + Loại: {sp.get('consumption_type')} | Khổ: {sp.get('material_size')} | Định mức: {sp.get('consumption_value')} {sp.get('uom')}\n"
+                    else:
+                        db_context += f"- Không tìm thấy dữ liệu định mức trong bảng san_pham cho từ khóa '{dynamic_keyword}'.\n"
+                    
+                    # Gọi LLM xử lý tiếp với db_context tích hợp sẵn
+                    # (Thêm logic prompt gửi cho Gemini và hiển thị kết quả bằng st.write ở đây nếu cần)
+                    st.success("Đã nạp dữ liệu kho thành công!")
+                    st.text(db_context)
+
+                except Exception as e:
+                    st.error(f"Lỗi hệ thống trong quá trình xử lý: {str(e)}")
