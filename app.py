@@ -60,23 +60,26 @@ st.markdown("""
     </div>
 """, unsafe_allow_html=True)
 # =============================================================================
-# =============================================================================
-# LOGIC KÍCH HOẠT CHẠY FILE DONG_BO_KHO.PY QUA SIDEBAR (ĐÃ VÁ LỖI CĂN LỀ CHUẨN)
+# LOGIC KÍCH HOẠT CHẠY FILE DONG_BO_KHO.PY QUA SIDEBAR (VÁ LỖI CẤU TRÚC HÀM)
 # =============================================================================
 import dong_bo_kho
 
-st.sidebar.markdown("---")
-st.sidebar.subheader("⚙️ Phân hệ Quản trị")
-
-if st.sidebar.button("⚡ Đồng bộ hóa Vector Kho mẫu"):
+def trigger_sync_process():
+    # Gom toàn bộ biến và lệnh chạy lồng vào trong hàm để bảo vệ cấu trúc dòng
     token_chinh_xac = st.secrets.get("GEMINI_API_KEY", "").strip()
     if not token_chinh_xac:
         token_chinh_xac = st.secrets.get("GEMINI_KEY", "").strip()
         
     if token_chinh_xac:
         with st.sidebar.spinner("Đang xử lý số hóa hình ảnh toàn bộ mã cũ..."):
-            # THỤT LỀ QUYẾT ĐỊNH: Phải lùi vào 12 dấu cách (hoặc 3 dấu Tab)
             msg = dong_bo_kho.run_sync(token_chinh_xac, SB_URL, SB_KEY)
             st.sidebar.success(msg)
     else:
         st.sidebar.error("Không tìm thấy cấu hình GEMINI_API_KEY trong bộ Secrets.")
+
+st.sidebar.markdown("---")
+st.sidebar.subheader("⚙️ Phân hệ Quản trị")
+
+# Khi nhấn nút, chỉ thực hiện gọi tên hàm xử lý ở trên
+if st.sidebar.button("⚡ Đồng bộ hóa Vector Kho mẫu"):
+    trigger_sync_process()
