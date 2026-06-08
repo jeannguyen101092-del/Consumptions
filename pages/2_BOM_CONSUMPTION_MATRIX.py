@@ -196,7 +196,7 @@ def save_to_supabase_techpack_table(payload_data):
 def get_historical_fabric_consumption_from_db(search_keyword=None):
     """
     Hàm tra cứu kho dữ liệu san_pham lịch sử nâng cao.
-    ✨ ĐÃ SỬA: Tìm kiếm mờ thông minh, tự động quét cả dạng viết liền, dấu cách và dấu gạch ngang!
+    ✨ ĐÃ SỬA: Sửa lại ma trận OR và wildcard (*) chuẩn Supabase PostgREST, bảo toàn thứ tự chữ/số.
     """
     try:
         headers = {
@@ -211,22 +211,20 @@ def get_historical_fabric_consumption_from_db(search_keyword=None):
         }
         
         if search_keyword:
-            # Làm sạch từ khóa thô ban đầu
+            # 1. Làm sạch từ khóa (Bỏ khoảng trắng và dấu gạch ngang để tìm kiếm linh hoạt)
             kw_raw = str(search_keyword).strip().upper()
-            # Tự động tạo ra các biến thể tìm kiếm khác nhau để đối soát chéo
-            kw_clean = kw_raw.replace("-", "").replace(" ", "") # Dạng viết liền: NP430, SJ8902
+            kw_clean = kw_raw.replace("-", "").replace(" ", "") 
             
-            # Trích xuất phần chữ và số để tạo dạng gạch ngang và khoảng trắng dự phòng
-            letters = "".join(re.findall(r'[A-Z]+', kw_clean))
-            digits = "".join(re.findall(r'\d+', kw_clean))
+            # 2. Xây dựng bộ lọc OR chuẩn cú pháp PostgREST (Dùng dấu * thay vì %)
+            # Tìm kiếm theo cả chuỗi thô người dùng nhập HOẶC chuỗi đã viết liền
+            or_filter = (
+                f"style_name.ilike.*{kw_raw}*,"
+                f"style_name.ilike.*{kw_clean}*,"
+                f"article_name.ilike.*{kw_raw}*,"
+                f"article_name.ilike.*{kw_clean}*"
+            )
             
-            # Xây dựng màng lọc ma trận or của Supabase PostgREST
-            if letters and digits:
-                or_filter = f"(style_name.ilike.*{letters}*{digits}*,article_name.ilike.*{letters}*{digits}*)"
-            else:
-                or_filter = f"(style_name.ilike.*{kw_raw}*,article_name.ilike.*{kw_raw}*)"
-                
-            query_params["or"] = or_filter
+            query_params["or"] = f"({or_filter})"
         
         response = requests.get(url, headers=headers, params=query_params, timeout=15)
         return response.json() if response.status_code == 200 else []
@@ -234,11 +232,11 @@ def get_historical_fabric_consumption_from_db(search_keyword=None):
         return []
 
 
+
 def get_techpack_spec_from_db(style_name_keyword=None):
     """
     Hàm cho phép AI tự động tra cứu thông số từ bảng thong_so_techpack.
-    ✨ SỬA LỖI TOÁN TỬ GỐC: Đổi từ toán tử dạng Regex (.*) sang toán tử chuẩn PostgREST (%) 
-    để bắt trúng mã 1P001451 trong kho lưu trữ của bạn.
+    ✨ ĐÃ SỬA: Thay thế hoàn toàn dấu (%) bằng toán tử dấu (*) chuẩn PostgREST của Supabase.
     """
     try:
         headers = {
@@ -253,14 +251,17 @@ def get_techpack_spec_from_db(style_name_keyword=None):
         }
         
         if style_name_keyword:
-            clean_kw = str(style_name_keyword).strip()
-            # Đổi từ ilike.*{clean_kw}* sang ilike.%{clean_kw}% chuẩn cú pháp Supabase PostgREST
-            query_params["StyleName"] = f"ilike.%{clean_kw}%"
+            # Làm sạch từ khóa và đồng bộ chữ hoa
+            clean_kw = str(style_name_keyword).strip().upper()
+            
+            # CÚ PHÁP ĐÚNG CỦA SUPABASE: dùng ilike.*từ_khóa* thay vì dùng dấu %
+            query_params["StyleName"] = f"ilike.*{clean_kw}*"
             
         response = requests.get(url, headers=headers, params=query_params, timeout=15)
         return response.json() if response.status_code == 200 else []
     except Exception:
         return []
+
 
 
 
@@ -698,36 +699,49 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                         except Exception:
                             pass
                     
+                                        # ... [Phần code xử lý PDF và Gemini giữ nguyên phía trên] ...
+                    
                     clean_text_upper = str(user_query).strip().upper()
                     is_searching_fabric = any(word in clean_text_upper for word in ["CODE VẢI", "CODE VAI", "MÃ VẢI", "MA VAI", "LOẠI VẢI", "LOAI VAI", "TÌM VẢI", "TIM VAI"])
                     
+                    # Trích xuất các mã tiềm năng bằng Regex
                     codes_found = re.findall(r'\b[A-Z]*\d+[A-Z0-9]*\b|\b[A-Z0-9]+-\d+[A-Z0-9-]*\b', clean_text_upper)
                     
+                    # 1. TỐI ƯU HÓA KEYWORD TÌM KIẾM TỪ USER QUERY
                     if codes_found:
-                        clean_query = codes_found
+                        # Lấy mã đầu tiên tìm được dưới dạng chuỗi tinh khiết
+                        dynamic_keyword = str(codes_found[0]).strip()
                     else:
+                        # Nếu không khớp regex, lọc bớt từ khóa thừa nhưng bảo toàn ký tự của mã hàng
                         pattern_remove = r"\b(TÌM|TIM|KIỂM TRA|KIEM TRA|XEM|CHECK|CHO TOI|XIN|MÃ HÀNG|MA HANG|MÃ|MA|VẢI|VAI|ĐỊNH MỨC|DINH MUC|CODE|TRÍCH XUẤT|TRICH XUAT|HÌNH ẢNH|HINH ANH|HÌNH|HINH|ẢNH|ANH|TÍNH|TINH|THÔNG TIN|THONG TIN|NÀY|NAY|TƯƠNG ĐỒNG|TUONG DONG|VỚI|KHO|KIẾM|VOI|TRONG)\b"
-                        clean_query = re.sub(pattern_remove, "", clean_text_upper).strip()
+                        dynamic_keyword = re.sub(pattern_remove, "", clean_text_upper).strip()
                     
+                    # 2. ĐẶT ĐỘ ƯU TIÊN TUYỆT ĐỐI CHO MÃ TRÍCH XUẤT TỪ FILE (ĐỂ BẮT TRÚNG 1P001363)
                     if has_file:
                         if is_searching_fabric and new_style_fabric_detected != "UNKNOWN_FABRIC":
                             dynamic_keyword = str(new_style_fabric_detected).strip()
-                        elif clean_query and len(clean_query) >= 3 and not any(w in clean_query for w in ["VỚI", "KHO", "TRONG"]):
-                            dynamic_keyword = clean_query
-                        else:
+                        elif new_style_id_detected != "UNKNOWN_STYLE":
+                            # Ưu tiên tối cao: Nếu file đính kèm có mã hàng do AI bóc được, lấy luôn mã đó làm keyword
                             dynamic_keyword = str(new_style_id_detected).strip()
-                    else:
-                        dynamic_keyword = clean_query if clean_query else "UNKNOWN"
-
+                    
+                    # Làm sạch triệt để các ký tự đặc biệt gây vỡ URL
                     dynamic_keyword = re.sub(r"[\[\]'\"*?%#&]", "", dynamic_keyword).strip()
-                    if not dynamic_keyword or len(dynamic_keyword) < 3:
-                        dynamic_keyword = str(new_style_id_detected).strip() if new_style_id_detected != "UNKNOWN_STYLE" else "UNKNOWN"
+                    
+                    # Chặn đứng trường hợp nhiễu từ hoặc từ khóa quá ngắn vô nghĩa
+                    if not dynamic_keyword or dynamic_keyword in ["VỚI", "KHO", "TRONG", "UNKNOWN"] or len(dynamic_keyword) < 3:
+                        if new_style_id_detected != "UNKNOWN_STYLE":
+                            dynamic_keyword = str(new_style_id_detected).strip()
+                        else:
+                            dynamic_keyword = "UNKNOWN"
 
+                    # 3. TRUY VẤN CƠ SỞ DỮ LIỆU ĐÃ ĐƯỢC CHUẨN HÓA CÚ PHÁP
                     db_results = get_techpack_spec_from_db(style_name_keyword=dynamic_keyword)
                     backup_res = get_historical_fabric_consumption_from_db(search_keyword=dynamic_keyword)
 
+                    # 4. HIỂN THỊ HÌNH ẢNH BẢN VẼ PHẲNG TỪ FILE MỚI UPLOAD
                     if has_file and target_new_sketch_bytes:
                         st.image(target_new_sketch_bytes, caption=f"🖼️ Bản vẽ phẳng công nghệ trích xuất từ FILE MỚI UPLOAD ({new_style_id_detected})", use_container_width=True)
+
 # =============================================================================
 # ĐOẠN 2 - PHẦN A: ĐỐI SOÁT VECTOR EMBEDDINGS HOÀN TOÀN BẰNG PYTHON BẮT TRÚNG MÃ
 # =============================================================================
