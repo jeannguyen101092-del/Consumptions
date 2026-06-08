@@ -637,7 +637,6 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                         else:
                             img_payload.append(types.Part.from_bytes(data=file_bytes, mime_type='image/jpeg'))
                         
-                        # TINH CHỈNH PROMPT: Ép AI loại bỏ trang ảnh chụp, chỉ lấy trang bản vẽ phẳng nét đen trắng
                         extraction_prompt = """
                         Analyze ALL the attached technical pack images page by page.
                         1. Locate the genuine 'Style ID' / 'Style Number' / 'Mã hàng'. Clean it.
@@ -678,11 +677,13 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     clean_text_upper = str(user_query).strip().upper()
                     is_searching_fabric = any(word in clean_text_upper for word in ["CODE VẢI", "CODE VAI", "MÃ VẢI", "MA VAI", "LOẠI VẢI", "LOAI VAI", "TÌM VẢI", "TIM VAI"])
                     
+                    # Ưu tiên quét tìm mã liên tiếp (Mã chữ + số)
                     codes_found = re.findall(r'\b[A-Z]*\d+[A-Z0-9]*\b|\b[A-Z0-9]+-\d+[A-Z0-9-]*\b', clean_text_upper)
                     if codes_found:
-                        clean_query = codes_found
+                        clean_query = codes_found[0]
                     else:
-                        pattern_remove = r"\b(TÌM|TIM|KIỂM TRA|KIEM TRA|XEM|CHECK|CHO TOI|XIN|MÃ HÀNG|MA HANG|MÃ|MA|VẢI|VAI|ĐỊNH MỨC|DINH MUC|CODE|TRÍCH XUẤT|TRICH XUAT|HÌNH ẢNH|HINH ANH|HÌNH|HINH|ẢNH|ANH|TÍNH|TINH|THÔNG TIN|THONG TIN|NÀY|NAY|TƯƠNG ĐỒNG|TUONG DONG|VỚI|KHO)\b"
+                        # BỘ LỌC TỐI ƯU MỚI: Dọn dẹp triệt để các cụm từ thừa để tránh chữ rác lọt vào DB
+                        pattern_remove = r"\b(TÌM|TIM|KIỂM TRA|KIEM TRA|XEM|CHECK|CHO TOI|XIN|MÃ HÀNG|MA HANG|MÃ|MA|VẢI|VAI|ĐỊNH MỨC|DINH MUC|CODE|TRÍCH XUẤT|TRICH XUAT|HÌNH ẢNH|HINH ANH|HÌNH|HINH|ẢNH|ANH|TÍNH|TINH|THÔNG TIN|THONG TIN|NÀY|NAY|TƯƠNG ĐỒNG|TUONG DONG|VỚI|KHO|KIẾM|VOI)\b"
                         clean_query = re.sub(pattern_remove, "", clean_text_upper).strip()
                     
                     if has_file:
@@ -704,7 +705,6 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
 
                     if has_file and target_new_sketch_bytes:
                         st.image(target_new_sketch_bytes, caption=f"🖼️ Bản vẽ phẳng công nghệ trích xuất từ FILE MỚI UPLOAD ({new_style_id_detected})", use_container_width=True)
-
 
 
 
