@@ -621,12 +621,11 @@ try:
 except ImportError:
     pass
 
-# Khởi tạo không gian lưu trữ lịch sử chat nếu chưa tồn tại
+# Đảm bảo khởi tạo các biến lưu trữ lịch sử chat trong session_state
 if "chat_history" not in st.session_state:
     st.session_state["chat_history"] = []
 
-# Mẹo Streamlit nâng cao: Đồng bộ dữ liệu tệp tải lên vào hệ thống lưu trữ phiên
-# Khối này nên đặt ngay dưới vị trí widget st.file_uploader của bạn
+# Đồng bộ dữ liệu tệp tải lên từ widget uploader vào hệ thống lưu trữ phiên
 if 'uploaded_file' in st.session_state and st.session_state['uploaded_file'] is not None:
     st.session_state['chat_file'] = st.session_state['uploaded_file']
 if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vải và đối soát sai lệch..."):
@@ -651,7 +650,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     target_new_sketch_bytes = None 
                     target_new_sketch_vector = None
                     
-                    # Rà soát tệp đính kèm từ session_state một cách an toàn
+                    # Kiểm tra tệp đính kèm từ session_state một cách an toàn
                     has_file = False
                     chat_file = st.session_state.get('chat_file', None)
                     if chat_file is not None:
@@ -705,40 +704,31 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                             else:
                                 target_new_sketch_bytes = file_bytes
                                 
-                                                   # ⚡ TIẾN HÀNH SỐ HÓA ẢNH PHÁC THẢO MỚI THÀNH VECTOR ĐỂ ĐỐI SOÁT TOÁN HỌC
-                        if target_new_sketch_bytes:
-                            try:
-                                # SỬA LỖI: Bọc Part vào trong types.Content(parts=[...]) để SDK 2.0 chấp nhận
-                                image_content = types.Content(
-                                    parts=[
-                                        types.Part.from_bytes(
-                                            data=target_new_sketch_bytes, 
-                                            mime_type='image/jpeg'
-                                        )
-                                    ]
-                                )
-                                
-                                embedding_res = client.models.embed_content(
-                                    model='multimodal-embedding-001',
-                                    contents=image_content
-                                )
-                                
-                                if hasattr(embedding_res, 'embedding') and embedding_res.embedding:
-                                    target_new_sketch_vector = embedding_res.embedding.values
-                            except Exception as embed_err:
-                                # Ghi nhận log nội bộ để không làm treo giao diện người dùng
-                                print(f"[EMBEDDING ERROR]: {str(embed_err)}")
-                                target_new_sketch_vector = None
-
+                            # Số hóa hình ảnh bản vẽ phẳng bằng mô hình Multimodal Embedding chuyên dụng
+                            if target_new_sketch_bytes:
+                                try:
+                                    image_content = types.Content(
+                                        parts=[types.Part.from_bytes(data=target_new_sketch_bytes, mime_type='image/jpeg')]
+                                    )
+                                    embedding_res = client.models.embed_content(
+                                        model='multimodal-embedding-001',
+                                        contents=image_content
+                                    )
+                                    if hasattr(embedding_res, 'embedding') and embedding_res.embedding:
+                                        target_new_sketch_vector = embedding_res.embedding.values
+                                except Exception:
+                                    target_new_sketch_vector = None
+                        except Exception:
+                            pass
                     
-                    # PHÂN TÍCH TỪ KHÓA TỪ TIN NHẮN CHAT CỦA NGƯỜI DÙNG
+                    # Phân tích chuỗi văn bản nhập từ câu chat của người dùng để bóc tách từ khóa
                     clean_text_upper = str(user_query).strip().upper()
                     is_searching_fabric = any(word in clean_text_upper for word in ["CODE VẢI", "CODE VAI", "MÃ VẢI", "MA VAI", "LOẠI VẢI", "LOAI VAI", "TÌM VẢI", "TIM VAI"])
                     
                     codes_found = re.findall(r'\b[A-Z]*\d+[A-Z0-9]*\b|\b[A-Z0-9]+-\d+[A-Z0-9-]*\b', clean_text_upper)
                     
                     if codes_found:
-                        clean_query = str(codes_found[0]).strip()
+                        clean_query = str(codes_found).strip()
                     else:
                         pattern_remove = r"\b(TÌM|TIM|KIỂM TRA|KIEM TRA|XEM|CHECK|CHO TOI|XIN|MÃ HÀNG|MA HANG|MÃ|MA|VẢI|VAI|ĐỊNH MỨC|DINH MUC|CODE|TRÍCH XUẤT|TRICH XUAT|HÌNH ẢNH|HINH ANH|HÌNH|HINH|ẢNH|ANH|TÍNH|TINH|THÔNG TIN|THONG TIN|NÀY|NAY|TƯƠNG ĐỒNG|TUONG DONG|VỚI|KHO|KIẾM|VOI|TRONG)\b"
                         clean_query = re.sub(pattern_remove, "", clean_text_upper).strip()
@@ -757,21 +747,17 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     if not dynamic_keyword or len(dynamic_keyword) < 3:
                         dynamic_keyword = str(new_style_id_detected).strip() if new_style_id_detected != "UNKNOWN_STYLE" else "UNKNOWN"
 
-                    # Gọi cơ sở dữ liệu lấy thông số gốc để chuẩn bị đối soát ở phần tiếp theo
                     db_results = get_techpack_spec_from_db(style_name_keyword=dynamic_keyword) if 'get_techpack_spec_from_db' in locals() else []
                     backup_res = get_historical_fabric_consumption_from_db(search_keyword=dynamic_keyword) if 'get_historical_fabric_consumption_from_db' in locals() else []
 
                     if has_file and target_new_sketch_bytes:
                         st.image(target_new_sketch_bytes, caption=f"🖼️ Bản vẽ phẳng công nghệ trích xuất từ FILE MỚI UPLOAD ({new_style_id_detected})", use_container_width=True)
-# ĐOẠN 2 - PHẦN A: ĐỐI SOÁT VECTOR EMBEDDINGS HOÀN TOÀN BẰNG PYTHON BẮT TRÚNG MÃ
-# =============================================================================
-                    if target_new_sketch_vector and db_results:
-                        st.write("### ⚙️ Kết quả thuật toán đối soát hình ảnh phẳng (Vector Matrix):")
-                        
+                    # Thực hiện so khớp ma trận hình học khi cơ sở dữ liệu trả về bản ghi liên quan
+                    if db_results:
                         import numpy as np
-                        
+
                         def calculate_cosine_similarity(vec_a, vec_b):
-                            """Hàm toán học thuần tính toán khoảng cách góc giữa 2 Vector số"""
+                            """Tính toán độ tương đồng giữa hai chuỗi vector số học số hóa"""
                             dot_product = np.dot(vec_a, vec_b)
                             norm_a = np.linalg.norm(vec_a)
                             norm_b = np.linalg.norm(vec_b)
@@ -780,52 +766,73 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                             return float(dot_product / (norm_a * norm_b))
 
                         matched_reports = []
-                        for record in db_results:
-                            # Lấy thông tin mã hàng và chuỗi dữ liệu vector trong bản ghi tương ứng
-                            record_style = record.get("StyleName", "Mã ẩn danh")
-                            record_vector_raw = record.get("sketch_vector", None)
-                            
-                            if record_vector_raw:
-                                try:
-                                    # Giải mã chuỗi văn bản JSON quay trở lại thành mảng số NumPy Array
-                                    if isinstance(record_vector_raw, str):
-                                        record_vector_list = json.loads(record_vector_raw)
-                                    else:
-                                        record_vector_list = record_vector_raw
-                                        
-                                    db_vector = np.array(record_vector_list, dtype=np.float32)
-                                    current_input_vector = np.array(target_new_sketch_vector, dtype=np.float32)
-                                    
-                                    # Tiến hành so khớp độ trùng khớp cấu trúc hình học
-                                    similarity_score = calculate_cosine_similarity(current_input_vector, db_vector)
-                                    similarity_percentage = round(similarity_score * 100, 2)
-                                    
-                                    matched_reports.append({
-                                        "style_name": record_style,
-                                        "score": similarity_percentage,
-                                        "url": record.get("SketchURL", ""),
-                                        "category": record.get("Category", "N/A")
-                                    })
-                                except Exception as parse_err:
-                                    print(f"Lỗi giải mã chuỗi vector của {record_style}: {str(parse_err)}")
                         
-                        # Sắp xếp danh sách kết quả đối soát giảm dần từ cao xuống thấp
+                        # HƯỚNG 1: Sử dụng thuật toán so khớp khoảng cách hình học Vector ảnh
+                        if target_new_sketch_vector:
+                            st.write("### ⚙️ Kết quả thuật toán đối soát hình ảnh phẳng (Vector Matrix):")
+                            for record in db_results:
+                                record_style = record.get("StyleName", "Mã ẩn danh")
+                                record_vector_raw = record.get("sketch_vector", None)
+                                
+                                if record_vector_raw:
+                                    try:
+                                        if isinstance(record_vector_raw, str):
+                                            record_vector_list = json.loads(record_vector_raw)
+                                        else:
+                                            record_vector_list = record_vector_raw
+                                            
+                                        db_vector = np.array(record_vector_list, dtype=np.float32)
+                                        current_input_vector = np.array(target_new_sketch_vector, dtype=np.float32)
+                                        
+                                        similarity_score = calculate_cosine_similarity(current_input_vector, db_vector)
+                                        similarity_percentage = round(similarity_score * 100, 2)
+                                        
+                                        matched_reports.append({
+                                            "style_name": record_style,
+                                            "score": similarity_percentage,
+                                            "url": record.get("SketchURL", ""),
+                                            "category": record.get("Category", "N/A"),
+                                            "method": "Vector Hình Ảnh"
+                                        })
+                                    except Exception:
+                                        pass
+
+                        # HƯỚNG 2: Cơ chế dự phòng so khớp từ khóa văn bản khi thiếu dữ liệu ma trận ảnh
+                        if not matched_reports:
+                            st.write("### 📝 Kết quả đối soát dựa trên truy vấn dữ liệu Text & Key-Word:")
+                            for record in db_results:
+                                record_style = record.get("StyleName", "Mã ẩn danh")
+                                if dynamic_keyword.lower() in record_style.lower() or record_style.lower() in dynamic_keyword.lower():
+                                    score = 100.0
+                                else:
+                                    score = 50.0
+                                    
+                                matched_reports.append({
+                                    "style_name": record_style,
+                                    "score": score,
+                                    "url": record.get("SketchURL", ""),
+                                    "category": record.get("Category", "N/A"),
+                                    "method": "Từ khóa Text"
+                                })
+
+                        # Sắp xếp và in kết quả trực quan ra màn hình ứng dụng Streamlit
                         if matched_reports:
                             matched_reports = sorted(matched_reports, key=lambda x: x["score"], reverse=True)
-                            
-                            # Hiển thị trực quan Top 3 sản phẩm có độ tương đồng bản vẽ cao nhất
                             cols = st.columns(min(len(matched_reports), 3))
                             for idx, match_item in enumerate(matched_reports[:3]):
                                 with cols[idx]:
-                                    st.metric(label=f"Mã tương đồng: {match_item['style_name']}", value=f"{match_item['score']}%")
+                                    st.metric(
+                                        label=f"Mã tương đồng: {match_item['style_name']}", 
+                                        value=f"{match_item['score']}%",
+                                        delta=f"Khớp bằng {match_item['method']}"
+                                    )
                                     st.caption(f"Phân loại hàng: {match_item['category']}")
                                     if match_item["url"]:
                                         st.image(match_item["url"], use_container_width=True)
                         else:
-                            st.info("💡 Không tìm thấy dữ liệu Vector ảnh tương thích trong các bản ghi để tính toán đối soát.")
+                            st.info("💡 Không tìm thấy dữ liệu ảnh tương thích trong các bản ghi để tính toán đối soát.")
                     else:
-                        if not target_new_sketch_vector:
-                            st.warning("⚠️ Không thể khởi chạy ma trận đối soát do tệp ảnh tải lên chưa được số hóa Vector thành công.")
+                        st.warning(f"⚠️ Kho tri thức DB không trả về kết quả nào cho từ khóa: '{dynamic_keyword}'")
 
                 except Exception as system_main_err:
                     st.error(f"Hệ thống lõi R&D xảy ra sự cố: {str(system_main_err)}")
