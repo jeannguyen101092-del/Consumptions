@@ -771,25 +771,28 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
 # ĐOẠN 2 - PHẦN B: ĐÓNG GÓI NGỮ CẢNH VÀ CHUYỂN GIAO MẮT THẦN AI XỬ LÝ TOÁN HỌC
 # =============================================================================
                     # Đóng gói toàn bộ cây ngữ cảnh tri thức nền cung cấp cho AI phân tích
-                    db_context = f"=== TỪ KHÓA TRUY VẤN CHỦ CHỐT: {dynamic_keyword} ===\n"
+                    db_context = f"=== TỪ KHÓA TRUY VẤN CHỦ CHỐT CỦA KỸ SƯ: {dynamic_keyword} ===\n"
                     if has_file and new_style_id_detected != "UNKNOWN_STYLE":
                         db_context += f"- Mã hàng gốc trích xuất từ file mới upload: {new_style_id_detected}\n"
                     
                     if db_results:
-                        db_context += f"\n[DỮ LIỆU ĐỐI CHIẾU TỪ BẢNG THÔNG SỐ CỦA MÃ MỚI (thong_so_techpack)]:\n"
-                        for item in db_results:
-                            db_context += f"- Hồ sơ rập mẫu Mã Hàng (StyleName): '{item.get('StyleName')}' | Khách hàng: {item.get('Buyer')} | Chủng loại dáng: {item.get('Category')} | Số đo mẫu gốc: {json.dumps(item.get('DetailedMeasurements', {}), ensure_ascii=False)}\n"
+                        db_context += f"\n[DỮ LIỆU THẬT 100% TỪ BẢNG THÔNG SỐ CỦA MÃ MỚI (thong_so_techpack)]:\n"
+                        # Đảm bảo bóc tách an toàn cấu trúc dữ liệu trả về từ database
+                        items_to_loop = db_results if isinstance(db_results, list) else [db_results]
+                        for item in items_to_loop:
+                            db_context += f"- Mã hàng: '{item.get('StyleName')}' | Khách hàng: {item.get('Buyer')} | Chủng loại dáng: {item.get('Category')} | Khổ mẫu gốc: {item.get('BaseSize')} | Link ảnh sơ đồ: {item.get('SketchURL')}\n"
+                            db_context += f"  + BẢNG SỐ ĐO GỐC TRONG KHO (DetailedMeasurements): {json.dumps(item.get('DetailedMeasurements', {}), ensure_ascii=False)}\n"
                     
                     if backup_res:
-                        db_context += f"\n[DỮ LIỆU ĐỐI CHIẾU TỪ BẢNG ĐỊNH MỨC VẬT TƯ CỦA MÃ MỚI (san_pham)]:\n"
+                        db_context += f"\n[DỮ LIỆU THẬT 100% TỪ BẢNG ĐỊNH MỨC VẬT TƯ CỦA MÃ MỚI (san_pham)]:\n"
                         for sp in backup_res:
-                            db_context += f"- Bản ghi kho: Tên Mã Hàng = '{sp.get('style_name')}' | Mã vải = '{sp.get('article_name')}' | Bộ phận may = '{sp.get('consumption_type')}' | Định mức = '{sp.get('consumption_value')} {sp.get('uom')}'\n"
+                            db_context += f"- Dòng định mức: Mã hàng = '{sp.get('style_name')}' | Mã vải = '{sp.get('article_name')}' | Bộ phận = '{sp.get('consumption_type')}' | Khổ vải = '{sp.get('material_size')}' | Định mức = '{sp.get('consumption_value')} {sp.get('uom')}'\n"
                     
                     if is_similarity_requested and similar_records:
                         db_context += f"\n=== HỒ SƠ DANH SÁCH MÃ HÀNG TƯƠNG ĐỒNG THAM CHIẾU TÌM THẤY TRONG KHO ===\n"
                         for sim in similar_records:
                             db_context += f"- Mã mẫu kho tìm thấy: {sim['style_name']} | Chủng loại phom dáng đối chiếu: {sim['category']} | Trạng thái nạp ảnh trực quan: {sim['has_vision_data']}\n"
-                            db_context += f"  + Bảng thông số đo hình học cơ thể: {json.dumps(sim['measurements'], ensure_ascii=False)}\n"
+                            db_context += f"  + BẢNG SỐ ĐO ĐỐI CHIẾU TRONG KHO (DetailedMeasurements): {json.dumps(sim['measurements'], ensure_ascii=False)}\n"
                             if sim['bom_data']:
                                 db_context += f"  + Lịch sử định mức cấu thành: {json.dumps(sim['bom_data'], ensure_ascii=False)}\n"
 
@@ -798,19 +801,27 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     Bạn là một Chuyên gia phân tích dữ liệu R&D cao cấp kiêm Giám đốc Kỹ thuật Ngành may mặc PPJ Group.
                     Hãy xử lý yêu cầu kỹ thuật phân tích ma trận tương đồng từ kỹ sư: "{user_query}"
 
-                    DỮ LIỆU THỰC TẾ TRONG HỆ THỐNG MASTER DB PHÒNG R&D:
+                    DỮ LIỆU THỰC TẾ TRONG HỆ THỐNG MASTER DB PHÒNG R&D (TUYỆT ĐỐI KHÔNG BỊA ĐẶT SỐ GIẢ ĐỊNH):
                     {db_context}
 
                     QUY TRÌNH THỰC THI THỊ GIÁC VÀ TOÁN HỌC BẮT BUỘC:
-                    1. HỎI GÌ ĐÁP NẤY: 
-                       - Nếu kỹ sư chỉ hỏi tìm thông tin đơn thuần (Ví dụ: Mã vải này dùng cho mã nào, thông tin mã hàng thô), hãy xuất bảng báo cáo Markdown trực tiếp của mã đó, không thực hiện so sánh lan man.
-                    2. BIÊN SOẠN THỊ GIÁC SO KHỚP TƯƠNG ĐỒNG (Trạng thái lệnh: {is_similarity_requested}):
-                       - Bước A (So khớp ảnh Sketch sạch): Sử dụng tính năng Vision để đối chiếu trực quan tấm ảnh rập phẳng công nghệ trích xuất từ file mới upload (đầu danh sách contents) với chuỗi các hình ảnh Sketch sạch tải từ kho lưu trữ công cộng (phần sau danh sách contents). Hãy phân tích cấu trúc phom dáng (Ví dụ: Kiểu dáng Quần Jean nam, kết cấu 5 túi, đường may) xem mã mới giống mã tương đồng nào trong kho nhất dựa trên ngoại quan hình ảnh.
-                       - Bước B (So khớp thông số kích thước hình học): Đối chiếu bảng thông số đo hình học 'DetailedMeasurements' giữa mã mới và mã tương đồng vừa tìm được ở Bước A, tính toán biên độ chênh lệch chênh lệch bao nhiêu cm hoặc inch.
-                       - Bước C (Dự toán định mức - DM): Áp dụng phương pháp tam suất hoặc công thức toán học tỷ lệ dựa trên định mức thực tế cũ của mã tương đồng để tính toán, đưa ra con số định mức dự báo cụ thể cho mã mới này.
-                    3. KỊCH BẢN KHO TRỐNG (Không tìm thấy mẫu nào trùng khớp ngoại quan ảnh hoặc danh sách tương đồng rỗng):
-                       - Tự động kích hoạt tư duy nghiệp vụ may mặc độc lập: Tính toán diện tích hình học sơ bộ bề mặt vải cần thiết dựa theo bảng số đo sẵn có của mã {dynamic_keyword}, cộng thêm tỷ lệ phần trăm hao hụt kỹ thuật đường may và co rút vải (5%-10%) để tự toán học hóa kết luận ra con số định mức vải dự kiến cụ thể cho kỹ sư.
-                    4. Trình bày đầu ra: Định dạng cấu trúc bảng Markdown phân cấp sạch đẹp, dịch toàn bộ vị trí đo tiếng Anh sang tiếng Việt trực quan. Không hiển thị chuỗi dữ liệu JSON thô.
+                    1. QUY TẮC ĐƠN VỊ ĐO (ĐẶC BIỆT QUAN TRỌNG):
+                       - Đọc kỹ dữ liệu số đo trong bảng `DetailedMeasurements`. Nếu số đo chỉ chứa số thô hoặc chứa ký hiệu dấu nháy kép (") hay từ 'inch', 'in' -> BẮT BUỘC ĐÂY LÀ ĐƠN VỊ INCH.
+                       - Bạn phải thực hiện phép toán quy đổi nội bộ sang Centimet (cm) theo công thức: 1 inch = 2.54 cm (Ví dụ: thông số 32 inch = 81.28 cm, thông số phân số phân tách dạng 2 1/2 inch = 2.5 inch = 6.35 cm).
+                       - Toàn bộ Bảng so sánh đầu ra phải hiển thị đồng bộ cả 2 cột đơn vị (Inch và cm tương ứng) rõ ràng để kỹ sư kiểm đối soát. Không được ghi mập mờ hoặc nhầm lẫn giữa cm và inch.
+
+                    2. HỎI GÌ ĐÁP NẤY: 
+                       - Nếu kỹ sư chỉ hỏi tìm thông tin đơn thuần, hãy xuất bảng báo cáo Markdown trực tiếp của mã đó, không thực hiện so sánh lan man.
+
+                    3. BIÊN SOẠN THỊ GIÁC SO KHỚP TƯƠNG ĐỒNG (Trạng thái lệnh: {is_similarity_requested}):
+                       - Bước A (So khớp ảnh Sketch sạch): Sử dụng tính năng Vision để đối chiếu trực quan tấm ảnh rập phẳng công nghệ trích xuất từ file mới upload (đầu danh sách contents) với chuỗi các hình ảnh Sketch sạch tải từ kho lưu trữ công cộng (phần sau danh sách contents). Hãy phân tích cấu trúc phom dáng xem mã mới giống mã tương đồng nào trong kho nhất dựa trên ngoại quan hình ảnh.
+                       - Bước B (So khớp thông số kích thước hình học THỰC TẾ): Đối chiếu bảng thông số đo hình học 'DetailedMeasurements' THẬT ở trên giữa mã mới và mã tương đồng vừa tìm được ở Bước A. Tính toán chính xác biên độ chênh lệch tăng giảm bao nhiêu (inch/cm) của từng vị trí đo (WAISTBAND, INSEAM, BACK LENGTH, Chest...). TUYỆT ĐỐI không tự ý sinh số giả định nếu trong kho dữ liệu thô đã cung cấp thông số thật.
+                       - Bước C (Dự toán định mức - DM): Áp dụng công thức toán học tỷ lệ dựa trên định mức thực tế cũ của mã tương đồng để tính toán, đưa ra con số định mức dự báo cụ thể cho mã mới này.
+
+                    4. KỊCH BẢN KHO TRỐNG / KHÔNG ĐỦ DỮ LIỆU ĐỐI CHIẾU THẬT:
+                       - Nếu danh sách mã tương đồng trống rỗng hoặc không có dữ liệu thông số thật trong kho: Bạn phải báo cáo rõ ràng với kỹ sư là 'Hệ thống không tìm thấy mã tương đồng khớp thông số thật trong kho'. Sau đó tự động kích hoạt tư duy nghiệp vụ may mặc độc lập: Tính toán diện tích hình học sơ bộ bề mặt vải dựa theo bảng số đo sẵn có của mã {dynamic_keyword}, cộng thêm tỷ lệ phần trăm hao hụt kỹ thuật đường may và co rút vải (5%-10%) để tự toán học hóa đưa ra con số định mức vải dự kiến cụ thể.
+
+                    5. Trình bày đầu ra: Định dạng cấu trúc bảng Markdown phân cấp sạch đẹp, dịch toàn bộ vị trí đo tiếng Anh sang tiếng Việt trực quan. Không hiển thị chuỗi dữ liệu JSON thô.
                     """
                     
                     # Đóng gói ma trận payload đa phương thức gửi cho Gemini Engine
@@ -825,7 +836,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                         
                     contents_payload.append(ai_prompt)
                     
-                    with st.spinner("🤖 Mắt thần AI đang so khớp ảnh bản vẽ kỹ thuật phẳng và tính toán định mức vật tư..."):
+                    with st.spinner("🤖 Mắt thần AI đang quy đổi đơn vị, so khớp số đo thật và tính định mức vật tư..."):
                         ai_res = client.models.generate_content(
                             model='gemini-2.5-flash',
                             contents=contents_payload
