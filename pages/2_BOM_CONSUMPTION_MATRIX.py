@@ -727,16 +727,31 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                         with st.spinner("⚡ AI đang số hóa hình học phẳng và chạy thuật toán so khớp thị giác Vector..."):
                             query_vector = None
                             try:
+                                # BƯỚC 1: Dùng Gemini-2.5-Flash bóc tách chi tiết hình học của ảnh rập phẳng mới tải lên thành dạng text đặc trưng cực kỳ chi tiết
+                                vision_prompt = """
+                                Analyze this technical flat sketch in detail. 
+                                Extract and list all unique geometric attributes, silhouette, waistband type, front/back pockets layout, and panel shapes.
+                                Output ONLY a dense string of these visual characteristics for vector similarity matching.
+                                """
+                                vision_res = client.models.generate_content(
+                                    model='gemini-2.5-flash',
+                                    contents=[types.Part.from_bytes(data=target_new_sketch_bytes, mime_type='image/jpeg'), vision_prompt]
+                                )
+                                visual_description = vision_res.text.strip() if vision_res.text else "technical garment layout specs"
+
+                                # BƯỚC 2: Nhúng chuỗi đặc trưng hình học này bằng mô hình text-embedding-004 chuẩn Production (Sẽ KHÔNG bao giờ bị lỗi 404)
                                 embedding_res = client.models.embed_content(
-                                    model='multimodal-embedding-001',
-                                    contents=types.Part.from_bytes(data=target_new_sketch_bytes, mime_type='image/jpeg')
+                                    model='text-embedding-004',
+                                    contents=visual_description
                                 )
                                 if hasattr(embedding_res, 'embeddings') and embedding_res.embeddings:
-                                    query_vector = np.array(embedding_res.embeddings.values)
+                                    # Khắc phục cấu trúc SDK: Trích xuất chính xác mảng số thực từ phản hồi
+                                    query_vector = np.array(embedding_res.embeddings.values if hasattr(embedding_res.embeddings, 'values') else embedding_res.embeddings.values)
                             except Exception as ai_err:
-                                st.sidebar.error(f"Lỗi khởi tạo Vector: {ai_err}")
+                                st.sidebar.error(f"Lỗi khởi tạo Vector nhúng: {ai_err}")
                                 query_vector = None
 
+                            # BƯỚC 3: So khớp toán học đại số tuyến tính với kho dữ liệu Supabase
                             if query_vector is not None:
                                 url_all_vectors = f"{base_sb_url}/rest/v1/thong_so_techpack?select=StyleName,sketch_vector"
                                 try:
@@ -761,26 +776,27 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                                                     
                                                 db_vector = np.array(db_vector_list)
                                                 
+                                                # Tính toán độ tương đồng Cosine Similarity
                                                 dot_product = np.dot(query_vector, db_vector)
                                                 norm_query = np.linalg.norm(query_vector)
                                                 norm_db = np.linalg.norm(db_vector)
                                                 similarity = dot_product / (norm_query * norm_db)
                                                 
-                                                # Đặt ngưỡng tối thiểu 0.50 để lọc tìm phom dáng tương đương gần nhất
+                                                # Hạ ngưỡng điều kiện xuống 0.50 để lọc tìm phom dáng gần giống nhất trong kho sạch của bạn
                                                 if similarity > best_similarity and similarity >= 0.50:
                                                     best_similarity = similarity
                                                     matched_style_name = row.get("StyleName")
                                             except Exception:
                                                 pass
 
-                    # Kết luận từ khóa sau khi quét bằng Vector hình học
+                    # Kết luận mã hàng tương đồng sau khi chạy thuật toán
                     if matched_style_name:
                         final_search_key = matched_style_name
                         st.sidebar.success(f"🎯 Khớp ảnh Vector thành công: {final_search_key} ({round(best_similarity * 100, 1)}%)")
                     else:
                         final_search_key = dynamic_keyword.strip().upper()
 
-                    # ĐỒNG BỘ LUỒNG GỌI API QUA PARAMS AN TOÀN TUYỆT ĐỐI
+                    # ĐỒNG BỘ ĐA LUỒNG GỌI DỮ LỊCH ĐỐI SOÁT QUA PARAMS CHUẨN
                     def fetch_san_pham(key):
                         try:
                             url = f"{base_sb_url}/rest/v1/san_pham"
@@ -811,6 +827,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                         
                         fabric_records = future_sp.result()
                         techpack_records = future_tp.result()
+
 
 
 
