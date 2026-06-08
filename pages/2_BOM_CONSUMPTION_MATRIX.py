@@ -673,8 +673,15 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     clean_text_upper = str(user_query).strip().upper()
                     is_searching_fabric = any(word in clean_text_upper for word in ["CODE VẢI", "CODE VAI", "MÃ VẢI", "MA VAI", "LOẠI VẢI", "LOAI VAI", "TÌM VẢI", "TIM VAI"])
                     
-                    pattern_remove = r"\b(TÌM|TIM|KIỂM TRA|KIEM TRA|XEM|CHECK|CHO TOI|XIN|MÃ HÀNG|MA HANG|MÃ|MA|VẢI|VAI|ĐỊNH MỨC|DINH MUC|CODE|TRÍCH XUẤT|TRICH XUAT|HÌNH ẢNH|HINH ANH|HÌNH|HINH|ẢNH|ANH|TÍNH|TINH|THÔNG TIN|THONG TIN|NÀY|NAY)\b"
-                    clean_query = re.sub(pattern_remove, "", clean_text_upper).strip()
+                    # THUẬT TOÁN THÔNG MINH MỚI: Chỉ trích xuất phần ký tự có chứa cả chữ và số liền nhau (Mã hàng/vải)
+                    # Phương pháp này tự động vứt bỏ hoàn toàn các từ thừa gõ sai như 'ting', 'tìm', 'hình ảnh'
+                    codes_found = re.findall(r'\b[A-Z]*\d+[A-Z0-9]*\b|\b[A-Z0-9]+-\d+[A-Z0-9-]*\b', clean_text_upper)
+                    
+                    if codes_found:
+                        clean_query = codes_found[0] # Lấy mã hàng chuẩn đầu tiên tìm thấy (Ví dụ: MR1705)
+                    else:
+                        pattern_remove = r"\b(TÌM|TIM|KIỂM TRA|KIEM TRA|XEM|CHECK|CHO TOI|XIN|MÃ HÀNG|MA HANG|MÃ|MA|VẢI|VAI|ĐỊNH MỨC|DINH MUC|CODE|TRÍCH XUẤT|TRICH XUAT|HÌNH ẢNH|HINH ANH|HÌNH|HINH|ẢNH|ANH|TÍNH|TINH|THÔNG TIN|THONG TIN|NÀY|NAY)\b"
+                        clean_query = re.sub(pattern_remove, "", clean_text_upper).strip()
                     
                     if has_file:
                         if is_searching_fabric and new_style_fabric_detected != "UNKNOWN_FABRIC":
@@ -703,7 +710,6 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     base_sb_url = SB_URL.rstrip('/')
                     headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
 
-                    # Luôn kích hoạt tìm kiếm để tránh mất dữ liệu khi chuyển trang hoặc chat lại
                     is_similarity_requested = True
                     fabric_records = []
                     techpack_records = []
@@ -744,7 +750,8 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     SUPABASE_PROJECT_URL = "https://supabase.co" 
                     
                     if techpack_records and len(techpack_records) > 0:
-                        first_record = techpack_records if isinstance(techpack_records, list) else techpack_records
+                        # Bóc mảng lấy phần tử đầu tiên
+                        first_record = techpack_records[0] if isinstance(techpack_records, list) else techpack_records
                         if isinstance(first_record, dict):
                             current_style_name = first_record.get("StyleName", "")
                             db_sketch_url = first_record.get("SketchURL")
@@ -760,6 +767,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                             constructed_url = f"{SUPABASE_PROJECT_URL}/storage/v1/object/public/kho_anh/{dynamic_keyword}.jpg"
                             st.image(constructed_url, caption=f"🖼️ Ảnh Sketch tìm theo mã: {dynamic_keyword}", use_container_width=True)
 
+                    # Hiển thị cấu trúc lưới bảng phẳng chuyên nghiệp cho cả 2 luồng dữ liệu
                     col1, col2 = st.columns(2)
                     with col1:
                         st.markdown("**📋 Thông tin định mức vải (Bảng san_pham):**")
@@ -786,7 +794,6 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                             ]
                             st.dataframe(formatted_measurements, use_container_width=True)
                         elif techpack_records and len(techpack_records) > 0:
-                            # Dự phòng nếu DetailedMeasurements trả về dạng khác
                             st.dataframe(techpack_records, use_container_width=True)
                         else:
                             st.info("Không tìm thấy thông số kỹ thuật tương ứng.")
