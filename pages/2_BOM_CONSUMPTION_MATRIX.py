@@ -237,7 +237,7 @@ def get_historical_fabric_consumption_from_db(search_keyword=None):
 def get_techpack_spec_from_db(style_name_keyword=None):
     """
     Hàm cho phép AI tự động tra cứu thông số từ bảng thong_so_techpack.
-    ✨ ĐÃ SỬA LỖI: Ép kiểu dữ liệu tham số limit về kiểu số nguyên integer chuẩn để tránh lỗi Supabase API.
+    ✨ ĐÃ SỬA: Chuyển sang sử dụng cấu trúc params sạch của requests, loại bỏ hoàn toàn lỗi mã hóa chuỗi URL.
     """
     try:
         headers = {
@@ -248,12 +248,13 @@ def get_techpack_spec_from_db(style_name_keyword=None):
         
         query_params = {
             "select": "StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL,sketch_vector",
-            "limit": 500  # SỬA LỖI TẠI ĐÂY: Đổi từ chuỗi "500" sang số nguyên 500
+            "limit": 500
         }
         
-        if style_name_keyword:
+        if style_name_keyword and str(style_name_keyword).strip().upper() != "UNKNOWN":
             clean_kw = str(style_name_keyword).strip()
-            query_params["StyleName"] = f"ilike.%{clean_kw}%"
+            # Sử dụng cú pháp toán tử hoa thị (*) của PostgREST truyền qua params để an toàn tuyệt đối
+            query_params["StyleName"] = f"ilike.*{clean_kw}*"
             
         response = requests.get(url, headers=headers, params=query_params, timeout=15)
         return response.json() if response.status_code == 200 else []
@@ -722,7 +723,6 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     matched_style_name = None
                     best_similarity = -1.0
 
-                    # 🌟 TẦNG 1: ĐỐI SOÁT THỊ GIÁC VECTOR TRỰC TIẾP TỪ ẢNH RẬP PHẲNG
                     if has_file and target_new_sketch_bytes:
                         with st.spinner("⚡ AI đang số hóa hình học phẳng và chạy thuật toán so khớp thị giác Vector..."):
                             query_vector = None
@@ -734,7 +734,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                                 if hasattr(embedding_res, 'embeddings') and embedding_res.embeddings:
                                     query_vector = np.array(embedding_res.embeddings.values)
                             except Exception as ai_err:
-                                st.sidebar.error(f"Lỗi khởi tạo Vector đa phương thức: {ai_err}")
+                                st.sidebar.error(f"Lỗi khởi tạo Vector: {ai_err}")
                                 query_vector = None
 
                             if query_vector is not None:
@@ -745,7 +745,6 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                                 except Exception:
                                     warehouse_data = []
 
-                                # Kiểm tra xem kho dữ liệu Vector có phần tử nào không
                                 if len(warehouse_data) > 0:
                                     for row in warehouse_data:
                                         v_str = row.get("sketch_vector")
@@ -762,45 +761,57 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                                                     
                                                 db_vector = np.array(db_vector_list)
                                                 
-                                                # Tính khoảng cách hình học Cosine Similarity
                                                 dot_product = np.dot(query_vector, db_vector)
                                                 norm_query = np.linalg.norm(query_vector)
                                                 norm_db = np.linalg.norm(db_vector)
                                                 similarity = dot_product / (norm_query * norm_db)
                                                 
-                                                # Hạ ngưỡng xuống 0.50 để tối ưu tỷ lệ bắt trúng mã phom dáng tương tự
+                                                # Đặt ngưỡng tối thiểu 0.50 để lọc tìm phom dáng tương đương gần nhất
                                                 if similarity > best_similarity and similarity >= 0.50:
                                                     best_similarity = similarity
                                                     matched_style_name = row.get("StyleName")
                                             except Exception:
                                                 pass
 
-                    # 🌟 TẦNG 2: CƠ CHẾ DỰ PHÒNG CHÉO (FALLBACK TEXT SEARCH) KHI KHO VECTOR TRỐNG
+                    # Kết luận từ khóa sau khi quét bằng Vector hình học
                     if matched_style_name:
                         final_search_key = matched_style_name
                         st.sidebar.success(f"🎯 Khớp ảnh Vector thành công: {final_search_key} ({round(best_similarity * 100, 1)}%)")
                     else:
-                        # Nếu thuật toán Vector không tìm thấy do kho trống, lấy từ khóa text bóc tách tự động làm mốc đối soát
                         final_search_key = dynamic_keyword.strip().upper()
-                        st.sidebar.info(f"ℹ️ Kho Vector trống hoặc không khớp. Hệ thống tự động chuyển sang chế độ quét Text nâng cao: `{final_search_key}`")
 
-                    # 🌟 TẦNG 3: TRUY XUẤT ĐỒNG BỘ DỮ LIỆU ĐỂ TIẾN HÀNH SO SÁNH THÔNG SỐ VÀ ĐỊNH MỨC VẢI
-                    url_san_pham = f"{base_sb_url}/rest/v1/san_pham?or=(style_name.ilike.%25{quote(final_search_key)}%25,article_name.ilike.%25{quote(final_search_key)}%25)&select=*"
-                    url_techpack = f"{base_sb_url}/rest/v1/thong_so_techpack?StyleName=ilike.%25{quote(final_search_key)}%25&select=*"
-
-                    def fetch_url(url):
+                    # ĐỒNG BỘ LUỒNG GỌI API QUA PARAMS AN TOÀN TUYỆT ĐỐI
+                    def fetch_san_pham(key):
                         try:
-                            res = requests.get(url, headers=headers, timeout=5)
+                            url = f"{base_sb_url}/rest/v1/san_pham"
+                            params = {
+                                "select": "*",
+                                "or": f"(style_name.ilike.*{key}*,article_name.ilike.*{key}*)"
+                            }
+                            res = requests.get(url, headers=headers, params=params, timeout=5)
+                            return res.json() if res.status_code == 200 else []
+                        except Exception:
+                            return []
+
+                    def fetch_techpack(key):
+                        try:
+                            url = f"{base_sb_url}/rest/v1/thong_so_techpack"
+                            params = {
+                                "select": "*",
+                                "StyleName": f"ilike.*{key}*"
+                            }
+                            res = requests.get(url, headers=headers, params=params, timeout=5)
                             return res.json() if res.status_code == 200 else []
                         except Exception:
                             return []
 
                     with concurrent.futures.ThreadPoolExecutor() as executor:
-                        future_sp = executor.submit(fetch_url, url_san_pham)
-                        future_tp = executor.submit(fetch_url, url_techpack)
+                        future_sp = executor.submit(fetch_san_pham, final_search_key)
+                        future_tp = executor.submit(fetch_techpack, final_search_key)
                         
                         fabric_records = future_sp.result()
                         techpack_records = future_tp.result()
+
 
 
 # =============================================================================
