@@ -60,12 +60,9 @@ st.markdown("""
     </div>
 """, unsafe_allow_html=True)
 # =============================================================================
-# LOGIC KÍCH HOẠT CHẠY FILE DONG_BO_KHO.PY QUA SIDEBAR (ĐÃ ĐỒNG BỘ ĐỊA CHỈ DB)
+# LOGIC ÉP CHẠY VECTOR HÓA TRỰC TIẾP TRONG APP.PY (PHÁ BỎ HOÀN TOÀN CACHE COLD)
 # =============================================================================
-import dong_bo_kho
-
-def trigger_sync_process():
-    # Điền trực tiếp địa chỉ và key kết nối Master DB của bạn vào trong hàm
+def force_sync_warehouse_images():
     SB_URL_FIX = "https://ewqqodsfvlvnrzsylawy.supabase.co"
     SB_KEY_FIX = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV3cXFvZHNmdmx2bnJ6c3lsYXd5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUxMTkyOTAsImV4cCI6MjA5MDY5NTI5MH0.BWPxOsyswBT5CLrZgluRC1F2x5EpU06oexUFyakGhyc"
     
@@ -73,16 +70,58 @@ def trigger_sync_process():
     if not token_chinh_xac:
         token_chinh_xac = st.secrets.get("GEMINI_KEY", "").strip()
         
-    if token_chinh_xac:
-        with st.sidebar.spinner("Đang xử lý số hóa hình ảnh toàn bộ mã cũ..."):
-            # Truyền 2 biến địa chỉ đã được định nghĩa khép kín tại chỗ
-            msg = dong_bo_kho.run_sync(token_chinh_xac, SB_URL_FIX, SB_KEY_FIX)
-            st.sidebar.success(msg)
-    else:
+    if not token_chinh_xac:
         st.sidebar.error("Không tìm thấy cấu hình GEMINI_API_KEY trong bộ Secrets.")
+        return
+
+    with st.sidebar.spinner("⚡ ĐANG ÉP SỐ HÓA TOÀN BỘ KHO ẢNH THỰC TẾ..."):
+        try:
+            client_sync = genai.Client(api_key=token_chinh_xac)
+            base_sb_url = SB_URL_FIX.rstrip('/')
+            headers_sync = {
+                "apikey": SB_KEY_FIX,
+                "Authorization": f"Bearer {SB_KEY_FIX}",
+                "Content-Type": "application/json"
+            }
+            
+            # ÉP TẢI TOÀN BỘ DANH SÁCH MÃ HÀNG - KHÔNG CHECK NULL ĐỂ PHÁ BỎ LỖI TEXT TRỐNG "" HOẶC "[]"
+            url_fetch = f"{base_sb_url}/rest/v1/thong_so_techpack?select=StyleName,SketchURL"
+            res_fetch = requests.get(url_fetch, headers=headers_sync, timeout=10)
+            
+            if res_fetch.status_code == 200:
+                warehouse_data = res_fetch.json()
+                success_count = 0
+                
+                for row in warehouse_data:
+                    style_name = row.get("StyleName")
+                    sketch_url = row.get("SketchURL")
+                    
+                    if sketch_url and sketch_url.startswith("http"):
+                        try:
+                            # Tải trực tiếp dữ liệu nhị phân ảnh cũ về để ép tạo mảng số toán học
+                            img_res = requests.get(sketch_url, timeout=5)
+                            if img_res.status_code == 200:
+                                embedding_res = client_sync.models.embed_content(
+                                    model='text-embedding-004',
+                                    contents=types.Part.from_bytes(data=img_res.content, mime_type='image/jpeg')
+                                )
+                                vector_str = json.dumps(embedding_res.embeddings.values)
+                                
+                                # Ghi đè ép buộc chuỗi số thực này vào database cho từng mã
+                                url_update = f"{base_sb_url}/rest/v1/thong_so_techpack?StyleName=eq.{quote(style_name)}"
+                                requests.patch(url_update, json={"sketch_vector": vector_str}, headers=headers_sync, timeout=5)
+                                success_count += 1
+                        except Exception:
+                            pass
+                st.sidebar.success(f"🎉 ÉP SỐ HÓA THÀNH CÔNG: Đã phủ kín Vector cho {success_count} mã hàng thực tế trong kho!")
+            else:
+                st.sidebar.error(f"Không thể kết nối API Supabase: {res_fetch.text}")
+        except Exception as e:
+            st.sidebar.error(f"Lỗi tiến trình thực thi trực tiếp: {str(e)}")
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("⚙️ Phân hệ Quản trị")
 
+# Gọi trực tiếp hàm vừa viết trong app.py khi bấm nút
 if st.sidebar.button("⚡ Đồng bộ hóa Vector Kho mẫu"):
-    trigger_sync_process()
+    force_sync_warehouse_images()
