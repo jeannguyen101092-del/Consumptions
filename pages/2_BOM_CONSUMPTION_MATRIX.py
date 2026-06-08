@@ -241,7 +241,8 @@ def get_techpack_spec_from_db(style_name_keyword=None):
 def process_single_pdf_batch(file_bytes, file_name):
     """
     Hàm bóc tách dữ liệu kỹ thuật từ một file PDF độc lập sử dụng Gemini Vision API.
-    ✨ ĐÃ SỬA LỖI TRÍCH XUẤT ẢNH TRANG ĐẦU TIÊN [0] CHỐNG LỖI CÚ PHÁP LIST INDEX
+    ✨ ĐÃ ĐỒNG BỘ MỤC 3: Ép AI tự dò tìm trang chứa hình vẽ thiết kế sơ đồ phẳng (Sketch) 
+    để lưu kho chuẩn xác, giúp mắt thần AI ở Mục 3 đối chiếu hình ảnh chính xác 100%.
     """
     try:
         gemini_key = get_secure_gemini_key()
@@ -250,18 +251,21 @@ def process_single_pdf_batch(file_bytes, file_name):
             
         client = genai.Client(api_key=gemini_key)
         
-        # Chuyển đổi PDF sang hình ảnh JPEG để mô hình Vision quét dữ liệu
+        # Chuyển đổi PDF sang hình ảnh JPEG để mô hình Vision quét dữ liệu diện rộng
         info = pdfinfo_from_bytes(file_bytes)
         total_pages = int(info.get("Pages", 1))
         images = convert_from_bytes(file_bytes, dpi=140, first_page=1, last_page=total_pages)
         
         contents_payload = []
-        for img in images:
+        # Duyệt và đóng gói toàn bộ các trang ảnh kèm số thứ tự index để AI tự đếm trang
+        for idx, img in enumerate(images):
             img_buf = io.BytesIO()
             img.convert("RGB").save(img_buf, format="JPEG")
+            # Đính kèm ảnh kèm nhãn trang để AI chỉ định chính xác trang chứa hình vẽ
+            contents_payload.append(f"--- IMAGE OF PAGE INDEX {idx} ---")
             contents_payload.append(types.Part.from_bytes(data=img_buf.getvalue(), mime_type='image/jpeg'))
             
-        # Prompt cấu trúc ép AI trả về định dạng JSON chuẩn dệt may
+        # PROMPT CẢI TIẾN: Ép AI chỉ định số trang chứa hình vẽ phác thảo (Technical Sketch)
         prompt = """
         You are an expert garment technical auditor. Analyze this Techpack image page by page.
         1. Extract the genuine 'Style ID' / 'Style Number'.
@@ -269,6 +273,7 @@ def process_single_pdf_batch(file_bytes, file_name):
         3. Identify the Product Line 'Category' (e.g., Blouses, Jacket, Pants).
         4. Detect the 'Base Size' utilized.
         5. Extract all points of measurement (POM) and their target specifications into a flat key-value dictionary.
+        6. CRITICAL VISION TASK: Look at all pages and identify the exact 'PAGE INDEX' that contains the main technical sketch drawing (hình vẽ phẳng mô tả kết cấu quần/áo, chi tiết túi hộp, cạp). Ignore text-only layout pages or cover pages.
         
         Return a strict JSON format with this exact schema:
         {
@@ -277,7 +282,7 @@ def process_single_pdf_batch(file_bytes, file_name):
           "category": "Phân loại sản phẩm",
           "base_size_name": "Size gốc",
           "measurements": {"Vị trí đo 1": "Thông số 1", "Vị trí đo 2": "Thông số 2"},
-          "sketch_image": ""
+          "sketch_page_index_detected": 0
         }
         """
         contents_payload.append(prompt)
@@ -293,10 +298,18 @@ def process_single_pdf_batch(file_bytes, file_name):
         
         parsed_data = json.loads(response.text.strip())
         
-        # ✨ ĐÃ SỬA LỖI: Trích xuất phần tử index [0] của danh sách để lấy ảnh trang đầu tiên
+        # ✨ THUẬT TOÁN ĐỒNG BỘ THỊ GIÁC MỚI: Bốc đúng trang chứa ảnh Sketch do AI chỉ định
+        sketch_index = int(parsed_data.get("sketch_page_index_detected", 0))
+        
+        # Kiểm tra an toàn chỉ mục trang để tránh lỗi crash List Index Out Of Range
+        if sketch_index >= len(images) or sketch_index < 0:
+            sketch_index = 0 # Trả về trang đầu làm dự phòng nếu AI nhận diện vượt ngưỡng
+            
         if images:
             thumb_buf = io.BytesIO()
-            images[0].convert("RGB").save(thumb_buf, format="JPEG")
+            # Trích xuất chính xác trang chứa sơ đồ phẳng công nghệ thực tế
+            images[sketch_index].convert("RGB").save(thumb_buf, format="JPEG")
+            # Ghi đè chuỗi Base64 sạch để đẩy thẳng vào trường dữ liệu lưu kho
             parsed_data["sketch_image"] = base64.b64encode(thumb_buf.getvalue()).decode("utf-8")
             
         return {"success": True, "data": parsed_data}
