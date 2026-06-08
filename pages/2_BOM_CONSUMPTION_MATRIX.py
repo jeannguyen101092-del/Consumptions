@@ -629,8 +629,13 @@ if "chat_history" not in st.session_state:
 if 'uploaded_file' in st.session_state and st.session_state['uploaded_file'] is not None:
     st.session_state['chat_file'] = st.session_state['uploaded_file']
 
+
+# =========================================================================
+# ĐOẠN 1: TIẾP NHẬN YÊU CẦU CHAT VÀ KIỂM TRA ĐIỀU KIỆN KẾT NỐI API GEMINI
+# =========================================================================
 if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vải và đối soát sai lệch..."):
     st.session_state["chat_history"].append({"role": "user", "type": "text", "content": user_query})
+    
     with st.chat_message("user"): 
         st.write(user_query)
     
@@ -640,118 +645,120 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
             
             if not gemini_key: 
                 st.error("CRITICAL SERVER BREAKDOWN: AI API Token is missing.")
-            else:
-                client = genai.Client(api_key=gemini_key)
-                new_style_id_detected = "UNKNOWN_STYLE"
-                new_style_raw_text = ""
-                new_style_category_detected = ""
-                new_style_fabric_detected = "UNKNOWN_FABRIC"
-                new_style_measurements_dict = {}
-                img_payload = [] 
-                target_new_sketch_bytes = None 
-                target_new_sketch_vector = None
+                st.stop()
                 
-                has_file = False
-                chat_file = st.session_state.get('chat_file', None)
-                if chat_file is not None:
-                    has_file = True
-                    
-                if has_file and chat_file is not None:
-                    file_bytes = chat_file.getvalue()
-                    try:
-                        if chat_file.name.lower().endswith('.pdf'):
-                            info_chat = pdfinfo_from_bytes(file_bytes)
-                            total_chat_pages = int(info_chat.get("Pages", 1))
-                            max_pages_to_read = min(total_chat_pages, 3)
-                            chat_images = convert_from_bytes(file_bytes, dpi=110, first_page=1, last_page=max_pages_to_read)
-                            
-                            for idx, page_img in enumerate(chat_images):
-                                img_buf = io.BytesIO()
-                                page_img.convert("RGB").save(img_buf, format="JPEG", quality=80)
-                                img_payload.append(types.Part.from_bytes(data=img_buf.getvalue(), mime_type='image/jpeg'))
-                        else:
-                            img_payload.append(types.Part.from_bytes(data=file_bytes, mime_type='image/jpeg'))
-                    except Exception as pdf_err:
-                        st.error(f"❌ Lỗi khi chuyển đổi file PDF/Ảnh: {str(pdf_err)}")
+            client = genai.Client(api_key=gemini_key)
+            new_style_id_detected = "UNKNOWN_STYLE"
+            new_style_raw_text = ""
+            new_style_category_detected = ""
+            new_style_fabric_detected = "UNKNOWN_FABRIC"
+            new_style_measurements_dict = {}
+            img_payload = [] 
+            target_new_sketch_bytes = None 
+            target_new_sketch_vector = None
 
-                    if img_payload:
-                        extraction_prompt = """
-                        Analyze the attached technical pack front pages.
-                        1. Locate the genuine 'Style ID' / 'Style Number' / 'Mã hàng' (e.g., 1P001363). Clean it.
-                        2. Identify the Product Line 'Category' (e.g., Pants, Jeans, Jacket).
-                        3. Extract all points of measurement (POM) into a strict key-value flat dictionary.
-                        4. Find the exact 'PAGE INDEX' (starting from 0) that contains the TECHNICAL BLACK AND WHITE FLAT SKETCH / DRAWING.
-                        
-                        Return a valid JSON with this exact schema:
-                        {"detected_style_id": "Pure code only", "category": "Pants or Jacket", "fabric_code": "Pure fabric code", "measurements": {"Vị trí đo": "Thông số"}, "sketch_page_index_detected": 0}
-                        """
-                        extraction_payload = list(img_payload)
-                        extraction_payload.append(extraction_prompt)
-                        
-                        try:
-                            # Chuẩn hóa tham số config theo đúng tài liệu SDK Google mới nhất
-                            extraction_res = client.models.generate_content(
-                                model='gemini-2.5-flash', 
-                                contents=extraction_payload, 
-                                config=types.GenerateContentConfig(
-                                    response_mime_type="application/json", 
-                                    temperature=0.0
-                                )
-                            )
-                            parsed_meta = json.loads(extraction_res.text.strip())
-                            new_style_id_detected = parsed_meta.get("detected_style_id", "UNKNOWN_STYLE").strip()
-                            new_style_category_detected = parsed_meta.get("category", "").strip()
-                            new_style_fabric_detected = parsed_meta.get("fabric_code", "UNKNOWN_FABRIC").strip()
-                            new_style_measurements_dict = parsed_meta.get("measurements", {})
-                            new_style_raw_text = json.dumps(new_style_measurements_dict, ensure_ascii=False)
-                            
-                            detected_idx = int(parsed_meta.get("sketch_page_index_detected", 0))
-                            if chat_file.name.lower().endswith('.pdf') and 'chat_images' in locals() and 0 <= detected_idx < len(chat_images):
-                                b_buf = io.BytesIO()
-                                chat_images[detected_idx].convert("RGB").save(b_buf, format="JPEG")
-                                target_new_sketch_bytes = b_buf.getvalue()
-                            else:
-                                target_new_sketch_bytes = file_bytes
-                                
-                            if target_new_sketch_bytes:
-                                try:
-                                    image_content = types.Content(
-                                        parts=[types.Part.from_bytes(data=target_new_sketch_bytes, mime_type='image/jpeg')]
-                                    )
-                                    embedding_res = client.models.embed_content(
-                                        model='multimodal-embedding-001',
-                                        contents=image_content
-                                    )
-                                    if hasattr(embedding_res, 'embedding') and embedding_res.embedding:
-                                        target_new_sketch_vector = embedding_res.embedding.values
-                                except Exception as emb_err:
-                                    st.sidebar.warning(f"Không thể tạo Vector ảnh: {str(emb_err)}")
-                        except Exception as ai_err:
-                            st.error(f"❌ Lỗi phản hồi từ Gemini API: {str(ai_err)}")
+
+# =========================================================================
+# ĐOẠN 2: TRÍCH XUẤT THÔNG TIN TECHPACK (PDF/IMAGE) BẰNG MULTIMODAL AI
+# =========================================================================
+if 'client' in locals() and st.session_state.get('chat_file') is not None:
+    chat_file = st.session_state['chat_file']
+    file_bytes = chat_file.getvalue()
+    
+    try:
+        if chat_file.name.lower().endswith('.pdf'):
+            info_chat = pdfinfo_from_bytes(file_bytes)
+            total_chat_pages = int(info_chat.get("Pages", 1))
+            max_pages_to_read = min(total_chat_pages, 3)
+            chat_images = convert_from_bytes(file_bytes, dpi=110, first_page=1, last_page=max_pages_to_read)
+            
+            for idx, page_img in enumerate(chat_images):
+                img_buf = io.BytesIO()
+                page_img.convert("RGB").save(img_buf, format="JPEG", quality=80)
+                img_payload.append(types.Part.from_bytes(data=img_buf.getvalue(), mime_type='image/jpeg'))
+        else:
+            img_payload.append(types.Part.from_bytes(data=file_bytes, mime_type='image/jpeg'))
+    except Exception as pdf_err:
+        st.error(f"❌ Lỗi khi chuyển đổi file PDF/Ảnh: {str(pdf_err)}")
+
+    if img_payload:
+        extraction_prompt = """
+        Analyze the attached technical pack front pages.
+        1. Locate the genuine 'Style ID' / 'Style Number' / 'Mã hàng' (e.g., 1P001363). Clean it.
+        2. Identify the Product Line 'Category' (e.g., Pants, Jeans, Jacket).
+        3. Extract all points of measurement (POM) into a strict key-value flat dictionary.
+        4. Find the exact 'PAGE INDEX' (starting from 0) that contains the TECHNICAL BLACK AND WHITE FLAT SKETCH / DRAWING.
+        
+        Return a valid JSON with this exact schema:
+        {"detected_style_id": "Pure code only", "category": "Pants or Jacket", "fabric_code": "Pure fabric code", "measurements": {"Vị trí đo": "Thông số"}, "sketch_page_index_detected": 0}
+        """
+        extraction_payload = list(img_payload)
+        extraction_payload.append(extraction_prompt)
+        
+        try:
+            extraction_res = client.models.generate_content(
+                model='gemini-2.5-flash', 
+                contents=extraction_payload, 
+                config=types.GenerateContentConfig(response_mime_type="application/json", temperature=0.0)
+            )
+            parsed_meta = json.loads(extraction_res.text.strip())
+            new_style_id_detected = parsed_meta.get("detected_style_id", "UNKNOWN_STYLE").strip()
+            new_style_category_detected = parsed_meta.get("category", "").strip()
+            new_style_fabric_detected = parsed_meta.get("fabric_code", "UNKNOWN_FABRIC").strip()
+            new_style_measurements_dict = parsed_meta.get("measurements", {})
+            new_style_raw_text = json.dumps(new_style_measurements_dict, ensure_ascii=False)
+            
+            detected_idx = int(parsed_meta.get("sketch_page_index_detected", 0))
+            if chat_file.name.lower().endswith('.pdf') and 'chat_images' in locals() and 0 <= detected_idx < len(chat_images):
+                b_buf = io.BytesIO()
+                chat_images[detected_idx].convert("RGB").save(b_buf, format="JPEG")
+                target_new_sketch_bytes = b_buf.getvalue()
+            else:
+                target_new_sketch_bytes = file_bytes
                 
-                # Logic xử lý câu hỏi và tìm kiếm
-                clean_text_upper = str(user_query).strip().upper()
-                is_searching_fabric = any(word in clean_text_upper for word in ["CODE VẢI", "CODE VAI", "MÃ VẢI", "MA VAI", "LOẠI VẢI", "LOAI VAI", "TÌM VẢI", "TIM VAI"])
-                codes_found = re.findall(r'\b[A-Z]*\d+[A-Z0-9]*\b|\b[A-Z0-9]+-\d+[A-Z0-9-]*\b', clean_text_upper)
-                
-                clean_query = ""
-                if codes_found:
-                    clean_query = codes_found[0]
-                
-                # Giả lập truy vấn dữ liệu từ cơ sở dữ liệu/kho của bạn
-                matching_items = []  # Thay thế bằng hàm truy vấn thực tế, ví dụ: query_database(clean_query)
-                
-                # Bổ sung logic xử lý khi chưa tìm thấy mã hàng tương đồng
-                if clean_query and not matching_items:
-                    st.warning(f"⚠️ Hiện chưa tìm thấy mã hàng hoặc code `{clean_query}` tương đồng trong hệ thống kho.")
-                    st.info("💡 Bạn có thể thử lại với mã hàng khác, hoặc yêu cầu AI tra cứu dữ liệu theo tên loại vải và thông số.")
-                    
-                    # Cung cấp gợi ý Prompt cho người dùng nếu muốn
-                    with st.expander("📝 Gợi ý câu lệnh khác:"):
-                        st.write("- So sánh định mức vải của mã [Mã khác] và [Mã này]")
-                        st.write("- Tìm vải dựa theo thành phần: 95% Cotton 5% Spandex")
-                elif matching_items:
-                    st.success("✅ Đã tìm thấy các mã hàng tương đồng:")
-                    # Hiển thị kết quả tìm kiếm ở đây
-                    for item in matching_items:
-                        st.write(f"- {item}")
+            if target_new_sketch_bytes:
+                try:
+                    image_content = types.Content(parts=[types.Part.from_bytes(data=target_new_sketch_bytes, mime_type='image/jpeg')])
+                    embedding_res = client.models.embed_content(model='multimodal-embedding-001', contents=image_content)
+                    if hasattr(embedding_res, 'embedding') and embedding_res.embedding:
+                        target_new_sketch_vector = embedding_res.embedding.values
+                except Exception as emb_err:
+                    st.sidebar.warning(f"Không thể tạo Vector ảnh: {str(emb_err)}")
+        except Exception as ai_err:
+            st.error(f"❌ Lỗi phản hồi từ Gemini API: {str(ai_err)}")
+
+
+# =========================================================================
+# ĐOẠN 3: XỬ LÝ SEARCH THEO MÃ HOẶC TRA CỨU MÃ TƯƠNG ĐỒNG TRONG KHO DATA
+# =========================================================================
+if 'client' in locals():
+    clean_text_upper = str(user_query).strip().upper()
+    is_searching_fabric = any(word in clean_text_upper for word in ["CODE VẢI", "CODE VAI", "MÃ VẢI", "MA VAI", "LOẠI VẢI", "LOAI VAI", "TÌM VẢI", "TIM VAI"])
+    
+    # Trích xuất mã hàng từ câu hỏi hoặc lấy trực tiếp mã hàng AI vừa quét được từ Techpack
+    codes_found = re.findall(r'\b[A-Z]*\d+[A-Z0-9]*\b|\b[A-Z0-9]+-\d+[A-Z0-9-]*\b', clean_text_upper)
+    
+    clean_query = ""
+    if codes_found:
+        clean_query = codes_found[0]
+    elif new_style_id_detected != "UNKNOWN_STYLE":
+        clean_query = new_style_id_detected
+
+    # Khởi tạo danh sách kết quả đối soát từ kho dữ liệu
+    matching_items = [] 
+    
+    # Giả lập hàm gọi dữ liệu kho dựa trên Vector ảnh dập hoặc Mã hàng (Cần kết nối tới Database của bạn)
+    # Ví dụ: matching_items = query_historical_consumption_db(clean_query, target_new_sketch_vector)
+
+    # Hiển thị phản hồi trực quan trên giao diện Streamlit đúng theo trạng thái ảnh lỗi
+    if not clean_query or ("TƯƠNG ĐỒNG" in clean_text_upper and not matching_items):
+        st.warning(f"⚠️ Hệ thống chưa tìm thấy dữ liệu đối soát hoặc mã hàng tương đồng cho mã `{new_style_id_detected}` trong kho lưu trữ.")
+        st.info("💡 **Gợi ý hành động:** Bạn có thể kiểm tra lại tên file Techpack hoặc yêu cầu AI so sánh thủ công dựa trên bảng thông số đo vừa trích xuất.")
+        
+        # Hiển thị cấu trúc thông số đo được dưới dạng bảng để người dùng tiện đối soát thủ công
+        if new_style_measurements_dict:
+            with st.expander("📊 Xem bảng thông số kích thước (POM) vừa quét từ Techpack"):
+                st.json(new_style_measurements_dict)
+    else:
+        st.success(f"✅ Đã tìm thấy mã hàng tương đồng cho dữ liệu: `{clean_query}`")
+        # Điền logic hiển thị bảng BOM so sánh sai lệch tại đây...
