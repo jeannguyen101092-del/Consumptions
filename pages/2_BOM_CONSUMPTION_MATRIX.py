@@ -584,7 +584,7 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                             dynamic_keyword = "8002"
                         else:
                             numbers_found = re.findall(r'\d{3,}', clean_text_upper)
-                            dynamic_keyword = str(numbers_found[0]).strip() if numbers_found else clean_text_upper
+                            dynamic_keyword = str(numbers_found).strip() if numbers_found else clean_text_upper
                         # =============================================================================
                         # ĐOẠN 4B: KẾT NỐI KHO DỮ LIỆU ĐA NỀN TẢNG & MẠNG NƠ-RON LẬP LUẬN ĐỊNH MỨC VẢI
                         # =============================================================================
@@ -616,7 +616,7 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                         New Ingested Style Raw Text/Specs (if any): {new_style_raw_text}
 
                         [HISTORICAL MASTER DATABASE CONTEXT]
-                        {json.dumps(historical_context, ensure_ascii=False, indent=2)}
+                        {{json.dumps(historical_context, ensure_ascii=False, indent=2)}}
 
                         [CRITICAL INFERENCE LOGIC RULES]
                         1. CLONE IDENTITY DETECTION: Check 'techpack_database_records' and 'historical_consumption_records'. If they contain data, a historical match IS FOUND.
