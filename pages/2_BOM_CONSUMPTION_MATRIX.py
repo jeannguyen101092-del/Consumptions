@@ -694,9 +694,9 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
 
 
 # =============================================================================
-# ĐOẠN 2 - PHẦN A: BẢN NÂNG CẤP MÁY QUÉT ẢNH CHỐNG VỠ LINK STORAGE CHỮ HOA
+# ĐOẠN 2 - PHẦN A: BẢN CỐ ĐỊNH BIẾN URL CHỐNG TREO XOAY VÒNG HỆ THỐNG
 # =============================================================================
-                    # Định nghĩa lại biến địa chỉ an toàn để tránh lỗi NameError
+                    # Khai báo địa chỉ và cấu hình kết nối cứng an toàn tuyệt đối
                     base_sb_url = SB_URL.rstrip('/')
                     headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
 
@@ -716,24 +716,24 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                             prefix_match = re.match(r"^([A-Z0-9]+)", dynamic_keyword)
                             similarity_keyword = prefix_match.group(1) if prefix_match else dynamic_keyword[:3]
                         
-                        # Sử dụng cú pháp gọi trực tiếp chuẩn PostgREST dấu phần trăm (%) để lôi dữ liệu thật bảng thong_so_techpack
-                        url_tp_direct = f"{base_sb_url}/rest/v1/thong_so_techpack"
+                        # Đồng bộ tên biến url_techpack để tránh lỗi NameError gây treo luồng
+                        url_techpack = f"{base_sb_url}/rest/v1/thong_so_techpack"
                         params_tp_direct = {
                             "StyleName": f"ilike.%{similarity_keyword}%", # Bắt trúng mã 1P001451 chứa chuỗi 1P0014
                             "select": "StyleName,Category,DetailedMeasurements,SketchURL",
                             "limit": "5"
                         }
-                        res_tp_direct = requests.get(url_tp_direct, headers=headers, params=params_tp_direct, timeout=15)
+                        res_tp_direct = requests.get(url_techpack, headers=headers, params=params_tp_direct, timeout=15)
                         raw_techpacks = res_tp_direct.json() if 200 <= res_tp_direct.status_code <= 299 else []
                         
-                        # Đồng thời gọi dữ liệu bảng san_pham lịch sử tiêu hao tương ứng bằng dấu phần trăm (%)
-                        url_sp_direct = f"{base_sb_url}/rest/v1/san_pham"
+                        # Đồng bộ gọi dữ liệu bảng san_pham lịch sử tiêu hao tương ứng bằng dấu phần trăm (%)
+                        url_san_pham = f"{base_sb_url}/rest/v1/san_pham"
                         params_sp_direct = {
                             "or": f"(style_name.ilike.%{similarity_keyword}%,article_name.ilike.%{similarity_keyword}%)",
                             "select": "style_name,article_name,consumption_type,material_size,uom,consumption_value",
                             "limit": "30"
                         }
-                        res_sp_direct = requests.get(url_sp_direct, headers=headers, params=params_sp_direct, timeout=15)
+                        res_sp_direct = requests.get(url_san_pham, headers=headers, params=params_sp_direct, timeout=15)
                         raw_sp_data = res_sp_direct.json() if 200 <= res_sp_direct.status_code <= 299 else []
                         
                         # Bộ lọc ma trận dự phòng nếu quét theo mã chữ bị thiếu hụt dữ liệu (Fallback chủng loại)
@@ -752,7 +752,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                                 "select": "StyleName,Category,DetailedMeasurements,SketchURL",
                                 "limit": "6"
                             }
-                            res_cat_backup = requests.get(url_tp_direct, headers=headers, params=params_cat, timeout=15)
+                            res_cat_backup = requests.get(url_techpack, headers=headers, params=params_cat, timeout=15)
                             raw_techpacks = res_cat_backup.json() if 200 <= res_cat_backup.status_code <= 299 else []
                             
                             if not raw_sp_data:
@@ -761,7 +761,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                                     "select": "style_name,article_name,consumption_type,material_size,uom,consumption_value",
                                     "limit": "30"
                                 }
-                                res_sp_cat = requests.get(url_sp_direct, headers=headers, params=params_sp_cat, timeout=15)
+                                res_sp_cat = requests.get(url_san_pham, headers=headers, params=params_sp_cat, timeout=15)
                                 raw_sp_data = res_sp_cat.json() if 200 <= res_sp_cat.status_code <= 299 else []
 
                         # Ép kiểu danh sách bảo vệ vòng lặp an toàn
@@ -801,6 +801,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                                 "measurements": tp.get("DetailedMeasurements"),
                                 "bom_data": match_sp if match_sp else []
                             })
+
 
 
 
