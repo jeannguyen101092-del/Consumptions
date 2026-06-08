@@ -102,7 +102,7 @@ def get_secure_gemini_key():
 def save_to_supabase_techpack_table(payload_data):
     """
     Hàm xử lý đồng bộ và nạp Master DB bảng thong_so_techpack kết hợp đẩy ảnh lên Storage kho_anh.
-    ✨ ĐA VÁ LỖI: Đồng bộ hóa chính xác 100% tên cột dữ liệu dệt may (StyleName, Buyer, Category, BaseSize).
+    ✨ ĐÃ VẬT TƯ: Tự động số hóa ảnh Sketch thành chuỗi Text Vector nạp vào database để đối soát siêu tốc.
     """
     try:
         style_name_db = payload_data.get("style_number_parsed", "").strip()
@@ -111,6 +111,7 @@ def save_to_supabase_techpack_table(payload_data):
             
         sketch_b64 = payload_data.get("sketch_image", "")
         public_image_url = ""
+        image_data = None
 
         # Xử lý đẩy hình ảnh rập/thiết kế phẳng lên Storage
         if sketch_b64:
@@ -130,6 +131,23 @@ def save_to_supabase_techpack_table(payload_data):
             except Exception: 
                 pass
 
+        # ⚡ TỰ ĐỘNG SỐ HÓA SKETCH THÀNH CHUỖI TEXT VECTOR ĐỂ ĐỐI SOÁT
+        new_sketch_vector_str = None
+        if image_data:
+            gemini_key = get_secure_gemini_key()
+            if gemini_key:
+                try:
+                    client = genai.Client(api_key=gemini_key)
+                    # Gọi Gemini số hóa bức ảnh rập thành mảng số 768 chiều
+                    embedding_res = client.models.embed_content(
+                        model='text-embedding-004',
+                        contents=types.Part.from_bytes(data=image_data, mime_type='image/jpeg')
+                    )
+                    # Ép mảng số về dạng chuỗi Text JSON để lưu vào cột text của database
+                    new_sketch_vector_str = json.dumps(embedding_res.embeddings.values)
+                except Exception:
+                    new_sketch_vector_str = None
+
         # Cấu hình Headers kết nối database REST API quyền service_role cao cấp
         headers = {
             "apikey": SB_KEY, 
@@ -143,14 +161,15 @@ def save_to_supabase_techpack_table(payload_data):
         raw_measurements = payload_data.get("measurements", {})
         clean_dict = {str(k): str(v) for k, v in dict(raw_measurements).items()}
 
-        # Khớp chính xác tên cột phân biệt chữ HOA - thường trên bảng Supabase của bạn
+        # Khớp chính xác tên cột và bổ sung cột 'sketch_vector' lưu chuỗi số đối soát
         db_payload = {
             "StyleName": style_name_db,
             "Buyer": payload_data.get("buyer"),
             "Category": payload_data.get("category"),
             "BaseSize": payload_data.get("base_size_name"),
-            "DetailedMeasurements": clean_dict,  # Gửi dưới dạng Dict nguyên bản để REST tự định dạng JSON
-            "SketchURL": public_image_url
+            "DetailedMeasurements": clean_dict,
+            "SketchURL": public_image_url,
+            "sketch_vector": new_sketch_vector_str # <--- ĐÃ THÊM: Luôn nạp kèm dữ liệu số hóa hình ảnh này vào DB
         }
         
         response = requests.post(insert_url, headers=headers, json=[db_payload], timeout=15)
@@ -161,9 +180,10 @@ def save_to_supabase_techpack_table(payload_data):
             return False
             
         return True
-    except Exception as e: 
-        st.sidebar.error(f"Lỗi hệ thống: {str(e)}")
+    except Exception as e:
+        st.sidebar.error(f"Lỗi xử lý hệ thống: {str(e)}")
         return False
+
 
 
 def get_historical_fabric_consumption_from_db(search_keyword=None):
