@@ -60,19 +60,23 @@ st.markdown("""
     </div>
 """, unsafe_allow_html=True)
 # =============================================================================
-# LOGIC KÍCH HOẠT CHẠY FILE DONG_BO_KHO.PY QUA SIDEBAR (VÁ LỖI CẤU TRÚC HÀM)
+# LOGIC KÍCH HOẠT CHẠY FILE DONG_BO_KHO.PY QUA SIDEBAR (ĐÃ ĐỒNG BỘ ĐỊA CHỈ DB)
 # =============================================================================
 import dong_bo_kho
 
 def trigger_sync_process():
-    # Gom toàn bộ biến và lệnh chạy lồng vào trong hàm để bảo vệ cấu trúc dòng
+    # Điền trực tiếp địa chỉ và key kết nối Master DB của bạn vào trong hàm
+    SB_URL_FIX = "https://ewqqodsfvlvnrzsylawy.supabase.co"
+    SB_KEY_FIX = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV3cXFvZHNmdmx2bnJ6c3lsYXd5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUxMTkyOTAsImV4cCI6MjA5MDY5NTI5MH0.BWPxOsyswBT5CLrZgluRC1F2x5EpU06oexUFyakGhyc"
+    
     token_chinh_xac = st.secrets.get("GEMINI_API_KEY", "").strip()
     if not token_chinh_xac:
         token_chinh_xac = st.secrets.get("GEMINI_KEY", "").strip()
         
     if token_chinh_xac:
         with st.sidebar.spinner("Đang xử lý số hóa hình ảnh toàn bộ mã cũ..."):
-            msg = dong_bo_kho.run_sync(token_chinh_xac, SB_URL, SB_KEY)
+            # Truyền 2 biến địa chỉ đã được định nghĩa khép kín tại chỗ
+            msg = dong_bo_kho.run_sync(token_chinh_xac, SB_URL_FIX, SB_KEY_FIX)
             st.sidebar.success(msg)
     else:
         st.sidebar.error("Không tìm thấy cấu hình GEMINI_API_KEY trong bộ Secrets.")
@@ -80,6 +84,5 @@ def trigger_sync_process():
 st.sidebar.markdown("---")
 st.sidebar.subheader("⚙️ Phân hệ Quản trị")
 
-# Khi nhấn nút, chỉ thực hiện gọi tên hàm xử lý ở trên
 if st.sidebar.button("⚡ Đồng bộ hóa Vector Kho mẫu"):
     trigger_sync_process()
