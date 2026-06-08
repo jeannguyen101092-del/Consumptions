@@ -696,6 +696,10 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
 # =============================================================================
 # ĐOẠN 2 - PHẦN A: BẢN NÂNG CẤP MÁY QUÉT ẢNH CHỐNG VỠ LINK STORAGE CHỮ HOA
 # =============================================================================
+                    # Định nghĩa lại biến địa chỉ an toàn để tránh lỗi NameError
+                    base_sb_url = SB_URL.rstrip('/')
+                    headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
+
                     # Hệ thống tự động kiểm tra xem câu lệnh có yêu cầu so sánh mã tương đồng hoặc tính định mức hay không
                     is_similarity_requested = any(word in clean_text_upper for word in ["TƯƠNG ĐỒNG", "TUONG DONG", "GIỐNG", "GIONG", "SO SÁNH", "SO SANH", "ĐỊNH MỨC", "DINH MUC"])
                     similar_records = []
@@ -719,7 +723,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                             "select": "StyleName,Category,DetailedMeasurements,SketchURL",
                             "limit": "5"
                         }
-                        res_tp_direct = requests.get(url_techpack, headers=headers, params=params_tp_direct, timeout=15)
+                        res_tp_direct = requests.get(url_tp_direct, headers=headers, params=params_tp_direct, timeout=15)
                         raw_techpacks = res_tp_direct.json() if 200 <= res_tp_direct.status_code <= 299 else []
                         
                         # Đồng thời gọi dữ liệu bảng san_pham lịch sử tiêu hao tương ứng bằng dấu phần trăm (%)
@@ -778,10 +782,8 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                             img_part = None
                             if sketch_url:
                                 try:
-                                    # ✨ THUẬT TOÁN BẢO VỆ URL AN TOÀN TUYỆT ĐỐI CHO FILE ẢNH CHỮ HOA:
                                     # Tách riêng phần tên file ảnh ở đuôi đường link để mã hóa độc lập bằng hàm quote
                                     base_route, filename_part = sketch_url.rsplit('/', 1)
-                                    # Tạo đường dẫn link public chuẩn hóa không phân biệt chữ hoa thường phá link
                                     secure_public_url = f"{base_route}/{quote(filename_part)}"
                                     
                                     img_res = requests.get(secure_public_url, timeout=10)
@@ -799,6 +801,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                                 "measurements": tp.get("DetailedMeasurements"),
                                 "bom_data": match_sp if match_sp else []
                             })
+
 
 
 
