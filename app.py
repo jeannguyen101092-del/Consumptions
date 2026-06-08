@@ -60,7 +60,8 @@ st.markdown("""
     </div>
 """, unsafe_allow_html=True)
 # =============================================================================
-# LOGIC KÍCH HOẠT CHẠY FILE DONG_BO_KHO.PY QUA SIDEBAR (ĐÃ VÁ LỖI CĂN LỀ)
+# =============================================================================
+# LOGIC KÍCH HOẠT CHẠY FILE DONG_BO_KHO.PY QUA SIDEBAR (ĐÃ VÁ LỖI CĂN LỀ CHUẨN)
 # =============================================================================
 import dong_bo_kho
 
@@ -68,14 +69,13 @@ st.sidebar.markdown("---")
 st.sidebar.subheader("⚙️ Phân hệ Quản trị")
 
 if st.sidebar.button("⚡ Đồng bộ hóa Vector Kho mẫu"):
-    # Ép lấy Token bảo mật trực tiếp bên trong khối lệnh nút bấm
     token_chinh_xac = st.secrets.get("GEMINI_API_KEY", "").strip()
     if not token_chinh_xac:
         token_chinh_xac = st.secrets.get("GEMINI_KEY", "").strip()
         
     if token_chinh_xac:
         with st.sidebar.spinner("Đang xử lý số hóa hình ảnh toàn bộ mã cũ..."):
-            # THỤT LỀ CHUẨN: Lệnh này chỉ chạy khi nút được bấm thành công
+            # THỤT LỀ QUYẾT ĐỊNH: Phải lùi vào 12 dấu cách (hoặc 3 dấu Tab)
             msg = dong_bo_kho.run_sync(token_chinh_xac, SB_URL, SB_KEY)
             st.sidebar.success(msg)
     else:
