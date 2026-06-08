@@ -756,20 +756,21 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                                 detected_image_url_to_render = f"{SB_URL.rstrip('/')}/storage/v1/object/public/kho_anh/{style_title}.jpg"
 
                         # =============================================================================
-                        # GỬI TOÀN BỘ NGỮ CẢNH (DỮ LIỆU DB + BẢNG TÍNH TOÁN) SANG GEMINI ĐỂ ĐỐI SOÁT CUỐI
+                                               # =============================================================================
+                        # GỬI TOÀN BỘ NGỮ CẢNH SANG GEMINI - ÉP AI TRẢ LỜI TRỰC DIỆN (HỎI GÌ ĐÁP NẤY)
                         # =============================================================================
                         final_prompt = f"""
-                        Bạn là một chuyên gia R&D và kỹ sư bóc tách định mức (BOM) cao cấp trong ngành may mặc.
-                        Yêu cầu hiện tại của người dùng: "{user_query}"
+                        Bạn là một trợ lý AI phòng R&D dệt may, có nhiệm vụ trả lời TRỰC DIỆN, NGẮN GỌN và CHÍNH XÁC vào câu hỏi.
                         
-                        Dưới đây là toàn bộ thông tin hệ thống tìm kiếm được kết hợp với kết quả tính toán toán học tự động:
+                        Yêu cầu của người dùng: "{user_query}"
+                        
+                        Dữ liệu hệ thống thực tế thu thập & tính toán được:
                         {db_context}
                         
-                        Nhiệm vụ của bạn:
-                        1. Lập một bảng cấu trúc định mức tổng thể (BOM) rõ ràng cho tất cả các loại nguyên vật liệu cấu thành sản phẩm (Vải chính, vải phối, keo lót, tape, phụ liệu khác nếu có).
-                        2. Đưa ra đối soát, nhận xét chi tiết và phân tích sự sai lệch/biến động định mức dựa trên các thông số Min, Max, Avg đã tính toán.
-                        3. Trích xuất bảng thông số kỹ thuật (DetailedMeasurements) ra định dạng bảng Markdown trực quan, dễ đọc.
-                        4. Trình bày ngắn gọn, súc tích, ngôn ngữ chuyên ngành may mặc chuẩn xác. Không hiển thị các đoạn code lập trình trong câu trả lời.
+                        Nhiệm vụ và quy tắc bắt buộc:
+                        1. Tuyệt đối KHÔNG trả lời lan man. Người dùng hỏi gì thì chỉ cung cấp đúng thông tin đó dựa trên dữ liệu hệ thống ở trên.
+                        2. Nếu hỏi về một mã vải (ví dụ: P3026), chỉ hiển thị thông tin, định mức và các dữ liệu liên quan đến đúng mã vải đó. Không tự ý lập bảng tổng thể các phụ liệu khác nếu không được yêu cầu.
+                        3. Trình bày súc tích dưới dạng gạch đầu dòng hoặc bảng ngắn gọn để người dùng nhìn thấy ngay kết quả.
                         """
                         
                         final_res = client.models.generate_content(
@@ -779,13 +780,14 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                         
                         st.markdown(final_res.text)
                         
-                        # Hiển thị trực quan hình ảnh Sketch kỹ thuật nếu tìm thấy liên kết URL hoặc kích hoạt luồng dự phòng
-                        if detected_image_url_to_render:
+                        # Chỉ hiển thị hình ảnh nếu tìm thấy dữ liệu và câu hỏi liên quan đến việc xem mẫu/mã hàng
+                        if detected_image_url_to_render and any(word in clean_text_upper for word in ["ẢNH", "SKETCH", "HÌNH", "MẪU", "MÃ HÀNG"]):
                             st.image(
                                 detected_image_url_to_render, 
                                 caption=f"Hình ảnh Sketch kỹ thuật hệ thống: {detected_style_title_to_render}", 
                                 use_container_width=True
                             )
+
                         
                     except Exception as e:
                         st.error(f"Lỗi vận hành hệ thống pipeline dữ liệu: {str(e)}")
