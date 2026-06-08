@@ -612,7 +612,6 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     else:
                         has_file = False
                         
-                    # THUẬT TOÁN RẼ NHÁNH 1: NẾU KỸ SƯ CÓ TẢI FILE TECHPACK / RẬP
                     if has_file:
                         file_bytes = chat_file.getvalue()
                         if chat_file.name.lower().endswith('.pdf'):
@@ -664,13 +663,15 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                                 import time
                                 time.sleep(2 * (ext_attempt + 1))
                     
-                    # THUẬT TOÁN RẼ NHÁNH 2: NẾU CHỈ GÕ CHỮ (Xử lý chuỗi nâng cao để lọc sạch từ khóa thô)
+                    # THUẬT TOÁN NHẬN DIỆN Ý ĐỊNH TRA CỨU MÃ VẢI CHUYÊN BIỆT
                     clean_text_upper = str(user_query).strip().upper()
+                    
+                    # Kiểm tra xem kỹ sư có gõ từ khóa liên quan đến "vải" hoặc "code vải" hay không
+                    is_searching_fabric = any(word in clean_text_upper for word in ["CODE VẢI", "CODE VAI", "MÃ VẢI", "MA VAI", "LOẠI VẢI", "LOAI VAI", "TÌM VẢI", "TIM VAI"])
+                    
                     pattern_remove = r"\b(TÌM|TIM|KIỂM TRA|KIEM TRA|XEM|CHECK|CHO TOI|XIN|MÃ HÀNG|MA HANG|MÃ|MA|VẢI|VAI|ĐỊNH MỨC|DINH MUC|CODE|TRÍCH XUẤT|TRICH XUAT|HÌNH ẢNH|HINH ANH|THÔNG TIN|THONG TIN|NÀY|NAY)\b"
                     clean_query = re.sub(pattern_remove, "", clean_text_upper).strip()
-                    clean_query = re.sub(r"\bCODE\s*", "", clean_query).strip()
                     
-                    # Ưu tiên lấy mã hàng bóc từ file, nếu không có file thì lấy cụm từ khóa đã lọc sạch (Ví dụ: "CR2045")
                     if has_file and new_style_id_detected != "UNKNOWN_STYLE" and not clean_query:
                         dynamic_keyword = str(new_style_id_detected).strip()
                     else:
@@ -680,11 +681,9 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     if not dynamic_keyword:
                         dynamic_keyword = "UNKNOWN"
 
-                    # Truy vấn song song dữ liệu thô cục bộ để làm mồi dự phòng cho hệ thống
                     db_results = get_techpack_spec_from_db(style_name_keyword=dynamic_keyword)
                     backup_res = get_historical_fabric_consumption_from_db(search_keyword=dynamic_keyword)
 
-                    # Chỉ hiển thị ảnh file mới lên màn hình nếu kỹ sư thực sự có tải file lên
                     if has_file and target_new_sketch_bytes:
                         st.image(target_new_sketch_bytes, caption=f"🖼️ Bản vẽ phẳng công nghệ trích xuất từ FILE MỚI UPLOAD ({new_style_id_detected})", use_container_width=True)
 
@@ -699,24 +698,29 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     vision_payload = [] 
 
                     if is_similarity_requested:
-                        # Tách bớt ký tự đặc biệt nếu có để việc tìm kiếm chuỗi tương đồng chính xác nhất
-                        short_keyword = dynamic_keyword.split('_')[0].split('-')[0].strip()
+                        short_keyword = dynamic_keyword.strip()
                         
-                        # Thực hiện quét không phân biệt chữ hoa, chữ thường trên bảng thong_so_techpack
-                        query_url = f"{base_sb_url}/rest/v1/thong_so_techpack?style_name=ilike.*{quote(short_keyword)}*&select=*"
+                        # RẼ NHÁNH ĐỊA CHỈ TRUY VẤN URL SUPABASE
+                        if is_searching_fabric:
+                            # Chiến lược 1: Quét trực tiếp cột tên vải (article_name) không phân biệt hoa thường [1]
+                            query_url = f"{base_sb_url}/rest/v1/thong_so_techpack?article_name=ilike.*{quote(short_keyword)}*&select=*"
+                        else:
+                            # Chiến lược 2: Quét cột mã hàng (style_name) như cũ [1]
+                            query_url = f"{base_sb_url}/rest/v1/thong_so_techpack?style_name=ilike.*{quote(short_keyword)}*&select=*"
                         
                         try:
                             response = requests.get(query_url, headers=headers, timeout=10)
                             if response.status_code == 200 and len(response.json()) > 0:
                                 similar_records = response.json()
                             else:
-                                # Nếu gõ mã hàng hoặc mã vải quá mới chưa có dòng dữ liệu, quét nhanh 20 dòng mới nhất để đối soát hình thái
+                                # Phương án dự phòng: Lấy 20 bản ghi định mức tiêu hao dệt may mới nhất để AI phân loại mẫu chéo
                                 fallback_url = f"{base_sb_url}/rest/v1/thong_so_techpack?select=*&order=created_at.desc&limit=20"
                                 res_fb = requests.get(fallback_url, headers=headers, timeout=10)
                                 if res_fb.status_code == 200:
                                     similar_records = res_fb.json()
                         except Exception as ex:
-                            st.warning(f"Đường truyền kết nối với Supabase bị chậm: {str(ex)}. Hệ thống chuyển sang xử lý dự phòng cục bộ.")
+                            st.warning(f"Đường truyền kết nối với Supabase bị chậm: {str(ex)}. Hệ thống chuyển sang đối soát cục bộ.")
+
 
 
 # =============================================================================
@@ -724,54 +728,63 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
 # =============================================================================
                     st.markdown("### 🔍 Bản Vẽ Tham Chiếu Từ Kho Dữ Liệu Lịch Sử")
                     
-                    # Thu thập toàn bộ danh sách mã hàng tìm thấy từ kho liên quan đến từ khóa tra cứu
+                    # Thu thập danh sách mã hàng đính kèm sử dụng loại nguyên vật liệu này
                     unique_styles_in_db = list(set([item.get("style_name") for item in similar_records if item.get("style_name")]))
                     
-                    # BƯỚC THẦN TỐC: Trích xuất và đẩy ảnh từ kho lưu trữ lên trước để kỹ sư xem ngay lập tức
+                    # Xuất ngay lập tức ảnh phẳng của các mã hàng liên quan đến mã vải này để kỹ sư đối chiếu hình thái rập
                     has_printed_image = False
                     for style_name in unique_styles_in_db[:2]:
-                        # Đường dẫn URL public trên Storage của xưởng (Tự động map theo tên mã hàng tìm được)
                         mock_storage_img_url = f"{base_sb_url}/storage/v1/object/public/techpack_sketches/{style_name}.jpg"
                         
                         if mock_storage_img_url:
-                            st.image(mock_storage_img_url, caption=f"📐 Bản vẽ rập gốc của Mã Tương Đồng đối chứng trong kho: {style_name}", use_container_width=True)
+                            st.image(mock_storage_img_url, caption=f"📐 Bản vẽ rập gốc của Mã hàng ({style_name}) đang dùng mã vật tư này", use_container_width=True)
                             has_printed_image = True
                             
                     if not has_printed_image:
-                        st.info(f"💡 Hệ thống đang tiến hành đối soát thông số hình học dạng bảng cho từ khóa '{dynamic_keyword}'.")
+                        st.info(f"💡 Hệ thống đang đối soát dữ liệu định mức vật tư dạng bảng cho từ khóa vải '{dynamic_keyword}'.")
 
-                    # THIẾT LẬP CẤU TRÚC PROMPT THEO QUY TRÌNH PHÂN CẤP 3 BƯỚC (Xử lý linh hoạt trường hợp có file hoặc không có file)
-                    order_flow_prompt = f"""
-                    Bạn là Giám đốc Kỹ thuật Rập và chuyên gia phân tích R&D của PPJ Group.
-                    Nhiệm vụ: Đối soát thông tin dệt may dựa trên từ khóa hoặc tệp tin do kỹ sư cung cấp theo đúng 3 bước:
-                    
-                    BƯỚC 1: QUÉT VÀ NHẬN DIỆN HÌNH ẢNH TƯƠNG ĐỒNG (IMAGE MATCHING FIRST)
-                    - Nếu có ảnh đính kèm từ file mới, hãy phân tích phom dáng hình học (Suông, ôm, baggy...).
-                    - Nếu kỹ sư KHÔNG upload file (chỉ gõ text tra cứu), hãy xác định phom dáng thiết kế chung của mã hàng tìm được trong kho là: {json.dumps(unique_styles_in_db, ensure_ascii=False)}.
-                    
-                    BƯỚC 2: ĐỐI SOÁT CHI TIẾT BẢNG THÔNG SỐ HÌNH HỌC (SPECIFICATION COMPARISON)
-                    - Đối chiếu dữ liệu thông số nhập vào (Mã hàng tra cứu hiện tại: {dynamic_keyword}) với toàn bộ bảng dữ liệu lịch sử trích xuất từ kho: {json.dumps(similar_records, ensure_ascii=False)}.
-                    - Tạo một bảng Markdown so sánh chi tiết số đo giữa các mã hàng tương đồng, chỉ rõ sai lệch kích thước (+/- cm) tại các vị trí POM chủ chốt (Dài dọc, Vòng eo, Vòng mông, Ngực, Gấu...) nếu có dữ liệu.
-                    
-                    BƯỚC 3: PHÂN TÍCH ĐỊNH MỨC VÀ TIÊU HAO VẬT TƯ (BOM CONSUMPTION ANALYSIS)
-                    - Dựa trên các dòng dữ liệu trong kho, phân tích kỹ cột `consumption_type` (Main Fabric, Pocketing, Interlining), tên vật tư `article_name` và khổ vải `material_size`.
-                    - Đưa ra kết luận chi tiết về định mức tiêu hao nguyên phụ liệu thực tế để kỹ sư áp dụng trực tiếp vào sơ đồ cắt.
-                    
-                    YÊU CẦU TRÌNH BÀY: Hiển thị bằng Tiếng Việt rõ ràng, ngắn gọn, phân tách thành 3 phần tiêu đề rõ rệt theo đúng 3 bước trên. BƯỚC 2 trình bày dạng bảng.
-                    """
+                    # THIẾT LẬP PROMPT LẬP LUẬN THEO Ý ĐỊNH TRA CỨU
+                    if is_searching_fabric:
+                        # PROMPT TRA CỨU MÃ VẢI: Tập trung vào tiêu hao, khổ vải, danh sách mã hàng [1]
+                        order_flow_prompt = f"""
+                        Bạn là Giám đốc R&D và chuyên gia hoạch định nguyên phụ liệu (BOM Master) của PPJ Group.
+                        Kỹ sư đang thực hiện tra cứu chuyên sâu về MÃ VẢI/VẬT TƯ: '{dynamic_keyword}'.
+                        Hãy tiến hành phân tích cơ sở dữ liệu lịch sử theo đúng quy trình phân cấp 3 bước sau:
+                        
+                        BƯỚC 1: XÁC ĐỊNH DANH SÁCH MÃ HÀNG SỬ DỤNG VẢI NÀY
+                        - Dựa trên kho dữ liệu: {json.dumps(similar_records, ensure_ascii=False)}.
+                        - Chỉ rõ mã vải này đang được áp dụng cho những mã hàng (`style_name`) nào trong quá khứ [1]. Nhận diện xem các mã hàng đó thuộc nhóm sản phẩm gì (Ví dụ: Jeans, Jackets...).
+                        
+                        BƯỚC 2: ĐỐI SOÁT CHI TIẾT KHỔ VẢI VÀ LOẠI TIÊU HAO (MATERIAL SPECIFICATION)
+                        - Lập bảng Markdown tổng hợp chi tiết thông tin về: Mã hàng (`style_name`), Loại định mức (`consumption_type` như Main Fabric, Pocketing, Interlining), và Khổ vải tương ứng (`material_size`) [1].
+                        - Đánh giá xem mã vải này có bị co rút hoặc biến đổi khổ khi cắt sơ đồ giữa các mã hàng khác nhau hay không.
+                        
+                        BƯỚC 3: PHÂN TÍCH ĐỊNH MỨC TIÊU HAO BÌNH QUÂN (YIELD CONSUMPTION ANALYSIS)
+                        - Thống kê định mức tiêu hao trung bình (Yards hoặc Meters trên một đơn vị sản phẩm) dựa trên dữ liệu lịch sử lưu vết [1].
+                        - Đưa ra khuyến nghị định mức chuẩn cho kỹ sư khi áp mã vải này vào các đơn hàng sản xuất mới.
+                        
+                        YÊU CẦU: Trình bày Tiếng Việt ngắn gọn, chia thành 3 phần tiêu đề tương ứng 3 bước. Không giải thích lan man về kiểu dáng phom quần áo nếu không liên quan đến vải [2].
+                        """
+                    else:
+                        # PROMPT TRA CỨU MÃ HÀNG GỐC (Giữ nguyên logic tra cứu rập/thông số cơ bản)
+                        order_flow_prompt = f"""
+                        Bạn là Giám đốc Kỹ thuật Rập PPJ Group. Tra cứu MÃ HÀNG: '{dynamic_keyword}'.
+                        Hãy xử lý theo quy trình 3 bước:
+                        BƯỚC 1: QUÉT VÀ NHẬN DIỆN HÌNH ẢNH TƯƠNG ĐỒNG (IMAGE MATCHING FIRST) dựa trên phom dáng rập trong kho [2].
+                        BƯỚC 2: ĐỐI SOÁT CHI TIẾT BẢNG THÔNG SỐ HÌNH HỌC (SPECIFICATION COMPARISON) dạng bảng Markdown so sánh số đo và tính toán sai lệch [2].
+                        BƯỚC 3: PHÂN TÍCH ĐỊNH MỨC VÀ TIÊU HAO VẬT TƯ (BOM CONSUMPTION ANALYSIS) dựa trên khổ vải và `consumption_type` [1].
+                        """
 
-                    # Nạp ảnh rập của mã mới vào payload nếu có tải file lên
                     if target_new_sketch_bytes:
                         vision_payload.append(types.Part.from_bytes(data=target_new_sketch_bytes, mime_type='image/jpeg'))
                     
-                    # Đính kèm prompt nghiệp vụ dệt may
                     vision_payload.append(order_flow_prompt)
 
-                    with st.spinner("AI đang xử lý phân tầng: Quét phom dáng ➡️ So khớp thông số ➡️ Khấu trừ định mức vải..."):
+                    with st.spinner("AI đang xử lý phân tầng: Kiểm tra kho vải ➡️ Thống kê khổ rập ➡️ Tính toán định mức tiêu hao..."):
                         final_res = client.models.generate_content(
                             model='gemini-2.5-flash',
                             contents=vision_payload,
-                            config=types.GenerateContentConfig(temperature=0.1) # Giữ mức 0.1 để AI đối soát số liệu chuẩn, không bị nhảy số lung tung
+                            config=types.GenerateContentConfig(temperature=0.1)
                         )
                         
                         st.markdown("### 📊 Báo Cáo Phân Tích Phân Cấp Kỹ Thuật (R&D Engine)");
