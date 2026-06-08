@@ -60,10 +60,14 @@ st.markdown("""
     </div>
 """, unsafe_allow_html=True)
 # =============================================================================
-# LOGIC ÉP CHẠY VECTOR HÓA TRỰC TIẾP TRONG APP.PY (ĐÃ VÁ LỖI IMPORT GENAI)
+# =============================================================================
+# LOGIC ÉP CHẠY VECTOR HÓA TRỰC TIẾP TRONG APP.PY (ĐÃ VÁ LỖI IMPORT REQUESTS)
 # =============================================================================
 def force_sync_warehouse_images():
-    # IMPORT THƯ VIỆN NGAY BÊN TRONG HÀM ĐỂ TRÁNH LỖI NAMEERROR TUYỆT ĐỐI
+    # IMPORT TẤT CẢ THƯ VIỆN NGAY BÊN TRONG HÀM ĐỂ KHÓA CHẶT LỖI NAMEERROR
+    import json
+    import requests
+    from urllib.parse import quote
     from google import genai
     from google.genai import types
     
@@ -126,6 +130,6 @@ def force_sync_warehouse_images():
 st.sidebar.markdown("---")
 st.sidebar.subheader("⚙️ Phân hệ Quản trị")
 
-# Gọi trực tiếp hàm vừa viết trong app.py khi bấm nút
+# Gọi trực tiếp hàm khi nhấn nút bấm
 if st.sidebar.button("⚡ Đồng bộ hóa Vector Kho mẫu"):
     force_sync_warehouse_images()
