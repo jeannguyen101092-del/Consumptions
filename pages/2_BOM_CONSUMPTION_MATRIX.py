@@ -709,14 +709,13 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                                     avg_c = sum(values) / len(values)
                                     db_context += f"  => Định mức trung bình tính toán thực tế (Avg Cons): {avg_c:.3f} (Gồm 5% hao hụt sản xuất đề xuất: {avg_c * 1.05:.3f})\n"
 
-                                                if new_style_raw_text:
+                        if new_style_raw_text:
                             db_context += f"\n- DỮ LIỆU THÔ ĐỌC ĐƯỢC TỪ FILE TECHPACK ĐÍNH KÈM:\n{new_style_raw_text}\n"
 
                         # Thuật toán tự động liên kết dựng link ảnh trực tiếp từ Storage kho_anh công khai
                         if not detected_image_url_to_render and tp_search_keyword and tp_search_keyword != "UNKNOWN":
                             detected_style_title_to_render = tp_search_keyword
                             detected_image_url_to_render = f"{SB_URL.rstrip('/')}/storage/v1/object/public/kho_anh/{tp_search_keyword}.jpg"
-
                         # Đóng gói Prompt cô đọng và gửi lệnh xử lý sang Gemini AI để ép "Hỏi gì đáp nấy"
                         final_prompt = f"""
                         Bạn là một trợ lý AI phòng R&D dệt may. Hãy trả lời TRỰC DIỆN, NGẮN GỌN và CHÍNH XÁC vào câu hỏi.
@@ -725,7 +724,7 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                         
                         Quy tắc bắt buộc:
                         1. Người dùng hỏi gì thì đáp ngay vào đáp án đó, không chào hỏi dong dài hoặc giải thích hệ thống ở đầu câu.
-                        2. Nếu tra cứu mã hàng hoặc thông số (Ví dụ: MR1705), hiển thị chi tiết bảng thông số kỹ thuật (DetailedMeasurements) thành định dạng bảng Markdown trực quan, kèm thông tin định mức lịch sử nếu có.
+                        2. Nếu tra cứu mã hàng hoặc thông số (Ví dụ: MR1705), hiển thị chi tiết bảng thông số kỹ thuật (DetailedMeasurements) thành định dạng bảng Markdown trực quan, dễ đọc và kèm theo thông tin định mức nếu có trong hệ thống.
                         3. Nếu tra cứu mã vải (Ví dụ: SJ-8902), chỉ hiển thị thông tin vải và định mức tiêu thụ liên quan của đúng mã vải đó, tuyệt đối cắt bỏ toàn bộ thông tin phụ của các vật tư khác.
                         """
                         final_res = client.models.generate_content(model='gemini-2.5-flash', contents=[final_prompt])
@@ -736,4 +735,3 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                         
                     except Exception as e:
                         st.error(f"Lỗi vận hành hệ thống pipeline dữ liệu: {str(e)}")
-
