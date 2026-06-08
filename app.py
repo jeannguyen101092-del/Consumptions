@@ -60,19 +60,23 @@ st.markdown("""
     </div>
 """, unsafe_allow_html=True)
 # =============================================================================
-# LOGIC KÍCH HOẠT CHẠY FILE DONG_BO_KHO.PY QUA SIDEBAR
+# LOGIC KÍCH HOẠT CHẠY FILE DONG_BO_KHO.PY QUA SIDEBAR (ĐÃ VÁ LỖI KHÉP KÍN)
 # =============================================================================
-import dong_bo_kho # Gọi file dong_bo_kho.py vừa tạo ở bước 1
+import dong_bo_kho # Gọi file dong_bo_kho.py
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("⚙️ Phân hệ Quản trị")
 if st.sidebar.button("⚡ Đồng bộ hóa Vector Kho mẫu"):
-    gemini_token = get_secure_gemini_key()
+    # TỰ ĐỘNG LẤY KEY BẢO MẬT TRỰC TIẾP TẠI CHỖ ĐỂ TRÁNH LỖI NAMEERROR
+    gemini_token = st.secrets.get("GEMINI_API_KEY", "").strip()
+    if not gemini_token:
+         gemini_token = st.secrets.get("GEMINI_KEY", "").strip()
+         
     if gemini_token:
         with st.sidebar.spinner("Đang chạy file dong_bo_kho.py để số hóa kho mẫu cũ..."):
             # Chạy hàm xử lý quét kho ảnh cũ của file dong_bo_kho.py
             msg = dong_bo_kho.run_sync(gemini_token, SB_URL, SB_KEY)
             st.sidebar.success(msg)
     else:
-        st.sidebar.error("Thiếu API Key Gemini.")
+        st.sidebar.error("Không tìm thấy chìa khóa API Gemini trong cấu hình Secrets.")
 
