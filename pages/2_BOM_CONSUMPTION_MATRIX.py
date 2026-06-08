@@ -699,8 +699,6 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                         except Exception:
                             pass
                     
-                                        # ... [Phần code xử lý PDF và Gemini giữ nguyên phía trên] ...
-                    
                     clean_text_upper = str(user_query).strip().upper()
                     is_searching_fabric = any(word in clean_text_upper for word in ["CODE VẢI", "CODE VAI", "MÃ VẢI", "MA VAI", "LOẠI VẢI", "LOAI VAI", "TÌM VẢI", "TIM VAI"])
                     
@@ -733,14 +731,8 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                             dynamic_keyword = str(new_style_id_detected).strip()
                         else:
                             dynamic_keyword = "UNKNOWN"
-
-                    # 3. TRUY VẤN CƠ SỞ DỮ LIỆU ĐÃ ĐƯỢC CHUẨN HÓA CÚ PHÁP
-                    db_results = get_techpack_spec_from_db(style_name_keyword=dynamic_keyword)
-                    backup_res = get_historical_fabric_consumption_from_db(search_keyword=dynamic_keyword)
-
-                    # 4. HIỂN THỊ HÌNH ẢNH BẢN VẼ PHẲNG TỪ FILE MỚI UPLOAD
-                    if has_file and target_new_sketch_bytes:
-                        st.image(target_new_sketch_bytes, caption=f"🖼️ Bản vẽ phẳng công nghệ trích xuất từ FILE MỚI UPLOAD ({new_style_id_detected})", use_container_width=True)
+                except Exception:
+                    pass
 
 # =============================================================================
 # ĐOẠN 2 - PHẦN A: ĐỐI SOÁT VECTOR EMBEDDINGS HOÀN TOÀN BẰNG PYTHON BẮT TRÚNG MÃ
@@ -758,7 +750,8 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     if is_similarity_requested:
                         short_keyword = dynamic_keyword.strip().upper()
                         
-                        check_url = f"{base_sb_url}/rest/v1/thong_so_techpack?StyleName=ilike.%{quote(short_keyword)}%&select=StyleName"
+                        # ✨ ĐÃ SỬA: Đổi từ ilike.% sang ilike.* chuẩn cú pháp Supabase PostgREST
+                        check_url = f"{base_sb_url}/rest/v1/thong_so_techpack?StyleName=ilike.*{quote(short_keyword)}*&select=StyleName"
                         has_in_techpack = False
                         try:
                             res_check = requests.get(check_url, headers=headers, timeout=3)
@@ -808,8 +801,9 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
 
                         final_search_key = matched_style_name if (matched_style_name and matched_style_name != "null") else short_keyword
 
-                        url_san_pham = f"{base_sb_url}/rest/v1/san_pham?or=(style_name.ilike.%{quote(short_keyword)}%,article_name.ilike.%{quote(short_keyword)}%)&select=*"
-                        url_techpack = f"{base_sb_url}/rest/v1/thong_so_techpack?StyleName=ilike.%{quote(final_search_key)}%&select=*"
+                        # ✨ ĐÃ SỬA: Chuyển toàn bộ dấu % thành toán tử * diện rộng để bốc trúng mã hàng gạch ngang hoặc viết liền
+                        url_san_pham = f"{base_sb_url}/rest/v1/san_pham?or=(style_name.ilike.*{quote(short_keyword)}*,article_name.ilike.*{quote(short_keyword)}*)&select=*"
+                        url_techpack = f"{base_sb_url}/rest/v1/thong_so_techpack?StyleName=ilike.*{quote(final_search_key)}*&select=*"
 
                         def fetch_url(url):
                             try:
@@ -824,6 +818,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                             
                             fabric_records = future_sp.result()
                             techpack_records = future_tp.result()
+
 # =============================================================================
 # ĐOẠN 3: KẾT XUẤT HÌNH ẢNH SKETCH, BẢNG THÔNG SỐ VÀ TỰ TÍNH ĐỊNH MỨC ĐỘ CO ĐA CHIỀU
 # =============================================================================
@@ -833,7 +828,8 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     SUPABASE_PROJECT_URL = "https://supabase.co" 
                     
                     if techpack_records and len(techpack_records) > 0:
-                        first_record = techpack_records if isinstance(techpack_records, list) else techpack_records
+                        # ✨ ĐÃ SỬA: Lấy chính xác bản ghi đầu tiên trong mảng dữ liệu trả về từ Supabase
+                        first_record = techpack_records[0] if isinstance(techpack_records, list) else techpack_records
                         if isinstance(first_record, dict):
                             current_style_name = first_record.get("StyleName", "")
                             db_sketch_url = first_record.get("SketchURL")
@@ -861,11 +857,13 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     co_ngang = shrink_ngang.group(1) if shrink_ngang else "0"
                     co_doc = shrink_doc.group(1) if shrink_doc else (shrink_general.group(1) if shrink_general else "0")
 
-                    st.markdown(f"### 📊 Kết quả đối soát dữ liệu mã hàng: **{new_style_id_detected}**")
+                    # ✨ ĐÃ SỬA: Hiển thị tên mã hàng đối soát linh hoạt (Ưu tiên mã tìm thấy trong kho hoặc mã AI quét được từ file)
+                    display_style_heading = current_style_name if current_style_name else (new_style_id_detected if new_style_id_detected != "UNKNOWN_STYLE" else dynamic_keyword)
+                    st.markdown(f"### 📊 Kết quả đối soát dữ liệu mã hàng: **{display_style_heading}**")
                     
                     col1, col2 = st.columns(2)
                     with col1:
-                        st.markdown("**📋 Thông tin định mức vải gốc (Bảng san_pham):**")
+                        st.markdown("**📋 Inform định mức vải gốc (Bảng san_pham):**")
                         if fabric_records:
                             formatted_fabric = [{"Mã hàng": r.get("style_name"), "Mã vải (Article)": r.get("article_name"), "Loại vật tư": r.get("consumption_type"), "Khổ vải": r.get("material_size"), "Đơn vị": r.get("uom")} for r in fabric_records]
                             st.dataframe(formatted_fabric, use_container_width=True)
