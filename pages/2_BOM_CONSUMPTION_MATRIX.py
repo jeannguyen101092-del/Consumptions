@@ -699,38 +699,39 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                         except Exception:
                             pass
                     
-                    clean_text_upper = str(user_query).strip().upper()
+                                        clean_text_upper = str(user_query).strip().upper()
                     is_searching_fabric = any(word in clean_text_upper for word in ["CODE VẢI", "CODE VAI", "MÃ VẢI", "MA VAI", "LOẠI VẢI", "LOAI VAI", "TÌM VẢI", "TIM VAI"])
                     
-                    # Trích xuất danh sách mã hàng bằng Regex
+                    # Trích xuất danh sách mã hàng bằng mẫu Regex chuyên dụng
                     codes_found = re.findall(r'\b[A-Z]*\d+[A-Z0-9]*\b|\b[A-Z0-9]+-\d+[A-Z0-9-]*\b', clean_text_upper)
                     
-                    # 1. LẤY PHẦN TỬ CHUỖI ĐẦU TIÊN TRÁNH LỖI ÉP KIỂU NGUYÊN DANH SÁCH (LIST)
-                    if codes_found:
+                    # ✨ ĐÃ SỬA CHUẨN: Lấy phần tử chuỗi tinh khiết đầu tiên [0] để không bao giờ bị lỗi dính dấu ngoặc vuông
+                    if codes_found and len(codes_found) > 0:
                         dynamic_keyword = str(codes_found[0]).strip()
                     else:
                         # Nếu không khớp mẫu, thực hiện lọc từ khóa thừa nhưng giữ nguyên mã hàng
                         pattern_remove = r"\b(TÌM|TIM|KIỂM TRA|KIEM TRA|XEM|CHECK|CHO TOI|XIN|MÃ HÀNG|MA HANG|MÃ|MA|VẢI|VAI|ĐỊNH MỨC|DINH MUC|CODE|TRÍCH XUẤT|TRICH XUAT|HÌNH ẢNH|HINH ANH|HÌNH|HINH|ẢNH|ANH|TÍNH|TINH|THÔNG TIN|THONG TIN|NÀY|NAY|TƯƠNG ĐỒNG|TUONG DONG|VỚI|KHO|KIẾM|VOI|TRONG)\b"
                         dynamic_keyword = re.sub(pattern_remove, "", clean_text_upper).strip()
                     
-                    # 2. ĐẶT ĐỘ ƯU TIÊN TUYỆT ĐỐI CHO MÃ HÀNG HOẶC MÃ VẢI TRÍCH XUẤT TỪ FILE
+                    # Đặt độ ưu tiên tuyệt đối cho mã hàng hoặc mã vải bóc tách được từ tệp đính kèm
                     if has_file:
                         if is_searching_fabric and new_style_fabric_detected != "UNKNOWN_FABRIC":
                             dynamic_keyword = str(new_style_fabric_detected).strip()
                         elif new_style_id_detected != "UNKNOWN_STYLE":
                             dynamic_keyword = str(new_style_id_detected).strip()
                     
-                    # Loại bỏ triệt để dấu ngoặc vuông và ký tự đặc biệt gây lỗi bẻ gãy liên kết URL
+                    # Loại bỏ triệt để toàn bộ ký tự đặc biệt có thể bẻ gãy URL request
                     dynamic_keyword = re.sub(r"[\[\]'\"*?%#&]", "", dynamic_keyword).strip()
                     
-                    # Chặn các trường hợp nhiễu từ hoặc từ nối tiếng Việt quá ngắn vô nghĩa
+                    # Chặn đứng hoàn toàn trường hợp dính từ nối tiếng Việt hoặc từ khóa quá ngắn vô nghĩa
                     if not dynamic_keyword or dynamic_keyword in ["VỚI", "KHO", "TRONG", "UNKNOWN"] or len(dynamic_keyword) < 3:
                         if new_style_id_detected != "UNKNOWN_STYLE":
                             dynamic_keyword = str(new_style_id_detected).strip()
                         else:
                             dynamic_keyword = "UNKNOWN"
-                except Exception:
-                    pass
+                except Exception as err_keyword:
+                    st.error(f"Lỗi trích xuất từ khóa: {str(err_keyword)}")
+
 
 
 # =============================================================================
@@ -749,11 +750,11 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     if is_similarity_requested:
                         short_keyword = dynamic_keyword.strip().upper()
                         
-                        # ✨ ĐÃ SỬA: Thay dấu % thành dấu * để Supabase PostgREST hiểu thuật toán ilike
+                        # ✨ ĐÃ SỬA CÚ PHÁP: Đồng bộ hóa sang toán tử dấu sao (*) diện rộng chuẩn PostgREST
                         check_url = f"{base_sb_url}/rest/v1/thong_so_techpack?StyleName=ilike.*{quote(short_keyword)}*&select=StyleName"
                         has_in_techpack = False
                         try:
-                            res_check = requests.get(check_url, headers=headers, timeout=3)
+                            res_check = requests.get(check_url, headers=headers, timeout=5)
                             if res_check.status_code == 200 and len(res_check.json()) > 0:
                                 has_in_techpack = True
                         except Exception:
@@ -765,7 +766,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                             with st.spinner("⚡ AI đang số hóa hình học phẳng và chạy thuật toán so khớp thị giác Vector..."):
                                 query_vector = None
                                 try:
-                                    # Trích xuất cụm số để gửi qua text-embedding nhằm phòng ngừa lỗi nhận bytes trực tiếp
+                                    # Sử dụng chuỗi số văn bản cốt lõi tối ưu gửi qua embedding để tránh treo nghẽn kết nối
                                     numbers_in_kw = re.findall(r'\d+', short_keyword)
                                     embed_text = max(numbers_in_kw, key=len) if numbers_in_kw else short_keyword
                                     
@@ -774,7 +775,8 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                                         contents=embed_text
                                     )
                                     query_vector = np.array(embedding_res.embeddings.values)
-                                except Exception:
+                                except Exception as err_embed:
+                                    st.warning(f"Bỏ qua trích xuất vector do API quá tải: {str(err_embed)}")
                                     query_vector = None
 
                                 if query_vector is not None:
@@ -804,7 +806,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
 
                         final_search_key = matched_style_name if (matched_style_name and matched_style_name != "null") else short_keyword
 
-                        # ✨ ĐÃ SỬA: Chuẩn hóa lại toàn bộ endpoint URL sang Wildcard PostgREST (*) chuẩn chỉnh
+                        # Thiết lập endpoint liên kết theo toán tử tìm kiếm mờ chuẩn PostgREST (*)
                         url_san_pham = f"{base_sb_url}/rest/v1/san_pham?or=(style_name.ilike.*{quote(short_keyword)}*,article_name.ilike.*{quote(short_keyword)}*)&select=*"
                         url_techpack = f"{base_sb_url}/rest/v1/thong_so_techpack?StyleName=ilike.*{quote(final_search_key)}*&select=*"
 
@@ -823,6 +825,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                             techpack_records = future_tp.result()
 
 
+
 # =============================================================================
 # ĐOẠN 3: KẾT XUẤT HÌNH ẢNH SKETCH, BẢNG THÔNG SỐ VÀ TỰ TÍNH ĐỊNH MỨC ĐỘ CO ĐA CHIỀU
 # =============================================================================
@@ -831,7 +834,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     current_style_name = ""
                     SUPABASE_PROJECT_URL = "https://supabase.co" 
                     
-                    # ✨ ĐÃ FIX TRIỆT ĐỂ LỖI TREO: Trích xuất phần tử đầu tiên mảng dữ liệu trả về từ kho đưa vào Dictionary 
+                    # ✨ ĐÃ SỬA: Kiểm tra mảng dữ liệu trả về và trích xuất phần tử đầu tiên chính xác bằng chỉ mục [0]
                     if isinstance(techpack_records, list) and len(techpack_records) > 0:
                         first_record = techpack_records[0]
                         if isinstance(first_record, dict):
