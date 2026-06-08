@@ -855,12 +855,15 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     # Bóc tách riêng biệt phần trăm độ co theo chiều ngang và dọc bằng RegEx
                     shrink_ngang = re.search(r'(?:NGANG)\s*(\d+(?:\.\d+)?)\s*%', clean_text_upper)
                     shrink_doc = re.search(r'(?:DỌC|DOC)\s*(\d+(?:\.\d+)?)\s*%', clean_text_upper)
-                    # Dự phòng nếu người dùng chỉ nhập một con số co chung chung
+                    
+                    # Tên biến chuẩn hóa dự phòng nếu người dùng gõ co rút chung chung
                     shrink_general = re.search(r'(?:CO|CO RÚT|CO RUT)\s*(\d+(?:\.\d+)?)\s*%', clean_text_upper)
 
                     user_width = fabric_width_input.group(1) if fabric_width_input else "57 INCH"
                     co_ngang = shrink_ngang.group(1) if shrink_ngang else "0"
-                    co_doc = shrink_doc.group(1) if shrink_doc else (shrink_general.group(1) if shrinkage_general else "0")
+                    
+                    # VÁ LỖI CỐT LÕI: Sửa từ 'shrinkage_general' thành 'shrink_general' để đồng bộ tên biến khai báo
+                    co_doc = shrink_doc.group(1) if shrink_doc else (shrink_general.group(1) if shrink_general else "0")
 
                     st.markdown(f"### 📊 Kết quả đối soát dữ liệu mã hàng: **{new_style_id_detected}**")
                     
@@ -887,17 +890,16 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     st.markdown("### 📐 Kết quả phân tích sơ đồ & Tính toán định mức vải độc lập")
                     
                     analysis_prompt = f"""
-                    You are an expert Apparel Costing & Marker Planning Engineer (Chuyên gia lập sơ đồ định mức vải). 
-                    Perform a strict fabric consumption calculation for this New Style.
+                    You are an expert Apparel Costing & Marker Planning Engineer. Perform a strict fabric consumption calculation for this Style.
                     
                     [PRODUCTION INPUT VARIABLES]
-                    - Target Fabric Width (Khổ vải sản xuất): {user_width}
-                    - Fabric Shrinkage Weft (Độ co rút chiều NGANG): {co_ngang}%
-                    - Fabric Shrinkage Warp (Độ co rút chiều DỌC): {co_doc}%
+                    - Target Fabric Width: {user_width}
+                    - Fabric Shrinkage Weft (Chiều NGANG): {co_ngang}%
+                    - Fabric Shrinkage Warp (Chiều DỌC): {co_doc}%
                     
                     [GEOMETRIC SPECS AVAILABLE]
-                    - Current Style Measurements (Thông số rập bóc từ Techpack mới): {json.dumps(display_specs, ensure_ascii=False)}
-                    - History Reference Records (Dữ liệu đối chứng kho): {json.dumps(fabric_records, ensure_ascii=False)}
+                    - Current Style Measurements: {json.dumps(display_specs, ensure_ascii=False)}
+                    - History Reference Records: {json.dumps(fabric_records, ensure_ascii=False)}
                     
                     [CALCULATION RULES]
                     1. SITUATION A (No History Match Found): Calculate the net fabric consumption entirely from scratch based on the current style's points of measurement (POM). Locate the main length component (e.g., Inseam/Outseam/Total Length) and main width component (e.g., ½ Waist / ½ Hip / Thigh) to estimate the fabric yield required per garment.
