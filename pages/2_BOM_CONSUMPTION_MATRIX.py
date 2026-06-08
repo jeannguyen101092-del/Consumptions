@@ -572,10 +572,10 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
 # PHASE 6B - PART 1: AUTO-REPAIR INTENT & DOUBLE-CHECKED KEYWORD PIPELINE
 # =============================================================================
 import re
-from urllib.parse import quote
-import json
 import io
+import json
 import requests
+from urllib.parse import quote
 
 if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vải và đối soát sai lệch..."):
     st.session_state["chat_history"].append({"role": "user", "type": "text", "content": user_query})
@@ -583,19 +583,17 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
         st.write(user_query)
     
     with st.chat_message("assistant"):
-        with st.spinner("Hệ thống AI R&D Engine đang kết nối kho tri thức nền dệt mai..."):
+        with st.spinner("Hệ thống AI R&D Engine đang kết nối kho tri thức nền dệt may..."):
             gemini_key = get_secure_gemini_key()
             if not gemini_key: 
                 st.error("CRITICAL SERVER BREAKDOWN: AI API Token is missing.")
             else:
                 try:
                     client = genai.Client(api_key=gemini_key)
-                    contents_payload = []
                     new_style_id_detected = "UNKNOWN_STYLE"
                     new_style_raw_text = ""
                     
-                                        # LUỒNG A: NẾU KỸ SƯ CÓ TẢI FILE TECHPACK LÊN - KÍCH HOẠT QUÉT ĐA TRANG
-                    # Kiểm tra an toàn xem biến chat_file có tồn tại trong hệ thống không
+                    # LUỒNG A: KIỂM TRA BIẾN FILE ĐẢM BẢO KHÔNG CRASH
                     if 'chat_file' in locals() or 'chat_file' in globals():
                         has_file = chat_file is not None
                     else:
@@ -639,27 +637,20 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                             except Exception:
                                 import time
                                 time.sleep(2 * (ext_attempt + 1))
-
                     
-                    # ✨ THUẬT TOÁN XÁC ĐỊNH TỪ KHÓA TRUY VẤN THÔNG MINH - PHIÊN BẢN CHUẨN HÓA XƯỞNG
-clean_text_upper = str(user_query).strip().upper()
+                    # ✨ THUẬT TOÁN XÁC ĐỊNH TỪ KHÓA TRUY VẤN THÔNG MINH - CHUẨN KHÔNG DẤU
+                    clean_text_upper = str(user_query).strip().upper()
+                    pattern_remove = r"^(TÌM|TIM|KIỂM TRA|KIEM TRA|XEM|CHECK|CHO TOI|XIN)\s+(MÃ HÀNG|MA HANG|MÃ|MA|CODE|VẢI|VAI|ĐỊNH MỨC|DINH MUC)?\s*"
+                    clean_query = re.sub(pattern_remove, "", clean_text_upper)
+                    
+                    if has_file and new_style_id_detected != "UNKNOWN_STYLE" and not clean_query.strip():
+                        dynamic_keyword = str(new_style_id_detected).strip()
+                    else:
+                        dynamic_keyword = clean_query.strip()
 
-# 1. Khử toàn bộ các tiền tố khẩu lệnh thừa (cả có dấu và KHÔNG DẤU)
-pattern_remove = r"^(TÌM|TIM|KIỂM TRA|KIEM TRA|XEM|CHECK|CHO TOI|CHO TỚI|XIN)\s+(MÃ HÀNG|MA HANG|MÃ|MA|CODE|VẢI|VAI|ĐỊNH MỨC|DINH MUC)?\s*"
-clean_query = re.sub(pattern_remove, "", clean_text_upper)
-
-# 2. Gán từ khóa động động bộ
-if has_file and new_style_id_detected != "UNKNOWN_STYLE" and not clean_query.strip():
-    dynamic_keyword = str(new_style_id_detected).strip()
-else:
-    dynamic_keyword = clean_query.strip()
-
-# 3. Loại bỏ ký tự đặc biệt gây lỗi cú pháp SQL Injection/URL Break
-dynamic_keyword = re.sub(r"[\[\]'\"*?%#&]", "", dynamic_keyword).strip()
-
-if not dynamic_keyword:
-    dynamic_keyword = "UNKNOWN"
-
+                    dynamic_keyword = re.sub(r"[\[\]'\"*?%#&]", "", dynamic_keyword).strip()
+                    if not dynamic_keyword:
+                        dynamic_keyword = "UNKNOWN"
 
                     # ĐỒNG BỘ TRUY VẤN MÀNG LỌC TRƯỜNG THEO DATABASE XƯỞNG
                     headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
@@ -672,11 +663,11 @@ if not dynamic_keyword:
                     
                     or_filter = quote(f"style_name.ilike.*{dynamic_keyword}*,article_name.ilike.*{dynamic_keyword}*,notes.ilike.*{dynamic_keyword}*")
                     url_san_pham = f"{base_sb_url}/rest/v1/san_pham?or=({or_filter})&select=style_name,article_name,consumption_type,material_size,uom,consumption_value,notes&limit=1000"
-                    
                     res_sp = requests.get(url_san_pham, headers=headers, timeout=15)
                     backup_res = res_sp.json() if 200 <= res_sp.status_code <= 299 else []
                     
-                    db_context = f"\n\n[ KHO DỮ LIỆU TRI THỨC NỀN THỰC TẾ TRONG HỆ THỐNG MASTER DB PHÒNG R&D ]: \n"
+                    # XÂY DỰNG CHUỖI NGỮ CẢNH DỮ LIỆU GỬI CHO AI
+                    db_context = f"\n\n[ KHO DỮ LIỆU TRI THỨC NỀN THỰC TẾ TRONG HỆ THỐNG MASTER DB PHÒNG R&D ]:\n"
                     detected_image_url_to_render = ""
                     detected_style_title_to_render = ""
                     
@@ -691,15 +682,14 @@ if not dynamic_keyword:
                     
                     if backup_res:
                         db_context += f"\n- Kết quả tra cứu định mức sản phẩm: Tìm thấy {len(backup_res)} dòng dữ liệu.\n"
-                        for sp in backup_res[:5]: # Giới hạn hiển thị mẫu 5 dòng tránh tràn context
+                        for sp in backup_res[:5]:
                             db_context += f"  + Loại: {sp.get('consumption_type')} | Khổ: {sp.get('material_size')} | Định mức: {sp.get('consumption_value')} {sp.get('uom')}\n"
                     else:
                         db_context += f"- Không tìm thấy dữ liệu định mức trong bảng san_pham cho từ khóa '{dynamic_keyword}'.\n"
                     
-                    # Gọi LLM xử lý tiếp với db_context tích hợp sẵn
-                    # (Thêm logic prompt gửi cho Gemini và hiển thị kết quả bằng st.write ở đây nếu cần)
-                    st.success("Đã nạp dữ liệu kho thành công!")
+                    # Hiển thị kết quả ra giao diện Streamlit an toàn
+                    st.success(f"Đã nạp dữ liệu kho thành công cho từ khóa: {dynamic_keyword}")
                     st.text(db_context)
 
                 except Exception as e:
-                    st.error(f"Lỗi hệ thống trong quá trình xử lý: {str(e)}")
+                    st.error(f"Lỗi hệ thống nội bộ: {str(e)}")
