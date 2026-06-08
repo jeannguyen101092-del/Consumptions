@@ -772,7 +772,9 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                                     try:
                                         img_res = requests.get(img_url, timeout=4)
                                         if img_res.status_code == 200:
-                                            return file_name.rsplit('.', 1)[0].strip(), img_res.content
+                                            # Trích xuất chính xác tên mã (Ví dụ: "1P001363") từ tên file ảnh
+                                            style_code = file_name.rsplit('.', 1)[0].strip()
+                                            return style_code, img_res.content
                                     except Exception:
                                         pass
                                     return None
