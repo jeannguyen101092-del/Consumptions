@@ -699,38 +699,39 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                         except Exception:
                             pass
                     
-                                        clean_text_upper = str(user_query).strip().upper()
+                    clean_text_upper = str(user_query).strip().upper()
                     is_searching_fabric = any(word in clean_text_upper for word in ["CODE VẢI", "CODE VAI", "MÃ VẢI", "MA VAI", "LOẠI VẢI", "LOAI VAI", "TÌM VẢI", "TIM VAI"])
                     
-                    # Trích xuất danh sách mã hàng bằng mẫu Regex chuyên dụng
+                    # Trích xuất danh sách mã tiềm năng bằng Regex
                     codes_found = re.findall(r'\b[A-Z]*\d+[A-Z0-9]*\b|\b[A-Z0-9]+-\d+[A-Z0-9-]*\b', clean_text_upper)
                     
-                    # ✨ ĐÃ SỬA CHUẨN: Lấy phần tử chuỗi tinh khiết đầu tiên [0] để không bao giờ bị lỗi dính dấu ngoặc vuông
-                    if codes_found and len(codes_found) > 0:
+                    # 1. ✨ ĐÃ SỬA CHUẨN: Lấy chính xác phần tử chuỗi đầu tiên trong mảng để loại bỏ hoàn toàn dấu ngoặc vuông []
+                    if codes_found:
                         dynamic_keyword = str(codes_found[0]).strip()
                     else:
-                        # Nếu không khớp mẫu, thực hiện lọc từ khóa thừa nhưng giữ nguyên mã hàng
+                        # Nếu không khớp regex, lọc bớt từ khóa thừa nhưng bảo toàn ký tự của mã hàng
                         pattern_remove = r"\b(TÌM|TIM|KIỂM TRA|KIEM TRA|XEM|CHECK|CHO TOI|XIN|MÃ HÀNG|MA HANG|MÃ|MA|VẢI|VAI|ĐỊNH MỨC|DINH MUC|CODE|TRÍCH XUẤT|TRICH XUAT|HÌNH ẢNH|HINH ANH|HÌNH|HINH|ẢNH|ANH|TÍNH|TINH|THÔNG TIN|THONG TIN|NÀY|NAY|TƯƠNG ĐỒNG|TUONG DONG|VỚI|KHO|KIẾM|VOI|TRONG)\b"
                         dynamic_keyword = re.sub(pattern_remove, "", clean_text_upper).strip()
                     
-                    # Đặt độ ưu tiên tuyệt đối cho mã hàng hoặc mã vải bóc tách được từ tệp đính kèm
+                    # 2. ĐẶT ĐỘ ƯU TIÊN TUYỆT ĐỐI CHO MÃ TRÍCH XUẤT TỪ FILE (ĐỂ BẮT TRÚNG 1P001363)
                     if has_file:
                         if is_searching_fabric and new_style_fabric_detected != "UNKNOWN_FABRIC":
                             dynamic_keyword = str(new_style_fabric_detected).strip()
                         elif new_style_id_detected != "UNKNOWN_STYLE":
                             dynamic_keyword = str(new_style_id_detected).strip()
                     
-                    # Loại bỏ triệt để toàn bộ ký tự đặc biệt có thể bẻ gãy URL request
+                    # Làm sạch triệt để các ký tự đặc biệt gây vỡ URL
                     dynamic_keyword = re.sub(r"[\[\]'\"*?%#&]", "", dynamic_keyword).strip()
                     
-                    # Chặn đứng hoàn toàn trường hợp dính từ nối tiếng Việt hoặc từ khóa quá ngắn vô nghĩa
+                    # Chặn đứng trường hợp nhiễu từ hoặc từ khóa quá ngắn vô nghĩa
                     if not dynamic_keyword or dynamic_keyword in ["VỚI", "KHO", "TRONG", "UNKNOWN"] or len(dynamic_keyword) < 3:
                         if new_style_id_detected != "UNKNOWN_STYLE":
                             dynamic_keyword = str(new_style_id_detected).strip()
                         else:
                             dynamic_keyword = "UNKNOWN"
-                except Exception as err_keyword:
-                    st.error(f"Lỗi trích xuất từ khóa: {str(err_keyword)}")
+                except Exception:
+                    pass
+
 
 
 
