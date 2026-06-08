@@ -621,13 +621,47 @@ try:
 except ImportError:
     pass
 
-# ĐẢM BẢO LUÔN KHỞI TẠO BỘ NHỚ CHAT TRÁNH ĐỨNG HÌNH TRANG
+# ĐẢM BẢO KHỞI TẠO BỘ NHỚ LỊCH SỬ CHAT TRÊN TOÀN CỤC
 if "chat_history" not in st.session_state:
     st.session_state["chat_history"] = []
 
-# TIẾP NHẬN INPUT VÀ ÉP RUN LUỒNG XỬ LÝ CHAT
+# --- ĐƯA BIẾN FILE RA NGOÀI ĐỂ TRÁNH LÀM MẤT TRẠNG THÁI KHI RERENDER ---
+chat_file = st.session_state.get('uploaded_file', None)
+has_file = chat_file is not None
+img_payload = []
+file_bytes = None
+chat_images = []
+
+# Khởi tạo các giá trị mặc định toàn cục trước khi luồng chat bắt đầu
+new_style_id_detected = "UNKNOWN_STYLE"
+new_style_raw_text = ""
+new_style_category_detected = ""
+new_style_fabric_detected = "UNKNOWN_FABRIC"
+new_style_measurements_dict = {}
+target_new_sketch_bytes = None
+
+# THỰC HIỆN ĐỌC FILE TRƯỚC KHI USER GÕ CHAT
+if has_file:
+    try:
+        file_bytes = chat_file.getvalue()
+        if chat_file.name.lower().endswith('.pdf'):
+            info_chat = pdfinfo_from_bytes(file_bytes)
+            total_chat_pages = int(info_chat.get("Pages", 1))
+            chat_images = convert_from_bytes(file_bytes, dpi=110, first_page=1, last_page=total_chat_pages)
+            for idx, page_img in enumerate(chat_images):
+                img_buf = io.BytesIO()
+                page_img.convert("RGB").save(img_buf, format="JPEG", quality=85)
+                img_payload.append(types.Part.from_bytes(data=img_buf.getvalue(), mime_type='image/jpeg'))
+        else:
+            img_payload.append(types.Part.from_bytes(data=file_bytes, mime_type='image/jpeg'))
+            target_new_sketch_bytes = file_bytes
+    except Exception as e_init_file:
+        st.error(f"Lỗi đọc file hệ thống: {str(e_init_file)}")
+
+# BẮT ĐẦU LUỒNG TIẾP NHẬN TIN NHẮN CHAT
 if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vải và đối soát sai lệch..."):
     st.session_state["chat_history"].append({"role": "user", "type": "text", "content": user_query})
+    
     with st.chat_message("user"): 
         st.write(user_query)
     
@@ -639,74 +673,46 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
             else:
                 try:
                     client = genai.Client(api_key=gemini_key)
-                    new_style_id_detected = "UNKNOWN_STYLE"
-                    new_style_raw_text = ""
-                    new_style_category_detected = ""
-                    new_style_fabric_detected = "UNKNOWN_FABRIC"
-                    new_style_measurements_dict = {}
-                    img_payload = [] 
-                    target_new_sketch_bytes = None 
                     
-                    # Lấy file trực tiếp từ session_state widget upload của bạn
-                    chat_file = st.session_state.get('uploaded_file', None)
-                    has_file = chat_file is not None
+                    # Nếu có file, thực hiện trích xuất thông số rập bằng AI
+                    if has_file and img_payload:
+                        extraction_prompt = """
+                        Analyze ALL the attached technical pack images page by page.
+                        Return a valid JSON with this exact schema:
+                        {"detected_style_id": "Pure code only", "category": "Pants or Jacket", "fabric_code": "Pure fabric code", "measurements": {"Vị trí đo": "Thông số"}, "sketch_page_index_detected": 0}
+                        """
+                        extraction_payload = list(img_payload)
+                        extraction_payload.append(extraction_prompt)
                         
-                    if has_file:
-                        file_bytes = chat_file.getvalue()
-                        if chat_file.name.lower().endswith('.pdf'):
-                            try:
-                                info_chat = pdfinfo_from_bytes(file_bytes)
-                                total_chat_pages = int(info_chat.get("Pages", 1))
-                                chat_images = convert_from_bytes(file_bytes, dpi=110, first_page=1, last_page=total_chat_pages)
-                                for idx, page_img in enumerate(chat_images):
-                                    img_buf = io.BytesIO()
-                                    page_img.convert("RGB").save(img_buf, format="JPEG", quality=85)
-                                    img_payload.append(types.Part.from_bytes(data=img_buf.getvalue(), mime_type='image/jpeg'))
-                            except Exception as e_pdf:
-                                st.error(f"Lỗi đọc thư viện PDF (Kiểm tra Poppler): {str(e_pdf)}")
-                        else:
-                            img_payload.append(types.Part.from_bytes(data=file_bytes, mime_type='image/jpeg'))
-                        
-                        if img_payload:
-                            extraction_prompt = """
-                            Analyze ALL the attached technical pack images page by page.
-                            Return a valid JSON with this exact schema:
-                            {"detected_style_id": "Pure code only", "category": "Pants or Jacket", "fabric_code": "Pure fabric code", "measurements": {"Vị trí đo": "Thông số"}, "sketch_page_index_detected": 0}
-                            """
-                            extraction_payload = list(img_payload)
-                            extraction_payload.append(extraction_prompt)
+                        try:
+                            extraction_res = client.models.generate_content(
+                                model='gemini-2.5-flash', 
+                                contents=extraction_payload, 
+                                config=types.GenerateContentConfig(response_mime_type="application/json", temperature=0.0)
+                            )
+                            parsed_meta = json.loads(extraction_res.text.strip())
+                            new_style_id_detected = parsed_meta.get("detected_style_id", "UNKNOWN_STYLE").strip()
+                            new_style_category_detected = parsed_meta.get("category", "").strip()
+                            new_style_fabric_detected = parsed_meta.get("fabric_code", "UNKNOWN_FABRIC").strip()
+                            new_style_measurements_dict = parsed_meta.get("measurements", {})
+                            new_style_raw_text = json.dumps(new_style_measurements_dict, ensure_ascii=False)
                             
-                            try:
-                                extraction_res = client.models.generate_content(
-                                    model='gemini-2.5-flash', 
-                                    contents=extraction_payload, 
-                                    config=types.GenerateContentConfig(response_mime_type="application/json", temperature=0.0)
-                                )
-                                parsed_meta = json.loads(extraction_res.text.strip())
-                                new_style_id_detected = parsed_meta.get("detected_style_id", "UNKNOWN_STYLE").strip()
-                                new_style_category_detected = parsed_meta.get("category", "").strip()
-                                new_style_fabric_detected = parsed_meta.get("fabric_code", "UNKNOWN_FABRIC").strip()
-                                new_style_measurements_dict = parsed_meta.get("measurements", {})
-                                new_style_raw_text = json.dumps(new_style_measurements_dict, ensure_ascii=False)
-                                
-                                detected_idx = int(parsed_meta.get("sketch_page_index_detected", 0))
-                                if chat_file.name.lower().endswith('.pdf') and 0 <= detected_idx < len(chat_images):
-                                    b_buf = io.BytesIO()
-                                    chat_images[detected_idx].convert("RGB").save(b_buf, format="JPEG")
-                                    target_new_sketch_bytes = b_buf.getvalue()
-                                else:
-                                    target_new_sketch_bytes = file_bytes
-                            except Exception as inner_e:
-                                st.error(f"Lỗi AI trích xuất JSON từ file: {str(inner_e)}")
+                            detected_idx = int(parsed_meta.get("sketch_page_index_detected", 0))
+                            if chat_file.name.lower().endswith('.pdf') and 0 <= detected_idx < len(chat_images):
+                                b_buf = io.BytesIO()
+                                chat_images[detected_idx].convert("RGB").save(b_buf, format="JPEG")
+                                target_new_sketch_bytes = b_buf.getvalue()
+                        except Exception as inner_e:
+                            st.warning(f"Không trích xuất được rập tự động: {str(inner_e)}")
                     
-                    # XỬ LÝ CHUẨN HÓA TỪ KHÓA CHAT INPUT
+                    # LỌC TỪ KHÓA TỪ TIN NHẮN NGƯỜI DÙNG
                     clean_text_upper = str(user_query).strip().upper()
                     is_searching_fabric = any(word in clean_text_upper for word in ["CODE VẢI", "CODE VAI", "MÃ VẢI", "MA VAI", "LOẠI VẢI", "LOAI VAI", "TÌM VẢI", "TIM VAI"])
                     
                     codes_found = re.findall(r'\b[A-Z]*\d+[A-Z0-9]*\b|\b[A-Z0-9]+-\d+[A-Z0-9-]*\b', clean_text_upper)
                     
                     if codes_found and len(codes_found) > 0:
-                        dynamic_keyword = str(codes_found[0]).strip()
+                        dynamic_keyword = str(codes_found[0]).strip() # Đã sửa index [0] tinh khiết
                     else:
                         pattern_remove = r"\b(TÌM|TIM|KIỂM TRA|KIEM TRA|XEM|CHECK|CHO TOI|XIN|MÃ HÀNG|MA HANG|MÃ|MA|VẢI|VAI|ĐỊNH MỨC|DINH MUC|CODE|TRÍCH XUẤT|TRICH XUAT|HÌNH ẢNH|HINH ANH|HÌNH|HINH|ẢNH|ANH|TÍNH|TINH|THÔNG TIN|THONG TIN|NÀY|NAY|TƯƠNG ĐỒNG|TUONG DONG|VỚI|KHO|KIẾM|VOI|TRONG)\b"
                         dynamic_keyword = re.sub(pattern_remove, "", clean_text_upper).strip()
@@ -745,7 +751,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                         if has_in_techpack:
                             matched_style_name = short_keyword
                         elif has_file and target_new_sketch_bytes:
-                            with st.spinner("⚡ AI đang chạy thuật toán so khớp thị giác Vector..."):
+                            with st.spinner("⚡ AI đang số hóa hình học phẳng và chạy thuật toán so khớp thị giác Vector..."):
                                 query_vector = None
                                 try:
                                     numbers_in_kw = re.findall(r'\d+', short_keyword)
@@ -760,7 +766,6 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                                     elif hasattr(embedding_res, 'embeddings'):
                                         query_vector = np.array(embedding_res.embeddings.values).flatten()
                                 except Exception as err_embed:
-                                    st.error(f"Lỗi tính toán Embedding Vector: {str(err_embed)}")
                                     query_vector = None
 
                                 if query_vector is not None:
@@ -798,14 +803,16 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                             try:
                                 res = requests.get(url, headers=headers, timeout=5)
                                 return res.json() if res.status_code == 200 else []
-                            except Exception as e_api:
+                            except Exception:
                                 return []
 
                         with concurrent.futures.ThreadPoolExecutor() as executor:
                             future_sp = executor.submit(fetch_url, url_san_pham)
                             future_tp = executor.submit(fetch_url, url_techpack)
+                            
                             fabric_records = future_sp.result()
                             techpack_records = future_tp.result()
+
 
 # =============================================================================
 # ĐOẠN 3: KẾT XUẤT HÌNH ẢNH SKETCH, BẢNG THÔNG SỐ VÀ TỰ TÍNH ĐỊNH MỨC ĐỘ CO ĐA CHIỀU
@@ -815,12 +822,9 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     current_style_name = ""
                     SUPABASE_PROJECT_URL = base_sb_url.replace("/rest/v1", "").rstrip("/")
                     
-                    # HIỂN THỊ TRẠNG THÁI KIỂM SOÁT ĐỂ BIẾT LUỒNG CHẠY THÀNH CÔNG
-                    st.toast(f"Đang xử lý mã: {dynamic_keyword}", icon="🔍")
-                    
-                    # ✨ SỬA LỖI CHÍ MẠNG: Thêm chỉ mục [0] để bóc trích đúng bản ghi Dictionary
+                    # ✨ ĐÃ SỬA CHÍNH XÁC: Trích xuất phần tử đầu tiên bằng chỉ mục [0] để lấy Dictionary
                     if isinstance(techpack_records, list) and len(techpack_records) > 0:
-                        first_record = techpack_records[0]
+                        first_record = techpack_records[0] # THÊM CHỈ MỤC [0] TẠI ĐÂY
                         if isinstance(first_record, dict):
                             current_style_name = first_record.get("StyleName", "")
                             db_sketch_url = first_record.get("SketchURL")
@@ -832,16 +836,16 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                                     pass
                         
                         if db_sketch_url and str(db_sketch_url).startswith("http"):
-                            st.image(db_sketch_url, caption=f"🖼️ Ảnh Sketch đối chứng mã: {current_style_name}", use_container_width=True)
+                            st.image(db_sketch_url, caption=f"🖼️ Ảnh Sketch đối chứng mã hàng: {current_style_name}", use_container_width=True)
                         elif current_style_name:
                             constructed_url = f"{SUPABASE_PROJECT_URL}/storage/v1/object/public/kho_anh/{current_style_name}.jpg"
-                            st.image(constructed_url, caption=f"🖼️ Ảnh Sketch đối chứng mã: {current_style_name}", use_container_width=True)
+                            st.image(constructed_url, caption=f"🖼️ Ảnh Sketch đối chứng mã hàng: {current_style_name}", use_container_width=True)
                     else:
                         if dynamic_keyword and dynamic_keyword != "UNKNOWN":
                             constructed_url = f"{SUPABASE_PROJECT_URL}/storage/v1/object/public/kho_anh/{dynamic_keyword}.jpg"
                             st.image(constructed_url, caption=f"🖼️ Ảnh Sketch tìm theo mã: {dynamic_keyword}", use_container_width=True)
 
-                    # BẪY LỖI REGEX: Không bao giờ bị crash kể cả khi gõ lệnh ngắn như 'hi'
+                    # TRÍCH XUẤT THÔNG SỐ CO RÚT AN TOÀN
                     fabric_width_input = re.search(r'(?:KHỔ|KHO)\s*(\d+(?:\.\d+)?)', clean_text_upper)
                     shrink_ngang = re.search(r'(?:NGANG)\s*(\d+(?:\.\d+)?)\s*%', clean_text_upper)
                     shrink_doc = re.search(r'(?:DỌC|DOC)\s*(\d+(?:\.\d+)?)\s*%', clean_text_upper)
@@ -861,7 +865,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                             formatted_fabric = [{"Mã hàng": r.get("style_name"), "Mã vải (Article)": r.get("article_name"), "Loại vật tư": r.get("consumption_type"), "Khổ vải": r.get("material_size"), "Đơn vị": r.get("uom")} for r in fabric_records]
                             st.dataframe(formatted_fabric, use_container_width=True)
                         else:
-                            st.info("ℹ️ Không tìm thấy dữ liệu định mức cũ. Kích hoạt tính toán độc lập từ rập rỗng.")
+                            st.info("ℹ️ Không tìm thấy dữ liệu định mức cũ. Hệ thống tự động chuyển sang tính toán độc lập từ rập.")
                             
                     with col2:
                         st.markdown("**📏 Thông số hình học thực tế (Bảng lưới phẳng chuyên nghiệp):**")
@@ -870,7 +874,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                             formatted_measurements = [{"Vị trí đo (POM)": key, "Thông số kỹ thuật thực tế": value} for key, value in display_specs.items()]
                             st.dataframe(formatted_measurements, use_container_width=True)
                         else:
-                            st.info("Không tìm thấy thông số kỹ thuật.")
+                            st.info("Không tìm thấy thông số kỹ thuật gốc.")
 
                     st.markdown("### 📐 Kết quả phân tích sơ đồ & Tính toán định mức vải")
                     
@@ -882,7 +886,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     - Current Style Measurements: {json.dumps(display_specs, ensure_ascii=False)}
                     - Reference Records: {json.dumps(fabric_records, ensure_ascii=False)}
                     
-                    Output step-by-step completely in Vietnamese. Technical and professional.
+                    Output step-by-step completely in Vietnamese. Make it technical, professional and concise without verbose chat.
                     """
                     
                     with st.spinner("AI đang tính toán sơ đồ định mức và áp công thức co rút dệt may..."):
