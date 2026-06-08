@@ -655,7 +655,7 @@ def thuc_thi_pipeline_rd(user_query, chat_file, SB_URL, SB_KEY, client, types, j
                 st.image(msg["image_url"], caption="Hình vẽ Thiết kế kỹ thuật", width=220)
 
     # KHỞI CHẠY LẠI Ô CHAT INPUT VÀ LUỒNG XỬ LÝ ĐỘC LẬP
-    if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vải và đối soát sai lệch..."):
+   
         st.session_state["chat_history"].append({"role": "user", "type": "text", "content": user_query})
         with st.chat_message("user"): 
             st.write(user_query)
