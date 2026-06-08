@@ -565,9 +565,6 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
             st.write(msg["content"])
             if msg.get("type") == "visual" and msg.get("image_url"):
                 st.image(msg["image_url"], caption=f"Bản vẽ Sketch lịch sử đối chiếu mã {msg.get('style_title')}", width=220)
-       # =============================================================================
-# =============================================================================
-# =============================================================================
 # =============================================================================
 # ĐOẠN 1: CHUẨN HÓA TỪ KHÓA, TRUY VẤN GỐC & HIỂN THỊ HÌNH ẢNH TRỰC QUAN
 # =============================================================================
@@ -635,7 +632,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                                 import time
                                 time.sleep(2 * (ext_attempt + 1))
                     
-                    # Thuật toán xử lý chuỗi: Khử sạch khẩu lệnh và chữ "CODE" thừa ở mọi vị trí
+                    # Thuật toán xử lý chuỗi: Khử sạch khẩu lệnh thừa ở mọi vị trí
                     clean_text_upper = str(user_query).strip().upper()
                     pattern_remove = r"\b(TÌM|TIM|KIỂM TRA|KIEM TRA|XEM|CHECK|CHO TOI|XIN|MÃ HÀNG|MA HANG|MÃ|MA|VẢI|VAI|ĐỊNH MỨC|DINH MUC|CODE)\b"
                     clean_query = re.sub(pattern_remove, "", clean_text_upper).strip()
@@ -647,14 +644,18 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
 
                     # Dọn dẹp ký tự phá hoại đường link URL
                     dynamic_keyword = re.sub(r"[\[\]'\"*?%#&]", "", dynamic_keyword).strip()
+                    
+                    # ✨ THUẬT TOÁN TỰ SỬA LỖI (AUTO-REPAIR):
+                    # Nếu kỹ sư gõ dạng chữ liền số chứa dấu cách hoặc dấu chấm (Ví dụ: "SJ 8902" hoặc "SJ.8902")
+                    # Hệ thống tự động chuẩn hóa ép về dấu gạch ngang chuẩn xưởng: "SJ-8902"
+                    dynamic_keyword = re.sub(r"([A-Z]+)[\s\.]+(\d+)", r"\1-\2", dynamic_keyword)
+
                     if not dynamic_keyword:
                         dynamic_keyword = "UNKNOWN"
 
-                    # THAY ĐỔI CỐT LÕI: Mã hóa URL an toàn, không bọc hàm quote() lên toàn bộ cú pháp của Supabase
+                    # Gọi API Supabase PostgREST chuẩn hóa (chỉ mã hóa riêng giá trị từ khóa trần)
                     headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
                     base_sb_url = SB_URL.rstrip('/')
-                    
-                    # Chỉ mã hóa riêng phần chuỗi text trần, giữ nguyên các ký tự điều kiện của PostgREST
                     val_encoded = quote(dynamic_keyword)
                     
                     # Cú pháp gọi chính xác bảng thong_so_techpack
@@ -677,6 +678,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     
                     if sketch_url_found:
                         st.image(sketch_url_found, caption=f"Hình ảnh phác thảo thiết kế tìm thấy trong kho cho mã hàng: {dynamic_keyword}", use_container_width=True)
+
 
 
 # =============================================================================
