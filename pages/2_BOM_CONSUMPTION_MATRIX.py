@@ -711,11 +711,12 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
 
 
 # =============================================================================
-# ĐOẠN 2 - PHẦN A: TẢI BYTE ẢNH KHO STORAGE ĐỂ TRỰC TIẾP ĐỐI CHIẾU THỊ GIÁC (VISION)
+# ĐOẠN 2 - PHẦN A: ĐỐI SOÁT VECTOR EMBEDDINGS HOÀN TOÀN BẰNG PYTHON (KHÔNG CẦN EXTENSION)
 # =============================================================================
+                    import numpy as np # Thư viện toán học số hóa xử lý Vector chớp nhoáng
+                    
                     base_sb_url = SB_URL.rstrip('/')
                     headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
-                    SUPABASE_PROJECT_URL = "https://supabase.co"
 
                     is_similarity_requested = True
                     fabric_records = []
@@ -725,7 +726,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     if is_similarity_requested:
                         short_keyword = dynamic_keyword.strip().upper()
                         
-                        # 1. KIỂM TRA THỬ XEM MÃ NÀY ĐÃ CÓ SẴN TRONG BẢNG THÔNG SỐ CHƯA
+                        # 1. KIỂM TRA XEM MÃ NÀY ĐÃ CÓ SẴN TRONG BẢNG THÔNG SỐ CHƯA
                         check_url = f"{base_sb_url}/rest/v1/thong_so_techpack?StyleName=ilike.%{quote(short_keyword)}%&select=StyleName"
                         has_in_techpack = False
                         try:
@@ -737,94 +738,56 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
 
                         # 2. RẼ NHÁNH XỬ LÝ THEO THỰC TẾ TRONG KHO
                         if has_in_techpack:
-                            # Tình huống A: Mã đã có sẵn rập -> Dùng luôn mã gốc
                             matched_style_name = short_keyword
                         elif has_file and target_new_sketch_bytes:
-                            # Tình huống B: Mã mới tinh chưa có rập (1P001369) -> QUÉT KHO STORAGE BẢO ĐẢM TÌM MÃ TƯƠNG ĐỒNG
-                            with st.spinner("🔍 Hệ thống đang đọc dữ liệu hình ảnh trực tiếp từ kho Storage để đối chiếu rập tương đồng..."):
-                                storage_endpoint = f"{base_sb_url}/storage/v1/object/list/kho_anh"
-                                storage_payload = {
-                                    "prefix": "",
-                                    "limit": 100,
-                                    "sortBy": {"column": "name", "order": "asc"}
-                                }
-                                storage_headers = {
-                                    "apikey": SB_KEY,
-                                    "Authorization": f"Bearer {SB_KEY}",
-                                    "Content-Type": "application/json"
-                                }
-                                
-                                raw_files = []
+                            # MÃ MỚI TINH -> KÍCH HOẠT HÀM TÍNH TOÁN VECTOR BẰNG PYTHON THUẦN
+                            with st.spinner("⚡ AI đang số hóa hình học và chạy thuật toán so khớp thị giác đa luồng..."):
+                                query_vector = None
                                 try:
-                                    res_storage = requests.post(storage_endpoint, json=storage_payload, headers=storage_headers, timeout=5)
-                                    if res_storage.status_code == 200:
-                                        raw_files = res_storage.json()
+                                    # Gọi Gemini biến tấm ảnh mới thành mảng số Vector 768 chiều
+                                    embedding_res = client.models.embed_content(
+                                        model='text-embedding-004',
+                                        contents=types.Part.from_bytes(data=target_new_sketch_bytes, mime_type='image/jpeg')
+                                    )
+                                    query_vector = np.array(embedding_res.embeddings.values)
                                 except Exception:
-                                    raw_files = []
+                                    query_vector = None
 
-                                # Tạo danh sách payload chứa dữ liệu thực tế bằng Bytes của ảnh mới tải lên
-                                vision_payload = [types.Part.from_bytes(data=target_new_sketch_bytes, mime_type='image/jpeg')]
-                                comparison_map = []
-
-                                # Hàm tải nhanh byte ảnh từ Storage bằng đa luồng Python
-                                def download_image_bytes(file_name):
-                                    img_url = f"{SUPABASE_PROJECT_URL}/storage/v1/object/public/kho_anh/{file_name}"
+                                if query_vector is not None:
+                                    # Tải danh sách tất cả mã hàng và chuỗi dữ liệu vector có sẵn trong kho lên bộ nhớ RAM
+                                    url_all_vectors = f"{base_sb_url}/rest/v1/thong_so_techpack?select=StyleName,sketch_vector"
                                     try:
-                                        img_res = requests.get(img_url, timeout=4)
-                                        if img_res.status_code == 200:
-                                            # Trích xuất chính xác tên mã (Ví dụ: "1P001363") từ tên file ảnh
-                                            style_code = file_name.rsplit('.', 1)[0].strip()
-                                            return style_code, img_res.content
+                                        res_all = requests.get(url_all_vectors, headers=headers, timeout=5)
+                                        warehouse_data = res_all.json() if res_all.status_code == 200 else []
                                     except Exception:
-                                        pass
-                                    return None
+                                        warehouse_data = []
 
-                                # Quét danh sách file trong kho, lọc ảnh và kích hoạt đa luồng tải ảnh
-                                target_files = [f.get("name", "") for f in raw_files if f.get("name", "").lower().endswith(('.jpg', '.jpeg', '.png'))]
-                                
-                                # Chỉ lấy tối đa 10 ảnh gần nhất để tránh tràn bộ nhớ hoặc làm chậm hệ thống
-                                target_files = target_files[:10]
+                                    best_similarity = -1.0
+                                    # Vòng lặp tính toán khoảng cách Cosine bằng Python thuần trong chớp nhoáng
+                                    for row in warehouse_data:
+                                        v_str = row.get("sketch_vector")
+                                        if v_str:
+                                            try:
+                                                # Chuyển đổi chuỗi text lưu trong DB ngược lại thành mảng số thực để tính toán
+                                                db_vector = np.array(json.loads(v_str))
+                                                
+                                                # Công thức hình học Cosine Similarity chuẩn dệt may
+                                                dot_product = np.dot(query_vector, db_vector)
+                                                norm_query = np.linalg.norm(query_vector)
+                                                norm_db = np.linalg.norm(db_vector)
+                                                similarity = dot_product / (norm_query * norm_db)
+                                                
+                                                # Giữ lại mã hàng có độ tương đồng kiểu dáng rập cao nhất
+                                                if similarity > best_similarity and similarity >= 0.70:
+                                                    best_similarity = similarity
+                                                    matched_style_name = row.get("StyleName")
+                                            except Exception:
+                                                pass
 
-                                if target_files:
-                                    with concurrent.futures.ThreadPoolExecutor() as download_executor:
-                                        results = download_executor.map(download_image_bytes, target_files)
-                                        for res in results:
-                                            if res:
-                                                style_code, img_bytes = res
-                                                # Đóng gói trực tiếp nội dung byte ảnh thật của kho kèm nhãn tên mã vào payload cho Gemini nhìn thấy
-                                                vision_payload.append(types.Part.from_bytes(data=img_bytes, mime_type='image/jpeg'))
-                                                comparison_map.append(style_code)
-
-                                # ĐƯA CHO AI CHỈ ĐỊNH ĐÍCH DANH MÃ HÀNG TƯƠNG ĐỒNG NHẤT QUA THỊ GIÁC TRỰC DIỆN
-                                if len(comparison_map) > 0:
-                                    prompt_vision = f"""
-                                    You are an expert Apparel Pattern Inspector. 
-                                    Task: Look at the first attached newly uploaded sketch image. Then analyze the rest of the attached images from our warehouse database in sequential order.
-                                    The sequence of warehouse style names corresponds exactly to this ordered list: {json.dumps(comparison_map)}
-                                    
-                                    Compare technical construction lines, back pockets shapes, front fly, and proportions. 
-                                    Identify which Style Name from the warehouse list is the MOST VISUALLY SIMILAR and shares the closest rập baseline with the first new image.
-                                    
-                                    Return a valid strict JSON response with this exact schema:
-                                    {{"most_similar_style": "Exact StyleName from the list"}}
-                                    """
-                                    vision_payload.append(prompt_vision)
-                                    
-                                    try:
-                                        v_res = client.models.generate_content(
-                                            model='gemini-2.5-flash', 
-                                            contents=vision_payload,
-                                            config=types.GenerateContentConfig(response_mime_type="application/json", temperature=0.0)
-                                        )
-                                        parsed_json = json.loads(v_res.text.strip())
-                                        matched_style_name = parsed_json.get("most_similar_style")
-                                    except Exception:
-                                        matched_style_name = None
-
-                        # Chốt từ khóa tìm kiếm dữ liệu cuối cùng sau khi bốc được mã tương đồng qua thị giác ảnh thật
+                        # Chốt từ khóa tìm kiếm dữ liệu cuối cùng sau khi đối soát Vector thành công
                         final_search_key = matched_style_name if (matched_style_name and matched_style_name != "null") else short_keyword
 
-                        # 3. TRUY VẤN SONG SONG ĐỒNG BỘ TOÀN BỘ CÚ PHÁP CHUẨN POSTGREST (%) THEO MÃ TƯƠNG ĐỒNG
+                        # 3. TRUY VẤN SONG SONG ĐA BẢNG ĐỒNG THỜI THEO CÚ PHÁP CHUẨN (%)
                         url_san_pham = f"{base_sb_url}/rest/v1/san_pham?or=(style_name.ilike.%{quote(short_keyword)}%,article_name.ilike.%{quote(short_keyword)}%)&select=*"
                         url_techpack = f"{base_sb_url}/rest/v1/thong_so_techpack?StyleName=ilike.%{quote(final_search_key)}%&select=*"
 
