@@ -751,7 +751,8 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     if is_similarity_requested:
                         short_keyword = dynamic_keyword.strip().upper()
                         
-                        check_url = f"{base_sb_url}/rest/v1/thong_so_techpack?StyleName=ilike.%{quote(short_keyword)}%&select=StyleName"
+                        # Thử nghiệm cả cú pháp % chuẩn URL để ép API Supabase trả dữ liệu nếu cấu hình hệ thống khắt khe
+                        check_url = f"{base_sb_url}/rest/v1/thong_so_techpack?StyleName=ilike.%25{quote(short_keyword)}%25&select=StyleName"
                         has_in_techpack = False
                         try:
                             res_check = requests.get(check_url, headers=headers, timeout=3)
@@ -759,32 +760,33 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                                 res_json = res_check.json()
                                 if len(res_json) > 0:
                                     has_in_techpack = True
-                                    # Lấy chính xác StyleName từ bản ghi đầu tiên trả về của database
-                                    matched_style_name = res_json[0].get("StyleName") if isinstance(res_json, list) else res_json.get("StyleName")
+                                    first_row = res_json[0] if isinstance(res_json, list) else res_json
+                                    matched_style_name = first_row.get("StyleName")
                         except Exception:
                             has_in_techpack = False
 
-                        if has_in_techpack:
-                            matched_style_name = short_keyword
-                        elif has_file and target_new_sketch_bytes:
+                        if has_in_techpack and matched_style_name:
+                            final_search_key = matched_style_name
+                        else:
+                            final_search_key = short_keyword
+
+                        # Nếu không khớp text chính xác hoặc muốn quét nâng cao, kích hoạt toán tử Vector
+                        if (not has_in_techpack) and has_file and target_new_sketch_bytes:
                             with st.spinner("⚡ AI đang số hóa hình học phẳng và chạy thuật toán so khớp thị giác Vector..."):
                                 query_vector = None
                                 try:
-                                    # SỬA LỖI TẠI ĐÂY: text-embedding-004 không nhận định dạng ảnh nhị phân trực tiếp. 
-                                    # Sử dụng Gemini tạo chuỗi text mô tả thiết kế phẳng trước khi bóc tách vector.
-                                    vision_prompt = "Analyze this technical flat sketch. Describe its silhouette, geometry, and key tailoring features in 3 concise sentences."
+                                    vision_prompt = "Analyze this technical flat sketch. Describe its silhouette, geometry, and pockets layout in 3 sentences."
                                     vision_res = client.models.generate_content(
                                         model='gemini-2.5-flash',
                                         contents=[types.Part.from_bytes(data=target_new_sketch_bytes, mime_type='image/jpeg'), vision_prompt]
                                     )
-                                    visual_description = vision_res.text.strip() if vision_res.text else "unknown denim pattern geometry"
+                                    visual_description = vision_res.text.strip() if vision_res.text else "garment technology layout"
 
                                     embedding_res = client.models.embed_content(
                                         model='text-embedding-004',
                                         contents=visual_description
                                     )
-                                    # SỬA LỖI TẠI ĐÂY: Trích xuất mảng số thực thông qua thuộc tính chuẩn .embeddings của SDK mới
-                                    query_vector = np.array(embedding_res.embeddings.values if hasattr(embedding_res.embeddings, 'values') else embedding_res.embeddings[0].values)
+                                    query_vector = np.array(embedding_res.embeddings.values if hasattr(embedding_res.embeddings, 'values') else embedding_res.embeddings.values)
                                 except Exception:
                                     query_vector = None
 
@@ -801,28 +803,30 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                                         v_str = row.get("sketch_vector")
                                         if v_str:
                                             try:
-                                                # Giải mã mảng số được lưu trữ dưới dạng chuỗi toán học từ Database
-                                                if str(v_str).startswith("["):
-                                                    db_vector = np.array(json.loads(v_str))
-                                                else:
-                                                    db_vector = np.array(json.loads(v_str))
-                                                    
+                                                # SỬA LỖI ĐỊNH DẠNG MẢNG: Xử lý cả dạng mảng chuỗi Postgres {...} và mảng JSON [...]
+                                                v_str_clean = str(v_str).strip()
+                                                if v_str_clean.startswith("{") and v_str_clean.endswith("}"):
+                                                    v_str_clean = "[" + v_str_clean[1:-1] + "]"
+                                                
+                                                db_vector = np.array(json.loads(v_str_clean))
                                                 dot_product = np.dot(query_vector, db_vector)
                                                 norm_query = np.linalg.norm(query_vector)
                                                 norm_db = np.linalg.norm(db_vector)
                                                 similarity = dot_product / (norm_query * norm_db)
                                                 
-                                                if similarity > best_similarity and similarity >= 0.70:
+                                                # Hạ ngưỡng chấp nhận xuống 0.65 để tăng tỷ lệ tìm thấy mã tương đồng gần nhất
+                                                if similarity > best_similarity and similarity >= 0.65:
                                                     best_similarity = similarity
                                                     matched_style_name = row.get("StyleName")
                                             except Exception:
                                                 pass
 
-                        final_search_key = matched_style_name if (matched_style_name and matched_style_name != "null") else short_keyword
+                        if matched_style_name and matched_style_name != "null":
+                            final_search_key = matched_style_name
 
-                        # ĐỒNG BỘ TỪ KHÓA: Sử dụng final_search_key đồng bộ cho cả hai bảng để bắt trúng dữ liệu liên đới
-                        url_san_pham = f"{base_sb_url}/rest/v1/san_pham?or=(style_name.ilike.%{quote(final_search_key)}%,article_name.ilike.%{quote(final_search_key)}%)&select=*"
-                        url_techpack = f"{base_sb_url}/rest/v1/thong_so_techpack?StyleName=ilike.%{quote(final_search_key)}%&select=*"
+                        # ĐỒNG BỘ ĐA TỰ: Thử quét đồng thời bằng cả toán tử phần trăm (%) chuẩn để lấy toàn bộ dữ liệu liên đới
+                        url_san_pham = f"{base_sb_url}/rest/v1/san_pham?or=(style_name.ilike.%25{quote(final_search_key)}%25,article_name.ilike.%25{quote(final_search_key)}%25)&select=*"
+                        url_techpack = f"{base_sb_url}/rest/v1/thong_so_techpack?StyleName=ilike.%25{quote(final_search_key)}%25&select=*"
 
                         def fetch_url(url):
                             try:
@@ -837,6 +841,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                             
                             fabric_records = future_sp.result()
                             techpack_records = future_tp.result()
+
 # =============================================================================
 # ĐOẠN 3: KẾT XUẤT HÌNH ẢNH SKETCH, BẢNG THÔNG SỐ VÀ TỰ TÍNH ĐỊNH MỨC ĐỘ CO ĐA CHIỀU
 # =============================================================================
