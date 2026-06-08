@@ -702,11 +702,11 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     clean_text_upper = str(user_query).strip().upper()
                     is_searching_fabric = any(word in clean_text_upper for word in ["CODE VẢI", "CODE VAI", "MÃ VẢI", "MA VAI", "LOẠI VẢI", "LOAI VAI", "TÌM VẢI", "TIM VAI"])
                     
-                    # Trích xuất danh sách mã tiềm năng bằng Regex
+                    # Trích xuất danh sách mã tiềm năng bằng mẫu lọc Regex
                     codes_found = re.findall(r'\b[A-Z]*\d+[A-Z0-9]*\b|\b[A-Z0-9]+-\d+[A-Z0-9-]*\b', clean_text_upper)
                     
-                    # 1. ✨ ĐÃ SỬA CHUẨN: Lấy chính xác phần tử chuỗi đầu tiên trong mảng để loại bỏ hoàn toàn dấu ngoặc vuông []
-                    if codes_found:
+                    # 1. ✨ ĐÃ SỬA GỐC: Trích xuất chính xác phần tử đầu tiên bằng index [0] để lấy chuỗi tinh khiết không dính dấu []
+                    if codes_found and len(codes_found) > 0:
                         dynamic_keyword = str(codes_found[0]).strip()
                     else:
                         # Nếu không khớp regex, lọc bớt từ khóa thừa nhưng bảo toàn ký tự của mã hàng
@@ -720,7 +720,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                         elif new_style_id_detected != "UNKNOWN_STYLE":
                             dynamic_keyword = str(new_style_id_detected).strip()
                     
-                    # Làm sạch triệt để các ký tự đặc biệt gây vỡ URL
+                    # Làm sạch triệt để các ký tự đặc biệt gây vỡ liên kết API
                     dynamic_keyword = re.sub(r"[\[\]'\"*?%#&]", "", dynamic_keyword).strip()
                     
                     # Chặn đứng trường hợp nhiễu từ hoặc từ khóa quá ngắn vô nghĩa
@@ -729,8 +729,8 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                             dynamic_keyword = str(new_style_id_detected).strip()
                         else:
                             dynamic_keyword = "UNKNOWN"
-                except Exception:
-                    pass
+                except Exception as err_keyword:
+                    st.error(f"Lỗi trích xuất từ khóa tại Đoạn 1: {str(err_keyword)}")
 
 
 
