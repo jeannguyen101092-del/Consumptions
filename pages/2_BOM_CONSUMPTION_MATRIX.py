@@ -791,12 +791,13 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                             st.image(constructed_url, caption=f"🖼️ Ảnh Sketch tìm theo mã: {dynamic_keyword}", use_container_width=True)
 
                     # Hiển thị bảng lưới đối soát thông tin kỹ thuật hình học phẳng
-                    st.markdown(f"### 📊 Kết quả đối soát mã hàng tương đồng: **{matched_style_name if matched_style_name else dynamic_keyword}**")
+                    display_title = matched_style_name if (matched_style_name and matched_style_name != "null") else dynamic_keyword
+                    st.markdown(f"### 📊 Kết quả đối soát mã hàng tương đồng: **{display_title}**")
                     
                     col1, col2 = st.columns(2)
                     with col1:
-                        # Kiểm tra xem người dùng có hỏi về định mức hay không, nếu không hỏi thì không hiển thị bảng này
-                        is_asking_consumption = any(w in clean_text_upper for word in ["ĐỊNH MỨC", "DINH MUC", "DM", "TIÊU HAO"])
+                        # VÁ LỖI CỐT LÕI: Sửa chữ 'w' thành 'word' để không bị sập hệ thống (NameError)
+                        is_asking_consumption = any(word in clean_text_upper for word in ["ĐỊNH MỨC", "DINH MUC", "DM", "TIÊU HAO"])
                         if is_asking_consumption:
                             st.markdown("**📋 Thông tin định mức vải (Bảng san_pham):**")
                             if fabric_records:
@@ -819,7 +820,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                         else:
                             st.info("Không tìm thấy thông số kỹ thuật tương ứng để hiển thị dạng bảng.")
                             
-                    st.session_state["chat_history"].append({"role": "assistant", "type": "text", "content": f"Đã thực hiện trích xuất và đối soát mã tương đồng {matched_style_name} dạng lưới."})
+                    st.session_state["chat_history"].append({"role": "assistant", "type": "text", "content": f"Đã thực hiện trích xuất và đối soát mã tương đồng dạng lưới."})
                         
                 except Exception as master_err:
                     st.error(f"Hệ thống lõi gặp lỗi trong quá trình xử lý: {str(master_err)}")
