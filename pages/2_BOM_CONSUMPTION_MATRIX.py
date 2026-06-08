@@ -673,14 +673,13 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     clean_text_upper = str(user_query).strip().upper()
                     is_searching_fabric = any(word in clean_text_upper for word in ["CODE VẢI", "CODE VAI", "MÃ VẢI", "MA VAI", "LOẠI VẢI", "LOAI VAI", "TÌM VẢI", "TIM VAI"])
                     
-                    # THUẬT TOÁN THÔNG MINH MỚI: Chỉ trích xuất phần ký tự có chứa cả chữ và số liền nhau (Mã hàng/vải)
-                    # Phương pháp này tự động vứt bỏ hoàn toàn các từ thừa gõ sai như 'ting', 'tìm', 'hình ảnh'
+                    # BẢO LƯU CẤU TRÚC CŨ: Quét tìm đích danh mã chữ viết liền (Ví dụ: MR1705, CR2045)
                     codes_found = re.findall(r'\b[A-Z]*\d+[A-Z0-9]*\b|\b[A-Z0-9]+-\d+[A-Z0-9-]*\b', clean_text_upper)
                     
                     if codes_found:
-                        clean_query = codes_found[0] # Lấy mã hàng chuẩn đầu tiên tìm thấy (Ví dụ: MR1705)
+                        clean_query = codes_found[0] # Lấy mã chữ chuẩn đầu tiên được tìm thấy
                     else:
-                        pattern_remove = r"\b(TÌM|TIM|KIỂM TRA|KIEM TRA|XEM|CHECK|CHO TOI|XIN|MÃ HÀNG|MA HANG|MÃ|MA|VẢI|VAI|ĐỊNH MỨC|DINH MUC|CODE|TRÍCH XUẤT|TRICH XUAT|HÌNH ẢNH|HINH ANH|HÌNH|HINH|ẢNH|ANH|TÍNH|TINH|THÔNG TIN|THONG TIN|NÀY|NAY)\b"
+                        pattern_remove = r"\b(TÌM|TIM|KIỂM TRA|KIEM TRA|XEM|CHECK|CHO TOI|XIN|MÃ HÀNG|MA HANG|MÃ|MA|VẢI|VAI|ĐỊNH MỨC|DINH MUC|CODE|TRÍCH XUẤT|TRICH XUAT|HÌNH ẢNH|HINH ANH|HÌNH|HINH|ẢNH|ANH|TÍNH|TINH|THÔNG TIN|THONG TIN|NÀY|NAY|TƯƠNG ĐỒNG|TUONG DONG)\b"
                         clean_query = re.sub(pattern_remove, "", clean_text_upper).strip()
                     
                     if has_file:
@@ -709,65 +708,98 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
 # =============================================================================
                     base_sb_url = SB_URL.rstrip('/')
                     headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
+                    SUPABASE_PROJECT_URL = "https://supabase.co"
 
                     is_similarity_requested = True
                     fabric_records = []
                     techpack_records = []
+                    matched_style_name = None
 
                     if is_similarity_requested:
                         short_keyword = dynamic_keyword.strip().upper()
                         
-                        if is_searching_fabric:
-                            url_san_pham = f"{base_sb_url}/rest/v1/san_pham?article_name=ilike.*{quote(short_keyword)}*&select=*"
-                        else:
-                            url_san_pham = f"{base_sb_url}/rest/v1/san_pham?style_name=ilike.*{quote(short_keyword)}*&select=*"
+                        # BƯỚC 1: LUÔN ƯU TIÊN SỬ DỤNG CODE CHỮ NẾU NGƯỜI DÙNG CÓ NHẬP HOẶC AI BÓC ĐƯỢC TỪ FILE
+                        if short_keyword and short_keyword != "UNKNOWN":
+                            matched_style_name = short_keyword
                         
-                        url_techpack = f"{base_sb_url}/rest/v1/thong_so_techpack?StyleName=ilike.*{quote(short_keyword)}*&select=*"
+                        # BƯỚC 2: RẼ NHÁNH DỰ PHÒNG - NẾU KHÔNG CÓ CODE CHỮ MÀ CÓ FILE TẢI LÊN -> KÍCH HOẠT QUÉT ẢNH KHO
+                        elif has_file and target_new_sketch_bytes:
+                            with st.spinner("Đang chạy đối chiếu thị giác ảnh Sketch với kho Storage..."):
+                                # Danh sách các mã ảnh có sẵn trong hệ thống kho của bạn để đối so sánh
+                                known_sketches = ["1P001451", "MR1705", "P01-495544", "P08-492175", "P09-488051", "R06-494148", "R09-491542"]
+                                
+                                vision_payload = [
+                                    types.Part.from_bytes(data=target_new_sketch_bytes, mime_type='image/jpeg'),
+                                    f"Identify which Style Code from this list is the most visually similar to the attached sketch: {json.dumps(known_sketches)}. Return JSON: {{\"most_similar_style\": \"Code or null\"}}"
+                                ]
+                                try:
+                                    v_res = client.models.generate_content(
+                                        model='gemini-2.5-flash', contents=vision_payload,
+                                        config=types.GenerateContentConfig(response_mime_type="application/json", temperature=0.0)
+                                    )
+                                    matched_style_name = json.loads(v_res.text.strip()).get("most_similar_style")
+                                except Exception:
+                                    matched_style_name = None
 
-                        try:
-                            res_sp = requests.get(url_san_pham, headers=headers)
-                            if res_sp.status_code == 200:
-                                fabric_records = res_sp.json()
-                        except Exception as e:
-                            st.warning(f"Lỗi kết nối bảng san_pham: {e}")
+                        # 3. TIẾN HÀNH GỌI DATABASE THEO MÃ ĐÃ XÁC ĐỊNH ĐƯỢC (TỪ CODE CHỮ HOẶC TỪ ẢNH)
+                        if matched_style_name and matched_style_name != "null":
+                            if is_searching_fabric:
+                                url_san_pham = f"{base_sb_url}/rest/v1/san_pham?article_name=ilike.*{quote(matched_style_name)}*&select=*"
+                            else:
+                                url_san_pham = f"{base_sb_url}/rest/v1/san_pham?style_name=ilike.*{quote(matched_style_name)}*&select=*"
+                            
+                            url_techpack = f"{base_sb_url}/rest/v1/thong_so_techpack?StyleName=ilike.*{quote(matched_style_name)}*&select=*"
 
-                        try:
-                            res_tp = requests.get(url_techpack, headers=headers)
-                            if res_tp.status_code == 200:
-                                techpack_records = res_tp.json()
-                        except Exception as e:
-                            st.warning(f"Lỗi kết nối bảng thong_so_techpack: {e}")
+                            try:
+                                res_sp = requests.get(url_san_pham, headers=headers)
+                                if res_sp.status_code == 200:
+                                    fabric_records = res_sp.json()
+                            except Exception as e:
+                                st.warning(f"Lỗi kết nối bảng san_pham: {e}")
+
+                            try:
+                                res_tp = requests.get(url_techpack, headers=headers)
+                                if res_tp.status_code == 200:
+                                    techpack_records = res_tp.json()
+                            except Exception as e:
+                                st.warning(f"Lỗi kết nối bảng thong_so_techpack: {e}")
+
 
 
 
 
 # =============================================================================
-# ĐOẠN 3: HIỂN THỊ TRỰC TIẾP HÌNH ẢNH SKETCH VÀ DỮ LIỆU ĐỐI SOÁT DẠNG BẢNG
+# ĐOẠN 3: HIỂN THỊ TRỰC TIẾP HÌNH ẢNH SKETCH ĐỐI CHỨNG VÀ AI TÍNH TOÁN ĐỊNH MỨC
 # =============================================================================
                     db_sketch_url = None
                     db_measurements_raw = {}
                     current_style_name = ""
-                    SUPABASE_PROJECT_URL = "https://supabase.co" 
                     
                     if techpack_records and len(techpack_records) > 0:
-                        # Bóc mảng lấy phần tử đầu tiên
-                        first_record = techpack_records[0] if isinstance(techpack_records, list) else techpack_records
+                        first_record = techpack_records if isinstance(techpack_records, list) else techpack_records
                         if isinstance(first_record, dict):
                             current_style_name = first_record.get("StyleName", "")
                             db_sketch_url = first_record.get("SketchURL")
                             db_measurements_raw = first_record.get("DetailedMeasurements", {})
                         
                         if db_sketch_url and str(db_sketch_url).startswith("http"):
-                            st.image(db_sketch_url, caption=f"🖼️ Ảnh Sketch mã hàng: {current_style_name}", use_container_width=True)
+                            st.image(db_sketch_url, caption=f"🖼️ Ảnh Sketch đối chứng mã hàng trong kho: {current_style_name}", use_container_width=True)
                         elif current_style_name:
                             constructed_url = f"{SUPABASE_PROJECT_URL}/storage/v1/object/public/kho_anh/{current_style_name}.jpg"
-                            st.image(constructed_url, caption=f"🖼️ Ảnh Sketch mã hàng: {current_style_name}", use_container_width=True)
+                            st.image(constructed_url, caption=f"🖼️ Ảnh Sketch đối chứng mã hàng trong kho: {current_style_name}", use_container_width=True)
                     else:
                         if dynamic_keyword and dynamic_keyword != "UNKNOWN":
                             constructed_url = f"{SUPABASE_PROJECT_URL}/storage/v1/object/public/kho_anh/{dynamic_keyword}.jpg"
                             st.image(constructed_url, caption=f"🖼️ Ảnh Sketch tìm theo mã: {dynamic_keyword}", use_container_width=True)
 
-                    # Hiển thị cấu trúc lưới bảng phẳng chuyên nghiệp cho cả 2 luồng dữ liệu
+                    # Bóc tách thông số Khổ vải và Độ co từ ô chat người dùng
+                    fabric_width_input = re.search(r'(?:KHỔ|KHO)\s*(\d+(?:\.\d+)?)', clean_text_upper)
+                    shrinkage_input = re.search(r'(?:CO|CO RÚT|CO RUT)\s*(\d+(?:\.\d+)?)\s*%', clean_text_upper)
+                    
+                    user_width = fabric_width_input.group(1) if fabric_width_input else "1.5m (Standard)"
+                    user_shrinkage = shrinkage_input.group(1) if shrinkage_input else "0%"
+
+                    # Hiển thị trực quan dữ liệu thô dạng bảng
                     col1, col2 = st.columns(2)
                     with col1:
                         st.markdown("**📋 Thông tin định mức vải (Bảng san_pham):**")
@@ -780,23 +812,48 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                                 "Đơn vị": r.get("uom")
                             } for r in fabric_records]
                             st.dataframe(formatted_fabric, use_container_width=True)
-                            st.session_state["chat_history"].append({"role": "assistant", "type": "text", "content": f"Đã hiển thị dữ liệu cho mã {dynamic_keyword}."})
                         else:
-                            st.info("Không có dữ liệu vải lịch sử trùng khớp.")
+                            st.info("Không có dữ liệu định mức lịch sử trùng khớp.")
                             
                     with col2:
                         st.markdown("**📏 Thông số hình học gốc (Bảng thong_so_techpack):**")
                         if db_measurements_raw and isinstance(db_measurements_raw, dict):
-                            # CHUYỂN JSON THÀNH DẠNG BẢNG ĐỐI SOÁT CHUYÊN NGHIỆP
                             formatted_measurements = [
                                 {"Vị trí đo (POM)": key, "Thông số kỹ thuật": value} 
                                 for key, value in db_measurements_raw.items()
                             ]
                             st.dataframe(formatted_measurements, use_container_width=True)
-                        elif techpack_records and len(techpack_records) > 0:
-                            st.dataframe(techpack_records, use_container_width=True)
                         else:
                             st.info("Không tìm thấy thông số kỹ thuật tương ứng.")
-                            
+
+                    # BƯỚC AI PHÂN TÍCH TÍNH TOÁN ĐỊNH MỨC VẢI THEO CÁC BIẾN SỐ
+                    st.markdown("### 📊 Kết quả phân tích và tính toán Định mức Vải")
+                    
+                    calculation_prompt = f"""
+                    You are an expert Apparel Costing Engineer. 
+                    - Specified Width: {user_width}
+                    - Specified Shrinkage: {user_shrinkage}%
+                    - Uploaded Techpack Specs: {new_style_raw_text}
+                    - Matched Style from Search: {matched_style_name}
+                    - Historical Matched Fabric Yield: {json.dumps(fabric_records, ensure_ascii=False)}
+                    - Historical Matched Measurements: {json.dumps(db_measurements_raw, ensure_ascii=False)}
+                    
+                    Tasks:
+                    1. If a matched style exists, compare specs, pull historical consumption as baseline, and calculate final consumption incorporating the specified width and shrinkage.
+                    2. If no matched style exists, perform direct independent geometric calculations based entirely on the current style's POM to determine consumption.
+                    3. Output step-by-step completely in Vietnamese with zero fluff text.
+                    """
+                    
+                    with st.spinner("AI đang tính toán sơ đồ định mức vải dệt may..."):
+                        final_payload = list(img_payload) if has_file else []
+                        final_payload.append(calculation_prompt)
+                        
+                        analysis_res = client.models.generate_content(
+                            model='gemini-2.5-flash', 
+                            contents=final_payload,
+                        )
+                        st.markdown(analysis_res.text)
+                        st.session_state["chat_history"].append({"role": "assistant", "type": "text", "content": analysis_res.text})
+                        
                 except Exception as master_err:
                     st.error(f"Hệ thống lõi gặp lỗi trong quá trình xử lý: {str(master_err)}")
