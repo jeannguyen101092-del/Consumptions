@@ -734,24 +734,56 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                         clean_query = re.sub(pattern_remove, "", clean_text_upper).strip()
                     
                     if has_file:
+                        if is_searching_fabri                    # --- SỬA LỖI TRÍCH XUẤT TỪ KHÓA THÔNG MINH ---
+                    clean_text_upper = str(user_query).strip().upper()
+                    is_searching_fabric = any(word in clean_text_upper for word in ["CODE VẢI", "CODE VAI", "MÃ VẢI", "MA VAI", "LOẠI VẢI", "LOAI VAI", "TÌM VẢI", "TIM VAI"])
+                    
+                    # 1. Tìm xem trong câu chat có gõ mã hàng nào cụ thể bằng Regex không
+                    codes_found = re.findall(r'\b[A-Z]*\d+[A-Z0-9]*\b|\b[A-Z0-9]+-\d+[A-Z0-9-]*\b', clean_text_upper)
+                    
+                    clean_query = ""
+                    if codes_found:
+                        # Chỉ lấy mã thực sự, loại bỏ các trường hợp bắt nhầm số thông thường
+                        valid_codes = [c for c in codes_found if len(c) >= 3 and not c.isdigit()]
+                        if valid_codes:
+                            clean_query = str(valid_codes[0]).strip()
+                    
+                    # Nếu câu chat không có mã hàng rõ ràng, làm sạch các từ dệt may phổ biến
+                    if not clean_query:
+                        pattern_remove = r"\b(TÌM|TIM|KIỂM TRA|KIEM TRA|XEM|CHECK|CHO TOI|XIN|MÃ HÀNG|MA HANG|MÃ|MA|VẢI|VAI|ĐỊNH MỨC|DINH MUC|CODE|TRÍCH XUẤT|TRICH XUAT|HÌNH ẢNH|HINH ANH|HÌNH|HINH|ẢNH|ANH|TÍNH|TINH|THÔNG TIN|THONG TIN|NÀY|NAY|TƯƠNG ĐỒNG|TUONG DONG|VỚI|KHO|KIẾM|VOI|TRONG)\b"
+                        clean_query = re.sub(pattern_remove, "", clean_text_upper).strip()
+                        # Xóa bỏ nốt các từ khóa có dấu dễ bị sót do lỗi \b của Regex
+                        for word in ["TƯƠNG ĐỒNG", "TUONG DONG", "MÃ HÀNG", "MA HANG", "TÌM MÃ"]:
+                            clean_query = clean_query.replace(word, "")
+                        clean_query = clean_query.strip()
+
+                    # 2. ĐỊNH ĐOẠT DYNAMIC KEYWORD (ƯU TIÊN MÃ AI TRONG FILE ĐỂ TRÁNH LỖI CHỮ 'TƯƠNG ĐỒNG')
+                    dynamic_keyword = ""
+                    if has_file:
                         if is_searching_fabric and new_style_fabric_detected != "UNKNOWN_FABRIC":
                             dynamic_keyword = str(new_style_fabric_detected).strip()
-                        elif clean_query and len(clean_query) >= 3:
-                            dynamic_keyword = clean_query
-                        else:
+                        # SỬA LỖI CỐT LÕI: Nếu AI tìm thấy mã hàng trong file và câu chat không chứa mã riêng biệt -> Ép dùng mã trong file
+                        elif new_style_id_detected != "UNKNOWN_STYLE" and (not clean_query or len(clean_query) < 3):
                             dynamic_keyword = str(new_style_id_detected).strip()
+                        else:
+                            dynamic_keyword = clean_query if clean_query else str(new_style_id_detected).strip()
                     else:
                         dynamic_keyword = clean_query if clean_query else "UNKNOWN"
 
+                    # Làm sạch các ký tự rác phá cấu trúc chuỗi
                     dynamic_keyword = re.sub(r"[\[\]'\"*?%#&]", "", dynamic_keyword).strip()
-                    if not dynamic_keyword or len(dynamic_keyword) < 3:
+                    
+                    # Cứu cánh cuối cùng
+                    if not dynamic_keyword or len(dynamic_keyword) < 3 or dynamic_keyword in ["TƯƠNG ĐỒNG", "UNKNOWN"]:
                         dynamic_keyword = str(new_style_id_detected).strip() if new_style_id_detected != "UNKNOWN_STYLE" else "UNKNOWN"
 
+                    # Gọi database lấy thông số gốc dựa trên từ khóa chuẩn xác (Ví dụ: 1P001363)
                     db_results = get_techpack_spec_from_db(style_name_keyword=dynamic_keyword) if 'get_techpack_spec_from_db' in locals() else []
                     backup_res = get_historical_fabric_consumption_from_db(search_keyword=dynamic_keyword) if 'get_historical_fabric_consumption_from_db' in locals() else []
 
                     if has_file and target_new_sketch_bytes:
                         st.image(target_new_sketch_bytes, caption=f"🖼️ Bản vẽ phẳng công nghệ trích xuất từ FILE MỚI UPLOAD ({new_style_id_detected})", use_container_width=True)
+
                     # Thực hiện so khớp ma trận hình học khi cơ sở dữ liệu trả về bản ghi liên quan
                     if db_results:
                         import numpy as np
