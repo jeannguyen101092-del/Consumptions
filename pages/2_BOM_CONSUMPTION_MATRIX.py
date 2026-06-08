@@ -587,7 +587,7 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
     # =============================================================================
     # PHASE 6B - PART 1: AUTO-REPAIR INTENT & DOUBLE-CHECKED KEYWORD PIPELINE
     # =============================================================================
-    if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vải và đối soát sai lệch..."):
+        if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vải và đối soát sai lệch..."):
         st.session_state["chat_history"].append({"role": "user", "type": "text", "content": user_query})
         with st.chat_message("user"): 
             st.write(user_query)
@@ -604,7 +604,6 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                         new_style_id_detected = "UNKNOWN_STYLE"
                         new_style_raw_text = ""
                         
-                        # LUỒNG A: NẾU KỸ SƯ CÓ TẢI FILE TECHPACK LÊN - KÍCH HOẠT QUÉT ĐA TRANG
                         if chat_file:
                             file_bytes = chat_file.getvalue()
                             img_payload = []
@@ -620,9 +619,6 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                                         img_payload.append(types.Part.from_bytes(data=img_buf.getvalue(), mime_type='image/jpeg'))
                                 except Exception as pdf_err:
                                     st.warning("Không thể tự động phân tách trang PDF. Đang quét text...")
-                            else:
-                                img_payload.append(types.Part.from_bytes(data=file_bytes, mime_type='image/jpeg'))
-                            
                             if img_payload:
                                 extraction_prompt = """
                                 Analyze the attached technical pack images.
@@ -644,7 +640,6 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                                         import time
                                         time.sleep(1)
                         
-                        # ✨ THUẬT TOÁN XÁC ĐỊNH TỪ KHÓA TRUY VẤN THÔNG MINH - ĐỒNG BỘ MÃ CHỮ, SỐ VÀ DẤU CÁCH
                         clean_text_upper = str(user_query).strip().upper()
                         stop_words = ["TÌM", "CODE", "VẢI", "MÃ", "HÀNG", "ĐỊNH MỨC", "CHO", "KIỂM TRA", "XEM", "THÔNG", "SỐ"]
                         query_words = clean_text_upper.split()
@@ -659,8 +654,6 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                         dynamic_keyword = re.sub(r"[\[\]'\"*?%#&]", "", dynamic_keyword).strip()
                         if not dynamic_keyword:
                             dynamic_keyword = "UNKNOWN"
-
-                        # ĐỒNG BỘ TRUY VẤN MÀNG LỌC TRƯỜNG THEO ĐÚNG DATABASE THỰC TẾ TRONG HỆ THỐNG
                         headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
                         url_san_pham = f"{SB_URL.rstrip('/')}/rest/v1/san_pham?or=(style_name.ilike.*{dynamic_keyword}*,article_name.ilike.*{dynamic_keyword}*,notes.ilike.*{dynamic_keyword}*)&select=style_name,article_name,consumption_type,material_size,uom,consumption_value,notes&limit=1000"
                         res_sp = requests.get(url_san_pham, headers=headers, timeout=5)
@@ -690,7 +683,6 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                                 db_context += f"- Hồ sơ rập thiết kế tìm thấy: {target_item.get('StyleName')} | Khách hàng: {target_item.get('Buyer')} | Form dáng: {target_item.get('Category')} | Số đo: {json.dumps(target_item.get('DetailedMeasurements', {}), ensure_ascii=False)}\n"
                         else:
                             db_context += f"- Không tìm thấy thông số kỹ thuật trực tiếp cho từ khóa '{tp_search_keyword}' trong bảng thong_so_techpack.\n"
-                        
                         if backup_res:
                             exact_matched_items = []
                             for b_item in backup_res:
@@ -712,11 +704,9 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                         if new_style_raw_text:
                             db_context += f"\n- DỮ LIỆU THÔ ĐỌC ĐƯỢC TỪ FILE TECHPACK ĐÍNH KÈM:\n{new_style_raw_text}\n"
 
-                        # Thuật toán tự động liên kết dựng link ảnh trực tiếp từ Storage kho_anh công khai
                         if not detected_image_url_to_render and tp_search_keyword and tp_search_keyword != "UNKNOWN":
                             detected_style_title_to_render = tp_search_keyword
                             detected_image_url_to_render = f"{SB_URL.rstrip('/')}/storage/v1/object/public/kho_anh/{tp_search_keyword}.jpg"
-                        # Đóng gói Prompt cô đọng và gửi lệnh xử lý sang Gemini AI để ép "Hỏi gì đáp nấy"
                         final_prompt = f"""
                         Bạn là một trợ lý AI phòng R&D dệt may. Hãy trả lời TRỰC DIỆN, NGẮN GỌN và CHÍNH XÁC vào câu hỏi.
                         Yêu cầu hiện tại của người dùng: "{user_query}"
