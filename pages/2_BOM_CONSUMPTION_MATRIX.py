@@ -694,30 +694,63 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
 
 
 # =============================================================================
-# ĐOẠN 2 - PHẦN A: MULTIMODAL VISION - TỰ ĐỘNG LẬT KHO THEO CATEGORY FILE MỚI
+# ĐOẠN 2 - PHẦN A: BỘ LỌC TỰ ĐỘNG LOẠI BỎ TRÙNG MÃ HIỆN TẠI VÀ QUÉT MÃ GIỐNG HỆT
 # =============================================================================
                     # Hệ thống tự động kiểm tra xem câu lệnh có yêu cầu so sánh mã tương đồng hoặc tính định mức hay không
                     is_similarity_requested = any(word in clean_text_upper for word in ["TƯƠNG ĐỒNG", "TUONG DONG", "GIỐNG", "GIONG", "SO SÁNH", "SO SANH", "ĐỊNH MỨC", "DINH MUC"])
                     similar_records = []
                     vision_payload = [] # Mảng nạp dữ liệu nhị phân các file ảnh rập phẳng trích từ kho lưu trữ công cộng Supabase
-                    
+
                     if is_similarity_requested:
-                        # ✨ ĐỒNG BỘ TỰ ĐỘNG: Ưu tiên bốc chính xác Chủng loại thực tế của file mới upload để lật kho tìm kiếm mẫu giống
-                        lookup_category = new_style_category_detected if new_style_category_detected else dynamic_keyword
+                        # ✨ CẢI TIẾN 1: Xác định rõ mã hàng hiện tại để tí nữa loại trừ, tránh việc AI tự so sánh với chính nó
+                        current_style_id = new_style_id_detected if new_style_id_detected != "UNKNOWN_STYLE" else dynamic_keyword
                         
-                        # Tách lấy từ khóa chữ trần sạch để tránh lỗi vỡ cú pháp link API của Supabase
-                        words_list = re.findall(r'\w+', str(lookup_category).lower())
-                        core_str_keyword = words_list[-1] if words_list else str(lookup_category).lower()
+                        # Thử quét fuzzy theo tiền tố chữ cái hoặc ký tự đầu của mã hàng gốc
+                        prefix_match = re.match(r"^([A-Z0-9]+)", dynamic_keyword)
+                        similarity_keyword = prefix_match.group(1) if prefix_match else dynamic_keyword[:3]
                         
-                        # Gọi hàm bổ trợ quét kho diện rộng lấy các sản phẩm cùng nhóm phân loại phom dáng
-                        similar_techpacks = get_techpack_spec_from_db(style_name_keyword=core_str_keyword)
-                        similar_sp_data = get_historical_fabric_consumption_from_db(search_keyword=core_str_keyword)
+                        raw_techpacks = get_techpack_spec_from_db(style_name_keyword=similarity_keyword)
+                        raw_sp_data = get_historical_fabric_consumption_from_db(search_keyword=similarity_keyword)
                         
+                        # ✨ CẢI TIẾN 2: Bộ lọc ma trận dự phòng nếu quét theo tiền tố chữ cái bị thiếu hụt dữ liệu
+                        detected_cat = ""
+                        if db_results:
+                            first_item = db_results if isinstance(db_results, list) and len(db_results) > 0 else db_results
+                            if isinstance(first_item, dict):
+                                detected_cat = str(first_item.get("Category", "")).strip()
+
+                        if (not raw_techpacks or len(raw_techpacks) <= 1) and detected_cat:
+                            words_list = re.findall(r'\w+', detected_cat)
+                            core_str_keyword = words_list[-1] if words_list else detected_cat
+                            
+                            url_cat_backup = f"{base_sb_url}/rest/v1/thong_so_techpack"
+                            params_cat = {
+                                "Category": f"ilike.*{core_str_keyword}*",
+                                "select": "StyleName,Category,DetailedMeasurements,SketchURL",
+                                "limit": "6"
+                            }
+                            res_cat_backup = requests.get(url_cat_backup, headers=headers, params=params_cat, timeout=15)
+                            raw_techpacks = res_cat_backup.json() if 200 <= res_cat_backup.status_code <= 299 else []
+                            
+                            if not raw_sp_data:
+                                raw_sp_data = get_historical_fabric_consumption_from_db(search_keyword=core_str_keyword)
+
+                        # Đảm bảo ép kiểu dữ liệu danh sách an toàn để lặp dòng
+                        list_techpacks = raw_techpacks if isinstance(raw_techpacks, list) else [raw_techpacks]
+                        list_sp_data = raw_sp_data if isinstance(raw_sp_data, list) else [raw_sp_data]
+
+                        # ✨ CẢI TIẾN 3: Thuật toán lọc loại trừ chính mã hiện tại để ép lấy các mã tương đồng khác
+                        filtered_techpacks = [tp for tp in list_techpacks if str(tp.get("StyleName", "")).strip().upper() != str(current_style_id).strip().upper()]
+                        
+                        # Nếu sau khi loại trừ danh sách trống, giữ lại toàn bộ để AI tự đối soát chéo dòng trùng
+                        if not filtered_techpacks:
+                            filtered_techpacks = list_techpacks
+
                         # LUỒNG MULTIMODAL: Tải ngầm file ảnh thật từ kho về chuyển sang nhị phân gửi vào mắt thần AI
-                        for tp in similar_techpacks[:4]:
+                        for tp in filtered_techpacks[:4]:
                             st_name = tp.get("StyleName", "")
                             sketch_url = tp.get("SketchURL", "")
-                            match_sp = [s for s in similar_sp_data if s.get('style_name') == st_name]
+                            match_sp = [s for s in list_sp_data if s.get('style_name') == st_name]
                             
                             img_part = None
                             if sketch_url:
@@ -737,6 +770,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                                 "measurements": tp.get("DetailedMeasurements"),
                                 "bom_data": match_sp if match_sp else []
                             })
+
 
 
 # =============================================================================
