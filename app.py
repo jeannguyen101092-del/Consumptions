@@ -60,9 +60,13 @@ st.markdown("""
     </div>
 """, unsafe_allow_html=True)
 # =============================================================================
-# LOGIC ÉP CHẠY VECTOR HÓA TRỰC TIẾP TRONG APP.PY (PHÁ BỎ HOÀN TOÀN CACHE COLD)
+# LOGIC ÉP CHẠY VECTOR HÓA TRỰC TIẾP TRONG APP.PY (ĐÃ VÁ LỖI IMPORT GENAI)
 # =============================================================================
 def force_sync_warehouse_images():
+    # IMPORT THƯ VIỆN NGAY BÊN TRONG HÀM ĐỂ TRÁNH LỖI NAMEERROR TUYỆT ĐỐI
+    from google import genai
+    from google.genai import types
+    
     SB_URL_FIX = "https://ewqqodsfvlvnrzsylawy.supabase.co"
     SB_KEY_FIX = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV3cXFvZHNmdmx2bnJ6c3lsYXd5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUxMTkyOTAsImV4cCI6MjA5MDY5NTI5MH0.BWPxOsyswBT5CLrZgluRC1F2x5EpU06oexUFyakGhyc"
     
