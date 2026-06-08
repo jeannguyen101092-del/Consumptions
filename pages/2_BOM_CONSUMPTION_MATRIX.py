@@ -681,7 +681,7 @@ for msg in st.session_state["chat_history"]:
         if msg.get("type") == "visual" and msg.get("image_url"):
             st.image(msg["image_url"], caption="Hình vẽ kỹ thuật", width=220)
 
-    if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vải và đối soát sai lệch..."):
+        if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vải và đối soát sai lệch..."):
         st.session_state["chat_history"].append({"role": "user", "type": "text", "content": user_query})
         with st.chat_message("user"): 
             st.write(user_query)
@@ -770,7 +770,7 @@ for msg in st.session_state["chat_history"]:
                         detected_style_title_to_render = ""
                         
                         if db_results:
-                            target_item = db_results[0] if isinstance(db_results, list) and len(db_results) > 0 else db_results
+                            target_item = db_results if isinstance(db_results, list) and len(db_results) > 0 else db_results
                             if isinstance(target_item, dict):
                                 detected_style_title_to_render = target_item.get("StyleName", tp_search_keyword)
                                 if target_item.get("SketchURL"):
