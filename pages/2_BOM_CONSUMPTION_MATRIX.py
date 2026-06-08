@@ -822,7 +822,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
 
 
 # =============================================================================
-# ĐOẠN 3: KẾT XUẤT HÌNH ẢNH SKETCH VÀ ĐƯA DỮ LIỆU ĐỐI SOÁT VỀ BẢNG LƯỚI PHẲNG
+# ĐOẠN 3: KẾT XUẤT HÌNH ẢNH SKETCH VÀ ĐƯA THÔNG SỐ MÃ TƯƠNG ĐỒNG VỀ BẢNG LƯỚI
 # =============================================================================
                     db_sketch_url = None
                     db_measurements_raw = {}
@@ -830,26 +830,37 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     SUPABASE_PROJECT_URL = "https://supabase.co" 
                     
                     if techpack_records and len(techpack_records) > 0:
-                        first_record = techpack_records if isinstance(techpack_records, list) else techpack_records
+                        first_record = techpack_records[0] if isinstance(techpack_records, list) else techpack_records
                         if isinstance(first_record, dict):
                             current_style_name = first_record.get("StyleName", "")
                             db_sketch_url = first_record.get("SketchURL")
+                            # Đọc trường dữ liệu thông số rập đo chi tiết
                             db_measurements_raw = first_record.get("DetailedMeasurements", {})
+                            
+                            # Giải bọc nếu cấu trúc JSON bị lồng chuỗi (Stringified JSON)
+                            if isinstance(db_measurements_raw, str):
+                                try:
+                                    db_measurements_raw = json.loads(db_measurements_raw)
+                                except Exception:
+                                    pass
                         
+                        # Hiển thị trực quan ảnh Sketch đối chứng của mã tương đồng bốc ra từ Database
                         if db_sketch_url and str(db_sketch_url).startswith("http"):
-                            st.image(db_sketch_url, caption=f"🖼️ Ảnh Sketch đối soát mã hàng trong kho: {current_style_name}", use_container_width=True)
+                            st.image(db_sketch_url, caption=f"🖼️ Bản vẽ Sketch đối chứng của mã hàng tương đồng tìm được trong kho: {current_style_name}", use_container_width=True)
                         elif current_style_name:
                             constructed_url = f"{SUPABASE_PROJECT_URL}/storage/v1/object/public/kho_anh/{current_style_name}.jpg"
-                            st.image(constructed_url, caption=f"🖼️ Ảnh Sketch đối soát mã hàng trong kho: {current_style_name}", use_container_width=True)
+                            st.image(constructed_url, caption=f"🖼️ Bản vẽ Sketch đối chứng của mã hàng tương đồng tìm được trong kho: {current_style_name}", use_container_width=True)
                     else:
                         if dynamic_keyword and dynamic_keyword != "UNKNOWN":
                             constructed_url = f"{SUPABASE_PROJECT_URL}/storage/v1/object/public/kho_anh/{dynamic_keyword}.jpg"
                             st.image(constructed_url, caption=f"🖼️ Ảnh Sketch tìm theo mã: {dynamic_keyword}", use_container_width=True)
 
+                    # Hiển thị tiêu đề kết quả đối soát
                     st.markdown(f"### 📊 Kết quả tìm kiếm dữ liệu mã: **{dynamic_keyword}**")
                     
                     col1, col2 = st.columns(2)
                     with col1:
+                        # 1. Hiển thị bảng thông tin định mức vật tư và mã vải
                         st.markdown("**📋 Thông tin định mức vải (Bảng san_pham):**")
                         if fabric_records:
                             formatted_fabric = [{
@@ -864,19 +875,22 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                             st.info("Không có dữ liệu vải lịch sử trùng khớp.")
                             
                     with col2:
-                        st.markdown("**📏 Thông số hình học gốc (Bảng thong_so_techpack):**")
+                        # 2. SỬA ĐỔI CỐT LÕI: Chuyển dữ liệu text JSON bên phải về dạng bảng lưới phẳng (Dataframe)
+                        st.markdown(f"**📏 Thông số hình học đối chứng (Mã tương đồng trong kho: {current_style_name}):**")
                         if db_measurements_raw and isinstance(db_measurements_raw, dict):
+                            # Thuật toán bóc tách cặp Key-Value để đưa lên lưới dọc chuyên nghiệp
                             formatted_measurements = [
                                 {"Vị trí đo (POM)": key, "Thông số kỹ thuật thực tế": value} 
                                 for key, value in db_measurements_raw.items()
                             ]
                             st.dataframe(formatted_measurements, use_container_width=True)
                         elif techpack_records and len(techpack_records) > 0:
+                            # Khối dự phòng kết xuất bảng phẳng nếu cấu trúc dữ liệu thô thay đổi
                             st.dataframe(techpack_records, use_container_width=True)
                         else:
-                            st.info("Không tìm thấy thông số kỹ thuật tương ứng để hiển thị dạng bảng.")
+                            st.info("Không tìm thấy dữ liệu thông số kỹ thuật tương ứng của mã đối chứng để hiển thị.")
                             
-                    st.session_state["chat_history"].append({"role": "assistant", "type": "text", "content": f"Đã hiển thị bảng thông tin tìm kiếm cho mã {dynamic_keyword}."})
+                    st.session_state["chat_history"].append({"role": "assistant", "type": "text", "content": f"Đã hiển thị thông tin đối soát mã tương đồng {current_style_name} dạng lưới."})
                         
                 except Exception as master_err:
                     st.error(f"Hệ thống lõi gặp lỗi trong quá trình xử lý: {str(master_err)}")
