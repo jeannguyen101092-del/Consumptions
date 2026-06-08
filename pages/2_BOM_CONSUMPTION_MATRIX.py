@@ -545,77 +545,83 @@ if menu_selection == "📊 Upload Techpack":
 # =============================================================================
 # ĐOẠN 4A: CHỨC NĂNG 3 - TRỢ LÝ ĐỊNH MỨC VẢI & AUTO-REPAIR KEYWORD PIPELINE
 elif menu_selection == "🧵 BOM & Consumption Matrix":
-    st.markdown('<div class="component-title-box">🧵 INTELLIGENT BOM & CONSUMPTION MATRIX ENGINE</div>', unsafe_allow_html=True)
-    c1, c2 = st.columns([3.3, 0.7])
-    with c1:
-        chat_file = st.file_uploader("Upload Techpack file", type=["pdf", "jpg", "jpeg", "png"], key="chat_uploader", label_visibility="collapsed")
-        if chat_file: 
-            st.success(f"📎 DATASTREAM PIPELINE BOUND: Tiếp nhận thành công file {chat_file.name}")
-    with c2:
-        if st.button("🗑️ PURGE CHAT CACHE", use_container_width=True, type="secondary"):
-            if "chat_history" in st.session_state: del st.session_state["chat_history"]
-            st.rerun()
-    st.markdown("---")
-    if "chat_history" not in st.session_state:
-        st.session_state["chat_history"] = [{"role": "assistant", "type": "text", "content": "Welcome to PPJ Textile Visual R&D Engine. Hãy tải lên sơ đồ rập/Techpack mã mới và ra lệnh. Tôi sẽ tìm chính xác mã tương đồng, xuất ảnh Sketch và tính định mức vải/phụ liệu theo đúng yêu cầu, không trả lời lan man."}]
-    for msg in st.session_state["chat_history"]:
-        with st.chat_message(msg["role"]): 
-            st.write(msg["content"])
-            if msg.get("type") == "visual" and msg.get("image_url"):
-                st.image(msg["image_url"], caption=f"Bản vẽ Sketch lịch sử đối chiếu mã {msg.get('style_title')}", width=220)
-    if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vải và đối soát sai lệch..."):
-        st.session_state["chat_history"].append({"role": "user", "type": "text", "content": user_query})
-        with st.chat_message("user"): st.write(user_query)
-        with st.chat_message("assistant"):
-            with st.spinner("Hệ thống AI R&D Engine đang kết nối kho tri thức nền dệt may..."):
-                gemini_key = get_secure_gemini_key()
-                if not gemini_key: st.error("AI API Token is missing.")
-                else:
-                    client = genai.Client(api_key=gemini_key)
-                    contents_payload, new_style_raw_text = [], ""
-                    if chat_file:
-                        file_bytes = chat_file.getvalue()
-                        img_payload = []
-                        if chat_file.name.lower().endswith('.pdf'):
-                            info_chat = pdfinfo_from_bytes(file_bytes)
-                            chat_images = convert_from_bytes(file_bytes, dpi=140, first_page=1, last_page=int(info_chat.get("Pages", 1)))
-                            for page_img in chat_images:
-                                img_buf = io.BytesIO()
-                                page_img.convert("RGB").save(img_buf, format="JPEG")
-                                img_payload.append(types.Part.from_bytes(data=img_buf.getvalue(), mime_type='image/jpeg'))
-                                if not contents_payload: contents_payload.append(types.Part.from_bytes(data=img_buf.getvalue(), mime_type='image/jpeg'))
-                        else:
-                            img_payload.append(types.Part.from_bytes(data=file_bytes, mime_type='image/jpeg'))
-                            contents_payload.append(types.Part.from_bytes(data=file_bytes, mime_type='image/jpeg'))
-                        img_payload.append("Extract style number and specs.")
-                        try:
-                            res_ext = client.models.generate_content(model='gemini-2.5-flash', contents=img_payload)
-                            new_style_raw_text = res_ext.text.strip()
-                        except: pass
-                    clean_text_upper = str(user_query).strip().upper()
-                    if "8902" in clean_text_upper: dynamic_keyword = "8002"
+    import textwrap
+    raw_execution_code = """
+st.markdown('<div class="component-title-box">🧵 INTELLIGENT BOM & CONSUMPTION MATRIX ENGINE</div>', unsafe_allow_html=True)
+c1, c2 = st.columns([3.3, 0.7])
+with c1:
+    chat_file = st.file_uploader("Upload Techpack file", type=["pdf", "jpg", "jpeg", "png"], key="chat_uploader", label_visibility="collapsed")
+    if chat_file: 
+        st.success(f"📎 DATASTREAM PIPELINE BOUND: Tiếp nhận thành công file {chat_file.name}")
+with c2:
+    if st.button("🗑️ PURGE CHAT CACHE", use_container_width=True, type="secondary"):
+        if "chat_history" in st.session_state: del st.session_state["chat_history"]
+        st.rerun()
+st.markdown("---")
+if "chat_history" not in st.session_state:
+    st.session_state["chat_history"] = [{"role": "assistant", "type": "text", "content": "Welcome to PPJ Textile Visual R&D Engine. Hãy tải lên sơ đồ rập/Techpack mã mới và ra lệnh. Tôi sẽ tìm chính xác mã tương đồng, xuất ảnh Sketch và tính định mức vải/phụ liệu theo đúng yêu cầu, không trả lời lan man."}]
+for msg in st.session_state["chat_history"]:
+    with st.chat_message(msg["role"]): 
+        st.write(msg["content"])
+        if msg.get("type") == "visual" and msg.get("image_url"):
+            st.image(msg["image_url"], caption=f"Bản vẽ Sketch lịch sử đối chiếu mã {msg.get('style_title')}", width=220)
+
+if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vải và đối soát sai lệch..."):
+    st.session_state["chat_history"].append({"role": "user", "type": "text", "content": user_query})
+    with st.chat_message("user"): st.write(user_query)
+    with st.chat_message("assistant"):
+        with st.spinner("Hệ thống AI R&D Engine đang kết nối kho tri thức nền dệt may..."):
+            gemini_key = get_secure_gemini_key()
+            if not gemini_key: st.error("AI API Token is missing.")
+            else:
+                client = genai.Client(api_key=gemini_key)
+                contents_payload, new_style_raw_text = [], ""
+                if chat_file:
+                    file_bytes = chat_file.getvalue()
+                    img_payload = []
+                    if chat_file.name.lower().endswith('.pdf'):
+                        info_chat = pdfinfo_from_bytes(file_bytes)
+                        chat_images = convert_from_bytes(file_bytes, dpi=140, first_page=1, last_page=int(info_chat.get("Pages", 1)))
+                        for page_img in chat_images:
+                            img_buf = io.BytesIO()
+                            page_img.convert("RGB").save(img_buf, format="JPEG")
+                            img_payload.append(types.Part.from_bytes(data=img_buf.getvalue(), mime_type='image/jpeg'))
+                            if not contents_payload: contents_payload.append(types.Part.from_bytes(data=img_buf.getvalue(), mime_type='image/jpeg'))
                     else:
-                        nums = re.findall(r'\d{3,}', clean_text_upper)
-                        dynamic_keyword = str(nums[0]).strip() if nums else clean_text_upper
-                    headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
-                    url_tp = f"{SB_URL.rstrip('/')}/rest/v1/thong_so_techpack?StyleName=ilike.*{dynamic_keyword}*&select=StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL&limit=3"
-                    res_tp = requests.get(url_tp, headers=headers, timeout=15)
-                    techpack_matches = res_tp.json() if res_tp.status_code == 200 else []
-                    url_cons = f"{SB_URL.rstrip('/')}/rest/v1/san_pham?style_name=ilike.*{dynamic_keyword}*&select=style_name,article_name,consumption_type,material_size,uom,consumption_value,notes&limit=5"
-                    res_cons = requests.get(url_cons, headers=headers, timeout=15)
-                    consumption_matches = res_cons.json() if res_cons.status_code == 200 else []
-                    historical_context = {"techpack_database_records": techpack_matches, "historical_consumption_records": consumption_matches}
-                    
-                    p_prompt = f"You are Master Textile R&D Engine. Calc fabric consumption for: {user_query}. New Ingest Specs: {new_style_raw_text}. History: {json.dumps(historical_context, ensure_ascii=False)}. Rule: If match found, scale consumption based on target width (e.g. 56) and shrinkage (e.g. 5%). If no match, calculate from scratch using standard jacket/pants markers formulas. Answer directly in Vietnamese with detailed calculations."
-                    ai_payload = contents_payload + [p_prompt] if contents_payload else [p_prompt]
+                        img_payload.append(types.Part.from_bytes(data=file_bytes, mime_type='image/jpeg'))
+                        contents_payload.append(types.Part.from_bytes(data=file_bytes, mime_type='image/jpeg'))
+                    img_payload.append("Extract style number and specs.")
                     try:
-                        ai_res = client.models.generate_content(model='gemini-2.5-flash', contents=ai_payload)
-                        ans = ai_res.text.strip()
-                        s_url, s_title = "", ""
-                        if techpack_matches and isinstance(techpack_matches, list) and len(techpack_matches) > 0:
-                            s_url = techpack_matches[0].get("SketchURL", "")
-                            s_title = techpack_matches[0].get("StyleName", "Historical Reference")
-                        if s_url: st.session_state["chat_history"].append({"role": "assistant", "type": "visual", "content": ans, "image_url": s_url, "style_title": s_title})
-                        else: st.session_state["chat_history"].append({"role": "assistant", "type": "text", "content": ans})
-                        st.rerun()
-                    except Exception as e: st.error(f"AI Error: {str(e)}")
+                        res_ext = client.models.generate_content(model='gemini-2.5-flash', contents=img_payload)
+                        new_style_raw_text = res_ext.text.strip()
+                    except: pass
+                clean_text_upper = str(user_query).strip().upper()
+                if "8902" in clean_text_upper: dynamic_keyword = "8002"
+                else:
+                    nums = re.findall(r'\d{3,}', clean_text_upper)
+                    dynamic_keyword = str(nums).strip() if nums else clean_text_upper
+
+                headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
+                url_tp = f"{SB_URL.rstrip('/')}/rest/v1/thong_so_techpack?StyleName=ilike.*{dynamic_keyword}*&select=StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL&limit=3"
+                res_tp = requests.get(url_tp, headers=headers, timeout=15)
+                techpack_matches = res_tp.json() if res_tp.status_code == 200 else []
+                url_cons = f"{SB_URL.rstrip('/')}/rest/v1/san_pham?style_name=ilike.*{dynamic_keyword}*&select=style_name,article_name,consumption_type,material_size,uom,consumption_value,notes&limit=5"
+                res_cons = requests.get(url_cons, headers=headers, timeout=15)
+                consumption_matches = res_cons.json() if res_cons.status_code == 200 else []
+                historical_context = {"techpack_database_records": techpack_matches, "historical_consumption_records": consumption_matches}
+                
+                p_prompt = f"You are Master Textile R&D Engine. Calc fabric consumption for: {user_query}. New Ingest Specs: {new_style_raw_text}. History: {json.dumps(historical_context, ensure_ascii=False)}. Rule: If match found, scale consumption based on target width (e.g. 56) and shrinkage (e.g. 5%). If no match, calculate from scratch using standard jacket/pants markers formulas. Answer directly in Vietnamese with detailed calculations."
+                ai_payload = contents_payload + [p_prompt] if contents_payload else [p_prompt]
+                try:
+                    ai_res = client.models.generate_content(model='gemini-2.5-flash', contents=ai_payload)
+                    ans = ai_res.text.strip()
+                    s_url, s_title = "", ""
+                    if techpack_matches and isinstance(techpack_matches, list) and len(techpack_matches) > 0:
+                        s_url = techpack_matches.get("SketchURL", "")
+                        s_title = techpack_matches.get("StyleName", "Historical Reference")
+                    if s_url: st.session_state["chat_history"].append({"role": "assistant", "type": "visual", "content": ans, "image_url": s_url, "style_title": s_title})
+                    else: st.session_state["chat_history"].append({"role": "assistant", "type": "text", "content": ans})
+                    st.rerun()
+                except Exception as e: st.error(f"AI Error: {str(e)}")
+"""
+    exec(textwrap.dedent(raw_execution_code))
