@@ -477,7 +477,7 @@ if menu_selection == "📊 Upload Techpack":
     else:
         st.markdown('<div class="idle-alert-box">⚠️ SELECTION IDLE: Vui lòng tải lên đồng thời cả 2 tệp PDF Techpack (Gốc và Sửa đổi) để kích hoạt ma trận đối chiếu.</div>', unsafe_allow_html=True)
 # =============================================================================
-# ĐOẠN 4A: CHỨC NĂNG 3 - INTERFACE TRỢ LÝ ĐỊNH MỨC VẢI & AUTO-REPAIR KEYWORD PIPELINE
+# ĐOẠN 4A: CHỨC NĂNG 3 - TRỢ LÝ ĐỊNH MỨC VẢI & AUTO-REPAIR KEYWORD PIPELINE
 # =============================================================================
 elif menu_selection == "🧵 BOM & Consumption Matrix":
     st.markdown('<div class="component-title-box">🧵 INTELLIGENT BOM & CONSUMPTION MATRIX ENGINE</div>', unsafe_allow_html=True)
@@ -588,7 +588,7 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                         # =============================================================================
                         # ĐOẠN 4B: KẾT NỐI KHO DỮ LIỆU ĐA NỀN TẢNG & MẠNG NƠ-RON LẬP LUẬN ĐỊNH MỨC VẢI
                         # =============================================================================
-                        # ĐỒNG BỘ TRUY VẤN MÀNG LỌC TRƯỜNG THEO ĐÚNG DATABASE XƯỞNG SUBA PASE
+                        # ĐỒNG BỘ TRUY VẤN MÀNG LỌC TRƯỜNG THEO ĐÚNG DATABASE XƯỞNG SUPABASE
                         headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
                         
                         # Bước 1: Truy vấn kho rập mẫu để bóc tách thông số đo kỹ thuật và ảnh phẳng gốc
@@ -653,7 +653,6 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                         detected_sketch_url = ""
                         detected_title = ""
                         if techpack_matches and isinstance(techpack_matches, list) and len(techpack_matches) > 0:
-                            # Trích xuất bản ghi đầu tiên khớp trong danh sách để bóc tách thông tin hiển thị đồ họa
                             first_match = techpack_matches[0]
                             detected_sketch_url = first_match.get("SketchURL", "")
                             detected_title = first_match.get("StyleName", "Historical Reference")
