@@ -824,16 +824,20 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
 # =============================================================================
 # ĐOẠN 3: KẾT XUẤT HÌNH ẢNH SKETCH, BẢNG THÔNG SỐ VÀ TỰ TÍNH ĐỊNH MỨC ĐỘ CO ĐA CHIỀU
 # =============================================================================
-                    db_sketch_url = None
+                                       db_sketch_url = None
                     db_measurements_raw = {}
                     current_style_name = ""
                     
-                    # ✨ ĐÃ SỬA: Tự động trích xuất URL gốc của dự án từ cấu hình base_sb_url ở Đoạn 2
+                    # Tự động trích xuất URL gốc của dự án từ cấu hình base_sb_url ở Đoạn 2
                     SUPABASE_PROJECT_URL = base_sb_url.replace("/rest/v1", "").rstrip("/")
                     
-                    # ✨ ĐÃ SỬA: Kiểm tra mảng dữ liệu trả về và trích xuất phần tử đầu tiên chính xác bằng chỉ mục [0]
+                    # 🔍 DÒNG ĐỒNG BỘ DEBUG 1: Ép hiển thị mã từ khóa đã lọc được ra màn hình chat
+                    st.caption(f"🤖 Hệ thống đang thực hiện lệnh đối soát cho từ khóa: `{dynamic_keyword}`")
+                    st.caption(f"📦 Số lượng bản ghi tìm thấy: san_pham ({len(fabric_records)}), techpack ({len(techpack_records)})")
+                    
+                    # ✨ ĐÃ SỬA CHÍNH XÁC: Trích xuất phần tử đầu tiên bằng chỉ mục [0] để sửa lỗi kiểm tra isinstance
                     if isinstance(techpack_records, list) and len(techpack_records) > 0:
-                        first_record = techpack_records[0]
+                        first_record = techpack_records[0] # SỬA TẠI ĐÂY: Thêm chỉ mục [0] để lấy dictionary
                         if isinstance(first_record, dict):
                             current_style_name = first_record.get("StyleName", "")
                             db_sketch_url = first_record.get("SketchURL")
@@ -845,16 +849,16 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                                     pass
                         
                         if db_sketch_url and str(db_sketch_url).startswith("http"):
-                            st.image(db_sketch_url, caption=f"🖼️ Ảnh Sketch đối chứng mã hàng trong kho: {current_style_name}", use_container_width=True)
+                            st.image(db_sketch_url, caption=f"🖼️ Ảnh Sketch đối chứng mã hàng: {current_style_name}", use_container_width=True)
                         elif current_style_name:
                             constructed_url = f"{SUPABASE_PROJECT_URL}/storage/v1/object/public/kho_anh/{current_style_name}.jpg"
-                            st.image(constructed_url, caption=f"🖼️ Ảnh Sketch đối chứng mã hàng trong kho: {current_style_name}", use_container_width=True)
+                            st.image(constructed_url, caption=f"🖼️ Ảnh Sketch đối chứng mã hàng: {current_style_name}", use_container_width=True)
                     else:
                         if dynamic_keyword and dynamic_keyword != "UNKNOWN":
                             constructed_url = f"{SUPABASE_PROJECT_URL}/storage/v1/object/public/kho_anh/{dynamic_keyword}.jpg"
                             st.image(constructed_url, caption=f"🖼️ Ảnh Sketch tìm theo mã: {dynamic_keyword}", use_container_width=True)
 
-                    # ✨ ĐÃ SỬA VÀ NÂNG CẤP AN TOÀN: Tránh lỗi AttributeError khi Regex không tìm thấy từ khóa phù hợp
+                    # Bóc tách thông số co rút dệt may từ chuỗi câu lệnh nhập
                     fabric_width_input = re.search(r'(?:KHỔ|KHO)\s*(\d+(?:\.\d+)?)', clean_text_upper)
                     shrink_ngang = re.search(r'(?:NGANG)\s*(\d+(?:\.\d+)?)\s*%', clean_text_upper)
                     shrink_doc = re.search(r'(?:DỌC|DOC)\s*(\d+(?:\.\d+)?)\s*%', clean_text_upper)
@@ -867,7 +871,6 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     display_style_heading = current_style_name if current_style_name else (new_style_id_detected if new_style_id_detected != "UNKNOWN_STYLE" else dynamic_keyword)
                     st.markdown(f"### 📊 Kết quả đối soát dữ liệu mã hàng: **{display_style_heading}**")
                     
-                    # DỰNG GIAO DIỆN BẢNG ĐỐI SOÁT SONG SONG (DỮ LIỆU GỐC VS THÔNG SỐ RẬP THỰC TẾ)
                     col1, col2 = st.columns(2)
                     with col1:
                         st.markdown("**📋 Thông tin định mức vải gốc (Bảng san_pham):**")
@@ -875,7 +878,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                             formatted_fabric = [{"Mã hàng": r.get("style_name"), "Mã vải (Article)": r.get("article_name"), "Loại vật tư": r.get("consumption_type"), "Khổ vải": r.get("material_size"), "Đơn vị": r.get("uom")} for r in fabric_records]
                             st.dataframe(formatted_fabric, use_container_width=True)
                         else:
-                            st.info("ℹ️ Không tìm thấy mã tương đồng. Hệ thống tự động kích hoạt tính toán độc lập từ thông số rập Techpack mới.")
+                            st.info("ℹ️ Không tìm thấy dữ liệu định mức cũ. Hệ thống tự động chuyển sang tính toán độc lập từ rập.")
                             
                     with col2:
                         st.markdown("**📏 Thông số hình học thực tế (Bảng lưới phẳng chuyên nghiệp):**")
@@ -888,23 +891,15 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
 
                     st.markdown("### 📐 Kết quả phân tích sơ đồ & Tính toán định mức vải")
                     
-                    # CẤU HÌNH PROMPT ENGINE ĐỘC LẬP GỬI ĐẾN GEMINI-2.5-FLASH
                     analysis_prompt = f"""
                     You are an expert Apparel Costing & Marker Planning Engineer. Perform a strict fabric consumption calculation.
-                    
-                    [PRODUCTION VARIABLES]
                     - Usable Fabric Width: {user_width} INCH
                     - Fabric Shrinkage Weft (Ngang): {co_ngang}%
                     - Fabric Shrinkage Warp (Dọc): {co_doc}%
-                    
-                    [SPECS DATA]
                     - Current Style Measurements: {json.dumps(display_specs, ensure_ascii=False)}
                     - Reference Records: {json.dumps(fabric_records, ensure_ascii=False)}
                     
-                    [RULES]
-                    1. If no history match is found, calculate fabric net consumption per unit using standard garment marker math based on length points found in POM.
-                    2. Warp shrinkage ({co_doc}%) must expand required length. Weft shrinkage ({co_ngang}%) impacts pattern layout efficiency inside width ({user_width}). Add 5% cutting wastage.
-                    3. Output step-by-step completely in Vietnamese. Make it technical, professional and concise without verbose chat.
+                    Output step-by-step completely in Vietnamese. Make it technical, professional and concise without verbose chat.
                     """
                     
                     with st.spinner("AI đang tính toán sơ đồ định mức và áp công thức co rút dệt may..."):
