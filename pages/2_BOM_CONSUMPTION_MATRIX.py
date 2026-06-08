@@ -672,7 +672,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     if sketch_url_found:
                         st.image(sketch_url_found, caption=f"Hình ảnh phác thảo thiết kế tìm thấy trong kho cho mã hàng: {dynamic_keyword}", use_container_width=True)
 # =============================================================================
-# ĐOẠN 2: KIỂM TRA Ý ĐỊNH (HỎI GÌ ĐÁP NẤY) & SO SÁNH HÌNH ẢNH - THÔNG SỐ ĐỂ TÍNH DM
+# ĐOẠN 2: TỰ ĐỘNG KHỚP ẢNH (.JPG), SO SÁNH THÔNG SỐ & TÍNH ĐỊNH MỨC CHUẨN R&D
 # =============================================================================
                     # Kiểm tra xem người dùng có thực sự yêu cầu tìm kiếm mã tương đồng/tính định mức hay không
                     is_similarity_requested = any(word in clean_text_upper for word in ["TƯƠNG ĐỒNG", "TUONG DONG", "GIỐNG", "GIONG", "SO SÁNH", "SO SANH"])
@@ -683,10 +683,33 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                         prefix_match = re.match(r"^([A-Z]+)", dynamic_keyword)
                         similarity_keyword = prefix_match.group(1) if prefix_match else dynamic_keyword[:3]
                         
-                        # Lấy thêm trường SketchURL để AI so sánh khớp hình ảnh trước khi so thông số
-                        url_similar = f"{base_sb_url}/rest/v1/thong_so_techpack?StyleName=ilike.*{similarity_keyword}*&select=StyleName,DetailedMeasurements,SketchURL&limit=5"
+                        # Lấy thêm trường SketchURL và DetailedMeasurements để AI so sánh khớp hình ảnh trước khi so thông số
+                        url_similar = f"{base_sb_url}/rest/v1/thong_so_techpack?StyleName=ilike.*{similarity_keyword}*&select=StyleName,Category,DetailedMeasurements,SketchURL&limit=5"
                         res_sim = requests.get(url_similar, headers=headers, timeout=15)
-                        similar_records = res_sim.json() if 200 <= res_sim.status_code <= 299 else []
+                        similar_techpacks = res_sim.json() if 200 <= res_sim.status_code <= 299 else []
+                        
+                        # Lấy định mức tương ứng của nhóm này từ bảng san_pham
+                        url_sim_sp = f"{base_sb_url}/rest/v1/san_pham?style_name=ilike.*{similarity_keyword}*&select=style_name,article_name,consumption_type,material_size,uom,consumption_value&limit=20"
+                        res_sim_sp = requests.get(url_sim_sp, headers=headers, timeout=15)
+                        similar_sp_data = res_sim_sp.json() if 200 <= res_sim_sp.status_code <= 299 else []
+                        
+                        # Thuật toán tự động chuẩn hóa tên file để check khớp hình ảnh ngoại quan
+                        for tp in similar_techpacks:
+                            st_name = tp.get("StyleName", "")
+                            # Tự tạo cấu trúc tên file ảnh khớp với Storage (Ví dụ: MR1705 -> MR1705.jpg)
+                            expected_image_name = f"{st_name}.jpg"
+                            
+                            # Lấy các dòng định mức phụ thuộc
+                            match_sp = [s for s in similar_sp_data if s.get('style_name') == st_name]
+                            
+                            similar_records.append({
+                                "style_name": st_name,
+                                "category": tp.get("Category"),
+                                "image_name_in_storage": expected_image_name,
+                                "sketch_url": tp.get("SketchURL"),
+                                "measurements": tp.get("DetailedMeasurements"),
+                                "bom_data": match_sp if match_sp else []
+                            })
 
                     # Đóng gói ngữ cảnh gửi cho AI
                     db_context = f"=== HỒ SƠ TRA CỨU MÃ GỐC YÊU CẦU: {dynamic_keyword} ===\n"
@@ -695,20 +718,23 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     
                     if db_results:
                         for item in db_results:
-                            db_context += f"- Thông số mẫu gốc (thong_so_techpack): {item.get('StyleName')} | Phân loại: {item.get('Category')} | Link ảnh sơ đồ: {item.get('SketchURL')} | Số đo chi tiết: {json.dumps(item.get('DetailedMeasurements', {}), ensure_ascii=False)}\n"
+                            db_context += f"- Thông số mẫu gốc: {item.get('StyleName')} | Phân loại: {item.get('Category')} | Link ảnh sơ đồ: {item.get('SketchURL')} | Số đo chi tiết: {json.dumps(item.get('DetailedMeasurements', {}), ensure_ascii=False)}\n"
                     
                     if backup_res:
                         db_context += f"- DỮ LIỆU ĐẦY ĐỦ TỪ BẢNG SẢN PHẨM/VẬT TƯ TRONG KHO (san_pham):\n"
                         for sp in backup_res:
-                            db_context += f"  + Mã hàng (style_name): {sp.get('style_name')} | Mã nguyên phụ liệu/vải (article_name): {sp.get('article_name')} | Loại định mức: {sp.get('consumption_type')} | Khổ: {sp.get('material_size')} | Định mức thực tế: {sp.get('consumption_value')} {sp.get('uom')} | Ghi chú: {sp.get('notes')}\n"
+                            db_context += f"  + Mã hàng (style_name): {sp.get('style_name')} | Mã vải (article_name): {sp.get('article_name')} | Định mức: {sp.get('consumption_value')} {sp.get('uom')}\n"
                     
-                    # Đóng gói tập dữ liệu tham chiếu tương đồng (chỉ có khi được yêu cầu)
+                    # Đóng gói dữ liệu tương đồng sau khi đã xử lý cấu trúc tên file ảnh (.jpg) và số đo
                     if is_similarity_requested and similar_records:
-                        db_context += f"\n=== KHO DỮ LIỆU THAM CHIẾU CÁC MÃ HÀNG TƯƠNG ĐỒNG (CẦN CHECK KHỚP ẢNH TRƯỚC) ===\n"
+                        db_context += f"\n=== KHO DỮ LIỆU THAM CHIẾU CÁC MÃ HÀNG TƯƠNG ĐỒNG (ĐÃ CHUẨN HÓA ĐỐI CHIẾU FILE ẢNH) ===\n"
                         for sim in similar_records:
-                            db_context += f"- Mã mẫu: {sim.get('StyleName')} | Link hình ảnh thiết kế: {sim.get('SketchURL')} | Số đo mẫu: {json.dumps(sim.get('DetailedMeasurements', {}), ensure_ascii=False)}\n"
+                            db_context += f"- Mã tương đồng: {sim['style_name']} | Tên file ảnh tương ứng trong kho lưu trữ: {sim['image_name_in_storage']} | Đường dẫn ảnh: {sim['sketch_url']}\n"
+                            db_context += f"  + Bảng thông số số đo (DetailedMeasurements) để so khớp cấu trúc: {json.dumps(sim['measurements'], ensure_ascii=False)}\n"
+                            if sim['bom_data']:
+                                db_context += f"  + Lịch sử định mức thực tế đi kèm: {json.dumps(sim['bom_data'], ensure_ascii=False)}\n"
 
-                    # Chỉ thị prompt phân nhánh thông minh dựa theo câu hỏi của kỹ sư
+                    # Chỉ thị prompt chỉ huy AI thực hiện quy trình kiểm tra ảnh trước - so thông số sau
                     ai_prompt = f"""
                     Bạn là một Trợ lý AI chuyên nghiệp phụ trách bộ phận R&D Vật tư của PPJ Group.
                     Hãy xử lý yêu cầu cụ thể sau từ kỹ sư: "{user_query}"
@@ -717,16 +743,17 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     {db_context}
 
                     QUY TẮC PHẢN HỒI BẮT BUỘC:
-                    1. Trả lời đúng trọng tâm câu hỏi: "Hỏi gì đáp nấy". Nếu người dùng hỏi một mã code vật tư/vải (Ví dụ: SJ-8902) đang được sử dụng cho mã hàng nào, hãy quét kỹ toàn bộ danh sách "DỮ LIỆU ĐẦY ĐỦ TỪ BẢNG SẢN PHẨM/VẬT TƯ TRONG KHO (san_pham)" ở trên, tìm trường `article_name` tương ứng và liệt kê ra các giá trị `style_name` (Mã hàng) đi kèm với nó. Không được báo là không tìm thấy khi dữ liệu đã hiện hữu ở trên.
-                    2. Nếu có yêu cầu so sánh mã tương đồng (Trạng thái lệnh: {is_similarity_requested}):
-                       - Bước A: Đối chiếu link hình ảnh thiết kế (SketchURL) của mã mới với các mã tham chiếu để xác nhận độ trùng khớp về mặt ngoại quan.
-                       - Bước B: Tiến hành phân tích độ lệch thông số bảng số đo để đưa ra dự tính định mức vật tư cụ thể.
-                    3. Nếu KHÔNG tìm thấy mã tương đồng nào trong kho HOẶC không yêu cầu tìm mã tương đồng:
-                       - Áp dụng hoàn toàn TƯ DUY LOGIC VÀ NGHIỆP VỤ NGÀNH MAY MẶC hoặc bóc tách trực tiếp dữ liệu thô từ kho cung cấp để đưa ra câu trả lời văn bản Markdown chỉn chu, chính xác cho kỹ sư.
-                    4. Tuyệt đối không xuất dữ liệu JSON thô hoặc lặp lại câu từ máy móc.
+                    1. Trả lời đúng trọng tâm câu hỏi: "Hỏi gì đáp nấy". Tuyệt đối không hiển thị text thô hay mã JSON chưa xử lý.
+                    2. Nếu có yêu cầu phân tích tương đồng và dự toán định mức (Trạng thái lệnh: {is_similarity_requested}):
+                       - Bước 1 (Khớp hình ảnh): Hãy kiểm tra trường 'Tên file ảnh tương ứng trong kho lưu trữ' (ví dụ: {dynamic_keyword}.jpg) xem có khớp định dạng hoặc chủng loại ngoại quan với danh sách mã tham chiếu hay không.
+                       - Bước 2 (So sánh thông số): So sánh chi tiết dữ liệu số đo 'DetailedMeasurements' giữa mã mới và mã tương đồng (Ví dụ: đối chiếu thông số Vòng eo 'WAISTBAND', Dài quần 'INSEAM', Rộng ống 'LEG OPENING' xem tăng giảm bao nhiêu inch/cm).
+                       - Bước 3 (Tính định mức): Dựa trên độ lệch thông số đo ở Bước 2, thực hiện phép tính toán học tăng/giảm tỷ lệ thuận tương ứng để đưa ra dự báo con số định mức cụ thể cho mã mới.
+                    3. Trường hợp KHÔNG tìm thấy mã tương đồng nào HOẶC không yêu cầu tìm tương đồng:
+                       - Áp dụng tư duy logic dệt may độc lập: Phân tích phom dáng áo/quần của mã {dynamic_keyword}, tính toán diện tích bề mặt vải cần thiết dựa theo bảng thông số số đo sẵn có, rồi cộng thêm tỷ lệ hao hụt kỹ thuật đường may và biên vải (5% - 10%) để tự đưa ra kết quả định mức dự kiến.
+                    4. Trình bày: Định dạng bảng biểu Markdown trực quan, rõ ràng, dễ hiểu cho kỹ sư trưởng đọc duyệt.
                     """
                     
-                    with st.spinner("🤖 AI R&D Engine đang tổng hợp dữ liệu kho và biên soạn câu trả lời chuyên ngành..."):
+                    with st.spinner("🤖 AI R&D Engine đang thực hiện quy trình đối chiếu ảnh, so thông số và tính định mức..."):
                         ai_res = client.models.generate_content(
                             model='gemini-2.5-flash',
                             contents=ai_prompt
