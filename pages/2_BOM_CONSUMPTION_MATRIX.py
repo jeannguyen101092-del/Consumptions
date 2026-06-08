@@ -695,12 +695,12 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     
                     if db_results:
                         for item in db_results:
-                            db_context += f"- Thông số mẫu gốc: {item.get('StyleName')} | Phân loại: {item.get('Category')} | Link ảnh sơ đồ: {item.get('SketchURL')} | Số đo chi tiết: {json.dumps(item.get('DetailedMeasurements', {}), ensure_ascii=False)}\n"
+                            db_context += f"- Thông số mẫu gốc (thong_so_techpack): {item.get('StyleName')} | Phân loại: {item.get('Category')} | Link ảnh sơ đồ: {item.get('SketchURL')} | Số đo chi tiết: {json.dumps(item.get('DetailedMeasurements', {}), ensure_ascii=False)}\n"
                     
                     if backup_res:
-                        db_context += f"- Nguyên phụ liệu & Định mức thực tế trong kho:\n"
-                        for sp in backup_res[:5]:
-                            db_context += f"  + Vật liệu: {sp.get('article_name')} | Loại: {sp.get('consumption_type')} | Khổ: {sp.get('material_size')} | Định mức: {sp.get('consumption_value')} {sp.get('uom')}\n"
+                        db_context += f"- DỮ LIỆU ĐẦY ĐỦ TỪ BẢNG SẢN PHẨM/VẬT TƯ TRONG KHO (san_pham):\n"
+                        for sp in backup_res:
+                            db_context += f"  + Mã hàng (style_name): {sp.get('style_name')} | Mã nguyên phụ liệu/vải (article_name): {sp.get('article_name')} | Loại định mức: {sp.get('consumption_type')} | Khổ: {sp.get('material_size')} | Định mức thực tế: {sp.get('consumption_value')} {sp.get('uom')} | Ghi chú: {sp.get('notes')}\n"
                     
                     # Đóng gói tập dữ liệu tham chiếu tương đồng (chỉ có khi được yêu cầu)
                     if is_similarity_requested and similar_records:
@@ -713,17 +713,17 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     Bạn là một Trợ lý AI chuyên nghiệp phụ trách bộ phận R&D Vật tư của PPJ Group.
                     Hãy xử lý yêu cầu cụ thể sau từ kỹ sư: "{user_query}"
 
-                    DỮ LIỆU THỰC TẾ TRONG KHO:
+                    DỮ LIỆU THỰC TẾ TRONG KHO ĐƯỢC TRÍCH XUẤT:
                     {db_context}
 
                     QUY TẮC PHẢN HỒI BẮT BUỘC:
-                    1. Trả lời đúng trọng tâm: Người dùng hỏi gì đáp nấy, không hiển thị hoặc giải thích các thông tin ngoài lề không được yêu cầu. Tuyệt đối không xuất dữ liệu JSON thô.
+                    1. Trả lời đúng trọng tâm câu hỏi: "Hỏi gì đáp nấy". Nếu người dùng hỏi một mã code vật tư/vải (Ví dụ: SJ-8902) đang được sử dụng cho mã hàng nào, hãy quét kỹ toàn bộ danh sách "DỮ LIỆU ĐẦY ĐỦ TỪ BẢNG SẢN PHẨM/VẬT TƯ TRONG KHO (san_pham)" ở trên, tìm trường `article_name` tương ứng và liệt kê ra các giá trị `style_name` (Mã hàng) đi kèm với nó. Không được báo là không tìm thấy khi dữ liệu đã hiện hữu ở trên.
                     2. Nếu có yêu cầu so sánh mã tương đồng (Trạng thái lệnh: {is_similarity_requested}):
-                       - Bước A: Đối chiếu link hình ảnh thiết kế (SketchURL) của mã mới với các mã tham chiếu để xác nhận độ trùng khớp về mặt ngoại quan (kiểu dáng, chi tiết phụ túi hộp, cạp, ống).
-                       - Bước B: Sau khi khớp hình ảnh, tiến hành phân tích độ lệch thông số bảng số đo để đưa ra dự tính định mức vật tư cụ thể.
+                       - Bước A: Đối chiếu link hình ảnh thiết kế (SketchURL) của mã mới với các mã tham chiếu để xác nhận độ trùng khớp về mặt ngoại quan.
+                       - Bước B: Tiến hành phân tích độ lệch thông số bảng số đo để đưa ra dự tính định mức vật tư cụ thể.
                     3. Nếu KHÔNG tìm thấy mã tương đồng nào trong kho HOẶC không yêu cầu tìm mã tương đồng:
-                       - Hãy áp dụng hoàn toàn TƯ DUY LOGIC VÀ NGHIỆP VỤ NGÀNH MAY MẶC để tự tính toán định mức vải dựa trên bảng số đo chi tiết đã có của mã {dynamic_keyword} (Tính diện tích bề mặt sơ bộ của sản phẩm, ước lượng hao hụt đường may, biên vải, co rút dệt nhuộm thông thường từ 5%-10% tùy loại cấu trúc dệt thoi/dệt kim để ra kết quả định mức dự kiến).
-                    4. Trình bày: Định dạng Markdown sạch đẹp, dịch các vị trí số đo tiếng Anh sang tiếng Việt trực quan.
+                       - Áp dụng hoàn toàn TƯ DUY LOGIC VÀ NGHIỆP VỤ NGÀNH MAY MẶC hoặc bóc tách trực tiếp dữ liệu thô từ kho cung cấp để đưa ra câu trả lời văn bản Markdown chỉn chu, chính xác cho kỹ sư.
+                    4. Tuyệt đối không xuất dữ liệu JSON thô hoặc lặp lại câu từ máy móc.
                     """
                     
                     with st.spinner("🤖 AI R&D Engine đang tổng hợp dữ liệu kho và biên soạn câu trả lời chuyên ngành..."):
