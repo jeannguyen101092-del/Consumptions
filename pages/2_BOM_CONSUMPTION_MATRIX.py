@@ -686,12 +686,6 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     # HIỂN THỊ HÌNH ẢNH SKETCH CỦA CHÍNH FILE MỚI LÊN MÀN HÌNH ĐỂ KỸ SƯ XÁC NHẬN TỨC THÌ
                     if has_file and target_new_sketch_bytes:
                         st.image(target_new_sketch_bytes, caption=f"🖼️ Bản vẽ phẳng công nghệ trích xuất từ FILE MỚI UPLOAD ({new_style_id_detected})", use_container_width=True)
-
-
-
-
-
-
 # =============================================================================
 # ĐOẠN 2 - PHẦN A: BẢN THÔNG MẠCH TUYỆT ĐỐI KHÔNG PHÂN BIỆT HOA THƯỜNG CHO KHO
 # =============================================================================
@@ -699,193 +693,69 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     base_sb_url = SB_URL.rstrip('/')
                     headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
 
-                    # Hệ thống tự động kiểm tra xem câu lệnh có yêu cầu so sánh mã tương đồng hoặc tính định mức hay không
-                    is_similarity_requested = any(word in clean_text_upper for word in ["TƯƠNG ĐỒNG", "TUONG DONG", "GIỐNG", "GIONG", "SO SÁNH", "SO SANH", "ĐỊNH MỨC", "DINH MUC"])
+                    # Kiểm tra xem kỹ sư có yêu cầu tìm mã tương đồng hoặc xem định mức vải hay không
+                    is_similarity_requested = any(word in clean_text_upper for word in ["TƯƠNG ĐỒNG", "TUONG DONG", "GIỐNG", "GIONG", "SO SÁNH", "SO SANH", "ĐỊNH MỨC", "DINH MUC", "VẢI", "VAI"])
                     similar_records = []
-                    vision_payload = [] # Mảng nạp dữ liệu nhị phân các file ảnh rập phẳng trích từ kho lưu trữ công cộng Supabase
+                    vision_payload = [] 
 
                     if is_similarity_requested:
-                        # Xác định rõ mã hàng hiện tại của file mới upload để loại trừ, tránh việc AI tự so với chính nó
-                        current_style_id = new_style_id_detected if new_style_id_detected != "UNKNOWN_STYLE" else dynamic_keyword
+                        # Tách bớt phần đuôi mã hàng để tối ưu hóa khả năng quét cụm từ tương đồng (Ví dụ: 178969-7736-BEATEN BLUE_LOT4 thành 178969)
+                        short_keyword = dynamic_keyword.split('_')[0].split('-')[0].strip()
                         
-                        # Thuật toán gọt đuôi sê-ri số thông minh đồng bộ (Ví dụ: 1P001452 -> giữ lại 1P0014)
-                        if len(dynamic_keyword) >= 6:
-                            similarity_keyword = dynamic_keyword[:-2] 
-                        else:
-                            prefix_match = re.match(r"^([A-Z0-9]+)", dynamic_keyword)
-                            similarity_keyword = prefix_match.group(1) if prefix_match else dynamic_keyword[:3]
+                        # Sử dụng toán tử .ilike quét trực tiếp cột style_name trên bảng thong_so_techpack không phân biệt hoa thường
+                        query_url = f"{base_sb_url}/rest/v1/thong_so_techpack?style_name=ilike.*{quote(short_keyword)}*&select=*"
                         
-                        # 1. Quét mờ tìm mã hàng trong bảng thong_so_techpack chứa chuỗi lõi "1P0014"
-                        url_techpack = f"{base_sb_url}/rest/v1/thong_so_techpack"
-                        params_tp_direct = {
-                            "StyleName": f"ilike.%{similarity_keyword}%", # Bắt trúng mã 1P001451 chứa chuỗi 1P0014
-                            "select": "StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL",
-                            "limit": "3" 
-                        }
-                        res_tp_direct = requests.get(url_techpack, headers=headers, params=params_tp_direct, timeout=10)
-                        raw_techpacks = res_tp_direct.json() if 200 <= res_tp_direct.status_code <= 299 else []
-                        
-                        # 2. Đồng bộ gọi dữ liệu lịch sử định mức phụ thuộc vật tư tương ứng từ bảng san_pham
-                        url_san_pham = f"{base_sb_url}/rest/v1/san_pham"
-                        params_sp_direct = {
-                            "or": f"(style_name.ilike.%{similarity_keyword}%,article_name.ilike.%{similarity_keyword}%)",
-                            "select": "style_name,article_name,consumption_type,material_size,uom,consumption_value",
-                            "limit": "20"
-                        }
-                        res_sp_direct = requests.get(url_san_pham, headers=headers, params=params_sp_direct, timeout=10)
-                        raw_sp_data = res_sp_direct.json() if 200 <= res_sp_direct.status_code <= 299 else []
-                        
-                        # ✨ THAY ĐỔI CỨU SINH TOÀN DIỆN CHO CHỦNG LOẠI:
-                        # Chuyển đổi toàn bộ text bóc tách được về dạng viết thường (lowercase) để ép Supabase quét mờ
-                        detected_cat = str(new_style_category_detected).lower() if new_style_category_detected else "pants"
-                        
-                        # 3. BỘ LỌC DỰ PHÒNG CHỐNG LỆCH PHÔNG HOA THƯỜNG:
-                        # Nếu quét dính liền mã chữ bị hụt, tự động dùng ma trận lọc OR quét song song cả chữ 'pant' và 'jeans' viết thường
-                        if (not raw_techpacks or len(raw_techpacks) <= 0) and detected_cat:
-                            # Xây dựng màng lọc chuỗi OR ép không phân biệt hoa thường dệt may
-                            # Cú pháp này giúp bắt trúng cả chữ 'Pants', 'Jeans', 'pants' lưu trong kho
-                            or_cat_filter = "(Category.ilike.%pant%,Category.ilike.%jean%,Category.ilike.%quần%)"
-                            
-                            params_cat = {
-                                "or": or_cat_filter,
-                                "select": "StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL",
-                                "limit": "3"
-                            }
-                            res_cat_backup = requests.get(url_techpack, headers=headers, params=params_cat, timeout=10)
-                            raw_techpacks = res_cat_backup.json() if 200 <= res_cat_backup.status_code <= 299 else []
-                            
-                            if not raw_sp_data:
-                                params_sp_cat = {
-                                    "or": "(style_name.ilike.%pant%,style_name.ilike.%jean%)",
-                                    "select": "style_name,article_name,consumption_type,material_size,uom,consumption_value",
-                                    "limit": "20"
-                                }
-                                res_sp_cat = requests.get(url_san_pham, headers=headers, params=params_sp_cat, timeout=10)
-                                raw_sp_data = res_sp_cat.json() if 200 <= res_sp_cat.status_code <= 299 else []
-
-                        # Ép kiểu danh sách bảo vệ vòng lặp an toàn
-                        list_techpacks = raw_techpacks if isinstance(raw_techpacks, list) else [raw_techpacks]
-                        list_sp_data = raw_sp_data if isinstance(raw_sp_data, list) else [raw_sp_data]
-
-                        # Lọc loại trừ chính xác mã hàng hiện tại của file mới upload (1P001452) để lôi mã cũ lên so sánh
-                        filtered_techpacks = [tp for tp in list_techpacks if str(tp.get("StyleName", "")).strip().upper() != str(current_style_id).strip().upper()]
-                        if not filtered_techpacks:
-                            filtered_techpacks = list_techpacks
-
-                        # LUỒNG MULTIMODAL VÀ ĐÓNG GÓI PAYLOAD THỊ GIÁC: Tải ngầm ảnh thật từ kho về gửi vào bộ bộ não AI
-                        for tp in filtered_techpacks[:2]:
-                            st_name = tp.get("StyleName", "")
-                            sketch_url = tp.get("SketchURL", "")
-                            match_sp = [s for s in list_sp_data if s.get('style_name') == st_name]
-                            
-                            img_part = None
-                            if sketch_url:
-                                try:
-                                    # Trích xuất riêng tên file ảnh ở đuôi đường link để hóa độc lập chống vỡ link chữ HOA
-                                    base_route, filename_part = sketch_url.rsplit('/', 1)
-                                    secure_public_url = f"{base_route}/{quote(filename_part)}"
-                                    
-                                    img_res = requests.get(secure_public_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=3)
-                                    if img_res.status_code == 200:
-                                        img_part = types.Part.from_bytes(data=img_res.content, mime_type='image/jpeg')
-                                        vision_payload.append(img_part)
-                                except Exception:
-                                    pass
-                            
-                            similar_records.append({
-                                "style_name": st_name,
-                                "category": tp.get("Category"),
-                                "sketch_url": sketch_url,
-                                "has_vision_data": img_part is not None,
-                                "measurements": tp.get("DetailedMeasurements"),
-                                "bom_data": match_sp if match_sp else []
-                            })
-
-
-
-
-
-
-
-
-
+                        try:
+                            response = requests.get(query_url, headers=headers, timeout=15)
+                            if response.status_code == 200 and len(response.json()) > 0:
+                                similar_records = response.json()
+                            else:
+                                # Phương án dự phòng: Nếu mã cụ thể không có, lấy 25 dòng định mức mới nhất trong kho thong_so_techpack để AI đối soát chéo mẫu vải tương đồng
+                                fallback_url = f"{base_sb_url}/rest/v1/thong_so_techpack?select=*&order=created_at.desc&limit=25"
+                                res_fb = requests.get(fallback_url, headers=headers, timeout=15)
+                                if res_fb.status_code == 200:
+                                    similar_records = res_fb.json()
+                        except Exception as ex:
+                            st.warning(f"Tín hiệu kết nối Supabase bị nghẽn: {str(ex)}. Hệ thống chuyển sang đối soát cục bộ.")
 # =============================================================================
-# ĐOẠN 2 - PHẦN B: ĐÓNG GÓI NGỮ CẢNH VÀ CHUYỂN GIAO MẮT THẦN AI XỬ LÝ TOÁN HỌC
+# ĐOẠN 2 - PHẦN B: AI ĐỐI SOÁT VÀ PHÂN TÍCH THÔNG SỐ SAI LỆCH KHO SUPABASE
 # =============================================================================
-                    # Đóng gói toàn bộ cây ngữ cảnh tri thức nền cung cấp cho AI phân tích
-                    db_context = f"=== BIẾN TỪ KHÓA ĐẦU VÀO KỸ SƯ TRA CỨU: {dynamic_keyword} ===\n"
-                    if has_file and new_style_id_detected != "UNKNOWN_STYLE":
-                        db_context += f"- Mã hàng gốc trích xuất từ file mới upload: {new_style_id_detected}\n"
+                    # Thiết lập bản Promt nghiệp vụ may mặc chuyên sâu để xử lý dữ liệu từ bảng thong_so_techpack
+                    analysis_prompt = f"""
+                    Bạn là Chuyên gia R&D và Kỹ sư Định mức (Yield/Consumption) ngành may mặc.
+                    Nhiệm vụ: Đối soát file mới với dữ liệu lịch sử từ bảng 'thong_so_techpack' để phân tích định mức vải và tìm mã tương đồng.
                     
-                    if db_results:
-                        db_context += f"\n[DỮ LIỆU THẬT TỪ BẢNG THÔNG SỐ CỦA MÃ MỚI (thong_so_techpack)]:\n"
-                        items_to_loop = db_results if isinstance(db_results, list) else [db_results]
-                        for item in items_to_loop:
-                            db_context += f"- Mã hàng: '{item.get('StyleName')}' | Khách hàng: {item.get('Buyer')} | Chủng loại dáng: {item.get('Category')} | Khổ mẫu gốc: {item.get('BaseSize')} | Link ảnh sơ đồ: {item.get('SketchURL')}\n"
-                            db_context += f"  + BẢNG SỐ ĐO GỐC TRONG KHO (DetailedMeasurements): {json.dumps(item.get('DetailedMeasurements', {}), ensure_ascii=False)}\n"
+                    1. THÔNG TIN MÃ HÀNG MỚI UPLOAD:
+                       - Mã hàng phát hiện: {new_style_id_detected}
+                       - Phân loại sản phẩm: {new_style_category_detected}
+                       - Thông số kích thước bóc tách được: {new_style_raw_text}
                     
-                    if backup_res:
-                        db_context += f"\n[DỮ LIỆU THẬT TỪ BẢNG ĐỊNH MỨC VẬT TƯ CỦA MÃ MỚI (san_pham)]:\n"
-                        for sp in backup_res:
-                            db_context += f"- Dòng định mức: Mã hàng = '{sp.get('style_name')}' | Mã vải = '{sp.get('article_name')}' | Bộ phận = '{sp.get('consumption_type')}' | Khổ vải = '{sp.get('material_size')}' | Định mức = '{sp.get('consumption_value')} {sp.get('uom')}'\n"
+                    2. DỮ LIỆU ĐỊNH MỨC VÀ KHỔ VẢI TRÍCH XUẤT TỪ KHO SUPABASE (BẢNG thong_so_techpack):
+                       {json.dumps(similar_records, ensure_ascii=False)}
                     
-                    if is_similarity_requested and similar_records:
-                        db_context += f"\n=== HỒ SƠ DANH SÁCH MÃ HÀNG TƯƠNG ĐỒNG THAM CHIẾU TÌM THẤY TRONG KHO MASTER DB ===\n"
-                        for sim in similar_records:
-                            db_context += f"- Mã mẫu kho tìm thấy: {sim['style_name']} | Chủng loại phom dáng đối chiếu: {sim['category']} | Trạng thái nạp ảnh trực quan: {sim['has_vision_data']}\n"
-                            db_context += f"  + BẢNG SỐ ĐO ĐỐI CHIẾU TRONG KHO (DetailedMeasurements): {json.dumps(sim['measurements'], ensure_ascii=False)}\n"
-                            if sim['bom_data']:
-                                db_context += f"  + Lịch sử định mức cấu thành: {json.dumps(sim['bom_data'], ensure_ascii=False)}\n"
-
-                    # Chỉ thị prompt phân cấp tinh khiết - Giữ nguyên đơn vị gốc của kho, cấm tự ý đổi sang cm
-                    ai_prompt = f"""
-                    Bạn là một Chuyên gia phân tích dữ liệu R&D cao cấp kiêm Giám đốc Kỹ thuật Ngành may mặc PPJ Group.
-                    Hãy xử lý yêu cầu kỹ thuật phân tích ma trận tương đồng từ kỹ sư: "{user_query}"
-
-                    DỮ LIỆU THỰC TẾ TRONG HỆ THỐNG MASTER DB PHÒNG R&D (CẤM TỰ Ý BỊA ĐẶT SỐ ĐO HOẶC TỰ ĐỔI ĐƠN VỊ):
-                    {db_context}
-
-                    QUY TRÌNH THỰC THI THỊ GIÁC VÀ TOÁN HỌC BẮT BUỘC CỦA AI:
-                    1. QUY TẮC ĐỒNG BỘ ĐƠN VỊ GỐC (TUYỆT ĐỐI CẤM TỰ Ý CHUYỂN INCH SANG CM):
-                       - Hãy đọc trực tiếp các cặp vị trí và con số nằm trong cấu trúc dữ liệu `DetailedMeasurements` thực tế được cung cấp phía trên.
-                       - GIỮ NGUYÊN VẸN ĐƠN VỊ GỐC đang lưu trong cơ sở dữ liệu (Database đang lưu hệ số trần dạng Inch như 32, 30, 2 1/2 thì phải giữ nguyên đơn vị tính là Inch trong suốt quá trình báo cáo và làm toán). Tuyệt đối không được tự ý đổi sang centimet (cm) làm sai lệch thói quen đối soát rập của kỹ sư.
-                       - Lập bảng Markdown hiển thị rõ ràng thông số đo của mã mới, thông số đo của mã tương đồng và cột biên độ chênh lệch tăng/giảm theo đúng đơn vị gốc của tài liệu.
-
-                    2. LUỒNG KIỂM TRA ĐÚNG PHOM SẢN PHẨM:
-                       - Đọc kỹ trường 'Chủng loại dáng (Category)' bóc từ file mới hoặc mã tương đồng. Nếu là Pants/Jeans/Quần -> Toàn bộ bảng thông số trích xuất đầu ra phải là các vị trí của quần (Vòng eo, Vòng mông, Vòng đùi, Dài đũng/Inseam, Cửa quần...). Nghiêm cấm hiển thị các thuật ngữ đặc trưng của ÁO như Chest (Vòng ngực) hay Back Length (Dài thân sau).
-
-                    3. BIÊN SOẠN THỊ GIÁC SO KHỚP TƯƠNG ĐỒNG (Trạng thái lệnh: {is_similarity_requested}):
-                       - Bước A (So khớp hình ảnh ngoại quan): Sử dụng năng lực Vision để trực tiếp 'nhìn' tấm ảnh sơ đồ rập của file mới tải lên (đầu danh sách contents) và đối chiếu trực quan với chuỗi các hình ảnh thật tải ngầm từ kho lưu trữ về (phần sau danh sách contents). Xác định xem kết cấu túi hộp, phom dáng của file mới giống mã hàng thực tế nào trong kho nhất.
-                       - Bước B (So khớp thông số số đo THỰC TẾ): Chỉ trích xuất và lập bảng đối chiếu so sánh độ lệch các thông số đo ĐANG CÓ THẬT trong kho dữ liệu của mã mới và mã tương đồng. Tính toán chính xác biên độ chênh lệch tăng giảm chính xác (Mã cũ trừ mã mới hoặc ngược lại tùy thuộc phom dáng). Cấm hiển thị chữ 'VÍ DỤ' hay 'GIẢ ĐỊNH' trên bảng tiêu đề kết quả đầu ra.
-                       - Bước C (Dự toán định mức - DM): Dựa trên biên độ chênh lệch số đo hình học thực tế ở Bước B, thực hiện tính toán tăng/giảm tỷ lệ thuận từ định mức cũ của mã tương đồng để đưa ra con số định mức dự báo vật tư cuối cùng chính xác cho mã hàng mới này.
-
-                    4. KỊCH BẢN KHO TRỐNG TRƠN / TỰ TÍNH TOÁN ĐỘC LẬP:
-                       - Nếu danh sách mã tương đồng trống rỗng hoặc dữ liệu thô từ database trả về kết quả rỗng: Hãy thông báo rõ ràng là 'Hệ thống chưa tìm thấy dữ liệu đối chiếu thật tương thích trong kho Master DB'. Sau đó tự động áp dụng tư duy hình học không gian ngành may mặc để tự tính toán diện tích bề mặt vải tiêu hao dựa trên bảng số đo thực tế bóc từ file mới, cộng hao hụt đường may, biên vải và co rút tiêu chuẩn (5%-10%) để ra kết quả định mức dự kiến cụ thể (Mét/sản phẩm hoặc Yard/sản phẩm).
-
-                    5. Trình bày đầu ra: Định dạng cấu trúc bảng Markdown phân cấp sạch đẹp, dịch toàn bộ vị trí đo tiếng Anh sang tiếng Việt trực quan theo đúng chủng loại Quần/Áo. Không hiển thị chuỗi dữ liệu JSON thô.
+                    YÊU CẦU ĐẦU RA (Hiển thị Tiếng Việt rõ ràng, trình bày dạng Markdown):
+                    - Mục 1 [Xác Định Mã Tương Đồng]: Liệt kê các mã hàng trong kho (`style_name`) có xu hướng tương đồng hoặc sử dụng chung loại vải (`article_name`) với mã hàng mới này.
+                    - Mục 2 [Bảng Đối Soát Phân Loại Định Mức]: Lập bảng so sánh chi tiết giữa mã mới và mã tương đồng trong kho về các loại vải/vật tư (`consumption_type` như Main Fabric, Pocketing, Interlining) kèm theo Khổ vải (`material_size`).
+                    - Mục 3 [Khuyến Nghị R&D]: Đưa ra khuyến cáo chi tiết về việc áp dụng định mức tiêu hao (Yards/Meters) cho mã hàng mới dựa trên lịch sử sản xuất của các mã tương đồng để tránh hao hụt hoặc dư thừa vải tại xưởng cắt.
                     """
-                    
-                    # Đóng gói ma trận payload đa phương thức gửi cho Gemini Engine
-                    contents_payload = []
-                    if has_file and target_new_sketch_bytes:
-                        contents_payload.append("--- TECHNICAL SKETCH OF THE NEW UPLOADED FILE ---")
-                        contents_payload.append(types.Part.from_bytes(data=target_new_sketch_bytes, mime_type='image/jpeg'))
-                        
-                    if vision_payload:
-                        contents_payload.append("--- TECHNICAL SKETCHES FOUND IN HISTORICAL KHO_ANH STORAGE ---")
-                        contents_payload.extend(vision_payload)
-                        
-                    contents_payload.append(ai_prompt)
-                    
-                    with st.spinner("🤖 AI R&D Engine đang quy đổi đơn vị, so khớp số đo thật và tính định mức vật tư..."):
-                        ai_res = client.models.generate_content(
-                            model='gemini-2.5-flash',
-                            contents=contents_payload
-                        )
-                        ans_text = ai_res.text
-                    
-                    st.markdown(ans_text)
-                    st.session_state["chat_history"].append({"role": "assistant", "type": "text", "content": ans_text})
 
-                except Exception as e:
-                    st.error(f"❌ Lỗi hệ thống nội bộ: {str(e)}")
+                    # Nạp ảnh kỹ thuật phẳng của mã mới làm dữ liệu trực quan cho AI phân tích phom dáng
+                    if target_new_sketch_bytes:
+                        vision_payload.append(types.Part.from_bytes(data=target_new_sketch_bytes, mime_type='image/jpeg'))
+                    
+                    # Đính kèm câu lệnh nghiệp vụ
+                    vision_payload.append(analysis_prompt)
+
+                    with st.spinner("Trí tuệ nhân tạo đang tiến hành thuật toán đối soát cấu trúc rập và định mức vật tư..."):
+                        final_res = client.models.generate_content(
+                            model='gemini-2.5-flash',
+                            contents=vision_payload,
+                            config=types.GenerateContentConfig(temperature=0.15) # Giữ temperature thấp để thông số định mức chuẩn xác, không sai lệch số
+                        )
+                        
+                        # Xuất toàn bộ kết quả phân tích định mức vải ra màn hình Streamlit
+                        st.markdown("### 📐 Kết Quả Phân Tích Định Mức Vải & Đối Soát Mã Tương Đồng");
+                        st.write(final_res.text)
+                        
+                except Exception as master_err:
+                    st.error(f"Lỗi vận hành hệ thống AI Core: {str(master_err)}")
