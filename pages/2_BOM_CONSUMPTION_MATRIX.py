@@ -638,12 +638,6 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                         
                         extraction_prompt = """
                         Analyze ALL the attached technical pack images page by page.
-                        1. Locate the genuine 'Style ID' / 'Style Number' / 'Mã hàng'. Clean it.
-                        2. Identify the Product Line 'Category' (e.g., Pants, Jeans, Jacket, Blouses).
-                        3. Identify the 'Fabric Code' / 'Mã vải' / 'Thành phần vải'.
-                        4. Extract all points of measurement (POM) and their specifications into a strict key-value flat dictionary.
-                        5. CRITICAL VISION TASK: Identify the exact 'PAGE INDEX' (starting from 0) that contains the main technical sketch drawing.
-                        
                         Return a valid JSON with this exact schema:
                         {"detected_style_id": "Pure code only", "category": "Pants or Jacket", "fabric_code": "Pure fabric code", "measurements": {"Vị trí đo": "Thông số"}, "sketch_page_index_detected": 0}
                         """
@@ -701,6 +695,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
 
                     if has_file and target_new_sketch_bytes:
                         st.image(target_new_sketch_bytes, caption=f"🖼️ Bản vẽ phẳng công nghệ trích xuất từ FILE MỚI UPLOAD ({new_style_id_detected})", use_container_width=True)
+
 # =============================================================================
 # ĐOẠN 2 - PHẦN A: BẢN THÔNG MẠCH TUYỆT ĐỐI KHÔNG PHÂN BIỆT HOA THƯỜNG CHO KHO
 # =============================================================================
@@ -735,17 +730,16 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                         except Exception as e:
                             st.warning(f"Lỗi kết nối bảng thong_so_techpack: {e}")
 
+
 # =============================================================================
-# ĐOẠN 3: XỬ LÝ TRÍCH XUẤT HÌNH ẢNH SKETCH, ĐỐI SOÁT VÀ TÍNH ĐỊNH MỨC VẢI TƯƠNG ĐỒNG
+# ĐOẠN 3: HIỂN THỊ TRỰC TIẾP HÌNH ẢNH SKETCH VÀ DỮ LIỆU ĐỐI SOÁT
 # =============================================================================
-                    st.markdown("### 📊 Kết quả phân tích đối soát dữ liệu và sơ đồ định mức")
-                    
                     db_sketch_url = None
                     db_measurements_raw = {}
                     current_style_name = ""
                     SUPABASE_PROJECT_URL = "https://supabase.co" 
                     
-                    # SỬA LỖI CỐT LÕI: Kiểm tra và bóc tách phần tử đầu tiên nếu là Danh sách (List)
+                    # 1. Xử lý bóc tách và hiển thị hình ảnh Sketch từ kho dữ liệu
                     if techpack_records and len(techpack_records) > 0:
                         first_record = techpack_records[0] if isinstance(techpack_records, list) else techpack_records
                         if isinstance(first_record, dict):
@@ -753,23 +747,20 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                             db_sketch_url = first_record.get("SketchURL")
                             db_measurements_raw = first_record.get("DetailedMeasurements", {})
                         
-                        # Hiển thị hình ảnh Sketch tự động bằng URL DB nếu hợp lệ
                         if db_sketch_url and str(db_sketch_url).startswith("http"):
-                            st.image(db_sketch_url, caption=f"🖼️ Bản vẽ phẳng (Sketch) mã hàng '{current_style_name}' từ URL Database", use_container_width=True)
-                        # Dự phòng: Tự dựng liên kết ảnh trực tiếp từ Storage dựa trên StyleName thực tế
+                            st.image(db_sketch_url, caption=f"🖼️ Ảnh Sketch mã hàng: {current_style_name}", use_container_width=True)
                         elif current_style_name:
                             constructed_url = f"{SUPABASE_PROJECT_URL}/storage/v1/object/public/kho_anh/{current_style_name}.jpg"
-                            st.image(constructed_url, caption=f"🖼️ Bản vẽ phẳng (Sketch) mã hàng '{current_style_name}' từ kho ảnh Storage", use_container_width=True)
+                            st.image(constructed_url, caption=f"🖼️ Ảnh Sketch mã hàng: {current_style_name}", use_container_width=True)
                     else:
-                        # Tìm kiếm trực tiếp trong kho ảnh theo từ khóa người dùng nhập vào ô tìm kiếm
                         if dynamic_keyword and dynamic_keyword != "UNKNOWN":
                             constructed_url = f"{SUPABASE_PROJECT_URL}/storage/v1/object/public/kho_anh/{dynamic_keyword}.jpg"
-                            st.image(constructed_url, caption=f"🖼️ Bản vẽ phẳng (Sketch) tìm nhanh theo từ khóa: {dynamic_keyword}", use_container_width=True)
+                            st.image(constructed_url, caption=f"🖼️ Ảnh Sketch tìm theo từ khóa: {dynamic_keyword}", use_container_width=True)
 
-                    # Giao diện hiển thị bảng đối soát 2 luồng thông tin song song
+                    # 2. Hiển thị bảng kết quả dữ liệu tìm thấy
                     col1, col2 = st.columns(2)
                     with col1:
-                        st.write("**📋 Thông tin định mức vải (Bảng san_pham):**")
+                        st.markdown("**📋 Thông tin định mức vải (Bảng san_pham):**")
                         if fabric_records:
                             formatted_fabric = [{
                                 "Mã hàng": r.get("style_name"),
@@ -779,46 +770,16 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                                 "Đơn vị": r.get("uom")
                             } for r in fabric_records]
                             st.dataframe(formatted_fabric)
+                            st.session_state["chat_history"].append({"role": "assistant", "type": "text", "content": f"Đã hiển thị bảng định mức vải cho từ khóa {dynamic_keyword}."})
                         else:
                             st.info("Không có dữ liệu vải lịch sử trùng khớp.")
                             
                     with col2:
-                        st.write("**📏 Thông số hình học gốc (Bảng thong_so_techpack):**")
-                        if techpack_records:
+                        st.markdown("**📏 Thông số hình học gốc (Bảng thong_so_techpack):**")
+                        if techpack_records and db_measurements_raw:
                             st.json(db_measurements_raw)
                         else:
                             st.info("Không tìm thấy thông số kỹ thuật tương ứng.")
-
-                    # Lệnh gọi AI giải quyết bài toán định mức và so khớp rập
-                    consumption_prompt = f"""
-                    You are an expert Apparel Costing & Pattern Engineer. 
-                    Analyze the geometric technical specifications and history to solve the fabric consumption and similarity.
-                    
-                    [UPLOADED PACK DATA]
-                    - Detected Style Name: {new_style_id_detected}
-                    - Detected Category: {new_style_category_detected}
-                    - New Style Measurements Specs: {new_style_raw_text}
-                    
-                    [HISTORICAL DATABASE CONTEXT]
-                    - Matching Fabric Consumption Records (san_pham): {json.dumps(fabric_records, ensure_ascii=False)}
-                    - Matching Technical Specs & Component (thong_so_techpack): {json.dumps(techpack_records, ensure_ascii=False)}
-                    
-                    [CRITICAL TASKS]
-                    1. CHỨC NĂNG TÌM MÃ HÀNG TƯƠNG ĐỒNG: Compare the 'New Style Measurements' with the 'Historical Technical Specs' (`DetailedMeasurements`). Identify if they share similar fit, patterns or graded dimensions. Evaluate the similarity percentage based on points of measurement (POM).
-                    2. TÍNH ĐỊNH MỨC VẢI: Based on the measurements and the standard fabric width (`material_size`, e.g., 55INCH) or unit (`uom`, e.g., YRD) found in the database, calculate the precise consumption per garment. Include standard 5% cutting wastage to present Net and Gross Yield.
-                    3. Output your comprehensive analysis completely in Vietnamese. Use markdown headers and bullet points for high scannability.
-                    """
-                    
-                    with st.spinner("AI R&D đang chạy mô hình đối soát cấu trúc rập và lập sơ đồ định mức..."):
-                        final_payload = list(img_payload) if has_file else []
-                        final_payload.append(consumption_prompt)
-                        
-                        analysis_res = client.models.generate_content(
-                            model='gemini-2.5-flash', 
-                            contents=final_payload,
-                        )
-                        st.markdown(analysis_res.text)
-                        st.session_state["chat_history"].append({"role": "assistant", "type": "text", "content": analysis_res.text})
-                        
+                            
                 except Exception as master_err:
                     st.error(f"Hệ thống lõi gặp lỗi trong quá trình xử lý: {str(master_err)}")
