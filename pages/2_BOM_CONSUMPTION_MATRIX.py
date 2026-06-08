@@ -705,16 +705,31 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                             else:
                                 target_new_sketch_bytes = file_bytes
                                 
-                            # ⚡ TIẾN HÀNH SỐ HÓA ẢNH PHÁC THẢO MỚI THÀNH VECTOR ĐỂ ĐỐI SOÁT TOÁN HỌC
-                            if target_new_sketch_bytes:
+                                                   # ⚡ TIẾN HÀNH SỐ HÓA ẢNH PHÁC THẢO MỚI THÀNH VECTOR ĐỂ ĐỐI SOÁT TOÁN HỌC
+                        if target_new_sketch_bytes:
+                            try:
+                                # SỬA LỖI: Bọc Part vào trong types.Content(parts=[...]) để SDK 2.0 chấp nhận
+                                image_content = types.Content(
+                                    parts=[
+                                        types.Part.from_bytes(
+                                            data=target_new_sketch_bytes, 
+                                            mime_type='image/jpeg'
+                                        )
+                                    ]
+                                )
+                                
                                 embedding_res = client.models.embed_content(
                                     model='multimodal-embedding-001',
-                                    contents=types.Part.from_bytes(data=target_new_sketch_bytes, mime_type='image/jpeg')
+                                    contents=image_content
                                 )
+                                
                                 if hasattr(embedding_res, 'embedding') and embedding_res.embedding:
                                     target_new_sketch_vector = embedding_res.embedding.values
-                        except Exception:
-                            pass
+                            except Exception as embed_err:
+                                # Ghi nhận log nội bộ để không làm treo giao diện người dùng
+                                print(f"[EMBEDDING ERROR]: {str(embed_err)}")
+                                target_new_sketch_vector = None
+
                     
                     # PHÂN TÍCH TỪ KHÓA TỪ TIN NHẮN CHAT CỦA NGƯỜI DÙNG
                     clean_text_upper = str(user_query).strip().upper()
