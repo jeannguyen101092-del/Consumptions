@@ -621,33 +621,23 @@ try:
 except ImportError:
     pass
 
-# 1. Đảm bảo lịch sử chat luôn tồn tại để không bị lỗi crash giao diện
+# ĐẢM BẢO KHỞI TẠO LỊCH SỬ CHAT TRƯỚC KHI SỬ DỤNG
 if "chat_history" not in st.session_state:
     st.session_state["chat_history"] = []
 
-# 2. Tiếp nhận câu lệnh nhập vào từ người dùng
 if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vải và đối soát sai lệch..."):
     st.session_state["chat_history"].append({"role": "user", "type": "text", "content": user_query})
-    
-    # Hiển thị câu hỏi của user lên màn hình
     with st.chat_message("user"): 
         st.write(user_query)
     
-    # Mở khung chat của Assistant và hiển thị hiệu ứng quay spinner chờ đợi
     with st.chat_message("assistant"):
         with st.spinner("Hệ thống AI R&D Engine đang kết nối kho tri thức nền dệt may..."):
-            
-            # Lấy token bảo mật (Đảm bảo bạn đã khai báo hàm get_secure_gemini_key ở trên)
             gemini_key = get_secure_gemini_key()
-            
             if not gemini_key: 
                 st.error("CRITICAL SERVER BREAKDOWN: AI API Token is missing.")
             else:
                 try:
-                    # Khởi tạo kết nối AI Client
                     client = genai.Client(api_key=gemini_key)
-                    
-                    # Khai báo trước toàn bộ các biến chứa dữ liệu để tránh lỗi văng biến (NameError)
                     new_style_id_detected = "UNKNOWN_STYLE"
                     new_style_raw_text = ""
                     new_style_category_detected = ""
@@ -656,22 +646,92 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     img_payload = [] 
                     target_new_sketch_bytes = None 
                     
-                    # --- ĐOẠN 1 KẾT THÚC TẠI ĐÂY ---
-                    # Toàn bộ logic đọc file (Đoạn 2) và logic tìm kiếm (Đoạn 3) 
-                    # sẽ được viết nối tiếp ngay bên dưới dòng này, nằm trong khối try...
+                    # SỬA LẠI: Lấy file an toàn từ session_state độc lập với luồng chat
+                    chat_file = st.session_state.get('uploaded_file', None)
+                    has_file = chat_file is not None
+                        
+                    if has_file:
+                        file_bytes = chat_file.getvalue()
+                        if chat_file.name.lower().endswith('.pdf'):
+                            try:
+                                info_chat = pdfinfo_from_bytes(file_bytes)
+                                total_chat_pages = int(info_chat.get("Pages", 1))
+                                chat_images = convert_from_bytes(file_bytes, dpi=110, first_page=1, last_page=total_chat_pages)
+                                for idx, page_img in enumerate(chat_images):
+                                    img_buf = io.BytesIO()
+                                    page_img.convert("RGB").save(img_buf, format="JPEG", quality=85)
+                                    img_payload.append(types.Part.from_bytes(data=img_buf.getvalue(), mime_type='image/jpeg'))
+                            except Exception as e_pdf:
+                                st.warning(f"Lỗi chuyển đổi PDF: {str(e_pdf)}")
+                        else:
+                            img_payload.append(types.Part.from_bytes(data=file_bytes, mime_type='image/jpeg'))
+                        
+                        extraction_prompt = """
+                        Analyze ALL the attached technical pack images page by page.
+                        1. Locate the genuine 'Style ID' / 'Style Number' / 'Mã hàng'. Clean it.
+                        2. Identify the Product Line 'Category' (e.g., Pants, Jeans, Jacket).
+                        3. Extract all points of measurement (POM) into a strict key-value flat dictionary.
+                        4. Find the exact 'PAGE INDEX' (starting from 0) that contains the TECHNICAL BLACK AND WHITE FLAT SKETCH.
+                        
+                        Return a valid JSON with this exact schema:
+                        {"detected_style_id": "Pure code only", "category": "Pants or Jacket", "fabric_code": "Pure fabric code", "measurements": {"Vị trí đo": "Thông số"}, "sketch_page_index_detected": 0}
+                        """
+                        extraction_payload = list(img_payload)
+                        extraction_payload.append(extraction_prompt)
+                        
+                        try:
+                            extraction_res = client.models.generate_content(
+                                model='gemini-2.5-flash', 
+                                contents=extraction_payload, 
+                                config=types.GenerateContentConfig(response_mime_type="application/json", temperature=0.0)
+                            )
+                            parsed_meta = json.loads(extraction_res.text.strip())
+                            new_style_id_detected = parsed_meta.get("detected_style_id", "UNKNOWN_STYLE").strip()
+                            new_style_category_detected = parsed_meta.get("category", "").strip()
+                            new_style_fabric_detected = parsed_meta.get("fabric_code", "UNKNOWN_FABRIC").strip()
+                            new_style_measurements_dict = parsed_meta.get("measurements", {})
+                            new_style_raw_text = json.dumps(new_style_measurements_dict, ensure_ascii=False)
+                            
+                            detected_idx = int(parsed_meta.get("sketch_page_index_detected", 0))
+                            if chat_file.name.lower().endswith('.pdf') and 0 <= detected_idx < len(chat_images):
+                                b_buf = io.BytesIO()
+                                chat_images[detected_idx].convert("RGB").save(b_buf, format="JPEG")
+                                target_new_sketch_bytes = b_buf.getvalue()
+                            else:
+                                target_new_sketch_bytes = file_bytes
+                        except Exception as inner_e:
+                            st.warning(f"Bỏ qua phân tích cấu trúc rập từ file: {str(inner_e)}")
                     
-                except Exception as err_init:
-                    st.error(f"Lỗi khởi tạo hệ thống tại Đoạn 1: {str(err_init)}")
+                    clean_text_upper = str(user_query).strip().upper()
+                    is_searching_fabric = any(word in clean_text_upper for word in ["CODE VẢI", "CODE VAI", "MÃ VẢI", "MA VAI", "LOẠI VẢI", "LOAI VAI", "TÌM VẢI", "TIM VAI"])
+                    
+                    codes_found = re.findall(r'\b[A-Z]*\d+[A-Z0-9]*\b|\b[A-Z0-9]+-\d+[A-Z0-9-]*\b', clean_text_upper)
+                    
+                    if codes_found and len(codes_found) > 0:
+                        dynamic_keyword = str(codes_found[0]).strip()
+                    else:
+                        pattern_remove = r"\b(TÌM|TIM|KIỂM TRA|KIEM TRA|XEM|CHECK|CHO TOI|XIN|MÃ HÀNG|MA HANG|MÃ|MA|VẢI|VAI|ĐỊNH MỨC|DINH MUC|CODE|TRÍCH XUẤT|TRICH XUAT|HÌNH ẢNH|HINH ANH|HÌNH|HINH|ẢNH|ANH|TÍNH|TINH|THÔNG TIN|THONG TIN|NÀY|NAY|TƯƠNG ĐỒNG|TUONG DONG|VỚI|KHO|KIẾM|VOI|TRONG)\b"
+                        dynamic_keyword = re.sub(pattern_remove, "", clean_text_upper).strip()
+                    
+                    if has_file:
+                        if is_searching_fabric and new_style_fabric_detected != "UNKNOWN_FABRIC":
+                            dynamic_keyword = str(new_style_fabric_detected).strip()
+                        elif new_style_id_detected != "UNKNOWN_STYLE":
+                            dynamic_keyword = str(new_style_id_detected).strip()
+                    
+                    dynamic_keyword = re.sub(r"[\[\]'\"*?%#&]", "", dynamic_keyword).strip()
+                    
+                    if not dynamic_keyword or dynamic_keyword in ["VỚI", "KHO", "TRONG", "UNKNOWN"] or len(dynamic_keyword) < 3:
+                        if new_style_id_detected != "UNKNOWN_STYLE":
+                            dynamic_keyword = str(new_style_id_detected).strip()
+                        else:
+                            dynamic_keyword = "UNKNOWN"
 
 
 
 
-# =============================================================================
-# ĐOẠN 2 - PHẦN A: ĐỐI SOÁT VECTOR EMBEDDINGS HOÀN TOÀN BẰNG PYTHON BẮT TRÚNG MÃ
-# =============================================================================
                     import numpy as np
                     
-                    # Đảm bảo SB_URL và SB_KEY đã được định nghĩa ở cấu hình hệ thống toàn cục
                     base_sb_url = SB_URL.rstrip('/')
                     headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
 
@@ -683,12 +743,11 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     if is_similarity_requested:
                         short_keyword = dynamic_keyword.strip().upper()
                         
-                        # ✨ ĐÃ SỬA CÚ PHÁP: Đồng bộ hóa sang toán tử dấu sao (*) diện rộng chuẩn PostgREST
                         check_url = f"{base_sb_url}/rest/v1/thong_so_techpack?StyleName=ilike.*{quote(short_keyword)}*&select=StyleName"
                         has_in_techpack = False
                         try:
                             res_check = requests.get(check_url, headers=headers, timeout=5)
-                            if res_check.status_code in [200, 201] and len(res_check.json()) > 0:
+                            if res_check.status_code == 200 and len(res_check.json()) > 0:
                                 has_in_techpack = True
                         except Exception:
                             has_in_techpack = False
@@ -699,7 +758,6 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                             with st.spinner("⚡ AI đang số hóa hình học phẳng và chạy thuật toán so khớp thị giác Vector..."):
                                 query_vector = None
                                 try:
-                                    # Sử dụng chuỗi số văn bản cốt lõi tối ưu gửi qua embedding để tránh treo nghẽn kết nối
                                     numbers_in_kw = re.findall(r'\d+', short_keyword)
                                     embed_text = max(numbers_in_kw, key=len) if numbers_in_kw else short_keyword
                                     
@@ -707,12 +765,11 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                                         model='text-embedding-004',
                                         contents=embed_text
                                     )
-                                    # ✨ ĐÃ SỬA: Sửa từ .embeddings.values thành .embedding.values (SDK genai mới dạng đơn lẻ)
+                                    # SỬA LẠI: Tương thích cấu trúc phản hồi đơn và danh sách của SDK mới
                                     if hasattr(embedding_res, 'embedding'):
                                         query_vector = np.array(embedding_res.embedding.values).flatten()
                                     elif hasattr(embedding_res, 'embeddings'):
-                                        query_vector = np.array(embedding_res.embeddings[0].values).flatten()
-                                        
+                                        query_vector = np.array(embedding_res.embeddings.values).flatten()
                                 except Exception as err_embed:
                                     st.warning(f"Bỏ qua trích xuất vector do API quá tải: {str(err_embed)}")
                                     query_vector = None
@@ -730,17 +787,14 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                                         v_str = row.get("sketch_vector")
                                         if v_str:
                                             try:
-                                                # ✨ ĐÃ SỬA: Ép phẳng mảng phẳng (.flatten()) để tránh lệch chiều ma trận khi nhân vô hướng
+                                                # SỬA LẠI: Ép phẳng mảng số float để đồng bộ hóa số chiều của mảng NumPy
                                                 db_vector = np.array(json.loads(v_str)).flatten()
-                                                
                                                 dot_product = np.dot(query_vector, db_vector)
                                                 norm_query = np.linalg.norm(query_vector)
                                                 norm_db = np.linalg.norm(db_vector)
                                                 
-                                                # ✨ ĐÃ SỬA: Chặn lỗi chia cho 0 (ZeroDivisionError) nếu vector rỗng
                                                 if norm_query > 0 and norm_db > 0:
                                                     similarity = dot_product / (norm_query * norm_db)
-                                                    
                                                     if similarity > best_similarity and similarity >= 0.70:
                                                         best_similarity = similarity
                                                         matched_style_name = row.get("StyleName")
@@ -749,7 +803,6 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
 
                         final_search_key = matched_style_name if (matched_style_name and matched_style_name != "null") else short_keyword
 
-                        # Thiết lập endpoint liên kết theo toán tử tìm kiếm mờ chuẩn PostgREST (*)
                         url_san_pham = f"{base_sb_url}/rest/v1/san_pham?or=(style_name.ilike.*{quote(short_keyword)}*,article_name.ilike.*{quote(short_keyword)}*)&select=*"
                         url_techpack = f"{base_sb_url}/rest/v1/thong_so_techpack?StyleName=ilike.*{quote(final_search_key)}*&select=*"
 
@@ -766,7 +819,6 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                             
                             fabric_records = future_sp.result()
                             techpack_records = future_tp.result()
-
 
 
 # =============================================================================
