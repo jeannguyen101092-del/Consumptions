@@ -712,7 +712,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
 
 
 # =============================================================================
-# ĐOẠN 2 - PHẦN A: TRUY VẤN TRỰC TIẾP STORAGE BUCKET TÌM MÃ ẢNH TƯƠNG ĐỒNG CHUẨN
+# ĐOẠN 2 - PHẦN A: ĐỒNG BỘ CÚ PHÁP POSTGREST (%) ĐỂ TRUY VẤN SONG SONG ĐA BẢNG
 # =============================================================================
                     base_sb_url = SB_URL.rstrip('/')
                     headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
@@ -726,8 +726,8 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     if is_similarity_requested:
                         short_keyword = dynamic_keyword.strip().upper()
                         
-                        # 1. KIỂM TRA THỬ XEM MÃ NÀY ĐA CÓ SẴN TRONG BẢNG THÔNG SỐ CHƯA
-                        check_url = f"{base_sb_url}/rest/v1/thong_so_techpack?StyleName=eq.{quote(short_keyword)}&select=StyleName"
+                        # BƯỚC 1: KIỂM TRA THỬ XEM MÃ NÀY ĐÃ CÓ SẴN TRONG BẢNG THÔNG SỐ CHƯA (Sửa sang toán tử %)
+                        check_url = f"{base_sb_url}/rest/v1/thong_so_techpack?StyleName=ilike.%{quote(short_keyword)}%&select=StyleName"
                         has_in_techpack = False
                         try:
                             res_check = requests.get(check_url, headers=headers, timeout=3)
@@ -736,12 +736,11 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                         except Exception:
                             has_in_techpack = False
 
-                        # 2. RẼ NHÁNH XỬ LÝ THEO THỰC TẾ
+                        # BƯỚC 2: RẼ NHÁNH XỬ LÝ THEO THỰC TẾ TRONG KHO
                         if has_in_techpack:
                             matched_style_name = short_keyword
                         elif has_file and target_new_sketch_bytes:
-                            # MÃ MỚI TINH -> GỌI API LẤY TRỰC TIẾP TOÀN BỘ FILE ẢNH TRONG STORAGE BUCKET KHO_ANH
-                            with st.spinner("🔍 Hệ thống đang kết nối trực tiếp kho ảnh Storage Bucket để đối chiếu kiểu dáng..."):
+                            with st.spinner("🔍 Mã mới. AI đang truy cập Storage Bucket 'kho_anh' để đối chiếu thị giác..."):
                                 storage_endpoint = f"{base_sb_url}/storage/v1/object/list/kho_anh"
                                 storage_payload = {
                                     "prefix": "",
@@ -761,7 +760,6 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                                         for file_obj in res_storage.json():
                                             f_name = file_obj.get("name", "")
                                             if f_name.lower().endswith(('.jpg', '.jpeg', '.png')):
-                                                # VÁ LỖI CỐT LÕI: Thêm chỉ mục [0] để lấy chuỗi text tên mã sạch (Ví dụ: "1P001363")
                                                 style_code = f_name.rsplit('.', 1)[0].strip()
                                                 public_url = f"{SUPABASE_PROJECT_URL}/storage/v1/object/public/kho_anh/{f_name}"
                                                 warehouse_list.append({"StyleName": style_code, "SketchURL": public_url})
@@ -770,19 +768,10 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                                 except Exception:
                                     warehouse_list = []
 
-                                # Giao cho Vision AI đối chiếu thị giác ảnh mới bóc tách với danh mục link ảnh thật trong kho
                                 if warehouse_list:
                                     vision_payload = [
                                         types.Part.from_bytes(data=target_new_sketch_bytes, mime_type='image/jpeg'),
-                                        f"""
-                                        You are an expert Apparel Pattern Matcher. Analyze the attached newly uploaded black and white technical sketch line art.
-                                        Compare its structural geometry with the registered style names and live image URLs fetched from our storage bucket:
-                                        Warehouse entries: {json.dumps(warehouse_list, ensure_ascii=False)}
-                                        
-                                        Task: Select the single most visually similar 'StyleName' from the list that shares the closest fit blueprint.
-                                        Return a strict valid JSON response with this exact schema:
-                                        {{"most_similar_style": "Exact StyleName from the list"}}
-                                        """
+                                        f"Compare structural geometry with warehouse entries: {json.dumps(warehouse_list, ensure_ascii=False)}. Select the single most visually similar 'StyleName'. Return JSON: {{\"most_similar_style\": \"StyleName\"}}"
                                     ]
                                     try:
                                         v_res = client.models.generate_content(
@@ -795,12 +784,13 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                                     except Exception:
                                         matched_style_name = None
 
-                        # Khóa từ khóa tìm kiếm cuối cùng dựa trên kết quả phân tích thị giác của AI
+                        # Chốt từ khóa tìm kiếm cuối cùng dựa trên kết quả phân tích thị giác của AI
                         final_search_key = matched_style_name if matched_style_name else short_keyword
 
-                        # 3. TRUY VẤN SONG SONG ĐA BẢNG ĐỒNG THỜI THEO MÃ TƯƠNG ĐỒNG CHUẨN XÁC VỪA TÌM ĐƯỢC
-                        url_san_pham = f"{base_sb_url}/rest/v1/san_pham?or=(style_name.ilike.*{quote(short_keyword)}*,article_name.ilike.*{quote(short_keyword)}*)&select=*"
-                        url_techpack = f"{base_sb_url}/rest/v1/thong_so_techpack?StyleName=ilike.*{quote(final_search_key)}*&select=*"
+                        # BƯỚC 3: TRUY VẤN SONG SÔNG ĐỒNG BỘ CÚ PHÁP CHUẨN POSTGREST (%)
+                        # Đổi toán tử từ dạng .* sang dạng .% cho cả bảng sản phẩm và techpack
+                        url_san_pham = f"{base_sb_url}/rest/v1/san_pham?or=(style_name.ilike.%{quote(short_keyword)}%,article_name.ilike.%{quote(short_keyword)}%)&select=*"
+                        url_techpack = f"{base_sb_url}/rest/v1/thong_so_techpack?StyleName=ilike.%{quote(final_search_key)}%&select=*"
 
                         def fetch_url(url):
                             try:
