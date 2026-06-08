@@ -697,7 +697,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
 
 
 # =============================================================================
-# ĐOẠN 2 - PHẦN A: THUẬT TOÁN QUÉT MÀNG LỌC MA TRẬN TƯƠNG ĐỒNG THEO CHỦNG LOẠI
+# ĐOẠN 2 - PHẦN A: BỘ LỌC TỰ ĐỘNG SỬA LỖI FONT CHỮ HOA/THƯỜNG CHO CATEGORY
 # =============================================================================
                     # Hệ thống tự động kiểm tra xem câu lệnh có yêu cầu so sánh mã tương đồng hoặc tính định mức hay không
                     is_similarity_requested = any(word in clean_text_upper for word in ["TƯƠNG ĐỒNG", "TUONG DONG", "GIỐNG", "GIONG", "SO SÁNH", "SO SANH", "ĐỊNH MỨC", "DINH MUC"])
@@ -712,25 +712,34 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                         similar_techpacks = get_techpack_spec_from_db(style_name_keyword=similarity_keyword)
                         
                         # Bước B: Thuật toán dự phòng nâng cao (Fallback ma trận chủng loại)
-                        # Nếu tìm theo mã chữ trả về rỗng (như mã 1P001452), tự động bốc Category (Quần/Áo) của mã đó ra quét kho
                         detected_cat = ""
-                        if db_results and len(db_results) > 0:
-                            detected_cat = db_results[0].get("Category", "") if isinstance(db_results, list) else db_results.get("Category", "")
+                        if db_results:
+                            # Đảm bảo bóc tách an toàn dù db_results trả về dạng List hay Dict
+                            first_item = db_results[0] if isinstance(db_results, list) and len(db_results) > 0 else db_results
+                            if isinstance(first_item, dict):
+                                detected_cat = first_item.get("Category", "")
                         
+                        # CẢI TIẾN QUYẾT ĐỊNH: Nếu tìm theo mã hàng rỗng, tự động bẻ chữ lọc Category dạng viết thường không phân biệt hoa thường
                         if (not similar_techpacks or len(similar_techpacks) <= 0) and detected_cat:
+                            # Trích xuất từ khóa lõi viết thường (Ví dụ: "Quần Jean nam" -> nhặt từ "Quần" hoặc "Jean")
+                            cat_words = re.findall(r'\w+', str(detected_cat).lower())
+                            core_cat_keyword = cat_words[0] if cat_words else str(detected_cat).lower()
+                            
                             url_cat_backup = f"{base_sb_url}/rest/v1/thong_so_techpack"
                             params_cat = {
-                                "Category": f"ilike.*{quote(detected_cat)}*",
+                                "Category": f"ilike.*{quote(core_cat_keyword)}*",
                                 "select": "StyleName,Category,DetailedMeasurements,SketchURL",
                                 "limit": "4"
                             }
                             res_cat_backup = requests.get(url_cat_backup, headers=headers, params=params_cat, timeout=15)
                             similar_techpacks = res_cat_backup.json() if 200 <= res_cat_backup.status_code <= 299 else []
 
-                        # Lấy định mức phụ thuộc của nhóm tương đồng này từ bảng san_pham lịch sử của bạn
+                        # Gọi lịch sử định mức phụ thuộc vật tư từ bảng san_pham
                         similar_sp_data = get_historical_fabric_consumption_from_db(search_keyword=similarity_keyword)
                         if not similar_sp_data and detected_cat:
-                            similar_sp_data = get_historical_fabric_consumption_from_db(search_keyword=detected_cat)
+                            cat_words = re.findall(r'\w+', str(detected_cat).lower())
+                            core_cat_keyword = cat_words[0] if cat_words else str(detected_cat).lower()
+                            similar_sp_data = get_historical_fabric_consumption_from_db(search_keyword=core_cat_keyword)
 
                         # LUỒNG MULTIMODAL: Tải ngầm file ảnh từ kho về chuyển sang dạng nhị phân nạp vào mắt thần AI
                         for tp in similar_techpacks[:4]:
@@ -756,6 +765,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                                 "measurements": tp.get("DetailedMeasurements"),
                                 "bom_data": match_sp if match_sp else []
                             })
+
 # =============================================================================
 # ĐOẠN 2 - PHẦN B: ĐÓNG GÓI NGỮ CẢNH VÀ CHUYỂN GIAO MẮT THẦN AI XỬ LÝ TOÁN HỌC
 # =============================================================================
