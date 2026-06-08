@@ -583,78 +583,89 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
     dynamic_keyword = re.sub(r"[\[\]'\"*?%#&]", "", dynamic_keyword).strip()
     return dynamic_keyword if dynamic_keyword else "UNKNOWN"
 
-# =============================================================================
-# PHASE 6B - PART 1: INDEPENDENT DATASTREAM & MULTI-INTENT PROCESSING PIPELINE
-# =============================================================================
-if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vải và đối soát sai lệch..."):
-    st.session_state["chat_history"].append({"role": "user", "type": "text", "content": user_query})
-    with st.chat_message("user"): 
-        st.write(user_query)
-    
-    with st.chat_message("assistant"):
-        with st.spinner("Hệ thống AI R&D Engine đang kết nối kho tri thức nền dệt may..."):
-            gemini_key = get_secure_gemini_key()
-            if not gemini_key: 
-                ans = "CRITICAL SERVER BREAKDOWN: AI API Token is missing."
-            else:
-                try:
-                    client = genai.Client(api_key=gemini_key)
-                    contents_payload = []
-                    new_style_id_detected = "UNKNOWN_STYLE"
-                    new_style_raw_text = ""
-                    
-                    if chat_file:
-                        file_bytes = chat_file.getvalue()
-                        img_payload = []
-                        if chat_file.name.lower().endswith('.pdf'):
-                            try:
-                                info_chat = pdfinfo_from_bytes(file_bytes)
-                                total_chat_pages = int(info_chat.get("Pages", 1))
-                                max_pages_to_scan = min(total_chat_pages, 3)
-                                chat_images = convert_from_bytes(file_bytes, dpi=100, first_page=1, last_page=max_pages_to_scan)
-                                for page_img in chat_images:
-                                    img_buf = io.BytesIO()
-                                    page_img.convert("RGB").save(img_buf, format="JPEG", quality=85)
-                                    img_payload.append(types.Part.from_bytes(data=img_buf.getvalue(), mime_type='image/jpeg'))
-                            except Exception as pdf_err:
-                                st.warning("Không thể tự động phân tách trang PDF. Đang quét text...")
-                        else:
-                            img_payload.append(types.Part.from_bytes(data=file_bytes, mime_type='image/jpeg'))
+    # PHASE 6B - PART 1: INDEPENDENT DATASTREAM & MULTI-INTENT PROCESSING PIPELINE
+    # =============================================================================
+    # PHASE 6B - PART 1: AUTO-REPAIR INTENT & DOUBLE-CHECKED KEYWORD PIPELINE
+    # =============================================================================
+    if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vải và đối soát sai lệch..."):
+        st.session_state["chat_history"].append({"role": "user", "type": "text", "content": user_query})
+        with st.chat_message("user"): 
+            st.write(user_query)
+        
+        with st.chat_message("assistant"):
+            with st.spinner("Hệ thống AI R&D Engine đang kết nối kho tri thức nền dệt may..."):
+                gemini_key = get_secure_gemini_key()
+                if not gemini_key: 
+                    ans = "CRITICAL SERVER BREAKDOWN: AI API Token is missing."
+                else:
+                    try:
+                        client = genai.Client(api_key=gemini_key)
+                        contents_payload = []
+                        new_style_id_detected = "UNKNOWN_STYLE"
+                        new_style_raw_text = ""
                         
-                        if img_payload:
-                            extraction_prompt = """
-                            Analyze the attached technical pack images.
-                            1. Locate the genuine 'Style ID' / 'Style Number' / 'Mã hàng'.
-                            2. Extract ALL specification charts and Bill of Materials (BOM) fields.
-                            Return JSON: {"detected_style_id": "Pure code only", "all_specs_text": "Complete specs text"}
-                            """
-                            extraction_payload = list(img_payload)
-                            extraction_payload.append(extraction_prompt)
-                            for ext_attempt in range(2):
+                        # LUỒNG A: NẾU KỸ SƯ CÓ TẢI FILE TECHPACK LÊN - KÍCH HOẠT QUÉT ĐA TRANG
+                        if chat_file:
+                            file_bytes = chat_file.getvalue()
+                            img_payload = []
+                            if chat_file.name.lower().endswith('.pdf'):
                                 try:
-                                    extraction_res = client.models.generate_content(model='gemini-2.5-flash', contents=extraction_payload, config=types.GenerateContentConfig(response_mime_type="application/json", temperature=0.0))
-                                    parsed_meta = json.loads(extraction_res.text.strip())
-                                    new_style_id_detected = parsed_meta.get("detected_style_id", "UNKNOWN_STYLE").strip()
-                                    new_style_raw_text = parsed_meta.get("all_specs_text", "")
-                                    break
-                                except Exception:
-                                    import time
-                                    time.sleep(1)
-                        # =============================================================================
-                        # PHẦN 3: GỌI HÀM LÀM SẠCH TỪ KHÓA & TRUY VẤN SONG SONG DATABASE SUPABASE
-                        # =============================================================================
-                        # Gọi hàm làm sạch từ khóa đã khai báo tại Phần 1
-                        dynamic_keyword = extract_clean_keyword(user_query, new_style_id_detected, chat_file)
-
-                        # Đồng bộ kết nối màng lọc dữ liệu API hệ thống
-                        headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
+                                    info_chat = pdfinfo_from_bytes(file_bytes)
+                                    total_chat_pages = int(info_chat.get("Pages", 1))
+                                    max_pages_to_scan = min(total_chat_pages, 3)
+                                    chat_images = convert_from_bytes(file_bytes, dpi=100, first_page=1, last_page=max_pages_to_scan)
+                                    for page_img in chat_images:
+                                        img_buf = io.BytesIO()
+                                        page_img.convert("RGB").save(img_buf, format="JPEG", quality=85)
+                                        img_payload.append(types.Part.from_bytes(data=img_buf.getvalue(), mime_type='image/jpeg'))
+                                except Exception as pdf_err:
+                                    st.warning("Không thể tự động phân tách trang PDF. Đang quét text...")
+                            else:
+                                img_payload.append(types.Part.from_bytes(data=file_bytes, mime_type='image/jpeg'))
+                            
+                            if img_payload:
+                                extraction_prompt = """
+                                Analyze the attached technical pack images.
+                                1. Locate the genuine 'Style ID' / 'Style Number' / 'Mã hàng' (e.g. R09-40976, MR1705). Clean it by removing generic words.
+                                2. Extract ALL specification charts and raw Bill of Materials (BOM) fields.
+                                Return a valid JSON with this exact schema:
+                                {"detected_style_id": "Pure code only, e.g. MR1705", "all_specs_text": "Complete specifications and raw BOM data text"}
+                                """
+                                extraction_payload = list(img_payload)
+                                extraction_payload.append(extraction_prompt)
+                                for ext_attempt in range(2):
+                                    try:
+                                        extraction_res = client.models.generate_content(model='gemini-2.5-flash', contents=extraction_payload, config=types.GenerateContentConfig(response_mime_type="application/json", temperature=0.0))
+                                        parsed_meta = json.loads(extraction_res.text.strip())
+                                        new_style_id_detected = parsed_meta.get("detected_style_id", "UNKNOWN_STYLE").strip()
+                                        new_style_raw_text = parsed_meta.get("all_specs_text", "")
+                                        break
+                                    except Exception:
+                                        import time
+                                        time.sleep(1)
                         
-                        # Truy vấn kho định mức nguyên phụ liệu san_pham
+                        # ✨ THUẬT TOÁN XÁC ĐỊNH TỪ KHÓA TRUY VẤN THÔNG MINH - ĐỒNG BỘ MÃ CHỮ, SỐ VÀ DẤU CÁCH
+                        clean_text_upper = str(user_query).strip().upper()
+                        stop_words = ["TÌM", "CODE", "VẢI", "MÃ", "HÀNG", "ĐỊNH MỨC", "CHO", "KIỂM TRA", "XEM", "THÔNG", "SỐ"]
+                        query_words = clean_text_upper.split()
+                        filtered_words = [w for w in query_words if w not in stop_words]
+                        
+                        raw_keyword = " ".join(filtered_words) if filtered_words else clean_text_upper
+                        if chat_file and new_style_id_detected != "UNKNOWN_STYLE" and not filtered_words:
+                            dynamic_keyword = str(new_style_id_detected).strip()
+                        else:
+                            dynamic_keyword = raw_keyword
+
+                        dynamic_keyword = re.sub(r"[\[\]'\"*?%#&]", "", dynamic_keyword).strip()
+                        if not dynamic_keyword:
+                            dynamic_keyword = "UNKNOWN"
+
+                        # ĐỒNG BỘ TRUY VẤN MÀNG LỌC TRƯỜNG THEO ĐÚNG DATABASE THỰC TẾ TRONG HỆ THỐNG
+                        headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
                         url_san_pham = f"{SB_URL.rstrip('/')}/rest/v1/san_pham?or=(style_name.ilike.*{dynamic_keyword}*,article_name.ilike.*{dynamic_keyword}*,notes.ilike.*{dynamic_keyword}*)&select=style_name,article_name,consumption_type,material_size,uom,consumption_value,notes&limit=1000"
                         res_sp = requests.get(url_san_pham, headers=headers, timeout=5)
                         backup_res = res_sp.json() if 200 <= res_sp.status_code <= 299 else []
                         
-                        # Định vị từ khóa tìm kiếm chéo thông minh cho bảng thong_so_techpack
                         tp_search_keyword = dynamic_keyword
                         if backup_res and not chat_file:
                             for b_item in backup_res:
@@ -662,12 +673,10 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                                     tp_search_keyword = str(b_item.get('style_name')).strip()
                                     break
                         
-                        # Truy vấn kho bảng thông số rập kỹ thuật thong_so_techpack
                         url_techpack = f"{SB_URL.rstrip('/')}/rest/v1/thong_so_techpack?StyleName=ilike.*{tp_search_keyword}*&select=StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL&limit=3"
                         res_tp = requests.get(url_techpack, headers=headers, timeout=5)
                         db_results = res_tp.json() if 200 <= res_tp.status_code <= 299 else []
                         
-                        # Gom cấu trúc dữ liệu nền thực tế
                         db_context = f"\n\n[ KHO DỮ LIỆU TRI THỨC NỀN THỰC TẾ TRONG HỆ THỐNG MASTER DB PHÒNG R&D ]: \n"
                         detected_image_url_to_render = ""
                         detected_style_title_to_render = ""
@@ -682,11 +691,6 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                         else:
                             db_context += f"- Không tìm thấy thông số kỹ thuật trực tiếp cho từ khóa '{tp_search_keyword}' trong bảng thong_so_techpack.\n"
                         
-                        if new_style_raw_text:
-                            db_context += f"\n- DỮ LIỆU THÔ ĐỌC ĐƯỢC TỪ FILE TECHPACK ĐÍNH KÈM:\n{new_style_raw_text}\n"
-                        # =============================================================================
-                        # PHẦN 4: LỌC TOÁN HỌC, TỰ ĐỘNG DỰNG LINK ẢNH STORAGE & GỌI AI ĐỐI SOÁT CUỐI
-                        # =============================================================================
                         if backup_res:
                             exact_matched_items = []
                             for b_item in backup_res:
@@ -705,12 +709,15 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                                     avg_c = sum(values) / len(values)
                                     db_context += f"  => Định mức trung bình tính toán thực tế (Avg Cons): {avg_c:.3f} (Gồm 5% hao hụt sản xuất đề xuất: {avg_c * 1.05:.3f})\n"
 
+                                                if new_style_raw_text:
+                            db_context += f"\n- DỮ LIỆU THÔ ĐỌC ĐƯỢC TỪ FILE TECHPACK ĐÍNH KÈM:\n{new_style_raw_text}\n"
+
                         # Thuật toán tự động liên kết dựng link ảnh trực tiếp từ Storage kho_anh công khai
                         if not detected_image_url_to_render and tp_search_keyword and tp_search_keyword != "UNKNOWN":
                             detected_style_title_to_render = tp_search_keyword
                             detected_image_url_to_render = f"{SB_URL.rstrip('/')}/storage/v1/object/public/kho_anh/{tp_search_keyword}.jpg"
 
-                        # Đóng gói Prompt cô đọng và gửi lệnh xử lý sang Gemini AI
+                        # Đóng gói Prompt cô đọng và gửi lệnh xử lý sang Gemini AI để ép "Hỏi gì đáp nấy"
                         final_prompt = f"""
                         Bạn là một trợ lý AI phòng R&D dệt may. Hãy trả lời TRỰC DIỆN, NGẮN GỌN và CHÍNH XÁC vào câu hỏi.
                         Yêu cầu hiện tại của người dùng: "{user_query}"
@@ -724,9 +731,9 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                         final_res = client.models.generate_content(model='gemini-2.5-flash', contents=[final_prompt])
                         st.markdown(final_res.text)
                         
-                        # Vẽ hình ảnh mẫu Sketch phác thảo kỹ thuật ra màn hình Streamlit Chat
                         if detected_image_url_to_render:
                             st.image(detected_image_url_to_render, caption=f"Hình ảnh Sketch kỹ thuật hệ thống: {detected_style_title_to_render}", use_container_width=True)
                         
                     except Exception as e:
                         st.error(f"Lỗi vận hành hệ thống pipeline dữ liệu: {str(e)}")
+
