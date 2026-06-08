@@ -568,6 +568,7 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
        # =============================================================================
 # =============================================================================
 # =============================================================================
+# =============================================================================
 # ĐOẠN 1: CHUẨN HÓA TỪ KHÓA, TRUY VẤN GỐC & HIỂN THỊ HÌNH ẢNH TRỰC QUAN
 # =============================================================================
 import re
@@ -634,33 +635,35 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                                 import time
                                 time.sleep(2 * (ext_attempt + 1))
                     
-                    # Thuật toán xử lý chuỗi: Khử sạch khẩu lệnh và chữ "CODE" thừa
+                    # Thuật toán xử lý chuỗi: Khử sạch khẩu lệnh và chữ "CODE" thừa ở mọi vị trí
                     clean_text_upper = str(user_query).strip().upper()
-                    pattern_remove = r"^(TÌM|TIM|KIỂM TRA|KIEM TRA|XEM|CHECK|CHO TOI|XIN)\s+(MÃ HÀNG|MA HANG|MÃ|MA|VẢI|VAI|ĐỊNH MỨC|DINH MUC)?\s*"
-                    clean_query = re.sub(pattern_remove, "", clean_text_upper)
-                    clean_query = re.sub(r"\bCODE\s*", "", clean_query).strip()
+                    pattern_remove = r"\b(TÌM|TIM|KIỂM TRA|KIEM TRA|XEM|CHECK|CHO TOI|XIN|MÃ HÀNG|MA HANG|MÃ|MA|VẢI|VAI|ĐỊNH MỨC|DINH MUC|CODE)\b"
+                    clean_query = re.sub(pattern_remove, "", clean_text_upper).strip()
                     
-                    if has_file and new_style_id_detected != "UNKNOWN_STYLE" and not clean_query.strip():
+                    if has_file and new_style_id_detected != "UNKNOWN_STYLE" and not clean_query:
                         dynamic_keyword = str(new_style_id_detected).strip()
                     else:
-                        dynamic_keyword = clean_query.strip()
+                        dynamic_keyword = clean_query
 
+                    # Dọn dẹp ký tự phá hoại đường link URL
                     dynamic_keyword = re.sub(r"[\[\]'\"*?%#&]", "", dynamic_keyword).strip()
                     if not dynamic_keyword:
                         dynamic_keyword = "UNKNOWN"
 
-                    # Gọi API Supabase PostgREST chuẩn hóa (chỉ mã hóa riêng giá trị từ khóa trần)
+                    # THAY ĐỔI CỐT LÕI: Mã hóa URL an toàn, không bọc hàm quote() lên toàn bộ cú pháp của Supabase
                     headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
                     base_sb_url = SB_URL.rstrip('/')
-                    pure_keyword_encoded = quote(f"*{dynamic_keyword}*")
                     
-                    # Truy vấn bảng thông số rập mẫu (thong_so_techpack) - Lấy đầy đủ DetailedMeasurements và SketchURL
-                    url_techpack = f"{base_sb_url}/rest/v1/thong_so_techpack?StyleName=ilike.{pure_keyword_encoded}&select=StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL&limit=3"
+                    # Chỉ mã hóa riêng phần chuỗi text trần, giữ nguyên các ký tự điều kiện của PostgREST
+                    val_encoded = quote(dynamic_keyword)
+                    
+                    # Cú pháp gọi chính xác bảng thong_so_techpack
+                    url_techpack = f"{base_sb_url}/rest/v1/thong_so_techpack?StyleName=ilike.*{val_encoded}*&select=StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL&limit=3"
                     res_tp = requests.get(url_techpack, headers=headers, timeout=15)
                     db_results = res_tp.json() if 200 <= res_tp.status_code <= 299 else []
                     
-                    # Truy vấn bảng vật tư sản phẩm (san_pham)
-                    url_san_pham = f"{base_sb_url}/rest/v1/san_pham?or=(style_name.ilike.{pure_keyword_encoded},article_name.ilike.{pure_keyword_encoded},notes.ilike.{pure_keyword_encoded})&select=style_name,article_name,consumption_type,material_size,uom,consumption_value,notes&limit=50"
+                    # Cú pháp gọi chính xác bảng san_pham
+                    url_san_pham = f"{base_sb_url}/rest/v1/san_pham?or=(style_name.ilike.*{val_encoded}*,article_name.ilike.*{val_encoded}*,notes.ilike.*{val_encoded}*)&select=style_name,article_name,consumption_type,material_size,uom,consumption_value,notes&limit=50"
                     res_sp = requests.get(url_san_pham, headers=headers, timeout=15)
                     backup_res = res_sp.json() if 200 <= res_sp.status_code <= 299 else []
 
@@ -674,6 +677,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     
                     if sketch_url_found:
                         st.image(sketch_url_found, caption=f"Hình ảnh phác thảo thiết kế tìm thấy trong kho cho mã hàng: {dynamic_keyword}", use_container_width=True)
+
 
 # =============================================================================
 # ĐOẠN 2: TỰ ĐỘNG KHỚP ẢNH (.JPG), SO SÁNH THÔNG SỐ & TÍNH ĐỊNH MỨC CHUẨN R&D
