@@ -828,7 +828,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     SUPABASE_PROJECT_URL = "https://supabase.co" 
                     
                     if techpack_records and len(techpack_records) > 0:
-                        # ✨ ĐÃ SỬA: Bóc chuẩn phần tử đầu tiên [0] của List để lấy đúng Dictionary dữ liệu mã hàng
+                        # ✨ ĐÃ SỬA CHUẨN: Lấy đúng phần tử [0] của List để ép về kiểu Dictionary, giải quyết triệt để lỗi treo đứng im
                         first_record = techpack_records[0] if isinstance(techpack_records, list) else techpack_records
                         if isinstance(first_record, dict):
                             current_style_name = first_record.get("StyleName", "")
@@ -857,7 +857,6 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     co_ngang = shrink_ngang.group(1) if shrink_ngang else "0"
                     co_doc = shrink_doc.group(1) if shrink_doc else (shrink_general.group(1) if shrink_general else "0")
 
-                    # Hiển thị tên mã hàng đối soát linh hoạt
                     display_style_heading = current_style_name if current_style_name else (new_style_id_detected if new_style_id_detected != "UNKNOWN_STYLE" else dynamic_keyword)
                     st.markdown(f"### 📊 Kết quả đối soát dữ liệu mã hàng: **{display_style_heading}**")
                     
@@ -879,7 +878,6 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                         else:
                             st.info("Không tìm thấy thông số kỹ thuật gốc.")
 
-                    # BÁO CÁO PHÂN TÍCH ĐỊNH MỨC THEO QUY CHUẨN NGÀNH MAY (ĐỘ CO ĐA CHIỀU & KHỔ VẢI)
                     st.markdown("### 📐 Kết quả phân tích sơ đồ & Tính toán định mức vải")
                     
                     analysis_prompt = f"""
