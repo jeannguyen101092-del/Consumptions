@@ -566,15 +566,13 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
             if msg.get("type") == "visual" and msg.get("image_url"):
                 st.image(msg["image_url"], caption=f"Bản vẽ Sketch lịch sử đối chiếu mã {msg.get('style_title')}", width=220)
        # =============================================================================
-# =============================================================================
-# PHASE 6B - PART 1: AUTO-REPAIR INTENT & DOUBLE-CHECKED KEYWORD PIPELINE
-# =============================================================================
 import re
 import io
 import json
 import requests
 from urllib.parse import quote
 
+# Kiểm tra sự tồn tại của Chat Input từ người dùng
 if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vải và đối soát sai lệch..."):
     st.session_state["chat_history"].append({"role": "user", "type": "text", "content": user_query})
     with st.chat_message("user"): 
@@ -591,7 +589,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     new_style_id_detected = "UNKNOWN_STYLE"
                     new_style_raw_text = ""
                     
-                    # 1. KIỂM TRA BIẾN FILE ĐẢM BẢO KHÔNG CRASH
+                    # 1. KIỂM TRA BIẾN FILE ĐẢM BẢO KHÔNG CRASH MÀN HÌNH
                     if 'chat_file' in locals() or 'chat_file' in globals():
                         has_file = chat_file is not None
                     else:
@@ -650,7 +648,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     if not dynamic_keyword:
                         dynamic_keyword = "UNKNOWN"
 
-                    # 3. ĐỒNG BỘ TRUY VẤN MÀNG LỌC THEO DATABASE XƯỞNG
+                    # 3. ĐỒNG BỘ TRUY VẤN MÀNG LỌC THEO DATABASE XƯỞNG MASTER DB
                     headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
                     base_sb_url = SB_URL.rstrip('/')
                     
@@ -689,7 +687,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                         res_sim = requests.get(url_similar, headers=headers, timeout=15)
                         similar_records = res_sim.json() if 200 <= res_sim.status_code <= 299 else []
 
-                    # 6. ĐỒNG BỘ NỘI DUNG NGỮ CẢNH HỆ THỐNG
+                    # 6. ĐỒNG BỘ NỘI DUNG NGỮ CẢNH HỆ THỐNG GỬI CHO LLM ENGINE
                     db_context = f"=== HỒ SƠ TRA CỨU MÃ GỐC YÊU CẦU: {dynamic_keyword} ===\n"
                     if has_file:
                         db_context += f"[Dữ liệu bóc tách từ file Techpack mới upload]: {new_style_raw_text}\n"
@@ -709,7 +707,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                         for sim in similar_records:
                             db_context += f"- Mã mẫu: {sim.get('StyleName')} | Link hình ảnh thiết kế: {sim.get('SketchURL')} | Số đo mẫu: {json.dumps(sim.get('DetailedMeasurements', {}), ensure_ascii=False)}\n"
 
-                    # 7. CHUYỂN GIAO CHO AI XỬ LÝ THEO ĐÚNG TIÊU CHÍ RA LỆNH
+                    # 7. CHUYỂN GIAO CHO AI XỬ LÝ THEO ĐÚNG TIÊU CHÍ RA LỆNH CỦA KỸ SƯ
                     ai_prompt = f"""
                     Bạn là một Trợ lý AI chuyên nghiệp phụ trách bộ phận R&D Vật tư của PPJ Group.
                     Hãy xử lý yêu cầu cụ thể sau từ kỹ sư: "{user_query}"
@@ -717,3 +715,4 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     DỮ LIỆU THỰC TẾ TRONG KHO:
                     {db_context}
 
+                    QUY TẮC PHẢN HỒI BẮT BUỘC:
