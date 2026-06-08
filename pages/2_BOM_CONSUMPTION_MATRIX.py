@@ -566,13 +566,15 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
             if msg.get("type") == "visual" and msg.get("image_url"):
                 st.image(msg["image_url"], caption=f"Bản vẽ Sketch lịch sử đối chiếu mã {msg.get('style_title')}", width=220)
        # =============================================================================
+# =============================================================================
+# ĐOẠN 1: CHUẨN HÓA TỪ KHÓA, TRUY VẤN GỐC & HIỂN THỊ HÌNH ẢNH TRỰC QUAN
+# =============================================================================
 import re
 import io
 import json
 import requests
 from urllib.parse import quote
 
-# Kiểm tra sự tồn tại của Chat Input từ người dùng
 if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vải và đối soát sai lệch..."):
     st.session_state["chat_history"].append({"role": "user", "type": "text", "content": user_query})
     with st.chat_message("user"): 
@@ -589,7 +591,6 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     new_style_id_detected = "UNKNOWN_STYLE"
                     new_style_raw_text = ""
                     
-                    # 1. KIỂM TRA BIẾN FILE ĐẢM BẢO KHÔNG CRASH MÀN HÌNH
                     if 'chat_file' in locals() or 'chat_file' in globals():
                         has_file = chat_file is not None
                     else:
@@ -611,10 +612,8 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                         
                         extraction_prompt = """
                         Analyze ALL the attached technical pack images page by page.
-                        1. Locate the genuine 'Style ID' / 'Style Number' / 'Mã hàng'. Clean it by removing generic words (like 'Style', 'No').
-                        2. Extract ALL specification charts and raw Bill of Materials (BOM) fields.
-                        Return a valid JSON with this exact schema:
-                        {"detected_style_id": "Pure code only, e.g. 8002 or jacket-01", "all_specs_text": "Complete specifications and raw BOM data text"}
+                        Locate the genuine 'Style ID' / 'Style Number' / 'Mã hàng'.
+                        Return a valid JSON: {"detected_style_id": "Pure code only", "all_specs_text": "Complete specs"}
                         """
                         extraction_payload = list(img_payload)
                         extraction_payload.append(extraction_prompt)
@@ -634,7 +633,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                                 import time
                                 time.sleep(2 * (ext_attempt + 1))
                     
-                    # 2. THUẬT TOÁN XÁC ĐỊNH TỪ KHÓA TRUY VẤN TIẾNG VIỆT KHÔNG DẤU
+                    # Thuật toán tách lọc từ khóa động thông minh
                     clean_text_upper = str(user_query).strip().upper()
                     pattern_remove = r"^(TÌM|TIM|KIỂM TRA|KIEM TRA|XEM|CHECK|CHO TOI|XIN)\s+(MÃ HÀNG|MA HANG|MÃ|MA|CODE|VẢI|VAI|ĐỊNH MỨC|DINH MUC)?\s*"
                     clean_query = re.sub(pattern_remove, "", clean_text_upper)
@@ -648,7 +647,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     if not dynamic_keyword:
                         dynamic_keyword = "UNKNOWN"
 
-                    # 3. ĐỒNG BỘ TRUY VẤN MÀNG LỌC THEO DATABASE XƯỞNG MASTER DB
+                    # Gọi API Supabase lấy thông số kỹ thuật và mã nguyên phụ liệu gốc
                     headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
                     base_sb_url = SB_URL.rstrip('/')
                     
@@ -661,8 +660,8 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     url_san_pham = f"{base_sb_url}/rest/v1/san_pham?or=({or_filter})&select=style_name,article_name,consumption_type,material_size,uom,consumption_value,notes&limit=50"
                     res_sp = requests.get(url_san_pham, headers=headers, timeout=15)
                     backup_res = res_sp.json() if 200 <= res_sp.status_code <= 299 else []
-                    
-                    # 4. TRỰC QUAN HÓA HÌNH ẢNH THIẾT KẾ NGAY KHI TÌM THẤY TRONG KHO
+
+                    # ĐƯA RA HÌNH ẢNH TRỰC QUAN LUÔN TRÊN GIAO DIỆN NẾU TÌM THẤY TRONG KHO
                     sketch_url_found = ""
                     if db_results:
                         for item in db_results:
@@ -672,8 +671,10 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     
                     if sketch_url_found:
                         st.image(sketch_url_found, caption=f"Hình ảnh phác thảo thiết kế tìm thấy trong kho cho mã hàng: {dynamic_keyword}", use_container_width=True)
-
-                    # 5. KIỂM TRA ĐIỀU KIỆN CHỈ ĐỊNH TÌM MÃ TƯƠNG ĐỒNG CỦA KỸ SƯ
+# =============================================================================
+# ĐOẠN 2: KIỂM TRA Ý ĐỊNH (HỎI GÌ ĐÁP NẤY) & SO SÁNH HÌNH ẢNH - THÔNG SỐ ĐỂ TÍNH DM
+# =============================================================================
+                    # Kiểm tra xem người dùng có thực sự yêu cầu tìm kiếm mã tương đồng/tính định mức hay không
                     is_similarity_requested = any(word in clean_text_upper for word in ["TƯƠNG ĐỒNG", "TUONG DONG", "GIỐNG", "GIONG", "SO SÁNH", "SO SANH"])
                     similar_records = []
                     
@@ -687,7 +688,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                         res_sim = requests.get(url_similar, headers=headers, timeout=15)
                         similar_records = res_sim.json() if 200 <= res_sim.status_code <= 299 else []
 
-                    # 6. ĐỒNG BỘ NỘI DUNG NGỮ CẢNH HỆ THỐNG GỬI CHO LLM ENGINE
+                    # Đóng gói ngữ cảnh gửi cho AI
                     db_context = f"=== HỒ SƠ TRA CỨU MÃ GỐC YÊU CẦU: {dynamic_keyword} ===\n"
                     if has_file:
                         db_context += f"[Dữ liệu bóc tách từ file Techpack mới upload]: {new_style_raw_text}\n"
@@ -707,7 +708,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                         for sim in similar_records:
                             db_context += f"- Mã mẫu: {sim.get('StyleName')} | Link hình ảnh thiết kế: {sim.get('SketchURL')} | Số đo mẫu: {json.dumps(sim.get('DetailedMeasurements', {}), ensure_ascii=False)}\n"
 
-                    # 7. CHUYỂN GIAO CHO AI XỬ LÝ THEO ĐÚNG TIÊU CHÍ RA LỆNH CỦA KỸ SƯ
+                    # Chỉ thị prompt phân nhánh thông minh dựa theo câu hỏi của kỹ sư
                     ai_prompt = f"""
                     Bạn là một Trợ lý AI chuyên nghiệp phụ trách bộ phận R&D Vật tư của PPJ Group.
                     Hãy xử lý yêu cầu cụ thể sau từ kỹ sư: "{user_query}"
@@ -716,3 +717,24 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     {db_context}
 
                     QUY TẮC PHẢN HỒI BẮT BUỘC:
+                    1. Trả lời đúng trọng tâm: Người dùng hỏi gì đáp nấy, không hiển thị hoặc giải thích các thông tin ngoài lề không được yêu cầu. Tuyệt đối không xuất dữ liệu JSON thô.
+                    2. Nếu có yêu cầu so sánh mã tương đồng (Trạng thái lệnh: {is_similarity_requested}):
+                       - Bước A: Đối chiếu link hình ảnh thiết kế (SketchURL) của mã mới với các mã tham chiếu để xác nhận độ trùng khớp về mặt ngoại quan (kiểu dáng, chi tiết phụ túi hộp, cạp, ống).
+                       - Bước B: Sau khi khớp hình ảnh, tiến hành phân tích độ lệch thông số bảng số đo để đưa ra dự tính định mức vật tư cụ thể.
+                    3. Nếu KHÔNG tìm thấy mã tương đồng nào trong kho HOẶC không yêu cầu tìm mã tương đồng:
+                       - Hãy áp dụng hoàn toàn TƯ DUY LOGIC VÀ NGHIỆP VỤ NGÀNH MAY MẶC để tự tính toán định mức vải dựa trên bảng số đo chi tiết đã có của mã {dynamic_keyword} (Tính diện tích bề mặt sơ bộ của sản phẩm, ước lượng hao hụt đường may, biên vải, co rút dệt nhuộm thông thường từ 5%-10% tùy loại cấu trúc dệt thoi/dệt kim để ra kết quả định mức dự kiến).
+                    4. Trình bày: Định dạng Markdown sạch đẹp, dịch các vị trí số đo tiếng Anh sang tiếng Việt trực quan.
+                    """
+                    
+                    with st.spinner("🤖 AI R&D Engine đang tổng hợp dữ liệu kho và biên soạn câu trả lời chuyên ngành..."):
+                        ai_res = client.models.generate_content(
+                            model='gemini-2.5-flash',
+                            contents=ai_prompt
+                        )
+                        ans_text = ai_res.text
+                    
+                    st.markdown(ans_text)
+                    st.session_state["chat_history"].append({"role": "assistant", "type": "text", "content": ans_text})
+
+                except Exception as e:
+                    st.error(f"❌ Lỗi hệ thống: {str(e)}")
