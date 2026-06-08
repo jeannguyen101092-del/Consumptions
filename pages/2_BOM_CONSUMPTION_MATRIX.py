@@ -828,7 +828,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     SUPABASE_PROJECT_URL = "https://supabase.co" 
                     
                     if techpack_records and len(techpack_records) > 0:
-                        # ✨ ĐÃ SỬA: Lấy chính xác bản ghi đầu tiên trong mảng dữ liệu trả về từ Supabase
+                        # ✨ ĐÃ SỬA: Bóc chuẩn phần tử đầu tiên [0] của List để lấy đúng Dictionary dữ liệu mã hàng
                         first_record = techpack_records[0] if isinstance(techpack_records, list) else techpack_records
                         if isinstance(first_record, dict):
                             current_style_name = first_record.get("StyleName", "")
@@ -857,13 +857,13 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     co_ngang = shrink_ngang.group(1) if shrink_ngang else "0"
                     co_doc = shrink_doc.group(1) if shrink_doc else (shrink_general.group(1) if shrink_general else "0")
 
-                    # ✨ ĐÃ SỬA: Hiển thị tên mã hàng đối soát linh hoạt (Ưu tiên mã tìm thấy trong kho hoặc mã AI quét được từ file)
+                    # Hiển thị tên mã hàng đối soát linh hoạt
                     display_style_heading = current_style_name if current_style_name else (new_style_id_detected if new_style_id_detected != "UNKNOWN_STYLE" else dynamic_keyword)
                     st.markdown(f"### 📊 Kết quả đối soát dữ liệu mã hàng: **{display_style_heading}**")
                     
                     col1, col2 = st.columns(2)
                     with col1:
-                        st.markdown("**📋 Inform định mức vải gốc (Bảng san_pham):**")
+                        st.markdown("**📋 Thông tin định mức vải gốc (Bảng san_pham):**")
                         if fabric_records:
                             formatted_fabric = [{"Mã hàng": r.get("style_name"), "Mã vải (Article)": r.get("article_name"), "Loại vật tư": r.get("consumption_type"), "Khổ vải": r.get("material_size"), "Đơn vị": r.get("uom")} for r in fabric_records]
                             st.dataframe(formatted_fabric, use_container_width=True)
