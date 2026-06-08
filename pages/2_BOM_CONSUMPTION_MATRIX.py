@@ -692,9 +692,8 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
 
 
 
-
 # =============================================================================
-# ĐOẠN 2 - PHẦN A: BẢN CỐ ĐỊNH BIẾN URL CHỐNG TREO XOAY VÒNG HỆ THỐNG
+# ĐOẠN 2 - PHẦN A: BẢN NÂNG CẤP SIÊU TỐC ĐỘ - CHỐNG NGHẼN MẠNG TIMEOUT KHI TẢI ẢNH
 # =============================================================================
                     # Khai báo địa chỉ và cấu hình kết nối cứng an toàn tuyệt đối
                     base_sb_url = SB_URL.rstrip('/')
@@ -716,14 +715,14 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                             prefix_match = re.match(r"^([A-Z0-9]+)", dynamic_keyword)
                             similarity_keyword = prefix_match.group(1) if prefix_match else dynamic_keyword[:3]
                         
-                        # Đồng bộ tên biến url_techpack để tránh lỗi NameError gây treo luồng
+                        # Sử dụng cú pháp gọi trực tiếp chuẩn PostgREST dấu phần trăm (%) để lôi dữ liệu thật bảng thong_so_techpack
                         url_techpack = f"{base_sb_url}/rest/v1/thong_so_techpack"
                         params_tp_direct = {
                             "StyleName": f"ilike.%{similarity_keyword}%", # Bắt trúng mã 1P001451 chứa chuỗi 1P0014
                             "select": "StyleName,Category,DetailedMeasurements,SketchURL",
-                            "limit": "5"
+                            "limit": "3" # TỐI ƯU: Chỉ lấy top 3 bản ghi sát nhất để tránh tràn luồng
                         }
-                        res_tp_direct = requests.get(url_techpack, headers=headers, params=params_tp_direct, timeout=15)
+                        res_tp_direct = requests.get(url_techpack, headers=headers, params=params_tp_direct, timeout=10)
                         raw_techpacks = res_tp_direct.json() if 200 <= res_tp_direct.status_code <= 299 else []
                         
                         # Đồng bộ gọi dữ liệu bảng san_pham lịch sử tiêu hao tương ứng bằng dấu phần trăm (%)
@@ -731,9 +730,9 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                         params_sp_direct = {
                             "or": f"(style_name.ilike.%{similarity_keyword}%,article_name.ilike.%{similarity_keyword}%)",
                             "select": "style_name,article_name,consumption_type,material_size,uom,consumption_value",
-                            "limit": "30"
+                            "limit": "20" # TỐI ƯU: Giới hạn dòng quét thô vật tư
                         }
-                        res_sp_direct = requests.get(url_san_pham, headers=headers, params=params_sp_direct, timeout=15)
+                        res_sp_direct = requests.get(url_san_pham, headers=headers, params=params_sp_direct, timeout=10)
                         raw_sp_data = res_sp_direct.json() if 200 <= res_sp_direct.status_code <= 299 else []
                         
                         # Bộ lọc ma trận dự phòng nếu quét theo mã chữ bị thiếu hụt dữ liệu (Fallback chủng loại)
@@ -750,18 +749,18 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                             params_cat = {
                                 "Category": f"ilike.%{core_str_keyword}%",
                                 "select": "StyleName,Category,DetailedMeasurements,SketchURL",
-                                "limit": "6"
+                                "limit": "3"
                             }
-                            res_cat_backup = requests.get(url_techpack, headers=headers, params=params_cat, timeout=15)
+                            res_cat_backup = requests.get(url_techpack, headers=headers, params=params_cat, timeout=10)
                             raw_techpacks = res_cat_backup.json() if 200 <= res_cat_backup.status_code <= 299 else []
                             
                             if not raw_sp_data:
                                 params_sp_cat = {
                                     "or": f"(style_name.ilike.%{core_str_keyword}%,article_name.ilike.%{core_str_keyword}%)",
                                     "select": "style_name,article_name,consumption_type,material_size,uom,consumption_value",
-                                    "limit": "30"
+                                    "limit": "20"
                                 }
-                                res_sp_cat = requests.get(url_san_pham, headers=headers, params=params_sp_cat, timeout=15)
+                                res_sp_cat = requests.get(url_san_pham, headers=headers, params=params_sp_cat, timeout=10)
                                 raw_sp_data = res_sp_cat.json() if 200 <= res_sp_cat.status_code <= 299 else []
 
                         # Ép kiểu danh sách bảo vệ vòng lặp an toàn
@@ -773,8 +772,9 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                         if not filtered_techpacks:
                             filtered_techpacks = list_techpacks
 
-                        # LUỒNG MULTIMODAL CẢI TIẾN: Bảo vệ và xử lý độc lập đường link public URL chứa chữ HOA của file ảnh
-                        for tp in filtered_techpacks[:4]:
+                        # LUỒNG MULTIMODAL TỐI ƯU CỰC NHANH: Giới hạn tải ảnh bảo vệ băng thông hệ thống
+                        # Chỉ lấy tối đa top 2 mã trùng khớp nhất để AI "nhìn" so sánh trực quan, tránh nghẽn luồng
+                        for tp in filtered_techpacks[:2]:
                             st_name = tp.get("StyleName", "")
                             sketch_url = tp.get("SketchURL", "")
                             match_sp = [s for s in list_sp_data if s.get('style_name') == st_name]
@@ -786,7 +786,8 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                                     base_route, filename_part = sketch_url.rsplit('/', 1)
                                     secure_public_url = f"{base_route}/{quote(filename_part)}"
                                     
-                                    img_res = requests.get(secure_public_url, timeout=10)
+                                    # TỐI ƯU LỚN: Hạ thấp timeout xuống 3 giây. Nếu mạng nghẽn, tự động bỏ qua để chạy tiếp luồng số liệu
+                                    img_res = requests.get(secure_public_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=3)
                                     if img_res.status_code == 200:
                                         img_part = types.Part.from_bytes(data=img_res.content, mime_type='image/jpeg')
                                         vision_payload.append(img_part)
@@ -801,6 +802,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                                 "measurements": tp.get("DetailedMeasurements"),
                                 "bom_data": match_sp if match_sp else []
                             })
+
 
 
 
