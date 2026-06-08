@@ -641,21 +641,25 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                                 time.sleep(2 * (ext_attempt + 1))
 
                     
-                    # ✨ THUẬT TOÁN XÁC ĐỊNH TỪ KHÓA TRUY VẤN THÔNG MINH - ĐÃ CẢI TIẾN
-                    dynamic_keyword = ""
-                    clean_text_upper = str(user_query).strip().upper()
-                    
-                    clean_query = re.sub(r"^(TÌM|KIỂM TRA|XEM|CHECK|CHO TOI|XIN)\s+(MÃ HÀNG|MÃ|CODE|VẢI|ĐỊNH MỨC)?\s*", "", clean_text_upper)
-                    
-                    if chat_file and new_style_id_detected != "UNKNOWN_STYLE" and not clean_query.strip():
-                        dynamic_keyword = str(new_style_id_detected).strip()
-                    else:
-                        dynamic_keyword = clean_query.strip()
+                    # ✨ THUẬT TOÁN XÁC ĐỊNH TỪ KHÓA TRUY VẤN THÔNG MINH - PHIÊN BẢN CHUẨN HÓA XƯỞNG
+clean_text_upper = str(user_query).strip().upper()
 
-                    dynamic_keyword = re.sub(r"[\[\]'\"*?%#&]", "", dynamic_keyword).strip()
-                    
-                    if not dynamic_keyword:
-                        dynamic_keyword = "UNKNOWN"
+# 1. Khử toàn bộ các tiền tố khẩu lệnh thừa (cả có dấu và KHÔNG DẤU)
+pattern_remove = r"^(TÌM|TIM|KIỂM TRA|KIEM TRA|XEM|CHECK|CHO TOI|CHO TỚI|XIN)\s+(MÃ HÀNG|MA HANG|MÃ|MA|CODE|VẢI|VAI|ĐỊNH MỨC|DINH MUC)?\s*"
+clean_query = re.sub(pattern_remove, "", clean_text_upper)
+
+# 2. Gán từ khóa động động bộ
+if has_file and new_style_id_detected != "UNKNOWN_STYLE" and not clean_query.strip():
+    dynamic_keyword = str(new_style_id_detected).strip()
+else:
+    dynamic_keyword = clean_query.strip()
+
+# 3. Loại bỏ ký tự đặc biệt gây lỗi cú pháp SQL Injection/URL Break
+dynamic_keyword = re.sub(r"[\[\]'\"*?%#&]", "", dynamic_keyword).strip()
+
+if not dynamic_keyword:
+    dynamic_keyword = "UNKNOWN"
+
 
                     # ĐỒNG BỘ TRUY VẤN MÀNG LỌC TRƯỜNG THEO DATABASE XƯỞNG
                     headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
