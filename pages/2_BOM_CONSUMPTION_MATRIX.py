@@ -714,13 +714,11 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     if is_similarity_requested:
                         short_keyword = dynamic_keyword.strip()
                         
-                        # 1. Rẽ nhánh địa chỉ bảng định mức vải (san_pham) theo schema cột thực tế
                         if is_searching_fabric:
                             url_san_pham = f"{base_sb_url}/rest/v1/san_pham?article_name=ilike.*{quote(short_keyword)}*&select=*"
                         else:
                             url_san_pham = f"{base_sb_url}/rest/v1/san_pham?style_name=ilike.*{quote(short_keyword)}*&select=*"
                         
-                        # 2. Rẽ nhánh địa chỉ bảng thông số kỹ thuật (thong_so_techpack)
                         url_techpack = f"{base_sb_url}/rest/v1/thong_so_techpack?StyleName=ilike.*{quote(short_keyword)}*&select=*"
 
                         try:
@@ -736,6 +734,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                                 techpack_records = res_tp.json()
                         except Exception as e:
                             st.warning(f"Lỗi kết nối bảng thong_so_techpack: {e}")
+
 # =============================================================================
 # ĐOẠN 3: XỬ LÝ TRÍCH XUẤT HÌNH ẢNH SKETCH, ĐỐI SOÁT VÀ TÍNH ĐỊNH MỨC VẢI TƯƠNG ĐỒNG
 # =============================================================================
@@ -746,22 +745,23 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     current_style_name = ""
                     SUPABASE_PROJECT_URL = "https://supabase.co" 
                     
-                    # Thuật toán bóc tách dữ liệu từ List JSON của Supabase trả về
+                    # SỬA LỖI CỐT LÕI: Kiểm tra và bóc tách phần tử đầu tiên nếu là Danh sách (List)
                     if techpack_records and len(techpack_records) > 0:
-                        first_record = techpack_records[0]
-                        current_style_name = first_record.get("StyleName", "")
-                        db_sketch_url = first_record.get("SketchURL")
-                        db_measurements_raw = first_record.get("DetailedMeasurements", {})
+                        first_record = techpack_records[0] if isinstance(techpack_records, list) else techpack_records
+                        if isinstance(first_record, dict):
+                            current_style_name = first_record.get("StyleName", "")
+                            db_sketch_url = first_record.get("SketchURL")
+                            db_measurements_raw = first_record.get("DetailedMeasurements", {})
                         
-                        # CHỨC NĂNG 1: Hiển thị hình ảnh Sketch tự động bằng URL DB
+                        # Hiển thị hình ảnh Sketch tự động bằng URL DB nếu hợp lệ
                         if db_sketch_url and str(db_sketch_url).startswith("http"):
                             st.image(db_sketch_url, caption=f"🖼️ Bản vẽ phẳng (Sketch) mã hàng '{current_style_name}' từ URL Database", use_container_width=True)
-                        # CHỨC NĂNG 2: Nếu URL rỗng, tự dựng liên kết ảnh trực tiếp từ Bucket kho_anh
+                        # Dự phòng: Tự dựng liên kết ảnh trực tiếp từ Storage dựa trên StyleName thực tế
                         elif current_style_name:
                             constructed_url = f"{SUPABASE_PROJECT_URL}/storage/v1/object/public/kho_anh/{current_style_name}.jpg"
                             st.image(constructed_url, caption=f"🖼️ Bản vẽ phẳng (Sketch) mã hàng '{current_style_name}' từ kho ảnh Storage", use_container_width=True)
                     else:
-                        # CHỨC NĂNG 3: Tìm ảnh trực tiếp bằng từ khóa nếu không tìm thấy bản ghi thông số
+                        # Tìm kiếm trực tiếp trong kho ảnh theo từ khóa người dùng nhập vào ô tìm kiếm
                         if dynamic_keyword and dynamic_keyword != "UNKNOWN":
                             constructed_url = f"{SUPABASE_PROJECT_URL}/storage/v1/object/public/kho_anh/{dynamic_keyword}.jpg"
                             st.image(constructed_url, caption=f"🖼️ Bản vẽ phẳng (Sketch) tìm nhanh theo từ khóa: {dynamic_keyword}", use_container_width=True)
@@ -789,7 +789,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                         else:
                             st.info("Không tìm thấy thông số kỹ thuật tương ứng.")
 
-                    # CHỨC NĂNG TÌM MÃ TƯƠNG ĐỒNG VÀ TÍNH ĐỊNH MỨC VẢI TỪ AI CHUYÊN GIA DỆT MAY
+                    # Lệnh gọi AI giải quyết bài toán định mức và so khớp rập
                     consumption_prompt = f"""
                     You are an expert Apparel Costing & Pattern Engineer. 
                     Analyze the geometric technical specifications and history to solve the fabric consumption and similarity.
