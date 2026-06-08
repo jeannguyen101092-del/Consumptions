@@ -699,7 +699,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                         except Exception:
                             pass
                     
-                    clean_text_upper = str(user_query).strip().upper()
+                                       clean_text_upper = str(user_query).strip().upper()
                     is_searching_fabric = any(word in clean_text_upper for word in ["CODE VẢI", "CODE VAI", "MÃ VẢI", "MA VAI", "LOẠI VẢI", "LOAI VAI", "TÌM VẢI", "TIM VAI"])
                     
                     # Trích xuất các mã tiềm năng bằng Regex
@@ -711,7 +711,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                         dynamic_keyword = str(codes_found[0]).strip()
                     else:
                         # Nếu không khớp regex, lọc bớt từ khóa thừa nhưng bảo toàn ký tự của mã hàng
-                        pattern_remove = r"\b(TÌM|TIM|KIỂM TRA|KIEM TRA|XEM|CHECK|CHO TOI|XIN|MÃ HÀNG|MA HANG|MÃ|MA|VẢI|VAI|ĐỊNH MỨC|DINH MUC|CODE|TRÍCH XUẤT|TRICH XUAT|HÌNH ẢNH|HINH ANH|HÌNH|HINH|ẢNH|ANH|TÍNH|TINH|THÔNG TIN|THONG TIN|NÀY|NAY|TƯƠNG ĐỒNG|TUONG DONG|VỚI|KHO|KIẾM|VOI|TRONG)\b"
+                        pattern_remove = r"\b(TÌM|TIM|KIỂM TRA|KIEM TRA|XEM|CHECK|CHO TOI|XIN|MÃ HÀNG|MA HANG|MÃ|MA|VẢI|VAI|ĐỊNH MỨC|DINH MUC|CODE|TRÍCH XUẤT|TRICH XUẤT|HÌNH ẢNH|HINH ANH|HÌNH|HINH|ẢNH|ANH|TÍNH|TINH|THÔNG TIN|THONG TIN|NÀY|NAY|TƯƠNG ĐỒNG|TUONG DONG|VỚI|KHO|KIẾM|VOI|TRONG)\b"
                         dynamic_keyword = re.sub(pattern_remove, "", clean_text_upper).strip()
                     
                     # 2. ĐẶT ĐỘ ƯU TIÊN TUYỆT ĐỐI CHO MÃ TRÍCH XUẤT TỪ FILE (ĐỂ BẮT TRÚNG 1P001363)
@@ -719,7 +719,6 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                         if is_searching_fabric and new_style_fabric_detected != "UNKNOWN_FABRIC":
                             dynamic_keyword = str(new_style_fabric_detected).strip()
                         elif new_style_id_detected != "UNKNOWN_STYLE":
-                            # Ưu tiên tối cao: Nếu file đính kèm có mã hàng do AI bóc được, lấy luôn mã đó làm keyword
                             dynamic_keyword = str(new_style_id_detected).strip()
                     
                     # Làm sạch triệt để các ký tự đặc biệt gây vỡ URL
@@ -750,7 +749,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     if is_similarity_requested:
                         short_keyword = dynamic_keyword.strip().upper()
                         
-                        # ✨ ĐÃ SỬA: Đổi từ ilike.% sang ilike.* chuẩn cú pháp Supabase PostgREST
+                        # ✨ ĐÃ SỬA: Thay dấu % thành dấu * để Supabase PostgREST hiểu thuật toán ilike
                         check_url = f"{base_sb_url}/rest/v1/thong_so_techpack?StyleName=ilike.*{quote(short_keyword)}*&select=StyleName"
                         has_in_techpack = False
                         try:
@@ -766,9 +765,13 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                             with st.spinner("⚡ AI đang số hóa hình học phẳng và chạy thuật toán so khớp thị giác Vector..."):
                                 query_vector = None
                                 try:
+                                    # Trích xuất cụm số để gửi qua text-embedding nhằm phòng ngừa lỗi nhận bytes trực tiếp
+                                    numbers_in_kw = re.findall(r'\d+', short_keyword)
+                                    embed_text = max(numbers_in_kw, key=len) if numbers_in_kw else short_keyword
+                                    
                                     embedding_res = client.models.embed_content(
                                         model='text-embedding-004',
-                                        contents=types.Part.from_bytes(data=target_new_sketch_bytes, mime_type='image/jpeg')
+                                        contents=embed_text
                                     )
                                     query_vector = np.array(embedding_res.embeddings.values)
                                 except Exception:
@@ -801,7 +804,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
 
                         final_search_key = matched_style_name if (matched_style_name and matched_style_name != "null") else short_keyword
 
-                        # ✨ ĐÃ SỬA: Chuyển toàn bộ dấu % thành toán tử * diện rộng để bốc trúng mã hàng gạch ngang hoặc viết liền
+                        # ✨ ĐÃ SỬA: Chuẩn hóa lại toàn bộ endpoint URL sang Wildcard PostgREST (*) chuẩn chỉnh
                         url_san_pham = f"{base_sb_url}/rest/v1/san_pham?or=(style_name.ilike.*{quote(short_keyword)}*,article_name.ilike.*{quote(short_keyword)}*)&select=*"
                         url_techpack = f"{base_sb_url}/rest/v1/thong_so_techpack?StyleName=ilike.*{quote(final_search_key)}*&select=*"
 
@@ -818,6 +821,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                             
                             fabric_records = future_sp.result()
                             techpack_records = future_tp.result()
+
 
 # =============================================================================
 # ĐOẠN 3: KẾT XUẤT HÌNH ẢNH SKETCH, BẢNG THÔNG SỐ VÀ TỰ TÍNH ĐỊNH MỨC ĐỘ CO ĐA CHIỀU
