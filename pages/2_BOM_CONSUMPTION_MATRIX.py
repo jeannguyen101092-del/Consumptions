@@ -693,7 +693,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
 
 
 # =============================================================================
-# ĐOẠN 2: TỰ ĐỘNG KHỚP ẢNH (.JPG), SO SÁNH THÔNG SỐ & TÍNH ĐỊNH MỨC CHUẨN R&D
+# ĐOẠN 2: THUẬT TOÁN ĐỊNH VỊ VAI TRÒ DỮ LIỆU CHÍNH XÁC (MÃ HÀNG VS MÃ VẬT TƯ)
 # =============================================================================
                     # Kiểm tra xem người dùng có thực sự yêu cầu tìm kiếm mã tương đồng/tính định mức hay không
                     is_similarity_requested = any(word in clean_text_upper for word in ["TƯƠNG ĐỒNG", "TUONG DONG", "GIỐNG", "GIONG", "SO SÁNH", "SO SANH"])
@@ -704,7 +704,6 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                         prefix_match = re.match(r"^([A-Z]+)", dynamic_keyword)
                         similarity_keyword = prefix_match.group(1) if prefix_match else dynamic_keyword[:3]
                         
-                        # Lấy thêm trường SketchURL và DetailedMeasurements để AI so sánh khớp hình ảnh trước khi so thông số
                         url_similar = f"{base_sb_url}/rest/v1/thong_so_techpack"
                         params_sim = {
                             "StyleName": f"ilike.*{similarity_keyword}*",
@@ -714,7 +713,6 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                         res_sim = requests.get(url_similar, headers=headers, params=params_sim, timeout=15)
                         similar_techpacks = res_sim.json() if 200 <= res_sim.status_code <= 299 else []
                         
-                        # Lấy định mức tương ứng của nhóm này từ bảng san_pham
                         url_sim_sp = f"{base_sb_url}/rest/v1/san_pham"
                         params_sim_sp = {
                             "style_name": f"ilike.*{similarity_keyword}*",
@@ -724,7 +722,6 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                         res_sim_sp = requests.get(url_sim_sp, headers=headers, params=params_sim_sp, timeout=15)
                         similar_sp_data = res_sim_sp.json() if 200 <= res_sim_sp.status_code <= 299 else []
                         
-                        # Thuật toán tự động chuẩn hóa tên file để check khớp hình ảnh ngoại quan
                         for tp in similar_techpacks:
                             st_name = tp.get("StyleName", "")
                             expected_image_name = f"{st_name}.jpg"
@@ -739,48 +736,57 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                                 "bom_data": match_sp if match_sp else []
                             })
 
-                    # Đóng gói ngữ cảnh gửi cho AI
-                    db_context = f"=== BIẾN TỪ KHÓA ĐẦU VÀO TRÍCH XUẤT (KEYWORD): {dynamic_keyword} ===\n"
+                    # Đóng gói ngữ cảnh gửi cho AI - Chuẩn hóa trường thông tin tường minh
+                    db_context = f"=== TỪ KHÓA TRUY VẤN LÕI ĐƯỢC CHUẨN HÓA: {dynamic_keyword} ===\n"
                     if has_file:
                         db_context += f"[Dữ liệu bóc tách từ file Techpack mới upload]: {new_style_raw_text}\n"
                     
                     if db_results:
-                        db_context += f"\n[DỮ LIỆU TÌM THẤY TRONG BẢNG THONG_SO_TECHPACK]:\n"
+                        db_context += f"\n[KẾT QUẢ QUÉT BẢNG HỒ SƠ THÔNG SỐ (thong_so_techpack)]:\n"
                         for item in db_results:
-                            db_context += f"- Mã hàng: {item.get('StyleName')} | Khách hàng: {item.get('Buyer')} | Phân loại dáng: {item.get('Category')} | Link ảnh sơ đồ: {item.get('SketchURL')} | Số đo chi tiết: {json.dumps(item.get('DetailedMeasurements', {}), ensure_ascii=False)}\n"
+                            db_context += f"- Có tồn tại hồ sơ rập mẫu cho Mã Hàng (StyleName): '{item.get('StyleName')}' | Khách hàng: {item.get('Buyer')} | Dáng: {item.get('Category')} | Link sơ đồ ảnh: {item.get('SketchURL')} | Toàn bộ số đo cấu trúc JSON: {json.dumps(item.get('DetailedMeasurements', {}), ensure_ascii=False)}\n"
                     
                     if backup_res:
-                        db_context += f"\n[DỮ LIỆU THÔ THỰC TẾ TRÍCH XUẤT TỪ BẢNG SAN_PHAM]:\n"
+                        db_context += f"\n[KẾT QUẢ QUÉT BẢNG ĐỊNH MỨC NGUYÊN PHỤ LIỆU THÔ (san_pham)]:\n"
                         for sp in backup_res:
-                            db_context += f"- DÒNG DỮ LIỆU KHO: Mã hàng sử dụng (style_name) = '{sp.get('style_name')}' | Mã vải/nguyên phụ liệu (article_name) = '{sp.get('article_name')}' | Loại vải = '{sp.get('consumption_type')}' | Khổ vải = '{sp.get('material_size')}' | Định mức thực tế = '{sp.get('consumption_value')} {sp.get('uom')}' | Ghi chú = '{sp.get('notes')}'\n"
+                            db_context += f"- Dòng kho thực tế: Tên Mã Hàng lưu ở cột (style_name) = '{sp.get('style_name')}' | Tên Mã Vải/Phụ liệu lưu ở cột (article_name) = '{sp.get('article_name')}' | Bộ phận may = '{sp.get('consumption_type')}' | Khổ vải = '{sp.get('material_size')}' | Định mức tiêu hao = '{sp.get('consumption_value')} {sp.get('uom')}'\n"
                     
                     if is_similarity_requested and similar_records:
-                        db_context += f"\n=== KHO DỮ LIỆU THAM CHIẾU CÁC MÃ HÀNG TƯƠNG ĐỒNG ===\n"
+                        db_context += f"\n=== KHO DỮ LIỆU THAM CHIẾU CÁC MÃ HÀNG TƯƠNG ĐỒNG BẬT KHI CÓ LỆNH ===\n"
                         for sim in similar_records:
-                            db_context += f"- Mã tương đồng: {sim['style_name']} | Tên file ảnh: {sim['image_name_in_storage']} | Đường dẫn ảnh: {sim['sketch_url']}\n"
-                            db_context += f"  + Bảng thông số số đo chi tiết: {json.dumps(sim['measurements'], ensure_ascii=False)}\n"
+                            db_context += f"- Mã tương đồng: {sim['style_name']} | Ảnh: {sim['sketch_url']}\n"
+                            db_context += f"  + Số đo hình học: {json.dumps(sim['measurements'], ensure_ascii=False)}\n"
                             if sim['bom_data']:
-                                db_context += f"  + Lịch sử định mức thực tế đi kèm: {json.dumps(sim['bom_data'], ensure_ascii=False)}\n"
+                                db_context += f"  + Định mức cấu thành vật tư thực tế: {json.dumps(sim['bom_data'], ensure_ascii=False)}\n"
 
-                    # Chỉ thị prompt chỉ huy phân tích dữ liệu thô trực diện
+                    # Chỉ thị tối cao phân định rạch ròi vai trò dữ liệu (Hỏi gì đáp nấy)
                     ai_prompt = f"""
-                    Bạn là một Hệ thống AI chuyên gia phân tích chuỗi cung ứng vật tư dệt may cấp cao của PPJ Group.
-                    Nhiệm vụ của bạn là đọc hiểu tập dữ liệu thô từ kho và trả lời câu hỏi: "{user_query}"
+                    Bạn là một Hệ thống AI chuyên gia phân tích dữ liệu R&D dệt may độc quyền của PPJ Group.
+                    Nhiệm vụ của bạn là giải quyết câu hỏi: "{user_query}" dựa vào tập dữ liệu thô trích xuất từ database.
 
-                    DỮ LIỆU THÔ TRONG KHO (ĐÃ TRÍCH XUẤT THÀNH CÔNG TỪ MASTER DB):
+                    DỮ LIỆU THÔ THỰC TẾ TRONG HỆ THỐNG MASTER DB:
                     {db_context}
 
-                    QUY TẮC PHÂN TÍCH BẮT BUỘC:
-                    1. HỎI GÌ ĐÁP NẤY: Đọc kỹ phần '[DỮ LIỆU THÔ THỰC TẾ TRÍCH XUẤT TỪ BẢNG SAN_PHAM]'. 
-                       - Nếu người dùng đang hỏi xem một mã vải/nguyên phụ liệu cụ thể (Ví dụ: {dynamic_keyword}) được sử dụng cho mã hàng nào, hãy nhìn vào toàn bộ các dòng kho có giá trị `article_name` chứa chuỗi '{dynamic_keyword}'.
-                       - Nhặt ra chính xác tên mã hàng nằm ở trường `style_name` tương ứng của dòng đó để lập bảng báo cáo ngay cho kỹ sư.
-                       - TUYỆT ĐỐI KHÔNG ĐƯỢC BÁO LÀ 'Không tìm thấy thông tin liên kết' khi trong phần dữ liệu thô phía trên đã hiển thị rõ ràng các dòng liên kết giữa style_name và article_name.
-                    2. Nếu người dùng có yêu cầu tính định mức hoặc tìm mã hàng tương đồng (Trạng thái: {is_similarity_requested}):
-                       - Hãy thực hiện đối chiếu ảnh cấu trúc (SketchURL) -> phân tích bảng độ lệch thông số kích thước hình học -> áp dụng phép tính tỷ lệ để dự đoán định mức (DM) cho mã hàng mới.
-                    3. Trình bày đầu ra: Xuất kết quả dưới dạng BẢNG Markdown phân cấp chuyên nghiệp, rõ ràng, không hiển thị bất kỳ đoạn text JSON thô hay các dòng kẻ gạch ngang vô nghĩa nào làm rối mắt kỹ sư.
+                    QUY TẮC ĐỊNH VỊ VÀ PHÂN TÍCH BẮT BUỘC (PHẢI PHÂN BIỆT RẠCH RÒI MÃ HÀNG VS MÃ VẬT TƯ):
+                    
+                    1. LUỒNG TRUY VẤN THEO MÃ HÀNG (Style Name):
+                       - Nếu từ khóa tìm kiếm '{dynamic_keyword}' trùng với giá trị ở cột `style_name` trong dữ liệu bảng `san_pham` hoặc cột `StyleName` ở bảng `thong_so_techpack` (Ví dụ như trường hợp mã P01-495544 hiện tại):
+                       - Bạn phải khẳng định đây là một MÃ HÀNG / SẢN PHẨM cụ thể.
+                       - Nhiệm vụ: Lập bảng Markdown báo cáo chi tiết cấu trúc định mức nguyên phụ liệu (BOM) của chính mã hàng đó. Liệt kê rõ: STT | Bộ phận cấu thành (consumption_type) | Mã vải/Mã phụ liệu liên kết (article_name) | Khổ vải | Định mức vật tư. 
+                       - Tuyệt đối không được hiểu nhầm mã hàng này thành mã vải để đi tìm sản phẩm khác liên kết với nó.
+
+                    2. LUỒNG TRUY VẤN THEO MÃ VẬT TƯ / MÃ VẢI (Article Name):
+                       - Chỉ khi từ khóa đầu vào '{dynamic_keyword}' trùng với giá trị nằm ở cột `article_name` (Ví dụ: SJ-8902) và KHÔNG tồn tại trong bảng `thong_so_techpack`:
+                       - Bạn mới khẳng định đây là MÃ VẢI/VẬT TƯ.
+                       - Nhiệm vụ: Liệt kê danh sách tất cả các Mã Hàng (`style_name`) trong xưởng đang sử dụng chung loại vải này.
+
+                    3. LUỒNG TÍNH TOÁN TƯƠNG ĐỒNG (Chỉ bật khi lệnh có trạng thái: {is_similarity_requested}):
+                       - Thực hiện đối chiếu ảnh -> so sánh độ lệch số đo hình học cơ thể giữa hai mã -> nhân tỷ lệ toán học ước tính hao hụt để ra con số định mức dự báo cho mã mới. Nếu không có mẫu giống, tự áp dụng kiến thức toán may mặc để tính toán diện tích vải tiêu hao dựa theo số đo dài/rộng.
+
+                    4. YÊU CẦU TRÌNH BÀY: Xuất dạng bảng biểu Markdown phân cấp gọn gàng, dịch toàn bộ thuật ngữ tiếng Anh sang tiếng Việt. Tuyệt đối không hiển thị text JSON thô hay các ô bảng trống gạch sọc vô nghĩa.
                     """
                     
-                    with st.spinner("🤖 AI R&D Engine đang tổng hợp dữ liệu kho và biên soạn câu trả lời chuyên ngành..."):
+                    with st.spinner("🤖 AI R&D Engine đang phân tích định vị vai trò dữ liệu kho..."):
                         ai_res = client.models.generate_content(
                             model='gemini-2.5-flash',
                             contents=ai_prompt
