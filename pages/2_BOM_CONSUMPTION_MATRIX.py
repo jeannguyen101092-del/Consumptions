@@ -712,7 +712,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
 
 
 # =============================================================================
-# ĐOẠN 2 - PHẦN A: ĐỒNG BỘ CÚ PHÁP POSTGREST (%) ĐỂ TRUY VẤN SONG SONG ĐA BẢNG
+# ĐOẠN 2 - PHẦN A: ĐỒNG BỘ CÚ PHÁP POSTGREST (%) ĐỂ TRUY VẤN SONG SÔNG ĐA BẢNG
 # =============================================================================
                     base_sb_url = SB_URL.rstrip('/')
                     headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
@@ -726,7 +726,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     if is_similarity_requested:
                         short_keyword = dynamic_keyword.strip().upper()
                         
-                        # BƯỚC 1: KIỂM TRA THỬ XEM MÃ NÀY ĐÃ CÓ SẴN TRONG BẢNG THÔNG SỐ CHƯA (Sửa sang toán tử %)
+                        # 1. KIỂM TRA THỬ XEM MÃ NÀY ĐÃ CÓ SẴN TRONG BẢNG THÔNG SỐ CHƯA (Sử dụng toán tử %)
                         check_url = f"{base_sb_url}/rest/v1/thong_so_techpack?StyleName=ilike.%{quote(short_keyword)}%&select=StyleName"
                         has_in_techpack = False
                         try:
@@ -736,10 +736,12 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                         except Exception:
                             has_in_techpack = False
 
-                        # BƯỚC 2: RẼ NHÁNH XỬ LÝ THEO THỰC TẾ TRONG KHO
+                        # 2. RẼ NHÁNH XỬ LÝ THEO THỰC TẾ TRONG KHO
                         if has_in_techpack:
+                            # Tình huống A: Mã đã có sẵn rập -> Dùng luôn mã gốc
                             matched_style_name = short_keyword
                         elif has_file and target_new_sketch_bytes:
+                            # Tình huống B: Mã mới tinh chưa có rập (1P001369) -> GỌI STORAGE BUCKET LẤY FILE ẢNH THẬT
                             with st.spinner("🔍 Mã mới. AI đang truy cập Storage Bucket 'kho_anh' để đối chiếu thị giác..."):
                                 storage_endpoint = f"{base_sb_url}/storage/v1/object/list/kho_anh"
                                 storage_payload = {
@@ -760,6 +762,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                                         for file_obj in res_storage.json():
                                             f_name = file_obj.get("name", "")
                                             if f_name.lower().endswith(('.jpg', '.jpeg', '.png')):
+                                                # SỬA LỖI QUYẾT ĐỊNH: Chỉ định rõ phần tử [0] của mảng rsplit trước khi strip chuỗi text
                                                 style_code = f_name.rsplit('.', 1)[0].strip()
                                                 public_url = f"{SUPABASE_PROJECT_URL}/storage/v1/object/public/kho_anh/{f_name}"
                                                 warehouse_list.append({"StyleName": style_code, "SketchURL": public_url})
@@ -771,7 +774,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                                 if warehouse_list:
                                     vision_payload = [
                                         types.Part.from_bytes(data=target_new_sketch_bytes, mime_type='image/jpeg'),
-                                        f"Compare structural geometry with warehouse entries: {json.dumps(warehouse_list, ensure_ascii=False)}. Select the single most visually similar 'StyleName'. Return JSON: {{\"most_similar_style\": \"StyleName\"}}"
+                                        f"Compare structural geometry with warehouse entries: {json.dumps(warehouse_list, ensure_ascii=False)}. Select the single most visually similar 'StyleName' from the available options. Return JSON with this exact schema: {{\"most_similar_style\": \"StyleName\"}}"
                                     ]
                                     try:
                                         v_res = client.models.generate_content(
@@ -785,10 +788,9 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                                         matched_style_name = None
 
                         # Chốt từ khóa tìm kiếm cuối cùng dựa trên kết quả phân tích thị giác của AI
-                        final_search_key = matched_style_name if matched_style_name else short_keyword
+                        final_search_key = matched_style_name if (matched_style_name and matched_style_name != "null") else short_keyword
 
-                        # BƯỚC 3: TRUY VẤN SONG SÔNG ĐỒNG BỘ CÚ PHÁP CHUẨN POSTGREST (%)
-                        # Đổi toán tử từ dạng .* sang dạng .% cho cả bảng sản phẩm và techpack
+                        # 3. TRUY VẤN SONG SONG ĐỒNG BỘ TOÀN BỘ CÚ PHÁP CHUẨN POSTGREST (%)
                         url_san_pham = f"{base_sb_url}/rest/v1/san_pham?or=(style_name.ilike.%{quote(short_keyword)}%,article_name.ilike.%{quote(short_keyword)}%)&select=*"
                         url_techpack = f"{base_sb_url}/rest/v1/thong_so_techpack?StyleName=ilike.%{quote(final_search_key)}%&select=*"
 
@@ -805,6 +807,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                             
                             fabric_records = future_sp.result()
                             techpack_records = future_tp.result()
+
 
 
 
