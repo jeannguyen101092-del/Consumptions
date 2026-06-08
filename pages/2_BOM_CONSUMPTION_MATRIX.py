@@ -673,7 +673,8 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     clean_text_upper = str(user_query).strip().upper()
                     is_searching_fabric = any(word in clean_text_upper for word in ["CODE VẢI", "CODE VAI", "MÃ VẢI", "MA VAI", "LOẠI VẢI", "LOAI VAI", "TÌM VẢI", "TIM VAI"])
                     
-                    pattern_remove = r"\b(TÌM|TIM|KIỂM TRA|KIEM TRA|XEM|CHECK|CHO TOI|XIN|MÃ HÀNG|MA HANG|MÃ|MA|VẢI|VAI|ĐỊNH MỨC|DINH MUC|CODE|TRÍCH XUẤT|TRICH XUAT|HÌNH ẢNH|HINH ANH|THÔNG TIN|THONG TIN|NÀY|NAY)\b"
+                    # CẢI TIẾN: Bổ sung "TINH", "HINH ANH", "HINH", "ANH" vào bộ lọc xóa từ thừa
+                    pattern_remove = r"\b(TÌM|TIM|KIỂM TRA|KIEM TRA|XEM|CHECK|CHO TOI|XIN|MÃ HÀNG|MA HANG|MÃ|MA|VẢI|VAI|ĐỊNH MỨC|DINH MUC|CODE|TRÍCH XUẤT|TRICH XUAT|HÌNH ẢNH|HINH ANH|HÌNH|HINH|ẢNH|ANH|TÍNH|TINH|THÔNG TIN|THONG TIN|NÀY|NAY)\b"
                     clean_query = re.sub(pattern_remove, "", clean_text_upper).strip()
                     
                     if has_file:
@@ -702,7 +703,8 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     base_sb_url = SB_URL.rstrip('/')
                     headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
 
-                    is_similarity_requested = any(word in clean_text_upper for word in ["TƯƠNG ĐỒNG", "TUONG DONG", "GIỐNG", "GIONG", "SO SÁNH", "SO SANH", "ĐỊNH MỨC", "DINH MUC", "THÔNG SỐ", "THONG SO", "VẢI", "VAI"])
+                    # Kích hoạt tìm kiếm khi người dùng hỏi bất kỳ thông tin gì liên quan đến mã hàng
+                    is_similarity_requested = True
                     fabric_records = []
                     techpack_records = []
 
@@ -739,7 +741,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     current_style_name = ""
                     SUPABASE_PROJECT_URL = "https://supabase.co" 
                     
-                    # 1. Xử lý bóc tách và hiển thị hình ảnh Sketch từ kho dữ liệu
+                    # Kiểm tra và bóc mảng dữ liệu trả về từ bảng thông số
                     if techpack_records and len(techpack_records) > 0:
                         first_record = techpack_records[0] if isinstance(techpack_records, list) else techpack_records
                         if isinstance(first_record, dict):
@@ -753,11 +755,12 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                             constructed_url = f"{SUPABASE_PROJECT_URL}/storage/v1/object/public/kho_anh/{current_style_name}.jpg"
                             st.image(constructed_url, caption=f"🖼️ Ảnh Sketch mã hàng: {current_style_name}", use_container_width=True)
                     else:
+                        # Nếu bảng thông số trống, tự động lấy trực tiếp từ kho ảnh Storage theo từ khóa sạch
                         if dynamic_keyword and dynamic_keyword != "UNKNOWN":
                             constructed_url = f"{SUPABASE_PROJECT_URL}/storage/v1/object/public/kho_anh/{dynamic_keyword}.jpg"
-                            st.image(constructed_url, caption=f"🖼️ Ảnh Sketch tìm theo từ khóa: {dynamic_keyword}", use_container_width=True)
+                            st.image(constructed_url, caption=f"🖼️ Ảnh Sketch tìm theo mã: {dynamic_keyword}", use_container_width=True)
 
-                    # 2. Hiển thị bảng kết quả dữ liệu tìm thấy
+                    # Hiển thị trực tiếp các bảng dữ liệu thô từ Database
                     col1, col2 = st.columns(2)
                     with col1:
                         st.markdown("**📋 Thông tin định mức vải (Bảng san_pham):**")
@@ -770,7 +773,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                                 "Đơn vị": r.get("uom")
                             } for r in fabric_records]
                             st.dataframe(formatted_fabric)
-                            st.session_state["chat_history"].append({"role": "assistant", "type": "text", "content": f"Đã hiển thị bảng định mức vải cho từ khóa {dynamic_keyword}."})
+                            st.session_state["chat_history"].append({"role": "assistant", "type": "text", "content": f"Đã hiển thị dữ liệu cho mã {dynamic_keyword}."})
                         else:
                             st.info("Không có dữ liệu vải lịch sử trùng khớp.")
                             
