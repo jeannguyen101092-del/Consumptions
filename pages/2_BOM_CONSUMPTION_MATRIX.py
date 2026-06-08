@@ -693,7 +693,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
 
 
 # =============================================================================
-# ĐOẠN 2 - PHẦN A: BẢN THÔNG MẠCH DỮ LIỆU THẬT - BẮT TRÚNG MÃ ĐỐI CHIẾU TRONG KHO
+# ĐOẠN 2 - PHẦN A: BẢN THÔNG MẠCH TUYỆT ĐỐI KHÔNG PHÂN BIỆT HOA THƯỜNG CHO KHO
 # =============================================================================
                     # Định nghĩa lại biến địa chỉ an toàn để tránh lỗi cú pháp link hệ thống
                     base_sb_url = SB_URL.rstrip('/')
@@ -715,10 +715,10 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                             prefix_match = re.match(r"^([A-Z0-9]+)", dynamic_keyword)
                             similarity_keyword = prefix_match.group(1) if prefix_match else dynamic_keyword[:3]
                         
-                        # 1. Thực hiện quét mờ tìm các mã hàng trong bảng thong_so_techpack chứa chuỗi lõi "1P0014"
+                        # 1. Quét mờ tìm mã hàng trong bảng thong_so_techpack chứa chuỗi lõi "1P0014"
                         url_techpack = f"{base_sb_url}/rest/v1/thong_so_techpack"
                         params_tp_direct = {
-                            "StyleName": f"ilike.%{similarity_keyword}%", # Dấu % chuẩn PostgREST bắt trúng mã 1P001451
+                            "StyleName": f"ilike.%{similarity_keyword}%", # Bắt trúng mã 1P001451 chứa chuỗi 1P0014
                             "select": "StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL",
                             "limit": "3" 
                         }
@@ -735,19 +735,19 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                         res_sp_direct = requests.get(url_san_pham, headers=headers, params=params_sp_direct, timeout=10)
                         raw_sp_data = res_sp_direct.json() if 200 <= res_sp_direct.status_code <= 299 else []
                         
-                        # ✨ THAY ĐỔI CỨU SINH CỐT LÕI: Nhặt thẳng chủng loại thực tế bóc từ file PDF mới ở Đoạn 1
-                        # Tuyệt đối không lấy từ biến db_results thô của mã mới đang bị rỗng trong kho
-                        detected_cat = new_style_category_detected if new_style_category_detected else "Pants"
+                        # ✨ THAY ĐỔI CỨU SINH TOÀN DIỆN CHO CHỦNG LOẠI:
+                        # Chuyển đổi toàn bộ text bóc tách được về dạng viết thường (lowercase) để ép Supabase quét mờ
+                        detected_cat = str(new_style_category_detected).lower() if new_style_category_detected else "pants"
                         
-                        # 3. BỘ LỌC DỰ PHÒNG NÂNG CAO: Nếu quét theo mã chữ bị hụt (do đặt tên lệch nhóm), 
-                        # tự động lấy chủng loại thực tế của file mới lật kho diện rộng lôi toàn bộ hàng cùng chủng loại lên
+                        # 3. BỘ LỌC DỰ PHÒNG CHỐNG LỆCH PHÔNG HOA THƯỜNG:
+                        # Nếu quét dính liền mã chữ bị hụt, tự động dùng ma trận lọc OR quét song song cả chữ 'pant' và 'jeans' viết thường
                         if (not raw_techpacks or len(raw_techpacks) <= 0) and detected_cat:
-                            # Tách chuỗi lấy từ chữ trần sạch (Ví dụ: "Pants" hoặc "Jeans")
-                            words_list = re.findall(r'\w+', str(detected_cat))
-                            core_str_keyword = words_list[-1] if words_list else str(detected_cat)
+                            # Xây dựng màng lọc chuỗi OR ép không phân biệt hoa thường dệt may
+                            # Cú pháp này giúp bắt trúng cả chữ 'Pants', 'Jeans', 'pants' lưu trong kho
+                            or_cat_filter = "(Category.ilike.%pant%,Category.ilike.%jean%,Category.ilike.%quần%)"
                             
                             params_cat = {
-                                "Category": f"ilike.%{core_str_keyword}%",
+                                "or": or_cat_filter,
                                 "select": "StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL",
                                 "limit": "3"
                             }
@@ -756,7 +756,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                             
                             if not raw_sp_data:
                                 params_sp_cat = {
-                                    "or": f"(style_name.ilike.%{core_str_keyword}%,article_name.ilike.%{core_str_keyword}%)",
+                                    "or": "(style_name.ilike.%pant%,style_name.ilike.%jean%)",
                                     "select": "style_name,article_name,consumption_type,material_size,uom,consumption_value",
                                     "limit": "20"
                                 }
@@ -772,7 +772,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                         if not filtered_techpacks:
                             filtered_techpacks = list_techpacks
 
-                        # LUỒNG MULTIMODAL VÀ ĐÓNG GÓI PAYLOAD THỊ GIÁC: Tải ngầm ảnh thật từ kho về gửi vào bộ não AI
+                        # LUỒNG MULTIMODAL VÀ ĐÓNG GÓI PAYLOAD THỊ GIÁC: Tải ngầm ảnh thật từ kho về gửi vào bộ bộ não AI
                         for tp in filtered_techpacks[:2]:
                             st_name = tp.get("StyleName", "")
                             sketch_url = tp.get("SketchURL", "")
@@ -781,7 +781,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                             img_part = None
                             if sketch_url:
                                 try:
-                                    # Trích xuất riêng tên file ảnh ở đuôi đường link để mã hóa độc lập chống vỡ link chữ HOA
+                                    # Trích xuất riêng tên file ảnh ở đuôi đường link để hóa độc lập chống vỡ link chữ HOA
                                     base_route, filename_part = sketch_url.rsplit('/', 1)
                                     secure_public_url = f"{base_route}/{quote(filename_part)}"
                                     
