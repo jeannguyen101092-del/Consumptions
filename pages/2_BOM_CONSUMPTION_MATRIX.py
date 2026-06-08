@@ -645,27 +645,34 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     # Dọn dẹp ký tự phá hoại đường link URL
                     dynamic_keyword = re.sub(r"[\[\]'\"*?%#&]", "", dynamic_keyword).strip()
                     
-                    # ✨ THUẬT TOÁN TỰ SỬA LỖI (AUTO-REPAIR):
-                    # Nếu kỹ sư gõ dạng chữ liền số chứa dấu cách hoặc dấu chấm (Ví dụ: "SJ 8902" hoặc "SJ.8902")
-                    # Hệ thống tự động chuẩn hóa ép về dấu gạch ngang chuẩn xưởng: "SJ-8902"
+                    # Tự động sửa lỗi dấu cách hoặc dấu chấm viết lệch thành dấu gạch ngang (Ví dụ: "SJ 8902" -> "SJ-8902")
                     dynamic_keyword = re.sub(r"([A-Z]+)[\s\.]+(\d+)", r"\1-\2", dynamic_keyword)
 
                     if not dynamic_keyword:
                         dynamic_keyword = "UNKNOWN"
 
-                    # Gọi API Supabase PostgREST chuẩn hóa (chỉ mã hóa riêng giá trị từ khóa trần)
+                    # THAY ĐỔI CỐT LÕI: Sử dụng cơ chế truyền params của thư viện requests để bảo vệ cú pháp query
                     headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
                     base_sb_url = SB_URL.rstrip('/')
-                    val_encoded = quote(dynamic_keyword)
                     
-                    # Cú pháp gọi chính xác bảng thong_so_techpack
-                    url_techpack = f"{base_sb_url}/rest/v1/thong_so_techpack?StyleName=ilike.*{val_encoded}*&select=StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL&limit=3"
-                    res_tp = requests.get(url_techpack, headers=headers, timeout=15)
+                    # 1. Gọi bảng thong_so_techpack bằng tham số an toàn
+                    url_techpack = f"{base_sb_url}/rest/v1/thong_so_techpack"
+                    params_tp = {
+                        "StyleName": f"ilike.*{dynamic_keyword}*",
+                        "select": "StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL",
+                        "limit": "3"
+                    }
+                    res_tp = requests.get(url_techpack, headers=headers, params=params_tp, timeout=15)
                     db_results = res_tp.json() if 200 <= res_tp.status_code <= 299 else []
                     
-                    # Cú pháp gọi chính xác bảng san_pham
-                    url_san_pham = f"{base_sb_url}/rest/v1/san_pham?or=(style_name.ilike.*{val_encoded}*,article_name.ilike.*{val_encoded}*,notes.ilike.*{val_encoded}*)&select=style_name,article_name,consumption_type,material_size,uom,consumption_value,notes&limit=50"
-                    res_sp = requests.get(url_san_pham, headers=headers, timeout=15)
+                    # 2. Gọi bảng san_pham bằng tham số cấu trúc điều kiện OR phân tách độc lập mã hóa chuẩn PostgREST
+                    url_san_pham = f"{base_sb_url}/rest/v1/san_pham"
+                    params_sp = {
+                        "or": f"(style_name.ilike.*{dynamic_keyword}*,article_name.ilike.*{dynamic_keyword}*)",
+                        "select": "style_name,article_name,consumption_type,material_size,uom,consumption_value,notes",
+                        "limit": "100"
+                    }
+                    res_sp = requests.get(url_san_pham, headers=headers, params=params_sp, timeout=15)
                     backup_res = res_sp.json() if 200 <= res_sp.status_code <= 299 else []
 
                     # HIỂN THỊ HÌNH ẢNH TRỰC QUAN NGAY TRÊN GIAO DIỆN CHAT NẾU CÓ TRONG KHO
@@ -678,6 +685,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     
                     if sketch_url_found:
                         st.image(sketch_url_found, caption=f"Hình ảnh phác thảo thiết kế tìm thấy trong kho cho mã hàng: {dynamic_keyword}", use_container_width=True)
+
 
 
 
