@@ -566,10 +566,7 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
             if msg.get("type") == "visual" and msg.get("image_url"):
                 st.image(msg["image_url"], caption=f"Bản vẽ Sketch lịch sử đối chiếu mã {msg.get('style_title')}", width=220)
        # =============================================================================
-          # PHASE 6B - PART 1: INDEPENDENT DATASTREAM & MULTI-INTENT PROCESSING PIPELINE
-   # =============================================================================
-# =============================================================================
-# =============================================================================
+     # =============================================================================
 # ĐOẠN 1: CHUẨN HÓA TỪ KHÓA & TRUY VẤN DỮ LIỆU GỐC TỪ MASTER DB
 # =============================================================================
 import re
@@ -584,34 +581,34 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
         st.write(user_query)
     
     with st.chat_message("assistant"):
-        with St.spinner("Hệ thống AI R&D Engine đang kết nối kho tri thức nền dệt may..."):
+        with st.spinner("Hệ thống AI R&D Engine đang kết nối kho tri thức nền dệt may..."):
             gemini_key = get_secure_gemini_key()
             if not gemini_key: 
                 st.error("CRITICAL SERVER BREAKDOWN: AI API Token is missing.")
             else:
-                Try:
-                    Client = genai.Client(api_key=gemini_key)
+                try:
+                    client = genai.Client(api_key=gemini_key)
                     new_style_id_detected = "UNKNOWN_STYLE"
                     new_style_raw_text = ""
                     
                     # Luồng kiểm tra file Techpack tải lên an toàn
-                    If 'chat_file' in locals() or 'chat_file' in globals():
+                    if 'chat_file' in locals() or 'chat_file' in globals():
                         has_file = chat_file is not None
                     else:
                         has_file = False
                         
-                    If has_file:
+                    if has_file:
                         file_bytes = chat_file.getvalue()
                         img_payload = []
                         if chat_file.name.lower().endswith('.pdf'):
                             info_chat = pdfinfo_from_bytes(file_bytes)
                             total_chat_pages = int(info_chat.get("Pages", 1))
                             chat_images = convert_from_bytes(file_bytes, dpi=140, first_page=1, last_page=total_chat_pages)
-                            For page_img in chat_images:
+                            for page_img in chat_images:
                                 img_buf = io.BytesIO()
                                 page_img.convert("RGB").save(img_buf, format="JPEG")
                                 img_payload.append(types.Part.from_bytes(data=img_buf.getvalue(), mime_type='image/jpeg'))
-                        Else:
+                        else:
                             img_payload.append(types.Part.from_bytes(data=file_bytes, mime_type='image/jpeg'))
                         
                         extraction_prompt = """
@@ -624,37 +621,37 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                         extraction_payload = list(img_payload)
                         extraction_payload.append(extraction_prompt)
                         
-                        For ext_attempt in range(3):
-                            Try:
+                        for ext_attempt in range(3):
+                            try:
                                 extraction_res = client.models.generate_content(
-                                    Model='gemini-2.5-flash', 
-                                    Contents=extraction_payload, 
-                                    Config=types.GenerateContentConfig(response_mime_type="application/json", temperature=0.0)
+                                    model='gemini-2.5-flash', 
+                                    contents=extraction_payload, 
+                                    config=types.GenerateContentConfig(response_mime_type="application/json", temperature=0.0)
                                 )
                                 parsed_meta = json.loads(extraction_res.text.strip())
                                 new_style_id_detected = parsed_meta.get("detected_style_id", "UNKNOWN_STYLE").strip()
                                 new_style_raw_text = parsed_meta.get("all_specs_text", "")
-                                Break
-                            Except Exception:
-                                Import time
+                                break
+                            except Exception:
+                                import time
                                 time.sleep(2 * (ext_attempt + 1))
                     
                     # Thuật toán tách lọc từ khóa động thông minh
-                    Clean_text_upper = str(user_query).strip().upper()
+                    clean_text_upper = str(user_query).strip().upper()
                     pattern_remove = r"^(TÌM|TIM|KIỂM TRA|KIEM TRA|XEM|CHECK|CHO TOI|XIN)\s+(MÃ HÀNG|MA HANG|MÃ|MA|CODE|VẢI|VAI|ĐỊNH MỨC|DINH MUC)?\s*"
                     clean_query = re.sub(pattern_remove, "", clean_text_upper)
                     
-                    If has_file and new_style_id_detected != "UNKNOWN_STYLE" and not clean_query.strip():
+                    if has_file and new_style_id_detected != "UNKNOWN_STYLE" and not clean_query.strip():
                         dynamic_keyword = str(new_style_id_detected).strip()
-                    Else:
+                    else:
                         dynamic_keyword = clean_query.strip()
 
-                    Dynamic_keyword = re.sub(r"[\[\]'\"*?%#&]", "", dynamic_keyword).strip()
-                    If not dynamic_keyword:
+                    dynamic_keyword = re.sub(r"[\[\]'\"*?%#&]", "", dynamic_keyword).strip()
+                    if not dynamic_keyword:
                         dynamic_keyword = "UNKNOWN"
 
                     # Gọi API Supabase lấy thông số kỹ thuật và mã nguyên phụ liệu gốc
-                    Headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
+                    headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
                     base_sb_url = SB_URL.rstrip('/')
                     
                     url_keyword = quote(f"*{dynamic_keyword}*")
@@ -670,7 +667,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
 # ĐOẠN 2: FETCH MÃ TƯƠNG ĐỒNG & CHUYỂN GIAO AI TÍNH TOÁN ĐỊNH MỨC MỚI
 # =============================================================================
                     # Thuật toán bóc tách tiền tố (Prefix) tìm hàng cùng nhóm (Ví dụ: MR1705 -> tìm MR*)
-                    Prefix_match = re.match(r"^([A-Z]+)", dynamic_keyword)
+                    prefix_match = re.match(r"^([A-Z]+)", dynamic_keyword)
                     similarity_keyword = prefix_match.group(1) if prefix_match else dynamic_keyword[:3]
                     
                     url_similar = f"{base_sb_url}/rest/v1/san_pham?style_name=ilike.*{similarity_keyword}*&select=style_name,article_name,consumption_type,material_size,uom,consumption_value&limit=10"
@@ -678,26 +675,26 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     similar_records = res_sim.json() if 200 <= res_sim.status_code <= 299 else []
 
                     # Đóng gói toàn bộ cây dữ liệu tri thức nền (BOM Context)
-                    Db_context = f"=== HỒ SƠ KHẢO SÁT MÃ HÀNG MỚI: {dynamic_keyword} ===\n"
-                    If has_file:
-                        Db_context += f"[Dữ liệu bóc tách từ file Techpack mới upload]: {new_style_raw_text}\n"
+                    db_context = f"=== HỒ SƠ KHẢO SÁT MÃ HÀNG MỚI: {dynamic_keyword} ===\n"
+                    if has_file:
+                        db_context += f"[Dữ liệu bóc tách từ file Techpack mới upload]: {new_style_raw_text}\n"
                     
-                    If db_results:
-                        For item in db_results:
-                            Db_context += f"- Thông số kỹ thuật gốc: {item.get('StyleName')} | Phân loại: {item.get('Category')} | Số đo mẫu: {json.dumps(item.get('DetailedMeasurements', {}), ensure_ascii=False)} | Link ảnh thiết kế: {item.get('SketchURL')}\n"
+                    if db_results:
+                        for item in db_results:
+                            db_context += f"- Thông số kỹ thuật gốc: {item.get('StyleName')} | Phân loại: {item.get('Category')} | Số đo mẫu: {json.dumps(item.get('DetailedMeasurements', {}), ensure_ascii=False)} | Link ảnh thiết kế: {item.get('SketchURL')}\n"
                     
-                    If backup_res:
-                        Db_context += f"- Lịch sử định mức cấu thành trực tiếp:\n"
-                        For sp in backup_res[:5]:
-                            Db_context += f"  + Mã vải/Phụ liệu: {sp.get('article_name')} | Loại định mức: {sp.get('consumption_type')} | Khổ: {sp.get('material_size')} | Định mức: {sp.get('consumption_value')} {sp.get('uom')}\n"
+                    if backup_res:
+                        db_context += f"- Lịch sử định mức cấu thành trực tiếp:\n"
+                        for sp in backup_res[:5]:
+                            db_context += f"  + Mã vải/Phụ liệu: {sp.get('article_name')} | Loại định mức: {sp.get('consumption_type')} | Khổ: {sp.get('material_size')} | Định mức: {sp.get('consumption_value')} {sp.get('uom')}\n"
                     
-                    If similar_records:
-                        Db_context += f"\n=== HỒ SƠ THAM CHIẾU CÁC MÃ HÀNG TƯƠNG ĐỒNG TRONG KHO (DÙNG ĐỂ TÍNH ĐỊNH MỨC) ===\n"
-                        For sim in similar_records:
-                            Db_context += f"- Mã tương đồng: {sim.get('style_name')} | Nguyên phụ liệu: {sim.get('article_name')} | Khổ vải: {sim.get('material_size')} | Định mức thực tế: {sim.get('consumption_value')} {sim.get('uom')} ({sim.get('consumption_type')})\n"
+                    if similar_records:
+                        db_context += f"\n=== HỒ SƠ THAM CHIẾU CÁC MÃ HÀNG TƯƠNG ĐỒNG TRONG KHO (DÙNG ĐỂ TÍNH ĐỊNH MỨC) ===\n"
+                        for sim in similar_records:
+                            db_context += f"- Mã tương đồng: {sim.get('style_name')} | Nguyên phụ liệu: {sim.get('article_name')} | Khổ vải: {sim.get('material_size')} | Định mức thực tế: {sim.get('consumption_value')} {sim.get('uom')} ({sim.get('consumption_type')})\n"
 
                     # Thiết lập Prompt chỉ huy ép Gemini vận hành tư duy kỹ sư R&D dệt may
-                    Ai_prompt = f"""
+                    ai_prompt = f"""
                     Bạn là một Trợ lý AI chuyên ngành R&D và Cung ứng Vật tư Dệt may độc quyền của PPJ Group.
                     Dựa vào toàn bộ ngữ cảnh dữ liệu kho thực tế dưới đây, hãy xử lý yêu cầu phân tích toán học từ kỹ sư.
 
@@ -711,16 +708,16 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     4. Trình bày kết quả: Xuất ra bảng đối soát dữ liệu Markdown phân cấp rõ ràng, dễ hiểu cho kỹ sư trưởng đọc duyệt. Không hiển thị chuỗi JSON thô hay text chưa xử lý.
                     """
                     
-                    With st.spinner("🤖 AI R&D Engine đang thực hiện thuật toán so sánh dữ liệu kho và tính định mức..."):
-                        Ai_res = client.models.generate_content(
-                            Model='gemini-2.5-flash',
-                            Contents=ai_prompt
+                    with st.spinner("🤖 AI R&D Engine đang thực hiện thuật toán so sánh dữ liệu kho và tính định mức..."):
+                        ai_res = client.models.generate_content(
+                            model='gemini-2.5-flash',
+                            contents=ai_prompt
                         )
                         ans_text = ai_res.text
                     
                     # Xuất trực tiếp cấu trúc phân tích thông minh lên giao diện chat Streamlit
-                    St.markdown(ans_text)
+                    st.markdown(ans_text)
                     st.session_state["chat_history"].append({"role": "assistant", "type": "text", "content": ans_text})
 
-                Except Exception as e:
-                    St.error(f"❌ Lỗi xử lý hệ thống: {str(e)}")
+                except Exception as e:
+                    st.error(f"❌ Lỗi xử lý hệ thống: {str(e)}")
