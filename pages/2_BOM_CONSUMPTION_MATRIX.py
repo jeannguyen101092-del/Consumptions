@@ -735,33 +735,33 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
 
 
 # =============================================================================
-# ĐOẠN 3: HIỂN THỊ TRỰC TIẾP HÌNH ẢNH SKETCH VÀ DỮ LIỆU ĐỐI SOÁT
+# ĐOẠN 3: HIỂN THỊ TRỰC TIẾP HÌNH ẢNH SKETCH VÀ DỮ LIỆU ĐỐI SOÁT DẠNG BẢNG
 # =============================================================================
                     db_sketch_url = None
                     db_measurements_raw = {}
                     current_style_name = ""
                     SUPABASE_PROJECT_URL = "https://supabase.co" 
                     
-                    # Kiểm tra và bóc mảng dữ liệu trả về từ bảng thông số
+                    # 1. Kiểm tra và bóc mảng dữ liệu trả về từ bảng thông số
                     if techpack_records and len(techpack_records) > 0:
-                        first_record = techpack_records[0] if isinstance(techpack_records, list) else techpack_records
+                        first_record = techpack_records if isinstance(techpack_records, list) else techpack_records
                         if isinstance(first_record, dict):
                             current_style_name = first_record.get("StyleName", "")
                             db_sketch_url = first_record.get("SketchURL")
                             db_measurements_raw = first_record.get("DetailedMeasurements", {})
                         
+                        # Hiển thị hình ảnh Sketch tự động bằng URL DB
                         if db_sketch_url and str(db_sketch_url).startswith("http"):
                             st.image(db_sketch_url, caption=f"🖼️ Ảnh Sketch mã hàng: {current_style_name}", use_container_width=True)
                         elif current_style_name:
                             constructed_url = f"{SUPABASE_PROJECT_URL}/storage/v1/object/public/kho_anh/{current_style_name}.jpg"
                             st.image(constructed_url, caption=f"🖼️ Ảnh Sketch mã hàng: {current_style_name}", use_container_width=True)
                     else:
-                        # Nếu bảng thông số trống, tự động lấy trực tiếp từ kho ảnh Storage theo từ khóa sạch
                         if dynamic_keyword and dynamic_keyword != "UNKNOWN":
                             constructed_url = f"{SUPABASE_PROJECT_URL}/storage/v1/object/public/kho_anh/{dynamic_keyword}.jpg"
                             st.image(constructed_url, caption=f"🖼️ Ảnh Sketch tìm theo mã: {dynamic_keyword}", use_container_width=True)
 
-                    # Hiển thị trực tiếp các bảng dữ liệu thô từ Database
+                    # 2. Hiển thị hai bảng dữ liệu đối soát song song
                     col1, col2 = st.columns(2)
                     with col1:
                         st.markdown("**📋 Thông tin định mức vải (Bảng san_pham):**")
@@ -773,7 +773,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                                 "Khổ vải": r.get("material_size"),
                                 "Đơn vị": r.get("uom")
                             } for r in fabric_records]
-                            st.dataframe(formatted_fabric)
+                            st.dataframe(formatted_fabric, use_container_width=True)
                             st.session_state["chat_history"].append({"role": "assistant", "type": "text", "content": f"Đã hiển thị dữ liệu cho mã {dynamic_keyword}."})
                         else:
                             st.info("Không có dữ liệu vải lịch sử trùng khớp.")
@@ -781,7 +781,13 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     with col2:
                         st.markdown("**📏 Thông số hình học gốc (Bảng thong_so_techpack):**")
                         if techpack_records and db_measurements_raw:
-                            st.json(db_measurements_raw)
+                            # THUẬT TOÁN ĐỔI ĐỊNH DẠNG DICTIONARY JSON THÀNH DẠNG BẢNG 2 CỘT CHUYÊN NGHIỆP
+                            formatted_measurements = [
+                                {"Vị trí đo (POM)": key, "Thông số kỹ thuật": value} 
+                                for key, value in db_measurements_raw.items()
+                            ]
+                            # Hiển thị thông số dưới dạng bảng lưới thay vì định dạng text JSON cũ
+                            st.dataframe(formatted_measurements, use_container_width=True)
                         else:
                             st.info("Không tìm thấy thông số kỹ thuật tương ứng.")
                             
