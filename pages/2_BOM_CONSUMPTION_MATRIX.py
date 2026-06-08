@@ -822,7 +822,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
 
 
 # =============================================================================
-# ĐOẠN 3: AI SO SÁNH THÔNG SỐ ĐA MÃ VÀ TỰ ĐỘNG TÍNH ĐỊNH MỨC VẢI CHO MÃ MỚI
+# ĐOẠN 3: AI ĐỐI SOÁT ĐA MÃ HOẶC TỰ ĐỘNG TÍNH ĐỊNH MỨC THEO ĐỘ CO ĐA CHIỀU
 # =============================================================================
                     db_sketch_url = None
                     db_measurements_raw = {}
@@ -849,56 +849,67 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                             constructed_url = f"{SUPABASE_PROJECT_URL}/storage/v1/object/public/kho_anh/{dynamic_keyword}.jpg"
                             st.image(constructed_url, caption=f"🖼️ Ảnh Sketch tìm theo mã: {dynamic_keyword}", use_container_width=True)
 
-                    # 1. Trích xuất biến số Khổ vải và Độ co từ câu lệnh chat (Ví dụ: khổ 150cm co 3%)
+                    # 1. THUẬT TOÁN BÓC TÁCH BIẾN SỐ SẢN XUẤT ĐA CHIỀU TỪ Ô CHAT (Khổ vải, Co ngang, Co dọc)
                     fabric_width_input = re.search(r'(?:KHỔ|KHO)\s*(\d+(?:\.\d+)?)', clean_text_upper)
-                    shrinkage_input = re.search(r'(?:CO|CO RÚT|CO RUT)\s*(\d+(?:\.\d+)?)\s*%', clean_text_upper)
                     
-                    user_width = fabric_width_input.group(1) if fabric_width_input else "150CM"
-                    user_shrinkage = shrinkage_input.group(1) if shrinkage_input else "0"
+                    # Bóc tách riêng biệt phần trăm độ co theo chiều ngang và dọc bằng RegEx
+                    shrink_ngang = re.search(r'(?:NGANG)\s*(\d+(?:\.\d+)?)\s*%', clean_text_upper)
+                    shrink_doc = re.search(r'(?:DỌC|DOC)\s*(\d+(?:\.\d+)?)\s*%', clean_text_upper)
+                    # Dự phòng nếu người dùng chỉ nhập một con số co chung chung
+                    shrink_general = re.search(r'(?:CO|CO RÚT|CO RUT)\s*(\d+(?:\.\d+)?)\s*%', clean_text_upper)
 
-                    st.markdown(f"### 📊 Kết quả đối soát mã mới vơi mã tương đồng: **{current_style_name}**")
+                    user_width = fabric_width_input.group(1) if fabric_width_input else "57 INCH"
+                    co_ngang = shrink_ngang.group(1) if shrink_ngang else "0"
+                    co_doc = shrink_doc.group(1) if shrink_doc else (shrink_general.group(1) if shrinkage_general else "0")
+
+                    st.markdown(f"### 📊 Kết quả đối soát dữ liệu mã hàng: **{new_style_id_detected}**")
                     
                     col1, col2 = st.columns(2)
                     with col1:
-                        st.markdown("**📋 Thông tin định mức vải lịch sử (Bảng san_pham):**")
+                        st.markdown("**📋 Thông tin định mức vải gốc (Bảng san_pham):**")
                         if fabric_records:
                             formatted_fabric = [{"Mã hàng": r.get("style_name"), "Mã vải (Article)": r.get("article_name"), "Loại vật tư": r.get("consumption_type"), "Khổ vải": r.get("material_size"), "Đơn vị": r.get("uom")} for r in fabric_records]
                             st.dataframe(formatted_fabric, use_container_width=True)
                         else:
-                            st.info("Không có dữ liệu vải lịch sử.")
+                            st.info("ℹ️ Không tìm thấy mã tương đồng. Hệ thống chuyển sang chế độ tự phân tích tính toán hình học độc lập.")
                             
                     with col2:
-                        st.markdown(f"**📏 Thông số hình học gốc của mã tương đồng ({current_style_name}):**")
-                        if db_measurements_raw and isinstance(db_measurements_raw, dict):
-                            formatted_measurements = [{"Vị trí đo (POM)": key, "Thông số kỹ thuật thực tế": value} for key, value in db_measurements_raw.items()]
+                        # Hiển thị bảng thông số đo vừa bóc tách được từ file Techpack mới upload lên
+                        st.markdown("**📏 Thông số hình học bóc tách thực tế (Từ Techpack mới):**")
+                        display_specs = db_measurements_raw if db_measurements_raw else new_style_measurements_dict
+                        if display_specs and isinstance(display_specs, dict):
+                            formatted_measurements = [{"Vị trí đo (POM)": key, "Thông số kỹ thuật thực tế": value} for key, value in display_specs.items()]
                             st.dataframe(formatted_measurements, use_container_width=True)
                         else:
                             st.info("Không tìm thấy thông số kỹ thuật gốc.")
 
-                    # 2. GỬI PROMPT ÉP AI SO SÁNH HAI BẢNG THÔNG SỐ ĐỂ TÍNH ĐỊNH MỨC CHO MÃ MỚI
-                    st.markdown("### 📐 Kết quả phân tích đối so sánh & Tính toán định mức vải")
+                    # 2. PROMPT ÉP AI TỰ ĐỘNG LẬP SƠ ĐỒ ĐỊNH MỨC ĐỘC LẬP TỪ HÌNH HỌC VÀ ĐỘ CO ĐA CHIỀU
+                    st.markdown("### 📐 Kết quả phân tích sơ đồ & Tính toán định mức vải độc lập")
                     
                     analysis_prompt = f"""
-                    You are a professional Apparel Costing Engineer. Calculate the exact production fabric consumption for the New Style.
+                    You are an expert Apparel Costing & Marker Planning Engineer (Chuyên gia lập sơ đồ định mức vải). 
+                    Perform a strict fabric consumption calculation for this New Style.
                     
-                    [VARIABLES]
-                    - Target Fabric Width: {user_width}
-                    - Target Fabric Shrinkage Allowance: {user_shrinkage}%
+                    [PRODUCTION INPUT VARIABLES]
+                    - Target Fabric Width (Khổ vải sản xuất): {user_width}
+                    - Fabric Shrinkage Weft (Độ co rút chiều NGANG): {co_ngang}%
+                    - Fabric Shrinkage Warp (Độ co rút chiều DỌC): {co_doc}%
                     
-                    [DATA TO COMPARE]
-                    - New Style Measurements (Mã mới): {new_style_raw_text}
-                    - Historical Matched Measurements (Mã tương đồng): {json.dumps(db_measurements_raw, ensure_ascii=False)}
-                    - Historical Matched Fabric Yield (Định mức cũ): {json.dumps(fabric_records, ensure_ascii=False)}
+                    [GEOMETRIC SPECS AVAILABLE]
+                    - Current Style Measurements (Thông số rập bóc từ Techpack mới): {json.dumps(display_specs, ensure_ascii=False)}
+                    - History Reference Records (Dữ liệu đối chứng kho): {json.dumps(fabric_records, ensure_ascii=False)}
                     
-                    [TASKS]
-                    1. Compare the measurements of the New Style with the Historical Matched Style point-by-point. 
-                    2. Identify length or width deviations (e.g., if inseam/outseam length or hip/thigh width increased or decreased).
-                    3. Adapt the old 'Main Fabric' consumption baseline to calculate the New Net Consumption based on these geometric deviations and the target width ({user_width}).
-                    4. Factor in the user's shrinkage ({user_shrinkage}%) and a 5% standard cutting wastage to produce the final Gross Production Consumption.
-                    5. Output your analysis completely in Vietnamese. Be concise and highly technical. Use markdown headers and metric blocks format if possible. Do not output conversational text.
+                    [CALCULATION RULES]
+                    1. SITUATION A (No History Match Found): Calculate the net fabric consumption entirely from scratch based on the current style's points of measurement (POM). Locate the main length component (e.g., Inseam/Outseam/Total Length) and main width component (e.g., ½ Waist / ½ Hip / Thigh) to estimate the fabric yield required per garment.
+                    2. SITUATION B (History Match Exists): Use the historical consumption as a base, then adjust mathematically for any size differences.
+                    3. SHRINKAGE APPLICATION: Apply the shrinkage factors correctly. 
+                       - Warp shrinkage ({co_doc}%) directly increases the required fabric length per unit.
+                       - Weft shrinkage ({co_ngang}%) impacts the usable layout width within the specified fabric width ({user_width}).
+                    4. WASTAGE: Add a standard 5% cutting wastage to the total length.
+                    5. Output your report step-by-step completely in Vietnamese. Make it mathematically sound, professional, and concise. Do not output generic chat responses.
                     """
                     
-                    with st.spinner("AI đang so sánh thông số rập đối chứng và áp công thức tính định mức..."):
+                    with st.spinner("AI R&D đang chạy thuật toán lập sơ đồ sơ bộ và bù hao độ co đa chiều..."):
                         final_payload = list(img_payload) if has_file else []
                         final_payload.append(analysis_prompt)
                         
