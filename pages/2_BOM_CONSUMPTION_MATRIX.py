@@ -657,73 +657,73 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                         
                     if has_file and chat_file is not None:
                         file_bytes = chat_file.getvalue()
-                        if chat_file.name.lower().endswith('.pdf'):
-                            info_chat = pdfinfo_from_bytes(file_bytes)
-                            total_chat_pages = int(info_chat.get("Pages", 1))
-                            
-                            # TỐI ƯU HÓA CỐT LÕI: Chỉ quét tối đa 3 trang đầu để lấy mã hàng, tránh tràn băng thông API
-                            max_pages_to_read = min(total_chat_pages, 3)
-                            chat_images = convert_from_bytes(file_bytes, dpi=110, first_page=1, last_page=max_pages_to_read)
-                            
-                            for idx, page_img in enumerate(chat_images):
-                                img_buf = io.BytesIO()
-                                page_img.convert("RGB").save(img_buf, format="JPEG", quality=80) # Giảm nhẹ quality xuống 80 để tối ưu dung lượng
-                                img_payload.append(types.Part.from_bytes(data=img_buf.getvalue(), mime_type='image/jpeg'))
-                        else:
-                            img_payload.append(types.Part.from_bytes(data=file_bytes, mime_type='image/jpeg'))
-                        
-                        extraction_prompt = """
-                        Analyze the attached technical pack front pages.
-                        1. Locate the genuine 'Style ID' / 'Style Number' / 'Mã hàng' (e.g., 1P001363). Clean it.
-                        2. Identify the Product Line 'Category' (e.g., Pants, Jeans, Jacket).
-                        3. Extract all points of measurement (POM) into a strict key-value flat dictionary.
-                        4. Find the exact 'PAGE INDEX' (starting from 0) that contains the TECHNICAL BLACK AND WHITE FLAT SKETCH / DRAWING.
-                        
-                        Return a valid JSON with this exact schema:
-                        {"detected_style_id": "Pure code only", "category": "Pants or Jacket", "fabric_code": "Pure fabric code", "measurements": {"Vị trí đo": "Thông số"}, "sketch_page_index_detected": 0}
-                        """
-                        extraction_payload = list(img_payload)
-                        extraction_payload.append(extraction_prompt)
-                        
                         try:
-                            extraction_res = client.models.generate_content(
-                                model='gemini-2.5-flash', 
-                                contents=extraction_payload, 
-                                config=types.GenerateContentConfig(response_mime_type="application/json", temperature=0.0)
-                            )
-                            parsed_meta = json.loads(extraction_res.text.strip())
-                            new_style_id_detected = parsed_meta.get("detected_style_id", "UNKNOWN_STYLE").strip()
-                            new_style_category_detected = parsed_meta.get("category", "").strip()
-                            new_style_fabric_detected = parsed_meta.get("fabric_code", "UNKNOWN_FABRIC").strip()
-                            new_style_measurements_dict = parsed_meta.get("measurements", {})
-                            new_style_raw_text = json.dumps(new_style_measurements_dict, ensure_ascii=False)
-                            
-                            detected_idx = int(parsed_meta.get("sketch_page_index_detected", 0))
-                            if chat_file.name.lower().endswith('.pdf') and 0 <= detected_idx < len(chat_images):
-                                b_buf = io.BytesIO()
-                                chat_images[detected_idx].convert("RGB").save(b_buf, format="JPEG")
-                                target_new_sketch_bytes = b_buf.getvalue()
-                            else:
-                                target_new_sketch_bytes = file_bytes
+                            if chat_file.name.lower().endswith('.pdf'):
+                                info_chat = pdfinfo_from_bytes(file_bytes)
+                                total_chat_pages = int(info_chat.get("Pages", 1))
+                                max_pages_to_read = min(total_chat_pages, 3)
+                                chat_images = convert_from_bytes(file_bytes, dpi=110, first_page=1, last_page=max_pages_to_read)
                                 
-                            if target_new_sketch_bytes:
-                                try:
-                                    image_content = types.Content(
-                                        parts=[types.Part.from_bytes(data=target_new_sketch_bytes, mime_type='image/jpeg')]
-                                    )
-                                    embedding_res = client.models.embed_content(
-                                        model='multimodal-embedding-001',
-                                        contents=image_content
-                                    )
-                                    if hasattr(embedding_res, 'embedding') and embedding_res.embedding:
-                                        target_new_sketch_vector = embedding_res.embedding.values
-                                except Exception:
-                                    target_new_sketch_vector = None
-                        except Exception as extract_err:
-                            # In lỗi ra màn hình debug nội bộ nếu quá trình gọi AI bóc tách gặp sự cố cấu trúc
-                            st.sidebar.error(f"Lỗi phân tích cú pháp AI: {str(extract_err)}")
+                                for idx, page_img in enumerate(chat_images):
+                                    img_buf = io.BytesIO()
+                                    page_img.convert("RGB").save(img_buf, format="JPEG", quality=80)
+                                    img_payload.append(types.Part.from_bytes(data=img_buf.getvalue(), mime_type='image/jpeg'))
+                            else:
+                                img_payload.append(types.Part.from_bytes(data=file_bytes, mime_type='image/jpeg'))
+                        except Exception as pdf_err:
+                            st.error(f"❌ Lỗi khi chuyển đổi file PDF/Ảnh: {str(pdf_err)}")
+
+                        if img_payload:
+                            extraction_prompt = """
+                            Analyze the attached technical pack front pages.
+                            1. Locate the genuine 'Style ID' / 'Style Number' / 'Mã hàng' (e.g., 1P001363). Clean it.
+                            2. Identify the Product Line 'Category' (e.g., Pants, Jeans, Jacket).
+                            3. Extract all points of measurement (POM) into a strict key-value flat dictionary.
+                            4. Find the exact 'PAGE INDEX' (starting from 0) that contains the TECHNICAL BLACK AND WHITE FLAT SKETCH / DRAWING.
+                            
+                            Return a valid JSON with this exact schema:
+                            {"detected_style_id": "Pure code only", "category": "Pants or Jacket", "fabric_code": "Pure fabric code", "measurements": {"Vị trí đo": "Thông số"}, "sketch_page_index_detected": 0}
+                            """
+                            extraction_payload = list(img_payload)
+                            extraction_payload.append(extraction_prompt)
+                            
+                            try:
+                                extraction_res = client.models.generate_content(
+                                    model='gemini-2.5-flash', 
+                                    contents=extraction_payload, 
+                                    config=types.GenerateContentConfig(response_mime_type="application/json", temperature=0.0)
+                                )
+                                parsed_meta = json.loads(extraction_res.text.strip())
+                                new_style_id_detected = parsed_meta.get("detected_style_id", "UNKNOWN_STYLE").strip()
+                                new_style_category_detected = parsed_meta.get("category", "").strip()
+                                new_style_fabric_detected = parsed_meta.get("fabric_code", "UNKNOWN_FABRIC").strip()
+                                new_style_measurements_dict = parsed_meta.get("measurements", {})
+                                new_style_raw_text = json.dumps(new_style_measurements_dict, ensure_ascii=False)
+                                
+                                detected_idx = int(parsed_meta.get("sketch_page_index_detected", 0))
+                                if chat_file.name.lower().endswith('.pdf') and 'chat_images' in locals() and 0 <= detected_idx < len(chat_images):
+                                    b_buf = io.BytesIO()
+                                    chat_images[detected_idx].convert("RGB").save(b_buf, format="JPEG")
+                                    target_new_sketch_bytes = b_buf.getvalue()
+                                else:
+                                    target_new_sketch_bytes = file_bytes
+                                    
+                                if target_new_sketch_bytes:
+                                    try:
+                                        image_content = types.Content(
+                                            parts=[types.Part.from_bytes(data=target_new_sketch_bytes, mime_type='image/jpeg')]
+                                        )
+                                        embedding_res = client.models.embed_content(
+                                            model='multimodal-embedding-001',
+                                            contents=image_content
+                                        )
+                                        if hasattr(embedding_res, 'embedding') and embedding_res.embedding:
+                                            target_new_sketch_vector = embedding_res.embedding.values
+                                    except Exception as emb_err:
+                                        st.sidebar.warning(f"Không thể tạo Vector ảnh: {str(emb_err)}")
+                            except Exception as ai_err:
+                                st.error(f"❌ Lỗi phản hồi từ Gemini API: {str(ai_err)}")
                     
-                    # --- XỬ LÝ LỌC TỪ KHÓA ---
                     clean_text_upper = str(user_query).strip().upper()
                     is_searching_fabric = any(word in clean_text_upper for word in ["CODE VẢI", "CODE VAI", "MÃ VẢI", "MA VAI", "LOẠI VẢI", "LOAI VAI", "TÌM VẢI", "TIM VAI"])
                     
@@ -742,7 +742,6 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                             clean_query = clean_query.replace(word, "")
                         clean_query = clean_query.strip()
                     
-                    # ĐỊNH ĐOẠT TỪ KHÓA TRUY VẤN
                     dynamic_keyword = ""
                     if has_file:
                         if is_searching_fabric and new_style_fabric_detected != "UNKNOWN_FABRIC":
@@ -763,13 +762,11 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
 
                     if has_file and target_new_sketch_bytes:
                         st.image(target_new_sketch_bytes, caption=f"🖼️ Bản vẽ phẳng công nghệ trích xuất từ FILE MỚI UPLOAD ({new_style_id_detected})", use_container_width=True)
-
                     # Thực hiện so khớp ma trận hình học khi cơ sở dữ liệu trả về bản ghi liên quan
                     if db_results:
                         import numpy as np
 
                         def calculate_cosine_similarity(vec_a, vec_b):
-                            """Tính toán độ tương đồng giữa hai chuỗi vector số học số hóa"""
                             dot_product = np.dot(vec_a, vec_b)
                             norm_a = np.linalg.norm(vec_a)
                             norm_b = np.linalg.norm(vec_b)
@@ -779,7 +776,6 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
 
                         matched_reports = []
                         
-                        # HƯỚNG 1: Sử dụng thuật toán so khớp khoảng cách hình học Vector ảnh
                         if target_new_sketch_vector:
                             st.write("### ⚙️ Kết quả thuật toán đối soát hình ảnh phẳng (Vector Matrix):")
                             for record in db_results:
@@ -809,7 +805,6 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                                     except Exception:
                                         pass
 
-                        # HƯỚNG 2: Cơ chế dự phòng so khớp từ khóa văn bản khi thiếu dữ liệu ma trận ảnh
                         if not matched_reports:
                             st.write("### 📝 Kết quả đối soát dựa trên truy vấn dữ liệu Text & Key-Word:")
                             for record in db_results:
@@ -827,7 +822,6 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                                     "method": "Từ khóa Text"
                                 })
 
-                        # Sắp xếp và in kết quả trực quan ra màn hình ứng dụng Streamlit
                         if matched_reports:
                             matched_reports = sorted(matched_reports, key=lambda x: x["score"], reverse=True)
                             cols = st.columns(min(len(matched_reports), 3))
@@ -847,4 +841,4 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                         st.warning(f"⚠️ Kho tri thức DB không trả về kết quả nào cho từ khóa: '{dynamic_keyword}'")
 
                 except Exception as system_main_err:
-                    st.error(f"Hệ thống lõi R&D xảy ra sự cố: {str(system_main_err)}")
+                    st.error(f"Hệ thống lõi R&D xảy ra sự cố tổng thể: {str(system_main_err)}")
