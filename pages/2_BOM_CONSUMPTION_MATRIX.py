@@ -722,32 +722,21 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     matched_style_name = None
                     best_similarity = -1.0
 
+                    # 🌟 TẦNG 1: ĐỐI SOÁT THỊ GIÁC VECTOR TRỰC TIẾP TỪ ẢNH RẬP PHẲNG
                     if has_file and target_new_sketch_bytes:
                         with st.spinner("⚡ AI đang số hóa hình học phẳng và chạy thuật toán so khớp thị giác Vector..."):
                             query_vector = None
                             try:
-                                # Bước 1: Dùng Gemini phân tích cấu trúc hình học trực quan của bản vẽ phẳng kỹ thuật mới upload
-                                vision_prompt = """
-                                Analyze this technical flat sketch in detail. 
-                                Describe its exact silhouette, waistband geometry, front pockets, back yoke, and stitching lines in 3 concise sentences.
-                                """
-                                vision_res = client.models.generate_content(
-                                    model='gemini-2.5-flash',
-                                    contents=[types.Part.from_bytes(data=target_new_sketch_bytes, mime_type='image/jpeg'), vision_prompt]
-                                )
-                                visual_description = vision_res.text.strip() if vision_res.text else "technical denim pants layout"
-
-                                # Bước 2: Số hóa chuỗi mô tả đặc trưng hình học thành mảng Vector số thực độ dài chuẩn
                                 embedding_res = client.models.embed_content(
-                                    model='text-embedding-004',
-                                    contents=visual_description
+                                    model='multimodal-embedding-001',
+                                    contents=types.Part.from_bytes(data=target_new_sketch_bytes, mime_type='image/jpeg')
                                 )
-                                query_vector = np.array(embedding_res.embeddings.values if hasattr(embedding_res.embeddings, 'values') else embedding_res.embeddings.values)
-                            except Exception as e:
-                                st.sidebar.error(f"Lỗi khởi tạo Vector ảnh: {str(e)}")
+                                if hasattr(embedding_res, 'embeddings') and embedding_res.embeddings:
+                                    query_vector = np.array(embedding_res.embeddings.values)
+                            except Exception as ai_err:
+                                st.sidebar.error(f"Lỗi khởi tạo Vector đa phương thức: {ai_err}")
                                 query_vector = None
 
-                            # Bước 3: Nếu sinh Vector thành công, tiến hành quét toàn bộ kho ảnh thiết kế trong Database để so sánh hình học
                             if query_vector is not None:
                                 url_all_vectors = f"{base_sb_url}/rest/v1/thong_so_techpack?select=StyleName,sketch_vector"
                                 try:
@@ -756,47 +745,46 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                                 except Exception:
                                     warehouse_data = []
 
-                                for row in warehouse_data:
-                                    v_str = row.get("sketch_vector")
-                                    if v_str:
-                                        try:
-                                            # KHẮC PHỤC CHÍ MẠNG: Làm sạch chuỗi mảng Postgres dạng "{x,y,z}" hoặc "[x,y,z]" về mảng số thực numpy
-                                            v_str_clean = str(v_str).strip()
-                                            
-                                            # Nếu chuỗi lưu trong DB bọc bằng ngoặc nhọn dạng mảng Postgres {...}, chuyển về dạng JSON [...]
-                                            if v_str_clean.startswith("{") and v_str_clean.endswith("}"):
-                                                v_str_clean = "[" + v_str_clean[1:-1] + "]"
-                                            
-                                            # Thử giải mã bằng bộ thư viện JSON, nếu thất bại tách chuỗi bằng dấu phẩy
+                                # Kiểm tra xem kho dữ liệu Vector có phần tử nào không
+                                if len(warehouse_data) > 0:
+                                    for row in warehouse_data:
+                                        v_str = row.get("sketch_vector")
+                                        if v_str:
                                             try:
-                                                db_vector_list = json.loads(v_str_clean)
-                                            except Exception:
-                                                db_vector_list = [float(x) for x in v_str_clean.strip("[]{}").split(",") if x.strip()]
+                                                v_str_clean = str(v_str).strip()
+                                                if v_str_clean.startswith("{") and v_str_clean.endswith("}"):
+                                                    v_str_clean = "[" + v_str_clean[1:-1] + "]"
                                                 
-                                            db_vector = np.array(db_vector_list)
-                                            
-                                            # Thực hiện thuật toán Cosine Similarity kiểm tra độ trùng khớp hình học giữa 2 rập phẳng
-                                            dot_product = np.dot(query_vector, db_vector)
-                                            norm_query = np.linalg.norm(query_vector)
-                                            norm_db = np.linalg.norm(db_vector)
-                                            similarity = dot_product / (norm_query * norm_db)
-                                            
-                                            # TÌM MÃ CÓ ĐỘ TƯƠNG ĐỒNG THỊ GIÁC CAO NHẤT (Hạ ngưỡng xuống 0.55 để luôn bốc ra được mã gần giống nhất trong kho)
-                                            if similarity > best_similarity and similarity >= 0.55:
-                                                best_similarity = similarity
-                                                matched_style_name = row.get("StyleName")
-                                        except Exception:
-                                            pass
+                                                try:
+                                                    db_vector_list = json.loads(v_str_clean)
+                                                except Exception:
+                                                    db_vector_list = [float(x) for x in v_str_clean.strip("[]{}").split(",") if x.strip()]
+                                                    
+                                                db_vector = np.array(db_vector_list)
+                                                
+                                                # Tính khoảng cách hình học Cosine Similarity
+                                                dot_product = np.dot(query_vector, db_vector)
+                                                norm_query = np.linalg.norm(query_vector)
+                                                norm_db = np.linalg.norm(db_vector)
+                                                similarity = dot_product / (norm_query * norm_db)
+                                                
+                                                # Hạ ngưỡng xuống 0.50 để tối ưu tỷ lệ bắt trúng mã phom dáng tương tự
+                                                if similarity > best_similarity and similarity >= 0.50:
+                                                    best_similarity = similarity
+                                                    matched_style_name = row.get("StyleName")
+                                            except Exception:
+                                                pass
 
-                    # Bước 4: Chốt mã hàng có thiết kế giống nhất vừa quét được bằng thuật toán Vector
+                    # 🌟 TẦNG 2: CƠ CHẾ DỰ PHÒNG CHÉO (FALLBACK TEXT SEARCH) KHI KHO VECTOR TRỐNG
                     if matched_style_name:
                         final_search_key = matched_style_name
-                        st.sidebar.success(f"🎯 Khớp thị giác Vector thành công! Tìm thấy mã tương đồng trong kho: {final_search_key} (Độ khớp: {round(best_similarity * 100, 1)}%)")
+                        st.sidebar.success(f"🎯 Khớp ảnh Vector thành công: {final_search_key} ({round(best_similarity * 100, 1)}%)")
                     else:
-                        # Dự phòng nếu kho trống hoàn toàn thì giữ nguyên từ khóa bóc tách từ tên file
+                        # Nếu thuật toán Vector không tìm thấy do kho trống, lấy từ khóa text bóc tách tự động làm mốc đối soát
                         final_search_key = dynamic_keyword.strip().upper()
+                        st.sidebar.info(f"ℹ️ Kho Vector trống hoặc không khớp. Hệ thống tự động chuyển sang chế độ quét Text nâng cao: `{final_search_key}`")
 
-                    # Bước 5: Đổ toàn bộ dữ liệu lịch sử định mức và thông số của mã hàng tương đồng đó ra màn hình
+                    # 🌟 TẦNG 3: TRUY XUẤT ĐỒNG BỘ DỮ LIỆU ĐỂ TIẾN HÀNH SO SÁNH THÔNG SỐ VÀ ĐỊNH MỨC VẢI
                     url_san_pham = f"{base_sb_url}/rest/v1/san_pham?or=(style_name.ilike.%25{quote(final_search_key)}%25,article_name.ilike.%25{quote(final_search_key)}%25)&select=*"
                     url_techpack = f"{base_sb_url}/rest/v1/thong_so_techpack?StyleName=ilike.%25{quote(final_search_key)}%25&select=*"
 
