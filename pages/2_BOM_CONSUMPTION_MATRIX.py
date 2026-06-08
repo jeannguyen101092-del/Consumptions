@@ -697,49 +697,49 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
 
 
 # =============================================================================
-# ĐOẠN 2 - PHẦN A: BỘ LỌC TỰ ĐỘNG SỬA LỖI FONT CHỮ HOA/THƯỜNG CHO CATEGORY
+# ĐOẠN 2 - PHẦN A: BỘ LỌC TỰ ĐỘNG CHUẨN HÓA TOÁN TỬ VÀ QUÉT CHỦNG LOẠI
 # =============================================================================
-                    # Hệ thống tự động kiểm tra xem câu lệnh có yêu cầu so sánh mã tương đồng hoặc tính định mức hay không
+                    # Kiểm tra xem người dùng có thực sự yêu cầu tìm kiếm mã tương đồng/tính định mức hay không
                     is_similarity_requested = any(word in clean_text_upper for word in ["TƯƠNG ĐỒNG", "TUONG DONG", "GIỐNG", "GIONG", "SO SÁNH", "SO SANH", "ĐỊNH MỨC", "DINH MUC"])
                     similar_records = []
                     vision_payload = [] # Mảng nạp dữ liệu nhị phân các file ảnh rập phẳng trích từ kho lưu trữ
-                    
+
                     if is_similarity_requested:
-                        # Bước A: Thử quét fuzzy theo tiền tố chữ cái của mã hàng gốc (Ví dụ: MR1705 -> MR)
+                        # Bước A: Thử quét fuzzy theo tiền tố chữ cái hoặc ký tự đầu của mã hàng gốc
                         prefix_match = re.match(r"^([A-Z0-9]+)", dynamic_keyword)
                         similarity_keyword = prefix_match.group(1) if prefix_match else dynamic_keyword[:3]
                         
                         similar_techpacks = get_techpack_spec_from_db(style_name_keyword=similarity_keyword)
                         
-                        # Bước B: Thuật toán dự phòng nâng cao (Fallback ma trận chủng loại)
+                        # Bước B: Thuật toán dự phòng nâng cao (Fallback ma trận chủng loại chuẩn PostgREST)
                         detected_cat = ""
                         if db_results:
-                            # Đảm bảo bóc tách an toàn dù db_results trả về dạng List hay Dict
-                            first_item = db_results[0] if isinstance(db_results, list) and len(db_results) > 0 else db_results
+                            # Trích xuất an toàn dù dữ liệu trả về dạng List hay Dict nguyên bản
+                            first_item = db_results if isinstance(db_results, list) and len(db_results) > 0 else db_results
                             if isinstance(first_item, dict):
-                                detected_cat = first_item.get("Category", "")
-                        
-                        # CẢI TIẾN QUYẾT ĐỊNH: Nếu tìm theo mã hàng rỗng, tự động bẻ chữ lọc Category dạng viết thường không phân biệt hoa thường
+                                detected_cat = str(first_item.get("Category", "")).strip()
+
+                        # SỬA LỖI ĐỒNG BỘ: Lấy từ cốt lõi đầu tiên dạng chữ trần (String) để đẩy vào ilike
                         if (not similar_techpacks or len(similar_techpacks) <= 0) and detected_cat:
-                            # Trích xuất từ khóa lõi viết thường (Ví dụ: "Quần Jean nam" -> nhặt từ "Quần" hoặc "Jean")
-                            cat_words = re.findall(r'\w+', str(detected_cat).lower())
-                            core_cat_keyword = cat_words[0] if cat_words else str(detected_cat).lower()
+                            # Tách chuỗi lấy từ cuối cùng (Ví dụ: "Denim Pants" -> lấy "Pants")
+                            words_list = re.findall(r'\w+', detected_cat)
+                            core_str_keyword = words_list[-1] if words_list else detected_cat
                             
                             url_cat_backup = f"{base_sb_url}/rest/v1/thong_so_techpack"
                             params_cat = {
-                                "Category": f"ilike.*{quote(core_cat_keyword)}*",
+                                "Category": f"ilike.*{core_str_keyword}*",
                                 "select": "StyleName,Category,DetailedMeasurements,SketchURL",
                                 "limit": "4"
                             }
                             res_cat_backup = requests.get(url_cat_backup, headers=headers, params=params_cat, timeout=15)
                             similar_techpacks = res_cat_backup.json() if 200 <= res_cat_backup.status_code <= 299 else []
 
-                        # Gọi lịch sử định mức phụ thuộc vật tư từ bảng san_pham
+                        # Gọi lịch sử định mức phụ thuộc vật tư tương ứng của nhóm này từ bảng san_pham lịch sử của bạn
                         similar_sp_data = get_historical_fabric_consumption_from_db(search_keyword=similarity_keyword)
                         if not similar_sp_data and detected_cat:
-                            cat_words = re.findall(r'\w+', str(detected_cat).lower())
-                            core_cat_keyword = cat_words[0] if cat_words else str(detected_cat).lower()
-                            similar_sp_data = get_historical_fabric_consumption_from_db(search_keyword=core_cat_keyword)
+                            words_list = re.findall(r'\w+', detected_cat)
+                            core_str_keyword = words_list[-1] if words_list else detected_cat
+                            similar_sp_data = get_historical_fabric_consumption_from_db(search_keyword=core_str_keyword)
 
                         # LUỒNG MULTIMODAL: Tải ngầm file ảnh từ kho về chuyển sang dạng nhị phân nạp vào mắt thần AI
                         for tp in similar_techpacks[:4]:
@@ -765,6 +765,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                                 "measurements": tp.get("DetailedMeasurements"),
                                 "bom_data": match_sp if match_sp else []
                             })
+
 
 # =============================================================================
 # ĐOẠN 2 - PHẦN B: ĐÓNG GÓI NGỮ CẢNH VÀ CHUYỂN GIAO MẮT THẦN AI XỬ LÝ TOÁN HỌC
@@ -792,7 +793,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                             if sim['bom_data']:
                                 db_context += f"  + Lịch sử định mức cấu thành: {json.dumps(sim['bom_data'], ensure_ascii=False)}\n"
 
-                    # Chỉ thị cấu trúc prompt cưỡng chế tư duy R&D may mặc
+                    # Chỉ thị prompt phân cấp bắt buộc AI thực thi nghiệp vụ kỹ thuật R&D dệt may
                     ai_prompt = f"""
                     Bạn là một Chuyên gia phân tích dữ liệu R&D cao cấp kiêm Giám đốc Kỹ thuật Ngành may mặc PPJ Group.
                     Hãy xử lý yêu cầu kỹ thuật phân tích ma trận tương đồng từ kỹ sư: "{user_query}"
@@ -800,19 +801,19 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     DỮ LIỆU THỰC TẾ TRONG HỆ THỐNG MASTER DB PHÒNG R&D:
                     {db_context}
 
-                    QUY TRÌNH THỰC THI THỊ GIÁC VÀ TOÁN HỌC BẮT BUỘC CỦA AI:
+                    QUY TRÌNH THỰC THI THỊ GIÁC VÀ TOÁN HỌC BẮT BUỘC:
                     1. HỎI GÌ ĐÁP NẤY: 
-                       - Nếu kỹ sư chỉ hỏi tìm thông tin đơn thuần (Ví dụ: Hỏi mã vải dùng cho mã nào, thông tin mã hàng), hãy xuất bảng báo cáo Markdown trực tiếp của mã đó, không so sánh tương đồng lan man.
+                       - Nếu kỹ sư chỉ hỏi tìm thông tin đơn thuần (Ví dụ: Mã vải này dùng cho mã nào, thông tin mã hàng thô), hãy xuất bảng báo cáo Markdown trực tiếp của mã đó, không thực hiện so sánh lan man.
                     2. BIÊN SOẠN THỊ GIÁC SO KHỚP TƯƠNG ĐỒNG (Trạng thái lệnh: {is_similarity_requested}):
-                       - Bước A (So khớp ảnh Sketch sạch): Sử dụng tính năng Vision để đối chiếu trực quan tấm ảnh rập phẳng công nghệ trích xuất từ file mới upload (đầu danh sách contents) với chuỗi các hình ảnh Sketch sạch tải từ kho lưu trữ (phần sau danh sách contents). Hãy phân tích cấu trúc phom dáng (Ví dụ: Kiểu dáng Quần Jean nam, kết cấu 5 túi, đường may) xem mã mới giống mã tương đồng nào trong kho nhất.
+                       - Bước A (So khớp ảnh Sketch sạch): Sử dụng tính năng Vision để đối chiếu trực quan tấm ảnh rập phẳng công nghệ trích xuất từ file mới upload (đầu danh sách contents) với chuỗi các hình ảnh Sketch sạch tải từ kho lưu trữ công cộng (phần sau danh sách contents). Hãy phân tích cấu trúc phom dáng (Ví dụ: Kiểu dáng Quần Jean nam, kết cấu 5 túi, đường may) xem mã mới giống mã tương đồng nào trong kho nhất dựa trên ngoại quan hình ảnh.
                        - Bước B (So khớp thông số kích thước hình học): Đối chiếu bảng thông số đo hình học 'DetailedMeasurements' giữa mã mới và mã tương đồng vừa tìm được ở Bước A, tính toán biên độ chênh lệch chênh lệch bao nhiêu cm hoặc inch.
-                       - Bước C (Dự toán định mức - DM): Áp dụng phương pháp tam suất hoặc công thức toán học tỷ lệ dựa trên định mức cũ của mã tương đồng để tính toán, đưa ra con số định mức dự báo cụ thể cho mã mới này.
+                       - Bước C (Dự toán định mức - DM): Áp dụng phương pháp tam suất hoặc công thức toán học tỷ lệ dựa trên định mức thực tế cũ của mã tương đồng để tính toán, đưa ra con số định mức dự báo cụ thể cho mã mới này.
                     3. KỊCH BẢN KHO TRỐNG (Không tìm thấy mẫu nào trùng khớp ngoại quan ảnh hoặc danh sách tương đồng rỗng):
                        - Tự động kích hoạt tư duy nghiệp vụ may mặc độc lập: Tính toán diện tích hình học sơ bộ bề mặt vải cần thiết dựa theo bảng số đo sẵn có của mã {dynamic_keyword}, cộng thêm tỷ lệ phần trăm hao hụt kỹ thuật đường may và co rút vải (5%-10%) để tự toán học hóa kết luận ra con số định mức vải dự kiến cụ thể cho kỹ sư.
                     4. Trình bày đầu ra: Định dạng cấu trúc bảng Markdown phân cấp sạch đẹp, dịch toàn bộ vị trí đo tiếng Anh sang tiếng Việt trực quan. Không hiển thị chuỗi dữ liệu JSON thô.
                     """
                     
-                    # Đóng gói ma trận đa phương thức gửi cho Gemini Engine
+                    # Đóng gói ma trận payload đa phương thức gửi cho Gemini Engine
                     contents_payload = []
                     if has_file and target_new_sketch_bytes:
                         contents_payload.append("--- TECHNICAL SKETCH OF THE NEW UPLOADED FILE ---")
