@@ -705,7 +705,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     
                     # Đóng gói tập dữ liệu tham chiếu tương đồng (chỉ có khi được yêu cầu)
                     if is_similarity_requested and similar_records:
-                        db_context += f"\n=== KHO DỮ LIỆU THAM CHIẾU CÁC MÃ TƯƠNG ĐỒNG (CẦN CHECK KHỚP ẢNH TRƯỚC) ===\n"
+                        db_context += f"\n=== KHO DỮ LIỆU THAM CHIẾU CÁC MÃ HÀNG TƯƠNG ĐỒNG (CẦN CHECK KHỚP ẢNH TRƯỚC) ===\n"
                         for sim in similar_records:
                             db_context += f"- Mã mẫu: {sim.get('StyleName')} | Link hình ảnh thiết kế: {sim.get('SketchURL')} | Số đo mẫu: {json.dumps(sim.get('DetailedMeasurements', {}), ensure_ascii=False)}\n"
 
@@ -717,4 +717,3 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     DỮ LIỆU THỰC TẾ TRONG KHO:
                     {db_context}
 
-                    QUY TẮC PHẢN HỒI BẮT BUỘC:
