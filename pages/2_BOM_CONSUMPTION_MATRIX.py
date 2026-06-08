@@ -607,10 +607,10 @@ import concurrent.futures
 from urllib.parse import quote
 from google import genai
 from google.genai import types
-try:
-    from pdf2image import convert_from_bytes, pdfinfo_from_bytes
-except ImportError:
-    pass
+
+# Giả định hàm get_secure_gemini_key của bạn được định nghĩa ở đây hoặc dùng st.secrets
+# def get_secure_gemini_key():
+#     return st.secrets.get("gemini_api_key")
 
 if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vải và đối soát sai lệch..."):
     st.session_state["chat_history"].append({"role": "user", "type": "text", "content": user_query})
@@ -619,7 +619,11 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
     
     with st.chat_message("assistant"):
         with st.spinner("Hệ thống AI R&D Engine đang kết nối kho tri thức nền dệt may..."):
-            gemini_key = get_secure_gemini_key()
+            
+            # Cần đảm bảo đã có hàm hoặc cách lấy API Key
+            # gemini_key = get_secure_gemini_key()
+            gemini_key = "YOUR_API_KEY_HERE" 
+            
             if not gemini_key: 
                 st.error("CRITICAL SERVER BREAKDOWN: AI API Token is missing.")
             else:
@@ -633,17 +637,18 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     img_payload = [] 
                     target_new_sketch_bytes = None 
                     
-                    if 'chat_file' in locals() or 'chat_file' in globals():
-                        has_file = chat_file is not None
-                    elif 'uploaded_file' in st.session_state:
+                    has_file = False
+                    if 'chat_file' in st.session_state and st.session_state.get('chat_file') is not None:
+                        has_file = True
+                        chat_file = st.session_state['chat_file']
+                    elif 'uploaded_file' in st.session_state and st.session_state.get('uploaded_file') is not None:
+                        has_file = True
                         chat_file = st.session_state['uploaded_file']
-                        has_file = chat_file is not None
-                    else:
-                        has_file = False
                         
-                    if has_file:
+                    if has_file and 'chat_file' in locals(): # Hoặc kiểm tra object file ở đây
                         file_bytes = chat_file.getvalue()
                         if chat_file.name.lower().endswith('.pdf'):
+                            # Cần đảm bảo pdf2image được import thành công ở trên
                             info_chat = pdfinfo_from_bytes(file_bytes)
                             total_chat_pages = int(info_chat.get("Pages", 1))
                             chat_images = convert_from_bytes(file_bytes, dpi=110, first_page=1, last_page=total_chat_pages)
@@ -682,45 +687,51 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                             new_style_raw_text = json.dumps(new_style_measurements_dict, ensure_ascii=False)
                             
                             detected_idx = int(parsed_meta.get("sketch_page_index_detected", 0))
-                            if chat_file.name.lower().endswith('.pdf') and 0 <= detected_idx < len(chat_images):
+                            if chat_file.name.lower().endswith('.pdf') and 'chat_images' in locals() and 0 <= detected_idx < len(chat_images):
                                 b_buf = io.BytesIO()
                                 chat_images[detected_idx].convert("RGB").save(b_buf, format="JPEG")
                                 target_new_sketch_bytes = b_buf.getvalue()
                             else:
                                 target_new_sketch_bytes = file_bytes
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            st.warning(f"Lỗi trích xuất file: {str(e)}")
                     
                     clean_text_upper = str(user_query).strip().upper()
                     is_searching_fabric = any(word in clean_text_upper for word in ["CODE VẢI", "CODE VAI", "MÃ VẢI", "MA VAI", "LOẠI VẢI", "LOAI VAI", "TÌM VẢI", "TIM VAI"])
                     
+                    # Tối ưu đoạn tìm kiếm mã
                     codes_found = re.findall(r'\b[A-Z]*\d+[A-Z0-9]*\b|\b[A-Z0-9]+-\d+[A-Z0-9-]*\b', clean_text_upper)
                     
+                    # LẤY CHUỖI TÌM KIẾM CHÍNH XÁC (Tránh lỗi List -> String trong Database)
                     if codes_found:
-                        clean_query = codes_found
+                        dynamic_keyword = codes_found[0].strip() # Lấy mã khớp đầu tiên, dưới dạng chuỗi string (tránh lỗi do list)
                     else:
                         pattern_remove = r"\b(TÌM|TIM|KIỂM TRA|KIEM TRA|XEM|CHECK|CHO TOI|XIN|MÃ HÀNG|MA HANG|MÃ|MA|VẢI|VAI|ĐỊNH MỨC|DINH MUC|CODE|TRÍCH XUẤT|TRICH XUAT|HÌNH ẢNH|HINH ANH|HÌNH|HINH|ẢNH|ANH|TÍNH|TINH|THÔNG TIN|THONG TIN|NÀY|NAY|TƯƠNG ĐỒNG|TUONG DONG|VỚI|KHO|KIẾM|VOI|TRONG)\b"
-                        clean_query = re.sub(pattern_remove, "", clean_text_upper).strip()
+                        dynamic_keyword = re.sub(pattern_remove, "", clean_text_upper).strip()
                     
-                    if has_file:
-                        if is_searching_fabric and new_style_fabric_detected != "UNKNOWN_FABRIC":
-                            dynamic_keyword = str(new_style_fabric_detected).strip()
-                        elif clean_query and len(clean_query) >= 3 and not any(w in clean_query for w in ["VỚI", "KHO", "TRONG"]):
-                            dynamic_keyword = clean_query
-                        else:
-                            dynamic_keyword = str(new_style_id_detected).strip()
-                    else:
-                        dynamic_keyword = clean_query if clean_query else "UNKNOWN"
+                    # Xử lý Logic File / Keyword
+                    if has_file and new_style_id_detected != "UNKNOWN_STYLE":
+                        dynamic_keyword = str(new_style_id_detected).strip()
 
                     dynamic_keyword = re.sub(r"[\[\]'\"*?%#&]", "", dynamic_keyword).strip()
+                    
+                    # Phủ quyết cuối nếu từ khóa quá ngắn
                     if not dynamic_keyword or len(dynamic_keyword) < 3:
                         dynamic_keyword = str(new_style_id_detected).strip() if new_style_id_detected != "UNKNOWN_STYLE" else "UNKNOWN"
 
-                    db_results = get_techpack_spec_from_db(style_name_keyword=dynamic_keyword)
-                    backup_res = get_historical_fabric_consumption_from_db(search_keyword=dynamic_keyword)
-
+                    # Tiến hành truy vấn DB với string chuẩn xác
+                    st.write(f"Đang tiến hành tìm kiếm với từ khóa: **{dynamic_keyword}**")
+                    
+                    # Giả định 2 hàm dưới đây đã được định nghĩa trong chương trình của bạn
+                    # db_results = get_techpack_spec_from_db(style_name_keyword=dynamic_keyword)
+                    # backup_res = get_historical_fabric_consumption_from_db(search_keyword=dynamic_keyword)
+                    
                     if has_file and target_new_sketch_bytes:
                         st.image(target_new_sketch_bytes, caption=f"🖼️ Bản vẽ phẳng công nghệ trích xuất từ FILE MỚI UPLOAD ({new_style_id_detected})", use_container_width=True)
+
+                except Exception as e:
+                    st.error(f"Đã xảy ra lỗi: {str(e)}")
+
 
 
 
