@@ -712,21 +712,97 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
 
 
 # =============================================================================
-# ĐOẠN 2 - PHẦN A: BẢN THÔNG MẠCH TUYỆT ĐỐI TRUY VẤN ĐA BẢNG ĐỒNG THỜI
+# ĐOẠN 2 - PHẦN A: TRUY VẤN TRỰC TIẾP STORAGE BUCKET TÌM MÃ ẢNH TƯƠNG ĐỒNG
 # =============================================================================
                     base_sb_url = SB_URL.rstrip('/')
                     headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
+                    SUPABASE_PROJECT_URL = "https://supabase.co"
 
                     is_similarity_requested = True
                     fabric_records = []
                     techpack_records = []
+                    matched_style_name = None
 
                     if is_similarity_requested:
                         short_keyword = dynamic_keyword.strip().upper()
                         
-                        # Gọi API quét đồng thời cả 2 bảng dựa trên từ khóa sạch (Ví dụ: 1P001452)
+                        # BƯỚC 1: KIỂM TRA THỬ XEM MÃ NÀY ĐÃ CÓ SẴN TRONG BẢNG THÔNG SỐ CHƯA
+                        check_url = f"{base_sb_url}/rest/v1/thong_so_techpack?StyleName=eq.{quote(short_keyword)}&select=StyleName"
+                        has_in_techpack = False
+                        try:
+                            res_check = requests.get(check_url, headers=headers, timeout=3)
+                            if res_check.status_code == 200 and len(res_check.json()) > 0:
+                                has_in_techpack = True
+                        except Exception:
+                            has_in_techpack = False
+
+                        # BƯỚC 2: RẼ NHÁNH XỬ LÝ THEO THỰC TẾ
+                        if has_in_techpack:
+                            # Tình huống A: Mã đã có sẵn rập -> Dùng luôn mã gốc
+                            matched_style_name = short_keyword
+                        elif has_file and target_new_sketch_bytes:
+                            # Tình huống B: Mã mới tinh chưa có rập (1P001452) -> GỌI STORAGE BUCKET LẤY DANH SÁCH FILE ẢNH THẬT
+                            with st.spinner("🔍 Mã mới. AI đang truy cập Storage Bucket 'kho_anh' để đối chiếu thị giác trực tiếp..."):
+                                # Sử dụng API chuẩn của Supabase để liệt kê toàn bộ tệp tin trong bucket 'kho_anh'
+                                storage_endpoint = f"{base_sb_url}/storage/v1/object/list/kho_anh"
+                                storage_payload = {
+                                    "prefix": "",
+                                    "limit": 100,
+                                    "sortBy": {"column": "name", "order": "asc"}
+                                }
+                                storage_headers = {
+                                    "apikey": SB_KEY,
+                                    "Authorization": f"Bearer {SB_KEY}",
+                                    "Content-Type": "application/json"
+                                }
+                                
+                                try:
+                                    res_storage = requests.post(storage_endpoint, json=storage_payload, headers=storage_headers, timeout=5)
+                                    if res_storage.status_code == 200:
+                                        # Tạo danh sách chứa cấu trúc tên file kèm link ảnh Public URL thực tế trong Storage
+                                        warehouse_list = []
+                                        for file_obj in res_storage.json():
+                                            f_name = file_obj.get("name", "")
+                                            if f_name.lower().endswith(('.jpg', '.jpeg', '.png')):
+                                                style_code = f_name.rsplit('.', 1)[0] # Tách lấy '1P001451' từ '1P001451.jpg'
+                                                public_url = f"{SUPABASE_PROJECT_URL}/storage/v1/object/public/kho_anh/{f_name}"
+                                                warehouse_list.append({"StyleName": style_code, "SketchURL": public_url})
+                                    else:
+                                        warehouse_list = []
+                                except Exception:
+                                    warehouse_list = []
+
+                                # Tiến hành đưa ảnh mới bóc tách và danh mục link ảnh thật từ Storage Bucket cho Gemini phân tích
+                                if warehouse_list:
+                                    vision_payload = [
+                                        types.Part.from_bytes(data=target_new_sketch_bytes, mime_type='image/jpeg'),
+                                        f"""
+                                        You are an expert Apparel Pattern Matcher. Analyze the attached newly uploaded black and white technical sketch line art.
+                                        Compare its structural geometry with the registered style names and live image URLs fetched from our storage bucket:
+                                        Warehouse entries: {json.dumps(warehouse_list, ensure_ascii=False)}
+                                        
+                                        Task: Select the single most visually similar 'StyleName' from the list that shares the closest fit blueprint.
+                                        Return a strict valid JSON response with this exact schema:
+                                        {{"most_similar_style": "Exact StyleName from the list"}}
+                                        """
+                                    ]
+                                    try:
+                                        v_res = client.models.generate_content(
+                                            model='gemini-2.5-flash', 
+                                            contents=vision_payload,
+                                            config=types.GenerateContentConfig(response_mime_type="application/json", temperature=0.0)
+                                        )
+                                        parsed_json = json.loads(v_res.text.strip())
+                                        matched_style_name = parsed_json.get("most_similar_style")
+                                    except Exception:
+                                        matched_style_name = None
+
+                        # Khóa từ khóa tìm kiếm cuối cùng dựa trên kết quả phân tích thị giác của AI
+                        final_search_key = matched_style_name if matched_style_name else short_keyword
+
+                        # BƯỚC 3: TRUY VẤN SONG SONG ĐA BẢNG ĐỒNG THỜI THEO MÃ TƯƠNG ĐỒNG CHUẨN XÁC VỪA TÌM ĐƯỢC
                         url_san_pham = f"{base_sb_url}/rest/v1/san_pham?or=(style_name.ilike.*{quote(short_keyword)}*,article_name.ilike.*{quote(short_keyword)}*)&select=*"
-                        url_techpack = f"{base_sb_url}/rest/v1/thong_so_techpack?StyleName=ilike.*{quote(short_keyword)}*&select=*"
+                        url_techpack = f"{base_sb_url}/rest/v1/thong_so_techpack?StyleName=ilike.*{quote(final_search_key)}*&select=*"
 
                         def fetch_url(url):
                             try:
@@ -741,6 +817,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                             
                             fabric_records = future_sp.result()
                             techpack_records = future_tp.result()
+
 
 
 
