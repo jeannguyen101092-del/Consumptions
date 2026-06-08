@@ -621,26 +621,28 @@ try:
 except ImportError:
     pass
 
-# ĐẢM BẢO KHỞI TẠO BỘ NHỚ LỊCH SỬ CHAT TRÊN TOÀN CỤC
+# 1. KHỞI TẠO BỘ NHỚ LỊCH SỬ CHAT TRÊN TOÀN CỤC TRÁNH MẤT TIN NHẮN
 if "chat_history" not in st.session_state:
     st.session_state["chat_history"] = []
 
-# --- ĐƯA BIẾN FILE RA NGOÀI ĐỂ TRÁNH LÀM MẤT TRẠNG THÁI KHI RERENDER ---
+# 2. VẼ LẠI TOÀN BỘ LỊCH SỬ CHAT MỖI LẦN TRANG TẢI LẠI
+for msg in st.session_state["chat_history"]:
+    with st.chat_message(msg["role"]):
+        st.write(msg["content"])
+
+# 3. ĐỌC FILE KHÔNG PHỤ THUỘC VÀO KHỐI INPUT CHAT
 chat_file = st.session_state.get('uploaded_file', None)
 has_file = chat_file is not None
 img_payload = []
-file_bytes = None
-chat_images = []
+target_new_sketch_bytes = None
 
-# Khởi tạo các giá trị mặc định toàn cục trước khi luồng chat bắt đầu
+# Khai báo sẵn các biến chứa dữ liệu để tránh lỗi văng biến (NameError) ở Đoạn 2 và 3
 new_style_id_detected = "UNKNOWN_STYLE"
 new_style_raw_text = ""
 new_style_category_detected = ""
 new_style_fabric_detected = "UNKNOWN_FABRIC"
 new_style_measurements_dict = {}
-target_new_sketch_bytes = None
 
-# THỰC HIỆN ĐỌC FILE TRƯỚC KHI USER GÕ CHAT
 if has_file:
     try:
         file_bytes = chat_file.getvalue()
@@ -655,13 +657,12 @@ if has_file:
         else:
             img_payload.append(types.Part.from_bytes(data=file_bytes, mime_type='image/jpeg'))
             target_new_sketch_bytes = file_bytes
-    except Exception as e_init_file:
-        st.error(f"Lỗi đọc file hệ thống: {str(e_init_file)}")
+    except Exception as e_file:
+        st.error(f"Lỗi hệ thống khi tải file: {str(e_file)}")
 
-# BẮT ĐẦU LUỒNG TIẾP NHẬN TIN NHẮN CHAT
+# 4. TIẾP NHẬN INPUT TIN NHẮN CHAT TỪ NGƯỜI DÙNG
 if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vải và đối soát sai lệch..."):
     st.session_state["chat_history"].append({"role": "user", "type": "text", "content": user_query})
-    
     with st.chat_message("user"): 
         st.write(user_query)
     
@@ -674,20 +675,16 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                 try:
                     client = genai.Client(api_key=gemini_key)
                     
-                    # Nếu có file, thực hiện trích xuất thông số rập bằng AI
                     if has_file and img_payload:
                         extraction_prompt = """
                         Analyze ALL the attached technical pack images page by page.
                         Return a valid JSON with this exact schema:
                         {"detected_style_id": "Pure code only", "category": "Pants or Jacket", "fabric_code": "Pure fabric code", "measurements": {"Vị trí đo": "Thông số"}, "sketch_page_index_detected": 0}
                         """
-                        extraction_payload = list(img_payload)
-                        extraction_payload.append(extraction_prompt)
-                        
                         try:
                             extraction_res = client.models.generate_content(
                                 model='gemini-2.5-flash', 
-                                contents=extraction_payload, 
+                                contents=list(img_payload) + [extraction_prompt], 
                                 config=types.GenerateContentConfig(response_mime_type="application/json", temperature=0.0)
                             )
                             parsed_meta = json.loads(extraction_res.text.strip())
@@ -696,23 +693,17 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                             new_style_fabric_detected = parsed_meta.get("fabric_code", "UNKNOWN_FABRIC").strip()
                             new_style_measurements_dict = parsed_meta.get("measurements", {})
                             new_style_raw_text = json.dumps(new_style_measurements_dict, ensure_ascii=False)
-                            
-                            detected_idx = int(parsed_meta.get("sketch_page_index_detected", 0))
-                            if chat_file.name.lower().endswith('.pdf') and 0 <= detected_idx < len(chat_images):
-                                b_buf = io.BytesIO()
-                                chat_images[detected_idx].convert("RGB").save(b_buf, format="JPEG")
-                                target_new_sketch_bytes = b_buf.getvalue()
                         except Exception as inner_e:
-                            st.warning(f"Không trích xuất được rập tự động: {str(inner_e)}")
+                            pass
                     
-                    # LỌC TỪ KHÓA TỪ TIN NHẮN NGƯỜI DÙNG
+                    # TRÍCH XUẤT TỪ KHÓA TỪ TIN NHẮN VĂN BẢN
                     clean_text_upper = str(user_query).strip().upper()
                     is_searching_fabric = any(word in clean_text_upper for word in ["CODE VẢI", "CODE VAI", "MÃ VẢI", "MA VAI", "LOẠI VẢI", "LOAI VAI", "TÌM VẢI", "TIM VAI"])
                     
                     codes_found = re.findall(r'\b[A-Z]*\d+[A-Z0-9]*\b|\b[A-Z0-9]+-\d+[A-Z0-9-]*\b', clean_text_upper)
                     
                     if codes_found and len(codes_found) > 0:
-                        dynamic_keyword = str(codes_found[0]).strip() # Đã sửa index [0] tinh khiết
+                        dynamic_keyword = str(codes_found[0]).strip()
                     else:
                         pattern_remove = r"\b(TÌM|TIM|KIỂM TRA|KIEM TRA|XEM|CHECK|CHO TOI|XIN|MÃ HÀNG|MA HANG|MÃ|MA|VẢI|VAI|ĐỊNH MỨC|DINH MUC|CODE|TRÍCH XUẤT|TRICH XUAT|HÌNH ẢNH|HINH ANH|HÌNH|HINH|ẢNH|ANH|TÍNH|TINH|THÔNG TIN|THONG TIN|NÀY|NAY|TƯƠNG ĐỒNG|TUONG DONG|VỚI|KHO|KIẾM|VOI|TRONG)\b"
                         dynamic_keyword = re.sub(pattern_remove, "", clean_text_upper).strip()
@@ -822,18 +813,16 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     current_style_name = ""
                     SUPABASE_PROJECT_URL = base_sb_url.replace("/rest/v1", "").rstrip("/")
                     
-                    # ✨ ĐÃ SỬA CHÍNH XÁC: Trích xuất phần tử đầu tiên bằng chỉ mục [0] để lấy Dictionary
+                    # ✨ ĐÃ SỬA CHÍNH XÁC: Trích xuất phần tử đầu tiên bằng chỉ mục để lấy bản ghi Dictionary
                     if isinstance(techpack_records, list) and len(techpack_records) > 0:
-                        first_record = techpack_records[0] # THÊM CHỈ MỤC [0] TẠI ĐÂY
+                        first_record = techpack_records[0] # THÊM CHỈ MỤC TẠI ĐÂY
                         if isinstance(first_record, dict):
                             current_style_name = first_record.get("StyleName", "")
                             db_sketch_url = first_record.get("SketchURL")
                             db_measurements_raw = first_record.get("DetailedMeasurements", {})
                             if isinstance(db_measurements_raw, str):
-                                try: 
-                                    db_measurements_raw = json.loads(db_measurements_raw)
-                                except Exception: 
-                                    pass
+                                try: db_measurements_raw = json.loads(db_measurements_raw)
+                                except Exception: pass
                         
                         if db_sketch_url and str(db_sketch_url).startswith("http"):
                             st.image(db_sketch_url, caption=f"🖼️ Ảnh Sketch đối chứng mã hàng: {current_style_name}", use_container_width=True)
@@ -845,11 +834,11 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                             constructed_url = f"{SUPABASE_PROJECT_URL}/storage/v1/object/public/kho_anh/{dynamic_keyword}.jpg"
                             st.image(constructed_url, caption=f"🖼️ Ảnh Sketch tìm theo mã: {dynamic_keyword}", use_container_width=True)
 
-                    # TRÍCH XUẤT THÔNG SỐ CO RÚT AN TOÀN
+                    # BẢO VỆ REGEX KHÔNG BỊ LỖI KHI TỪ KHÓA TRỐNG HOẶC NGẮN KHÔNG CHỨA SỐ CO RÚT
                     fabric_width_input = re.search(r'(?:KHỔ|KHO)\s*(\d+(?:\.\d+)?)', clean_text_upper)
                     shrink_ngang = re.search(r'(?:NGANG)\s*(\d+(?:\.\d+)?)\s*%', clean_text_upper)
                     shrink_doc = re.search(r'(?:DỌC|DOC)\s*(\d+(?:\.\d+)?)\s*%', clean_text_upper)
-                    shrink_general = re.search(r'(?:CO|CO RÚT|CO RUT)\s*(\d+(?:\.\d+)?)\s*%', clean_text_upper)
+                    shrink_general = re.search(r'(?:CO|CO RÚT|CO RUT)\s*(\d+(?:\.\d+)?)', clean_text_upper)
 
                     user_width = fabric_width_input.group(1) if fabric_width_input else "57"
                     co_ngang = shrink_ngang.group(1) if shrink_ngang else "0"
