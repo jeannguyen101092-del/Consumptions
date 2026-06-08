@@ -827,9 +827,9 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     current_style_name = ""
                     SUPABASE_PROJECT_URL = "https://supabase.co" 
                     
-                    if techpack_records and len(techpack_records) > 0:
-                        # ✨ ĐÃ SỬA CHUẨN: Lấy đúng phần tử [0] của List để ép về kiểu Dictionary, giải quyết triệt để lỗi treo đứng im
-                        first_record = techpack_records[0] if isinstance(techpack_records, list) else techpack_records
+                    if isinstance(techpack_records, list) and len(techpack_records) > 0:
+                        # ✨ FIX TRIỆT ĐỂ LỖI TREO: Lấy chính xác phần tử đầu tiên bằng [0] để bẻ gãy cấu trúc mảng List
+                        first_record = techpack_records[0]
                         if isinstance(first_record, dict):
                             current_style_name = first_record.get("StyleName", "")
                             db_sketch_url = first_record.get("SketchURL")
