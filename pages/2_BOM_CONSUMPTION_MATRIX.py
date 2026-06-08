@@ -673,7 +673,6 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     clean_text_upper = str(user_query).strip().upper()
                     is_searching_fabric = any(word in clean_text_upper for word in ["CODE VẢI", "CODE VAI", "MÃ VẢI", "MA VAI", "LOẠI VẢI", "LOAI VAI", "TÌM VẢI", "TIM VAI"])
                     
-                    # CẢI TIẾN: Bổ sung "TINH", "HINH ANH", "HINH", "ANH" vào bộ lọc xóa từ thừa
                     pattern_remove = r"\b(TÌM|TIM|KIỂM TRA|KIEM TRA|XEM|CHECK|CHO TOI|XIN|MÃ HÀNG|MA HANG|MÃ|MA|VẢI|VAI|ĐỊNH MỨC|DINH MUC|CODE|TRÍCH XUẤT|TRICH XUAT|HÌNH ẢNH|HINH ANH|HÌNH|HINH|ẢNH|ANH|TÍNH|TINH|THÔNG TIN|THONG TIN|NÀY|NAY)\b"
                     clean_query = re.sub(pattern_remove, "", clean_text_upper).strip()
                     
@@ -697,18 +696,19 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     if has_file and target_new_sketch_bytes:
                         st.image(target_new_sketch_bytes, caption=f"🖼️ Bản vẽ phẳng công nghệ trích xuất từ FILE MỚI UPLOAD ({new_style_id_detected})", use_container_width=True)
 
+
 # =============================================================================
 # ĐOẠN 2 - PHẦN A: BẢN THÔNG MẠCH TUYỆT ĐỐI KHÔNG PHÂN BIỆT HOA THƯỜNG CHO KHO
 # =============================================================================
                     base_sb_url = SB_URL.rstrip('/')
                     headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
 
+                    # Luôn kích hoạt tìm kiếm để tránh mất dữ liệu khi chuyển trang hoặc chat lại
                     is_similarity_requested = True
                     fabric_records = []
                     techpack_records = []
 
                     if is_similarity_requested:
-                        # ĐẢM BẢO TỪ KHÓA ĐƯỢC IN HOA ĐỂ KHỚP VỚI MÃ 'MR1705' TRONG DATABASE
                         short_keyword = dynamic_keyword.strip().upper()
                         
                         if is_searching_fabric:
@@ -734,6 +734,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
 
 
 
+
 # =============================================================================
 # ĐOẠN 3: HIỂN THỊ TRỰC TIẾP HÌNH ẢNH SKETCH VÀ DỮ LIỆU ĐỐI SOÁT DẠNG BẢNG
 # =============================================================================
@@ -742,7 +743,6 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     current_style_name = ""
                     SUPABASE_PROJECT_URL = "https://supabase.co" 
                     
-                    # 1. Kiểm tra và bóc mảng dữ liệu trả về từ bảng thông số
                     if techpack_records and len(techpack_records) > 0:
                         first_record = techpack_records if isinstance(techpack_records, list) else techpack_records
                         if isinstance(first_record, dict):
@@ -750,7 +750,6 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                             db_sketch_url = first_record.get("SketchURL")
                             db_measurements_raw = first_record.get("DetailedMeasurements", {})
                         
-                        # Hiển thị hình ảnh Sketch tự động bằng URL DB
                         if db_sketch_url and str(db_sketch_url).startswith("http"):
                             st.image(db_sketch_url, caption=f"🖼️ Ảnh Sketch mã hàng: {current_style_name}", use_container_width=True)
                         elif current_style_name:
@@ -761,7 +760,6 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                             constructed_url = f"{SUPABASE_PROJECT_URL}/storage/v1/object/public/kho_anh/{dynamic_keyword}.jpg"
                             st.image(constructed_url, caption=f"🖼️ Ảnh Sketch tìm theo mã: {dynamic_keyword}", use_container_width=True)
 
-                    # 2. Hiển thị hai bảng dữ liệu đối soát song song
                     col1, col2 = st.columns(2)
                     with col1:
                         st.markdown("**📋 Thông tin định mức vải (Bảng san_pham):**")
@@ -780,14 +778,16 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                             
                     with col2:
                         st.markdown("**📏 Thông số hình học gốc (Bảng thong_so_techpack):**")
-                        if techpack_records and db_measurements_raw:
-                            # THUẬT TOÁN ĐỔI ĐỊNH DẠNG DICTIONARY JSON THÀNH DẠNG BẢNG 2 CỘT CHUYÊN NGHIỆP
+                        if db_measurements_raw and isinstance(db_measurements_raw, dict):
+                            # CHUYỂN JSON THÀNH DẠNG BẢNG ĐỐI SOÁT CHUYÊN NGHIỆP
                             formatted_measurements = [
                                 {"Vị trí đo (POM)": key, "Thông số kỹ thuật": value} 
                                 for key, value in db_measurements_raw.items()
                             ]
-                            # Hiển thị thông số dưới dạng bảng lưới thay vì định dạng text JSON cũ
                             st.dataframe(formatted_measurements, use_container_width=True)
+                        elif techpack_records and len(techpack_records) > 0:
+                            # Dự phòng nếu DetailedMeasurements trả về dạng khác
+                            st.dataframe(techpack_records, use_container_width=True)
                         else:
                             st.info("Không tìm thấy thông số kỹ thuật tương ứng.")
                             
