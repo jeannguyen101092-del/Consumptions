@@ -822,7 +822,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
 
 
 # =============================================================================
-# ĐOẠN 3: KẾT XUẤT HÌNH ẢNH SKETCH VÀ ĐƯA THÔNG SỐ MÃ TƯƠNG ĐỒNG VỀ BẢNG LƯỚI
+# ĐOẠN 3: AI SO SÁNH THÔNG SỐ ĐA MÃ VÀ TỰ ĐỘNG TÍNH ĐỊNH MỨC VẢI CHO MÃ MỚI
 # =============================================================================
                     db_sketch_url = None
                     db_measurements_raw = {}
@@ -830,67 +830,84 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     SUPABASE_PROJECT_URL = "https://supabase.co" 
                     
                     if techpack_records and len(techpack_records) > 0:
-                        first_record = techpack_records[0] if isinstance(techpack_records, list) else techpack_records
+                        first_record = techpack_records if isinstance(techpack_records, list) else techpack_records
                         if isinstance(first_record, dict):
                             current_style_name = first_record.get("StyleName", "")
                             db_sketch_url = first_record.get("SketchURL")
-                            # Đọc trường dữ liệu thông số rập đo chi tiết
                             db_measurements_raw = first_record.get("DetailedMeasurements", {})
-                            
-                            # Giải bọc nếu cấu trúc JSON bị lồng chuỗi (Stringified JSON)
                             if isinstance(db_measurements_raw, str):
-                                try:
-                                    db_measurements_raw = json.loads(db_measurements_raw)
-                                except Exception:
-                                    pass
+                                try: db_measurements_raw = json.loads(db_measurements_raw)
+                                except Exception: pass
                         
-                        # Hiển thị trực quan ảnh Sketch đối chứng của mã tương đồng bốc ra từ Database
                         if db_sketch_url and str(db_sketch_url).startswith("http"):
-                            st.image(db_sketch_url, caption=f"🖼️ Bản vẽ Sketch đối chứng của mã hàng tương đồng tìm được trong kho: {current_style_name}", use_container_width=True)
+                            st.image(db_sketch_url, caption=f"🖼️ Ảnh Sketch đối chứng mã hàng trong kho: {current_style_name}", use_container_width=True)
                         elif current_style_name:
                             constructed_url = f"{SUPABASE_PROJECT_URL}/storage/v1/object/public/kho_anh/{current_style_name}.jpg"
-                            st.image(constructed_url, caption=f"🖼️ Bản vẽ Sketch đối chứng của mã hàng tương đồng tìm được trong kho: {current_style_name}", use_container_width=True)
+                            st.image(constructed_url, caption=f"🖼️ Ảnh Sketch đối chứng mã hàng trong kho: {current_style_name}", use_container_width=True)
                     else:
                         if dynamic_keyword and dynamic_keyword != "UNKNOWN":
                             constructed_url = f"{SUPABASE_PROJECT_URL}/storage/v1/object/public/kho_anh/{dynamic_keyword}.jpg"
                             st.image(constructed_url, caption=f"🖼️ Ảnh Sketch tìm theo mã: {dynamic_keyword}", use_container_width=True)
 
-                    # Hiển thị tiêu đề kết quả đối soát
-                    st.markdown(f"### 📊 Kết quả tìm kiếm dữ liệu mã: **{dynamic_keyword}**")
+                    # 1. Trích xuất biến số Khổ vải và Độ co từ câu lệnh chat (Ví dụ: khổ 150cm co 3%)
+                    fabric_width_input = re.search(r'(?:KHỔ|KHO)\s*(\d+(?:\.\d+)?)', clean_text_upper)
+                    shrinkage_input = re.search(r'(?:CO|CO RÚT|CO RUT)\s*(\d+(?:\.\d+)?)\s*%', clean_text_upper)
+                    
+                    user_width = fabric_width_input.group(1) if fabric_width_input else "150CM"
+                    user_shrinkage = shrinkage_input.group(1) if shrinkage_input else "0"
+
+                    st.markdown(f"### 📊 Kết quả đối soát mã mới vơi mã tương đồng: **{current_style_name}**")
                     
                     col1, col2 = st.columns(2)
                     with col1:
-                        # 1. Hiển thị bảng thông tin định mức vật tư và mã vải
-                        st.markdown("**📋 Thông tin định mức vải (Bảng san_pham):**")
+                        st.markdown("**📋 Thông tin định mức vải lịch sử (Bảng san_pham):**")
                         if fabric_records:
-                            formatted_fabric = [{
-                                "Mã hàng": r.get("style_name"),
-                                "Mã vải (Article)": r.get("article_name"),
-                                "Loại vật tư": r.get("consumption_type"),
-                                "Khổ vải": r.get("material_size"),
-                                "Đơn vị": r.get("uom")
-                            } for r in fabric_records]
+                            formatted_fabric = [{"Mã hàng": r.get("style_name"), "Mã vải (Article)": r.get("article_name"), "Loại vật tư": r.get("consumption_type"), "Khổ vải": r.get("material_size"), "Đơn vị": r.get("uom")} for r in fabric_records]
                             st.dataframe(formatted_fabric, use_container_width=True)
                         else:
-                            st.info("Không có dữ liệu vải lịch sử trùng khớp.")
+                            st.info("Không có dữ liệu vải lịch sử.")
                             
                     with col2:
-                        # 2. SỬA ĐỔI CỐT LÕI: Chuyển dữ liệu text JSON bên phải về dạng bảng lưới phẳng (Dataframe)
-                        st.markdown(f"**📏 Thông số hình học đối chứng (Mã tương đồng trong kho: {current_style_name}):**")
+                        st.markdown(f"**📏 Thông số hình học gốc của mã tương đồng ({current_style_name}):**")
                         if db_measurements_raw and isinstance(db_measurements_raw, dict):
-                            # Thuật toán bóc tách cặp Key-Value để đưa lên lưới dọc chuyên nghiệp
-                            formatted_measurements = [
-                                {"Vị trí đo (POM)": key, "Thông số kỹ thuật thực tế": value} 
-                                for key, value in db_measurements_raw.items()
-                            ]
+                            formatted_measurements = [{"Vị trí đo (POM)": key, "Thông số kỹ thuật thực tế": value} for key, value in db_measurements_raw.items()]
                             st.dataframe(formatted_measurements, use_container_width=True)
-                        elif techpack_records and len(techpack_records) > 0:
-                            # Khối dự phòng kết xuất bảng phẳng nếu cấu trúc dữ liệu thô thay đổi
-                            st.dataframe(techpack_records, use_container_width=True)
                         else:
-                            st.info("Không tìm thấy dữ liệu thông số kỹ thuật tương ứng của mã đối chứng để hiển thị.")
-                            
-                    st.session_state["chat_history"].append({"role": "assistant", "type": "text", "content": f"Đã hiển thị thông tin đối soát mã tương đồng {current_style_name} dạng lưới."})
+                            st.info("Không tìm thấy thông số kỹ thuật gốc.")
+
+                    # 2. GỬI PROMPT ÉP AI SO SÁNH HAI BẢNG THÔNG SỐ ĐỂ TÍNH ĐỊNH MỨC CHO MÃ MỚI
+                    st.markdown("### 📐 Kết quả phân tích đối so sánh & Tính toán định mức vải")
+                    
+                    analysis_prompt = f"""
+                    You are a professional Apparel Costing Engineer. Calculate the exact production fabric consumption for the New Style.
+                    
+                    [VARIABLES]
+                    - Target Fabric Width: {user_width}
+                    - Target Fabric Shrinkage Allowance: {user_shrinkage}%
+                    
+                    [DATA TO COMPARE]
+                    - New Style Measurements (Mã mới): {new_style_raw_text}
+                    - Historical Matched Measurements (Mã tương đồng): {json.dumps(db_measurements_raw, ensure_ascii=False)}
+                    - Historical Matched Fabric Yield (Định mức cũ): {json.dumps(fabric_records, ensure_ascii=False)}
+                    
+                    [TASKS]
+                    1. Compare the measurements of the New Style with the Historical Matched Style point-by-point. 
+                    2. Identify length or width deviations (e.g., if inseam/outseam length or hip/thigh width increased or decreased).
+                    3. Adapt the old 'Main Fabric' consumption baseline to calculate the New Net Consumption based on these geometric deviations and the target width ({user_width}).
+                    4. Factor in the user's shrinkage ({user_shrinkage}%) and a 5% standard cutting wastage to produce the final Gross Production Consumption.
+                    5. Output your analysis completely in Vietnamese. Be concise and highly technical. Use markdown headers and metric blocks format if possible. Do not output conversational text.
+                    """
+                    
+                    with st.spinner("AI đang so sánh thông số rập đối chứng và áp công thức tính định mức..."):
+                        final_payload = list(img_payload) if has_file else []
+                        final_payload.append(analysis_prompt)
+                        
+                        analysis_res = client.models.generate_content(
+                            model='gemini-2.5-flash', 
+                            contents=final_payload,
+                        )
+                        st.markdown(analysis_res.text)
+                        st.session_state["chat_history"].append({"role": "assistant", "type": "text", "content": analysis_res.text})
                         
                 except Exception as master_err:
                     st.error(f"Hệ thống lõi gặp lỗi trong quá trình xử lý: {str(master_err)}")
