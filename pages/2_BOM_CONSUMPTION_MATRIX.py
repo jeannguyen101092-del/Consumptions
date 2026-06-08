@@ -210,7 +210,8 @@ def get_historical_fabric_consumption_from_db(search_keyword=None):
 def get_techpack_spec_from_db(style_name_keyword=None):
     """
     Hàm cho phép AI tự động tra cứu thông số từ bảng thong_so_techpack.
-    ✨ ĐÃ SỬA LỖI ĐÚNG TOÁN TỬ: Chuyển đổi bộ lọc về định dạng PostgREST chính thống (StyleName=ilike.*keyword*)
+    ✨ SỬA LỖI TOÁN TỬ GỐC: Đổi từ toán tử dạng Regex (.*) sang toán tử chuẩn PostgREST (%) 
+    để bắt trúng mã 1P001451 trong kho lưu trữ của bạn.
     """
     try:
         headers = {
@@ -219,22 +220,21 @@ def get_techpack_spec_from_db(style_name_keyword=None):
         }
         url = f"{SB_URL.rstrip('/')}/rest/v1/thong_so_techpack"
         
-        # Cấu hình trường select chính xác (giữ nguyên SketchURL viết hoa)
         query_params = {
             "select": "StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL",
-            "limit": 500
+            "limit": "500"
         }
         
-        # SỬA TẠI ĐÂY: Thay vì gán trực tiếp tên cột, PostgREST yêu cầu định dạng lọc thông qua giá trị tham số
         if style_name_keyword:
             clean_kw = str(style_name_keyword).strip()
-            # Cú pháp chuẩn: tên_cột=toán_tử.giá_trị
-            query_params["StyleName"] = f"ilike.*{clean_kw}*"
+            # Đổi từ ilike.*{clean_kw}* sang ilike.%{clean_kw}% chuẩn cú pháp Supabase PostgREST
+            query_params["StyleName"] = f"ilike.%{clean_kw}%"
             
         response = requests.get(url, headers=headers, params=query_params, timeout=15)
         return response.json() if response.status_code == 200 else []
     except Exception:
         return []
+
 
 
 
@@ -694,7 +694,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
 
 
 # =============================================================================
-# ĐOẠN 2 - PHẦN A: BẢN VÁ LỖI TRÍCH XUẤT TIỀN TỐ (BẮT TRÚNG MÃ GẦN GIỐNG TRONG KHO)
+# ĐOẠN 2 - PHẦN A: BẢN VÁ ĐỒNG BỘ TOÀN DIỆN % (TRÍCH XUẤT ẢNH VÀ SỐ ĐO THẬT TỪ KHO)
 # =============================================================================
                     # Hệ thống tự động kiểm tra xem câu lệnh có yêu cầu so sánh mã tương đồng hoặc tính định mức hay không
                     is_similarity_requested = any(word in clean_text_upper for word in ["TƯƠNG ĐỒNG", "TUONG DONG", "GIỐNG", "GIONG", "SO SÁNH", "SO SANH", "ĐỊNH MỨC", "DINH MUC"])
@@ -705,19 +705,18 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                         # Xác định rõ mã hàng hiện tại của file mới upload để loại trừ
                         current_style_id = new_style_id_detected if new_style_id_detected != "UNKNOWN_STYLE" else dynamic_keyword
                         
-                        # ✨ THAY ĐỔI QUYẾT ĐỊNH: Bóc tách thông minh dạng chuỗi mã hàng liên tiếp chữ/số
-                        # Nếu mã dạng 1P001452, thuật toán sẽ cắt lấy cụm đầu tinh khiết (Ví dụ: "1P0014") để đi tìm "1P001451"
+                        # Thuật toán gọt đuôi sê-ri số thông minh (Ví dụ: 1P001452 -> giữ lại 1P0014)
                         if len(dynamic_keyword) >= 6:
-                            similarity_keyword = dynamic_keyword[:-2] # Cắt bỏ 2 số đuôi sê-ri để quét mờ diện rộng
+                            similarity_keyword = dynamic_keyword[:-2] 
                         else:
                             prefix_match = re.match(r"^([A-Z0-9]+)", dynamic_keyword)
                             similarity_keyword = prefix_match.group(1) if prefix_match else dynamic_keyword[:3]
                         
-                        # Thực hiện gọi hàm bổ trợ quét kho lấy danh sách mã gần giống
+                        # Gọi hàm bổ trợ đã được sửa dấu % chuẩn ở Bước 1
                         raw_techpacks = get_techpack_spec_from_db(style_name_keyword=similarity_keyword)
                         raw_sp_data = get_historical_fabric_consumption_from_db(search_keyword=similarity_keyword)
                         
-                        # Bộ lọc ma trận dự phòng nếu quét theo mã chữ bị thiếu hụt dữ liệu
+                        # Bộ lọc ma trận dự phòng nếu quét theo mã chữ bị thiếu hụt dữ liệu (Fallback chủng loại)
                         detected_cat = ""
                         if db_results:
                             first_item = db_results if isinstance(db_results, list) and len(db_results) > 0 else db_results
@@ -728,15 +727,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                             words_list = re.findall(r'\w+', detected_cat)
                             core_str_keyword = words_list[-1] if words_list else detected_cat
                             
-                            url_cat_backup = f"{base_sb_url}/rest/v1/thong_so_techpack"
-                            params_cat = {
-                                "Category": f"ilike.*{core_str_keyword}*",
-                                "select": "StyleName,Category,DetailedMeasurements,SketchURL",
-                                "limit": "6"
-                            }
-                            res_cat_backup = requests.get(url_cat_backup, headers=headers, params=params_cat, timeout=15)
-                            raw_techpacks = res_cat_backup.json() if 200 <= res_cat_backup.status_code <= 299 else []
-                            
+                            raw_techpacks = get_techpack_spec_from_db(style_name_keyword=core_str_keyword)
                             if not raw_sp_data:
                                 raw_sp_data = get_historical_fabric_consumption_from_db(search_keyword=core_str_keyword)
 
@@ -744,7 +735,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                         list_techpacks = raw_techpacks if isinstance(raw_techpacks, list) else [raw_techpacks]
                         list_sp_data = raw_sp_data if isinstance(raw_sp_data, list) else [raw_sp_data]
 
-                        # Thuật toán lọc loại trừ chính xác mã trùng (Chỉ lọc khi danh sách có nhiều hơn 1 mã bản ghi)
+                        # Thuật toán lọc loại trừ chính xác mã hàng hiện tại của file mới upload
                         filtered_techpacks = [tp for tp in list_techpacks if str(tp.get("StyleName", "")).strip().upper() != str(current_style_id).strip().upper()]
                         if not filtered_techpacks:
                             filtered_techpacks = list_techpacks
@@ -773,6 +764,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                                 "measurements": tp.get("DetailedMeasurements"),
                                 "bom_data": match_sp if match_sp else []
                             })
+
 
 
 
