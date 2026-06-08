@@ -627,25 +627,31 @@ elif menu_selection == "🧵 BOM & Consumption Matrix":
                                     import time
                                     time.sleep(2 * (ext_attempt + 1))
                         
-                        # ✨ THUẬT TOÁN XÁC ĐỊNH TỪ KHÓA TRUY VẤN THÔNG MINH
+                                                # ✨ THUẬT TOÁN XÁC ĐỊNH TỪ KHÓA TRUY VẤN THÔNG MINH - CHÍNH XÁC TUYỆT ĐỐI CHO MÃ CÓ DẤU GẠCH (-)
                         dynamic_keyword = ""
-                        if chat_file and new_style_id_detected != "UNKNOWN_STYLE" and len(new_style_id_detected) > 1:
-                            dynamic_keyword = new_style_id_detected
+                        clean_text_upper = str(user_query).strip().upper()
+                        
+                        # Bước 1: Loại bỏ các khẩu lệnh thừa để cô lập từ khóa nguyên bản người dùng gõ
+                        stop_words = ["TÌM", "CODE", "VẢI", "MÃ", "HÀNG", "ĐỊNH MỨC", "CHO", "KIỂM TRA", "XEM"]
+                        query_words = clean_text_upper.split()
+                        filtered_words = [w for w in query_words if w not in stop_words]
+                        
+                        # Lấy từ khóa trần nguyên bản (Ví dụ: SJ-8902 hoặc P3026)
+                        raw_keyword = "".join(filtered_words) if filtered_words else clean_text_upper
+                        
+                        if chat_file and new_style_id_detected != "UNKNOWN_STYLE" and not filtered_words:
+                            # Nếu người dùng không nhập chữ mà chỉ tải file, ưu tiên lấy mã từ Techpack
+                            dynamic_keyword = str(new_style_id_detected).strip()
                         else:
-                            clean_text_upper = str(user_query).strip().upper()
-                            if "8902" in clean_text_upper:
-                                dynamic_keyword = "8002"
-                            else:
-                                numbers_found = re.findall(r'\d{3,}', clean_text_upper)
-                                if numbers_found:
-                                    valid_numbers = [num for num in numbers_found if num not in ["2025", "2026", "100", "140"]]
-                                    dynamic_keyword = str(valid_numbers[0]).strip() if valid_numbers else str(numbers_found[0]).strip()
-                                else:
-                                    dynamic_keyword = clean_text_upper
+                            dynamic_keyword = raw_keyword
 
-                        dynamic_keyword = re.sub(r'[*?%#&]', '', dynamic_keyword).strip()
+                        # CHUẨN HÓA AN TOÀN: Triệt tiêu hoàn toàn dấu ngoặc vuông [] hoặc dấu nháy từ Python biến đổi
+                        dynamic_keyword = re.sub(r"[\[\]'\"*?%#&]", "", dynamic_keyword).strip()
+                        
+                        # Nếu từ khóa trống, gán mặc định để tránh crash hệ thống
                         if not dynamic_keyword:
                             dynamic_keyword = "UNKNOWN"
+
 
                         # ĐỒNG BỘ TRUY VẤN MÀNG LỌC TRƯỜNG THEO DATABASE XƯỞNG
                         headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
