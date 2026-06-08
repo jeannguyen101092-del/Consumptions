@@ -677,27 +677,25 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     clean_text_upper = str(user_query).strip().upper()
                     is_searching_fabric = any(word in clean_text_upper for word in ["CODE VẢI", "CODE VAI", "MÃ VẢI", "MA VAI", "LOẠI VẢI", "LOAI VAI", "TÌM VẢI", "TIM VAI"])
                     
-                    # Quét tìm xem câu chat có chứa mã chữ+số rõ ràng nào không (Ví dụ: MR1705)
-                    codes_found = re.findall(r'\b[A-Z]+\d+[A-Z0-9]*\b|\b\d+[A-Z]+\d*\b', clean_text_upper)
+                    # THUẬT TOÁN KHÓA CHẶN CHỮ RÁC: Chỉ tìm cụm ký tự có chứa số (đặc trưng của mã hàng/vải)
+                    # Nếu câu chat chỉ có chữ thuần túy như "tìm mã hàng tương đồng", mảng này sẽ trống rỗng (Empty)
+                    codes_found = re.findall(r'\b[A-Z]*\d+[A-Z0-9]*\b|\b[A-Z0-9]+-\d+[A-Z0-9-]*\b', clean_text_upper)
                     
+                    # LOGIC RẼ NHÁNH QUYẾT ĐỊNH TỪ KHÓA CHUẨN
                     if codes_found:
-                        clean_query = codes_found[0] # Lấy mã tìm kiếm đích danh từ câu chat
+                        # Nếu câu chat có chứa mã số rõ ràng, dùng mã đó để quét kho
+                        dynamic_keyword = str(codes_found[0]).strip()
                     else:
-                        # Nếu câu chat chỉ có chữ rác ("tìm tương đồng với mã này"), xóa hết chữ thừa đi
-                        pattern_remove = r"\b(TÌM|TIM|KIỂM TRA|KIEM TRA|XEM|CHECK|CHO TOI|XIN|MÃ HÀNG|MA HANG|MÃ|MA|VẢI|VAI|ĐỊNH MỨC|DINH MUC|CODE|TRÍCH XUẤT|TRICH XUAT|HÌNH ẢNH|HINH ANH|HÌNH|HINH|ẢNH|ANH|TÍNH|TINH|THÔNG TIN|THONG TIN|NÀY|NAY|TƯƠNG ĐỒNG|TUONG DONG|VỚI|KHO|KIẾM|VOI|TRONG|MÃ|HÀNG)\b"
-                        clean_query = re.sub(pattern_remove, "", clean_text_upper).strip()
-                    
-                    # BIỆN PHÁP CHẶN CHỮ RÁC: Nếu từ câu chat không lọc ra được mã chuẩn, ép lấy mã nhận diện từ file
-                    if has_file:
-                        if is_searching_fabric and new_style_fabric_detected != "UNKNOWN_FABRIC":
-                            dynamic_keyword = str(new_style_fabric_detected).strip()
-                        elif clean_query and len(clean_query) >= 4 and not any(w in clean_query for w in ["VỚI", "KHO", "TRONG"]):
-                            dynamic_keyword = clean_query
+                        # Nếu câu chat không chứa mã số (lệnh tìm tương đồng chung chung), ép lấy mã bóc tách được từ file
+                        if has_file and new_style_id_detected != "UNKNOWN_STYLE":
+                            dynamic_keyword = str(new_style_id_detected).strip()
                         else:
-                            dynamic_keyword = str(new_style_id_detected).strip() # Ép lấy 1P001452 từ file
-                    else:
-                        dynamic_keyword = clean_query if clean_query else "UNKNOWN"
+                            # Trường hợp dự phòng cuối cùng nếu không có cả file lẫn mã số
+                            pattern_remove = r"\b(TÌM|TIM|KIỂM TRA|KIEM TRA|XEM|CHECK|CHO TOI|XIN|MÃ HÀNG|MA HANG|MÃ|MA|VẢI|VAI|ĐỊNH MỨC|DINH MUC|CODE|TRÍCH XUẤT|TRICH XUAT|HÌNH ẢNH|HINH ANH|HÌNH|HINH|ẢNH|ANH|TÍNH|TINH|THÔNG TIN|THONG TIN|NÀY|NAY|TƯƠNG ĐỒNG|TUONG DONG|VỚI|KHO|KIẾM|VOI|TRONG)\b"
+                            clean_query = re.sub(pattern_remove, "", clean_text_upper).strip()
+                            dynamic_keyword = clean_query if clean_query else "UNKNOWN"
 
+                    # Làm sạch ký tự đặc biệt cuối cùng
                     dynamic_keyword = re.sub(r"[\[\]'\"*?%#&]", "", dynamic_keyword).strip()
                     if not dynamic_keyword or len(dynamic_keyword) < 3:
                         dynamic_keyword = str(new_style_id_detected).strip() if new_style_id_detected != "UNKNOWN_STYLE" else "UNKNOWN"
@@ -706,7 +704,8 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     backup_res = get_historical_fabric_consumption_from_db(search_keyword=dynamic_keyword)
 
                     if has_file and target_new_sketch_bytes:
-                        st.image(target_new_sketch_bytes, caption=f"收藏 Bản vẽ phẳng công nghệ trích xuất từ FILE MỚI UPLOAD ({new_style_id_detected})", use_container_width=True)
+                        st.image(target_new_sketch_bytes, caption=f"🖼️ Bản vẽ phẳng công nghệ trích xuất từ FILE MỚI UPLOAD ({new_style_id_detected})", use_container_width=True)
+
 
 
 
