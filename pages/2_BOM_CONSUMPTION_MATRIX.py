@@ -687,10 +687,27 @@ try:
 except ImportError:
     pass
 
-# Đảm bảo cấu hình biến URL và KEY kết nối cơ sở dữ liệu Supabase của bạn đã được khai báo
-# base_sb_url = SB_URL.rstrip('/')
-# headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
+# ĐỊNH NGHĨA HÀM GIẢI MÃ PHÂN SỐ NGÀNH MAY (ĐỂ TÍNH TOÁN SAI LỆCH)
+def parse_fraction(val_str):
+    if not val_str: 
+        return 0.0
+    val_str = str(val_str).strip().replace('"', '')
+    try:
+        if ' ' in val_str:
+            parts = val_str.split(' ')
+            whole = float(parts[0])
+            frac = parts[1]
+        else:
+            whole = 0.0
+            frac = val_str
+        if '/' in frac:
+            num, denom = frac.split('/')
+            return whole + (float(num) / float(denom))
+        return float(val_str)
+    except Exception:
+        return 0.0
 
+# KHỞI TẠO LUỒNG NHẬP LIỆU CHAT INPUT
 if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vải và đối soát sai lệch..."):
     st.session_state["chat_history"].append({"role": "user", "type": "text", "content": user_query})
     gemini_key = get_secure_gemini_key()
@@ -767,37 +784,29 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                 target_new_sketch_bytes = b_buf.getvalue()
         except Exception as e:
             st.sidebar.error(f"Lỗi AI trích xuất Techpack: {str(e)}")
-    # Tiến hành phân tích câu lệnh tìm kiếm từ ô chat đầu vào của người dùng
     clean_text_upper = str(user_query).strip().upper()
-    
-    # Quét lấy toàn bộ mã số hàng (Ví dụ: 1P001363, P5EU18LA)
     codes_found = re.findall(r'\b[A-Z0-9]+-\d+[A-Z0-9-]*\b|\b[A-Z]*\d+[A-Z0-9]*\b', clean_text_upper)
     
-    # Khắc phục triệt để lỗi: chuyển đổi List kết quả Regex thành dạng String thuần túy
     if codes_found:
         dynamic_keyword = str(codes_found[0]).strip()
     else:
         pattern_remove = r"\b(TÌM|KIỂM TRA|XEM|CHECK|MÃ HÀNG|MÃ|VẢI|CODE|TRÍCH XUẤT|HÌNH ẢNH|TƯƠNG ĐỒNG|KHO|TRONG)\b"
         dynamic_keyword = re.sub(pattern_remove, "", clean_text_upper).strip()
         
-    # Cơ chế xử lý dự phòng nếu từ khóa rỗng hoặc không hợp lệ
     if not dynamic_keyword or len(dynamic_keyword) < 3:
         dynamic_keyword = str(new_style_id_detected).strip() if new_style_id_detected != "UNKNOWN_STYLE" else "UNKNOWN"
         
-    # Định dạng lại chuỗi, xóa bỏ các ký tự có thể gây lỗi SQL Injection
     dynamic_keyword = re.sub(r"[\[\]'\"*?%#&]", "", dynamic_keyword).strip()
     
-    # Kiểm tra xem có lệnh ưu tiên tìm kiếm theo mã vải hay không
     is_searching_fabric = any(word in clean_text_upper for word in ["CODE VẢI", "MÃ VẢI", "LOẠI VẢI", "TÌM VẢI"])
     if is_searching_fabric and new_style_fabric_detected != "UNKNOWN_FABRIC":
         dynamic_keyword = str(new_style_fabric_detected).strip()
 
     base_sb_url = SB_URL.rstrip('/')
     headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
-        if has_file and target_new_sketch_bytes:
+    if has_file and target_new_sketch_bytes:
         with st.spinner("⚡ AI đang phân tích phom dáng vẽ phẳng và đối soát dữ liệu kho..."):
             try:
-                # 1. Gọi Gemini dịch bản vẽ phẳng mẫu mới tải lên thành chuỗi văn bản đặc trưng
                 vision_prompt = (
                     "Analyze this technical flat sketch in detail. List all unique geometric attributes, "
                     "silhouette, waistband type, front/back pockets layout, and panel shapes. "
@@ -809,7 +818,6 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                 )
                 query_description = vision_res.text.strip().lower() if vision_res.text else ""
                 
-                # 2. Truy xuất bảng tóm tắt tổng quan từ `thong_so_techpack` trong kho
                 url_techpack = f"{base_sb_url}/rest/v1/thong_so_techpack?select=StyleName,Category,BaseSize,DetailedMeasurements,SketchURL"
                 res_tp = requests.get(url_techpack, headers=headers, timeout=10)
                 techpack_records = res_tp.json() if res_tp.status_code == 200 else []
@@ -817,7 +825,6 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                 matched_techpack = None
                 best_similarity_ratio = -1.0
                 
-                # Chạy thuật toán so khớp Jaccard mô tả thiết kế bản vẽ
                 if query_description and techpack_records:
                     query_keywords = set(re.findall(r'\b\w{3,15}\b', query_description))
                     for row in techpack_records:
@@ -831,20 +838,16 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                                 best_similarity_ratio = ratio
                                 matched_techpack = row
 
-                # Nếu độ khớp hình ảnh thấp, tự động dùng cơ chế Fallback kiểm tra chính xác theo Mã Chữ (StyleName)
                 if not matched_techpack or best_similarity_ratio < 0.10:
                     for row in techpack_records:
                         if str(row.get("StyleName", "")).strip().upper() == dynamic_keyword.upper():
                             matched_techpack = row
                             best_similarity_ratio = 1.0
                             break
-
-                # 3. KHI ĐÃ ĐỊNH VỊ ĐƯỢC MÃ HÀNG TƯƠNG ĐỒNG -> TIẾN HÀNH XUẤT ẢNH, VẢI, ĐỐI SOÁT
                 if matched_techpack:
                     target_style_name = matched_techpack.get("StyleName")
                     st.success(f"🎯 ĐÃ TÌM THẤY MÃ HÀNG TƯƠNG ĐỒNG: **{target_style_name}**")
                     
-                    # --- MỤC TIÊU 1: HIỂN THỊ HÌNH ẢNH BẢN VẼ SKETCH ---
                     col1, col2 = st.columns(2)
                     with col1:
                         st.image(target_new_sketch_bytes, caption="Bản vẽ mẫu mới tải lên", use_container_width=True)
@@ -854,10 +857,8 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                             st.image(sketch_url, caption=f"Ảnh Sketch gốc trong kho: {target_style_name}", use_container_width=True)
                         else:
                             st.info("💡 Mã gốc trong bảng thong_so_techpack chưa được nạp ảnh SketchURL")
-                    # --- MỤC TIÊU 2: TRUY XUẤT CODE VẢI (BỘ LỌC TÌM KIẾM THEO TỪ KHÓA LÕI ĐA BIẾN THỂ) ---
+
                     st.subheader("📦 Chi Tiết Định Mức Nguyên Phụ Liệu Gốc trong kho (BOM)")
-                    
-                    # Trích xuất chuỗi chữ/số lõi từ mã hàng (Ví dụ: tách '1P001363' từ '1P001363-LOT5') để truy vấn rộng
                     core_code = re.findall(r'\b[A-Z0-9]{5,10}\b', target_style_name.strip())
                     search_term = core_code[0] if core_code else target_style_name.strip()
                     
@@ -873,28 +874,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     else:
                         st.warning(f"⚠️ Không tìm thấy dữ liệu nguyên phụ liệu cho mã gốc hoặc các biến thể của `{search_term}` trong bảng `san_pham`.")
 
-                    # --- MỤC TIÊU 3: LẬP BẢNG ĐỐI SOÁT THÔNG SỐ VÀ TÍNH SAI LỆCH ---
                     st.subheader("📊 Bảng Đối Soát Sai Lệch Thông Số Hình Học (Mẫu Gốc vs Mẫu Mới)")
-                    
-                    def parse_fraction(val_str):
-                        if not val_str: return 0.0
-                        val_str = str(val_str).strip().replace('"', '')
-                        try:
-                            if ' ' in val_str:
-                                parts = val_str.split(' ')
-                                whole = float(parts[0])
-                                frac = parts[1]
-                            else:
-                                whole = 0.0
-                                frac = val_str
-                            if '/' in frac:
-                                num, denom = frac.split('/')
-                                return whole + (float(num) / float(denom))
-                            return float(val_str)
-                        except Exception:
-                            return 0.0
-
-                    # Bộ giải mã chống crash: Ép kiểu dữ liệu chuỗi DetailedMeasurements linh hoạt bằng Regex
                     db_measurements = matched_techpack.get("DetailedMeasurements", {})
                     specs_old = {}
                     
@@ -913,7 +893,6 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     if specs_old and specs_new:
                         norm_specs_old = {str(k).strip().upper(): v for k, v in specs_old.items()}
                         norm_specs_new = {str(k).strip().upper(): v for k, v in specs_new.items()}
-                        
                         comparison_table = []
                         total_deviation_percentage = 0.0
                         relevant_count = 0
@@ -927,7 +906,6 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                                 if v_old > 0:
                                     diff = v_new - v_old
                                     pct_diff = (diff / v_old) * 100
-                                    
                                     if any(k in norm_key for k in ["INSEAM", "WAIST", "HIP", "THIGH", "LENGTH", "OUTSEAM", "DAI", "RONG"]):
                                         total_deviation_percentage += pct_diff
                                         relevant_count += 1
@@ -946,172 +924,11 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                             if relevant_count > 0:
                                 avg_deviation = total_deviation_percentage / relevant_count
                                 st.markdown(f"💡 **Đánh giá hệ thống:** Phom dáng mẫu mới biến động diện tích trung bình **{avg_deviation:+.1f}%** so với mẫu gốc `{target_style_name}`.")
-                                st.caption("Khuyến nghị: Lấy tỷ lệ phần trăm chênh lệch hình học này áp dụng vào Định mức marker gốc để ước tính định mức sản xuất mã mới.")
                         else:
-                            st.warning("⚠️ Không tìm thấy tên các vị trí đo (POM) tương thích. Vui lòng kiểm tra lại sự đồng bộ ngôn ngữ giữa tài liệu mới và kho.")
+                            st.warning("⚠️ Không tìm thấy tên các vị trí đo (POM) tương thích giữa mẫu mới và mẫu gốc để làm bảng đối soát.")
                     else:
-                        st.info("💡 Không thể tiến hành đối soát do cấu trúc dữ liệu `DetailedMeasurements` của mã này trong kho đang trống hoặc sai định dạng bóc tách.")
+                        st.info("💡 Không thể tiến hành đối soát do dữ liệu bảng thông số chi tiết đang để trống.")
                 else:
                     st.warning(f"🔍 Hệ thống không tìm thấy mã hàng tương đồng nào khớp với từ khóa `{dynamic_keyword}`.")
             except Exception as e:
                 st.error(f"Lỗi cục bộ trong quá trình đối soát nâng cao: {str(e)}")
-def process_fabric_and_consumption(client, target_new_sketch_bytes, new_style_id_detected, new_style_measurements_dict, new_style_fabric_detected, user_query, has_file, base_sb_url, headers):
-    # CHUẨN HÓA TỪ KHÓA TÌM KIẾM
-clean_text_upper = str(user_query).strip().upper()
-    codes_found = re.findall(r'\b[A-Z0-9]+-\d+[A-Z0-9-]*\b|\b[A-Z]*\d+[A-Z0-9]*\b', clean_text_upper)
-    
-    if codes_found:
-        dynamic_keyword = str(codes_found).strip()
-    else:
-        pattern_remove = r"\b(TÌM|KIỂM TRA|XEM|CHECK|MÃ HÀNG|MÃ|VẢI|CODE|TRÍCH XUẤT|HÌNH ẢNH|TƯƠNG ĐỒNG|KHO|TRONG)\b"
-        dynamic_keyword = re.sub(pattern_remove, "", clean_text_upper).strip()
-        
-    if not dynamic_keyword or len(dynamic_keyword) < 3:
-        dynamic_keyword = str(new_style_id_detected).strip() if new_style_id_detected != "UNKNOWN_STYLE" else "UNKNOWN"
-        
-    dynamic_keyword = re.sub(r"[\[\]'\"*?%#&]", "", dynamic_keyword).strip()
-    is_searching_fabric = any(word in clean_text_upper for word in ["CODE VẢI", "MÃ VẢI", "LOẠI VẢI", "TÌM VẢI"])
-    if is_searching_fabric and new_style_fabric_detected != "UNKNOWN_FABRIC":
-        dynamic_keyword = str(new_style_fabric_detected).strip()
-
-    if not has_file or not target_new_sketch_bytes:
-        st.warning("⚠️ Không tìm thấy file tài liệu hoặc ảnh vẽ phẳng hợp lệ để đối soát.")
-        return
-
-    with st.spinner("⚡ AI đang phân tích phom dáng vẽ phẳng và đối soát dữ liệu kho..."):
-        try:
-            # 1. Gọi Gemini phân tích đặc trưng hình học
-            vision_prompt = "Analyze this technical flat sketch in detail. Output a dense string of these visual characteristics for garment similarity matching."
-            vision_res = client.models.generate_content(
-                model='gemini-2.5-flash', 
-                contents=[types.Part.from_bytes(data=target_new_sketch_bytes, mime_type='image/jpeg'), vision_prompt]
-            )
-            query_description = vision_res.text.strip().lower() if vision_res.text else ""
-            
-            # 2. Truy xuất bảng tóm tắt từ thong_so_techpack
-            url_techpack = f"{base_sb_url}/rest/v1/thong_so_techpack?select=StyleName,Category,BaseSize,DetailedMeasurements,SketchURL"
-            res_tp = requests.get(url_techpack, headers=headers, timeout=10)
-            techpack_records = res_tp.json() if res_tp.status_code == 200 else []
-            
-            matched_techpack = None
-            best_similarity_ratio = -1.0
-            
-            if query_description and techpack_records:
-                query_keywords = set(re.findall(r'\b\w{3,15}\b', query_description))
-                for row in techpack_records:
-                    db_text = str(row.get("DetailedMeasurements", "")).lower()
-                    db_keywords = set(re.findall(r'\b\w{3,15}\b', db_text))
-                    if db_keywords:
-                        intersection = query_keywords.intersection(db_keywords)
-                        union = query_keywords.union(db_keywords)
-                        ratio = float(len(intersection)) / float(len(union)) if union else 0
-                        if ratio > best_similarity_ratio:
-                            best_similarity_ratio = ratio
-                            matched_techpack = row
-
-            if not matched_techpack or best_similarity_ratio < 0.10:
-                for row in techpack_records:
-                    if str(row.get("StyleName", "")).strip().upper() == dynamic_keyword.upper():
-                        matched_techpack = row
-                        best_similarity_ratio = 1.0
-                        break
-
-            if matched_techpack:
-                target_style_name = matched_techpack.get("StyleName")
-                st.success(f"🎯 ĐÃ TÌM THẤY MÃ HÀNG TƯƠNG ĐỒNG: **{target_style_name}**")
-                
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.image(target_new_sketch_bytes, caption="Bản vẽ mẫu mới tải lên", use_container_width=True)
-                with col2:
-                    sketch_url = matched_techpack.get("SketchURL")
-                    if sketch_url:
-                        st.image(sketch_url, caption=f"Ảnh Sketch gốc trong kho: {target_style_name}", use_container_width=True)
-                    else:
-                        st.info("💡 Mã gốc trong bảng thong_so_techpack chưa được nạp ảnh SketchURL")
-
-                # TRUY XUẤT CODE VẢI
-                st.subheader("📦 Chi Tiết Định Mức Nguyên Phụ Liệu Gốc trong kho (BOM)")
-                core_code = re.findall(r'\b[A-Z0-9]{5,10}\b', target_style_name.strip())
-                search_term = core_code[0] if core_code else target_style_name.strip()
-                
-                url_san_pham = f"{base_sb_url}/rest/v1/san_pham?style_name=ilike.*{quote(search_term)}*&select=article_name,consumption_type,material_size,uom"
-                res_sp = requests.get(url_san_pham, headers=headers, timeout=10)
-                bom_records = res_sp.json() if res_sp.status_code == 200 else []
-                
-                if bom_records:
-                    st.table(bom_records)
-                    main_fabrics = [r.get("article_name") for r in bom_records if "MAIN" in str(r.get("consumption_type", "")).upper()]
-                    if main_fabrics:
-                        st.info(f"🧵 Mã vải chính (Main Fabric) của kiểu dáng này: **{main_fabrics}**")
-                else:
-                    st.warning(f"⚠️ Không tìm thấy dữ liệu nguyên phụ liệu cho mã gốc hoặc các biến thể của `{search_term}` trong bảng `san_pham`.")
-
-                # LẬP BẢNG ĐỐI SOÁT
-                st.subheader("📊 Bảng Đối Soát Sai Lệch Thông Số Hình Học (Mẫu Gốc vs Mẫu Mới)")
-                
-                def parse_fraction(val_str):
-                    if not val_str: return 0.0
-                    val_str = str(val_str).strip().replace('"', '')
-                    try:
-                        if ' ' in val_str:
-                            parts = val_str.split(' ')
-                            return float(parts[0]) + (float(parts[1].split('/')[0]) / float(parts[1].split('/')[1]))
-                        if '/' in val_str:
-                            return float(val_str.split('/')[0]) / float(val_str.split('/')[1])
-                        return float(val_str)
-                    except Exception:
-                        return 0.0
-
-                db_measurements = matched_techpack.get("DetailedMeasurements", {})
-                specs_old = {}
-                if isinstance(db_measurements, str):
-                    try: specs_old = json.loads(db_measurements)
-                    except Exception:
-                        pairs = re.findall(r'"([^"]+)":\s*"([^"]+)"', db_measurements)
-                        if pairs: specs_old = {k: v for k, v in pairs}
-                elif isinstance(db_measurements, dict):
-                    specs_old = db_measurements
-
-                specs_new = new_style_measurements_dict
-                if specs_old and specs_new:
-                    norm_specs_old = {str(k).strip().upper(): v for k, v in specs_old.items()}
-                    norm_specs_new = {str(k).strip().upper(): v for k, v in specs_new.items()}
-                    comparison_table = []
-                    total_deviation_percentage = 0.0
-                    relevant_count = 0
-                    
-                    for norm_key, old_val in norm_specs_old.items():
-                        if norm_key in norm_specs_new:
-                            new_val_str = norm_specs_new[norm_key]
-                            v_old = parse_fraction(old_val)
-                            v_new = parse_fraction(new_val_str)
-                            if v_old > 0:
-                                diff = v_new - v_old
-                                pct_diff = (diff / v_old) * 100
-                                if any(k in norm_key for k in ["INSEAM", "WAIST", "HIP", "THIGH", "LENGTH", "OUTSEAM", "DAI", "RONG"]):
-                                    total_deviation_percentage += pct_diff
-                                    relevant_count += 1
-                                display_key = next((k for k in specs_old.keys() if str(k).strip().upper() == norm_key), norm_key)
-                                comparison_table.append({
-                                    "Vị trí đo (POM)": display_key,
-                                    "Thông số gốc (Kho)": f"{old_val}\"",
-                                    "Thông số mới (Quét)": f"{new_val_str}\"",
-                                    "Chênh lệch": f"{diff:+.3f}\"",
-                                    "Tỷ lệ biến động": f"{pct_diff:+.1f}%"
-                                })
-                    
-                    if comparison_table:
-                        st.table(comparison_table)
-                        if relevant_count > 0:
-                            avg_deviation = total_deviation_percentage / relevant_count
-                            st.markdown(f"💡 **Đánh giá hệ thống:** Phom dáng mẫu mới biến động diện tích trung bình **{avg_deviation:+.1f}%** so với mẫu gốc `{target_style_name}`.")
-                    else:
-                        st.warning("⚠️ Không tìm thấy tên các vị trí đo (POM) tương thích giữa mẫu mới và mẫu gốc.")
-                else:
-                    st.info("💡 Không thể tiến hành đối soát do cấu trúc dữ liệu DetailedMeasurements trống.")
-            else:
-                st.warning(f"🔍 Hệ thống không tìm thấy mã hàng tương đồng nào khớp với từ khóa `{dynamic_keyword}`.")
-        except Exception as e:
-            st.error(f"Lỗi cục bộ trong quá trình đối soát nâng cao: {str(e)}")
-
