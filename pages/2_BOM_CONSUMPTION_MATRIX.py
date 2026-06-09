@@ -757,35 +757,27 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
     else:
         dynamic_keyword = clean_query if clean_query else "UNKNOWN"
     dynamic_keyword = re.sub(r"[\[\]'\"*?%#&]", "", dynamic_keyword).strip()
-        base_sb_url = SB_URL.rstrip('/')
+    base_sb_url = SB_URL.rstrip('/')
     headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
     matched_style_name = None
     best_similarity = -1.0
     fabric_records = []
     techpack_records = []
-    
-    # KÍCH HOẠT QUÉT HÌNH HỌC THÔNG SỐ: Lấy trực tiếp thông số mã mới bóc từ Đoạn 1 đi dò kho
     if has_file and new_style_measurements_dict:
         with st.spinner("⚡ AI dệt may đang quét phân tích hình học thông số rập đối soát phom dáng..."):
             query_vector = None
             try:
-                # Hàm quét lấy số thực sạch từ thông số rập ngành may (ví dụ: "32 1/2" -> 32.5)
                 def get_clean_num(text_val):
                     if not text_val: return 0.0
                     nums = re.findall(r'\d+(?:\.\d+)?', str(text_val).strip())
-                    return float(nums[0]) if nums else 0.0
-
-                # Trích xuất 3 chỉ số vàng định hình phom quần từ dữ liệu mới tải lên ở Đoạn 1
+                    return float(nums) if nums else 0.0
                 q_waist = get_clean_num(new_style_measurements_dict.get("BD-245 Waist Circ - Along Edge", new_style_measurements_dict.get("Waist Circ", new_style_measurements_dict.get("Waist", 0))))
                 q_hip = get_clean_num(new_style_measurements_dict.get("BD-279 Low Hip Circ - 3 Point", new_style_measurements_dict.get("Low Hip Circ", new_style_measurements_dict.get("Hip", 0))))
                 q_thigh = get_clean_num(new_style_measurements_dict.get("BD-283 Thigh Circ - 1\" Below Crotch", new_style_measurements_dict.get("Thigh Circ", new_style_measurements_dict.get("Thigh", 0))))
-                
                 if q_waist > 0 or q_hip > 0:
                     query_vector = np.array([q_waist, q_hip, q_thigh], dtype=np.float32)
             except Exception:
                 query_vector = None
-
-            # TIẾN HÀNH ĐỐI SOÁT TOÁN HỌC ĐẠI SỐ TUYẾN TÍNH VỚI TOÀN BỘ KHO DỮ LIỆU
             if query_vector is not None:
                 url_all_vectors = f"{base_sb_url}/rest/v1/thong_so_techpack?select=StyleName,DetailedMeasurements"
                 try:
@@ -793,44 +785,34 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     warehouse_data = res_all.json() if (res_all and res_all.status_code == 200) else []
                 except Exception:
                     warehouse_data = []
-
                 for row in warehouse_data:
                     db_measurements = row.get("DetailedMeasurements", {})
                     if isinstance(db_measurements, str):
                         try: db_measurements = json.loads(db_measurements)
                         except Exception: db_measurements = {}
-                        
                     if isinstance(db_measurements, dict) and len(db_measurements) > 0:
                         try:
-                            # Trích xuất tương ứng 3 thông số của mã cũ trong kho
                             db_waist = get_clean_num(db_measurements.get("BD-245 Waist Circ - Along Edge", db_measurements.get("Waist Circ", db_measurements.get("Waist", 0))))
                             db_hip = get_clean_num(db_measurements.get("BD-279 Low Hip Circ - 3 Point", db_measurements.get("Low Hip Circ", db_measurements.get("Hip", 0))))
                             db_thigh = get_clean_num(db_measurements.get("BD-283 Thigh Circ - 1\" Below Crotch", db_measurements.get("Thigh Circ", db_measurements.get("Thigh", 0))))
-                            
                             db_vector = np.array([db_waist, db_hip, db_thigh], dtype=np.float32)
-                            
-                            # Tính toán Cosine Similarity để so khớp độ tương đồng phom dáng (độ nghiêng rập phẳng)
                             if np.any(db_vector > 0):
                                 dot_product = np.dot(query_vector, db_vector)
                                 norm_query = np.linalg.norm(query_vector)
                                 norm_db = np.linalg.norm(db_vector)
                                 if norm_query > 0 and norm_db > 0:
                                     similarity = float(dot_product / (norm_query * norm_db))
-                                    # Ngưỡng khớp phom hình học ngành may cực cao (>= 95% tương đồng kích cỡ)
                                     if similarity > best_similarity and similarity >= 0.95:
                                         best_similarity = similarity
                                         matched_style_name = row.get("StyleName")
                         except Exception:
                             pass
-
-    # ĐỒNG BỘ KẾT QUẢ TÌM KIẾM ĐỂ TRUY VẤN CÁC BẢNG DỮ LIỆU ĐỐI SOÁT
     if matched_style_name:
         final_search_key = matched_style_name.strip()
         st.sidebar.success(f"🎯 Khớp phom hình học thành công: {final_search_key} ({round(best_similarity * 100, 1)}%)")
     else:
         final_search_key = "NOT_FOUND_IN_WAREHOUSE"
         st.sidebar.warning("⚠️ Không tìm thấy phom dáng quần tương đồng trong kho.")
-
     def fetch_san_pham(key):
         if not key or key == "NOT_FOUND_IN_WAREHOUSE": return []
         try:
@@ -840,7 +822,6 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
             res = requests.get(url, headers=headers, params=params, timeout=5)
             return res.json() if res.status_code == 200 else []
         except Exception: return []
-
     def fetch_techpack(key):
         if not key or key == "NOT_FOUND_IN_WAREHOUSE": return []
         try:
@@ -849,13 +830,11 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
             res = requests.get(url, headers=headers, params=params, timeout=5)
             return res.json() if res.status_code == 200 else []
         except Exception: return []
-
     with concurrent.futures.ThreadPoolExecutor() as executor:
         future_sp = executor.submit(fetch_san_pham, final_search_key)
         future_tp = executor.submit(fetch_techpack, final_search_key)
         fabric_records = future_sp.result()
         techpack_records = future_tp.result()
-
     db_sketch_url = None
     db_measurements_raw = {}
     current_style_name = ""
@@ -914,12 +893,19 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
             st.dataframe(formatted_measurements, use_container_width=True)
         else:
             st.info("Không tìm thấy thông số kỹ thuật gốc.")
-    st.markdown("### 📐 Kết quả phân tích sơ đồ & Tính toán định mức vải")
-    pipeline_mode = "HISTORY_BASED_PREDICTION" if has_history_match else "PURE_MARKER_CALCULATOR"
-    analysis_prompt = f"You are an expert Apparel Costing Engineer. Perform a fabric consumption analysis. [PRODUCTION VARIABLES] Width: {user_width}, Shrinkage Ngang: {co_ngang}%, Dọc: {co_doc}%. [SPECS] New Style: {json.dumps(new_style_measurements_dict, ensure_ascii=False)}, Warehouse Specs: {json.dumps(db_measurements_raw, ensure_ascii=False)}, Warehouse Fabrics: {json.dumps(fabric_records, ensure_ascii=False)}. [MODE: {pipeline_mode}] RULE 1: IF MODE IS 'HISTORY_BASED_PREDICTION': Locate 'Định mức gốc' of matched style in warehouse. Compare New Style against Warehouse Specs to calculate delta. Adjust 'Định mức gốc' proportionally. State: 'Dự đoán định mức dựa trên mã tương đồng lịch sử'. RULE 2: IF MODE IS 'PURE_MARKER_CALCULATOR': Calculate from scratch using standard apparel marker geometry. Add 5% wastage. State: 'Tính toán độc lập theo quy ước hình học ngành may do không có mã tương đồng'. [OUTPUT] Output step-by-step completely in Vietnamese. Strictly technical."
-    try:
-        analysis_res = client.models.generate_content(model='gemini-2.5-flash', contents=[analysis_prompt])
-        st.markdown(analysis_res.text)
-        st.session_state["chat_history"].append({"role": "assistant", "type": "text", "content": analysis_res.text})
-    except Exception as e:
-        st.error(f"Lỗi gửi yêu cầu tới Gemini: {str(e)}")
+            
+    # 🎯 KIỂM TRA ĐIỀU KIỆN CHẶN: Chỉ kích hoạt AI tính định mức khi có từ khóa yêu cầu rõ ràng
+    is_user_asking_to_calculate = any(w in clean_text_upper for w in ["TÍNH", "TINH", "ĐỊNH MỨC", "DINH MUC", "CO RÚT", "CO RUT", "KHỔ", "KHO", "DỰ ĐOÁN", "DU DOAN"])
+    if is_user_asking_to_calculate:
+        st.markdown("### 📐 Kết quả phân tích sơ đồ & Tính toán định mức vải")
+        pipeline_mode = "HISTORY_BASED_PREDICTION" if has_history_match else "PURE_MARKER_CALCULATOR"
+        analysis_prompt = f"You are an expert Apparel Costing Engineer. Perform a fabric consumption analysis. Width: {user_width}, Shrinkage Ngang: {co_ngang}%, Dọc: {co_doc}%. New Style Specs: {json.dumps(new_style_measurements_dict, ensure_ascii=False)}, Warehouse Specs: {json.dumps(db_measurements_raw, ensure_ascii=False)}, Warehouse Fabrics: {json.dumps(fabric_records, ensure_ascii=False)}. [MODE: {pipeline_mode}] RULE 1: IF MODE IS 'HISTORY_BASED_PREDICTION': Locate 'Định mức gốc' of matched style in warehouse. Compare New Style against Warehouse Specs to calculate delta. Adjust 'Định mức gốc' proportionally. State: 'Dự đoán định mức dựa trên mã tương đồng lịch sử'. RULE 2: IF MODE IS 'PURE_MARKER_CALCULATOR': Calculate from scratch using standard apparel marker geometry. Add 5% wastage. State: 'Tính toán độc lập theo quy ước hình học ngành may do không có mã tương đồng'. [OUTPUT] Output step-by-step completely in Vietnamese. Strictly technical."
+        with st.spinner("AI đang phân tích sơ đồ đối soát và lập công thức dự toán định mức..."):
+            try:
+                analysis_res = client.models.generate_content(model='gemini-2.5-flash', contents=[analysis_prompt])
+                st.markdown(analysis_res.text)
+                st.session_state["chat_history"].append({"role": "assistant", "type": "text", "content": analysis_res.text})
+            except Exception as e:
+                st.error(f"Lỗi gửi yêu cầu tới Gemini: {str(e)}")
+    else:
+        st.info("💡 Hệ thống đã thực hiện đối soát hình ảnh và thông số rập thành công. Bạn có thể nhập thêm câu lệnh yêu cầu tính toán định mức vải cùng với thông số khổ vải hoặc độ co rút để kích hoạt lõi phân tích AI.")
