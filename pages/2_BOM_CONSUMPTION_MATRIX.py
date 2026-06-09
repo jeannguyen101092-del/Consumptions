@@ -768,16 +768,16 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                         dynamic_keyword = file_code_match.group(0)
                         if new_style_id_detected == "UNKNOWN_STYLE":
                             new_style_id_detected = dynamic_keyword
-                base_sb_url = SB_URL.rstrip('/')
+                               base_sb_url = SB_URL.rstrip('/')
                 headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
                 matched_style_name = None
-                best_match_score = 0
+                best_similarity_ratio = -1.0
                 fabric_records = []
                 techpack_records = []
                 if has_file and target_new_sketch_bytes:
-                    with st.spinner("⚡ AI dệt may đang quét tìm phom dáng tương đồng trong kho..."):
+                    with st.spinner("⚡ AI dệt may đang quét phân tích hình học phẳng đối soát ảnh phom dáng tương đồng..."):
                         try:
-                            vision_prompt = "Analyze this technical flat sketch in detail. List all unique geometric attributes, silhouette, waistband, and pockets. Output a dense string of these visual characteristics for garment similarity matching."
+                            vision_prompt = "Analyze this technical flat sketch in detail. List all unique geometric attributes, silhouette, waistband type, panel shapes, and front/back pockets layout. Output a dense string of these visual characteristics for garment similarity matching."
                             vision_res = client.models.generate_content(model='gemini-2.5-flash', contents=[types.Part.from_bytes(data=target_new_sketch_bytes, mime_type='image/jpeg'), vision_prompt])
                             query_description = vision_res.text.strip().lower() if vision_res.text else ""
                             if query_description:
@@ -792,24 +792,26 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                                     db_vector_text = str(row.get("sketch_vector", "")).strip().lower()
                                     if db_vector_text and db_vector_text not in ["null", "", "technical garment layout specs"]:
                                         db_keywords = set(re.findall(r'\b\w{4,15}\b', db_vector_text))
-                                        common_keywords = query_keywords.intersection(db_keywords)
-                                        match_score = len(common_keywords)
-                                        if match_score > best_match_score and match_score >= 3:
-                                            best_match_score = match_score
-                                            matched_style_name = row.get("StyleName")
+                                        # Tính toán tỷ lệ tương đồng Jaccard giữa 2 chuỗi mô tả ảnh rập phẳng
+                                        intersection_len = len(query_keywords.intersection(db_keywords))
+                                        union_len = len(query_keywords.union(db_keywords))
+                                        if union_len > 0:
+                                            similarity_ratio = float(intersection_len / union_len)
+                                            # Đặt ngưỡng tương đồng phom dáng hình học thấp xuống (15%) để luôn bốc được ảnh gần giống nhất trong kho
+                                            if similarity_ratio > best_similarity_ratio and similarity_ratio >= 0.15:
+                                                best_similarity_ratio = similarity_ratio
+                                                matched_style_name = row.get("StyleName")
                         except Exception as ai_err:
-                            st.sidebar.error(f"Lỗi đối soát phom dáng: {ai_err}")
+                            st.sidebar.error(f"Lỗi đối soát ảnh phom dáng: {ai_err}")
+                # ÉP CHẶT LOGIC: Chỉ hiển thị nếu tìm thấy ảnh tương đồng thực sự trong kho dữ liệu
                 if matched_style_name:
                     final_search_key = matched_style_name.strip()
-                    st.sidebar.success(f"🎯 Khớp phom thiết kế thành công: {final_search_key} ({best_match_score} điểm)")
+                    st.sidebar.success(f"🎯 Khớp ảnh phom dáng thành công: {final_search_key} (Độ tương đồng: {round(best_similarity_ratio * 100, 1)}%)")
                 else:
-                    if new_style_id_detected and new_style_id_detected != "UNKNOWN_STYLE":
-                        final_search_key = new_style_id_detected.strip().upper()
-                    else:
-                        final_search_key = dynamic_keyword.strip().upper()
-                    st.sidebar.warning(f"⚠️ Quét mã chuỗi dự phòng: {final_search_key}")
+                    final_search_key = "NOT_FOUND_IN_WAREHOUSE"
+                    st.sidebar.warning("⚠️ Không tìm thấy mẫu thiết kế dệt may nào tương đồng phom dáng trong kho.")
                 def fetch_san_pham(key):
-                    if not key or key in ["UNKNOWN", "UNKNOWN_STYLE"]: return []
+                    if not key or key == "NOT_FOUND_IN_WAREHOUSE": return []
                     try:
                         url = f"{base_sb_url}/rest/v1/san_pham"
                         safe_key = quote(f"*{key}*")
@@ -818,7 +820,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                         return res.json() if res.status_code == 200 else []
                     except Exception: return []
                 def fetch_techpack(key):
-                    if not key or key in ["UNKNOWN", "UNKNOWN_STYLE"]: return []
+                    if not key or key == "NOT_FOUND_IN_WAREHOUSE": return []
                     try:
                         url = f"{base_sb_url}/rest/v1/thong_so_techpack"
                         params = {"select": "*", "StyleName": f"ilike.*{key}*"}
@@ -830,6 +832,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     future_tp = executor.submit(fetch_techpack, final_search_key)
                     fabric_records = future_sp.result()
                     techpack_records = future_tp.result()
+
                 db_sketch_url = None
                 db_measurements_raw = {}
                 current_style_name = ""
