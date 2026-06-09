@@ -367,12 +367,10 @@ if menu_selection == "📊 Upload Techpack":
     st.markdown("""<div class="card-container"><div class="card-section-header">📥 INGESTION ENGINE</div>
     <p style="color: #64748B; font-size:13px; margin:0 0 15px 0;">Hệ thống tự động cắt trang, khử nhiễu đồ họa phẳng và gọi API mạng nơ-ron tích hợp để bóc tách thông số hàng loạt.</p></div>""", unsafe_allow_html=True)
     
-    uploaded_files = st.file_uploader("Upload Techpack PDFs Here", type=["pdf"], accept_multiple_files=True, label_visibility="collapsed")
+    uploaded_files = st.file_uploader("Upload Techpack PDFs Here", type=["pdf"], accept_multiple_files=True, key="bulk_techpack_pdf_uploader", label_visibility="collapsed")
     
     if uploaded_files:
         files_to_render = []
-        
-        # Thống kê danh sách file chưa được số hóa đưa vào hàng đợi
         files_need_processing = [f for f in uploaded_files if f.name not in st.session_state["processed_styles"]]
         
         if files_need_processing:
@@ -385,12 +383,12 @@ if menu_selection == "📊 Upload Techpack":
                     try:
                         f_bytes = file_obj.getvalue()
                         res = process_single_pdf_batch(f_bytes, file_obj.name)
-                        # ĐỒNG BỘ LUỒNG BIẾN: Trả dữ liệu gốc kèm bytes thô về cho luồng chính nhận dạng
                         return {
                             "file_name": file_obj.name, 
                             "success": res.get("success", False), 
                             "style_id": res.get("style_id", "UNKNOWN"),
                             "size": res.get("size", "32"),
+                            "measurements": res.get("measurements", {}), # Đóng gói thông số trực tiếp từ lõi PDF
                             "error": res.get("error", None),
                             "raw_bytes": f_bytes  
                         }
@@ -404,17 +402,16 @@ if menu_selection == "📊 Upload Techpack":
                         f_name = future_to_file[future]
                         try:
                             task_res = future.result()
-                            # 🛠️ ĐỒNG BỘ LỆNH KIỂM TRA: So khớp chuẩn xác theo cấu trúc Dictionary đóng gói mới
                             if task_res.get("success") == True:
-                                # Tạo payload sạch tương thích với giao diện hiển thị thẻ Card bên dưới của bạn
+                                # SỬA LỖI BIẾN: Bốc trực tiếp ma trận điểm đo 'measurements' từ thread_worker trả về
                                 mock_data = {
                                     "style_number_parsed": task_res.get("style_id"),
-                                    "buyer": "Vineyard Vines", # Tự động điền Buyer mẫu
+                                    "buyer": "Vineyard Vines", 
                                     "category": "Denim Pants",
                                     "base_size_name": task_res.get("size"),
-                                    "measurements": new_style_measurements_dict, # Đọc trực tiếp ma trận thông số quét sạch từ Đoạn 3
-                                    "sketch_image": base64.b64encode(target_new_sketch_bytes).decode("utf-8") if target_new_sketch_bytes else "",
-                                    "_raw_file_bytes": task_res["raw_bytes"] # Lưu bytes thô phục vụ lưu kho ảnh sạch
+                                    "measurements": task_res.get("measurements", {}), 
+                                    "sketch_image": base64.b64encode(target_new_sketch_bytes).decode("utf-8") if 'target_new_sketch_bytes' in locals() and target_new_sketch_bytes else "",
+                                    "_raw_file_bytes": task_res["raw_bytes"] 
                                 }
                                 st.session_state["processed_styles"][f_name] = mock_data
                             else:
@@ -429,8 +426,6 @@ if menu_selection == "📊 Upload Techpack":
                 status_text.empty()
                 progress_bar.empty()
                 st.success("🎉 Số hóa dữ liệu thành công! Hãy kiểm tra bảng thông số bên dưới trước khi bấm lưu.")
-                
-        # Gom toàn bộ file đã hiển thị thành công lên giao diện màn hình
         for file in uploaded_files:
             if file.name in st.session_state["processed_styles"]:
                 files_to_render.append(file.name)
@@ -444,11 +439,10 @@ if menu_selection == "📊 Upload Techpack":
                     for f_name in files_to_render:
                         style_data = st.session_state["processed_styles"][f_name]
                         raw_bytes_backup = style_data.get("_raw_file_bytes", None)
-                        
-                        # Điều hướng hàm gọi đẩy đồng bộ dữ liệu rập sạch lên thong_so_techpack
                         if save_to_supabase_techpack_table(payload_data=style_data, raw_file_bytes=raw_bytes_backup, file_name=f_name): 
                             success_count += 1
                 st.success(f"🎉 PATTERN DATA PIPELINE: Đã bóc tách ảnh Sketch sạch và lưu trữ thành công {success_count}/{len(files_to_render)} mã hàng vào Database!")
+            
             st.markdown("---")
             st.markdown("### 📋 KẾT QUẢ SỐ HÓA HÌNH HỌC VÀ THÔNG SỐ SẢN XUẤT")
 
@@ -480,6 +474,7 @@ if menu_selection == "📊 Upload Techpack":
                     st.markdown("<br><hr style='border-color:#E2E8F0;'><br>", unsafe_allow_html=True)
     else:
         st.markdown('<div class="idle-alert-box">⚠️ INITIALIZATION SYSTEM IDLE: Hiện tại chưa có tệp dữ liệu Techpack nào được nạp vào hệ thống để AI khởi chạy mô hình.</div>', unsafe_allow_html=True)
+
 
 
 
