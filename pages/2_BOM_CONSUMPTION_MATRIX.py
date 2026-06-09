@@ -706,7 +706,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
         # -----------------------------------------------------------------
     # ĐOẠN 1: TỰ ĐỘNG TRUY TÌM TỆP ĐỆM VÀ SỐ HÓA TECHPACK TỪ FILE TẢI LÊN
     # -----------------------------------------------------------------
-        target_file_object = None
+         target_file_object = None
     if 'chat_file' in locals() and chat_file is not None:
         target_file_object = chat_file
     elif 'chat_file' in globals() and globals()['chat_file'] is not None:
