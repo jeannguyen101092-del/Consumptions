@@ -465,6 +465,60 @@ if menu_selection == "📊 Upload Techpack":
                 status_text.empty()
                 progress_bar.empty()
                 st.success("🎉 Số hóa dữ liệu thành công! Hãy kiểm tra bảng thông số bên dưới trước khi bấm lưu.")
+        # Gom toàn bộ file đã hiển thị thành công lên giao diện màn hình
+        for file in uploaded_files:
+            if file.name in st.session_state["processed_styles"]:
+                files_to_render.append(file.name)
+
+        if files_to_render:
+            st.markdown("<br>", unsafe_allow_html=True)
+            
+            # 🎯 SỬA LẠI LUỒNG GỌI HÀM LƯU TẠI ĐÂY: Truyền dữ liệu file bytes thô để trích trang Sketch sạch
+            if st.button("💾 LƯU TOÀN BỘ DỮ LIỆU ĐÃ SỐ HÓA VÀO MASTER DB", key="bulk_save_all_btn", type="primary", use_container_width=True):
+                success_count = 0
+                with st.spinner("Đang đồng bộ cổng dữ liệu nhị phân hàng loạt lên Supabase Cloud..."):
+                    for f_name in files_to_render:
+                        style_data = st.session_state["processed_styles"][f_name]
+                        
+                        # Lấy lại dữ liệu bytes thô đã được lưu tạm ở Phần 1
+                        raw_bytes_backup = style_data.get("_raw_file_bytes", None)
+                        
+                        # Gọi hàm đẩy dữ liệu đã được đồng bộ bóc tách ảnh rập phẳng sạch lên Supabase
+                        if save_to_supabase_techpack_table(payload_data=style_data, raw_file_bytes=raw_bytes_backup, file_name=f_name): 
+                            success_count += 1
+                st.success(f"🎉 PATTERN DATA PIPELINE: Đã bóc tách ảnh Sketch sạch và lưu trữ thành công {success_count}/{len(files_to_render)} mã hàng vào Database!")
+            st.markdown("---")
+            st.markdown("### 📋 KẾT QUẢ SỐ HÓA HÌNH HỌC VÀ THÔNG SỐ SẢN XUẤT")
+
+            cols = st.columns(2)
+            for idx, f_name in enumerate(files_to_render):
+                col_target = cols[idx % 2]
+                data = st.session_state["processed_styles"][f_name]
+                with col_target:
+                    st.markdown(f"""<div class="card-container"><div class="tech-card-header">{data.get('style_number_parsed')}</div>
+                        <div class="metric-grid-box"><div><p class="metric-label">BUYER</p><p class="metric-value">{data.get('buyer')}</p></div>
+                        <div><p class="metric-label">PRODUCT LINE</p><p class="metric-value">{data.get('category')}</p></div>
+                        <div><p class="metric-label">BASE SIZE</p><p class="metric-value">{data.get('base_size_name')}</p></div></div></div>""", unsafe_allow_html=True)
+                    
+                    sub_col1, sub_col2 = st.columns([1.2, 0.8])
+                    with sub_col1:
+                        st.markdown("<p style='font-weight:700; font-size:12px; color:#1E293B;'>📋 SPECIFICATION DATA GRID</p>", unsafe_allow_html=True)
+                        table_html = '<div class="data-table-container"><table class="industrial-table"><thead><tr><th>Point of Measurement</th><th>Target Spec</th></tr></thead><tbody>'
+                        for k, v in data.get("measurements", {}).items():
+                            table_html += f"<tr><td>{k}</td><td>{v}</td></tr>"
+                        table_html += "</tbody></table></div>"
+                        st.markdown(table_html, unsafe_allow_html=True)
+                    with sub_col2:
+                        st.markdown("<p style='font-weight:700; font-size:12px; color:#1E293B;'>📐 GARMENT FLAT SKETCH</p>", unsafe_allow_html=True)
+                        if data.get("sketch_image"): 
+                            try:
+                                st.image(base64.b64decode(data["sketch_image"]), use_container_width=True)
+                            except Exception:
+                                st.info("Không thể dựng bản xem trước hình ảnh.")
+                    st.markdown("<br><hr style='border-color:#E2E8F0;'><br>", unsafe_allow_html=True)
+    else:
+        st.markdown('<div class="idle-alert-box">⚠️ INITIALIZATION SYSTEM IDLE: Hiện tại chưa có tệp dữ liệu Techpack nào được nạp vào hệ thống để AI khởi chạy mô hình.</div>', unsafe_allow_html=True)
+
 
 
 
