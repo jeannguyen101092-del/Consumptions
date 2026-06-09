@@ -102,7 +102,7 @@ def get_secure_gemini_key():
 def save_to_supabase_techpack_table(payload_data):
     """
     Hàm xử lý đồng bộ và nạp Master DB bảng thong_so_techpack kết hợp đẩy ảnh lên Storage kho_anh.
-    ✨ ĐÃ KHẮC PHỤC LỖI 404 VÀ ĐỒNG BỘ HOÀN TOÀN VECTOR VỚI ĐOẠN ĐỐI SOÁT TÌM KIẾM.
+    ✨ ĐỒNG BỘ TUYỆT ĐỐI LUỒNG NẠP KHO: Dùng chung Prompt và client_v1 với luồng tìm kiếm.
     """
     try:
         style_name_db = payload_data.get("style_number_parsed", "").strip()
@@ -113,7 +113,6 @@ def save_to_supabase_techpack_table(payload_data):
         public_image_url = ""
         image_data = None
 
-        # Xử lý đẩy hình ảnh rập/thiết kế phẳng lên Storage
         if sketch_b64:
             try:
                 import base64
@@ -132,44 +131,40 @@ def save_to_supabase_techpack_table(payload_data):
             except Exception: 
                 pass
 
-        # ⚡ TỰ ĐỘNG SỐ HÓA SKETCH THÀNH CHUỖI TEXT VECTOR ĐỂ ĐỐI SOÁT (PHIÊN BẢN SỬA LỖI ĐỒNG BỘ KHỚP KHỎI LỖI 404)
+        # ⚡ LUỒNG SỐ HÓA VECTOR KHI NẠP KHO
         new_sketch_vector_str = None
         if image_data:
             gemini_key = get_secure_gemini_key()
             if gemini_key:
                 try:
-                    client = genai.Client(api_key=gemini_key)
+                    # ĐÃ ĐỒNG BỘ: Khởi tạo client phụ trách cổng API v1 chuẩn để chống lỗi Pydantic Validation
+                    client_v1 = genai.Client(api_key=gemini_key, http_options={'api_version': 'v1'})
                     
-                    # Bước A: Dùng Gemini-2.5-Flash đọc ảnh rập phẳng chuyển thành dạng chuỗi văn bản mô tả đặc trưng
+                    # ĐÃ ĐỒNG BỘ: Đúng Prompt mô tả chi tiết hình học phẳng
                     vision_prompt = """
-                    Analyze this technical flat sketch in detail. 
-                    Extract and list all unique geometric attributes, silhouette, waistband type, front/back pockets layout, and panel shapes.
+                    Analyze this technical flat sketch in detail. List all unique geometric attributes.
                     Output ONLY a dense string of these visual characteristics for vector similarity matching.
                     """
-                    vision_res = client.models.generate_content(
+                    vision_res = client_v1.models.generate_content(
                         model='gemini-2.5-flash',
                         contents=[types.Part.from_bytes(data=image_data, mime_type='image/jpeg'), vision_prompt]
                     )
                     visual_description = vision_res.text.strip() if vision_res.text else "technical garment layout specs"
 
-                    # Bước B: Nhúng chuỗi văn bản hình học bằng mô hình text-embedding-004 chuẩn Production
-                    # ĐÃ ĐỒNG BỘ: Ép cấu hình API phiên bản 'v1' cố định chống lỗi 404 hoàn toàn giống Đoạn 2
-                    embedding_res = client.models.embed_content(
+                    # ĐÃ ĐỒNG BỘ: Nhúng chuỗi văn bản qua text-embedding-004 chuẩn Production
+                    embedding_res = client_v1.models.embed_content(
                         model='text-embedding-004',
-                        contents=visual_description,
-                        config=types.EmbedContentConfig(api_version='v1')
+                        contents=visual_description
                     )
                     
-                    # ĐÃ SỬA: Sửa lại cú pháp lấy giá trị .values mảng số thực từ phản hồi chuẩn hóa mới của SDK google-genai
                     if embedding_res and embedding_res.embeddings:
                         vector_values = embedding_res.embeddings.values
-                        # Đồng bộ cấu trúc chuỗi định dạng mảng số thực Postgres Vector chuẩn [x,y,z...]
+                        # Định dạng chuỗi số thực Postgres Vector chuẩn [x,y,z...]
                         new_sketch_vector_str = "[" + ",".join(str(float(v)) for v in vector_values) + "]"
                 except Exception as ai_err:
-                    print(f"[AI EMBEDDING ERROR]: {str(ai_err)}")
+                    print(f"[AI EMBEDDING ERROR - NẠP KHO]: {str(ai_err)}")
                     new_sketch_vector_str = None
 
-        # Cấu hình Headers kết nối database REST API quyền service_role cao cấp
         headers = {
             "apikey": SB_KEY, 
             "Authorization": f"Bearer {SB_KEY}",
@@ -178,11 +173,9 @@ def save_to_supabase_techpack_table(payload_data):
         }
         insert_url = f"{SB_URL.rstrip('/')}/rest/v1/thong_so_techpack"
         
-        # Đồng bộ hóa cấu trúc dữ liệu cặp Key-Value bảng thông số POM dệt may
         raw_measurements = payload_data.get("measurements", {})
         clean_dict = {str(k): str(v) for k, v in dict(raw_measurements).items()}
 
-        # Khớp chính xác tên cột và bổ sung cột 'sketch_vector' lưu chuỗi số đối soát
         db_payload = {
             "StyleName": style_name_db,
             "Buyer": payload_data.get("buyer"),
@@ -201,7 +194,7 @@ def save_to_supabase_techpack_table(payload_data):
             
         return True
     except Exception as e:
-        st.sidebar.error(f"Lỗi xử lý hệ thống: {str(e)}")
+        st.sidebar.error(f"Lỗi xử lý hệ thống nạp kho: {str(e)}")
         return False
 
 
@@ -828,8 +821,8 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
 
 
 # =============================================================================
-                    # ==========================================
-                    # ĐOẠN 2: XỬ LÝ VECTOR VÀ TRUY VẤN KHO (ĐÃ SỬA LỖI 404)
+                                        # ==========================================
+                    # ĐOẠN 2: XỬ LÝ VECTOR VÀ TRUY VẤN KHO (ĐÃ ĐỒNG BỘ 100% VỚI LUỒNG NẠP KHO)
                     # ==========================================
                     base_sb_url = SB_URL.rstrip('/')
                     headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
@@ -840,26 +833,29 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                         with st.spinner("⚡ AI đang số hóa hình học phẳng và chạy thuật toán so khớp thị giác Vector..."):
                             query_vector = None
                             try:
+                                # ĐÃ ĐỒNG BỘ: Khởi tạo client phụ trách cổng API v1 giống hệt luồng nạp kho
+                                client_v1 = genai.Client(api_key=gemini_key, http_options={'api_version': 'v1'})
+                                
+                                # ĐÃ ĐỒNG BỘ: Dùng chung Prompt trích xuất hình học phẳng
                                 vision_prompt = """
                                 Analyze this technical flat sketch in detail. List all unique geometric attributes.
                                 Output ONLY a dense string of these visual characteristics for vector similarity matching.
                                 """
-                                vision_res = client.models.generate_content(
+                                vision_res = client_v1.models.generate_content(
                                     model='gemini-2.5-flash',
                                     contents=[types.Part.from_bytes(data=target_new_sketch_bytes, mime_type='image/jpeg'), vision_prompt]
                                 )
                                 visual_description = vision_res.text.strip() if vision_res.text else "technical garment layout specs"
 
-                                # SỬA LỖI 404: Ép cấu hình API phiên bản 'v1' cố định cho mô hình text-embedding-004
-                                embedding_res = client.models.embed_content(
+                                # ĐÃ ĐỒNG BỘ: Dùng chung mô hình text-embedding-004 qua cổng v1 sạch lỗi
+                                embedding_res = client_v1.models.embed_content(
                                     model='text-embedding-004',
-                                    contents=visual_description,
-                                    config=types.EmbedContentConfig(api_version='v1')
+                                    contents=visual_description
                                 )
                                 if embedding_res and embedding_res.embeddings:
                                     query_vector = np.array(embedding_res.embeddings.values, dtype=np.float32)
                             except Exception as ai_err:
-                                st.sidebar.error(f"Lỗi khởi tạo Vector: {ai_err}")
+                                st.sidebar.error(f"Lỗi đối soát Vector: {ai_err}")
 
                             if query_vector is not None:
                                 url_all_vectors = f"{base_sb_url}/rest/v1/thong_so_techpack?select=StyleName,sketch_vector"
@@ -884,6 +880,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                                                 
                                             db_vector = np.array(db_vector_list, dtype=np.float32)
                                             
+                                            # Kiểm tra kích thước hình học xem hai vector có cùng độ dài không
                                             if query_vector.shape == db_vector.shape:
                                                 dot_product = np.dot(query_vector, db_vector)
                                                 norm_query = np.linalg.norm(query_vector)
@@ -896,12 +893,10 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                                         except Exception:
                                             pass
 
-                    # CƠ CHẾ DỰ PHÒNG: Nếu so khớp toán học Vector thất bại, ép hệ thống tìm kiếm theo Mã hàng AI vừa bóc tách tự động
                     if matched_style_name:
                         final_search_key = matched_style_name.strip()
                         st.sidebar.success(f"🎯 Khớp ảnh Vector thành công: {final_search_key} ({round(best_similarity * 100, 1)}%)")
                     else:
-                        # Thay vì lấy từ khóa text rỗng, ưu tiên lấy mã AI nhận diện được (Ví dụ trong ảnh là 1P001369)
                         if new_style_id_detected and new_style_id_detected != "UNKNOWN_STYLE":
                             final_search_key = new_style_id_detected.strip().upper()
                         else:
@@ -932,6 +927,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                         future_tp = executor.submit(fetch_techpack, final_search_key)
                         fabric_records = future_sp.result()
                         techpack_records = future_tp.result()
+
 
                     # ==========================================
                     # ĐOẠN 3: HIỂN THỊ GIAO DIỆN VÀ ĐỊNH MỨC AI
