@@ -502,6 +502,8 @@ if menu_selection == "📊 Upload Techpack":
 # CHỨC NĂNG 2: ĐỐI CHIẾU SO SÁNH HAI MÃ RẬP KHÁC NHAU (PATTERN SPEC COMPARISON)
 # -----------------------------------------------------------------------------
 elif menu_selection == "🔄 Pattern Spec Comparison":
+    import re  # Bổ sung thư viện re để tránh lỗi xử lý chuỗi ở hàm clean_garment_fraction
+    
     st.markdown('<div class="component-title-box">🔄 DIFFERENTIAL GEOMETRY & DELTA SPEC EVALUATOR</div>', unsafe_allow_html=True)
     
     st.markdown("""<div class="card-container"><div class="card-section-header">🔍 CONFIGURATION SELECTION</div>
@@ -510,6 +512,10 @@ elif menu_selection == "🔄 Pattern Spec Comparison":
     sc1, sc2 = st.columns(2)
     with sc1: file1 = st.file_uploader("Chọn file mẫu Techpack Gốc (File A)", type=["pdf"], key="f1")
     with sc2: file2 = st.file_uploader("Chọn file mẫu Techpack Sửa đổi (File B)", type=["pdf"], key="f2")
+    
+    # Kiểm tra và khởi tạo session_state nếu chưa có
+    if "processed_styles" not in st.session_state:
+        st.session_state["processed_styles"] = {}
     
     if file1 and file2:
         if file1.name not in st.session_state["processed_styles"]:
@@ -606,7 +612,7 @@ elif menu_selection == "🔄 Pattern Spec Comparison":
             st.markdown(full_table_render, unsafe_allow_html=True)
             st.markdown("<br>", unsafe_allow_html=True)
             
-            # ĐÃ VÁ LỖI CỤT: Hoàn thiện logic định dạng cột và sinh tệp Excel tự động
+            # ĐÃ VÁ LỖI CỤT: Hoàn thiện định dạng Excel nâng cao và sinh nút Download trực tiếp
             df_compare = pd.DataFrame(compare_rows_for_df)
             towrite = io.BytesIO()
             with pd.ExcelWriter(towrite, engine='xlsxwriter') as writer: 
@@ -617,23 +623,25 @@ elif menu_selection == "🔄 Pattern Spec Comparison":
                 center_format = workbook.add_format({'align':'center','valign':'vcenter','border':1})
                 left_format = workbook.add_format({'align':'left','valign':'vcenter','border':1})
                 
+                # Áp dụng header tùy chỉnh
                 for col_num, column_title in enumerate(df_compare.columns):
                     worksheet.write(0, col_num, column_title, header_format)
-                    
+                
+                # Tự động căn chỉnh độ rộng cột Excel để không bị che khuất văn bản
                 for i, col in enumerate(df_compare.columns):
-                    max_len = max(df_compare[col].astype(str).map(len).max(), len(col)) + 3
-                    if col == "Vị trí đo (POM)":
-                        worksheet.set_column(i, i, max_len, left_format)
-                    else:
-                        worksheet.set_column(i, i, max_len, center_format)
-                        
+                    max_len = max(df_compare[col].astype(str).map(len).max(), len(col)) + 4
+                    worksheet.set_column(i, i, max_len, left_format if i == 0 else center_format)
+            
+            towrite.seek(0)
+            
+            # Xuất nút bấm Streamlit để tải trực tiếp file báo cáo
             st.download_button(
-                label="📥 DOWNLOAD COMPARISON EXCEL REPORT",
-                data=towrite.getvalue(),
+                label="📥 Tải báo cáo đối chiếu Excel (.xlsx)",
+                data=towrite,
                 file_name=f"Spec_Comparison_{d1['style_number_parsed']}_vs_{d2['style_number_parsed']}.xlsx",
-                mime="application/vnd.ms-excel",
-                use_container_width=True
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
+
 
 import io
 import json
