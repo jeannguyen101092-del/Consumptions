@@ -822,7 +822,8 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
 
 # =============================================================================
                                         # ==========================================
-                    # ĐOẠN 2: XỬ LÝ VECTOR VÀ TRUY VẤN KHO (ĐÃ ĐỒNG BỘ 100% VỚI LUỒNG NẠP KHO)
+                                        # ==========================================
+                    # ĐOẠN 2: XỬ LÝ VECTOR VÀ TRUY VẤN KHO (BƯỚC 1 - SỬA LỖI 404SIDEBAR)
                     # ==========================================
                     base_sb_url = SB_URL.rstrip('/')
                     headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
@@ -833,26 +834,24 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                         with st.spinner("⚡ AI đang số hóa hình học phẳng và chạy thuật toán so khớp thị giác Vector..."):
                             query_vector = None
                             try:
-                                # ĐÃ ĐỒNG BỘ: Khởi tạo client phụ trách cổng API v1 giống hệt luồng nạp kho
-                                client_v1 = genai.Client(api_key=gemini_key, http_options={'api_version': 'v1'})
-                                
-                                # ĐÃ ĐỒNG BỘ: Dùng chung Prompt trích xuất hình học phẳng
                                 vision_prompt = """
                                 Analyze this technical flat sketch in detail. List all unique geometric attributes.
                                 Output ONLY a dense string of these visual characteristics for vector similarity matching.
                                 """
-                                vision_res = client_v1.models.generate_content(
+                                vision_res = client.models.generate_content(
                                     model='gemini-2.5-flash',
                                     contents=[types.Part.from_bytes(data=target_new_sketch_bytes, mime_type='image/jpeg'), vision_prompt]
                                 )
                                 visual_description = vision_res.text.strip() if vision_res.text else "technical garment layout specs"
 
-                                # ĐÃ ĐỒNG BỘ: Dùng chung mô hình text-embedding-004 qua cổng v1 sạch lỗi
-                                embedding_res = client_v1.models.embed_content(
+                                # SỬA DỨT ĐIỂM LỖI 404: Gọi trực tiếp không qua Config api_version
+                                embedding_res = client.models.embed_content(
                                     model='text-embedding-004',
                                     contents=visual_description
                                 )
-                                if embedding_res and embedding_res.embeddings:
+                                
+                                # Trích xuất mảng giá trị từ SDK mới an toàn
+                                if embedding_res and hasattr(embedding_res, 'embeddings') and embedding_res.embeddings:
                                     query_vector = np.array(embedding_res.embeddings.values, dtype=np.float32)
                             except Exception as ai_err:
                                 st.sidebar.error(f"Lỗi đối soát Vector: {ai_err}")
@@ -880,7 +879,6 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                                                 
                                             db_vector = np.array(db_vector_list, dtype=np.float32)
                                             
-                                            # Kiểm tra kích thước hình học xem hai vector có cùng độ dài không
                                             if query_vector.shape == db_vector.shape:
                                                 dot_product = np.dot(query_vector, db_vector)
                                                 norm_query = np.linalg.norm(query_vector)
@@ -893,6 +891,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                                         except Exception:
                                             pass
 
+                    # Kết luận mã tìm kiếm dự phòng nếu Vector không khớp
                     if matched_style_name:
                         final_search_key = matched_style_name.strip()
                         st.sidebar.success(f"🎯 Khớp ảnh Vector thành công: {final_search_key} ({round(best_similarity * 100, 1)}%)")
@@ -901,7 +900,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                             final_search_key = new_style_id_detected.strip().upper()
                         else:
                             final_search_key = dynamic_keyword.strip().upper()
-                        st.sidebar.warning(f"⚠️ Không khớp được ảnh Vector. Chuyển sang tìm theo chuỗi mã: {final_search_key}")
+                        st.sidebar.warning(f"⚠️ Chuyển sang tìm theo mã văn bản: {final_search_key}")
 
                     def fetch_san_pham(key):
                         if not key or key in ["UNKNOWN", "UNKNOWN_STYLE"]: return []
