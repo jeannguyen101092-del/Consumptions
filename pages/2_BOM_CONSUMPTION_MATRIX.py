@@ -368,6 +368,9 @@ if "processed_styles" not in st.session_state:
 # CHỨC NĂNG 1: QUÉT TỰ ĐỘNG BẰNG AI VÀ LƯU HÀNG LOẠT (BULK SAVE MULTI-BATCH)
 # -----------------------------------------------------------------------------
 if menu_selection == "📊 Upload Techpack":
+    import base64
+    import concurrent.futures
+
     st.markdown('<div class="component-title-box">📊 MULTI-BATCH GARMENT SPECIFICATION MATRIX</div>', unsafe_allow_html=True)
     
     st.markdown("""<div class="card-container"><div class="card-section-header">📥 INGESTION ENGINE</div>
@@ -377,27 +380,57 @@ if menu_selection == "📊 Upload Techpack":
     
     if uploaded_files:
         files_to_render = []
+        
+        # Tạo danh sách các file thực sự cần bóc tách (chưa có trong bộ nhớ tạm session_state)
+        files_need_processing = [f for f in uploaded_files if f.name not in st.session_state["processed_styles"]]
+        
+        # ⚡ CẢI TIẾN TỐC ĐỘ: Nếu có file mới, kích hoạt nút bấm số hóa và chạy đa luồng song song thay vì chạy tự động ngay lập tức
+        if files_need_processing:
+            if st.button(f"🚀 KÍCH HOẠT SỐ HÓA ĐA LUỒNG SONG SONG ({len(files_need_processing)} FILE MỚI)", use_container_width=True, type="primary"):
+                status_text = st.empty()
+                progress_bar = st.progress(0)
+                total_new_files = len(files_need_processing)
+                
+                # Hàm đóng gói công việc độc lập cho từng luồng máy chủ
+                def thread_worker(file_obj):
+                    try:
+                        # Gọi hàm xử lý đơn lẻ đã được hạ DPI và nén chất lượng ở lượt trước
+                        res = process_single_pdf_batch(file_obj.getvalue(), file_obj.name)
+                        return {"file_name": file_obj.name, "success": res.get("success", False), "data": res.get("data", None), "error": res.get("error", None)}
+                    except Exception as e:
+                        return {"file_name": file_obj.name, "success": False, "data": None, "error": str(e)}
+
+                # Bật cấu hình thực thi song song tối đa 4 tệp cùng lúc để chống nghẽn mạng internet
+                with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+                    future_to_file = {executor.submit(thread_worker, f): f.name for f in files_need_processing}
+                    
+                    for idx, future in enumerate(concurrent.futures.as_completed(future_to_file)):
+                        f_name = future_to_file[future]
+                        try:
+                            task_res = future.result()
+                            if task_res["success"] and task_res["data"]:
+                                st.session_state["processed_styles"][f_name] = task_res["data"]
+                            else:
+                                st.error(f"FAIL ENGINE [{f_name}]: {task_res['error']}")
+                        except Exception as exc:
+                            st.error(f"CRITICAL CRASH [{f_name}]: {str(exc)}")
+                        
+                        # Cập nhật thanh tiến trình thời gian thực trực quan lên màn hình
+                        completed = idx + 1
+                        progress_bar.progress(completed / total_new_files)
+                        status_text.text(f"⚡ Core AI đang xử lý song song: {completed}/{total_new_files} tệp ({f_name})...")
+                
+                status_text.empty()
+                progress_bar.empty()
+                st.success("🎉 PIPELINE: Tiến trình bóc tách và tự động nạp Supabase Master DB hoàn tất!")
+
+        # Gom danh sách toàn bộ các file đã xử lý xong để chuẩn bị đổ giao diện Card
         for file in uploaded_files:
-            if file.name not in st.session_state["processed_styles"]:
-                with st.spinner(f"Core AI đang bóc tách mô hình {file.name}..."):
-                    # LƯU Ý: Đảm bảo hàm process_single_pdf_batch đã được định nghĩa trong file code của bạn
-                    res = process_single_pdf_batch(file.getvalue(), file.name)
-                    if res["success"]: 
-                        st.session_state["processed_styles"][file.name] = res["data"]
-                    else: 
-                        st.error(f"FAIL ENGINE [{file.name}]: {res['error']}")
             if file.name in st.session_state["processed_styles"]:
                 files_to_render.append(file.name)
 
         if files_to_render:
-            if st.button("💾 SAVE ALL PROCESSED MATRIX TO SUPABASE MASTER DB", key="bulk_save_all_btn", type="primary", use_container_width=True):
-                success_count = 0
-                with st.spinner("Đang đồng bộ cổng dữ liệu nhị phân hàng loạt lên Supabase Cloud..."):
-                    for f_name in files_to_render:
-                        style_data = st.session_state["processed_styles"][f_name]
-                        if save_to_supabase_techpack_table(style_data): 
-                            success_count += 1
-                st.success(f"🎉 PATTERN DATA PIPELINE: Đã ghi nhận và lưu trữ thành công {success_count}/{len(files_to_render)} mã hàng vào Database!")
+            st.markdown("### 📋 KẾT QUẢ SỐ HÓA HÌNH HỌC VÀ THÔNG SỐ SẢN XUẤT")
             st.markdown("---")
 
             cols = st.columns(2)
@@ -421,10 +454,14 @@ if menu_selection == "📊 Upload Techpack":
                     with sub_col2:
                         st.markdown("<p style='font-weight:700; font-size:12px; color:#1E293B;'>📐 GARMENT FLAT SKETCH</p>", unsafe_allow_html=True)
                         if data.get("sketch_image"): 
-                            st.image(base64.b64decode(data["sketch_image"]), use_container_width=True)
+                            try:
+                                st.image(base64.b64decode(data["sketch_image"]), use_container_width=True)
+                            except Exception:
+                                st.info("Không thể dựng bản xem trước hình ảnh.")
                     st.markdown("<br><hr style='border-color:#E2E8F0;'><br>", unsafe_allow_html=True)
     else:
         st.markdown('<div class="idle-alert-box">⚠️ INITIALIZATION SYSTEM IDLE: Hiện tại chưa có tệp dữ liệu Techpack nào được nạp vào hệ thống để AI khởi chạy mô hình.</div>', unsafe_allow_html=True)
+
 
 # -----------------------------------------------------------------------------
 # CHỨC NĂNG 2: ĐỐI CHIẾU SO SÁNH HAI MÃ RẬP KHÁC NHAU (PATTERN SPEC COMPARISON)
