@@ -695,29 +695,12 @@ target_new_sketch_bytes = None
 dynamic_keyword = "UNKNOWN"
 final_search_key = "UNKNOWN"
 img_payload = []
-new_style_id_detected = "UNKNOWN_STYLE"
-new_style_category_detected = ""
-new_style_fabric_detected = "UNKNOWN_FABRIC"
-new_style_measurements_dict = {}
-fabric_records = []
-techpack_records = []
-
-if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vải và đối soát sai lệch..."):
-    if "chat_history" not in st.session_state:
-        st.session_state["chat_history"] = []
-        
-    st.session_state["chat_history"].append({"role": "user", "type": "text", "content": user_query})
-    with st.chat_message("user"): 
-        st.write(user_query)
-    
-    with st.chat_message("assistant"):
-        with st.spinner("Hệ thống AI R&D Engine đang kết nối kho tri thức nền dệt may..."):
-            gemini_key = get_secure_gemini_key()
-            if not gemini_key: 
-                st.error("CRITICAL SERVER BREAKDOWN: AI API Token is missing.")
-            else:
-                try:
-                    client = genai.Client(api_key=gemini_key, http_options=types.HttpOptions(api_version='v1'))
+                    new_style_id_detected = "UNKNOWN_STYLE"
+                    new_style_category_detected = ""
+                    new_style_fabric_detected = "UNKNOWN_FABRIC"
+                    new_style_measurements_dict = {}
+                    img_payload = [] 
+                    target_new_sketch_bytes = None 
                     
                     if 'chat_file' in locals() or 'chat_file' in globals():
                         has_file = chat_file is not None
@@ -732,24 +715,21 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                         if chat_file.name.lower().endswith('.pdf'):
                             info_chat = pdfinfo_from_bytes(file_bytes)
                             total_chat_pages = int(info_chat.get("Pages", 1))
-                            chat_images = convert_from_bytes(file_bytes, dpi=110, first_page=1, last_page=total_chat_pages)
+                            chat_images = convert_from_bytes(file_bytes, dpi=90, first_page=1, last_page=total_chat_pages)
                             for idx, page_img in enumerate(chat_images):
                                 img_buf = io.BytesIO()
-                                page_img.convert("RGB").save(img_buf, format="JPEG", quality=85)
+                                page_img.convert("RGB").save(img_buf, format="JPEG", quality=75)
                                 img_payload.append(types.Part.from_bytes(data=img_buf.getvalue(), mime_type='image/jpeg'))
                         else:
                             target_new_sketch_bytes = file_bytes
                             img_payload.append(types.Part.from_bytes(data=file_bytes, mime_type='image/jpeg'))
                         
                         extraction_prompt = """
-                        Analyze ALL the attached technical pack images page by page.
-                        1. Locate the genuine 'Style ID' / 'Style Number' / 'Mã hàng'. Clean it.
-                        2. Identify the Product Line 'Category' (e.g., Pants, Jeans, Jacket).
-                        3. Extract all points of measurement (POM) into a strict key-value flat dictionary.
-                        4. CRITICAL VISION TASK: Find the exact 'PAGE INDEX' (starting from 0) that contains the TECHNICAL BLACK AND WHITE FLAT SKETCH / DRAWING. 
-                        
-                        Return a valid JSON with this exact schema:
-                        {"detected_style_id": "Pure code only", "category": "Pants or Jacket", "fabric_code": "Pure fabric code", "measurements": {"Vị trí đo": "Thông số"}, "sketch_page_index_detected": 0}
+                        Analyze all sheets. Find: 'Style ID', 'Category', 'Base Size', 'Detailed Measurements'.
+                        Extract target spec for the basic sample size only. Do not extract multiple sizes.
+                        Identify the 0-based page index containing the black & white technical flat drawing page.
+                        Return json:
+                        {"detected_style_id": "string", "category": "string", "fabric_code": "string", "measurements": {}, "sketch_page_index_detected": 0}
                         """
                         extraction_payload = list(img_payload)
                         extraction_payload.append(extraction_prompt)
@@ -771,15 +751,15 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                                 b_buf = io.BytesIO()
                                 chat_images[detected_idx].convert("RGB").save(b_buf, format="JPEG")
                                 target_new_sketch_bytes = b_buf.getvalue()
-                        except Exception as e:
-                            st.warning(f"Không thể bóc tách Techpack tự động: {str(e)}")
+                        except Exception:
+                            pass
                     
                     clean_text_upper = str(user_query).strip().upper()
                     is_searching_fabric = any(word in clean_text_upper for word in ["CODE VẢI", "MÃ VẢI", "LOẠI VẢI", "TÌM VẢI"])
                     codes_found = re.findall(r'\b[A-Z]*\d+[A-Z0-9]*\b|\b[A-Z0-9]+-\d+[A-Z0-9-]*\b', clean_text_upper)
                     
                     if codes_found:
-                        clean_query = codes_found
+                        clean_query = codes_found if isinstance(codes_found, list) else codes_found
                     else:
                         pattern_remove = r"\b(TÌM|KIỂM TRA|XEM|CHECK|MÃ HÀNG|MÃ|VẢI|CODE|TRÍCH XUẤT|HÌNH ẢNH|TƯƠNG ĐỒNG|KHO|TRONG)\b"
                         clean_query = re.sub(pattern_remove, "", clean_text_upper).strip()
@@ -787,7 +767,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     if has_file:
                         if is_searching_fabric and new_style_fabric_detected != "UNKNOWN_FABRIC":
                             dynamic_keyword = str(new_style_fabric_detected).strip()
-                        elif clean_query and len(clean_query) >= 3:
+                        elif clean_query and len(clean_query) >= 3 and not any(w in clean_query for w in ["VỚI", "KHO", "TRONG"]):
                             dynamic_keyword = clean_query
                         else:
                             dynamic_keyword = str(new_style_id_detected).strip()
@@ -805,23 +785,22 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                                 new_style_id_detected = dynamic_keyword
 
 
-# =============================================================================
-                                        # ==========================================
-                                        # ==========================================
-                                      # ==========================================
-                    # ĐOẠN 2: THUẬT TOÁN ĐỐI SOÁT CHUỖI ĐẶC TRƯNG HÌNH HỌC (XÓA SỔ LỖI 404)
-                    # ==========================================
+
+                    # =============================================================================
+                    # ĐOẠN 2: THUẬT TOÁN ĐỐI SOÁT CHUỖI ĐẶC TRƯNG HÌNH HỌC (ĐÃ VÁ LỖI 404 VÀ ĐỒNG BỘ)
+                    # =============================================================================
                     base_sb_url = SB_URL.rstrip('/')
                     headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
                     matched_style_name = None
                     best_match_score = 0
+                    fabric_records = []
+                    techpack_records = []
 
                     if has_file and target_new_sketch_bytes:
-                        with st.spinner("⚡ AI dệt may đang quét phân tích hình học phẳng đối soát mẫu tương đồng..."):
+                        with st.spinner("⚡ AI dệt may đang quét tìm phom dáng tương đồng trong kho..."):
                             try:
                                 vision_prompt = """
-                                Analyze this technical flat sketch in detail. 
-                                List all unique geometric attributes, silhouette, waistband type, front/back pockets layout, and panel shapes.
+                                Analyze this technical flat sketch in detail. List all unique geometric attributes, silhouette, waistband, and pockets.
                                 Output a dense string of these visual characteristics for garment similarity matching.
                                 """
                                 vision_res = client.models.generate_content(
@@ -831,7 +810,6 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                                 query_description = vision_res.text.strip().lower() if vision_res.text else ""
                                 
                                 if query_description:
-                                    # Gọi dữ liệu chuỗi đặc trưng từ kho thong_so_techpack về so khớp
                                     url_all_vectors = f"{base_sb_url}/rest/v1/thong_so_techpack?select=StyleName,sketch_vector"
                                     try:
                                         res_all = requests.get(url_all_vectors, headers=headers, timeout=10)
@@ -839,29 +817,24 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                                     except Exception:
                                         warehouse_data = []
 
-                                    # Tách các từ khóa đặc trưng hình học để tính điểm tương đồng (silhouette, pockets, waistband...)
                                     query_keywords = set(re.findall(r'\b\w{4,15}\b', query_description))
                                     
                                     for row in warehouse_data:
                                         db_vector_text = str(row.get("sketch_vector", "")).strip().lower()
-                                        if db_vector_text and db_vector_text != "null" and db_vector_text != "technical garment layout specs":
+                                        if db_vector_text and db_vector_text not in ["null", "", "technical garment layout specs"]:
                                             db_keywords = set(re.findall(r'\b\w{4,15}\b', db_vector_text))
-                                            
-                                            # Tính toán số lượng từ khóa hình học trùng khớp giữa mẫu mới và mẫu trong kho
                                             common_keywords = query_keywords.intersection(db_keywords)
                                             match_score = len(common_keywords)
                                             
-                                            # Lưu lại mẫu thiết kế trong kho có độ tương đồng đặc trưng cao nhất
                                             if match_score > best_match_score and match_score >= 3:
                                                 best_match_score = match_score
                                                 matched_style_name = row.get("StyleName")
                             except Exception as ai_err:
-                                st.sidebar.error(f"Lỗi phân tích đối soát phom dáng: {ai_err}")
+                                st.sidebar.error(f"Lỗi đối soát phom dáng: {ai_err}")
 
-                    # Xác lập mã hàng sau khi đối soát thành công
                     if matched_style_name:
                         final_search_key = matched_style_name.strip()
-                        st.sidebar.success(f"🎯 Khớp phom thiết kế thành công: {final_search_key} (Độ khớp: {best_match_score} điểm)")
+                        st.sidebar.success(f"🎯 Khớp phom thiết kế thành công: {final_search_key} ({best_match_score} điểm)")
                     else:
                         if new_style_id_detected and new_style_id_detected != "UNKNOWN_STYLE":
                             final_search_key = new_style_id_detected.strip().upper()
@@ -893,20 +866,14 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                         future_tp = executor.submit(fetch_techpack, final_search_key)
                         fabric_records = future_sp.result()
                         techpack_records = future_tp.result()
-
-
-
-
-                                        # =============================================================================
                     # =============================================================================
-                    # ĐOẠN 3: KẾT XUẤT HÌNH ẢNH SKETCH, BẢNG THÔNG SỐ VÀ TỰ TÍNH ĐỊNH MỨC ĐỘ CO ĐA CHIỀU
+                    # ĐOẠN 3: KẾT XUẤT GIAO DIỆN VÀ PHÂN NHÁNH TÍNH ĐỊNH MỨC THEO QUY TRÌNH
                     # =============================================================================
                     db_sketch_url = None
                     db_measurements_raw = {}
                     current_style_name = ""
                     SUPABASE_PROJECT_URL = SB_URL.rstrip('/') if 'SB_URL' in locals() else "https://supabase.co" 
                     
-                    # Thiết lập giao diện so sánh song song 2 cột trực quan
                     img_col1, img_col2 = st.columns(2)
                     with img_col1:
                         if has_file and target_new_sketch_bytes:
@@ -920,12 +887,9 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                                 db_sketch_url = first_record.get("SketchURL")
                                 db_measurements_raw = first_record.get("DetailedMeasurements", {})
                                 if isinstance(db_measurements_raw, str):
-                                    try: 
-                                        db_measurements_raw = json.loads(db_measurements_raw)
-                                    except Exception: 
-                                        db_measurements_raw = {}
+                                    try: db_measurements_raw = json.loads(db_measurements_raw)
+                                    except Exception: db_measurements_raw = {}
                             
-                            # Hiển thị URL ảnh trực tiếp từ database gửi về
                             if db_sketch_url and str(db_sketch_url).startswith("http"):
                                 st.image(db_sketch_url, caption=f"🎯 Ảnh Sketch đối chứng khớp trong kho: {current_style_name}", use_container_width=True)
                             elif current_style_name:
@@ -938,7 +902,6 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                             else:
                                 st.info("ℹ️ Không tìm thấy mẫu thiết kế đối chứng tương đồng trong kho ảnh.")
 
-                    # XỬ LÝ REGEX BÓC TÁCH THÔNG SỐ ĐỘ CO RÚT VÀ KHỔ VẢI TỪ CÂU LỆNH CHAT CỦA KHÁCH HÀNG
                     fabric_width_input = re.search(r'(?:KHỔ|KHO)\s*(\d+(?:\.\d+)?)', clean_text_upper)
                     shrink_ngang = re.search(r'(?:NGANG)\s*(\d+(?:\.\d+)?)\s*%', clean_text_upper)
                     shrink_doc = re.search(r'(?:DỌC|DOC)\s*(\d+(?:\.\d+)?)\s*%', clean_text_upper)
@@ -973,42 +936,30 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                         else:
                             st.info("Không tìm thấy thông số kỹ thuật gốc.")
 
-                    # BÁO CÁO PHÂN TÍCH ĐỊNH MỨC THEO QUY CHUẨN NGÀNH MAY (ĐỘ CO ĐA CHIỀU & KHỔ VẢI)
                     st.markdown("### 📐 Kết quả phân tích sơ đồ & Tính toán định mức vải")
-                    
-                    # Xác định trạng thái kết nối dữ liệu kho để chuyển vào Prompt điều hướng AI
                     pipeline_mode = "HISTORY_BASED_PREDICTION" if has_history_match else "PURE_MARKER_CALCULATOR"
 
                     analysis_prompt = f"""
-                    You are an expert Apparel Costing & Marker Planning Engineer. Perform a strict fabric consumption analysis.
-                    
+                    You are an expert Apparel Costing Engineer. Perform a strict fabric consumption analysis.
                     [PRODUCTION VARIABLES]
                     - Target Usable Fabric Width: {user_width}
                     - Target Fabric Shrinkage Weft (Ngang): {co_ngang}%
                     - Target Fabric Shrinkage Warp (Dọc): {co_doc}%
-                    
                     [SPECS DATA]
                     - New Style Uploaded Measurements: {json.dumps(new_style_measurements_dict, ensure_ascii=False)}
                     - Warehouse Match Techpack Specs: {json.dumps(db_measurements_raw, ensure_ascii=False)}
                     - Warehouse Match Fabric Records: {json.dumps(fabric_records, ensure_ascii=False)}
-                    
                     [CRITICAL EXECUTION MODE: {pipeline_mode}]
-                    
                     RULE 1: IF MODE IS "HISTORY_BASED_PREDICTION":
-                    - Do NOT calculate from scratch using marker equations.
-                    - Locate the "Định mức gốc" and "Khổ vải" of the matched style in Warehouse Match Fabric Records.
-                    - Compare the New Style Uploaded Measurements against the Warehouse Match Techpack Specs. Calculate the exact delta of major length points.
+                    - Locate the "Định mức gốc" of the matched style in Warehouse Match Fabric Records.
+                    - Compare the New Style Uploaded Measurements against the Warehouse Match Techpack Specs. Calculate length points delta.
                     - Adjust the "Định mức gốc" proportionally based on this measurement delta, target fabric width, and target shrinkage.
-                    - Clearly state: "Dự đoán định mức dựa trên mã tương đồng lịch sử".
-                    
+                    - State: "Dự đoán định mức dựa trên mã tương đồng lịch sử".
                     RULE 2: IF MODE IS "PURE_MARKER_CALCULATOR":
-                    - Calculate the fabric net consumption per unit from scratch using standard apparel garment marker geometry based on the length points found in New Style Uploaded Measurements.
-                    - Warp shrinkage expands required pattern length. Weft shrinkage impacts pattern layout packing efficiency inside target width. Add 5% cutting wastage.
-                    - Clearly state: "Tính toán độc lập theo quy ước hình học ngành may do không có mã tương đồng trong kho".
-
+                    - Calculate from scratch using standard apparel marker geometry based on the length points found in New Style Uploaded Measurements. Add 5% cutting wastage.
+                    - State: "Tính toán độc lập theo quy ước hình học ngành may do không có mã tương đồng".
                     [OUTPUT FORMAT]
-                    - Output step-by-step completely in Vietnamese. 
-                    - Keep it strictly technical, professional, precise and concise. Avoid verbose introductory or summary conversational chat.
+                    - Output step-by-step completely in Vietnamese. Keep it strictly technical, professional and precise.
                     """
                     
                     with st.spinner("AI đang phân tích sơ đồ đối soát và lập công thức dự toán định mức..."):
@@ -1016,11 +967,8 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                         final_payload.append(analysis_prompt)
                         
                         try:
-                            analysis_res = client.models.generate_content(
-                                model='gemini-2.5-flash', 
-                                contents=final_payload,
-                            )
+                            analysis_res = client.models.generate_content(model='gemini-2.5-flash', contents=final_payload)
                             st.markdown(analysis_res.text)
                             st.session_state["chat_history"].append({"role": "assistant", "type": "text", "content": analysis_res.text})
                         except Exception as e:
-                            st.error(f"Lỗi khi gửi yêu cầu phân tích sơ đồ tới Gemini: {str(e)}")
+                            st.error(f"Lỗi gửi yêu cầu tới Gemini: {str(e)}")
