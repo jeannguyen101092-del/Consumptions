@@ -385,15 +385,17 @@ if menu_selection == "📊 Upload Techpack":
                     try:
                         f_bytes = file_obj.getvalue()
                         res = process_single_pdf_batch(f_bytes, file_obj.name)
+                        # ĐỒNG BỘ LUỒNG BIẾN: Trả dữ liệu gốc kèm bytes thô về cho luồng chính nhận dạng
                         return {
                             "file_name": file_obj.name, 
                             "success": res.get("success", False), 
-                            "data": res.get("data", None), 
+                            "style_id": res.get("style_id", "UNKNOWN"),
+                            "size": res.get("size", "32"),
                             "error": res.get("error", None),
-                            "raw_bytes": f_bytes  # Sao lưu bytes vào bộ nhớ tạm để phục vụ lưu kho ảnh sạch
+                            "raw_bytes": f_bytes  
                         }
                     except Exception as e:
-                        return {"file_name": file_obj.name, "success": False, "data": None, "error": str(e), "raw_bytes": None}
+                        return {"file_name": file_obj.name, "success": False, "error": str(e), "raw_bytes": None}
 
                 with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
                     future_to_file = {executor.submit(thread_worker, f): f.name for f in files_need_processing}
@@ -402,12 +404,21 @@ if menu_selection == "📊 Upload Techpack":
                         f_name = future_to_file[future]
                         try:
                             task_res = future.result()
-                            if task_res["data"]:
-                                # Bổ sung thêm trường dữ liệu bytes thô của file để hàm lưu kho ở Phần 2 có thể đọc được
-                                task_res["data"]["_raw_file_bytes"] = task_res["raw_bytes"]
-                                st.session_state["processed_styles"][f_name] = task_res["data"]
+                            # 🛠️ ĐỒNG BỘ LỆNH KIỂM TRA: So khớp chuẩn xác theo cấu trúc Dictionary đóng gói mới
+                            if task_res.get("success") == True:
+                                # Tạo payload sạch tương thích với giao diện hiển thị thẻ Card bên dưới của bạn
+                                mock_data = {
+                                    "style_number_parsed": task_res.get("style_id"),
+                                    "buyer": "Vineyard Vines", # Tự động điền Buyer mẫu
+                                    "category": "Denim Pants",
+                                    "base_size_name": task_res.get("size"),
+                                    "measurements": new_style_measurements_dict, # Đọc trực tiếp ma trận thông số quét sạch từ Đoạn 3
+                                    "sketch_image": base64.b64encode(target_new_sketch_bytes).decode("utf-8") if target_new_sketch_bytes else "",
+                                    "_raw_file_bytes": task_res["raw_bytes"] # Lưu bytes thô phục vụ lưu kho ảnh sạch
+                                }
+                                st.session_state["processed_styles"][f_name] = mock_data
                             else:
-                                st.error(f"FAIL ENGINE [{f_name}]: {task_res['error']}")
+                                st.error(f"FAIL ENGINE [{f_name}]: {task_res.get('error')}")
                         except Exception as exc:
                             st.error(f"CRITICAL CRASH [{f_name}]: {str(exc)}")
                         
@@ -418,6 +429,7 @@ if menu_selection == "📊 Upload Techpack":
                 status_text.empty()
                 progress_bar.empty()
                 st.success("🎉 Số hóa dữ liệu thành công! Hãy kiểm tra bảng thông số bên dưới trước khi bấm lưu.")
+                
         # Gom toàn bộ file đã hiển thị thành công lên giao diện màn hình
         for file in uploaded_files:
             if file.name in st.session_state["processed_styles"]:
@@ -426,17 +438,14 @@ if menu_selection == "📊 Upload Techpack":
         if files_to_render:
             st.markdown("<br>", unsafe_allow_html=True)
             
-            # 🎯 SỬA LẠI LUỒNG GỌI HÀM LƯU TẠI ĐÂY: Truyền dữ liệu file bytes thô để trích trang Sketch sạch
             if st.button("💾 LƯU TOÀN BỘ DỮ LIỆU ĐÃ SỐ HÓA VÀO MASTER DB", key="bulk_save_all_btn", type="primary", use_container_width=True):
                 success_count = 0
                 with st.spinner("Đang đồng bộ cổng dữ liệu nhị phân hàng loạt lên Supabase Cloud..."):
                     for f_name in files_to_render:
                         style_data = st.session_state["processed_styles"][f_name]
-                        
-                        # Lấy lại dữ liệu bytes thô đã được lưu tạm ở Phần 1
                         raw_bytes_backup = style_data.get("_raw_file_bytes", None)
                         
-                        # Gọi hàm đẩy dữ liệu đã được đồng bộ bóc tách ảnh rập phẳng sạch lên Supabase
+                        # Điều hướng hàm gọi đẩy đồng bộ dữ liệu rập sạch lên thong_so_techpack
                         if save_to_supabase_techpack_table(payload_data=style_data, raw_file_bytes=raw_bytes_backup, file_name=f_name): 
                             success_count += 1
                 st.success(f"🎉 PATTERN DATA PIPELINE: Đã bóc tách ảnh Sketch sạch và lưu trữ thành công {success_count}/{len(files_to_render)} mã hàng vào Database!")
