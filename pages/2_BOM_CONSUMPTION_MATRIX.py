@@ -277,7 +277,7 @@ def get_techpack_spec_from_db(style_name_keyword=None):
 def process_single_pdf_batch(file_bytes, file_name):
     """
     Hàm bóc tách dữ liệu kỹ thuật từ một file PDF độc lập sử dụng Gemini Vision API.
-    ⚡ ĐÃ TỐI ƯU TỐC ĐỘ: Hạ thấp DPI, tăng tốc độ nén ảnh và giảm tải chuỗi Base64 giúp chạy siêu nhanh.
+    ✨ ĐÃ SỬA LỖI: Ép AI và Python chỉ trích xuất duy nhất 1 cột thông số của Size cơ bản (Base Size).
     """
     try:
         import base64
@@ -287,31 +287,36 @@ def process_single_pdf_batch(file_bytes, file_name):
             
         client = genai.Client(api_key=gemini_key)
         
-        # Đọc thông tin số trang PDF nhanh
         info = pdfinfo_from_bytes(file_bytes)
         total_pages = int(info.get("Pages", 1))
-        
-        # ⚡ TỐI ƯU 1: Hạ DPI từ 140 xuống 90 để giảm 70% dung lượng RAM và tăng tốc xử lý ảnh
         images = convert_from_bytes(file_bytes, dpi=90, first_page=1, last_page=total_pages)
         
         contents_payload = []
         for idx, page_img in enumerate(images):
             img_buf = io.BytesIO()
-            # ⚡ TỐI ƯU 2: Hạ chất lượng nén JPEG xuống 75 (Chuẩn hiển thị web) để giảm tải băng thông truyền API
             page_img.convert("RGB").save(img_buf, format="JPEG", quality=75)
             contents_payload.append(types.Part.from_bytes(data=img_buf.getvalue(), mime_type='image/jpeg'))
             
+        # SỬA LẠI PROMPT: Ép khuôn AI chỉ lấy đúng 1 size mẫu cơ bản duy nhất
         extraction_prompt = """
-        Analyze all technical sheets sheet by sheet. Find: 'Style ID', 'Buyer', 'Category', 'Base Size', 'Detailed Measurements'.
-        Identify the exact 0-based page index containing the black & white technical flat design sketch.
-        Do not select real photos. Only pick pure line art design drawing page.
+        Analyze all technical sheets page by page. 
+        1. Find the 'Style ID' / 'Style Number' (e.g., 1P001363).
+        2. Identify 'Buyer', 'Category', and the designated 'Base Size' / 'Sample Size' (e.g., 32/32).
+        
+        3. CRITICAL SPECIFICATION TASK (EXTRACT BASE SIZE ONLY):
+           Look at the Measurement Specification Sheet (bảng thông số kỹ thuật). 
+           - Detect the exact column that belongs to the 'Base Size' / 'Sample Size' (e.g., column '32' or the sample size column).
+           - Extract the points of measurement (POM) and their corresponding target values for THIS BASE SIZE ONLY.
+           - DO NOT extract multiple sizes. DO NOT return nesting JSON or multiple size values for a single POM.
+           - Format each measurement value as a clean single string/number (e.g., "33", "11 1/2", "15 1/4").
+        
+        4. Identify the 0-based page index containing the black & white technical flat design sketch.
         
         Return a valid raw JSON schema with this exact structure:
-        {"style_number_parsed": "string", "buyer": "string", "category": "string", "base_size_name": "string", "measurements": {}, "sketch_page_index_detected": 0}
+        {"style_number_parsed": "string", "buyer": "string", "category": "string", "base_size_name": "string", "measurements": {"Waist Circ": "33", "Waistband Height": "1 5/8"}, "sketch_page_index_detected": 0}
         """
         contents_payload.append(extraction_prompt)
         
-        # Gửi dữ liệu thu gọn lên Gemini 2.5 Flash
         res = client.models.generate_content(
             model='gemini-2.5-flash',
             contents=contents_payload,
@@ -320,21 +325,55 @@ def process_single_pdf_batch(file_bytes, file_name):
         
         parsed_data = json.loads(res.text.strip())
         
-        # Xác định trang chứa bản vẽ ảnh rập phẳng
+        # --- CƠ CHẾ DỰ PHÒNG PYTHON: LỌC ÉP LẠI MỘT LẦN NỮA NẾU AI VẪN BỐC NHẦM ---
+        base_size_target = str(parsed_data.get("base_size_name", "")).strip()
+        # Thử lấy phần kích cỡ vòng eo (ví dụ "32" từ chuỗi "32/32") làm từ khóa để dò tìm
+        size_keyword = base_size_target.split("/")[0] if "/" in base_size_target else base_size_target
+        size_keyword = size_keyword.strip()
+        
+        raw_measurements = parsed_data.get("measurements", {})
+        clean_measurements = {}
+        
+        if isinstance(raw_measurements, dict):
+            for pom, val in raw_measurements.items():
+                if isinstance(val, dict):
+                    # Nếu cấu trúc trả về là từ điển chứa nhiều size độc lập
+                    if size_keyword in val:
+                        clean_measurements[pom] = str(val[size_keyword])
+                    elif "32" in val:
+                        clean_measurements[pom] = str(val["32"])
+                    else:
+                        first_key = list(val.keys())[0] if val.keys() else ""
+                        clean_measurements[pom] = str(val[first_key]) if first_key else str(val)
+                else:
+                    val_str = str(val)
+                    # Nếu là dạng văn bản thô chứa nhiều ngoặc nhọn do AI bóc lỗi
+                    if "{" in val_str or ":" in val_str:
+                        match_val = re.search(fr"['\"]?{size_keyword}['\"]?\s*:\s*['\"]?([^'\",}}]+)", val_str)
+                        if match_val:
+                            clean_measurements[pom] = match_val.group(1).strip()
+                        else:
+                            clean_measurements[pom] = val_str
+                    else:
+                        clean_measurements[pom] = val_str
+                        
+            # Ghi đè lại bảng thông số sạch chỉ có duy nhất 1 size cơ bản
+            parsed_data["measurements"] = clean_measurements
+        # ----------------------------------------------------------------------
+        
         detected_idx = int(parsed_data.get("sketch_page_index_detected", 0))
         if not (0 <= detected_idx < len(images)):
             detected_idx = 0
             
-        # ⚡ TỐI ƯU 3: Chỉ trích xuất duy nhất 1 trang chứa Sketch thiết kế phẳng với chất lượng trung bình để lưu kho ảnh
         sketch_buf = io.BytesIO()
         images[detected_idx].convert("RGB").save(sketch_buf, format="JPEG", quality=75)
         parsed_data["sketch_image"] = base64.b64encode(sketch_buf.getvalue()).decode('utf-8')
         
-        # Đẩy dữ liệu gọn nhẹ xuống Supabase để chạy sinh Vector không bị nghẽn mạng
         save_success = save_to_supabase_techpack_table(parsed_data)
         return {"success": save_success, "data": parsed_data}
     except Exception as e:
         return {"success": False, "error": str(e)}
+
 
 
 
