@@ -835,7 +835,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                             matched_techpack = row
                             best_similarity_ratio = 1.0
                             break
-                                if matched_techpack:
+                if matched_techpack:
                     target_style_name = matched_techpack.get("StyleName")
                     st.success(f"🎯 ĐÃ TÌM THẤY MÃ HÀNG TƯƠNG ĐỒNG: **{target_style_name}**")
                     
