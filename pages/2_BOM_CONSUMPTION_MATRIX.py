@@ -397,8 +397,11 @@ if menu_selection == "📊 Upload Techpack":
                             "file_name": file_obj.name, 
                             "success": res.get("success", False), 
                             "style_id": res.get("style_id", "UNKNOWN"),
+                            "buyer": res.get("buyer", "UNKNOWN BUYER"),
+                            "category": res.get("category", "GARMENT"),
                             "size": res.get("size", "32"),
-                            "measurements": res.get("measurements", {}), # Đóng gói thông số trực tiếp từ lõi PDF
+                            "measurements": res.get("measurements", {}),
+                            "sketch_bytes": res.get("sketch_bytes", None),
                             "error": res.get("error", None),
                             "raw_bytes": f_bytes  
                         }
@@ -413,22 +416,20 @@ if menu_selection == "📊 Upload Techpack":
                         try:
                             task_res = future.result()
                             if task_res.get("success") == True:
-                                                               # 🧠 CẬP NHẬT CHÈN THEO THẺ ĐỊNH DANH ẢNH CHUẨN HTML5
+                                # ĐỒNG BỘ TIỀN TỐ ẢNH BASE64: Ép trình duyệt tự động bung hình rập nét mảnh lớn lập tức
+                                s_bytes = task_res.get("sketch_bytes")
+                                img_base64_str = f"data:image/jpeg;base64,{base64.b64encode(s_bytes).decode('utf-8')}" if s_bytes else ""
+                                
                                 mock_data = {
                                     "style_number_parsed": task_res.get("style_id"),
-                                    "buyer": task_res.get("buyer", "UNKNOWN BUYER"), 
-                                    "category": task_res.get("category", "GARMENT"),
+                                    "buyer": task_res.get("buyer"), 
+                                    "category": task_res.get("category"),
                                     "base_size_name": task_res.get("size"),
                                     "measurements": task_res.get("measurements", {}), 
-                                    # Thêm chuỗi định dạng data:image/jpeg;base64, vào đầu để Streamlit đọc trực tiếp
-                                    "sketch_image": f"data:image/jpeg;base64,{base64.b64encode(task_res['sketch_bytes']).decode('utf-8')}" if task_res.get("sketch_bytes") else "", 
+                                    "sketch_image": img_base64_str, 
                                     "_raw_file_bytes": task_res["raw_bytes"] 
                                 }
                                 st.session_state["processed_styles"][f_name] = mock_data
-
-
-
-
                             else:
                                 st.error(f"FAIL ENGINE [{f_name}]: {task_res.get('error')}")
                         except Exception as exc:
@@ -481,18 +482,16 @@ if menu_selection == "📊 Upload Techpack":
                         st.markdown(table_html, unsafe_allow_html=True)
                     with sub_col2:
                         st.markdown("<p style='font-weight:700; font-size:12px; color:#1E293B;'>📐 GARMENT FLAT SKETCH</p>", unsafe_allow_html=True)
-                        # S SỬA DỨT ĐIỂM: Truyền thẳng chuỗi chữ đã có thẻ định danh, không dùng lệnh b64decode gây crash ẩn
-                                                # SỬA LẠI DÒNG 486 TRÊN GIAO DIỆN GITHUB CỦA BẠN:
-                        if data.get("sketch_image"): 
-                            st.image(data["sketch_image"], use_container_width=True)
-
-
-                                
+                        # SỬA TRIỆT ĐỂ: Gọi biến trực tiếp chứa thẻ định vị, xóa hoàn toàn dấu ngoặc kép gây lỗi thô chữ
+                        if data.get("sketch_image") and data["sketch_image"] != "":
+                            try:
+                                st.image(data["sketch_image"], use_container_width=True)
                             except Exception:
-                                st.info("Không thể dựng bản xem trước hình ảnh.")
+                                st.info("Hệ thống đang tải cổng ảnh vẽ phẳng kĩ thuật...")
                     st.markdown("<br><hr style='border-color:#E2E8F0;'><br>", unsafe_allow_html=True)
     else:
         st.markdown('<div class="idle-alert-box">⚠️ INITIALIZATION SYSTEM IDLE: Hiện tại chưa có tệp dữ liệu Techpack nào được nạp vào hệ thống để AI khởi chạy mô hình.</div>', unsafe_allow_html=True)
+
 
 
 
