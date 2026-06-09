@@ -635,7 +635,7 @@ try:
 except ImportError:
     pass
 
-# HÀM QUY ĐỔI PHÂN SỐ NGÀNH MAY (Ví dụ: "1 1/8 inches" -> 1.125)
+# HÀM QUY ĐỔI PHÂN SỐ NGÀNH MAY CHUẨN (Ví dụ: "1 1/8 inches" -> 1.125)
 def parse_fraction(val_str):
     if not val_str: 
         return 0.0
@@ -660,15 +660,13 @@ def parse_fraction(val_str):
         return float(val_str) if val_str else 0.0
     except Exception:
         return 0.0
-
-# BỘ NÃO CHAT PHÂN TÍCH ĐỊNH MỨC NÂNG CAO (CHATGPT STYLE)
 def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_records, new_style_measurements, target_new_sketch_bytes, detected_size):
     style_old_name = matched_techpack.get("StyleName", "N/A") if matched_techpack else "N/A"
     specs_old = matched_techpack.get("DetailedMeasurements", {}) if matched_techpack else {}
     
     bom_summary = ""
     if bom_records:
-        bom_summary = "\n".join([f"- Vật tư: {r.get('consumption_type')}, Mã vải: {r.get('article_name')}, Khổ vải gốc: {r.get('material_size')}" for r in bom_records])
+        bom_summary = "\n".join([f"- Vật tư: {r.get('consumption_type')}, Mã vải: {r.get('article_name')}, Khổ vải gốc: {r.get('material_size')}, ĐM gốc: {r.get('consumption_value')}" for r in bom_records])
 
     shrinkage_width = re.findall(r'(?:CO RÚT NGANG|NGANG)\s*(\d+(?:\.\d+)?)\s*%', user_message.upper())
     shrinkage_length = re.findall(r'(?:CO RÚT DỌC|DỌC)\s*(\d+(?:\.\d+)?)\s*%', user_message.upper())
@@ -751,6 +749,7 @@ if has_file:
                 page_img.convert("RGB").save(img_buf, format="JPEG", quality=75)
                 img_payload.append(types.Part.from_bytes(data=img_buf.getvalue(), mime_type='image/jpeg'))
             
+            # QUY CHUẨN THỊ GIÁC NGHIÊM NGẶT: Ép AI loại bỏ trang tóm tắt chứa lưới bảng biểu BOM chữ, tìm đúng ảnh rập nét mảnh chi tiết lớn
             extraction_prompt = (
                 "Analyze all attached sheets page by page. "
                 "1. Locate the core 'Base Size' / 'Sample Size' (e.g., size 32 or size 34 or M). "
@@ -850,14 +849,12 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                             
                 if temp_matched:
                     st.session_state["matched_techpack"] = temp_matched
-                    # SỬA LỖI TRỐNG BẢNG BOM: Ép kiểu chuỗi string nguyên bản từ style_name tìm thấy trong kho
                     target_style_name = str(temp_matched.get("StyleName", "")).strip()
-                    
-                    # Cắt chuỗi lấy mã chữ và số lõi sạch (Không bọc List) để truyền an toàn cho hàm quote
                     core_match = re.search(r'\b[A-Z0-9]{5,12}\b', target_style_name.upper())
                     search_term = core_match.group(0) if core_match else target_style_name
                     
-                    url_san_pham = f"{base_sb_url}/rest/v1/san_pham?style_name=ilike.*{quote(str(search_term).strip())}*&select=style_name,article_name,consumption_type,material_size,uom"
+                    # BIẾN THAY THẾ CHUẨN: Truy vấn đầy đủ các cột dữ liệu bao gồm cả Định mức và Ghi chú từ Supabase
+                    url_san_pham = f"{base_sb_url}/rest/v1/san_pham?style_name=ilike.*{quote(str(search_term).strip())}*&select=style_name,article_name,consumption_type,material_size,uom,consumption_value,notes"
                     res_sp = requests.get(url_san_pham, headers=headers, timeout=10)
                     if res_sp.status_code == 200: 
                         st.session_state["bom_records"] = res_sp.json()
@@ -876,7 +873,18 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
 
         st.subheader("📦 Chi Tiết Định Mức Nguyên Phụ Liệu Gốc trong kho (BOM)")
         if bom_records:
-            st.table(bom_records)
+            formatted_bom = []
+            for r in bom_records:
+                formatted_bom.append({
+                    "Mã hàng (Style)": r.get("style_name"),
+                    "Tên vật tư": r.get("article_name"),
+                    "Chủng loại tiêu hao": r.get("consumption_type"),
+                    "Khổ nguyên liệu": r.get("material_size"),
+                    "Đơn vị tính": r.get("uom"),
+                    "Định mức cơ sở (Kho)": r.get("consumption_value"), # Hiện đầy đủ cột định mức ra màn hình giao diện
+                    "Ghi chú phân xưởng": r.get("notes") # Hiện đầy đủ cột ghi chú phân xưởng
+                })
+            st.table(formatted_bom)
             main_fabrics = list(set([r.get("article_name") for r in bom_records if "MAIN" in str(r.get("consumption_type", "")).upper() if r.get("article_name")]))
             if main_fabrics: st.info(f"🧵 Mã vải chính của mã hàng gốc: **{', '.join(main_fabrics)}**")
         else:
@@ -892,75 +900,84 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                 pairs = re.findall(r'"([^"]+)":\s*"([^"]+)"', str(db_measurements))
                 if pairs: specs_old = {k: v for k, v in pairs}
 
-        if specs_old and new_style_measurements_dict:
-            # ✨ SỬA LỖI LỆCH HÀNG THÔNG SỐ: Thư viện đồng nghĩa phân tách nghiêm ngặt Vòng đo rập và Vị trí hạ mẫu
-            pom_synonyms = {
-                "INSEAM": ["INSEAM", "INSEAM LENGTH", "DÀI GIÀNG", "GIÀNG QUẦN", "INNER SEAM"],
-                "WAIST CIRC - ALONG EDGE": ["WAIST CIRC - ALONG EDGE", "WAIST CIRC ALONG EDGE", "WAISTBAND EDGE", "EO TRÊN", "TOP OF WAISTBAND", "WAIST RELAXED"],
-                "WAIST CIRC - ALONG SEAM": ["WAIST CIRC - ALONG SEAM", "WAIST CIRC ALONG SEAM", "WAISTBAND SEAM", "EO DƯỚI", "WAIST STRETCHED"],
-                "LOW HIP CIRC": ["LOW HIP CIRC", "HIP CIRCUMFERENCE", "VÒNG MÔNG", "MÔNG", "LOW HIP CIRC - 3 POINT", "HIP CIRCUMFERENCE"],
-                "THIGH CIRC": ["THIGH CIRC", "THIGH CIRC - 1\" BELOW CROTCH", "THIGH CIRC 1 BELOW CROTCH", "THIGH", "VÒNG ĐÙI", "THIGH CIRC 1\" BELOW"],
-                "OUTSEAM LENGTH": ["OUTSEAM LENGTH", "OUTSEAM", "DÀI QUẦN", "TOTAL LENGTH", "OUTSEAM INCL BAND", "DÀI VÁY", "SKIRT LENGTH"],
-                "CROTCH DEPTH": ["CROTCH DEPTH", "CROTCH DEPTH (OUTSEAM BTWB MINUS INSEAM)", "HẠ ĐÁY", "HẠ CẠP", "TOTAL CROTCH"],
-                "LEG OPENING CIRC": ["LEG OPENING CIRC", "LEG OPENING", "RỘNG ỐNG", "BOTTOM OPENING", "LEG OPENING CIRCUMFERENCE", "SWEEP", "RỘNG LAI"],
-                "BODY LENGTH": ["BODY LENGTH", "FRONT LENGTH", "BACK LENGTH", "CENTER BACK LENGTH", "CBL", "CFL", "DÀI ÁO", "DÀI THÂN TRƯỚC", "DÀI THÂN SAU"],
-                "CHEST CIRC": ["CHEST", "CHEST CIRCUMFERENCE", "BUST", "BUST CIRCUMFERENCE", "VÒNG NGỰC", "NGỰC", "CHEST 1\" BELOW CROTCH", "UNDERARM"],
-                "SHOULDER CROSS": ["SHOULDER", "ACROSS SHOULDER", "SHOULDER TO SHOULDER", "RỘNG VAI", "NANG VAI", "VAI"],
-                "SLEEVE LENGTH": ["SLEEVE LENGTH", "SLEEVE LENGTH FROM CB", "SLEEVE LENGTH FROM SHOULDER", "DÀI TAY", "TAY ÁO"],
-                "ARMHOLE CIRC": ["ARMHOLE", "ARMHOLE STRAIGHT", "ARMHOLE CURVED", "VÒNG NÁCH", "NÁCH"],
-                "BICEPS CIRC": ["BICEPS", "BICEPS CIRCUMFERENCE", "UPPER ARM WIDTH", "VÒNG BẮP TAY", "BẮP TAY"],
-                "CUFF OPENING": ["CUFF", "CUFF OPENING", "SLEEVE OPENING", "RỘNG ỐNG TAY", "BẢN CỬA TAY"],
-                "NECK WIDTH": ["NECK WIDTH", "NECK OPENING", "RỘNG CỔ", "VÒNG CỔ"],
-                "LOW HIP POSITION": ["LOW HIP POSITION FROM BELOW WB", "LOW HIP POSITION", "HIP PLACEMENT", "HẠ MÔNG"]
-            }
-            
-            def find_standard_key(raw_key):
-                """Thuật toán ép khớp nghiêm ngặt phân tách rõ Vị trí hạ mẫu (Position) và Vòng đo (Circumference)"""
-                k_clean = str(raw_key).strip().upper().replace('"', '').replace("  ", " ")
-                
-                # Ưu tiên khớp chính xác 100% cụm từ kỹ thuật dệt may trước
-                for std_key, synonyms in pom_synonyms.items():
-                    if k_clean in synonyms: return std_key
+        specs_new = new_style_measurements_dict
+        
+        if specs_old and specs_new:
+            # 🧠 CÔNG NGHỆ ĐỘT PHÁ: Gọi AI tự động đọc hiểu ngôn ngữ dệt may để tự ánh xạ khớp cặp điểm đo, xóa bỏ từ điển tĩnh
+            with st.spinner("🧠 Trợ lý AI đang tự động quét lập bản đồ đối soát vị trí đo đa chủng loại..."):
+                try:
+                    mapping_prompt = f"""
+                    You are a professional garment pattern grader. Your task is to align and map points of measurement (POM) between an old style spec sheet and a newly scanned spec sheet.
+                    The items could be Pants, Shirts, Jackets, Blazers, or Dresses. Avoid cross-aligning circumferences with positions/lengths (e.g., Never align Low Hip Position with Hip Circumference).
                     
-                # Quy tắc kiểm tra điều kiện mờ nghiêm ngặt (Strict Substring Match)
-                if "LOW HIP POSITION" in k_clean or "HIP POSITION" in k_clean or "FROM BELOW WB" in k_clean: 
-                    return "LOW HIP POSITION"
-                if "HIP CIRC" in k_clean or "LOW HIP CIRC" in k_clean: 
-                    return "LOW HIP CIRC"
-                if "CHEST" in k_clean or "BUST" in k_clean: return "CHEST CIRC"
-                if "BODY LENGTH" in k_clean or "BACK LENGTH" in k_clean: return "BODY LENGTH"
-                if "SHOULDER" in k_clean: return "SHOULDER CROSS"
-                if "SLEEVE" in k_clean and "LENGTH" in k_clean: return "SLEEVE LENGTH"
-                if "ARMHOLE" in k_clean: return "ARMHOLE CIRC"
-                if "CROTCH" in k_clean: return "CROTCH DEPTH"
-                if "WAIST" in k_clean and "EDGE" in k_clean: return "WAIST CIRC - ALONG EDGE"
-                if "WAIST" in k_clean and "SEAM" in k_clean: return "WAIST CIRC - ALONG SEAM"
-                if "THIGH" in k_clean: return "THIGH CIRC"
-                if "INSEAM" in k_clean: return "INSEAM"
-                if "LEG OPENING" in k_clean or "SWEEP" in k_clean: return "LEG OPENING CIRC"
-                return k_clean
+                    OLD SPEC KEYS (Dữ liệu gốc từ kho): {list(specs_old.keys())}
+                    NEW SPEC KEYS (Dữ liệu mới quét): {list(specs_new.keys())}
+                    
+                    Return ONLY a clean JSON object mapping old keys to corresponding new keys where a match is found. If no logical match exists for an old key, do not map it.
+                    Output format strictly raw JSON with no markdown block:
+                    {{"old_key_1": "new_key_1", "old_key_2": "new_key_2"}}
+                    """
+                    mapping_res = client.models.generate_content(model='gemini-2.5-flash', contents=mapping_prompt)
+                    clean_mapping_json = mapping_res.text.strip().replace("```json", "").replace("```", "").strip()
+                    ai_pom_map = json.loads(clean_mapping_json)
+                except Exception:
+                    ai_pom_map = {{}}
 
-            norm_specs_old = {find_standard_key(k): (k, v) for k, v in specs_old.items()}
-            norm_specs_new = {find_standard_key(k): v for k, v in new_style_measurements_dict.items()}
             comparison_table = []
-            total_deviation_percentage = 0.0
-            relevant_count = 0
+            deviation_length_pct = 0.0
+            deviation_width_pct = 0.0
+            has_len = False
+            has_wid = False
             
-            for std_key, (original_old_key, old_val) in norm_specs_old.items():
-                if std_key in norm_specs_new:
-                    new_val_str = norm_specs_new[std_key]
+            # Xây dựng bảng đối soát dựa trên kết quả ánh xạ tự động thông minh của AI
+            for original_old_key, old_val in specs_old.items():
+                if original_old_key in ai_pom_map:
+                    corresponding_new_key = ai_pom_map[original_old_key]
+                    new_val_str = specs_new.get(corresponding_new_key, "0")
+                    
                     v_old = parse_fraction(old_val)
                     v_new = parse_fraction(new_val_str)
+                    
                     if v_old > 0 and v_new > 0:
                         diff = v_new - v_old
                         pct_diff = (diff / v_old) * 100
-                        if std_key in ["INSEAM", "WAIST CIRC - ALONG EDGE", "LOW HIP CIRC", "OUTSEAM LENGTH", "BODY LENGTH", "CHEST CIRC", "SHOULDER CROSS", "SLEEVE LENGTH"]:
-                            total_deviation_percentage += pct_diff
-                            relevant_count += 1
-                        comparison_table.append({"Vị trí đo (POM)": original_old_key, "Thông số gốc (Kho)": f"{old_val}\"", "Thông số mới (Quét)": f"{new_val_str}\"", "Chênh lệch": f"{diff:+.3f}\"", "Tỷ lệ biến động": f"{pct_diff:+.1f}%"})
+                        k_upper = original_old_key.upper()
+                        
+                        # Tách biệt trục dài chủ đạo (Quyết định chiều dài bàn cắt dập sơ đồ)
+                        if any(word in k_upper for word in ["INSEAM", "OUTSEAM", "LENGTH", "CB", "CF", "DÀI"]):
+                            if pct_diff != 0:
+                                deviation_length_pct = pct_diff
+                                has_len = True
+                        
+                        # Tách biệt trục rộng chủ đạo (Quyết định mật độ xếp rập hàng ngang)
+                        if any(word in k_upper for word in ["HIP", "CHEST", "BUST", "THIGH", "WAIST", "NGỰC", "EO", "MÔNG", "WIDTH"]):
+                            if pct_diff != 0:
+                                deviation_width_pct = pct_diff
+                                has_wid = True
+                                
+                        comparison_table.append({
+                            "Vị trí đo (POM)": original_old_key,
+                            "Thông số gốc (Kho)": f"{old_val}\"",
+                            "Thông số mới (Quét)": f"{new_val_str}\"",
+                            "Chênh lệch": f"{diff:+.3f}\"",
+                            "Tỷ lệ biến động": f"{pct_diff:+.1f}%"
+                        })
+            
             if comparison_table:
                 st.table(comparison_table)
-                if relevant_count > 0: st.markdown(f"💡 **Đánh giá hệ thống:** Phom dáng mẫu mới biến động diện tích trung bình **{total_deviation_percentage / relevant_count:+.1f}%**")
+                
+                # THUẬT TOÁN ĐỊNH MỨC MAY CÔNG NGHIỆP: Tính tích hình học khối rập chính để ra chênh lệch diện tích thực tế
+                if has_len or has_wid:
+                    factor_len = 1.0 + (deviation_length_pct / 100.0)
+                    factor_wid = 1.0 + (deviation_width_pct / 100.0)
+                    total_area_deviation_pct = (factor_len * factor_wid - 1.0) * 100
+                    
+                    st.markdown(f"💡 **Phân tích hình học rập mẫu tự động bởi AI:**")
+                    st.write(f"- Biến động chiều dài thân rập chủ đạo: **{deviation_length_pct:+.1f}%**")
+                    st.write(f"- Biến động chiều rộng thân rập chủ đạo: **{deviation_width_pct:+.1f}%**")
+                    st.markdown(f"🎯 **Tỷ lệ biến động diện tích khối sơ đồ vải thực tế (Marker Area Deviation): {total_area_deviation_pct:+.1f}%**")
+                    
+                    new_style_base_size = f"{new_style_base_size} (Marker Area Delta: {total_area_deviation_pct:+.2f}%)"
         else:
             st.info("💡 Điền file để chạy đối soát.")
 
