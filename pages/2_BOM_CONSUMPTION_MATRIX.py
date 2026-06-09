@@ -99,10 +99,10 @@ def get_secure_gemini_key():
         return st.secrets["GEMINI_API_KEY"].strip()
     return None
 
-def save_to_supabase_techpack_table(payload_data):
+def save_to_supabase_techpack_table(payload_data, raw_file_bytes=None, file_name=""):
     """
-    Hàm xử lý đồng bộ và nạp Master DB bảng thong_so_techpack kết hợp đẩy ảnh lên Storage kho_anh.
-    ✨ ĐÃ CHỈNH SỬA CHỐNG NULL: Lưu trực tiếp chuỗi mô tả đặc trưng hình học vào cột text của Supabase.
+    Hàm xử lý đồng bộ dữ liệu, tự động tìm đúng trang có hình thiết kế phẳng (Sketch) sạch,
+    đẩy ảnh rập lên Storage kho_anh và số hóa chuỗi đặc trưng hình học đồng bộ với luồng đối soát.
     """
     try:
         style_name_db = payload_data.get("style_number_parsed", "").strip()
@@ -113,10 +113,33 @@ def save_to_supabase_techpack_table(payload_data):
         public_image_url = ""
         image_data = None
 
-        if sketch_b64:
+        # LUỒNG CAO CẤP: Nếu có file gốc dạng PDF, tự động dò tìm trang Sketch sạch 100%
+        if raw_file_bytes and file_name.lower().endswith('.pdf'):
+            try:
+                info_pdf = pdfinfo_from_bytes(raw_file_bytes)
+                total_p = int(info_pdf.get("Pages", 1))
+                pdf_images = convert_from_bytes(raw_file_bytes, dpi=90, first_page=1, last_page=total_p)
+                
+                # Đồng bộ chỉ số trang bóc tách được từ metadata của luồng Đoạn 2
+                detected_idx = int(payload_data.get("sketch_page_index_detected", 0))
+                if 0 <= detected_idx < len(pdf_images):
+                    img_buf = io.BytesIO()
+                    pdf_images[detected_idx].convert("RGB").save(img_buf, format="JPEG", quality=85)
+                    image_data = img_buf.getvalue()
+            except Exception:
+                image_data = None
+
+        # Hướng xử lý dự phòng nếu không phải file PDF hoặc bóc tách lỗi thì dùng ảnh Base64
+        if not image_data and sketch_b64:
             try:
                 import base64
                 image_data = base64.b64decode(sketch_b64)
+            except Exception:
+                pass
+
+        # Đẩy dữ liệu ảnh đã được lọc sạch lên hệ thống Supabase Storage
+        if image_data:
+            try:
                 storage_headers = {
                     "apikey": SB_KEY, 
                     "Authorization": f"Bearer {SB_KEY}",
@@ -131,15 +154,14 @@ def save_to_supabase_techpack_table(payload_data):
             except Exception: 
                 pass
 
-        # ⚡ LUỒNG SỐ HÓA ĐẶC TRƯNG HÌNH HỌC (LƯU DẠNG CHỮ CHỐNG NULL 100%)
+        # ⚡ LUỒNG ĐỒNG BỘ THỊ GIÁC: Quét chuỗi đặc trưng hình học giống hệt Đoạn tìm kiếm tương đồng
         visual_description_str = "technical garment layout specs"
         if image_data:
             gemini_key = get_secure_gemini_key()
             if gemini_key:
                 try:
                     client_db = genai.Client(api_key=gemini_key)
-                    
-                    # Gọi Gemini-2.5-Flash bóc tách chi tiết hình học của ảnh rập dệt may
+                    # Sử dụng chính xác 100% Vision Prompt của luồng Tìm Kiếm Tương Đồng
                     vision_prompt = """
                     Analyze this technical flat sketch in detail. 
                     List all unique geometric attributes, silhouette, waistband type, front/back pockets layout, and panel shapes.
@@ -163,9 +185,8 @@ def save_to_supabase_techpack_table(payload_data):
         insert_url = f"{SB_URL.rstrip('/')}/rest/v1/thong_so_techpack"
         
         raw_measurements = payload_data.get("measurements", {})
-        clean_dict = {str(k): str(v) for k, v in dict(raw_measurements).items()}
+        clean_dict = {str(k).strip(): str(v).strip() for k, v in dict(raw_measurements).items()}
 
-        # Đồng bộ lưu chuỗi văn bản đặc trưng thẳng vào cột sketch_vector kiểu text
         db_payload = {
             "StyleName": style_name_db,
             "Buyer": payload_data.get("buyer"),
@@ -181,6 +202,7 @@ def save_to_supabase_techpack_table(payload_data):
     except Exception as e:
         st.sidebar.error(f"Lỗi xử lý hệ thống nạp kho: {str(e)}")
         return False
+
 
 
 def get_historical_fabric_consumption_from_db(search_keyword=None):
@@ -201,16 +223,12 @@ def get_historical_fabric_consumption_from_db(search_keyword=None):
         }
         
         if search_keyword:
-            # Làm sạch từ khóa thô ban đầu
             kw_raw = str(search_keyword).strip().upper()
-            # Tự động tạo ra các biến thể tìm kiếm khác nhau để đối soát chéo
-            kw_clean = kw_raw.replace("-", "").replace(" ", "") # Dạng viết liền: NP430, SJ8902
+            kw_clean = kw_raw.replace("-", "").replace(" ", "")
             
-            # Trích xuất phần chữ và số để tạo dạng gạch ngang và khoảng trắng dự phòng
             letters = "".join(re.findall(r'[A-Z]+', kw_clean))
             digits = "".join(re.findall(r'\d+', kw_clean))
             
-            # Xây dựng màng lọc ma trận or của Supabase PostgREST
             if letters and digits:
                 or_filter = f"(style_name.ilike.*{letters}*{digits}*,article_name.ilike.*{letters}*{digits}*)"
             else:
@@ -243,14 +261,12 @@ def get_techpack_spec_from_db(style_name_keyword=None):
         
         if style_name_keyword and str(style_name_keyword).strip().upper() != "UNKNOWN":
             clean_kw = str(style_name_keyword).strip()
-            # Sử dụng cú pháp toán tử hoa thị (*) của PostgREST truyền qua params để an toàn tuyệt đối
             query_params["StyleName"] = f"ilike.*{clean_kw}*"
             
         response = requests.get(url, headers=headers, params=query_params, timeout=15)
         return response.json() if response.status_code == 200 else []
     except Exception:
         return []
-
 
 def process_single_pdf_batch(file_bytes, file_name):
     """
@@ -389,8 +405,6 @@ if "processed_styles" not in st.session_state:
     st.session_state["processed_styles"] = {}
 
 
-# CHỨC NĂNG 1: QUÉT TỰ ĐỘNG BẰNG AI VÀ LƯU HÀNG LOẠT (BULK SAVE MULTI-BATCH)
-# -----------------------------------------------------------------------------
 if menu_selection == "📊 Upload Techpack":
     import base64
     import concurrent.futures
@@ -416,12 +430,17 @@ if menu_selection == "📊 Upload Techpack":
                 
                 def thread_worker(file_obj):
                     try:
-                        # Thực hiện đọc và trích xuất thông số kỹ thuật đơn lẻ sạch
-                        res = process_single_pdf_batch(file_obj.getvalue(), file_obj.name)
-                        # Trả kết quả về bộ nhớ tạm để hiển thị trước, CHƯA bấm lưu vào database ở bước này
-                        return {"file_name": file_obj.name, "success": res.get("success", False), "data": res.get("data", None), "error": res.get("error", None)}
+                        f_bytes = file_obj.getvalue()
+                        res = process_single_pdf_batch(f_bytes, file_obj.name)
+                        return {
+                            "file_name": file_obj.name, 
+                            "success": res.get("success", False), 
+                            "data": res.get("data", None), 
+                            "error": res.get("error", None),
+                            "raw_bytes": f_bytes  # Sao lưu bytes vào bộ nhớ tạm để phục vụ lưu kho ảnh sạch
+                        }
                     except Exception as e:
-                        return {"file_name": file_obj.name, "success": False, "data": None, "error": str(e)}
+                        return {"file_name": file_obj.name, "success": False, "data": None, "error": str(e), "raw_bytes": None}
 
                 with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
                     future_to_file = {executor.submit(thread_worker, f): f.name for f in files_need_processing}
@@ -431,7 +450,8 @@ if menu_selection == "📊 Upload Techpack":
                         try:
                             task_res = future.result()
                             if task_res["data"]:
-                                # Nạp dữ liệu vào bộ nhớ đệm màn hình
+                                # Bổ sung thêm trường dữ liệu bytes thô của file để hàm lưu kho ở Phần 2 có thể đọc được
+                                task_res["data"]["_raw_file_bytes"] = task_res["raw_bytes"]
                                 st.session_state["processed_styles"][f_name] = task_res["data"]
                             else:
                                 st.error(f"FAIL ENGINE [{f_name}]: {task_res['error']}")
@@ -446,56 +466,6 @@ if menu_selection == "📊 Upload Techpack":
                 progress_bar.empty()
                 st.success("🎉 Số hóa dữ liệu thành công! Hãy kiểm tra bảng thông số bên dưới trước khi bấm lưu.")
 
-        # Gom toàn bộ file đã hiển thị thành công lên giao diện màn hình
-        for file in uploaded_files:
-            if file.name in st.session_state["processed_styles"]:
-                files_to_render.append(file.name)
-
-        if files_to_render:
-            st.markdown("<br>", unsafe_allow_html=True)
-            
-            # 🎯 HIỂN THỊ NÚT LƯU THỦ CÔNG THEO YÊU CẦU CỦA BẠN TẠI ĐÂY
-            if st.button("💾 LƯU TOÀN BỘ DỮ LIỆU ĐÃ SỐ HÓA VÀO MASTER DB", key="bulk_save_all_btn", type="primary", use_container_width=True):
-                success_count = 0
-                with st.spinner("Đang đồng bộ cổng dữ liệu nhị phân hàng loạt lên Supabase Cloud..."):
-                    for f_name in files_to_render:
-                        style_data = st.session_state["processed_styles"][f_name]
-                        # Gọi hàm đẩy trực tiếp cục dữ liệu sạch lên database
-                        if save_to_supabase_techpack_table(style_data): 
-                            success_count += 1
-                st.success(f"🎉 PATTERN DATA PIPELINE: Đã ghi nhận và lưu trữ thành công {success_count}/{len(files_to_render)} mã hàng vào Database!")
-            
-            st.markdown("---")
-            st.markdown("### 📋 KẾT QUẢ SỐ HÓA HÌNH HỌC VÀ THÔNG SỐ SẢN XUẤT")
-
-            cols = st.columns(2)
-            for idx, f_name in enumerate(files_to_render):
-                col_target = cols[idx % 2]
-                data = st.session_state["processed_styles"][f_name]
-                with col_target:
-                    st.markdown(f"""<div class="card-container"><div class="tech-card-header">{data.get('style_number_parsed')}</div>
-                        <div class="metric-grid-box"><div><p class="metric-label">BUYER</p><p class="metric-value">{data.get('buyer')}</p></div>
-                        <div><p class="metric-label">PRODUCT LINE</p><p class="metric-value">{data.get('category')}</p></div>
-                        <div><p class="metric-label">BASE SIZE</p><p class="metric-value">{data.get('base_size_name')}</p></div></div></div>""", unsafe_allow_html=True)
-                    
-                    sub_col1, sub_col2 = st.columns([1.2, 0.8])
-                    with sub_col1:
-                        st.markdown("<p style='font-weight:700; font-size:12px; color:#1E293B;'>📋 SPECIFICATION DATA GRID</p>", unsafe_allow_html=True)
-                        table_html = '<div class="data-table-container"><table class="industrial-table"><thead><tr><th>Point of Measurement</th><th>Target Spec</th></tr></thead><tbody>'
-                        for k, v in data.get("measurements", {}).items():
-                            table_html += f"<tr><td>{k}</td><td>{v}</td></tr>"
-                        table_html += "</tbody></table></div>"
-                        st.markdown(table_html, unsafe_allow_html=True)
-                    with sub_col2:
-                        st.markdown("<p style='font-weight:700; font-size:12px; color:#1E293B;'>📐 GARMENT FLAT SKETCH</p>", unsafe_allow_html=True)
-                        if data.get("sketch_image"): 
-                            try:
-                                st.image(base64.b64decode(data["sketch_image"]), use_container_width=True)
-                            except Exception:
-                                st.info("Không thể dựng bản xem trước hình ảnh.")
-                    st.markdown("<br><hr style='border-color:#E2E8F0;'><br>", unsafe_allow_html=True)
-    else:
-        st.markdown('<div class="idle-alert-box">⚠️ INITIALIZATION SYSTEM IDLE: Hiện tại chưa có tệp dữ liệu Techpack nào được nạp vào hệ thống để AI khởi chạy mô hình.</div>', unsafe_allow_html=True)
 
 
 
