@@ -131,16 +131,15 @@ def save_to_supabase_techpack_table(payload_data):
             except Exception: 
                 pass
 
-        # ⚡ LUỒNG SỐ HÓA VECTOR KHI NẠP KHO (KHỚP 100% CẤU TRÚC VỚI LUỒNG TÌM KIẾM)
+                # ⚡ LUỒNG SỐ HÓA VECTOR KHI NẠP KHO (ĐÃ CHUYỂN ĐỔI SANG CHUỖI TEXT THUẦN TÚY CHỐNG NULL)
         new_sketch_vector_str = None
         if image_data:
             gemini_key = get_secure_gemini_key()
             if gemini_key:
                 try:
-                    # Đã sửa: Đồng bộ khởi tạo Client có http_options v1 sạch lỗi 404
-                    client_db = genai.Client(api_key=gemini_key, http_options=types.HttpOptions(api_version='v1'))
+                    # Khởi tạo client AI tiêu chuẩn
+                    client_db = genai.Client(api_key=gemini_key)
                     
-                    # Đúng Prompt mô tả hình học phẳng
                     vision_prompt = """
                     Analyze this technical flat sketch in detail. List all unique geometric attributes.
                     Output ONLY a dense string of these visual characteristics for vector similarity matching.
@@ -151,7 +150,6 @@ def save_to_supabase_techpack_table(payload_data):
                     )
                     visual_description = vision_res.text.strip() if vision_res.text else "technical garment layout specs"
 
-                    # Tạo Vector thông qua mô hình đồng bộ
                     embedding_res = client_db.models.embed_content(
                         model='text-embedding-004',
                         contents=visual_description
@@ -159,11 +157,12 @@ def save_to_supabase_techpack_table(payload_data):
                     
                     if embedding_res and hasattr(embedding_res, 'embeddings') and embedding_res.embeddings:
                         vector_values = embedding_res.embeddings.values
-                        # Định dạng chuỗi số thực Postgres Vector chuẩn [x,y,z...] để nạp kho
-                        new_sketch_vector_str = "[" + ",".join(str(float(v)) for v in vector_values) + "]"
+                        # SỬA TẠI ĐÂY: Loại bỏ dấu ngoặc vuông [], chỉ nối các số bằng dấu phẩy để lưu dạng chuỗi text thuần túy vào cột text
+                        new_sketch_vector_str = ",".join(str(float(v)) for v in vector_values)
                 except Exception as ai_err:
                     print(f"[AI EMBEDDING ERROR - LUỒNG NẠP KHO]: {str(ai_err)}")
                     new_sketch_vector_str = None
+
 
         headers = {
             "apikey": SB_KEY, 
