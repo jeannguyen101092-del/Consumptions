@@ -413,17 +413,18 @@ if menu_selection == "📊 Upload Techpack":
                         try:
                             task_res = future.result()
                             if task_res.get("success") == True:
-                                # SỬA LỖI BIẾN: Bốc trực tiếp ma trận điểm đo 'measurements' từ thread_worker trả về
+                # 🛠️ ĐỒNG BỘ CHUẨN XÁC KHÓA BIẾN: Sửa từ sketch_image sang sketch_bytes để bốc đúng dữ liệu nhị phân ảnh của luồng core
                                 mock_data = {
                                     "style_number_parsed": task_res.get("style_id"),
                                     "buyer": "Vineyard Vines", 
                                     "category": "Denim Pants",
                                     "base_size_name": task_res.get("size"),
                                     "measurements": task_res.get("measurements", {}), 
-                                    "sketch_image": base64.b64encode(target_new_sketch_bytes).decode("utf-8") if 'target_new_sketch_bytes' in locals() and target_new_sketch_bytes else "",
+                                    "sketch_image": base64.b64encode(task_res["sketch_bytes"]).decode("utf-8") if task_res.get("sketch_bytes") else "", 
                                     "_raw_file_bytes": task_res["raw_bytes"] 
                                 }
                                 st.session_state["processed_styles"][f_name] = mock_data
+
                             else:
                                 st.error(f"FAIL ENGINE [{f_name}]: {task_res.get('error')}")
                         except Exception as exc:
