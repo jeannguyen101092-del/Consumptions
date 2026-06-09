@@ -925,11 +925,15 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
         specs_new = new_style_measurements_dict
         
         if specs_old and specs_new:
-            # ✨ HÀM LÀM SẠCH KÝ TỰ MỒI: Tự động xóa bỏ các mã tiền tố nhiễu đầu dòng (BD-, DE-, DF-) trước khi đưa vào bộ não AI
+            # 🧠 THUẬT TOÁN KHỬ NHIỄU TOÀN DIỆN: Xóa mã đầu dòng và toàn bộ ký tự đặc biệt (dấu cắp, dấu gạch) để ép AI so khớp
             def clean_pom_text_for_ai(raw_key):
                 text_clean = str(raw_key).strip().upper()
-                text_clean = re.sub(r'^[A-Z]{2,4}-\d{3}\s*', '', text_clean) # Xóa dạng "BD-245 "
-                text_clean = re.sub(r'^[A-Z]{2,4}-\d{2,4}\s*', '', text_clean) # Xóa dạng "DE-162 "
+                # 1. Xóa các mã tiền tố nhiễu đầu dòng (BD-245, DE-162, DF-146...)
+                text_clean = re.sub(r'^[A-Z]{2,4}-\d{2,4}\s*', '', text_clean)
+                # 2. Lọc bỏ toàn bộ ký tự đặc biệt gây dính chuỗi (dấu ngoặc kép, dấu gạch ngang, khoảng cách đơn)
+                text_clean = text_clean.replace('"', '').replace('-', '').replace('\'', '').replace('’', '')
+                # 3. Ép chuỗi viết liền để xóa khoảng trắng ẩn
+                text_clean = "".join(text_clean.split())
                 return text_clean.strip()
 
             clean_specs_old = {clean_pom_text_for_ai(k): (k, v) for k, v in specs_old.items()}
@@ -938,9 +942,10 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
             with st.spinner("🧠 Trợ lý AI đang tự động áp dụng bộ lọc mờ đối soát vị trí đo..."):
                 try:
                     mapping_prompt = f"""
-                    You are a professional garment pattern grader. Align points of measurement (POM) between old and new specs by understanding garment context. Ignore minor spelling or prefix differences.
-                    OLD SPEC CLEAN KEYS: {list(clean_specs_old.keys())}
-                    NEW SPEC CLEAN KEYS: {list(clean_specs_new.keys())}
+                    You are a professional garment pattern grader. Align and match point of measurement (POM) strings by identifying identical core words.
+                    Ignore minor spelling variations, uppercase/lowercase, or spaces.
+                    OLD SPEC LIST: {list(clean_specs_old.keys())}
+                    NEW SPEC LIST: {list(clean_specs_new.keys())}
                     Return clean raw JSON with this exact schema: {{"old_clean_key": "new_clean_key"}}
                     """
                     mapping_res = client.models.generate_content(model='gemini-2.5-flash', contents=mapping_prompt)
@@ -954,7 +959,6 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
             has_len = False
             has_wid = False
             
-            # Khớp nối thông minh dựa trên chuỗi từ khóa chính đã loại bỏ tiền tố nhiễu
             for old_clean_k, (original_old_key, old_val) in clean_specs_old.items():
                 if old_clean_k in ai_pom_map:
                     new_clean_k = ai_pom_map[old_clean_k]
@@ -968,9 +972,9 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                             pct_diff = (diff / v_old) * 100
                             k_upper = old_clean_k.upper()
                             
-                            if any(word in k_upper for word in ["INSEAM", "OUTSEAM", "LENGTH", "CB", "CF", "DÀI"]):
+                            if any(word in k_upper for word in ["INSEAM", "OUTSEAM", "LENGTH", "CB", "CF", "DAI", "DÀI"]):
                                 if pct_diff != 0: deviation_length_pct = pct_diff; has_len = True
-                            if any(word in k_upper for word in ["HIP", "CHEST", "BUST", "THIGH", "WAIST", "NGỰC", "EO", "MÔNG", "WIDTH"]):
+                            if any(word in k_upper for word in ["HIP", "CHEST", "BUST", "THIGH", "WAIST", "NGUC", "NGỰC", "EO", "MONG", "MÔNG", "WIDTH"]):
                                 if pct_diff != 0: deviation_width_pct = pct_diff; has_wid = True
                                     
                             comparison_table.append({"Vị trí đo (POM)": original_old_key, "Thông số gốc (Kho)": f"{old_val}\"", "Thông số mới (Quét)": f"{new_val_str}\"", "Chênh lệch": f"{diff:+.3f}\"", "Tỷ lệ biến động": f"{pct_diff:+.1f}%"})
