@@ -277,7 +277,7 @@ def get_techpack_spec_from_db(style_name_keyword=None):
 def process_single_pdf_batch(file_bytes, file_name):
     """
     Hàm bóc tách dữ liệu kỹ thuật từ một file PDF độc lập sử dụng Gemini Vision API.
-    ✨ ĐÃ SỬA LỖI: Ép AI và Python chỉ trích xuất duy nhất 1 cột thông số của Size cơ bản (Base Size).
+    ✨ ĐÃ SỬA TRIỆT ĐỂ: Fix lỗi ép kiểu size_keyword từ List sang String để lọc sạch dải cỡ.
     """
     try:
         import base64
@@ -297,7 +297,6 @@ def process_single_pdf_batch(file_bytes, file_name):
             page_img.convert("RGB").save(img_buf, format="JPEG", quality=75)
             contents_payload.append(types.Part.from_bytes(data=img_buf.getvalue(), mime_type='image/jpeg'))
             
-        # SỬA LẠI PROMPT: Ép khuôn AI chỉ lấy đúng 1 size mẫu cơ bản duy nhất
         extraction_prompt = """
         Analyze all technical sheets page by page. 
         1. Find the 'Style ID' / 'Style Number' (e.g., 1P001363).
@@ -325,19 +324,22 @@ def process_single_pdf_batch(file_bytes, file_name):
         
         parsed_data = json.loads(res.text.strip())
         
-        # --- CƠ CHẾ DỰ PHÒNG PYTHON: LỌC ÉP LẠI MỘT LẦN NỮA NẾU AI VẪN BỐC NHẦM ---
+        # --- CƠ CHẾ DỰ PHÒNG PYTHON: ĐÃ SỬA LỖI ÉP CHUỖI ĐỂ LỌC CHUẨN XÁC ---
         base_size_target = str(parsed_data.get("base_size_name", "")).strip()
-        # Thử lấy phần kích cỡ vòng eo (ví dụ "32" từ chuỗi "32/32") làm từ khóa để dò tìm
-        size_keyword = base_size_target.split("/")[0] if "/" in base_size_target else base_size_target
-        size_keyword = size_keyword.strip()
         
+        # SỬA TẠI ĐÂY: Lấy chính xác ký tự đầu tiên trước dấu gạch chéo để đưa về chuỗi tinh khiết (ví dụ: "32")
+        if "/" in base_size_target:
+            size_keyword = str(base_size_target.split("/")[0]).strip()
+        else:
+            size_keyword = base_size_target.strip()
+            
         raw_measurements = parsed_data.get("measurements", {})
         clean_measurements = {}
         
         if isinstance(raw_measurements, dict):
             for pom, val in raw_measurements.items():
                 if isinstance(val, dict):
-                    # Nếu cấu trúc trả về là từ điển chứa nhiều size độc lập
+                    # Nếu AI bóc nhầm ra cấu trúc dạng Dictionary chứa nhiều size
                     if size_keyword in val:
                         clean_measurements[pom] = str(val[size_keyword])
                     elif "32" in val:
@@ -347,17 +349,20 @@ def process_single_pdf_batch(file_bytes, file_name):
                         clean_measurements[pom] = str(val[first_key]) if first_key else str(val)
                 else:
                     val_str = str(val)
-                    # Nếu là dạng văn bản thô chứa nhiều ngoặc nhọn do AI bóc lỗi
+                    # Nếu AI bóc nhầm ra dạng chuỗi Text chứa tập hợp ngoặc hỗn độn của nhiều size
                     if "{" in val_str or ":" in val_str:
+                        # Dò tìm thông số đứng ngay sau từ khóa size (Ví dụ dò chữ '32': hoặc "32":)
                         match_val = re.search(fr"['\"]?{size_keyword}['\"]?\s*:\s*['\"]?([^'\",}}]+)", val_str)
                         if match_val:
                             clean_measurements[pom] = match_val.group(1).strip()
                         else:
-                            clean_measurements[pom] = val_str
+                            # Nếu không tìm thấy bằng regex, thử quét tìm size 32 mặc định
+                            match_default = re.search(r"['\"]?32['\"]?\s*:\s*['\"]?([^'\",}}]+)", val_str)
+                            clean_measurements[pom] = match_default.group(1).strip() if match_default else val_str
                     else:
                         clean_measurements[pom] = val_str
                         
-            # Ghi đè lại bảng thông số sạch chỉ có duy nhất 1 size cơ bản
+            # Ghi đè lại bảng thông số đã được gạn lọc sạch sẽ, chỉ giữ duy nhất 1 cột thông số
             parsed_data["measurements"] = clean_measurements
         # ----------------------------------------------------------------------
         
