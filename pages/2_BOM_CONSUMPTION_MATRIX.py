@@ -687,25 +687,39 @@ try:
 except ImportError:
     pass
 
-# ĐỊNH NGHĨA HÀM GIẢI MÃ PHÂN SỐ NGÀNH MAY (ĐỂ TÍNH TOÁN SAI LỆCH)
+# ĐỊNH NGHĨA HÀM GIẢI MÃ PHÂN SỐ SẠCH (CHỐNG LỖI CHỮ INCHES/INCH)
 def parse_fraction(val_str):
     if not val_str: 
         return 0.0
-    val_str = str(val_str).strip().replace('"', '')
+    
+    # Chuyển về dạng chuỗi, viết thường, xóa dấu nháy và chữ định dạng đơn vị may mặc
+    val_str = str(val_str).strip().lower()
+    val_str = val_str.replace('"', '').replace('inches', '').replace('inch', '').replace('s', '').strip()
+    
     try:
+        # Trường hợp chuỗi chứa phân số có khoảng cách (Ví dụ: "1 1/8" hoặc "18 1/2")
         if ' ' in val_str:
-            parts = val_str.split(' ')
-            whole = float(parts[0])
-            frac = parts[1]
+            parts = [p for p in val_str.split(' ') if p.strip()] # Lọc bỏ khoảng trắng thừa
+            if len(parts) >= 2:
+                whole = float(parts[0])
+                frac = parts[1]
+            else:
+                whole = 0.0
+                frac = parts[0]
         else:
             whole = 0.0
             frac = val_str
+            
+        # Xử lý phần phân số có dấu gạch chéo "/"
         if '/' in frac:
             num, denom = frac.split('/')
             return whole + (float(num) / float(denom))
-        return float(val_str)
+            
+        # Trường hợp là số nguyên hoặc số thập phân thuần túy (Ví dụ: "32", "31.5")
+        return float(val_str) if val_str else 0.0
     except Exception:
         return 0.0
+
 
 # KHỞI TẠO LUỒNG NHẬP LIỆU CHAT INPUT
 if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vải và đối soát sai lệch..."):
