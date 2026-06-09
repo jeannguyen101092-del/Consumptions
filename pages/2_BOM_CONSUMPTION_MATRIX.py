@@ -274,8 +274,8 @@ def get_techpack_spec_from_db(style_name_keyword=None):
 def process_single_pdf_batch(file_bytes, file_name):
     """
     Hàm bóc tách dữ liệu kỹ thuật từ một file PDF độc lập phục vụ LUỒNG NẠP KHO.
-    ✨ ĐÃ ĐỒNG BỘ TOÀN DIỆN TRẢ VỀ: Ép AI đọc đúng cột kích cỡ mẫu rập cơ sở 32/32,
-    đồng thời đóng gói trọn vẹn mảng thông số đo thực tế và ảnh rập phẳng sạch về luồng hiển thị.
+    ✨ ĐÃ SỬA LỖI MẤT ẢNH: Đóng gói và trả về đầy đủ các trường Buyer, Category, Measurements 
+    và nhị phân ảnh vẽ phẳng rập sạch về cho luồng hiển thị đa luồng xử lý ngầm.
     """
     try:
         gemini_key = get_secure_gemini_key()
@@ -293,18 +293,15 @@ def process_single_pdf_batch(file_bytes, file_name):
             page_img.convert("RGB").save(img_buf, format="JPEG", quality=75)
             pdf_parts_payload.append(types.Part.from_bytes(data=img_buf.getvalue(), mime_type='image/jpeg'))
             
-        # PROMPT NÂNG CAO ÉP QUY TẮC NGÀNH MAY: Khóa chặt trục số Waist/Inseam mẫu chuẩn đầu chuyền
+        # PROMPT CÔNG NGHIỆP: Ép AI bóc tách đầy đủ thông tin khách hàng, chủng loại hàng hóa và định vị trang rập thiết kế
         industrial_extraction_prompt = (
             "You are an expert Garment Specification Auditor. Analyze all sheets page by page. "
             "1. Identify the core 'Base Size' / 'Sample Size' (e.g., written as 32/32, 34/32, or Size M). "
-            "2. CRITICAL SPECIFICATION SELECTION RULE: If the sheet displays a grading matrix table with multiple length options (e.g., columns for Inseam 30, 32, 34), "
-            "you MUST extract the target point of measurement (POM) specs that strictly belong to the specified Base/Sample length column. "
-            "If the label is 32/32, the Waist is 32 and the Inseam MUST be extracted from the 32 Length column (which is 32\"). "
-            "NEVER extract the Inseam value from the 30\" column blindly. Avoid any row/column shifting errors. "
+            "2. CRITICAL SPECIFICATION SELECTION RULE: If the sheet displays a grading matrix table with multiple length options, "
+            "you MUST extract the target point of measurement (POM) specs that strictly belong to the specified Base/Sample length column (e.g. 32\"). "
             "3. Extract all available Points of Measurement (POM) for this single base size only. Provide at least 15-20 fields if present. "
-            "4. Extract the 'Style ID' / 'Style Number', 'Category', 'Buyer' name, and fabric details. "
+            "4. Find the exact 'Style ID' / 'Style Number' (e.g. 1P001369), 'Category' / 'Product Line' (e.g. Denim Pants), and 'Buyer' name (e.g. Vineyard Vines). "
             "5. Detect the exact PAGE INDEX (0-based) containing the pure black and white line art TECHNICAL FLAT SKETCH. "
-            "DO NOT pick pages showing summary costing grids, fabric swatch data sheets, or trim lists. "
             "Return a completely valid raw JSON string matching this schema (no markdown blocks): "
             "{\"style_number_parsed\": \"string\", \"buyer\": \"string\", \"category\": \"string\", \"base_size_name\": \"string\", \"measurements\": {}, \"sketch_page_index_detected\": 0}"
         )
@@ -315,7 +312,7 @@ def process_single_pdf_batch(file_bytes, file_name):
         clean_json = response.text.strip().replace("```json", "").replace("```", "").strip()
         parsed_data = json.loads(clean_json)
         
-        # Trích xuất ảnh vẽ phẳng sạch dựa trên chỉ số trang AI tìm thấy
+        # Trích xuất dữ liệu nhị phân ảnh dựa trên số trang AI tìm thấy
         extracted_sketch_bytes = None
         detected_idx = int(parsed_data.get("sketch_page_index_detected", 0))
         if 0 <= detected_idx < len(chat_images):
@@ -326,17 +323,20 @@ def process_single_pdf_batch(file_bytes, file_name):
         # Thực hiện gọi hàm đồng bộ đẩy dữ liệu sạch lên Supabase ngay lập tức
         success_db = save_to_supabase_techpack_table(parsed_data, raw_file_bytes=file_bytes, file_name=file_name)
         
-        # 🔥 ĐỒNG BỘ ĐẦU RA CHÍNH XÁC: Đóng gói cả measurements và sketch_bytes trả ngược ra cho luồng hiển thị
+        # 🔥 ĐỒNG BỘ ĐẦU RA TOÀN DIỆN: Trả đầy đủ buyer, category và sketch_bytes ra ngoài rìa để luồng hiển thị đọc được
         return {
             "success": success_db,
             "style_id": parsed_data.get("style_number_parsed", "UNKNOWN"),
+            "buyer": parsed_data.get("buyer", "UNKNOWN BUYER"),
+            "category": parsed_data.get("category", "GARMENT"),
             "size": parsed_data.get("base_size_name", "32"),
-            "measurements": parsed_data.get("measurements", {}), # Truyền dữ liệu ma trận thông số đo thực tế
-            "sketch_bytes": extracted_sketch_bytes, # Truyền nhị phân ảnh vẽ phẳng rập sạch
+            "measurements": parsed_data.get("measurements", {}), 
+            "sketch_bytes": extracted_sketch_bytes, 
             "error": None if success_db else "Lỗi ghi dữ liệu đồng bộ lên bảng Supabase"
         }
     except Exception as e:
         return {"success": False, "error": f"Lỗi bóc tách PDF công nghiệp: {str(e)}"}
+
 
 
 
@@ -413,17 +413,18 @@ if menu_selection == "📊 Upload Techpack":
                         try:
                             task_res = future.result()
                             if task_res.get("success") == True:
-                            # 🧠 ĐỒNG BỘ BIẾN ĐỘNG: Bốc trực tiếp khách hàng và chủng loại thực tế do AI quét được từ Techpack mới
+                                                            # 🧠 ĐỒNG BỘ BIẾN ĐỘNG TOÀN DIỆN: Bốc trực tiếp nhị phân ảnh 'sketch_bytes' thực tế từ hàm core đẩy sang mã hóa Base64
                                 mock_data = {
                                     "style_number_parsed": task_res.get("style_id"),
-                                    "buyer": task_res.get("buyer") if task_res.get("buyer") and str(task_res.get("buyer")).strip() != "" else "UNKNOWN BUYER", 
-                                    "category": task_res.get("category") if task_res.get("category") and str(task_res.get("category")).strip() != "" else "GARMENT",
+                                    "buyer": task_res.get("buyer", "UNKNOWN BUYER"), 
+                                    "category": task_res.get("category", "GARMENT"),
                                     "base_size_name": task_res.get("size"),
                                     "measurements": task_res.get("measurements", {}), 
                                     "sketch_image": base64.b64encode(task_res["sketch_bytes"]).decode("utf-8") if task_res.get("sketch_bytes") else "", 
                                     "_raw_file_bytes": task_res["raw_bytes"] 
                                 }
                                 st.session_state["processed_styles"][f_name] = mock_data
+
 
 
                             else:
