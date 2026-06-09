@@ -102,7 +102,7 @@ def get_secure_gemini_key():
 def save_to_supabase_techpack_table(payload_data):
     """
     Hàm xử lý đồng bộ và nạp Master DB bảng thong_so_techpack kết hợp đẩy ảnh lên Storage kho_anh.
-    ✨ ĐỒNG BỘ TUYỆT ĐỐI LUỒNG NẠP KHO: Khớp hoàn toàn Client v1, Prompt và cách trích xuất.
+    ✨ ĐÃ CHỈNH SỬA CHỐNG NULL: Lưu trực tiếp chuỗi mô tả đặc trưng hình học vào cột text của Supabase.
     """
     try:
         style_name_db = payload_data.get("style_number_parsed", "").strip()
@@ -131,38 +131,28 @@ def save_to_supabase_techpack_table(payload_data):
             except Exception: 
                 pass
 
-                # ⚡ LUỒNG SỐ HÓA VECTOR KHI NẠP KHO (ĐÃ CHUYỂN ĐỔI SANG CHUỖI TEXT THUẦN TÚY CHỐNG NULL)
-        new_sketch_vector_str = None
+        # ⚡ LUỒNG SỐ HÓA ĐẶC TRƯNG HÌNH HỌC (LƯU DẠNG CHỮ CHỐNG NULL 100%)
+        visual_description_str = "technical garment layout specs"
         if image_data:
             gemini_key = get_secure_gemini_key()
             if gemini_key:
                 try:
-                    # Khởi tạo client AI tiêu chuẩn
                     client_db = genai.Client(api_key=gemini_key)
                     
+                    # Gọi Gemini-2.5-Flash bóc tách chi tiết hình học của ảnh rập dệt may
                     vision_prompt = """
-                    Analyze this technical flat sketch in detail. List all unique geometric attributes.
-                    Output ONLY a dense string of these visual characteristics for vector similarity matching.
+                    Analyze this technical flat sketch in detail. 
+                    List all unique geometric attributes, silhouette, waistband type, front/back pockets layout, and panel shapes.
+                    Output a dense string of these visual characteristics for garment similarity matching.
                     """
                     vision_res = client_db.models.generate_content(
                         model='gemini-2.5-flash',
                         contents=[types.Part.from_bytes(data=image_data, mime_type='image/jpeg'), vision_prompt]
                     )
-                    visual_description = vision_res.text.strip() if vision_res.text else "technical garment layout specs"
-
-                    embedding_res = client_db.models.embed_content(
-                        model='text-embedding-004',
-                        contents=visual_description
-                    )
-                    
-                    if embedding_res and hasattr(embedding_res, 'embeddings') and embedding_res.embeddings:
-                        vector_values = embedding_res.embeddings.values
-                        # SỬA TẠI ĐÂY: Loại bỏ dấu ngoặc vuông [], chỉ nối các số bằng dấu phẩy để lưu dạng chuỗi text thuần túy vào cột text
-                        new_sketch_vector_str = ",".join(str(float(v)) for v in vector_values)
+                    if vision_res.text:
+                        visual_description_str = vision_res.text.strip()
                 except Exception as ai_err:
-                    print(f"[AI EMBEDDING ERROR - LUỒNG NẠP KHO]: {str(ai_err)}")
-                    new_sketch_vector_str = None
-
+                    print(f"[AI VISION ERROR - LUỒNG NẠP KHO]: {str(ai_err)}")
 
         headers = {
             "apikey": SB_KEY, 
@@ -175,6 +165,7 @@ def save_to_supabase_techpack_table(payload_data):
         raw_measurements = payload_data.get("measurements", {})
         clean_dict = {str(k): str(v) for k, v in dict(raw_measurements).items()}
 
+        # Đồng bộ lưu chuỗi văn bản đặc trưng thẳng vào cột sketch_vector kiểu text
         db_payload = {
             "StyleName": style_name_db,
             "Buyer": payload_data.get("buyer"),
@@ -182,7 +173,7 @@ def save_to_supabase_techpack_table(payload_data):
             "BaseSize": payload_data.get("base_size_name"),
             "DetailedMeasurements": clean_dict,
             "SketchURL": public_image_url,
-            "sketch_vector": new_sketch_vector_str 
+            "sketch_vector": visual_description_str 
         }
         
         response = requests.post(insert_url, headers=headers, json=[db_payload], timeout=15)
@@ -817,87 +808,66 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
 # =============================================================================
                                         # ==========================================
                                         # ==========================================
-                                       # ==========================================
-                    # ĐOẠN 2: THUẬT TOÁN ĐỐI SOÁT VECTOR EMBEDDINGS SẠCH LỖI 404
+                                      # ==========================================
+                    # ĐOẠN 2: THUẬT TOÁN ĐỐI SOÁT CHUỖI ĐẶC TRƯNG HÌNH HỌC (XÓA SỔ LỖI 404)
                     # ==========================================
                     base_sb_url = SB_URL.rstrip('/')
                     headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
                     matched_style_name = None
-                    best_similarity = -1.0
+                    best_match_score = 0
 
                     if has_file and target_new_sketch_bytes:
-                        with st.spinner("⚡ AI đang số hóa hình học phẳng và chạy thuật toán so khớp thị giác Vector..."):
-                            query_vector = None
+                        with st.spinner("⚡ AI dệt may đang quét phân tích hình học phẳng đối soát mẫu tương đồng..."):
                             try:
                                 vision_prompt = """
-                                Analyze this technical flat sketch in detail. List all unique geometric attributes.
-                                Output ONLY a dense string of these visual characteristics for vector similarity matching.
+                                Analyze this technical flat sketch in detail. 
+                                List all unique geometric attributes, silhouette, waistband type, front/back pockets layout, and panel shapes.
+                                Output a dense string of these visual characteristics for garment similarity matching.
                                 """
                                 vision_res = client.models.generate_content(
                                     model='gemini-2.5-flash',
                                     contents=[types.Part.from_bytes(data=target_new_sketch_bytes, mime_type='image/jpeg'), vision_prompt]
                                 )
-                                visual_description = vision_res.text.strip() if vision_res.text else "technical garment layout specs"
-
-                                # Gọi mô hình tạo Vector thông qua Client v1 đã cấu hình đồng bộ ở đầu file
-                                embedding_res = client.models.embed_content(
-                                    model='text-embedding-004',
-                                    contents=visual_description
-                                )
+                                query_description = vision_res.text.strip().lower() if vision_res.text else ""
                                 
-                                # Trích xuất chính xác danh sách các giá trị số thực từ đối tượng phản hồi của SDK mới
-                                if embedding_res and hasattr(embedding_res, 'embeddings') and embedding_res.embeddings:
-                                    query_vector = np.array(embedding_res.embeddings.values, dtype=np.float32)
+                                if query_description:
+                                    # Gọi dữ liệu chuỗi đặc trưng từ kho thong_so_techpack về so khớp
+                                    url_all_vectors = f"{base_sb_url}/rest/v1/thong_so_techpack?select=StyleName,sketch_vector"
+                                    try:
+                                        res_all = requests.get(url_all_vectors, headers=headers, timeout=10)
+                                        warehouse_data = res_all.json() if res_all.status_code == 200 else []
+                                    except Exception:
+                                        warehouse_data = []
+
+                                    # Tách các từ khóa đặc trưng hình học để tính điểm tương đồng (silhouette, pockets, waistband...)
+                                    query_keywords = set(re.findall(r'\b\w{4,15}\b', query_description))
+                                    
+                                    for row in warehouse_data:
+                                        db_vector_text = str(row.get("sketch_vector", "")).strip().lower()
+                                        if db_vector_text and db_vector_text != "null" and db_vector_text != "technical garment layout specs":
+                                            db_keywords = set(re.findall(r'\b\w{4,15}\b', db_vector_text))
+                                            
+                                            # Tính toán số lượng từ khóa hình học trùng khớp giữa mẫu mới và mẫu trong kho
+                                            common_keywords = query_keywords.intersection(db_keywords)
+                                            match_score = len(common_keywords)
+                                            
+                                            # Lưu lại mẫu thiết kế trong kho có độ tương đồng đặc trưng cao nhất
+                                            if match_score > best_match_score and match_score >= 3:
+                                                best_match_score = match_score
+                                                matched_style_name = row.get("StyleName")
                             except Exception as ai_err:
-                                st.sidebar.error(f"Lỗi khởi tạo đối soát Vector: {ai_err}")
+                                st.sidebar.error(f"Lỗi phân tích đối soát phom dáng: {ai_err}")
 
-                            if query_vector is not None:
-                                url_all_vectors = f"{base_sb_url}/rest/v1/thong_so_techpack?select=StyleName,sketch_vector"
-                                try:
-                                    res_all = requests.get(url_all_vectors, headers=headers, timeout=10)
-                                    warehouse_data = res_all.json() if res_all.status_code == 200 else []
-                                except Exception:
-                                    warehouse_data = []
-
-                                for row in warehouse_data:
-                                    v_str = row.get("sketch_vector")
-                                    if v_str:
-                                        try:
-                                            v_str_clean = str(v_str).strip()
-                                            if v_str_clean.startswith("{") and v_str_clean.endswith("}"):
-                                                v_str_clean = "[" + v_str_clean[1:-1] + "]"
-                                            
-                                            try:
-                                                db_vector_list = json.loads(v_str_clean)
-                                            except Exception:
-                                                db_vector_list = [float(x) for x in v_str_clean.strip("[]{}").split(",") if x.strip()]
-                                                
-                                            db_vector = np.array(db_vector_list, dtype=np.float32)
-                                            
-                                            # Kiểm tra kích thước xem hai vector có cùng độ dài không
-                                            if query_vector.shape == db_vector.shape:
-                                                dot_product = np.dot(query_vector, db_vector)
-                                                norm_query = np.linalg.norm(query_vector)
-                                                norm_db = np.linalg.norm(db_vector)
-                                                if norm_query > 0 and norm_db > 0:
-                                                    similarity = float(dot_product / (norm_query * norm_db))
-                                                    # Lọc phom dáng quần tương đồng chính xác nhất
-                                                    if similarity > best_similarity and similarity >= 0.50:
-                                                        best_similarity = similarity
-                                                        matched_style_name = row.get("StyleName")
-                                        except Exception:
-                                            pass
-
-                    # Đồng bộ hóa từ khóa tìm kiếm sang các bảng database sau khi khớp
+                    # Xác lập mã hàng sau khi đối soát thành công
                     if matched_style_name:
                         final_search_key = matched_style_name.strip()
-                        st.sidebar.success(f"🎯 Khớp ảnh Vector thành công: {final_search_key} ({round(best_similarity * 100, 1)}%)")
+                        st.sidebar.success(f"🎯 Khớp phom thiết kế thành công: {final_search_key} (Độ khớp: {best_match_score} điểm)")
                     else:
                         if new_style_id_detected and new_style_id_detected != "UNKNOWN_STYLE":
                             final_search_key = new_style_id_detected.strip().upper()
                         else:
                             final_search_key = dynamic_keyword.strip().upper()
-                        st.sidebar.warning(f"⚠️ Chuyển sang tìm theo mã chuỗi: {final_search_key}")
+                        st.sidebar.warning(f"⚠️ Quét mã chuỗi dự phòng: {final_search_key}")
 
                     def fetch_san_pham(key):
                         if not key or key in ["UNKNOWN", "UNKNOWN_STYLE"]: return []
@@ -923,6 +893,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                         future_tp = executor.submit(fetch_techpack, final_search_key)
                         fabric_records = future_sp.result()
                         techpack_records = future_tp.result()
+
 
 
 
