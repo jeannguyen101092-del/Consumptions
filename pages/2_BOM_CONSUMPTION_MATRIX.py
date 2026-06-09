@@ -690,7 +690,7 @@ except ImportError:
     pass
 
 if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vải và đối soát sai lệch..."):
-    target_file_object = None
+        target_file_object = None
     if 'chat_file' in locals() and chat_file is not None:
         target_file_object = chat_file
     elif 'chat_file' in globals() and globals()['chat_file'] is not None:
@@ -725,12 +725,24 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
         else:
             target_new_sketch_bytes = file_bytes
             img_payload.append(types.Part.from_bytes(data=file_bytes, mime_type='image/jpeg'))
-        extraction_prompt = "Analyze all sheets page by page. Find the designated 'Base Size' / 'Sample Size'. Extract all points of measurement (POM) and their corresponding target specs for THIS BASE SIZE ONLY. Do not extract multiple sizes. Also find 'Style ID' and 'Category'. Identify the 0-based index of the black and white technical flat design sketch page. Return valid JSON only: {\"detected_style_id\": \"string\", \"category\": \"string\", \"fabric_code\": \"string\", \"measurements\": {}, \"sketch_page_index_detected\": 0}"
+        
+        # Ép AI xuất JSON chuẩn ngay trong Prompt văn bản
+        extraction_prompt = "Analyze all sheets page by page. Find the designated 'Base Size' / 'Sample Size'. Extract all points of measurement (POM) and their corresponding target specs for THIS BASE SIZE ONLY. Do not extract multiple sizes. Also find 'Style ID' and 'Category'. Identify the 0-based index of the black and white technical flat design sketch page. Return a valid raw JSON string with this exact schema (no markdown block): {\"detected_style_id\": \"string\", \"category\": \"string\", \"fabric_code\": \"string\", \"measurements\": {}, \"sketch_page_index_detected\": 0}"
         extraction_payload = list(img_payload)
         extraction_payload.append(extraction_prompt)
         try:
-            extraction_res = client.models.generate_content(model='gemini-2.5-flash', contents=extraction_payload, config=types.GenerateContentConfig(response_mime_type="application/json", temperature=0.0))
-            parsed_meta = json.loads(extraction_res.text.strip())
+            # SỬA TẠI ĐÂY: Loại bỏ response_mime_type để dập tắt lỗi 400 Invalid Argument của SDK
+            extraction_res = client.models.generate_content(
+                model='gemini-2.5-flash', 
+                contents=extraction_payload
+            )
+            clean_json_text = extraction_res.text.strip()
+            if "```json" in clean_json_text:
+                clean_json_text = clean_json_text.split("```json")[1].split("```")[0].strip()
+            elif "```" in clean_json_text:
+                clean_json_text = clean_json_text.split("```")[1].strip()
+                
+            parsed_meta = json.loads(clean_json_text)
             new_style_id_detected = parsed_meta.get("detected_style_id", "UNKNOWN_STYLE").strip()
             new_style_category_detected = parsed_meta.get("category", "").strip()
             new_style_fabric_detected = parsed_meta.get("fabric_code", "UNKNOWN_FABRIC").strip()
@@ -760,115 +772,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
     else:
         dynamic_keyword = clean_query if clean_query else "UNKNOWN"
     dynamic_keyword = re.sub(r"[\[\]'\"*?%#&]", "", dynamic_keyword).strip()
-    base_sb_url = SB_URL.rstrip('/')
-    headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
-    matched_style_name = None
-    best_similarity = -1.0
-    fabric_records = []
-    techpack_records = []
-    if has_file and new_style_measurements_dict:
-        with st.spinner("⚡ AI dệt may đang quét phân tích hình học thông số rập đối soát phom dáng..."):
-            query_vector = None
-            try:
-                def get_clean_num(text_val):
-                    if not text_val: return 0.0
-                    nums = re.findall(r'\d+(?:\.\d+)?', str(text_val).strip())
-                    return float(nums) if nums else 0.0
-                def find_fuzzy_val(measure_dict, keyword):
-                    if not isinstance(measure_dict, dict): return 0.0
-                    for k, v in measure_dict.items():
-                        if keyword.lower() in str(k).lower():
-                            return get_clean_num(v)
-                    return 0.0
-                q_waist = find_fuzzy_val(new_style_measurements_dict, "waist")
-                q_hip = find_fuzzy_val(new_style_measurements_dict, "hip")
-                q_thigh = find_fuzzy_val(new_style_measurements_dict, "thigh")
-                if q_waist > 0 or q_hip > 0:
-                    query_vector = np.array([q_waist, q_hip, q_thigh], dtype=np.float32)
-            except Exception:
-                query_vector = None
-            if query_vector is not None:
-                url_all_vectors = f"{base_sb_url}/rest/v1/thong_so_techpack?select=StyleName,DetailedMeasurements"
-                try:
-                    res_all = requests.get(url_all_vectors, headers=headers, timeout=10)
-                    warehouse_data = res_all.json() if (res_all and res_all.status_code == 200) else []
-                except Exception:
-                    warehouse_data = []
-                for row in warehouse_data:
-                    db_measurements = row.get("DetailedMeasurements", {})
-                    if isinstance(db_measurements, str):
-                        try: db_measurements = json.loads(db_measurements)
-                        except Exception: db_measurements = {}
-                    if isinstance(db_measurements, dict) and len(db_measurements) > 0:
-                        try:
-                            db_waist = find_fuzzy_val(db_measurements, "waist")
-                            db_hip = find_fuzzy_val(db_measurements, "hip")
-                            db_thigh = find_fuzzy_val(db_measurements, "thigh")
-                            db_vector = np.array([db_waist, db_hip, db_thigh], dtype=np.float32)
-                            if np.any(db_vector > 0):
-                                dot_product = np.dot(query_vector, db_vector)
-                                norm_query = np.linalg.norm(query_vector)
-                                norm_db = np.linalg.norm(db_vector)
-                                if norm_query > 0 and norm_db > 0:
-                                    similarity = float(dot_product / (norm_query * norm_db))
-                                    if similarity > best_similarity and similarity >= 0.90:
-                                        best_similarity = similarity
-                                        matched_style_name = row.get("StyleName")
-                        except Exception:
-                            pass
-    if matched_style_name:
-        final_search_key = matched_style_name.strip()
-        st.sidebar.success(f"🎯 Khớp phom hình học thành công: {final_search_key} ({round(best_similarity * 100, 1)}%)")
-    else:
-        final_search_key = "NOT_FOUND_IN_WAREHOUSE"
-        st.sidebar.warning("⚠️ Không tìm thấy phom dáng quần tương đồng trong kho.")
-    def fetch_san_pham(key):
-        if not key or key == "NOT_FOUND_IN_WAREHOUSE": return []
-        try:
-            url = f"{base_sb_url}/rest/v1/san_pham"
-            safe_key = quote(f"*{key}*")
-            params = {"select": "*", "or": f"(style_name.ilike.{safe_key},article_name.ilike.{safe_key})"}
-            res = requests.get(url, headers=headers, params=params, timeout=5)
-            return res.json() if res.status_code == 200 else []
-        except Exception: return []
-    def fetch_techpack(key):
-        if not key or key == "NOT_FOUND_IN_WAREHOUSE": return []
-        try:
-            url = f"{base_sb_url}/rest/v1/thong_so_techpack"
-            params = {"select": "*", "StyleName": f"ilike.*{key}*"}
-            res = requests.get(url, headers=headers, params=params, timeout=5)
-            return res.json() if res.status_code == 200 else []
-        except Exception: return []
-    with concurrent.futures.ThreadPoolExecutor() as executor:
-        future_sp = executor.submit(fetch_san_pham, final_search_key)
-        future_tp = executor.submit(fetch_techpack, final_search_key)
-        fabric_records = future_sp.result()
-        techpack_records = future_tp.result()
-    db_sketch_url = None
-    db_measurements_raw = {}
-    current_style_name = ""
-    SUPABASE_PROJECT_URL = SB_URL.rstrip('/') if 'SB_URL' in locals() else "https://supabase.co" 
-    img_col1, img_col2 = st.columns(2)
-    with img_col1:
-        if has_file and target_new_sketch_bytes:
-            st.image(target_new_sketch_bytes, caption="🖼️ Ảnh rập kỹ thuật bạn vừa tải lên", use_container_width=True)
-    with img_col2:
-        if techpack_records and len(techpack_records) > 0:
-            first_record = techpack_records if isinstance(techpack_records, list) else techpack_records
-            if isinstance(first_record, dict):
-                current_style_name = first_record.get("StyleName", "").strip()
-                db_sketch_url = first_record.get("SketchURL")
-                db_measurements_raw = first_record.get("DetailedMeasurements", {})
-                if isinstance(db_measurements_raw, str):
-                    try: db_measurements_raw = json.loads(db_measurements_raw)
-                    except Exception: db_measurements_raw = {}
-            if db_sketch_url and str(db_sketch_url).startswith("http"):
-                st.image(db_sketch_url, caption=f"🎯 Ảnh Sketch đối chứng khớp trong kho: {current_style_name}", use_container_width=True)
-            elif current_style_name:
-                constructed_url = f"{SUPABASE_PROJECT_URL}/storage/v1/object/public/kho_anh/{current_style_name}.jpg"
-                st.image(constructed_url, caption=f"🎯 Ảnh Sketch đối chứng khớp trong kho: {current_style_name}", use_container_width=True)
-        else:
-            if dynamic_keyword and dynamic_keyword not in ["UNKNOWN", "UNKNOWN_STYLE"]:
+
                 constructed_url = f"{SUPABASE_PROJECT_URL}/storage/v1/object/public/kho_anh/{dynamic_keyword}.jpg"
                 st.image(constructed_url, caption=f"🔍 Thử tìm kiếm ảnh theo mã chuỗi: {dynamic_keyword}", use_container_width=True)
             else:
