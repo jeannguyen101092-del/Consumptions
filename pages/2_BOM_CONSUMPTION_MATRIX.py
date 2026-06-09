@@ -773,68 +773,66 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
     base_sb_url = SB_URL.rstrip('/')
     headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
     matched_style_name = None
-    best_similarity = -1.0
+    best_similarity_ratio = -1.0
     fabric_records = []
     techpack_records = []
-    if has_file and new_style_measurements_dict:
-        with st.spinner("⚡ AI dệt may đang chạy thuật toán đại số tuyến tính quét tìm phom tương đồng trong kho..."):
-            query_vector = None
+    
+    # ĐỒNG BỘ THỊ GIÁC: Chỉ chạy khi AI bóc tách xong ảnh phẳng từ Đoạn 1
+    if has_file and target_new_sketch_bytes:
+        with st.spinner("⚡ AI dệt may đang phân tích hình học phẳng đối soát ảnh phom dáng tương đồng..."):
             try:
-                def get_clean_num(text_val):
-                    if not text_val: return 0.0
-                    nums = re.findall(r'\d+(?:\.\d+)?', str(text_val).strip())
-                    return float(nums) if nums else 0.0
-                def find_fuzzy_val(measure_dict, keyword):
-                    if not isinstance(measure_dict, dict): return 0.0
-                    for k, v in measure_dict.items():
-                        if keyword.lower() in str(k).lower():
-                            return get_clean_num(v)
-                    return 0.0
-                q_waist = find_fuzzy_val(new_style_measurements_dict, "waist")
-                q_hip = find_fuzzy_val(new_style_measurements_dict, "hip")
-                q_thigh = find_fuzzy_val(new_style_measurements_dict, "thigh")
-                if q_waist > 0 or q_hip > 0:
-                    query_vector = np.array([q_waist, q_hip, q_thigh], dtype=np.float32)
-            except Exception:
-                query_vector = None
-            if query_vector is not None:
-                url_all_vectors = f"{base_sb_url}/rest/v1/thong_so_techpack?select=StyleName,DetailedMeasurements"
-                try:
-                    res_all = requests.get(url_all_vectors, headers=headers, timeout=10)
-                    warehouse_data = res_all.json() if (res_all and res_all.status_code == 200) else []
-                except Exception:
-                    warehouse_data = []
-                for row in warehouse_data:
-                    db_measurements = row.get("DetailedMeasurements", {})
-                    if isinstance(db_measurements, str):
-                        try: db_measurements = json.loads(db_measurements)
-                        except Exception: db_measurements = {}
-                    if isinstance(db_measurements, dict) and len(db_measurements) > 0:
-                        try:
-                            db_waist = find_fuzzy_val(db_measurements, "waist")
-                            db_hip = find_fuzzy_val(db_measurements, "hip")
-                            db_thigh = find_fuzzy_val(db_measurements, "thigh")
-                            db_vector = np.array([db_waist, db_hip, db_thigh], dtype=np.float32)
-                            if np.any(db_vector > 0):
-                                dot_product = np.dot(query_vector, db_vector)
-                                norm_query = np.linalg.norm(query_vector)
-                                norm_db = np.linalg.norm(db_vector)
-                                if norm_query > 0 and norm_db > 0:
-                                    similarity = float(dot_product / (norm_query * norm_db))
-                                    if similarity > best_similarity and similarity >= 0.85:
-                                        best_similarity = similarity
-                                        matched_style_name = row.get("StyleName")
-                        except Exception:
-                            pass
+                # Gọi sinh chuỗi văn bản đặc trưng thiết kế trùng khớp 100% với Prompt luồng nạp kho của bạn
+                vision_prompt = """
+                Analyze this technical flat sketch in detail. 
+                List all unique geometric attributes, silhouette, waistband type, front/back pockets layout, and panel shapes.
+                Output a dense string of these visual characteristics for garment similarity matching.
+                """
+                vision_res = client.models.generate_content(
+                    model='gemini-2.5-flash', 
+                    contents=[types.Part.from_bytes(data=target_new_sketch_bytes, mime_type='image/jpeg'), vision_prompt]
+                )
+                query_description = vision_res.text.strip().lower() if vision_res.text else ""
+                
+                if query_description:
+                    # Gọi dữ liệu chuỗi text đặc trưng từ kho về để so khớp
+                    url_all_vectors = f"{base_sb_url}/rest/v1/thong_so_techpack?select=StyleName,sketch_vector"
+                    try:
+                        res_all = requests.get(url_all_vectors, headers=headers, timeout=10)
+                        warehouse_data = res_all.json() if (res_all and res_all.status_code == 200) else []
+                    except Exception:
+                        warehouse_data = []
+                        
+                    # Tách các cụm từ khóa dệt may của file mới tải lên
+                    query_keywords = set(re.findall(r'\b\w{4,15}\b', query_description))
+                    
+                    for row in warehouse_data:
+                        db_vector_text = str(row.get("sketch_vector", "")).strip().lower()
+                        if db_vector_text and db_vector_text not in ["null", "", "technical garment layout specs"]:
+                            db_keywords = set(re.findall(r'\b\w{4,15}\b', db_vector_text))
+                            
+                            # Thuật toán toán học giao thoa Jaccard đo độ trùng khớp phom dáng thiết kế phẳng
+                            intersection_len = len(query_keywords.intersection(db_keywords))
+                            union_len = len(query_keywords.union(db_keywords))
+                            
+                            if union_len > 0:
+                                similarity_ratio = float(intersection_len / union_len)
+                                # Ngưỡng nhận diện đặc trưng thiết kế quần jean tối ưu (15% từ khóa cốt lõi trùng nhau)
+                                if similarity_ratio > best_similarity_ratio and similarity_ratio >= 0.15:
+                                    best_similarity_ratio = similarity_ratio
+                                    matched_style_name = row.get("StyleName")
+            except Exception as ai_err:
+                st.sidebar.error(f"Lỗi đối soát ảnh phom dáng: {ai_err}")
+                
     if matched_style_name:
         final_search_key = matched_style_name.strip()
-        st.sidebar.success(f"🎯 Khớp phom hình học thành công: {final_search_key} ({round(best_similarity * 100, 1)}%)")
+        st.sidebar.success(f"🎯 Khớp phom thiết kế thành công: {final_search_key} (Độ tương đồng: {round(best_similarity_ratio * 100, 1)}%)")
     else:
         if new_style_id_detected and new_style_id_detected != "UNKNOWN_STYLE":
             final_search_key = new_style_id_detected.strip().upper()
         else:
             final_search_key = dynamic_keyword.strip().upper()
         st.sidebar.warning(f"⚠️ Quét mã chuỗi dự phòng: {final_search_key}")
+        
     def fetch_san_pham(key):
         if not key or key in ["UNKNOWN", "NOT_FOUND_IN_WAREHOUSE"]: return []
         try:
@@ -844,6 +842,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
             res = requests.get(url, headers=headers, params=params, timeout=5)
             return res.json() if res.status_code == 200 else []
         except Exception: return []
+        
     def fetch_techpack(key):
         if not key or key in ["UNKNOWN", "NOT_FOUND_IN_WAREHOUSE"]: return []
         try:
@@ -852,11 +851,13 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
             res = requests.get(url, headers=headers, params=params, timeout=5)
             return res.json() if res.status_code == 200 else []
         except Exception: return []
+        
     with concurrent.futures.ThreadPoolExecutor() as executor:
         future_sp = executor.submit(fetch_san_pham, final_search_key)
         future_tp = executor.submit(fetch_techpack, final_search_key)
         fabric_records = future_sp.result()
         techpack_records = future_tp.result()
+
     db_sketch_url = None
     db_measurements_raw = {}
     current_style_name = ""
