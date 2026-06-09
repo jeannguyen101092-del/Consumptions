@@ -270,8 +270,9 @@ def get_techpack_spec_from_db(style_name_keyword=None):
 
 def process_single_pdf_batch(file_bytes, file_name):
     """
-    Hàm bóc tách dữ liệu kỹ thuật từ một file PDF độc lập sử dụng Gemini Vision API.
-    ✨ ĐÃ FIX HOÀN TOÀN: Sửa thuật toán cắt chuỗi split để lấy chữ số size "32" sạch 100%.
+    Hàm bóc tách dữ liệu kỹ thuật từ một file PDF độc lập phục vụ LUỒNG NẠP KHO.
+    ✨ ĐÃ ĐỒNG BỘ 100% VỚI LUỒNG TÌM KIẾM: Ép AI dùng chung tư duy tìm đúng trang 
+    bản vẽ chi tiết nét mảnh lớn (Line Art Sketch), loại bỏ trang bảng thuộc tính tổng hợp.
     """
     try:
         import base64
@@ -291,89 +292,49 @@ def process_single_pdf_batch(file_bytes, file_name):
             page_img.convert("RGB").save(img_buf, format="JPEG", quality=75)
             contents_payload.append(types.Part.from_bytes(data=img_buf.getvalue(), mime_type='image/jpeg'))
             
+        # SỬA PROMPT ĐỒNG BỘ: Sao chép nguyên mẫu tư duy vision task lọc ảnh sạch từ luồng Tìm kiếm tương đồng
         extraction_prompt = """
-        Analyze all technical sheets page by page. 
+        Analyze all attached sheets page by page. 
         1. Find the 'Style ID' / 'Style Number' (e.g., 1P001363).
         2. Identify 'Buyer', 'Category', and the designated 'Base Size' / 'Sample Size' (e.g., 32/32).
+        3. Extract all points of measurement (POM) and their corresponding target specs for THIS BASE SIZE ONLY.
         
-        3. CRITICAL SPECIFICATION TASK (EXTRACT BASE SIZE ONLY):
-           Look at the Measurement Specification Sheet (bảng thông số kỹ thuật). 
-           - Detect the exact column that belongs to the 'Base Size' / 'Sample Size' (e.g., column '32' or the sample size column).
-           - Extract the points of measurement (POM) and their corresponding target values for THIS BASE SIZE ONLY.
-           - DO NOT extract multiple sizes. DO NOT return nesting JSON or multiple size values for a single POM.
-           - Format each measurement value as a clean single string/number (e.g., "33", "11 1/2", "15 1/4").
+        CRITICAL VISION TASK: Find the exact 'PAGE INDEX' (starting from 0) that contains the TECHNICAL BLACK AND WHITE FLAT SKETCH / DRAWING. 
+        DO NOT select summary pages containing small thumbnails layouts, photographs, garment covers, or wash sheets. 
+        Only pick the pure line art design drawing page (the biggest detailed flat sketch sheet).
         
-        4. Identify the 0-based page index containing the black & white technical flat design sketch.
-        
-        Return a valid raw JSON schema with this exact structure:
-        {"style_number_parsed": "string", "buyer": "string", "category": "string", "base_size_name": "string", "measurements": {"Waist Circ": "33", "Waistband Height": "1 5/8"}, "sketch_page_index_detected": 0}
+        Return a valid raw JSON string with this exact schema (no markdown block):
+        {"style_number_parsed": "string", "buyer": "string", "category": "string", "base_size_name": "string", "measurements": {}, "sketch_page_index_detected": 0}
         """
-        contents_payload.append(extraction_prompt)
         
-        res = client.models.generate_content(
-            model='gemini-2.5-flash',
-            contents=contents_payload,
-            config=types.GenerateContentConfig(response_mime_type="application/json", temperature=0.0)
-        )
+        extraction_payload = list(contents_payload)
+        extraction_payload.append(extraction_prompt)
         
-        parsed_data = json.loads(res.text.strip())
+        extraction_res = client.models.generate_content(model='gemini-2.5-flash', contents=extraction_payload)
+        clean_json_text = extraction_res.text.strip()
         
-        # --- CƠ CHẾ DỰ PHÒNG PYTHON: TRÍCH XUẤT TỪ KHÓA SIZE CHUẨN XÁC ---
-        base_size_target = str(parsed_data.get("base_size_name", "")).strip()
-        
-        # SỬA LỖI TẠI ĐÂY: Lấy phần tử đầu tiên của mảng sau khi tách bằng dấu gạch chéo
-        if "/" in base_size_target:
-            size_keyword = str(base_size_target.split("/")[0]).strip()
-        else:
-            size_keyword = base_size_target.strip()
+        # Loại bỏ các ký tự bọc markdown khối dữ liệu JSON đầu ra
+        if clean_json_text.startswith("```json"):
+            clean_json_text = clean_json_text.replace("```json", "", 1)
+        if clean_json_text.startswith("```"):
+            clean_json_text = clean_json_text.replace("```", "", 1)
+        if clean_json_text.endswith("```"):
+            clean_json_text = clean_json_text.rstrip("`").rstrip()
             
-        # Nếu chuỗi rỗng hoặc AI nhận diện sai, ép từ khóa mặc định về size "32" để đối soát rập Denim
-        if not size_keyword or size_keyword == "None":
-            size_keyword = "32"
+        parsed_meta = json.loads(clean_json_text.strip())
+        detected_idx = int(parsed_meta.get("sketch_page_index_detected", 0))
+        
+        # Chỉ trích xuất và mã hóa lưu kho đúng trang bản vẽ kĩ thuật lớn mà AI vừa dò tìm được
+        if 0 <= detected_idx < len(images):
+            b_buf = io.BytesIO()
+            images[detected_idx].convert("RGB").save(b_buf, format="JPEG", quality=85)
+            # Lưu ảnh sạch mã hóa Base64 tạm thời lên giao diện preview trước khi đẩy thẳng vào database
+            parsed_meta["sketch_image"] = base64.b64encode(b_buf.getvalue()).decode('utf-8')
+            parsed_meta["sketch_page_index_detected"] = detected_idx
             
-        raw_measurements = parsed_data.get("measurements", {})
-        clean_measurements = {}
-        
-        if isinstance(raw_measurements, dict):
-            for pom, val in raw_measurements.items():
-                if isinstance(val, dict):
-                    if size_keyword in val:
-                        clean_measurements[pom] = str(val[size_keyword])
-                    elif "32" in val:
-                        clean_measurements[pom] = str(val["32"])
-                    else:
-                        first_key = list(val.keys()) if val.keys() else ""
-                        clean_measurements[pom] = str(val[first_key]) if first_key else str(val)
-                else:
-                    val_str = str(val)
-                    if "{" in val_str or ":" in val_str:
-                        # Tìm thông số kỹ thuật đứng ngay sau ký tự số size sạch (Ví dụ '32': hoặc "32":)
-                        match_val = re.search(fr"['\"]?{size_keyword}['\"]?\s*:\s*['\"]?([^'\",}}]+)", val_str)
-                        if match_val:
-                            clean_measurements[pom] = match_val.group(1).strip()
-                        else:
-                            # Phương án dự phòng tìm trực tiếp giá trị của size 32 trong chuỗi thô
-                            match_default = re.search(r"['\"]?32['\"]?\s*:\s*['\"]?([^'\",}}]+)", val_str)
-                            clean_measurements[pom] = match_default.group(1).strip() if match_default else val_str
-                    else:
-                        clean_measurements[pom] = val_str
-                        
-            # Ghi đè lại bảng thông số đã được làm sạch
-            parsed_data["measurements"] = clean_measurements
-        # ----------------------------------------------------------------------
-        
-        detected_idx = int(parsed_data.get("sketch_page_index_detected", 0))
-        if not (0 <= detected_idx < len(images)):
-            detected_idx = 0
-            
-        sketch_buf = io.BytesIO()
-        images[detected_idx].convert("RGB").save(sketch_buf, format="JPEG", quality=75)
-        parsed_data["sketch_image"] = base64.b64encode(sketch_buf.getvalue()).decode('utf-8')
-        
-        save_success = save_to_supabase_techpack_table(parsed_data)
-        return {"success": save_success, "data": parsed_data}
+        return {"success": True, "data": parsed_meta, "error": None}
     except Exception as e:
-        return {"success": False, "error": str(e)}
+        return {"success": False, "data": None, "error": str(e)}
 
 
 
@@ -882,7 +843,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                             matched_techpack = row
                             best_similarity_ratio = 1.0
                             break
-                if matched_techpack:
+                                if matched_techpack:
                     target_style_name = matched_techpack.get("StyleName")
                     st.success(f"🎯 ĐÃ TÌM THẤY MÃ HÀNG TƯƠNG ĐỒNG: **{target_style_name}**")
                     
@@ -896,9 +857,10 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                         else:
                             st.info("💡 Mã gốc trong bảng thong_so_techpack chưa được nạp ảnh SketchURL")
 
+                    # --- XỬ LÝ GỘP MÃ VẢI CHÍNH CHỐNG LẶP TỪ TRÊN MÀNH HÌNH ---
                     st.subheader("📦 Chi Tiết Định Mức Nguyên Phụ Liệu Gốc trong kho (BOM)")
                     core_code = re.findall(r'\b[A-Z0-9]{5,10}\b', target_style_name.strip())
-                    search_term = core_code[0] if core_code else target_style_name.strip()
+                    search_term = core_code if core_code else target_style_name.strip()
                     
                     url_san_pham = f"{base_sb_url}/rest/v1/san_pham?style_name=ilike.*{quote(search_term)}*&select=article_name,consumption_type,material_size,uom"
                     res_sp = requests.get(url_san_pham, headers=headers, timeout=10)
@@ -906,51 +868,80 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     
                     if bom_records:
                         st.table(bom_records)
-                        main_fabrics = [r.get("article_name") for r in bom_records if "MAIN" in str(r.get("consumption_type", "")).upper()]
+                        main_fabrics = list(set([r.get("article_name") for r in bom_records if "MAIN" in str(r.get("consumption_type", "")).upper() if r.get("article_name")]))
                         if main_fabrics:
-                            st.info(f"🧵 Mã vải chính (Main Fabric) của kiểu dáng này: **{main_fabrics}**")
+                            st.info(f"🧵 Mã vải chính (Main Fabric) thực tế của kiểu dáng này: **{', '.join(main_fabrics)}**")
                     else:
                         st.warning(f"⚠️ Không tìm thấy dữ liệu nguyên phụ liệu cho mã gốc hoặc các biến thể của `{search_term}` trong bảng `san_pham`.")
 
+                    # --- 🛠️ XỬ LÝ TRIỆT ĐỂ: BỘ ĐỌC VÀ GIẢI MÃ THÔNG SỐ CHỐNG LỖI CHUỖI KHO ---
                     st.subheader("📊 Bảng Đối Soát Sai Lệch Thông Số Hình Học (Mẫu Gốc vs Mẫu Mới)")
                     db_measurements = matched_techpack.get("DetailedMeasurements", {})
                     specs_old = {}
                     
-                    if isinstance(db_measurements, str):
-                        try:
-                            specs_old = json.loads(db_measurements)
-                        except Exception:
-                            pairs = re.findall(r'"([^"]+)":\s*"([^"]+)"', db_measurements)
-                            if pairs:
-                                specs_old = {k: v for k, v in pairs}
-                    elif isinstance(db_measurements, dict):
+                    if isinstance(db_measurements, dict):
                         specs_old = db_measurements
+                    else:
+                        # Nếu cột trong kho trả về dạng chuỗi văn bản (String)
+                        db_measurements_str = str(db_measurements).strip()
+                        try:
+                            # Thử giải mã bằng thư viện json tiêu chuẩn trước
+                            specs_old = json.loads(db_measurements_str)
+                        except Exception:
+                            # Khắc phục lỗi đọc chuỗi: Tự bóc tách các cặp thông số bằng biểu thức Regex tinh chỉnh
+                            # Bộ lọc này tự tìm cấu trúc "Tên điểm đo": "Thông số" kể cả khi chuỗi dính lỗi định dạng
+                            pairs = re.findall(r'"([^"\x00-\x1F]+)"\s*:\s*"([^"\x00-\x1F]*)"', db_measurements_str)
+                            if not pairs:
+                                # Thử nghiệm bộ lọc dự phòng cho định dạng chuỗi đơn hoặc không chuẩn hóa dấu ngoặc
+                                pairs = re.findall(r"'([^']+)'\s*:\s*'([^']*)'", db_measurements_str)
+                            if pairs:
+                                specs_old = {str(k).strip(): str(v).strip() for k, v in pairs}
 
                     specs_new = new_style_measurements_dict
                     
                     if specs_old and specs_new:
-                        norm_specs_old = {str(k).strip().upper(): v for k, v in specs_old.items()}
-                        norm_specs_new = {str(k).strip().upper(): v for k, v in specs_new.items()}
+                        # Bản đồ ma trận từ khóa đồng nghĩa ngành dệt may để ép khớp thông minh
+                        pom_synonyms = {
+                            "INSEAM": ["INSEAM", "INSEAM LENGTH", "DAI GIANG", "DÀI GIÀNG", "GIÀNG QUẦN"],
+                            "WAIST CIRC": ["WAIST", "WAIST CIRC", "WAISTBAND", "WAIST CIRC - ALONG EDGE", "WAIST CIRC - ALONG SEAM", "VONG EO", "VÒNG EO", "EO QUẦN"],
+                            "HIP CIRC": ["HIP", "HIP CIRC", "LOW HIP", "LOW HIP CIRC", "VONG MONG", "VÒNG MÔNG", "MÔNG"],
+                            "THIGH CIRC": ["THIGH", "THIGH CIRC", "VONG ĐUI", "VÒNG ĐÙI", "ĐÙI"],
+                            "FLY LENGTH": ["FLY LENGTH", "FRONT FLY", "DAI DOCK", "DÀI ĐÁP", "DÀI DOCK"],
+                            "KNEE CIRC": ["KNEE", "KNEE CIRC", "VONG GOI", "VÒNG GỐI", "GỐI"],
+                            "OUTSEAM LENGTH": ["OUTSEAM", "OUTSEAM LENGTH", "DAI QUAN", "DÀI QUẦN", "SƯỜN NGOÀI"]
+                        }
+                        
+                        def find_standard_key(raw_key):
+                            k_clean = str(raw_key).strip().upper().replace("  ", " ")
+                            for std_key, synonyms in pom_synonyms.items():
+                                if any(syn in k_clean for syn in synonyms) or k_clean in synonyms:
+                                    return std_key
+                            return k_clean
+
+                        # Chuẩn hóa toàn bộ bảng từ khóa để chạy thuật toán đối soát
+                        norm_specs_old = {find_standard_key(k): (k, v) for k, v in specs_old.items()}
+                        norm_specs_new = {find_standard_key(k): v for k, v in specs_new.items()}
+                        
                         comparison_table = []
                         total_deviation_percentage = 0.0
                         relevant_count = 0
                         
-                        for norm_key, old_val in norm_specs_old.items():
-                            if norm_key in norm_specs_new:
-                                new_val_str = norm_specs_new[norm_key]
+                        for std_key, (original_old_key, old_val) in norm_specs_old.items():
+                            if std_key in norm_specs_new:
+                                new_val_str = norm_specs_new[std_key]
                                 v_old = parse_fraction(old_val)
                                 v_new = parse_fraction(new_val_str)
                                 
                                 if v_old > 0:
                                     diff = v_new - v_old
                                     pct_diff = (diff / v_old) * 100
-                                    if any(k in norm_key for k in ["INSEAM", "WAIST", "HIP", "THIGH", "LENGTH", "OUTSEAM", "DAI", "RONG"]):
+                                    
+                                    if std_key in ["INSEAM", "WAIST CIRC", "HIP CIRC", "THIGH CIRC", "OUTSEAM LENGTH"]:
                                         total_deviation_percentage += pct_diff
                                         relevant_count += 1
                                     
-                                    display_key = next((k for k in specs_old.keys() if str(k).strip().upper() == norm_key), norm_key)
                                     comparison_table.append({
-                                        "Vị trí đo (POM)": display_key,
+                                        "Vị trí đo (POM)": original_old_key,
                                         "Thông số gốc (Kho)": f"{old_val}\"",
                                         "Thông số mới (Quét)": f"{new_val_str}\"",
                                         "Chênh lệch": f"{diff:+.3f}\"",
@@ -965,7 +956,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                         else:
                             st.warning("⚠️ Không tìm thấy tên các vị trí đo (POM) tương thích giữa mẫu mới và mẫu gốc để làm bảng đối soát.")
                     else:
-                        st.info("💡 Không thể tiến hành đối soát do dữ liệu bảng thông số chi tiết đang để trống.")
+                        st.info("💡 Không thể tiến hành đối soát do cấu trúc dữ liệu `DetailedMeasurements` của mã này trong kho đang trống hoặc sai định dạng bóc tách.")
                 else:
                     st.warning(f"🔍 Hệ thống không tìm thấy mã hàng tương đồng nào khớp với từ khóa `{dynamic_keyword}`.")
             except Exception as e:
