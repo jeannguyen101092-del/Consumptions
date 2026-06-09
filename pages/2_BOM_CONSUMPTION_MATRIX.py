@@ -898,6 +898,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
 
 
                                         # =============================================================================
+                    # =============================================================================
                     # ĐOẠN 3: KẾT XUẤT HÌNH ẢNH SKETCH, BẢNG THÔNG SỐ VÀ TỰ TÍNH ĐỊNH MỨC ĐỘ CO ĐA CHIỀU
                     # =============================================================================
                     db_sketch_url = None
@@ -913,15 +914,18 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     
                     with img_col2:
                         if techpack_records and len(techpack_records) > 0:
-                            first_record = techpack_records[0] if isinstance(techpack_records, list) else techpack_records
+                            first_record = techpack_records if isinstance(techpack_records, list) else techpack_records
                             if isinstance(first_record, dict):
                                 current_style_name = first_record.get("StyleName", "").strip()
                                 db_sketch_url = first_record.get("SketchURL")
                                 db_measurements_raw = first_record.get("DetailedMeasurements", {})
                                 if isinstance(db_measurements_raw, str):
-                                    try: db_measurements_raw = json.loads(db_measurements_raw)
-                                    except Exception: db_measurements_raw = {}
+                                    try: 
+                                        db_measurements_raw = json.loads(db_measurements_raw)
+                                    except Exception: 
+                                        db_measurements_raw = {}
                             
+                            # Hiển thị URL ảnh trực tiếp từ database gửi về
                             if db_sketch_url and str(db_sketch_url).startswith("http"):
                                 st.image(db_sketch_url, caption=f"🎯 Ảnh Sketch đối chứng khớp trong kho: {current_style_name}", use_container_width=True)
                             elif current_style_name:
@@ -985,21 +989,21 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     
                     [SPECS DATA]
                     - New Style Uploaded Measurements: {json.dumps(new_style_measurements_dict, ensure_ascii=False)}
-                    - Warehouse Match Techpack Specs (Mã tương đồng): {json.dumps(db_measurements_raw, ensure_ascii=False)}
-                    - Warehouse Match Fabric Records (Định mức + Khổ vải gốc): {json.dumps(fabric_records, ensure_ascii=False)}
+                    - Warehouse Match Techpack Specs: {json.dumps(db_measurements_raw, ensure_ascii=False)}
+                    - Warehouse Match Fabric Records: {json.dumps(fabric_records, ensure_ascii=False)}
                     
                     [CRITICAL EXECUTION MODE: {pipeline_mode}]
                     
-                    RULE 1: IF MODE IS "HISTORY_BASED_PREDICTION" (CÓ MÃ TƯƠNG ĐỒNG TRONG KHO):
+                    RULE 1: IF MODE IS "HISTORY_BASED_PREDICTION":
                     - Do NOT calculate from scratch using marker equations.
-                    - Locate the "Định mức gốc" (consumption_value) and "Khổ vải" (material_size) of the matched style in Warehouse Match Fabric Records.
-                    - Compare the New Style Uploaded Measurements against the Warehouse Match Techpack Specs. Calculate the exact delta (chênh lệch) of major length points (e.g., Inseam, Outseam, Front/Back Rise).
-                    - Adjust the "Định mức gốc" proportionally based on this measurement delta, target fabric width ({user_width}), and target shrinkage (Warp: {co_doc}%, Weft: {co_ngang}%).
-                    - Clearly state: "Dự đoán định mức dựa trên mã tương đồng lịch sử [{current_style_name}]".
+                    - Locate the "Định mức gốc" and "Khổ vải" of the matched style in Warehouse Match Fabric Records.
+                    - Compare the New Style Uploaded Measurements against the Warehouse Match Techpack Specs. Calculate the exact delta of major length points.
+                    - Adjust the "Định mức gốc" proportionally based on this measurement delta, target fabric width, and target shrinkage.
+                    - Clearly state: "Dự đoán định mức dựa trên mã tương đồng lịch sử".
                     
-                    RULE 2: IF MODE IS "PURE_MARKER_CALCULATOR" (KHÔNG TÌM THẤY MÃ TƯƠNG ĐỒNG):
+                    RULE 2: IF MODE IS "PURE_MARKER_CALCULATOR":
                     - Calculate the fabric net consumption per unit from scratch using standard apparel garment marker geometry based on the length points found in New Style Uploaded Measurements.
-                    - Warp shrinkage ({co_doc}%) expands required pattern length. Weft shrinkage ({co_ngang}%) impacts pattern layout packing efficiency inside target width ({user_width}). Add 5% cutting wastage.
+                    - Warp shrinkage expands required pattern length. Weft shrinkage impacts pattern layout packing efficiency inside target width. Add 5% cutting wastage.
                     - Clearly state: "Tính toán độc lập theo quy ước hình học ngành may do không có mã tương đồng trong kho".
 
                     [OUTPUT FORMAT]
