@@ -887,7 +887,7 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
 
     if matched_techpack:
         target_style_name = matched_techpack.get("StyleName")
-        st.success(f"🎯 MỤC ĐÍCH 2: ĐÃ TÌM THẤY MÃ HÀNG TƯƠNG ĐỒNG: **{target_style_name}**")
+        st.success(f"🎯 MỤC ĐÍCH 2: ĐÃ TÌM THẤY MÃ HÀNG TƯƠNG ĐỒNG TRONG KHO: **{target_style_name}**")
         
         col1, col2 = st.columns(2)
         with col1: st.image(target_new_sketch_bytes, caption="Bản vẽ phẳng mẫu mới (AI quét sạch)", use_container_width=True)
@@ -913,6 +913,7 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
         else:
             st.warning(f"⚠️ Không tìm thấy dữ liệu phụ liệu cho biến thể mã hàng gốc `{dynamic_keyword}` trong bảng san_pham.")
 
+        st.subheader("📊 Bảng Đối Soát Sai Lệch Thông Số Hình Học (Mẫu Gốc vs Mẫu Mới)")
         db_measurements = matched_techpack.get("DetailedMeasurements", {})
         specs_old = {}
         if isinstance(db_measurements, dict): specs_old = db_measurements
@@ -925,33 +926,30 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
         specs_new = new_style_measurements_dict
         
         if specs_old and specs_new:
-            # 🧠 THUẬT TOÁN KHỬ NHIỄU TOÀN DIỆN: Xóa mã đầu dòng và toàn bộ ký tự đặc biệt (dấu cắp, dấu gạch) để ép AI so khớp
-            def clean_pom_text_for_ai(raw_key):
-                text_clean = str(raw_key).strip().upper()
-                # 1. Xóa các mã tiền tố nhiễu đầu dòng (BD-245, DE-162, DF-146...)
-                text_clean = re.sub(r'^[A-Z]{2,4}-\d{2,4}\s*', '', text_clean)
-                # 2. Lọc bỏ toàn bộ ký tự đặc biệt gây dính chuỗi (dấu ngoặc kép, dấu gạch ngang, khoảng cách đơn)
-                text_clean = text_clean.replace('"', '').replace('-', '').replace('\'', '').replace('’', '')
-                # 3. Ép chuỗi viết liền để xóa khoảng trắng ẩn
-                text_clean = "".join(text_clean.split())
-                return text_clean.strip()
+            # 🛠️ THUẬT TOÁN LÀM SẠCH VÀ CHUẨN HÓA TOÁN HỌC CHUỖI KỸ THUẬT MAY MẶC
+            def normalize_core_garment_key(raw_key):
+                text = str(raw_key).strip().upper()
+                # 1. Xóa toàn bộ tiền tố mã nhiễu đầu dòng (BD-245, DE-162, DF-146...)
+                text = re.sub(r'^[A-Z]{2,4}-\d{2,4}\s*', '', text)
+                # 2. Xóa các ký tự đặc biệt gây lệch chuỗi thô
+                text = text.replace('"', '').replace('-', '').replace('\'', '').replace('’', '').replace(' ', '')
+                # 3. Gom cụm từ khóa cốt lõi để ép cặp mờ chuẩn xác (Đồng bộ hóa ngôn ngữ Áo/Quần)
+                if "WAIST" in text: return "WAIST"
+                if "HIP" in text: return "HIP"
+                if "THIGH" in text: return "THIGH"
+                if "INSEAM" in text: return "INSEAM"
+                if "OUTSEAM" in text or "LENGTH" in text: return "OUTSEAM"
+                if "KNEE" in text: return "KNEE"
+                if "OPENING" in text or "SWEEP" in text: return "LEGOPENING"
+                if "RISE" in text or "CROTCH" in text: return "RISE"
+                if "CHEST" in text or "BUST" in text: return "CHEST"
+                if "SHOULDER" in text: return "SHOULDER"
+                if "SLEEVE" in text: return "SLEEVE"
+                return text
 
-            clean_specs_old = {clean_pom_text_for_ai(k): (k, v) for k, v in specs_old.items()}
-            clean_specs_new = {clean_pom_text_for_ai(k): (k, v) for k, v in specs_new.items()}
-
-            with st.spinner("🧠 Trợ lý AI đang tự động áp dụng bộ lọc mờ đối soát vị trí đo..."):
-                try:
-                    mapping_prompt = f"""
-                    You are a professional garment pattern grader. Align and match point of measurement (POM) strings by identifying identical core words.
-                    Ignore minor spelling variations, uppercase/lowercase, or spaces.
-                    OLD SPEC LIST: {list(clean_specs_old.keys())}
-                    NEW SPEC LIST: {list(clean_specs_new.keys())}
-                    Return clean raw JSON with this exact schema: {{"old_clean_key": "new_clean_key"}}
-                    """
-                    mapping_res = client.models.generate_content(model='gemini-2.5-flash', contents=mapping_prompt)
-                    clean_mapping_json = mapping_res.text.strip().replace("```json", "").replace("```", "").strip()
-                    ai_pom_map = json.loads(clean_mapping_json)
-                except Exception: ai_pom_map = {}
+            # Lập bản đồ chuẩn hóa toán học trực tiếp bằng Python
+            norm_map_old = {normalize_core_garment_key(k): (k, v) for k, v in specs_old.items()}
+            norm_map_new = {normalize_core_garment_key(k): (k, v) for k, v in specs_new.items()}
 
             comparison_table = []
             deviation_length_pct = 0.0
@@ -959,30 +957,46 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
             has_len = False
             has_wid = False
             
-            for old_clean_k, (original_old_key, old_val) in clean_specs_old.items():
-                if old_clean_k in ai_pom_map:
-                    new_clean_k = ai_pom_map[old_clean_k]
-                    if new_clean_k in clean_specs_new:
-                        original_new_key, new_val_str = clean_specs_new[new_clean_k]
+            # Ép luồng lặp chạy qua toàn bộ danh mục điểm đo gốc trong kho
+            for core_key, (original_old_key, old_val) in norm_map_old.items():
+                # Nếu lõi điểm đo (Ví dụ: HIP, THIGH, WAIST) xuất hiện ở file mới, tiến hành tính hiệu số ngay
+                if core_key in norm_map_new:
+                    original_new_key, new_val_str = norm_map_new[core_key]
+                    
+                    v_old = parse_fraction(old_val)
+                    v_new = parse_fraction(new_val_str)
+                    
+                    if v_old > 0 and v_new > 0:
+                        diff = v_new - v_old
+                        pct_diff = (diff / v_old) * 100
                         
-                        v_old = parse_fraction(old_val)
-                        v_new = parse_fraction(new_val_str)
-                        if v_old > 0 and v_new > 0:
-                            diff = v_new - v_old
-                            pct_diff = (diff / v_old) * 100
-                            k_upper = old_clean_k.upper()
-                            
-                            if any(word in k_upper for word in ["INSEAM", "OUTSEAM", "LENGTH", "CB", "CF", "DAI", "DÀI"]):
-                                if pct_diff != 0: deviation_length_pct = pct_diff; has_len = True
-                            if any(word in k_upper for word in ["HIP", "CHEST", "BUST", "THIGH", "WAIST", "NGUC", "NGỰC", "EO", "MONG", "MÔNG", "WIDTH"]):
-                                if pct_diff != 0: deviation_width_pct = pct_diff; has_wid = True
-                                    
-                            comparison_table.append({"Vị trí đo (POM)": original_old_key, "Thông số gốc (Kho)": f"{old_val}\"", "Thông số mới (Quét)": f"{new_val_str}\"", "Chênh lệch": f"{diff:+.3f}\"", "Tỷ lệ biến động": f"{pct_diff:+.1f}%"})
+                        # Tích lũy chênh lệch chiều dọc chủ đạo
+                        if core_key in ["INSEAM", "OUTSEAM", "SLEEVE"]:
+                            if pct_diff != 0:
+                                deviation_length_pct = pct_diff
+                                has_len = True
+                        # Tích lũy chênh lệch chiều ngang chủ đạo dập sơ đồ
+                        if core_key in ["WAIST", "HIP", "THIGH", "CHEST"]:
+                            if pct_diff != 0:
+                                deviation_width_pct = pct_diff
+                                has_wid = True
+                                
+                        comparison_table.append({
+                            "Vị trí đo (POM)": original_old_key,
+                            "Thông số gốc (Kho)": f"{old_val}\"",
+                            "Thông số mới (Quét)": f"{new_val_str}\"",
+                            "Chênh lệch": f"{diff:+.3f}\"",
+                            "Tỷ lệ biến động": f"{pct_diff:+.1f}%"
+                        })
             
+            # ĐỔ RA GIAO DIỆN 3 CỘT SONG SONG ĐỂ KIỂM TRA ĐỐI CHIẾU
             ui_col1, ui_col2, ui_col3 = st.columns([1.0, 0.5, 0.5])
             with ui_col1:
                 st.subheader("📊 Bảng Đối Soát Sai Lệch Hình Học")
-                if comparison_table: st.table(comparison_table)
+                if comparison_table:
+                    st.table(comparison_table)
+                else:
+                    st.info("Không có thông số tương thích để đối soát chéo.")
             with ui_col2:
                 st.subheader("🏛️ Dữ liệu gốc lưu trong Kho")
                 st.table([{"Vị trí đo (Gốc)": k, "Thông số kho": v} for k, v in specs_old.items()])
@@ -990,22 +1004,21 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                 st.subheader("📋 Thông số mẫu mới quét được")
                 st.table([{"Vị trí đo (Quét sạch)": k, "Thông số quét": v} for k, v in specs_new.items()])
                 
+            # THUẬT TOÁN TÍNH DIỆN TÍCH KHỐI RẬP ĐƯỢC KÍCH HOẠT TUYỆT ĐỐI CHUẨN XÁC
             if has_len or has_wid:
                 factor_len = 1.0 + (deviation_length_pct / 100.0)
                 factor_wid = 1.0 + (deviation_width_pct / 100.0)
                 total_area_deviation_pct = (factor_len * factor_wid - 1.0) * 100
-                st.markdown(f"💡 **Phân tích hình học rập mẫu tự động bởi AI:**")
+                
+                st.markdown(f"💡 **Phân tích hình học rập mẫu tự động bởi hệ thống:**")
                 st.write(f"- Biến động chiều dài thân rập chủ đạo: **{deviation_length_pct:+.1f}%**")
                 st.write(f"- Biến động chiều rộng thân rập chủ đạo: **{deviation_width_pct:+.1f}%**")
                 st.markdown(f"🎯 **Tỷ lệ biến động diện tích khối sơ đồ vải thực tế (Marker Area Deviation): {total_area_deviation_pct:+.1f}%**")
+                
                 new_style_base_size = f"{new_style_base_size} (Marker Area Delta: {total_area_deviation_pct:+.2f}%)"
-    elif has_file:
-        st.warning("⚠️ MỤC ĐÍCH 3: MÃ HÀNG HOÀN TOÀN MỚI - KHÔNG TÌM THẤY MÃ TƯƠNG ĐỒNG TRONG KHO!")
-        st.info("💡 AI đã tự động kích hoạt tính năng Hình học không gian (Geometric Surface Area Estimation). Vui lòng ra lệnh ở ô chat bên dưới để tính định mức sơ đồ ban đầu.")
-        st.subheader("📋 Trọn bộ thông số mẫu mới quét được")
-        st.table([{"Vị trí đo (Quét sạch)": k, "Thông số quét": v} for k, v in new_style_measurements_dict.items()])
+        else:
+            st.info("💡 Điền file để chạy đối soát.")
 
-    # GIAO DIỆN KHUNG CHAT PHÂN TÍCH LIÊN KẾT CHATGPT STYLE
     st.markdown("### 💬 PPJ TEXTILE AI COSTING ENGINE - LUỒNG CHAT PHÂN TÍCH ĐỊNH MỨC TỰ ĐỘNG")
     chat_container = st.container()
     with chat_container:
