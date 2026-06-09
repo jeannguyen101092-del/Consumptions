@@ -889,11 +889,10 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
         target_style_name = matched_techpack.get("StyleName")
         st.success(f"🎯 MỤC ĐÍCH 2: ĐÃ TÌM THẤY MÃ HÀNG TƯƠNG ĐỒNG TRONG KHO: **{target_style_name}**")
         
-        # 🛠️ SỬA LỖI CHÍ MẠNG DÒNG 893: Ép kiểm tra biến nhị phân bytes chuẩn xác trước khi ép Streamlit vẽ hình
         col1, col2 = st.columns(2)
         with col1: 
             if target_new_sketch_bytes is not None:
-                st.image(target_new_sketch_bytes, caption="Bản vẽ phẳng mẫu mới (AI lọc sạch)", use_container_width=True)
+                st.image(target_new_sketch_bytes, caption="Bản vẽ phẳng mẫu mới (AI quét sạch)", use_container_width=True)
             else:
                 st.info("💡 Hệ thống đang liên kết cổng nhị phân ảnh vẽ phẳng sạch...")
         with col2: 
@@ -904,20 +903,37 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
         if bom_records:
             formatted_bom = []
             for r in bom_records:
+                # 🛠️ THUẬT TOÁN KHỬ LỖI NAN: Kiểm tra và ép kiểu dữ liệu văn bản chuỗi sạch, cấm hiện chữ nan toán học
+                raw_c_type = r.get("consumption_type")
+                raw_art_name = r.get("article_name")
+                raw_m_size = r.get("material_size")
+                raw_uom = r.get("uom")
+                raw_val = r.get("consumption_value")
+                raw_notes = r.get("notes")
+                
+                # Hàm ép kiểu chuỗi văn bản may mặc chuẩn, nếu dính NaN hoặc rỗng sẽ tự động đưa về khoảng trống sạch
+                def clean_db_string(val):
+                    if val is None or str(val).strip() == "" or str(val).lower() == "nan" or str(val).lower() == "<na>":
+                        return "EMPTY"
+                    return str(val).strip()
+
                 formatted_bom.append({
-                    "Mã hàng (Style)": r.get("style_name") if r.get("style_name") else r.get("style_id"),
-                    "Tên vật tư": r.get("article_name"),
-                    "Chủng loại tiêu hao": r.get("consumption_type"),
-                    "Khổ nguyên liệu": r.get("material_size"),
-                    "Đơn vị tính": r.get("uom"),
-                    "Định mức cơ sở (Kho)": str(r.get("consumption_value")) if r.get("consumption_value") is not None else "EMPTY",
-                    "Ghi chú phân xưởng": r.get("notes") if r.get("notes") else "EMPTY"
+                    "Mã hàng (Style)": clean_db_string(r.get("style_name") if r.get("style_name") else r.get("style_id")),
+                    "Tên vật tư": clean_db_string(raw_art_name),
+                    "Chủng loại tiêu hao": clean_db_string(raw_c_type), # Ép hiển thị rõ chữ POCKETING / MAIN FABRIC
+                    "Khổ nguyên liệu": clean_db_string(raw_m_size),
+                    "Đơn vị tính": clean_db_string(raw_uom),
+                    "Định mức cơ sở (Kho)": clean_db_string(raw_val),
+                    "Ghi chú phân xưởng": clean_db_string(raw_notes)
                 })
             st.table(formatted_bom)
-            main_fabrics = list(set([r.get("article_name") for r in bom_records if "MAIN" in str(r.get("consumption_type", "")).upper() if r.get("article_name")]))
+            
+            # Quét vải chính an toàn không dính lỗi chuỗi nan
+            main_fabrics = list(set([str(r.get("article_name")).strip() for r in bom_records if "MAIN" in str(r.get("consumption_type", "")).upper() if r.get("article_name") and str(r.get("article_name")).lower() != "nan"]))
             if main_fabrics: st.info(f"🧵 Mã vải chính của mã hàng gốc: **{', '.join(main_fabrics)}**")
         else:
             st.warning(f"⚠️ Không tìm thấy dữ liệu phụ liệu cho biến thể mã hàng gốc `{dynamic_keyword}` trong bảng san_pham.")
+
         st.subheader("📊 Bảng Đối Soát Sai Lệch Thông Số Hình Học (Mẫu Gốc vs Mẫu Mới)")
         db_measurements = matched_techpack.get("DetailedMeasurements", {})
         specs_old = {}
@@ -931,7 +947,6 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
         specs_new = new_style_measurements_dict
         
         if specs_old and specs_new:
-            # 🧠 THUẬT TOÁN ĐỐI SOÁT TOÁN HỌC: Tự động gom cụm và làm sạch tiền tố (BD-, DE-, DF-) chống sót dòng
             def normalize_core_garment_key(raw_key):
                 text = str(raw_key).strip().upper()
                 text = re.sub(r'^[A-Z]{2,4}-\d{2,4}\s*', '', text)
@@ -958,7 +973,6 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
             has_len = False
             has_wid = False
             
-            # Ép luồng lặp so khớp toán học chạy qua toàn bộ danh mục thông số kho gốc
             for core_key, (original_old_key, old_val) in norm_map_old.items():
                 if core_key in norm_map_new:
                     original_new_key, new_val_str = norm_map_new[core_key]
@@ -982,7 +996,6 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                             "Tỷ lệ biến động": f"{pct_diff:+.1f}%"
                         })
             
-            # ĐỔ KẾT QUẢ RA LƯỚI 3 CỘT NGANG ĐỂ ĐỐI CHIẾU SONG SONG CHUẨN XÁC
             ui_col1, ui_col2, ui_col3 = st.columns([1.0, 0.5, 0.5])
             with ui_col1:
                 st.markdown("<p style='font-weight:700; font-size:14px; color:#1E293B;'>📊 Bảng Đối Soát Sai Lệch Hình Học</p>", unsafe_allow_html=True)
