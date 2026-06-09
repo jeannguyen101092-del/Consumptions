@@ -835,7 +835,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                             matched_techpack = row
                             best_similarity_ratio = 1.0
                             break
-                if matched_techpack:
+                                if matched_techpack:
                     target_style_name = matched_techpack.get("StyleName")
                     st.success(f"🎯 ĐÃ TÌM THẤY MÃ HÀNG TƯƠNG ĐỒNG: **{target_style_name}**")
                     
@@ -849,24 +849,32 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                         else:
                             st.info("💡 Mã gốc trong bảng thong_so_techpack chưa được nạp ảnh SketchURL")
 
-                    # --- TRUY XUẤT BOM VÀ GỘP MÃ VẢI CHÍNH ---
+                    # --- 🛠️ VÁ LỖI TRIỆT ĐỂ: TRỰC TIẾP ÉP PHẦN TỬ ĐẦU TIÊN CỦA REGEX VỀ CHUỖI STRING THUẦN TÚY ---
                     st.subheader("📦 Chi Tiết Định Mức Nguyên Phụ Liệu Gốc trong kho (BOM)")
-                    core_code = re.findall(r'\b[A-Z0-9]{5,10}\b', target_style_name.strip())
-                    search_term = core_code if core_code else target_style_name.strip()
                     
+                    # Trích xuất phần ký tự lõi của mã hàng (Ví dụ: '1P001363')
+                    core_code_list = re.findall(r'\b[A-Z0-9]{5,10}\b', target_style_name.strip())
+                    
+                    # GLẢI NÉN PHẦN TỬ TỪ LIST RA STRING: Chống lỗi TypeError: quote_from_bytes() expected bytes
+                    if core_code_list and len(core_code_list) > 0:
+                        search_term = str(core_code_list[0]).strip() # Lấy phần tử chuỗi đầu tiên trong mảng kết quả
+                    else:
+                        search_term = str(target_style_name).strip()
+                    
+                    # Truy vấn dữ liệu từ bảng san_pham an toàn bằng chuỗi đã được chuẩn hóa
                     url_san_pham = f"{base_sb_url}/rest/v1/san_pham?style_name=ilike.*{quote(search_term)}*&select=article_name,consumption_type,material_size,uom"
                     res_sp = requests.get(url_san_pham, headers=headers, timeout=10)
                     bom_records = res_sp.json() if res_sp.status_code == 200 else []
                     
                     if bom_records:
                         st.table(bom_records)
+                        # Lọc trùng lặp mã vải chính gọn gàng
                         main_fabrics = list(set([r.get("article_name") for r in bom_records if "MAIN" in str(r.get("consumption_type", "")).upper() if r.get("article_name")]))
                         if main_fabrics:
                             st.info(f"🧵 Mã vải chính (Main Fabric) thực tế của kiểu dáng này: **{', '.join(main_fabrics)}**")
                     else:
                         st.warning(f"⚠️ Không tìm thấy dữ liệu nguyên phụ liệu cho mã gốc hoặc các biến thể của `{search_term}` trong bảng `san_pham`.")
-
-                    # --- 🧠 SỬA LỖI LỆCH HÀNG: THUẬT TOÁN ĐỐI SOÁT THÔNG SỐ NGHIÊM NGẶT ---
+                    # --- 📐 THUẬT TOÁN ĐỐI SOÁT CHỐNG LỆCH HÀNG THÔNG SỐ (STRICT POM MAPPING) ---
                     st.subheader("📊 Bảng Đối Soát Sai Lệch Thông Số Hình Học (Mẫu Gốc vs Mẫu Mới)")
                     db_measurements = matched_techpack.get("DetailedMeasurements", {})
                     specs_old = {}
@@ -887,12 +895,12 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     specs_new = new_style_measurements_dict
                     
                     if specs_old and specs_new:
-                        # Bản đồ ma trận từ khóa đồng nghĩa (Tách biệt rõ ràng Vòng đo rập và Vị trí hạ mẫu)
+                        # Bản đồ từ điển đồng nghĩa nghiêm ngặt, phân tách rõ rệt Vòng đo (Circumference) và Vị trí hạ mẫu (Position)
                         pom_synonyms = {
                             "INSEAM": ["INSEAM", "INSEAM LENGTH", "DAI GIANG", "DÀI GIÀNG"],
                             "WAIST CIRC - ALONG EDGE": ["WAIST CIRC - ALONG EDGE", "WAIST CIRC ALONG EDGE", "WAISTBAND EDGE", "EO TRÊN"],
                             "WAIST CIRC - ALONG SEAM": ["WAIST CIRC - ALONG SEAM", "WAIST CIRC ALONG SEAM", "WAISTBAND SEAM", "EO DƯỚI"],
-                            "LOW HIP CIRC": ["LOW HIP CIRC", "LOW HIP POSITION FROM BELOW WB", "VONG MONG", "VÒNG MÔNG", "MÔNG"],
+                            "LOW HIP CIRC": ["LOW HIP CIRC", "VONG MONG", "VÒNG MÔNG", "MÔNG"],
                             "THIGH CIRC": ["THIGH CIRC", "THIGH CIRC - 1\" BELOW CROTCH", "THIGH CIRC 1 BELOW CROTCH", "THIGH", "VÒNG ĐÙI"],
                             "FLY LENGTH": ["FLY LENGTH", "FRONT FLY LENGTH", "DÀI DOCK"],
                             "KNEE CIRC": ["KNEE CIRC", "KNEE", "VÒNG GỐI"],
@@ -904,15 +912,15 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                         }
                         
                         def find_standard_key(raw_key):
-                            """Hàm chuẩn hóa từ khóa thô sử dụng thuật toán kiểm tra chuỗi nghiêm ngặt"""
+                            """Hàm chuẩn hóa từ khóa sử dụng thuật toán kiểm tra chuỗi nghiêm ngặt (Strict Match)"""
                             k_clean = str(raw_key).strip().upper().replace('"', '').replace("  ", " ")
                             
-                            # Ưu tiên so khớp chính xác cụm từ (Exact Match) trước để tránh lệch vị trí đo
+                            # Bước 1: Ưu tiên so khớp chính xác 100% cụm từ trong danh mục từ điển trước
                             for std_key, synonyms in pom_synonyms.items():
                                 if k_clean in synonyms:
                                     return std_key
                                     
-                            # Luồng xử lý mờ thứ cấp: Kiểm tra điều kiện loại trừ nghiêm ngặt
+                            # Bước 2: Kiểm tra các điều kiện từ khóa loại trừ để loại bỏ hiện tượng lệch hàng thông số
                             if "CROTCH DEPTH" in k_clean:
                                 return "CROTCH DEPTH"
                             if "LOW HIP POSITION" in k_clean or "HIP POSITION" in k_clean:
@@ -972,9 +980,8 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                         else:
                             st.warning("⚠️ Không tìm thấy tên các vị trí đo (POM) tương thích giữa mẫu mới và mẫu gốc để làm bảng đối soát.")
                     else:
-                        st.info("💡 Không thể tiến hành đối soát do dữ liệu bảng thông số chi tiết đang để trống.")
+                        st.info("💡 Không thể tiến hành đối soát do cấu trúc dữ liệu DetailedMeasurements trống hoặc sai cấu trúc chuỗi.")
                 else:
                     st.warning(f"🔍 Hệ thống không tìm thấy mã hàng tương đồng nào khớp với từ khóa `{dynamic_keyword}`.")
             except Exception as e:
-
                 st.error(f"Lỗi cục bộ trong quá trình đối soát nâng cao: {str(e)}")
