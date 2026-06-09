@@ -885,7 +885,7 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
        matched_techpack = st.session_state["matched_techpack"]
        bom_records = st.session_state["bom_records"]
 
-       if matched_techpack:
+    if matched_techpack:
         target_style_name = matched_techpack.get("StyleName")
         st.success(f"🎯 MỤC ĐÍCH 2: ĐÃ TÌM THẤY MÃ HÀNG TƯƠNG ĐỒNG: **{target_style_name}**")
         
