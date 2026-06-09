@@ -690,7 +690,7 @@ except ImportError:
     pass
 
 if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vải và đối soát sai lệch..."):
-    target_file_object = None
+        target_file_object = None
     if 'chat_file' in locals() and chat_file is not None:
         target_file_object = chat_file
     elif 'chat_file' in globals() and globals()['chat_file'] is not None:
@@ -725,16 +725,18 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
         else:
             target_new_sketch_bytes = file_bytes
             img_payload.append(types.Part.from_bytes(data=file_bytes, mime_type='image/jpeg'))
-        extraction_prompt = "Analyze all sheets page by page. Find the designated 'Base Size' / 'Sample Size'. Extract all points of measurement (POM) and their corresponding target specs for THIS BASE SIZE ONLY. Do not extract multiple sizes. Also find 'Style ID' and 'Category'. Identify the 0-based index of the black and white technical flat design sketch page. Return a valid raw JSON string with this exact schema (no markdown block): {\"detected_style_id\": \"string\", \"category\": \"string\", \"fabric_code\": \"string\", \"measurements\": {}, \"sketch_page_index_detected\": 0}"
+        
+        # SỬA LẠI PROMPT ĐỒNG BỘ: Ép AI bỏ qua trang ảnh chụp denim sheet, chỉ chọn duy nhất trang line art phẳng b&w giống luồng nạp kho
+        extraction_prompt = "Analyze all sheets page by page. Find: 'Style ID', 'Category', 'Base Size', 'Detailed Measurements'. Extract target spec for the basic sample size only. CRITICAL VISION TASK: Find the exact 'PAGE INDEX' (starting from 0) that contains the TECHNICAL BLACK AND WHITE FLAT SKETCH / DRAWING. DO NOT select pages containing real product photographs, garments, fabrics, or 'Labeled Images' wash denim sheets. Only pick the pure line art design drawing page. Return valid JSON only: {\"detected_style_id\": \"string\", \"category\": \"string\", \"fabric_code\": \"string\", \"measurements\": {}, \"sketch_page_index_detected\": 0}"
         extraction_payload = list(img_payload)
         extraction_payload.append(extraction_prompt)
         try:
             extraction_res = client.models.generate_content(model='gemini-2.5-flash', contents=extraction_payload)
             clean_json_text = extraction_res.text.strip()
             if "```json" in clean_json_text:
-                clean_json_text = clean_json_text.split("```json")[1].split("```")[0].strip()
+                clean_json_text = clean_json_text.split("```json").split("```").strip()
             elif "```" in clean_json_text:
-                clean_json_text = clean_json_text.split("```")[1].split("```")[0].strip()
+                clean_json_text = clean_json_text.split("```").split("```").strip()
             parsed_meta = json.loads(clean_json_text)
             new_style_id_detected = parsed_meta.get("detected_style_id", "UNKNOWN_STYLE").strip()
             new_style_category_detected = parsed_meta.get("category", "").strip()
@@ -765,6 +767,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
     else:
         dynamic_keyword = clean_query if clean_query else "UNKNOWN"
     dynamic_keyword = re.sub(r"[\[\]'\"*?%#&]", "", dynamic_keyword).strip()
+
     base_sb_url = SB_URL.rstrip('/')
     headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
     matched_style_name = None
