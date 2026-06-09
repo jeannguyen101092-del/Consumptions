@@ -770,13 +770,12 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
     else:
         dynamic_keyword = clean_query if clean_query else "UNKNOWN"
     dynamic_keyword = re.sub(r"[\[\]'\"*?%#&]", "", dynamic_keyword).strip()
-        base_sb_url = SB_URL.rstrip('/')
+    base_sb_url = SB_URL.rstrip('/')
     headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
     matched_style_name = None
     best_similarity = -1.0
     fabric_records = []
     techpack_records = []
-    
     if has_file and new_style_measurements_dict:
         with st.spinner("⚡ AI dệt may đang chạy thuật toán đại số tuyến tính quét tìm phom tương đồng trong kho..."):
             query_vector = None
@@ -785,24 +784,19 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     if not text_val: return 0.0
                     nums = re.findall(r'\d+(?:\.\d+)?', str(text_val).strip())
                     return float(nums) if nums else 0.0
-                    
-                # SỬA TRIỆT ĐỂ LỖI DÒ TÌM: Chuyển đổi cả Key và Value về chữ thường (.lower()) để quét mờ không trượt phát nào
                 def find_fuzzy_val(measure_dict, keyword):
                     if not isinstance(measure_dict, dict): return 0.0
                     for k, v in measure_dict.items():
                         if keyword.lower() in str(k).lower():
                             return get_clean_num(v)
                     return 0.0
-                    
                 q_waist = find_fuzzy_val(new_style_measurements_dict, "waist")
                 q_hip = find_fuzzy_val(new_style_measurements_dict, "hip")
                 q_thigh = find_fuzzy_val(new_style_measurements_dict, "thigh")
-                
                 if q_waist > 0 or q_hip > 0:
                     query_vector = np.array([q_waist, q_hip, q_thigh], dtype=np.float32)
             except Exception:
                 query_vector = None
-                
             if query_vector is not None:
                 url_all_vectors = f"{base_sb_url}/rest/v1/thong_so_techpack?select=StyleName,DetailedMeasurements"
                 try:
@@ -810,33 +804,28 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     warehouse_data = res_all.json() if (res_all and res_all.status_code == 200) else []
                 except Exception:
                     warehouse_data = []
-                    
                 for row in warehouse_data:
                     db_measurements = row.get("DetailedMeasurements", {})
                     if isinstance(db_measurements, str):
                         try: db_measurements = json.loads(db_measurements)
                         except Exception: db_measurements = {}
-                        
                     if isinstance(db_measurements, dict) and len(db_measurements) > 0:
                         try:
                             db_waist = find_fuzzy_val(db_measurements, "waist")
                             db_hip = find_fuzzy_val(db_measurements, "hip")
                             db_thigh = find_fuzzy_val(db_measurements, "thigh")
                             db_vector = np.array([db_waist, db_hip, db_thigh], dtype=np.float32)
-                            
                             if np.any(db_vector > 0):
                                 dot_product = np.dot(query_vector, db_vector)
                                 norm_query = np.linalg.norm(query_vector)
                                 norm_db = np.linalg.norm(db_vector)
                                 if norm_query > 0 and norm_db > 0:
                                     similarity = float(dot_product / (norm_query * norm_db))
-                                    # Ngưỡng tối ưu nhận diện phom nghiêng hình học dệt may
                                     if similarity > best_similarity and similarity >= 0.85:
                                         best_similarity = similarity
                                         matched_style_name = row.get("StyleName")
                         except Exception:
                             pass
-                            
     if matched_style_name:
         final_search_key = matched_style_name.strip()
         st.sidebar.success(f"🎯 Khớp phom hình học thành công: {final_search_key} ({round(best_similarity * 100, 1)}%)")
@@ -846,7 +835,6 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
         else:
             final_search_key = dynamic_keyword.strip().upper()
         st.sidebar.warning(f"⚠️ Quét mã chuỗi dự phòng: {final_search_key}")
-        
     def fetch_san_pham(key):
         if not key or key in ["UNKNOWN", "NOT_FOUND_IN_WAREHOUSE"]: return []
         try:
@@ -856,7 +844,6 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
             res = requests.get(url, headers=headers, params=params, timeout=5)
             return res.json() if res.status_code == 200 else []
         except Exception: return []
-        
     def fetch_techpack(key):
         if not key or key in ["UNKNOWN", "NOT_FOUND_IN_WAREHOUSE"]: return []
         try:
@@ -865,7 +852,6 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
             res = requests.get(url, headers=headers, params=params, timeout=5)
             return res.json() if res.status_code == 200 else []
         except Exception: return []
-        
     with concurrent.futures.ThreadPoolExecutor() as executor:
         future_sp = executor.submit(fetch_san_pham, final_search_key)
         future_tp = executor.submit(fetch_techpack, final_search_key)
@@ -902,15 +888,13 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                 st.image(constructed_url, caption=f"🔍 Không có mẫu phom tương đồng - Hiện ảnh kho theo mã: {image_search_key}", use_container_width=True)
             else:
                 st.info("ℹ️ Không tìm thấy mẫu thiết kế đối chứng tương đồng trong kho ảnh.")
-                
     fabric_width_input = re.search(r'(?:KHỔ|KHO)\s*(\d+(?:\.\d+)?)', clean_text_upper)
     shrink_ngang = re.search(r'(?:NGANG)\s*(\d+(?:\.\d+)?)\s*%', clean_text_upper)
-    shrink_doc = re.search(r'(?:DỌC|DOC)\s*(\d+(?:\.\d+)?)\s*%', clean_text_upper)
+    shrink_doc = re.search(r'(?:DỌC|DOC)\s*(\d+(?:\.\d+)?)', clean_text_upper)
     shrink_general = re.search(r'(?:CO|CO RÚT|CO RUT)\s*(\d+(?:\.\d+)?)', clean_text_upper)
     user_width = f"{fabric_width_input.group(1)} INCH" if fabric_width_input else "57 INCH"
     co_ngang = shrink_ngang.group(1) if shrink_ngang else "0"
     co_doc = shrink_doc.group(1) if shrink_doc else (shrink_general.group(1) if shrink_general else "0")
-    
     st.markdown(f"### 📊 Kết quả đối soát dữ liệu mã hàng: **{new_style_id_detected if new_style_id_detected != 'UNKNOWN_STYLE' else final_search_key}**")
     col1, col2 = st.columns(2)
     with col1:
@@ -925,7 +909,6 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                 st.warning("Không tìm thấy dữ liệu vải lịch sử của mã tương đồng.")
         else:
             st.info("ℹ️ Tự động kích hoạt tính toán độc lập từ thông số hình học rập Techpack mới.")
-            
     with col2:
         st.markdown("**📏 Thông số hình học thực tế (Bảng lưới phẳng đơn cỡ sạch):**")
         display_specs = db_measurements_raw if (isinstance(db_measurements_raw, dict) and len(db_measurements_raw) > 0) else new_style_measurements_dict
@@ -934,7 +917,6 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
             st.dataframe(formatted_measurements, use_container_width=True)
         else:
             st.info("Không tìm thấy thông số kỹ thuật gốc.")
-            
     is_user_asking_to_calculate = any(w in clean_text_upper for w in ["TÍNH", "TINH", "ĐỊNH MỨC", "DINH MUC", "CO RÚT", "CO RUT", "KHỔ", "KHO", "DỰ ĐOÁN", "DU DOAN"])
     if is_user_asking_to_calculate:
         st.markdown("### 📐 Kết quả phân tích sơ đồ & Tính toán định mức vải")
