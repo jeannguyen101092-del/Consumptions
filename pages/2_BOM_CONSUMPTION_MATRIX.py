@@ -757,7 +757,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
     else:
         dynamic_keyword = clean_query if clean_query else "UNKNOWN"
     dynamic_keyword = re.sub(r"[\[\]'\"*?%#&]", "", dynamic_keyword).strip()
-        base_sb_url = SB_URL.rstrip('/')
+    base_sb_url = SB_URL.rstrip('/')
     headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
     matched_style_name = None
     best_similarity = -1.0
@@ -840,7 +840,6 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
         future_tp = executor.submit(fetch_techpack, final_search_key)
         fabric_records = future_sp.result()
         techpack_records = future_tp.result()
-
     db_sketch_url = None
     db_measurements_raw = {}
     current_style_name = ""
@@ -900,7 +899,6 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
         else:
             st.info("Không tìm thấy thông số kỹ thuật gốc.")
             
-    # 🎯 KIỂM TRA ĐIỀU KIỆN CHẶN: Chỉ kích hoạt AI tính định mức khi có từ khóa yêu cầu rõ ràng
     is_user_asking_to_calculate = any(w in clean_text_upper for w in ["TÍNH", "TINH", "ĐỊNH MỨC", "DINH MUC", "CO RÚT", "CO RUT", "KHỔ", "KHO", "DỰ ĐOÁN", "DU DOAN"])
     if is_user_asking_to_calculate:
         st.markdown("### 📐 Kết quả phân tích sơ đồ & Tính toán định mức vải")
