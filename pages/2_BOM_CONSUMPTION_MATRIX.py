@@ -672,19 +672,15 @@ try:
 except ImportError:
     pass
 
-# ĐỊNH NGHĨA HÀM GIẢI MÃ PHÂN SỐ SẠCH (CHỐNG LỖI CHỮ INCHES/INCH)
+# HÀM BẤT TỬ ĐỂ QUY ĐỔI PHÂN SỐ NGÀNH MAY (Ví dụ: "1 1/8 inches" -> 1.125)
 def parse_fraction(val_str):
     if not val_str: 
         return 0.0
-    
-    # Chuyển về dạng chuỗi, viết thường, xóa dấu nháy và chữ định dạng đơn vị may mặc
     val_str = str(val_str).strip().lower()
     val_str = val_str.replace('"', '').replace('inches', '').replace('inch', '').replace('s', '').strip()
-    
     try:
-        # Trường hợp chuỗi chứa phân số có khoảng cách (Ví dụ: "1 1/8" hoặc "18 1/2")
         if ' ' in val_str:
-            parts = [p for p in val_str.split(' ') if p.strip()] # Lọc bỏ khoảng trắng thừa
+            parts = [p for p in val_str.split(' ') if p.strip()]
             if len(parts) >= 2:
                 whole = float(parts[0])
                 frac = parts[1]
@@ -695,18 +691,14 @@ def parse_fraction(val_str):
             whole = 0.0
             frac = val_str
             
-        # Xử lý phần phân số có dấu gạch chéo "/"
         if '/' in frac:
             num, denom = frac.split('/')
             return whole + (float(num) / float(denom))
-            
-        # Trường hợp là số nguyên hoặc số thập phân thuần túy (Ví dụ: "32", "31.5")
         return float(val_str) if val_str else 0.0
     except Exception:
         return 0.0
 
-
-# KHỞI TẠO LUỒNG NHẬP LIỆU CHAT INPUT
+# KHỞI TẠO LUỒNG NHẬP LIỆU CHAT INPUT ĐẦU VÀO
 if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vải và đối soát sai lệch..."):
     st.session_state["chat_history"].append({"role": "user", "type": "text", "content": user_query})
     gemini_key = get_secure_gemini_key()
@@ -787,7 +779,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
     codes_found = re.findall(r'\b[A-Z0-9]+-\d+[A-Z0-9-]*\b|\b[A-Z]*\d+[A-Z0-9]*\b', clean_text_upper)
     
     if codes_found:
-        dynamic_keyword = str(codes_found[0]).strip()
+        dynamic_keyword = str(codes_found).strip()
     else:
         pattern_remove = r"\b(TÌM|KIỂM TRA|XEM|CHECK|MÃ HÀNG|MÃ|VẢI|CODE|TRÍCH XUẤT|HÌNH ẢNH|TƯƠNG ĐỒNG|KHO|TRONG)\b"
         dynamic_keyword = re.sub(pattern_remove, "", clean_text_upper).strip()
@@ -843,7 +835,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                             matched_techpack = row
                             best_similarity_ratio = 1.0
                             break
-                                if matched_techpack:
+                if matched_techpack:
                     target_style_name = matched_techpack.get("StyleName")
                     st.success(f"🎯 ĐÃ TÌM THẤY MÃ HÀNG TƯƠNG ĐỒNG: **{target_style_name}**")
                     
@@ -857,7 +849,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                         else:
                             st.info("💡 Mã gốc trong bảng thong_so_techpack chưa được nạp ảnh SketchURL")
 
-                    # --- XỬ LÝ GỘP MÃ VẢI CHÍNH CHỐNG LẶP TỪ TRÊN MÀNH HÌNH ---
+                    # TRUY XUẤT BOM VÀ GỘP MÃ VẢI CHÍNH (CHỐNG LẶP TỪ)
                     st.subheader("📦 Chi Tiết Định Mức Nguyên Phụ Liệu Gốc trong kho (BOM)")
                     core_code = re.findall(r'\b[A-Z0-9]{5,10}\b', target_style_name.strip())
                     search_term = core_code if core_code else target_style_name.strip()
@@ -874,7 +866,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     else:
                         st.warning(f"⚠️ Không tìm thấy dữ liệu nguyên phụ liệu cho mã gốc hoặc các biến thể của `{search_term}` trong bảng `san_pham`.")
 
-                    # --- 🛠️ XỬ LÝ TRIỆT ĐỂ: BỘ ĐỌC VÀ GIẢI MÃ THÔNG SỐ CHỐNG LỖI CHUỖI KHO ---
+                    # BỘ ĐỌC KHỬ LỖI CHUỖI VÀ ĐỐI SOÁT THÔNG SỐ CHUẨN (POM MAPPING)
                     st.subheader("📊 Bảng Đối Soát Sai Lệch Thông Số Hình Học (Mẫu Gốc vs Mẫu Mới)")
                     db_measurements = matched_techpack.get("DetailedMeasurements", {})
                     specs_old = {}
@@ -882,17 +874,12 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     if isinstance(db_measurements, dict):
                         specs_old = db_measurements
                     else:
-                        # Nếu cột trong kho trả về dạng chuỗi văn bản (String)
                         db_measurements_str = str(db_measurements).strip()
                         try:
-                            # Thử giải mã bằng thư viện json tiêu chuẩn trước
                             specs_old = json.loads(db_measurements_str)
                         except Exception:
-                            # Khắc phục lỗi đọc chuỗi: Tự bóc tách các cặp thông số bằng biểu thức Regex tinh chỉnh
-                            # Bộ lọc này tự tìm cấu trúc "Tên điểm đo": "Thông số" kể cả khi chuỗi dính lỗi định dạng
                             pairs = re.findall(r'"([^"\x00-\x1F]+)"\s*:\s*"([^"\x00-\x1F]*)"', db_measurements_str)
                             if not pairs:
-                                # Thử nghiệm bộ lọc dự phòng cho định dạng chuỗi đơn hoặc không chuẩn hóa dấu ngoặc
                                 pairs = re.findall(r"'([^']+)'\s*:\s*'([^']*)'", db_measurements_str)
                             if pairs:
                                 specs_old = {str(k).strip(): str(v).strip() for k, v in pairs}
@@ -900,7 +887,6 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     specs_new = new_style_measurements_dict
                     
                     if specs_old and specs_new:
-                        # Bản đồ ma trận từ khóa đồng nghĩa ngành dệt may để ép khớp thông minh
                         pom_synonyms = {
                             "INSEAM": ["INSEAM", "INSEAM LENGTH", "DAI GIANG", "DÀI GIÀNG", "GIÀNG QUẦN"],
                             "WAIST CIRC": ["WAIST", "WAIST CIRC", "WAISTBAND", "WAIST CIRC - ALONG EDGE", "WAIST CIRC - ALONG SEAM", "VONG EO", "VÒNG EO", "EO QUẦN"],
@@ -918,7 +904,6 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                                     return std_key
                             return k_clean
 
-                        # Chuẩn hóa toàn bộ bảng từ khóa để chạy thuật toán đối soát
                         norm_specs_old = {find_standard_key(k): (k, v) for k, v in specs_old.items()}
                         norm_specs_new = {find_standard_key(k): v for k, v in specs_new.items()}
                         
@@ -956,7 +941,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                         else:
                             st.warning("⚠️ Không tìm thấy tên các vị trí đo (POM) tương thích giữa mẫu mới và mẫu gốc để làm bảng đối soát.")
                     else:
-                        st.info("💡 Không thể tiến hành đối soát do cấu trúc dữ liệu `DetailedMeasurements` của mã này trong kho đang trống hoặc sai định dạng bóc tách.")
+                        st.info("💡 Không thể tiến hành đối soát do cấu trúc dữ liệu DetailedMeasurements trống hoặc sai cấu trúc chuỗi.")
                 else:
                     st.warning(f"🔍 Hệ thống không tìm thấy mã hàng tương đồng nào khớp với từ khóa `{dynamic_keyword}`.")
             except Exception as e:
