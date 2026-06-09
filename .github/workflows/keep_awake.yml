@@ -1,15 +1,31 @@
-name: Keep App Awake
+name: Keep App Awake via Commit
 
 on:
   schedule:
-    # Chạy mỗi 15 phút một lần từ thứ 2 đến chủ nhật để giữ app luôn thức
-    - cron: '*/15 * * * *'
-  workflow_dispatch:
+    # Hệ thống sẽ chạy tự động sau mỗi 10 tiếng (Trước mốc 12 tiếng giới hạn của Streamlit)
+    - cron: '0 */10 * * *'
+  workflow_dispatch: # Cho phép bấm nút chạy thử thủ công bằng tay
 
 jobs:
-  ping:
+  keep_alive:
     runs-on: ubuntu-latest
     steps:
-      - name: Send ping request to app
+      # Bước 1: Kết nối và lấy code từ kho lưu trữ về máy ảo
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      # Bước 2: Cấu hình tài khoản Github Bot để thực hiện lệnh commit
+      - name: Configure Git
         run: |
-          curl -I "https://streamlit.app"
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+
+      # Bước 3: Tạo một commit rỗng không làm thay đổi hay bẩn mã nguồn app
+      - name: Make an Empty Commit
+        run: |
+          git commit --allow-empty -m "Keep-alive trigger: $(date)"
+
+      # Bước 4: Đẩy commit rỗng này lên nhánh main để Streamlit nhận diện hoạt động mới
+      - name: Push changes
+        run: |
+          git push origin main
