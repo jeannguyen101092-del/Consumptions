@@ -882,7 +882,7 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                         st.session_state["bom_records"] = res_sp.json()
             except Exception: pass
         # LẤY DỮ LIỆU TỪ BỘ NHỚ KHÓA ĐỂ HIỂN THỊ LÊN MÀN HÌNH
-    matched_techpack = st.session_state["matched_techpack"]
+       matched_techpack = st.session_state["matched_techpack"]
     bom_records = st.session_state["bom_records"]
 
     if matched_techpack:
@@ -913,7 +913,6 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
         else:
             st.warning(f"⚠️ Không tìm thấy dữ liệu phụ liệu cho biến thể mã hàng gốc `{dynamic_keyword}` trong bảng san_pham.")
 
-        # HÀM AI ĐỐI SOÁT TỰ ĐỘNG KHÔNG DÙNG TỪ ĐIỂN CỨNG THỦ CÔNG
         db_measurements = matched_techpack.get("DetailedMeasurements", {})
         specs_old = {}
         if isinstance(db_measurements, dict): specs_old = db_measurements
@@ -926,14 +925,23 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
         specs_new = new_style_measurements_dict
         
         if specs_old and specs_new:
-            with st.spinner("🧠 Trợ lý AI đang tự động quét lập bản đồ đối soát vị trí đo đa chủng loại..."):
+            # ✨ HÀM LÀM SẠCH KÝ TỰ MỒI: Tự động xóa bỏ các mã tiền tố nhiễu đầu dòng (BD-, DE-, DF-) trước khi đưa vào bộ não AI
+            def clean_pom_text_for_ai(raw_key):
+                text_clean = str(raw_key).strip().upper()
+                text_clean = re.sub(r'^[A-Z]{2,4}-\d{3}\s*', '', text_clean) # Xóa dạng "BD-245 "
+                text_clean = re.sub(r'^[A-Z]{2,4}-\d{2,4}\s*', '', text_clean) # Xóa dạng "DE-162 "
+                return text_clean.strip()
+
+            clean_specs_old = {clean_pom_text_for_ai(k): (k, v) for k, v in specs_old.items()}
+            clean_specs_new = {clean_pom_text_for_ai(k): (k, v) for k, v in specs_new.items()}
+
+            with st.spinner("🧠 Trợ lý AI đang tự động áp dụng bộ lọc mờ đối soát vị trí đo..."):
                 try:
                     mapping_prompt = f"""
-                    You are a professional garment pattern grader. Your task is to align and map points of measurement (POM) between an old style spec sheet and a newly scanned spec sheet.
-                    The items could be Pants, Shirts, Jackets, Blazers, or Dresses. Avoid cross-aligning circumferences with positions/lengths.
-                    OLD SPEC KEYS: {list(specs_old.keys())}
-                    NEW SPEC KEYS: {list(specs_new.keys())}
-                    Return clean raw JSON with this schema: {{"old_key": "new_key"}}
+                    You are a professional garment pattern grader. Align points of measurement (POM) between old and new specs by understanding garment context. Ignore minor spelling or prefix differences.
+                    OLD SPEC CLEAN KEYS: {list(clean_specs_old.keys())}
+                    NEW SPEC CLEAN KEYS: {list(clean_specs_new.keys())}
+                    Return clean raw JSON with this exact schema: {{"old_clean_key": "new_clean_key"}}
                     """
                     mapping_res = client.models.generate_content(model='gemini-2.5-flash', contents=mapping_prompt)
                     clean_mapping_json = mapping_res.text.strip().replace("```json", "").replace("```", "").strip()
@@ -946,31 +954,32 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
             has_len = False
             has_wid = False
             
-            for original_old_key, old_val in specs_old.items():
-                if original_old_key in ai_pom_map:
-                    corresponding_new_key = ai_pom_map[original_old_key]
-                    new_val_str = specs_new.get(corresponding_new_key, "0")
-                    v_old = parse_fraction(old_val)
-                    v_new = parse_fraction(new_val_str)
-                    if v_old > 0 and v_new > 0:
-                        diff = v_new - v_old
-                        pct_diff = (diff / v_old) * 100
-                        k_upper = original_old_key.upper()
+            # Khớp nối thông minh dựa trên chuỗi từ khóa chính đã loại bỏ tiền tố nhiễu
+            for old_clean_k, (original_old_key, old_val) in clean_specs_old.items():
+                if old_clean_k in ai_pom_map:
+                    new_clean_k = ai_pom_map[old_clean_k]
+                    if new_clean_k in clean_specs_new:
+                        original_new_key, new_val_str = clean_specs_new[new_clean_k]
                         
-                        if any(word in k_upper for word in ["INSEAM", "OUTSEAM", "LENGTH", "CB", "CF", "DÀI"]):
-                            if pct_diff != 0: deviation_length_pct = pct_diff; has_len = True
-                        if any(word in k_upper for word in ["HIP", "CHEST", "BUST", "THIGH", "WAIST", "NGỰC", "EO", "MÔNG", "WIDTH"]):
-                            if pct_diff != 0: deviation_width_pct = pct_diff; has_wid = True
-                                
-                        comparison_table.append({"Vị trí đo (POM)": original_old_key, "Thông số gốc (Kho)": f"{old_val}\"", "Thông số mới (Quét)": f"{new_val_str}\"", "Chênh lệch": f"{diff:+.3f}\"", "Tỷ lệ biến động": f"{pct_diff:+.1f}%"})
+                        v_old = parse_fraction(old_val)
+                        v_new = parse_fraction(new_val_str)
+                        if v_old > 0 and v_new > 0:
+                            diff = v_new - v_old
+                            pct_diff = (diff / v_old) * 100
+                            k_upper = old_clean_k.upper()
+                            
+                            if any(word in k_upper for word in ["INSEAM", "OUTSEAM", "LENGTH", "CB", "CF", "DÀI"]):
+                                if pct_diff != 0: deviation_length_pct = pct_diff; has_len = True
+                            if any(word in k_upper for word in ["HIP", "CHEST", "BUST", "THIGH", "WAIST", "NGỰC", "EO", "MÔNG", "WIDTH"]):
+                                if pct_diff != 0: deviation_width_pct = pct_diff; has_wid = True
+                                    
+                            comparison_table.append({"Vị trí đo (POM)": original_old_key, "Thông số gốc (Kho)": f"{old_val}\"", "Thông số mới (Quét)": f"{new_val_str}\"", "Chênh lệch": f"{diff:+.3f}\"", "Tỷ lệ biến động": f"{pct_diff:+.1f}%"})
             
-            # 🚀 N N CẤP THỊ THỊ HÀNG NGANG CHIA THÀNH 3 CỘT ĐỘC LẬP ĐỂ HIỂN THỊ ĐẦY ĐỦ THÔNG SỐ TRONG KHO
             ui_col1, ui_col2, ui_col3 = st.columns([1.0, 0.5, 0.5])
             with ui_col1:
                 st.subheader("📊 Bảng Đối Soát Sai Lệch Hình Học")
                 if comparison_table: st.table(comparison_table)
             with ui_col2:
-                # 🎯 THÀNH QUẢ YÊU CẦU 2: Bung ra toàn bộ tất cả thông số hiện có trong kho dữ liệu Supabase của mã tương đồng
                 st.subheader("🏛️ Dữ liệu gốc lưu trong Kho")
                 st.table([{"Vị trí đo (Gốc)": k, "Thông số kho": v} for k, v in specs_old.items()])
             with ui_col3:
@@ -1005,4 +1014,3 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
         ai_output_response = ai_consumption_analyst_engine(client, prompt_input, matched_techpack, bom_records, new_style_measurements_dict, target_new_sketch_bytes, new_style_base_size)
         st.session_state["consumption_chat_history"][-1]["ai"] = ai_output_response
         st.rerun()
-
