@@ -794,7 +794,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
 
     base_sb_url = SB_URL.rstrip('/')
     headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
-    if has_file and target_new_sketch_bytes:
+        if has_file and target_new_sketch_bytes:
         with st.spinner("⚡ AI đang phân tích phom dáng vẽ phẳng và đối soát dữ liệu kho..."):
             try:
                 # 1. Gọi Gemini dịch bản vẽ phẳng mẫu mới tải lên thành chuỗi văn bản đặc trưng
@@ -854,10 +854,14 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                             st.image(sketch_url, caption=f"Ảnh Sketch gốc trong kho: {target_style_name}", use_container_width=True)
                         else:
                             st.info("💡 Mã gốc trong bảng thong_so_techpack chưa được nạp ảnh SketchURL")
-
-                    # --- MỤC TIÊU 2: TRUY XUẤT CODE VẢI & ĐỊNH MỨC GỐC TỪ BẢNG `san_pham` ---
+                    # --- MỤC TIÊU 2: TRUY XUẤT CODE VẢI (BỘ LỌC TÌM KIẾM THEO TỪ KHÓA LÕI ĐA BIẾN THỂ) ---
                     st.subheader("📦 Chi Tiết Định Mức Nguyên Phụ Liệu Gốc trong kho (BOM)")
-                    url_san_pham = f"{base_sb_url}/rest/v1/san_pham?style_name=eq.{quote(target_style_name)}&select=article_name,consumption_type,material_size,uom"
+                    
+                    # Trích xuất chuỗi chữ/số lõi từ mã hàng (Ví dụ: tách '1P001363' từ '1P001363-LOT5') để truy vấn rộng
+                    core_code = re.findall(r'\b[A-Z0-9]{5,10}\b', target_style_name.strip())
+                    search_term = core_code[0] if core_code else target_style_name.strip()
+                    
+                    url_san_pham = f"{base_sb_url}/rest/v1/san_pham?style_name=ilike.*{quote(search_term)}*&select=article_name,consumption_type,material_size,uom"
                     res_sp = requests.get(url_san_pham, headers=headers, timeout=10)
                     bom_records = res_sp.json() if res_sp.status_code == 200 else []
                     
@@ -867,12 +871,11 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                         if main_fabrics:
                             st.info(f"🧵 Mã vải chính (Main Fabric) của kiểu dáng này: **{main_fabrics}**")
                     else:
-                        st.warning(f"⚠️ Không tìm thấy dữ liệu cấu thành nguyên phụ liệu cho mã `{target_style_name}` trong bảng `san_pham`.")
+                        st.warning(f"⚠️ Không tìm thấy dữ liệu nguyên phụ liệu cho mã gốc hoặc các biến thể của `{search_term}` trong bảng `san_pham`.")
 
                     # --- MỤC TIÊU 3: LẬP BẢNG ĐỐI SOÁT THÔNG SỐ VÀ TÍNH SAI LỆCH ---
                     st.subheader("📊 Bảng Đối Soát Sai Lệch Thông Số Hình Học (Mẫu Gốc vs Mẫu Mới)")
                     
-                    # Hàm giải mã phân số ngành may (Ví dụ: "1 1/8" về số float 1.125)
                     def parse_fraction(val_str):
                         if not val_str: return 0.0
                         val_str = str(val_str).strip().replace('"', '')
@@ -891,39 +894,49 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                         except Exception:
                             return 0.0
 
+                    # Bộ giải mã chống crash: Ép kiểu dữ liệu chuỗi DetailedMeasurements linh hoạt bằng Regex
                     db_measurements = matched_techpack.get("DetailedMeasurements", {})
+                    specs_old = {}
+                    
                     if isinstance(db_measurements, str):
                         try:
-                            db_measurements = json.loads(db_measurements)
+                            specs_old = json.loads(db_measurements)
                         except Exception:
-                            db_measurements = {}
+                            pairs = re.findall(r'"([^"]+)":\s*"([^"]+)"', db_measurements)
+                            if pairs:
+                                specs_old = {k: v for k, v in pairs}
+                    elif isinstance(db_measurements, dict):
+                        specs_old = db_measurements
 
-                    specs_old = db_measurements
                     specs_new = new_style_measurements_dict
                     
                     if specs_old and specs_new:
+                        norm_specs_old = {str(k).strip().upper(): v for k, v in specs_old.items()}
+                        norm_specs_new = {str(k).strip().upper(): v for k, v in specs_new.items()}
+                        
                         comparison_table = []
                         total_deviation_percentage = 0.0
                         relevant_count = 0
                         
-                        for pom_key, old_val in specs_old.items():
-                            if pom_key in specs_new:
+                        for norm_key, old_val in norm_specs_old.items():
+                            if norm_key in norm_specs_new:
+                                new_val_str = norm_specs_new[norm_key]
                                 v_old = parse_fraction(old_val)
-                                v_new = parse_fraction(specs_new[pom_key])
+                                v_new = parse_fraction(new_val_str)
                                 
                                 if v_old > 0:
                                     diff = v_new - v_old
                                     pct_diff = (diff / v_old) * 100
                                     
-                                    # Lọc các thông số dài rộng chính ảnh hưởng trực tiếp đến sơ đồ giác mẫu định mức
-                                    if any(k in pom_key.upper() for k in ["INSEAM", "WAIST", "HIP", "THIGH", "LENGTH", "OUTSEAM", "DAI", "RONG"]):
+                                    if any(k in norm_key for k in ["INSEAM", "WAIST", "HIP", "THIGH", "LENGTH", "OUTSEAM", "DAI", "RONG"]):
                                         total_deviation_percentage += pct_diff
                                         relevant_count += 1
                                     
+                                    display_key = next((k for k in specs_old.keys() if str(k).strip().upper() == norm_key), norm_key)
                                     comparison_table.append({
-                                        "Vị trí đo (POM)": pom_key,
+                                        "Vị trí đo (POM)": display_key,
                                         "Thông số gốc (Kho)": f"{old_val}\"",
-                                        "Thông số mới (Quét)": f"{specs_new[pom_key]}\"",
+                                        "Thông số mới (Quét)": f"{new_val_str}\"",
                                         "Chênh lệch": f"{diff:+.3f}\"",
                                         "Tỷ lệ biến động": f"{pct_diff:+.1f}%"
                                     })
@@ -933,12 +946,12 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                             if relevant_count > 0:
                                 avg_deviation = total_deviation_percentage / relevant_count
                                 st.markdown(f"💡 **Đánh giá hệ thống:** Phom dáng mẫu mới biến động diện tích trung bình **{avg_deviation:+.1f}%** so với mẫu gốc `{target_style_name}`.")
-                                st.caption("Khuyến nghị: Bạn có thể lấy tỷ lệ phần trăm chênh lệch hình học này áp dụng vào Định mức marker gốc để ước tính nhanh lượng vải tiêu hao sản xuất.")
+                                st.caption("Khuyến nghị: Lấy tỷ lệ phần trăm chênh lệch hình học này áp dụng vào Định mức marker gốc để ước tính định mức sản xuất mã mới.")
                         else:
-                            st.warning("⚠️ Không tìm thấy tên các vị trí đo (POM) tương thích giữa mẫu mới và mẫu gốc để làm bảng đối soát.")
+                            st.warning("⚠️ Không tìm thấy tên các vị trí đo (POM) tương thích. Vui lòng kiểm tra lại sự đồng bộ ngôn ngữ giữa tài liệu mới và kho.")
                     else:
-                        st.info("💡 Một trong hai tài liệu đang thiếu cấu trúc trường dữ liệu bảng thông số chi tiết để chạy hàm đối soát.")
+                        st.info("💡 Không thể tiến hành đối soát do cấu trúc dữ liệu `DetailedMeasurements` của mã này trong kho đang trống hoặc sai định dạng bóc tách.")
                 else:
-                    st.warning(f"🔍 Hệ thống không tìm thấy mã hàng tương đồng nào khớp với từ khóa hoặc mã vạch `{dynamic_keyword}` trong cả hai bảng.")
+                    st.warning(f"🔍 Hệ thống không tìm thấy mã hàng tương đồng nào khớp với từ khóa `{dynamic_keyword}`.")
             except Exception as e:
-                st.error(f"Lỗi cục bộ trong quá trình truy xuất hoặc đối soát nâng cao: {str(e)}")
+                st.error(f"Lỗi cục bộ trong quá trình đối soát nâng cao: {str(e)}")
