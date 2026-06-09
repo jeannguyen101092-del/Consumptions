@@ -635,7 +635,7 @@ try:
 except ImportError:
     pass
 
-# HÀM QUY ĐỔI PHÂN SỐ NGÀNH MAY CHUẨN XÁC CHỐNG LỆCH HÀNG (Ví dụ: "1 1/8 inches" -> 1.125)
+# HÀM QUY ĐỔI PHÂN SỐ NGÀNH MAY (Ví dụ: "1 1/8 inches" -> 1.125)
 def parse_fraction(val_str):
     if not val_str: 
         return 0.0
@@ -661,7 +661,7 @@ def parse_fraction(val_str):
     except Exception:
         return 0.0
 
-# BỘ NÃO CHAT PHÂN TÍCH ĐỊNH MỨC THEO 3 KỊCH BẢN LIÊN KẾT LIÊN TỤC (CHATGPT STYLE)
+# BỘ NÃO CHAT PHÂN TÍCH ĐỊNH MỨC NÂNG CAO (CHATGPT STYLE)
 def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_records, new_style_measurements, target_new_sketch_bytes, detected_size):
     style_old_name = matched_techpack.get("StyleName", "N/A") if matched_techpack else "N/A"
     specs_old = matched_techpack.get("DetailedMeasurements", {}) if matched_techpack else {}
@@ -718,9 +718,6 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
         return ai_reply
     except Exception as e:
         return f"🚨 Lỗi phân tích định mức: {str(e)}"
-# =============================================================================
-# KHỐI LOGIC CHÍNH VÀ ĐƯỜNG DẪN ĐIỀU HƯỚNG SÁT LỀ TRÁI HOÀN TOÀN
-# =============================================================================
 gemini_key = get_secure_gemini_key()
 if gemini_key:
     client = genai.Client(api_key=gemini_key, http_options=types.HttpOptions(api_version='v1'))
@@ -754,9 +751,15 @@ if has_file:
                 page_img.convert("RGB").save(img_buf, format="JPEG", quality=75)
                 img_payload.append(types.Part.from_bytes(data=img_buf.getvalue(), mime_type='image/jpeg'))
             
+            # BỘ LỌC THỊ GIÁC NGHIÊM NGẶT: Ép AI bỏ qua trang BOM chữ, chỉ chọn trang bản vẽ lớn
             extraction_prompt = (
-                "Analyze all attached sheets page by page. Locate the core 'Base Size' / 'Sample Size' (e.g., size 32 or size 34 or M). "
-                "Extract all points of measurement (POM) and their corresponding target specs for THIS BASE SIZE ONLY. "
+                "Analyze all attached sheets page by page. "
+                "1. Locate the core 'Base Size' / 'Sample Size' (e.g., size 32 or size 34 or M). "
+                "2. Extract ALL points of measurement (POM) and their corresponding target specs for THIS BASE SIZE ONLY. Extract at least 15-20 measurements if available. "
+                "3. Find 'Style ID' / 'Style Number' (e.g., 1P001369) and 'Category'. "
+                "4. CRITICAL VISION TASK FOR SKETCH DETECTION: Find the exact 'PAGE INDEX' (starting from 0) that contains the TECHNICAL BLACK AND WHITE FLAT SKETCH / DRAWING. "
+                "STRICTLY FORBIDDEN: DO NOT select summary pages containing a large grid table of BOM (Bill of Materials), fabrics itemization, trim sheets, or costing data grids. "
+                "Only pick the pure big line art design layout drawing page. "
                 "Return a valid raw JSON string with this exact schema (no markdown block): "
                 "{\"detected_style_id\": \"string\", \"category\": \"string\", \"fabric_code\": \"string\", \"base_size_detected\": \"string\", \"measurements\": {}, \"sketch_page_index_detected\": 0}"
             )
@@ -783,11 +786,9 @@ if has_file:
     else:
         target_new_sketch_bytes = file_bytes
 
-dynamic_keyword = str(new_style_id_detected).strip()
+dynamic_keyword = str(new_style_id_detected).strip().upper()
 base_sb_url = SB_URL.rstrip('/')
 headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
-
-# --- PHÂN PHỐI HIỂN THỊ TRANG BOM & CONSUMPTION MATRIX ĐA CHỦNG LOẠI ---
 if menu_selection == "🧵 BOM & Consumption Matrix":
     st.markdown('<div class="component-title-box">🧵 INTELLIGENT BOM & CONSUMPTION MATRIX ENGINE</div>', unsafe_allow_html=True)
     
@@ -814,6 +815,7 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
         st.info(f"📋 **CƠ SỞ ĐỐI SOÁT KIỂM TRA:** Mẫu mới số hóa mã hàng `{new_style_id_detected}` | Quy chuẩn kích thước hình học rập mẫu: **SIZE {new_style_base_size}**")
     else:
         st.info(f"📋 **CƠ SỞ ĐỐI SOÁT KIỂM TRA:** Đang áp dụng quy chuẩn kích thước hình học rập mẫu cơ sở: **SIZE 32 / M (Mặc định)**")
+
     if has_file and target_new_sketch_bytes and st.session_state["matched_techpack"] is None:
         with st.spinner("⚡ AI đang phân tích phom dáng vẽ phẳng và đối soát dữ liệu kho..."):
             try:
@@ -843,38 +845,39 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
 
                 if not temp_matched or best_similarity_ratio < 0.10:
                     for row in techpack_records:
-                        if str(row.get("StyleName", "")).strip().upper() == dynamic_keyword.upper():
+                        if str(row.get("StyleName", "")).strip().upper() == dynamic_keyword:
                             temp_matched = row
                             break
                             
                 if temp_matched:
                     st.session_state["matched_techpack"] = temp_matched
-                    target_style_name = temp_matched.get("StyleName")
-                    core_code_list = re.findall(r'\b[A-Z0-9]{5,10}\b', target_style_name.strip())
-                    search_term = core_code_list if core_code_list else target_style_name.strip()
+                    target_style_name = str(temp_matched.get("StyleName", "")).strip()
+                    core_match = re.search(r'\b[A-Z0-9]{5,12}\b', target_style_name)
+                    search_term = core_match.group(0) if core_match else target_style_name
                     
                     url_san_pham = f"{base_sb_url}/rest/v1/san_pham?style_name=ilike.*{quote(search_term)}*&select=article_name,consumption_type,material_size,uom"
                     res_sp = requests.get(url_san_pham, headers=headers, timeout=10)
                     if res_sp.status_code == 200: st.session_state["bom_records"] = res_sp.json()
             except Exception: pass
-
     matched_techpack = st.session_state["matched_techpack"]
     bom_records = st.session_state["bom_records"]
 
     if matched_techpack:
         target_style_name = matched_techpack.get("StyleName")
-        st.success(f"🎯 ĐÃ TÌM THẤY MÃ HÀNG TƯƠNG ĐỒNG: **{target_style_name}**")
+        st.success(f"🎯 ĐÃ TÌM THẤY MÃ HÀNG TƯƠNG ĐỒNG TRONG KHO: **{target_style_name}**")
         
         col1, col2 = st.columns(2)
-        with col1: st.image(target_new_sketch_bytes, caption="Bản vẽ mẫu mới tải lên", use_container_width=True)
+        with col1: st.image(target_new_sketch_bytes, caption="Bản vẽ phẳng mẫu mới (AI lọc sạch)", use_container_width=True)
         with col2: 
-            if matched_techpack.get("SketchURL"): st.image(matched_techpack["SketchURL"], caption=f"Mẫu gốc trong kho: {target_style_name}", use_container_width=True)
+            if matched_techpack.get("SketchURL"): st.image(matched_techpack["SketchURL"], caption=f"Ảnh Sketch gốc lưu trong kho: {target_style_name}", use_container_width=True)
 
         st.subheader("📦 Chi Tiết Định Mức Nguyên Phụ Liệu Gốc trong kho (BOM)")
         if bom_records:
             st.table(bom_records)
             main_fabrics = list(set([r.get("article_name") for r in bom_records if "MAIN" in str(r.get("consumption_type", "")).upper() if r.get("article_name")]))
-            if main_fabrics: st.info(f"🧵 Mã vải chính: **{', '.join(main_fabrics)}**")
+            if main_fabrics: st.info(f"🧵 Mã vải chính của mã hàng gốc: **{', '.join(main_fabrics)}**")
+        else:
+            st.warning(f"⚠️ Hệ thống đang tra cứu chéo... Nếu trống hãy kiểm tra cột style_name ứng với từ khóa '{dynamic_keyword}' trong bảng san_pham.")
 
         st.subheader("📊 Bảng Đối Soát Sai Lệch Thông Số Hình Học (Mẫu Gốc vs Mẫu Mới)")
         db_measurements = matched_techpack.get("DetailedMeasurements", {})
@@ -885,6 +888,7 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
             except Exception:
                 pairs = re.findall(r'"([^"]+)":\s*"([^"]+)"', str(db_measurements))
                 if pairs: specs_old = {k: v for k, v in pairs}
+
         if specs_old and new_style_measurements_dict:
             pom_synonyms = {
                 "INSEAM": ["INSEAM", "INSEAM LENGTH", "DÀI GIÀNG", "GIÀNG QUẦN", "INNER SEAM"],
