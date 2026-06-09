@@ -635,7 +635,7 @@ try:
 except ImportError:
     pass
 
-# HÀM QUY ĐỔI PHÂN SỐ NGÀNH MAY (Ví dụ: "1 1/8 inches" -> 1.125)
+# HÀM QUY ĐỔI PHÂN SỐ NGÀNH MAY CHUẨN XÁC CHỐNG LỆCH HÀNG (Ví dụ: "1 1/8 inches" -> 1.125)
 def parse_fraction(val_str):
     if not val_str: 
         return 0.0
@@ -645,11 +645,11 @@ def parse_fraction(val_str):
         if ' ' in val_str:
             parts = [p for p in val_str.split(' ') if p.strip()]
             if len(parts) >= 2:
-                whole = float(parts[0])
-                frac = parts[1]
+                whole = float(parts)
+                frac = parts
             else:
                 whole = 0.0
-                frac = parts[0]
+                frac = parts
         else:
             whole = 0.0
             frac = val_str
@@ -674,9 +674,9 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
     shrinkage_length = re.findall(r'(?:CO RÚT DỌC|DỌC)\s*(\d+(?:\.\d+)?)\s*%', user_message.upper())
     new_fabric_width = re.findall(r'(?:KHỔ VẢI|KHỔ)\s*(\d+)\s*(?:\"|INCH|INCHES)?', user_message.upper())
 
-    w_shrink = float(shrinkage_width[0]) if shrinkage_width else 0.0
-    l_shrink = float(shrinkage_length[0]) if shrinkage_length else 0.0
-    f_width = float(new_fabric_width[0]) if new_fabric_width else 0.0
+    w_shrink = float(shrinkage_width) if shrinkage_width else 0.0
+    l_shrink = float(shrinkage_length) if shrinkage_length else 0.0
+    f_width = float(new_fabric_width) if new_fabric_width else 0.0
 
     system_instruction = f"""
     You are an expert Garment Engineer and Techpack Costing Analyst at PPJ Group.
@@ -717,8 +717,78 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
         st.session_state["consumption_chat_history"].append({"user": user_message, "ai": ai_reply})
         return ai_reply
     except Exception as e:
-        return f"🚨 Lỗi cổng kết nối phân tích định mức: {str(e)}"
-def render_bom_consumption_matrix_page(client, has_file, target_new_sketch_bytes, dynamic_keyword, new_style_measurements_dict, base_sb_url, headers, detected_size, style_id_extracted):
+        return f"🚨 Lỗi phân tích định mức: {str(e)}"
+# =============================================================================
+# KHỐI LOGIC CHÍNH VÀ ĐƯỜNG DẪN ĐIỀU HƯỚNG SÁT LỀ TRÁI HOÀN TOÀN
+# =============================================================================
+gemini_key = get_secure_gemini_key()
+if gemini_key:
+    client = genai.Client(api_key=gemini_key, http_options=types.HttpOptions(api_version='v1'))
+
+new_style_id_detected = "UNKNOWN_STYLE"
+new_style_category_detected = ""
+new_style_fabric_detected = "UNKNOWN_FABRIC"
+new_style_measurements_dict = {}
+new_style_base_size = "32"
+img_payload = [] 
+target_new_sketch_bytes = None 
+
+target_file_object = None
+if 'uploaded_file' in st.session_state and st.session_state['uploaded_file'] is not None:
+    target_file_object = st.session_state['uploaded_file']
+elif 'chat_uploader' in st.session_state and st.session_state['chat_uploader'] is not None:
+    target_file_object = st.session_state['chat_uploader']
+
+has_file = target_file_object is not None
+
+if has_file:
+    file_bytes = target_file_object.getvalue()
+    file_name = target_file_object.name
+    if file_name.lower().endswith('.pdf'):
+        try:
+            info_chat = pdfinfo_from_bytes(file_bytes)
+            total_chat_pages = int(info_chat.get("Pages", 1))
+            chat_images = convert_from_bytes(file_bytes, dpi=90, first_page=1, last_page=total_chat_pages)
+            for idx, page_img in enumerate(chat_images):
+                img_buf = io.BytesIO()
+                page_img.convert("RGB").save(img_buf, format="JPEG", quality=75)
+                img_payload.append(types.Part.from_bytes(data=img_buf.getvalue(), mime_type='image/jpeg'))
+            
+            extraction_prompt = (
+                "Analyze all attached sheets page by page. Locate the core 'Base Size' / 'Sample Size' (e.g., size 32 or size 34 or M). "
+                "Extract all points of measurement (POM) and their corresponding target specs for THIS BASE SIZE ONLY. "
+                "Return a valid raw JSON string with this exact schema (no markdown block): "
+                "{\"detected_style_id\": \"string\", \"category\": \"string\", \"fabric_code\": \"string\", \"base_size_detected\": \"string\", \"measurements\": {}, \"sketch_page_index_detected\": 0}"
+            )
+            extraction_payload = list(img_payload)
+            extraction_payload.append(extraction_prompt)
+            
+            extraction_res = client.models.generate_content(model='gemini-2.5-flash', contents=extraction_payload)
+            clean_json_text = extraction_res.text.strip().replace("```json", "").replace("```", "").strip()
+            
+            parsed_meta = json.loads(clean_json_text)
+            new_style_id_detected = parsed_meta.get("detected_style_id", "UNKNOWN_STYLE").strip()
+            new_style_category_detected = parsed_meta.get("category", "").strip()
+            new_style_fabric_detected = parsed_meta.get("fabric_code", "UNKNOWN_FABRIC").strip()
+            new_style_base_size = parsed_meta.get("base_size_detected", "32").strip()
+            new_style_measurements_dict = parsed_meta.get("measurements", {})
+            detected_idx = int(parsed_meta.get("sketch_page_index_detected", 0))
+            
+            if 0 <= detected_idx < len(chat_images):
+                b_buf = io.BytesIO()
+                chat_images[detected_idx].convert("RGB").save(b_buf, format="JPEG")
+                target_new_sketch_bytes = b_buf.getvalue()
+        except Exception:
+            pass
+    else:
+        target_new_sketch_bytes = file_bytes
+
+dynamic_keyword = str(new_style_id_detected).strip()
+base_sb_url = SB_URL.rstrip('/')
+headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
+
+# --- PHÂN PHỐI HIỂN THỊ TRANG BOM & CONSUMPTION MATRIX ĐA CHỦNG LOẠI ---
+if menu_selection == "🧵 BOM & Consumption Matrix":
     st.markdown('<div class="component-title-box">🧵 INTELLIGENT BOM & CONSUMPTION MATRIX ENGINE</div>', unsafe_allow_html=True)
     
     if "matched_techpack" not in st.session_state: st.session_state["matched_techpack"] = None
@@ -740,11 +810,10 @@ def render_bom_consumption_matrix_page(client, has_file, target_new_sketch_bytes
 
     st.markdown("---")
 
-    if detected_size and detected_size != "32":
-        st.info(f"📋 **CƠ SỞ ĐỐI SOÁT KIỂM TRA:** Mẫu mới số hóa mã hàng `{style_id_extracted}` | Quy chuẩn kích thước hình học rập mẫu: **SIZE {detected_size}**")
+    if new_style_base_size and new_style_base_size != "32":
+        st.info(f"📋 **CƠ SỞ ĐỐI SOÁT KIỂM TRA:** Mẫu mới số hóa mã hàng `{new_style_id_detected}` | Quy chuẩn kích thước hình học rập mẫu: **SIZE {new_style_base_size}**")
     else:
         st.info(f"📋 **CƠ SỞ ĐỐI SOÁT KIỂM TRA:** Đang áp dụng quy chuẩn kích thước hình học rập mẫu cơ sở: **SIZE 32 / M (Mặc định)**")
-
     if has_file and target_new_sketch_bytes and st.session_state["matched_techpack"] is None:
         with st.spinner("⚡ AI đang phân tích phom dáng vẽ phẳng và đối soát dữ liệu kho..."):
             try:
@@ -788,6 +857,7 @@ def render_bom_consumption_matrix_page(client, has_file, target_new_sketch_bytes
                     res_sp = requests.get(url_san_pham, headers=headers, timeout=10)
                     if res_sp.status_code == 200: st.session_state["bom_records"] = res_sp.json()
             except Exception: pass
+
     matched_techpack = st.session_state["matched_techpack"]
     bom_records = st.session_state["bom_records"]
 
@@ -834,6 +904,7 @@ def render_bom_consumption_matrix_page(client, has_file, target_new_sketch_bytes
                 "CUFF OPENING": ["CUFF", "CUFF OPENING", "SLEEVE OPENING", "RỘNG ỐNG TAY", "BẢN CỬA TAY"],
                 "NECK WIDTH": ["NECK WIDTH", "NECK OPENING", "RỘNG CỔ", "VÒNG CỔ"]
             }
+            
             def find_standard_key(raw_key):
                 k_clean = str(raw_key).strip().upper().replace('"', '').replace("  ", " ")
                 for std_key, synonyms in pom_synonyms.items():
@@ -873,7 +944,7 @@ def render_bom_consumption_matrix_page(client, has_file, target_new_sketch_bytes
                         comparison_table.append({"Vị trí đo (POM)": original_old_key, "Thông số gốc (Kho)": f"{old_val}\"", "Thông số mới (Quét)": f"{new_val_str}\"", "Chênh lệch": f"{diff:+.3f}\"", "Tỷ lệ biến động": f"{pct_diff:+.1f}%"})
             if comparison_table:
                 st.table(comparison_table)
-                if relevant_count > 0: st.markdown(f"💡 **Đánh giá hệ thống:** Phom dáng mẫu mới biến động diện tích trung bình **{total_deviation_percentage / relevant_count:+.1f}%**")
+                st.markdown(f"💡 **Đánh giá hệ thống:** Phom dáng mẫu mới biến động diện tích trung bình **{total_deviation_percentage / relevant_count:+.1f}%**" if relevant_count > 0 else "")
         else:
             st.info("💡 Điền file để chạy đối soát.")
 
@@ -886,6 +957,6 @@ def render_bom_consumption_matrix_page(client, has_file, target_new_sketch_bytes
 
     if prompt_input := st.chat_input("Nhập lệnh tính toán định mức nâng cao...", key="matrix_consumption_chat_input"):
         st.session_state["consumption_chat_history"].append({"user": prompt_input, "ai": "Đang tính toán..."})
-        ai_output_response = ai_consumption_analyst_engine(client, prompt_input, matched_techpack, bom_records, new_style_measurements_dict, target_new_sketch_bytes, detected_size)
+        ai_output_response = ai_consumption_analyst_engine(client, prompt_input, matched_techpack, bom_records, new_style_measurements_dict, target_new_sketch_bytes, new_style_base_size)
         st.session_state["consumption_chat_history"][-1]["ai"] = ai_output_response
         st.rerun()
