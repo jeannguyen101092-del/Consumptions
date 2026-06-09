@@ -706,7 +706,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
         # -----------------------------------------------------------------
     # ĐOẠN 1: TỰ ĐỘNG TRUY TÌM TỆP ĐỆM VÀ SỐ HÓA TECHPACK TỪ FILE TẢI LÊN
     # -----------------------------------------------------------------
-    target_file_object = None
+        target_file_object = None
     if 'chat_file' in locals() and chat_file is not None:
         target_file_object = chat_file
     elif 'chat_file' in globals() and globals()['chat_file'] is not None:
@@ -715,7 +715,17 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
         target_file_object = st.session_state['uploaded_file']
     elif 'chat_file' in st.session_state and st.session_state['chat_file'] is not None:
         target_file_object = st.session_state['chat_file']
-        
+    gemini_key = get_secure_gemini_key()
+    if not gemini_key:
+        st.error("AI API Token is missing.")
+        st.stop()
+    client = genai.Client(api_key=gemini_key, http_options=types.HttpOptions(api_version='v1'))
+    new_style_id_detected = "UNKNOWN_STYLE"
+    new_style_category_detected = ""
+    new_style_fabric_detected = "UNKNOWN_FABRIC"
+    new_style_measurements_dict = {}
+    img_payload = [] 
+    target_new_sketch_bytes = None 
     has_file = target_file_object is not None
     if has_file:
         file_bytes = target_file_object.getvalue()
@@ -731,22 +741,18 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
         else:
             target_new_sketch_bytes = file_bytes
             img_payload.append(types.Part.from_bytes(data=file_bytes, mime_type='image/jpeg'))
-            
         extraction_prompt = "Analyze all attached sheets page by page. Locate the core 'Base Size' / 'Sample Size' (e.g., size 32). Extract all points of measurement (POM) and their corresponding target specs for THIS BASE SIZE ONLY. Do not extract multiple sizes. Also find 'Style ID' and 'Category'. CRITICAL VISION TASK: Find the exact 'PAGE INDEX' (starting from 0) that contains the TECHNICAL BLACK AND WHITE FLAT SKETCH / DRAWING. DO NOT select pages containing real product photographs, garments, fabrics, or 'Labeled Images' wash denim sheets. Only pick the pure line art design drawing page. Return a valid raw JSON string with this exact schema (no markdown block): {\"detected_style_id\": \"string\", \"category\": \"string\", \"fabric_code\": \"string\", \"measurements\": {}, \"sketch_page_index_detected\": 0}"
         extraction_payload = list(img_payload)
         extraction_payload.append(extraction_prompt)
         try:
             extraction_res = client.models.generate_content(model='gemini-2.5-flash', contents=extraction_payload)
             clean_json_text = extraction_res.text.strip()
-            
-            # SỬA LỖI CÚ PHÁP: Sử dụng cơ chế dọn dẹp chuỗi an toàn tuyệt đối chống crash mảng dữ liệu
             if clean_json_text.startswith("```json"):
                 clean_json_text = clean_json_text.replace("```json", "", 1)
             if clean_json_text.startswith("```"):
                 clean_json_text = clean_json_text.replace("```", "", 1)
             if clean_json_text.endswith("```"):
                 clean_json_text = clean_json_text.rstrip("`").rstrip()
-                
             parsed_meta = json.loads(clean_json_text.strip())
             new_style_id_detected = parsed_meta.get("detected_style_id", "UNKNOWN_STYLE").strip()
             new_style_category_detected = parsed_meta.get("category", "").strip()
@@ -759,7 +765,6 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                 target_new_sketch_bytes = b_buf.getvalue()
         except Exception as e:
             st.sidebar.error(f"Lỗi AI trích xuất Techpack: {str(e)}")
-            
     clean_text_upper = str(user_query).strip().upper()
     is_searching_fabric = any(word in clean_text_upper for word in ["CODE VẢI", "MÃ VẢI", "LOẠI VẢI", "TÌM VẢI"])
     codes_found = re.findall(r'\b[A-Z]*\d+[A-Z0-9]*\b|\b[A-Z0-9]+-\d+[A-Z0-9-]*\b', clean_text_upper)
@@ -778,18 +783,12 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
     else:
         dynamic_keyword = clean_query if clean_query else "UNKNOWN"
     dynamic_keyword = re.sub(r"[\[\]'\"*?%#&]", "", dynamic_keyword).strip()
-
-
-       # -----------------------------------------------------------------
-    # ĐOẠN 2: THUẬT TOÁN QUÉT MỜ THÔNG SỐ ĐỐI SOÁT PHOM DÁNG QUẦN JEAN TƯƠNG ĐỒNG
-    # -----------------------------------------------------------------
     base_sb_url = SB_URL.rstrip('/')
     headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
     matched_style_name = None
     best_similarity = -1.0
     fabric_records = []
     techpack_records = []
-    
     if has_file and new_style_measurements_dict:
         with st.spinner("⚡ AI dệt may đang quét phân tích hình học thông số rập đối soát phom dáng..."):
             query_vector = None
@@ -811,7 +810,6 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     query_vector = np.array([q_waist, q_hip, q_thigh], dtype=np.float32)
             except Exception:
                 query_vector = None
-                
             if query_vector is not None:
                 url_all_vectors = f"{base_sb_url}/rest/v1/thong_so_techpack?select=StyleName,DetailedMeasurements"
                 try:
@@ -841,7 +839,6 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                                         matched_style_name = row.get("StyleName")
                         except Exception:
                             pass
-                            
     if matched_style_name:
         final_search_key = matched_style_name.strip()
         st.sidebar.success(f"🎯 Khớp phom hình học thành công: {final_search_key} ({round(best_similarity * 100, 1)}%)")
@@ -851,7 +848,6 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
         else:
             final_search_key = dynamic_keyword.strip().upper()
         st.sidebar.warning(f"⚠️ Quét mã chuỗi dự phòng: {final_search_key}")
-        
     def fetch_san_pham(key):
         if not key or key in ["UNKNOWN", "NOT_FOUND_IN_WAREHOUSE"]: return []
         try:
@@ -861,7 +857,6 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
             res = requests.get(url, headers=headers, params=params, timeout=5)
             return res.json() if res.status_code == 200 else []
         except Exception: return []
-        
     def fetch_techpack(key):
         if not key or key in ["UNKNOWN", "NOT_FOUND_IN_WAREHOUSE"]: return []
         try:
@@ -870,13 +865,11 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
             res = requests.get(url, headers=headers, params=params, timeout=5)
             return res.json() if res.status_code == 200 else []
         except Exception: return []
-        
     with concurrent.futures.ThreadPoolExecutor() as executor:
         future_sp = executor.submit(fetch_san_pham, final_search_key)
         future_tp = executor.submit(fetch_techpack, final_search_key)
         fabric_records = future_sp.result()
         techpack_records = future_tp.result()
-
     db_sketch_url = None
     db_measurements_raw = {}
     current_style_name = ""
@@ -898,16 +891,16 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
             if db_sketch_url and str(db_sketch_url).startswith("http"):
                 st.image(db_sketch_url, caption=f"🎯 Ảnh Sketch đối chứng khớp trong kho: {current_style_name}", use_container_width=True)
             elif current_style_name:
-                constructed_url = f"{SUPABASE_PROJECT_URL}/storage/v1/object/public/kho_anh/{current_style_name}.jpg"
-                st.image(constructed_url, caption=f"🎯 Ảnh Sketch đối chứng khớp trong kho: {current_style_name}", use_container_width=True)
+                clean_style_url_key = str(current_style_name).strip()
+                constructed_url = f"{SUPABASE_PROJECT_URL}/storage/v1/object/public/kho_anh/{clean_style_url_key}.jpg"
+                st.image(constructed_url, caption=f"🎯 Ảnh Sketch đối chứng khớp trong kho: {clean_style_url_key}", use_container_width=True)
         else:
-            image_search_key = new_style_id_detected if new_style_id_detected != "UNKNOWN_STYLE" else dynamic_keyword
+            image_search_key = str(new_style_id_detected if new_style_id_detected != "UNKNOWN_STYLE" else final_search_key).strip()
             if image_search_key and image_search_key not in ["UNKNOWN", "UNKNOWN_STYLE"]:
                 constructed_url = f"{SUPABASE_PROJECT_URL}/storage/v1/object/public/kho_anh/{image_search_key}.jpg"
                 st.image(constructed_url, caption=f"🔍 Bản đối chứng ảnh kho theo mã hàng: {image_search_key}", use_container_width=True)
             else:
                 st.info("ℹ️ Không tìm thấy mẫu thiết kế đối chứng tương đồng trong kho ảnh.")
-                
     fabric_width_input = re.search(r'(?:KHỔ|KHO)\s*(\d+(?:\.\d+)?)', clean_text_upper)
     shrink_ngang = re.search(r'(?:NGANG)\s*(\d+(?:\.\d+)?)\s*%', clean_text_upper)
     shrink_doc = re.search(r'(?:DỌC|DOC)\s*(\d+(?:\.\d+)?)\s*%', clean_text_upper)
@@ -915,11 +908,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
     user_width = f"{fabric_width_input.group(1)} INCH" if fabric_width_input else "57 INCH"
     co_ngang = shrink_ngang.group(1) if shrink_ngang else "0"
     co_doc = shrink_doc.group(1) if shrink_doc else (shrink_general.group(1) if shrink_general else "0")
-        st.markdown(f"### 📊 Kết quả đối soát dữ liệu mã hàng: **{new_style_id_detected if new_style_id_detected != 'UNKNOWN_STYLE' else final_search_key}**")
-    
-    # Chuẩn hóa từ khóa sạch: Viết liền, loại bỏ hoàn toàn khoảng trắng dư thừa để gọi link ảnh Storage không bị vỡ
-    clean_image_key = str(new_style_id_detected if new_style_id_detected != "UNKNOWN_STYLE" else final_search_key).strip()
-    
+    st.markdown(f"### 📊 Kết quả đối soát dữ liệu mã hàng: **{new_style_id_detected if new_style_id_detected != 'UNKNOWN_STYLE' else final_search_key}**")
     col1, col2 = st.columns(2)
     with col1:
         st.markdown("**📋 Thông tin định mức vải gốc (Bảng san_pham):**")
@@ -933,7 +922,6 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                 st.warning("Không tìm thấy dữ liệu vải lịch sử của mã tương đồng.")
         else:
             st.info("ℹ️ Tự động kích hoạt tính toán độc lập từ thông số hình học rập Techpack mới.")
-            
     with col2:
         st.markdown("**📏 Thông số hình học thực tế (Bảng lưới phẳng đơn cỡ sạch):**")
         display_specs = db_measurements_raw if (isinstance(db_measurements_raw, dict) and len(db_measurements_raw) > 0) else new_style_measurements_dict
@@ -942,8 +930,6 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
             st.dataframe(formatted_measurements, use_container_width=True)
         else:
             st.info("Không tìm thấy thông số kỹ thuật gốc.")
-            
-    # Chặn tính năng phân tích định mức vải: Chỉ kích hoạt khi có yêu cầu rõ ràng
     is_user_asking_to_calculate = any(w in clean_text_upper for w in ["TÍNH", "TINH", "ĐỊNH MỨC", "DINH MUC", "CO RÚT", "CO RUT", "KHỔ", "KHO", "DỰ ĐOÁN", "DU DOAN"])
     if is_user_asking_to_calculate:
         st.markdown("### 📐 Kết quả phân tích sơ đồ & Tính toán định mức vải")
@@ -956,6 +942,5 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                 st.session_state["chat_history"].append({"role": "assistant", "type": "text", "content": analysis_res.text})
             except Exception as e:
                 st.error(f"Lỗi gửi yêu cầu tới Gemini: {str(e)}")
-    else:
-        st.info("💡 Hệ thống đã thực hiện đối soát hình ảnh và thông số rập thành công. Bạn có thể nhập thêm câu lệnh yêu cầu tính toán định mức vải cùng với thông số khổ vải hoặc độ co rút để kích hoạt lõi phân tích AI.")
-
+else:
+    st.info("💡 Hệ thống đã thực hiện đối soát hình ảnh và thông số rập thành công. Bạn có thể nhập thêm câu lệnh yêu cầu tính toán định mức vải cùng với thông số khổ vải hoặc độ co rút để kích hoạt lõi phân tích AI.")
