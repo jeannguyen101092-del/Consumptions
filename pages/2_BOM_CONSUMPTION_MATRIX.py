@@ -690,7 +690,7 @@ except ImportError:
     pass
 
 if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vải và đối soát sai lệch..."):
-    st.session_state["chat_history"].append({"role": "user", "type": "text", "content": user_query})
+        st.session_state["chat_history"].append({"role": "user", "type": "text", "content": user_query})
     gemini_key = get_secure_gemini_key()
     if not gemini_key:
         st.error("AI API Token is missing.")
@@ -772,8 +772,9 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     nums = re.findall(r'\d+(?:\.\d+)?', str(text_val).strip())
                     return float(nums) if nums else 0.0
                 def find_fuzzy_val(measure_dict, keyword):
+                    if not isinstance(measure_dict, dict): return 0.0
                     for k, v in measure_dict.items():
-                        if keyword.lower() in k.lower():
+                        if keyword.lower() in str(k).lower():
                             return get_clean_num(v)
                     return 0.0
                 q_waist = find_fuzzy_val(new_style_measurements_dict, "waist")
@@ -807,7 +808,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                                 norm_db = np.linalg.norm(db_vector)
                                 if norm_query > 0 and norm_db > 0:
                                     similarity = float(dot_product / (norm_query * norm_db))
-                                    if similarity > best_similarity and similarity >= 0.95:
+                                    if similarity > best_similarity and similarity >= 0.90:
                                         best_similarity = similarity
                                         matched_style_name = row.get("StyleName")
                         except Exception:
@@ -898,7 +899,6 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
             st.dataframe(formatted_measurements, use_container_width=True)
         else:
             st.info("Không tìm thấy thông số kỹ thuật gốc.")
-            
     is_user_asking_to_calculate = any(w in clean_text_upper for w in ["TÍNH", "TINH", "ĐỊNH MỨC", "DINH MUC", "CO RÚT", "CO RUT", "KHỔ", "KHO", "DỰ ĐOÁN", "DU DOAN"])
     if is_user_asking_to_calculate:
         st.markdown("### 📐 Kết quả phân tích sơ đồ & Tính toán định mức vải")
