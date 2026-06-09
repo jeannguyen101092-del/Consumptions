@@ -661,6 +661,10 @@ def parse_fraction(val_str):
     except Exception:
         return 0.0
 def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_records, new_style_measurements, target_new_sketch_bytes, detected_size):
+    """
+    Bộ não xử lý tính toán định mức nâng cao đáp ứng kịch bản có mã tương đồng (Mục đích 2)
+    và tự động ước tính diện tích hình học rập mẫu khi không có mã tương đồng (Mục đích 3).
+    """
     style_old_name = matched_techpack.get("StyleName", "N/A") if matched_techpack else "N/A"
     specs_old = matched_techpack.get("DetailedMeasurements", {}) if matched_techpack else {}
     
@@ -692,10 +696,9 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
        - Width Shrinkage (Co rút ngang): {w_shrink}%
        - Length Shrinkage (Co rút dọc): {l_shrink}%
        
-    EXECUTION LOGIC BASED ON 3 SCENARIOS:
-    - SCENARIO 1 (Mã tương đồng + Thông tin co rút vải): Calculate based on the old consumption value found in database. Apply Shrinkage multiplier: New Consumption = Old Consumption * (1 + Length Shrinkage%) * (1 + Width Shrinkage%).
-    - SCENARIO 2 (Mã tương đồng nhưng KHÔNG thêm thông tin phụ): Only compare geometric variations (Inseam, Waist, Hip, Outseam Length, Chest, Body length) between Old Spec and New Spec to adjust consumption proportionally. Assume fabric width/type are 100% IDENTICAL to old style.
-    - SCENARIO 3 (Mã hoàn toàn MỚI - Không có mã tương đồng): Perform pure Geometric Surface Area Estimation task using the attached Flat Sketch Image and the New Spec (POM). Estimate layout blocking area + Seam allowances + Waste factor (5-8%) to yield the initial consumption rate.
+    EXECUTION LOGIC BASED ON 2 MAIN SCENARIOS:
+    - SCENARIO A (MỤC ĐÍCH 2 - Có mã tương đồng): Calculate based on the old consumption value found in database. Apply Shrinkage multiplier: New Consumption = Old Consumption * (1 + Length Shrinkage%) * (1 + Width Shrinkage%). Adjust further based on the Marker Area Delta parameter provided in the size context.
+    - SCENARIO B (MỤC ĐÍCH 3 - KHÔNG CÓ MÃ TƯƠNG ĐỒNG / MÃ MỚI HOÀN TOÀN): Perform a pure Geometric Surface Area Estimation task using the attached Flat Sketch Image and the New Spec (POM). Estimate layout blocking area (Width * Length of panels like Front panel, Back panel, Waistband, Pockets) + Seam allowances (Đường may) + Waste factor (Hao hụt đi sơ đồ 5-8%) to yield the initial consumption rate.
     
     OUTPUT REQUIREMENT: Answer directly, professionally in Vietnamese like ChatGPT with clear mathematical steps and final metric values. Keep it highly scannable. Do not reply generically.
     """
@@ -715,7 +718,7 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
         st.session_state["consumption_chat_history"].append({"user": user_message, "ai": ai_reply})
         return ai_reply
     except Exception as e:
-        return f"🚨 Lỗi phân tích định mức: {str(e)}"
+        return f"🚨 Lỗi cổng phân tích định mức: {str(e)}"
 gemini_key = get_secure_gemini_key()
 if gemini_key:
     client = genai.Client(api_key=gemini_key, http_options=types.HttpOptions(api_version='v1'))
@@ -728,6 +731,7 @@ new_style_base_size = "32"
 img_payload = [] 
 target_new_sketch_bytes = None 
 
+# Đồng bộ hóa cấu trúc lấy tệp đính kèm từ Uploader lưu trong bộ nhớ hệ thống
 target_file_object = None
 if 'uploaded_file' in st.session_state and st.session_state['uploaded_file'] is not None:
     target_file_object = st.session_state['uploaded_file']
@@ -749,7 +753,7 @@ if has_file:
                 page_img.convert("RGB").save(img_buf, format="JPEG", quality=75)
                 img_payload.append(types.Part.from_bytes(data=img_buf.getvalue(), mime_type='image/jpeg'))
             
-            # QUY CHUẨN THỊ GIÁC NGHIÊM NGẶT: Ép AI loại bỏ trang tóm tắt chứa lưới bảng biểu BOM chữ, tìm đúng ảnh rập nét mảnh chi tiết lớn
+            # ÉP BỘ LỌC THỊ GIÁC: Ép AI tìm đúng số trang vẽ kĩ thuật lớn sạch, loại bỏ trang lưới bảng biểu BOM chữ
             extraction_prompt = (
                 "Analyze all attached sheets page by page. "
                 "1. Locate the core 'Base Size' / 'Sample Size' (e.g., size 32 or size 34 or M). "
@@ -790,6 +794,7 @@ headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
 if menu_selection == "🧵 BOM & Consumption Matrix":
     st.markdown('<div class="component-title-box">🧵 INTELLIGENT BOM & CONSUMPTION MATRIX ENGINE</div>', unsafe_allow_html=True)
     
+    # Khóa cứng trạng thái bộ nhớ đệm màn hình (Chống xóa trắng dữ liệu khi Rerun ô Chat)
     if "matched_techpack" not in st.session_state: st.session_state["matched_techpack"] = None
     if "bom_records" not in st.session_state: st.session_state["bom_records"] = []
     if "consumption_chat_history" not in st.session_state: st.session_state["consumption_chat_history"] = []
@@ -805,15 +810,19 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
             st.session_state["consumption_chat_history"] = []
             st.session_state["matched_techpack"] = None
             st.session_state["bom_records"] = []
+            st.success("♻️ MEMORY PURGED - SẴN SÀNG CHO MÃ HÀNG MỚI")
             st.rerun()
 
     st.markdown("---")
 
-    if new_style_base_size and new_style_base_size != "32":
-        st.info(f"📋 **CƠ SỞ ĐỐI SOÁT KIỂM TRA:** Mẫu mới số hóa mã hàng `{new_style_id_detected}` | Quy chuẩn kích thước hình học rập mẫu: **SIZE {new_style_base_size}**")
-    else:
-        st.info(f"📋 **CƠ SỞ ĐỐI SOÁT KIỂM TRA:** Đang áp dụng quy chuẩn kích thước hình học rập mẫu cơ sở: **SIZE 32 / M (Mặc định)**")
+    # Hiển thị tiêu đề Size mẫu cơ sở đang bóc tách đối soát
+    if has_file:
+        if new_style_base_size and new_style_base_size != "32":
+            st.info(f"📋 **CƠ SỞ ĐỐI SOÁT KIẾM TRA:** Mẫu mới số hóa mã hàng `{new_style_id_detected}` | Quy chuẩn kích thước hình học rập mẫu: **SIZE {new_style_base_size}**")
+        else:
+            st.info(f"📋 **CƠ SỞ ĐỐI SOÁT KIỂM TRA:** Đang áp dụng quy chuẩn kích thước hình học rập mẫu cơ sở: **SIZE 32 / M (Mặc định)**")
 
+    # CHẠY THUẬT TOÁN QUÉT TƯƠNG ĐỒNG KHI CÓ FILE TẢI LÊN
     if has_file and target_new_sketch_bytes and st.session_state["matched_techpack"] is None:
         with st.spinner("⚡ AI đang phân tích phom dáng vẽ phẳng và đối soát dữ liệu kho..."):
             try:
@@ -853,18 +862,18 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                     core_match = re.search(r'\b[A-Z0-9]{5,12}\b', target_style_name.upper())
                     search_term = core_match.group(0) if core_match else target_style_name
                     
-                    # BIẾN THAY THẾ CHUẨN: Truy vấn đầy đủ các cột dữ liệu bao gồm cả Định mức và Ghi chú từ Supabase
                     url_san_pham = f"{base_sb_url}/rest/v1/san_pham?style_name=ilike.*{quote(str(search_term).strip())}*&select=style_name,article_name,consumption_type,material_size,uom,consumption_value,notes"
                     res_sp = requests.get(url_san_pham, headers=headers, timeout=10)
                     if res_sp.status_code == 200: 
                         st.session_state["bom_records"] = res_sp.json()
             except Exception: pass
+    # LẤY DỮ LIỆU TỪ BỘ NHỚ KHÓA ĐỂ HIỂN THỊ LÊN MÀN HÌNH
     matched_techpack = st.session_state["matched_techpack"]
     bom_records = st.session_state["bom_records"]
 
     if matched_techpack:
         target_style_name = matched_techpack.get("StyleName")
-        st.success(f"🎯 ĐÃ TÌM THẤY MÃ HÀNG TƯƠNG ĐỒNG TRONG KHO: **{target_style_name}**")
+        st.success(f"🎯 MỤC ĐÍCH 2: ĐÃ TÌM THẤY MÃ HÀNG TƯƠNG ĐỒNG: **{target_style_name}**")
         
         col1, col2 = st.columns(2)
         with col1: st.image(target_new_sketch_bytes, caption="Bản vẽ phẳng mẫu mới (AI lọc sạch)", use_container_width=True)
@@ -876,13 +885,13 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
             formatted_bom = []
             for r in bom_records:
                 formatted_bom.append({
-                    "Mã hàng (Style)": r.get("style_name"),
+                    "Mã hàng (Style)": r.get("style_name") if r.get("style_name") else r.get("style_id"),
                     "Tên vật tư": r.get("article_name"),
                     "Chủng loại tiêu hao": r.get("consumption_type"),
                     "Khổ nguyên liệu": r.get("material_size"),
                     "Đơn vị tính": r.get("uom"),
-                    "Định mức cơ sở (Kho)": r.get("consumption_value"), # Hiện đầy đủ cột định mức ra màn hình giao diện
-                    "Ghi chú phân xưởng": r.get("notes") # Hiện đầy đủ cột ghi chú phân xưởng
+                    "Định mức cơ sở (Kho)": str(r.get("consumption_value")) if r.get("consumption_value") is not None else "EMPTY",
+                    "Ghi chú phân xưởng": r.get("notes") if r.get("notes") else "EMPTY"
                 })
             st.table(formatted_bom)
             main_fabrics = list(set([r.get("article_name") for r in bom_records if "MAIN" in str(r.get("consumption_type", "")).upper() if r.get("article_name")]))
@@ -890,7 +899,7 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
         else:
             st.warning(f"⚠️ Không tìm thấy dữ liệu phụ liệu cho biến thể mã hàng gốc `{dynamic_keyword}` trong bảng san_pham.")
 
-        st.subheader("📊 Bảng Đối Soát Sai Lệch Thông Số Hình Học (Mẫu Gốc vs Mẫu Mới)")
+        # HÀM AI ĐỐI SOÁT TỰ ĐỘNG KHÔNG DÙNG TỪ ĐIỂN CỨNG THỦ CÔNG
         db_measurements = matched_techpack.get("DetailedMeasurements", {})
         specs_old = {}
         if isinstance(db_measurements, dict): specs_old = db_measurements
@@ -903,25 +912,19 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
         specs_new = new_style_measurements_dict
         
         if specs_old and specs_new:
-            # 🧠 CÔNG NGHỆ ĐỘT PHÁ: Gọi AI tự động đọc hiểu ngôn ngữ dệt may để tự ánh xạ khớp cặp điểm đo, xóa bỏ từ điển tĩnh
             with st.spinner("🧠 Trợ lý AI đang tự động quét lập bản đồ đối soát vị trí đo đa chủng loại..."):
                 try:
                     mapping_prompt = f"""
                     You are a professional garment pattern grader. Your task is to align and map points of measurement (POM) between an old style spec sheet and a newly scanned spec sheet.
-                    The items could be Pants, Shirts, Jackets, Blazers, or Dresses. Avoid cross-aligning circumferences with positions/lengths (e.g., Never align Low Hip Position with Hip Circumference).
-                    
-                    OLD SPEC KEYS (Dữ liệu gốc từ kho): {list(specs_old.keys())}
-                    NEW SPEC KEYS (Dữ liệu mới quét): {list(specs_new.keys())}
-                    
-                    Return ONLY a clean JSON object mapping old keys to corresponding new keys where a match is found. If no logical match exists for an old key, do not map it.
-                    Output format strictly raw JSON with no markdown block:
-                    {{"old_key_1": "new_key_1", "old_key_2": "new_key_2"}}
+                    The items could be Pants, Shirts, Jackets, Blazers, or Dresses. Avoid cross-aligning circumferences with positions/lengths.
+                    OLD SPEC KEYS: {list(specs_old.keys())}
+                    NEW SPEC KEYS: {list(specs_new.keys())}
+                    Return clean raw JSON with this schema: {{"old_key": "new_key"}}
                     """
                     mapping_res = client.models.generate_content(model='gemini-2.5-flash', contents=mapping_prompt)
                     clean_mapping_json = mapping_res.text.strip().replace("```json", "").replace("```", "").strip()
                     ai_pom_map = json.loads(clean_mapping_json)
-                except Exception:
-                    ai_pom_map = {{}}
+                except Exception: ai_pom_map = {}
 
             comparison_table = []
             deviation_length_pct = 0.0
@@ -929,59 +932,49 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
             has_len = False
             has_wid = False
             
-            # Xây dựng bảng đối soát dựa trên kết quả ánh xạ tự động thông minh của AI
             for original_old_key, old_val in specs_old.items():
                 if original_old_key in ai_pom_map:
                     corresponding_new_key = ai_pom_map[original_old_key]
                     new_val_str = specs_new.get(corresponding_new_key, "0")
-                    
                     v_old = parse_fraction(old_val)
                     v_new = parse_fraction(new_val_str)
-                    
                     if v_old > 0 and v_new > 0:
                         diff = v_new - v_old
                         pct_diff = (diff / v_old) * 100
                         k_upper = original_old_key.upper()
                         
-                        # Tách biệt trục dài chủ đạo (Quyết định chiều dài bàn cắt dập sơ đồ)
                         if any(word in k_upper for word in ["INSEAM", "OUTSEAM", "LENGTH", "CB", "CF", "DÀI"]):
-                            if pct_diff != 0:
-                                deviation_length_pct = pct_diff
-                                has_len = True
-                        
-                        # Tách biệt trục rộng chủ đạo (Quyết định mật độ xếp rập hàng ngang)
+                            if pct_diff != 0: deviation_length_pct = pct_diff; has_len = True
                         if any(word in k_upper for word in ["HIP", "CHEST", "BUST", "THIGH", "WAIST", "NGỰC", "EO", "MÔNG", "WIDTH"]):
-                            if pct_diff != 0:
-                                deviation_width_pct = pct_diff
-                                has_wid = True
+                            if pct_diff != 0: deviation_width_pct = pct_diff; has_wid = True
                                 
-                        comparison_table.append({
-                            "Vị trí đo (POM)": original_old_key,
-                            "Thông số gốc (Kho)": f"{old_val}\"",
-                            "Thông số mới (Quét)": f"{new_val_str}\"",
-                            "Chênh lệch": f"{diff:+.3f}\"",
-                            "Tỷ lệ biến động": f"{pct_diff:+.1f}%"
-                        })
+                        comparison_table.append({"Vị trí đo (POM)": original_old_key, "Thông số gốc (Kho)": f"{old_val}\"", "Thông số mới (Quét)": f"{new_val_str}\"", "Chênh lệch": f"{diff:+.3f}\"", "Tỷ lệ biến động": f"{pct_diff:+.1f}%"})
             
-            if comparison_table:
-                st.table(comparison_table)
+            ui_col1, ui_col2 = st.columns([1.2, 0.8])
+            with ui_col1:
+                st.subheader("📊 Bảng Đối Soát Sai Lệch Thông Số Hình Học (Mẫu Gốc vs Mẫu Mới)")
+                if comparison_table: st.table(comparison_table)
+            with ui_col2:
+                st.subheader("📋 Trọn bộ thông số mẫu mới quét được")
+                st.table([{"Vị trí đo (Quét sạch)": k, "Thông số quét": v} for k, v in specs_new.items()])
                 
-                # THUẬT TOÁN ĐỊNH MỨC MAY CÔNG NGHIỆP: Tính tích hình học khối rập chính để ra chênh lệch diện tích thực tế
-                if has_len or has_wid:
-                    factor_len = 1.0 + (deviation_length_pct / 100.0)
-                    factor_wid = 1.0 + (deviation_width_pct / 100.0)
-                    total_area_deviation_pct = (factor_len * factor_wid - 1.0) * 100
-                    
-                    st.markdown(f"💡 **Phân tích hình học rập mẫu tự động bởi AI:**")
-                    st.write(f"- Biến động chiều dài thân rập chủ đạo: **{deviation_length_pct:+.1f}%**")
-                    st.write(f"- Biến động chiều rộng thân rập chủ đạo: **{deviation_width_pct:+.1f}%**")
-                    st.markdown(f"🎯 **Tỷ lệ biến động diện tích khối sơ đồ vải thực tế (Marker Area Deviation): {total_area_deviation_pct:+.1f}%**")
-                    
-                    new_style_base_size = f"{new_style_base_size} (Marker Area Delta: {total_area_deviation_pct:+.2f}%)"
-        else:
-            st.info("💡 Điền file để chạy đối soát.")
+            if has_len or has_wid:
+                factor_len = 1.0 + (deviation_length_pct / 100.0)
+                factor_wid = 1.0 + (deviation_width_pct / 100.0)
+                total_area_deviation_pct = (factor_len * factor_wid - 1.0) * 100
+                st.markdown(f"💡 **Phân tích hình học rập mẫu tự động bởi AI:**")
+                st.write(f"- Biến động chiều dài thân rập chủ đạo: **{deviation_length_pct:+.1f}%**")
+                st.write(f"- Biến động chiều rộng thân rập chủ đạo: **{deviation_width_pct:+.1f}%**")
+                st.markdown(f"🎯 **Tỷ lệ biến động diện tích khối sơ đồ vải thực tế (Marker Area Deviation): {total_area_deviation_pct:+.1f}%**")
+                new_style_base_size = f"{new_style_base_size} (Marker Area Delta: {total_area_deviation_pct:+.2f}%)"
+    elif has_file:
+        st.warning("⚠️ MỤC ĐÍCH 3: MÃ HÀNG HOÀN TOÀN MỚI - KHÔNG TÌM THẤY MÃ TƯƠNG ĐỒNG TRONG KHO!")
+        st.info("💡 AI đã tự động kích hoạt tính năng Hình học không gian (Geometric Surface Area Estimation). Vui lòng ra lệnh ở ô chat bên dưới để tính định mức sơ đồ ban đầu.")
+        st.subheader("📋 Trọn bộ thông số mẫu mới quét được")
+        st.table([{"Vị trí đo (Quét sạch)": k, "Thông số quét": v} for k, v in new_style_measurements_dict.items()])
 
-    st.markdown("### 💬 PPJ TEXTILE AI COSTING ENGINE - LUỒNG CHAT PHÂN TÍCH ĐỊNH MỨC")
+    # GIAO DIỆN KHUNG CHAT PHÂN TÍCH LIÊN KẾT CHATGPT STYLE
+    st.markdown("### 💬 PPJ TEXTILE AI COSTING ENGINE - LUỒNG CHAT PHÂN TÍCH ĐỊNH MỨC TỰ ĐỘNG")
     chat_container = st.container()
     with chat_container:
         for chat_block in st.session_state["consumption_chat_history"]:
