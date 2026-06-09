@@ -540,22 +540,44 @@ elif menu_selection == "🔄 Pattern Spec Comparison":
                 </div>
             """, unsafe_allow_html=True)
             
-            def clean_garment_fraction(v_str):
-                if not v_str or str(v_str).strip().upper() in ["N/A", "N/A INCH", ""]: return 0.0
+                        def clean_garment_fraction(v_str):
+                if not v_str or str(v_str).strip().upper() in ["N/A", "N/A INCH", ""]: 
+                    return 0.0
+                
                 try:
-                    s = str(v_str).replace("INCH", "").strip()
-                    if " " in s:
-                        parts = s.split()
+                    # Chuẩn hóa chuỗi: bỏ chữ INCH, viết thường, xóa khoảng trắng thừa ở 2 đầu
+                    s = str(v_str).upper().replace("INCH", "").strip()
+                    
+                    # Trường hợp 1: Hỗn số có khoảng trắng ở giữa (Ví dụ: "2 3/4" hoặc "2  3/4")
+                    # Dùng regex chia tách để tránh lỗi nếu có nhiều hơn 1 khoảng trắng
+                    parts = re.split(r'\s+', s)
+                    if len(parts) == 2 and '/' in parts[1]:
                         whole = float(parts[0])
-                        frac = parts[1].split('/')
-                        return whole + (float(frac[0]) / float(frac[1]))
-                    elif "/" in s:
-                        frac = s.split('/')
-                        return float(frac[0]) / float(frac[1])
+                        frac_parts = parts[1].split('/')
+                        return whole + (float(frac_parts[0]) / float(frac_parts[1]))
+                    
+                    # Trường hợp 2: Chỉ có phân số đơn thuần (Ví dụ: "1/2")
+                    if '/' in s and len(parts) == 1:
+                        frac_parts = s.split('/')
+                        return float(frac_parts[0]) / float(frac_parts[1])
+                    
+                    # Trường hợp 3: Số nguyên hoặc số thập phân đơn thuần (Ví dụ: "15" hoặc "15.5")
                     return float(s)
-                except:
-                    nums = re.findall(r"[-+]?\d*\.\d+|\d+", str(v_str))
-                    return float(nums[0]) if nums else 0.0
+                    
+                except Exception:
+                    # Trường hợp khẩn cấp nếu chuỗi quá lạ, bóc tách toàn bộ số và phân số ẩn bên trong
+                    try:
+                        nums = re.findall(r"\d+", str(v_str))
+                        if len(nums) == 3: # Định dạng kiểu hỗn số dính nhau bất thường
+                            return float(nums[0]) + (float(nums[1]) / float(nums[2]))
+                        elif len(nums) == 2 and '/' in str(v_str): # Phân số đơn
+                            return float(nums[0]) / float(nums[1])
+                        elif len(nums) >= 1: # Số đơn độc lập
+                            return float(nums[0])
+                    except:
+                        pass
+                    return 0.0
+
 
             size_a = d1.get("base_size_name", "BASE").strip()
             size_b = d2.get("base_size_name", "BASE").strip()
