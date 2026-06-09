@@ -502,7 +502,7 @@ if menu_selection == "📊 Upload Techpack":
 # CHỨC NĂNG 2: ĐỐI CHIẾU SO SÁNH HAI MÃ RẬP KHÁC NHAU (PATTERN SPEC COMPARISON)
 # -----------------------------------------------------------------------------
 elif menu_selection == "🔄 Pattern Spec Comparison":
-    import re  # Bổ sung thư viện re để tránh lỗi xử lý chuỗi ở hàm clean_garment_fraction
+    import re  # Khai báo thư viện biểu thức chính quy bắt buộc
     
     st.markdown('<div class="component-title-box">🔄 DIFFERENTIAL GEOMETRY & DELTA SPEC EVALUATOR</div>', unsafe_allow_html=True)
     
@@ -513,7 +513,7 @@ elif menu_selection == "🔄 Pattern Spec Comparison":
     with sc1: file1 = st.file_uploader("Chọn file mẫu Techpack Gốc (File A)", type=["pdf"], key="f1")
     with sc2: file2 = st.file_uploader("Chọn file mẫu Techpack Sửa đổi (File B)", type=["pdf"], key="f2")
     
-    # Kiểm tra và khởi tạo session_state nếu chưa có
+    # Khởi tạo kho lưu trữ session_state nếu chưa được định nghĩa
     if "processed_styles" not in st.session_state:
         st.session_state["processed_styles"] = {}
     
@@ -540,44 +540,39 @@ elif menu_selection == "🔄 Pattern Spec Comparison":
                 </div>
             """, unsafe_allow_html=True)
             
-                        def clean_garment_fraction(v_str):
+            # HÀM CHUYỂN ĐỔI CHUẨN: Đã vá lỗi mất chỉ mục và ép kiểu phân số dệt may
+            def clean_garment_fraction(v_str):
                 if not v_str or str(v_str).strip().upper() in ["N/A", "N/A INCH", ""]: 
                     return 0.0
-                
                 try:
-                    # Chuẩn hóa chuỗi: bỏ chữ INCH, viết thường, xóa khoảng trắng thừa ở 2 đầu
                     s = str(v_str).upper().replace("INCH", "").strip()
-                    
-                    # Trường hợp 1: Hỗn số có khoảng trắng ở giữa (Ví dụ: "2 3/4" hoặc "2  3/4")
-                    # Dùng regex chia tách để tránh lỗi nếu có nhiều hơn 1 khoảng trắng
                     parts = re.split(r'\s+', s)
+                    
+                    # 1. Định dạng hỗn số (Ví dụ: "2 3/4")
                     if len(parts) == 2 and '/' in parts[1]:
                         whole = float(parts[0])
                         frac_parts = parts[1].split('/')
                         return whole + (float(frac_parts[0]) / float(frac_parts[1]))
                     
-                    # Trường hợp 2: Chỉ có phân số đơn thuần (Ví dụ: "1/2")
+                    # 2. Định dạng phân số đơn thuần (Ví dụ: "1/2")
                     if '/' in s and len(parts) == 1:
                         frac_parts = s.split('/')
                         return float(frac_parts[0]) / float(frac_parts[1])
                     
-                    # Trường hợp 3: Số nguyên hoặc số thập phân đơn thuần (Ví dụ: "15" hoặc "15.5")
+                    # 3. Định dạng số thực hoặc số nguyên (Ví dụ: "15" hoặc "15.5")
                     return float(s)
-                    
                 except Exception:
-                    # Trường hợp khẩn cấp nếu chuỗi quá lạ, bóc tách toàn bộ số và phân số ẩn bên trong
                     try:
                         nums = re.findall(r"\d+", str(v_str))
-                        if len(nums) == 3: # Định dạng kiểu hỗn số dính nhau bất thường
+                        if len(nums) == 3:
                             return float(nums[0]) + (float(nums[1]) / float(nums[2]))
-                        elif len(nums) == 2 and '/' in str(v_str): # Phân số đơn
+                        elif len(nums) == 2 and '/' in str(v_str):
                             return float(nums[0]) / float(nums[1])
-                        elif len(nums) >= 1: # Số đơn độc lập
+                        elif len(nums) >= 1:
                             return float(nums[0])
                     except:
                         pass
                     return 0.0
-
 
             size_a = d1.get("base_size_name", "BASE").strip()
             size_b = d2.get("base_size_name", "BASE").strip()
@@ -594,6 +589,7 @@ elif menu_selection == "🔄 Pattern Spec Comparison":
                 num1 = clean_garment_fraction(val1)
                 num2 = clean_garment_fraction(val2)
                 
+                # Tính toán Delta chính xác sau khi đã chuẩn hóa về float
                 delta = round(num2 - num1, 3) if val1 != "N/A" and val2 != "N/A" else 0.0
                 compare_rows_for_df.append({"Vị trí đo (POM)": pom, col_title_a: val1, col_title_b: val2, "Sai lệch (Delta)": delta})
                 
@@ -613,7 +609,7 @@ elif menu_selection == "🔄 Pattern Spec Comparison":
                     <td style="padding: 10px 14px; border-bottom: 1px solid #E2E8F0; color: #334155; font-size: 13px;">{val2}</td>
                     <td style="padding: 10px 14px; border-bottom: 1px solid #E2E8F0; text-align: center;"><span style="{delta_style}">{delta_text}</span></td>
                 </tr>"""
-            
+            # Tạo chuỗi HTML hoàn thiện của bảng đối chiếu trực quan
             full_table_render = f"""
             <div style="max-height: 460px; overflow-y: auto; border: 1px solid #CBD5E1; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.02); margin-top: 15px;">
                 <table style="width: 100%; border-collapse: collapse; text-align: left; font-family: sans-serif;">
@@ -634,29 +630,30 @@ elif menu_selection == "🔄 Pattern Spec Comparison":
             st.markdown(full_table_render, unsafe_allow_html=True)
             st.markdown("<br>", unsafe_allow_html=True)
             
-            # ĐÃ VÁ LỖI CỤT: Hoàn thiện định dạng Excel nâng cao và sinh nút Download trực tiếp
+            # Xử lý xuất file dữ liệu Excel bằng XlsxWriter kết hợp căn lề đẹp mắt
             df_compare = pd.DataFrame(compare_rows_for_df)
             towrite = io.BytesIO()
             with pd.ExcelWriter(towrite, engine='xlsxwriter') as writer: 
                 df_compare.to_excel(writer, index=False, sheet_name='Spec_Report')
                 workbook  = writer.book
                 worksheet = writer.sheets['Spec_Report']
+                
                 header_format = workbook.add_format({'bold':True,'text_wrap':True,'fg_color':'#1E3A8A','font_color':'white','border':1,'align':'center','valign':'vcenter'})
                 center_format = workbook.add_format({'align':'center','valign':'vcenter','border':1})
                 left_format = workbook.add_format({'align':'left','valign':'vcenter','border':1})
                 
-                # Áp dụng header tùy chỉnh
+                # Ghi tiêu đề cột kèm định dạng màu sắc chuyên nghiệp
                 for col_num, column_title in enumerate(df_compare.columns):
                     worksheet.write(0, col_num, column_title, header_format)
                 
-                # Tự động căn chỉnh độ rộng cột Excel để không bị che khuất văn bản
+                # Tự động co giãn độ rộng cột dựa trên kích thước chữ để Excel không bị che khuất
                 for i, col in enumerate(df_compare.columns):
                     max_len = max(df_compare[col].astype(str).map(len).max(), len(col)) + 4
                     worksheet.set_column(i, i, max_len, left_format if i == 0 else center_format)
             
             towrite.seek(0)
             
-            # Xuất nút bấm Streamlit để tải trực tiếp file báo cáo
+            # Xuất nút bấm cho phép người dùng tải xuống tệp tin Excel kết quả
             st.download_button(
                 label="📥 Tải báo cáo đối chiếu Excel (.xlsx)",
                 data=towrite,
