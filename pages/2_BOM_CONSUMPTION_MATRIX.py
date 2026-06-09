@@ -413,17 +413,19 @@ if menu_selection == "📊 Upload Techpack":
                         try:
                             task_res = future.result()
                             if task_res.get("success") == True:
-                                                            # 🧠 ĐỒNG BỘ BIẾN ĐỘNG TOÀN DIỆN: Bốc trực tiếp nhị phân ảnh 'sketch_bytes' thực tế từ hàm core đẩy sang mã hóa Base64
+                                                               # 🧠 CẬP NHẬT CHÈN THEO THẺ ĐỊNH DANH ẢNH CHUẨN HTML5
                                 mock_data = {
                                     "style_number_parsed": task_res.get("style_id"),
                                     "buyer": task_res.get("buyer", "UNKNOWN BUYER"), 
                                     "category": task_res.get("category", "GARMENT"),
                                     "base_size_name": task_res.get("size"),
                                     "measurements": task_res.get("measurements", {}), 
-                                    "sketch_image": base64.b64encode(task_res["sketch_bytes"]).decode("utf-8") if task_res.get("sketch_bytes") else "", 
+                                    # Thêm chuỗi định dạng data:image/jpeg;base64, vào đầu để Streamlit đọc trực tiếp
+                                    "sketch_image": f"data:image/jpeg;base64,{base64.b64encode(task_res['sketch_bytes']).decode('utf-8')}" if task_res.get("sketch_bytes") else "", 
                                     "_raw_file_bytes": task_res["raw_bytes"] 
                                 }
                                 st.session_state["processed_styles"][f_name] = mock_data
+
 
 
 
@@ -479,9 +481,13 @@ if menu_selection == "📊 Upload Techpack":
                         st.markdown(table_html, unsafe_allow_html=True)
                     with sub_col2:
                         st.markdown("<p style='font-weight:700; font-size:12px; color:#1E293B;'>📐 GARMENT FLAT SKETCH</p>", unsafe_allow_html=True)
+                        # S SỬA DỨT ĐIỂM: Truyền thẳng chuỗi chữ đã có thẻ định danh, không dùng lệnh b64decode gây crash ẩn
+                                                # SỬA LẠI DÒNG 486 TRÊN GIAO DIỆN GITHUB CỦA BẠN:
                         if data.get("sketch_image"): 
-                            try:
-                                st.image(base64.b64decode(data["sketch_image"]), use_container_width=True)
+                            st.image(data["sketch_image"], use_container_width=True)
+
+
+                                
                             except Exception:
                                 st.info("Không thể dựng bản xem trước hình ảnh.")
                     st.markdown("<br><hr style='border-color:#E2E8F0;'><br>", unsafe_allow_html=True)
