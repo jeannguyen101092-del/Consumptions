@@ -751,7 +751,6 @@ if has_file:
                 page_img.convert("RGB").save(img_buf, format="JPEG", quality=75)
                 img_payload.append(types.Part.from_bytes(data=img_buf.getvalue(), mime_type='image/jpeg'))
             
-            # BỘ LỌC THỊ GIÁC NGHIÊM NGẶT: Ép AI bỏ qua trang BOM chữ, chỉ chọn trang bản vẽ lớn
             extraction_prompt = (
                 "Analyze all attached sheets page by page. "
                 "1. Locate the core 'Base Size' / 'Sample Size' (e.g., size 32 or size 34 or M). "
@@ -851,13 +850,17 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                             
                 if temp_matched:
                     st.session_state["matched_techpack"] = temp_matched
+                    # SỬA LỖI TRỐNG BẢNG BOM: Ép kiểu chuỗi string nguyên bản từ style_name tìm thấy trong kho
                     target_style_name = str(temp_matched.get("StyleName", "")).strip()
-                    core_match = re.search(r'\b[A-Z0-9]{5,12}\b', target_style_name)
+                    
+                    # Cắt chuỗi lấy mã chữ và số lõi sạch (Không bọc List) để truyền an toàn cho hàm quote
+                    core_match = re.search(r'\b[A-Z0-9]{5,12}\b', target_style_name.upper())
                     search_term = core_match.group(0) if core_match else target_style_name
                     
-                    url_san_pham = f"{base_sb_url}/rest/v1/san_pham?style_name=ilike.*{quote(search_term)}*&select=article_name,consumption_type,material_size,uom"
+                    url_san_pham = f"{base_sb_url}/rest/v1/san_pham?style_name=ilike.*{quote(str(search_term).strip())}*&select=style_name,article_name,consumption_type,material_size,uom"
                     res_sp = requests.get(url_san_pham, headers=headers, timeout=10)
-                    if res_sp.status_code == 200: st.session_state["bom_records"] = res_sp.json()
+                    if res_sp.status_code == 200: 
+                        st.session_state["bom_records"] = res_sp.json()
             except Exception: pass
     matched_techpack = st.session_state["matched_techpack"]
     bom_records = st.session_state["bom_records"]
@@ -877,7 +880,7 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
             main_fabrics = list(set([r.get("article_name") for r in bom_records if "MAIN" in str(r.get("consumption_type", "")).upper() if r.get("article_name")]))
             if main_fabrics: st.info(f"🧵 Mã vải chính của mã hàng gốc: **{', '.join(main_fabrics)}**")
         else:
-            st.warning(f"⚠️ Hệ thống đang tra cứu chéo... Nếu trống hãy kiểm tra cột style_name ứng với từ khóa '{dynamic_keyword}' trong bảng san_pham.")
+            st.warning(f"⚠️ Không tìm thấy dữ liệu phụ liệu cho biến thể mã hàng gốc `{dynamic_keyword}` trong bảng san_pham.")
 
         st.subheader("📊 Bảng Đối Soát Sai Lệch Thông Số Hình Học (Mẫu Gốc vs Mẫu Mới)")
         db_measurements = matched_techpack.get("DetailedMeasurements", {})
@@ -890,11 +893,12 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                 if pairs: specs_old = {k: v for k, v in pairs}
 
         if specs_old and new_style_measurements_dict:
+            # ✨ SỬA LỖI LỆCH HÀNG THÔNG SỐ: Thư viện đồng nghĩa phân tách nghiêm ngặt Vòng đo rập và Vị trí hạ mẫu
             pom_synonyms = {
                 "INSEAM": ["INSEAM", "INSEAM LENGTH", "DÀI GIÀNG", "GIÀNG QUẦN", "INNER SEAM"],
-                "WAIST CIRC - ALONG EDGE": ["WAIST CIRC - ALONG EDGE", "WAIST CIRC ALONG EDGE", "WAISTBAND EDGE", "EO TRÊN", "TOP OF WAISTBAND", "WAIST RELAXED", "VÒNG EO"],
+                "WAIST CIRC - ALONG EDGE": ["WAIST CIRC - ALONG EDGE", "WAIST CIRC ALONG EDGE", "WAISTBAND EDGE", "EO TRÊN", "TOP OF WAISTBAND", "WAIST RELAXED"],
                 "WAIST CIRC - ALONG SEAM": ["WAIST CIRC - ALONG SEAM", "WAIST CIRC ALONG SEAM", "WAISTBAND SEAM", "EO DƯỚI", "WAIST STRETCHED"],
-                "LOW HIP CIRC": ["LOW HIP CIRC", "HIP", "HIP CIRCUMFERENCE", "VÒNG MÔNG", "MÔNG", "LOW HIP CIRC - 3 POINT"],
+                "LOW HIP CIRC": ["LOW HIP CIRC", "HIP CIRCUMFERENCE", "VÒNG MÔNG", "MÔNG", "LOW HIP CIRC - 3 POINT", "HIP CIRCUMFERENCE"],
                 "THIGH CIRC": ["THIGH CIRC", "THIGH CIRC - 1\" BELOW CROTCH", "THIGH CIRC 1 BELOW CROTCH", "THIGH", "VÒNG ĐÙI", "THIGH CIRC 1\" BELOW"],
                 "OUTSEAM LENGTH": ["OUTSEAM LENGTH", "OUTSEAM", "DÀI QUẦN", "TOTAL LENGTH", "OUTSEAM INCL BAND", "DÀI VÁY", "SKIRT LENGTH"],
                 "CROTCH DEPTH": ["CROTCH DEPTH", "CROTCH DEPTH (OUTSEAM BTWB MINUS INSEAM)", "HẠ ĐÁY", "HẠ CẠP", "TOTAL CROTCH"],
@@ -906,21 +910,29 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                 "ARMHOLE CIRC": ["ARMHOLE", "ARMHOLE STRAIGHT", "ARMHOLE CURVED", "VÒNG NÁCH", "NÁCH"],
                 "BICEPS CIRC": ["BICEPS", "BICEPS CIRCUMFERENCE", "UPPER ARM WIDTH", "VÒNG BẮP TAY", "BẮP TAY"],
                 "CUFF OPENING": ["CUFF", "CUFF OPENING", "SLEEVE OPENING", "RỘNG ỐNG TAY", "BẢN CỬA TAY"],
-                "NECK WIDTH": ["NECK WIDTH", "NECK OPENING", "RỘNG CỔ", "VÒNG CỔ"]
+                "NECK WIDTH": ["NECK WIDTH", "NECK OPENING", "RỘNG CỔ", "VÒNG CỔ"],
+                "LOW HIP POSITION": ["LOW HIP POSITION FROM BELOW WB", "LOW HIP POSITION", "HIP PLACEMENT", "HẠ MÔNG"]
             }
             
             def find_standard_key(raw_key):
+                """Thuật toán ép khớp nghiêm ngặt phân tách rõ Vị trí hạ mẫu (Position) và Vòng đo (Circumference)"""
                 k_clean = str(raw_key).strip().upper().replace('"', '').replace("  ", " ")
+                
+                # Ưu tiên khớp chính xác 100% cụm từ kỹ thuật dệt may trước
                 for std_key, synonyms in pom_synonyms.items():
                     if k_clean in synonyms: return std_key
+                    
+                # Quy tắc kiểm tra điều kiện mờ nghiêm ngặt (Strict Substring Match)
+                if "LOW HIP POSITION" in k_clean or "HIP POSITION" in k_clean or "FROM BELOW WB" in k_clean: 
+                    return "LOW HIP POSITION"
+                if "HIP CIRC" in k_clean or "LOW HIP CIRC" in k_clean: 
+                    return "LOW HIP CIRC"
                 if "CHEST" in k_clean or "BUST" in k_clean: return "CHEST CIRC"
-                if "BODY LENGTH" in k_clean or "BACK LENGTH" in k_clean or ("LENGTH" in k_clean and "SHIRT" in k_clean): return "BODY LENGTH"
+                if "BODY LENGTH" in k_clean or "BACK LENGTH" in k_clean: return "BODY LENGTH"
                 if "SHOULDER" in k_clean: return "SHOULDER CROSS"
                 if "SLEEVE" in k_clean and "LENGTH" in k_clean: return "SLEEVE LENGTH"
                 if "ARMHOLE" in k_clean: return "ARMHOLE CIRC"
-                if "BICEPS" in k_clean: return "BICEPS CIRC"
                 if "CROTCH" in k_clean: return "CROTCH DEPTH"
-                if "HIP CIRC" in k_clean or "LOW HIP" in k_clean: return "LOW HIP CIRC"
                 if "WAIST" in k_clean and "EDGE" in k_clean: return "WAIST CIRC - ALONG EDGE"
                 if "WAIST" in k_clean and "SEAM" in k_clean: return "WAIST CIRC - ALONG SEAM"
                 if "THIGH" in k_clean: return "THIGH CIRC"
@@ -948,7 +960,7 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                         comparison_table.append({"Vị trí đo (POM)": original_old_key, "Thông số gốc (Kho)": f"{old_val}\"", "Thông số mới (Quét)": f"{new_val_str}\"", "Chênh lệch": f"{diff:+.3f}\"", "Tỷ lệ biến động": f"{pct_diff:+.1f}%"})
             if comparison_table:
                 st.table(comparison_table)
-                st.markdown(f"💡 **Đánh giá hệ thống:** Phom dáng mẫu mới biến động diện tích trung bình **{total_deviation_percentage / relevant_count:+.1f}%**" if relevant_count > 0 else "")
+                if relevant_count > 0: st.markdown(f"💡 **Đánh giá hệ thống:** Phom dáng mẫu mới biến động diện tích trung bình **{total_deviation_percentage / relevant_count:+.1f}%**")
         else:
             st.info("💡 Điền file để chạy đối soát.")
 
