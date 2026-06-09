@@ -621,45 +621,7 @@ elif menu_selection == "🔄 Pattern Spec Comparison":
                 use_container_width=True
             )
 
-  # =============================================================================
-# CHỨC NĂNG 3: TRỢ LÝ ĐỊNH MỨC VẢI (ISOLATED DATA PIPELINE & INTENT LAB - PHẦN 6A)
-# =============================================================================
-elif menu_selection == "🧵 BOM & Consumption Matrix":
-    st.markdown('<div class="component-title-box">🧵 INTELLIGENT BOM & CONSUMPTION MATRIX ENGINE</div>', unsafe_allow_html=True)
-    
-    # Khởi tạo các biến lưu trữ trạng thái đối soát trong bộ nhớ đệm màn hình chống xóa khi chat
-    if "matched_techpack" not in st.session_state:
-        st.session_state["matched_techpack"] = None
-    if "bom_records" not in st.session_state:
-        st.session_state["bom_records"] = []
-    if "consumption_chat_history" not in st.session_state:
-        st.session_state["consumption_chat_history"] = []
-
-    # Thiết lập giao diện điều khiển hàng ngang cố định chống tràn trang của bạn
-    control_col1, control_col2 = st.columns([3.3, 0.7])
-    with control_col1:
-        st.markdown("<p style='font-weight:700; font-size:12px; color:#1E293B;'>📁 INGEST NEW STYLE REPRINTS (PDF/IMAGE)</p>", unsafe_allow_html=True)
-        # ĐỒNG BỘ KEY: Đổi tên từ chat_file sang uploaded_file để khớp cấu trúc đọc file đính kèm của hệ thống
-        uploaded_file = st.file_uploader("Upload Techpack file", type=["pdf", "jpg", "jpeg", "png"], key="uploaded_file", label_visibility="collapsed")
-        if uploaded_file: 
-            st.success(f"📎 DATASTREAM PIPELINE BOUND: Tiếp nhận thành công file {uploaded_file.name}")
-            
-    with control_col2:
-        st.markdown("<p style='font-weight:700; font-size:12px; color:#1E293B;'>🧹 RESET CORE</p>", unsafe_allow_html=True)
-        if st.button("🗑️ PURGE CHAT CACHE", use_container_width=True, type="secondary"):
-            import time
-            # Xóa sạch toàn bộ bộ nhớ đệm hội thoại và dữ liệu khóa cứng màn hình khi người dùng kết thúc ca làm việc
-            if "chat_history" in st.session_state: del st.session_state["chat_history"]
-            if "consumption_chat_history" in st.session_state: st.session_state["consumption_chat_history"] = []
-            if "matched_techpack" in st.session_state: st.session_state["matched_techpack"] = None
-            if "bom_records" in st.session_state: st.session_state["bom_records"] = []
-            st.success("🔄 MEMORY CLEARED")
-            time.sleep(0.5)
-            st.rerun()
-
-    st.markdown("---")
-
-import io
+ import io
 import json
 import re
 import requests
@@ -842,7 +804,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
     codes_found = re.findall(r'\b[A-Z0-9]+-\d+[A-Z0-9-]*\b|\b[A-Z]*\d+[A-Z0-9]*\b', clean_text_upper)
     
     if codes_found:
-        dynamic_keyword = str(codes_found[0]).strip()
+        dynamic_keyword = str(codes_found).strip()
     else:
         pattern_remove = r"\b(TÌM|KIỂM TRA|XEM|CHECK|MÃ HÀNG|MÃ|VẢI|CODE|TRÍCH XUẤT|HÌNH ẢNH|TƯƠNG ĐỒNG|KHO|TRONG)\b"
         dynamic_keyword = re.sub(pattern_remove, "", clean_text_upper).strip()
@@ -858,50 +820,100 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
 
     base_sb_url = SB_URL.rstrip('/')
     headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
-    matched_techpack = None
-    bom_records = []
+# =============================================================================
+# CHỨC NĂNG 3: TRỢ LÝ ĐỊNH MỨC VẢI (ISOLATED DATA PIPELINE & INTENT LAB - PHẦN 6A)
+# =============================================================================
+elif menu_selection == "🧵 BOM & Consumption Matrix":
+    st.markdown('<div class="component-title-box">🧵 INTELLIGENT BOM & CONSUMPTION MATRIX ENGINE</div>', unsafe_allow_html=True)
+    
+    # Khởi tạo trạng thái bộ nhớ đệm màn hình (Chống mất dữ liệu khi Rerun Chat)
+    if "matched_techpack" not in st.session_state:
+        st.session_state["matched_techpack"] = None
+    if "bom_records" not in st.session_state:
+        st.session_state["bom_records"] = []
+    if "consumption_chat_history" not in st.session_state:
+        st.session_state["consumption_chat_history"] = []
 
+    # Thiết lập giao diện thanh điều khiển hàng ngang cố định của bạn
+    control_col1, control_col2 = st.columns([3.3, 0.7])
+    with control_col1:
+        st.markdown("<p style='font-weight:700; font-size:12px; color:#1E293B;'>📁 INGEST NEW STYLE REPRINTS (PDF/IMAGE)</p>", unsafe_allow_html=True)
+        uploaded_file = st.file_uploader("Upload Techpack file", type=["pdf", "jpg", "jpeg", "png"], key="uploaded_file", label_visibility="collapsed")
+        if uploaded_file: 
+            st.success(f"📎 DATASTREAM PIPELINE BOUND: Tiếp nhận thành công file {uploaded_file.name}")
+            
+    with control_col2:
+        st.markdown("<p style='font-weight:700; font-size:12px; color:#1E293B;'>🧹 RESET CORE</p>", unsafe_allow_html=True)
+        if st.button("🗑️ PURGE CHAT CACHE", use_container_width=True, type="secondary"):
+            import time
+            if "chat_history" in st.session_state: del st.session_state["chat_history"]
+            st.session_state["consumption_chat_history"] = []
+            st.session_state["matched_techpack"] = None
+            st.session_state["bom_records"] = []
+            st.success("🔄 MEMORY CLEARED")
+            time.sleep(0.5)
+            st.rerun()
+
+    st.markdown("---")
+    # LUỒNG THUẬT TOÁN QUÉT VÀ KHÓA DỮ LIỆU ĐỐI SOÁT TRONG BỘ NHỚ ĐỆM CỦA MENU
     if has_file and target_new_sketch_bytes:
-        with st.spinner("⚡ AI đang phân tích phom dáng vẽ phẳng và đối soát dữ liệu kho..."):
-            try:
-                vision_prompt = (
-                    "Analyze this technical flat sketch in detail. List all unique geometric attributes, "
-                    "silhouette, waistband type, front/back pockets layout, and panel shapes. "
-                    "Output a dense string of these visual characteristics for garment similarity matching."
-                )
-                vision_res = client.models.generate_content(
-                    model='gemini-2.5-flash', 
-                    contents=[types.Part.from_bytes(data=target_new_sketch_bytes, mime_type='image/jpeg'), vision_prompt]
-                )
-                query_description = vision_res.text.strip().lower() if vision_res.text else ""
-                
-                url_techpack = f"{base_sb_url}/rest/v1/thong_so_techpack?select=StyleName,Category,BaseSize,DetailedMeasurements,SketchURL"
-                res_tp = requests.get(url_techpack, headers=headers, timeout=10)
-                techpack_records = res_tp.json() if res_tp.status_code == 200 else []
-                
-                best_similarity_ratio = -1.0
-                
-                if query_description and techpack_records:
-                    query_keywords = set(re.findall(r'\b\w{3,15}\b', query_description))
-                    for row in techpack_records:
-                        db_text = str(row.get("DetailedMeasurements", "")).lower()
-                        db_keywords = set(re.findall(r'\b\w{3,15}\b', db_text))
-                        if db_keywords:
-                            intersection = query_keywords.intersection(db_keywords)
-                            union = query_keywords.union(db_keywords)
-                            ratio = float(len(intersection)) / float(len(union)) if union else 0
-                            if ratio > best_similarity_ratio:
-                                best_similarity_ratio = ratio
-                                matched_techpack = row
+        if st.session_state["matched_techpack"] is None:
+            with st.spinner("⚡ AI đang phân tích phom dáng vẽ phẳng và đối soát dữ liệu kho..."):
+                try:
+                    vision_prompt = (
+                        "Analyze this technical flat sketch in detail. List all unique geometric attributes, "
+                        "silhouette, waistband type, front/back pockets layout, and panel shapes. "
+                        "Output a dense string of these visual characteristics for garment similarity matching."
+                    )
+                    vision_res = client.models.generate_content(
+                        model='gemini-2.5-flash', 
+                        contents=[types.Part.from_bytes(data=target_new_sketch_bytes, mime_type='image/jpeg'), vision_prompt]
+                    )
+                    query_description = vision_res.text.strip().lower() if vision_res.text else ""
+                    
+                    url_techpack = f"{base_sb_url}/rest/v1/thong_so_techpack?select=StyleName,Category,BaseSize,DetailedMeasurements,SketchURL"
+                    res_tp = requests.get(url_techpack, headers=headers, timeout=10)
+                    techpack_records = res_tp.json() if res_tp.status_code == 200 else []
+                    
+                    best_similarity_ratio = -1.0
+                    temp_matched = None
+                    
+                    if query_description and techpack_records:
+                        query_keywords = set(re.findall(r'\b\w{3,15}\b', query_description))
+                        for row in techpack_records:
+                            db_text = str(row.get("DetailedMeasurements", "")).lower()
+                            db_keywords = set(re.findall(r'\b\w{3,15}\b', db_text))
+                            if db_keywords:
+                                intersection = query_keywords.intersection(db_keywords)
+                                union = query_keywords.union(db_keywords)
+                                ratio = float(len(intersection)) / float(len(union)) if union else 0
+                                if ratio > best_similarity_ratio:
+                                    best_similarity_ratio = ratio
+                                    temp_matched = row
 
-                if not matched_techpack or best_similarity_ratio < 0.10:
-                    for row in techpack_records:
-                        if str(row.get("StyleName", "")).strip().upper() == dynamic_keyword.upper():
-                            matched_techpack = row
-                            best_similarity_ratio = 1.0
-                            break
-            except Exception as e:
-                st.error(f"Lỗi cục bộ trong quá trình đối soát nâng cao: {str(e)}")
+                    if not temp_matched or best_similarity_ratio < 0.10:
+                        for row in techpack_records:
+                            if str(row.get("StyleName", "")).strip().upper() == dynamic_keyword.upper():
+                                temp_matched = row
+                                best_similarity_ratio = 1.0
+                                break
+                                
+                    if temp_matched:
+                        st.session_state["matched_techpack"] = temp_matched
+                        target_style_name = temp_matched.get("StyleName")
+                        core_code_list = re.findall(r'\b[A-Z0-9]{5,10}\b', target_style_name.strip())
+                        search_term = str(core_code_list[0]).strip() if core_code_list else str(target_style_name).strip()
+                        
+                        url_san_pham = f"{base_sb_url}/rest/v1/san_pham?style_name=ilike.*{quote(search_term)}*&select=article_name,consumption_type,material_size,uom"
+                        res_sp = requests.get(url_san_pham, headers=headers, timeout=10)
+                        if res_sp.status_code == 200:
+                            st.session_state["bom_records"] = res_sp.json()
+                except Exception as e:
+                    st.error(f"Lỗi cục bộ trong quá trình đối soát nâng cao: {str(e)}")
+    # HIỂN THỊ DỮ LIỆU ĐỘNG (ĐẢM BẢO GIỮ NGUYÊN VẸN MÀN HÌNH KHI CHAT)
+    matched_techpack = st.session_state["matched_techpack"]
+    bom_records = st.session_state["bom_records"]
+
     if matched_techpack:
         try:
             target_style_name = matched_techpack.get("StyleName")
@@ -918,21 +930,13 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     st.info("💡 Mã gốc trong bảng thong_so_techpack chưa được nạp ảnh SketchURL")
 
             st.subheader("📦 Chi Tiết Định Mức Nguyên Phụ Liệu Gốc trong kho (BOM)")
-            core_code_list = re.findall(r'\b[A-Z0-9]{5,10}\b', target_style_name.strip())
-            search_term = str(core_code_list[0]).strip() if core_code_list else str(target_style_name).strip()
-            
-            url_san_pham = f"{base_sb_url}/rest/v1/san_pham?style_name=ilike.*{quote(search_term)}*&select=article_name,consumption_type,material_size,uom"
-            res_sp = requests.get(url_san_pham, headers=headers, timeout=10)
-            bom_records = res_sp.json() if res_sp.status_code == 200 else []
-            
             if bom_records:
                 st.table(bom_records)
                 main_fabrics = list(set([r.get("article_name") for r in bom_records if "MAIN" in str(r.get("consumption_type", "")).upper() if r.get("article_name")]))
                 if main_fabrics:
                     st.info(f"🧵 Mã vải chính (Main Fabric) thực tế của kiểu dáng này: **{', '.join(main_fabrics)}**")
             else:
-                st.warning(f"⚠️ Không tìm thấy dữ liệu nguyên phụ liệu cho mã gốc hoặc các biến thể của `{search_term}` trong bảng `san_pham`.")
-
+                st.warning(f"⚠️ Không tìm thấy dữ liệu nguyên phụ liệu trong bảng `san_pham`.")
             st.subheader("📊 Bảng Đối Soát Sai Lệch Thông Số Hình Học (Mẫu Gốc vs Mẫu Mới)")
             db_measurements = matched_techpack.get("DetailedMeasurements", {})
             specs_old = {}
@@ -945,8 +949,6 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     specs_old = json.loads(db_measurements_str)
                 except Exception:
                     pairs = re.findall(r'"([^"\x00-\x1F]+)"\s*:\s*"([^"\x00-\x1F]*)"', db_measurements_str)
-                    if not pairs:
-                        pairs = re.findall(r"'([^']+)'\s*:\s*'([^']*)'", db_measurements_str)
                     if pairs:
                         specs_old = {str(k).strip(): str(v).strip() for k, v in pairs}
 
@@ -971,8 +973,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                 def find_standard_key(raw_key):
                     k_clean = str(raw_key).strip().upper().replace('"', '').replace("  ", " ")
                     for std_key, synonyms in pom_synonyms.items():
-                        if k_clean in synonyms:
-                            return std_key
+                        if k_clean in synonyms: return std_key
                     if "CROTCH DEPTH" in k_clean: return "CROTCH DEPTH"
                     if "LOW HIP POSITION" in k_clean or "HIP POSITION" in k_clean: return "LOW HIP POSITION"
                     if "HIP CIRC" in k_clean or "LOW HIP CIRC" in k_clean: return "LOW HIP CIRC"
@@ -1009,7 +1010,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                                 "Thông số mới (Quét)": f"{new_val_str}\"",
                                 "Chênh lệch": f"{diff:+.3f}\"",
                                 "Tỷ lệ biến động": f"{pct_diff:+.1f}%"
-                            })
+                              })
                 
                 if comparison_table:
                     st.table(comparison_table)
@@ -1017,27 +1018,12 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                         avg_deviation = total_deviation_percentage / relevant_count
                         st.markdown(f"💡 **Đánh giá hệ thống:** Phom dáng mẫu mới biến động diện tích trung bình **{avg_deviation:+.1f}%** so với mẫu gốc `{target_style_name}`.")
                 else:
-                    st.warning("⚠️ Không tìm thấy tên các vị trí đo (POM) tương thích giữa mẫu mới và mẫu gốc để làm bảng đối soát.")
+                    st.warning("⚠️ Không tìm thấy vị trí đo (POM) tương thích giữa mẫu mới và mẫu gốc.")
         except Exception as e:
             st.error(f"Lỗi cục bộ trong quá trình lập ma trận đối soát: {str(e)}")
-    else:
-        st.warning(f"🔍 Hệ thống không tìm thấy mã hàng tương đồng nào khớp với từ khóa `{dynamic_keyword}`.")
-    # =========================================================================
-    # CHỨC NĂNG CHAT ENGINE PHÂN TÍCH ĐỊNH MỨC NÂNG CAO (CHATGPT STYLE)
-    # =========================================================================
-    st.markdown("---")
+    # 5. GIAO DIỆN KHUNG CHAT PHÂN TÍCH LIÊN KẾT CHATGPT STYLE
     st.markdown("### 💬 PPJ TEXTILE AI COSTING ENGINE - LUỒNG CHAT PHÂN TÍCH ĐỊNH MỨC LIÊN KẾT")
     
-    if "consumption_chat_history" not in st.session_state:
-        st.session_state["consumption_chat_history"] = []
-
-    col_space, col_clear = st.columns([4, 1])
-    with col_clear:
-        if st.button("🗑️ XÓA LỊCH SỬ CHAT", key="clear_consumption_chat_btn", use_container_width=True, type="secondary"):
-            st.session_state["consumption_chat_history"] = []
-            st.success("♻️ Đã xóa lịch sử hội thoại. Quá trình phân tích mã hàng kết thúc!")
-            st.rerun()
-
     chat_container = st.container()
     with chat_container:
         for chat_block in st.session_state["consumption_chat_history"]:
@@ -1046,11 +1032,9 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
             with st.chat_message("assistant", avatar="🧵"):
                 st.write(chat_block["ai"])
 
-    if prompt_input := st.chat_input("Nhập lệnh tính toán định mức (Ví dụ: Tính định mức mã này với khổ vải 50 co rút ngang 4% dọc 4%)..."):
-        with chat_container:
-            with st.chat_message("user"):
-                st.write(prompt_input)
-                
+    if prompt_input := st.chat_input("Nhập lệnh tính toán định mức nâng cao...", key="matrix_consumption_chat_input"):
+        st.session_state["consumption_chat_history"].append({"user": prompt_input, "ai": "Đang tính toán..."})
+        
         with st.spinner("🧠 AI PPJ đang phân tích kết cấu rập và tính toán định mức cơ sở..."):
             ai_output_response = ai_consumption_analyst_engine(
                 client=client,
@@ -1060,8 +1044,6 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                 new_style_measurements=new_style_measurements_dict,
                 target_new_sketch_bytes=target_new_sketch_bytes
             )
+            st.session_state["consumption_chat_history"][-1]["ai"] = ai_output_response
             
-        with chat_container:
-            with st.chat_message("assistant", avatar="🧵"):
-                st.write(ai_output_response)
         st.rerun()
