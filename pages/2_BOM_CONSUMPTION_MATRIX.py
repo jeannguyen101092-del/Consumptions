@@ -897,18 +897,19 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
 
 
 
-                    # ==========================================
-                    # ĐOẠN 3: HIỂN THỊ GIAO DIỆN VÀ ĐỊNH MỨC AI
-                    # ==========================================
+                                        # =============================================================================
+                    # ĐOẠN 3: KẾT XUẤT HÌNH ẢNH SKETCH, BẢNG THÔNG SỐ VÀ TỰ TÍNH ĐỊNH MỨC ĐỘ CO ĐA CHIỀU
+                    # =============================================================================
                     db_sketch_url = None
                     db_measurements_raw = {}
                     current_style_name = ""
                     SUPABASE_PROJECT_URL = SB_URL.rstrip('/') if 'SB_URL' in locals() else "https://supabase.co" 
                     
+                    # Thiết lập giao diện so sánh song song 2 cột trực quan
                     img_col1, img_col2 = st.columns(2)
                     with img_col1:
                         if has_file and target_new_sketch_bytes:
-                            st.image(target_new_sketch_bytes, caption="🖼️ Ảnh rập kỹ thuật vừa tải lên", use_container_width=True)
+                            st.image(target_new_sketch_bytes, caption="🖼️ Ảnh rập kỹ thuật bạn vừa tải lên", use_container_width=True)
                     
                     with img_col2:
                         if techpack_records and len(techpack_records) > 0:
@@ -922,17 +923,18 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                                     except Exception: db_measurements_raw = {}
                             
                             if db_sketch_url and str(db_sketch_url).startswith("http"):
-                                st.image(db_sketch_url, caption=f"🎯 Ảnh đối chứng trong kho: {current_style_name}", use_container_width=True)
+                                st.image(db_sketch_url, caption=f"🎯 Ảnh Sketch đối chứng khớp trong kho: {current_style_name}", use_container_width=True)
                             elif current_style_name:
                                 constructed_url = f"{SUPABASE_PROJECT_URL}/storage/v1/object/public/kho_anh/{current_style_name}.jpg"
-                                st.image(constructed_url, caption=f"🎯 Ảnh đối chứng trong kho: {current_style_name}", use_container_width=True)
+                                st.image(constructed_url, caption=f"🎯 Ảnh Sketch đối chứng khớp trong kho: {current_style_name}", use_container_width=True)
                         else:
                             if dynamic_keyword and dynamic_keyword not in ["UNKNOWN", "UNKNOWN_STYLE"]:
                                 constructed_url = f"{SUPABASE_PROJECT_URL}/storage/v1/object/public/kho_anh/{dynamic_keyword}.jpg"
-                                st.image(constructed_url, caption=f"🔍 Thử tìm theo mã chuỗi: {dynamic_keyword}", use_container_width=True)
+                                st.image(constructed_url, caption=f"🔍 Thử tìm kiếm ảnh theo mã chuỗi: {dynamic_keyword}", use_container_width=True)
                             else:
-                                st.info("ℹ️ Không tìm thấy mẫu thiết kế tương đồng trong kho ảnh số hóa.")
+                                st.info("ℹ️ Không tìm thấy mẫu thiết kế đối chứng tương đồng trong kho ảnh.")
 
+                    # XỬ LÝ REGEX BÓC TÁCH THÔNG SỐ ĐỘ CO RÚT VÀ KHỔ VẢI TỪ CÂU LỆNH CHAT CỦA KHÁCH HÀNG
                     fabric_width_input = re.search(r'(?:KHỔ|KHO)\s*(\d+(?:\.\d+)?)', clean_text_upper)
                     shrink_ngang = re.search(r'(?:NGANG)\s*(\d+(?:\.\d+)?)\s*%', clean_text_upper)
                     shrink_doc = re.search(r'(?:DỌC|DOC)\s*(\d+(?:\.\d+)?)\s*%', clean_text_upper)
@@ -947,17 +949,19 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     col1, col2 = st.columns(2)
                     with col1:
                         st.markdown("**📋 Thông tin định mức vải gốc (Bảng san_pham):**")
+                        has_history_match = False
                         if fabric_records and isinstance(fabric_records, list):
-                            formatted_fabric = [{"Mã hàng": r.get("style_name"), "Mã vải (Article)": r.get("article_name"), "Loại vật tư": r.get("consumption_type"), "Khổ vải": r.get("material_size"), "Đơn vị": r.get("uom")} for r in fabric_records if isinstance(r, dict)]
+                            formatted_fabric = [{"Mã hàng": r.get("style_name"), "Mã vải (Article)": r.get("article_name"), "Loại vật tư": r.get("consumption_type"), "Khổ vải": r.get("material_size"), "Định mức gốc": r.get("consumption_value"), "Đơn vị": r.get("uom")} for r in fabric_records if isinstance(r, dict)]
                             if formatted_fabric:
                                 st.dataframe(formatted_fabric, use_container_width=True)
+                                has_history_match = True
                             else:
-                                st.warning("Không có dữ liệu vải.")
+                                st.warning("Không tìm thấy dữ liệu vải lịch sử của mã tương đồng.")
                         else:
-                            st.info("ℹ️ Tự động kích hoạt tính toán độc lập từ rập Techpack mới.")
+                            st.info("ℹ️ Tự động kích hoạt tính toán độc lập từ thông số hình học rập Techpack mới.")
                             
                     with col2:
-                        st.markdown("**📏 Thông số hình học thực tế (Bảng lưới phẳng):**")
+                        st.markdown("**📏 Thông số hình học thực tế (Bảng lưới phẳng đơn cỡ sạch):**")
                         display_specs = db_measurements_raw if (isinstance(db_measurements_raw, dict) and len(db_measurements_raw) > 0) else new_style_measurements_dict
                         if isinstance(display_specs, dict) and len(display_specs) > 0:
                             formatted_measurements = [{"Vị trí đo (POM)": k, "Thông số kỹ thuật thực tế": v} for k, v in display_specs.items()]
@@ -965,28 +969,54 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                         else:
                             st.info("Không tìm thấy thông số kỹ thuật gốc.")
 
+                    # BÁO CÁO PHÂN TÍCH ĐỊNH MỨC THEO QUY CHUẨN NGÀNH MAY (ĐỘ CO ĐA CHIỀU & KHỔ VẢI)
                     st.markdown("### 📐 Kết quả phân tích sơ đồ & Tính toán định mức vải")
+                    
+                    # Xác định trạng thái kết nối dữ liệu kho để chuyển vào Prompt điều hướng AI
+                    pipeline_mode = "HISTORY_BASED_PREDICTION" if has_history_match else "PURE_MARKER_CALCULATOR"
+
                     analysis_prompt = f"""
-                    You are an expert Apparel Costing & Marker Planning Engineer. Perform a strict fabric consumption calculation.
+                    You are an expert Apparel Costing & Marker Planning Engineer. Perform a strict fabric consumption analysis.
+                    
                     [PRODUCTION VARIABLES]
-                    - Usable Fabric Width: {user_width}
-                    - Fabric Shrinkage Weft (Ngang): {co_ngang}%
-                    - Fabric Shrinkage Warp (Dọc): {co_doc}%
+                    - Target Usable Fabric Width: {user_width}
+                    - Target Fabric Shrinkage Weft (Ngang): {co_ngang}%
+                    - Target Fabric Shrinkage Warp (Dọc): {co_doc}%
+                    
                     [SPECS DATA]
-                    - Current Style Measurements: {json.dumps(display_specs, ensure_ascii=False)}
-                    - Reference Records: {json.dumps(fabric_records, ensure_ascii=False)}
-                    [RULES]
-                    1. Warp shrinkage ({co_doc}%) must expand required length. Weft shrinkage ({co_ngang}%) impacts pattern layout efficiency inside width ({user_width}). Add 5% cutting wastage.
-                    2. Output step-by-step completely in Vietnamese. Make it technical and professional.
+                    - New Style Uploaded Measurements: {json.dumps(new_style_measurements_dict, ensure_ascii=False)}
+                    - Warehouse Match Techpack Specs (Mã tương đồng): {json.dumps(db_measurements_raw, ensure_ascii=False)}
+                    - Warehouse Match Fabric Records (Định mức + Khổ vải gốc): {json.dumps(fabric_records, ensure_ascii=False)}
+                    
+                    [CRITICAL EXECUTION MODE: {pipeline_mode}]
+                    
+                    RULE 1: IF MODE IS "HISTORY_BASED_PREDICTION" (CÓ MÃ TƯƠNG ĐỒNG TRONG KHO):
+                    - Do NOT calculate from scratch using marker equations.
+                    - Locate the "Định mức gốc" (consumption_value) and "Khổ vải" (material_size) of the matched style in Warehouse Match Fabric Records.
+                    - Compare the New Style Uploaded Measurements against the Warehouse Match Techpack Specs. Calculate the exact delta (chênh lệch) of major length points (e.g., Inseam, Outseam, Front/Back Rise).
+                    - Adjust the "Định mức gốc" proportionally based on this measurement delta, target fabric width ({user_width}), and target shrinkage (Warp: {co_doc}%, Weft: {co_ngang}%).
+                    - Clearly state: "Dự đoán định mức dựa trên mã tương đồng lịch sử [{current_style_name}]".
+                    
+                    RULE 2: IF MODE IS "PURE_MARKER_CALCULATOR" (KHÔNG TÌM THẤY MÃ TƯƠNG ĐỒNG):
+                    - Calculate the fabric net consumption per unit from scratch using standard apparel garment marker geometry based on the length points found in New Style Uploaded Measurements.
+                    - Warp shrinkage ({co_doc}%) expands required pattern length. Weft shrinkage ({co_ngang}%) impacts pattern layout packing efficiency inside target width ({user_width}). Add 5% cutting wastage.
+                    - Clearly state: "Tính toán độc lập theo quy ước hình học ngành may do không có mã tương đồng trong kho".
+
+                    [OUTPUT FORMAT]
+                    - Output step-by-step completely in Vietnamese. 
+                    - Keep it strictly technical, professional, precise and concise. Avoid verbose introductory or summary conversational chat.
                     """
                     
-                    with st.spinner("AI đang tính toán sơ đồ định mức và áp công thức co rút dệt may..."):
+                    with st.spinner("AI đang phân tích sơ đồ đối soát và lập công thức dự toán định mức..."):
                         final_payload = list(img_payload) if has_file else []
                         final_payload.append(analysis_prompt)
                         
-                        analysis_res = client.models.generate_content(model='gemini-2.5-flash', contents=final_payload)
-                        st.markdown(analysis_res.text)
-                        st.session_state["chat_history"].append({"role": "assistant", "type": "text", "content": analysis_res.text})
-                        
-                except Exception as master_err:
-                    st.error(f"Hệ thống lõi gặp lỗi: {str(master_err)}")
+                        try:
+                            analysis_res = client.models.generate_content(
+                                model='gemini-2.5-flash', 
+                                contents=final_payload,
+                            )
+                            st.markdown(analysis_res.text)
+                            st.session_state["chat_history"].append({"role": "assistant", "type": "text", "content": analysis_res.text})
+                        except Exception as e:
+                            st.error(f"Lỗi khi gửi yêu cầu phân tích sơ đồ tới Gemini: {str(e)}")
