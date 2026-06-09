@@ -727,7 +727,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
 
 # =============================================================================
                     # ==========================================
-                    # ĐOẠN 2: XỬ LÝ VECTOR VÀ TRUY VẤN KHO
+                    # ĐOẠN 2: XỬ LÝ VECTOR VÀ TRUY VẤN KHO (ĐÃ SỬA LỖI 404)
                     # ==========================================
                     base_sb_url = SB_URL.rstrip('/')
                     headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
@@ -748,9 +748,11 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                                 )
                                 visual_description = vision_res.text.strip() if vision_res.text else "technical garment layout specs"
 
+                                # SỬA LỖI 404: Ép cấu hình API phiên bản 'v1' cố định cho mô hình text-embedding-004
                                 embedding_res = client.models.embed_content(
                                     model='text-embedding-004',
-                                    contents=visual_description
+                                    contents=visual_description,
+                                    config=types.EmbedContentConfig(api_version='v1')
                                 )
                                 if embedding_res and embedding_res.embeddings:
                                     query_vector = np.array(embedding_res.embeddings.values, dtype=np.float32)
@@ -792,14 +794,20 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                                         except Exception:
                                             pass
 
+                    # CƠ CHẾ DỰ PHÒNG: Nếu so khớp toán học Vector thất bại, ép hệ thống tìm kiếm theo Mã hàng AI vừa bóc tách tự động
                     if matched_style_name:
                         final_search_key = matched_style_name.strip()
                         st.sidebar.success(f"🎯 Khớp ảnh Vector thành công: {final_search_key} ({round(best_similarity * 100, 1)}%)")
                     else:
-                        final_search_key = dynamic_keyword.strip().upper()
+                        # Thay vì lấy từ khóa text rỗng, ưu tiên lấy mã AI nhận diện được (Ví dụ trong ảnh là 1P001369)
+                        if new_style_id_detected and new_style_id_detected != "UNKNOWN_STYLE":
+                            final_search_key = new_style_id_detected.strip().upper()
+                        else:
+                            final_search_key = dynamic_keyword.strip().upper()
+                        st.sidebar.warning(f"⚠️ Không khớp được ảnh Vector. Chuyển sang tìm theo chuỗi mã: {final_search_key}")
 
                     def fetch_san_pham(key):
-                        if not key or key == "UNKNOWN": return []
+                        if not key or key in ["UNKNOWN", "UNKNOWN_STYLE"]: return []
                         try:
                             url = f"{base_sb_url}/rest/v1/san_pham"
                             safe_key = quote(f"*{key}*")
@@ -809,7 +817,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                         except Exception: return []
 
                     def fetch_techpack(key):
-                        if not key or key == "UNKNOWN": return []
+                        if not key or key in ["UNKNOWN", "UNKNOWN_STYLE"]: return []
                         try:
                             url = f"{base_sb_url}/rest/v1/thong_so_techpack"
                             params = {"select": "*", "StyleName": f"ilike.*{key}*"}
@@ -822,6 +830,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                         future_tp = executor.submit(fetch_techpack, final_search_key)
                         fabric_records = future_sp.result()
                         techpack_records = future_tp.result()
+
                     # ==========================================
                     # ĐOẠN 3: HIỂN THỊ GIAO DIỆN VÀ ĐỊNH MỨC AI
                     # ==========================================
