@@ -621,43 +621,44 @@ elif menu_selection == "🔄 Pattern Spec Comparison":
                 use_container_width=True
             )
 
-   # =============================================================================
+  # =============================================================================
 # CHỨC NĂNG 3: TRỢ LÝ ĐỊNH MỨC VẢI (ISOLATED DATA PIPELINE & INTENT LAB - PHẦN 6A)
 # =============================================================================
 elif menu_selection == "🧵 BOM & Consumption Matrix":
     st.markdown('<div class="component-title-box">🧵 INTELLIGENT BOM & CONSUMPTION MATRIX ENGINE</div>', unsafe_allow_html=True)
     
-    # Thiết lập giao diện điều khiển hàng ngang cố định chống tràn trang
+    # Khởi tạo các biến lưu trữ trạng thái đối soát trong bộ nhớ đệm màn hình chống xóa khi chat
+    if "matched_techpack" not in st.session_state:
+        st.session_state["matched_techpack"] = None
+    if "bom_records" not in st.session_state:
+        st.session_state["bom_records"] = []
+    if "consumption_chat_history" not in st.session_state:
+        st.session_state["consumption_chat_history"] = []
+
+    # Thiết lập giao diện điều khiển hàng ngang cố định chống tràn trang của bạn
     control_col1, control_col2 = st.columns([3.3, 0.7])
     with control_col1:
         st.markdown("<p style='font-weight:700; font-size:12px; color:#1E293B;'>📁 INGEST NEW STYLE REPRINTS (PDF/IMAGE)</p>", unsafe_allow_html=True)
-        chat_file = st.file_uploader("Upload Techpack file", type=["pdf", "jpg", "jpeg", "png"], key="chat_uploader", label_visibility="collapsed")
-        if chat_file: 
-            st.success(f"📎 DATASTREAM PIPELINE BOUND: Tiếp nhận thành công file {chat_file.name}")
+        # ĐỒNG BỘ KEY: Đổi tên từ chat_file sang uploaded_file để khớp cấu trúc đọc file đính kèm của hệ thống
+        uploaded_file = st.file_uploader("Upload Techpack file", type=["pdf", "jpg", "jpeg", "png"], key="uploaded_file", label_visibility="collapsed")
+        if uploaded_file: 
+            st.success(f"📎 DATASTREAM PIPELINE BOUND: Tiếp nhận thành công file {uploaded_file.name}")
             
     with control_col2:
         st.markdown("<p style='font-weight:700; font-size:12px; color:#1E293B;'>🧹 RESET CORE</p>", unsafe_allow_html=True)
         if st.button("🗑️ PURGE CHAT CACHE", use_container_width=True, type="secondary"):
             import time
-            if "chat_history" in st.session_state: 
-                del st.session_state["chat_history"]
+            # Xóa sạch toàn bộ bộ nhớ đệm hội thoại và dữ liệu khóa cứng màn hình khi người dùng kết thúc ca làm việc
+            if "chat_history" in st.session_state: del st.session_state["chat_history"]
+            if "consumption_chat_history" in st.session_state: st.session_state["consumption_chat_history"] = []
+            if "matched_techpack" in st.session_state: st.session_state["matched_techpack"] = None
+            if "bom_records" in st.session_state: st.session_state["bom_records"] = []
             st.success("🔄 MEMORY CLEARED")
             time.sleep(0.5)
             st.rerun()
 
     st.markdown("---")
-    
-    # Khởi tạo mảng lưu lịch sử hội thoại chuẩn hóa
-    if "chat_history" not in st.session_state:
-        st.session_state["chat_history"] = [
-            {"role": "assistant", "type": "text", "content": "Welcome to PPJ Textile Visual R&D Engine. Hãy tải lên sơ đồ rập/Techpack mã mới và ra lệnh. Tôi sẽ tìm chính xác mã tương đồng, xuất ảnh Sketch và tính định mức vải/phụ liệu theo đúng yêu cầu, không trả lời lan man."}
-        ]
-        
-    for msg in st.session_state["chat_history"]:
-        with st.chat_message(msg["role"]): 
-            st.write(msg["content"])
-            if msg.get("type") == "visual" and msg.get("image_url"):
-                st.image(msg["image_url"], caption=f"Bản vẽ Sketch lịch sử đối chiếu mã {msg.get('style_title')}", width=220)
+
 import io
 import json
 import re
