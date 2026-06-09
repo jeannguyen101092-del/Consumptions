@@ -427,26 +427,24 @@ if menu_selection == "📊 Upload Techpack":
     if uploaded_files:
         files_to_render = []
         
-        # Tạo danh sách các file thực sự cần bóc tách (chưa có trong bộ nhớ tạm session_state)
+        # Thống kê danh sách file chưa được số hóa đưa vào hàng đợi
         files_need_processing = [f for f in uploaded_files if f.name not in st.session_state["processed_styles"]]
         
-        # ⚡ CẢI TIẾN TỐC ĐỘ: Nếu có file mới, kích hoạt nút bấm số hóa và chạy đa luồng song song thay vì chạy tự động ngay lập tức
         if files_need_processing:
             if st.button(f"🚀 KÍCH HOẠT SỐ HÓA ĐA LUỒNG SONG SONG ({len(files_need_processing)} FILE MỚI)", use_container_width=True, type="primary"):
                 status_text = st.empty()
                 progress_bar = st.progress(0)
                 total_new_files = len(files_need_processing)
                 
-                # Hàm đóng gói công việc độc lập cho từng luồng máy chủ
                 def thread_worker(file_obj):
                     try:
-                        # Gọi hàm xử lý đơn lẻ đã được hạ DPI và nén chất lượng ở lượt trước
+                        # Thực hiện đọc và trích xuất thông số kỹ thuật đơn lẻ sạch
                         res = process_single_pdf_batch(file_obj.getvalue(), file_obj.name)
+                        # Trả kết quả về bộ nhớ tạm để hiển thị trước, CHƯA bấm lưu vào database ở bước này
                         return {"file_name": file_obj.name, "success": res.get("success", False), "data": res.get("data", None), "error": res.get("error", None)}
                     except Exception as e:
                         return {"file_name": file_obj.name, "success": False, "data": None, "error": str(e)}
 
-                # Bật cấu hình thực thi song song tối đa 4 tệp cùng lúc để chống nghẽn mạng internet
                 with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
                     future_to_file = {executor.submit(thread_worker, f): f.name for f in files_need_processing}
                     
@@ -454,30 +452,43 @@ if menu_selection == "📊 Upload Techpack":
                         f_name = future_to_file[future]
                         try:
                             task_res = future.result()
-                            if task_res["success"] and task_res["data"]:
+                            if task_res["data"]:
+                                # Nạp dữ liệu vào bộ nhớ đệm màn hình
                                 st.session_state["processed_styles"][f_name] = task_res["data"]
                             else:
                                 st.error(f"FAIL ENGINE [{f_name}]: {task_res['error']}")
                         except Exception as exc:
                             st.error(f"CRITICAL CRASH [{f_name}]: {str(exc)}")
                         
-                        # Cập nhật thanh tiến trình thời gian thực trực quan lên màn hình
                         completed = idx + 1
                         progress_bar.progress(completed / total_new_files)
-                        status_text.text(f"⚡ Core AI đang xử lý song song: {completed}/{total_new_files} tệp ({f_name})...")
+                        status_text.text(f"⚡ Core AI đang xử lý: {completed}/{total_new_files} tệp ({f_name})...")
                 
                 status_text.empty()
                 progress_bar.empty()
-                st.success("🎉 PIPELINE: Tiến trình bóc tách và tự động nạp Supabase Master DB hoàn tất!")
+                st.success("🎉 Số hóa dữ liệu thành công! Hãy kiểm tra bảng thông số bên dưới trước khi bấm lưu.")
 
-        # Gom danh sách toàn bộ các file đã xử lý xong để chuẩn bị đổ giao diện Card
+        # Gom toàn bộ file đã hiển thị thành công lên giao diện màn hình
         for file in uploaded_files:
             if file.name in st.session_state["processed_styles"]:
                 files_to_render.append(file.name)
 
         if files_to_render:
-            st.markdown("### 📋 KẾT QUẢ SỐ HÓA HÌNH HỌC VÀ THÔNG SỐ SẢN XUẤT")
+            st.markdown("<br>", unsafe_allow_html=True)
+            
+            # 🎯 HIỂN THỊ NÚT LƯU THỦ CÔNG THEO YÊU CẦU CỦA BẠN TẠI ĐÂY
+            if st.button("💾 LƯU TOÀN BỘ DỮ LIỆU ĐÃ SỐ HÓA VÀO MASTER DB", key="bulk_save_all_btn", type="primary", use_container_width=True):
+                success_count = 0
+                with st.spinner("Đang đồng bộ cổng dữ liệu nhị phân hàng loạt lên Supabase Cloud..."):
+                    for f_name in files_to_render:
+                        style_data = st.session_state["processed_styles"][f_name]
+                        # Gọi hàm đẩy trực tiếp cục dữ liệu sạch lên database
+                        if save_to_supabase_techpack_table(style_data): 
+                            success_count += 1
+                st.success(f"🎉 PATTERN DATA PIPELINE: Đã ghi nhận và lưu trữ thành công {success_count}/{len(files_to_render)} mã hàng vào Database!")
+            
             st.markdown("---")
+            st.markdown("### 📋 KẾT QUẢ SỐ HÓA HÌNH HỌC VÀ THÔNG SỐ SẢN XUẤT")
 
             cols = st.columns(2)
             for idx, f_name in enumerate(files_to_render):
@@ -507,6 +518,7 @@ if menu_selection == "📊 Upload Techpack":
                     st.markdown("<br><hr style='border-color:#E2E8F0;'><br>", unsafe_allow_html=True)
     else:
         st.markdown('<div class="idle-alert-box">⚠️ INITIALIZATION SYSTEM IDLE: Hiện tại chưa có tệp dữ liệu Techpack nào được nạp vào hệ thống để AI khởi chạy mô hình.</div>', unsafe_allow_html=True)
+
 
 
 # -----------------------------------------------------------------------------
