@@ -882,8 +882,8 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                         st.session_state["bom_records"] = res_sp.json()
             except Exception: pass
         # LẤY DỮ LIỆU TỪ BỘ NHỚ KHÓA ĐỂ HIỂN THỊ LÊN MÀN HÌNH
-       matched_techpack = st.session_state["matched_techpack"]
-       bom_records = st.session_state["bom_records"]
+    matched_techpack = st.session_state["matched_techpack"]
+    bom_records = st.session_state["bom_records"]
 
     if matched_techpack:
         target_style_name = matched_techpack.get("StyleName")
