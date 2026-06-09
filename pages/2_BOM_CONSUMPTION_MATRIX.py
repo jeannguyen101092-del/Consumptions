@@ -690,27 +690,19 @@ except ImportError:
     pass
 
 if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vải và đối soát sai lệch..."):
-        # Khởi tạo bộ nhớ đệm State cố định để giữ tệp tin không bị xóa khi người dùng gửi lệnh chat
-    if "cached_file_bytes" not in st.session_state:
-        st.session_state["cached_file_bytes"] = None
-    if "cached_file_name" not in st.session_state:
-        st.session_state["cached_file_name"] = ""
-
-    # Ghi nhận dữ liệu file từ uploader hệ thống vào bộ nhớ State ngay khi phát hiện có tệp tải lên
-    if 'chat_file' in locals() or 'chat_file' in globals():
-        if chat_file is not None:
-            st.session_state["cached_file_bytes"] = chat_file.getvalue()
-            st.session_state["cached_file_name"] = chat_file.name
-    elif 'uploaded_file' in st.session_state:
-        if st.session_state['uploaded_file'] is not None:
-            st.session_state["cached_file_bytes"] = st.session_state['uploaded_file'].getvalue()
-            st.session_state["cached_file_name"] = st.session_state['uploaded_file'].name
-
+    target_file_object = None
+    if 'chat_file' in locals() and chat_file is not None:
+        target_file_object = chat_file
+    elif 'chat_file' in globals() and globals()['chat_file'] is not None:
+        target_file_object = globals()['chat_file']
+    elif 'uploaded_file' in st.session_state and st.session_state['uploaded_file'] is not None:
+        target_file_object = st.session_state['uploaded_file']
+    elif 'chat_file' in st.session_state and st.session_state['chat_file'] is not None:
+        target_file_object = st.session_state['chat_file']
     gemini_key = get_secure_gemini_key()
     if not gemini_key:
         st.error("AI API Token is missing.")
         st.stop()
-        
     client = genai.Client(api_key=gemini_key, http_options=types.HttpOptions(api_version='v1'))
     new_style_id_detected = "UNKNOWN_STYLE"
     new_style_category_detected = ""
@@ -718,15 +710,10 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
     new_style_measurements_dict = {}
     img_payload = [] 
     target_new_sketch_bytes = None 
-    
-    # Xác định trạng thái tệp tin từ bộ nhớ đệm
-    has_file = st.session_state["cached_file_bytes"] is not None
-    
-    # Luồng AI bóc tách thông số kỹ thuật (POM) từ tệp tin đã lưu trạng thái cố định
+    has_file = target_file_object is not None
     if has_file:
-        file_bytes = st.session_state["cached_file_bytes"]
-        file_name = st.session_state["cached_file_name"]
-        
+        file_bytes = target_file_object.getvalue()
+        file_name = target_file_object.name
         if file_name.lower().endswith('.pdf'):
             info_chat = pdfinfo_from_bytes(file_bytes)
             total_chat_pages = int(info_chat.get("Pages", 1))
@@ -738,8 +725,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
         else:
             target_new_sketch_bytes = file_bytes
             img_payload.append(types.Part.from_bytes(data=file_bytes, mime_type='image/jpeg'))
-            
-        extraction_prompt = "Analyze all sheets page by page. Find the designated 'Base Size' / 'Sample Size'. Extract the points of measurement (POM) and their target values for THIS BASE SIZE ONLY. Format each value as a clean single number or string (e.g., '33', '11 1/2'). Also find 'Style ID' and 'Category'. Identify the 0-based index of the black and white technical flat design sketch page. Return valid JSON only: {\"detected_style_id\": \"string\", \"category\": \"string\", \"fabric_code\": \"string\", \"measurements\": {}, \"sketch_page_index_detected\": 0}"
+        extraction_prompt = "Analyze all sheets page by page. Find the designated 'Base Size' / 'Sample Size'. Extract all points of measurement (POM) and their corresponding target specs for THIS BASE SIZE ONLY. Do not extract multiple sizes. Also find 'Style ID' and 'Category'. Identify the 0-based index of the black and white technical flat design sketch page. Return valid JSON only: {\"detected_style_id\": \"string\", \"category\": \"string\", \"fabric_code\": \"string\", \"measurements\": {}, \"sketch_page_index_detected\": 0}"
         extraction_payload = list(img_payload)
         extraction_payload.append(extraction_prompt)
         try:
@@ -749,26 +735,13 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
             new_style_category_detected = parsed_meta.get("category", "").strip()
             new_style_fabric_detected = parsed_meta.get("fabric_code", "UNKNOWN_FABRIC").strip()
             new_style_measurements_dict = parsed_meta.get("measurements", {})
-            
-            # Tự động gạn lọc làm sạch chuỗi đa kích cỡ (Grading Sheet) nếu AI trích xuất nhầm dải size
-            clean_measurements = {}
-            if isinstance(new_style_measurements_dict, dict):
-                for pom, val in new_style_measurements_dict.items():
-                    if isinstance(val, dict):
-                        # Ưu tiên bốc tách riêng cột dữ liệu của size mẫu 32
-                        clean_measurements[pom] = str(val.get("32", val.get("32/32", list(val.values())[0])))
-                    else:
-                        clean_measurements[pom] = str(val)
-                new_style_measurements_dict = clean_measurements
-                
             detected_idx = int(parsed_meta.get("sketch_page_index_detected", 0))
             if file_name.lower().endswith('.pdf') and 0 <= detected_idx < len(chat_images):
                 b_buf = io.BytesIO()
                 chat_images[detected_idx].convert("RGB").save(b_buf, format="JPEG")
                 target_new_sketch_bytes = b_buf.getvalue()
-        except Exception:
-            pass
-            
+        except Exception as e:
+            st.sidebar.error(f"Lỗi AI trích xuất: {str(e)}")
     clean_text_upper = str(user_query).strip().upper()
     is_searching_fabric = any(word in clean_text_upper for word in ["CODE VẢI", "MÃ VẢI", "LOẠI VẢI", "TÌM VẢI"])
     codes_found = re.findall(r'\b[A-Z]*\d+[A-Z0-9]*\b|\b[A-Z0-9]+-\d+[A-Z0-9-]*\b', clean_text_upper)
@@ -787,7 +760,6 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
     else:
         dynamic_keyword = clean_query if clean_query else "UNKNOWN"
     dynamic_keyword = re.sub(r"[\[\]'\"*?%#&]", "", dynamic_keyword).strip()
-
     base_sb_url = SB_URL.rstrip('/')
     headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
     matched_style_name = None
