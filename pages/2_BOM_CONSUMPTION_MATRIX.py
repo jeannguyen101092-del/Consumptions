@@ -606,6 +606,19 @@ try:
     from pdf2image import convert_from_bytes, pdfinfo_from_bytes
 except ImportError:
     pass
+# --- KHỞI TẠO ĐỊNH NGHĨA BIẾN MẶC ĐỊNH ĐỂ TRÁNH LỖI NAMEERROR KHI CHƯA SUBMIT CHAT ---
+if "has_file" not in locals() and "has_file" not in globals():
+    has_file = False
+if "target_new_sketch_bytes" not in locals() and "target_new_sketch_bytes" not in globals():
+    target_new_sketch_bytes = None
+if "dynamic_keyword" not in locals() and "dynamic_keyword" not in globals():
+    dynamic_keyword = "UNKNOWN"
+if "final_search_key" not in locals() and "final_search_key" not in globals():
+    final_search_key = "UNKNOWN"
+
+# --- LUỒNG XỬ LÝ CHÍNH CỦA BẠN SẼ NẰM NGAY PHÍA DƯỚI NÀY ---
+if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vải và đối soát sai lệch..."):
+    # (Giữ nguyên toàn bộ code logic của Đoạn 1, Đoạn 2 và Đoạn 3 ở phía trong này)
 
 if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vải và đối soát sai lệch..."):
     st.session_state["chat_history"].append({"role": "user", "type": "text", "content": user_query})
