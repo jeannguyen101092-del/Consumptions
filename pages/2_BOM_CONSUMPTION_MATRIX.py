@@ -635,7 +635,7 @@ try:
 except ImportError:
     pass
 
-# HÀM QUY ĐỔI PHÂN SỐ NGÀNH MAY (Ví dụ: "1 1/8 inches" -> 1.125)
+# HÀM GIẢI MÃ PHÂN SỐ MAY MẶC SẠCH (Ví dụ: "1 1/8 inches" -> 1.125)
 def parse_fraction(val_str):
     if not val_str: 
         return 0.0
@@ -645,11 +645,11 @@ def parse_fraction(val_str):
         if ' ' in val_str:
             parts = [p for p in val_str.split(' ') if p.strip()]
             if len(parts) >= 2:
-                whole = float(parts[0])
-                frac = parts[1]
+                whole = float(parts)
+                frac = parts
             else:
                 whole = 0.0
-                frac = parts[0]
+                frac = parts
         else:
             whole = 0.0
             frac = val_str
@@ -661,8 +661,8 @@ def parse_fraction(val_str):
     except Exception:
         return 0.0
 
-# BỘ NÃO CHAT PHÂN TÍCH ĐỊNH MỨC LIÊN KẾT THEO NGỮ CẢNH (CHATGPT STYLE)
-def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_records, new_style_measurements, target_new_sketch_bytes):
+# BỘ NÃO CHAT PHÂN TÍCH ĐỊNH MỨC THEO 3 KỊCH BẢN LIÊN KẾT LIÊN TỤC (CHATGPT STYLE)
+def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_records, new_style_measurements, target_new_sketch_bytes, detected_size):
     style_old_name = matched_techpack.get("StyleName", "N/A") if matched_techpack else "N/A"
     specs_old = matched_techpack.get("DetailedMeasurements", {}) if matched_techpack else {}
     
@@ -674,9 +674,9 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
     shrinkage_length = re.findall(r'(?:CO RÚT DỌC|DỌC)\s*(\d+(?:\.\d+)?)\s*%', user_message.upper())
     new_fabric_width = re.findall(r'(?:KHỔ VẢI|KHỔ)\s*(\d+)\s*(?:\"|INCH|INCHES)?', user_message.upper())
 
-    w_shrink = float(shrinkage_width[0]) if shrinkage_width else 0.0
-    l_shrink = float(shrinkage_length[0]) if shrinkage_length else 0.0
-    f_width = float(new_fabric_width[0]) if new_fabric_width else 0.0
+    w_shrink = float(shrinkage_width) if shrinkage_width else 0.0
+    l_shrink = float(shrinkage_length) if shrinkage_length else 0.0
+    f_width = float(new_fabric_width) if new_fabric_width else 0.0
 
     system_instruction = f"""
     You are an expert Garment Engineer and Techpack Costing Analyst at PPJ Group.
@@ -687,6 +687,7 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
        - Old Spec (POM): {json.dumps(specs_old)}
        - Old BOM database: {bom_summary}
     2. NEW STYLE TECHPACK DATA (Mã mới tải lên):
+       - Target Base Size detected: Size {detected_size}
        - New Spec (POM) parsed by vision: {json.dumps(new_style_measurements)}
     3. USER INPUT FABRIC CHANGES:
        - Fabric Width requested: {f_width if f_width > 0 else 'Keep database standard'}
@@ -695,10 +696,10 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
        
     EXECUTION LOGIC BASED ON 3 SCENARIOS:
     - SCENARIO 1 (Mã tương đồng + Thông tin co rút vải): Calculate based on the old consumption value found in database. Apply Shrinkage multiplier: New Consumption = Old Consumption * (1 + Length Shrinkage%) * (1 + Width Shrinkage%).
-    - SCENARIO 2 (Mã tương đồng nhưng KHÔNG thêm thông tin phụ): Only compare geometric variations (Inseam, Waist, Hip, Outseam Length) between Old Spec and New Spec to adjust consumption proportionally.
-    - SCENARIO 3 (Mã hoàn toàn MỚI): Perform pure Geometric Surface Area Estimation using Flat Sketch and New Spec (POM) + Seam allowances + Waste factor (5-8%).
+    - SCENARIO 2 (Mã tương đồng nhưng KHÔNG thêm thông tin phụ): Only compare geometric variations (Inseam, Waist, Hip, Outseam Length, Chest, Body length) between Old Spec and New Spec to adjust consumption proportionally. Assume fabric width/type are 100% IDENTICAL to old style.
+    - SCENARIO 3 (Mã hoàn toàn MỚI - Không có mã tương đồng): Perform pure Geometric Surface Area Estimation task using the attached Flat Sketch Image and the New Spec (POM). Estimate layout blocking area + Seam allowances + Waste factor (5-8%) to yield the initial consumption rate.
     
-    OUTPUT REQUIREMENT: Answer directly in Vietnamese like ChatGPT with clear mathematical steps and final metric values.
+    OUTPUT REQUIREMENT: Answer directly, professionally in Vietnamese like ChatGPT with clear mathematical steps and final metric values. Keep it highly scannable. Do not reply generically.
     """
 
     chat_contents = [types.Part.from_text(text=system_instruction)]
@@ -717,7 +718,7 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
         return ai_reply
     except Exception as e:
         return f"🚨 Lỗi cổng kết nối phân tích định mức: {str(e)}"
-def render_bom_consumption_matrix_page(client, has_file, target_new_sketch_bytes, dynamic_keyword, new_style_measurements_dict, base_sb_url, headers):
+def render_bom_consumption_matrix_page(client, has_file, target_new_sketch_bytes, dynamic_keyword, new_style_measurements_dict, base_sb_url, headers, detected_size, style_id_extracted):
     st.markdown('<div class="component-title-box">🧵 INTELLIGENT BOM & CONSUMPTION MATRIX ENGINE</div>', unsafe_allow_html=True)
     
     if "matched_techpack" not in st.session_state: st.session_state["matched_techpack"] = None
@@ -738,6 +739,12 @@ def render_bom_consumption_matrix_page(client, has_file, target_new_sketch_bytes
             st.rerun()
 
     st.markdown("---")
+
+    # HIỂN THỊ RÕ RÀNG SIZE MẪU ĐANG ĐỐI SOÁT
+    if detected_size and detected_size != "32":
+        st.info(f"📋 **CƠ SỞ ĐỐI SOÁT KIỂM TRA:** Mẫu mới số hóa mã hàng `{style_id_extracted}` | Quy chuẩn kích thước hình học rập mẫu: **SIZE {detected_size}**")
+    else:
+        st.info(f"📋 **CƠ SỞ ĐỐI SOÁT KIỂM TRA:** Đang áp dụng quy chuẩn kích thước hình học rập mẫu cơ sở: **SIZE 32 / M (Mặc định)**")
 
     if has_file and target_new_sketch_bytes and st.session_state["matched_techpack"] is None:
         with st.spinner("⚡ AI đang phân tích phom dáng vẽ phẳng và đối soát dữ liệu kho..."):
@@ -776,13 +783,12 @@ def render_bom_consumption_matrix_page(client, has_file, target_new_sketch_bytes
                     st.session_state["matched_techpack"] = temp_matched
                     target_style_name = temp_matched.get("StyleName")
                     core_code_list = re.findall(r'\b[A-Z0-9]{5,10}\b', target_style_name.strip())
-                    search_term = core_code_list[0] if core_code_list else target_style_name.strip()
+                    search_term = core_code_list if core_code_list else target_style_name.strip()
                     
                     url_san_pham = f"{base_sb_url}/rest/v1/san_pham?style_name=ilike.*{quote(search_term)}*&select=article_name,consumption_type,material_size,uom"
                     res_sp = requests.get(url_san_pham, headers=headers, timeout=10)
                     if res_sp.status_code == 200: st.session_state["bom_records"] = res_sp.json()
             except Exception: pass
-
     matched_techpack = st.session_state["matched_techpack"]
     bom_records = st.session_state["bom_records"]
 
@@ -812,27 +818,42 @@ def render_bom_consumption_matrix_page(client, has_file, target_new_sketch_bytes
                 if pairs: specs_old = {k: v for k, v in pairs}
 
         if specs_old and new_style_measurements_dict:
+            # ✨ SIÊU TỪ ĐIỂN ĐỒNG NGHĨA TOÀN DIỆN CHO CẢ ÁO, QUẦN, VÁY ĐẦM, VEST
             pom_synonyms = {
-                "INSEAM": ["INSEAM", "INSEAM LENGTH", "DÀI GIÀNG"],
-                "WAIST CIRC - ALONG EDGE": ["WAIST CIRC - ALONG EDGE", "WAIST CIRC ALONG EDGE", "EO TRÊN"],
-                "WAIST CIRC - ALONG SEAM": ["WAIST CIRC - ALONG SEAM", "WAIST CIRC ALONG SEAM", "EO DƯỚI"],
-                "LOW HIP CIRC": ["LOW HIP CIRC", "VÒNG MÔNG", "MÔNG"],
-                "THIGH CIRC": ["THIGH CIRC", "VÒNG ĐÙI"],
-                "FLY LENGTH": ["FLY LENGTH", "DÀI DOCK"],
-                "KNEE CIRC": ["KNEE CIRC", "VÒNG GỐI"],
-                "OUTSEAM LENGTH": ["OUTSEAM LENGTH", "DÀI QUẦN"],
-                "CROTCH DEPTH": ["CROTCH DEPTH", "HẠ ĐÁY"],
-                "LOW HIP POSITION": ["LOW HIP POSITION", "HẠ MÔNG"]
+                "INSEAM": ["INSEAM", "INSEAM LENGTH", "DÀI GIÀNG", "GIÀNG QUẦN", "INNER SEAM"],
+                "WAIST CIRC - ALONG EDGE": ["WAIST CIRC - ALONG EDGE", "WAIST CIRC ALONG EDGE", "WAISTBAND EDGE", "EO TRÊN", "TOP OF WAISTBAND", "WAIST RELAXED", "VÒNG EO"],
+                "WAIST CIRC - ALONG SEAM": ["WAIST CIRC - ALONG SEAM", "WAIST CIRC ALONG SEAM", "WAISTBAND SEAM", "EO DƯỚI", "WAIST STRETCHED"],
+                "LOW HIP CIRC": ["LOW HIP CIRC", "HIP", "HIP CIRCUMFERENCE", "VÒNG MÔNG", "MÔNG", "LOW HIP CIRC - 3 POINT"],
+                "THIGH CIRC": ["THIGH CIRC", "THIGH CIRC - 1\" BELOW CROTCH", "THIGH CIRC 1 BELOW CROTCH", "THIGH", "VÒNG ĐÙI", "THIGH CIRC 1\" BELOW"],
+                "OUTSEAM LENGTH": ["OUTSEAM LENGTH", "OUTSEAM", "DÀI QUẦN", "TOTAL LENGTH", "OUTSEAM INCL BAND", "DÀI VÁY", "SKIRT LENGTH"],
+                "CROTCH DEPTH": ["CROTCH DEPTH", "CROTCH DEPTH (OUTSEAM BTWB MINUS INSEAM)", "HẠ ĐÁY", "HẠ CẠP", "TOTAL CROTCH"],
+                "LEG OPENING CIRC": ["LEG OPENING CIRC", "LEG OPENING", "RỘNG ỐNG", "BOTTOM OPENING", "LEG OPENING CIRCUMFERENCE", "SWEEP", "RỘNG LAI"],
+                "BODY LENGTH": ["BODY LENGTH", "FRONT LENGTH", "BACK LENGTH", "CENTER BACK LENGTH", "CBL", "CFL", "DÀI ÁO", "DÀI THÂN TRƯỚC", "DÀI THÂN SAU"],
+                "CHEST CIRC": ["CHEST", "CHEST CIRCUMFERENCE", "BUST", "BUST CIRCUMFERENCE", "VÒNG NGỰC", "NGỰC", "CHEST 1\" BELOW CROTCH", "UNDERARM"],
+                "SHOULDER CROSS": ["SHOULDER", "ACROSS SHOULDER", "SHOULDER TO SHOULDER", "RỘNG VAI", "NANG VAI", "VAI"],
+                "SLEEVE LENGTH": ["SLEEVE LENGTH", "SLEEVE LENGTH FROM CB", "SLEEVE LENGTH FROM SHOULDER", "DÀI TAY", "TAY ÁO"],
+                "ARMHOLE CIRC": ["ARMHOLE", "ARMHOLE STRAIGHT", "ARMHOLE CURVED", "VÒNG NÁCH", "NÁCH"],
+                "BICEPS CIRC": ["BICEPS", "BICEPS CIRCUMFERENCE", "UPPER ARM WIDTH", "VÒNG BẮP TAY", "BẮP TAY"],
+                "CUFF OPENING": ["CUFF", "CUFF OPENING", "SLEEVE OPENING", "RỘNG ỐNG TAY", "BẢN CỬA TAY"],
+                "NECK WIDTH": ["NECK WIDTH", "NECK OPENING", "RỘNG CỔ", "VÒNG CỔ"]
             }
             def find_standard_key(raw_key):
-                k_clean = str(raw_key).strip().upper().replace('"', '')
+                k_clean = str(raw_key).strip().upper().replace('"', '').replace("  ", " ")
                 for std_key, synonyms in pom_synonyms.items():
                     if k_clean in synonyms: return std_key
-                if "CROTCH DEPTH" in k_clean: return "CROTCH DEPTH"
-                if "HIP POSITION" in k_clean: return "LOW HIP POSITION"
-                if "HIP CIRC" in k_clean: return "LOW HIP CIRC"
+                if "CHEST" in k_clean or "BUST" in k_clean: return "CHEST CIRC"
+                if "BODY LENGTH" in k_clean or "BACK LENGTH" in k_clean or ("LENGTH" in k_clean and "SHIRT" in k_clean): return "BODY LENGTH"
+                if "SHOULDER" in k_clean: return "SHOULDER CROSS"
+                if "SLEEVE" in k_clean and "LENGTH" in k_clean: return "SLEEVE LENGTH"
+                if "ARMHOLE" in k_clean: return "ARMHOLE CIRC"
+                if "BICEPS" in k_clean: return "BICEPS CIRC"
+                if "CROTCH" in k_clean: return "CROTCH DEPTH"
+                if "HIP CIRC" in k_clean or "LOW HIP" in k_clean: return "LOW HIP CIRC"
+                if "WAIST" in k_clean and "EDGE" in k_clean: return "WAIST CIRC - ALONG EDGE"
+                if "WAIST" in k_clean and "SEAM" in k_clean: return "WAIST CIRC - ALONG SEAM"
                 if "THIGH" in k_clean: return "THIGH CIRC"
                 if "INSEAM" in k_clean: return "INSEAM"
+                if "LEG OPENING" in k_clean or "SWEEP" in k_clean: return "LEG OPENING CIRC"
                 return k_clean
 
             norm_specs_old = {find_standard_key(k): (k, v) for k, v in specs_old.items()}
@@ -849,7 +870,7 @@ def render_bom_consumption_matrix_page(client, has_file, target_new_sketch_bytes
                     if v_old > 0 and v_new > 0:
                         diff = v_new - v_old
                         pct_diff = (diff / v_old) * 100
-                        if std_key in ["INSEAM", "WAIST CIRC - ALONG EDGE", "WAIST CIRC - ALONG SEAM", "LOW HIP CIRC", "THIGH CIRC", "OUTSEAM LENGTH"]:
+                        if std_key in ["INSEAM", "WAIST CIRC - ALONG EDGE", "LOW HIP CIRC", "OUTSEAM LENGTH", "BODY LENGTH", "CHEST CIRC", "SHOULDER CROSS", "SLEEVE LENGTH"]:
                             total_deviation_percentage += pct_diff
                             relevant_count += 1
                         comparison_table.append({"Vị trí đo (POM)": original_old_key, "Thông số gốc (Kho)": f"{old_val}\"", "Thông số mới (Quét)": f"{new_val_str}\"", "Chênh lệch": f"{diff:+.3f}\"", "Tỷ lệ biến động": f"{pct_diff:+.1f}%"})
@@ -868,93 +889,6 @@ def render_bom_consumption_matrix_page(client, has_file, target_new_sketch_bytes
 
     if prompt_input := st.chat_input("Nhập lệnh tính toán định mức nâng cao...", key="matrix_consumption_chat_input"):
         st.session_state["consumption_chat_history"].append({"user": prompt_input, "ai": "Đang tính toán..."})
-        ai_output_response = ai_consumption_analyst_engine(client, prompt_input, matched_techpack, bom_records, new_style_measurements_dict, target_new_sketch_bytes)
+        ai_output_response = ai_consumption_analyst_engine(client, prompt_input, matched_techpack, bom_records, new_style_measurements_dict, target_new_sketch_bytes, detected_size)
         st.session_state["consumption_chat_history"][-1]["ai"] = ai_output_response
         st.rerun()
-# --- TIẾP NHẬN CHAT INPUT VÀ KHỞI TẠO BIẾN TRẠNG THÁI TOÀN CỤC ---
-if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vải và đối soát sai lệch...", key="global_app_chat_input"):
-    st.session_state["chat_history"].append({"role": "user", "type": "text", "content": user_query})
-
-gemini_key = get_secure_gemini_key()
-if not gemini_key:
-    st.error("AI API Token is missing.")
-    st.stop()
-client = genai.Client(api_key=gemini_key, http_options=types.HttpOptions(api_version='v1'))
-
-new_style_id_detected = "UNKNOWN_STYLE"
-new_style_category_detected = ""
-new_style_fabric_detected = "UNKNOWN_FABRIC"
-new_style_measurements_dict = {}
-img_payload = [] 
-target_new_sketch_bytes = None 
-
-# Đồng bộ hóa cấu trúc đọc file đính kèm từ Uploader lưu sẵn trong Session State
-target_file_object = None
-if 'uploaded_file' in st.session_state and st.session_state['uploaded_file'] is not None:
-    target_file_object = st.session_state['uploaded_file']
-elif 'chat_uploader' in st.session_state and st.session_state['chat_uploader'] is not None:
-    target_file_object = st.session_state['chat_uploader']
-
-has_file = target_file_object is not None
-
-if has_file:
-    file_bytes = target_file_object.getvalue()
-    file_name = target_file_object.name
-    if file_name.lower().endswith('.pdf'):
-        try:
-            info_chat = pdfinfo_from_bytes(file_bytes)
-            total_chat_pages = int(info_chat.get("Pages", 1))
-            chat_images = convert_from_bytes(file_bytes, dpi=90, first_page=1, last_page=total_chat_pages)
-            for idx, page_img in enumerate(chat_images):
-                img_buf = io.BytesIO()
-                page_img.convert("RGB").save(img_buf, format="JPEG", quality=75)
-                img_payload.append(types.Part.from_bytes(data=img_buf.getvalue(), mime_type='image/jpeg'))
-            
-            extraction_prompt = (
-                "Analyze all attached sheets page by page. Locate the core 'Base Size' / 'Sample Size' (e.g., size 32). "
-                "Extract all points of measurement (POM) and their corresponding target specs for THIS BASE SIZE ONLY. "
-                "Do not extract multiple sizes. Also find 'Style ID' and 'Category'. CRITICAL VISION TASK: Find the exact "
-                "'PAGE INDEX' (starting from 0) that contains the TECHNICAL BLACK AND WHITE FLAT SKETCH / DRAWING. "
-                "Return a valid raw JSON string with this exact schema (no markdown block): "
-                "{\"detected_style_id\": \"string\", \"category\": \"string\", \"fabric_code\": \"string\", \"measurements\": {}, \"sketch_page_index_detected\": 0}"
-            )
-            extraction_payload = list(img_payload)
-            extraction_payload.append(extraction_prompt)
-            
-            extraction_res = client.models.generate_content(model='gemini-2.5-flash', contents=extraction_payload)
-            clean_json_text = extraction_res.text.strip().replace("```json", "").replace("```", "").strip()
-            
-            parsed_meta = json.loads(clean_json_text)
-            new_style_id_detected = parsed_meta.get("detected_style_id", "UNKNOWN_STYLE").strip()
-            new_style_category_detected = parsed_meta.get("category", "").strip()
-            new_style_fabric_detected = parsed_meta.get("fabric_code", "UNKNOWN_FABRIC").strip()
-            new_style_measurements_dict = parsed_meta.get("measurements", {})
-            detected_idx = int(parsed_meta.get("sketch_page_index_detected", 0))
-            
-            if 0 <= detected_idx < len(chat_images):
-                b_buf = io.BytesIO()
-                chat_images[detected_idx].convert("RGB").save(b_buf, format="JPEG")
-                target_new_sketch_bytes = b_buf.getvalue()
-        except Exception as e:
-            st.sidebar.error(f"Lỗi AI trích xuất sơ đồ: {str(e)}")
-    else:
-        target_new_sketch_bytes = file_bytes
-
-# Chuẩn hóa từ khóa tìm kiếm dự phòng
-clean_text_upper = str(user_query).strip().upper() if user_query else ""
-codes_found = re.findall(r'\b[A-Z0-9]+-\d+[A-Z0-9-]*\b|\b[A-Z]*\d+[A-Z0-9]*\b', clean_text_upper)
-dynamic_keyword = str(codes_found[0]).strip() if codes_found else str(new_style_id_detected).strip()
-base_sb_url = SB_URL.rstrip('/')
-headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
-
-# --- PHÂN PHỐI LƯU LƯỢNG HIỂN THỊ THEO THANH MENU ĐIỀU HƯỚNG ---
-if menu_selection == "🧵 BOM & Consumption Matrix":
-    render_bom_consumption_matrix_page(
-        client=client, 
-        has_file=has_file, 
-        target_new_sketch_bytes=target_new_sketch_bytes, 
-        dynamic_keyword=dynamic_keyword, 
-        new_style_measurements_dict=new_style_measurements_dict, 
-        base_sb_url=base_sb_url, 
-        headers=headers
-    )
