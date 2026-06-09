@@ -621,7 +621,7 @@ elif menu_selection == "🔄 Pattern Spec Comparison":
                 use_container_width=True
             )
 
- import io
+import io
 import json
 import re
 import requests
