@@ -881,7 +881,7 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                     if res_sp.status_code == 200: 
                         st.session_state["bom_records"] = res_sp.json()
             except Exception: pass
-        # LẤY DỮ LIỆU TỪ BỘ NHỚ KHÓA ĐỂ HIỂN THỊ LÊN MÀN HÌNH
+            # LẤY DỮ LIỆU TỪ BỘ NHỚ KHÓA ĐỂ HIỂN THỊ LÊN MÀN HÌNH MƯỢT MÀ CHỐNG RERUN TRẮNG TRƠN
     matched_techpack = st.session_state["matched_techpack"]
     bom_records = st.session_state["bom_records"]
 
@@ -889,10 +889,16 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
         target_style_name = matched_techpack.get("StyleName")
         st.success(f"🎯 MỤC ĐÍCH 2: ĐÃ TÌM THẤY MÃ HÀNG TƯƠNG ĐỒNG TRONG KHO: **{target_style_name}**")
         
+        # 🛠️ SỬA LỖI CHÍ MẠNG DÒNG 893: Ép kiểm tra biến nhị phân bytes chuẩn xác trước khi ép Streamlit vẽ hình
         col1, col2 = st.columns(2)
-        with col1: st.image(target_new_sketch_bytes, caption="Bản vẽ phẳng mẫu mới (AI quét sạch)", use_container_width=True)
+        with col1: 
+            if target_new_sketch_bytes is not None:
+                st.image(target_new_sketch_bytes, caption="Bản vẽ phẳng mẫu mới (AI lọc sạch)", use_container_width=True)
+            else:
+                st.info("💡 Hệ thống đang liên kết cổng nhị phân ảnh vẽ phẳng sạch...")
         with col2: 
-            if matched_techpack.get("SketchURL"): st.image(matched_techpack["SketchURL"], caption=f"Ảnh Sketch gốc lưu trong kho: {target_style_name}", use_container_width=True)
+            if matched_techpack.get("SketchURL"): 
+                st.image(matched_techpack["SketchURL"], caption=f"Ảnh Sketch gốc lưu trong kho: {target_style_name}", use_container_width=True)
 
         st.subheader("📦 Chi Tiết Định Mức Nguyên Phụ Liệu Gốc trong kho (BOM)")
         if bom_records:
@@ -912,7 +918,6 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
             if main_fabrics: st.info(f"🧵 Mã vải chính của mã hàng gốc: **{', '.join(main_fabrics)}**")
         else:
             st.warning(f"⚠️ Không tìm thấy dữ liệu phụ liệu cho biến thể mã hàng gốc `{dynamic_keyword}` trong bảng san_pham.")
-
         st.subheader("📊 Bảng Đối Soát Sai Lệch Thông Số Hình Học (Mẫu Gốc vs Mẫu Mới)")
         db_measurements = matched_techpack.get("DetailedMeasurements", {})
         specs_old = {}
@@ -926,14 +931,11 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
         specs_new = new_style_measurements_dict
         
         if specs_old and specs_new:
-            # 🛠️ THUẬT TOÁN LÀM SẠCH VÀ CHUẨN HÓA TOÁN HỌC CHUỖI KỸ THUẬT MAY MẶC
+            # 🧠 THUẬT TOÁN ĐỐI SOÁT TOÁN HỌC: Tự động gom cụm và làm sạch tiền tố (BD-, DE-, DF-) chống sót dòng
             def normalize_core_garment_key(raw_key):
                 text = str(raw_key).strip().upper()
-                # 1. Xóa toàn bộ tiền tố mã nhiễu đầu dòng (BD-245, DE-162, DF-146...)
                 text = re.sub(r'^[A-Z]{2,4}-\d{2,4}\s*', '', text)
-                # 2. Xóa các ký tự đặc biệt gây lệch chuỗi thô
                 text = text.replace('"', '').replace('-', '').replace('\'', '').replace('’', '').replace(' ', '')
-                # 3. Gom cụm từ khóa cốt lõi để ép cặp mờ chuẩn xác (Đồng bộ hóa ngôn ngữ Áo/Quần)
                 if "WAIST" in text: return "WAIST"
                 if "HIP" in text: return "HIP"
                 if "THIGH" in text: return "THIGH"
@@ -947,7 +949,6 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                 if "SLEEVE" in text: return "SLEEVE"
                 return text
 
-            # Lập bản đồ chuẩn hóa toán học trực tiếp bằng Python
             norm_map_old = {normalize_core_garment_key(k): (k, v) for k, v in specs_old.items()}
             norm_map_new = {normalize_core_garment_key(k): (k, v) for k, v in specs_new.items()}
 
@@ -957,12 +958,10 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
             has_len = False
             has_wid = False
             
-            # Ép luồng lặp chạy qua toàn bộ danh mục điểm đo gốc trong kho
+            # Ép luồng lặp so khớp toán học chạy qua toàn bộ danh mục thông số kho gốc
             for core_key, (original_old_key, old_val) in norm_map_old.items():
-                # Nếu lõi điểm đo (Ví dụ: HIP, THIGH, WAIST) xuất hiện ở file mới, tiến hành tính hiệu số ngay
                 if core_key in norm_map_new:
                     original_new_key, new_val_str = norm_map_new[core_key]
-                    
                     v_old = parse_fraction(old_val)
                     v_new = parse_fraction(new_val_str)
                     
@@ -970,16 +969,10 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                         diff = v_new - v_old
                         pct_diff = (diff / v_old) * 100
                         
-                        # Tích lũy chênh lệch chiều dọc chủ đạo
                         if core_key in ["INSEAM", "OUTSEAM", "SLEEVE"]:
-                            if pct_diff != 0:
-                                deviation_length_pct = pct_diff
-                                has_len = True
-                        # Tích lũy chênh lệch chiều ngang chủ đạo dập sơ đồ
+                            if pct_diff != 0: deviation_length_pct = pct_diff; has_len = True
                         if core_key in ["WAIST", "HIP", "THIGH", "CHEST"]:
-                            if pct_diff != 0:
-                                deviation_width_pct = pct_diff
-                                has_wid = True
+                            if pct_diff != 0: deviation_width_pct = pct_diff; has_wid = True
                                 
                         comparison_table.append({
                             "Vị trí đo (POM)": original_old_key,
@@ -989,22 +982,18 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                             "Tỷ lệ biến động": f"{pct_diff:+.1f}%"
                         })
             
-            # ĐỔ RA GIAO DIỆN 3 CỘT SONG SONG ĐỂ KIỂM TRA ĐỐI CHIẾU
+            # ĐỔ KẾT QUẢ RA LƯỚI 3 CỘT NGANG ĐỂ ĐỐI CHIẾU SONG SONG CHUẨN XÁC
             ui_col1, ui_col2, ui_col3 = st.columns([1.0, 0.5, 0.5])
             with ui_col1:
-                st.subheader("📊 Bảng Đối Soát Sai Lệch Hình Học")
-                if comparison_table:
-                    st.table(comparison_table)
-                else:
-                    st.info("Không có thông số tương thích để đối soát chéo.")
+                st.markdown("<p style='font-weight:700; font-size:14px; color:#1E293B;'>📊 Bảng Đối Soát Sai Lệch Hình Học</p>", unsafe_allow_html=True)
+                if comparison_table: st.table(comparison_table)
             with ui_col2:
-                st.subheader("🏛️ Dữ liệu gốc lưu trong Kho")
+                st.markdown("<p style='font-weight:700; font-size:14px; color:#1E293B;'>🏛️ Dữ liệu gốc lưu trong Kho</p>", unsafe_allow_html=True)
                 st.table([{"Vị trí đo (Gốc)": k, "Thông số kho": v} for k, v in specs_old.items()])
             with ui_col3:
-                st.subheader("📋 Thông số mẫu mới quét được")
+                st.markdown("<p style='font-weight:700; font-size:14px; color:#1E293B;'>📋 Thông số mẫu mới quét được</p>", unsafe_allow_html=True)
                 st.table([{"Vị trí đo (Quét sạch)": k, "Thông số quét": v} for k, v in specs_new.items()])
                 
-            # THUẬT TOÁN TÍNH DIỆN TÍCH KHỐI RẬP ĐƯỢC KÍCH HOẠT TUYỆT ĐỐI CHUẨN XÁC
             if has_len or has_wid:
                 factor_len = 1.0 + (deviation_length_pct / 100.0)
                 factor_wid = 1.0 + (deviation_width_pct / 100.0)
@@ -1014,7 +1003,6 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                 st.write(f"- Biến động chiều dài thân rập chủ đạo: **{deviation_length_pct:+.1f}%**")
                 st.write(f"- Biến động chiều rộng thân rập chủ đạo: **{deviation_width_pct:+.1f}%**")
                 st.markdown(f"🎯 **Tỷ lệ biến động diện tích khối sơ đồ vải thực tế (Marker Area Deviation): {total_area_deviation_pct:+.1f}%**")
-                
                 new_style_base_size = f"{new_style_base_size} (Marker Area Delta: {total_area_deviation_pct:+.2f}%)"
         else:
             st.info("💡 Điền file để chạy đối soát.")
