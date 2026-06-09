@@ -274,8 +274,8 @@ def get_techpack_spec_from_db(style_name_keyword=None):
 def process_single_pdf_batch(file_bytes, file_name):
     """
     Hàm bóc tách dữ liệu kỹ thuật từ một file PDF độc lập phục vụ LUỒNG NẠP KHO.
-    ✨ ĐÃ ĐỒNG BỘ VÀ KHẮC PHỤC LỖI SAI INSEAM: Ép AI đọc đúng cột kích thước mẫu cơ sở đại diện,
-    loại bỏ các cột kích cỡ nhảy rập (Grading Matrix Grid) phụ gây nhiễu dữ liệu kho.
+    ✨ ĐÃ ĐỒNG BỘ TOÀN DIỆN TRẢ VỀ: Ép AI đọc đúng cột kích cỡ mẫu rập cơ sở 32/32,
+    đồng thời đóng gói trọn vẹn mảng thông số đo thực tế và ảnh rập phẳng sạch về luồng hiển thị.
     """
     try:
         gemini_key = get_secure_gemini_key()
@@ -286,7 +286,6 @@ def process_single_pdf_batch(file_bytes, file_name):
         info = pdfinfo_from_bytes(file_bytes)
         total_p = int(info.get("Pages", 1))
         
-        # Chuyển đổi toàn bộ các trang PDF thành mảng ảnh để đẩy lên cho Gemini Vision phân tích hàng loạt
         pdf_parts_payload = []
         chat_images = convert_from_bytes(file_bytes, dpi=90, first_page=1, last_page=total_p)
         for page_img in chat_images:
@@ -316,13 +315,24 @@ def process_single_pdf_batch(file_bytes, file_name):
         clean_json = response.text.strip().replace("```json", "").replace("```", "").strip()
         parsed_data = json.loads(clean_json)
         
+        # Trích xuất ảnh vẽ phẳng sạch dựa trên chỉ số trang AI tìm thấy
+        extracted_sketch_bytes = None
+        detected_idx = int(parsed_data.get("sketch_page_index_detected", 0))
+        if 0 <= detected_idx < len(chat_images):
+            b_buf = io.BytesIO()
+            chat_images[detected_idx].convert("RGB").save(b_buf, format="JPEG")
+            extracted_sketch_bytes = b_buf.getvalue()
+            
         # Thực hiện gọi hàm đồng bộ đẩy dữ liệu sạch lên Supabase ngay lập tức
         success_db = save_to_supabase_techpack_table(parsed_data, raw_file_bytes=file_bytes, file_name=file_name)
         
+        # 🔥 ĐỒNG BỘ ĐẦU RA CHÍNH XÁC: Đóng gói cả measurements và sketch_bytes trả ngược ra cho luồng hiển thị
         return {
             "success": success_db,
-            "style_id": parsed_data.get("style_number_parsed"),
-            "size": parsed_data.get("base_size_name"),
+            "style_id": parsed_data.get("style_number_parsed", "UNKNOWN"),
+            "size": parsed_data.get("base_size_name", "32"),
+            "measurements": parsed_data.get("measurements", {}), # Truyền dữ liệu ma trận thông số đo thực tế
+            "sketch_bytes": extracted_sketch_bytes, # Truyền nhị phân ảnh vẽ phẳng rập sạch
             "error": None if success_db else "Lỗi ghi dữ liệu đồng bộ lên bảng Supabase"
         }
     except Exception as e:
