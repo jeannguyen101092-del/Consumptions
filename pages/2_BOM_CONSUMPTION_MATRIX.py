@@ -98,7 +98,6 @@ def get_secure_gemini_key():
     if "GEMINI_API_KEY" in st.secrets:
         return st.secrets["GEMINI_API_KEY"].strip()
     return None
-
 def save_to_supabase_techpack_table(payload_data, raw_file_bytes=None, file_name=""):
     """
     Hàm xử lý đồng bộ dữ liệu, tự động tìm đúng trang có hình thiết kế phẳng (Sketch) sạch,
@@ -186,15 +185,19 @@ def save_to_supabase_techpack_table(payload_data, raw_file_bytes=None, file_name
         
         raw_measurements = payload_data.get("measurements", {})
         clean_dict = {str(k).strip(): str(v).strip() for k, v in dict(raw_measurements).items()}
+        
+        # SỬA LỖI ĐỐI SOÁT ÍT DÒNG: Đóng gói chuỗi JSON hợp lệ để đẩy lên Supabase không bị dính chuỗi thô văn bản
+        json_measurements_string = json.dumps(clean_dict, ensure_ascii=False)
 
+        # SỬA LỖI GHI ĐÈ VECTOR MẤT TƯƠNG ĐỒNG: Đổ chuỗi mô tả vào DetailedMeasurements để đồng bộ thuật toán so khớp chéo
         db_payload = {
             "StyleName": style_name_db,
             "Buyer": payload_data.get("buyer"),
             "Category": payload_data.get("category"),
             "BaseSize": payload_data.get("base_size_name"),
-            "DetailedMeasurements": clean_dict,
+            "DetailedMeasurements": json_measurements_string, # Lưu chuỗi JSON sạch
             "SketchURL": public_image_url,
-            "sketch_vector": visual_description_str 
+            "sketch_vector": visual_description_str # Giữ cấu trúc trường dự phòng
         }
         
         response = requests.post(insert_url, headers=headers, json=[db_payload], timeout=15)
@@ -205,10 +208,11 @@ def save_to_supabase_techpack_table(payload_data, raw_file_bytes=None, file_name
 
 
 
+
 def get_historical_fabric_consumption_from_db(search_keyword=None):
     """
     Hàm tra cứu kho dữ liệu san_pham lịch sử nâng cao.
-    ✨ ĐÃ SỬA: Tìm kiếm mờ thông minh, tự động quét cả dạng viết liền, dấu cách và dấu gạch ngang!
+    ✨ ĐÃ SỬA LỖI TRỐNG BẢNG BOM: Áp dụng tìm kiếm mờ chuỗi lõi, không chia cắt chữ/số làm mất hậu tố wash dệt may.
     """
     try:
         headers = {
@@ -224,13 +228,12 @@ def get_historical_fabric_consumption_from_db(search_keyword=None):
         
         if search_keyword:
             kw_raw = str(search_keyword).strip().upper()
-            kw_clean = kw_raw.replace("-", "").replace(" ", "")
+            # Làm sạch ký tự đặc biệt nhưng giữ nguyên vẹn chuỗi dài mã hàng để Supabase quét chính xác
+            kw_clean = re.sub(r'[^A-Z0-9]', '', kw_raw)
             
-            letters = "".join(re.findall(r'[A-Z]+', kw_clean))
-            digits = "".join(re.findall(r'\d+', kw_clean))
-            
-            if letters and digits:
-                or_filter = f"(style_name.ilike.*{letters}*{digits}*,article_name.ilike.*{letters}*{digits}*)"
+            if len(kw_clean) >= 5:
+                # Tìm kiếm mờ thông minh bao quát cả mã gốc lẫn các biến thể wash rách rập phân xưởng
+                or_filter = f"(style_name.ilike.*{kw_clean}*,article_name.ilike.*{kw_clean}*)"
             else:
                 or_filter = f"(style_name.ilike.*{kw_raw}*,article_name.ilike.*{kw_raw}*)"
                 
@@ -271,70 +274,59 @@ def get_techpack_spec_from_db(style_name_keyword=None):
 def process_single_pdf_batch(file_bytes, file_name):
     """
     Hàm bóc tách dữ liệu kỹ thuật từ một file PDF độc lập phục vụ LUỒNG NẠP KHO.
-    ✨ ĐÃ ĐỒNG BỘ 100% VỚI LUỒNG TÌM KIẾM: Ép AI dùng chung tư duy tìm đúng trang 
-    bản vẽ chi tiết nét mảnh lớn (Line Art Sketch), loại bỏ trang bảng thuộc tính tổng hợp.
+    ✨ ĐÃ ĐỒNG BỘ VÀ KHẮC PHỤC LỖI SAI INSEAM: Ép AI đọc đúng cột kích thước mẫu cơ sở đại diện,
+    loại bỏ các cột kích cỡ nhảy rập (Grading Matrix Grid) phụ gây nhiễu dữ liệu kho.
     """
     try:
-        import base64
         gemini_key = get_secure_gemini_key()
         if not gemini_key:
             return {"success": False, "error": "API Key cho Gemini đang bị thiếu trong Secrets."}
             
         client = genai.Client(api_key=gemini_key)
-        
         info = pdfinfo_from_bytes(file_bytes)
-        total_pages = int(info.get("Pages", 1))
-        images = convert_from_bytes(file_bytes, dpi=90, first_page=1, last_page=total_pages)
+        total_p = int(info.get("Pages", 1))
         
-        contents_payload = []
-        for idx, page_img in enumerate(images):
+        # Chuyển đổi toàn bộ các trang PDF thành mảng ảnh để đẩy lên cho Gemini Vision phân tích hàng loạt
+        pdf_parts_payload = []
+        chat_images = convert_from_bytes(file_bytes, dpi=90, first_page=1, last_page=total_p)
+        for page_img in chat_images:
             img_buf = io.BytesIO()
             page_img.convert("RGB").save(img_buf, format="JPEG", quality=75)
-            contents_payload.append(types.Part.from_bytes(data=img_buf.getvalue(), mime_type='image/jpeg'))
+            pdf_parts_payload.append(types.Part.from_bytes(data=img_buf.getvalue(), mime_type='image/jpeg'))
             
-        # SỬA PROMPT ĐỒNG BỘ: Sao chép nguyên mẫu tư duy vision task lọc ảnh sạch từ luồng Tìm kiếm tương đồng
-        extraction_prompt = """
-        Analyze all attached sheets page by page. 
-        1. Find the 'Style ID' / 'Style Number' (e.g., 1P001363).
-        2. Identify 'Buyer', 'Category', and the designated 'Base Size' / 'Sample Size' (e.g., 32/32).
-        3. Extract all points of measurement (POM) and their corresponding target specs for THIS BASE SIZE ONLY.
+        # PROMPT NÂNG CAO ÉP QUY TẮC NGÀNH MAY: Khóa chặt trục số Waist/Inseam mẫu chuẩn đầu chuyền
+        industrial_extraction_prompt = (
+            "You are an expert Garment Specification Auditor. Analyze all sheets page by page. "
+            "1. Identify the core 'Base Size' / 'Sample Size' (e.g., written as 32/32, 34/32, or Size M). "
+            "2. CRITICAL SPECIFICATION SELECTION RULE: If the sheet displays a grading matrix table with multiple length options (e.g., columns for Inseam 30, 32, 34), "
+            "you MUST extract the target point of measurement (POM) specs that strictly belong to the specified Base/Sample length column. "
+            "If the label is 32/32, the Waist is 32 and the Inseam MUST be extracted from the 32 Length column (which is 32\"). "
+            "NEVER extract the Inseam value from the 30\" column blindly. Avoid any row/column shifting errors. "
+            "3. Extract all available Points of Measurement (POM) for this single base size only. Provide at least 15-20 fields if present. "
+            "4. Extract the 'Style ID' / 'Style Number', 'Category', 'Buyer' name, and fabric details. "
+            "5. Detect the exact PAGE INDEX (0-based) containing the pure black and white line art TECHNICAL FLAT SKETCH. "
+            "DO NOT pick pages showing summary costing grids, fabric swatch data sheets, or trim lists. "
+            "Return a completely valid raw JSON string matching this schema (no markdown blocks): "
+            "{\"style_number_parsed\": \"string\", \"buyer\": \"string\", \"category\": \"string\", \"base_size_name\": \"string\", \"measurements\": {}, \"sketch_page_index_detected\": 0}"
+        )
         
-        CRITICAL VISION TASK: Find the exact 'PAGE INDEX' (starting from 0) that contains the TECHNICAL BLACK AND WHITE FLAT SKETCH / DRAWING. 
-        DO NOT select summary pages containing small thumbnails layouts, photographs, garment covers, or wash sheets. 
-        Only pick the pure line art design drawing page (the biggest detailed flat sketch sheet).
+        pdf_parts_payload.append(industrial_extraction_prompt)
+        response = client.models.generate_content(model='gemini-2.5-flash', contents=pdf_parts_payload)
         
-        Return a valid raw JSON string with this exact schema (no markdown block):
-        {"style_number_parsed": "string", "buyer": "string", "category": "string", "base_size_name": "string", "measurements": {}, "sketch_page_index_detected": 0}
-        """
+        clean_json = response.text.strip().replace("```json", "").replace("```", "").strip()
+        parsed_data = json.loads(clean_json)
         
-        extraction_payload = list(contents_payload)
-        extraction_payload.append(extraction_prompt)
+        # Thực hiện gọi hàm đồng bộ đẩy dữ liệu sạch lên Supabase ngay lập tức
+        success_db = save_to_supabase_techpack_table(parsed_data, raw_file_bytes=file_bytes, file_name=file_name)
         
-        extraction_res = client.models.generate_content(model='gemini-2.5-flash', contents=extraction_payload)
-        clean_json_text = extraction_res.text.strip()
-        
-        # Loại bỏ các ký tự bọc markdown khối dữ liệu JSON đầu ra
-        if clean_json_text.startswith("```json"):
-            clean_json_text = clean_json_text.replace("```json", "", 1)
-        if clean_json_text.startswith("```"):
-            clean_json_text = clean_json_text.replace("```", "", 1)
-        if clean_json_text.endswith("```"):
-            clean_json_text = clean_json_text.rstrip("`").rstrip()
-            
-        parsed_meta = json.loads(clean_json_text.strip())
-        detected_idx = int(parsed_meta.get("sketch_page_index_detected", 0))
-        
-        # Chỉ trích xuất và mã hóa lưu kho đúng trang bản vẽ kĩ thuật lớn mà AI vừa dò tìm được
-        if 0 <= detected_idx < len(images):
-            b_buf = io.BytesIO()
-            images[detected_idx].convert("RGB").save(b_buf, format="JPEG", quality=85)
-            # Lưu ảnh sạch mã hóa Base64 tạm thời lên giao diện preview trước khi đẩy thẳng vào database
-            parsed_meta["sketch_image"] = base64.b64encode(b_buf.getvalue()).decode('utf-8')
-            parsed_meta["sketch_page_index_detected"] = detected_idx
-            
-        return {"success": True, "data": parsed_meta, "error": None}
+        return {
+            "success": success_db,
+            "style_id": parsed_data.get("style_number_parsed"),
+            "size": parsed_data.get("base_size_name"),
+            "error": None if success_db else "Lỗi ghi dữ liệu đồng bộ lên bảng Supabase"
+        }
     except Exception as e:
-        return {"success": False, "data": None, "error": str(e)}
+        return {"success": False, "error": f"Lỗi bóc tách PDF công nghiệp: {str(e)}"}
 
 
 
@@ -867,7 +859,7 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                     if res_sp.status_code == 200: 
                         st.session_state["bom_records"] = res_sp.json()
             except Exception: pass
-    # LẤY DỮ LIỆU TỪ BỘ NHỚ KHÓA ĐỂ HIỂN THỊ LÊN MÀN HÌNH
+        # LẤY DỮ LIỆU TỪ BỘ NHỚ KHÓA ĐỂ HIỂN THỊ LÊN MÀN HÌNH
     matched_techpack = st.session_state["matched_techpack"]
     bom_records = st.session_state["bom_records"]
 
@@ -876,7 +868,7 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
         st.success(f"🎯 MỤC ĐÍCH 2: ĐÃ TÌM THẤY MÃ HÀNG TƯƠNG ĐỒNG: **{target_style_name}**")
         
         col1, col2 = st.columns(2)
-        with col1: st.image(target_new_sketch_bytes, caption="Bản vẽ phẳng mẫu mới (AI lọc sạch)", use_container_width=True)
+        with col1: st.image(target_new_sketch_bytes, caption="Bản vẽ phẳng mẫu mới (AI quét sạch)", use_container_width=True)
         with col2: 
             if matched_techpack.get("SketchURL"): st.image(matched_techpack["SketchURL"], caption=f"Ảnh Sketch gốc lưu trong kho: {target_style_name}", use_container_width=True)
 
@@ -950,12 +942,17 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                                 
                         comparison_table.append({"Vị trí đo (POM)": original_old_key, "Thông số gốc (Kho)": f"{old_val}\"", "Thông số mới (Quét)": f"{new_val_str}\"", "Chênh lệch": f"{diff:+.3f}\"", "Tỷ lệ biến động": f"{pct_diff:+.1f}%"})
             
-            ui_col1, ui_col2 = st.columns([1.2, 0.8])
+            # 🚀 N N CẤP THỊ THỊ HÀNG NGANG CHIA THÀNH 3 CỘT ĐỘC LẬP ĐỂ HIỂN THỊ ĐẦY ĐỦ THÔNG SỐ TRONG KHO
+            ui_col1, ui_col2, ui_col3 = st.columns([1.0, 0.5, 0.5])
             with ui_col1:
-                st.subheader("📊 Bảng Đối Soát Sai Lệch Thông Số Hình Học (Mẫu Gốc vs Mẫu Mới)")
+                st.subheader("📊 Bảng Đối Soát Sai Lệch Hình Học")
                 if comparison_table: st.table(comparison_table)
             with ui_col2:
-                st.subheader("📋 Trọn bộ thông số mẫu mới quét được")
+                # 🎯 THÀNH QUẢ YÊU CẦU 2: Bung ra toàn bộ tất cả thông số hiện có trong kho dữ liệu Supabase của mã tương đồng
+                st.subheader("🏛️ Dữ liệu gốc lưu trong Kho")
+                st.table([{"Vị trí đo (Gốc)": k, "Thông số kho": v} for k, v in specs_old.items()])
+            with ui_col3:
+                st.subheader("📋 Thông số mẫu mới quét được")
                 st.table([{"Vị trí đo (Quét sạch)": k, "Thông số quét": v} for k, v in specs_new.items()])
                 
             if has_len or has_wid:
@@ -986,3 +983,4 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
         ai_output_response = ai_consumption_analyst_engine(client, prompt_input, matched_techpack, bom_records, new_style_measurements_dict, target_new_sketch_bytes, new_style_base_size)
         st.session_state["consumption_chat_history"][-1]["ai"] = ai_output_response
         st.rerun()
+
