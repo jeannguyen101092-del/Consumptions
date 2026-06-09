@@ -835,7 +835,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                             matched_techpack = row
                             best_similarity_ratio = 1.0
                             break
-                if matched_techpack:
+                    if matched_techpack:
                     target_style_name = matched_techpack.get("StyleName")
                     st.success(f"🎯 ĐÃ TÌM THẤY MÃ HÀNG TƯƠNG ĐỒNG: **{target_style_name}**")
                     
@@ -849,11 +849,19 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                         else:
                             st.info("💡 Mã gốc trong bảng thong_so_techpack chưa được nạp ảnh SketchURL")
 
-                    # TRUY XUẤT BOM VÀ GỘP MÃ VẢI CHÍNH (CHỐNG LẶP TỪ)
+                    # --- 🛠️ SỬA LỖI TRUY XUẤT BOM: ÉP KHỚP KIỂU CHUỖI STRING CHO HÀM QUOTE ---
                     st.subheader("📦 Chi Tiết Định Mức Nguyên Phụ Liệu Gốc trong kho (BOM)")
-                    core_code = re.findall(r'\b[A-Z0-9]{5,10}\b', target_style_name.strip())
-                    search_term = core_code if core_code else target_style_name.strip()
                     
+                    # Cắt chuỗi lấy mã số cốt lõi
+                    core_code_list = re.findall(r'\b[A-Z0-9]{5,10}\b', target_style_name.strip())
+                    
+                    # CHỐNG LỖI TYPEERROR: Đảm bảo search_term luôn là một chuỗi văn bản (String) thuần túy
+                    if core_code_list and isinstance(core_code_list, list):
+                        search_term = str(core_code_list[0]).strip()
+                    else:
+                        search_term = str(target_style_name).strip()
+                    
+                    # Gọi API Supabase sử dụng từ khóa chuỗi đã được chuẩn hóa an toàn
                     url_san_pham = f"{base_sb_url}/rest/v1/san_pham?style_name=ilike.*{quote(search_term)}*&select=article_name,consumption_type,material_size,uom"
                     res_sp = requests.get(url_san_pham, headers=headers, timeout=10)
                     bom_records = res_sp.json() if res_sp.status_code == 200 else []
@@ -866,7 +874,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     else:
                         st.warning(f"⚠️ Không tìm thấy dữ liệu nguyên phụ liệu cho mã gốc hoặc các biến thể của `{search_term}` trong bảng `san_pham`.")
 
-                    # BỘ ĐỌC KHỬ LỖI CHUỖI VÀ ĐỐI SOÁT THÔNG SỐ CHUẨN (POM MAPPING)
+                    # --- BỘ ĐỌC THÔNG SỐ VÀ LẬP MA TRẬN ĐỐI SOÁT ---
                     st.subheader("📊 Bảng Đối Soát Sai Lệch Thông Số Hình Học (Mẫu Gốc vs Mẫu Mới)")
                     db_measurements = matched_techpack.get("DetailedMeasurements", {})
                     specs_old = {}
