@@ -635,7 +635,7 @@ try:
 except ImportError:
     pass
 
-# HÀM GIẢI MÃ PHÂN SỐ MAY MẶC SẠCH (Ví dụ: "1 1/8 inches" -> 1.125)
+# HÀM QUY ĐỔI PHÂN SỐ NGÀNH MAY (Ví dụ: "1 1/8 inches" -> 1.125)
 def parse_fraction(val_str):
     if not val_str: 
         return 0.0
@@ -645,11 +645,11 @@ def parse_fraction(val_str):
         if ' ' in val_str:
             parts = [p for p in val_str.split(' ') if p.strip()]
             if len(parts) >= 2:
-                whole = float(parts)
-                frac = parts
+                whole = float(parts[0])
+                frac = parts[1]
             else:
                 whole = 0.0
-                frac = parts
+                frac = parts[0]
         else:
             whole = 0.0
             frac = val_str
@@ -674,9 +674,9 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
     shrinkage_length = re.findall(r'(?:CO RÚT DỌC|DỌC)\s*(\d+(?:\.\d+)?)\s*%', user_message.upper())
     new_fabric_width = re.findall(r'(?:KHỔ VẢI|KHỔ)\s*(\d+)\s*(?:\"|INCH|INCHES)?', user_message.upper())
 
-    w_shrink = float(shrinkage_width) if shrinkage_width else 0.0
-    l_shrink = float(shrinkage_length) if shrinkage_length else 0.0
-    f_width = float(new_fabric_width) if new_fabric_width else 0.0
+    w_shrink = float(shrinkage_width[0]) if shrinkage_width else 0.0
+    l_shrink = float(shrinkage_length[0]) if shrinkage_length else 0.0
+    f_width = float(new_fabric_width[0]) if new_fabric_width else 0.0
 
     system_instruction = f"""
     You are an expert Garment Engineer and Techpack Costing Analyst at PPJ Group.
@@ -740,7 +740,6 @@ def render_bom_consumption_matrix_page(client, has_file, target_new_sketch_bytes
 
     st.markdown("---")
 
-    # HIỂN THỊ RÕ RÀNG SIZE MẪU ĐANG ĐỐI SOÁT
     if detected_size and detected_size != "32":
         st.info(f"📋 **CƠ SỞ ĐỐI SOÁT KIỂM TRA:** Mẫu mới số hóa mã hàng `{style_id_extracted}` | Quy chuẩn kích thước hình học rập mẫu: **SIZE {detected_size}**")
     else:
@@ -816,9 +815,7 @@ def render_bom_consumption_matrix_page(client, has_file, target_new_sketch_bytes
             except Exception:
                 pairs = re.findall(r'"([^"]+)":\s*"([^"]+)"', str(db_measurements))
                 if pairs: specs_old = {k: v for k, v in pairs}
-
         if specs_old and new_style_measurements_dict:
-            # ✨ SIÊU TỪ ĐIỂN ĐỒNG NGHĨA TOÀN DIỆN CHO CẢ ÁO, QUẦN, VÁY ĐẦM, VEST
             pom_synonyms = {
                 "INSEAM": ["INSEAM", "INSEAM LENGTH", "DÀI GIÀNG", "GIÀNG QUẦN", "INNER SEAM"],
                 "WAIST CIRC - ALONG EDGE": ["WAIST CIRC - ALONG EDGE", "WAIST CIRC ALONG EDGE", "WAISTBAND EDGE", "EO TRÊN", "TOP OF WAISTBAND", "WAIST RELAXED", "VÒNG EO"],
