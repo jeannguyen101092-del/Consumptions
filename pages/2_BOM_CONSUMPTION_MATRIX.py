@@ -690,15 +690,7 @@ except ImportError:
     pass
 
 if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vải và đối soát sai lệch..."):
-    target_file_object = None
-    if 'chat_file' in locals() and chat_file is not None:
-        target_file_object = chat_file
-    elif 'chat_file' in globals() and globals()['chat_file'] is not None:
-        target_file_object = globals()['chat_file']
-    elif 'uploaded_file' in st.session_state and st.session_state['uploaded_file'] is not None:
-        target_file_object = st.session_state['uploaded_file']
-    elif 'chat_file' in st.session_state and st.session_state['chat_file'] is not None:
-        target_file_object = st.session_state['chat_file']
+    st.session_state["chat_history"].append({"role": "user", "type": "text", "content": user_query})
     gemini_key = get_secure_gemini_key()
     if not gemini_key:
         st.error("AI API Token is missing.")
@@ -710,6 +702,20 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
     new_style_measurements_dict = {}
     img_payload = [] 
     target_new_sketch_bytes = None 
+    
+    # -----------------------------------------------------------------
+    # ĐOẠN 1: TỰ ĐỘNG TRUY TÌM TỆP ĐỆM VÀ SỐ HÓA TECHPACK TỪ FILE TẢI LÊN
+    # -----------------------------------------------------------------
+    target_file_object = None
+    if 'chat_file' in locals() and chat_file is not None:
+        target_file_object = chat_file
+    elif 'chat_file' in globals() and globals()['chat_file'] is not None:
+        target_file_object = globals()['chat_file']
+    elif 'uploaded_file' in st.session_state and st.session_state['uploaded_file'] is not None:
+        target_file_object = st.session_state['uploaded_file']
+    elif 'chat_file' in st.session_state and st.session_state['chat_file'] is not None:
+        target_file_object = st.session_state['chat_file']
+        
     has_file = target_file_object is not None
     if has_file:
         file_bytes = target_file_object.getvalue()
@@ -726,7 +732,6 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
             target_new_sketch_bytes = file_bytes
             img_payload.append(types.Part.from_bytes(data=file_bytes, mime_type='image/jpeg'))
             
-        # PROMPT ĐỒNG BỘ: Ép AI bỏ qua trang ảnh chụp denim sheet, chỉ chọn duy nhất trang line art phẳng b&w giống luồng nạp kho
         extraction_prompt = "Analyze all attached sheets page by page. Locate the core 'Base Size' / 'Sample Size' (e.g., size 32). Extract all points of measurement (POM) and their corresponding target specs for THIS BASE SIZE ONLY. Do not extract multiple sizes. Also find 'Style ID' and 'Category'. CRITICAL VISION TASK: Find the exact 'PAGE INDEX' (starting from 0) that contains the TECHNICAL BLACK AND WHITE FLAT SKETCH / DRAWING. DO NOT select pages containing real product photographs, garments, fabrics, or 'Labeled Images' wash denim sheets. Only pick the pure line art design drawing page. Return a valid raw JSON string with this exact schema (no markdown block): {\"detected_style_id\": \"string\", \"category\": \"string\", \"fabric_code\": \"string\", \"measurements\": {}, \"sketch_page_index_detected\": 0}"
         extraction_payload = list(img_payload)
         extraction_payload.append(extraction_prompt)
@@ -748,7 +753,8 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                 chat_images[detected_idx].convert("RGB").save(b_buf, format="JPEG")
                 target_new_sketch_bytes = b_buf.getvalue()
         except Exception as e:
-            st.sidebar.error(f"Lỗi AI trích xuất: {str(e)}")
+            st.sidebar.error(f"Lỗi AI trích xuất Techpack: {str(e)}")
+            
     clean_text_upper = str(user_query).strip().upper()
     is_searching_fabric = any(word in clean_text_upper for word in ["CODE VẢI", "MÃ VẢI", "LOẠI VẢI", "TÌM VẢI"])
     codes_found = re.findall(r'\b[A-Z]*\d+[A-Z0-9]*\b|\b[A-Z0-9]+-\d+[A-Z0-9-]*\b', clean_text_upper)
@@ -767,12 +773,17 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
     else:
         dynamic_keyword = clean_query if clean_query else "UNKNOWN"
     dynamic_keyword = re.sub(r"[\[\]'\"*?%#&]", "", dynamic_keyword).strip()
+
+    # -----------------------------------------------------------------
+    # ĐOẠN 2: THUẬT TOÁN QUÉT MỜ THÔNG SỐ ĐỐI SOÁT PHOM DÁNG QUẦN JEAN TƯƠNG ĐỒNG
+    # -----------------------------------------------------------------
     base_sb_url = SB_URL.rstrip('/')
     headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
     matched_style_name = None
     best_similarity = -1.0
     fabric_records = []
     techpack_records = []
+    
     if has_file and new_style_measurements_dict:
         with st.spinner("⚡ AI dệt may đang quét phân tích hình học thông số rập đối soát phom dáng..."):
             query_vector = None
@@ -794,6 +805,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     query_vector = np.array([q_waist, q_hip, q_thigh], dtype=np.float32)
             except Exception:
                 query_vector = None
+                
             if query_vector is not None:
                 url_all_vectors = f"{base_sb_url}/rest/v1/thong_so_techpack?select=StyleName,DetailedMeasurements"
                 try:
@@ -818,19 +830,25 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                                 norm_db = np.linalg.norm(db_vector)
                                 if norm_query > 0 and norm_db > 0:
                                     similarity = float(dot_product / (norm_query * norm_db))
-                                    if similarity > best_similarity and similarity >= 0.90:
+                                    # Ngưỡng khớp thông số rập mờ linh hoạt ngành may (85%)
+                                    if similarity > best_similarity and similarity >= 0.85:
                                         best_similarity = similarity
                                         matched_style_name = row.get("StyleName")
                         except Exception:
                             pass
-    if matched_style_name:
+                            
+        if matched_style_name:
         final_search_key = matched_style_name.strip()
         st.sidebar.success(f"🎯 Khớp phom hình học thành công: {final_search_key} ({round(best_similarity * 100, 1)}%)")
     else:
-        final_search_key = "NOT_FOUND_IN_WAREHOUSE"
-        st.sidebar.warning("⚠️ Không tìm thấy phom dáng quần tương đồng trong kho.")
+        if new_style_id_detected and new_style_id_detected != "UNKNOWN_STYLE":
+            final_search_key = new_style_id_detected.strip().upper()
+        else:
+            final_search_key = dynamic_keyword.strip().upper()
+        st.sidebar.warning(f"⚠️ Quét mã chuỗi dự phòng: {final_search_key}")
+        
     def fetch_san_pham(key):
-        if not key or key == "NOT_FOUND_IN_WAREHOUSE": return []
+        if not key or key in ["UNKNOWN", "NOT_FOUND_IN_WAREHOUSE"]: return []
         try:
             url = f"{base_sb_url}/rest/v1/san_pham"
             safe_key = quote(f"*{key}*")
@@ -838,19 +856,22 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
             res = requests.get(url, headers=headers, params=params, timeout=5)
             return res.json() if res.status_code == 200 else []
         except Exception: return []
+        
     def fetch_techpack(key):
-        if not key or key == "NOT_FOUND_IN_WAREHOUSE": return []
+        if not key or key in ["UNKNOWN", "NOT_FOUND_IN_WAREHOUSE"]: return []
         try:
             url = f"{base_sb_url}/rest/v1/thong_so_techpack"
             params = {"select": "*", "StyleName": f"ilike.*{key}*"}
             res = requests.get(url, headers=headers, params=params, timeout=5)
             return res.json() if res.status_code == 200 else []
         except Exception: return []
+        
     with concurrent.futures.ThreadPoolExecutor() as executor:
         future_sp = executor.submit(fetch_san_pham, final_search_key)
         future_tp = executor.submit(fetch_techpack, final_search_key)
         fabric_records = future_sp.result()
         techpack_records = future_tp.result()
+
     db_sketch_url = None
     db_measurements_raw = {}
     current_style_name = ""
@@ -875,11 +896,13 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                 constructed_url = f"{SUPABASE_PROJECT_URL}/storage/v1/object/public/kho_anh/{current_style_name}.jpg"
                 st.image(constructed_url, caption=f"🎯 Ảnh Sketch đối chứng khớp trong kho: {current_style_name}", use_container_width=True)
         else:
-            if dynamic_keyword and dynamic_keyword not in ["UNKNOWN", "UNKNOWN_STYLE"]:
-                constructed_url = f"{SUPABASE_PROJECT_URL}/storage/v1/object/public/kho_anh/{dynamic_keyword}.jpg"
-                st.image(constructed_url, caption=f"🔍 Thử tìm kiếm ảnh theo mã chuỗi: {dynamic_keyword}", use_container_width=True)
+            image_search_key = new_style_id_detected if new_style_id_detected != "UNKNOWN_STYLE" else dynamic_keyword
+            if image_search_key and image_search_key not in ["UNKNOWN", "UNKNOWN_STYLE"]:
+                constructed_url = f"{SUPABASE_PROJECT_URL}/storage/v1/object/public/kho_anh/{image_search_key}.jpg"
+                st.image(constructed_url, caption=f"🔍 Bản đối chứng ảnh kho theo mã hàng: {image_search_key}", use_container_width=True)
             else:
                 st.info("ℹ️ Không tìm thấy mẫu thiết kế đối chứng tương đồng trong kho ảnh.")
+                
     fabric_width_input = re.search(r'(?:KHỔ|KHO)\s*(\d+(?:\.\d+)?)', clean_text_upper)
     shrink_ngang = re.search(r'(?:NGANG)\s*(\d+(?:\.\d+)?)\s*%', clean_text_upper)
     shrink_doc = re.search(r'(?:DỌC|DOC)\s*(\d+(?:\.\d+)?)\s*%', clean_text_upper)
@@ -909,6 +932,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
             st.dataframe(formatted_measurements, use_container_width=True)
         else:
             st.info("Không tìm thấy thông số kỹ thuật gốc.")
+            
     is_user_asking_to_calculate = any(w in clean_text_upper for w in ["TÍNH", "TINH", "ĐỊNH MỨC", "DINH MUC", "CO RÚT", "CO RUT", "KHỔ", "KHO", "DỰ ĐOÁN", "DU DOAN"])
     if is_user_asking_to_calculate:
         st.markdown("### 📐 Kết quả phân tích sơ đồ & Tính toán định mức vải")
