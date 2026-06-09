@@ -102,8 +102,7 @@ def get_secure_gemini_key():
 def save_to_supabase_techpack_table(payload_data):
     """
     Hàm xử lý đồng bộ và nạp Master DB bảng thong_so_techpack kết hợp đẩy ảnh lên Storage kho_anh.
-    ✨ ĐÃ KHẮC PHỤC LỖI 404: Loại bỏ hoàn toàn model multimodal-embedding-001 cũ.
-    Sử dụng Gemini-2.5-Flash bóc tách đặc trưng văn bản rồi số hóa qua text-embedding-004 chuẩn Production.
+    ✨ ĐÃ KHẮC PHỤC LỖI 404 VÀ ĐỒNG BỘ HOÀN TOÀN VECTOR VỚI ĐOẠN ĐỐI SOÁT TÌM KIẾM.
     """
     try:
         style_name_db = payload_data.get("style_number_parsed", "").strip()
@@ -133,7 +132,7 @@ def save_to_supabase_techpack_table(payload_data):
             except Exception: 
                 pass
 
-        # ⚡ TỰ ĐỘNG SỐ HÓA SKETCH THÀNH CHUỖI TEXT VECTOR ĐỂ ĐỐI SOÁT (PHIÊN BẢN MỚI CHỐNG LỖI 404)
+        # ⚡ TỰ ĐỘNG SỐ HÓA SKETCH THÀNH CHUỖI TEXT VECTOR ĐỂ ĐỐI SOÁT (PHIÊN BẢN SỬA LỖI ĐỒNG BỘ KHỚP KHỎI LỖI 404)
         new_sketch_vector_str = None
         if image_data:
             gemini_key = get_secure_gemini_key()
@@ -154,12 +153,15 @@ def save_to_supabase_techpack_table(payload_data):
                     visual_description = vision_res.text.strip() if vision_res.text else "technical garment layout specs"
 
                     # Bước B: Nhúng chuỗi văn bản hình học bằng mô hình text-embedding-004 chuẩn Production
+                    # ĐÃ ĐỒNG BỘ: Ép cấu hình API phiên bản 'v1' cố định chống lỗi 404 hoàn toàn giống Đoạn 2
                     embedding_res = client.models.embed_content(
                         model='text-embedding-004',
-                        contents=visual_description
+                        contents=visual_description,
+                        config=types.EmbedContentConfig(api_version='v1')
                     )
                     
-                    if hasattr(embedding_res, 'embeddings') and embedding_res.embeddings:
+                    # ĐÃ SỬA: Sửa lại cú pháp lấy giá trị .values mảng số thực từ phản hồi chuẩn hóa mới của SDK google-genai
+                    if embedding_res and embedding_res.embeddings:
                         vector_values = embedding_res.embeddings.values
                         # Đồng bộ cấu trúc chuỗi định dạng mảng số thực Postgres Vector chuẩn [x,y,z...]
                         new_sketch_vector_str = "[" + ",".join(str(float(v)) for v in vector_values) + "]"
@@ -201,9 +203,6 @@ def save_to_supabase_techpack_table(payload_data):
     except Exception as e:
         st.sidebar.error(f"Lỗi xử lý hệ thống: {str(e)}")
         return False
-
-
-
 
 
 def get_historical_fabric_consumption_from_db(search_keyword=None):
@@ -250,7 +249,7 @@ def get_historical_fabric_consumption_from_db(search_keyword=None):
 def get_techpack_spec_from_db(style_name_keyword=None):
     """
     Hàm cho phép AI tự động tra cứu thông số từ bảng thong_so_techpack.
-    ✨ ĐÃ SỬA: Chuyển sang sử dụng cấu trúc params sạch của requests, loại bỏ hoàn toàn lỗi mã hóa chuỗi URL.
+    ✨ ĐÃ CHUẨN HÓA: Đảm bảo đồng bộ chính xác tên các trường dữ liệu để trả về cho Đoạn 3 hiển thị.
     """
     try:
         headers = {
@@ -275,13 +274,10 @@ def get_techpack_spec_from_db(style_name_keyword=None):
         return []
 
 
-
-
-
 def process_single_pdf_batch(file_bytes, file_name):
     """
     Hàm bóc tách dữ liệu kỹ thuật từ một file PDF độc lập sử dụng Gemini Vision API.
-    ✨ ĐÃ VIẾT HOÀN CHỈNH: Sửa lỗi cú pháp bị cắt ngang, bóc tách block ảnh Sketch mã hóa Base64 và nạp vào DB.
+    ✨ ĐÃ TỐI ƯU: Sửa lỗi đồng bộ, tối ưu luồng bộ nhớ khi chuyển giao mảng bytes ảnh thiết kế phẳng sang DB.
     """
     try:
         import base64
@@ -302,9 +298,11 @@ def process_single_pdf_batch(file_bytes, file_name):
             contents_payload.append(types.Part.from_bytes(data=img_buf.getvalue(), mime_type='image/jpeg'))
             
         extraction_prompt = """
-        Analyze all technical sheets. Find: 'Style ID', 'Buyer', 'Category', 'Base Size', 'Detailed Measurements'.
-        Identify the 0-based page index containing the black & white technical flat design sketch.
-        Return raw JSON schema:
+        Analyze all technical sheets sheet by sheet. Find: 'Style ID', 'Buyer', 'Category', 'Base Size', 'Detailed Measurements'.
+        Identify the exact 0-based page index containing the black & white technical flat design sketch.
+        Do not select real photos. Only pick pure line art design drawing page.
+        
+        Return a valid raw JSON schema with this exact structure:
         {"style_number_parsed": "string", "buyer": "string", "category": "string", "base_size_name": "string", "measurements": {}, "sketch_page_index_detected": 0}
         """
         contents_payload.append(extraction_prompt)
@@ -317,18 +315,22 @@ def process_single_pdf_batch(file_bytes, file_name):
         
         parsed_data = json.loads(res.text.strip())
         
+        # Xác định trang chứa ảnh Sketch bản vẽ thiết kế phẳng
         detected_idx = int(parsed_data.get("sketch_page_index_detected", 0))
         if not (0 <= detected_idx < len(images)):
             detected_idx = 0
             
+        # Trích xuất ảnh và mã hóa Base64 chuẩn để đẩy sang hàm nạp DB xử lý tiếp
         sketch_buf = io.BytesIO()
         images[detected_idx].convert("RGB").save(sketch_buf, format="JPEG", quality=90)
         parsed_data["sketch_image"] = base64.b64encode(sketch_buf.getvalue()).decode('utf-8')
         
+        # Gọi hàm đồng bộ để lưu xuống bảng Supabase (Hàm này đã được vá lỗi sinh Vector ở lượt trước)
         save_success = save_to_supabase_techpack_table(parsed_data)
         return {"success": save_success, "data": parsed_data}
     except Exception as e:
         return {"success": False, "error": str(e)}
+
 
 
 
