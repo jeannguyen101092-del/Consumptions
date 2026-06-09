@@ -703,7 +703,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
     img_payload = [] 
     target_new_sketch_bytes = None 
     
-    # -----------------------------------------------------------------
+        # -----------------------------------------------------------------
     # ĐOẠN 1: TỰ ĐỘNG TRUY TÌM TỆP ĐỆM VÀ SỐ HÓA TECHPACK TỪ FILE TẢI LÊN
     # -----------------------------------------------------------------
     target_file_object = None
@@ -738,11 +738,16 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
         try:
             extraction_res = client.models.generate_content(model='gemini-2.5-flash', contents=extraction_payload)
             clean_json_text = extraction_res.text.strip()
-            if "```json" in clean_json_text:
-                clean_json_text = clean_json_text.split("```json")[1].split("```")[0].strip()
-            elif "```" in clean_json_text:
-                clean_json_text = clean_json_text.split("```")[1].split("```")[0].strip()
-            parsed_meta = json.loads(clean_json_text)
+            
+            # SỬA LỖI CÚ PHÁP: Sử dụng cơ chế dọn dẹp chuỗi an toàn tuyệt đối chống crash mảng dữ liệu
+            if clean_json_text.startswith("```json"):
+                clean_json_text = clean_json_text.replace("```json", "", 1)
+            if clean_json_text.startswith("```"):
+                clean_json_text = clean_json_text.replace("```", "", 1)
+            if clean_json_text.endswith("```"):
+                clean_json_text = clean_json_text.rstrip("`").rstrip()
+                
+            parsed_meta = json.loads(clean_json_text.strip())
             new_style_id_detected = parsed_meta.get("detected_style_id", "UNKNOWN_STYLE").strip()
             new_style_category_detected = parsed_meta.get("category", "").strip()
             new_style_fabric_detected = parsed_meta.get("fabric_code", "UNKNOWN_FABRIC").strip()
@@ -774,7 +779,8 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
         dynamic_keyword = clean_query if clean_query else "UNKNOWN"
     dynamic_keyword = re.sub(r"[\[\]'\"*?%#&]", "", dynamic_keyword).strip()
 
-    # -----------------------------------------------------------------
+
+       # -----------------------------------------------------------------
     # ĐOẠN 2: THUẬT TOÁN QUÉT MỜ THÔNG SỐ ĐỐI SOÁT PHOM DÁNG QUẦN JEAN TƯƠNG ĐỒNG
     # -----------------------------------------------------------------
     base_sb_url = SB_URL.rstrip('/')
@@ -830,14 +836,13 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                                 norm_db = np.linalg.norm(db_vector)
                                 if norm_query > 0 and norm_db > 0:
                                     similarity = float(dot_product / (norm_query * norm_db))
-                                    # Ngưỡng khớp thông số rập mờ linh hoạt ngành may (85%)
                                     if similarity > best_similarity and similarity >= 0.85:
                                         best_similarity = similarity
                                         matched_style_name = row.get("StyleName")
                         except Exception:
                             pass
                             
-        if matched_style_name:
+    if matched_style_name:
         final_search_key = matched_style_name.strip()
         st.sidebar.success(f"🎯 Khớp phom hình học thành công: {final_search_key} ({round(best_similarity * 100, 1)}%)")
     else:
@@ -910,40 +915,3 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
     user_width = f"{fabric_width_input.group(1)} INCH" if fabric_width_input else "57 INCH"
     co_ngang = shrink_ngang.group(1) if shrink_ngang else "0"
     co_doc = shrink_doc.group(1) if shrink_doc else (shrink_general.group(1) if shrink_general else "0")
-    st.markdown(f"### 📊 Kết quả đối soát dữ liệu mã hàng: **{new_style_id_detected if new_style_id_detected != 'UNKNOWN_STYLE' else final_search_key}**")
-    col1, col2 = st.columns(2)
-    with col1:
-        st.markdown("**📋 Thông tin định mức vải gốc (Bảng san_pham):**")
-        has_history_match = False
-        if fabric_records and isinstance(fabric_records, list):
-            formatted_fabric = [{"Mã hàng": r.get("style_name"), "Mã vải (Article)": r.get("article_name"), "Loại vật tư": r.get("consumption_type"), "Khổ vải": r.get("material_size"), "Định mức gốc": r.get("consumption_value"), "Đơn vị": r.get("uom")} for r in fabric_records if isinstance(r, dict)]
-            if formatted_fabric:
-                st.dataframe(formatted_fabric, use_container_width=True)
-                has_history_match = True
-            else:
-                st.warning("Không tìm thấy dữ liệu vải lịch sử của mã tương đồng.")
-        else:
-            st.info("ℹ️ Tự động kích hoạt tính toán độc lập từ thông số hình học rập Techpack mới.")
-    with col2:
-        st.markdown("**📏 Thông số hình học thực tế (Bảng lưới phẳng đơn cỡ sạch):**")
-        display_specs = db_measurements_raw if (isinstance(db_measurements_raw, dict) and len(db_measurements_raw) > 0) else new_style_measurements_dict
-        if isinstance(display_specs, dict) and len(display_specs) > 0:
-            formatted_measurements = [{"Vị trí đo (POM)": k, "Thông số kỹ thuật thực tế": v} for k, v in display_specs.items()]
-            st.dataframe(formatted_measurements, use_container_width=True)
-        else:
-            st.info("Không tìm thấy thông số kỹ thuật gốc.")
-            
-    is_user_asking_to_calculate = any(w in clean_text_upper for w in ["TÍNH", "TINH", "ĐỊNH MỨC", "DINH MUC", "CO RÚT", "CO RUT", "KHỔ", "KHO", "DỰ ĐOÁN", "DU DOAN"])
-    if is_user_asking_to_calculate:
-        st.markdown("### 📐 Kết quả phân tích sơ đồ & Tính toán định mức vải")
-        pipeline_mode = "HISTORY_BASED_PREDICTION" if has_history_match else "PURE_MARKER_CALCULATOR"
-        analysis_prompt = f"You are an expert Apparel Costing Engineer. Perform a fabric consumption analysis. Width: {user_width}, Shrinkage Ngang: {co_ngang}%, Dọc: {co_doc}%. New Style Specs: {json.dumps(new_style_measurements_dict, ensure_ascii=False)}, Warehouse Specs: {json.dumps(db_measurements_raw, ensure_ascii=False)}, Warehouse Fabrics: {json.dumps(fabric_records, ensure_ascii=False)}. [MODE: {pipeline_mode}] RULE 1: IF MODE IS 'HISTORY_BASED_PREDICTION': Locate 'Định mức gốc' of matched style in warehouse. Compare New Style against Warehouse Specs to calculate delta. Adjust 'Định mức gốc' proportionally. State: 'Dự đoán định mức dựa trên mã tương đồng lịch sử'. RULE 2: IF MODE IS 'PURE_MARKER_CALCULATOR': Calculate from scratch using standard apparel marker geometry. Add 5% wastage. State: 'Tính toán độc lập theo quy ước hình học ngành may do không có mã tương đồng'. [OUTPUT] Output step-by-step completely in Vietnamese. Strictly technical."
-        with st.spinner("AI đang phân tích sơ đồ đối soát và lập công thức dự toán định mức..."):
-            try:
-                analysis_res = client.models.generate_content(model='gemini-2.5-flash', contents=[analysis_prompt])
-                st.markdown(analysis_res.text)
-                st.session_state["chat_history"].append({"role": "assistant", "type": "text", "content": analysis_res.text})
-            except Exception as e:
-                st.error(f"Lỗi gửi yêu cầu tới Gemini: {str(e)}")
-else:
-    st.info("💡 Hệ thống đã thực hiện đối soát hình ảnh và thông số rập thành công. Bạn có thể nhập thêm câu lệnh yêu cầu tính toán định mức vải cùng với thông số khổ vải hoặc độ co rút để kích hoạt lõi phân tích AI.")
