@@ -768,17 +768,21 @@ if has_file:
                 img_payload.append(types.Part.from_bytes(data=img_buf.getvalue(), mime_type='image/jpeg'))
             
             # ÉP BỘ LỌC THỊ GIÁC: Ép AI tìm đúng số trang vẽ kĩ thuật lớn sạch, loại bỏ trang lưới bảng biểu BOM chữ
+                        # --- 🚀 N N CẤP ĐOẠN 3: ÉP AI KHÓA TRỤC INSEAM MẪU CHUẨN TRÊN TRANG ĐỐI SOÁT CHÍNH ---
             extraction_prompt = (
-                "Analyze all attached sheets page by page. "
-                "1. Locate the core 'Base Size' / 'Sample Size' (e.g., size 32 or size 34 or M). "
-                "2. Extract ALL points of measurement (POM) and their corresponding target specs for THIS BASE SIZE ONLY. Extract at least 15-20 measurements if available. "
-                "3. Find 'Style ID' / 'Style Number' (e.g., 1P001369) and 'Category'. "
-                "4. CRITICAL VISION TASK FOR SKETCH DETECTION: Find the exact 'PAGE INDEX' (starting from 0) that contains the TECHNICAL BLACK AND WHITE FLAT SKETCH / DRAWING. "
-                "STRICTLY FORBIDDEN: DO NOT select summary pages containing a large grid table of BOM (Bill of Materials), fabrics itemization, trim sheets, or costing data grids. "
-                "Only pick the pure big line art design layout drawing page. "
-                "Return a valid raw JSON string with this exact schema (no markdown block): "
+                "You are an expert Garment Specification Auditor at PPJ Group. Analyze all attached sheets page by page. "
+                "1. Locate the core 'Base Size' / 'Sample Size' specified by the buyer (e.g., Size 32 with Inseam 32, written as 32/32 or 32x32). "
+                "2. CRITICAL MEASUREMENT SELECTION RULE: Look closely at the grading table sheet. "
+                "If the table contains multiple inseam length columns (e.g., columns for Inseam 30, 32, 34), you MUST extract the target point of measurement (POM) values that belong ONLY to the specified Sample length column (which is 32\"). "
+                "STRICTLY FORBIDDEN: Do not blindly extract the value from the first column if it represents an Inseam of 30\". "
+                "You must output the true Inseam target value which is 32\" for a 32/32 profile garment. "
+                "3. Extract at least 15-20 distinct Points of Measurement (POM) for this specific sample size only. "
+                "4. Find the exact 'Style ID' / 'Style Number' (e.g., 1P001369), 'Category' / 'Product Line', and 'Buyer' name. "
+                "5. Detect the exact PAGE INDEX (0-based) containing the pure black and white line art TECHNICAL FLAT SKETCH. "
+                "Return a completely valid raw JSON string with this exact schema (no markdown blocks): "
                 "{\"detected_style_id\": \"string\", \"category\": \"string\", \"fabric_code\": \"string\", \"base_size_detected\": \"string\", \"measurements\": {}, \"sketch_page_index_detected\": 0}"
             )
+
             extraction_payload = list(img_payload)
             extraction_payload.append(extraction_prompt)
             
