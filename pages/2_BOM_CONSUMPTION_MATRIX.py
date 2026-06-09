@@ -849,19 +849,11 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                         else:
                             st.info("💡 Mã gốc trong bảng thong_so_techpack chưa được nạp ảnh SketchURL")
 
-                    # --- 🛠️ SỬA LỖI TRUY XUẤT BOM: ÉP KHỚP KIỂU CHUỖI STRING CHO HÀM QUOTE ---
+                    # --- TRUY XUẤT BOM VÀ GỘP MÃ VẢI CHÍNH ---
                     st.subheader("📦 Chi Tiết Định Mức Nguyên Phụ Liệu Gốc trong kho (BOM)")
+                    core_code = re.findall(r'\b[A-Z0-9]{5,10}\b', target_style_name.strip())
+                    search_term = core_code if core_code else target_style_name.strip()
                     
-                    # Cắt chuỗi lấy mã số cốt lõi
-                    core_code_list = re.findall(r'\b[A-Z0-9]{5,10}\b', target_style_name.strip())
-                    
-                    # CHỐNG LỖI TYPEERROR: Đảm bảo search_term luôn là một chuỗi văn bản (String) thuần túy
-                    if core_code_list and isinstance(core_code_list, list):
-                        search_term = str(core_code_list[0]).strip()
-                    else:
-                        search_term = str(target_style_name).strip()
-                    
-                    # Gọi API Supabase sử dụng từ khóa chuỗi đã được chuẩn hóa an toàn
                     url_san_pham = f"{base_sb_url}/rest/v1/san_pham?style_name=ilike.*{quote(search_term)}*&select=article_name,consumption_type,material_size,uom"
                     res_sp = requests.get(url_san_pham, headers=headers, timeout=10)
                     bom_records = res_sp.json() if res_sp.status_code == 200 else []
@@ -874,7 +866,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     else:
                         st.warning(f"⚠️ Không tìm thấy dữ liệu nguyên phụ liệu cho mã gốc hoặc các biến thể của `{search_term}` trong bảng `san_pham`.")
 
-                    # --- BỘ ĐỌC THÔNG SỐ VÀ LẬP MA TRẬN ĐỐI SOÁT ---
+                    # --- 🧠 SỬA LỖI LỆCH HÀNG: THUẬT TOÁN ĐỐI SOÁT THÔNG SỐ NGHIÊM NGẶT ---
                     st.subheader("📊 Bảng Đối Soát Sai Lệch Thông Số Hình Học (Mẫu Gốc vs Mẫu Mới)")
                     db_measurements = matched_techpack.get("DetailedMeasurements", {})
                     specs_old = {}
@@ -895,23 +887,53 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     specs_new = new_style_measurements_dict
                     
                     if specs_old and specs_new:
+                        # Bản đồ ma trận từ khóa đồng nghĩa (Tách biệt rõ ràng Vòng đo rập và Vị trí hạ mẫu)
                         pom_synonyms = {
-                            "INSEAM": ["INSEAM", "INSEAM LENGTH", "DAI GIANG", "DÀI GIÀNG", "GIÀNG QUẦN"],
-                            "WAIST CIRC": ["WAIST", "WAIST CIRC", "WAISTBAND", "WAIST CIRC - ALONG EDGE", "WAIST CIRC - ALONG SEAM", "VONG EO", "VÒNG EO", "EO QUẦN"],
-                            "HIP CIRC": ["HIP", "HIP CIRC", "LOW HIP", "LOW HIP CIRC", "VONG MONG", "VÒNG MÔNG", "MÔNG"],
-                            "THIGH CIRC": ["THIGH", "THIGH CIRC", "VONG ĐUI", "VÒNG ĐÙI", "ĐÙI"],
-                            "FLY LENGTH": ["FLY LENGTH", "FRONT FLY", "DAI DOCK", "DÀI ĐÁP", "DÀI DOCK"],
-                            "KNEE CIRC": ["KNEE", "KNEE CIRC", "VONG GOI", "VÒNG GỐI", "GỐI"],
-                            "OUTSEAM LENGTH": ["OUTSEAM", "OUTSEAM LENGTH", "DAI QUAN", "DÀI QUẦN", "SƯỜN NGOÀI"]
+                            "INSEAM": ["INSEAM", "INSEAM LENGTH", "DAI GIANG", "DÀI GIÀNG"],
+                            "WAIST CIRC - ALONG EDGE": ["WAIST CIRC - ALONG EDGE", "WAIST CIRC ALONG EDGE", "WAISTBAND EDGE", "EO TRÊN"],
+                            "WAIST CIRC - ALONG SEAM": ["WAIST CIRC - ALONG SEAM", "WAIST CIRC ALONG SEAM", "WAISTBAND SEAM", "EO DƯỚI"],
+                            "LOW HIP CIRC": ["LOW HIP CIRC", "LOW HIP POSITION FROM BELOW WB", "VONG MONG", "VÒNG MÔNG", "MÔNG"],
+                            "THIGH CIRC": ["THIGH CIRC", "THIGH CIRC - 1\" BELOW CROTCH", "THIGH CIRC 1 BELOW CROTCH", "THIGH", "VÒNG ĐÙI"],
+                            "FLY LENGTH": ["FLY LENGTH", "FRONT FLY LENGTH", "DÀI DOCK"],
+                            "KNEE CIRC": ["KNEE CIRC", "KNEE", "VÒNG GỐI"],
+                            "OUTSEAM LENGTH": ["OUTSEAM LENGTH", "OUTSEAM", "DÀI QUẦN"],
+                            "CROTCH DEPTH": ["CROTCH DEPTH", "CROTCH DEPTH (OUTSEAM BTWB MINUS INSEAM)", "HẠ ĐÁY", "HẠ CẠP"],
+                            "LOW HIP POSITION": ["LOW HIP POSITION", "LOW HIP POSITION FROM BELOW WB", "HẠ MÔNG"],
+                            "WAISTBAND HEIGHT": ["WAISTBAND HEIGHT", "RỘNG BẢN CẠP", "BẢN CẠP"],
+                            "LEG OPENING CIRC": ["LEG OPENING CIRC", "LEG OPENING", "VÒNG ỐNG", "RỘNG ỐNG"]
                         }
                         
                         def find_standard_key(raw_key):
-                            k_clean = str(raw_key).strip().upper().replace("  ", " ")
+                            """Hàm chuẩn hóa từ khóa thô sử dụng thuật toán kiểm tra chuỗi nghiêm ngặt"""
+                            k_clean = str(raw_key).strip().upper().replace('"', '').replace("  ", " ")
+                            
+                            # Ưu tiên so khớp chính xác cụm từ (Exact Match) trước để tránh lệch vị trí đo
                             for std_key, synonyms in pom_synonyms.items():
-                                if any(syn in k_clean for syn in synonyms) or k_clean in synonyms:
+                                if k_clean in synonyms:
+                                    return std_key
+                                    
+                            # Luồng xử lý mờ thứ cấp: Kiểm tra điều kiện loại trừ nghiêm ngặt
+                            if "CROTCH DEPTH" in k_clean:
+                                return "CROTCH DEPTH"
+                            if "LOW HIP POSITION" in k_clean or "HIP POSITION" in k_clean:
+                                return "LOW HIP POSITION"
+                            if "HIP CIRC" in k_clean or "LOW HIP CIRC" in k_clean:
+                                return "LOW HIP CIRC"
+                            if "WAIST CIRC" in k_clean and "EDGE" in k_clean:
+                                return "WAIST CIRC - ALONG EDGE"
+                            if "WAIST CIRC" in k_clean and "SEAM" in k_clean:
+                                return "WAIST CIRC - ALONG SEAM"
+                            if "THIGH" in k_clean:
+                                return "THIGH CIRC"
+                            if "INSEAM" in k_clean:
+                                return "INSEAM"
+                                
+                            for std_key, synonyms in pom_synonyms.items():
+                                if any(syn in k_clean for syn in synonyms):
                                     return std_key
                             return k_clean
 
+                        # Tiến hành ép cặp chuẩn hóa bảng từ khóa hệ thống
                         norm_specs_old = {find_standard_key(k): (k, v) for k, v in specs_old.items()}
                         norm_specs_new = {find_standard_key(k): v for k, v in specs_new.items()}
                         
@@ -925,16 +947,17 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                                 v_old = parse_fraction(old_val)
                                 v_new = parse_fraction(new_val_str)
                                 
-                                if v_old > 0:
+                                if v_old > 0 and v_new > 0: # Đảm bảo cả 2 bên đều bóc tách ra số thực dương hợp lệ
                                     diff = v_new - v_old
                                     pct_diff = (diff / v_old) * 100
                                     
-                                    if std_key in ["INSEAM", "WAIST CIRC", "HIP CIRC", "THIGH CIRC", "OUTSEAM LENGTH"]:
+                                    # Lọc lấy danh mục các thông số rập cốt lõi tác động trực tiếp lên sơ đồ định mức
+                                    if std_key in ["INSEAM", "WAIST CIRC - ALONG EDGE", "WAIST CIRC - ALONG SEAM", "LOW HIP CIRC", "THIGH CIRC", "OUTSEAM LENGTH"]:
                                         total_deviation_percentage += pct_diff
                                         relevant_count += 1
                                     
                                     comparison_table.append({
-                                        "Vị trí đo (POM)": original_old_key,
+                                        "Vị trí đo (POM)": original_old_key, # Giữ nguyên tên gốc trực quan của kho để đối chiếu
                                         "Thông số gốc (Kho)": f"{old_val}\"",
                                         "Thông số mới (Quét)": f"{new_val_str}\"",
                                         "Chênh lệch": f"{diff:+.3f}\"",
@@ -949,8 +972,9 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                         else:
                             st.warning("⚠️ Không tìm thấy tên các vị trí đo (POM) tương thích giữa mẫu mới và mẫu gốc để làm bảng đối soát.")
                     else:
-                        st.info("💡 Không thể tiến hành đối soát do cấu trúc dữ liệu DetailedMeasurements trống hoặc sai cấu trúc chuỗi.")
+                        st.info("💡 Không thể tiến hành đối soát do dữ liệu bảng thông số chi tiết đang để trống.")
                 else:
                     st.warning(f"🔍 Hệ thống không tìm thấy mã hàng tương đồng nào khớp với từ khóa `{dynamic_keyword}`.")
             except Exception as e:
+
                 st.error(f"Lỗi cục bộ trong quá trình đối soát nâng cao: {str(e)}")
