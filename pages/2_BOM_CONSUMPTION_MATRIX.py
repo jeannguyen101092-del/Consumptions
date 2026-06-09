@@ -757,7 +757,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
     else:
         dynamic_keyword = clean_query if clean_query else "UNKNOWN"
     dynamic_keyword = re.sub(r"[\[\]'\"*?%#&]", "", dynamic_keyword).strip()
-    base_sb_url = SB_URL.rstrip('/')
+        base_sb_url = SB_URL.rstrip('/')
     headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
     matched_style_name = None
     best_similarity = -1.0
@@ -771,9 +771,14 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                     if not text_val: return 0.0
                     nums = re.findall(r'\d+(?:\.\d+)?', str(text_val).strip())
                     return float(nums) if nums else 0.0
-                q_waist = get_clean_num(new_style_measurements_dict.get("BD-245 Waist Circ - Along Edge", new_style_measurements_dict.get("Waist Circ", new_style_measurements_dict.get("Waist", 0))))
-                q_hip = get_clean_num(new_style_measurements_dict.get("BD-279 Low Hip Circ - 3 Point", new_style_measurements_dict.get("Low Hip Circ", new_style_measurements_dict.get("Hip", 0))))
-                q_thigh = get_clean_num(new_style_measurements_dict.get("BD-283 Thigh Circ - 1\" Below Crotch", new_style_measurements_dict.get("Thigh Circ", new_style_measurements_dict.get("Thigh", 0))))
+                def find_fuzzy_val(measure_dict, keyword):
+                    for k, v in measure_dict.items():
+                        if keyword.lower() in k.lower():
+                            return get_clean_num(v)
+                    return 0.0
+                q_waist = find_fuzzy_val(new_style_measurements_dict, "waist")
+                q_hip = find_fuzzy_val(new_style_measurements_dict, "hip")
+                q_thigh = find_fuzzy_val(new_style_measurements_dict, "thigh")
                 if q_waist > 0 or q_hip > 0:
                     query_vector = np.array([q_waist, q_hip, q_thigh], dtype=np.float32)
             except Exception:
@@ -792,9 +797,9 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
                         except Exception: db_measurements = {}
                     if isinstance(db_measurements, dict) and len(db_measurements) > 0:
                         try:
-                            db_waist = get_clean_num(db_measurements.get("BD-245 Waist Circ - Along Edge", db_measurements.get("Waist Circ", db_measurements.get("Waist", 0))))
-                            db_hip = get_clean_num(db_measurements.get("BD-279 Low Hip Circ - 3 Point", db_measurements.get("Low Hip Circ", db_measurements.get("Hip", 0))))
-                            db_thigh = get_clean_num(db_measurements.get("BD-283 Thigh Circ - 1\" Below Crotch", db_measurements.get("Thigh Circ", db_measurements.get("Thigh", 0))))
+                            db_waist = find_fuzzy_val(db_measurements, "waist")
+                            db_hip = find_fuzzy_val(db_measurements, "hip")
+                            db_thigh = find_fuzzy_val(db_measurements, "thigh")
                             db_vector = np.array([db_waist, db_hip, db_thigh], dtype=np.float32)
                             if np.any(db_vector > 0):
                                 dot_product = np.dot(query_vector, db_vector)
@@ -835,6 +840,7 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
         future_tp = executor.submit(fetch_techpack, final_search_key)
         fabric_records = future_sp.result()
         techpack_records = future_tp.result()
+
     db_sketch_url = None
     db_measurements_raw = {}
     current_style_name = ""
