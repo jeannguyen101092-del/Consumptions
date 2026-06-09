@@ -566,7 +566,6 @@ if menu_selection == "📊 Upload Techpack":
 
 # -----------------------------------------------------------------------------
 # CHỨC NĂNG 2: ĐỐI CHIẾU SO SÁNH HAI MÃ RẬP KHÁC NHAU (PATTERN SPEC COMPARISON)
-# -----------------------------------------------------------------------------
 elif menu_selection == "📸 Pattern Spec Comparison":
     import base64
     import concurrent.futures
@@ -718,8 +717,7 @@ elif menu_selection == "📸 Pattern Spec Comparison":
             st.markdown("<br>### 📋 CHI TIẾT CẤU TRÚC PHOM DÁNG CỦA TỪNG FILE", unsafe_allow_html=True)
             cols_render = st.columns(2)
             
-            # Khung hiển thị dữ liệu cột bên trái (File A)
-            with cols_render[0]:
+            with cols_render:
                 st.markdown(f"""<div class="card-container"><div class="tech-card-header">FILE A: {data_a.get('style_number_parsed')}</div>
                     <div class="metric-grid-box"><div><p class="metric-label">BUYER</p><p class="metric-value">{data_a.get('buyer')}</p></div>
                     <div><p class="metric-label">PRODUCT LINE</p><p class="metric-value">{data_a.get('category')}</p></div>
@@ -734,8 +732,7 @@ elif menu_selection == "📸 Pattern Spec Comparison":
                     if data_a.get("sketch_image"): 
                         st.image(data_a["sketch_image"], use_container_width=True)
                     
-            # Khung hiển thị dữ liệu cột bên phải (File B)
-            with cols_render[1]:
+            with cols_render:
                 st.markdown(f"""<div class="card-container"><div class="tech-card-header">FILE B: {data_b.get('style_number_parsed')}</div>
                     <div class="metric-grid-box"><div><p class="metric-label">BUYER</p><p class="metric-value">{data_b.get('buyer')}</p></div>
                     <div><p class="metric-label">PRODUCT LINE</p><p class="metric-value">{data_b.get('category')}</p></div>
