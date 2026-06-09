@@ -680,6 +680,7 @@ import concurrent.futures
 import numpy as np
 import requests
 import streamlit as st
+from urllib.parse import quote
 from google import genai
 from google.genai import types
 
@@ -688,28 +689,13 @@ try:
 except ImportError:
     pass
 
-# 1. Cấu hình thông tin kết nối hệ thống
-SB_URL = "https://supabase.co"
-SB_KEY = st.secrets.get("SUPABASE_KEY", "ĐIỀN_KEY_SUPABASE_CỦA_BẠN")
-
-def get_secure_gemini_key():
-    return st.secrets.get("GEMINI_API_KEY", "ĐIỀN_KEY_GEMINI_CỦA_BẠN")
-
-if "chat_history" not in st.session_state:
-    st.session_state["chat_history"] = []
-
-# 2. Nhận câu lệnh và xử lý file đính kèm
 if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vải và đối soát sai lệch..."):
     st.session_state["chat_history"].append({"role": "user", "type": "text", "content": user_query})
-    
     gemini_key = get_secure_gemini_key()
     if not gemini_key:
         st.error("AI API Token is missing.")
         st.stop()
-        
     client = genai.Client(api_key=gemini_key, http_options=types.HttpOptions(api_version='v1'))
-    
-    # Biến lưu trữ kết quả số hóa từ file mới
     new_style_id_detected = "UNKNOWN_STYLE"
     new_style_category_detected = ""
     new_style_fabric_detected = "UNKNOWN_FABRIC"
@@ -717,58 +703,73 @@ if user_query := st.chat_input("Nhập yêu cầu phân tích định mức vả
     img_payload = [] 
     target_new_sketch_bytes = None 
     
-    target_file_object = st.session_state.get('uploaded_file') or st.session_state.get('chat_file')
+    target_file_object = None
+    if 'chat_file' in locals() and chat_file is not None:
+        target_file_object = chat_file
+    elif 'chat_file' in globals() and globals()['chat_file'] is not None:
+        target_file_object = globals()['chat_file']
+    elif 'uploaded_file' in st.session_state and st.session_state['uploaded_file'] is not None:
+        target_file_object = st.session_state['uploaded_file']
+    elif 'chat_file' in st.session_state and st.session_state['chat_file'] is not None:
+        target_file_object = st.session_state['chat_file']
+        
     has_file = target_file_object is not None
-    
     if has_file:
         file_bytes = target_file_object.getvalue()
         file_name = target_file_object.name
-        
         if file_name.lower().endswith('.pdf'):
             info_chat = pdfinfo_from_bytes(file_bytes)
             total_chat_pages = int(info_chat.get("Pages", 1))
             chat_images = convert_from_bytes(file_bytes, dpi=90, first_page=1, last_page=total_chat_pages)
-            for page_img in chat_images:
+            for idx, page_img in enumerate(chat_images):
                 img_buf = io.BytesIO()
                 page_img.convert("RGB").save(img_buf, format="JPEG", quality=75)
                 img_payload.append(types.Part.from_bytes(data=img_buf.getvalue(), mime_type='image/jpeg'))
         else:
             target_new_sketch_bytes = file_bytes
             img_payload.append(types.Part.from_bytes(data=file_bytes, mime_type='image/jpeg'))
-            
-        extraction_prompt = (
-            "Analyze all attached sheets page by page. Locate the core 'Base Size' / 'Sample Size'. "
-            "Extract all points of measurement (POM) and their corresponding target specs for THIS BASE SIZE ONLY. "
-            "Find 'Style ID', 'Category', and 'fabric_code'. "
-            "Return a valid raw JSON string with this exact schema (no markdown block): "
-            '{"detected_style_id": "string", "category": "string", "fabric_code": "string", "measurements": {}, "sketch_page_index_detected": 0}'
-        )
-        
+        extraction_prompt = "Analyze all attached sheets page by page. Locate the core 'Base Size' / 'Sample Size' (e.g., size 32). Extract all points of measurement (POM) and their corresponding target specs for THIS BASE SIZE ONLY. Do not extract multiple sizes. Also find 'Style ID' and 'Category'. CRITICAL VISION TASK: Find the exact 'PAGE INDEX' (starting from 0) that contains the TECHNICAL BLACK AND WHITE FLAT SKETCH / DRAWING. DO NOT select pages containing real product photographs, garments, fabrics, or 'Labeled Images' wash denim sheets. Only pick the pure line art design drawing page. Return a valid raw JSON string with this exact schema (no markdown block): {\"detected_style_id\": \"string\", \"category\": \"string\", \"fabric_code\": \"string\", \"measurements\": {}, \"sketch_page_index_detected\": 0}"
         extraction_payload = list(img_payload)
         extraction_payload.append(extraction_prompt)
-        
         try:
             extraction_res = client.models.generate_content(model='gemini-2.5-flash', contents=extraction_payload)
             clean_json_text = extraction_res.text.strip()
-            for prefix in ["```json", "```"]:
-                if clean_json_text.startswith(prefix):
-                    clean_json_text = clean_json_text[len(prefix):].strip()
+            if clean_json_text.startswith("```json"):
+                clean_json_text = clean_json_text.replace("```json", "", 1)
+            if clean_json_text.startswith("```"):
+                clean_json_text = clean_json_text.replace("```", "", 1)
             if clean_json_text.endswith("```"):
-                clean_json_text = clean_json_text[:-3].strip()
-                
-            parsed_meta = json.loads(clean_json_text)
+                clean_json_text = clean_json_text.rstrip("`").rstrip()
+            parsed_meta = json.loads(clean_json_text.strip())
             new_style_id_detected = parsed_meta.get("detected_style_id", "UNKNOWN_STYLE").strip()
             new_style_category_detected = parsed_meta.get("category", "").strip()
             new_style_fabric_detected = parsed_meta.get("fabric_code", "UNKNOWN_FABRIC").strip()
             new_style_measurements_dict = parsed_meta.get("measurements", {})
             detected_idx = int(parsed_meta.get("sketch_page_index_detected", 0))
-            
             if file_name.lower().endswith('.pdf') and 0 <= detected_idx < len(chat_images):
                 b_buf = io.BytesIO()
                 chat_images[detected_idx].convert("RGB").save(b_buf, format="JPEG")
                 target_new_sketch_bytes = b_buf.getvalue()
         except Exception as e:
             st.sidebar.error(f"Lỗi AI trích xuất Techpack: {str(e)}")
+    clean_text_upper = str(user_query).strip().upper()
+    is_searching_fabric = any(word in clean_text_upper for word in ["CODE VẢI", "MÃ VẢI", "LOẠI VẢI", "TÌM VẢI"])
+    codes_found = re.findall(r'\b[A-Z]*\d+[A-Z0-9]*\b|\b[A-Z0-9]+-\d+[A-Z0-9-]*\b', clean_text_upper)
+    if codes_found:
+        clean_query = codes_found if isinstance(codes_found, list) else codes_found
+    else:
+        pattern_remove = r"\b(TÌM|KIỂM TRA|XEM|CHECK|MÃ HÀNG|MÃ|VẢI|CODE|TRÍCH XUẤT|HÌNH ẢNH|TƯƠNG ĐỒNG|KHO|TRONG)\b"
+        clean_query = re.sub(pattern_remove, "", clean_text_upper).strip()
+    if has_file:
+        if is_searching_fabric and new_style_fabric_detected != "UNKNOWN_FABRIC":
+            dynamic_keyword = str(new_style_fabric_detected).strip()
+        elif clean_query and len(clean_query) >= 3 and not any(w in clean_query for w in ["VỚI", "KHO", "TRONG"]):
+            dynamic_keyword = clean_query
+        else:
+            dynamic_keyword = str(new_style_id_detected).strip()
+    else:
+        dynamic_keyword = clean_query if clean_query else "UNKNOWN"
+    dynamic_keyword = re.sub(r"[\[\]'\"*?%#&]", "", dynamic_keyword).strip()
     base_sb_url = SB_URL.rstrip('/')
     headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
     matched_style_name = None
