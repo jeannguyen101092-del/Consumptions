@@ -564,38 +564,39 @@ elif menu_selection == "🔄 Pattern Spec Comparison":
     with sc2: file2 = st.file_uploader("Chọn file mẫu Techpack Sửa đổi (File B)", type=["pdf"], key="f2")
     
     if file1 and file2:
-        # --- KHỐI XỬ LÝ AN TOÀN TUYỆT ĐỐI CHỐNG SẬP TRANG VÌ LỖI KEYERROR ---
-        if "processed_styles" not in st.session_state:
-            st.session_state["processed_styles"] = {}
-
-        if file1.name not in st.session_state["processed_styles"]:
+        # --- THUẬT TOÁN CÔ LẬP BỘ NHỚ ĐỆM TUYỆT ĐỐI CHỐNG LỆCH CỘT N/A ---
+        if st.session_state.get("spec_last_f1") != file1.name or "spec_data_a" not in st.session_state:
             res1 = process_single_pdf_batch(file1.getvalue(), file1.name)
-            if res1.get("success") and "data" in res1: 
-                st.session_state["processed_styles"][file1.name] = res1["data"]
+            if res1.get("success") and "data" in res1:
+                st.session_state["spec_data_a"] = res1["data"]
+                st.session_state["spec_last_f1"] = file1.name
             else:
-                st.error(f"❌ Lỗi phân tích File A ({file1.name}): {res1.get('error', 'Không phản hồi dữ liệu hoặc API quá tải')}")
+                st.error(f"❌ Lỗi phân tích File A: {res1.get('error', 'Không có phản hồi')}")
+                st.session_state.pop("spec_data_a", None)
                 
-        if file2.name not in st.session_state["processed_styles"]:
+        if st.session_state.get("spec_last_f2") != file2.name or "spec_data_b" not in st.session_state:
             res2 = process_single_pdf_batch(file2.getvalue(), file2.name)
-            if res2.get("success") and "data" in res2: 
-                st.session_state["processed_styles"][file2.name] = res2["data"]
+            if res2.get("success") and "data" in res2:
+                st.session_state["spec_data_b"] = res2["data"]
+                st.session_state["spec_last_f2"] = file2.name
             else:
-                st.error(f"❌ Lỗi phân tích File B ({file2.name}): {res2.get('error', 'Không phản hồi dữ liệu hoặc API quá tải')}")
+                st.error(f"❌ Lỗi phân tích File B: {res2.get('error', 'Không có phản hồi')}")
+                st.session_state.pop("spec_data_b", None)
             
-        d1 = st.session_state["processed_styles"].get(file1.name)
-        d2 = st.session_state["processed_styles"].get(file2.name)
+        d1 = st.session_state.get("spec_data_a")
+        d2 = st.session_state.get("spec_data_b")
         
         if d1 and d2:
             style_a = d1.get('style_number_parsed', 'Mẫu A')
             style_b = d2.get('style_number_parsed', 'Mẫu B')
             
-            # Tự động gán nhãn nhận diện phân biệt nếu upload trùng tên/mã hàng để kiểm tra
+            # Gán nhãn phân biệt thông minh nếu người dùng upload cùng một mã thiết kế
             if style_a == style_b:
-                lbl_a = f"Mẫu A ({style_a}-Gốc) [{d1.get('base_size_name','30').strip()}]"
-                lbl_b = f"Mẫu B ({style_b}-Sửa) [{d2.get('base_size_name','30').strip()}]"
+                lbl_a = f"Mẫu A ({style_a}-Gốc) [{d1.get('base_size_name','32').strip()}]"
+                lbl_b = f"Mẫu B ({style_b}-Sửa) [{d2.get('base_size_name','32').strip()}]"
             else:
-                lbl_a = f"Mẫu A ({style_a}) [{d1.get('base_size_name','30').strip()}]"
-                lbl_b = f"Mẫu B ({style_b}) [{d2.get('base_size_name','30').strip()}]"
+                lbl_a = f"Mẫu A ({style_a}) [{d1.get('base_size_name','32').strip()}]"
+                lbl_b = f"Mẫu B ({style_b}) [{d2.get('base_size_name','32').strip()}]"
                 
             st.info(f"⚙️ **ĐANG ĐỐI CHIẾU MA TRẬN PHÁT TRIỂN:** {lbl_a} ↔️ {lbl_b}")
             
@@ -620,14 +621,12 @@ elif menu_selection == "🔄 Pattern Spec Comparison":
                 match = re.search(r'([A-Za-z]{2,4}-\d{3})', str(pom_str))
                 return match.group(1).upper() if match else str(pom_str).lower().strip()
 
-            # Chuyển đổi dữ liệu sang dạng bảng Pandas DataFrame phục vụ thuật toán map
             df_a = pd.DataFrame(list(d1["measurements"].items()), columns=['raw_pom_a', lbl_a])
             df_b = pd.DataFrame(list(d2["measurements"].items()), columns=['raw_pom_b', lbl_b])
             
             df_a['pom_code'] = df_a['raw_pom_a'].apply(extract_pom_code)
             df_b['pom_code'] = df_b['raw_pom_b'].apply(extract_pom_code)
             
-            # Thuật toán đánh số thứ tự dòng xuất hiện (Tránh lỗi lặp dòng, đứng im khi lặp mã như túi PKT-023)
             df_a['seq'] = df_a.groupby('pom_code').cumcount()
             df_b['seq'] = df_b.groupby('pom_code').cumcount()
             
@@ -653,7 +652,6 @@ elif menu_selection == "🔄 Pattern Spec Comparison":
                 
                 table_body_html += f"<tr style='background:#FFF;'><td style='padding:10px 14px; border-bottom:1px solid #E2E8F0; font-weight:600; color:#1E293B;'>{display_pom}</td><td style='padding:10px 14px; border-bottom:1px solid #E2E8F0; color:#334155;'>{val1}</td><td style='padding:10px 14px; border-bottom:1px solid #E2E8F0; color:#334155;'>{val2}</td><td style='padding:10px 14px; border-bottom:1px solid #E2E8F0; text-align:center;'><span style='{style}'>{txt}</span></td></tr>"
             
-            # Khởi tạo giao diện hiển thị HTML bảng thông số cuộn trượt mượt mà trên Web
             full_table_render = f"""
             <div style="max-height: 460px; overflow-y: auto; border: 1px solid #CBD5E1; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.02); margin-top: 15px;">
                 <table style="width: 100%; border-collapse: collapse; text-align: left; font-family: sans-serif;">
@@ -674,7 +672,7 @@ elif menu_selection == "🔄 Pattern Spec Comparison":
             st.markdown(full_table_render, unsafe_allow_html=True)
             st.markdown("<br>", unsafe_allow_html=True)
 
-            # --- KHỐI ĐỔ MÀU EXCEL CAO CẤP: ĐỒNG BỘ MÀU SẮC TRỰC QUAN Y HỆT WEB ---
+            # --- KHỐI ĐỔ MÀU EXCEL ĐỒNG BỘ GIAO DIỆN ---
             df_xl = pd.DataFrame(compare_rows_for_df)
             towrite = io.BytesIO()
             with pd.ExcelWriter(towrite, engine='xlsxwriter') as writer:
@@ -682,23 +680,19 @@ elif menu_selection == "🔄 Pattern Spec Comparison":
                 workbook  = writer.book
                 worksheet = writer.sheets['Spec_Report']
                 
-                # Khởi tạo định dạng bảng Excel chuyên nghiệp của PPJ Group
                 header_fmt = workbook.add_format({'bold':True, 'text_wrap':True, 'fg_color':'#1E3A8A', 'font_color':'white', 'border':1, 'align':'center', 'valign':'vcenter'})
                 left_fmt   = workbook.add_format({'align':'left', 'valign':'vcenter', 'border':1, 'font_name':'Arial', 'font_size':10})
                 center_fmt = workbook.add_format({'align':'center', 'valign':'vcenter', 'border':1, 'font_name':'Arial', 'font_size':10})
                 
-                # Ép bảng màu trạng thái nâng cao cho Excel (Xanh lá nhạt / Đỏ hồng nhạt)
                 green_fmt  = workbook.add_format({'bold':True, 'align':'center', 'valign':'vcenter', 'fg_color':'#E8F5E9', 'font_color':'#166534', 'border':1})
                 red_fmt    = workbook.add_format({'bold':True, 'align':'center', 'valign':'vcenter', 'fg_color':'#FFEBEE', 'font_color':'#991B1B', 'border':1})
                 na_fmt     = workbook.add_format({'italic':True, 'align':'center', 'valign':'vcenter', 'fg_color':'#F8FAFC', 'font_color':'#94A3B8', 'border':1})
                 
-                # Ghi tiêu đề cột và thiết kế dãn độ rộng các cột tự động
                 for col_num, title in enumerate(df_xl.columns):
                     worksheet.write(0, col_num, title, header_fmt)
                     max_len = max(df_xl[title].astype(str).map(len).max(), len(title)) + 4
                     worksheet.set_column(col_num, col_num, max_len)
                 
-                # Điền dữ liệu dòng ô và kiểm tra đổ màu sắc cột Delta có điều kiện
                 for idx, row in df_xl.iterrows():
                     worksheet.write(idx + 1, 0, row["Vị trí đo (POM)"], left_fmt)
                     worksheet.write(idx + 1, 1, row[lbl_a], center_fmt)
@@ -714,16 +708,12 @@ elif menu_selection == "🔄 Pattern Spec Comparison":
                     else:
                         worksheet.write(idx + 1, 3, "0.00", center_fmt)
                         
-                worksheet.set_row(0, 26)       # Tạo chiều cao header rộng rãi dễ đọc
-                worksheet.freeze_panes(1, 0)   # Khóa dòng tiêu đề đứng im khi người dùng cuộn xem dữ liệu trong Excel
+                worksheet.set_row(0, 26)
+                worksheet.freeze_panes(1, 0)
                 
             towrite.seek(0)
-            st.download_button(
-                label="📥 Tải Báo Cáo Đối Chiếu Có Màu (Excel)", 
-                data=towrite, 
-                file_name=f"Spec_Comparison_{style_a}.xlsx", 
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
+            st.download_button(label="📥 Tải Báo Cáo Đối Chiếu Có Màu (Excel)", data=towrite, file_name=f"Spec_Comparison_{style_a}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
 
 
 
