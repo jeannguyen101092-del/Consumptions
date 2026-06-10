@@ -1133,14 +1133,23 @@ elif menu_selection == "🛒 Purchase Consumption":
         
     if file_sbd and file_tp:
         st.markdown("<br>", unsafe_allow_html=True)
-        # THÊM NÚT BẤM KÍCH HOẠT ĐỂ GIẢI QUYẾT TRIỆT ĐỂ LỖI ĐỨNG IM
-        trigger_btn = st.button("⚡ KÍCH HOẠT SỐ HÓA ĐA LUỒNG SONG SONG (FILE MỚI)", type="primary", use_container_width=True)
         
-        if trigger_btn:
+        # Khởi tạo trạng thái bộ nhớ đệm ban đầu nếu chưa có
+        if "purchase_ready" not in st.session_state:
             st.session_state["purchase_ready"] = False
-            
-            # 1. TIẾN HÀNH BÓC TÁCH FILE SBD ĐƠN HÀNG
-            with st.spinner("🚀 AI đang bóc tách ma trận số lượng đơn hàng từng Size/Inseam từ File SBD..."):
+
+        # Tự động reset trạng thái bảng hiển thị nếu người dùng đổi file mới
+        if st.session_state.get("last_sbd_name") != file_sbd.name or st.session_state.get("last_pur_tp_name") != file_tp.name:
+            st.session_state["purchase_ready"] = False
+            st.session_state.pop("sbd_parsed_data", None)
+            st.session_state.pop("pur_tp_parsed_data", None)
+
+        trigger_btn = st.button("⚡ KÍCH HOẠT SỐ HÓA ĐA LUỒNG SONG SONG", type="primary", use_container_width=True)
+        
+        # KHI NGƯỜI DÙNG CLICK NÚT: Thực hiện bóc tách và lưu cờ hiệu thành công
+        if trigger_btn:
+            # 1. TIẾN HÀNH BÓC TÁCH FILE SBD ĐƠN HÀNG VÀ CHUYỂN TEXT EXCEL
+            with st.spinner("🚀 AI đang bóc tách ma trận số lượng đơn hàng từ File SBD..."):
                 gemini_key = get_secure_gemini_key()
                 client_ai = genai.Client(api_key=gemini_key)
                 
@@ -1155,7 +1164,7 @@ elif menu_selection == "🛒 Purchase Consumption":
                             sbd_content_str += f"\n--- SHEET NAME: {sheet_name} ---\n"
                             sbd_content_str += df_sheet.fillna("").to_csv(index=False)
                     except Exception as xl_err:
-                        st.error(f"Lỗi đọc cấu trúc tệp Excel: {str(xl_err)}")
+                        st.error(f"Lỗi đọc tệp Excel: {str(xl_err)}")
                 elif file_sbd.name.lower().endswith('.pdf'):
                     sbd_parts_payload.append(types.Part.from_bytes(data=sbd_bytes, mime_type='application/pdf'))
                 
@@ -1173,14 +1182,14 @@ elif menu_selection == "🛒 Purchase Consumption":
                 
                 try:
                     res_sbd = client_ai.models.generate_content(
-                        model='gemini-2.5-flash',
-                        contents=sbd_parts_payload,
+                        model='gemini-2.5-flash', contents=sbd_parts_payload,
                         config=types.GenerateContentConfig(response_mime_type="application/json")
                     )
                     raw_text = res_sbd.text.strip().replace("```json", "").replace("```", "").strip()
                     st.session_state["sbd_parsed_data"] = json.loads(raw_text)
+                    st.session_state["last_sbd_name"] = file_sbd.name
                 except Exception as e:
-                    st.error(f"Lỗi AI trích xuất dữ liệu SBD: {str(e)}")
+                    st.error(f"Lỗi AI trích xuất SBD: {str(e)}")
                     st.session_state["sbd_parsed_data"] = {}
 
             # 2. TIẾN HÀNH BÓC TÁCH FILE TECHPACK THÔNG SỐ RẬP
@@ -1188,125 +1197,129 @@ elif menu_selection == "🛒 Purchase Consumption":
                 res_tp = process_single_pdf_batch(file_tp.getvalue(), file_tp.name)
                 if res_tp.get("success") and "data" in res_tp:
                     st.session_state["pur_tp_parsed_data"] = res_tp["data"]
+                    st.session_state["last_pur_tp_name"] = file_tp.name
                 else:
                     st.error(f"Lỗi AI trích xuất Techpack: {res_tp.get('error')}")
                     st.session_state["pur_tp_parsed_data"] = {}
             
+            # Kích hoạt cờ hiệu cho phép mở khóa giao diện vĩnh viễn
             st.session_state["purchase_ready"] = True
+            st.rerun() # Ép trang tải lại để cập nhật giao diện bảng tính ngay lập tức
 
-        # Đọc dữ liệu từ bộ lưu trữ trạng thái an toàn
-        sbd_raw = st.session_state.get("sbd_parsed_data")
-        sbd_data = json.loads(sbd_raw) if isinstance(sbd_raw, str) else sbd_raw
-        
-        tp_raw = st.session_state.get("pur_tp_parsed_data")
-        tp_data = json.loads(tp_raw) if isinstance(tp_raw, str) else tp_raw
-        
-        # KIỂM TRA ĐIỀU KIỆN ĐỂ MỞ KHÓA GIAO DIỆN
-        if isinstance(sbd_data, dict) and isinstance(tp_data, dict) and sbd_data and tp_data:
-            st.success(f"🎉 Số hóa dữ liệu thành công! Hãy kiểm tra bảng thông số bên dưới trước khi bấm lưu.")
+        # --- ĐƯA KHỐI RENDER RA NGOÀI NÚT BẤM (GIẢI QUYẾT TRIỆT ĐỂ LỖI ĐỨNG IM) ---
+        if st.session_state.get("purchase_ready") is True:
+            sbd_raw = st.session_state.get("sbd_parsed_data")
+            sbd_data = json.loads(sbd_raw) if isinstance(sbd_raw, str) else sbd_raw
             
-            tab_sbd, tab_tp = st.tabs(["📋 Ma Trận Số Lượng Đơn Hàng (SBD)", "📐 Bảng Thông Số Thiết Kế (Techpack)"])
+            tp_raw = st.session_state.get("pur_tp_parsed_data")
+            tp_data = json.loads(tp_raw) if isinstance(tp_raw, str) else tp_raw
             
-            with tab_sbd:
-                st.markdown(f"**Tổng số lượng đơn đặt hàng (Total PO):** `{sbd_data.get('total_quantity', 0):,}` Pcs")
-                df_sbd_show = pd.DataFrame(list(sbd_data.get("size_breakdown", {}).items()), columns=["Kích thước (Size / Nhóm duy nhất)", "Số lượng đặt (Pcs)"])
-                st.dataframe(df_sbd_show, use_container_width=True, hide_index=True)
+            if isinstance(sbd_data, dict) and isinstance(tp_data, dict) and sbd_data and tp_data:
+                st.success(f"🎉 Số hóa dữ liệu thành công cho Mã Hàng: {sbd_data.get('style_id', 'Chưa xác định')}")
                 
-            with tab_tp:
-                st.markdown(f"**Vải chính / Chủng loại:** `{tp_data.get('category', 'N/A')}` | **Size Gốc bản vẽ:** `{tp_data.get('base_size_name', 'N/A')}`")
-                df_tp_show = pd.DataFrame(list(tp_data.get("measurements", {}).items()), columns=["Vị trí đo (POM Description)", "Thông số rập mẫu"])
-                st.dataframe(df_tp_show, use_container_width=True, hide_index=True)
-            # --- 🛠️ KHỐI CHAT AI VÀ CỖ MÁY TOÁN HỌC TÍNH TOÁN ĐẶT HÀNG NÂNG CAO ---
-            st.markdown("<br><hr style='border:0.5px solid #E2E8F0;'>", unsafe_allow_html=True)
-            st.markdown("### 💬 TRỢ LÝ AI TÍNH TOÁN ĐỊNH MỨC ĐẶT HÀNG VẬT TƯ")
-            st.caption("Nhập định mức vải/phụ liệu của size cơ bản (hoặc yêu cầu AI tự động phân bổ định mức dựa trên tỷ lệ chênh lệch các size từ Techpack).")
-            
-            if "purchase_chat_history" not in st.session_state:
-                st.session_state["purchase_chat_history"] = []
+                tab_sbd, tab_tp = st.tabs(["📋 Ma Trận Số Lượng Đơn Hàng (SBD)", "📐 Bảng Thông Số Thiết Kế (Techpack)"])
                 
-            for msg in st.session_state["purchase_chat_history"]:
-                with st.chat_message(msg["role"]):
-                    st.write(msg["content"])
-                    if "df_result" in msg:
-                        st.dataframe(msg["df_result"], use_container_width=True)
-                    if "excel_bytes" in msg:
-                        st.download_button(label="📥 Tải Đơn Đặt Hàng Vật Tư (Excel)", data=msg["excel_bytes"], file_name="Purchase_Order_Report.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-            
-            if user_instruction := st.chat_input("Nhập định mức (Ex: Định mức vải chính size M là 1.25 yds, tính tổng mua kèm hao hụt 3%)..."):
-                with st.chat_message("user"):
-                    st.write(user_instruction)
-                st.session_state["purchase_chat_history"].append({"role": "user", "content": user_instruction})
+                with tab_sbd:
+                    st.markdown(f"**Tổng số lượng đơn đặt hàng (Total PO):** `{sbd_data.get('total_quantity', 0):,}` Pcs")
+                    df_sbd_show = pd.DataFrame(list(sbd_data.get("size_breakdown", {}).items()), columns=["Kích thước (Size / Nhóm duy nhất)", "Số lượng đặt (Pcs)"])
+                    st.dataframe(df_sbd_show, use_container_width=True, hide_index=True)
+                    
+                with tab_tp:
+                    st.markdown(f"**Vải chính / Chủng loại:** `{tp_data.get('category', 'N/A')}` | **Size Gốc bản vẽ:** `{tp_data.get('base_size_name', 'N/A')}`")
+                    df_tp_show = pd.DataFrame(list(tp_data.get("measurements", {}).items()), columns=["Vị trí đo (POM Description)", "Thông số rập mẫu"])
+                    st.dataframe(df_tp_show, use_container_width=True, hide_index=True)
+                # --- 🛠️ KHỐI CHAT AI VÀ CỖ MÁY TOÁN HỌC TÍNH TOÁN ĐẶT HÀNG NÂNG CAO ---
+                st.markdown("<br><hr style='border:0.5px solid #E2E8F0;'>", unsafe_allow_html=True)
+                st.markdown("### 💬 TRỢ LÝ AI TÍNH TOÁN ĐỊNH MỨC ĐẶT HÀNG VẬT TƯ")
+                st.caption("Nhập định mức vải/phụ liệu của size cơ bản (hoặc yêu cầu AI tự động phân bổ định mức dựa trên tỷ lệ chênh lệch các size từ Techpack).")
                 
-                with st.chat_message("assistant"):
-                    with st.spinner("🤖 Trí tuệ nhân tạo AI đang phân tích dữ liệu đa nguồn và tính toán ma trận vật tư..."):
-                        gemini_key = get_secure_gemini_key()
-                        client_ai = genai.Client(api_key=gemini_key)
-                        
-                        ai_context_prompt = f"""
-                        You are a professional Textile Production Planner. 
-                        We have parsed the following data from the Techpack and Order Sheet (SBD):
-                        
-                        1. ORDER QUANTITIES MATRIX (SBD):
-                        {json.dumps(sbd_data.get('size_breakdown', {}))}
-                        
-                        2. GARMENT SPECIFICATION RATIO (Techpack):
-                        {json.dumps(tp_data.get('measurements', {}))}
-                        Base Size of Techpack: {tp_data.get('base_size_name', 'N/A')}
-                        
-                        The user provided this instruction: "{user_instruction}"
-                        
-                        Your mission:
-                        1. Analyze how the garment measurements change across sizes from the spec matrix.
-                        2. Dynamically calculate the appropriate fabric/trim consumption value (định mức) for EACH size in the SBD list. If the user gives a single base consumption, extrapolate it proportionally for larger/smaller sizes based on the waist/length spec ratios if relevant, or keep it uniform if appropriate.
-                        3. Multiply the consumption of each size by its specific order quantity from the SBD data to find the net requirement.
-                        4. Apply any wastage/loss allowance mentioned by the user to compute the final Gross Purchase Quantity.
-                        
-                        Provide a clear professional markdown text explanation of your logic first.
-                        Then, you MUST output a final raw JSON block at the very end of your response inside a ```json ... ``` container.
-                        The JSON schema must be exactly a list of objects like this:
-                        ```json
-                        [
-                          {{"Kích thước (Size/Inseam)": "string", "Số lượng PO (Pcs)": 100, "Định mức phân bổ (Yds/Pcs)": 1.25, "Nhu cầu tinh (Net)": 125.0, "Tổng lượng mua (+Hao hụt)": 128.75}}
+                if "purchase_chat_history" not in st.session_state:
+                    st.session_state["purchase_chat_history"] = []
+                    
+                for msg in st.session_state["purchase_chat_history"]:
+                    with st.chat_message(msg["role"]):
+                        st.write(msg["content"])
+                        if "df_result" in msg:
+                            st.dataframe(msg["df_result"], use_container_width=True)
+                        if "excel_bytes" in msg:
+                            st.download_button(label="📥 Tải Đơn Đặt Hàng Vật Tư (Excel)", data=msg["excel_bytes"], file_name="Purchase_Order_Report.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                
+                if user_instruction := st.chat_input("Nhập định mức (Ex: Định mức vải chính size M là 1.25 yds, tính tổng mua kèm hao hụt 3%)..."):
+                    with st.chat_message("user"):
+                        st.write(user_instruction)
+                    st.session_state["purchase_chat_history"].append({"role": "user", "content": user_instruction})
+                    
+                    with st.chat_message("assistant"):
+                        with st.spinner("🤖 Trí tuệ nhân tạo AI đang phân tích dữ liệu đa nguồn và tính toán ma trận vật tư..."):
+                            gemini_key = get_secure_gemini_key()
+                            client_ai = genai.Client(api_key=gemini_key)
+                            
+                            ai_context_prompt = f"""
+                            You are a professional Textile Production Planner. 
+                            We have parsed the following data from the Techpack and Order Sheet (SBD):
+                            
+                            1. ORDER QUANTITIES MATRIX (SBD):
+                            {json.dumps(sbd_data.get('size_breakdown', {}))}
+                            
+                            2. GARMENT SPECIFICATION RATIO (Techpack):
+                            {json.dumps(tp_data.get('measurements', {}))}
+                            Base Size of Techpack: {tp_data.get('base_size_name', 'N/A')}
+                            
+                            The user provided this instruction: "{user_instruction}"
+                            
+                            Your mission:
+                            1. Analyze how the garment measurements change across sizes from the spec matrix.
+                            2. Dynamically calculate the appropriate fabric/trim consumption value (định mức) for EACH size in the SBD list. If the user gives a single base consumption, extrapolate it proportionally for larger/smaller sizes based on the waist/length spec ratios if relevant, or keep it uniform if appropriate.
+                            3. Multiply the consumption of each size by its specific order quantity from the SBD data to find the net requirement.
+                            4. Apply any wastage/loss allowance mentioned by the user to compute the final Gross Purchase Quantity.
+                            
+                            Provide a clear professional markdown text explanation of your logic first.
+                            Then, you MUST output a final raw JSON block at the very end of your response inside a ```json ... ``` container.
+                            The JSON schema must be exactly a list of objects like this:
+                            ```json
+                            [
+                              {{"Kích thước (Size/Inseam)": "string", "Số lượng PO (Pcs)": 100, "Định mức phân bổ (Yds/Pcs)": 1.25, "Nhu cầu tinh (Net)": 125.0, "Tổng lượng mua (+Hao hụt)": 128.75}}
                         ]
                         ```
                         """
                         
-                        try:
-                            response_ai = client_ai.models.generate_content(
-                                model='gemini-2.5-flash',
-                                contents=ai_context_prompt
-                            )
-                            
-                            ai_text = response_ai.text
-                            json_block = ""
-                            if "```json" in ai_text:
-                                parts = ai_text.split("```json")
-                                text_desc = parts
-                                json_block = parts.split("```").strip()
-                            else:
-                                text_desc = ai_text
+                            try:
+                                response_ai = client_ai.models.generate_content(
+                                    model='gemini-2.5-flash',
+                                    contents=ai_context_prompt
+                                )
                                 
-                            st.write(text_desc)
-                            new_msg_data = {"role": "assistant", "content": text_desc}
-                            
-                            if json_block:
-                                df_res = pd.read_json(io.StringIO(json_block))
-                                st.dataframe(df_res, use_container_width=True, hide_index=True)
-                                new_msg_data["df_result"] = df_res
+                                ai_text = response_ai.text
+                                json_block = ""
+                                if "```json" in ai_text:
+                                    parts = ai_text.split("```json")
+                                    text_desc = parts
+                                    json_block = parts.split("```").strip()
+                                else:
+                                    text_desc = ai_text
+                                    
+                                st.write(text_desc)
+                                new_msg_data = {"role": "assistant", "content": text_desc}
                                 
-                                xl_buf = io.BytesIO()
-                                with pd.ExcelWriter(xl_buf, engine='xlsxwriter') as writer:
-                                    df_res.to_excel(writer, index=False, sheet_name='Purchase_Order')
-                                    ws = writer.sheets['Purchase_Order']
-                                    for i, col in enumerate(df_res.columns):
-                                        ws.set_column(i, i, max(df_res[col].astype(str).map(len).max(), len(col)) + 4)
-                                xl_buf.seek(0)
-                                xl_bytes = xl_buf.getvalue()
+                                if json_block:
+                                    df_res = pd.read_json(io.StringIO(json_block))
+                                    st.dataframe(df_res, use_container_width=True, hide_index=True)
+                                    new_msg_data["df_result"] = df_res
+                                    
+                                    xl_buf = io.BytesIO()
+                                    with pd.ExcelWriter(xl_buf, engine='xlsxwriter') as writer:
+                                        df_res.to_excel(writer, index=False, sheet_name='Purchase_Order')
+                                        ws = writer.sheets['Purchase_Order']
+                                        for i, col in enumerate(df_res.columns):
+                                            ws.set_column(i, i, max(df_res[col].astype(str).map(len).max(), len(col)) + 4)
+                                    xl_buf.seek(0)
+                                    xl_bytes = xl_buf.getvalue()
+                                    
+                                    st.download_button(label="📥 Tải Đơn Đặt Hàng Vật Tư (Excel)", data=xl_bytes, file_name=f"AI_Purchase_Order_{sbd_data.get('style_id')}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                                    new_msg_data["excel_bytes"] = xl_bytes
+                                    
+                                st.session_state["purchase_chat_history"].append(new_msg_data)
+                                st.rerun() # Ép tải lại để cập nhật đoạn hội thoại chat ngay lập tức
                                 
-                                st.download_button(label="📥 Tải Đơn Đặt Hàng Vật Tư (Excel)", data=xl_bytes, file_name=f"AI_Purchase_Order_{sbd_data.get('style_id')}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-                                new_msg_data["excel_bytes"] = xl_bytes
-                                
-                            st.session_state["purchase_chat_history"].append(new_msg_data)
-                            
-                        except Exception as chat_err:
-                            st.error(f"Cỗ máy toán học AI gặp lỗi khi xử lý dữ liệu: {str(chat_err)}")
+                            except Exception as chat_err:
+                                st.error(f"Cỗ máy toán học AI gặp lỗi khi xử lý dữ liệu: {str(chat_err)}")
