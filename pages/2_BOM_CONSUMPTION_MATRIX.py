@@ -1132,8 +1132,14 @@ elif menu_selection == "🛒 Purchase Consumption":
     with col_right: file_tp = st.file_uploader("📐 Chọn File Techpack Thông Số (PDF)", type=["pdf"], key="purchase_tp")
         
     if file_sbd and file_tp:
-        # 1. KHỐI XỬ LÝ BÓC TÁCH FILE SBD (KHẮC PHỤC TRIỆT ĐỂ LỖI ATTRIBUTEERROR / NONE)
-        if st.session_state.get("last_sbd_name") != file_sbd.name or "sbd_parsed_data" not in st.session_state:
+        st.markdown("<br>", unsafe_allow_html=True)
+        # THÊM NÚT BẤM KÍCH HOẠT ĐỂ GIẢI QUYẾT TRIỆT ĐỂ LỖI ĐỨNG IM
+        trigger_btn = st.button("⚡ KÍCH HOẠT SỐ HÓA ĐA LUỒNG SONG SONG (FILE MỚI)", type="primary", use_container_width=True)
+        
+        if trigger_btn:
+            st.session_state["purchase_ready"] = False
+            
+            # 1. TIẾN HÀNH BÓC TÁCH FILE SBD ĐƠN HÀNG
             with st.spinner("🚀 AI đang bóc tách ma trận số lượng đơn hàng từng Size/Inseam từ File SBD..."):
                 gemini_key = get_secure_gemini_key()
                 client_ai = genai.Client(api_key=gemini_key)
@@ -1156,10 +1162,7 @@ elif menu_selection == "🛒 Purchase Consumption":
                 sbd_prompt = f"""
                 Analyze this garment purchase order breakdown data (SBD).
                 Extract the core style number/ID and the total order quantity.
-                
-                CRITICAL RULE FOR SIZE GROUPING:
-                If the order matrix DOES NOT have separate Inseam columns/groups (only flat sizes like S, M, L, XL or 28, 30, 32), 
-                extract them as a single uniform size dictionary layout.
+                If the order matrix DOES NOT have separate Inseam columns/groups (only flat sizes like S, M, L, XL), extract them as a single flat group.
                 
                 {sbd_content_str}
                 
@@ -1176,36 +1179,31 @@ elif menu_selection == "🛒 Purchase Consumption":
                     )
                     raw_text = res_sbd.text.strip().replace("```json", "").replace("```", "").strip()
                     st.session_state["sbd_parsed_data"] = json.loads(raw_text)
-                    st.session_state["last_sbd_name"] = file_sbd.name
                 except Exception as e:
                     st.error(f"Lỗi AI trích xuất dữ liệu SBD: {str(e)}")
                     st.session_state["sbd_parsed_data"] = {}
 
-        # 2. KHỐI XỬ LÝ BÓC TÁCH FILE TECHPACK (THÔNG SỐ RẬP)
-        if st.session_state.get("last_pur_tp_name") != file_tp.name or "pur_tp_parsed_data" not in st.session_state:
+            # 2. TIẾN HÀNH BÓC TÁCH FILE TECHPACK THÔNG SỐ RẬP
             with st.spinner("📐 AI đang bóc tách bảng thông số kỹ thuật rập từ bản vẽ Techpack..."):
                 res_tp = process_single_pdf_batch(file_tp.getvalue(), file_tp.name)
                 if res_tp.get("success") and "data" in res_tp:
                     st.session_state["pur_tp_parsed_data"] = res_tp["data"]
-                    st.session_state["last_pur_tp_name"] = file_tp.name
                 else:
                     st.error(f"Lỗi AI trích xuất Techpack: {res_tp.get('error')}")
                     st.session_state["pur_tp_parsed_data"] = {}
+            
+            st.session_state["purchase_ready"] = True
 
-        # --- PHÒNG VỆ AN TOÀN NÂNG CAO: ÉP KIỂU ĐỂ TRÁNH HOÀN TOÀN LỖI ATTRIBUTEERROR ---
+        # Đọc dữ liệu từ bộ lưu trữ trạng thái an toàn
         sbd_raw = st.session_state.get("sbd_parsed_data")
-        if not sbd_raw: sbd_data = {}
-        elif isinstance(sbd_raw, str): sbd_data = json.loads(sbd_raw)
-        else: sbd_data = sbd_raw
+        sbd_data = json.loads(sbd_raw) if isinstance(sbd_raw, str) else sbd_raw
         
         tp_raw = st.session_state.get("pur_tp_parsed_data")
-        if not tp_raw: tp_data = {}
-        elif isinstance(tp_raw, str): tp_data = json.loads(tp_raw)
-        else: tp_data = tp_raw
+        tp_data = json.loads(tp_raw) if isinstance(tp_raw, str) else tp_raw
         
-        # Chỉ hiển thị bảng khi dữ liệu dictionary hợp lệ và không rỗng
+        # KIỂM TRA ĐIỀU KIỆN ĐỂ MỞ KHÓA GIAO DIỆN
         if isinstance(sbd_data, dict) and isinstance(tp_data, dict) and sbd_data and tp_data:
-            st.success(f"🎉 Số hóa dữ liệu thành công cho Mã Hàng: {sbd_data.get('style_id', 'Chưa xác định')}")
+            st.success(f"🎉 Số hóa dữ liệu thành công! Hãy kiểm tra bảng thông số bên dưới trước khi bấm lưu.")
             
             tab_sbd, tab_tp = st.tabs(["📋 Ma Trận Số Lượng Đơn Hàng (SBD)", "📐 Bảng Thông Số Thiết Kế (Techpack)"])
             
@@ -1221,7 +1219,7 @@ elif menu_selection == "🛒 Purchase Consumption":
             # --- 🛠️ KHỐI CHAT AI VÀ CỖ MÁY TOÁN HỌC TÍNH TOÁN ĐẶT HÀNG NÂNG CAO ---
             st.markdown("<br><hr style='border:0.5px solid #E2E8F0;'>", unsafe_allow_html=True)
             st.markdown("### 💬 TRỢ LÝ AI TÍNH TOÁN ĐỊNH MỨC ĐẶT HÀNG VẬT TƯ")
-            st.caption("Nhập định mức vải/phụ liệu của size cơ bản (hoặc yêu cầu AI tự động phân bổ định mức theo tỷ lệ chênh lệch các size dựa trên bảng thông số rập phía trên).")
+            st.caption("Nhập định mức vải/phụ liệu của size cơ bản (hoặc yêu cầu AI tự động phân bổ định mức dựa trên tỷ lệ chênh lệch các size từ Techpack).")
             
             if "purchase_chat_history" not in st.session_state:
                 st.session_state["purchase_chat_history"] = []
