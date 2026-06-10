@@ -411,7 +411,7 @@ with st.sidebar:
     # ĐÃ ĐỒNG BỘ: Đảm bảo khớp hoàn toàn các nhãn chức năng
     menu_selection = st.radio(
         label="Chức năng hệ thống",
-        options=["📊 Upload Techpack", "🔄 Pattern Spec Comparison", "🧵 BOM & Consumption Matrix"],
+        options=["📊 Upload Techpack", "🔄 Pattern Spec Comparison", "🧵 BOM & Consumption Matrix","🛒 Purchase Consumption"],
         label_visibility="collapsed"
     )
     st.markdown("---")
