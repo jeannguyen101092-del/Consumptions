@@ -11,3 +11,4 @@ pdf2image
 xlsxwriter
 openpyxl
 pillow
+openpyxl
