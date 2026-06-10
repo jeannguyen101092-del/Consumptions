@@ -533,24 +533,30 @@ elif menu_selection == "🔄 Pattern Spec Comparison":
     with sc2: file2 = st.file_uploader("Chọn file mẫu Techpack Sửa đổi (File B)", type=["pdf"], key="f2")
     
     if file1 and file2:
-        # SỬA TRIỆT ĐỂ LỖI ĐỨNG YÊN: Dùng st.session_state độc lập để lưu lịch sử file uploader
+        # SỬA TRIỆT ĐỂ LỖI KEYERROR: Kiểm tra điều kiện success nghiêm ngặt trước khi gán
         if st.session_state.get("last_f1_name") != file1.name or "data_a" not in st.session_state:
             res1 = process_single_pdf_batch(file1.getvalue(), file1.name)
-            if res1["success"]: 
+            if res1.get("success"): 
                 st.session_state["data_a"] = res1["data"]
                 st.session_state["last_f1_name"] = file1.name
+            else:
+                st.error(f"❌ Lỗi xử lý File A: {res1.get('error', 'Không xác định')}")
+                st.session_state.pop("data_a", None)
                 
         if st.session_state.get("last_f2_name") != file2.name or "data_b" not in st.session_state:
             res2 = process_single_pdf_batch(file2.getvalue(), file2.name)
-            if res2["success"]: 
+            if res2.get("success"): 
                 st.session_state["data_b"] = res2["data"]
                 st.session_state["last_f2_name"] = file2.name
+            else:
+                st.error(f"❌ Lỗi xử lý File B: {res2.get('error', 'Không xác định')}")
+                st.session_state.pop("data_b", None)
             
         d1 = st.session_state.get("data_a")
         d2 = st.session_state.get("data_b")
         
+        # Chỉ tiến hành hiển thị bảng so sánh khi cả hai tệp dữ liệu đã bóc tách thành công
         if d1 and d2:
-            # Nhận diện thông số hiển thị rõ ràng kể cả khi trùng mã hàng
             style_a = d1.get('style_number_parsed', 'Mẫu A')
             style_b = d2.get('style_number_parsed', 'Mẫu B')
             if style_a == style_b:
@@ -583,14 +589,12 @@ elif menu_selection == "🔄 Pattern Spec Comparison":
                 match = re.search(r'([A-Za-z]{2,4}-\d{3})', str(pom_str))
                 return match.group(1).upper() if match else str(pom_str).lower().strip()
 
-            # Chuyển đổi dữ liệu sang DataFrame để so khớp bằng mã rập (POM CODE)
             df_a = pd.DataFrame(list(d1["measurements"].items()), columns=['raw_pom_a', lbl_a])
             df_b = pd.DataFrame(list(d2["measurements"].items()), columns=['raw_pom_b', lbl_b])
             
             df_a['pom_code'] = df_a['raw_pom_a'].apply(extract_pom_code)
             df_b['pom_code'] = df_b['raw_pom_b'].apply(extract_pom_code)
             
-            # ĐỒNG BỘ THỨ TỰ XUẤT HIỆN: Tránh lỗi trùng mã đơn vị túi (Ví dụ: PKT-023 có 2 dòng)
             df_a['seq'] = df_a.groupby('pom_code').cumcount()
             df_b['seq'] = df_b.groupby('pom_code').cumcount()
             
@@ -617,11 +621,10 @@ elif menu_selection == "🔄 Pattern Spec Comparison":
                 
                 table_body_html += f"<tr style='background:#FFF;'><td style='padding:10px 14px; border-bottom:1px solid #E2E8F0; font-weight:600; color:#1E293B;'>{display_pom}</td><td style='padding:10px 14px; border-bottom:1px solid #E2E8F0; color:#334155;'>{val1}</td><td style='padding:10px 14px; border-bottom:1px solid #E2E8F0; color:#334155;'>{val2}</td><td style='padding:10px 14px; border-bottom:1px solid #E2E8F0; text-align:center;'><span style='{style}'>{txt}</span></td></tr>"
             
-            # Giao diện hiển thị bảng web cuộn trượt mượt mà
             st.markdown(f"<div style='max-height:460px; overflow-y:auto; border:1px solid #CBD5E1; border-radius:12px;'><table style='width:100%; border-collapse:collapse; text-align:left; font-family:sans-serif;'><thead style='background:linear-gradient(90deg, #1E3A8A, #2563EB); color:white;'><tr><th style='padding:14px 16px; position:sticky; top:0; z-index:10;'>Vị trí đo (POM Description)</th><th style='padding:14px 16px; position:sticky; top:0; z-index:10;'>{lbl_a}</th><th style='padding:14px 16px; position:sticky; top:0; z-index:10;'>{lbl_b}</th><th style='padding:14px 16px; text-align:center; width:150px; position:sticky; top:0; z-index:10;'>Sai lệch (Delta)</th></tr></thead><tbody>{table_body_html}</tbody></table></div>", unsafe_allow_html=True)
             st.markdown("<br>", unsafe_allow_html=True)
 
-            # --- KHỐI ĐỔ MÀU EXCEL ĐỒNG BỘ GIAO DIỆN CHUYÊN NGHIỆP ---
+            # --- KHỐI ĐỔ MÀU EXCEL ĐỒNG BỘ GIAO DIỆN ---
             df_xl = pd.DataFrame(compare_rows_for_df)
             towrite = io.BytesIO()
             with pd.ExcelWriter(towrite, engine='xlsxwriter') as writer:
@@ -662,6 +665,7 @@ elif menu_selection == "🔄 Pattern Spec Comparison":
                 
             towrite.seek(0)
             st.download_button(label="📥 Tải Báo Cáo Đối Chiếu Có Màu (Excel)", data=towrite, file_name=f"Spec_Comparison_{style_a}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
 
 
 
