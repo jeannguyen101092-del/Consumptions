@@ -1128,13 +1128,11 @@ elif menu_selection == "🛒 Purchase Consumption":
     <p style="color: #64748B; font-size:13px; margin:0;">Tải lên đồng thời File SBD (Số lượng chi tiết theo Size/Inseam) và File Techpack để kích hoạt mạng nơ-ron lập lịch trình toán học định mức đặt hàng vật tư.</p></div>""", unsafe_allow_html=True)
     
     col_left, col_right = st.columns(2)
-    with col_left:
-        file_sbd = st.file_uploader("📋 Chọn File SBD Số Lượng (Excel/PDF)", type=["xlsx", "xls", "pdf"], key="purchase_sbd")
-    with col_right:
-        file_tp = st.file_uploader("📐 Chọn File Techpack Thông Số (PDF)", type=["pdf"], key="purchase_tp")
+    with col_left: file_sbd = st.file_uploader("📋 Chọn File SBD Số Lượng (Excel/PDF)", type=["xlsx", "xls", "pdf"], key="purchase_sbd")
+    with col_right: file_tp = st.file_uploader("📐 Chọn File Techpack Thông Số (PDF)", type=["pdf"], key="purchase_tp")
         
     if file_sbd and file_tp:
-        # 1. KHỐI XỬ LÝ BÓC TÁCH FILE SBD (SỬA LỖI UNSUPPORTED MIME TYPE)
+        # 1. KHỐI XỬ LÝ BÓC TÁCH FILE SBD (CẬP NHẬT CHỮA LỖI ATTRIBUTEERROR)
         if st.session_state.get("last_sbd_name") != file_sbd.name or "sbd_parsed_data" not in st.session_state:
             with st.spinner("🚀 AI đang bóc tách ma trận số lượng đơn hàng từng Size/Inseam từ File SBD..."):
                 gemini_key = get_secure_gemini_key()
@@ -1144,31 +1142,30 @@ elif menu_selection == "🛒 Purchase Consumption":
                 sbd_content_str = ""
                 sbd_parts_payload = []
                 
-                # NẾU LÀ FILE EXCEL: Dùng Pandas chuyển thành text để gửi cho AI đọc an toàn tuyệt đối
                 if file_sbd.name.lower().endswith(('.xlsx', '.xls')):
                     try:
-                        # Đọc tất cả các sheet dữ liệu trong file Excel đơn hàng
                         excel_data = pd.read_excel(io.BytesIO(sbd_bytes), sheet_name=None)
                         for sheet_name, df_sheet in excel_data.items():
                             sbd_content_str += f"\n--- SHEET NAME: {sheet_name} ---\n"
-                            # Chuyển bảng thành định dạng text dạng CSV mượt mà cho AI phân tích
                             sbd_content_str += df_sheet.fillna("").to_csv(index=False)
                     except Exception as xl_err:
                         st.error(f"Lỗi đọc cấu trúc tệp Excel: {str(xl_err)}")
-                # NẾU LÀ FILE PDF: Giữ nguyên cơ chế gửi file nhị phân chính quy
                 elif file_sbd.name.lower().endswith('.pdf'):
                     sbd_parts_payload.append(types.Part.from_bytes(data=sbd_bytes, mime_type='application/pdf'))
                 
+                # Cấu hình Prompt thông minh: Nhận diện mã hàng chỉ có 1 nhóm size (Không có Inseam)
                 sbd_prompt = f"""
                 Analyze this garment purchase order breakdown data (SBD).
                 Extract the core style number/ID and the total order quantity.
-                Crucially, extract the exact matrix breakdown of order quantities by Size and by Inseam (if present).
                 
-                {"Here is the data converted from the Excel file:" if sbd_content_str else ""}
+                CRITICAL RULE FOR SIZE GROUPING:
+                If the order matrix DOES NOT have separate Inseam columns/groups (only flat sizes like S, M, L, XL or 28, 30, 32), 
+                extract them as a single uniform size dictionary layout.
+                
                 {sbd_content_str}
                 
                 Return a strict raw JSON matching this schema:
-                {{"style_id": "string", "total_quantity": integer, "size_breakdown": {{"Size Name / Inseam": integer}}}}
+                {{"style_id": "string", "total_quantity": integer, "size_breakdown": {{"Size Name": integer}}}}
                 """
                 sbd_parts_payload.append(sbd_prompt)
                 
@@ -1178,7 +1175,9 @@ elif menu_selection == "🛒 Purchase Consumption":
                         contents=sbd_parts_payload,
                         config=types.GenerateContentConfig(response_mime_type="application/json")
                     )
-                    st.session_state["sbd_parsed_data"] = json.loads(res_sbd.text.strip())
+                    # Ép kiểu dữ liệu nghiêm ngặt để triệt tiêu lỗi AttributeError
+                    raw_text = res_sbd.text.strip().replace("```json", "").replace("```", "").strip()
+                    st.session_state["sbd_parsed_data"] = json.loads(raw_text)
                     st.session_state["last_sbd_name"] = file_sbd.name
                 except Exception as e:
                     st.error(f"Lỗi AI trích xuất dữ liệu SBD: {str(e)}")
@@ -1193,17 +1192,21 @@ elif menu_selection == "🛒 Purchase Consumption":
                 else:
                     st.error(f"Lỗi AI trích xuất Techpack: {res_tp.get('error')}")
 
-        sbd_data = st.session_state.get("sbd_parsed_data")
-        tp_data = st.session_state.get("pur_tp_parsed_data")
+        # Đồng bộ hóa và làm sạch dữ liệu dự phòng an toàn trước khi kết xuất bảng
+        sbd_raw = st.session_state.get("sbd_parsed_data", {})
+        sbd_data = json.loads(sbd_raw) if isinstance(sbd_raw, str) else sbd_raw
+        
+        tp_raw = st.session_state.get("pur_tp_parsed_data", {})
+        tp_data = json.loads(tp_raw) if isinstance(tp_raw, str) else tp_raw
         
         if sbd_data and tp_data:
             st.success(f"🎉 Số hóa dữ liệu thành công cho Mã Hàng: {sbd_data.get('style_id', 'Chưa xác định')}")
             
-            tab_sbd, tab_tp = st.tabs(["📋 Ma Trận Số Lượng Đơn Hàng (SBD)", "📐 Bảng Thông SỐ Thiết Kế (Techpack)"])
+            tab_sbd, tab_tp = st.tabs(["📋 Ma Trận Số Lượng Đơn Hàng (SBD)", "📐 Bảng Thông Số Thiết Kế (Techpack)"])
             
             with tab_sbd:
                 st.markdown(f"**Tổng số lượng đơn đặt hàng (Total PO):** `{sbd_data.get('total_quantity', 0):,}` Pcs")
-                df_sbd_show = pd.DataFrame(list(sbd_data.get("size_breakdown", {}).items()), columns=["Kích thước (Size/Inseam)", "Số lượng đặt (Pcs)"])
+                df_sbd_show = pd.DataFrame(list(sbd_data.get("size_breakdown", {}).items()), columns=["Kích thước (Size / Nhóm duy nhất)", "Số lượng đặt (Pcs)"])
                 st.dataframe(df_sbd_show, use_container_width=True, hide_index=True)
                 
             with tab_tp:
