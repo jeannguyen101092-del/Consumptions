@@ -1127,7 +1127,6 @@ elif menu_selection == "🛒 Purchase Consumption":
     st.markdown("""<div class="card-container"><div class="card-section-header">📦 MULTI-SOURCE INGESTION ENGINE</div>
     <p style="color: #64748B; font-size:13px; margin:0;">Tải lên đồng thời File SBD (Số lượng chi tiết theo Size/Inseam) và File Techpack để kích hoạt mạng nơ-ron lập lịch trình toán học định mức đặt hàng vật tư.</p></div>""", unsafe_allow_html=True)
     
-    # Thiết lập giao diện 2 mục Upload song song Trái - Phải
     col_left, col_right = st.columns(2)
     with col_left:
         file_sbd = st.file_uploader("📋 Chọn File SBD Số Lượng (Excel/PDF)", type=["xlsx", "xls", "pdf"], key="purchase_sbd")
@@ -1135,36 +1134,54 @@ elif menu_selection == "🛒 Purchase Consumption":
         file_tp = st.file_uploader("📐 Chọn File Techpack Thông Số (PDF)", type=["pdf"], key="purchase_tp")
         
     if file_sbd and file_tp:
-        # 1. KHỐI XỬ LÝ BÓC TÁCH FILE SBD (SỐ LƯỢNG ĐƠN HÀNG)
+        # 1. KHỐI XỬ LÝ BÓC TÁCH FILE SBD (SỬA LỖI UNSUPPORTED MIME TYPE)
         if st.session_state.get("last_sbd_name") != file_sbd.name or "sbd_parsed_data" not in st.session_state:
             with st.spinner("🚀 AI đang bóc tách ma trận số lượng đơn hàng từng Size/Inseam từ File SBD..."):
                 gemini_key = get_secure_gemini_key()
                 client_ai = genai.Client(api_key=gemini_key)
                 
-                # Chuyển đổi dữ liệu thô phục vụ AI đọc hiểu đa phương thức
                 sbd_bytes = file_sbd.getvalue()
-                if file_sbd.name.lower().endswith('.pdf'):
-                    sbd_part = types.Part.from_bytes(data=sbd_bytes, mime_type='application/pdf')
-                else:
-                    sbd_part = types.Part.from_bytes(data=sbd_bytes, mime_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+                sbd_content_str = ""
+                sbd_parts_payload = []
                 
-                sbd_prompt = """
-                Analyze this garment purchase order breakdown sheet (SBD).
-                Extract the style number/ID and total order quantity.
+                # NẾU LÀ FILE EXCEL: Dùng Pandas chuyển thành text để gửi cho AI đọc an toàn tuyệt đối
+                if file_sbd.name.lower().endswith(('.xlsx', '.xls')):
+                    try:
+                        # Đọc tất cả các sheet dữ liệu trong file Excel đơn hàng
+                        excel_data = pd.read_excel(io.BytesIO(sbd_bytes), sheet_name=None)
+                        for sheet_name, df_sheet in excel_data.items():
+                            sbd_content_str += f"\n--- SHEET NAME: {sheet_name} ---\n"
+                            # Chuyển bảng thành định dạng text dạng CSV mượt mà cho AI phân tích
+                            sbd_content_str += df_sheet.fillna("").to_csv(index=False)
+                    except Exception as xl_err:
+                        st.error(f"Lỗi đọc cấu trúc tệp Excel: {str(xl_err)}")
+                # NẾU LÀ FILE PDF: Giữ nguyên cơ chế gửi file nhị phân chính quy
+                elif file_sbd.name.lower().endswith('.pdf'):
+                    sbd_parts_payload.append(types.Part.from_bytes(data=sbd_bytes, mime_type='application/pdf'))
+                
+                sbd_prompt = f"""
+                Analyze this garment purchase order breakdown data (SBD).
+                Extract the core style number/ID and the total order quantity.
                 Crucially, extract the exact matrix breakdown of order quantities by Size and by Inseam (if present).
+                
+                {"Here is the data converted from the Excel file:" if sbd_content_str else ""}
+                {sbd_content_str}
+                
                 Return a strict raw JSON matching this schema:
-                {"style_id": "string", "total_quantity": integer, "size_breakdown": {"Size Name / Inseam": integer}}
+                {{"style_id": "string", "total_quantity": integer, "size_breakdown": {{"Size Name / Inseam": integer}}}}
                 """
+                sbd_parts_payload.append(sbd_prompt)
+                
                 try:
                     res_sbd = client_ai.models.generate_content(
                         model='gemini-2.5-flash',
-                        contents=[sbd_part, sbd_prompt],
+                        contents=sbd_parts_payload,
                         config=types.GenerateContentConfig(response_mime_type="application/json")
                     )
                     st.session_state["sbd_parsed_data"] = json.loads(res_sbd.text.strip())
                     st.session_state["last_sbd_name"] = file_sbd.name
                 except Exception as e:
-                    st.error(f"Lỗi AI trích xuất SBD: {str(e)}")
+                    st.error(f"Lỗi AI trích xuất dữ liệu SBD: {str(e)}")
 
         # 2. KHỐI XỬ LÝ BÓC TÁCH FILE TECHPACK (THÔNG SỐ RẬP)
         if st.session_state.get("last_pur_tp_name") != file_tp.name or "pur_tp_parsed_data" not in st.session_state:
@@ -1176,15 +1193,13 @@ elif menu_selection == "🛒 Purchase Consumption":
                 else:
                     st.error(f"Lỗi AI trích xuất Techpack: {res_tp.get('error')}")
 
-        # Lấy dữ liệu đã bóc tách từ bộ nhớ cache an toàn
         sbd_data = st.session_state.get("sbd_parsed_data")
         tp_data = st.session_state.get("pur_tp_parsed_data")
         
         if sbd_data and tp_data:
             st.success(f"🎉 Số hóa dữ liệu thành công cho Mã Hàng: {sbd_data.get('style_id', 'Chưa xác định')}")
             
-            # Khởi tạo giao diện hiển thị Tab trực quan
-            tab_sbd, tab_tp = st.tabs(["📋 Ma Trận Số Lượng Đơn Hàng (SBD)", "📐 Bảng Thông Số Thiết Kế (Techpack)"])
+            tab_sbd, tab_tp = st.tabs(["📋 Ma Trận Số Lượng Đơn Hàng (SBD)", "📐 Bảng Thông SỐ Thiết Kế (Techpack)"])
             
             with tab_sbd:
                 st.markdown(f"**Tổng số lượng đơn đặt hàng (Total PO):** `{sbd_data.get('total_quantity', 0):,}` Pcs")
@@ -1200,11 +1215,9 @@ elif menu_selection == "🛒 Purchase Consumption":
             st.markdown("### 💬 TRỢ LÝ AI TÍNH TOÁN ĐỊNH MỨC ĐẶT HÀNG VẬT TƯ")
             st.caption("Nhập định mức vải/phụ liệu của size cơ bản (hoặc yêu cầu AI tự động phân bổ định mức theo tỷ lệ chênh lệch các size dựa trên bảng thông số rập phía trên).")
             
-            # Khởi tạo lịch sử hội thoại chat trong bộ nhớ đệm
             if "purchase_chat_history" not in st.session_state:
                 st.session_state["purchase_chat_history"] = []
                 
-            # Hiển thị các câu thoại trước đó trong luồng Chat
             for msg in st.session_state["purchase_chat_history"]:
                 with st.chat_message(msg["role"]):
                     st.write(msg["content"])
@@ -1213,7 +1226,6 @@ elif menu_selection == "🛒 Purchase Consumption":
                     if "excel_bytes" in msg:
                         st.download_button(label="📥 Tải Đơn Đặt Hàng Vật Tư (Excel)", data=msg["excel_bytes"], file_name="Purchase_Order_Report.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
             
-            # Khung nhập câu lệnh chỉ thị của người dùng (User input)
             if user_instruction := st.chat_input("Nhập định mức (Ex: Định mức vải chính size M là 1.25 yds, tính tổng mua kèm hao hụt 3%)..."):
                 with st.chat_message("user"):
                     st.write(user_instruction)
@@ -1224,7 +1236,6 @@ elif menu_selection == "🛒 Purchase Consumption":
                         gemini_key = get_secure_gemini_key()
                         client_ai = genai.Client(api_key=gemini_key)
                         
-                        # Đóng gói ngữ cảnh dệt may (Thông số rập + Số lượng đơn) gửi cho AI lập luận
                         ai_context_prompt = f"""
                         You are a professional Textile Production Planner. 
                         We have parsed the following data from the Techpack and Order Sheet (SBD):
@@ -1261,8 +1272,6 @@ elif menu_selection == "🛒 Purchase Consumption":
                             )
                             
                             ai_text = response_ai.text
-                            
-                            # Tách biệt phần lập luận chữ và chuỗi JSON kết quả toán học
                             json_block = ""
                             if "```json" in ai_text:
                                 parts = ai_text.split("```json")
@@ -1272,16 +1281,13 @@ elif menu_selection == "🛒 Purchase Consumption":
                                 text_desc = ai_text
                                 
                             st.write(text_desc)
-                            
                             new_msg_data = {"role": "assistant", "content": text_desc}
                             
-                            # Nếu AI trả về bảng tính toán cấu trúc JSON, render trực tiếp thành bảng dữ liệu chuyên nghiệp
                             if json_block:
                                 df_res = pd.read_json(io.StringIO(json_block))
                                 st.dataframe(df_res, use_container_width=True, hide_index=True)
                                 new_msg_data["df_result"] = df_res
                                 
-                                # Sinh tệp Excel đặt mua vật tư gửi nhà cung ứng tự động
                                 xl_buf = io.BytesIO()
                                 with pd.ExcelWriter(xl_buf, engine='xlsxwriter') as writer:
                                     df_res.to_excel(writer, index=False, sheet_name='Purchase_Order')
@@ -1298,4 +1304,3 @@ elif menu_selection == "🛒 Purchase Consumption":
                             
                         except Exception as chat_err:
                             st.error(f"Cỗ máy toán học AI gặp lỗi khi xử lý dữ liệu: {str(chat_err)}")
-
