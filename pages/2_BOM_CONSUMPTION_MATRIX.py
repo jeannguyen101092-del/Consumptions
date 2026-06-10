@@ -1132,7 +1132,7 @@ elif menu_selection == "🛒 Purchase Consumption":
     with col_right: file_tp = st.file_uploader("📐 Chọn File Techpack Thông Số (PDF)", type=["pdf"], key="purchase_tp")
         
     if file_sbd and file_tp:
-        # 1. KHỐI XỬ LÝ BÓC TÁCH FILE SBD (CẬP NHẬT CHỮA LỖI ATTRIBUTEERROR)
+        # 1. KHỐI XỬ LÝ BÓC TÁCH FILE SBD (KHẮC PHỤC TRIỆT ĐỂ LỖI ATTRIBUTEERROR / NONE)
         if st.session_state.get("last_sbd_name") != file_sbd.name or "sbd_parsed_data" not in st.session_state:
             with st.spinner("🚀 AI đang bóc tách ma trận số lượng đơn hàng từng Size/Inseam từ File SBD..."):
                 gemini_key = get_secure_gemini_key()
@@ -1153,7 +1153,6 @@ elif menu_selection == "🛒 Purchase Consumption":
                 elif file_sbd.name.lower().endswith('.pdf'):
                     sbd_parts_payload.append(types.Part.from_bytes(data=sbd_bytes, mime_type='application/pdf'))
                 
-                # Cấu hình Prompt thông minh: Nhận diện mã hàng chỉ có 1 nhóm size (Không có Inseam)
                 sbd_prompt = f"""
                 Analyze this garment purchase order breakdown data (SBD).
                 Extract the core style number/ID and the total order quantity.
@@ -1175,12 +1174,12 @@ elif menu_selection == "🛒 Purchase Consumption":
                         contents=sbd_parts_payload,
                         config=types.GenerateContentConfig(response_mime_type="application/json")
                     )
-                    # Ép kiểu dữ liệu nghiêm ngặt để triệt tiêu lỗi AttributeError
                     raw_text = res_sbd.text.strip().replace("```json", "").replace("```", "").strip()
                     st.session_state["sbd_parsed_data"] = json.loads(raw_text)
                     st.session_state["last_sbd_name"] = file_sbd.name
                 except Exception as e:
                     st.error(f"Lỗi AI trích xuất dữ liệu SBD: {str(e)}")
+                    st.session_state["sbd_parsed_data"] = {}
 
         # 2. KHỐI XỬ LÝ BÓC TÁCH FILE TECHPACK (THÔNG SỐ RẬP)
         if st.session_state.get("last_pur_tp_name") != file_tp.name or "pur_tp_parsed_data" not in st.session_state:
@@ -1191,15 +1190,21 @@ elif menu_selection == "🛒 Purchase Consumption":
                     st.session_state["last_pur_tp_name"] = file_tp.name
                 else:
                     st.error(f"Lỗi AI trích xuất Techpack: {res_tp.get('error')}")
+                    st.session_state["pur_tp_parsed_data"] = {}
 
-        # Đồng bộ hóa và làm sạch dữ liệu dự phòng an toàn trước khi kết xuất bảng
-        sbd_raw = st.session_state.get("sbd_parsed_data", {})
-        sbd_data = json.loads(sbd_raw) if isinstance(sbd_raw, str) else sbd_raw
+        # --- PHÒNG VỆ AN TOÀN NÂNG CAO: ÉP KIỂU ĐỂ TRÁNH HOÀN TOÀN LỖI ATTRIBUTEERROR ---
+        sbd_raw = st.session_state.get("sbd_parsed_data")
+        if not sbd_raw: sbd_data = {}
+        elif isinstance(sbd_raw, str): sbd_data = json.loads(sbd_raw)
+        else: sbd_data = sbd_raw
         
-        tp_raw = st.session_state.get("pur_tp_parsed_data", {})
-        tp_data = json.loads(tp_raw) if isinstance(tp_raw, str) else tp_raw
+        tp_raw = st.session_state.get("pur_tp_parsed_data")
+        if not tp_raw: tp_data = {}
+        elif isinstance(tp_raw, str): tp_data = json.loads(tp_raw)
+        else: tp_data = tp_raw
         
-        if sbd_data and tp_data:
+        # Chỉ hiển thị bảng khi dữ liệu dictionary hợp lệ và không rỗng
+        if isinstance(sbd_data, dict) and isinstance(tp_data, dict) and sbd_data and tp_data:
             st.success(f"🎉 Số hóa dữ liệu thành công cho Mã Hàng: {sbd_data.get('style_id', 'Chưa xác định')}")
             
             tab_sbd, tab_tp = st.tabs(["📋 Ma Trận Số Lượng Đơn Hàng (SBD)", "📐 Bảng Thông Số Thiết Kế (Techpack)"])
@@ -1278,8 +1283,8 @@ elif menu_selection == "🛒 Purchase Consumption":
                             json_block = ""
                             if "```json" in ai_text:
                                 parts = ai_text.split("```json")
-                                text_desc = parts[0]
-                                json_block = parts[1].split("```")[0].strip()
+                                text_desc = parts
+                                json_block = parts.split("```").strip()
                             else:
                                 text_desc = ai_text
                                 
