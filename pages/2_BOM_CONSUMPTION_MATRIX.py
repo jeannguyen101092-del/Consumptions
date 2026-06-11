@@ -1354,7 +1354,7 @@ elif menu_selection == "🛒 Purchase Consumption":
                     
         st.markdown("<hr style='border:0.5px dashed #CBD5E1;'>", unsafe_allow_html=True)
 
-                     # KHU VỰC TIẾP NHẬN FILE CHO TỪNG PHÂN HỆ
+         # KHU VỰC TIẾP NHẬN FILE CHO TỪNG PHÂN HỆ
     if menu_sub.startswith("🧠 CHỨC NĂNG 1"):
         col_left, col_right = st.columns(2)
         with col_left: 
@@ -1374,15 +1374,22 @@ elif menu_selection == "🛒 Purchase Consumption":
             if trigger_btn:
                 st.cache_data.clear()
                 
-                with st.spinner("🧠 Bước 1/2: AI đang giải mã ma trận bảng SBD đặc biệt..."):
-                    if "get_secure_gemini_key" in globals(): gemini_key = get_secure_gemini_key()
-                    else: gemini_key = st.secrets.get("GEMINI_API_KEY", "").strip()
+                # Khởi tạo API Key & AI Client dùng chung cho cả 2 bước
+                if "get_secure_gemini_key" in globals(): gemini_key = get_secure_gemini_key()
+                else: gemini_key = st.secrets.get("GEMINI_API_KEY", "").strip()
+                
+                if not gemini_key:
+                    st.error("❌ Không tìm thấy API KEY trong cấu hình hệ thống (Secrets)!")
+                    st.stop()
                     
-                    if not gemini_key:
-                        st.error("❌ Không tìm thấy API KEY trong cấu hình hệ thống (Secrets)!")
-                        st.stop()
-                        
-                    client_ai = genai.Client(api_key=gemini_key)
+                client_ai = genai.Client(api_key=gemini_key)
+                import json
+                import io
+                
+                # ==========================================
+                # BƯỚC 1/2: XỬ LÝ SỐ HÓA SBD BẰNG GEMINI
+                # ==========================================
+                with st.spinner("🧠 Bước 1/2: AI đang bóc tách File SBD số lượng..."):
                     sbd_bytes = file_sbd.getvalue()
                     sbd_content_str = ""
                     sbd_parts_payload = []
@@ -1394,29 +1401,24 @@ elif menu_selection == "🛒 Purchase Consumption":
                             for sheet_name, df_sheet in excel_data.items():
                                 sbd_content_str += f"\n--- SHEET: {sheet_name} ---\n{df_sheet.fillna('').to_csv(index=False)}"
                         except Exception as e:
-                            st.error(f"❌ Lỗi đọc file Excel: {str(e)}")
+                            st.error(f"❌ Lỗi đọc file Excel SBD: {str(e)}")
                             st.stop()
                     elif file_sbd.name.lower().endswith('.pdf'):
                         sbd_parts_payload.append(types.Part.from_bytes(data=sbd_bytes, mime_type='application/pdf'))
                     
-                    # SIÊU PROMPT: Ép AI kết hợp dòng Size (26, 28, 29) với dòng Inseam (30, 32) nằm ngay dưới nó
                     sbd_prompt = """You are a garment production AI. Analyze the 'Quantity Details' table inside this garment order sheet.
                     CRITICAL TABLE STRUCTURE INSTRUCTIONS:
                     1. The size header is split into TWO stacked rows. For example, a column has '26 X' on the upper row and '30' directly below it on the next row. You must combine them vertically to form the full size name, e.g., '26 X 30'.
-                    2. Another column has '29 X' and '32' below it, which means the size is '29 X 32'. Treat each vertical pair as a unique Size Name key.
-                    3. Underneath this combined size row, extract the actual production quantity numbers (e.g., 88, 156, 150, 122, 105...).
-                    4. Identify the 'Style' or 'Key Item' number (e.g., '00143' or from 'Key Item: 6082...').
-                    5. Find the 'Total' quantity (e.g., 2500).
+                    2. Underneath this combined size row, extract the actual production quantity numbers (e.g., 88, 156, 150, 122...).
+                    3. Identify the 'Style' or 'Key Item' number.
+                    4. Find the 'Total' quantity.
 
-                    Strictly output a clean, valid raw JSON object matching this schema exactly, do not include any markdown format tags like ```json:
+                    Strictly output a clean, valid raw JSON object matching this schema exactly, do not include any markdown format tags:
                     {
                       "style_id": "string",
                       "total_quantity": integer,
                       "size_breakdown": {
-                        "26 X 30": 88,
-                        "28 X 30": 156,
-                        "29 X 30": 150,
-                        "29 X 32": 122
+                        "Size Name": integer
                       }
                     }"""
                     
@@ -1425,23 +1427,29 @@ elif menu_selection == "🛒 Purchase Consumption":
                     sbd_parts_payload.append(types.Part.from_text(text=sbd_prompt))
                     
                     try:
-                        import json
                         res_sbd = client_ai.models.generate_content(
                             model='gemini-2.5-flash', 
                             contents=sbd_parts_payload, 
                             config=types.GenerateContentConfig(response_mime_type="application/json")
                         )
-                        clean_text = res_sbd.text.strip().replace("```json", "").replace("```", "").strip()
-                        st.session_state["sbd_parsed_data"] = json.loads(clean_text)
+                        clean_text_sbd = res_sbd.text.strip().replace("```json", "").replace("```", "").strip()
+                        st.session_state["sbd_parsed_data"] = json.loads(clean_text_sbd)
                     except Exception as e:
-                        st.error(f"❌ Gemini gặp khó khăn khi gộp hàng bảng SBD: {str(e)}")
+                        st.error(f"❌ Lỗi xử lý hoặc trả cấu trúc JSON từ Gemini AI (SBD): {str(e)}")
                         st.stop()
                         
-                with st.spinner(f"📐 Bước 2/2: Đang bóc tách thông số Techpack (Trang {start_page} đến {end_page})..."):
+                # ==========================================
+                # BƯỚC 2/2: THAY THẾ HÀM LỖI - DÙNG GEMINI ĐỂ ĐỌC TECHPACK
+                # ==========================================
+                with st.spinner(f"📐 Bước 2/2: Đang dùng AI bóc tách thông số Techpack (Trang {start_page} đến {end_page})..."):
                     try:
+                        file_tp_bytes = file_tp.getvalue()
+                        trimmed_pdf_bytes = file_tp_bytes
+                        
+                        # Tiến hành trích xuất trang nếu hệ thống có sẵn thư viện PyPDF2 hoặc pypdf
                         try:
                             import PyPDF2
-                            original_pdf = PyPDF2.PdfReader(io.BytesIO(file_tp.getvalue()))
+                            original_pdf = PyPDF2.PdfReader(io.BytesIO(file_tp_bytes))
                             pdf_writer = PyPDF2.PdfWriter()
                             for page_num in range(start_page - 1, min(end_page, len(original_pdf.pages))):
                                 pdf_writer.add_page(original_pdf.pages[page_num])
@@ -1449,22 +1457,53 @@ elif menu_selection == "🛒 Purchase Consumption":
                             pdf_writer.write(trimmed_pdf_buffer)
                             trimmed_pdf_bytes = trimmed_pdf_buffer.getvalue()
                         except Exception:
-                            trimmed_pdf_bytes = file_tp.getvalue()
+                            pass # Nếu không có thư viện cắt trang, gửi file gốc để xử lý tiếp
                         
-                        res_tp = process_single_pdf_batch(trimmed_pdf_bytes, file_tp.name)
-                        if res_tp and res_tp.get("success"):
-                            st.session_state["pur_tp_parsed_data"] = res_tp["data"]
-                        else:
-                            st.error(f"❌ Hàm Techpack trả về trạng thái thất bại: {res_tp.get('error', 'Không có chi tiết lỗi')}")
-                            st.stop()
+                        # Chuẩn bị Prompt hướng dẫn Gemini bóc tách bảng thông số kích thước thành cấu trúc dữ liệu phẳng
+                        tp_prompt = """Analyze the provided Techpack document pages. 
+                        Locate the Size Specification or Measurement Chart table.
+                        Extract all measurement points (POM), their descriptions, and the base values for each size.
+                        
+                        Strictly return a clean, valid raw JSON object wrapping the measurement data:
+                        {
+                          "status": "success",
+                          "spec_table": [
+                            {
+                              "pom_id": "string or null",
+                              "description": "string",
+                              "measurements": {
+                                "Size Name": "string or number"
+                              }
+                            }
+                          ]
+                        }
+                        Do not include any markdown syntax wrapping."""
+                        
+                        tp_payload = [
+                            types.Part.from_bytes(data=trimmed_pdf_bytes, mime_type='application/pdf'),
+                            types.Part.from_text(text=tp_prompt)
+                        ]
+                        
+                        # Gọi Gemini quét Techpack thay thế cho hàm process_single_pdf_batch bị treo
+                        res_tp_ai = client_ai.models.generate_content(
+                            model='gemini-2.5-flash', 
+                            contents=tp_payload, 
+                            config=types.GenerateContentConfig(response_mime_type="application/json")
+                        )
+                        
+                        clean_text_tp = res_tp_ai.text.strip().replace("```json", "").replace("```", "").strip()
+                        st.session_state["pur_tp_parsed_data"] = json.loads(clean_text_tp)
+                        
                     except Exception as e:
-                        st.error(f"❌ Lỗi tại hàm xử lý Techpack: {str(e)}")
+                        st.error(f"❌ Không thể số hóa Techpack bằng Gemini AI: {str(e)}")
                         st.stop()
                     
+                # Hoàn thành xử lý cả 2 phân hệ mượt mà
                 st.session_state["purchase_ready"] = True
                 st.rerun()
 
     elif menu_sub.startswith("✂️ CHỨC NĂNG 2"):
+
 
 
 
