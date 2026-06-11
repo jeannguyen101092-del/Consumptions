@@ -1514,6 +1514,8 @@ if is_purchase_ready_c2 and is_menu_c2 and st.session_state.get("step1_marker_re
                             "cuttable_width_inch": str(cuttable_width_inch), "notes": f"Lưu lịch sử thành công lúc: {now_str}"
                         }
                         response_db = requests.post(url_save_db, headers=save_headers, json=save_payload)
-                        if response_db.status_code in: st.success("💾 Đã đồng bộ dữ liệu tác nghiệp kỹ thuật lên hệ thống Supabase thành công!")
-                        else: st.error(f"Lỗi phản hồi từ Supabase (Code {response_db.status_code}): {response_db.text}")
+                        if response_db.status_code in: 
+                            st.success("💾 Đã đồng bộ dữ liệu tác nghiệp kỹ thuật lên hệ thống Supabase thành công!")
+                        else: 
+                            st.error(f"Lỗi phản hồi từ Supabase (Code {response_db.status_code}): {response_db.text}")
                     except Exception as db_err: st.error(f"Lỗi kết nối cơ sở dữ liệu: {str(db_err)}")
