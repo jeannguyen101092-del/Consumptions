@@ -1514,7 +1514,9 @@ if is_purchase_ready_c2 and is_menu_c2 and st.session_state.get("step1_marker_re
                             "cuttable_width_inch": str(cuttable_width_inch), "notes": f"Lưu lịch sử thành công lúc: {now_str}"
                         }
                         response_db = requests.post(url_save_db, headers=save_headers, json=save_payload)
-                        if response_db.status_code in: 
+                        
+                        # ✅ THAY THẾ TOÀN BỘ LOGIC IN: So sánh an toàn tuyệt đối tránh lỗi biên dịch hệ thống
+                        if response_db.status_code >= 200 and response_db.status_code < 300:
                             st.success("💾 Đã đồng bộ dữ liệu tác nghiệp kỹ thuật lên hệ thống Supabase thành công!")
                         else: 
                             st.error(f"Lỗi phản hồi từ Supabase (Code {response_db.status_code}): {response_db.text}")
