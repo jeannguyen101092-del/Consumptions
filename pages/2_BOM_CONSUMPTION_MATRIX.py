@@ -1525,8 +1525,67 @@ elif menu_selection == "🛒 Purchase Consumption":
                 # Hoàn thành xuất sắc cả 2 phân hệ, kích hoạt và tải lại trang để render kết quả
                 st.session_state["purchase_ready"] = True
                 st.rerun()
+                # Hoàn thành bóc tách xuất sắc cả 2 phân hệ
+                st.session_state["purchase_ready"] = True
+                st.rerun()
+
+    # =============================================================================
+    # ĐOẠN BỔ SUNG: TỰ ĐỘNG HIỂN THỊ KẾT QUẢ SỐ HÓA RA MÀN HÌNH SAU KHI RERUN
+    # =============================================================================
+    if st.session_state.get("purchase_ready") and menu_sub.startswith("🧠 CHỨC NĂNG 1"):
+        st.markdown("<p style='font-weight:700; font-size:16px; color:#10B981; margin-top:15px;'>🎉 KẾT QUẢ AI SỐ HÓA DỮ LIỆU THÀNH CÔNG</p>", unsafe_allow_html=True)
+        
+        col_view1, col_view2 = st.columns(2)
+        
+        with col_view1:
+            st.markdown("##### 📋 Ma Trận Sản Lượng Đơn Hàng (SBD)")
+            sbd_res = st.session_state.get("sbd_parsed_data", {})
+            if sbd_res:
+                st.write(f"**Mã sản phẩm (Style ID):** `{sbd_res.get('style_id', 'N/A')}`")
+                st.write(f"**Tổng sản lượng đơn:** {sbd_res.get('total_quantity', 0):,}")
+                
+                breakdown = sbd_res.get("size_breakdown", {})
+                if breakdown:
+                    import pandas as pd
+                    df_sbd_table = pd.DataFrame(list(breakdown.items()), columns=["Kích cỡ (Size)", "Số lượng"])
+                    st.dataframe(df_sbd_table, use_container_width=True, hide_index=True)
+            else:
+                st.info("Chưa có dữ liệu phân bổ sản lượng SBD.")
+                
+        with col_view2:
+            st.markdown("##### 📐 Bảng Thông Số Bản Vẽ Kỹ Thuật (Techpack)")
+            tp_res = st.session_state.get("pur_tp_parsed_data", {})
+            
+            # Giải mã linh hoạt cấu trúc bọc dữ liệu đa tầng để ép hiển thị ra màn hình
+            raw_list = []
+            if isinstance(tp_res, list):
+                raw_list = tp_res
+            elif isinstance(tp_res, dict):
+                raw_list = tp_res.get("data", tp_res.get("spec_table", []))
+                
+            if raw_list:
+                import pandas as pd
+                flat_rows = []
+                for item in raw_list:
+                    pom = item.get("pom_id", "") or ""
+                    desc = item.get("description", "")
+                    sizes_val = item.get("measurements", {})
+                    
+                    # Ghép phẳng toàn bộ thông tin mã POM, mô tả và dải size thành 1 dòng dữ liệu
+                    row_data = {"Mã POM": pom, "Mô tả chi tiết": desc}
+                    row_data.update(sizes_val)
+                    flat_rows.append(row_data)
+                    
+                df_tp_table = pd.DataFrame(flat_rows)
+                st.dataframe(df_tp_table, use_container_width=True, hide_index=True)
+            else:
+                st.info("Chưa có dữ liệu thông số Techpack.")
+                
+        st.markdown("<hr style='border:1px solid #E2E8F0; margin-top:20px; margin-bottom:20px;'>", unsafe_allow_html=True)
 
     elif menu_sub.startswith("✂️ CHỨC NĂNG 2"):
+
+    
 
   
 
