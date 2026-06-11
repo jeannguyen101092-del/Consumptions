@@ -1409,17 +1409,14 @@ elif menu_selection == "🛒 Purchase Consumption":
                     except Exception as e:
                         st.error(f"❌ Lỗi xử lý hoặc trả cấu trúc JSON từ Gemini AI (SBD): {str(e)}")
                         st.stop()
-                # =============================================================================
-                              # =============================================================================
-                                # =============================================================================
-                # ĐOẠN 4: BÓC TÁCH TECHPACK - TRUYỀN SỐ TRANG TRỰC TIẾP QUA PROMPT ĐỂ TĂNG TỐC
+                               # =============================================================================
+                # ĐOẠN 4: BÓC TÁCH TECHPACK - CHUẨN HÓA CẤU TRÚC ĐÓNG GÓI CHO SDK MỚI
                 # =============================================================================
                 with st.spinner(f"📐 Bước 2/2: Đang dùng AI bóc tách thông số Techpack (Trang {start_page} đến {end_page})..."):
                     try:
                         file_tp_bytes = file_tp.getvalue()
                         
                         # Chỉ thị ép AI dịch toàn bộ phân số may mặc đặc thù sang số thập phân để tính toán
-                        # Bổ sung yêu cầu ép AI chỉ đọc đúng khoảng trang do bạn chọn trên giao diện
                         tp_prompt = f"""You are an expert garment patternmaker and data analyst.
                         CRITICAL INSTRUCTION: Go directly to page {start_page} through page {end_page} of this document. 
                         Ignore all other pages outside of this range.
@@ -1448,20 +1445,23 @@ elif menu_selection == "🛒 Purchase Consumption":
                         }}
                         Do not include any markdown syntax wrapping."""
                         
-                        # Đóng gói file gốc an toàn, không dùng các hàm cắt lỗi
+                        # ⚡ SỬA LỖI CỐT LÕI: Import trực tiếp cấu trúc Part của Google GenAI SDK mới
+                        from google.genai import types
+                        
+                        # Đóng gói dữ liệu nhị phân thông qua Part Object chuẩn của Google
                         tp_payload = [
-                            {
-                                "mime_type": "application/pdf",
-                                "data": file_tp_bytes
-                            },
-                            tp_prompt
+                            types.Part.from_bytes(
+                                data=file_tp_bytes,
+                                mime_type="application/pdf"
+                            ),
+                            types.Part.from_text(text=tp_prompt)
                         ]
                         
-                        # Gọi Gemini API quét thông số Techpack với config chuẩn hóa sạch sẽ
+                        # Gọi Gemini API quét thông số Techpack với cấu hình đầu ra JSON
                         res_tp_ai = client_ai.models.generate_content(
                             model='gemini-2.5-flash', 
                             contents=tp_payload, 
-                            config={"response_mime_type": "application/json"}
+                            config=types.GenerateContentConfig(response_mime_type="application/json")
                         )
                         
                         clean_text_tp = res_tp_ai.text.strip().replace("```json", "").replace("```", "").strip()
@@ -1486,6 +1486,7 @@ elif menu_selection == "🛒 Purchase Consumption":
                 st.rerun()
 
     elif menu_sub.startswith("✂️ CHỨC NĂNG 2"):
+
 
 
 
