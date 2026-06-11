@@ -1438,15 +1438,14 @@ elif menu_selection == "🛒 Purchase Consumption":
                         st.error(f"❌ Lỗi xử lý hoặc trả cấu trúc JSON từ Gemini AI (SBD): {str(e)}")
                         st.stop()
                         
-                # ==========================================
-                # BƯỚC 2/2: THAY THẾ HÀM LỖI - DÙNG GEMINI ĐỂ ĐỌC TECHPACK
+                              # ==========================================
+                # BƯỚC 2/2: SIÊU TRÍ TUỆ NHÂN DIỆN BẢNG PHÂN SỐ TECHPACK
                 # ==========================================
                 with st.spinner(f"📐 Bước 2/2: Đang dùng AI bóc tách thông số Techpack (Trang {start_page} đến {end_page})..."):
                     try:
                         file_tp_bytes = file_tp.getvalue()
                         trimmed_pdf_bytes = file_tp_bytes
                         
-                        # Tiến hành trích xuất trang nếu hệ thống có sẵn thư viện PyPDF2 hoặc pypdf
                         try:
                             import PyPDF2
                             original_pdf = PyPDF2.PdfReader(io.BytesIO(file_tp_bytes))
@@ -1457,34 +1456,51 @@ elif menu_selection == "🛒 Purchase Consumption":
                             pdf_writer.write(trimmed_pdf_buffer)
                             trimmed_pdf_bytes = trimmed_pdf_buffer.getvalue()
                         except Exception:
-                            pass # Nếu không có thư viện cắt trang, gửi file gốc để xử lý tiếp
+                            pass
                         
-                        # Chuẩn bị Prompt hướng dẫn Gemini bóc tách bảng thông số kích thước thành cấu trúc dữ liệu phẳng
-                        tp_prompt = """Analyze the provided Techpack document pages. 
-                        Locate the Size Specification or Measurement Chart table.
-                        Extract all measurement points (POM), their descriptions, and the base values for each size.
+                        # SIÊU PROMPT: Ép AI quy đổi phân số may mặc sang số thập phân chuẩn hệ thống
+                        tp_prompt = """You are an expert garment patternmaker and data analyst. 
+                        Analyze the 'POMs' (Size Specification Chart) table in this Techpack page.
                         
-                        Strictly return a clean, valid raw JSON object wrapping the measurement data:
+                        CRITICAL CONVERSION RULES FOR GARMENT FRACTIONS:
+                        1. Convert ALL fractional measurements into clean decimal numbers before writing to JSON:
+                           - Convert '1/2' or '½' to 0.5 (e.g., '15 ½' becomes 15.5)
+                           - Convert '1/4' or '¼' to 0.25 (e.g., '14 ¼' becomes 14.25)
+                           - Convert '3/4' or '¾' to 0.75 (e.g., '15 ¾' becomes 15.75)
+                           - Convert '1/8' or '⅛' to 0.125, '3/8' or '⅜' to 0.375, '5/8' or '⅝' to 0.625, '7/8' or '⅞' to 0.875
+                        2. If a cell contains a pure integer with no fraction, keep it as an integer (e.g., '16' remains 16).
+                        3. For complex rows like 'G005 Knee Position From Crotch' which has multiple sub-lengths (28", 30", 32", 34"), create separate JSON objects for each sub-length description, for example: 'Knee Position From Crotch (Length 28")'.
+                        4. Map each POM code (e.g., W001, W003, P002), its Full Description, and extract the measurements across all size columns (26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 40).
+
+                        Strictly return a clean, valid raw JSON object matching this structure exactly (no markdown formatting, no ```json):
                         {
                           "status": "success",
                           "spec_table": [
                             {
-                              "pom_id": "string or null",
-                              "description": "string",
+                              "pom_id": "W001",
+                              "description": "Waistband Height",
                               "measurements": {
-                                "Size Name": "string or number"
+                                "26": 1.5,
+                                "27": 1.5,
+                                "28": 1.5
+                              }
+                            },
+                            {
+                              "pom_id": "W003",
+                              "description": "Beltloop Width",
+                              "measurements": {
+                                "26": 0.375,
+                                "27": 0.375
                               }
                             }
                           ]
-                        }
-                        Do not include any markdown syntax wrapping."""
+                        }"""
                         
                         tp_payload = [
                             types.Part.from_bytes(data=trimmed_pdf_bytes, mime_type='application/pdf'),
                             types.Part.from_text(text=tp_prompt)
                         ]
                         
-                        # Gọi Gemini quét Techpack thay thế cho hàm process_single_pdf_batch bị treo
                         res_tp_ai = client_ai.models.generate_content(
                             model='gemini-2.5-flash', 
                             contents=tp_payload, 
@@ -1492,13 +1508,20 @@ elif menu_selection == "🛒 Purchase Consumption":
                         )
                         
                         clean_text_tp = res_tp_ai.text.strip().replace("```json", "").replace("```", "").strip()
-                        st.session_state["pur_tp_parsed_data"] = json.loads(clean_text_tp)
+                        
+                        # Chuyển đổi chuỗi thành JSON Object an toàn trong bộ nhớ State
+                        parsed_json = json.loads(clean_text_tp)
+                        
+                        # Đồng bộ cấu trúc với logic xử lý hiển thị ở Frontend của bạn
+                        if "spec_table" in parsed_json:
+                            st.session_state["pur_tp_parsed_data"] = parsed_json["spec_table"]
+                        else:
+                            st.session_state["pur_tp_parsed_data"] = parsed_json.get("data", parsed_json)
                         
                     except Exception as e:
-                        st.error(f"❌ Không thể số hóa Techpack bằng Gemini AI: {str(e)}")
+                        st.error(f"❌ Gemini AI không thể chuyển đổi ma trận phân số Techpack: {str(e)}")
                         st.stop()
                     
-                # Hoàn thành xử lý cả 2 phân hệ mượt mà
                 st.session_state["purchase_ready"] = True
                 st.rerun()
 
