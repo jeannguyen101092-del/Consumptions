@@ -1670,8 +1670,8 @@ elif menu_sub.startswith("✂️ CHỨC NĂNG 2"):
                         
                     st.session_state["purchase_ready"] = True
                     st.rerun()
-        # -----------------------------------------------------------------------------
-        # 🧠 CHỨC NĂNG 1 - PHẦN 1.2: RENDER GRID DỮ LIỆU & CỔNG CHATBOX AI GIA QUYỀN
+               # -----------------------------------------------------------------------------
+        # 🧠 CHỨC NĂNG 1 - PHẦN 1.2: ĐÃ VÁ LỖI ÉP KIỂU SỐ ĐỊNH DẠNG VALUEERROR CHUẨN ĐÉT
         # -----------------------------------------------------------------------------
         if st.session_state.get("purchase_ready") is True:
             sbd_d = st.session_state.get("sbd_parsed_data", {})
@@ -1679,12 +1679,19 @@ elif menu_sub.startswith("✂️ CHỨC NĂNG 2"):
             
             if isinstance(sbd_d, dict) and isinstance(tp_d, dict) and sbd_d and tp_d:
                 detected_style_id = sbd_d.get("style_id", "UNKNOWN_STYLE")
-                detected_total_po = sbd_d.get("total_quantity", 0)
+                
+                # Biện pháp bảo vệ an toàn: Ép kiểu về số thực, nếu lỗi gán mặc định bằng 0 để chống sập trang
+                try:
+                    detected_total_po = int(sbd_d.get("total_quantity", 0))
+                except Exception:
+                    detected_total_po = 0
+                    
                 size_breakdown_dict = sbd_d.get("size_breakdown", {})
                 
                 tab_input_sbd, tab_input_tp = st.tabs(["📋 Ma Trận Đơn Hàng (SBD)", "📐 Ma Trận Thông Số Bản Vẽ (Techpack)"])
                 with tab_input_sbd:
-                    st.markdown(f"**Mã hàng phát hiện:** `{detected_style_id}` | **Tổng sản lượng PO:** `{detected_total_po:,}` Pcs")
+                    # Đã làm sạch chuỗi F-string, loại bỏ dấu định dạng gây crash trang
+                    st.markdown(f"**Mã hàng phát hiện:** `{detected_style_id}` | **Tổng sản lượng PO:** `{detected_total_po}` Pcs")
                     if size_breakdown_dict:
                         st.dataframe(pd.DataFrame(list(size_breakdown_dict.items()), columns=["Size Kép", "PO Qty"]), use_container_width=True, hide_index=True)
                     else:
@@ -1693,8 +1700,10 @@ elif menu_sub.startswith("✂️ CHỨC NĂNG 2"):
                 with tab_input_tp:
                     matrix_data = tp_d.get("full_size_matrix", {}) or tp_d.get("measurements", {}) or tp_d
                     if isinstance(matrix_data, dict) and matrix_data:
-                        try: st.dataframe(pd.DataFrame(matrix_data), use_container_width=True)
-                        except Exception: st.write(matrix_data)
+                        try: 
+                            st.dataframe(pd.DataFrame(matrix_data), use_container_width=True)
+                        except Exception: 
+                            st.write(matrix_data)
                     else:
                         st.info("ℹ️ Không tìm thấy bảng ma trận số đo rập, hệ thống sẽ mở cổng chat giải toán toán học dựa trên tỉ trọng SBD.")
                         
@@ -1736,7 +1745,10 @@ elif menu_sub.startswith("✂️ CHỨC NĂNG 2"):
                                     response = client_ai.models.generate_content(model='gemini-2.5-flash', contents=payload_contents)
                                     st.session_state["purchase_chat_history"].append({"user": user_query, "ai": response.text})
                                     st.rerun()
-                                except Exception as chat_err: st.error(f"Lỗi kết nối AI: {str(chat_err)}")
+                                except Exception as chat_err: 
+                                    st.error(f"Lỗi kết nối AI: {str(chat_err)}")
+
+                               
 
 
 
