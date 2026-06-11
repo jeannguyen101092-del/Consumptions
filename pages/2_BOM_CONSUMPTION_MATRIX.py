@@ -1586,9 +1586,10 @@ elif menu_selection == "🛒 Purchase Consumption":
                # =============================================================================
                # =============================================================================
                 # =============================================================================
-        # ĐOẠN 5: Ô CHAT AI TỰ ĐỘNG PHÂN TÍCH ĐA ĐIỂM ĐO (WAIST + INSEAM) - CHỐNG CÀO BẰNG
+                # =============================================================================
+        # ĐOẠN 5: Ô CHAT AI TỰ ĐỘNG PHÂN TÍCH ĐA CHỦNG LOẠI (QUẦN/ÁO ĐỦ THỨ KIỂU)
         # =============================================================================
-        st.markdown("<p style='font-weight:700; font-size:16px; color:#1E3A8A; margin-top:25px;'>🧠 TRỢ LÝ AI: PHÂN TÍCH ĐA ĐIỂM ĐO (WAIST + INSEAM) TÍNH ĐỊNH MỨC TRUNG BÌNH</p>", unsafe_allow_html=True)
+        st.markdown("<p style='font-weight:700; font-size:16px; color:#1E3A8A; margin-top:25px;'>🧠 TRỢ LÝ AI: TỰ ĐỘNG NHẬN DIỆN ĐIỂM ĐO ĐA CHỦNG LOẠI (ÁO/QUẦN ĐỦ THỨ)</p>", unsafe_allow_html=True)
         
         if "purchase_chat_history" not in st.session_state:
             st.session_state["purchase_chat_history"] = []
@@ -1602,17 +1603,26 @@ elif menu_selection == "🛒 Purchase Consumption":
         for chat in st.session_state["purchase_chat_history"]:
             with st.chat_message(chat["role"]):
                 st.write(chat["content"])
+                
+                # Hiển thị số liệu định mức trung bình tổng kết lớn
+                if "metric_val" in chat:
+                    col_m1, col_m2 = st.columns(2)
+                    with col_m1:
+                        st.metric(label="🎯 MỐC GỐC PHÂN TÍCH", value=str(chat.get("base_size_lbl", "N/A")))
+                    with col_m2:
+                        st.metric(label="⚡ ĐỊNH MỨC TRUNG BÌNH TOÀN ĐƠN (SBD)", value=f"{chat['metric_val']:.4f} Yds/Pcs")
+                        
                 if "df_data" in chat:
                     st.dataframe(chat["df_data"], use_container_width=True, hide_index=True)
 
-        user_msg = st.chat_input("Nhập yêu cầu (Ví dụ: Tính định mức dựa trên vòng bụng W005, size chuẩn 30 x 30 định 1.73y)...", key="consumption_chat_input_box")
+        user_msg = st.chat_input("Nhập yêu cầu (Ví dụ cho Áo: Tính định mức theo ngực, vai, nách, lai lấy mốc size M định mức 1.5y)...", key="consumption_chat_input_box")
         
         if user_msg:
             with st.chat_message("user"):
                 st.write(user_msg)
             st.session_state["purchase_chat_history"].append({"role": "user", "content": user_msg})
             
-            with st.spinner("🚀 AI đang quét toàn bộ trang thông số, phân tích độ lệch 2 chiều (Waist & Inseam)..."):
+            with st.spinner("🚀 AI đang quét Techpack, tự động khóa mục tiêu vào các vị trí điểm đo được yêu cầu..."):
                 if "get_secure_gemini_key" in globals(): gemini_key = get_secure_gemini_key()
                 else: gemini_key = st.secrets.get("GEMINI_API_KEY", "").strip()
                 
@@ -1629,44 +1639,35 @@ elif menu_selection == "🛒 Purchase Consumption":
                 tp_res = st.session_state.get("pur_tp_parsed_data", {})
                 raw_list = tp_res.get("data", []) if isinstance(tp_res, dict) else tp_res
                 
-                # SIÊU PROMPT: Ép AI thực hiện toán đồ phân tích lệch 2 trục độc lập
-                chat_prompt = f"""You are an advanced apparel production engineer and cost estimator.
+                # SIÊU PROMPT LINH HOẠT THEO TỪ KHÓA ĐẦU VÀO
+                chat_prompt = f"""You are an advanced apparel production engineer and cost estimator capable of analyzing ANY garment type (Shirts, T-shirts, Pants, Jackets, etc.).
                 The user has given this instruction in Vietnamese: "{user_msg}"
                 
-                CRITICAL PROBLEM TO SOLVE:
-                Previously, the system only looked at the Waist circumference, meaning sizes like '32 X 30' and '32 X 34' got the exact same consumption. This is WRONG because longer pants use more fabric. You must analyze BOTH Waist and Length/Inseam changes from the entire uploaded Techpack data.
-                
-                ANALYTICAL REQUIREMENTS:
-                1. Parse the user's input to find the baseline Waist (e.g., 30 or 32), baseline Inseam (e.g., 30 or 32), and the base consumption (e.g., 1.73y).
-                2. Scan the Techpack Data to find TWO types of metrics:
-                   - A Waist metric (e.g., W005 Waist Width). Find the baseline value for the base size.
-                   - A Length/Inseam related metric (e.g., G005 Knee Position which changes per inseam length 28/30/32/34, or any outseam/inseam data). Find the baseline value for the base inseam.
-                3. For every unique size combo in the SBD list (e.g., '32 X 34'):
-                   - Extract current Waist (32) and current Inseam (34).
-                   - Calculate Waist Ratio = (Current Waist Spec / Base Waist Spec).
-                   - Calculate Length Ratio = (Current Length Spec for Inseam 34 / Base Length Spec for Base Inseam). If a POM like G005 has specific sub-rows for inseams, use the exact value from that sub-row.
-                   - Combined Size Consumption = Base Consumption * Waist Ratio * Length Ratio.
+                CRITICAL DYNAMIC INSTRUCTION:
+                1. Based on the user's request (e.g., mentions of 'ngực', 'nách', 'lai', 'vai' for tops, or 'lưng', 'mông', 'gối' for bottoms), dynamically scan the provided Techpack data to identify all relevant POM rows that match these body parts.
+                2. Extract the baseline values for the requested base size combination or single size (e.g., '32/32', 'M', 'L') as specified by the user.
+                3. For every size present in the SBD production list:
+                   - Look up the measurements for ALL identified relevant POM rows for that size.
+                   - Compute individual size ratios compared to the baseline size specs for each matching POM part.
+                   - Combined Size Consumption = Base Consumption * (Average of all relevant POM Ratios for this size).
                    - Total Fabric Demand for this size = Combined Size Consumption * SBD Quantity.
-                4. Sum all Total Fabric Demands and divide by Total SBD Quantity to output the final accurate Weighted Average Consumption.
+                4. Final Weighted Average Consumption = Sum(Total Fabric Demands) / Total SBD Quantity.
+                
+                CURRENT DATA CONTEXT:
+                - SBD Data (Quantities per size): {json.dumps(sbd_res)}
+                - Techpack Spec Data (Measurements available): {json.dumps(raw_list)}
                 
                 Strictly return a clean raw JSON object with no markdown formatting:
                 {{
-                  "explanation": "Giải trình bằng tiếng Việt: Nêu rõ điểm đo vòng eo và điểm đo chiều dài/gối nào đã được chọn để đối chiếu, giá trị gốc của size mốc, và con số định mức trung bình cuối cùng sau khi đã tính toán biến thiên 2 chiều.",
-                  "final_average_consumption": 1.715,
+                  "explanation": "Báo cáo chi tiết bằng tiếng Việt: Nêu rõ các điểm đo cụ thể (Mã POM và Tên tiếng Anh) mà AI đã tự động phát hiện và trích xuất dựa trên từ khóa yêu cầu của bạn. Giải thích ngắn gọn cách tính biến thiên tổng hợp cho loại sản phẩm này.",
+                  "base_size_string": "Mã size mốc",
+                  "final_average_consumption": 1.5124,
                   "breakdown_table": [
                     {{
-                      "Size Đơn Hàng": "32 X 30",
-                      "Thông Số Eo": 16.75,
-                      "Thông Số Dài/Gối": 19.25,
-                      "ĐM Từng Size (Yds)": 1.71,
-                      "Sản Lượng (Pcs)": 177
-                    }},
-                    {{
-                      "Size Đơn Hàng": "32 X 34",
-                      "Thông Số Eo": 16.75,
-                      "Thông Số Dài/Gối": 20.25,
-                      "ĐM Từng Size (Yds)": 1.79,
-                      "Sản Lượng (Pcs)": 209
+                      "Size Đơn Hàng": "M",
+                      "Chi Tiết Thông Số Trích Xuất": "Điền chuỗi tóm tắt thông số các điểm đo tìm được (Ví dụ: Ngực: 20, Nách: 9.5, Lai: 20)",
+                      "ĐM Từng Size (Yds)": 1.50,
+                      "Sản Lượng (Pcs)": 500
                     }}
                   ]
                 }}"""
@@ -1681,10 +1682,17 @@ elif menu_selection == "🛒 Purchase Consumption":
                     clean_res_text = res_chat_ai.text.strip().replace("```json", "").replace("```", "").strip()
                     res_dict = json.loads(clean_res_text)
                     
-                    ai_reply = res_dict.get("explanation", "Đã phân tích xong định mức trung bình biến thiên theo 2 trục eo và chiều dài.")
+                    ai_reply = res_dict.get("explanation", "Đã phân tích xong định mức trung bình cho loại sản phẩm này.")
                     table_rows = res_dict.get("breakdown_table", [])
+                    final_consumption_num = float(res_dict.get("final_average_consumption", 0.0))
+                    base_sz_lbl = res_dict.get("base_size_string", "Mốc")
                     
-                    chat_response_packet = {"role": "assistant", "content": ai_reply}
+                    chat_response_packet = {
+                        "role": "assistant", 
+                        "content": ai_reply,
+                        "metric_val": final_consumption_num,
+                        "base_size_lbl": base_sz_lbl
+                    }
                     
                     if table_rows:
                         import pandas as pd
@@ -1695,10 +1703,11 @@ elif menu_selection == "🛒 Purchase Consumption":
                     st.rerun()
                     
                 except Exception as e:
-                    st.error(f"❌ Trợ lý AI gặp lỗi khi phân tích ma trận đa điểm đo: {str(e)}")
+                    st.error(f"❌ Trợ lý AI gặp lỗi khi thích ứng chủng loại sản phẩm: {str(e)}")
                     st.stop()
 
         st.markdown("<hr style='border:1px solid #E2E8F0; margin-top:20px; margin-bottom:20px;'>", unsafe_allow_html=True)
+
 
 
 
