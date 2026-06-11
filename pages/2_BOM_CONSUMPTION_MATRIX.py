@@ -1504,27 +1504,44 @@ elif menu_selection == "🛒 Purchase Consumption":
                     st.session_state["pur_tp_parsed_data"] = {"dummy_status": "skipped_not_needed"} # Gán biến giả lập để bỏ qua techpack
                     st.session_state["purchase_ready"] = True
                     st.rerun()
-    # -----------------------------------------------------------------------------
-    # 🧠 PHẦN HIỂN THỊ CHỨC NĂNG 1: TRỢ LÝ AI PHÂN TÍCH ĐỊNH MỨC TRUNG BÌNH
-    # -----------------------------------------------------------------------------
+               # --- TIẾN HÀNH SỐ HÓA MA TRẬN THÔNG SỐ RẬP TECHPACK PDF ---
+            with st.spinner("📐 AI đang bóc tách bảng thông số kỹ thuật rập từ bản vẽ Techpack..."):
+                res_tp = process_single_pdf_batch(file_tp_ch1.getvalue(), file_tp_ch1.name)
+                if res_tp.get("success") and "data" in res_tp:
+                    st.session_state["pur_tp_parsed_data"] = res_tp["data"]
+                else:
+                    st.error(f"Lỗi AI trích xuất Techpack: {res_tp.get('error')}")
+                    st.session_state["pur_tp_parsed_data"] = {}
+            
+            st.session_state["purchase_ready"] = True
+            st.rerun()
+
+    # =============================================================================
+    # 🧠 KHỐI RENDER VÀ HIỂN THỊ CHỨC NĂNG 1 (ĐỒNG BỘ MẠNG NƠ-RON HỎI ĐÁP AI)
+    # =============================================================================
     if st.session_state.get("purchase_ready") is True and menu_sub.startswith("🧠 CHỨC NĂNG 1"):
-        sbd_data = st.session_state.get("sbd_parsed_data", {})
-        tp_data = st.session_state.get("pur_tp_parsed_data", {})
+        sbd_d = st.session_state.get("sbd_parsed_data", {})
+        tp_d = st.session_state.get("pur_tp_parsed_data", {})
         
-        if isinstance(sbd_data, dict) and isinstance(tp_data, dict) and sbd_data and tp_data:
-            detected_style_id = sbd_data.get("style_id", "UNKNOWN_STYLE")
-            detected_total_po = sbd_data.get("total_quantity", 0)
-            size_breakdown_dict = sbd_data.get("size_breakdown", {})
-            
+        if isinstance(sbd_d, dict) and isinstance(tp_d, dict) and sbd_d and tp_d:
             st.success("🎉 Số hóa dữ liệu phục vụ AI hoàn tất! Bạn có thể bắt đầu hỏi đáp.")
+            
+            # ✅ ĐÃ ĐỒNG BỘ BIẾN: Bốc chính xác cấu trúc dữ liệu ma trận Multi-Inseam từ state an toàn
+            detected_style_id = sbd_d.get("style_id", "UNKNOWN_STYLE")
+            detected_total_po = sbd_d.get("total_quantity", 0)
+            size_breakdown_dict = sbd_d.get("size_breakdown", {})
+            
             tab_input_sbd, tab_input_tp = st.tabs(["📋 Ma Trận Đơn Hàng (SBD)", "📐 Ma Trận Thông Số Bản Vẽ (Techpack)"])
-            
             with tab_input_sbd:
+                # Trả lại tiêu đề hiển thị tên mã hàng và tổng PO thực tế đầy đủ ra màn hình
                 st.markdown(f"**Mã hàng phát hiện:** `{detected_style_id}` | **Tổng sản lượng PO:** `{detected_total_po:,}` Pcs")
-                st.dataframe(pd.DataFrame(list(size_breakdown_dict.items()), columns=["Size", "PO Qty"]), use_container_width=True, hide_index=True)
-            
+                if size_breakdown_dict:
+                    st.dataframe(pd.DataFrame(list(size_breakdown_dict.items()), columns=["Size Kép", "PO Qty"]), use_container_width=True, hide_index=True)
+                else:
+                    st.warning("⚠️ Không tìm thấy mảng dữ liệu phân bổ size. Vui lòng nhấn nút kích hoạt số hóa đa luồng lại.")
+                    
             with tab_input_tp:
-                matrix_data = tp_data.get("full_size_matrix", {}) or tp_data.get("measurements", {})
+                matrix_data = tp_d.get("full_size_matrix", {}) or tp_d.get("measurements", {})
                 if matrix_data: 
                     st.dataframe(pd.DataFrame(matrix_data), use_container_width=True)
                     
@@ -1533,9 +1550,10 @@ elif menu_selection == "🛒 Purchase Consumption":
             with chat_col1:
                 st.markdown("##### 💬 HỎI AI TÍNH ĐỊNH MỨC TRUNG BÌNH THEO TỶ TRỌNG SBD ĐƠN HÀNG")
             with chat_col2:
-                if st.button("🗑️ XÓA CHAT AI", key="clear_pur_chat_btn", use_container_width=True):
+                if st.button("🗑️ XÓA CHAT AI", key="clear_pur_chat_btn_ch1", use_container_width=True):
                     st.session_state["purchase_chat_history"] = []
                     st.toast("♻️ Đã xóa sạch lịch sử chat!")
+                    st.rerun()
                     
             pur_chat_container = st.container()
             with pur_chat_container:
@@ -1543,13 +1561,13 @@ elif menu_selection == "🛒 Purchase Consumption":
                     with st.chat_message("user"): st.write(chat["user"])
                     with st.chat_message("assistant"): st.write(chat["ai"])
                     
-            if user_query := st.chat_input("Ví dụ: Định mức size gốc 30 là 1.14Y, hãy tính toán chênh lệch thông số từng size và đưa ra định mức trung bình..."):
+            if user_query := st.chat_input("Ví dụ: Định mức size gốc 32 X 32 là 1Y, hãy tính toán chênh lệch thông số từng size và đưa ra định mức trung bình..."):
                 with pur_chat_container:
                     with st.chat_message("user"): st.write(user_query)
                     with st.chat_message("assistant"):
-                        with st.spinner("🤖 AI đang phân tích ma trận thông số và SBD..."):
+                        with st.spinner("🤖 AI Gemini đang phân tích hình học rập và tỷ trọng SBD..."):
                             system_instruction_pur = f"""
-                            You are a strict Industrial Garment Costing Engineer. Analyze the attached Techpack matrix and SBD numbers.
+                            You are a strict Industrial Garment Costing Engineer at PPJ Group. Analyze the attached Techpack matrix and SBD numbers.
                             The user will give you a base consumption value (e.g., 1 Yard or 1.14 Yard) for a specific base size.
                             YOUR MISSION:
                             1. Compare the detailed measurement data across ALL sizes against the base size.
@@ -1559,23 +1577,21 @@ elif menu_selection == "🛒 Purchase Consumption":
                             """
                             payload_contents = [
                                 types.Part.from_text(text=system_instruction_pur),
-                                types.Part.from_text(text=f"SBD Order Data: {json.dumps(sbd_data)}"),
-                                types.Part.from_text(text=f"Techpack Specs Data: {json.dumps(tp_data)}"),
-                                types.Part.from_text(text=f"User current instruction: {user_query}")
+                                types.Part.from_text(text=f"SBD Order Data: {json.dumps(sbd_d)}"),
+                                types.Part.from_text(text=f"Techpack Specs Data: {json.dumps(tp_d)}"),
+                                types.Part.from_text(text=f"User current request: {user_query}")
                             ]
-                            if 'target_new_sketch_bytes' in locals() and target_new_sketch_bytes:
-                                payload_contents.append(types.Part.from_bytes(data=target_new_sketch_bytes, mime_type='image/jpeg'))
-                                
+                            
                             try:
-                                gemini_key_c1 = get_secure_gemini_key() if "get_secure_gemini_key" in globals() else st.secrets.get("GEMINI_API_KEY", "").strip()
-                                client_ai_c1 = genai.Client(api_key=gemini_key_c1)
-                                response = client_ai_c1.models.generate_content(model='gemini-2.5-flash', contents=payload_contents)
+                                gemini_key = get_secure_gemini_key() if "get_secure_gemini_key" in globals() else st.secrets.get("GEMINI_API_KEY", "").strip()
+                                client_ai = genai.Client(api_key=gemini_key)
+                                response = client_ai.models.generate_content(model='gemini-2.5-flash', contents=payload_contents)
                                 ai_reply = response.text if response.text else "Không thể phân tích dữ liệu."
                                 st.session_state["purchase_chat_history"].append({"user": user_query, "ai": ai_reply})
                                 st.rerun()
                             except Exception as chat_err: 
                                 st.error(f"Lỗi cổng kết nối AI: {str(chat_err)}")
-       # -----------------------------------------------------------------------------
+
          # -----------------------------------------------------------------------------
     # ✂️ CHỨC NĂNG 2 - PHẦN 1: ĐÃ SỬA TRIỆT ĐỂ LỖI BÓC MẢNG - ĐỘNG LỰC TỰ ĐỘNG NHẢY SỐ CAD
     # -----------------------------------------------------------------------------
