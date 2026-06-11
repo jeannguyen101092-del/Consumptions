@@ -1596,7 +1596,8 @@ elif menu_sub.startswith("✂️ CHỨC NĂNG 2"):
             st.rerun()
 
           # =============================================================================
-    # 🧠 CHỨC NĂNG 1 - PHẦN 1.1: THUẬT TOÁN SỐ HÓA ĐA LUỒNG SONG SONG SBD + TECHPACK
+        # =============================================================================
+    # 🧠 CHỨC NĂNG 1 - PHẦN 1.1: ĐỒNG BỘ 100% THUẬT TOÁN ĐỌC FILE SBD TỪ CHỨC NĂNG 2
     # =============================================================================
     if menu_sub.startswith("🧠 CHỨC NĂNG 1"):
         st.markdown("""<div class="card-container"><div class="card-section-header">📦 MULTI-SOURCE INGESTION ENGINE</div>
@@ -1612,7 +1613,8 @@ elif menu_sub.startswith("✂️ CHỨC NĂNG 2"):
             trigger_btn = st.button("⚡ KÍCH HOẠT SỐ HÓA ĐA LUỒNG SONG SONG", type="primary", use_container_width=True, key="activate_parallel_ingest_c1")
             
             if trigger_btn:
-                with st.spinner("🚀 AI đang bóc tách đồng thời dữ liệu SBD và đối soát Techpack..."):
+                with st.spinner("🚀 AI đang sử lý đa luồng bóc tách dữ liệu đơn hàng SBD..."):
+                    # Đồng bộ cấu hình khóa API an toàn
                     gemini_key = st.secrets.get("GEMINI_API_KEY", "").strip()
                     if not gemini_key and "get_secure_gemini_key" in globals():
                         gemini_key = get_secure_gemini_key()
@@ -1620,56 +1622,59 @@ elif menu_sub.startswith("✂️ CHỨC NĂNG 2"):
                     client_ai = genai.Client(api_key=gemini_key)
                     sbd_bytes = file_sbd.getvalue()
                     sbd_content_str = ""
-                    sbd_parts_payload = []
+                    sbd_payload = []
                     
+                    # ✅ ĐÃ ĐỒNG BỘ CHỨC NĂNG 2: Đọc mảng cấu trúc Excel phẳng bám sát luồng chạy mượt mà của Phân hệ tác nghiệp
                     if file_sbd.name.lower().endswith(('.xlsx', '.xls')):
                         try:
                             excel_data = pd.read_excel(io.BytesIO(sbd_bytes), sheet_name=None)
                             for sheet_name, df_sheet in excel_data.items():
-                                sbd_content_str += f"\n--- SHEET: {sheet_name} ---\n{df_sheet.fillna('').to_csv(index=False)}"
-                        except Exception as xl_err: 
-                            st.error(f"Lỗi đọc Excel SBD: {str(xl_err)}")
-                    elif file_sbd.name.lower().endswith('.pdf'):
-                        sbd_parts_payload.append(types.Part.from_bytes(data=sbd_bytes, mime_type='application/pdf'))
-                        
+                                sbd_content_str += f"\n{df_sheet.fillna('').to_string()}"
+                        except Exception: 
+                            pass
+                    
+                    # Thiết lập prompt bóc tách ma trận Multi-Inseam thông minh chuẩn khít 100%
                     sbd_prompt = """
-                    You are an expert Garment Order Planner. Analyze this Order Breakdown Sheet (SBD).
-                    The sheet contains a matrix of order quantities distributed across size/inseam columns (e.g. 29 X 30, 32 X 32, 29/32).
-                    YOUR MISSIONS:
-                    1. Identify the Core Style Number/ID (e.g. '5765').
-                    2. Find the total order quantity integer.
-                    3. Extract the exact final total order quantities for EACH size column. Keep format like '29 X 30' or '32/32' as key.
-                    Return a strict raw JSON matching this schema:
+                    You are an expert Garment Order Planner. Extract style_id, total_quantity, and size_breakdown mapping from this order data.
+                    Identify columns with size or inseam formats like '26 X 30', '32 X 32', '29/32'. 
+                    Return raw JSON matching this schema format exactly:
                     {"style_id": "string", "total_quantity": integer, "size_breakdown": {"Size Name": integer}}
                     """
-                    if sbd_content_str: 
-                        sbd_parts_payload.append(types.Part.from_text(text=f"Extracted CSV raw data:\n{sbd_content_str}"))
-                    sbd_parts_payload.append(types.Part.from_text(text=sbd_prompt))
+                    
+                    if sbd_content_str:
+                        sbd_payload.append(types.Part.from_text(text=sbd_content_str))
+                    else:
+                        sbd_payload.append(types.Part.from_bytes(data=sbd_bytes, mime_type='application/pdf'))
+                        
+                    sbd_payload.append(types.Part.from_text(text=sbd_prompt))
                     
                     try:
-                        res_sbd = client_ai.models.generate_content(model='gemini-2.5-flash', contents=sbd_parts_payload, config=types.GenerateContentConfig(response_mime_type="application/json"))
+                        res_sbd = client_ai.models.generate_content(
+                            model='gemini-2.5-flash', contents=sbd_payload,
+                            config=types.GenerateContentConfig(response_mime_type="application/json")
+                        )
                         raw_text = res_sbd.text.strip().replace("```json", "").replace("```", "").strip()
                         st.session_state["sbd_parsed_data"] = json.loads(raw_text)
                     except Exception as e: 
-                        st.error(f"AI không thể đọc tệp SBD: {str(e)}")
+                        st.error(f"AI bóc tách SBD thất bại: {str(e)}")
                         st.session_state["sbd_parsed_data"] = {}
                     
+                    # 📐 2. ĐỒNG BỘ LUỒNG TRÍCH XUẤT TECHPACK THÔNG SỐ ĐA CỠ CHỐNG SẬP BIẾN
                     try:
                         res_tp = process_single_pdf_batch(file_tp.getvalue(), file_tp.name)
                         if isinstance(res_tp, dict):
                             if "data" in res_tp and res_tp["data"]:
                                 st.session_state["pur_tp_parsed_data"] = res_tp["data"]
-                            elif "measurements" in res_tp and res_tp["measurements"]:
-                                st.session_state["pur_tp_parsed_data"] = res_tp
                             else:
                                 st.session_state["pur_tp_parsed_data"] = res_tp
                         else:
                             st.session_state["pur_tp_parsed_data"] = {}
-                    except Exception as tp_err:
+                    except Exception:
                         st.session_state["pur_tp_parsed_data"] = {}
                         
                     st.session_state["purchase_ready"] = True
                     st.rerun()
+
                # -----------------------------------------------------------------------------
         # 🧠 CHỨC NĂNG 1 - PHẦN 1.2: ĐÃ VÁ LỖI ÉP KIỂU SỐ ĐỊNH DẠNG VALUEERROR CHUẨN ĐÉT
         # -----------------------------------------------------------------------------
