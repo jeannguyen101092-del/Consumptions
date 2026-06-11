@@ -1583,107 +1583,110 @@ elif menu_selection == "🛒 Purchase Consumption":
                 
         st.markdown("<hr style='border:1px solid #E2E8F0; margin-top:20px; margin-bottom:20px;'>", unsafe_allow_html=True)
                 # =============================================================================
-        # ĐOẠN 5: AI PHÂN TÍCH CHÊNH LỆCH THEO SIZE CHUẨN 32 VÀ TÍNH ĐM TRUNG BÌNH THEO SBD
+               # =============================================================================
+        # ĐOẠN 5: Ô CHAT AI TƯƠNG TÁC TÍNH ĐỊNH MỨC THEO YÊU CẦU & NÚT XÓA CHAT
         # =============================================================================
-        st.markdown("<p style='font-weight:700; font-size:16px; color:#1E3A8A; margin-top:25px;'>🧠 TRỢ LÝ AI: PHÂN TÍCH CHÊNH LỆCH ĐM THEO SBD (SIZE CHUẨN: 32)</p>", unsafe_allow_html=True)
+        st.markdown("<p style='font-weight:700; font-size:16px; color:#1E3A8A; margin-top:25px;'>🧠 TRỢ LÝ AI: TƯƠNG TÁC TÍNH ĐỊNH MỨC THEO LỆNH KHÁCH HÀNG</p>", unsafe_allow_html=True)
         
-        if sbd_res and raw_list:
-            breakdown = sbd_res.get("size_breakdown", {})
-            total_qty = sbd_res.get("total_quantity", 0)
+        # Khởi tạo bộ nhớ lịch sử Chat nếu chưa có
+        if "purchase_chat_history" not in st.session_state:
+            st.session_state["purchase_chat_history"] = []
             
-            # 1. Tìm thông số Cạp hoặc Mông (ví dụ W005) để làm gốc tính tỷ lệ tăng giảm (Grade Rule)
-            target_pom = None
-            for item in raw_list:
-                if item.get("pom_id") in ["W005", "W001", "H003"]: 
-                    target_pom = item
-                    break
-            if not target_pom and len(raw_list) > 0:
-                target_pom = raw_list[0]
+        # Nút xóa lịch sử Chat nằm gọn gàng bên góc
+        col_chat_header, col_clear_btn = st.columns([4.0, 1.0])
+        with col_clear_btn:
+            if st.button("🗑️ XÓA LỊCH SỬ CHAT", use_container_width=True, type="secondary", key="clear_consumption_chat_btn"):
+                st.session_state["purchase_chat_history"] = []
+                st.rerun()
                 
-            if target_pom and breakdown and total_qty > 0:
-                pom_desc = target_pom.get("description", "Thông số vòng chính")
-                measurements = target_pom.get("measurements", {})
+        # Hiển thị các tin nhắn chat trước đó (nếu có)
+        for chat in st.session_state["purchase_chat_history"]:
+            with st.chat_message(chat["role"]):
+                st.write(chat["content"])
+                if "df_data" in chat:
+                    st.dataframe(chat["df_data"], use_container_width=True, hide_index=True)
+
+        # Ô gõ nội dung Chat ra lệnh cho AI tính định mức
+        user_msg = st.chat_input("Nhập yêu cầu (Ví dụ: Tính định mức dựa trên vòng bụng W005, size chuẩn 32 định 1y)...", key="consumption_chat_input_box")
+        
+        if user_msg:
+            # Hiển thị ngay tin nhắn của người dùng lên màn hình
+            with st.chat_message("user"):
+                st.write(user_msg)
+            st.session_state["purchase_chat_history"].append({"role": "user", "content": user_msg})
+            
+            with st.spinner("🧠 AI đang phân tích yêu cầu may mặc và tính toán định mức..."):
+                # Chuẩn bị dữ liệu ngữ cảnh hiện tại để ném vào prompt cho AI xử lý cấu trúc
+                sbd_res = st.session_state.get("sbd_parsed_data", {})
+                tp_res = st.session_state.get("pur_tp_parsed_data", {})
+                raw_list = tp_res.get("data", []) if isinstance(tp_res, dict) else tp_res
                 
-                # Xác định thông số của Size Gốc 32 làm mốc so sánh
-                base_size_key = "32"
-                base_spec_val = measurements.get(base_size_key, None)
+                chat_prompt = f"""You are a smart apparel production manager. 
+                The user has just given this instruction: "{user_msg}"
                 
-                # Cấu hình định mức gốc cho size chuẩn 32 là 1.0 Yard như bạn yêu cầu
-                base_consumption = 1.0 
+                Based on this instruction, look at the following Techpack specifications and SBD production quantities.
                 
-                if base_spec_val is not None:
-                    try:
-                        base_spec_val = float(base_spec_val)
+                CURRENT DATA CONTEXT:
+                - SBD Data (Quantities per size): {json.dumps(sbd_res)}
+                - Techpack Spec Data (Measurements): {json.dumps(raw_list)}
+                
+                YOUR TASKS:
+                1. Identify which 'pom_id' (e.g., W005, H003, etc.) matches the user's request (e.g., vòng bụng, mông, dài quần...).
+                2. Identify the target baseline size (e.g., 32) and its base consumption yardage (e.g., 1y or 1.2y).
+                3. Calculate the percentage difference for all other sizes compared to the base size using that specific POM value.
+                4. Multiply each size's calculated consumption by its SBD production quantity to compute the final accurate Weighted Average Consumption for the whole order.
+                
+                You must respond strictly with a valid raw JSON object matching this structure (no markdown code blocks):
+                {{
+                  "explanation": "Write a short summary in Vietnamese explaining which POM was chosen, the base size, and the final average consumption.",
+                  "chosen_pom": "POM CODE",
+                  "base_size": "SIZE",
+                  "base_consumption": 1.0,
+                  "final_average_consumption": 0.9845,
+                  "breakdown_table": [
+                    {{
+                      "Size Đơn Hàng": "26 X 30",
+                      "Thông Số": 14.25,
+                      "Tỷ Lệ Lệch vs Size Gốc": "-10.94%",
+                      "ĐM Từng Size (Yds)": 0.8906,
+                      "Sản Lượng (Pcs)": 88
+                    }}
+                  ]
+                }}"""
+                
+                # Gọi API Gemini xử lý prompt tương tác chat
+                try:
+                    res_chat_ai = client_ai.models.generate_content(
+                        model='gemini-2.5-flash', 
+                        contents=[chat_prompt], 
+                        config={"response_mime_type": "application/json"}
+                    )
+                    
+                    clean_res_text = res_chat_ai.text.strip().replace("```json", "").replace("```", "").strip()
+                    res_dict = json.loads(clean_res_text)
+                    
+                    # Trích xuất các kết quả từ JSON của AI
+                    ai_reply = res_dict.get("explanation", "Đã tính toán xong định mức trung bình dựa theo yêu cầu của bạn.")
+                    table_rows = res_dict.get("breakdown_table", [])
+                    
+                    # Tạo cấu trúc lưu vào lịch sử hiển thị của Streamlit
+                    chat_response_packet = {"role": "assistant", "content": ai_reply}
+                    
+                    if table_rows:
+                        import pandas as pd
+                        df_ai_calc = pd.DataFrame(table_rows)
+                        chat_response_packet["df_data"] = df_ai_calc
                         
-                        total_calculated_consumption = 0.0
-                        total_matched_qty = 0
-                        analysis_rows = []
-                        
-                        # Vòng lặp AI phân tích chênh lệch từng size so với size 32
-                        for sbd_size_key, qty in breakdown.items():
-                            # Trích xuất lấy số size chính từ chuỗi SBD (ví dụ '26 X 30' -> lấy '26')
-                            pure_size = sbd_size_key.split('X')[0].strip() if 'X' in sbd_size_key else sbd_size_key.strip()
-                            
-                            spec_val = measurements.get(pure_size, measurements.get(sbd_size_key, None))
-                            
-                            if spec_val is not None:
-                                try:
-                                    current_spec = float(spec_val)
-                                    qty_int = int(qty)
-                                    
-                                    # Công thức AI phân tích độ lệch: (Thông số size hiện tại / Thông số size 32)
-                                    # Từ độ lệch thông số cơ thể, suy ra tỷ lệ co giãn định mức vải tương ứng cho size đó
-                                    if base_spec_val > 0:
-                                        size_ratio = current_spec / base_spec_val
-                                        size_consumption = base_consumption * size_ratio
-                                    else:
-                                        size_consumption = base_consumption
-                                        
-                                    total_calculated_consumption += size_consumption * qty_int
-                                    total_matched_qty += qty_int
-                                    
-                                    # Lưu lại nhật ký phân tích để hiển thị lên bảng
-                                    analysis_rows.append({
-                                        "Size Đơn Hàng": sbd_size_key,
-                                        "Thông Số": current_spec,
-                                        "Tỷ Lệ Lệch vs Size 32": f"{(size_ratio - 1)*100:+.2f}%" if base_spec_val > 0 else "0%",
-                                        "ĐM Từng Size (Yds)": round(size_consumption, 4),
-                                        "Sản Lượng (Pcs)": qty_int
-                                    })
-                                except ValueError:
-                                    pass
-                        
-                        if total_matched_qty > 0:
-                            # Tính Định mức trung bình gia quyền cuối cùng dựa theo Sản lượng SBD
-                            final_avg_consumption = total_calculated_consumption / total_matched_qty
-                            
-                            # Hiển thị kết quả Metrics tổng quan
-                            col_metric1, col_metric2, col_metric3 = st.columns(3)
-                            with col_metric1:
-                                st.metric(label="🎯 Định Mức Gốc (Size 32)", value=f"{base_consumption:.2f} Yds")
-                            with col_metric2:
-                                st.metric(label="📐 Điểm Đo Gốc Phân Tích", value=f"{target_pom.get('pom_id','')}")
-                            with col_metric3:
-                                st.metric(label="⚡ ĐỊNH MỨC TRUNG BÌNH SBD", value=f"{final_avg_consumption:.4f} Yds/Pcs")
-                                
-                            # Bung bảng phân tích giải trình chi tiết cách AI chia tỷ lệ lệch của từng size
-                            st.markdown("**📋 Bảng giải trình chi tiết phân bổ và chênh lệch định mức từng Size:**")
-                            df_analysis = pd.DataFrame(analysis_rows)
-                            st.dataframe(df_analysis, use_container_width=True, hide_index=True)
-                            
-                            st.info(f"💡 **Cơ chế hoạt động:** Hệ thống quét điểm đo `{target_pom.get('pom_id','')}` ({pom_desc}) của Size chuẩn 32 làm mốc (Thông số: {base_spec_val} inch = ĐM 1.0 Yds). Các size nhỏ hơn (như 26, 28) có thông số nhỏ hơn sẽ được giảm ĐM tự động; các size lớn hơn sẽ tăng ĐM. Sau đó nhân với tổng ma trận sản lượng SBD để kết xuất ĐM trung bình chính xác nhất.")
-                        else:
-                            st.warning("⚠️ Không khớp được tên size giữa SBD và Techpack để lập bảng tính chênh lệch.")
-                    except ValueError:
-                        st.error("❌ Thông số của Size 32 trên Techpack không phải là số để tính toán.")
-                else:
-                    st.warning("⚠️ Không tìm thấy dữ liệu của Size '32' trên bảng thông số Techpack để làm gốc so sánh.")
-            else:
-                st.warning("⚠️ Thiếu ma trận sản lượng SBD hoặc bảng thông số Techpack để tính.")
-        else:
-            st.info("Hãy bấm kích hoạt số hóa đa luồng ở trên để nạp dữ liệu tính toán định mức.")
+                    # Lưu vào session state và ép render lại giao diện chat mới
+                    st.session_state["purchase_chat_history"].append(chat_response_packet)
+                    st.rerun()
+                    
+                except Exception as e:
+                    st.error(f"❌ Trợ lý AI gặp lỗi khi phân tích câu lệnh: {str(e)}")
+                    st.stop()
 
         st.markdown("<hr style='border:1px solid #E2E8F0; margin-top:20px; margin-bottom:20px;'>", unsafe_allow_html=True)
+
 
 
     elif menu_sub.startswith("✂️ CHỨC NĂNG 2"):
