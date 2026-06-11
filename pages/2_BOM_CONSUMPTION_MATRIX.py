@@ -1584,7 +1584,8 @@ elif menu_selection == "🛒 Purchase Consumption":
         st.markdown("<hr style='border:1px solid #E2E8F0; margin-top:20px; margin-bottom:20px;'>", unsafe_allow_html=True)
                 # =============================================================================
                # =============================================================================
-        # ĐOẠN 5: Ô CHAT AI TƯƠNG TÁC TÍNH ĐỊNH MỨC THEO YÊU CẦU & NÚT XÓA CHAT
+               # =============================================================================
+        # ĐOẠN 5: Ô CHAT AI TƯƠNG TÁC TÍNH ĐỊNH MỨC THEO YÊU CẦU & NÚT XÓA CHAT (SỬA LỖI CLIENT_AI)
         # =============================================================================
         st.markdown("<p style='font-weight:700; font-size:16px; color:#1E3A8A; margin-top:25px;'>🧠 TRỢ LÝ AI: TƯƠNG TÁC TÍNH ĐỊNH MỨC THEO LỆNH KHÁCH HÀNG</p>", unsafe_allow_html=True)
         
@@ -1616,13 +1617,28 @@ elif menu_selection == "🛒 Purchase Consumption":
             st.session_state["purchase_chat_history"].append({"role": "user", "content": user_msg})
             
             with st.spinner("🧠 AI đang phân tích yêu cầu may mặc và tính toán định mức..."):
+                # CẤU HÌNH SỬA LỖI: Khởi tạo lại Client AI độc lập cho ô chat
+                if "get_secure_gemini_key" in globals(): gemini_key = get_secure_gemini_key()
+                else: gemini_key = st.secrets.get("GEMINI_API_KEY", "").strip()
+                
+                if not gemini_key:
+                    st.error("❌ Không tìm thấy API KEY trong cấu hình hệ thống (Secrets)!")
+                    st.stop()
+                    
+                import json
+                import io
+                
+                # Xác thực kết nối SDK mới an toàn
+                from google import genai
+                client_ai_chat = genai.Client(api_key=gemini_key)
+                
                 # Chuẩn bị dữ liệu ngữ cảnh hiện tại để ném vào prompt cho AI xử lý cấu trúc
                 sbd_res = st.session_state.get("sbd_parsed_data", {})
                 tp_res = st.session_state.get("pur_tp_parsed_data", {})
                 raw_list = tp_res.get("data", []) if isinstance(tp_res, dict) else tp_res
                 
                 chat_prompt = f"""You are a smart apparel production manager. 
-                The user has just given this instruction: "{user_msg}"
+                The user has just given this instruction in Vietnamese: "{user_msg}"
                 
                 Based on this instruction, look at the following Techpack specifications and SBD production quantities.
                 
@@ -1631,8 +1647,8 @@ elif menu_selection == "🛒 Purchase Consumption":
                 - Techpack Spec Data (Measurements): {json.dumps(raw_list)}
                 
                 YOUR TASKS:
-                1. Identify which 'pom_id' (e.g., W005, H003, etc.) matches the user's request (e.g., vòng bụng, mông, dài quần...).
-                2. Identify the target baseline size (e.g., 32) and its base consumption yardage (e.g., 1y or 1.2y).
+                1. Identify which 'pom_id' (e.g., W005, H003, etc.) matches the user's request (e.g., vòng bụng, mông, dài quần...). If not specified, look for 'W005' or any waist measurement as a default.
+                2. Identify the target baseline size (e.g., 30 or 32) and its base consumption yardage (e.g., 1.73y or 1y) from the user's message text.
                 3. Calculate the percentage difference for all other sizes compared to the base size using that specific POM value.
                 4. Multiply each size's calculated consumption by its SBD production quantity to compute the final accurate Weighted Average Consumption for the whole order.
                 
@@ -1641,22 +1657,22 @@ elif menu_selection == "🛒 Purchase Consumption":
                   "explanation": "Write a short summary in Vietnamese explaining which POM was chosen, the base size, and the final average consumption.",
                   "chosen_pom": "POM CODE",
                   "base_size": "SIZE",
-                  "base_consumption": 1.0,
-                  "final_average_consumption": 0.9845,
+                  "base_consumption": 1.73,
+                  "final_average_consumption": 1.715,
                   "breakdown_table": [
                     {{
                       "Size Đơn Hàng": "26 X 30",
                       "Thông Số": 14.25,
                       "Tỷ Lệ Lệch vs Size Gốc": "-10.94%",
-                      "ĐM Từng Size (Yds)": 0.8906,
+                      "ĐM Từng Size (Yds)": 1.54,
                       "Sản Lượng (Pcs)": 88
                     }}
                   ]
                 }}"""
                 
-                # Gọi API Gemini xử lý prompt tương tác chat
+                # Gọi API Gemini xử lý prompt tương tác chat thông qua client đã khởi tạo
                 try:
-                    res_chat_ai = client_ai.models.generate_content(
+                    res_chat_ai = client_ai_chat.models.generate_content(
                         model='gemini-2.5-flash', 
                         contents=[chat_prompt], 
                         config={"response_mime_type": "application/json"}
@@ -1686,6 +1702,7 @@ elif menu_selection == "🛒 Purchase Consumption":
                     st.stop()
 
         st.markdown("<hr style='border:1px solid #E2E8F0; margin-top:20px; margin-bottom:20px;'>", unsafe_allow_html=True)
+
 
 
 
