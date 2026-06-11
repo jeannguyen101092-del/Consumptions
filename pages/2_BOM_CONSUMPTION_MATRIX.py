@@ -1354,7 +1354,7 @@ elif menu_selection == "🛒 Purchase Consumption":
                     
         st.markdown("<hr style='border:0.5px dashed #CBD5E1;'>", unsafe_allow_html=True)
 
-       # KHU VỰC TIẾP NHẬN FILE CHO TỪNG PHÂN HỆ
+           # KHU VỰC TIẾP NHẬN FILE CHO TỪNG PHÂN HỆ
     if menu_sub.startswith("🧠 CHỨC NĂNG 1"):
         col_left, col_right = st.columns(2)
         with col_left: file_sbd = st.file_uploader("📋 Chọn File SBD Số Lượng (Excel/PDF)", type=["xlsx", "xls", "pdf"], key="purchase_sbd_c1")
@@ -1364,15 +1364,20 @@ elif menu_selection == "🛒 Purchase Consumption":
             trigger_btn = st.button("⚡ KÍCH HOẠT SỐ HÓA ĐA LUỒNG SONG SONG", type="primary", use_container_width=True, key="activate_parallel_ingest_c1")
             if trigger_btn:
                 with st.spinner("🚀 AI đang bóc tách ma trận dữ liệu..."):
+                    # 1. Khởi tạo API Key & Client AI
                     if "get_secure_gemini_key" in globals(): gemini_key = get_secure_gemini_key()
                     else: gemini_key = st.secrets.get("GEMINI_API_KEY", "").strip()
-                    client_ai = genai.Client(api_key=gemini_key)
                     
+                    if not gemini_key:
+                        st.error("❌ Không tìm thấy GEMINI_API_KEY trong cấu hình hệ thống!")
+                        st.stop()
+                        
+                    client_ai = genai.Client(api_key=gemini_key)
                     sbd_bytes = file_sbd.getvalue()
                     sbd_content_str = ""
                     sbd_parts_payload = []
                     
-                    # 1. Xử lý file SBD theo từng định dạng (Excel hoặc PDF)
+                    # 2. Xử lý đọc File SBD tùy theo định dạng Excel hay PDF
                     if file_sbd.name.lower().endswith(('.xlsx', '.xls')):
                         try:
                             import io
@@ -1380,32 +1385,51 @@ elif menu_selection == "🛒 Purchase Consumption":
                             excel_data = pd.read_excel(io.BytesIO(sbd_bytes), sheet_name=None)
                             for sheet_name, df_sheet in excel_data.items():
                                 sbd_content_str += f"\n--- SHEET: {sheet_name} ---\n{df_sheet.fillna('').to_csv(index=False)}"
-                        except Exception: pass
+                        except Exception as e:
+                            st.error(f"❌ Lỗi khi đọc file Excel SBD: {str(e)}")
+                            st.stop()
                     elif file_sbd.name.lower().endswith('.pdf'):
+                        # Truyền file PDF dạng bytes chuẩn cấu hình Google GenAI SDK mới
                         sbd_parts_payload.append(types.Part.from_bytes(data=sbd_bytes, mime_type='application/pdf'))
                     
-                    # 2. Xây dựng cấu trúc prompt mẫu JSON mong muốn
+                    # 3. Định nghĩa Prompt ép cấu trúc JSON đầu ra
                     sbd_prompt = "Analyze order sheet. Return JSON matching: {\"style_id\": \"string\", \"total_quantity\": integer, \"size_breakdown\": {\"Size\": integer}}"
                     
-                    # 3. Đóng gói payload gửi lên Gemini
+                    # 4. Đóng gói chuỗi văn bản Excel (nếu có) và Prompt vào danh sách payload
                     if sbd_content_str: 
                         sbd_parts_payload.append(types.Part.from_text(text=sbd_content_str))
                     sbd_parts_payload.append(types.Part.from_text(text=sbd_prompt))
                     
-                    # 4. Gọi AI và phân rã dữ liệu
+                    # 5. Gọi Model Gemini xử lý File SBD số lượng
                     try:
                         import json
-                        res_sbd = client_ai.models.generate_content(model='gemini-2.5-flash', contents=sbd_parts_payload, config=types.GenerateContentConfig(response_mime_type="application/json"))
-                        st.session_state["sbd_parsed_data"] = json.loads(res_sbd.text.strip().replace("```json", "").replace("```", "").strip())
-                    except Exception: pass
+                        res_sbd = client_ai.models.generate_content(
+                            model='gemini-2.5-flash', 
+                            contents=sbd_parts_payload, 
+                            config=types.GenerateContentConfig(response_mime_type="application/json")
+                        )
+                        
+                        # Làm sạch chuỗi và ép kiểu về JSON Dictionary
+                        clean_text = res_sbd.text.strip().replace("```json", "").replace("```", "").strip()
+                        st.session_state["sbd_parsed_data"] = json.loads(clean_text)
+                    except Exception as e:
+                        st.error(f"❌ Gemini không thể phân tích File SBD hoặc trả về sai cấu trúc JSON: {str(e)}")
+                        st.stop()
                     
-                    # 5. Xử lý file Techpack
-                    res_tp = process_single_pdf_batch(file_tp.getvalue(), file_tp.name)
-                    st.session_state["pur_tp_parsed_data"] = res_tp["data"] if res_tp.get("success") else {}
+                    # 6. Xử lý File Techpack Thông số
+                    try:
+                        res_tp = process_single_pdf_batch(file_tp.getvalue(), file_tp.name)
+                        st.session_state["pur_tp_parsed_data"] = res_tp["data"] if res_tp.get("success") else {}
+                    except Exception as e:
+                        st.error(f"❌ Lỗi tại hàm xử lý Techpack (process_single_pdf_batch): {str(e)}")
+                        st.stop()
+                        
+                    # 7. Kích hoạt trạng thái sẵn sàng và tải lại trang để hiển thị kết quả
                     st.session_state["purchase_ready"] = True
                     st.rerun()
 
     elif menu_sub.startswith("✂️ CHỨC NĂNG 2"):
+
         st.markdown("""<div class="card-container"><div class="card-section-header">📋 PHÂN HỆ TÁC NGHIỆP BÀN CẮT ĐA GIÀNG</div>
         <p style="color: #64748B; font-size:13px; margin:0;">Chức năng này không cần thông số rập mẫu. Chỉ cần tải lên File SBD số lượng để máy tính tự động chia tỷ lệ bàn cắt.</p></div>""", unsafe_allow_html=True)
         
