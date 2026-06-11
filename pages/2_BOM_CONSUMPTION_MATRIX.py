@@ -1354,16 +1354,32 @@ elif menu_selection == "🛒 Purchase Consumption":
                     
         st.markdown("<hr style='border:0.5px dashed #CBD5E1;'>", unsafe_allow_html=True)
 
-              # KHU VỰC TIẾP NHẬN FILE CHO TỪNG PHÂN HỆ
+                 # KHU VỰC TIẾP NHẬN FILE CHO TỪNG PHÂN HỆ
     if menu_sub.startswith("🧠 CHỨC NĂNG 1"):
         col_left, col_right = st.columns(2)
-        with col_left: file_sbd = st.file_uploader("📋 Chọn File SBD Số Lượng (Excel/PDF)", type=["xlsx", "xls", "pdf"], key="purchase_sbd_c1")
-        with col_right: file_tp = st.file_uploader("📐 Chọn File Techpack Thông Số (PDF)", type=["pdf"], key="purchase_tp_c1")
+        with col_left: 
+            file_sbd = st.file_uploader("📋 Chọn File SBD Số Lượng (Excel/PDF)", type=["xlsx", "xls", "pdf"], key="purchase_sbd_c1")
+        with col_right: 
+            file_tp = st.file_uploader("📐 Chọn File Techpack Thông Số (PDF)", type=["pdf"], key="purchase_tp_c1")
+            
+            # Giao diện chọn khoảng trang cần bóc tách để tăng tốc độ
+            if file_tp:
+                try:
+                    import pypdf
+                    pdf_reader_check = pypdf.PdfReader(io.BytesIO(file_tp.getvalue()))
+                    total_tp_pages = len(pdf_reader_check.pages)
+                except Exception:
+                    total_tp_pages = 100  # Giá trị dự phòng nếu lỗi đọc số trang
+                
+                col_p1, col_p2 = st.columns(2)
+                with col_p1: 
+                    start_page = st.number_input("🔹 Từ trang", min_value=1, max_value=total_tp_pages, value=1, step=1, key="tp_start_p")
+                with col_p2: 
+                    end_page = st.number_input("🔸 Đến trang", min_value=1, max_value=total_tp_pages, value=min(5, total_tp_pages), step=1, key="tp_end_p")
         
         if file_sbd and file_tp:
             trigger_btn = st.button("⚡ KÍCH HOẠT SỐ HÓA ĐA LUỒNG SONG SONG", type="primary", use_container_width=True, key="activate_parallel_ingest_c1")
             if trigger_btn:
-                # Ép giải phóng bộ nhớ đệm bị kẹt của Streamlit trước khi chạy
                 st.cache_data.clear()
                 
                 with st.spinner("🧠 Bước 1/2: AI đang bóc tách File SBD số lượng..."):
@@ -1379,10 +1395,8 @@ elif menu_selection == "🛒 Purchase Consumption":
                     sbd_content_str = ""
                     sbd_parts_payload = []
                     
-                    # Đọc Excel hoặc đóng gói PDF
                     if file_sbd.name.lower().endswith(('.xlsx', '.xls')):
                         try:
-                            import io
                             import pandas as pd
                             excel_data = pd.read_excel(io.BytesIO(sbd_bytes), sheet_name=None)
                             for sheet_name, df_sheet in excel_data.items():
@@ -1397,7 +1411,6 @@ elif menu_selection == "🛒 Purchase Consumption":
                     if sbd_content_str: sbd_parts_payload.append(types.Part.from_text(text=sbd_content_str))
                     sbd_parts_payload.append(types.Part.from_text(text=sbd_prompt))
                     
-                    # Gọi Gemini xử lý file SBD
                     try:
                         import json
                         res_sbd = client_ai.models.generate_content(model='gemini-2.5-flash', contents=sbd_parts_payload, config=types.GenerateContentConfig(response_mime_type="application/json"))
@@ -1407,22 +1420,38 @@ elif menu_selection == "🛒 Purchase Consumption":
                         st.error(f"❌ Lỗi xử lý hoặc trả dữ liệu từ Gemini AI: {str(e)}")
                         st.stop()
                         
-                with st.spinner("📐 Bước 2/2: Đang bóc tách thông số Techpack (Vui lòng đợi)..."):
+                with st.spinner(f"📐 Bước 2/2: Đang bóc tách thông số Techpack (Trang {start_page} đến {end_page})..."):
                     try:
-                        res_tp = process_single_pdf_batch(file_tp.getvalue(), file_tp.name)
+                        import pypdf
+                        # Tiến hành trích xuất các trang được chỉ định từ file Techpack gốc
+                        original_pdf = pypdf.PdfReader(io.BytesIO(file_tp.getvalue()))
+                        pdf_writer = pypdf.PdfWriter()
+                        
+                        # Vòng lặp lấy đúng dải trang người dùng chọn (chuyển từ hệ số 1 sang hệ số index 0)
+                        for page_num in range(start_page - 1, min(end_page, len(original_pdf.pages))):
+                            pdf_writer.add_page(original_pdf.pages[page_num])
+                        
+                        # Xuất file PDF đã cắt gọn ra dạng bytes định dạng bộ nhớ tạm
+                        trimmed_pdf_buffer = io.BytesIO()
+                        pdf_writer.write(trimmed_pdf_buffer)
+                        trimmed_pdf_bytes = trimmed_pdf_buffer.getvalue()
+                        
+                        # Đưa file PDF ngắn gọn chạy qua hàm phân tích nặng
+                        res_tp = process_single_pdf_batch(trimmed_pdf_bytes, file_tp.name)
                         if res_tp and res_tp.get("success"):
                             st.session_state["pur_tp_parsed_data"] = res_tp["data"]
                         else:
                             st.error(f"❌ Hàm Techpack trả về trạng thái thất bại: {res_tp.get('error', 'Không có chi tiết lỗi')}")
                             st.stop()
                     except Exception as e:
-                        st.error(f"❌ Lỗi nghiêm trọng tại hàm process_single_pdf_batch: {str(e)}")
+                        st.error(f"❌ Lỗi nghiêm trọng tại bộ cắt trang hoặc hàm xử lý Techpack: {str(e)}")
                         st.stop()
                     
                 st.session_state["purchase_ready"] = True
                 st.rerun()
 
     elif menu_sub.startswith("✂️ CHỨC NĂNG 2"):
+
 
 
         st.markdown("""<div class="card-container"><div class="card-section-header">📋 PHÂN HỆ TÁC NGHIỆP BÀN CẮT ĐA GIÀNG</div>
