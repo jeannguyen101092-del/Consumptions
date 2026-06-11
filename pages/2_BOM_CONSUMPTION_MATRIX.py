@@ -1354,70 +1354,149 @@ elif menu_selection == "🛒 Purchase Consumption":
                     
         st.markdown("<hr style='border:0.5px dashed #CBD5E1;'>", unsafe_allow_html=True)
 
-    # KHU VỰC TIẾP NHẬN FILE CHO TỪNG PHÂN HỆ
-    if menu_sub.startswith("🧠 CHỨC NĂNG 1"):
-        col_left, col_right = st.columns(2)
-        with col_left: file_sbd = st.file_uploader("📋 Chọn File SBD Số Lượng (Excel/PDF)", type=["xlsx", "xls", "pdf"], key="purchase_sbd_c1")
-        with col_right: file_tp = st.file_uploader("📐 Chọn File Techpack Thông Số (PDF)", type=["pdf"], key="purchase_tp_c1")
-        
-        if file_sbd and file_tp:
-            trigger_btn = st.button("⚡ KÍCH HOẠT SỐ HÓA ĐA LUỒNG SONG SONG", type="primary", use_container_width=True, key="activate_parallel_ingest_c1")
-            if trigger_btn:
-                with st.spinner("🚀 AI đang bóc tách ma trận dữ liệu..."):
-                    if "get_secure_gemini_key" in globals(): gemini_key = get_secure_gemini_key()
-                    else: gemini_key = st.secrets.get("GEMINI_API_KEY", "").strip()
-                    client_ai = genai.Client(api_key=gemini_key)
-                    sbd_bytes = file_sbd.getvalue()
+   # =============================================================================
+# KHU VỰC TIẾP NHẬN FILE CHO TỪNG PHÂN HỆ (ĐÃ VÁ LỖI PHÂN TÍCH SBD VÀ TECHPACK)
+# =============================================================================
+if menu_sub.startswith("🧠 CHỨC NĂNG 1"):
+    col_left, col_right = st.columns(2)
+    with col_left: file_sbd = st.file_uploader("📋 Chọn File SBD Số Lượng (Excel/PDF)", type=["xlsx", "xls", "pdf"], key="purchase_sbd_c1")
+    with col_right: file_tp = st.file_uploader("📐 Chọn File Techpack Thông Số (PDF)", type=["pdf"], key="purchase_tp_c1")
+    
+    if file_sbd and file_tp:
+        trigger_btn = st.button("⚡ KÍCH HOẠT SỐ HÓA ĐA LUỒNG SONG SONG", type="primary", use_container_width=True, key="activate_parallel_ingest_c1")
+        if trigger_btn:
+            with st.spinner("🚀 AI đang bóc tách ma trận dữ liệu..."):
+                # 1. Khởi tạo cấu hình bảo mật API Key Gemini
+                if "get_secure_gemini_key" in globals(): 
+                    gemini_key = get_secure_gemini_key()
+                else: 
+                    gemini_key = st.secrets.get("GEMINI_API_KEY", "").strip()
+                
+                if not gemini_key:
+                    st.error("🚨 Không tìm thấy GEMINI_API_KEY trong hệ thống bảo mật!")
+                    st.stop()
+                    
+                client_ai = genai.Client(api_key=gemini_key)
+                sbd_bytes = file_sbd.getvalue()
+                sbd_parts_payload = []
+                
+                # 2. XỬ LÝ KHÓA SBD: Tách biệt chính xác luồng đọc Excel và PDF
+                if file_sbd.name.lower().endswith(('.xlsx', '.xls')):
                     sbd_content_str = ""
-                    sbd_parts_payload = []
-                    if file_sbd.name.lower().endswith(('.xlsx', '.xls')):
-                        try:
-                            excel_data = pd.read_excel(io.BytesIO(sbd_bytes), sheet_name=None)
-                            for sheet_name, df_sheet in excel_data.items():
-                                sbd_content_str += f"\n--- SHEET: {sheet_name} ---\n{df_sheet.fillna('').to_csv(index=False)}"
-                        except Exception: pass
-                    sbd_prompt = "Analyze order sheet. Return JSON matching: {\"style_id\": \"string\", \"total_quantity\": integer, \"size_breakdown\": {\"Size\": integer}}"
-                    if sbd_content_str: sbd_parts_payload.append(types.Part.from_text(text=sbd_content_str))
-                    sbd_parts_payload.append(types.Part.from_text(text=sbd_prompt))
                     try:
-                        res_sbd = client_ai.models.generate_content(model='gemini-2.5-flash', contents=sbd_parts_payload, config=types.GenerateContentConfig(response_mime_type="application/json"))
-                        st.session_state["sbd_parsed_data"] = json.loads(res_sbd.text.strip().replace("```json", "").replace("```", "").strip())
-                    except Exception: pass
-                    res_tp = process_single_pdf_batch(file_tp.getvalue(), file_tp.name)
-                    st.session_state["pur_tp_parsed_data"] = res_tp["data"] if res_tp.get("success") else {}
-                    st.session_state["purchase_ready"] = True
-                    st.rerun()
+                        excel_data = pd.read_excel(io.BytesIO(sbd_bytes), sheet_name=None)
+                        for sheet_name, df_sheet in excel_data.items():
+                            sbd_content_str += f"\n--- SHEET: {sheet_name} ---\n{df_sheet.fillna('').to_csv(index=False)}"
+                        if sbd_content_str:
+                            sbd_parts_payload.append(types.Part.from_text(text=sbd_content_str))
+                    except Exception as e:
+                        st.error(f"Lỗi cấu trúc đọc file Excel: {str(e)}")
+                else:
+                    # ĐÃ SỬA: Nếu file SBD là PDF, đẩy trực tiếp dạng RAW bytes cho mô hình Vision xử lý
+                    sbd_parts_payload.append(types.Part.from_bytes(data=sbd_bytes, mime_type='application/pdf'))
+                
+                # 3. NÂNG CẤP PROMPT: Ép AI trả cấu trúc chuẩn tuyệt đối, chống sập JSON
+                sbd_prompt = """
+                Bạn là một kỹ sư xử lý dữ liệu dệt may. Hãy phân tích tài liệu số lượng đơn hàng (SBD) đính kèm.
+                Hãy trích xuất chính xác và trả về một chuỗi JSON duy nhất theo cấu trúc nghiêm ngặt sau:
+                {
+                    "style_id": "Mã hàng dạng chuỗi văn bản văn phòng (ví dụ: '5765')",
+                    "total_quantity": tổng_số_lượng_đơn_hàng_kiểu_số_nguyên,
+                    "size_breakdown": {
+                        "tên_size_viết_hoa_hoặc_số_nguyên": số_lượng_sản_xuất_kiểu_số_nguyên
+                    }
+                }
+                Lưu ý: Không bao gồm bất kỳ giải thích nào bên ngoài khối JSON. Hãy dọn sạch các ký tự trống gây nhiễu bảng.
+                """
+                sbd_parts_payload.append(types.Part.from_text(text=sbd_prompt))
+                
+                # 4. GỌI MÔ HÌNH AI PHÂN TÍCH FILE SBD Số Lượng
+                try:
+                    res_sbd = client_ai.models.generate_content(
+                        model='gemini-2.5-flash', 
+                        contents=sbd_parts_payload, 
+                        config=types.GenerateContentConfig(response_mime_type="application/json")
+                    )
+                    clean_json_text = res_sbd.text.strip().replace("```json", "").replace("```", "").strip()
+                    st.session_state["sbd_parsed_data"] = json.loads(clean_json_text)
+                except Exception as json_err:
+                    st.error(f"❌ AI không thể bóc tách cấu trúc file SBD hoặc lỗi định dạng JSON: {str(json_err)}")
+                    st.stop()
+                
+                # 5. XỬ LÝ ĐỒNG BỘ TECHPACK THÔNG SỐ (Đối chiếu an toàn)
+                res_tp = process_single_pdf_batch(file_tp.getvalue(), file_tp.name)
+                if res_tp.get("success") == True:
+                    # ĐÃ SỬA: Đảm bảo đồng bộ cấu trúc dữ liệu với hàm xử lý lõi của bạn
+                    st.session_state["pur_tp_parsed_data"] = res_tp if "measurements" in res_tp else res_tp.get("data", {})
+                else:
+                    st.error(f"❌ Lỗi xử lý trích xuất dữ liệu Techpack: {res_tp.get('error', 'Unknown Error')}")
+                    st.stop()
+                
+                st.session_state["purchase_ready"] = True
+                st.success("🎉 Đồng bộ số hóa ma trận đơn hàng thành công!")
+                st.rerun()
 
-    elif menu_sub.startswith("✂️ CHỨC NĂNG 2"):
-        st.markdown("""<div class="card-container"><div class="card-section-header">📋 PHÂN HỆ TÁC NGHIỆP BÀN CẮT ĐA GIÀNG</div>
-        <p style="color: #64748B; font-size:13px; margin:0;">Chức năng này không cần thông số rập mẫu. Chỉ cần tải lên File SBD số lượng để máy tính tự động chia tỷ lệ bàn cắt.</p></div>""", unsafe_allow_html=True)
-        
-        file_sbd = st.file_uploader("📋 Chọn File SBD Số Lượng Đơn Hàng (Excel/PDF)", type=["xlsx", "xls", "pdf"], key="purchase_sbd_c2")
-        
-        if file_sbd:
-            trigger_btn_c2 = st.button("⚡ SỐ HÓA MA TRẬN SẢN LƯỢNG ĐƠN HÀNG TÁC NGHIỆP", type="primary", use_container_width=True, key="activate_sbd_only_ingest")
-            if trigger_btn_c2:
-                with st.spinner("🚀 Hệ thống đang số hóa ma trận sản lượng..."):
-                    if "get_secure_gemini_key" in globals(): gemini_key = get_secure_gemini_key()
-                    else: gemini_key = st.secrets.get("GEMINI_API_KEY", "").strip()
-                    client_ai = genai.Client(api_key=gemini_key)
-                    sbd_bytes = file_sbd.getvalue()
+elif menu_sub.startswith("✂️ CHỨC NĂNG 2"):
+    st.markdown("""<div class="card-container"><div class="card-section-header">📋 PHÂN HỆ TÁC NGHIỆP BÀN CẮT ĐA GIÀNG</div>
+    <p style="color: #64748B; font-size:13px; margin:0;">Chức năng này không cần thông số rập mẫu. Chỉ cần tải lên File SBD số lượng để máy tính tự động chia tỷ lệ bàn cắt.</p></div>""", unsafe_allow_html=True)
+    
+    file_sbd = st.file_uploader("📋 Chọn File SBD Số Lượng Đơn Hàng (Excel/PDF)", type=["xlsx", "xls", "pdf"], key="purchase_sbd_c2")
+    
+    if file_sbd:
+        trigger_btn_c2 = st.button("⚡ SỐ HÓA MA TRẬN SẢN LƯỢNG ĐƠN HÀNG TÁC NGHIỆP", type="primary", use_container_width=True, key="activate_sbd_only_ingest")
+        if trigger_btn_c2:
+            with st.spinner("🚀 Hệ thống đang số hóa ma trận sản lượng..."):
+                if "get_secure_gemini_key" in globals(): 
+                    gemini_key = get_secure_gemini_key()
+                else: 
+                    gemini_key = st.secrets.get("GEMINI_API_KEY", "").strip()
+                    
+                client_ai = genai.Client(api_key=gemini_key)
+                sbd_bytes = file_sbd.getvalue()
+                payload = []
+                
+                if file_sbd.name.lower().endswith(('.xlsx', '.xls')):
                     sbd_content_str = ""
-                    if file_sbd.name.lower().endswith(('.xlsx', '.xls')):
-                        try:
-                            excel_data = pd.read_excel(io.BytesIO(sbd_bytes), sheet_name=None)
-                            for sheet_name, df_sheet in excel_data.items():
-                                sbd_content_str += df_sheet.fillna("").to_csv(index=False)
-                        except Exception: pass
-                    sbd_prompt = "Extract mappings. Return JSON: {\"style_id\": \"string\", \"total_quantity\": integer, \"size_breakdown\": {\"Size\": integer}}"
-                    payload = [types.Part.from_text(text=sbd_content_str), types.Part.from_text(text=sbd_prompt)] if sbd_content_str else [types.Part.from_bytes(data=sbd_bytes, mime_type='application/pdf'), types.Part.from_text(text=sbd_prompt)]
                     try:
-                        res_sbd = client_ai.models.generate_content(model='gemini-2.5-flash', contents=payload, config=types.GenerateContentConfig(response_mime_type="application/json"))
-                        st.session_state["sbd_parsed_data"] = json.loads(res_sbd.text.strip().replace("```json", "").replace("```", "").strip())
-                    except Exception: pass
-                    st.session_state["pur_tp_parsed_data"] = {"dummy_status": "skipped_not_needed"}
-                    st.session_state["purchase_ready"] = True
-                    st.rerun()
+                        excel_data = pd.read_excel(io.BytesIO(sbd_bytes), sheet_name=None)
+                        for sheet_name, df_sheet in excel_data.items():
+                            sbd_content_str += f"\n--- SHEET: {sheet_name} ---\n{df_sheet.fillna('').to_csv(index=False)}"
+                        if sbd_content_str:
+                            payload.append(types.Part.from_text(text=sbd_content_str))
+                    except Exception: 
+                        pass
+                else:
+                    payload.append(types.Part.from_bytes(data=sbd_bytes, mime_type='application/pdf'))
+                
+                sbd_prompt = """
+                Trích xuất số liệu từ tài liệu đơn hàng dệt may đính kèm. 
+                Trả về chuỗi JSON chuẩn hóa cấu trúc sau:
+                {
+                    "style_id": "Mã hàng", 
+                    "total_quantity": tổng_số_lượng, 
+                    "size_breakdown": {
+                        "Size": số_lượng
+                    }
+                }
+                """
+                payload.append(types.Part.from_text(text=sbd_prompt))
+                
+                try:
+                    res_sbd = client_ai.models.generate_content(
+                        model='gemini-2.5-flash', 
+                        contents=payload, 
+                        config=types.GenerateContentConfig(response_mime_type="application/json")
+                    )
+                    clean_json_text = res_sbd.text.strip().replace("```json", "").replace("```", "").strip()
+                    st.session_state["sbd_parsed_data"] = json.loads(clean_json_text)
+                except Exception as e:
+                    st.error(f"🚨 Lỗi bóc tách độc lập file SBD: {str(e)}")
+                    st.stop()
+                    
+                st.session_state["pur_tp_parsed_data"] = {"dummy_status": "skipped_not_needed"}
+                st.session_state["purchase_ready"] = True
+                st.success("🎉 Số hóa dữ liệu đơn hàng tác nghiệp thành công!")
+                st.rerun()
 
 
     # =============================================================================
