@@ -1587,9 +1587,10 @@ elif menu_selection == "🛒 Purchase Consumption":
                # =============================================================================
                 # =============================================================================
                 # =============================================================================
-        # ĐOẠN 5: Ô CHAT AI TỰ ĐỘNG PHÂN TÍCH ĐA CHỦNG LOẠI (QUẦN/ÁO ĐỦ THỨ KIỂU)
+               # =============================================================================
+        # ĐOẠN 1: GIAO DIỆN CHAT, LỊCH SỬ HIỂN THỊ VÀ NÚT XÓA CHAT
         # =============================================================================
-        st.markdown("<p style='font-weight:700; font-size:16px; color:#1E3A8A; margin-top:25px;'>🧠 TRỢ LÝ AI: TỰ ĐỘNG NHẬN DIỆN ĐIỂM ĐO ĐA CHỦNG LOẠI (ÁO/QUẦN ĐỦ THỨ)</p>", unsafe_allow_html=True)
+        st.markdown("<p style='font-weight:700; font-size:16px; color:#1E3A8A; margin-top:25px;'>🧠 TRỢ LÝ AI: TỰ ĐỘNG NHẬN DIỆN ĐIỂM ĐO ĐA CHỦNG LOẠI (MÁY TÍNH TỰ TOÁN CHÍNH XÁC)</p>", unsafe_allow_html=True)
         
         if "purchase_chat_history" not in st.session_state:
             st.session_state["purchase_chat_history"] = []
@@ -1604,7 +1605,7 @@ elif menu_selection == "🛒 Purchase Consumption":
             with st.chat_message(chat["role"]):
                 st.write(chat["content"])
                 
-                # Hiển thị số liệu định mức trung bình tổng kết lớn
+                # Hiển thị số liệu định mức trung bình tổng kết lớn do máy tính tính toán chuẩn xác
                 if "metric_val" in chat:
                     col_m1, col_m2 = st.columns(2)
                     with col_m1:
@@ -1615,14 +1616,16 @@ elif menu_selection == "🛒 Purchase Consumption":
                 if "df_data" in chat:
                     st.dataframe(chat["df_data"], use_container_width=True, hide_index=True)
 
-        user_msg = st.chat_input("Nhập yêu cầu (Ví dụ cho Áo: Tính định mức theo ngực, vai, nách, lai lấy mốc size M định mức 1.5y)...", key="consumption_chat_input_box")
-        
+        user_msg = st.chat_input("Nhập yêu cầu (Ví dụ: tính định mức theo size chuẩn 32/32 mức 1.73y)...", key="consumption_chat_input_box")
+        # =============================================================================
+        # ĐOẠN 2: KHỐI XỬ LÝ API BÓC SỐ VÀ THUẬT TOÁN TOÁN HỌC PYTHON CHÍNH XÁC
+        # =============================================================================
         if user_msg:
             with st.chat_message("user"):
                 st.write(user_msg)
             st.session_state["purchase_chat_history"].append({"role": "user", "content": user_msg})
             
-            with st.spinner("🚀 AI đang quét Techpack, tự động khóa mục tiêu vào các vị trí điểm đo được yêu cầu..."):
+            with st.spinner("🚀 AI đang trích xuất dữ liệu, máy tính đang chạy thuật toán gia quyền chính xác..."):
                 if "get_secure_gemini_key" in globals(): gemini_key = get_secure_gemini_key()
                 else: gemini_key = st.secrets.get("GEMINI_API_KEY", "").strip()
                 
@@ -1639,35 +1642,33 @@ elif menu_selection == "🛒 Purchase Consumption":
                 tp_res = st.session_state.get("pur_tp_parsed_data", {})
                 raw_list = tp_res.get("data", []) if isinstance(tp_res, dict) else tp_res
                 
-                # SIÊU PROMPT LINH HOẠT THEO TỪ KHÓA ĐẦU VÀO
-                chat_prompt = f"""You are an advanced apparel production engineer and cost estimator capable of analyzing ANY garment type (Shirts, T-shirts, Pants, Jackets, etc.).
+                # PROMPT: Nghiêm cấm AI làm toán nhân chia, chỉ bốc số thô nạp vào hệ thống
+                chat_prompt = f"""You are an advanced data extractor for apparel techpacks.
                 The user has given this instruction in Vietnamese: "{user_msg}"
                 
-                CRITICAL DYNAMIC INSTRUCTION:
-                1. Based on the user's request (e.g., mentions of 'ngực', 'nách', 'lai', 'vai' for tops, or 'lưng', 'mông', 'gối' for bottoms), dynamically scan the provided Techpack data to identify all relevant POM rows that match these body parts.
-                2. Extract the baseline values for the requested base size combination or single size (e.g., '32/32', 'M', 'L') as specified by the user.
-                3. For every size present in the SBD production list:
-                   - Look up the measurements for ALL identified relevant POM rows for that size.
-                   - Compute individual size ratios compared to the baseline size specs for each matching POM part.
-                   - Combined Size Consumption = Base Consumption * (Average of all relevant POM Ratios for this size).
-                   - Total Fabric Demand for this size = Combined Size Consumption * SBD Quantity.
-                4. Final Weighted Average Consumption = Sum(Total Fabric Demands) / Total SBD Quantity.
+                YOUR TASKS:
+                1. Based on user request, find the baseline Waist/Size (e.g., 32), baseline Inseam (e.g., 32) and the base consumption (e.g., 1.73).
+                2. Identify all relevant POM rows that match the user's keywords (e.g., eo, mông, đùi, gối, nách, ngực...).
+                3. Extract the exact numerical spec values for ALL sizes listed in the SBD data. If a POM has multiple sub-rows (like G005), select the correct spec matching that specific size's inseam length.
                 
+                CRITICAL WRITING RULE:
+                Do NOT perform any mathematical calculations for 'final_average_consumption' or 'ĐM Từng Size' yourself. Leave it to the Python engine. You only provide the thô (raw) specifications.
+
                 CURRENT DATA CONTEXT:
-                - SBD Data (Quantities per size): {json.dumps(sbd_res)}
-                - Techpack Spec Data (Measurements available): {json.dumps(raw_list)}
+                - SBD Data: {json.dumps(sbd_res)}
+                - Techpack Spec Data: {json.dumps(raw_list)}
                 
-                Strictly return a clean raw JSON object with no markdown formatting:
+                Strictly return a clean raw JSON object with no markdown formatting code blocks:
                 {{
-                  "explanation": "Báo cáo chi tiết bằng tiếng Việt: Nêu rõ các điểm đo cụ thể (Mã POM và Tên tiếng Anh) mà AI đã tự động phát hiện và trích xuất dựa trên từ khóa yêu cầu của bạn. Giải thích ngắn gọn cách tính biến thiên tổng hợp cho loại sản phẩm này.",
-                  "base_size_string": "Mã size mốc",
-                  "final_average_consumption": 1.5124,
-                  "breakdown_table": [
+                  "explanation": "Giải trình bằng tiếng Việt: Xác nhận các mã vị trí đo đã bóc tách thành công để nạp vào máy tính tính toán.",
+                  "base_size_string": "32/32",
+                  "base_consumption": 1.73,
+                  "extracted_data_rows": [
                     {{
-                      "Size Đơn Hàng": "M",
-                      "Chi Tiết Thông Số Trích Xuất": "Điền chuỗi tóm tắt thông số các điểm đo tìm được (Ví dụ: Ngực: 20, Nách: 9.5, Lai: 20)",
-                      "ĐM Từng Size (Yds)": 1.50,
-                      "Sản Lượng (Pcs)": 500
+                      "size_combo": "34 X 32",
+                      "specs_to_average": [17.25, 21.0, 12.25, 19.75],
+                      "text_summary": "Eo: 17.25, Mông: 21.0, Đùi: 12.25, Gối: 19.75",
+                      "quantity": 210
                     }}
                   ]
                 }}"""
@@ -1682,31 +1683,83 @@ elif menu_selection == "🛒 Purchase Consumption":
                     clean_res_text = res_chat_ai.text.strip().replace("```json", "").replace("```", "").strip()
                     res_dict = json.loads(clean_res_text)
                     
-                    ai_reply = res_dict.get("explanation", "Đã phân tích xong định mức trung bình cho loại sản phẩm này.")
-                    table_rows = res_dict.get("breakdown_table", [])
-                    final_consumption_num = float(res_dict.get("final_average_consumption", 0.0))
-                    base_sz_lbl = res_dict.get("base_size_string", "Mốc")
+                    ai_reply = res_dict.get("explanation", "Hệ thống đang đồng bộ dữ liệu toán học.")
+                    base_sz_lbl = res_dict.get("base_size_string", "32/32")
+                    base_cons = float(res_dict.get("base_consumption", 1.0))
+                    extracted_rows = res_dict.get("extracted_data_rows", [])
+                    
+                    # ⚡ ENGINE TOÁN HỌC PYTHON LÀM VIỆC CHÍNH XÁC TUYỆT ĐỐI
+                    base_avg_spec = None
+                    for row in extracted_rows:
+                        if row.get("size_combo") == base_sz_lbl or row.get("size_combo").replace(" ", "") == base_sz_lbl.replace(" ", ""):
+                            specs = row.get("specs_to_average", [])
+                            if specs:
+                                base_avg_spec = sum([float(x) for x in specs]) / len(specs)
+                            break
+                    
+                    # Dự phòng tìm kiếm mốc lệch tên chuỗi
+                    if not base_avg_spec and extracted_rows:
+                        base_prefix = base_sz_lbl.split('/')[0].strip() if '/' in base_sz_lbl else base_sz_lbl.strip()
+                        for row in extracted_rows:
+                            if row.get("size_combo").startswith(base_prefix):
+                                specs = row.get("specs_to_average", [])
+                                if specs:
+                                    base_avg_spec = sum([float(x) for x in specs]) / len(specs)
+                                break
+                    
+                    if not base_avg_spec and extracted_rows:
+                        specs = extracted_rows[0].get("specs_to_average", [1.0])
+                        base_avg_spec = sum([float(x) for x in specs]) / len(specs)
+
+                    total_fabric_demand = 0.0
+                    total_pcs = 0
+                    final_table_rows = []
+                    
+                    for row in extracted_rows:
+                        sz_name = row.get("size_combo")
+                        specs = row.get("specs_to_average", [])
+                        txt_sum = row.get("text_summary", "")
+                        qty_int = int(row.get("quantity", 0))
+                        
+                        if specs and base_avg_spec and base_avg_spec > 0:
+                            current_avg_spec = sum([float(x) for x in specs]) / len(specs)
+                            size_ratio = current_avg_spec / base_avg_spec
+                            size_consumption = base_cons * size_ratio
+                        else:
+                            size_consumption = base_cons
+                            
+                        total_fabric_demand += size_consumption * qty_int
+                        total_pcs += qty_int
+                        
+                        final_table_rows.append({
+                            "Size Đơn Hàng": sz_name,
+                            "Chi Tiết Thông Số Trích Xuất": txt_sum,
+                            "ĐM Từng Size (Yds)": round(size_consumption, 4),
+                            "Sản Lượng (Pcs)": qty_int
+                        })
+                        
+                    final_average_consumption = total_fabric_demand / total_pcs if total_pcs > 0 else base_cons
                     
                     chat_response_packet = {
                         "role": "assistant", 
-                        "content": ai_reply,
-                        "metric_val": final_consumption_num,
+                        "content": f"🤖 **Trợ lý AI báo cáo:** {ai_reply}\n\n*(Lưu ý: Toàn bộ bảng số liệu và con số ĐM trung bình dưới đây đã được xử lý qua bộ lõi toán học Python của máy tính để đảm bảo độ chính xác tuyệt đối 100% cho sản xuất).* ",
+                        "metric_val": final_average_consumption,
                         "base_size_lbl": base_sz_lbl
                     }
                     
-                    if table_rows:
+                    if final_table_rows:
                         import pandas as pd
-                        df_ai_calc = pd.DataFrame(table_rows)
-                        chat_response_packet["df_data"] = df_ai_calc
+                        chat_response_packet["df_data"] = pd.DataFrame(final_table_rows)
                         
                     st.session_state["purchase_chat_history"].append(chat_response_packet)
                     st.rerun()
                     
                 except Exception as e:
-                    st.error(f"❌ Trợ lý AI gặp lỗi khi thích ứng chủng loại sản phẩm: {str(e)}")
+                    st.error(f"❌ Lỗi xử lý toán học hệ thống: {str(e)}")
                     st.stop()
 
         st.markdown("<hr style='border:1px solid #E2E8F0; margin-top:20px; margin-bottom:20px;'>", unsafe_allow_html=True)
+
 
 
 
