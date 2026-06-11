@@ -1325,8 +1325,8 @@ elif menu_selection == "🛒 Purchase Consumption":
 
     # (Giữ nguyên đoạn code tra cứu kho lưu trữ lịch sử của Chức năng 2 ở đây nếu có...)
 
-    # =============================================================================
-    # ĐOẠN 2: TIẾP NHẬN FILE & CẤU HÌNH PHÂN TRANG CHO CHỨC NĂNG 1
+        # =============================================================================
+    # ĐOẠN A: TIẾP NHẬN FILE VÀ XỬ LÝ SBD BƯỚC 1 (Đã chống lỗi Pydantic)
     # =============================================================================
     if menu_sub.startswith("🧠 CHỨC NĂNG 1"):
         col_left, col_right = st.columns(2)
@@ -1353,30 +1353,29 @@ elif menu_selection == "🛒 Purchase Consumption":
                 if not gemini_key:
                     st.error("❌ Không tìm thấy API KEY trong cấu hình hệ thống (Secrets)!")
                     st.stop()
-                    
-                client_ai = genai.Client(api_key=gemini_key)
+                
                 import json
                 import io
                 
-                # ==========================================
-                # ĐOẠN 3: BÓC TÁCH MA TRẬN SBD SO LE BẰNG AI
-                # ==========================================
+                # Tự động nhận diện phiên bản thư viện cài trên server để chọn cú pháp đúng
+                is_new_sdk = False
+                try:
+                    from google import genai
+                    from google.genai import types
+                    client_ai = genai.Client(api_key=gemini_key)
+                    is_new_sdk = True
+                except Exception:
+                    try:
+                        import google.generativeai as google_genai
+                        google_genai.configure(api_key=gemini_key)
+                    except Exception as err_import:
+                        st.error(f"❌ Lỗi thư viện Gemini: {str(err_import)}")
+                        st.stop()
+
+                # --- TIẾN HÀNH XỬ LÝ BƯỚC 1/2: SBD ---
                 with st.spinner("🧠 Bước 1/2: AI đang bóc tách File SBD số lượng..."):
                     sbd_bytes = file_sbd.getvalue()
                     sbd_content_str = ""
-                    sbd_parts_payload = []
-                    
-                    if file_sbd.name.lower().endswith(('.xlsx', '.xls')):
-                        try:
-                            import pandas as pd
-                            excel_data = pd.read_excel(io.BytesIO(sbd_bytes), sheet_name=None)
-                            for sheet_name, df_sheet in excel_data.items():
-                                sbd_content_str += f"\n--- SHEET: {sheet_name} ---\n{df_sheet.fillna('').to_csv(index=False)}"
-                        except Exception as e:
-                            st.error(f"❌ Lỗi đọc file Excel SBD: {str(e)}")
-                            st.stop()
-                    elif file_sbd.name.lower().endswith('.pdf'):
-                        sbd_parts_payload.append(types.Part.from_bytes(data=sbd_bytes, mime_type='application/pdf'))
                     
                     sbd_prompt = """You are a garment production AI. Analyze the 'Quantity Details' table inside this garment order sheet.
                     CRITICAL TABLE STRUCTURE INSTRUCTIONS:
@@ -1394,34 +1393,58 @@ elif menu_selection == "🛒 Purchase Consumption":
                       }
                     }"""
                     
-                    if sbd_content_str: 
-                        sbd_parts_payload.append(types.Part.from_text(text=sbd_content_str))
-                    sbd_parts_payload.append(types.Part.from_text(text=sbd_prompt))
-                    
+                    if file_sbd.name.lower().endswith(('.xlsx', '.xls')):
+                        try:
+                            import pandas as pd
+                            excel_data = pd.read_excel(io.BytesIO(sbd_bytes), sheet_name=None)
+                            for sheet_name, df_sheet in excel_data.items():
+                                sbd_content_str += f"\n--- SHEET: {sheet_name} ---\n{df_sheet.fillna('').to_csv(index=False)}"
+                        except Exception as e:
+                            st.error(f"❌ Lỗi đọc file Excel SBD: {str(e)}")
+                            st.stop()
+
                     try:
-                        res_sbd = client_ai.models.generate_content(
-                            model='gemini-2.5-flash', 
-                            contents=sbd_parts_payload, 
-                            config=types.GenerateContentConfig(response_mime_type="application/json")
-                        )
-                        clean_text_sbd = res_sbd.text.strip().replace("```json", "").replace("```", "").strip()
+                        if is_new_sdk:
+                            sbd_parts = []
+                            if sbd_content_str:
+                                sbd_parts.append(types.Part.from_text(text=sbd_content_str))
+                            else:
+                                sbd_parts.append(types.Part.from_bytes(data=sbd_bytes, mime_type="application/pdf"))
+                            sbd_parts.append(types.Part.from_text(text=sbd_prompt))
+                            
+                            res_sbd = client_ai.models.generate_content(
+                                model='gemini-2.5-flash', 
+                                contents=sbd_parts, 
+                                config=types.GenerateContentConfig(response_mime_type="application/json")
+                            )
+                            raw_text_sbd = res_sbd.text
+                        else:
+                            model_old = google_genai.GenerativeModel('gemini-2.5-flash')
+                            sbd_parts = []
+                            if sbd_content_str:
+                                sbd_parts.append(sbd_content_str)
+                            else:
+                                sbd_parts.append({"mime_type": "application/pdf", "data": sbd_bytes})
+                            sbd_parts.append(sbd_prompt)
+                            
+                            res_sbd = model_old.generate_content(sbd_parts, generation_config={"response_mime_type": "application/json"})
+                            raw_text_sbd = res_sbd.text
+
+                        clean_text_sbd = raw_text_sbd.strip().replace("```json", "").replace("```", "").strip()
                         st.session_state["sbd_parsed_data"] = json.loads(clean_text_sbd)
                     except Exception as e:
-                        st.error(f"❌ Lỗi xử lý hoặc trả cấu trúc JSON từ Gemini AI (SBD): {str(e)}")
+                        st.error(f"❌ Gemini gặp sự cố tại Bước 1 (SBD): {str(e)}")
                         st.stop()
-                               # =============================================================================
-                # ĐOẠN 4: BÓC TÁCH TECHPACK - CHUẨN HÓA CẤU TRÚC ĐÓNG GÓI CHO SDK MỚI
+                # =============================================================================
+                # ĐOẠN B: SỐ HÓA THÔNG SỐ TECHPACK BƯỚC 2 (Đã chống lỗi Pydantic)
                 # =============================================================================
                 with st.spinner(f"📐 Bước 2/2: Đang dùng AI bóc tách thông số Techpack (Trang {start_page} đến {end_page})..."):
                     try:
                         file_tp_bytes = file_tp.getvalue()
                         
-                        # Chỉ thị ép AI dịch toàn bộ phân số may mặc đặc thù sang số thập phân để tính toán
                         tp_prompt = f"""You are an expert garment patternmaker and data analyst.
-                        CRITICAL INSTRUCTION: Go directly to page {start_page} through page {end_page} of this document. 
-                        Ignore all other pages outside of this range.
-                        
-                        Locate the Size Specification or Measurement Chart table on these pages.
+                        CRITICAL INSTRUCTION: Read only from page {start_page} to page {end_page} of this document. Ignore other pages.
+                        Locate the Size Specification or Measurement Chart table on these specified pages.
                         
                         CRITICAL CONVERSION RULES FOR GARMENT FRACTIONS:
                         1. Convert ALL fractional measurements into clean decimal numbers before writing to JSON (e.g., 15 ½ to 15.5, 14 ¼ to 14.25).
@@ -1444,33 +1467,35 @@ elif menu_selection == "🛒 Purchase Consumption":
                           ]
                         }}
                         Do not include any markdown syntax wrapping."""
-                        
-                        # ⚡ SỬA LỖI CỐT LÕI: Import trực tiếp cấu trúc Part của Google GenAI SDK mới
-                        from google.genai import types
-                        
-                        # Đóng gói dữ liệu nhị phân thông qua Part Object chuẩn của Google
-                        tp_payload = [
-                            types.Part.from_bytes(
-                                data=file_tp_bytes,
-                                mime_type="application/pdf"
-                            ),
-                            types.Part.from_text(text=tp_prompt)
-                        ]
-                        
-                        # Gọi Gemini API quét thông số Techpack với cấu hình đầu ra JSON
-                        res_tp_ai = client_ai.models.generate_content(
-                            model='gemini-2.5-flash', 
-                            contents=tp_payload, 
-                            config=types.GenerateContentConfig(response_mime_type="application/json")
-                        )
-                        
-                        clean_text_tp = res_tp_ai.text.strip().replace("```json", "").replace("```", "").strip()
+
+                        # Gọi lệnh API Techpack dựa theo thư viện đang chạy thực tế trên server
+                        if is_new_sdk:
+                            tp_parts = [
+                                types.Part.from_bytes(data=file_tp_bytes, mime_type="application/pdf"),
+                                types.Part.from_text(text=tp_prompt)
+                            ]
+                            res_tp_ai = client_ai.models.generate_content(
+                                model='gemini-2.5-flash', 
+                                contents=tp_parts, 
+                                config=types.GenerateContentConfig(response_mime_type="application/json")
+                            )
+                            raw_text_tp = res_tp_ai.text
+                        else:
+                            model_old = google_genai.GenerativeModel('gemini-2.5-flash')
+                            tp_parts = [
+                                {"mime_type": "application/pdf", "data": file_tp_bytes},
+                                tp_prompt
+                            ]
+                            res_tp_ai = model_old.generate_content(tp_parts, generation_config={"response_mime_type": "application/json"})
+                            raw_text_tp = res_tp_ai.text
+
+                        clean_text_tp = raw_text_tp.strip().replace("```json", "").replace("```", "").strip()
                         parsed_json = json.loads(clean_text_tp)
                         
-                        # Trích xuất mảng dữ liệu phẳng bất kể AI đặt tên Key bọc ngoài là gì
+                        # Trích xuất danh sách mảng dữ liệu phẳng từ kết quả trả về của AI
                         extracted_list = parsed_json.get("data", parsed_json.get("spec_table", []))
                         
-                        # Đổ dữ liệu đồng nhất vào mọi định dạng cấu trúc mà frontend phía dưới có thể đang gọi
+                        # Đổ dữ liệu đồng nhất vào mọi định dạng cấu trúc mà bộ hiển thị phía dưới của bạn có thể gọi
                         st.session_state["pur_tp_parsed_data"] = {
                             "success": True,
                             "data": extracted_list,
@@ -1478,14 +1503,16 @@ elif menu_selection == "🛒 Purchase Consumption":
                         }
                         
                     except Exception as e:
-                        st.error(f"❌ Lỗi kết nối hoặc cấu trúc JSON tại Bước 2: {str(e)}")
+                        st.error(f"❌ Gemini gặp sự cố tại Bước 2 (Techpack): {str(e)}")
                         st.stop()
                     
-                # Kích hoạt trạng thái sẵn sàng và ép trang tải lại để render bảng kết quả
+                # Hoàn thành xuất sắc cả 2 phân hệ, kích hoạt và tải lại trang để render kết quả
                 st.session_state["purchase_ready"] = True
                 st.rerun()
 
     elif menu_sub.startswith("✂️ CHỨC NĂNG 2"):
+
+  
 
 
 
