@@ -1373,263 +1373,173 @@ if menu_sub.startswith("🧠 CHỨC NĂNG 1"):
                 st.session_state["purchase_ready"] = True
                 st.rerun()
 
-# --- ✂️ CHỨC NĂNG 2: PHÂN HỆ TÁC NGHIỆP BÀN CẮT ---
-elif menu_sub.startswith("✂️ CHỨC NĂNG 2"):
-    st.markdown("""<div class="card-container"><div class="card-section-header">📋 PHÂN HỆ TÁC NGHIỆP BÀN CẮT ĐA GIÀNG</div>
-    <p style="color: #64748B; font-size:13px; margin:0;">Chức năng này không cần thông số rập mẫu. Chỉ cần tải lên File SBD số lượng để máy tính tự động chia tỷ lệ bàn cắt.</p></div>""", unsafe_allow_html=True)
+# =============================================================================
+# CHỨC NĂNG 2: PHÂN HỆ HIỂN THỊ TÁC NGHIỆP BÀN CẮT CAD & EXCEL & SUPABASE
+# =============================================================================
+if st.session_state.get("purchase_ready") is True and menu_sub.startswith("✂️ CHỨC NĂNG 2"):
+    sbd_data_store = st.session_state.get("sbd_parsed_data", {})
     
-    file_sbd_c2 = st.file_uploader("📋 Chọn File SBD Số Lượng Đơn Hàng (Excel/PDF)", type=["xlsx", "xls", "pdf"], key="purchase_sbd_c2_unique")
-    
-    if file_sbd_c2:
-        if st.button("⚡ SỐ HÓA MA TRẬN SẢN LƯỢNG ĐƠN HÀNG TÁC NGHIỆP", type="primary", use_container_width=True, key="activate_sbd_only_ingest_c2"):
-            with st.spinner("🚀 Hệ thống đang phân tích mảng phân bổ size phẳng từ file SBD..."):
-                try:
-                    client_ai = get_gemini_client()
-                    sbd_bytes = file_sbd_c2.getvalue()
-                    sbd_content_str = ""
-                    sbd_parts_payload = []
-                    
-                    if file_sbd_c2.name.lower().endswith(('.xlsx', '.xls')):
-                        try:
-                            excel_data = pd.read_excel(io.BytesIO(sbd_bytes), sheet_name=None)
-                            for sheet_name, df_sheet in excel_data.items():
-                                sbd_content_str += f"\n--- SHEET: {sheet_name} ---\n{df_sheet.fillna('').to_csv(index=False)}"
-                        except Exception: pass
-                    elif file_sbd_c2.name.lower().endswith('.pdf'):
-                        sbd_parts_payload.append(types.Part.from_bytes(data=sbd_bytes, mime_type='application/pdf'))
-                        
-                    sbd_prompt = "Extract style_id, total_quantity, and flat size mappings. Return raw JSON matching schema: {\"style_id\": \"string\", \"total_quantity\": integer, \"size_breakdown\": {\"Size Name\": integer}}"
-                    if sbd_content_str: 
-                        sbd_parts_payload.append(types.Part.from_text(text=sbd_content_str))
-                    sbd_parts_payload.append(types.Part.from_text(text=sbd_prompt))
-                    
-                    res_sbd = client_ai.models.generate_content(model='gemini-2.5-flash', contents=sbd_parts_payload, config=types.GenerateContentConfig(response_mime_type="application/json"))
-                    st.session_state["sbd_parsed_data"] = json.loads(res_sbd.text.strip().replace("```json", "").replace("```", "").strip())
-                except Exception: 
-                    st.session_state["sbd_parsed_data"] = {}
+    if isinstance(sbd_data_store, dict) and sbd_data_store:
+        detected_style_id = sbd_data_store.get("style_id", "UNKNOWN_STYLE")
+        detected_total_po = sbd_data_store.get("total_quantity", 0)
+        size_breakdown_main = sbd_data_store.get("size_breakdown", {})
+
+        st.markdown("#### 📋 KHAI BÁO THÔNG SỐ TÁC NGHIỆP ĐƠN HÀNG VÀ BÀN VẢI MULTI-INSEAM")
+        input_col1, input_col2, input_col3 = st.columns(3)
+        with input_col1: 
+            style_id_input = st.text_input("🏷️ Tên mã hàng (Style ID):", value=str(detected_style_id).strip().upper())
+        with input_col2: 
+            po_qty_input = st.number_input("📦 Số lượng đơn hàng (PO Pcs):", value=int(detected_total_po), step=100)
+        with input_col3: 
+            consumption_input = st.number_input("🎯 Định mức tài liệu đề xuất (Yds/Pcs):", value=1.140, step=0.001, format="%.3f")
+
+        input_col4, input_col6 = st.columns(2)
+        with input_col4: 
+            max_table_length = st.number_input("📏 Chiều gia tối đa bàn vải (Meters):", value=12.00, step=1.0)
+        with input_col6: 
+            cuttable_width_inch = st.number_input("📐 KHỔ CẮT (Khổ vải đi sơ đồ):", value=56.00, step=0.50, format="%.2f")
+        st.markdown("<br><p style='font-weight:700; font-size:13px; color:#1E3A8A;'>📥 KHU VỰC DÁN DỮ LIỆU CAD</p>", unsafe_allow_html=True)
+        cad_paste_zone = st.text_area("Sau khi xem cấu trúc, hãy dán kết quả [Tên sơ đồ + Chiều dài mét]:", placeholder="5765-c01 10.5\n5765-c02 11.3", height=90)
+
+        cad_length_meters_list = []
+        cad_names_list = []
+        if cad_paste_zone.strip():
+            for line in cad_paste_zone.strip().split("\n"):
+                if not line.strip(): 
+                    continue
+                tokens = [t.strip() for t in re.split(r'\t+|\s+', line.strip()) if t.strip()]
+                if len(tokens) >= 2:
+                    raw_name = tokens
+                    raw_length = tokens
+                    clean_name = str(raw_name.split("-")[-1]).upper() if "-" in raw_name else str(raw_name[-3:]).upper()
+                    try:
+                        cad_length_meters_list.append(float(raw_length))
+                        cad_names_list.append(clean_name)
+                    except Exception: 
+                        pass
+
+        st.markdown("<br>", unsafe_allow_html=True)
+        if st.button("⚡ TÍNH TOÁN LẬP SƠ ĐỒ", type="secondary", use_container_width=True): 
+            st.session_state["step1_marker_ready"] = True
+            st.rerun()
+
+        if st.button("⚡ KÍCH HOẠT QUY ĐỔI & TÍNH ĐỊNH MỨC THỰC TẾ", type="primary", use_container_width=True):
+            st.session_state["step2_computation_active"] = True
+            st.session_state["bulk_cad_data_store"] = []
+            if cad_length_meters_list:
+                for idx_c in range(len(cad_length_meters_list)):
+                    st.session_state["bulk_cad_data_store"].append({
+                        "code": cad_names_list[idx_c], 
+                        "length_yds": round(cad_length_meters_list[idx_c] * 1.09361, 2)
+                    })
+            st.rerun()
+        if st.session_state.get("step1_marker_ready"):
+            if not size_breakdown_main:
+                st.warning("⚠️ Không tìm thấy dữ liệu phân bổ sản lượng size phẳng.")
+            else:
+                st.markdown("##### ✂️ LỊCH TRÌNH GỘP SIZE - CHIA TỶ LỆ PHỐI SƠ ĐỒ ĐA GIÀNG DỰ KIẾN")
                 
-                st.session_state["pur_tp_parsed_data"] = {"dummy_status": "skipped_not_needed"}
-                st.session_state["purchase_ready"] = True
-                st.rerun()
-# =============================================================================
-# KHU VỰC 2: GIAO DIỆN HIỂN THỊ VÀ LOGIC VẬN HÀNH SAU KHI SỐ HÓA
-# =============================================================================
-if st.session_state.get("purchase_ready") is True:
+                max_table_length_yds = max_table_length * 1.09361
+                max_pcs_per_marker_limit = max(1, int(max_table_length_yds / consumption_input))
+                cutting_sizes_pool = {str(sz).strip().upper(): int(qty) for sz, qty in size_breakdown_main.items()}
+                initial_total_po_pcs = sum(cutting_sizes_pool.values())
+                
+                marker_tables_report = []
+                table_counter = 1
+                cad_pool = st.session_state.get("bulk_cad_data_store", [])
+                is_calc_active = st.session_state.get("step2_computation_active", False)
+                
+                for assigned_size, qty_val in cutting_sizes_pool.items():
+                    if qty_val <= 0: 
+                        continue
+                    cut_qty = min(qty_val, 120)
+                    code_cad = f"C{str(table_counter).zfill(2)}"
+                    length_yds_val = 0.0
+                    for c_item in cad_pool:
+                        if c_item["code"] == code_cad: 
+                            length_yds_val = c_item["length_yds"]
+                    
+                    marker_tables_report.append({
+                        "Bàn cắt": f"Bàn {table_counter}",
+                        "Mã sơ đồ CAD": code_cad,
+                        "Phối tỷ lệ Size": f"{assigned_size} x 1 Pcs",
+                        "Số lớp vải (Plies)": cut_qty,
+                        "Số quần lệnh": cut_qty,
+                        "Dài sơ đồ (Yds)": length_yds_val,
+                        "Tổng vải tiêu hao (Yds)": round(cut_qty * length_yds_val, 2)
+                    })
+                    table_counter += 1
 
-    # --- ĐỒNG BỘ HIỂN THỊ CHỨC NĂNG 1 (TRỢ LÝ CHATBOT) ---
-    if menu_sub.startswith("🧠 CHỨC NĂNG 1"):
-        sbd_data = st.session_state.get("sbd_parsed_data", {})
-        tp_data = st.session_state.get("pur_tp_parsed_data", {})
-        
-        if isinstance(sbd_data, dict) and isinstance(tp_data, dict) and sbd_data and tp_data:
-            detected_style_id = sbd_data.get("style_id", "UNKNOWN_STYLE")
-            detected_total_po = sbd_data.get("total_quantity", 0)
-            size_breakdown_dict = sbd_data.get("size_breakdown", {})
-            
-            st.success("🎉 Số hóa dữ liệu phục vụ AI hoàn tất! Bạn có thể bắt đầu hỏi đáp.")
-            tab_input_sbd, tab_input_tp = st.tabs(["📋 Ma Trận Đơn Hàng (SBD)", "📐 Ma Trận Thông Số Bản Vẽ (Techpack)"])
-            
-            with tab_input_sbd:
-                st.markdown(f"**Mã hàng phát hiện:** `{detected_style_id}` | **Tổng sản lượng PO:** `{detected_total_po:,}` Pcs")
-                st.dataframe(pd.DataFrame(list(size_breakdown_dict.items()), columns=["Size", "PO Qty"]), use_container_width=True, hide_index=True)
-            
-            with tab_input_tp:
-                matrix_data = tp_data.get("full_size_matrix", {}) or tp_data.get("measurements", {})
-                if matrix_data: st.dataframe(pd.DataFrame(matrix_data), use_container_width=True)
+                df_marker_plan = pd.DataFrame(marker_tables_report)
+                st.dataframe(df_marker_plan, use_container_width=True)
+                
+                total_planned_cut_pcs = int(df_marker_plan["Số quần lệnh"].sum()) if not df_marker_plan.empty else 0
+                total_calculated_fabric_yds = float(df_marker_plan["Tổng vải tiêu hao (Yds)"].sum()) if not df_marker_plan.empty else 0.0
+                actual_calculated_consumption = round((total_calculated_fabric_yds / total_planned_cut_pcs), 3) if total_planned_cut_pcs > 0 else 0.0
+                
+                sum_col1, sum_col2 = st.columns(2)
+                with sum_col1:
+                    st.metric(label="Tổng Sản Lượng Cắt Tác Nghiệp Thực Tế", value=f"{total_planned_cut_pcs:,} Pcs")
+                    st.metric(label="🎯 ĐỊNH MỨC THỰC TẾ QUY RA YARD", value=f"{actual_calculated_consumption} Yds/Pcs" if is_calc_active else "Chờ dữ liệu CAD...")
+                with sum_col2:
+                    st.metric(label="⚡ TỔNG LƯỢNG VẢI TỰ ĐỘNG NHẢY THEO CAD", value=f"{total_calculated_fabric_yds:,} Yds" if is_calc_active else "Chờ nhập...")
+                
+                if is_calc_active and not df_marker_plan.empty:
+                    st.markdown("---")
+                    st.markdown("##### 📥 XUẤT HỒ SƠ TÁC NGHIỆP KỸ THUẬT XUỐNG MÁY TÍNH")
                     
-            st.markdown("<br><hr style='border:0.5px solid #CBD5E1;'>", unsafe_allow_html=True)
-            chat_col1, chat_col2 = st.columns([3.2, 0.8])
-            with chat_col1: st.markdown("##### 💬 HỎI AI TÍNH ĐỊNH MỨC TRUNG BÌNH THEO TỶ TRỌNG SBD ĐƠN HÀNG")
-            with chat_col2:
-                if st.button("🗑️ XÓA CHAT AI", key="clear_pur_chat_btn", use_container_width=True):
-                    st.session_state["purchase_chat_history"] = []
-                    st.toast("♻️ Đã xóa sạch lịch sử chat!")
-                    st.rerun()
-                    
-            pur_chat_container = st.container()
-            with pur_chat_container:
-                for chat in st.session_state.get("purchase_chat_history", []):
-                    with st.chat_message("user"): st.write(chat["user"])
-                    with st.chat_message("assistant"): st.write(chat["ai"])
-                    
-            if user_query := st.chat_input("Ví dụ: Định mức size gốc 30 là 1.14Y, hãy tính toán chênh lệch thông số..."):
-                with pur_chat_container:
-                    with st.chat_message("user"): st.write(user_query)
-                    with st.chat_message("assistant"):
-                        with st.spinner("🤖 AI đang phân tích ma trận thông số..."):
-                            system_instruction_pur = f"You are a strict Industrial Garment Costing Engineer... Respond directly in Vietnamese."
-                            payload_contents = [
-                                types.Part.from_text(text=system_instruction_pur),
-                                types.Part.from_text(text=f"SBD Order Data: {json.dumps(sbd_data)}"),
-                                types.Part.from_text(text=f"Techpack Specs Data: {json.dumps(tp_data)}"),
-                                types.Part.from_text(text=f"User current instruction: {user_query}")
-                            ]
+                    excel_buffer = io.BytesIO()
+                    with pd.ExcelWriter(excel_buffer, engine='xlsxwriter') as writer:
+                        df_marker_plan.to_excel(writer, sheet_name='Lich_Trinh_Ban_Cat', index=False)
+                        workbook  = writer.book
+                        worksheet = writer.sheets['Lich_Trinh_Ban_Cat']
+                        
+                        header_format = workbook.add_format({'bold': True, 'text_wrap': True, 'valign': 'vcenter', 'align': 'center', 'fg_color': '#1E3A8A', 'font_color': '#FFFFFF', 'font_name': 'Segoe UI', 'font_size': 11, 'border': 1})
+                        cell_left_format = workbook.add_format({'align': 'left', 'valign': 'vcenter', 'font_name': 'Segoe UI', 'font_size': 10, 'border': 1})
+                        
+                        worksheet.set_row(0, 26)
+                        worksheet.set_column('A:H', 18, cell_left_format)
+                        for col_num, value in enumerate(df_marker_plan.columns):
+                            worksheet.write(0, col_num, value, header_format)
                             
-                            if 'target_new_sketch_bytes' in st.session_state and st.session_state['target_new_sketch_bytes']:
-                                payload_contents.append(types.Part.from_bytes(data=st.session_state['target_new_sketch_bytes'], mime_type='image/jpeg'))
-                                
+                        now_str = dt_core.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        info_records = [
+                            {"THÔNG TIN TÁC NGHIỆP": "🏷️ TÊN MÃ HÀNG (STYLE ID)", "GIÁ TRỊ THỰC TẾ": style_id_input},
+                            {"THÔNG TIN TÁC NGHIỆP": "📦 SẢN LƯỢNG ĐƠN HÀNG GỐC (PO)", "GIÁ TRỊ THỰC TẾ": int(po_qty_input)},
+                            {"THÔNG TIN TÁC NGHIỆP": "✂️ TỔNG SẢN LƯỢNG PHÁT LỆNH CẮT", "GIÁ TRỊ THỰC TẾ": int(total_planned_cut_pcs)},
+                            {"THÔNG TIN TÁC NGHIỆP": "🎯 ĐỊNH MỨC THỰC TẾ BÌNH QUÂN", "GIÁ TRỊ THỰC TẾ": actual_calculated_consumption},
+                            {"THÔNG TIN TÁC NGHIỆP": "⚡ TỔNG KHỐI LƯỢNG VẢI (YARDS)", "GIÁ TRỊ THỰC TẾ": round(total_calculated_fabric_yds, 2)}
+                        ]
+                        pd.DataFrame(info_records).to_excel(writer, sheet_name='Tong_Hop_Thong_Tin', index=False)
+                    
+                    file_action_col1, file_action_col2 = st.columns(2)
+                    with file_action_col1:
+                        st.download_button(
+                            label="📥 TẢI EXCEL TÁC NGHIỆP",
+                            data=excel_buffer.getvalue(),
+                            file_name=f"HO_SO_TAC_NGHIEP_PPJ_{style_id_input}.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            use_container_width=True
+                        )
+                        
+                    with file_action_col2:
+                        if st.button("💾 LƯU PHƯƠNG ÁN LÊN KHO SUPABASE", type="primary", use_container_width=True, key="save_to_supabase_btn"):
                             try:
-                                client_ai_c1 = get_gemini_client()
-                                response = client_ai_c1.models.generate_content(model='gemini-2.5-flash', contents=payload_contents)
-                                ai_reply = response.text if response.text else "Không thể phân tích."
-                                st.session_state["purchase_chat_history"].append({"user": user_query, "ai": ai_reply})
-                                st.rerun()
-                            except Exception as chat_err: st.error(f"Lỗi kết nối AI: {str(chat_err)}")
-    # --- ĐỒNG BỘ HIỂN THỊ CHỨC NĂNG 2 (TÁC NGHIỆP BÀN CẮT CAD & EXCEL & SUPABASE) ---
-    elif menu_sub.startswith("✂️ CHỨC NĂNG 2"):
-        sbd_data_store = st.session_state.get("sbd_parsed_data", {})
-        
-        if isinstance(sbd_data_store, dict) and sbd_data_store:
-            detected_style_id = sbd_data_store.get("style_id", "UNKNOWN_STYLE")
-            detected_total_po = sbd_data_store.get("total_quantity", 0)
-            size_breakdown_main = sbd_data_store.get("size_breakdown", {})
-
-            st.markdown("#### 📋 KHAI BÁO THÔNG SỐ TÁC NGHIỆP ĐƠN HÀNG VÀ BÀN VẢI MULTI-INSEAM")
-            input_col1, input_col2, input_col3 = st.columns(3)
-            with input_col1: style_id_input = st.text_input("🏷️ Tên mã hàng (Style ID):", value=str(detected_style_id).strip().upper())
-            with input_col2: po_qty_input = st.number_input("📦 Số lượng đơn hàng (PO Pcs):", value=int(detected_total_po), step=100)
-            with input_col3: consumption_input = st.number_input("🎯 Định mức tài liệu đề xuất (Yds/Pcs):", value=1.140, step=0.001, format="%.3f")
-
-            input_col4, input_col6 = st.columns(2)
-            with input_col4: max_table_length = st.number_input("📏 Chiều gia tối đa bàn vải (Meters):", value=12.00, step=1.0)
-            with input_col6: cuttable_width_inch = st.number_input("📐 KHỔ CẮT (Khổ vải đi sơ đồ):", value=56.00, step=0.50, format="%.2f")
-            
-            st.markdown("<br><p style='font-weight:700; font-size:13px; color:#1E3A8A;'>📥 KHU VỰC DÁN DỮ LIỆU CAD</p>", unsafe_allow_html=True)
-            cad_paste_zone = st.text_area("Sau khi xem cấu trúc, hãy dán kết quả [Tên sơ đồ + Chiều dài mét]:", placeholder="5765-c01 10.5\n5765-c02 11.3", height=90)
-
-            cad_length_meters_list = []
-            cad_names_list = []
-            if cad_paste_zone.strip():
-                for line in cad_paste_zone.strip().split("\n"):
-                    if not line.strip(): continue
-                    tokens = [t.strip() for t in re.split(r'\t+|\s+', line.strip()) if t.strip()]
-                    if len(tokens) >= 2:
-                        raw_name, raw_length = tokens[0], tokens[1]
-                        clean_name = str(raw_name.split("-")[-1]).upper() if "-" in raw_name else str(raw_name[-3:]).upper()
-                        try:
-                            cad_length_meters_list.append(float(raw_length))
-                            cad_names_list.append(clean_name)
-                        except Exception: pass
-
-            st.markdown("<br>", unsafe_allow_html=True)
-            if st.button("⚡ TÍNH TOÁN LẬP SƠ ĐỒ", type="secondary", use_container_width=True): 
-                st.session_state["step1_marker_ready"] = True
-                st.rerun()
-
-            if st.button("⚡ KÍCH HOẠT QUY ĐỔI & TÍNH ĐỊNH MỨC THỰC TẾ", type="primary", use_container_width=True):
-                st.session_state["step2_computation_active"] = True
-                st.session_state["bulk_cad_data_store"] = []
-                if cad_length_meters_list:
-                    for idx_c in range(len(cad_length_meters_list)):
-                        st.session_state["bulk_cad_data_store"].append({
-                            "code": cad_names_list[idx_c], 
-                            "length_yds": round(cad_length_meters_list[idx_c] * 1.09361, 2)
-                        })
-                st.rerun()
-                        if st.session_state["step1_marker_ready"]:
-                if not size_breakdown_main:
-                    st.warning("⚠️ Không tìm thấy dữ liệu phân bổ sản lượng size phẳng.")
-                else:
-                    st.markdown("##### ✂️ LỊCH TRÌNH GỘP SIZE - CHIA TỶ LỆ PHỐI SƠ ĐỒ ĐA GIÀNG DỰ KIẾN")
-                    
-                    max_table_length_yds = max_table_length * 1.09361
-                    max_pcs_per_marker_limit = max(1, int(max_table_length_yds / consumption_input))
-                    cutting_sizes_pool = {str(sz).strip().upper(): int(qty) for sz, qty in size_breakdown_main.items()}
-                    initial_total_po_pcs = sum(cutting_sizes_pool.values())
-                    
-                    marker_tables_report = []
-                    table_counter = 1
-                    cad_pool = st.session_state.get("bulk_cad_data_store", [])
-                    is_calc_active = st.session_state["step2_computation_active"]
-                    
-                    for assigned_size, qty_val in cutting_sizes_pool.items():
-                        if qty_val <= 0: continue
-                        cut_qty = min(qty_val, 120)
-                        code_cad = f"C{str(table_counter).zfill(2)}"
-                        length_yds_val = 0.0
-                        for c_item in cad_pool:
-                            if c_item["code"] == code_cad: length_yds_val = c_item["length_yds"]
-                        
-                        marker_tables_report.append({
-                            "Bàn cắt": f"Bàn {table_counter}",
-                            "Mã sơ đồ CAD": code_cad,
-                            "Phối tỷ lệ Size": f"{assigned_size} x 1 Pcs",
-                            "Số lớp vải (Plies)": cut_qty,
-                            "Số quần lệnh": cut_qty,
-                            "Dài sơ đồ (Yds)": length_yds_val,
-                            "Tổng vải tiêu hao (Yds)": round(cut_qty * length_yds_val, 2)
-                        })
-                        table_counter += 1
-
-                    df_marker_plan = pd.DataFrame(marker_tables_report)
-                    st.dataframe(df_marker_plan, use_container_width=True)
-                    
-                    total_planned_cut_pcs = int(df_marker_plan["Số quần lệnh"].sum()) if not df_marker_plan.empty else 0
-                    total_calculated_fabric_yds = float(df_marker_plan["Tổng vải tiêu hao (Yds)"].sum()) if not df_marker_plan.empty else 0.0
-                    actual_calculated_consumption = round((total_calculated_fabric_yds / total_planned_cut_pcs), 3) if total_planned_cut_pcs > 0 else 0.0
-                    
-                    sum_col1, sum_col2 = st.columns(2)
-                    with sum_col1:
-                        st.metric(label="Tổng Sản Lượng Cắt Tác Nghiệp Thực Tế", value=f"{total_planned_cut_pcs:,} Pcs")
-                        st.metric(label="🎯 ĐỊNH MỨC THỰC TẾ QUY RA YARD", value=f"{actual_calculated_consumption} Yds/Pcs" if is_calc_active else "Chờ dữ liệu CAD...")
-                    with sum_col2:
-                        st.metric(label="⚡ TỔNG LƯỢNG VẢI TỰ ĐỘNG NHẢY THEO CAD", value=f"{total_calculated_fabric_yds:,} Yds" if is_calc_active else "Chờ nhập...")
-                    
-                    if is_calc_active and not df_marker_plan.empty:
-                        st.markdown("---")
-                        st.markdown("##### 📥 XUẤT HỒ SƠ TÁC NGHIỆP KỸ THUẬT XUỐNG MÁY TÍNH")
-                        
-                        excel_buffer = io.BytesIO()
-                        with pd.ExcelWriter(excel_buffer, engine='xlsxwriter') as writer:
-                            df_marker_plan.to_excel(writer, sheet_name='Lich_Trinh_Ban_Cat', index=False)
-                            workbook  = writer.book
-                            worksheet = writer.sheets['Lich_Trinh_Ban_Cat']
-                            
-                            header_format = workbook.add_format({'bold': True, 'text_wrap': True, 'valign': 'vcenter', 'align': 'center', 'fg_color': '#1E3A8A', 'font_color': '#FFFFFF', 'font_name': 'Segoe UI', 'font_size': 11, 'border': 1})
-                            cell_left_format = workbook.add_format({'align': 'left', 'valign': 'vcenter', 'font_name': 'Segoe UI', 'font_size': 10, 'border': 1})
-                            
-                            worksheet.set_row(0, 26)
-                            worksheet.set_column('A:H', 18, cell_left_format)
-                            for col_num, value in enumerate(df_marker_plan.columns):
-                                worksheet.write(0, col_num, value, header_format)
-                                
-                            now_str = dt_core.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                            info_records = [
-                                {"THÔNG TIN TÁC NGHIỆP": "🏷️ TÊN MÃ HÀNG (STYLE ID)", "GIÁ TRỊ THỰC TẾ": style_id_input},
-                                {"THÔNG TIN TÁC NGHIỆP": "📦 SẢN LƯỢNG ĐƠN HÀNG GỐC (PO)", "GIÁ TRỊ THỰC TẾ": int(po_qty_input)},
-                                {"THÔNG TIN TÁC NGHIỆP": "✂️ TỔNG SẢN LƯỢNG PHÁT LỆNH CẮT", "GIÁ TRỊ THỰC TẾ": int(total_planned_cut_pcs)},
-                                {"THÔNG TIN TÁC NGHIỆP": "🎯 ĐỊNH MỨC THỰC TẾ BÌNH QUÂN", "GIÁ TRỊ THỰC TẾ": actual_calculated_consumption},
-                                {"THÔNG TIN TÁC NGHIỆP": "⚡ TỔNG KHỐI LƯỢNG VẢI (YARDS)", "GIÁ TRỊ THỰC TẾ": round(total_calculated_fabric_yds, 2)}
-                            ]
-                            pd.DataFrame(info_records).to_excel(writer, sheet_name='Tong_Hop_Thong_Tin', index=False)
-                        
-                        file_action_col1, file_action_col2 = st.columns(2)
-                        with file_action_col1:
-                            st.download_button(
-                                label="📥 TẢI EXCEL TÁC NGHIỆP",
-                                data=excel_buffer.getvalue(),
-                                file_name=f"HO_SO_TAC_NGHIEP_PPJ_{style_id_input}.xlsx",
-                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                                use_container_width=True
-                            )
-                            
-                        with file_action_col2:
-                            if st.button("💾 LƯU PHƯƠNG ÁN LÊN KHO SUPABASE", type="primary", use_container_width=True, key="save_to_supabase_btn"):
-                                try:
-                                    url_save_db = f"{SB_URL.rstrip('/')}/rest/v1/tac_nghiep_ban_cat"
-                                    save_headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}", "Content-Type": "application/json", "Prefer": "return=representation"}
-                                    save_payload = {
-                                        "style_name": style_id_input,
-                                        "po_quantity": int(po_qty_input),
-                                        "planned_cut_pcs": int(total_planned_cut_pcs),
-                                        "consumption_value": str(actual_calculated_consumption),
-                                        "total_material_value": str(round(total_calculated_fabric_yds, 2)),
-                                        "cuttable_width_inch": str(cuttable_width_inch),
-                                        "notes": f"Lưu lịch sử thành công lúc: {now_str}"
-                                    }
-                                    response_db = requests.post(url_save_db, headers=save_headers, json=save_payload)
-                                    if response_db.status_code in: 
-                                        st.success("💾 Đã đồng bộ dữ liệu tác nghiệp kỹ thuật lên hệ thống Supabase thành công!")
-                                    else: 
-                                        st.error(f"Lỗi phản hồi từ Supabase (Code {response_db.status_code}): {response_db.text}")
-                                except Exception as db_err: st.error(f"Lỗi kết nối cơ sở dữ liệu: {str(db_err)}")
+                                url_save_db = f"{SB_URL.rstrip('/')}/rest/v1/tac_nghiep_ban_cat"
+                                save_headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}", "Content-Type": "application/json", "Prefer": "return=representation"}
+                                save_payload = {
+                                    "style_name": style_id_input,
+                                    "po_quantity": int(po_qty_input),
+                                    "planned_cut_pcs": int(total_planned_cut_pcs),
+                                    "consumption_value": str(actual_calculated_consumption),
+                                    "total_material_value": str(round(total_calculated_fabric_yds, 2)),
+                                    "cuttable_width_inch": str(cuttable_width_inch),
+                                    "notes": f"Lưu lịch sử thành công lúc: {now_str}"
+                                }
+                                response_db = requests.post(url_save_db, headers=save_headers, json=save_payload)
+                                if response_db.status_code in: 
+                                    st.success("💾 Đã đồng bộ dữ liệu tác nghiệp kỹ thuật lên hệ thống Supabase thành công!")
+                                else: 
+                                    st.error(f"Lỗi phản hồi từ Supabase (Code {response_db.status_code}): {response_db.text}")
+                            except Exception as db_err: 
+                                st.error(f"Lỗi kết nối cơ sở dữ liệu: {str(db_err)}")
