@@ -1377,7 +1377,11 @@ if menu_sub.startswith("🧠 CHỨC NĂNG 1"):
 # CHỨC NĂNG 2: PHÂN HỆ HIỂN THỊ TÁC NGHIỆP BÀN CẮT CAD & EXCEL & SUPABASE
 # =============================================================================
 is_purchase_ready_c2 = st.session_state.get("purchase_ready", False)
-is_menu_c2 = str(menu_sub).startswith("✂️ CHỨC NĂNG 2")
+
+# ✅ VÁ LỖI AN TOÀN: Kiểm tra xem biến menu_sub có tồn tại không, nếu không thì lấy từ session_state hoặc mặc định rỗng
+current_menu = locals().get("menu_sub", st.session_state.get("menu_sub", ""))
+
+is_menu_c2 = str(current_menu).startswith("✂️ CHỨC NĂNG 2")
 
 if is_purchase_ready_c2 and is_menu_c2:
     sbd_data_store = st.session_state.get("sbd_parsed_data", {})
@@ -1406,8 +1410,8 @@ if is_purchase_ready_c2 and is_menu_c2:
                 if not line.strip(): continue
                 tokens = [t.strip() for t in re.split(r'\t+|\s+', line.strip()) if t.strip()]
                 if len(tokens) >= 2:
-                    raw_name = tokens[0]
-                    raw_length = tokens[1]
+                    raw_name = tokens
+                    raw_length = tokens
                     clean_name = str(raw_name.split("-")[-1]).upper() if "-" in raw_name else str(raw_name[-3:]).upper()
                     try:
                         cad_length_meters_list.append(float(raw_length))
@@ -1429,6 +1433,7 @@ if is_purchase_ready_c2 and is_menu_c2:
                         "length_yds": round(cad_length_meters_list[idx_c] * 1.09361, 2)
                     })
             st.rerun()
+
 if is_purchase_ready_c2 and is_menu_c2 and st.session_state.get("step1_marker_ready"):
     if not size_breakdown_main:
         st.warning("⚠️ Không tìm thấy dữ liệu phân bổ sản lượng size phẳng.")
