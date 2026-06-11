@@ -1354,7 +1354,7 @@ elif menu_selection == "🛒 Purchase Consumption":
                     
         st.markdown("<hr style='border:0.5px dashed #CBD5E1;'>", unsafe_allow_html=True)
 
-                 # KHU VỰC TIẾP NHẬN FILE CHO TỪNG PHÂN HỆ
+                     # KHU VỰC TIẾP NHẬN FILE CHO TỪNG PHÂN HỆ
     if menu_sub.startswith("🧠 CHỨC NĂNG 1"):
         col_left, col_right = st.columns(2)
         with col_left: 
@@ -1362,27 +1362,19 @@ elif menu_selection == "🛒 Purchase Consumption":
         with col_right: 
             file_tp = st.file_uploader("📐 Chọn File Techpack Thông Số (PDF)", type=["pdf"], key="purchase_tp_c1")
             
-            # Giao diện chọn khoảng trang cần bóc tách để tăng tốc độ
             if file_tp:
-                try:
-                    import pypdf
-                    pdf_reader_check = pypdf.PdfReader(io.BytesIO(file_tp.getvalue()))
-                    total_tp_pages = len(pdf_reader_check.pages)
-                except Exception:
-                    total_tp_pages = 100  # Giá trị dự phòng nếu lỗi đọc số trang
-                
                 col_p1, col_p2 = st.columns(2)
                 with col_p1: 
-                    start_page = st.number_input("🔹 Từ trang", min_value=1, max_value=total_tp_pages, value=1, step=1, key="tp_start_p")
+                    start_page = st.number_input("🔹 Từ trang", min_value=1, value=5, step=1, key="tp_start_p")
                 with col_p2: 
-                    end_page = st.number_input("🔸 Đến trang", min_value=1, max_value=total_tp_pages, value=min(5, total_tp_pages), step=1, key="tp_end_p")
+                    end_page = st.number_input("🔸 Đến trang", min_value=1, value=7, step=1, key="tp_end_p")
         
         if file_sbd and file_tp:
             trigger_btn = st.button("⚡ KÍCH HOẠT SỐ HÓA ĐA LUỒNG SONG SONG", type="primary", use_container_width=True, key="activate_parallel_ingest_c1")
             if trigger_btn:
                 st.cache_data.clear()
                 
-                with st.spinner("🧠 Bước 1/2: AI đang bóc tách File SBD số lượng..."):
+                with st.spinner("🧠 Bước 1/2: AI đang giải mã ma trận bảng SBD đặc biệt..."):
                     if "get_secure_gemini_key" in globals(): gemini_key = get_secure_gemini_key()
                     else: gemini_key = st.secrets.get("GEMINI_API_KEY", "").strip()
                     
@@ -1407,36 +1399,58 @@ elif menu_selection == "🛒 Purchase Consumption":
                     elif file_sbd.name.lower().endswith('.pdf'):
                         sbd_parts_payload.append(types.Part.from_bytes(data=sbd_bytes, mime_type='application/pdf'))
                     
-                    sbd_prompt = "Analyze order sheet. Return JSON matching: {\"style_id\": \"string\", \"total_quantity\": integer, \"size_breakdown\": {\"Size\": integer}}"
-                    if sbd_content_str: sbd_parts_payload.append(types.Part.from_text(text=sbd_content_str))
+                    # SIÊU PROMPT: Ép AI kết hợp dòng Size (26, 28, 29) với dòng Inseam (30, 32) nằm ngay dưới nó
+                    sbd_prompt = """You are a garment production AI. Analyze the 'Quantity Details' table inside this garment order sheet.
+                    CRITICAL TABLE STRUCTURE INSTRUCTIONS:
+                    1. The size header is split into TWO stacked rows. For example, a column has '26 X' on the upper row and '30' directly below it on the next row. You must combine them vertically to form the full size name, e.g., '26 X 30'.
+                    2. Another column has '29 X' and '32' below it, which means the size is '29 X 32'. Treat each vertical pair as a unique Size Name key.
+                    3. Underneath this combined size row, extract the actual production quantity numbers (e.g., 88, 156, 150, 122, 105...).
+                    4. Identify the 'Style' or 'Key Item' number (e.g., '00143' or from 'Key Item: 6082...').
+                    5. Find the 'Total' quantity (e.g., 2500).
+
+                    Strictly output a clean, valid raw JSON object matching this schema exactly, do not include any markdown format tags like ```json:
+                    {
+                      "style_id": "string",
+                      "total_quantity": integer,
+                      "size_breakdown": {
+                        "26 X 30": 88,
+                        "28 X 30": 156,
+                        "29 X 30": 150,
+                        "29 X 32": 122
+                      }
+                    }"""
+                    
+                    if sbd_content_str: 
+                        sbd_parts_payload.append(types.Part.from_text(text=sbd_content_str))
                     sbd_parts_payload.append(types.Part.from_text(text=sbd_prompt))
                     
                     try:
                         import json
-                        res_sbd = client_ai.models.generate_content(model='gemini-2.5-flash', contents=sbd_parts_payload, config=types.GenerateContentConfig(response_mime_type="application/json"))
+                        res_sbd = client_ai.models.generate_content(
+                            model='gemini-2.5-flash', 
+                            contents=sbd_parts_payload, 
+                            config=types.GenerateContentConfig(response_mime_type="application/json")
+                        )
                         clean_text = res_sbd.text.strip().replace("```json", "").replace("```", "").strip()
                         st.session_state["sbd_parsed_data"] = json.loads(clean_text)
                     except Exception as e:
-                        st.error(f"❌ Lỗi xử lý hoặc trả dữ liệu từ Gemini AI: {str(e)}")
+                        st.error(f"❌ Gemini gặp khó khăn khi gộp hàng bảng SBD: {str(e)}")
                         st.stop()
                         
                 with st.spinner(f"📐 Bước 2/2: Đang bóc tách thông số Techpack (Trang {start_page} đến {end_page})..."):
                     try:
-                        import pypdf
-                        # Tiến hành trích xuất các trang được chỉ định từ file Techpack gốc
-                        original_pdf = pypdf.PdfReader(io.BytesIO(file_tp.getvalue()))
-                        pdf_writer = pypdf.PdfWriter()
+                        try:
+                            import PyPDF2
+                            original_pdf = PyPDF2.PdfReader(io.BytesIO(file_tp.getvalue()))
+                            pdf_writer = PyPDF2.PdfWriter()
+                            for page_num in range(start_page - 1, min(end_page, len(original_pdf.pages))):
+                                pdf_writer.add_page(original_pdf.pages[page_num])
+                            trimmed_pdf_buffer = io.BytesIO()
+                            pdf_writer.write(trimmed_pdf_buffer)
+                            trimmed_pdf_bytes = trimmed_pdf_buffer.getvalue()
+                        except Exception:
+                            trimmed_pdf_bytes = file_tp.getvalue()
                         
-                        # Vòng lặp lấy đúng dải trang người dùng chọn (chuyển từ hệ số 1 sang hệ số index 0)
-                        for page_num in range(start_page - 1, min(end_page, len(original_pdf.pages))):
-                            pdf_writer.add_page(original_pdf.pages[page_num])
-                        
-                        # Xuất file PDF đã cắt gọn ra dạng bytes định dạng bộ nhớ tạm
-                        trimmed_pdf_buffer = io.BytesIO()
-                        pdf_writer.write(trimmed_pdf_buffer)
-                        trimmed_pdf_bytes = trimmed_pdf_buffer.getvalue()
-                        
-                        # Đưa file PDF ngắn gọn chạy qua hàm phân tích nặng
                         res_tp = process_single_pdf_batch(trimmed_pdf_bytes, file_tp.name)
                         if res_tp and res_tp.get("success"):
                             st.session_state["pur_tp_parsed_data"] = res_tp["data"]
@@ -1444,13 +1458,14 @@ elif menu_selection == "🛒 Purchase Consumption":
                             st.error(f"❌ Hàm Techpack trả về trạng thái thất bại: {res_tp.get('error', 'Không có chi tiết lỗi')}")
                             st.stop()
                     except Exception as e:
-                        st.error(f"❌ Lỗi nghiêm trọng tại bộ cắt trang hoặc hàm xử lý Techpack: {str(e)}")
+                        st.error(f"❌ Lỗi tại hàm xử lý Techpack: {str(e)}")
                         st.stop()
                     
                 st.session_state["purchase_ready"] = True
                 st.rerun()
 
     elif menu_sub.startswith("✂️ CHỨC NĂNG 2"):
+
 
 
 
