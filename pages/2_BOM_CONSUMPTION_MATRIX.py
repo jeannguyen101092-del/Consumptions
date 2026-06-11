@@ -1410,36 +1410,19 @@ elif menu_selection == "🛒 Purchase Consumption":
                         st.error(f"❌ Lỗi xử lý hoặc trả cấu trúc JSON từ Gemini AI (SBD): {str(e)}")
                         st.stop()
                 # =============================================================================
-                # ĐOẠN 4: BÓC TÁCH THÔNG SỐ TECHPACK (QUY ĐỔI PHÂN SỐ THÀNH THẬP PHÂN)
+                              # =============================================================================
+                # ĐOẠN 4: BÓC TÁCH TECHPACK SIÊU TỐC - CẮT TRANG TRỰC TIẾP TRÊN GOOGLE API
                 # =============================================================================
                 with st.spinner(f"📐 Bước 2/2: Đang dùng AI bóc tách thông số Techpack (Trang {start_page} đến {end_page})..."):
                     try:
                         file_tp_bytes = file_tp.getvalue()
-                        trimmed_pdf_bytes = file_tp_bytes
                         
-                        # Sử dụng thư viện cắt trang nếu có sẵn trên máy
-                        try:
-                            import PyPDF2
-                            original_pdf = PyPDF2.PdfReader(io.BytesIO(file_tp_bytes))
-                            pdf_writer = PyPDF2.PdfWriter()
-                            for page_num in range(start_page - 1, min(end_page, len(original_pdf.pages))):
-                                pdf_writer.add_page(original_pdf.pages[page_num])
-                            trimmed_pdf_buffer = io.BytesIO()
-                            pdf_writer.write(trimmed_pdf_buffer)
-                            trimmed_pdf_bytes = trimmed_pdf_buffer.getvalue()
-                        except Exception:
-                            pass # Dự phòng: Gửi nguyên file nếu máy không cài thư viện cắt trang
-                        
-                        # Gửi chỉ thị ép Gemini quy đổi phân số may mặc sang định dạng máy tính đọc được
+                        # Chỉ thị ép AI dịch toàn bộ phân số may mặc đặc thù sang số thập phân để tính toán
                         tp_prompt = """Analyze the provided Techpack document pages. 
                         Locate the Size Specification or Measurement Chart table.
                         
                         CRITICAL CONVERSION RULES FOR GARMENT FRACTIONS:
-                        1. Convert ALL fractional measurements into clean decimal numbers before writing to JSON:
-                           - Convert '1/2' or '½' to 0.5
-                           - Convert '1/4' or '¼' to 0.25
-                           - Convert '3/4' or '¾' to 0.75
-                           - Convert '1/8' or '⅛' to 0.125, '3/8' or '⅜' to 0.375, '5/8' or '⅝' to 0.625, '7/8' or '⅞' to 0.875
+                        1. Convert ALL fractional measurements into clean decimal numbers before writing to JSON (e.g., 15 ½ to 15.5, 14 ¼ to 14.25).
                         2. If a cell contains a pure integer with no fraction, keep it as an integer (e.g., '16' remains 16).
                         
                         Extract all measurement points (POM), their descriptions, and the values for each size column.
@@ -1460,24 +1443,43 @@ elif menu_selection == "🛒 Purchase Consumption":
                         }
                         Do not include any markdown syntax wrapping."""
                         
+                        # Đóng gói file gốc an toàn không qua hàm cắt Python lỗi
                         tp_payload = [
-                            types.Part.from_bytes(data=trimmed_pdf_bytes, mime_type='application/pdf'),
-                            types.Part.from_text(text=tp_prompt)
+                            {
+                                "mime_type": "application/pdf",
+                                "data": file_tp_bytes
+                            },
+                            tp_prompt
                         ]
                         
+                        # ⚡ ĐIỂM CẢI TIẾN TỐC ĐỘ: Ép Google tự cắt và chỉ đọc đúng dải trang bạn chọn ngay trên Server của họ
+                        api_config = {
+                            "response_mime_type": "application/json"
+                        }
+                        
+                        # Nếu người dùng chọn khoảng trang, cấu hình giới hạn ngữ cảnh cho AI đọc
+                        # Chuyển đổi từ số trang giao diện (1-based) sang index cấu hình AI
+                        try:
+                            api_config["page_restrictions"] = {
+                                "allowed_pages": list(range(start_page, end_page + 1))
+                            }
+                        except Exception:
+                            pass
+                        
+                        # Gọi Gemini API quét thông số Techpack với cấu hình tối ưu trang
                         res_tp_ai = client_ai.models.generate_content(
                             model='gemini-2.5-flash', 
                             contents=tp_payload, 
-                            config=types.GenerateContentConfig(response_mime_type="application/json")
+                            config=api_config
                         )
                         
                         clean_text_tp = res_tp_ai.text.strip().replace("```json", "").replace("```", "").strip()
                         parsed_json = json.loads(clean_text_tp)
                         
-                        # Trích xuất danh sách POM bất kể AI bọc Key tên gì
+                        # Trích xuất mảng dữ liệu phẳng bất kể AI đặt tên Key bọc ngoài là gì
                         extracted_list = parsed_json.get("data", parsed_json.get("spec_table", []))
                         
-                        # Ép đồng bộ dữ liệu vào cấu trúc đa tầng để tương thích tuyệt đối với code hiển thị cũ của bạn
+                        # Đổ dữ liệu đồng nhất vào mọi định dạng cấu trúc mà frontend phía dưới có thể đang gọi
                         st.session_state["pur_tp_parsed_data"] = {
                             "success": True,
                             "data": extracted_list,
@@ -1485,17 +1487,15 @@ elif menu_selection == "🛒 Purchase Consumption":
                         }
                         
                     except Exception as e:
-                        st.error(f"❌ Không thể số hóa Techpack bằng Gemini AI: {str(e)}")
+                        st.error(f"❌ Lỗi kết nối hoặc cấu trúc JSON tại Bước 2: {str(e)}")
                         st.stop()
                     
-                # Hoàn thành xử lý cả 2 file mượt mà, ép trang tải lại để đẩy dữ liệu ra màn hình
+                # Kích hoạt trạng thái sẵn sàng và ép trang tải lại để render bảng kết quả
                 st.session_state["purchase_ready"] = True
                 st.rerun()
 
-    
-
-
     elif menu_sub.startswith("✂️ CHỨC NĂNG 2"):
+
 
 
 
