@@ -1435,16 +1435,32 @@ elif menu_selection == "🛒 Purchase Consumption":
                     except Exception as e:
                         st.error(f"❌ Gemini gặp sự cố tại Bước 1 (SBD): {str(e)}")
                         st.stop()
-                # =============================================================================
-                # ĐOẠN B: SỐ HÓA THÔNG SỐ TECHPACK BƯỚC 2 (Đã chống lỗi Pydantic)
+                               # =============================================================================
+                # ĐOẠN B: SỐ HÓA THÔNG SỐ TECHPACK BƯỚC 2 (CẮT TRANG RAM VẬT LÝ BẰNG PYPDF2)
                 # =============================================================================
                 with st.spinner(f"📐 Bước 2/2: Đang dùng AI bóc tách thông số Techpack (Trang {start_page} đến {end_page})..."):
                     try:
                         file_tp_bytes = file_tp.getvalue()
+                        trimmed_pdf_bytes = file_tp_bytes
                         
-                        tp_prompt = f"""You are an expert garment patternmaker and data analyst.
-                        CRITICAL INSTRUCTION: Read only from page {start_page} to page {end_page} of this document. Ignore other pages.
-                        Locate the Size Specification or Measurement Chart table on these specified pages.
+                        # Thực hiện cắt nhỏ file PDF ngay trên RAM bằng PyPDF2 để giảm tải cho AI
+                        try:
+                            import PyPDF2
+                            original_pdf = PyPDF2.PdfReader(io.BytesIO(file_tp_bytes))
+                            pdf_writer = PyPDF2.PdfWriter()
+                            
+                            # Vòng lặp trích xuất đúng dải trang người dùng cấu hình (chuyển hệ số từ 1 về 0-index)
+                            for page_num in range(start_page - 1, min(end_page, len(original_pdf.pages))):
+                                pdf_writer.add_page(original_pdf.pages[page_num])
+                                
+                            trimmed_buffer = io.BytesIO()
+                            pdf_writer.write(trimmed_buffer)
+                            trimmed_pdf_bytes = trimmed_buffer.getvalue()
+                        except Exception:
+                            pass # Nếu server thiếu thư viện, hệ thống tự động fallback gửi file gốc an toàn
+                        
+                        tp_prompt = """You are an expert garment patternmaker and data analyst.
+                        Analyze the Size Specification or Measurement Chart table on the provided document pages.
                         
                         CRITICAL CONVERSION RULES FOR GARMENT FRACTIONS:
                         1. Convert ALL fractional measurements into clean decimal numbers before writing to JSON (e.g., 15 ½ to 15.5, 14 ¼ to 14.25).
@@ -1453,25 +1469,25 @@ elif menu_selection == "🛒 Purchase Consumption":
                         Extract all measurement points (POM), their descriptions, and the values for each size column.
                         
                         Strictly return a clean, valid raw JSON object wrapping the measurement data:
-                        {{
+                        {
                           "status": "success",
                           "success": true,
                           "data": [
-                            {{
+                            {
                               "pom_id": "string or null",
                               "description": "string",
-                              "measurements": {{
+                              "measurements": {
                                 "Size Name": "string or number"
-                              }}
-                            }}
+                              }
+                            }
                           ]
-                        }}
+                        }
                         Do not include any markdown syntax wrapping."""
 
                         # Gọi lệnh API Techpack dựa theo thư viện đang chạy thực tế trên server
                         if is_new_sdk:
                             tp_parts = [
-                                types.Part.from_bytes(data=file_tp_bytes, mime_type="application/pdf"),
+                                types.Part.from_bytes(data=trimmed_pdf_bytes, mime_type="application/pdf"),
                                 types.Part.from_text(text=tp_prompt)
                             ]
                             res_tp_ai = client_ai.models.generate_content(
@@ -1483,7 +1499,7 @@ elif menu_selection == "🛒 Purchase Consumption":
                         else:
                             model_old = google_genai.GenerativeModel('gemini-2.5-flash')
                             tp_parts = [
-                                {"mime_type": "application/pdf", "data": file_tp_bytes},
+                                {"mime_type": "application/pdf", "data": trimmed_pdf_bytes},
                                 tp_prompt
                             ]
                             res_tp_ai = model_old.generate_content(tp_parts, generation_config={"response_mime_type": "application/json"})
