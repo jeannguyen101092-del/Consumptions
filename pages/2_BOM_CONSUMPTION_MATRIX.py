@@ -1411,15 +1411,20 @@ elif menu_selection == "🛒 Purchase Consumption":
                         st.stop()
                 # =============================================================================
                               # =============================================================================
-                # ĐOẠN 4: BÓC TÁCH TECHPACK SIÊU TỐC - CẮT TRANG TRỰC TIẾP TRÊN GOOGLE API
+                                # =============================================================================
+                # ĐOẠN 4: BÓC TÁCH TECHPACK - TRUYỀN SỐ TRANG TRỰC TIẾP QUA PROMPT ĐỂ TĂNG TỐC
                 # =============================================================================
                 with st.spinner(f"📐 Bước 2/2: Đang dùng AI bóc tách thông số Techpack (Trang {start_page} đến {end_page})..."):
                     try:
                         file_tp_bytes = file_tp.getvalue()
                         
                         # Chỉ thị ép AI dịch toàn bộ phân số may mặc đặc thù sang số thập phân để tính toán
-                        tp_prompt = """Analyze the provided Techpack document pages. 
-                        Locate the Size Specification or Measurement Chart table.
+                        # Bổ sung yêu cầu ép AI chỉ đọc đúng khoảng trang do bạn chọn trên giao diện
+                        tp_prompt = f"""You are an expert garment patternmaker and data analyst.
+                        CRITICAL INSTRUCTION: Go directly to page {start_page} through page {end_page} of this document. 
+                        Ignore all other pages outside of this range.
+                        
+                        Locate the Size Specification or Measurement Chart table on these pages.
                         
                         CRITICAL CONVERSION RULES FOR GARMENT FRACTIONS:
                         1. Convert ALL fractional measurements into clean decimal numbers before writing to JSON (e.g., 15 ½ to 15.5, 14 ¼ to 14.25).
@@ -1428,22 +1433,22 @@ elif menu_selection == "🛒 Purchase Consumption":
                         Extract all measurement points (POM), their descriptions, and the values for each size column.
                         
                         Strictly return a clean, valid raw JSON object wrapping the measurement data:
-                        {
+                        {{
                           "status": "success",
                           "success": true,
                           "data": [
-                            {
+                            {{
                               "pom_id": "string or null",
                               "description": "string",
-                              "measurements": {
+                              "measurements": {{
                                 "Size Name": "string or number"
-                              }
-                            }
+                              }}
+                            }}
                           ]
-                        }
+                        }}
                         Do not include any markdown syntax wrapping."""
                         
-                        # Đóng gói file gốc an toàn không qua hàm cắt Python lỗi
+                        # Đóng gói file gốc an toàn, không dùng các hàm cắt lỗi
                         tp_payload = [
                             {
                                 "mime_type": "application/pdf",
@@ -1452,25 +1457,11 @@ elif menu_selection == "🛒 Purchase Consumption":
                             tp_prompt
                         ]
                         
-                        # ⚡ ĐIỂM CẢI TIẾN TỐC ĐỘ: Ép Google tự cắt và chỉ đọc đúng dải trang bạn chọn ngay trên Server của họ
-                        api_config = {
-                            "response_mime_type": "application/json"
-                        }
-                        
-                        # Nếu người dùng chọn khoảng trang, cấu hình giới hạn ngữ cảnh cho AI đọc
-                        # Chuyển đổi từ số trang giao diện (1-based) sang index cấu hình AI
-                        try:
-                            api_config["page_restrictions"] = {
-                                "allowed_pages": list(range(start_page, end_page + 1))
-                            }
-                        except Exception:
-                            pass
-                        
-                        # Gọi Gemini API quét thông số Techpack với cấu hình tối ưu trang
+                        # Gọi Gemini API quét thông số Techpack với config chuẩn hóa sạch sẽ
                         res_tp_ai = client_ai.models.generate_content(
                             model='gemini-2.5-flash', 
                             contents=tp_payload, 
-                            config=api_config
+                            config={"response_mime_type": "application/json"}
                         )
                         
                         clean_text_tp = res_tp_ai.text.strip().replace("```json", "").replace("```", "").strip()
@@ -1495,6 +1486,7 @@ elif menu_selection == "🛒 Purchase Consumption":
                 st.rerun()
 
     elif menu_sub.startswith("✂️ CHỨC NĂNG 2"):
+
 
 
 
