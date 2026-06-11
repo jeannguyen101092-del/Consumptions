@@ -1433,7 +1433,7 @@ if st.session_state.get("purchase_ready") is True and menu_sub.startswith("✂�
                         "length_yds": round(cad_length_meters_list[idx_c] * 1.09361, 2)
                     })
             st.rerun()
-        if st.session_state.get("step1_marker_ready"):
+                if st.session_state.get("step1_marker_ready"):
             if not size_breakdown_main:
                 st.warning("⚠️ Không tìm thấy dữ liệu phân bổ sản lượng size phẳng.")
             else:
