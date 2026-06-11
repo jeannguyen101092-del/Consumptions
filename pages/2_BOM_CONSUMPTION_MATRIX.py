@@ -1526,7 +1526,7 @@ if st.session_state.get("purchase_ready") is True:
                             "length_yds": round(cad_length_meters_list[idx_c] * 1.09361, 2)
                         })
                 st.rerun()
-            if st.session_state["step1_marker_ready"]:
+                        if st.session_state["step1_marker_ready"]:
                 if not size_breakdown_main:
                     st.warning("⚠️ Không tìm thấy dữ liệu phân bổ sản lượng size phẳng.")
                 else:
@@ -1628,6 +1628,8 @@ if st.session_state.get("purchase_ready") is True:
                                         "notes": f"Lưu lịch sử thành công lúc: {now_str}"
                                     }
                                     response_db = requests.post(url_save_db, headers=save_headers, json=save_payload)
-                                    if response_db.status_code in: st.success("💾 Đã đồng bộ dữ liệu tác nghiệp kỹ thuật lên hệ thống Supabase thành công!")
-                                    else: st.error(f"Lỗi phản hồi từ Supabase (Code {response_db.status_code}): {response_db.text}")
+                                    if response_db.status_code in: 
+                                        st.success("💾 Đã đồng bộ dữ liệu tác nghiệp kỹ thuật lên hệ thống Supabase thành công!")
+                                    else: 
+                                        st.error(f"Lỗi phản hồi từ Supabase (Code {response_db.status_code}): {response_db.text}")
                                 except Exception as db_err: st.error(f"Lỗi kết nối cơ sở dữ liệu: {str(db_err)}")
