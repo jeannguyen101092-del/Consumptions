@@ -1585,39 +1585,34 @@ elif menu_selection == "🛒 Purchase Consumption":
                 # =============================================================================
                # =============================================================================
                # =============================================================================
-        # ĐOẠN 5: Ô CHAT AI TƯƠNG TÁC TÍNH ĐỊNH MỨC THEO YÊU CẦU & NÚT XÓA CHAT (SỬA LỖI CLIENT_AI)
+                # =============================================================================
+        # ĐOẠN 5: Ô CHAT AI TỰ ĐỘNG PHÂN TÍCH ĐA ĐIỂM ĐO (WAIST + INSEAM) - CHỐNG CÀO BẰNG
         # =============================================================================
-        st.markdown("<p style='font-weight:700; font-size:16px; color:#1E3A8A; margin-top:25px;'>🧠 TRỢ LÝ AI: TƯƠNG TÁC TÍNH ĐỊNH MỨC THEO LỆNH KHÁCH HÀNG</p>", unsafe_allow_html=True)
+        st.markdown("<p style='font-weight:700; font-size:16px; color:#1E3A8A; margin-top:25px;'>🧠 TRỢ LÝ AI: PHÂN TÍCH ĐA ĐIỂM ĐO (WAIST + INSEAM) TÍNH ĐỊNH MỨC TRUNG BÌNH</p>", unsafe_allow_html=True)
         
-        # Khởi tạo bộ nhớ lịch sử Chat nếu chưa có
         if "purchase_chat_history" not in st.session_state:
             st.session_state["purchase_chat_history"] = []
             
-        # Nút xóa lịch sử Chat nằm gọn gàng bên góc
         col_chat_header, col_clear_btn = st.columns([4.0, 1.0])
         with col_clear_btn:
             if st.button("🗑️ XÓA LỊCH SỬ CHAT", use_container_width=True, type="secondary", key="clear_consumption_chat_btn"):
                 st.session_state["purchase_chat_history"] = []
                 st.rerun()
                 
-        # Hiển thị các tin nhắn chat trước đó (nếu có)
         for chat in st.session_state["purchase_chat_history"]:
             with st.chat_message(chat["role"]):
                 st.write(chat["content"])
                 if "df_data" in chat:
                     st.dataframe(chat["df_data"], use_container_width=True, hide_index=True)
 
-        # Ô gõ nội dung Chat ra lệnh cho AI tính định mức
-        user_msg = st.chat_input("Nhập yêu cầu (Ví dụ: Tính định mức dựa trên vòng bụng W005, size chuẩn 32 định 1y)...", key="consumption_chat_input_box")
+        user_msg = st.chat_input("Nhập yêu cầu (Ví dụ: Tính định mức dựa trên vòng bụng W005, size chuẩn 30 x 30 định 1.73y)...", key="consumption_chat_input_box")
         
         if user_msg:
-            # Hiển thị ngay tin nhắn của người dùng lên màn hình
             with st.chat_message("user"):
                 st.write(user_msg)
             st.session_state["purchase_chat_history"].append({"role": "user", "content": user_msg})
             
-            with st.spinner("🧠 AI đang phân tích yêu cầu may mặc và tính toán định mức..."):
-                # CẤU HÌNH SỬA LỖI: Khởi tạo lại Client AI độc lập cho ô chat
+            with st.spinner("🚀 AI đang quét toàn bộ trang thông số, phân tích độ lệch 2 chiều (Waist & Inseam)..."):
                 if "get_secure_gemini_key" in globals(): gemini_key = get_secure_gemini_key()
                 else: gemini_key = st.secrets.get("GEMINI_API_KEY", "").strip()
                 
@@ -1627,50 +1622,55 @@ elif menu_selection == "🛒 Purchase Consumption":
                     
                 import json
                 import io
-                
-                # Xác thực kết nối SDK mới an toàn
                 from google import genai
                 client_ai_chat = genai.Client(api_key=gemini_key)
                 
-                # Chuẩn bị dữ liệu ngữ cảnh hiện tại để ném vào prompt cho AI xử lý cấu trúc
                 sbd_res = st.session_state.get("sbd_parsed_data", {})
                 tp_res = st.session_state.get("pur_tp_parsed_data", {})
                 raw_list = tp_res.get("data", []) if isinstance(tp_res, dict) else tp_res
                 
-                chat_prompt = f"""You are a smart apparel production manager. 
-                The user has just given this instruction in Vietnamese: "{user_msg}"
+                # SIÊU PROMPT: Ép AI thực hiện toán đồ phân tích lệch 2 trục độc lập
+                chat_prompt = f"""You are an advanced apparel production engineer and cost estimator.
+                The user has given this instruction in Vietnamese: "{user_msg}"
                 
-                Based on this instruction, look at the following Techpack specifications and SBD production quantities.
+                CRITICAL PROBLEM TO SOLVE:
+                Previously, the system only looked at the Waist circumference, meaning sizes like '32 X 30' and '32 X 34' got the exact same consumption. This is WRONG because longer pants use more fabric. You must analyze BOTH Waist and Length/Inseam changes from the entire uploaded Techpack data.
                 
-                CURRENT DATA CONTEXT:
-                - SBD Data (Quantities per size): {json.dumps(sbd_res)}
-                - Techpack Spec Data (Measurements): {json.dumps(raw_list)}
+                ANALYTICAL REQUIREMENTS:
+                1. Parse the user's input to find the baseline Waist (e.g., 30 or 32), baseline Inseam (e.g., 30 or 32), and the base consumption (e.g., 1.73y).
+                2. Scan the Techpack Data to find TWO types of metrics:
+                   - A Waist metric (e.g., W005 Waist Width). Find the baseline value for the base size.
+                   - A Length/Inseam related metric (e.g., G005 Knee Position which changes per inseam length 28/30/32/34, or any outseam/inseam data). Find the baseline value for the base inseam.
+                3. For every unique size combo in the SBD list (e.g., '32 X 34'):
+                   - Extract current Waist (32) and current Inseam (34).
+                   - Calculate Waist Ratio = (Current Waist Spec / Base Waist Spec).
+                   - Calculate Length Ratio = (Current Length Spec for Inseam 34 / Base Length Spec for Base Inseam). If a POM like G005 has specific sub-rows for inseams, use the exact value from that sub-row.
+                   - Combined Size Consumption = Base Consumption * Waist Ratio * Length Ratio.
+                   - Total Fabric Demand for this size = Combined Size Consumption * SBD Quantity.
+                4. Sum all Total Fabric Demands and divide by Total SBD Quantity to output the final accurate Weighted Average Consumption.
                 
-                YOUR TASKS:
-                1. Identify which 'pom_id' (e.g., W005, H003, etc.) matches the user's request (e.g., vòng bụng, mông, dài quần...). If not specified, look for 'W005' or any waist measurement as a default.
-                2. Identify the target baseline size (e.g., 30 or 32) and its base consumption yardage (e.g., 1.73y or 1y) from the user's message text.
-                3. Calculate the percentage difference for all other sizes compared to the base size using that specific POM value.
-                4. Multiply each size's calculated consumption by its SBD production quantity to compute the final accurate Weighted Average Consumption for the whole order.
-                
-                You must respond strictly with a valid raw JSON object matching this structure (no markdown code blocks):
+                Strictly return a clean raw JSON object with no markdown formatting:
                 {{
-                  "explanation": "Write a short summary in Vietnamese explaining which POM was chosen, the base size, and the final average consumption.",
-                  "chosen_pom": "POM CODE",
-                  "base_size": "SIZE",
-                  "base_consumption": 1.73,
+                  "explanation": "Giải trình bằng tiếng Việt: Nêu rõ điểm đo vòng eo và điểm đo chiều dài/gối nào đã được chọn để đối chiếu, giá trị gốc của size mốc, và con số định mức trung bình cuối cùng sau khi đã tính toán biến thiên 2 chiều.",
                   "final_average_consumption": 1.715,
                   "breakdown_table": [
                     {{
-                      "Size Đơn Hàng": "26 X 30",
-                      "Thông Số": 14.25,
-                      "Tỷ Lệ Lệch vs Size Gốc": "-10.94%",
-                      "ĐM Từng Size (Yds)": 1.54,
-                      "Sản Lượng (Pcs)": 88
+                      "Size Đơn Hàng": "32 X 30",
+                      "Thông Số Eo": 16.75,
+                      "Thông Số Dài/Gối": 19.25,
+                      "ĐM Từng Size (Yds)": 1.71,
+                      "Sản Lượng (Pcs)": 177
+                    }},
+                    {{
+                      "Size Đơn Hàng": "32 X 34",
+                      "Thông Số Eo": 16.75,
+                      "Thông Số Dài/Gối": 20.25,
+                      "ĐM Từng Size (Yds)": 1.79,
+                      "Sản Lượng (Pcs)": 209
                     }}
                   ]
                 }}"""
                 
-                # Gọi API Gemini xử lý prompt tương tác chat thông qua client đã khởi tạo
                 try:
                     res_chat_ai = client_ai_chat.models.generate_content(
                         model='gemini-2.5-flash', 
@@ -1681,11 +1681,9 @@ elif menu_selection == "🛒 Purchase Consumption":
                     clean_res_text = res_chat_ai.text.strip().replace("```json", "").replace("```", "").strip()
                     res_dict = json.loads(clean_res_text)
                     
-                    # Trích xuất các kết quả từ JSON của AI
-                    ai_reply = res_dict.get("explanation", "Đã tính toán xong định mức trung bình dựa theo yêu cầu của bạn.")
+                    ai_reply = res_dict.get("explanation", "Đã phân tích xong định mức trung bình biến thiên theo 2 trục eo và chiều dài.")
                     table_rows = res_dict.get("breakdown_table", [])
                     
-                    # Tạo cấu trúc lưu vào lịch sử hiển thị của Streamlit
                     chat_response_packet = {"role": "assistant", "content": ai_reply}
                     
                     if table_rows:
@@ -1693,12 +1691,11 @@ elif menu_selection == "🛒 Purchase Consumption":
                         df_ai_calc = pd.DataFrame(table_rows)
                         chat_response_packet["df_data"] = df_ai_calc
                         
-                    # Lưu vào session state và ép render lại giao diện chat mới
                     st.session_state["purchase_chat_history"].append(chat_response_packet)
                     st.rerun()
                     
                 except Exception as e:
-                    st.error(f"❌ Trợ lý AI gặp lỗi khi phân tích câu lệnh: {str(e)}")
+                    st.error(f"❌ Trợ lý AI gặp lỗi khi phân tích ma trận đa điểm đo: {str(e)}")
                     st.stop()
 
         st.markdown("<hr style='border:1px solid #E2E8F0; margin-top:20px; margin-bottom:20px;'>", unsafe_allow_html=True)
