@@ -1231,7 +1231,7 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
     # THIẾT KẾ CỤM ĐIỀU KHIỂN CHAT BOX THÔNG MINH
     chat_header_col1, chat_header_col2 = st.columns([3.2, 0.8])
     with chat_header_col1:
-        st.markdown("### 💬 TRỢ LÝ AI PHÂN TÍCH ĐỊNH MỨC SẢN XUẤT (HỎI ĐÂU ĐÁP ĐÓ)")
+        st.markdown("### 💬 TRỢ LÝ AI PHÂN TÍCH ĐỊNH MỨC SẢN XUẤT ")
     with chat_header_col2:
         # ✅ THÊM NÚT XÓA CHAT NHANH NGAY TẠI KHU VỰC KHUNG CHAT
         if st.button("🗑️ XÓA LỊCH SỬ CHAT", key="direct_clear_chat_btn", use_container_width=True):
