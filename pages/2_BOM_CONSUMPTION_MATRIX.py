@@ -2027,7 +2027,7 @@ elif menu_selection == "🛒 Purchase Consumption":
                                 st.success(f"🎉 Đã đồng bộ dữ liệu mã hàng {style_id_input} lên hệ thống Supabase thành công!")
                         except Exception: pass
 
-                    # Phân tích bẻ chuỗi kích cỡ Inseam từ SBD phẳng
+                                        # 🎯 THUẬT TOÁN BÈ CHUỖI VÀ PHÂN NHÓM GOM CỤM CỘT GIÀNG/SIZE AN TOÀN
                     parsed_size_columns = []
                     for col_name in active_sizes:
                         col_str = str(col_name).strip()
@@ -2035,7 +2035,9 @@ elif menu_selection == "🛒 Purchase Consumption":
                         if any(char in col_clean.lower() for char in ["x", "-", "/"]):
                             parts = re.split(r'[\sXx\-\/]+', col_clean)
                             if len(parts) >= 2:
-                                parsed_size_columns.append({"original": col_name, "size_num": parts.strip(), "giang_num": parts.strip()})
+                                size_val = str(parts[0]).strip()
+                                giang_val = str(parts[1]).strip()
+                                parsed_size_columns.append({"original": col_name, "size_num": size_val, "giang_num": giang_val})
                             else:
                                 parsed_size_columns.append({"original": col_name, "size_num": col_clean, "giang_num": str(detected_inseam)})
                         else:
@@ -2049,7 +2051,8 @@ elif menu_selection == "🛒 Purchase Consumption":
                     ordered_size_keys = [item["original"] for item in parsed_size_columns]
                     other_tech_keys = ["Số lớp", "Số bàn", "Dài sơ đồ", "Số sp/SĐ", "Đ.Mức SĐ", "Vải cần (M)"]
                     df_final_report = df_final_report[["SIZE"] + ordered_size_keys + other_tech_keys]
-                    # --- KHỐI KẾT XUẤT FILE EXCEL MỸ THUẬT ---
+
+                    # --- KHỐI KẾT XUẤT FILE EXCEL MỸ THUẬT THƯƠNG MẠI ---
                     try:
                         buffer = io.BytesIO()
                         with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
@@ -2070,7 +2073,7 @@ elif menu_selection == "🛒 Purchase Consumption":
                                 s_val = item['size_num']
                                 orig_key = item['original']
                                 po_qty_val = int(size_breakdown_main.get(orig_key, 0))
-                                excel_multi_cols.append((f"GIÀNG {item['giang_num']}", int(s_val) if str(s_val).isdigit() else s_val, po_qty_val)) # Đã gọt bỏ chữ SL ở Excel
+                                excel_multi_cols.append((f"GIÀNG {item['giang_num']}", int(s_val) if str(s_val).isdigit() else s_val, po_qty_val))
                             for col_name in other_tech_keys:
                                 excel_multi_cols.append(("THÔNG SỐ TÁC NGHIỆP", col_name, ""))
                                 
@@ -2101,20 +2104,17 @@ elif menu_selection == "🛒 Purchase Consumption":
                         
                         st.download_button(label="📥 XUẤT FILE EXCEL TÁC NGHIỆP CHUẨN THƯƠNG MẠI", data=buffer.getvalue(), file_name=f"BÁO_CÁO_TÁC_NGHIỆP_BÀN_CẮT_{style_id_input}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True, key="excel_download_btn_final_v105")
                     except Exception: pass
-
-                    # 🎯 DỰNG MA TRẬN 3 TẦNG TRÊN WEB CHUẨN KỸ THUẬT: Đã bổ sung nhãn thông số đầy đủ cho hàng trên để không bị mất chữ
+                    # 🎯 DỰNG GIAO DIỆN WEB 3 TẦNG ĐỒNG BỘ: Đã điền nhãn đầy đủ cho đuôi bảng để không mất chữ
                     web_multi_cols = [("GIÀNG / SIZE / SL", "SIZE", "SẢN LƯỢNG")]
                     for item in parsed_size_columns:
                         orig_key = item['original']
                         po_qty_val = int(size_breakdown_main.get(orig_key, 0))
-                        # Tách biệt trần trụi: Tầng 1 ghi Giàng, Tầng 2 ghi số Size, Tầng 3 ghi số Sản lượng trần (Bỏ chữ SL)
                         web_multi_cols.append((f"GIÀNG: {item['giang_num']}", f"{item['size_num']}", f"{po_qty_val}"))
                     for col_name in other_tech_keys:
-                        # 🎯 KHÔI PHỤC THÔNG SỐ: Điền nhãn đồng bộ cho cả 3 tầng để đuôi bảng hiện đầy đủ thông tin kỹ thuật
                         web_multi_cols.append(("THÔNG SỐ TÁC NGHIỆP", "THÔNG SỐ TÁC NGHIỆP", col_name))
                     df_final_report.columns = pd.MultiIndex.from_tuples(web_multi_cols)
 
-                    # 🎯 THUẬT TOÁN NHUỘM MÀU TRÊN WEB: Đã phối màu xanh nhạt cho Giàng, xanh đậm hơn cho SL, xanh Mint cho thông số đuôi
+                    # Thuật toán tô vàng cho các ô có số lượng tỷ lệ nhảy sơ đồ
                     def highlight_ratios_and_headers(x):
                         color_df = pd.DataFrame('', index=x.index, columns=x.columns)
                         for r in range(len(x)):
@@ -2127,17 +2127,17 @@ elif menu_selection == "🛒 Purchase Consumption":
 
                     styled_df_report = df_final_report.style.apply(highlight_ratios_and_headers, axis=None)
 
-                    # Inject CSS ép kiểu đồ họa trực tiếp bọc màu cho 3 tầng tiêu đề (Thượng tầng bảng)
+                    # 🎯 INJECT CSS: Phối màu phân cấp 3 tầng Thượng tầng Web theo đúng yêu cầu
                     st.markdown("""
                         <style>
-                            /* Tầng 1: Hàng Giàng nhuộm màu Xanh dương nhạt */
+                            /* Tầng 1: Hàng Giàng đổ màu Xanh dương nhạt */
                             th.col_heading.level0 { background-color: #E0F2FE !important; color: #0369A1 !important; font-weight: 700 !important; font-size: 11px !important; text-align: center !important; }
-                            /* Tầng 2: Hàng số Size giữ màu trắng sạch thoáng mắt */
+                            /* Tầng 2: Hàng số Size trần giữ nền trắng thoáng mắt */
                             th.col_heading.level1 { background-color: #F8FAFC !important; color: #334155 !important; font-weight: 700 !important; font-size: 12px !important; text-align: center !important; }
-                            /* Tầng 3: Hàng Sản lượng đơn hàng nhuộm màu Xanh dương đậm hơn */
+                            /* Tầng 3: Hàng Sản lượng PO đổ màu Xanh dương đậm hơn chút */
                             th.col_heading.level2 { background-color: #BAE6FD !important; color: #0369A1 !important; font-weight: 700 !important; font-size: 11px !important; text-align: center !important; }
                             
-                            /* Đuôi bảng: Nhuộm dải màu xanh Mint đồng bộ cho vùng thông số kỹ thuật tác nghiệp */
+                            /* Đuôi bảng: Nhuộm dải màu xanh Mint đồng bộ cho vùng thông số kỹ thuật */
                             th.col_heading[id*="THÔNG SỐ TÁC NGHIỆP"] { background-color: #DCFCE7 !important; color: #166534 !important; font-weight: 700 !important; }
                         </style>
                     """, unsafe_allow_html=True)
