@@ -1506,7 +1506,12 @@ elif menu_selection == "🛒 Purchase Consumption":
         # =============================================================================
         sbd_data_store = st.session_state.get("sbd_parsed_data_c2", {})
         
-        if isinstance(sbd_data_store, dict) and sbd_data_store:
+        # Ép in trực tiếp dữ liệu trong bộ nhớ ra để kiểm tra AI có lưu thành công không
+st.write("Dữ liệu trong bộ nhớ C2 hiện tại là:", st.session_state.get("sbd_parsed_data_c2"))
+
+# Sửa dòng if thành True để ép bung toàn bộ form nhập CAD ra bất kể điều kiện gì
+if True:
+
             import re
             detected_style_id = sbd_data_store.get("style_id", "UNKNOWN_STYLE")
             detected_total_po = sbd_data_store.get("total_quantity", 0)
