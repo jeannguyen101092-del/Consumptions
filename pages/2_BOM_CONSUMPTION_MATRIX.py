@@ -1568,6 +1568,33 @@ elif menu_selection == "🛒 Purchase Consumption":
                             "code": cad_names_list[idx_c], 
                             "length_yds": round(cad_length_meters_list[idx_c] * 1.09361, 2)
                         })
+                                    # =============================================================================
+            # CHỨC NĂNG 2 - ĐOẠN B-2: BỘ VẼ MẢNG SẢN LƯỢNG SIZE PHẲNG BÀN CẮT (ÉP LỘ DIỆN KẾT QUẢ)
+            # =============================================================================
+            st.markdown("---")
+            st.markdown("##### 📊 MA TRẬN PHÂN BỔ SẢN LƯỢNG CHI TIẾT TỪNG SIZE (SBD)")
+            
+            if size_breakdown_main:
+                import pandas as pd
+                # Chuyển đổi từ cấu trúc JSON Dictionary từ AI sang bảng phẳng DataFrame
+                flat_size_rows = []
+                for sz_key, qty_val in size_breakdown_main.items():
+                    flat_size_rows.append({
+                        "Kích cỡ tác nghiệp (Size)": sz_key,
+                        "Số lượng đơn hàng (Pcs)": int(qty_val)
+                    })
+                
+                df_sbd_c2_display = pd.DataFrame(flat_rows) if 'flat_rows' in locals() and flat_rows else pd.DataFrame(flat_size_rows)
+                
+                # Hiển thị trực quan bảng số lượng lên màn hình giao diện
+                st.dataframe(df_sbd_c2_display, use_container_width=True, hide_index=True)
+                
+                # Bản giải trình tóm tắt nhanh tổng sản lượng
+                st.info(f"📋 **Thông báo hệ thống:** Đã đồng bộ cấu trúc mảng cho mã hàng `{style_id_input if 'style_id_input' in locals() else detected_style_id}`. Tổng sản lượng ma trận SBD đạt `{detected_total_po:,} Pcs` ứng với `{len(size_breakdown_main)}` kích cỡ phân bổ phẳng.")
+            else:
+                st.warning("⚠️ Cấu trúc phân bổ size từ file SBD trống hoặc không hợp lệ.")
+            st.markdown("---")
+
             # -----------------------------------------------------------------------------
                         # -----------------------------------------------------------------------------
             # CHỨC NĂNG 2 - ĐOẠN C: ĐỒ HỌA EXCEL CHUYÊN NGHIỆP VÀ ĐỒNG BỘ CLOUD SUPABASE (SỬA LỖI CÚ PHÁP)
