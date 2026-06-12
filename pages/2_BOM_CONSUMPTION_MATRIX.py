@@ -1968,7 +1968,7 @@ elif menu_selection == "🛒 Purchase Consumption":
                 if trigger_consumption:
                     st.session_state["consumption_activated"] = True
                     st.rerun()
-                    # BƯỚC 3: LIÊN KẾT ĐỐI CHIẾU DỮ LIỆU Ô CAD, ĐẨY SUPABASE & KẾT XUẤT EXCEL THƯƠNG MẠI
+                # BƯỚC 3: LIÊN KẾT ĐỐI CHIẾU DỮ LIỆU Ô CAD, ĐẨY SUPABASE & KẾT XUẤT EXCEL ĐÓNG KHUNG CHUẨN
                 if st.session_state.get("auto_cutting_results") is not None:
                     import re
                     import io
@@ -2014,7 +2014,7 @@ elif menu_selection == "🛒 Purchase Consumption":
                     total_fabric_yds_final = total_fabric_m * 1.09361
                     final_avg_yield = total_fabric_yds_final / (total_cut_pcs_sum if total_cut_pcs_sum > 0 else 1)
                     
-                    if st.button("💾 ĐẨY DỮ LIỆU TÁC NGHIỆP LÊN DATABASE SUPABASE", type="secondary", use_container_width=True, key="sb_sync_btn_final_c2_v30"):
+                    if st.button("💾 ĐẨY DỮ LIỆU TÁC NGHIỆP LÊN DATABASE SUPABASE", type="secondary", use_container_width=True, key="sb_sync_btn_final_c2_v35"):
                         try:
                             payload_db = {
                                 "style_name": str(style_id_input).strip().upper(), "po_quantity": int(po_qty_input),
@@ -2024,10 +2024,10 @@ elif menu_selection == "🛒 Purchase Consumption":
                             sb_instance = globals().get("supabase", globals().get("supabase_client", st.session_state.get("supabase")))
                             if sb_instance:
                                 sb_instance.table("tac_nghiep_ban_cat").insert(payload_db).execute()
-                                st.success(f"🎉 Đã đồng bộ dữ liệu mã hàng {style_id_input} lên hệ thống Supabase!")
+                                st.success(f"🎉 Đã đồng bộ dữ liệu mã hàng {style_id_input} lên hệ thống Supabase thành công!")
                         except Exception: pass
 
-                    # Phân tích cú pháp bẻ chuỗi kích cỡ Inseam
+                    # Phân tích bẻ chuỗi kích cỡ Inseam từ SBD phẳng
                     parsed_size_columns = []
                     for col_name in active_sizes:
                         col_str = str(col_name).strip()
@@ -2035,11 +2035,7 @@ elif menu_selection == "🛒 Purchase Consumption":
                         if any(char in col_clean.lower() for char in ["x", "-", "/"]):
                             parts = re.split(r'[\sXx\-\/]+', col_clean)
                             if len(parts) >= 2:
-                                parsed_size_columns.append({
-                                    "original": col_name, 
-                                    "size_num": str(parts[0]).strip(), 
-                                    "giang_num": str(parts[1]).strip()
-                                })
+                                parsed_size_columns.append({"original": col_name, "size_num": parts.strip(), "giang_num": parts.strip()})
                             else:
                                 parsed_size_columns.append({"original": col_name, "size_num": col_clean, "giang_num": str(detected_inseam)})
                         else:
@@ -2053,18 +2049,12 @@ elif menu_selection == "🛒 Purchase Consumption":
                     ordered_size_keys = [item["original"] for item in parsed_size_columns]
                     other_tech_keys = ["Số lớp", "Số bàn", "Dài sơ đồ", "Số sp/SĐ", "Đ.Mức SĐ", "Vải cần (M)"]
                     df_final_report = df_final_report[["SIZE"] + ordered_size_keys + other_tech_keys]
-                    # --- KHỐI KẾT XUẤT VÀ ĐÓNG KHUNG FILE EXCEL MỸ THUẬT ---
+                    # --- KHỐI KẾT XUẤT FILE EXCEL MỸ THUẬT ---
                     try:
                         buffer = io.BytesIO()
                         with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
                             from openpyxl.styles import PatternFill, Font, Border, Side, Alignment
                             from openpyxl.utils import get_column_letter
-                            
-                            navy_fill = PatternFill(start_color="1E3A8A", end_color="1E3A8A", fill_type="solid")
-                            white_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
-                            gray_fill = PatternFill(start_color="F1F5F9", end_color="F1F5F9", fill_type="solid")
-                            mint_fill = PatternFill(start_color="D1FAE5", end_color="D1FAE5", fill_type="solid")
-                            yellow_fill = PatternFill(start_color="FEF08A", end_color="FEF08A", fill_type="solid")
                             
                             header_data = {
                                 "THÔNG TIN ĐƠN HÀNG TÁC NGHIỆP BÀN CẮT CHUẨN": [
@@ -2075,13 +2065,12 @@ elif menu_selection == "🛒 Purchase Consumption":
                             }
                             pd.DataFrame(header_data).to_excel(writer, sheet_name="BaoCao_TacNghiep", index=False, startrow=0)
                             
-                            # Dựng 3 tầng tiêu đề cho Excel: GIÀNG -> SIZE -> SẢN LƯỢNG
                             excel_multi_cols = [("GIÀNG", "SIZE", "SẢN LƯỢNG")]
                             for item in parsed_size_columns:
                                 s_val = item['size_num']
                                 orig_key = item['original']
                                 po_qty_val = int(size_breakdown_main.get(orig_key, 0))
-                                excel_multi_cols.append((f"GIÀNG {item['giang_num']}", int(s_val) if str(s_val).isdigit() else s_val, f"SL: {po_qty_val}"))
+                                excel_multi_cols.append((f"GIÀNG {item['giang_num']}", int(s_val) if str(s_val).isdigit() else s_val, po_qty_val)) # Đã gọt bỏ chữ SL ở Excel
                             for col_name in other_tech_keys:
                                 excel_multi_cols.append(("THÔNG SỐ TÁC NGHIỆP", col_name, ""))
                                 
@@ -2094,25 +2083,13 @@ elif menu_selection == "🛒 Purchase Consumption":
                             factory_border = Border(left=thin_side, right=thin_side, top=thin_side, bottom=thin_side)
                             align_center = Alignment(horizontal="center", vertical="center", wrap_text=True)
                             
-                            worksheet.merge_cells("A1:C1")
-                            worksheet["A1"].fill = navy_fill; worksheet["A1"].font = white_font
-                            for r in range(2, 8):
-                                worksheet.cell(row=r, column=1).font = Font(name="Calibri", size=11, bold=True, color="1E3A8A")
-                            
                             for r_idx in range(11, worksheet.max_row + 1):
-                                is_title_row_1 = (r_idx == 11)
-                                is_title_row_2 = (r_idx == 12)
-                                is_title_row_3 = (r_idx == 13)
                                 is_balance_row = (worksheet.cell(row=r_idx, column=2).value == "Balance")
-                                
                                 for c_idx in range(1, worksheet.max_column + 1):
                                     cell = worksheet.cell(row=r_idx, column=c_idx); cell.border = factory_border; cell.alignment = align_center
-                                    if is_title_row_1: cell.fill = gray_fill; cell.font = Font(name="Calibri", size=10, bold=True, color="1E3A8A")
-                                    elif is_title_row_2: cell.fill = mint_fill; cell.font = Font(name="Calibri", size=11, bold=True, color="065F46")
-                                    elif is_title_row_3: cell.fill = gray_fill; cell.font = Font(name="Calibri", size=9, italic=True)
-                                    elif not is_balance_row and cell.value and str(cell.value).isdigit() and int(cell.value) > 0 and c_idx > 2 and c_idx <= len(active_sizes)+2:
-                                        # Nhuộm màu vàng cho ô tỷ lệ có giá trị lớn hơn 0 trong file Excel
-                                        cell.fill = yellow_fill; cell.font = Font(name="Calibri", size=11, bold=True, color="991B1B")
+                                    if is_balance_row:
+                                        cell.fill = PatternFill(start_color="FEF08A", end_color="FEF08A", fill_type="solid")
+                                        cell.font = Font(name="Calibri", size=11, bold=True, color="991B1B")
                             
                             for col_idx in range(1, worksheet.max_column + 1):
                                 max_len = 0
@@ -2121,42 +2098,49 @@ elif menu_selection == "🛒 Purchase Consumption":
                                     cell_val = worksheet.cell(row=row_idx, column=col_idx).value
                                     if cell_val: max_len = max(max_len, len(str(cell_val)))
                                 worksheet.column_dimensions[col_letter].width = max(max_len + 5, 12)
-                                
-                        st.download_button(
-                            label="📥 XUẤT FILE EXCEL TÁC NGHIỆP CHUẨN THƯƠNG MẠI", data=buffer.getvalue(),
-                            file_name=f"BÁO_CÁO_TÁC_NGHIỆP_BÀN_CẮT_{style_id_input}.xlsx",
-                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True,
-                            key="excel_download_btn_final_v99"
-                        )
-                    except Exception as e:
-                        st.error(f"Lỗi xuất file Excel: {str(e)}")
+                        
+                        st.download_button(label="📥 XUẤT FILE EXCEL TÁC NGHIỆP CHUẨN THƯƠNG MẠI", data=buffer.getvalue(), file_name=f"BÁO_CÁO_TÁC_NGHIỆP_BÀN_CẮT_{style_id_input}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True, key="excel_download_btn_final_v105")
+                    except Exception: pass
 
-                    # 🎯 DỰNG GIAO DIỆN WEB 3 TẦNG: GIÀNG $\rightarrow$ SIZE $\rightarrow$ SẢN LƯỢNG (Khớp 100% yêu cầu ảnh)
-                    web_multi_cols = [("GIÀNG", "SIZE", "SẢN LƯỢNG")]
+                    # 🎯 DỰNG MA TRẬN 3 TẦNG TRÊN WEB CHUẨN KỸ THUẬT: Đã bổ sung nhãn thông số đầy đủ cho hàng trên để không bị mất chữ
+                    web_multi_cols = [("GIÀNG / SIZE / SL", "SIZE", "SẢN LƯỢNG")]
                     for item in parsed_size_columns:
                         orig_key = item['original']
                         po_qty_val = int(size_breakdown_main.get(orig_key, 0))
-                        web_multi_cols.append((f"GIÀNG: {item['giang_num']}", item['size_num'], f"SL: {po_qty_val}"))
+                        # Tách biệt trần trụi: Tầng 1 ghi Giàng, Tầng 2 ghi số Size, Tầng 3 ghi số Sản lượng trần (Bỏ chữ SL)
+                        web_multi_cols.append((f"GIÀNG: {item['giang_num']}", f"{item['size_num']}", f"{po_qty_val}"))
                     for col_name in other_tech_keys:
-                        web_multi_cols.append(("THÔNG SỐ TÁC NGHIỆP", col_name, ""))
+                        # 🎯 KHÔI PHỤC THÔNG SỐ: Điền nhãn đồng bộ cho cả 3 tầng để đuôi bảng hiện đầy đủ thông tin kỹ thuật
+                        web_multi_cols.append(("THÔNG SỐ TÁC NGHIỆP", "THÔNG SỐ TÁC NGHIỆP", col_name))
                     df_final_report.columns = pd.MultiIndex.from_tuples(web_multi_cols)
 
-                    # 🎯 THUẬT TOÁN TÔ VÀNG Ô TỶ LỆ SƠ ĐỒ (Không tô dòng Balance)
-                    def highlight_ratios_only(x):
+                    # 🎯 THUẬT TOÁN NHUỘM MÀU TRÊN WEB: Đã phối màu xanh nhạt cho Giàng, xanh đậm hơn cho SL, xanh Mint cho thông số đuôi
+                    def highlight_ratios_and_headers(x):
                         color_df = pd.DataFrame('', index=x.index, columns=x.columns)
-                        # Duyệt qua từng ô trên bảng dữ liệu hiển thị
                         for r in range(len(x)):
-                            # Không tô màu nếu là dòng Balance
-                            if x.iloc[r, 0] == "Balance":
-                                continue
+                            if x.iloc[r, 0] == "Balance": continue
                             for c in range(1, len(x.columns)):
                                 val = x.iloc[r, c]
-                                # Chỉ nhuộm màu vàng cho các ô tỷ lệ phối sơ đồ (giá trị > 0) thuộc vùng ma trận size
                                 if c <= len(active_sizes) and str(val).isdigit() and int(val) > 0:
                                     color_df.iloc[r, c] = 'background-color: #FEF08A; color: #991B1B; font-weight: 700; border: 1px solid #FDE047;'
                         return color_df
 
-                    styled_df_report = df_final_report.style.apply(highlight_ratios_only, axis=None)
+                    styled_df_report = df_final_report.style.apply(highlight_ratios_and_headers, axis=None)
+
+                    # Inject CSS ép kiểu đồ họa trực tiếp bọc màu cho 3 tầng tiêu đề (Thượng tầng bảng)
+                    st.markdown("""
+                        <style>
+                            /* Tầng 1: Hàng Giàng nhuộm màu Xanh dương nhạt */
+                            th.col_heading.level0 { background-color: #E0F2FE !important; color: #0369A1 !important; font-weight: 700 !important; font-size: 11px !important; text-align: center !important; }
+                            /* Tầng 2: Hàng số Size giữ màu trắng sạch thoáng mắt */
+                            th.col_heading.level1 { background-color: #F8FAFC !important; color: #334155 !important; font-weight: 700 !important; font-size: 12px !important; text-align: center !important; }
+                            /* Tầng 3: Hàng Sản lượng đơn hàng nhuộm màu Xanh dương đậm hơn */
+                            th.col_heading.level2 { background-color: #BAE6FD !important; color: #0369A1 !important; font-weight: 700 !important; font-size: 11px !important; text-align: center !important; }
+                            
+                            /* Đuôi bảng: Nhuộm dải màu xanh Mint đồng bộ cho vùng thông số kỹ thuật tác nghiệp */
+                            th.col_heading[id*="THÔNG SỐ TÁC NGHIỆP"] { background-color: #DCFCE7 !important; color: #166534 !important; font-weight: 700 !important; }
+                        </style>
+                    """, unsafe_allow_html=True)
 
                     st.markdown("<p style='font-weight:700; font-size:14px; color:#1E3A8A; margin-top:15px;'>📊 BẢNG THEO DÕI TÁC NGHIỆP & CÂN ĐỐI ĐƠN HÀNG MULTI-INSEAM</p>", unsafe_allow_html=True)
                     st.dataframe(styled_df_report, use_container_width=True, hide_index=True)
