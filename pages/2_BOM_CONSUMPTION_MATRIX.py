@@ -2044,37 +2044,18 @@ elif menu_selection == "🛒 Purchase Consumption":
                         except Exception as db_err: 
                             st.error(f"Lỗi cơ sở dữ liệu Supabase: {str(db_err)}")
 
-                    # 🎯 THUẬT TOÁN BẺ CHUỖI VÀ PHÂN NHÓM GOM CỤM CỘT GIÀNG/SIZE AN TOÀN TUYỆT ĐỐI (SỬA LỖI 1 GIÀNG)
-                    parsed_size_columns = []
-                    has_multi_giang = False
+                                        # 🎯 THUẬT TOÁN ĐÃ ĐƠN GIẢN HÓA CỰC HẠN - CHỐNG LỖI CÚ PHÁP & SỬA LỖI 1 GIÀNG
+                    # Kiểm tra xem danh sách kích thước thực tế có chứa ký tự phân tách 'x' hay không
+                    co_nhieu_giang = any(('x' in str(s).lower() or '-' in str(s)) for s in active_sizes)
                     
-                    for col_name in active_sizes:
-                        col_str = str(col_name).strip()
-                        col_clean = col_str.replace("'", "").replace('"', '').replace("(", "").replace(")", "")
-                        if any(char in col_clean.lower() for char in ["x", "-", "/"]) and not col_clean.isalpha():
-                            parts = re.split(r'[\sXx\-\/]+', col_clean)
-                            if len(parts) >= 2:
-                                size_val = str(parts[0]).strip()
-                                giang_val = str(parts[1]).strip()
-                                parsed_size_columns.append({"original": col_name, "size_num": size_val, "giang_num": giang_val})
-                                has_multi_giang = True
-                                continue
-                        parsed_size_columns.append({"original": col_name, "size_num": col_clean, "giang_num": str(detected_inseam)})
-
-                    if has_multi_giang:
+                    if co_nhieu_giang:
                         try:
-                            parsed_size_columns.sort(key=lambda x: (
-                                int(re.sub(r'\D', '', x['giang_num'])) if re.sub(r'\D', '', x['giang_num']) else 0, 
-                                int(re.sub(r'\D', '', x['size_num'])) if re.sub(r'\D', '', x['size_num']) else 0
-                            ))
-                            ordered_size_keys = [item["original"] for item in parsed_size_columns]
+                            # Sắp xếp cho đơn hàng nhiều giàng
+                            ordered_size_keys = sorted(list(active_sizes), key=lambda x: [int(s) if s.isdigit() else s for s in re.split(r'[\sXx\-\/]+', str(x))])
                         except Exception:
-                            try:
-                                parsed_size_columns.sort(key=lambda x: (x['giang_num'], x['size_num']))
-                                ordered_size_keys = [item["original"] for item in parsed_size_columns]
-                            except Exception:
-                                ordered_size_keys = list(active_sizes)
+                            ordered_size_keys = list(active_sizes)
                     else:
+                        # ĐƠN HÀNG 1 GIÀNG: Giữ nguyên tuyệt đối thứ tự từ bảng gốc, không xáo trộn
                         ordered_size_keys = list(active_sizes)
 
                     other_tech_keys = ["Số lớp", "Số bàn", "Dài sơ đồ", "Số sp/SĐ", "Đ.Mức SĐ", "Vải cần (M)"]
@@ -2089,4 +2070,3 @@ elif menu_selection == "🛒 Purchase Consumption":
                             from openpyxl.utils import get_column_letter
                             
                             header_data = {
-
