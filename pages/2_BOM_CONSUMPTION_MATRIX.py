@@ -2062,7 +2062,7 @@ if st.session_state.get("auto_cutting_results") is not None:
                 st.error("❌ Hệ thống chưa cấu hình biến SUPABASE_URL hoặc SUPABASE_KEY trong mục Secrets Settings.")
         except Exception as db_err: 
             st.error(f"Lỗi cơ sở dữ liệu Supabase: {str(db_err)}")
-                        # 🎯 THUẬT TOÁN BẺ CHUỖI VÀ PHÂN NHÓM GOM CỤM CỘT GIÀNG/SIZE AN TOÀN TUYỆT ĐỐI (SỬA LỖI 1 GIÀNG)
+                    # 🎯 THUẬT TOÁN BẺ CHUỖI VÀ PHÂN NHÓM GOM CỤM CỘT GIÀNG/SIZE AN TOÀN TUYỆT ĐỐI (SỬA LỖI 1 GIÀNG)
                     parsed_size_columns = []
                     has_multi_giang = False
                     
