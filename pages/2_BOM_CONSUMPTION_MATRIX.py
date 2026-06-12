@@ -2062,59 +2062,50 @@ if st.session_state.get("auto_cutting_results") is not None:
                 st.error("❌ Hệ thống chưa cấu hình biến SUPABASE_URL hoặc SUPABASE_KEY trong mục Secrets Settings.")
         except Exception as db_err: 
             st.error(f"Lỗi cơ sở dữ liệu Supabase: {str(db_err)}")
-    # 🎯 THUẬT TOÁN BẺ CHUỖI VÀ PHÂN NHÓM GOM CỤM CỘT GIÀNG/SIZE AN TOÀN TUYỆT ĐỐI (SỬA LỖI 1 GIÀNG)
-    parsed_size_columns = []
-    has_multi_giang = False  # Cờ đánh dấu nếu đơn hàng thực tế là nhiều giàng
-    
-    # Phân tích chuỗi tiêu đề kích thước
-    for col_name in active_sizes:
-        col_str = str(col_name).strip()
-        col_clean = col_str.replace("'", "").replace('"', '').replace("(", "").replace(")", "")
-        
-        # Nếu tiêu đề có dạng phân tách 30x32, 32-34... và không phải thuần chữ
-        if any(char in col_clean.lower() for char in ["x", "-", "/"]) and not col_clean.isalpha():
-            parts = re.split(r'[\sXx\-\/]+', col_clean)
-            if len(parts) >= 2:
-                size_val = str(parts[0]).strip()
-                giang_val = str(parts[1]).strip()
-                parsed_size_columns.append({"original": col_name, "size_num": size_val, "giang_num": giang_val})
-                has_multi_giang = True
-                continue
-        
-        # Nếu đơn hàng 1 giàng (Ví dụ form chữ XS, S, M hoặc form số 30, 32 đứng một mình)
-        parsed_size_columns.append({"original": col_name, "size_num": col_clean, "giang_num": str(detected_inseam)})
+                        # 🎯 THUẬT TOÁN BẺ CHUỖI VÀ PHÂN NHÓM GOM CỤM CỘT GIÀNG/SIZE AN TOÀN TUYỆT ĐỐI (SỬA LỖI 1 GIÀNG)
+                    parsed_size_columns = []
+                    has_multi_giang = False
+                    
+                    for col_name in active_sizes:
+                        col_str = str(col_name).strip()
+                        col_clean = col_str.replace("'", "").replace('"', '').replace("(", "").replace(")", "")
+                        
+                        if any(char in col_clean.lower() for char in ["x", "-", "/"]) and not col_clean.isalpha():
+                            parts = re.split(r'[\sXx\-\/]+', col_clean)
+                            if len(parts) >= 2:
+                                size_val = str(parts[0]).strip()
+                                giang_val = str(parts[1]).strip()
+                                parsed_size_columns.append({"original": col_name, "size_num": size_val, "giang_num": giang_val})
+                                has_multi_giang = True
+                                continue
+                        
+                        parsed_size_columns.append({"original": col_name, "size_num": col_clean, "giang_num": str(detected_inseam)})
 
-    # Sắp xếp cột dựa trên loại cấu trúc đơn hàng
-    if has_multi_giang:
-        try:
-            # Sắp xếp logic số cho đơn hàng nhiều giàng (ví dụ quần Jeans)
-            parsed_size_columns.sort(key=lambda x: (
-                int(re.sub(r'\D', '', x['giang_num'])) if re.sub(r'\D', '', x['giang_num']) else 0, 
-                int(re.sub(r'\D', '', x['size_num'])) if re.sub(r'\D', '', x['size_num']) else 0
-            ))
-            ordered_size_keys = [item["original"] for item in parsed_size_columns]
-        except Exception:
-            try:
-                parsed_size_columns.sort(key=lambda x: (x['giang_num'], x['size_num']))
-                ordered_size_keys = [item["original"] for item in parsed_size_columns]
-            except Exception:
-                ordered_size_keys = list(active_sizes)
-    else:
-        # Nếu đơn hàng chỉ có 1 giàng (như hình ảnh lỗi): GIỮ NGUYÊN THỨ TỰ BAN ĐẦU, không sort
-        ordered_size_keys = list(active_sizes)
+                    if has_multi_giang:
+                        try:
+                            parsed_size_columns.sort(key=lambda x: (
+                                int(re.sub(r'\D', '', x['giang_num'])) if re.sub(r'\D', '', x['giang_num']) else 0, 
+                                int(re.sub(r'\D', '', x['size_num'])) if re.sub(r'\D', '', x['size_num']) else 0
+                            ))
+                            ordered_size_keys = [item["original"] for item in parsed_size_columns]
+                        except Exception:
+                            try:
+                                parsed_size_columns.sort(key=lambda x: (x['giang_num'], x['size_num']))
+                                ordered_size_keys = [item["original"] for item in parsed_size_columns]
+                            except Exception:
+                                ordered_size_keys = list(active_sizes)
+                    else:
+                        ordered_size_keys = list(active_sizes)
 
-    # Gom nhóm và tái sắp xếp DataFrame hiển thị hoàn chỉnh
-    other_tech_keys = ["Số lớp", "Số bàn", "Dài sơ đồ", "Số sp/SĐ", "Đ.Mức SĐ", "Vải cần (M)"]
-    
-    # Loại bỏ các cột trùng lặp hoặc không tồn tại thực tế để tránh crash giao diện
-    ordered_size_keys = [k for k in ordered_size_keys if k in df_final_report.columns]
-    df_final_report = df_final_report[["SIZE"] + ordered_size_keys + other_tech_keys]
+                    other_tech_keys = ["Số lớp", "Số bàn", "Dài sơ đồ", "Số sp/SĐ", "Đ.Mức SĐ", "Vải cần (M)"]
+                    ordered_size_keys = [k for k in ordered_size_keys if k in df_final_report.columns]
+                    df_final_report = df_final_report[["SIZE"] + ordered_size_keys + other_tech_keys]
 
-    # --- KHỐI KẾT XUẤT FILE EXCEL MỸ THUẬT THƯƠNG MẠI ---
-    try:
-        buffer = io.BytesIO()
-        with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-            from openpyxl.styles import PatternFill, Font, Border, Side, Alignment
-            from openpyxl.utils import get_column_letter
-            
-            header_data = {}  # Tiếp tục phần xử lý tạo file excel của bạn...
+                    # --- KHỐI KẾT XUẤT FILE EXCEL MỸ THUẬT THƯƠNG MẠI ---
+                    try:
+                        buffer = io.BytesIO()
+                        with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+                            from openpyxl.styles import PatternFill, Font, Border, Side, Alignment
+                            from openpyxl.utils import get_column_letter
+                            
+                            header_data = {
