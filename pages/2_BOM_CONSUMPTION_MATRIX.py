@@ -834,9 +834,17 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
     shrinkage_length = re.findall(r'(?:CO RÚT DỌC|DỌC)\s*(\d+(?:\.\d+)?)\s*%', user_message.upper())
     new_fabric_width = re.findall(r'(?:KHỔ VẢI|KHỔ)\s*(\d+)\s*(?:\"|INCH|INCHES)?', user_message.upper())
 
-    w_shrink = float(shrinkage_width) if shrinkage_width else 0.0
-    l_shrink = float(shrinkage_length) if shrinkage_length else 0.0
-    f_width = float(new_fabric_width) if new_fabric_width else 0.0
+    # SỬA TỪ ĐÂY (Dòng 837 - 839):
+    w_shrink = float(shrin_w_match[0]) if shrin_w_match else 0.0
+    l_shrink = float(shrin_l_match[0]) if shrin_l_match else 0.0
+    
+    # Xử lý bóc tách số từ list kết quả regex của new_fabric_width
+    if new_fabric_width:
+        # Tìm tất cả các chữ số có trong chuỗi kết quả đầu tiên tìm được
+        width_digits = re.findall(r'\d+', new_fabric_width[0])
+        f_width = float(width_digits[0]) if width_digits else 0.0
+    else:
+        f_width = 0.0
 
     if matched_techpack:
         scenario_instruction = f"""
