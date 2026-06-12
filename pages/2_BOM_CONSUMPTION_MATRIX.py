@@ -1971,97 +1971,79 @@ elif menu_selection == "🛒 Purchase Consumption":
                 # ==========================================
 # BƯỚC 3: LIÊN KẾT ĐỐI CHIẾU DỮ LIỆU Ô CAD, ĐẨY SUPABASE & KẾT XUẤT EXCEL ĐÓNG KHUNG CHUẨN
 # ==========================================
-if st.session_state.get("auto_cutting_results") is not None:
-    import re
-    import io
-    import pandas as pd
-    
-    cad_lengths_map = {}
-    if cad_paste_zone.strip() and st.session_state["consumption_activated"]:
-        cad_lines = cad_paste_zone.strip().split("\n")
-        for line in cad_lines:
-            if not line.strip(): 
-                continue
-            match = re.search(r'(c\d{2})[\s\t]+([0-9]*\.?[0-9]+)', line.lower().strip())
-            if match:
-                suffix_key = match.group(1)
-                try: 
-                    cad_lengths_map[suffix_key] = float(match.group(2))
-                except ValueError: 
-                    pass
+                if st.session_state.get("auto_cutting_results") is not None:
+                    import re
+                    import io
+                    
+                    cad_lengths_map = {}
+                    if cad_paste_zone.strip() and st.session_state["consumption_activated"]:
+                        cad_lines = cad_paste_zone.strip().split("\n")
+                        for line in cad_lines:
+                            if not line.strip(): continue
+                            match = re.search(r'(c\d{2})[\s\t]+([0-9]*\.?[0-9]+)', line.lower().strip())
+                            if match:
+                                suffix_key = match.group(1)
+                                try: cad_lengths_map[suffix_key] = float(match.group(2))
+                                except ValueError: pass
 
-    final_rows_display = []
-    total_fabric_m = 0.0
-    total_cut_pcs_sum = 0
-    
-    # Duyệt qua từng sơ đồ trong kết quả tác nghiệp
-    for item in st.session_state["auto_cutting_results"]:
-        display_row = {"SIZE": item["Sơ đồ / Trạng thái"]}
-        for sz in active_sizes: 
-            display_row[sz] = item["Ratios"].get(sz, 0)
-            
-        if item["Sơ đồ / Trạng thái"] != "Balance":
-            layers = item["Số lớp"]
-            tables = item["Số bàn"]
-            sp_sd = item["Số sp/SĐ"]
-            current_marker_id = item["Sơ đồ / Trạng thái"].lower().strip()
-            
-            m_len = cad_lengths_map.get(current_marker_id, 0.0) if st.session_state["consumption_activated"] else 0.0
-            vail_can_m = m_len * layers * tables
-            total_fabric_m += vail_can_m
-            
-            total_ratios_sum = sum(item["Ratios"].values())
-            pcs_cut = total_ratios_sum * layers * tables
-            total_cut_pcs_sum += pcs_cut
-            dm_sd = (vail_can_m * 1.09361) / pcs_cut if pcs_cut > 0 else 0.0
-            
-            display_row["Số lớp"] = layers
-            display_row["Số bàn"] = tables
-            display_row["Dài sơ đồ"] = m_len
-            display_row["Số sp/SĐ"] = sp_sd
-            display_row["Đ.Mức SĐ"] = round(dm_sd, 3)
-            display_row["Vải cần (M)"] = round(vail_can_m, 1)
-        else:
-            display_row["Số lớp"] = ""
-            display_row["Số bàn"] = ""
-            display_row["Dài sơ đồ"] = ""
-            display_row["Số sp/SĐ"] = ""
-            display_row["Đ.Mức SĐ"] = ""
-            display_row["Vải cần (M)"] = ""
-            
-        final_rows_display.append(display_row)
-        
-    df_final_report = pd.DataFrame(final_rows_display)
-    total_fabric_yds_final = total_fabric_m * 1.09361
-    final_avg_yield = total_fabric_yds_final / (total_cut_pcs_sum if total_cut_pcs_sum > 0 else 1)
-    # 💾 ĐẨY DỮ LIỆU ĐỒNG BỘ LÊN DATABASE SUPABASE
-    if st.button("💾 ĐẨY DỮ LIỆU TÁC NGHIỆP LÊN DATABASE SUPABASE", type="secondary", use_container_width=True, key="sb_sync_btn_final_c2_fixed_v99"):
-        try:
-            payload_db = {
-                "style_name_text": str(style_id_input).strip().upper(),
-                "po_quantity": int(po_qty_input),
-                "planned_cut_pcs": int(round(total_cut_pcs_sum)),
-                "consumption_value": str(round(final_avg_yield, 3)),
-                "total_material_value": str(round(total_fabric_yds_final, 2)),
-                "cuttable_width_inch": float(cuttable_width_inch)
-            }
-            
-            sb_url = st.secrets.get("SUPABASE_URL", "").strip()
-            sb_key = st.secrets.get("SUPABASE_KEY", st.secrets.get("SUPABASE_SERVICE_KEY", "")).strip()
-            
-            if not sb_url or not sb_key:
-                sb_url = st.secrets.get("supabase_url", "").strip()
-                sb_key = st.secrets.get("supabase_key", "").strip()
-                
-            if sb_url and sb_key:
-                from supabase import create_client
-                sb_instance = create_client(sb_url, sb_key)
-                sb_instance.table("tac_nghiep_ban_cat").insert(payload_db).execute()
-                st.success(f"🎉 Đã đồng bộ dữ liệu mã hàng {style_id_input} lên hệ thống Supabase thành công!")
-            else:
-                st.error("❌ Hệ thống chưa cấu hình biến SUPABASE_URL hoặc SUPABASE_KEY trong mục Secrets Settings.")
-        except Exception as db_err: 
-            st.error(f"Lỗi cơ sở dữ liệu Supabase: {str(db_err)}")
+                    final_rows_display = []
+                    total_fabric_m = 0.0
+                    total_cut_pcs_sum = 0
+                    
+                    for item in st.session_state["auto_cutting_results"]:
+                        display_row = {"SIZE": item["Sơ đồ / Trạng thái"]}
+                        for sz in active_sizes: display_row[sz] = item["Ratios"].get(sz, 0)
+                            
+                        if item["Sơ đồ / Trạng thái"] != "Balance":
+                            layers = item["Số lớp"]; tables = item["Số bàn"]; sp_sd = item["Số sp/SĐ"]
+                            current_marker_id = item["Sơ đồ / Trạng thái"].lower().strip()
+                            m_len = cad_lengths_map.get(current_marker_id, 0.0) if st.session_state["consumption_activated"] else 0.0
+                            vail_can_m = m_len * layers * tables
+                            total_fabric_m += vail_can_m
+                            total_ratios_sum = sum(item["Ratios"].values())
+                            pcs_cut = total_ratios_sum * layers * tables
+                            total_cut_pcs_sum += pcs_cut
+                            dm_sd = (vail_can_m * 1.09361) / pcs_cut if pcs_cut > 0 else 0.0
+                            
+                            display_row["Số lớp"] = layers; display_row["Số bàn"] = tables; display_row["Dài sơ đồ"] = m_len
+                            display_row["Số sp/SĐ"] = sp_sd; display_row["Đ.Mức SĐ"] = round(dm_sd, 3); display_row["Vải cần (M)"] = round(vail_can_m, 1)
+                        else:
+                            display_row["Số lớp"] = ""; display_row["Số bàn"] = ""; display_row["Dài sơ đồ"] = ""
+                            display_row["Số sp/SĐ"] = ""; display_row["Đ.Mức SĐ"] = ""; display_row["Vải cần (M)"] = ""
+                        final_rows_display.append(display_row)
+                        
+                    df_final_report = pd.DataFrame(final_rows_display)
+                    total_fabric_yds_final = total_fabric_m * 1.09361
+                    final_avg_yield = total_fabric_yds_final / (total_cut_pcs_sum if total_cut_pcs_sum > 0 else 1)
+                    
+                    if st.button("💾 ĐẨY DỮ LIỆU TÁC NGHIỆP LÊN DATABASE SUPABASE", type="secondary", use_container_width=True, key="sb_sync_btn_final_c2_fixed_v99"):
+                        try:
+                            payload_db = {
+                                "style_name_text": str(style_id_input).strip().upper(),
+                                "po_quantity": int(po_qty_input),
+                                "planned_cut_pcs": int(round(total_cut_pcs_sum)),
+                                "consumption_value": str(round(final_avg_yield, 3)),
+                                "total_material_value": str(round(total_fabric_yds_final, 2)),
+                                "cuttable_width_inch": float(cuttable_width_inch)
+                            }
+                            
+                            sb_url = st.secrets.get("SUPABASE_URL", "").strip()
+                            sb_key = st.secrets.get("SUPABASE_KEY", st.secrets.get("SUPABASE_SERVICE_KEY", "")).strip()
+                            
+                            if not sb_url or not sb_key:
+                                sb_url = st.secrets.get("supabase_url", "").strip()
+                                sb_key = st.secrets.get("supabase_key", "").strip()
+                                
+                            if sb_url and sb_key:
+                                from supabase import create_client
+                                sb_instance = create_client(sb_url, sb_key)
+                                sb_instance.table("tac_nghiep_ban_cat").insert(payload_db).execute()
+                                st.success(f"🎉 Đã đồng bộ dữ liệu mã hàng {style_id_input} lên hệ thống Supabase thành công!")
+                            else:
+                                st.error("❌ Hệ thống chưa cấu hình biến SUPABASE_URL hoặc SUPABASE_KEY trong mục Secrets Settings.")
+                        except Exception as db_err: 
+                            st.error(f"Lỗi cơ sở dữ liệu Supabase: {str(db_err)}")
+
                     # 🎯 THUẬT TOÁN BẺ CHUỖI VÀ PHÂN NHÓM GOM CỤM CỘT GIÀNG/SIZE AN TOÀN TUYỆT ĐỐI (SỬA LỖI 1 GIÀNG)
                     parsed_size_columns = []
                     has_multi_giang = False
@@ -2069,7 +2051,6 @@ if st.session_state.get("auto_cutting_results") is not None:
                     for col_name in active_sizes:
                         col_str = str(col_name).strip()
                         col_clean = col_str.replace("'", "").replace('"', '').replace("(", "").replace(")", "")
-                        
                         if any(char in col_clean.lower() for char in ["x", "-", "/"]) and not col_clean.isalpha():
                             parts = re.split(r'[\sXx\-\/]+', col_clean)
                             if len(parts) >= 2:
@@ -2078,7 +2059,6 @@ if st.session_state.get("auto_cutting_results") is not None:
                                 parsed_size_columns.append({"original": col_name, "size_num": size_val, "giang_num": giang_val})
                                 has_multi_giang = True
                                 continue
-                        
                         parsed_size_columns.append({"original": col_name, "size_num": col_clean, "giang_num": str(detected_inseam)})
 
                     if has_multi_giang:
@@ -2109,3 +2089,4 @@ if st.session_state.get("auto_cutting_results") is not None:
                             from openpyxl.utils import get_column_letter
                             
                             header_data = {
+
