@@ -2027,33 +2027,50 @@ elif menu_selection == "🛒 Purchase Consumption":
                                 st.success(f"🎉 Đã đồng bộ dữ liệu mã hàng {style_id_input} lên hệ thống Supabase thành công!")
                         except Exception: pass
 
-                                    # 🎯 THUẬT TOÁN BẺ CHUỖI VÀ PHÂN NHÓM GOM CỤM CỘT GIÀNG/SIZE (ĐÃ SỬA: KHÔNG CÓ GIÀNG THÌ ĐỂ NONE, SIZE Ở DƯỚI)
+            # 🎯 THUẬT TOÁN BẺ CHUỖI ÉP LẤY SỐ SIZE VÀO TẦNG DƯỚI (FIX ĐƠN KHÔNG GIÀNG)
                     parsed_size_columns = []
                     for col_name in active_sizes:
                         col_str = str(col_name).strip()
-                        # Làm sạch chuỗi
                         col_clean = col_str.replace("'", "").replace('"', '').replace("(", "").replace(")", "")
                         
-                        if any(char in col_clean.lower() for char in ["x", "-", "/"]):
-                            parts = re.split(r'[\sXx\-\/]+', col_clean)
-                            if len(parts) >= 2:
-                                size_val = str(parts[0]).strip()
-                                giang_val = str(parts[1]).strip()
-                                # Nếu tách ra giàng bị rỗng hoặc chữ none thì chuẩn hóa về "None"
-                                if giang_val.lower() in ["none", "nan", ""]:
-                                    giang_val = "None"
-                                parsed_size_columns.append({"original": col_name, "size_num": size_val, "giang_num": giang_val})
+                        # Tìm tất cả các cụm số (Size) có trong tên cột (ví dụ từ "GIÀNG: None / SMALL 28" hoặc "SMALL 29")
+                        # Nếu cột của bạn thuần túy là chữ như "SMALL", "LARGE" thì nó sẽ lấy nguyên chuỗi chữ đó làm Size
+                        size_digits = re.findall(r'\d+', col_clean)
+                        
+                        if size_digits:
+                            # Nếu tìm thấy số trong tên cột, số đó chắc chắn là SIZE (ví dụ: "28", "29")
+                            size_val = size_digits[-1] # Lấy số cuối cùng tìm thấy làm Size
+                            
+                            # Loại bỏ số size ra khỏi chuỗi để tìm xem có thông tin Giàng/Nhóm không
+                            remaining_str = col_clean.replace(size_val, "").strip()
+                            
+                            # Tìm xem có số Giàng nào khác không (ví dụ trong "30x32" thì 30 là size, 32 là giàng)
+                            giang_digits = re.findall(r'\d+', remaining_str)
+                            if giang_digits and any(char in col_clean.lower() for char in ["x", "-", "/"]):
+                                giang_val = giang_digits[0]
                             else:
-                                parsed_size_columns.append({"original": col_name, "size_num": col_clean, "giang_num": "None"})
+                                # Không có số giàng riêng biệt -> Đơn không giàng -> Ép về "None" (hoặc 0 tùy bạn muốn hiển thị)
+                                giang_val = "None"
                         else:
-                            # KHÔNG CÓ GIÀNG: Cố định giang_num là "None", size_num giữ nguyên tên cột sạch
-                            parsed_size_columns.append({"original": col_name, "size_num": col_clean, "giang_num": "None"})
+                            # Trường hợp cột không chứa số (ví dụ cột tên thuần chữ "SMALL", "LARGE")
+                            size_val = col_clean
+                            giang_val = "None"
 
-                    # Sắp xếp cột an toàn
+                        # Chuyển kiểu dữ liệu số để hiển thị và sắp xếp cho đẹp
+                        giang_final = int(giang_val) if str(giang_val).isdigit() else giang_val
+                        size_final = int(size_val) if str(size_val).isdigit() else size_val
+                        
+                        parsed_size_columns.append({
+                            "original": col_name, 
+                            "size_num": size_final, 
+                            "giang_num": giang_final
+                        })
+
+                    # Sắp xếp lại thứ tự cột: Nhóm theo Giàng trước, sau đó sắp xếp theo Size từ nhỏ đến lớn
                     try:
                         parsed_size_columns.sort(key=lambda x: (
-                            0 if x['giang_num'] == "None" else (int(re.sub(r'\D', '', x['giang_num'])) if re.sub(r'\D', '', x['giang_num']) else 999),
-                            int(re.sub(r'\D', '', x['size_num'])) if re.sub(r'\D', '', x['size_num']) else 0
+                            0 if x['giang_num'] == "None" else (int(x['giang_num']) if isinstance(x['giang_num'], int) else 999),
+                            int(x['size_num']) if isinstance(x['size_num'], int) else 0
                         ))
                     except Exception:
                         parsed_size_columns.sort(key=lambda x: (str(x['giang_num']), str(x['size_num'])))
@@ -2078,25 +2095,22 @@ elif menu_selection == "🛒 Purchase Consumption":
                             }
                             pd.DataFrame(header_data).to_excel(writer, sheet_name="BaoCao_TacNghiep", index=False, startrow=0)
                             
+                            # Khởi tạo danh sách cột MultiIndex cho file Excel
                             excel_multi_cols = [("GIÀNG", "SIZE", "SẢN LƯỢNG")]
                             for item in parsed_size_columns:
                                 s_val = item['size_num']
                                 orig_key = item['original']
                                 po_qty_val = int(size_breakdown_main.get(orig_key, 0))
                                 
-                                # ĐÚNG YÊU CẦU: Nếu là None thì giữ nguyên chữ "None", ngược lại mới thêm chữ "GIÀNG"
-                                if item['giang_num'] == "None":
-                                    g_label = "None"
-                                else:
-                                    g_label = f"GIÀNG {item['giang_num']}"
-                                    
-                                excel_multi_cols.append((g_label, int(s_val) if str(s_val).isdigit() else s_val, po_qty_val))
+                                # ĐÚNG YÊU CẦU: Tầng trên hiển thị thông tin Giàng (None hoặc số Giàng), tầng dưới chỉ hiển thị số Size sạch
+                                excel_multi_cols.append((item['giang_num'], s_val, po_qty_val))
                                 
                             for col_name in other_tech_keys:
                                 excel_multi_cols.append(("THÔNG SỐ TÁC NGHIỆP", col_name, ""))
                                 
                             df_excel_export = df_final_report.copy()
                             df_excel_export.columns = pd.MultiIndex.from_tuples(excel_multi_cols)
+
 
 
                             df_excel_export.to_excel(writer, sheet_name="BaoCao_TacNghiep", index=True, startrow=10)
