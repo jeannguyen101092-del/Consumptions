@@ -1449,7 +1449,8 @@ elif menu_selection == "🛒 Purchase Consumption":
             # (Phần này giữ nguyên logic nạp specs_to_average và Engine Python tính toán của bạn...)
     # =============================================================================
         # =============================================================================
-    # CHỨC NĂNG 2: PHÂN HỆ TÁC NGHIỆP SẢN LƯỢNG BÀN CẮT TỰ ĐỘNG KHÔNG CẦN RẬP (FULL KHÉP KÍN)
+        # =============================================================================
+    # CHỨC NĂNG 2: PHÂN HỆ TÁC NGHIỆP SẢN LƯỢNG BÀN CẮT TỰ ĐỘNG KHÔNG DÙNG RERUN (XỬ LÝ TRIỆT ĐỂ LỖI ẨN KẾT QUẢ)
     # =============================================================================
     elif menu_sub.startswith("✂️ CHỨC NĂNG 2"):
         st.markdown("""<div class="card-container"><div class="card-section-header">📋 PHÂN HỆ TÁC NGHIỆP BÀN CẮT ĐA GIÀNG</div>
@@ -1500,16 +1501,17 @@ elif menu_selection == "🛒 Purchase Consumption":
                             res_sbd = model_old.generate_content(sbd_parts, generation_config={"response_mime_type": "application/json"})
                             raw_text_sbd = res_sbd.text
 
-                        # ĐỒNG BỘ KHÓA BỘ NHỚ LƯU TRỮ C2 RIÊNG BIỆT
+                        # ĐỒNG BỘ GÁN DỮ LIỆU THẲNG VÀO STATE VÀ PHÁT LỆNH HIỂN THỊ TẠI CHỖ
                         st.session_state["sbd_parsed_data_c2"] = json.loads(raw_text_sbd.strip().replace("```json", "").replace("```", "").strip())
                         st.session_state["purchase_ready_c2"] = True
-                        st.rerun()
+                        
+                        # Loại bỏ st.rerun() để tránh tình trạng xóa cache ngầm của Streamlit
                     except Exception as e: 
                         st.error(f"❌ Lỗi số hóa dữ liệu: {str(e)}")
                         st.stop()
 
         # =============================================================================
-        # KHỐI HIỂN THỊ KẾT QUẢ VÀ INPUT CAD TỰ ĐỘNG BUNG NGAY TẠI CHỨC NĂNG 2
+        # KHỐI HIỂN THỊ KẾT QUẢ VÀ INPUT CAD - TỰ ĐỘNG BUNG TRỰC TIẾP KHÔNG PHỤ THUỘC RERUN
         # =============================================================================
         if st.session_state.get("purchase_ready_c2") is True:
             import re
