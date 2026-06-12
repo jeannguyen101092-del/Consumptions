@@ -1968,7 +1968,7 @@ elif menu_selection == "🛒 Purchase Consumption":
                 if trigger_consumption:
                     st.session_state["consumption_activated"] = True
                     st.rerun()
-                                # BƯỚC 3: LIÊN KẾT ĐỐI CHIẾU DỮ LIỆU Ô CAD, ĐẨY SUPABASE & KẾT XUẤT EXCEL MỸ THUẬT THƯƠNG MẠI
+                # BƯỚC 3: LIÊN KẾT ĐỐI CHIẾU DỮ LIỆU Ô CAD, ĐẨY SUPABASE & KẾT XUẤT EXCEL MỸ THUẬT THƯƠNG MẠI
                 if st.session_state.get("auto_cutting_results") is not None:
                     import re
                     import io
@@ -2014,7 +2014,7 @@ elif menu_selection == "🛒 Purchase Consumption":
                     total_fabric_yds_final = total_fabric_m * 1.09361
                     final_avg_yield = total_fabric_yds_final / (total_cut_pcs_sum if total_cut_pcs_sum > 0 else 1)
                     
-                    if st.button("💾 ĐẨY DỮ LIỆU TÁC NGHIỆP LÊN DATABASE SUPABASE", type="secondary", use_container_width=True, key="sb_sync_btn_final_c2_v5"):
+                    if st.button("💾 ĐẨY DỮ LIỆU TÁC NGHIỆP LÊN DATABASE SUPABASE", type="secondary", use_container_width=True, key="sb_sync_btn_final_c2_v10"):
                         try:
                             payload_db = {
                                 "style_name": str(style_id_input).strip().upper(), "po_quantity": int(po_qty_input),
@@ -2034,7 +2034,7 @@ elif menu_selection == "🛒 Purchase Consumption":
                         if any(char in col_clean.lower() for char in ["x", "-", "/"]):
                             parts = re.split(r'[\sXx\-\/]+', col_clean)
                             if len(parts) >= 2:
-                                parsed_size_columns.append({"original": col_name, "size_num": parts[0].strip(), "giang_num": parts[1].strip()})
+                                parsed_size_columns.append({"original": col_name, "size_num": parts.strip(), "giang_num": parts.strip()})
                             else:
                                 parsed_size_columns.append({"original": col_name, "size_num": col_clean, "giang_num": str(detected_inseam)})
                         else:
@@ -2084,7 +2084,7 @@ elif menu_selection == "🛒 Purchase Consumption":
                             df_excel_export = df_final_report.copy()
                             df_excel_export.columns = pd.MultiIndex.from_tuples(excel_multi_cols)
                             
-                            # 🎯 ĐÃ SỬA: Ép buộc index=True để loại bỏ hoàn toàn lỗi NotImplementedError gộp ô đa cấp
+                            # Ép buộc bật index=True cho bảng đa cấp lồng nhóm
                             df_excel_export.to_excel(writer, sheet_name="BaoCao_TacNghiep", index=True, startrow=9)
                             
                             worksheet = writer.sheets["BaoCao_TacNghiep"]
@@ -2097,11 +2097,9 @@ elif menu_selection == "🛒 Purchase Consumption":
                             for r in range(2, 8):
                                 worksheet.cell(row=r, column=1).font = Font(name="Calibri", size=11, bold=True, color="1E3A8A")
                             
-                            # Quét khung lưới và tô màu dải màu vàng dòng Balance trên file Excel
                             for r_idx in range(10, worksheet.max_row + 1):
                                 is_title_row_1 = (r_idx == 10)
                                 is_title_row_2 = (r_idx == 11)
-                                # 🎯 ĐÃ SỬA: Khi bật index=True, chữ Balance nằm ở cột thứ 2 (Cột B trong Excel)
                                 is_balance_row = (worksheet.cell(row=r_idx, column=2).value == "Balance")
                                 
                                 worksheet.row_dimensions[r_idx].height = 24 if (is_title_row_1 or is_title_row_2) else 20
@@ -2118,30 +2116,31 @@ elif menu_selection == "🛒 Purchase Consumption":
                                         cell.fill = mint_fill
                                         cell.font = Font(name="Calibri", size=11, bold=True, color="065F46")
                                     elif is_balance_row:
-                                        # 🎯 ĐÃ SỬA: Đổ dải màu vàng phủ kín toàn bộ bề ngang dòng Balance trên tệp Excel tải về
                                         cell.fill = yellow_fill
                                         cell.font = Font(name="Calibri", size=11, bold=True, color="991B1B")
                                     else:
                                         cell.font = Font(name="Calibri", size=10)
                             
-                            for col in worksheet.columns:
+                            # 🎯 ĐÃ SỬA TRIỆT ĐỂ: Dùng enumerate() chạy chỉ mục số để tự giãn cột tự động, vá dứt điểm lỗi AttributeError Tuple object
+                            for col_idx in range(1, worksheet.max_column + 1):
                                 max_len = 0
-                                col_letter = get_column_letter(col.column)
-                                for cell in col:
-                                    if cell.row > 8 and cell.value:
-                                        max_len = max(max_len, len(str(cell.value)))
+                                col_letter = get_column_letter(col_idx)
+                                for row_idx in range(10, worksheet.max_row + 1):
+                                    cell_val = worksheet.cell(row=row_idx, column=col_idx).value
+                                    if cell_val:
+                                        max_len = max(max_len, len(str(cell_val)))
                                 worksheet.column_dimensions[col_letter].width = max(max_len + 5, 12)
                                 
                         st.download_button(
                             label="📥 XUẤT FILE EXCEL TÁC NGHIỆP CHUẨN THƯƠNG MẠI", data=buffer.getvalue(),
                             file_name=f"BÁO_CÁO_TÁC_NGHIỆP_BÀN_CẮT_{style_id_input}.xlsx",
                             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True,
-                            key="excel_download_btn_final_v52"
+                            key="excel_download_btn_final_v55"
                         )
                     except Exception as e:
-                        st.error(f"Lỗi xuất file Excel: {str(e)}")
+                        st.error(f"Lỗi xuất file Excel mỹ thuật: {str(e)}")
 
-                    # Gán cấu trúc tiêu đề MultiIndex lồng cụm lên Web Streamlit
+                    # Gán cấu trúc tiêu đề MultiIndex lên lưới Web Streamlit
                     web_multi_cols = [("GIÀNG", "SIZE")]
                     for item in parsed_size_columns:
                         web_multi_cols.append((f"{item['giang_num']}", item['size_num']))
@@ -2149,9 +2148,9 @@ elif menu_selection == "🛒 Purchase Consumption":
                         web_multi_cols.append(("THÔNG SỐ TÁC NGHIỆP", col_name))
                     df_final_report.columns = pd.MultiIndex.from_tuples(web_multi_cols)
 
-                    # Nhuộm màu vàng full 100% dòng Balance hiển thị trên Web Streamlit qua hàm .iloc
+                    # Nhuộm màu vàng full 100% dòng Balance hiển thị trên Web Streamlit bằng hàng chỉ mục index
                     def style_full_balance_rows(row):
-                        if row.iloc[0] == "Balance":
+                        if row.iloc == "Balance":
                             return ['background-color: #FEF08A; color: #991B1B; font-weight: 700; border: 1px solid #FDE047;'] * len(row)
                         return [''] * len(row)
                     
