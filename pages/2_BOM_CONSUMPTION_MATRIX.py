@@ -2204,7 +2204,7 @@ elif menu_selection == "🛒 Purchase Consumption":
                     """, unsafe_allow_html=True)
 
                     st.markdown("<p style='font-weight:700; font-size:14px; color:#1E3A8A; margin-top:15px;'>📊 BẢNG THEO DÕI TÁC NGHIỆP & CÂN ĐỐI ĐƠN HÀNG MULTI-INSEAM</p>", unsafe_allow_html=True)
-                   st.dataframe(df_final_report, use_container_width=True)
+                    st.dataframe(df_final_report, use_container_width=True)
                     
                     st.markdown("---")
                     m_col1, m_col2, m_col3 = st.columns(3)
