@@ -835,12 +835,12 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
     new_fabric_width = re.findall(r'(?:KHỔ VẢI|KHỔ)\s*(\d+)\s*(?:\"|INCH|INCHES)?', user_message.upper())
     
 # Lấy phần tử đầu tiên nếu danh sách không rỗng, ngược lại gán bằng None
-    w_shrink_val = w_shrink[0] if w_shrink else None
-    l_shrink_val = l_shrink[0] if l_shrink else None
+   # Lấy phần tử đầu tiên nếu danh sách không rỗng, ngược lại gán bằng None
+    w_shrink_val = shrinkage_width[0] if shrinkage_width else None
+    l_shrink_val = shrinkage_length[0] if shrinkage_length else None
     new_fabric_width_val = new_fabric_width[0] if new_fabric_width else None
 
-
-# Ép kiểu float an toàn từ giá trị đơn lẻ
+    # Ép kiểu float an toàn từ giá trị đơn lẻ
     w_shrink = float(w_shrink_val) if w_shrink_val else 0.0
     l_shrink = float(l_shrink_val) if l_shrink_val else 0.0
     f_width = float(new_fabric_width_val) if new_fabric_width_val else 0.0
