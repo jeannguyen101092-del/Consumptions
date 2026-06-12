@@ -2027,118 +2027,31 @@ elif menu_selection == "🛒 Purchase Consumption":
                                 st.success(f"🎉 Đã đồng bộ dữ liệu mã hàng {style_id_input} lên hệ thống Supabase thành công!")
                         except Exception: pass
 
-                                                  # 🎯 THUẬT TOÁN BẺ CHUỖI ÉP LẤY SỐ SIZE VÀ LÀM SẠCH GIAO DIỆN TUYỆT ĐỐI (FIX CÚ PHÁP)
+                                        # 🎯 THUẬT TOÁN BẺ CHUỖI VÀ PHÂN NHÓM GOM CỤM CỘT GIÀNG/SIZE AN TOÀN TUYỆT ĐỐI
                     parsed_size_columns = []
-                    is_don_khong_giang = True  # Biến cờ kiểm tra đơn hàng có Giàng hay không
-                    
                     for col_name in active_sizes:
                         col_str = str(col_name).strip()
                         col_clean = col_str.replace("'", "").replace('"', '').replace("(", "").replace(")", "")
-                        
-                        # Kiểm tra xem tên cột gốc có chứa chữ "GIÀNG" hoặc các ký tự phân tách không
-                        if "giàng" in col_clean.lower() or any(char in col_clean.lower() for char in ["x", "-", "/"]):
-                            parts = re.split(r'[\sXx\-\/:]+', col_clean)
-                            # Loại bỏ các chữ vô nghĩa khỏi mảng parts
-                            parts_clean = [p.strip() for p in parts if p.strip().lower() not in ["giàng", "size", "sl", "siz"]]
-                            
-                            if len(parts_clean) >= 2:
-                                is_don_khong_giang = False
-                                giang_val = parts_clean[1]
-                                size_val = parts_clean[0]
-                            elif len(parts_clean) == 1:
-                                size_val = parts_clean[0]
-                                giang_val = ""
+                        if any(char in col_clean.lower() for char in ["x", "-", "/"]):
+                            parts = re.split(r'[\sXx\-\/]+', col_clean)
+                            if len(parts) >= 2:
+                                # 🎯 ĐÃ SỬA CHÍNH XÁC: Lấy vị trí phần tử cụ thể trong mảng để triệt tiêu dứt điểm lỗi parts.strip()
+                                size_val = str(parts[0]).strip()
+                                giang_val = str(parts[1]).strip()
+                                parsed_size_columns.append({"original": col_name, "size_num": size_val, "giang_num": giang_val})
                             else:
-                                size_val = col_clean
-                                giang_val = ""
+                                parsed_size_columns.append({"original": col_name, "size_num": col_clean, "giang_num": str(detected_inseam)})
                         else:
-                            # Nếu cột thuần là chữ/số như "SMALL", "LARGE", "28", "29"
-                            size_val = col_clean
-                            giang_val = ""
-                            
-                        # Khử giá trị None hoặc rỗng
-                        if str(giang_val).lower() in ["none", "nan", ""]:
-                            giang_val = ""
-                        else:
-                            is_don_khong_giang = False
+                            parsed_size_columns.append({"original": col_name, "size_num": col_clean, "giang_num": str(detected_inseam)})
 
-                        parsed_size_columns.append({
-                            "original": col_name, 
-                            "size_num": int(size_val) if str(size_val).isdigit() else size_val, 
-                            "giang_num": int(giang_val) if str(giang_val).isdigit() else giang_val
-                        })
-
-                    # Sắp xếp lại thứ tự cột
                     try:
-                        parsed_size_columns.sort(key=lambda x: (
-                            0 if x['giang_num'] == "" else int(x['giang_num']),
-                            x['size_num'] if isinstance(x['size_num'], int) else str(x['size_num'])
-                        ))
+                        parsed_size_columns.sort(key=lambda x: (int(re.sub(r'\D', '', x['giang_num'])), int(re.sub(r'\D', '', x['size_num']))))
                     except Exception:
-                        parsed_size_columns.sort(key=lambda x: (str(x['giang_num']), str(x['size_num'])))
+                        parsed_size_columns.sort(key=lambda x: (x['giang_num'], x['size_num']))
 
                     ordered_size_keys = [item["original"] for item in parsed_size_columns]
                     other_tech_keys = ["Số lớp", "Số bàn", "Dài sơ đồ", "Số sp/SĐ", "Đ.Mức SĐ", "Vải cần (M)"]
-                    
                     df_final_report = df_final_report[["SIZE"] + ordered_size_keys + other_tech_keys]
-
-                    # --- XỬ LÝ ĐỔI TÊN TIÊU ĐỀ ĐỂ HIỂN THỊ LÊN MÀN HÌNH STREAMLIT SẠCH ĐẸP ---
-                    streamlit_cols = ["SẢN LƯỢNG"]
-                    for item in parsed_size_columns:
-                        if is_don_khong_giang:
-                            # 🎯 ĐƠN KHÔNG GIÀNG: Chỉ hiển thị duy nhất tên Size sạch (SMALL, MEDIUM...) trên web
-                            streamlit_cols.append(str(item['size_num']))
-                        else:
-                            # Đơn có nhiều giàng: Hiển thị dạng "Giàng / Size" cho rõ ràng
-                            streamlit_cols.append(f"{item['giang_num']} / {item['size_num']}")
-                            
-                    for col_name in other_tech_keys:
-                        streamlit_cols.append(col_name)
-                        
-                    # Gán tiêu đề 1 tầng sạch sẽ cho giao diện hiển thị web Streamlit
-                    df_final_report.columns = streamlit_cols
-
-                    # --- KHỐI KẾT XUẤT FILE EXCEL MỸ THUẬT THƯƠNG MẠI (GIỮ NGUYÊN 2 TẦNG CHUẨN) ---
-                    try:
-                        buffer = io.BytesIO()
-                        with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-                            from openpyxl.styles import PatternFill, Font, Border, Side, Alignment
-                            from openpyxl.utils import get_column_letter
-                            
-                            header_data = {
-                                "THÔNG TIN ĐƠN HÀNG TÁC NGHIỆP BÀN CẮT CHUẨN": [
-                                    f"Mã hàng (Style Name): {style_id_input}", f"Số lượng đơn hàng (PO Qty): {po_qty_input} Pcs",
-                                    f"SẢN LƯỢNG KẾ HOẠCH CẮT (PLANNED CUT): {total_cut_pcs_sum} Pcs", f"Định mức tài liệu đề xuất: {consumption_input:.3f} Yds/Pcs",
-                                    f"Định mức tác nghiệp thực tế: {final_avg_yield:.3f} Yds/Pcs", f"Khổ cắt: {cuttable_width_inch}\""
-                                ]
-                            }
-                            pd.DataFrame(header_data).to_excel(writer, sheet_name="BaoCao_TacNghiep", index=False, startrow=0)
-                            
-                            excel_multi_cols = [("GIÀNG", "SIZE", "SẢN LƯỢNG")]
-                            for item in parsed_size_columns:
-                                g_excel_val = 0 if item['giang_num'] == "" else item['giang_num']
-                                excel_multi_cols.append((g_excel_val, item['size_num'], int(size_breakdown_main.get(item['original'], 0))))
-                                
-                            for col_name in other_tech_keys:
-                                excel_multi_cols.append(("THÔNG SỐ TÁC NGHIỆP", col_name, ""))
-                                
-                            df_excel_export = df_final_report.copy()
-                            df_excel_export.columns = pd.MultiIndex.from_tuples(excel_multi_cols)
-
-
-                            df_final_report = df_final_report[["SIZE"] + ordered_size_keys + other_tech_keys]
-
-                    # 🎯 TẠO MULTIINDEX ĐỒNG BỘ CHO CẢ STREAMLIT VÀ EXCEL
-                    streamlit_multi_cols = [("", "SẢN LƯỢNG")] # Cột đầu tiên (SIZE)
-                    for item in parsed_size_columns:
-                        # Dòng trên là Giàng (trống), Dòng dưới là tên Size sạch ("X SMALL", "SMALL", "28"...)
-                        streamlit_multi_cols.append((item['giang_num'], item['size_num']))
-                        
-                    for col_name in other_tech_keys:
-                        streamlit_multi_cols.append(("THÔNG SỐ TÁC NGHIỆP", col_name))
-                        
-                    # Áp cấu trúc cột 2 tầng này trực tiếp vào bảng báo cáo chính
-                    df_final_report.columns = pd.MultiIndex.from_tuples(streamlit_multi_cols)
 
                     # --- KHỐI KẾT XUẤT FILE EXCEL MỸ THUẬT THƯƠNG MẠI ---
                     try:
@@ -2156,23 +2069,17 @@ elif menu_selection == "🛒 Purchase Consumption":
                             }
                             pd.DataFrame(header_data).to_excel(writer, sheet_name="BaoCao_TacNghiep", index=False, startrow=0)
                             
-                            # Khởi tạo danh sách cột MultiIndex cho đúng cấu trúc bảng mẫu của bạn
                             excel_multi_cols = [("GIÀNG", "SIZE", "SẢN LƯỢNG")]
                             for item in parsed_size_columns:
                                 s_val = item['size_num']
                                 orig_key = item['original']
                                 po_qty_val = int(size_breakdown_main.get(orig_key, 0))
-                                
-                                # CHUẨN HÓA MẪU: Đẩy trực tiếp giá trị rỗng/số giàng lên tầng trên, số size đứng độc lập ở tầng dưới
-                                excel_multi_cols.append((item['giang_num'], s_val, po_qty_val))
-                                
+                                excel_multi_cols.append((f"GIÀNG {item['giang_num']}", int(s_val) if str(s_val).isdigit() else s_val, po_qty_val))
                             for col_name in other_tech_keys:
                                 excel_multi_cols.append(("THÔNG SỐ TÁC NGHIỆP", col_name, ""))
                                 
                             df_excel_export = df_final_report.copy()
                             df_excel_export.columns = pd.MultiIndex.from_tuples(excel_multi_cols)
-
-
                             df_excel_export.to_excel(writer, sheet_name="BaoCao_TacNghiep", index=True, startrow=10)
                             
                             worksheet = writer.sheets["BaoCao_TacNghiep"]
@@ -2263,7 +2170,7 @@ elif menu_selection == "🛒 Purchase Consumption":
                     """, unsafe_allow_html=True)
 
                     st.markdown("<p style='font-weight:700; font-size:14px; color:#1E3A8A; margin-top:15px;'>📊 BẢNG THEO DÕI TÁC NGHIỆP & CÂN ĐỐI ĐƠN HÀNG MULTI-INSEAM</p>", unsafe_allow_html=True)
-                    st.dataframe(df_final_report, use_container_width=True)
+                    st.dataframe(styled_df_report, use_container_width=True, hide_index=True)
                     
                     st.markdown("---")
                     m_col1, m_col2, m_col3 = st.columns(3)
