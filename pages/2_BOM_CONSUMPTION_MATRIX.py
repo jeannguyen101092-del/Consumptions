@@ -2027,7 +2027,12 @@ elif menu_selection == "🛒 Purchase Consumption":
                                 st.success(f"🎉 Đã đồng bộ dữ liệu mã hàng {style_id_input} lên hệ thống Supabase thành công!")
                         except Exception: pass
 
-                                        # 🎯 THUẬT TOÁN BẺ CHUỖI VÀ PHÂN NHÓM GOM CỤM CỘT GIÀNG/SIZE AN TOÀN TUYỆT ĐỐI
+                                      # 🎯 THUẬT TOÁN BẺ CHUỖI VÀ PHÂN NHÓM GOM CỤM CỘT GIÀNG/SIZE AN TOÀN TUYỆT ĐỐI (ĐÃ SỬA LỖI ĐƠN KHÔNG GIÀNG)
+                    # Xử lý biến bẫy lỗi detected_inseam nếu là None hoặc rỗng
+                    safe_inseam = str(detected_inseam).strip() if detected_inseam is not None else ""
+                    if safe_inseam.lower() in ["none", "nan", ""]:
+                        safe_inseam = "TIÊU CHUẨN" # Hoặc bạn có thể để chuỗi rỗng "" tùy ý thích
+
                     parsed_size_columns = []
                     for col_name in active_sizes:
                         col_str = str(col_name).strip()
@@ -2035,19 +2040,25 @@ elif menu_selection == "🛒 Purchase Consumption":
                         if any(char in col_clean.lower() for char in ["x", "-", "/"]):
                             parts = re.split(r'[\sXx\-\/]+', col_clean)
                             if len(parts) >= 2:
-                                # 🎯 ĐÃ SỬA CHÍNH XÁC: Lấy vị trí phần tử cụ thể trong mảng để triệt tiêu dứt điểm lỗi parts.strip()
                                 size_val = str(parts[0]).strip()
                                 giang_val = str(parts[1]).strip()
+                                # Chống lỗi bẻ chuỗi ra chữ None
+                                if giang_val.lower() in ["none", "nan", ""]:
+                                    giang_val = safe_inseam
                                 parsed_size_columns.append({"original": col_name, "size_num": size_val, "giang_num": giang_val})
                             else:
-                                parsed_size_columns.append({"original": col_name, "size_num": col_clean, "giang_num": str(detected_inseam)})
+                                parsed_size_columns.append({"original": col_name, "size_num": col_clean, "giang_num": safe_inseam})
                         else:
-                            parsed_size_columns.append({"original": col_name, "size_num": col_clean, "giang_num": str(detected_inseam)})
+                            parsed_size_columns.append({"original": col_name, "size_num": col_clean, "giang_num": safe_inseam})
 
+                    # Bẫy lỗi sắp xếp khi giang_num hoặc size_num không phải là số (Tránh crash lỗi int() khi giàng là chữ)
                     try:
-                        parsed_size_columns.sort(key=lambda x: (int(re.sub(r'\D', '', x['giang_num'])), int(re.sub(r'\D', '', x['size_num']))))
+                        parsed_size_columns.sort(key=lambda x: (
+                            int(re.sub(r'\D', '', x['giang_num'])) if re.sub(r'\D', '', x['giang_num']) else 0, 
+                            int(re.sub(r'\D', '', x['size_num'])) if re.sub(r'\D', '', x['size_num']) else 0
+                        ))
                     except Exception:
-                        parsed_size_columns.sort(key=lambda x: (x['giang_num'], x['size_num']))
+                        parsed_size_columns.sort(key=lambda x: (str(x['giang_num']), str(x['size_num'])))
 
                     ordered_size_keys = [item["original"] for item in parsed_size_columns]
                     other_tech_keys = ["Số lớp", "Số bàn", "Dài sơ đồ", "Số sp/SĐ", "Đ.Mức SĐ", "Vải cần (M)"]
@@ -2074,12 +2085,21 @@ elif menu_selection == "🛒 Purchase Consumption":
                                 s_val = item['size_num']
                                 orig_key = item['original']
                                 po_qty_val = int(size_breakdown_main.get(orig_key, 0))
-                                excel_multi_cols.append((f"GIÀNG {item['giang_num']}", int(s_val) if str(s_val).isdigit() else s_val, po_qty_val))
+                                
+                                # Nếu giàng là chữ TIÊU CHUẨN hoặc rỗng thì ghi đè hiển thị cột cho đẹp, không bị đính chữ GIÀNG None
+                                if item['giang_num'] in ["TIÊU CHUẨN", ""]:
+                                    g_label = item['giang_num']
+                                else:
+                                    g_label = f"GIÀNG {item['giang_num']}"
+                                    
+                                excel_multi_cols.append((g_label, int(s_val) if str(s_val).isdigit() else s_val, po_qty_val))
+                                
                             for col_name in other_tech_keys:
                                 excel_multi_cols.append(("THÔNG SỐ TÁC NGHIỆP", col_name, ""))
                                 
                             df_excel_export = df_final_report.copy()
                             df_excel_export.columns = pd.MultiIndex.from_tuples(excel_multi_cols)
+
                             df_excel_export.to_excel(writer, sheet_name="BaoCao_TacNghiep", index=True, startrow=10)
                             
                             worksheet = writer.sheets["BaoCao_TacNghiep"]
