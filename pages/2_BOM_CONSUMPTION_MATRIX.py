@@ -2105,7 +2105,7 @@ elif menu_selection == "🛒 Purchase Consumption":
                         
                         st.download_button(label="📥 XUẤT FILE EXCEL TÁC NGHIỆP CHUẨN THƯƠNG MẠI", data=buffer.getvalue(), file_name=f"BÁO_CÁO_TÁC_NGHIỆP_BÀN_CẮT_{style_id_input}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True, key="excel_download_btn_final_v105")
                     except Exception: pass
-                    # 🎯 DỰNG GIAO DIỆN WEB 3 TẦNG ĐỒNG BỘ: Đã điền nhãn đầy đủ cho đuôi bảng để không mất chữ
+                                        # 🎯 DỰNG GIAO DIỆN WEB 3 TẦNG ĐỒNG BỘ: Đã điền nhãn đầy đủ cho đuôi bảng để không mất chữ
                     web_multi_cols = [("GIÀNG / SIZE / SL", "SIZE", "SẢN LƯỢNG")]
                     for item in parsed_size_columns:
                         orig_key = item['original']
@@ -2128,18 +2128,44 @@ elif menu_selection == "🛒 Purchase Consumption":
 
                     styled_df_report = df_final_report.style.apply(highlight_ratios_and_headers, axis=None)
 
-                    # 🎯 INJECT CSS: Phối màu phân cấp 3 tầng Thượng tầng Web theo đúng yêu cầu mẫu ảnh
+                    # 🎯 KHÓA MÀU CSS CHUẨN ĐỘC LẬP: Định danh chính xác theo số tầng Level để ép trình duyệt đổ màu 100%
                     st.markdown("""
                         <style>
-                            /* Tầng 1: Hàng Giàng đổ màu Xanh dương nhạt */
-                            th.col_heading.level0 { background-color: #E0F2FE !important; color: #0369A1 !important; font-weight: 700 !important; font-size: 11px !important; text-align: center !important; }
-                            /* Tầng 2: Hàng số Size trần giữ nền trắng thoáng mắt */
-                            th.col_heading.level1 { background-color: #F8FAFC !important; color: #334155 !important; font-weight: 700 !important; font-size: 12px !important; text-align: center !important; }
-                            /* Tầng 3: Hàng Sản lượng PO đổ màu Xanh dương đậm hơn chút */
-                            th.col_heading.level2 { background-color: #BAE6FD !important; color: #0369A1 !important; font-weight: 700 !important; font-size: 11px !important; text-align: center !important; }
+                            /* TẦNG 1: Hàng chứa thông tin GIÀNG nhuộm màu Xanh Dương Nhạt bứt phá */
+                            th.col_heading.level0 {
+                                background-color: #E0F2FE !important;
+                                color: #0369A1 !important;
+                                font-weight: 700 !important;
+                                font-size: 11px !important;
+                                text-align: center !important;
+                                border: 1px solid #93C5FD !important;
+                            }
+                            /* TẦNG 2: Hàng số SIZE trần giữ màu trắng xám nền sạch sẽ */
+                            th.col_heading.level1 {
+                                background-color: #F8FAFC !important;
+                                color: #334155 !important;
+                                font-weight: 700 !important;
+                                font-size: 12px !important;
+                                text-align: center !important;
+                                border: 1px solid #CBD5E1 !important;
+                            }
+                            /* TẦNG 3: Hàng SẢN LƯỢNG đơn hàng nhuộm màu Xanh Dương Đậm nổi bật hơn */
+                            th.col_heading.level2 {
+                                background-color: #BAE6FD !important;
+                                color: #0369A1 !important;
+                                font-weight: 700 !important;
+                                font-size: 11px !important;
+                                text-align: center !important;
+                                border: 1px solid #7DD3FC !important;
+                            }
                             
-                            /* Đuôi bảng: Nhuộm dải màu xanh Mint đồng bộ cho vùng thông số kỹ thuật */
-                            th.col_heading[id*="THÔNG SỐ TÁC NGHIỆP"] { background-color: #DCFCE7 !important; color: #166534 !important; font-weight: 700 !important; }
+                            /* ĐUÔI BẢNG: Quét tọa độ 6 cột cuối cùng (Thông số tác nghiệp) ép nhuộm màu Xanh Mint đồng bộ */
+                            th.col_heading.blank {
+                                background-color: #DCFCE7 !important;
+                                color: #166534 !important;
+                                font-weight: 700 !important;
+                                border: 1px solid #86EFAC !important;
+                            }
                         </style>
                     """, unsafe_allow_html=True)
 
