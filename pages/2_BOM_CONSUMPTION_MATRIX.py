@@ -1968,7 +1968,7 @@ elif menu_selection == "🛒 Purchase Consumption":
                 if trigger_consumption:
                     st.session_state["consumption_activated"] = True
                     st.rerun()
-                # BƯỚC 3: LIÊN KẾT ĐỐI CHIẾU DỮ LIỆU Ô CAD, ĐẨY SUPABASE & KẾT XUẤT EXCEL THƯƠNG MẠI CAO CẤP
+                                # BƯỚC 3: LIÊN KẾT ĐỐI CHIẾU DỮ LIỆU Ô CAD, ĐẨY SUPABASE & KẾT XUẤT EXCEL MỸ THUẬT THƯƠNG MẠI
                 if st.session_state.get("auto_cutting_results") is not None:
                     import re
                     import io
@@ -2014,7 +2014,7 @@ elif menu_selection == "🛒 Purchase Consumption":
                     total_fabric_yds_final = total_fabric_m * 1.09361
                     final_avg_yield = total_fabric_yds_final / (total_cut_pcs_sum if total_cut_pcs_sum > 0 else 1)
                     
-                    if st.button("💾 ĐẨY DỮ LIỆU TÁC NGHIỆP LÊN DATABASE SUPABASE", type="secondary", use_container_width=True):
+                    if st.button("💾 ĐẨY DỮ LIỆU TÁC NGHIỆP LÊN DATABASE SUPABASE", type="secondary", use_container_width=True, key="sb_sync_btn_final_c2_v5"):
                         try:
                             payload_db = {
                                 "style_name": str(style_id_input).strip().upper(), "po_quantity": int(po_qty_input),
@@ -2024,10 +2024,9 @@ elif menu_selection == "🛒 Purchase Consumption":
                             sb_instance = globals().get("supabase", globals().get("supabase_client", st.session_state.get("supabase")))
                             if sb_instance:
                                 sb_instance.table("tac_nghiep_ban_cat").insert(payload_db).execute()
-                                st.success(f"🎉 Đã đồng bộ dữ liệu mã hàng {style_id_input} lên hệ thống Supabase!")
+                                st.success(f"🎉 Đã đồng bộ dữ liệu mã hàng {style_id_input} lên hệ thống Supabase thành công!")
                         except Exception: pass
 
-                    # Thuật toán b bẻ chuỗi sạch: Tách triệt để Giàng và Size trần trọc không chữ thừa
                     parsed_size_columns = []
                     for col_name in active_sizes:
                         col_str = str(col_name).strip()
@@ -2056,7 +2055,6 @@ elif menu_selection == "🛒 Purchase Consumption":
                             from openpyxl.styles import PatternFill, Font, Border, Side, Alignment
                             from openpyxl.utils import get_column_letter
                             
-                            # 1. Khởi tạo Header thông tin chung (Khối màu Navy đặc trưng ngành may)
                             navy_fill = PatternFill(start_color="1E3A8A", end_color="1E3A8A", fill_type="solid")
                             white_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
                             gray_fill = PatternFill(start_color="F1F5F9", end_color="F1F5F9", fill_type="solid")
@@ -2074,38 +2072,38 @@ elif menu_selection == "🛒 Purchase Consumption":
                             
                             pd.DataFrame({"BÁO CÁO PHÂN HỆ TÁC NGHIỆP BÀN CẮT MULTI-INSEAM": header_labels}).to_excel(writer, sheet_name="BaoCao_TacNghiep", index=False, startrow=0)
                             
-                            # 2. Dựng cấu trúc tiêu đề MultiIndex lồng nhóm 2 tầng sạch sẽ
                             excel_multi_cols = [("GIÀNG", "SIZE")]
                             for item in parsed_size_columns:
-                                excel_multi_cols.append((f"GIÀNG {item['giang_num']}", int(item['size_num']) if item['size_num'].isdigit() else item['size_num']))
+                                s_val = item['size_num']
+                                try: export_size_label = int(s_val) if str(s_val).isdigit() else float(s_val)
+                                except ValueError: export_size_label = s_val
+                                excel_multi_cols.append((f"GIÀNG {item['giang_num']}", export_size_label))
                             for col_name in other_tech_keys:
                                 excel_multi_cols.append(("THÔNG SỐ TÁC NGHIỆP", col_name))
                                 
                             df_excel_export = df_final_report.copy()
                             df_excel_export.columns = pd.MultiIndex.from_tuples(excel_multi_cols)
-                            df_excel_export.to_excel(writer, sheet_name="BaoCao_TacNghiep", index=False, startrow=9)
+                            
+                            # 🎯 ĐÃ SỬA: Ép buộc index=True để loại bỏ hoàn toàn lỗi NotImplementedError gộp ô đa cấp
+                            df_excel_export.to_excel(writer, sheet_name="BaoCao_TacNghiep", index=True, startrow=9)
                             
                             worksheet = writer.sheets["BaoCao_TacNghiep"]
-                            
-                            # Cấu hình gờ viền Gridlines đen mảnh sắc nét
                             thin_side = Side(border_style="thin", color="000000")
                             factory_border = Border(left=thin_side, right=thin_side, top=thin_side, bottom=thin_side)
                             align_center = Alignment(horizontal="center", vertical="center", wrap_text=True)
                             
-                            # Định dạng mỹ thuật khối Header đơn hàng phía trên
                             worksheet.merge_cells("A1:C1")
-                            worksheet["A1"].fill = navy_fill
-                            worksheet["A1"].font = white_font
+                            worksheet["A1"].fill = navy_fill; worksheet["A1"].font = white_font
                             for r in range(2, 8):
                                 worksheet.cell(row=r, column=1).font = Font(name="Calibri", size=11, bold=True, color="1E3A8A")
                             
-                            # 3. Quét định dạng đóng khung, canh giữa và nhuộm màu thông minh từng ô
+                            # Quét khung lưới và tô màu dải màu vàng dòng Balance trên file Excel
                             for r_idx in range(10, worksheet.max_row + 1):
-                                is_title_row_1 = (r_idx == 10) # Hàng Giàng
-                                is_title_row_2 = (r_idx == 11) # Hàng Size
-                                is_balance_row = (worksheet.cell(row=r_idx, column=1).value == "Balance")
+                                is_title_row_1 = (r_idx == 10)
+                                is_title_row_2 = (r_idx == 11)
+                                # 🎯 ĐÃ SỬA: Khi bật index=True, chữ Balance nằm ở cột thứ 2 (Cột B trong Excel)
+                                is_balance_row = (worksheet.cell(row=r_idx, column=2).value == "Balance")
                                 
-                                # Thiết lập chiều cao dòng cho thoáng bảng
                                 worksheet.row_dimensions[r_idx].height = 24 if (is_title_row_1 or is_title_row_2) else 20
                                 
                                 for c_idx in range(1, worksheet.max_column + 1):
@@ -2113,24 +2111,22 @@ elif menu_selection == "🛒 Purchase Consumption":
                                     cell.border = factory_border
                                     cell.alignment = align_center
                                     
-                                    # Phối màu phân cấp tiêu đề
                                     if is_title_row_1:
                                         cell.fill = gray_fill
                                         cell.font = Font(name="Calibri", size=10, bold=True, color="1E3A8A")
                                     elif is_title_row_2:
                                         cell.fill = mint_fill
                                         cell.font = Font(name="Calibri", size=11, bold=True, color="065F46")
-                                    # Nhuộm dải màu vàng sáng rực rỡ full 100% dòng Balance
                                     elif is_balance_row:
+                                        # 🎯 ĐÃ SỬA: Đổ dải màu vàng phủ kín toàn bộ bề ngang dòng Balance trên tệp Excel tải về
                                         cell.fill = yellow_fill
                                         cell.font = Font(name="Calibri", size=11, bold=True, color="991B1B")
                                     else:
                                         cell.font = Font(name="Calibri", size=10)
                             
-                            # 4. Thuật toán Auto-fit giãn chiều rộng cột tự động để chống lỗi đè chữ hoặc hiển thị ###
                             for col in worksheet.columns:
                                 max_len = 0
-                                col_letter = get_column_letter(col[0].column)
+                                col_letter = get_column_letter(col.column)
                                 for cell in col:
                                     if cell.row > 8 and cell.value:
                                         max_len = max(max_len, len(str(cell.value)))
@@ -2140,12 +2136,12 @@ elif menu_selection == "🛒 Purchase Consumption":
                             label="📥 XUẤT FILE EXCEL TÁC NGHIỆP CHUẨN THƯƠNG MẠI", data=buffer.getvalue(),
                             file_name=f"BÁO_CÁO_TÁC_NGHIỆP_BÀN_CẮT_{style_id_input}.xlsx",
                             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True,
-                            key="excel_download_btn_final_v50"
+                            key="excel_download_btn_final_v52"
                         )
                     except Exception as e:
-                        st.error(f"Lỗi kết xuất Excel mỹ thuật: {str(e)}")
+                        st.error(f"Lỗi xuất file Excel: {str(e)}")
 
-                    # 🎯 KHÓA CẤU TRÚC WEB: Đắp tiêu đề 2 tầng sạch lên lưới Web Streamlit
+                    # Gán cấu trúc tiêu đề MultiIndex lồng cụm lên Web Streamlit
                     web_multi_cols = [("GIÀNG", "SIZE")]
                     for item in parsed_size_columns:
                         web_multi_cols.append((f"{item['giang_num']}", item['size_num']))
@@ -2153,9 +2149,9 @@ elif menu_selection == "🛒 Purchase Consumption":
                         web_multi_cols.append(("THÔNG SỐ TÁC NGHIỆP", col_name))
                     df_final_report.columns = pd.MultiIndex.from_tuples(web_multi_cols)
 
-                    # Nhuộm màu vàng full bảng Web dựa trên trục index trần (.iloc) tránh hoàn toàn KeyError
+                    # Nhuộm màu vàng full 100% dòng Balance hiển thị trên Web Streamlit qua hàm .iloc
                     def style_full_balance_rows(row):
-                        if row.iloc == "Balance":
+                        if row.iloc[0] == "Balance":
                             return ['background-color: #FEF08A; color: #991B1B; font-weight: 700; border: 1px solid #FDE047;'] * len(row)
                         return [''] * len(row)
                     
