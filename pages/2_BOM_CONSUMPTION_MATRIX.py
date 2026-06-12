@@ -2014,10 +2014,10 @@ elif menu_selection == "🛒 Purchase Consumption":
                     total_fabric_yds_final = total_fabric_m * 1.09361
                     final_avg_yield = total_fabric_yds_final / (total_cut_pcs_sum if total_cut_pcs_sum > 0 else 1)
                     
-                                       # 💾 ĐẨY DỮ LIỆU ĐỒNG BỘ LÊN DATABASE SUPABASE (ĐÃ CHỈNH KHỚP 100% CỘT TRÊN SUPABASE)
+                                                      # 💾 ĐẨY DỮ LIỆU ĐỒNG BỘ LÊN DATABASE SUPABASE (BẢN TỰ KHỞI TẠO BIẾN KẾT NỐI ĐỘC LẬP)
                     if st.button("💾 ĐẨY DỮ LIỆU TÁC NGHIỆP LÊN DATABASE SUPABASE", type="secondary", use_container_width=True, key="sb_sync_btn_final_c2_fixed_v99"):
                         try:
-                            # Đồng bộ chính xác tên khóa style_name_text và ép kiểu số nguyên hoàn chỉnh theo đúng database của bạn
+                            # 1. Đồng bộ chính xác tên khóa style_name_text và ép kiểu số nguyên theo đúng cấu trúc bảng của bạn
                             payload_db = {
                                 "style_name_text": str(style_id_input).strip().upper(),
                                 "po_quantity": int(po_qty_input),
@@ -2027,14 +2027,28 @@ elif menu_selection == "🛒 Purchase Consumption":
                                 "cuttable_width_inch": float(cuttable_width_inch)
                             }
                             
-                            sb_instance = globals().get("supabase", globals().get("supabase_client", st.session_state.get("supabase")))
-                            if sb_instance:
+                            # 2. 🎯 GIẢI PHÁP VÀNG: Tự kết nối trực tiếp độc lập bằng Secrets của xưởng, không phụ thuộc biến toàn cục
+                            sb_url = st.secrets.get("SUPABASE_URL", "").strip()
+                            sb_key = st.secrets.get("SUPABASE_KEY", st.secrets.get("SUPABASE_SERVICE_KEY", "")).strip()
+                            
+                            if not sb_url or not sb_key:
+                                # Nếu xưởng dùng tên viết thường trong Secrets config
+                                sb_url = st.secrets.get("supabase_url", "").strip()
+                                sb_key = st.secrets.get("supabase_key", "").strip()
+                                
+                            if sb_url and sb_key:
+                                # Import trực tiếp thư viện và khởi tạo Client độc lập
+                                from supabase import create_client
+                                sb_instance = create_client(sb_url, sb_key)
+                                
+                                # Tiến hành lọt thẳng dữ liệu vào bảng
                                 sb_instance.table("tac_nghiep_ban_cat").insert(payload_db).execute()
                                 st.success(f"🎉 Đã đồng bộ dữ liệu mã hàng {style_id_input} lên hệ thống Supabase thành công!")
                             else:
-                                st.error("❌ Không tìm thấy cổng kết nối database Supabase. Vui lòng bấm F5 tải lại trang.")
+                                st.error("❌ Hệ thống chưa cấu hình biến SUPABASE_URL hoặc SUPABASE_KEY trong mục Secrets Settings.")
                         except Exception as db_err: 
                             st.error(f"Lỗi cơ sở dữ liệu Supabase: {str(db_err)}")
+
 
 
                                         # 🎯 THUẬT TOÁN BẺ CHUỖI VÀ PHÂN NHÓM GOM CỤM CỘT GIÀNG/SIZE AN TOÀN TUYỆT ĐỐI
