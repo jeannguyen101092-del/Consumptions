@@ -839,6 +839,7 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
     l_shrink_val = l_shrink[0] if l_shrink else None
     new_fabric_width_val = new_fabric_width[0] if new_fabric_width else None
 
+
 # Ép kiểu float an toàn từ giá trị đơn lẻ
     w_shrink = float(w_shrink_val) if w_shrink_val else 0.0
     l_shrink = float(l_shrink_val) if l_shrink_val else 0.0
