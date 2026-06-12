@@ -2027,7 +2027,7 @@ elif menu_selection == "🛒 Purchase Consumption":
                                 st.success(f"🎉 Đã đồng bộ dữ liệu mã hàng {style_id_input} lên hệ thống Supabase thành công!")
                         except Exception: pass
 
-                                        # 🎯 THUẬT TOÁN BÈ CHUỖI VÀ PHÂN NHÓM GOM CỤM CỘT GIÀNG/SIZE AN TOÀN
+                                        # 🎯 THUẬT TOÁN BẺ CHUỖI VÀ PHÂN NHÓM GOM CỤM CỘT GIÀNG/SIZE AN TOÀN TUYỆT ĐỐI
                     parsed_size_columns = []
                     for col_name in active_sizes:
                         col_str = str(col_name).strip()
@@ -2035,6 +2035,7 @@ elif menu_selection == "🛒 Purchase Consumption":
                         if any(char in col_clean.lower() for char in ["x", "-", "/"]):
                             parts = re.split(r'[\sXx\-\/]+', col_clean)
                             if len(parts) >= 2:
+                                # 🎯 ĐÃ SỬA CHÍNH XÁC: Lấy vị trí phần tử cụ thể trong mảng để triệt tiêu dứt điểm lỗi parts.strip()
                                 size_val = str(parts[0]).strip()
                                 giang_val = str(parts[1]).strip()
                                 parsed_size_columns.append({"original": col_name, "size_num": size_val, "giang_num": giang_val})
@@ -2127,7 +2128,7 @@ elif menu_selection == "🛒 Purchase Consumption":
 
                     styled_df_report = df_final_report.style.apply(highlight_ratios_and_headers, axis=None)
 
-                    # 🎯 INJECT CSS: Phối màu phân cấp 3 tầng Thượng tầng Web theo đúng yêu cầu
+                    # 🎯 INJECT CSS: Phối màu phân cấp 3 tầng Thượng tầng Web theo đúng yêu cầu mẫu ảnh
                     st.markdown("""
                         <style>
                             /* Tầng 1: Hàng Giàng đổ màu Xanh dương nhạt */
