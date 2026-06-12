@@ -2044,22 +2044,34 @@ elif menu_selection == "🛒 Purchase Consumption":
                         except Exception as db_err: 
                             st.error(f"Lỗi cơ sở dữ liệu Supabase: {str(db_err)}")
 
-                                        # 🎯 THUẬT TOÁN ĐÃ ĐƠN GIẢN HÓA CỰC HẠN - CHỐNG LỖI CÚ PHÁP & SỬA LỖI 1 GIÀNG
-                    # Kiểm tra xem danh sách kích thước thực tế có chứa ký tự phân tách 'x' hay không
-                    co_nhieu_giang = any(('x' in str(s).lower() or '-' in str(s)) for s in active_sizes)
-                    
-                    if co_nhieu_giang:
+                                 # 🎯 THUẬT TOÁN BẺ CHUỖI VÀ PHÂN NHÓM GOM CỤM CỘT GIÀNG/SIZE AN TOÀN TUYỆT ĐỐI
+                    parsed_size_columns = []
+                    for col_name in active_sizes:
+                        col_str = str(col_name).strip()
+                        col_clean = col_str.replace("'", "").replace('"', '').replace("(", "").replace(")", "")
+                        if any(char in col_clean.lower() for char in ["x", "-", "/"]):
+                            parts = re.split(r'[\sXx\-\/]+', col_clean)
+                            if len(parts) >= 2:
+                                # 🎯 ĐÃ SỬA CHÍNH XÁC: Lấy vị trí phần tử cụ thể trong mảng để triệt tiêu dứt điểm lỗi parts.strip()
+                                size_val = str(parts[0]).strip()
+                                giang_val = str(parts[1]).strip()
+                                parsed_size_columns.append({"original": col_name, "size_num": size_val, "giang_num": giang_val})
+                            else:
+                                parsed_size_columns.append({"original": col_name, "size_num": col_clean, "giang_num": str(detected_inseam)})
+                        else:
+                            parsed_size_columns.append({"original": col_name, "size_num": col_clean, "giang_num": str(detected_inseam)})
+
+                    # 💡 SỬA TẠI ĐÂY: Nếu đơn hàng là size chữ (XS, S, M...) không có số, bỏ qua sort để không lệch size
+                    if any(any(c.isdigit() for c in x['giang_num']) for x in parsed_size_columns):
                         try:
-                            # Sắp xếp cho đơn hàng nhiều giàng
-                            ordered_size_keys = sorted(list(active_sizes), key=lambda x: [int(s) if s.isdigit() else s for s in re.split(r'[\sXx\-\/]+', str(x))])
+                            parsed_size_columns.sort(key=lambda x: (int(re.sub(r'\D', '', x['giang_num'])), int(re.sub(r'\D', '', x['size_num']))))
                         except Exception:
-                            ordered_size_keys = list(active_sizes)
+                            parsed_size_columns.sort(key=lambda x: (x['giang_num'], x['size_num']))
+                        ordered_size_keys = [item["original"] for item in parsed_size_columns]
                     else:
-                        # ĐƠN HÀNG 1 GIÀNG: Giữ nguyên tuyệt đối thứ tự từ bảng gốc, không xáo trộn
                         ordered_size_keys = list(active_sizes)
 
                     other_tech_keys = ["Số lớp", "Số bàn", "Dài sơ đồ", "Số sp/SĐ", "Đ.Mức SĐ", "Vải cần (M)"]
-                    ordered_size_keys = [k for k in ordered_size_keys if k in df_final_report.columns]
                     df_final_report = df_final_report[["SIZE"] + ordered_size_keys + other_tech_keys]
 
                     # --- KHỐI KẾT XUẤT FILE EXCEL MỸ THUẬT THƯƠNG MẠI ---
