@@ -1968,240 +1968,153 @@ elif menu_selection == "🛒 Purchase Consumption":
                 if trigger_consumption:
                     st.session_state["consumption_activated"] = True
                     st.rerun()
-                # BƯỚC 3: LIÊN KẾT ĐỐI CHIẾU DỮ LIỆU Ô CAD, ĐẨY SUPABASE & KẾT XUẤT EXCEL ĐÓNG KHUNG CHUẨN
-                if st.session_state.get("auto_cutting_results") is not None:
-                    import re
-                    import io
-                    
-                    cad_lengths_map = {}
-                    if cad_paste_zone.strip() and st.session_state["consumption_activated"]:
-                        cad_lines = cad_paste_zone.strip().split("\n")
-                        for line in cad_lines:
-                            if not line.strip(): continue
-                            match = re.search(r'(c\d{2})[\s\t]+([0-9]*\.?[0-9]+)', line.lower().strip())
-                            if match:
-                                suffix_key = match.group(1)
-                                try: cad_lengths_map[suffix_key] = float(match.group(2))
-                                except ValueError: pass
+                # ==========================================
+# BƯỚC 3: LIÊN KẾT ĐỐI CHIẾU DỮ LIỆU Ô CAD, ĐẨY SUPABASE & KẾT XUẤT EXCEL ĐÓNG KHUNG CHUẨN
+# ==========================================
+if st.session_state.get("auto_cutting_results") is not None:
+    import re
+    import io
+    import pandas as pd
+    
+    cad_lengths_map = {}
+    if cad_paste_zone.strip() and st.session_state["consumption_activated"]:
+        cad_lines = cad_paste_zone.strip().split("\n")
+        for line in cad_lines:
+            if not line.strip(): 
+                continue
+            match = re.search(r'(c\d{2})[\s\t]+([0-9]*\.?[0-9]+)', line.lower().strip())
+            if match:
+                suffix_key = match.group(1)
+                try: 
+                    cad_lengths_map[suffix_key] = float(match.group(2))
+                except ValueError: 
+                    pass
 
-                    final_rows_display = []
-                    total_fabric_m = 0.0
-                    total_cut_pcs_sum = 0
-                    
-                    for item in st.session_state["auto_cutting_results"]:
-                        display_row = {"SIZE": item["Sơ đồ / Trạng thái"]}
-                        for sz in active_sizes: display_row[sz] = item["Ratios"].get(sz, 0)
-                            
-                        if item["Sơ đồ / Trạng thái"] != "Balance":
-                            layers = item["Số lớp"]; tables = item["Số bàn"]; sp_sd = item["Số sp/SĐ"]
-                            current_marker_id = item["Sơ đồ / Trạng thái"].lower().strip()
-                            m_len = cad_lengths_map.get(current_marker_id, 0.0) if st.session_state["consumption_activated"] else 0.0
-                            vail_can_m = m_len * layers * tables
-                            total_fabric_m += vail_can_m
-                            total_ratios_sum = sum(item["Ratios"].values())
-                            pcs_cut = total_ratios_sum * layers * tables
-                            total_cut_pcs_sum += pcs_cut
-                            dm_sd = (vail_can_m * 1.09361) / pcs_cut if pcs_cut > 0 else 0.0
-                            
-                            display_row["Số lớp"] = layers; display_row["Số bàn"] = tables; display_row["Dài sơ đồ"] = m_len
-                            display_row["Số sp/SĐ"] = sp_sd; display_row["Đ.Mức SĐ"] = round(dm_sd, 3); display_row["Vải cần (M)"] = round(vail_can_m, 1)
-                        else:
-                            display_row["Số lớp"] = ""; display_row["Số bàn"] = ""; display_row["Dài sơ đồ"] = ""
-                            display_row["Số sp/SĐ"] = ""; display_row["Đ.Mức SĐ"] = ""; display_row["Vải cần (M)"] = ""
-                        final_rows_display.append(display_row)
-                        
-                    df_final_report = pd.DataFrame(final_rows_display)
-                    total_fabric_yds_final = total_fabric_m * 1.09361
-                    final_avg_yield = total_fabric_yds_final / (total_cut_pcs_sum if total_cut_pcs_sum > 0 else 1)
-                    
-                                                      # 💾 ĐẨY DỮ LIỆU ĐỒNG BỘ LÊN DATABASE SUPABASE (BẢN TỰ KHỞI TẠO BIẾN KẾT NỐI ĐỘC LẬP)
-                    if st.button("💾 ĐẨY DỮ LIỆU TÁC NGHIỆP LÊN DATABASE SUPABASE", type="secondary", use_container_width=True, key="sb_sync_btn_final_c2_fixed_v99"):
-                        try:
-                            # 1. Đồng bộ chính xác tên khóa style_name_text và ép kiểu số nguyên theo đúng cấu trúc bảng của bạn
-                            payload_db = {
-                                "style_name_text": str(style_id_input).strip().upper(),
-                                "po_quantity": int(po_qty_input),
-                                "planned_cut_pcs": int(round(total_cut_pcs_sum)),
-                                "consumption_value": str(round(final_avg_yield, 3)),
-                                "total_material_value": str(round(total_fabric_yds_final, 2)),
-                                "cuttable_width_inch": float(cuttable_width_inch)
-                            }
-                            
-                            # 2. 🎯 GIẢI PHÁP VÀNG: Tự kết nối trực tiếp độc lập bằng Secrets của xưởng, không phụ thuộc biến toàn cục
-                            sb_url = st.secrets.get("SUPABASE_URL", "").strip()
-                            sb_key = st.secrets.get("SUPABASE_KEY", st.secrets.get("SUPABASE_SERVICE_KEY", "")).strip()
-                            
-                            if not sb_url or not sb_key:
-                                # Nếu xưởng dùng tên viết thường trong Secrets config
-                                sb_url = st.secrets.get("supabase_url", "").strip()
-                                sb_key = st.secrets.get("supabase_key", "").strip()
-                                
-                            if sb_url and sb_key:
-                                # Import trực tiếp thư viện và khởi tạo Client độc lập
-                                from supabase import create_client
-                                sb_instance = create_client(sb_url, sb_key)
-                                
-                                # Tiến hành lọt thẳng dữ liệu vào bảng
-                                sb_instance.table("tac_nghiep_ban_cat").insert(payload_db).execute()
-                                st.success(f"🎉 Đã đồng bộ dữ liệu mã hàng {style_id_input} lên hệ thống Supabase thành công!")
-                            else:
-                                st.error("❌ Hệ thống chưa cấu hình biến SUPABASE_URL hoặc SUPABASE_KEY trong mục Secrets Settings.")
-                        except Exception as db_err: 
-                            st.error(f"Lỗi cơ sở dữ liệu Supabase: {str(db_err)}")
+    final_rows_display = []
+    total_fabric_m = 0.0
+    total_cut_pcs_sum = 0
+    
+    # Duyệt qua từng sơ đồ trong kết quả tác nghiệp
+    for item in st.session_state["auto_cutting_results"]:
+        display_row = {"SIZE": item["Sơ đồ / Trạng thái"]}
+        for sz in active_sizes: 
+            display_row[sz] = item["Ratios"].get(sz, 0)
+            
+        if item["Sơ đồ / Trạng thái"] != "Balance":
+            layers = item["Số lớp"]
+            tables = item["Số bàn"]
+            sp_sd = item["Số sp/SĐ"]
+            current_marker_id = item["Sơ đồ / Trạng thái"].lower().strip()
+            
+            m_len = cad_lengths_map.get(current_marker_id, 0.0) if st.session_state["consumption_activated"] else 0.0
+            vail_can_m = m_len * layers * tables
+            total_fabric_m += vail_can_m
+            
+            total_ratios_sum = sum(item["Ratios"].values())
+            pcs_cut = total_ratios_sum * layers * tables
+            total_cut_pcs_sum += pcs_cut
+            dm_sd = (vail_can_m * 1.09361) / pcs_cut if pcs_cut > 0 else 0.0
+            
+            display_row["Số lớp"] = layers
+            display_row["Số bàn"] = tables
+            display_row["Dài sơ đồ"] = m_len
+            display_row["Số sp/SĐ"] = sp_sd
+            display_row["Đ.Mức SĐ"] = round(dm_sd, 3)
+            display_row["Vải cần (M)"] = round(vail_can_m, 1)
+        else:
+            display_row["Số lớp"] = ""
+            display_row["Số bàn"] = ""
+            display_row["Dài sơ đồ"] = ""
+            display_row["Số sp/SĐ"] = ""
+            display_row["Đ.Mức SĐ"] = ""
+            display_row["Vải cần (M)"] = ""
+            
+        final_rows_display.append(display_row)
+        
+    df_final_report = pd.DataFrame(final_rows_display)
+    total_fabric_yds_final = total_fabric_m * 1.09361
+    final_avg_yield = total_fabric_yds_final / (total_cut_pcs_sum if total_cut_pcs_sum > 0 else 1)
+    # 💾 ĐẨY DỮ LIỆU ĐỒNG BỘ LÊN DATABASE SUPABASE
+    if st.button("💾 ĐẨY DỮ LIỆU TÁC NGHIỆP LÊN DATABASE SUPABASE", type="secondary", use_container_width=True, key="sb_sync_btn_final_c2_fixed_v99"):
+        try:
+            payload_db = {
+                "style_name_text": str(style_id_input).strip().upper(),
+                "po_quantity": int(po_qty_input),
+                "planned_cut_pcs": int(round(total_cut_pcs_sum)),
+                "consumption_value": str(round(final_avg_yield, 3)),
+                "total_material_value": str(round(total_fabric_yds_final, 2)),
+                "cuttable_width_inch": float(cuttable_width_inch)
+            }
+            
+            sb_url = st.secrets.get("SUPABASE_URL", "").strip()
+            sb_key = st.secrets.get("SUPABASE_KEY", st.secrets.get("SUPABASE_SERVICE_KEY", "")).strip()
+            
+            if not sb_url or not sb_key:
+                sb_url = st.secrets.get("supabase_url", "").strip()
+                sb_key = st.secrets.get("supabase_key", "").strip()
+                
+            if sb_url and sb_key:
+                from supabase import create_client
+                sb_instance = create_client(sb_url, sb_key)
+                sb_instance.table("tac_nghiep_ban_cat").insert(payload_db).execute()
+                st.success(f"🎉 Đã đồng bộ dữ liệu mã hàng {style_id_input} lên hệ thống Supabase thành công!")
+            else:
+                st.error("❌ Hệ thống chưa cấu hình biến SUPABASE_URL hoặc SUPABASE_KEY trong mục Secrets Settings.")
+        except Exception as db_err: 
+            st.error(f"Lỗi cơ sở dữ liệu Supabase: {str(db_err)}")
+    # 🎯 THUẬT TOÁN BẺ CHUỖI VÀ PHÂN NHÓM GOM CỤM CỘT GIÀNG/SIZE AN TOÀN TUYỆT ĐỐI (SỬA LỖI 1 GIÀNG)
+    parsed_size_columns = []
+    has_multi_giang = False  # Cờ đánh dấu nếu đơn hàng thực tế là nhiều giàng
+    
+    # Phân tích chuỗi tiêu đề kích thước
+    for col_name in active_sizes:
+        col_str = str(col_name).strip()
+        col_clean = col_str.replace("'", "").replace('"', '').replace("(", "").replace(")", "")
+        
+        # Nếu tiêu đề có dạng phân tách 30x32, 32-34... và không phải thuần chữ
+        if any(char in col_clean.lower() for char in ["x", "-", "/"]) and not col_clean.isalpha():
+            parts = re.split(r'[\sXx\-\/]+', col_clean)
+            if len(parts) >= 2:
+                size_val = str(parts[0]).strip()
+                giang_val = str(parts[1]).strip()
+                parsed_size_columns.append({"original": col_name, "size_num": size_val, "giang_num": giang_val})
+                has_multi_giang = True
+                continue
+        
+        # Nếu đơn hàng 1 giàng (Ví dụ form chữ XS, S, M hoặc form số 30, 32 đứng một mình)
+        parsed_size_columns.append({"original": col_name, "size_num": col_clean, "giang_num": str(detected_inseam)})
 
+    # Sắp xếp cột dựa trên loại cấu trúc đơn hàng
+    if has_multi_giang:
+        try:
+            # Sắp xếp logic số cho đơn hàng nhiều giàng (ví dụ quần Jeans)
+            parsed_size_columns.sort(key=lambda x: (
+                int(re.sub(r'\D', '', x['giang_num'])) if re.sub(r'\D', '', x['giang_num']) else 0, 
+                int(re.sub(r'\D', '', x['size_num'])) if re.sub(r'\D', '', x['size_num']) else 0
+            ))
+            ordered_size_keys = [item["original"] for item in parsed_size_columns]
+        except Exception:
+            try:
+                parsed_size_columns.sort(key=lambda x: (x['giang_num'], x['size_num']))
+                ordered_size_keys = [item["original"] for item in parsed_size_columns]
+            except Exception:
+                ordered_size_keys = list(active_sizes)
+    else:
+        # Nếu đơn hàng chỉ có 1 giàng (như hình ảnh lỗi): GIỮ NGUYÊN THỨ TỰ BAN ĐẦU, không sort
+        ordered_size_keys = list(active_sizes)
 
+    # Gom nhóm và tái sắp xếp DataFrame hiển thị hoàn chỉnh
+    other_tech_keys = ["Số lớp", "Số bàn", "Dài sơ đồ", "Số sp/SĐ", "Đ.Mức SĐ", "Vải cần (M)"]
+    
+    # Loại bỏ các cột trùng lặp hoặc không tồn tại thực tế để tránh crash giao diện
+    ordered_size_keys = [k for k in ordered_size_keys if k in df_final_report.columns]
+    df_final_report = df_final_report[["SIZE"] + ordered_size_keys + other_tech_keys]
 
-                                        # 🎯 THUẬT TOÁN BẺ CHUỖI VÀ PHÂN NHÓM GOM CỤM CỘT GIÀNG/SIZE AN TOÀN TUYỆT ĐỐI
-                    parsed_size_columns = []
-                    for col_name in active_sizes:
-                        col_str = str(col_name).strip()
-                        col_clean = col_str.replace("'", "").replace('"', '').replace("(", "").replace(")", "")
-                        if any(char in col_clean.lower() for char in ["x", "-", "/"]):
-                            parts = re.split(r'[\sXx\-\/]+', col_clean)
-                            if len(parts) >= 2:
-                                # 🎯 ĐÃ SỬA CHÍNH XÁC: Lấy vị trí phần tử cụ thể trong mảng để triệt tiêu dứt điểm lỗi parts.strip()
-                                size_val = str(parts[0]).strip()
-                                giang_val = str(parts[1]).strip()
-                                parsed_size_columns.append({"original": col_name, "size_num": size_val, "giang_num": giang_val})
-                            else:
-                                parsed_size_columns.append({"original": col_name, "size_num": col_clean, "giang_num": str(detected_inseam)})
-                        else:
-                            parsed_size_columns.append({"original": col_name, "size_num": col_clean, "giang_num": str(detected_inseam)})
-
-                    try:
-                        parsed_size_columns.sort(key=lambda x: (int(re.sub(r'\D', '', x['giang_num'])), int(re.sub(r'\D', '', x['size_num']))))
-                    except Exception:
-                        parsed_size_columns.sort(key=lambda x: (x['giang_num'], x['size_num']))
-
-                    ordered_size_keys = [item["original"] for item in parsed_size_columns]
-                    other_tech_keys = ["Số lớp", "Số bàn", "Dài sơ đồ", "Số sp/SĐ", "Đ.Mức SĐ", "Vải cần (M)"]
-                    df_final_report = df_final_report[["SIZE"] + ordered_size_keys + other_tech_keys]
-
-                    # --- KHỐI KẾT XUẤT FILE EXCEL MỸ THUẬT THƯƠNG MẠI ---
-                    try:
-                        buffer = io.BytesIO()
-                        with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-                            from openpyxl.styles import PatternFill, Font, Border, Side, Alignment
-                            from openpyxl.utils import get_column_letter
-                            
-                            header_data = {
-                                "THÔNG TIN ĐƠN HÀNG TÁC NGHIỆP BÀN CẮT CHUẨN": [
-                                    f"Mã hàng (Style Name): {style_id_input}", f"Số lượng đơn hàng (PO Qty): {po_qty_input} Pcs",
-                                    f"SẢN LƯỢNG KẾ HOẠCH CẮT (PLANNED CUT): {total_cut_pcs_sum} Pcs", f"Định mức tài liệu đề xuất: {consumption_input:.3f} Yds/Pcs",
-                                    f"Định mức tác nghiệp thực tế: {final_avg_yield:.3f} Yds/Pcs", f"Khổ cắt: {cuttable_width_inch}\""
-                                ]
-                            }
-                            pd.DataFrame(header_data).to_excel(writer, sheet_name="BaoCao_TacNghiep", index=False, startrow=0)
-                            
-                            excel_multi_cols = [("GIÀNG", "SIZE", "SẢN LƯỢNG")]
-                            for item in parsed_size_columns:
-                                s_val = item['size_num']
-                                orig_key = item['original']
-                                po_qty_val = int(size_breakdown_main.get(orig_key, 0))
-                                excel_multi_cols.append((f"GIÀNG {item['giang_num']}", int(s_val) if str(s_val).isdigit() else s_val, po_qty_val))
-                            for col_name in other_tech_keys:
-                                excel_multi_cols.append(("THÔNG SỐ TÁC NGHIỆP", col_name, ""))
-                                
-                            df_excel_export = df_final_report.copy()
-                            df_excel_export.columns = pd.MultiIndex.from_tuples(excel_multi_cols)
-                            df_excel_export.to_excel(writer, sheet_name="BaoCao_TacNghiep", index=True, startrow=10)
-                            
-                            worksheet = writer.sheets["BaoCao_TacNghiep"]
-                            thin_side = Side(border_style="thin", color="000000")
-                            factory_border = Border(left=thin_side, right=thin_side, top=thin_side, bottom=thin_side)
-                            align_center = Alignment(horizontal="center", vertical="center", wrap_text=True)
-                            
-                            for r_idx in range(11, worksheet.max_row + 1):
-                                is_balance_row = (worksheet.cell(row=r_idx, column=2).value == "Balance")
-                                for c_idx in range(1, worksheet.max_column + 1):
-                                    cell = worksheet.cell(row=r_idx, column=c_idx); cell.border = factory_border; cell.alignment = align_center
-                                    if is_balance_row:
-                                        cell.fill = PatternFill(start_color="FEF08A", end_color="FEF08A", fill_type="solid")
-                                        cell.font = Font(name="Calibri", size=11, bold=True, color="991B1B")
-                            
-                            for col_idx in range(1, worksheet.max_column + 1):
-                                max_len = 0
-                                col_letter = get_column_letter(col_idx)
-                                for row_idx in range(11, worksheet.max_row + 1):
-                                    cell_val = worksheet.cell(row=row_idx, column=col_idx).value
-                                    if cell_val: max_len = max(max_len, len(str(cell_val)))
-                                worksheet.column_dimensions[col_letter].width = max(max_len + 5, 12)
-                        
-                        st.download_button(label="📥 XUẤT FILE EXCEL TÁC NGHIỆP CHUẨN THƯƠNG MẠI", data=buffer.getvalue(), file_name=f"BÁO_CÁO_TÁC_NGHIỆP_BÀN_CẮT_{style_id_input}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True, key="excel_download_btn_final_v105")
-                    except Exception: pass
-                                        # 🎯 DỰNG GIAO DIỆN WEB 3 TẦNG ĐỒNG BỘ: Đã điền nhãn đầy đủ cho đuôi bảng để không mất chữ
-                    web_multi_cols = [("GIÀNG / SIZE / SL", "SIZE", "SẢN LƯỢNG")]
-                    for item in parsed_size_columns:
-                        orig_key = item['original']
-                        po_qty_val = int(size_breakdown_main.get(orig_key, 0))
-                        web_multi_cols.append((f"GIÀNG: {item['giang_num']}", f"{item['size_num']}", f"{po_qty_val}"))
-                    for col_name in other_tech_keys:
-                        web_multi_cols.append(("THÔNG SỐ TÁC NGHIỆP", "THÔNG SỐ TÁC NGHIỆP", col_name))
-                    df_final_report.columns = pd.MultiIndex.from_tuples(web_multi_cols)
-
-                    # Thuật toán tô vàng cho các ô có số lượng tỷ lệ nhảy sơ đồ
-                    def highlight_ratios_and_headers(x):
-                        color_df = pd.DataFrame('', index=x.index, columns=x.columns)
-                        for r in range(len(x)):
-                            if x.iloc[r, 0] == "Balance": continue
-                            for c in range(1, len(x.columns)):
-                                val = x.iloc[r, c]
-                                if c <= len(active_sizes) and str(val).isdigit() and int(val) > 0:
-                                    color_df.iloc[r, c] = 'background-color: #FEF08A; color: #991B1B; font-weight: 700; border: 1px solid #FDE047;'
-                        return color_df
-
-                    styled_df_report = df_final_report.style.apply(highlight_ratios_and_headers, axis=None)
-
-                    # 🎯 KHÓA MÀU CSS CHUẨN ĐỘC LẬP: Định danh chính xác theo số tầng Level để ép trình duyệt đổ màu 100%
-                    st.markdown("""
-                        <style>
-                            /* TẦNG 1: Hàng chứa thông tin GIÀNG nhuộm màu Xanh Dương Nhạt bứt phá */
-                            th.col_heading.level0 {
-                                background-color: #E0F2FE !important;
-                                color: #0369A1 !important;
-                                font-weight: 700 !important;
-                                font-size: 11px !important;
-                                text-align: center !important;
-                                border: 1px solid #93C5FD !important;
-                            }
-                            /* TẦNG 2: Hàng số SIZE trần giữ màu trắng xám nền sạch sẽ */
-                            th.col_heading.level1 {
-                                background-color: #F8FAFC !important;
-                                color: #334155 !important;
-                                font-weight: 700 !important;
-                                font-size: 12px !important;
-                                text-align: center !important;
-                                border: 1px solid #CBD5E1 !important;
-                            }
-                            /* TẦNG 3: Hàng SẢN LƯỢNG đơn hàng nhuộm màu Xanh Dương Đậm nổi bật hơn */
-                            th.col_heading.level2 {
-                                background-color: #BAE6FD !important;
-                                color: #0369A1 !important;
-                                font-weight: 700 !important;
-                                font-size: 11px !important;
-                                text-align: center !important;
-                                border: 1px solid #7DD3FC !important;
-                            }
-                            
-                            /* ĐUÔI BẢNG: Quét tọa độ 6 cột cuối cùng (Thông số tác nghiệp) ép nhuộm màu Xanh Mint đồng bộ */
-                            th.col_heading.blank {
-                                background-color: #DCFCE7 !important;
-                                color: #166534 !important;
-                                font-weight: 700 !important;
-                                border: 1px solid #86EFAC !important;
-                            }
-                        </style>
-                    """, unsafe_allow_html=True)
-
-                    st.markdown("<p style='font-weight:700; font-size:14px; color:#1E3A8A; margin-top:15px;'>📊 BẢNG THEO DÕI TÁC NGHIỆP & CÂN ĐỐI ĐƠN HÀNG MULTI-INSEAM</p>", unsafe_allow_html=True)
-                    st.dataframe(styled_df_report, use_container_width=True, hide_index=True)
-                    
-                    st.markdown("---")
-                    m_col1, m_col2, m_col3 = st.columns(3)
-                    with m_col1: st.metric("Tổng vải tiêu thụ tự động", f"{total_fabric_m:,.1f} Mét")
-                    with m_col2: st.metric("Định mức trung bình (Đ.Mức TB)", f"{final_avg_yield:.3f} Yds/Pcs" if st.session_state["consumption_activated"] else "0.000 Yds/Pcs")
-                    with m_col3:
-                        variance = final_avg_yield - consumption_input if total_fabric_m > 0 and st.session_state["consumption_activated"] else 0.0
-                        st.metric("Chênh lệch so với tài liệu", f"{variance:+.3f}" if st.session_state["consumption_activated"] else "0.000", delta_color="inverse" if variance > 0 else "normal")
-                else:
-                    st.info("💡 Quy trình: Bấm nút 1 để tính tác nghiệp sơ đồ -> Điền độ dài CAD -> Bấm nút 2 để kích hoạt nhảy số định mức.")
+    # --- KHỐI KẾT XUẤT FILE EXCEL MỸ THUẬT THƯƠNG MẠI ---
+    try:
+        buffer = io.BytesIO()
+        with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+            from openpyxl.styles import PatternFill, Font, Border, Side, Alignment
+            from openpyxl.utils import get_column_letter
+            
+            header_data = {}  # Tiếp tục phần xử lý tạo file excel của bạn...
