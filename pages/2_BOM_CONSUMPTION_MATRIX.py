@@ -2027,9 +2027,9 @@ elif menu_selection == "🛒 Purchase Consumption":
                                 st.success(f"🎉 Đã đồng bộ dữ liệu mã hàng {style_id_input} lên hệ thống Supabase thành công!")
                         except Exception: pass
 
-                               # 🎯 THUẬT TOÁN BẺ CHUỖI ÉP LẤY SỐ SIZE VÀ LÀM SẠCH GIAO DIỆN TUYỆT ĐỐI
+                                                  # 🎯 THUẬT TOÁN BẺ CHUỖI ÉP LẤY SỐ SIZE VÀ LÀM SẠCH GIAO DIỆN TUYỆT ĐỐI (FIX CÚ PHÁP)
                     parsed_size_columns = []
-                    is_don_khong_giang = True  # Biến cờ để kiểm tra xem đơn hàng có Giàng hay không
+                    is_don_khong_giang = True  # Biến cờ kiểm tra đơn hàng có Giàng hay không
                     
                     for col_name in active_sizes:
                         col_str = str(col_name).strip()
@@ -2037,15 +2037,14 @@ elif menu_selection == "🛒 Purchase Consumption":
                         
                         # Kiểm tra xem tên cột gốc có chứa chữ "GIÀNG" hoặc các ký tự phân tách không
                         if "giàng" in col_clean.lower() or any(char in col_clean.lower() for char in ["x", "-", "/"]):
-                            # Nếu có ký tự phân tách hoặc chứa chữ Giàng, tiến hành bẻ chuỗi
                             parts = re.split(r'[\sXx\-\/:]+', col_clean)
-                            # Loại bỏ các chữ vô nghĩa như "GIÀNG", "SIZE" khỏi mảng parts để tìm giá trị thực
+                            # Loại bỏ các chữ vô nghĩa khỏi mảng parts
                             parts_clean = [p.strip() for p in parts if p.strip().lower() not in ["giàng", "size", "sl", "siz"]]
                             
                             if len(parts_clean) >= 2:
                                 is_don_khong_giang = False
-                                giang_val = parts_clean[0]
-                                size_val = parts_clean[1]
+                                giang_val = parts_clean[1]
+                                size_val = parts_clean[0]
                             elif len(parts_clean) == 1:
                                 size_val = parts_clean[0]
                                 giang_val = ""
@@ -2057,11 +2056,11 @@ elif menu_selection == "🛒 Purchase Consumption":
                             size_val = col_clean
                             giang_val = ""
                             
-                        # Nếu giàng thu được có chữ None hoặc rỗng, giữ nguyên logic đơn không giàng
+                        # Khử giá trị None hoặc rỗng
                         if str(giang_val).lower() in ["none", "nan", ""]:
                             giang_val = ""
                         else:
-                            is_don_khong_giang = False # Có giàng thực tế
+                            is_don_khong_giang = False
 
                         parsed_size_columns.append({
                             "original": col_name, 
@@ -2081,17 +2080,16 @@ elif menu_selection == "🛒 Purchase Consumption":
                     ordered_size_keys = [item["original"] for item in parsed_size_columns]
                     other_tech_keys = ["Số lớp", "Số bàn", "Dài sơ đồ", "Số sp/SĐ", "Đ.Mức SĐ", "Vải cần (M)"]
                     
-                    # Trích xuất bảng báo cáo gốc
                     df_final_report = df_final_report[["SIZE"] + ordered_size_keys + other_tech_keys]
 
                     # --- XỬ LÝ ĐỔI TÊN TIÊU ĐỀ ĐỂ HIỂN THỊ LÊN MÀN HÌNH STREAMLIT SẠCH ĐẸP ---
                     streamlit_cols = ["SẢN LƯỢNG"]
                     for item in parsed_size_columns:
                         if is_don_khong_giang:
-                            # 🎯 ĐƠN KHÔNG GIÀNG: Chỉ hiển thị duy nhất tên Size sạch (X SMALL, SMALL, 28...) trên web
+                            # 🎯 ĐƠN KHÔNG GIÀNG: Chỉ hiển thị duy nhất tên Size sạch (SMALL, MEDIUM...) trên web
                             streamlit_cols.append(str(item['size_num']))
                         else:
-                            # Đơn có nhiều giàng: Hiển thị dạng "Giàng - Size" cho rõ ràng
+                            # Đơn có nhiều giàng: Hiển thị dạng "Giàng / Size" cho rõ ràng
                             streamlit_cols.append(f"{item['giang_num']} / {item['size_num']}")
                             
                     for col_name in other_tech_keys:
@@ -2099,7 +2097,6 @@ elif menu_selection == "🛒 Purchase Consumption":
                         
                     # Gán tiêu đề 1 tầng sạch sẽ cho giao diện hiển thị web Streamlit
                     df_final_report.columns = streamlit_cols
-
 
                     # --- KHỐI KẾT XUẤT FILE EXCEL MỸ THUẬT THƯƠNG MẠI (GIỮ NGUYÊN 2 TẦNG CHUẨN) ---
                     try:
@@ -2117,7 +2114,6 @@ elif menu_selection == "🛒 Purchase Consumption":
                             }
                             pd.DataFrame(header_data).to_excel(writer, sheet_name="BaoCao_TacNghiep", index=False, startrow=0)
                             
-                            # Cấu trúc MultiIndex 2 tầng cho file Excel tải về (Hàng 11 là Giàng, Hàng 12 là Size)
                             excel_multi_cols = [("GIÀNG", "SIZE", "SẢN LƯỢNG")]
                             for item in parsed_size_columns:
                                 g_excel_val = 0 if item['giang_num'] == "" else item['giang_num']
@@ -2129,7 +2125,8 @@ elif menu_selection == "🛒 Purchase Consumption":
                             df_excel_export = df_final_report.copy()
                             df_excel_export.columns = pd.MultiIndex.from_tuples(excel_multi_cols)
 
-                    df_final_report = df_final_report[["SIZE"] + ordered_size_keys + other_tech_keys]
+
+                            df_final_report = df_final_report[["SIZE"] + ordered_size_keys + other_tech_keys]
 
                     # 🎯 TẠO MULTIINDEX ĐỒNG BỘ CHO CẢ STREAMLIT VÀ EXCEL
                     streamlit_multi_cols = [("", "SẢN LƯỢNG")] # Cột đầu tiên (SIZE)
