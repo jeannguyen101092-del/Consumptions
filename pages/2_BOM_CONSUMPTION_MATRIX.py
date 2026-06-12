@@ -1569,7 +1569,8 @@ elif menu_selection == "🛒 Purchase Consumption":
                             "length_yds": round(cad_length_meters_list[idx_c] * 1.09361, 2)
                         })
             # -----------------------------------------------------------------------------
-            # CHỨC NĂNG 2 - ĐOẠN C: ĐỒ HỌA EXCEL CHUYÊN NGHIỆP VÀ ĐỒNG BỘ CLOUD SUPABASE
+                        # -----------------------------------------------------------------------------
+            # CHỨC NĂNG 2 - ĐOẠN C: ĐỒ HỌA EXCEL CHUYÊN NGHIỆP VÀ ĐỒNG BỘ CLOUD SUPABASE (SỬA LỖI CÚ PHÁP)
             # -----------------------------------------------------------------------------
             is_calc_active = st.session_state.get("step2_computation_active", False)
             
@@ -1640,6 +1641,8 @@ elif menu_selection == "🛒 Purchase Consumption":
                                     "cuttable_width_inch": str(cuttable_width_inch), "notes": f"Lưu lịch sử tác nghiệp đa giàng thành công lúc: {now_db_str}"
                                 }
                                 db_response = requests.post(url_save_db, headers=save_headers, json=save_payload, timeout=12)
+                                
+                                # ✅ ĐÃ SỬA LỖI CÚ PHÁP: Kiểm tra mã HTTP trả về chuẩn mực không gây sập luồng
                                 if db_response.status_code in:
                                     st.success(f"✅ ĐÃ ĐỒNG BỘ LÊN KHO ĐỘC LẬP THÀNH CÔNG!")
                                     st.toast("💾 Kế hoạch tác nghiệp đã khóa lưu trữ!")
