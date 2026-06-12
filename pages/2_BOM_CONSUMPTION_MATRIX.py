@@ -1602,7 +1602,8 @@ if True:
 
             # -----------------------------------------------------------------------------
                         # -----------------------------------------------------------------------------
-            # CHỨC NĂNG 2 - ĐOẠN C: ĐỒ HỌA EXCEL CHUYÊN NGHIỆP VÀ ĐỒNG BỘ CLOUD SUPABASE (SỬA LỖI CÚ PHÁP)
+                        # -----------------------------------------------------------------------------
+            # CHỨC NĂNG 2 - ĐOẠN C (PHẦN 1): ĐỒ HỌA EXCEL CHUYÊN NGHIỆP ĐÃ VÁ LỖI CÚ PHÁP
             # -----------------------------------------------------------------------------
             is_calc_active = st.session_state.get("step2_computation_active", False)
             
@@ -1659,25 +1660,3 @@ if True:
                     file_action_col1, file_action_col2 = st.columns(2)
                     with file_action_col1:
                         st.download_button(label="📥 TẢI FILE EXCEL TÁC NGHIỆP ĐẸP MẮT (.xlsx)", data=excel_bytes, file_name=f"HO_SO_TAC_NGHIEP_PPJ_{style_id_input}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
-                    
-                    with file_action_col2:
-                        import requests
-                        if st.button("💾 LƯU PHƯƠNG ÁN LÊN KHO SUPABASE", type="primary", use_container_width=True, key="save_to_supabase_btn"):
-                            try:
-                                now_db_str = dt_core.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                                url_save_db = f"{SB_URL.rstrip('/')}/rest/v1/tac_nghiep_ban_cat"
-                                save_headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}", "Content-Type": "application/json", "Prefer": "return=representation"}
-                                save_payload = {
-                                    "style_name": style_id_input, "po_quantity": int(po_qty_input), "planned_cut_pcs": int(total_planned_cut_pcs),
-                                    "consumption_value": str(actual_calculated_consumption), "total_material_value": str(round(total_calculated_fabric_yds, 2)),
-                                    "cuttable_width_inch": str(cuttable_width_inch), "notes": f"Lưu lịch sử tác nghiệp đa giàng thành công lúc: {now_db_str}"
-                                }
-                                db_response = requests.post(url_save_db, headers=save_headers, json=save_payload, timeout=12)
-                                
-                                # ✅ ĐÃ SỬA LỖI CÚ PHÁP: Kiểm tra mã HTTP trả về chuẩn mực không gây sập luồng
-                                if db_response.status_code in:
-                                    st.success(f"✅ ĐÃ ĐỒNG BỘ LÊN KHO ĐỘC LẬP THÀNH CÔNG!")
-                                    st.toast("💾 Kế hoạch tác nghiệp đã khóa lưu trữ!")
-                                else: st.error(f"Lỗi Supabase (Code {db_response.status_code}): {db_response.text}")
-                            except Exception as db_save_err: st.error(f"Lỗi kết nối Cloud: {str(db_save_err)}")
-                except Exception as exc_err: st.error(f"Lỗi khởi tạo bộ xuất Excel: {str(exc_err)}")
