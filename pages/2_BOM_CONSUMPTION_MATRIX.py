@@ -1079,7 +1079,7 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
             st.rerun()
 
     st.markdown("---")
-        # --- Ô TRA CỨU ĐỘC LẬP: CĂN CHUẨN LỀ 4 KHOẢNG TRẮNG THEO KHỐI LỆNH IF CHA ---
+    # --- Ô TRA CỨU ĐỘC LẬP: CĂN CHUẨN LỀ 4 KHOẢNG TRẮNG THEO KHỐI LỆNH IF CHA ---
     st.markdown("<br><p style='font-weight:700; font-size:14px; color:#1E3A8A;'>🔍 TRA CỨU NHANH ĐỊNH MỨC VẬT TƯ TRONG KHO (TRA THỦ CÔNG)</p>", unsafe_allow_html=True)
     search_col1, search_col2 = st.columns([3.2, 0.8])
     with search_col1:
@@ -1088,43 +1088,58 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
         nut_tim_kiem = st.button("🚀 TRA KHO", key="exec_direct_search_btn", use_container_width=True, type="primary")
 
     if nut_tim_kiem and ma_so_tra_cuu:
-        # Làm sạch chữ rác tiếng Việt để lấy mã chính
+        # Làm sạch các từ tiếng Việt dư thừa
         tu_khoa_clean = ma_so_tra_cuu.lower()
         for rac in ["tìm", "tim", "code", "mã", "ma", "vải", "vai", "hàng", "hang"]:
             tu_khoa_clean = tu_khoa_clean.replace(rac, "")
+        tu_khoa_clean = tu_khoa_clean.strip().upper()
             
-        # Thuật toán xóa khoảng trắng và dấu gạch để chống lỗi lệch ký tự khi gõ
-        tu_khoa_clean = tu_khoa_clean.replace(" ", "").replace("-", "").replace("_", "").strip().upper()
+        with st.spinner(f"🔍 Hệ thống đang dùng thuật toán siêu lọc tìm mã '{tu_khoa_clean}'..."):
+            # THUẬT TOÁN TÁCH TỪ KHÓA ĐA NĂNG (TOKENIZATION)
+            # Bóc riêng chữ cái và bóc riêng chữ số (Ví dụ: "SJ-8902" -> chữ: "SJ", số: "8902")
+            chu_cai = "".join(re.findall(r'[A-Za-z]+', tu_khoa_clean))
+            chu_so = "".join(re.findall(r'\d+', tu_khoa_clean))
             
-        with st.spinner(f"🔍 Hệ thống đang lục kho tìm mã '{tu_khoa_clean}'..."):
             url_bom_direct = f"{base_sb_url}/rest/v1/san_pham"
-            query_bom_direct = {
-                "select": "style_name,article_name,consumption_type,material_size,uom,consumption_value,notes",
-                "or": f"(style_name.ilike.*{tu_khoa_clean}*,article_name.ilike.*{tu_khoa_clean}*)"
-            }
+            
+            # CẤU HÌNH LUỒNG 1: Nếu gõ cả chữ và số, dùng thuật toán liên hợp (%) để bao phủ dấu gạch ngang/khoảng trắng ẩn
+            if chu_cai and chu_so:
+                query_bom_direct = {
+                    "select": "style_name,article_name,consumption_type,material_size,uom,consumption_value,notes",
+                    # Ép quét điều kiện: chứa chữ cái VÀ chứa chữ số ở bất kỳ định dạng nào (SJ%8902 hoặc 8902%SJ)
+                    "or": f"(article_name.ilike.*{chu_cai}*{chu_so}*,article_name.ilike.*{chu_so}*{chu_cai}*,style_name.ilike.*{chu_cai}*{chu_so}*,style_name.ilike.*{chu_so}*{chu_cai}*)"
+                }
+            else:
+                # Nếu chỉ gõ nguyên số hoặc nguyên chữ, chạy quét mờ tiêu chuẩn
+                query_bom_direct = {
+                    "select": "style_name,article_name,consumption_type,material_size,uom,consumption_value,notes",
+                    "or": f"(style_name.ilike.*{tu_khoa_clean}*,article_name.ilike.*{tu_khoa_clean}*)"
+                }
+                
             try:
                 res_direct = requests.get(url_bom_direct, headers=headers, params=query_bom_direct, timeout=10)
                 if res_direct.status_code == 200 and len(res_direct.json()) > 0:
                     st.session_state["bom_records"] = res_direct.json()
-                    st.toast(f"🎉 Đã nạp thành công {len(st.session_state['bom_records'])} vật tư lên bảng đối chiếu!")
+                    st.toast(f"🎉 Thành công! Đã quét trúng {len(st.session_state['bom_records'])} vật tư thỏa mãn điều kiện!")
                 else:
-                    # Phương án dự phòng 2: Nếu gõ cả chữ + số không ra, bóc riêng chuỗi số để tìm quét diện rộng
-                    so_chi_dinh = "".join(filter(str.isdigit, tu_khoa_clean))
-                    if so_chi_dinh:
+                    # PHƯƠNG ÁN DỰ PHÒNG CUỐI CÙNG (FALLBACK): Quét đơn lẻ cụm số để vét sạch kho 56K dòng
+                    if chu_so:
                         query_fallback = {
                             "select": "style_name,article_name,consumption_type,material_size,uom,consumption_value,notes",
-                            "or": f"(style_name.ilike.*{so_chi_dinh}*,article_name.ilike.*{so_chi_dinh}*)"
+                            "or": f"(style_name.ilike.*{chu_so}*,article_name.ilike.*{chu_so}*)"
                         }
                         res_fb = requests.get(url_bom_direct, headers=headers, params=query_fallback, timeout=10)
                         if res_fb.status_code == 200 and len(res_fb.json()) > 0:
                             st.session_state["bom_records"] = res_fb.json()
-                            st.toast(f"🎉 Đã vét kho tìm thấy các mã chứa số '{so_chi_dinh}'!")
+                            st.toast(f"🎉 Đã quét vét kho tìm thấy các dòng chứa số '{chu_so}'!")
                             st.rerun()
-                    st.warning(f"❌ Không tìm thấy nguyên phụ liệu nào khớp với từ khóa '{tu_khoa_clean}' ở cả hai cột.")
+                    st.warning(f"❌ Không tìm thấy dòng nào chứa tổ hợp ký tự '{tu_khoa_clean}' trong database.")
             except Exception as err_db:
                 st.error(f"🚨 Lỗi kết nối database: {str(err_db)}")
 
     st.markdown("---")
+
+ 
 
 
 
