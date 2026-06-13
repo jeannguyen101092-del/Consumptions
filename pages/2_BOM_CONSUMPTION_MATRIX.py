@@ -1069,7 +1069,7 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
             st.rerun()
 
     st.markdown("---")
-          # --- Ô TRA CỨU ĐỘC LẬP: HIỂN THỊ LUÔN KHÔNG CẦN TẢI FILE ---
+        # --- Ô TRA CỨU ĐỘC LẬP: HIỂN THỊ LUÔN KHÔNG CẦN TẢI FILE ---
         st.markdown("<br><p style='font-weight:700; font-size:14px; color:#1E3A8A;'>🔍 TRA CỨU NHANH ĐỊNH MỨC VẬT TƯ TRONG KHO (TRA THỦ CÔNG)</p>", unsafe_allow_html=True)
         search_col1, search_col2 = st.columns([3.2, 0.8])
         with search_col1:
@@ -1098,6 +1098,7 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                 except Exception as err_db:
                     st.error(f"🚨 Lỗi kết nối database: {str(err_db)}")
         st.markdown("---")
+
 
 
     if not has_file:
