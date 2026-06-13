@@ -1033,7 +1033,7 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
 
     st.markdown("---")
     
-    # === CÔNG CỤ TÌM KIẾM THỦ CÔNG: SỬA TRIỆT ĐỂ LỖI BÓC TÁCH MẢNG SUPABASE ===
+    # === CÔNG CỤ TÌM KIẾM THỦ CÔNG: ĐÃ SỬA CÚ PHÁP ILIKE SANG DẤU % CHUẨN SUPABASE ===
     st.markdown("<p style='font-weight:700; font-size:14px; color:#0F172A;'>🔍 THANH TÌM KIẾM DỮ LIỆU KHO THỦ CÔNG</p>", unsafe_allow_html=True)
     search_query = st.text_input("Nhập mã hàng đối chứng lịch sử cần tìm kiếm nhanh...", value="", placeholder="Ví dụ: 24PANT-01, SHIRT-M4...")
     
@@ -1043,30 +1043,30 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                 url_search = f"{base_sb_url}/rest/v1/thong_so_techpack"
                 search_val = search_query.strip()
                 
-                # Chiến lược 1: Thử tìm theo cột viết thường 'style_name'
+                # SỬA LỖI TOÁN TỬ: Chuyển đổi toàn bộ .* thành .% theo đúng đặc tả PostgREST API
                 q_params_low = {
                     "select": "style_name,StyleName,Buyer,buyer,Category,category,BaseSize,base_size,DetailedMeasurements,detailed_measurements,SketchURL,sketch_url,sketch_vector",
-                    "style_name": f"ilike.*{search_val}*",
+                    "style_name": f"ilike.%{search_val}%",
                     "limit": 1
                 }
                 s_res = requests.get(url_search, headers=headers, params=q_params_low, timeout=10)
                 res_data = s_res.json() if s_res.status_code == 200 else []
                 
-                # Chiến lược 2: Nếu trống, thử tìm theo cột viết hoa 'StyleName'
+                # Thử nghiệm chiến lược viết hoa nếu bảng lưu chữ hoa
                 if not res_data or (isinstance(res_data, list) and len(res_data) == 0):
                     q_params_up = {
                         "select": "style_name,StyleName,Buyer,buyer,Category,category,BaseSize,base_size,DetailedMeasurements,detailed_measurements,SketchURL,sketch_url,sketch_vector",
-                        "StyleName": f"ilike.*{search_val}*",
+                        "StyleName": f"ilike.%{search_val}%",
                         "limit": 1
                     }
                     s_res = requests.get(url_search, headers=headers, params=q_params_up, timeout=10)
                     res_data = s_res.json() if s_res.status_code == 200 else []
 
-                # XỬ LÝ TRIỆT ĐỂ: Trích xuất chính xác Object Dictionary ra khỏi mảng danh sách
+                # XỬ LÝ TRÍCH XUẤT PHẦN TỬ ĐẦU TIÊN KHỎI MẢNG DANH SÁCH MỘT CÁCH TRIỆT ĐỂ
                 if isinstance(res_data, list) and len(res_data) > 0:
-                    matched_obj = res_data[0]  # <--- BỔ SUNG FIX: Lấy đúng phần tử đầu tiên để loại bỏ bọc mảng []
+                    matched_obj = res_data[0] # Lấy chính xác phần tử đầu tiên để loại bỏ mảng []
                     
-                    # Đồng bộ hóa cấu trúc khóa dữ liệu (Dọn lỗi KeyBlunder hoa/thường)
+                    # Đồng bộ hóa cấu trúc key chữ hoa/thường để các khối UI phía sau không bị lỗi trống bảng
                     if "StyleName" not in matched_obj and "style_name" in matched_obj:
                         matched_obj["StyleName"] = matched_obj["style_name"]
                     if "DetailedMeasurements" not in matched_obj and "detailed_measurements" in matched_obj:
@@ -1091,7 +1091,7 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
     else:
         st.info(f"📋 **CƠ SỞ ĐỐI SOÁT KIỂM TRA:** Đang áp dụng quy chuẩn kích thước hình học rập mẫu cơ sở: **SIZE 32 / M (Mặc định)**")
 
-    # Chỉ quét đối soát kho bằng AI tự động nếu kỹ sư chưa chọn mã thủ công
+    # Cơ chế đối soát tự động bằng AI (Cũng được cập nhật cú pháp an toàn)
     if st.session_state["matched_techpack"] is None:
         with st.spinner("🧠 Hệ thống thị giác máy tính đang quét kết cấu phom dáng Flat Sketch..."):
             try:
@@ -1110,7 +1110,7 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                             "pool_index": idx, "style_name": s_name, "sketch_features_vector": s.get("sketch_vector", "")
                         })
 
-                    match_prompt = f"Select the single index that represents the exact match. HISTORICAL POOL DATA: {json.dumps(styles_pool_summary)} Return a raw valid JSON object inside your response: {{\"selected_pool_index\": 0}}"
+                    match_prompt = f"Select the single index that represents the exact match. HISTORICAL POOL DATA: {json.dumps(styles_pool_summary)} Return JSON: {{\"selected_pool_index\": 0}}"
                     match_contents = [types.Part.from_text(text=match_prompt)]
                     if target_new_sketch_bytes:
                         match_contents.append(types.Part.from_bytes(data=target_new_sketch_bytes, mime_type='image/jpeg'))
@@ -1128,123 +1128,6 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                             st.session_state["matched_techpack"] = auto_obj
             except Exception as match_err:
                 st.sidebar.error(f"Lỗi hệ thống đối soát hình ảnh: {str(match_err)}")
-
-
-    # Tự động kết nối dữ liệu định mức gốc từ Supabase (BOM Records)
-    if st.session_state.get("matched_techpack"):
-        try:
-            target_style_name_bom = str(st.session_state["matched_techpack"].get("StyleName", "")).strip()
-            url_bom = f"{base_sb_url}/rest/v1/san_pham"
-            query_bom = {"select": "style_name,article_name,consumption_type,material_size,uom,consumption_value,notes", "style_name": f"eq.{target_style_name_bom}"}
-            res_bom = requests.get(url_bom, headers=headers, params=query_bom, timeout=15)
-            if res_bom.status_code == 200 and len(res_bom.json()) > 0:
-                st.session_state["bom_records"] = res_bom.json()
-            else:
-                core_digits = re.findall(r'\d+', target_style_name_bom)
-                search_digits = max(core_digits, key=len) if core_digits else target_style_name_bom
-                query_bom_fb = {"select": "style_name,article_name,consumption_type,material_size,uom,consumption_value,notes", "style_name": f"ilike.*{search_digits}*"}
-                res_bom_fb = requests.get(url_bom, headers=headers, params=query_bom_fb, timeout=15)
-                if res_bom_fb.status_code == 200:
-                    raw_list = res_bom_fb.json()
-                    st.session_state["bom_records"] = [r for r in raw_list if search_digits in str(r.get("style_name", ""))]
-        except Exception:
-            pass
-
-    matched_techpack = st.session_state.get("matched_techpack")
-    bom_records = st.session_state.get("bom_records", [])
-
-    st.markdown("### 🖼️ ĐỐI CHIẾU SỰ TƯƠNG ĐỒNG HÌNH ẢNH THIẾT KẾ (FLAT SKETCH)")
-    img_col1, img_col2 = st.columns(2)
-    with img_col1:
-        if target_new_sketch_bytes is not None:
-            st.image(target_new_sketch_bytes, caption=f"Mẫu mới tải lên ({new_style_id_detected})", use_container_width=True)
-            
-    with img_col2:
-        if matched_techpack:
-            target_style_name = str(matched_techpack.get("StyleName", "Mẫu tương đồng")).strip().upper()
-            st.markdown(f"<p style='color: #1E3A8A; font-size: 13px; font-weight: 700; margin-bottom: 8px; text-align: center;'>🎯 Mã tương đồng trong kho: {target_style_name}</p>", unsafe_allow_html=True)
-            
-            auth_headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
-            url_options = [
-                f"{base_sb_url}/storage/v1/object/public/kho_anh/{target_style_name}.jpg",
-                f"{base_sb_url}/storage/v1/object/public/kho_anh/{target_style_name}.JPG",
-                f"{base_sb_url}/storage/v1/object/public/kho_anh/{target_style_name}.jpeg"
-            ]
-            img_content_final = None
-            for url_opt in url_options:
-                try:
-                    img_response = requests.get(url_opt, headers=auth_headers, timeout=5)
-                    if img_response.status_code == 200 and len(img_response.content) > 500:
-                        img_content_final = img_response.content
-                        break
-                except Exception: continue
-            if img_content_final:
-                st.image(img_content_final, caption=f"Ảnh bản vẽ gốc của mã {target_style_name}", use_container_width=True)
-        else:
-            st.warning("⚠️ KHÔNG TÌM THẤY MÃ TƯƠNG ĐỒNG TRONG KHO! Hệ thống tự kích hoạt cơ chế tính toán hình học rập phụ trợ.")
-
-    st.markdown("<br>### 📐 SO SÁNH HAI BẢNG THÔNG SỐ KỸ THUẬT RẬP MẪU", unsafe_allow_html=True)
-    spec_col1, spec_col2 = st.columns(2)
-
-    with spec_col1:
-        st.markdown(f"📊 **Bảng 1: Thông số Mẫu mới nạp ({new_style_base_size})**")
-        if new_style_measurements_dict:
-            df_new_spec = pd.DataFrame(list(new_style_measurements_dict.items()), columns=["Vị trí đo (POM Description)", "Thông số mới"])
-        else:
-            df_new_spec = pd.DataFrame(columns=["Vị trí đo (POM Description)", "Thông số mới"])
-        st.dataframe(df_new_spec, use_container_width=True, hide_index=True)
-        
-    with spec_col2:
-        if matched_techpack:
-            old_style_title = str(matched_techpack.get("StyleName", "N/A")).upper()
-            old_size_title = matched_techpack.get("BaseSize", "N/A")
-            st.markdown(f"📋 **Bảng 2: Thông số Mã trong kho ({old_style_title}) [SIZE {old_size_title}]**")
-            old_specs = matched_techpack.get("DetailedMeasurements", {})
-            df_old_spec = pd.DataFrame(list(old_specs.items()), columns=["Vị trí đo (POM Description)", "Thông số cũ"]) if old_specs else pd.DataFrame(columns=["Vị trí đo (POM Description)", "Thông số cũ"])
-            st.dataframe(df_old_spec, use_container_width=True, hide_index=True)
-        else:
-            st.markdown("📋 **Bảng 2: Thông số Mã tương đồng trong kho**")
-            st.info("💡 Trạng thái: Trống dữ liệu kho. Hệ thống sẵn sàng tính toán diện tích rập mô phỏng tự động.")
-
-    if matched_techpack and bom_records:
-        st.markdown("<br>📦 **Chi Tiết Định Mức Định Hình (BOM Lịch Sử của Mã hàng cũ):**", unsafe_allow_html=True)
-        formatted_bom = []
-        for r in bom_records:
-            def clean_nan(v): return "" if (not v or str(v).lower() in ["nan", "none", "null"]) else str(v).strip()
-            formatted_bom.append({
-                "Mã hàng đối chứng": clean_nan(r.get("style_name")).upper(),
-                "Loại nguyên vật liệu": clean_nan(r.get("consumption_type")),
-                "Chi tiết vật tư (Article)": clean_nan(r.get("article_name")),
-                "Khổ / Cỡ vật tư": clean_nan(r.get("material_size")),
-                "Định mức gốc": clean_nan(r.get("consumption_value")),
-                "UOM": clean_nan(r.get("uom"))
-            })
-        st.dataframe(pd.DataFrame(formatted_bom), use_container_width=True, hide_index=True)
-
-    st.markdown("<br><hr style='border:0.5px solid #CBD5E1;'>", unsafe_allow_html=True)
-    
-    chat_header_col1, chat_header_col2 = st.columns([3.2, 0.8])
-    with chat_header_col1:
-        st.markdown("### 💬 TRỢ LÝ AI PHÂN TÍCH ĐỊNH MỨC SẢN XUẤT (HỎI ĐÂU ĐÁP ĐÓ)")
-    with chat_header_col2:
-        if st.button("🗑️ XÓA LỊCH SỬ CHAT", key="direct_clear_chat_btn", use_container_width=True):
-            st.session_state["consumption_chat_history"] = []
-            st.toast("♻️ Đã xóa sạch lịch sử chat tức thì!")
-
-    for msg in st.session_state.get("consumption_chat_history", []):
-        with st.chat_message("user"): st.write(msg["user"])
-        with st.chat_message("assistant"): st.write(msg["ai"])
-
-    if user_query := st.chat_input("Nhập yêu cầu định mức..."):
-        with st.chat_message("user"): st.write(user_query)
-        with st.spinner("🧠 AI đang xử lý tính toán..."):
-            ai_response = ai_consumption_analyst_engine(
-                client=client, user_message=user_query, matched_techpack=st.session_state.get("matched_techpack"),
-                bom_records=st.session_state.get("bom_records", []), new_style_measurements=new_style_measurements_dict,
-                target_new_sketch_bytes=target_new_sketch_bytes, detected_size=new_style_base_size
-            )
-        with st.chat_message("assistant"): st.write(ai_response)
-        st.rerun()
 
 
 
