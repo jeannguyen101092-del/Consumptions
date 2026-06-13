@@ -838,6 +838,7 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
     l_shrink = float(l_shrink_val) if l_shrink_val else 0.0
     f_width = float(new_fabric_width_val) if new_fabric_width_val else 0.0
 
+        # --- SỬA LẠI ĐOẠN 1: ÉP AI DÙNG CÔNG THỨC ĐỊNH MỨC CÔNG NGHIỆP TRỰC TIẾP ---
     if matched_techpack:
         scenario_instruction = f"""
         KỊCH BẢN: ĐỒNG DẠNG KHO (Sử dụng dữ liệu đối chứng lịch sử)
@@ -846,10 +847,19 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
         """
     else:
         scenario_instruction = f"""
-        KỊCH BẢN: PHÂN TÍCH VECTOR HÌNH HỌC KHÔNG CÓ MÃ TƯƠNG ĐỒNG
-        - Dựa hoàn toàn vào bảng thông số 'New Spec (POM)' và hình ảnh bản vẽ rập chi tiết 'Flat Sketch' đính kèm.
-        - Tính ĐM Vải chính và các nguyên phụ liệu dựa trên diện tích hình học rập mẫu thô sau khi cộng biên may, xếp trên khổ vải: {f_width if f_width > 0 else '58 inch'}.
+        KỊCH BẢN: PHÂN TÍCH THEO CÔNG THỨC ĐỊNH MỨC NHÀ MÁY (INDUSTRIAL CONSUMPTION FORMULA)
+        - Bạn KHÔNG CÓ dữ liệu lịch sử. Tuyệt đối KHÔNG ĐƯỢC cộng dồn chiều dài các mảnh rập theo hàng dọc độc lập.
+        - Hãy quét bảng 'New Spec (POM)' để tìm thông số Dài quần (Outseam/Inseam + Front Rise) hoặc Dài thân áo (Body Length/Center Back Length).
+        
+        ÁP DỤNG CÔNG THỨC ÉP BUỘC SAU ĐỂ TÍNH VẢI CHÍNH (SHELL FABRIC):
+        1. Định mức Vải chính (Yds) = [ (Dài sản phẩm + Vòng mông/4 hoặc Vòng ngực/4 nếu có hao hụt cấu trúc rập) + Biên may lai/gấu + 1.5 inch chừa hao đầu bàn ] / 36.
+        2. Nhân tiếp với hệ số co rút dọc: x (1 + {l_shrink}/100).
+        3. Nhân tiếp với hệ số co rút ngang: x (1 + {w_shrink}/100).
+        4. Áp dụng hệ số hao hụt hiệu suất giác sơ đồ đảo đầu lồng ghép thực tế (Marker Efficiency) là 85% (tức là kết quả cuối cùng phải nhân với 0.85 để thu gọn diện tích trống).
+        
+        - Kết quả định mức vải chính cho hàng Quần Shorts thông thường phải nằm trong khoảng hợp lý từ 0.45 Yds đến 0.70 Yds. Tuyệt đối không được tính ra kết quả vượt quá 1.0 Yds trừ khi có lệnh đặc biệt hoặc vải khổ cực hẹp.
         """
+
 
     system_instruction = f"""
     You are a strict Industrial Garment Costing Engineer at PPJ Group. 
@@ -1174,6 +1184,9 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                     st.info("⚠️ Không có ảnh vật lý nào khớp trên Cloud Storage.")
         else:
             st.warning("⚠️ KHÔNG TÌM THẤY MÃ TƯƠNG ĐỒNG TRONG KHO! Tự động kích hoạt cơ chế tính toán độc lập bằng Vector Hình Học Ngành May.")
+       # ==========================================
+    # ĐOẠN 5 HOÀN CHỈNH (THAY THẾ TỪ ĐOẠN 5 CŨ CHỖ HIỂN THỊ BẢNG SPEC)
+    # ==========================================
     st.markdown("<br>### 📐 SO SÁNH HAI BẢNG THÔNG SỐ KỸ THUẬT RẬP MẪU", unsafe_allow_html=True)
     spec_col1, spec_col2 = st.columns(2)
 
@@ -1217,6 +1230,7 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
 
     st.markdown("<br><hr style='border:0.5px solid #CBD5E1;'>", unsafe_allow_html=True)
     
+    # THIẾT KẾ CỤM ĐIỀU KHIỂN CHAT BOX THÔNG MINH SIÊU TỐC
     chat_header_col1, chat_header_col2 = st.columns([3.2, 0.8])
     with chat_header_col1:
         st.markdown("### 💬 TRỢ LÝ AI PHÂN TÍCH ĐỊNH MỨC SẢN XUẤT (HỎI ĐÂU ĐÁP ĐÓ)")
@@ -1233,36 +1247,70 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
             with st.chat_message("assistant"): 
                 st.write(chat["ai"])
                 
+    # --- CHỖ THAY THẾ CHÍNH XÁC: BỘ CHẶN TÌM KIẾM NỘI BỘ KHÔNG QUA AI ---
     if user_query := st.chat_input("Nhập yêu cầu phân tích (Ví dụ: Tính định mức vải chính khi co rút ngang 5%, dọc 3%)..."):
-        with chat_container:
-            with st.chat_message("user"):
-                st.write(user_query)
-                
-            with st.chat_message("assistant"):
-                with st.spinner("🤖 AI đang phân tích dữ liệu và tính toán định mức..."):
-                    ai_reply = ai_consumption_analyst_engine(
-                        client=client,
-                        user_message=user_query,
-                        matched_techpack=matched_techpack,
-                        bom_records=bom_records,
-                        new_style_measurements=new_style_measurements_dict,
-                        target_new_sketch_bytes=target_new_sketch_bytes,
-                        detected_size=new_style_base_size
-                    )
-                    st.write(ai_reply)
         
-        st.components.v1.html(
-            """
-            <script>
-                var doc = window.parent.document;
-                var sections = doc.querySelectorAll('section.main');
-                if (sections.length > 0) {
-                    sections[0].scrollTo({top: sections[0].scrollHeight, behavior: 'smooth'});
-                }
-            </script>
-            """,
-            height=0,
-        )
+        # Bóc tách tất cả chuỗi số có trong câu lệnh
+        so_tim_kiem = re.findall(r'\d+', user_query)
+        
+        # Kiểm tra xem câu lệnh có chứa từ khóa tra cứu kho và có số hiệu đi kèm không
+        if any(kw in user_query.lower() for kw in ["tìm", "kho", "mã vải", "mã hàng"]) and so_tim_kiem:
+            chuoi_so = max(so_tim_kiem, key=len) # Lấy cụm số dài nhất làm mã tra cứu
+            
+            with chat_container:
+                with st.chat_message("user"):
+                    st.write(user_query)
+                with st.chat_message("assistant"):
+                    with st.spinner(f"🔍 Hệ thống đang truy vấn nội bộ mã '{chuoi_so}' từ kho dữ liệu..."):
+                        # Gọi trực tiếp Supabase, CHẶN HOÀN TOÀN không gửi lên API Gemini để tiết kiệm chi phí
+                        url_bom_direct = f"{base_sb_url}/rest/v1/san_pham"
+                        query_bom_direct = {
+                            "select": "style_name,article_name,consumption_type,material_size,uom,consumption_value,notes",
+                            "style_name": f"ilike.*{chuoi_so}*"
+                        }
+                        try:
+                            res_direct = requests.get(url_bom_direct, headers=headers, params=query_bom_direct, timeout=10)
+                            if res_direct.status_code == 200 and len(res_direct.json()) > 0:
+                                st.session_state["bom_records"] = res_direct.json()
+                                st.success(f"🎉 Đã tìm thấy {len(st.session_state['bom_records'])} vật tư của mã chứa số '{chuoi_so}'! Bảng định mức gốc phía trên đã được cập nhật tự động.")
+                            else:
+                                st.warning(f"❌ Không tìm thấy nguyên phụ liệu nào khớp với từ khóa số '{chuoi_so}' trong database.")
+                        except Exception as err_db:
+                            st.error(f"🚨 Lỗi kết nối database: {str(err_db)}")
+            st.rerun()
+
+        # NẾU LÀ CÂU LỆNH TÍNH TOÁN (CO RÚT, KHỔ VẢI...) -> MỚI ĐẨY QUA BỘ NÃO AI
+        else:
+            with chat_container:
+                with st.chat_message("user"):
+                    st.write(user_query)
+                    
+                with st.chat_message("assistant"):
+                    with st.spinner("🤖 AI đang phân tích dữ liệu và tính toán định mức..."):
+                        ai_reply = ai_consumption_analyst_engine(
+                            client=client,
+                            user_message=user_query,
+                            matched_techpack=matched_techpack,
+                            bom_records=bom_records,
+                            new_style_measurements=new_style_measurements_dict,
+                            target_new_sketch_bytes=target_new_sketch_bytes,
+                            detected_size=new_style_base_size
+                        )
+                        st.write(ai_reply)
+            
+            # Thuật toán neo cuộn màn hình xuống tin nhắn cuối cùng
+            st.components.v1.html(
+                """
+                <script>
+                    var doc = window.parent.document;
+                    var sections = doc.querySelectorAll('section.main');
+                    if (sections.length > 0) {
+                        sections[0].scrollTo({top: sections[0].scrollHeight, behavior: 'smooth'});
+                    }
+                </script>
+                """,
+                height=0,
+            )
 
 
 
