@@ -1079,7 +1079,7 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
             st.rerun()
 
     st.markdown("---")
-    # --- Ô TRA CỨU ĐỘC LẬP: CĂN CHUẨN LỀ 4 KHOẢNG TRẮNG THEO KHỐI LỆNH IF CHA ---
+       # --- Ô TRA CỨU ĐỘC LẬP: CĂN CHUẨN LỀ 4 KHOẢNG TRẮNG THEO KHỐI LỆNH IF CHA ---
     st.markdown("<br><p style='font-weight:700; font-size:14px; color:#1E3A8A;'>🔍 TRA CỨU NHANH ĐỊNH MỨC VẬT TƯ TRONG KHO (TRA THỦ CÔNG)</p>", unsafe_allow_html=True)
     search_col1, search_col2 = st.columns([3.2, 0.8])
     with search_col1:
@@ -1097,7 +1097,8 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
             url_bom_direct = f"{base_sb_url}/rest/v1/san_pham"
             query_bom_direct = {
                 "select": "style_name,article_name,consumption_type,material_size,uom,consumption_value,notes",
-                "style_name": f"ilike.*{tu_khoa_clean}*"
+                # TOÁN TỬ OR SONG SONG: Quét trúng cột style_name HOẶC cột article_name đều trả về dữ liệu
+                "or": f"(style_name.ilike.*{tu_khoa_clean}*,article_name.ilike.*{tu_khoa_clean}*)"
             }
             try:
                 res_direct = requests.get(url_bom_direct, headers=headers, params=query_bom_direct, timeout=10)
@@ -1105,9 +1106,10 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                     st.session_state["bom_records"] = res_direct.json()
                     st.toast(f"🎉 Đã nạp thành công {len(st.session_state['bom_records'])} vật tư lên bảng đối chiếu!")
                 else:
-                    st.warning(f"❌ Không tìm thấy nguyên phụ liệu nào khớp với từ khóa '{tu_khoa_clean}' trong database.")
+                    st.warning(f"❌ Không tìm thấy nguyên phụ liệu nào khớp với từ khóa '{tu_khoa_clean}' ở cả cột Style và Article.")
             except Exception as err_db:
                 st.error(f"🚨 Lỗi kết nối database: {str(err_db)}")
+
                 
     st.markdown("---")
     if not has_file:
