@@ -884,6 +884,9 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
        - Width Shrinkage (Co rút ngang): {w_shrink}%
        - Length Shrinkage (Co rút dọc): {l_shrink}%
     """
+        # --- THAY THẾ ĐOẠN GỌI API TRONG ĐOẠN 2 ĐỂ CHỐNG LỖI 503 ---
+    import time
+    
     chat_contents = [types.Part.from_text(text=system_instruction)]
     for past_chat in st.session_state.get("consumption_chat_history", []):
         chat_contents.append(types.Part.from_text(text=f"User: {past_chat['user']}"))
@@ -893,13 +896,21 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
     if target_new_sketch_bytes:
         chat_contents.append(types.Part.from_bytes(data=target_new_sketch_bytes, mime_type='image/jpeg'))
 
-    try:
-        response = client.models.generate_content(model='gemini-2.5-flash', contents=chat_contents)
-        ai_reply = response.text if response.text else "Hệ thống AI không thể đưa ra phân tích."
-        st.session_state["consumption_chat_history"].append({"user": user_message, "ai": ai_reply})
-        return ai_reply
-    except Exception as e:
-        return f"🚨 Lỗi cổng phân tích định mức: {str(e)}"
+    # Cơ chế thử lại 3 lần nếu máy chủ quá tải (Lỗi 503)
+    for attempt in range(3):
+        try:
+            response = client.models.generate_content(model='gemini-2.5-flash', contents=chat_contents)
+            if response and response.text:
+                ai_reply = response.text
+                st.session_state["consumption_chat_history"].append({"user": user_message, "ai": ai_reply})
+                return ai_reply
+        except Exception as e:
+            if "503" in str(e) and attempt < 2:
+                time.sleep(2)  # Nghỉ 2 giây rồi thử lại
+                continue
+            return f"🚨 Lỗi cổng phân tích định mức: {str(e)}"
+    return "🚨 Hệ thống AI đang quá tải, vui lòng thử lại sau vài giây."
+
 
 if "get_secure_gemini_key" in globals():
     gemini_key = get_secure_gemini_key()
