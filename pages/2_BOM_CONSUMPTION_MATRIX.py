@@ -1081,41 +1081,60 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
 
     with st.spinner("🧠 Hệ thống thị giác máy tính đang quét kết cấu phom dáng Flat Sketch..."):
         try:
+                    try:
             url_db = f"{base_sb_url}/rest/v1/thong_so_techpack"
-            query_params = {"select": "StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL,sketch_vector", "limit": 100}
+            # Tăng giới hạn quét rộng lên 500 mã và lấy trường SketchURL chứa link ảnh vật lý trong kho
+            query_params = {"select": "StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL", "limit": 500}
             
             db_res = requests.get(url_db, headers=headers, params=query_params, timeout=15)
             all_historical_styles = db_res.json() if db_res.status_code == 200 else []
             
             if all_historical_styles:
+                # Tạo danh sách pool chứa link ảnh trực tiếp để AI dùng mắt đối chiếu
                 styles_pool_summary = []
                 for idx, s in enumerate(all_historical_styles):
                     styles_pool_summary.append({
                         "pool_index": idx,
                         "style_name": s.get("StyleName"),
-                        "sketch_features_vector": s.get("sketch_vector", "")
+                        "image_url_to_look": s.get("SketchURL", "")
                     })
                 
-                match_prompt = f"Analyze new sketch image and find the closest match. Return JSON: {{\"selected_pool_index\": 0}}. POOL: {json.dumps(styles_pool_summary)}"
+                # Prompt ép AI phải dùng mắt phân tích đường nét hình vẽ ảnh rập
+                match_prompt = f"""
+                You are a Computer Vision Expert in Apparel Manufacturing. 
+                COMPARE the attached new sketch image with the historical images provided in the pool below.
+                
+                VISUAL AUDIT RULES:
+                - Open and look closely at the internal lines, pocket stitch shapes, waistband styling, and flies.
+                - Ignore text names or style IDs. Focus 100% on the visual similarity of the flat sketches.
+                - Find the historical style that has the exact same garment construction details.
+                
+                HISTORICAL POOL WITH IMAGE LINKS:
+                {json.dumps(styles_pool_summary)}
+                
+                Return a raw valid JSON containing only the single matching index: {{"selected_pool_index": 0}}
+                """
+                
                 match_contents = [types.Part.from_text(text=match_prompt)]
                 if target_new_sketch_bytes:
                     match_contents.append(types.Part.from_bytes(data=target_new_sketch_bytes, mime_type='image/jpeg'))
                     
-                res_match = client.models.generate_content(model='gemini-2.5-flash', contents=match_contents)
-                ai_raw_text = res_match.text.strip()
+                # Gọi Gemini xử lý đa phương thức (Nhìn ảnh mới + Soi link ảnh cũ)
+                res_match = client.models.generate_content(
+                    model='gemini-2.5-flash', 
+                    contents=match_contents,
+                    config={"response_mime_type": "application/json"}
+                )
                 
-                json_block_clean = ""
-                match_json_obj = re.search(r'\{\s*"selected_pool_index"\s*:\s*\d+\s*\}', ai_raw_text)
-                if match_json_obj:
-                    json_block_clean = match_json_obj.group(0).strip()
-                
-                if json_block_clean:
-                    match_result = json.loads(json_block_clean)
+                if res_match and res_match.text:
+                    match_result = json.loads(res_match.text.strip())
                     best_idx = match_result.get("selected_pool_index", -1)
                     if 0 <= best_idx < len(all_historical_styles):
                         st.session_state["matched_techpack"] = all_historical_styles[best_idx]
+                        st.toast("🎯 AI Vision đã quét hình ảnh và bắt cặp mã tương đồng thành công!")
         except Exception as match_err:
             st.sidebar.error(f"Lỗi hệ thống đối soát hình ảnh: {str(match_err)}")
+
     if st.session_state.get("matched_techpack"):
         try:
             target_style_name_bom = str(st.session_state["matched_techpack"].get("StyleName", "")).strip()
