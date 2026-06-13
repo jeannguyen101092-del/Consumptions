@@ -1015,6 +1015,8 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
     if "matched_techpack" not in st.session_state: st.session_state["matched_techpack"] = None
     if "bom_records" not in st.session_state: st.session_state["bom_records"] = []
     if "consumption_chat_history" not in st.session_state: st.session_state["consumption_chat_history"] = []
+    # Khởi tạo kho lưu trữ dữ liệu lịch sử cục bộ trên RAM để chạy đường thẳng
+    if "historical_pool_cache" not in st.session_state: st.session_state["historical_pool_cache"] = []
 
     control_col1, control_col2 = st.columns([3.3, 0.7])
     with control_col1:
@@ -1028,57 +1030,52 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
             st.session_state["matched_techpack"] = None
             st.session_state["bom_records"] = []
             st.session_state["cached_extracted_data"] = None
+            st.session_state["historical_pool_cache"] = []
             st.success("♻️ MEMORY PURGED - SẴN SÀNG CHO MÃ HÀNG MỚI")
             st.rerun()
 
+    # TẢI DỮ LIỆU ĐƯỜNG THẲNG: Chỉ gọi API Supabase đúng 1 lần duy nhất để lấy pool dữ liệu
+    if not st.session_state["historical_pool_cache"]:
+        try:
+            headers_db = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
+            url_db = f"{base_sb_url}/rest/v1/thong_so_techpack"
+            query_params = {"select": "StyleName,style_name,Buyer,buyer,Category,category,BaseSize,base_size,DetailedMeasurements,detailed_measurements,SketchURL,sketch_url,sketch_vector", "limit": 200}
+            db_res = requests.get(url_db, headers=headers_db, params=query_params, timeout=15)
+            if db_res.status_code == 200:
+                st.session_state["historical_pool_cache"] = db_res.json()
+        except Exception:
+            pass
+
     st.markdown("---")
     
-    # === CÔNG CỤ TÌM KIẾM THỦ CÔNG: TỰ ĐỘNG HÓA ĐÓNG GÓI PARAMETERS CHỐNG LỖI MẠNG LƯỚI ===
+    # === CÔNG CỤ TÌM KIẾM CỤC BỘ: KHÔNG GỌI LẠI API, TÌM KIẾM THẲNG TRÊN RAM CHỐNG LỖI KẾT NỐI ===
     st.markdown("<p style='font-weight:700; font-size:14px; color:#0F172A;'>🔍 THANH TÌM KIẾM DỮ LIỆU KHO THỦ CÔNG</p>", unsafe_allow_html=True)
     search_query = st.text_input("Nhập mã hàng đối chứng lịch sử cần tìm kiếm nhanh...", value="", placeholder="Ví dụ: 24PANT-01, SHIRT-M4...")
     
     if search_query:
         if st.button(f"⚡ Trích xuất nhanh dữ liệu mã hàng: {search_query.strip().upper()}", use_container_width=True):
-            with st.spinner("🔍 Đang định vị hồ sơ cục bộ..."):
-                url_search = f"{base_sb_url}/rest/v1/thong_so_techpack"
-                search_val = search_query.strip()
+            search_val = search_query.strip().upper()
+            pool = st.session_state["historical_pool_cache"]
+            found_item = None
+            
+            # Quét trực tiếp trên RAM để lọc dữ liệu cực nhanh
+            for item in pool:
+                s_name = str(item.get("StyleName") or item.get("style_name", "")).upper()
+                if search_val in s_name:
+                    found_item = item
+                    break
+            
+            if found_item:
+                # Đồng bộ hóa cấu trúc khóa dữ liệu chữ hoa/chữ thường
+                if "StyleName" not in found_item: found_item["StyleName"] = found_item.get("style_name")
+                if "DetailedMeasurements" not in found_item: found_item["DetailedMeasurements"] = found_item.get("detailed_measurements", {})
+                if "BaseSize" not in found_item: found_item["BaseSize"] = found_item.get("base_size")
                 
-                # GIẢI PHÁP TRIỆT ĐỂ: Để thư viện requests tự đóng gói payload, thay thế dấu .* bằng dấu % tiêu chuẩn SQL
-                q_params_low = {
-                    "select": "style_name,StyleName,Buyer,buyer,Category,category,BaseSize,base_size,DetailedMeasurements,detailed_measurements,SketchURL,sketch_url,sketch_vector",
-                    "style_name": f"ilike.%{search_val}%",
-                    "limit": 1
-                }
-                s_res = requests.get(url_search, headers=headers, params=q_params_low, timeout=10)
-                res_data = s_res.json() if s_res.status_code == 200 else []
-                
-                # Chiến lược phòng vệ 2: Nếu bảng dữ liệu lưu ký tự viết hoa
-                if not res_data or (isinstance(res_data, list) and len(res_data) == 0):
-                    q_params_up = {
-                        "select": "style_name,StyleName,Buyer,buyer,Category,category,BaseSize,base_size,DetailedMeasurements,detailed_measurements,SketchURL,sketch_url,sketch_vector",
-                        "StyleName": f"ilike.%{search_val}%",
-                        "limit": 1
-                    }
-                    s_res = requests.get(url_search, headers=headers, params=q_params_up, timeout=10)
-                    res_data = s_res.json() if s_res.status_code == 200 else []
-
-                # PHÒNG VỆ CHỐNG SẬP: Kiểm tra danh sách rỗng trước khi bóc tách phần tử [0]
-                if isinstance(res_data, list) and len(res_data) > 0:
-                    matched_obj = res_data[0] # Lấy chính xác Dictionary bên trong mảng an toàn
-                    
-                    # Đồng bộ hóa cấu trúc khóa dữ liệu chữ hoa/chữ thường
-                    if "StyleName" not in matched_obj and "style_name" in matched_obj:
-                        matched_obj["StyleName"] = matched_obj["style_name"]
-                    if "DetailedMeasurements" not in matched_obj and "detailed_measurements" in matched_obj:
-                        matched_obj["DetailedMeasurements"] = matched_obj["detailed_measurements"]
-                    if "BaseSize" not in matched_obj and "base_size" in matched_obj:
-                        matched_obj["BaseSize"] = matched_obj["base_size"]
-                        
-                    st.session_state["matched_techpack"] = matched_obj
-                    st.toast(f"✅ Đã kết nối mã đối chứng: {str(matched_obj.get('StyleName')).upper()}")
-                    st.rerun()
-                else:
-                    st.warning(f"⚠️ Không tìm thấy mã hàng nào chứa ký tự '{search_val.upper()}' trong kho dữ liệu.")
+                st.session_state["matched_techpack"] = found_item
+                st.toast(f"✅ Đã kết nối mã đối chứng cục bộ: {str(found_item.get('StyleName')).upper()}")
+                st.rerun()
+            else:
+                st.warning(f"⚠️ Không tìm thấy mã hàng nào chứa ký tự '{search_val}' trong bộ nhớ cache cục bộ.")
 
     st.markdown("---")
 
@@ -1091,17 +1088,11 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
     else:
         st.info(f"📋 **CƠ SỞ ĐỐI SOÁT KIỂM TRA:** Đang áp dụng quy chuẩn kích thước hình học rập mẫu cơ sở: **SIZE 32 / M (Mặc định)**")
 
-    # Bộ não đối soát tự động bằng AI hình ảnh khi chưa kích hoạt thanh công cụ tìm kiếm
+    # Bộ não đối soát tự động bằng AI hình ảnh dựa trên dữ liệu Pool Cache sẵn có
     if st.session_state["matched_techpack"] is None:
         with st.spinner("🧠 Hệ thống thị giác máy tính đang quét kết cấu phom dáng Flat Sketch..."):
             try:
-                headers_db = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
-                url_db = f"{base_sb_url}/rest/v1/thong_so_techpack"
-                query_params = {"select": "StyleName,style_name,Buyer,buyer,Category,category,BaseSize,base_size,DetailedMeasurements,detailed_measurements,SketchURL,sketch_url,sketch_vector", "limit": 100}
-                
-                db_res = requests.get(url_db, headers=headers_db, params=query_params, timeout=15)
-                all_historical_styles = db_res.json() if db_res.status_code == 200 else []
-                
+                all_historical_styles = st.session_state["historical_pool_cache"]
                 if all_historical_styles:
                     styles_pool_summary = []
                     for idx, s in enumerate(all_historical_styles):
@@ -1128,6 +1119,7 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                             st.session_state["matched_techpack"] = auto_obj
             except Exception as match_err:
                 st.sidebar.error(f"Lỗi hệ thống đối soát hình ảnh: {str(match_err)}")
+
 
 
 
