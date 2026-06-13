@@ -1033,7 +1033,7 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
 
     st.markdown("---")
     
-    # === CÔNG CỤ TÌM KIẾM THỦ CÔNG: CƠ CHẾ PHÒNG VỆ KÉP (CHỐNG LỖI VIẾT HOA/THƯỜNG CỘT) ===
+    # === CÔNG CỤ TÌM KIẾM THỦ CÔNG: SỬA TRIỆT ĐỂ LỖI BÓC TÁCH MẢNG SUPABASE ===
     st.markdown("<p style='font-weight:700; font-size:14px; color:#0F172A;'>🔍 THANH TÌM KIẾM DỮ LIỆU KHO THỦ CÔNG</p>", unsafe_allow_html=True)
     search_query = st.text_input("Nhập mã hàng đối chứng lịch sử cần tìm kiếm nhanh...", value="", placeholder="Ví dụ: 24PANT-01, SHIRT-M4...")
     
@@ -1062,11 +1062,11 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                     s_res = requests.get(url_search, headers=headers, params=q_params_up, timeout=10)
                     res_data = s_res.json() if s_res.status_code == 200 else []
 
-                # Xử lý gán dữ liệu chuẩn cấu trúc Dictionary
+                # XỬ LÝ TRIỆT ĐỂ: Trích xuất chính xác Object Dictionary ra khỏi mảng danh sách
                 if isinstance(res_data, list) and len(res_data) > 0:
-                    matched_obj = res_data[0]
+                    matched_obj = res_data[0]  # <--- BỔ SUNG FIX: Lấy đúng phần tử đầu tiên để loại bỏ bọc mảng []
                     
-                    # Đồng bộ dữ liệu để các hàm sau đọc không bị lỗi KeyBlunder
+                    # Đồng bộ hóa cấu trúc khóa dữ liệu (Dọn lỗi KeyBlunder hoa/thường)
                     if "StyleName" not in matched_obj and "style_name" in matched_obj:
                         matched_obj["StyleName"] = matched_obj["style_name"]
                     if "DetailedMeasurements" not in matched_obj and "detailed_measurements" in matched_obj:
@@ -1087,18 +1087,16 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
         st.stop()
 
     if new_style_base_size and new_style_base_size != "32":
-        st.info(f"📋 **CƠ SỞ ĐỐI SOÁT KIỂM TRA:** Mẫu mới số hóa mã hàng `{new_style_id_detected}` | Quy chuẩn kích thước hình học rập mẫu: **SIZE {new_style_base_size}**")
+        st.info(f"📋 **CƠ SỞ ĐỐI SOÁT KIỂM TRA:** Mẫu mới số hóa mã hàng `{new_style_id_detected}` | Kích thước rập mẫu: **SIZE {new_style_base_size}**")
     else:
         st.info(f"📋 **CƠ SỞ ĐỐI SOÁT KIỂM TRA:** Đang áp dụng quy chuẩn kích thước hình học rập mẫu cơ sở: **SIZE 32 / M (Mặc định)**")
 
-    # Chỉ quét đối soát kho bằng AI nếu KỸ SƯ CHƯA CHỌN MÃ THỦ CÔNG qua thanh công cụ tìm kiếm
+    # Chỉ quét đối soát kho bằng AI tự động nếu kỹ sư chưa chọn mã thủ công
     if st.session_state["matched_techpack"] is None:
         with st.spinner("🧠 Hệ thống thị giác máy tính đang quét kết cấu phom dáng Flat Sketch..."):
             try:
                 headers_db = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
                 url_db = f"{base_sb_url}/rest/v1/thong_so_techpack"
-                
-                # Gọi đồng thời cả chữ hoa và chữ thường để tránh lỗi cấu trúc bảng
                 query_params = {"select": "StyleName,style_name,Buyer,buyer,Category,category,BaseSize,base_size,DetailedMeasurements,detailed_measurements,SketchURL,sketch_url,sketch_vector", "limit": 100}
                 
                 db_res = requests.get(url_db, headers=headers_db, params=query_params, timeout=15)
@@ -1109,9 +1107,7 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                     for idx, s in enumerate(all_historical_styles):
                         s_name = s.get("StyleName") or s.get("style_name", "N/A")
                         styles_pool_summary.append({
-                            "pool_index": idx,
-                            "style_name": s_name,
-                            "sketch_features_vector": s.get("sketch_vector", "")
+                            "pool_index": idx, "style_name": s_name, "sketch_features_vector": s.get("sketch_vector", "")
                         })
 
                     match_prompt = f"Select the single index that represents the exact match. HISTORICAL POOL DATA: {json.dumps(styles_pool_summary)} Return a raw valid JSON object inside your response: {{\"selected_pool_index\": 0}}"
@@ -1120,22 +1116,19 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                         match_contents.append(types.Part.from_bytes(data=target_new_sketch_bytes, mime_type='image/jpeg'))
                         
                     res_match = client.models.generate_content(model='gemini-2.5-flash', contents=match_contents)
-                    ai_raw_text = res_match.text.strip()
-                    
-                    match_json_obj = re.search(r'\{\s*"selected_pool_index"\s*:\s*\d+\s*\}', ai_raw_text)
+                    match_json_obj = re.search(r'\{\s*"selected_pool_index"\s*:\s*\d+\s*\}', res_match.text.strip())
                     if match_json_obj:
                         match_result = json.loads(match_json_obj.group(0).strip())
                         best_idx = match_result.get("selected_pool_index", -1)
                         if 0 <= best_idx < len(all_historical_styles):
                             auto_obj = all_historical_styles[best_idx]
-                            # Bọc phòng vệ đồng bộ chữ hoa chữ thường cho cấu trúc tự động
                             if "StyleName" not in auto_obj: auto_obj["StyleName"] = auto_obj.get("style_name")
                             if "DetailedMeasurements" not in auto_obj: auto_obj["DetailedMeasurements"] = auto_obj.get("detailed_measurements", {})
                             if "BaseSize" not in auto_obj: auto_obj["BaseSize"] = auto_obj.get("base_size")
-                            
                             st.session_state["matched_techpack"] = auto_obj
             except Exception as match_err:
                 st.sidebar.error(f"Lỗi hệ thống đối soát hình ảnh: {str(match_err)}")
+
 
     # Tự động kết nối dữ liệu định mức gốc từ Supabase (BOM Records)
     if st.session_state.get("matched_techpack"):
