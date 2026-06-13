@@ -1010,6 +1010,7 @@ new_style_fabric_detected = "UNKNOWN_FABRIC"
 new_style_measurements_dict = {}
 new_style_base_size = "32"
 target_new_sketch_bytes = None
+
 # Cấu hình kiểm thử hoặc cấu hình thực tế của bạn
 SB_URL = st.secrets.get("SUPABASE_URL", "https://supabase.co")
 SB_KEY = st.secrets.get("SUPABASE_KEY", "placeholder-key")
@@ -1045,7 +1046,7 @@ if has_file:
 
 dynamic_keyword = str(new_style_id_detected).strip().upper()
 base_sb_url = SB_URL.rstrip('/')
-headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
+headers = {"apikey": SB_KEY, "Authorization": f"Bearer #SB_KEY"}
 
 if menu_selection == "🧵 BOM & Consumption Matrix":
     st.markdown('<div class="component-title-box">🧵 INTELLIGENT BOM & CONSUMPTION MATRIX ENGINE</div>', unsafe_allow_html=True)
@@ -1069,35 +1070,38 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
             st.rerun()
 
     st.markdown("---")
-        # --- Ô TRA CỨU ĐỘC LẬP: HIỂN THỊ LUÔN KHÔNG CẦN TẢI FILE ---
-        st.markdown("<br><p style='font-weight:700; font-size:14px; color:#1E3A8A;'>🔍 TRA CỨU NHANH ĐỊNH MỨC VẬT TƯ TRONG KHO (TRA THỦ CÔNG)</p>", unsafe_allow_html=True)
-        search_col1, search_col2 = st.columns([3.2, 0.8])
-        with search_col1:
-            ma_so_tra_cuu = st.text_input("Nhập mã hàng hoặc mã vải cần tìm (Ví dụ: 1735, 490416...)", key="direct_style_search_input", label_visibility="collapsed")
-        with search_col2:
-            nut_tim_kiem = st.button("🚀 TRA KHO", key="exec_direct_search_btn", use_container_width=True, type="primary")
+    
+    # --- Ô TRA CỨU ĐỘC LẬP: CĂN CHUẨN LỀ 8 KHOẢNG TRẮNG ---
+    st.markdown("<br><p style='font-weight:700; font-size:14px; color:#1E3A8A;'>🔍 TRA CỨU NHANH ĐỊNH MỨC VẬT TƯ TRONG KHO (TRA THỦ CÔNG)</p>", unsafe_allow_html=True)
+    search_col1, search_col2 = st.columns([3.2, 0.8])
+    with search_col1:
+        ma_so_tra_cuu = st.text_input("Nhập mã hàng hoặc mã vải cần tìm (Ví dụ: 1735, 490416...)", key="direct_style_search_input", label_visibility="collapsed")
+    with search_col2:
+        nut_tim_kiem = st.button("🚀 TRA KHO", key="exec_direct_search_btn", use_container_width=True, type="primary")
 
-        if nut_tim_kiem and ma_so_tra_cuu:
-            so_tra_cuu_clean = "".join(filter(str.isdigit, ma_so_tra_cuu))
-            if not so_tra_cuu_clean:
-                so_tra_cuu_clean = ma_so_tra_cuu.strip()
-                
-            with st.spinner(f"🔍 Hệ thống đang lục kho tìm mã '{so_tra_cuu_clean}'..."):
-                url_bom_direct = f"{base_sb_url}/rest/v1/san_pham"
-                query_bom_direct = {
-                    "select": "style_name,article_name,consumption_type,material_size,uom,consumption_value,notes",
-                    "style_name": f"ilike.*{so_tra_cuu_clean}*"
-                }
-                try:
-                    res_direct = requests.get(url_bom_direct, headers=headers, params=query_bom_direct, timeout=10)
-                    if res_direct.status_code == 200 and len(res_direct.json()) > 0:
-                        st.session_state["bom_records"] = res_direct.json()
-                        st.toast(f"🎉 Đã nạp thành công {len(st.session_state['bom_records'])} vật tư lên bảng đối chiếu!")
-                    else:
-                        st.warning(f"❌ Không tìm thấy nguyên phụ liệu nào khớp với số '{so_tra_cuu_clean}' trong database.")
-                except Exception as err_db:
-                    st.error(f"🚨 Lỗi kết nối database: {str(err_db)}")
-        st.markdown("---")
+    if nut_tim_kiem and ma_so_tra_cuu:
+        so_tra_cuu_clean = "".join(filter(str.isdigit, ma_so_tra_cuu))
+        if not so_tra_cuu_clean:
+            so_tra_cuu_clean = ma_so_tra_cuu.strip()
+            
+        with st.spinner(f"🔍 Hệ thống đang lục kho tìm mã '{so_tra_cuu_clean}'..."):
+            url_bom_direct = f"{base_sb_url}/rest/v1/san_pham"
+            query_bom_direct = {
+                "select": "style_name,article_name,consumption_type,material_size,uom,consumption_value,notes",
+                "style_name": f"ilike.*{so_tra_cuu_clean}*"
+            }
+            try:
+                res_direct = requests.get(url_bom_direct, headers=headers, params=query_bom_direct, timeout=10)
+                if res_direct.status_code == 200 and len(res_direct.json()) > 0:
+                    st.session_state["bom_records"] = res_direct.json()
+                    st.toast(f"🎉 Đã nạp thành công {len(st.session_state['bom_records'])} vật tư lên bảng đối chiếu!")
+                else:
+                    st.warning(f"❌ Không tìm thấy nguyên phụ liệu nào khớp với số '{so_tra_cuu_clean}' trong database.")
+            except Exception as err_db:
+                st.error(f"🚨 Lỗi kết nối database: {str(err_db)}")
+    st.markdown("---")
+
+
 
 
 
