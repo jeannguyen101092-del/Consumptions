@@ -1079,7 +1079,7 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
             st.rerun()
 
     st.markdown("---")
-         # --- Ô TRA CỨU ĐỘC LẬP: CĂN CHUẨN LỀ 4 KHOẢNG TRẮNG THEO KHỐI LỆNH IF CHA ---
+    # --- Ô TRA CỨU ĐỘC LẬP: CHỈ HIỂN THỊ KHI CHỌN ĐÚNG MENU BOM & CONSUMPTION MATRIX ---
     st.markdown("<br><p style='font-weight:700; font-size:14px; color:#1E3A8A;'>🔍 TRA CỨU NHANH ĐỊNH MỨC VẬT TƯ TRONG KHO (TRA THỦ CÔNG)</p>", unsafe_allow_html=True)
     search_col1, search_col2 = st.columns([3.2, 0.8])
     with search_col1:
@@ -1088,19 +1088,15 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
         nut_tim_kiem = st.button("🚀 TRA KHO", key="exec_direct_search_btn", use_container_width=True, type="primary")
 
     if nut_tim_kiem and ma_so_tra_cuu:
-        # Làm sạch các từ tiếng Việt dư thừa
         tu_khoa_clean = ma_so_tra_cuu.lower()
         for rac in ["tìm", "tim", "code", "mã", "ma", "vải", "vai", "hàng", "hang"]:
             tu_khoa_clean = tu_khoa_clean.replace(rac, "")
         tu_khoa_clean = tu_khoa_clean.strip()
             
         with st.spinner(f"🔍 Hệ thống đang dùng thuật toán siêu lọc đa cổng tìm mã '{tu_khoa_clean.upper()}'..."):
-            # Tách chuỗi thành các từ độc lập dựa trên khoảng trắng, dấu gạch ngang, gạch dưới
             tu_khoa_manh = [m.strip() for m in re.split(r'[\s\-_]+', tu_khoa_clean) if m.strip()]
-            
             url_bom_direct = f"{base_sb_url}/rest/v1/san_pham"
             
-            # CẤU HÌNH LUỒNG 1: Nếu người dùng nhập tổ hợp phức tạp (Ví dụ: "SJ 8002" -> ['SJ', '8002'])
             if len(tu_khoa_manh) >= 2:
                 and_article = ",".join([f"article_name.ilike.*{m}*" for m in tu_khoa_manh])
                 and_style = ",".join([f"style_name.ilike.*{m}*" for m in tu_khoa_manh])
@@ -1109,7 +1105,6 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                     "or": f"(and({and_article}),and({and_style}))"
                 }
             else:
-                # GIẢI PHÁP ĐỘC LẬP CHO TỪ ĐƠN LẺ (NHƯ P3026, SJ8002): Ép ilike phẳng phẳng để tìm kiếm không phân biệt hoa thường tuyệt đối
                 ma_goc = tu_khoa_manh[0].upper() if tu_khoa_manh else tu_khoa_clean.upper()
                 query_bom_direct = {
                     "select": "style_name,article_name,consumption_type,material_size,uom,consumption_value,notes",
@@ -1122,7 +1117,6 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                     st.session_state["bom_records"] = res_direct.json()
                     st.toast(f"🎉 Thành công! Đã quét trúng {len(st.session_state['bom_records'])} vật tư thỏa mãn điều kiện!")
                 else:
-                    # PHƯƠNG ÁN DỰ PHÒNG CUỐI CÙNG (FALLBACK): Quét đơn lẻ cụm số để vét sạch kho 56K dòng
                     chu_so_fallback = "".join(filter(str.isdigit, tu_khoa_clean))
                     if chu_so_fallback:
                         query_fallback = {
