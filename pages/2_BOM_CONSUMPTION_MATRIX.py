@@ -1015,8 +1015,6 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
     if "matched_techpack" not in st.session_state: st.session_state["matched_techpack"] = None
     if "bom_records" not in st.session_state: st.session_state["bom_records"] = []
     if "consumption_chat_history" not in st.session_state: st.session_state["consumption_chat_history"] = []
-    # Khởi tạo kho lưu trữ dữ liệu lịch sử cục bộ trên RAM để chạy đường thẳng
-    if "historical_pool_cache" not in st.session_state: st.session_state["historical_pool_cache"] = []
 
     control_col1, control_col2 = st.columns([3.3, 0.7])
     with control_col1:
@@ -1030,55 +1028,38 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
             st.session_state["matched_techpack"] = None
             st.session_state["bom_records"] = []
             st.session_state["cached_extracted_data"] = None
-            st.session_state["historical_pool_cache"] = []
             st.success("♻️ MEMORY PURGED - SẴN SÀNG CHO MÃ HÀNG MỚI")
             st.rerun()
 
-    # TẢI DỮ LIỆU ĐƯỜNG THẲNG: Chỉ gọi API Supabase đúng 1 lần duy nhất để lấy pool dữ liệu
-    if not st.session_state["historical_pool_cache"]:
-        try:
-            headers_db = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
-            url_db = f"{base_sb_url}/rest/v1/thong_so_techpack"
-            query_params = {"select": "StyleName,style_name,Buyer,buyer,Category,category,BaseSize,base_size,DetailedMeasurements,detailed_measurements,SketchURL,sketch_url,sketch_vector", "limit": 200}
-            db_res = requests.get(url_db, headers=headers_db, params=query_params, timeout=15)
-            if db_res.status_code == 200:
-                st.session_state["historical_pool_cache"] = db_res.json()
-        except Exception:
-            pass
-
     st.markdown("---")
     
-    # === CÔNG CỤ TÌM KIẾM CỤC BỘ: KHÔNG GỌI LẠI API, TÌM KIẾM THẲNG TRÊN RAM CHỐNG LỖI KẾT NỐI ===
+    # === THANH TÌM KIẾM THỦ CÔNG (ĐẶT TRÊN LỆNH CHẶN FILE ĐỂ HOẠT ĐỘNG TRIỆT ĐỂ) ===
     st.markdown("<p style='font-weight:700; font-size:14px; color:#0F172A;'>🔍 THANH TÌM KIẾM DỮ LIỆU KHO THỦ CÔNG</p>", unsafe_allow_html=True)
     search_query = st.text_input("Nhập mã hàng đối chứng lịch sử cần tìm kiếm nhanh...", value="", placeholder="Ví dụ: 24PANT-01, SHIRT-M4...")
     
     if search_query:
         if st.button(f"⚡ Trích xuất nhanh dữ liệu mã hàng: {search_query.strip().upper()}", use_container_width=True):
-            search_val = search_query.strip().upper()
-            pool = st.session_state["historical_pool_cache"]
-            found_item = None
-            
-            # Quét trực tiếp trên RAM để lọc dữ liệu cực nhanh
-            for item in pool:
-                s_name = str(item.get("StyleName") or item.get("style_name", "")).upper()
-                if search_val in s_name:
-                    found_item = item
-                    break
-            
-            if found_item:
-                # Đồng bộ hóa cấu trúc khóa dữ liệu chữ hoa/chữ thường
-                if "StyleName" not in found_item: found_item["StyleName"] = found_item.get("style_name")
-                if "DetailedMeasurements" not in found_item: found_item["DetailedMeasurements"] = found_item.get("detailed_measurements", {})
-                if "BaseSize" not in found_item: found_item["BaseSize"] = found_item.get("base_size")
-                
-                st.session_state["matched_techpack"] = found_item
-                st.toast(f"✅ Đã kết nối mã đối chứng cục bộ: {str(found_item.get('StyleName')).upper()}")
-                st.rerun()
-            else:
-                st.warning(f"⚠️ Không tìm thấy mã hàng nào chứa ký tự '{search_val}' trong bộ nhớ cache cục bộ.")
+            with st.spinner("🔍 Đang định vị hồ sơ cục bộ..."):
+                try:
+                    url_search = f"{base_sb_url}/rest/v1/thong_so_techpack"
+                    # Giữ nguyên 100% toán tử ilike cũ của bạn
+                    query_params_search = {"select": "StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL,sketch_vector", "StyleName": f"ilike.*{search_query.strip()}*", "limit": 1}
+                    s_res = requests.get(url_search, headers=headers, params=query_params_search, timeout=10)
+                    
+                    if s_res.status_code == 200 and s_res.json():
+                        raw_list = s_res.json()
+                        # Lấy phần tử đầu tiên nếu kết quả trả về là một mảng danh sách
+                        st.session_state["matched_techpack"] = raw_list[0] if isinstance(raw_list, list) else raw_list
+                        st.toast(f"✅ Đã tìm thấy và gán mã đối chứng: {search_query.upper()}")
+                        st.rerun()
+                    else:
+                        st.warning(f"⚠️ Không tìm thấy mã hàng nào chứa ký tự '{search_query.upper()}' trong kho dữ liệu.")
+                except Exception as e:
+                    st.error(f"🚨 Lỗi kết nối Supabase: {str(e)}")
 
     st.markdown("---")
 
+    # === LỆNH CHẶN FILE: CHUYỂN XUỐNG ĐÂY ĐỂ THANH TÌM KIẾM THỦ CÔNG KHÔNG BỊ BIẾN MẤT ===
     if not has_file:
         st.info("👋 Vui lòng tải lên tệp Techpack hồ sơ thiết kế (PDF) ở phía trên để hệ thống bắt đầu quét và lập lịch trình đối soát.")
         st.stop()
@@ -1088,17 +1069,22 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
     else:
         st.info(f"📋 **CƠ SỞ ĐỐI SOÁT KIỂM TRA:** Đang áp dụng quy chuẩn kích thước hình học rập mẫu cơ sở: **SIZE 32 / M (Mặc định)**")
 
-    # Bộ não đối soát tự động bằng AI hình ảnh dựa trên dữ liệu Pool Cache sẵn có
+    # Chỉ chạy quét AI tự động nếu kỹ sư chưa chọn mã thủ công qua thanh công cụ
     if st.session_state["matched_techpack"] is None:
         with st.spinner("🧠 Hệ thống thị giác máy tính đang quét kết cấu phom dáng Flat Sketch..."):
             try:
-                all_historical_styles = st.session_state["historical_pool_cache"]
+                headers_db = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
+                url_db = f"{base_sb_url}/rest/v1/thong_so_techpack"
+                query_params = {"select": "StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL,sketch_vector", "limit": 100}
+                
+                db_res = requests.get(url_db, headers=headers_db, params=query_params, timeout=15)
+                all_historical_styles = db_res.json() if db_res.status_code == 200 else []
+                
                 if all_historical_styles:
                     styles_pool_summary = []
                     for idx, s in enumerate(all_historical_styles):
-                        s_name = s.get("StyleName") or s.get("style_name", "N/A")
                         styles_pool_summary.append({
-                            "pool_index": idx, "style_name": s_name, "sketch_features_vector": s.get("sketch_vector", "")
+                            "pool_index": idx, "style_name": s.get("StyleName"), "sketch_features_vector": s.get("sketch_vector", "")
                         })
 
                     match_prompt = f"Select the single index that represents the exact match. HISTORICAL POOL DATA: {json.dumps(styles_pool_summary)} Return JSON: {{\"selected_pool_index\": 0}}"
@@ -1112,11 +1098,7 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                         match_result = json.loads(match_json_obj.group(0).strip())
                         best_idx = match_result.get("selected_pool_index", -1)
                         if 0 <= best_idx < len(all_historical_styles):
-                            auto_obj = all_historical_styles[best_idx]
-                            if "StyleName" not in auto_obj: auto_obj["StyleName"] = auto_obj.get("style_name")
-                            if "DetailedMeasurements" not in auto_obj: auto_obj["DetailedMeasurements"] = auto_obj.get("detailed_measurements", {})
-                            if "BaseSize" not in auto_obj: auto_obj["BaseSize"] = auto_obj.get("base_size")
-                            st.session_state["matched_techpack"] = auto_obj
+                            st.session_state["matched_techpack"] = all_historical_styles[best_idx]
             except Exception as match_err:
                 st.sidebar.error(f"Lỗi hệ thống đối soát hình ảnh: {str(match_err)}")
 
