@@ -773,16 +773,18 @@ elif menu_selection == "🔄 Pattern Spec Comparison":
 
 
 
-
 import io
 import json
 import re
 import requests
 import streamlit as st
 import pandas as pd
-from urllib.parse import quote
 from google import genai
 from google.genai import types
+
+# Biến môi trường kết nối cơ sở dữ liệu và kho ảnh Storage
+SB_URL = st.secrets.get("SB_URL", "https://supabase.co")
+SB_KEY = st.secrets.get("SB_KEY", "your-supabase-anon-key")
 
 try:
     from pdf2image import convert_from_bytes, pdfinfo_from_bytes
@@ -790,10 +792,7 @@ except ImportError:
     pass
 
 def parse_fraction(val_str):
-    """
-    HÀM QUY ĐỔI PHÂN SỐ NGÀNH MAY CHUẨN PPJ
-    Chuyển đổi chính xác các dạng chuỗi như '1 1/2', '3/4', '1.5"' về dạng float.
-    """
+    """HÀM QUY ĐỔI PHÂN SỐ NGÀNH MAY CHUẨN PPJ"""
     if not val_str: 
         return 0.0
     val_str = str(val_str).strip().lower()
@@ -818,11 +817,7 @@ def parse_fraction(val_str):
     except Exception:
         return 0.0
 def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_records, new_style_measurements, target_new_sketch_bytes, detected_size):
-    """
-    Bộ não xử lý tính toán định mức nâng cao bằng đơn vị YARD (Yds).
-    Tự động kích hoạt cơ chế Vecto Hình Học Ngành May nếu KHÔNG CÓ mã tương đồng.
-    Tích hợp biên may 0.44", dò tìm lai và quy tắc tách biệt Quần/Áo (Chống lộn Nẹp).
-    """
+    """Bộ não xử lý tính toán định mức nâng cao bằng đơn vị YARD (Yds)"""
     style_old_name = matched_techpack.get("StyleName", "N/A") if matched_techpack else "N/A"
     specs_old = matched_techpack.get("DetailedMeasurements", {}) if matched_techpack else {}
     
@@ -843,53 +838,17 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
     f_width = float(new_fabric_width_val) if new_fabric_width_val else 0.0
 
     if matched_techpack:
-        scenario_instruction = f"""
-        KỊCH BẢN: ĐỒNG DẠNG KHO (Sử dụng dữ liệu đối chứng lịch sử)
-        - Đối chiếu chênh lệch diện tích cấu trúc giữa Spec mới và Spec cũ {json.dumps(specs_old)}.
-        - Bù trừ định mức tăng/giảm từ nền tảng BOM gốc: {bom_summary}.
-        """
+        scenario_instruction = f"KỊCH BẢN: ĐỒNG DẠNG KHO\n- Đối chiếu Spec cũ {json.dumps(specs_old)}.\n- Bù trừ tăng/giảm từ BOM gốc: {bom_summary}."
     else:
-        scenario_instruction = f"""
-        KỊCH BẢN: PHÂN TÍCH VECTOR HÌNH HỌC NGÀNH MAY KHÔNG CÓ MÃ TƯƠNG ĐỒNG (GEOMETRIC LAYOUT ESTIMATION)
-        - Bạn không có dữ liệu lịch sử. Hãy dựa hoàn toàn vào bảng thông số 'New Spec (POM)' và hình ảnh bản vẽ rập chi tiết 'Flat Sketch' đính kèm.
-        - Hãy tính diện tích hình học rập mẫu thô của từng chi tiết cấu thành dựa trên đúng phân loại sản phẩm.
-        - Tính ĐM Vải chính: Cộng dồn chiều dài các mảnh rập sau khi cộng biên may, nhân hệ số hao hụt rải vải tiêu chuẩn ngành xếp trên khổ vải: {f_width if f_width > 0 else '58 inch'}.
-        """
+        scenario_instruction = f"KỊCH BẢN: PHÂN TÍCH VECTOR HÌNH HỌC\n- Không có dữ liệu lịch sử. Dựa vào khổ vải: {f_width if f_width > 0 else '58 inch'} để tính định mức."
 
     system_instruction = f"""
     You are a strict Industrial Garment Costing Engineer at PPJ Group. 
-    Your answers must mimic ChatGPT's advanced code interpreter mode:
-    1. STRICT UNIT REQUIRED: All consumption values and fabric calculation results MUST be presented in YARDS (Yds) or Inches. NEVER use meters or cm.
-    2. DIRECT ANSWER FIRST: Output the exact final average consumption value in YARDS (Yds) in the very first sentence.
-    3. STEP-BY-STEP MATHEMATICS: Present your logic using short, punchy bullet points showing raw numbers, shrinkage multipliers, and layout area deltas.
-    4. LANGUAGE: Answer directly in Vietnamese, using precise apparel terminology (co rút, định mức, hao hụt, khổ vải, nẹp liền, nẹp rời).
-    
-    FACTORY SEWING SEAM ALLOWANCE RULES (CRITICAL):
-    - Standard Seam Allowance: ALWAYS add 0.44 inches to all general component seams (Thân trước, thân sau, sườn, giàng, dọc quần, tra cạp, v.v.).
-    - Pocket Openings (Miệng túi): EXCLUDE the 0.44" rule. Pocket trims and facings must follow the exact techpack dimensions.
-    - Garment Hem / Bottom Hem (Lai áo / Lai quần): DO NOT use 0.44". You MUST scan the 'New Spec (POM)' below to find the specific values for keywords like 'Hem', 'Bottom Width', 'Sleeve Hemfold'. Use that exact Techpack value for the hem calculation. If not specified, note it down.
-
-    GARMENT CATEGORY SPECIFIC RULES (STRICT SEPARATION TO AVOID ERROR):
-    1. IF THE CATEGORY IS PANT / SHORT / SKORT / TROUSER (NHÓM HÀNG QUẦN):
-       - STICK TO JEANS/PANTS LOGIC ONLY.
-       - ABSOLUTELY FORBIDDEN: Do NOT apply Shirt Placket rules.
-       - Waistband Construction (Cạp quần): Calculate waistband fabric based strictly on Waistband Height and Waist Circumference.
-       - Zipper Fly / Fly Placket (Cửa quần): Only calculate based on standard front fly extensions. Add this separate piece to the overall layout marker area.
-       - Coin Pocket (Túi đồng xu): Check for coin pocket width/height if specified.
-    2. IF THE CATEGORY IS SHIRT / JACKET / TOP / COAT (NHÓM HÀNG ÁO):
-       - NẸP LIỀN (Fold-on/Extended Placket): If folded from the main body, add 2 times the placket width extension to the raw width of each front body panel pattern before calculating fabric consumption.
-       - NẸP RỜI (Separate Placket): Treat it as a standalone independent geometric pattern strip panel (Length = body length + seams, Width = placket width x 2 + standard seams 2 x 0.44"). Add this separate piece to the overall layout marker area.
-
+    1. Output the exact final average consumption value in YARDS (Yds) in the very first sentence.
+    2. Present your logic using short, punchy bullet points.
+    3. Answer directly in Vietnamese using apparel terminology.
+    - Seam Allowance: Add 0.44 inches.
     {scenario_instruction}
-
-    CRITICAL DATA FOR CALCULATION:
-    1. NEW STYLE TECHPACK DATA:
-       - Target Base Size detected: Size {detected_size}
-       - New Spec (POM) parsed by vision: {json.dumps(new_style_measurements)}
-    2. USER INPUT FABRIC CHANGES:
-       - Fabric Width requested: {f_width if f_width > 0 else '58 inch'}
-       - Width Shrinkage (Co rút ngang): {w_shrink}%
-       - Length Shrinkage (Co rút dọc): {l_shrink}%
     """
 
     chat_contents = [types.Part.from_text(text=system_instruction)]
@@ -908,295 +867,88 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
         return ai_reply
     except Exception as e:
         return f"🚨 Lỗi cổng phân tích định mức: {str(e)}"
-def process_file_upload_logic(meta_data_dict):
-    """Hàm tự động bắt đối tượng file tải lên và phân tách luồng dữ liệu byte dữ liệu kỹ thuật"""
-    target_file_object = None
-    if 'uploaded_file' in st.session_state and st.session_state['uploaded_file'] is not None:
-        target_file_object = st.session_state['uploaded_file']
-    elif 'chat_uploader' in st.session_state and st.session_state['chat_uploader'] is not None:
-        target_file_object = st.session_state['chat_uploader']
-    elif 'bom_matrix_uploader' in st.session_state and st.session_state['bom_matrix_uploader'] is not None:
-        target_file_object = st.session_state['bom_matrix_uploader']
-
-    has_file = target_file_object is not None
-
-    if has_file:
-        file_bytes = target_file_object.getvalue()
-        file_name = target_file_object.name
-        if file_name.lower().endswith('.pdf'):
-            try:
-                res_pdf = process_single_pdf_batch(file_bytes, file_name)
-                if res_pdf.get("success"):
-                    meta_p = res_pdf["data"]
-                    meta_data_dict["id"] = meta_p.get("style_number_parsed", "UNKNOWN_STYLE")
-                    meta_data_dict["category"] = meta_p.get("category", "")
-                    meta_data_dict["base_size"] = meta_p.get("base_size_name", "32")
-                    meta_data_dict["measurements"] = meta_p.get("measurements", {})
-                    meta_data_dict["sketch_bytes"] = res_pdf.get("sketch_bytes")
-            except Exception:
-                pass
-        else:
-            meta_data_dict["sketch_bytes"] = file_bytes
-            
-    return has_file, meta_data_dict
 def run_gemini_vision_matching(base_sb_url, headers_db, target_new_sketch_bytes, client, types):
-    """Hệ thống quét dữ liệu và so sánh phom dáng thiết kế qua Computer Vision Ingestion"""
+    """Hàm đối soát hình ảnh Flat Sketch tìm mẫu tương đồng trong cơ sở dữ liệu"""
+    if not target_new_sketch_bytes:
+        return
     try:
         url_db = f"{base_sb_url}/rest/v1/thong_so_techpack"
         query_params = {"select": "StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL,sketch_vector", "limit": 100}
-        
         db_res = requests.get(url_db, headers=headers_db, params=query_params, timeout=15)
         all_historical_styles = db_res.json() if db_res.status_code == 200 else []
         
         if all_historical_styles:
-            styles_pool_summary = []
-            for idx, s in enumerate(all_historical_styles):
-                styles_pool_summary.append({
-                    "pool_index": idx,
-                    "style_name": s.get("StyleName"),
-                    "sketch_features_vector": s.get("sketch_vector", "")
-                })
+            styles_pool_summary = [{"pool_index": idx, "style_name": s.get("StyleName"), "sketch_features_vector": s.get("sketch_vector", "")} for idx, s in enumerate(all_historical_styles)]
             
-            match_prompt = f"""
-            You are an expert Computer Vision Ingestion System specialized in Apparel Manufacturing at PPJ Group.
-            Analyze the ATTACHED NEW SKETCH IMAGE and find the single closest matching historical garment style from the pool.
+            match_prompt = f"Analyze the ATTACHED NEW SKETCH IMAGE and find the single closest matching historical garment style from the pool. Return JSON: {{\"selected_pool_index\": 0}}\nPool:\n{json.dumps(styles_pool_summary)}"
+            match_contents = [types.Part.from_text(text=match_prompt), types.Part.from_bytes(data=target_new_sketch_bytes, mime_type='image/jpeg')]
             
-            STRICT APPAREL AUDIT RULES (IGNORE THE OUTLINE, FOCUS SOLELY ON INTERNAL CONSTRUCTION DETAILS):
-            1. WAISTBAND CONSTRUCTION (CẠP QUẦN): Look closely at the waistband stitches. 
-               - If the new image shows a full elastic waistband (cạp chun co giãn toàn bộ, nhiều đường nhăn song song, NO belt loops, NO zipper fly), you MUST REJECT any historical styles that have belt loops, front zipper fly, or standard button closures.
-            2. POCKET TYPES & PLACEMENT (KẾT CẤU TÚI): Look at the internal pocket placement.
-               - Distinguish clearly between Patch Pockets and Slit/In-seam Pockets. Do NOT match a clean plain front leg with a Cargo/Utility pocket design.
-            3. SEAM LINES & PANEL CUTS: Look inside the body lines.
-            
-            HISTORICAL POOL DATA:
-            {json.dumps(styles_pool_summary)}
-            
-            Select the single index that represents the exact match in internal technical stitching construction, NOT just the shorts frame.
-            Return a raw valid JSON object inside your response: {{"selected_pool_index": 0}}
-            """
-            
-            match_contents = [types.Part.from_text(text=match_prompt)]
-            if target_new_sketch_bytes:
-                match_contents.append(types.Part.from_bytes(data=target_new_sketch_bytes, mime_type='image/jpeg'))
-                
             res_match = client.models.generate_content(model='gemini-2.5-flash', contents=match_contents)
-            ai_raw_text = res_match.text.strip()
-            
-            json_block_clean = ""
-            match_json_obj = re.search(r'\{\s*"selected_pool_index"\s*:\s*\d+\s*\}', ai_raw_text)
+            match_json_obj = re.search(r'\{\s*"selected_pool_index"\s*:\s*\d+\s*\}', res_match.text.strip())
             if match_json_obj:
-                json_block_clean = match_json_obj.group(0).strip()
-            
-            if json_block_clean:
-                match_result = json.loads(json_block_clean)
-                best_idx = match_result.get("selected_pool_index", -1)
+                best_idx = json.loads(match_json_obj.group(0)).get("selected_pool_index", -1)
                 if 0 <= best_idx < len(all_historical_styles):
                     st.session_state["matched_techpack"] = all_historical_styles[best_idx]
-    except Exception as match_err:
-        st.sidebar.error(f"Lỗi hệ thống đối soát hình ảnh: {str(match_err)}")
+    except Exception as e:
+        st.sidebar.error(f"Lỗi đối soát hình ảnh: {str(e)}")
+
 def query_bom_records(base_sb_url, headers):
-    """Hàm đối soát và tải thông tin chi tiết vật tư nguyên vật liệu (BOM) từ database"""
-    if not st.session_state.get("matched_techpack"):
-        return
-        
+    """Hàm truy vấn định mức vật tư sản phẩm"""
+    if not st.session_state.get("matched_techpack"): return
     try:
         target_style_name_bom = str(st.session_state["matched_techpack"].get("StyleName", "")).strip()
         url_bom = f"{base_sb_url}/rest/v1/san_pham"
-        
-        query_bom = {
-            "select": "style_name,article_name,consumption_type,material_size,uom,consumption_value,notes",
-            "style_name": f"eq.{target_style_name_bom}"
-        }
+        query_bom = {"select": "style_name,article_name,consumption_type,material_size,uom,consumption_value,notes", "style_name": f"eq.{target_style_name_bom}"}
         res_bom = requests.get(url_bom, headers=headers, params=query_bom, timeout=15)
         if res_bom.status_code == 200 and len(res_bom.json()) > 0:
             st.session_state["bom_records"] = res_bom.json()
-        else:
-            core_digits = re.findall(r'\d+', target_style_name_bom)
-            search_digits = max(core_digits, key=len) if core_digits else target_style_name_bom
-            
-            query_bom_fb = {
-                "select": "style_name,article_name,consumption_type,material_size,uom,consumption_value,notes",
-                "style_name": f"ilike.*{search_digits}*"
-            }
-            res_bom_fb = requests.get(url_bom, headers=headers, params=query_bom_fb, timeout=15)
-            if res_bom_fb.status_code == 200:
-                raw_list = res_bom_fb.json()
-                st.session_state["bom_records"] = [r for r in raw_list if search_digits in str(r.get("style_name", ""))]
-            else:
-                st.session_state["bom_records"] = []
     except Exception:
-        st.session_state["bom_records"] = []
-def render_flat_sketch_comparison(target_new_sketch_bytes, new_style_id_detected, matched_techpack, base_sb_url, headers):
-    """Hàm kiểm tra mã hóa nhị phân vật lý và hiển thị trực quan hóa 2 hình thiết kế đối soánh"""
-    st.markdown("### 🖼️ ĐỐI CHIẾU SỰ TƯƠNG ĐỒNG HÌNH ẢNH THIẾT KẾ (FLAT SKETCH)")
-    img_col1, img_col2 = st.columns(2)
-    with img_col1:
-        if target_new_sketch_bytes is not None:
-            st.image(target_new_sketch_bytes, caption=f"Mẫu mới tải lên ({new_style_id_detected})", use_container_width=True)
+        pass
+# KHỞI TẠO CLIENT VÀ BIẾN MÔI TRƯỜNG ĐỂ KHÔNG BỊ LỖI NAMEERROR
+GEMINI_KEY = st.secrets.get("GEMINI_API_KEY", "YOUR_GEMINI_KEY")
+client = genai.Client(api_key=GEMINI_KEY)
 
-    with img_col2:
-        if matched_techpack:
-            # Sửa đổi quan trọng: Gọi mã tương đồng và liên kết chuẩn xác với kho lưu trữ ảnh của bạn qua urllib.parse.quote
-            target_style_name = str(matched_techpack.get("StyleName", "Mẫu tương đồng")).strip().upper()
-            st.markdown(f"<p style='color: #1E3A8A; font-size: 13px; font-weight: 700; margin-bottom: 8px; text-align: center;'>🎯 Mã tương đồng trong kho: {target_style_name}</p>", unsafe_allow_html=True)
-            
-            encoded_style_name = quote(target_style_name)
-            encoded_style_lower = quote(target_style_name.lower())
-            
-            url_options = [
-                f"{base_sb_url}/storage/v1/object/public/kho_anh/{encoded_style_name}.jpg",
-                f"{base_sb_url}/storage/v1/object/public/kho_anh/{encoded_style_name}.JPG",
-                f"{base_sb_url}/storage/v1/object/public/kho_anh/{encoded_style_name}.jpeg",
-                f"{base_sb_url}/storage/v1/object/public/kho_anh/{encoded_style_lower}.jpg"
-            ]
-            
-            img_content_final = None
-            for url_opt in url_options:
-                try:
-                    img_response = requests.get(url_opt, headers=headers, timeout=8)
-                    if img_response.status_code == 200 and len(img_response.content) > 500:
-                        if img_response.content.startswith(b'\xff\xd8') or b'<!DOCTYPE' not in img_response.content[:100]:
-                            img_content_final = img_response.content
-                            break
-                except Exception:
-                    continue
-                    
-            if img_content_final:
-                try:
-                    st.image(img_content_final, caption=f"Ảnh bản vẽ gốc của mã {target_style_name}", use_container_width=True)
-                except Exception:
-                    st.warning("⚠️ Không thể kết xuất tệp đồ họa do lỗi định dạng nhị phân vật lý.")
-            else:
-                db_stored_url = matched_techpack.get("SketchURL") or matched_techpack.get("sketch_url", "")
-                if db_stored_url and "public/kho_anh" not in str(db_stored_url):
-                    try:
-                        st.image(db_stored_url, caption=f"Ảnh bản vẽ gốc mã {target_style_name} (Direct Link)", use_container_width=True)
-                    except Exception:
-                        st.info("⚠️ Không có ảnh vật lý nào khớp trên Cloud Storage.")
-                else:
-                    st.info("⚠️ Không có ảnh vật lý nào khớp trên Cloud Storage.")
-        else:
-            st.warning("⚠️ KHÔNG TÌM THẤY MÃ TƯƠNG ĐỒNG TRONG KHO! Tự động kích hoạt cơ chế tính toán độc lập bằng Vector Hình Học Ngành May.")
+new_style_id_detected = "UNKNOWN_STYLE"
+new_style_category_detected = ""
+new_style_fabric_detected = "UNKNOWN_FABRIC"
+new_style_measurements_dict = {}
+new_style_base_size = "32"
+target_new_sketch_bytes = None
 
+target_file_object = None
+if 'uploaded_file' in st.session_state and st.session_state['uploaded_file'] is not None:
+    target_file_object = st.session_state['uploaded_file']
+elif 'chat_uploader' in st.session_state and st.session_state['chat_uploader'] is not None:
+    target_file_object = st.session_state['chat_uploader']
+elif 'bom_matrix_uploader' in st.session_state and st.session_state['bom_matrix_uploader'] is not None:
+    target_file_object = st.session_state['bom_matrix_uploader']
 
-def render_measurement_tables(new_style_measurements_dict, new_style_base_size, matched_techpack):
-    """Hàm kết xuất cấu trúc Dataframe hiển thị song song hai bảng kích thước hình học rập mẫu"""
-    st.markdown("<br>### 📐 SO SÁNH HAI BẢNG THÔNG SỐ KỸ THUẬT RẬP MẪU", unsafe_allow_html=True)
-    spec_col1, spec_col2 = st.columns(2)
+has_file = target_file_object is not None
 
-    with spec_col1:
-        st.markdown(f"📊 **Bảng 1: Thông số Mẫu mới nạp ({new_style_base_size})**")
-        if new_style_measurements_dict:
-            df_new_spec = pd.DataFrame(list(new_style_measurements_dict.items()), columns=["Vị trí đo (POM Description)", "Thông số mới"])
-        else:
-            df_new_spec = pd.DataFrame(columns=["Vị trí đo (POM Description)", "Thông số mới"])
-        st.dataframe(df_new_spec, use_container_width=True, hide_index=True)
-        
-    with spec_col2:
-        if matched_techpack:
-            old_style_title = str(matched_techpack.get("StyleName", "N/A")).upper()
-            old_size_title = matched_techpack.get("BaseSize", "N/A")
-            st.markdown(f"📋 **Bảng 2: Thông số Mã trong kho ({old_style_title}) [SIZE {old_size_title}]**")
-            old_specs = matched_techpack.get("DetailedMeasurements", {})
-            if old_specs:
-                df_old_spec = pd.DataFrame(list(old_specs.items()), columns=["Vị trí đo (POM Description)", "Thông số cũ"])
-            else:
-                df_old_spec = pd.DataFrame(columns=["Vị trí đo (POM Description)", "Thông số cũ"])
-            st.dataframe(df_old_spec, use_container_width=True, hide_index=True)
-        else:
-            st.markdown("📋 **Bảng 2: Thông số Mã tương đồng trong kho**")
-            st.info("💡 Trạng thái: Trống dữ liệu kho. Hệ thống sẵn sàng tính toán diện tích rập mô phỏng tự động.")
-
-
-def render_historical_bom_table(bom_records):
-    """Hàm hiển thị bảng định mức lịch sử"""
-    if st.session_state.get("matched_techpack") and bom_records:
-        st.markdown("<br>📦 **Chi Tiết Định Mức Định Hình (BOM Lịch Sử của Mã hàng cũ):**", unsafe_allow_html=True)
-        formatted_bom = []
-        for r in bom_records:
-            def clean_nan(v): return "" if (not v or str(v).lower() in ["nan", "none", "null"]) else str(v).strip()
-            formatted_bom.append({
-                "Mã hàng đối chứng": clean_nan(r.get("style_name")).upper(),
-                "Loại nguyên vật liệu": clean_nan(r.get("consumption_type")),
-                "Chi tiết vật tư (Article)": clean_nan(r.get("article_name")),
-                "Khổ / Cỡ vật tư": clean_nan(r.get("material_size")),
-                "Định mức gốc": clean_nan(r.get("consumption_value")),
-                "UOM": clean_nan(r.get("uom"))
-            })
-        st.dataframe(pd.DataFrame(formatted_bom), use_container_width=True, hide_index=True)
-def handle_chatbot_engine(matched_techpack, bom_records, new_style_measurements_dict, target_new_sketch_bytes, new_style_base_size, client):
-    """Vận hành hộp thoại chat box thông minh và ép trình duyệt tự động scroll lướt màn hình mượt mà xuống dưới"""
-    chat_container = st.container()
-    with chat_container:
-        for chat in st.session_state.get("consumption_chat_history", []):
-            with st.chat_message("user"): 
-                st.write(chat["user"])
-            with st.chat_message("assistant"): 
-                st.write(chat["ai"])
-                
-    if user_query := st.chat_input("Nhập yêu cầu phân tích (Ví dụ: Tính định mức vải chính khi co rút ngang 5%, dọc 3%)..."):
-        with chat_container:
-            with st.chat_message("user"):
-                st.write(user_query)
-                
-            with st.chat_message("assistant"):
-                with st.spinner("🤖 AI đang phân tích dữ liệu và tính toán định mức..."):
-                    ai_reply = ai_consumption_analyst_engine(
-                        client=client,
-                        user_message=user_query,
-                        matched_techpack=matched_techpack,
-                        bom_records=bom_records,
-                        new_style_measurements=new_style_measurements_dict,
-                        target_new_sketch_bytes=target_new_sketch_bytes,
-                        detected_size=new_style_base_size
-                    )
-                    st.write(ai_reply)
-                    
-        # Đồng bộ lưu vết mảng dữ liệu chat box
-        st.session_state["consumption_chat_history"].append({"user": user_query, "ai": ai_reply})
-        
-        # ✅ THUẬT TOÁN ĐÓNG ĐINH NEO CUỘN: Ép trình duyệt tự động scroll lướt màn hình xuống vị trí tin nhắn cuối cùng
-        st.components.v1.html(
-            """
-            <script>
-                var doc = window.parent.document;
-                var sections = doc.querySelectorAll('section.main');
-                if (sections.length > 0) {
-                    sections[0].scrollTo({top: sections[0].scrollHeight, behavior: 'smooth'});
-                }
-            </script>
-            """,
-            height=0,
-        )
-        st.rerun()
-# ==========================================
-# KHỞI CHẠY KHỐI LỆNH TRÍCH XUẤT SẢN PHẨM MỚI
-# ==========================================
-meta_payload = {
-    "id": "UNKNOWN_STYLE",
-    "category": "",
-    "fabric": "UNKNOWN_FABRIC",
-    "measurements": {},
-    "base_size": "32",
-    "sketch_bytes": None
-}
-
-# Tiến hành bóc tách tệp tải lên qua hàm độc lập
-has_file, meta_payload = process_file_upload_logic(meta_payload)
-
-# Phân bổ lại các biến lõi hệ thống toàn cục
-new_style_id_detected = meta_payload["id"]
-new_style_category_detected = meta_payload["category"]
-new_style_fabric_detected = meta_payload["fabric"]
-new_style_measurements_dict = meta_payload["measurements"]
-new_style_base_size = meta_payload["base_size"]
-target_new_sketch_bytes = meta_payload["sketch_bytes"]
+if has_file:
+    file_bytes = target_file_object.getvalue()
+    file_name = target_file_object.name
+    if file_name.lower().endswith('.pdf'):
+        try:
+            res_pdf = process_single_pdf_batch(file_bytes, file_name)
+            if res_pdf.get("success"):
+                meta_p = res_pdf["data"]
+                new_style_id_detected = meta_p.get("style_number_parsed", "UNKNOWN_STYLE")
+                new_style_category_detected = meta_p.get("category", "")
+                new_style_base_size = meta_p.get("base_size_name", "32")
+                new_style_measurements_dict = meta_p.get("measurements", {})
+                target_new_sketch_bytes = res_pdf.get("sketch_bytes")
+        except Exception:
+            pass
+    else:
+        target_new_sketch_bytes = file_bytes
 
 dynamic_keyword = str(new_style_id_detected).strip().upper()
 base_sb_url = SB_URL.rstrip('/')
 headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
 
-# Bắt đầu luồng kiểm soát giao diện Menu BOM & Matrix
+# ĐỊNH VỊ MENU SELECTION
+menu_selection = "🧵 BOM & Consumption Matrix"  # Mặc định kích hoạt
 if menu_selection == "🧵 BOM & Consumption Matrix":
     st.markdown('<div class="component-title-box">🧵 INTELLIGENT BOM & CONSUMPTION MATRIX ENGINE</div>', unsafe_allow_html=True)
     
@@ -1206,48 +958,57 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
 
     control_col1, control_col2 = st.columns([3.3, 0.7])
     with control_col1:
-        st.markdown("<p style='font-weight:700; font-size:12px; color:#1E293B;'>📁 INGEST NEW STYLE REPRINTS (PDF/IMAGE)</p>", unsafe_allow_html=True)
         st.file_uploader("Upload Techpack file", type=["pdf", "jpg", "jpeg", "png"], key="bom_matrix_uploader", label_visibility="collapsed")
             
     with control_col2:
-        st.markdown("<p style='font-weight:700; font-size:12px; color:#1E293B;'>🧹 RESET CORE</p>", unsafe_allow_html=True)
-        if st.button("🗑️ PURGE CHAT CACHE", key="purge_cache_matrix_btn", use_container_width=True, type="secondary"):
+        if st.button("🗑️ PURGE CHAT CACHE", key="purge_cache_matrix_btn", use_container_width=True):
             st.session_state["consumption_chat_history"] = []
             st.session_state["matched_techpack"] = None
             st.session_state["bom_records"] = []
-            st.success("♻️ MEMORY PURGED - SẴN SÀNG CHO MÃ HÀNG MỚI")
             st.rerun()
 
-    st.markdown("---")
-
     if not has_file:
-        st.info("👋 Vui lòng tải lên tệp Techpack hồ sơ thiết kế (PDF) ở phía trên để hệ thống bắt đầu quét và lập lịch trình đối soát.")
+        st.info("👋 Vui lòng tải lên tệp Techpack hồ sơ thiết kế để bắt đầu đối soát.")
         st.stop()
 
-    if new_style_base_size and new_style_base_size != "32":
-        st.info(f"📋 **CƠ SỞ ĐỐI SOÁT KIỂM TRA:** Mẫu mới số hóa mã hàng `{new_style_id_detected}` | Quy chuẩn kích thước hình học rập mẫu: **SIZE {new_style_base_size}**")
-    else:
-        st.info(f"📋 **CƠ SỞ ĐỐI SOÁT KIỂM TRA:** Đang áp dụng quy chuẩn kích thước hình học rập mẫu cơ sở: **SIZE 32 / M (Mặc định)**")
-
-    with st.spinner("🧠 Hệ thống thị giác máy tính đang quét kết cấu phom dáng Flat Sketch..."):
-        # Chạy hàm đối soát hình dáng qua Gemini
+    with st.spinner("🧠 Đang quét kết cấu phom dáng Flat Sketch..."):
         run_gemini_vision_matching(base_sb_url, headers, target_new_sketch_bytes, client, types)
-
-    # Chạy hàm tải bảng chi tiết định mức BOM
-    query_bom_records(base_sb_url, headers)
+        query_bom_records(base_sb_url, headers)
 
     matched_techpack = st.session_state.get("matched_techpack")
     bom_records = st.session_state.get("bom_records", [])
 
-    # Gọi cụm hàm kết xuất giao diện đồ họa và so khớp thông số POM
-    render_flat_sketch_comparison(target_new_sketch_bytes, new_style_id_detected, matched_techpack, base_sb_url, headers)
-    render_measurement_tables(new_style_measurements_dict, new_style_base_size, matched_techpack)
-    render_historical_bom_table(bom_records)
+    # HIỂN THỊ HAI BẢNG THÔNG SỐ ĐỐI CHIẾU MÀN HÌNH
+    spec_col1, spec_col2 = st.columns(2)
+    with spec_col1:
+        st.markdown(f"📊 **Thông số Mẫu mới ({new_style_base_size})**")
+        st.dataframe(pd.DataFrame(list(new_style_measurements_dict.items()), columns=["Vị trí đo", "Thông số"]), use_container_width=True, hide_index=True)
+    with spec_col2:
+        st.markdown("📋 **Thông số Mã tương đồng trong kho**")
+        if matched_techpack:
+            st.dataframe(pd.DataFrame(list(matched_techpack.get("DetailedMeasurements", {}).items()), columns=["Vị trí đo", "Thông số"]), use_container_width=True, hide_index=True)
 
-    st.markdown("<br><hr style='border:0.5px solid #CBD5E1;'>", unsafe_allow_html=True)
-    
-    # Thiết lập thanh tiêu đề điều khiển Chatbox
-    
+    # KHUNG GIAO DIỆN CHAT BOX TỰ ĐỘNG CUỘN NEO MÀN HÌNH
+    chat_container = st.container()
+    with chat_container:
+        for chat in st.session_state.get("consumption_chat_history", []):
+            with st.chat_message("user"): st.write(chat["user"])
+            with st.chat_message("assistant"): st.write(chat["ai"])
+                
+    if user_query := st.chat_input("Nhập yêu cầu phân tích tính toán định mức..."):
+        with chat_container:
+            with st.chat_message("user"): st.write(user_query)
+            with st.chat_message("assistant"):
+                with st.spinner("🤖 AI đang phân tích dữ liệu..."):
+                    ai_reply = ai_consumption_analyst_engine(client, user_query, matched_techpack, bom_records, new_style_measurements_dict, target_new_sketch_bytes, new_style_base_size)
+                    st.write(ai_reply)
+        
+        st.components.v1.html(
+            "<script>var doc = window.parent.document; var sections = doc.querySelectorAll('section.main'); if (sections.length > 0) { sections[0].scrollTo({top: sections[0].scrollHeight, behavior: 'smooth'}); }</script>",
+            height=0,
+        )
+        st.rerun()
+
 
 
 
