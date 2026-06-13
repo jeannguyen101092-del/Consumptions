@@ -1079,7 +1079,7 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
             st.rerun()
 
     st.markdown("---")
-       # --- Ô TRA CỨU ĐỘC LẬP: CĂN CHUẨN LỀ 4 KHOẢNG TRẮNG THEO KHỐI LỆNH IF CHA ---
+         # --- Ô TRA CỨU ĐỘC LẬP: CĂN CHUẨN LỀ 4 KHOẢNG TRẮNG THEO KHỐI LỆNH IF CHA ---
     st.markdown("<br><p style='font-weight:700; font-size:14px; color:#1E3A8A;'>🔍 TRA CỨU NHANH ĐỊNH MỨC VẬT TƯ TRONG KHO (TRA THỦ CÔNG)</p>", unsafe_allow_html=True)
     search_col1, search_col2 = st.columns([3.2, 0.8])
     with search_col1:
@@ -1092,10 +1092,9 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
         tu_khoa_clean = ma_so_tra_cuu.lower()
         for rac in ["tìm", "tim", "code", "mã", "ma", "vải", "vai", "hàng", "hang"]:
             tu_khoa_clean = tu_khoa_clean.replace(rac, "")
-        tu_khoa_clean = tu_khoa_clean.strip().upper()
+        tu_khoa_clean = tu_khoa_clean.strip()
             
-        with st.spinner(f"🔍 Hệ thống đang dùng thuật toán siêu lọc đa cổng tìm mã '{tu_khoa_clean}'..."):
-            # THUẬT TOÁN TÁCH TỪ KHÓA TỰ ĐỘNG (TOKENIZATION)
+        with st.spinner(f"🔍 Hệ thống đang dùng thuật toán siêu lọc đa cổng tìm mã '{tu_khoa_clean.upper()}'..."):
             # Tách chuỗi thành các từ độc lập dựa trên khoảng trắng, dấu gạch ngang, gạch dưới
             tu_khoa_manh = [m.strip() for m in re.split(r'[\s\-_]+', tu_khoa_clean) if m.strip()]
             
@@ -1105,15 +1104,13 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
             if len(tu_khoa_manh) >= 2:
                 and_article = ",".join([f"article_name.ilike.*{m}*" for m in tu_khoa_manh])
                 and_style = ",".join([f"style_name.ilike.*{m}*" for m in tu_khoa_manh])
-                
                 query_bom_direct = {
                     "select": "style_name,article_name,consumption_type,material_size,uom,consumption_value,notes",
-                    # CÚ PHÁP CHUẨN POSTGREST: (Cột Article chứa đủ các mảnh từ) HOẶC (Cột Style chứa đủ các mảnh từ)
                     "or": f"(and({and_article}),and({and_style}))"
                 }
             else:
-                # Nếu chỉ gõ nguyên một chuỗi số liền hoặc chữ liền
-                ma_goc = tu_khoa_manh[0] if tu_khoa_manh else tu_khoa_clean
+                # GIẢI PHÁP ĐỘC LẬP CHO TỪ ĐƠN LẺ (NHƯ P3026, SJ8002): Ép ilike phẳng phẳng để tìm kiếm không phân biệt hoa thường tuyệt đối
+                ma_goc = tu_khoa_manh[0].upper() if tu_khoa_manh else tu_khoa_clean.upper()
                 query_bom_direct = {
                     "select": "style_name,article_name,consumption_type,material_size,uom,consumption_value,notes",
                     "or": f"(style_name.ilike.*{ma_goc}*,article_name.ilike.*{ma_goc}*)"
@@ -1137,11 +1134,12 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                             st.session_state["bom_records"] = res_fb.json()
                             st.toast(f"🎉 Đã quét vét kho tìm thấy các dòng chứa số '{chu_so_fallback}'!")
                             st.rerun()
-                    st.warning(f"❌ Không tìm thấy dòng nào chứa tổ hợp ký tự '{tu_khoa_clean}' trong database.")
+                    st.warning(f"❌ Không tìm thấy dòng nào chứa tổ hợp ký tự '{tu_khoa_clean.upper()}' trong database.")
             except Exception as err_db:
                 st.error(f"🚨 Lỗi kết nối database: {str(err_db)}")
 
     st.markdown("---")
+
 
  
 
