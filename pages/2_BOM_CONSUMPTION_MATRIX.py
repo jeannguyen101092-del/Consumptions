@@ -1033,21 +1033,37 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
 
     st.markdown("---")
     
-    # === CÔNG CỤ TÌM KIẾM DỮ LIỆU KHO THỦ CÔNG CẤP TỐC ===
+        # === CÔNG CỤ TÌM KIẾM DỮ LIỆU KHO THỦ CÔNG (ĐÃ SỬA LỖI TRUY VẤN) ===
     st.markdown("<p style='font-weight:700; font-size:14px; color:#0F172A;'>🔍 THANH TÌM KIẾM DỮ LIỆU KHO THỦ CÔNG</p>", unsafe_allow_html=True)
     search_query = st.text_input("Nhập mã hàng đối chứng lịch sử cần tìm kiếm nhanh...", value="", placeholder="Ví dụ: 24PANT-01, SHIRT-M4...")
     
     if search_query:
         if st.button(f"⚡ Trích xuất nhanh dữ liệu mã hàng: {search_query.strip().upper()}", use_container_width=True):
             with st.spinner("🔍 Đang định vị hồ sơ cục bộ..."):
+                # Chuẩn hóa tên trường query param chính xác theo API Supabase
                 url_search = f"{base_sb_url}/rest/v1/thong_so_techpack"
-                q_params = {"select": "StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL,sketch_vector", "StyleName": f"ilike.*{search_query.strip()}*", "limit": 1}
+                
+                # SỬA LỖI: Sử dụng toán tử ilike chuẩn của PostgREST (cột=ilike.*giá_trị*)
+                q_params = {
+                    "select": "StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL,sketch_vector",
+                    "StyleName": f"ilike.*{search_query.strip()}*",
+                    "limit": 1
+                }
+                
                 s_res = requests.get(url_search, headers=headers, params=q_params, timeout=10)
-                if s_res.status_code == 200 and s_res.json():
-                    st.session_state["matched_techpack"] = s_res.json()[0]
-                    st.toast(f"✅ Đã tìm thấy và gán mã đối chứng: {search_query.upper()}")
+                
+                if s_res.status_code == 200:
+                    res_data = s_res.json()
+                    # SỬA LỖI LOGIC: Supabase trả về một danh sách (List), cần trích xuất phần tử đầu tiên [0]
+                    if isinstance(res_data, list) and len(res_data) > 0:
+                        st.session_state["matched_techpack"] = res_data[0]
+                        st.success(f"✅ Đã tìm thấy và gán mã đối chứng: {res_data[0].get('StyleName', '').upper()}")
+                        st.rerun() # Khởi động lại nhẹ để giao diện cập nhật bảng thông số ngay lập tức
+                    else:
+                        st.warning(f"⚠️ Không tìm thấy mã hàng nào chứa ký tự '{search_query.upper()}' trong kho dữ liệu.")
                 else:
-                    st.warning("⚠️ Không tìm thấy mã hàng này trong kho dữ liệu.")
+                    st.error(f"🚨 Lỗi kết nối API kho (Mã lỗi: {s_res.status_code}): {s_res.text}")
+
 
     st.markdown("---")
 
