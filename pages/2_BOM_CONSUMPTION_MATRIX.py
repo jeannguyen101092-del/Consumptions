@@ -1102,17 +1102,18 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                 "select": "style_name,article_name,consumption_type,material_size,uom,consumption_value,notes",
                 "style_name": f"ilike.*{tu_khoa_clean}*"
             }
-            try:
-                res_direct = requests.get(url_bom_direct, headers=headers, params=query_bom_direct, timeout=10)
-                if res_direct.status_code == 200 and len(res_direct.json()) > 0:
-                    st.session_state["bom_records"] = res_direct.json()
-                    st.toast(f"🎉 Đã nạp thành công {len(st.session_state['bom_records'])} vật tư của mã '{tu_khoa_clean}' lên bảng đối chiếu!")
-                else:
-                    st.warning(f"❌ Không tìm thấy nguyên phụ liệu nào khớp với từ khóa '{tu_khoa_clean}' trong database.")
+                try:
+                    res_direct = requests.get(url_bom_direct, headers=headers, params=query_bom_direct, timeout=10)
+                    if res_direct.status_code == 200 and len(res_direct.json()) > 0:
+                        st.session_state["bom_records"] = res_direct.json()
+                        st.toast(f"🎉 Đã nạp thành công {len(st.session_state['bom_records'])} vật tư của mã '{tu_khoa_clean}' lên bảng đối chiếu!")
+                    else:
+                        st.warning(f"❌ Không tìm thấy nguyên phụ liệu nào khớp với từ khóa '{tu_khoa_clean}' trong database.")
                 except Exception as err_db:
                     st.error(f"🚨 Lỗi kết nối database: {str(err_db)}")
-
     st.markdown("---")
+
+  
 
 
 
