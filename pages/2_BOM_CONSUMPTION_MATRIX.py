@@ -1033,7 +1033,7 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
 
     st.markdown("---")
     
-    # === CÔNG CỤ TÌM KIẾM THỦ CÔNG: TỰ ĐỘNG MÃ HÓA URL (URL ENCODING) CHO DẤU % ===
+    # === CÔNG CỤ TÌM KIẾM THỦ CÔNG: TỰ ĐỘNG HÓA ĐÓNG GÓI PARAMETERS CHỐNG LỖI MẠNG LƯỚI ===
     st.markdown("<p style='font-weight:700; font-size:14px; color:#0F172A;'>🔍 THANH TÌM KIẾM DỮ LIỆU KHO THỦ CÔNG</p>", unsafe_allow_html=True)
     search_query = st.text_input("Nhập mã hàng đối chứng lịch sử cần tìm kiếm nhanh...", value="", placeholder="Ví dụ: 24PANT-01, SHIRT-M4...")
     
@@ -1043,26 +1043,30 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                 url_search = f"{base_sb_url}/rest/v1/thong_so_techpack"
                 search_val = search_query.strip()
                 
-                # SỬA LỖI GỐC: Sử dụng hàm quote() để chuyển đổi ký tự '%' thành '%25' chuẩn hóa giao thức HTTP API
-                encoded_filter = quote(f"ilike.%{search_val}%")
-                
-                # Chiến lược 1: Thử tìm theo cột viết thường 'style_name'
-                # Thay vì truyền đối tượng dict tự động mã hóa sai, ta nối chuỗi query parameters trực tiếp một cách tường minh
-                url_with_params_low = f"{url_search}?select=style_name,StyleName,Buyer,buyer,Category,category,BaseSize,base_size,DetailedMeasurements,detailed_measurements,SketchURL,sketch_url,sketch_vector&style_name={encoded_filter}&limit=1"
-                s_res = requests.get(url_with_params_low, headers=headers, timeout=10)
+                # GIẢI PHÁP TRIỆT ĐỂ: Để thư viện requests tự đóng gói payload, thay thế dấu .* bằng dấu % tiêu chuẩn SQL
+                q_params_low = {
+                    "select": "style_name,StyleName,Buyer,buyer,Category,category,BaseSize,base_size,DetailedMeasurements,detailed_measurements,SketchURL,sketch_url,sketch_vector",
+                    "style_name": f"ilike.%{search_val}%",
+                    "limit": 1
+                }
+                s_res = requests.get(url_search, headers=headers, params=q_params_low, timeout=10)
                 res_data = s_res.json() if s_res.status_code == 200 else []
                 
-                # Chiến lược 2: Nếu trống, thử tìm theo cột viết hoa 'StyleName'
+                # Chiến lược phòng vệ 2: Nếu bảng dữ liệu lưu ký tự viết hoa
                 if not res_data or (isinstance(res_data, list) and len(res_data) == 0):
-                    url_with_params_up = f"{url_search}?select=style_name,StyleName,Buyer,buyer,Category,category,BaseSize,base_size,DetailedMeasurements,detailed_measurements,SketchURL,sketch_url,sketch_vector&StyleName={encoded_filter}&limit=1"
-                    s_res = requests.get(url_with_params_up, headers=headers, timeout=10)
+                    q_params_up = {
+                        "select": "style_name,StyleName,Buyer,buyer,Category,category,BaseSize,base_size,DetailedMeasurements,detailed_measurements,SketchURL,sketch_url,sketch_vector",
+                        "StyleName": f"ilike.%{search_val}%",
+                        "limit": 1
+                    }
+                    s_res = requests.get(url_search, headers=headers, params=q_params_up, timeout=10)
                     res_data = s_res.json() if s_res.status_code == 200 else []
 
-                # XỬ LÝ TRÍCH XUẤT CHÍNH XÁC PHẦN TỬ ĐẦU TIÊN CỦA DANH SÁCH Trả về từ DATABASE
+                # PHÒNG VỆ CHỐNG SẬP: Kiểm tra danh sách rỗng trước khi bóc tách phần tử [0]
                 if isinstance(res_data, list) and len(res_data) > 0:
-                    matched_obj = res_data[0] # SỬA LỖI LOGIC: Trích xuất chính xác dictionary từ vị trí đầu tiên
+                    matched_obj = res_data[0] # Lấy chính xác Dictionary bên trong mảng an toàn
                     
-                    # Đồng bộ hóa cấu trúc khóa để giao diện phía sau không bị lỗi rỗng bảng
+                    # Đồng bộ hóa cấu trúc khóa dữ liệu chữ hoa/chữ thường
                     if "StyleName" not in matched_obj and "style_name" in matched_obj:
                         matched_obj["StyleName"] = matched_obj["style_name"]
                     if "DetailedMeasurements" not in matched_obj and "detailed_measurements" in matched_obj:
@@ -1087,7 +1091,7 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
     else:
         st.info(f"📋 **CƠ SỞ ĐỐI SOÁT KIỂM TRA:** Đang áp dụng quy chuẩn kích thước hình học rập mẫu cơ sở: **SIZE 32 / M (Mặc định)**")
 
-    # Chỉ chạy đối soát tự động bằng AI khi kỹ sư chưa chọn mã thủ công qua thanh tìm kiếm
+    # Bộ não đối soát tự động bằng AI hình ảnh khi chưa kích hoạt thanh công cụ tìm kiếm
     if st.session_state["matched_techpack"] is None:
         with st.spinner("🧠 Hệ thống thị giác máy tính đang quét kết cấu phom dáng Flat Sketch..."):
             try:
