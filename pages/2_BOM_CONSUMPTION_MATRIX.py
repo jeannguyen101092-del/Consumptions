@@ -1021,6 +1021,7 @@ new_style_measurements_dict = {}
 new_style_base_size = "32"
 target_new_sketch_bytes = None
 
+# Cấu hình liên kết cơ sở dữ liệu Supabase
 SB_URL = st.secrets.get("SUPABASE_URL", "https://supabase.co")
 SB_KEY = st.secrets.get("SUPABASE_KEY", "placeholder-key")
 menu_selection = "🧵 BOM & Consumption Matrix"
@@ -1056,7 +1057,6 @@ if has_file:
 dynamic_keyword = str(new_style_id_detected).strip().upper()
 base_sb_url = SB_URL.rstrip('/')
 headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
-
 if menu_selection == "🧵 BOM & Consumption Matrix":
     st.markdown('<div class="component-title-box">🧵 INTELLIGENT BOM & CONSUMPTION MATRIX ENGINE</div>', unsafe_allow_html=True)
     
@@ -1079,8 +1079,7 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
             st.rerun()
 
     st.markdown("---")
-    
-    # --- LUỒNG 1: Ô TRA CỨU NHANH ĐỘC LẬP (KHÔNG CẦN TẢI FILE) ---
+    # --- Ô TRA CỨU ĐỘC LẬP: CĂN CHUẨN LỀ 4 KHOẢNG TRẮNG THEO KHỐI LỆNH IF CHA ---
     st.markdown("<br><p style='font-weight:700; font-size:14px; color:#1E3A8A;'>🔍 TRA CỨU NHANH ĐỊNH MỨC VẬT TƯ TRONG KHO (TRA THỦ CÔNG)</p>", unsafe_allow_html=True)
     search_col1, search_col2 = st.columns([3.2, 0.8])
     with search_col1:
@@ -1104,33 +1103,15 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                 res_direct = requests.get(url_bom_direct, headers=headers, params=query_bom_direct, timeout=10)
                 if res_direct.status_code == 200 and len(res_direct.json()) > 0:
                     st.session_state["bom_records"] = res_direct.json()
-                    st.toast(f"🎉 Đã nạp thành công {len(st.session_state['bom_records'])} vật tư của mã '{tu_khoa_clean}' lên bảng đối chiếu!")
+                    st.toast(f"🎉 Đã nạp thành công {len(st.session_state['bom_records'])} vật tư lên bảng đối chiếu!")
                 else:
                     st.warning(f"❌ Không tìm thấy nguyên phụ liệu nào khớp với từ khóa '{tu_khoa_clean}' trong database.")
             except Exception as err_db:
                 st.error(f"🚨 Lỗi kết nối database: {str(err_db)}")
                 
     st.markdown("---")
-
-    # LUỒNG CHẶN KHI CHƯA TẢI FILE PDF (CHỈ CHẶN LUỒNG AI ĐỐI SOÁT HÌNH ẢNH)
     if not has_file:
-        st.info("👋 Vui lòng tải lên tệp Techpack hồ sơ thiết kế (PDF) ở phía trên để hệ thống bắt đầu quét và lập lịch trình đối soát hình ảnh vẽ rập.")
-        
-        # NẾU CÓ DỮ LIỆU TRA THỦ CÔNG THÌ VẪN IN BẢNG BOM RA MÀN HÌNH CHẤT LƯỢNG CAO
-        if st.session_state.get("bom_records"):
-            st.markdown("<br>📦 **KẾT QUẢ TRA CỨU ĐỊNH MỨC PHỤ LIỆU TRONG KHO VỪA TÌM ĐƯỢC:**", unsafe_allow_html=True)
-            formatted_bom_manual = []
-            for r in st.session_state["bom_records"]:
-                def clean_nan_m(v): return "" if (not v or str(v).lower() in ["nan", "none", "null"]) else str(v).strip()
-                formatted_bom_manual.append({
-                    "Mã hàng đối chứng": clean_nan_m(r.get("style_name")).upper(),
-                    "Loại nguyên vật liệu": clean_nan_m(r.get("consumption_type")),
-                    "Chi tiết vật tư (Article)": clean_nan_m(r.get("article_name")),
-                    "Khổ / Cỡ vật tư": clean_nan_m(r.get("material_size")),
-                    "Định mức gốc": clean_nan_m(r.get("consumption_value")),
-                    "UOM": clean_nan_m(r.get("uom"))
-                })
-            st.dataframe(pd.DataFrame(formatted_bom_manual), use_container_width=True, hide_index=True)
+        st.info("👋 Vui lòng tải lên tệp Techpack hồ sơ thiết kế (PDF) ở phía trên để hệ thống bắt đầu quét và lập lịch trình đối soát.")
         st.stop()
 
     if new_style_base_size and new_style_base_size != "32":
@@ -1138,13 +1119,11 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
     else:
         st.info(f"📋 **CƠ SỞ ĐỐI SOÁT KIỂM TRA:** Đang áp dụng quy chuẩn kích thước hình học rập mẫu cơ sở: **SIZE 32 / M (Mặc định)**")
 
-    # --- LUỒNG 2: THỊ GIÁC MÁY TÍNH QUÉT ĐỐI SOÁT ẢNH TRỰC TIẾP ---
     if st.session_state["matched_techpack"] is None:
         with st.spinner("🧠 Hệ thống thị giác máy tính đang soi cấu trúc hình ảnh thiết kế..."):
             try:
                 url_db = f"{base_sb_url}/rest/v1/thong_so_techpack"
                 query_params = {"select": "StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL", "limit": 500}
-                
                 db_res = requests.get(url_db, headers=headers, params=query_params, timeout=15)
                 all_historical_styles = db_res.json() if db_res.status_code == 200 else []
                 
@@ -1157,63 +1136,41 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                             "image_url_to_look": s.get("SketchURL", "")
                         })
                     
-                    match_prompt = f"""
-                    You are a Computer Vision Expert in Apparel Manufacturing. 
-                    COMPARE the attached new sketch image with the historical images provided in the pool below.
-                    VISUAL AUDIT RULES:
-                    - Open and look closely at the internal lines, pocket stitch shapes, waistband styling, and flies.
-                    - Ignore text names or style IDs. Focus 100% on the visual similarity of the flat sketches.
-                    - Find the historical style that has the exact same garment construction details.
-                    HISTORICAL POOL WITH IMAGE LINKS:
-                    {json.dumps(styles_pool_summary)}
-                    Return a raw valid JSON containing only the single matching index: {{"selected_pool_index": 0}}
-                    """
-                    
+                    match_prompt = f"COMPARE scripts. Return valid JSON {{\"selected_pool_index\": 0}}. POOL: {json.dumps(styles_pool_summary)}"
                     match_contents = [types.Part.from_text(text=match_prompt)]
                     if target_new_sketch_bytes:
                         match_contents.append(types.Part.from_bytes(data=target_new_sketch_bytes, mime_type='image/jpeg'))
                         
-                    res_match = client.models.generate_content(model='gemini-2.5-flash', contents=match_contents)
-                    
+                    res_match = client.models.generate_content(model='gemini-2.5-flash', contents=match_contents, config={"response_mime_type": "application/json"})
                     if res_match and res_match.text:
                         match_result = json.loads(res_match.text.strip())
                         best_idx = match_result.get("selected_pool_index", -1)
                         if 0 <= best_idx < len(all_historical_styles):
                             st.session_state["matched_techpack"] = all_historical_styles[best_idx]
-                            st.toast("🎯 AI Vision đã quét hình ảnh và bắt cặp mã tương đồng thành công!")
+                            st.toast("🎯 AI Vision đã bắt cặp mã tương đồng bằng hình ảnh thành công!")
             except Exception as match_err:
-
-            st.sidebar.error(f"Lỗi hệ thống đối soát hình ảnh: {str(match_err)}")
-
-    if st.session_state.get("matched_techpack"):
+                st.sidebar.error(f"Lỗi hệ thống đối soát hình ảnh: {str(match_err)}")
+    if st.session_state.get("matched_techpack") and not st.session_state.get("bom_records"):
         try:
             target_style_name_bom = str(st.session_state["matched_techpack"].get("StyleName", "")).strip()
             url_bom = f"{base_sb_url}/rest/v1/san_pham"
-            
-            query_bom = {
-                "select": "style_name,article_name,consumption_type,material_size,uom,consumption_value,notes",
-                "style_name": f"eq.{target_style_name_bom}"
-            }
+            query_bom = {"select": "style_name,article_name,consumption_type,material_size,uom,consumption_value,notes", "style_name": f"eq.{target_style_name_bom}"}
             res_bom = requests.get(url_bom, headers=headers, params=query_bom, timeout=15)
+            
             if res_bom.status_code == 200 and len(res_bom.json()) > 0:
                 st.session_state["bom_records"] = res_bom.json()
             else:
                 core_digits = re.findall(r'\d+', target_style_name_bom)
                 search_digits = max(core_digits, key=len) if core_digits else target_style_name_bom
-                
-                query_bom_fb = {
-                    "select": "style_name,article_name,consumption_type,material_size,uom,consumption_value,notes",
-                    "style_name": f"ilike.*{search_digits}*"
-                }
+                query_bom_fb = {"select": "style_name,article_name,consumption_type,material_size,uom,consumption_value,notes", "style_name": f"ilike.*{search_digits}*"}
                 res_bom_fb = requests.get(url_bom, headers=headers, params=query_bom_fb, timeout=15)
                 if res_bom_fb.status_code == 200:
-                    raw_list = res_bom_fb.json()
-                    st.session_state["bom_records"] = [r for r in raw_list if search_digits in str(r.get("style_name", ""))]
-                else:
-                    st.session_state["bom_records"] = []
+                    st.session_state["bom_records"] = [r for r in res_bom_fb.json() if search_digits in str(r.get("style_name", ""))]
         except Exception:
             st.session_state["bom_records"] = []
-
+    # ==================================================================================
+    # PHẦN CÒN LẠI: HIỂN THỊ GIAO DIỆN ĐỒ HỌA SONG SONG VÀ KHUNG CHATBOX TRỢ LÝ AI
+    # ==================================================================================
     matched_techpack = st.session_state.get("matched_techpack")
     bom_records = st.session_state.get("bom_records", [])
 
@@ -1262,9 +1219,7 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                     st.info("⚠️ Không có ảnh vật lý nào khớp trên Cloud Storage.")
         else:
             st.warning("⚠️ KHÔNG TÌM THẤY MÃ TƯƠNG ĐỒNG TRONG KHO! Tự động kích hoạt cơ chế tính toán độc lập bằng Vector Hình Học Ngành May.")
-       # ==========================================
-    # ĐOẠN 5 HOÀN CHỈNH (THAY THẾ TỪ ĐOẠN 5 CŨ CHỖ HIỂN THỊ BẢNG SPEC)
-    # ==========================================
+
     st.markdown("<br>### 📐 SO SÁNH HAI BẢNG THÔNG SỐ KỸ THUẬT RẬP MẪU", unsafe_allow_html=True)
     spec_col1, spec_col2 = st.columns(2)
 
@@ -1308,7 +1263,6 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
 
     st.markdown("<br><hr style='border:0.5px solid #CBD5E1;'>", unsafe_allow_html=True)
     
-    # THIẾT KẾ CỤM ĐIỀU KHIỂN CHAT BOX THÔNG MINH SIÊU TỐC
     chat_header_col1, chat_header_col2 = st.columns([3.2, 0.8])
     with chat_header_col1:
         st.markdown("### 💬 TRỢ LÝ AI PHÂN TÍCH ĐỊNH MỨC SẢN XUẤT (HỎI ĐÂU ĐÁP ĐÓ)")
@@ -1325,70 +1279,36 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
             with st.chat_message("assistant"): 
                 st.write(chat["ai"])
                 
-    # --- CHỖ THAY THẾ CHÍNH XÁC: BỘ CHẶN TÌM KIẾM NỘI BỘ KHÔNG QUA AI ---
     if user_query := st.chat_input("Nhập yêu cầu phân tích (Ví dụ: Tính định mức vải chính khi co rút ngang 5%, dọc 3%)..."):
+        with chat_container:
+            with st.chat_message("user"):
+                st.write(user_query)
+                
+            with st.chat_message("assistant"):
+                with st.spinner("🤖 AI đang phân tích dữ liệu và tính toán định mức..."):
+                    ai_reply = ai_consumption_analyst_engine(
+                        client=client,
+                        user_message=user_query,
+                        matched_techpack=matched_techpack,
+                        bom_records=bom_records,
+                        new_style_measurements=new_style_measurements_dict,
+                        target_new_sketch_bytes=target_new_sketch_bytes,
+                        detected_size=new_style_base_size
+                    )
+                    st.write(ai_reply)
         
-        # Bóc tách tất cả chuỗi số có trong câu lệnh
-        so_tim_kiem = re.findall(r'\d+', user_query)
-        
-        # Kiểm tra xem câu lệnh có chứa từ khóa tra cứu kho và có số hiệu đi kèm không
-        if any(kw in user_query.lower() for kw in ["tìm", "kho", "mã vải", "mã hàng"]) and so_tim_kiem:
-            chuoi_so = max(so_tim_kiem, key=len) # Lấy cụm số dài nhất làm mã tra cứu
-            
-            with chat_container:
-                with st.chat_message("user"):
-                    st.write(user_query)
-                with st.chat_message("assistant"):
-                    with st.spinner(f"🔍 Hệ thống đang truy vấn nội bộ mã '{chuoi_so}' từ kho dữ liệu..."):
-                        # Gọi trực tiếp Supabase, CHẶN HOÀN TOÀN không gửi lên API Gemini để tiết kiệm chi phí
-                        url_bom_direct = f"{base_sb_url}/rest/v1/san_pham"
-                        query_bom_direct = {
-                            "select": "style_name,article_name,consumption_type,material_size,uom,consumption_value,notes",
-                            "style_name": f"ilike.*{chuoi_so}*"
-                        }
-                        try:
-                            res_direct = requests.get(url_bom_direct, headers=headers, params=query_bom_direct, timeout=10)
-                            if res_direct.status_code == 200 and len(res_direct.json()) > 0:
-                                st.session_state["bom_records"] = res_direct.json()
-                                st.success(f"🎉 Đã tìm thấy {len(st.session_state['bom_records'])} vật tư của mã chứa số '{chuoi_so}'! Bảng định mức gốc phía trên đã được cập nhật tự động.")
-                            else:
-                                st.warning(f"❌ Không tìm thấy nguyên phụ liệu nào khớp với từ khóa số '{chuoi_so}' trong database.")
-                        except Exception as err_db:
-                            st.error(f"🚨 Lỗi kết nối database: {str(err_db)}")
-            st.rerun()
-
-        # NẾU LÀ CÂU LỆNH TÍNH TOÁN (CO RÚT, KHỔ VẢI...) -> MỚI ĐẨY QUA BỘ NÃO AI
-        else:
-            with chat_container:
-                with st.chat_message("user"):
-                    st.write(user_query)
-                    
-                with st.chat_message("assistant"):
-                    with st.spinner("🤖 AI đang phân tích dữ liệu và tính toán định mức..."):
-                        ai_reply = ai_consumption_analyst_engine(
-                            client=client,
-                            user_message=user_query,
-                            matched_techpack=matched_techpack,
-                            bom_records=bom_records,
-                            new_style_measurements=new_style_measurements_dict,
-                            target_new_sketch_bytes=target_new_sketch_bytes,
-                            detected_size=new_style_base_size
-                        )
-                        st.write(ai_reply)
-            
-            # Thuật toán neo cuộn màn hình xuống tin nhắn cuối cùng
-            st.components.v1.html(
-                """
-                <script>
-                    var doc = window.parent.document;
-                    var sections = doc.querySelectorAll('section.main');
-                    if (sections.length > 0) {
-                        sections[0].scrollTo({top: sections[0].scrollHeight, behavior: 'smooth'});
-                    }
-                </script>
-                """,
-                height=0,
-            )
+        st.components.v1.html(
+            """
+            <script>
+                var doc = window.parent.document;
+                var sections = doc.querySelectorAll('section.main');
+                if (sections.length > 0) {
+                    sections[0].scrollTo({top: sections[0].scrollHeight, behavior: 'smooth'});
+                }
+            </script>
+            """,
+            height=0,
+        )
 
 
 
