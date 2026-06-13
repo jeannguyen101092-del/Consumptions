@@ -1089,26 +1089,29 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
     with search_col2:
         nut_tim_kiem = st.button("🚀 TRA KHO", key="exec_direct_search_btn", use_container_width=True, type="primary")
 
-    if nut_tim_kiem and ma_so_tra_cuu:
-        so_tra_cuu_clean = "".join(filter(str.isdigit, ma_so_tra_cuu))
-        if not so_tra_cuu_clean:
-            so_tra_cuu_clean = ma_so_tra_cuu.strip()
-            
-        with st.spinner(f"🔍 Hệ thống đang lục kho tìm mã '{so_tra_cuu_clean}'..."):
-            url_bom_direct = f"{base_sb_url}/rest/v1/san_pham"
-            query_bom_direct = {
-                "select": "style_name,article_name,consumption_type,material_size,uom,consumption_value,notes",
-                "style_name": f"ilike.*{so_tra_cuu_clean}*"
-            }
-            try:
-                res_direct = requests.get(url_bom_direct, headers=headers, params=query_bom_direct, timeout=10)
-                if res_direct.status_code == 200 and len(res_direct.json()) > 0:
-                    st.session_state["bom_records"] = res_direct.json()
-                    st.toast(f"🎉 Đã nạp thành công {len(st.session_state['bom_records'])} vật tư lên bảng đối chiếu!")
-                else:
-                    st.warning(f"❌ Không tìm thấy nguyên phụ liệu nào khớp với số '{so_tra_cuu_clean}' trong database.")
-            except Exception as err_db:
-                st.error(f"🚨 Lỗi kết nối database: {str(err_db)}")
+            if nut_tim_kiem and ma_so_tra_cuu:
+            # Thuật toán tự động lọc bỏ chữ cái tiếng Việt rác để giữ lại mã chính (Ví dụ: "tìm code SJ 8902" -> "SJ 8902")
+            tu_khoa_clean = ma_so_tra_cuu.lower()
+            for rac in ["tìm", "tim", "code", "mã", "ma", "vải", "vai", "hàng", "hang"]:
+                tu_khoa_clean = tu_khoa_clean.replace(rac, "")
+            tu_khoa_clean = tu_khoa_clean.strip().upper()
+                
+            with st.spinner(f"🔍 Hệ thống đang lục kho tìm mã '{tu_khoa_clean}'..."):
+                url_bom_direct = f"{base_sb_url}/rest/v1/san_pham"
+                query_bom_direct = {
+                    "select": "style_name,article_name,consumption_type,material_size,uom,consumption_value,notes",
+                    "style_name": f"ilike.*{tu_khoa_clean}*"
+                }
+                try:
+                    res_direct = requests.get(url_bom_direct, headers=headers, params=query_bom_direct, timeout=10)
+                    if res_direct.status_code == 200 and len(res_direct.json()) > 0:
+                        st.session_state["bom_records"] = res_direct.json()
+                        st.toast(f"🎉 Đã nạp thành công {len(st.session_state['bom_records'])} vật tư của mã '{tu_khoa_clean}' lên bảng đối chiếu!")
+                    else:
+                        st.warning(f"❌ Không tìm thấy nguyên phụ liệu nào khớp với từ khóa '{tu_khoa_clean}' trong database.")
+                except Exception as err_db:
+                    st.error(f"🚨 Lỗi kết nối database: {str(err_db)}")
+
     st.markdown("---")
 
 
