@@ -1079,7 +1079,7 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
             st.rerun()
 
     st.markdown("---")
-       # --- Ô TRA CỨU ĐỘC LẬP: CĂN CHUẨN LỀ 4 KHOẢNG TRẮNG THEO KHỐI LỆNH IF CHA ---
+        # --- Ô TRA CỨU ĐỘC LẬP: CĂN CHUẨN LỀ 4 KHOẢNG TRẮNG THEO KHỐI LỆNH IF CHA ---
     st.markdown("<br><p style='font-weight:700; font-size:14px; color:#1E3A8A;'>🔍 TRA CỨU NHANH ĐỊNH MỨC VẬT TƯ TRONG KHO (TRA THỦ CÔNG)</p>", unsafe_allow_html=True)
     search_col1, search_col2 = st.columns([3.2, 0.8])
     with search_col1:
@@ -1087,20 +1087,19 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
     with search_col2:
         nut_tim_kiem = st.button("🚀 TRA KHO", key="exec_direct_search_btn", use_container_width=True, type="primary")
 
-        if nut_tim_kiem and ma_so_tra_cuu:
-        # THUẬT TOÁN LÀM SẠCH CHUỖI CÔNG NGHIỆP: Xóa chữ rác, xóa khoảng trắng, xóa dấu gạch nối
+    if nut_tim_kiem and ma_so_tra_cuu:
+        # Làm sạch chữ rác tiếng Việt để lấy mã chính
         tu_khoa_clean = ma_so_tra_cuu.lower()
         for rac in ["tìm", "tim", "code", "mã", "ma", "vải", "vai", "hàng", "hang"]:
             tu_khoa_clean = tu_khoa_clean.replace(rac, "")
             
-        # XÓA BỎ HOÀN TOÀN KHOẢNG TRẮNG VÀ DẤU GẠCH NỐI ĐỂ TRÁNH LỖI URL VÀ LỆCH KÝ TỰ CỦA NHÀ MÁY
+        # Thuật toán xóa khoảng trắng và dấu gạch để chống lỗi lệch ký tự khi gõ
         tu_khoa_clean = tu_khoa_clean.replace(" ", "").replace("-", "").replace("_", "").strip().upper()
             
         with st.spinner(f"🔍 Hệ thống đang lục kho tìm mã '{tu_khoa_clean}'..."):
             url_bom_direct = f"{base_sb_url}/rest/v1/san_pham"
             query_bom_direct = {
                 "select": "style_name,article_name,consumption_type,material_size,uom,consumption_value,notes",
-                # Thuật toán nâng cao: Tự động dùng dấu phần trăm (%) thay cho các khoảng trống để tìm kiếm mờ tuyệt đối
                 "or": f"(style_name.ilike.*{tu_khoa_clean}*,article_name.ilike.*{tu_khoa_clean}*)"
             }
             try:
@@ -1109,7 +1108,7 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                     st.session_state["bom_records"] = res_direct.json()
                     st.toast(f"🎉 Đã nạp thành công {len(st.session_state['bom_records'])} vật tư lên bảng đối chiếu!")
                 else:
-                    # Nếu tìm sát dòng không ra, thử chạy phương án rải chuỗi số để tìm mờ diện rộng
+                    # Phương án dự phòng 2: Nếu gõ cả chữ + số không ra, bóc riêng chuỗi số để tìm quét diện rộng
                     so_chi_dinh = "".join(filter(str.isdigit, tu_khoa_clean))
                     if so_chi_dinh:
                         query_fallback = {
@@ -1119,11 +1118,14 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                         res_fb = requests.get(url_bom_direct, headers=headers, params=query_fallback, timeout=10)
                         if res_fb.status_code == 200 and len(res_fb.json()) > 0:
                             st.session_state["bom_records"] = res_fb.json()
-                            st.toast(f"🎉 Fallback: Đã tìm thấy các mã chứa số '{so_chi_dinh}'!")
+                            st.toast(f"🎉 Đã vét kho tìm thấy các mã chứa số '{so_chi_dinh}'!")
                             st.rerun()
                     st.warning(f"❌ Không tìm thấy nguyên phụ liệu nào khớp với từ khóa '{tu_khoa_clean}' ở cả hai cột.")
             except Exception as err_db:
                 st.error(f"🚨 Lỗi kết nối database: {str(err_db)}")
+
+    st.markdown("---")
+
 
 
                 
