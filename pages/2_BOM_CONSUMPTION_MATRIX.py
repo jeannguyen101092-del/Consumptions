@@ -965,8 +965,17 @@ def process_single_pdf_batch(file_bytes, file_name):
             stored_pages_bytes.append(img_data)
             pdf_parts_payload.append(types.Part.from_bytes(data=img_data, mime_type='image/jpeg'))
             
+                # --- THAY THẾ PROMPT TRONG ĐOẠN 2 ĐỂ ÉP AI QUÉT ĐÚNG TRANG BẢN VẼ TOÀN THÂN ---
         industrial_extraction_prompt = (
             "You are an expert Garment Specification Auditor at PPJ Group. Analyze all attached sheets page by page. "
+            "1. Identify the core 'Base Size' / 'Sample Size'. "
+            "2. Identify the Buyer name and Category (Pant/Shirt/Jacket). "
+            "3. Find the exact 'Style ID' / 'Style Number'. "
+            "4. Extract the entire grading matrix table columns for ALL available sizes. "
+            "5. CRITICAL VISUAL INSTRUCTION FOR SKETCH DETECTION: Find the exact PAGE INDEX (0-based) that contains the FULL BODY APPAREL FLAT SKETCH. "
+            "STRICT PROHIBITION: DO NOT select pages showing zoomed-in pocket details, pocket bags, stitching line construction close-ups, zipper/button construction, or single component templates. "
+            "IT MUST BE the primary page that displays the entire garment silhouette outline (both front and back panels of the complete pants/shorts/shirt). If multiple pages show full bodies, pick the main spec sheet page. "
+            "6. CRITICAL APPRAISAL FOR HEM & PLACKET DETAILS: Pay extreme attention to bottom hem allowances. "
             "Return a completely valid raw JSON string matching this schema (no markdown blocks): "
             "{"
             "  \"style_number_parsed\": \"string\","
@@ -978,6 +987,7 @@ def process_single_pdf_batch(file_bytes, file_name):
             "  \"full_size_matrix\": {\"POM Description\": {\"Size_Name\": \"Value\"}}"
             "}"
         )
+
         pdf_parts_payload.append(types.Part.from_text(text=industrial_extraction_prompt))
         
         for attempt in range(3):
