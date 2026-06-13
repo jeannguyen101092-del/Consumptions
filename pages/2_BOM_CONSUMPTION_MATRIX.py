@@ -1033,37 +1033,52 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
 
     st.markdown("---")
     
-        # === CÔNG CỤ TÌM KIẾM DỮ LIỆU KHO THỦ CÔNG (ĐÃ SỬA LỖI TRUY VẤN) ===
+    # === CÔNG CỤ TÌM KIẾM THỦ CÔNG: CƠ CHẾ PHÒNG VỆ KÉP (CHỐNG LỖI VIẾT HOA/THƯỜNG CỘT) ===
     st.markdown("<p style='font-weight:700; font-size:14px; color:#0F172A;'>🔍 THANH TÌM KIẾM DỮ LIỆU KHO THỦ CÔNG</p>", unsafe_allow_html=True)
     search_query = st.text_input("Nhập mã hàng đối chứng lịch sử cần tìm kiếm nhanh...", value="", placeholder="Ví dụ: 24PANT-01, SHIRT-M4...")
     
     if search_query:
         if st.button(f"⚡ Trích xuất nhanh dữ liệu mã hàng: {search_query.strip().upper()}", use_container_width=True):
             with st.spinner("🔍 Đang định vị hồ sơ cục bộ..."):
-                # Chuẩn hóa tên trường query param chính xác theo API Supabase
                 url_search = f"{base_sb_url}/rest/v1/thong_so_techpack"
+                search_val = search_query.strip()
                 
-                # SỬA LỖI: Sử dụng toán tử ilike chuẩn của PostgREST (cột=ilike.*giá_trị*)
-                q_params = {
-                    "select": "StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL,sketch_vector",
-                    "StyleName": f"ilike.*{search_query.strip()}*",
+                # Chiến lược 1: Thử tìm theo cột viết thường 'style_name'
+                q_params_low = {
+                    "select": "style_name,StyleName,Buyer,buyer,Category,category,BaseSize,base_size,DetailedMeasurements,detailed_measurements,SketchURL,sketch_url,sketch_vector",
+                    "style_name": f"ilike.*{search_val}*",
                     "limit": 1
                 }
+                s_res = requests.get(url_search, headers=headers, params=q_params_low, timeout=10)
+                res_data = s_res.json() if s_res.status_code == 200 else []
                 
-                s_res = requests.get(url_search, headers=headers, params=q_params, timeout=10)
-                
-                if s_res.status_code == 200:
-                    res_data = s_res.json()
-                    # SỬA LỖI LOGIC: Supabase trả về một danh sách (List), cần trích xuất phần tử đầu tiên [0]
-                    if isinstance(res_data, list) and len(res_data) > 0:
-                        st.session_state["matched_techpack"] = res_data[0]
-                        st.success(f"✅ Đã tìm thấy và gán mã đối chứng: {res_data[0].get('StyleName', '').upper()}")
-                        st.rerun() # Khởi động lại nhẹ để giao diện cập nhật bảng thông số ngay lập tức
-                    else:
-                        st.warning(f"⚠️ Không tìm thấy mã hàng nào chứa ký tự '{search_query.upper()}' trong kho dữ liệu.")
-                else:
-                    st.error(f"🚨 Lỗi kết nối API kho (Mã lỗi: {s_res.status_code}): {s_res.text}")
+                # Chiến lược 2: Nếu trống, thử tìm theo cột viết hoa 'StyleName'
+                if not res_data or (isinstance(res_data, list) and len(res_data) == 0):
+                    q_params_up = {
+                        "select": "style_name,StyleName,Buyer,buyer,Category,category,BaseSize,base_size,DetailedMeasurements,detailed_measurements,SketchURL,sketch_url,sketch_vector",
+                        "StyleName": f"ilike.*{search_val}*",
+                        "limit": 1
+                    }
+                    s_res = requests.get(url_search, headers=headers, params=q_params_up, timeout=10)
+                    res_data = s_res.json() if s_res.status_code == 200 else []
 
+                # Xử lý gán dữ liệu chuẩn cấu trúc Dictionary
+                if isinstance(res_data, list) and len(res_data) > 0:
+                    matched_obj = res_data[0]
+                    
+                    # Đồng bộ dữ liệu để các hàm sau đọc không bị lỗi KeyBlunder
+                    if "StyleName" not in matched_obj and "style_name" in matched_obj:
+                        matched_obj["StyleName"] = matched_obj["style_name"]
+                    if "DetailedMeasurements" not in matched_obj and "detailed_measurements" in matched_obj:
+                        matched_obj["DetailedMeasurements"] = matched_obj["detailed_measurements"]
+                    if "BaseSize" not in matched_obj and "base_size" in matched_obj:
+                        matched_obj["BaseSize"] = matched_obj["base_size"]
+                        
+                    st.session_state["matched_techpack"] = matched_obj
+                    st.toast(f"✅ Đã kết nối mã đối chứng: {str(matched_obj.get('StyleName')).upper()}")
+                    st.rerun()
+                else:
+                    st.warning(f"⚠️ Không tìm thấy mã hàng nào chứa ký tự '{search_val.upper()}' trong kho dữ liệu.")
 
     st.markdown("---")
 
@@ -1076,13 +1091,15 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
     else:
         st.info(f"📋 **CƠ SỞ ĐỐI SOÁT KIỂM TRA:** Đang áp dụng quy chuẩn kích thước hình học rập mẫu cơ sở: **SIZE 32 / M (Mặc định)**")
 
-    # Chỉ chạy đối soát tự động bằng AI nếu kỹ sư CHƯA chọn mã thủ công
+    # Chỉ quét đối soát kho bằng AI nếu KỸ SƯ CHƯA CHỌN MÃ THỦ CÔNG qua thanh công cụ tìm kiếm
     if st.session_state["matched_techpack"] is None:
         with st.spinner("🧠 Hệ thống thị giác máy tính đang quét kết cấu phom dáng Flat Sketch..."):
             try:
                 headers_db = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
                 url_db = f"{base_sb_url}/rest/v1/thong_so_techpack"
-                query_params = {"select": "StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL,sketch_vector", "limit": 100}
+                
+                # Gọi đồng thời cả chữ hoa và chữ thường để tránh lỗi cấu trúc bảng
+                query_params = {"select": "StyleName,style_name,Buyer,buyer,Category,category,BaseSize,base_size,DetailedMeasurements,detailed_measurements,SketchURL,sketch_url,sketch_vector", "limit": 100}
                 
                 db_res = requests.get(url_db, headers=headers_db, params=query_params, timeout=15)
                 all_historical_styles = db_res.json() if db_res.status_code == 200 else []
@@ -1090,9 +1107,10 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                 if all_historical_styles:
                     styles_pool_summary = []
                     for idx, s in enumerate(all_historical_styles):
+                        s_name = s.get("StyleName") or s.get("style_name", "N/A")
                         styles_pool_summary.append({
                             "pool_index": idx,
-                            "style_name": s.get("StyleName"),
+                            "style_name": s_name,
                             "sketch_features_vector": s.get("sketch_vector", "")
                         })
 
@@ -1109,9 +1127,16 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                         match_result = json.loads(match_json_obj.group(0).strip())
                         best_idx = match_result.get("selected_pool_index", -1)
                         if 0 <= best_idx < len(all_historical_styles):
-                            st.session_state["matched_techpack"] = all_historical_styles[best_idx]
+                            auto_obj = all_historical_styles[best_idx]
+                            # Bọc phòng vệ đồng bộ chữ hoa chữ thường cho cấu trúc tự động
+                            if "StyleName" not in auto_obj: auto_obj["StyleName"] = auto_obj.get("style_name")
+                            if "DetailedMeasurements" not in auto_obj: auto_obj["DetailedMeasurements"] = auto_obj.get("detailed_measurements", {})
+                            if "BaseSize" not in auto_obj: auto_obj["BaseSize"] = auto_obj.get("base_size")
+                            
+                            st.session_state["matched_techpack"] = auto_obj
             except Exception as match_err:
                 st.sidebar.error(f"Lỗi hệ thống đối soát hình ảnh: {str(match_err)}")
+
     # Tự động kết nối dữ liệu định mức gốc từ Supabase (BOM Records)
     if st.session_state.get("matched_techpack"):
         try:
