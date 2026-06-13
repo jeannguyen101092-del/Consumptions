@@ -1021,7 +1021,6 @@ new_style_measurements_dict = {}
 new_style_base_size = "32"
 target_new_sketch_bytes = None
 
-# Cấu hình kiểm thử hoặc cấu hình thực tế của bạn
 SB_URL = st.secrets.get("SUPABASE_URL", "https://supabase.co")
 SB_KEY = st.secrets.get("SUPABASE_KEY", "placeholder-key")
 menu_selection = "🧵 BOM & Consumption Matrix"
@@ -1081,7 +1080,7 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
 
     st.markdown("---")
     
-    # --- Ô TRA CỨU ĐỘC LẬP: CĂN CHUẨN LỀ 8 KHOẢNG TRẮNG ---
+    # --- LUỒNG 1: Ô TRA CỨU NHANH ĐỘC LẬP (KHÔNG CẦN TẢI FILE) ---
     st.markdown("<br><p style='font-weight:700; font-size:14px; color:#1E3A8A;'>🔍 TRA CỨU NHANH ĐỊNH MỨC VẬT TƯ TRONG KHO (TRA THỦ CÔNG)</p>", unsafe_allow_html=True)
     search_col1, search_col2 = st.columns([3.2, 0.8])
     with search_col1:
@@ -1090,7 +1089,6 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
         nut_tim_kiem = st.button("🚀 TRA KHO", key="exec_direct_search_btn", use_container_width=True, type="primary")
 
     if nut_tim_kiem and ma_so_tra_cuu:
-        # Thuật toán tự động lọc bỏ chữ cái tiếng Việt rác để giữ lại mã chính (Ví dụ: "tìm code SJ 8902" -> "SJ 8902")
         tu_khoa_clean = ma_so_tra_cuu.lower()
         for rac in ["tìm", "tim", "code", "mã", "ma", "vải", "vai", "hàng", "hang"]:
             tu_khoa_clean = tu_khoa_clean.replace(rac, "")
@@ -1102,26 +1100,37 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                 "select": "style_name,article_name,consumption_type,material_size,uom,consumption_value,notes",
                 "style_name": f"ilike.*{tu_khoa_clean}*"
             }
-                try:
-                    res_direct = requests.get(url_bom_direct, headers=headers, params=query_bom_direct, timeout=10)
-                    if res_direct.status_code == 200 and len(res_direct.json()) > 0:
-                        st.session_state["bom_records"] = res_direct.json()
-                        st.toast(f"🎉 Đã nạp thành công {len(st.session_state['bom_records'])} vật tư của mã '{tu_khoa_clean}' lên bảng đối chiếu!")
-                    else:
-                        st.warning(f"❌ Không tìm thấy nguyên phụ liệu nào khớp với từ khóa '{tu_khoa_clean}' trong database.")
-                except Exception as err_db:
-                    st.error(f"🚨 Lỗi kết nối database: {str(err_db)}")
+            try:
+                res_direct = requests.get(url_bom_direct, headers=headers, params=query_bom_direct, timeout=10)
+                if res_direct.status_code == 200 and len(res_direct.json()) > 0:
+                    st.session_state["bom_records"] = res_direct.json()
+                    st.toast(f"🎉 Đã nạp thành công {len(st.session_state['bom_records'])} vật tư của mã '{tu_khoa_clean}' lên bảng đối chiếu!")
+                else:
+                    st.warning(f"❌ Không tìm thấy nguyên phụ liệu nào khớp với từ khóa '{tu_khoa_clean}' trong database.")
+            except Exception as err_db:
+                st.error(f"🚨 Lỗi kết nối database: {str(err_db)}")
+                
     st.markdown("---")
 
-  
-
-
-
-
-
-
+    # LUỒNG CHẶN KHI CHƯA TẢI FILE PDF (CHỈ CHẶN LUỒNG AI ĐỐI SOÁT HÌNH ẢNH)
     if not has_file:
-        st.info("👋 Vui lòng tải lên tệp Techpack hồ sơ thiết kế (PDF) ở phía trên để hệ thống bắt đầu quét và lập lịch trình đối soát.")
+        st.info("👋 Vui lòng tải lên tệp Techpack hồ sơ thiết kế (PDF) ở phía trên để hệ thống bắt đầu quét và lập lịch trình đối soát hình ảnh vẽ rập.")
+        
+        # NẾU CÓ DỮ LIỆU TRA THỦ CÔNG THÌ VẪN IN BẢNG BOM RA MÀN HÌNH CHẤT LƯỢNG CAO
+        if st.session_state.get("bom_records"):
+            st.markdown("<br>📦 **KẾT QUẢ TRA CỨU ĐỊNH MỨC PHỤ LIỆU TRONG KHO VỪA TÌM ĐƯỢC:**", unsafe_allow_html=True)
+            formatted_bom_manual = []
+            for r in st.session_state["bom_records"]:
+                def clean_nan_m(v): return "" if (not v or str(v).lower() in ["nan", "none", "null"]) else str(v).strip()
+                formatted_bom_manual.append({
+                    "Mã hàng đối chứng": clean_nan_m(r.get("style_name")).upper(),
+                    "Loại nguyên vật liệu": clean_nan_m(r.get("consumption_type")),
+                    "Chi tiết vật tư (Article)": clean_nan_m(r.get("article_name")),
+                    "Khổ / Cỡ vật tư": clean_nan_m(r.get("material_size")),
+                    "Định mức gốc": clean_nan_m(r.get("consumption_value")),
+                    "UOM": clean_nan_m(r.get("uom"))
+                })
+            st.dataframe(pd.DataFrame(formatted_bom_manual), use_container_width=True, hide_index=True)
         st.stop()
 
     if new_style_base_size and new_style_base_size != "32":
@@ -1129,59 +1138,51 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
     else:
         st.info(f"📋 **CƠ SỞ ĐỐI SOÁT KIỂM TRA:** Đang áp dụng quy chuẩn kích thước hình học rập mẫu cơ sở: **SIZE 32 / M (Mặc định)**")
 
-    with st.spinner("🧠 Hệ thống thị giác máy tính đang quét kết cấu phom dáng Flat Sketch..."):
-        try:
-            url_db = f"{base_sb_url}/rest/v1/thong_so_techpack"
-            # Tăng giới hạn quét rộng lên 500 mã và lấy trường SketchURL chứa link ảnh vật lý trong kho
-            query_params = {"select": "StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL", "limit": 500}
-            
-            db_res = requests.get(url_db, headers=headers, params=query_params, timeout=15)
-            all_historical_styles = db_res.json() if db_res.status_code == 200 else []
-            
-            if all_historical_styles:
-                # Tạo danh sách pool chứa link ảnh trực tiếp để AI dùng mắt đối chiếu
-                styles_pool_summary = []
-                for idx, s in enumerate(all_historical_styles):
-                    styles_pool_summary.append({
-                        "pool_index": idx,
-                        "style_name": s.get("StyleName"),
-                        "image_url_to_look": s.get("SketchURL", "")
-                    })
+    # --- LUỒNG 2: THỊ GIÁC MÁY TÍNH QUÉT ĐỐI SOÁT ẢNH TRỰC TIẾP ---
+    if st.session_state["matched_techpack"] is None:
+        with st.spinner("🧠 Hệ thống thị giác máy tính đang soi cấu trúc hình ảnh thiết kế..."):
+            try:
+                url_db = f"{base_sb_url}/rest/v1/thong_so_techpack"
+                query_params = {"select": "StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL", "limit": 500}
                 
-                # Prompt ép AI phải dùng mắt phân tích đường nét hình vẽ ảnh rập
-                match_prompt = f"""
-                You are a Computer Vision Expert in Apparel Manufacturing. 
-                COMPARE the attached new sketch image with the historical images provided in the pool below.
+                db_res = requests.get(url_db, headers=headers, params=query_params, timeout=15)
+                all_historical_styles = db_res.json() if db_res.status_code == 200 else []
                 
-                VISUAL AUDIT RULES:
-                - Open and look closely at the internal lines, pocket stitch shapes, waistband styling, and flies.
-                - Ignore text names or style IDs. Focus 100% on the visual similarity of the flat sketches.
-                - Find the historical style that has the exact same garment construction details.
-                
-                HISTORICAL POOL WITH IMAGE LINKS:
-                {json.dumps(styles_pool_summary)}
-                
-                Return a raw valid JSON containing only the single matching index: {{"selected_pool_index": 0}}
-                """
-                
-                match_contents = [types.Part.from_text(text=match_prompt)]
-                if target_new_sketch_bytes:
-                    match_contents.append(types.Part.from_bytes(data=target_new_sketch_bytes, mime_type='image/jpeg'))
+                if all_historical_styles:
+                    styles_pool_summary = []
+                    for idx, s in enumerate(all_historical_styles):
+                        styles_pool_summary.append({
+                            "pool_index": idx,
+                            "style_name": s.get("StyleName"),
+                            "image_url_to_look": s.get("SketchURL", "")
+                        })
                     
-                # Gọi Gemini xử lý đa phương thức (Nhìn ảnh mới + Soi link ảnh cũ)
-                res_match = client.models.generate_content(
-                    model='gemini-2.5-flash', 
-                    contents=match_contents,
-                    config={"response_mime_type": "application/json"}
-                )
-                
-                if res_match and res_match.text:
-                    match_result = json.loads(res_match.text.strip())
-                    best_idx = match_result.get("selected_pool_index", -1)
-                    if 0 <= best_idx < len(all_historical_styles):
-                        st.session_state["matched_techpack"] = all_historical_styles[best_idx]
-                        st.toast("🎯 AI Vision đã quét hình ảnh và bắt cặp mã tương đồng thành công!")
-        except Exception as match_err:
+                    match_prompt = f"""
+                    You are a Computer Vision Expert in Apparel Manufacturing. 
+                    COMPARE the attached new sketch image with the historical images provided in the pool below.
+                    VISUAL AUDIT RULES:
+                    - Open and look closely at the internal lines, pocket stitch shapes, waistband styling, and flies.
+                    - Ignore text names or style IDs. Focus 100% on the visual similarity of the flat sketches.
+                    - Find the historical style that has the exact same garment construction details.
+                    HISTORICAL POOL WITH IMAGE LINKS:
+                    {json.dumps(styles_pool_summary)}
+                    Return a raw valid JSON containing only the single matching index: {{"selected_pool_index": 0}}
+                    """
+                    
+                    match_contents = [types.Part.from_text(text=match_prompt)]
+                    if target_new_sketch_bytes:
+                        match_contents.append(types.Part.from_bytes(data=target_new_sketch_bytes, mime_type='image/jpeg'))
+                        
+                    res_match = client.models.generate_content(model='gemini-2.5-flash', contents=match_contents)
+                    
+                    if res_match and res_match.text:
+                        match_result = json.loads(res_match.text.strip())
+                        best_idx = match_result.get("selected_pool_index", -1)
+                        if 0 <= best_idx < len(all_historical_styles):
+                            st.session_state["matched_techpack"] = all_historical_styles[best_idx]
+                            st.toast("🎯 AI Vision đã quét hình ảnh và bắt cặp mã tương đồng thành công!")
+            except Exception as match_err:
+
             st.sidebar.error(f"Lỗi hệ thống đối soát hình ảnh: {str(match_err)}")
 
     if st.session_state.get("matched_techpack"):
