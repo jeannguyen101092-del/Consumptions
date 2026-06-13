@@ -1081,7 +1081,6 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
 
     with st.spinner("🧠 Hệ thống thị giác máy tính đang quét kết cấu phom dáng Flat Sketch..."):
         try:
-                    try:
             url_db = f"{base_sb_url}/rest/v1/thong_so_techpack"
             # Tăng giới hạn quét rộng lên 500 mã và lấy trường SketchURL chứa link ảnh vật lý trong kho
             query_params = {"select": "StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL", "limit": 500}
