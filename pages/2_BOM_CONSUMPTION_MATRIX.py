@@ -1057,6 +1057,7 @@ if has_file:
 dynamic_keyword = str(new_style_id_detected).strip().upper()
 base_sb_url = SB_URL.rstrip('/')
 headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
+
 if menu_selection == "🧵 BOM & Consumption Matrix":
     st.markdown('<div class="component-title-box">🧵 INTELLIGENT BOM & CONSUMPTION MATRIX ENGINE</div>', unsafe_allow_html=True)
     
@@ -1079,129 +1080,91 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
             st.rerun()
 
     st.markdown("---")
-    # --- Ô TRA CỨU ĐỘC LẬP: CHỈ HIỂN THỊ KHI CHỌN ĐÚNG MENU BOM & CONSUMPTION MATRIX ---
-    st.markdown("<br><p style='font-weight:700; font-size:14px; color:#1E3A8A;'>🔍 TRA CỨU NHANH ĐỊNH MỨC VẬT TƯ TRONG KHO (TRA THỦ CÔNG)</p>", unsafe_allow_html=True)
-    search_col1, search_col2 = st.columns([3.2, 0.8])
-    with search_col1:
-        ma_so_tra_cuu = st.text_input("Nhập mã hàng hoặc mã vải cần tìm (Ví dụ: 1735, 490416...)", key="direct_style_search_input", label_visibility="collapsed")
-    with search_col2:
-        nut_tim_kiem = st.button("🚀 TRA KHO", key="exec_direct_search_btn", use_container_width=True, type="primary")
-
-    if nut_tim_kiem and ma_so_tra_cuu:
-        tu_khoa_clean = ma_so_tra_cuu.lower()
-        for rac in ["tìm", "tim", "code", "mã", "ma", "vải", "vai", "hàng", "hang"]:
-            tu_khoa_clean = tu_khoa_clean.replace(rac, "")
-        tu_khoa_clean = tu_khoa_clean.strip()
+    
+    # --- Ô TRA CỨU ĐỘC LẬP CHỮ VÀ SỐ: CHỈ XUẤT HIỆN TẠI TAB BOM, ĐẤU NỐI THUẬT TOÁN GỐC ---
+    st.markdown("<p style='font-weight:700; font-size:13px; color:#1E3A8A; margin-bottom:4px;'>🔍 TÌM KIẾM MÃ VẢI / MÃ HÀNG THỦ CÔNG (KHÔNG QUA AI)</p>", unsafe_allow_html=True)
+    tra_tay_col1, tra_tay_col2 = st.columns([3.2, 0.8])
+    with tra_tay_col1:
+        st.text_input("Nhập mã hàng hoặc mã vải (Ví dụ: SJ-8902, 1735...)", key="direct_style_search_input", label_visibility="collapsed")
+    with tra_tay_col2:
+        if st.button("🚀 TÌM KIẾM", key="exec_direct_search_btn", use_container_width=True, type="primary"):
+            st.rerun()
             
-        with st.spinner(f"🔍 Hệ thống đang dùng thuật toán siêu lọc đa cổng tìm mã '{tu_khoa_clean.upper()}'..."):
-            tu_khoa_manh = [m.strip() for m in re.split(r'[\s\-_]+', tu_khoa_clean) if m.strip()]
-            url_bom_direct = f"{base_sb_url}/rest/v1/san_pham"
-            
-            if len(tu_khoa_manh) >= 2:
-                and_article = ",".join([f"article_name.ilike.*{m}*" for m in tu_khoa_manh])
-                and_style = ",".join([f"style_name.ilike.*{m}*" for m in tu_khoa_manh])
-                query_bom_direct = {
-                    "select": "style_name,article_name,consumption_type,material_size,uom,consumption_value,notes",
-                    "or": f"(and({and_article}),and({and_style}))"
-                }
-            else:
-                ma_goc = tu_khoa_manh[0].upper() if tu_khoa_manh else tu_khoa_clean.upper()
-                query_bom_direct = {
-                    "select": "style_name,article_name,consumption_type,material_size,uom,consumption_value,notes",
-                    "or": f"(style_name.ilike.*{ma_goc}*,article_name.ilike.*{ma_goc}*)"
-                }
-                
-            try:
-                res_direct = requests.get(url_bom_direct, headers=headers, params=query_bom_direct, timeout=10)
-                if res_direct.status_code == 200 and len(res_direct.json()) > 0:
-                    st.session_state["bom_records"] = res_direct.json()
-                    st.toast(f"🎉 Thành công! Đã quét trúng {len(st.session_state['bom_records'])} vật tư thỏa mãn điều kiện!")
-                else:
-                    chu_so_fallback = "".join(filter(str.isdigit, tu_khoa_clean))
-                    if chu_so_fallback:
-                        query_fallback = {
-                            "select": "style_name,article_name,consumption_type,material_size,uom,consumption_value,notes",
-                            "or": f"(style_name.ilike.*{chu_so_fallback}*,article_name.ilike.*{chu_so_fallback}*)"
-                        }
-                        res_fb = requests.get(url_bom_direct, headers=headers, params=query_fallback, timeout=10)
-                        if res_fb.status_code == 200 and len(res_fb.json()) > 0:
-                            st.session_state["bom_records"] = res_fb.json()
-                            st.toast(f"🎉 Đã quét vét kho tìm thấy các dòng chứa số '{chu_so_fallback}'!")
-                            st.rerun()
-                    st.warning(f"❌ Không tìm thấy dòng nào chứa tổ hợp ký tự '{tu_khoa_clean.upper()}' trong database.")
-            except Exception as err_db:
-                st.error(f"🚨 Lỗi kết nối database: {str(err_db)}")
-
     st.markdown("---")
 
-
- 
-
-
-
-                
-    st.markdown("---")
-    if not has_file:
-        st.info("👋 Vui lòng tải lên tệp Techpack hồ sơ thiết kế (PDF) ở phía trên để hệ thống bắt đầu quét và lập lịch trình đối soát.")
+    # Kiểm tra luồng hoạt động: Nếu chưa có file và cũng chưa gõ tìm tay thì dừng màn hình
+    if not has_file and not st.session_state.get("direct_style_search_input"):
+        st.info("👋 Vui lòng tải lên tệp Techpack hồ sơ thiết kế (PDF) hoặc nhập mã tra cứu thủ công ở phía trên để hệ thống bắt đầu quét.")
         st.stop()
 
     if new_style_base_size and new_style_base_size != "32":
         st.info(f"📋 **CƠ SỞ ĐỐI SOÁT KIỂM TRA:** Mẫu mới số hóa mã hàng `{new_style_id_detected}` | Quy chuẩn kích thước hình học rập mẫu: **SIZE {new_style_base_size}**")
-    else:
+    elif has_file:
         st.info(f"📋 **CƠ SỞ ĐỐI SOÁT KIỂM TRA:** Đang áp dụng quy chuẩn kích thước hình học rập mẫu cơ sở: **SIZE 32 / M (Mặc định)**")
-
-    if st.session_state["matched_techpack"] is None:
-        with st.spinner("🧠 Hệ thống thị giác máy tính đang soi cấu trúc hình ảnh thiết kế..."):
+    # LUỒNG TỰ ĐỘNG ĐỐI SOÁT HÌNH ẢNH CỦA AI VISION (CHỈ CHẠY KHI CÓ FILE PDF)
+    if has_file and st.session_state["matched_techpack"] is None:
+        with st.spinner("🧠 Hệ thống thị giác máy tính đang quét kết cấu phom dáng Flat Sketch..."):
             try:
                 url_db = f"{base_sb_url}/rest/v1/thong_so_techpack"
-                query_params = {"select": "StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL", "limit": 500}
+                query_params = {"select": "StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL,sketch_vector", "limit": 100}
                 db_res = requests.get(url_db, headers=headers, params=query_params, timeout=15)
                 all_historical_styles = db_res.json() if db_res.status_code == 200 else []
                 
                 if all_historical_styles:
-                    styles_pool_summary = []
-                    for idx, s in enumerate(all_historical_styles):
-                        styles_pool_summary.append({
-                            "pool_index": idx,
-                            "style_name": s.get("StyleName"),
-                            "image_url_to_look": s.get("SketchURL", "")
-                        })
-                    
-                    match_prompt = f"COMPARE scripts. Return valid JSON {{\"selected_pool_index\": 0}}. POOL: {json.dumps(styles_pool_summary)}"
+                    styles_pool_summary = [{"pool_index": idx, "style_name": s.get("StyleName"), "sketch_features_vector": s.get("sketch_vector", "")} for idx, s in enumerate(all_historical_styles)]
+                    match_prompt = f"Analyze new sketch image and find the closest match. Return JSON: {{\"selected_pool_index\": 0}}. POOL: {json.dumps(styles_pool_summary)}"
                     match_contents = [types.Part.from_text(text=match_prompt)]
                     if target_new_sketch_bytes:
                         match_contents.append(types.Part.from_bytes(data=target_new_sketch_bytes, mime_type='image/jpeg'))
                         
-                    res_match = client.models.generate_content(model='gemini-2.5-flash', contents=match_contents, config={"response_mime_type": "application/json"})
-                    if res_match and res_match.text:
-                        match_result = json.loads(res_match.text.strip())
+                    res_match = client.models.generate_content(model='gemini-2.5-flash', contents=match_contents)
+                    match_json_obj = re.search(r'\{\s*"selected_pool_index"\s*:\s*\d+\s*\}', res_match.text.strip())
+                    if match_json_obj:
+                        match_result = json.loads(match_json_obj.group(0).strip())
                         best_idx = match_result.get("selected_pool_index", -1)
                         if 0 <= best_idx < len(all_historical_styles):
                             st.session_state["matched_techpack"] = all_historical_styles[best_idx]
-                            st.toast("🎯 AI Vision đã bắt cặp mã tương đồng bằng hình ảnh thành công!")
             except Exception as match_err:
                 st.sidebar.error(f"Lỗi hệ thống đối soát hình ảnh: {str(match_err)}")
-    if st.session_state.get("matched_techpack") and not st.session_state.get("bom_records"):
+
+    # THUẬT TOÁN BỐC TÁCH BOM GỐC - HOÀN TOÀN DỰA TRÊN 100% CÔNG THỨC CORE_DIGITS GỐC CỦA ANH
+    if st.session_state.get("matched_techpack") or st.session_state.get("direct_style_search_input"):
         try:
-            target_style_name_bom = str(st.session_state["matched_techpack"].get("StyleName", "")).strip()
+            # Ưu tiên lấy tên mã từ file đối soát, nếu trống file thì lấy thẳng từ ô nhập chữ của anh
+            target_style_name_bom = ""
+            if st.session_state.get("matched_techpack"):
+                target_style_name_bom = str(st.session_state["matched_techpack"].get("StyleName", "")).strip()
+            else:
+                target_style_name_bom = str(st.session_state.get("direct_style_search_input", "")).strip()
+
             url_bom = f"{base_sb_url}/rest/v1/san_pham"
-            query_bom = {"select": "style_name,article_name,consumption_type,material_size,uom,consumption_value,notes", "style_name": f"eq.{target_style_name_bom}"}
+            query_bom = {
+                "select": "style_name,article_name,consumption_type,material_size,uom,consumption_value,notes",
+                "style_name": f"eq.{target_style_name_bom}"
+            }
             res_bom = requests.get(url_bom, headers=headers, params=query_bom, timeout=15)
             
             if res_bom.status_code == 200 and len(res_bom.json()) > 0:
                 st.session_state["bom_records"] = res_bom.json()
             else:
+                # GIỮ NGUYÊN 100% THUẬT TOÁN RE.FINDALL SỐ DÀI NHẤT TRONG CODE GỐC CỦA ANH
                 core_digits = re.findall(r'\d+', target_style_name_bom)
                 search_digits = max(core_digits, key=len) if core_digits else target_style_name_bom
-                query_bom_fb = {"select": "style_name,article_name,consumption_type,material_size,uom,consumption_value,notes", "style_name": f"ilike.*{search_digits}*"}
+                
+                query_bom_fb = {
+                    "select": "style_name,article_name,consumption_type,material_size,uom,consumption_value,notes",
+                    # NÂNG CẤP CỔNG OR: Để số 8902 của anh quét dính cả cột tên vải (article_name) lưu trong kho
+                    "or": f"(style_name.ilike.*{search_digits}*,article_name.ilike.*{search_digits}*)"
+                }
                 res_bom_fb = requests.get(url_bom, headers=headers, params=query_bom_fb, timeout=15)
                 if res_bom_fb.status_code == 200:
-                    st.session_state["bom_records"] = [r for r in res_bom_fb.json() if search_digits in str(r.get("style_name", ""))]
+                    raw_list = res_bom_fb.json()
+                    st.session_state["bom_records"] = [r for r in raw_list if search_digits in str(r.get("style_name", "")) or search_digits in str(r.get("article_name", ""))]
+                else:
+                    st.session_state["bom_records"] = []
         except Exception:
             st.session_state["bom_records"] = []
-    # ==================================================================================
-    # PHẦN CÒN LẠI: HIỂN THỊ GIAO DIỆN ĐỒ HỌA SONG SONG VÀ KHUNG CHATBOX TRỢ LÝ AI
-    # ==================================================================================
+
     matched_techpack = st.session_state.get("matched_techpack")
     bom_records = st.session_state.get("bom_records", [])
 
@@ -1248,8 +1211,9 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                         st.info("⚠️ Không có ảnh vật lý nào khớp trên Cloud Storage.")
                 else:
                     st.info("⚠️ Không có ảnh vật lý nào khớp trên Cloud Storage.")
-        else:
+        elif has_file:
             st.warning("⚠️ KHÔNG TÌM THẤY MÃ TƯƠNG ĐỒNG TRONG KHO! Tự động kích hoạt cơ chế tính toán độc lập bằng Vector Hình Học Ngành May.")
+
 
     st.markdown("<br>### 📐 SO SÁNH HAI BẢNG THÔNG SỐ KỸ THUẬT RẬP MẪU", unsafe_allow_html=True)
     spec_col1, spec_col2 = st.columns(2)
