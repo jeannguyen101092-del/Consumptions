@@ -1248,7 +1248,144 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
         st.dataframe(pd.DataFrame(formatted_bom), use_container_width=True, hide_index=True)
 
     st.markdown("<br><hr style='border:0.5px solid #CBD5E1;'>", unsafe_allow_html=True)
-    
+# ==========================================================================
+# 🔍 SEARCH CENTER - TRA CỨU KHO VẢI / BOM / STYLE
+# ==========================================================================
+
+st.markdown("### 🔍 TRA CỨU KHO DỮ LIỆU")
+
+search_col1, search_col2 = st.columns([4,1])
+
+with search_col1:
+    search_keyword = st.text_input(
+        "Nhập mã vải, article, style, buyer...",
+        key="warehouse_search_box",
+        placeholder="Ví dụ: 7L001073, Cotton, Denim, A12345..."
+    )
+
+with search_col2:
+    search_btn = st.button(
+        "🔎 TÌM",
+        use_container_width=True,
+        key="warehouse_search_btn"
+    )
+
+if search_btn and search_keyword.strip():
+
+    try:
+
+        headers_db = {
+            "apikey": SB_KEY,
+            "Authorization": f"Bearer {SB_KEY}"
+        }
+
+        keyword = search_keyword.strip()
+
+        st.markdown("#### 📦 KẾT QUẢ TRA CỨU")
+
+        # =====================================================
+        # TÌM TRONG BOM
+        # =====================================================
+
+        url_bom = f"{base_sb_url}/rest/v1/san_pham"
+
+        bom_params = {
+            "select": "*",
+            "or": (
+                f"(article_name.ilike.*{keyword}*,"
+                f"style_name.ilike.*{keyword}*,"
+                f"consumption_type.ilike.*{keyword}*)"
+            ),
+            "limit": 100
+        }
+
+        bom_res = requests.get(
+            url_bom,
+            headers=headers_db,
+            params=bom_params,
+            timeout=20
+        )
+
+        bom_data = (
+            bom_res.json()
+            if bom_res.status_code == 200
+            else []
+        )
+
+        # =====================================================
+        # TÌM TRONG TECHPACK
+        # =====================================================
+
+        url_tp = f"{base_sb_url}/rest/v1/thong_so_techpack"
+
+        tp_params = {
+            "select": "*",
+            "or": (
+                f"(StyleName.ilike.*{keyword}*,"
+                f"Buyer.ilike.*{keyword}*,"
+                f"Category.ilike.*{keyword}*)"
+            ),
+            "limit": 100
+        }
+
+        tp_res = requests.get(
+            url_tp,
+            headers=headers_db,
+            params=tp_params,
+            timeout=20
+        )
+
+        tp_data = (
+            tp_res.json()
+            if tp_res.status_code == 200
+            else []
+        )
+
+        total_found = len(bom_data) + len(tp_data)
+
+        if total_found == 0:
+
+            st.warning(
+                f"⚠️ Không tìm thấy dữ liệu cho từ khóa: {keyword}"
+            )
+
+        else:
+
+            st.success(
+                f"✅ Tìm thấy {total_found} kết quả"
+            )
+
+            if bom_data:
+
+                st.markdown("#### 🧵 BOM / VẬT TƯ")
+
+                df_bom = pd.DataFrame(bom_data)
+
+                st.dataframe(
+                    df_bom,
+                    use_container_width=True,
+                    hide_index=True
+                )
+
+            if tp_data:
+
+                st.markdown("#### 📋 TECHPACK")
+
+                df_tp = pd.DataFrame(tp_data)
+
+                st.dataframe(
+                    df_tp,
+                    use_container_width=True,
+                    hide_index=True
+                )
+
+    except Exception as search_err:
+
+        st.error(
+            f"🚨 Lỗi tra cứu kho dữ liệu: {str(search_err)}"
+        )
+
+st.markdown("---")    
 # THIẾT KẾ CỤM ĐIỀU KHIỂN CHAT BOX THÔNG MINH SIÊU TỐC
 chat_header_col1, chat_header_col2 = st.columns([3.2, 0.8])
 with chat_header_col1:
