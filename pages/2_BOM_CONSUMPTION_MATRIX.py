@@ -1148,6 +1148,9 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
 
     st.markdown("<br><hr style='border:0.5px solid #CBD5E1;'>", unsafe_allow_html=True)
     
+       # --------------------------------------------------------------------------
+    # 💬 ĐOẠN 1: ĐƯA KHỐI CHAT LÊN ĐẦU ĐỂ LUÔN HIỂN THỊ KỂ CẢ KHI CHƯA UP FILE
+    # --------------------------------------------------------------------------
     chat_header_col1, chat_header_col2 = st.columns([3.2, 0.8])
     with chat_header_col1:
         st.markdown("### 💬 TRỢ LÝ AI PHÂN TÍCH ĐỊNH MỨC SẢN XUẤT (HỎI ĐÂU ĐÁP ĐÓ)")
@@ -1159,12 +1162,15 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
     chat_container = st.container()
     with chat_container:
         for chat in st.session_state.get("consumption_chat_history", []):
-            with st.chat_message("user"): st.write(chat["user"])
-            with st.chat_message("assistant"): st.write(chat["ai"])
+            with st.chat_message("user"): 
+                st.write(chat["user"])
+            with st.chat_message("assistant"): 
+                st.write(chat["ai"])
                 
-    if user_query := st.chat_input("Nhập yêu cầu phân tích (Ví dụ: Tính định mức vải chính khi co rút ngang 5%, dọc 3%)..."):
+    if user_query := st.chat_input("Nhập yêu cầu phân tích (Ví dụ: Tìm mã hàng, hoặc tính định mức vải chính)..."):
         with chat_container:
-            with st.chat_message("user"): st.write(user_query)
+            with st.chat_message("user"): 
+                st.write(user_query)
             with st.chat_message("assistant"):
                 with st.spinner("🤖 AI đang phân tích dữ liệu và tính toán định mức..."):
                     clean_bom_records = []
@@ -1183,9 +1189,80 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                     st.write(ai_reply)
         
         st.components.v1.html(
-            "<script>var doc = window.parent.document; var sections = doc.querySelectorAll('section.main'); if (sections.length > 0) { sections[0].scrollTo({top: sections[0].scrollHeight, behavior: 'smooth'}); }</script>",
+            "<script>var doc = window.parent.document; var sections = doc.querySelectorAll('section.main'); if (sections.length > 0) { sections.scrollTo({top: sections.scrollHeight, behavior: 'smooth'}); }</script>",
             height=0,
         )
+
+    st.markdown("<br><hr style='border:0.5px solid #CBD5E1;'>", unsafe_allow_html=True)
+
+    # --------------------------------------------------------------------------
+    # 📁 ĐOẠN 2: KHỐI CHẶN FILE VÀ HIỂN THỊ CÁC BẢNG ĐỐI CHIẾU SAU KHI ĐÃ CÓ FILE
+    # --------------------------------------------------------------------------
+    if not has_file:
+        st.info("👋 Vui lòng tải lên tệp Techpack hồ sơ thiết kế (PDF) ở phía trên để hệ thống bắt đầu quét và lập lịch trình đối soát.")
+        st.stop()  # Lúc này st.stop() chỉ chặn các bảng số liệu ở dưới, thanh chat ở trên vẫn chạy bình thường
+
+    # 🔒 KHÓA CỨNG ĐÁNH CHẶN KHÔNG CHO AI VISION ĐOÁN MÒ ĐÈ SAI MÃ CHUẨN
+    is_exact_match_found = False
+    if st.session_state.get("matched_techpack") is not None:
+        c_code = str(st.session_state["matched_techpack"].get("StyleCode", st.session_state["matched_techpack"].get("StyleName", ""))).strip().upper()
+        if c_code == dynamic_keyword and dynamic_keyword != "UNKNOWN_STYLE":
+            is_exact_match_found = True
+
+    if is_exact_match_found:
+        st.success(f"🔒 HỆ THỐNG ĐÃ KHÓA CHẶT MÃ ĐỐI CHỨNG CHÍNH XÁC THEO MÃ KHO: **{dynamic_keyword}**.")
+    else:
+        st.warning("⚠️ CHƯA CÓ DỮ LIỆU ĐỐI CHỨNG TRÙNG KHỚP TUYỆT ĐỐI.")
+
+    st.markdown("### 🖼️ ĐỐI CHIẾU SỰ TƯƠNG ĐỒNG HÌNH ẢNH THIẾT KẾ (FLAT SKETCH)")
+    img_col1, img_col2 = st.columns(2)
+    with img_col1:
+        if target_new_sketch_bytes is not None:
+            st.image(target_new_sketch_bytes, caption=f"Mẫu mới tải lên ({new_style_id_detected})", use_container_width=True)
+
+    with img_col2:
+        matched_techpack = st.session_state.get("matched_techpack")
+        bom_records = st.session_state.get("bom_records", [])
+        if matched_techpack:
+            target_style_name = str(matched_techpack.get("StyleCode", matched_techpack.get("StyleName", "Mẫu tương đồng"))).strip().upper()
+            st.markdown(f"<p style='color: #1E3A8A; font-size: 13px; font-weight: 700; margin-bottom: 8px; text-align: center;'>🎯 Mã tương đồng trong kho: {target_style_name}</p>", unsafe_allow_html=True)
+
+    st.markdown("<br>### 📐 SO SÁNH HAI BẢNG THÔNG SỐ KỸ THUẬT RẬP MẪU", unsafe_allow_html=True)
+    spec_col1, spec_col2 = st.columns(2)
+    with spec_col1:
+        st.markdown(f"📊 **Bảng 1: Thông số Mẫu mới nạp ({new_style_base_size})**")
+        df_new_spec = pd.DataFrame(list(new_style_measurements_dict.items()), columns=["Vị trí đo (POM Description)", "Thông số mới"]) if new_style_measurements_dict else pd.DataFrame(columns=["Vị trí đo (POM Description)", "Thông số mới"])
+        st.dataframe(df_new_spec, use_container_width=True, hide_index=True)
+        
+    with spec_col2:
+        if matched_techpack:
+            old_style_title = str(matched_techpack.get("StyleCode", matched_techpack.get("StyleName", "N/A"))).upper()
+            old_size_title = matched_techpack.get("BaseSize", "N/A")
+            st.markdown(f"📋 **Bảng 2: Thông số Mã trong kho ({old_style_title}) [SIZE {old_size_title}]**")
+            old_specs = matched_techpack.get("DetailedMeasurements", {})
+            df_old_spec = pd.DataFrame(list(old_specs.items()), columns=["Vị trí đo (POM Description)", "Thông số cũ"]) if old_specs else pd.DataFrame(columns=["Vị trí đo (POM Description)", "Thông số cũ"])
+            st.dataframe(df_old_spec, use_container_width=True, hide_index=True)
+        else:
+            st.markdown("📋 **Bảng 2: Thông số Mã tương đồng trong kho**")
+            st.info("💡 Trạng thái: Trống dữ liệu kho. Hệ thống sẵn sàng tính toán diện tích rập mô phỏng tự động.")
+
+    if matched_techpack and bom_records:
+        st.markdown("<br>📦 **Chi Tiết Định Mức Định Hình (BOM Lịch Sử của Mã hàng cũ):**", unsafe_allow_html=True)
+        formatted_bom = []
+        fallback_style_code = str(matched_techpack.get("StyleCode", matched_techpack.get("StyleName", ""))).strip().upper()
+        for r in bom_records:
+            def clean_nan(v): return "" if (not v or str(v).lower() in ["nan", "none", "null"]) else str(v).strip()
+            row_style = clean_nan(r.get("style_code", r.get("style_name"))).upper()
+            if not row_style or row_style == "NAN": row_style = fallback_style_code
+            formatted_bom.append({
+                "Mã hàng đối chứng": row_style,
+                "Loại nguyên vật liệu": clean_nan(r.get("consumption_type")),
+                "Chi tiết vật tư (Article)": clean_nan(r.get("article_name")),
+                "Khổ / Cỡ vật tư": clean_nan(r.get("material_size")),
+                "Định mức gốc": clean_nan(r.get("consumption_value")),
+                "UOM": clean_nan(r.get("uom"))
+            })
+        st.dataframe(pd.DataFrame(formatted_bom), use_container_width=True, hide_index=True)
 
 
 
