@@ -1141,53 +1141,112 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
 
 
     
-        # ==========================================================================
-    # KHỐI 5 - ĐOẠN 5.2: ĐỒNG BỘ ĐỘC LẬP LUỒNG SỐ LIỆU ĐỐI SOÁT SAU KHI UPLOAD
+          # ==========================================================================
+    # KHỐI 5 - ĐOẠN 5.2: AI-DRIVEN VISUAL SIMILARITY ENGINE (ĐỐI SOÁT HÌNH ẢNH THẬT)
     # ==========================================================================
     if not has_file:
         st.info("👋 Vui lòng tải lên tệp Techpack hồ sơ thiết kế (PDF) ở phía trên để hệ thống bắt đầu quét và lập lịch trình đối soát.")
         st.stop()
 
-    # TỰ ĐỘNG CẬP NHẬT TRUY VẤN THEO ĐÚNG MÃ ĐANG TẢI LÊN (Ví dụ: 526R03-496094)
-    if dynamic_keyword != "UNKNOWN_STYLE":
+    # Khởi tạo trạng thái bộ nhớ đệm nếu chưa tồn tại
+    if "matched_techpack" not in st.session_state: st.session_state["matched_techpack"] = None
+    if "bom_records" not in st.session_state: st.session_state["bom_records"] = []
+
+    # KÍCH HOẠT THỊ GIÁC MÁY TÍNH KHI ĐÃ CÓ ẢNH SKETCH MỚI TỪ PDF TẢI LÊN
+    if target_new_sketch_bytes is not None and st.session_state["matched_techpack"] is None:
         try:
-            url_db = f"{base_sb_url}/rest/v1/thong_so_techpack"
-            query_params_eq = {"select": "*", "StyleName": f"eq.{dynamic_keyword}"}
-            db_res_eq = requests.get(url_db, headers=headers, params=query_params_eq, timeout=15)
+            # 🧩 BƯỚC 1: Gọi API danh mục để lấy danh sách tất cả các file ảnh đang có trong bucket 'kho_anh'
+            url_list_storage = f"{base_sb_url}/storage/v1/bucket/kho_anh/list"
+            storage_headers = {
+                "apikey": SB_KEY,
+                "Authorization": f"Bearer {SB_KEY}",
+                "Content-Type": "application/json"
+            }
+            # Lấy tối đa 100 ảnh mẫu lịch sử để đưa vào bể đối soát (Pool) của AI
+            payload_list = {"limit": 100, "offset": 0, "sortBy": {"column": "name", "order": "asc"}}
+            res_storage = requests.post(url_list_storage, headers=storage_headers, json=payload_list, timeout=15)
             
-            if db_res_eq.status_code == 200 and len(db_res_eq.json()) > 0:
-                st.session_state["matched_techpack"] = db_res_eq.json()[0]
-            else:
-                core_digits = re.findall(r'\d+', dynamic_keyword)
-                search_digits = max(core_digits, key=len) if core_digits else dynamic_keyword
-                query_params_fb = {"select": "*", "StyleName": f"ilike.*{search_digits}*"}
-                db_res_fb = requests.get(url_db, headers=headers, params=query_params_fb, timeout=15)
-                if db_res_fb.status_code == 200 and len(db_res_fb.json()) > 0:
-                    st.session_state["matched_techpack"] = db_res_fb.json()[0]
+            available_images = []
+            if res_storage.status_code == 200:
+                # Trích xuất danh sách tên file thực tế (Ví dụ: ["1H001327.jpg", "526R03-496094.jpg"])
+                available_images = [item["name"] for item in res_storage.json() if "name" in item]
 
-            matched_techpack = st.session_state["matched_techpack"]
-            if matched_techpack:
-                verified_style_bom = str(matched_techpack.get("StyleName", "")).strip()
-                url_bom = f"{base_sb_url}/rest/v1/san_pham"
-                query_bom = {"select": "*", "style_name": f"eq.{verified_style_bom}"}
-                res_bom = requests.get(url_bom, headers=headers, params=query_bom, timeout=15)
-                if res_bom.status_code == 200:
-                    st.session_state["bom_records"] = res_bom.json()
-        except Exception:
-            pass
+            # Nếu kho ảnh trên Cloud Storage có dữ liệu thực tế
+            if available_images:
+                with st.spinner("🧠 Thị giác máy tính AI đang đối soát kết cấu đường may Flat Sketch với kho mẫu lịch sử..."):
+                    # 🧩 BƯỚC 2: Tạo Prompt lập luận hình học cho Gemini Vision đóng vai tròCosting Auditor
+                    vision_match_prompt = f"""
+                    You are an expert Garment Structure Vision Auditor at PPJ Group.
+                    Analyze the ATTACHED NEW FLAT SKETCH IMAGE and compare its internal technical stitching construction with this pool of historical styles:
+                    
+                    HISTORICAL STYLES IMAGES POOL:
+                    {json.dumps(available_images)}
+                    
+                    STRICT APPAREL STITCHING RULES:
+                    1. Focus on structure: Compare waistbands (elastic fold vs belt loops), pockets (Cargo patch pockets vs side slit pockets), and plackets.
+                    2. Select the single best candidate from the pool that matches the design silhouette and assembly logic even if the style code string is different.
+                    
+                    Return a completely valid raw JSON string matching this exact schema (no markdown blocks, no text):
+                    {{"selected_image_filename": "string"}}
+                    """
+                    
+                    # Đóng gói dữ liệu ảnh mới nạp bóc từ PDF gửi sang Gemini Flash
+                    vision_payload = [
+                        types.Part.from_text(text=vision_match_prompt),
+                        types.Part.from_bytes(data=target_new_sketch_bytes, mime_type='image/jpeg')
+                    ]
+                    
+                    res_vision = client.models.generate_content(model='gemini-2.5-flash', contents=vision_payload)
+                    ai_raw_vision_text = res_vision.text.strip()
+                    
+                    # Làm sạch chuỗi JSON phản hồi từ AI
+                    clean_json_match = re.search(r'\{\s*"selected_image_filename"\s*:\s*".*?"\s*\}', ai_raw_vision_text)
+                    if clean_json_match:
+                        match_obj = json.loads(clean_json_match.group(0))
+                        best_image_file = match_obj.get("selected_image_filename", "")
+                        
+                        # Cắt bỏ đuôi file (ví dụ "526R03-496094.jpg" tách lấy "526R03-496094") để làm mã truy vấn chính thức
+                        best_style_code = best_image_file.split(".")[0].strip() if "." in best_image_file else best_image_file
+                        
+                        if best_style_code:
+                            # 🧩 BƯỚC 3: Bốc chính xác thông số kỹ thuật của mã tương đồng vừa được AI xác thực bằng ảnh
+                            url_tp = f"{base_sb_url}/rest/v1/thong_so_techpack"
+                            query_params_tp = {"select": "*", "StyleName": f"eq.{best_style_code}"}
+                            db_res_tp = requests.get(url_tp, headers=headers, params=query_params_tp, timeout=15)
+                            
+                            if db_res_tp.status_code == 200 and len(db_res_tp.json()) > 0:
+                                st.session_state["matched_techpack"] = db_res_tp.json()[0]
+                                
+                            # 🧩 BƯỚC 4: Bốc trọn vẹn bảng kịch bản vật tư BOM đi kèm mã tương đồng đó (Chống lỗi 1H)
+                            url_bom = f"{base_sb_url}/rest/v1/san_pham"
+                            query_bom = {"select": "*", "style_name": f"eq.{best_style_code}"}
+                            res_bom = requests.get(url_bom, headers=headers, params=query_bom, timeout=15)
+                            if res_bom.status_code == 200:
+                                st.session_state["bom_records"] = res_bom.json()
+        except Exception as e:
+            st.error(f"🚨 Lỗi hệ thống định vị thị giác hình ảnh: {str(e)}")
 
+    # Gán lại dữ liệu đã qua đối soát hình ảnh thực thụ cho luồng hiển thị giao diện
     matched_techpack = st.session_state.get("matched_techpack")
     bom_records = st.session_state.get("bom_records", [])
 
     if matched_techpack:
-        st.success(f"🔒 HỆ THỐNG ĐÃ KHÓA CHẶT MÃ ĐỐI CHỨNG CHÍNH XÁC: **{matched_techpack.get('StyleName')}**")
+        st.success(f"🔒 AI THỊ GIÁC ĐÃ KHÓA CHẶT MÃ ĐỐI CHỨNG THEO PHOM DÁNG ẢNH TƯƠNG ĐỒNG: **{matched_techpack.get('StyleName')}**")
     else:
-        st.warning("⚠️ CHƯA CÓ DỮ LIỆU ĐỐI CHỨNG TRÙNG KHỚP TUYỆT ĐỐI.")
+        st.warning("⚠️ KHÔNG TÌM THẤY MÃ TƯƠNG ĐỒNG PHOM DÁNG TRONG KHO! Hệ thống sẵn sàng kích hoạt tính toán độc lập bằng Vector Hình Học.")
 
     st.markdown("### 🖼️ ĐỐI CHIẾU SỰ TƯƠNG ĐỒNG HÌNH ẢNH THIẾT KẾ (FLAT SKETCH)")
     img_col1, img_col2 = st.columns(2)
     with img_col1:
-        if target_new_sketch_bytes is not None: st.image(target_new_sketch_bytes, caption=f"Mẫu mới tải lên", use_container_width=True)
+        if target_new_sketch_bytes is not None: 
+            st.image(target_new_sketch_bytes, caption=f"Mẫu thiết kế rập mới nạp ({new_style_id_detected})", use_container_width=True)
+
+    with img_col2:
+        if matched_techpack:
+            detected_old_code = str(matched_techpack.get("StyleName", "")).strip()
+            # Hiển thị trực tiếp ảnh đối chứng được bốc từ Storage ra kế bên để Costing Engineer đối chiếu mắt thường
+            old_image_url = f"{base_sb_url}/storage/v1/object/public/kho_anh/{detected_old_code}.jpg"
+            st.image(old_image_url, caption=f"Ảnh mẫu tương đồng trong kho: {detected_old_code}.jpg", use_container_width=True)
 
     st.markdown("<br>### 📐 SO SÁNH HAI BẢNG THÔNG SỐ KỸ THUẬT RẬP MẪU", unsafe_allow_html=True)
     spec_col1, spec_col2 = st.columns(2)
@@ -1227,6 +1286,7 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                 "UOM": clean_nan(r.get("uom"))
             })
         st.dataframe(pd.DataFrame(formatted_bom), use_container_width=True, hide_index=True)
+
 
 
 
