@@ -820,16 +820,27 @@ def parse_fraction(val_str):
 def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_records, new_style_measurements, target_new_sketch_bytes, detected_size):
     """
     Bộ não xử lý tính toán định mức nâng cao bằng đơn vị YARD (Yds).
-    Tự động kích hoạt cơ chế Vecto Hình Học Ngành May nếu KHÔNG CÓ mã tương đồng.
-    Tích hợp biên may 0.44", dò tìm lai và quy tắc tách biệt Quần/Áo (Chống lộn Nẹp).
     Tự động áp hệ số hiệu suất sơ đồ chuẩn PPJ Group: Woven 88%, Denim 90%, Knit 87%.
+    Bổ sung cơ chế quét tìm dữ liệu BOM hệ thống để tránh bỏ sót vải lót, chun, cúc, keo.
     """
-    style_old_name = matched_techpack.get("StyleName", "N/A") if matched_techpack else "N/A"
-    specs_old = matched_techpack.get("DetailedMeasurements", {}) if matched_techpack else {}
-    
+    # 🎯 BƯỚC THAY ĐỔI: TỰ ĐỘNG DÒ TÌM BOM TỪ SESSION STATE NẾU BIẾN TRUYỀN VÀO BỊ TRỐNG
+    if not bom_records:
+        bom_records = st.session_state.get("bom_records", st.session_state.get("current_bom_data", []))
+        
     bom_summary = ""
     if bom_records:
-        bom_summary = "\n".join([f"- Vật tư: {r.get('consumption_type')}, Mã vải: {r.get('article_name')}, Khổ vải gốc: {r.get('material_size')}, ĐM gốc: {r.get('consumption_value')}" for r in bom_records])
+        bom_summary = "\n".join([
+            f"- Loại vật tư: {r.get('consumption_type', r.get('Component/Content/COO', 'N/A'))}, "
+            f"Tên/Mã: {r.get('article_name', r.get('Art/Suppl/Vndr', 'N/A'))}, "
+            f"Vị trí: {r.get('Use/Placement', 'N/A')}, ĐM gốc: {r.get('consumption_value', r.get('Qty/UM', '0'))}" 
+            for r in bom_records
+        ])
+    else:
+        # Kịch bản khẩn cấp: Nhắc AI tự bóc các thành phần lót/chun dựa trên ảnh Techpack đính kèm nếu Database trống
+        bom_summary = "KHÔNG CÓ DỮ LIỆU DATABASE. Hãy tự động trích xuất các hạng mục Pocketing (Vải lót), Elastic (Chun), Trims từ tài liệu hình ảnh Techpack đính kèm."
+
+    style_old_name = matched_techpack.get("StyleName", "N/A") if matched_techpack else "N/A"
+    specs_old = matched_techpack.get("DetailedMeasurements", {}) if matched_techpack else {}
 
     shrinkage_width = re.findall(r'(?:CO RÚT NGANG|NGANG)\s*(\d+(?:\.\d+)?)\s*%', user_message.upper())
     shrinkage_length = re.findall(r'(?:CO RÚT DỌC|DỌC)\s*(\d+(?:\.\d+)?)\s*%', user_message.upper())
@@ -844,11 +855,10 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
     f_width = float(new_fabric_width_val) if new_fabric_width_val else 0.0
 
     if matched_techpack:
-        scenario_instruction = f"KỊCH BẢN ĐỒNG DẠNG: Đối chiếu với Spec cũ {json.dumps(specs_old)} và BOM gốc {bom_summary}."
+        scenario_instruction = f"KỊCH BẢN ĐỒNG DẠNG: Đối chiếu với Spec cũ {json.dumps(specs_old)} và danh sách cấu trúc BOM mục tiêu: {bom_summary}."
     else:
-        scenario_instruction = f"KỊCH BẢN VECTOR HÌNH HỌC: Tính diện tích rập thô từ New Spec và Flat Sketch trên khổ {f_width if f_width > 0 else '58 inch'}."
+        scenario_instruction = f"KỊCH BẢN VECTOR HÌNH HỌC: Tính toán dựa trên New Spec kết hợp quét toàn bộ danh mục vật tư BOM mục tiêu: {bom_summary}."
 
-    # PROMPT TÍCH HỢP HỆ SỐ HIỆU SUẤT SƠ ĐỒ CHUẨN PPJ GROUP
     system_instruction = f"""
     You are a strict Industrial Garment Costing Engineer at PPJ Group. 
     STRICT REQUIREMENT: Provide the final analysis ONLY in a Markdown Table format matching the MERRELL template. 
@@ -859,28 +869,27 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
     | Style Code | Style Name | Garment Type | Marker Type | Fabric Width | Shrink L | Shrink W | Item | Net Consumption | UOM | Booking +3% | Booking +5% | Unit Price USD | Material Cost USD/pc |
 
     PPJ GROUP - MANDATORY MARKER EFFICIENCY FACTOR:
-    Based on the 'Garment Type' or Fabric material identified, you MUST apply the exact PPJ standard marker efficiency to the geometric calculations:
-    - If Category/Material is WOVEN (Hàng vải dệt thoi): Marker Efficiency = 88% (Divide total bounding area by 0.88)
-    - If Category/Material is DENIM (Hàng bò/jeans): Marker Efficiency = 90% (Divide total bounding area by 0.90)
-    - If Category/Material is KNIT (Hàng thun/vải dệt kim): Marker Efficiency = 87% (Divide total bounding area by 0.87)
+    Identify the garment type and apply the exact efficiency factor:
+    - WOVEN (Vải dệt thoi): 88%
+    - DENIM (Hàng bò/jeans): 90%
+    - KNIT (Vải dệt kim/thun): 87%
 
-    CRITICAL YARDS CONVERSION & MATHEMATICS RULES (STRICT):
-    1. UOM COLUMN CONSTRAINT: For all Fabric items (Shell, Lining, Interlining), the UOM column MUST explicitly display "Yds". NEVER output "M" or "Meter".
-    2. CONVERSION FORMULA: If the original data is in Meters, you MUST multiply by 1.09361 to convert to YARDS.
-    3. AGGREGATION & ROLL-UP: DO NOT create separate rows for detail pattern pieces (Front, Back, Sleeve, etc.). Group and SUM them up into a single row per fabric item type (e.g., Shell Fabric, Lining Fabric).
-    4. SHRINKAGE COMPENSATE FORMULA: 
-       - Net Consumption (Yds) = [Sum of Bounding Box Area of Components] / [Usable Fabric Width * (1 - Shrink W / 100)] * (1 + Shrink L / 100) / 36 / [PPJ Marker Efficiency Factor]
-       - Ensure a 12% Shrink W or 3% Shrink L results in a logically HIGHER Net Consumption to prevent under-costing.
-    5. Calculations for Booking:
+    CRITICAL SUMMARY & TRIMS RULES:
+    1. NO MISSING ITEMS: You MUST read the BOM data context and generate individual rows for EVERY material type listed. 
+    2. REQUIRED ITEMS IF PRESENT IN CONTEXT: Include 'Shell Fabric', 'Pocketing/Lining Fabric' (Vải lót), 'Elastic' (Thun cạp), 'Drawcord/Cording' (Dây dệt), and 'Thread/Zippers/Trims'. 
+    3. UOM CONSTRAINT: Fabric items (Shell, Pocketing) MUST display "Yds". Trims/Elastic can use "Yds", "M", or "PC" as specified in BOM.
+    4. CALCULATIONS: 
+       - Net Consumption for Fabrics = [Bounding Area] / [Width * (1 - Shrink W/100)] * (1 + Shrink L/100) / 36 / [Efficiency]
+       - Net Consumption for Trims/Elastic = Base BOM Qty * (1 + Shrink L/100) if affected by shrinkage, else keep base Qty.
        - 'Booking +3%' = Net Consumption * 1.03
        - 'Booking +5%' = Net Consumption * 1.05
-    6. Context data: {scenario_instruction}
+    5. Context data: {scenario_instruction}
 
     DATA FOR CALCULATION:
-    - Style Code / Name: P08-500722 / PEN CANVAS BOMBER JACKET
-    - Target Size: Size {detected_size}
+    - Style Code / Name: P08-500722 / 5614 LR PULL ON TRACK PANTS
+    - Target Size: Detected from spec data
     - New Spec (POM): {json.dumps(new_style_measurements)}
-    - Fabric Width requested: {f_width if f_width > 0 else '58 in'}
+    - Fabric Width requested: {f_width if f_width > 0 else '55 in'}
     - Width Shrinkage (Shrink W): {w_shrink}% | Length Shrinkage (Shrink L): {l_shrink}%
     """
 
@@ -900,6 +909,7 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
         return ai_reply
     except Exception as e:
         return f"🚨 Lỗi cổng phân tích định mức: {str(e)}"
+
 
 
 
