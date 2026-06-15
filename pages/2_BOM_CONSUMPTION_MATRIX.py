@@ -821,31 +821,38 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
     """
     Bộ não xử lý tính toán định mức nâng cao bằng đơn vị YARD (Yds).
     Tự động áp hệ số hiệu suất sơ đồ chuẩn PPJ Group: Woven 88%, Denim 90%, Knit 87%.
-    Bảo đảm quét sạch Vải lót (Pocketing), Chun (Elastic), Keo và Trims tổng hợp, khóa chặt nhãn UOM là Yds.
+    ĐÃ ĐỒNG BỘ 100% TIÊU ĐỀ CỘT SUPABASE: style_name, article_name, consumption_type, material_size, uom.
     """
+    import time
     if not bom_records:
         bom_records = st.session_state.get("bom_records", [])
         
     style_old_name = "N/A"
     specs_old = {}
     if matched_techpack:
-        style_old_name = str(matched_techpack.get("StyleCode", matched_techpack.get("StyleName", "N/A"))).strip().upper()
+        # Lấy chính xác tên mã hàng đối chứng đang hoạt động (Ví dụ: 029SP257052-SNOWFLAKE-L0T5)
+        style_old_name = str(matched_techpack.get("StyleName", matched_techpack.get("StyleCode", "N/A"))).strip().upper()
         specs_old = matched_techpack.get("DetailedMeasurements", {})
 
+    # 🎯 ĐỒNG BỘ CHÍNH XÁC THEO BẢNG HÌNH ẢNH SUPABASE THỰC TẾ CỦA BẠN
     bom_summary_list = []
     if bom_records:
         for r in bom_records:
-            r_style = str(r.get('style_code', r.get('style_name', r.get('Mã hàng đối chứng', '')))).strip().upper()
-            if style_old_name == "N/A" or style_old_name in r_style or r_style == "" or r_style == "NAN":
-                comp = r.get('consumption_type', r.get('Component/Content/COO', r.get('Loại nguyên vật liệu', 'N/A')))
-                placement = r.get('use_placement', r.get('Use/Placement', r.get('Vị trí sử dụng', 'N/A')))
-                art = r.get('article_name', r.get('Art/Suppl/Vndr', r.get('Chi tiết vật tư (Article)', 'N/A')))
-                val = r.get('consumption_value', r.get('Qty/UM', r.get('Định mức gốc', '0')))
-                uom = r.get('uom', r.get('UOM', 'YRD'))
-                bom_summary_list.append(f"- Mã: {r_style if r_style else style_old_name}, Vật tư: {comp}, Vị trí: {placement}, Loại: {art}, ĐM gốc: {val} {uom}")
+            # Đọc chuẩn xác cột style_name text từ Supabase
+            r_style = str(r.get('style_name', '')).strip().upper()
+            
+            if style_old_name == "N/A" or style_old_name in r_style or r_style == "":
+                # Gọi chính xác tên cột từ bảng public.san_pham của bạn để nạp vào AI
+                comp = r.get('consumption_type', 'N/A')  # Cột loại vật tư (Main Fabric, Pocketing,...)
+                art = r.get('article_name', 'N/A')        # Cột mã vải thực tế (SJ-B902, D00557,...)
+                m_size = r.get('material_size', 'N/A')    # Cột khổ vải (55INCH, 57INCH,...)
+                val = r.get('consumption_value', '0')     # Cột định mức gốc
+                uom = r.get('uom', 'YRD')                 # Cột đơn vị tính
+                
+                bom_summary_list.append(f"- Mã hàng: {r_style if r_style else style_old_name}, Vật tư: {comp}, Mã vải (Article): {art}, Khổ gốc: {m_size}, ĐM gốc: {val} {uom}")
 
     if not bom_summary_list and matched_techpack and style_old_name != "N/A":
-        bom_summary = f"⚠️ HỆ THỐNG CẢNH BÁO: Dữ liệu BOM truyền vào không đồng bộ với mã đối chứng {style_old_name}."
+        bom_summary = f"⚠️ HỆ THỐNG CẢNH BÁO: Không tìm thấy dữ liệu vật tư trùng khớp với mã đối chứng {style_old_name} trong bảng san_pham."
         matched_techpack = None  
     else:
         bom_summary = "\n".join(bom_summary_list)
@@ -863,40 +870,28 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
     f_width = float(new_fabric_width_val) if new_fabric_width_val else 0.0
 
     if matched_techpack and "⚠️" not in bom_summary:
-        scenario_instruction = f"KỊCH BẢN ĐỒNG DẠNG: Đối chiếu thông số rập mới với Spec mã {style_old_name} {json.dumps(specs_old)} và tính định mức dựa trên BOM chuẩn của mã {style_old_name}: \n{bom_summary}"
+        scenario_instruction = f"KỊCH BẢN ĐỒNG DẠNG: Đối chiếu thông số rập mới với Spec mã {style_old_name} và tìm kiếm/tính toán dựa trên đúng danh mục vật tư bảng san_pham: \n{bom_summary}"
     else:
-        scenario_instruction = f"KỊCH BẢN VECTOR HÌNH HỌC TỰ ĐỘNG: Tính diện tích bao rập thô từ New Spec và Flat Sketch. Tự động tính toán phụ liệu từ dữ liệu: \n{bom_summary}"
+        scenario_instruction = f"KỊCH BẢN VECTOR HÌNH HỌC TỰ ĐỘNG: Tính diện tích bao rập thô độc lập. Dữ liệu danh mục phụ liệu mục tiêu: \n{bom_summary}"
 
     system_instruction = f"""
-    You are a strict Industrial Garment Costing Engineer at PPJ Group. 
-    STRICT REQUIREMENT: Provide the final analysis ONLY in a Markdown Table format matching the MERRELL template. 
-    DO NOT include intro, outro, conversational fillers, or wordy explanations. Go straight to the table.
+    You are a strict Industrial Garment Costing Engineer at PPJ Group.
+    
+    INTENT DETECTION & LOOKUP RULE:
+    - Analyze the user request: '{user_message}'.
+    - If the user asks to SEARCH, FIND, or LOOK UP a specific material code or fabric (e.g., 'tìm code vải...', 'tìm kiếm mã vải...'), your priority is to look inside the 'Mã vải (Article)' field in the context below. 
+    - Find the item matching that code (e.g., 'SJ-B902'), and reply directly in friendly Vietnamese text showing its full row parameters (Mã hàng, Vật tư, Khổ gốc, ĐM gốc, UOM). DO NOT generate the calculation table full of N/A values for search intents.
+    - Only generate the standard MERRELL consumption table if the user explicitly asks for an allowance calculation or provides shrinkage metrics (e.g., 'co rút 5%').
 
-    OUTPUT FORMAT REQUIREMENT (Must use this exact header structure):
+    STANDARD TABLE LAYOUT REQUIREMENT (Only when calculating):
 
     | Style Code | Style Name | Garment Type | Marker Type | Fabric Width | Shrink L | Shrink W | Item | Net Consumption | UOM | Booking +3% | Booking +5% | Unit Price USD | Material Cost USD/pc |
 
-    PPJ GROUP - MANDATORY MARKER EFFICIENCY FACTOR:
-    Identify the garment category and fabric material type from techpack context, then apply the exact PPJ standard marker efficiency to the calculations:
-    - If Category is WOVEN (Hàng vải dệt thoi): Marker Efficiency = 88% (Divide total bounding area by 0.88)
-    - If Category is DENIM (Hàng bò/jeans): Marker Efficiency = 90% (Divide total bounding area by 0.90)
-    - If Category is KNIT (Vải dệt kim/thun/Track Pants): Marker Efficiency = 87% (Divide total bounding area by 0.87)
-
-    CRITICAL SUMMARY & AGGREGATION RULES:
-    1. NO MISSING ITEMS: You MUST read the BOM data or analyze the technical drawings to list rows for ALL required components.
-    2. REQUIRED LISTING: You MUST generate individual rows for 'Shell Fabric', 'Pocketing Fabric / Lining' (Vải lót túi), 'Elastic' (Chun cạp), 'Drawcord / Cording' (Dây luồn), 'Interlining' (Keo), and Trims (Thread, Zipper) if they exist. Do NOT skip Pocketing or Elastic.
-    3. UOM CONSTRAINT: For all Fabric items (Shell, Pocketing, Lining, Interlining), the UOM column MUST explicitly display "Yds" (Yards). NEVER use "M" or "Meter". If base BOM values are in meters, multiply by 1.09361 to convert to YARDS.
-    4. SHRINKAGE COMPENSATE FORMULA: 
-       - Net Consumption (Yds) = [Sum of Bounding Box Area of Components (sq inches)] / [Usable Width * (1 - Shrink W/100)] * (1 + Shrink L/100) / 36 / [PPJ Marker Efficiency Factor]
-       - Ensure that a {w_shrink}% Shrink W or {l_shrink}% Shrink L results in a logically HIGHER Net Consumption to prevent under-costing.
-    5. Calculations for Booking:
-       - 'Booking +3%' = Net Consumption * 1.03
-       - 'Booking +5%' = Net Consumption * 1.05
-    6. Context data: {scenario_instruction}
+    PPJ GROUP - MANDATORY FACTOR: WOVEN 88% | DENIM 90% | KNIT 87%
+    Context data to look up or calculate from: {scenario_instruction}
 
     DATA FOR CALCULATION:
     - Style Code / Name: {style_old_name if style_old_name != 'N/A' else '5614'} / {matched_techpack.get('StyleName', '5614 LR PULL ON TRACK PANTS') if matched_techpack else '5614 LR PULL ON TRACK PANTS'}
-    - Target Base Size detected: Size {detected_size if detected_size else 'M'}
     - New Spec (POM) parsed by vision: {json.dumps(new_style_measurements)}
     - Fabric Width requested: {f_width if f_width > 0 else '55 in'}
     - Width Shrinkage (Shrink W): {w_shrink}% | Length Shrinkage (Shrink L): {l_shrink}%
@@ -911,13 +906,22 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
     if target_new_sketch_bytes:
         chat_contents.append(types.Part.from_bytes(data=target_new_sketch_bytes, mime_type='image/jpeg'))
 
-    try:
-        response = client.models.generate_content(model='gemini-2.5-flash', contents=chat_contents)
-        ai_reply = response.text if response.text else "Hệ thống AI không thể đưa ra phân tích."
-        st.session_state["consumption_chat_history"].append({"user": user_message, "ai": ai_reply})
-        return ai_reply
-    except Exception as e:
-        return f"🚨 Lỗi cổng phân tích định mức: {str(e)}"
+    for attempt in range(3):
+        try:
+            response = client.models.generate_content(model='gemini-2.5-flash', contents=chat_contents)
+            if response and response.text:
+                ai_reply = response.text
+                st.session_state["consumption_chat_history"].append({"user": user_message, "ai": ai_reply})
+                return ai_reply
+        except Exception as e:
+            err_msg = str(e).upper()
+            if "429" in err_msg or "QUOTA" in err_msg or "EXHAUSTED" in err_msg:
+                time.sleep(3.5)
+                continue
+            return f"🚨 Lỗi cổng phân tích định mức: {str(e)}"
+            
+    return "⏳ Máy chủ AI đang quá tải lượt quét. Bạn vui lòng đợi khoảng 15-20 giây rồi bấm gửi lại yêu cầu nhé!"
+
 def process_single_pdf_batch(file_bytes, file_name):
     """
     Hàm bóc tách dữ liệu kỹ thuật từ một file PDF độc lập.
