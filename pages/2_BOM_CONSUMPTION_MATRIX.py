@@ -987,7 +987,9 @@ if has_file:
 
 dynamic_keyword = str(new_style_id_detected).strip().upper()
 base_sb_url = SB_URL.rstrip('/')
-headers = {"apikey": SB_KEY, "Authorization": f"Bearer # {SB_KEY}"}
+
+# 🎯 ĐÃ VÁ LỖI XÁC THỰC: Xóa bỏ hoàn toàn dấu '#' sai lệch trong chuỗi cấu hình Bearer Token gốc
+headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
 
 if menu_selection == "🧵 BOM & Consumption Matrix":
     st.markdown('<div class="component-title-box">🧵 INTELLIGENT BOM & CONSUMPTION MATRIX ENGINE</div>', unsafe_allow_html=True)
@@ -1007,9 +1009,10 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
             st.rerun()
 
     st.markdown("---")
-    # --------------------------------------------------------------------------
-    # KHỐI 5 - ĐOẠN 5.1: GIAO DIỆN CHAT BOX & TỰ ĐỘNG BỐC DỮ LIỆU KHO REAL-TIME
-    # --------------------------------------------------------------------------
+
+      # ==========================================================================
+    # KHỐI 5 - ĐOẠN 5.1: GIAO DIỆN CHAT BOX & XUẤT BẢNG KHO TRỰC TIẾP KHI GÕ TRA CỨU
+    # ==========================================================================
     chat_header_col1, chat_header_col2 = st.columns([3.2, 0.8])
     with chat_header_col1:
         st.markdown("### 💬 TRỢ LÝ AI PHÂN TÍCH ĐỊNH MỨC SẢN XUẤT (HỎI ĐÂU ĐÁP ĐÓ)")
@@ -1024,35 +1027,37 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
             with st.chat_message("user"): st.write(chat["user"])
             with st.chat_message("assistant"): st.write(chat["ai"])
                 
-    if user_query := st.chat_input("Nhập yêu cầu phân tích (Ví dụ: Tìm mã hàng, hoặc tính định mức co rút...)..."):
+    if user_query := st.chat_input("Nhập yêu cầu phân tích (Ví dụ: SJ-8902, hoặc tính định mức co rút...)..."):
         with chat_container:
             with st.chat_message("user"): st.write(user_query)
             with st.chat_message("assistant"):
-                with st.spinner("🤖 AI đang truy vấn dữ liệu kho và phân tích..."):
+                with st.spinner("🔍 Hệ thống đang kết nối trực tiếp kho dữ liệu Supabase..."):
                     
                     query_upper = user_query.upper().strip()
-                    target_fabric_code = ""
+                    target_fabric_code = query_upper
+                    for word in ["TÌM KIẾM MÃ VẢI", "TÌM KIẾM CODE VẢI", "TÌM CODE VẢI", "TÌM MÃ VẢI", "TRA MÃ VẢI", "TÌM CODE", "TÌM MÃ", "TRA MÃ", "VẢI", "CODE", "TIM", "TRA", ":"]:
+                        target_fabric_code = target_fabric_code.replace(word, "")
+                    target_fabric_code = target_fabric_code.strip()
                     
-                    if any(k in query_upper for k in ["TÌM", "TRA", "CODE", "VẢI"]):
-                        clean_text = query_upper
-                        for word in ["TÌM KIẾM MÃ VẢI", "TÌM KIẾM CODE VẢI", "TÌM CODE VẢI", "TÌM MÃ VẢI", "TRA MÃ VẢI", "TÌM CODE", "TÌM MÃ", "TRA MÃ", "VẢI", "CODE", "TIM", "TRA", ":"]:
-                            clean_text = clean_text.replace(word, "")
-                        target_fabric_code = clean_text.strip()
-                    
-                    # TỰ ĐỘNG TRUY LỤC TRỰC TIẾP VÀO BẢNG public.san_pham CỦA KHỞI TẠO SUPABASE
-                    if target_fabric_code:
+                    is_search_intent = any(k in query_upper for k in ["TÌM", "TRA", "CODE", "VẢI", "SJ-", "D00"])
+                    if is_search_intent and target_fabric_code:
                         try:
                             url_search = f"{base_sb_url}/rest/v1/san_pham"
                             exact_headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
-                            # Gọi chính xác cột ArticleName viết hoa theo ảnh bảng của bạn
                             params_search = {
                                 "select": "StyleName,ArticleName,MaterialSize,UOM,BodyType,InputPure",
                                 "ArticleName": f"ilike.*{target_fabric_code}*"
                             }
                             res_search = requests.get(url_search, headers=exact_headers, params=params_search, timeout=15)
+                            
                             if res_search.status_code == 200 and len(res_search.json()) > 0:
                                 st.session_state["bom_records"] = res_search.json()
                                 bom_records = st.session_state["bom_records"]
+                                
+                                st.markdown("📊 **Dữ liệu kho thực tế tìm thấy trùng khớp:**")
+                                df_chat_view = pd.DataFrame(res_search.json())
+                                df_chat_view.columns = ["Mã hàng", "Mã vải (Article)", "Khổ vải", "UOM", "Loại vật tư", "ĐM gốc"]
+                                st.dataframe(df_chat_view, use_container_width=True, hide_index=True)
                         except Exception:
                             pass
 
@@ -1075,10 +1080,9 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
         )
 
     st.markdown("<br><hr style='border:0.5px solid #CBD5E1;'>", unsafe_allow_html=True)
-
-    # --------------------------------------------------------------------------
+    # ==========================================================================
     # KHỐI 5 - ĐOẠN 5.2: KHỐI CHẶN FILE & HIỂN THỊ CÁC BẢNG SAU KHI UPLOAD
-    # --------------------------------------------------------------------------
+    # ==========================================================================
     if not has_file:
         st.info("👋 Vui lòng tải lên tệp Techpack hồ sơ thiết kế (PDF) ở phía trên để hệ thống bắt đầu quét và lập lịch trình đối soát.")
         st.stop()
