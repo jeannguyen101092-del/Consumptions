@@ -890,8 +890,9 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
     return "⏳ Hệ thống bận, vui lòng thử lại sau 10 giây."
 def process_single_pdf_batch(file_bytes, file_name):
     """
-    Hàm bóc tách dữ liệu kỹ thuật từ một file PDF độc lập.
-    Áp dụng bộ Prompt Senior Auditor tối ưu để ép AI trích xuất đúng bản vẽ phẳng toàn thân.
+    HÀM BÓC TÁCH TECHPACK CACHED PIPELINE - PPJ GROUP
+    Vá dứt điểm lỗi nuốt vết lỗi, làm sạch chuỗi markdown JSON, ép kiểu chỉ mục int 
+    và bảo đảm trả về byte ảnh phẳng chuẩn xác (Bytes-like object).
     """
     import time
     try:
@@ -901,9 +902,11 @@ def process_single_pdf_batch(file_bytes, file_name):
             gemini_key_local = st.secrets.get("GEMINI_API_KEY", "").strip()
             
         if not gemini_key_local:
-            return {"success": False, "error": "API Key cho Gemini đang bị thiếu trong Secrets."}
+            return {"success": False, "error": "Hệ thống thiếu API Key cho Gemini trong Secrets."}
             
         client_ai = genai.Client(api_key=gemini_key_local)
+        
+        # Đọc thông tin tệp tin PDF
         info = pdfinfo_from_bytes(file_bytes)
         total_p = int(info.get("Pages", 1))
         
@@ -918,7 +921,7 @@ def process_single_pdf_batch(file_bytes, file_name):
             stored_pages_bytes.append(img_data)
             pdf_parts_payload.append(types.Part.from_bytes(data=img_data, mime_type='image/jpeg'))
             
-        # 🎯 TÍCH HỢP BỘ PROMPT AUDITOR CAO CẤP ÉP AI CHỐNG BÓC NHẦM ẢNH TÚI/CHI TIẾT MAY
+        # Bộ Chỉ thị prompt Senior Auditor khóa chặt kết cấu rập toàn thân
         industrial_extraction_prompt = """
         You are a Senior Garment Specification Auditor at PPJ Group.
         Analyze ALL attached Techpack pages sequentially.
@@ -945,11 +948,7 @@ def process_single_pdf_batch(file_bytes, file_name):
         For JACKETS: Must show shoulder, sleeve, body hem.
 
         REJECT these pages:
-        ✗ Pocket Bag, Smoothing Pocket Bag
-        ✗ Fly Construction, Zipper Detail, Waistband Detail
-        ✗ Label Placement, Embroidery Placement, Artwork Placement
-        ✗ Construction Detail, Sewing Detail, Close-up Component Diagram
-        ✗ Single Part Diagram, Fabric Detail, Trim Sheet
+        Summary detail sheets, Pocket Bag, Smoothing Pocket Bag, Fly Construction, Zipper Detail, Waistband Detail, Label/Embroidery/Artwork Placement, Construction/Sewing Detail, Close-up Component/Single Part Diagram.
 
         If multiple sketch pages exist:
         - Priority 1: Front + Back Full Flat Sketch
@@ -960,7 +959,7 @@ def process_single_pdf_batch(file_bytes, file_name):
         =================================================
         OUTPUT RULE
         =================================================
-        Return ONLY a completely valid raw JSON string matching this exact schema (no markdown blocks, no text):
+        Return ONLY a completely valid raw JSON object inside your response matching this exact schema:
         {
           "style_number_parsed": "string",
           "buyer": "string",
@@ -969,14 +968,8 @@ def process_single_pdf_batch(file_bytes, file_name):
           "sketch_page_index_detected": 0,
           "sketch_page_reason": "string",
           "sketch_confidence": 0.0,
-          "measurements": {
-            "POM Description": "Value"
-          },
-          "full_size_matrix": {
-            "POM Description": {
-              "Size_Name": "Value"
-            }
-          }
+          "measurements": {},
+          "full_size_matrix": {}
         }
         """
         pdf_parts_payload.append(types.Part.from_text(text=industrial_extraction_prompt))
@@ -985,38 +978,74 @@ def process_single_pdf_batch(file_bytes, file_name):
             try:
                 response = client_ai.models.generate_content(
                     model='gemini-2.5-flash', 
-                    contents=pdf_parts_payload,
-                    config={"response_mime_type": "application/json"}
+                    contents=pdf_parts_payload
                 )
-                if response and response.text:
-                    parsed_json = json.loads(response.text)
+                
+                if not response or not response.text:
+                    raise ValueError(f"Vòng thử {attempt+1}: Máy chủ Gemini trả về phản hồi chuỗi trống.")
                     
-                    # Bộ thuật toán đánh chặn làm sạch mã hàng gốc của PPJ Group
-                    raw_style = str(parsed_json.get("style_number_parsed", "")).strip().upper()
-                    if "01073" in raw_style and raw_style.startswith("1H"):
-                        parsed_json["style_number_parsed"] = raw_style.replace("1H", "7L")
-                    elif "5614" in raw_style or "01073" in raw_style:
-                        if not raw_style.startswith("7L") and "01073" in raw_style:
-                            parsed_json["style_number_parsed"] = "7L001073"
-                            
-                    st.session_state["detected_style_code"] = parsed_json["style_number_parsed"]
-                    sketch_idx = parsed_json.get("sketch_page_index_detected", 0)
-                    extracted_sketch_bytes = stored_pages_bytes[sketch_idx] if sketch_idx < len(stored_pages_bytes) else stored_pages_bytes
+                raw_text = response.text.strip()
+                
+                # 🎯 VÁ LỖI 3: LÀM SẠCH VÀ KHỬ NHIỄU KHỐI MARKDOWN CỦA GEMINI (```json ... ```)
+                if raw_text.startswith("```"):
+                    raw_text = re.sub(r'^```(?:json)?\n', '', raw_text, flags=re.IGNORECASE)
+                    raw_text = re.sub(r'\n```$', '', raw_text, flags=re.IGNORECASE)
+                raw_text = raw_text.strip()
+                
+                # Tiến hành phân rã chuỗi JSON dữ liệu kỹ thuật
+                parsed_json = json.loads(raw_text)
+                
+                # Làm sạch mã hàng gốc của PPJ Group
+                raw_style = str(parsed_json.get("style_number_parsed", "")).strip().upper()
+                if "01073" in raw_style and raw_style.startswith("1H"):
+                    parsed_json["style_number_parsed"] = raw_style.replace("1H", "7L")
+                elif "5614" in raw_style or "01073" in raw_style:
+                    if not raw_style.startswith("7L") and "01073" in raw_style:
+                        parsed_json["style_number_parsed"] = "7L001073"
+                        
+                # 🎯 VÁ LỖI 4: ÉP KIỂU INT BẮT BUỘC CHO CHỈ MỤC TRANG, CHỐNG LỖI TRUY CẬP ĐUÔI CHỮ STRING ("7")
+                try:
+                    sketch_idx = int(parsed_json.get("sketch_page_index_detected", 0))
+                except (ValueError, TypeError):
+                    sketch_idx = 0
                     
-                    return {
-                        "success": True, 
-                        "data": parsed_json, 
-                        "sketch_bytes": extracted_sketch_bytes
-                    }
-            except Exception:
-                time.sleep(1.5)
-                continue
-        return {"success": False, "error": "AI không thể cấu trúc dữ liệu JSON sau 3 lần thử."}
+                parsed_json["sketch_page_index_detected"] = sketch_idx
+                
+                # 🎯 VÁ LỖI 1: ĐẢM BẢO EXTRACTED_SKETCH_BYTES LUÔN LÀ BYTES-LIKE OBJECT, CHỐNG SẬP MẢNG LIST LỖI TYPES.PART
+                if 0 <= sketch_idx < len(stored_pages_bytes):
+                    extracted_sketch_bytes = stored_pages_bytes[sketch_idx]
+                else:
+                    extracted_sketch_bytes = stored_pages_bytes[0] if stored_pages_bytes else b""
+                    
+                return {
+                    "success": True, 
+                    "data": parsed_json, 
+                    "sketch_bytes": extracted_sketch_bytes
+                }
+                
+            except json.JSONDecodeError as json_err:
+                if attempt == 2:
+                    return {"success": False, "error": f"Lỗi giải mã cấu trúc JSON thô từ Gemini: {str(json_err)} | Văn bản lỗi: {raw_text}"}
+                time.sleep(1.0)
+            except Exception as loop_err:
+                # 🎯 VÁ LỖI 2: KHÔNG NUỐT LỖI - In lộ vết lỗi thật để Costing Engineer kiểm soát
+                if attempt == 2:
+                    return {"success": False, "error": f"Lỗi nội tại luồng bóc tách: {str(loop_err)}"}
+                time.sleep(1.0)
+                
+        return {"success": False, "error": "AI không thể cấu trúc dữ liệu JSON sau 3 lần thử lại."}
     except Exception as e:
-        return {"success": False, "error": str(e)}
+        return {"success": False, "error": f"🚨 Lỗi sập hệ thống vật lý khâu xử lý PDF: {str(e)}"}
+# ==========================================================================
+# KHỐI 4: KHỞI TẠO BIẾN TOÀN CỤC & KIẾN TRÚC CACHED PIPELINE CHỐNG LẶP LỆNH AI
+# ==========================================================================
 if "matched_techpack" not in st.session_state: st.session_state["matched_techpack"] = None
 if "bom_records" not in st.session_state: st.session_state["bom_records"] = []
 if "consumption_chat_history" not in st.session_state: st.session_state["consumption_chat_history"] = []
+
+# ĐĂNG KÝ KHÓA CỨNG BỘ NHỚ ĐỆM ĐỘC LẬP CHO FILE ĐỂ TIẾT KIỆM TOKEN GEMINI
+if "cached_pdf_analysis" not in st.session_state: st.session_state["cached_pdf_analysis"] = None
+if "cached_file_identifier" not in st.session_state: st.session_state["cached_file_identifier"] = ""
 
 matched_techpack = st.session_state["matched_techpack"]
 bom_records = st.session_state["bom_records"]
@@ -1027,60 +1056,25 @@ new_style_measurements_dict = {}
 new_style_base_size = "32"
 target_new_sketch_bytes = None 
 
-if "get_secure_gemini_key" in globals():
-    gemini_key = get_secure_gemini_key()
-else:
-    gemini_key = st.secrets.get("GEMINI_API_KEY", "").strip()
+# 🎯 VÁ LỖI 8: KHỞI TẠO BIẾN CLIENT TOÀN CỤC CHUẨN XÁC, CHỐNG LỖI NAMEERROR
+gemini_key = st.secrets.get("GEMINI_API_KEY", "").strip()
+client = genai.Client(api_key=gemini_key) if gemini_key else None
 
-if gemini_key:
-    client = genai.Client(api_key=gemini_key, http_options=types.HttpOptions(api_version='v1'))
-
-target_file_object = None
-if 'uploaded_file' in st.session_state and st.session_state['uploaded_file'] is not None:
-    target_file_object = st.session_state['uploaded_file']
-elif 'chat_uploader' in st.session_state and st.session_state['chat_uploader'] is not None:
-    target_file_object = st.session_state['chat_uploader']
-elif 'bom_matrix_uploader' in st.session_state and st.session_state['bom_matrix_uploader'] is not None:
-    target_file_object = st.session_state['bom_matrix_uploader']
-
-has_file = target_file_object is not None
-
-if has_file:
-    file_bytes = target_file_object.getvalue()
-    file_name = target_file_object.name
-    if file_name.lower().endswith('.pdf'):
-        try:
-            res_pdf = process_single_pdf_batch(file_bytes, file_name)
-            if res_pdf.get("success"):
-                meta_p = res_pdf["data"]
-                new_style_id_detected = meta_p.get("style_number_parsed", "UNKNOWN_STYLE")
-                new_style_category_detected = meta_p.get("category", "")
-                new_style_base_size = meta_p.get("base_size_name", "32")
-                new_style_measurements_dict = meta_p.get("measurements", {})
-                target_new_sketch_bytes = res_pdf.get("sketch_bytes")
-                
-                # 🎯 KHỐI CHUẨN ĐOÁN 3 DÒNG DEBUG SKETCH CHÍNH XÁC CAO THEO YÊU CẦU
-                st.markdown("#### 🛠️ HỆ THỐNG KIỂM SOÁT PHÂN TÁCH HÌNH Flat Sketch (BƯỚC 1)")
-                st.write("• 📑 **Sketch Page Index Detected (0-based):**", meta_p.get("sketch_page_index_detected"))
-                st.write("• 💬 **AI Auditing Reason:**", meta_p.get("sketch_page_reason"))
-                st.write("• 📊 **Sketch Extraction Confidence:**", meta_p.get("sketch_confidence"))
-                st.markdown("---")
-        except Exception:
-            pass
-    else:
-        target_new_sketch_bytes = file_bytes
-
-dynamic_keyword = str(new_style_id_detected).strip().upper()
-base_sb_url = SB_URL.rstrip('/')
-headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
-
+# Dựng khung Uploader giao diện trước khi gọi biến gán Target Object
 if menu_selection == "🧵 BOM & Consumption Matrix":
     st.markdown('<div class="component-title-box">🧵 INTELLIGENT BOM & CONSUMPTION MATRIX ENGINE</div>', unsafe_allow_html=True)
     
     control_col1, control_col2 = st.columns([3.3, 0.7])
     with control_col1:
         st.markdown("<p style='font-weight:700; font-size:12px; color:#1E293B;'>📁 INGEST NEW STYLE REPRINTS (PDF/IMAGE)</p>", unsafe_allow_html=True)
-        st.file_uploader("Upload Techpack file", type=["pdf", "jpg", "jpeg", "png"], key="bom_matrix_uploader", label_visibility="collapsed")
+        
+        # 🎯 VÁ LỖI 5: Khởi chạy uploader và gán trực tiếp vào bộ nhớ Session State
+        uploaded_file_obj = st.file_uploader(
+            "Upload Techpack file", 
+            type=["pdf", "jpg", "jpeg", "png"], 
+            key="bom_matrix_uploader", 
+            label_visibility="collapsed"
+        )
             
     with control_col2:
         st.markdown("<p style='font-weight:700; font-size:12px; color:#1E293B;'>🧹 RESET CORE</p>", unsafe_allow_html=True)
@@ -1088,10 +1082,63 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
             st.session_state["consumption_chat_history"] = []
             st.session_state["matched_techpack"] = None
             st.session_state["bom_records"] = []
-            st.success("♻️ MEMORY PURGED")
+            st.session_state["cached_pdf_analysis"] = None
+            st.session_state["cached_file_identifier"] = ""
+            st.success("♻️ MEMORY PURGED - SẴN SÀNG CHO MÃ HÀNG MỚI")
             st.rerun()
 
     st.markdown("---")
+
+    # ĐĂNG KÝ ĐỐI TƯỢNG FILE HOẠT ĐỘNG
+    target_file_object = uploaded_file_obj
+    has_file = target_file_object is not None
+
+    if has_file:
+        file_bytes = target_file_object.getvalue()
+        file_name = target_file_object.name
+        
+        # Tạo định danh duy nhất cho file bằng cách gộp tên và dung lượng byte
+        current_file_identifier = f"{file_name}_{len(file_bytes)}"
+        
+        if file_name.lower().endswith('.pdf'):
+            # 🎯 VÁ LỖI 6 & 10 (QUAN TRỌNG NHẤT): KIẾN TRÚC CACHED CHỈ BÓC TÁCH 1 LẦN DUY NHẤT KHI ĐỔI TÊN FILE
+            if (st.session_state["cached_pdf_analysis"] is None) or (st.session_state["cached_file_identifier"] != current_file_identifier):
+                
+                # Xóa sạch vết đối soát cũ khi phát hiện có file mới nạp vào hệ thống
+                st.session_state["matched_techpack"] = None
+                st.session_state["bom_records"] = []
+                
+                res_pdf = process_single_pdf_batch(file_bytes, file_name)
+                
+                # 🎯 VÁ LỖI 7: KHÔNG PASSED LỖI - In chi tiết lỗi bóc tách Techpack nếu có ra màn hình tác nghiệp
+                if not res_pdf.get("success"):
+                    st.error(f"❌ Khâu số hóa hồ sơ thiết kế thất bại: {res_pdf.get('error')}")
+                    st.stop()
+                    
+                # Gán dữ liệu sạch vào bộ nhớ đệm Cache tác nghiệp lâu dài
+                st.session_state["cached_pdf_analysis"] = res_pdf
+                st.session_state["cached_file_identifier"] = current_file_identifier
+                st.toast("⚡ Số hóa hồ sơ Techpack thành công (Dữ liệu đã được nạp vào RAM)!")
+            
+            # Giải nén dữ liệu từ Bộ nhớ đệm RAM Core ra cho giao diện hiển thị mượt mà
+            active_analysis = st.session_state["cached_pdf_analysis"]
+            meta_p = active_analysis["data"]
+            new_style_id_detected = meta_p.get("style_number_parsed", "UNKNOWN_STYLE")
+            new_style_category_detected = meta_p.get("category", "")
+            new_style_base_size = meta_p.get("base_size_name", "32")
+            
+            # 🎯 VÁ LỖI 9: Kiểm tra nghiêm ngặt kiểu dữ liệu Dictionary trước khi gán, chống lỗi sập bảng .items()
+            raw_measurements = meta_p.get("measurements", {})
+            new_style_measurements_dict = raw_measurements if isinstance(raw_measurements, dict) else {}
+            
+            target_new_sketch_bytes = active_analysis.get("sketch_bytes")
+        else:
+            target_new_sketch_bytes = file_bytes
+
+    # Đồng bộ cấu trúc biến phục vụ cho luồng API Supabase REST của Khối 5
+    dynamic_keyword = str(new_style_id_detected).strip().upper()
+    base_sb_url = SB_URL.rstrip('/')
+    headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
 
 
       
