@@ -1256,7 +1256,7 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
             st.json(mapping_pool_context)
                     # ==========================================================
 # ==========================================================================
-# KHỐI 5 - ĐOẠN 5.2.1.B: GỬI GEMINI VISION, KHỬ HẬU TỐ VÀ TRUY VẤN KÉP DATABASE
+# KHỐI 5 - ĐOẠN 5.2.1.B: GỬI GEMINI VISION, VÁ LỖI INDEX [0] & TRUY VẤN DATABASE
 # ==========================================================================
 if 'vision_payload' in locals() and len(vision_payload) > 1:
     try:
@@ -1292,10 +1292,10 @@ if 'vision_payload' in locals() and len(vision_payload) > 1:
             match_obj = json.loads(clean_json_match.group(0))
             best_image_file = match_obj.get("selected_image_filename", "")
             if best_image_file:
-                # 🎯 SỬA LỖI INDEX TUPLE DỨT ĐIỂM: Ép bốc chính xác phần tử index 0 để lấy tên file sạch
+                # 🎯 SỬA LỖI CÚ PHÁP TỐI CAO: Dùng chỉ mục [0] để lấy chuỗi tên mã hàng sạch
                 parsed_tuple = os.path.splitext(best_image_file)
                 best_style_code = str(parsed_tuple[0]).strip()
-                # Khử sạch các hậu tố vị trí ảnh gây lệch mã kho (_FRONT, _BACK, _FLAT)
+                # Khử các hậu tố bẩn của file ảnh trên storage xưởng
                 best_style_code = re.sub(r'(_FRONT|_BACK|_FRT|_BK|_FLAT)$', '', best_style_code, flags=re.IGNORECASE)
 
         st.markdown("### ===== DEBUG MATCH RESULT =====")
@@ -1303,7 +1303,6 @@ if 'vision_payload' in locals() and len(vision_payload) > 1:
         st.write("• **Processed Best Style Code:**", repr(best_style_code))
 
         if best_style_code:
-            # Khai báo an toàn biến token bảo mật tại phạm vi cục bộ của khối
             local_sb_key = st.secrets.get("SB_KEY", st.secrets.get("SUPABASE_KEY", globals().get("SB_KEY", "")))
             
             safe_code = quote(best_style_code)
@@ -1315,13 +1314,14 @@ if 'vision_payload' in locals() and len(vision_payload) > 1:
                 "Accept": "application/json"
             }
             
-            # 🎯 KHỐI TEST DATABASE CHUẨN ĐOÁN CỘT THỰC TẾ
+            # KHỐI DEBUG ĐỌC KIỂM TRA CHÍNH XÁC DANH SÁCH CỘT THẬT TRONG DATABASE
             st.markdown("### ===== DEBUG DATABASE =====")
             test_res = requests.get(url_tp, headers=exact_headers, params={"select": "*", "limit": "3"}, timeout=15)
             st.write("• **TP TEST CONNECTION STATUS:**", test_res.status_code)
             
             if test_res.status_code == 200:
                 sample = test_res.json()
+                st.write("• **Số dòng mẫu lấy thử thành công:**", len(sample))
                 if sample and len(sample) > 0:
                     st.write("🔥 **DANH SÁCH TÊN CỘT THỰC TẾ TRONG BẢNG THONG_SO_TECHPACK:**")
                     st.write(list(sample[0].keys()))
@@ -1356,6 +1356,7 @@ if 'vision_payload' in locals() and len(vision_payload) > 1:
         st.error(f"🚨 Lỗi khâu gọi mô hình hoặc ghi đè Database: {str(vision_err)}")
 else:
     st.warning("⚠️ Không có ảnh lịch sử hợp lệ nào được nạp vào Payload (Kích thước mảng bằng 1).")
+
 
 
                    
