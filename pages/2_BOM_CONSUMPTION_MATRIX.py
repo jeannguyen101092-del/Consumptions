@@ -2262,7 +2262,7 @@ if menu_selection == "🔍 Tra cứu kho trực tiếp":
     
     if search_keyword:
         with st.spinner("💾 Đang kết nối bảng sản phẩm..."):
-            results = find_product_by_product_direct(base_sb_url, SB_KEY, search_keyword.strip())
+            results = find_product_by_keyword_direct(base_sb_url, SB_KEY, search_keyword.strip())
             
             if results:
                 st.success(f"🎉 Tìm thấy {len(results)} sản phẩm khớp với từ khóa!")
