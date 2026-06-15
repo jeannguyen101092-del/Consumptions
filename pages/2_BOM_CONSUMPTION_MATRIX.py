@@ -1071,9 +1071,9 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
             st.rerun()
 
     st.markdown("---")
-    # --------------------------------------------------------------------------
-    # 💬 ĐOẠN 1: ĐƯA KHỐI CHAT LÊN ĐẦU ĐỂ THANH CHAT LUÔN HIỂN THỊ KỂ CẢ KHI CHƯA UP FILE
-    # --------------------------------------------------------------------------
+        # ==========================================================================
+    # KHỐI 5 - ĐOẠN 5.1: GIAO DIỆN CHAT BOX & TỰ ĐỘNG QUÉT DATABASE KHI TRA CỨU
+    # ==========================================================================
     chat_header_col1, chat_header_col2 = st.columns([3.2, 0.8])
     with chat_header_col1:
         st.markdown("### 💬 TRỢ LÝ AI PHÂN TÍCH ĐỊNH MỨC SẢN XUẤT (HỎI ĐÂU ĐÁP ĐÓ)")
@@ -1085,23 +1085,46 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
     chat_container = st.container()
     with chat_container:
         for chat in st.session_state.get("consumption_chat_history", []):
-            with st.chat_message("user"): st.write(chat["user"])
-            with st.chat_message("assistant"): st.write(chat["ai"])
+            with st.chat_message("user"): 
+                st.write(chat["user"])
+            with st.chat_message("assistant"): 
+                st.write(chat["ai"])
                 
     if user_query := st.chat_input("Nhập yêu cầu phân tích (Ví dụ: Tìm mã hàng, hoặc tính định mức co rút...)..."):
         with chat_container:
-            with st.chat_message("user"): st.write(user_query)
+            with st.chat_message("user"): 
+                st.write(user_query)
             with st.chat_message("assistant"):
-                with st.spinner("🤖 AI đang phân tích dữ liệu và tính toán định mức..."):
-                    clean_bom_records = []
-                    active_style_code = dynamic_keyword if dynamic_keyword != "UNKNOWN_STYLE" else "7L001073"
-                    if bom_records:
-                        for r in bom_records:
-                            r_style = str(r.get('style_code', r.get('style_name', r.get('Mã hàng đối chứng', '')))).strip().upper()
-                            # Bộ lọc đánh chặn dứt điểm không cho mã bẩn lọt vào bộ não AI
-                            if active_style_code in r_style or r_style == "" or r_style == "NAN":
-                                clean_bom_records.append(r)
+                with st.spinner("🤖 AI đang truy vấn dữ liệu hệ thống và phân tích..."):
                     
+                    # 🎯 THUẬT TOÁN ĐÁNH CHẶN: Tự động gửi requests bốc dữ liệu trực tiếp khi tra cứu mã vải
+                    query_upper = user_query.upper()
+                    if "TÌM" in query_upper or "TRA" in query_upper or "CODE" in query_upper:
+                        extracted_match = re.search(r'[A-Za-z0-9]+[\s\-_]*[A-Za-z0-9]+', user_query)
+                        target_fabric_code = extracted_match.group(0).strip() if extracted_match else ""
+                        
+                        if target_fabric_code:
+                            try:
+                                url_search = f"{base_sb_url}/rest/v1/san_pham"
+                                params_search = {
+                                    "select": "StyleName,ArticleName,MaterialSize,UOM,BodyType,InputPure",
+                                    "ArticleName": f"ilike.*{target_fabric_code}*"
+                                }
+                                res_search = requests.get(url_search, headers=headers, params=params_search, timeout=15)
+                                if res_search.status_code == 200 and len(res_search.json()) > 0:
+                                    st.session_state["bom_records"] = res_search.json()
+                                    bom_records = st.session_state["bom_records"]
+                            except Exception:
+                                pass
+
+                    # Làm sạch danh mục vật tư trước khi đưa vào hàm xử lý định mức AI
+                    clean_bom_records = []
+                    current_bom_source = bom_records if bom_records else st.session_state.get("bom_records", [])
+                    if current_bom_source:
+                        for r in current_bom_source:
+                            clean_bom_records.append(r)
+                    
+                    # Gọi bộ não AI xử lý với ngữ cảnh Database được bốc real-time
                     ai_reply = ai_consumption_analyst_engine(
                         client=client, user_message=user_query, matched_techpack=matched_techpack,
                         bom_records=clean_bom_records, new_style_measurements=new_style_measurements_dict,
@@ -1115,40 +1138,35 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
         )
 
     st.markdown("<br><hr style='border:0.5px solid #CBD5E1;'>", unsafe_allow_html=True)
-
-    # --------------------------------------------------------------------------
-    # 📁 ĐOẠN 2: KHỐI CHẶN FILE - NẾU CHƯA UP FILE THÌ DỪNG HIỂN THỊ CÁC BẢNG Ở DƯỚI
-    # --------------------------------------------------------------------------
+    # ==========================================================================
+    # KHỐI 5 - ĐOẠN 5.2: KHỐI CHẶN FILE & HIỂN THỊ CÁC BẢNG ĐỐI SOÁT THỰC TẾ
+    # ==========================================================================
     if not has_file:
         st.info("👋 Vui lòng tải lên tệp Techpack hồ sơ thiết kế (PDF) ở phía trên để hệ thống bắt đầu quét và lập lịch trình đối soát.")
         st.stop()
 
-    # 🎯 KHÔI PHỤC HOÀN TOÀN LOGIC REQUESTS GỐC CỦA BẠN - TÌM KIẾM THÔNG MINH 2 TẦNG (CHỐNG LỆCH MÃ)
+    # TỰ ĐỘNG QUÉT DỮ LIỆU ĐỐI CHỨNG THEO MÃ KHO (KHI ĐÃ UPLOAD FILE TECHPACK MỚI)
     if dynamic_keyword != "UNKNOWN_STYLE":
         try:
             url_db = f"{base_sb_url}/rest/v1/thong_so_techpack"
-            
-            # TẦNG 1: Thử truy vấn chính xác tuyệt đối tên mã hàng (Exact Match)
             query_params_eq = {"select": "StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL", "StyleName": f"eq.{dynamic_keyword}"}
             db_res_eq = requests.get(url_db, headers=headers, params=query_params_eq, timeout=15)
             
             if db_res_eq.status_code == 200 and len(db_res_eq.json()) > 0:
-                st.session_state["matched_techpack"] = db_res_eq.json()[0]
+                st.session_state["matched_techpack"] = db_res_eq.json()
             else:
-                # TẦNG 2: Nếu không thấy, tự động bẻ chuỗi số dài nhất tìm mờ (ilike) đúng như logic gốc của bạn
                 core_digits = re.findall(r'\d+', dynamic_keyword)
                 search_digits = max(core_digits, key=len) if core_digits else dynamic_keyword
                 query_params_fb = {"select": "StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL", "StyleName": f"ilike.*{search_digits}*"}
                 db_res_fb = requests.get(url_db, headers=headers, params=query_params_fb, timeout=15)
                 if db_res_fb.status_code == 200 and len(db_res_fb.json()) > 0:
-                    st.session_state["matched_techpack"] = db_res_fb.json()[0]
+                    st.session_state["matched_techpack"] = db_res_fb.json()
 
-            # BỐC DANH MỤC BOM THEO ĐÚNG MÃ ĐỐI CHỨNG ĐÃ ĐƯỢC XÁC THỰC (CHỐNG LỖI 1H)
             matched_techpack = st.session_state["matched_techpack"]
             if matched_techpack:
                 verified_style_bom = str(matched_techpack.get("StyleName", "")).strip()
                 url_bom = f"{base_sb_url}/rest/v1/san_pham"
-                query_bom = {"select": "style_name,article_name,consumption_type,material_size,uom,consumption_value,notes", "style_name": f"eq.{verified_style_bom}"}
+                query_bom = {"select": "StyleName,ArticleName,MaterialSize,UOM,BodyType,InputPure", "StyleName": f"eq.{verified_style_bom}"}
                 res_bom = requests.get(url_bom, headers=headers, params=query_bom, timeout=15)
                 if res_bom.status_code == 200:
                     st.session_state["bom_records"] = res_bom.json()
@@ -1158,7 +1176,6 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
     matched_techpack = st.session_state.get("matched_techpack")
     bom_records = st.session_state.get("bom_records", [])
 
-    # Khóa hiển thị cảnh báo
     if matched_techpack:
         st.success(f"🔒 HỆ THỐNG ĐÃ KHÓA CHẶT MÃ ĐỐI CHỨNG CHÍNH XÁC: **{matched_techpack.get('StyleName')}**")
     else:
@@ -1167,7 +1184,8 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
     st.markdown("### 🖼️ ĐỐI CHIẾU SỰ TƯƠNG ĐỒNG HÌNH ẢNH THIẾT KẾ (FLAT SKETCH)")
     img_col1, img_col2 = st.columns(2)
     with img_col1:
-        if target_new_sketch_bytes is not None: st.image(target_new_sketch_bytes, caption=f"Mẫu mới tải lên", use_container_width=True)
+        if target_new_sketch_bytes is not None: 
+            st.image(target_new_sketch_bytes, caption=f"Mẫu mới tải lên", use_container_width=True)
 
     st.markdown("<br>### 📐 SO SÁNH HAI BẢNG THÔNG SỐ KỸ THUẬT RẬP MẪU", unsafe_allow_html=True)
     spec_col1, spec_col2 = st.columns(2)
@@ -1191,15 +1209,16 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
         fallback_style_code = str(matched_techpack.get("StyleName", "")).strip().upper()
         for r in bom_records:
             def clean_nan(v): return "" if (not v or str(v).lower() in ["nan", "none", "null"]) else str(v).strip()
-            row_style = clean_nan(r.get("style_name")).upper()
-            if not row_style or row_style == "NAN": row_style = fallback_style_code
+            row_style = clean_nan(r.get("StyleName", r.get("style_name"))).upper()
+            if not row_style or row_style == "NAN": 
+                row_style = fallback_style_code
             formatted_bom.append({
                 "Mã hàng đối chứng": row_style,
-                "Loại nguyên vật liệu": clean_nan(r.get("consumption_type")),
-                "Chi tiết vật tư (Article)": clean_nan(r.get("article_name")),
-                "Khổ / Cỡ vật tư": clean_nan(r.get("material_size")),
-                "Định mức gốc": clean_nan(r.get("consumption_value")),
-                "UOM": clean_nan(r.get("uom"))
+                "Loại nguyên vật liệu": clean_nan(r.get("BodyType", r.get("consumption_type"))),
+                "Chi tiết vật tư (Article)": clean_nan(r.get("ArticleName", r.get("article_name"))),
+                "Khổ / Cỡ vật tư": clean_nan(r.get("MaterialSize", r.get("material_size"))),
+                "Định mức gốc": clean_nan(r.get("Input Pure", r.get("consumption_value"))),
+                "UOM": clean_nan(r.get("UOM", r.get("uom")))
             })
         st.dataframe(pd.DataFrame(formatted_bom), use_container_width=True, hide_index=True)
 
