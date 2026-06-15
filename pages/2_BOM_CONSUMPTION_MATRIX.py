@@ -1011,8 +1011,8 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
     st.markdown("---")
 
       
-       # ==========================================================================
-    # KHỐI 5 - ĐOẠN 5.1: GIAO DIỆN CHAT BOX & TRUY LỤC ĐA NHIỆM 3 KHO REAL-TIME
+        # ==========================================================================
+    # KHỐI 5 - ĐOẠN 5.1: GIAO DIỆN CHAT BOX & KẾT XUẤT ĐƯỜNG DẪN ẢNH CÔNG KHAI
     # ==========================================================================
     chat_header_col1, chat_header_col2 = st.columns([3.2, 0.8])
     with chat_header_col1:
@@ -1034,11 +1034,11 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
             with st.chat_message("assistant"):
                 with st.spinner("🔍 Hệ thống đang kết nối trực tiếp kho dữ liệu Supabase..."):
                     
-                    # Tự động làm sạch câu lệnh để cô lập mã vật tư
+                    # Tự động làm sạch câu lệnh để tách biệt tên mã cần tìm kiếm
                     query_upper = user_query.upper().strip()
                     target_fabric_code = query_upper
                     
-                    for word in ["TÌM KIẾM MÃ VẢI", "TÌM KIẾM CODE VẢI", "TÌM CODE VẢI", "TÌM MÃ VẢI", "TRA MÃ VẢI", "TÌM CODE", "TÌM MÃ", "TRA MÃ", "VẢI", "CODE", "TIM", "TRA", ":"]:
+                    for word in ["TÌM KIẾM MÃ VẢI", "TÌM KIẾM CODE VẢI", "TÌM CODE VẢI", "TÌM MÃ VẢI", "TRA MÃ VẢI", "TÌM CODE", "TÌM MÃ", "TRA MÃ", "VẢI", "CODE", "TIM", "TRA", ":", "TÔI CẦN THÔNG SỐ MÃ", "MÃ"]:
                         target_fabric_code = target_fabric_code.replace(word, "")
                     target_fabric_code = target_fabric_code.strip()
                     
@@ -1048,9 +1048,6 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                     local_sb_url = str(local_sb_url).strip().rstrip('/')
                     local_sb_key = str(local_sb_key).strip()
                     
-                    # ------------------------------------------------------
-                    # 🎯 THAY THẾ KHỐI TRA CỨU ĐA NHIỆM 3 KHO TỰ ĐỘNG
-                    # ------------------------------------------------------
                     try:
                         exact_headers = {
                             "apikey": local_sb_key,
@@ -1081,7 +1078,7 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                         url_tp = f"{local_sb_url}/rest/v1/thong_so_techpack"
                         params_tp = {
                             "select": "*",
-                            "StyleName": f"ilike.*{target_fabric_code}*",
+                            "style_name": f"ilike.*{target_fabric_code}*",
                             "limit": 20
                         }
                         res_tp = requests.get(url_tp, headers=exact_headers, params=params_tp, timeout=20)
@@ -1091,27 +1088,25 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                             techpack_records = res_tp.json()
                             if techpack_records:
                                 st.session_state["matched_techpack"] = techpack_records[0]
-                                st.markdown("### 📏 KHO THÔNG SỐ")
+                                st.markdown("### 📋 KHO THÔNG SỐ KỸ THUẬT")
                                 df_tp = pd.DataFrame(techpack_records)
                                 st.dataframe(df_tp, use_container_width=True, hide_index=True)
 
-                        # 3. TRUY VẤN KHO ẢNH SUPABASE STORAGE
-                        image_url = f"{local_sb_url}/storage/v1/object/public/kho_anh/{target_fabric_code}.jpg"
-                        st.markdown("### 🖼️ HÌNH ẢNH")
-                        try:
-                            st.image(image_url, use_container_width=True)
-                        except:
-                            pass
+                        # 3. TRUY VẤN KHO ẢNH SUPABASE STORAGE (PHƯƠNG PHÁP NHÚNG ĐƯỜNG DẪN CÔNG KHAI)
+                        st.markdown("### 🖼️ HÌNH ẢNH BẢN VẼ PHẲNG")
+                        
+                        # Sử dụng đường dẫn render ảnh công khai của Supabase Storage public bucket
+                        image_public_url = f"{local_sb_url}/storage/v1/object/public/kho_anh/{target_fabric_code}.jpg"
+                        
+                        # Vẽ trực tiếp lên màn hình bằng thư viện st.image mà không cần qua lệnh requests kiểm tra đầu biên May
+                        st.image(image_public_url, caption=f"Bản vẽ mẫu: {target_fabric_code}.jpg", use_container_width=True)
 
-                        # ĐOẠN DEBUG CHUẨN ĐOÁN SỐ LƯỢNG DÒNG
-                        st.caption(f"Search: {target_fabric_code} | SP: {len(bom_records)} | TP: {len(techpack_records)}")
+                        st.caption(f"Đối soát: {target_fabric_code} | Số lượng dòng SP: {len(bom_records)} | Bản ghi TP: {len(techpack_records)}")
 
                     except Exception as e:
-                        st.error(f"Lỗi kết nối Supabase: {str(e)}")
+                        st.error(f"Lỗi cổng kết nối hệ thống Supabase: {str(e)}")
 
-                    # ------------------------------------------------------
-                    # 🎯 THAY THẾ KHỐI ĐỒNG BỘ NẠP NGỮ CẢNH CHO BỘ NÃO AI
-                    # ------------------------------------------------------
+                    # ĐỒNG BỘ NẠP NGỮ CẢNH CHO BỘ NÃO AI ENGINE
                     clean_bom_records = []
                     current_bom_source = st.session_state.get("bom_records", [])
                     matched_techpack = st.session_state.get("matched_techpack", None)
@@ -1120,7 +1115,6 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                         for r in current_bom_source:
                             clean_bom_records.append(r)
                     
-                    # Cấu hình an toàn các biến phụ trợ tránh lỗi cục bộ
                     s_measurements = new_style_measurements_dict if 'new_style_measurements_dict' in locals() else {}
                     s_sketch = target_new_sketch_bytes if 'target_new_sketch_bytes' in locals() else None
                     s_size = new_style_base_size if 'new_style_base_size' in locals() else "M"
@@ -1138,6 +1132,7 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
         )
 
     st.markdown("<br><hr style='border:0.5px solid #CBD5E1;'>", unsafe_allow_html=True)
+
 
 
     
