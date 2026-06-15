@@ -817,31 +817,48 @@ def parse_fraction(val_str):
         return float(val_str) if val_str else 0.0
     except Exception:
         return 0.0
+
 def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_records, new_style_measurements, target_new_sketch_bytes, detected_size):
     """
     Bộ não xử lý tính toán định mức nâng cao bằng đơn vị YARD (Yds).
     Tự động áp hệ số hiệu suất sơ đồ chuẩn PPJ Group: Woven 88%, Denim 90%, Knit 87%.
-    Bổ sung cơ chế quét tìm dữ liệu BOM hệ thống để tránh bỏ sót vải lót, chun, cúc, keo.
+    Bảo đảm quét sạch Vải lót (Pocketing), Chun (Elastic), Keo và Trims tổng hợp, khóa chặt nhãn UOM là Yds.
+    VÁ LỖI: Đối sánh chính xác tuyệt đối mã hàng lịch sử, ngăn chặn bốc nhầm mã đối chứng.
     """
-    # 🎯 BƯỚC THAY ĐỔI: TỰ ĐỘNG DÒ TÌM BOM TỪ SESSION STATE NẾU BIẾN TRUYỀN VÀO BỊ TRỐNG
+    # 🎯 1. TỰ ĐỘNG NEO GIÁ TRỊ TỪ SESSION STATE NẾU BIẾN HOẶC MẢNG TRUYỀN VÀO TRỐNG KHI CHAT ĐỘC LẬP
     if not bom_records:
         bom_records = st.session_state.get("bom_records", st.session_state.get("current_bom_data", []))
         
-    bom_summary = ""
+    style_old_name = "N/A"
+    specs_old = {}
+    if matched_techpack:
+        # Lấy chính xác mã code đối chứng đang xử lý thực tế trên giao diện để so khớp
+        style_old_name = str(matched_techpack.get("StyleCode", matched_techpack.get("StyleName", "N/A"))).strip().upper()
+        specs_old = matched_techpack.get("DetailedMeasurements", {})
+
+    # 🎯 2. VÁ LỖI BỐC NHẦM MÃ: Khóa chặt điều kiện lọc chuỗi BOM, loại bỏ râu ông nọ cắm cằm bà kia
+    bom_summary_list = []
     if bom_records:
-        bom_summary = "\n".join([
-            f"- Loại vật tư: {r.get('consumption_type', r.get('Component/Content/COO', 'N/A'))}, "
-            f"Tên/Mã: {r.get('article_name', r.get('Art/Suppl/Vndr', 'N/A'))}, "
-            f"Vị trí: {r.get('Use/Placement', 'N/A')}, ĐM gốc: {r.get('consumption_value', r.get('Qty/UM', '0'))}" 
-            for r in bom_records
-        ])
+        for r in bom_records:
+            r_style = str(r.get('style_code', r.get('style_name', r.get('Mã hàng đối chứng', '')))).strip().upper()
+            
+            # ĐIỀU KIỆN KHÓA CHẶT CHÍNH XÁC: Chỉ giữ lại dữ liệu nếu dòng vật tư trùng khít với mã đối chứng
+            if style_old_name == "N/A" or style_old_name in r_style or r_style == "":
+                comp = r.get('consumption_type', r.get('Component/Content/COO', r.get('Loại nguyên vật liệu', 'N/A')))
+                placement = r.get('use_placement', r.get('Use/Placement', r.get('Vị trí sử dụng', 'N/A')))
+                art = r.get('article_name', r.get('Art/Suppl/Vndr', r.get('Chi tiết vật tư (Article)', 'N/A')))
+                val = r.get('consumption_value', r.get('Qty/UM', r.get('Định mức gốc', '0')))
+                uom = r.get('uom', r.get('UOM', 'YRD'))
+                bom_summary_list.append(f"- Mã: {r_style if r_style else style_old_name}, Vật tư: {comp}, Vị trí: {placement}, Loại: {art}, ĐM gốc: {val} {uom}")
+
+    # Nếu mảng vật tư bị lệch hoặc trống rỗng sau khi lọc chính xác mã, phát cảnh báo chạy hình học
+    if not bom_summary_list and matched_techpack and style_old_name != "N/A":
+        bom_summary = f"⚠️ HỆ THỐNG CẢNH BÁO: Dữ liệu BOM truyền vào không đồng bộ với mã đối chứng {style_old_name}. Hãy tự động trích xuất cấu trúc phẳng nguyên vật liệu từ Techpack hình ảnh."
+        matched_techpack = None  # Ép rẽ nhánh sang kịch bản hình học độc lập để không ăn theo định mức sai
     else:
-        # Kịch bản khẩn cấp: Nhắc AI tự bóc các thành phần lót/chun dựa trên ảnh Techpack đính kèm nếu Database trống
-        bom_summary = "KHÔNG CÓ DỮ LIỆU DATABASE. Hãy tự động trích xuất các hạng mục Pocketing (Vải lót), Elastic (Chun), Trims từ tài liệu hình ảnh Techpack đính kèm."
+        bom_summary = "\n".join(bom_summary_list)
 
-    style_old_name = matched_techpack.get("StyleName", "N/A") if matched_techpack else "N/A"
-    specs_old = matched_techpack.get("DetailedMeasurements", {}) if matched_techpack else {}
-
+    # 🎯 3. TRÍCH XUẤT THÔNG SỐ CO RÚT & KHỔ VẢI TỪ LỆNH CHAT
     shrinkage_width = re.findall(r'(?:CO RÚT NGANG|NGANG)\s*(\d+(?:\.\d+)?)\s*%', user_message.upper())
     shrinkage_length = re.findall(r'(?:CO RÚT DỌC|DỌC)\s*(\d+(?:\.\d+)?)\s*%', user_message.upper())
     new_fabric_width = re.findall(r'(?:KHỔ VẢI|KHỔ)\s*(\d+)\s*(?:\"|INCH|INCHES)?', user_message.upper())
@@ -850,15 +867,16 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
     l_shrink_val = shrinkage_length if shrinkage_length else None
     new_fabric_width_val = new_fabric_width if new_fabric_width else None
 
-    w_shrink = float(w_shrink_val) if w_shrink_val else 0.0
-    l_shrink = float(l_shrink_val) if l_shrink_val else 0.0
-    f_width = float(new_fabric_width_val) if new_fabric_width_val else 0.0
+    w_shrink = float(w_shrink_val[0]) if w_shrink_val else 0.0
+    l_shrink = float(l_shrink_val[0]) if l_shrink_val else 0.0
+    f_width = float(new_fabric_width_val[0]) if new_fabric_width_val else 0.0
 
-    if matched_techpack:
-        scenario_instruction = f"KỊCH BẢN ĐỒNG DẠNG: Đối chiếu với Spec cũ {json.dumps(specs_old)} và danh sách cấu trúc BOM mục tiêu: {bom_summary}."
+    if matched_techpack and "⚠️" not in bom_summary:
+        scenario_instruction = f"KỊCH BẢN ĐỒNG DẠNG CHUẨN MÃ: Đối chiếu thông số rập mới với Spec mã {style_old_name} {json.dumps(specs_old)} và tính chênh lệch tăng giảm dựa trên danh mục BOM chuẩn của đúng mã {style_old_name}: \n{bom_summary}"
     else:
-        scenario_instruction = f"KỊCH BẢN VECTOR HÌNH HỌC: Tính toán dựa trên New Spec kết hợp quét toàn bộ danh mục vật tư BOM mục tiêu: {bom_summary}."
+        scenario_instruction = f"KỊCH BẢN VECTOR HÌNH HỌC TỰ ĐỘNG: Tính diện tích bao rập thô từ New Spec và Flat Sketch. Quét tìm và tự tính toàn bộ danh mục vật tư từ kịch bản hình ảnh đính kèm: \n{bom_summary}"
 
+    # 🎯 4. CẤU HÌNH SIẾT CHẶT PROMPT ÉP KẾT QUẢ RA BẢNG MẪU MERRELL CHUẨN YARDS ĐỘC LẬP
     system_instruction = f"""
     You are a strict Industrial Garment Costing Engineer at PPJ Group. 
     STRICT REQUIREMENT: Provide the final analysis ONLY in a Markdown Table format matching the MERRELL template. 
@@ -869,26 +887,28 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
     | Style Code | Style Name | Garment Type | Marker Type | Fabric Width | Shrink L | Shrink W | Item | Net Consumption | UOM | Booking +3% | Booking +5% | Unit Price USD | Material Cost USD/pc |
 
     PPJ GROUP - MANDATORY MARKER EFFICIENCY FACTOR:
-    Identify the garment type and apply the exact efficiency factor:
-    - WOVEN (Vải dệt thoi): 88%
-    - DENIM (Hàng bò/jeans): 90%
-    - KNIT (Vải dệt kim/thun): 87%
+    Identify the garment category and fabric material type from techpack context, then apply the exact PPJ standard marker efficiency to the calculations:
+    - If Category is WOVEN (Vải dệt thoi): Marker Efficiency = 88% (Divide total bounding area by 0.88)
+    - If Category is DENIM (Hàng bò/jeans): Marker Efficiency = 90% (Divide total bounding area by 0.90)
+    - If Category is KNIT (Vải dệt kim/thun/Track Pants): Marker Efficiency = 87% (Divide total bounding area by 0.87)
 
-    CRITICAL SUMMARY & TRIMS RULES:
-    1. NO MISSING ITEMS: You MUST read the BOM data context and generate individual rows for EVERY material type listed. 
-    2. REQUIRED ITEMS IF PRESENT IN CONTEXT: Include 'Shell Fabric', 'Pocketing/Lining Fabric' (Vải lót), 'Elastic' (Thun cạp), 'Drawcord/Cording' (Dây dệt), and 'Thread/Zippers/Trims'. 
-    3. UOM CONSTRAINT: Fabric items (Shell, Pocketing) MUST display "Yds". Trims/Elastic can use "Yds", "M", or "PC" as specified in BOM.
-    4. CALCULATIONS: 
-       - Net Consumption for Fabrics = [Bounding Area] / [Width * (1 - Shrink W/100)] * (1 + Shrink L/100) / 36 / [Efficiency]
-       - Net Consumption for Trims/Elastic = Base BOM Qty * (1 + Shrink L/100) if affected by shrinkage, else keep base Qty.
+    CRITICAL SUMMARY & AGGREGATION RULES:
+    1. NO MISSING ITEMS: You MUST read the BOM data or analyze the technical drawings to list rows for ALL required components.
+    2. REQUIRED LISTING: You MUST generate individual rows for 'Shell Fabric', 'Pocketing Fabric / Lining' (Vải lót túi), 'Elastic' (Chun cạp), 'Drawcord / Cording' (Dây luồn), 'Interlining' (Keo), and Trims (Thread, Zipper) if they exist. Do NOT skip Pocketing or Elastic.
+    3. UOM CONSTRAINT: For all Fabric items (Shell, Pocketing, Lining, Interlining), the UOM column MUST explicitly display "Yds" (Yards). NEVER use "M" or "Meter". If base BOM values are in meters, multiply by 1.09361 to convert to YARDS.
+    4. SHRINKAGE COMPENSATE FORMULA: 
+       - Net Consumption (Yds) = [Sum of Bounding Box Area of Components (sq inches)] / [Usable Width * (1 - Shrink W/100)] * (1 + Shrink L/100) / 36 / [PPJ Marker Efficiency Factor]
+       - Ensure that a {w_shrink}% Shrink W or {l_shrink}% Shrink L results in a logically HIGHER Net Consumption to prevent under-costing.
+    5. Calculations for Booking:
        - 'Booking +3%' = Net Consumption * 1.03
        - 'Booking +5%' = Net Consumption * 1.05
-    5. Context data: {scenario_instruction}
+       - Leave Price/Cost as N/A or 0.00 if not provided.
+    6. Context data: {scenario_instruction}
 
     DATA FOR CALCULATION:
-    - Style Code / Name: P08-500722 / 5614 LR PULL ON TRACK PANTS
-    - Target Size: Detected from spec data
-    - New Spec (POM): {json.dumps(new_style_measurements)}
+    - Style Code / Name: {style_old_name if style_old_name != 'N/A' else '5614'} / {matched_techpack.get('StyleName', '5614 LR PULL ON TRACK PANTS') if matched_techpack else '5614 LR PULL ON TRACK PANTS'}
+    - Target Base Size detected: Size {detected_size if detected_size else 'M'}
+    - New Spec (POM) parsed by vision: {json.dumps(new_style_measurements)}
     - Fabric Width requested: {f_width if f_width > 0 else '55 in'}
     - Width Shrinkage (Shrink W): {w_shrink}% | Length Shrinkage (Shrink L): {l_shrink}%
     """
@@ -909,7 +929,6 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
         return ai_reply
     except Exception as e:
         return f"🚨 Lỗi cổng phân tích định mức: {str(e)}"
-
 
 
 
