@@ -1011,8 +1011,8 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
     st.markdown("---")
 
       
-        # ==========================================================================
-    # KHỐI 5 - ĐOẠN 5.1: GIAO DIỆN CHAT BOX & BỘ SỬA LỖI ĐỒNG BỘ SECRETS TOKEN KHO
+         # ==========================================================================
+    # KHỐI 5 - ĐOẠN 5.1: GIAO DIỆN CHAT BOX & ÉP BUỘC XÁC THỰC TOKEN KHO CỤC BỘ
     # ==========================================================================
     chat_header_col1, chat_header_col2 = st.columns([3.2, 0.8])
     with chat_header_col1:
@@ -1041,40 +1041,43 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                         target_fabric_code = target_fabric_code.replace(word, "")
                     target_fabric_code = target_fabric_code.strip()
                     
-                    # 🎯 SỬA LỖI ĐỒNG BỘ TRÙNG KHỚP BIẾN SECRETS (BẪY CẢ 2 PHƯƠNG ÁN ĐẶT TÊN CỦA BẠN)
-                    local_sb_url = st.secrets.get("SB_URL", st.secrets.get("SUPABASE_URL", globals().get("SB_URL", "")))
-                    local_sb_key = st.secrets.get("SB_KEY", st.secrets.get("SUPABASE_KEY", globals().get("SB_KEY", "")))
-                    
-                    #Ép kiểu chuỗi sạch để tránh lỗi ký tự khoảng trắng
-                    local_sb_url = str(local_sb_url).strip().rstrip('/')
-                    local_sb_key = str(local_sb_key).strip()
+                    # ĐỌC TRỰC TIẾP BIẾN MÔI TRƯỜNG ĐỘC LẬP TỪ SECRETS ĐỂ ĐẢM BẢO KHÔNG BỊ RỖNG
+                    local_sb_url = str(st.secrets.get("SB_URL", st.secrets.get("SUPABASE_URL", globals().get("SB_URL", "")))).strip().rstrip('/')
+                    local_sb_key = str(st.secrets.get("SB_KEY", st.secrets.get("SUPABASE_KEY", globals().get("SB_KEY", "")))).strip()
                     
                     is_search_intent = any(k in query_upper for k in ["TÌM", "TRA", "CODE", "VẢI", "SJ-", "D00"])
                     
                     if is_search_intent and target_fabric_code and local_sb_url and local_sb_key:
                         try:
                             url_search = f"{local_sb_url}/rest/v1/san_pham"
+                            
+                            # 🎯 ÉP CẤU HÌNH TOKEN RIÊNG BIỆT KHÔNG ĂN THEO KHỐI LỆNH NGOÀI
                             exact_headers = {
                                 "apikey": local_sb_key, 
                                 "Authorization": f"Bearer {local_sb_key}"
                             }
+                            
                             params_search = {
                                 "select": "StyleName,ArticleName,MaterialSize,UOM,BodyType,InputPure",
                                 "ArticleName": f"ilike.*{target_fabric_code}*"
                             }
+                            
                             res_search = requests.get(url_search, headers=exact_headers, params=params_search, timeout=15)
                             
+                            # 🎯 NẾU CÓ DỮ LIỆU KHO THỰC TẾ, IN THẲNG RA WEB CHO NGƯỜI DÙNG XEM NGAY
                             if res_search.status_code == 200 and len(res_search.json()) > 0:
                                 st.session_state["bom_records"] = res_search.json()
                                 bom_records = st.session_state["bom_records"]
                                 
-                                # Vẽ trực tiếp bảng dữ liệu kho thực tế ra màn hình chat để bạn xem ngay thông số
                                 st.markdown("📊 **Dữ liệu kho thực tế tìm thấy trùng khớp:**")
                                 df_chat_view = pd.DataFrame(res_search.json())
                                 df_chat_view.columns = ["Mã hàng", "Mã vải (Article)", "Khổ vải", "UOM", "Loại vật tư", "ĐM gốc"]
                                 st.dataframe(df_chat_view, use_container_width=True, hide_index=True)
-                        except Exception:
-                            pass
+                            else:
+                                # In mã lỗi hoặc trạng thái rỗng ra màn hình console của Streamlit để debug nhanh
+                                print(f"Supabase Status: {res_search.status_code} | Empty List Returned")
+                        except Exception as e:
+                            print(f"Connection Error: {str(e)}")
 
                     clean_bom_records = []
                     current_bom_source = bom_records if 'bom_records' in locals() and bom_records else st.session_state.get("bom_records", [])
@@ -1082,7 +1085,7 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                         for r in current_bom_source:
                             clean_bom_records.append(r)
                     
-                    # Đảm bảo các biến đối soát không bị lỗi sập cục bộ khi chưa tải file
+                    # Chống sập cục bộ các biến kỹ thuật
                     s_techpack = matched_techpack if 'matched_techpack' in locals() and matched_techpack else st.session_state.get("matched_techpack")
                     s_measurements = new_style_measurements_dict if 'new_style_measurements_dict' in locals() else {}
                     s_sketch = target_new_sketch_bytes if 'target_new_sketch_bytes' in locals() else None
@@ -1101,7 +1104,6 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
         )
 
     st.markdown("<br><hr style='border:0.5px solid #CBD5E1;'>", unsafe_allow_html=True)
-
 
     
     # ==========================================================================
