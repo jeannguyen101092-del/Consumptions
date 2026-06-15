@@ -822,6 +822,7 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
     Bộ não xử lý tính toán định mức nâng cao bằng đơn vị YARD (Yds).
     Tự động kích hoạt cơ chế Vecto Hình Học Ngành May nếu KHÔNG CÓ mã tương đồng.
     Tích hợp biên may 0.44", dò tìm lai và quy tắc tách biệt Quần/Áo (Chống lộn Nẹp).
+    Tự động áp hệ số hiệu suất sơ đồ chuẩn PPJ Group: Woven 88%, Denim 90%, Knit 87%.
     """
     style_old_name = matched_techpack.get("StyleName", "N/A") if matched_techpack else "N/A"
     specs_old = matched_techpack.get("DetailedMeasurements", {}) if matched_techpack else {}
@@ -847,9 +848,9 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
     else:
         scenario_instruction = f"KỊCH BẢN VECTOR HÌNH HỌC: Tính diện tích rập thô từ New Spec và Flat Sketch trên khổ {f_width if f_width > 0 else '58 inch'}."
 
-    # PROMPT SIẾT CHẶT CÔNG THỨC YARDS VÀ KHÓA CHẶT ĐƠN VỊ UOM
+    # PROMPT TÍCH HỢP HỆ SỐ HIỆU SUẤT SƠ ĐỒ CHUẨN PPJ GROUP
     system_instruction = f"""
-    You are an Industrial Garment Costing Engineer. 
+    You are a strict Industrial Garment Costing Engineer at PPJ Group. 
     STRICT REQUIREMENT: Provide the final analysis ONLY in a Markdown Table format matching the MERRELL template. 
     DO NOT include intro, outro, conversational fillers, or wordy explanations. Go straight to the table.
 
@@ -857,13 +858,19 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
 
     | Style Code | Style Name | Garment Type | Marker Type | Fabric Width | Shrink L | Shrink W | Item | Net Consumption | UOM | Booking +3% | Booking +5% | Unit Price USD | Material Cost USD/pc |
 
+    PPJ GROUP - MANDATORY MARKER EFFICIENCY FACTOR:
+    Based on the 'Garment Type' or Fabric material identified, you MUST apply the exact PPJ standard marker efficiency to the geometric calculations:
+    - If Category/Material is WOVEN (Hàng vải dệt thoi): Marker Efficiency = 88% (Divide total bounding area by 0.88)
+    - If Category/Material is DENIM (Hàng bò/jeans): Marker Efficiency = 90% (Divide total bounding area by 0.90)
+    - If Category/Material is KNIT (Hàng thun/vải dệt kim): Marker Efficiency = 87% (Divide total bounding area by 0.87)
+
     CRITICAL YARDS CONVERSION & MATHEMATICS RULES (STRICT):
     1. UOM COLUMN CONSTRAINT: For all Fabric items (Shell, Lining, Interlining), the UOM column MUST explicitly display "Yds". NEVER output "M" or "Meter".
     2. CONVERSION FORMULA: If the original data is in Meters, you MUST multiply by 1.09361 to convert to YARDS.
-    3. SHRINKAGE COMPENSATE FORMULA: 
-       - Net Consumption (Yds) = [Base Pattern Length (inches) + Seam Allowances] * (1 + Shrink L / 100) / 36 * Standard Marker Efficiency factor (typically 1.15 to account for layout waste).
-       - Ensure that a 12% Shrink W or 3% Shrink L results in a logically HIGHER Net Consumption to prevent under-costing.
-    4. TRIMS LOGIC: Non-fabric items (Thread, Snap, Zipper) should use appropriate UOM (e.g., PC, M, Cones) as specified in BOM but fabric items MUST be in "Yds".
+    3. AGGREGATION & ROLL-UP: DO NOT create separate rows for detail pattern pieces (Front, Back, Sleeve, etc.). Group and SUM them up into a single row per fabric item type (e.g., Shell Fabric, Lining Fabric).
+    4. SHRINKAGE COMPENSATE FORMULA: 
+       - Net Consumption (Yds) = [Sum of Bounding Box Area of Components] / [Usable Fabric Width * (1 - Shrink W / 100)] * (1 + Shrink L / 100) / 36 / [PPJ Marker Efficiency Factor]
+       - Ensure a 12% Shrink W or 3% Shrink L results in a logically HIGHER Net Consumption to prevent under-costing.
     5. Calculations for Booking:
        - 'Booking +3%' = Net Consumption * 1.03
        - 'Booking +5%' = Net Consumption * 1.05
