@@ -1008,17 +1008,24 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
             db_res = requests.get(url_db, headers=headers_db, params=query_params, timeout=15)
             all_historical_styles = db_res.json() if db_res.status_code == 200 else []
             
-            # ✅ SỬA LOGIC: Nếu gõ tìm kiếm chính xác mã hàng, gán thẳng kết quả đối chứng và bỏ qua AI
+                       # ✅ SỬA LOGIC: Lọc chính xác phần tử đầu tiên từ danh sách kết quả tìm kiếm thủ công
             is_manual_match = False
             if st.session_state["search_style_id"] and all_historical_styles:
-                exact_matches = [s for s in all_historical_styles if st.session_state["search_style_id"] in str(s.get("StyleName", "")).upper()]
+                # Tiến hành chuẩn hóa dữ liệu chuỗi để tìm kiếm không phân biệt ký tự hoa thường
+                exact_matches = [
+                    s for s in all_historical_styles 
+                    if st.session_state["search_style_id"] in str(s.get("StyleName", "")).strip().upper()
+                ]
+                
                 if exact_matches:
+                    # Lấy phần tử đầu tiên [0] của danh sách thay vì gán toàn bộ mảng List
                     st.session_state["matched_techpack"] = exact_matches[0]
                     is_manual_match = True
-                    st.toast(f"🎯 Đã tìm thấy mã hàng đối chứng chính xác: {exact_matches[0].get('StyleName')}")
+                    st.toast(f"🎯 Đã tìm thấy mã hàng đối chứng chính xác: {st.session_state['matched_techpack'].get('StyleName')}")
                 else:
                     st.session_state["matched_techpack"] = None
                     st.warning(f"⚠️ Không tìm thấy mã hàng '{st.session_state['search_style_id']}' trong kho dữ liệu.")
+
 
             # Chỉ chạy AI gợi ý hình ảnh nếu KHÔNG tìm kiếm chính xác thủ công
             if not is_manual_match and all_historical_styles:
