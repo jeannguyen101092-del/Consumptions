@@ -978,7 +978,7 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
             st.success("♻️ MEMORY PURGED - SẴN SÀNG CHO MÃ HÀNG MỚI")
             st.rerun()
 
-    st.markdown("<p style='font-weight:700; font-size:12px; color:#1E293B; margin-top:10px;'>🔍 TÌM KIẾM MÃ HÀNG TRONG KHO (CHỦ ĐỘNG ĐỐI SOÁT)</p>", unsafe_allow_html=True)
+    st.markdown("<p style='font-weight:700; font-size:12px; color:#1E293B; margin-top:10px;'>🔍 TÌM KIẾM MÃ HÀNG TRONG KHO (CHỦ ĐỘNG ĐỐO SOÁT)</p>", unsafe_allow_html=True)
     search_query = st.text_input(
         "Nhập mã hàng cần tìm kiếm...", 
         placeholder="Ví dụ: EMV0017, EML0016, EMR0007...", 
@@ -1008,13 +1008,20 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
             db_res = requests.get(url_db, headers=headers_db, params=query_params, timeout=15)
             all_historical_styles = db_res.json() if db_res.status_code == 200 else []
             
+            # ✅ SỬA LOGIC: Nếu gõ tìm kiếm chính xác mã hàng, gán thẳng kết quả đối chứng và bỏ qua AI
+            is_manual_match = False
             if st.session_state["search_style_id"] and all_historical_styles:
                 exact_matches = [s for s in all_historical_styles if st.session_state["search_style_id"] in str(s.get("StyleName", "")).upper()]
                 if exact_matches:
-                    all_historical_styles = exact_matches
-                    st.toast(f"🎯 Đã tìm thấy mã hàng đối chứng: {all_historical_styles[0].get('StyleName')}")
+                    st.session_state["matched_techpack"] = exact_matches[0]
+                    is_manual_match = True
+                    st.toast(f"🎯 Đã tìm thấy mã hàng đối chứng chính xác: {exact_matches[0].get('StyleName')}")
+                else:
+                    st.session_state["matched_techpack"] = None
+                    st.warning(f"⚠️ Không tìm thấy mã hàng '{st.session_state['search_style_id']}' trong kho dữ liệu.")
 
-            if all_historical_styles:
+            # Chỉ chạy AI gợi ý hình ảnh nếu KHÔNG tìm kiếm chính xác thủ công
+            if not is_manual_match and all_historical_styles:
                 styles_pool_summary = []
                 for idx, s in enumerate(all_historical_styles):
                     styles_pool_summary.append({
@@ -1040,6 +1047,7 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                 Select the single index that represents the exact match in internal technical stitching construction, NOT just the shorts frame.
                 Return a raw valid JSON object inside your response: {{"selected_pool_index": 0}}
                 """
+
 
 
                 
