@@ -791,7 +791,7 @@ except ImportError:
 
 def parse_fraction(val_str):
     """
-    HÀM QUY ĐỔI PHẦN SỐ NGÀNH MAY CHUẨN PPJ
+    HÀM QUY ĐỔI PHÂN SỐ NGÀNH MAY CHUẨN PPJ
     Chuyển đổi chính xác các dạng chuỗi như '1 1/2', '3/4', '1.5"' về dạng float.
     """
     if not val_str: 
@@ -864,7 +864,7 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
     f_width = float(new_fabric_width_val) if new_fabric_width_val else 0.0
 
     if matched_techpack and "⚠️" not in bom_summary:
-        scenario_instruction = f"KỊCH BẢN ĐỒNG DẠNG CHUẨN MÃ: Đối chiếu thông số rập mới với Spec mã {style_old_name} {json.dumps(specs_old)} and tính chênh lệch tăng giảm dựa trên danh mục BOM chuẩn của đúng mã {style_old_name}: \n{bom_summary}"
+        scenario_instruction = f"KỊCH BẢN ĐỒNG DẠNG CHUẨN MÃ: Đối chiếu thông số rập mới với Spec mã {style_old_name} {json.dumps(specs_old)} và tính chênh lệch tăng giảm dựa trên danh mục BOM chuẩn của đúng mã {style_old_name}: \n{bom_summary}"
     else:
         scenario_instruction = f"KỊCH BẢN VECTOR HÌNH HỌC TỰ ĐỘNG: Tính diện tích bao rập thô từ New Spec và Flat Sketch. Quét tìm và tự tính toàn bộ danh mục vật tư từ kịch bản hình ảnh đính kèm: \n{bom_summary}"
 
@@ -890,10 +890,14 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
     4. SHRINKAGE COMPENSATE FORMULA: 
        - Net Consumption (Yds) = [Sum of Bounding Box Area of Components (sq inches)] / [Usable Width * (1 - Shrink W/100)] * (1 + Shrink L/100) / 36 / [PPJ Marker Efficiency Factor]
        - Ensure that a {w_shrink}% Shrink W or {l_shrink}% Shrink L results in a logically HIGHER Net Consumption to prevent under-costing.
-   
+    5. Calculations for Booking:
+       - 'Booking +3%' = Net Consumption * 1.03
+       - 'Booking +5%' = Net Consumption * 1.05
+       - Leave Price/Cost as N/A or 0.00 if not provided.
+    6. Context data: {scenario_instruction}
 
     DATA FOR CALCULATION:
-    - Style Code / Name: {style_old_name if style_old_name != 'N/A' else '5614'} / {matched_techpack.get('StyleName', '5614 LR PULL ON TRACK PANTS') if matched_techpack else '5614 LR PULL ON TRACK PANTS'}
+    - Style Code / Name: {style_old_name if style_old_name != 'N/A' else 'MÃ ĐỐI CHỨNG'} / {matched_techpack.get('StyleName', 'MẪU TRONG KHO') if matched_techpack else 'MẪU TRONG KHO'}
     - Target Base Size detected: Size {detected_size if detected_size else 'M'}
     - New Spec (POM) parsed by vision: {json.dumps(new_style_measurements)}
     - Fabric Width requested: {f_width if f_width > 0 else '55 in'}
@@ -977,7 +981,7 @@ def process_single_pdf_batch(file_bytes, file_name):
                     parsed_json = json.loads(response.text)
                     raw_style = str(parsed_json.get("style_number_parsed", "")).strip().upper()
                     
-                    # 🎯 THUẬT TOÁN ĐÁNH CHẶN CHUẨN HÓA MÃ HÀNG GỐC PPJ KHÔNG CHO LỆCH MÃ
+                    # Bộ lọc Regex thông minh chuẩn hóa mã hàng
                     if "01073" in raw_style and raw_style.startswith("1H"):
                         parsed_json["style_number_parsed"] = raw_style.replace("1H", "7L")
                     elif "5614" in raw_style or "01073" in raw_style:
@@ -1037,6 +1041,7 @@ if has_file:
     else:
         target_new_sketch_bytes = file_bytes
 
+# THUẬT TOÁN ĐỐI SOÁT TRUY VẤN DATABASE THÔNG MINH 2 TẦNG CHỐNG BỐC LỆCH MÃ BOM
 dynamic_keyword = str(new_style_id_detected).strip().upper()
 base_sb_url = SB_URL.rstrip('/')
 headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
@@ -1047,16 +1052,29 @@ current_bom_records = []
 
 if sb_instance and dynamic_keyword != "UNKNOWN_STYLE":
     try:
-        # 🔒 ÉP ĐỐI SÁNH CHÍNH XÁC TUYỆT ĐỐI BẰNG .eq() ĐỂ KHÔNG BỊ TRỘN MÃ 1H VÀO 7L
+        # TẦNG 1: Thử đối sánh bằng chính xác 100% mã chữ trong kho trước
         style_query = sb_instance.table("historical_techpacks").select("*").eq("StyleCode", dynamic_keyword).execute()
+        
         if style_query.data:
-            current_matched_techpack = style_query.data[0] if isinstance(style_query.data, list) else style_query.data
-            bom_query = sb_instance.table("historical_bom_records").select("*").eq("style_code", dynamic_keyword).execute()
+            current_matched_techpack = style_query.data if isinstance(style_query.data, list) else style_query.data
+        else:
+            # TẦNG 2 (FALLBACK): Nếu mã mới hoàn toàn, bóc cụm số dài nhất giống kịch bản gốc của bạn để tìm tương đồng
+            core_digits = re.findall(r'\d+', dynamic_keyword)
+            search_digits = max(core_digits, key=len) if core_digits else dynamic_keyword
+            
+            fb_query = sb_instance.table("historical_techpacks").select("*").ilike("StyleCode", f"%{search_digits}%").execute()
+            if fb_query.data:
+                current_matched_techpack = fb_query.data if isinstance(fb_query.data, list) else fb_query.data
+
+        # NÚT CHẶN BẢO VỆ TUYỆT ĐỐI: Dùng chính xác mã của Techpack vừa chọn được để ép điều kiện gọi bảng BOM vật tư
+        if current_matched_techpack:
+            verified_style_code = current_matched_techpack.get("StyleCode", current_matched_techpack.get("StyleName", dynamic_keyword))
+            bom_query = sb_instance.table("historical_bom_records").select("*").eq("style_code", verified_style_code).execute()
             current_bom_records = bom_query.data if bom_query.data else []
+
     except Exception:
         pass
 
-# Quản lý giao diện khối menu tác vụ
 if menu_selection == "🧵 BOM & Consumption Matrix":
     st.markdown('<div class="component-title-box">🧵 INTELLIGENT BOM & CONSUMPTION MATRIX ENGINE</div>', unsafe_allow_html=True)
     
@@ -1080,76 +1098,8 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
             st.rerun()
 
     st.markdown("---")
-    if not has_file:
-        st.info("👋 Vui lòng tải lên tệp Techpack hồ sơ thiết kế (PDF) ở phía trên để hệ thống bắt đầu quét và lập lịch trình đối soát.")
-        st.stop()
-
-    # 🔒 KHÓA CỨNG ĐÁNH CHẶN KHÔNG CHO AI VISION ĐOÁN MÒ ĐÈ SAI MÃ CHUẨN
-    is_exact_match_found = False
-    if st.session_state.get("matched_techpack") is not None:
-        c_code = str(st.session_state["matched_techpack"].get("StyleCode", st.session_state["matched_techpack"].get("StyleName", ""))).strip().upper()
-        if c_code == dynamic_keyword and dynamic_keyword != "UNKNOWN_STYLE":
-            is_exact_match_found = True
-
-    if is_exact_match_found:
-        st.success(f"🔒 HỆ THỐNG ĐÃ KHÓA CHẶT MÃ ĐỐI CHỨNG CHÍNH XÁC THEO MÃ KHO: **{dynamic_keyword}**.")
-    else:
-        st.warning("⚠️ CHƯA COÓ DỮ LIỆU ĐỐI CHỨNG TRÙNG KHỚP TUYỆT ĐỐI.")
-
-    st.markdown("### 🖼️ ĐỐI CHIẾU SỰ TƯƠNG ĐỒNG HÌNH ẢNH THIẾT KẾ (FLAT SKETCH)")
-    img_col1, img_col2 = st.columns(2)
-    with img_col1:
-        if target_new_sketch_bytes is not None:
-            st.image(target_new_sketch_bytes, caption=f"Mẫu mới tải lên ({new_style_id_detected})", use_container_width=True)
-
-    with img_col2:
-        matched_techpack = st.session_state.get("matched_techpack")
-        bom_records = st.session_state.get("bom_records", [])
-        if matched_techpack:
-            target_style_name = str(matched_techpack.get("StyleCode", matched_techpack.get("StyleName", "Mẫu tương đồng"))).strip().upper()
-            st.markdown(f"<p style='color: #1E3A8A; font-size: 13px; font-weight: 700; margin-bottom: 8px; text-align: center;'>🎯 Mã tương đồng trong kho: {target_style_name}</p>", unsafe_allow_html=True)
-
-    st.markdown("<br>### 📐 SO SÁNH HAI BẢNG THÔNG SỐ KỸ THUẬT RẬP MẪU", unsafe_allow_html=True)
-    spec_col1, spec_col2 = st.columns(2)
-    with spec_col1:
-        st.markdown(f"📊 **Bảng 1: Thông số Mẫu mới nạp ({new_style_base_size})**")
-        df_new_spec = pd.DataFrame(list(new_style_measurements_dict.items()), columns=["Vị trí đo (POM Description)", "Thông số mới"]) if new_style_measurements_dict else pd.DataFrame(columns=["Vị trí đo (POM Description)", "Thông số mới"])
-        st.dataframe(df_new_spec, use_container_width=True, hide_index=True)
-        
-    with spec_col2:
-        if matched_techpack:
-            old_style_title = str(matched_techpack.get("StyleCode", matched_techpack.get("StyleName", "N/A"))).upper()
-            old_size_title = matched_techpack.get("BaseSize", "N/A")
-            st.markdown(f"📋 **Bảng 2: Thông số Mã trong kho ({old_style_title}) [SIZE {old_size_title}]**")
-            old_specs = matched_techpack.get("DetailedMeasurements", {})
-            df_old_spec = pd.DataFrame(list(old_specs.items()), columns=["Vị trí đo (POM Description)", "Thông số cũ"]) if old_specs else pd.DataFrame(columns=["Vị trí đo (POM Description)", "Thông số cũ"])
-            st.dataframe(df_old_spec, use_container_width=True, hide_index=True)
-        else:
-            st.markdown("📋 **Bảng 2: Thông số Mã tương đồng trong kho**")
-            st.info("💡 Trạng thái: Trống dữ liệu kho. Hệ thống sẵn sàng tính toán diện tích rập mô phỏng tự động.")
-
-    if matched_techpack and bom_records:
-        st.markdown("<br>📦 **Chi Tiết Định Mức Định Hình (BOM Lịch Sử của Mã hàng cũ):**", unsafe_allow_html=True)
-        formatted_bom = []
-        fallback_style_code = str(matched_techpack.get("StyleCode", matched_techpack.get("StyleName", ""))).strip().upper()
-        for r in bom_records:
-            def clean_nan(v): return "" if (not v or str(v).lower() in ["nan", "none", "null"]) else str(v).strip()
-            row_style = clean_nan(r.get("style_code", r.get("style_name"))).upper()
-            if not row_style or row_style == "NAN": row_style = fallback_style_code
-            formatted_bom.append({
-                "Mã hàng đối chứng": row_style,
-                "Loại nguyên vật liệu": clean_nan(r.get("consumption_type")),
-                "Chi tiết vật tư (Article)": clean_nan(r.get("article_name")),
-                "Khổ / Cỡ vật tư": clean_nan(r.get("material_size")),
-                "Định mức gốc": clean_nan(r.get("consumption_value")),
-                "UOM": clean_nan(r.get("uom"))
-            })
-        st.dataframe(pd.DataFrame(formatted_bom), use_container_width=True, hide_index=True)
-
-    st.markdown("<br><hr style='border:0.5px solid #CBD5E1;'>", unsafe_allow_html=True)
-    
-       # --------------------------------------------------------------------------
-    # 💬 ĐOẠN 1: ĐƯA KHỐI CHAT LÊN ĐẦU ĐỂ LUÔN HIỂN THỊ KỂ CẢ KHI CHƯA UP FILE
+    # --------------------------------------------------------------------------
+    # ĐOẠN 1: ĐƯA KHỐI CHAT LÊN ĐẦU ĐỂ LUÔN HIỂN THỊ TRỰC QUAN TRÊN WEB GIAO DIỆN
     # --------------------------------------------------------------------------
     chat_header_col1, chat_header_col2 = st.columns([3.2, 0.8])
     with chat_header_col1:
@@ -1162,19 +1112,21 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
     chat_container = st.container()
     with chat_container:
         for chat in st.session_state.get("consumption_chat_history", []):
-            with st.chat_message("user"): 
-                st.write(chat["user"])
-            with st.chat_message("assistant"): 
-                st.write(chat["ai"])
+            with st.chat_message("user"): st.write(chat["user"])
+            with st.chat_message("assistant"): st.write(chat["ai"])
                 
-    if user_query := st.chat_input("Nhập yêu cầu phân tích (Ví dụ: Tìm mã hàng, hoặc tính định mức vải chính)..."):
+    if user_query := st.chat_input("Nhập yêu cầu phân tích (Ví dụ: Tính định mức vải chính khi co rút ngang 5%, dọc 3%)..."):
         with chat_container:
-            with st.chat_message("user"): 
-                st.write(user_query)
+            with st.chat_message("user"): st.write(user_query)
             with st.chat_message("assistant"):
                 with st.spinner("🤖 AI đang phân tích dữ liệu và tính toán định mức..."):
+                    
+                    # ĐÁNH CHẶN DỮ LIỆU BẨN: Loại bỏ triệt để dòng BOM của các mã sai lệch trước khi nạp vào AI
                     clean_bom_records = []
                     active_style_code = dynamic_keyword if dynamic_keyword != "UNKNOWN_STYLE" else "7L001073"
+                    if matched_techpack:
+                        active_style_code = str(matched_techpack.get("StyleCode", matched_techpack.get("StyleName", active_style_code))).strip().upper()
+                        
                     if bom_records:
                         for r in bom_records:
                             r_style = str(r.get('style_code', r.get('style_name', r.get('Mã hàng đối chứng', '')))).strip().upper()
@@ -1196,23 +1148,27 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
     st.markdown("<br><hr style='border:0.5px solid #CBD5E1;'>", unsafe_allow_html=True)
 
     # --------------------------------------------------------------------------
-    # 📁 ĐOẠN 2: KHỐI CHẶN FILE VÀ HIỂN THỊ CÁC BẢNG ĐỐI CHIẾU SAU KHI ĐÃ CÓ FILE
+    # ĐOẠN 2: KHỐI CHẶN FILE VÀ DỰNG CÁC BẢNG ĐỐI SOÁT CHI TIẾT SAU KHI ĐÃ CÓ FILE
     # --------------------------------------------------------------------------
     if not has_file:
         st.info("👋 Vui lòng tải lên tệp Techpack hồ sơ thiết kế (PDF) ở phía trên để hệ thống bắt đầu quét và lập lịch trình đối soát.")
-        st.stop()  # Lúc này st.stop() chỉ chặn các bảng số liệu ở dưới, thanh chat ở trên vẫn chạy bình thường
+        st.stop()
 
-    # 🔒 KHÓA CỨNG ĐÁNH CHẶN KHÔNG CHO AI VISION ĐOÁN MÒ ĐÈ SAI MÃ CHUẨN
+    # KHÓA CỨNG ĐÁNH CHẶN: Kiểm tra chéo chống AI Vision tự ý ghi đè sai mã kho đối chứng
     is_exact_match_found = False
     if st.session_state.get("matched_techpack") is not None:
         c_code = str(st.session_state["matched_techpack"].get("StyleCode", st.session_state["matched_techpack"].get("StyleName", ""))).strip().upper()
-        if c_code == dynamic_keyword and dynamic_keyword != "UNKNOWN_STYLE":
+        if (c_code == dynamic_keyword or dynamic_keyword in c_code) and dynamic_keyword != "UNKNOWN_STYLE":
             is_exact_match_found = True
 
     if is_exact_match_found:
         st.success(f"🔒 HỆ THỐNG ĐÃ KHÓA CHẶT MÃ ĐỐI CHỨNG CHÍNH XÁC THEO MÃ KHO: **{dynamic_keyword}**.")
     else:
-        st.warning("⚠️ CHƯA CÓ DỮ LIỆU ĐỐI CHỨNG TRÙNG KHỚP TUYỆT ĐỐI.")
+        if matched_techpack:
+            t_name = str(matched_techpack.get("StyleCode", matched_techpack.get("StyleName", "N/A"))).upper()
+            st.info(f"📋 **CƠ SỞ ĐỐI SOÁT KHỚP MỜ:** Hệ thống tự động bóc tách chuỗi số và tìm thấy mã tương đồng gần nhất: **{t_name}**")
+        else:
+            st.warning("⚠️ CHƯA TÌM THẤY DỮ LIỆU ĐỐI CHỨNG TRÙNG KHỚP TRONG KHO.")
 
     st.markdown("### 🖼️ ĐỐI CHIẾU SỰ TƯƠNG ĐỒNG HÌNH ẢNH THIẾT KẾ (FLAT SKETCH)")
     img_col1, img_col2 = st.columns(2)
@@ -1237,32 +1193,6 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
     with spec_col2:
         if matched_techpack:
             old_style_title = str(matched_techpack.get("StyleCode", matched_techpack.get("StyleName", "N/A"))).upper()
-            old_size_title = matched_techpack.get("BaseSize", "N/A")
-            st.markdown(f"📋 **Bảng 2: Thông số Mã trong kho ({old_style_title}) [SIZE {old_size_title}]**")
-            old_specs = matched_techpack.get("DetailedMeasurements", {})
-            df_old_spec = pd.DataFrame(list(old_specs.items()), columns=["Vị trí đo (POM Description)", "Thông số cũ"]) if old_specs else pd.DataFrame(columns=["Vị trí đo (POM Description)", "Thông số cũ"])
-            st.dataframe(df_old_spec, use_container_width=True, hide_index=True)
-        else:
-            st.markdown("📋 **Bảng 2: Thông số Mã tương đồng trong kho**")
-            st.info("💡 Trạng thái: Trống dữ liệu kho. Hệ thống sẵn sàng tính toán diện tích rập mô phỏng tự động.")
-
-    if matched_techpack and bom_records:
-        st.markdown("<br>📦 **Chi Tiết Định Mức Định Hình (BOM Lịch Sử của Mã hàng cũ):**", unsafe_allow_html=True)
-        formatted_bom = []
-        fallback_style_code = str(matched_techpack.get("StyleCode", matched_techpack.get("StyleName", ""))).strip().upper()
-        for r in bom_records:
-            def clean_nan(v): return "" if (not v or str(v).lower() in ["nan", "none", "null"]) else str(v).strip()
-            row_style = clean_nan(r.get("style_code", r.get("style_name"))).upper()
-            if not row_style or row_style == "NAN": row_style = fallback_style_code
-            formatted_bom.append({
-                "Mã hàng đối chứng": row_style,
-                "Loại nguyên vật liệu": clean_nan(r.get("consumption_type")),
-                "Chi tiết vật tư (Article)": clean_nan(r.get("article_name")),
-                "Khổ / Cỡ vật tư": clean_nan(r.get("material_size")),
-                "Định mức gốc": clean_nan(r.get("consumption_value")),
-                "UOM": clean_nan(r.get("uom"))
-            })
-        st.dataframe(pd.DataFrame(formatted_bom), use_container_width=True, hide_index=True)
 
 
 
