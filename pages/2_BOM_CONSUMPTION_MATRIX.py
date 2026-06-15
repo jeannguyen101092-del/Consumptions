@@ -1306,7 +1306,7 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
 
     st.markdown("<br><hr style='border:0.5px solid #CBD5E1;'>", unsafe_allow_html=True)
 # ==========================================================================
-# KHỐI 5 - ĐOẠN 5.2.A: QUÉT DANH MỤC 500 ẢNH KHO & TẢI BYTE NHỊ PHÂN THỰC TẾ
+# KHỐI 5 - ĐOẠN 5.2.A: QUÉT DANH MỤC VÀ VÁ LỖI THIẾU PROPERTY PREFIX CỦA SUPABASE
 # ==========================================================================
 if not has_file:
     st.info("👋 Vui lòng tải lên tệp Techpack hồ sơ thiết kế (PDF) ở phía trên để hệ thống bắt đầu quét và lập lịch trình đối soát.")
@@ -1336,8 +1336,12 @@ if target_new_sketch_bytes is not None and st.session_state["matched_techpack"] 
             "Content-Type": "application/json"
         }
         
-        # Quét mở rộng giới hạn lên 500 ảnh để bao phủ toàn bộ kho ảnh lịch sử
-        payload_list = {"limit": 500, "offset": 0}
+        # 🎯 VÁ LỖI CHÍ MẠNG: Thêm bắt buộc thuộc tính "prefix": "" theo đúng quy định API Supabase để vượt lỗi 400
+        payload_list = {
+            "prefix": "",
+            "limit": 500, 
+            "offset": 0
+        }
         res_storage = requests.post(url_list_storage, headers=storage_headers, json=payload_list, timeout=15)
         
         available_images = []
@@ -1376,7 +1380,7 @@ if target_new_sketch_bytes is not None and st.session_state["matched_techpack"] 
                     except Exception:
                         continue
 
-        # 🎯 5 DÒNG DEBUG TỐI CAO THEO YÊU CẦU ĐỂ KIỂM SOÁT TUYỆT ĐỐI LUỒNG DỮ LIỆU
+        # HỆ THỐNG KIỂM SOÁT ĐẦU VÀO AI VISION (5 DÒNG CHUẨN ĐOÁN)
         st.markdown("### 🔍 HỆ THỐNG KIỂM SOÁT ĐẦU VÀO AI VISION (5 DÒNG CHUẨN ĐOÁN)")
         st.write("1. **Storage Status:**", res_storage.status_code)
         st.write("2. **Total Images:**", len(available_images))
@@ -1391,7 +1395,7 @@ if target_new_sketch_bytes is not None and st.session_state["matched_techpack"] 
 
         st.write("📊 **Bản đồ ánh xạ tệp tin gửi đi `mapping_pool_context`:**")
         st.json(mapping_pool_context)
-        # ==========================================================================
+
         # KHỐI 5 - ĐOẠN 5.2.B.1: GỬI PAYLOAD SANG AI VISION & TRUY VẤN KHÓA KÉP DATABASE
         # ==========================================================================
         if len(vision_payload) > 1:
