@@ -1170,7 +1170,7 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
 
 
          # ==========================================================================
-    # KHỐI 5 - ĐOẠN 5.2.1: SỬA LỖI JSON OBJECT PAYLOAD LIST STORAGE & CHECK SẠCH
+    # KHỐI 5 - ĐOẠN 5.2.1: KHỐI LUỒNG THỊ GIÁC QUÉT ẢNH THỰC TẾ (SỬA LỖI SẬP JSON)
     # ==========================================================================
     if not has_file:
         st.info("👋 Vui lòng tải lên tệp Techpack hồ sơ thiết kế (PDF) ở phía trên để hệ thống bắt đầu quét và lập lịch trình đối soát.")
@@ -1179,7 +1179,7 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
     if "matched_techpack" not in st.session_state: st.session_state["matched_techpack"] = None
     if "bom_records" not in st.session_state: st.session_state["bom_records"] = []
     
-    # CƠ CHẾ GIẢI PHÓNG BỘ NHỚ ĐỆM (CACHE FLUSHER) KHI ĐỔI FILE TECHPACK MỚI
+    # BỘ TỰ ĐỘNG GIẢI PHÓNG BỘ NHỚ KHI ĐỔI TÊN TỆP PDF TECHPACK MỚI
     if "previous_file_name" not in st.session_state:
         st.session_state["previous_file_name"] = file_name
     elif st.session_state["previous_file_name"] != file_name:
@@ -1190,7 +1190,7 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
     # KÍCH HOẠT HỆ THỐNG ĐỐI SOÁT THỊ GIÁC ẢNH VẬT LÝ KHI CÓ FILE UPLOAD MỚI VÀ BỘ NHỚ TRỐNG
     if target_new_sketch_bytes is not None and st.session_state["matched_techpack"] is None:
         try:
-            # Endpoint chuẩn cấu trúc Object List API của Supabase Storage
+            # 🎯 VÁ LỖI API GỐC: Sử dụng Endpoint object list chuẩn hóa dữ liệu
             url_list_storage = f"{base_sb_url}/storage/v1/object/list/kho_anh"
             storage_headers = {
                 "apikey": SB_KEY,
@@ -1198,7 +1198,7 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                 "Content-Type": "application/json"
             }
             
-            # 🎯 VÁ LỖI CÚ PHÁP: Đơn giản hóa Payload, xóa bỏ cấu trúc sortBy phức tạp gây lỗi JSON object trên Supabase
+            # Khóa chặt Payload thô tối giản nhất để Supabase trả về mảng danh sách file
             payload_list = {
                 "limit": 50,
                 "offset": 0
@@ -1213,15 +1213,16 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
             if res_storage.status_code == 200:
                 raw_storage_data = res_storage.json()
                 
-                # Kiểm tra nghiêm ngặt xem dữ liệu trả về có phải là một Danh sách List hợp lệ hay không
+                # Ép kiểm tra cấu trúc mảng danh sách List
                 if isinstance(raw_storage_data, list):
                     st.write("📂 **Cấu trúc JSON thô từ Storage Bucket:**")
                     st.json(raw_storage_data)
                     available_images = [item["name"] for item in raw_storage_data if isinstance(item, dict) and "name" in item and item["name"].lower().endswith(('.jpg', '.jpeg', '.png'))]
                 else:
-                    # Nếu dính lỗi chuỗi Object hoặc thông báo lỗi từ hệ thống, in cảnh báo ra màn hình
+                    # Bẫy lỗi nếu Supabase trả về khối chữ Object thông báo lỗi cục bộ
                     st.warning("⚠️ Cảnh báo: Phản hồi từ Storage không phải là mảng danh sách file hợp lệ.")
                     st.json(raw_storage_data)
+                    st.session_state["matched_techpack"] = None  # Xóa vết để không làm sập bảng 5.2.2
             else:
                 st.error("Lỗi không thể list danh mục file từ kho_anh")
                 st.code(res_storage.text)
@@ -1236,13 +1237,14 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                     ]
                     
                     mapping_pool_context = []
-                    
                     st.write("📥 **Tiến trình tải dữ liệu ảnh vật lý từ Cloud Storage:**")
                     
                     for idx, filename in enumerate(filtered_pool_images):
                         public_img_url = f"{base_sb_url}/storage/v1/object/public/kho_anh/{filename}"
                         try:
                             img_response = requests.get(public_img_url, headers={"apikey": SB_KEY}, timeout=10)
+                            
+                            # In tiến trình tải ảnh nhị phân thật ra màn hình
                             st.write(f"▪️ Download `{filename}` -> Status: `{img_response.status_code}` | Size: `{len(img_response.content)}` bytes")
                             
                             if img_response.status_code == 200 and len(img_response.content) > 1000:
@@ -1253,7 +1255,7 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                                     "payload_image_index": len(vision_payload) - 1,
                                     "corresponding_filename": filename
                                 })
-                        except Exception as download_err:
+                        except Exception:
                             continue
 
                     st.write("📊 **Cấu trúc bản đồ ánh xạ `mapping_pool_context` gửi đi:**")
@@ -1261,7 +1263,7 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
 
                     vision_match_prompt = f"""
                     You are an expert Garment Structure Vision Auditor at PPJ Group.
-                    You are provided with a NEW FLAT SKETCH IMAGE (the very first image payload) and a pool of HISTORICAL GARMENT IMAGES loaded from the storage.
+                    You are provided with a NEW FLAT SKETCH IMAGE (the very first image payload) and a pool of HISTROLLER GARMENT IMAGES loaded from the storage.
                     
                     YOUR TASK:
                     Compare the internal stitching lines, waistband details, length (Pants vs Shorts), plackets, and pocket placements of the NEW IMAGE against all subsequent historical images.
@@ -1289,7 +1291,11 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                         match_obj = json.loads(clean_json_match.group(0))
                         best_image_file = match_obj.get("selected_image_filename", "")
                         if best_image_file:
-                            best_style_code = best_image_file.split(".")[0].strip() if "." in best_image_file else best_image_file
+                            # Trích xuất mã code sạch sau khi cắt dấu chấm đuôi mở rộng
+                            if "." in best_image_file:
+                                best_style_code = str(best_image_file.split(".")[0]).strip()
+                            else:
+                                best_style_code = str(best_image_file).strip()
 
                     if not best_style_code:
                         st.warning("⚠️ Hệ thống AI Thị giác máy tính không tìm thấy hoặc không chọn được mẫu tương đồng phom dáng phù hợp.")
@@ -1302,9 +1308,8 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                         db_res_tp = requests.get(url_tp, headers=headers, params=query_params_tp, timeout=15)
                         
                         if db_res_tp.status_code == 200 and len(db_res_tp.json()) > 0:
-                            # Phân rã mảng an toàn gán vào session_state
-                            raw_tp_data = db_res_tp.json()
-                            st.session_state["matched_techpack"] = raw_tp_data[0] if isinstance(raw_tp_data, list) and len(raw_tp_data) > 0 else raw_tp_data
+                            raw_tp_list = db_res_tp.json()
+                            st.session_state["matched_techpack"] = raw_tp_list[0] if isinstance(raw_tp_list, list) and len(raw_tp_list) > 0 else raw_tp_list
                             
                         # Bốc kịch bản vật tư sản phẩm đi kèm ( public.san_pham )
                         url_bom = f"{base_sb_url}/rest/v1/san_pham"
@@ -1314,6 +1319,7 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                             st.session_state["bom_records"] = res_bom.json()
         except Exception as e:
             st.error(f"🚨 Lỗi hệ thống định vị thị giác hình ảnh: {str(e)}")
+
 
 
         # ==========================================================================
