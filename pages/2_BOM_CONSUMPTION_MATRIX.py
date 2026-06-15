@@ -847,24 +847,28 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
     else:
         scenario_instruction = f"KỊCH BẢN VECTOR HÌNH HỌC: Tính diện tích rập thô từ New Spec và Flat Sketch trên khổ {f_width if f_width > 0 else '58 inch'}."
 
-    # CẤU HÌNH PROMPT ÉP AI XUẤT KẾT QUẢ ĐÚNG CHÍNH XÁC THEO MẪU MERRELL
+    # PROMPT ÉP AI GỘP ĐỊNH MỨC VÀ QUÉT TOÀN BỘ NGUYÊN PHỤ LIỆU TỪ BOM
     system_instruction = f"""
     You are an Industrial Garment Costing Engineer. 
-    STRICT REQUIREMENT: Provide the final analysis ONLY in a Markdown Table format matching the MERRELL template layout below. 
+    STRICT REQUIREMENT: Provide the final analysis ONLY in a Markdown Table format matching the MERRELL template. 
     DO NOT include intro, outro, conversational fillers, or wordy explanations. Go straight to the table.
 
     OUTPUT FORMAT REQUIREMENT (Must use this exact header structure):
 
     | Style Code | Style Name | Garment Type | Marker Type | Fabric Width | Shrink L | Shrink W | Item | Net Consumption | UOM | Booking +3% | Booking +5% | Unit Price USD | Material Cost USD/pc |
 
-    CRITICAL CALCULATIONS & RULES:
-    1. Fill data calculated into rows based on the garment technical components.
-    2. Net Consumption: Must be calculated in YARDS (Yds) or Grams (g) according to garment rules (Pant/Shirt allowances).
-    3. Booking columns: 'Booking +3%' = Net Consumption * 1.03. 'Booking +5%' = Net Consumption * 1.05.
-    4. Seam Allowance: General seams +0.44". Pocket opening: Exclude. Hem: Use specific 'Hem' value from techpack.
+    CRITICAL SUMMARY & AGGREGATION RULES:
+    1. DO NOT LIST DETAILED PATTERN PIECES (e.g., Do NOT create separate rows for Front Body, Sleeve, Collar, Pocket, etc.).
+    2. ROLL-UP & SUM: Aggregate and SUM the fabric consumption of all components belonging to the same material type into ONE single row (e.g., 'Shell Fabric', 'Lining Fabric', 'Interlining').
+    3. FULL NPL/BOM COVERAGE: You MUST read and list ALL raw materials and trims (Nguyên phụ liệu) found in the BOM data or mentioned in the techpack context (e.g., Thread, Zipper, Button, Labels, Padding) so no item from BOM is missing in the table.
+    4. Calculations: 
+       - 'Booking +3%' = Net Consumption * 1.03.
+       - 'Booking +5%' = Net Consumption * 1.05.
+       - Leave Price/Cost as 0.00 if not provided.
     5. Context data: {scenario_instruction}
 
     DATA FOR CALCULATION:
+    - Style Code / Name: P08-500722 / PEN CANVAS BOMBER JACKET
     - Target Size: Size {detected_size}
     - New Spec (POM): {json.dumps(new_style_measurements)}
     - Fabric Width requested: {f_width if f_width > 0 else '58 in'}
@@ -887,6 +891,7 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
         return ai_reply
     except Exception as e:
         return f"🚨 Lỗi cổng phân tích định mức: {str(e)}"
+
 
 
 if "get_secure_gemini_key" in globals():
@@ -1943,6 +1948,7 @@ elif menu_selection == "🛒 Purchase Consumption":
                     st.session_state["consumption_activated"] = True
                     st.rerun()
                 # BƯỚC 3: LIÊN KẾT ĐỐI CHIẾU DỮ LIỆU Ô CAD, ĐẨY SUPABASE & KẾT XUẤT EXCEL ĐÓNG KHUNG CHUẨN
+                                # BƯỚC 3: LIÊN KẾT ĐỐI CHIẾU DỮ LIỆU Ô CAD, ĐẨY SUPABASE & KẾT XUẤT EXCEL ĐÓNG KHUNG CHUẨN
                 if st.session_state.get("auto_cutting_results") is not None:
                     import re
                     import io
@@ -1964,7 +1970,10 @@ elif menu_selection == "🛒 Purchase Consumption":
                     
                     for item in st.session_state["auto_cutting_results"]:
                         display_row = {"SIZE": item["Sơ đồ / Trạng thái"]}
-                        for sz in active_sizes: display_row[sz] = item["Ratios"].get(sz, 0)
+                        for sz in active_sizes: 
+                            # Làm sạch key hiển thị của từng cột size để đồng bộ với bước xử lý chuỗi phía dưới
+                            clean_sz_key = str(sz).strip().replace("'", "").replace('"', '').replace("(", "").replace(")", "")
+                            display_row[clean_sz_key] = item["Ratios"].get(sz, 0)
                             
                         if item["Sơ đồ / Trạng thái"] != "Balance":
                             layers = item["Số lớp"]; tables = item["Số bàn"]; sp_sd = item["Số sp/SĐ"]
@@ -2001,18 +2010,16 @@ elif menu_selection == "🛒 Purchase Consumption":
                                 st.success(f"🎉 Đã đồng bộ dữ liệu mã hàng {style_id_input} lên hệ thống Supabase thành công!")
                         except Exception: pass
 
-                                         # 🎯 THUẬT TOÁN BẺ CHUỖI ÉP LẤY SỐ SIZE VÀ LÀM SẠCH GIAO DIỆN TUYỆT ĐỐI (FIX CÚ PHÁP)
+                    # 🎯 THUẬT TOÁN BẺ CHUỖI ÉP LẤY SỐ SIZE VÀ LÀM SẠCH GIAO DIỆN TUYỆT ĐỐI (ĐÃ SỬA CÚ PHÁP)
                     parsed_size_columns = []
-                    is_don_khong_giang = True  # Biến cờ kiểm tra đơn hàng có Giàng hay không
+                    is_don_khong_giang = True  
                     
                     for col_name in active_sizes:
                         col_str = str(col_name).strip()
                         col_clean = col_str.replace("'", "").replace('"', '').replace("(", "").replace(")", "")
                         
-                        # Kiểm tra xem tên cột gốc có chứa chữ "GIÀNG" hoặc các ký tự phân tách không
                         if "giàng" in col_clean.lower() or any(char in col_clean.lower() for char in ["x", "-", "/"]):
                             parts = re.split(r'[\sXx\-\/:]+', col_clean)
-                            # Loại bỏ các chữ vô nghĩa khỏi mảng parts
                             parts_clean = [p.strip() for p in parts if p.strip().lower() not in ["giàng", "size", "sl", "siz"]]
                             
                             if len(parts_clean) >= 2:
@@ -2026,23 +2033,21 @@ elif menu_selection == "🛒 Purchase Consumption":
                                 size_val = col_clean
                                 giang_val = ""
                         else:
-                            # Nếu cột thuần là chữ/số như "SMALL", "LARGE", "28", "29"
                             size_val = col_clean
                             giang_val = ""
                             
-                        # Khử giá trị None hoặc rỗng
                         if str(giang_val).lower() in ["none", "nan", ""]:
                             giang_val = ""
                         else:
                             is_don_khong_giang = False
 
                         parsed_size_columns.append({
-                            "original": col_name, 
+                            "original_clean": col_clean,  # Lưu lại tên đã làm sạch dấu ngoặc/dấu nháy để map cột trong dataframe
                             "size_num": int(size_val) if str(size_val).isdigit() else size_val, 
                             "giang_num": int(giang_val) if str(giang_val).isdigit() else giang_val
                         })
 
-                    # Sắp xếp lại thứ tự cột
+                    # Sắp xếp lại thứ tự cột size theo Giàng và Size số/chữ
                     try:
                         parsed_size_columns.sort(key=lambda x: (
                             0 if x['giang_num'] == "" else int(x['giang_num']),
@@ -2051,12 +2056,13 @@ elif menu_selection == "🛒 Purchase Consumption":
                     except Exception:
                         parsed_size_columns.sort(key=lambda x: (str(x['giang_num']), str(x['size_num'])))
 
-                    ordered_size_keys = [item["original"] for item in parsed_size_columns]
+                    # Lấy danh sách các key size đã làm sạch và sắp xếp đúng thứ tự
+                    ordered_size_keys = [item["original_clean"] for item in parsed_size_columns]
                     other_tech_keys = ["Số lớp", "Số bàn", "Dài sơ đồ", "Số sp/SĐ", "Đ.Mức SĐ", "Vải cần (M)"]
                     
+                    # Tái cấu trúc lại dataframe theo đúng thứ tự cột mới và giao diện sạch
                     df_final_report = df_final_report[["SIZE"] + ordered_size_keys + other_tech_keys]
-
-                    # --- XỬ LÝ ĐỔI TÊN TIÊU ĐỀ ĐỂ HIỂN THỊ LÊN MÀN HÌNH STREAMLIT SẠCH ĐẸP ---
+# --- XỬ LÝ ĐỔI TÊN TIÊU ĐỀ ĐỂ HIỂN THỊ LÊN MÀN HÌNH STREAMLIT SẠCH ĐẸP ---
                     streamlit_cols = ["SẢN LƯỢNG"]
                     for item in parsed_size_columns:
                         if is_don_khong_giang:
@@ -2069,7 +2075,7 @@ elif menu_selection == "🛒 Purchase Consumption":
                     for col_name in other_tech_keys:
                         streamlit_cols.append(col_name)
                         
-                    # Gán tiêu đề 1 tầng sạch sẽ cho giao diện hiển thị web Streamlit
+                    # Gán tiêu đề 1 tầng sạch sẽ cho giao diện hiển thị web ban đầu
                     df_final_report.columns = streamlit_cols
 
                     # --- KHỐI KẾT XUẤT FILE EXCEL MỸ THUẬT THƯƠNG MẠI (GIỮ NGUYÊN 2 TẦNG CHUẨN) ---
@@ -2091,11 +2097,14 @@ elif menu_selection == "🛒 Purchase Consumption":
                             excel_multi_cols = [("GIÀNG", "SIZE", "SẢN LƯỢNG")]
                             for item in parsed_size_columns:
                                 g_excel_val = 0 if item['giang_num'] == "" else item['giang_num']
-                                excel_multi_cols.append((g_excel_val, item['size_num'], int(size_breakdown_main.get(item['original'], 0))))
+                                # Đã sửa thành 'original_clean' để map chuẩn xác với data đã xử lý
+                                orig_key = item['original_clean']
+                                excel_multi_cols.append((g_excel_val, item['size_num'], int(size_breakdown_main.get(orig_key, 0))))
                                 
                             for col_name in other_tech_keys:
                                 excel_multi_cols.append(("THÔNG SỐ TÁC NGHIỆP", col_name, ""))
                                 
+                            # Tạo bản sao độc lập cho Excel để không làm hỏng cấu trúc bảng hiển thị Web
                             df_excel_export = df_final_report.copy()
                             df_excel_export.columns = pd.MultiIndex.from_tuples(excel_multi_cols)
 
@@ -2124,15 +2133,19 @@ elif menu_selection == "🛒 Purchase Consumption":
                         
                         st.download_button(label="📥 XUẤT FILE EXCEL TÁC NGHIỆP CHUẨN THƯƠNG MẠI", data=buffer.getvalue(), file_name=f"BÁO_CÁO_TÁC_NGHIỆP_BÀN_CẮT_{style_id_input}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True, key="excel_download_btn_final_v105")
                     except Exception: pass
-                                        # 🎯 DỰNG GIAO DIỆN WEB 3 TẦNG ĐỒNG BỘ: Đã điền nhãn đầy đủ cho đuôi bảng để không mất chữ
+
+                    # 🎯 DỰNG GIAO DIỆN WEB 3 TẦNG ĐỒNG BỘ ĐỘC LẬP
+                    df_web_display = df_final_report.copy()
                     web_multi_cols = [("GIÀNG / SIZE / SL", "SIZE", "SẢN LƯỢNG")]
                     for item in parsed_size_columns:
-                        orig_key = item['original']
+                        orig_key = item['original_clean']
                         po_qty_val = int(size_breakdown_main.get(orig_key, 0))
                         web_multi_cols.append((f"GIÀNG: {item['giang_num']}", f"{item['size_num']}", f"{po_qty_val}"))
                     for col_name in other_tech_keys:
                         web_multi_cols.append(("THÔNG SỐ TÁC NGHIỆP", "THÔNG SỐ TÁC NGHIỆP", col_name))
-                    df_final_report.columns = pd.MultiIndex.from_tuples(web_multi_cols)
+                        
+                    # Gán cấu trúc MultiIndex riêng cho bảng hiển thị Web
+                    df_web_display.columns = pd.MultiIndex.from_tuples(web_multi_cols)
 
                     # Thuật toán tô vàng cho các ô có số lượng tỷ lệ nhảy sơ đồ
                     def highlight_ratios_and_headers(x):
@@ -2145,7 +2158,10 @@ elif menu_selection == "🛒 Purchase Consumption":
                                     color_df.iloc[r, c] = 'background-color: #FEF08A; color: #991B1B; font-weight: 700; border: 1px solid #FDE047;'
                         return color_df
 
-                    styled_df_report = df_final_report.style.apply(highlight_ratios_and_headers, axis=None)
+                    styled_df_report = df_web_display.style.apply(highlight_ratios_and_headers, axis=None)
+
+                    # Hiển thị bảng đã được làm đẹp lên Streamlit
+                    st.dataframe(styled_df_report, use_container_width=True)
 
                     # 🎯 KHÓA MÀU CSS CHUẨN ĐỘC LẬP: Định danh chính xác theo số tầng Level để ép trình duyệt đổ màu 100%
                     st.markdown("""
@@ -2168,35 +2184,14 @@ elif menu_selection == "🛒 Purchase Consumption":
                                 text-align: center !important;
                                 border: 1px solid #CBD5E1 !important;
                             }
-                            /* TẦNG 3: Hàng SẢN LƯỢNG đơn hàng nhuộm màu Xanh Dương Đậm nổi bật hơn */
+                            /* TẦNG 3: Hàng SẢN LƯỢNG đơn hàng nhuộm màu Xanh Dương Đậm */
                             th.col_heading.level2 {
-                                background-color: #BAE6FD !important;
-                                color: #0369A1 !important;
+                                background-color: #0284C7 !important;
+                                color: #FFFFFF !important;
                                 font-weight: 700 !important;
                                 font-size: 11px !important;
                                 text-align: center !important;
-                                border: 1px solid #7DD3FC !important;
-                            }
-                            
-                            /* ĐUÔI BẢNG: Quét tọa độ 6 cột cuối cùng (Thông số tác nghiệp) ép nhuộm màu Xanh Mint đồng bộ */
-                            th.col_heading.blank {
-                                background-color: #DCFCE7 !important;
-                                color: #166534 !important;
-                                font-weight: 700 !important;
-                                border: 1px solid #86EFAC !important;
+                                border: 1px solid #0284C7 !important;
                             }
                         </style>
                     """, unsafe_allow_html=True)
-
-                    st.markdown("<p style='font-weight:700; font-size:14px; color:#1E3A8A; margin-top:15px;'>📊 BẢNG THEO DÕI TÁC NGHIỆP & CÂN ĐỐI ĐƠN HÀNG MULTI-INSEAM</p>", unsafe_allow_html=True)
-                    st.dataframe(styled_df_report, use_container_width=True, hide_index=True)
-                    
-                    st.markdown("---")
-                    m_col1, m_col2, m_col3 = st.columns(3)
-                    with m_col1: st.metric("Tổng vải tiêu thụ tự động", f"{total_fabric_m:,.1f} Mét")
-                    with m_col2: st.metric("Định mức trung bình (Đ.Mức TB)", f"{final_avg_yield:.3f} Yds/Pcs" if st.session_state["consumption_activated"] else "0.000 Yds/Pcs")
-                    with m_col3:
-                        variance = final_avg_yield - consumption_input if total_fabric_m > 0 and st.session_state["consumption_activated"] else 0.0
-                        st.metric("Chênh lệch so với tài liệu", f"{variance:+.3f}" if st.session_state["consumption_activated"] else "0.000", delta_color="inverse" if variance > 0 else "normal")
-                else:
-                    st.info("💡 Quy trình: Bấm nút 1 để tính tác nghiệp sơ đồ -> Điền độ dài CAD -> Bấm nút 2 để kích hoạt nhảy số định mức.")
