@@ -1159,132 +1159,83 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
 
     st.markdown("<br><hr style='border:0.5px solid #CBD5E1;'>", unsafe_allow_html=True)
     
-# ==========================================================================
-# AI CHAT BOX - LUÔN HIỂN THỊ
-# ==========================================================================
-
-st.markdown("---")
-
-if "consumption_chat_history" not in st.session_state:
-    st.session_state["consumption_chat_history"] = []
-
+# THIẾT KẾ CỤM ĐIỀU KHIỂN CHAT BOX THÔNG MINH SIÊU TỐC
 chat_header_col1, chat_header_col2 = st.columns([3.2, 0.8])
-
 with chat_header_col1:
-    st.markdown("### 💬 TRỢ LÝ AI PHÂN TÍCH ĐỊNH MỨC SẢN XUẤT")
-
+    st.markdown("### 💬 TRỢ LÝ AI PHÂN TÍCH ĐỊNH MỨC SẢN XUẤT (HỎI ĐÂU ĐÁP ĐÓ)")
 with chat_header_col2:
-    if st.button(
-        "🗑️ XÓA CHAT",
-        key="direct_clear_chat_btn",
-        use_container_width=True
-    ):
+    if st.button("🗑️ XÓA LỊCH SỬ CHAT", key="direct_clear_chat_btn", use_container_width=True):
         st.session_state["consumption_chat_history"] = []
-        st.toast("♻️ Đã xóa lịch sử chat")
-        st.rerun()
+        st.toast("♻️ Đã xóa sạch lịch sử chat tức thì!")
 
-# ==========================================================================
-# HIỂN THỊ LỊCH SỬ CHAT
-# ==========================================================================
-
-for item in st.session_state["consumption_chat_history"]:
-
-    with st.chat_message("user"):
-        st.write(item.get("user", ""))
-
-    with st.chat_message("assistant"):
-        st.markdown(item.get("ai", ""))
-
-# ==========================================================================
-# THANH CHAT NHẬP LIỆU
-# ==========================================================================
-
-user_query = st.chat_input(
-    "Nhập mã hàng, mã vải, BOM, định mức hoặc câu hỏi bất kỳ..."
-)
-
-if user_query:
-
-    with st.chat_message("user"):
-        st.write(user_query)
-
-    try:
-
+chat_container = st.container()
+with chat_container:
+    for chat in st.session_state.get("consumption_chat_history", []):
+        with st.chat_message("user"): 
+            st.write(chat["user"])
+        with st.chat_message("assistant"): 
+            import re
+            table_match_history = re.search(r'(\|.*\|(?:\n\|.*\|)+)', chat["ai"], re.DOTALL)
+            if table_match_history:
+                st.markdown(table_match_history.group(1))
+            else:
+                st.markdown(chat["ai"])
+            
+if user_query := st.chat_input("Nhập yêu cầu phân tích (Ví dụ: Tính định mức vải chính khi co rút ngang 5%, dọc 3%)..."):
+    with chat_container:
+        with st.chat_message("user"):
+            st.write(user_query)
+            
         with st.chat_message("assistant"):
-
-            with st.spinner("🤖 PPJ AI đang phân tích..."):
+            with st.spinner("🤖 AI đang phân tích dữ liệu và tính toán định mức..."):
+                # ✅ KHẮC PHỤC LỖI KHỞI TẠO CLIENT BIẾN TOÀN CỤC AN TOÀN
+                if 'client' not in locals() and 'client' not in globals():
+                    import google.genai as genai
+                    from google.genai import types
+                    if "get_secure_gemini_key" in globals():
+                        gemini_key_box = get_secure_gemini_key()
+                    else:
+                        gemini_key_box = st.secrets.get("GEMINI_API_KEY", "").strip()
+                    client = genai.Client(api_key=gemini_key_box, http_options=types.HttpOptions(api_version='v1'))
 
                 ai_reply = ai_consumption_analyst_engine(
                     client=client,
                     user_message=user_query,
-                    matched_techpack=st.session_state.get(
-                        "matched_techpack",
-                        {}
-                    ),
-                    bom_records=st.session_state.get(
-                        "bom_records",
-                        []
-                    ),
-                    new_style_measurements=globals().get(
-                        "new_style_measurements_dict",
-                        {}
-                    ),
-                    target_new_sketch_bytes=globals().get(
-                        "target_new_sketch_bytes",
-                        None
-                    ),
-                    detected_size=globals().get(
-                        "new_style_base_size",
-                        "32"
-                    )
+                    matched_techpack=st.session_state.get("matched_techpack"),
+                    bom_records=st.session_state.get("bom_records"),
+                    new_style_measurements=new_style_measurements_dict if 'new_style_measurements_dict' in locals() else {},
+                    target_new_sketch_bytes=target_new_sketch_bytes if 'target_new_sketch_bytes' in locals() else None,
+                    detected_size=new_style_base_size if 'new_style_base_size' in locals() else "32"
                 )
-
-                if not ai_reply:
-                    ai_reply = "⚠️ AI không trả về dữ liệu."
-
-                st.markdown(ai_reply)
-
-    except Exception as e:
-
-        ai_reply = f"🚨 Lỗi AI Engine: {str(e)}"
-
-        with st.chat_message("assistant"):
-            st.error(ai_reply)
-
-    # ==========================================================================
-    # LƯU LỊCH SỬ CHAT
-    # ==========================================================================
-
-    st.session_state["consumption_chat_history"].append(
-        {
-            "user": user_query,
-            "ai": ai_reply
-        }
-    )
-
-    # ==========================================================================
-    # CUỘN XUỐNG CUỐI TRANG
-    # ==========================================================================
-
+                
+                import re
+                table_match = re.search(r'(\|.*\|(?:\n\|.*\|)+)', ai_reply, re.DOTALL)
+                
+                if table_match:
+                    clean_reply = table_match.group(1)
+                else:
+                    clean_reply = ai_reply
+                
+                st.markdown(clean_reply)
+                
+                st.session_state["consumption_chat_history"].append({
+                    "user": user_query,
+                    "ai": clean_reply
+                })
+    
     st.components.v1.html(
         """
         <script>
-            const main = window.parent.document.querySelector(
-                'section.main'
-            );
-
-            if(main){
-                main.scrollTo({
-                    top: main.scrollHeight,
-                    behavior: 'smooth'
-                });
+            var doc = window.parent.document;
+            var sections = doc.querySelectorAll('section.main');
+            if (sections.length > 0) {
+                sections.scrollTo({top: sections.scrollHeight, behavior: 'smooth'});
             }
         </script>
         """,
-        height=0
+        height=0,
     )
 
-    st.rerun()
 
 
 
