@@ -792,7 +792,7 @@ except ImportError:
 def parse_fraction(val_str):
     """
     HÀM QUY ĐỔI PHÂN SỐ NGÀNH MAY CHUẨN PPJ
-    Chuyển đổi chính xác các dạng chuỗi như '1 1/2', '3/4', '1.5"' về dạng float.
+    Chuyển đổi chính xác các dạng chuỗi về dạng float.
     """
     if not val_str: 
         return 0.0
@@ -820,8 +820,7 @@ def parse_fraction(val_str):
 def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_records, new_style_measurements, target_new_sketch_bytes, detected_size):
     """
     Bộ não xử lý tính toán định mức nâng cao bằng đơn vị YARD (Yds).
-    ĐÃ SỬA: Đồng bộ cấu trúc ánh xạ dữ liệu chuẩn xác để AI đọc trúng thông số Excel, 
-    chấm dứt hoàn toàn hiện tượng đoán mò thông số vật tư.
+    Tự động áp hiệu suất sơ đồ PPJ: Woven 88%, Denim 90%, Knit 87%.
     """
     import time
     if not bom_records:
@@ -833,84 +832,48 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
         style_old_name = str(matched_techpack.get("StyleName", matched_techpack.get("StyleCode", "N/A"))).strip().upper()
         specs_old = matched_techpack.get("DetailedMeasurements", {})
 
-    # 🎯 ÁNH XẠ CHÍNH XÁC 100% THEO ĐÚNG CÁC TRƯỜNG DỮ LIỆU THỰC TẾ
     bom_summary_list = []
     if bom_records:
         for r in bom_records:
-            r_style = str(r.get('style_name', r.get('StyleName', ''))).strip().upper()
+            r_style = str(r.get('StyleName', r.get('style_name', ''))).strip().upper()
+            art = r.get('ArticleName', r.get('article_name', 'N/A'))          
+            m_size = r.get('MaterialSize', r.get('material_size', 'N/A'))    
+            val = r.get('Input Pure', r.get('consumption_value', '0'))         
+            uom = r.get('UOM', r.get('uom', 'YRD'))                            
+            comp = r.get('BodyType', r.get('consumption_type', 'N/A'))      
             
-            if style_old_name == "N/A" or style_old_name in r_style or r_style == "":
-                # Trích xuất dữ liệu dựa trên cả chữ hoa và chữ thường để chống sót từ khóa
-                art = r.get('article_name', r.get('ArticleName', 'N/A'))        # Mã vải (SJ-8902)
-                m_size = r.get('material_size', r.get('MaterialSize', 'N/A'))    # Khổ vải (56INCH)
-                uom = r.get('uom', r.get('UOM', 'YRD'))                          # Đơn vị tính (YRD)
-                comp = r.get('consumption_type', r.get('BodyType', 'N/A'))      # Chủng loại (Main Fabric)
-                val = r.get('consumption_value', r.get('Input Pure', r.get('InputPure', '0'))) # Định mức gốc (0.56)
-                
-                bom_summary_list.append(
-                    f"- Mã hàng: {r_style if r_style else style_old_name} | "
-                    f"Mã vải (Article/Material Code): {art} | "
-                    f"Chủng loại (Component Type): {comp} | "
-                    f"Khổ rộng gốc (Fabric Width): {m_size} | "
-                    f"Định mức gốc (Original Consumption): {val} {uom}"
-                )
+            bom_summary_list.append(f"- Mã hàng: {r_style} | Mã vải (Article): {art} | Loại: {comp} | Khổ: {m_size} | ĐM gốc: {val} {uom}")
 
-    if not bom_summary_list and matched_techpack and style_old_name != "N/A":
-        bom_summary = f"⚠️ HỆ THỐNG CẢNH BÁO: Không tìm thấy dữ liệu vật tư trùng khớp với mã đối chứng {style_old_name}."
-        matched_techpack = None  
-    else:
-        bom_summary = "\n".join(bom_summary_list)
+    bom_summary = "\n".join(bom_summary_list) if bom_summary_list else "Trống dữ liệu."
 
     shrinkage_width = re.findall(r'(?:CO RÚT NGANG|NGANG)\s*(\d+(?:\.\d+)?)\s*%', user_message.upper())
     shrinkage_length = re.findall(r'(?:CO RÚT DỌC|DỌC)\s*(\d+(?:\.\d+)?)\s*%', user_message.upper())
     new_fabric_width = re.findall(r'(?:KHỔ VẢI|KHỔ)\s*(\d+)\s*(?:\"|INCH|INCHES)?', user_message.upper())
     
-    w_shrink_val = shrinkage_width if shrinkage_width else None
-    l_shrink_val = shrinkage_length if shrinkage_length else None
-    new_fabric_width_val = new_fabric_width if new_fabric_width else None
+    w_shrink = float(shrinkage_width[0]) if shrinkage_width else 0.0
+    l_shrink = float(shrinkage_length[0]) if shrinkage_length else 0.0
+    f_width = float(new_fabric_width[0]) if new_fabric_width else 0.0
 
-    w_shrink = float(w_shrink_val) if w_shrink_val else 0.0
-    l_shrink = float(l_shrink_val) if l_shrink_val else 0.0
-    f_width = float(new_fabric_width_val) if new_fabric_width_val else 0.0
-
-    if matched_techpack and "⚠️" not in bom_summary:
-        scenario_instruction = f"KỊCH BẢN ĐỒNG DẠNG: Sử dụng danh mục vật tư thực tế từ hệ thống kho sau đây để tra cứu hoặc tính toán: \n{bom_summary}"
-    else:
-        scenario_instruction = f"KỊCH BẢN VECTOR HÌNH HỌC TỰ ĐỘNG: Dữ liệu danh mục vật tư mục tiêu phụ trợ: \n{bom_summary}"
-
-    # ĐỊNH HƯỚNG CHẶT CHẼ HÀNH VI ĐÁP ỨNG CỦA AI CHẤM DỨT ĐOÁN MÒ
     system_instruction = f"""
     You are a strict Industrial Garment Costing Engineer at PPJ Group.
     
-    INTENT DETECTION & TRUTH-ONLY RULE (CRITICAL):
-    - Analyze the user request: '{user_message}'.
-    - If the user asks to SEARCH, FIND, or LOOK UP a specific material code (e.g., 'tìm code...'), you MUST read the provided context below.
-    - Match the item using the exact code requested (e.g., 'SJ-8902' matches 'Mã vải (Article/Material Code): SJ-8902').
-    - STRICT TRUTH: You MUST ONLY output the exact numbers and parameters present in the context below (e.g., Original Consumption: 0.56 YRD, Fabric Width: 56INCH, Component Type: Main Fabric). NEVER manufacture, guess, or invent specifications like 'Jacquard', '1.5 cm', or '0.25 m' if they are not written in the context. Reply directly in Vietnamese.
-    - Only generate the standard MERRELL table layout if the user asks for a calculation or provides fabric parameters (e.g., 'co rút 5%').
-
-    STANDARD TABLE LAYOUT REQUIREMENT (Only when calculating):
+    INTENT DETECTION & TRUTH-ONLY RULE:
+    - User message: '{user_message}'
+    - If user wants to SEARCH/FIND/LOOK UP material codes, READ the context below, extract data for that code, and print it out in friendly Vietnamese. DO NOT show a table full of N/A values.
+    - Only show the standard Merrell table if they input shrinkage metrics or width parameters.
+    - STRICT TRUTH: ONLY output exact numbers from the context. Do not make up info.
 
     | Style Code | Style Name | Garment Type | Marker Type | Fabric Width | Shrink L | Shrink W | Item | Net Consumption | UOM | Booking +3% | Booking +5% | Unit Price USD | Material Cost USD/pc |
 
-    PPJ GROUP FACTOR: WOVEN 88% | DENIM 90% | KNIT 87%
-    Context data: {scenario_instruction}
-
-    DATA FOR CALCULATION:
-    - Style Code / Name: {style_old_name if style_old_name != 'N/A' else '5614'} / {matched_techpack.get('StyleName', '5614 LR PULL ON TRACK PANTS') if matched_techpack else '5614 LR PULL ON TRACK PANTS'}
-    - New Spec (POM) parsed by vision: {json.dumps(new_style_measurements)}
-    - Fabric Width requested: {f_width if f_width > 0 else '55 in'}
-    - Width Shrinkage (Shrink W): {w_shrink}% | Length Shrinkage (Shrink L): {l_shrink}%
+    PPJ FACTORS: WOVEN 88% | DENIM 90% | KNIT 87%
+    Context: {bom_summary}
     """
 
     chat_contents = [types.Part.from_text(text=system_instruction)]
     for past_chat in st.session_state.get("consumption_chat_history", []):
         chat_contents.append(types.Part.from_text(text=f"User: {past_chat['user']}"))
         chat_contents.append(types.Part.from_text(text=f"AI: {past_chat['ai']}"))
-        
     chat_contents.append(types.Part.from_text(text=f"User current request: {user_message}"))
-    if target_new_sketch_bytes:
-        chat_contents.append(types.Part.from_bytes(data=target_new_sketch_bytes, mime_type='image/jpeg'))
 
     for attempt in range(3):
         try:
@@ -920,18 +883,14 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
                 st.session_state["consumption_chat_history"].append({"user": user_message, "ai": ai_reply})
                 return ai_reply
         except Exception as e:
-            err_msg = str(e).upper()
-            if "429" in err_msg or "QUOTA" in err_msg or "EXHAUSTED" in err_msg:
-                time.sleep(3.5)
+            if any(k in str(e).upper() for k in ["429", "503", "UNAVAILABLE", "QUOTA"]):
+                time.sleep(2.0 + attempt * 2.0)
                 continue
-            return f"🚨 Lỗi cổng phân tích định mức: {str(e)}"
-            
-    return "⏳ Máy chủ AI đang quá tải lượt quét. Bạn vui lòng đợi khoảng 15-20 giây rồi bấm gửi lại yêu cầu nhé!"
-
-
+            return f"🚨 Lỗi cổng phân tích: {str(e)}"
+    return "⏳ Hệ thống bận, vui lòng thử lại sau 10 giây."
 def process_single_pdf_batch(file_bytes, file_name):
     """
-    Hàm bóc tách dữ liệu kỹ thuật từ một file PDF độc lập.
+    Hàm bóc tách dữ liệu từ một file PDF độc lập.
     """
     import time
     try:
@@ -939,9 +898,6 @@ def process_single_pdf_batch(file_bytes, file_name):
             gemini_key_local = get_secure_gemini_key()
         else:
             gemini_key_local = st.secrets.get("GEMINI_API_KEY", "").strip()
-            
-        if not gemini_key_local:
-            return {"success": False, "error": "API Key cho Gemini đang bị thiếu trong Secrets."}
             
         client_ai = genai.Client(api_key=gemini_key_local)
         info = pdfinfo_from_bytes(file_bytes)
@@ -959,47 +915,27 @@ def process_single_pdf_batch(file_bytes, file_name):
             pdf_parts_payload.append(types.Part.from_bytes(data=img_data, mime_type='image/jpeg'))
             
         industrial_extraction_prompt = (
-            "You are an expert Garment Specification Auditor at PPJ Group. Analyze all attached sheets page by page. "
-            "1. Identify the core 'Base Size' / 'Sample Size'. "
-            "2. Identify the Buyer name and Category (Pant/Shirt/Jacket). "
-            "3. Find the exact 'Style ID' / 'Style Number'. "
-            "4. Extract the entire grading matrix table columns for ALL available sizes. "
-            "5. Find the exact PAGE INDEX (0-based) that contains the FULL BODY APPAREL FLAT SKETCH. "
-            "Return a completely valid raw JSON string matching this schema: "
-            "{"
-            "  \"style_number_parsed\": \"string\","
-            "  \"buyer\": \"string\","
-            "  \"category\": \"string\","
-            "  \"base_size_name\": \"string\","
-            "  \"sketch_page_index_detected\": 0,"
-            "  \"measurements\": {\"POM Description\": \"Value\"},"
-            "  \"full_size_matrix\": {\"POM Description\": {\"Size_Name\": \"Value\"}}"
-            "}"
+            "You are an expert Garment Specification Auditor at PPJ Group. "
+            "Return a completely valid raw JSON string: "
+            "{\"style_number_parsed\": \"string\", \"buyer\": \"string\", \"category\": \"string\", \"base_size_name\": \"string\", \"sketch_page_index_detected\": 0, \"measurements\": {}, \"full_size_matrix\": {}}"
         )
         pdf_parts_payload.append(types.Part.from_text(text=industrial_extraction_prompt))
         
         for attempt in range(3):
             try:
-                response = client_ai.models.generate_content(
-                    model='gemini-2.5-flash', 
-                    contents=pdf_parts_payload,
-                    config={"response_mime_type": "application/json"}
-                )
+                response = client_ai.models.generate_content(model='gemini-2.5-flash', contents=pdf_parts_payload, config={"response_mime_type": "application/json"})
                 if response and response.text:
                     parsed_json = json.loads(response.text)
                     st.session_state["detected_style_code"] = parsed_json.get("style_number_parsed", "")
-                    
                     sketch_idx = parsed_json.get("sketch_page_index_detected", 0)
                     extracted_sketch_bytes = stored_pages_bytes[sketch_idx] if sketch_idx < len(stored_pages_bytes) else stored_pages_bytes
-                    
                     return {"success": True, "data": parsed_json, "sketch_bytes": extracted_sketch_bytes}
             except Exception:
                 time.sleep(1.5)
                 continue
-        return {"success": False, "error": "AI không thể cấu trúc dữ liệu JSON sau 3 lần thử."}
+        return {"success": False, "error": "AI bóc tách lỗi."}
     except Exception as e:
         return {"success": False, "error": str(e)}
-# 🎯 KHỞI TẠO BIẾN TOÀN CỤC Ở PHẠM VI NGOÀI ĐỂ KHÔNG BỊ BÁO LỖI NAMERROR 
 if "matched_techpack" not in st.session_state: st.session_state["matched_techpack"] = None
 if "bom_records" not in st.session_state: st.session_state["bom_records"] = []
 if "consumption_chat_history" not in st.session_state: st.session_state["consumption_chat_history"] = []
@@ -1051,7 +987,7 @@ if has_file:
 
 dynamic_keyword = str(new_style_id_detected).strip().upper()
 base_sb_url = SB_URL.rstrip('/')
-headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
+headers = {"apikey": SB_KEY, "Authorization": f"Bearer # {SB_KEY}"}
 
 if menu_selection == "🧵 BOM & Consumption Matrix":
     st.markdown('<div class="component-title-box">🧵 INTELLIGENT BOM & CONSUMPTION MATRIX ENGINE</div>', unsafe_allow_html=True)
@@ -1067,13 +1003,13 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
             st.session_state["consumption_chat_history"] = []
             st.session_state["matched_techpack"] = None
             st.session_state["bom_records"] = []
-            st.success("♻️ MEMORY PURGED - SẴN SÀNG CHO MÃ HÀNG MỚI")
+            st.success("♻️ MEMORY PURGED")
             st.rerun()
 
     st.markdown("---")
-     # ==========================================================================
-    # KHỐI 5 - ĐOẠN 5.1: GIAO DIỆN CHAT BOX & TỰ ĐỘNG QUÉT DATABASE KHI TRA CỨU (FIX TOKEN)
-    # ==========================================================================
+    # --------------------------------------------------------------------------
+    # KHỐI 5 - ĐOẠN 5.1: GIAO DIỆN CHAT BOX & TỰ ĐỘNG BỐC DỮ LIỆU KHO REAL-TIME
+    # --------------------------------------------------------------------------
     chat_header_col1, chat_header_col2 = st.columns([3.2, 0.8])
     with chat_header_col1:
         st.markdown("### 💬 TRỢ LÝ AI PHÂN TÍCH ĐỊNH MỨC SẢN XUẤT (HỎI ĐÂU ĐÁP ĐÓ)")
@@ -1085,54 +1021,47 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
     chat_container = st.container()
     with chat_container:
         for chat in st.session_state.get("consumption_chat_history", []):
-            with st.chat_message("user"): 
-                st.write(chat["user"])
-            with st.chat_message("assistant"): 
-                st.write(chat["ai"])
+            with st.chat_message("user"): st.write(chat["user"])
+            with st.chat_message("assistant"): st.write(chat["ai"])
                 
     if user_query := st.chat_input("Nhập yêu cầu phân tích (Ví dụ: Tìm mã hàng, hoặc tính định mức co rút...)..."):
         with chat_container:
-            with st.chat_message("user"): 
-                st.write(user_query)
+            with st.chat_message("user"): st.write(user_query)
             with st.chat_message("assistant"):
-                with st.spinner("🤖 AI đang truy vấn dữ liệu hệ thống và phân tích..."):
+                with st.spinner("🤖 AI đang truy vấn dữ liệu kho và phân tích..."):
                     
-                    # 🎯 THUẬT TOÁN ĐÁNH CHẶN: Tự động gửi requests bốc dữ liệu trực tiếp khi tra cứu mã vải
-                    query_upper = user_query.upper()
-                    if "TÌM" in query_upper or "TRA" in query_upper or "CODE" in query_upper:
-                        extracted_match = re.search(r'[A-Za-z0-9]+[\s\-_]*[A-Za-z0-9]+', user_query)
-                        target_fabric_code = extracted_match.group(0).strip() if extracted_match else ""
-                        
-                        if target_fabric_code:
-                            try:
-                                url_search = f"{base_sb_url}/rest/v1/san_pham"
-                                
-                                # 🔒 ĐỒNG BỘ CHÍNH XÁC TOKEN BẢO MẬT: Sử dụng chữ viết hoa SB_KEY tương thích hệ thống
-                                exact_headers = {
-                                    "apikey": SB_KEY, 
-                                    "Authorization": f"Bearer {SB_KEY}"
-                                }
-                                
-                                params_search = {
-                                    "select": "StyleName,ArticleName,MaterialSize,UOM,BodyType,InputPure",
-                                    "ArticleName": f"ilike.*{target_fabric_code}*"
-                                }
-                                
-                                res_search = requests.get(url_search, headers=exact_headers, params=params_search, timeout=15)
-                                if res_search.status_code == 200 and len(res_search.json()) > 0:
-                                    st.session_state["bom_records"] = res_search.json()
-                                    bom_records = st.session_state["bom_records"]
-                            except Exception:
-                                pass
+                    query_upper = user_query.upper().strip()
+                    target_fabric_code = ""
+                    
+                    if any(k in query_upper for k in ["TÌM", "TRA", "CODE", "VẢI"]):
+                        clean_text = query_upper
+                        for word in ["TÌM KIẾM MÃ VẢI", "TÌM KIẾM CODE VẢI", "TÌM CODE VẢI", "TÌM MÃ VẢI", "TRA MÃ VẢI", "TÌM CODE", "TÌM MÃ", "TRA MÃ", "VẢI", "CODE", "TIM", "TRA", ":"]:
+                            clean_text = clean_text.replace(word, "")
+                        target_fabric_code = clean_text.strip()
+                    
+                    # TỰ ĐỘNG TRUY LỤC TRỰC TIẾP VÀO BẢNG public.san_pham CỦA KHỞI TẠO SUPABASE
+                    if target_fabric_code:
+                        try:
+                            url_search = f"{base_sb_url}/rest/v1/san_pham"
+                            exact_headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
+                            # Gọi chính xác cột ArticleName viết hoa theo ảnh bảng của bạn
+                            params_search = {
+                                "select": "StyleName,ArticleName,MaterialSize,UOM,BodyType,InputPure",
+                                "ArticleName": f"ilike.*{target_fabric_code}*"
+                            }
+                            res_search = requests.get(url_search, headers=exact_headers, params=params_search, timeout=15)
+                            if res_search.status_code == 200 and len(res_search.json()) > 0:
+                                st.session_state["bom_records"] = res_search.json()
+                                bom_records = st.session_state["bom_records"]
+                        except Exception:
+                            pass
 
-                    # Làm sạch danh mục vật tư trước khi đưa vào hàm xử lý định mức AI
                     clean_bom_records = []
                     current_bom_source = bom_records if bom_records else st.session_state.get("bom_records", [])
                     if current_bom_source:
                         for r in current_bom_source:
                             clean_bom_records.append(r)
                     
-                    # Gọi bộ não AI xử lý với ngữ cảnh Database được bốc real-time
                     ai_reply = ai_consumption_analyst_engine(
                         client=client, user_message=user_query, matched_techpack=matched_techpack,
                         bom_records=clean_bom_records, new_style_measurements=new_style_measurements_dict,
@@ -1147,14 +1076,13 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
 
     st.markdown("<br><hr style='border:0.5px solid #CBD5E1;'>", unsafe_allow_html=True)
 
-    # ==========================================================================
-    # KHỐI 5 - ĐOẠN 5.2: KHỐI CHẶN FILE & HIỂN THỊ CÁC BẢNG ĐỐI SOÁT THỰC TẾ
-    # ==========================================================================
+    # --------------------------------------------------------------------------
+    # KHỐI 5 - ĐOẠN 5.2: KHỐI CHẶN FILE & HIỂN THỊ CÁC BẢNG SAU KHI UPLOAD
+    # --------------------------------------------------------------------------
     if not has_file:
         st.info("👋 Vui lòng tải lên tệp Techpack hồ sơ thiết kế (PDF) ở phía trên để hệ thống bắt đầu quét và lập lịch trình đối soát.")
         st.stop()
 
-    # TỰ ĐỘNG QUÉT DỮ LIỆU ĐỐI CHỨNG THEO MÃ KHO (KHI ĐÃ UPLOAD FILE TECHPACK MỚI)
     if dynamic_keyword != "UNKNOWN_STYLE":
         try:
             url_db = f"{base_sb_url}/rest/v1/thong_so_techpack"
@@ -1193,8 +1121,7 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
     st.markdown("### 🖼️ ĐỐI CHIẾU SỰ TƯƠNG ĐỒNG HÌNH ẢNH THIẾT KẾ (FLAT SKETCH)")
     img_col1, img_col2 = st.columns(2)
     with img_col1:
-        if target_new_sketch_bytes is not None: 
-            st.image(target_new_sketch_bytes, caption=f"Mẫu mới tải lên", use_container_width=True)
+        if target_new_sketch_bytes is not None: st.image(target_new_sketch_bytes, caption=f"Mẫu mới tải lên", use_container_width=True)
 
     st.markdown("<br>### 📐 SO SÁNH HAI BẢNG THÔNG SỐ KỸ THUẬT RẬP MẪU", unsafe_allow_html=True)
     spec_col1, spec_col2 = st.columns(2)
@@ -1219,8 +1146,7 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
         for r in bom_records:
             def clean_nan(v): return "" if (not v or str(v).lower() in ["nan", "none", "null"]) else str(v).strip()
             row_style = clean_nan(r.get("StyleName", r.get("style_name"))).upper()
-            if not row_style or row_style == "NAN": 
-                row_style = fallback_style_code
+            if not row_style or row_style == "NAN": row_style = fallback_style_code
             formatted_bom.append({
                 "Mã hàng đối chứng": row_style,
                 "Loại nguyên vật liệu": clean_nan(r.get("BodyType", r.get("consumption_type"))),
