@@ -1396,6 +1396,7 @@ if target_new_sketch_bytes is not None and st.session_state["matched_techpack"] 
         st.write("📊 **Bản đồ ánh xạ tệp tin gửi đi `mapping_pool_context`:**")
         st.json(mapping_pool_context)
 
+               # ==========================================================================
         # KHỐI 5 - ĐOẠN 5.2.B.1: GỬI PAYLOAD SANG AI VISION & TRUY VẤN KHÓA KÉP DATABASE
         # ==========================================================================
         if len(vision_payload) > 1:
@@ -1431,9 +1432,9 @@ if target_new_sketch_bytes is not None and st.session_state["matched_techpack"] 
                 match_obj = json.loads(clean_json_match.group(0))
                 best_image_file = match_obj.get("selected_image_filename", "")
                 if best_image_file:
-                    # 🎯 CHUẨN HÓA TÁCH CHUỖI TUPLE CHUẨN: Lấy phần tử index 0 bốc chuỗi text mã sạch
-                    parsed_tuple = os.path.splitext(best_image_file)
-                    best_style_code = str(parsed_tuple).strip()
+                    # 🎯 SỬA LỖI TÁCH CHUỖI: Ép bốc đúng phần tử index số 0 sau khi chia chuỗi để lấy tên file sạch
+                    parts = best_image_file.split(".")
+                    best_style_code = str(parts[0]).strip() if parts else best_image_file
                     # Khử các hậu tố bẩn của file ảnh trên storage xưởng
                     best_style_code = re.sub(r'(_FRONT|_BACK|_FRT|_BK|_FLAT)$', '', best_style_code, flags=re.IGNORECASE)
 
@@ -1462,9 +1463,9 @@ if target_new_sketch_bytes is not None and st.session_state["matched_techpack"] 
                     sample = test_res.json()
                     if isinstance(sample, list) and len(sample) > 0:
                         st.write("🔥 **DANH SÁCH TÊN CỘT THỰC TẾ TRONG BẢNG THONG_SO_TECHPACK:**")
-                        st.write(list(sample.keys()))
+                        st.write(list(sample[0].keys()))
                         st.write("📄 **Mẫu bản ghi vị trí đầu tiên:**")
-                        st.json(sample)
+                        st.json(sample[0])
                 
                 # 🎯 THAY THẾ TOÁN TỬ TRUY VẤN: Tránh lỗi kí tự (-) bằng phương pháp nối chuỗi văn bản sạch
                 or_expression_tp = "(StyleName.ilike.*" + str(safe_code) + "*,style_name.ilike.*" + str(safe_code) + "*)"
@@ -1479,7 +1480,8 @@ if target_new_sketch_bytes is not None and st.session_state["matched_techpack"] 
                 st.write("• **TP Rows count:**", len(raw_tp_json))
                 
                 if raw_tp_json:
-                    st.session_state["matched_techpack"] = raw_tp_json if isinstance(raw_tp_json, list) and len(raw_tp_json) > 0 else raw_tp_json
+                    # Nếu trả về mảng, bốc lấy Dictionary phần tử đầu tiên nạp vào cache hệ thống
+                    st.session_state["matched_techpack"] = raw_tp_json[0] if isinstance(raw_tp_json, list) else raw_tp_json
                     
                 url_bom = f"{base_sb_url}/rest/v1/san_pham"
                 or_expression_bom = "(style_name.ilike.*" + str(safe_code) + "*,StyleName.ilike.*" + str(safe_code) + "*)"
@@ -1501,6 +1503,7 @@ if target_new_sketch_bytes is not None and st.session_state["matched_techpack"] 
         st.error(f"🚨 Lỗi khâu gọi mô hình hoặc ghi đè Database: {str(vision_err)}")
 else:
     st.warning("⚠️ Không có ảnh lịch sử hợp lệ nào được nạp vào Payload (Kích thước mảng bằng 1).")
+
 # ==========================================================================
 # KHỐI 5 - ĐOẠN 5.2.B.2: GIAO DIỆN ĐỐI CHIẾU SONG SONG & HIỂN THỊ HỆ THỐNG BẢNG BIỂU
 # ==========================================================================
