@@ -1169,94 +1169,170 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
 
 
     # ==========================================================================
-    # KHỐI 5 - ĐOẠN 5.2.1.A: ĐỒNG BỘ STORAGE & HỆ THỐNG 5 DÒNG DEBUG TỐI CAO
-    # ==========================================================================
-    if not has_file:
-        st.info("👋 Vui lòng tải lên tệp Techpack hồ sơ thiết kế (PDF) ở phía trên để hệ thống bắt đầu quét và lập lịch trình đối soát.")
-        st.stop()
+# KHỐI 5 - ĐOẠN 5.2.1: BẢN GỘP CHUẨN LỀ KHỬ HOÀN TOÀN LỖI INDENTATIONERROR
+# ==========================================================================
+if not has_file:
+    st.info("👋 Vui lòng tải lên tệp Techpack hồ sơ thiết kế (PDF) ở phía trên để hệ thống bắt đầu quét và lập lịch trình đối soát.")
+    st.stop()
 
-    if "matched_techpack" not in st.session_state: st.session_state["matched_techpack"] = None
-    if "bom_records" not in st.session_state: st.session_state["bom_records"] = []
-    
-    # CƠ CHẾ GIẢI PHÓNG BỘ NHỚ ĐỆM (CACHE FLUSHER) KHI ĐỔI FILE TECHPACK MỚI
-    if "previous_file_name" not in st.session_state:
-        st.session_state["previous_file_name"] = file_name
-    elif st.session_state["previous_file_name"] != file_name:
-        st.session_state["matched_techpack"] = None
-        st.session_state["bom_records"] = []
-        st.session_state["previous_file_name"] = file_name
+if "matched_techpack" not in st.session_state: st.session_state["matched_techpack"] = None
+if "bom_records" not in st.session_state: st.session_state["bom_records"] = []
 
-    # KHỞI CHẠY LUỒNG THỊ GIÁC MÁY TÍNH VÀ DOWNLOAD BYTE ẢNH THẬT
-    if target_new_sketch_bytes is not None and st.session_state["matched_techpack"] is None:
-        try:
-            import os
-            from urllib.parse import quote
-            
-            url_list_storage = f"{base_sb_url}/storage/v1/object/list/kho_anh"
-            storage_headers = {
-                "apikey": SB_KEY,
-                "Authorization": f"Bearer {SB_KEY}",
-                "Content-Type": "application/json"
-            }
-            
-            # Quét mở rộng giới hạn lên 500 ảnh để bao phủ toàn bộ kho
-            payload_list = {"limit": 500, "offset": 0}
-            res_storage = requests.post(url_list_storage, headers=storage_headers, json=payload_list, timeout=15)
-            
-            available_images = []
-            if res_storage.status_code == 200:
-                raw_storage_data = res_storage.json()
-                if isinstance(raw_storage_data, list):
-                    available_images = [item["name"] for item in raw_storage_data if isinstance(item, dict) and "name" in item and item["name"].lower().endswith(('.jpg', '.jpeg', '.png'))]
-            
-            # Lọc lấy 15 tấm ảnh đầu tiên từ kho để đưa vào Pool gửi sang Gemini Vision
-            filtered_pool_images = available_images[:15] if available_images else []
+# CƠ CHẾ GIẢI PHÓNG BỘ NHỚ ĐỆM (CACHE FLUSHER) KHI ĐỔI FILE TECHPACK MỚI
+if "previous_file_name" not in st.session_state:
+    st.session_state["previous_file_name"] = file_name
+elif st.session_state["previous_file_name"] != file_name:
+    st.session_state["matched_techpack"] = None
+    st.session_state["bom_records"] = []
+    st.session_state["previous_file_name"] = file_name
 
-            mapping_pool_context = []
-            vision_payload = []
-            
-            if target_new_sketch_bytes:
-                # Nạp ảnh mẫu mới bóc từ PDF vào vị trí đầu tiên
-                vision_payload.append(types.Part.from_bytes(data=target_new_sketch_bytes, mime_type='image/jpeg'))
+# KHỞI CHẠY LUỒNG THỊ GIÁC MÁY TÍNH VÀ DOWNLOAD BYTE ẢNH THẬT
+if target_new_sketch_bytes is not None and st.session_state["matched_techpack"] is None:
+    try:
+        import os
+        from urllib.parse import quote
+        
+        url_list_storage = f"{base_sb_url}/storage/v1/object/list/kho_anh"
+        storage_headers = {
+            "apikey": SB_KEY,
+            "Authorization": f"Bearer {SB_KEY}",
+            "Content-Type": "application/json"
+        }
+        
+        # Quét mở rộng giới hạn lên 500 ảnh để bao phủ toàn bộ kho
+        payload_list = {"limit": 500, "offset": 0}
+        res_storage = requests.post(url_list_storage, headers=storage_headers, json=payload_list, timeout=15)
+        
+        available_images = []
+        if res_storage.status_code == 200:
+            raw_storage_data = res_storage.json()
+            if isinstance(raw_storage_data, list):
+                available_images = [item["name"] for item in raw_storage_data if isinstance(item, dict) and "name" in item and item["name"].lower().endswith(('.jpg', '.jpeg', '.png'))]
+        
+        # Lọc lấy 15 tấm ảnh đầu tiên từ kho để đưa vào Pool gửi sang Gemini Vision
+        filtered_pool_images = available_images[:15] if available_images else []
 
-            if filtered_pool_images and target_new_sketch_bytes:
-                with st.spinner("🧠 AI Vision đang tải ảnh kho vật lý và tiến hành đối soát..."):
-                    
-                    # VÒNG LẶP DOWNLOAD ẢNH NHỊ PHÂN VẬT LÝ TỪ CLOUD STORAGE NẠP VÀO PAYLOAD AI
-                    for idx, filename in enumerate(filtered_pool_images):
-                        public_img_url = f"{base_sb_url}/storage/v1/object/public/kho_anh/{filename}"
-                        try:
-                            img_response = requests.get(public_img_url, headers={"apikey": SB_KEY}, timeout=10)
+        mapping_pool_context = []
+        vision_payload = []
+        
+        if target_new_sketch_bytes:
+            # Nạp ảnh mẫu mới bóc từ PDF vào vị trí đầu tiên
+            vision_payload.append(types.Part.from_bytes(data=target_new_sketch_bytes, mime_type='image/jpeg'))
+
+        if filtered_pool_images and target_new_sketch_bytes:
+            with st.spinner("🧠 AI Vision đang tải ảnh kho vật lý và tiến hành đối soát..."):
+                
+                # VÒNG LẶP DOWNLOAD ẢNH NHỊ PHÂN VẬT LÝ TỪ CLOUD STORAGE NẠP VÀO PAYLOAD AI
+                for idx, filename in enumerate(filtered_pool_images):
+                    public_img_url = f"{base_sb_url}/storage/v1/object/public/kho_anh/{filename}"
+                    try:
+                        img_response = requests.get(public_img_url, headers={"apikey": SB_KEY}, timeout=10)
+                        
+                        if img_response.status_code == 200 and len(img_response.content) > 1000:
+                            m_type = "image/png" if filename.lower().endswith(".png") else "image/jpeg"
+                            vision_payload.append(types.Part.from_bytes(data=img_response.content, mime_type=m_type))
                             
-                            if img_response.status_code == 200 and len(img_response.content) > 1000:
-                                m_type = "image/png" if filename.lower().endswith(".png") else "image/jpeg"
-                                vision_payload.append(types.Part.from_bytes(data=img_response.content, mime_type=m_type))
-                                
-                                mapping_pool_context.append({
-                                    "payload_image_index": len(vision_payload) - 1,
-                                    "corresponding_filename": filename
-                                })
-                        except Exception:
-                            continue
+                            mapping_pool_context.append({
+                                "payload_image_index": len(vision_payload) - 1,
+                                "corresponding_filename": filename
+                            })
+                    except Exception:
+                        continue
 
-            # 🎯 5 DÒNG DEBUG TỐI CAO THEO YÊU CẦU ĐỂ KIỂM SOÁT TUYỆT ĐỐI LUỒNG DỮ LIỆU CHÍ CHÓNG
-            st.markdown("### 🔍 HỆ THỐNG KIỂM SOÁT ĐẦU VÀO AI VISION (5 DÒNG CHUẨN ĐOÁN)")
-            st.write("1. **Storage Status:**", res_storage.status_code)
-            st.write("2. **Total Images:**", len(available_images))
-            st.write("3. **First 10 Images:**", available_images[:10] if available_images else [])
-            st.write("4. **Downloaded Images:**", len(mapping_pool_context))
-            st.write("5. **Payload Size:**", len(vision_payload))
-            st.markdown("---")
+        # 🎯 5 DÒNG DEBUG TỐI CAO THEO YÊU CẦU ĐỂ KIỂM SOÁT TUYỆT ĐỐI LUỒNG DỮ LIỆU
+        st.markdown("### 🔍 HỆ THỐNG KIỂM SOÁT ĐẦU VÀO AI VISION (5 DÒNG CHUẨN ĐOÁN)")
+        st.write("1. **Storage Status:**", res_storage.status_code)
+        st.write("2. **Total Images:**", len(available_images))
+        st.write("3. **First 10 Images:**", available_images[:10] if available_images else [])
+        st.write("4. **Downloaded Images:**", len(mapping_pool_context))
+        st.write("5. **Payload Size:**", len(vision_payload))
+        st.markdown("---")
 
-            if res_storage.status_code != 200:
-                st.error("Chi tiết phản hồi lỗi từ Endpoint List Storage:")
-                st.code(res_storage.text)
+        if res_storage.status_code != 200:
+            st.error("Chi tiết phản hồi lỗi từ Endpoint List Storage:")
+            st.code(res_storage.text)
 
-            st.write("📊 **Bản đồ ánh xạ tệp tin gửi đi `mapping_pool_context`:**")
-            st.json(mapping_pool_context)
+        st.write("📊 **Bản đồ ánh xạ tệp tin gửi đi `mapping_pool_context`:**")
+        st.json(mapping_pool_context)
 
-        except Exception as e:
-            st.error(f"🚨 Lỗi khâu tải và khởi tạo dữ liệu nhị phân: {str(e)}")
+        # GỬI GEMINI PHÂN TÍCH VÀ ĐỐI SOÁT HÌNH ẢNH THỰC TẾ
+        if len(vision_payload) > 1:
+            vision_match_prompt = f"""
+            You are an expert Garment Structure Vision Auditor at PPJ Group.
+            You are provided with a NEW FLAT SKETCH IMAGE (the very first image payload) and a pool of HISTORICAL GARMENT IMAGES loaded from the storage.
+            
+            YOUR TASK:
+            Compare the internal stitching lines, waistband details, length (Pants vs Shorts), plackets, and pocket placements of the NEW IMAGE against all subsequent historical images.
+            Identify which historical image share the absolute highest technical silhouette similarity.
+            
+            MAPPING INDEX REFERENCE (Use this to find the filename corresponding to the image position):
+            {json.dumps(mapping_pool_context)}
+            
+            Return a completely valid raw JSON object inside your response containing the exact matched filename string from the reference map. DO NOT include markdown code blocks, backticks, or intro/outro text.
+            Schema requirement: {{"selected_image_filename": "string"}}
+            """
+            
+            vision_payload.insert(0, types.Part.from_text(text=vision_match_prompt))
+            
+            res_vision = client.models.generate_content(model='gemini-2.5-flash', contents=vision_payload)
+            ai_raw_vision_text = res_vision.text.strip()
+            
+            st.markdown("### ===== AI VISION PHẢN HỒI =====")
+            st.write("🤖 **Raw Reply từ Gemini Vision:**")
+            st.code(ai_raw_vision_text)
+            
+            clean_json_match = re.search(r'\{\s*"selected_image_filename"\s*:\s*".*?"\s*\}', ai_raw_vision_text)
+            best_image_file = ""
+            best_style_code = ""
+            
+            if clean_json_match:
+                match_obj = json.loads(clean_json_match.group(0))
+                best_image_file = match_obj.get("selected_image_filename", "")
+                if best_image_file:
+                    best_style_code = os.path.splitext(best_image_file)[0].strip()
+                    best_style_code = re.sub(r'(_FRONT|_BACK|_FRT|_BK|_FLAT)$', '', best_style_code, flags=re.IGNORECASE)
+
+            st.markdown("### ===== DEBUG MATCH RESULT =====")
+            st.write("• **Selected File from Gemini:**", best_image_file)
+            st.write("• **Processed Best Style Code:**", repr(best_style_code))
+
+            if best_style_code:
+                safe_code = quote(best_style_code)
+                url_tp = f"{base_sb_url}/rest/v1/thong_so_techpack"
+                exact_headers = {
+                    "apikey": local_sb_key,
+                    "Authorization": f"Bearer {local_sb_key}",
+                    "Content-Type": "application/json",
+                    "Accept": "application/json"
+                }
+                
+                query_params_tp = {
+                    "select": "*",
+                    "or": f"(StyleName.ilike.*{safe_code}*,style_name.ilike.*{safe_code}*)"
+                }
+                db_res_tp = requests.get(url_tp, headers=exact_headers, params=query_params_tp, timeout=15)
+                raw_tp_json = db_res_tp.json() if db_res_tp.status_code == 200 else []
+                st.write("• **TP Rows count:**", len(raw_tp_json))
+                
+                if raw_tp_json:
+                    st.session_state["matched_techpack"] = raw_tp_json if isinstance(raw_tp_json, list) else raw_tp_json
+                    
+                url_bom = f"{base_sb_url}/rest/v1/san_pham"
+                query_bom = {
+                    "select": "*",
+                    "or": f"(style_name.ilike.*{safe_code}*,StyleName.ilike.*{safe_code}*)"
+                }
+                res_bom = requests.get(url_bom, headers=exact_headers, params=query_bom, timeout=15)
+                raw_bom_json = res_bom.json() if res_bom.status_code == 200 else []
+                st.write("• **BOM Rows count:**", len(raw_bom_json))
+                
+                if raw_bom_json:
+                    st.session_state["bom_records"] = raw_bom_json
+        else:
+            st.warning("⚠️ Không có ảnh lịch sử hợp lệ nào được nạp vào Payload (Kích thước mảng bằng 1).")
+    except Exception as e:
+        st.error(f"🚨 Lỗi khâu tải và khởi tạo dữ liệu nhị phân: {str(e)}")
+
                     # ==========================================================
                     # KHỐI 5 - ĐOẠN 5.2.1.B: GỬI GEMINI, KHỬ HẬU TỐ & TRUY VẤN DB
                     # ==========================================================
