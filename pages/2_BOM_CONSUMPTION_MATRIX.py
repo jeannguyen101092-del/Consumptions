@@ -834,8 +834,6 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
     shrinkage_length = re.findall(r'(?:CO RÚT DỌC|DỌC)\s*(\d+(?:\.\d+)?)\s*%', user_message.upper())
     new_fabric_width = re.findall(r'(?:KHỔ VẢI|KHỔ)\s*(\d+)\s*(?:\"|INCH|INCHES)?', user_message.upper())
     
-# Lấy phần tử đầu tiên nếu danh sách không rỗng, ngược lại gán bằng None
-   # Lấy phần tử đầu tiên nếu danh sách không rỗng, ngược lại gán bằng None
     w_shrink_val = shrinkage_width[0] if shrinkage_width else None
     l_shrink_val = shrinkage_length[0] if shrinkage_length else None
     new_fabric_width_val = new_fabric_width[0] if new_fabric_width else None
@@ -845,11 +843,15 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
     l_shrink = float(l_shrink_val) if l_shrink_val else 0.0
     f_width = float(new_fabric_width_val) if new_fabric_width_val else 0.0
 
+    # Xử lý chuỗi JSON và biến điều kiện bên ngoài để tránh lỗi lồng f-string
+    specs_old_json = json.dumps(specs_old)
+    f_width_label = str(f_width) if f_width > 0 else "58 inch"
+    new_style_measurements_json = json.dumps(new_style_measurements)
 
     if matched_techpack:
         scenario_instruction = f"""
         KỊCH BẢN: ĐỒNG DẠNG KHO (Sử dụng dữ liệu đối chứng lịch sử)
-        - Đối chiếu chênh lệch diện tích cấu trúc giữa Spec mới và Spec cũ {json.dumps(specs_old)}.
+        - Đối chiếu chênh lệch diện tích cấu trúc giữa Spec mới và Spec cũ {specs_old_json}.
         - Bù trừ định mức tăng/giảm từ nền tảng BOM gốc: {bom_summary}.
         """
     else:
@@ -857,7 +859,7 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
         KỊCH BẢN: PHÂN TÍCH VECTOR HÌNH HỌC NGÀNH MAY KHÔNG CÓ MÃ TƯƠNG ĐỒNG (GEOMETRIC LAYOUT ESTIMATION)
         - Bạn không có dữ liệu lịch sử. Hãy dựa hoàn toàn vào bảng thông số 'New Spec (POM)' và hình ảnh bản vẽ rập chi tiết 'Flat Sketch' đính kèm.
         - Hãy tính diện tích hình học rập mẫu thô của từng chi tiết cấu thành dựa trên đúng phân loại sản phẩm.
-        - Tính ĐM Vải chính: Cộng dồn chiều dài các mảnh rập sau khi cộng biên may, nhân hệ số hao hụt rải vải tiêu chuẩn ngành xếp trên khổ vải: {f_width if f_width > 0 else '58 inch'}.
+        - Tính ĐM Vải chính: Cộng dồn chiều dài các mảnh rập sau khi cộng biên may, nhân hệ số hao hụt rải vải tiêu chuẩn ngành xếp trên khổ vải: {f_width_label}.
         """
 
     system_instruction = f"""
@@ -893,41 +895,9 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
     CRITICAL DATA FOR CALCULATION:
     1. NEW STYLE TECHPACK DATA:
        - Target Base Size detected: Size {detected_size}
-       - New Spec (POM) parsed by vision: {json.dumps(new_style_measurements)}
+       - New Spec (POM) parsed by vision: {new_style_measurements_json}
     2. USER INPUT FABRIC CHANGES:
-       - Fabric Width requested: {f_width if f_width > 0 else '58 inch'}
-       - Width Shrinkage (Co rút ngang): {w_shrink}%
-       - Length Shrinkage (Co rút dọc): {l_shrink}%
-    """
-
-
-    
-    FACTORY SEWING SEAM ALLOWANCE RULES (CRITICAL):
-    - Standard Seam Allowance: ALWAYS add 0.44 inches to all general component seams (Thân trước, thân sau, sườn, giàng, dọc quần, tra cạp, v.v.).
-    - Pocket Openings (Miệng túi): EXCLUDE the 0.44" rule. Pocket trims and facings must follow the exact techpack dimensions.
-    - Garment Hem / Bottom Hem (Lai áo / Lai quần): DO NOT use 0.44". You MUST scan the 'New Spec (POM)' below to find the specific values for keywords like 'Hem', 'Bottom Width', 'Sleeve Hemfold'. Use that exact Techpack value for the hem calculation. If not specified, note it down.
-
-    GARMENT CATEGORY SPECIFIC RULES (STRICT SEPARATION TO AVOID ERROR):
-    
-    1. IF THE CATEGORY IS PANT / SHORT / SKORT / TROUSER (NHÓM HÀNG QUẦN):
-       - STICK TO JEANS/PANTS LOGIC ONLY.
-       - ABSOLUTELY FORBIDDEN: Do NOT apply Shirt Placket rules (Cấm áp dụng quy tắc nẹp rời/nẹp liền gập cuốn của áo). 
-       - Waistband Construction (Cạp quần): Calculate waistband fabric based strictly on Waistband Height and Waist Circumference.
-       - Zipper Fly / Fly Placket (Cửa quần): Only calculate based on standard front fly extensions (typically adding a small standard extension of 1.5" to 2" for the fly j-stitch width on ONE side of the left front panel only. Do NOT multiply by 2 across both front panels like a shirt).
-       - Coin Pocket (Túi đồng xu): Check for coin pocket width/height if specified.
-       
-    2. IF THE CATEGORY IS SHIRT / JACKET / TOP / COAT (NHÓM HÀNG ÁO):
-       - NẸP LIỀN (Fold-on/Extended Placket): If folded from the main body, add 2 times the placket width extension to the raw width of each front body panel pattern before calculating fabric consumption.
-       - NẸP RỜI (Separate Placket): Treat it as a standalone independent geometric pattern strip panel (Length = body length + seams, Width = placket width x 2 + standard seams 2 x 0.44"). Add this separate piece to the overall layout marker area.
-
-    {scenario_instruction}
-
-    CRITICAL DATA FOR CALCULATION:
-    1. NEW STYLE TECHPACK DATA:
-       - Target Base Size detected: Size {detected_size}
-       - New Spec (POM) parsed by vision: {json.dumps(new_style_measurements)}
-    2. USER INPUT FABRIC CHANGES:
-       - Fabric Width requested: {f_width if f_width > 0 else '58 inch'}
+       - Fabric Width requested: {f_width_label}
        - Width Shrinkage (Co rút ngang): {w_shrink}%
        - Length Shrinkage (Co rút dọc): {l_shrink}%
     """
