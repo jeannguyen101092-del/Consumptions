@@ -820,8 +820,8 @@ def parse_fraction(val_str):
 def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_records, new_style_measurements, target_new_sketch_bytes, detected_size):
     """
     Bộ não xử lý tính toán định mức nâng cao bằng đơn vị YARD (Yds).
-    Tự động áp hệ số hiệu suất sơ đồ chuẩn PPJ Group: Woven 88%, Denim 90%, Knit 87%.
-    ĐÃ ĐỒNG BỘ 100% TIÊU ĐỀ CỘT SUPABASE: style_name, article_name, consumption_type, material_size, uom.
+    ĐÃ SỬA: Đồng bộ cấu trúc ánh xạ dữ liệu chuẩn xác để AI đọc trúng thông số Excel, 
+    chấm dứt hoàn toàn hiện tượng đoán mò thông số vật tư.
     """
     import time
     if not bom_records:
@@ -830,29 +830,33 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
     style_old_name = "N/A"
     specs_old = {}
     if matched_techpack:
-        # Lấy chính xác tên mã hàng đối chứng đang hoạt động (Ví dụ: 029SP257052-SNOWFLAKE-L0T5)
         style_old_name = str(matched_techpack.get("StyleName", matched_techpack.get("StyleCode", "N/A"))).strip().upper()
         specs_old = matched_techpack.get("DetailedMeasurements", {})
 
-    # 🎯 ĐỒNG BỘ CHÍNH XÁC THEO BẢNG HÌNH ẢNH SUPABASE THỰC TẾ CỦA BẠN
+    # 🎯 ÁNH XẠ CHÍNH XÁC 100% THEO ĐÚNG CÁC TRƯỜNG DỮ LIỆU THỰC TẾ
     bom_summary_list = []
     if bom_records:
         for r in bom_records:
-            # Đọc chuẩn xác cột style_name text từ Supabase
-            r_style = str(r.get('style_name', '')).strip().upper()
+            r_style = str(r.get('style_name', r.get('StyleName', ''))).strip().upper()
             
             if style_old_name == "N/A" or style_old_name in r_style or r_style == "":
-                # Gọi chính xác tên cột từ bảng public.san_pham của bạn để nạp vào AI
-                comp = r.get('consumption_type', 'N/A')  # Cột loại vật tư (Main Fabric, Pocketing,...)
-                art = r.get('article_name', 'N/A')        # Cột mã vải thực tế (SJ-B902, D00557,...)
-                m_size = r.get('material_size', 'N/A')    # Cột khổ vải (55INCH, 57INCH,...)
-                val = r.get('consumption_value', '0')     # Cột định mức gốc
-                uom = r.get('uom', 'YRD')                 # Cột đơn vị tính
+                # Trích xuất dữ liệu dựa trên cả chữ hoa và chữ thường để chống sót từ khóa
+                art = r.get('article_name', r.get('ArticleName', 'N/A'))        # Mã vải (SJ-8902)
+                m_size = r.get('material_size', r.get('MaterialSize', 'N/A'))    # Khổ vải (56INCH)
+                uom = r.get('uom', r.get('UOM', 'YRD'))                          # Đơn vị tính (YRD)
+                comp = r.get('consumption_type', r.get('BodyType', 'N/A'))      # Chủng loại (Main Fabric)
+                val = r.get('consumption_value', r.get('Input Pure', r.get('InputPure', '0'))) # Định mức gốc (0.56)
                 
-                bom_summary_list.append(f"- Mã hàng: {r_style if r_style else style_old_name}, Vật tư: {comp}, Mã vải (Article): {art}, Khổ gốc: {m_size}, ĐM gốc: {val} {uom}")
+                bom_summary_list.append(
+                    f"- Mã hàng: {r_style if r_style else style_old_name} | "
+                    f"Mã vải (Article/Material Code): {art} | "
+                    f"Chủng loại (Component Type): {comp} | "
+                    f"Khổ rộng gốc (Fabric Width): {m_size} | "
+                    f"Định mức gốc (Original Consumption): {val} {uom}"
+                )
 
     if not bom_summary_list and matched_techpack and style_old_name != "N/A":
-        bom_summary = f"⚠️ HỆ THỐNG CẢNH BÁO: Không tìm thấy dữ liệu vật tư trùng khớp với mã đối chứng {style_old_name} trong bảng san_pham."
+        bom_summary = f"⚠️ HỆ THỐNG CẢNH BÁO: Không tìm thấy dữ liệu vật tư trùng khớp với mã đối chứng {style_old_name}."
         matched_techpack = None  
     else:
         bom_summary = "\n".join(bom_summary_list)
@@ -870,25 +874,27 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
     f_width = float(new_fabric_width_val) if new_fabric_width_val else 0.0
 
     if matched_techpack and "⚠️" not in bom_summary:
-        scenario_instruction = f"KỊCH BẢN ĐỒNG DẠNG: Đối chiếu thông số rập mới với Spec mã {style_old_name} và tìm kiếm/tính toán dựa trên đúng danh mục vật tư bảng san_pham: \n{bom_summary}"
+        scenario_instruction = f"KỊCH BẢN ĐỒNG DẠNG: Sử dụng danh mục vật tư thực tế từ hệ thống kho sau đây để tra cứu hoặc tính toán: \n{bom_summary}"
     else:
-        scenario_instruction = f"KỊCH BẢN VECTOR HÌNH HỌC TỰ ĐỘNG: Tính diện tích bao rập thô độc lập. Dữ liệu danh mục phụ liệu mục tiêu: \n{bom_summary}"
+        scenario_instruction = f"KỊCH BẢN VECTOR HÌNH HỌC TỰ ĐỘNG: Dữ liệu danh mục vật tư mục tiêu phụ trợ: \n{bom_summary}"
 
+    # ĐỊNH HƯỚNG CHẶT CHẼ HÀNH VI ĐÁP ỨNG CỦA AI CHẤM DỨT ĐOÁN MÒ
     system_instruction = f"""
     You are a strict Industrial Garment Costing Engineer at PPJ Group.
     
-    INTENT DETECTION & LOOKUP RULE:
+    INTENT DETECTION & TRUTH-ONLY RULE (CRITICAL):
     - Analyze the user request: '{user_message}'.
-    - If the user asks to SEARCH, FIND, or LOOK UP a specific material code or fabric (e.g., 'tìm code vải...', 'tìm kiếm mã vải...'), your priority is to look inside the 'Mã vải (Article)' field in the context below. 
-    - Find the item matching that code (e.g., 'SJ-B902'), and reply directly in friendly Vietnamese text showing its full row parameters (Mã hàng, Vật tư, Khổ gốc, ĐM gốc, UOM). DO NOT generate the calculation table full of N/A values for search intents.
-    - Only generate the standard MERRELL consumption table if the user explicitly asks for an allowance calculation or provides shrinkage metrics (e.g., 'co rút 5%').
+    - If the user asks to SEARCH, FIND, or LOOK UP a specific material code (e.g., 'tìm code...'), you MUST read the provided context below.
+    - Match the item using the exact code requested (e.g., 'SJ-8902' matches 'Mã vải (Article/Material Code): SJ-8902').
+    - STRICT TRUTH: You MUST ONLY output the exact numbers and parameters present in the context below (e.g., Original Consumption: 0.56 YRD, Fabric Width: 56INCH, Component Type: Main Fabric). NEVER manufacture, guess, or invent specifications like 'Jacquard', '1.5 cm', or '0.25 m' if they are not written in the context. Reply directly in Vietnamese.
+    - Only generate the standard MERRELL table layout if the user asks for a calculation or provides fabric parameters (e.g., 'co rút 5%').
 
     STANDARD TABLE LAYOUT REQUIREMENT (Only when calculating):
 
     | Style Code | Style Name | Garment Type | Marker Type | Fabric Width | Shrink L | Shrink W | Item | Net Consumption | UOM | Booking +3% | Booking +5% | Unit Price USD | Material Cost USD/pc |
 
-    PPJ GROUP - MANDATORY FACTOR: WOVEN 88% | DENIM 90% | KNIT 87%
-    Context data to look up or calculate from: {scenario_instruction}
+    PPJ GROUP FACTOR: WOVEN 88% | DENIM 90% | KNIT 87%
+    Context data: {scenario_instruction}
 
     DATA FOR CALCULATION:
     - Style Code / Name: {style_old_name if style_old_name != 'N/A' else '5614'} / {matched_techpack.get('StyleName', '5614 LR PULL ON TRACK PANTS') if matched_techpack else '5614 LR PULL ON TRACK PANTS'}
@@ -921,6 +927,7 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
             return f"🚨 Lỗi cổng phân tích định mức: {str(e)}"
             
     return "⏳ Máy chủ AI đang quá tải lượt quét. Bạn vui lòng đợi khoảng 15-20 giây rồi bấm gửi lại yêu cầu nhé!"
+
 
 def process_single_pdf_batch(file_bytes, file_name):
     """
