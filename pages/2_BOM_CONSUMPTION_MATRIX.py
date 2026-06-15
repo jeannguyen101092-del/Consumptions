@@ -1256,7 +1256,7 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
             st.json(mapping_pool_context)
                     # ==========================================================
 # ==========================================================================
-# KHỐI 5 - ĐOẠN 5.2.1.B: GỬI GEMINI VISION, VÁ LỖI INDEX [0] & TRUY VẤN DATABASE
+# KHỐI 5 - ĐOẠN 5.2.1.B: GỬI GEMINI VISION, VÁ LỖI INDEX & TRUY VẤN DATABASE
 # ==========================================================================
 if 'vision_payload' in locals() and len(vision_payload) > 1:
     try:
@@ -1292,7 +1292,7 @@ if 'vision_payload' in locals() and len(vision_payload) > 1:
             match_obj = json.loads(clean_json_match.group(0))
             best_image_file = match_obj.get("selected_image_filename", "")
             if best_image_file:
-                # 🎯 SỬA LỖI CÚ PHÁP TỐI CAO: Dùng chỉ mục [0] để lấy chuỗi tên mã hàng sạch
+                # 🎯 CHUẨN HÓA TÁCH CHUỖI TUPLE: Lấy phần tử index 0 bốc chuỗi text mã sạch
                 parsed_tuple = os.path.splitext(best_image_file)
                 best_style_code = str(parsed_tuple[0]).strip()
                 # Khử các hậu tố bẩn của file ảnh trên storage xưởng
@@ -1321,29 +1321,35 @@ if 'vision_payload' in locals() and len(vision_payload) > 1:
             
             if test_res.status_code == 200:
                 sample = test_res.json()
-                st.write("• **Số dòng mẫu lấy thử thành công:**", len(sample))
-                if sample and len(sample) > 0:
+                if isinstance(sample, list) and len(sample) > 0:
                     st.write("🔥 **DANH SÁCH TÊN CỘT THỰC TẾ TRONG BẢNG THONG_SO_TECHPACK:**")
                     st.write(list(sample[0].keys()))
                     st.write("📄 **Mẫu bản ghi vị trí đầu tiên:**")
                     st.json(sample[0])
             
+            # 🎯 VÁ LỖI CÚ PHÁP TỐI CAO: Khử bỏ hoàn toàn toán tử toán học lồng trong f-string, chuyển sang nối chuỗi truyền thống sạch
+            or_expression_tp = "(StyleName.ilike.*" + str(safe_code) + "*,style_name.ilike.*" + str(safe_code) + "*)"
             query_params_tp = {
                 "select": "*",
-                "or": f"(StyleName.ilike.*{safe_code}*,style_name.ilike.*{safe_code}*)"
+                "or": or_expression_tp
             }
+            st.write("• **TP Query Params sent:**", query_params_tp)
+            
             db_res_tp = requests.get(url_tp, headers=exact_headers, params=query_params_tp, timeout=15)
             raw_tp_json = db_res_tp.json() if db_res_tp.status_code == 200 else []
             st.write("• **TP Rows count:**", len(raw_tp_json))
             
             if raw_tp_json:
-                st.session_state["matched_techpack"] = raw_tp_json[0] if isinstance(raw_tp_json, list) else raw_tp_json
+                st.session_state["matched_techpack"] = raw_tp_json[0] if isinstance(raw_tp_json, list) and len(raw_tp_json) > 0 else raw_tp_json
                 
             url_bom = f"{base_sb_url}/rest/v1/san_pham"
+            or_expression_bom = "(style_name.ilike.*" + str(safe_code) + "*,StyleName.ilike.*" + str(safe_code) + "*)"
             query_bom = {
                 "select": "*",
-                "or": f"(style_name.ilike.*{safe_code}*,StyleName.ilike.*{safe_code}*)"
+                "or": or_expression_bom
             }
+            st.write("• **BOM Query Params sent:**", query_bom)
+            
             res_bom = requests.get(url_bom, headers=exact_headers, params=query_bom, timeout=15)
             raw_bom_json = res_bom.json() if res_bom.status_code == 200 else []
             st.write("• **BOM Rows count:**", len(raw_bom_json))
@@ -1356,6 +1362,7 @@ if 'vision_payload' in locals() and len(vision_payload) > 1:
         st.error(f"🚨 Lỗi khâu gọi mô hình hoặc ghi đè Database: {str(vision_err)}")
 else:
     st.warning("⚠️ Không có ảnh lịch sử hợp lệ nào được nạp vào Payload (Kích thước mảng bằng 1).")
+
 
 
 
