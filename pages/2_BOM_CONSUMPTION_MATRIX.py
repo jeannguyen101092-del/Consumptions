@@ -1325,7 +1325,7 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
 
     st.markdown("---")
 
-    # THIẾT KẾ CỤM ĐIỀU KHIỂN CHAT BOX LUÔN LUÔN HIỂN THỊ CỐ ĐỊNH
+       # THIẾT KẾ CỤM ĐIỀU KHIỂN CHAT BOX THÔNG MINH SIÊU TỐC
     chat_header_col1, chat_header_col2 = st.columns([3.2, 0.8])
     with chat_header_col1:
         st.markdown("### 💬 TRỢ LÝ AI PHÂN TÍCH ĐỊNH MỨC SẢN XUẤT (HỎI ĐÂU ĐÁP ĐÓ)")
@@ -1340,7 +1340,7 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
             with st.chat_message("user"): 
                 st.write(chat["user"])
             with st.chat_message("assistant"): 
-                st.write(chat["ai"])
+                st.markdown(chat["ai"])
                 
     if user_query := st.chat_input("Nhập yêu cầu tra cứu mã vải hoặc phân tích định mức..."):
         with chat_container:
@@ -1352,14 +1352,13 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                     ai_reply = ai_consumption_analyst_engine(
                         client=client,
                         user_message=user_query,
-                        matched_techpack=st.session_state["matched_techpack"],
-                        bom_records=st.session_state["bom_records"],
+                        matched_techpack=st.session_state.get("matched_techpack"),
+                        bom_records=st.session_state.get("bom_records"),
                         new_style_measurements=new_style_measurements_dict,
                         target_new_sketch_bytes=target_new_sketch_bytes,
                         detected_size=new_style_base_size
                     )
                     
-                    # Trích xuất định dạng kết quả sạch (Bảng hoặc Text từ Engine)
                     import re
                     clean_reply = ai_reply
                     matrix_match = re.search(r'(### KẾT QUẢ ĐỊNH MỨC:.*?\n\|.*?\n\|.*?(?:\n\|.*?)*)', ai_reply, re.DOTALL)
@@ -1374,7 +1373,7 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                 var doc = window.parent.document;
                 var sections = doc.querySelectorAll('section.main');
                 if (sections.length > 0) {
-                    sections[0].scrollTo({top: sections[0].scrollHeight, behavior: 'smooth'});
+                    sections.scrollTo({top: sections.scrollHeight, behavior: 'smooth'});
                 }
             </script>
             """,
