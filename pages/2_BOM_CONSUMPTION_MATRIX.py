@@ -2255,52 +2255,22 @@ elif menu_selection == "🛒 Purchase Consumption":
                 else:
                     st.info("💡 Quy trình: Bấm nút 1 để tính tác nghiệp sơ đồ -> Điền độ dài CAD -> Bấm nút 2 để kích hoạt nhảy số định mức.")
 if menu_selection == "🔍 Tra cứu kho trực tiếp":
-    st.markdown('<div class="component-title-box">🔍 TRUY XUẤT DỮ LIỆU & HÌNH ẢNH TRỰC TIẾP TỪ KHO</div>', unsafe_allow_html=True)
+    st.markdown('<div class="component-title-box">🔍 TRUY XUẤT MỤC SẢN PHẨM TRỰC TIẾP TỪ KHO</div>', unsafe_allow_html=True)
     st.markdown("---")
     
-    # Ô nhập từ khóa chủ động
-    search_keyword = st.text_input("✍️ Nhập mã hàng hoặc tên vải cần tìm:", placeholder="Ví dụ: PPJ-2026, Cotton, Pants...", key="direct_search_input")
+    search_keyword = st.text_input("✍️ Nhập tên hoặc mã sản phẩm cần tìm:", placeholder="Ví dụ: Vải Denim, Chỉ may, Mã hàng...", key="direct_prod_search_input")
     
     if search_keyword:
-        with st.spinner("💾 Đang kết nối trực tiếp kho Supabase..."):
-            results = find_style_by_keyword_direct(base_sb_url, SB_KEY, search_keyword.strip())
+        with st.spinner("💾 Đang kết nối bảng sản phẩm..."):
+            results = find_product_by_product_direct(base_sb_url, SB_KEY, search_keyword.strip())
             
             if results:
-                st.success(f"🎉 Tìm thấy {len(results)} bản ghi khớp với từ khóa `{search_keyword}`!")
+                st.success(f"🎉 Tìm thấy {len(results)} sản phẩm khớp với từ khóa!")
                 
-                # Chuyển đổi dữ liệu sang Pandas DataFrame để hiển thị dạng bảng trực quan
+                # Chuyển dữ liệu sang bảng DataFrame
                 df_display = pd.DataFrame(results)
-                # Đổi tên cột hiển thị cho thân thiện với người dùng
-                df_display = df_display.rename(columns={
-                    "StyleName": "Mã hàng/Tên vải",
-                    "Buyer": "Khách hàng",
-                    "Category": "Chủng loại",
-                    "BaseSize": "Size cơ sở"
-                })
                 
-                # Hiển thị bảng dữ liệu
-                st.markdown("### 📊 Bảng thông số kỹ thuật trong kho")
-                st.dataframe(df_display[["Mã hàng/Tên vải", "Khách hàng", "Chủng loại", "Size cơ sở"]], use_container_width=True)
-                
-                # Duyệt qua các kết quả để hiển thị chi tiết thông số và ảnh rập/vải đi kèm
-                st.markdown("---")
-                st.markdown("### 📷 Chi tiết kết cấu & Hình ảnh rập mẫu")
-                
-                for idx, item in enumerate(results):
-                    with st.expander(f"📦 Chi tiết mã: {item.get('StyleName')} - {item.get('Buyer', 'N/A')}", expanded=(idx==0)):
-                        col_text, col_img = st.columns([1.5, 1])
-                        
-                        with col_text:
-                            st.write(f"**🔹 Phân loại:** {item.get('Category', 'N/A')}")
-                            st.write(f"**🔹 Size cơ sở:** {item.get('BaseSize', 'N/A')}")
-                            st.write("**📐 Bảng thông số chi tiết (Detailed Measurements):**")
-                            st.json(item.get("DetailedMeasurements", {}))
-                            
-                        with col_img:
-                            img_url = item.get("SketchURL")
-                            if img_url:
-                                st.image(img_url, caption=f"Hình ảnh mã {item.get('StyleName')}", use_container_width=True)
-                            else:
-                                st.info("ℹ️ Mã hàng này chưa được cập nhật hình ảnh trong kho.")
+                st.markdown("### 📊 Bảng dữ liệu sản phẩm")
+                st.dataframe(df_display, use_container_width=True, hide_index=True)
             else:
-                st.warning(f"❌ Không tìm thấy dữ liệu nào trùng khớp với từ khóa `{search_keyword}` trong kho Supabase.")
+                st.warning(f"❌ Không tìm thấy sản phẩm nào khớp với từ khóa `{search_keyword}`.")
