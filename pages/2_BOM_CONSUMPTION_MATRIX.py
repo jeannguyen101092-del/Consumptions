@@ -1089,11 +1089,10 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                             st.code(res_sp.text)
 
                         # ------------------------------------------------------
+                                               # ------------------------------------------------------
                         # B. KHO THÔNG SỐ TECHPACK (public.thong_so_techpack)
                         # ------------------------------------------------------
                         url_tp = f"{local_sb_url}/rest/v1/thong_so_techpack"
-                        
-                        # 🎯 FIX LỖI TÊN CỘT: Sửa chính xác thành 'StyleName' viết hoa theo DB của bạn
                         params_tp = {
                             "select": "*",
                             "StyleName": f"ilike.*{target_fabric_code}*",
@@ -1107,13 +1106,36 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                         if res_tp.status_code == 200:
                             techpack_records = res_tp.json()
                             if techpack_records:
+                                # Lưu dữ liệu vào bộ nhớ hệ thống
                                 st.session_state["matched_techpack"] = techpack_records[0]
+                                
                                 st.markdown("### 📋 KHO THÔNG SỐ KỸ THUẬT")
-                                df_tp = pd.DataFrame(techpack_records)
-                                st.dataframe(df_tp, use_container_width=True, hide_index=True)
+                                
+                                # 🎯 THUẬT TOÁN PHÂN RÃ CHUỖI JSON SANG BẢNG HAI CỘT DÒNG CHUẨN
+                                raw_specs = techpack_records[0].get("DetailedMeasurements", {})
+                                
+                                # Nếu dữ liệu trả về từ Supabase đang bị bọc dạng chuỗi String, tiến hành giải nén JSON
+                                if isinstance(raw_specs, str):
+                                    try:
+                                        raw_specs = json.loads(raw_specs)
+                                    except Exception:
+                                        raw_specs = {}
+                                        
+                                if isinstance(raw_specs, dict) and raw_specs:
+                                    # Chuyển đổi cấu trúc Dictionary {Key: Value} sang bảng DataFrame phẳng
+                                    df_parsed_spec = pd.DataFrame(
+                                        list(raw_specs.items()), 
+                                        columns=["Vị trí đo (POM Description)", "Thông số cũ"]
+                                    )
+                                    st.dataframe(df_parsed_spec, use_container_width=True, hide_index=True)
+                                else:
+                                    # Cấu trúc dự phòng nếu không phân rã được chuỗi JSON dữ liệu
+                                    df_tp = pd.DataFrame(techpack_records)
+                                    st.dataframe(df_tp, use_container_width=True, hide_index=True)
                         else:
                             st.error("Lỗi dữ liệu Kho Thông Số")
                             st.code(res_tp.text)
+
 
                         # ------------------------------------------------------
                         # C. KHO ẢNH SUPABASE STORAGE (QUÉT ĐA ĐUÔI & CHECK HTTP)
