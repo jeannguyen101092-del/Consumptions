@@ -1011,8 +1011,8 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
     st.markdown("---")
 
       
-          # ==========================================================================
-    # KHỐI 5 - ĐOẠN 5.1: GIAO DIỆN CHAT BOX & ÉP BUỘC XÁC THỰC TOKEN KHO CỤC BỘ
+       # ==========================================================================
+    # KHỐI 5 - ĐOẠN 5.1: GIAO DIỆN CHAT BOX & TRUY LỤC ĐA NHIỆM 3 KHO REAL-TIME
     # ==========================================================================
     chat_header_col1, chat_header_col2 = st.columns([3.2, 0.8])
     with chat_header_col1:
@@ -1028,71 +1028,105 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
             with st.chat_message("user"): st.write(chat["user"])
             with st.chat_message("assistant"): st.write(chat["ai"])
                 
-    if user_query := st.chat_input("Nhập yêu cầu phân tích (Ví dụ: SJ-8902, hoặc tính định mức co rút...)..."):
+    if user_query := st.chat_input("Nhập yêu cầu phân tích (Ví dụ: SJ-8902, 1H001327, P3026)..."):
         with chat_container:
             with st.chat_message("user"): st.write(user_query)
             with st.chat_message("assistant"):
                 with st.spinner("🔍 Hệ thống đang kết nối trực tiếp kho dữ liệu Supabase..."):
                     
-                    # Tự động làm sạch lệnh để tách lấy mã vật tư 'SJ-8902'
+                    # Tự động làm sạch câu lệnh để cô lập mã vật tư
                     query_upper = user_query.upper().strip()
                     target_fabric_code = query_upper
+                    
                     for word in ["TÌM KIẾM MÃ VẢI", "TÌM KIẾM CODE VẢI", "TÌM CODE VẢI", "TÌM MÃ VẢI", "TRA MÃ VẢI", "TÌM CODE", "TÌM MÃ", "TRA MÃ", "VẢI", "CODE", "TIM", "TRA", ":"]:
                         target_fabric_code = target_fabric_code.replace(word, "")
                     target_fabric_code = target_fabric_code.strip()
                     
-                    # ĐỌC TRỰC TIẾP BIẾN MÔI TRƯỜNG ĐỘC LẬP TỪ SECRETS ĐỂ ĐẢM BẢO KHÔNG BỊ RỖNG
-                    local_sb_url = str(st.secrets.get("SB_URL", st.secrets.get("SUPABASE_URL", globals().get("SB_URL", "")))).strip().rstrip('/')
-                    local_sb_key = str(st.secrets.get("SB_KEY", st.secrets.get("SUPABASE_KEY", globals().get("SB_KEY", "")))).strip()
+                    local_sb_url = st.secrets.get("SB_URL", st.secrets.get("SUPABASE_URL", globals().get("SB_URL", "")))
+                    local_sb_key = st.secrets.get("SB_KEY", st.secrets.get("SUPABASE_KEY", globals().get("SB_KEY", "")))
                     
-                    is_search_intent = any(k in query_upper for k in ["TÌM", "TRA", "CODE", "VẢI", "SJ-", "D00"])
+                    local_sb_url = str(local_sb_url).strip().rstrip('/')
+                    local_sb_key = str(local_sb_key).strip()
                     
-                    if is_search_intent and target_fabric_code and local_sb_url and local_sb_key:
-                        try:
-                            url_search = f"{local_sb_url}/rest/v1/san_pham"
-                            
-                            # 🎯 ÉP CẤU HÌNH TOKEN RIÊNG BIỆT KHÔNG ĂN THEO KHỐI LỆNH NGOÀI
-                            exact_headers = {
-                                "apikey": local_sb_key, 
-                                "Authorization": f"Bearer {local_sb_key}"
-                            }
-                            
-                            params_search = {
-                                "select": "StyleName,ArticleName,MaterialSize,UOM,BodyType,InputPure",
-                                "ArticleName": f"ilike.*{target_fabric_code}*"
-                            }
-                            
-                            res_search = requests.get(url_search, headers=exact_headers, params=params_search, timeout=15)
-                            
-                            # 🎯 NẾU CÓ DỮ LIỆU KHO THỰC TẾ, IN THẲNG RA WEB CHO NGƯỜI DÙNG XEM NGAY
-                            if res_search.status_code == 200 and len(res_search.json()) > 0:
-                                st.session_state["bom_records"] = res_search.json()
-                                bom_records = st.session_state["bom_records"]
-                                
-                                st.markdown("📊 **Dữ liệu kho thực tế tìm thấy trùng khớp:**")
-                                df_chat_view = pd.DataFrame(res_search.json())
-                                df_chat_view.columns = ["Mã hàng", "Mã vải (Article)", "Khổ vải", "UOM", "Loại vật tư", "ĐM gốc"]
-                                st.dataframe(df_chat_view, use_container_width=True, hide_index=True)
-                            else:
-                                # In mã lỗi hoặc trạng thái rỗng ra màn hình console của Streamlit để debug nhanh
-                                print(f"Supabase Status: {res_search.status_code} | Empty List Returned")
-                        except Exception as e:
-                            print(f"Connection Error: {str(e)}")
+                    # ------------------------------------------------------
+                    # 🎯 THAY THẾ KHỐI TRA CỨU ĐA NHIỆM 3 KHO TỰ ĐỘNG
+                    # ------------------------------------------------------
+                    try:
+                        exact_headers = {
+                            "apikey": local_sb_key,
+                            "Authorization": f"Bearer {local_sb_key}",
+                            "Content-Type": "application/json",
+                            "Accept": "application/json"
+                        }
 
+                        # 1. TRUY VẤN KHO SẢN PHẨM (public.san_pham)
+                        url_sp = f"{local_sb_url}/rest/v1/san_pham"
+                        params_sp = {
+                            "select": "*",
+                            "or": f"(article_name.ilike.*{target_fabric_code}*,style_name.ilike.*{target_fabric_code}*)",
+                            "limit": 100
+                        }
+                        res_sp = requests.get(url_sp, headers=exact_headers, params=params_sp, timeout=20)
+                        
+                        bom_records = []
+                        if res_sp.status_code == 200:
+                            bom_records = res_sp.json()
+                            if bom_records:
+                                st.session_state["bom_records"] = bom_records
+                                st.markdown("### 📦 KHO SẢN PHẨM")
+                                df_sp = pd.DataFrame(bom_records)
+                                st.dataframe(df_sp, use_container_width=True, hide_index=True)
+
+                        # 2. TRUY VẤN KHO THÔNG SỐ TECHPACK (public.thong_so_techpack)
+                        url_tp = f"{local_sb_url}/rest/v1/thong_so_techpack"
+                        params_tp = {
+                            "select": "*",
+                            "StyleName": f"ilike.*{target_fabric_code}*",
+                            "limit": 20
+                        }
+                        res_tp = requests.get(url_tp, headers=exact_headers, params=params_tp, timeout=20)
+                        
+                        techpack_records = []
+                        if res_tp.status_code == 200:
+                            techpack_records = res_tp.json()
+                            if techpack_records:
+                                st.session_state["matched_techpack"] = techpack_records[0]
+                                st.markdown("### 📏 KHO THÔNG SỐ")
+                                df_tp = pd.DataFrame(techpack_records)
+                                st.dataframe(df_tp, use_container_width=True, hide_index=True)
+
+                        # 3. TRUY VẤN KHO ẢNH SUPABASE STORAGE
+                        image_url = f"{local_sb_url}/storage/v1/object/public/kho_anh/{target_fabric_code}.jpg"
+                        st.markdown("### 🖼️ HÌNH ẢNH")
+                        try:
+                            st.image(image_url, use_container_width=True)
+                        except:
+                            pass
+
+                        # ĐOẠN DEBUG CHUẨN ĐOÁN SỐ LƯỢNG DÒNG
+                        st.caption(f"Search: {target_fabric_code} | SP: {len(bom_records)} | TP: {len(techpack_records)}")
+
+                    except Exception as e:
+                        st.error(f"Lỗi kết nối Supabase: {str(e)}")
+
+                    # ------------------------------------------------------
+                    # 🎯 THAY THẾ KHỐI ĐỒNG BỘ NẠP NGỮ CẢNH CHO BỘ NÃO AI
+                    # ------------------------------------------------------
                     clean_bom_records = []
-                    current_bom_source = bom_records if 'bom_records' in locals() and bom_records else st.session_state.get("bom_records", [])
+                    current_bom_source = st.session_state.get("bom_records", [])
+                    matched_techpack = st.session_state.get("matched_techpack", None)
+                    
                     if current_bom_source:
                         for r in current_bom_source:
                             clean_bom_records.append(r)
                     
-                    # Chống sập cục bộ các biến kỹ thuật
-                    s_techpack = matched_techpack if 'matched_techpack' in locals() and matched_techpack else st.session_state.get("matched_techpack")
+                    # Cấu hình an toàn các biến phụ trợ tránh lỗi cục bộ
                     s_measurements = new_style_measurements_dict if 'new_style_measurements_dict' in locals() else {}
                     s_sketch = target_new_sketch_bytes if 'target_new_sketch_bytes' in locals() else None
                     s_size = new_style_base_size if 'new_style_base_size' in locals() else "M"
 
                     ai_reply = ai_consumption_analyst_engine(
-                        client=client, user_message=user_query, matched_techpack=s_techpack,
+                        client=client, user_message=user_query, matched_techpack=matched_techpack,
                         bom_records=clean_bom_records, new_style_measurements=s_measurements,
                         target_new_sketch_bytes=s_sketch, detected_size=s_size
                     )
@@ -1104,6 +1138,7 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
         )
 
     st.markdown("<br><hr style='border:0.5px solid #CBD5E1;'>", unsafe_allow_html=True)
+
 
     
     # ==========================================================================
