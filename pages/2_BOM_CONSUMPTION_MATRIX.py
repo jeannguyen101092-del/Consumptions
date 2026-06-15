@@ -834,9 +834,9 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
     shrinkage_length = re.findall(r'(?:CO RÚT DỌC|DỌC)\s*(\d+(?:\.\d+)?)\s*%', user_message.upper())
     new_fabric_width = re.findall(r'(?:KHỔ VẢI|KHỔ)\s*(\d+)\s*(?:\"|INCH|INCHES)?', user_message.upper())
     
-    w_shrink_val = shrinkage_width[0] if shrinkage_width else None
-    l_shrink_val = shrinkage_length[0] if shrinkage_length else None
-    new_fabric_width_val = new_fabric_width[0] if new_fabric_width else None
+    w_shrink_val = shrinkage_width if shrinkage_width else None
+    l_shrink_val = shrinkage_length if shrinkage_length else None
+    new_fabric_width_val = new_fabric_width if new_fabric_width else None
 
     w_shrink = float(w_shrink_val) if w_shrink_val else 0.0
     l_shrink = float(l_shrink_val) if l_shrink_val else 0.0
@@ -847,7 +847,7 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
     else:
         scenario_instruction = f"KỊCH BẢN VECTOR HÌNH HỌC: Tính diện tích rập thô từ New Spec và Flat Sketch trên khổ {f_width if f_width > 0 else '58 inch'}."
 
-    # PROMPT ÉP AI GỘP ĐỊNH MỨC VÀ QUÉT TOÀN BỘ NGUYÊN PHỤ LIỆU TỪ BOM
+    # PROMPT SIẾT CHẶT CÔNG THỨC YARDS VÀ KHÓA CHẶT ĐƠN VỊ UOM
     system_instruction = f"""
     You are an Industrial Garment Costing Engineer. 
     STRICT REQUIREMENT: Provide the final analysis ONLY in a Markdown Table format matching the MERRELL template. 
@@ -857,15 +857,17 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
 
     | Style Code | Style Name | Garment Type | Marker Type | Fabric Width | Shrink L | Shrink W | Item | Net Consumption | UOM | Booking +3% | Booking +5% | Unit Price USD | Material Cost USD/pc |
 
-    CRITICAL SUMMARY & AGGREGATION RULES:
-    1. DO NOT LIST DETAILED PATTERN PIECES (e.g., Do NOT create separate rows for Front Body, Sleeve, Collar, Pocket, etc.).
-    2. ROLL-UP & SUM: Aggregate and SUM the fabric consumption of all components belonging to the same material type into ONE single row (e.g., 'Shell Fabric', 'Lining Fabric', 'Interlining').
-    3. FULL NPL/BOM COVERAGE: You MUST read and list ALL raw materials and trims (Nguyên phụ liệu) found in the BOM data or mentioned in the techpack context (e.g., Thread, Zipper, Button, Labels, Padding) so no item from BOM is missing in the table.
-    4. Calculations: 
-       - 'Booking +3%' = Net Consumption * 1.03.
-       - 'Booking +5%' = Net Consumption * 1.05.
-       - Leave Price/Cost as 0.00 if not provided.
-    5. Context data: {scenario_instruction}
+    CRITICAL YARDS CONVERSION & MATHEMATICS RULES (STRICT):
+    1. UOM COLUMN CONSTRAINT: For all Fabric items (Shell, Lining, Interlining), the UOM column MUST explicitly display "Yds". NEVER output "M" or "Meter".
+    2. CONVERSION FORMULA: If the original data is in Meters, you MUST multiply by 1.09361 to convert to YARDS.
+    3. SHRINKAGE COMPENSATE FORMULA: 
+       - Net Consumption (Yds) = [Base Pattern Length (inches) + Seam Allowances] * (1 + Shrink L / 100) / 36 * Standard Marker Efficiency factor (typically 1.15 to account for layout waste).
+       - Ensure that a 12% Shrink W or 3% Shrink L results in a logically HIGHER Net Consumption to prevent under-costing.
+    4. TRIMS LOGIC: Non-fabric items (Thread, Snap, Zipper) should use appropriate UOM (e.g., PC, M, Cones) as specified in BOM but fabric items MUST be in "Yds".
+    5. Calculations for Booking:
+       - 'Booking +3%' = Net Consumption * 1.03
+       - 'Booking +5%' = Net Consumption * 1.05
+    6. Context data: {scenario_instruction}
 
     DATA FOR CALCULATION:
     - Style Code / Name: P08-500722 / PEN CANVAS BOMBER JACKET
@@ -891,6 +893,7 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
         return ai_reply
     except Exception as e:
         return f"🚨 Lỗi cổng phân tích định mức: {str(e)}"
+
 
 
 
