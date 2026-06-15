@@ -1269,116 +1269,122 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
 
     st.markdown("---")
 
-    # KHỐI LOGIC CHỈ CHẠY KHI ĐÃ TẢI FILE LÊN (KHÔNG DÙNG ST.STOP GÂY ẨN CHAT)
-    if has_file:
-        if new_style_base_size and new_style_base_size != "32":
-            st.info(f"📋 **CƠ SỞ ĐỐI SOÁT KIỂM TRA:** Mẫu mới số hóa mã hàng `{new_style_id_detected}` | Quy chuẩn kích thước hình học rập mẫu: **SIZE {new_style_base_size}**")
-        else:
-            st.info(f"📋 **CƠ SỞ ĐỐI SOÁT KIỂM TRA:** Đang áp dụng quy chuẩn kích thước hình học rập mẫu cơ sở: **SIZE 32 / M (Mặc định)**")
+   # KHỐI LOGIC CHỈ CHẠY KHI ĐÃ TẢI FILE LÊN (KHÔNG DÙNG ST.STOP GÂY ẨN CHAT)
+if 'uploaded_file' in st.session_state and st.session_state['uploaded_file'] is not None:
+    has_file = True
+else:
+    has_file = False
 
-        with st.spinner("🧠 Hệ thống thị giác máy tính đang quét kết cấu phom dáng Flat Sketch..."):
-            try:
-                headers_db = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
-                url_db = f"{base_sb_url}/rest/v1/thong_so_techpack"
-                query_params = {"select": "StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL,sketch_vector", "limit": 100}
-                
-                db_res = requests.get(url_db, headers=headers_db, params=query_params, timeout=15)
-                all_historical_styles = db_res.json() if db_res.status_code == 200 else []
-                
-                if all_historical_styles:
-                    styles_pool_summary = []
-                    for idx, s in enumerate(all_historical_styles):
-                        styles_pool_summary.append({
-                            "pool_index": idx,
-                            "style_name": s.get("StyleName"),
-                            "sketch_features_vector": s.get("sketch_vector", "")
-                        })
-                    
-                    match_prompt = f"""
-                    You are an expert Computer Vision Ingestion System specialized in Apparel Manufacturing at PPJ Group.
-                    Analyze the ATTACHED NEW SKETCH IMAGE and find the single closest matching historical garment style from the pool.
-                    
-                    HISTORICAL POOL DATA:
-                    {json.dumps(styles_pool_summary)}
-                    
-                    Select the single index that represents the exact match.
-                    Return a raw valid JSON object inside your response: {{"selected_pool_index": 0}}
-                    """
-                    
-                    match_contents = [types.Part.from_text(text=match_prompt)]
-                    if target_new_sketch_bytes:
-                        match_contents.append(types.Part.from_bytes(data=target_new_sketch_bytes, mime_type='image/jpeg'))
-                        
-                    res_match = client.models.generate_content(model='gemini-2.5-flash', contents=match_contents)
-                    ai_raw_text = res_match.text.strip()
-                    
-                    json_block_clean = re.search(r'\{\s*"selected_pool_index"\s*:\s*\d+\s*\}', ai_raw_text)
-                    if json_block_clean:
-                        match_result = json.loads(json_block_clean.group(0).strip())
-                        best_idx = match_result.get("selected_pool_index", -1)
-                        if 0 <= best_idx < len(all_historical_styles):
-                            st.session_state["matched_techpack"] = all_historical_styles[best_idx]
-            except Exception as match_err:
-                st.sidebar.error(f"Lỗi hệ thống đối soát hình ảnh: {str(match_err)}")
+if has_file:
+    if 'new_style_base_size' in locals() and new_style_base_size != "32":
+        st.info(f"📋 **CƠ SỞ ĐỐI SOÁT KIỂM TRA:** Mẫu mới số hóa mã hàng `{new_style_id_detected}` | Quy chuẩn kích thước hình học rập mẫu: **SIZE {new_style_base_size}**")
     else:
-        st.info("👋 Hệ thống trống - Bạn có thể chat tra cứu mã vải ngay bên dưới hoặc tải Techpack để tính định mức.")
+        st.info(f"📋 **CƠ SỞ ĐỐI SOÁT KIỂM TRA:** Đang áp dụng quy chuẩn kích thước hình học rập mẫu cơ sở: **SIZE 32 / M (Mặc định)**")
 
-    st.markdown("---")
-
-    # THIẾT KẾ CỤM ĐIỀU KHIỂN CHAT BOX THÔNG MINH SIÊU TỐC
-    chat_header_col1, chat_header_col2 = st.columns([3.2, 0.8])
-    with chat_header_col1:
-        st.markdown("### 💬 TRỢ LÝ AI PHÂN TÍCH ĐỊNH MỨC SẢN XUẤT (HỎI ĐÂU ĐÁP ĐÓ)")
-    with chat_header_col2:
-        if st.button("🗑️ XÓA LỊCH SỬ CHAT", key="direct_clear_chat_btn", use_container_width=True):
-            st.session_state["consumption_chat_history"] = []
-            st.toast("♻️ Đã xóa sạch lịch sử chat tức thì!")
-
-    chat_container = st.container()
-    with chat_container:
-        for chat in st.session_state.get("consumption_chat_history", []):
-            with st.chat_message("user"): 
-                st.write(chat["user"])
-            with st.chat_message("assistant"): 
-                st.markdown(chat["ai"])
+    with st.spinner("🧠 Hệ thống thị giác máy tính đang quét kết cấu phom dáng Flat Sketch..."):
+        try:
+            headers_db = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
+            url_db = f"{base_sb_url}/rest/v1/thong_so_techpack"
+            query_params = {"select": "StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL,sketch_vector", "limit": 100}
+            
+            db_res = requests.get(url_db, headers=headers_db, params=query_params, timeout=15)
+            all_historical_styles = db_res.json() if db_res.status_code == 200 else []
+            
+            if all_historical_styles:
+                styles_pool_summary = []
+                for idx, s in enumerate(all_historical_styles):
+                    styles_pool_summary.append({
+                        "pool_index": idx,
+                        "style_name": s.get("StyleName"),
+                        "sketch_features_vector": s.get("sketch_vector", "")
+                    })
                 
-    if user_query := st.chat_input("Nhập yêu cầu tra cứu mã vải hoặc phân tích định mức..."):
-        with chat_container:
-            with st.chat_message("user"):
-                st.write(user_query)
+                match_prompt = f"""
+                You are an expert Computer Vision Ingestion System specialized in Apparel Manufacturing at PPJ Group.
+                Analyze the ATTACHED NEW SKETCH IMAGE and find the single closest matching historical garment style from the pool.
                 
-            with st.chat_message("assistant"):
-                with st.spinner("🤖 AI đang phân tích dữ liệu và tìm kiếm mã hàng..."):
-                    ai_reply = ai_consumption_analyst_engine(
-                        client=client,
-                        user_message=user_query,
-                        matched_techpack=st.session_state.get("matched_techpack"),
-                        bom_records=st.session_state.get("bom_records"),
-                        new_style_measurements=new_style_measurements_dict,
-                        target_new_sketch_bytes=target_new_sketch_bytes,
-                        detected_size=new_style_base_size
-                    )
+                HISTORICAL POOL DATA:
+                {json.dumps(styles_pool_summary)}
+                
+                Select the single index that represents the exact match.
+                Return a raw valid JSON object inside your response: {{"selected_pool_index": 0}}
+                """
+                
+                match_contents = [types.Part.from_text(text=match_prompt)]
+                if 'target_new_sketch_bytes' in locals() and target_new_sketch_bytes:
+                    match_contents.append(types.Part.from_bytes(data=target_new_sketch_bytes, mime_type='image/jpeg'))
                     
-                    import re
-                    clean_reply = ai_reply
-                    matrix_match = re.search(r'(### KẾT QUẢ ĐỊNH MỨC:.*?\n\|.*?\n\|.*?(?:\n\|.*?)*)', ai_reply, re.DOTALL)
-                    if matrix_match:
-                        clean_reply = matrix_match.group(1).strip()
-                        
-                    st.markdown(clean_reply)
-        
-        st.components.v1.html(
-            """
-            <script>
-                var doc = window.parent.document;
-                var sections = doc.querySelectorAll('section.main');
-                if (sections.length > 0) {
-                    sections.scrollTo({top: sections.scrollHeight, behavior: 'smooth'});
-                }
-            </script>
-            """,
-            height=0,
-        )
+                res_match = client.models.generate_content(model='gemini-2.5-flash', contents=match_contents)
+                ai_raw_text = res_match.text.strip()
+                
+                json_block_clean = re.search(r'\{\s*"selected_pool_index"\s*:\s*\d+\s*\}', ai_raw_text)
+                if json_block_clean:
+                    match_result = json.loads(json_block_clean.group(0).strip())
+                    best_idx = match_result.get("selected_pool_index", -1)
+                    if 0 <= best_idx < len(all_historical_styles):
+                        st.session_state["matched_techpack"] = all_historical_styles[best_idx]
+        except Exception as match_err:
+            st.sidebar.error(f"Lỗi hệ thống đối soát hình ảnh: {str(match_err)}")
+else:
+    st.info("👋 Hệ thống trống - Bạn có thể chat tra cứu mã vải ngay bên dưới hoặc tải Techpack để tính định mức.")
+
+st.markdown("---")
+
+# THIẾT KẾ CỤM ĐIỀU KHIỂN CHAT BOX THÔNG MINH SIÊU TỐC
+chat_header_col1, chat_header_col2 = st.columns([3.2, 0.8])
+with chat_header_col1:
+    st.markdown("### 💬 TRỢ LÝ AI PHÂN TÍCH ĐỊNH MỨC SẢN XUẤT (HỎI ĐÂU ĐÁP ĐÓ)")
+with chat_header_col2:
+    if st.button("🗑️ XÓA LỊCH SỬ CHAT", key="direct_clear_chat_btn", use_container_width=True):
+        st.session_state["consumption_chat_history"] = []
+        st.toast("♻️ Đã xóa sạch lịch sử chat tức thì!")
+
+chat_container = st.container()
+with chat_container:
+    for chat in st.session_state.get("consumption_chat_history", []):
+        with st.chat_message("user"): 
+            st.write(chat["user"])
+        with st.chat_message("assistant"): 
+            st.markdown(chat["ai"])
+            
+if user_query := st.chat_input("Nhập yêu cầu tra cứu mã vải hoặc phân tích định mức..."):
+    with chat_container:
+        with st.chat_message("user"):
+            st.write(user_query)
+            
+        with st.chat_message("assistant"):
+            with st.spinner("🤖 AI đang phân tích dữ liệu và tìm kiếm mã hàng..."):
+                ai_reply = ai_consumption_analyst_engine(
+                    client=client,
+                    user_message=user_query,
+                    matched_techpack=st.session_state.get("matched_techpack"),
+                    bom_records=st.session_state.get("bom_records"),
+                    new_style_measurements=new_style_measurements_dict if 'new_style_measurements_dict' in locals() else {},
+                    target_new_sketch_bytes=target_new_sketch_bytes if 'target_new_sketch_bytes' in locals() else None,
+                    detected_size=new_style_base_size if 'new_style_base_size' in locals() else "32"
+                )
+                
+                import re
+                clean_reply = ai_reply
+                matrix_match = re.search(r'(### KẾT QUẢ ĐỊNH MỨC:.*?\n\|.*?\n\|.*?(?:\n\|.*?)*)', ai_reply, re.DOTALL)
+                if matrix_match:
+                    clean_reply = matrix_match.group(1).strip()
+                    
+                st.markdown(clean_reply)
+    
+    st.components.v1.html(
+        """
+        <script>
+            var doc = window.parent.document;
+            var sections = doc.querySelectorAll('section.main');
+            if (sections.length > 0) {
+                sections.scrollTo({top: sections.scrollHeight, behavior: 'smooth'});
+            }
+        </script>
+        """,
+        height=0,
+    )
+
 
 
 
