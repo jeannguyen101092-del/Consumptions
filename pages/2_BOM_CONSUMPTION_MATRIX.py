@@ -1012,7 +1012,8 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
 
       
         # ==========================================================================
-    # KHỐI 5 - ĐOẠN 5.1: GIAO DIỆN CHAT BOX & KẾT XUẤT ĐƯỜNG DẪN ẢNH CÔNG KHAI
+       # ==========================================================================
+    # KHỐI 5 - ĐOẠN 5.1: SỬA STYLE_NAME, QUÉT ĐA ĐUÔI ẢNH & TÍCH HỢP HỆ THỐNG DEBUG
     # ==========================================================================
     chat_header_col1, chat_header_col2 = st.columns([3.2, 0.8])
     with chat_header_col1:
@@ -1034,12 +1035,14 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
             with st.chat_message("assistant"):
                 with st.spinner("🔍 Hệ thống đang kết nối trực tiếp kho dữ liệu Supabase..."):
                     
-                    # Tự động làm sạch câu lệnh để tách biệt tên mã cần tìm kiếm
+                    # 🎯 XỬ LÝ CHUỖI NÂNG CAO: Loại bỏ toàn bộ từ khóa nhiễu tiếng Việt để lấy mã sạch
                     query_upper = user_query.upper().strip()
                     target_fabric_code = query_upper
                     
-                    for word in ["TÌM KIẾM MÃ VẢI", "TÌM KIẾM CODE VẢI", "TÌM CODE VẢI", "TÌM MÃ VẢI", "TRA MÃ VẢI", "TÌM CODE", "TÌM MÃ", "TRA MÃ", "VẢI", "CODE", "TIM", "TRA", ":", "TÔI CẦN THÔNG SỐ MÃ", "MÃ"]:
+                    for word in ["TÌM KIẾM MÃ VẢI", "TÌM KIẾM CODE VẢI", "TÌM CODE VẢI", "TÌM MÃ VẢI", "TRA MÃ VẢI", "TÌM CODE", "TÌM MÃ", "TRA MÃ", "VẢI", "CODE", "TIM", "TRA", ":", "TÔI CẦN THÔNG SỐ MÃ", "MÃ", "THÔNG SỐ", "THONG SO"]:
                         target_fabric_code = target_fabric_code.replace(word, "")
+                    
+                    # Khử bỏ hoàn toàn khoảng trắng dư thừa ở hai đầu và giữa chuỗi
                     target_fabric_code = target_fabric_code.strip()
                     
                     local_sb_url = st.secrets.get("SB_URL", st.secrets.get("SUPABASE_URL", globals().get("SB_URL", "")))
@@ -1047,6 +1050,10 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                     
                     local_sb_url = str(local_sb_url).strip().rstrip('/')
                     local_sb_key = str(local_sb_key).strip()
+                    
+                    # 🔍 1. KHỐI DEBUG ĐẦU VÀO TRỰC QUAN
+                    st.markdown("#### 🛠️ HỆ THỐNG DEBUG KIỂM XOÁT ĐẦU VÀO")
+                    st.write("🎯 **TARGET REPR:**", repr(target_fabric_code))
                     
                     try:
                         exact_headers = {
@@ -1056,7 +1063,9 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                             "Accept": "application/json"
                         }
 
-                        # 1. TRUY VẤN KHO SẢN PHẨM (public.san_pham)
+                        # ------------------------------------------------------
+                        # A. KHO SẢN PHẨM (public.san_pham)
+                        # ------------------------------------------------------
                         url_sp = f"{local_sb_url}/rest/v1/san_pham"
                         params_sp = {
                             "select": "*",
@@ -1064,6 +1073,8 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                             "limit": 100
                         }
                         res_sp = requests.get(url_sp, headers=exact_headers, params=params_sp, timeout=20)
+                        
+                        st.write("📊 **SP Status Code:**", res_sp.status_code)
                         
                         bom_records = []
                         if res_sp.status_code == 200:
@@ -1073,15 +1084,24 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                                 st.markdown("### 📦 KHO SẢN PHẨM")
                                 df_sp = pd.DataFrame(bom_records)
                                 st.dataframe(df_sp, use_container_width=True, hide_index=True)
+                        else:
+                            st.error("Lỗi dữ liệu Kho Sản Phẩm")
+                            st.code(res_sp.text)
 
-                        # 2. TRUY VẤN KHO THÔNG SỐ TECHPACK (public.thong_so_techpack)
+                        # ------------------------------------------------------
+                        # B. KHO THÔNG SỐ TECHPACK (public.thong_so_techpack)
+                        # ------------------------------------------------------
                         url_tp = f"{local_sb_url}/rest/v1/thong_so_techpack"
+                        
+                        # 🎯 FIX LỖI TÊN CỘT: Sửa chính xác thành 'StyleName' viết hoa theo DB của bạn
                         params_tp = {
                             "select": "*",
-                            "style_name": f"ilike.*{target_fabric_code}*",
+                            "StyleName": f"ilike.*{target_fabric_code}*",
                             "limit": 20
                         }
                         res_tp = requests.get(url_tp, headers=exact_headers, params=params_tp, timeout=20)
+                        
+                        st.write("📏 **TP Status Code:**", res_tp.status_code)
                         
                         techpack_records = []
                         if res_tp.status_code == 200:
@@ -1091,17 +1111,41 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                                 st.markdown("### 📋 KHO THÔNG SỐ KỸ THUẬT")
                                 df_tp = pd.DataFrame(techpack_records)
                                 st.dataframe(df_tp, use_container_width=True, hide_index=True)
+                        else:
+                            st.error("Lỗi dữ liệu Kho Thông Số")
+                            st.code(res_tp.text)
 
-                        # 3. TRUY VẤN KHO ẢNH SUPABASE STORAGE (PHƯƠNG PHÁP NHÚNG ĐƯỜNG DẪN CÔNG KHAI)
+                        # ------------------------------------------------------
+                        # C. KHO ẢNH SUPABASE STORAGE (QUÉT ĐA ĐUÔI & CHECK HTTP)
+                        # ------------------------------------------------------
                         st.markdown("### 🖼️ HÌNH ẢNH BẢN VẼ PHẲNG")
                         
-                        # Sử dụng đường dẫn render ảnh công khai của Supabase Storage public bucket
-                        image_public_url = f"{local_sb_url}/storage/v1/object/public/kho_anh/{target_fabric_code}.jpg"
+                        img_extensions = ["jpg", "JPG", "png", "PNG", "jpeg", "JPEG"]
+                        img_found = False
                         
-                        # Vẽ trực tiếp lên màn hình bằng thư viện st.image mà không cần qua lệnh requests kiểm tra đầu biên May
-                        st.image(image_public_url, caption=f"Bản vẽ mẫu: {target_fabric_code}.jpg", use_container_width=True)
+                        for ext in img_extensions:
+                            image_public_url = f"{local_sb_url}/storage/v1/object/public/kho_anh/{target_fabric_code}.{ext}"
+                            
+                            try:
+                                # Gửi lệnh HEAD để xác thực link vật lý tồn tại thực tế trên Cloud
+                                img_check = requests.head(image_public_url, headers={"apikey": local_sb_key}, timeout=5)
+                                if img_check.status_code == 200:
+                                    st.write(f"✅ Đã tìm thấy liên kết hợp lệ đuôi `.{ext}`:")
+                                    st.write("**IMG URL:**", image_public_url)
+                                    st.image(image_public_url, caption=f"Bản vẽ: {target_fabric_code}.{ext}", use_container_width=True)
+                                    img_found = True
+                                    break
+                            except:
+                                continue
+                                
+                        if not img_found:
+                            st.warning(f"❌ Không tìm thấy tệp tin hình ảnh vật lý nào khớp trên Cloud Storage cho từ khóa: `{target_fabric_code}`")
+                            # Hiện link đuôi mặc định để bạn nhấp trực tiếp kiểm tra quyền Public của Bucket
+                            test_url = f"{local_sb_url}/storage/v1/object/public/kho_anh/{target_fabric_code}.jpg"
+                            st.write("🔗 **Đường dẫn kiểm tra trình duyệt thô (.jpg):**", test_url)
 
-                        st.caption(f"Đối soát: {target_fabric_code} | Số lượng dòng SP: {len(bom_records)} | Bản ghi TP: {len(techpack_records)}")
+                        # TÓM TẮT DÒNG DỮ LIỆU ĐỐI SOÁT
+                        st.caption(f"Đơn vị đối soát: {target_fabric_code} | SP: {len(bom_records)} | TP: {len(techpack_records)}")
 
                     except Exception as e:
                         st.error(f"Lỗi cổng kết nối hệ thống Supabase: {str(e)}")
@@ -1130,6 +1174,8 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
             "<script>var doc = window.parent.document; var sections = doc.querySelectorAll('section.main'); if (sections.length > 0) { sections.scrollTo({top: sections.scrollHeight, behavior: 'smooth'}); }</script>",
             height=0,
         )
+
+
 
     st.markdown("<br><hr style='border:0.5px solid #CBD5E1;'>", unsafe_allow_html=True)
 
