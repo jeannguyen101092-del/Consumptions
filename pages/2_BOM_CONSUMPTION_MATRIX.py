@@ -944,6 +944,20 @@ headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
 if menu_selection == "🧵 BOM & Consumption Matrix":
     st.markdown('<div class="component-title-box">🧵 INTELLIGENT BOM & CONSUMPTION MATRIX ENGINE</div>', unsafe_allow_html=True)
     
+    # 🛠️ VÁ LỖI KHỞI TẠO CLIENT CHO GEMINI TẠI PHẠM VI KHỐI MENU
+    if "client" not in globals() and "client" not in locals():
+        if "get_secure_gemini_key" in globals():
+            gemini_key = get_secure_gemini_key()
+        else:
+            gemini_key = st.secrets.get("GEMINI_API_KEY", "").strip()
+        
+        if gemini_key:
+            import google.genai as genai
+            from google.genai import types
+            client = genai.Client(api_key=gemini_key, http_options=types.HttpOptions(api_version='v1'))
+        else:
+            st.error("🚨 Không tìm thấy GEMINI_API_KEY trong hệ thống secrets.")
+
     if "matched_techpack" not in st.session_state: st.session_state["matched_techpack"] = None
     if "bom_records" not in st.session_state: st.session_state["bom_records"] = []
     if "consumption_chat_history" not in st.session_state: st.session_state["consumption_chat_history"] = []
@@ -964,7 +978,6 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
             st.success("♻️ MEMORY PURGED - SẴN SÀNG CHO MÃ HÀNG MỚI")
             st.rerun()
 
-    # 🔍 BỔ SUNG: THANH CHAT / Ô TÌM KIẾM MÃ HÀNG TRONG KHO
     st.markdown("<p style='font-weight:700; font-size:12px; color:#1E293B; margin-top:10px;'>🔍 TÌM KIẾM MÃ HÀNG TRONG KHO (CHỦ ĐỘNG ĐỐI SOÁT)</p>", unsafe_allow_html=True)
     search_query = st.text_input(
         "Nhập mã hàng cần tìm kiếm...", 
@@ -995,11 +1008,9 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
             db_res = requests.get(url_db, headers=headers_db, params=query_params, timeout=15)
             all_historical_styles = db_res.json() if db_res.status_code == 200 else []
             
-            # Nếu người dùng có nhập mã tìm kiếm chủ động, ưu tiên lọc mã đó trước trong pool dữ liệu lịch sử
             if st.session_state["search_style_id"] and all_historical_styles:
                 exact_matches = [s for s in all_historical_styles if st.session_state["search_style_id"] in str(s.get("StyleName", "")).upper()]
                 if exact_matches:
-                    # Gán trực tiếp mã tìm thấy vào pool xử lý kế tiếp để bỏ qua bước AI mò vector ngẫu nhiên
                     all_historical_styles = exact_matches
                     st.toast(f"🎯 Đã tìm thấy mã hàng đối chứng: {all_historical_styles[0].get('StyleName')}")
 
@@ -1029,6 +1040,7 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                 Select the single index that represents the exact match in internal technical stitching construction, NOT just the shorts frame.
                 Return a raw valid JSON object inside your response: {{"selected_pool_index": 0}}
                 """
+
 
                 
                 match_contents = [types.Part.from_text(text=match_prompt)]
