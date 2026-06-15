@@ -1255,103 +1255,107 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
             st.write("📊 **Bản đồ ánh xạ tệp tin gửi đi `mapping_pool_context`:**")
             st.json(mapping_pool_context)
                     # ==========================================================
-                    # KHỐI 5 - ĐOẠN 5.2.1.B: GỬI GEMINI, KHỬ HẬU TỐ VÀ TRUY VẤN DB
-                    # ==========================================================
-                    if len(vision_payload) > 1:
-                        vision_match_prompt = f"""
-                        You are an expert Garment Structure Vision Auditor at PPJ Group.
-                        You are provided with a NEW FLAT SKETCH IMAGE (the very first image payload) and a pool of HISTORICAL GARMENT IMAGES loaded from the storage.
-                        
-                        YOUR TASK:
-                        Compare the internal stitching lines, waistband details, length (Pants vs Shorts), plackets, and pocket placements of the NEW IMAGE against all subsequent historical images.
-                        Identify which historical image share the absolute highest technical silhouette similarity.
-                        
-                        MAPPING INDEX REFERENCE (Use this to find the filename corresponding to the image position):
-                        {json.dumps(mapping_pool_context)}
-                        
-                        Return a completely valid raw JSON object inside your response containing the exact matched filename string from the reference map. DO NOT include markdown code blocks, backticks, or intro/outro text.
-                        Schema requirement: {{"selected_image_filename": "string"}}
-                        """
-                        
-                        vision_payload.insert(0, types.Part.from_text(text=vision_match_prompt))
-                        
-                        res_vision = client.models.generate_content(model='gemini-2.5-flash', contents=vision_payload)
-                        ai_raw_vision_text = res_vision.text.strip()
-                        
-                        st.markdown("### ===== AI VISION PHẢN HỒI =====")
-                        st.write("🤖 **Raw Reply từ Gemini Vision:**")
-                        st.code(ai_raw_vision_text)
-                        
-                        clean_json_match = re.search(r'\{\s*"selected_image_filename"\s*:\s*".*?"\s*\}', ai_raw_vision_text)
-                        best_image_file = ""
-                        best_style_code = ""
-                        
-                        if clean_json_match:
-                            match_obj = json.loads(clean_json_match.group(0))
-                            best_image_file = match_obj.get("selected_image_filename", "")
-                            if best_image_file:
-                                # 🎯 FIX VÁ LỖI CÚ PHÁP TỐI CAO: Trích xuất phần tử index 0 của Tuple trước khi gọi hàm chuỗi .strip()
-                                parsed_tuple = os.path.splitext(best_image_file)
-                                best_style_code = str(parsed_tuple[0]).strip()
-                                # KHỬ SẠCH HẬU TỐ VÌ TRÍ ĐỊNH DANH ẢNH LỆCH KHO KHO_ANH
-                                best_style_code = re.sub(r'(_FRONT|_BACK|_FRT|_BK|_FLAT)$', '', best_style_code, flags=re.IGNORECASE)
+# ==========================================================================
+# KHỐI 5 - ĐOẠN 5.2.1.B: GỬI GEMINI VISION, KHỬ HẬU TỐ VÀ TRUY VẤN KÉP DATABASE
+# ==========================================================================
+if 'vision_payload' in locals() and len(vision_payload) > 1:
+    try:
+        vision_match_prompt = f"""
+        You are an expert Garment Structure Vision Auditor at PPJ Group.
+        You are provided with a NEW FLAT SKETCH IMAGE (the very first image payload) and a pool of HISTORICAL GARMENT IMAGES loaded from the storage.
+        
+        YOUR TASK:
+        Compare the internal stitching lines, waistband details, length (Pants vs Shorts), plackets, and pocket placements of the NEW IMAGE against all subsequent historical images.
+        Identify which historical image share the absolute highest technical silhouette similarity.
+        
+        MAPPING INDEX REFERENCE (Use this to find the filename corresponding to the image position):
+        {json.dumps(mapping_pool_context)}
+        
+        Return a completely valid raw JSON object inside your response containing the exact matched filename string from the reference map. DO NOT include markdown code blocks, backticks, or intro/outro text.
+        Schema requirement: {{"selected_image_filename": "string"}}
+        """
+        
+        vision_payload.insert(0, types.Part.from_text(text=vision_match_prompt))
+        
+        res_vision = client.models.generate_content(model='gemini-2.5-flash', contents=vision_payload)
+        ai_raw_vision_text = res_vision.text.strip()
+        
+        st.markdown("### ===== AI VISION PHẢN HỒI =====")
+        st.write("🤖 **Raw Reply từ Gemini Vision:**")
+        st.code(ai_raw_vision_text)
+        
+        clean_json_match = re.search(r'\{\s*"selected_image_filename"\s*:\s*".*?"\s*\}', ai_raw_vision_text)
+        best_image_file = ""
+        best_style_code = ""
+        
+        if clean_json_match:
+            match_obj = json.loads(clean_json_match.group(0))
+            best_image_file = match_obj.get("selected_image_filename", "")
+            if best_image_file:
+                # 🎯 SỬA LỖI INDEX TUPLE DỨT ĐIỂM: Ép bốc chính xác phần tử index 0 để lấy tên file sạch
+                parsed_tuple = os.path.splitext(best_image_file)
+                best_style_code = str(parsed_tuple[0]).strip()
+                # Khử sạch các hậu tố vị trí ảnh gây lệch mã kho (_FRONT, _BACK, _FLAT)
+                best_style_code = re.sub(r'(_FRONT|_BACK|_FRT|_BK|_FLAT)$', '', best_style_code, flags=re.IGNORECASE)
 
-                        st.markdown("### ===== DEBUG MATCH RESULT =====")
-                        st.write("• **Selected File from Gemini:**", best_image_file)
-                        st.write("• **Processed Best Style Code:**", repr(best_style_code))
+        st.markdown("### ===== DEBUG MATCH RESULT =====")
+        st.write("• **Selected File from Gemini:**", best_image_file)
+        st.write("• **Processed Best Style Code:**", repr(best_style_code))
 
-                        if best_style_code:
-                            # Khai báo an toàn biến token bảo mật tại phạm vi cục bộ của khối
-                            local_sb_key = st.secrets.get("SB_KEY", st.secrets.get("SUPABASE_KEY", globals().get("SB_KEY", "")))
-                            
-                            safe_code = quote(best_style_code)
-                            url_tp = f"{base_sb_url}/rest/v1/thong_so_techpack"
-                            exact_headers = {
-                                "apikey": str(local_sb_key).strip(),
-                                "Authorization": f"Bearer {str(local_sb_key).strip()}",
-                                "Content-Type": "application/json",
-                                "Accept": "application/json"
-                            }
-                            
-                            # 🎯 KHỐI TEST DATABASE CHUẨN ĐOÁN CỘT THỰC TẾ
-                            st.markdown("### ===== DEBUG DATABASE =====")
-                            test_res = requests.get(url_tp, headers=exact_headers, params={"select": "*", "limit": "3"}, timeout=15)
-                            st.write("• **TP TEST CONNECTION STATUS:**", test_res.status_code)
-                            
-                            if test_res.status_code == 200:
-                                sample = test_res.json()
-                                if sample and len(sample) > 0:
-                                    st.write("🔥 **DANH SÁCH TÊN CỘT THỰC TẾ TRONG BẢNG THONG_SO_TECHPACK:**")
-                                    st.write(list(sample[0].keys()))
-                                    st.write("📄 **Mẫu bản ghi vị trí đầu tiên:**")
-                                    st.json(sample[0])
-                            
-                            query_params_tp = {
-                                "select": "*",
-                                "or": f"(StyleName.ilike.*{safe_code}*,style_name.ilike.*{safe_code}*)"
-                            }
-                            db_res_tp = requests.get(url_tp, headers=exact_headers, params=query_params_tp, timeout=15)
-                            raw_tp_json = db_res_tp.json() if db_res_tp.status_code == 200 else []
-                            st.write("• **TP Rows count:**", len(raw_tp_json))
-                            
-                            if raw_tp_json:
-                                st.session_state["matched_techpack"] = raw_tp_json[0] if isinstance(raw_tp_json, list) else raw_tp_json
-                                
-                            url_bom = f"{base_sb_url}/rest/v1/san_pham"
-                            query_bom = {
-                                "select": "*",
-                                "or": f"(style_name.ilike.*{safe_code}*,StyleName.ilike.*{safe_code}*)"
-                            }
-                            res_bom = requests.get(url_bom, headers=exact_headers, params=query_bom, timeout=15)
-                            raw_bom_json = res_bom.json() if res_bom.status_code == 200 else []
-                            st.write("• **BOM Rows count:**", len(raw_bom_json))
-                            
-                            if raw_bom_json:
-                                st.session_state["bom_records"] = raw_bom_json
-                    else:
-                        st.warning("⚠️ Không có ảnh lịch sử hợp lệ nào được nạp vào Payload (Kích thước mảng bằng 1).")
-        except Exception as e:
-            st.error(f"🚨 Lỗi khâu tải và khởi tạo dữ liệu nhị phân: {str(e)}")
+        if best_style_code:
+            # Khai báo an toàn biến token bảo mật tại phạm vi cục bộ của khối
+            local_sb_key = st.secrets.get("SB_KEY", st.secrets.get("SUPABASE_KEY", globals().get("SB_KEY", "")))
+            
+            safe_code = quote(best_style_code)
+            url_tp = f"{base_sb_url}/rest/v1/thong_so_techpack"
+            exact_headers = {
+                "apikey": str(local_sb_key).strip(),
+                "Authorization": f"Bearer {str(local_sb_key).strip()}",
+                "Content-Type": "application/json",
+                "Accept": "application/json"
+            }
+            
+            # 🎯 KHỐI TEST DATABASE CHUẨN ĐOÁN CỘT THỰC TẾ
+            st.markdown("### ===== DEBUG DATABASE =====")
+            test_res = requests.get(url_tp, headers=exact_headers, params={"select": "*", "limit": "3"}, timeout=15)
+            st.write("• **TP TEST CONNECTION STATUS:**", test_res.status_code)
+            
+            if test_res.status_code == 200:
+                sample = test_res.json()
+                if sample and len(sample) > 0:
+                    st.write("🔥 **DANH SÁCH TÊN CỘT THỰC TẾ TRONG BẢNG THONG_SO_TECHPACK:**")
+                    st.write(list(sample[0].keys()))
+                    st.write("📄 **Mẫu bản ghi vị trí đầu tiên:**")
+                    st.json(sample[0])
+            
+            query_params_tp = {
+                "select": "*",
+                "or": f"(StyleName.ilike.*{safe_code}*,style_name.ilike.*{safe_code}*)"
+            }
+            db_res_tp = requests.get(url_tp, headers=exact_headers, params=query_params_tp, timeout=15)
+            raw_tp_json = db_res_tp.json() if db_res_tp.status_code == 200 else []
+            st.write("• **TP Rows count:**", len(raw_tp_json))
+            
+            if raw_tp_json:
+                st.session_state["matched_techpack"] = raw_tp_json[0] if isinstance(raw_tp_json, list) else raw_tp_json
+                
+            url_bom = f"{base_sb_url}/rest/v1/san_pham"
+            query_bom = {
+                "select": "*",
+                "or": f"(style_name.ilike.*{safe_code}*,StyleName.ilike.*{safe_code}*)"
+            }
+            res_bom = requests.get(url_bom, headers=exact_headers, params=query_bom, timeout=15)
+            raw_bom_json = res_bom.json() if res_bom.status_code == 200 else []
+            st.write("• **BOM Rows count:**", len(raw_bom_json))
+            
+            if raw_bom_json:
+                st.session_state["bom_records"] = raw_bom_json
+        else:
+            st.warning("⚠️ Không có ảnh lịch sử hợp lệ nào được định vị từ mô hình.")
+    except Exception as vision_err:
+        st.error(f"🚨 Lỗi khâu gọi mô hình hoặc ghi đè Database: {str(vision_err)}")
+else:
+    st.warning("⚠️ Không có ảnh lịch sử hợp lệ nào được nạp vào Payload (Kích thước mảng bằng 1).")
 
 
                     # ==========================================================
