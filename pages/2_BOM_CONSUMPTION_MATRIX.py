@@ -1011,9 +1011,8 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
     st.markdown("---")
 
       
-        # ==========================================================================
-    # ==========================================================================
-    # KHỐI 5 - ĐOẠN 5.1: GIAO DIỆN CHAT BOX & FIX LỖI ÉP CẤU TRÚC DICTIONARY
+           # ==========================================================================
+    # KHỐI 5 - ĐOẠN 5.1: GIAO DIỆN CHAT BOX & TRUY LỤC ĐA NHIỆM 3 KHO REAL-TIME
     # ==========================================================================
     chat_header_col1, chat_header_col2 = st.columns([3.2, 0.8])
     with chat_header_col1:
@@ -1048,6 +1047,9 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                     local_sb_url = str(local_sb_url).strip().rstrip('/')
                     local_sb_key = str(local_sb_key).strip()
                     
+                    st.markdown("#### 🛠️ HỆ THỐNG DEBUG KIỂM XOÁT ĐẦU VÀO")
+                    st.write("🎯 **TARGET REPR:**", repr(target_fabric_code))
+                    
                     try:
                         exact_headers = {
                             "apikey": local_sb_key,
@@ -1056,7 +1058,7 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                             "Accept": "application/json"
                         }
 
-                        # 1. TRUY VẤN KHO SẢN PHẨM
+                        # A. KHO SẢN PHẨM (public.san_pham)
                         url_sp = f"{local_sb_url}/rest/v1/san_pham"
                         params_sp = {
                             "select": "*",
@@ -1064,6 +1066,7 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                             "limit": 100
                         }
                         res_sp = requests.get(url_sp, headers=exact_headers, params=params_sp, timeout=20)
+                        st.write("📊 **SP Status Code:**", res_sp.status_code)
                         
                         bom_records = []
                         if res_sp.status_code == 200:
@@ -1073,8 +1076,11 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                                 st.markdown("### 📦 KHO SẢN PHẨM")
                                 df_sp = pd.DataFrame(bom_records)
                                 st.dataframe(df_sp, use_container_width=True, hide_index=True)
+                        else:
+                            st.error("Lỗi dữ liệu Kho Sản Phẩm")
+                            st.code(res_sp.text)
 
-                        # 2. TRUY VẤN KHO THÔNG SỐ TECHPACK
+                        # B. KHO THÔNG SỐ TECHPACK (public.thong_so_techpack)
                         url_tp = f"{local_sb_url}/rest/v1/thong_so_techpack"
                         params_tp = {
                             "select": "*",
@@ -1082,12 +1088,13 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                             "limit": 20
                         }
                         res_tp = requests.get(url_tp, headers=exact_headers, params=params_tp, timeout=20)
+                        st.write("📏 **TP Status Code:**", res_tp.status_code)
                         
                         techpack_records = []
                         if res_tp.status_code == 200:
                             techpack_records = res_tp.json()
                             if techpack_records:
-                                # 🎯 SỬA LỖI MẤU CHỐT: Ép lấy bản ghi Dictionary đầu tiên thay vì lưu cả mảng List bẩn
+                                # Lưu cấu trúc bản ghi đầu tiên vào bộ nhớ đối soát hệ thống
                                 st.session_state["matched_techpack"] = techpack_records[0]
                                 st.markdown("### 📋 KHO THÔNG SỐ KỸ THUẬT")
                                 
@@ -1102,16 +1109,38 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                                 else:
                                     df_tp = pd.DataFrame(techpack_records)
                                     st.dataframe(df_tp, use_container_width=True, hide_index=True)
+                        else:
+                            st.error("Lỗi dữ liệu Kho Thông Số")
+                            st.code(res_tp.text)
 
-                        # 3. TRUY VẤN KHO ẢNH SUPABASE STORAGE
+                        # C. KHO ẢNH SUPABASE STORAGE
                         st.markdown("### 🖼️ HÌNH ẢNH BẢN VẼ PHẲNG")
-                        image_public_url = f"{local_sb_url}/storage/v1/object/public/kho_anh/{target_fabric_code}.jpg"
-                        st.image(image_public_url, caption=f"Bản vẽ: {target_fabric_code}.jpg", use_container_width=True)
+                        img_extensions = ["jpg", "JPG", "png", "PNG", "jpeg", "JPEG"]
+                        img_found = False
+                        
+                        for ext in img_extensions:
+                            image_public_url = f"{local_sb_url}/storage/v1/object/public/kho_anh/{target_fabric_code}.{ext}"
+                            try:
+                                img_check = requests.head(image_public_url, headers={"apikey": local_sb_key}, timeout=5)
+                                if img_check.status_code == 200:
+                                    st.write(f"✅ Đã tìm thấy liên kết hợp lệ đuôi `.{ext}`:")
+                                    st.write("**IMG URL:**", image_public_url)
+                                    st.image(image_public_url, caption=f"Bản vẽ: {target_fabric_code}.{ext}", use_container_width=True)
+                                    img_found = True
+                                    break
+                            except:
+                                continue
+                                
+                        if not img_found:
+                            st.warning(f"❌ Không tìm thấy tệp tin hình ảnh vật lý nào khớp trên Cloud Storage cho từ khóa: `{target_fabric_code}`")
+                            test_url = f"{local_sb_url}/storage/v1/object/public/kho_anh/{target_fabric_code}.jpg"
+                            st.write("🔗 **Đường dẫn kiểm tra trình duyệt thô (.jpg):**", test_url)
+
+                        st.caption(f"Đơn vị đối soát: {target_fabric_code} | SP: {len(bom_records)} | TP: {len(techpack_records)}")
 
                     except Exception as e:
                         st.error(f"Lỗi cổng kết nối hệ thống Supabase: {str(e)}")
 
-                    # ĐỒNG BỘ NẠP NGỮ CẢNH CHO BỘ NÃO AI ENGINE
                     clean_bom_records = []
                     current_bom_source = st.session_state.get("bom_records", [])
                     matched_techpack = st.session_state.get("matched_techpack", None)
@@ -1142,98 +1171,131 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
 
     
           # ==========================================================================
-    # KHỐI 5 - ĐOẠN 5.2: AI-DRIVEN VISUAL SIMILARITY ENGINE (ĐỐI SOÁT HÌNH ẢNH THẬT)
+    # KHỐI 5 - ĐOẠN 5.2.1: KHỐI CHẶN FILE & THUẬT TOÁN TẢI ẢNH NHỊ PHÂN ĐỐI SOÁT AI
     # ==========================================================================
     if not has_file:
         st.info("👋 Vui lòng tải lên tệp Techpack hồ sơ thiết kế (PDF) ở phía trên để hệ thống bắt đầu quét và lập lịch trình đối soát.")
         st.stop()
 
-    # Khởi tạo trạng thái bộ nhớ đệm nếu chưa tồn tại
     if "matched_techpack" not in st.session_state: st.session_state["matched_techpack"] = None
     if "bom_records" not in st.session_state: st.session_state["bom_records"] = []
 
-    # KÍCH HOẠT THỊ GIÁC MÁY TÍNH KHI ĐÃ CÓ ẢNH SKETCH MỚI TỪ PDF TẢI LÊN
+    # KÍCH HOẠT HỆ THỐNG ĐỐI SOÁT THỊ GIÁC ẢNH VẬT LÝ KHI CÓ FILE UPLOAD MỚI
     if target_new_sketch_bytes is not None and st.session_state["matched_techpack"] is None:
         try:
-            # 🧩 BƯỚC 1: Gọi API danh mục để lấy danh sách tất cả các file ảnh đang có trong bucket 'kho_anh'
-            url_list_storage = f"{base_sb_url}/storage/v1/bucket/kho_anh/list"
+            # Endpoint chuẩn cấu trúc Object List API của Supabase Storage
+            url_list_storage = f"{base_sb_url}/storage/v1/object/list/kho_anh"
             storage_headers = {
                 "apikey": SB_KEY,
                 "Authorization": f"Bearer {SB_KEY}",
                 "Content-Type": "application/json"
             }
-            # Lấy tối đa 100 ảnh mẫu lịch sử để đưa vào bể đối soát (Pool) của AI
-            payload_list = {"limit": 100, "offset": 0, "sortBy": {"column": "name", "order": "asc"}}
+            payload_list = {"limit": 50, "offset": 0, "sortBy": {"column": "name", "order": "desc"}}
             res_storage = requests.post(url_list_storage, headers=storage_headers, json=payload_list, timeout=15)
+            
+            st.markdown("#### 🛠️ DEBUG STORAGE SYNC")
+            st.write("📊 **Storage List Status Code:**", res_storage.status_code)
             
             available_images = []
             if res_storage.status_code == 200:
-                # Trích xuất danh sách tên file thực tế (Ví dụ: ["1H001327.jpg", "526R03-496094.jpg"])
-                available_images = [item["name"] for item in res_storage.json() if "name" in item]
+                raw_storage_data = res_storage.json()
+                st.write("📂 **Tổng số file ảnh quét thấy trong Bucket:**", len(raw_storage_data))
+                available_images = [item["name"] for item in raw_storage_data if "name" in item and item["name"].lower().endswith(('.jpg', '.jpeg', '.png'))]
+            else:
+                st.error("Lỗi không thể list danh mục file từ kho_anh")
+                st.code(res_storage.text)
 
-            # Nếu kho ảnh trên Cloud Storage có dữ liệu thực tế
-            if available_images:
-                with st.spinner("🧠 Thị giác máy tính AI đang đối soát kết cấu đường may Flat Sketch với kho mẫu lịch sử..."):
-                    # 🧩 BƯỚC 2: Tạo Prompt lập luận hình học cho Gemini Vision đóng vai tròCosting Auditor
-                    vision_match_prompt = f"""
-                    You are an expert Garment Structure Vision Auditor at PPJ Group.
-                    Analyze the ATTACHED NEW FLAT SKETCH IMAGE and compare its internal technical stitching construction with this pool of historical styles:
+            # Phân tách bể ngữ cảnh tối đa 15 tấm ảnh gần nhất để tối ưu hóa Token
+            filtered_pool_images = available_images[:15] if available_images else []
+
+            if filtered_pool_images and target_new_sketch_bytes:
+                with st.spinner("🧠 AI Vision đang tải dữ liệu ảnh kho vật lý và đối soát phom dáng phẳng..."):
                     
-                    HISTORICAL STYLES IMAGES POOL:
-                    {json.dumps(available_images)}
-                    
-                    STRICT APPAREL STITCHING RULES:
-                    1. Focus on structure: Compare waistbands (elastic fold vs belt loops), pockets (Cargo patch pockets vs side slit pockets), and plackets.
-                    2. Select the single best candidate from the pool that matches the design silhouette and assembly logic even if the style code string is different.
-                    
-                    Return a completely valid raw JSON string matching this exact schema (no markdown blocks, no text):
-                    {{"selected_image_filename": "string"}}
-                    """
-                    
-                    # Đóng gói dữ liệu ảnh mới nạp bóc từ PDF gửi sang Gemini Flash
+                    # Nạp ảnh rập phẳng phẳng bóc từ PDF mới tải lên vào vị trí payload đầu tiên
                     vision_payload = [
-                        types.Part.from_text(text=vision_match_prompt),
                         types.Part.from_bytes(data=target_new_sketch_bytes, mime_type='image/jpeg')
                     ]
+                    
+                    # Bản đồ liên kết chỉ số thứ tự ảnh
+                    mapping_pool_context = []
+                    
+                    # VÒNG LẶP DOWNLOAD ẢNH NHỊ PHÂN VẬT LÝ TỪ CLOUD STORAGE NẠP VÀO PAYLOAD AI
+                    for idx, filename in enumerate(filtered_pool_images):
+                        public_img_url = f"{base_sb_url}/storage/v1/object/public/kho_anh/{filename}"
+                        try:
+                            img_response = requests.get(public_img_url, headers={"apikey": SB_KEY}, timeout=10)
+                            if img_response.status_color == 200 and len(img_response.content) > 1000:
+                                m_type = "image/png" if filename.lower().endswith(".png") else "image/jpeg"
+                                
+                                # ĐẨY ẢNH BYTE THỰC TẾ VÀO TRỰC DIỆN ĐOẠN ĐỐI SOÁT CỦA GEMINI VISION
+                                vision_payload.append(types.Part.from_bytes(data=img_response.content, mime_type=m_type))
+                                
+                                # Ghi lại chỉ số vị trí để bẫy tên file chuẩn xác
+                                mapping_pool_context.append({
+                                    "payload_image_index": len(vision_payload) - 1,
+                                    "corresponding_filename": filename
+                                })
+                        except Exception:
+                            continue
+
+                    vision_match_prompt = f"""
+                    You are an expert Garment Structure Vision Auditor at PPJ Group.
+                    You are provided with a NEW FLAT SKETCH IMAGE (the very first image payload) and a pool of HISTORICAL GARMENT IMAGES loaded from the storage.
+                    
+                    YOUR TASK:
+                    Compare the internal stitching lines, waistband details, plackets, and pocket placements of the NEW IMAGE against all subsequent historical images.
+                    Identify which historical image share the absolute highest technical silhouette similarity.
+                    
+                    MAPPING INDEX REFERENCE (Use this to find the filename corresponding to the image position):
+                    {json.dumps(mapping_pool_context)}
+                    
+                    Return a completely valid raw JSON object inside your response containing the exact matched filename string from the reference map. DO NOT include markdown code blocks, backticks, or intro/outro text.
+                    Schema requirement: {{"selected_image_filename": "string"}}
+                    """
+                    
+                    vision_payload.insert(0, types.Part.from_text(text=vision_match_prompt))
                     
                     res_vision = client.models.generate_content(model='gemini-2.5-flash', contents=vision_payload)
                     ai_raw_vision_text = res_vision.text.strip()
                     
-                    # Làm sạch chuỗi JSON phản hồi từ AI
                     clean_json_match = re.search(r'\{\s*"selected_image_filename"\s*:\s*".*?"\s*\}', ai_raw_vision_text)
+                    best_style_code = ""
+                    
                     if clean_json_match:
                         match_obj = json.loads(clean_json_match.group(0))
                         best_image_file = match_obj.get("selected_image_filename", "")
+                        if best_image_file:
+                            best_style_code = best_image_file.split(".")[0] if "." in best_image_file else best_image_file
+
+                    if not best_style_code:
+                        st.warning("⚠️ Hệ thống AI Thị giác máy tính không tìm thấy hoặc không chọn được mẫu tương đồng phom dáng phù hợp.")
+                    else:
+                        # Bốc thông số kỹ thuật phẳng từ Supabase
+                        url_tp = f"{base_sb_url}/rest/v1/thong_so_techpack"
+                        query_params_tp = {"select": "*", "StyleName": f"eq.{best_style_code}"}
+                        db_res_tp = requests.get(url_tp, headers=headers, params=query_params_tp, timeout=15)
                         
-                        # Cắt bỏ đuôi file (ví dụ "526R03-496094.jpg" tách lấy "526R03-496094") để làm mã truy vấn chính thức
-                        best_style_code = best_image_file.split(".")[0].strip() if "." in best_image_file else best_image_file
-                        
-                        if best_style_code:
-                            # 🧩 BƯỚC 3: Bốc chính xác thông số kỹ thuật của mã tương đồng vừa được AI xác thực bằng ảnh
-                            url_tp = f"{base_sb_url}/rest/v1/thong_so_techpack"
-                            query_params_tp = {"select": "*", "StyleName": f"eq.{best_style_code}"}
-                            db_res_tp = requests.get(url_tp, headers=headers, params=query_params_tp, timeout=15)
+                        if db_res_tp.status_code == 200 and len(db_res_tp.json()) > 0:
+                            st.session_state["matched_techpack"] = db_res_tp.json()[0]
                             
-                            if db_res_tp.status_code == 200 and len(db_res_tp.json()) > 0:
-                                st.session_state["matched_techpack"] = db_res_tp.json()[0]
-                                
-                            # 🧩 BƯỚC 4: Bốc trọn vẹn bảng kịch bản vật tư BOM đi kèm mã tương đồng đó (Chống lỗi 1H)
-                            url_bom = f"{base_sb_url}/rest/v1/san_pham"
-                            query_bom = {"select": "*", "style_name": f"eq.{best_style_code}"}
-                            res_bom = requests.get(url_bom, headers=headers, params=query_bom, timeout=15)
-                            if res_bom.status_code == 200:
-                                st.session_state["bom_records"] = res_bom.json()
+                        # Bốc kịch bản vật tư sản phẩm đi kèm
+                        url_bom = f"{base_sb_url}/rest/v1/san_pham"
+                        query_bom = {"select": "*", "style_name": f"eq.{best_style_code}"}
+                        res_bom = requests.get(url_bom, headers=headers, params=query_bom, timeout=15)
+                        if res_bom.status_code == 200:
+                            st.session_state["bom_records"] = res_bom.json()
         except Exception as e:
             st.error(f"🚨 Lỗi hệ thống định vị thị giác hình ảnh: {str(e)}")
-
-    # Gán lại dữ liệu đã qua đối soát hình ảnh thực thụ cho luồng hiển thị giao diện
+    # ==========================================================================
+    # KHỐI 5 - ĐOẠN 5.2.2: GIAO DIỆN ĐỐI CHIẾU SONG SONG & HIỂN THỊ HỆ THỐNG BẢNG
+    # ==========================================================================
     matched_techpack = st.session_state.get("matched_techpack")
     bom_records = st.session_state.get("bom_records", [])
 
     if matched_techpack:
-        st.success(f"🔒 AI THỊ GIÁC ĐÃ KHÓA CHẶT MÃ ĐỐI CHỨNG THEO PHOM DÁNG ẢNH TƯƠNG ĐỒNG: **{matched_techpack.get('StyleName')}**")
+        st.success(f"🔒 AI THỊ GIÁC ĐÃ ĐỐI SOÁT ẢNH THÀNH CÔNG VÀ KHÓA CHẶT MÃ ĐỐI CHỨNG KHỞI TẠO: **{matched_techpack.get('StyleName')}**")
     else:
-        st.warning("⚠️ KHÔNG TÌM THẤY MÃ TƯƠNG ĐỒNG PHOM DÁNG TRONG KHO! Hệ thống sẵn sàng kích hoạt tính toán độc lập bằng Vector Hình Học.")
+        st.warning("⚠️ KHÔNG TÌM THẤY MÃ TƯƠNG ĐỒNG PHOM DÁNG TRONG KHO! Tự động kích hoạt cơ chế tính toán độc lập bằng Vector Hình Học Ngành May.")
 
     st.markdown("### 🖼️ ĐỐI CHIẾU SỰ TƯƠNG ĐỒNG HÌNH ẢNH THIẾT KẾ (FLAT SKETCH)")
     img_col1, img_col2 = st.columns(2)
@@ -1244,9 +1306,8 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
     with img_col2:
         if matched_techpack:
             detected_old_code = str(matched_techpack.get("StyleName", "")).strip()
-            # Hiển thị trực tiếp ảnh đối chứng được bốc từ Storage ra kế bên để Costing Engineer đối chiếu mắt thường
             old_image_url = f"{base_sb_url}/storage/v1/object/public/kho_anh/{detected_old_code}.jpg"
-            st.image(old_image_url, caption=f"Ảnh mẫu tương đồng trong kho: {detected_old_code}.jpg", use_container_width=True)
+            st.image(old_image_url, caption=f"Ảnh mẫu tương đồng đối chứng bốc từ Kho: {detected_old_code}.jpg", use_container_width=True)
 
     st.markdown("<br>### 📐 SO SÁNH HAI BẢNG THÔNG SỐ KỸ THUẬT RẬP MẪU", unsafe_allow_html=True)
     spec_col1, spec_col2 = st.columns(2)
