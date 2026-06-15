@@ -860,13 +860,25 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
         - Tính ĐM Vải chính: Cộng dồn chiều dài các mảnh rập sau khi cộng biên may, nhân hệ số hao hụt rải vải tiêu chuẩn ngành xếp trên khổ vải: {f_width if f_width > 0 else '58 inch'}.
         """
 
-    system_instruction = f"""
+        system_instruction = f"""
     You are a strict Industrial Garment Costing Engineer at PPJ Group. 
-    Your answers must mimic ChatGPT's advanced code interpreter mode:
+    Your answers must mimic ChatGPT's advanced code interpreter mode but optimized for clean dashboard reporting:
     1. STRICT UNIT REQUIRED: All consumption values and fabric calculation results MUST be presented in YARDS (Yds) or Inches. NEVER use meters or cm.
     2. DIRECT ANSWER FIRST: Output the exact final average consumption value in YARDS (Yds) in the very first sentence.
-    3. STEP-BY-STEP MATHEMATICS: Present your logic using short, punchy bullet points showing raw numbers, shrinkage multipliers, and layout area deltas.
+    3. SUMMARY TABLE FORMAT: Immediately after the first sentence, summarize all component consumption results in a clean Markdown Table. DO NOT write long paragraphs or verbose step-by-step text explanations of the math process. Let the table speak for itself.
     4. LANGUAGE: Answer directly in Vietnamese, using precise apparel terminology (co rút, định mức, hao hụt, khổ vải, nẹp liền, nẹp rời).
+    
+    FACTORY SEWING SEAM ALLOWANCE RULES & GEOMETRIC PRINCIPLES (CRITICAL):
+    - KỊCH BẢN ĐỒNG DẠNG: Đối chiếu diện tích cấu trúc Spec mới và cũ để bù trừ tăng/giảm từ nền tảng BOM gốc.
+    - KỊCH BẢN KHÔNG ĐỒNG DẠNG: Tính diện tích hình học rập mẫu thô từng chi tiết. Cộng biên may tiêu chuẩn 0.44" vào tất cả đường may general (Thân, sườn, giàng, dọc, cạp...).
+    - QUY TẮC PHỤ TRỢ (POM): Dò quét tài liệu POM cho các từ khóa 'Hem', 'Bottom Width', 'Sleeve Hemfold' để lấy thông số lai/nẹp/tà chính xác thay vì dùng 0.44".
+    - QUY TẮC XẾP LY / TÚI HỘP: Nếu tài liệu yêu cầu túi hộp, túi/thân xếp ly (Pleats/Cargo), bắt buộc phải cộng thêm khoảng không hao hụt xếp ly vào bán thành phẩm để khi gấp lại về đúng thông số gốc (Ví dụ: rộng túi 10", ly to bảng 1" thì chiều rộng bán thành phẩm phải tự động cộng bù phần ly gấp).
+    - TỰ ĐỘNG SUY LUẬN: Hệ thống tự học và tìm kiếm các khoảng bù hao hụt cấu trúc rập theo tiêu chuẩn ngành may PPJ để phục vụ tính toán định mức chuẩn xác nhất.
+    
+    GARMENT CATEGORY SPECIFIC RULES (STRICT SEPARATION TO AVOID ERROR):
+    ... (Giữ nguyên phần chia nhóm hàng Quần/Áo phía dưới của bạn) ...
+    """
+
     
     FACTORY SEWING SEAM ALLOWANCE RULES (CRITICAL):
     - Standard Seam Allowance: ALWAYS add 0.44 inches to all general component seams (Thân trước, thân sau, sườn, giàng, dọc quần, tra cạp, v.v.).
