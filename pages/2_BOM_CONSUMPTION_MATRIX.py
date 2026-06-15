@@ -1012,8 +1012,8 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
 
       
         # ==========================================================================
-       # ==========================================================================
-    # KHỐI 5 - ĐOẠN 5.1: SỬA STYLE_NAME, QUÉT ĐA ĐUÔI ẢNH & TÍCH HỢP HỆ THỐNG DEBUG
+    # ==========================================================================
+    # KHỐI 5 - ĐOẠN 5.1: GIAO DIỆN CHAT BOX & FIX LỖI ÉP CẤU TRÚC DICTIONARY
     # ==========================================================================
     chat_header_col1, chat_header_col2 = st.columns([3.2, 0.8])
     with chat_header_col1:
@@ -1035,14 +1035,11 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
             with st.chat_message("assistant"):
                 with st.spinner("🔍 Hệ thống đang kết nối trực tiếp kho dữ liệu Supabase..."):
                     
-                    # 🎯 XỬ LÝ CHUỖI NÂNG CAO: Loại bỏ toàn bộ từ khóa nhiễu tiếng Việt để lấy mã sạch
                     query_upper = user_query.upper().strip()
                     target_fabric_code = query_upper
                     
                     for word in ["TÌM KIẾM MÃ VẢI", "TÌM KIẾM CODE VẢI", "TÌM CODE VẢI", "TÌM MÃ VẢI", "TRA MÃ VẢI", "TÌM CODE", "TÌM MÃ", "TRA MÃ", "VẢI", "CODE", "TIM", "TRA", ":", "TÔI CẦN THÔNG SỐ MÃ", "MÃ", "THÔNG SỐ", "THONG SO"]:
                         target_fabric_code = target_fabric_code.replace(word, "")
-                    
-                    # Khử bỏ hoàn toàn khoảng trắng dư thừa ở hai đầu và giữa chuỗi
                     target_fabric_code = target_fabric_code.strip()
                     
                     local_sb_url = st.secrets.get("SB_URL", st.secrets.get("SUPABASE_URL", globals().get("SB_URL", "")))
@@ -1050,10 +1047,6 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                     
                     local_sb_url = str(local_sb_url).strip().rstrip('/')
                     local_sb_key = str(local_sb_key).strip()
-                    
-                    # 🔍 1. KHỐI DEBUG ĐẦU VÀO TRỰC QUAN
-                    st.markdown("#### 🛠️ HỆ THỐNG DEBUG KIỂM XOÁT ĐẦU VÀO")
-                    st.write("🎯 **TARGET REPR:**", repr(target_fabric_code))
                     
                     try:
                         exact_headers = {
@@ -1063,9 +1056,7 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                             "Accept": "application/json"
                         }
 
-                        # ------------------------------------------------------
-                        # A. KHO SẢN PHẨM (public.san_pham)
-                        # ------------------------------------------------------
+                        # 1. TRUY VẤN KHO SẢN PHẨM
                         url_sp = f"{local_sb_url}/rest/v1/san_pham"
                         params_sp = {
                             "select": "*",
@@ -1073,8 +1064,6 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                             "limit": 100
                         }
                         res_sp = requests.get(url_sp, headers=exact_headers, params=params_sp, timeout=20)
-                        
-                        st.write("📊 **SP Status Code:**", res_sp.status_code)
                         
                         bom_records = []
                         if res_sp.status_code == 200:
@@ -1084,14 +1073,8 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                                 st.markdown("### 📦 KHO SẢN PHẨM")
                                 df_sp = pd.DataFrame(bom_records)
                                 st.dataframe(df_sp, use_container_width=True, hide_index=True)
-                        else:
-                            st.error("Lỗi dữ liệu Kho Sản Phẩm")
-                            st.code(res_sp.text)
 
-                        # ------------------------------------------------------
-                                               # ------------------------------------------------------
-                        # B. KHO THÔNG SỐ TECHPACK (public.thong_so_techpack)
-                        # ------------------------------------------------------
+                        # 2. TRUY VẤN KHO THÔNG SỐ TECHPACK
                         url_tp = f"{local_sb_url}/rest/v1/thong_so_techpack"
                         params_tp = {
                             "select": "*",
@@ -1100,74 +1083,30 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                         }
                         res_tp = requests.get(url_tp, headers=exact_headers, params=params_tp, timeout=20)
                         
-                        st.write("📏 **TP Status Code:**", res_tp.status_code)
-                        
                         techpack_records = []
                         if res_tp.status_code == 200:
                             techpack_records = res_tp.json()
                             if techpack_records:
-                                # Lưu dữ liệu vào bộ nhớ hệ thống
+                                # 🎯 SỬA LỖI MẤU CHỐT: Ép lấy bản ghi Dictionary đầu tiên thay vì lưu cả mảng List bẩn
                                 st.session_state["matched_techpack"] = techpack_records[0]
-                                
                                 st.markdown("### 📋 KHO THÔNG SỐ KỸ THUẬT")
                                 
-                                # 🎯 THUẬT TOÁN PHÂN RÃ CHUỖI JSON SANG BẢNG HAI CỘT DÒNG CHUẨN
                                 raw_specs = techpack_records[0].get("DetailedMeasurements", {})
-                                
-                                # Nếu dữ liệu trả về từ Supabase đang bị bọc dạng chuỗi String, tiến hành giải nén JSON
                                 if isinstance(raw_specs, str):
-                                    try:
-                                        raw_specs = json.loads(raw_specs)
-                                    except Exception:
-                                        raw_specs = {}
-                                        
+                                    try: raw_specs = json.loads(raw_specs)
+                                    except: raw_specs = {}
+                                    
                                 if isinstance(raw_specs, dict) and raw_specs:
-                                    # Chuyển đổi cấu trúc Dictionary {Key: Value} sang bảng DataFrame phẳng
-                                    df_parsed_spec = pd.DataFrame(
-                                        list(raw_specs.items()), 
-                                        columns=["Vị trí đo (POM Description)", "Thông số cũ"]
-                                    )
+                                    df_parsed_spec = pd.DataFrame(list(raw_specs.items()), columns=["Vị trí đo (POM Description)", "Thông số cũ"])
                                     st.dataframe(df_parsed_spec, use_container_width=True, hide_index=True)
                                 else:
-                                    # Cấu trúc dự phòng nếu không phân rã được chuỗi JSON dữ liệu
                                     df_tp = pd.DataFrame(techpack_records)
                                     st.dataframe(df_tp, use_container_width=True, hide_index=True)
-                        else:
-                            st.error("Lỗi dữ liệu Kho Thông Số")
-                            st.code(res_tp.text)
 
-
-                        # ------------------------------------------------------
-                        # C. KHO ẢNH SUPABASE STORAGE (QUÉT ĐA ĐUÔI & CHECK HTTP)
-                        # ------------------------------------------------------
+                        # 3. TRUY VẤN KHO ẢNH SUPABASE STORAGE
                         st.markdown("### 🖼️ HÌNH ẢNH BẢN VẼ PHẲNG")
-                        
-                        img_extensions = ["jpg", "JPG", "png", "PNG", "jpeg", "JPEG"]
-                        img_found = False
-                        
-                        for ext in img_extensions:
-                            image_public_url = f"{local_sb_url}/storage/v1/object/public/kho_anh/{target_fabric_code}.{ext}"
-                            
-                            try:
-                                # Gửi lệnh HEAD để xác thực link vật lý tồn tại thực tế trên Cloud
-                                img_check = requests.head(image_public_url, headers={"apikey": local_sb_key}, timeout=5)
-                                if img_check.status_code == 200:
-                                    st.write(f"✅ Đã tìm thấy liên kết hợp lệ đuôi `.{ext}`:")
-                                    st.write("**IMG URL:**", image_public_url)
-                                    st.image(image_public_url, caption=f"Bản vẽ: {target_fabric_code}.{ext}", use_container_width=True)
-                                    img_found = True
-                                    break
-                            except:
-                                continue
-                                
-                        if not img_found:
-                            st.warning(f"❌ Không tìm thấy tệp tin hình ảnh vật lý nào khớp trên Cloud Storage cho từ khóa: `{target_fabric_code}`")
-                            # Hiện link đuôi mặc định để bạn nhấp trực tiếp kiểm tra quyền Public của Bucket
-                            test_url = f"{local_sb_url}/storage/v1/object/public/kho_anh/{target_fabric_code}.jpg"
-                            st.write("🔗 **Đường dẫn kiểm tra trình duyệt thô (.jpg):**", test_url)
-
-                        # TÓM TẮT DÒNG DỮ LIỆU ĐỐI SOÁT
-                        st.caption(f"Đơn vị đối soát: {target_fabric_code} | SP: {len(bom_records)} | TP: {len(techpack_records)}")
+                        image_public_url = f"{local_sb_url}/storage/v1/object/public/kho_anh/{target_fabric_code}.jpg"
+                        st.image(image_public_url, caption=f"Bản vẽ: {target_fabric_code}.jpg", use_container_width=True)
 
                     except Exception as e:
                         st.error(f"Lỗi cổng kết nối hệ thống Supabase: {str(e)}")
@@ -1197,41 +1136,40 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
             height=0,
         )
 
-
-
     st.markdown("<br><hr style='border:0.5px solid #CBD5E1;'>", unsafe_allow_html=True)
 
 
 
     
-    # ==========================================================================
-    # KHỐI 5 - ĐOẠN 5.2: KHỐI CHẶN FILE & HIỂN THỊ CÁC BẢNG SAU KHI UPLOAD
+        # ==========================================================================
+    # KHỐI 5 - ĐOẠN 5.2: ĐỒNG BỘ ĐỘC LẬP LUỒNG SỐ LIỆU ĐỐI SOÁT SAU KHI UPLOAD
     # ==========================================================================
     if not has_file:
         st.info("👋 Vui lòng tải lên tệp Techpack hồ sơ thiết kế (PDF) ở phía trên để hệ thống bắt đầu quét và lập lịch trình đối soát.")
         st.stop()
 
+    # TỰ ĐỘNG CẬP NHẬT TRUY VẤN THEO ĐÚNG MÃ ĐANG TẢI LÊN (Ví dụ: 526R03-496094)
     if dynamic_keyword != "UNKNOWN_STYLE":
         try:
             url_db = f"{base_sb_url}/rest/v1/thong_so_techpack"
-            query_params_eq = {"select": "StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL", "StyleName": f"eq.{dynamic_keyword}"}
+            query_params_eq = {"select": "*", "StyleName": f"eq.{dynamic_keyword}"}
             db_res_eq = requests.get(url_db, headers=headers, params=query_params_eq, timeout=15)
             
             if db_res_eq.status_code == 200 and len(db_res_eq.json()) > 0:
-                st.session_state["matched_techpack"] = db_res_eq.json()
+                st.session_state["matched_techpack"] = db_res_eq.json()[0]
             else:
                 core_digits = re.findall(r'\d+', dynamic_keyword)
                 search_digits = max(core_digits, key=len) if core_digits else dynamic_keyword
-                query_params_fb = {"select": "StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL", "StyleName": f"ilike.*{search_digits}*"}
+                query_params_fb = {"select": "*", "StyleName": f"ilike.*{search_digits}*"}
                 db_res_fb = requests.get(url_db, headers=headers, params=query_params_fb, timeout=15)
                 if db_res_fb.status_code == 200 and len(db_res_fb.json()) > 0:
-                    st.session_state["matched_techpack"] = db_res_fb.json()
+                    st.session_state["matched_techpack"] = db_res_fb.json()[0]
 
             matched_techpack = st.session_state["matched_techpack"]
             if matched_techpack:
                 verified_style_bom = str(matched_techpack.get("StyleName", "")).strip()
                 url_bom = f"{base_sb_url}/rest/v1/san_pham"
-                query_bom = {"select": "StyleName,ArticleName,MaterialSize,UOM,BodyType,InputPure", "StyleName": f"eq.{verified_style_bom}"}
+                query_bom = {"select": "*", "style_name": f"eq.{verified_style_bom}"}
                 res_bom = requests.get(url_bom, headers=headers, params=query_bom, timeout=15)
                 if res_bom.status_code == 200:
                     st.session_state["bom_records"] = res_bom.json()
@@ -1263,7 +1201,12 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
             old_style_title = str(matched_techpack.get("StyleName", "N/A")).upper()
             old_size_title = matched_techpack.get("BaseSize", "N/A")
             st.markdown(f"📋 **Bảng 2: Thông số Mã trong kho ({old_style_title}) [SIZE {old_size_title}]**")
+            
             old_specs = matched_techpack.get("DetailedMeasurements", {})
+            if isinstance(old_specs, str):
+                try: old_specs = json.loads(old_specs)
+                except: old_specs = {}
+                
             df_old_spec = pd.DataFrame(list(old_specs.items()), columns=["Vị trí đo (POM Description)", "Thông số cũ"]) if old_specs else pd.DataFrame(columns=["Vị trí đo (POM Description)", "Thông số cũ"])
             st.dataframe(df_old_spec, use_container_width=True, hide_index=True)
 
@@ -1273,15 +1216,15 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
         fallback_style_code = str(matched_techpack.get("StyleName", "")).strip().upper()
         for r in bom_records:
             def clean_nan(v): return "" if (not v or str(v).lower() in ["nan", "none", "null"]) else str(v).strip()
-            row_style = clean_nan(r.get("StyleName", r.get("style_name"))).upper()
+            row_style = clean_nan(r.get("style_name")).upper()
             if not row_style or row_style == "NAN": row_style = fallback_style_code
             formatted_bom.append({
                 "Mã hàng đối chứng": row_style,
-                "Loại nguyên vật liệu": clean_nan(r.get("BodyType", r.get("consumption_type"))),
-                "Chi tiết vật tư (Article)": clean_nan(r.get("ArticleName", r.get("article_name"))),
-                "Khổ / Cỡ vật tư": clean_nan(r.get("MaterialSize", r.get("material_size"))),
-                "Định mức gốc": clean_nan(r.get("Input Pure", r.get("consumption_value"))),
-                "UOM": clean_nan(r.get("UOM", r.get("uom")))
+                "Loại nguyên vật liệu": clean_nan(r.get("consumption_type")),
+                "Chi tiết vật tư (Article)": clean_nan(r.get("article_name")),
+                "Khổ / Cỡ vật tư": clean_nan(r.get("material_size")),
+                "Định mức gốc": clean_nan(r.get("consumption_value")),
+                "UOM": clean_nan(r.get("uom"))
             })
         st.dataframe(pd.DataFrame(formatted_bom), use_container_width=True, hide_index=True)
 
