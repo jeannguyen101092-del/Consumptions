@@ -16,6 +16,26 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+def find_style_by_keyword_direct(base_sb_url, sb_key, keyword):
+    """
+    Tìm kiếm trực tiếp mã hàng trong bảng Supabase bằng từ khóa (Không qua AI).
+    """
+    import requests
+    headers_db = {"apikey": sb_key, "Authorization": f"Bearer {sb_key}"}
+    url_db = f"{base_sb_url}/rest/v1/thong_so_techpack"
+    
+    query_params = {
+        "select": "StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL",
+        "StyleName": f"ilike.*{keyword}*"
+    }
+    try:
+        response = requests.get(url_db, headers=headers_db, params=query_params, timeout=10)
+        if response.status_code == 200:
+            return response.json()
+        return []
+    except Exception as e:
+        st.error(f"Lỗi truy vấn dữ liệu: {str(e)}")
+        return []
 
 # ĐỒ HỌA HIGH-CONTRAST INDUSTRIAL LIGHT THEME (XÓA BỎ BÓNG TỐI, CỐ ĐỊNH CHỮ RÕ NÉT)
 st.markdown("""
@@ -467,7 +487,7 @@ with st.sidebar:
     # ĐÃ ĐỒNG BỘ: Đảm bảo khớp hoàn toàn các nhãn chức năng
     menu_selection = st.radio(
         label="Chức năng hệ thống",
-        options=["📊 Upload Techpack", "🔄 Pattern Spec Comparison", "🧵 BOM & Consumption Matrix","🛒 Purchase Consumption"],
+        options=["📊 Upload Techpack", "🔄 Pattern Spec Comparison", "🧵 BOM & Consumption Matrix","🛒 Purchase Consumption","🔍 Tra cứu kho trực tiếp"],
         label_visibility="collapsed"
     )
     st.markdown("---")
@@ -2230,3 +2250,53 @@ elif menu_selection == "🛒 Purchase Consumption":
                         st.metric("Chênh lệch so với tài liệu", f"{variance:+.3f}" if st.session_state["consumption_activated"] else "0.000", delta_color="inverse" if variance > 0 else "normal")
                 else:
                     st.info("💡 Quy trình: Bấm nút 1 để tính tác nghiệp sơ đồ -> Điền độ dài CAD -> Bấm nút 2 để kích hoạt nhảy số định mức.")
+if menu_selection == "🔍 Tra cứu kho trực tiếp":
+    st.markdown('<div class="component-title-box">🔍 TRUY XUẤT DỮ LIỆU & HÌNH ẢNH TRỰC TIẾP TỪ KHO</div>', unsafe_allow_html=True)
+    st.markdown("---")
+    
+    # Ô nhập từ khóa chủ động
+    search_keyword = st.text_input("✍️ Nhập mã hàng hoặc tên vải cần tìm:", placeholder="Ví dụ: PPJ-2026, Cotton, Pants...", key="direct_search_input")
+    
+    if search_keyword:
+        with st.spinner("💾 Đang kết nối trực tiếp kho Supabase..."):
+            results = find_style_by_keyword_direct(base_sb_url, SB_KEY, search_keyword.strip())
+            
+            if results:
+                st.success(f"🎉 Tìm thấy {len(results)} bản ghi khớp với từ khóa `{search_keyword}`!")
+                
+                # Chuyển đổi dữ liệu sang Pandas DataFrame để hiển thị dạng bảng trực quan
+                df_display = pd.DataFrame(results)
+                # Đổi tên cột hiển thị cho thân thiện với người dùng
+                df_display = df_display.rename(columns={
+                    "StyleName": "Mã hàng/Tên vải",
+                    "Buyer": "Khách hàng",
+                    "Category": "Chủng loại",
+                    "BaseSize": "Size cơ sở"
+                })
+                
+                # Hiển thị bảng dữ liệu
+                st.markdown("### 📊 Bảng thông số kỹ thuật trong kho")
+                st.dataframe(df_display[["Mã hàng/Tên vải", "Khách hàng", "Chủng loại", "Size cơ sở"]], use_container_width=True)
+                
+                # Duyệt qua các kết quả để hiển thị chi tiết thông số và ảnh rập/vải đi kèm
+                st.markdown("---")
+                st.markdown("### 📷 Chi tiết kết cấu & Hình ảnh rập mẫu")
+                
+                for idx, item in enumerate(results):
+                    with st.expander(f"📦 Chi tiết mã: {item.get('StyleName')} - {item.get('Buyer', 'N/A')}", expanded=(idx==0)):
+                        col_text, col_img = st.columns([1.5, 1])
+                        
+                        with col_text:
+                            st.write(f"**🔹 Phân loại:** {item.get('Category', 'N/A')}")
+                            st.write(f"**🔹 Size cơ sở:** {item.get('BaseSize', 'N/A')}")
+                            st.write("**📐 Bảng thông số chi tiết (Detailed Measurements):**")
+                            st.json(item.get("DetailedMeasurements", {}))
+                            
+                        with col_img:
+                            img_url = item.get("SketchURL")
+                            if img_url:
+                                st.image(img_url, caption=f"Hình ảnh mã {item.get('StyleName')}", use_container_width=True)
+                            else:
+                                st.info("ℹ️ Mã hàng này chưa được cập nhật hình ảnh trong kho.")
+            else:
+                st.warning(f"❌ Không tìm thấy dữ liệu nào trùng khớp với từ khóa `{search_keyword}` trong kho Supabase.")
