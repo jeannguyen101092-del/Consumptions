@@ -1071,8 +1071,8 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
             st.rerun()
 
     st.markdown("---")
-        # ==========================================================================
-    # KHỐI 5 - ĐOẠN 5.1: GIAO DIỆN CHAT BOX & TỰ ĐỘNG QUÉT DATABASE KHI TRA CỨU
+     # ==========================================================================
+    # KHỐI 5 - ĐOẠN 5.1: GIAO DIỆN CHAT BOX & TỰ ĐỘNG QUÉT DATABASE KHI TRA CỨU (FIX TOKEN)
     # ==========================================================================
     chat_header_col1, chat_header_col2 = st.columns([3.2, 0.8])
     with chat_header_col1:
@@ -1106,11 +1106,19 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                         if target_fabric_code:
                             try:
                                 url_search = f"{base_sb_url}/rest/v1/san_pham"
+                                
+                                # 🔒 ĐỒNG BỘ CHÍNH XÁC TOKEN BẢO MẬT: Sử dụng chữ viết hoa SB_KEY tương thích hệ thống
+                                exact_headers = {
+                                    "apikey": SB_KEY, 
+                                    "Authorization": f"Bearer {SB_KEY}"
+                                }
+                                
                                 params_search = {
                                     "select": "StyleName,ArticleName,MaterialSize,UOM,BodyType,InputPure",
                                     "ArticleName": f"ilike.*{target_fabric_code}*"
                                 }
-                                res_search = requests.get(url_search, headers=headers, params=params_search, timeout=15)
+                                
+                                res_search = requests.get(url_search, headers=exact_headers, params=params_search, timeout=15)
                                 if res_search.status_code == 200 and len(res_search.json()) > 0:
                                     st.session_state["bom_records"] = res_search.json()
                                     bom_records = st.session_state["bom_records"]
@@ -1138,6 +1146,7 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
         )
 
     st.markdown("<br><hr style='border:0.5px solid #CBD5E1;'>", unsafe_allow_html=True)
+
     # ==========================================================================
     # KHỐI 5 - ĐOẠN 5.2: KHỐI CHẶN FILE & HIỂN THỊ CÁC BẢNG ĐỐI SOÁT THỰC TẾ
     # ==========================================================================
