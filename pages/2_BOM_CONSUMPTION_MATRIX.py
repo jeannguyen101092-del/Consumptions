@@ -1061,9 +1061,9 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
 
     if not has_file:
         st.info("👋 Vui lòng tải lên tệp Techpack hồ sơ thiết kế (PDF) ở phía trên để hệ thống bắt đầu quét và lập lịch trình đối soát.")
-        st.stop()
+    else:
 
-    if new_style_base_size and new_style_base_size != "32":
+        if new_style_base_size and new_style_base_size != "32":
         st.info(f"📋 **CƠ SỞ ĐỐI SOÁT KIỂM TRA:** Mẫu mới số hóa mã hàng `{new_style_id_detected}` | Quy chuẩn kích thước hình học rập mẫu: **SIZE {new_style_base_size}**")
     else:
         st.info(f"📋 **CƠ SỞ ĐỐI SOÁT KIỂM TRA:** Đang áp dụng quy chuẩn kích thước hình học rập mẫu cơ sở: **SIZE 32 / M (Mặc định)**")
@@ -1246,9 +1246,11 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
 
     st.markdown("<br><hr style='border:0.5px solid #CBD5E1;'>", unsafe_allow_html=True)
     
- # ==========================================================================
-# CHAT BOX AI PHÂN TÍCH ĐỊNH MỨC
 # ==========================================================================
+# AI CHAT BOX - LUÔN HIỂN THỊ (KHÔNG PHỤ THUỘC UPLOAD FILE)
+# ==========================================================================
+
+st.markdown("---")
 
 if "consumption_chat_history" not in st.session_state:
     st.session_state["consumption_chat_history"] = []
@@ -1256,42 +1258,36 @@ if "consumption_chat_history" not in st.session_state:
 chat_header_col1, chat_header_col2 = st.columns([3.2, 0.8])
 
 with chat_header_col1:
-    st.markdown(
-        "### 💬 TRỢ LÝ AI PHÂN TÍCH ĐỊNH MỨC SẢN XUẤT (HỎI ĐÂU ĐÁP ĐÓ)"
-    )
+    st.markdown("### 💬 TRỢ LÝ AI PHÂN TÍCH ĐỊNH MỨC SẢN XUẤT")
 
 with chat_header_col2:
     if st.button(
-        "🗑️ XÓA LỊCH SỬ CHAT",
+        "🗑️ XÓA CHAT",
         key="direct_clear_chat_btn",
         use_container_width=True
     ):
         st.session_state["consumption_chat_history"] = []
-        st.toast("♻️ Đã xóa sạch lịch sử chat tức thì!")
+        st.toast("♻️ Đã xóa lịch sử chat")
         st.rerun()
 
-# --------------------------------------------------------------------------
+# ==========================================================================
 # HIỂN THỊ LỊCH SỬ CHAT
-# --------------------------------------------------------------------------
+# ==========================================================================
 
-chat_container = st.container()
+for item in st.session_state["consumption_chat_history"]:
 
-with chat_container:
+    with st.chat_message("user"):
+        st.write(item.get("user", ""))
 
-    for item in st.session_state["consumption_chat_history"]:
+    with st.chat_message("assistant"):
+        st.markdown(item.get("ai", ""))
 
-        with st.chat_message("user"):
-            st.write(item.get("user", ""))
-
-        with st.chat_message("assistant"):
-            st.write(item.get("ai", ""))
-
-# --------------------------------------------------------------------------
-# NHẬP CÂU HỎI
-# --------------------------------------------------------------------------
+# ==========================================================================
+# THANH NHẬP CHAT LUÔN HIỂN THỊ
+# ==========================================================================
 
 user_query = st.chat_input(
-    "Nhập yêu cầu phân tích (Ví dụ: Tính định mức vải chính khi co rút ngang 5%, dọc 3%)..."
+    "Nhập mã hàng, mã vải, BOM, định mức hoặc câu hỏi bất kỳ..."
 )
 
 if user_query:
@@ -1301,46 +1297,82 @@ if user_query:
 
     try:
 
-        if client is None:
-            ai_reply = "❌ Gemini API chưa được cấu hình hoặc API Key không hợp lệ."
+        with st.chat_message("assistant"):
 
-        else:
-
-            with st.spinner(
-                "🤖 AI đang phân tích dữ liệu và tính toán định mức..."
-            ):
+            with st.spinner("🤖 PPJ AI đang phân tích..."):
 
                 ai_reply = ai_consumption_analyst_engine(
                     client=client,
                     user_message=user_query,
-                    matched_techpack=st.session_state.get("matched_techpack"),
-                    bom_records=st.session_state.get("bom_records", []),
+
+                    matched_techpack=st.session_state.get(
+                        "matched_techpack",
+                        {}
+                    ),
+
+                    bom_records=st.session_state.get(
+                        "bom_records",
+                        []
+                    ),
+
                     new_style_measurements=globals().get(
-                        "new_style_measurements_dict", {}
+                        "new_style_measurements_dict",
+                        {}
                     ),
+
                     target_new_sketch_bytes=globals().get(
-                        "target_new_sketch_bytes", None
+                        "target_new_sketch_bytes",
+                        None
                     ),
+
                     detected_size=globals().get(
-                        "new_style_base_size", "32"
+                        "new_style_base_size",
+                        "32"
                     )
                 )
 
                 if not ai_reply:
                     ai_reply = "⚠️ AI không trả về dữ liệu."
 
+                st.markdown(ai_reply)
+
     except Exception as e:
 
         ai_reply = f"🚨 Lỗi AI Engine: {str(e)}"
 
-    with st.chat_message("assistant"):
-        st.write(ai_reply)
+        with st.chat_message("assistant"):
+            st.error(ai_reply)
+
+    # ==========================================================================
+    # LƯU LỊCH SỬ CHAT
+    # ==========================================================================
 
     st.session_state["consumption_chat_history"].append(
         {
             "user": user_query,
             "ai": ai_reply
         }
+    )
+
+    # ==========================================================================
+    # CUỘN XUỐNG CUỐI TRANG
+    # ==========================================================================
+
+    st.components.v1.html(
+        """
+        <script>
+            var doc = window.parent.document;
+            var sections = doc.querySelectorAll('section.main');
+
+            if (sections.length > 0) {
+                sections[0].scrollTo({
+                    top: sections[0].scrollHeight,
+                    behavior: 'smooth'
+                });
+            }
+        </script>
+        """,
+        height=0
     )
 
     st.rerun()
