@@ -1011,7 +1011,8 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
     st.markdown("---")
 
       # ==========================================================================
-    # KHỐI 5 - ĐOẠN 5.1: GIAO DIỆN CHAT BOX & XUẤT BẢNG KHO TRỰC TIẾP KHI GÕ TRA CỨU
+       # ==========================================================================
+    # KHỐI 5 - ĐOẠN 5.1: GIAO DIỆN CHAT BOX & TỰ KHỞI TẠO BỘ KẾT NỐI KHI TRA CỨU
     # ==========================================================================
     chat_header_col1, chat_header_col2 = st.columns([3.2, 0.8])
     with chat_header_col1:
@@ -1033,17 +1034,26 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
             with st.chat_message("assistant"):
                 with st.spinner("🔍 Hệ thống đang kết nối trực tiếp kho dữ liệu Supabase..."):
                     
+                    # Tự động làm sạch lệnh để tách lấy mã vật tư 'SJ-8902'
                     query_upper = user_query.upper().strip()
                     target_fabric_code = query_upper
                     for word in ["TÌM KIẾM MÃ VẢI", "TÌM KIẾM CODE VẢI", "TÌM CODE VẢI", "TÌM MÃ VẢI", "TRA MÃ VẢI", "TÌM CODE", "TÌM MÃ", "TRA MÃ", "VẢI", "CODE", "TIM", "TRA", ":"]:
                         target_fabric_code = target_fabric_code.replace(word, "")
                     target_fabric_code = target_fabric_code.strip()
                     
+                    # 🎯 KHỞI TẠO ĐỘC LẬP AN TOÀN TRÁNH BỊ LỖI CHƯA ĐỊNH NGHĨA BIẾN (NAMEERROR)
+                    local_sb_url = str(st.secrets.get("SUPABASE_URL", globals().get("SB_URL", ""))).rstrip('/')
+                    local_sb_key = str(st.secrets.get("SUPABASE_KEY", globals().get("SB_KEY", "")))
+                    
                     is_search_intent = any(k in query_upper for k in ["TÌM", "TRA", "CODE", "VẢI", "SJ-", "D00"])
-                    if is_search_intent and target_fabric_code:
+                    
+                    if is_search_intent and target_fabric_code and local_sb_url and local_sb_key:
                         try:
-                            url_search = f"{base_sb_url}/rest/v1/san_pham"
-                            exact_headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
+                            url_search = f"{local_sb_url}/rest/v1/san_pham"
+                            exact_headers = {
+                                "apikey": local_sb_key, 
+                                "Authorization": f"Bearer {local_sb_key}"
+                            }
                             params_search = {
                                 "select": "StyleName,ArticleName,MaterialSize,UOM,BodyType,InputPure",
                                 "ArticleName": f"ilike.*{target_fabric_code}*"
@@ -1054,6 +1064,7 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                                 st.session_state["bom_records"] = res_search.json()
                                 bom_records = st.session_state["bom_records"]
                                 
+                                # Vẽ trực tiếp bảng kho thực tế ra màn hình chat cho người dùng kiểm chứng số liệu
                                 st.markdown("📊 **Dữ liệu kho thực tế tìm thấy trùng khớp:**")
                                 df_chat_view = pd.DataFrame(res_search.json())
                                 df_chat_view.columns = ["Mã hàng", "Mã vải (Article)", "Khổ vải", "UOM", "Loại vật tư", "ĐM gốc"]
@@ -1062,15 +1073,21 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                             pass
 
                     clean_bom_records = []
-                    current_bom_source = bom_records if bom_records else st.session_state.get("bom_records", [])
+                    current_bom_source = bom_records if 'bom_records' in locals() and bom_records else st.session_state.get("bom_records", [])
                     if current_bom_source:
                         for r in current_bom_source:
                             clean_bom_records.append(r)
                     
+                    # Đảm bảo các biến đối soát không bị lỗi sập cục bộ
+                    s_techpack = matched_techpack if 'matched_techpack' in locals() and matched_techpack else st.session_state.get("matched_techpack")
+                    s_measurements = new_style_measurements_dict if 'new_style_measurements_dict' in locals() else {}
+                    s_sketch = target_new_sketch_bytes if 'target_new_sketch_bytes' in locals() else None
+                    s_size = new_style_base_size if 'new_style_base_size' in locals() else "M"
+
                     ai_reply = ai_consumption_analyst_engine(
-                        client=client, user_message=user_query, matched_techpack=matched_techpack,
-                        bom_records=clean_bom_records, new_style_measurements=new_style_measurements_dict,
-                        target_new_sketch_bytes=target_new_sketch_bytes, detected_size=new_style_base_size
+                        client=client, user_message=user_query, matched_techpack=s_techpack,
+                        bom_records=clean_bom_records, new_style_measurements=s_measurements,
+                        target_new_sketch_bytes=s_sketch, detected_size=s_size
                     )
                     st.write(ai_reply)
         
@@ -1078,6 +1095,8 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
             "<script>var doc = window.parent.document; var sections = doc.querySelectorAll('section.main'); if (sections.length > 0) { sections.scrollTo({top: sections.scrollHeight, behavior: 'smooth'}); }</script>",
             height=0,
         )
+
+    st.markdown("<br><hr style='border:0.5px solid #CBD5E1;'>", unsafe_allow_html=True)
 
     st.markdown("<br><hr style='border:0.5px solid #CBD5E1;'>", unsafe_allow_html=True)
     # ==========================================================================
