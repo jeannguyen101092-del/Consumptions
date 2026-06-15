@@ -1160,7 +1160,7 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
     st.markdown("<br><hr style='border:0.5px solid #CBD5E1;'>", unsafe_allow_html=True)
     
 # ==========================================================================
-# AI CHAT BOX - LUÔN HIỂN THỊ (KHÔNG PHỤ THUỘC UPLOAD FILE)
+# AI CHAT BOX - LUÔN HIỂN THỊ
 # ==========================================================================
 
 st.markdown("---")
@@ -1196,7 +1196,7 @@ for item in st.session_state["consumption_chat_history"]:
         st.markdown(item.get("ai", ""))
 
 # ==========================================================================
-# THANH NHẬP CHAT LUÔN HIỂN THỊ
+# THANH CHAT NHẬP LIỆU
 # ==========================================================================
 
 user_query = st.chat_input(
@@ -1217,27 +1217,22 @@ if user_query:
                 ai_reply = ai_consumption_analyst_engine(
                     client=client,
                     user_message=user_query,
-
                     matched_techpack=st.session_state.get(
                         "matched_techpack",
                         {}
                     ),
-
                     bom_records=st.session_state.get(
                         "bom_records",
                         []
                     ),
-
                     new_style_measurements=globals().get(
                         "new_style_measurements_dict",
                         {}
                     ),
-
                     target_new_sketch_bytes=globals().get(
                         "target_new_sketch_bytes",
                         None
                     ),
-
                     detected_size=globals().get(
                         "new_style_base_size",
                         "32"
@@ -1274,12 +1269,13 @@ if user_query:
     st.components.v1.html(
         """
         <script>
-            var doc = window.parent.document;
-            var sections = doc.querySelectorAll('section.main');
+            const main = window.parent.document.querySelector(
+                'section.main'
+            );
 
-            if (sections.length > 0) {
-                sections[0].scrollTo({
-                    top: sections[0].scrollHeight,
+            if(main){
+                main.scrollTo({
+                    top: main.scrollHeight,
                     behavior: 'smooth'
                 });
             }
