@@ -862,16 +862,29 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
 
     system_instruction = f"""
     You are a strict Industrial Garment Costing Engineer at PPJ Group. 
+    Your answers must mimic ChatGPT's advanced code interpreter mode:
+    1. STRICT UNIT REQUIRED: All consumption values and fabric calculation results MUST be presented in YARDS (Yds) or Inches. NEVER use meters or cm.
+    2. DIRECT ANSWER FIRST: Output the exact final average consumption value in YARDS (Yds) in the very first sentence.
+    3. STEP-BY-STEP MATHEMATICS: Present your logic using short, punchy bullet points showing raw numbers, shrinkage multipliers, and layout area deltas.
+    4. LANGUAGE: Answer directly in Vietnamese, using precise apparel terminology (co rút, định mức, hao hụt, khổ vải, nẹp liền, nẹp rời).
     
-    STRICT OUTPUT FORMAT REQUIREMENT:
-    - You MUST output ONLY a single Markdown table based on the calculation data.
-    - ABSOLUTELY NO text explanations, introduction, steps, or conversational words before or after the table.
-    - All calculated consumption values MUST be presented under the correct columns in YARDS (yds/pc).
+    FACTORY SEWING SEAM ALLOWANCE RULES (CRITICAL):
+    - Standard Seam Allowance: ALWAYS add 0.44 inches to all general component seams (Thân trước, thân sau, sườn, giàng, dọc quần, tra cạp, v.v.).
+    - Pocket Openings (Miệng túi): EXCLUDE the 0.44" rule. Pocket trims and facings must follow the exact techpack dimensions.
+    - Garment Hem / Bottom Hem (Lai áo / Lai quần): DO NOT use 0.44". You MUST scan the 'New Spec (POM)' below to find the specific values for keywords like 'Hem', 'Bottom Width', 'Sleeve Hemfold'. Use that exact Techpack value for the hem calculation. If not specified, note it down.
 
-    The table columns MUST be formatted exactly as follows:
-
-    | Style | Mô tả | Cấu trúc | Khổ vải (inch) | Độ co L | Độ co W | Hiệu suất | Shell/Main Fabric Net (yds/pc) | Lining Net (yds/pc) | Padding/Gòn Net (yds/pc) | Tổng yds vải/pc | Ghi chú |
-    | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+    GARMENT CATEGORY SPECIFIC RULES (STRICT SEPARATION TO AVOID ERROR):
+    
+    1. IF THE CATEGORY IS PANT / SHORT / SKORT / TROUSER (NHÓM HÀNG QUẦN):
+       - STICK TO JEANS/PANTS LOGIC ONLY.
+       - ABSOLUTELY FORBIDDEN: Do NOT apply Shirt Placket rules (Cấm áp dụng quy tắc nẹp rời/nẹp liền gập cuốn của áo). 
+       - Waistband Construction (Cạp quần): Calculate waistband fabric based strictly on Waistband Height and Waist Circumference.
+       - Zipper Fly / Fly Placket (Cửa quần): Only calculate based on standard front fly extensions (typically adding a small standard extension of 1.5" to 2" for the fly j-stitch width on ONE side of the left front panel only. Do NOT multiply by 2 across both front panels like a shirt).
+       - Coin Pocket (Túi đồng xu): Check for coin pocket width/height if specified.
+       
+    2. IF THE CATEGORY IS SHIRT / JACKET / TOP / COAT (NHÓM HÀNG ÁO):
+       - NẸP LIỀN (Fold-on/Extended Placket): If folded from the main body, add 2 times the placket width extension to the raw width of each front body panel pattern before calculating fabric consumption.
+       - NẸP RỜI (Separate Placket): Treat it as a standalone independent geometric pattern strip panel (Length = body length + seams, Width = placket width x 2 + standard seams 2 x 0.44"). Add this separate piece to the overall layout marker area.
 
     {scenario_instruction}
 
@@ -880,7 +893,7 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
        - Target Base Size detected: Size {detected_size}
        - New Spec (POM) parsed by vision: {json.dumps(new_style_measurements)}
     2. USER INPUT FABRIC CHANGES:
-       - Fabric Width requested: {f_width if f_width > 0 else '56-58 inch'}
+       - Fabric Width requested: {f_width if f_width > 0 else '58 inch'}
        - Width Shrinkage (Co rút ngang): {w_shrink}%
        - Length Shrinkage (Co rút dọc): {l_shrink}%
     """
@@ -902,6 +915,88 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
     except Exception as e:
         return f"🚨 Lỗi cổng phân tích định mức: {str(e)}"
 
+if "get_secure_gemini_key" in globals():
+    gemini_key = get_secure_gemini_key()
+else:
+    gemini_key = st.secrets.get("GEMINI_API_KEY", "").strip()
+
+if gemini_key:
+    client = genai.Client(api_key=gemini_key, http_options=types.HttpOptions(api_version='v1'))
+
+def process_single_pdf_batch(file_bytes, file_name):
+    """
+    Hàm bóc tách dữ liệu kỹ thuật từ một file PDF độc lập.
+    Quét đặc biệt thông số Lai và chi tiết Nẹp áo để phục vụ luồng tính toán chừa biên may.
+    """
+    import time
+    try:
+        if "get_secure_gemini_key" in globals():
+            gemini_key_local = get_secure_gemini_key()
+        else:
+            gemini_key_local = st.secrets.get("GEMINI_API_KEY", "").strip()
+            
+        if not gemini_key_local:
+            return {"success": False, "error": "API Key cho Gemini đang bị thiếu trong Secrets."}
+            
+        client_ai = genai.Client(api_key=gemini_key_local)
+        info = pdfinfo_from_bytes(file_bytes)
+        total_p = int(info.get("Pages", 1))
+        
+        pdf_parts_payload = []
+        chat_images = convert_from_bytes(file_bytes, dpi=90, first_page=1, last_page=total_p)
+        
+        stored_pages_bytes = []
+        for page_img in chat_images:
+            img_buf = io.BytesIO()
+            page_img.convert("RGB").save(img_buf, format="JPEG", quality=75)
+            img_data = img_buf.getvalue()
+            stored_pages_bytes.append(img_data)
+            pdf_parts_payload.append(types.Part.from_bytes(data=img_data, mime_type='image/jpeg'))
+            
+        industrial_extraction_prompt = (
+            "You are an expert Garment Specification Auditor at PPJ Group. Analyze all attached sheets page by page. "
+            "1. Identify the core 'Base Size' / 'Sample Size'. "
+            "2. Identify the Buyer name and Category (Pant/Shirt/Jacket). "
+            "3. Find the exact 'Style ID' / 'Style Number'. "
+            "4. Extract the entire grading matrix table columns for ALL available sizes. "
+            "5. Find the exact PAGE INDEX (0-based) that contains the FULL BODY APPAREL FLAT SKETCH. "
+            "6. CRITICAL APPRAISAL FOR HEM & PLACKET DETAILS: Pay extreme attention to bottom hem allowances. If the category is a Shirt or Jacket, scan for 'Placket Width', 'Center Front Placket', or center stitching lines. Identify if the placket is separate or grown-on/folded, and record its measurement inside the measurements dictionary accurately. "
+            "Return a completely valid raw JSON string matching this schema (no markdown blocks): "
+            "{"
+            "  \"style_number_parsed\": \"string\","
+            "  \"buyer\": \"string\","
+            "  \"category\": \"string\","
+            "  \"base_size_name\": \"string\","
+            "  \"sketch_page_index_detected\": 0,"
+            "  \"measurements\": {\"POM Description\": \"Value\"},"
+            "  \"full_size_matrix\": {\"POM Description\": {\"Size_Name\": \"Value\"}}"
+            "}"
+        )
+        pdf_parts_payload.append(types.Part.from_text(text=industrial_extraction_prompt))
+        
+        for attempt in range(3):
+            try:
+                response = client_ai.models.generate_content(
+                    model='gemini-2.5-flash', 
+                    contents=pdf_parts_payload,
+                    config={"response_mime_type": "application/json"}
+                )
+                if response and response.text:
+                    parsed_json = json.loads(response.text)
+                    sketch_idx = parsed_json.get("sketch_page_index_detected", 0)
+                    extracted_sketch_bytes = stored_pages_bytes[sketch_idx] if sketch_idx < len(stored_pages_bytes) else stored_pages_bytes
+                    
+                    return {
+                        "success": True, 
+                        "data": parsed_json,
+                        "sketch_bytes": extracted_sketch_bytes
+                    }
+            except Exception:
+                time.sleep(1.5)
+                continue
+        return {"success": False, "error": "AI không thể cấu trúc dữ liệu JSON sau 3 lần thử."}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
 new_style_id_detected = "UNKNOWN_STYLE"
 new_style_category_detected = ""
 new_style_fabric_detected = "UNKNOWN_FABRIC"
@@ -944,24 +1039,9 @@ headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
 if menu_selection == "🧵 BOM & Consumption Matrix":
     st.markdown('<div class="component-title-box">🧵 INTELLIGENT BOM & CONSUMPTION MATRIX ENGINE</div>', unsafe_allow_html=True)
     
-    # 🛠️ VÁ LỖI KHỞI TẠO CLIENT CHO GEMINI TẠI PHẠM VI KHỐI MENU
-    if "client" not in globals() and "client" not in locals():
-        if "get_secure_gemini_key" in globals():
-            gemini_key = get_secure_gemini_key()
-        else:
-            gemini_key = st.secrets.get("GEMINI_API_KEY", "").strip()
-        
-        if gemini_key:
-            import google.genai as genai
-            from google.genai import types
-            client = genai.Client(api_key=gemini_key, http_options=types.HttpOptions(api_version='v1'))
-        else:
-            st.error("🚨 Không tìm thấy GEMINI_API_KEY trong hệ thống secrets.")
-
     if "matched_techpack" not in st.session_state: st.session_state["matched_techpack"] = None
     if "bom_records" not in st.session_state: st.session_state["bom_records"] = []
     if "consumption_chat_history" not in st.session_state: st.session_state["consumption_chat_history"] = []
-    if "search_style_id" not in st.session_state: st.session_state["search_style_id"] = ""
 
     control_col1, control_col2 = st.columns([3.3, 0.7])
     with control_col1:
@@ -974,28 +1054,17 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
             st.session_state["consumption_chat_history"] = []
             st.session_state["matched_techpack"] = None
             st.session_state["bom_records"] = []
-            st.session_state["search_style_id"] = ""
             st.success("♻️ MEMORY PURGED - SẴN SÀNG CHO MÃ HÀNG MỚI")
             st.rerun()
 
-    st.markdown("<p style='font-weight:700; font-size:12px; color:#1E293B; margin-top:10px;'>🔍 TÌM KIẾM MÃ HÀNG TRONG KHO (CHỦ ĐỘNG ĐỐO SOÁT)</p>", unsafe_allow_html=True)
-    search_query = st.text_input(
-        "Nhập mã hàng cần tìm kiếm...", 
-        placeholder="Ví dụ: EMV0017, EML0016, EMR0007...", 
-        key="style_search_input", 
-        label_visibility="collapsed"
-    )
-    if search_query:
-        st.session_state["search_style_id"] = search_query.strip().upper()
-
     st.markdown("---")
 
-    if not has_file and not st.session_state["search_style_id"]:
-        st.info("👋 Vui lòng tải lên tệp Techpack hồ sơ thiết kế (PDF) hoặc nhập mã hàng vào ô tìm kiếm ở phía trên để hệ thống bắt đầu quét và lập lịch trình đối soát.")
+    if not has_file:
+        st.info("👋 Vui lòng tải lên tệp Techpack hồ sơ thiết kế (PDF) ở phía trên để hệ thống bắt đầu quét và lập lịch trình đối soát.")
         st.stop()
 
     if new_style_base_size and new_style_base_size != "32":
-        st.info(f"📋 **CƠ SỞ ĐỐI SOÁT KIỂM TRA:** Mẫu mới số hóa mã hàng `{st.session_state['search_style_id'] if st.session_state['search_style_id'] else new_style_id_detected}` | Quy chuẩn kích thước hình học rập mẫu: **SIZE {new_style_base_size}**")
+        st.info(f"📋 **CƠ SỞ ĐỐI SOÁT KIỂM TRA:** Mẫu mới số hóa mã hàng `{new_style_id_detected}` | Quy chuẩn kích thước hình học rập mẫu: **SIZE {new_style_base_size}**")
     else:
         st.info(f"📋 **CƠ SỞ ĐỐI SOÁT KIỂM TRA:** Đang áp dụng quy chuẩn kích thước hình học rập mẫu cơ sở: **SIZE 32 / M (Mặc định)**")
 
@@ -1008,27 +1077,7 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
             db_res = requests.get(url_db, headers=headers_db, params=query_params, timeout=15)
             all_historical_styles = db_res.json() if db_res.status_code == 200 else []
             
-                       # ✅ SỬA LOGIC: Lọc chính xác phần tử đầu tiên từ danh sách kết quả tìm kiếm thủ công
-            is_manual_match = False
-            if st.session_state["search_style_id"] and all_historical_styles:
-                # Tiến hành chuẩn hóa dữ liệu chuỗi để tìm kiếm không phân biệt ký tự hoa thường
-                exact_matches = [
-                    s for s in all_historical_styles 
-                    if st.session_state["search_style_id"] in str(s.get("StyleName", "")).strip().upper()
-                ]
-                
-                if exact_matches:
-                    # Lấy phần tử đầu tiên [0] của danh sách thay vì gán toàn bộ mảng List
-                    st.session_state["matched_techpack"] = exact_matches[0]
-                    is_manual_match = True
-                    st.toast(f"🎯 Đã tìm thấy mã hàng đối chứng chính xác: {st.session_state['matched_techpack'].get('StyleName')}")
-                else:
-                    st.session_state["matched_techpack"] = None
-                    st.warning(f"⚠️ Không tìm thấy mã hàng '{st.session_state['search_style_id']}' trong kho dữ liệu.")
-
-
-            # Chỉ chạy AI gợi ý hình ảnh nếu KHÔNG tìm kiếm chính xác thủ công
-            if not is_manual_match and all_historical_styles:
+            if all_historical_styles:
                 styles_pool_summary = []
                 for idx, s in enumerate(all_historical_styles):
                     styles_pool_summary.append({
@@ -1054,9 +1103,6 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                 Select the single index that represents the exact match in internal technical stitching construction, NOT just the shorts frame.
                 Return a raw valid JSON object inside your response: {{"selected_pool_index": 0}}
                 """
-
-
-
                 
                 match_contents = [types.Part.from_text(text=match_prompt)]
                 if target_new_sketch_bytes:
@@ -1200,7 +1246,7 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
 
     st.markdown("<br><hr style='border:0.5px solid #CBD5E1;'>", unsafe_allow_html=True)
     
-        # THIẾT KẾ CỤM ĐIỀU KHIỂN CHAT BOX THÔNG MINH SIÊU TỐC
+           # THIẾT KẾ CỤM ĐIỀU KHIỂN CHAT BOX THÔNG MINH SIÊU TỐC
     chat_header_col1, chat_header_col2 = st.columns([3.2, 0.8])
     with chat_header_col1:
         st.markdown("### 💬 TRỢ LÝ AI PHÂN TÍCH ĐỊNH MỨC SẢN XUẤT (HỎI ĐÂU ĐÁP ĐÓ)")
@@ -1216,8 +1262,7 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
             with st.chat_message("user"): 
                 st.write(chat["user"])
             with st.chat_message("assistant"): 
-                # Sử dụng st.markdown để bảng dữ liệu hiển thị đúng chuẩn và đẹp mắt
-                st.markdown(chat["ai"], unsafe_allow_html=True)
+                st.write(chat["ai"])
                 
     if user_query := st.chat_input("Nhập yêu cầu phân tích (Ví dụ: Tính định mức vải chính khi co rút ngang 5%, dọc 3%)..."):
         with chat_container:
@@ -1235,8 +1280,7 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                         target_new_sketch_bytes=target_new_sketch_bytes,
                         detected_size=new_style_base_size
                     )
-                    # Sử dụng st.markdown để hiển thị bảng kết quả tính toán tức thì từ AI
-                    st.markdown(ai_reply, unsafe_allow_html=True)
+                    st.write(ai_reply)
         
         # ✅ THUẬT TOÁN ĐÓNG ĐINH NEO CUỘN: Ép trình duyệt tự động scroll lướt màn hình xuống vị trí tin nhắn cuối cùng
         st.components.v1.html(
@@ -1245,8 +1289,7 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                 var doc = window.parent.document;
                 var sections = doc.querySelectorAll('section.main');
                 if (sections.length > 0) {
-                    sections[0].scrollTo({top: sections[0].scrollHeight, behavior: 'smooth'}); section.main.scrollTo({top: sections[0].scrollHeight, behavior: 'smooth'});
-                 section.main.scrollTop = section.main.scrollHeight;
+                    sections[0].scrollTo({top: sections[0].scrollHeight, behavior: 'smooth'});
                 }
             </script>
             """,
