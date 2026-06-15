@@ -834,13 +834,17 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
     shrinkage_length = re.findall(r'(?:CO RÚT DỌC|DỌC)\s*(\d+(?:\.\d+)?)\s*%', user_message.upper())
     new_fabric_width = re.findall(r'(?:KHỔ VẢI|KHỔ)\s*(\d+)\s*(?:\"|INCH|INCHES)?', user_message.upper())
     
+# Lấy phần tử đầu tiên nếu danh sách không rỗng, ngược lại gán bằng None
+   # Lấy phần tử đầu tiên nếu danh sách không rỗng, ngược lại gán bằng None
     w_shrink_val = shrinkage_width[0] if shrinkage_width else None
     l_shrink_val = shrinkage_length[0] if shrinkage_length else None
     new_fabric_width_val = new_fabric_width[0] if new_fabric_width else None
 
+    # Ép kiểu float an toàn từ giá trị đơn lẻ
     w_shrink = float(w_shrink_val) if w_shrink_val else 0.0
     l_shrink = float(l_shrink_val) if l_shrink_val else 0.0
     f_width = float(new_fabric_width_val) if new_fabric_width_val else 0.0
+
 
     if matched_techpack:
         scenario_instruction = f"""
@@ -858,26 +862,29 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
 
     system_instruction = f"""
     You are a strict Industrial Garment Costing Engineer at PPJ Group. 
+    Your answers must mimic ChatGPT's advanced code interpreter mode:
+    1. STRICT UNIT REQUIRED: All consumption values and fabric calculation results MUST be presented in YARDS (Yds) or Inches. NEVER use meters or cm.
+    2. DIRECT ANSWER FIRST: Output the exact final average consumption value in YARDS (Yds) in the very first sentence.
+    3. STEP-BY-STEP MATHEMATICS: Present your logic using short, punchy bullet points showing raw numbers, shrinkage multipliers, and layout area deltas.
+    4. LANGUAGE: Answer directly in Vietnamese, using precise apparel terminology (co rút, định mức, hao hụt, khổ vải, nẹp liền, nẹp rời).
     
-    RESPONSE FORMAT (MANDATORY):
-    - Trả lời CỰC KỲ NGẮN GỌN dưới dạng bảng Markdown.
-    - KHÔNG giải thích dài dòng. KHÔNG mô tả quá trình suy luận.
-    - KHÔNG liệt kê từng bước tính toán trừ khi người dùng yêu cầu "giải thích".
-    - Chỉ hiển thị KẾT QUẢ CUỐI CÙNG dạng bảng.
-    - LANGUAGE: Vietnamese. All consumption values MUST be presented in YARDS (Yds) or Inches.
-
-    IMPORTANT:
-    Nếu người dùng hỏi về: định mức, consumption, fabric usage, BOM, vải chính, code vải => CHỈ trả về bảng Markdown kết quả.
-    KHÔNG viết phần: "Phân tích", "Giải thích", "Nhận xét", "Tính toán" trừ khi người dùng yêu cầu rõ "giải thích chi tiết".
-
     FACTORY SEWING SEAM ALLOWANCE RULES (CRITICAL):
-    - Standard Seam Allowance: ALWAYS add 0.44 inches to all general component seams.
-    - Pocket Openings (Miệng túi): EXCLUDE the 0.44" rule.
-    - Garment Hem / Bottom Hem (Lai áo / Lai quần): Scan 'New Spec (POM)' below for specific values.
+    - Standard Seam Allowance: ALWAYS add 0.44 inches to all general component seams (Thân trước, thân sau, sườn, giàng, dọc quần, tra cạp, v.v.).
+    - Pocket Openings (Miệng túi): EXCLUDE the 0.44" rule. Pocket trims and facings must follow the exact techpack dimensions.
+    - Garment Hem / Bottom Hem (Lai áo / Lai quần): DO NOT use 0.44". You MUST scan the 'New Spec (POM)' below to find the specific values for keywords like 'Hem', 'Bottom Width', 'Sleeve Hemfold'. Use that exact Techpack value for the hem calculation. If not specified, note it down.
 
-    GARMENT CATEGORY SPECIFIC RULES:
-    1. IF THE CATEGORY IS PANT / SHORT / SKORT / TROUSER: Stick to Jeans/Pants logic. No Shirt Placket rules.
-    2. IF THE CATEGORY IS SHIRT / JACKET / TOP / COAT: Nẹp liền (+2 times placket width); Nẹp rời (Treat as standalone panel).
+    GARMENT CATEGORY SPECIFIC RULES (STRICT SEPARATION TO AVOID ERROR):
+    
+    1. IF THE CATEGORY IS PANT / SHORT / SKORT / TROUSER (NHÓM HÀNG QUẦN):
+       - STICK TO JEANS/PANTS LOGIC ONLY.
+       - ABSOLUTELY FORBIDDEN: Do NOT apply Shirt Placket rules (Cấm áp dụng quy tắc nẹp rời/nẹp liền gập cuốn của áo). 
+       - Waistband Construction (Cạp quần): Calculate waistband fabric based strictly on Waistband Height and Waist Circumference.
+       - Zipper Fly / Fly Placket (Cửa quần): Only calculate based on standard front fly extensions (typically adding a small standard extension of 1.5" to 2" for the fly j-stitch width on ONE side of the left front panel only. Do NOT multiply by 2 across both front panels like a shirt).
+       - Coin Pocket (Túi đồng xu): Check for coin pocket width/height if specified.
+       
+    2. IF THE CATEGORY IS SHIRT / JACKET / TOP / COAT (NHÓM HÀNG ÁO):
+       - NẸP LIỀN (Fold-on/Extended Placket): If folded from the main body, add 2 times the placket width extension to the raw width of each front body panel pattern before calculating fabric consumption.
+       - NẸP RỜI (Separate Placket): Treat it as a standalone independent geometric pattern strip panel (Length = body length + seams, Width = placket width x 2 + standard seams 2 x 0.44"). Add this separate piece to the overall layout marker area.
 
     {scenario_instruction}
 
@@ -902,11 +909,94 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
 
     try:
         response = client.models.generate_content(model='gemini-2.5-flash', contents=chat_contents)
-        ai_reply = response.text if response.text else ""
-        # ✅ ĐÃ XÓA ĐOẠN APPEND CHAT TẠI ĐÂY ĐỂ TRÁNH LỖI NHÂN ĐÔI TIN NHẮN
+        ai_reply = response.text if response.text else "Hệ thống AI không thể đưa ra phân tích."
+        st.session_state["consumption_chat_history"].append({"user": user_message, "ai": ai_reply})
         return ai_reply
     except Exception as e:
         return f"🚨 Lỗi cổng phân tích định mức: {str(e)}"
+
+if "get_secure_gemini_key" in globals():
+    gemini_key = get_secure_gemini_key()
+else:
+    gemini_key = st.secrets.get("GEMINI_API_KEY", "").strip()
+
+if gemini_key:
+    client = genai.Client(api_key=gemini_key, http_options=types.HttpOptions(api_version='v1'))
+
+def process_single_pdf_batch(file_bytes, file_name):
+    """
+    Hàm bóc tách dữ liệu kỹ thuật từ một file PDF độc lập.
+    Quét đặc biệt thông số Lai và chi tiết Nẹp áo để phục vụ luồng tính toán chừa biên may.
+    """
+    import time
+    try:
+        if "get_secure_gemini_key" in globals():
+            gemini_key_local = get_secure_gemini_key()
+        else:
+            gemini_key_local = st.secrets.get("GEMINI_API_KEY", "").strip()
+            
+        if not gemini_key_local:
+            return {"success": False, "error": "API Key cho Gemini đang bị thiếu trong Secrets."}
+            
+        client_ai = genai.Client(api_key=gemini_key_local)
+        info = pdfinfo_from_bytes(file_bytes)
+        total_p = int(info.get("Pages", 1))
+        
+        pdf_parts_payload = []
+        chat_images = convert_from_bytes(file_bytes, dpi=90, first_page=1, last_page=total_p)
+        
+        stored_pages_bytes = []
+        for page_img in chat_images:
+            img_buf = io.BytesIO()
+            page_img.convert("RGB").save(img_buf, format="JPEG", quality=75)
+            img_data = img_buf.getvalue()
+            stored_pages_bytes.append(img_data)
+            pdf_parts_payload.append(types.Part.from_bytes(data=img_data, mime_type='image/jpeg'))
+            
+        industrial_extraction_prompt = (
+            "You are an expert Garment Specification Auditor at PPJ Group. Analyze all attached sheets page by page. "
+            "1. Identify the core 'Base Size' / 'Sample Size'. "
+            "2. Identify the Buyer name and Category (Pant/Shirt/Jacket). "
+            "3. Find the exact 'Style ID' / 'Style Number'. "
+            "4. Extract the entire grading matrix table columns for ALL available sizes. "
+            "5. Find the exact PAGE INDEX (0-based) that contains the FULL BODY APPAREL FLAT SKETCH. "
+            "6. CRITICAL APPRAISAL FOR HEM & PLACKET DETAILS: Pay extreme attention to bottom hem allowances. If the category is a Shirt or Jacket, scan for 'Placket Width', 'Center Front Placket', or center stitching lines. Identify if the placket is separate or grown-on/folded, and record its measurement inside the measurements dictionary accurately. "
+            "Return a completely valid raw JSON string matching this schema (no markdown blocks): "
+            "{"
+            "  \"style_number_parsed\": \"string\","
+            "  \"buyer\": \"string\","
+            "  \"category\": \"string\","
+            "  \"base_size_name\": \"string\","
+            "  \"sketch_page_index_detected\": 0,"
+            "  \"measurements\": {\"POM Description\": \"Value\"},"
+            "  \"full_size_matrix\": {\"POM Description\": {\"Size_Name\": \"Value\"}}"
+            "}"
+        )
+        pdf_parts_payload.append(types.Part.from_text(text=industrial_extraction_prompt))
+        
+        for attempt in range(3):
+            try:
+                response = client_ai.models.generate_content(
+                    model='gemini-2.5-flash', 
+                    contents=pdf_parts_payload,
+                    config={"response_mime_type": "application/json"}
+                )
+                if response and response.text:
+                    parsed_json = json.loads(response.text)
+                    sketch_idx = parsed_json.get("sketch_page_index_detected", 0)
+                    extracted_sketch_bytes = stored_pages_bytes[sketch_idx] if sketch_idx < len(stored_pages_bytes) else stored_pages_bytes
+                    
+                    return {
+                        "success": True, 
+                        "data": parsed_json,
+                        "sketch_bytes": extracted_sketch_bytes
+                    }
+            except Exception:
+                time.sleep(1.5)
+                continue
+        return {"success": False, "error": "AI không thể cấu trúc dữ liệu JSON sau 3 lần thử."}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
 
 new_style_id_detected = "UNKNOWN_STYLE"
 new_style_category_detected = ""
