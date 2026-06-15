@@ -1010,8 +1010,7 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
 
     st.markdown("---")
 
-      # ==========================================================================
-       # ==========================================================================
+      
         # ==========================================================================
     # KHỐI 5 - ĐOẠN 5.1: GIAO DIỆN CHAT BOX & BỘ SỬA LỖI ĐỒNG BỘ SECRETS TOKEN KHO
     # ==========================================================================
@@ -1104,9 +1103,7 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
     st.markdown("<br><hr style='border:0.5px solid #CBD5E1;'>", unsafe_allow_html=True)
 
 
-    st.markdown("<br><hr style='border:0.5px solid #CBD5E1;'>", unsafe_allow_html=True)
-
-    st.markdown("<br><hr style='border:0.5px solid #CBD5E1;'>", unsafe_allow_html=True)
+    
     # ==========================================================================
     # KHỐI 5 - ĐOẠN 5.2: KHỐI CHẶN FILE & HIỂN THỊ CÁC BẢNG SAU KHI UPLOAD
     # ==========================================================================
