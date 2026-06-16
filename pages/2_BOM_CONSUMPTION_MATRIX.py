@@ -951,6 +951,8 @@ else:
 if gemini_key:
     client = genai.Client(api_key=gemini_key, http_options=types.HttpOptions(api_version='v1'))
 
+# Bổ sung st.cache_data để AI chỉ quét ĐÚNG 1 LẦN cho mỗi file, không tốn dung lượng khi rerun
+@st.cache_data(show_spinner=False)
 def process_single_pdf_batch(file_bytes, file_name):
     """
     Hàm bóc tách dữ liệu kỹ thuật từ một file PDF độc lập.
@@ -1025,6 +1027,8 @@ def process_single_pdf_batch(file_bytes, file_name):
         return {"success": False, "error": "AI không thể cấu trúc dữ liệu JSON sau 3 lần thử."}
     except Exception as e:
         return {"success": False, "error": str(e)}
+
+# Khởi tạo giá trị mặc định ban đầu
 new_style_id_detected = "UNKNOWN_STYLE"
 new_style_category_detected = ""
 new_style_fabric_detected = "UNKNOWN_FABRIC"
@@ -1047,6 +1051,7 @@ if has_file:
     file_name = target_file_object.name
     if file_name.lower().endswith('.pdf'):
         try:
+            # st.cache_data đảm bảo hàm này trả kết quả ngay lập tức nếu file cũ, không gọi lại API Gemini
             res_pdf = process_single_pdf_batch(file_bytes, file_name)
             if res_pdf.get("success"):
                 meta_p = res_pdf["data"]
@@ -1082,6 +1087,8 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
             st.session_state["consumption_chat_history"] = []
             st.session_state["matched_techpack"] = None
             st.session_state["bom_records"] = []
+            # Xóa cache data của hàm AI để khi đổi file mới hệ thống có thể nhận diện lại hoàn toàn
+            st.cache_data.clear()
             st.success("♻️ MEMORY PURGED - SẴN SÀNG CHO MÃ HÀNG MỚI")
             st.rerun()
 
@@ -1099,7 +1106,8 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
     with st.spinner("🧠 Hệ thống thị giác máy tính đang quét kết cấu phom dáng Flat Sketch..."):
         try:
             headers_db = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
-            url_db = f"{base_sb_url}/rest/v1/thong_so_techpack"
+            url_db = f"{base_sb_url}/rest/v1/th"
+
             query_params = {"select": "StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL,sketch_vector", "limit": 100}
             
             db_res = requests.get(url_db, headers=headers_db, params=query_params, timeout=15)
