@@ -960,11 +960,11 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
 
 
 
-@st.cache_data(show_spinner="🧠 AI đang bóc tách cấu trúc file PDF (Chỉ quét 1 lần)...")
+@st.cache_data(show_spinner="🧠 Hệ thống đang bóc tách toàn diện tài liệu kỹ thuật Techpack (Chỉ quét 1 lần)...")
 def process_single_pdf_batch(file_bytes, file_name):
     """
-    HÀM SỬA TẬN GỐC: Bóc tách dữ liệu kỹ thuật từ file PDF và lưu vào Cache.
-    Tự động xử lý dọn sạch chuỗi JSON và bảo vệ luồng trích xuất ảnh không bị trống.
+    HÀM GIA CỐ TỐI CAO: Quét tập trung bảng thông số tổng và ép AI trích xuất Chủng loại (Category).
+    Chống hiện tượng bỏ sót thông số cốt lõi và chặn đứng lỗi đối soát sai nhóm hàng.
     """
     import io
     import json
@@ -984,28 +984,27 @@ def process_single_pdf_batch(file_bytes, file_name):
         info = pdfinfo_from_bytes(file_bytes)
         total_p = int(info.get("Pages", 1))
         
-        # Chỉ quét tối đa 5 trang đầu để tiết kiệm token và tránh quá tải API (429/503)
+        # Quét sâu từ trang 1 đến trang 5 để gom sạch bảng thông số tổng (Grading Spec Matrix)
         max_scan_pages = min(total_p, 5)
-        chat_images = convert_from_bytes(file_bytes, dpi=90, first_page=1, last_page=max_scan_pages)
+        chat_images = convert_from_bytes(file_bytes, dpi=100, first_page=1, last_page=max_scan_pages)
         
         pdf_parts_payload = []
         stored_pages_bytes = []
         for page_img in chat_images:
             img_buf = io.BytesIO()
-            page_img.convert("RGB").save(img_buf, format="JPEG", quality=75)
+            page_img.convert("RGB").save(img_buf, format="JPEG", quality=80)
             img_data = img_buf.getvalue()
             stored_pages_bytes.append(img_data)
             pdf_parts_payload.append(types.Part.from_bytes(data=img_data, mime_type='image/jpeg'))
             
         industrial_extraction_prompt = (
-            "You are an expert Garment Specification Auditor at PPJ Group. Analyze all attached sheets page by page. "
-            "1. Identify the core 'Base Size' / 'Sample Size'. "
-            "2. Identify the Buyer name and Category (Pant/Shirt/Jacket). "
-            "3. Find the exact 'Style ID' / 'Style Number'. "
-            "4. Extract the entire grading matrix table columns for ALL available sizes. "
-            "5. Find the exact PAGE INDEX (0-based) that contains the FULL BODY APPAREL FLAT SKETCH. "
-            "6. CRITICAL APPRAISAL FOR HEM & PLACKET DETAILS: Pay extreme attention to bottom hem allowances. Use keywords like 'Hem', 'Placket Width', 'Center Front Placket' to record measurements accurately. "
-            "Return a completely valid raw JSON object matching this schema (Absolutely NO markdown code blocks, NO ```json wrapping): "
+            "You are a strict Industrial Garment Specification Auditor at PPJ Group. Your job is to extract full manufacturing data from the attached techpack sheets.\n\n"
+            "CRITICAL EXTRACTION COMMANDS:\n"
+            "1. IDENTIFY CATEGORY (MỘT MỰC BẮT BUỘC): Look at the garment title, description, or silhouette. Determine if this item is a 'SHIRT', 'JACKET', 'COAT', 'TOP' or 'PANT', 'SHORT', 'TROUSER'. You MUST output this inside the 'category' field accurately.\n"
+            "2. STYLE & BUYER: Find the exact Style Number/ID (e.g., P08-492175) and Buyer name.\n"
+            "3. EXTRACT ALL CORE MEASUREMENTS: Do NOT just look at minor trim details. Find the main grading chart/spec table. You MUST extract core garment dimensions: Body Length (Chiều dài), Chest/Bust Width or Circumference (Vòng ngực), Across Shoulder (Rộng vai), Sleeve Length (Dài tay), Inseam/Outseam, Waist, Hip if applicable. Scan all pages to ensure NO core measurement is left out.\n"
+            "4. FLAT SKETCH PAGE: Identify the 0-based page index containing the full body front/back apparel technical sketch (usually page index 1 for page 2).\n\n"
+            "Return a completely valid raw JSON object string matching this schema exactly (No markdown formatting, NO ```json blocks): "
             "{"
             "  \"style_number_parsed\": \"string\","
             "  \"buyer\": \"string\","
@@ -1018,7 +1017,7 @@ def process_single_pdf_batch(file_bytes, file_name):
         )
         pdf_parts_payload.append(types.Part.from_text(text=industrial_extraction_prompt))
         
-        last_error_msg = "AI không phản hồi dữ liệu."
+        last_error_msg = "AI không phản hồi dữ liệu cấu trúc."
         for attempt in range(3):
             try:
                 response = client_ai.models.generate_content(
@@ -1029,7 +1028,6 @@ def process_single_pdf_batch(file_bytes, file_name):
                 if response and response.text:
                     raw_text = response.text.strip()
                     
-                    # Bộ lọc làm sạch chuỗi JSON phòng khi AI tự ý chèn block markdown ```json
                     if raw_text.startswith("```"):
                         raw_text = re.sub(r'^```(?:json)?\s*', '', raw_text)
                         raw_text = re.sub(r'\s*```$', '', raw_text)
@@ -1037,8 +1035,7 @@ def process_single_pdf_batch(file_bytes, file_name):
                     
                     parsed_json = json.loads(raw_text)
                     
-                    # CƠ CHẾ KHÓA TRANG DỰ PHÒNG CHỐNG TRỐNG ẢNH:
-                    # Nếu file có từ 2 trang trở lên, mặc định ưu tiên lấy Trang 2 (chỉ mục số 1) chứa áo Jacket của bạn
+                    # Ưu tiên lấy ảnh Trang 2 (chỉ mục 1) làm ảnh rập phom dáng mặc định cho áo Jacket
                     sketch_idx = parsed_json.get("sketch_page_index_detected", 1)
                     if sketch_idx >= len(stored_pages_bytes):
                         sketch_idx = 1 if len(stored_pages_bytes) > 1 else 0
@@ -1055,9 +1052,9 @@ def process_single_pdf_batch(file_bytes, file_name):
                 time.sleep(1.5)
                 continue
                 
-        return {"success": False, "error": f"Lỗi cấu trúc dữ liệu AI: {last_error_msg}"}
+        return {"success": False, "error": f"Lỗi bóc tách cấu trúc dữ liệu: {last_error_msg}"}
     except Exception as e:
-        return {"success": False, "error": f"Lỗi hệ thống bóc tách PDF: {str(e)}"}
+        return {"success": False, "error": f"Lỗi hệ thống lõi PDF: {str(e)}"}
 
 
 # ==================== ĐOẠN A NÂNG CẤP: TỰ ĐỘNG LÀM SẠCH BỘ NHỚ ĐỆM ĐỒ HỌA FILE CŨ ====================
