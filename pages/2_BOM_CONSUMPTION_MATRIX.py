@@ -963,16 +963,14 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
 def process_single_pdf_batch(file_bytes, file_name):
     """
     HÀM KIẾN TRÚC TỐI ƯU 3 TẦNG CHUẨN PPJ GROUP - PHẦN 1
+    - Loại bỏ hoàn toàn pypdf: Đọc chuỗi nhị phân trực tiếp chống lỗi ImportError/ModuleNotFound.
     - Sửa lỗi Poppler render lặp: Gom render 300 DPI một lượt duy nhất.
-    - Sửa lỗi Fallback nguy hiểm: Quét diện rộng 5 trang đầu nếu mất dấu vết.
-    - Sửa lỗi Regex: Tích hợp Regex chuyên sâu (Re.I) tìm bảng Spec.
     """
     import io
     import json
     import time
     import re
-    from streamlit.runtime.uploaded_file_manager import PdfReader
-    from pdf2image import convert_from_bytes
+    from pdf2image import convert_from_bytes, pdfinfo_from_bytes
     
     try:
         if "get_secure_gemini_key" in globals():
@@ -985,38 +983,31 @@ def process_single_pdf_batch(file_bytes, file_name):
             
         client_ai = genai.Client(api_key=gemini_key_local)
         
-        # Đọc cấu trúc tệp PDF
-        pdf_file = io.BytesIO(file_bytes)
-        reader = PdfReader(pdf_file)
-        total_p = len(reader.pages)
+        # Đọc cấu trúc tệp PDF lấy tổng số trang bằng pdf2image (An toàn tuyệt đối)
+        info = pdfinfo_from_bytes(file_bytes)
+        total_p = int(info.get("Pages", 1))
         max_scan_pages = min(total_p, 15)
         
         target_spec_pages = [] 
         sketch_page_idx = 1     
         
         # ==========================================
-        # 🎯 TẦNG 1: QUÉT TEXT CHUYÊN SÂU BẰNG REGEX MẠNH (0 TOKEN - TỨC THÌ)
+        # 🎯 TẦNG 1: QUÉT TEXT QUA CHUỖI NHỊ PHÂN TRỰC TIẾP (0 TOKEN - TỨC THÌ - CHỐNG LỖI IMPORT)
         # ==========================================
-        # SỬA LỖI 4: Tích hợp Regex mạnh mẽ loại bỏ sót cụm từ ghép phức tạp
-        spec_pattern = re.compile(
-            r"(SPEC|MEASUREMENT|POM|GRADING|GRADE RULE|POINT OF MEASURE|BODY LENGTH|CHEST)", 
-            re.I
-        )
+        # Chuyển đổi mảng byte sang chuỗi string ký tự hoa để quét từ khóa ma trận size
+        raw_text_content = str(file_bytes).upper()
         
-        for idx in range(max_scan_pages):
-            try:
-                page_text = reader.pages[idx].extract_text()
-                if page_text and spec_pattern.search(page_text):
-                    target_spec_pages.append(idx)
-                    
-                    # Xác định trang chứa bản vẽ phẳng Flat Sketch
-                    if any(sk in page_text.upper() for sk in ["FLAT SKETCH", "SILHOUETTE", "FRONT/BACK", "GARMENT VIEW"]):
-                        sketch_page_idx = idx
-            except Exception:
-                continue
+        # Tích hợp bộ lọc Regex tìm kiếm sự xuất hiện của bảng Spec trong cấu trúc nhị phân
+        spec_pattern = re.compile(r"(SPEC|MEASUREMENT|POM|GRADING|GRADE RULE|POINT OF MEASURE|BODY LENGTH|CHEST)", re.I)
+        
+        if spec_pattern.search(raw_text_content):
+            # Nếu phát hiện file chứa cấu trúc text Spec, mặc định chọn quét diện rộng 5 trang đầu
+            target_spec_pages = list(range(min(5, total_p)))
+            if "FLAT" in raw_text_content or "SKETCH" in raw_text_content:
+                sketch_page_idx = 1 if total_p > 1 else 0
 
         # ==========================================
-        # 🎯 TẦNG 2: PDF SCAN ẢNH TOÀN BỘ (TẦNG 1 THẤT BẠI) -> DÙNG GEMINI FLASH 100 DPI
+        # 🎯 TẦNG 2: PDF SCAN ẢNH TOÀN BỘ (NẾU TẦNG 1 KHÔNG CÓ DẤU VẾT TEXT) -> DÙNG GEMINI FLASH 100 DPI
         # ==========================================
         if not target_spec_pages:
             low_dpi_images = convert_from_bytes(file_bytes, dpi=100, first_page=1, last_page=max_scan_pages)
@@ -1048,11 +1039,10 @@ def process_single_pdf_batch(file_bytes, file_name):
                 except Exception:
                     continue
 
-        # SỬA LỖI 2: Thay thế Fallback [2,3] cố định nguy hiểm bằng thuật toán quét diện rộng an toàn
         if not target_spec_pages:
             target_spec_pages = list(range(min(5, total_p)))
 
-        # Kho lưu trữ tổng hợp dữ liệu sau khi merge
+        # Kho lưu trữ tổng hợp dữ liệu sau khi merge các trang
         final_measurements = {}
         final_matrix = {}
         detected_style_id = "UNKNOWN_STYLE"
@@ -1064,7 +1054,7 @@ def process_single_pdf_batch(file_bytes, file_name):
         # Gom toàn bộ danh sách trang kỹ thuật cần kết xuất chất lượng cao
         pages_to_render_high = sorted(list(set(target_spec_pages + [sketch_page_idx])))
         
-        # SỬA LỖI 5: Ngăn chặn mở đi mở lại PDF nhiều lần bằng Poppler. Mở 1 lần duy nhất từ Min đến Max trang cần dùng.
+        # Ngăn chặn mở đi mở lại PDF nhiều lần bằng Poppler. Mở 1 lần duy nhất từ Min đến Max trang cần dùng.
         min_p = min(pages_to_render_high)
         max_p = max(pages_to_render_high)
         
@@ -1074,6 +1064,7 @@ def process_single_pdf_batch(file_bytes, file_name):
             first_page=min_p + 1, 
             last_page=max_p + 1
         )
+
         # ==========================================
         # 🎯 TẦNG 3: OCR PNG 300 DPI CHỈ ĐỊNH BẰNG GEMINI 2.5 PRO & MERGE CHỐNG MẤT SIZE
         # ==========================================
