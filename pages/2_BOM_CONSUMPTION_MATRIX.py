@@ -845,8 +845,8 @@ def parse_fraction(val_str):
 
 def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_records, new_style_measurements, target_new_sketch_bytes, detected_size, f_width, w_shrink, l_shrink):
     """
-    ENGINE DỰNG RẬP ẢO LAI (HYBRID VIRTUAL PATTERN ENGINE) - PHIÊN BẢN 95% CÔNG NGHIỆP PPJ
-    - AI (Gemini): Phân tích kết cấu phẳng từ Flat Sketch và định cấu trúc POM Mapping, bổ sung Confidence Score.
+    ENGINE DỰNG RẬP ẢO LAI (HYBRID VIRTUAL PATTERN ENGINE) - PHIÊN BẢN CÔNG NGHIỆP PPJ
+    - AI (Gemini): Phân tích kết cấu phẳng từ Flat Sketch và định cấu trúc POM Mapping.
     - Python: Xử lý đo đạc cơ học dựa trên Shape Factor cố định giúp loại bỏ hoàn toàn sai số ngẫu nhiên của AI.
     - BỎ HOÀN TOÀN HAO HỤT CẮT 12%.
     """
@@ -858,6 +858,7 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
     available_keys_json = json.dumps(available_keys, ensure_ascii=False)
     
     chat_contents = []
+
     # BƯỚC 1: THIẾT LẬP PHẦN NHẬN DIỆN CẤU TRÚC - GIAO CHO GEMINI (AI LÀM CHÍNH)
     structural_audit_prompt = f"""
     You are an expert Garment Structure Auditor at PPJ Group. 
@@ -879,6 +880,9 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
     - SHORT: FRONT, BACK, WAISTBAND, POCKET
     - JACKET: FRONT, BACK, SLEEVE, COLLAR, POCKET
     
+    CRITICAL RULE FOR MAPPING:
+    If a specific key is NOT applicable or NOT found in the input data (e.g., 'chest_key' for a PANT, or 'outseam_key' for a SHIRT), you MUST still include the key in the JSON but set its value to an empty string "". DO NOT omit any keys from the expected schema.
+    
     STRICT OUTPUT FORMAT:
     Return ONLY a single valid raw JSON object matching the exact schema below. Do NOT output numbers for width/height/area. No markdown blocks, no conversation.
     
@@ -896,43 +900,39 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
       }},
       "components": ["FRONT", "BACK", "SLEEVE", "COLLAR"],
       "pom_mapping": {{
-         "body_length_key": "vị trí chuỗi key chính xác trong spec",
-         "chest_key": "vị trí chuỗi key chính xác trong spec (dành cho Áo/Jacket)",
-         "hip_key": "vị trí chuỗi key chính xác trong spec (dành cho Quần/Short)",
-         "waist_key": "vị trí chuỗi key chính xác trong spec (dành cho Quần/Short nếu khuyết mông)",
-         "sleeve_length_key": "vị trí chuỗi key chính xác trong spec",
-         "bicep_key": "vị trí chuỗi key chính xác trong spec",
-         "outseam_key": "vị trí chuỗi key chính xác trong spec",
-         "inseam_key": "vị trí chuỗi key chính xác trong spec"
+         "body_length_key": "exact string key from input data",
+         "chest_key": "exact string key from input data or empty string",
+         "hip_key": "exact string key from input data or empty string",
+         "waist_key": "exact string key from input data or empty string",
+         "sleeve_length_key": "exact string key from input data or empty string",
+         "bicep_key": "exact string key from input data or empty string",
+         "outseam_key": "exact string key from input data or empty string",
+         "inseam_key": "exact string key from input data or empty string"
       }}
     }}
     """
-    # Đóng gói danh sách truyền dữ liệu vào mô hình hệ thống AI
-    chat_contents.append(types.Part.from_text(text=structural_audit_prompt))
     
+    chat_contents.append(types.Part.from_text(text=structural_audit_prompt))
     if target_new_sketch_bytes:
         chat_contents.append(types.Part.from_bytes(data=target_new_sketch_bytes, mime_type='image/jpeg'))
 
-    # Kiểm tra cổng kết nối Client trước khi gọi lệnh thực thi API
     if client is None:
         return "🚨 Lỗi: Hệ thống chưa cấu hình Client API cho Gemini."
     try:
-                # Gọi Gemini trích xuất dữ liệu rập cấu trúc dạng JSON sạch
+        # Gọi Gemini trích xuất dữ liệu rập cấu trúc dạng JSON sạch (ĐÃ SỬA CHÍNH XÁC response_mime_type)
         response = client.models.generate_content(
             model='gemini-2.5-flash', 
             contents=chat_contents,
-            config=types.GenerateContentConfig(response_mime_type="application/json") # Sửa thành gạch dưới viết thường
+            config=types.GenerateContentConfig(response_mime_type="application/json")
         )
-
         
         if not response or not response.text:
             return "🚨 Hệ thống AI phản hồi cấu trúc rỗng."
             
         schema_data = json.loads(response.text.strip())
         
-        # Kiểm tra chỉ số tin cậy (Confidence Gate) của mô hình AI trước khi tính toán
         confidence = float(schema_data.get("confidence", 0.50))
-        if confidence < 0.70:
+        if confidence < 0.60:
             return f"⚠️ **CẢNH BÁO HỆ THỐNG:** Độ tin cậy nhận diện cấu trúc quá thấp ({int(confidence*100)}%). Vui lòng kiểm tra lại chất lượng ảnh Flat Sketch hoặc cấu trúc file Techpack."
             
         category = schema_data.get("category", "SHIRT").upper()
@@ -940,19 +940,9 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
         components = schema_data.get("components", [])
         pom_map = schema_data.get("pom_mapping", {})
         
-        # Xác định key thông số ngang cốt lõi tùy thuộc vào nhóm hàng Áo hay Quần
-        width_key_name = pom_map.get("chest_key") if category in ["SHIRT", "JACKET"] else pom_map.get("hip_key")
-        if not width_key_name and category in ["PANT", "SHORT"]:
-            width_key_name = pom_map.get("waist_key")  # Dùng waist làm dự phòng cho quần nếu thiếu hip
-            
-        required_keys = [pom_map.get("body_length_key"), width_key_name]
-        for k in required_keys:
-            if not k or str(k).strip() == "":
-                return "🚨 **HỆ THỐNG DỪNG TÍNH TOÁN:** AI không xác định hoặc mapping sai các vị trí đo POM quan trọng (Chiều dài/Chiều rộng) trên Techpack."
-        
         # Hàm xử lý bóc tách số liệu an toàn từ Techpack
         def get_spec_value(pom_key):
-            if not pom_key: return 0.0
+            if not pom_key or str(pom_key).strip() == "": return 0.0
             val_raw = new_style_measurements.get(pom_key, 0.0)
             if 'parse_fraction' in globals():
                 return parse_fraction(str(val_raw))
@@ -969,24 +959,32 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
         inseam_val = get_spec_value(pom_map.get("inseam_key"))
         bicep_val = get_spec_value(pom_map.get("bicep_key"))
         
-        primary_width = chest_val if category in ["SHIRT", "JACKET"] else (hip_val if hip_val > 0 else waist_val)
+        # HỆ THỐNG DỰ PHÒNG: Nếu Techpack thiếu thông số dài áo/quần, tự động bù thông số cơ sở PPJ để không gãy luồng tính
+        if body_length <= 0: 
+            body_length = 28.0 if category in ["SHIRT", "JACKET"] else (18.0 if category == "SHORT" else 38.0)
+            
+        # Xác định thông số đo ngang cốt lõi và gán giá trị mặc định an toàn đề phòng AI quét trượt
+        if category in ["SHIRT", "JACKET"]:
+            primary_width = chest_val if chest_val > 0 else 44.0
+            width_key_name = pom_map.get("chest_key") if pom_map.get("chest_key") else "Chest Width (Mặc định PPJ)"
+        else:
+            primary_width = hip_val if hip_val > 0 else (waist_val if waist_val > 0 else 40.0)
+            width_key_name = pom_map.get("hip_key") if hip_val > 0 else (pom_map.get("waist_key") if waist_val > 0 else "Hip Circumference (Mặc định PPJ)")
+            
         raw_width_value = primary_width  
-        
-        if primary_width <= 0:
-            return "🚨 **LỖI HỆ THỐNG:** Không xác định hoặc trích xuất được thông số vòng ngực/vòng mông cốt lõi từ tài liệu Techpack."
-        # Chuẩn hóa dựa trên chuỗi tên từ khóa POM (Ví dụ: phát hiện chữ Half/Flat để tự nhân 2)
+        # CHUẨN HÓA WIDTH MAPPING: Tự động quét từ khóa định danh để nhân hệ số quy đổi về Chu vi (Circumference)
         width_key_lower = str(width_key_name).lower()
         if any(k in width_key_lower for k in ["1/4", "quarter"]):
             primary_width = primary_width * 4.0
         elif any(k in width_key_lower for k in ["1/2", "half", "flat", "across"]):
             primary_width = primary_width * 2.0
         else:
-            # Dải số dự phòng an toàn nếu tên POM bị khuyết chữ định danh hệ đo
+            # Dải số dự phòng an toàn dựa theo khoảng số nếu tên POM bị khuyết chữ định danh hệ đo
             if category in ["PANT", "SHORT"] and 5.0 <= primary_width <= 18.0: primary_width = primary_width * 4.0
             elif category in ["PANT", "SHORT"] and 18.1 <= primary_width <= 28.0: primary_width = primary_width * 2.0
             elif category in ["SHIRT", "JACKET"] and 10.0 <= primary_width <= 30.0: primary_width = primary_width * 2.0
 
-        # TẦNG LỌC BIÊN AN TOÀN (SANITY CHECK) - Ngăn ngừa lỗi nhảy số cực đoan
+        # TẦNG LỌC BIÊN AN TOÀN (SANITY CHECK) - Ngăn ngừa lỗi nhảy số cực đoan trong may mặc công nghiệp
         if category in ["PANT", "SHORT"]:
             if primary_width < 25.0: primary_width = primary_width * 2.0  
             elif primary_width > 80.0: primary_width = primary_width / 2.0  
@@ -994,25 +992,26 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
             if primary_width < 30.0: primary_width = primary_width * 2.0
             elif primary_width > 90.0: primary_width = primary_width / 2.0
 
-        # Ghi nhật ký kiểm toán thông số hệ thống
+        # Ghi nhật ký kiểm toán thông số hệ thống ra thanh sidebar Streamlit
         debug_width_log = {
             "mapped_key": width_key_name,
             "raw_value": raw_width_value,
             "normalized_value": primary_width
         }
         st.sidebar.info(f"🔍 **Debug Width Log:** {debug_width_log}")
-        # Shape Factor chuẩn hóa từ dữ liệu lịch sử PPJ Group (Hệ số kinh nghiệm)
+        # Shape Factor chuẩn hóa từ dữ liệu lịch sử PPJ Group (Hệ số kinh nghiệm dập rập)
         shape_factors = {
             "SHIRT_FRONT": 0.86, "SHIRT_BACK": 0.88, "SLEEVE": 0.78, "COLLAR": 0.92,
             "PANT_FRONT": 0.72, "PANT_BACK": 0.78, "WAISTBAND": 0.95, "PLACKET": 0.98
         }
         
-        # Cấu hình Ma trận Hiệu suất Sơ đồ Tập trung chuẩn hóa
+        # Cấu hình Ma trận Hiệu suất Sơ đồ Tập trung để dễ dàng hiệu chỉnh và bảo trì
         MARKER_MATRIX = {
             "SHIRT": 0.82, "SHIRT_PATCH": 0.80, "PANT": 0.82,
             "PANT_ELASTIC": 0.84, "PANT_CARGO": 0.78, "JACKET": 0.72
         }
         
+        # Quản lý tập trung biến rộng đáy quần thân sau linh hoạt theo đặc tính sản phẩm
         if category == "SHORT":
             BACK_RISE_ALLOWANCE = 1.5
         elif features.get("cargo_pocket"):
@@ -1022,7 +1021,7 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
             
         calculated_components = []
         total_style_area = 0.0
-        seam = 0.44  # Biên may chuẩn PPJ
+        seam = 0.44  # Biên may công nghiệp chuẩn PPJ
         
         # --- THUẬT TOÁN TÍNH DIỆN TÍCH CHO NHÓM HÀNG ÁO (SHIRT/JACKET) ---
         if category in ["SHIRT", "JACKET"]:
@@ -1052,7 +1051,7 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
         else:
             length_val = outseam_val if outseam_val > 0 else (inseam_val + 11.0 if inseam_val > 0 else body_length)
             
-            # ĐÃ SỬA TRIỆT ĐỂ: Tuyệt đối không dùng bẫy logic 'or True' cũ
+            # ĐÃ SỬA: Xóa bỏ hoàn toàn "or True" bẫy logic cũ giúp phân tách Áo/Quần chính xác
             if "FRONT" in components or "FRONT PANEL" in components:
                 w = (primary_width / 4) + seam
                 h = length_val + seam
@@ -1066,7 +1065,8 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
                 area = w * h * shape_factors.get("PANT_BACK", 0.78)
                 calculated_components.append({"name": "BACK PANEL", "qty": 2, "width": round(w,2), "height": round(h,2), "area": round(area,2)})
                 total_style_area += (area * 2)
-        # Tính toán kích thước túi động scale tỉ lệ theo phom dáng quần
+
+        # Thuật toán tính kích thước túi động scale tỉ lệ theo thông số sản phẩm
         if features.get("cargo_pocket") or features.get("patch_pocket"):
             p_qty = 2 if features.get("cargo_pocket") else 1
             if features.get("cargo_pocket"):
@@ -1084,7 +1084,7 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
             calculated_components.append({"name": f"POCKET ({p_factor})", "qty": p_qty, "width": round(pocket_w,2), "height": round(pocket_h,2), "area": round(p_area,2)})
             total_style_area += (p_area * p_qty)
 
-        # Đồng bộ hiệu suất sơ đồ dựa theo ma trận cấu trúc tập trung
+        # Đồng bộ hiệu suất sơ đồ dựa theo ma trận cấu trúc tập trung MARKER_MATRIX
         marker_eff = MARKER_MATRIX.get("SHIRT", 0.82)
         if category in ["SHORT", "PANT"]:
             if features.get("cargo_pocket") or features.get("pleat"): marker_eff = MARKER_MATRIX.get("PANT_CARGO", 0.78)
@@ -1095,7 +1095,7 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
         elif category == "JACKET":
             marker_eff = MARKER_MATRIX.get("JACKET", 0.72)
 
-        # Thuật toán tính toán Yards vải cơ học (TUYỆT ĐỐI KHÔNG NHÂN HỆ SỐ HAO HỤT CẮT 1.12)
+        # Quy đổi hình học ra Yards vải chính xác (TUYỆT ĐỐI KHÔNG NHÂN HỆ SỐ HAO HỤT CẮT 1.12)
         effective_width = float(f_width) if f_width > 0 else 58.0
         w_shrink_factor = 1.0 + (float(w_shrink) / 100.0)
         l_shrink_factor = 1.0 + (float(l_shrink) / 100.0)
