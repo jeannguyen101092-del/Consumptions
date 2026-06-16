@@ -963,12 +963,13 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
 @st.cache_data(show_spinner="🧠 AI đang bóc tách cấu trúc file PDF (Chỉ quét 1 lần)...")
 def process_single_pdf_batch(file_bytes, file_name):
     """
-    HÀM ĐÃ TỐI ƯU: Bóc tách dữ liệu kỹ thuật từ file PDF và lưu vào Cache.
-    Ngăn chặn việc gửi đi gửi lại nhiều lần cho AI gây tốn token/tài nguyên.
+    HÀM SỬA TẬN GỐC: Bóc tách dữ liệu kỹ thuật từ file PDF và lưu vào Cache.
+    Tự động xử lý dọn sạch chuỗi JSON và bảo vệ luồng trích xuất ảnh không bị trống.
     """
     import io
     import json
     import time
+    import re
     
     try:
         if "get_secure_gemini_key" in globals():
@@ -983,9 +984,11 @@ def process_single_pdf_batch(file_bytes, file_name):
         info = pdfinfo_from_bytes(file_bytes)
         total_p = int(info.get("Pages", 1))
         
-        pdf_parts_payload = []
-        chat_images = convert_from_bytes(file_bytes, dpi=90, first_page=1, last_page=total_p)
+        # Chỉ quét tối đa 5 trang đầu để tiết kiệm token và tránh quá tải API (429/503)
+        max_scan_pages = min(total_p, 5)
+        chat_images = convert_from_bytes(file_bytes, dpi=90, first_page=1, last_page=max_scan_pages)
         
+        pdf_parts_payload = []
         stored_pages_bytes = []
         for page_img in chat_images:
             img_buf = io.BytesIO()
@@ -1001,8 +1004,8 @@ def process_single_pdf_batch(file_bytes, file_name):
             "3. Find the exact 'Style ID' / 'Style Number'. "
             "4. Extract the entire grading matrix table columns for ALL available sizes. "
             "5. Find the exact PAGE INDEX (0-based) that contains the FULL BODY APPAREL FLAT SKETCH. "
-            "6. CRITICAL APPRAISAL FOR HEM & PLACKET DETAILS: Pay extreme attention to bottom hem allowances. If the category is a Shirt or Jacket, scan for 'Placket Width', 'Center Front Placket', or center stitching lines. Identify if the placket is separate or grown-on/folded, and record its measurement inside the measurements dictionary accurately. "
-            "Return a completely valid raw JSON string matching this schema (no markdown blocks): "
+            "6. CRITICAL APPRAISAL FOR HEM & PLACKET DETAILS: Pay extreme attention to bottom hem allowances. Use keywords like 'Hem', 'Placket Width', 'Center Front Placket' to record measurements accurately. "
+            "Return a completely valid raw JSON object matching this schema (Absolutely NO markdown code blocks, NO ```json wrapping): "
             "{"
             "  \"style_number_parsed\": \"string\","
             "  \"buyer\": \"string\","
@@ -1015,6 +1018,7 @@ def process_single_pdf_batch(file_bytes, file_name):
         )
         pdf_parts_payload.append(types.Part.from_text(text=industrial_extraction_prompt))
         
+        last_error_msg = "AI không phản hồi dữ liệu."
         for attempt in range(3):
             try:
                 response = client_ai.models.generate_content(
@@ -1023,21 +1027,38 @@ def process_single_pdf_batch(file_bytes, file_name):
                     config={"response_mime_type": "application/json"}
                 )
                 if response and response.text:
-                    parsed_json = json.loads(response.text)
-                    sketch_idx = parsed_json.get("sketch_page_index_detected", 0)
-                    extracted_sketch_bytes = stored_pages_bytes[sketch_idx] if sketch_idx < len(stored_pages_bytes) else stored_pages_bytes[0]
+                    raw_text = response.text.strip()
+                    
+                    # Bộ lọc làm sạch chuỗi JSON phòng khi AI tự ý chèn block markdown ```json
+                    if raw_text.startswith("```"):
+                        raw_text = re.sub(r'^```(?:json)?\s*', '', raw_text)
+                        raw_text = re.sub(r'\s*```$', '', raw_text)
+                    raw_text = raw_text.strip()
+                    
+                    parsed_json = json.loads(raw_text)
+                    
+                    # CƠ CHẾ KHÓA TRANG DỰ PHÒNG CHỐNG TRỐNG ẢNH:
+                    # Nếu file có từ 2 trang trở lên, mặc định ưu tiên lấy Trang 2 (chỉ mục số 1) chứa áo Jacket của bạn
+                    sketch_idx = parsed_json.get("sketch_page_index_detected", 1)
+                    if sketch_idx >= len(stored_pages_bytes):
+                        sketch_idx = 1 if len(stored_pages_bytes) > 1 else 0
+                        
+                    extracted_sketch_bytes = stored_pages_bytes[sketch_idx]
                     
                     return {
                         "success": True, 
                         "data": parsed_json,
                         "sketch_bytes": extracted_sketch_bytes
                     }
-            except Exception:
+            except Exception as e:
+                last_error_msg = str(e)
                 time.sleep(1.5)
                 continue
-        return {"success": False, "error": "AI không thể cấu trúc dữ liệu JSON sau 3 lần thử."}
+                
+        return {"success": False, "error": f"Lỗi cấu trúc dữ liệu AI: {last_error_msg}"}
     except Exception as e:
-        return {"success": False, "error": str(e)}
+        return {"success": False, "error": f"Lỗi hệ thống bóc tách PDF: {str(e)}"}
+
 
 # ==================== ĐOẠN A NÂNG CẤP: TỰ ĐỘNG LÀM SẠCH BỘ NHỚ ĐỆM ĐỒ HỌA FILE CŨ ====================
 # ==================== ĐOẠN A NÂNG CẤP: TỰ ĐỘNG BÁO LỖI QUÉT PDF & DỰ PHÒNG CHỈ MỤC TRANG ====================
