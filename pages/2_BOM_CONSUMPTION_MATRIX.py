@@ -841,6 +841,7 @@ def parse_fraction(val_str):
         return float(val_str) if val_str else 0.0
     except Exception:
         return 0.0
+
 def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_records, new_style_measurements, target_new_sketch_bytes, detected_size):
     """
     Bộ não xử lý tính toán định mức nâng cao bằng đơn vị YARD (Yds).
@@ -883,7 +884,8 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
     specs_old_json = json.dumps(specs_old)
     f_width_label = str(f_width) if f_width > 0 else "58 inch"
     new_style_measurements_json = json.dumps(new_style_measurements)
-    if matched_techpack:
+
+       if matched_techpack:
         scenario_instruction = f"""
         KỊCH BẢN: ĐỒNG DẠNG KHO (Sử dụng dữ liệu đối chứng lịch sử)
         - Đối chiếu chênh lệch diện tích cấu trúc giữa Spec mới và Spec cũ {specs_old_json}.
@@ -927,6 +929,7 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
     2. IF THE CATEGORY IS SHIRT / JACKET / TOP / COAT (NHÓM HÀNG ÁO):
        - NẸP LIỀN (Fold-on/Extended Placket): If folded from the main body, add 2 times the placket width extension to the raw width of each front body panel pattern before calculating fabric consumption.
        - NẸP RỜI (Separate Placket): Treat as a separate component.
+    """
     user_prompt_content = f"""
     {scenario_instruction}
     
@@ -955,6 +958,7 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
         return response.text if (response and response.text) else "⚠️ Lỗi: Không nhận được phản hồi tính toán từ AI Engine."
     except Exception as err:
         return f"🚨 Lỗi kết nối bộ não AI định mức: {str(err)}"
+
 @st.cache_data(show_spinner="⚙️ Hệ thống 3 Tầng đang định tuyến tìm trang Spec siêu tốc...")
 def process_single_pdf_batch(file_bytes, file_name):
     """
