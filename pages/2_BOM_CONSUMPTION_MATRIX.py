@@ -1436,8 +1436,8 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             with st.chat_message("user"):
                 st.write(user_query)
                 
-                          # Sửa lại đoạn gọi hàm tại vị trí Chat Box hiển thị trên màn hình của bạn:
-                                with st.spinner("🤖 AI đang phân tích dữ liệu và tính toán định mức..."):
+            with st.chat_message("assistant"):
+                with st.spinner("🤖 AI đang phân tích dữ liệu và tính toán định mức..."):
                     # 1. BÓC TÁCH THÔNG SỐ TỪ TIN NHẮN ĐỂ TRÁNH LỖI CHƯA ĐỊNH NGHĨA BIẾN
                     shrinkage_width = re.findall(r'(?:CO RÚT NGANG|NGANG)\s*(\d+(?:\.\d+)?)\s*%', user_query.upper())
                     shrinkage_length = re.findall(r'(?:CO RÚT DỌC|DỌC)\s*(\d+(?:\.\d+)?)\s*%', user_query.upper())
@@ -1466,8 +1466,6 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                     )
                     st.write(ai_reply)
 
-
-                    
         # ✅ THUẬT TOÁN ĐÓNG ĐINH NEO CUỘN: Ép trình duyệt tự động scroll lướt màn hình xuống vị trí tin nhắn cuối cùng
         st.components.v1.html(
             """
