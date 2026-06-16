@@ -962,10 +962,10 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
 @st.cache_data(show_spinner="⚙️ Hệ thống 3 Tầng đang định tuyến tìm trang Spec siêu tốc...")
 def process_single_pdf_batch(file_bytes, file_name):
     """
-    HÀM KIẾN TRÚC TỐI ƯU VẠN NĂNG 3 TẦNG CHUẨN PPJ GROUP - PHẦN 1 (GIA CỐ QUÉT DIỆN RỘNG TẦNG 2)
-    - TẦNG 1: Quét nhanh chuỗi nhị phân thô (0 token).
-    - TẦNG 2 NÂNG CẤP: Chuyển sang cơ chế nạp diện rộng (Scan Range). Quét quét sạch và gom toàn bộ các trang AI Flash nghi vấn chứa bảng Spec, triệt tiêu lỗi bỏ sót trang.
-    - TẦNG 3: Ép render đồ họa PNG 300 DPI tập trung một lượt chống lặp Poppler.
+    HÀM KIẾN TRÚC TỐI ƯU VẠN NĂNG 3 TẦNG CHUẨN PPJ GROUP - PHẦN 1
+    - SỬA LỖI 1: Bỏ hoàn toàn quét nhị phân thô. Sử dụng PdfReader trích xuất TEXT THỰC TẾ từ tài liệu PDF gốc.
+    - SỬA LỖI 2: Khóa cứng Fallback an toàn [0] hoặc [sketch_page_idx], triệt tiêu hiện tượng lãng phí token diện rộng.
+    - SỬA LỖI 3: Render độc lập từng trang mục tiêu (Page-by-Page Render), loại bỏ khoảng trống dư thừa, cứu vãn RAM khi xử lý tệp lớn >50 trang.
     """
     import io
     import json
@@ -984,7 +984,7 @@ def process_single_pdf_batch(file_bytes, file_name):
             
         client_ai = genai.Client(api_key=gemini_key_local)
         
-        # Đọc cấu trúc tệp PDF lấy tổng số trang bằng pdf2image
+        # Đọc thông tin tổng số trang bằng thư viện ảnh hệ thống pdf2image
         info = pdfinfo_from_bytes(file_bytes)
         total_p = int(info.get("Pages", 1))
         max_scan_pages = min(total_p, 15)
@@ -993,18 +993,33 @@ def process_single_pdf_batch(file_bytes, file_name):
         sketch_page_idx = 1     
         
         # ==========================================
-        # 🎯 TẦNG 1: QUÉT TEXT QUA CHUỖI NHỊ PHÂN TRỰC TIẾP (0 TOKEN)
+        # 🎯 TẦNG 1: TRÍCH XUẤT TEXT THỰC TẾ QUA PYPDF BẢO VỆ AN TOÀN (0 TOKEN)
         # ==========================================
-        raw_text_content = str(file_bytes).upper()
-        spec_pattern = re.compile(r"(SPEC|MEASUREMENT|POM|GRADING|GRADE RULE|POINT OF MEASURE|BODY LENGTH|CHEST)", re.I)
+        spec_pattern = re.compile(
+            r"(SPEC|MEASUREMENT|POM|GRADING|GRADE RULE|POINT OF MEASURE|BODY LENGTH|CHEST)", 
+            re.I
+        )
         
-        if spec_pattern.search(raw_text_content):
-            target_spec_pages = list(range(min(5, total_p)))
-            if "FLAT" in raw_text_content or "SKETCH" in raw_text_content:
-                sketch_page_idx = 1 if total_p > 1 else 0
+        try:
+            from pypdf import PdfReader
+            pdf_file_obj = io.BytesIO(file_bytes)
+            reader = PdfReader(pdf_file_obj)
+            
+            # Quét text thực tế trên 15 trang đầu
+            for idx in range(min(max_scan_pages, len(reader.pages))):
+                page_text = reader.pages[idx].extract_text() or ""
+                if page_text and spec_pattern.search(page_text):
+                    target_spec_pages.append(idx)
+                    
+                    # Định vị nhanh trang chứa hình vẽ Flat Sketch kết cấu
+                    if any(sk in page_text.upper() for sk in ["FLAT SKETCH", "SILHOUETTE", "FRONT/BACK", "GARMENT VIEW"]):
+                        sketch_page_idx = idx
+        except Exception:
+            # Fallback an toàn: Nếu môi trường thiếu thư viện pypdf, âm thầm bỏ qua để nhường quyền cho Tầng 2
+            pass
 
         # ==========================================
-        # 🎯 TẦNG 2 NÂNG CẤP: DÒ TÌM GOM TRANG DIỆN RỘNG CHỐNG BỎ SÓT (SCAN RANGE LOGIC)
+        # 🎯 TẦNG 2: PDF SCAN ẢNH TOÀN BỘ (CHỈ CHẠY KHI TẦNG 1 TRỐNG DỮ LIỆU) -> FLASH 100 DPI
         # ==========================================
         if not target_spec_pages:
             low_dpi_images = convert_from_bytes(file_bytes, dpi=100, first_page=1, last_page=max_scan_pages)
@@ -1031,14 +1046,12 @@ def process_single_pdf_batch(file_bytes, file_name):
                     )
                     if res_flash and res_flash.text:
                         raw_flash_text = res_flash.text.strip()
-                        
                         if raw_flash_text.startswith("```"):
                             raw_flash_text = re.sub(r'^```(?:json)?\s*', '', raw_flash_text)
                             raw_flash_text = re.sub(r'\s*```$', '', raw_flash_text)
                         
                         flash_json = json.loads(raw_flash_text.strip())
                         
-                        # CƠ CHẾ GOM DIỆN RỘNG: Tích lũy tất cả các trang nghi vấn chứa bảng thay vì chỉ lấy 1 trang đơn lẻ
                         if str(flash_json.get("is_spec_table")).lower() == "true":
                             target_spec_pages.append(idx)
                         if str(flash_json.get("is_flat_sketch")).lower() == "true":
@@ -1046,11 +1059,11 @@ def process_single_pdf_batch(file_bytes, file_name):
                 except Exception:
                     continue
 
-        # Luật dự phòng quét trọn vẹn 5 trang đầu nếu tệp tin scan quá mờ AI Flash mất dấu vết hoàn toàn
+        # SỬA LỖI ĐỊNH TUYẾN: Thay thế Fallback diện rộng nguy hiểm bằng khóa cứng trang mục tiêu an toàn
         if not target_spec_pages:
-            target_spec_pages = list(range(min(5, total_p)))
+            target_spec_pages = [sketch_page_idx] if sketch_page_idx < total_p else [0]
 
-        # Kho lưu trữ tổng hợp dữ liệu sau khi merge các trang
+        # Khởi tạo từ điển lưu trữ dữ liệu sau khi merge
         final_measurements = {}
         final_matrix = {}
         detected_style_id = "UNKNOWN_STYLE"
@@ -1059,34 +1072,40 @@ def process_single_pdf_batch(file_bytes, file_name):
         detected_base_size = "32"
         sketch_image_bytes = None
         
-        # Gom toàn bộ danh sách trang kỹ thuật cần kết xuất chất lượng cao
+        # Gom danh sách các trang kỹ thuật cốt lõi cần kết xuất đồ họa chất lượng cao
         pages_to_render_high = sorted(list(set(target_spec_pages + [sketch_page_idx])))
         
-        # Ngăn chặn mở đi mở lại PDF nhiều lần bằng Poppler. Mở 1 lần duy nhất từ Min đến Max trang cần dùng.
-        min_p = min(pages_to_render_high)
-        max_p = max(pages_to_render_high)
-        
-        high_res_pool = convert_from_bytes(
-            file_bytes, 
-            dpi=300, 
-            first_page=min_p + 1, 
-            last_page=max_p + 1
-        )
+        # SỬA LỖI RENDER DƯ: Tạo cuốn từ điển bản đồ để render độc lập, chính xác từng trang đơn lẻ bằng Poppler
+        high_res_pool_map = {}
+        for p_idx in pages_to_render_high:
+            try:
+                # Gọi Poppler chỉ kết xuất đúng 1 trang duy nhất tại vị trí cần dùng (Không render khoảng trống ở giữa)
+                single_high_img = convert_from_bytes(
+                    file_bytes, 
+                    dpi=300, 
+                    first_page=p_idx + 1, 
+                    last_page=p_idx + 1
+                )
+                if single_high_img:
+                    high_res_pool_map[p_idx] = single_high_img[0]
+            except Exception:
+                continue
+
 
         # ==========================================
-        # 🎯 TẦNG 3: OCR PNG 300 DPI BẰNG GEMINI 2.5 PRO & MERGE CHỐNG MẤT DỮ LIỆU SIZE
+        #         # ==========================================
+        # 🎯 TẦNG 3: OCR PNG 300 DPI CHI TIẾT BẰNG GEMINI 2.5 PRO TRÊN BẢN ĐỒ ẢNH ĐỘC LẬP
         # ==========================================
         for p_idx in pages_to_render_high:
-            # Xác định vị trí chỉ mục tương đối trong mảng Pool ảnh đã render một lượt ở Phần 1
-            pool_index = p_idx - min_p
-            if pool_index >= len(high_res_pool): 
+            # Lấy ảnh trực tiếp từ Bản đồ Map độc lập đã render ở Phần 1
+            if p_idx not in high_res_pool_map:
                 continue
                 
-            page_img_obj = high_res_pool[pool_index]
+            page_img_obj = high_res_pool_map[p_idx]
             img_buf_png = io.BytesIO()
-            # Định dạng PNG không nén bảo vệ độ căng nét cho font chữ siêu nhỏ 5pt - 6pt
             page_img_obj.save(img_buf_png, format="PNG")
             png_bytes = img_buf_png.getvalue()
+
             
             if p_idx == sketch_page_idx:
                 sketch_image_bytes = png_bytes
