@@ -1061,6 +1061,16 @@ if has_file:
 dynamic_keyword = str(new_style_id_detected).strip().upper()
 base_sb_url = SB_URL.rstrip('/')
 headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
+# ==================== ĐOẠN B: KHỞI TẠO CỔNG KẾT NỐI VÀ AI ĐỐI SOÁT RẬP MẪU ====================
+if "get_secure_gemini_key" in globals():
+    gemini_key_global = get_secure_gemini_key()
+else:
+    gemini_key_global = st.secrets.get("GEMINI_API_KEY", "").strip()
+
+# Khởi tạo biến client nếu hệ thống chưa khai báo
+if gemini_key_global and ("client" not in globals() and "client" not in locals()):
+    client = genai.Client(api_key=gemini_key_global)
+
 if menu_selection == "🧵 BOM & Consumption Matrix":
     st.markdown('<div class="component-title-box">🧵 INTELLIGENT BOM & CONSUMPTION MATRIX ENGINE</div>', unsafe_allow_html=True)
     
@@ -1269,6 +1279,7 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
         st.dataframe(pd.DataFrame(formatted_bom), use_container_width=True, hide_index=True)
 
     st.markdown("<br><hr style='border:0.5px solid #CBD5E1;'>", unsafe_allow_html=True)
+
 
 
 
