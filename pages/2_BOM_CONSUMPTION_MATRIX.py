@@ -962,10 +962,10 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
 @st.cache_data(show_spinner="⚙️ Hệ thống 3 Tầng đang định tuyến tìm trang Spec siêu tốc...")
 def process_single_pdf_batch(file_bytes, file_name):
     """
-    HÀM KIẾN TRÚC TỐI ƯU 3 TẦNG CHUẨN PPJ GROUP - PHẦN 1 (ĐÃ KHỬ LỖI CÚ PHÁP TẦNG 2)
-    - TẦNG 1: Quét chuỗi nhị phân thô tốc độ cao.
-    - TẦNG 2: Xử lý làm sạch chuỗi JSON nghiêm ngặt từ Gemini Flash 100 DPI để định tuyến trang Spec chính xác.
-    - TẦNG 3: Ép kết xuất đồ họa PNG 300 DPI một lượt duy nhất chống lặp Poppler.
+    HÀM KIẾN TRÚC TỐI ƯU VẠN NĂNG 3 TẦNG CHUẨN PPJ GROUP - PHẦN 1
+    - Loại bỏ pypdf: Đọc chuỗi nhị phân trực tiếp chống lỗi ImportError/ModuleNotFound.
+    - Sửa lỗi Poppler render lặp: Gom render 300 DPI một lượt duy nhất từ Min đến Max trang.
+    - Tầng 2 xử lý JSON nghiêm ngặt: Định tuyến chuẩn xác trang chứa Spec kể cả với file scan ảnh.
     """
     import io
     import json
@@ -999,12 +999,13 @@ def process_single_pdf_batch(file_bytes, file_name):
         spec_pattern = re.compile(r"(SPEC|MEASUREMENT|POM|GRADING|GRADE RULE|POINT OF MEASURE|BODY LENGTH|CHEST)", re.I)
         
         if spec_pattern.search(raw_text_content):
+            # Nếu phát hiện cấu trúc văn bản Spec, mặc định chọn quét diện rộng 5 trang đầu
             target_spec_pages = list(range(min(5, total_p)))
             if "FLAT" in raw_text_content or "SKETCH" in raw_text_content:
                 sketch_page_idx = 1 if total_p > 1 else 0
 
         # ==========================================
-        # 🎯 TẦNG 2: DÒ TÌM TRANG BẰNG GEMINI FLASH 100 DPI (SỬA LỖI CÚ PHÁP JSON TRẢ VỀ)
+        # 🎯 TẦNG 2: DÒ TÌM TRANG BẰNG GEMINI FLASH 100 DPI (KHI TẦNG 1 KHÔNG CÓ TEXT)
         # ==========================================
         if not target_spec_pages:
             low_dpi_images = convert_from_bytes(file_bytes, dpi=100, first_page=1, last_page=max_scan_pages)
@@ -1032,14 +1033,12 @@ def process_single_pdf_batch(file_bytes, file_name):
                     if res_flash and res_flash.text:
                         raw_flash_text = res_flash.text.strip()
                         
-                        # Khử hoàn toàn các khối ký tự markdown thừa gây lỗi biên dịch JSON
                         if raw_flash_text.startswith("```"):
                             raw_flash_text = re.sub(r'^```(?:json)?\s*', '', raw_flash_text)
                             raw_flash_text = re.sub(r'\s*```$', '', raw_flash_text)
                         
                         flash_json = json.loads(raw_flash_text.strip())
                         
-                        # Sử dụng toán tử so sánh ép kiểu boolean an toàn
                         if str(flash_json.get("is_spec_table")).lower() == "true":
                             target_spec_pages.append(idx)
                         if str(flash_json.get("is_flat_sketch")).lower() == "true":
@@ -1047,7 +1046,7 @@ def process_single_pdf_batch(file_bytes, file_name):
                 except Exception:
                     continue
 
-        # Bộ lọc dự phòng diện rộng an toàn nếu file quá mờ AI không nhận diện được loại trang
+        # Bộ lọc dự phòng an toàn nếu file quá mờ AI Flash không nhận diện được loại trang
         if not target_spec_pages:
             target_spec_pages = list(range(min(5, total_p)))
 
@@ -1063,7 +1062,7 @@ def process_single_pdf_batch(file_bytes, file_name):
         # Gom toàn bộ danh sách trang kỹ thuật cần kết xuất chất lượng cao
         pages_to_render_high = sorted(list(set(target_spec_pages + [sketch_page_idx])))
         
-        # Ngăn chặn mở đi mở lại PDF nhiều lần bằng Poppler. Mở 1 lần duy nhất từ Min đến Max trang cần dùng.
+        # CHỐNG LẶP POPPLER: Mở file 1 lần duy nhất từ trang nhỏ nhất đến lớn nhất cần dùng
         min_p = min(pages_to_render_high)
         max_p = max(pages_to_render_high)
         
@@ -1073,27 +1072,25 @@ def process_single_pdf_batch(file_bytes, file_name):
             first_page=min_p + 1, 
             last_page=max_p + 1
         )
-
-
         # ==========================================
-        # 🎯 TẦNG 3: OCR PNG 300 DPI CHỈ ĐỊNH BẰNG GEMINI 2.5 PRO & MERGE CHỐNG MẤT SIZE
+        # 🎯 TẦNG 3: OCR PNG 300 DPI BẰNG GEMINI 2.5 PRO & MERGE CHỐNG MẤT DỮ LIỆU SIZE
         # ==========================================
         for p_idx in pages_to_render_high:
-            # Xác định vị trí chỉ mục tương đối trong mảng Pool ảnh đã render ở Phần 1
+            # Xác định vị trí chỉ mục tương đối trong mảng Pool ảnh đã render một lượt ở Phần 1
             pool_index = p_idx - min_p
             if pool_index >= len(high_res_pool): 
                 continue
                 
             page_img_obj = high_res_pool[pool_index]
             img_buf_png = io.BytesIO()
-            # SỬA LỖI 6: Lưu định dạng PNG không nén để chống mất nét ma trận số liệu
+            # Định dạng PNG không nén bảo vệ độ căng nét cho font chữ siêu nhỏ 5pt - 6pt
             page_img_obj.save(img_buf_png, format="PNG")
             png_bytes = img_buf_png.getvalue()
             
             if p_idx == sketch_page_idx:
                 sketch_image_bytes = png_bytes
                 
-            # Tiết kiệm token: Nếu trang này chỉ chứa ảnh thiết kế mà không có bảng, không gọi OCR Pro
+            # Tiết kiệm token: Nếu trang này không nằm trong mục chứa bảng, không gọi OCR Pro
             if p_idx not in target_spec_pages:
                 continue
                 
@@ -1103,8 +1100,8 @@ def process_single_pdf_batch(file_bytes, file_name):
                     "You are an expert Garment Specification Costing Auditor at PPJ Group.\n"
                     "This high-resolution PNG image is a verified specification sheet page. Perform an exhaustive OCR extraction.\n\n"
                     "STRICT MATRIX RULES (NO OMISSION):\n"
-                    "1. EXTRACT ALL ROWS & ALL COLUMNS: You MUST extract EVERY size column (e.g., XS, S, M, L, XL, XXL). If a row contains values across multiple columns, capture ALL values perfectly.\n"
-                    "2. NO SUMMARIZATION: Never collapse size ranges, never guess, and never return partial data.\n"
+                    "1. EXTRACT ALL ROWS & ALL COLUMNS: Extract EVERY single POM row and EVERY size column (e.g., XS, S, M, L, XL, XXL, 30, 32, 34). You MUST extract EVERY size column. Never summarize or collapse size ranges.\n"
+                    "2. NO PARTIAL ROWS: Capture all values flawlessly. Never return partial rows.\n"
                     "3. METADATA: Extract Style ID/Number, Buyer Name, Category (Pant/Shirt/Jacket), and Base/Sample Size.\n\n"
                     "Return a valid raw JSON object matching this schema (NO markdown code blocks wrapped inside ```json): "
                     "{"
@@ -1135,12 +1132,12 @@ def process_single_pdf_batch(file_bytes, file_name):
                         if pro_json.get("measurements"):
                             final_measurements.update(pro_json["measurements"])
                             
-                        # 🛠 SỬA LỖI 1: THUẬT TOÁN MERGE FULL SIZE MATRIX CHỐNG GHI ĐÈ MẤT SIZE S/M/L/XL KHI GHÉP TRANG
+                        # THUẬT TOÁN MERGE FULL SIZE MATRIX CHỐNG GHI ĐÈ MẤT SIZE KHI GHÉP NHIỀU TRANG SPEC
                         if pro_json.get("matrix"):
                             for pom_key, sizes_dict in pro_json["matrix"].items():
                                 if pom_key not in final_matrix:
                                     final_matrix[pom_key] = {}
-                                # Cập nhật cộng dồn các cột size mới vào vị trí đo cũ mà không xóa cột cũ
+                                # Cộng dồn nạp thêm các cột kích cỡ mới vào vị trí đo cũ mà không xóa cột cũ
                                 final_matrix[pom_key].update(sizes_dict)
                         break
                 except Exception:
@@ -1148,29 +1145,51 @@ def process_single_pdf_batch(file_bytes, file_name):
                     continue
 
         # ==========================================
-        # 🎯 CỬA KIỂM TRA: ĐỐI SOÁT THÔNG SỐ XƯƠNG CỐT LÕI QUA DANH SÁCH ALIAS
+        # 🎯 CỬA KIỂM TRA VẠN NĂNG (UNIVERSAL CATEGORY CLASSIFIER FOR APPAREL)
         # ==========================================
-        # SỬA LỖI 3: Thiết lập danh sách bộ từ khóa Alias thông minh chống báo lỗi giả
-        required_aliases = {
-            "CHEST": ["CHEST", "PTP", "PIT TO PIT", "BUST", "HALF CHEST", "1/2 CHEST"],
-            "BODY LENGTH": ["BODY LENGTH", "CB LENGTH", "HPS LENGTH", "BACK LENGTH", "LENGTH FROM HPS", "DAI AO"],
-            "SLEEVE LENGTH": ["SLEEVE LENGTH", "SLEEVE FROM HPS", "SLEEVE CENTER BACK", "DAI TAY"],
-            "ACROSS SHOULDER": ["SHOULDER", "ACROSS SHOULDER", "SHOULDER WIDTH", "SHLDR WIDTH", "RONG VAI"]
-        }
+        final_cat_upper = str(detected_category).strip().upper()
+        file_name_upper = str(file_name).strip().upper()
+        full_context_text = final_cat_upper + " " + file_name_upper
+        
+        # Phân loại nhóm hàng thân dưới (Quần, Short, Jogger) và thân trên (Áo, Jacket, Shirt)
+        is_bottom_group = any(k in full_context_text for k in ["PANT", "SHORT", "TROUSER", "JEAN", "SKORT", "JOGGER", "QUAN", "QUẦN", "SKIRT", "VÁY"])
+        is_top_group = any(k in full_context_text for k in ["SHIRT", "JACKET", "COAT", "TOP", "TEE", "AO", "ÁO", "HOODIE", "BLAZER", "SWEATER"])
         
         missing_core_fields = []
-        for formal_name, alias_list in required_aliases.items():
-            # Kiểm tra xem trong bảng kết quả tổng hợp có chứa bất kỳ từ khóa thay thế nào không
-            has_match = any(
-                any(alias in k.upper() for alias in alias_list)
-                for k in final_measurements.keys()
-            )
-            if not has_match:
-                missing_core_fields.append(formal_name)
-                
-        # Nếu thiếu thực sự các thông số xương, ngắt luồng và ép hệ thống báo lỗi ra giao diện chính
+        resolved_category = "JACKET" 
+        
+        if is_bottom_group:
+            resolved_category = "PANT"
+            required_pant_aliases = {
+                "WAIST (VÒNG CẠP)": ["WAIST", "WAISTBAND", "CẠP", "BỤNG", "CHÂN CẠP"],
+                "HIP (VÒNG MÔNG)": ["HIP", "SEAT", "MÔNG", "VÒNG MÔNG"],
+                "LENGTH (DÀI QUẦN)": ["OUTSEAM", "INSEAM", "LENGTH", "SIDE LENGTH", "DÀI QUẦN", "DỌC QUẦN", "GIÀNG QUẦN"]
+            }
+            for formal_name, alias_list in required_pant_aliases.items():
+                has_match = any(any(alias in k.upper() for alias in alias_list) for k in final_measurements.keys())
+                if not has_match:
+                    missing_core_fields.append(formal_name)
+                    
+        elif is_top_group:
+            resolved_category = "JACKET"
+            required_coat_aliases = {
+                "CHEST (VÒNG NGỰC)": ["CHEST", "PTP", "PIT TO PIT", "BUST", "HALF CHEST", "1/2 CHEST", "NGỰC", "VÒNG NGỰC"],
+                "BODY LENGTH (DÀI ÁO)": ["BODY LENGTH", "CB LENGTH", "HPS LENGTH", "BACK LENGTH", "LENGTH FROM HPS", "DÀI ÁO", "DÀI THÂN"],
+                "SLEEVE LENGTH (DÀI TAY)": ["SLEEVE LENGTH", "SLEEVE FROM HPS", "SLEEVE CENTER BACK", "DÀI TAY"]
+            }
+            for formal_name, alias_list in required_coat_aliases.items():
+                has_match = any(any(alias in k.upper() for alias in alias_list) for k in final_measurements.keys())
+                if not has_match:
+                    missing_core_fields.append(formal_name)
+                    
+        else:
+            # NHÓM THỂ LOẠI KHÁC (Váy liền, Đầm, Jumpsuit...): Thả lỏng bộ lọc, lấy trọn thông số không chặn chữ đỏ
+            resolved_category = detected_category if detected_category else "GARMENT"
+            if not final_measurements:
+                missing_core_fields.append("Bảng thông số trống (AI không quét được vị trí đo nào)")
+
         if missing_core_fields:
-            raise Exception(f"Thiếu các thông số kỹ thuật xương cốt lõi từ tài liệu: {', '.join(missing_core_fields)}")
+            raise Exception(f"Thiếu thông số kỹ thuật cốt lõi của sản phẩm: {', '.join(missing_core_fields)}")
             
         return {
             "success": True,
@@ -1178,7 +1197,7 @@ def process_single_pdf_batch(file_bytes, file_name):
             "data": {
                 "style_number_parsed": detected_style_id,
                 "buyer": detected_buyer,
-                "category": detected_category,
+                "category": resolved_category, 
                 "base_size_name": detected_base_size,
                 "sketch_page_index_detected": sketch_page_idx,
                 "measurements": final_measurements,
@@ -1186,7 +1205,8 @@ def process_single_pdf_batch(file_bytes, file_name):
             }
         }
     except Exception as e:
-        return {"success": False, "error": f"Lỗi hệ thống bóc tách ma trận 3 tầng: {str(e)}"}
+        return {"success": False, "error": f"Lỗi kiến trúc xử lý vạn năng 3 tầng: {str(e)}"}
+
 
 
 
