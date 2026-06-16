@@ -1342,24 +1342,43 @@ if has_file:
         st.session_state.pop("last_matched_style_name", None)
         st.session_state.pop("last_bom_style_name", None)
         st.session_state.pop("pdf_extract_cache", None) # Giải phóng kho cache OCR của file cũ
-    # ==================== CENTRAL DISPATCH STATION - PHẦN 2 ====================
-    # SỬA LỖI 3: Thiết lập rào chắn Cache tầng UI. Nếu file trùng MD5, nạp thẳng dữ liệu cũ từ RAM siêu tốc
+        # ==================== CENTRAL DISPATCH STATION - PHẦN 2 (ĐA SỬA LỖI ĐỒNG BỘ DỮ LIỆU) ====================
+    # Kiểm tra rào chắn bộ nhớ tạm tầng UI giao diện để chống chạy lại AI khi tương tác chat
     if "pdf_extract_cache" in st.session_state and st.session_state["pdf_extract_cache"] is not None:
         res_pdf = st.session_state["pdf_extract_cache"]
     else:
         if file_name.lower().endswith('.pdf'):
             res_pdf = process_single_pdf_batch(file_bytes, file_name)
-            # Khóa kết quả bóc tách thành công vào bộ nhớ tạm UI Session State để chống chạy lại khi rerun
+            # Khóa kết quả bóc tách thành công vào bộ nhớ tạm UI Session State
             if res_pdf.get("success"):
                 st.session_state["pdf_extract_cache"] = res_pdf
         else:
-            res_pdf = {"success": True, "is_image": True, "sketch_bytes": file_bytes, "data": {}}
+            # Sửa lỗi: Cấu hình đầy đủ từ điển dữ liệu mặc định cho file định dạng ảnh
+            res_pdf = {
+                "success": True, 
+                "is_image": True, 
+                "sketch_bytes": file_bytes, 
+                "data": {
+                    "style_number_parsed": "UNKNOWN_STYLE",
+                    "buyer": "",
+                    "category": "JACKET",
+                    "base_size_name": "32",
+                    "measurements": {},
+                    "full_size_matrix": {}
+                }
+            }
             st.session_state["pdf_extract_cache"] = res_pdf
 
     # PHÂN PHỐI DỮ LIỆU ĐÃ TRÍCH XUẤT RA CÁC BIẾN HỆ THỐNG TRUNG TÂM
     if res_pdf.get("success"):
-        if res_pdf.get("is_image"):
+        if res_pdf.get("is_image") is True:
             target_new_sketch_bytes = res_pdf["sketch_bytes"]
+            meta_p = res_pdf["data"]
+            new_style_id_detected = meta_p.get("style_number_parsed", "UNKNOWN_STYLE")
+            new_style_category_detected = meta_p.get("category", "JACKET")
+            new_style_base_size = meta_p.get("base_size_name", "32")
+            new_style_measurements_dict = meta_p.get("measurements", {})
+            new_style_full_matrix = meta_p.get("full_size_matrix", {})
         else:
             meta_p = res_pdf["data"]
             new_style_id_detected = meta_p.get("style_number_parsed", "UNKNOWN_STYLE")
@@ -1367,22 +1386,25 @@ if has_file:
             new_style_base_size = meta_p.get("base_size_name", "32")
             new_style_measurements_dict = meta_p.get("measurements", {})
             target_new_sketch_bytes = res_pdf.get("sketch_bytes")
-            
-            # SỬA LỖI 4: Nạp trọn vẹn 100% full_size_matrix phục vụ luồng tính toán nhảy size định mức vải sau này
             new_style_full_matrix = meta_p.get("full_size_matrix", {})
             
-            # 🎯 ĐỀ XUẤT NÂNG CẤP HOÀN HẢO: Đóng gói toàn bộ cấu trúc dữ liệu sạch vào kho dùng chung toàn dự án
-            st.session_state["current_techpack"] = {
-                "style": new_style_id_detected,
-                "category": new_style_category_detected,
-                "base_size": new_style_base_size,
-                "measurements": new_style_measurements_dict,
-                "matrix": new_style_full_matrix
-            }
+        # Đóng gói toàn bộ cấu trúc dữ liệu sạch vào kho dùng chung toàn dự án PPJ
+        st.session_state["current_techpack"] = {
+            "style": new_style_id_detected,
+            "category": new_style_category_detected,
+            "base_size": new_style_base_size,
+            "measurements": new_style_measurements_dict,
+            "matrix": new_style_full_matrix
+        }
+    else:
+        # Nếu AI bóc tách sập (Lỗi Quota 429/503), báo thẳng nguyên nhân lên màn hình chính
+        st.error(f"🚨 **Lỗi hệ thống trích xuất tài liệu:** {res_pdf.get('error')}. Vui lòng bấm 'PURGE CHAT CACHE' để thử lại.")
+        st.stop()
 
 dynamic_keyword = str(new_style_id_detected).strip().upper()
 base_sb_url = SB_URL.rstrip('/')
 headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
+
 
 
 
