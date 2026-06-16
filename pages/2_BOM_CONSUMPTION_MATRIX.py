@@ -1061,16 +1061,7 @@ if has_file:
 dynamic_keyword = str(new_style_id_detected).strip().upper()
 base_sb_url = SB_URL.rstrip('/')
 headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
-# ==================== ĐOẠN B: KHỞI TẠO CỔNG KẾT NỐI VÀ AI ĐỐI SOÁT RẬP MẪU ====================
-if "get_secure_gemini_key" in globals():
-    gemini_key_global = get_secure_gemini_key()
-else:
-    gemini_key_global = st.secrets.get("GEMINI_API_KEY", "").strip()
-
-# Khởi tạo biến client nếu hệ thống chưa khai báo
-if gemini_key_global and ("client" not in globals() and "client" not in locals()):
-    client = genai.Client(api_key=gemini_key_global)
-
+# ==================== ĐOẠN B: TRUY XUẤT ĐỐI SOÁT TRỰC TIẾP KHÔNG QUA AI (CHỐNG LỖI 429) ====================
 if menu_selection == "🧵 BOM & Consumption Matrix":
     st.markdown('<div class="component-title-box">🧵 INTELLIGENT BOM & CONSUMPTION MATRIX ENGINE</div>', unsafe_allow_html=True)
     
@@ -1103,61 +1094,51 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
     else:
         st.info(f"📋 **CƠ SỞ ĐỐI SOÁT KIỂM TRA:** Đang áp dụng quy chuẩn kích thước hình học rập mẫu cơ sở: **SIZE 32 / M (Mặc định)**")
 
-    with st.spinner("🧠 Hệ thống thị giác máy tính đang quét kết cấu phom dáng Flat Sketch..."):
+    # THAY THẾ TOÀN BỘ KHỐI GỌI AI THỊ GIÁC BẰNG TRUY VẤN DATABASE TRỰC TIẾP TỐC ĐỘ CAO
+    with st.spinner("🔍 Đang truy xuất dữ liệu đối chứng trực tiếp từ kho Supabase..."):
         try:
-            headers_db = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
-            url_db = f"{base_sb_url}/rest/v1/thong_so_techpack"
-            query_params = {"select": "StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL,sketch_vector", "limit": 100}
+            keyword_to_find = str(new_style_id_detected).strip()
             
-            db_res = requests.get(url_db, headers=headers_db, params=query_params, timeout=15)
-            all_historical_styles = db_res.json() if db_res.status_code == 200 else []
-            
-            if all_historical_styles:
-                styles_pool_summary = []
-                for idx, s in enumerate(all_historical_styles):
-                    styles_pool_summary.append({
-                        "pool_index": idx,
-                        "style_name": s.get("StyleName"),
-                        "sketch_features_vector": s.get("sketch_vector", "")
-                    })
+            if keyword_to_find and keyword_to_find != "UNKNOWN_STYLE":
+                headers_db = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
+                url_db = f"{base_sb_url}/rest/v1/thong_so_techpack"
                 
-                match_prompt = f"""
-                You are an expert Computer Vision Ingestion System specialized in Apparel Manufacturing at PPJ Group.
-                Analyze the ATTACHED NEW SKETCH IMAGE and find the single closest matching historical garment style from the pool.
+                # Tìm kiếm chính xác mã hàng vừa bóc tách được (ví dụ: R09-496094)
+                query_params = {
+                    "select": "StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL",
+                    "StyleName": f"ilike.*{keyword_to_find}*"
+                }
                 
-                STRICT APPAREL AUDIT RULES (IGNORE THE OUTLINE, FOCUS SOLELY ON INTERNAL CONSTRUCTION DETAILS):
-                1. WAISTBAND CONSTRUCTION (CẠP QUẦN): Look closely at the waistband stitches. 
-                   - If the new image shows a full elastic waistband (cạp chun co giãn toàn bộ, nhiều đường nhăn song song, NO belt loops, NO zipper fly), you MUST REJECT any historical styles that have belt loops (đai quần), front zipper fly (khóa kéo), or standard button closures.
-                2. POCKET TYPES & PLACEMENT (KẾT CẤU TÚI): Look at the internal pocket placement.
-                   - Distinguish clearly between Patch Pockets (túi ốp nổi lớn bên ngoài, túi hộp kiểu Cargo) and Slit/In-seam Pockets (túi mổ sườn phẳng). Do NOT match a clean plain front leg with a Cargo/Utility pocket design.
-                3. SEAM LINES & PANEL CUTS: Look inside the body lines.
+                db_res = requests.get(url_db, headers=headers_db, params=query_params, timeout=15)
+                matched_results = db_res.json() if db_res.status_code == 200 else []
                 
-                HISTORICAL POOL DATA:
-                {json.dumps(styles_pool_summary)}
-                
-                Select the single index that represents the exact match in internal technical stitching construction, NOT just the shorts frame.
-                Return a raw valid JSON object inside your response: {{"selected_pool_index": 0}}
-                """
-                
-                match_contents = [types.Part.from_text(text=match_prompt)]
-                if target_new_sketch_bytes:
-                    match_contents.append(types.Part.from_bytes(data=target_new_sketch_bytes, mime_type='image/jpeg'))
+                if matched_results:
+                    st.session_state["matched_techpack"] = matched_results[0]
+                    st.success(f"✅ Đã kết nối mã tương đồng lịch sử chính xác: `{st.session_state['matched_techpack'].get('StyleName')}`")
+                else:
+                    # Nếu không tìm thấy tên chính xác, trích xuất chuỗi số cốt lõi (ví dụ: 496094) để tìm kiếm mở rộng
+                    core_digits = re.findall(r'\d+', keyword_to_find)
+                    search_digits = max(core_digits, key=len) if core_digits else keyword_to_find
                     
-                res_match = client.models.generate_content(model='gemini-2.5-flash', contents=match_contents)
-                ai_raw_text = res_match.text.strip()
+                    query_params_fb = {
+                        "select": "StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL",
+                        "StyleName": f"ilike.*{search_digits}*"
+                    }
+                    db_res_fb = requests.get(url_db, headers=headers_db, params=query_params_fb, timeout=15)
+                    matched_results_fb = db_res_fb.json() if db_res_fb.status_code == 200 else []
+                    
+                    if matched_results_fb:
+                        st.session_state["matched_techpack"] = matched_results_fb[0]
+                        st.success(f"✅ Đã đối soát tìm thấy mã tương đồng gần nhất: `{st.session_state['matched_techpack'].get('StyleName')}`")
+                    else:
+                        st.session_state["matched_techpack"] = None
+                        st.warning("⚠️ Không tìm thấy mã hàng tương đồng nào trong kho. Hệ thống tự động kích hoạt Kịch bản tính bằng Vector Hình học.")
+            else:
+                st.session_state["matched_techpack"] = None
+                st.warning("⚠️ Không nhận diện được tên mã hàng từ tài liệu để đối soát dữ liệu.")
                 
-                json_block_clean = ""
-                match_json_obj = re.search(r'\{\s*"selected_pool_index"\s*:\s*\d+\s*\}', ai_raw_text)
-                if match_json_obj:
-                    json_block_clean = match_json_obj.group(0).strip()
-                
-                if json_block_clean:
-                    match_result = json.loads(json_block_clean)
-                    best_idx = match_result.get("selected_pool_index", -1)
-                    if 0 <= best_idx < len(all_historical_styles):
-                        st.session_state["matched_techpack"] = all_historical_styles[best_idx]
-        except Exception as match_err:
-            st.sidebar.error(f"Lỗi hệ thống đối soát hình ảnh: {str(match_err)}")
+        except Exception as direct_err:
+            st.sidebar.error(f"Lỗi hệ thống đối soát dữ liệu: {str(direct_err)}")
     if st.session_state.get("matched_techpack"):
         try:
             target_style_name_bom = str(st.session_state["matched_techpack"].get("StyleName", "")).strip()
@@ -1279,9 +1260,6 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
         st.dataframe(pd.DataFrame(formatted_bom), use_container_width=True, hide_index=True)
 
     st.markdown("<br><hr style='border:0.5px solid #CBD5E1;'>", unsafe_allow_html=True)
-
-
-
 
     
            # THIẾT KẾ CỤM ĐIỀU KHIỂN CHAT BOX THÔNG MINH SIÊU TỐC
