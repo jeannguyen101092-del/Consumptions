@@ -959,17 +959,20 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
         return f"🚨 Lỗi cổng phân tích định mức: {str(e)}"
 
 
-
-@st.cache_data(show_spinner="🧠 AI đang quét tỉ mỉ từng trang PDF để gom thông số...")
+@st.cache_data(show_spinner="⚙️ Hệ thống 3 Tầng đang định tuyến tìm trang Spec siêu tốc...")
 def process_single_pdf_batch(file_bytes, file_name):
     """
-    HÀM NÂNG CẤP ĐẶC BIỆT: Quét tách biệt từng trang để gom dữ liệu thông số (Merge Specs).
-    Chống hiện tượng AI lười đọc, đảm bảo lấy trọn vẹn 100% bảng thông số ở các trang sau.
+    HÀM KIẾN TRÚC TỐI ƯU 3 TẦNG CHUẨN PPJ GROUP - PHẦN 1
+    - Sửa lỗi Poppler render lặp: Gom render 300 DPI một lượt duy nhất.
+    - Sửa lỗi Fallback nguy hiểm: Quét diện rộng 5 trang đầu nếu mất dấu vết.
+    - Sửa lỗi Regex: Tích hợp Regex chuyên sâu (Re.I) tìm bảng Spec.
     """
     import io
     import json
     import time
     import re
+    from pypdf import PdfReader
+    from pdf2image import convert_from_bytes
     
     try:
         if "get_secure_gemini_key" in globals():
@@ -978,84 +981,199 @@ def process_single_pdf_batch(file_bytes, file_name):
             gemini_key_local = st.secrets.get("GEMINI_API_KEY", "").strip()
             
         if not gemini_key_local:
-            return {"success": False, "error": "API Key cho Gemini đang bị thiếu."}
+            return {"success": False, "error": "API Key cho Gemini đang bị thiếu trong Secrets."}
             
         client_ai = genai.Client(api_key=gemini_key_local)
-        info = pdfinfo_from_bytes(file_bytes)
-        total_p = int(info.get("Pages", 1))
         
-        # Chuyển đổi 5 trang đầu của Techpack thành ảnh để quét bảng thông số
-        max_scan_pages = min(total_p, 5)
-        chat_images = convert_from_bytes(file_bytes, dpi=100, first_page=1, last_page=max_scan_pages)
+        # Đọc cấu trúc tệp PDF
+        pdf_file = io.BytesIO(file_bytes)
+        reader = PdfReader(pdf_file)
+        total_p = len(reader.pages)
+        max_scan_pages = min(total_p, 15)
         
-        stored_pages_bytes = []
-        for page_img in chat_images:
-            img_buf = io.BytesIO()
-            page_img.convert("RGB").save(img_buf, format="JPEG", quality=80)
-            stored_pages_bytes.append(img_buf.getvalue())
+        target_spec_pages = [] 
+        sketch_page_idx = 1     
+        
+        # ==========================================
+        # 🎯 TẦNG 1: QUÉT TEXT CHUYÊN SÂU BẰNG REGEX MẠNH (0 TOKEN - TỨC THÌ)
+        # ==========================================
+        # SỬA LỖI 4: Tích hợp Regex mạnh mẽ loại bỏ sót cụm từ ghép phức tạp
+        spec_pattern = re.compile(
+            r"(SPEC|MEASUREMENT|POM|GRADING|GRADE RULE|POINT OF MEASURE|BODY LENGTH|CHEST)", 
+            re.I
+        )
+        
+        for idx in range(max_scan_pages):
+            try:
+                page_text = reader.pages[idx].extract_text()
+                if page_text and spec_pattern.search(page_text):
+                    target_spec_pages.append(idx)
+                    
+                    # Xác định trang chứa bản vẽ phẳng Flat Sketch
+                    if any(sk in page_text.upper() for sk in ["FLAT SKETCH", "SILHOUETTE", "FRONT/BACK", "GARMENT VIEW"]):
+                        sketch_page_idx = idx
+            except Exception:
+                continue
+
+        # ==========================================
+        # 🎯 TẦNG 2: PDF SCAN ẢNH TOÀN BỘ (TẦNG 1 THẤT BẠI) -> DÙNG GEMINI FLASH 100 DPI
+        # ==========================================
+        if not target_spec_pages:
+            low_dpi_images = convert_from_bytes(file_bytes, dpi=100, first_page=1, last_page=max_scan_pages)
             
-        # Khởi tạo các biến để tích lũy dữ liệu từ nhiều trang
+            for idx, img in enumerate(low_dpi_images):
+                img_buf = io.BytesIO()
+                img.convert("RGB").save(img_buf, format="JPEG", quality=70)
+                
+                flash_payload = [
+                    types.Part.from_bytes(data=img_buf.getvalue(), mime_type='image/jpeg'),
+                    types.Part.from_text(text=(
+                        "Analyze this techpack sheet page image thumbnail.\n"
+                        "Does this page contain a measurement specification table, grading chart, POM table, or sizing matrix?\n"
+                        "Also, check if it contains the main full-body front/back Flat Sketch design drawing.\n"
+                        "Return only a raw valid JSON object (No markdown blocks): "
+                        '{"is_spec_table": true_or_false, "is_flat_sketch": true_or_false}'
+                    ))
+                ]
+                try:
+                    res_flash = client_ai.models.generate_content(model='gemini-2.5-flash', contents=flash_payload)
+                    if res_match_text := res_flash.text:
+                        clean_json_text = re.sub(r'```(?:json)?\s*|\s*```', '', res_match_text.strip())
+                        flash_json = json.loads(clean_json_text)
+                        
+                        if flash_json.get("is_spec_table") is True:
+                            target_spec_pages.append(idx)
+                        if flash_json.get("is_flat_sketch") is True:
+                            sketch_page_idx = idx
+                except Exception:
+                    continue
+
+        # SỬA LỖI 2: Thay thế Fallback [2,3] cố định nguy hiểm bằng thuật toán quét diện rộng an toàn
+        if not target_spec_pages:
+            target_spec_pages = list(range(min(5, total_p)))
+
+        # Kho lưu trữ tổng hợp dữ liệu sau khi merge
         final_measurements = {}
         final_matrix = {}
         detected_style_id = "UNKNOWN_STYLE"
         detected_buyer = ""
-        detected_category = "JACKET"  # Khóa cứng mặc định theo tệp áo của bạn
+        detected_category = "JACKET"
         detected_base_size = "32"
-        sketch_page_idx = 1  # Mặc định trang 2 (index 1) chứa ảnh áo Jacket
+        sketch_image_bytes = None
         
-        # VÒNG LẶP: Quét cuốn chiếu tỉ mỉ từng trang một
-        for i, page_data in enumerate(stored_pages_bytes):
-            page_payload = [
-                types.Part.from_bytes(data=page_data, mime_type='image/jpeg'),
+        # Gom toàn bộ danh sách trang kỹ thuật cần kết xuất chất lượng cao
+        pages_to_render_high = sorted(list(set(target_spec_pages + [sketch_page_idx])))
+        
+        # SỬA LỖI 5: Ngăn chặn mở đi mở lại PDF nhiều lần bằng Poppler. Mở 1 lần duy nhất từ Min đến Max trang cần dùng.
+        min_p = min(pages_to_render_high)
+        max_p = max(pages_to_render_high)
+        
+        high_res_pool = convert_from_bytes(
+            file_bytes, 
+            dpi=300, 
+            first_page=min_p + 1, 
+            last_page=max_p + 1
+        )
+        # ==========================================
+        # 🎯 TẦNG 3: OCR PNG 300 DPI CHỈ ĐỊNH BẰNG GEMINI 2.5 PRO & MERGE CHỐNG MẤT SIZE
+        # ==========================================
+        for p_idx in pages_to_render_high:
+            # Xác định vị trí chỉ mục tương đối trong mảng Pool ảnh đã render ở Phần 1
+            pool_index = p_idx - min_p
+            if pool_index >= len(high_res_pool): 
+                continue
+                
+            page_img_obj = high_res_pool[pool_index]
+            img_buf_png = io.BytesIO()
+            # SỬA LỖI 6: Lưu định dạng PNG không nén để chống mất nét ma trận số liệu
+            page_img_obj.save(img_buf_png, format="PNG")
+            png_bytes = img_buf_png.getvalue()
+            
+            if p_idx == sketch_page_idx:
+                sketch_image_bytes = png_bytes
+                
+            # Tiết kiệm token: Nếu trang này chỉ chứa ảnh thiết kế mà không có bảng, không gọi OCR Pro
+            if p_idx not in target_spec_pages:
+                continue
+                
+            pro_payload = [
+                types.Part.from_bytes(data=png_bytes, mime_type='image/png'),
                 types.Part.from_text(text=(
-                    f"Bạn là kỹ sư Garment Auditor tại PPJ Group. Hãy phân tích kỹ trang số {i+1} này.\n"
-                    "1. Trích xuất TẤT CẢ các thông số kích thước, vị trí đo (POM Description) và giá trị của nó nếu trang này chứa bảng số liệu.\n"
-                    "2. Nhận diện Mã hàng (Style ID), Khách hàng (Buyer), Chủng loại (Category: Pant/Shirt/Jacket), Size gốc (Base Size).\n"
-                    "3. Nếu trang này chứa hình ảnh bản vẽ kỹ thuật phẳng toàn thân (Flat Sketch) của áo, ghi nhận is_sketch_page là true.\n"
-                    "Trả về chuỗi JSON nghiêm ngặt (Tuyệt đối KHÔNG bọc trong các ký tự viết gạch chéo ```json):\n"
-                    "{\n"
-                    "  \"style_id\": \"string\", \"buyer\": \"string\", \"category\": \"string\", \"base_size\": \"string\",\n"
-                    "  \"is_sketch_page\": true_or_false,\n"
-                    "  \"measurements\": {{\"POM Description\": \"Value\"}},\n"
-                    "  \"matrix\": {{\"POM Description\": {{\"Size_Name\": \"Value\"}}}}\n"
+                    "You are an expert Garment Specification Costing Auditor at PPJ Group.\n"
+                    "This high-resolution PNG image is a verified specification sheet page. Perform an exhaustive OCR extraction.\n\n"
+                    "STRICT MATRIX RULES (NO OMISSION):\n"
+                    "1. EXTRACT ALL ROWS & ALL COLUMNS: You MUST extract EVERY size column (e.g., XS, S, M, L, XL, XXL). If a row contains values across multiple columns, capture ALL values perfectly.\n"
+                    "2. NO SUMMARIZATION: Never collapse size ranges, never guess, and never return partial data.\n"
+                    "3. METADATA: Extract Style ID/Number, Buyer Name, Category (Pant/Shirt/Jacket), and Base/Sample Size.\n\n"
+                    "Return a valid raw JSON object matching this schema (NO markdown code blocks wrapped inside ```json): "
+                    "{"
+                    "  \"style_id\": \"string\", \"buyer\": \"string\", \"category\": \"string\", \"base_size\": \"string\","
+                    "  \"measurements\": {\"POM Description\": \"Value\"},"
+                    "  \"matrix\": {\"POM Description\": {\"Size_Name\": \"Value\"}}"
                     "}"
                 ))
             ]
             
-            # Thực hiện gọi API
             for attempt in range(2):
                 try:
                     response = client_ai.models.generate_content(
-                        model='gemini-2.5-flash', contents=page_payload,
+                        model='gemini-2.5-pro', 
+                        contents=pro_payload, 
                         config={"response_mime_type": "application/json"}
                     )
                     if response and response.text:
-                        raw_text = response.text.strip()
-                        if raw_text.startswith("```"):
-                            raw_text = re.sub(r'^```(?:json)?\s*', '', raw_text)
-                            raw_text = re.sub(r'\s*```$', '', raw_text)
+                        raw_pro_text = re.sub(r'```(?:json)?\s*|\s*```', '', response.text.strip())
+                        pro_json = json.loads(raw_pro_text.strip())
                         
-                        page_json = json.loads(raw_text.strip())
+                        if pro_json.get("style_id") and pro_json["style_id"] != "UNKNOWN_STYLE":
+                            detected_style_id = pro_json["style_id"]
+                        if pro_json.get("buyer"): detected_buyer = pro_json["buyer"]
+                        if pro_json.get("category"): detected_category = pro_json["category"]
+                        if pro_json.get("base_size"): detected_base_size = pro_json["base_size"]
                         
-                        if page_json.get("style_id") and page_json["style_id"] != "UNKNOWN_STYLE":
-                            detected_style_id = page_json["style_id"]
-                        if page_json.get("buyer"): detected_buyer = page_json["buyer"]
-                        if page_json.get("category"): detected_category = page_json["category"]
-                        if page_json.get("base_size"): detected_base_size = page_json["base_size"]
-                        if page_json.get("is_sketch_page") is True: sketch_page_idx = i
-                        
-                        if page_json.get("measurements"):
-                            final_measurements.update(page_json["measurements"])
-                        if page_json.get("matrix"):
-                            final_matrix.update(page_json["matrix"])
+                        if pro_json.get("measurements"):
+                            final_measurements.update(pro_json["measurements"])
+                            
+                        # 🛠 SỬA LỖI 1: THUẬT TOÁN MERGE FULL SIZE MATRIX CHỐNG GHI ĐÈ MẤT SIZE S/M/L/XL KHI GHÉP TRANG
+                        if pro_json.get("matrix"):
+                            for pom_key, sizes_dict in pro_json["matrix"].items():
+                                if pom_key not in final_matrix:
+                                    final_matrix[pom_key] = {}
+                                # Cập nhật cộng dồn các cột size mới vào vị trí đo cũ mà không xóa cột cũ
+                                final_matrix[pom_key].update(sizes_dict)
                         break
                 except Exception:
-                    time.sleep(1.0)
+                    time.sleep(1.5)
                     continue
-                    
+
+        # ==========================================
+        # 🎯 CỬA KIỂM TRA: ĐỐI SOÁT THÔNG SỐ XƯƠNG CỐT LÕI QUA DANH SÁCH ALIAS
+        # ==========================================
+        # SỬA LỖI 3: Thiết lập danh sách bộ từ khóa Alias thông minh chống báo lỗi giả
+        required_aliases = {
+            "CHEST": ["CHEST", "PTP", "PIT TO PIT", "BUST", "HALF CHEST", "1/2 CHEST"],
+            "BODY LENGTH": ["BODY LENGTH", "CB LENGTH", "HPS LENGTH", "BACK LENGTH", "LENGTH FROM HPS", "DAI AO"],
+            "SLEEVE LENGTH": ["SLEEVE LENGTH", "SLEEVE FROM HPS", "SLEEVE CENTER BACK", "DAI TAY"],
+            "ACROSS SHOULDER": ["SHOULDER", "ACROSS SHOULDER", "SHOULDER WIDTH", "SHLDR WIDTH", "RONG VAI"]
+        }
+        
+        missing_core_fields = []
+        for formal_name, alias_list in required_aliases.items():
+            # Kiểm tra xem trong bảng kết quả tổng hợp có chứa bất kỳ từ khóa thay thế nào không
+            has_match = any(
+                any(alias in k.upper() for alias in alias_list)
+                for k in final_measurements.keys()
+            )
+            if not has_match:
+                missing_core_fields.append(formal_name)
+                
+        # Nếu thiếu thực sự các thông số xương, ngắt luồng và ép hệ thống báo lỗi ra giao diện chính
+        if missing_core_fields:
+            raise Exception(f"Thiếu các thông số kỹ thuật xương cốt lõi từ tài liệu: {', '.join(missing_core_fields)}")
+            
         return {
             "success": True,
-            "sketch_bytes": stored_pages_bytes[sketch_page_idx] if sketch_page_idx < len(stored_pages_bytes) else stored_pages_bytes[0],
+            "sketch_bytes": sketch_image_bytes,
             "data": {
                 "style_number_parsed": detected_style_id,
                 "buyer": detected_buyer,
@@ -1067,7 +1185,8 @@ def process_single_pdf_batch(file_bytes, file_name):
             }
         }
     except Exception as e:
-        return {"success": False, "error": str(e)}
+        return {"success": False, "error": f"Lỗi hệ thống bóc tách ma trận 3 tầng: {str(e)}"}
+
 
 
 # ==================== ĐOẠN A NÂNG CẤP: TỰ ĐỘNG LÀM SẠCH BỘ NHỚ ĐỆM ĐỒ HỌA FILE CŨ ====================
