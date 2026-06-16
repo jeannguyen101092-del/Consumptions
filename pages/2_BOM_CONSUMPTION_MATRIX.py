@@ -1040,6 +1040,7 @@ def process_single_pdf_batch(file_bytes, file_name):
         return {"success": False, "error": str(e)}
 
 # ==================== ĐOẠN A NÂNG CẤP: TỰ ĐỘNG LÀM SẠCH BỘ NHỚ ĐỆM ĐỒ HỌA FILE CŨ ====================
+# ==================== ĐOẠN A NÂNG CẤP: TỰ ĐỘNG BÁO LỖI QUÉT PDF & DỰ PHÒNG CHỈ MỤC TRANG ====================
 new_style_id_detected = "UNKNOWN_STYLE"
 new_style_category_detected = ""
 new_style_fabric_detected = "UNKNOWN_FABRIC"
@@ -1047,7 +1048,6 @@ new_style_measurements_dict = {}
 new_style_base_size = "32"
 target_new_sketch_bytes = None 
 
-# Tạo biến kiểm tra dấu vết file để ép dọn dẹp RAM ảnh
 if "current_file_fingerprint" not in st.session_state:
     st.session_state["current_file_fingerprint"] = None
 
@@ -1065,7 +1065,7 @@ if has_file:
     file_bytes = target_file_object.getvalue()
     file_name = target_file_object.name
     
-    # 🎯 LOGIC BẢO VỆ: Nếu phát hiện tên file mới khác file cũ, lập tức ĐẬP XOÁ TOÀN BỘ CACHE ẢNH CŨ TRONG RAM
+    # Dọn dẹp cache RAM khi người dùng tải file mới hoàn toàn lên
     if st.session_state["current_file_fingerprint"] != file_name:
         st.session_state["current_file_fingerprint"] = file_name
         st.session_state["matched_techpack"] = None
@@ -1075,23 +1075,42 @@ if has_file:
         if "last_bom_style_name" in st.session_state: st.session_state["last_bom_style_name"] = None
 
     if file_name.lower().endswith('.pdf'):
-        try:
-            res_pdf = process_single_pdf_batch(file_bytes, file_name)
-            if res_pdf.get("success"):
-                meta_p = res_pdf["data"]
-                new_style_id_detected = meta_p.get("style_number_parsed", "UNKNOWN_STYLE")
-                new_style_category_detected = meta_p.get("category", "")
-                new_style_base_size = meta_p.get("base_size_name", "32")
-                new_style_measurements_dict = meta_p.get("measurements", {})
+        # Gọi hàm bóc tách cấu trúc tài liệu PDF kỹ thuật
+        res_pdf = process_single_pdf_batch(file_bytes, file_name)
+        
+        if res_pdf.get("success"):
+            meta_p = res_pdf["data"]
+            new_style_id_detected = meta_p.get("style_number_parsed", "UNKNOWN_STYLE")
+            new_style_category_detected = meta_p.get("category", "")
+            new_style_base_size = meta_p.get("base_size_name", "32")
+            new_style_measurements_dict = meta_p.get("measurements", {})
+            
+            # CƠ CHẾ DỰ PHÒNG ẢNH: Nếu trang AI chỉ định không có ảnh vật lý, tự động lấy trang số 2 (Trang chứa áo Jacket)
+            sketch_idx = meta_p.get("sketch_page_index_detected", 0)
+            try:
+                # Chuyển đổi PDF sang ảnh cục bộ ngay tại luồng này để đảm bảo có ảnh hiển thị
+                from pdf2image import convert_from_bytes
+                all_pages = convert_from_bytes(file_bytes, dpi=90, first_page=1, last_page=5)
+                
+                # Ép lấy trang số 2 (chỉ mục số 1 trong Python) nếu trang AI đoán bị trống dữ liệu đồ họa
+                final_idx = sketch_idx if sketch_idx < len(all_pages) else 1
+                if final_idx >= len(all_pages): final_idx = 0
+                
+                img_buf = io.BytesIO()
+                all_pages[final_idx].convert("RGB").save(img_buf, format="JPEG", quality=75)
+                target_new_sketch_bytes = img_buf.getvalue()
+            except Exception as img_err:
                 target_new_sketch_bytes = res_pdf.get("sketch_bytes")
-        except Exception:
-            pass
+        else:
+            # XUẤT CẢNH BÁO LÊN MÀN HÌNH CHÍNH NẾU AI QUÉT PDF THẤT BẠI
+            st.error(f"🚨 **Lỗi bóc tách tài liệu PDF:** {res_pdf.get('error', 'AI không phản hồi JSON')}. Vui lòng bấm 'PURGE CHAT CACHE' để hệ thống quét lại.")
     else:
         target_new_sketch_bytes = file_bytes
 
 dynamic_keyword = str(new_style_id_detected).strip().upper()
 base_sb_url = SB_URL.rstrip('/')
 headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
+
 
 # ==================== ĐOẠN B: AI ĐỐI SOÁT HÌNH ẢNH FLAT SKETCH (TÍCH HỢP TỰ ĐỘNG THỬ LẠI CHỐNG LỖI 503) ====================
 if "get_secure_gemini_key" in globals():
