@@ -1297,25 +1297,26 @@ def process_single_pdf_batch(file_bytes, file_name):
 
 
 
-# ==================== ĐOẠN A NÂNG CẤP: TỰ ĐỘNG LÀM SẠCH BỘ NHỚ ĐỆM ĐỒ HỌA FILE CŨ ====================
-# ==================== ĐOẠN A NÂNG CẤP: TỰ ĐỘNG BÁO LỖI QUÉT PDF & DỰ PHÒNG CHỈ MỤC TRANG ====================
+# ==================== CENTRAL DISPATCH STATION - PHẦN 1 ====================
+# Khởi tạo các biến hệ thống toàn cục ở mức mặc định
 new_style_id_detected = "UNKNOWN_STYLE"
 new_style_category_detected = ""
 new_style_fabric_detected = "UNKNOWN_FABRIC"
 new_style_measurements_dict = {}
 new_style_base_size = "32"
+new_style_full_matrix = {} # Lưu trữ trọn vẹn dải ma trận size phục vụ Grading Rules
 target_new_sketch_bytes = None 
 
-if "current_file_fingerprint" not in st.session_state:
-    st.session_state["current_file_fingerprint"] = None
-
+# Điều phối uploader nghiêm ngặt: Tab nào chỉ đọc đúng ô tải tệp của Tab đó
 target_file_object = None
-if 'uploaded_file' in st.session_state and st.session_state['uploaded_file'] is not None:
-    target_file_object = st.session_state['uploaded_file']
-elif 'chat_uploader' in st.session_state and st.session_state['chat_uploader'] is not None:
-    target_file_object = st.session_state['chat_uploader']
-elif 'bom_matrix_uploader' in st.session_state and st.session_state['bom_matrix_uploader'] is not None:
-    target_file_object = st.session_state['bom_matrix_uploader']
+if menu_selection == "🧵 BOM & Consumption Matrix":
+    if 'bom_matrix_uploader' in st.session_state and st.session_state['bom_matrix_uploader'] is not None:
+        target_file_object = st.session_state['bom_matrix_uploader']
+else:
+    if 'uploaded_file' in st.session_state and st.session_state['uploaded_file'] is not None:
+        target_file_object = st.session_state['uploaded_file']
+    elif 'chat_uploader' in st.session_state and st.session_state['chat_uploader'] is not None:
+        target_file_object = st.session_state['chat_uploader']
 
 has_file = target_file_object is not None
 
@@ -1323,51 +1324,66 @@ if has_file:
     file_bytes = target_file_object.getvalue()
     file_name = target_file_object.name
     
-    # Dọn dẹp cache RAM khi người dùng tải file mới hoàn toàn lên
-    if st.session_state["current_file_fingerprint"] != file_name:
-        st.session_state["current_file_fingerprint"] = file_name
-        st.session_state["matched_techpack"] = None
-        st.session_state["bom_records"] = []
-        if "cached_matched_img" in st.session_state: st.session_state["cached_matched_img"] = None
-        if "last_matched_style_name" in st.session_state: st.session_state["last_matched_style_name"] = None
-        if "last_bom_style_name" in st.session_state: st.session_state["last_bom_style_name"] = None
-
-    if file_name.lower().endswith('.pdf'):
-        # Gọi hàm bóc tách cấu trúc tài liệu PDF kỹ thuật
-        res_pdf = process_single_pdf_batch(file_bytes, file_name)
+    # SỬA LỖI 1: Tạo mã hash MD5 độc nhất từ mảng byte để nhận diện file sửa đổi trùng tên
+    import hashlib
+    file_md5_fingerprint = hashlib.md5(file_bytes).hexdigest()
+    
+    if "last_processed_md5" not in st.session_state:
+        st.session_state["last_processed_md5"] = None
         
-        if res_pdf.get("success"):
+    # LOGIC RESET CACHE AN TOÀN TRUYỆT ĐỐI KHI ĐỔI FILE HOẶC SỬA NỘI DUNG FILE
+    if st.session_state["last_processed_md5"] != file_md5_fingerprint:
+        st.session_state["last_processed_md5"] = file_md5_fingerprint
+        
+        # SỬA LỖI 2: Dùng .pop() kèm giá trị default thay vì gán trực tiếp None để chống KeyError
+        st.session_state.pop("matched_techpack", None)
+        st.session_state.pop("bom_records", None)
+        st.session_state.pop("cached_matched_img", None)
+        st.session_state.pop("last_matched_style_name", None)
+        st.session_state.pop("last_bom_style_name", None)
+        st.session_state.pop("pdf_extract_cache", None) # Giải phóng kho cache OCR của file cũ
+    # ==================== CENTRAL DISPATCH STATION - PHẦN 2 ====================
+    # SỬA LỖI 3: Thiết lập rào chắn Cache tầng UI. Nếu file trùng MD5, nạp thẳng dữ liệu cũ từ RAM siêu tốc
+    if "pdf_extract_cache" in st.session_state and st.session_state["pdf_extract_cache"] is not None:
+        res_pdf = st.session_state["pdf_extract_cache"]
+    else:
+        if file_name.lower().endswith('.pdf'):
+            res_pdf = process_single_pdf_batch(file_bytes, file_name)
+            # Khóa kết quả bóc tách thành công vào bộ nhớ tạm UI Session State để chống chạy lại khi rerun
+            if res_pdf.get("success"):
+                st.session_state["pdf_extract_cache"] = res_pdf
+        else:
+            res_pdf = {"success": True, "is_image": True, "sketch_bytes": file_bytes, "data": {}}
+            st.session_state["pdf_extract_cache"] = res_pdf
+
+    # PHÂN PHỐI DỮ LIỆU ĐÃ TRÍCH XUẤT RA CÁC BIẾN HỆ THỐNG TRUNG TÂM
+    if res_pdf.get("success"):
+        if res_pdf.get("is_image"):
+            target_new_sketch_bytes = res_pdf["sketch_bytes"]
+        else:
             meta_p = res_pdf["data"]
             new_style_id_detected = meta_p.get("style_number_parsed", "UNKNOWN_STYLE")
             new_style_category_detected = meta_p.get("category", "")
             new_style_base_size = meta_p.get("base_size_name", "32")
             new_style_measurements_dict = meta_p.get("measurements", {})
+            target_new_sketch_bytes = res_pdf.get("sketch_bytes")
             
-            # CƠ CHẾ DỰ PHÒNG ẢNH: Nếu trang AI chỉ định không có ảnh vật lý, tự động lấy trang số 2 (Trang chứa áo Jacket)
-            sketch_idx = meta_p.get("sketch_page_index_detected", 0)
-            try:
-                # Chuyển đổi PDF sang ảnh cục bộ ngay tại luồng này để đảm bảo có ảnh hiển thị
-                from pdf2image import convert_from_bytes
-                all_pages = convert_from_bytes(file_bytes, dpi=90, first_page=1, last_page=5)
-                
-                # Ép lấy trang số 2 (chỉ mục số 1 trong Python) nếu trang AI đoán bị trống dữ liệu đồ họa
-                final_idx = sketch_idx if sketch_idx < len(all_pages) else 1
-                if final_idx >= len(all_pages): final_idx = 0
-                
-                img_buf = io.BytesIO()
-                all_pages[final_idx].convert("RGB").save(img_buf, format="JPEG", quality=75)
-                target_new_sketch_bytes = img_buf.getvalue()
-            except Exception as img_err:
-                target_new_sketch_bytes = res_pdf.get("sketch_bytes")
-        else:
-            # XUẤT CẢNH BÁO LÊN MÀN HÌNH CHÍNH NẾU AI QUÉT PDF THẤT BẠI
-            st.error(f"🚨 **Lỗi bóc tách tài liệu PDF:** {res_pdf.get('error', 'AI không phản hồi JSON')}. Vui lòng bấm 'PURGE CHAT CACHE' để hệ thống quét lại.")
-    else:
-        target_new_sketch_bytes = file_bytes
+            # SỬA LỖI 4: Nạp trọn vẹn 100% full_size_matrix phục vụ luồng tính toán nhảy size định mức vải sau này
+            new_style_full_matrix = meta_p.get("full_size_matrix", {})
+            
+            # 🎯 ĐỀ XUẤT NÂNG CẤP HOÀN HẢO: Đóng gói toàn bộ cấu trúc dữ liệu sạch vào kho dùng chung toàn dự án
+            st.session_state["current_techpack"] = {
+                "style": new_style_id_detected,
+                "category": new_style_category_detected,
+                "base_size": new_style_base_size,
+                "measurements": new_style_measurements_dict,
+                "matrix": new_style_full_matrix
+            }
 
 dynamic_keyword = str(new_style_id_detected).strip().upper()
 base_sb_url = SB_URL.rstrip('/')
 headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
+
 
 
 # ==================== ĐOẠN B: AI ĐỐI SOÁT HÌNH ẢNH FLAT SKETCH (TỰ ĐỘNG CHUYỂN PHƯƠNG ÁN VECTOR NẾU KHÔNG CÓ MÃ ĐỒNG DẠNG) ====================
