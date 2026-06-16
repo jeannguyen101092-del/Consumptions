@@ -1437,7 +1437,21 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                 st.write(user_query)
                 
                           # Sửa lại đoạn gọi hàm tại vị trí Chat Box hiển thị trên màn hình của bạn:
-                with st.spinner("🤖 AI đang phân tích dữ liệu và tính toán định mức..."):
+                                with st.spinner("🤖 AI đang phân tích dữ liệu và tính toán định mức..."):
+                    # 1. BÓC TÁCH THÔNG SỐ TỪ TIN NHẮN ĐỂ TRÁNH LỖI CHƯA ĐỊNH NGHĨA BIẾN
+                    shrinkage_width = re.findall(r'(?:CO RÚT NGANG|NGANG)\s*(\d+(?:\.\d+)?)\s*%', user_query.upper())
+                    shrinkage_length = re.findall(r'(?:CO RÚT DỌC|DỌC)\s*(\d+(?:\.\d+)?)\s*%', user_query.upper())
+                    new_fabric_width = re.findall(r'(?:KHỔ VẢI|KHỔ)\s*(\d+)\s*(?:\"|INCH|INCHES)?', user_query.upper())
+                    
+                    w_shrink_val = shrinkage_width[0] if shrinkage_width else None
+                    l_shrink_val = shrinkage_length[0] if shrinkage_length else None
+                    new_fabric_width_val = new_fabric_width[0] if new_fabric_width else None
+
+                    w_shrink = float(w_shrink_val) if w_shrink_val else 0.0
+                    l_shrink = float(l_shrink_val) if l_shrink_val else 0.0
+                    f_width = float(new_fabric_width_val) if new_fabric_width_val else 58.0
+
+                    # 2. GỌI HÀM VỚI DẤU BẰNG (=) CHUẨN CÚ PHÁP PYTHON
                     ai_reply = ai_consumption_analyst_engine(
                         client=client,
                         user_message=user_query,
@@ -1446,11 +1460,12 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                         new_style_measurements=new_style_measurements_dict,
                         target_new_sketch_bytes=target_new_sketch_bytes,
                         detected_size=new_style_base_size,
-                        f_width=f_width,       # Truyền thêm biến khổ vải
-                        w_shrink=w_shrink,     # Truyền thêm biến co rút ngang
-                        l_shrink=l_shrink      # Truyền thêm biến co rút dọc
+                        f_width=f_width,
+                        w_shrink=w_shrink,
+                        l_shrink=l_shrink
                     )
                     st.write(ai_reply)
+
 
                     
         # ✅ THUẬT TOÁN ĐÓNG ĐINH NEO CUỘN: Ép trình duyệt tự động scroll lướt màn hình xuống vị trí tin nhắn cuối cùng
