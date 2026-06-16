@@ -845,141 +845,211 @@ def parse_fraction(val_str):
 
 def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_records, new_style_measurements, target_new_sketch_bytes, detected_size, f_width, w_shrink, l_shrink):
     """
-    ENGINE HỢP NHẤT PHÂN TÍCH ĐỊNH MỨC NÂNG CAO - PPJ GROUP
-    - LUỒNG 1 (ĐỒNG DẠNG): Nếu CÓ mã tương đồng -> Tính chênh lệch thông số dựa trên BOM và Spec lịch sử.
-    - LUỒNG 2 (RẬP ẢO): Nếu KHÔNG CÓ mã tương đồng -> Tự động kích hoạt cơ chế dựng rập ảo hình học Polygon.
-    - BỎ HOÀN TOÀN HAO HỤT CẮT 12% TRONG CẢ HAI LUỒNG.
+    ENGINE DỰNG RẬP ẢO LAI (HYBRID VIRTUAL PATTERN ENGINE) - CHUẨN SẢN XUẤT PPJ GROUP
+    - AI (Gemini): Nhận diện cấu trúc sản phẩm, tính năng và ánh xạ từ khóa POM từ Techpack.
+    - Python: Nhận Schema từ AI, tự động chuẩn hóa hệ số đo ngang mông/ngực, áp dụng Shape Factor 
+      và tính toán định mức cơ học chính xác tuyệt đối (BỎ HOÀN TOÀN HAO HỤT CẮT 12%).
     """
     import json
+    import re
+    
+    # Chuẩn hóa bảng thông số đo từ Techpack để gửi cho AI mapping từ khóa
     new_style_measurements_json = json.dumps(new_style_measurements, ensure_ascii=False)
     
-    # ==========================================
-    # LUỒNG 1: XỬ LÝ KHI CÓ MÃ HÀNG TƯƠNG ĐỒNG
-    # ==========================================
-    if matched_techpack:
-        style_old_name = matched_techpack.get("StyleName", "N/A")
-        specs_old_json = json.dumps(matched_techpack.get("DetailedMeasurements", {}), ensure_ascii=False)
-        
-        bom_summary = ""
-        if bom_records:
-            bom_summary = "\n".join([f"- Loại: {r.get('consumption_type')}, Vật tư: {r.get('article_name')}, Khổ gốc: {r.get('material_size')}, ĐM gốc: {r.get('consumption_value')}" for r in bom_records])
-
-        prompt_payload_text = f"""
-        You are an expert Garment Costing Engineer at PPJ Group. 
-        We found a matching historical style in our database: '{style_old_name}'.
-        Compare specs to calculate the adjusted consumption.
-        
-        DATA FOR COMPARISON:
-        1. Historical Style Specs: {specs_old_json}
-        2. Historical Style BOM Records: {bom_summary}
-        3. New Style Specs: {new_style_measurements_json}
-        
-        STRICT RULES:
-        1. Calculate structural variance ratio by comparing core dimensions.
-        2. Apply ratio to historical main fabric consumption to derive new net consumption.
-        3. ABSOLUTELY FORBIDDEN to apply the 12% cutting wastage.
-        4. Factor in new fabric width ({f_width}) and shrinkage (Width: {w_shrink}%, Length: {l_shrink}%).
-        
-        Return a single valid raw JSON object matching this schema (no markdown, no extra text):
-        {{
-          "calculation_mode": "ANALOGY_SCROLLING",
-          "historical_style_used": "{style_old_name}",
-          "structural_variance_ratio": 1.05,
-          "components": [
-             {{"name": "MAIN FABRIC (ADJUSTED BY ANALOGY)", "qty": 1, "area": 0.0, "width": 0.0, "height": 0.0}}
-          ],
-          "total_area": 0.0,
-          "default_marker_efficiency": 0.82
-        }}
-        """
-    # ==========================================
-    # LUỒNG 2: XỬ LÝ KHI KHÔNG CÓ MÃ TƯƠNG ĐỒNG (VIRTUAL PATTERN)
-    # ==========================================
-    else:
-        prompt_payload_text = f"""
-        You are an expert Industrial Pattern Maker and Garment Costing Engineer at PPJ Group.
-        Activate VIRTUAL PATTERN ENGINE. Analyze Flat Sketch image and New Spec (POM) measurements to simulate Layout Marker.
-        
-        INPUT DATA:
-        - Target Base Size: Size {detected_size}
-        - Parsed Techpack Specs: {new_style_measurements_json}
-        
-        STRICT RULES:
-        1. Automatically expand dimensions by adding 0.44" to general component seams.
-        2. Calculate raw pattern pieces sizing (Width, Height, Area in Sq Inches) for EACH component.
-        
-        Return a single valid raw JSON object matching this schema (no markdown, no extra text):
-        {{
-          "calculation_mode": "VIRTUAL_PATTERN",
-          "category": "SHORT",
-          "detected_features": {{
-             "cargo_pocket": false,
-             "cargo_qty": 0,
-             "elastic_waist": false,
-             "separate_placket": false
-          }},
-          "components": [
-            {{"name": "FRONT PANEL", "qty": 2, "width": 11.2, "height": 18.5, "area": 207.2}},
-            {{"name": "BACK PANEL", "qty": 2, "width": 12.1, "height": 19.0, "area": 229.9}}
-          ],
-          "default_marker_efficiency": 0.82
-        }}
-        """
-
-    # Đóng gói danh sách truyền dữ liệu vào mô hình hệ thống AI
-    chat_contents = [types.Part.from_text(text=prompt_payload_text)]
-    if not matched_techpack and target_new_sketch_bytes:
+    # BƯỚC 1: PHẦN NHẬN DIỆN CẤU TRÚC - GIAO CHO GEMINI (AI LÀM CHÍNH)
+    structural_audit_prompt = f"""
+    You are an expert Garment Structure Auditor at PPJ Group. 
+    Analyze the attached 'Flat Sketch' image and the 'New Spec (POM)' to output a precise Product Structural Schema.
+    
+    TASK:
+    1. Identify the core category (SHIRT, JACKET, PANT, SHORT).
+    2. Detect design features from the sketch (separate_placket, patch_pocket, cargo_pocket, elastic_waist, yoke, pleat).
+    3. Identify the required components list.
+    4. Map the exact keys/names from the input Techpack Specs to the standard structural measurements needed:
+       - Map the key for total body length to "body_length_key"
+       - Map the key for chest width or hip width to "primary_width_key"
+       - Map the key for sleeve length to "sleeve_length_key" (if applicable)
+       - Map the key for leg outseam/inseam to "leg_length_key" (if applicable)
+    
+    INPUT DATA:
+    - Techpack Specs Available Keys: {new_style_measurements_json}
+    
+    STRICT OUTPUT FORMAT:
+    Return ONLY a single valid raw JSON object matching the schema below. Do NOT output numbers for width/height/area. No markdown, no conversation.
+    
+    EXPECTED JSON SCHEMA:
+    {{
+      "category": "SHIRT",
+      "features": {{
+         "separate_placket": true,
+         "patch_pocket": true,
+         "cargo_pocket": false,
+         "elastic_waist": false,
+         "yoke": true,
+         "pleat": false
+      }},
+      "components": ["FRONT", "BACK", "SLEEVE", "COLLAR", "PLACKET"],
+      "pom_mapping": {{
+         "body_length_key": "vị trí chuỗi chính xác trong spec ví dụ: Body length từ HSP",
+         "primary_width_key": "vị trí chuỗi chính xác trong spec ví dụ: Chest width at armhole",
+         "sleeve_length_key": "vị trí chuỗi chính xác trong spec ví dụ: Sleeve length",
+         "leg_length_key": ""
+      }}
+    }}
+    """
+    
+    chat_contents = [types.Part.from_text(text=structural_audit_prompt)]
+    if target_new_sketch_bytes:
         chat_contents.append(types.Part.from_bytes(data=target_new_sketch_bytes, mime_type='image/jpeg'))
 
     if client is None:
-        return "🚨 Hệ thống AI chưa được cấu hình Client API."
-
-    # Gọi API xử lý dữ liệu cấu trúc
+        return "🚨 Lỗi: Hệ thống chưa cấu hình Client API cho Gemini."
     try:
+        # Gọi Gemini lấy dữ liệu cấu trúc thiết kế phẳng dạng JSON sạch
         response = client.models.generate_content(
             model='gemini-2.5-flash', 
             contents=chat_contents,
             config=types.GenerateContentConfig(response_mime_type="application/json")
         )
+        
         if not response or not response.text:
-            return "Hệ thống AI phản hồi rỗng."
+            return "🚨 Hệ thống AI phản hồi cấu trúc rỗng."
             
-        ai_data = json.loads(response.text.strip())
-        mode = ai_data.get("calculation_mode", "VIRTUAL_PATTERN")
+        schema_data = json.loads(response.text.strip())
         
-        # Tính toán cơ học bằng Python (Đảm bảo chính xác 100%, bỏ hao hụt 12%)
-        total_pattern_area = sum([float(c.get("area", 0.0)) * int(c.get("qty", 1)) for c in ai_data.get("components", [])])
-        marker_eff = float(ai_data.get("default_marker_efficiency", 0.82))
+        category = schema_data.get("category", "SHIRT").upper()
+        features = schema_data.get("features", {})
+        components = schema_data.get("components", [])
+        pom_map = schema_data.get("pom_mapping", {})
         
+        # Hàm phụ trợ đọc phân số và ép kiểu số từ Techpack một cách an toàn
+        def get_spec_value(pom_key):
+            if not pom_key: return 0.0
+            val_raw = new_style_measurements.get(pom_key, 0.0)
+            if 'parse_fraction' in globals():
+                return parse_fraction(str(val_raw))
+            try: return float(val_raw)
+            except: return 0.0
+
+        # Trích xuất giá trị thông số kỹ thuật thực tế từ dữ liệu đầu vào
+        body_length = get_spec_value(pom_map.get("body_length_key"))
+        primary_width = get_spec_value(pom_map.get("primary_width_key"))
+        sleeve_length = get_spec_value(pom_map.get("sleeve_length_key"))
+        leg_length = get_spec_value(pom_map.get("leg_length_key"))
+
+        # BƯỚC 2: CHUẨN HÓA TOÁN HỌC & ĐO ĐẠC HÌNH HỌC (PYTHON LÀM CHÍNH)
+        # CHUẨN HÓA WIDTH MAPPING: Phát hiện và xử lý hoán đổi chu vi với bán chu vi/rộng phẳng
+        if category in ["PANT", "SHORT"]:
+            if 5.0 <= primary_width <= 18.0:
+                primary_width = primary_width * 4.0   # Techpack lưu thông số 1/4 vòng mông
+            elif 18.1 <= primary_width <= 28.0:
+                primary_width = primary_width * 2.0   # Techpack lưu Rộng phẳng mông (Half-Circumference)
+        elif category in ["SHIRT", "JACKET"]:
+            if 10.0 <= primary_width <= 30.0:
+                primary_width = primary_width * 2.0   # Techpack lưu Rộng ngực phẳng ngang nách
+        # Thiết lập Ma trận Hệ số phom (Shape Factor) chuẩn PPJ Group để ổn định số liệu 100%
+        shape_factors = {
+            "SHIRT_FRONT": 0.86, "SHIRT_BACK": 0.88, "SLEEVE": 0.78, "COLLAR": 0.92,
+            "PANT_FRONT": 0.72, "PANT_BACK": 0.78, "WAISTBAND": 0.95, 
+            "PATCH_POCKET": 0.90, "CARGO_POCKET": 0.95, "PLACKET": 0.98
+        }
+        
+        # ĐỘ RỘNG ĐÁY THÂN SAU QUẦN: Quản lý tập trung linh hoạt theo đặc tính kiểu dáng sản phẩm
+        if category == "SHORT":
+            BACK_RISE_ALLOWANCE = 1.5
+        elif features.get("cargo_pocket"):
+            BACK_RISE_ALLOWANCE = 2.5  # Quần túi hộp cần đáy sâu thoải mái cử động rộng
+        else:
+            BACK_RISE_ALLOWANCE = 2.0  # Quần dài Tây / Denim Jeans tiêu chuẩn
+            
+        calculated_components = []
+        total_style_area = 0.0
+        seam = 0.44  # Biên may công nghiệp chuẩn PPJ
+        
+        # --- THUẬT TOÁN TÍNH DIỆN TÍCH CHO NHÓM HÀNG ÁO (SHIRT/JACKET) ---
+        if category in ["SHIRT", "JACKET"]:
+            if "FRONT" in components or "FRONT PANEL" in components:
+                w = (primary_width / 4) + seam
+                if features.get("separate_placket") is False: w += 1.5 
+                h = body_length + seam
+                area = w * h * shape_factors.get("SHIRT_FRONT", 0.86)
+                calculated_components.append({"name": "FRONT PANEL", "qty": 2, "width": round(w,2), "height": round(h,2), "area": round(area,2)})
+                total_style_area += (area * 2)
+                
+            if "BACK" in components or "BACK PANEL" in components:
+                w = (primary_width / 4) + seam
+                h = body_length + seam
+                area = w * h * shape_factors.get("SHIRT_BACK", 0.88)
+                calculated_components.append({"name": "BACK PANEL", "qty": 1, "width": round(w*2,2), "height": round(h,2), "area": round(area*2,2)})
+                total_style_area += (area * 2)
+                
+            if "SLEEVE" in components and sleeve_length > 0:
+                w = 9.5 + seam  
+                h = sleeve_length + seam
+                area = w * h * shape_factors.get("SLEEVE", 0.78)
+                calculated_components.append({"name": "SLEEVE PANEL", "qty": 2, "width": round(w,2), "height": round(h,2), "area": round(area,2)})
+                total_style_area += (area * 2)
+
+        # --- THUẬT TOÁN TÍNH DIỆN TÍCH CHO NHÓM HÀNG QUẦN (PANT/SHORT) ---
+        else:
+            outseam_val = leg_length if leg_length > 0 else body_length
+            
+            if "FRONT" in components or "FRONT PANEL" in components:
+                w = (primary_width / 4) + seam
+                h = outseam_val + seam
+                area = w * h * shape_factors.get("PANT_FRONT", 0.72)
+                calculated_components.append({"name": "FRONT PANEL", "qty": 2, "width": round(w,2), "height": round(h,2), "area": round(area,2)})
+                total_style_area += (area * 2)
+                
+            if "BACK" in components or "BACK PANEL" in components:
+                w = (primary_width / 4) + BACK_RISE_ALLOWANCE + seam 
+                h = outseam_val + seam
+                area = w * h * shape_factors.get("PANT_BACK", 0.78)
+                calculated_components.append({"name": "BACK PANEL", "qty": 2, "width": round(w,2), "height": round(h,2), "area": round(area,2)})
+                total_style_area += (area * 2)
+
+        # Cộng bù chi tiết phụ phát hiện thêm từ hình ảnh Flat Sketch qua AI
+        if features.get("cargo_pocket") or features.get("patch_pocket"):
+            p_qty = 2 if features.get("cargo_pocket") else 1
+            p_factor = "CARGO_POCKET" if features.get("cargo_pocket") else "PATCH_POCKET"
+            p_area = 7.0 * 7.0 * shape_factors.get(p_factor, 0.90)
+            calculated_components.append({"name": f"POCKET ({p_factor})", "qty": p_qty, "width": 7.0, "height": 7.0, "area": round(p_area,2)})
+            total_style_area += (p_area * p_qty)
+
+        # BƯỚC 3: MÔ PHỎNG SƠ ĐỒ MARKER VÀ KẾT XUẤT ĐỊNH MỨC YARDS CUỐI CÙNG
+        marker_eff = 0.82
+        if category in ["SHORT", "PANT"]:
+            if features.get("cargo_pocket") or features.get("pleat"): marker_eff = 0.78
+            elif features.get("elastic_waist"): marker_eff = 0.84
+            else: marker_eff = 0.82
+        elif category == "SHIRT":
+            marker_eff = 0.82 if not features.get("patch_pocket") else 0.80
+        elif category == "JACKET":
+            marker_eff = 0.72
+
+        # Quy đổi hình học ra Yards vải chính xác (TUYỆT ĐỐI KHÔNG NHÂN HỆ SỐ HAO HỤT CẮT 1.12)
         effective_width = float(f_width) if f_width > 0 else 58.0
         w_shrink_factor = 1.0 + (float(w_shrink) / 100.0)
         l_shrink_factor = 1.0 + (float(l_shrink) / 100.0)
         
-        if mode == "ANALOGY_SCROLLING":
-            history_main_fabric_cons = 0.0
-            if bom_records:
-                for r in bom_records:
-                    if "vải chính" in str(r.get("consumption_type", "")).lower() or "main fabric" in str(r.get("consumption_type", "")).lower():
-                        history_main_fabric_cons = float(r.get("consumption_value", 0.0))
-                        break
-            if history_main_fabric_cons == 0.0: history_main_fabric_cons = 3.0
-            base_net_cons = history_main_fabric_cons / 1.12 if history_main_fabric_cons > 1.5 else history_main_fabric_cons
-            consumption_yds = base_net_cons * float(ai_data.get("structural_variance_ratio", 1.0)) * l_shrink_factor * w_shrink_factor
-        else:
-            raw_length_inches = total_pattern_area / marker_eff / effective_width
-            consumption_yds = (raw_length_inches * l_shrink_factor * w_shrink_factor) / 36.0
-
-        # Trả về kết quả chuỗi sạch, định dạng bảng hiển thị gọn gàng trên UI Chatbox
-        result_table = f"### 📊 KẾT QUẢ ĐỊNH MỨC THỰC TẾ ({mode})\n\n"
-        result_table += f"- **Định mức vải chính:** `{round(consumption_yds, 4)} Yds` (Đã loại bỏ 12% hao hụt cắt)\n"
-        result_table += f"- **Hiệu suất sơ đồ áp dụng:** `{int(marker_eff * 100)}%` | **Tổng diện tích rập:** `{round(total_pattern_area, 2)} Sq Inches`\n\n"
-        result_table += "| Chi tiết rập | Qty | Rộng (in) | Dài (in) | Diện tích (sq in) |\n| :--- | :---: | :---: | :---: | :---: |\n"
-        for c in ai_data.get("components", []):
-            result_table += f"| {c.get('name')} | {c.get('qty')} | {c.get('width')} | {c.get('height')} | {c.get('area')} |\n"
-        return result_table
+        raw_length_inches = total_style_area / marker_eff / effective_width
+        final_length_inches = raw_length_inches * l_shrink_factor * w_shrink_factor
+        consumption_yds = final_length_inches / 36.0  
+        
+        # Dựng cấu trúc bảng Markdown sạch in thẳng lên UI Chatbox
+        result_view = f"### 📊 KẾT QUẢ ĐỊNH MỨC THỰC TẾ (MÔ PHỎNG PHOM DÁNG LAI PPJ)\n\n"
+        result_view += f"🎯 **Định mức vải chính thực tế:** `{round(consumption_yds, 4)} Yds` (Đã loại bỏ hoàn toàn 12% hao hụt cắt)\n"
+        result_view += f"📈 **Hiệu suất sơ đồ áp dụng:** `{int(marker_eff * 100)}%` | **Tổng diện tích chi tiết rập ảo:** `{round(total_style_area, 2)} Sq Inches`\n\n"
+        result_view += "##### 📐 BẢNG CHI TIẾT KÍCH THƯỚC BAO (BOUNDING BOX & SHAPE FACTOR)\n"
+        result_view += "| Tên chi tiết rập | Số lượng (Qty) | Rộng thô bao (in) | Dài thô bao (in) | Diện tích thực (sq in) |\n| :--- | :---: | :---: | :---: | :---: |\n"
+        for c in calculated_components:
+            result_view += f"| {c.get('name')} | {c.get('qty')} | {c.get('width')} | {c.get('height')} | {c.get('area')} |\n"
+            
+        return result_view
 
     except Exception as e:
-        return f"🚨 Lỗi tính toán định mức: {str(e)}"
+        return f"🚨 Lỗi đồng bộ hệ thống tính toán rập ảo lai: {str(e)}"
+
 
 if "get_secure_gemini_key" in globals():
     gemini_key = get_secure_gemini_key()
