@@ -1217,7 +1217,9 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
         else:
             st.caption(f"⚡ Đã nạp sẵn dữ liệu định mức BOM gốc gồm {len(st.session_state['bom_records'])} danh mục vật tư.")
 
-       # ---- BỔ SUNG DÒNG ĐỊNH NGHĨA CỘT BỊ THIẾU TẠI ĐÂY ----
+          # ---- KHAI BÁO LẠI CÁC BIẾN HỆ THỐNG BỊ THIẾU TẠI ĐÂY ----
+    matched_techpack = st.session_state.get("matched_techpack")
+    bom_records = st.session_state.get("bom_records", [])
     spec_col1, spec_col2 = st.columns(2)
 
     with spec_col1:
@@ -1259,6 +1261,7 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
         st.dataframe(pd.DataFrame(formatted_bom), use_container_width=True, hide_index=True)
 
     st.markdown("<br><hr style='border:0.5px solid #CBD5E1;'>", unsafe_allow_html=True)
+
 
     
            # THIẾT KẾ CỤM ĐIỀU KHIỂN CHAT BOX THÔNG MINH SIÊU TỐC
