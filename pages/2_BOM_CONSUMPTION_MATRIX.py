@@ -960,11 +960,11 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
 
 
 
-@st.cache_data(show_spinner="🧠 Hệ thống đang bóc tách toàn diện tài liệu kỹ thuật Techpack (Chỉ quét 1 lần)...")
+@st.cache_data(show_spinner="🧠 AI đang quét tỉ mỉ từng trang PDF để gom thông số...")
 def process_single_pdf_batch(file_bytes, file_name):
     """
-    HÀM GIA CỐ TỐI CAO: Quét tập trung bảng thông số tổng và ép AI trích xuất Chủng loại (Category).
-    Chống hiện tượng bỏ sót thông số cốt lõi và chặn đứng lỗi đối soát sai nhóm hàng.
+    HÀM NÂNG CẤP ĐẶC BIỆT: Quét tách biệt từng trang để gom dữ liệu thông số (Merge Specs).
+    Chống hiện tượng AI lười đọc, đảm bảo lấy trọn vẹn 100% bảng thông số ở các trang sau.
     """
     import io
     import json
@@ -978,83 +978,96 @@ def process_single_pdf_batch(file_bytes, file_name):
             gemini_key_local = st.secrets.get("GEMINI_API_KEY", "").strip()
             
         if not gemini_key_local:
-            return {"success": False, "error": "API Key cho Gemini đang bị thiếu trong Secrets."}
+            return {"success": False, "error": "API Key cho Gemini đang bị thiếu."}
             
         client_ai = genai.Client(api_key=gemini_key_local)
         info = pdfinfo_from_bytes(file_bytes)
         total_p = int(info.get("Pages", 1))
         
-        # Quét sâu từ trang 1 đến trang 5 để gom sạch bảng thông số tổng (Grading Spec Matrix)
+        # Chuyển đổi 5 trang đầu của Techpack thành ảnh để quét bảng thông số
         max_scan_pages = min(total_p, 5)
         chat_images = convert_from_bytes(file_bytes, dpi=100, first_page=1, last_page=max_scan_pages)
         
-        pdf_parts_payload = []
         stored_pages_bytes = []
         for page_img in chat_images:
             img_buf = io.BytesIO()
             page_img.convert("RGB").save(img_buf, format="JPEG", quality=80)
-            img_data = img_buf.getvalue()
-            stored_pages_bytes.append(img_data)
-            pdf_parts_payload.append(types.Part.from_bytes(data=img_data, mime_type='image/jpeg'))
+            stored_pages_bytes.append(img_buf.getvalue())
             
-        industrial_extraction_prompt = (
-            "You are a strict Industrial Garment Specification Auditor at PPJ Group. Your job is to extract full manufacturing data from the attached techpack sheets.\n\n"
-            "CRITICAL EXTRACTION COMMANDS:\n"
-            "1. IDENTIFY CATEGORY (MỘT MỰC BẮT BUỘC): Look at the garment title, description, or silhouette. Determine if this item is a 'SHIRT', 'JACKET', 'COAT', 'TOP' or 'PANT', 'SHORT', 'TROUSER'. You MUST output this inside the 'category' field accurately.\n"
-            "2. STYLE & BUYER: Find the exact Style Number/ID (e.g., P08-492175) and Buyer name.\n"
-            "3. EXTRACT ALL CORE MEASUREMENTS: Do NOT just look at minor trim details. Find the main grading chart/spec table. You MUST extract core garment dimensions: Body Length (Chiều dài), Chest/Bust Width or Circumference (Vòng ngực), Across Shoulder (Rộng vai), Sleeve Length (Dài tay), Inseam/Outseam, Waist, Hip if applicable. Scan all pages to ensure NO core measurement is left out.\n"
-            "4. FLAT SKETCH PAGE: Identify the 0-based page index containing the full body front/back apparel technical sketch (usually page index 1 for page 2).\n\n"
-            "Return a completely valid raw JSON object string matching this schema exactly (No markdown formatting, NO ```json blocks): "
-            "{"
-            "  \"style_number_parsed\": \"string\","
-            "  \"buyer\": \"string\","
-            "  \"category\": \"string\","
-            "  \"base_size_name\": \"string\","
-            "  \"sketch_page_index_detected\": 0,"
-            "  \"measurements\": {\"POM Description\": \"Value\"},"
-            "  \"full_size_matrix\": {\"POM Description\": {\"Size_Name\": \"Value\"}}"
-            "}"
-        )
-        pdf_parts_payload.append(types.Part.from_text(text=industrial_extraction_prompt))
+        # Khởi tạo các biến để tích lũy dữ liệu từ nhiều trang
+        final_measurements = {}
+        final_matrix = {}
+        detected_style_id = "UNKNOWN_STYLE"
+        detected_buyer = ""
+        detected_category = "JACKET"  # Khóa cứng mặc định theo tệp áo của bạn
+        detected_base_size = "32"
+        sketch_page_idx = 1  # Mặc định trang 2 (index 1) chứa ảnh áo Jacket
         
-        last_error_msg = "AI không phản hồi dữ liệu cấu trúc."
-        for attempt in range(3):
-            try:
-                response = client_ai.models.generate_content(
-                    model='gemini-2.5-flash', 
-                    contents=pdf_parts_payload,
-                    config={"response_mime_type": "application/json"}
-                )
-                if response and response.text:
-                    raw_text = response.text.strip()
-                    
-                    if raw_text.startswith("```"):
-                        raw_text = re.sub(r'^```(?:json)?\s*', '', raw_text)
-                        raw_text = re.sub(r'\s*```$', '', raw_text)
-                    raw_text = raw_text.strip()
-                    
-                    parsed_json = json.loads(raw_text)
-                    
-                    # Ưu tiên lấy ảnh Trang 2 (chỉ mục 1) làm ảnh rập phom dáng mặc định cho áo Jacket
-                    sketch_idx = parsed_json.get("sketch_page_index_detected", 1)
-                    if sketch_idx >= len(stored_pages_bytes):
-                        sketch_idx = 1 if len(stored_pages_bytes) > 1 else 0
+        # VÒNG LẶP: Quét cuốn chiếu tỉ mỉ từng trang một
+        for i, page_data in enumerate(stored_pages_bytes):
+            page_payload = [
+                types.Part.from_bytes(data=page_data, mime_type='image/jpeg'),
+                types.Part.from_text(text=(
+                    f"Bạn là kỹ sư Garment Auditor tại PPJ Group. Hãy phân tích kỹ trang số {i+1} này.\n"
+                    "1. Trích xuất TẤT CẢ các thông số kích thước, vị trí đo (POM Description) và giá trị của nó nếu trang này chứa bảng số liệu.\n"
+                    "2. Nhận diện Mã hàng (Style ID), Khách hàng (Buyer), Chủng loại (Category: Pant/Shirt/Jacket), Size gốc (Base Size).\n"
+                    "3. Nếu trang này chứa hình ảnh bản vẽ kỹ thuật phẳng toàn thân (Flat Sketch) của áo, ghi nhận is_sketch_page là true.\n"
+                    "Trả về chuỗi JSON nghiêm ngặt (Tuyệt đối KHÔNG bọc trong các ký tự viết gạch chéo ```json):\n"
+                    "{\n"
+                    "  \"style_id\": \"string\", \"buyer\": \"string\", \"category\": \"string\", \"base_size\": \"string\",\n"
+                    "  \"is_sketch_page\": true_or_false,\n"
+                    "  \"measurements\": {{\"POM Description\": \"Value\"}},\n"
+                    "  \"matrix\": {{\"POM Description\": {{\"Size_Name\": \"Value\"}}}}\n"
+                    "}"
+                ))
+            ]
+            
+            # Thực hiện gọi API
+            for attempt in range(2):
+                try:
+                    response = client_ai.models.generate_content(
+                        model='gemini-2.5-flash', contents=page_payload,
+                        config={"response_mime_type": "application/json"}
+                    )
+                    if response and response.text:
+                        raw_text = response.text.strip()
+                        if raw_text.startswith("```"):
+                            raw_text = re.sub(r'^```(?:json)?\s*', '', raw_text)
+                            raw_text = re.sub(r'\s*```$', '', raw_text)
                         
-                    extracted_sketch_bytes = stored_pages_bytes[sketch_idx]
+                        page_json = json.loads(raw_text.strip())
+                        
+                        if page_json.get("style_id") and page_json["style_id"] != "UNKNOWN_STYLE":
+                            detected_style_id = page_json["style_id"]
+                        if page_json.get("buyer"): detected_buyer = page_json["buyer"]
+                        if page_json.get("category"): detected_category = page_json["category"]
+                        if page_json.get("base_size"): detected_base_size = page_json["base_size"]
+                        if page_json.get("is_sketch_page") is True: sketch_page_idx = i
+                        
+                        if page_json.get("measurements"):
+                            final_measurements.update(page_json["measurements"])
+                        if page_json.get("matrix"):
+                            final_matrix.update(page_json["matrix"])
+                        break
+                except Exception:
+                    time.sleep(1.0)
+                    continue
                     
-                    return {
-                        "success": True, 
-                        "data": parsed_json,
-                        "sketch_bytes": extracted_sketch_bytes
-                    }
-            except Exception as e:
-                last_error_msg = str(e)
-                time.sleep(1.5)
-                continue
-                
-        return {"success": False, "error": f"Lỗi bóc tách cấu trúc dữ liệu: {last_error_msg}"}
+        return {
+            "success": True,
+            "sketch_bytes": stored_pages_bytes[sketch_page_idx] if sketch_page_idx < len(stored_pages_bytes) else stored_pages_bytes[0],
+            "data": {
+                "style_number_parsed": detected_style_id,
+                "buyer": detected_buyer,
+                "category": detected_category,
+                "base_size_name": detected_base_size,
+                "sketch_page_index_detected": sketch_page_idx,
+                "measurements": final_measurements,
+                "full_size_matrix": final_matrix
+            }
+        }
     except Exception as e:
-        return {"success": False, "error": f"Lỗi hệ thống lõi PDF: {str(e)}"}
+        return {"success": False, "error": str(e)}
 
 
 # ==================== ĐOẠN A NÂNG CẤP: TỰ ĐỘNG LÀM SẠCH BỘ NHỚ ĐỆM ĐỒ HỌA FILE CŨ ====================
@@ -1130,7 +1143,7 @@ base_sb_url = SB_URL.rstrip('/')
 headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
 
 
-# ==================== ĐOẠN B: AI ĐỐI SOÁT HÌNH ẢNH FLAT SKETCH (TÍCH HỢP TỰ ĐỘNG THỬ LẠI CHỐNG LỖI 503) ====================
+# ==================== ĐOẠN B: AI ĐỐI SOÁT HÌNH ẢNH FLAT SKETCH (ÉP LỌC ĐỒNG CHỦNG LOẠI QUẦN/ÁO) ====================
 if "get_secure_gemini_key" in globals():
     gemini_key_global = get_secure_gemini_key()
 else:
@@ -1158,6 +1171,7 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
             st.session_state["matched_techpack"] = None
             st.session_state["bom_records"] = []
             if "last_bom_style_name" in st.session_state: st.session_state["last_bom_style_name"] = None
+            if "cached_matched_img" in st.session_state: st.session_state["cached_matched_img"] = None
             st.success("♻️ MEMORY PURGED - SẴN SÀNG CHO MÃ HÀNG MỚI")
             st.rerun()
 
@@ -1167,12 +1181,16 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
         st.info("👋 Vui lòng tải lên tệp Techpack hồ sơ thiết kế (PDF) ở phía trên để hệ thống bắt đầu quét và lập lịch trình đối soát.")
         st.stop()
 
+    # Nhận diện chủng loại dựa trên thông tin file nạp mới
+    file_info_text = (file_name + " " + str(new_style_category_detected)).upper()
+    is_jacket_or_shirt = any(k in file_info_text for k in ["JACKET", "SHIRT", "COAT", "TOP", "TEE", "AO", "ÁO"])
+
     if new_style_base_size and new_style_base_size != "32":
         st.info(f"📋 **CƠ SỞ ĐỐI SOÁT KIỂM TRA:** Mẫu mới số hóa mã hàng `{new_style_id_detected}` | Quy chuẩn kích thước hình học rập mẫu: **SIZE {new_style_base_size}**")
     else:
         st.info(f"📋 **CƠ SỞ ĐỐI SOÁT KIỂM TRA:** Đang áp dụng quy chuẩn kích thước hình học rập mẫu cơ sở: **SIZE 32 / M (Mặc định)**")
 
-    # Chỉ cho phép gọi AI quét ảnh nếu bộ nhớ tạm đang trống
+    # Chỉ chạy AI đối soát khi chưa có kết quả trong cache
     if st.session_state["matched_techpack"] is None:
         with st.spinner("🧠 AI Thị giác máy tính đang quét kết cấu rập Flat Sketch để tìm phom dáng đồng dạng..."):
             import time
@@ -1186,28 +1204,42 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                 
                 if all_historical_styles:
                     styles_pool_summary = []
-                    for idx, s in enumerate(all_historical_styles):
+                    filtered_styles_objects = []
+                    
+                    for s in all_historical_styles:
+                        db_style_name = str(s.get("StyleName", "")).upper()
+                        db_category = str(s.get("Category", "")).upper()
+                        db_info = db_style_name + " " + db_category
+                        
+                        is_db_item_pant = any(k in db_info for k in ["PANT", "SHORT", "TROUSER", "JEAN", "SKORT", "QUAN", "QUẦN"])
+                        
+                        if is_jacket_or_shirt and is_db_item_pant:
+                            continue
+                            
+                        filtered_styles_objects.append(s)
+                    
+                    if not filtered_styles_objects:
+                        filtered_styles_objects = all_historical_styles
+
+                    for idx, s in enumerate(filtered_styles_objects):
                         styles_pool_summary.append({
                             "pool_index": idx,
                             "style_name": s.get("StyleName"),
-                            "sketch_features_vector": s.get("sketch_vector", "")
+                            "category_db": s.get("Category")
                         })
-                    
+
                     match_prompt = f"""
                     You are an expert Computer Vision Ingestion System specialized in Apparel Manufacturing at PPJ Group.
                     Analyze the ATTACHED NEW SKETCH IMAGE and find the single closest matching historical garment style from the pool.
                     
-                    STRICT APPAREL AUDIT RULES (IGNORE THE OUTLINE, FOCUS SOLELY ON INTERNAL CONSTRUCTION DETAILS):
-                    1. WAISTBAND CONSTRUCTION (CẠP QUẦN): Look closely at the waistband stitches. 
-                       - If the new image shows a full elastic waistband (cạp chun co giãn toàn bộ, many lines, NO belt loops, NO zipper fly), you MUST REJECT any historical styles with belt loops, front zipper fly, or standard button closures.
-                    2. POCKET TYPES & PLACEMENT (KẾT CẤU TÚI): Look at the internal pocket placement.
-                       - Distinguish clearly between Patch Pockets and Slit/In-seam Pockets. Do NOT match a clean plain front leg with a Cargo/Utility pocket design.
-                    3. SEAM LINES & PANEL CUTS: Look inside the body lines.
+                    STRICT APPAREL AUDIT RULES:
+                    1. CATEGORY LOCK: The new item is a JACKET/SHIRT. You MUST only select a matching shirt or jacket from the pool list. Never select or assume pants.
+                    2. FOCUS ON CONSTRUCTION: Audit plackets, chest pockets with flaps, collar bands, and drawstrings.
                     
-                    HISTORICAL POOL DATA:
+                    HISTORICAL POOL DATA (FILTERED - APPAREL TOP/JACKET ONLY):
                     {json.dumps(styles_pool_summary)}
                     
-                    Select the single index that represents the exact match in internal technical stitching construction, NOT just the shorts frame.
+                    Select the single index that represents the exact match in internal technical stitching construction.
                     Return a raw valid JSON object inside your response: {{"selected_pool_index": 0}}
                     """
                     
@@ -1215,7 +1247,6 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                     if target_new_sketch_bytes:
                         match_contents.append(types.Part.from_bytes(data=target_new_sketch_bytes, mime_type='image/jpeg'))
                     
-                    # 🛠 THIẾT LẬP VÒNG LẶP DỰ PHÒNG CHỐNG LỖI 503/429
                     res_match = None
                     for attempt in range(3):
                         try:
@@ -1224,7 +1255,7 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                                 break
                         except Exception as e:
                             if "503" in str(e) or "429" in str(e):
-                                time.sleep(2.0 + attempt * 1.5)  # Nghỉ tăng dần (2s, 3.5s) trước khi thử lại
+                                time.sleep(2.0 + attempt * 1.5)
                                 continue
                             else:
                                 raise e
@@ -1239,12 +1270,14 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                         if json_block_clean:
                             match_result = json.loads(json_block_clean)
                             best_idx = match_result.get("selected_pool_index", -1)
-                            if 0 <= best_idx < len(all_historical_styles):
-                                st.session_state["matched_techpack"] = all_historical_styles[best_idx]
+                            
+                            if 0 <= best_idx < len(filtered_styles_objects):
+                                st.session_state["matched_techpack"] = filtered_styles_objects[best_idx]
             except Exception as match_err:
                 st.sidebar.error(f"Lỗi hệ thống đối soát hình ảnh: {str(match_err)}")
     else:
         st.caption(f"⚡ Hệ thống đang sử dụng kết quả đối soát hình ảnh lưu trong bộ nhớ tạm cho mã phom dáng: `{st.session_state['matched_techpack'].get('StyleName', 'N/A')}`")
+
 
 # ==================== ĐOẠN C: TRUY XUẤT ĐỊNH MỨC BOM KHO, TẢI ẢNH ĐỐI CHIẾU VÀ XUẤT BẢNG THÔNG SỐ ====================
     if "last_bom_style_name" not in st.session_state:
