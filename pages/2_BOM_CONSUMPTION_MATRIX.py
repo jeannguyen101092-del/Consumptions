@@ -1099,7 +1099,8 @@ def process_single_pdf_batch(file_bytes, file_name):
 
               # ==========================================
               # ==========================================
-        # 🎯 TẦNG 3: OCR PNG 300 DPI BẰNG GEMINI 2.5 PRO & ĐỊNH NGHĨA RESPONSE SCHEMA NGHIÊM NGẶT
+               # ==========================================
+        # 🎯 TẦNG 3: OCR PNG 300 DPI CHI TIẾT BẰNG GEMINI 2.5 PRO TRÊN BẢN ĐỒ ẢNH ĐỘC LẬP
         # ==========================================
         for p_idx in pages_to_render_high:
             if p_idx not in high_res_pool_map:
@@ -1113,6 +1114,7 @@ def process_single_pdf_batch(file_bytes, file_name):
             if p_idx == sketch_page_idx:
                 sketch_image_bytes = png_bytes
                 
+            # Tiết kiệm token: Nếu trang này không nằm trong mục chứa bảng Spec, không gọi Pro
             if p_idx not in target_spec_pages:
                 continue
                 
@@ -1124,11 +1126,12 @@ def process_single_pdf_batch(file_bytes, file_name):
                     "STRICT MATRIX RULES (NO OMISSION):\n"
                     "1. EXTRACT ALL ROWS & ALL COLUMNS: Extract EVERY single POM row and EVERY size column (e.g., XS, S, M, L, XL, XXL, 30, 32, 34). You MUST extract EVERY size column. Never summarize or collapse size ranges.\n"
                     "2. NO PARTIAL ROWS: Capture all values flawlessly. Never return partial rows.\n"
-                    "3. METADATA: Extract Style ID/Number, Buyer Name, Category (Pant/Shirt/Jacket), and Base/Sample Size."
+                    "3. METADATA: Extract Style ID/Number, Buyer Name, Category (Pant/Shirt/Jacket), and Base/Sample Size.\n\n"
+                    "You MUST strict focus on extracting main body dimensions like Chest, Body Length, Sleeve Length, and Across Shoulder."
                 ))
             ]
             
-            # Khai báo cấu trúc Schema định dạng đầu ra bắt buộc cho Gemini Pro
+            # SỬA LỖI 1: Cấu hình response_schema tương thích 100% với Google GenAI SDK mới
             from google.genai import types as genai_types
             structured_schema = genai_types.Schema(
                 type=genai_types.Type.OBJECT,
@@ -1139,14 +1142,11 @@ def process_single_pdf_batch(file_bytes, file_name):
                     "base_size": genai_types.Schema(type=genai_types.Type.STRING),
                     "measurements": genai_types.Schema(
                         type=genai_types.Type.OBJECT,
-                        additional_properties=genai_types.Schema(type=genai_types.Type.STRING)
+                        description="Single size specifications mapping POM description to value"
                     ),
                     "matrix": genai_types.Schema(
                         type=genai_types.Type.OBJECT,
-                        additional_properties=genai_types.Schema(
-                            type=genai_types.Type.OBJECT,
-                            additional_properties=genai_types.Schema(type=genai_types.Type.STRING)
-                        )
+                        description="Full grading size matrix mapping POM description to nested size columns"
                     )
                 },
                 required=["style_id", "buyer", "category", "base_size", "measurements", "matrix"]
@@ -1154,14 +1154,13 @@ def process_single_pdf_batch(file_bytes, file_name):
             
             for attempt in range(2):
                 try:
-                    # Gọi Gemini 2.5 Pro cấu hình cao bảo vệ luồng dữ liệu sạch
                     response = client_ai.models.generate_content(
                         model='gemini-2.5-pro', 
                         contents=pro_payload, 
                         config=genai_types.GenerateContentConfig(
                             response_mime_type="application/json",
                             response_schema=structured_schema,
-                            temperature=0.1 # Khóa chặt độ sáng tạo để AI trích xuất số liệu chính xác tuyệt đối
+                            temperature=0.1
                         )
                     )
                     if response and response.text:
@@ -1176,7 +1175,7 @@ def process_single_pdf_batch(file_bytes, file_name):
                         if pro_json.get("measurements"):
                             final_measurements.update(pro_json["measurements"])
                             
-                        # Thuật toán Merge sâu tích lũy dải kích cỡ ma trận size
+                        # THUẬT TOÁN DEEP MERGE MA TRẬN SIZE CHỐNG GHI ĐÈ
                         if pro_json.get("matrix"):
                             for pom_key, sizes_dict in pro_json["matrix"].items():
                                 if pom_key not in final_matrix:
@@ -1196,38 +1195,53 @@ def process_single_pdf_batch(file_bytes, file_name):
         full_context_text = final_cat_upper + " " + file_name_upper
         
         is_bottom_group = any(k in full_context_text for k in ["PANT", "SHORT", "TROUSER", "JEAN", "SKORT", "JOGGER", "QUAN", "QUẦN", "SKIRT", "VÁY"])
-        is_top_group = any(k in full_context_text for k in ["SHIRT", "JACKET", "COAT", "TOP", "TEE", "AO", "ÁO", "HOODIE", "BLAZER", "SWEATER"])
+        is_top_group = any(k in full_context_text for k in ["SHIRT", "JACKET", "COAT", "TOP", "TEE", "AO", "ÁO", "HOODIE", "BLAZER", "SWEATER", "POLO"])
         
+        # SỬA LỖI 2: Tạo mảng all_poms gom tụ cả measurements và matrix để chống báo lỗi thiếu thông số giả
+        all_poms = set(final_measurements.keys())
+        for pom in final_matrix.keys():
+            all_poms.add(pom)
+            
         missing_core_fields = []
-        resolved_category = "JACKET" 
         
+        # SỬA LỖI 3: Trả lại bản chất phân loại chủng loại (Category Mapping), không ép mọi thứ về JACKET
+        resolved_category = "JACKET" # Giá trị dự phòng
         if is_bottom_group:
-            resolved_category = "PANT"
+            if "JOGGER" in full_context_text: resolved_category = "JOGGER"
+            elif "SHORT" in full_context_text: resolved_category = "SHORT"
+            elif "JEAN" in full_context_text: resolved_category = "JEAN"
+            else: resolved_category = "PANT"
+            
             required_pant_aliases = {
                 "WAIST (VÒNG CẠP)": ["WAIST", "WAISTBAND", "CẠP", "BỤNG", "CHÂN CẠP"],
                 "HIP (VÒNG MÔNG)": ["HIP", "SEAT", "MÔNG", "VÒNG MÔNG"],
                 "LENGTH (DÀI QUẦN)": ["OUTSEAM", "INSEAM", "LENGTH", "SIDE LENGTH", "DÀI QUẦN", "DỌC QUẦN", "GIÀNG QUẦN"]
             }
             for formal_name, alias_list in required_pant_aliases.items():
-                has_match = any(any(alias in k.upper() for alias in alias_list) for k in final_measurements.keys())
+                has_match = any(any(alias in k.upper() for alias in alias_list) for k in all_poms)
                 if not has_match:
                     missing_core_fields.append(formal_name)
                     
         elif is_top_group:
-            resolved_category = "JACKET"
+            if "SHIRT" in full_context_text: resolved_category = "SHIRT"
+            elif "TEE" in full_context_text or "TSHIRT" in full_context_text: resolved_category = "TEE"
+            elif "HOODIE" in full_context_text: resolved_category = "HOODIE"
+            elif "POLO" in full_context_text: resolved_category = "POLO"
+            else: resolved_category = "JACKET"
+            
             required_coat_aliases = {
                 "CHEST (VÒNG NGỰC)": ["CHEST", "PTP", "PIT TO PIT", "BUST", "HALF CHEST", "1/2 CHEST", "NGỰC", "VÒNG NGỰC"],
                 "BODY LENGTH (DÀI ÁO)": ["BODY LENGTH", "CB LENGTH", "HPS LENGTH", "BACK LENGTH", "LENGTH FROM HPS", "DÀI ÁO", "DÀI THÂN"],
                 "SLEEVE LENGTH (DÀI TAY)": ["SLEEVE LENGTH", "SLEEVE FROM HPS", "SLEEVE CENTER BACK", "DÀI TAY"]
             }
             for formal_name, alias_list in required_coat_aliases.items():
-                has_match = any(any(alias in k.upper() for alias in alias_list) for k in final_measurements.keys())
+                has_match = any(any(alias in k.upper() for alias in alias_list) for k in all_poms)
                 if not has_match:
                     missing_core_fields.append(formal_name)
                     
         else:
             resolved_category = detected_category if detected_category else "GARMENT"
-            if not final_measurements:
+            if not all_poms:
                 missing_core_fields.append("Bảng thông số trống (AI không quét được vị trí đo nào)")
 
         if missing_core_fields:
@@ -1248,6 +1262,7 @@ def process_single_pdf_batch(file_bytes, file_name):
         }
     except Exception as e:
         return {"success": False, "error": f"Lỗi kiến trúc xử lý vạn năng 3 tầng: {str(e)}"}
+
 
 
        
