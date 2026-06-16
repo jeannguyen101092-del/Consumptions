@@ -1167,21 +1167,31 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
         # Thông báo hệ thống đang tận dụng bộ nhớ tạm siêu tốc, không gọi lại AI
         st.caption(f"⚡ Hệ thống đang sử dụng kết quả đối soát hình ảnh lưu trong bộ nhớ tạm cho mã phom dáng: `{st.session_state['matched_techpack'].get('StyleName', 'N/A')}`")
 # ==================== ĐOẠN C: TRUY XUẤT ĐỊNH MỨC BOM KHO, TẢI ẢNH ĐỐI CHIẾU VÀ XUẤT BẢNG THÔNG SỐ ====================
+    if "last_bom_style_name" not in st.session_state:
+        st.session_state["last_bom_style_name"] = None
+
     if st.session_state.get("matched_techpack"):
-        # KIỂM TRA KHÓA TRẠNG THÁI BOM: Chỉ tải từ Supabase dữ liệu BOM nếu danh sách trong bộ nhớ tạm đang trống
-        if not st.session_state.get("bom_records"):
-            try:
-                target_style_name_bom = str(st.session_state["matched_techpack"].get("StyleName", "")).strip()
+        try:
+            target_style_name_bom = str(st.session_state["matched_techpack"].get("StyleName", "")).strip()
+            
+            # KIỂM TRA ĐỔI MÃ: Nếu mã ảnh mới khác mã xử lý trước đó, tự động xóa sạch bộ nhớ tạm BOM cũ
+            if st.session_state["last_bom_style_name"] != target_style_name_bom:
+                st.session_state["bom_records"] = []
+                st.session_state["last_bom_style_name"] = target_style_name_bom
+
+            # Tiến hành tải dữ liệu vật tư mới từ kho sau khi RAM đã được làm sạch
+            if not st.session_state.get("bom_records"):
                 url_bom = f"{SB_URL.rstrip('/')}/rest/v1/san_pham"
-                
                 query_bom = {
                     "select": "style_name,article_name,consumption_type,material_size,uom,consumption_value,notes",
                     "style_name": f"eq.{target_style_name_bom}"
                 }
                 res_bom = requests.get(url_bom, headers=headers, params=query_bom, timeout=15)
+                
                 if res_bom.status_code == 200 and len(res_bom.json()) > 0:
                     st.session_state["bom_records"] = res_bom.json()
                 else:
+                    # Thuật toán dự phòng trích xuất số để dò tìm gần đúng nếu bảng sản phẩm đặt tên lệch ký tự
                     core_digits = re.findall(r'\d+', target_style_name_bom)
                     search_digits = max(core_digits, key=len) if core_digits else target_style_name_bom
                     
@@ -1195,17 +1205,17 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                         st.session_state["bom_records"] = [r for r in raw_list if search_digits in str(r.get("style_name", ""))]
                     else:
                         st.session_state["bom_records"] = []
-            except Exception:
-                st.session_state["bom_records"] = []
+        except Exception:
+            st.session_state["bom_records"] = []
 
     matched_techpack = st.session_state.get("matched_techpack")
     bom_records = st.session_state.get("bom_records", [])
 
-    # Khởi tạo bộ nhớ tạm khóa hình ảnh đối chứng tránh vòng lặp tải mạng lặp lại
+    # Khởi tạo bộ nhớ tạm khóa hình ảnh đối chứng tránh vòng lặp tải mạng lặp lại gây chậm
     if "cached_matched_img" not in st.session_state: st.session_state["cached_matched_img"] = None
     if "last_matched_style_name" not in st.session_state: st.session_state["last_matched_style_name"] = None
 
-    st.markdown("### 🖼 *ĐỐI CHIẾU SỰ TƯƠNG ĐỒNG HÌNH ẢNH THIẾT KẾ (FLAT SKETCH)*")
+    st.markdown("### 🖼️ *ĐỐI CHIẾU SỰ TƯƠNG ĐỒNG HÌNH ẢNH THIẾT KẾ (FLAT SKETCH)*")
     img_col1, img_col2 = st.columns(2)
     with img_col1:
         if target_new_sketch_bytes is not None:
@@ -1216,7 +1226,7 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
             target_style_name = str(matched_techpack.get("StyleName", "Mẫu tương đồng")).strip().upper()
             st.markdown(f"<p style='color: #1E3A8A; font-size: 13px; font-weight: 700; margin-bottom: 8px; text-align: center;'>🎯 Mã tương đồng kết cấu ảnh: {target_style_name}</p>", unsafe_allow_html=True)
             
-            # KIỂM TRA KHÓA TRẠNG THÁI ẢNH: Nếu đổi mã hoặc chưa có ảnh trong RAM thì mới kết nối Cloud Storage
+            # KIỂM TRA KHÓA TRẠNG THÁI ẢNH: Chỉ tải từ Cloud Storage nếu đổi mã hoặc RAM ảnh trống
             if st.session_state["last_matched_style_name"] != target_style_name or st.session_state["cached_matched_img"] is None:
                 st.session_state["last_matched_style_name"] = target_style_name
                 st.session_state["cached_matched_img"] = None
@@ -1249,7 +1259,7 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                     else:
                         st.session_state["cached_matched_img"] = {"type": "empty", "data": None}
 
-            # HIỂN THỊ ẢNH SIÊU TỐC TỪ CACHE
+            # HIỂN THỊ ẢNH SIÊU TỐC TRỰC TIẾP TỪ BỘ NHỚ TẠM RAM
             cached_img = st.session_state["cached_matched_img"]
             if cached_img["type"] == "bytes":
                 try:
