@@ -971,7 +971,7 @@ def process_single_pdf_batch(file_bytes, file_name):
     import json
     import time
     import re
-    from pypdf import PdfReader
+    from streamlit.runtime.uploaded_file_manager import PdfReader
     from pdf2image import convert_from_bytes
     
     try:
