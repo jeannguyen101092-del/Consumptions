@@ -1186,6 +1186,7 @@ def process_single_pdf_batch(file_bytes, file_name):
         )
         pdf_parts_payload.append(types.Part.from_text(text=industrial_extraction_prompt))
         
+                # KHỐI LỆNH HOÀN CHỈNH: ĐÃ SỬA CHUẨN RESPONSE_MIME_TYPE VÀ ĐÓNG ĐẦY ĐỦ NGOẶC
         for attempt in range(3):
             try:
                 response = client_ai.models.generate_content(
@@ -1195,8 +1196,9 @@ def process_single_pdf_batch(file_bytes, file_name):
                         response_mime_type="application/json"
                     )
                 )
+                # Kiểm tra phản hồi từ mô hình trước khi bóc tách cấu trúc dữ liệu JSON
                 if response and response.text:
-                    parsed_json = json.loads(response.text)
+                    parsed_json = json.loads(response.text.strip())
                     sketch_idx = int(parsed_json.get("sketch_page_index_detected", 0))
 
                     if 0 <= sketch_idx < len(stored_pages_bytes):
@@ -1210,11 +1212,12 @@ def process_single_pdf_batch(file_bytes, file_name):
                         "sketch_bytes": extracted_sketch_bytes
                     }
             except Exception:
+                import time
                 time.sleep(1.5)
                 continue
-        return {"success": False, "error": "AI không thể cấu trúc dữ liệu JSON sau 3 lần thử."}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
+                
+        return {"success": False, "error": "AI không thể cấu trúc dữ liệu JSON sau 3 lần thử lại."}
+
 
 # Khởi tạo trạng thái mặc định của các biến
 new_style_id_detected = "UNKNOWN_STYLE"
