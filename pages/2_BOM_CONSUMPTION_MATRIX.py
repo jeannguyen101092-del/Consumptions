@@ -962,9 +962,10 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
 @st.cache_data(show_spinner="⚙️ Hệ thống 3 Tầng đang định tuyến tìm trang Spec siêu tốc...")
 def process_single_pdf_batch(file_bytes, file_name):
     """
-    HÀM KIẾN TRÚC TỐI ƯU 3 TẦNG CHUẨN PPJ GROUP - PHẦN 1
-    - Loại bỏ hoàn toàn pypdf: Đọc chuỗi nhị phân trực tiếp chống lỗi ImportError/ModuleNotFound.
-    - Sửa lỗi Poppler render lặp: Gom render 300 DPI một lượt duy nhất.
+    HÀM KIẾN TRÚC TỐI ƯU 3 TẦNG CHUẨN PPJ GROUP - PHẦN 1 (ĐÃ KHỬ LỖI CÚ PHÁP TẦNG 2)
+    - TẦNG 1: Quét chuỗi nhị phân thô tốc độ cao.
+    - TẦNG 2: Xử lý làm sạch chuỗi JSON nghiêm ngặt từ Gemini Flash 100 DPI để định tuyến trang Spec chính xác.
+    - TẦNG 3: Ép kết xuất đồ họa PNG 300 DPI một lượt duy nhất chống lặp Poppler.
     """
     import io
     import json
@@ -983,7 +984,7 @@ def process_single_pdf_batch(file_bytes, file_name):
             
         client_ai = genai.Client(api_key=gemini_key_local)
         
-        # Đọc cấu trúc tệp PDF lấy tổng số trang bằng pdf2image (An toàn tuyệt đối)
+        # Đọc cấu trúc tệp PDF lấy tổng số trang bằng pdf2image
         info = pdfinfo_from_bytes(file_bytes)
         total_p = int(info.get("Pages", 1))
         max_scan_pages = min(total_p, 15)
@@ -992,22 +993,18 @@ def process_single_pdf_batch(file_bytes, file_name):
         sketch_page_idx = 1     
         
         # ==========================================
-        # 🎯 TẦNG 1: QUÉT TEXT QUA CHUỖI NHỊ PHÂN TRỰC TIẾP (0 TOKEN - TỨC THÌ - CHỐNG LỖI IMPORT)
+        # 🎯 TẦNG 1: QUÉT TEXT QUA CHUỖI NHỊ PHÂN TRỰC TIẾP (0 TOKEN - TỨC THÌ)
         # ==========================================
-        # Chuyển đổi mảng byte sang chuỗi string ký tự hoa để quét từ khóa ma trận size
         raw_text_content = str(file_bytes).upper()
-        
-        # Tích hợp bộ lọc Regex tìm kiếm sự xuất hiện của bảng Spec trong cấu trúc nhị phân
         spec_pattern = re.compile(r"(SPEC|MEASUREMENT|POM|GRADING|GRADE RULE|POINT OF MEASURE|BODY LENGTH|CHEST)", re.I)
         
         if spec_pattern.search(raw_text_content):
-            # Nếu phát hiện file chứa cấu trúc text Spec, mặc định chọn quét diện rộng 5 trang đầu
             target_spec_pages = list(range(min(5, total_p)))
             if "FLAT" in raw_text_content or "SKETCH" in raw_text_content:
                 sketch_page_idx = 1 if total_p > 1 else 0
 
         # ==========================================
-        # 🎯 TẦNG 2: PDF SCAN ẢNH TOÀN BỘ (NẾU TẦNG 1 KHÔNG CÓ DẤU VẾT TEXT) -> DÙNG GEMINI FLASH 100 DPI
+        # 🎯 TẦNG 2: DÒ TÌM TRANG BẰNG GEMINI FLASH 100 DPI (SỬA LỖI CÚ PHÁP JSON TRẢ VỀ)
         # ==========================================
         if not target_spec_pages:
             low_dpi_images = convert_from_bytes(file_bytes, dpi=100, first_page=1, last_page=max_scan_pages)
@@ -1022,23 +1019,35 @@ def process_single_pdf_batch(file_bytes, file_name):
                         "Analyze this techpack sheet page image thumbnail.\n"
                         "Does this page contain a measurement specification table, grading chart, POM table, or sizing matrix?\n"
                         "Also, check if it contains the main full-body front/back Flat Sketch design drawing.\n"
-                        "Return only a raw valid JSON object (No markdown blocks): "
+                        "Return a completely valid raw JSON object matching this schema (Absolutely NO markdown code blocks, NO ```json wrapping):\n"
                         '{"is_spec_table": true_or_false, "is_flat_sketch": true_or_false}'
                     ))
                 ]
                 try:
-                    res_flash = client_ai.models.generate_content(model='gemini-2.5-flash', contents=flash_payload)
-                    if res_match_text := res_flash.text:
-                        clean_json_text = re.sub(r'```(?:json)?\s*|\s*```', '', res_match_text.strip())
-                        flash_json = json.loads(clean_json_text)
+                    res_flash = client_ai.models.generate_content(
+                        model='gemini-2.5-flash', 
+                        contents=flash_payload,
+                        config={"response_mime_type": "application/json"}
+                    )
+                    if res_flash and res_flash.text:
+                        raw_flash_text = res_flash.text.strip()
                         
-                        if flash_json.get("is_spec_table") is True:
+                        # Khử hoàn toàn các khối ký tự markdown thừa gây lỗi biên dịch JSON
+                        if raw_flash_text.startswith("```"):
+                            raw_flash_text = re.sub(r'^```(?:json)?\s*', '', raw_flash_text)
+                            raw_flash_text = re.sub(r'\s*```$', '', raw_flash_text)
+                        
+                        flash_json = json.loads(raw_flash_text.strip())
+                        
+                        # Sử dụng toán tử so sánh ép kiểu boolean an toàn
+                        if str(flash_json.get("is_spec_table")).lower() == "true":
                             target_spec_pages.append(idx)
-                        if flash_json.get("is_flat_sketch") is True:
+                        if str(flash_json.get("is_flat_sketch")).lower() == "true":
                             sketch_page_idx = idx
                 except Exception:
                     continue
 
+        # Bộ lọc dự phòng diện rộng an toàn nếu file quá mờ AI không nhận diện được loại trang
         if not target_spec_pages:
             target_spec_pages = list(range(min(5, total_p)))
 
@@ -1064,6 +1073,7 @@ def process_single_pdf_batch(file_bytes, file_name):
             first_page=min_p + 1, 
             last_page=max_p + 1
         )
+
 
         # ==========================================
         # 🎯 TẦNG 3: OCR PNG 300 DPI CHỈ ĐỊNH BẰNG GEMINI 2.5 PRO & MERGE CHỐNG MẤT SIZE
