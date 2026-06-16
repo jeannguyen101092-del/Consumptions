@@ -1170,7 +1170,7 @@ def process_single_pdf_batch(file_bytes, file_name):
             stored_pages_bytes.append(img_data)
             pdf_parts_payload.append(types.Part.from_bytes(data=img_data, mime_type='image/jpeg'))
             
-        industrial_extraction_prompt = (
+                industrial_extraction_prompt = (
             "You are an expert Garment Specification Auditor at PPJ Group. Analyze all attached sheets page by page. "
             "1. Identify the core 'Base Size' / 'Sample Size'. "
             "2. Identify the Buyer name and Category (Pant/Shirt/Jacket). "
@@ -1191,7 +1191,6 @@ def process_single_pdf_batch(file_bytes, file_name):
         )
         pdf_parts_payload.append(types.Part.from_text(text=industrial_extraction_prompt))
         
-        # KHỐI LỆNH ĐÃ SỬA CHUẨN RESPONSE_MIME_TYPE VÀ ĐÓNG ĐẦY ĐỦ NGOẶC
         for attempt in range(3):
             try:
                 response = client_ai.models.generate_content(
@@ -1223,6 +1222,7 @@ def process_single_pdf_batch(file_bytes, file_name):
         
     except Exception as e:
         return {"success": False, "error": str(e)}
+
 
 
 
