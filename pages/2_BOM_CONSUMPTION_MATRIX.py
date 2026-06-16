@@ -850,9 +850,21 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
     style_old_name = matched_techpack.get("StyleName", "N/A") if matched_techpack else "N/A"
     specs_old = matched_techpack.get("DetailedMeasurements", {}) if matched_techpack else {}
     
+    # 1. TỔNG HỢP TOÀN BỘ NGUYÊN PHỤ LIỆU CÓ TRONG KHO DỮ LIỆU BOM LỊCH SỬ
     bom_summary = ""
     if bom_records:
-        bom_summary = "\n".join([f"- Vật tư: {r.get('consumption_type')}, Mã vải: {r.get('article_name')}, Khổ vải gốc: {r.get('material_size')}, ĐM gốc: {r.get('consumption_value')}" for r in bom_records])
+        bom_summary_list = []
+        for idx, r in enumerate(bom_records):
+            def clean_nan(v): return "" if (not v or str(v).lower() in ["nan", "none", "null"]) else str(v).strip()
+            bom_summary_list.append(
+                f"{idx+1}. Loại: {clean_nan(r.get('consumption_type'))} | "
+                f"Vật tư: {clean_nan(r.get('article_name'))} | "
+                f"Khổ: {clean_nan(r.get('material_size'))} | "
+                f"ĐM gốc: {clean_nan(r.get('consumption_value'))} {clean_nan(r.get('uom'))}"
+            )
+        bom_summary = "\n".join(bom_summary_list)
+    else:
+        bom_summary = "Trống dữ liệu kho (Không có mã tương đồng lịch sử)."
 
     shrinkage_width = re.findall(r'(?:CO RÚT NGANG|NGANG)\s*(\d+(?:\.\d+)?)\s*%', user_message.upper())
     shrinkage_length = re.findall(r'(?:CO RÚT DỌC|DỌC)\s*(\d+(?:\.\d+)?)\s*%', user_message.upper())
@@ -867,7 +879,7 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
     l_shrink = float(l_shrink_val) if l_shrink_val else 0.0
     f_width = float(new_fabric_width_val) if new_fabric_width_val else 0.0
 
-    # Xử lý tách chuỗi JSON và biến điều kiện để triệt tiêu lỗi lồng f-string
+    # Tách chuỗi để tránh lỗi cú pháp f-string lồng nhau
     specs_old_json = json.dumps(specs_old)
     f_width_label = str(f_width) if f_width > 0 else "58 inch"
     new_style_measurements_json = json.dumps(new_style_measurements)
@@ -876,7 +888,9 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
         scenario_instruction = f"""
         KỊCH BẢN: ĐỒNG DẠNG KHO (Sử dụng dữ liệu đối chứng lịch sử)
         - Đối chiếu chênh lệch diện tích cấu trúc giữa Spec mới và Spec cũ {specs_old_json}.
-        - Bù trừ định mức tăng/giảm từ nền tảng BOM gốc: {bom_summary}.
+        - Đọc kỹ danh sách toàn bộ các loại nguyên phụ liệu gốc trong kho:
+        {bom_summary}
+        - Thực hiện bù trừ định mức tăng/giảm cho TẤT CẢ các loại nguyên phụ liệu trên dựa trên tỷ lệ diện tích chênh lệch kết cấu mới.
         """
     else:
         scenario_instruction = f"""
@@ -884,28 +898,29 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
         - Bạn không có dữ liệu lịch sử. Hãy dựa hoàn toàn vào bảng thông số 'New Spec (POM)' và hình ảnh bản vẽ rập chi tiết 'Flat Sketch' đính kèm.
         - Hãy tính diện tích hình học rập mẫu thô của từng chi tiết cấu thành dựa trên đúng phân loại sản phẩm.
         - Tính ĐM Vải chính: Cộng dồn chiều dài các mảnh rập sau khi cộng biên may, nhân hệ số hao hụt rải vải tiêu chuẩn ngành xếp trên khổ vải: {f_width_label}.
+        - Tự động dự toán thêm các định mức phụ liệu cơ bản (như Chỉ may, Nhãn, Chun cạp nếu là nhóm hàng quần chun) dựa trên tiêu chuẩn ngành may mặc thông thường.
         """
 
     system_instruction = f"""
     You are a strict Industrial Garment Costing Engineer at PPJ Group. 
-    Your answers must mimic ChatGPT's advanced code interpreter mode but optimized for clean dashboard reporting:
+    Your answers must mimic ChatGPT's advanced code interpreter mode but highly optimized for clean dashboard reporting:
     1. STRICT UNIT REQUIRED: All consumption values and fabric calculation results MUST be presented in YARDS (Yds) or Inches. NEVER use meters or cm.
-    2. DIRECT ANSWER FIRST: Output the exact final average consumption value in YARDS (Yds) in the very first sentence.
-    3. SUMMARY TABLE FORMAT: Immediately after the first sentence, summarize all component consumption results in a clean Markdown Table. DO NOT write long paragraphs or verbose step-by-step text explanations of the math process. Let the table speak for itself.
-    4. LANGUAGE: Answer directly in Vietnamese, using precise apparel terminology (co rút, định mức, hao hụt, khổ vải, nẹp liền, nẹp rời).
+    2. DIRECT TABLE ANSWER FIRST: Output a highly condensed Markdown Summary Table at the very first sentence. The table must have columns: [STT, Loại nguyên vật liệu, Chi tiết vật tư, Khổ vật tư, Định mức mới dự toán (Yds/UOM), Ghi chú giải trình nhanh].
+    3. NO VERBOSE PARAGRAPHS: Do NOT write long paragraphs, verbose text explanations, or breakdown math logic steps after the table. Let the clean table speak for itself.
+    4. LANGUAGE: The Markdown table headers and content must be written in Vietnamese using precise apparel terminology (co rút, định mức, hao hụt, khổ vải, biên may, xếp ly).
     
     FACTORY SEWING SEAM ALLOWANCE RULES & GEOMETRIC PRINCIPLES (CRITICAL):
     - Standard Seam Allowance: ALWAYS add 0.44 inches to all general component seams (Thân trước, thân sau, sườn, giàng, dọc quần, tra cạp, v.v.).
     - Pocket Openings (Miệng túi): EXCLUDE the 0.44 inch rule. Pocket trims and facings must follow the exact techpack dimensions.
     - Garment Hem / Bottom Hem (Lai áo / Lai quần): DO NOT use 0.44 inch. You MUST scan the 'New Spec (POM)' below to find the specific values for keywords like 'Hem', 'Bottom Width', 'Sleeve Hemfold'. Use that exact Techpack value for the hem calculation. If not specified, note it down.
     - QUY TẮC XẾP LY / TÚI HỘP: Nếu tài liệu hoặc hình ảnh yêu cầu túi hộp, túi hoặc thân xếp ly (Pleats/Cargo), bắt buộc phải cộng thêm khoảng không hao hụt xếp ly vào bán thành phẩm để khi gấp lại về đúng thông số gốc. Ví dụ: rộng túi 10 inches, ly cấu trúc to bảng 1 inch thì chiều rộng rập thô bán thành phẩm phải tự động cộng bù phần ly gấp.
-    - TỰ ĐỘNG SUY LUẬN: Hệ thống tự học và tìm kiếm các khoảng bù hao hụt cấu trúc rập theo tiêu chuẩn ngành may PPJ để phục vụ tính toán định mức chuẩn xác nhất.
+    - TỰ ĐỘNG SUY LUẬN: Hệ thống tự học và tìm kiếm các khoảng bù hao hụt cấu trúc rập theo tiêu chuẩn ngành may PPJ để phục vụ tính toán định mức chuẩn xác nhất cho mọi phụ liệu.
 
     GARMENT CATEGORY SPECIFIC RULES (STRICT SEPARATION TO AVOID ERROR):
     
     1. IF THE CATEGORY IS PANT / SHORT / SKORT / TROUSER (NHÓM HÀNG QUẦN):
        - STICK TO JEANS/PANTS LOGIC ONLY.
-       - ABSOLUTELY FORBIDDEN: Do NOT apply Shirt Placket rules (Cấm áp dụng quy tắc nẹp rời/nẹp liền gập cuốn của áo). 
+       - ABSOLUTELY FORBIDDEN: Do NOT apply Shirt Placket rules.
        - Waistband Construction (Cạp quần): Calculate waistband fabric based strictly on Waistband Height and Waist Circumference.
        - Zipper Fly / Fly Placket (Cửa quần): Only calculate based on standard front fly extensions (typically adding a small standard extension of 1.5 inches to 2 inches for the fly j-stitch width on ONE side of the left front panel only. Do NOT multiply by 2 across both front panels like a shirt).
        - Coin Pocket (Túi đồng xu): Check for coin pocket width/height if specified.
@@ -942,6 +957,7 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
         return ai_reply
     except Exception as e:
         return f"🚨 Lỗi cổng phân tích định mức: {str(e)}"
+
 
 
 @st.cache_data(show_spinner="🧠 AI đang bóc tách cấu trúc file PDF (Chỉ quét 1 lần)...")
@@ -1023,12 +1039,17 @@ def process_single_pdf_batch(file_bytes, file_name):
     except Exception as e:
         return {"success": False, "error": str(e)}
 
+# ==================== ĐOẠN A NÂNG CẤP: TỰ ĐỘNG LÀM SẠCH BỘ NHỚ ĐỆM ĐỒ HỌA FILE CŨ ====================
 new_style_id_detected = "UNKNOWN_STYLE"
 new_style_category_detected = ""
 new_style_fabric_detected = "UNKNOWN_FABRIC"
 new_style_measurements_dict = {}
 new_style_base_size = "32"
 target_new_sketch_bytes = None 
+
+# Tạo biến kiểm tra dấu vết file để ép dọn dẹp RAM ảnh
+if "current_file_fingerprint" not in st.session_state:
+    st.session_state["current_file_fingerprint"] = None
 
 target_file_object = None
 if 'uploaded_file' in st.session_state and st.session_state['uploaded_file'] is not None:
@@ -1043,6 +1064,16 @@ has_file = target_file_object is not None
 if has_file:
     file_bytes = target_file_object.getvalue()
     file_name = target_file_object.name
+    
+    # 🎯 LOGIC BẢO VỆ: Nếu phát hiện tên file mới khác file cũ, lập tức ĐẬP XOÁ TOÀN BỘ CACHE ẢNH CŨ TRONG RAM
+    if st.session_state["current_file_fingerprint"] != file_name:
+        st.session_state["current_file_fingerprint"] = file_name
+        st.session_state["matched_techpack"] = None
+        st.session_state["bom_records"] = []
+        if "cached_matched_img" in st.session_state: st.session_state["cached_matched_img"] = None
+        if "last_matched_style_name" in st.session_state: st.session_state["last_matched_style_name"] = None
+        if "last_bom_style_name" in st.session_state: st.session_state["last_bom_style_name"] = None
+
     if file_name.lower().endswith('.pdf'):
         try:
             res_pdf = process_single_pdf_batch(file_bytes, file_name)
@@ -1061,6 +1092,7 @@ if has_file:
 dynamic_keyword = str(new_style_id_detected).strip().upper()
 base_sb_url = SB_URL.rstrip('/')
 headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
+
 # ==================== ĐOẠN B: AI ĐỐI SOÁT HÌNH ẢNH FLAT SKETCH (TÍCH HỢP TỰ ĐỘNG THỬ LẠI CHỐNG LỖI 503) ====================
 if "get_secure_gemini_key" in globals():
     gemini_key_global = get_secure_gemini_key()
