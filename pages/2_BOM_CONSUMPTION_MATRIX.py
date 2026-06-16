@@ -959,22 +959,20 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
         return f"🚨 Lỗi cổng phân tích định mức: {str(e)}"
 
 
+import io
+import json
+import time
+import re
+import hashlib
+import requests
+import pandas as pd
+import google.generativeai as genai
+from google.genai import types
+from google.genai import types as genai_types
+from pdf2image import convert_from_bytes, pdfinfo_from_bytes
+
 @st.cache_data(show_spinner="⚙️ Hệ thống 3 Tầng đang định tuyến tìm trang Spec siêu tốc...")
 def process_single_pdf_batch(file_bytes, file_name):
-    """
-    HÀM KIẾN TRÚC TOÀN DIỆN CHUẨN PPJ GROUP - HOÀN CHỈNH 3 TẦNG
-    - SỬA LỖI 1: Bỏ quét từ khóa Sketch từ text. Nhường 100% cho Gemini Vision trích xuất từ ảnh.
-    - SỬA LỖI 2: Thêm bộ lọc kích cỡ ma trận (XS, S, M, L...) ở Tầng 1 loại bỏ trang "How to Measure".
-    """
-    import io
-    import json
-    import time
-    import re
-    import google.generativeai as genai
-    from google.genai import types as genai_types
-    from pdf2image import convert_from_bytes, pdfinfo_from_bytes
-    from PIL import Image
-    
     try:
         if "get_secure_gemini_key" in globals():
             gemini_key_local = get_secure_gemini_key()
@@ -984,9 +982,7 @@ def process_single_pdf_batch(file_bytes, file_name):
         if not gemini_key_local:
             return {"success": False, "error": "API Key cho Gemini đang bị thiếu trong Secrets."}
             
-        # Sử dụng đúng client cấu hình của SDK mới
         client_ai = genai.Client(api_key=gemini_key_local)
-        
         info = pdfinfo_from_bytes(file_bytes)
         total_p = int(info.get("Pages", 1))
         max_scan_pages = min(total_p, 15)
@@ -994,21 +990,14 @@ def process_single_pdf_batch(file_bytes, file_name):
         target_spec_pages = [] 
         sketch_page_idx = 1
         
-        # 🎯 TẦNG 1: QUÉT TEXT THỰC TẾ + BỘ LỌC CỘT KÍCH CỠ (0 TOKEN)
-        spec_pattern = re.compile(
-            r"(SPEC|MEASUREMENT|POM|GRADING|GRADE RULE|POINT OF MEASURE|BODY LENGTH|CHEST)", 
-            re.I
-        )
-        size_matrix_pattern = re.compile(
-            r"\b(XS|S|M|L|XL|XXL|XXXL|TOLERANCE|TOL|\d{2}|\d{2}\s*1/2)\b", 
-            re.I
-        )
+        # 🎯 TẦNG 1: QUÉT TEXT THỰC TẾ + BỘ LỌC CỘT KÍCH CỠ
+        spec_pattern = re.compile(r"(SPEC|MEASUREMENT|POM|GRADING|GRADE RULE|POINT OF MEASURE|BODY LENGTH|CHEST)", re.I)
+        size_matrix_pattern = re.compile(r"\b(XS|S|M|L|XL|XXL|XXXL|TOLERANCE|TOL|\d{2}|\d{2}\s*1/2)\b", re.I)
         
         try:
             from pypdf import PdfReader
             pdf_file_obj = io.BytesIO(file_bytes)
             reader = PdfReader(pdf_file_obj)
-            
             for idx in range(min(max_scan_pages, len(reader.pages))):
                 page_text = reader.pages[idx].extract_text() or ""
                 if page_text and spec_pattern.search(page_text):
@@ -1016,6 +1005,7 @@ def process_single_pdf_batch(file_bytes, file_name):
                         target_spec_pages.append(idx)
         except Exception:
             pass
+
         # 🎯 TẦNG 2: XÁC NHẬN KÉP BẰNG GEMINI FLASH 100 DPI
         low_dpi_images = convert_from_bytes(file_bytes, dpi=100, first_page=1, last_page=max_scan_pages)
         has_t1_data = len(target_spec_pages) > 0
@@ -1023,17 +1013,16 @@ def process_single_pdf_batch(file_bytes, file_name):
         for idx, img in enumerate(low_dpi_images):
             if has_t1_data and idx > 3:
                 continue
-                
             img_buf = io.BytesIO()
             img.convert("RGB").save(img_buf, format="JPEG", quality=75)
             
             flash_payload = [
-                genai.types.Part.from_bytes(data=img_buf.getvalue(), mime_type='image/jpeg'),
-                genai.types.Part.from_text(text=(
+                types.Part.from_bytes(data=img_buf.getvalue(), mime_type='image/jpeg'),
+                types.Part.from_text(text=(
                     "Analyze this techpack sheet page image thumbnail.\n"
                     "1. Does this page contain a measurement specification table, grading chart, POM table, or sizing matrix?\n"
                     "2. Does this page contain the main full-body front/back Flat Sketch design drawing?\n"
-                    'Return a completely valid raw JSON object matching this schema:\n'
+                    "Return a completely valid raw JSON object matching this schema:\n"
                     '{"is_spec_table": true_or_false, "is_flat_sketch": true_or_false}'
                 ))
             ]
@@ -1046,7 +1035,6 @@ def process_single_pdf_batch(file_bytes, file_name):
                 if res_flash and res_flash.text:
                     raw_flash_text = re.sub(r'```(?:json)?\s*|\s*```', '', res_flash.text.strip())
                     flash_json = json.loads(raw_flash_text.strip())
-                    
                     if not has_t1_data and flash_json.get("is_spec_table") is True:
                         target_spec_pages.append(idx)
                     if flash_json.get("is_flat_sketch") is True:
@@ -1067,7 +1055,6 @@ def process_single_pdf_batch(file_bytes, file_name):
         detected_visual_features = {}
         
         pages_to_render_high = sorted(list(set(target_spec_pages + [sketch_page_idx])))
-        
         high_res_pool_map = {}
         for p_idx in pages_to_render_high:
             try:
@@ -1076,9 +1063,7 @@ def process_single_pdf_batch(file_bytes, file_name):
                     high_res_pool_map[p_idx] = single_high_img[0]
             except Exception:
                 continue
-
-        # 🎯 TẦNG 3: OCR PNG 300 DPI CHI TIẾT BẰNG GEMINI 2.5 PRO TRÊN BẢN ĐỒ ẢNH ĐỘC LẬP
-        from google.genai import types as genai_types
+        # Định nghĩa Schema cấu trúc dữ liệu hình học cho Tầng 3
         structured_schema = genai_types.Schema(
             type=genai_types.Type.OBJECT,
             properties={
@@ -1101,10 +1086,11 @@ def process_single_pdf_batch(file_bytes, file_name):
             },
             required=["style_id", "buyer", "category", "base_size", "measurements", "matrix", "visual_features"]
         )
+
+        # 🎯 TẦNG 3: OCR PNG 300 DPI CHI TIẾT BẰNG GEMINI 2.5 PRO
         for p_idx in pages_to_render_high:
             if p_idx not in high_res_pool_map:
                 continue
-                
             page_img_obj = high_res_pool_map[p_idx]
             img_buf_png = io.BytesIO()
             page_img_obj.save(img_buf_png, format="PNG")
@@ -1112,19 +1098,16 @@ def process_single_pdf_batch(file_bytes, file_name):
             
             if p_idx == sketch_page_idx:
                 sketch_image_bytes = png_bytes
-                
             if p_idx not in target_spec_pages and p_idx != sketch_page_idx:
                 continue
                 
             pro_payload = [
-                genai.types.Part.from_bytes(data=png_bytes, mime_type='image/png'),
-                genai.types.Part.from_text(text=(
-                    "You are an expert Garment Specification Auditor at PPJ Group.\n"
-                    "Extract all rows and columns. Analyze flat sketch features for similarity query.\n"
-                    "Focus on main dimensions like Chest, Body Length, Sleeve Length, and Across Shoulder."
+                types.Part.from_bytes(data=png_bytes, mime_type='image/png'),
+                types.Part.from_text(text=(
+                    "You are an expert Garment Specification Costing Auditor at PPJ Group.\n"
+                    "Extract style_id, buyer, category, base_size, measurements, matrix, and visual_features for similarity search."
                 ))
             ]
-            
             for attempt in range(2):
                 try:
                     response = client_ai.models.generate_content(
@@ -1138,7 +1121,6 @@ def process_single_pdf_batch(file_bytes, file_name):
                     )
                     if response and response.text:
                         pro_json = json.loads(response.text.strip())
-                        
                         if pro_json.get("style_id") and pro_json["style_id"] != "UNKNOWN_STYLE":
                             detected_style_id = pro_json["style_id"]
                         if pro_json.get("buyer"): detected_buyer = pro_json["buyer"]
@@ -1146,11 +1128,9 @@ def process_single_pdf_batch(file_bytes, file_name):
                         if pro_json.get("base_size"): detected_base_size = pro_json["base_size"]
                         if pro_json.get("visual_features"): detected_visual_features.update(pro_json["visual_features"])
                         if pro_json.get("measurements"): final_measurements.update(pro_json["measurements"])
-                            
                         if pro_json.get("matrix"):
                             for pom_key, sizes_dict in pro_json["matrix"].items():
-                                if pom_key not in final_matrix:
-                                    final_matrix[pom_key] = {}
+                                if pom_key not in final_matrix: final_matrix[pom_key] = {}
                                 for size_name, size_value in sizes_dict.items():
                                     final_matrix[pom_key][size_name] = size_value
                         break
@@ -1158,7 +1138,7 @@ def process_single_pdf_batch(file_bytes, file_name):
                     time.sleep(1.5)
                     continue
 
-        # 🎯 CỬA KIỂM TRA VẠN NĂNG (UNIVERSAL CATEGORY CLASSIFIER FOR APPAREL)
+        # 🎯 CỬA KIỂM TRA VẠN NĂNG (UNIVERSAL CATEGORY CLASSIFIER)
         final_cat_upper = str(detected_category).strip().upper()
         file_name_upper = str(file_name).strip().upper()
         full_context_text = final_cat_upper + " " + file_name_upper
@@ -1167,9 +1147,7 @@ def process_single_pdf_batch(file_bytes, file_name):
         is_top_group = any(k in full_context_text for k in ["SHIRT", "JACKET", "COAT", "TOP", "TEE", "AO", "ÁO", "HOODIE", "BLAZER", "SWEATER", "POLO"])
         
         all_poms = set(final_measurements.keys())
-        for pom in final_matrix.keys():
-            all_poms.add(pom)
-            
+        for pom in final_matrix.keys(): all_poms.add(pom)
         missing_core_fields = []
         resolved_category = "JACKET"
         
@@ -1178,45 +1156,33 @@ def process_single_pdf_batch(file_bytes, file_name):
             elif "SHORT" in full_context_text: resolved_category = "SHORT"
             elif "JEAN" in full_context_text: resolved_category = "JEAN"
             else: resolved_category = "PANT"
-            
             required_pant_aliases = {
                 "WAIST (VÒNG CẠP)": ["WAIST", "WAISTBAND", "CẠP", "BỤNG", "CHÂN CẠP"],
-                "HIP (VÒNG MÔNG)": ["HIP", "SEAT", "MÔNG", "VÒNG MÔNG"],
-                "LENGTH (DÀI QUẦN)": ["OUTSEAM", "INSEAM", "LENGTH", "SIDE LENGTH", "DÀI QUẦN", "DỌC QUẦN", "GIÀNG QUẦN"]
+                "HIP (VÒNG MÔNG)": ["HIP", "SEAT", "MÔNG", "VÒNG MÔNG"]
             }
             for formal_name, alias_list in required_pant_aliases.items():
-                has_match = any(any(alias in k.upper() for alias in alias_list) for k in all_poms)
-                if not has_match: missing_core_fields.append(formal_name)
-                    
+                if not any(any(alias in k.upper() for alias in alias_list) for k in all_poms):
+                    missing_core_fields.append(formal_name)
         elif is_top_group:
             if "SHIRT" in full_context_text: resolved_category = "SHIRT"
             elif "TEE" in full_context_text or "TSHIRT" in full_context_text: resolved_category = "TEE"
-            elif "HOODIE" in full_context_text: resolved_category = "HOODIE"
-            elif "POLO" in full_context_text: resolved_category = "POLO"
             else: resolved_category = "JACKET"
-            
             required_coat_aliases = {
-                "CHEST (VÒNG NGỰC)": ["CHEST", "PTP", "PIT TO PIT", "BUST", "HALF CHEST", "1/2 CHEST", "NGỰC", "VÒNG NGỰC"],
-                "BODY LENGTH (DÀI ÁO)": ["BODY LENGTH", "CB LENGTH", "HPS LENGTH", "BACK LENGTH", "LENGTH FROM HPS", "DÀI ÁO", "DÀI THÂN"],
-                "SLEEVE LENGTH (DÀI TAY)": ["SLEEVE LENGTH", "SLEEVE FROM HPS", "SLEEVE CENTER BACK", "DÀI TAY"]
+                "CHEST (VÒNG NGỰC)": ["CHEST", "BUST", "NGỰC", "VÒNG NGỰC"],
+                "BODY LENGTH (DÀI ÁO)": ["BODY LENGTH", "LENGTH", "DÀI ÁO", "DÀI THÂN"]
             }
             for formal_name, alias_list in required_coat_aliases.items():
-                has_match = any(any(alias in k.upper() for alias in alias_list) for k in all_poms)
-                if not has_match: missing_core_fields.append(formal_name)
+                if not any(any(alias in k.upper() for alias in alias_list) for k in all_poms):
+                    missing_core_fields.append(formal_name)
         else:
             resolved_category = detected_category if detected_category else "GARMENT"
-            if not all_poms: missing_core_fields.append("Bảng thông số trống")
 
         has_warnings = len(missing_core_fields) > 0
-        warning_message = f"Cảnh báo thiếu thông số: {', '.join(missing_core_fields)}" if has_warnings else ""
+        warning_message = f"Cảnh báo thiếu thông số cốt lõi: {', '.join(missing_core_fields)}" if has_warnings else ""
         
-        import base64
-        sketch_base64 = base64.b64encode(sketch_image_bytes).decode("utf-8") if sketch_image_bytes else ""
-
         return {
             "success": True,
             "sketch_bytes": sketch_image_bytes,
-            "sketch_base64": sketch_base64,
             "has_warnings": has_warnings,
             "warning_message": warning_message,
             "data": {
@@ -1234,8 +1200,8 @@ def process_single_pdf_batch(file_bytes, file_name):
             }
         }
     except Exception as e:
-        return {"success": False, "error": f"Lỗi kiến trúc xử lý 3 tầng: {str(e)}"}
-# ==================== CENTRAL DISPATCH STATION - PHẦN 1 & 2 ====================
+        return {"success": False, "error": f"Lỗi kiến trúc xử lý vạn năng 3 tầng: {str(e)}"}
+# ==================== CENTRAL DISPATCH STATION ====================
 new_style_id_detected = "UNKNOWN_STYLE"
 new_style_category_detected = ""
 new_style_fabric_detected = "UNKNOWN_FABRIC"
@@ -1261,9 +1227,7 @@ if has_file:
     file_bytes = target_file_object.getvalue()
     file_name = target_file_object.name
     
-    import hashlib
     file_md5_fingerprint = hashlib.md5(file_bytes).hexdigest()
-    
     if "last_processed_md5" not in st.session_state:
         st.session_state["last_processed_md5"] = None
         
@@ -1274,8 +1238,8 @@ if has_file:
         st.session_state.pop("cached_matched_img", None)
         st.session_state.pop("last_matched_style_name", None)
         st.session_state.pop("last_bom_style_name", None)
-        st.session_state.pop("pdf_extract_cache", None) 
-
+        st.session_state.pop("pdf_extract_cache", None)
+        
     if "pdf_extract_cache" in st.session_state and st.session_state["pdf_extract_cache"] is not None:
         res_pdf = st.session_state["pdf_extract_cache"]
     else:
@@ -1296,8 +1260,8 @@ if has_file:
                     "measurements": {},
                     "full_size_matrix": {},
                     "similarity_search_features": {
-                        "visual_tokens": {"silhouette": "Image upload"},
-                        "search_query_string": "IMAGE UPLOAD"
+                        "visual_tokens": {"silhouette": "Garment image upload"},
+                        "search_query_string": "GARMENT IMAGE UPLOAD"
                     }
                 }
             }
@@ -1310,11 +1274,10 @@ if has_file:
         new_style_base_size = meta_p.get("base_size_name", "32")
         new_style_measurements_dict = meta_p.get("measurements", {})
         new_style_full_matrix = meta_p.get("full_size_matrix", {})
+        target_new_sketch_bytes = res_pdf.get("sketch_bytes")
         
         if "similarity_search_features" in meta_p:
             new_style_similarity_features = meta_p["similarity_search_features"]
-            
-        target_new_sketch_bytes = res_pdf.get("sketch_bytes")
             
         st.session_state["current_techpack"] = {
             "style": new_style_id_detected,
@@ -1322,7 +1285,7 @@ if has_file:
             "base_size": new_style_base_size,
             "measurements": new_style_measurements_dict,
             "matrix": new_style_full_matrix,
-            "similarity_features": new_style_similarity_features 
+            "similarity_features": new_style_similarity_features
         }
     else:
         st.error(f"🚨 **Lỗi hệ thống trích xuất tài liệu:** {res_pdf.get('error')}.")
@@ -1331,11 +1294,7 @@ if has_file:
 dynamic_keyword = str(new_style_id_detected).strip().upper()
 base_sb_url = SB_URL.rstrip('/')
 headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
-# SỬA LỖI ĐỎ 'name time is not defined': Bắt buộc import time cục bộ để thuật toán lặp chống sập chạy chuẩn xác
-import time
-import requests
-import pandas as pd
-
+# ==================== ĐOẠN B: AI ĐỐI SOÁT HÌNH ẢNH FLAT SKETCH ====================
 if "get_secure_gemini_key" in globals():
     gemini_key_global = get_secure_gemini_key()
 else:
@@ -1364,117 +1323,100 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
             st.session_state["bom_records"] = []
             st.session_state.pop("last_bom_style_name", None)
             st.session_state.pop("cached_matched_img", None)
-            st.success("♻️ MEMORY PURGED")
+            st.success("♻️ MEMORY PURGED - SẴN SÀNG CHO MÃ HÀNG MỚI")
             st.rerun()
 
     st.markdown("---")
     if not has_file:
-        st.info("👋 Vui lòng tải lên tệp Techpack hồ sơ thiết kế (PDF) ở phía trên.")
+        st.info("👋 Vui lòng tải lên tệp Techpack hồ sơ thiết kế (PDF) ở phía trên để hệ thống bắt đầu quét.")
         st.stop()
 
     file_info_text = (file_name + " " + str(new_style_category_detected)).upper()
-    is_jacket_or_shirt = any(k in file_info_text for k in ["JACKET", "SHIRT", "COAT", "TOP", "TEE", "AO", "ÁO", "HOODIE"])
+    is_jacket_or_shirt = any(k in file_info_text for k in ["JACKET", "SHIRT", "COAT", "TOP", "TEE", "AO", "ÁO", "HOODIE", "BLAZER"])
+
+    if new_style_base_size and new_style_base_size != "32":
+        st.info(f"📋 **CƠ SỞ ĐỐI SOÁT KIỂM TRA:** Mẫu mới số hóa mã hàng `{new_style_id_detected}` | QUY CHUẨN: **SIZE {new_style_base_size}**")
+    else:
+        st.info(f"📋 **CƠ SỞ ĐỐI SOÁT KIỂM TRA:** Đang áp dụng quy chuẩn kích thước hình học rập mẫu cơ sở: **SIZE 32 / M (Mặc định)**")
 
     if st.session_state["matched_techpack"] is None:
-        with st.spinner("🧠 AI Thị giác đang quét tìm kết cấu phom dáng..."):
+        with st.spinner("🧠 AI Thị giác máy tính đang quét tìm kết cấu phom dáng đồng dạng..."):
             try:
                 headers_db = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
                 url_db = f"{base_sb_url}/rest/v1/thong_so_techpack"
-                query_params = {"select": "StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL,sketch_vector", "limit": 100}
+                query_params = {"select": "StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL", "limit": 100}
                 
                 db_res = requests.get(url_db, headers=headers_db, params=query_params, timeout=15)
                 all_historical_styles = db_res.json() if db_res.status_code == 200 else []
                 
-                filtered_styles_objects = []
-                styles_pool_summary = []
-                for s in all_historical_styles:
-                    db_info = (str(s.get("StyleName", "")) + " " + str(s.get("Category", ""))).upper()
-                    if is_jacket_or_shirt and any(k in db_info for k in ["PANT", "SHORT", "TROUSER", "JEAN", "QUAN"]):
-                        continue
-                    filtered_styles_objects.append(s)
+                if all_historical_styles:
+                    styles_pool_summary = []
+                    filtered_styles_objects = []
+                    for s in all_historical_styles:
+                        db_info = (str(s.get("StyleName", "")) + " " + str(s.get("Category", ""))).upper()
+                        if is_jacket_or_shirt and any(k in db_info for k in ["PANT", "SHORT", "TROUSER", "JEAN", "QUAN"]):
+                            continue
+                        filtered_styles_objects.append(s)
 
-                for idx, s in enumerate(filtered_styles_objects):
-                    styles_pool_summary.append({"pool_index": idx, "style_name": s.get("StyleName"), "category_db": s.get("Category")})
+                    if filtered_styles_objects:
+                        for idx, s in enumerate(filtered_styles_objects):
+                            styles_pool_summary.append({"pool_index": idx, "style_name": s.get("StyleName"), "category_db": s.get("Category")})
 
-                match_prompt = f"Analyze attached sketch image. Return selected_pool_index or -1 if no match.\nPool: {json.dumps(styles_pool_summary)}"
-                match_contents = [genai.types.Part.from_text(text=match_prompt)]
-                if target_new_sketch_bytes:
-                    match_contents.append(genai.types.Part.from_bytes(data=target_new_sketch_bytes, mime_type='image/jpeg'))
-                
-                res_match = client.models.generate_content(model='gemini-2.5-flash', contents=match_contents)
-                trigger_vector_fallback = True
-                
-                if res_match and res_match.text:
-                    match_json_obj = re.search(r'\{\s*"selected_pool_index"\s*:\s*-?\d+\s*\}', res_match.text)
-                    if match_json_obj:
-                        match_result = json.loads(match_json_obj.group(0))
-                        best_idx = match_result.get("selected_pool_index", -1)
-                        if 0 <= best_idx < len(filtered_styles_objects):
-                            st.session_state["matched_techpack"] = filtered_styles_objects[best_idx]
-                            trigger_vector_fallback = False
-
-                if trigger_vector_fallback:
-                    current_techpack = st.session_state.get("current_techpack", {})
-                    query_string = current_techpack.get("similarity_features", {}).get("search_query_string", "").upper()
-                    if query_string:
-                        best_score = -1
-                        best_obj = None
-                        query_tokens = set(query_string.split())
-                        for s in filtered_styles_objects:
-                            db_tokens = set((str(s.get("StyleName","")) + " " + str(s.get("Category",""))).upper().split())
-                            score = len(query_tokens.intersection(db_tokens)) / len(query_tokens.union(db_tokens)) if db_tokens else 0
-                            if score > best_score:
-                                best_score = score
-                                best_obj = s
-                        if best_obj and best_score > 0.1:
-                            st.session_state["matched_techpack"] = best_obj
+                    match_prompt = f"""
+                    Analyze the ATTACHED NEW SKETCH IMAGE and find if there is a highly matching historical style in the pool based on sewing construction.
+                    If NO REAL MATCH, return -1 as selected_pool_index. Do NOT try to force a match.
+                    POOL: {json.dumps(styles_pool_summary)}
+                    Return JSON: {{"selected_pool_index": -1}}
+                    """
+                    match_contents = [types.Part.from_text(text=match_prompt)]
+                    if target_new_sketch_bytes:
+                        match_contents.append(types.Part.from_bytes(data=target_new_sketch_bytes, mime_type='image/jpeg'))
+                    
+                    res_match = None
+                    for attempt in range(3):
+                        try:
+                            res_match = client.models.generate_content(model='gemini-2.5-flash', contents=match_contents)
+                            if res_match and res_match.text: break
+                        except Exception:
+                            time.sleep(2.0)
+                            continue
+                    
+                    trigger_vector_fallback = True
+                    if res_match and res_match.text:
+                        match_json_obj = re.search(r'\{\s*"selected_pool_index"\s*:\s*-?\d+\s*\}', res_match.text)
+                        if match_json_obj:
+                            match_result = json.loads(match_json_obj.group(0))
+                            best_idx = match_result.get("selected_pool_index", -1)
+                            if 0 <= best_idx < len(filtered_styles_objects):
+                                st.session_state["matched_techpack"] = filtered_styles_objects[best_idx]
+                                trigger_vector_fallback = False
+                    
+                    if trigger_vector_fallback:
+                        st.info("🔮 Hệ thống tự động chuyển sang tính toán khoảng cách đặc trưng hình học (Vector Math)...")
+                        current_techpack = st.session_state.get("current_techpack", {})
+                        similarity_features = current_techpack.get("similarity_features", {})
+                        query_string = similarity_features.get("search_query_string", "").upper()
+                        
+                        if query_string:
+                            best_vector_score = -1
+                            best_vector_match_obj = None
+                            query_tokens = set(query_string.split())
+                            for s in filtered_styles_objects:
+                                db_tokens = set((str(s.get("StyleName","")) + " " + str(s.get("Category",""))).upper().split())
+                                intersection = query_tokens.intersection(db_tokens)
+                                union = query_tokens.union(db_tokens)
+                                similarity_score = len(intersection) / len(union) if union else 0
+                                if similarity_score > best_vector_score:
+                                    best_vector_score = similarity_score
+                                    best_vector_match_obj = s
+                            
+                            if best_vector_match_obj and best_vector_score > 0.1:
+                                st.session_state["matched_techpack"] = best_vector_match_obj
+                                st.success(f"🧬 Liên kết phom thiết kế gần nhất thành công: **{best_vector_match_obj.get('StyleName')}** ({round(best_vector_score * 100, 1)}%)")
+                            else:
+                                st.warning("⚠️ Không tìm thấy kết cấu tương đồng nào trong dữ liệu cũ.")
             except Exception as e:
-                st.error(f"Lỗi đối soát: {str(e)}")
-
-    # TRUY XUẤT ĐỊNH MỨC BOM KHO VÀ TẢI ẢNH ĐỐI CHIẾU
-    if "last_bom_style_name" not in st.session_state: st.session_state["last_bom_style_name"] = None
-    if st.session_state.get("matched_techpack"):
-        try:
-            target_style_name_bom = str(st.session_state["matched_techpack"].get("StyleName", "")).strip()
-            if st.session_state["last_bom_style_name"] != target_style_name_bom:
-                st.session_state["bom_records"] = []
-                st.session_state["last_bom_style_name"] = target_style_name_bom
-
-            if not st.session_state.get("bom_records"):
-                url_bom = f"{SB_URL.rstrip('/')}/rest/v1/san_pham"
-                res_bom = requests.get(url_bom, headers=headers, params={"select": "*", "style_name": f"eq.{target_style_name_bom}"}, timeout=15)
-                if res_bom.status_code == 200 and len(res_bom.json()) > 0:
-                    st.session_state["bom_records"] = res_bom.json()
-        except Exception:
-            pass
-
-    matched_techpack = st.session_state.get("matched_techpack")
-    
-    st.markdown("### 🖼️ *ĐỐI CHIẾU SỰ TƯƠNG ĐỒNG HÌNH ẢNH THIẾT KẾ (FLAT SKETCH)*")
-    img_col1, img_col2 = st.columns(2)
-    with img_col1:
-        if target_new_sketch_bytes is not None:
-            st.image(target_new_sketch_bytes, caption=f"Mẫu mới tải lên ({new_style_id_detected})", use_container_width=True)
-    with img_col2:
-        if matched_techpack:
-            st.info(f"🎯 Mã tương đồng kết cấu ảnh: {matched_techpack.get('StyleName')}")
-        else:
-            st.warning("⚠️ KHÔNG TÌM THẤY MÃ TƯƠNG ĐỒNG!")
-
-    st.markdown("<br>### 📐 SO SÁNH HAI BẢNG THÔNG SỐ KỸ THUẬT RẬP MẪU", unsafe_allow_html=True)
-    spec_col1, spec_col2 = st.columns(2)
-    with spec_col1:
-        st.markdown(f"📊 **Bảng 1: Thông số Mẫu mới nạp ({new_style_base_size})**")
-        df_new_spec = pd.DataFrame(list(new_style_measurements_dict.items()), columns=["Vị trí đo", "Thông số mới"]) if new_style_measurements_dict else pd.DataFrame(columns=["Vị trí", "Thông số mới"])
-        st.dataframe(df_new_spec, use_container_width=True, hide_index=True)
-    with spec_col2:
-        st.markdown("📋 **Bảng 2: Thông số Mã trong kho**")
-        old_specs = matched_techpack.get("DetailedMeasurements", {}) if matched_techpack else {}
-        df_old_spec = pd.DataFrame(list(old_specs.items()), columns=["Vị trí", "Thông số cũ"]) if old_specs else pd.DataFrame(columns=["Vị trí", "Thông số cũ"])
-        st.dataframe(df_old_spec, use_container_width=True, hide_index=True)
-
-    if new_style_full_matrix:
-        st.
+                st.error(f"Lỗi hệ thống đối soát: {str(e)}")
 
 
     
