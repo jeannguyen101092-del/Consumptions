@@ -962,10 +962,10 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
 @st.cache_data(show_spinner="⚙️ Hệ thống 3 Tầng đang định tuyến tìm trang Spec siêu tốc...")
 def process_single_pdf_batch(file_bytes, file_name):
     """
-    HÀM KIẾN TRÚC TỐI ƯU VẠN NĂNG 3 TẦNG CHUẨN PPJ GROUP - PHẦN 1
-    - Loại bỏ pypdf: Đọc chuỗi nhị phân trực tiếp chống lỗi ImportError/ModuleNotFound.
-    - Sửa lỗi Poppler render lặp: Gom render 300 DPI một lượt duy nhất từ Min đến Max trang.
-    - Tầng 2 xử lý JSON nghiêm ngặt: Định tuyến chuẩn xác trang chứa Spec kể cả với file scan ảnh.
+    HÀM KIẾN TRÚC TỐI ƯU VẠN NĂNG 3 TẦNG CHUẨN PPJ GROUP - PHẦN 1 (GIA CỐ QUÉT DIỆN RỘNG TẦNG 2)
+    - TẦNG 1: Quét nhanh chuỗi nhị phân thô (0 token).
+    - TẦNG 2 NÂNG CẤP: Chuyển sang cơ chế nạp diện rộng (Scan Range). Quét quét sạch và gom toàn bộ các trang AI Flash nghi vấn chứa bảng Spec, triệt tiêu lỗi bỏ sót trang.
+    - TẦNG 3: Ép render đồ họa PNG 300 DPI tập trung một lượt chống lặp Poppler.
     """
     import io
     import json
@@ -993,26 +993,25 @@ def process_single_pdf_batch(file_bytes, file_name):
         sketch_page_idx = 1     
         
         # ==========================================
-        # 🎯 TẦNG 1: QUÉT TEXT QUA CHUỖI NHỊ PHÂN TRỰC TIẾP (0 TOKEN - TỨC THÌ)
+        # 🎯 TẦNG 1: QUÉT TEXT QUA CHUỖI NHỊ PHÂN TRỰC TIẾP (0 TOKEN)
         # ==========================================
         raw_text_content = str(file_bytes).upper()
         spec_pattern = re.compile(r"(SPEC|MEASUREMENT|POM|GRADING|GRADE RULE|POINT OF MEASURE|BODY LENGTH|CHEST)", re.I)
         
         if spec_pattern.search(raw_text_content):
-            # Nếu phát hiện cấu trúc văn bản Spec, mặc định chọn quét diện rộng 5 trang đầu
             target_spec_pages = list(range(min(5, total_p)))
             if "FLAT" in raw_text_content or "SKETCH" in raw_text_content:
                 sketch_page_idx = 1 if total_p > 1 else 0
 
         # ==========================================
-        # 🎯 TẦNG 2: DÒ TÌM TRANG BẰNG GEMINI FLASH 100 DPI (KHI TẦNG 1 KHÔNG CÓ TEXT)
+        # 🎯 TẦNG 2 NÂNG CẤP: DÒ TÌM GOM TRANG DIỆN RỘNG CHỐNG BỎ SÓT (SCAN RANGE LOGIC)
         # ==========================================
         if not target_spec_pages:
             low_dpi_images = convert_from_bytes(file_bytes, dpi=100, first_page=1, last_page=max_scan_pages)
             
             for idx, img in enumerate(low_dpi_images):
                 img_buf = io.BytesIO()
-                img.convert("RGB").save(img_buf, format="JPEG", quality=70)
+                img.convert("RGB").save(img_buf, format="JPEG", quality=75)
                 
                 flash_payload = [
                     types.Part.from_bytes(data=img_buf.getvalue(), mime_type='image/jpeg'),
@@ -1039,6 +1038,7 @@ def process_single_pdf_batch(file_bytes, file_name):
                         
                         flash_json = json.loads(raw_flash_text.strip())
                         
+                        # CƠ CHẾ GOM DIỆN RỘNG: Tích lũy tất cả các trang nghi vấn chứa bảng thay vì chỉ lấy 1 trang đơn lẻ
                         if str(flash_json.get("is_spec_table")).lower() == "true":
                             target_spec_pages.append(idx)
                         if str(flash_json.get("is_flat_sketch")).lower() == "true":
@@ -1046,7 +1046,7 @@ def process_single_pdf_batch(file_bytes, file_name):
                 except Exception:
                     continue
 
-        # Bộ lọc dự phòng an toàn nếu file quá mờ AI Flash không nhận diện được loại trang
+        # Luật dự phòng quét trọn vẹn 5 trang đầu nếu tệp tin scan quá mờ AI Flash mất dấu vết hoàn toàn
         if not target_spec_pages:
             target_spec_pages = list(range(min(5, total_p)))
 
@@ -1062,7 +1062,7 @@ def process_single_pdf_batch(file_bytes, file_name):
         # Gom toàn bộ danh sách trang kỹ thuật cần kết xuất chất lượng cao
         pages_to_render_high = sorted(list(set(target_spec_pages + [sketch_page_idx])))
         
-        # CHỐNG LẶP POPPLER: Mở file 1 lần duy nhất từ trang nhỏ nhất đến lớn nhất cần dùng
+        # Ngăn chặn mở đi mở lại PDF nhiều lần bằng Poppler. Mở 1 lần duy nhất từ Min đến Max trang cần dùng.
         min_p = min(pages_to_render_high)
         max_p = max(pages_to_render_high)
         
@@ -1072,6 +1072,7 @@ def process_single_pdf_batch(file_bytes, file_name):
             first_page=min_p + 1, 
             last_page=max_p + 1
         )
+
         # ==========================================
         # 🎯 TẦNG 3: OCR PNG 300 DPI BẰNG GEMINI 2.5 PRO & MERGE CHỐNG MẤT DỮ LIỆU SIZE
         # ==========================================
