@@ -917,12 +917,13 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
     if client is None:
         return "🚨 Lỗi: Hệ thống chưa cấu hình Client API cho Gemini."
     try:
-        # Gọi Gemini trích xuất dữ liệu rập cấu trúc dạng JSON sạch
+                # Gọi Gemini trích xuất dữ liệu rập cấu trúc dạng JSON sạch
         response = client.models.generate_content(
             model='gemini-2.5-flash', 
             contents=chat_contents,
-            config=types.GenerateContentConfig(response_mime_type="application/json")
+            config=types.GenerateContentConfig(response_mime_type="application/json") # Sửa thành gạch dưới viết thường
         )
+
         
         if not response or not response.text:
             return "🚨 Hệ thống AI phản hồi cấu trúc rỗng."
