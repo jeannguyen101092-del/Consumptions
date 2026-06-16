@@ -1098,7 +1098,8 @@ def process_single_pdf_batch(file_bytes, file_name):
 
 
               # ==========================================
-        # 🎯 TẦNG 3: OCR PNG 300 DPI CHI TIẾT BẰNG GEMINI 2.5 PRO TRÊN BẢN ĐỒ ẢNH ĐỘC LẬP
+              # ==========================================
+        # 🎯 TẦNG 3: OCR PNG 300 DPI BẰNG GEMINI 2.5 PRO & ĐỊNH NGHĨA RESPONSE SCHEMA NGHIÊM NGẶT
         # ==========================================
         for p_idx in pages_to_render_high:
             if p_idx not in high_res_pool_map:
@@ -1112,7 +1113,6 @@ def process_single_pdf_batch(file_bytes, file_name):
             if p_idx == sketch_page_idx:
                 sketch_image_bytes = png_bytes
                 
-            # Tiết kiệm token: Nếu trang này chỉ chứa ảnh thiết kế mà không chứa bảng Spec, bỏ qua không gọi Pro
             if p_idx not in target_spec_pages:
                 continue
                 
@@ -1124,26 +1124,48 @@ def process_single_pdf_batch(file_bytes, file_name):
                     "STRICT MATRIX RULES (NO OMISSION):\n"
                     "1. EXTRACT ALL ROWS & ALL COLUMNS: Extract EVERY single POM row and EVERY size column (e.g., XS, S, M, L, XL, XXL, 30, 32, 34). You MUST extract EVERY size column. Never summarize or collapse size ranges.\n"
                     "2. NO PARTIAL ROWS: Capture all values flawlessly. Never return partial rows.\n"
-                    "3. METADATA: Extract Style ID/Number, Buyer Name, Category (Pant/Shirt/Jacket), and Base/Sample Size.\n\n"
-                    "Return a valid raw JSON object matching this schema (NO markdown code blocks wrapped inside ```json): "
-                    "{"
-                    "  \"style_id\": \"string\", \"buyer\": \"string\", \"category\": \"string\", \"base_size\": \"string\","
-                    "  \"measurements\": {\"POM Description\": \"Value\"},"
-                    "  \"matrix\": {\"POM Description\": {\"Size_Name\": \"Value\"}}"
-                    "}"
+                    "3. METADATA: Extract Style ID/Number, Buyer Name, Category (Pant/Shirt/Jacket), and Base/Sample Size."
                 ))
             ]
             
+            # Khai báo cấu trúc Schema định dạng đầu ra bắt buộc cho Gemini Pro
+            from google.genai import types as genai_types
+            structured_schema = genai_types.Schema(
+                type=genai_types.Type.OBJECT,
+                properties={
+                    "style_id": genai_types.Schema(type=genai_types.Type.STRING),
+                    "buyer": genai_types.Schema(type=genai_types.Type.STRING),
+                    "category": genai_types.Schema(type=genai_types.Type.STRING),
+                    "base_size": genai_types.Schema(type=genai_types.Type.STRING),
+                    "measurements": genai_types.Schema(
+                        type=genai_types.Type.OBJECT,
+                        additional_properties=genai_types.Schema(type=genai_types.Type.STRING)
+                    ),
+                    "matrix": genai_types.Schema(
+                        type=genai_types.Type.OBJECT,
+                        additional_properties=genai_types.Schema(
+                            type=genai_types.Type.OBJECT,
+                            additional_properties=genai_types.Schema(type=genai_types.Type.STRING)
+                        )
+                    )
+                },
+                required=["style_id", "buyer", "category", "base_size", "measurements", "matrix"]
+            )
+            
             for attempt in range(2):
                 try:
+                    # Gọi Gemini 2.5 Pro cấu hình cao bảo vệ luồng dữ liệu sạch
                     response = client_ai.models.generate_content(
                         model='gemini-2.5-pro', 
                         contents=pro_payload, 
-                        config={"response_mime_type": "application/json"}
+                        config=genai_types.GenerateContentConfig(
+                            response_mime_type="application/json",
+                            response_schema=structured_schema,
+                            temperature=0.1 # Khóa chặt độ sáng tạo để AI trích xuất số liệu chính xác tuyệt đối
+                        )
                     )
                     if response and response.text:
-                        raw_pro_text = re.sub(r'```(?:json)?\s*|\s*```', '', response.text.strip())
-                        pro_json = json.loads(raw_pro_text.strip())
+                        pro_json = json.loads(response.text.strip())
                         
                         if pro_json.get("style_id") and pro_json["style_id"] != "UNKNOWN_STYLE":
                             detected_style_id = pro_json["style_id"]
@@ -1154,16 +1176,12 @@ def process_single_pdf_batch(file_bytes, file_name):
                         if pro_json.get("measurements"):
                             final_measurements.update(pro_json["measurements"])
                             
-                        # 🛠 SỬA LỖI 3: THUẬT TOÁN ĐẦP ĐI XÂY LẠI - MERGE SÂU MA TRẬN SIZE CHỐNG GHI ĐÈ MẤT DỮ LIỆU
+                        # Thuật toán Merge sâu tích lũy dải kích cỡ ma trận size
                         if pro_json.get("matrix"):
                             for pom_key, sizes_dict in pro_json["matrix"].items():
-                                # Nếu vị trí đo (POM Description) chưa từng xuất hiện, tạo một cuốn từ điển rỗng cho nó
                                 if pom_key not in final_matrix:
                                     final_matrix[pom_key] = {}
-                                    
-                                # Duyệt qua từng kích cỡ đơn lẻ trong trang hiện tại để nạp tích lũy (Deep Merge)
                                 for size_name, size_value in sizes_dict.items():
-                                    # Thực hiện gán/cập nhật từng ô dữ liệu riêng lẻ, giữ nguyên vẹn các cột size của trang trước
                                     final_matrix[pom_key][size_name] = size_value
                         break
                 except Exception:
@@ -1231,69 +1249,8 @@ def process_single_pdf_batch(file_bytes, file_name):
     except Exception as e:
         return {"success": False, "error": f"Lỗi kiến trúc xử lý vạn năng 3 tầng: {str(e)}"}
 
-        # ==========================================
-        # 🎯 CỬA KIỂM TRA VẠN NĂNG (UNIVERSAL CATEGORY CLASSIFIER FOR APPAREL)
-        # ==========================================
-        final_cat_upper = str(detected_category).strip().upper()
-        file_name_upper = str(file_name).strip().upper()
-        full_context_text = final_cat_upper + " " + file_name_upper
-        
-        # Phân loại nhóm hàng thân dưới (Quần, Short, Jogger) và thân trên (Áo, Jacket, Shirt)
-        is_bottom_group = any(k in full_context_text for k in ["PANT", "SHORT", "TROUSER", "JEAN", "SKORT", "JOGGER", "QUAN", "QUẦN", "SKIRT", "VÁY"])
-        is_top_group = any(k in full_context_text for k in ["SHIRT", "JACKET", "COAT", "TOP", "TEE", "AO", "ÁO", "HOODIE", "BLAZER", "SWEATER"])
-        
-        missing_core_fields = []
-        resolved_category = "JACKET" 
-        
-        if is_bottom_group:
-            resolved_category = "PANT"
-            required_pant_aliases = {
-                "WAIST (VÒNG CẠP)": ["WAIST", "WAISTBAND", "CẠP", "BỤNG", "CHÂN CẠP"],
-                "HIP (VÒNG MÔNG)": ["HIP", "SEAT", "MÔNG", "VÒNG MÔNG"],
-                "LENGTH (DÀI QUẦN)": ["OUTSEAM", "INSEAM", "LENGTH", "SIDE LENGTH", "DÀI QUẦN", "DỌC QUẦN", "GIÀNG QUẦN"]
-            }
-            for formal_name, alias_list in required_pant_aliases.items():
-                has_match = any(any(alias in k.upper() for alias in alias_list) for k in final_measurements.keys())
-                if not has_match:
-                    missing_core_fields.append(formal_name)
-                    
-        elif is_top_group:
-            resolved_category = "JACKET"
-            required_coat_aliases = {
-                "CHEST (VÒNG NGỰC)": ["CHEST", "PTP", "PIT TO PIT", "BUST", "HALF CHEST", "1/2 CHEST", "NGỰC", "VÒNG NGỰC"],
-                "BODY LENGTH (DÀI ÁO)": ["BODY LENGTH", "CB LENGTH", "HPS LENGTH", "BACK LENGTH", "LENGTH FROM HPS", "DÀI ÁO", "DÀI THÂN"],
-                "SLEEVE LENGTH (DÀI TAY)": ["SLEEVE LENGTH", "SLEEVE FROM HPS", "SLEEVE CENTER BACK", "DÀI TAY"]
-            }
-            for formal_name, alias_list in required_coat_aliases.items():
-                has_match = any(any(alias in k.upper() for alias in alias_list) for k in final_measurements.keys())
-                if not has_match:
-                    missing_core_fields.append(formal_name)
-                    
-        else:
-            # NHÓM THỂ LOẠI KHÁC (Váy liền, Đầm, Jumpsuit...): Thả lỏng bộ lọc, lấy trọn thông số không chặn chữ đỏ
-            resolved_category = detected_category if detected_category else "GARMENT"
-            if not final_measurements:
-                missing_core_fields.append("Bảng thông số trống (AI không quét được vị trí đo nào)")
 
-        if missing_core_fields:
-            raise Exception(f"Thiếu thông số kỹ thuật cốt lõi của sản phẩm: {', '.join(missing_core_fields)}")
-            
-        return {
-            "success": True,
-            "sketch_bytes": sketch_image_bytes,
-            "data": {
-                "style_number_parsed": detected_style_id,
-                "buyer": detected_buyer,
-                "category": resolved_category, 
-                "base_size_name": detected_base_size,
-                "sketch_page_index_detected": sketch_page_idx,
-                "measurements": final_measurements,
-                "full_size_matrix": final_matrix
-            }
-        }
-    except Exception as e:
-        return {"success": False, "error": f"Lỗi kiến trúc xử lý vạn năng 3 tầng: {str(e)}"}
-
+       
 
 
 
