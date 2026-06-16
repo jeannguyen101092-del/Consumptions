@@ -810,8 +810,9 @@ from google.genai import types
 
 try:
     from pdf2image import convert_from_bytes, pdfinfo_from_bytes
+    PDF2IMAGE_AVAILABLE = True
 except ImportError:
-    pass
+    PDF2IMAGE_AVAILABLE = False
 
 def parse_fraction(val_str):
     """
@@ -841,6 +842,7 @@ def parse_fraction(val_str):
         return float(val_str) if val_str else 0.0
     except Exception:
         return 0.0
+
 def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_records, new_style_measurements, target_new_sketch_bytes, detected_size):
     """
     Bộ não xử lý tính toán định mức nâng cao bằng đơn vị YARD (Yds).
@@ -862,12 +864,10 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
     l_shrink_val = shrinkage_length[0] if shrinkage_length else None
     new_fabric_width_val = new_fabric_width[0] if new_fabric_width else None
 
-    # Ép kiểu float an toàn từ giá trị đơn lẻ
     w_shrink = float(w_shrink_val) if w_shrink_val else 0.0
     l_shrink = float(l_shrink_val) if l_shrink_val else 0.0
     f_width = float(new_fabric_width_val) if new_fabric_width_val else 0.0
 
-    # Xử lý chuỗi JSON và biến điều kiện bên ngoài để tránh lỗi lồng f-string
     specs_old_json = json.dumps(specs_old)
     f_width_label = str(f_width) if f_width > 0 else "58 inch"
     new_style_measurements_json = json.dumps(new_style_measurements)
@@ -915,7 +915,6 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
        - NẸP RỜI (Separate Placket): Treat it as a standalone independent geometric pattern strip panel (Length = body length + seams, Width = placket width x 2 + standard seams 2 x 0.44 inches). Add this separate piece to the overall layout marker area.
 
     {scenario_instruction}
-
     CRITICAL DATA FOR CALCULATION:
     1. NEW STYLE TECHPACK DATA:
        - Target Base Size detected: Size {detected_size}
@@ -942,20 +941,25 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
         return ai_reply
     except Exception as e:
         return f"🚨 Lỗi cổng phân tích định mức: {str(e)}"
-
 if "get_secure_gemini_key" in globals():
     gemini_key = get_secure_gemini_key()
 else:
     gemini_key = st.secrets.get("GEMINI_API_KEY", "").strip()
 
+client = None
 if gemini_key:
-    client = genai.Client(api_key=gemini_key, http_options=types.HttpOptions(api_version='v1'))
+    client = genai.Client(
+        api_key=gemini_key,
+        http_options=types.HttpOptions(api_version='v1')
+    )
 
 def process_single_pdf_batch(file_bytes, file_name):
-    """
-    Hàm bóc tách dữ liệu kỹ thuật từ một file PDF độc lập.
-    Quét đặc biệt thông số Lai và chi tiết Nẹp áo để phục vụ luồng tính toán chừa biên may.
-    """
+    if not PDF2IMAGE_AVAILABLE:
+        return {
+            "success": False,
+            "error": "pdf2image chưa được cài đặt."
+        }
+
     import time
     try:
         if "get_secure_gemini_key" in globals():
@@ -1005,14 +1009,20 @@ def process_single_pdf_batch(file_bytes, file_name):
         for attempt in range(3):
             try:
                 response = client_ai.models.generate_content(
-                    model='gemini-2.5-flash', 
+                    model="gemini-2.5-flash",
                     contents=pdf_parts_payload,
-                    config={"response_mime_type": "application/json"}
+                    config=types.GenerateContentConfig(
+                        response_mime_type="application/json"
+                    )
                 )
                 if response and response.text:
                     parsed_json = json.loads(response.text)
-                    sketch_idx = parsed_json.get("sketch_page_index_detected", 0)
-                    extracted_sketch_bytes = stored_pages_bytes[sketch_idx] if sketch_idx < len(stored_pages_bytes) else stored_pages_bytes
+                    sketch_idx = int(parsed_json.get("sketch_page_index_detected", 0))
+
+                    if 0 <= sketch_idx < len(stored_pages_bytes):
+                        extracted_sketch_bytes = stored_pages_bytes[sketch_idx]
+                    else:
+                        extracted_sketch_bytes = stored_pages_bytes[0]
                     
                     return {
                         "success": True, 
@@ -1025,6 +1035,8 @@ def process_single_pdf_batch(file_bytes, file_name):
         return {"success": False, "error": "AI không thể cấu trúc dữ liệu JSON sau 3 lần thử."}
     except Exception as e:
         return {"success": False, "error": str(e)}
+
+# Khởi tạo trạng thái mặc định của các biến
 new_style_id_detected = "UNKNOWN_STYLE"
 new_style_category_detected = ""
 new_style_fabric_detected = "UNKNOWN_FABRIC"
@@ -1060,11 +1072,66 @@ if has_file:
     else:
         target_new_sketch_bytes = file_bytes
 
+# Cấu hình biến môi trường kết nối database
+SB_URL = st.secrets.get("SUPABASE_URL", "") if "SB_URL" not in globals() else SB_URL
+SB_KEY = st.secrets.get("SUPABASE_KEY", "") if "SB_KEY" not in globals() else SB_KEY
 dynamic_keyword = str(new_style_id_detected).strip().upper()
-base_sb_url = SB_URL.rstrip('/')
-headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
+base_sb_url = SB_URL.rstrip('/') if SB_URL else ""
+headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if SB_KEY else {}
+menu_selection = globals().get("menu_selection", "🧵 BOM & Consumption Matrix")
+# ==========================================
+# ĐOẠN 3: KHỞI TẠO BIẾN VÀ XỬ LÝ TỆP TẢI LÊN
+# ==========================================
 
-if menu_selection == "🧵 BOM & Consumption Matrix":
+new_style_id_detected = "UNKNOWN_STYLE"
+new_style_category_detected = ""
+new_style_fabric_detected = "UNKNOWN_FABRIC"
+new_style_measurements_dict = {}
+new_style_base_size = "32"
+target_new_sketch_bytes = None 
+
+# Xác định nguồn tệp tải lên từ các widget file_uploader khác nhau trong session_state
+target_file_object = None
+if 'uploaded_file' in st.session_state and st.session_state['uploaded_file'] is not None:
+    target_file_object = st.session_state['uploaded_file']
+elif 'chat_uploader' in st.session_state and st.session_state['chat_uploader'] is not None:
+    target_file_object = st.session_state['chat_uploader']
+elif 'bom_matrix_uploader' in st.session_state and st.session_state['bom_matrix_uploader'] is not None:
+    target_file_object = st.session_state['bom_matrix_uploader']
+
+has_file = target_file_object is not None
+
+# Nếu phát hiện có tệp, tiến hành đọc dữ liệu nhị phân (bytes)
+if has_file:
+    file_bytes = target_file_object.getvalue()
+    file_name = target_file_object.name
+    
+    # Nếu là file PDF, kích hoạt luồng xử lý bóc tách thông số tự động qua Gemini
+    if file_name.lower().endswith('.pdf'):
+        try:
+            res_pdf = process_single_pdf_batch(file_bytes, file_name)
+            if res_pdf.get("success"):
+                meta_p = res_pdf["data"]
+                new_style_id_detected = meta_p.get("style_number_parsed", "UNKNOWN_STYLE")
+                new_style_category_detected = meta_p.get("category", "")
+                new_style_base_size = meta_p.get("base_size_name", "32")
+                new_style_measurements_dict = meta_p.get("measurements", {})
+                target_new_sketch_bytes = res_pdf.get("sketch_bytes")
+        except Exception:
+            pass
+    else:
+        # Nếu là file ảnh trực tiếp (JPG/PNG), giữ nguyên làm ảnh phác thảo (Flat Sketch)
+        target_new_sketch_bytes = file_bytes
+
+# Chuẩn hóa từ khóa tìm kiếm và cấu hình các biến kết nối cơ sở dữ liệu Supabase
+dynamic_keyword = str(new_style_id_detected).strip().upper()
+base_sb_url = SB_URL.rstrip('/') if 'SB_URL' in globals() else ""
+headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if 'SB_KEY' in globals() else {}
+# =================================================================
+# ĐOẠN 4: HỆ THỐNG THỊ GIÁC MÁY TÍNH ĐỐI CHIẾU MÃ HÀNG TƯƠNG ĐỒNG
+# =================================================================
+
+if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption Matrix":
     st.markdown('<div class="component-title-box">🧵 INTELLIGENT BOM & CONSUMPTION MATRIX ENGINE</div>', unsafe_allow_html=True)
     
     if "matched_techpack" not in st.session_state: st.session_state["matched_techpack"] = None
@@ -1098,7 +1165,7 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
 
     with st.spinner("🧠 Hệ thống thị giác máy tính đang quét kết cấu phom dáng Flat Sketch..."):
         try:
-            headers_db = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
+            headers_db = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if 'SB_KEY' in globals() else {}
             url_db = f"{base_sb_url}/rest/v1/thong_so_techpack"
             query_params = {"select": "StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL,sketch_vector", "limit": 100}
             
@@ -1135,34 +1202,45 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                 match_contents = [types.Part.from_text(text=match_prompt)]
                 if target_new_sketch_bytes:
                     match_contents.append(types.Part.from_bytes(data=target_new_sketch_bytes, mime_type='image/jpeg'))
-                    
+                
+                if client is None:
+                    st.error("Gemini API Key chưa cấu hình.")
+                    st.stop()    
+
                 res_match = client.models.generate_content(model='gemini-2.5-flash', contents=match_contents)
                 ai_raw_text = res_match.text.strip()
                 
-                json_block_clean = ""
-                match_json_obj = re.search(r'\{\s*"selected_pool_index"\s*:\s*\d+\s*\}', ai_raw_text)
-                if match_json_obj:
-                    json_block_clean = match_json_obj.group(0).strip()
-                
-                if json_block_clean:
+                try:
+                    json_block_clean = re.search(r'\{.*?\}', ai_raw_text, re.DOTALL).group(0)
                     match_result = json.loads(json_block_clean)
-                    best_idx = match_result.get("selected_pool_index", -1)
-                    if 0 <= best_idx < len(all_historical_styles):
-                        st.session_state["matched_techpack"] = all_historical_styles[best_idx]
+                    
+                    selected_idx = match_result.get("selected_pool_index")
+                    if selected_idx is not None and 0 <= selected_idx < len(all_historical_styles):
+                        st.session_state["matched_techpack"] = all_historical_styles[selected_idx]
+                    else:
+                        st.session_state["matched_techpack"] = None
+                except Exception:
+                    match_result = {"selected_pool_index": -1}
+                    st.session_state["matched_techpack"] = None
         except Exception as match_err:
             st.sidebar.error(f"Lỗi hệ thống đối soát hình ảnh: {str(match_err)}")
-if menu_selection == "🧵 BOM & Consumption Matrix":
+# =================================================================
+# ĐOẠN 5: HIỂN THỊ SO SÁNH FLAT SKETCH, BẢNG THÔNG SỐ VÀ LỊCH SỬ BOM
+# =================================================================
+
+if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption Matrix":
     if st.session_state.get("matched_techpack"):
         try:
             target_style_name_bom = str(st.session_state["matched_techpack"].get("StyleName", "")).strip()
-            url_bom = f"{SB_URL.rstrip('/')}/rest/v1/san_pham"
+            url_bom = f"{SB_URL.rstrip('/')}/rest/v1/san_pham" if 'SB_URL' in globals() else ""
             
             query_bom = {
                 "select": "style_name,article_name,consumption_type,material_size,uom,consumption_value,notes",
                 "style_name": f"eq.{target_style_name_bom}"
             }
-            res_bom = requests.get(url_bom, headers=headers, params=query_bom, timeout=15)
-            if res_bom.status_code == 200 and len(res_bom.json()) > 0:
+            res_bom = requests.get(url_bom, headers=headers, params=query_bom, timeout=15) if url_bom else None
+            
+            if res_bom and res_bom.status_code == 200 and len(res_bom.json()) > 0:
                 st.session_state["bom_records"] = res_bom.json()
             else:
                 core_digits = re.findall(r'\d+', target_style_name_bom)
@@ -1172,8 +1250,8 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                     "select": "style_name,article_name,consumption_type,material_size,uom,consumption_value,notes",
                     "style_name": f"ilike.*{search_digits}*"
                 }
-                res_bom_fb = requests.get(url_bom, headers=headers, params=query_bom_fb, timeout=15)
-                if res_bom_fb.status_code == 200:
+                res_bom_fb = requests.get(url_bom, headers=headers, params=query_bom_fb, timeout=15) if url_bom else None
+                if res_bom_fb and res_bom_fb.status_code == 200:
                     raw_list = res_bom_fb.json()
                     st.session_state["bom_records"] = [r for r in raw_list if search_digits in str(r.get("style_name", ""))]
                 else:
@@ -1186,25 +1264,35 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
 
     st.markdown("### 🖼️ ĐỐI CHIẾU SỰ TƯƠNG ĐỒNG HÌNH ẢNH THIẾT KẾ (FLAT SKETCH)")
     img_col1, img_col2 = st.columns(2)
+    
     with img_col1:
         if target_new_sketch_bytes is not None:
-            st.image(target_new_sketch_bytes, caption=f"Mẫu mới tải lên ({new_style_id_detected})", use_container_width=True)
+            try:
+                st.image(
+                    target_new_sketch_bytes,
+                    caption=f"Mẫu mới tải lên ({new_style_id_detected})",
+                    use_container_width=True
+                )
+            except Exception as e:
+                st.warning(f"Lỗi hiển thị ảnh: {e}")
 
     with img_col2:
         if matched_techpack:
             target_style_name = str(matched_techpack.get("StyleName", "Mẫu tương đồng")).strip().upper()
             st.markdown(f"<p style='color: #1E3A8A; font-size: 13px; font-weight: 700; margin-bottom: 8px; text-align: center;'>🎯 Mã tương đồng trong kho: {target_style_name}</p>", unsafe_allow_html=True)
             
-            auth_headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
+            auth_headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if 'SB_KEY' in globals() else {}
             url_options = [
-                f"{SB_URL.rstrip('/')}/storage/v1/object/public/kho_anh/{target_style_name}.jpg",
-                f"{SB_URL.rstrip('/')}/storage/v1/object/public/kho_anh/{target_style_name}.JPG",
-                f"{SB_URL.rstrip('/')}/storage/v1/object/public/kho_anh/{target_style_name}.jpeg",
-                f"{SB_URL.rstrip('/')}/storage/v1/object/public/kho_anh/{target_style_name.lower()}.jpg"
+                f"{SB_URL.rstrip('/')}/storage/v1/object/public/kho_anh/{target_style_name}.jpg" if 'SB_URL' in globals() else "",
+                f"{SB_URL.rstrip('/')}/storage/v1/object/public/kho_anh/{target_style_name}.JPG" if 'SB_URL' in globals() else "",
+                f"{SB_URL.rstrip('/')}/storage/v1/object/public/kho_anh/{target_style_name}.jpeg" if 'SB_URL' in globals() else "",
+                f"{SB_URL.rstrip('/')}/storage/v1/object/public/kho_anh/{target_style_name.lower()}.jpg" if 'SB_URL' in globals() else ""
             ]
             
             img_content_final = None
             for url_opt in url_options:
+                if not url_opt:
+                    continue
                 try:
                     img_response = requests.get(url_opt, headers=auth_headers, timeout=8)
                     if img_response.status_code == 200 and len(img_response.content) > 500:
@@ -1261,7 +1349,8 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
         st.markdown("<br>📦 **Chi Tiết Định Mức Định Hình (BOM Lịch Sử của Mã hàng cũ):**", unsafe_allow_html=True)
         formatted_bom = []
         for r in bom_records:
-            def clean_nan(v): return "" if (not v or str(v).lower() in ["nan", "none", "null"]) else str(v).strip()
+            def clean_nan(v): 
+                return "" if (not v or str(v).lower() in ["nan", "none", "null"]) else str(v).strip()
             formatted_bom.append({
                 "Mã hàng đối chứng": clean_nan(r.get("style_name")).upper(),
                 "Loại nguyên vật liệu": clean_nan(r.get("consumption_type")),
@@ -1273,13 +1362,14 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
         st.dataframe(pd.DataFrame(formatted_bom), use_container_width=True, hide_index=True)
 
     st.markdown("<br><hr style='border:0.5px solid #CBD5E1;'>", unsafe_allow_html=True)
-    
-           # THIẾT KẾ CỤM ĐIỀU KHIỂN CHAT BOX THÔNG MINH SIÊU TỐC
+# =================================================================
+# ĐOẠN 6: GIAO DIỆN CHAT AI PHÂN TÍCH ĐỊNH MỨC VÀ SCRIPT AUTO-SCROLL
+# =================================================================
+
     chat_header_col1, chat_header_col2 = st.columns([3.2, 0.8])
     with chat_header_col1:
         st.markdown("### 💬 TRỢ LÝ AI PHÂN TÍCH ĐỊNH MỨC SẢN XUẤT (HỎI ĐÂU ĐÁP ĐÓ)")
     with chat_header_col2:
-        # ✅ SỬA LỖI SIÊU TỐC: Xóa trực tiếp mảng và không ép hệ thống phải load lại file PDF từ đầu
         if st.button("🗑️ XÓA LỊCH SỬ CHAT", key="direct_clear_chat_btn", use_container_width=True):
             st.session_state["consumption_chat_history"] = []
             st.toast("♻️ Đã xóa sạch lịch sử chat tức thì!")
@@ -1309,7 +1399,7 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                         detected_size=new_style_base_size
                     )
                     st.write(ai_reply)
-        
+                    
         # ✅ THUẬT TOÁN ĐÓNG ĐINH NEO CUỘN: Ép trình duyệt tự động scroll lướt màn hình xuống vị trí tin nhắn cuối cùng
         st.components.v1.html(
             """
