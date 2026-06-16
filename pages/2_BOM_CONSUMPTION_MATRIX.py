@@ -1061,7 +1061,7 @@ if has_file:
 dynamic_keyword = str(new_style_id_detected).strip().upper()
 base_sb_url = SB_URL.rstrip('/')
 headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
-# ==================== ĐOẠN B: AI ĐỐI SOÁT HÌNH ẢNH FLAT SKETCH NÂNG CAO (ĐÃ KHÓA CACHE CHỐNG LỖI 429) ====================
+# ==================== ĐOẠN B: AI ĐỐI SOÁT HÌNH ẢNH FLAT SKETCH (TÍCH HỢP TỰ ĐỘNG THỬ LẠI CHỐNG LỖI 503) ====================
 if "get_secure_gemini_key" in globals():
     gemini_key_global = get_secure_gemini_key()
 else:
@@ -1088,6 +1088,7 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
             st.session_state["consumption_chat_history"] = []
             st.session_state["matched_techpack"] = None
             st.session_state["bom_records"] = []
+            if "last_bom_style_name" in st.session_state: st.session_state["last_bom_style_name"] = None
             st.success("♻️ MEMORY PURGED - SẴN SÀNG CHO MÃ HÀNG MỚI")
             st.rerun()
 
@@ -1102,9 +1103,10 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
     else:
         st.info(f"📋 **CƠ SỞ ĐỐI SOÁT KIỂM TRA:** Đang áp dụng quy chuẩn kích thước hình học rập mẫu cơ sở: **SIZE 32 / M (Mặc định)**")
 
-    # 🎯 KHÓA BỘ NHỚ TẠM: Chỉ cho phép gọi AI quét ảnh nếu bộ nhớ tạm đang trống (matched_techpack là None)
+    # Chỉ cho phép gọi AI quét ảnh nếu bộ nhớ tạm đang trống
     if st.session_state["matched_techpack"] is None:
         with st.spinner("🧠 AI Thị giác máy tính đang quét kết cấu rập Flat Sketch để tìm phom dáng đồng dạng..."):
+            import time
             try:
                 headers_db = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
                 url_db = f"{base_sb_url}/rest/v1/thong_so_techpack"
@@ -1128,9 +1130,9 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                     
                     STRICT APPAREL AUDIT RULES (IGNORE THE OUTLINE, FOCUS SOLELY ON INTERNAL CONSTRUCTION DETAILS):
                     1. WAISTBAND CONSTRUCTION (CẠP QUẦN): Look closely at the waistband stitches. 
-                       - If the new image shows a full elastic waistband (cạp chun co giãn toàn bộ, nhiều đường nhăn song song, NO belt loops, NO zipper fly), you MUST REJECT any historical styles that have belt loops (đai quần), front zipper fly (khóa kéo), or standard button closures.
+                       - If the new image shows a full elastic waistband (cạp chun co giãn toàn bộ, many lines, NO belt loops, NO zipper fly), you MUST REJECT any historical styles with belt loops, front zipper fly, or standard button closures.
                     2. POCKET TYPES & PLACEMENT (KẾT CẤU TÚI): Look at the internal pocket placement.
-                       - Distinguish clearly between Patch Pockets (túi ốp nổi lớn bên ngoài, túi hộp kiểu Cargo) and Slit/In-seam Pockets (túi mổ sườn phẳng). Do NOT match a clean plain front leg with a Cargo/Utility pocket design.
+                       - Distinguish clearly between Patch Pockets and Slit/In-seam Pockets. Do NOT match a clean plain front leg with a Cargo/Utility pocket design.
                     3. SEAM LINES & PANEL CUTS: Look inside the body lines.
                     
                     HISTORICAL POOL DATA:
@@ -1143,29 +1145,38 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                     match_contents = [types.Part.from_text(text=match_prompt)]
                     if target_new_sketch_bytes:
                         match_contents.append(types.Part.from_bytes(data=target_new_sketch_bytes, mime_type='image/jpeg'))
-                        
-                    res_match = client.models.generate_content(model='gemini-2.5-flash', contents=match_contents)
-                    ai_raw_text = res_match.text.strip()
                     
-                    json_block_clean = ""
-                    match_json_obj = re.search(r'\{\s*"selected_pool_index"\s*:\s*\d+\s*\}', ai_raw_text)
-                    if match_json_obj:
-                        json_block_clean = match_json_obj.group(0).strip()
-                    
-                    if json_block_clean:
-                        match_result = json.loads(json_block_clean)
-                        best_idx = match_result.get("selected_pool_index", -1)
-                        if 0 <= best_idx < len(all_historical_styles):
-                            # Gán kết quả tìm dáng ảnh đồng dạng vào bộ nhớ tạm
-                            if isinstance(all_historical_styles[best_idx], list) and len(all_historical_styles[best_idx]) > 0:
-                                st.session_state["matched_techpack"] = all_historical_styles[best_idx][0]
+                    # 🛠 THIẾT LẬP VÒNG LẶP DỰ PHÒNG CHỐNG LỖI 503/429
+                    res_match = None
+                    for attempt in range(3):
+                        try:
+                            res_match = client.models.generate_content(model='gemini-2.5-flash', contents=match_contents)
+                            if res_match and res_match.text:
+                                break
+                        except Exception as e:
+                            if "503" in str(e) or "429" in str(e):
+                                time.sleep(2.0 + attempt * 1.5)  # Nghỉ tăng dần (2s, 3.5s) trước khi thử lại
+                                continue
                             else:
+                                raise e
+                    
+                    if res_match and res_match.text:
+                        ai_raw_text = res_match.text.strip()
+                        json_block_clean = ""
+                        match_json_obj = re.search(r'\{\s*"selected_pool_index"\s*:\s*\d+\s*\}', ai_raw_text)
+                        if match_json_obj:
+                            json_block_clean = match_json_obj.group(0).strip()
+                        
+                        if json_block_clean:
+                            match_result = json.loads(json_block_clean)
+                            best_idx = match_result.get("selected_pool_index", -1)
+                            if 0 <= best_idx < len(all_historical_styles):
                                 st.session_state["matched_techpack"] = all_historical_styles[best_idx]
             except Exception as match_err:
                 st.sidebar.error(f"Lỗi hệ thống đối soát hình ảnh: {str(match_err)}")
     else:
-        # Thông báo hệ thống đang tận dụng bộ nhớ tạm siêu tốc, không gọi lại AI
         st.caption(f"⚡ Hệ thống đang sử dụng kết quả đối soát hình ảnh lưu trong bộ nhớ tạm cho mã phom dáng: `{st.session_state['matched_techpack'].get('StyleName', 'N/A')}`")
+
 # ==================== ĐOẠN C: TRUY XUẤT ĐỊNH MỨC BOM KHO, TẢI ẢNH ĐỐI CHIẾU VÀ XUẤT BẢNG THÔNG SỐ ====================
     if "last_bom_style_name" not in st.session_state:
         st.session_state["last_bom_style_name"] = None
