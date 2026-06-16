@@ -1217,61 +1217,46 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
         else:
             st.caption(f"⚡ Đã nạp sẵn dữ liệu định mức BOM gốc gồm {len(st.session_state['bom_records'])} danh mục vật tư.")
 
+       # ---- BỔ SUNG DÒNG ĐỊNH NGHĨA CỘT BỊ THIẾU TẠI ĐÂY ----
+    spec_col1, spec_col2 = st.columns(2)
+
     with spec_col1:
         st.markdown(f"📊 **Bảng 1: Thông số Mẫu mới nạp ({new_style_base_size})**")
-        
-        # CHỈ TÍNH TOÁN 1 LẦN: Nếu chưa có DataFrame trong cache thì mới khởi tạo
-        if st.session_state.get("cached_df_new_spec") is None or len(st.session_state["cached_df_new_spec"]) != len(new_style_measurements_dict):
-            if new_style_measurements_dict:
-                st.session_state["cached_df_new_spec"] = pd.DataFrame(list(new_style_measurements_dict.items()), columns=["Vị trí đo (POM Description)", "Thông số mới"])
-            else:
-                st.session_state["cached_df_new_spec"] = pd.DataFrame(columns=["Vị trí đo (POM Description)", "Thông số mới"])
-        
-        st.dataframe(st.session_state["cached_df_new_spec"], use_container_width=True, hide_index=True)
+        if new_style_measurements_dict:
+            df_new_spec = pd.DataFrame(list(new_style_measurements_dict.items()), columns=["Vị trí đo (POM Description)", "Thông số mới"])
+        else:
+            df_new_spec = pd.DataFrame(columns=["Vị trí đo (POM Description)", "Thông số mới"])
+        st.dataframe(df_new_spec, use_container_width=True, hide_index=True)
         
     with spec_col2:
         if matched_techpack:
             old_style_title = str(matched_techpack.get("StyleName", "N/A")).upper()
             old_size_title = matched_techpack.get("BaseSize", "N/A")
             st.markdown(f"📋 **Bảng 2: Thông số Mã trong kho ({old_style_title}) [SIZE {old_size_title}]**")
-            
             old_specs = matched_techpack.get("DetailedMeasurements", {})
-            # CHỈ TÍNH TOÁN 1 LẦN: Khóa cache bảng thông số cũ
-            if st.session_state.get("cached_df_old_spec") is None or len(st.session_state["cached_df_old_spec"]) != len(old_specs):
-                if old_specs:
-                    st.session_state["cached_df_old_spec"] = pd.DataFrame(list(old_specs.items()), columns=["Vị trí đo (POM Description)", "Thông số cũ"])
-                else:
-                    st.session_state["cached_df_old_spec"] = pd.DataFrame(columns=["Vị trí đo (POM Description)", "Thông số cũ"])
-            
-            st.dataframe(st.session_state["cached_df_old_spec"], use_container_width=True, hide_index=True)
+            if old_specs:
+                df_old_spec = pd.DataFrame(list(old_specs.items()), columns=["Vị trí đo (POM Description)", "Thông số cũ"])
+            else:
+                df_old_spec = pd.DataFrame(columns=["Vị trí đo (POM Description)", "Thông số cũ"])
+            st.dataframe(df_old_spec, use_container_width=True, hide_index=True)
         else:
-            st.session_state["cached_df_old_spec"] = None  # Xóa cache nếu không có mã tương đồng
             st.markdown("📋 **Bảng 2: Thông số Mã tương đồng trong kho**")
             st.info("💡 Trạng thái: Trống dữ liệu kho. Hệ thống sẵn sàng tính toán diện tích rập mô phỏng tự động.")
 
     if matched_techpack and bom_records:
         st.markdown("<br>📦 **Chi Tiết Định Mức Định Hình (BOM Lịch Sử của Mã hàng cũ):**", unsafe_allow_html=True)
-        
-        # CHỈ TÍNH TOÁN 1 LẦN: Khóa cache xử lý vòng lặp for của bảng vật tư BOM
-        if st.session_state.get("cached_df_bom") is None or st.session_state.get("last_processed_bom_count", 0) != len(bom_records):
-            st.session_state["last_processed_bom_count"] = len(bom_records)
-            formatted_bom = []
-            for r in bom_records:
-                def clean_nan(v): return "" if (not v or str(v).lower() in ["nan", "none", "null"]) else str(v).strip()
-                formatted_bom.append({
-                    "Mã hàng đối chứng": clean_nan(r.get("style_name")).upper(),
-                    "Loại nguyên vật liệu": clean_nan(r.get("consumption_type")),
-                    "Chi tiết vật tư (Article)": clean_nan(r.get("article_name")),
-                    "Khổ / Cỡ vật tư": clean_nan(r.get("material_size")),
-                    "Định mức gốc": clean_nan(r.get("consumption_value")),
-                    "UOM": clean_nan(r.get("uom"))
-                })
-            st.session_state["cached_df_bom"] = pd.DataFrame(formatted_bom)
-            
-        st.dataframe(st.session_state["cached_df_bom"], use_container_width=True, hide_index=True)
-    else:
-        st.session_state["cached_df_bom"] = None
-        st.session_state["last_processed_bom_count"] = 0
+        formatted_bom = []
+        for r in bom_records:
+            def clean_nan(v): return "" if (not v or str(v).lower() in ["nan", "none", "null"]) else str(v).strip()
+            formatted_bom.append({
+                "Mã hàng đối chứng": clean_nan(r.get("style_name")).upper(),
+                "Loại nguyên vật liệu": clean_nan(r.get("consumption_type")),
+                "Chi tiết vật tư (Article)": clean_nan(r.get("article_name")),
+                "Khổ / Cỡ vật tư": clean_nan(r.get("material_size")),
+                "Định mức gốc": clean_nan(r.get("consumption_value")),
+                "UOM": clean_nan(r.get("uom"))
+            })
+        st.dataframe(pd.DataFrame(formatted_bom), use_container_width=True, hide_index=True)
 
     st.markdown("<br><hr style='border:0.5px solid #CBD5E1;'>", unsafe_allow_html=True)
 
