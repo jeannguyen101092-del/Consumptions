@@ -1143,7 +1143,7 @@ base_sb_url = SB_URL.rstrip('/')
 headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
 
 
-# ==================== ĐOẠN B: AI ĐỐI SOÁT HÌNH ẢNH FLAT SKETCH (ÉP LỌC ĐỒNG CHỦNG LOẠI QUẦN/ÁO) ====================
+# ==================== ĐOẠN B: AI ĐỐI SOÁT HÌNH ẢNH FLAT SKETCH (TỰ ĐỘNG CHUYỂN PHƯƠNG ÁN VECTOR NẾU KHÔNG CÓ MÃ ĐỒNG DẠNG) ====================
 if "get_secure_gemini_key" in globals():
     gemini_key_global = get_secure_gemini_key()
 else:
@@ -1192,7 +1192,7 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
 
     # Chỉ chạy AI đối soát khi chưa có kết quả trong cache
     if st.session_state["matched_techpack"] is None:
-        with st.spinner("🧠 AI Thị giác máy tính đang quét kết cấu rập Flat Sketch để tìm phom dáng đồng dạng..."):
+        with st.spinner("🧠 AI Thị giác máy tính đang quét tìm kết cấu phom dáng đồng dạng..."):
             import time
             try:
                 headers_db = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
@@ -1217,30 +1217,28 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                             continue
                             
                         filtered_styles_objects.append(s)
-                    
-                    if not filtered_styles_objects:
-                        filtered_styles_objects = all_historical_styles
 
-                    for idx, s in enumerate(filtered_styles_objects):
-                        styles_pool_summary.append({
-                            "pool_index": idx,
-                            "style_name": s.get("StyleName"),
-                            "category_db": s.get("Category")
-                        })
+                    if filtered_styles_objects:
+                        for idx, s in enumerate(filtered_styles_objects):
+                            styles_pool_summary.append({
+                                "pool_index": idx,
+                                "style_name": s.get("StyleName"),
+                                "category_db": s.get("Category")
+                            })
 
+                    # THIẾT LẬP PROMPT THÔNG MINH: Nếu không có mẫu thực sự đồng dạng, ép AI trả về -1
                     match_prompt = f"""
                     You are an expert Computer Vision Ingestion System specialized in Apparel Manufacturing at PPJ Group.
-                    Analyze the ATTACHED NEW SKETCH IMAGE and find the single closest matching historical garment style from the pool.
+                    Analyze the ATTACHED NEW SKETCH IMAGE and find if there is a highly matching historical style in the pool based on sewing construction.
                     
-                    STRICT APPAREL AUDIT RULES:
-                    1. CATEGORY LOCK: The new item is a JACKET/SHIRT. You MUST only select a matching shirt or jacket from the pool list. Never select or assume pants.
-                    2. FOCUS ON CONSTRUCTION: Audit plackets, chest pockets with flaps, collar bands, and drawstrings.
+                    STRICT INDUSTRIAL RULES:
+                    1. NO GUESSING: The new item is a JACKET/SHIRT. You are strictly forbidden to match it with pants. 
+                    2. IF NO REAL MATCH: If there is NO historical style in the pool below that shares a similar technical silhouette (central placket lines, collars, pockets), you MUST return -1 as the selected_pool_index. Do NOT try to force a match with a random or unrelated style.
                     
-                    HISTORICAL POOL DATA (FILTERED - APPAREL TOP/JACKET ONLY):
-                    {json.dumps(styles_pool_summary)}
+                    HISTORICAL POOL DATA (JACKETS/TOPS ONLY):
+                    {json.dumps(styles_pool_summary) if styles_pool_summary else "[]"}
                     
-                    Select the single index that represents the exact match in internal technical stitching construction.
-                    Return a raw valid JSON object inside your response: {{"selected_pool_index": 0}}
+                    Return a raw valid JSON object inside your response: {{"selected_pool_index": 0}} or {{"selected_pool_index": -1}}
                     """
                     
                     match_contents = [types.Part.from_text(text=match_prompt)]
@@ -1263,7 +1261,7 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                     if res_match and res_match.text:
                         ai_raw_text = res_match.text.strip()
                         json_block_clean = ""
-                        match_json_obj = re.search(r'\{\s*"selected_pool_index"\s*:\s*\d+\s*\}', ai_raw_text)
+                        match_json_obj = re.search(r'\{\s*"selected_pool_index"\s*:\s*-?\d+\s*\}', ai_raw_text)
                         if match_json_obj:
                             json_block_clean = match_json_obj.group(0).strip()
                         
@@ -1271,12 +1269,23 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
                             match_result = json.loads(json_block_clean)
                             best_idx = match_result.get("selected_pool_index", -1)
                             
-                            if 0 <= best_idx < len(filtered_styles_objects):
+                            # ĐIỀU HƯỚNG: Nếu AI báo -1 (Không có mã tương đồng), gán biến thành None để kích hoạt luồng tính toán Hình học độc lập
+                            if best_idx == -1:
+                                st.session_state["matched_techpack"] = None
+                            elif 0 <= best_idx < len(filtered_styles_objects):
                                 st.session_state["matched_techpack"] = filtered_styles_objects[best_idx]
+                        else:
+                            st.session_state["matched_techpack"] = None
+                else:
+                    st.session_state["matched_techpack"] = None
             except Exception as match_err:
                 st.sidebar.error(f"Lỗi hệ thống đối soát hình ảnh: {str(match_err)}")
+                st.session_state["matched_techpack"] = None
     else:
-        st.caption(f"⚡ Hệ thống đang sử dụng kết quả đối soát hình ảnh lưu trong bộ nhớ tạm cho mã phom dáng: `{st.session_state['matched_techpack'].get('StyleName', 'N/A')}`")
+        if st.session_state["matched_techpack"]:
+            st.caption(f"⚡ Hệ thống đang sử dụng kết quả đối soát hình ảnh lưu trong bộ nhớ tạm cho mã phom dáng: `{st.session_state['matched_techpack'].get('StyleName', 'N/A')}`")
+        else:
+            st.caption("⚡ Kho lưu trữ hiện tại không chứa mã phom dáng đồng dạng. Hệ thống đang chạy Phương án Vector Hình học.")
 
 
 # ==================== ĐOẠN C: TRUY XUẤT ĐỊNH MỨC BOM KHO, TẢI ẢNH ĐỐI CHIẾU VÀ XUẤT BẢNG THÔNG SỐ ====================
