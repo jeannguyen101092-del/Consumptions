@@ -1065,8 +1065,10 @@ def process_single_pdf_batch(file_bytes, file_name):
             except Exception:
                 continue
 
-        if not target_spec_pages:
-            target_spec_pages = [sketch_page_idx] if sketch_page_idx < total_p else [0]
+                if not target_spec_pages:
+            # Tăng trần fallback lên 10 trang để săn bằng được bảng thông số bị đẩy lùi ở các trang sau
+            target_spec_pages = list(range(min(10, total_p)))
+
 
         # Khởi tạo từ điển tích lũy tổng hợp dữ liệu sau khi merge các trang
         final_measurements = {}
