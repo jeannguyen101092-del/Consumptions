@@ -1141,6 +1141,11 @@ def process_single_pdf_batch(file_bytes, file_name):
         }
 
     import time
+    import json
+    """
+    Hàm bóc tách dữ liệu kỹ thuật từ một file PDF độc lập.
+    Quét đặc biệt thông số Lai và chi tiết Nẹp áo để phục vụ luồng tính toán chừa biên may.
+    """
     try:
         if "get_secure_gemini_key" in globals():
             gemini_key_local = get_secure_gemini_key()
@@ -1186,7 +1191,7 @@ def process_single_pdf_batch(file_bytes, file_name):
         )
         pdf_parts_payload.append(types.Part.from_text(text=industrial_extraction_prompt))
         
-                # KHỐI LỆNH HOÀN CHỈNH: ĐÃ SỬA CHUẨN RESPONSE_MIME_TYPE VÀ ĐÓNG ĐẦY ĐỦ NGOẶC
+        # KHỐI LỆNH ĐÃ SỬA CHUẨN RESPONSE_MIME_TYPE VÀ ĐÓNG ĐẦY ĐỦ NGOẶC
         for attempt in range(3):
             try:
                 response = client_ai.models.generate_content(
@@ -1196,7 +1201,6 @@ def process_single_pdf_batch(file_bytes, file_name):
                         response_mime_type="application/json"
                     )
                 )
-                # Kiểm tra phản hồi từ mô hình trước khi bóc tách cấu trúc dữ liệu JSON
                 if response and response.text:
                     parsed_json = json.loads(response.text.strip())
                     sketch_idx = int(parsed_json.get("sketch_page_index_detected", 0))
@@ -1204,7 +1208,7 @@ def process_single_pdf_batch(file_bytes, file_name):
                     if 0 <= sketch_idx < len(stored_pages_bytes):
                         extracted_sketch_bytes = stored_pages_bytes[sketch_idx]
                     else:
-                        extracted_sketch_bytes = stored_pages_bytes[0]
+                        extracted_sketch_bytes = stored_pages_bytes
                     
                     return {
                         "success": True, 
@@ -1212,11 +1216,14 @@ def process_single_pdf_batch(file_bytes, file_name):
                         "sketch_bytes": extracted_sketch_bytes
                     }
             except Exception:
-                import time
                 time.sleep(1.5)
                 continue
                 
-        return {"success": False, "error": "AI không thể cấu trúc dữ liệu JSON sau 3 lần thử lại."}
+        return {"success": False, "error": "AI không thể cấu trúc dữ liệu JSON sau 3 lần thử."}
+        
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
 
 
 # Khởi tạo trạng thái mặc định của các biến
