@@ -806,9 +806,13 @@ import streamlit as st
 import google.generativeai as genai
 from google.generativeai import types
 from pdf2image import convert_from_bytes
-from pdfinfo_from_bytes import pdfinfo_from_bytes # Hoặc từ thư viện tương đương của bạn
 
-# --- CẤU HÌNH KEY CƠ SỞ ---
+try:
+    from pdfinfo_from_bytes import pdfinfo_from_bytes
+except ModuleNotFoundError:
+    def pdfinfo_from_bytes(file_bytes):
+        return {"Pages": 1}
+
 if "get_secure_gemini_key" in globals():
     gemini_key = get_secure_gemini_key()
 else:
@@ -817,14 +821,8 @@ else:
 if gemini_key:
     client = genai.Client(api_key=gemini_key, http_options=types.HttpOptions(api_version='v1'))
 
-
-# --- HÀM 1: BÓC TÁCH TECHPACK TỪ PDF (CHỈ QUÉT AI 1 LẦN/FILE) ---
 @st.cache_data(show_spinner=False)
 def process_single_pdf_batch(file_bytes, file_name):
-    """
-    Hàm bóc tách dữ liệu kỹ thuật từ một file PDF độc lập.
-    Quét đặc biệt thông số Lai và chi tiết Nẹp áo để phục vụ luồng tính toán chừa biên may.
-    """
     import time
     try:
         if "get_secure_gemini_key" in globals():
@@ -895,19 +893,12 @@ def process_single_pdf_batch(file_bytes, file_name):
     except Exception as e:
         return {"success": False, "error": str(e)}
 
-
-# --- HÀM 2: ĐỐI SOÁT FLAT SKETCH & TRUY VẤN ĐỊNH MỨC BOM (CHỈ QUÉT AI 1 LẦN/FILE) ---
 @st.cache_data(show_spinner=False)
 def match_historical_style_and_bom(target_sketch_bytes, url_db, headers_db, base_sb_url, SB_KEY):
-    """
-    Hàm cache xử lý đối soát hình ảnh bằng AI và truy vấn dữ liệu BOM từ Database.
-    Giúp tránh gọi AI đối soát và gọi Database trùng lặp khi Streamlit rerun.
-    """
     matched_techpack_res = None
     bom_records_res = []
     
     try:
-        # 1. Gọi Database lấy danh sách mã hàng lịch sử
         query_params = {"select": "StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL,sketch_vector", "limit": 100}
         db_res = requests.get(url_db, headers=headers_db, params=query_params, timeout=15)
         all_historical_styles = db_res.json() if db_res.status_code == 200 else []
@@ -956,7 +947,6 @@ def match_historical_style_and_bom(target_sketch_bytes, url_db, headers_db, base
                 if 0 <= best_idx < len(all_historical_styles):
                     matched_techpack_res = all_historical_styles[best_idx]
                     
-        # 2. Lấy dữ liệu BOM từ Supabase nếu tìm thấy mã tương đồng
         if matched_techpack_res:
             target_style_name_bom = str(matched_techpack_res.get("StyleName", "")).strip()
             url_bom = f"{base_sb_url}/rest/v1/san_pham"
@@ -986,7 +976,6 @@ def match_historical_style_and_bom(target_sketch_bytes, url_db, headers_db, base
         pass
 
     return {"matched_techpack": matched_techpack_res, "bom_records": bom_records_res}
-# Khởi tạo giá trị biến mặc định ban đầu
 new_style_id_detected = "UNKNOWN_STYLE"
 new_style_category_detected = ""
 new_style_fabric_detected = "UNKNOWN_FABRIC"
@@ -994,7 +983,6 @@ new_style_measurements_dict = {}
 new_style_base_size = "32"
 target_new_sketch_bytes = None 
 
-# Xác định nguồn file tải lên từ uploader hoạt động
 target_file_object = None
 if 'uploaded_file' in st.session_state and st.session_state['uploaded_file'] is not None:
     target_file_object = st.session_state['uploaded_file']
@@ -1010,7 +998,6 @@ if has_file:
     file_name = target_file_object.name
     if file_name.lower().endswith('.pdf'):
         try:
-            # Nhờ hàm được bọc cache, lệnh dưới đây chỉ gọi sang API Gemini 1 lần duy nhất cho 1 file
             res_pdf = process_single_pdf_batch(file_bytes, file_name)
             if res_pdf.get("success"):
                 meta_p = res_pdf["data"]
@@ -1030,7 +1017,6 @@ headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
 if menu_selection == "🧵 BOM & Consumption Matrix":
     st.markdown('<div class="component-title-box">🧵 INTELLIGENT BOM & CONSUMPTION MATRIX ENGINE</div>', unsafe_allow_html=True)
     
-    # Đảm bảo khởi tạo các biến lưu trữ session
     if "matched_techpack" not in st.session_state: st.session_state["matched_techpack"] = None
     if "bom_records" not in st.session_state: st.session_state["bom_records"] = []
     if "consumption_chat_history" not in st.session_state: st.session_state["consumption_chat_history"] = []
@@ -1046,7 +1032,6 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
             st.session_state["consumption_chat_history"] = []
             st.session_state["matched_techpack"] = None
             st.session_state["bom_records"] = []
-            # Xóa sạch cache dữ liệu để sẵn sàng quét file hoàn toàn mới khi người dùng yêu cầu
             st.cache_data.clear()
             st.success("♻️ MEMORY PURGED - SẴN SÀNG CHO MÃ HÀNG MỚI")
             st.rerun()
@@ -1062,14 +1047,12 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
     else:
         st.info(f"📋 **CƠ SỞ ĐỐI SOÁT KIỂM TRA:** Đang áp dụng quy chuẩn kích thước hình học rập mẫu cơ sở: **SIZE 32 / M (Mặc định)**")
 
-    # LUỒNG ĐỐI SOÁT THÔNG MINH - CHỈ CHẠY AI MATCH KHI CHƯA CÓ KẾT QUẢ TRONG SESSION STATE
     if target_new_sketch_bytes and st.session_state["matched_techpack"] is None:
         with st.spinner("🧠 Hệ thống thị giác máy tính đang quét kết cấu phom dáng Flat Sketch..."):
             try:
                 url_db = f"{base_sb_url}/rest/v1/th"
                 headers_db = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
                 
-                # Gọi hàm đối soát và bóc BOM tích hợp cache dữ liệu chuyên sâu
                 cache_result = match_historical_style_and_bom(
                     target_new_sketch_bytes, url_db, headers_db, base_sb_url, SB_KEY
                 )
@@ -1081,7 +1064,6 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
     matched_techpack = st.session_state.get("matched_techpack")
     bom_records = st.session_state.get("bom_records", [])
 
-    # HIỂN THỊ TRỰC QUAN GIAO DIỆN PHÂN TÍCH HÌNH ẢNH RẬP
     st.markdown("### 🖼️ ĐỐI CHIẾU SỰ TƯƠNG ĐỒNG HÌNH ẢNH THIẾT KẾ (FLAT SKETCH)")
     img_col1, img_col2 = st.columns(2)
     with img_col1:
@@ -1093,7 +1075,7 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
             target_style_name = str(matched_techpack.get("StyleName", "Mẫu tương đồng")).strip().upper()
             st.markdown(f"<p style='color: #1E3A8A; font-size: 13px; font-weight: 700; margin-bottom: 8px; text-align: center;'>🎯 Mã tương đồng trong kho: {target_style_name}</p>", unsafe_allow_html=True)
             
-            auth_headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
+            auth_headers = {"apikey": SB_KEY, "Authorization": f"Bearer # {SB_KEY}"}
             url_options = [
                 f"{SB_URL.rstrip('/')}/storage/v1/object/public/kho_anh/{target_style_name}.jpg",
                 f"{SB_URL.rstrip('/')}/storage/v1/object/public/kho_anh/{target_style_name}.JPG",
@@ -1130,6 +1112,7 @@ if menu_selection == "🧵 BOM & Consumption Matrix":
             st.warning("⚠️ KHÔNG TÌM THẤY MÃ TƯƠNG ĐỒNG TRONG KHO! Tự động kích hoạt cơ chế tính toán độc lập bằng Vector Hình Học Ngành May.")
 
     st.markdown("---")
+
 
     
            # THIẾT KẾ CỤM ĐIỀU KHIỂN CHAT BOX THÔNG MINH SIÊU TỐC
