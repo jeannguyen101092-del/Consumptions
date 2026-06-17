@@ -900,14 +900,13 @@ def process_single_pdf_batch(file_bytes, file_name):
         
         for attempt in range(3):
             try:
-                response = client_ai.models.generate_content(
-                    model="gemini-2.5-flash",
-                    contents=pdf_parts_payload,
-                    config=types.GenerateContentConfig(response_mime_type="application/json")
-                )
-                if response and response.text:
-                    parsed_json = json.loads(response.text.strip())
-                    sketch_idx = int(parsed_json.get("sketch_page_index_detected", 0))
+                 response = client.models.generate_content(
+                     model='gemini-2.5-flash', 
+                     contents=chat_contents,
+                     config={
+                         "response_mime_type": "application/json"
+            }
+        )
 
                     # ✅ ĐÃ SỬA CHÍNH XÁC: Lấy phần tử ảnh đầu tiên [0] thay vì ném cả mảng List bytes vào st.image
                     if 0 <= sketch_idx < len(stored_pages_bytes):
