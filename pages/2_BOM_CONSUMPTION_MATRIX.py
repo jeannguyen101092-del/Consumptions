@@ -846,9 +846,15 @@ def parse_fraction(val_str):
 def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_records, new_style_measurements, target_new_sketch_bytes, detected_size):
     """
     Bộ não xử lý tính toán định mức nâng cao bằng đơn vị YARD (Yds).
-    Tự động kích hoạt cơ chế Vecto Hình Học Ngành May nếu KHÔNG CÓ mã tương đồng.
-    Tích hợp biên may 0.44", dò tìm lai và quy tắc tách biệt Quần/Áo (Chống lộn Nẹp).
+    Trả về dữ liệu định dạng cấu trúc JSON để Streamlit tự hiển thị giao diện.
+    Chỉ giữ tối đa 5 lượt hội thoại gần nhất để tối ưu token và tránh lan man.
     """
+    import re
+    import json
+
+    if "consumption_chat_history" not in st.session_state:
+        st.session_state["consumption_chat_history"] = []
+
     style_old_name = matched_techpack.get("StyleName", "N/A") if matched_techpack else "N/A"
     specs_old = matched_techpack.get("DetailedMeasurements", {}) if matched_techpack else {}
     
@@ -880,39 +886,49 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
         """
     else:
         scenario_instruction = f"""
-        KỊCH BẢN: PHÂN TÍCH VECTOR HÌNH HỌC NGÀNH MAY KHÔNG CÓ MÃ TƯƠNG ĐỒNG (GEOMETRIC LAYOUT ESTIMATION)
-        - Bạn không có dữ liệu lịch sử. Hãy dựa hoàn toàn vào bảng thông số 'New Spec (POM)' và hình ảnh bản vẽ rập chi tiết 'Flat Sketch' đính kèm.
-        - Hãy tính diện tích hình học rập mẫu thô của từng chi tiết cấu thành dựa trên đúng phân loại sản phẩm.
+        KỊCH BẢN: PHÂN TÍCH VECTOR HÌNH HỌC KHÔNG CÓ MÃ TƯƠNG ĐỒNG
+        - Dựa hoàn toàn vào bảng thông số 'New Spec (POM)' và hình ảnh bản vẽ rập chi tiết 'Flat Sketch' đính kèm.
         - Tính ĐM Vải chính: Cộng dồn chiều dài các mảnh rập sau khi cộng biên may, nhân hệ số hao hụt rải vải tiêu chuẩn ngành xếp trên khổ vải: {f_width_label}.
         """
 
+    # THAY ĐỔI CỐT LÕI: Ép định dạng đầu ra thành JSON nghiêm ngặt ngay tại đầu prompt
     system_instruction = f"""
-    You are a strict Industrial Garment Costing Engineer at PPJ Group. 
-    Your answers must mimic ChatGPT's advanced code interpreter mode but optimized for clean dashboard reporting:
-    1. STRICT UNIT REQUIRED: All consumption values and fabric calculation results MUST be presented in YARDS (Yds) or Inches. NEVER use meters or cm.
-    2. DIRECT ANSWER FIRST: Output the exact final average consumption value in YARDS (Yds) in the very first sentence.
-    3. SUMMARY TABLE FORMAT: Immediately after the first sentence, summarize all component consumption results in a clean Markdown Table. DO NOT write long paragraphs or verbose step-by-step text explanations of the math process. Let the table speak for itself.
-    4. LANGUAGE: Answer directly in Vietnamese, using precise apparel terminology (co rút, định mức, hao hụt, khổ vải, nẹp liền, nẹp rời).
+    You are a strict Industrial Garment Costing Engineer at PPJ Group.
+    
+    OUTPUT FORMAT (STRICT):
+    - Return a completely valid raw JSON string matching the specified schema.
+    - Absolutely NO conversation text, NO explanations, NO formulas, and NO markdown code blocks (do not use ```json).
+    - If data is completely missing or calculation is impossible, output a short question inside the "conclusion" field only.
+
+    JSON SCHEMA TO RETURN:
+    {{
+      "final_consumption_yds": "string (e.g., '0.845 Yds')",
+      "category": "string",
+      "size": "string",
+      "fabric_width": "string",
+      "width_shrinkage": "string",
+      "length_shrinkage": "string",
+      "original_consumption": "string",
+      "post_shrinkage_consumption": "string",
+      "conclusion": "string (Short Vietnamese conclusion or clear next-step action)"
+    }}
     
     FACTORY SEWING SEAM ALLOWANCE RULES & GEOMETRIC PRINCIPLES (CRITICAL):
     - Standard Seam Allowance: ALWAYS add 0.44 inches to all general component seams (Thân trước, thân sau, sườn, giàng, dọc quần, tra cạp, v.v.).
     - Pocket Openings (Miệng túi): EXCLUDE the 0.44 inch rule. Pocket trims and facings must follow the exact techpack dimensions.
     - Garment Hem / Bottom Hem (Lai áo / Lai quần): DO NOT use 0.44 inch. You MUST scan the 'New Spec (POM)' below to find the specific values for keywords like 'Hem', 'Bottom Width', 'Sleeve Hemfold'. Use that exact Techpack value for the hem calculation. If not specified, note it down.
-    - QUY TẮC XẾP LY / TÚI HỘP: Nếu tài liệu hoặc hình ảnh yêu cầu túi hộp, túi hoặc thân xếp ly (Pleats/Cargo), bắt buộc phải cộng thêm khoảng không hao hụt xếp ly vào bán thành phẩm để khi gấp lại về đúng thông số gốc. Ví dụ: rộng túi 10 inches, ly cấu trúc to bảng 1 inch thì chiều rộng rập thô bán thành phẩm phải tự động cộng bù phần ly gấp.
+    - QUY TẮC XẾP LY / TÚI HỘP: Nếu tài liệu hoặc hình ảnh yêu cầu túi hộp, túi hoặc thân xếp ly (Pleats/Cargo), bắt buộc phải cộng thêm khoảng không hao hụt xếp ly vào bán thành phẩm để khi gấp lại về đúng thông số gốc.
     - TỰ ĐỘNG SUY LUẬN: Hệ thống tự học và tìm kiếm các khoảng bù hao hụt cấu trúc rập theo tiêu chuẩn ngành may PPJ để phục vụ tính toán định mức chuẩn xác nhất.
 
-    GARMENT CATEGORY SPECIFIC RULES (STRICT SEPARATION TO AVOID ERROR):
-    
+    GARMENT CATEGORY SPECIFIC RULES:
     1. IF THE CATEGORY IS PANT / SHORT / SKORT / TROUSER (NHÓM HÀNG QUẦN):
-       - STICK TO JEANS/PANTS LOGIC ONLY.
-       - ABSOLUTELY FORBIDDEN: Do NOT apply Shirt Placket rules (Cấm áp dụng quy tắc nẹp rời/nẹp liền gập cuốn của áo). 
-       - Waistband Construction (Cạp quần): Calculate waistband fabric based strictly on Waistband Height and Waist Circumference.
-       - Zipper Fly / Fly Placket (Cửa quần): Only calculate based on standard front fly extensions (typically adding a small standard extension of 1.5 inches to 2 inches for the fly j-stitch width on ONE side of the left front panel only. Do NOT multiply by 2 across both front panels like a shirt).
-       - Coin Pocket (Túi đồng xu): Check for coin pocket width/height if specified.
+       - STICK TO JEANS/PANTS LOGIC ONLY. Do NOT apply Shirt Placket rules.
+       - Waistband Construction: Calculate waistband fabric based strictly on Waistband Height and Waist Circumference.
+       - Zipper Fly / Fly Placket: Only calculate based on standard front fly extensions (adding standard extension of 1.5 to 2 inches to ONE side only. Do NOT multiply by 2 across both front panels).
        
     2. IF THE CATEGORY IS SHIRT / JACKET / TOP / COAT (NHÓM HÀNG ÁO):
-       - NẸP LIỀN (Fold-on/Extended Placket): If folded from the main body, add 2 times the placket width extension to the raw width of each front body panel pattern before calculating fabric consumption.
-       - NẸP RỜI (Separate Placket): Treat it as a standalone independent geometric pattern strip panel (Length = body length + seams, Width = placket width x 2 + standard seams 2 x 0.44 inches). Add this separate piece to the overall layout marker area.
+       - NẸP LIỀN (Fold-on/Extended Placket): Add 2 times the placket width extension to the raw width of each front body panel pattern.
+       - NẸP RỜI (Separate Placket): Treat it as a standalone independent geometric pattern strip panel (Length = body length + seams, Width = placket width x 2 + standard seams 2 x 0.44 inches).
 
     {scenario_instruction}
     CRITICAL DATA FOR CALCULATION:
@@ -925,33 +941,70 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
        - Length Shrinkage (Co rút dọc): {l_shrink}%
     """
 
-    chat_contents = [types.Part.from_text(text=system_instruction)]
-    for past_chat in st.session_state.get("consumption_chat_history", []):
-        chat_contents.append(types.Part.from_text(text=f"User: {past_chat['user']}"))
-        chat_contents.append(types.Part.from_text(text=f"AI: {past_chat['ai']}"))
+    chat_contents = []
+    
+    # SỬA MỤC 2: Giới hạn chỉ gửi 5 lượt hội thoại gần nhất để tránh loãng ngữ cảnh và tràn token
+    MAX_HISTORY = 5
+    recent_history = st.session_state["consumption_chat_history"][-MAX_HISTORY:]
+    
+    for past_chat in recent_history:
+        chat_contents.append(types.Content(role="user", parts=[types.Part.from_text(text=past_chat['user'])]))
+        chat_contents.append(types.Content(role="model", parts=[types.Part.from_text(text=past_chat['ai'])]))
         
-    chat_contents.append(types.Part.from_text(text=f"User current request: {user_message}"))
+    current_user_parts = [
+        types.Part.from_text(text=system_instruction),
+        types.Part.from_text(text=f"User current request: {user_message}")
+    ]
+    
     if target_new_sketch_bytes:
-        chat_contents.append(types.Part.from_bytes(data=target_new_sketch_bytes, mime_type='image/jpeg'))
+        current_user_parts.append(types.Part.from_bytes(data=target_new_sketch_bytes, mime_type='image/jpeg'))
+        
+    chat_contents.append(types.Content(role="user", parts=current_user_parts))
 
     try:
-        response = client.models.generate_content(model='gemini-2.5-flash', contents=chat_contents)
-        ai_reply = response.text if response.text else "Hệ thống AI không thể đưa ra phân tích."
-        st.session_state["consumption_chat_history"].append({"user": user_message, "ai": ai_reply})
-        return ai_reply
-    except Exception as e:
-        return f"🚨 Lỗi cổng phân tích định mức: {str(e)}"
-if "get_secure_gemini_key" in globals():
-    gemini_key = get_secure_gemini_key()
-else:
-    gemini_key = st.secrets.get("GEMINI_API_KEY", "").strip()
+        # Cấu hình trả về định dạng JSON thuần túy
+        response = client.models.generate_content(
+            model='gemini-2.5-flash', 
+            contents=chat_contents,
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                temperature=0.1
+            )
+        )
+        
+        if not response:
+            raise Exception("Gemini returned empty response")
+        if not getattr(response, "text", None):
+            raise Exception("Gemini returned no text (possibly blocked by safety filters)")
+            
+        ai_reply = response.text.strip()
+        
+        # Làm sạch chuỗi JSON phòng trường hợp AI vô tình bọc block code
+        if ai_reply.startswith("```json"):
+            ai_reply = ai_reply.replace("```json", "").replace("```", "").strip()
+        elif ai_reply.startswith("```"):
+            ai_reply = ai_reply.replace("```", "").strip()
 
-client = None
-if gemini_key:
-    client = genai.Client(
-        api_key=gemini_key,
-        http_options=types.HttpOptions(api_version='v1')
-    )
+        # Lưu chuỗi JSON sạch vào history cho các lượt kiểm soát kế tiếp
+        st.session_state["consumption_chat_history"].append({"user": user_message, "ai": ai_reply})
+        
+        return ai_reply
+        
+    except Exception as e:
+        # Trả về cấu trúc lỗi JSON đồng nhất để phía giao diện không bị crash khi parse
+        error_json = {
+            "final_consumption_yds": "N/A",
+            "category": "Error",
+            "size": "Error",
+            "fabric_width": "Error",
+            "width_shrinkage": "Error",
+            "length_shrinkage": "Error",
+            "original_consumption": "N/A",
+            "post_shrinkage_consumption": "N/A",
+            "conclusion": f"🚨 Lỗi cổng phân tích định mức: {str(e)}"
+        }
+        return json.dumps(error_json, ensure_ascii=False)
+
 
 def process_single_pdf_batch(file_bytes, file_name):
     if not PDF2IMAGE_AVAILABLE:
@@ -974,8 +1027,12 @@ def process_single_pdf_batch(file_bytes, file_name):
         info = pdfinfo_from_bytes(file_bytes)
         total_p = int(info.get("Pages", 1))
         
+        # Đã sửa theo cấu hình sản xuất khuyến nghị (Tối đa 20 trang để không bỏ sót Sketch ở các trang sau)
+        MAX_PAGES = min(total_p, 20)
+        
         pdf_parts_payload = []
-        chat_images = convert_from_bytes(file_bytes, dpi=90, first_page=1, last_page=total_p)
+        # Giữ nguyên 120 DPI để tối ưu độ sắc nét cho text/bảng biểu kích thước nhỏ
+        chat_images = convert_from_bytes(file_bytes, dpi=120, first_page=1, last_page=MAX_PAGES)
         
         stored_pages_bytes = []
         for page_img in chat_images:
@@ -985,13 +1042,21 @@ def process_single_pdf_batch(file_bytes, file_name):
             stored_pages_bytes.append(img_data)
             pdf_parts_payload.append(types.Part.from_bytes(data=img_data, mime_type='image/jpeg'))
             
+        if not stored_pages_bytes:
+            return {
+                "success": False,
+                "error": "Không thể render trang PDF hoặc file PDF không có trang."
+            }
+            
+        # Thêm chỉ thị phòng chống tràn token đầu ra (Truncation) cho các bảng ma trận kích thước lớn
         industrial_extraction_prompt = (
-            "You are an expert Garment Specification Auditor at PPJ Group. Analyze all attached sheets page by page. "
+            "You are an expert Garment Specification Auditor at PPJ Group. "
+            f"Analyze ONLY the attached {MAX_PAGES} pages page by page. "
             "1. Identify the core 'Base Size' / 'Sample Size'. "
             "2. Identify the Buyer name and Category (Pant/Shirt/Jacket). "
             "3. Find the exact 'Style ID' / 'Style Number'. "
-            "4. Extract the entire grading matrix table columns for ALL available sizes. "
-            "5. Find the exact PAGE INDEX (0-based) that contains the FULL BODY APPAREL FLAT SKETCH. "
+            "4. Extract the entire grading matrix table columns for ALL available sizes. If the grading matrix is extremely large, prioritize the base size row and the main size columns. Return no more than 250 POM entries. Do not truncate JSON. "
+            f"5. Find the exact ATTACHED PAGE INDEX (0-based, from 0 to {len(stored_pages_bytes)-1}) that contains the FULL BODY APPAREL FLAT SKETCH. "
             "6. CRITICAL APPRAISAL FOR HEM & PLACKET DETAILS: Pay extreme attention to bottom hem allowances. If the category is a Shirt or Jacket, scan for 'Placket Width', 'Center Front Placket', or center stitching lines. Identify if the placket is separate or grown-on/folded, and record its measurement inside the measurements dictionary accurately. "
             "Return a completely valid raw JSON string matching this schema (no markdown blocks): "
             "{"
@@ -999,42 +1064,72 @@ def process_single_pdf_batch(file_bytes, file_name):
             "  \"buyer\": \"string\","
             "  \"category\": \"string\","
             "  \"base_size_name\": \"string\","
-            "  \"sketch_page_index_detected\": 0,"
+            "  \"attached_page_index_detected\": 0,"
             "  \"measurements\": {\"POM Description\": \"Value\"},"
             "  \"full_size_matrix\": {\"POM Description\": {\"Size_Name\": \"Value\"}}"
             "}"
         )
         pdf_parts_payload.append(types.Part.from_text(text=industrial_extraction_prompt))
         
+        last_error = "Chưa có lượt thử nào được thực hiện."
+        GEMINI_MODEL = "gemini-2.5-flash"
+        
         for attempt in range(3):
             try:
                 response = client_ai.models.generate_content(
-                    model="gemini-2.5-flash",
+                    model=GEMINI_MODEL,
                     contents=pdf_parts_payload,
                     config=types.GenerateContentConfig(
-                        response_mime_type="application/json"
+                        response_mime_type="application/json",
+                        temperature=0
                     )
                 )
-                if response and response.text:
-                    parsed_json = json.loads(response.text)
-                    sketch_idx = int(parsed_json.get("sketch_page_index_detected", 0))
-
-                    if 0 <= sketch_idx < len(stored_pages_bytes):
-                        extracted_sketch_bytes = stored_pages_bytes[sketch_idx]
-                    else:
-                        extracted_sketch_bytes = stored_pages_bytes[0]
+                
+                if not response:
+                    raise Exception("Gemini returned empty response")
+                if not getattr(response, "text", None):
+                    raise Exception("Gemini returned no text (possibly blocked by safety filters or empty finish reason)")
+                
+                raw_text = response.text.strip()
+                if raw_text.startswith("```json"):
+                    raw_text = raw_text.replace("```json", "").replace("```", "").strip()
+                elif raw_text.startswith("```"):
+                    raw_text = raw_text.replace("```", "").strip()
                     
-                    return {
-                        "success": True, 
-                        "data": parsed_json,
-                        "sketch_bytes": extracted_sketch_bytes
-                    }
-            except Exception:
+                try:
+                    parsed_json = json.loads(raw_text)
+                except json.JSONDecodeError as json_err:
+                    raise Exception(f"Invalid or incomplete JSON returned by Gemini: {str(json_err)}")
+                
+                try:
+                    sketch_idx = int(parsed_json.get("attached_page_index_detected", 0))
+                except (ValueError, TypeError):
+                    sketch_idx = 0
+
+                # ĐÃ SỬA LỖI NGHIÊM TRỌNG: Đảm bảo luôn trả về kiểu bytes đơn lẻ trong mọi trường hợp fallback
+                if 0 <= sketch_idx < len(stored_pages_bytes):
+                    extracted_sketch_bytes = stored_pages_bytes[sketch_idx]
+                else:
+                    extracted_sketch_bytes = stored_pages_bytes[0]
+                
+                return {
+                    "success": True, 
+                    "data": parsed_json,
+                    "sketch_bytes": extracted_sketch_bytes
+                }
+            except Exception as gemini_error:
+                last_error = f"[Lần thử {attempt + 1}] {str(gemini_error)}"
+                print(f"Gemini API Error - {last_error}")
                 time.sleep(1.5)
                 continue
-        return {"success": False, "error": "AI không thể cấu trúc dữ liệu JSON sau 3 lần thử."}
+                
+        return {
+            "success": False, 
+            "error": f"AI không thể cấu trúc dữ liệu JSON sau 3 lần thử. Chi tiết lỗi cuối: {last_error}"
+        }
     except Exception as e:
         return {"success": False, "error": str(e)}
+
 
 # Khởi tạo trạng thái mặc định của các biến
 new_style_id_detected = "UNKNOWN_STYLE"
@@ -1383,13 +1478,49 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             st.session_state["consumption_chat_history"] = []
             st.toast("♻️ Đã xóa sạch lịch sử chat tức thì!")
 
+    # Hàm phụ trợ dùng chung để render khối kết quả JSON thành giao diện trực quan
+    def render_ai_response(json_str):
+        try:
+            result = json.loads(json_str)
+            
+            # 1. Hiển thị Widget Metric số lớn nổi bật ở trên cùng
+            st.metric(
+                label="ĐỊNH MỨC TIÊU HAO CUỐI CÙNG", 
+                value=result.get("final_consumption_yds", "N/A")
+            )
+
+            # 2. Tạo DataFrame để dựng bảng Summary siêu gọn
+            summary_data = {
+                "Thông số hạng mục": [
+                    "Phân loại sản phẩm", "Kích cỡ kiểm tra (Base Size)", "Khổ vải yêu cầu", 
+                    "Tỷ lệ co rút ngang", "Tỷ lệ co rút dọc", "Định mức cấu trúc gốc", "Định mức sau co rút"
+                ],
+                "Giá trị chi tiết": [
+                    result.get("category", "N/A"), 
+                    result.get("size", "N/A"), 
+                    result.get("fabric_width", "N/A"),
+                    result.get("width_shrinkage", "N/A"), 
+                    result.get("length_shrinkage", "N/A"),
+                    result.get("original_consumption", "N/A"), 
+                    result.get("post_shrinkage_consumption", "N/A")
+                ]
+            }
+            st.dataframe(summary_data, use_container_width=True, hide_index=True)
+
+            # 3. Hiển thị phần kết luận hoặc câu hỏi tương tác ngắn gọn của kỹ sư AI
+            st.info(f"**Kết luận từ hệ thống:** {result.get('conclusion', 'Không có phản hồi.')}")
+        except Exception as e:
+            # Phòng trường hợp tin nhắn cũ là text thuần chưa đổi sang JSON
+            st.write(json_str)
+
     chat_container = st.container()
     with chat_container:
         for chat in st.session_state.get("consumption_chat_history", []):
             with st.chat_message("user"): 
                 st.write(chat["user"])
             with st.chat_message("assistant"): 
-                st.write(chat["ai"])
+                # ĐỔI TẠI ĐÂY: Dùng hàm render để vẽ lại bảng đẹp mắt từ lịch sử chat
+                render_ai_response(chat["ai"])
                 
     if user_query := st.chat_input("Nhập yêu cầu phân tích (Ví dụ: Tính định mức vải chính khi co rút ngang 5%, dọc 3%)..."):
         with chat_container:
@@ -1407,7 +1538,8 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                         target_new_sketch_bytes=target_new_sketch_bytes,
                         detected_size=new_style_base_size
                     )
-                    st.write(ai_reply)
+                    # ĐỔI TẠI ĐÂY: Thay thế st.write(ai_reply) bằng hàm render giao diện JSON mới
+                    render_ai_response(ai_reply)
                     
         # ✅ THUẬT TOÁN ĐÓNG ĐINH NEO CUỘN: Ép trình duyệt tự động scroll lướt màn hình xuống vị trí tin nhắn cuối cùng
         st.components.v1.html(
@@ -1416,7 +1548,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                 var doc = window.parent.document;
                 var sections = doc.querySelectorAll('section.main');
                 if (sections.length > 0) {
-                    sections[0].scrollTo({top: sections[0].scrollHeight, behavior: 'smooth'});
+                    sections[0].scrollTo({top: sections[0].scrollHeight, behavior: 'smooth'}); section.scrollHeight, behavior: 'smooth'});
                 }
             </script>
             """,
