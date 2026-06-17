@@ -1138,7 +1138,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
 
 
 
-    # =================================================================
+       # =================================================================
     # ĐOẠN 6: GIAO DIỆN CHAT AI PHÂN TÍCH ĐỊNH MỨC VÀ SCRIPT AUTO-SCROLL
     # =================================================================
 
@@ -1165,7 +1165,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                 
             with st.chat_message("assistant"):
                 with st.spinner("🤖 AI đang phân tích dữ liệu và tính toán định mức..."):
-                    # 1. BÓC TÁCH THÔNG SỐ TỪ TIN NHẮN ĐỂ TRÁNH LỖI CHƯA ĐỊNH NGHĨA BIẾN
+                    # 1. BÓC TÁCH THÔNG SỐ TỪ TIN NHẮN
                     shrinkage_width = re.findall(r'(?:CO RÚT NGANG|NGANG)\s*(\d+(?:\.\d+)?)\s*%', user_query.upper())
                     shrinkage_length = re.findall(r'(?:CO RÚT DỌC|DỌC)\s*(\d+(?:\.\d+)?)\s*%', user_query.upper())
                     new_fabric_width = re.findall(r'(?:KHỔ VẢI|KHỔ)\s*(\d+)\s*(?:\"|INCH|INCHES)?', user_query.upper())
@@ -1178,7 +1178,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                     l_shrink = float(l_shrink_val) if l_shrink_val else 0.0
                     f_width = float(new_fabric_width_val) if new_fabric_width_val else 58.0
 
-                    # 2. ĐÃ SỬA: Thêm dấu phẩy (,) ngăn cách tham số và đồng bộ biến cục bộ an toàn
+                    # 2. GỌI HÀM ENGINE (ĐÃ SỬA CHUẨN DẤU PHẨY VÀ NGOẶC)
                     ai_reply = ai_consumption_analyst_engine(
                         client=client,
                         user_message=user_query,
@@ -1193,12 +1193,12 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                     )
                     st.write(ai_reply)
 
-                    # Lưu tin nhắn mới vào lịch sử trò chuyện để tránh mất dữ liệu khi ứng dụng rerun
+                    # Lưu tin nhắn mới vào lịch sử trò chuyện
                     if "consumption_chat_history" not in st.session_state:
                         st.session_state["consumption_chat_history"] = []
                     st.session_state["consumption_chat_history"].append({"user": user_query, "ai": ai_reply})
 
-        # ✅ THUẬT TOÁN ĐÓNG ĐINH NEO CUỘN: Ép trình duyệt tự động scroll lướt màn hình xuống vị trí tin nhắn cuối cùng
+        # ✅ THUẬT TOÁN ĐÓNG ĐINH NEO CUỘN CHUẨN JAVASCRIPT
         st.components.v1.html(
             """
             <script>
@@ -1211,6 +1211,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             """,
             height=0,
         )
+
 
 
 
