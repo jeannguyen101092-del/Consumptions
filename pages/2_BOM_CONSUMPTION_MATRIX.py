@@ -809,7 +809,6 @@ try:
 except ImportError:
     PDF2IMAGE_AVAILABLE = False
 
-# Kiểm tra bảo mật API Key an toàn
 if "get_secure_gemini_key" in globals():
     gemini_key = get_secure_gemini_key()
 else:
@@ -822,10 +821,6 @@ if gemini_key:
         http_options=types.HttpOptions(api_version='v1')
     )
 def parse_fraction(val_str):
-    """
-    HÀM QUY ĐỔI PHÂN SỐ NGÀNH MAY CHUẨN PPJ
-    Chuyển đổi chính xác '1 1/2', '3/4', '1.5"' về dạng float.
-    """
     if not val_str: 
         return 0.0
     val_str = str(val_str).strip().lower()
@@ -852,21 +847,16 @@ def parse_fraction(val_str):
         return 0.0
 
 def process_single_pdf_batch(file_bytes, file_name):
-    """
-    Hàm chuyển đổi PDF thành hình ảnh và bóc tách cấu trúc thông số qua Gemini AI
-    """
     if not PDF2IMAGE_AVAILABLE:
-        return {"success": False, "error": "pdf2image chưa được cài đặt trên hệ thống."}
-
+        return {"success": False, "error": "pdf2image chưa được cài đặt."}
     import time
     try:
         if "get_secure_gemini_key" in globals():
             gemini_key_local = get_secure_gemini_key()
         else:
             gemini_key_local = st.secrets.get("GEMINI_API_KEY", "").strip()
-            
         if not gemini_key_local:
-            return {"success": False, "error": "API Key cho Gemini bị khuyết trong Secrets."}
+            return {"success": False, "error": "Khuyết API Key."}
             
         client_ai = genai.Client(api_key=gemini_key_local)
         info = pdfinfo_from_bytes(file_bytes)
@@ -885,7 +875,7 @@ def process_single_pdf_batch(file_bytes, file_name):
             
         industrial_extraction_prompt = (
             "You are an expert Garment Specification Auditor at PPJ Group. Analyze all attached sheets page by page. "
-            "Return a completely valid raw JSON string matching this schema (no markdown blocks):\n"
+            "Return a completely valid raw JSON string matching this schema:\n"
             "{\n"
             "  \"style_number_parsed\": \"string\",\n"
             "  \"buyer\": \"string\",\n"
@@ -900,39 +890,30 @@ def process_single_pdf_batch(file_bytes, file_name):
         
         for attempt in range(3):
             try:
-                 response = client.models.generate_content(
-                     model='gemini-2.5-flash', 
-                     contents=chat_contents,
-                     config={
-                         "response_mime_type": "application/json"
-            }
-        )
-
-                    # ✅ ĐÃ SỬA CHÍNH XÁC: Lấy phần tử ảnh đầu tiên [0] thay vì ném cả mảng List bytes vào st.image
+                response = client_ai.models.generate_content(
+                    model="gemini-2.5-flash",
+                    contents=pdf_parts_payload,
+                    config={"response_mime_type": "application/json"}
+                )
+                if response and response.text:
+                    parsed_json = json.loads(response.text.strip())
+                    sketch_idx = int(parsed_json.get("sketch_page_index_detected", 0))
                     if 0 <= sketch_idx < len(stored_pages_bytes):
                         extracted_sketch_bytes = stored_pages_bytes[sketch_idx]
                     else:
                         extracted_sketch_bytes = stored_pages_bytes[0] if stored_pages_bytes else b""
-                    
                     return {"success": True, "data": parsed_json, "sketch_bytes": extracted_sketch_bytes}
             except Exception as e:
                 time.sleep(1.5)
                 if attempt == 2:
-                    return {"success": False, "error": f"Lỗi phân tách JSON hoặc API: {str(e)}"}
+                    return {"success": False, "error": str(e)}
                 continue
-                
-        return {"success": False, "error": "AI không thể cấu trúc dữ liệu JSON sau 3 lần thử."}
+        return {"success": False, "error": "AI Timeout."}
     except Exception as e:
         return {"success": False, "error": str(e)}
-
-
 def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_records, new_style_measurements, target_new_sketch_bytes, detected_size, f_width, w_shrink, l_shrink):
-    """
-    ENGINE DỰNG RẬP ẢO LAI (HYBRID VIRTUAL PATTERN ENGINE) - PHIÊN BẢN CÔNG NGHIỆP PPJ
-    """
     available_keys = list(new_style_measurements.keys())
     available_keys_json = json.dumps(available_keys, ensure_ascii=False)
-    
     chat_contents = []
     structural_audit_prompt = f"""
     You are an expert Garment Structure Auditor at PPJ Group. 
@@ -953,25 +934,18 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
     chat_contents.append(types.Part.from_text(text=structural_audit_prompt))
     if target_new_sketch_bytes:
         chat_contents.append(types.Part.from_bytes(data=target_new_sketch_bytes, mime_type='image/jpeg'))
-
     if client is None:
         return "🚨 Lỗi: Hệ thống chưa cấu hình Client API cho Gemini."
-        
     try:
-        # ✅ ĐÃ SỬA: Chuyển cấu hình sang kiểu Dictionary trực tiếp để loại bỏ lỗi 400 responseMimeType
         response = client.models.generate_content(
             model='gemini-2.5-flash', 
             contents=chat_contents,
-            config={
-                "response_mime_type": "application/json"
-            }
+            config={"response_mime_type": "application/json"}
         )
         if not response or not response.text:
             return "🚨 Hệ thống AI phản hồi cấu trúc rỗng."
-            
         schema_data = json.loads(response.text.strip())
         confidence = float(schema_data.get("confidence", 0.50))
-        
         category = schema_data.get("category", "SHIRT").upper()
         features = schema_data.get("features", {})
         components = schema_data.get("components", [])
@@ -993,7 +967,6 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
         
         if body_length <= 0: 
             body_length = 28.0 if category in ["SHIRT", "JACKET"] else (18.0 if category == "SHORT" else 38.0)
-            
         if category in ["SHIRT", "JACKET"]:
             primary_width = chest_val if chest_val > 0 else 44.0
             width_key_name = pom_map.get("chest_key") if pom_map.get("chest_key") else "Chest Width"
@@ -1008,7 +981,6 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
         shape_factors = {"SHIRT_FRONT": 0.86, "SHIRT_BACK": 0.88, "SLEEVE": 0.78, "PANT_FRONT": 0.72, "PANT_BACK": 0.78}
         MARKER_MATRIX = {"SHIRT": 0.82, "SHIRT_PATCH": 0.80, "PANT": 0.82, "PANT_ELASTIC": 0.84, "PANT_CARGO": 0.78, "JACKET": 0.72}
         BACK_RISE_ALLOWANCE = 1.5 if category == "SHORT" else (2.5 if features.get("cargo_pocket") else 2.0)
-            
         calculated_components = []
         total_style_area = 0.0
         seam = 0.44  
@@ -1056,7 +1028,6 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
         return result_view
     except Exception as e:
         return f"🚨 Lỗi hệ thống dựng rập ảo: {str(e)}"
-
 new_style_id_detected = "UNKNOWN_STYLE"
 new_style_category_detected = ""
 new_style_fabric_detected = "UNKNOWN_FABRIC"
@@ -1087,7 +1058,6 @@ if has_file:
             new_style_measurements_dict = meta_p.get("measurements", {})
             target_new_sketch_bytes = res_pdf.get("sketch_bytes")
         else:
-            # ✅ ĐÃ SỬA: Hiện lỗi trực tiếp lên Sidebar để kiểm soát nguyên nhân không parse được file
             st.sidebar.error(f"🚨 Lỗi đọc PDF: {res_pdf.get('error')}")
     else:
         target_new_sketch_bytes = file_bytes
@@ -1098,10 +1068,8 @@ dynamic_keyword = str(new_style_id_detected).strip().upper()
 base_sb_url = SB_URL.rstrip('/') if SB_URL else ""
 headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if SB_KEY else {}
 menu_selection = globals().get("menu_selection", "🧵 BOM & Consumption Matrix")
-
 if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption Matrix":
     st.markdown('<div class="component-title-box">🧵 INTELLIGENT BOM & CONSUMPTION MATRIX ENGINE</div>', unsafe_allow_html=True)
-    
     if "matched_techpack" not in st.session_state: st.session_state["matched_techpack"] = None
     if "bom_records" not in st.session_state: st.session_state["bom_records"] = []
     if "consumption_chat_history" not in st.session_state: st.session_state["consumption_chat_history"] = []
@@ -1110,7 +1078,6 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     with control_col1:
         st.markdown("<p style='font-weight:700;'>📁 INGEST NEW STYLE REPRINTS (PDF/IMAGE)</p>", unsafe_allow_html=True)
         st.file_uploader("Upload Techpack file", type=["pdf", "jpg", "jpeg", "png"], key="bom_matrix_uploader", label_visibility="collapsed")
-            
     with control_col2:
         st.markdown("<p style='font-weight:700;'>🧹 RESET CORE</p>", unsafe_allow_html=True)
         if st.button("🗑️ PURGE CHAT CACHE", key="purge_cache_matrix_btn", use_container_width=True):
@@ -1120,101 +1087,57 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             st.rerun()
 
     st.markdown("---")
-
     if not has_file:
         st.info("👋 Vui lòng tải lên tệp Techpack hồ sơ thiết kế để bắt đầu đối soát.")
         st.stop()
 
-        # --- KHỐI THỊ GIÁC MÁY TÍNH QUÉT TÌM MÃ TƯƠNG ĐỒNG CHUẨN VISION ---
     if st.session_state["matched_techpack"] is None:
-        with st.spinner("🧠 Hệ thống thị giác AI đang đối soát kết cấu phom dáng Flat Sketch với dữ liệu kho..."):
+        with st.spinner("🧠 Hệ thống thị giác AI đang đối soát kết cấu phom dáng..."):
             try:
-                # 1. Tải danh sách các mã hàng lịch sử có trong kho dữ liệu Supabase
                 url_db = f"{base_sb_url}/rest/v1/thong_so_techpack"
                 query_params = {"select": "StyleName,Buyer,Category,DetailedMeasurements,SketchURL", "limit": 100}
                 db_res = requests.get(url_db, headers=headers, params=query_params, timeout=15)
                 all_historical_styles = db_res.json() if db_res.status_code == 200 else []
-                
-                if all_historical_styles and target_new_sketch_bytes:
-                    # 2. Xây dựng danh sách rút gọn để AI hiểu được kho dữ liệu đang có những gì
+                if all_historical_styles and target_new_sketch_bytes and isinstance(target_new_sketch_bytes, bytes):
                     styles_pool_summary = []
                     for idx, s in enumerate(all_historical_styles):
-                        styles_pool_summary.append({
-                            "pool_index": idx,
-                            "style_name": s.get("StyleName"),
-                            "category": s.get("Category", "")
-                        })
-                    
-                    # 3. Prompt kiểm toán thị giác máy tính ép AI ép chặt danh mục sản phẩm (Category matching)
-                    match_prompt = f"""
-                    You are an expert Computer Vision Ingestion System specialized in Apparel Manufacturing at PPJ Group.
-                    Analyze the ATTACHED NEW SKETCH IMAGE and find the single closest matching historical garment style from the pool.
-                    
-                    STRICT APPAREL AUDIT RULES:
-                    1. CATEGORY MISMATCH IS STRICTLY FORBIDDEN: If the new image is a DRESS, SHIRT, or JACKET, you MUST NEVER match it with a PANT or SHORT.
-                    2. Look closely at internal construction lines (Princess seams, V-neck line, pockets, waistband).
-                    
-                    HISTORICAL POOL DATA:
-                    {json.dumps(styles_pool_summary)}
-                    
-                    Select the single index that represents the best structural match.
-                    Return ONLY a raw valid JSON object: {{"selected_pool_index": 0}}
-                    """
-                    
-                    match_contents = [types.Part.from_text(text=match_prompt)]
-                    match_contents.append(types.Part.from_bytes(data=target_new_sketch_bytes, mime_type='image/jpeg'))
-                    
+                        styles_pool_summary.append({"pool_index": idx, "style_name": s.get("StyleName"), "category": s.get("Category", "")})
+                    match_prompt = f"Analyze attached image and find closest pool_index. Rules: Category mismatch forbidden. Pool: {json.dumps(styles_pool_summary)}. Return JSON: {{\"selected_pool_index\": 0}}"
+                    match_contents = [types.Part.from_text(text=match_prompt), types.Part.from_bytes(data=target_new_sketch_bytes, mime_type='image/jpeg')]
                     if client is not None:
                         res_match = client.models.generate_content(model='gemini-2.5-flash', contents=match_contents)
-                        ai_raw_text = res_match.text.strip()
-                        
-                        try:
-                            json_block_clean = re.search(r'\{.*?\}', ai_raw_text, re.DOTALL).group(0)
-                            match_result = json.loads(json_block_clean)
-                            selected_idx = match_result.get("selected_pool_index")
-                            
-                            if selected_idx is not None and 0 <= selected_idx < len(all_historical_styles):
-                                st.session_state["matched_techpack"] = all_historical_styles[selected_idx]
-                                st.toast(f"🎯 Đã khớp mã thành công: {all_historical_styles[selected_idx].get('StyleName')}")
-                            else:
-                                st.session_state["matched_techpack"] = None
-                        except Exception:
-                            st.session_state["matched_techpack"] = None
-                else:
-                    st.session_state["matched_techpack"] = None
-            except Exception as match_err:
-                st.sidebar.error(f"Lỗi đối soát hình ảnh: {str(match_err)}")
-                st.session_state["matched_techpack"] = None
+                        json_block_clean = re.search(r'\{.*?\}', res_match.text.strip(), re.DOTALL).group(0)
+                        selected_idx = json.loads(json_block_clean).get("selected_pool_index")
+                        if selected_idx is not None and 0 <= selected_idx < len(all_historical_styles):
+                            st.session_state["matched_techpack"] = all_historical_styles[selected_idx]
+            except Exception:
+                pass
 
     matched_techpack = st.session_state.get("matched_techpack")
-
-
-    # --- HIỂN THỊ ĐỐI CHIẾU HÌNH ẢNH FLAT SKETCH ---
     st.markdown("### 🖼️ ĐỐI CHIẾU SỰ TƯƠNG ĐỒNG HÌNH ẢNH THIẾT KẾ (FLAT SKETCH)")
     img_col1, img_col2 = st.columns(2)
     with img_col1:
-        if target_new_sketch_bytes:
+        if target_new_sketch_bytes and isinstance(target_new_sketch_bytes, bytes):
             st.image(target_new_sketch_bytes, caption=f"Mẫu mới nạp ({new_style_id_detected})", use_container_width=True)
-            
+        else:
+            st.info("⌛ Đang xử lý bóc tách định dạng trang ảnh vẽ...")
     with img_col2:
-        # ✅ KHÔI PHỤC HOÀN TOÀN: Tự động tải ảnh thật của mã cũ từ kho ảnh Supabase Public Bucket
         if matched_techpack:
             target_style_name = str(matched_techpack.get("StyleName", "Mẫu tương đồng")).strip().upper()
             st.markdown(f"<p style='color: #1E3A8A; font-size: 13px; font-weight: 700; text-align: center;'>🎯 Mã tương đồng trong kho: {target_style_name}</p>", unsafe_allow_html=True)
-            
             url_opt = f"{base_sb_url}/storage/v1/object/public/kho_anh/{target_style_name}.jpg"
             try:
                 img_response = requests.get(url_opt, headers=headers, timeout=5)
                 if img_response.status_code == 200:
                     st.image(img_response.content, caption=f"Bản vẽ gốc mã {target_style_name}", use_container_width=True)
                 else:
-                    st.info("⚠️ Không tìm thấy ảnh vật lý vật tư trên Cloud Storage.")
+                    db_stored_url = matched_techpack.get("SketchURL") or matched_techpack.get("sketch_url", "")
+                    if db_stored_url: st.image(db_stored_url, use_container_width=True)
             except Exception:
-                st.info("⚠️ Trục trặc kết nối Cloud Storage.")
+                st.info("⚠️ Không tìm thấy ảnh trên Cloud.")
         else:
-            st.warning("⚠️ Không tìm thấy mã tương đồng. Hệ thống chạy chế độ tự lập.")
+            st.warning("⚠️ Không tìm thấy mã tương đồng.")
 
-    # --- SO SÁNH HAI BẢNG THÔNG SỐ KỸ THUẬT RẬP MẪU ---
     st.markdown("<br>### 📐 SO SÁNH HAI BẢNG THÔNG SỐ KỸ THUẬT RẬP MẪU", unsafe_allow_html=True)
     spec_col1, spec_col2 = st.columns(2)
     with spec_col1:
@@ -1230,13 +1153,9 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                 except: old_specs = {}
             df_old = pd.DataFrame(list(old_specs.items()), columns=["POM Description", "Value"]) if old_specs else pd.DataFrame(columns=["POM Description", "Value"])
             st.dataframe(df_old, use_container_width=True, hide_index=True)
-        else:
-            st.info("Trống dữ liệu kho đối chứng.")
 
     st.markdown("<br><hr style='border:0.5px solid #CBD5E1;'>", unsafe_allow_html=True)
 
-
-    # --- GIAO DIỆN CHAT AI PHÂN TÍCH ĐỊNH MỨC ---
     st.markdown("### 💬 TRỢ LÝ AI PHÂN TÍCH ĐỊNH MỨC SẢN XUẤT (HỎI ĐÂU ĐÁP ĐÓ)")
     chat_container = st.container()
     with chat_container:
@@ -1253,10 +1172,9 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                     shrinkage_width = re.findall(r'(?:CO RÚT NGANG|NGANG)\s*(\d+(?:\.\d+)?)\s*%', user_query.upper())
                     shrinkage_length = re.findall(r'(?:CO RÚT DỌC|DỌC)\s*(\d+(?:\.\d+)?)\s*%', user_query.upper())
                     new_fabric_width = re.findall(r'(?:KHỔ VẢI|KHỔ)\s*(\d+)\s*(?:\"|INCH|INCHES)?', user_query.upper())
-                    
-                    w_shrink = float(shrinkage_width[0]) if shrinkage_width else 2.0
-                    l_shrink = float(shrinkage_length[0]) if shrinkage_length else 3.0
-                    f_width = float(new_fabric_width[0]) if new_fabric_width else 58.0
+                    w_shrink = float(shrinkage_width) if shrinkage_width else 2.0
+                    l_shrink = float(shrinkage_length) if shrinkage_length else 3.0
+                    f_width = float(new_fabric_width) if new_fabric_width else 58.0
 
                     ai_reply = ai_consumption_analyst_engine(
                         client=client,
@@ -1272,23 +1190,10 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                     )
                     st.markdown(ai_reply)
                     st.session_state["consumption_chat_history"].append({"user": user_query, "ai": ai_reply})
-
         st.components.v1.html(
-            "<script>var d = window.parent.document.querySelectorAll('section.main'); if(d.length>0){d[0].scrollTo({top:d[0].scrollHeight,behavior:'smooth'});}</script>",
+            "<script>var d = window.parent.document.querySelectorAll('section.main'); if(d.length>0){d.scrollTo({top:d.scrollHeight,behavior:'smooth'});}</script>",
             height=0
         )
-
-
-
-
-
-
-
-    
-
-
-
-
 
 
 
