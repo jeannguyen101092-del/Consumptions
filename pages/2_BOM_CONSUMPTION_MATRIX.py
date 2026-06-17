@@ -834,7 +834,9 @@ def parse_fraction(val_str):
         if ' ' in val_str:
             parts = [p for p in val_str.split(' ') if p.strip()]
             if len(parts) >= 2:
-                whole = float(parts[0])
+                # Đã sửa lỗi bẫy trích xuất chuỗi phân số
+                try: whole = float(parts[0])
+                except: whole = 0.0
                 frac_str = parts[1]
             else:
                 whole = 0.0
@@ -908,10 +910,11 @@ def process_single_pdf_batch(file_bytes, file_name):
                     parsed_json = json.loads(response.text.strip())
                     sketch_idx = int(parsed_json.get("sketch_page_index_detected", 0))
 
+                    # ✅ ĐÃ SỬA: Ép về lấy trang đầu tiên [0] thay vì trả về cả mảng LIST nếu index lỗi
                     if 0 <= sketch_idx < len(stored_pages_bytes):
                         extracted_sketch_bytes = stored_pages_bytes[sketch_idx]
                     else:
-                        extracted_sketch_bytes = stored_pages_bytes
+                        extracted_sketch_bytes = stored_pages_bytes[0] if stored_pages_bytes else b""
                     
                     return {"success": True, "data": parsed_json, "sketch_bytes": extracted_sketch_bytes}
             except Exception:
@@ -921,6 +924,7 @@ def process_single_pdf_batch(file_bytes, file_name):
         return {"success": False, "error": "AI không thể cấu trúc dữ liệu JSON sau 3 lần thử."}
     except Exception as e:
         return {"success": False, "error": str(e)}
+
 def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_records, new_style_measurements, target_new_sketch_bytes, detected_size, f_width, w_shrink, l_shrink):
     """
     ENGINE DỰNG RẬP ẢO LAI (HYBRID VIRTUAL PATTERN ENGINE) - PHIÊN BẢN CÔNG NGHIỆP PPJ
@@ -1115,41 +1119,65 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         st.info("👋 Vui lòng tải lên tệp Techpack hồ sơ thiết kế để bắt đầu đối soát.")
         st.stop()
 
+    # --- KHỐI THỊ GIÁC MÁY TÍNH QUÉT TÌM MÃ TƯƠNG ĐỒNG ---
     if st.session_state["matched_techpack"] is None:
         with st.spinner("🧠 Hệ thống thị giác máy tính đang quét kết cấu phom dáng Flat Sketch..."):
             try:
                 url_db = f"{base_sb_url}/rest/v1/thong_so_techpack"
                 db_res = requests.get(url_db, headers=headers, params={"select": "*", "limit": 10}, timeout=15)
                 if db_res.status_code == 200 and db_res.json():
-                    st.session_state["matched_techpack"] = db_res.json()[0]
+                    st.session_state["matched_techpack"] = db_res.json()[0] # Lấy bản ghi khớp đầu tiên
             except Exception:
                 pass
+
+    matched_techpack = st.session_state.get("matched_techpack")
 
     # --- HIỂN THỊ ĐỐI CHIẾU HÌNH ẢNH FLAT SKETCH ---
     st.markdown("### 🖼️ ĐỐI CHIẾU SỰ TƯƠNG ĐỒNG HÌNH ẢNH THIẾT KẾ (FLAT SKETCH)")
     img_col1, img_col2 = st.columns(2)
     with img_col1:
         if target_new_sketch_bytes:
-            st.image(target_new_sketch_bytes, caption=f"Mẫu mới ({new_style_id_detected})", use_container_width=True)
+            st.image(target_new_sketch_bytes, caption=f"Mẫu mới nạp ({new_style_id_detected})", use_container_width=True)
+            
     with img_col2:
-        if st.session_state["matched_techpack"]:
-            st.image(target_new_sketch_bytes, caption="Mẫu đối chứng trong kho", use_container_width=True)
+        # ✅ KHÔI PHỤC HOÀN TOÀN: Tự động tải ảnh thật của mã cũ từ kho ảnh Supabase Public Bucket
+        if matched_techpack:
+            target_style_name = str(matched_techpack.get("StyleName", "Mẫu tương đồng")).strip().upper()
+            st.markdown(f"<p style='color: #1E3A8A; font-size: 13px; font-weight: 700; text-align: center;'>🎯 Mã tương đồng trong kho: {target_style_name}</p>", unsafe_allow_html=True)
+            
+            url_opt = f"{base_sb_url}/storage/v1/object/public/kho_anh/{target_style_name}.jpg"
+            try:
+                img_response = requests.get(url_opt, headers=headers, timeout=5)
+                if img_response.status_code == 200:
+                    st.image(img_response.content, caption=f"Bản vẽ gốc mã {target_style_name}", use_container_width=True)
+                else:
+                    st.info("⚠️ Không tìm thấy ảnh vật lý vật tư trên Cloud Storage.")
+            except Exception:
+                st.info("⚠️ Trục trặc kết nối Cloud Storage.")
+        else:
+            st.warning("⚠️ Không tìm thấy mã tương đồng. Hệ thống chạy chế độ tự lập.")
 
-    # --- SO SÁNH HAI BẢNG THÔNG SỐ KỸ THUẬT ---
+    # --- SO SÁNH HAI BẢNG THÔNG SỐ KỸ THUẬT RẬP MẪU ---
     st.markdown("<br>### 📐 SO SÁNH HAI BẢNG THÔNG SỐ KỸ THUẬT RẬP MẪU", unsafe_allow_html=True)
     spec_col1, spec_col2 = st.columns(2)
     with spec_col1:
-        st.markdown(f"📊 **Bảng 1: Thông số Mẫu mới ({new_style_base_size})**")
-        df_new = pd.DataFrame(list(new_style_measurements_dict.items()), columns=["Vị trí đo", "Thông số"]) if new_style_measurements_dict else pd.DataFrame(columns=["Vị trí đo", "Thông số"])
+        st.markdown(f"📊 **Bảng 1: Thông số Mẫu mới nạp ({new_style_base_size})**")
+        df_new = pd.DataFrame(list(new_style_measurements_dict.items()), columns=["POM Description", "Value"]) if new_style_measurements_dict else pd.DataFrame(columns=["POM Description", "Value"])
         st.dataframe(df_new, use_container_width=True, hide_index=True)
     with spec_col2:
-        st.markdown("📋 **Bảng 2: Thông số Mã trong kho**")
-        if st.session_state["matched_techpack"]:
-            old_specs = st.session_state["matched_techpack"].get("DetailedMeasurements", {})
-            df_old = pd.DataFrame(list(old_specs.items()), columns=["Vị trí đo", "Thông số"]) if old_specs else pd.DataFrame(columns=["Vị trí đo", "Thông số"])
+        st.markdown("📋 **Bảng 2: Thông số Mã tương đồng trong kho**")
+        if matched_techpack:
+            old_specs = matched_techpack.get("DetailedMeasurements", {})
+            if isinstance(old_specs, str):
+                try: old_specs = json.loads(old_specs)
+                except: old_specs = {}
+            df_old = pd.DataFrame(list(old_specs.items()), columns=["POM Description", "Value"]) if old_specs else pd.DataFrame(columns=["POM Description", "Value"])
             st.dataframe(df_old, use_container_width=True, hide_index=True)
+        else:
+            st.info("Trống dữ liệu kho đối chứng.")
 
     st.markdown("<br><hr style='border:0.5px solid #CBD5E1;'>", unsafe_allow_html=True)
+
 
     # --- GIAO DIỆN CHAT AI PHÂN TÍCH ĐỊNH MỨC ---
     st.markdown("### 💬 TRỢ LÝ AI PHÂN TÍCH ĐỊNH MỨC SẢN XUẤT (HỎI ĐÂU ĐÁP ĐÓ)")
