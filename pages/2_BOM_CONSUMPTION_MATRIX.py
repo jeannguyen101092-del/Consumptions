@@ -834,7 +834,6 @@ def parse_fraction(val_str):
         if ' ' in val_str:
             parts = [p for p in val_str.split(' ') if p.strip()]
             if len(parts) >= 2:
-                # Đã sửa lỗi bẫy trích xuất chuỗi phân số
                 try: whole = float(parts[0])
                 except: whole = 0.0
                 frac_str = parts[1]
@@ -857,7 +856,7 @@ def process_single_pdf_batch(file_bytes, file_name):
     Hàm chuyển đổi PDF thành hình ảnh và bóc tách cấu trúc thông số qua Gemini AI
     """
     if not PDF2IMAGE_AVAILABLE:
-        return {"success": False, "error": "pdf2image chưa được cài đặt."}
+        return {"success": False, "error": "pdf2image chưa được cài đặt trên hệ thống."}
 
     import time
     try:
@@ -910,20 +909,23 @@ def process_single_pdf_batch(file_bytes, file_name):
                     parsed_json = json.loads(response.text.strip())
                     sketch_idx = int(parsed_json.get("sketch_page_index_detected", 0))
 
-                    # ✅ ĐÃ SỬA: Ép về lấy trang đầu tiên [0] thay vì trả về cả mảng LIST nếu index lỗi
+                    # ✅ ĐÃ SỬA CHÍNH XÁC: Lấy phần tử ảnh đầu tiên [0] thay vì ném cả mảng List bytes vào st.image
                     if 0 <= sketch_idx < len(stored_pages_bytes):
                         extracted_sketch_bytes = stored_pages_bytes[sketch_idx]
                     else:
                         extracted_sketch_bytes = stored_pages_bytes[0] if stored_pages_bytes else b""
                     
                     return {"success": True, "data": parsed_json, "sketch_bytes": extracted_sketch_bytes}
-            except Exception:
+            except Exception as e:
                 time.sleep(1.5)
+                if attempt == 2:
+                    return {"success": False, "error": f"Lỗi phân tách JSON hoặc API: {str(e)}"}
                 continue
                 
         return {"success": False, "error": "AI không thể cấu trúc dữ liệu JSON sau 3 lần thử."}
     except Exception as e:
         return {"success": False, "error": str(e)}
+
 
 def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_records, new_style_measurements, target_new_sketch_bytes, detected_size, f_width, w_shrink, l_shrink):
     """
@@ -1073,17 +1075,17 @@ if has_file:
     file_bytes = target_file_object.getvalue()
     file_name = target_file_object.name
     if file_name.lower().endswith('.pdf'):
-        try:
-            res_pdf = process_single_pdf_batch(file_bytes, file_name)
-            if res_pdf.get("success"):
-                meta_p = res_pdf["data"]
-                new_style_id_detected = meta_p.get("style_number_parsed", "UNKNOWN_STYLE")
-                new_style_category_detected = meta_p.get("category", "")
-                new_style_base_size = meta_p.get("base_size_name", "32")
-                new_style_measurements_dict = meta_p.get("measurements", {})
-                target_new_sketch_bytes = res_pdf.get("sketch_bytes")
-        except Exception:
-            pass
+        res_pdf = process_single_pdf_batch(file_bytes, file_name)
+        if res_pdf.get("success"):
+            meta_p = res_pdf["data"]
+            new_style_id_detected = meta_p.get("style_number_parsed", "UNKNOWN_STYLE")
+            new_style_category_detected = meta_p.get("category", "")
+            new_style_base_size = meta_p.get("base_size_name", "32")
+            new_style_measurements_dict = meta_p.get("measurements", {})
+            target_new_sketch_bytes = res_pdf.get("sketch_bytes")
+        else:
+            # ✅ ĐÃ SỬA: Hiện lỗi trực tiếp lên Sidebar để kiểm soát nguyên nhân không parse được file
+            st.sidebar.error(f"🚨 Lỗi đọc PDF: {res_pdf.get('error')}")
     else:
         target_new_sketch_bytes = file_bytes
 
@@ -1093,6 +1095,7 @@ dynamic_keyword = str(new_style_id_detected).strip().upper()
 base_sb_url = SB_URL.rstrip('/') if SB_URL else ""
 headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if SB_KEY else {}
 menu_selection = globals().get("menu_selection", "🧵 BOM & Consumption Matrix")
+
 if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption Matrix":
     st.markdown('<div class="component-title-box">🧵 INTELLIGENT BOM & CONSUMPTION MATRIX ENGINE</div>', unsafe_allow_html=True)
     
