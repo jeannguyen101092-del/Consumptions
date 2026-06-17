@@ -861,7 +861,7 @@ def process_single_pdf_batch(file_bytes, file_name):
         if "get_secure_gemini_key" in globals():
             gemini_key_local = get_secure_gemini_key()
         else:
-            gemini_key_local = st.secrets.get("GEMINI_API_KEY", "").strip()
+            gemini_key_local = st.secrets.get("GEMINI_API_KEY", "").strip(
             
         if not gemini_key_local:
             return {"success": False, "error": "API Key cho Gemini bị thiếu."}
@@ -1182,7 +1182,8 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                     ai_reply = ai_consumption_analyst_engine(
                         client=client,
                         user_message=user_query,
-                        matched_techpack=matched_techpack,
+                        matched_techpack = st.session_state.get("matched_techpack", None)
+
                         bom_records=bom_records,
                         new_style_measurements=new_style_measurements_dict,
                         target_new_sketch_bytes=target_new_sketch_bytes,
