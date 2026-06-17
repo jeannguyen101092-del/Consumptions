@@ -843,110 +843,79 @@ def parse_fraction(val_str):
     except Exception:
         return 0.0
 
-def ai_consumption_analyst_engine(
-    client, 
-    user_message, 
-    matched_techpack, 
-    bom_records, 
-    new_style_measurements, 
-    target_new_sketch_bytes, 
-    detected_size,
-    python_calc_results  # 💡 TRUYỀN KẾT QUẢ ĐÃ TÍNH TOÁN CHÍNH XÁC TỪ CODE PYTHON VÀO ĐÂY
-):
+def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_records, new_style_measurements, target_new_sketch_bytes, detected_size):
     """
-    TẦNG 3: BOM ANALYST ENGINE - HỆ THỐNG KIỂM DỊCH KỸ THUẬT NGÀNH MAY PPJ.
-    AI đóng vai trò Sanity Checker & Diễn giải viên dựa trên kết quả tính toán tuyệt đối của Python Engine.
-    Sử dụng Response Schema bọc cứng cấu trúc JSON, giới hạn cửa sổ Token chat, bảo vệ rập lồng nhau.
+    Bộ não xử lý tính toán định mức nâng cao bằng đơn vị YARD (Yds).
+    Tự động kích hoạt cơ chế Vecto Hình Học Ngành May nếu KHÔNG CÓ mã tương đồng.
+    Tích hợp biên may 0.44", dò tìm lai và quy tắc tách biệt Quần/Áo (Chống lộn Nẹp).
     """
     style_old_name = matched_techpack.get("StyleName", "N/A") if matched_techpack else "N/A"
     specs_old = matched_techpack.get("DetailedMeasurements", {}) if matched_techpack else {}
     
-    # 1. Đóng gói dữ liệu BOM lịch sử
     bom_summary = ""
     if bom_records:
-        bom_summary = "\n".join([f"- Vật tư: {r.get('consumption_type')}, Mã: {r.get('article_name')}, Khổ gốc: {r.get('material_size')}, ĐM gốc: {r.get('consumption_value')}" for r in bom_records])
+        bom_summary = "\n".join([f"- Vật tư: {r.get('consumption_type')}, Mã vải: {r.get('article_name')}, Khổ vải gốc: {r.get('material_size')}, ĐM gốc: {r.get('consumption_value')}" for r in bom_records])
 
-    # 2. Trích xuất các tham số biến động từ câu lệnh người dùng
     shrinkage_width = re.findall(r'(?:CO RÚT NGANG|NGANG)\s*(\d+(?:\.\d+)?)\s*%', user_message.upper())
     shrinkage_length = re.findall(r'(?:CO RÚT DỌC|DỌC)\s*(\d+(?:\.\d+)?)\s*%', user_message.upper())
     new_fabric_width = re.findall(r'(?:KHỔ VẢI|KHỔ)\s*(\d+)\s*(?:\"|INCH|INCHES)?', user_message.upper())
     
-    w_shrink = float(shrinkage_width[0]) if shrinkage_width else 0.0
-    l_shrink = float(shrinkage_length[0]) if shrinkage_length else 0.0
-    f_width = float(new_fabric_width[0]) if new_fabric_width else 0.0
+    w_shrink_val = shrinkage_width[0] if shrinkage_width else None
+    l_shrink_val = shrinkage_length[0] if shrinkage_length else None
+    new_fabric_width_val = new_fabric_width[0] if new_fabric_width else None
 
+    w_shrink = float(w_shrink_val) if w_shrink_val else 0.0
+    l_shrink = float(l_shrink_val) if l_shrink_val else 0.0
+    f_width = float(new_fabric_width_val) if new_fabric_width_val else 0.0
+
+    specs_old_json = json.dumps(specs_old)
     f_width_label = str(f_width) if f_width > 0 else "58 inch"
-    specs_old_json = json.dumps(specs_old, ensure_ascii=False)
-    new_style_measurements_json = json.dumps(new_style_measurements, ensure_ascii=False)
-    
-    # Ép kiểu dữ liệu tính toán từ Python an toàn sang chuỗi JSON bọc trong prompt ngữ cảnh
-    python_calc_json = json.dumps(python_calc_results, ensure_ascii=False, indent=2)
+    new_style_measurements_json = json.dumps(new_style_measurements)
 
-    # 3. Thiết lập kịch bản phân tích ngữ nghĩa tối ưu cho vai trò Sanity Check
     if matched_techpack:
         scenario_instruction = f"""
-        KỊCH BẢN ĐỐI SOÁT: KIỂM DỊCH ĐỒNG DẠNG KHO (Mã tương đồng lịch sử: {style_old_name})
-        - Hãy đối chiếu chênh lệch diện tích cấu trúc giữa Spec mới và Spec cũ {specs_old_json}.
-        - Đánh giá xem kết quả tính toán định mức từ Python Engine có phù hợp với xu hướng tăng/giảm từ nền tảng BOM gốc này hay không: {bom_summary}.
+        KỊCH BẢN: ĐỒNG DẠNG KHO (Sử dụng dữ liệu đối chứng lịch sử)
+        - Đối chiếu chênh lệch diện tích cấu trúc giữa Spec mới và Spec cũ {specs_old_json}.
+        - Bù trừ định mức tăng/giảm từ nền tảng BOM gốc: {bom_summary}.
         """
     else:
         scenario_instruction = f"""
-        KỊCH BẢN ĐỐI SOÁT: KIỂM DỊCH VECTOR HÌNH HỌC KHÔNG CÓ MÃ TƯƠNG ĐỒNG
-        - Thẩm định độ chính xác (Sanity Check) của kết quả toán tử rập mà Python Engine đưa ra bằng cách nhìn vào hình ảnh 'Flat Sketch' đính kèm và bảng thông số 'New Spec (POM)'.
-        - Phát hiện xem có các chi tiết khuất, chi tiết túi hộp (Cargo), ly gấp phức tạp trên hình vẽ mà thông số Spec chưa thể hiện hết khiến Python tính thiếu hay không để đưa ra điểm tự tin (Confidence Score).
+        KỊCH BẢN: PHÂN TÍCH VECTOR HÌNH HỌC NGÀNH MAY KHÔNG CÓ MÃ TƯƠNG ĐỒNG (GEOMETRIC LAYOUT ESTIMATION)
+        - Bạn không có dữ liệu lịch sử. Hãy dựa hoàn toàn vào bảng thông số 'New Spec (POM)' và hình ảnh bản vẽ rập chi tiết 'Flat Sketch' đính kèm.
+        - Hãy tính diện tích hình học rập mẫu thô của từng chi tiết cấu thành dựa trên đúng phân loại sản phẩm.
+        - Tính ĐM Vải chính: Cộng dồn chiều dài các mảnh rập sau khi cộng biên may, nhân hệ số hao hụt rải vải tiêu chuẩn ngành xếp trên khổ vải: {f_width_label}.
         """
 
-    # 🎯 SỬA LỖI SỐ 1: ĐỊNH NGHĨA RESPONSE SCHEMA CỨNG ĐỂ ÉP GEMINI LUÔN TRẢ ĐỦ FIELD VÀ CONFIDENCE SCORE
-    response_schema = types.Schema(
-        type=types.Type.OBJECT,
-        properties={
-            "style_name": types.Schema(type=types.Type.STRING),
-            "target_size": types.Schema(type=types.Type.STRING),
-            "fabric_consumption_yds": types.Schema(type=types.Type.STRING),
-            "lining_consumption_yds": types.Schema(type=types.Type.STRING),
-            "interlining_consumption_yds": types.Schema(type=types.Type.STRING),
-            "thread_top_m": types.Schema(type=types.Type.STRING),
-            "thread_bottom_m": types.Schema(type=types.Type.STRING),
-            "confidence_score": types.Schema(type=types.Type.INTEGER),
-            "items": types.Schema(
-                type=types.Type.ARRAY,
-                items=types.Schema(
-                    type=types.Type.OBJECT,
-                    properties={
-                        "material_type": types.Schema(type=types.Type.STRING),
-                        "material_code": types.Schema(type=types.Type.STRING),
-                        "consumption": types.Schema(type=types.Type.STRING),
-                        "unit": types.Schema(type=types.Type.STRING)
-                    },
-                    required=["material_type", "consumption", "unit"]
-                )
-            ),
-            "technical_summary": types.Schema(type=types.Type.STRING)
-        },
-        required=[
-            "style_name", "target_size", "fabric_consumption_yds", 
-            "confidence_score", "items", "technical_summary"
-        ]
-    )
-
-    # 🎯 SỬA LỖI SỐ 3: THAY ĐỔI PROMPT - AI KHÔNG ĐƯỢC TỰ TÍNH TOÁN, CHỈ KIỂM ĐỊNH KẾT QUẢ CỦA PYTHON ENGINE
     system_instruction = f"""
-    You are a strict Garment Costing Quality Auditor at PPJ Group operating as the Tier-3 BOM Analyst Engine.
-    Your sole responsibility is to evaluate, audit, and sense-check the math calculations provided by the Python Pattern Engine against the visual design and techpack data. 
-    You DO NOT compute the raw consumption from scratch. You interpret, validate, and authorize the Python engine's results.
+    You are a strict Industrial Garment Costing Engineer at PPJ Group. 
+    Your answers must mimic ChatGPT's advanced code interpreter mode but optimized for clean dashboard reporting:
+    1. STRICT UNIT REQUIRED: All consumption values and fabric calculation results MUST be presented in YARDS (Yds) or Inches. NEVER use meters or cm.
+    2. DIRECT ANSWER FIRST: Output the exact final average consumption value in YARDS (Yds) in the very first sentence.
+    3. SUMMARY TABLE FORMAT: Immediately after the first sentence, summarize all component consumption results in a clean Markdown Table. DO NOT write long paragraphs or verbose step-by-step text explanations of the math process. Let the table speak for itself.
+    4. LANGUAGE: Answer directly in Vietnamese, using precise apparel terminology (co rút, định mức, hao hụt, khổ vải, nẹp liền, nẹp rời).
+    
+    FACTORY SEWING SEAM ALLOWANCE RULES & GEOMETRIC PRINCIPLES (CRITICAL):
+    - Standard Seam Allowance: ALWAYS add 0.44 inches to all general component seams (Thân trước, thân sau, sườn, giàng, dọc quần, tra cạp, v.v.).
+    - Pocket Openings (Miệng túi): EXCLUDE the 0.44 inch rule. Pocket trims and facings must follow the exact techpack dimensions.
+    - Garment Hem / Bottom Hem (Lai áo / Lai quần): DO NOT use 0.44 inch. You MUST scan the 'New Spec (POM)' below to find the specific values for keywords like 'Hem', 'Bottom Width', 'Sleeve Hemfold'. Use that exact Techpack value for the hem calculation. If not specified, note it down.
+    - QUY TẮC XẾP LY / TÚI HỘP: Nếu tài liệu hoặc hình ảnh yêu cầu túi hộp, túi hoặc thân xếp ly (Pleats/Cargo), bắt buộc phải cộng thêm khoảng không hao hụt xếp ly vào bán thành phẩm để khi gấp lại về đúng thông số gốc. Ví dụ: rộng túi 10 inches, ly cấu trúc to bảng 1 inch thì chiều rộng rập thô bán thành phẩm phải tự động cộng bù phần ly gấp.
+    - TỰ ĐỘNG SUY LUẬN: Hệ thống tự học và tìm kiếm các khoảng bù hao hụt cấu trúc rập theo tiêu chuẩn ngành may PPJ để phục vụ tính toán định mức chuẩn xác nhất.
 
-    CRITICAL AUDIT TASK:
-    1. Look at the Python Pattern Engine's output data carefully.
-    2. Visually cross-check the ATTACHED NEW SKETCH IMAGE to see if the Python engine missed specific high-consumption features (e.g., bulky cargo pockets, double layered waistbands, wide plackets).
-    3. If everything looks perfectly aligned, award a high 'confidence_score' (90-100). If you detect discrepancies between the visual sketch construction and python's values, lower the score and explain in 'technical_reasoning'.
-    4. Populate the fields in the requested JSON structure directly using or adjusting the Python calculations logically.
+    GARMENT CATEGORY SPECIFIC RULES (STRICT SEPARATION TO AVOID ERROR):
+    
+    1. IF THE CATEGORY IS PANT / SHORT / SKORT / TROUSER (NHÓM HÀNG QUẦN):
+       - STICK TO JEANS/PANTS LOGIC ONLY.
+       - ABSOLUTELY FORBIDDEN: Do NOT apply Shirt Placket rules (Cấm áp dụng quy tắc nẹp rời/nẹp liền gập cuốn của áo). 
+       - Waistband Construction (Cạp quần): Calculate waistband fabric based strictly on Waistband Height and Waist Circumference.
+       - Zipper Fly / Fly Placket (Cửa quần): Only calculate based on standard front fly extensions (typically adding a small standard extension of 1.5 inches to 2 inches for the fly j-stitch width on ONE side of the left front panel only. Do NOT multiply by 2 across both front panels like a shirt).
+       - Coin Pocket (Túi đồng xu): Check for coin pocket width/height if specified.
+       
+    2. IF THE CATEGORY IS SHIRT / JACKET / TOP / COAT (NHÓM HÀNG ÁO):
+       - NẸP LIỀN (Fold-on/Extended Placket): If folded from the main body, add 2 times the placket width extension to the raw width of each front body panel pattern before calculating fabric consumption.
+       - NẸP RỜI (Separate Placket): Treat it as a standalone independent geometric pattern strip panel (Length = body length + seams, Width = placket width x 2 + standard seams 2 x 0.44 inches). Add this separate piece to the overall layout marker area.
 
     {scenario_instruction}
-
-    GROUND TRUTH DATA FROM TIER-2 PYTHON PATTERN ENGINE:
-    {python_calc_json}
-
-    CRITICAL DATA FOR AUDITING:
+    CRITICAL DATA FOR CALCULATION:
     1. NEW STYLE TECHPACK DATA:
        - Target Base Size detected: Size {detected_size}
        - New Spec (POM) parsed by vision: {new_style_measurements_json}
@@ -956,101 +925,22 @@ def ai_consumption_analyst_engine(
        - Length Shrinkage (Co rút dọc): {l_shrink}%
     """
 
-    # 🎯 SỬA LỖI SỐ 2: GIỚI HẠN CỬA SỔ LỊCH SỬ CHAT (CHỈ LẤY LẠI MỨC TỐI ĐA 3 LƯỢT GẦN NHẤT ĐỂ TIẾT KIỆM TOKEN)
     chat_contents = [types.Part.from_text(text=system_instruction)]
-    recent_chat_history = st.session_state.get("consumption_chat_history", [])[-3:]
-    
-    for past_chat in recent_chat_history:
+    for past_chat in st.session_state.get("consumption_chat_history", []):
         chat_contents.append(types.Part.from_text(text=f"User: {past_chat['user']}"))
         chat_contents.append(types.Part.from_text(text=f"AI: {past_chat['ai']}"))
         
     chat_contents.append(types.Part.from_text(text=f"User current request: {user_message}"))
-    
     if target_new_sketch_bytes:
-        target_mime = st.session_state.get("current_sketch_mime", "image/jpeg")
-        chat_contents.append(types.Part.from_bytes(data=target_new_sketch_bytes, mime_type=target_mime))
+        chat_contents.append(types.Part.from_bytes(data=target_new_sketch_bytes, mime_type='image/jpeg'))
 
     try:
-        # Cấu hình cứng Generation Config tích hợp Schema bọc chặt đầu ra và giảm thiểu độ nhiễu temperature
-        generation_config = types.GenerateContentConfig(
-            response_mime_type="application/json",
-            response_schema=response_schema,
-            temperature=0.1
-        )
-        
-        # Gọi mô hình cao cấp nhất Pro để phân tích sâu kết cấu nếp gấp
-        response = client.models.generate_content(
-            model='gemini-2.5-pro',
-            contents=chat_contents,
-            config=generation_config
-        )
-        
-        ai_raw_text = response.text.strip() if response.text else "{}"
-        
-        # 🎯 SỬA LỖI SỐ 4: THUẬT TOÁN TÌM KIẾM ĐẦU CUỐI RÌA CHUỖI TOÀN DIỆN (BẢO VỆ KHỐI JSON LỒNG NHAU NESTED)
-        try:
-            json_parsed_data = json.loads(ai_raw_text)
-        except Exception:
-            start_idx = ai_raw_text.find("{")
-            end_idx = ai_raw_text.rfind("}")
-            if start_idx != -1 and end_idx != -1:
-                json_parsed_data = json.loads(ai_raw_text[start_idx:end_idx + 1])
-            else:
-                raise ValueError("Không tìm thấy cấu trúc JSON hợp lệ trong chuỗi phản hồi từ AI.")
-            
-        # 🎯 SỬA LỖI SỐ 5: VALIDATION DỮ LIỆU ĐẦU RA NGHIÊM NGẶT THEO ĐÚNG CHUẨN ENTERPRISE PRODUCTION
-        required_fields = ["style_name", "target_size", "fabric_consumption_yds", "confidence_score", "items", "technical_summary"]
-        for field in required_fields:
-            if field not in json_parsed_data:
-                raise KeyError(f"Trường thông tin bắt buộc '{field}' bị thiếu trong cấu trúc phản hồi của Gemini.")
-                
-        # Đồng bộ hóa cấu trúc JSON sạch vào lịch sử chat lưu trữ của phiên làm việc
-        st.session_state["consumption_chat_history"].append({"user": user_message, "ai": json.dumps(json_parsed_data, ensure_ascii=False)})
-        
-        return json_parsed_data  # Trả về trực tiếp Python dict hoàn chỉnh an toàn tuyệt đối
-        
+        response = client.models.generate_content(model='gemini-2.5-flash', contents=chat_contents)
+        ai_reply = response.text if response.text else "Hệ thống AI không thể đưa ra phân tích."
+        st.session_state["consumption_chat_history"].append({"user": user_message, "ai": ai_reply})
+        return ai_reply
     except Exception as e:
-        return {"error": f"🚨 Lỗi cổng kiểm dịch định mức: {str(e)}"}
-# Giả định cấu trúc kết quả đã được Python Engine tính toán trước ở tầng 2
-python_calc_results = {
-    "fabric_consumption_yds": "1.823",
-    "lining_consumption_yds": "0.145",
-    "interlining_consumption_yds": "0.032",
-    "thread_top_m": "132.5",
-    "thread_bottom_m": "88.3"
-}
-
-# Gọi bộ xử lý kiểm dịch AI tầng 3
-result = ai_consumption_analyst_engine(
-    client, user_message, matched_techpack, bom_records, 
-    new_style_measurements, target_new_sketch_bytes, detected_size, python_calc_results
-)
-
-if "error" in result:
-    st.error(result["error"])
-else:
-    # Hiển thị các chỉ số cốt lõi kèm điểm tự tin thẩm định kỹ thuật của AI
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        st.metric("Vải chính", f"{result.get('fabric_consumption_yds')} YDS")
-    with col2:
-        st.metric("Lót túi", f"{result.get('lining_consumption_yds', '0.0')} YDS")
-    with col3:
-        st.metric("Chỉ may (Top/Bot)", f"{result.get('thread_top_m', '0')}/{result.get('thread_bottom_m', '0')} M")
-    with col4:
-        # Tận dụng điểm số tin cậy phục vụ quản trị rủi ro trực quan
-        score = result.get("confidence_score", 0)
-        st.metric("Hệ số tin cậy AI", f"{score}%", help="Mức độ đồng thuận thị giác giữa thiết kế rập phẳng và thuật toán Python.")
-
-    # Dựng bảng hiển thị DataFrame từ mảng dữ liệu có sẵn
-    st.write("### 📊 Bảng đối soát phân bổ vật tư")
-    df_items = pd.DataFrame(result.get("items", []))
-    if not df_items.empty:
-        df_items.columns = ["Phân loại", "Mã vật tư", "Định mức phê duyệt", "Đơn vị"]
-        st.dataframe(df_items, use_container_width=True)
-        
-    st.info(f"**📝 Báo cáo kiểm định kỹ thuật:** {result.get('technical_summary')}")
-
+        return f"🚨 Lỗi cổng phân tích định mức: {str(e)}"
 if "get_secure_gemini_key" in globals():
     gemini_key = get_secure_gemini_key()
 else:
@@ -1274,212 +1164,74 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     else:
         st.info(f"📋 **CƠ SỞ ĐỐI SOÁT KIỂM TRA:** Đang áp dụng quy chuẩn kích thước hình học rập mẫu cơ sở: **SIZE 32 / M (Mặc định)**")
 
-    # 🔥 ĐOẠN 1: LỌC DANH MỤC NGÀNH MAY VÀ TRÍCH XUẤT TOP 5 BẰNG VECTOR COSINE THỰC TẾ
-import hashlib
-
-if target_new_sketch_bytes:
-    # Sửa lỗi số 5: Kiểm tra Hash MD5 bảo vệ hệ thống khỏi vòng lặp vô hạn và tự reset khi đổi ảnh
-    current_sketch_hash = hashlib.md5(target_new_sketch_bytes).hexdigest()
-    if st.session_state.get("last_sketch_hash") != current_sketch_hash:
-        st.session_state["last_sketch_hash"] = current_sketch_hash
-        st.session_state["matching_checked"] = False
-        st.session_state["matched_techpack"] = None
-
-top_5_candidates = []  # Khởi tạo biến cục bộ an toàn để chuyển tiếp dữ liệu sang Đoạn 2
-
-if st.session_state.get("matched_techpack") is None and not st.session_state.get("matching_checked", False):
-    if client is None:
-        st.error("Gemini API Key chưa được cấu hình. Hệ thống ngắt tiến trình.")
-        st.stop()
-        
-    raw_category = st.session_state.get("detected_category", "").strip().upper()
-    new_sketch_vector = st.session_state.get("current_sketch_vector") 
-
-    # Sửa lỗi số 2: Từ điển ánh xạ chuẩn hóa danh mục, bảo vệ từ gốc như DRESS, SHORTS
-    plural_map = {
-        "SHORTS": "SHORT", "PANTS": "PANT", "TROUSERS": "TROUSER",
-        "DRESSES": "DRESS", "SKIRTS": "SKIRT", "JACKETS": "JACKET", "SHIRTS": "SHIRT"
-    }
-    normalized_category = plural_map.get(raw_category, raw_category)
-
-    if not normalized_category:
-        st.warning("⚠️ Thiếu thông tin Hạng mục (Category) của sản phẩm mới để tiến hành đối soát.")
-        st.stop()
-
-    with st.spinner("🧠 Hệ thống Hybrid AI đang tiến hành trích xuất dữ liệu toán học..."):
-        try:
-            # 1. Truy vấn dữ liệu thô từ cơ sở dữ liệu đối chứng
-            headers_db = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if 'SB_KEY' in globals() else {}
-            url_db = f"{base_sb_url}/rest/v1/thong_so_techpack"
-            query_params = {"select": "StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL,sketch_vector,feature_json", "limit": 300}
-            
-            db_res = requests.get(url_db, headers=headers_db, params=query_params, timeout=15)
-            all_historical_styles = db_res.json() if db_res.status_code == 200 else []
-            
-            # Sửa lỗi số 3: Khớp chuỗi tuyệt đối (Exact Matching) loại bỏ rủi ro Short dính Short Skirt
-            candidate_pool = [
-                s for s in all_historical_styles 
-                if normalized_category == plural_map.get(str(s.get("Category", "")).strip().upper(), str(s.get("Category", "")).strip().upper())
-            ]
-            
-            if candidate_pool:
-                ranked_candidates = []
-                if new_sketch_vector:
-                    vec_target = [float(x) for x in new_sketch_vector.split(',')] if isinstance(new_sketch_vector, str) else list(new_sketch_vector)
-                    np_target = np.array(vec_target, dtype=float)
-                    norm_target = np.linalg.norm(np_target)
-                else:
-                    np_target, norm_target = None, 0.0
-
-                for s in candidate_pool:
-                    db_vec_raw = s.get("sketch_vector")
-                    vector_score = 0.0
-                    
-                    # 2. Tính toán toán tử Cosine thực tế (Sửa lỗi số 1 & 6: kiểm chuẩn đồng nhất số chiều)
-                    if np_target is not None and db_vec_raw:
-                        try:
-                            vec_db = [float(x) for x in db_vec_raw.split(',')] if isinstance(db_vec_raw, str) else list(db_vec_raw)
-                            if len(vec_target) == len(vec_db):
-                                np_db = np.array(vec_db, dtype=float)
-                                norm_db = np.linalg.norm(np_db)
-                                if norm_target > 0 and norm_db > 0:
-                                    vector_score = float(np.dot(np_target, np_db) / (norm_target * norm_db))
-                        except Exception:
-                            vector_score = 0.0
-                    
-                    # 3. So sánh ma trạng thuộc tính đặc trưng kỹ thuật ngành may (Sửa lỗi số 7)
-                    feature_score = 0.0
-                    db_feat, current_feat = s.get("feature_json"), st.session_state.get("current_style_features")
-                    if db_feat and current_feat:
-                        try:
-                            d_feat = json.loads(db_feat) if isinstance(db_feat, str) else db_feat
-                            c_feat = json.loads(current_feat) if isinstance(current_feat, str) else current_feat
-                            keys_to_compare = ["waistband", "belt_loop", "fly", "pocket_type", "cargo", "length"]
-                            matches = sum(1 for k in keys_to_compare if d_feat.get(k) == c_feat.get(k))
-                            feature_score = matches / len(keys_to_compare)
-                        except Exception:
-                            feature_score = 0.0
-                    
-                    ranked_candidates.append({"data": s, "vector_score": vector_score, "feature_score": feature_score})
-                
-                # Sắp xếp hồ sơ giảm dần dựa trên tổ hợp trọng số nền tảng (Toán học chiếm ưu thế sơ tuyển)
-                ranked_candidates = sorted(ranked_candidates, key=lambda x: (0.6 * x["vector_score"] + 0.4 * x["feature_score"]), reverse=True)
-                top_5_candidates = ranked_candidates[:5]
-                
-        except Exception as err_step1:
-            st.sidebar.error(f"Lỗi phân tích toán học Đoạn 1: {str(err_step1)}")
-            st.session_state["matching_checked"] = False  # Đảm bảo không khóa luồng khi lỗi xảy ra
-# 🔥 ĐOẠN 2: KIỂM TOÁN HÌNH ẢNH QUA GEMINI 2.5 PRO VÀ TỔNG HỢP TRỌNG SỐ ĐIỂM LAI TRIPLE-SCORING
-if st.session_state.get("matched_techpack") is None and not st.session_state.get("matching_checked", False) and top_5_candidates:
-    execution_success = False  # Cờ an toàn bảo vệ trạng thái hệ thống không bị khóa cứng khi lỗi mạng
-    with st.spinner("👁️ Chuyên gia thị giác Gemini 2.5 Pro đang đối soát kết cấu may chi tiết..."):
-        try:
-            pool_summary_for_ai = []
-            match_contents = []
-            
-            # 1. Tải hình ảnh trong kho lịch sử và đính kèm vào luồng xử lý
-            for idx, item in enumerate(top_5_candidates):
-                style_data = item.get("data", {})
-                style_name = style_data.get("StyleName", "UNKNOWN")
-                sketch_url = style_data.get("SketchURL", "")
-                
-                pool_summary_for_ai.append({
-                    "candidate_id": f"CANDIDATE_{idx}", "style_name": style_name,
-                    "category": style_data.get("Category"), "buyer": style_data.get("Buyer")
-                })
-                
-                if sketch_url:
-                    try:
-                        img_res = requests.get(sketch_url, timeout=5)
-                        if img_res.status_code == 200:
-                            # Sửa lỗi số 4: Xác định MIME Type động dựa trên phản hồi Content-Type thực tế của máy chủ
-                            detected_mime = img_res.headers.get("Content-Type", "image/jpeg")
-                            match_contents.append(types.Part.from_text(text=f"\n--- VISUAL FRAME OF CANDIDATE_{idx} (Mã: {style_name}) ---"))
-                            match_contents.append(types.Part.from_bytes(data=img_res.content, mime_type=detected_mime))
-                    except Exception:
-                        pass
-
-            # 2. Xây dựng prompt kiểm toán kỹ thuật ngành may mở rộng phục vụ Debug trực quan
-            match_prompt = f"""
-            You are an expert Apparel Technical Auditor at PPJ Group. Execute a deep visual audit.
-            STRICT PROTOCOL: Check length, waistband stitches, elastic puckers vs flat facings, pocket types, and zipper J-stitches.
-            DATA REGISTRY FOR SELECTION CANDIDATES:
-            {json.dumps(pool_summary_for_ai, ensure_ascii=False, indent=2)}
-            Output a valid JSON matching this schema exactly to prevent index bias and enable easy technical debugging:
-            {{
-                "match_found": true/false, "selected_candidate_id": "CANDIDATE_X", "confidence_score": 0-100,
-                "category_match": true/false, "length_match": true/false, "waistband_match": true/false,
-                "pocket_match": true/false, "fly_match": true/false, "technical_reasoning": "Detailed visual breakdown"
-            }}
-            """
-            match_contents.insert(0, types.Part.from_text(text=match_prompt))
-            
-            # Đính kèm hình ảnh bản vẽ phẳng mới kèm MIME type động bóc tách từ file người dùng tải lên
-            if target_new_sketch_bytes:
-                # Mặc định lấy mime_type từ biến môi trường của form upload (Ví dụ:uploaded_file.type), nếu trống dùng fallback
-                target_mime = st.session_state.get("current_sketch_mime", "image/jpeg")
-                match_contents.append(types.Part.from_text(text="\n--- VISUAL OF THE NEW TARGET SKETCH IMAGE ---"))
-                match_contents.append(types.Part.from_bytes(data=target_new_sketch_bytes, mime_type=target_mime))
-            
-            # Sửa lỗi số 7: Chuyển đổi mô hình cốt lõi sang gemini-2.5-pro phục vụ phân tích chi tiết siêu nhỏ (Stitch-level)
-            res_match = client.models.generate_content(
-                model='gemini-2.5-pro', contents=match_contents, config={"response_mime_type": "application/json"}
-            )
-            
-            # 3. Phân tích bóc tách khối dữ liệu an toàn bằng 2 lớp phòng vệ (Direct parse + Regex)
+    # 🔥 ĐỔI MỚI QUAN TRỌNG: Chỉ chạy quét tìm mã tương đồng nếu TRONG KHO CHƯA CÓ MÃ NÀO ĐƯỢC KHỚP
+    if st.session_state["matched_techpack"] is None:
+        with st.spinner("🧠 Hệ thống thị giác máy tính đang quét kết cấu phom dáng Flat Sketch..."):
             try:
-                match_result = json.loads(res_match.text.strip())
-            except Exception:
-                try:
-                    json_block_clean = re.search(r'\{.*?\}', res_match.text, re.DOTALL).group(0)
-                    match_result = json.loads(json_block_clean)
-                except Exception:
-                    match_result = {"match_found": False}
-            
-            # 4. Tính toán điểm số kết hợp lai Hybrid-Scoring (40% Feature JSON + 30% Cosine Vector + 30% Gemini Vision)
-            if match_result.get("match_found") is True:
-                # Sửa lỗi số 3: Ép kiểu chuỗi tường minh phòng hờ AI sinh dữ liệu kiểu số hoặc None gây crash hàm search
-                cand_id = str(match_result.get("selected_candidate_id", ""))
-                match_idx_match = re.search(r'\d+', cand_id)
+                headers_db = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if 'SB_KEY' in globals() else {}
+                url_db = f"{base_sb_url}/rest/v1/thong_so_techpack"
+                query_params = {"select": "StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL,sketch_vector", "limit": 100}
                 
-                if match_idx_match:
-                    selected_idx = int(match_idx_match.group())
-                    if 0 <= selected_idx < len(top_5_candidates):
-                        target_candidate = top_5_candidates[selected_idx]
-                        vision_score = float(match_result.get("confidence_score", 0)) / 100.0
+                db_res = requests.get(url_db, headers=headers_db, params=query_params, timeout=15)
+                all_historical_styles = db_res.json() if db_res.status_code == 200 else []
+                
+                if all_historical_styles:
+                    styles_pool_summary = []
+                    for idx, s in enumerate(all_historical_styles):
+                        styles_pool_summary.append({
+                            "pool_index": idx,
+                            "style_name": s.get("StyleName"),
+                            "sketch_features_vector": s.get("sketch_vector", "")
+                        })
+                    
+                    match_prompt = f"""
+                    You are an expert Computer Vision Ingestion System specialized in Apparel Manufacturing at PPJ Group.
+                    Analyze the ATTACHED NEW SKETCH IMAGE and find the single closest matching historical garment style from the pool.
+                    
+                    STRICT APPAREL AUDIT RULES (IGNORE THE OUTLINE, FOCUS SOLELY ON INTERNAL CONSTRUCTION DETAILS):
+                    1. WAISTBAND CONSTRUCTION (CẠP QUẦN): Look closely at the waistband stitches. 
+                       - If the new image shows a full elastic waistband (cạp chun co giãn toàn bộ, nhiều đường nhăn song song, NO belt loops, NO zipper fly), you MUST REJECT any historical styles that have belt loops (đai quần), front zipper fly (khóa kéo), or standard button closures.
+                    2. POCKET TYPES & PLACEMENT (KẾT CẤU TÚI): Look at the internal pocket placement.
+                       - Distinguish clearly between Patch Pockets (túi ốp nổi lớn bên ngoài, túi hộp kiểu Cargo) and Slit/In-seam Pockets (túi mổ sườn phẳng). Do NOT match a clean plain front leg with a Cargo/Utility pocket design.
+                    3. SEAM LINES & PANEL CUTS: Look inside the body lines.
+                    
+                    HISTORICAL POOL DATA:
+                    {json.dumps(styles_pool_summary)}
+                    
+                    Select the single index that represents the exact match in internal technical stitching construction, NOT just the shorts frame.
+                    Return a raw valid JSON object inside your response: {{"selected_pool_index": 0}}
+                    """
+                    
+                    match_contents = [types.Part.from_text(text=match_prompt)]
+                    if target_new_sketch_bytes:
+                        # Bảo vệ dữ liệu: Ép kiểu dữ liệu bytes chuẩn xác khi gửi lên API
+                        match_contents.append(types.Part.from_bytes(data=target_new_sketch_bytes, mime_type='image/jpeg'))
+                    
+                    if client is None:
+                        st.error("Gemini API Key chưa cấu hình.")
+                        st.stop()    
+
+                    res_match = client.models.generate_content(model='gemini-2.5-flash', contents=match_contents)
+                    ai_raw_text = res_match.text.strip()
+                    
+                    try:
+                        json_block_clean = re.search(r'\{.*?\}', ai_raw_text, re.DOTALL).group(0)
+                        match_result = json.loads(json_block_clean)
                         
-                        # Sửa lỗi số 6: Sử dụng hàm an toàn .get() triệt tiêu hoàn toàn rủi ro KeyError khi gọi trọng số
-                        final_hybrid_score = (
-                            0.4 * target_candidate.get("feature_score", 0.0) +
-                            0.3 * target_candidate.get("vector_score", 0.0) +
-                            0.3 * vision_score
-                        )
-                        
-                        if final_hybrid_score >= 0.65:
-                            matched_item = target_candidate.get("data", {})
-                            st.session_state["matched_techpack"] = matched_item
-                            st.toast(f"🎯 Khớp mã thành công: {matched_item.get('StyleName')} (Hybrid Score: {final_hybrid_score:.2f})")
-                            execution_success = True  # Đánh dấu tiến trình hoàn thành trọn vẹn, sẵn sàng rerun
+                        selected_idx = match_result.get("selected_pool_index")
+                        if selected_idx is not None and 0 <= selected_idx < len(all_historical_styles):
+                            st.session_state["matched_techpack"] = all_historical_styles[selected_idx]
+                            st.toast(f"🎯 Đã khóa thành công mã tương đồng: {all_historical_styles[selected_idx].get('StyleName')}")
                         else:
-                            st.sidebar.warning("⚠️ Điểm tổng hợp Hybrid AI thấp hơn 0.65, từ chối khóa mã.")
-            else:
-                st.sidebar.info("💡 Hệ thống Vision không tìm thấy mã kỹ thuật nào phù hợp kết cấu.")
-                execution_success = True  # Không tìm thấy đối tác vẫn tính là hoàn tất tiến trình thành công
-                
-        except Exception as err_step2:
-            st.sidebar.error(f"Lỗi xử lý thị giác Đoạn 2: {str(err_step2)}")
-            execution_success = False  # Phát hiện lỗi hệ thống, không kích hoạt khóa luồng để người dùng có thể ấn quét lại
-        finally:
-            # Sửa lỗi số 5: Chỉ ghi nhận trạng thái hoàn tất và rerun khi toàn bộ logic try-block vận hành trơn tru không lỗi sập
-            if execution_success:
-                st.session_state["matching_checked"] = True
-                st.rerun()
-
-# 5. Hiển thị thông báo trạng thái khóa cố định dữ liệu nếu đã tìm thấy mã tương đồng ổn định
-if st.session_state.get("matched_techpack"):
-    current_style = st.session_state['matched_techpack'].get('StyleName', 'N/A').upper()
-    st.caption(f"🔒 Dữ liệu đối chứng đang được cố định theo mã: **{current_style}**")
-
+                            st.session_state["matched_techpack"] = None
+                    except Exception:
+                        match_result = {"selected_pool_index": -1}
+                        st.session_state["matched_techpack"] = None
+            except Exception as match_err:
+                st.sidebar.error(f"Lỗi hệ thống đối soát hình ảnh: {str(match_err)}")
+    else:
+        # Thông báo ngầm cho người dùng biết hệ thống đang sử dụng kết quả đã được khóa cố định
+        st.caption(f"🔒 Dữ liệu đối chứng đang được cố định theo mã: **{st.session_state['matched_techpack'].get('StyleName', 'N/A').upper()}**")
 
 # =================================================================
 # ĐOẠN 5: HIỂN THỊ SO SÁNH FLAT SKETCH, BẢNG THÔNG SỐ VÀ LỊCH SỬ BOM
