@@ -1138,9 +1138,9 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
 
 
 
-# =================================================================
-# ĐOẠN 6: GIAO DIỆN CHAT AI PHÂN TÍCH ĐỊNH MỨC VÀ SCRIPT AUTO-SCROLL
-# =================================================================
+    # =================================================================
+    # ĐOẠN 6: GIAO DIỆN CHAT AI PHÂN TÍCH ĐỊNH MỨC VÀ SCRIPT AUTO-SCROLL
+    # =================================================================
 
     chat_header_col1, chat_header_col2 = st.columns([3.2, 0.8])
     with chat_header_col1:
@@ -1178,12 +1178,11 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                     l_shrink = float(l_shrink_val) if l_shrink_val else 0.0
                     f_width = float(new_fabric_width_val) if new_fabric_width_val else 58.0
 
-                    # 2. GỌI HÀM VỚI DẤU BẰNG (=) CHUẨN CÚ PHÁP PYTHON
+                    # 2. ĐÃ SỬA: Thêm dấu phẩy (,) ngăn cách tham số và đồng bộ biến cục bộ an toàn
                     ai_reply = ai_consumption_analyst_engine(
                         client=client,
                         user_message=user_query,
-                        matched_techpack = st.session_state.get("matched_techpack", None)
-
+                        matched_techpack=st.session_state.get("matched_techpack", None),
                         bom_records=bom_records,
                         new_style_measurements=new_style_measurements_dict,
                         target_new_sketch_bytes=target_new_sketch_bytes,
@@ -1193,6 +1192,11 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                         l_shrink=l_shrink
                     )
                     st.write(ai_reply)
+
+                    # Lưu tin nhắn mới vào lịch sử trò chuyện để tránh mất dữ liệu khi ứng dụng rerun
+                    if "consumption_chat_history" not in st.session_state:
+                        st.session_state["consumption_chat_history"] = []
+                    st.session_state["consumption_chat_history"].append({"user": user_query, "ai": ai_reply})
 
         # ✅ THUẬT TOÁN ĐÓNG ĐINH NEO CUỘN: Ép trình duyệt tự động scroll lướt màn hình xuống vị trí tin nhắn cuối cùng
         st.components.v1.html(
