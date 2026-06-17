@@ -1102,19 +1102,32 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                     styles_pool_summary = []
                     for idx, s in enumerate(all_historical_styles):
                         styles_pool_summary.append({"pool_index": idx, "style_name": s.get("StyleName"), "category": s.get("Category", "")})
-                    match_prompt = f"Analyze attached image and find closest pool_index. Rules: Category mismatch forbidden. Pool: {json.dumps(styles_pool_summary)}. Return JSON: {{\"selected_pool_index\": 0}}"
+                    
+                    # Cấu hình prompt Vision chuyên nghiệp ép chặt cấu trúc dữ liệu đầu ra
+                    match_prompt = f"""
+                    Analyze the attached techpack sketch image and find the closest matching historical product from the pool.
+                    Pool Data: {json.dumps(styles_pool_summary)}
+                    Return ONLY a valid raw JSON object matching this format: {{"selected_pool_index": 0}}
+                    """
                     match_contents = [types.Part.from_text(text=match_prompt), types.Part.from_bytes(data=target_new_sketch_bytes, mime_type='image/jpeg')]
+                    
                     if client is not None:
-                        res_match = client.models.generate_content(model='gemini-2.5-flash', contents=match_contents)
-                        json_block_clean = re.search(r'\{.*?\}', res_match.text.strip(), re.DOTALL).group(0)
-                        selected_idx = json.loads(json_block_clean).get("selected_pool_index")
+                        # Kích hoạt JSON mode trực tiếp loại bỏ lỗi dấu nháy văn bản
+                        res_match = client.models.generate_content(
+                            model='gemini-2.5-flash', 
+                            contents=match_contents,
+                            config={"response_mime_type": "application/json"}
+                        )
+                        match_data = json.loads(res_match.text.strip())
+                        selected_idx = match_data.get("selected_pool_index")
                         if selected_idx is not None and 0 <= selected_idx < len(all_historical_styles):
                             st.session_state["matched_techpack"] = all_historical_styles[selected_idx]
             except Exception:
                 pass
 
     matched_techpack = st.session_state.get("matched_techpack")
-    st.markdown("### 🖼️ ĐỐI CHIẾU SỰ TƯƠNG ĐỒNG HÌNH ẢNH THIẾT KẾ (FLAT SKETCH)")
+
+       st.markdown("### 🖼️ ĐỐI CHIẾU SỰ TƯƠNG ĐỒNG HÌNH ẢNH THIẾT KẾ (FLAT SKETCH)")
     img_col1, img_col2 = st.columns(2)
     with img_col1:
         if target_new_sketch_bytes and isinstance(target_new_sketch_bytes, bytes):
@@ -1138,7 +1151,10 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         else:
             st.warning("⚠️ Không tìm thấy mã tương đồng.")
 
-    st.markdown("<br>### 📐 SO SÁNH HAI BẢNG THÔNG SỐ KỸ THUẬT RẬP MẪU", unsafe_allow_html=True)
+    # ✅ ĐÃ SỬA: Tách riêng HTML biệt lập để tránh lỗi hiển thị chữ ### thô
+    st.write("")
+    st.markdown("### 📐 SO SÁNH HAI BẢNG THÔNG SỐ KỸ THUẬT RẬP MẪU")
+    
     spec_col1, spec_col2 = st.columns(2)
     with spec_col1:
         st.markdown(f"📊 **Bảng 1: Thông số Mẫu mới nạp ({new_style_base_size})**")
@@ -1153,6 +1169,8 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                 except: old_specs = {}
             df_old = pd.DataFrame(list(old_specs.items()), columns=["POM Description", "Value"]) if old_specs else pd.DataFrame(columns=["POM Description", "Value"])
             st.dataframe(df_old, use_container_width=True, hide_index=True)
+        else:
+            st.caption("Chưa có dữ liệu kho đối chứng.")
 
     st.markdown("<br><hr style='border:0.5px solid #CBD5E1;'>", unsafe_allow_html=True)
 
