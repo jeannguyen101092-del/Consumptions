@@ -962,8 +962,9 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
         response = client.models.generate_content(
             model='gemini-2.5-flash', 
             contents=chat_contents,
-            config=types.GenerateContentConfig(response_mime_type="application/json")
+            config={"response_mime_type": "application/json"}
         )
+
         if not response or not response.text:
             return "🚨 Hệ thống AI phản hồi cấu trúc rỗng."
             
