@@ -1127,7 +1127,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
 
     matched_techpack = st.session_state.get("matched_techpack")
 
-       st.markdown("### 🖼️ ĐỐI CHIẾU SỰ TƯƠNG ĐỒNG HÌNH ẢNH THIẾT KẾ (FLAT SKETCH)")
+    st.markdown("### 🖼️ ĐỐI CHIẾU SỰ TƯƠNG ĐỒNG HÌNH ẢNH THIẾT KẾ (FLAT SKETCH)")
     img_col1, img_col2 = st.columns(2)
     with img_col1:
         if target_new_sketch_bytes and isinstance(target_new_sketch_bytes, bytes):
