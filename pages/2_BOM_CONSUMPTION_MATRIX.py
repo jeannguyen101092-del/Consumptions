@@ -958,12 +958,14 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
         return "🚨 Lỗi: Hệ thống chưa cấu hình Client API cho Gemini."
         
     try:
+        # ✅ ĐÃ SỬA: Chuyển cấu hình sang kiểu Dictionary trực tiếp để loại bỏ lỗi 400 responseMimeType
         response = client.models.generate_content(
             model='gemini-2.5-flash', 
             contents=chat_contents,
-            config={"response_mime_type": "application/json"}
+            config={
+                "response_mime_type": "application/json"
+            }
         )
-
         if not response or not response.text:
             return "🚨 Hệ thống AI phản hồi cấu trúc rỗng."
             
@@ -1054,6 +1056,7 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
         return result_view
     except Exception as e:
         return f"🚨 Lỗi hệ thống dựng rập ảo: {str(e)}"
+
 new_style_id_detected = "UNKNOWN_STYLE"
 new_style_category_detected = ""
 new_style_fabric_detected = "UNKNOWN_FABRIC"
