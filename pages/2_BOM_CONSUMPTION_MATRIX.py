@@ -1119,18 +1119,69 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         st.info("👋 Vui lòng tải lên tệp Techpack hồ sơ thiết kế để bắt đầu đối soát.")
         st.stop()
 
-    # --- KHỐI THỊ GIÁC MÁY TÍNH QUÉT TÌM MÃ TƯƠNG ĐỒNG ---
+        # --- KHỐI THỊ GIÁC MÁY TÍNH QUÉT TÌM MÃ TƯƠNG ĐỒNG CHUẨN VISION ---
     if st.session_state["matched_techpack"] is None:
-        with st.spinner("🧠 Hệ thống thị giác máy tính đang quét kết cấu phom dáng Flat Sketch..."):
+        with st.spinner("🧠 Hệ thống thị giác AI đang đối soát kết cấu phom dáng Flat Sketch với dữ liệu kho..."):
             try:
+                # 1. Tải danh sách các mã hàng lịch sử có trong kho dữ liệu Supabase
                 url_db = f"{base_sb_url}/rest/v1/thong_so_techpack"
-                db_res = requests.get(url_db, headers=headers, params={"select": "*", "limit": 10}, timeout=15)
-                if db_res.status_code == 200 and db_res.json():
-                    st.session_state["matched_techpack"] = db_res.json()[0] # Lấy bản ghi khớp đầu tiên
-            except Exception:
-                pass
+                query_params = {"select": "StyleName,Buyer,Category,DetailedMeasurements,SketchURL", "limit": 100}
+                db_res = requests.get(url_db, headers=headers, params=query_params, timeout=15)
+                all_historical_styles = db_res.json() if db_res.status_code == 200 else []
+                
+                if all_historical_styles and target_new_sketch_bytes:
+                    # 2. Xây dựng danh sách rút gọn để AI hiểu được kho dữ liệu đang có những gì
+                    styles_pool_summary = []
+                    for idx, s in enumerate(all_historical_styles):
+                        styles_pool_summary.append({
+                            "pool_index": idx,
+                            "style_name": s.get("StyleName"),
+                            "category": s.get("Category", "")
+                        })
+                    
+                    # 3. Prompt kiểm toán thị giác máy tính ép AI ép chặt danh mục sản phẩm (Category matching)
+                    match_prompt = f"""
+                    You are an expert Computer Vision Ingestion System specialized in Apparel Manufacturing at PPJ Group.
+                    Analyze the ATTACHED NEW SKETCH IMAGE and find the single closest matching historical garment style from the pool.
+                    
+                    STRICT APPAREL AUDIT RULES:
+                    1. CATEGORY MISMATCH IS STRICTLY FORBIDDEN: If the new image is a DRESS, SHIRT, or JACKET, you MUST NEVER match it with a PANT or SHORT.
+                    2. Look closely at internal construction lines (Princess seams, V-neck line, pockets, waistband).
+                    
+                    HISTORICAL POOL DATA:
+                    {json.dumps(styles_pool_summary)}
+                    
+                    Select the single index that represents the best structural match.
+                    Return ONLY a raw valid JSON object: {{"selected_pool_index": 0}}
+                    """
+                    
+                    match_contents = [types.Part.from_text(text=match_prompt)]
+                    match_contents.append(types.Part.from_bytes(data=target_new_sketch_bytes, mime_type='image/jpeg'))
+                    
+                    if client is not None:
+                        res_match = client.models.generate_content(model='gemini-2.5-flash', contents=match_contents)
+                        ai_raw_text = res_match.text.strip()
+                        
+                        try:
+                            json_block_clean = re.search(r'\{.*?\}', ai_raw_text, re.DOTALL).group(0)
+                            match_result = json.loads(json_block_clean)
+                            selected_idx = match_result.get("selected_pool_index")
+                            
+                            if selected_idx is not None and 0 <= selected_idx < len(all_historical_styles):
+                                st.session_state["matched_techpack"] = all_historical_styles[selected_idx]
+                                st.toast(f"🎯 Đã khớp mã thành công: {all_historical_styles[selected_idx].get('StyleName')}")
+                            else:
+                                st.session_state["matched_techpack"] = None
+                        except Exception:
+                            st.session_state["matched_techpack"] = None
+                else:
+                    st.session_state["matched_techpack"] = None
+            except Exception as match_err:
+                st.sidebar.error(f"Lỗi đối soát hình ảnh: {str(match_err)}")
+                st.session_state["matched_techpack"] = None
 
     matched_techpack = st.session_state.get("matched_techpack")
+
 
     # --- HIỂN THỊ ĐỐI CHIẾU HÌNH ẢNH FLAT SKETCH ---
     st.markdown("### 🖼️ ĐỐI CHIẾU SỰ TƯƠNG ĐỒNG HÌNH ẢNH THIẾT KẾ (FLAT SKETCH)")
