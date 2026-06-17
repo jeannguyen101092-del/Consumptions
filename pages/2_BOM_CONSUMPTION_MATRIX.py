@@ -912,6 +912,10 @@ def process_single_pdf_batch(file_bytes, file_name):
     except Exception as e:
         return {"success": False, "error": str(e)}
 def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_records, new_style_measurements, target_new_sketch_bytes, detected_size, f_width, w_shrink, l_shrink):
+    """
+    ENGINE DỰNG RẬP ẢO LAI (HYBRID VIRTUAL PATTERN ENGINE) - PHIÊN BẢN CÔNG NGHIỆP PPJ
+    Đã bổ sung cơ chế kiểm soát danh mục chéo ngăn chặn AI quét sai cấu trúc rập phẳng.
+    """
     available_keys = list(new_style_measurements.keys())
     available_keys_json = json.dumps(available_keys, ensure_ascii=False)
     chat_contents = []
@@ -936,6 +940,7 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
         chat_contents.append(types.Part.from_bytes(data=target_new_sketch_bytes, mime_type='image/jpeg'))
     if client is None:
         return "🚨 Lỗi: Hệ thống chưa cấu hình Client API cho Gemini."
+        
     try:
         response = client.models.generate_content(
             model='gemini-2.5-flash', 
@@ -944,12 +949,31 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
         )
         if not response or not response.text:
             return "🚨 Hệ thống AI phản hồi cấu trúc rỗng."
+            
         schema_data = json.loads(response.text.strip())
         confidence = float(schema_data.get("confidence", 0.50))
+        
+        # 🛠️ CƠ CHẾ BẢO VỆ CHÉO: Lấy danh mục được nhận diện từ file PDF gốc làm mốc tối cao
+        detected_cat = globals().get("new_style_category_detected", "")
+        if not detected_cat and matched_techpack:
+            detected_cat = matched_techpack.get("Category", "")
+            
         category = schema_data.get("category", "SHIRT").upper()
+        # Nếu AI trả về kết quả quét sai lệch danh mục gốc (ví dụ file là Áo/Váy đầm nhưng AI trả về PANT)
+        if detected_cat and str(detected_cat).upper() in ["SHIRT", "JACKET", "DRESS"] and category in ["PANT", "SHORT"]:
+            category = "SHIRT" # Ép logic toán học về luồng xử lý Áo/Váy đầm phẳng
+        elif detected_cat and str(detected_cat).upper() in ["PANT", "SHORT"] and category in ["SHIRT", "JACKET"]:
+            category = "PANT" # Ép logic toán học về luồng xử lý Quần phẳng
+
         features = schema_data.get("features", {})
         components = schema_data.get("components", [])
         pom_map = schema_data.get("pom_mapping", {})
+        
+        # Đồng bộ hóa mảng cấu trúc rập chi tiết tối thiểu để không bị khuyết bảng tính toán
+        if category in ["SHIRT", "JACKET"] and "FRONT" not in components:
+            components = ["FRONT", "BACK", "SLEEVE"]
+        elif category in ["PANT", "SHORT"] and "FRONT" not in components:
+            components = ["FRONT", "BACK"]
         
         def get_spec_value(pom_key):
             if not pom_key or str(pom_key).strip() == "": return 0.0
@@ -965,48 +989,60 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
         inseam_val = get_spec_value(pom_map.get("inseam_key"))
         bicep_val = get_spec_value(pom_map.get("bicep_key"))
         
+        # Fallback dữ liệu hình học thông số cơ sở PPJ
         if body_length <= 0: 
             body_length = 28.0 if category in ["SHIRT", "JACKET"] else (18.0 if category == "SHORT" else 38.0)
+            
         if category in ["SHIRT", "JACKET"]:
-            primary_width = chest_val if chest_val > 0 else 44.0
+            primary_width = chest_val if chest_val > 0 else (hip_val if hip_val > 0 else 44.0)
             width_key_name = pom_map.get("chest_key") if pom_map.get("chest_key") else "Chest Width"
         else:
             primary_width = hip_val if hip_val > 0 else (waist_val if waist_val > 0 else 40.0)
             width_key_name = pom_map.get("hip_key") if hip_val > 0 else "Hip Circumference"
             
+        # Chuẩn hóa hệ đo ngang chu vi dựa theo từ khóa định danh thực tế trong file
         width_key_lower = str(width_key_name).lower()
-        if any(k in width_key_lower for k in ["1/4", "quarter"]): primary_width *= 4.0
-        elif any(k in width_key_lower for k in ["1/2", "half", "flat", "across"]): primary_width *= 2.0
+        if any(k in width_key_lower for k in ["1/4", "quarter"]): 
+            primary_width *= 4.0
+        elif any(k in width_key_lower for k in ["1/2", "half", "flat", "across"]) or primary_width < 30.0: 
+            primary_width *= 2.0
 
         shape_factors = {"SHIRT_FRONT": 0.86, "SHIRT_BACK": 0.88, "SLEEVE": 0.78, "PANT_FRONT": 0.72, "PANT_BACK": 0.78}
         MARKER_MATRIX = {"SHIRT": 0.82, "SHIRT_PATCH": 0.80, "PANT": 0.82, "PANT_ELASTIC": 0.84, "PANT_CARGO": 0.78, "JACKET": 0.72}
         BACK_RISE_ALLOWANCE = 1.5 if category == "SHORT" else (2.5 if features.get("cargo_pocket") else 2.0)
+        
         calculated_components = []
         total_style_area = 0.0
         seam = 0.44  
         
         if category in ["SHIRT", "JACKET"]:
-            if "FRONT" in components:
+            if "FRONT" in components or "FRONT PANEL" in components or True:
                 w = (primary_width / 4) + seam + (1.5 if features.get("separate_placket") is False else 0)
                 h = body_length + seam
                 area = w * h * shape_factors.get("SHIRT_FRONT", 0.86)
                 calculated_components.append({"name": "FRONT PANEL", "qty": 2, "width": round(w, 2), "height": round(h, 2), "area": round(area, 2)})
                 total_style_area += (area * 2)
-            if "BACK" in components:
+            if "BACK" in components or "BACK PANEL" in components or True:
                 w_back = (primary_width / 2) + (seam * 2)
                 h_back = body_length + seam
                 area = w_back * h_back * shape_factors.get("SHIRT_BACK", 0.88)
                 calculated_components.append({"name": "BACK PANEL", "qty": 1, "width": round(w_back, 2), "height": round(h_back, 2), "area": round(area, 2)})
                 total_style_area += area
+            if sleeve_length > 0:
+                w_slv = (bicep_val + seam) if bicep_val > 0 else (9.5 + seam)
+                h_slv = sleeve_length + seam
+                area_slv = w_slv * h_slv * shape_factors.get("SLEEVE", 0.78)
+                calculated_components.append({"name": "SLEEVE PANEL", "qty": 2, "width": round(w_slv, 2), "height": round(h_slv, 2), "area": round(area_slv, 2)})
+                total_style_area += (area_slv * 2)
         else:
             length_val = outseam_val if outseam_val > 0 else (inseam_val + 11.0 if inseam_val > 0 else body_length)
-            if "FRONT" in components or "FRONT PANEL" in components:
+            if "FRONT" in components or "FRONT PANEL" in components or True:
                 w = (primary_width / 4) + seam
                 h = length_val + seam
                 area = w * h * shape_factors.get("PANT_FRONT", 0.72)
                 calculated_components.append({"name": "FRONT PANEL", "qty": 2, "width": round(w, 2), "height": round(h, 2), "area": round(area, 2)})
                 total_style_area += (area * 2)
-            if "BACK" in components or "BACK PANEL" in components:
+            if "BACK" in components or "BACK PANEL" in components or True:
                 w = (primary_width / 4) + BACK_RISE_ALLOWANCE + seam
                 h = length_val + seam
                 area = w * h * shape_factors.get("PANT_BACK", 0.78)
@@ -1028,6 +1064,7 @@ def ai_consumption_analyst_engine(client, user_message, matched_techpack, bom_re
         return result_view
     except Exception as e:
         return f"🚨 Lỗi hệ thống dựng rập ảo: {str(e)}"
+
 new_style_id_detected = "UNKNOWN_STYLE"
 new_style_category_detected = ""
 new_style_fabric_detected = "UNKNOWN_FABRIC"
