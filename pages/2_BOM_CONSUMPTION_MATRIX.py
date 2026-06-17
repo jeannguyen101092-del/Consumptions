@@ -865,10 +865,14 @@ def process_single_pdf_batch(file_bytes, file_name):
         client_ai = genai.Client(api_key=gemini_key)
         images = convert_from_bytes(file_bytes, dpi=90)
         payload = []
+        stored_images_raw_bytes = [] # Mảng lưu trữ raw bytes chuẩn để hiển thị và gửi API sau này
+        
         for img in images:
             buf = io.BytesIO()
             img.convert("RGB").save(buf, format="JPEG", quality=75)
-            payload.append(types.Part.from_bytes(data=buf.getvalue(), mime_type='image/jpeg'))
+            raw_data = buf.getvalue()
+            stored_images_raw_bytes.append(raw_data)
+            payload.append(types.Part.from_bytes(data=raw_data, mime_type='image/jpeg'))
             
         prompt = "You are expert Garment Auditor. Extract: style_number_parsed, buyer, category, base_size_name, sketch_page_index_detected (0-based), measurements (POM: Value dict), full_size_matrix. Return raw JSON matching this schema."
         payload.append(types.Part.from_text(text=prompt))
@@ -879,11 +883,13 @@ def process_single_pdf_batch(file_bytes, file_name):
                 if res and res.text:
                     parsed = json.loads(res.text)
                     idx = int(parsed.get("sketch_page_index_detected", 0))
-                    sketch = payload[idx].inline_data.data if 0 <= idx < len(images) else payload[0].inline_data.data
-                    return {"success": True, "data": parsed, "sketch_bytes": sketch}
+                    # Lấy chính xác mảng dữ liệu raw bytes của trang chứa Flat Sketch
+                    sketch_bytes_final = stored_images_raw_bytes[idx] if 0 <= idx < len(stored_images_raw_bytes) else stored_images_raw_bytes[0]
+                    return {"success": True, "data": parsed, "sketch_bytes": sketch_bytes_final}
             except: time.sleep(1.5)
         return {"success": False, "error": "Lỗi cấu trúc JSON."}
     except Exception as e: return {"success": False, "error": str(e)}
+
 if "cached_tp" not in st.session_state:
     st.session_state["cached_tp"] = {"id": "UNKNOWN_STYLE", "cat": "", "fab": "UNKNOWN_FABRIC", "specs": {}, "size": "32", "sketch": None, "file_sig": None}
 
@@ -936,24 +942,55 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     st.info(f"📋 **CƠ SỞ ĐỐI SOÁT:** Mã `{new_style_id_detected}` | **SIZE {new_style_base_size}**" if new_style_base_size != "32" else "📋 Đang áp dụng SIZE 32 / M (Mặc định)")
 
     if not st.session_state["matching_checked"]:
-        with st.spinner("🧠 Đang quét kết cấu đối chứng hình ảnh..."):
+        with st.spinner("🧠 Hệ thống thị giác máy tính đang quét kết cấu phom dáng Flat Sketch..."):
             try:
                 db_res = requests.get(f"{base_sb_url}/rest/v1/thong_so_techpack", headers=headers, params={"select": "StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL,sketch_vector", "limit": 100}, timeout=15)
-                pool = [{"pool_index": i, "style_name": s.get("StyleName"), "sketch_features_vector": s.get("sketch_vector", "")} for i, s in enumerate(db_res.json() if db_res.status_code == 200 else [])]
-                if pool:
-                    prompt = f"Analyze NEW SKETCH IMAGE and find closest style index. Match waistband/pockets stitches. Pool: {json.dumps(pool)}. Return raw JSON: {{\"selected_pool_index\": 0}}"
-                    contents = [types.Part.from_text(text=prompt)]
-                    if target_new_sketch_bytes: contents.append(types.Part.from_bytes(data=target_new_sketch_bytes, mime_type='image/jpeg'))
-                    ai_res = client.models.generate_content(model='gemini-2.5-flash', contents=contents).text.strip() if 'client' in globals() and client else None
-                    if ai_res:
-                        idx = json.loads(re.search(r'\{.*?\}', ai_res, re.DOTALL).group(0)).get("selected_pool_index")
-                        if idx is not None and 0 <= idx < len(db_res.json()):
-                            st.session_state["matched_techpack"] = db_res.json()[idx]
+                all_styles = db_res.json() if db_res.status_code == 200 else []
+                
+                if all_styles:
+                    pool = [{"pool_index": i, "style_name": s.get("StyleName"), "sketch_features_vector": s.get("sketch_vector", "")} for i, s in enumerate(all_styles)]
+                    
+                    match_prompt = f"""
+                    You are an expert Computer Vision Ingestion System specialized in Apparel Manufacturing at PPJ Group.
+                    Analyze the ATTACHED NEW SKETCH IMAGE and find the single closest matching historical garment style from the pool.
+                    
+                    STRICT APPAREL AUDIT RULES:
+                    1. WAISTBAND CONSTRUCTION (CẠP QUẦN): Match stitching patterns carefully.
+                    2. POCKET TYPES & PLACEMENT (KẾT CẤU TÚI): Look for cargo pockets vs patch pockets.
+                    
+                    HISTORICAL POOL DATA:
+                    {json.dumps(pool)}
+                    
+                    Select the single index that represents the exact match in technical stitching construction.
+                    Return a raw valid JSON object inside your response: {{"selected_pool_index": 0}}
+                    """
+                    
+                    match_contents = [types.Part.from_text(text=match_prompt)]
+                    if target_new_sketch_bytes:
+                        # Đã đồng bộ dữ liệu đầu vào: Truyền raw bytes chuẩn xác 100% để kích hoạt mắt thần Gemini Vision
+                        match_contents.append(types.Part.from_bytes(data=target_new_sketch_bytes, mime_type='image/jpeg'))
+                    
+                    if 'client' in globals() and client:
+                        ai_res = client.models.generate_content(model='gemini-2.5-flash', contents=match_contents).text.strip()
+                        json_block_clean = re.search(r'\{.*?\}', ai_res, re.DOTALL).group(0)
+                        idx = json.loads(json_block_clean).get("selected_pool_index")
+                        
+                        if idx is not None and 0 <= idx < len(all_styles):
+                            st.session_state["matched_techpack"] = all_styles[idx]
                             st.toast(f"🎯 Đã khóa mã tương đồng: {st.session_state['matched_techpack'].get('StyleName')}")
-            except Exception as e: st.sidebar.error(f"Lỗi: {e}")
-            finally: st.session_state["matching_checked"] = True
+                        else:
+                            st.session_state["matched_techpack"] = None
+                    else:
+                        st.error("Thiếu client API Key.")
+            except Exception as e: 
+                st.sidebar.error(f"Lỗi hệ thống đối soát hình ảnh: {e}")
+            finally: 
+                st.session_state["matching_checked"] = True
+                st.rerun() # Re-run phát cuối để cập nhật ngay lập tức giao diện so sánh ảnh và bảng BOM cũ lên màn hình
+                
     elif st.session_state["matched_techpack"]:
         st.caption(f"🔒 Đối chứng đang cố định theo mã: **{st.session_state['matched_techpack'].get('StyleName', 'N/A').upper()}**")
+
     if st.session_state.get("matched_techpack") and not st.session_state.get("bom_checked"):
         try:
             name = st.session_state["matched_techpack"].get("StyleName", "").strip()
