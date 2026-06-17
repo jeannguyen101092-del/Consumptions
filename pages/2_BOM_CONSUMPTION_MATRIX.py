@@ -1164,74 +1164,212 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     else:
         st.info(f"📋 **CƠ SỞ ĐỐI SOÁT KIỂM TRA:** Đang áp dụng quy chuẩn kích thước hình học rập mẫu cơ sở: **SIZE 32 / M (Mặc định)**")
 
-    # 🔥 ĐỔI MỚI QUAN TRỌNG: Chỉ chạy quét tìm mã tương đồng nếu TRONG KHO CHƯA CÓ MÃ NÀO ĐƯỢC KHỚP
-    if st.session_state["matched_techpack"] is None:
-        with st.spinner("🧠 Hệ thống thị giác máy tính đang quét kết cấu phom dáng Flat Sketch..."):
-            try:
-                headers_db = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if 'SB_KEY' in globals() else {}
-                url_db = f"{base_sb_url}/rest/v1/thong_so_techpack"
-                query_params = {"select": "StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL,sketch_vector", "limit": 100}
-                
-                db_res = requests.get(url_db, headers=headers_db, params=query_params, timeout=15)
-                all_historical_styles = db_res.json() if db_res.status_code == 200 else []
-                
-                if all_historical_styles:
-                    styles_pool_summary = []
-                    for idx, s in enumerate(all_historical_styles):
-                        styles_pool_summary.append({
-                            "pool_index": idx,
-                            "style_name": s.get("StyleName"),
-                            "sketch_features_vector": s.get("sketch_vector", "")
-                        })
-                    
-                    match_prompt = f"""
-                    You are an expert Computer Vision Ingestion System specialized in Apparel Manufacturing at PPJ Group.
-                    Analyze the ATTACHED NEW SKETCH IMAGE and find the single closest matching historical garment style from the pool.
-                    
-                    STRICT APPAREL AUDIT RULES (IGNORE THE OUTLINE, FOCUS SOLELY ON INTERNAL CONSTRUCTION DETAILS):
-                    1. WAISTBAND CONSTRUCTION (CẠP QUẦN): Look closely at the waistband stitches. 
-                       - If the new image shows a full elastic waistband (cạp chun co giãn toàn bộ, nhiều đường nhăn song song, NO belt loops, NO zipper fly), you MUST REJECT any historical styles that have belt loops (đai quần), front zipper fly (khóa kéo), or standard button closures.
-                    2. POCKET TYPES & PLACEMENT (KẾT CẤU TÚI): Look at the internal pocket placement.
-                       - Distinguish clearly between Patch Pockets (túi ốp nổi lớn bên ngoài, túi hộp kiểu Cargo) and Slit/In-seam Pockets (túi mổ sườn phẳng). Do NOT match a clean plain front leg with a Cargo/Utility pocket design.
-                    3. SEAM LINES & PANEL CUTS: Look inside the body lines.
-                    
-                    HISTORICAL POOL DATA:
-                    {json.dumps(styles_pool_summary)}
-                    
-                    Select the single index that represents the exact match in internal technical stitching construction, NOT just the shorts frame.
-                    Return a raw valid JSON object inside your response: {{"selected_pool_index": 0}}
-                    """
-                    
-                    match_contents = [types.Part.from_text(text=match_prompt)]
-                    if target_new_sketch_bytes:
-                        # Bảo vệ dữ liệu: Ép kiểu dữ liệu bytes chuẩn xác khi gửi lên API
-                        match_contents.append(types.Part.from_bytes(data=target_new_sketch_bytes, mime_type='image/jpeg'))
-                    
-                    if client is None:
-                        st.error("Gemini API Key chưa cấu hình.")
-                        st.stop()    
+    # 🔥 ĐOẠN 1: LỌC DANH MỤC NGÀNH MAY VÀ TRÍCH XUẤT TOP 5 BẰNG VECTOR COSINE THỰC TẾ
+import hashlib
 
-                    res_match = client.models.generate_content(model='gemini-2.5-flash', contents=match_contents)
-                    ai_raw_text = res_match.text.strip()
+if target_new_sketch_bytes:
+    # Sửa lỗi số 5: Kiểm tra Hash MD5 bảo vệ hệ thống khỏi vòng lặp vô hạn và tự reset khi đổi ảnh
+    current_sketch_hash = hashlib.md5(target_new_sketch_bytes).hexdigest()
+    if st.session_state.get("last_sketch_hash") != current_sketch_hash:
+        st.session_state["last_sketch_hash"] = current_sketch_hash
+        st.session_state["matching_checked"] = False
+        st.session_state["matched_techpack"] = None
+
+top_5_candidates = []  # Khởi tạo biến cục bộ an toàn để chuyển tiếp dữ liệu sang Đoạn 2
+
+if st.session_state.get("matched_techpack") is None and not st.session_state.get("matching_checked", False):
+    if client is None:
+        st.error("Gemini API Key chưa được cấu hình. Hệ thống ngắt tiến trình.")
+        st.stop()
+        
+    raw_category = st.session_state.get("detected_category", "").strip().upper()
+    new_sketch_vector = st.session_state.get("current_sketch_vector") 
+
+    # Sửa lỗi số 2: Từ điển ánh xạ chuẩn hóa danh mục, bảo vệ từ gốc như DRESS, SHORTS
+    plural_map = {
+        "SHORTS": "SHORT", "PANTS": "PANT", "TROUSERS": "TROUSER",
+        "DRESSES": "DRESS", "SKIRTS": "SKIRT", "JACKETS": "JACKET", "SHIRTS": "SHIRT"
+    }
+    normalized_category = plural_map.get(raw_category, raw_category)
+
+    if not normalized_category:
+        st.warning("⚠️ Thiếu thông tin Hạng mục (Category) của sản phẩm mới để tiến hành đối soát.")
+        st.stop()
+
+    with st.spinner("🧠 Hệ thống Hybrid AI đang tiến hành trích xuất dữ liệu toán học..."):
+        try:
+            # 1. Truy vấn dữ liệu thô từ cơ sở dữ liệu đối chứng
+            headers_db = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if 'SB_KEY' in globals() else {}
+            url_db = f"{base_sb_url}/rest/v1/thong_so_techpack"
+            query_params = {"select": "StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL,sketch_vector,feature_json", "limit": 300}
+            
+            db_res = requests.get(url_db, headers=headers_db, params=query_params, timeout=15)
+            all_historical_styles = db_res.json() if db_res.status_code == 200 else []
+            
+            # Sửa lỗi số 3: Khớp chuỗi tuyệt đối (Exact Matching) loại bỏ rủi ro Short dính Short Skirt
+            candidate_pool = [
+                s for s in all_historical_styles 
+                if normalized_category == plural_map.get(str(s.get("Category", "")).strip().upper(), str(s.get("Category", "")).strip().upper())
+            ]
+            
+            if candidate_pool:
+                ranked_candidates = []
+                if new_sketch_vector:
+                    vec_target = [float(x) for x in new_sketch_vector.split(',')] if isinstance(new_sketch_vector, str) else list(new_sketch_vector)
+                    np_target = np.array(vec_target, dtype=float)
+                    norm_target = np.linalg.norm(np_target)
+                else:
+                    np_target, norm_target = None, 0.0
+
+                for s in candidate_pool:
+                    db_vec_raw = s.get("sketch_vector")
+                    vector_score = 0.0
                     
+                    # 2. Tính toán toán tử Cosine thực tế (Sửa lỗi số 1 & 6: kiểm chuẩn đồng nhất số chiều)
+                    if np_target is not None and db_vec_raw:
+                        try:
+                            vec_db = [float(x) for x in db_vec_raw.split(',')] if isinstance(db_vec_raw, str) else list(db_vec_raw)
+                            if len(vec_target) == len(vec_db):
+                                np_db = np.array(vec_db, dtype=float)
+                                norm_db = np.linalg.norm(np_db)
+                                if norm_target > 0 and norm_db > 0:
+                                    vector_score = float(np.dot(np_target, np_db) / (norm_target * norm_db))
+                        except Exception:
+                            vector_score = 0.0
+                    
+                    # 3. So sánh ma trạng thuộc tính đặc trưng kỹ thuật ngành may (Sửa lỗi số 7)
+                    feature_score = 0.0
+                    db_feat, current_feat = s.get("feature_json"), st.session_state.get("current_style_features")
+                    if db_feat and current_feat:
+                        try:
+                            d_feat = json.loads(db_feat) if isinstance(db_feat, str) else db_feat
+                            c_feat = json.loads(current_feat) if isinstance(current_feat, str) else current_feat
+                            keys_to_compare = ["waistband", "belt_loop", "fly", "pocket_type", "cargo", "length"]
+                            matches = sum(1 for k in keys_to_compare if d_feat.get(k) == c_feat.get(k))
+                            feature_score = matches / len(keys_to_compare)
+                        except Exception:
+                            feature_score = 0.0
+                    
+                    ranked_candidates.append({"data": s, "vector_score": vector_score, "feature_score": feature_score})
+                
+                # Sắp xếp hồ sơ giảm dần dựa trên tổ hợp trọng số nền tảng (Toán học chiếm ưu thế sơ tuyển)
+                ranked_candidates = sorted(ranked_candidates, key=lambda x: (0.6 * x["vector_score"] + 0.4 * x["feature_score"]), reverse=True)
+                top_5_candidates = ranked_candidates[:5]
+                
+        except Exception as err_step1:
+            st.sidebar.error(f"Lỗi phân tích toán học Đoạn 1: {str(err_step1)}")
+            st.session_state["matching_checked"] = False  # Đảm bảo không khóa luồng khi lỗi xảy ra
+# 🔥 ĐOẠN 2: KIỂM TOÁN HÌNH ẢNH QUA GEMINI 2.5 PRO VÀ TỔNG HỢP TRỌNG SỐ ĐIỂM LAI TRIPLE-SCORING
+if st.session_state.get("matched_techpack") is None and not st.session_state.get("matching_checked", False) and top_5_candidates:
+    execution_success = False  # Cờ an toàn bảo vệ trạng thái hệ thống không bị khóa cứng khi lỗi mạng
+    with st.spinner("👁️ Chuyên gia thị giác Gemini 2.5 Pro đang đối soát kết cấu may chi tiết..."):
+        try:
+            pool_summary_for_ai = []
+            match_contents = []
+            
+            # 1. Tải hình ảnh trong kho lịch sử và đính kèm vào luồng xử lý
+            for idx, item in enumerate(top_5_candidates):
+                style_data = item.get("data", {})
+                style_name = style_data.get("StyleName", "UNKNOWN")
+                sketch_url = style_data.get("SketchURL", "")
+                
+                pool_summary_for_ai.append({
+                    "candidate_id": f"CANDIDATE_{idx}", "style_name": style_name,
+                    "category": style_data.get("Category"), "buyer": style_data.get("Buyer")
+                })
+                
+                if sketch_url:
                     try:
-                        json_block_clean = re.search(r'\{.*?\}', ai_raw_text, re.DOTALL).group(0)
-                        match_result = json.loads(json_block_clean)
-                        
-                        selected_idx = match_result.get("selected_pool_index")
-                        if selected_idx is not None and 0 <= selected_idx < len(all_historical_styles):
-                            st.session_state["matched_techpack"] = all_historical_styles[selected_idx]
-                            st.toast(f"🎯 Đã khóa thành công mã tương đồng: {all_historical_styles[selected_idx].get('StyleName')}")
-                        else:
-                            st.session_state["matched_techpack"] = None
+                        img_res = requests.get(sketch_url, timeout=5)
+                        if img_res.status_code == 200:
+                            # Sửa lỗi số 4: Xác định MIME Type động dựa trên phản hồi Content-Type thực tế của máy chủ
+                            detected_mime = img_res.headers.get("Content-Type", "image/jpeg")
+                            match_contents.append(types.Part.from_text(text=f"\n--- VISUAL FRAME OF CANDIDATE_{idx} (Mã: {style_name}) ---"))
+                            match_contents.append(types.Part.from_bytes(data=img_res.content, mime_type=detected_mime))
                     except Exception:
-                        match_result = {"selected_pool_index": -1}
-                        st.session_state["matched_techpack"] = None
-            except Exception as match_err:
-                st.sidebar.error(f"Lỗi hệ thống đối soát hình ảnh: {str(match_err)}")
-    else:
-        # Thông báo ngầm cho người dùng biết hệ thống đang sử dụng kết quả đã được khóa cố định
-        st.caption(f"🔒 Dữ liệu đối chứng đang được cố định theo mã: **{st.session_state['matched_techpack'].get('StyleName', 'N/A').upper()}**")
+                        pass
+
+            # 2. Xây dựng prompt kiểm toán kỹ thuật ngành may mở rộng phục vụ Debug trực quan
+            match_prompt = f"""
+            You are an expert Apparel Technical Auditor at PPJ Group. Execute a deep visual audit.
+            STRICT PROTOCOL: Check length, waistband stitches, elastic puckers vs flat facings, pocket types, and zipper J-stitches.
+            DATA REGISTRY FOR SELECTION CANDIDATES:
+            {json.dumps(pool_summary_for_ai, ensure_ascii=False, indent=2)}
+            Output a valid JSON matching this schema exactly to prevent index bias and enable easy technical debugging:
+            {{
+                "match_found": true/false, "selected_candidate_id": "CANDIDATE_X", "confidence_score": 0-100,
+                "category_match": true/false, "length_match": true/false, "waistband_match": true/false,
+                "pocket_match": true/false, "fly_match": true/false, "technical_reasoning": "Detailed visual breakdown"
+            }}
+            """
+            match_contents.insert(0, types.Part.from_text(text=match_prompt))
+            
+            # Đính kèm hình ảnh bản vẽ phẳng mới kèm MIME type động bóc tách từ file người dùng tải lên
+            if target_new_sketch_bytes:
+                # Mặc định lấy mime_type từ biến môi trường của form upload (Ví dụ:uploaded_file.type), nếu trống dùng fallback
+                target_mime = st.session_state.get("current_sketch_mime", "image/jpeg")
+                match_contents.append(types.Part.from_text(text="\n--- VISUAL OF THE NEW TARGET SKETCH IMAGE ---"))
+                match_contents.append(types.Part.from_bytes(data=target_new_sketch_bytes, mime_type=target_mime))
+            
+            # Sửa lỗi số 7: Chuyển đổi mô hình cốt lõi sang gemini-2.5-pro phục vụ phân tích chi tiết siêu nhỏ (Stitch-level)
+            res_match = client.models.generate_content(
+                model='gemini-2.5-pro', contents=match_contents, config={"response_mime_type": "application/json"}
+            )
+            
+            # 3. Phân tích bóc tách khối dữ liệu an toàn bằng 2 lớp phòng vệ (Direct parse + Regex)
+            try:
+                match_result = json.loads(res_match.text.strip())
+            except Exception:
+                try:
+                    json_block_clean = re.search(r'\{.*?\}', res_match.text, re.DOTALL).group(0)
+                    match_result = json.loads(json_block_clean)
+                except Exception:
+                    match_result = {"match_found": False}
+            
+            # 4. Tính toán điểm số kết hợp lai Hybrid-Scoring (40% Feature JSON + 30% Cosine Vector + 30% Gemini Vision)
+            if match_result.get("match_found") is True:
+                # Sửa lỗi số 3: Ép kiểu chuỗi tường minh phòng hờ AI sinh dữ liệu kiểu số hoặc None gây crash hàm search
+                cand_id = str(match_result.get("selected_candidate_id", ""))
+                match_idx_match = re.search(r'\d+', cand_id)
+                
+                if match_idx_match:
+                    selected_idx = int(match_idx_match.group())
+                    if 0 <= selected_idx < len(top_5_candidates):
+                        target_candidate = top_5_candidates[selected_idx]
+                        vision_score = float(match_result.get("confidence_score", 0)) / 100.0
+                        
+                        # Sửa lỗi số 6: Sử dụng hàm an toàn .get() triệt tiêu hoàn toàn rủi ro KeyError khi gọi trọng số
+                        final_hybrid_score = (
+                            0.4 * target_candidate.get("feature_score", 0.0) +
+                            0.3 * target_candidate.get("vector_score", 0.0) +
+                            0.3 * vision_score
+                        )
+                        
+                        if final_hybrid_score >= 0.65:
+                            matched_item = target_candidate.get("data", {})
+                            st.session_state["matched_techpack"] = matched_item
+                            st.toast(f"🎯 Khớp mã thành công: {matched_item.get('StyleName')} (Hybrid Score: {final_hybrid_score:.2f})")
+                            execution_success = True  # Đánh dấu tiến trình hoàn thành trọn vẹn, sẵn sàng rerun
+                        else:
+                            st.sidebar.warning("⚠️ Điểm tổng hợp Hybrid AI thấp hơn 0.65, từ chối khóa mã.")
+            else:
+                st.sidebar.info("💡 Hệ thống Vision không tìm thấy mã kỹ thuật nào phù hợp kết cấu.")
+                execution_success = True  # Không tìm thấy đối tác vẫn tính là hoàn tất tiến trình thành công
+                
+        except Exception as err_step2:
+            st.sidebar.error(f"Lỗi xử lý thị giác Đoạn 2: {str(err_step2)}")
+            execution_success = False  # Phát hiện lỗi hệ thống, không kích hoạt khóa luồng để người dùng có thể ấn quét lại
+        finally:
+            # Sửa lỗi số 5: Chỉ ghi nhận trạng thái hoàn tất và rerun khi toàn bộ logic try-block vận hành trơn tru không lỗi sập
+            if execution_success:
+                st.session_state["matching_checked"] = True
+                st.rerun()
+
+# 5. Hiển thị thông báo trạng thái khóa cố định dữ liệu nếu đã tìm thấy mã tương đồng ổn định
+if st.session_state.get("matched_techpack"):
+    current_style = st.session_state['matched_techpack'].get('StyleName', 'N/A').upper()
+    st.caption(f"🔒 Dữ liệu đối chứng đang được cố định theo mã: **{current_style}**")
+
 
 # =================================================================
 # ĐOẠN 5: HIỂN THỊ SO SÁNH FLAT SKETCH, BẢNG THÔNG SỐ VÀ LỊCH SỬ BOM
