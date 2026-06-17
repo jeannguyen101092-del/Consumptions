@@ -890,26 +890,67 @@ def process_single_pdf_batch(file_bytes, file_name):
         return {"success": False, "error": "Lỗi cấu trúc JSON."}
     except Exception as e: return {"success": False, "error": str(e)}
 
-if "cached_tp" not in st.session_state:
-    st.session_state["cached_tp"] = {"id": "UNKNOWN_STYLE", "cat": "", "fab": "UNKNOWN_FABRIC", "specs": {}, "size": "32", "sketch": None, "file_sig": None}
+# =================================================================
+# ĐOẠN 3 ĐÃ SỬA CHUẨN: KHỞI TẠO BIẾN VÀ ĐỌC FILE CHẶN RE-RUN QUÉT LẶP
+# =================================================================
 
-uploader_keys = ['uploaded_file', 'chat_uploader', 'bom_matrix_uploader']
-target_file_object = next((st.session_state[k] for k in uploader_keys if st.session_state.get(k)), None)
+if "cached_tp" not in st.session_state:
+    st.session_state["cached_tp"] = {
+        "id": "UNKNOWN_STYLE",
+        "cat": "",
+        "fab": "UNKNOWN_FABRIC",
+        "specs": {},
+        "size": "32",
+        "sketch": None,
+        "file_sig": None
+    }
+
+# Bắt chính xác tệp tải lên từ widget bom_matrix_uploader trong phiên làm việc
+target_file_object = None
+if 'bom_matrix_uploader' in st.session_state and st.session_state['bom_matrix_uploader'] is not None:
+    target_file_object = st.session_state['bom_matrix_uploader']
+elif 'uploaded_file' in st.session_state and st.session_state['uploaded_file'] is not None:
+    target_file_object = st.session_state['uploaded_file']
+elif 'chat_uploader' in st.session_state and st.session_state['chat_uploader'] is not None:
+    target_file_object = st.session_state['chat_uploader']
+
 has_file = target_file_object is not None
 
+# Nếu phát hiện có tệp, tiến hành xử lý bóc tách thông số
 if has_file:
     f_bytes = target_file_object.getvalue()
+    # Tạo mã nhận diện file dựa trên tên và dung lượng tệp
     sig = f"{target_file_object.name}_{len(f_bytes)}"
+    
+    # CHỈ QUÉT NẾU PHÁT HIỆN ĐÂY LÀ FILE MỚI ĐƯỢC TẢI LÊN
     if st.session_state["cached_tp"]["file_sig"] != sig:
         if target_file_object.name.lower().endswith('.pdf'):
-            res_pdf = process_single_pdf_batch(f_bytes, target_file_object.name)
-            if res_pdf.get("success"):
-                meta = res_pdf["data"]
-                st.session_state["cached_tp"].update({"id": meta.get("style_number_parsed", "UNKNOWN_STYLE"), "cat": meta.get("category", ""), "size": meta.get("base_size_name", "32"), "specs": meta.get("measurements", {}), "sketch": res_pdf.get("sketch_bytes")})
+            try:
+                # Kích hoạt luồng bóc tách dữ liệu PDF qua Gemini một lần duy nhất
+                res_pdf = process_single_pdf_batch(f_bytes, target_file_object.name)
+                if res_pdf.get("success"):
+                    meta = res_pdf["data"]
+                    st.session_state["cached_tp"].update({
+                        "id": meta.get("style_number_parsed", "UNKNOWN_STYLE"),
+                        "cat": meta.get("category", ""),
+                        "size": meta.get("base_size_name", "32"),
+                        "specs": meta.get("measurements", {}),
+                        "sketch": res_pdf.get("sketch_bytes")
+                    })
+            except Exception:
+                pass
         else:
-            st.session_state["cached_tp"].update({"sketch": f_bytes, "id": "IMAGE_STYLE"})
+            # Nếu là file ảnh trực tiếp (JPG/PNG), giữ nguyên làm ảnh phác thảo
+            st.session_state["cached_tp"].update({
+                "sketch": f_bytes,
+                "id": "IMAGE_STYLE",
+                "specs": {},
+                "cat": ""
+            })
+        # Đóng dấu hoàn thành xử lý tệp
         st.session_state["cached_tp"]["file_sig"] = sig
 
+# Gán ngược dữ liệu ổn định từ bộ nhớ đệm ra các biến local phục vụ render giao diện đồ họa
 new_style_id_detected = st.session_state["cached_tp"]["id"]
 new_style_category_detected = st.session_state["cached_tp"]["cat"]
 new_style_fabric_detected = st.session_state["cached_tp"]["fab"]
@@ -917,12 +958,14 @@ new_style_measurements_dict = st.session_state["cached_tp"]["specs"]
 new_style_base_size = st.session_state["cached_tp"]["size"]
 target_new_sketch_bytes = st.session_state["cached_tp"]["sketch"]
 
+# Cấu hình biến môi trường kết nối database (Đồng bộ nguyên văn cấu trúc hệ thống của bạn)
 SB_URL = st.secrets.get("SUPABASE_URL", "") if "SB_URL" not in globals() else SB_URL
 SB_KEY = st.secrets.get("SUPABASE_KEY", "") if "SB_KEY" not in globals() else SB_KEY
 dynamic_keyword = str(new_style_id_detected).strip().upper()
 base_sb_url = SB_URL.rstrip('/') if SB_URL else ""
 headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if SB_KEY else {}
 menu_selection = globals().get("menu_selection", "🧵 BOM & Consumption Matrix")
+
 if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption Matrix":
     st.markdown('<div class="component-title-box">🧵 INTELLIGENT BOM ENGINE</div>', unsafe_allow_html=True)
     
