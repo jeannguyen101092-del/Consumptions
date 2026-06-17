@@ -1109,6 +1109,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     st.markdown('<div class="component-title-box">🧵 INTELLIGENT BOM & CONSUMPTION MATRIX ENGINE</div>', unsafe_allow_html=True)
     if "matched_techpack" not in st.session_state: st.session_state["matched_techpack"] = None
     if "bom_records" not in st.session_state: st.session_state["bom_records"] = []
+    if "fallback_bom_summary" not in st.session_state: st.session_state["fallback_bom_summary"] = None
     if "consumption_chat_history" not in st.session_state: st.session_state["consumption_chat_history"] = []
 
     control_col1, control_col2 = st.columns([3.3, 0.7])
@@ -1121,6 +1122,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             st.session_state["consumption_chat_history"] = []
             st.session_state["matched_techpack"] = None
             st.session_state["bom_records"] = []
+            st.session_state["fallback_bom_summary"] = None
             st.rerun()
 
     st.markdown("---")
@@ -1128,41 +1130,68 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         st.info("👋 Vui lòng tải lên tệp Techpack hồ sơ thiết kế để bắt đầu đối soát.")
         st.stop()
 
-    if st.session_state["matched_techpack"] is None:
-        with st.spinner("🧠 Hệ thống thị giác AI đang đối soát kết cấu phom dáng..."):
+    # KÍCH HOẠT THUẬT TOÁN ĐỐI SOÁT BAO PHỦ 
+    if st.session_state["matched_techpack"] is None and st.session_state["fallback_bom_summary"] is None:
+        with st.spinner("🧠 Hệ thống AI đang quét cơ sở dữ liệu đối soát..."):
             try:
+                # 1. Quét mở rộng kho dữ liệu lên tới 500 dòng lịch sử
                 url_db = f"{base_sb_url}/rest/v1/thong_so_techpack"
-                query_params = {"select": "StyleName,Buyer,Category,DetailedMeasurements,SketchURL", "limit": 100}
+                query_params = {"select": "StyleName,Buyer,Category,DetailedMeasurements,SketchURL", "limit": 500}
                 db_res = requests.get(url_db, headers=headers, params=query_params, timeout=15)
                 all_historical_styles = db_res.json() if db_res.status_code == 200 else []
-                if all_historical_styles and target_new_sketch_bytes and isinstance(target_new_sketch_bytes, bytes):
+                
+                # Xác định chủng loại thực tế từ file mới nạp để làm bộ lọc tối cao
+                current_cat = str(new_style_category_detected).strip().upper()
+                if not current_cat:
+                    current_cat = "SHIRT"
+                
+                # Lọc danh sách các mã trong kho thuộc cùng chủng loại (Category)
+                same_cat_styles = [s for s in all_historical_styles if str(s.get("Category", "")).strip().upper() == current_cat]
+                
+                if same_cat_styles and target_new_sketch_bytes and isinstance(target_new_sketch_bytes, bytes):
                     styles_pool_summary = []
-                    for idx, s in enumerate(all_historical_styles):
-                        styles_pool_summary.append({"pool_index": idx, "style_name": s.get("StyleName"), "category": s.get("Category", "")})
+                    for idx, s in enumerate(same_cat_styles):
+                        styles_pool_summary.append({"pool_index": idx, "style_name": s.get("StyleName")})
                     
-                    # Cấu hình prompt Vision chuyên nghiệp ép chặt cấu trúc dữ liệu đầu ra
-                    match_prompt = f"""
-                    Analyze the attached techpack sketch image and find the closest matching historical product from the pool.
-                    Pool Data: {json.dumps(styles_pool_summary)}
-                    Return ONLY a valid raw JSON object matching this format: {{"selected_pool_index": 0}}
-                    """
+                    match_prompt = f"Analyze attached image and find closest pool_index among historical items of the SAME category ({current_cat}). Pool: {json.dumps(styles_pool_summary)}. Return ONLY JSON: {{\"selected_pool_index\": 0}}"
                     match_contents = [types.Part.from_text(text=match_prompt), types.Part.from_bytes(data=target_new_sketch_bytes, mime_type='image/jpeg')]
                     
                     if client is not None:
-                        # Kích hoạt JSON mode trực tiếp loại bỏ lỗi dấu nháy văn bản
-                        res_match = client.models.generate_content(
-                            model='gemini-2.5-flash', 
-                            contents=match_contents,
-                            config={"response_mime_type": "application/json"}
-                        )
-                        match_data = json.loads(res_match.text.strip())
-                        selected_idx = match_data.get("selected_pool_index")
-                        if selected_idx is not None and 0 <= selected_idx < len(all_historical_styles):
-                            st.session_state["matched_techpack"] = all_historical_styles[selected_idx]
+                        res_match = client.models.generate_content(model='gemini-2.5-flash', contents=match_contents, config={"response_mime_type": "application/json"})
+                        selected_idx = json.loads(res_match.text.strip()).get("selected_pool_index")
+                        if selected_idx is not None and 0 <= selected_idx < len(same_cat_styles):
+                            st.session_state["matched_techpack"] = same_cat_styles[selected_idx]
+                
+                # 🛠️ TẦNG DỰ PHÒNG CỐT LÕI: Nếu AI Vision không tìm được mã tương đồng 100%, tự động bốc dữ liệu định mức trung bình của Category đó
+                if st.session_state["matched_techpack"] is None:
+                    url_bom = f"{base_sb_url}/rest/v1/san_pham"
+                    res_bom_all = requests.get(url_bom, headers=headers, params={"select": "style_name,consumption_value,consumption_type,uom", "limit": 1000}, timeout=15)
+                    
+                    if res_bom_all.status_code == 200 and res_bom_all.json():
+                        # Lấy danh sách tên mã hàng cùng chủng loại từ kho thông số rập
+                        allowed_names = [str(s.get("StyleName")).strip().upper() for s in same_cat_styles]
+                        cat_bom_records = [b for b in res_bom_all.json() if str(b.get("style_name")).strip().upper() in allowed_names or not allowed_names]
+                        
+                        if cat_bom_records:
+                            # Phân loại định mức theo Nguyên vật liệu chính (Vải chính, Vải lót...)
+                            types_found = set([b.get("consumption_type") for b in cat_bom_records if b.get("consumption_type")])
+                            summary_list = []
+                            for t in types_found:
+                                values = [float(b.get("consumption_value", 0)) for b in cat_bom_records if b.get("consumption_type") == t and str(b.get("consumption_value", 0)).replace('.','',1).isdigit()]
+                                if values:
+                                    avg_val = sum(values) / len(values)
+                                    summary_list.append({
+                                        "Loại nguyên vật liệu": t,
+                                        "Định mức tham chiếu trung bình ngành": round(avg_val, 4),
+                                        "Đơn vị (UOM)": "Yds",
+                                        "Cơ sở dữ liệu mẫu quét": f"Tính toán từ {len(values)} mã hàng cùng chủng loại {current_cat} trong kho"
+                                    })
+                            st.session_state["fallback_bom_summary"] = summary_list
             except Exception:
                 pass
 
     matched_techpack = st.session_state.get("matched_techpack")
+
 
     st.markdown("### 🖼️ ĐỐI CHIẾU SỰ TƯƠNG ĐỒNG HÌNH ẢNH THIẾT KẾ (FLAT SKETCH)")
     img_col1, img_col2 = st.columns(2)
@@ -1178,20 +1207,17 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             url_opt = f"{base_sb_url}/storage/v1/object/public/kho_anh/{target_style_name}.jpg"
             try:
                 img_response = requests.get(url_opt, headers=headers, timeout=5)
-                if img_response.status_code == 200:
-                    st.image(img_response.content, caption=f"Bản vẽ gốc mã {target_style_name}", use_container_width=True)
+                if img_response.status_code == 200: st.image(img_response.content, caption=f"Bản vẽ gốc mã {target_style_name}", use_container_width=True)
                 else:
-                    db_stored_url = matched_techpack.get("SketchURL") or matched_techpack.get("sketch_url", "")
-                    if db_stored_url: st.image(db_stored_url, use_container_width=True)
+                    db_url = matched_techpack.get("SketchURL") or matched_techpack.get("sketch_url", "")
+                    if db_url: st.image(db_url, use_container_width=True)
             except Exception:
                 st.info("⚠️ Không tìm thấy ảnh trên Cloud.")
         else:
-            st.warning("⚠️ Không tìm thấy mã tương đồng.")
+            st.warning("⚠️ KHO KHÔNG CÓ MÃ TƯƠNG ĐỒNG 100%! Tự động kích hoạt luồng tính toán định mức cơ sở dữ liệu mẫu lớn.")
 
-    # ✅ ĐÃ SỬA: Tách riêng HTML biệt lập để tránh lỗi hiển thị chữ ### thô
     st.write("")
     st.markdown("### 📐 SO SÁNH HAI BẢNG THÔNG SỐ KỸ THUẬT RẬP MẪU")
-    
     spec_col1, spec_col2 = st.columns(2)
     with spec_col1:
         st.markdown(f"📊 **Bảng 1: Thông số Mẫu mới nạp ({new_style_base_size})**")
@@ -1207,10 +1233,28 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             df_old = pd.DataFrame(list(old_specs.items()), columns=["POM Description", "Value"]) if old_specs else pd.DataFrame(columns=["POM Description", "Value"])
             st.dataframe(df_old, use_container_width=True, hide_index=True)
         else:
-            st.caption("Chưa có dữ liệu kho đối chứng.")
+            st.info(f"💡 Trạng thái: Kho chưa có rập khớp 100%. Thông số Bảng 2 trống. Sẵn sàng chạy mô phỏng rập ảo lai.")
+
+    # ✅ ĐỒNG BỘ ĐA TẦNG: Kết xuất bảng BOM lịch sử hoặc Bảng BOM dự phòng trung bình ngành
+    st.write("")
+    if matched_techpack:
+        st.markdown("📦 **MÃ ĐỐI CHỨNG HỢP LỆ: BẢNG CHI TIẾT ĐỊNH MỨC VẬT TƯ LỊCH SỬ (BOM)**")
+        # Gọi API lấy dữ liệu sản phẩm của mã hàng tương đồng cụ thể
+        try:
+            url_bom = f"{base_sb_url}/rest/v1/san_pham"
+            res_bom = requests.get(url_bom, headers=headers, params={"style_name": f"eq.{matched_techpack.get('StyleName')}"}, timeout=10)
+            if res_bom.status_code == 200 and res_bom.json():
+                st.dataframe(pd.DataFrame(res_bom.json()), use_container_width=True, hide_index=True)
+            else: st.caption("Mã hàng này chưa được phân bổ bảng BOM vật tư chi tiết.")
+        except Exception: pass
+    elif st.session_state["fallback_bom_summary"]:
+        st.markdown("📦 **DỮ LIỆU ĐỐI CHỨNG DỰ PHÒNG: ĐỊNH MỨC TRUNG BÌNH CỦA CHỦNG LOẠI HÀNG TRONG KHO**")
+        st.caption(f"Hệ thống tự động gom dữ liệu từ toàn bộ các sản phẩm cùng nhóm {new_style_category_detected if new_style_category_detected else 'chủng loại tương thích'} để bù đắp chỉ số tham chiếu.")
+        st.dataframe(pd.DataFrame(st.session_state["fallback_bom_summary"]), use_container_width=True, hide_index=True)
 
     st.markdown("<br><hr style='border:0.5px solid #CBD5E1;'>", unsafe_allow_html=True)
 
+    # --- KHỐI GIAO DIỆN CHAT AI GIỮ NGUYÊN ---
     st.markdown("### 💬 TRỢ LÝ AI PHÂN TÍCH ĐỊNH MỨC SẢN XUẤT (HỎI ĐÂU ĐÁP ĐÓ)")
     chat_container = st.container()
     with chat_container:
@@ -1220,8 +1264,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                 
     if user_query := st.chat_input("Nhập yêu cầu phân tích (Ví dụ: Tính định mức vải chính)..."):
         with chat_container:
-            with st.chat_message("user"):
-                st.write(user_query)
+            with st.chat_message("user"): st.write(user_query)
             with st.chat_message("assistant"):
                 with st.spinner("🤖 AI đang phân tích dữ liệu..."):
                     shrinkage_width = re.findall(r'(?:CO RÚT NGANG|NGANG)\s*(\d+(?:\.\d+)?)\s*%', user_query.upper())
@@ -1231,24 +1274,9 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                     l_shrink = float(shrinkage_length) if shrinkage_length else 3.0
                     f_width = float(new_fabric_width) if new_fabric_width else 58.0
 
-                    ai_reply = ai_consumption_analyst_engine(
-                        client=client,
-                        user_message=user_query,
-                        matched_techpack=st.session_state.get("matched_techpack", None),
-                        bom_records=st.session_state.get("bom_records", []),
-                        new_style_measurements=new_style_measurements_dict,
-                        target_new_sketch_bytes=target_new_sketch_bytes,
-                        detected_size=new_style_base_size,
-                        f_width=f_width,
-                        w_shrink=w_shrink,
-                        l_shrink=l_shrink
-                    )
+                    ai_reply = ai_consumption_analyst_engine(client=client, user_message=user_query, matched_techpack=st.session_state.get("matched_techpack", None), bom_records=st.session_state.get("bom_records", []), new_style_measurements=new_style_measurements_dict, target_new_sketch_bytes=target_new_sketch_bytes, detected_size=new_style_base_size, f_width=f_width, w_shrink=w_shrink, l_shrink=l_shrink)
                     st.markdown(ai_reply)
                     st.session_state["consumption_chat_history"].append({"user": user_query, "ai": ai_reply})
-        st.components.v1.html(
-            "<script>var d = window.parent.document.querySelectorAll('section.main'); if(d.length>0){d.scrollTo({top:d.scrollHeight,behavior:'smooth'});}</script>",
-            height=0
-        )
 
 
 
