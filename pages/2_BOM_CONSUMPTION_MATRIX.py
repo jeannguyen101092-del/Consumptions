@@ -1074,17 +1074,65 @@ def ai_consumption_analyst_engine(
             - Biên may tiêu chuẩn đã cộng: {dxf_res['seam_allowance_applied']} inch.
             - Hiệu suất sơ đồ giả lập (Marker Efficiency): {dxf_res['marker_efficiency'] * 100}%
             """
+       # =================================================================
+    # NHÁNH 3: KHÔNG CÓ MÃ TƯƠNG ĐỒNG TRONG KHO BOM
+    # CHUYỂN SANG PDF TECHPACK GEOMETRY ENGINE
+    # =================================================================
     else:
-        # NHÁNH 3: KHÔNG CÓ DXF + KHÔNG CÓ BOM ĐỐI CHỨNG -> BUỘC GẮN NHÃN ESTIMATED MODE
-        method_used = "Temporary Geometric Estimation Mode"
+        method_used = "PDF Techpack Geometry Estimation Mode"
         is_estimated_mode = True
-        engine_result_instruction = """
-        🚨 CẢNH BÁO HỆ THỐNG (ESTIMATED MODE): Không tìm thấy mã hàng tương đồng trong kho và không có file rập DXF độc lập đính kèm.
-        - Gemini chỉ được phép đưa ra giá trị ước tính dựa trên hình ảnh phác thảo Sketch và Spec mới.
-        - BẮT BUỘC ghi rõ nhãn cụm từ: "Estimated Consumption - No Historical BOM Available" bên cạnh kết quả định mức. Không được trình bày như định mức chuẩn xác sản xuất.
+        is_missing_data_mode = False
+
+        # =============================================================
+        # TÍNH ĐỊNH MỨC CƠ SỞ TỪ PDF TECHPACK (FLAT SKETCH + SPEC OCR)
+        # =============================================================
+        pdf_geometry_result = calculate_pdf_geometry_consumption(
+            new_style_measurements=new_style_measurements,
+            detected_size=detected_size,
+            fabric_width=st.session_state.get("fabric_width_inches", 58.0),
+            marker_efficiency=st.session_state.get("marker_efficiency_pct", 85.0) / 100.0
+        )
+
+        # Trích xuất an toàn dữ liệu số học để mồi cho động cơ Python Multi-Loss phía dưới
+        if pdf_geometry_result and isinstance(pdf_geometry_result, dict):
+            base_calculated_yard = float(pdf_geometry_result.get("base_yard", 0.0))
+            # Lưu cấu phần breakdown vào session_state để tầng Chat AI lượm dữ liệu vẽ bảng
+            st.session_state["current_geometry_components"] = pdf_geometry_result.get("components", {})
+        else:
+            base_calculated_yard = 0.0
+            st.session_state["current_geometry_components"] = {}
+
+        engine_result_instruction = f"""
+        🚨 PDF TECHPACK GEOMETRY ESTIMATION MODE
+
+        Không tìm thấy mã hàng tương đồng trong kho BOM lịch sử.
+        Hệ thống chuyển sang tính toán trực tiếp từ dữ liệu hình học PDF Techpack.
+
+        Dữ liệu bóc tách diện tích thực tế từ Python Engine:
+        - Tổng Định mức Cơ sở (Base Yard): {base_calculated_yard} Yds
+        - Chi tiết cấu phần rập (Components Area): {st.session_state["current_geometry_components"]}
+
+        AI (Gemini) phải tuân thủ nghiêm ngặt các quy tắc sau:
+        1. BẮT BUỘC ghi rõ nhãn cụm từ ở đầu phản hồi:
+           "Estimated Consumption - No Historical BOM Available"
+
+        2. Phân tích giải trình các thành phần cấu trúc dựa trên hình ảnh Flat Sketch và bảng thông số:
+           - Front Body (Thân trước)
+           - Back Body (Thân sau)
+           - Sleeve (Tay áo)
+           - Collar (Cổ áo)
+           - Pocket (Túi)
+           - Placket (Nẹp áo)
+           - Other Components (Chi tiết phụ khác)
+
+        3. Hiển thị bảng diện tích ước tính từng bộ phận dựa trên dữ liệu thực tế do hệ thống trả về ở trên.
+        
+        4. Tuyệt đối không sử dụng hay bịa đặt dữ liệu BOM lịch sử vì không có mã đối chứng.
         """
 
+    # =================================================================
     # 3. TẦNG TÍNH TOÁN CHUỖI HAO HỤT CÔNG NGHIỆP BẰNG PYTHON (PPJ MULTI-LOSS ENGINE)
+    # =================================================================
     final_engine_yard = 0.0
     shrinkage_report_text = "Không áp dụng"
 
@@ -1092,6 +1140,7 @@ def ai_consumption_analyst_engine(
     spreading_loss_factor = 0.99  # Hao hụt rải vải đầu khúc đầu cuối (1%)
     relaxation_factor = 0.995  # Co rút tự nhiên sau xả vải (0.5%)
 
+    # Giữ nguyên trục tính toán cốt lõi của Python Engine độc lập
     if base_calculated_yard > 0.0:
         fabric_shrink_factor = (1 - w_shrink / 100) * (1 - l_shrink / 100)
 
@@ -1110,6 +1159,7 @@ def ai_consumption_analyst_engine(
                 f"({fabric_shrink_factor:.4f} [Co Rút Fabric] * {marker_loss_factor} [Hao Hụt Sơ Đồ] * "
                 f"{spreading_loss_factor} [Hao Hụt Rải Vải] * {relaxation_factor} [Xả Vải]) = {final_engine_yard} Yds"
             )
+
 
         # ĐỒNG BỘ LƯU TRỮ VÀO SESSION STATE PHỤC VỤ DASHBOARD / XUẤT EXCEL
         st.session_state["last_consumption_engine_result"] = {
