@@ -1866,21 +1866,18 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     st.session_state["main_fabric_records"] = main_fabric_records
     st.session_state["bom_summary_engine"] = bom_summary_engine
 
-       # --- BẢNG SO SÁNH SAI LỆCH THÔNG SỐ RẬP ---
+           # --- BẢNG SO SÁNH SAI LỆCH THÔNG SỐ RẬP ---
     st.markdown("<br>### 📐 BẢNG SO SÁNH SAI LỆCH THÔNG SỐ KỸ THUẬT RẬP MẪU", unsafe_allow_html=True)
     new_specs = new_style_measurements_dict if new_style_measurements_dict else {}
     old_specs = matched_techpack.get("DetailedMeasurements", {}) if matched_techpack else {}
     avg_area_growth_pct = 0.0
     
-    # 🌟 HÀM CHUẨN HÓA AN TOÀN: Giữ nguyên từ khóa hệ thống, chỉ làm sạch định dạng ký tự
+    # 🌟 HÀM CHUẨN HÓA AN TOÀN: Giữ nguyên từ khóa hệ thống, đồng bộ định dạng chuỗi chữ thường
     def normalize_pom_name(name):
         if not name: return ""
         text = str(name).lower()
-        # 1. Chuyển tất cả dấu gạch ngang, gạch dưới, khoảng trắng lạ thành 1 khoảng trắng đơn duy nhất
         text = re.sub(r'[-_\/\s]+', ' ', text)
-        # 2. Xóa khoảng trắng thừa ở đầu và cuối chuỗi
-        text = text.strip()
-        return text
+        return text.strip()
 
     if new_specs or old_specs:
         compare_rows = []
@@ -1888,7 +1885,6 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         
         # Bước 1: Xây dựng bản đồ ánh xạ (Mapping Map) từ tên đã chuẩn hóa
         normalized_map = {} 
-        
         for k_new in new_specs.keys():
             norm_k = normalize_pom_name(k_new)
             if norm_k:
@@ -1905,17 +1901,17 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                 else:
                     normalized_map[norm_k]["old_key"] = k_old
 
-        # Sắp xếp danh sách so sánh theo bảng chữ cái để dễ nhìn
         sorted_norm_keys = sorted(normalized_map.keys())
 
-        # Bước 2: Hàm trích xuất số và xử lý chuỗi số an toàn
+        # 🌟 Bước 2: THUẬT TOÁN BÓC TÁCH PHÂN SỐ SẢN XUẤT CỰC KỲ CHÍNH XÁC
         def clean_float(v):
             if v is None: return None
+            val_str = str(v).strip()
+            if not val_str or val_str == "-": return None
             try: 
-                return float(v)
+                return float(val_str)
             except (ValueError, TypeError):
-                # Xử lý các dạng số có phân số như 31 1/2, 16 1/2
-                val_str = str(v).strip()
+                # Xử lý các dạng số chứa phân số ngành may (Ví dụ: "31 1/2", "14 3/8", "8 1/4")
                 if " " in val_str:
                     parts = val_str.split()
                     if len(parts) == 2 and "/" in parts[1]:
@@ -1925,6 +1921,14 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                             frac = float(frac_parts[0]) / float(frac_parts[1])
                             return whole + frac
                         except: pass
+                # Xử lý trường hợp phân số đứng độc lập không có phần nguyên (Ví dụ: "1/2", "3/4")
+                elif "/" in val_str:
+                    try:
+                        frac_parts = val_str.split("/")
+                        return float(frac_parts[0]) / float(frac_parts[1])
+                    except: pass
+                
+                # Phương án dự phòng cuối cùng nếu dính ký tự chữ
                 nums = re.findall(r"[-+]?\d*\.\d+|\d+", val_str)
                 return float(nums[0]) if nums else None
 
@@ -1952,6 +1956,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                 else:
                     diff_pct = 0.0
 
+            # Định dạng chuỗi hiển thị số âm / dương rõ ràng cho QC
             display_diff = f"+{diff_val}" if diff_val and diff_val > 0 else (str(diff_val) if diff_val is not None else "-")
             display_pct = f"+{diff_pct}%" if diff_pct and diff_pct > 0 else (f"{diff_pct}%" if diff_pct is not None else "-")
             
@@ -1972,19 +1977,43 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
 
 
 
-    # --- AI CONSUMPTION PROJECTION ENGINE ---
+       # --- AI CONSUMPTION PROJECTION ENGINE ---
     if matched_techpack and st.session_state.get("matched_image_verified", False) and bom_records:
         st.markdown("<br>🔮 **AI CONSUMPTION PROJECTION ENGINE (DỰ PHÓNG ĐỊNH MỨC MÃ MỚI)**", unsafe_allow_html=True)
         
+        # 🌟 KHÔI PHỤC AN TOÀN BIẾN ĐỂ TRÁNH LỖI NAMEERROR
+        # Lấy bom_summary_engine từ session_state hoặc cấu hình mặc định từ bom_records nếu bị thiếu
+        bom_summary_engine = st.session_state.get("bom_summary_engine", {})
+        if not bom_summary_engine and bom_records:
+            # Phương án dự phòng tự động gom nhóm định mức cũ từ bom_records nếu biến bị mất
+            for r in bom_records:
+                # Giả định cấu trúc bản ghi BOM của bạn có 'ItemCategory' và 'Consumption'
+                cat = str(r.get("ItemCategory", "MAIN")).upper()
+                try:
+                    cons = float(r.get("Consumption", 0.0))
+                except: cons = 0.0
+                bom_summary_engine[cat] = bom_summary_engine.get(cat, 0.0) + cons
+
         v_similarity = st.session_state.get("matched_similarity_score", 100.0)
+        
         col1, col2 = st.columns(2)
         with col1:
-            shape_factor = st.number_input("Độ biến thiên phom tính toán từ POM (%)", value=float(avg_area_growth_pct), step=0.1)
-        
+            # Ép kiểu an toàn float đề phòng trường hợp avg_area_growth_pct bị tính toán lỗi
+            try:
+                initial_shape_val = float(avg_area_growth_pct)
+            except:
+                initial_shape_val = 0.0
+            shape_factor = st.number_input("Độ biến thiên phom tính toán từ POM (%)", value=initial_shape_val, step=0.1)
+            
+        with col2:
+            # 🌟 ĐÃ KHẮC PHỤC: Khai báo widget để lấy giá trị wastage_buffer tránh lỗi NameError
+            wastage_buffer = st.number_input("Hao hụt sản xuất cấu hình thêm (%)", value=3.0, step=0.5, key="ai_engine_wastage_buffer")
 
         projection_rows = []
         for ctype, old_qty in bom_summary_engine.items():
-            if ctype in ["MAIN", "FABRIC", "BODY", "SHELL", "MAIN FABRIC", "LINING", "RIB", "COMBINATION"]:
+            ctype_upper = str(ctype).upper().strip()
+            
+            if any(k in ctype_upper for k in ["MAIN", "FABRIC", "BODY", "SHELL", "LINING", "RIB", "COMBINATION"]):
                 similarity_weight = v_similarity / 100.0
                 adjusted_shape_factor = shape_factor * similarity_weight
                 projected_dm = old_qty * (1 + adjusted_shape_factor / 100) * (1 + wastage_buffer / 100)
@@ -2003,6 +2032,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         df_projection = pd.DataFrame(projection_rows)
         st.session_state["ai_projected_consumption_matrix"] = projection_rows
         st.dataframe(df_projection, use_container_width=True, hide_index=True)
+
 import json
 import re
 import streamlit as st
