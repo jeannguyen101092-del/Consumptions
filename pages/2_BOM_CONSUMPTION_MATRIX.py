@@ -1866,107 +1866,175 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     st.session_state["main_fabric_records"] = main_fabric_records
     st.session_state["bom_summary_engine"] = bom_summary_engine
 
-           # --- BẢNG SO SÁNH SAI LỆCH THÔNG SỐ RẬP ---
+            # --- BẢNG SO SÁNH SAI LỆCH THÔNG SỐ RẬP ---
     st.markdown("<br>### 📐 BẢNG SO SÁNH SAI LỆCH THÔNG SỐ KỸ THUẬT RẬP MẪU", unsafe_allow_html=True)
     new_specs = new_style_measurements_dict if new_style_measurements_dict else {}
     old_specs = matched_techpack.get("DetailedMeasurements", {}) if matched_techpack else {}
     avg_area_growth_pct = 0.0
     
-    # 🌟 HÀM CHUẨN HÓA AN TOÀN: Giữ nguyên từ khóa hệ thống, đồng bộ định dạng chuỗi chữ thường
+    # 🌟 KHỐI HÀM CƠ SỞ CHUẨN HÓA & KHỬ NHIỄU CẢI TIẾN
     def normalize_pom_name(name):
         if not name: return ""
-        text = str(name).lower()
-        text = re.sub(r'[-_\/\s]+', ' ', text)
-        return text.strip()
+        # Bước 1: Hạ chữ thường toàn bộ
+        text = str(name).lower().strip()
+        
+        # 🌟 BUG 3: Triệt tiêu toàn bộ dấu chấm, dấu phẩy, dấu hai chấm gây nhiễu
+        text = re.sub(r"[.,:;]+", "", text)
+        
+        # Bước 2: Loại bỏ tiền tố mã hệ thống đầu dòng (Ví dụ: leg-007, hip-012)
+        text = re.sub(r'^[a-z]{2,4}[-_\s]*\d+\s*', '', text)
+        
+        # Bước 3: Khử các hậu tố bổ trợ bổ túc nhưng GIỮ LẠI tuyệt đối length và width
+        for noise in ["measurement", "circumference", "position", "level", "straight", "across", "(straight)", "(across)"]:
+            text = text.replace(noise, "")
+            
+        # Bước 4: Đồng bộ hóa ký tự phân cách khoảng trắng
+        text = re.sub(r'[-_\/\s\(\)]+', ' ', text).strip()
+        
+        # Bước 5: Mở rộng từ điển ánh xạ đồng nghĩa (Synonyms)
+        synonyms_map = {
+            "ins": "inseam",
+            "insm": "inseam",
+            "inseam length": "inseam",
+            "outseam length": "outseam",
+            "in seam": "inseam",
+            "out seam": "outseam",
+            "blk": "back",
+            "bk": "back",
+            "frt": "front",
+            "fr": "front"
+        }
+        if text in synonyms_map:
+            text = synonyms_map[text]
+            
+        return text
 
     if new_specs or old_specs:
         compare_rows = []
         valid_diff_pcts = []
         
-        # Bước 1: Xây dựng bản đồ ánh xạ (Mapping Map) từ tên đã chuẩn hóa
+        # Xây dựng bản đồ ánh xạ Gom cụm danh sách Key gốc
         normalized_map = {} 
         for k_new in new_specs.keys():
             norm_k = normalize_pom_name(k_new)
             if norm_k:
                 if norm_k not in normalized_map:
-                    normalized_map[norm_k] = {"new_key": k_new, "old_key": None, "display_name": k_new}
-                else:
-                    normalized_map[norm_k]["new_key"] = k_new
+                    normalized_map[norm_k] = {"new_keys": [], "old_keys": []}
+                normalized_map[norm_k]["new_keys"].append(k_new)
 
         for k_old in old_specs.keys():
             norm_k = normalize_pom_name(k_old)
             if norm_k:
                 if norm_k not in normalized_map:
-                    normalized_map[norm_k] = {"new_key": None, "old_key": k_old, "display_name": k_old}
-                else:
-                    normalized_map[norm_k]["old_key"] = k_old
+                    normalized_map[norm_k] = {"new_keys": [], "old_keys": []}
+                normalized_map[norm_k]["old_keys"].append(k_old)
 
-        sorted_norm_keys = sorted(normalized_map.keys())
+        # 🌟 KHỐI DEBUG 1: DIAGNOSTIC NORMALIZED MAP (BẢN ĐỒ ĐỐI CHIẾU KEY TIỀN XỬ LÝ)
+        with st.expander("🔍 DIAGNOSTIC NORMALIZED MAP (BẢN ĐỒ ĐỐI CHIẾU KEY TIỀN XỬ LÝ)"):
+            diagnostic_data = []
+            for norm_key, data in sorted(normalized_map.items()):
+                diagnostic_data.append({
+                    "Từ khóa chuẩn hóa (Normalized)": norm_key,
+                    "Mẫu mới phát hiện (New Keys)": data["new_keys"],
+                    "Mã cũ đối xứng (Old Keys)": data["old_keys"]
+                })
+            st.data_editor(diagnostic_data, use_container_width=True, disabled=True)
 
-        # 🌟 Bước 2: THUẬT TOÁN BÓC TÁCH PHÂN SỐ SẢN XUẤT CỰC KỲ CHÍNH XÁC
+        # 🌟 KHỐI DEBUG QÚY GIÁ NHẤT: BẬT MÀN HÌNH CÔ LẬP CÁC KEY LỆCH KHÔNG THỂ KHỚP HÀNG
+        with st.expander("🚨 UNMATCHED POM DETECTOR (BÁO CÁO CÁC VỊ TRÍ ĐO KHÔNG TÌM THẤY CẶP)"):
+            unmatched_count = 0
+            for norm_key, data in sorted(normalized_map.items()):
+                if not data["new_keys"] or not data["old_keys"]:
+                    unmatched_count += 1
+                    st.json({
+                        "Từ khóa chuẩn hóa bị cô đơn": norm_key,
+                        "Danh sách Mẫu mới (New)": data["new_keys"],
+                        "Danh sách Mã cũ (Old)": data["old_keys"]
+                    })
+            if unmatched_count == 0:
+                st.success("🎉 Tuyệt vời! 100% các từ khóa vị trí đo đã tìm thấy cặp đối xứng hoàn hảo.")
+
+        # Hàm bổ trợ bóc tách số hiệu rập phục vụ việc Sắp xếp
+        def extract_numerical_prefix(key_string):
+            match = re.search(r'(\d+)', str(key_string))
+            return int(match.group(1)) if match else 999
+
+        # 🌟 SỬA BUG 1 & BUG 2: HÀM TRÍCH XUẤT SỐ THẬP PHÂN CHUẨN XÁC
         def clean_float(v):
             if v is None: return None
+            
+            # 🌟 BUG 2: Quét bao phủ đệ quy bóc tách mọi trường dữ liệu cấu trúc phức tạp của Techpack
+            if isinstance(v, dict):
+                for field in ["Spec", "spec", "Value", "value", "Actual", "actual", "Measurement", "measurement"]:
+                    if field in v:
+                        v = v[field]
+                        break
+                if isinstance(v, dict): return None # Dự phòng nếu vẫn là dict sâu hơn
+                
             val_str = str(v).strip()
-            if not val_str or val_str == "-": return None
+            if not val_str or val_str in ["-", "nan", "none"]: return None
+            
             try: 
                 return float(val_str)
             except (ValueError, TypeError):
-                # Xử lý các dạng số chứa phân số ngành may (Ví dụ: "31 1/2", "14 3/8", "8 1/4")
-                if " " in val_str:
-                    parts = val_str.split()
-                    if len(parts) == 2 and "/" in parts[1]:
-                        try:
-                            whole = float(parts[0])
-                            frac_parts = parts[1].split("/")
-                            frac = float(frac_parts[0]) / float(frac_parts[1])
-                            return whole + frac
-                        except: pass
-                # Xử lý trường hợp phân số đứng độc lập không có phần nguyên (Ví dụ: "1/2", "3/4")
-                elif "/" in val_str:
-                    try:
-                        frac_parts = val_str.split("/")
-                        return float(frac_parts[0]) / float(frac_parts[1])
-                    except: pass
+                if "/" in val_str:
+                    frac_match = re.search(r'(\d+)\s+(\d+)\s*/\s*(\d+)', val_str)
+                    if frac_match:
+                        return float(frac_match.group(1)) + (float(frac_match.group(2)) / float(frac_match.group(3)))
+                    pure_frac = re.search(r'(\d+)\s*/\s*(\d+)', val_str)
+                    if pure_frac:
+                        base_num = re.search(r'(\d+)\s+\d+/\d+', val_str)
+                        if base_num:
+                            return float(base_num.group(1)) + (float(pure_frac.group(1)) / float(pure_frac.group(2)))
+                        return float(pure_frac.group(1)) / float(pure_frac.group(2))
                 
-                # Phương án dự phòng cuối cùng nếu dính ký tự chữ
+                # 🌟 BUG 1: Trích xuất chính xác phần tử đầu tiên nums[0] thay vì ép float nguyên mảng List
                 nums = re.findall(r"[-+]?\d*\.\d+|\d+", val_str)
                 return float(nums[0]) if nums else None
 
-        # Bước 3: Duyệt và ghép khớp dữ liệu lên bảng
-        for norm_key in sorted_norm_keys:
-            mapping = normalized_map[norm_key]
-            orig_new_key = mapping["new_key"]
-            orig_old_key = mapping["old_key"]
-            display_pom = mapping["display_name"]
+        # Bước 3: Duyệt và kết nối dữ liệu toán học lên bảng hiển thị chính
+        for norm_key, keys_dict in sorted(normalized_map.items()):
+            new_keys_list = sorted(keys_dict["new_keys"], key=extract_numerical_prefix)
+            old_keys_list = sorted(keys_dict["old_keys"], key=extract_numerical_prefix)
+            
+            # 🌟 BUG 4: Cảnh báo nếu dính kịch bản lệch pha số lượng phần tử ID rập giữa 2 bên dữ liệu
+            if len(new_keys_list) != len(old_keys_list) and len(new_keys_list) > 0 and len(old_keys_list) > 0:
+                st.warning(f"⚠️ Phát hiện lệch pha số hiệu rập hệ thống tại vị trí đo '{norm_key}' (Mẫu mới có {len(new_keys_list)} key, Mã cũ có {len(old_keys_list)} key).")
+            
+            max_len = max(len(new_keys_list), len(old_keys_list), 1)
+            
+            for i in range(max_len):
+                orig_new_key = new_keys_list[i] if i < len(new_keys_list) else None
+                orig_old_key = old_keys_list[i] if i < len(old_keys_list) else None
+                
+                val_new = new_specs.get(orig_new_key) if orig_new_key else None
+                val_old = old_specs.get(orig_old_key) if orig_old_key else None
+                
+                f_new = clean_float(val_new)
+                f_old = clean_float(val_old)
+                
+                diff_val, diff_pct = None, None
+                if f_new is not None and f_old is not None:
+                    diff_val = round(f_new - f_old, 3)
+                    if f_old != 0:
+                        diff_pct = round((diff_val / f_old) * 100, 2)
+                        if any(k in norm_key for k in ["length", "chest", "bust", "waist", "hip", "thigh", "rise", "crotch", "inseam", "width"]):
+                            valid_diff_pcts.append(diff_pct)
+                    else:
+                        diff_pct = 0.0
 
-            val_new = new_specs.get(orig_new_key) if orig_new_key else None
-            val_old = old_specs.get(orig_old_key) if orig_old_key else None
-            diff_val, diff_pct = None, None
-            
-            f_new = clean_float(val_new)
-            f_old = clean_float(val_old)
-            
-            if f_new is not None and f_old is not None:
-                diff_val = round(f_new - f_old, 2)
-                if f_old != 0:
-                    diff_pct = round((diff_val / f_old) * 100, 2)
-                    # Quét từ khóa vị trí đo cốt lõi để tính tỷ lệ diện tích rập tăng giảm (Area Growth)
-                    if any(k in norm_key for k in ["length", "chest", "bust", "waist", "hip", "width", "thigh", "rise", "crotch"]):
-                        valid_diff_pcts.append(diff_pct)
-                else:
-                    diff_pct = 0.0
-
-            # Định dạng chuỗi hiển thị số âm / dương rõ ràng cho QC
-            display_diff = f"+{diff_val}" if diff_val and diff_val > 0 else (str(diff_val) if diff_val is not None else "-")
-            display_pct = f"+{diff_pct}%" if diff_pct and diff_pct > 0 else (f"{diff_pct}%" if diff_pct is not None else "-")
-            
-            compare_rows.append({
-                "Vị trí đo (POM Description)": display_pom,
-                f"Mẫu mới ({new_style_base_size})": val_new if val_new is not None else "-",
-                f"Mã cũ ({str(st.session_state.get('matched_style_name', 'N/A'))})": val_old if val_old is not None else "-",
-                "Chênh lệch (Diff)": display_diff,
-                "Tỷ lệ biến thiên (Diff %)": display_pct
-            })
+                display_diff = f"+{diff_val}" if diff_val and diff_val > 0 else (str(diff_val) if diff_val is not None else "-")
+                display_pct = f"+{diff_pct}%" if diff_pct and diff_pct > 0 else (f"{diff_pct}%" if diff_pct is not None else "-")
+                
+                display_name = orig_new_key if orig_new_key else orig_old_key
+                
+                compare_rows.append({
+                    "Vị trí đo (POM Description)": display_name,
+                    f"Mẫu mới ({new_style_base_size})": val_new if val_new is not None else "-",
+                    f"Mã cũ ({str(st.session_state.get('matched_style_name', 'N/A'))})": val_old if val_old is not None else "-",
+                    "Chênh lệch (Diff)": display_diff,
+                    "Tỷ lệ biến thiên (Diff %)": display_pct
+                })
             
         df_compare_spec = pd.DataFrame(compare_rows)
         st.dataframe(df_compare_spec, use_container_width=True, hide_index=True)
@@ -1974,6 +2042,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         if valid_diff_pcts:
             avg_pom_growth = sum(valid_diff_pcts) / len(valid_diff_pcts)
             avg_area_growth_pct = round((((1 + avg_pom_growth/100) ** 2) - 1) * 100, 2)
+
 
 
 
@@ -2007,7 +2076,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             
         with col2:
             # 🌟 ĐÃ KHẮC PHỤC: Khai báo widget để lấy giá trị wastage_buffer tránh lỗi NameError
-            wastage_buffer = st.number_input("Hao hụt sản xuất cấu hình thêm (%)", value=3.0, step=0.5, key="ai_engine_wastage_buffer")
+            wastage_buffer = st.number_input("Hao hụt sản xuất cấu hình thêm (%)", value=0.0, step=0.5, key="ai_engine_wastage_buffer")
 
         projection_rows = []
         for ctype, old_qty in bom_summary_engine.items():
