@@ -1747,7 +1747,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     import re
     import requests
     import streamlit as st
-    # 🚀 VÁ LỖI CỐT LÕI: Import fitz ngay tại đây để kích hoạt bộ giải mã PDF sang ảnh JPEG
+    import pandas as pd
     try:
         import fitz
     except ImportError:
@@ -1761,20 +1761,17 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     api_headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if SB_KEY else {}
     url_db = f"{base_url_api.rstrip('/')}/rest/v1/san_pham" if base_url_api else ""
 
-    # TỰ PHỤC HỒI BIẾN TOÀN CỤC CHỐNG LỖI TRỐNG HÌNH ẢNH VÀ THÔNG SỐ MẪU MỚI
     target_new_sketch_bytes = globals().get("target_new_sketch_bytes", None)
     if not target_new_sketch_bytes and "bom_matrix_uploader" in st.session_state and st.session_state["bom_matrix_uploader"] is not None:
         try:
             file_buffer = st.session_state["bom_matrix_uploader"]
             file_buffer.seek(0)
             file_bytes = file_buffer.read()
-            
             if file_buffer.name.lower().endswith(".pdf") and fitz is not None:
                 doc = fitz.open(stream=file_bytes, filetype="pdf")
                 if len(doc) > 0:
-                    page = doc[0]
+                    page = doc
                     pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
-                    # Ép định dạng ảnh phẳng JPEG chuẩn nhị phân tinh khiết
                     target_new_sketch_bytes = bytes(pix.tobytes("jpeg"))
                 doc.close()
             else:
@@ -1815,7 +1812,6 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             try:
                 core_digits = re.findall(r"\d+", target_style_name_bom)
                 search_digits = max(core_digits, key=len) if core_digits else target_style_name_bom
-                
                 query_fallback = {
                     "select": select_columns,
                     "style_name": f"ilike.*{search_digits}*",
@@ -1834,7 +1830,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                     if clean_target in db_style or db_style in clean_target or search_digits in db_style:
                         final_filtered.append(r)
                 st.session_state["bom_records"] = final_filtered
-                st.session_state["bom_search_status"] = "FOUND" if final_filtered else "NOT_FOUND"
+                st.session_state["bom_search_status"] = "FOUND"
             else:
                 st.session_state["bom_search_status"] = "API_ERROR" if is_api_error else "NOT_FOUND"
 
@@ -1860,19 +1856,18 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     st.session_state["main_fabric_records"] = main_fabric_records
     st.session_state["bom_summary_engine"] = bom_summary_engine
 
+
 if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption Matrix":
     import pandas as pd
     import re
     import streamlit as st
 
-    # Đồng bộ gọi lại mảng dữ liệu sạch từ bộ đệm Đoạn 5C
     target_new_sketch_bytes = globals().get("target_new_sketch_bytes", None)
     new_style_measurements_dict = globals().get("new_style_measurements_dict", {})
     new_style_base_size = globals().get("new_style_base_size", "N/A")
     matched_techpack = st.session_state.get("matched_techpack")
     bom_records = st.session_state.get("bom_records", [])
 
-    # --- PHẦN GIÁO DIỆN HÌNH ẢNH FLAT SKETCH ĐỐI CHIẾU SONG HÀNH ---
     st.markdown("### 🖼️ ĐỐI CHIẾU HÌNH ẢNH THIẾT KẾ FLAT SKETCH CHÉO")
     img_col1, img_col2 = st.columns(2)
     with img_col1:
@@ -1890,7 +1885,6 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                 except Exception: st.info("⚠️ Không thể tải ảnh trực tiếp từ Cloud URL.")
             else: st.info("⚠️ Mã tương đồng không có sẵn Cloud URL ảnh.")
 
-    # --- PHẦN 1: BẢNG SO SÁNH SAI LỆCH THÔNG SỐ KỸ THUẬT RẬP MẪU ---
     st.markdown("<br>### 📐 BẢNG SO SÁNH SAI LỆCH THÔNG SỐ KỸ THUẬT RẬP MẪU", unsafe_allow_html=True)
     new_specs = new_style_measurements_dict if new_style_measurements_dict else {}
     old_specs = matched_techpack.get("DetailedMeasurements", {}) if matched_techpack else {}
@@ -1903,15 +1897,15 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             val_old = old_specs.get(pom)
             diff_val, diff_pct = None, None
             
-            def clean_float_val(v):
+            def clean_float_pom(v):
                 if v is None: return None
                 try: return float(v)
                 except ValueError:
                     nums = re.findall(r"[-+]?\d*\.\d+|\d+", str(v))
                     return float(nums) if nums else None
 
-            f_new = clean_float_val(val_new)
-            f_old = clean_float_val(val_old)
+            f_new = clean_float_pom(val_new)
+            f_old = clean_float_pom(val_old)
             if f_new is not None and f_old is not None and f_old != 0:
                 diff_val = round(f_new - f_old, 2)
                 diff_pct = round((diff_val / f_old) * 100, 2)
@@ -1925,7 +1919,6 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         st.dataframe(pd.DataFrame(compare_rows), use_container_width=True, hide_index=True)
     else: st.info("💡 Trạng thái: Trống dữ liệu thông số để thực hiện tính toán so sánh đối chiếu.")
 
-    # --- PHẦN 2: KẾT XUẤT BẢNG ĐỊNH MỨC NGUYÊN VẬT LIỆU (BOM) LỊCH SỬ THỰC TẾ ---
     if matched_techpack and bom_records:
         st.markdown("<br>📦 **Chi Tiết Định Mức Định Hình Mở Rộng (BOM Lịch Sử Của Mã Đối Chứng):**", unsafe_allow_html=True)
         df_bom = pd.DataFrame(bom_records)
@@ -1935,7 +1928,6 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             if col in df_bom.columns: df_bom[col] = df_bom[col].astype(str).str.strip().replace(["nan", "none", "null", "NaN", "None"], "")
             else: df_bom[col] = ""
             
-        # 🚀 THỦ THUẬT HIỂN THỊ ĐỊNH MỨC GỐC: Nếu cột giá trị số consumption_value bị trống, tự động lấy chuỗi material_size bù vào để bảng luôn đầy đủ cột dữ liệu
         if 'consumption_value' in df_bom.columns:
             for idx_row in range(len(df_bom)):
                 if not str(df_bom.at[idx_row, 'consumption_value']).strip():
@@ -1949,6 +1941,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         st.info(f"ℹ️ Trạng thái: {st.session_state.get('bom_search_status', 'NOT_FOUND')}. Chưa tìm thấy dữ liệu định mức BOM lịch sử.")
 
     st.markdown("<br><hr style='border:0.5px solid #CBD5E1;'>", unsafe_allow_html=True)
+
 
 
 
