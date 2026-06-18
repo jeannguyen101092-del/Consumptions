@@ -1259,177 +1259,342 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     else:
         st.info(f"📋 **CƠ SỞ ĐỐI SOÁT KIỂM TRA:** Đang áp dụng quy chuẩn kích thước hình học rập mẫu cơ sở: **SIZE 32 / M (Mặc định)**")
 
-    # 🔥 ĐỔI MỚI QUAN TRỌNG: Chỉ chạy quét tìm mã tương đồng nếu TRONG KHO CHƯA CÓ MÃ NÀO ĐƯỢC KHỚP
-    if st.session_state["matched_techpack"] is None:
-        with st.spinner("🧠 Hệ thống thị giác máy tính đang quét kết cấu phom dáng Flat Sketch..."):
-            try:
-                headers_db = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if 'SB_KEY' in globals() else {}
-                url_db = f"{base_sb_url}/rest/v1/thong_so_techpack"
-                query_params = {"select": "StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL,sketch_vector", "limit": 100}
-                
-                db_res = requests.get(url_db, headers=headers_db, params=query_params, timeout=15)
-                all_historical_styles = db_res.json() if db_res.status_code == 200 else []
-                
-                if all_historical_styles:
-                    styles_pool_summary = []
-                    for idx, s in enumerate(all_historical_styles):
-                        styles_pool_summary.append({
-                            "pool_index": idx,
-                            "style_name": s.get("StyleName"),
-                            "sketch_features_vector": s.get("sketch_vector", "")
-                        })
-                    
-                    match_prompt = f"""
-                    You are an expert Computer Vision Ingestion System specialized in Apparel Manufacturing at PPJ Group.
-                    Analyze the ATTACHED NEW SKETCH IMAGE and find the single closest matching historical garment style from the pool.
-                    
-                    STRICT APPAREL AUDIT RULES (IGNORE THE OUTLINE, FOCUS SOLELY ON INTERNAL CONSTRUCTION DETAILS):
-                    1. WAISTBAND CONSTRUCTION (CẠP QUẦN): Look closely at the waistband stitches. 
-                       - If the new image shows a full elastic waistband (cạp chun co giãn toàn bộ, nhiều đường nhăn song song, NO belt loops, NO zipper fly), you MUST REJECT any historical styles that have belt loops (đai quần), front zipper fly (khóa kéo), or standard button closures.
-                    2. POCKET TYPES & PLACEMENT (KẾT CẤU TÚI): Look at the internal pocket placement.
-                       - Distinguish clearly between Patch Pockets (túi ốp nổi lớn bên ngoài, túi hộp kiểu Cargo) and Slit/In-seam Pockets (túi mổ sườn phẳng). Do NOT match a clean plain front leg with a Cargo/Utility pocket design.
-                    3. SEAM LINES & PANEL CUTS: Look inside the body lines.
-                    
-                    HISTORICAL POOL DATA:
-                    {json.dumps(styles_pool_summary)}
-                    
-                    Select the single index that represents the exact match in internal technical stitching construction, NOT just the shorts frame.
-                    Return a raw valid JSON object inside your response: {{"selected_pool_index": 0}}
-                    """
-                    
-                    match_contents = [types.Part.from_text(text=match_prompt)]
-                    if target_new_sketch_bytes:
-                        # Bảo vệ dữ liệu: Ép kiểu dữ liệu bytes chuẩn xác khi gửi lên API
-                        match_contents.append(types.Part.from_bytes(data=target_new_sketch_bytes, mime_type='image/jpeg'))
-                    
-                    if client is None:
-                        st.error("Gemini API Key chưa cấu hình.")
-                        st.stop()    
+    if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption Matrix":
+    import json, re, requests
+    import streamlit as st
+    try:
+        from google.genai import types
+    except ImportError:
+        types = globals().get("types", None)
 
-                    res_match = client.models.generate_content(model='gemini-2.5-flash', contents=match_contents)
-                    ai_raw_text = res_match.text.strip()
+    SB_KEY = globals().get("SB_KEY", "")
+    base_sb_url = globals().get("base_sb_url", "")
+    client = globals().get("client", None)
+    target_new_sketch_bytes = globals().get("target_new_sketch_bytes", None)
+    new_style_category = globals().get("new_style_category", "") 
+    new_style_id_detected = globals().get("new_style_id_detected", "UNKNOWN")
+    
+    has_file = st.session_state.get("bom_matrix_uploader") is not None or globals().get("has_file", False)
+
+    if "matched_techpack" not in st.session_state: st.session_state["matched_techpack"] = None
+    if "bom_records" not in st.session_state: st.session_state["bom_records"] = []
+    if "current_candidate_scores" not in st.session_state: st.session_state["current_candidate_scores"] = []
+    if "top_3_fallback_proposals" not in st.session_state: st.session_state["top_3_fallback_proposals"] = []
+    if "match_confidence_score" not in st.session_state: st.session_state["match_confidence_score"] = 0
+
+    new_vec = str(st.session_state.get("visual_description_str", "") or globals().get("visual_description_str", "")).strip().upper()
+
+    if has_file and st.session_state["matched_techpack"] is None:
+        with st.spinner("🧠 Đang đối soát phom dáng..."):
+            try:
+                headers_db = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if SB_KEY else {}
+                url_db = f"{base_sb_url.rstrip('/')}/rest/v1/thong_so_techpack" if base_sb_url else ""
+                
+                if url_db:
+                    db_res = requests.get(url_db, headers=headers_db, params={"select": "StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL,sketch_vector", "limit": 1000}, timeout=15)
+                    raw_styles = db_res.json() if db_res.status_code == 200 else []
+                else:
+                    raw_styles = []
+                
+                if raw_styles:
+                    valid_styles = [s for s in raw_styles if s.get("StyleName") and s.get("sketch_vector")]
                     
-                    try:
-                        json_block_clean = re.search(r'\{.*?\}', ai_raw_text, re.DOTALL).group(0)
-                        match_result = json.loads(json_block_clean)
+                    pool = [s for s in valid_styles if str(s.get("Category", "")).strip().upper() == str(new_style_category).strip().upper()] if new_style_category else valid_styles
+                    if not pool: pool = valid_styles
+
+                    new_keywords = set(re.findall(r'[A-Z]{4,}', new_vec))
+                    cand_scores = []
+                    for s in pool:
+                        cand_words = set(re.findall(r'[A-Z]{4,}', str(s.get("sketch_vector", "")).upper()))
+                        score = round((len(new_keywords.intersection(cand_words)) / len(new_keywords) * 100), 1) if new_keywords else 0.0
+                        cand_scores.append((score, s))
+                    
+                    cand_scores.sort(reverse=True, key=lambda x: x[0])
+                    top_pairs = cand_scores[:50]
+                    st.session_state["current_candidate_scores"] = cand_scores
+                    
+                    pool_sum = []
+                    for idx, (score, s) in enumerate(top_pairs):
+                        pool_sum.append({"pool_index": idx, "style_name": s.get("StyleName"), "category": s.get("Category"), "keyword_match_score": f"{score}%", "sketch_features_vector": str(s.get("sketch_vector", ""))[:1000]})
+                    
+                    match_prompt = f"Identify closest match. New features: {new_vec}. Candidates: {json.dumps(pool_sum)}. Return JSON ONLY: {{\"selected_pool_index\": 0, \"confidence_score\": 95}}"
+                    
+                    if not target_new_sketch_bytes: st.stop()
+                    
+                    match_contents = [types.Part.from_text(text=match_prompt), types.Part.from_bytes(data=target_new_sketch_bytes, mime_type='image/jpeg')] if types and hasattr(types, "Part") else [match_prompt, {"mime_type": "image/jpeg", "data": target_new_sketch_bytes}]
+                    
+                    if client and client.models:
+                        res = client.models.generate_content(model='gemini-2.5-flash', contents=match_contents)
+                        match_res = json.loads(re.search(r'\{.*?\}', res.text.strip(), re.DOTALL).group(0))
                         
-                        selected_idx = match_result.get("selected_pool_index")
-                        if selected_idx is not None and 0 <= selected_idx < len(all_historical_styles):
-                            st.session_state["matched_techpack"] = all_historical_styles[selected_idx]
-                            st.toast(f"🎯 Đã khóa thành công mã tương đồng: {all_historical_styles[selected_idx].get('StyleName')}")
+                        s_idx = match_res.get("selected_pool_index")
+                        conf = int(match_res.get("confidence_score", 0))
+                        st.session_state["match_confidence_score"] = conf
+                        
+                        if s_idx is not None and 0 <= s_idx < len(top_pairs) and conf >= 85:
+                            st.session_state["matched_techpack"] = top_pairs[s_idx][1]
+                            st.session_state["top_3_fallback_proposals"] = []
+                            st.toast(f"🎯 Đã khóa mã: {top_pairs[s_idx][1].get('StyleName')} ({conf}%)")
                         else:
                             st.session_state["matched_techpack"] = None
-                    except Exception:
-                        match_result = {"selected_pool_index": -1}
-                        st.session_state["matched_techpack"] = None
-            except Exception as match_err:
-                st.sidebar.error(f"Lỗi hệ thống đối soát hình ảnh: {str(match_err)}")
+                            st.session_state["top_3_fallback_proposals"] = [x[1] for x in top_pairs[:3]]
+            except Exception:
+                pass
+if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption Matrix":
+    import streamlit as st
+
+    # 1. Hộp điều khiển giám sát và Debug độ dài chuỗi Vector đặc trưng mẫu mới
+    new_vec_data = str(st.session_state.get("visual_description_str", "") or globals().get("visual_description_str", "")).strip()
+    v_len = len(new_vec_data)
+
+    with st.sidebar.expander("🛠️ APPAREL RAG DEBUG MONITOR", expanded=False):
+        st.metric(label="Sketch Vector Length", value=f"{v_len} ký tự")
+        if v_len == 0:
+            st.error("🚨 WARNING: Độ dài Vector mẫu mới bằng 0!")
+        else:
+            st.success("✅ Semantic Input Active.")
+
+    # 2. Xử lý hiển thị dựa trên kết quả khóa và Điểm số tự tin (Confidence Score) từ bộ nhớ state
+    matched_techpack = st.session_state.get("matched_techpack")
+    confidence_score = st.session_state.get("match_confidence_score", 0)
+
+    if matched_techpack:
+        # GIAO DIỆN KHÓA THÀNH CÔNG TỰ ĐỘNG (CONFIDENCE >= 85%)
+        target_style_display_name = str(matched_techpack.get('StyleName', 'N/A')).strip().upper()
+        st.markdown(f"""
+            <div style='background-color: #F0FDF4; border: 1px solid #BBF7D0; padding: 10px; border-radius: 6px; margin-bottom: 12px;'>
+                <span style='color: #166534; font-weight: 700;'>🔒 HỆ THỐNG ĐÃ TỰ ĐỘNG KHÓA MÃ ĐỐI CHỨNG:</span> 
+                <code style='color: #15803D; font-weight: 700; font-size:14px;'>{target_style_display_name}</code> 
+                <span style='color: #166534; font-size:12px;'>(Độ tin cậy phom dáng: <b>{confidence_score}%</b>)</span>
+            </div>
+        """, unsafe_allow_html=True)
     else:
-        # Thông báo ngầm cho người dùng biết hệ thống đang sử dụng kết quả đã được khóa cố định
-        st.caption(f"🔒 Dữ liệu đối chứng đang được cố định theo mã: **{st.session_state['matched_techpack'].get('StyleName', 'N/A').upper()}**")
+        # GIAO DIỆN CAN THIỆP CHỌN THỦ CÔNG KHI ĐỘ TIN CẬY AI THẤP (< 85%)
+        top_3_proposals = st.session_state.get("top_3_fallback_proposals", [])
+        if top_3_proposals:
+            st.warning(f"⚠️ **CẢNH BÁO KIỂM TOÁN:** Độ tin cậy thấp ({confidence_score}%). Vui lòng quyết định mã đối chứng thủ công:")
+            
+            btn_cols = st.columns(3)
+            for idx, prop_item in enumerate(top_3_proposals):
+                prop_name = str(prop_item.get("StyleName", "N/A")).upper()
+                prop_cate = str(prop_item.get("Category", "N/A")).upper()
+                
+                with btn_cols[idx]:
+                    if st.button(f"🎯 Chọn: {prop_name}\n({prop_cate})", key=f"select_prop_btn_{prop_name}", use_container_width=True, type="primary"):
+                        st.session_state["matched_techpack"] = prop_item
+                        st.session_state["match_confidence_score"] = 100  # Quyền can thiệp thủ công gán cố định 100%
+                        st.session_state["top_3_fallback_proposals"] = []
+                        st.toast(f"🎯 Đã chọn thủ công: {prop_name}")
+                        st.rerun()
+
+    # 3. KẾT XUẤT BẢNG ĐIỂM KIỂM TOÁN TOÀN BỘ TOP 50 ỨNG VIÊN LÊN UI MÀN HÌNH
+    candidate_scores_all = st.session_state.get("current_candidate_scores", [])
+    if candidate_scores_all:
+        with st.expander("🔍 BẢNG ĐIỂM KIỂM TOÁN KẾT CẤU PHOM DÁNG (TOP 50 CANDIDATES)", expanded=False):
+            st.markdown("<p style='font-size: 12px; color: #475569; font-weight:600; margin-bottom: 8px;'>Tỷ lệ % trùng khớp từ khóa kết cấu kỹ thuật may dựa trên phép giao tập hợp:</p>", unsafe_allow_html=True)
+            
+            for i, (score, style) in enumerate(candidate_scores_all[:50]):
+                style_code = str(style.get("StyleName", "N/A")).upper()
+                cate_name = str(style.get("Category", "N/A")).upper()
+                features_snippet = str(style.get("sketch_vector", ""))[:120]
+                
+                is_active = matched_techpack and (style_code == str(matched_techpack.get('StyleName', '')).strip().upper())
+                status_icon = "🟢 [AI LOCKED]" if is_active else "🔹"
+                score_color = "#166534" if score >= 75 else ("#b45309" if score >= 45 else "#94a3b8")
+                
+                st.markdown(f"""
+                    <div style='padding: 6px; border-bottom: 1px solid #E2E8F0; font-size:13px; {'background-color: #F8FAFC; font-weight: 600;' if is_active else ''}'>
+                        {status_icon} Mức khớp: <span style='color: {score_color}; font-weight: 700;'>{score}%</span> | 
+                        Mã hàng: <code>{style_code}</code> | Phân loại: <i>{cate_name}</i> <br>
+                        <span style='font-size:11px; color:#64748B; margin-left: 20px;'>Mô tả kết cấu gốc: {features_snippet}...</span>
+                    </div>
+                """, unsafe_allow_html=True)
+
 
 if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption Matrix":
+    import json
     import re
     from difflib import SequenceMatcher
     import requests
     import streamlit as st
+    
+    try:
+        from google.genai import types
+    except ImportError:
+        types = globals().get("types", None)
 
-    # --- 1. KHỞI TẠO BIẾN CẤU HÌNH TOÀN CỤC AN TOÀN ---
-    SB_URL = globals().get("SB_URL", "")
+    # --- 1. KHỞI TẠO BIẾN TOÀN CỤC AN TOÀN ---
     SB_KEY = globals().get("SB_KEY", "")
-    matched_techpack = st.session_state.get("matched_techpack")
+    base_sb_url = globals().get("base_sb_url", "")
+    client = globals().get("client", None)
+    
+    target_new_sketch_bytes = globals().get("target_new_sketch_bytes", None)
+    new_style_id_detected = globals().get("new_style_id_detected", "UNKNOWN")
+    
+    # Kiểm tra trạng thái file tải lên an toàn
+    has_file = globals().get("has_file", False)
+    if "bom_matrix_uploader" in st.session_state and st.session_state["bom_matrix_uploader"] is not None:
+        has_file = True
 
-    # --- 2. ĐỊNH NGHĨA HÀM TRUY VẤN BOM NÂNG CAO (ĐÃ KHẮC PHỤC 3 LỖI LOGIC) ---
-    # Sửa lỗi 1: Chỉ nhận kiểu dữ liệu chuỗi (String) để Streamlit Hash Cache an toàn
-    @st.cache_data(show_spinner="🔄 Đang truy xuất dữ liệu định mức gốc...", ttl=300)
-    def load_bom_records_cached(target_style_name, supabase_url, sb_key):
-        if not target_style_name or not supabase_url or not sb_key:
-            return []
-            
-        url_bom = f"{supabase_url.rstrip('/')}/rest/v1/san_pham"
-        
-        # Tạo headers cục bộ bên trong hàm cache
-        headers_local = {
-            "apikey": sb_key,
-            "Authorization": f"Bearer {sb_key}"
-        }
-        
-        query_bom = {
-            "select": "style_name,article_name,consumption_type,material_size,uom,consumption_value,notes",
-            "style_name": f"eq.{target_style_name}"
-        }
-        
-        try:
-            # Bước A: Truy vấn khớp chính xác tuyệt đối (Exact Match)
-            res_bom = requests.get(url_bom, headers=headers_local, params=query_bom, timeout=10)
-            if res_bom.status_code == 200 and len(res_bom.json()) > 0:
-                return res_bom.json()
+    # Khởi tạo Session State nền móng
+    if "matched_techpack" not in st.session_state: st.session_state["matched_techpack"] = None
+    if "bom_records" not in st.session_state: st.session_state["bom_records"] = []
+    if "consumption_chat_history" not in st.session_state: st.session_state["consumption_chat_history"] = []
+    if "previous_uploaded_file_name" not in st.session_state: st.session_state["previous_uploaded_file_name"] = None
+
+    # --- 2. ENGINE AI ĐỐI CHIẾU MÃ HÀNG (HYBRID SEARCH LAYER) ---
+    if has_file and st.session_state["matched_techpack"] is None:
+        with st.spinner("🧠 Hệ thống thị giác máy tính đang phân tích cấu trúc kĩ thuật Flat Sketch..."):
+            try:
+                headers_db = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if SB_KEY else {}
+                url_db = f"{base_sb_url.rstrip('/')}/rest/v1/thong_so_techpack" if base_sb_url else ""
                 
-            # Bước B: Fallback khi không tìm thấy mã chính xác
-            core_digits = re.findall(r'\d+', target_style_name)
-            search_digits = max(core_digits, key=len) if core_digits else target_style_name
-            
-            query_bom_fb = {
-                "select": "style_name,article_name,consumption_type,material_size,uom,consumption_value,notes",
-                "style_name": f"ilike.*{search_digits}*"
-            }
-            res_bom_fb = requests.get(url_bom, headers=headers_local, params=query_bom_fb, timeout=10)
-            
-            if res_bom_fb.status_code == 200:
-                raw_list = res_bom_fb.json()
-                if not raw_list:
-                    return []
+                if url_db:
+                    # Lọc thô giai đoạn 1: Nâng limit lên 1000 để lấy trọn bộ kho dữ liệu thực tế
+                    query_params = {
+                        "select": "StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL,sketch_vector", 
+                        "limit": 1000
+                    }
+                    db_res = requests.get(url_db, headers=headers_db, params=query_params, timeout=15)
+                    raw_historical_styles = db_res.json() if db_res.status_code == 200 else []
+                else:
+                    raw_historical_styles = []
                 
-                # Sửa lỗi 3: Lọc bỏ các mã trùng số nhưng sai tiền tố/hậu tố bằng ngưỡng chặn Tương Đồng >= 80%
-                filtered_list = [
-                    r for r in raw_list
-                    if SequenceMatcher(
-                        None,
-                        target_style_name.upper(),
-                        str(r.get("style_name", "")).upper()
-                    ).ratio() >= 0.80
-                ]
-                
-                if not filtered_list:
-                    return []
-                
-                # Sắp xếp danh sách đã lọc theo điểm số từ cao xuống thấp
-                ranked = sorted(
-                    filtered_list,
-                    key=lambda x: SequenceMatcher(
-                        None, 
-                        target_style_name.upper(), 
-                        str(x.get("style_name", "")).upper()
-                    ).ratio(),
-                    reverse=True
-                )
-                
-                # Sửa lỗi 2: Cô lập dữ liệu, chỉ bóc tách BOM của duy nhất một mã có độ tương đồng cao nhất
-                if ranked:
-                    best_style = ranked[0].get("style_name", "")
-                    return [
-                        r for r in filtered_list
-                        if str(r.get("style_name", "")).upper() == str(best_style).upper()
+                if raw_historical_styles:
+                    # Sàng lọc bản ghi rỗng hoặc lỗi cấu trúc
+                    valid_styles = [
+                        s for s in raw_historical_styles
+                        if s.get("StyleName") and s.get("sketch_vector") and s.get("DetailedMeasurements")
                     ]
-        except Exception as e:
-            print(f"[BOM Engine Error] {e}")
-        return []
+                    
+                    # Áp dụng thuật toán phễu Python hạ tải token (Trích xuất Top 30)
+                    current_style_query = str(new_style_id_detected).upper()
+                    ranked_by_code = sorted(
+                        valid_styles,
+                        key=lambda x: SequenceMatcher(
+                            None,
+                            current_style_query,
+                            str(x.get("StyleName", "")).upper()
+                        ).ratio(),
+                        reverse=True
+                    )
+                    top_candidates_pool = ranked_by_code[:30]
+                    
+                    # Đóng gói mảng pool ứng viên sạch kèm theo trường đặc trưng kỹ thuật
+                    styles_pool_summary = []
+                    for idx, s in enumerate(top_candidates_pool):
+                        styles_pool_summary.append({
+                            "pool_index": idx,
+                            "style_name": s.get("StyleName").strip().upper(),
+                            "category": s.get("Category", "N/A"),
+                            "sketch_features": str(s.get("sketch_vector", "")).strip()[:1500]
+                        })
+                    
+                    # Thiết lập prompt kiểm toán may mặc đối soát trực tiếp hình ảnh với mô tả đặc trưng kĩ thuật
+                    match_prompt = f"""
+                    You are an expert Technical Audit System specialized in Apparel Engineering and Pattern Making at PPJ Group.
+                    Your mission is to examine the ATTACHED NEW SKETCH IMAGE and select the single BEST structural match from the candidate database pool below.
+                    
+                    CANDIDATE TECHNICAL STRUCTURE DATABASE:
+                    Each candidate contains:
+                    - pool_index: A tracking index number.
+                    - style_name: The historical style reference code.
+                    - category: Product classification (e.g. PANTS, SHORTS, JACKET).
+                    - sketch_features: A detailed visual engineering text description extracted from the original historical flat sketch.
+                    
+                    STRICT SELECTION STRATEGY:
+                    1. CATEGORY LOCK: Identify the type of garment in the attached image. You MUST REJECT any candidate whose 'category' does not match the product type of the attached image.
+                    2. VISUAL TO ENGINEERING CROSS-MATCH: You MUST compare the visual internal stitch lines, pocket shapes, and panel seams from the attached image directly against the technical descriptions inside 'sketch_features'.
+                    3. WAISTBAND INTEGRITY: Look at the waistband in the image. If it is fully elasticized (parallel stitching wrinkles, NO zipper, NO button), prioritize candidates with descriptions like 'full elastic waistband' or similar, and reject rigid/buttoned constructions.
+                    4. POCKET ARCHITECTURE: Cross-examine pocket placement (e.g., side patch pockets, cargo bellows pockets, front slit pockets) seen in the image with the 'sketch_features' text description.
+                    
+                    CANDIDATE POOL:
+                    {json.dumps(styles_pool_summary, ensure_ascii=False)}
+                    
+                    Analyze rigorously and return ONLY a raw valid JSON object indicating the chosen pool_index. Do not format inside markdown blocks.
+                    Format: {{"selected_pool_index": 0}}
+                    """
+                    
+                    match_contents = []
+                    if types and hasattr(types, "Part"):
+                        match_contents.append(types.Part.from_text(text=match_prompt))
+                        if target_new_sketch_bytes:
+                            match_contents.append(types.Part.from_bytes(data=target_new_sketch_bytes, mime_type='image/jpeg'))
+                    else:
+                        match_contents.append(match_prompt)
+                        if target_new_sketch_bytes:
+                            match_contents.append({"mime_type": "image/jpeg", "data": target_new_sketch_bytes})
+                    
+                    if client is not None:
+                        res_match = client.models.generate_content(model='gemini-2.5-flash', contents=match_contents)
+                        ai_raw_text = res_match.text.strip()
+                        
+                        try:
+                            json_block_clean = re.search(r'\{.*?\}', ai_raw_text, re.DOTALL).group(0)
+                            match_result = json.loads(json_block_clean)
+                            selected_idx = match_result.get("selected_pool_index")
+                            
+                            if selected_idx is not None and 0 <= selected_idx < len(top_candidates_pool):
+                                st.session_state["matched_techpack"] = top_candidates_pool[selected_idx]
+                                st.toast(f"🎯 Đã khóa thành công mã tương đồng: {top_candidates_pool[selected_idx].get('StyleName')}", icon="🎯")
+                            else:
+                                st.session_state["matched_techpack"] = None
+                        except Exception:
+                            st.session_state["matched_techpack"] = None
+                else:
+                    st.warning("⚠️ Không thể truy xuất danh sách mã hàng lịch sử từ cơ sở dữ liệu kho.")
+            except Exception as match_err:
+                st.error(f"Lỗi hệ thống đối soát hình ảnh: {str(match_err)}")
+if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption Matrix":
+    import streamlit as st
 
-    # --- 3. LUỒNG THỰC THI VÀ ĐỒNG BỘ VÀO SESSION STATE AN TOÀN ---
-    if matched_techpack:
-        target_style_name_bom = str(matched_techpack.get("StyleName", "")).strip().upper()
+    # --- 1. KHÔI PHỤC BIẾN AN TOÀN TỪ HỆ THỐNG TOÀN CỤC ---
+    new_style_id_detected = globals().get("new_style_id_detected", "UNKNOWN")
+    new_style_base_size = globals().get("new_style_base_size", "N/A")
+    
+    has_file = globals().get("has_file", False)
+    if "bom_matrix_uploader" in st.session_state and st.session_state["bom_matrix_uploader"] is not None:
+        has_file = True
+
+    # --- 2. GIAO DIỆN BẢNG ĐIỀU KHIỂN LAYOUT TRÊN STREAMLIT ---
+    control_col1, control_col2 = st.columns([3.3, 0.7])
+    with control_col1:
+        st.markdown("<p style='font-weight:700; font-size:12px; color:#1E293B;'>📁 INGEST NEW STYLE REPRINTS (PDF/IMAGE)</p>", unsafe_allow_html=True)
+        uploaded_file = st.file_uploader("Upload Techpack file", type=["pdf", "jpg", "jpeg", "png"], key="bom_matrix_uploader", label_visibility="collapsed")
         
-        if target_new_sketch_bytes:
-            # Truyền SB_URL và SB_KEY dạng chuỗi nguyên bản vào hàm Cache
-            st.session_state["bom_records"] = load_bom_records_cached(
-                target_style_name_bom, 
-                SB_URL, 
-                SB_KEY
-            )
-        else:
+        # Cơ chế Auto-Reset: Khi đổi file mới trên UI, giải phóng ngay bộ nhớ cũ để kích hoạt lại Đoạn 4A quét lại ảnh mới
+        if uploaded_file is not None and uploaded_file.name != st.session_state.get("previous_uploaded_file_name"):
+            st.session_state["matched_techpack"] = None
             st.session_state["bom_records"] = []
+            st.session_state["previous_uploaded_file_name"] = uploaded_file.name
+            st.rerun()
+            
+    with control_col2:
+        st.markdown("<p style='font-weight:700; font-size:12px; color:#1E293B;'>🧹 RESET CORE</p>", unsafe_allow_html=True)
+        if st.button("🗑️ PURGE CHAT CACHE", key="purge_cache_matrix_btn", use_container_width=True, type="secondary"):
+            st.session_state["consumption_chat_history"] = []
+            st.session_state["matched_techpack"] = None
+            st.session_state["bom_records"] = []
+            st.session_state["previous_uploaded_file_name"] = None
+            st.success("♻️ MEMORY PURGED - SẴN SÀNG CHO MÃ HÀNG MỚI")
+            st.rerun()
+
+    st.markdown("---")
+
+    # --- 3. ĐIỀU KIỆN CHẶN VÀ HIỂN THỊ TRẠNG THÁI KHÓA ---
+    if not has_file:
+        st.info("👋 Vui lòng tải lên tệp Techpack hồ sơ thiết kế (PDF/Hình ảnh) ở phía trên để hệ thống bắt đầu quét và lập lịch trình đối soát.")
+        st.stop()
+
+    if st.session_state.get("matched_techpack") is None:
+        if new_style_base_size and new_style_base_size != "32":
+            st.info(f"📋 **CƠ SỞ ĐỐI SOÁT KIỂM TRA:** Mẫu mới số hóa mã hàng `{new_style_id_detected}` | Quy chuẩn kích thước hình học rập mẫu: **SIZE {new_style_base_size}**")
+        else:
+            st.info(f"📋 **CƠ SỞ ĐỐI SOÁT KIỂM TRA:** Đang áp dụng quy chuẩn kích thước hình học rập mẫu cơ sở: **SIZE 32 / M (Mặc định)**")
     else:
-        st.session_state["bom_records"] = []
+        # Hiển thị thông báo trạng thái cố định dữ liệu rập đối chứng để người dùng theo dõi trực quan
+        st.caption(f"🔒 Dữ liệu đối chứng đang được cố định theo mã: **{st.session_state['matched_techpack'].get('StyleName', 'N/A').upper()}**")
+
 # =================================================================
 # ĐOẠN 2: LỚP HIỂN THỊ GIAO DIỆN NGƯỜI DÙNG (UI RENDER LAYER) - PRO
 # =================================================================
