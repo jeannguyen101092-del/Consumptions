@@ -1764,7 +1764,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     if "bom_search_status" not in st.session_state:
         st.session_state["bom_search_status"] = "NOT_FOUND"
 
-    # Cơ chế Reset trạng thái chủ động khi đổi mã đối chứng mới
+    # Cơ chế Reset trạng thái chủ động khi phát hiện đổi mã đối chứng mới
     if matched_techpack:
         target_style_name_bom = str(matched_techpack.get("StyleName", "")).strip()
         current_bom_style = st.session_state.get("bom_style_loaded", "")
@@ -1779,14 +1779,15 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             raw_list = []
             is_api_error = False
             
-            # 🚀 ĐÃ ĐỒNG BỘ: Chỉ gọi chính xác 5 cột thực tế tồn tại trên bảng Supabase của bạn
-            select_columns = "style_name,article_name,consumption_type,material_size,uom"
+            # 🚀 ĐÃ CẬP NHẬT: Bổ sung consumption_value và notes khớp hoàn toàn theo ảnh DB thực tế của bạn
+            select_columns = "style_name,article_name,fabric_type,color,consumption_type,material_size,uom,consumption_value,notes"
             
             try:
-                # Tìm kiếm bằng chuỗi số lõi dài nhất bóc từ mã đối chứng (Ví dụ: bóc '490416')
+                # Trích xuất chuỗi ký số đặc trưng dài nhất của mã hàng (Ví dụ: bóc lấy cụm số '490416')
                 core_digits = re.findall(r"\d+", target_style_name_bom)
                 search_digits = max(core_digits, key=len) if core_digits else target_style_name_bom
                 
+                # Gọi Supabase quét ilike theo chuỗi số lõi dài nhất của trường style_name
                 query_fallback = {
                     "select": select_columns,
                     "style_name": f"ilike.*{search_digits}*",
@@ -1800,7 +1801,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             except Exception:
                 is_api_error = True
 
-            # Lọc ngữ nghĩa chính xác bằng Python bẫy ký tự số độc lập
+            # Thuật toán chuẩn hóa lọc ngữ nghĩa chính xác bằng Python bẫy ký tự số độc lập
             if raw_list:
                 final_filtered = []
                 clean_target = re.sub(r"[^A-Z0-9]", "", target_style_name_bom.upper())
@@ -1822,16 +1823,19 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
 
     for r in bom_records:
         ctype = str(r.get("consumption_type", "")).strip().upper()
-        if not ctype: ctype = "UNKNOWN"
+        if not ctype: ctype = str(r.get("consumption_type", "UNKNOWN")).strip().upper()
             
         if ctype in ["MAIN", "FABRIC", "BODY", "SHELL", "MAIN FABRIC"]:
             main_fabric_records.append(r)
             
         try:
-            # Vì DB không có cột giá trị số, trích xuất tạm con số từ chuỗi material_size phục vụ toán toán của Engine
-            raw_val = r.get("material_size", 0)
-            nums = re.findall(r"[-+]?\d*\.\d+|\d+", str(raw_val))
-            qty = float(nums[0]) if nums else 0.0
+            # 🚀 ĐÃ CẬP NHẬT: Lấy chuẩn xác dữ liệu số từ cột consumption_value để cộng dồn ma trận định mức gốc
+            raw_val = r.get("consumption_value", 0)
+            if raw_val is None: 
+                qty = 0.0
+            else:
+                nums = re.findall(r"[-+]?\d*\.\d+|\d+", str(raw_val))
+                qty = float(nums) if nums else 0.0
         except Exception: 
             qty = 0.0
             
@@ -1861,7 +1865,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                 try: return float(v)
                 except ValueError:
                     nums = re.findall(r"[-+]?\d*\.\d+|\d+", str(v))
-                    return float(nums[0]) if nums else None
+                    return float(nums) if nums else None
 
             f_new = clean_float(val_new)
             f_old = clean_float(val_old)
@@ -1894,7 +1898,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         st.markdown("<br>📦 **Chi Tiết Định Mức Định Hình Mở Rộng (BOM Lịch Sử Của Mã Đối Chứng):**", unsafe_allow_html=True)
         
         df_bom = pd.DataFrame(bom_records)
-        target_cols = ['style_name', 'consumption_type', 'article_name', 'material_size', 'uom']
+        target_cols = ['style_name', 'consumption_type', 'fabric_type', 'article_name', 'color', 'material_size', 'consumption_value', 'uom', 'notes']
         
         for col in target_cols:
             if col in df_bom.columns: df_bom[col] = df_bom[col].astype(str).str.strip().replace(["nan", "none", "null", "NaN", "None"], "")
@@ -1904,13 +1908,14 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             df_bom['style_name'] = df_bom['style_name'].str.upper()
         
         df_bom_render = df_bom[target_cols].copy()
-        df_bom_render.columns = ["Mã hàng đối chứng", "Phân loại vật tư (Type)", "Tên vật tư / Mã vải", "Khổ vải / Chi tiết định mức", "Đơn vị (UOM)"]
+        df_bom_render.columns = ["Mã hàng đối chứng", "Phân loại vật tư", "Chủng loại vải (Type)", "Tên vật tư / Mã vải (Article)", "Màu sắc", "Khổ / Cỡ vật tư", "Định mức gốc", "Đơn vị (UOM)", "Ghi chú"]
         
         st.dataframe(df_bom_render, use_container_width=True, hide_index=True)
     elif matched_techpack:
-        st.info(f"ℹ nighttime Trạng thái: {st.session_state.get('bom_search_status', 'NOT_FOUND')}. Chưa tìm thấy dữ liệu định mức BOM lịch sử nào khớp cho mã này.")
+        st.info(f"ℹ️ Trạng thái: {st.session_state.get('bom_search_status', 'NOT_FOUND')}. Chưa tìm thấy dữ liệu định mức BOM lịch sử nào khớp cho mã này.")
 
     st.markdown("<br><hr style='border:0.5px solid #CBD5E1;'>", unsafe_allow_html=True)
+
 
 
 
