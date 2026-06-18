@@ -1672,74 +1672,80 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
 
     bom_records = st.session_state.get("bom_records", [])
 
-    # 2. LỚP HIỂN THỊ GIAO DIỆN ĐỐI CHIẾU FLAT SKETCH
-    st.markdown("### 🖼️ ĐỐI CHIẾU SỰ TƯƠNG ĐỒNG HÌNH ẢNH THIẾT KẾ (FLAT SKETCH)")
-    img_col1, img_col2 = st.columns(2)
-    
-    with img_col1:
-        if target_new_sketch_bytes is not None:
-            try:
-                st.image(target_new_sketch_bytes, caption=f"Mẫu mới tải lên ({new_style_id_detected})", use_container_width=True)
-            except Exception as e:
-                st.warning(f"Lỗi hiển thị ảnh mẫu mới: {e}")
-        else:
-            st.info("ℹ️ Chưa tải lên tệp ảnh Flat Sketch của mẫu mới.")
+   # 2. LỚP HIỂN THỊ GIAO DIỆN ĐỐI CHIẾU FLAT SKETCH
+st.markdown("### 🖼️ ĐỐI CHIẾU SỰ TƯƠNG ĐỒNG HÌNH ẢNH THIẾT KẾ (FLAT SKETCH)")
+img_col1, img_col2 = st.columns(2)
 
-    with img_col2:
-        if matched_techpack:
-            target_style_name = str(matched_techpack.get("StyleName", "Mẫu tương đồng")).strip().upper()
-            st.markdown(f"<p style='color: #1E3A8A; font-size: 14px; font-weight: 700; margin-bottom: 8px; text-align: center;'>🎯 Mã tương đồng trong kho: {target_style_name}</p>", unsafe_allow_html=True)
-            
-            base_storage_url = f"{base_url_api.rstrip('/')}/storage/v1/object/public/kho_anh" if base_url_api else ""
-            img_content_final = None
-            
-            if base_storage_url:
-                url_options = [
-                    f"{base_storage_url}/{target_style_name}.png",
-                    f"{base_storage_url}/{target_style_name}.PNG",
-                    f"{base_storage_url}/{target_style_name}.jpg",
-                    f"{base_storage_url}/{target_style_name}.JPG",
-                    f"{base_storage_url}/{target_style_name}.jpeg",
-                    f"{base_storage_url}/{target_style_name.lower()}.jpg",
-                    f"{base_storage_url}/{target_style_name.lower()}.png"
-                ]
-                
-                def fetch_image_worker(url):
-                    try:
-                        resp = requests.get(url, headers=api_headers, timeout=5)
-                        if resp.status_code == 200 and len(resp.content) > 500:
-                            content = resp.content
-                            # Kiểm tra chữ ký byte nhị phân của đồ họa (JPEG hoặc PNG)
-                            if content.startswith(b'\xff\xd8') or content.startswith(b'\x89PNG') or b'<!DOCTYPE' not in content[:100]:
-                                return content
-                    except Exception:
-                        pass
-                    return None
+with img_col1:
+    if 'target_new_sketch_bytes' in globals() and target_new_sketch_bytes is not None:
+        try:
+            st.image(target_new_sketch_bytes, caption=f"Mẫu mới tải lên ({globals().get('new_style_id_detected', 'N/A')})", use_container_width=True)
+        except Exception as e:
+            st.warning(f"Lỗi hiển thị ảnh mẫu mới: {e}")
+    else:
+        st.info("ℹ️ Chưa tải lên tệp ảnh Flat Sketch của mẫu mới.")
 
-                # Thực thi đa luồng tải ảnh an toàn, bảo vệ luồng chạy UI của Streamlit
-                with ThreadPoolExecutor(max_workers=6) as executor:
-                    results = executor.map(fetch_image_worker, url_options)
-                    for res in results:
-                        if res:
-                            img_content_final = res
-                            break
+with img_col2:
+    if matched_techpack:
+        target_style_name = str(matched_techpack.get("StyleName", "Mẫu tương đồng")).strip().upper()
+        st.markdown(f"<p style='color: #1E3A8A; font-size: 14px; font-weight: 700; margin-bottom: 8px; text-align: center;'>🎯 Mã tương đồng trong kho: {target_style_name}</p>", unsafe_allow_html=True)
+        
+        base_storage_url = f"{base_url_api.rstrip('/')}/storage/v1/object/public/kho_anh" if base_url_api else ""
+        img_content_final = None
+        
+        if base_storage_url:
+            # 🔥 ĐÃ SỬA: Sử dụng quote() để mã hóa an toàn tên mã hàng chứa ký tự đặc biệt (+, -, khoảng trắng) tránh lỗi URL
+            safe_style_name = quote(target_style_name)
+            safe_style_name_lower = quote(target_style_name.lower())
             
-            if img_content_final:
+            url_options = [
+                f"{base_storage_url}/{safe_style_name}.png",
+                f"{base_storage_url}/{safe_style_name}.PNG",
+                f"{base_storage_url}/{safe_style_name}.jpg",
+                f"{base_storage_url}/{safe_style_name}.JPG",
+                f"{base_storage_url}/{safe_style_name}.jpeg",
+                f"{base_storage_url}/{safe_style_name_lower}.jpg",
+                f"{base_storage_url}/{safe_style_name_lower}.png"
+            ]
+            
+            def fetch_image_worker(url):
                 try:
-                    st.image(img_content_final, caption=f"Ảnh bản vẽ gốc của mã {target_style_name}", use_container_width=True)
+                    # Truy cập Cloud Storage với Header bảo mật đồng bộ với hệ thống BOM
+                    resp = requests.get(url, headers=api_headers, timeout=5)
+                    if resp.status_code == 200 and len(resp.content) > 500:
+                        content = resp.content
+                        # Kiểm tra chữ ký byte để chắc chắn là file ảnh thật, tránh file lỗi HTML
+                        if content.startswith(b'\xff\xd8') or content.startswith(b'\x89PNG') or b'<!DOCTYPE' not in content[:100]:
+                            return content
                 except Exception:
-                    st.warning("⚠️ Không thể kết xuất tệp đồ họa do lỗi định dạng cấu trúc nhị phân.")
-            else:
-                db_stored_url = matched_techpack.get("SketchURL") or matched_techpack.get("sketch_url", "")
-                if db_stored_url and "public/kho_anh" not in str(db_stored_url):
-                    try:
-                        st.image(db_stored_url, caption=f"Ảnh bản vẽ gốc mã {target_style_name} (Direct Link)", use_container_width=True)
-                    except Exception:
-                        st.info("⚠️ Không có ảnh vật lý nào khớp trên Cloud Storage.")
-                else:
-                    st.info("⚠️ Không tìm thấy tệp ảnh vật lý nào của mã này trên Cloud Storage.")
+                    pass
+                return None
+
+            # Thực thi đa luồng tải ảnh tốc độ cao bảo vệ UI Streamlit
+            with ThreadPoolExecutor(max_workers=6) as executor:
+                results = executor.map(fetch_image_worker, url_options)
+                for res in results:
+                    if res:
+                        img_content_final = res
+                        break
+        
+        if img_content_final:
+            try:
+                st.image(img_content_final, caption=f"Ảnh bản vẽ gốc của mã {target_style_name}", use_container_width=True)
+            except Exception:
+                st.warning("⚠️ Không thể kết xuất tệp đồ họa do lỗi định dạng cấu trúc nhị phân.")
         else:
-            st.warning("⚠️ KHÔNG TÌM THẤY MÃ TƯƠNG ĐỒNG TRONG KHO!")
+            # Luồng dự phòng nếu không tìm thấy ảnh đặt tên theo StyleName
+            db_stored_url = matched_techpack.get("SketchURL") or matched_techpack.get("sketch_url", "")
+            if db_stored_url and "public/kho_anh" not in str(db_stored_url):
+                try:
+                    st.image(db_stored_url, caption=f"Ảnh bản vẽ gốc mã {target_style_name} (Direct Link)", use_container_width=True)
+                except Exception:
+                    st.info("⚠️ Không có ảnh vật lý nào khớp trên Cloud Storage.")
+            else:
+                st.info("⚠️ Không tìm thấy tệp ảnh vật lý nào của mã này trên Cloud Storage.")
+    else:
+        st.warning("⚠️ KHÔNG TÌM THẤY MÃ TƯƠNG ĐỒNG TRONG KHO!")
 
 
 import json
@@ -1778,7 +1784,9 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         if not st.session_state.get("bom_records") and url_db:
             raw_list = []
             is_api_error = False
-            select_columns = "style_name,article_name,consumption_type,material_size,uom"
+            
+            # 🔥 ĐÃ SỬA: Thêm cột consumption_value từ Supabase vào lệnh gọi API
+            select_columns = "style_name,article_name,consumption_type,material_size,uom,consumption_value"
             
             try:
                 core_digits = re.findall(r"\d+", target_style_name_bom)
@@ -1809,15 +1817,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             else:
                 st.session_state["bom_search_status"] = "API_ERROR" if is_api_error else "NOT_FOUND"
 
-    # 3. Hàm chuẩn hóa trích xuất định mức số (Dùng chung cho hệ thống)
-    def extract_consumption_dm(value):
-        if value is None:
-            return 0.0
-        txt = str(value)
-        nums = re.findall(r"\d+\.\d+|\d+", txt)
-        return round(float(nums[0]), 3) if nums else 0.0
-
-    # 4. Tổng hợp cộng dồn BOM theo nhóm vật tư (BOM Summary Engine)
+    # 3. Tổng hợp cộng dồn BOM theo nhóm vật tư (BOM Summary Engine)
     bom_records = st.session_state.get("bom_records", [])
     main_fabric_records = []
     bom_summary_engine = {}
@@ -1829,14 +1829,19 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         if ctype in ["MAIN", "FABRIC", "BODY", "SHELL", "MAIN FABRIC"]:
             main_fabric_records.append(r)
             
-        qty = extract_consumption_dm(r.get("material_size", 0))
+        # 🔥 ĐÃ SỬA: Lấy trực tiếp giá trị số từ cột dữ liệu consumption_value
+        try:
+            qty = float(r.get("consumption_value", 0.0))
+        except (ValueError, TypeError):
+            qty = 0.0
+            
         bom_summary_engine[ctype] = round(bom_summary_engine.get(ctype, 0.0) + qty, 3)
 
     st.session_state["historical_bom_reference"] = bom_records
     st.session_state["main_fabric_records"] = main_fabric_records
     st.session_state["bom_summary_engine"] = bom_summary_engine
 
-    # 5. --- HIỂN THỊ PHẦN 1: TÍNH TOÁN SAI LỆCH THÔNG SỐ CHI TIẾT ---
+    # 4. --- HIỂN THỊ PHẦN 1: TÍNH TOÁN SAI LỆCH THÔNG SỐ CHI TIẾT ---
     st.markdown("<br>### 📐 BẢNG SO SÁNH SAI LỆCH THÔNG SỐ KỸ THUẬT RẬP MẪU", unsafe_allow_html=True)
     new_specs = new_style_measurements_dict if new_style_measurements_dict else {}
     old_specs = matched_techpack.get("DetailedMeasurements", {}) if matched_techpack else {}
@@ -1891,7 +1896,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     else:
         st.info("💡 Trạng thái: Trống dữ liệu thông số để thực hiện tính toán so sánh đối chiếu.")
 
-    # 6. --- HIỂN THỊ PHẦN AI: CONSUMPTION PROJECTION ENGINE ---
+    # 5. --- HIỂN THỊ PHẦN AI: CONSUMPTION PROJECTION ENGINE ---
     if matched_techpack and bom_records:
         st.markdown("<br>🔮 **AI CONSUMPTION PROJECTION ENGINE (DỰ PHÓNG ĐỊNH MỨC MÃ MỚI)**", unsafe_allow_html=True)
         col1, col2 = st.columns(2)
@@ -1919,6 +1924,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         df_projection = pd.DataFrame(projection_rows)
         st.session_state["ai_projected_consumption_matrix"] = projection_rows
         st.dataframe(df_projection, use_container_width=True, hide_index=True)
+
 import json
 import re
 import streamlit as st
@@ -1929,37 +1935,32 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     matched_techpack = st.session_state.get("matched_techpack")
     bom_records = st.session_state.get("bom_records", [])
 
-    # Hàm tái định nghĩa cô lập nhằm chống lỗi xung đột hàm khi viết ở file khác
-    def parse_consumption_dm(value):
-        if value is None:
-            return 0.0
-        txt = str(value)
-        nums = re.findall(r"\d+\.\d+|\d+", txt)
-        return round(float(nums[0]), 3) if nums else 0.0
-
     # --- PHẦN 2: KẾT XUẤT BẢNG ĐỊNH MỨC NGUYÊN VẬT LIỆU (BOM) LỊCH SỬ THỰC TẾ ---
     if matched_techpack and bom_records:
         st.markdown("<br>📦 **Chi Tiết Định Mức Định Hình Mở Rộng (BOM Lịch Sử Của Mã Đối Chứng):**", unsafe_allow_html=True)
         
         df_bom = pd.DataFrame(bom_records)
-        target_cols = ['style_name', 'consumption_type', 'article_name', 'material_size', 'uom']
+        
+        # 🔥 ĐÃ SỬA: Thêm cột consumption_value vào danh sách xử lý dữ liệu
+        target_cols = ['style_name', 'consumption_type', 'article_name', 'material_size', 'uom', 'consumption_value']
         
         # Làm sạch chuỗi thô từ hệ thống cơ sở dữ liệu Supabase
         for col in target_cols:
             if col in df_bom.columns: 
                 df_bom[col] = df_bom[col].astype(str).str.strip().replace(["nan", "none", "null", "NaN", "None"], "")
             else: 
-                df_bom[col] = ""
+                df_bom[col] = "0" if col == "consumption_value" else ""
 
         if "style_name" in df_bom.columns:
             df_bom['style_name'] = df_bom['style_name'].str.upper()
+            
+        # Trích xuất dữ liệu và đưa trực tiếp giá trị số chuẩn hóa vào cột hiển thị
+        df_bom_render = df_bom[['style_name', 'consumption_type', 'article_name', 'material_size', 'uom']].copy()
         
-        df_bom_render = df_bom[target_cols].copy()
+        # 🔥 ĐÃ SỬA: Ép kiểu dữ liệu số trực tiếp từ cột dữ liệu thực tế trên Supabase thay vì bóc tách chuỗi khổ vải
+        df_bom_render["Định mức (DM)"] = pd.to_numeric(df_bom["consumption_value"], errors='coerce').fillna(0.0).round(3)
         
-        # 🔥 Thực hiện bước Map trích xuất dữ liệu tạo cột Định mức chuẩn (ĐM) theo yêu cầu
-        df_bom_render["Định mức (DM)"] = df_bom["material_size"].apply(parse_consumption_dm)
-        
-        # Định hình lại tên cột chuẩn 6 thuộc tính hiển thị
+        # Định hình lại tên cột chuẩn 6 thuộc tính hiển thị chính xác
         df_bom_render.columns = [
             "Mã hàng đối chứng", 
             "Phân loại vật tư (Type)", 
