@@ -1761,82 +1761,6 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     api_headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if SB_KEY else {}
     url_db = f"{base_url_api.rstrip('/')}/rest/v1/san_pham" if base_url_api else ""
 
-    # Cơ chế Reset trạng thái chủ động khi phát hiện đổi mã đối chứng mới
-    if matched_techpack:
-        target_style_name_bom = str(matched_techpack.get("StyleName", "")).strip()
-        current_bom_style = st.session_state.get("bom_style_loaded", "")
-
-        if current_bom_style != target_style_name_bom:
-            st.session_state["bom_records"] = []
-            st.session_state["bom_style_loaded"] = target_style_name_bom
-
-        # Thực thi luồng gọi API nếu dữ liệu trống sau khi kiểm tra/reset mã
-        if not st.session_state.get("bom_records") and url_db:
-            try:
-                # Bước A: Tìm kiếm chính xác tuyệt đối bằng toán tử eq
-                query_exact = {
-                    "select": "style_name,article_name,material_code,fabric_type,supplier,color,consumption_type,material_size,uom,consumption_value,notes",
-                    "style_name": f"eq.{target_style_name_bom}"
-                }
-                res_exact = requests.get(url_db, headers=api_headers, params=query_exact, timeout=10)
-                if res_exact.status_code == 200 and len(res_exact.json()) > 0:
-                    st.session_state["bom_records"] = res_exact.json()
-            except Exception:
-                pass
-                
-            # Bước B: Nếu tìm chính xác trượt, tải diện rộng dữ liệu thô và dùng RegEx của Python để tự lọc sạch dấu cách ngầm
-            if not st.session_state.get("bom_records"):
-                try:
-                    core_digits = re.findall(r"\d+", target_style_name_bom)
-                    search_digits = max(core_digits, key=len) if core_digits else target_style_name_bom
-                    
-                    query_fallback = {
-                        "select": "style_name,article_name,material_code,fabric_type,supplier,color,consumption_type,material_size,uom,consumption_value,notes",
-                        "style_name": f"ilike.*{search_digits}*"
-                    }
-                    res_fb = requests.get(url_db, headers=api_headers, params=query_fallback, timeout=10)
-                    if res_fb.status_code == 200:
-                        raw_list = res_fb.json()
-                        
-                        final_filtered = []
-                        for r in raw_list:
-                            db_style = str(r.get("style_name", "")).strip().upper()
-                            if re.search(search_digits, db_style):
-                                final_filtered.append(r)
-                                
-                        st.session_state["bom_records"] = final_filtered
-                except Exception:
-                    pass
-
-    # 🚀 NỐI LUỒNG DỮ LIỆU: Đảm bảo biến bom_records luôn được rào sạch và cập nhật liên tục vào Session State
-    bom_records = st.session_state.get("bom_records", [])
-
-    # --- PHẦN 1: TÍNH TOÁN SAI LỆCH THÔNG SỐ CHI TIẾT ---
-    st.markdown("<br>### 📐 BẢNG SO SÁNH SAI LỆCH THÔNG SỐ KỸ THUẬT RẬP MẪU", unsafe_allow_html=True)
-    
-    new_specs = new_style_measurements_dict if new_style_measurements_dict else {}
-    old_specs = matched_techpack.get("DetailedMeasurements", {}) if matched_techpack else {}
-    
-    if new_specs or old_specs:
-        compare_rows = []
-        all_poms = sorted(list(set(list(new_specs.keys()) + list(old_specs.keys()))))
-        
-        for pom in all_poms:if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption Matrix":
-    import json
-    import re
-    import requests
-    import streamlit as st
-
-    # Khôi phục an toàn các biến hệ thống từ môi trường toàn cục
-    matched_techpack = st.session_state.get("matched_techpack")
-    base_sb_url = globals().get("base_sb_url", "")
-    SB_URL = globals().get("SB_URL", "")
-    SB_KEY = globals().get("SB_KEY", "")
-
-    base_url_api = base_sb_url if base_sb_url else (SB_URL if SB_URL else "")
-    api_headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if SB_KEY else {}
-    url_db = f"{base_url_api.rstrip('/')}/rest/v1/san_pham" if base_url_api else ""
-
     if "bom_search_status" not in st.session_state:
         st.session_state["bom_search_status"] = "NOT_FOUND"
 
@@ -1927,27 +1851,19 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             
         try:
             raw_val = r.get("consumption_value", 0)
-            if raw_val is None: qty = 0.0
+            if raw_val is None: 
+                qty = 0.0
             else:
                 nums = re.findall(r"[-+]?\d*\.\d+|\d+", str(raw_val))
-                qty = float(nums) if nums else 0.0
-        except Exception: qty = 0.0
+                qty = float(nums[0]) if nums else 0.0
+        except Exception: 
+            qty = 0.0
             
         bom_summary_engine[ctype] = round(bom_summary_engine.get(ctype, 0.0) + qty, 3)
 
     st.session_state["historical_bom_reference"] = bom_records
     st.session_state["main_fabric_records"] = main_fabric_records
     st.session_state["bom_summary_engine"] = bom_summary_engine
-if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption Matrix":
-    import pandas as pd
-    import re
-    import streamlit as st
-
-    # Tái khôi phục dữ liệu sạch đã được bọc an toàn từ Part 1
-    matched_techpack = st.session_state.get("matched_techpack")
-    bom_records = st.session_state.get("bom_records", [])
-    new_style_measurements_dict = globals().get("new_style_measurements_dict", {})
-    new_style_base_size = globals().get("new_style_base_size", "N/A")
 
     # --- PHẦN 1: TÍNH TOÁN SAI LỆCH THÔNG SỐ CHI TIẾT ---
     st.markdown("<br>### 📐 BẢNG SO SÁNH SAI LỆCH THÔNG SỐ KỸ THUẬT RẬP MẪU", unsafe_allow_html=True)
@@ -1969,7 +1885,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                 try: return float(v)
                 except ValueError:
                     nums = re.findall(r"[-+]?\d*\.\d+|\d+", str(v))
-                    return float(nums) if nums else None
+                    return float(nums[0]) if nums else None
 
             f_new = clean_float(val_new)
             f_old = clean_float(val_old)
@@ -2019,6 +1935,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         st.info(f"ℹ️ Trạng thái: {st.session_state.get('bom_search_status', 'NOT_FOUND')}. Chưa tìm thấy dữ liệu định mức BOM lịch sử nào khớp cho mã này.")
 
     st.markdown("<br><hr style='border:0.5px solid #CBD5E1;'>", unsafe_allow_html=True)
+
 
 
 
