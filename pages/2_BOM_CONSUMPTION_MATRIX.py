@@ -1527,7 +1527,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                         ranked_pool.append((overlap_score, s))
                     
                     ranked_pool.sort(reverse=True, key=lambda x: x)
-                    top_20_candidates = [x[1] for x in ranked_pool[:20]]
+                    top_20_candidates = [x for x in ranked_pool[:20]]
                     
                     vision_contents = []
                     if target_new_sketch_bytes:
@@ -1560,8 +1560,10 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                     
                     semantic_prompt = f"Cross-examine tech files. Select best index for reference BOM. New size: {new_style_base_size}. New features text: {new_vec}. Candidates Pool: {json.dumps(historical_pool_summary, ensure_ascii=False)}. Return valid JSON ONLY: {{\"selected_pool_index\": 0, \"match_score\": 92, \"reason\": \"Mô tả lý do kĩ thuật\"}}"
                     
-                    if types and hasattr(types, "Part"): vision_contents.append(types.Part.from_text(text=semantic_prompt))
-                    else: vision_contents.append(semantic_prompt)
+                    if types and hasattr(types, "Part"): 
+                        vision_contents.append(types.Part.from_text(text=semantic_prompt))
+                    else: 
+                        vision_contents.append(semantic_prompt)
                         
                     res = client.models.generate_content(model='gemini-2.5-flash', contents=vision_contents)
                     json_match = re.search(r'\{[\s\S]*\}', res.text.strip())
@@ -1587,6 +1589,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                 st.warning("⚠️ Không thể truy xuất danh sách mã hàng lịch sử từ cơ sở dữ liệu.")
         except Exception as e:
             st.sidebar.error(f"Lỗi đối soát VLM hệ thống: {str(e)}")
+
 if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption Matrix":
     import streamlit as st
 
