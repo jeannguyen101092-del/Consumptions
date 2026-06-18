@@ -1899,8 +1899,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
 # =================================================================
 # ĐOẠN 6: GIAO DIỆN CHAT AI PHÂN TÍCH ĐỊNH MỨC VÀ SCRIPT AUTO-SCROLL
 # =================================================================
-
-   if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption Matrix":
+if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption Matrix":
     import streamlit as st
 
     # Khôi phục an toàn các biến ngữ cảnh phục vụ tính toán từ môi trường toàn cục
@@ -1952,19 +1951,9 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                         st.session_state["consumption_chat_history"] = []
                     st.session_state["consumption_chat_history"].append({"user": user_query, "ai": ai_reply})
                     
-        # ✅ THUẬT TOÁN ĐÓNG ĐINH NEO CUỘN: Ép trình duyệt tự động scroll lướt màn hình xuống vị trí tin nhắn cuối cùng
-        st.components.v1.html(
-            """
-            <script>
-                var doc = window.parent.document;
-                var sections = doc.querySelectorAll('section.main');
-                if (sections.length > 0) {
-                    sections[0].scrollTo({top: sections[0].scrollHeight, behavior: 'smooth'});
-                }
-            </script>
-            """,
-            height=0,
-        )
+        # ✅ THUẬT TOÁN ĐÓNG ĐINH NEO CUỘN: Được viết phẳng hóa hoàn toàn để triệt tiêu lỗi IndentationError
+        js_scroll = "<script>var d=window.parent.document; var s=d.querySelectorAll('section.main'); if(s.length>0){s[0].scrollTo({top:s[0].scrollHeight,behavior:'smooth'});}</script>"
+        st.components.v1.html(js_scroll, height=0)
 
 
 
