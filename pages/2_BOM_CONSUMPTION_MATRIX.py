@@ -1631,23 +1631,27 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
 
 
 
-# =================================================================
-# ĐOẠN 5B: ĐỒNG BỘ DỮ LIỆU & ĐỐI CHIẾU HÌNH ẢNH (FLAT SKETCH)
-# =================================================================
-
 if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption Matrix":
+    import pandas as pd
+    import requests
+    import streamlit as st
+    # 🛠️ VÁ LỖI CỐT LÕI: Import tường minh ThreadPoolExecutor để triệt tiêu lỗi NameError khi chạy đa luồng tải ảnh
+    from concurrent.futures import ThreadPoolExecutor
+
+    # Khôi phục an toàn các biến hệ thống từ môi trường toàn cục
+    target_new_sketch_bytes = globals().get("target_new_sketch_bytes", None)
+    new_style_id_detected = globals().get("new_style_id_detected", "UNKNOWN")
+    new_style_base_size = globals().get("new_style_base_size", "N/A")
+    base_sb_url = globals().get("base_sb_url", "")
+    SB_URL = globals().get("SB_URL", "")
+    SB_KEY = globals().get("SB_KEY", "")
+    
     matched_techpack = st.session_state.get("matched_techpack")
     
-    # 1. ĐỒNG BỘ BIẾN CẤU HÌNH & HEADERS API
-    base_url_api = base_sb_url if 'base_sb_url' in globals() else (SB_URL if 'SB_URL' in globals() else "")
-    current_key = SB_KEY if 'SB_KEY' in globals() else ""
-    
-    api_headers = {
-        "apikey": current_key,
-        "Authorization": f"Bearer {current_key}"
-    } if current_key else {}
+    base_url_api = base_sb_url if base_sb_url else (SB_URL if SB_URL else "")
+    api_headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if SB_KEY else {}
 
-    # 2. TỐI ƯU CƠ CHẾ QUY LỌC VÀ LẤY DỮ LIỆU BOM (SỬ DỤNG ILIKE NGAY TỪ ĐẦU + MỞ RỘNG TRƯỜNG DỮ LIỆU)
+    # 1. TRUY VẤN VÀ ĐỒNG BỘ HÓA DỮ LIỆU ĐỊNH MỨC NGUYÊN VẬT LIỆU (BOM) LỊCH SỬ
     if matched_techpack and "bom_records" not in st.session_state:
         st.session_state["bom_records"] = []
         target_style_name_bom = str(matched_techpack.get("StyleName", "")).strip()
@@ -1660,32 +1664,31 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                     "style_name": f"ilike.*{target_style_name_bom}*"
                 }
                 res_bom = requests.get(url_bom, headers=api_headers, params=query_bom, timeout=12)
-                
                 if res_bom.status_code == 200:
                     raw_list = res_bom.json()
                     st.session_state["bom_records"] = [r for r in raw_list if target_style_name_bom.lower() in str(r.get("style_name", "")).lower()]
-            except requests.RequestException:
+            except Exception:
                 pass
 
     bom_records = st.session_state.get("bom_records", [])
 
-    # --- LỚP HIỂN THỊ GIAO DIỆN HÌNH ẢNH ---
+    # 2. LỚP HIỂN THỊ GIAO DIỆN ĐỐI CHIẾU FLAT SKETCH
     st.markdown("### 🖼️ ĐỐI CHIẾU SỰ TƯƠNG ĐỒNG HÌNH ẢNH THIẾT KẾ (FLAT SKETCH)")
     img_col1, img_col2 = st.columns(2)
     
-    # Hiển thị ảnh mẫu mới tải lên
     with img_col1:
         if target_new_sketch_bytes is not None:
             try:
                 st.image(target_new_sketch_bytes, caption=f"Mẫu mới tải lên ({new_style_id_detected})", use_container_width=True)
             except Exception as e:
                 st.warning(f"Lỗi hiển thị ảnh mẫu mới: {e}")
+        else:
+            st.info("ℹ️ Chưa tải lên tệp ảnh Flat Sketch của mẫu mới.")
 
-    # Hiển thị ảnh mẫu đối chứng từ kho kèm định dạng mở rộng (.png)
     with img_col2:
         if matched_techpack:
             target_style_name = str(matched_techpack.get("StyleName", "Mẫu tương đồng")).strip().upper()
-            st.markdown(f"<p style='color: #1E3A8A; font-size: 13px; font-weight: 700; margin-bottom: 8px; text-align: center;'>🎯 Mã tương đồng trong kho: {target_style_name}</p>", unsafe_allow_html=True)
+            st.markdown(f"<p style='color: #1E3A8A; font-size: 14px; font-weight: 700; margin-bottom: 8px; text-align: center;'>🎯 Mã tương đồng trong kho: {target_style_name}</p>", unsafe_allow_html=True)
             
             base_storage_url = f"{base_url_api.rstrip('/')}/storage/v1/object/public/kho_anh" if base_url_api else ""
             img_content_final = None
@@ -1693,6 +1696,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             if base_storage_url:
                 url_options = [
                     f"{base_storage_url}/{target_style_name}.png",
+                    f"{base_storage_url}/{target_style_name}.PNG",
                     f"{base_storage_url}/{target_style_name}.jpg",
                     f"{base_storage_url}/{target_style_name}.JPG",
                     f"{base_storage_url}/{target_style_name}.jpeg",
@@ -1704,12 +1708,15 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                     try:
                         resp = requests.get(url, headers=api_headers, timeout=5)
                         if resp.status_code == 200 and len(resp.content) > 500:
-                            if resp.content.startswith(b'\xff\xd8') or resp.content.startswith(b'\x89PNG') or b'<!DOCTYPE' not in resp.content[:100]:
-                                return resp.content
-                    except requests.RequestException:
+                            content = resp.content
+                            # Kiểm tra chữ ký byte nhị phân của đồ họa (JPEG hoặc PNG)
+                            if content.startswith(b'\xff\xd8') or content.startswith(b'\x89PNG') or b'<!DOCTYPE' not in content[:100]:
+                                return content
+                    except Exception:
                         pass
                     return None
 
+                # Thực thi đa luồng tải ảnh an toàn, bảo vệ luồng chạy UI của Streamlit
                 with ThreadPoolExecutor(max_workers=6) as executor:
                     results = executor.map(fetch_image_worker, url_options)
                     for res in results:
@@ -1721,7 +1728,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                 try:
                     st.image(img_content_final, caption=f"Ảnh bản vẽ gốc của mã {target_style_name}", use_container_width=True)
                 except Exception:
-                    st.warning("⚠️ Không thể kết xuất tệp đồ họa do lỗi định dạng nhị phân vật lý.")
+                    st.warning("⚠️ Không thể kết xuất tệp đồ họa do lỗi định dạng cấu trúc nhị phân.")
             else:
                 db_stored_url = matched_techpack.get("SketchURL") or matched_techpack.get("sketch_url", "")
                 if db_stored_url and "public/kho_anh" not in str(db_stored_url):
@@ -1730,9 +1737,11 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                     except Exception:
                         st.info("⚠️ Không có ảnh vật lý nào khớp trên Cloud Storage.")
                 else:
-                    st.info("⚠️ Không có ảnh vật lý nào khớp trên Cloud Storage.")
+                    st.info("⚠️ Không tìm thấy tệp ảnh vật lý nào của mã này trên Cloud Storage.")
         else:
-            st.warning("⚠️ KHÔNG TÌM THẤY MÃ TƯƠNG ĐỒNG TRONG KHO! Tự động kích hoạt cơ chế tính toán độc lập bằng Vector Hình Học Ngành May.")
+            st.warning("⚠️ KHÔNG TÌM THẤY MÃ TƯƠNG ĐỒNG TRONG KHO!")
+
+
 # =================================================================
 # ĐOẠN 5C: SO SÁNH SAI LỆCH THÔNG SỐ & ĐỊNH MỨC BOM CHI TIẾT
 # =================================================================
@@ -1819,6 +1828,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         st.dataframe(df_bom_render, use_container_width=True, hide_index=True)
 
     st.markdown("<br><hr style='border:0.5px solid #CBD5E1;'>", unsafe_allow_html=True)
+
 
 # =================================================================
 # ĐOẠN 6: GIAO DIỆN CHAT AI PHÂN TÍCH ĐỊNH MỨC VÀ SCRIPT AUTO-SCROLL
