@@ -993,6 +993,153 @@ def calculate_dxf_vector_consumption(
         "calculated_yard": round(calculated_yard, 3),
         "calculation_method": "DXF Vector Geometry & Nesting Simulation",
     }
+def ai_consumption_analyst_engine(
+    client,
+    user_message,
+    matched_techpack,
+    bom_records,
+    new_style_measurements,
+    target_new_sketch_bytes,
+    detected_size,
+    dxf_file_bytes=None,
+):
+    """Bộ điều phối cốt lõi tích hợp chuỗi hệ số hao hụt công nghiệp nhà máy PPJ
+
+    và đồng bộ Session State.
+    """
+    if "consumption_chat_history" not in st.session_state:
+        st.session_state["consumption_chat_history"] = []
+
+    # Khởi tạo hoặc xóa bỏ dữ liệu lưu trữ kết quả engine cũ để tránh ghi đè sai lệch
+    st.session_state["last_consumption_engine_result"] = None
+
+    # 1. Trích xuất thông số co rút / khổ vải phục vụ cho Shrinkage & Loss Engine
+    shrinkage_width = re.findall(
+        r"(?:CO RÚT NGANG|NGANG)\s*(\d+(?:\.\d+)?)\s*%", user_message.upper()
+    )
+    shrinkage_length = re.findall(
+        r"(?:CO RÚT DỌC|DỌC)\s*(\d+(?:\.\d+)?)\s*%", user_message.upper()
+    )
+    new_fabric_width = re.findall(
+        r"(?:KHỔ VẢI|KHỔ)\s*(\d+)\s*(?:\"|INCH|INCHES)?", user_message.upper()
+    )
+
+    w_shrink = float(shrinkage_width) if shrinkage_width else 0.0
+    l_shrink = float(shrinkage_length) if shrinkage_length else 0.0
+    f_width = float(new_fabric_width) if new_fabric_width else 58.0
+
+    # 2. ĐIỀU PHỐI LOGIC NHÁNH CHẶT CHẼ THEO ĐÚNG ĐẦU VÀO VẬT LÝ
+    engine_result_instruction = ""
+    base_calculated_yard = 0.0
+    method_used = ""
+    is_estimated_mode = False
+
+    if matched_techpack and bom_records:
+        # NHÁNH 1: ĐỒNG DẠNG KHO (SIMILARITY ENGINE)
+        sim_res = calculate_similarity_consumption(
+            matched_techpack,
+            bom_records,
+            new_style_measurements,
+            detected_size,
+        )
+        if sim_res and sim_res.get("new_consumption"):
+            base_calculated_yard = float(sim_res["new_consumption"])
+            method_used = sim_res["calculation_method"]
+            engine_result_instruction = f"""
+            🚨 DỮ LIỆU ĐỐI CHỨNG CẤU TRÚC CHÍNH XÁC (SIMILARITY ENGINE):
+            - Phương pháp: {method_used}
+            - Mã hàng đối chứng lịch sử: {sim_res['matched_style']}
+            - Phân loại cấu trúc thân: {sim_res['body_category']}
+            - Chuyển đổi Size: {sim_res['old_size']} ➔ {sim_res['new_size']}
+            - Định mức gốc từ kho (BOM): {sim_res['old_consumption']} Yds
+            - Hệ số thay đổi chiều rộng: {sim_res['width_factor']}
+            - Hệ số thay đổi chiều dài: {sim_res['length_factor']}
+            - Tỷ lệ diện tích rập tăng giảm (Area Ratio): {sim_res['area_ratio']}
+            """
+    elif dxf_file_bytes:
+        # NHÁNH 2: CÓ FILE DXF VECTOR THẬT
+        dxf_res = calculate_dxf_vector_consumption(
+            dxf_file_bytes,
+            new_style_measurements,
+            fabric_width=f_width,
+            seam_allowance=0.44,
+        )
+        if dxf_res and dxf_res.get("calculated_yard"):
+            base_calculated_yard = float(dxf_res["calculated_yard"])
+            method_used = dxf_res["calculation_method"]
+            engine_result_instruction = f"""
+            🚨 KẾT QUẢ TÍNH TOÁN HÌNH HỌC RẬP CHÍNH XÁC (DXF VECTOR ENGINE):
+            - Phương pháp: {method_used}
+            - Số chi tiết rập phát hiện: {dxf_res['total_pieces_detected']} mảnh rập.
+            - Biên may tiêu chuẩn đã cộng: {dxf_res['seam_allowance_applied']} inch.
+            - Hiệu suất sơ đồ giả lập (Marker Efficiency): {dxf_res['marker_efficiency'] * 100}%
+            """
+    else:
+        # NHÁNH 3: KHÔNG CÓ DXF + KHÔNG CÓ BOM ĐỐI CHỨNG -> BUỘC GẮN NHÃN ESTIMATED MODE
+        method_used = "Temporary Geometric Estimation Mode"
+        is_estimated_mode = True
+        engine_result_instruction = """
+        🚨 CẢNH BÁO HỆ THỐNG (ESTIMATED MODE): Không tìm thấy mã hàng tương đồng trong kho và không có file rập DXF độc lập đính kèm.
+        - Gemini chỉ được phép đưa ra giá trị ước tính dựa trên hình ảnh phác thảo Sketch và Spec mới.
+        - BẮT BUỘC ghi rõ nhãn cụm từ: "Estimated Consumption - No Historical BOM Available" bên cạnh kết quả định mức. Không được trình bày như định mức chuẩn xác sản xuất.
+        """
+
+    # 3. TẦNG TÍNH TOÁN CHUỖI HAO HỤT CÔNG NGHIỆP BẰNG PYTHON (PPJ MULTI-LOSS ENGINE)
+    final_engine_yard = 0.0
+    shrinkage_report_text = "Không áp dụng"
+
+    marker_loss_factor = 0.98  # Hao hụt đầu tấm / Marker loss (2%)
+    spreading_loss_factor = 0.99  # Hao hụt rải vải đầu khúc đầu cuối (1%)
+    relaxation_factor = 0.995  # Co rút tự nhiên sau xả vải (0.5%)
+
+    if base_calculated_yard > 0.0:
+        fabric_shrink_factor = (1 - w_shrink / 100) * (1 - l_shrink / 100)
+
+        if fabric_shrink_factor > 0:
+            total_efficiency_chain = (
+                fabric_shrink_factor
+                * marker_loss_factor
+                * spreading_loss_factor
+                * relaxation_factor
+            )
+            final_engine_yard = base_calculated_yard / total_efficiency_chain
+            final_engine_yard = round(final_engine_yard, 3)
+
+            shrinkage_report_text = (
+                f"ĐM Sau Hao Hụt = {base_calculated_yard} Yds / "
+                f"({fabric_shrink_factor:.4f} [Co Rút Fabric] * {marker_loss_factor} [Hao Hụt Sơ Đồ] * "
+                f"{spreading_loss_factor} [Hao Hụt Rải Vải] * {relaxation_factor} [Xả Vải]) = {final_engine_yard} Yds"
+            )
+
+        # ĐỒNG BỘ LƯU TRỮ VÀO SESSION STATE PHỤC VỤ DASHBOARD / XUẤT EXCEL
+        st.session_state["last_consumption_engine_result"] = {
+            "method": method_used,
+            "is_estimated_mode": is_estimated_mode,
+            "base_yard": base_calculated_yard,
+            "final_yard": final_engine_yard,
+            "shrinkage": {"width": w_shrink, "length": l_shrink},
+            "loss_factors": {
+                "marker_loss": 1.0 - marker_loss_factor,
+                "spreading_loss": 1.0 - spreading_loss_factor,
+                "relaxation_loss": 1.0 - relaxation_factor,
+            },
+        }
+
+    # Chuyển tiếp các tham số tính toán được sang phần 3b xử lý prompt và gọi API
+    return _generate_ai_report_layer(
+        client,
+        user_message,
+        new_style_measurements,
+        target_new_sketch_bytes,
+        detected_size,
+        f_width,
+        w_shrink,
+        l_shrink,
+        engine_result_instruction,
+        final_engine_yard,
+        shrinkage_report_text,
+        is_estimated_mode,
+    )
 def _generate_ai_report_layer(
     client,
     user_message,
@@ -1002,68 +1149,62 @@ def _generate_ai_report_layer(
     f_width,
     w_shrink,
     l_shrink,
-    m_efficiency_pct,
     engine_result_instruction,
     final_engine_yard,
     shrinkage_report_text,
     is_estimated_mode,
 ):
-    """
-    Hàm bổ trợ đóng vai trò Reporting Layer, kết hợp chặt chẽ chỉ thị khóa số (Lock Number)
-    và gọi API Gemini để xuất báo cáo giải trình rập hình học minh bạch.
-    """
-    import json
-    import streamlit as st
+    """Hàm bổ trợ đóng vai trò Reporting Layer, đóng gói cấu trúc prompt và gọi
 
+    API Gemini.
+    """
     # 4. THIẾT LẬP PROMPT KHÓA CỨNG (LOCK NUMBER) TUYỆT ĐỐI QUYỀN TÍNH TOÁN CỦA GEMINI
     lock_instruction = ""
-    
-    # SỬA LỖI ĐỒNG BỘ NHÃN: Đảm bảo chế độ ước tính PDF Geometry luôn hiển thị nhãn cảnh báo ngay cả khi có số final_yard
-    if is_estimated_mode:
+    if final_engine_yard > 0.0:
         lock_instruction = f"""
-        ⚠️ IMPORTANT MANDATE FOR GEMINI (ESTIMATED GEOMETRIC REPORTING):
-        1. Hệ thống đang chạy ở chế độ [PDF Techpack Geometry Estimation Mode] vì không có mã tương đồng.
-        2. Bạn BẮT BUỘC phải viết cụm từ nhãn cảnh báo kỹ thuật này ở ngay câu đầu tiên: "Estimated Consumption - No Historical BOM Available".
-        3. Định mức sản xuất ước tính cuối cùng do Python tính toán và khóa số là: {final_engine_yard} Yds.
-        4. Bạn PHẢI trình bày câu mở đầu chính xác theo định dạng sau: "Định mức ước tính: {final_engine_yard} Yds (Estimated Consumption - No Historical BOM Available)". Do không có BOM đối chứng lịch sử.
-        5. Liệt kê bảng diện tích bóc tách các bộ phận (Thân trước, thân sau, tay...) dựa theo dữ liệu thực tế được cấp. Tuyệt đối cấm tính lại hoặc làm tròn số này.
-        """
-    elif final_engine_yard > 0.0:
-        lock_instruction = f"""
-        - Thông số co rút vải áp dụng: Ngang {w_shrink}% | Dọc {l_shrink}%
-        - Nhật ký chuỗi hiệu suất tính bằng Python: {shrinkage_report_text}
-        - ĐỊNH MỨC CUỐI CÙNG CHÍNH XÁC ĐÃ ĐƯỢC KHÓA (FINAL TARGET YARD): {final_engine_yard} Yds
+        - Thông số co rút vải: Ngang {w_shrink}% | Dọc {l_shrink}%
+        - Công thức Multi-Loss Engine chạy bằng Python: {shrinkage_report_text}
+        - ĐỊNH MỨC CUỐI CÙNG CHÍNH XÁC (FINAL YARD): {final_engine_yard} Yds
 
         ⚠️ IMPORTANT MANDATE FOR GEMINI (LOCK NUMBER & NO RECALCULATION):
-        1. Con số định mức sản xuất '{final_engine_yard} Yds' được tính toán số học chuẩn xác và khóa cứng bởi Python Core Engine.
-        2. Gemini TUYỆT ĐỐI KHÔNG ĐƯỢC PHÉP tự tính toán lại, không thay đổi, không làm tròn tăng/giảm hoặc đưa ra con số ước lượng xấp xỉ khác.
-        3. Bạn BẮT BUỘC phải ghi cụm từ chuẩn xác này ở ngay câu đầu tiên của phản hồi: "Định mức sản xuất chính xác: {final_engine_yard} Yds".
-        4. Vai trò duy nhất của Gemini là giải trình logic nghiệp vụ đổi mã hoặc thông số. Không tự ý đưa các phép tính nhân chia toán học paragraph vào văn bản.
+        1. The numerical value of '{final_engine_yard} Yds' is mathematically CALCULATED and LOCKED by the Python Core Engine.
+        2. Gemini IS ABSOLUTELY FORBIDDEN to recalculate, change, round up/down, override, or approximate this final number.
+        3. You MUST present the exact phrase: "Định mức sản xuất chính xác: {final_engine_yard} Yds" in the very first sentence.
+        4. Gemini's unique role is to act as an explanatory and reporting layer. Do not showcase step-by-step mathematical multiplication or division in text paragraphs.
+        """
+    elif is_estimated_mode:
+        lock_instruction = """
+        ⚠️ IMPORTANT MANDATE FOR GEMINI (ESTIMATED REPORTING):
+        1. You are in Temporary Geometric Estimation Mode. You must explicitly tag every calculated output with the label: "Estimated Consumption - No Historical BOM Available".
+        2. Format your first sentence strictly as: "Định mức ước tính: [Số_Yard] Yds (Geometric Estimation - No Historical BOM Available)".
         """
 
-    # 5. Phân loại Nhóm hàng (Phần cấu trúc nghiệp vụ may của bạn giữ nguyên bảo toàn tính năng)
-    new_style_measurements_json = json.dumps(new_style_measurements, ensure_ascii=False)
-    detected_text_pool = f"{user_message} {new_style_measurements_json}".upper()
-    
+    # 5. Phân loại Nhóm hàng để kiểm soát phom dáng cấu trúc nẹp
+    new_style_measurements_json = json.dumps(
+        new_style_measurements, ensure_ascii=False
+    )
+    detected_text_pool = (
+        f"{user_message} {new_style_measurements_json}".upper()
+    )
     is_pant = any(
         kw in detected_text_pool
         for kw in ["PANT", "SHORT", "TROUSER", "QUẦN", "WAIST", "HIP", "INSEAM"]
     )
 
     category_instruction = (
-        "QUY TẮC QUẦN (JEANS/PANT LOGIC): Chỉ tính cấu trúc cạp, cửa quần (fly 1.5-2\"), tuyệt đối nghiêm cấm áp dụng cấu nẹp áo."
+        "QUY TẮC QUẦN (JEANS/PANT LOGIC): Chỉ tính cạp, cửa quần (fly 1.5-2\"), tuyệt đối cấm áp dụng nẹp áo."
         if is_pant
-        else "QUY TẮC ÁO (SHIRT/JACKET LOGIC): Tính cấu trúc nẹp rời (Length + Seam, Width x2 + 0.44\"x2) hoặc cấu trúc nẹp liền gập cuốn x2 width."
+        else "QUY TẮC ÁO (SHIRT/JACKET LOGIC): Tính nẹp rời (Length + Seam, Width x2 + 0.44\"x2) hoặc nẹp liền gập cuốn x2 width."
     )
 
-    # 6. Thiết lập Chỉ thị Hệ thống hệ kỹ sư (System Instruction) chuẩn hóa văn bản
+    # 6. Thiết lập System Instruction tối ưu cho Dashboard Reporting Layer
     system_instruction = f"""
     You are a strict Industrial Garment Costing Engineer at PPJ Group.
     Your answers must mimic ChatGPT's advanced code interpreter mode but optimized for clean dashboard reporting:
     1. STRICT UNIT REQUIRED: All fabric results MUST be presented in YARDS (Yds). NEVER use meters or cm.
     2. DIRECT ANSWER FIRST: Output the exact final average consumption value in YARDS (Yds) derived from the instructions below in the very first sentence.
     3. SUMMARY TABLE FORMAT: Immediately after the first sentence, summarize all component consumption results in a clean Markdown Table. DO NOT write long paragraphs.
-    4. LANGUAGE: Answer directly in Vietnamese, using precise apparel terminology (co rút, định mức, nẹp liền, nẹp rời, hiệu suất sơ đồ, hao hụt rải vải).
+    4. LANGUAGE: Answer directly in Vietnamese, using precise apparel terminology (co rút, định mức, nẹp liền, nẹp rời, hao hụt sơ đồ, hao hụt rải vải).
 
     FACTORY SEWING SEAM ALLOWANCE RULES & GEOMETRIC PRINCIPLES:
     - Standard Seam Allowance: ALWAYS add 0.44 inches to all general component seams.
@@ -1081,63 +1222,43 @@ def _generate_ai_report_layer(
        - New Spec (POM) parsed by vision: {new_style_measurements_json}
     2. USER INPUT FABRIC CHANGES:
        - Fabric Width requested: {f_width} inch.
-       - Configured Marker Efficiency: {m_efficiency_pct}%
     """
 
-    # 7. Đóng gói danh sách lịch sử hội thoại dạng ngữ cảnh chuẩn gửi lên API
-    messages = [{"role": "system", "content": system_instruction}]
-    
-    # Duyệt nạp lịch sử trò chuyện từ mảng lưu vết chat của Streamlit
+    # 7. Đóng gói danh sách ngữ cảnh Chat gửi lên API Gemini
+    chat_contents = [types.Part.from_text(text=system_instruction)]
     for past_chat in st.session_state.get("consumption_chat_history", []):
-        messages.append({"role": "user", "content": past_chat["user"]})
-        messages.append({"role": "assistant", "content": past_chat["ai"]})
+        chat_contents.append(
+            types.Part.from_text(text=f"User: {past_chat['user']}")
+        )
+        chat_contents.append(types.Part.from_text(text=f"AI: {past_chat['ai']}"))
 
-    # Thêm câu hỏi hiện tại kèm dữ liệu tệp hình ảnh phác thảo trực quan (nếu có)
-    user_content = [f"User current request: {user_message}"]
+    chat_contents.append(
+        types.Part.from_text(text=f"User current request: {user_message}")
+    )
     if target_new_sketch_bytes:
-        import base64
-        base64_sketch = base64.b64encode(target_new_sketch_bytes).decode('utf-8')
-        user_content.append({
-            "type": "image_url",
-            "image_url": {"url": f"data:image/jpeg;base64,{base64_sketch}"}
-        })
-    
-    messages.append({"role": "user", "content": user_content})
-
-    # 8. Gọi mô hình xử lý xuất báo cáo trực quan với cơ chế bắt thuộc tính SDK linh hoạt
-    MODEL_NAME = st.session_state.get("ai_model", "gemini-2.5-pro")
-    try:
-        # Kiểm tra xem client truyền vào thuộc về thư viện google-genai mới hay openai endpoint compatible
-        if hasattr(client, 'models'):
-            # Cú pháp SDK Native Google GenAI mới (`client.models.generate_content`)
-            # Chuyển đổi mảng cấu trúc messages sang định dạng Content object của Google SDK nếu cần,
-            # Hoặc gọi nhanh qua cổng completion chuẩn hóa:
-            response = client.models.generate_content(model=MODEL_NAME, contents=user_message)
-            ai_reply = response.text if response.text else "Hệ thống AI không thể đưa ra phân tích văn bản."
-        else:
-            # Cú pháp OpenAI compatible client (`client.chat.completions.create`)
-            response = client.chat.completions.create(
-                model=MODEL_NAME,
-                messages=messages,
-                temperature=0.2
+        chat_contents.append(
+            types.Part.from_bytes(
+                data=target_new_sketch_bytes, mime_type="image/jpeg"
             )
-            if hasattr(response, 'choices') and len(response.choices) > 0:
-                ai_reply = response.choices[0].message.content
-            elif hasattr(response, 'text'):
-                ai_reply = response.text
-            else:
-                ai_reply = str(response)
+        )
 
-        # Lưu đồng bộ phản hồi vào lịch sử phiên làm việc
+    # 8. Gọi mô hình xử lý xuất báo cáo trực quan
+    try:
+        response = client.models.generate_content(
+            model="gemini-2.5-flash", contents=chat_contents
+        )
+        ai_reply = (
+            response.text
+            if response.text
+            else "Hệ thống AI không thể đưa ra phân tích."
+        )
         st.session_state["consumption_chat_history"].append({
             "user": user_message,
             "ai": ai_reply,
         })
         return ai_reply
-        
     except Exception as e:
-        return f"🚨 Lỗi cổng phân tích và tạo lập báo cáo định mức kỹ thuật: {str(e)}"
-
+        return f"🚨 Lỗi cổng phân tích định mức: {str(e)}"
 
 if "get_secure_gemini_key" in globals():
     gemini_key = get_secure_gemini_key()
@@ -1886,26 +2007,14 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
 if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption Matrix":
     import streamlit as st
 
-    # Khôi phục an toàn các biến ngữ cảnh từ môi trường toàn cục và session state
+    # Khôi phục an toàn các biến ngữ cảnh phục vụ tính toán từ môi trường toàn cục
     client = globals().get("client", None)
     matched_techpack = st.session_state.get("matched_techpack", None)
     bom_records = st.session_state.get("bom_records", [])
     new_style_measurements_dict = globals().get("new_style_measurements_dict", {})
     target_new_sketch_bytes = globals().get("target_new_sketch_bytes", None)
     new_style_base_size = globals().get("new_style_base_size", "N/A")
-    
-    # Lấy tài nguyên file PDF gốc được lưu trữ trong hệ thống toàn cục
-    uploaded_pdf_bytes = globals().get("uploaded_pdf_bytes", None)
 
-    # Khôi phục các thông số cấu hình vải/sơ đồ đầu vào từ sidebar hoặc mặc định
-    fabric_width_inches = st.session_state.get("fabric_width_inches", 58.0)
-    marker_efficiency_pct = st.session_state.get("marker_efficiency_pct", 85.0)
-
-    # Khởi tạo lịch sử chat nếu chưa tồn tại
-    if "consumption_chat_history" not in st.session_state:
-        st.session_state["consumption_chat_history"] = []
-
-    # Giao diện tiêu đề hành động
     chat_header_col1, chat_header_col2 = st.columns([3.2, 0.8])
     with chat_header_col1:
         st.markdown("### 💬 TRỢ LÝ AI PHÂN TÍCH ĐỊNH MỨC SẢN XUẤT (HỎI ĐÂU ĐÁP ĐÓ)")
@@ -1915,36 +2024,22 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             st.toast("♻️ Đã xóa sạch lịch sử chat tức thì!")
             st.rerun()
 
-    # HIỂN THỊ CHẾ ĐỘ ĐỊNH MỨC HIỆN TẠI DỰA TRÊN NGỮ CẢNH DỮ LIỆU THỰC TẾ
-    if matched_techpack and bom_records:
-        matched_style_name = st.session_state.get("matched_style_name", "N/A")
-        matched_similarity_score = st.session_state.get("matched_similarity_score", 0.0)
-        st.success(f"🔗 **Reference Mode Active**: Sử dụng dữ liệu đối chứng từ mã gốc **{matched_style_name}** (Độ tương đồng: {matched_similarity_score*100:.1f}%)")
-    else:
-        if new_style_measurements_dict:
-            st.warning("📐 **PDF Techpack Geometry Mode Active**: Không tìm thấy mã tương đồng. Hệ thống chuyển sang tính định mức bằng hình học từ PDF Techpack.")
-        else:
-            st.warning("⚠️ **Chưa đủ dữ liệu PDF Techpack để tính định mức.**")
-
-    # Thùng chứa hiển thị toàn bộ lịch sử cuộc hội thoại
     chat_container = st.container()
     with chat_container:
-        for chat in st.session_state["consumption_chat_history"]:
-            with st.chat_message(chat["role"]):
-                st.write(chat["content"])
+        for chat in st.session_state.get("consumption_chat_history", []):
+            with st.chat_message("user"): 
+                st.write(chat["user"])
+            with st.chat_message("assistant"): 
+                st.write(chat["ai"])
                 
-    # Xử lý khi người dùng gửi yêu cầu phân tích (Chat Input)
     if user_query := st.chat_input("Nhập yêu cầu phân tích (Ví dụ: Tính định mức vải chính khi co rút ngang 5%, dọc 3%)..."):
-        # Hiển thị và đồng bộ hóa ngay lập tức tin nhắn của User vào Session State
         with chat_container:
             with st.chat_message("user"):
                 st.write(user_query)
-        st.session_state["consumption_chat_history"].append({"role": "user", "content": user_query})
                 
-        with chat_container:
             with st.chat_message("assistant"):
                 with st.spinner("🤖 AI đang phân tích dữ liệu và tính toán định mức..."):
-                    # Gọi bộ não phân tích: Chỉ truyền tham số kỹ thuật đầu vào, không truyền số tính sẵn
+                    # Thực thi gọi bộ não phân tích tiêu hao, nạp trọn vẹn bom_records lịch sử
                     ai_reply = ai_consumption_analyst_engine(
                         client=client,
                         user_message=user_query,
@@ -1952,24 +2047,18 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                         bom_records=bom_records,
                         new_style_measurements=new_style_measurements_dict,
                         target_new_sketch_bytes=target_new_sketch_bytes,
-                        detected_size=new_style_base_size,
-                        
-                        # PDF Geometry Context & Thông số kỹ thuật sản xuất
-                        pdf_file_bytes=uploaded_pdf_bytes,
-                        fabric_width=fabric_width_inches,
-                        marker_efficiency=marker_efficiency_pct / 100.0
+                        detected_size=new_style_base_size
                     )
                     st.write(ai_reply)
                     
-        # Lưu kết quả AI vào lịch sử chat và Rerun để ép tải lại giao diện đồng bộ ổn định
-        st.session_state["consumption_chat_history"].append({"role": "assistant", "content": ai_reply})
-        st.rerun()
+                    # Đồng bộ hóa lưu kết quả vào lịch sử chat ngay lập tức để tránh lỗi mất tin nhắn khi Re-run
+                    if "consumption_chat_history" not in st.session_state:
+                        st.session_state["consumption_chat_history"] = []
+                    st.session_state["consumption_chat_history"].append({"user": user_query, "ai": ai_reply})
                     
-    # THUẬT TOÁN ĐÓNG ĐINH NEO CUỘN: Tự động cuộn xuống đáy trang mượt mà
-    if st.session_state["consumption_chat_history"]:
-        js_scroll = "<script>var d=window.parent.document; var s=d.querySelectorAll('section.main'); if(s.length>0){s.scrollTo({top:s.scrollHeight,behavior:'smooth'});}</script>"
+        # ✅ THUẬT TOÁN ĐÓNG ĐINH NEO CUỘN: Được viết phẳng hóa hoàn toàn để triệt tiêu lỗi IndentationError
+        js_scroll = "<script>var d=window.parent.document; var s=d.querySelectorAll('section.main'); if(s.length>0){s[0].scrollTo({top:s[0].scrollHeight,behavior:'smooth'});}</script>"
         st.components.v1.html(js_scroll, height=0)
-
 
 
 
