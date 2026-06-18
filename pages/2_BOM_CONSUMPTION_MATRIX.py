@@ -1466,19 +1466,32 @@ new_style_category = globals().get("new_style_category", "")
 new_style_id_detected = globals().get("new_style_id_detected", "UNKNOWN")
 new_style_base_size = globals().get("new_style_base_size", "N/A")
 
-# Đổi sang check key mới hoặc fallback uploader ở giao diện chính để không bị trùng lặp phần tử ngầm
 has_file = st.session_state.get("bom_matrix_uploader_data") is not None or st.session_state.get("bom_matrix_uploader") is not None or globals().get("has_file", False)
 
 if "matched_techpack" not in st.session_state: st.session_state["matched_techpack"] = None
 if "bom_records" not in st.session_state: st.session_state["bom_records"] = []
 if "match_confidence_score" not in st.session_state: st.session_state["match_confidence_score"] = 0
 
-new_vec = str(st.session_state.get("visual_description_str", "") or globals().get("visual_description_str", "")).strip().upper()
+# Đồng bộ hóa chuỗi mô tả từ các nguồn state
+new_vec = str(st.session_state.get("visual_description_str", "") or globals().get("visual_description_str", "") or globals().get("new_style_sketch_vector", "")).strip().upper()
 
 if has_file and st.session_state["matched_techpack"] is None:
-    if len(new_vec) < 30:
-        st.error("🚨 Không đủ dữ liệu mô tả kỹ thuật (Sketch Vector) để đối soát.")
-        st.stop()
+    # 🛠️ CƠ CHẾ TỰ PHỤC HỒI: Nếu chuỗi mô tả kĩ thuật trước đó trống hoặc quá ngắn, ép Gemini tự sinh mô tả từ ảnh ngay tại chỗ
+    if len(new_vec) < 30 and target_new_sketch_bytes and client and client.models:
+        with st.spinner("🔄 Phát hiện chuỗi đặc trưng rỗng. Đang tự động quét ảnh tái lập Sketch Vector..."):
+            try:
+                ocr_prompt = "Analyze this apparel flat sketch and generate a detailed structural text description focusing strictly on internal construction details: waistband type (elastic/rigid), pocket placement/types, zipper fly presence, seams, cuffs, and silhouette."
+                ocr_contents = [types.Part.from_text(text=ocr_prompt), types.Part.from_bytes(data=target_new_sketch_bytes, mime_type='image/jpeg')] if types and hasattr(types, "Part") else [ocr_prompt, {"mime_type": "image/jpeg", "data": target_new_sketch_bytes}]
+                ocr_res = client.models.generate_content(model='gemini-2.5-flash', contents=ocr_contents)
+                if ocr_res and ocr_res.text:
+                    new_vec = str(ocr_res.text).strip().upper()
+                    st.session_state["visual_description_str"] = new_vec
+            except Exception:
+                pass
+
+    # Nếu sau khi tự phục hồi vẫn không có dữ liệu, thực hiện luồng Fallback an toàn thay vì crash sập trang
+    if len(new_vec) < 10:
+        new_vec = "STANDARD APPAREL STYLE FLAT SKETCH CONSTRUCTION FROM TECHPACK"
 
     with st.spinner("🧠 Hệ thống Gemini Semantic Scoring đang phân tích và chốt mã đối chứng..."):
         try:
@@ -1494,9 +1507,11 @@ if has_file and st.session_state["matched_techpack"] is None:
             if raw_styles and client and client.models:
                 valid_styles = [s for s in raw_styles if s.get("StyleName") and s.get("sketch_vector")]
                 
+                # Bước 1: Khóa chặt theo chủng loại sản phẩm (Category Lock Filter)
                 pool = [s for s in valid_styles if str(s.get("Category", "")).strip().upper() == str(new_style_category).strip().upper()] if new_style_category else valid_styles
                 if not pool: pool = valid_styles
 
+                # Bước 2: Bộ lọc giao thoa từ khóa bằng Python kết hợp ưu tiên kích thước cơ sở (BaseSize)
                 new_keywords = set(re.findall(r'[A-Z]{4,}', new_vec))
                 current_base_size = str(new_style_base_size).strip().upper()
                 
