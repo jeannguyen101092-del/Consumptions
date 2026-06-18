@@ -1690,6 +1690,10 @@ with img_col1:
     
     if target_new_sketch_bytes is not None:
         try:
+            # 🌟 KHẮC PHỤC CỐT LÕI: Đưa con trỏ BytesIO về vị trí byte số 0 ban đầu để đọc dữ liệu trọn vẹn
+            if hasattr(target_new_sketch_bytes, "seek"):
+                target_new_sketch_bytes.seek(0)
+                
             st.image(target_new_sketch_bytes, caption=f"Mẫu mới tải lên ({new_style_id_detected})", use_container_width=True)
         except Exception as e:
             st.warning(f"Lỗi hiển thị ảnh mẫu mới: {e}")
