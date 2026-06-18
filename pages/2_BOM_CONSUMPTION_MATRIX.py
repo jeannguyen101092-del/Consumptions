@@ -1742,18 +1742,75 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             st.warning("⚠️ KHÔNG TÌM THẤY MÃ TƯƠNG ĐỒNG TRONG KHO!")
 
 
-# =================================================================
-# ĐOẠN 5C: SO SÁNH SAI LỆCH THÔNG SỐ & ĐỊNH MỨC BOM CHI TIẾT
-# =================================================================
-
 if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption Matrix":
+    import json
+    import re
+    import requests
+    import streamlit as st
+    import pandas as pd
+
+    # Khôi phục an toàn các biến hệ thống từ môi trường toàn cục
     matched_techpack = st.session_state.get("matched_techpack")
+    new_style_measurements_dict = globals().get("new_style_measurements_dict", {})
+    new_style_base_size = globals().get("new_style_base_size", "N/A")
+    base_sb_url = globals().get("base_sb_url", "")
+    SB_URL = globals().get("SB_URL", "")
+    SB_KEY = globals().get("SB_KEY", "")
+
+    base_url_api = base_sb_url if base_sb_url else (SB_URL if SB_URL else "")
+    api_headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if SB_KEY else {}
+    
+    # 🛠️ VÁ LỖI CỐT LÕI: Khai báo tường minh url_db chỉ định đến endpoint bảng san_pham
+    url_db = f"{base_url_api.rstrip('/')}/rest/v1/san_pham" if base_url_api else ""
+
+    # Cơ chế Reset trạng thái chủ động khi phát hiện đổi mã đối chứng mới
+    if matched_techpack:
+        target_style_name_bom = str(matched_techpack.get("StyleName", "")).strip()
+        current_bom_style = st.session_state.get("bom_style_loaded", "")
+
+        if current_bom_style != target_style_name_bom:
+            st.session_state["bom_records"] = []
+            st.session_state["bom_style_loaded"] = target_style_name_bom
+
+        # Thực thi luồng gọi API nếu dữ liệu trống sau khi kiểm tra/reset mã
+        if not st.session_state.get("bom_records") and url_db:
+            
+            # LUỒNG TRUY VẤN PHÂN TẦNG (EXACT MATCH ➔ FALLBACK ILIKE)
+            # Bước A: Tìm kiếm chính xác tuyệt đối bằng toán tử eq
+            try:
+                query_exact = {
+                    "select": "style_name,article_name,material_code,fabric_type,supplier,color,consumption_type,material_size,uom,consumption_value,notes",
+                    "style_name": f"eq.{target_style_name_bom}"
+                }
+                res_exact = requests.get(url_db, headers=api_headers, params=query_exact, timeout=10)
+                if res_exact.status_code == 200 and len(res_exact.json()) > 0:
+                    st.session_state["bom_records"] = res_exact.json()
+            except Exception:
+                pass
+                
+            # Bước B: Nếu tìm chính xác thất bại, tự động Fallback sang tìm kiếm tương đối dựa trên ký tự số lõi dài nhất
+            if not st.session_state.get("bom_records"):
+                try:
+                    core_digits = re.findall(r"\d+", target_style_name_bom)
+                    search_digits = max(core_digits, key=len) if core_digits else target_style_name_bom
+                    
+                    query_fallback = {
+                        "select": "style_name,article_name,material_code,fabric_type,supplier,color,consumption_type,material_size,uom,consumption_value,notes",
+                        "style_name": f"ilike.*{search_digits}*"
+                    }
+                    res_fb = requests.get(url_db, headers=api_headers, params=query_fallback, timeout=10)
+                    if res_fb.status_code == 200:
+                        raw_list = res_fb.json()
+                        st.session_state["bom_records"] = [r for r in raw_list if search_digits in str(r.get("style_name", ""))]
+                except Exception:
+                    pass
+
     bom_records = st.session_state.get("bom_records", [])
 
-    # --- PHẦN TÍNH TOÁN SAI LỆCH THÔNG SỐ (POM DIFF & DIFF % CHI TIẾT) ---
+    # --- PHẦN 1: TÍNH TOÁN SAI LỆCH THÔNG SỐ CHI TIẾT ---
     st.markdown("<br>### 📐 BẢNG SO SÁNH SAI LỆCH THÔNG SỐ KỸ THUẬT RẬP MẪU", unsafe_allow_html=True)
     
-    new_specs = new_style_measurements_dict if 'new_style_measurements_dict' in globals() and new_style_measurements_dict else {}
+    new_specs = new_style_measurements_dict if new_style_measurements_dict else {}
     old_specs = matched_techpack.get("DetailedMeasurements", {}) if matched_techpack else {}
     
     if new_specs or old_specs:
@@ -1790,7 +1847,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             
             compare_rows.append({
                 "Vị trí đo (POM Description)": pom,
-                f"Mẫu mới ({new_style_base_size if 'new_style_base_size' in globals() else 'N/A'})": val_new if val_new is not None else "-",
+                f"Mẫu mới ({new_style_base_size})": val_new if val_new is not None else "-",
                 f"Mã cũ ({str(matched_techpack.get('StyleName', 'N/A')).upper() if matched_techpack else 'N/A'})": val_old if val_old is not None else "-",
                 "Chênh lệch (Diff)": display_diff,
                 "Tỷ lệ biến thiên (Diff %)": display_pct
@@ -1801,7 +1858,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     else:
         st.info("💡 Trạng thái: Trống dữ liệu thông số để thực hiện tính toán so sánh đối chiếu.")
 
-    # --- HIỂN THỊ MỞ RỘNG TRƯỜNG DỮ LIỆU BOM CHO AI CONSUMPTION ANALYST ---
+    # --- PHẦN 2: KẾT XUẤT BẢNG ĐỊNH MỨC NGUYÊN VẬT LIỆU (BOM) LỊCH SỬ ---
     if matched_techpack and bom_records:
         st.markdown("<br>📦 **Chi Tiết Định Mức Định Hình Mở Rộng (BOM Lịch Sử Của Mã Đối Chứng):**", unsafe_allow_html=True)
         
@@ -1817,7 +1874,9 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             else:
                 df_bom[col] = ""
 
-        df_bom['style_name'] = df_bom['style_name'].str.upper()
+        # 🛠️ VÁ LỖI CẢI TIẾN: Kiểm tra sự tồn tại của cột style_name trước khi ép chữ hoa
+        if "style_name" in df_bom.columns:
+            df_bom['style_name'] = df_bom['style_name'].str.upper()
         
         df_bom_render = df_bom[target_cols].copy()
         df_bom_render.columns = [
@@ -1826,8 +1885,11 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         ]
         
         st.dataframe(df_bom_render, use_container_width=True, hide_index=True)
+    elif matched_techpack:
+        st.info(f"ℹ️ Hệ thống đã chốt thành công mã rập nhưng chưa tìm thấy dữ liệu định mức BOM lịch sử nào khớp với mã **{str(matched_techpack.get('StyleName', 'N/A')).upper()}** trên cơ sở dữ liệu sản xuất.")
 
     st.markdown("<br><hr style='border:0.5px solid #CBD5E1;'>", unsafe_allow_html=True)
+
 
 
 # =================================================================
