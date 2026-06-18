@@ -1779,15 +1779,13 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             raw_list = []
             is_api_error = False
             
-            # 🚀 ĐÃ CẬP NHẬT: Bổ sung consumption_value và notes khớp hoàn toàn theo ảnh DB thực tế của bạn
             select_columns = "style_name,article_name,fabric_type,color,consumption_type,material_size,uom,consumption_value,notes"
             
             try:
-                # Trích xuất chuỗi ký số đặc trưng dài nhất của mã hàng (Ví dụ: bóc lấy cụm số '490416')
+                # Tìm kiếm bằng chuỗi số lõi dài nhất bóc từ mã đối chứng (Ví dụ: bóc '490416')
                 core_digits = re.findall(r"\d+", target_style_name_bom)
                 search_digits = max(core_digits, key=len) if core_digits else target_style_name_bom
                 
-                # Gọi Supabase quét ilike theo chuỗi số lõi dài nhất của trường style_name
                 query_fallback = {
                     "select": select_columns,
                     "style_name": f"ilike.*{search_digits}*",
@@ -1801,7 +1799,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             except Exception:
                 is_api_error = True
 
-            # Thuật toán chuẩn hóa lọc ngữ nghĩa chính xác bằng Python bẫy ký tự số độc lập
+            # Lọc ngữ nghĩa chính xác bằng Python bẫy ký tự số độc lập
             if raw_list:
                 final_filtered = []
                 clean_target = re.sub(r"[^A-Z0-9]", "", target_style_name_bom.upper())
@@ -1829,13 +1827,12 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             main_fabric_records.append(r)
             
         try:
-            # 🚀 ĐÃ CẬP NHẬT: Lấy chuẩn xác dữ liệu số từ cột consumption_value để cộng dồn ma trận định mức gốc
             raw_val = r.get("consumption_value", 0)
             if raw_val is None: 
                 qty = 0.0
             else:
                 nums = re.findall(r"[-+]?\d*\.\d+|\d+", str(raw_val))
-                qty = float(nums) if nums else 0.0
+                qty = float(nums[0]) if nums else 0.0
         except Exception: 
             qty = 0.0
             
@@ -1865,7 +1862,8 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                 try: return float(v)
                 except ValueError:
                     nums = re.findall(r"[-+]?\d*\.\d+|\d+", str(v))
-                    return float(nums) if nums else None
+                    # 🛠️ VÁ LỖI CỐT LÕI: Lấy phần tử nums[0] thay vì ép kiểu nguyên mảng List
+                    return float(nums[0]) if nums else None
 
             f_new = clean_float(val_new)
             f_old = clean_float(val_old)
@@ -1915,6 +1913,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         st.info(f"ℹ️ Trạng thái: {st.session_state.get('bom_search_status', 'NOT_FOUND')}. Chưa tìm thấy dữ liệu định mức BOM lịch sử nào khớp cho mã này.")
 
     st.markdown("<br><hr style='border:0.5px solid #CBD5E1;'>", unsafe_allow_html=True)
+
 
 
 
