@@ -1472,11 +1472,9 @@ if "matched_techpack" not in st.session_state: st.session_state["matched_techpac
 if "bom_records" not in st.session_state: st.session_state["bom_records"] = []
 if "match_confidence_score" not in st.session_state: st.session_state["match_confidence_score"] = 0
 
-# Đồng bộ hóa chuỗi mô tả từ các nguồn state
 new_vec = str(st.session_state.get("visual_description_str", "") or globals().get("visual_description_str", "") or globals().get("new_style_sketch_vector", "")).strip().upper()
 
 if has_file and st.session_state["matched_techpack"] is None:
-    # 🛠️ CƠ CHẾ TỰ PHỤC HỒI: Nếu chuỗi mô tả kĩ thuật trước đó trống hoặc quá ngắn, ép Gemini tự sinh mô tả từ ảnh ngay tại chỗ
     if len(new_vec) < 30 and target_new_sketch_bytes and client and client.models:
         with st.spinner("🔄 Phát hiện chuỗi đặc trưng rỗng. Đang tự động quét ảnh tái lập Sketch Vector..."):
             try:
@@ -1489,7 +1487,6 @@ if has_file and st.session_state["matched_techpack"] is None:
             except Exception:
                 pass
 
-    # Nếu sau khi tự phục hồi vẫn không có dữ liệu, thực hiện luồng Fallback an toàn thay vì crash sập trang
     if len(new_vec) < 10:
         new_vec = "STANDARD APPAREL STYLE FLAT SKETCH CONSTRUCTION FROM TECHPACK"
 
@@ -1507,11 +1504,9 @@ if has_file and st.session_state["matched_techpack"] is None:
             if raw_styles and client and client.models:
                 valid_styles = [s for s in raw_styles if s.get("StyleName") and s.get("sketch_vector")]
                 
-                # Bước 1: Khóa chặt theo chủng loại sản phẩm (Category Lock Filter)
                 pool = [s for s in valid_styles if str(s.get("Category", "")).strip().upper() == str(new_style_category).strip().upper()] if new_style_category else valid_styles
                 if not pool: pool = valid_styles
 
-                # Bước 2: Bộ lọc giao thoa từ khóa bằng Python kết hợp ưu tiên kích thước cơ sở (BaseSize)
                 new_keywords = set(re.findall(r'[A-Z]{4,}', new_vec))
                 current_base_size = str(new_style_base_size).strip().upper()
                 
@@ -1526,8 +1521,9 @@ if has_file and st.session_state["matched_techpack"] is None:
                         
                     ranked_pool.append((overlap_score, s))
                 
-                ranked_pool.sort(reverse=True, key=lambda x: x)
-                curated_pool = [x for x in ranked_pool[:50]]
+                # 🛠️ ĐÃ SỬA LỖI: Chỉ định rõ ràng mục tiêu sắp xếp theo điểm số vị trí x[0], triệt tiêu lỗi so sánh dictionary
+                ranked_pool.sort(reverse=True, key=lambda x: x[0])
+                curated_pool = [x[1] for x in ranked_pool[:50]]
                 
                 historical_pool_summary = []
                 for idx, s in enumerate(curated_pool):
