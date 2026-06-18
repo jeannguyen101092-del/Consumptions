@@ -1800,7 +1800,6 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     if "bom_search_status" not in st.session_state:
         st.session_state["bom_search_status"] = "NOT_FOUND"
 
-    # Nhận diện luồng dựa trên trạng thái xác thực mã từ Module 1
     if matched_techpack and st.session_state.get("matched_image_verified", False):
         target_style_name_bom = st.session_state.get("matched_style_name", "").strip()
         current_bom_style = st.session_state.get("bom_style_loaded", "")
@@ -1810,9 +1809,8 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             st.session_state["bom_style_loaded"] = target_style_name_bom
             st.session_state["bom_search_status"] = "NOT_FOUND"
 
-        # 🔥 ĐIỂM CHỈNH SỬA 3: Nghe lệnh cờ reload bắt buộc, tự động hạ cờ ngay khi bắt đầu gọi API
         if (not st.session_state.get("bom_records") or st.session_state.get("bom_reload_required", False)) and url_db:
-            st.session_state["bom_reload_required"] = False  # Hạ cờ
+            st.session_state["bom_reload_required"] = False  
             raw_list = []
             is_api_error = False
             select_columns = "style_name,article_name,consumption_type,material_size,uom,consumption_value"
@@ -1846,7 +1844,6 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             else:
                 st.session_state["bom_search_status"] = "API_ERROR" if is_api_error else "NOT_FOUND"
 
-    # BOM Summary Engine kết xuất định mức từ cột dữ liệu số chuẩn
     bom_records = st.session_state.get("bom_records", [])
     main_fabric_records = []
     bom_summary_engine = {}
@@ -1885,12 +1882,14 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             val_old = old_specs.get(pom)
             diff_val, diff_pct = None, None
             
+            # 🔥 ĐÃ SỬA LỖI TYP_ERROR: Trích xuất phần tử nums[0] trước khi chuyển sang dạng float
             def clean_float(v):
                 if v is None: return None
-                try: return float(v)
-                except ValueError:
+                try: 
+                    return float(v)
+                except (ValueError, TypeError):
                     nums = re.findall(r"[-+]?\d*\.\d+|\d+", str(v))
-                    return float(nums) if nums else None
+                    return float(nums[0]) if nums else None
 
             f_new = clean_float(val_new)
             f_old = clean_float(val_old)
@@ -1954,8 +1953,17 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         df_projection = pd.DataFrame(projection_rows)
         st.session_state["ai_projected_consumption_matrix"] = projection_rows
         st.dataframe(df_projection, use_container_width=True, hide_index=True)
+import json
+import re
+import streamlit as st
+import pandas as pd
 
-        # --- PHẦN 2: KẾT XUẤT BẢNG BOM LỊCH SỬ THỰC TẾ ---
+if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption Matrix":
+    matched_techpack = st.session_state.get("matched_techpack")
+    bom_records = st.session_state.get("bom_records", [])
+
+    # --- KẾT XUẤT BẢNG ĐỊNH MỨC NGUYÊN VẬT LIỆU (BOM) LỊCH SỬ THỰC TẾ ---
+    if matched_techpack and st.session_state.get("matched_image_verified", False) and bom_records:
         st.markdown("<br>📦 **Chi Tiết Định Mức Định Hình Mở Rộng (BOM Lịch Sử Của Mã Đối Chứng):**", unsafe_allow_html=True)
         df_bom = pd.DataFrame(bom_records)
         target_cols = ['style_name', 'consumption_type', 'article_name', 'material_size', 'uom', 'consumption_value']
@@ -1968,7 +1976,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
 
         df_bom_render = df_bom[['style_name', 'consumption_type', 'article_name', 'material_size', 'uom']].copy()
         
-        # 🔥 ĐÃ ĐỒNG BỘ: Ánh xạ giá trị số thực từ Supabase đẩy thẳng vào cột Định mức hiển thị
+        # Ánh xạ giá trị số thực từ Supabase đẩy thẳng vào cột Định mức hiển thị
         df_bom_render["Định mức (DM)"] = pd.to_numeric(df_bom["consumption_value"], errors='coerce').fillna(0.0).round(3)
         
         df_bom_render.columns = [
@@ -1976,57 +1984,11 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             "Khổ vải / Chi tiết định mức", "Đơn vị (UOM)", "Định mức (DM)"
         ]
         st.dataframe(df_bom_render, use_container_width=True, hide_index=True)
-
-import json
-import re
-import streamlit as st
-import pandas as pd
-
-if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption Matrix":
-    # Khôi phục dữ liệu từ cấu trúc của Module 1
-    matched_techpack = st.session_state.get("matched_techpack")
-    bom_records = st.session_state.get("bom_records", [])
-
-    # --- PHẦN 2: KẾT XUẤT BẢNG ĐỊNH MỨC NGUYÊN VẬT LIỆU (BOM) LỊCH SỬ THỰC TẾ ---
-    if matched_techpack and bom_records:
-        st.markdown("<br>📦 **Chi Tiết Định Mức Định Hình Mở Rộng (BOM Lịch Sử Của Mã Đối Chứng):**", unsafe_allow_html=True)
-        
-        df_bom = pd.DataFrame(bom_records)
-        
-        # 🔥 ĐÃ SỬA: Thêm cột consumption_value vào danh sách xử lý dữ liệu
-        target_cols = ['style_name', 'consumption_type', 'article_name', 'material_size', 'uom', 'consumption_value']
-        
-        # Làm sạch chuỗi thô từ hệ thống cơ sở dữ liệu Supabase
-        for col in target_cols:
-            if col in df_bom.columns: 
-                df_bom[col] = df_bom[col].astype(str).str.strip().replace(["nan", "none", "null", "NaN", "None"], "")
-            else: 
-                df_bom[col] = "0" if col == "consumption_value" else ""
-
-        if "style_name" in df_bom.columns:
-            df_bom['style_name'] = df_bom['style_name'].str.upper()
-            
-        # Trích xuất dữ liệu và đưa trực tiếp giá trị số chuẩn hóa vào cột hiển thị
-        df_bom_render = df_bom[['style_name', 'consumption_type', 'article_name', 'material_size', 'uom']].copy()
-        
-        # 🔥 ĐÃ SỬA: Ép kiểu dữ liệu số trực tiếp từ cột dữ liệu thực tế trên Supabase thay vì bóc tách chuỗi khổ vải
-        df_bom_render["Định mức (DM)"] = pd.to_numeric(df_bom["consumption_value"], errors='coerce').fillna(0.0).round(3)
-        
-        # Định hình lại tên cột chuẩn 6 thuộc tính hiển thị chính xác
-        df_bom_render.columns = [
-            "Mã hàng đối chứng", 
-            "Phân loại vật tư (Type)", 
-            "Tên vật tư / Mã vải", 
-            "Khổ vải / Chi tiết định mức", 
-            "Đơn vị (UOM)", 
-            "Định mức (DM)"
-        ]
-        
-        st.dataframe(df_bom_render, use_container_width=True, hide_index=True)
         
     elif matched_techpack:
         status_msg = st.session_state.get('bom_search_status', 'NOT_FOUND')
         st.info(f"ℹ Trạng thái: {status_msg}. Chưa tìm thấy dữ liệu định mức BOM lịch sử nào khớp cho mã hàng này.")
+
 
 
 
