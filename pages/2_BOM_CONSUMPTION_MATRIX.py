@@ -1672,29 +1672,63 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
 
     bom_records = st.session_state.get("bom_records", [])
 
-   # 2. LỚP HIỂN THỊ GIAO DIỆN ĐỐI CHIẾU FLAT SKETCH
+  # ==========================================================
+# ==========================================================
+# 🖼️ LỚP HIỂN THỊ GIAO DIỆN ĐỐI CHIẾU FLAT SKETCH (VÁ LỖI TRIGGER & AN TOÀN SỐ)
+# ==========================================================
 st.markdown("### 🖼️ ĐỐI CHIẾU SỰ TƯƠNG ĐỒNG HÌNH ẢNH THIẾT KẾ (FLAT SKETCH)")
+
+matched_techpack = st.session_state.get("matched_techpack", None)
+base_url_api = globals().get("base_url_api", globals().get("SB_URL", ""))
+api_headers = globals().get("api_headers", {})
+
 img_col1, img_col2 = st.columns(2)
 
 with img_col1:
-    if 'target_new_sketch_bytes' in globals() and target_new_sketch_bytes is not None:
+    target_new_sketch_bytes = globals().get("target_new_sketch_bytes", None)
+    new_style_id_detected = globals().get("new_style_id_detected", "N/A")
+    
+    if target_new_sketch_bytes is not None:
         try:
-            st.image(target_new_sketch_bytes, caption=f"Mẫu mới tải lên ({globals().get('new_style_id_detected', 'N/A')})", use_container_width=True)
+            st.image(target_new_sketch_bytes, caption=f"Mẫu mới tải lên ({new_style_id_detected})", use_container_width=True)
         except Exception as e:
             st.warning(f"Lỗi hiển thị ảnh mẫu mới: {e}")
     else:
         st.info("ℹ️ Chưa tải lên tệp ảnh Flat Sketch của mẫu mới.")
 
 with img_col2:
-    if matched_techpack:
-        target_style_name = str(matched_techpack.get("StyleName", "Mẫu tương đồng")).strip().upper()
-        st.markdown(f"<p style='color: #1E3A8A; font-size: 14px; font-weight: 700; margin-bottom: 8px; text-align: center;'>🎯 Mã tương đồng trong kho: {target_style_name}</p>", unsafe_allow_html=True)
+    if matched_techpack is not None:
+        # 1. Đồng bộ mã đối chứng và URL ảnh gốc
+        target_style_name = str(matched_techpack.get("StyleName", "")).strip().upper()
+        st.session_state["matched_style_name"] = target_style_name
+        st.session_state["matched_sketch_url"] = matched_techpack.get("SketchURL") or matched_techpack.get("sketch_url", "")
         
+        # 🔥 ĐIỂM CHỈNH SỬA 1: Bẫy lỗi an toàn cho dữ liệu SimilarityScore dạng chuỗi phức tạp
+        raw_score = matched_techpack.get("SimilarityScore", matched_techpack.get("similarity_score", 0))
+        try:
+            similarity_score = float(str(raw_score).replace("%", "").replace(",", ".").strip())
+        except Exception:
+            similarity_score = 0.0
+        st.session_state["matched_similarity_score"] = similarity_score
+
+        # 🔥 ĐIỂM CHỈNH SỬA 2: Độc lập luồng dữ liệu khỏi ảnh vật lý. Khớp mã = Được phép load BOM
+        if st.session_state.get("bom_style_loaded", "") != target_style_name:
+            st.session_state["matched_image_verified"] = True
+            # 🔥 ĐIỂM CHỈNH SỬA 3: Phát tín hiệu cưỡng bức BOM Engine reload lập tức
+            st.session_state["bom_reload_required"] = True
+
+        st.markdown(f"""
+            <div style='background-color: #EEF2F6; padding: 10px; border-radius: 5px; text-align: center; margin-bottom: 8px;'>
+                <p style='color: #1E3A8A; font-size: 14px; font-weight: 700; margin: 0;'>🎯 Mã tương đồng trong kho: {target_style_name}</p>
+                <p style='color: #10B981; font-size: 13px; font-weight: 600; margin: 4px 0 0 0;'>🤖 Độ tương đồng thiết kế (Vision): {similarity_score}%</p>
+            </div>
+        """, unsafe_allow_html=True)
+        
+        # Luồng tải ảnh minh họa (Thất bại không ảnh hưởng đến logic dữ liệu)
         base_storage_url = f"{base_url_api.rstrip('/')}/storage/v1/object/public/kho_anh" if base_url_api else ""
         img_content_final = None
         
         if base_storage_url:
-            # 🔥 ĐÃ SỬA: Sử dụng quote() để mã hóa an toàn tên mã hàng chứa ký tự đặc biệt (+, -, khoảng trắng) tránh lỗi URL
             safe_style_name = quote(target_style_name)
             safe_style_name_lower = quote(target_style_name.lower())
             
@@ -1710,18 +1744,15 @@ with img_col2:
             
             def fetch_image_worker(url):
                 try:
-                    # Truy cập Cloud Storage với Header bảo mật đồng bộ với hệ thống BOM
                     resp = requests.get(url, headers=api_headers, timeout=5)
                     if resp.status_code == 200 and len(resp.content) > 500:
                         content = resp.content
-                        # Kiểm tra chữ ký byte để chắc chắn là file ảnh thật, tránh file lỗi HTML
                         if content.startswith(b'\xff\xd8') or content.startswith(b'\x89PNG') or b'<!DOCTYPE' not in content[:100]:
                             return content
                 except Exception:
                     pass
                 return None
 
-            # Thực thi đa luồng tải ảnh tốc độ cao bảo vệ UI Streamlit
             with ThreadPoolExecutor(max_workers=6) as executor:
                 results = executor.map(fetch_image_worker, url_options)
                 for res in results:
@@ -1733,19 +1764,19 @@ with img_col2:
             try:
                 st.image(img_content_final, caption=f"Ảnh bản vẽ gốc của mã {target_style_name}", use_container_width=True)
             except Exception:
-                st.warning("⚠️ Không thể kết xuất tệp đồ họa do lỗi định dạng cấu trúc nhị phân.")
+                st.warning("⚠️ Lỗi hiển thị tệp đồ họa.")
         else:
-            # Luồng dự phòng nếu không tìm thấy ảnh đặt tên theo StyleName
-            db_stored_url = matched_techpack.get("SketchURL") or matched_techpack.get("sketch_url", "")
+            db_stored_url = st.session_state["matched_sketch_url"]
             if db_stored_url and "public/kho_anh" not in str(db_stored_url):
                 try:
                     st.image(db_stored_url, caption=f"Ảnh bản vẽ gốc mã {target_style_name} (Direct Link)", use_container_width=True)
                 except Exception:
-                    st.info("⚠️ Không có ảnh vật lý nào khớp trên Cloud Storage.")
+                    st.info("⚠️ Không tải được ảnh từ Direct Link.")
             else:
-                st.info("⚠️ Không tìm thấy tệp ảnh vật lý nào của mã này trên Cloud Storage.")
+                st.info("ℹ️ Lưu ý: Mã hàng đã khớp. Không tìm thấy ảnh minh họa trong kho.")
     else:
-        st.warning("⚠️ KHÔNG TÌM THẤY MÃ TƯƠNG ĐỒNG TRONG KHO!")
+        st.session_state["matched_image_verified"] = False
+        st.warning("⚠️ CHƯA KHỚP ĐƯỢC MÃ TƯƠNG ĐỒNG! Vui lòng nạp file Techpack tại menu Upload.")
 
 
 import json
@@ -1755,7 +1786,6 @@ import streamlit as st
 import pandas as pd
 
 if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption Matrix":
-    # 1. Khôi phục an toàn các biến hệ thống từ môi trường toàn cục
     matched_techpack = st.session_state.get("matched_techpack")
     new_style_measurements_dict = globals().get("new_style_measurements_dict", {})
     new_style_base_size = globals().get("new_style_base_size", "N/A")
@@ -1770,9 +1800,9 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     if "bom_search_status" not in st.session_state:
         st.session_state["bom_search_status"] = "NOT_FOUND"
 
-    # 2. Cơ chế Reset trạng thái chủ động khi đổi mã đối chứng mới
-    if matched_techpack:
-        target_style_name_bom = str(matched_techpack.get("StyleName", "")).strip()
+    # Nhận diện luồng dựa trên trạng thái xác thực mã từ Module 1
+    if matched_techpack and st.session_state.get("matched_image_verified", False):
+        target_style_name_bom = st.session_state.get("matched_style_name", "").strip()
         current_bom_style = st.session_state.get("bom_style_loaded", "")
 
         if current_bom_style != target_style_name_bom:
@@ -1780,12 +1810,11 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             st.session_state["bom_style_loaded"] = target_style_name_bom
             st.session_state["bom_search_status"] = "NOT_FOUND"
 
-        # Thực thi luồng gọi API nếu dữ liệu trống
-        if not st.session_state.get("bom_records") and url_db:
+        # 🔥 ĐIỂM CHỈNH SỬA 3: Nghe lệnh cờ reload bắt buộc, tự động hạ cờ ngay khi bắt đầu gọi API
+        if (not st.session_state.get("bom_records") or st.session_state.get("bom_reload_required", False)) and url_db:
+            st.session_state["bom_reload_required"] = False  # Hạ cờ
             raw_list = []
             is_api_error = False
-            
-            # 🔥 ĐÃ SỬA: Thêm cột consumption_value từ Supabase vào lệnh gọi API
             select_columns = "style_name,article_name,consumption_type,material_size,uom,consumption_value"
             
             try:
@@ -1817,7 +1846,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             else:
                 st.session_state["bom_search_status"] = "API_ERROR" if is_api_error else "NOT_FOUND"
 
-    # 3. Tổng hợp cộng dồn BOM theo nhóm vật tư (BOM Summary Engine)
+    # BOM Summary Engine kết xuất định mức từ cột dữ liệu số chuẩn
     bom_records = st.session_state.get("bom_records", [])
     main_fabric_records = []
     bom_summary_engine = {}
@@ -1829,7 +1858,6 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         if ctype in ["MAIN", "FABRIC", "BODY", "SHELL", "MAIN FABRIC"]:
             main_fabric_records.append(r)
             
-        # 🔥 ĐÃ SỬA: Lấy trực tiếp giá trị số từ cột dữ liệu consumption_value
         try:
             qty = float(r.get("consumption_value", 0.0))
         except (ValueError, TypeError):
@@ -1841,7 +1869,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     st.session_state["main_fabric_records"] = main_fabric_records
     st.session_state["bom_summary_engine"] = bom_summary_engine
 
-    # 4. --- HIỂN THỊ PHẦN 1: TÍNH TOÁN SAI LỆCH THÔNG SỐ CHI TIẾT ---
+    # --- BẢNG SO SÁNH SAI LỆCH THÔNG SỐ RẬP ---
     st.markdown("<br>### 📐 BẢNG SO SÁNH SAI LỆCH THÔNG SỐ KỸ THUẬT RẬP MẪU", unsafe_allow_html=True)
     new_specs = new_style_measurements_dict if new_style_measurements_dict else {}
     old_specs = matched_techpack.get("DetailedMeasurements", {}) if matched_techpack else {}
@@ -1862,7 +1890,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                 try: return float(v)
                 except ValueError:
                     nums = re.findall(r"[-+]?\d*\.\d+|\d+", str(v))
-                    return float(nums[0]) if nums else None
+                    return float(nums) if nums else None
 
             f_new = clean_float(val_new)
             f_old = clean_float(val_old)
@@ -1882,7 +1910,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             compare_rows.append({
                 "Vị trí đo (POM Description)": pom,
                 f"Mẫu mới ({new_style_base_size})": val_new if val_new is not None else "-",
-                f"Mã cũ ({str(matched_techpack.get('StyleName', 'N/A')).upper() if matched_techpack else 'N/A'})": val_old if val_old is not None else "-",
+                f"Mã cũ ({str(st.session_state.get('matched_style_name', 'N/A'))})": val_old if val_old is not None else "-",
                 "Chênh lệch (Diff)": display_diff,
                 "Tỷ lệ biến thiên (Diff %)": display_pct
             })
@@ -1893,12 +1921,12 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         if valid_diff_pcts:
             avg_pom_growth = sum(valid_diff_pcts) / len(valid_diff_pcts)
             avg_area_growth_pct = round((((1 + avg_pom_growth/100) ** 2) - 1) * 100, 2)
-    else:
-        st.info("💡 Trạng thái: Trống dữ liệu thông số để thực hiện tính toán so sánh đối chiếu.")
 
-    # 5. --- HIỂN THỊ PHẦN AI: CONSUMPTION PROJECTION ENGINE ---
-    if matched_techpack and bom_records:
+    # --- AI CONSUMPTION PROJECTION ENGINE ---
+    if matched_techpack and st.session_state.get("matched_image_verified", False) and bom_records:
         st.markdown("<br>🔮 **AI CONSUMPTION PROJECTION ENGINE (DỰ PHÓNG ĐỊNH MỨC MÃ MỚI)**", unsafe_allow_html=True)
+        
+        v_similarity = st.session_state.get("matched_similarity_score", 100.0)
         col1, col2 = st.columns(2)
         with col1:
             shape_factor = st.number_input("Độ biến thiên phom tính toán từ POM (%)", value=float(avg_area_growth_pct), step=0.1)
@@ -1908,8 +1936,10 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         projection_rows = []
         for ctype, old_qty in bom_summary_engine.items():
             if ctype in ["MAIN", "FABRIC", "BODY", "SHELL", "MAIN FABRIC", "LINING", "RIB", "COMBINATION"]:
-                projected_dm = old_qty * (1 + shape_factor / 100) * (1 + wastage_buffer / 100)
-                note = f"Đã áp hệ số Shape Factor {shape_factor}% & Buffer {wastage_buffer}%"
+                similarity_weight = v_similarity / 100.0
+                adjusted_shape_factor = shape_factor * similarity_weight
+                projected_dm = old_qty * (1 + adjusted_shape_factor / 100) * (1 + wastage_buffer / 100)
+                note = f"Trọng số Vision {v_similarity}% -> Shape Factor tinh chỉnh: {round(adjusted_shape_factor, 2)}%"
             else:
                 projected_dm = old_qty * (1 + wastage_buffer / 100)
                 note = f"Phụ liệu tĩnh (Chỉ tính hao hụt {wastage_buffer}%)"
@@ -1924,6 +1954,28 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         df_projection = pd.DataFrame(projection_rows)
         st.session_state["ai_projected_consumption_matrix"] = projection_rows
         st.dataframe(df_projection, use_container_width=True, hide_index=True)
+
+        # --- PHẦN 2: KẾT XUẤT BẢNG BOM LỊCH SỬ THỰC TẾ ---
+        st.markdown("<br>📦 **Chi Tiết Định Mức Định Hình Mở Rộng (BOM Lịch Sử Của Mã Đối Chứng):**", unsafe_allow_html=True)
+        df_bom = pd.DataFrame(bom_records)
+        target_cols = ['style_name', 'consumption_type', 'article_name', 'material_size', 'uom', 'consumption_value']
+        
+        for col in target_cols:
+            if col in df_bom.columns: 
+                df_bom[col] = df_bom[col].astype(str).str.strip().replace(["nan", "none", "null", "NaN", "None"], "")
+            else: 
+                df_bom[col] = "0" if col == "consumption_value" else ""
+
+        df_bom_render = df_bom[['style_name', 'consumption_type', 'article_name', 'material_size', 'uom']].copy()
+        
+        # 🔥 ĐÃ ĐỒNG BỘ: Ánh xạ giá trị số thực từ Supabase đẩy thẳng vào cột Định mức hiển thị
+        df_bom_render["Định mức (DM)"] = pd.to_numeric(df_bom["consumption_value"], errors='coerce').fillna(0.0).round(3)
+        
+        df_bom_render.columns = [
+            "Mã hàng đối chứng", "Phân loại vật tư (Type)", "Tên vật tư / Mã vải", 
+            "Khổ vải / Chi tiết định mức", "Đơn vị (UOM)", "Định mức (DM)"
+        ]
+        st.dataframe(df_bom_render, use_container_width=True, hide_index=True)
 
 import json
 import re
