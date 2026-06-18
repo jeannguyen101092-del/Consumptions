@@ -1821,17 +1821,152 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         compare_rows = []
         all_poms = sorted(list(set(list(new_specs.keys()) + list(old_specs.keys()))))
         
+        for pom in all_poms:if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption Matrix":
+    import json
+    import re
+    import requests
+    import streamlit as st
+
+    # Khôi phục an toàn các biến hệ thống từ môi trường toàn cục
+    matched_techpack = st.session_state.get("matched_techpack")
+    base_sb_url = globals().get("base_sb_url", "")
+    SB_URL = globals().get("SB_URL", "")
+    SB_KEY = globals().get("SB_KEY", "")
+
+    base_url_api = base_sb_url if base_sb_url else (SB_URL if SB_URL else "")
+    api_headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if SB_KEY else {}
+    url_db = f"{base_url_api.rstrip('/')}/rest/v1/san_pham" if base_url_api else ""
+
+    if "bom_search_status" not in st.session_state:
+        st.session_state["bom_search_status"] = "NOT_FOUND"
+
+    # Cơ chế Reset trạng thái chủ động khi phát hiện đổi mã đối chứng mới
+    if matched_techpack:
+        target_style_name_bom = str(matched_techpack.get("StyleName", "")).strip()
+        current_bom_style = st.session_state.get("bom_style_loaded", "")
+
+        if current_bom_style != target_style_name_bom:
+            st.session_state["bom_records"] = []
+            st.session_state["bom_style_loaded"] = target_style_name_bom
+            st.session_state["bom_search_status"] = "NOT_FOUND"
+
+        if not st.session_state.get("bom_records") and url_db:
+            raw_list = []
+            is_api_error = False
+            
+            try:
+                query_exact = {
+                    "select": "style_name,article_name,material_code,fabric_type,supplier,color,consumption_type,material_size,uom,consumption_value,notes",
+                    "style_name": f"eq.{target_style_name_bom}",
+                    "limit": 5000
+                }
+                res_exact = requests.get(url_db, headers=api_headers, params=query_exact, timeout=10)
+                if res_exact.status_code == 200 and len(res_exact.json()) > 0:
+                    raw_list = res_exact.json()
+                elif res_exact.status_code != 200:
+                    is_api_error = True
+            except Exception:
+                is_api_error = True
+                
+            if not raw_list and not is_api_error:
+                try:
+                    core_digits = re.findall(r"\d+", target_style_name_bom)
+                    search_digits = max(core_digits, key=len) if core_digits else target_style_name_bom
+                    
+                    query_fallback = {
+                        "select": "style_name,article_name,material_code,fabric_type,supplier,color,consumption_type,material_size,uom,consumption_value,notes",
+                        "or": f"(style_name.ilike.*{search_digits}*,material_code.ilike.*{search_digits}*)",
+                        "limit": 5000
+                    }
+                    res_fb = requests.get(url_db, headers=api_headers, params=query_fallback, timeout=10)
+                    if res_fb.status_code == 200:
+                        raw_list = res_fb.json()
+                    else:
+                        is_api_error = True
+                except Exception:
+                    is_api_error = True
+
+            # THUẬT TOÁN CHẤM ĐIỂM RANKING CHỐNG LẤY SAI MÃ KHO LỚN
+            if raw_list:
+                final_scored_pool = []
+                clean_target = re.sub(r"[^A-Z0-9]", "", target_style_name_bom.upper())
+                core_digits = re.findall(r"\d+", target_style_name_bom)
+                search_digits = max(core_digits, key=len) if core_digits else target_style_name_bom
+
+                for r in raw_list:
+                    db_style = re.sub(r"[^A-Z0-9]", "", str(r.get("style_name", "")).upper())
+                    db_mat_code = re.sub(r"[^A-Z0-9]", "", str(r.get("material_code", "")).upper())
+                    
+                    score = 0
+                    if clean_target == db_style or clean_target == db_mat_code: score += 100
+                    elif clean_target in db_style or db_style in clean_target: score += 50
+                    elif clean_target in db_mat_code or db_mat_code in clean_target: score += 45
+                    elif search_digits in db_style or search_digits in db_mat_code: score += 30
+                    
+                    if score > 0:
+                        r["match_score_internal"] = score
+                        final_scored_pool.append(r)
+                
+                final_scored_pool.sort(reverse=True, key=lambda x: x.get("match_score_internal", 0))
+                st.session_state["bom_records"] = final_scored_pool
+                st.session_state["bom_search_status"] = "FOUND"
+            else:
+                st.session_state["bom_search_status"] = "API_ERROR" if is_api_error else "NOT_FOUND"
+
+    # CHUẨN HÓA FORMAT VÀ TỔNG HỢP CỘNG DỒN BOM THEO NHÓM VẬT TƯ (BOM SUMMARY ENGINE)
+    bom_records = st.session_state.get("bom_records", [])
+    main_fabric_records = []
+    bom_summary_engine = {}
+
+    for r in bom_records:
+        ctype = str(r.get("consumption_type", "")).strip().upper()
+        if not ctype: ctype = str(r.get("consumption_type", "UNKNOWN")).strip().upper()
+            
+        if ctype in ["MAIN", "FABRIC", "BODY", "SHELL", "MAIN FABRIC"]:
+            main_fabric_records.append(r)
+            
+        try:
+            raw_val = r.get("consumption_value", 0)
+            if raw_val is None: qty = 0.0
+            else:
+                nums = re.findall(r"[-+]?\d*\.\d+|\d+", str(raw_val))
+                qty = float(nums) if nums else 0.0
+        except Exception: qty = 0.0
+            
+        bom_summary_engine[ctype] = round(bom_summary_engine.get(ctype, 0.0) + qty, 3)
+
+    st.session_state["historical_bom_reference"] = bom_records
+    st.session_state["main_fabric_records"] = main_fabric_records
+    st.session_state["bom_summary_engine"] = bom_summary_engine
+if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption Matrix":
+    import pandas as pd
+    import re
+    import streamlit as st
+
+    # Tái khôi phục dữ liệu sạch đã được bọc an toàn từ Part 1
+    matched_techpack = st.session_state.get("matched_techpack")
+    bom_records = st.session_state.get("bom_records", [])
+    new_style_measurements_dict = globals().get("new_style_measurements_dict", {})
+    new_style_base_size = globals().get("new_style_base_size", "N/A")
+
+    # --- PHẦN 1: TÍNH TOÁN SAI LỆCH THÔNG SỐ CHI TIẾT ---
+    st.markdown("<br>### 📐 BẢNG SO SÁNH SAI LỆCH THÔNG SỐ KỸ THUẬT RẬP MẪU", unsafe_allow_html=True)
+    
+    new_specs = new_style_measurements_dict if new_style_measurements_dict else {}
+    old_specs = matched_techpack.get("DetailedMeasurements", {}) if matched_techpack else {}
+    
+    if new_specs or old_specs:
+        compare_rows = []
+        all_poms = sorted(list(set(list(new_specs.keys()) + list(old_specs.keys()))))
+        
         for pom in all_poms:
             val_new = new_specs.get(pom)
             val_old = old_specs.get(pom)
-            
-            diff_val = None
-            diff_pct = None
+            diff_val, diff_pct = None, None
             
             def clean_float(v):
                 if v is None: return None
-                try:
-                    return float(v)
+                try: return float(v)
                 except ValueError:
                     nums = re.findall(r"[-+]?\d*\.\d+|\d+", str(v))
                     return float(nums) if nums else None
@@ -1867,29 +2002,21 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         st.markdown("<br>📦 **Chi Tiết Định Mức Định Hình Mở Rộng (BOM Lịch Sử Của Mã Đối Chứng):**", unsafe_allow_html=True)
         
         df_bom = pd.DataFrame(bom_records)
-        target_cols = [
-            'style_name', 'consumption_type', 'fabric_type', 'material_code', 
-            'article_name', 'supplier', 'color', 'material_size', 'consumption_value', 'uom'
-        ]
+        target_cols = ['style_name', 'consumption_type', 'fabric_type', 'material_code', 'article_name', 'supplier', 'color', 'material_size', 'consumption_value', 'uom']
         
         for col in target_cols:
-            if col in df_bom.columns:
-                df_bom[col] = df_bom[col].astype(str).str.strip().replace(["nan", "none", "null", "NaN", "None"], "")
-            else:
-                df_bom[col] = ""
+            if col in df_bom.columns: df_bom[col] = df_bom[col].astype(str).str.strip().replace(["nan", "none", "null", "NaN", "None"], "")
+            else: df_bom[col] = ""
 
         if "style_name" in df_bom.columns:
             df_bom['style_name'] = df_bom['style_name'].str.upper()
         
         df_bom_render = df_bom[target_cols].copy()
-        df_bom_render.columns = [
-            "Mã hàng đối chứng", "Phân loại vật tư", "Chủng loại vải (Type)", "Mã vật tư (Code)", 
-            "Tên vật tư (Article)", "Nhà cung cấp", "Màu sắc", "Khổ / Cỡ vật tư", "Định mức gốc", "Đơn vị (UOM)"
-        ]
+        df_bom_render.columns = ["Mã hàng đối chứng", "Phân loại vật tư", "Chủng loại vải (Type)", "Mã vật tư (Code)", "Tên vật tư (Article)", "Nhà cung cấp", "Màu sắc", "Khổ / Cỡ vật tư", "Định mức gốc", "Đơn vị (UOM)"]
         
         st.dataframe(df_bom_render, use_container_width=True, hide_index=True)
     elif matched_techpack:
-        st.info(f"ℹ️ Hệ thống đã chốt thành công mã rập nhưng chưa tìm thấy dữ liệu định mức BOM lịch sử nào khớp với mã **{str(matched_techpack.get('StyleName', 'N/A')).upper()}** trên cơ sở dữ liệu sản xuất.")
+        st.info(f"ℹ️ Trạng thái: {st.session_state.get('bom_search_status', 'NOT_FOUND')}. Chưa tìm thấy dữ liệu định mức BOM lịch sử nào khớp cho mã này.")
 
     st.markdown("<br><hr style='border:0.5px solid #CBD5E1;'>", unsafe_allow_html=True)
 
