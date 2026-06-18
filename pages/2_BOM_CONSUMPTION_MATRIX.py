@@ -1328,49 +1328,177 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         # Thông báo ngầm cho người dùng biết hệ thống đang sử dụng kết quả đã được khóa cố định
         st.caption(f"🔒 Dữ liệu đối chứng đang được cố định theo mã: **{st.session_state['matched_techpack'].get('StyleName', 'N/A').upper()}**")
 
-# =================================================================
-# ĐOẠN 5: HIỂN THỊ SO SÁNH FLAT SKETCH, BẢNG THÔNG SỐ VÀ LỊCH SỬ BOM
-# =================================================================
-
 if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption Matrix":
-    if st.session_state.get("matched_techpack"):
-        try:
-            target_style_name_bom = str(st.session_state["matched_techpack"].get("StyleName", "")).strip()
-            url_bom = f"{SB_URL.rstrip('/')}/rest/v1/san_pham" if 'SB_URL' in globals() else ""
-            
-            query_bom = {
-                "select": "style_name,article_name,consumption_type,material_size,uom,consumption_value,notes",
-                "style_name": f"eq.{target_style_name_bom}"
-            }
-            res_bom = requests.get(url_bom, headers=headers, params=query_bom, timeout=15) if url_bom else None
-            
-            if res_bom and res_bom.status_code == 200 and len(res_bom.json()) > 0:
-                st.session_state["bom_records"] = res_bom.json()
-            else:
-                core_digits = re.findall(r'\d+', target_style_name_bom)
-                search_digits = max(core_digits, key=len) if core_digits else target_style_name_bom
-                
-                query_bom_fb = {
-                    "select": "style_name,article_name,consumption_type,material_size,uom,consumption_value,notes",
-                    "style_name": f"ilike.*{search_digits}*"
-                }
-                res_bom_fb = requests.get(url_bom, headers=headers, params=query_bom_fb, timeout=15) if url_bom else None
-                if res_bom_fb and res_bom_fb.status_code == 200:
-                    raw_list = res_bom_fb.json()
-                    st.session_state["bom_records"] = [r for r in raw_list if search_digits in str(r.get("style_name", ""))]
-                else:
-                    st.session_state["bom_records"] = []
-        except Exception:
-            st.session_state["bom_records"] = []
+    import re
+    from difflib import SequenceMatcher
+    import requests
+    import streamlit as st
 
+    # --- 1. KHỞI TẠO BIẾN CẤU HÌNH TOÀN CỤC AN TOÀN ---
+    SB_URL = globals().get("SB_URL", "")
+    SB_KEY = globals().get("SB_KEY", "")
+    matched_techpack = st.session_state.get("matched_techpack")
+
+    # --- 2. ĐỊNH NGHĨA HÀM TRUY VẤN BOM NÂNG CAO (ĐÃ KHẮC PHỤC 3 LỖI LOGIC) ---
+    # Sửa lỗi 1: Chỉ nhận kiểu dữ liệu chuỗi (String) để Streamlit Hash Cache an toàn
+    @st.cache_data(show_spinner="🔄 Đang truy xuất dữ liệu định mức gốc...", ttl=300)
+    def load_bom_records_cached(target_style_name, supabase_url, sb_key):
+        if not target_style_name or not supabase_url or not sb_key:
+            return []
+            
+        url_bom = f"{supabase_url.rstrip('/')}/rest/v1/san_pham"
+        
+        # Tạo headers cục bộ bên trong hàm cache
+        headers_local = {
+            "apikey": sb_key,
+            "Authorization": f"Bearer {sb_key}"
+        }
+        
+        query_bom = {
+            "select": "style_name,article_name,consumption_type,material_size,uom,consumption_value,notes",
+            "style_name": f"eq.{target_style_name}"
+        }
+        
+        try:
+            # Bước A: Truy vấn khớp chính xác tuyệt đối (Exact Match)
+            res_bom = requests.get(url_bom, headers=headers_local, params=query_bom, timeout=10)
+            if res_bom.status_code == 200 and len(res_bom.json()) > 0:
+                return res_bom.json()
+                
+            # Bước B: Fallback khi không tìm thấy mã chính xác
+            core_digits = re.findall(r'\d+', target_style_name)
+            search_digits = max(core_digits, key=len) if core_digits else target_style_name
+            
+            query_bom_fb = {
+                "select": "style_name,article_name,consumption_type,material_size,uom,consumption_value,notes",
+                "style_name": f"ilike.*{search_digits}*"
+            }
+            res_bom_fb = requests.get(url_bom, headers=headers_local, params=query_bom_fb, timeout=10)
+            
+            if res_bom_fb.status_code == 200:
+                raw_list = res_bom_fb.json()
+                if not raw_list:
+                    return []
+                
+                # Sửa lỗi 3: Lọc bỏ các mã trùng số nhưng sai tiền tố/hậu tố bằng ngưỡng chặn Tương Đồng >= 80%
+                filtered_list = [
+                    r for r in raw_list
+                    if SequenceMatcher(
+                        None,
+                        target_style_name.upper(),
+                        str(r.get("style_name", "")).upper()
+                    ).ratio() >= 0.80
+                ]
+                
+                if not filtered_list:
+                    return []
+                
+                # Sắp xếp danh sách đã lọc theo điểm số từ cao xuống thấp
+                ranked = sorted(
+                    filtered_list,
+                    key=lambda x: SequenceMatcher(
+                        None, 
+                        target_style_name.upper(), 
+                        str(x.get("style_name", "")).upper()
+                    ).ratio(),
+                    reverse=True
+                )
+                
+                # Sửa lỗi 2: Cô lập dữ liệu, chỉ bóc tách BOM của duy nhất một mã có độ tương đồng cao nhất
+                if ranked:
+                    best_style = ranked[0].get("style_name", "")
+                    return [
+                        r for r in filtered_list
+                        if str(r.get("style_name", "")).upper() == str(best_style).upper()
+                    ]
+        except Exception as e:
+            print(f"[BOM Engine Error] {e}")
+        return []
+
+    # --- 3. LUỒNG THỰC THI VÀ ĐỒNG BỘ VÀO SESSION STATE AN TOÀN ---
+    if matched_techpack:
+        target_style_name_bom = str(matched_techpack.get("StyleName", "")).strip().upper()
+        
+        if target_new_sketch_bytes:
+            # Truyền SB_URL và SB_KEY dạng chuỗi nguyên bản vào hàm Cache
+            st.session_state["bom_records"] = load_bom_records_cached(
+                target_style_name_bom, 
+                SB_URL, 
+                SB_KEY
+            )
+        else:
+            st.session_state["bom_records"] = []
+    else:
+        st.session_state["bom_records"] = []
+# =================================================================
+# ĐOẠN 2: LỚP HIỂN THỊ GIAO DIỆN NGƯỜI DÙNG (UI RENDER LAYER) - PRO
+# =================================================================
+
+# --- [VÁ LỖI 2]: ĐƯA HÀM CACHE RA NGOÀI TẤT CẢ CÁC KHỐI BLOCK LAYOUT ---
+@st.cache_data(show_spinner=False, ttl=600)
+def load_storage_image_cached(style_name, supabase_url, sb_key):
+    """
+    Hàm cache tải ảnh từ Cloud Storage Supabase.
+    Sửa lỗi 1: Chỉ nhận String giúp Streamlit hash tham số an toàn tuyệt đối.
+    """
+    if not supabase_url or not sb_key or not style_name:
+        return None
+        
+    auth_headers = {
+        "apikey": sb_key, 
+        "Authorization": f"Bearer {sb_key}"
+    }
+    
+    url_options = [
+        f"{supabase_url.rstrip('/')}/storage/v1/object/public/kho_anh/{style_name}.jpg",
+        f"{supabase_url.rstrip('/')}/storage/v1/object/public/kho_anh/{style_name}.JPG",
+        f"{supabase_url.rstrip('/')}/storage/v1/object/public/kho_anh/{style_name}.jpeg",
+        f"{supabase_url.rstrip('/')}/storage/v1/object/public/kho_anh/{style_name}.png",
+        f"{supabase_url.rstrip('/')}/storage/v1/object/public/kho_anh/{style_name}.PNG",
+        f"{supabase_url.rstrip('/')}/storage/v1/object/public/kho_anh/{style_name.lower()}.jpg"
+    ]
+    
+    for url_opt in url_options:
+        try:
+            img_response = requests.get(url_opt, headers=auth_headers, timeout=5)
+            if img_response.status_code == 200 and len(img_response.content) > 500:
+                content = img_response.content
+                # --- [VÁ LỖI 5]: KIỂM TRA FILE ẢNH CHÍNH XÁC THEO NHỊ PHÂN (JPEG, PNG, GIF) ---
+                if (
+                    content.startswith(b'\xff\xd8') or       # JPEG/JPG
+                    content.startswith(b'\x89PNG\r\n\x1a\n') or # PNG
+                    content.startswith(b'GIF87a') or          # GIF
+                    content.startswith(b'GIF89a')
+                ):
+                    return content
+        except Exception:
+            continue
+    return None
+
+
+# --- KHỐI ĐIỀU KIỆN CHÍNH THỰC THI GIAO DIỆN ---
+if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption Matrix":
+    
+    # Khôi phục an toàn các biến phục vụ giao diện từ hệ thống toàn cục
+    target_new_sketch_bytes = globals().get("target_new_sketch_bytes", None)
+    new_style_id_detected = globals().get("new_style_id_detected", "UNKNOWN")
+    new_style_base_size = globals().get("new_style_base_size", "N/A")
+    new_style_measurements_dict = globals().get("new_style_measurements_dict", {})
+    SB_URL = globals().get("SB_URL", "")
+    SB_KEY = globals().get("SB_KEY", "")
+    
+    # Lấy dữ liệu từ bộ nhớ Session State
     matched_techpack = st.session_state.get("matched_techpack")
     bom_records = st.session_state.get("bom_records", [])
 
+    # -------------------------------------------------------------
+    # PHẦN A: ĐỐI CHIẾU HÌNH ẢNH THIẾT KẾ (FLAT SKETCH)
+    # -------------------------------------------------------------
     st.markdown("### 🖼️ ĐỐI CHIẾU SỰ TƯƠNG ĐỒNG HÌNH ẢNH THIẾT KẾ (FLAT SKETCH)")
     img_col1, img_col2 = st.columns(2)
     
     with img_col1:
-        if target_new_sketch_bytes is not None:
+        if target_new_sketch_bytes:
             try:
                 st.image(
                     target_new_sketch_bytes,
@@ -1378,33 +1506,17 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                     use_container_width=True
                 )
             except Exception as e:
-                st.warning(f"Lỗi hiển thị ảnh: {e}")
+                st.warning(f"Lỗi hiển thị ảnh mẫu mới: {e}")
+        else:
+            st.info("ℹ️ Chưa nạp dữ liệu ảnh nhị phân của mẫu thiết kế mới.")
 
     with img_col2:
         if matched_techpack:
             target_style_name = str(matched_techpack.get("StyleName", "Mẫu tương đồng")).strip().upper()
             st.markdown(f"<p style='color: #1E3A8A; font-size: 13px; font-weight: 700; margin-bottom: 8px; text-align: center;'>🎯 Mã tương đồng trong kho: {target_style_name}</p>", unsafe_allow_html=True)
             
-            auth_headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if 'SB_KEY' in globals() else {}
-            url_options = [
-                f"{SB_URL.rstrip('/')}/storage/v1/object/public/kho_anh/{target_style_name}.jpg" if 'SB_URL' in globals() else "",
-                f"{SB_URL.rstrip('/')}/storage/v1/object/public/kho_anh/{target_style_name}.JPG" if 'SB_URL' in globals() else "",
-                f"{SB_URL.rstrip('/')}/storage/v1/object/public/kho_anh/{target_style_name}.jpeg" if 'SB_URL' in globals() else "",
-                f"{SB_URL.rstrip('/')}/storage/v1/object/public/kho_anh/{target_style_name.lower()}.jpg" if 'SB_URL' in globals() else ""
-            ]
-            
-            img_content_final = None
-            for url_opt in url_options:
-                if not url_opt:
-                    continue
-                try:
-                    img_response = requests.get(url_opt, headers=auth_headers, timeout=8)
-                    if img_response.status_code == 200 and len(img_response.content) > 500:
-                        if img_response.content.startswith(b'\xff\xd8') or b'<!DOCTYPE' not in img_response.content[:100]:
-                            img_content_final = img_response.content
-                            break
-                except Exception:
-                    continue
+            # Gọi hàm tải ảnh đã tối ưu vị trí khai báo và tham số băm cache
+            img_content_final = load_storage_image_cached(target_style_name, SB_URL, SB_KEY)
                     
             if img_content_final:
                 try:
@@ -1423,15 +1535,15 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         else:
             st.warning("⚠️ KHÔNG TÌM THẤY MÃ TƯƠNG ĐỒNG TRONG KHO! Tự động kích hoạt cơ chế tính toán độc lập bằng Vector Hình Học Ngành May.")
 
+    # -------------------------------------------------------------
+    # PHẦN B: SO SÁNH HAI BẢNG THÔNG SỐ KỸ THUẬT RẬP MẪU
+    # -------------------------------------------------------------
     st.markdown("<br>### 📐 SO SÁNH HAI BẢNG THÔNG SỐ KỸ THUẬT RẬP MẪU", unsafe_allow_html=True)
     spec_col1, spec_col2 = st.columns(2)
 
     with spec_col1:
         st.markdown(f"📊 **Bảng 1: Thông số Mẫu mới nạp ({new_style_base_size})**")
-        if new_style_measurements_dict:
-            df_new_spec = pd.DataFrame(list(new_style_measurements_dict.items()), columns=["Vị trí đo (POM Description)", "Thông số mới"])
-        else:
-            df_new_spec = pd.DataFrame(columns=["Vị trí đo (POM Description)", "Thông số mới"])
+        df_new_spec = pd.DataFrame(list(new_style_measurements_dict.items()), columns=["Vị trí đo (POM Description)", "Thông số mới"]) if new_style_measurements_dict else pd.DataFrame(columns=["Vị trí đo (POM Description)", "Thông số mới"])
         st.dataframe(df_new_spec, use_container_width=True, hide_index=True)
         
     with spec_col2:
@@ -1440,30 +1552,46 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             old_size_title = matched_techpack.get("BaseSize", "N/A")
             st.markdown(f"📋 **Bảng 2: Thông số Mã trong kho ({old_style_title}) [SIZE {old_size_title}]**")
             old_specs = matched_techpack.get("DetailedMeasurements", {})
-            if old_specs:
-                df_old_spec = pd.DataFrame(list(old_specs.items()), columns=["Vị trí đo (POM Description)", "Thông số cũ"])
-            else:
-                df_old_spec = pd.DataFrame(columns=["Vị trí đo (POM Description)", "Thông số cũ"])
+            df_old_spec = pd.DataFrame(list(old_specs.items()), columns=["Vị trí đo (POM Description)", "Thông số cũ"]) if old_specs else pd.DataFrame(columns=["Vị trí đo (POM Description)", "Thông số cũ"])
             st.dataframe(df_old_spec, use_container_width=True, hide_index=True)
         else:
             st.markdown("📋 **Bảng 2: Thông số Mã tương đồng trong kho**")
             st.info("💡 Trạng thái: Trống dữ liệu kho. Hệ thống sẵn sàng tính toán diện tích rập mô phỏng tự động.")
 
+    # -------------------------------------------------------------
+    # PHẦN C: CHI TIẾT ĐỊNH MỨC NGUYÊN VẬT LIỆU (BOM) LỊCH SỬ
+    # -------------------------------------------------------------
+    # --- [VÁ LỖI 3]: KIỂM TRA VÀ LỌC ĐỒNG BỘ TRÁNH HIỆN TƯỢNG BOM SAI MÃ ---
+    if matched_techpack and bom_records:
+        current_style = str(matched_techpack.get("StyleName", "")).strip().upper()
+        
+        # Chỉ giữ lại các bản ghi thực sự thuộc về mã tương đồng đang hiển thị
+        bom_records = [
+            r for r in bom_records
+            if str(r.get("style_name", "")).strip().upper() == current_style
+        ]
+
+    # Hiển thị bảng sau khi đã lọc đồng bộ hóa dữ liệu thành công
     if matched_techpack and bom_records:
         st.markdown("<br>📦 **Chi Tiết Định Mức Định Hình (BOM Lịch Sử của Mã hàng cũ):**", unsafe_allow_html=True)
-        formatted_bom = []
-        for r in bom_records:
-            def clean_nan(v): 
-                return "" if (not v or str(v).lower() in ["nan", "none", "null"]) else str(v).strip()
-            formatted_bom.append({
-                "Mã hàng đối chứng": clean_nan(r.get("style_name")).upper(),
-                "Loại nguyên vật liệu": clean_nan(r.get("consumption_type")),
-                "Chi tiết vật tư (Article)": clean_nan(r.get("article_name")),
-                "Khổ / Cỡ vật tư": clean_nan(r.get("material_size")),
-                "Định mức gốc": clean_nan(r.get("consumption_value")),
-                "UOM": clean_nan(r.get("uom"))
-            })
+        
+        def clean_nan(v): 
+            return "" if (not v or str(v).lower() in ["nan", "none", "null"]) else str(v).strip()
+            
+        formatted_bom = [{
+            "Mã hàng đối chứng": clean_nan(r.get("style_name")).upper(),
+            "Loại nguyên vật liệu": clean_nan(r.get("consumption_type")),
+            "Chi tiết vật tư (Article)": clean_nan(r.get("article_name")),
+            "Khổ / Cỡ vật tư": clean_nan(r.get("material_size")),
+            "Định mức gốc": clean_nan(r.get("consumption_value")),
+            "UOM": clean_nan(r.get("uom"))
+        } for r in bom_records]
+        
         st.dataframe(pd.DataFrame(formatted_bom), use_container_width=True, hide_index=True)
+        
+    # --- [VÁ LỖI 4]: BỔ SUNG TRẠNG THÁI THÔNG BÁO KHI TRỐNG DỮ LIỆU BOM ---
+    elif matched_techpack:
+        st.info(f"ℹ️ Hệ thống chưa ghi nhận dữ liệu định mức BOM lịch sử cho mã đối chứng: **{matched_techpack.get('StyleName', 'N/A').upper()}**")
 
     st.markdown("<br><hr style='border:0.5px solid #CBD5E1;'>", unsafe_allow_html=True)
 # =================================================================
