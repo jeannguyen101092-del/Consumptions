@@ -1774,13 +1774,18 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             st.session_state["bom_style_loaded"] = target_style_name_bom
             st.session_state["bom_search_status"] = "NOT_FOUND"
 
+        # Thực thi luồng gọi API nếu dữ liệu trống sau khi kiểm tra/reset mã
         if not st.session_state.get("bom_records") and url_db:
             raw_list = []
             is_api_error = False
             
+            # 🚀 VÁ LỖI CỐT LÕI: Loại bỏ material_code và supplier ra khỏi select string để khít 100% cột thực tế trên Supabase của bạn
+            select_columns = "style_name,article_name,fabric_type,color,consumption_type,material_size,uom,consumption_value,notes"
+            
             try:
+                # Bước A: Tìm kiếm chính xác tuyệt đối bằng toán tử eq
                 query_exact = {
-                    "select": "style_name,article_name,material_code,fabric_type,supplier,color,consumption_type,material_size,uom,consumption_value,notes",
+                    "select": select_columns,
                     "style_name": f"eq.{target_style_name_bom}",
                     "limit": 5000
                 }
@@ -1792,14 +1797,15 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             except Exception:
                 is_api_error = True
                 
+            # Bước B: Nếu tìm chính xác trượt, fallback quét ilike theo chuỗi số lõi dài nhất của trường style_name
             if not raw_list and not is_api_error:
                 try:
                     core_digits = re.findall(r"\d+", target_style_name_bom)
                     search_digits = max(core_digits, key=len) if core_digits else target_style_name_bom
                     
                     query_fallback = {
-                        "select": "style_name,article_name,material_code,fabric_type,supplier,color,consumption_type,material_size,uom,consumption_value,notes",
-                        "or": f"(style_name.ilike.*{search_digits}*,material_code.ilike.*{search_digits}*)",
+                        "select": select_columns,
+                        "style_name": f"ilike.*{search_digits}*",
                         "limit": 5000
                     }
                     res_fb = requests.get(url_db, headers=api_headers, params=query_fallback, timeout=10)
@@ -1810,7 +1816,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                 except Exception:
                     is_api_error = True
 
-            # THUẬT TOÁN CHẤM ĐIỂM RANKING CHỐNG LẤY SAI MÃ KHO LỚN
+            # THUẬT TOÁN CHẤM ĐIỂM RANKING VÀ CHUẨN HÓA LÀM SẠCH CHUỖI
             if raw_list:
                 final_scored_pool = []
                 clean_target = re.sub(r"[^A-Z0-9]", "", target_style_name_bom.upper())
@@ -1819,13 +1825,11 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
 
                 for r in raw_list:
                     db_style = re.sub(r"[^A-Z0-9]", "", str(r.get("style_name", "")).upper())
-                    db_mat_code = re.sub(r"[^A-Z0-9]", "", str(r.get("material_code", "")).upper())
                     
                     score = 0
-                    if clean_target == db_style or clean_target == db_mat_code: score += 100
+                    if clean_target == db_style: score += 100
                     elif clean_target in db_style or db_style in clean_target: score += 50
-                    elif clean_target in db_mat_code or db_mat_code in clean_target: score += 45
-                    elif search_digits in db_style or search_digits in db_mat_code: score += 30
+                    elif search_digits in db_style: score += 30
                     
                     if score > 0:
                         r["match_score_internal"] = score
@@ -1918,7 +1922,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         st.markdown("<br>📦 **Chi Tiết Định Mức Định Hình Mở Rộng (BOM Lịch Sử Của Mã Đối Chứng):**", unsafe_allow_html=True)
         
         df_bom = pd.DataFrame(bom_records)
-        target_cols = ['style_name', 'consumption_type', 'fabric_type', 'material_code', 'article_name', 'supplier', 'color', 'material_size', 'consumption_value', 'uom']
+        target_cols = ['style_name', 'consumption_type', 'fabric_type', 'article_name', 'color', 'material_size', 'consumption_value', 'uom', 'notes']
         
         for col in target_cols:
             if col in df_bom.columns: df_bom[col] = df_bom[col].astype(str).str.strip().replace(["nan", "none", "null", "NaN", "None"], "")
@@ -1928,13 +1932,14 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             df_bom['style_name'] = df_bom['style_name'].str.upper()
         
         df_bom_render = df_bom[target_cols].copy()
-        df_bom_render.columns = ["Mã hàng đối chứng", "Phân loại vật tư", "Chủng loại vải (Type)", "Mã vật tư (Code)", "Tên vật tư (Article)", "Nhà cung cấp", "Màu sắc", "Khổ / Cỡ vật tư", "Định mức gốc", "Đơn vị (UOM)"]
+        df_bom_render.columns = ["Mã hàng đối chứng", "Phân loại vật tư", "Chủng loại vải (Type)", "Tên vật tư / Mã vải (Article)", "Màu sắc", "Khổ / Cỡ vật tư", "Định mức gốc", "Đơn vị (UOM)", "Ghi chú"]
         
         st.dataframe(df_bom_render, use_container_width=True, hide_index=True)
     elif matched_techpack:
         st.info(f"ℹ️ Trạng thái: {st.session_state.get('bom_search_status', 'NOT_FOUND')}. Chưa tìm thấy dữ liệu định mức BOM lịch sử nào khớp cho mã này.")
 
     st.markdown("<br><hr style='border:0.5px solid #CBD5E1;'>", unsafe_allow_html=True)
+
 
 
 
