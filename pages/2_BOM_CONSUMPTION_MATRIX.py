@@ -1872,26 +1872,22 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     old_specs = matched_techpack.get("DetailedMeasurements", {}) if matched_techpack else {}
     avg_area_growth_pct = 0.0
     
-    # 🌟 HÀM CHUẨN HÓA TÊN VỊ TRÍ ĐO (GIÚP CO SÁNH TÊN SẠCH KHÔNG SỐ / KHÔNG KÝ TỰ ĐẶC BIỆT)
+    # 🌟 HÀM CHUẨN HÓA AN TOÀN: Giữ nguyên từ khóa hệ thống, chỉ làm sạch định dạng ký tự
     def normalize_pom_name(name):
         if not name: return ""
-        # 1. Chuyển thành chữ thường
         text = str(name).lower()
-        # 2. Thay thế dấu gạch ngang, gạch dưới, dấu xẹt thành khoảng trắng
-        text = re.sub(r'[-_\/]', ' ', text)
-        # 3. Loại bỏ tiền tố mã số hệ thống ở đầu câu (Ví dụ: "hip 020 ", "leg c02 ", "pkt 023 ")
-        text = re.sub(r'^[a-z]{3}\s*\w*\s*', '', text)
-        # 4. Loại bỏ toàn bộ khoảng trắng thừa
-        text = " ".join(text.split())
+        # 1. Chuyển tất cả dấu gạch ngang, gạch dưới, khoảng trắng lạ thành 1 khoảng trắng đơn duy nhất
+        text = re.sub(r'[-_\/\s]+', ' ', text)
+        # 2. Xóa khoảng trắng thừa ở đầu và cuối chuỗi
+        text = text.strip()
         return text
 
     if new_specs or old_specs:
         compare_rows = []
         valid_diff_pcts = []
         
-        # Bước 1: Xây dựng bản đồ ánh xạ (Mapping Map) từ tên chuẩn hóa sang tên gốc hiển thị
-        # Ưu tiên lấy tên gốc hiển thị trực quan của Mẫu Mới để bảng nhìn đẹp hơn
-        normalized_map = {} # { "low hip width": {"new_key": "HIP-020...", "old_key": "HIP 020..."} }
+        # Bước 1: Xây dựng bản đồ ánh xạ (Mapping Map) từ tên đã chuẩn hóa
+        normalized_map = {} 
         
         for k_new in new_specs.keys():
             norm_k = normalize_pom_name(k_new)
@@ -1909,10 +1905,30 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                 else:
                     normalized_map[norm_k]["old_key"] = k_old
 
-        # Sắp xếp danh sách so sánh theo tên hiển thị công nghiệp
+        # Sắp xếp danh sách so sánh theo bảng chữ cái để dễ nhìn
         sorted_norm_keys = sorted(normalized_map.keys())
 
-        # Vòng lặp quét xử lý dữ liệu theo các cặp đã map chính xác hàng với nhau
+        # Bước 2: Hàm trích xuất số và xử lý chuỗi số an toàn
+        def clean_float(v):
+            if v is None: return None
+            try: 
+                return float(v)
+            except (ValueError, TypeError):
+                # Xử lý các dạng số có phân số như 31 1/2, 16 1/2
+                val_str = str(v).strip()
+                if " " in val_str:
+                    parts = val_str.split()
+                    if len(parts) == 2 and "/" in parts[1]:
+                        try:
+                            whole = float(parts[0])
+                            frac_parts = parts[1].split("/")
+                            frac = float(frac_parts[0]) / float(frac_parts[1])
+                            return whole + frac
+                        except: pass
+                nums = re.findall(r"[-+]?\d*\.\d+|\d+", val_str)
+                return float(nums[0]) if nums else None
+
+        # Bước 3: Duyệt và ghép khớp dữ liệu lên bảng
         for norm_key in sorted_norm_keys:
             mapping = normalized_map[norm_key]
             orig_new_key = mapping["new_key"]
@@ -1923,15 +1939,6 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             val_old = old_specs.get(orig_old_key) if orig_old_key else None
             diff_val, diff_pct = None, None
             
-            # 🔥 ĐÃ SỬA LỖI TYP_ERROR: Trích xuất phần tử nums[0] trước khi chuyển sang dạng float
-            def clean_float(v):
-                if v is None: return None
-                try: 
-                    return float(v)
-                except (ValueError, TypeError):
-                    nums = re.findall(r"[-+]?\d*\.\d+|\d+", str(v))
-                    return float(nums[0]) if nums else None
-
             f_new = clean_float(val_new)
             f_old = clean_float(val_old)
             
@@ -1939,8 +1946,8 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                 diff_val = round(f_new - f_old, 2)
                 if f_old != 0:
                     diff_pct = round((diff_val / f_old) * 100, 2)
-                    # Thực hiện quét kiểm tra từ khóa trên tên đã được chuẩn hóa để tăng độ chính xác
-                    if any(k in norm_key.upper() for k in ["LENGTH", "CHEST", "BUST", "WAIST", "HIP", "WIDTH", "THIGH"]):
+                    # Quét từ khóa vị trí đo cốt lõi để tính tỷ lệ diện tích rập tăng giảm (Area Growth)
+                    if any(k in norm_key for k in ["length", "chest", "bust", "waist", "hip", "width", "thigh", "rise", "crotch"]):
                         valid_diff_pcts.append(diff_pct)
                 else:
                     diff_pct = 0.0
@@ -1964,6 +1971,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             avg_area_growth_pct = round((((1 + avg_pom_growth/100) ** 2) - 1) * 100, 2)
 
 
+
     # --- AI CONSUMPTION PROJECTION ENGINE ---
     if matched_techpack and st.session_state.get("matched_image_verified", False) and bom_records:
         st.markdown("<br>🔮 **AI CONSUMPTION PROJECTION ENGINE (DỰ PHÓNG ĐỊNH MỨC MÃ MỚI)**", unsafe_allow_html=True)
@@ -1972,8 +1980,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         col1, col2 = st.columns(2)
         with col1:
             shape_factor = st.number_input("Độ biến thiên phom tính toán từ POM (%)", value=float(avg_area_growth_pct), step=0.1)
-        with col2:
-            wastage_buffer = st.number_input("Hao hụt sản xuất cấu hình thêm (%)", value=3.0, step=0.5)
+        
 
         projection_rows = []
         for ctype, old_qty in bom_summary_engine.items():
