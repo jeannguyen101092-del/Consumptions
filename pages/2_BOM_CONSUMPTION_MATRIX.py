@@ -2015,6 +2015,10 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     target_new_sketch_bytes = globals().get("target_new_sketch_bytes", None)
     new_style_base_size = globals().get("new_style_base_size", "N/A")
 
+    # Khởi tạo lịch sử chat nếu chưa có
+    if "consumption_chat_history" not in st.session_state:
+        st.session_state["consumption_chat_history"] = []
+
     chat_header_col1, chat_header_col2 = st.columns([3.2, 0.8])
     with chat_header_col1:
         st.markdown("### 💬 TRỢ LÝ AI PHÂN TÍCH ĐỊNH MỨC SẢN XUẤT (HỎI ĐÂU ĐÁP ĐÓ)")
@@ -2027,10 +2031,16 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     chat_container = st.container()
     with chat_container:
         for chat in st.session_state.get("consumption_chat_history", []):
-            with st.chat_message("user"): 
-                st.write(chat["user"])
-            with st.chat_message("assistant"): 
-                st.write(chat["ai"])
+            # Sử dụng .get() phòng hờ dữ liệu lỗi cấu trúc cũ còn sót trong session
+            user_msg = chat.get("user", "")
+            ai_msg = chat.get("ai", "")
+            
+            if user_msg:
+                with st.chat_message("user"): 
+                    st.write(user_msg)
+            if ai_msg:
+                with st.chat_message("assistant"): 
+                    st.write(ai_msg)
                 
     if user_query := st.chat_input("Nhập yêu cầu phân tích (Ví dụ: Tính định mức vải chính khi co rút ngang 5%, dọc 3%)..."):
         with chat_container:
@@ -2051,15 +2061,15 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                     )
                     st.write(ai_reply)
                     
-                    # Đồng bộ hóa lưu kết quả vào lịch sử chat ngay lập tức để tránh lỗi mất tin nhắn khi Re-run
-                    if "consumption_chat_history" not in st.session_state:
-                        st.session_state["consumption_chat_history"] = []
-                    st.session_state["consumption_chat_history"].append({"user": user_query, "ai": ai_reply})
+                    # Đồng bộ hóa lưu kết quả vào lịch sử chat ngay lập tức dưới dạng ép kiểu chuỗi an toàn
+                    st.session_state["consumption_chat_history"].append({
+                        "user": str(user_query), 
+                        "ai": str(ai_reply)
+                    })
                     
         # ✅ THUẬT TOÁN ĐÓNG ĐINH NEO CUỘN: Được viết phẳng hóa hoàn toàn để triệt tiêu lỗi IndentationError
         js_scroll = "<script>var d=window.parent.document; var s=d.querySelectorAll('section.main'); if(s.length>0){s[0].scrollTo({top:s[0].scrollHeight,behavior:'smooth'});}</script>"
         st.components.v1.html(js_scroll, height=0)
-
 
 
 
