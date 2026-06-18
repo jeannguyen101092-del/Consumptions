@@ -1459,6 +1459,45 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     except ImportError:
         types = globals().get("types", None)
 
+    st.markdown('<div class="component-title-box">🧵 INTELLIGENT BOM & CONSUMPTION MATRIX ENGINE</div>', unsafe_allow_html=True)
+    
+    if "matched_techpack" not in st.session_state: st.session_state["matched_techpack"] = None
+    if "bom_records" not in st.session_state: st.session_state["bom_records"] = []
+    if "consumption_chat_history" not in st.session_state: st.session_state["consumption_chat_history"] = []
+    if "previous_uploaded_file_name" not in st.session_state: st.session_state["previous_uploaded_file_name"] = None
+    if "match_confidence_score" not in st.session_state: st.session_state["match_confidence_score"] = 0
+    if "match_reason" not in st.session_state: st.session_state["match_reason"] = ""
+
+    control_col1, control_col2 = st.columns([3.3, 0.7])
+    with control_col1:
+        st.markdown("<p style='font-weight:700; font-size:12px; color:#1E293B;'>📁 INGEST NEW STYLE REPRINTS (PDF/IMAGE)</p>", unsafe_allow_html=True)
+        uploaded_file = st.file_uploader("Upload Techpack file", type=["pdf", "jpg", "jpeg", "png"], key="bom_matrix_uploader", label_visibility="collapsed")
+        if uploaded_file is not None and uploaded_file.name != st.session_state["previous_uploaded_file_name"]:
+            st.session_state["matched_techpack"] = None
+            st.session_state["bom_records"] = []
+            st.session_state["match_confidence_score"] = 0
+            st.session_state["match_reason"] = ""
+            st.session_state["previous_uploaded_file_name"] = uploaded_file.name
+            st.rerun()
+            
+    with control_col2:
+        st.markdown("<p style='font-weight:700; font-size:12px; color:#1E293B;'>🧹 RESET CORE</p>", unsafe_allow_html=True)
+        if st.button("🗑️ PURGE CHAT CACHE", key="purge_cache_matrix_btn", use_container_width=True, type="secondary"):
+            st.session_state["consumption_chat_history"] = []
+            st.session_state["matched_techpack"] = None
+            st.session_state["bom_records"] = []
+            st.session_state["match_confidence_score"] = 0
+            st.session_state["match_reason"] = ""
+            st.session_state["previous_uploaded_file_name"] = None
+            st.success("♻️ MEMORY PURGED - SẴN SÀNG CHO MÃ HÀNG MỚI")
+            st.rerun()
+
+    st.markdown("---")
+    has_file = st.session_state.get("bom_matrix_uploader") is not None or globals().get("has_file", False)
+    if not has_file:
+        st.info("👋 Vui lòng tải lên tệp Techpack hồ sơ thiết kế (PDF/Hình ảnh) ở phía trên để hệ thống bắt đầu quét và lập lịch trình đối soát.")
+        st.stop()
+
     SB_KEY = globals().get("SB_KEY", "")
     base_sb_url = globals().get("base_sb_url", "")
     client = globals().get("client", None)
@@ -1472,19 +1511,11 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             file_buffer = st.session_state["bom_matrix_uploader"]
             file_buffer.seek(0)
             target_new_sketch_bytes = file_buffer.read()
-        except Exception:
-            target_new_sketch_bytes = None
-
-    has_file = target_new_sketch_bytes is not None or st.session_state.get("bom_matrix_uploader") is not None or globals().get("has_file", False)
-
-    if "matched_techpack" not in st.session_state: st.session_state["matched_techpack"] = None
-    if "bom_records" not in st.session_state: st.session_state["bom_records"] = []
-    if "match_confidence_score" not in st.session_state: st.session_state["match_confidence_score"] = 0
-    if "match_reason" not in st.session_state: st.session_state["match_reason"] = ""
+        except Exception: pass
 
     new_vec = str(st.session_state.get("visual_description_str", "") or globals().get("visual_description_str", "") or globals().get("new_style_sketch_vector", "")).strip().upper()
 
-    if has_file and st.session_state["matched_techpack"] is None:
+    if st.session_state["matched_techpack"] is None:
         if len(new_vec) < 30 and target_new_sketch_bytes and client and client.models:
             with st.spinner("🔄 Đang quét ảnh tái lập Sketch Vector..."):
                 try:
@@ -1494,8 +1525,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                     if ocr_res and ocr_res.text:
                         new_vec = str(ocr_res.text).strip().upper()
                         st.session_state["visual_description_str"] = new_vec
-                except Exception:
-                    pass
+                except Exception: pass
 
         if len(new_vec) < 10: new_vec = "STANDARD APPAREL STYLE FLAT SKETCH CONSTRUCTION FROM TECHPACK"
 
@@ -1503,15 +1533,10 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             try:
                 headers_db = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if SB_KEY else {}
                 url_db = f"{base_sb_url.rstrip('/')}/rest/v1/thong_so_techpack" if base_sb_url else ""
-                
-                if url_db:
-                    db_res = requests.get(url_db, headers=headers_db, params={"select": "StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL,sketch_vector", "limit": 1000}, timeout=15)
-                    raw_styles = db_res.json() if db_res.status_code == 200 else []
-                else:
-                    raw_styles = []
+                raw_styles = requests.get(url_db, headers=headers_db, params={"select": "StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL,sketch_vector", "limit": 1000}, timeout=15).json() if url_db else []
                 
                 if raw_styles and client and client.models:
-                    valid_styles = [s for s in raw_styles if s.get("StyleName") and s.get("sketch_vector")]
+                    valid_styles = [s for s in raw_styles if s.get("StyleName") and s.get("sketch_vector") and s.get("DetailedMeasurements")]
                     pool = [s for s in valid_styles if str(s.get("Category", "")).strip().upper() == str(new_style_category).strip().upper()] if new_style_category else valid_styles
                     if not pool: pool = valid_styles
 
@@ -1522,20 +1547,19 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                     for s in pool:
                         cand_words = set(re.findall(r'[A-Z]{4,}', str(s.get("sketch_vector", "")).upper()))
                         overlap_score = len(new_keywords.intersection(cand_words))
-                        cand_base_size = str(s.get("BaseSize", "")).strip().upper()
-                        if current_base_size != "N/A" and cand_base_size == current_base_size: overlap_score += 3  
+                        if current_base_size != "N/A" and str(s.get("BaseSize", "")).strip().upper() == current_base_size: overlap_score += 3  
                         ranked_pool.append((overlap_score, s))
                     
-                    ranked_pool.sort(reverse=True, key=lambda x: x)
-                    top_20_candidates = [x for x in ranked_pool[:20]]
+                    ranked_pool.sort(reverse=True, key=lambda x: x[0])
+                    top_20_candidates = [x[1] for x in ranked_pool[:20]]
                     
                     vision_contents = []
                     if target_new_sketch_bytes:
                         if types and hasattr(types, "Part"):
-                            vision_contents.append(types.Part.from_text(text="Analyze and compare the visual geometry of the new sketch against historical style pictures and size specs."))
+                            vision_contents.append(types.Part.from_text(text="Analyze geometry of new sketch against historical style pictures and size specs."))
                             vision_contents.append(types.Part.from_bytes(data=target_new_sketch_bytes, mime_type='image/jpeg'))
                         else:
-                            vision_contents.append("Analyze and compare the visual geometry of the new sketch against historical style pictures and size specs.")
+                            vision_contents.append("Analyze geometry of new sketch against historical style pictures and size specs.")
                             vision_contents.append({"mime_type": "image/jpeg", "data": target_new_sketch_bytes})
                     
                     historical_pool_summary = []
@@ -1558,12 +1582,10 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                         
                         historical_pool_summary.append({"pool_index": idx, "style_name": s.get("StyleName"), "base_size": s.get("BaseSize", "N/A"), "features": str(s.get("sketch_vector", "")).strip()[:1000], "detailed_measurements": s.get("DetailedMeasurements", {})})
                     
-                    semantic_prompt = f"Cross-examine tech files. Select best index for reference BOM. New size: {new_style_base_size}. New features text: {new_vec}. Candidates Pool: {json.dumps(historical_pool_summary, ensure_ascii=False)}. Return valid JSON ONLY: {{\"selected_pool_index\": 0, \"match_score\": 92, \"reason\": \"Mô tả lý do kĩ thuật\"}}"
+                    semantic_prompt = f"Cross-examine tech files. Select best index for reference BOM. New size: {new_style_base_size}. New features text: {new_vec}. Candidates Pool: {json.dumps(historical_pool_summary, ensure_ascii=False)}. Return valid JSON ONLY: {{\"selected_pool_index\": 0, \"match_score\": 92, \"reason\": \"Mô tả kĩ thuật\"}}"
                     
-                    if types and hasattr(types, "Part"): 
-                        vision_contents.append(types.Part.from_text(text=semantic_prompt))
-                    else: 
-                        vision_contents.append(semantic_prompt)
+                    if types and hasattr(types, "Part"): vision_contents.append(types.Part.from_text(text=semantic_prompt))
+                    else: vision_contents.append(semantic_prompt)
                         
                     res = client.models.generate_content(model='gemini-2.5-flash', contents=vision_contents)
                     json_match = re.search(r'\{[\s\S]*\}', res.text.strip())
@@ -1580,59 +1602,15 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                             st.session_state["match_confidence_score"] = score
                             st.session_state["match_reason"] = reason
                             st.toast(f"🎯 Đã khóa mã đối chứng trực quan: {top_20_candidates[s_idx].get('StyleName')} ({score}%)", icon="🎯")
+                            st.rerun()
                         else:
                             st.session_state["matched_techpack"] = None
                             if score > 0 and score < 65: st.warning(f"⚠️ Điểm số đối soát đạt {score}% (Dưới ngưỡng an toàn 65%). Hủy lệnh khóa tự động.")
-                    else:
-                        st.session_state["matched_techpack"] = None
-            else:
-                st.warning("⚠️ Không thể truy xuất danh sách mã hàng lịch sử từ cơ sở dữ liệu.")
-        except Exception as e:
-            st.sidebar.error(f"Lỗi đối soát VLM hệ thống: {str(e)}")
-
-if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption Matrix":
-    import streamlit as st
-
-    st.markdown('<div class="component-title-box">🧵 INTELLIGENT BOM & CONSUMPTION MATRIX ENGINE</div>', unsafe_allow_html=True)
-    
-    if "matched_techpack" not in st.session_state: st.session_state["matched_techpack"] = None
-    if "bom_records" not in st.session_state: st.session_state["bom_records"] = []
-    if "consumption_chat_history" not in st.session_state: st.session_state["consumption_chat_history"] = []
-    if "previous_uploaded_file_name" not in st.session_state: st.session_state["previous_uploaded_file_name"] = None
-
-    control_col1, control_col2 = st.columns([3.3, 0.7])
-    with control_col1:
-        st.markdown("<p style='font-weight:700; font-size:12px; color:#1E293B;'>📁 INGEST NEW STYLE REPRINTS (PDF/IMAGE)</p>", unsafe_allow_html=True)
-        uploaded_file = st.file_uploader("Upload Techpack file", type=["pdf", "jpg", "jpeg", "png"], key="bom_matrix_uploader", label_visibility="collapsed")
-        
-        if uploaded_file is not None and uploaded_file.name != st.session_state["previous_uploaded_file_name"]:
-            st.session_state["matched_techpack"] = None
-            st.session_state["bom_records"] = []
-            st.session_state["previous_uploaded_file_name"] = uploaded_file.name
-            st.rerun()
-            
-    with control_col2:
-        st.markdown("<p style='font-weight:700; font-size:12px; color:#1E293B;'>🧹 RESET CORE</p>", unsafe_allow_html=True)
-        if st.button("🗑️ PURGE CHAT CACHE", key="purge_cache_matrix_btn", use_container_width=True, type="secondary"):
-            st.session_state["consumption_chat_history"] = []
-            st.session_state["matched_techpack"] = None
-            st.session_state["bom_records"] = []
-            st.session_state["previous_uploaded_file_name"] = None
-            st.success("♻️ MEMORY PURGED - SẴN SÀNG CHO MÃ HÀNG MỚI")
-            st.rerun()
-
-    st.markdown("---")
-
-    has_file = st.session_state.get("bom_matrix_uploader") is not None or globals().get("has_file", False)
-    if not has_file:
-        st.info("👋 Vui lòng tải lên tệp Techpack hồ sơ thiết kế (PDF/Hình ảnh) ở phía trên để hệ thống bắt đầu quét và lập lịch trình đối soát.")
-        st.stop()
-
+                    else: st.session_state["matched_techpack"] = None
+            except Exception as e: st.sidebar.error(f"Lỗi đối soát VLM hệ thống: {str(e)}")
     matched_techpack = st.session_state.get("matched_techpack")
     confidence_score = st.session_state.get("match_confidence_score", 0)
     match_reason = st.session_state.get("match_reason", "")
-    new_style_id_detected = globals().get("new_style_id_detected", "UNKNOWN")
-    new_style_base_size = globals().get("new_style_base_size", "N/A")
 
     if matched_techpack:
         target_style_display_name = str(matched_techpack.get('StyleName', 'N/A')).strip().upper()
@@ -1650,6 +1628,8 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         else:
             st.info(f"📋 **CƠ SỞ ĐỐI SOÁT KIỂM TRA:** Đang áp dụng quy chuẩn kích thước hình học rập mẫu cơ sở: **SIZE 32 / M (Mặc định)**")
         st.warning("⚠️ Trạng thái: Chưa tìm thấy hoặc điểm số đối soát dưới ngưỡng an toàn (65%). Hệ thống sẵn sàng tính toán diện tích rập mô phỏng tự động.")
+
+
 
 # =================================================================
 # ĐOẠN 5B: ĐỒNG BỘ DỮ LIỆU & ĐỐI CHIẾU HÌNH ẢNH (FLAT SKETCH)
