@@ -1872,108 +1872,79 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     old_specs = matched_techpack.get("DetailedMeasurements", {}) if matched_techpack else {}
     avg_area_growth_pct = 0.0
     
-    # 🌟 KHỐI HÀM CƠ SỞ CHUẨN HÓA & KHỬ NHIỄU CẢI TIẾN
+    # Hàm chuẩn hóa làm sạch chuỗi văn bản thô
     def normalize_pom_name(name):
         if not name: return ""
-        # Bước 1: Hạ chữ thường toàn bộ
         text = str(name).lower().strip()
-        
-        # 🌟 BUG 3: Triệt tiêu toàn bộ dấu chấm, dấu phẩy, dấu hai chấm gây nhiễu
         text = re.sub(r"[.,:;]+", "", text)
-        
-        # Bước 2: Loại bỏ tiền tố mã hệ thống đầu dòng (Ví dụ: leg-007, hip-012)
         text = re.sub(r'^[a-z]{2,4}[-_\s]*\d+\s*', '', text)
-        
-        # Bước 3: Khử các hậu tố bổ trợ bổ túc nhưng GIỮ LẠI tuyệt đối length và width
         for noise in ["measurement", "circumference", "position", "level", "straight", "across", "(straight)", "(across)"]:
             text = text.replace(noise, "")
-            
-        # Bước 4: Đồng bộ hóa ký tự phân cách khoảng trắng
         text = re.sub(r'[-_\/\s\(\)]+', ' ', text).strip()
         
-        # Bước 5: Mở rộng từ điển ánh xạ đồng nghĩa (Synonyms)
         synonyms_map = {
-            "ins": "inseam",
-            "insm": "inseam",
-            "inseam length": "inseam",
-            "outseam length": "outseam",
-            "in seam": "inseam",
-            "out seam": "outseam",
-            "blk": "back",
-            "bk": "back",
-            "frt": "front",
-            "fr": "front"
+            "ins": "inseam", "insm": "inseam", "inseam length": "inseam",
+            "outseam length": "outseam", "in seam": "inseam", "out seam": "outseam",
+            "blk": "back", "bk": "back", "frt": "front", "fr": "front"
         }
-        if text in synonyms_map:
-            text = synonyms_map[text]
-            
-        return text
+        return synonyms_map.get(text, text)
 
     if new_specs or old_specs:
         compare_rows = []
         valid_diff_pcts = []
         
-        # Xây dựng bản đồ ánh xạ Gom cụm danh sách Key gốc
-        normalized_map = {} 
-        for k_new in new_specs.keys():
-            norm_k = normalize_pom_name(k_new)
-            if norm_k:
-                if norm_k not in normalized_map:
-                    normalized_map[norm_k] = {"new_keys": [], "old_keys": []}
-                normalized_map[norm_k]["new_keys"].append(k_new)
+        # Tạo danh sách các key thô đã được lọc sạch
+        clean_new_keys = {normalize_pom_name(k): k for k in new_specs.keys() if normalize_pom_name(k)}
+        clean_old_keys = {normalize_pom_name(k): k for k in old_specs.keys() if normalize_pom_name(k)}
+        
+        # 🌟 THUẬT TOÁN ÉP KHỚP MỜ (FUZZY LOGIC) TỰ ĐỘNG KẾT NỐI HÀNG LỆCH TỪ KHÓA
+        matched_pairs = [] # List của tuples: (orig_new_key, orig_old_key, display_name)
+        used_new = set()
+        used_old = set()
+        
+        # Bước 1: Khớp chính xác tuyệt đối các từ khóa sau chuẩn hóa
+        for c_norm, o_key in clean_old_keys.items():
+            if c_norm in clean_new_keys:
+                matched_pairs.append((clean_new_keys[c_norm], o_key, clean_new_keys[c_norm]))
+                used_new.add(clean_new_keys[c_norm])
+                used_old.add(o_key)
+                
+        # Bước 2: Khớp mờ dựa trên từ khóa cốt lõi ngành may nếu hai bên viết lệch cụm từ
+        core_keywords = ["inseam", "outseam", "thigh", "knee", "waist", "hip", "rise", "fly", "pocket", "chest", "bust", "length", "width"]
+        for c_old_norm, o_key in clean_old_keys.items():
+            if o_key in used_old: continue
+            for c_new_norm, n_key in clean_new_keys.items():
+                if n_key in used_new: continue
+                
+                # Nếu hai bên cùng chứa chung một từ khóa cốt lõi (Ví dụ: một bên "leg-007 inseam", một bên "inseam length")
+                for kw in core_keywords:
+                    if kw in c_old_norm and kw in c_new_norm:
+                        # Kiểm tra thêm tính chất Thân trước (Front) / Thân sau (Back) để tránh rủi ro ghép sai vị trí
+                        if ("front" in c_old_norm and "back" in c_new_norm) or ("back" in c_old_norm and "front" in c_new_norm):
+                            continue # Bỏ qua nếu lệch tính chất thân áo/quần
+                            
+                        matched_pairs.append((n_key, o_key, n_key))
+                        used_new.add(n_key)
+                        used_old.add(o_key)
+                        break
+                        
+        # Bước 3: Thu gom các từ khóa mồ côi còn lại của cả 2 bên đưa lên bảng
+        for n_key in new_specs.keys():
+            if n_key not in used_new:
+                matched_pairs.append((n_key, None, n_key))
+        for o_key in old_specs.keys():
+            if o_key not in used_old:
+                matched_pairs.append((None, o_key, o_key))
 
-        for k_old in old_specs.keys():
-            norm_k = normalize_pom_name(k_old)
-            if norm_k:
-                if norm_k not in normalized_map:
-                    normalized_map[norm_k] = {"new_keys": [], "old_keys": []}
-                normalized_map[norm_k]["old_keys"].append(k_old)
-
-        # 🌟 KHỐI DEBUG 1: DIAGNOSTIC NORMALIZED MAP (BẢN ĐỒ ĐỐI CHIẾU KEY TIỀN XỬ LÝ)
-        with st.expander("🔍 DIAGNOSTIC NORMALIZED MAP (BẢN ĐỒ ĐỐI CHIẾU KEY TIỀN XỬ LÝ)"):
-            diagnostic_data = []
-            for norm_key, data in sorted(normalized_map.items()):
-                diagnostic_data.append({
-                    "Từ khóa chuẩn hóa (Normalized)": norm_key,
-                    "Mẫu mới phát hiện (New Keys)": data["new_keys"],
-                    "Mã cũ đối xứng (Old Keys)": data["old_keys"]
-                })
-            st.data_editor(diagnostic_data, use_container_width=True, disabled=True)
-
-        # 🌟 KHỐI DEBUG QÚY GIÁ NHẤT: BẬT MÀN HÌNH CÔ LẬP CÁC KEY LỆCH KHÔNG THỂ KHỚP HÀNG
-        with st.expander("🚨 UNMATCHED POM DETECTOR (BÁO CÁO CÁC VỊ TRÍ ĐO KHÔNG TÌM THẤY CẶP)"):
-            unmatched_count = 0
-            for norm_key, data in sorted(normalized_map.items()):
-                if not data["new_keys"] or not data["old_keys"]:
-                    unmatched_count += 1
-                    st.json({
-                        "Từ khóa chuẩn hóa bị cô đơn": norm_key,
-                        "Danh sách Mẫu mới (New)": data["new_keys"],
-                        "Danh sách Mã cũ (Old)": data["old_keys"]
-                    })
-            if unmatched_count == 0:
-                st.success("🎉 Tuyệt vời! 100% các từ khóa vị trí đo đã tìm thấy cặp đối xứng hoàn hảo.")
-
-        # Hàm bổ trợ bóc tách số hiệu rập phục vụ việc Sắp xếp
-        def extract_numerical_prefix(key_string):
-            match = re.search(r'(\d+)', str(key_string))
-            return int(match.group(1)) if match else 999
-
-        # 🌟 SỬA BUG 1 & BUG 2: HÀM TRÍCH XUẤT SỐ THẬP PHÂN CHUẨN XÁC
+        # Hàm xử lý bóc tách phân số thập phân
         def clean_float(v):
             if v is None: return None
-            
-            # 🌟 BUG 2: Quét bao phủ đệ quy bóc tách mọi trường dữ liệu cấu trúc phức tạp của Techpack
             if isinstance(v, dict):
                 for field in ["Spec", "spec", "Value", "value", "Actual", "actual", "Measurement", "measurement"]:
-                    if field in v:
-                        v = v[field]
-                        break
-                if isinstance(v, dict): return None # Dự phòng nếu vẫn là dict sâu hơn
-                
+                    if field in v: return clean_float(v[field])
+                return None
             val_str = str(v).strip()
             if not val_str or val_str in ["-", "nan", "none"]: return None
-            
             try: 
                 return float(val_str)
             except (ValueError, TypeError):
@@ -1987,54 +1958,38 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                         if base_num:
                             return float(base_num.group(1)) + (float(pure_frac.group(1)) / float(pure_frac.group(2)))
                         return float(pure_frac.group(1)) / float(pure_frac.group(2))
-                
-                # 🌟 BUG 1: Trích xuất chính xác phần tử đầu tiên nums[0] thay vì ép float nguyên mảng List
                 nums = re.findall(r"[-+]?\d*\.\d+|\d+", val_str)
                 return float(nums[0]) if nums else None
 
-        # Bước 3: Duyệt và kết nối dữ liệu toán học lên bảng hiển thị chính
-        for norm_key, keys_dict in sorted(normalized_map.items()):
-            new_keys_list = sorted(keys_dict["new_keys"], key=extract_numerical_prefix)
-            old_keys_list = sorted(keys_dict["old_keys"], key=extract_numerical_prefix)
+        # Bước 4: Tiến hành lặp dữ liệu đối sánh toán học lên bảng giao diện chính
+        for orig_new_key, orig_old_key, display_name in matched_pairs:
+            val_new = new_specs.get(orig_new_key) if orig_new_key else None
+            val_old = old_specs.get(orig_old_key) if orig_old_key else None
             
-            # 🌟 BUG 4: Cảnh báo nếu dính kịch bản lệch pha số lượng phần tử ID rập giữa 2 bên dữ liệu
-            if len(new_keys_list) != len(old_keys_list) and len(new_keys_list) > 0 and len(old_keys_list) > 0:
-                st.warning(f"⚠️ Phát hiện lệch pha số hiệu rập hệ thống tại vị trí đo '{norm_key}' (Mẫu mới có {len(new_keys_list)} key, Mã cũ có {len(old_keys_list)} key).")
+            f_new = clean_float(val_new)
+            f_old = clean_float(val_old)
             
-            max_len = max(len(new_keys_list), len(old_keys_list), 1)
-            
-            for i in range(max_len):
-                orig_new_key = new_keys_list[i] if i < len(new_keys_list) else None
-                orig_old_key = old_keys_list[i] if i < len(old_keys_list) else None
-                
-                val_new = new_specs.get(orig_new_key) if orig_new_key else None
-                val_old = old_specs.get(orig_old_key) if orig_old_key else None
-                
-                f_new = clean_float(val_new)
-                f_old = clean_float(val_old)
-                
-                diff_val, diff_pct = None, None
-                if f_new is not None and f_old is not None:
-                    diff_val = round(f_new - f_old, 3)
-                    if f_old != 0:
-                        diff_pct = round((diff_val / f_old) * 100, 2)
-                        if any(k in norm_key for k in ["length", "chest", "bust", "waist", "hip", "thigh", "rise", "crotch", "inseam", "width"]):
-                            valid_diff_pcts.append(diff_pct)
-                    else:
-                        diff_pct = 0.0
+            diff_val, diff_pct = None, None
+            if f_new is not None and f_old is not None:
+                diff_val = round(f_new - f_old, 3)
+                if f_old != 0:
+                    diff_pct = round((diff_val / f_old) * 100, 2)
+                    norm_lower = display_name.lower()
+                    if any(k in norm_lower for k in ["length", "chest", "bust", "waist", "hip", "thigh", "rise", "crotch", "inseam", "width"]):
+                        valid_diff_pcts.append(diff_pct)
+                else:
+                    diff_pct = 0.0
 
-                display_diff = f"+{diff_val}" if diff_val and diff_val > 0 else (str(diff_val) if diff_val is not None else "-")
-                display_pct = f"+{diff_pct}%" if diff_pct and diff_pct > 0 else (f"{diff_pct}%" if diff_pct is not None else "-")
-                
-                display_name = orig_new_key if orig_new_key else orig_old_key
-                
-                compare_rows.append({
-                    "Vị trí đo (POM Description)": display_name,
-                    f"Mẫu mới ({new_style_base_size})": val_new if val_new is not None else "-",
-                    f"Mã cũ ({str(st.session_state.get('matched_style_name', 'N/A'))})": val_old if val_old is not None else "-",
-                    "Chênh lệch (Diff)": display_diff,
-                    "Tỷ lệ biến thiên (Diff %)": display_pct
-                })
+            display_diff = f"+{diff_val}" if diff_val and diff_val > 0 else (str(diff_val) if diff_val is not None else "-")
+            display_pct = f"+{diff_pct}%" if diff_pct and diff_pct > 0 else (f"{diff_pct}%" if diff_pct is not None else "-")
+            
+            compare_rows.append({
+                "Vị trí đo (POM Description)": display_name,
+                f"Mẫu mới ({new_style_base_size})": val_new if val_new is not None else "-",
+                f"Mã cũ ({str(st.session_state.get('matched_style_name', 'N/A'))})": val_old if val_old is not None else "-",
+                "Chênh lệch (Diff)": display_diff,
+                "Tỷ lệ biến thiên (Diff %)": display_pct
+            })
             
         df_compare_spec = pd.DataFrame(compare_rows)
         st.dataframe(df_compare_spec, use_container_width=True, hide_index=True)
@@ -2042,6 +1997,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         if valid_diff_pcts:
             avg_pom_growth = sum(valid_diff_pcts) / len(valid_diff_pcts)
             avg_area_growth_pct = round((((1 + avg_pom_growth/100) ** 2) - 1) * 100, 2)
+
 
 
 
