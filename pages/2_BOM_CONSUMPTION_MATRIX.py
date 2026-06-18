@@ -1747,6 +1747,11 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     import re
     import requests
     import streamlit as st
+    # 🚀 VÁ LỖI CỐT LÕI: Import fitz ngay tại đây để kích hoạt bộ giải mã PDF sang ảnh JPEG
+    try:
+        import fitz
+    except ImportError:
+        fitz = None
 
     base_sb_url = globals().get("base_sb_url", "")
     SB_URL = globals().get("SB_URL", "")
@@ -1756,23 +1761,27 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     api_headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if SB_KEY else {}
     url_db = f"{base_url_api.rstrip('/')}/rest/v1/san_pham" if base_url_api else ""
 
-    # 🚀 TỰ PHỤC HỒI BIẾN TOÀN CỤC CHỐNG LỖI TRỐNG HÌNH ẢNH VÀ THÔNG SỐ MẪU MỚI DO DISCONNECT SESSION
+    # TỰ PHỤC HỒI BIẾN TOÀN CỤC CHỐNG LỖI TRỐNG HÌNH ẢNH VÀ THÔNG SỐ MẪU MỚI
     target_new_sketch_bytes = globals().get("target_new_sketch_bytes", None)
     if not target_new_sketch_bytes and "bom_matrix_uploader" in st.session_state and st.session_state["bom_matrix_uploader"] is not None:
         try:
             file_buffer = st.session_state["bom_matrix_uploader"]
             file_buffer.seek(0)
             file_bytes = file_buffer.read()
-            if file_buffer.name.lower().endswith(".pdf"):
-                import fitz
+            
+            if file_buffer.name.lower().endswith(".pdf") and fitz is not None:
                 doc = fitz.open(stream=file_bytes, filetype="pdf")
                 if len(doc) > 0:
-                    target_new_sketch_bytes = bytes(doc.get_pixmap(matrix=fitz.Matrix(2, 2)).tobytes("jpeg"))
+                    page = doc[0]
+                    pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
+                    # Ép định dạng ảnh phẳng JPEG chuẩn nhị phân tinh khiết
+                    target_new_sketch_bytes = bytes(pix.tobytes("jpeg"))
                 doc.close()
             else:
                 target_new_sketch_bytes = file_bytes
             globals()["target_new_sketch_bytes"] = target_new_sketch_bytes
-        except Exception: pass
+        except Exception: 
+            target_new_sketch_bytes = None
 
     new_style_measurements_dict = globals().get("new_style_measurements_dict", {})
     if not new_style_measurements_dict and "extracted_specs" in st.session_state:
@@ -1850,6 +1859,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     st.session_state["historical_bom_reference"] = bom_records
     st.session_state["main_fabric_records"] = main_fabric_records
     st.session_state["bom_summary_engine"] = bom_summary_engine
+
 if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption Matrix":
     import pandas as pd
     import re
