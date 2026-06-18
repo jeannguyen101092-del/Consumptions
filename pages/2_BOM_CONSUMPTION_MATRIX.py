@@ -1992,15 +1992,6 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
 
 
 
-
-
-
-
-
-
-
-
-
 # =================================================================
 # ĐOẠN 6: GIAO DIỆN CHAT AI PHÂN TÍCH ĐỊNH MỨC VÀ SCRIPT AUTO-SCROLL
 # =================================================================
@@ -2015,7 +2006,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     target_new_sketch_bytes = globals().get("target_new_sketch_bytes", None)
     new_style_base_size = globals().get("new_style_base_size", "N/A")
 
-    # Khởi tạo lịch sử chat nếu chưa có
+    # Đảm bảo khởi tạo danh sách lịch sử chat trong Session State để tránh lỗi dữ liệu trống
     if "consumption_chat_history" not in st.session_state:
         st.session_state["consumption_chat_history"] = []
 
@@ -2030,8 +2021,8 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
 
     chat_container = st.container()
     with chat_container:
+        # Sử dụng .get() để lấy dữ liệu an toàn, chống sập KeyError tuyệt đối
         for chat in st.session_state.get("consumption_chat_history", []):
-            # Sử dụng .get() phòng hờ dữ liệu lỗi cấu trúc cũ còn sót trong session
             user_msg = chat.get("user", "")
             ai_msg = chat.get("ai", "")
             
@@ -2049,27 +2040,39 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                 
             with st.chat_message("assistant"):
                 with st.spinner("🤖 AI đang phân tích dữ liệu và tính toán định mức..."):
-                    # Thực thi gọi bộ não phân tích tiêu hao, nạp trọn vẹn bom_records lịch sử
-                    ai_reply = ai_consumption_analyst_engine(
-                        client=client,
-                        user_message=user_query,
-                        matched_techpack=matched_techpack,
-                        bom_records=bom_records,
-                        new_style_measurements=new_style_measurements_dict,
-                        target_new_sketch_bytes=target_new_sketch_bytes,
-                        detected_size=new_style_base_size
-                    )
-                    st.write(ai_reply)
+                    try:
+                        # Thực thi gọi bộ não phân tích tiêu hao, nạp trọn vẹn bom_records lịch sử
+                        ai_reply = ai_consumption_analyst_engine(
+                            client=client,
+                            user_message=user_query,
+                            matched_techpack=matched_techpack,
+                            bom_records=bom_records,
+                            new_style_measurements=new_style_measurements_dict,
+                            target_new_sketch_bytes=target_new_sketch_bytes,
+                            detected_size=new_style_base_size
+                        )
+                        # Ép kiểu dữ liệu chuỗi văn bản sạch sẽ đề phòng lỗi định dạng Object từ API
+                        ai_reply_str = str(ai_reply) if ai_reply else "Không nhận được phản hồi hợp lệ từ AI."
+                    except Exception as e:
+                        # Bắt kịch bản lỗi mạng, API timeout hoặc sập hàm tính toán ngầm
+                        ai_reply_str = f"❌ Hệ thống gặp sự cố khi xử lý dữ liệu: {str(e)}"
                     
-                    # Đồng bộ hóa lưu kết quả vào lịch sử chat ngay lập tức dưới dạng ép kiểu chuỗi an toàn
+                    # Hiển thị câu trả lời lên giao diện người dùng
+                    st.write(ai_reply_str)
+                    
+                    # Đồng bộ hóa lưu kết quả vào lịch sử chat ngay lập tức với cấu trúc khóa (key) chuẩn xác
+                    if "consumption_chat_history" not in st.session_state:
+                        st.session_state["consumption_chat_history"] = []
+                        
                     st.session_state["consumption_chat_history"].append({
                         "user": str(user_query), 
-                        "ai": str(ai_reply)
+                        "ai": ai_reply_str
                     })
                     
         # ✅ THUẬT TOÁN ĐÓNG ĐINH NEO CUỘN: Được viết phẳng hóa hoàn toàn để triệt tiêu lỗi IndentationError
         js_scroll = "<script>var d=window.parent.document; var s=d.querySelectorAll('section.main'); if(s.length>0){s[0].scrollTo({top:s[0].scrollHeight,behavior:'smooth'});}</script>"
         st.components.v1.html(js_scroll, height=0)
+
 
 
 
