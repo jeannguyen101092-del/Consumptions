@@ -1759,7 +1759,6 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
 
     base_url_api = base_sb_url if base_sb_url else (SB_URL if SB_URL else "")
     api_headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if SB_KEY else {}
-    
     url_db = f"{base_url_api.rstrip('/')}/rest/v1/san_pham" if base_url_api else ""
 
     # Cơ chế Reset trạng thái chủ động khi phát hiện đổi mã đối chứng mới
@@ -1773,8 +1772,6 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
 
         # Thực thi luồng gọi API nếu dữ liệu trống sau khi kiểm tra/reset mã
         if not st.session_state.get("bom_records") and url_db:
-            
-            # LUỒNG TRUY VẤN PHÂN TẦNG ĐA DIỆN (EXACT MATCH ➔ TOÀN BỘ BẢNG ➔ REGEX PYTHON FILTER)
             try:
                 # Bước A: Tìm kiếm chính xác tuyệt đối bằng toán tử eq
                 query_exact = {
@@ -1787,13 +1784,12 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             except Exception:
                 pass
                 
-            # 🚀 NÂNG CẤP ĐỘT PHÁ BƯỚC B: Nếu tìm chính xác trượt, tải diện rộng dữ liệu thô và dùng RegEx của Python để tự lọc sạch dấu cách ngầm
+            # Bước B: Nếu tìm chính xác trượt, tải diện rộng dữ liệu thô và dùng RegEx của Python để tự lọc sạch dấu cách ngầm
             if not st.session_state.get("bom_records"):
                 try:
                     core_digits = re.findall(r"\d+", target_style_name_bom)
                     search_digits = max(core_digits, key=len) if core_digits else target_style_name_bom
                     
-                    # Gọi Supabase lấy cụm dữ liệu tương đối dựa trên ký tự số lõi dài nhất
                     query_fallback = {
                         "select": "style_name,article_name,material_code,fabric_type,supplier,color,consumption_type,material_size,uom,consumption_value,notes",
                         "style_name": f"ilike.*{search_digits}*"
@@ -1802,7 +1798,6 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                     if res_fb.status_code == 200:
                         raw_list = res_fb.json()
                         
-                        # Sử dụng re.search() bẫy ký tự số độc lập, kết hợp ép .strip() loại bỏ 100% khoảng trắng ngầm của DB
                         final_filtered = []
                         for r in raw_list:
                             db_style = str(r.get("style_name", "")).strip().upper()
@@ -1813,6 +1808,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                 except Exception:
                     pass
 
+    # 🚀 NỐI LUỒNG DỮ LIỆU: Đảm bảo biến bom_records luôn được rào sạch và cập nhật liên tục vào Session State
     bom_records = st.session_state.get("bom_records", [])
 
     # --- PHẦN 1: TÍNH TOÁN SAI LỆCH THÔNG SỐ CHI TIẾT ---
@@ -1838,7 +1834,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                     return float(v)
                 except ValueError:
                     nums = re.findall(r"[-+]?\d*\.\d+|\d+", str(v))
-                    return float(nums[0]) if nums else None
+                    return float(nums) if nums else None
 
             f_new = clean_float(val_new)
             f_old = clean_float(val_old)
@@ -1904,6 +1900,17 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
 # ĐOẠN 6: GIAO DIỆN CHAT AI PHÂN TÍCH ĐỊNH MỨC VÀ SCRIPT AUTO-SCROLL
 # =================================================================
 
+   if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption Matrix":
+    import streamlit as st
+
+    # Khôi phục an toàn các biến ngữ cảnh phục vụ tính toán từ môi trường toàn cục
+    client = globals().get("client", None)
+    matched_techpack = st.session_state.get("matched_techpack", None)
+    bom_records = st.session_state.get("bom_records", [])
+    new_style_measurements_dict = globals().get("new_style_measurements_dict", {})
+    target_new_sketch_bytes = globals().get("target_new_sketch_bytes", None)
+    new_style_base_size = globals().get("new_style_base_size", "N/A")
+
     chat_header_col1, chat_header_col2 = st.columns([3.2, 0.8])
     with chat_header_col1:
         st.markdown("### 💬 TRỢ LÝ AI PHÂN TÍCH ĐỊNH MỨC SẢN XUẤT (HỎI ĐÂU ĐÁP ĐÓ)")
@@ -1911,6 +1918,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         if st.button("🗑️ XÓA LỊCH SỬ CHAT", key="direct_clear_chat_btn", use_container_width=True):
             st.session_state["consumption_chat_history"] = []
             st.toast("♻️ Đã xóa sạch lịch sử chat tức thì!")
+            st.rerun()
 
     chat_container = st.container()
     with chat_container:
@@ -1927,6 +1935,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                 
             with st.chat_message("assistant"):
                 with st.spinner("🤖 AI đang phân tích dữ liệu và tính toán định mức..."):
+                    # Thực thi gọi bộ não phân tích tiêu hao, nạp trọn vẹn bom_records lịch sử
                     ai_reply = ai_consumption_analyst_engine(
                         client=client,
                         user_message=user_query,
@@ -1937,6 +1946,11 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                         detected_size=new_style_base_size
                     )
                     st.write(ai_reply)
+                    
+                    # Đồng bộ hóa lưu kết quả vào lịch sử chat ngay lập tức để tránh lỗi mất tin nhắn khi Re-run
+                    if "consumption_chat_history" not in st.session_state:
+                        st.session_state["consumption_chat_history"] = []
+                    st.session_state["consumption_chat_history"].append({"user": user_query, "ai": ai_reply})
                     
         # ✅ THUẬT TOÁN ĐÓNG ĐINH NEO CUỘN: Ép trình duyệt tự động scroll lướt màn hình xuống vị trí tin nhắn cuối cùng
         st.components.v1.html(
@@ -1951,6 +1965,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             """,
             height=0,
         )
+
 
 
 
