@@ -1917,7 +1917,7 @@ st.markdown("### 🖼️ ĐỐI CHIẾU SỰ TƯƠNG ĐỒNG HÌNH ẢNH THIẾT
 img_col1, img_col2 = st.columns(2)
 
 with img_col1:
-    if target_new_sketch_bytes is not None:
+    if "target_new_sketch_bytes" in globals() and target_new_sketch_bytes is not None:
         try:
             if hasattr(target_new_sketch_bytes, "seek"):
                 target_new_sketch_bytes.seek(0)
@@ -1950,17 +1950,11 @@ with img_col2:
             if not st.session_state.get("bom_reload_required", False):
                 st.session_state["bom_reload_required"] = True
 
-        st.markdown(
-            f"""
-            <div style='background-color: #EEF2F6; padding: 10px; border-radius: 5px; text-align: center; margin-bottom: 8px;'>
-                <p style='color: #1E3A8A; font-size: 14px; font-weight: 700; margin: 0;'>🎯 Mã tương đồng trong kho: {target_style_name}</p>
-                <p style='color: #10B981; font-size: 13px; font-weight: 600; margin: 4px 0 0 0;'>🤖 Độ tương đồng thiết kế (Vision): {similarity_score}%</p>
-            </div>
-        """,
-            unsafe_allow_html=True,
-        )
+        # 🛠️ VÁ LỖI CỐT LÕI: Chuyển đổi mã HTML thông tin đối chứng sang Widget native để hết lỗi cú pháp
+        st.info(f"🎯 Mã tương đồng trong kho: {target_style_name}")
+        st.metric(label="🤖 Độ tương đồng thiết kế (Vision)", value=f"{similarity_score}%")
         
-        base_storage_url = f"{base_url_api.rstrip('/')}/storage/v1/object/public/kho_anh" if base_url_api else ""
+        base_storage_url = f"{base_url_api.rstrip('/')}/storage/v1/object/public/kho_anh" if "base_url_api" in globals() and base_url_api else ""
         img_content_final = None
         
         if base_storage_url:
