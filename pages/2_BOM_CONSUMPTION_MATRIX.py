@@ -1467,6 +1467,8 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     if "previous_uploaded_file_name" not in st.session_state: st.session_state["previous_uploaded_file_name"] = None
     if "match_confidence_score" not in st.session_state: st.session_state["match_confidence_score"] = 0
     if "match_reason" not in st.session_state: st.session_state["match_reason"] = ""
+    # BỔ SUNG: Khởi tạo biến lưu loại trang phục nhận diện được
+    if "detected_garment_type" not in st.session_state: st.session_state["detected_garment_type"] = "UNKNOWN"
 
     control_col1, control_col2 = st.columns([3.3, 0.7])
     with control_col1:
@@ -1477,6 +1479,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             st.session_state["bom_records"] = []
             st.session_state["match_confidence_score"] = 0
             st.session_state["match_reason"] = ""
+            st.session_state["detected_garment_type"] = "UNKNOWN"
             st.session_state["previous_uploaded_file_name"] = uploaded_file.name
             st.rerun()
             
@@ -1488,6 +1491,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             st.session_state["bom_records"] = []
             st.session_state["match_confidence_score"] = 0
             st.session_state["match_reason"] = ""
+            st.session_state["detected_garment_type"] = "UNKNOWN"
             st.session_state["previous_uploaded_file_name"] = None
             st.success("♻️ MEMORY PURGED - SẴN SÀNG CHO MÃ HÀNG MỚI")
             st.rerun()
@@ -1505,10 +1509,13 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     new_style_id_detected = globals().get("new_style_id_detected", "UNKNOWN")
     new_style_base_size = globals().get("new_style_base_size", "N/A")
 
+    # Xác định động MIME Type từ file upload thực tế thay vì fix cứng image/jpeg
+    detected_mime_type = "image/jpeg"
     target_new_sketch_bytes = globals().get("target_new_sketch_bytes", None)
     if not target_new_sketch_bytes and "bom_matrix_uploader" in st.session_state and st.session_state["bom_matrix_uploader"] is not None:
         try:
             file_buffer = st.session_state["bom_matrix_uploader"]
+            detected_mime_type = getattr(file_buffer, "type", "image/jpeg")
             file_buffer.seek(0)
             target_new_sketch_bytes = file_buffer.read()
         except Exception: pass
@@ -1519,17 +1526,42 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         if len(new_vec) < 30 and target_new_sketch_bytes and client and client.models:
             with st.spinner("🔄 Đang quét ảnh tái lập Sketch Vector..."):
                 try:
-                    ocr_prompt = "Analyze this apparel flat sketch and generate a detailed structural text description focusing strictly on internal construction details: waistband type (elastic/rigid), pocket placement/types, zipper fly presence, seams, cuffs, and silhouette."
-                    ocr_contents = [types.Part.from_text(text=ocr_prompt), types.Part.from_bytes(data=target_new_sketch_bytes, mime_type='image/jpeg')] if types and hasattr(types, "Part") else [ocr_prompt, {"mime_type": "image/jpeg", "data": target_new_sketch_bytes}]
+                    # SỬA ĐỔI 1: Cấu trúc Prompt ép Gemini phân tách Garment Type rõ ràng
+                    ocr_prompt = """
+                    Analyze this apparel flat sketch.
+
+                    Identify:
+                    1. Garment Type (e.g., PANT, SHORT, JACKET, SHIRT, DRESS, SKIRT, VEST)
+                    2. Structural Features
+
+                    Return format exactly like this:
+
+                    GARMENT_TYPE: PANT
+
+                    FEATURES:
+                    ELASTIC WAISTBAND
+                    ZIPPER FLY
+                    SIDE POCKET
+                    """
+                    ocr_contents = [types.Part.from_text(text=ocr_prompt), types.Part.from_bytes(data=target_new_sketch_bytes, mime_type=detected_mime_type)] if types and hasattr(types, "Part") else [ocr_prompt, {"mime_type": detected_mime_type, "data": target_new_sketch_bytes}]
                     ocr_res = client.models.generate_content(model='gemini-2.5-flash', contents=ocr_contents)
                     if ocr_res and ocr_res.text:
                         new_vec = str(ocr_res.text).strip().upper()
                         st.session_state["visual_description_str"] = new_vec
+                        
+                        # SỬA ĐỔI 3: Trích xuất loại trang phục để phục vụ màng lọc cứng (Hard Filter)
+                        type_match = re.search(r"GARMENT_TYPE:\s*([A-Z_\-]+)", new_vec)
+                        if type_match:
+                            st.session_state["detected_garment_type"] = type_match.group(1).strip()
+                        else:
+                            st.session_state["detected_garment_type"] = "UNKNOWN"
                 except Exception: pass
 
-        if len(new_vec) < 10: new_vec = "STANDARD APPAREL STYLE FLAT SKETCH CONSTRUCTION FROM TECHPACK"
-
-        with st.spinner("🧠 Mắt thần VLM đang so sánh trực quan ảnh và thông số kỹ thuật..."):
+        # SỬA ĐỔI 2: Loại bỏ Fallback nguy hiểm, kích hoạt Hard Stop khi lỗi đọc file/ảnh mờ
+        if len(new_vec) < 10 or st.session_state["detected_garment_type"] == "UNKNOWN":
+            st.error("🚨 Không nhận diện được cấu trúc Sketch hoặc Loại trang phục từ Techpack.")
+            st.stop()
+with st.spinner("🧠 Mắt thần VLM đang so sánh trực quan ảnh và thông số kỹ thuật..."):
             try:
                 headers_db = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if SB_KEY else {}
                 url_db = f"{base_sb_url.rstrip('/')}/rest/v1/thong_so_techpack" if base_sb_url else ""
@@ -1537,7 +1569,24 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                 
                 if raw_styles and client and client.models:
                     valid_styles = [s for s in raw_styles if s.get("StyleName") and s.get("sketch_vector") and s.get("DetailedMeasurements")]
-                    pool = [s for s in valid_styles if str(s.get("Category", "")).strip().upper() == str(new_style_category).strip().upper()] if new_style_category else valid_styles
+                    
+                    # BỔ SUNG & SỬA ĐỔI: Tích hợp màng lọc cứng song song (Vision Type từ bước trước & Category từ Upstream)
+                    vision_type = str(st.session_state.get("detected_garment_type", "UNKNOWN")).strip().upper()
+                    
+                    pool = []
+                    for s in valid_styles:
+                        cand_cat = str(s.get("Category", "")).strip().upper()
+                        
+                        # Điều kiện 1: Kiểm tra theo Category của upstream chèn vào nếu có
+                        if new_style_category and cand_cat != str(new_style_category).strip().upper():
+                            continue
+                            
+                        # Điều kiện 2: Kiểm tra chéo với loại trang phục do Vision quét trực tiếp từ ảnh/PDF ở bước trước
+                        if vision_type != "UNKNOWN" and vision_type not in cand_cat and cand_cat not in vision_type:
+                            continue
+                            
+                        pool.append(s)
+                        
                     if not pool: pool = valid_styles
 
                     new_keywords = set(re.findall(r'[A-Z]{4,}', new_vec))
@@ -1555,12 +1604,14 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                     
                     vision_contents = []
                     if target_new_sketch_bytes:
+                        # ĐỔI: Sử dụng biến động detected_mime_type (được xác định tự động ở khối code phía trên) thay vì fix cứng image/jpeg
+                        current_mime = locals().get("detected_mime_type", "image/jpeg")
                         if types and hasattr(types, "Part"):
-                            vision_contents.append(types.Part.from_text(text="Analyze geometry of new sketch against historical style pictures and size specs."))
-                            vision_contents.append(types.Part.from_bytes(data=target_new_sketch_bytes, mime_type='image/jpeg'))
+                            vision_contents.append(types.Part.from_text(text=f"Analyze geometry of new sketch against historical style pictures and size specs. Target garment category context: {vision_type}"))
+                            vision_contents.append(types.Part.from_bytes(data=target_new_sketch_bytes, mime_type=current_mime))
                         else:
-                            vision_contents.append("Analyze geometry of new sketch against historical style pictures and size specs.")
-                            vision_contents.append({"mime_type": "image/jpeg", "data": target_new_sketch_bytes})
+                            vision_contents.append(f"Analyze geometry of new sketch against historical style pictures and size specs. Target garment category context: {vision_type}")
+                            vision_contents.append({"mime_type": current_mime, "data": target_new_sketch_bytes})
                     
                     historical_pool_summary = []
                     for idx, s in enumerate(top_20_candidates):
@@ -1578,11 +1629,12 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                                 vision_contents.append(types.Part.from_bytes(data=cand_img_bytes, mime_type='image/jpeg'))
                             else:
                                 vision_contents.append(f"Candidate Pool Index: {idx} (Style: {s.get('StyleName')})")
-                                vision_contents.append({"mime_type": "image/jpeg", "data": cand_img_bytes})
+                                vision_contents.append({"mime_type": 'image/jpeg', "data": cand_img_bytes})
                         
                         historical_pool_summary.append({"pool_index": idx, "style_name": s.get("StyleName"), "base_size": s.get("BaseSize", "N/A"), "features": str(s.get("sketch_vector", "")).strip()[:1000], "detailed_measurements": s.get("DetailedMeasurements", {})})
                     
-                    semantic_prompt = f"Cross-examine tech files. Select best index for reference BOM. New size: {new_style_base_size}. New features text: {new_vec}. Candidates Pool: {json.dumps(historical_pool_summary, ensure_ascii=False)}. Return valid JSON ONLY: {{\"selected_pool_index\": 0, \"match_score\": 92, \"reason\": \"Mô tả kĩ thuật\"}}"
+                    # SỬA ĐỔI: Chèn thông tin loại đồ đã được kiểm chứng bằng Vision (vision_type) vào Prompt để định hướng Gemini loại bỏ ứng viên lệch loại
+                    semantic_prompt = f"Cross-examine tech files. Select best index for reference BOM. Confirmed Target Garment Type: {vision_type}. New size: {new_style_base_size}. New features text: {new_vec}. Candidates Pool: {json.dumps(historical_pool_summary, ensure_ascii=False)}. Return valid JSON ONLY: {{\"selected_pool_index\": 0, \"match_score\": 92, \"reason\": \"Mô tả kĩ thuật\"}}"
                     
                     if types and hasattr(types, "Part"): vision_contents.append(types.Part.from_text(text=semantic_prompt))
                     else: vision_contents.append(semantic_prompt)
@@ -1623,13 +1675,13 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             </div>
         """, unsafe_allow_html=True)
     else:
+        # BỔ SUNG THÔNG TIN TRỰC QUAN: Hiển thị rõ loại đồ được khóa để người dùng dễ theo dõi trạng thái
+        v_type_info = f" | Loại trang phục xác thực: **{st.session_state.get('detected_garment_type', 'UNKNOWN')}**"
         if new_style_base_size and new_style_base_size != "32":
-            st.info(f"📋 **CƠ SỞ ĐỐI SOÁT KIỂM TRA:** Mẫu mới số hóa mã hàng `{new_style_id_detected}` | Quy chuẩn kích thước hình học rập mẫu: **SIZE {new_style_base_size}**")
+            st.info(f"📋 **CƠ SỞ ĐỐI SOÁT KIỂM TRA:** Mẫu mới số hóa mã hàng `{new_style_id_detected}`{v_type_info} | Quy chuẩn kích thước hình học rập mẫu: **SIZE {new_style_base_size}**")
         else:
-            st.info(f"📋 **CƠ SỞ ĐỐI SOÁT KIỂM TRA:** Đang áp dụng quy chuẩn kích thước hình học rập mẫu cơ sở: **SIZE 32 / M (Mặc định)**")
+            st.info(f"📋 **CƠ SỞ ĐỐI SOÁT KIỂM TRA:** Mẫu mới số hóa mã hàng `{new_style_id_detected}`{v_type_info} | Đang áp dụng quy chuẩn kích thước hình học rập mẫu cơ sở: **SIZE 32 / M (Mặc định)**")
         st.warning("⚠️ Trạng thái: Chưa tìm thấy hoặc điểm số đối soát dưới ngưỡng an toàn (65%). Hệ thống sẵn sàng tính toán diện tích rập mô phỏng tự động.")
-
-
 
 if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption Matrix":
     import pandas as pd
