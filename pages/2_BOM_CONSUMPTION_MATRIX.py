@@ -1757,78 +1757,17 @@ with st.spinner("🧠 Mắt thần VLM đang so sánh trực quan ảnh và thô
                     "features": str(s.get("sketch_vector", "")).strip()[:800], 
                     "detailed_measurements": s.get("DetailedMeasurements", {})
                 })
+            
+            # 🌟 CHẠY LIÊN KẾT AN TOÀN: Gọi hàm Đoạn 2C xử lý AI không sợ lỗi IndentationError
+            execute_vlm_semantic_matching(
+                top_candidates, vision_contents, historical_pool_summary, 
+                new_style_category, new_group, new_style_base_size, new_vec, 
+                new_specs_clean, client, types, json, re
+            )
     except Exception as e:
         st.sidebar.error(f"Lỗi chuẩn bị bể dữ liệu VLM: {str(e)}")
-if 'top_candidates' in locals() and 'vision_contents' in locals() and 'historical_pool_summary' in locals():
-    try:
-        semantic_prompt = (
-            f"=== SYSTEM TASK: REFERENCE STYLE MATCHING FOR GARMENT PRODUCTION ===\n"
-            f"You are a Senior Garment Costing & Pattern IE Engineer. Cross-examine tech files and select the absolute best candidate index from the pool.\n\n"
-            f"--- TARGET NEW STYLE DATA ---\n"
-            f"Target Category: {new_style_category} (Architectural Group: {new_group})\n"
-            f"Target Base Size: {new_style_base_size}\n"
-            f"Target Technical Features Text: {new_vec}\n"
-            f"Target Size Specification Table (POM): {json.dumps(new_specs_clean, ensure_ascii=False)}\n\n"
-            f"--- CANDIDATES POOL METADATA ---\n"
-            f"{json.dumps(historical_pool_summary, ensure_ascii=False)}\n\n"
-            f"=== STRICT GARMENT ARCHITECTURE RULES ===\n"
-            f"1. ARTIFACT TYPE COMPATIBILITY IS MANDATORY: You must select a candidate that shares the exact same architectural group as the target ({new_group}). Never cross-match a TOP candidate with a BOTTOM/FULLBODY target.\n"
-            f"2. GEOMETRIC CROSS-EXAMINATION: Analyze the Target POM spec table against Candidate detailed_measurements. If there is a fundamental structural mismatch, that candidate is invalid.\n"
-            f"3. If a candidate violates product architecture rules, its match_score must be forced to 0.\n\n"
-            f"Return valid JSON ONLY (Do not wrap in markdown blocks, do not include filler text):\n"
-            f"{{\"selected_pool_index\": 0, \"match_score\": 92, \"reason\": \"Mô tả chi tiết vì sao khớp cấu trúc hình học vải\"}}"
-        )
-        
-        if types and hasattr(types, "Part"): 
-            vision_contents.append(types.Part.from_text(text=semantic_prompt))
-        else: 
-            vision_contents.append(semantic_prompt)
-            
-        res = client.models.generate_content(model='gemini-2.5-flash', contents=vision_contents)
-        json_match = re.search(r'\{[\s\S]*\}', res.text.strip())
-        
-        if json_match:
-            try:
-                match_res = json.loads(json_match.group())
-                s_idx = match_res.get("selected_pool_index")
-                score = int(match_res.get("match_score", 0))
-                reason = str(match_res.get("reason", "N/A"))
-            except Exception: 
-                s_idx, score, reason = None, 0, ""
-            
-            if s_idx is not None and 0 <= s_idx < len(top_candidates):
-                # 🌟 MA TRẬN ĐỒNG THUẬN ĐA TẦNG (MULTI-LAYER CONSENSUS) - PYTHON KHÓA CỨNG LỚP CUỐI
-                selected_style = top_candidates[s_idx]
-                layer_vlm_group = get_garment_group(selected_style.get("Category", ""))
-                selected_pom_group = detect_pom_structure_group(selected_style.get("DetailedMeasurements", {}), debug_mode=False)
-                
-                agreement_votes = 0
-                if layer_vlm_group == new_group: agreement_votes += 1
-                if selected_pom_group == new_group: agreement_votes += 1
-                
-                if agreement_votes < 1:
-                    score = 0
-                    st.error(f"❌ **VI PHẠM LUẬT ĐỒNG THUẬN (CONSENSUS VIOLATION):** Mẫu mục tiêu yêu cầu nhóm `{new_group}` nhưng Ứng viên AI chọn (Mã: {selected_style.get('StyleName')}) không đạt phiếu đồng thuận (Nhãn chữ DB: {layer_vlm_group} | Số đo rập thực tế: {selected_pom_group}). Đóng băng hệ thống!")
-                    st.stop()
-                
-                if score >= 65:
-                    st.session_state["matched_techpack"] = selected_style
-                    st.session_state["match_confidence_score"] = score
-                    st.session_state["match_reason"] = reason
-                    st.toast(f"🎯 Đã khóa mã đối chứng trực quan: {selected_style.get('StyleName')} ({score}%)", icon="🎯")
-                    st.rerun()
-                else:
-                    st.session_state["matched_techpack"] = None
-                    if 0 < score < 65: 
-                        st.warning(f"⚠️ Điểm số đối soát đạt {score}% (Dưới ngưỡng an toàn 65%). Hủy lệnh khóa tự động.")
-            else: 
-                st.session_state["matched_techpack"] = None
-        else: 
-            st.session_state["matched_techpack"] = None
-    except Exception as e:
-        st.sidebar.error(f"Lỗi gọi API và kiểm tra đồng thuận đối soát VLM: {str(e)}")
 
-# Đảm bảo duy trì dữ liệu gán truyền cho các cấu trúc phía sau phẳng hàng
+# Đảm bảo duy trì các tiến trình gán biến sau vòng loop lặp phẳng hàng
 matched_techpack = st.session_state.get("matched_techpack")
 confidence_score = st.session_state.get("match_confidence_score", 0)
 match_reason = st.session_state.get("match_reason", "")
