@@ -1725,6 +1725,24 @@ def run_database_matching_engine():
             
     return [], [], [], new_style_category, new_group, new_style_base_size, new_vec, new_specs_clean, client, types, {}, target_new_sketch_bytes
 def main():
+    # 0. SỬA LỖI UNKNOWN: Tự động bắt cặp danh mục từ tên file nếu biến toàn cục bị rỗng
+    new_group = globals().get("new_group", "UNKNOWN")
+    
+    if new_group == "UNKNOWN":
+        # Thử quét tìm từ khóa trong danh mục hoặc tên file tải lên
+        detected_cat = globals().get("new_style_category", "")
+        # Nếu không có category, thử lấy từ chuỗi vector hoặc text của file (ví dụ chứa chữ 'jacket')
+        new_vec_str = str(globals().get("new_vec", "")).lower()
+        
+        # Gọi hàm get_garment_group đã viết ở Phần 1 để tự động định danh lại
+        if detected_cat:
+            new_group = get_garment_group(detected_cat)
+        elif "jacket" in new_vec_str or "jacket" in str(globals().get("target_new_sketch_bytes", "")).lower():
+            new_group = "TOP"
+            
+        # Cập nhật lại vào môi trường toàn cục để hàm `run_database_matching_engine` đọc được
+        globals()["new_group"] = new_group
+
     # Gọi hàm xử lý Khối 3A để lấy dữ liệu ứng viên đã được sàng lọc lý tưởng
     top_candidates, vision_contents, historical_pool_summary, new_style_category, new_group, new_style_base_size, new_vec, new_specs_clean, client, types, headers_db, target_new_sketch_bytes = run_database_matching_engine()
     
@@ -1836,10 +1854,6 @@ def main():
                 st.info(f"ℹ️ Không tìm thấy ảnh đính kèm cho mã gốc `{target_style_name}`.")
         else:
             st.info("ℹ️ Hệ thống chưa khóa được mẫu đối chứng tương thích từ Database.")
-
-
-if __name__ == "__main__":
-    main()
 
 
 
