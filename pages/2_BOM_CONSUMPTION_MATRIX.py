@@ -3465,3 +3465,18 @@ if menu_selection == "🔍 Tra cứu kho trực tiếp":
                 st.dataframe(df_display, use_container_width=True, hide_index=True)
             else:
                 st.warning(f"❌ Không tìm thấy sản phẩm nào khớp với từ khóa `{search_keyword}`.")
+# 🛠️ ĐẢM BẢO KHỐI LỆNH PHẲNG HÀNG 100% - KHÔNG THỤT LỀ LỆCH
+if matched_techpack:
+    target_style_display_name = (
+        str(matched_techpack.get("StyleName", "N/A")).strip().upper()
+    )
+    st.success(f"🔒 HỆ THỐNG ĐÃ TỰ ĐỘNG KHÓA MÃ HÀNG GIỐNG NHẤT: {target_style_display_name} (Độ tương đồng cấu trúc rập & BaseSize: {confidence_score}%)")
+    if match_reason and match_reason != "N/A":
+        st.markdown(f"**Lý do đối soát kỹ thuật:** {match_reason}")
+else:
+    if "new_style_base_size" in globals() and new_style_base_size != "32":
+        st.info(f"📋 **CƠ SỞ ĐỐI SOÁT KIỂM TRA:** Mẫu mới số hóa mã hàng `{new_style_id_detected}` | Quy chuẩn kích thước hình học rập mẫu: **SIZE {new_style_base_size}**")
+    else:
+        st.info(f"📋 **CƠ SỞ ĐỐI SOÁT KIỂM TRA:** Đang áp dụng quy chuẩn kích thước hình học rập mẫu cơ sở: **SIZE 32 / M (Mặc định)**")
+    st.warning("⚠️ Trạng thái: Chưa tìm thấy hoặc điểm số đối soát dưới ngưỡng an toàn (65%). Hệ thống sẵn sàng tính toán diện tích rập mô phỏng tự động.")
+
