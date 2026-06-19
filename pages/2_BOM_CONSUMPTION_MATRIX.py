@@ -1873,19 +1873,40 @@ import re
 import pandas as pd
 import streamlit as st
 from collections import defaultdict
-from difflib import SequenceMatcher  # 🌟 TÍCH HỢP ĐỂ XỬ LÝ KHỚP KÝ TỰ SÂU
+from difflib import SequenceMatcher
 
-# --- HÀM BỔ TRỢ ĐOẠN THÔNG SỐ ---
+# ==============================================================================
+# HÀM BỔ TRỢ ĐOẠN THÔNG SỐ (ĐÃ SỬA LỖI TIỀN TỐ MÃ VỊ TRÍ RẬP)
+# ==============================================================================
+
 def normalize_pom_name(name):
+    """
+    Chuẩn hóa làm sạch chuỗi văn bản thô ngành may.
+    🌟 ĐÃ SỬA: Loại bỏ triệt để các tiền tố mã vị trí rập (Ví dụ: leg-, pkt-, fly_, bottom_)
+    """
     if not name: 
         return ""
     text = str(name).lower().strip()
+    
+    # Bước 1: Xóa bỏ các ký tự đặc biệt gây nhiễu
     text = re.sub(r"[.,:;]+", "", text)
-    text = re.sub(r'\b\w*\d+\w*\b', '', text) # Xóa cụm số
-    for noise in ["measurement", "circumference", "position", "level", "straight", "across", "(straight)", "(across)"]:
+    
+    # Bước 2: Xóa bỏ các tiền tố mã thông số rập đứng đầu dòng (Ví dụ: leg-002, pkt-055, leg-)
+    # Xóa các cụm chữ-số nối nhau bằng dấu gạch ngang hoặc gạch dưới ở đầu dòng
+    text = re.sub(r'^(leg|pkt|fly|wgt|btm|bottom)[-_\s]*\d*[-_\s]*', '', text)
+    
+    # Bước 3: Xóa triệt để các cụm chứa số còn sót lại độc lập
+    text = re.sub(r'\b\w*\d+\w*\b', '', text)
+    
+    # Bước 4: Loại bỏ các từ mô tả trạng thái tĩnh hoặc ghi chú bổ sung của Techpack
+    for noise in ["measurement", "circumference", "position", "level", "straight", "across", 
+                  "(straight)", "(across)", "allowance", "to be confirmed", "special grading"]:
         text = text.replace(noise, "")
+        
+    # Bước 5: Chuẩn hóa khoảng trắng thừa
     text = re.sub(r'[-_\s\(\)]+', ' ', text).strip()
     
+    # Bản đồ quy chuẩn đồng nghĩa chuyên ngành
     synonyms_map = {
         "ins": "inseam", "insm": "inseam", "inseam length": "inseam",
         "outseam length": "outseam", "in seam": "inseam", "out seam": "outseam",
@@ -1893,13 +1914,14 @@ def normalize_pom_name(name):
     }
     return synonyms_map.get(text, text)
 
+
 def get_words_similarity(str1, str2):
-    """Tính Jaccard liên nhóm (Ngưỡng cao 0.7 để chặn so lệch vị trí chính)"""
     words1 = set(str1.split())
     words2 = set(str2.split())
     if not words1 or not words2: 
         return 0.0
     return len(words1 & words2) / max(len(words1), len(words2))
+
 
 def clean_float(v):
     if v is None: 
@@ -1928,7 +1950,10 @@ def clean_float(v):
         nums = re.findall(r"[-+]?\d*\.\d+|\d+", val_str)
         return float(nums[0]) if nums else None
 
-# --- LOGIC XỬ LÝ CHÍNH ĐOẠN THÔNG SỐ ---
+
+# ==============================================================================
+# LOGIC XỬ LÝ CHÍNH ĐOẠN THÔNG SỐ
+# ==============================================================================
 st.markdown("<br>### 📐 BẢNG SO SÁNH SAI LỆCH THÔNG SỐ KỸ THUẬT RẬP MẪU", unsafe_allow_html=True)
 
 new_specs = new_style_measurements_dict if 'new_style_measurements_dict' in locals() else {}
@@ -1936,11 +1961,10 @@ old_specs = matched_techpack.get("DetailedMeasurements", {}) if ('matched_techpa
 new_style_base_size = new_style_base_size if 'new_style_base_size' in locals() else "Base"
 
 avg_pom_growth = 0.0
-
 POM_AREA_WEIGHTS = {
     "waist": 1.5, "hip": 1.5, "thigh": 1.3, "rise": 1.2, 
     "inseam": 1.0, "outseam": 1.0, "chest": 1.5, "bust": 1.5,
-    "length": 1.4, "opening": 0.4, "width": 0.5, "pocket": 0.2
+    "length": 1.4, "opening": 0.4, "width": 0.5, "pocket": 0.2, "knee": 1.1
 }
 
 if new_specs or old_specs:
@@ -1960,15 +1984,13 @@ if new_specs or old_specs:
     used_new = set()
     used_old = set()
     
-    # 🌟 SỬA ĐỔI BƯỚC 1: Sử dụng SequenceMatcher dựa trên chuỗi đã được chuẩn hóa để xếp cặp nội bộ
+    # Bước 1: Khớp chính xác dựa trên SequenceMatcher cấp độ ký tự nội bộ nhóm
     for norm_old, o_keys in clean_old_keys.items():
         if norm_old in clean_new_keys:
             n_keys = clean_new_keys[norm_old]
-            
             sub_matches = []
             for o_k in o_keys:
                 for n_k in n_keys:
-                    # So sánh sâu cấp độ ký tự trên chuỗi đã qua synonym map (Ví dụ: waist relax vs waist relaxed -> 0.95)
                     s_old = normalize_pom_name(o_k)
                     s_new = normalize_pom_name(n_k)
                     score = SequenceMatcher(None, s_old, s_new).ratio()
@@ -1982,7 +2004,7 @@ if new_specs or old_specs:
                     used_new.add(n_k)
                     used_old.add(o_k)
                 
-    # Bước 2: Khớp mờ liên nhóm (Jaccard >= 0.7)
+    # Bước 2: Khớp mờ liên nhóm bằng thuật toán Jaccard >= 0.7
     for norm_old, o_keys in clean_old_keys.items():
         for o_k in o_keys:
             if o_k in used_old: continue
@@ -2005,13 +2027,13 @@ if new_specs or old_specs:
                 used_new.add(best_match_new_key)
                 used_old.add(o_k)
                         
-    # Bước 3: Thu gom dòng mồ côi
+    # Bước 3: Thu gom các dòng mồ côi
     for n_key in new_specs.keys():
         if n_key not in used_new: matched_pairs.append((n_key, None, n_key))
     for o_key in old_specs.keys():
         if o_key not in used_old: matched_pairs.append((None, o_key, o_key))
 
-    # Bước 4: Tạo bảng và tính trung bình cộng trọng số
+    # Bước 4: Tạo dữ liệu hiển thị và tích lũy trọng số
     weighted_diff_sum = 0.0
     total_pom_weights = 0.0
 
@@ -2028,11 +2050,8 @@ if new_specs or old_specs:
             if f_old != 0:
                 diff_pct = round((diff_val / f_old) * 100, 2)
                 
-                # 🌟 SỬA ĐỔI: Biên độ chặn nhiễu OCR nâng lên <= 80.0% để bảo vệ việc nhảy cỡ cực đại
                 if abs(diff_pct) <= 80.0:
-                    # 🌟 SỬA ĐỔI: Đồng bộ hóa tra cứu trọng số qua hàm normalize đầu vào
                     norm_lower = normalize_pom_name(display_name)
-                    
                     current_weight = 0.0
                     for kw, w_val in POM_AREA_WEIGHTS.items():
                         if kw in norm_lower:
@@ -2060,83 +2079,114 @@ if new_specs or old_specs:
     
     if total_pom_weights > 0.0:
         avg_pom_growth = weighted_diff_sum / total_pom_weights
+
+
 import pandas as pd
 import streamlit as st
 
-# ==============================================================================
-# CHỨC NĂNG 2: BẢNG DỰ PHÒNG ĐỊNH MỨC MÃ MỚI (CONSUMPTION PROJECTION)
-# ==============================================================================
-st.markdown("<br>### 🔮 AI CONSUMPTION PROJECTION ENGINE (DỰ PHÒNG ĐỊNH MỨC MÃ MỚI)", unsafe_allow_html=True)
+# --- TIÊU ĐỀ GIAO DIỆN ---
+st.markdown("<br><h3 style='margin:0;'>🔮 AI CONSUMPTION PROJECTION ENGINE (DỰ PHÒNG ĐỊNH MỨC MÃ MỚI)</h3>", unsafe_allow_html=True)
 
-# 1. Khôi phục dữ liệu BOM gốc từ session_state hoặc danh sách bản ghi dự phòng
+# Khôi phục dữ liệu BOM gốc
 bom_summary_engine = st.session_state.get("bom_summary_engine", {})
 bom_records = bom_records if 'bom_records' in locals() else []
 
 if not bom_summary_engine and bom_records:
     for r in bom_records:
         cat = str(r.get("ItemCategory", "MAIN")).upper()
-        try: 
-            cons = float(r.get("Consumption", 0.0))
-        except: 
-            cons = 0.0
+        try: cons = float(r.get("Consumption", 0.0))
+        except: cons = 0.0
         bom_summary_engine[cat] = bom_summary_engine.get(cat, 0.0) + cons
 
-# 2. Lấy trọng số tương đồng hình ảnh Vision làm Cảnh báo độ tin cậy (Confidence Level)
+# --- HÀM CHUẨN HÓA CATEGORY VẬT TƯ (BẢO VỆ CHỐNG SAI LỆCH SUBSTRING) ---
+def normalize_material_category(raw_ctype):
+    """
+    Quy chuẩn hóa toàn bộ tên vật tư hỗn hợp từ khách hàng về 5 nhóm cốt lõi.
+    Tránh lỗi cướp từ khóa chéo (Ví dụ: MAIN LINING, BODY FABRIC).
+    """
+    cat = str(raw_ctype).upper().strip()
+    
+    # 1. Nhóm keo lót, mex dựng
+    if any(k in cat for k in ["INTERLINING", "MEX", "FUSE", "FUSIBLE"]):
+        return "INTERLINING"
+    # 2. Nhóm vải lót túi
+    if any(k in cat for k in ["POCKETING", "POCKET FABRIC", "POCKET LINING"]):
+        return "POCKETING"
+    # 3. Nhóm vải lót thân
+    if "LINING" in cat: # Lúc này MAIN LINING sẽ rơi vào đây, không bị dính vào MAIN FABRIC
+        return "LINING"
+    # 4. Nhóm vải phối
+    if any(k in cat for k in ["COMBINATION", "CONTRAST", "COLOR BLOCK"]):
+        return "COMBINATION"
+    # 5. Nhóm bo
+    if "RIB" in cat:
+        return "RIB"
+    # 6. Nhóm vải chính
+    if any(k in cat for k in ["MAIN", "FABRIC", "BODY", "SHELL"]):
+        return "MAIN_FABRIC"
+        
+    return "TRIMS" # Mặc định là phụ liệu tĩnh (Nút, chỉ, dây kéo...)
+
+# --- HIỂN THỊ CẢNH BÁO ĐỘ TIN CẬY VISION ---
 v_similarity = st.session_state.get("matched_similarity_score", 100.0)
-if v_similarity is None or float(v_similarity) <= 0:
-    v_similarity = 100.0
-else:
-    v_similarity = float(v_similarity)
+v_similarity = float(v_similarity) if (v_similarity is not None and float(v_similarity) > 0) else 100.0
 
-# 🌟 CẢNH BÁO ĐỘ TIN CẬY (CONFIDENCE LEVEL): Không tham gia tính toán, chỉ hiển thị UI cảnh báo người dùng
 if v_similarity < 70.0:
-    st.warning(f"⚠️ **CẢNH BÁO AI VISION:** Độ tương đồng hình ảnh phác thảo thấp ({v_similarity}%). Vui lòng kiểm tra kỹ sự tương thích về cấu trúc chi tiết rập giữa 2 mã hàng trước khi phê duyệt sản xuất.")
+    st.warning(f"⚠️ **CẢNH BÁO AI VISION:** Độ tương đồng hình ảnh phác thảo thấp ({v_similarity}%). Vui lòng kiểm tra kỹ cấu trúc rập trước khi phê duyệt sản xuất.")
 else:
-    st.success(f"✅ **XÁC THỰC AI VISION:** Độ tương đồng phác thảo đạt {v_similarity}%. Biến thiên cấu trúc rập ở mức an toàn.")
+    st.success(f"✅ **XÁC THỰC AI VISION:** Độ tương đồng phác thảo đạt {v_similarity}%. Cấu trúc rập ở mức tương thích cao.")
 
-# 3. Giao diện cấu hình tham số đầu vào cho IE / Costing
+# --- CẤU HÌNH THAM SỐ ĐẦU VÀO ĐỘI IE / COSTING ---
 col1, col2, col3 = st.columns(3)
 with col1:
-    # Lấy giá trị biến thiên trung bình tuyến tính có trọng số từ Đoạn 1 truyền sang
     initial_shape = avg_pom_growth if 'avg_pom_growth' in locals() else 0.0
     shape_factor = st.number_input("Độ biến thiên thông số POM trung bình (%)", value=float(initial_shape), step=0.1)
     
 with col2:
-    # 🌟 CẤU HÌNH LINH HOẠT FACTOR: Cho phép người dùng chỉnh theo loại hàng (Woven Shirt, Pant, Jacket, Knit...)
     fabric_growth_factor = st.number_input("Hệ số thực nghiệm vải (Fabric Growth Factor)", value=0.65, step=0.05, min_value=0.1, max_value=1.0)
     
 with col3:
     wastage_buffer = st.number_input("Hao hụt sản xuất cấu hình thêm (%)", value=0.0, step=0.5, key="ai_engine_wastage_buffer")
 
-# 4. Định nghĩa phân loại vật tư sâu chuyên ngành may
-MAIN_FABRIC_TYPES = ["MAIN", "FABRIC", "BODY", "SHELL"]
-SECONDARY_FABRIC_TYPES = ["LINING", "POCKETING", "RIB", "COMBINATION"]
+# --- HỆ SỐ ĐIỀU CHỈNH CHUYÊN NGÀNH ---
+SECONDARY_EFFICIENCY_FACTOR = 0.4  # Áp dụng cho Lining, Pocketing, Rib, Interlining
+COMBINATION_EFFICIENCY_FACTOR = 0.8 # Áp dụng riêng cho Vải phối (Contrast / Panel)
 
-# Hệ số giảm chấn cho vải phụ (Vải lót túi/vải lót thường tăng ít hơn vải chính)
-SECONDARY_EFFICIENCY_FACTOR = 0.4 
+# Tính toán mức tăng trưởng của Vải chính
+raw_adjusted_factor = shape_factor * fabric_growth_factor
 
-# 🌟 CÔNG THỨC HIỆU CHỈNH: Tính toán hệ số co dãn rập chuẩn (Loại bỏ hoàn toàn v_similarity ra khỏi phép nhân)
-adjusted_shape_factor = shape_factor * fabric_growth_factor
+# 🌟 BẢO VỆ DỮ LIỆU ÂM (FLOOR LIMIT): Giới hạn mức giảm định mức không vượt quá -3.0%
+if raw_adjusted_factor < 0:
+    adjusted_shape_factor = max(raw_adjusted_factor, -3.0)
+else:
+    adjusted_shape_factor = raw_adjusted_factor
 
 projection_rows = []
 for ctype, old_qty in bom_summary_engine.items():
-    ctype_upper = str(ctype).upper().strip()
+    # Bước 1: Khử hoàn toàn rủi ro substring bằng cách bốc cấu trúc vật tư chuẩn hóa
+    norm_cat = normalize_material_category(ctype)
     
-    # 🌟 BỘ LỌC 1: Nhóm vải chính (Tác động 100% hệ số rập)
-    if any(k in ctype_upper for k in MAIN_FABRIC_TYPES):
+    # Bước 2: Phân phối phép tính dựa trên Category chuẩn hóa
+    if norm_cat == "MAIN_FABRIC":
         projected_dm = old_qty * (1 + adjusted_shape_factor / 100) * (1 + wastage_buffer / 100)
-        note = f"Vải chính: Hệ số thực nghiệm ({fabric_growth_factor}) × Biến thiên POM ({round(shape_factor, 1)}%) → ĐM mới tăng: {round(adjusted_shape_factor, 2)}%"
+        note = f"Vải chính: Hệ số ({fabric_growth_factor}) × POM ({round(shape_factor, 1)}%) [Chặn sàn] → ĐM tăng: {round(adjusted_shape_factor, 2)}%"
     
-    # 🌟 BỘ LỌC 2: Nhóm vải phụ (Lining, Pocketing, Rib -> Chỉ chịu tác động giảm chấn SECONDARY_EFFICIENCY_FACTOR)
-    elif any(k in ctype_upper for k in SECONDARY_FABRIC_TYPES):
+    elif norm_cat == "COMBINATION":
+        # 🌟 TÁCH RIÊNG VẢI PHỐI: Áp dụng hệ số gánh trọng tải lớn 0.8
+        comb_adjusted_factor = adjusted_shape_factor * COMBINATION_EFFICIENCY_FACTOR
+        projected_dm = old_qty * (1 + comb_adjusted_factor / 100) * (1 + wastage_buffer / 100)
+        note = f"Vải phối: Trọng tải cao ({COMBINATION_EFFICIENCY_FACTOR}) × Mức tăng vải chính → ĐM tăng: {round(comb_adjusted_factor, 2)}%"
+        
+    elif norm_cat in ["LINING", "POCKETING", "RIB", "INTERLINING"]:
+        # Nhóm vải lót phụ thông thường (Giảm chấn 0.4)
         secondary_adjusted_factor = adjusted_shape_factor * SECONDARY_EFFICIENCY_FACTOR
         projected_dm = old_qty * (1 + secondary_adjusted_factor / 100) * (1 + wastage_buffer / 100)
-        note = f"Vải phụ: Giảm chấn ({SECONDARY_EFFICIENCY_FACTOR}) × Mức tăng vải chính ({round(adjusted_shape_factor, 2)}%) → ĐM tăng nhẹ: {round(secondary_adjusted_factor, 2)}%"
+        note = f"Vải phụ: Giảm chấn ({SECONDARY_EFFICIENCY_FACTOR}) × Mức tăng vải chính → ĐM tăng: {round(secondary_adjusted_factor, 2)}%"
     
-    # BỘ LỌC 3: Nhóm Phụ liệu tĩnh (Nút, thun, nhãn, dây kéo, chỉ may...) -> Chỉ tính hao hụt sản xuất
     else:
+        # Nhóm phụ liệu tĩnh không co dãn theo thông số rập
         projected_dm = old_qty * (1 + wastage_buffer / 100)
-        note = f"Phụ liệu tĩnh (Chỉ cộng hao hụt cấu hình thêm: {wastage_buffer}%)"
+        note = f"Phụ liệu tĩnh (Chỉ tính hao hụt sản xuất cấu hình thêm: {wastage_buffer}%)"
         
     projection_rows.append({
         "Phân loại vật tư (Type)": ctype,
@@ -2148,6 +2198,8 @@ for ctype, old_qty in bom_summary_engine.items():
 df_projection = pd.DataFrame(projection_rows)
 st.session_state["ai_projected_consumption_matrix"] = projection_rows
 st.dataframe(df_projection, use_container_width=True, hide_index=True)
+
+
 
 
 
