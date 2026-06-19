@@ -1529,88 +1529,351 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
 
         if len(new_vec) < 10: new_vec = "STANDARD APPAREL STYLE FLAT SKETCH CONSTRUCTION FROM TECHPACK"
 
-        with st.spinner("🧠 Mắt thần VLM đang so sánh trực quan ảnh và thông số kỹ thuật..."):
-            try:
-                headers_db = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if SB_KEY else {}
-                url_db = f"{base_sb_url.rstrip('/')}/rest/v1/thong_so_techpack" if base_sb_url else ""
-                raw_styles = requests.get(url_db, headers=headers_db, params={"select": "StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL,sketch_vector", "limit": 1000}, timeout=15).json() if url_db else []
-                
-                if raw_styles and client and client.models:
-                    valid_styles = [s for s in raw_styles if s.get("StyleName") and s.get("sketch_vector") and s.get("DetailedMeasurements")]
-                    pool = [s for s in valid_styles if str(s.get("Category", "")).strip().upper() == str(new_style_category).strip().upper()] if new_style_category else valid_styles
-                    if not pool: pool = valid_styles
+        import re
+import json
+import requests
+import streamlit as st
+from collections import defaultdict
+from difflib import SequenceMatcher
 
-                    new_keywords = set(re.findall(r'[A-Z]{4,}', new_vec))
-                    current_base_size = str(new_style_base_size).strip().upper()
+def get_garment_group(cat):
+    """
+    Hàm phân loại danh mục 3 tầng phẳng sử dụng cơ chế Loại trừ Token bổ nghĩa.
+    Thứ tự ưu tiên được đảo ngược: Kiểm tra từ từ khóa đặc thù đến từ khóa bao quát.
+    """
+    cat_lower = str(cat).lower().strip()
+    
+    # 🌟 BƯỚC 1: Chặn cứng cụm từ ghép tiếng Việt trước khi bị Regex bẻ gãy
+    if any(k in cat_lower for k in ["áo liền quần", "đầm liền", "bộ liền thân"]):
+        return "FULLBODY"
+        
+    # Token hóa chuỗi chuẩn xác thành các từ đơn độc lập
+    words = set(re.findall(r"[a-zA-ZÀ-ỹ]+", cat_lower))
+    
+    # Tập hợp từ khóa chỉ Đồ Trên (TOP)
+    top_keys = {
+        "shirt", "shirts", "jacket", "jackets", "hoodie", "hoodies", 
+        "tee", "tees", "tshirt", "tshirts", "polo", "polos", "sweater", 
+        "sweaters", "coat", "coats", "blouse", "blouses", "outerwear", "áo"
+    }
+    
+    # Tập hợp từ khóa chỉ Đồ Dưới (BOTTOM)
+    bottom_keys = {
+        "bottom", "bottoms", "pant", "pants", "shorts", "skirt", "skirts", 
+        "trouser", "trousers", "quần", "váy", "jean", "jeans", "legging", "leggings"
+    }
+    
+    # Tập hợp từ khóa chỉ Đầm/Liền thân (FULLBODY)
+    fullbody_keys = {
+        "dress", "dresses", "jumpsuit", "jumpsuits", "overall", "overalls",
+        "coverall", "coveralls", "romper", "rompers", "onesie", "onesies",
+        "đầm", "gown", "gowns", "bodysuit", "bodysuits"
+    }
+    
+    # 🌟 BƯỚC 2: XỬ LÝ LOẠI TRỪ TỪ BỔ NGHĨA (Ví dụ: "Dress Shirt" dính cả dress và shirt -> Bản chất là SHIRT (TOP))
+    if "shirt" in words or "jacket" in words or "polo" in words:
+        return "TOP"
+    if "pants" in words or "pant" in words or "trousers" in words:
+        return "BOTTOM"
+        
+    # 🌟 BƯỚC 3: ĐẢO THỨ TỰ ƯU TIÊN KIỂM TRA KHUNG CỐT LÕI
+    if words & fullbody_keys:
+        return "FULLBODY"
+    if words & bottom_keys:
+        return "BOTTOM"
+    if words & top_keys:
+        return "TOP"
+        
+    return "TOP" # Mặc định an toàn cuối cùng
+
+
+def detect_pom_structure_group(pom_dict, debug_mode=False):
+    """
+    HÀM KHÓA SINH TRẮC HỌC HÌNH HỌC (POM STRUCTURE DETECTION)
+    """
+    if not pom_dict:
+        return "UNKNOWN"
+    
+    try:
+        pom_text = json.dumps(pom_dict, ensure_ascii=False).lower()
+    except Exception:
+        pom_text = str(pom_dict).lower()
+    
+    bottom_indicators = [
+        "waist", "hip", "inseam", "outseam", "front rise", "back rise", "crotch", 
+        "thigh", "knee", "leg opening", "bottom opening", "sweep", "thg width", 
+        "kn width", "insm", "outsm"
+    ]
+    
+    top_indicators = [
+        "chest", "1/2 chest", "half chest", "bust", "sleeve", "across shoulder", "shoulder", 
+        "body length", "center back", "cb length", "cf length", "center front", 
+        "armhole", "neck", "bicep", "cuff", "cuff width", "neck width"
+    ]
+    
+    bottom_score = sum(1 for x in bottom_indicators if x in pom_text)
+    top_score = sum(1 for x in top_indicators if x in pom_text)
+    
+    if debug_mode:
+        st.write(f"📊 *Phân tích hình học rập nội bộ:* `TOP_SCORE={top_score}` | `BOTTOM_SCORE={bottom_score}`")
+    
+    if bottom_score > top_score and bottom_score >= 2:
+        return "BOTTOM"
+    if top_score > bottom_score and top_score >= 2:
+        return "TOP"
+    
+    if bottom_score >= 2 and top_score >= 2:
+        return "FULLBODY"
+        
+    return "UNKNOWN"
+
+
+def get_words_similarity(str1, str2):
+    words1 = set(str1.split())
+    words2 = set(str2.split())
+    if not words1 or not words2: 
+        return 0.0
+    return len(words1 & words2) / max(len(words1), len(words2))
+
+
+def clean_float(v):
+    if v is None: 
+        return None
+    if isinstance(v, dict):
+        for field in ["Spec", "spec", "Value", "value", "Actual", "actual", "Measurement", "measurement"]:
+            if field in v: return clean_float(v[field])
+        return None
+    val_str = str(v).strip()
+    if not val_str or val_str in ["-", "nan", "none"]: 
+        return None
+    try: 
+        return float(val_str)
+    except (ValueError, TypeError):
+        if "/" in val_str:
+            frac_match = re.search(r'(\d+)\s+(\d+)\s*/\s*(\d+)', val_str)
+            if frac_match:
+                return float(frac_match.group(1)) + (float(frac_match.group(2)) / float(frac_match.group(3)))
+            pure_frac = re.search(r'(\d+)\s*/\s*(\d+)', val_str)
+            if pure_frac:
+                base_num = re.search(r'(\d+)\s+\d+/\d+', val_str)
+                if base_num:
+                    return float(base_num.group(1)) + (float(pure_frac.group(1)) / float(pure_frac.group(2)))
+                return float(pure_frac.group(1)) / float(pure_frac.group(2))
+        
+        nums = re.findall(r"[-+]?\d*\.\d+|\d+", val_str)
+        return float(nums) if nums else None
+# Lấy bảng thông số mục tiêu (Mẫu mới) từ session_state/globals an toàn
+new_specs_clean = st.session_state.get("new_style_measurements_dict", globals().get("new_style_measurements_dict", {}))
+
+# Sinh nhóm phân loại độc lập từ 2 nguồn: Chữ (Category) và Số (POM)
+cat_group = get_garment_group(new_style_category)
+# Bật debug_mode=True để hiển thị điểm số hình học của mẫu mới trên UI
+pom_group = detect_pom_structure_group(new_specs_clean, debug_mode=True)
+
+# 🌟 CƠ CHẾ PHỦ QUYẾT ĐẦU VÀO: POM (Hình học) phủ quyết nhãn Category chữ nếu có mâu thuẫn
+if pom_group != "UNKNOWN":
+    new_group = pom_group
+    if pom_group != cat_group and cat_group != "UNKNOWN":
+        st.sidebar.warning(f"⚠️ **CẢNH BÁO DỮ LIỆU GỐC:** Nhãn chữ ghi `{new_style_category}` ({cat_group}) nhưng Cấu trúc POM thực tế lại là `{pom_group}`. Hệ thống ưu tiên chọn bể ứng viên theo cấu trúc POM.")
+else:
+    new_group = cat_group
+
+# ==============================================================================
+# KHỐI HIỂN THỊ BẢNG ĐIỀU TRA LOG CHẤM ĐIỂM SẢN XUẤT (PRODUCTION DEBUG BOARD)
+# ==============================================================================
+st.markdown("#### 🛠️ BẢNG ĐIỀU TRA LOG CHẤM ĐIỂM AI VLM (PRODUCTION DEBUG)")
+
+col_dbg1, col_dbg2, col_dbg3 = st.columns(3)
+with col_dbg1:
+    st.info(f"🎯 **CATEGORY GỐC:** `{new_style_category}` (Nhóm chữ: `{cat_group}`)")
+with col_dbg2:
+    st.success(f"📐 **CẤU TRÚC POM THỰC TẾ MẪU MỚI:** `{pom_group}`")
+with col_dbg3:
+    st.warning(f"🏗️ **NHÓM QUYẾT ĐỊNH ĐỂ LỌC POOL:** `{new_group}`")
+    
+st.text_area("📝 [Véc-tơ Tính Năng Gốc] điều tra từ khóa hình học thực tế:", value=str(new_vec), height=100)
+with st.spinner("🧠 Mắt thần VLM đang so sánh trực quan ảnh và thông số kỹ thuật..."):
+    try:
+        # Truy vấn Database Supabase lấy bể mẫu lịch sử
+        headers_db = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if SB_KEY else {}
+        url_db = f"{base_sb_url.rstrip('/')}/rest/v1/thong_so_techpack" if base_sb_url else ""
+        raw_styles = requests.get(url_db, headers=headers_db, params={"select": "StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL,sketch_vector", "limit": 1000}, timeout=15).json() if url_db else []
+        
+        if raw_styles and client and client.models:
+            valid_styles = [s for s in raw_styles if s.get("StyleName") and s.get("sketch_vector") and s.get("DetailedMeasurements")]
+            
+            # Xây dựng pool ứng viên dựa trên Nhóm Quyết Định (new_group) đã qua bộ lọc hình học rập ở Đoạn 2A
+            pool = []
+            new_cat_clean = str(new_style_category).lower().strip() if new_style_category else ""
+            
+            if new_group and new_group != "UNKNOWN":
+                for s in valid_styles:
+                    cand_cat = str(s.get("Category", "")).lower().strip()
                     
-                    ranked_pool = []
-                    for s in pool:
-                        cand_words = set(re.findall(r'[A-Z]{4,}', str(s.get("sketch_vector", "")).upper()))
-                        overlap_score = len(new_keywords.intersection(cand_words))
-                        if current_base_size != "N/A" and str(s.get("BaseSize", "")).strip().upper() == current_base_size: overlap_score += 3  
-                        ranked_pool.append((overlap_score, s))
-                    
-                    ranked_pool.sort(reverse=True, key=lambda x: x[0])
-                    top_20_candidates = [x[1] for x in ranked_pool[:20]]
-                    
-                    vision_contents = []
-                    if target_new_sketch_bytes:
-                        if types and hasattr(types, "Part"):
-                            vision_contents.append(types.Part.from_text(text="Analyze geometry of new sketch against historical style pictures and size specs."))
-                            vision_contents.append(types.Part.from_bytes(data=target_new_sketch_bytes, mime_type='image/jpeg'))
-                        else:
-                            vision_contents.append("Analyze geometry of new sketch against historical style pictures and size specs.")
-                            vision_contents.append({"mime_type": "image/jpeg", "data": target_new_sketch_bytes})
-                    
-                    historical_pool_summary = []
-                    for idx, s in enumerate(top_20_candidates):
-                        cand_img_url = s.get("SketchURL") or s.get("sketch_url")
-                        cand_img_bytes = None
-                        if cand_img_url and target_new_sketch_bytes:
-                            try:
-                                img_res = requests.get(cand_img_url, headers=headers_db, timeout=5)
-                                if img_res.status_code == 200 and len(img_res.content) > 500: cand_img_bytes = img_res.content
-                            except Exception: pass
+                    # Dùng trắc nghiệm cấu trúc POM thực tế để phân loại ứng viên lịch sử (Tắt debug_mode=False chặn tràn UI)
+                    cand_pom_group = detect_pom_structure_group(s.get("DetailedMeasurements", {}), debug_mode=False)
+                    if cand_pom_group != "UNKNOWN":
+                        cand_group = cand_pom_group
+                    else:
+                        cand_group = get_garment_group(cand_cat)
                         
-                        if cand_img_bytes and target_new_sketch_bytes:
-                            if types and hasattr(types, "Part"):
-                                vision_contents.append(types.Part.from_text(text=f"Candidate Pool Index: {idx} (Style: {s.get('StyleName')})"))
-                                vision_contents.append(types.Part.from_bytes(data=cand_img_bytes, mime_type='image/jpeg'))
-                            else:
-                                vision_contents.append(f"Candidate Pool Index: {idx} (Style: {s.get('StyleName')})")
-                                vision_contents.append({"mime_type": "image/jpeg", "data": cand_img_bytes})
+                    if new_group == cand_group:
+                        pool.append(s)
+            
+            if not pool:
+                st.error(f"❌ **DỪNG ENGINE:** Bể ứng viên rỗng cho nhóm quyết định rập `{new_group}`. Không thể chạy tiếp luồng.")
+                st.stop()
+
+            # Chấm điểm sơ bộ từ khóa mở rộng [a-zA-Z]{2,}
+            new_keywords = set(re.findall(r'[a-zA-Z]{2,}', str(new_vec).lower()))
+            current_base_size = str(new_style_base_size).strip().upper()
+            
+            ranked_pool = []
+            for s in pool:
+                cand_words = set(re.findall(r'[a-zA-Z]{2,}', str(s.get("sketch_vector", "")).lower()))
+                overlap_score = len(new_keywords.intersection(cand_words))
+                
+                for core_kw in ["pant", "skirt", "jacket", "shirt", "tee", "hoodie", "short", "dress"]:
+                    if core_kw in cand_words and core_kw in new_keywords:
+                        overlap_score += 15  
                         
-                        historical_pool_summary.append({"pool_index": idx, "style_name": s.get("StyleName"), "base_size": s.get("BaseSize", "N/A"), "features": str(s.get("sketch_vector", "")).strip()[:1000], "detailed_measurements": s.get("DetailedMeasurements", {})})
+                if current_base_size != "N/A" and str(s.get("BaseSize", "")).strip().upper() == current_base_size: 
+                    overlap_score += 3  
                     
-                    semantic_prompt = f"Cross-examine tech files. Select best index for reference BOM. New size: {new_style_base_size}. New features text: {new_vec}. Candidates Pool: {json.dumps(historical_pool_summary, ensure_ascii=False)}. Return valid JSON ONLY: {{\"selected_pool_index\": 0, \"match_score\": 92, \"reason\": \"Mô tả kĩ thuật\"}}"
+                ranked_pool.append((overlap_score, s))
+            
+            # Sàn lọc chặn điểm tương đồng thấp sơ bộ (MIN_PRE_SCORE = 5)
+            MIN_PRE_SCORE = 5
+            valid_ranked_pool = [x for x in ranked_pool if x >= MIN_PRE_SCORE]
+            
+            if not valid_ranked_pool:
+                st.error("❌ **DỪNG ENGINE:** Không có ứng viên nào trong database đạt điểm tương đồng từ khóa tối thiểu (Score >= 5).")
+                st.stop()
+                
+            valid_ranked_pool.sort(reverse=True, key=lambda x: x)
+            top_candidates = [x for x in valid_ranked_pool[:8]]
+            
+            with st.expander("👁️ DANH SÁCH TOPỨNG VIÊN ĐƯỢC CHỌN ĐẨY LÊN GEMINI VLM"):
+                for idx, cand in enumerate(top_candidates):
+                    c_pom_group = detect_pom_structure_group(cand.get("DetailedMeasurements", {}), debug_mode=False)
+                    st.text(f"Index {idx} ➔ Mã: {cand.get('StyleName')} | Category DB: {cand.get('Category')} | Nhóm cấu trúc POM: {c_pom_group}")
+                    st.caption(f"🔗 URL Sơ đồ ảnh rập: {cand.get('SketchURL') or 'Trống URL'}")
+            
+            vision_contents = []
+            if target_new_sketch_bytes:
+                if types and hasattr(types, "Part"):
+                    vision_contents.append(types.Part.from_text(text="[TARGET NEW STYLE SKETCH] Verify structural design parameters against this new model."))
+                    vision_contents.append(types.Part.from_bytes(data=target_new_sketch_bytes, mime_type='image/jpeg'))
+                else:
+                    vision_contents.append("[TARGET NEW STYLE SKETCH] Verify structural design parameters against this new model.")
+                    vision_contents.append({"mime_type": "image/jpeg", "data": target_new_sketch_bytes})
+            
+            historical_pool_summary = []
+            for idx, s in enumerate(top_candidates):
+                cand_img_url = s.get("SketchURL") or s.get("sketch_url")
+                cand_img_bytes = None
+                if cand_img_url and target_new_sketch_bytes:
+                    try:
+                        img_res = requests.get(cand_img_url, headers=headers_db, timeout=5)
+                        if img_res.status_code == 200 and len(img_res.content) > 500: 
+                            cand_img_bytes = img_res.content
+                    except Exception: 
+                        pass
+                
+                if cand_img_bytes and target_new_sketch_bytes:
+                    if types and hasattr(types, "Part"):
+                        vision_contents.append(types.Part.from_text(text=f"[CANDIDATE INDEX {idx}] Style: {s.get('StyleName')}"))
+                        vision_contents.append(types.Part.from_bytes(data=cand_img_bytes, mime_type='image/jpeg'))
+                    else:
+                        vision_contents.append(f"[CANDIDATE INDEX {idx}] Style: {s.get('StyleName')}")
+                        vision_contents.append({"mime_type": "image/jpeg", "data": cand_img_bytes})
+                
+                historical_pool_summary.append({
+                    "pool_index": idx, 
+                    "style_name": s.get("StyleName"), 
+                    "category": s.get("Category", "N/A"),
+                    "base_size": s.get("BaseSize", "N/A"), 
+                    "features": str(s.get("sketch_vector", "")).strip()[:800], 
+                    "detailed_measurements": s.get("DetailedMeasurements", {})
+                })
+            # Đoạn này dán tiếp ngay phía dưới khối logic Đoạn 2B cũ của bạn
+            # Thực hiện biên dịch Prompt siết chặt quy định kỹ thuật hình học phẳng
+            semantic_prompt = (
+                f"=== SYSTEM TASK: REFERENCE STYLE MATCHING FOR GARMENT PRODUCTION ===\n"
+                f"You are a Senior Garment Costing & Pattern IE Engineer. Cross-examine tech files and select the absolute best candidate index from the pool.\n\n"
+                f"--- TARGET NEW STYLE DATA ---\n"
+                f"Target Category: {new_style_category} (Architectural Group: {new_group})\n"
+                f"Target Base Size: {new_style_base_size}\n"
+                f"Target Technical Features Text: {new_vec}\n"
+                f"Target Size Specification Table (POM): {json.dumps(new_specs_clean, ensure_ascii=False)}\n\n"
+                f"--- CANDIDATES POOL METADATA ---\n"
+                f"{json.dumps(historical_pool_summary, ensure_ascii=False)}\n\n"
+                f"=== STRICT GARMENT ARCHITECTURE RULES ===\n"
+                f"1. ARTIFACT TYPE COMPATIBILITY IS MANDATORY: You must select a candidate that shares the exact same architectural group as the target ({new_group}). Never cross-match a TOP candidate with a BOTTOM/FULLBODY target.\n"
+                f"2. GEOMETRIC CROSS-EXAMINATION: Analyze the Target POM spec table against Candidate detailed_measurements. If there is a fundamental structural mismatch, that candidate is invalid.\n"
+                f"3. If a candidate violates product architecture rules, its match_score must be forced to 0.\n\n"
+                f"Return valid JSON ONLY (Do not wrap in markdown blocks, do not include filler text):\n"
+                f"{{\"selected_pool_index\": 0, \"match_score\": 92, \"reason\": \"Mô tả chi tiết vì sao khớp cấu trúc hình học vải\"}}"
+            )
+            
+            if types and hasattr(types, "Part"): 
+                vision_contents.append(types.Part.from_text(text=semantic_prompt))
+            else: 
+                vision_contents.append(semantic_prompt)
+                
+            res = client.models.generate_content(model='gemini-2.5-flash', contents=vision_contents)
+            json_match = re.search(r'\{[\s\S]*\}', res.text.strip())
+            
+            if json_match:
+                try:
+                    match_res = json.loads(json_match.group())
+                    s_idx = match_res.get("selected_pool_index")
+                    score = int(match_res.get("match_score", 0))
+                    reason = str(match_res.get("reason", "N/A"))
+                except Exception: 
+                    s_idx, score, reason = None, 0, ""
+                
+                if s_idx is not None and 0 <= s_idx < len(top_candidates):
+                    # ==============================================================================
+                    # 🌟 CHỐT CHẶN PHÒNG THỦ KHÓA CỨNG PYTHON LỚP CUỐI (POM STRUCTURE MATCHING CHỐT HẠ)
+                    # ==============================================================================
+                    selected_style = top_candidates[s_idx]
+                    selected_pom_group = detect_pom_structure_group(selected_style.get("DetailedMeasurements", {}), debug_mode=False)
+                    layer_vlm_group = get_garment_group(selected_style.get("Category", ""))
                     
-                    if types and hasattr(types, "Part"): vision_contents.append(types.Part.from_text(text=semantic_prompt))
-                    else: vision_contents.append(semantic_prompt)
-                        
-                    res = client.models.generate_content(model='gemini-2.5-flash', contents=vision_contents)
-                    json_match = re.search(r'\{[\s\S]*\}', res.text.strip())
-                    if json_match:
-                        try:
-                            match_res = json.loads(json_match.group())
-                            s_idx = match_res.get("selected_pool_index")
-                            score = int(match_res.get("match_score", 0))
-                            reason = str(match_res.get("reason", "N/A"))
-                        except Exception: s_idx, score, reason = None, 0, ""
-                        
-                        if s_idx is not None and 0 <= s_idx < len(top_20_candidates) and score >= 65:
-                            st.session_state["matched_techpack"] = top_20_candidates[s_idx]
-                            st.session_state["match_confidence_score"] = score
-                            st.session_state["match_reason"] = reason
-                            st.toast(f"🎯 Đã khóa mã đối chứng trực quan: {top_20_candidates[s_idx].get('StyleName')} ({score}%)", icon="🎯")
-                            st.rerun()
-                        else:
-                            st.session_state["matched_techpack"] = None
-                            if score > 0 and score < 65: st.warning(f"⚠️ Điểm số đối soát đạt {score}% (Dưới ngưỡng an toàn 65%). Hủy lệnh khóa tự động.")
-                    else: st.session_state["matched_techpack"] = None
-            except Exception as e: st.sidebar.error(f"Lỗi đối soát VLM hệ thống: {str(e)}")
-    matched_techpack = st.session_state.get("matched_techpack")
-    confidence_score = st.session_state.get("match_confidence_score", 0)
-    match_reason = st.session_state.get("match_reason", "")
+                    # Tính điểm phiếu bầu đồng thuận kiểm tra chéo chéo chéo
+                    agreement_votes = 0
+                    if layer_vlm_group == new_group: agreement_votes += 1
+                    if selected_pom_group == new_group: agreement_votes += 1
+                    
+                    # Chặn đứng tuyệt đối nếu AI cố tình bốc lệch tầng không đạt đủ phiếu đồng thuận
+                    if agreement_votes < 1:
+                        score = 0
+                        st.error(f"❌ **VI PHẠM LUẬT ĐỒNG THUẬN (CONSENSUS VIOLATION):** Mẫu mục tiêu yêu cầu nhóm `{new_group}` nhưng Ứng viên AI chọn (Mã: {selected_style.get('StyleName')}) không đạt phiếu đồng thuận (Nhãn chữ DB: {layer_vlm_group} | Số đo rập thực tế: {selected_pom_group}). Đóng băng hệ thống!")
+                        st.stop()
+                    
+                    if score >= 65:
+                        st.session_state["matched_techpack"] = selected_style
+                        st.session_state["match_confidence_score"] = score
+                        st.session_state["match_reason"] = reason
+                        st.toast(f"🎯 Đã khóa mã đối chứng trực quan: {selected_style.get('StyleName')} ({score}%)", icon="🎯")
+                        st.rerun()
+                    else:
+                        st.session_state["matched_techpack"] = None
+                        if 0 < score < 65: 
+                            st.warning(f"⚠️ Điểm số đối soát đạt {score}% (Dưới ngưỡng an toàn 65%). Hủy lệnh khóa tự động.")
+                else: 
+                    st.session_state["matched_techpack"] = None
+            else: 
+                st.session_state["matched_techpack"] = None
+    except Exception as e: 
+        st.sidebar.error(f"Lỗi đối soát VLM hệ thống: {str(e)}")
+
+# Bảo toàn dữ liệu truyền cho các tiến trình phân tích BOM phía sau
+matched_techpack = st.session_state.get("matched_techpack")
+confidence_score = st.session_state.get("match_confidence_score", 0)
+match_reason = st.session_state.get("match_reason", "")
+
 
     if matched_techpack:
         target_style_display_name = str(matched_techpack.get('StyleName', 'N/A')).strip().upper()
