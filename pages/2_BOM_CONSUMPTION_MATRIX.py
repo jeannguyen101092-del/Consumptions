@@ -1530,7 +1530,7 @@ def run_database_matching_engine():
     return [], [], [], {}
 
 # =================================================================
-# ĐOẠN 4: HỆ THỐNG GIAO DIỆN VÀ ĐỐI CHIẾU MÃ HÀNG
+# ĐOẠN 4: HỆ THỐNG GIAO DIỆN VÀ ĐỐI CHIẾU MÃ HÀNG (SỬA LỖI VALUEERROR)
 # =================================================================
 
 if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption Matrix":
@@ -1613,12 +1613,13 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         new_vec = f"STANDARD APPAREL STYLE FLAT SKETCH CONSTRUCTION FROM TECHPACK {new_style_id_detected}"
         st.session_state["visual_description_str"] = new_vec
 
-    # Gọi hàm Engine đối soát đã được khai báo hoàn chỉnh ở Đoạn 3 phía trên
+    # Gọi hàm Engine đối soát đã được khai báo ở Đoạn 3
     top_candidates, vision_contents, historical_pool_summary, headers_db = run_database_matching_engine()
     
-    # Cơ chế tự động khóa mẫu điểm từ khóa cao nhất
+    # SỬA LỖI VALUEERROR: Chỉ bóc tách giải nén nếu danh sách ứng viên có phần tử dữ liệu thực tế
     if top_candidates and st.session_state.get("matched_techpack") is None:
-        best_score, best_style = top_candidates
+        # Trích xuất chính xác cặp giá trị của ứng viên xếp hạng số 1 bằng chỉ mục [0]
+        best_score, best_style = top_candidates[0]
         st.session_state["matched_techpack"] = best_style
         st.session_state["match_confidence_score"] = min(70 + int(best_score), 98)
         st.session_state["match_reason"] = f"Hệ thống tự động đề xuất dựa trên cấu trúc rập nhóm {new_group} trùng khớp từ khóa cao nhất từ mã gốc."
@@ -1675,6 +1676,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             matched_sketch_url = matched_techpack.get("SketchURL") or matched_techpack.get("sketch_url")
             if matched_sketch_url:
                 st.image(matched_sketch_url, caption=f"Mẫu lưu trữ trong kho: {matched_techpack.get('StyleName')}", use_container_width=True)
+
 
 
 
