@@ -1529,7 +1529,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
 
         if len(new_vec) < 10: new_vec = "STANDARD APPAREL STYLE FLAT SKETCH CONSTRUCTION FROM TECHPACK"
 
-        import re
+import re
 from concurrent.futures import ThreadPoolExecutor
 from difflib import SequenceMatcher
 from urllib.parse import quote
