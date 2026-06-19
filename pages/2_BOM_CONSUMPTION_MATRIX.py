@@ -1690,12 +1690,43 @@ def run_database_matching_engine():
                         if new_group == cand_group:
                             pool.append(s)
                 
+                # 🛠️ VÁ LỖI CỐT LÕI: Căn lề phẳng hàng tuyệt đối cho khối xử lý kiểm tra bể ứng viên rỗng
                 if not pool:
-                   if new_group == "UNKNOWN":
-                   st.warning("📋 **HỆ THỐNG SẴN SÀNG:** Vui lòng nạp file Techpack ở menu bên trái để kích hoạt luồng AI đối soát mã hàng.")
-                   else:
-                   st.error(f"❌ **DỪNG ENGINE:** Không tìm thấy ứng viên lịch sử nào trong database thuộc nhóm mẫu `{new_group}`.")
-                   return [], [], [], new_style_category, new_group, new_style_base_size, new_vec, new_specs_clean, client, types, {}, target_new_sketch_bytes
+                    if new_group == "UNKNOWN":
+                        st.warning("📋 **HỆ THỐNG SẴN SÀNG:** Vui lòng nạp file Techpack ở menu bên trái để kích hoạt luồng AI đối soát mã hàng.")
+                    else:
+                        st.error(f"❌ **DỪNG ENGINE:** Không tìm thấy ứng viên lịch sử nào trong database thuộc nhóm mẫu `{new_group}`.")
+                    return [], [], [], new_style_category, new_group, new_style_base_size, new_vec, new_specs_clean, client, types, {}, target_new_sketch_bytes
+
+                new_keywords = set(re.findall(r'[a-zA-Z]{2,}', str(new_vec).lower()))
+                current_base_size = str(new_style_base_size).strip().upper()
+                
+                ranked_pool = []
+                for s in pool:
+                    cand_words = set(re.findall(r'[a-zA-Z]{2,}', str(s.get("sketch_vector", "")).lower()))
+                    overlap_score = len(new_keywords.intersection(cand_words))
+                    for core_kw in ["pant", "skirt", "jacket", "shirt", "tee", "hoodie", "short", "dress"]:
+                        if core_kw in cand_words and core_kw in new_keywords:
+                            overlap_score += 15  
+                    if current_base_size != "N/A" and str(s.get("BaseSize", "")).strip().upper() == current_base_size: 
+                        overlap_score += 3  
+                    ranked_pool.append((overlap_score, s))
+                
+                MIN_PRE_SCORE = 5
+                valid_ranked_pool = [x for x in ranked_pool if x >= MIN_PRE_SCORE]
+                
+                if not valid_ranked_pool:
+                    st.error("❌ **DỪNG ENGINE:** Không ứng viên nào đạt điểm tối thiểu (Score >= 5).")
+                    st.stop()
+                    
+                valid_ranked_pool.sort(reverse=True, key=lambda x: x)
+                top_candidates = valid_ranked_pool[:8]
+                
+                return top_candidates, vision_contents, historical_pool_summary, new_style_category, new_group, new_style_base_size, new_vec, new_specs_clean, client, types, headers_db, target_new_sketch_bytes
+        except Exception as e:
+            st.sidebar.error(f"Lỗi chuẩn bị bể dữ liệu VLM: {str(e)}")
+    return [], [], [], new_style_category, new_group, new_style_base_size, new_vec, new_specs_clean, client, types, {}, target_new_sketch_bytes
+
 
 
                 new_keywords = set(re.findall(r'[a-zA-Z]{2,}', str(new_vec).lower()))
