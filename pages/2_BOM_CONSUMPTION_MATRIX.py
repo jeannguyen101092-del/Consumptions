@@ -2020,7 +2020,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     if matched_techpack and st.session_state.get("matched_image_verified", False) and bom_records:
         st.markdown("<br>🔮 **AI CONSUMPTION PROJECTION ENGINE (DỰ PHÓNG ĐỊNH MỨC MÃ MỚI)**", unsafe_allow_html=True)
         
-        # 🌟 KHÔI PHỤC AN TOÀN BIẾN ĐỂ TRÁNH LỖI NAMEERROR
+        #         # 🌟 KHÔI PHỤC AN TOÀN BIẾN ĐỂ TRÁNH LỖI NAMEERROR
         # Lấy bom_summary_engine từ session_state hoặc cấu hình mặc định từ bom_records nếu bị thiếu
         bom_summary_engine = st.session_state.get("bom_summary_engine", {})
         if not bom_summary_engine and bom_records:
@@ -2045,7 +2045,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             shape_factor = st.number_input("Độ biến thiên phom tính toán từ POM (%)", value=initial_shape_val, step=0.1)
             
         with col2:
-            # 🌟 ĐÃ KHẮC PHỤC: Khai báo widget để lấy giá trị wastage_buffer tránh lỗi NameError
+            # 🌟 ĐÃ ĐƯA VỀ THỰC TẾ: Mặc định hao hụt ban đầu là 0.0%
             wastage_buffer = st.number_input("Hao hụt sản xuất cấu hình thêm (%)", value=0.0, step=0.5, key="ai_engine_wastage_buffer")
 
         projection_rows = []
@@ -2059,7 +2059,8 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                 note = f"Trọng số Vision {v_similarity}% -> Shape Factor tinh chỉnh: {round(adjusted_shape_factor, 2)}%"
             else:
                 projected_dm = old_qty * (1 + wastage_buffer / 100)
-                note = f"Phụ liệu tĩnh (Chỉ tính hao hụt {wastage_buffer}%)"
+                # 🌟 SỬA TẠI ĐÂY: Thay chữ "Chỉ tính hao hụt 3%" bằng giá trị thực tế của biến wastage_buffer
+                note = f"Phụ liệu tĩnh (Hao hụt cấu hình: {wastage_buffer}%)"
                 
             projection_rows.append({
                 "Phân loại vật tư (Type)": ctype,
@@ -2071,6 +2072,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         df_projection = pd.DataFrame(projection_rows)
         st.session_state["ai_projected_consumption_matrix"] = projection_rows
         st.dataframe(df_projection, use_container_width=True, hide_index=True)
+
 
 import json
 import re
