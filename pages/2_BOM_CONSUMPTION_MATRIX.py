@@ -1990,31 +1990,33 @@ def get_words_similarity(str1, str2):
 
 
 def clean_float(v):
-    if v is None: 
+    if v is None:
         return None
     if isinstance(v, dict):
         for field in ["Spec", "spec", "Value", "value", "Actual", "actual", "Measurement", "measurement"]:
-            if field in v: return clean_float(v[field])
+            if field in v:
+                return clean_float(v[field])
         return None
-    val_str = str(v).strip()
-    if not val_str or val_str in ["-", "nan", "none"]: 
+
+    val_str = str(v).strip().lower()
+    if not val_str or val_str in ["-", "nan", "none"]:
         return None
-    try: 
+
+    try:
         return float(val_str)
     except (ValueError, TypeError):
-        if "/" in val_str:
-            frac_match = re.search(r'(\d+)\s+(\d+)\s*/\s*(\d+)', val_str)
-            if frac_match:
-                return float(frac_match.group(1)) + (float(frac_match.group(2)) / float(frac_match.group(3)))
-            pure_frac = re.search(r'(\d+)\s*/\s*(\d+)', val_str)
-            if pure_frac:
-                base_num = re.search(r'(\d+)\s+\d+/\d+', val_str)
-                if base_num:
-                    return float(base_num.group(1)) + (float(pure_frac.group(1)) / float(pure_frac.group(2)))
-                return float(pure_frac.group(1)) / float(pure_frac.group(2))
-        
+        mixed_match = re.search(r"(\d+)\s*[- ]\s*(\d+)\s*/\s*(\d+)", val_str)
+        if mixed_match:
+            return float(mixed_match.group(1)) + (float(mixed_match.group(2)) / float(mixed_match.group(3)))
+
+        pure_frac = re.search(r"(\d+)\s*/\s*(\d+)", val_str)
+        if pure_frac:
+            return float(pure_frac.group(1)) / float(pure_frac.group(2))
+
         nums = re.findall(r"[-+]?\d*\.\d+|\d+", val_str)
-        return float(nums) if nums else None
+        # SỬA LỖI TẠI ĐÂY: Trích xuất phần tử đầu tiên của list trước khi ép kiểu float
+        return float(nums[0]) if nums else None
+
 
 
 # ==============================================================================
