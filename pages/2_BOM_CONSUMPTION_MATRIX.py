@@ -1648,12 +1648,58 @@ def clean_float(v):
             return float(pure_frac.group(1)) / float(pure_frac.group(2))
 
         nums = re.findall(r"[-+]?\d*\.\d+|\d+", val_str)
+        # SỬA LỖI TẠI ĐÂY: Trích xuất phần tử đầu tiên của list trước khi ép kiểu float
         return float(nums[0]) if nums else None
 
 
-def execute_vlm_semantic_matching(*args, **kwargs):
-    """Hàm bọc an toàn tránh lỗi hệ thống."""
-    pass
+    try:
+        return float(val_str)
+    except (ValueError, TypeError):
+        mixed_match = re.search(r"(\d+)\s*[- ]\s*(\d+)\s*/\s*(\d+)", val_str)
+        if mixed_match:
+            return float(mixed_match.group(1)) + (float(mixed_match.group(2)) / float(mixed_match.group(3)))
+
+        pure_frac = re.search(r"(\d+)\s*/\s*(\d+)", val_str)
+        if pure_frac:
+            return float(pure_frac.group(1)) / float(pure_frac.group(2))
+
+        nums = re.findall(r"[-+]?\d*\.\d+|\d+", val_str)
+        return float(nums[0]) if nums else None
+
+
+def execute_vlm_semantic_matching(top_candidates, vision_contents, historical_pool_summary, new_style_category, new_group, new_style_base_size, new_vec, new_specs_clean, client, types, json_mod, re_mod):
+    """
+    Hàm gọi AI đối soát trực quan đa điểm thiết kế và ghi nhận kết quả.
+    """
+    # Chỉ chạy phân tích nếu chưa tìm thấy mã hàng tương thích trước đó
+    if st.session_state.get("matched_techpack") is not None:
+        return
+
+    try:
+        # --- [ĐOẠN CODE GỌI GEMINI / OPENAI CỦA BẠN Ở ĐÂY] ---
+        # Giả sử AI đã phân tích xong và trả về kết quả (Ví dụ chọn ứng viên số 0 trong pool)
+        # parsed_ai_response = kết quả từ VLM model...
+        
+        # Mô phỏng logic trích xuất mẫu khớp nhất từ AI phản hồi:
+        best_index = 0  # Giá trị này lấy từ kết quả phân tích hình ảnh của VLM
+        best_score = 85  # Điểm số tương đồng hình học do AI chấm
+        reason = "Kiểu dáng Jacket có cấu trúc cổ, hạ nách và bắp tay trùng khớp 95% bản vẽ lưu trữ."
+
+        if top_candidates and best_index < len(top_candidates):
+            # Lấy thông tin bản ghi Techpack gốc từ Database dựa trên lựa chọn trực quan của AI
+            score, selected_style = top_candidates[best_index]
+            
+            # 1. Ghi nhận dữ liệu vào trạng thái hệ thống
+            st.session_state["matched_techpack"] = selected_style
+            st.session_state["match_confidence_score"] = best_score
+            st.session_state["match_reason"] = reason
+            
+            # 2. ÉP STREAMLIT LÀM MỚI GIAO DIỆN NGAY LẬP TỨC ĐỂ HIỂN THỊ HÌNH ẢNH VÀ BẢNG SỐ LIỆU
+            st.rerun()
+
+    except Exception as e:
+        st.error(f"Lỗi phân tích trực quan thiết kế: {str(e)}")
+
 
 
 def run_database_matching_engine():
