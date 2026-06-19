@@ -1448,7 +1448,7 @@ base_sb_url = SB_URL.rstrip('/') if 'SB_URL' in globals() else ""
 headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if 'SB_KEY' in globals() else {}
 # =================================================================
 # =================================================================
-# ĐOẠN 4 ĐÃ SỬA: HỆ THỐNG ĐỐI CHIẾU MÃ HÀNG CÓ CƠ CHẾ KHÓA TRẠNG THÁI VÀ PHÂN LOẠI VISION
+# ĐOẠN 4 ĐÃ SỬA: HỆ THỐNG ĐỐI CHIẾU MÃ HÀNG CÓ CƠ CHẾ KHÓA TRẠNG THÁI VÀ TRÍCH XUẤT CỐT LÕI
 # =========================================================================================
 
 if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption Matrix":
@@ -1461,6 +1461,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
 
     st.markdown('<div class="component-title-box">🧵 INTELLIGENT BOM & CONSUMPTION MATRIX ENGINE</div>', unsafe_allow_html=True)
     
+    # Khởi tạo các biến lưu trữ tạm để Khung Chat tái sử dụng, không quét lại PDF
     if "matched_techpack" not in st.session_state: st.session_state["matched_techpack"] = None
     if "bom_records" not in st.session_state: st.session_state["bom_records"] = []
     if "consumption_chat_history" not in st.session_state: st.session_state["consumption_chat_history"] = []
@@ -1468,6 +1469,10 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     if "match_confidence_score" not in st.session_state: st.session_state["match_confidence_score"] = 0
     if "match_reason" not in st.session_state: st.session_state["match_reason"] = ""
     if "detected_garment_type" not in st.session_state: st.session_state["detected_garment_type"] = "UNKNOWN"
+    
+    # BỔ SUNG CỐT LÕI: Lưu trữ cấu trúc BOM và Thông số thô của mẫu mới
+    if "new_style_extracted_bom_text" not in st.session_state: st.session_state["new_style_extracted_bom_text"] = "CHƯA CÓ DỮ LIỆU"
+    if "new_style_extracted_spec_text" not in st.session_state: st.session_state["new_style_extracted_spec_text"] = "CHƯA CÓ DỮ LIỆU"
 
     control_col1, control_col2 = st.columns([3.3, 0.7])
     with control_col1:
@@ -1479,6 +1484,8 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             st.session_state["match_confidence_score"] = 0
             st.session_state["match_reason"] = ""
             st.session_state["detected_garment_type"] = "UNKNOWN"
+            st.session_state["new_style_extracted_bom_text"] = "CHƯA CÓ DỮ LIỆU"
+            st.session_state["new_style_extracted_spec_text"] = "CHƯA CÓ DỮ LIỆU"
             st.session_state["previous_uploaded_file_name"] = uploaded_file.name
             st.rerun()
             
@@ -1491,6 +1498,8 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             st.session_state["match_confidence_score"] = 0
             st.session_state["match_reason"] = ""
             st.session_state["detected_garment_type"] = "UNKNOWN"
+            st.session_state["new_style_extracted_bom_text"] = "CHƯA CÓ DỮ LIỆU"
+            st.session_state["new_style_extracted_spec_text"] = "CHƯA CÓ DỮ LIỆU"
             st.session_state["previous_uploaded_file_name"] = None
             st.success("♻️ MEMORY PURGED - SẴN SÀNG CHO MÃ HÀNG MỚI")
             st.rerun()
@@ -1521,60 +1530,73 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     new_vec = str(st.session_state.get("visual_description_str", "") or globals().get("visual_description_str", "") or globals().get("new_style_sketch_vector", "")).strip().upper()
 
     if st.session_state["matched_techpack"] is None:
-        if len(new_vec) < 30 and target_new_sketch_bytes and client and client.models:
-            with st.spinner("🔄 Đang quét ảnh tái lập Sketch Vector..."):
+        # Nếu chưa có cấu trúc thô trong bộ nhớ tạm, tiến hành quét triệt để 1 lần duy nhất
+        if (len(new_vec) < 30 or st.session_state["new_style_extracted_bom_text"] == "CHƯA CÓ DỮ LIỆU") and target_new_sketch_bytes and client and client.models:
+            with st.spinner("🔄 Đang phân tích toàn diện Techpack (Loại đồ + Khai thác trước BOM & Thông số)..."):
                 try:
-                    # ĐÃ NÂNG CẤP PROMPT: Ép Gemini tự định vị trang Sketch độc lập để loại bỏ nhiễu PDF đa trang
+                    # NÂNG CẤP PROMPT: Ép Gemini bóc tách toàn bộ tài nguyên cốt lõi và phân mảnh bằng thẻ Tag rõ ràng
                     ocr_prompt = """
-                    You are an expert apparel techpack analyzer. This document may be a multi-page PDF containing Cover pages, BOM tables, and Measurement charts.
+                    You are an expert apparel technical designer. Analyze this entire technical package document carefully.
                     
-                    CRITICAL TASK: First, scan through all pages to locate the primary 'FLAT SKETCH' or 'TECHNICAL DRAWING' page. Ignore textual BOM or size chart grids.
-                    
-                    Once located, extract:
-                    1. Garment Type (Must strictly classify as one of these: PANT, SHORT, JACKET, SHIRT, DRESS, SKIRT, VEST, HOODIE, T-SHIRT)
-                    2. Structural Features (Focus on visual construction details: waistband, pockets, seams, closure fly, cuffs, collar shape)
+                    Please extract and separate the data into the exact format blocks below:
 
-                    Return format exactly like this:
+                    ===GARMENT_TYPE_START===
+                    [Insert single primary standard keyword here, e.g., PANT, JACKET, SHIRT, SHORT, DRESS]
+                    ===GARMENT_TYPE_END===
 
-                    GARMENT_TYPE: PANT
+                    ===FEATURES_START===
+                    [List structural visual features: waistband, fly, pockets, silhouette, cuffs for sketch mapping]
+                    ===FEATURES_END===
 
-                    FEATURES:
-                    ELASTIC WAISTBAND
-                    ZIPPER FLY
-                    SIDE POCKET
+                    ===BOM_START===
+                    [Locate the Bill of Materials table. Extract all raw columns: Material name, Fabric type, Placement, Supplier, Color, and Consumption if visible. Keep it clean and text-based]
+                    ===BOM_END===
+
+                    ===SPEC_START===
+                    [Locate the Measurement Spec sheet / Size Chart table. Extract all rows of measurement positions (POM) and their corresponding values for the base size]
+                    ===SPEC_END===
                     """
                     ocr_contents = [types.Part.from_text(text=ocr_prompt), types.Part.from_bytes(data=target_new_sketch_bytes, mime_type=detected_mime_type)] if types and hasattr(types, "Part") else [ocr_prompt, {"mime_type": detected_mime_type, "data": target_new_sketch_bytes}]
                     ocr_res = client.models.generate_content(model='gemini-2.5-flash', contents=ocr_contents)
                     if ocr_res and ocr_res.text:
-                        new_vec = str(ocr_res.text).strip().upper()
+                        raw_response = str(ocr_res.text).strip()
+                        new_vec = raw_response.upper()
                         st.session_state["visual_description_str"] = new_vec
                         
-                        # ĐÃ NÂNG CẤP REGEX: Nới lỏng kiểm tra để không trượt bất kỳ định dạng gạch nối/dấu phân tách nào
-                        type_match = re.search(r"GARMENT[\s_-]*TYPE\s*[:=]\s*([A-Z_\-]+)", new_vec, re.IGNORECASE)
+                        # 1. Bóc tách và Khóa Garment Type
+                        type_match = re.search(r"===GARMENT_TYPE_START===\s*([A-Z_\-]+)\s*===GARMENT_TYPE_END===", raw_response, re.IGNORECASE)
                         if type_match:
                             st.session_state["detected_garment_type"] = type_match.group(1).strip().upper()
                         else:
-                            keywords_fallback = ["PANT", "SHORT", "JACKET", "SHIRT", "DRESS", "SKIRT", "VEST", "HOODIE", "T-SHIRT"]
-                            found_type = "UNKNOWN"
-                            for tk in keywords_fallback:
-                                if tk in new_vec:
-                                    found_type = tk
-                                    break
-                            st.session_state["detected_garment_type"] = found_type
+                            # Dự phòng tìm từ khóa trực tiếp
+                            keywords_pool = ["PANT", "SHORT", "JACKET", "SHIRT", "DRESS", "SKIRT", "VEST", "HOODIE", "T-SHIRT"]
+                            st.session_state["detected_garment_type"] = next((tk for tk in keywords_pool if tk in new_vec), "UNKNOWN")
+                        
+                        # 2. Bóc tách lưu sẵn bảng BOM thô của mẫu mới vào cache
+                        bom_match = re.search(r"===BOM_START===\s*([\s\S]*?)\s*===BOM_END===", raw_response, re.IGNORECASE)
+                        if bom_match:
+                            st.session_state["new_style_extracted_bom_text"] = bom_match.group(1).strip()
+                            
+                        # 3. Bóc tách lưu sẵn bảng Thông số thô của mẫu mới vào cache
+                        spec_match = re.search(r"===SPEC_START===\s*([\s\S]*?)\s*===SPEC_END===", raw_response, re.IGNORECASE)
+                        if spec_match:
+                            st.session_state["new_style_extracted_spec_text"] = spec_match.group(1).strip()
                 except Exception: pass
 
-        with st.expander("🛠️ DEBUG: DỮ LIỆU THÔ VÀ TRẠNG THÁI PHÂN LOẠI VISION", expanded=False):
-            st.write(f"**MIME Type nhận diện:** `{detected_mime_type}`")
-            st.write(f"**Garment Type trích xuất:** `{st.session_state['detected_garment_type']}`")
-            st.write("**Nội dung văn bản gốc trả về từ Gemini:**")
-            st.code(new_vec)
+        with st.expander("🛠️ DEBUG: DỮ LIỆU LƯU TẠM TRONG BỘ NHỚ CỐT LÕI (KHÔNG QUET LẠI)", expanded=False):
+            st.write(f"**Garment Type:** `{st.session_state['detected_garment_type']}`")
+            st.write("**Bảng BOM lưu tạm:**")
+            st.text(st.session_state["new_style_extracted_bom_text"])
+            st.write("**Bảng Thông số lưu tạm:**")
+            st.text(st.session_state["new_style_extracted_spec_text"])
 
         if len(new_vec) < 10:
-            st.error("🚨 Không nhận diện được cấu trúc tệp Techpack tải lên. Vui lòng kiểm tra lại độ nét hoặc file lỗi.")
+            st.error("🚨 Không nhận diện được cấu trúc tệp Techpack tải lên. Vui lòng kiểm tra lại file lỗi.")
             st.stop()
             
         if st.session_state["detected_garment_type"] == "UNKNOWN":
             st.warning("⚠️ Không tự động bóc tách được phân loại đồ cụ thể. Hệ thống tự động chuyển sang chế độ đối soát mở rộng.")
+
                         # KHỐI SO SÁNH TRỰC QUAN VLM KẾT HỢP BỘ LỌC CỨNG CHỐNG LỆCH DANH MỤC
         with st.spinner("🧠 Mắt thần VLM đang so sánh trực quan ảnh và thông số kỹ thuật..."):
             try:
@@ -2115,12 +2137,15 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     matched_techpack = st.session_state.get("matched_techpack", None)
     bom_records = st.session_state.get("bom_records", [])
     new_style_measurements_dict = globals().get("new_style_measurements_dict", {})
-    target_new_sketch_bytes = globals().get("target_new_sketch_bytes", None)
     new_style_base_size = globals().get("new_style_base_size", "N/A")
+    
+    # KẾ THỪA BIẾN TẠM: Lấy trực tiếp dữ liệu chữ BOM và Thông số đã lưu ở bước trên
+    cached_bom_text = st.session_state.get("new_style_extracted_bom_text", "Không có dữ liệu thô")
+    cached_spec_text = st.session_state.get("new_style_extracted_spec_text", "Không có dữ liệu thô")
 
     chat_header_col1, chat_header_col2 = st.columns([3.2, 0.8])
     with chat_header_col1:
-        st.markdown("### 💬 TRỢ LÝ AI PHÂN TÍCH ĐỊNH MỨC SẢN XUẤT ")
+        st.markdown("### 💬 TRỢ LÝ AI PHÂN TÍCH ĐỊNH MỨC SẢN XUẤT (HỎI ĐÂU ĐÁP ĐÓ)")
     with chat_header_col2:
         if st.button("🗑️ XÓA LỊCH SỬ CHAT", key="direct_clear_chat_btn", use_container_width=True):
             st.session_state["consumption_chat_history"] = []
@@ -2135,7 +2160,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             with st.chat_message("assistant"): 
                 st.write(chat["ai"])
                 
-    if user_query := st.chat_input("Nhập yêu cầu phân tích (Ví dụ: Tính định mức vải chính khi co rút ngang 5%, dọc 3%)..."):
+    if user_query := st.chat_input("Nhập yêu cầu phân tích (Ví dụ: Xuất cho tôi bảng BOM đã bóc tách từ file mới)..."):
         if "consumption_chat_history" not in st.session_state:
             st.session_state["consumption_chat_history"] = []
             
@@ -2144,30 +2169,41 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                 st.write(user_query)
                 
             with st.chat_message("assistant"):
-                with st.spinner("🤖 AI đang phân tích dữ liệu và tính toán định mức..."):
-                    # Bẫy lỗi an toàn cho Engine phân tích, phòng trường hợp hàm chưa định nghĩa hoặc lỗi API
+                with st.spinner("🤖 AI đang truy xuất bộ nhớ tạm và tính toán định mức siêu tốc..."):
                     try:
                         if "ai_consumption_analyst_engine" in globals():
+                            # NÂNG CẤP ĐỘC LẬP: Gửi dữ liệu BOM/Thông số dạng TEXT đã lưu tạm thay vì gửi file PDF gốc nặng nề
+                            extended_context_query = f"""
+                            User Question: {user_query}
+                            
+                            --- CONTEXT FROM THE NEW UPLOADED TECHPACK (CACHED DATA) ---
+                            [Extracted Raw Bill of Materials (BOM)]:
+                            {cached_bom_text}
+                            
+                            [Extracted Raw Measurement Specs]:
+                            {cached_spec_text}
+                            """
+                            
                             ai_reply = ai_consumption_analyst_engine(
                                 client=client,
-                                user_message=user_query,
+                                user_message=extended_context_query, # Truyền kèm ngữ cảnh chữ đã lưu tạm
                                 matched_techpack=matched_techpack,
                                 bom_records=bom_records,
                                 new_style_measurements=new_style_measurements_dict,
-                                target_new_sketch_bytes=target_new_sketch_bytes,
+                                target_new_sketch_bytes=None,  # ÉP THÀNH NONE: Triệt tiêu hoàn toàn việc quét lại tệp PDF nặng, chống lỗi 503
                                 detected_size=new_style_base_size
                             )
                         else:
                             ai_reply = "⚠️ Khối phân tích `ai_consumption_analyst_engine` chưa được khởi tạo trong mã nguồn hệ thống."
                     except Exception as chat_err:
-                        ai_reply = f"❌ Không thể kết nối đến bộ não AI để phân tích dữ liệu định mức. Chi tiết sự cố: {str(chat_err)}"
+                        ai_reply = f"❌ Sự cố phân tích dữ liệu định mức: {str(chat_err)}"
                         
                     st.write(ai_reply)
                     
-                    # ĐỒNG BỘ TRƯỚC: Lưu kết quả vào lịch sử chat lập tức trước khi chạy script cuộn màn hình
+                    # Lưu lại câu hỏi thô ban đầu của user và câu trả lời vào lịch sử hiển thị UI
                     st.session_state["consumption_chat_history"].append({"user": user_query, "ai": ai_reply})
                     
-        # ✅ THUẬT TOÁN ĐÓNG ĐINH NEO CUỘN: Viết phẳng hóa hoàn toàn triệt tiêu lỗi cú pháp căn lề
+        # THUẬT TOÁN ĐÓNG ĐINH NEO CUỘN: Phẳng hóa hoàn toàn
         js_scroll = "<script>var d=window.parent.document; var s=d.querySelectorAll('section.main'); if(s.length>0){s[0].scrollTo({top:s[0].scrollHeight,behavior:'smooth'});}</script>"
         st.components.v1.html(js_scroll, height=0)
 
