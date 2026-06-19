@@ -1448,8 +1448,8 @@ base_sb_url = SB_URL.rstrip('/') if 'SB_URL' in globals() else ""
 headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if 'SB_KEY' in globals() else {}
 # =================================================================
 # =================================================================
-# ĐOẠN 4 ĐÃ SỬA: HỆ THỐNG ĐỐI CHIẾU MÃ HÀNG CÓ CƠ CHẾ KHÓA TRẠNG THÁI
-# =================================================================
+# ĐOẠN 4 ĐÃ SỬA: HỆ THỐNG ĐỐI CHIẾU MÃ HÀNG CÓ CƠ CHẾ KHÓA TRẠNG THÁI VÀ PHÂN LOẠI VISION
+# =========================================================================================
 
 if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption Matrix":
     import json, re, requests
@@ -1467,7 +1467,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     if "previous_uploaded_file_name" not in st.session_state: st.session_state["previous_uploaded_file_name"] = None
     if "match_confidence_score" not in st.session_state: st.session_state["match_confidence_score"] = 0
     if "match_reason" not in st.session_state: st.session_state["match_reason"] = ""
-    # BỔ SUNG: Khởi tạo biến lưu loại trang phục nhận diện được
+    # BỔ SUNG: Khởi tạo trạng thái lưu loại trang phục nhận diện được từ ảnh/PDF bằng Vision
     if "detected_garment_type" not in st.session_state: st.session_state["detected_garment_type"] = "UNKNOWN"
 
     control_col1, control_col2 = st.columns([3.3, 0.7])
@@ -1557,11 +1557,12 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                             st.session_state["detected_garment_type"] = "UNKNOWN"
                 except Exception: pass
 
-        # SỬA ĐỔI 2: Loại bỏ Fallback nguy hiểm, kích hoạt Hard Stop khi lỗi đọc file/ảnh mờ
+        # SỬA ĐỔI 2: Loại bỏ Fallback nguy hiểm, kích hoạt Hard Stop khi lỗi đọc file/ảnh mờ hoặc không ra loại đồ
         if len(new_vec) < 10 or st.session_state["detected_garment_type"] == "UNKNOWN":
             st.error("🚨 Không nhận diện được cấu trúc Sketch hoặc Loại trang phục từ Techpack.")
             st.stop()
-with st.spinner("🧠 Mắt thần VLM đang so sánh trực quan ảnh và thông số kỹ thuật..."):
+        # KHỐI SO SÁNH TRỰC QUAN VLM KẾT HỢP BỘ LỌC CỨNG CHỐNG LỆCH DANH MỤC
+        with st.spinner("🧠 Mắt thần VLM đang so sánh trực quan ảnh và thông số kỹ thuật..."):
             try:
                 headers_db = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if SB_KEY else {}
                 url_db = f"{base_sb_url.rstrip('/')}/rest/v1/thong_so_techpack" if base_sb_url else ""
@@ -1570,18 +1571,18 @@ with st.spinner("🧠 Mắt thần VLM đang so sánh trực quan ảnh và thô
                 if raw_styles and client and client.models:
                     valid_styles = [s for s in raw_styles if s.get("StyleName") and s.get("sketch_vector") and s.get("DetailedMeasurements")]
                     
-                    # BỔ SUNG & SỬA ĐỔI: Tích hợp màng lọc cứng song song (Vision Type từ bước trước & Category từ Upstream)
+                    # BỔ SUNG & SỬA ĐỔI: Tích hợp màng lọc cứng song song (Vision Type chặn chéo Category db)
                     vision_type = str(st.session_state.get("detected_garment_type", "UNKNOWN")).strip().upper()
                     
                     pool = []
                     for s in valid_styles:
                         cand_cat = str(s.get("Category", "")).strip().upper()
                         
-                        # Điều kiện 1: Kiểm tra theo Category của upstream chèn vào nếu có
+                        # Điều kiện kiểm tra 1: Khớp Category định danh từ Upstream nếu có
                         if new_style_category and cand_cat != str(new_style_category).strip().upper():
                             continue
                             
-                        # Điều kiện 2: Kiểm tra chéo với loại trang phục do Vision quét trực tiếp từ ảnh/PDF ở bước trước
+                        # Điều kiện kiểm tra 2: Lọc cứng theo loại trang phục nhận diện từ ảnh/PDF bằng Vision
                         if vision_type != "UNKNOWN" and vision_type not in cand_cat and cand_cat not in vision_type:
                             continue
                             
@@ -1604,14 +1605,12 @@ with st.spinner("🧠 Mắt thần VLM đang so sánh trực quan ảnh và thô
                     
                     vision_contents = []
                     if target_new_sketch_bytes:
-                        # ĐỔI: Sử dụng biến động detected_mime_type (được xác định tự động ở khối code phía trên) thay vì fix cứng image/jpeg
-                        current_mime = locals().get("detected_mime_type", "image/jpeg")
                         if types and hasattr(types, "Part"):
                             vision_contents.append(types.Part.from_text(text=f"Analyze geometry of new sketch against historical style pictures and size specs. Target garment category context: {vision_type}"))
-                            vision_contents.append(types.Part.from_bytes(data=target_new_sketch_bytes, mime_type=current_mime))
+                            vision_contents.append(types.Part.from_bytes(data=target_new_sketch_bytes, mime_type=detected_mime_type))
                         else:
                             vision_contents.append(f"Analyze geometry of new sketch against historical style pictures and size specs. Target garment category context: {vision_type}")
-                            vision_contents.append({"mime_type": current_mime, "data": target_new_sketch_bytes})
+                            vision_contents.append({"mime_type": detected_mime_type, "data": target_new_sketch_bytes})
                     
                     historical_pool_summary = []
                     for idx, s in enumerate(top_20_candidates):
@@ -1633,7 +1632,6 @@ with st.spinner("🧠 Mắt thần VLM đang so sánh trực quan ảnh và thô
                         
                         historical_pool_summary.append({"pool_index": idx, "style_name": s.get("StyleName"), "base_size": s.get("BaseSize", "N/A"), "features": str(s.get("sketch_vector", "")).strip()[:1000], "detailed_measurements": s.get("DetailedMeasurements", {})})
                     
-                    # SỬA ĐỔI: Chèn thông tin loại đồ đã được kiểm chứng bằng Vision (vision_type) vào Prompt để định hướng Gemini loại bỏ ứng viên lệch loại
                     semantic_prompt = f"Cross-examine tech files. Select best index for reference BOM. Confirmed Target Garment Type: {vision_type}. New size: {new_style_base_size}. New features text: {new_vec}. Candidates Pool: {json.dumps(historical_pool_summary, ensure_ascii=False)}. Return valid JSON ONLY: {{\"selected_pool_index\": 0, \"match_score\": 92, \"reason\": \"Mô tả kĩ thuật\"}}"
                     
                     if types and hasattr(types, "Part"): vision_contents.append(types.Part.from_text(text=semantic_prompt))
@@ -1660,6 +1658,8 @@ with st.spinner("🧠 Mắt thần VLM đang so sánh trực quan ảnh và thô
                             if score > 0 and score < 65: st.warning(f"⚠️ Điểm số đối soát đạt {score}% (Dưới ngưỡng an toàn 65%). Hủy lệnh khóa tự động.")
                     else: st.session_state["matched_techpack"] = None
             except Exception as e: st.sidebar.error(f"Lỗi đối soát VLM hệ thống: {str(e)}")
+
+    # Trả lề về sát lề trái (gốc) cho phần dựng UI kết quả hiển thị cuối cùng ngoài khối điều kiện
     matched_techpack = st.session_state.get("matched_techpack")
     confidence_score = st.session_state.get("match_confidence_score", 0)
     match_reason = st.session_state.get("match_reason", "")
@@ -1675,13 +1675,13 @@ with st.spinner("🧠 Mắt thần VLM đang so sánh trực quan ảnh và thô
             </div>
         """, unsafe_allow_html=True)
     else:
-        # BỔ SUNG THÔNG TIN TRỰC QUAN: Hiển thị rõ loại đồ được khóa để người dùng dễ theo dõi trạng thái
         v_type_info = f" | Loại trang phục xác thực: **{st.session_state.get('detected_garment_type', 'UNKNOWN')}**"
         if new_style_base_size and new_style_base_size != "32":
             st.info(f"📋 **CƠ SỞ ĐỐI SOÁT KIỂM TRA:** Mẫu mới số hóa mã hàng `{new_style_id_detected}`{v_type_info} | Quy chuẩn kích thước hình học rập mẫu: **SIZE {new_style_base_size}**")
         else:
             st.info(f"📋 **CƠ SỞ ĐỐI SOÁT KIỂM TRA:** Mẫu mới số hóa mã hàng `{new_style_id_detected}`{v_type_info} | Đang áp dụng quy chuẩn kích thước hình học rập mẫu cơ sở: **SIZE 32 / M (Mặc định)**")
         st.warning("⚠️ Trạng thái: Chưa tìm thấy hoặc điểm số đối soát dưới ngưỡng an toàn (65%). Hệ thống sẵn sàng tính toán diện tích rập mô phỏng tự động.")
+
 
 if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption Matrix":
     import pandas as pd
