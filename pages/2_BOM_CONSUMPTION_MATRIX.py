@@ -1577,194 +1577,150 @@ if st.session_state["matched_techpack"] is None:
                         )
                     )
 # =================================================================
-# ĐOẠN 4b: ĐỐI SOÁT VLM CHỐNG GHÉP NHẦM QUẦN/ÁO & HIỂN THỊ UI
+# =================================================================
+# ĐOẠN 4a: XỬ LÝ TIỀN KIỂM, XẾP HẠNG & TẢI ĐỒNG THỜI DỮ LIỆU MẪU
 # =================================================================
 
-                # 1. Đóng gói Context hình ảnh thiết kế mới và danh sách ảnh lịch sử
-                vision_contents = []
-                if target_new_sketch_bytes:
-                    if types and hasattr(types, "Part"):
-                        vision_contents.append(
-                            types.Part.from_text(
-                                text="Task: Master Garment Tech Analysis. Inspect the NEW SKETCH carefully to determine its type and geometry before matching."
-                            )
-                        )
-                        vision_contents.append(
-                            types.Part.from_bytes(
-                                data=target_new_sketch_bytes,
-                                mime_type="image/jpeg",
-                            )
-                        )
-                    else:
-                        vision_contents.append(
-                            "Task: Master Garment Tech Analysis. Inspect the NEW SKETCH carefully to determine its type and geometry before matching."
-                        )
-                        vision_contents.append(
-                            {
-                                "mime_type": "image/jpeg",
-                                "data": target_new_sketch_bytes,
-                            }
-                        )
+# 🛠️ VÁ LỖI CỐT LÕI: Khởi tạo biến an toàn, triệt tiêu hoàn toàn NameError cho biến new_vec
+new_vec = (
+    str(
+        st.session_state.get("visual_description_str", "")
+        or globals().get("visual_description_str", "")
+        or globals().get("new_style_sketch_vector", "")
+    )
+    .strip()
+    .upper()
+)
 
-                historical_pool_summary = []
-                for idx, s in enumerate(top_20_candidates):
-                    cand_img_bytes = downloaded_images[idx]
+if not new_vec or new_vec == "NONE":
+    new_vec = ""
 
-                    if cand_img_bytes and target_new_sketch_bytes:
-                        if types and hasattr(types, "Part"):
-                            vision_contents.append(
-                                types.Part.from_text(
-                                    text=f"HISTORICAL MODEL CARD [Index {idx}] - Style: {s.get('StyleName')}"
-                                )
-                            )
-                            vision_contents.append(
-                                types.Part.from_bytes(
-                                    data=cand_img_bytes, mime_type="image/jpeg"
-                                )
-                            )
-                        else:
-                            vision_contents.append(
-                                f"HISTORICAL MODEL CARD [Index {idx}] - Style: {s.get('StyleName')}"
-                            )
-                            vision_contents.append(
-                                {
-                                    "mime_type": "image/jpeg",
-                                    "data": cand_img_bytes,
-                                }
-                            )
-
-                    historical_pool_summary.append(
-                        {
-                            "pool_index": idx,
-                            "style_name": s.get("StyleName"),
-                            "base_size": s.get("BaseSize", "N/A"),
-                            "features": str(s.get("sketch_vector", "")).strip()[
-                                :500
-                            ],
-                            "detailed_measurements": s.get(
-                                "DetailedMeasurements", {}
-                            ),
-                        }
-                    )
-
-                # 2. Cài đặt Prompt 4 bước tư duy nghiêm ngặt bắt buộc loại trừ Quần <-> Áo
-                semantic_prompt = f"""You are an expert garment technician specializing in pattern drafting and BOM engineering.
-Analyze the images and technical specifications provided to perform an automated cross-examination.
-
-STEP 1 [Identify Target]:
-Determine the core garment type of the NEW SKETCH image. 
-Strictly classify it into one of these types: (PANT, SHORT, JACKET, SHIRT, DRESS, SKIRT, VEST, OTHER).
-
-STEP 2 [Cross-Verify Candidates]:
-Determine the garment type of each candidate model based on its image and technical features text.
-
-STEP 3 [Enforce Category Guardrail]:
-COMPARE the garment type from STEP 1 against each candidate. 
-If a candidate has a DIFFERENT garment type (e.g., Target is a PANT but Candidate is a JACKET/VEST), you MUST penalize it heavily. Give it a MAXIMUM 'match_score' of 40, regardless of shared features like pockets or zippers.
-
-STEP 4 [Selection]:
-Select the absolute best historical candidate index for reference BOM generation ONLY if the garment type matches perfectly.
-
-NEW DESIGN TEXT SUMMARY: Size: {new_style_base_size}, Keywords: {new_vec}
-CANDIDATES TECHNICAL POOL: {json.dumps(historical_pool_summary, ensure_ascii=False)}
-
-CRITICAL: Return a strict valid JSON object ONLY. Do not wrap in markdown or block codes.
-Structure:
-{{
-  "new_garment_type": "PANT",
-  "selected_pool_index": 0,
-  "match_score": 92,
-  "reason": "Giải thích chi tiết bằng tiếng Việt lý do chọn/loại trừ dựa trên kiểu dáng rập (quần/áo) và cấu trúc túi, tỷ lệ hình học."
-}}"""
-
-                if types and hasattr(types, "Part"):
-                    vision_contents.append(
-                        types.Part.from_text(text=semantic_prompt)
-                    )
-                else:
-                    vision_contents.append(semantic_prompt)
-
-                # Thực thi xử lý VLM với chế độ ép định dạng JSON thuần
-                res = client.models.generate_content(
-                    model="gemini-2.5-flash",
-                    contents=vision_contents,
-                    config={"response_mime_type": "application/json"}
-                    if hasattr(client, "models")
-                    else None,
-                )
-
-                try:
-                    match_res = json.loads(res.text.strip())
-                    s_idx = match_res.get("selected_pool_index")
-                    score = int(match_res.get("match_score", 0))
-                    reason = str(match_res.get("reason", "N/A"))
-                    detected_type = str(
-                        match_res.get("new_garment_type", "UNKNOWN")
-                    )
-                except Exception:
-                    s_idx, score, reason, detected_type = None, 0, "", "UNKNOWN"
-
-                # 3. Ghi nhận trạng thái Session State và khóa mã tự động
-                if (
-                    s_idx is not None
-                    and 0 <= s_idx < len(top_20_candidates)
-                    and score >= 65
-                ):
-                    st.session_state["matched_techpack"] = top_20_candidates[
-                        s_idx
+if st.session_state["matched_techpack"] is None:
+    # 1. Quét ảnh tái lập Sketch Vector bằng OCR nếu mô tả chuỗi kỹ thuật quá ngắn
+    if (
+        len(new_vec) < 30
+        and target_new_sketch_bytes
+        and client
+        and client.models
+    ):
+        with st.spinner("🔄 Đang quét ảnh tái lập Sketch Vector..."):
+            try:
+                ocr_prompt = "Analyze this apparel flat sketch and generate a detailed structural text description focusing strictly on internal construction details: waistband type (elastic/rigid), pocket placement/types, zipper fly presence, seams, cuffs, and silhouette."
+                ocr_contents = (
+                    [
+                        types.Part.from_text(text=ocr_prompt),
+                        types.Part.from_bytes(
+                            data=target_new_sketch_bytes,
+                            mime_type="image/jpeg",
+                        ),
                     ]
-                    st.session_state["match_confidence_score"] = score
-                    st.session_state["match_reason"] = reason
-                    st.session_state["detected_garment_type"] = detected_type
-                    st.toast(
-                        f"🎯 Đã khóa mã đối chứng [{detected_type}]: {top_20_candidates[s_idx].get('StyleName')} ({score}%)",
-                        icon="🎯",
-                    )
-                    st.rerun()
-                else:
-                    st.session_state["matched_techpack"] = None
-                    if 0 < score < 65:
-                        st.warning(
-                            f"⚠️ Kết quả đối soát thấp ({score}%). Hệ thống nhận diện mẫu mới là [{detected_type}] nhưng không tìm thấy ứng viên cùng loại đạt độ tin cậy an toàn."
+                    if types and hasattr(types, "Part")
+                    else [
+                        ocr_prompt,
+                        {
+                            "mime_type": "image/jpeg",
+                            "data": target_new_sketch_bytes,
+                        },
+                    ]
+                )
+                ocr_res = client.models.generate_content(
+                    model="gemini-2.5-flash", contents=ocr_contents
+                )
+                if ocr_res and ocr_res.text:
+                    new_vec = str(ocr_res.text).strip().upper()
+                    st.session_state["visual_description_str"] = new_vec
+            except Exception:
+                pass
+
+    if len(new_vec) < 10:
+        new_vec = (
+            "STANDARD APPAREL STYLE FLAT SKETCH CONSTRUCTION FROM TECHPACK"
+        )
+
+    # 2. Kết nối cơ sở dữ liệu để lấy danh sách hồ sơ kỹ thuật mẫu
+    with st.spinner(
+        "🧠 Mắt thần VLM đang phân loại kiểu dáng và đối soát trực quan 20 mẫu rập..."
+    ):
+        try:
+            headers_db = (
+                {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
+                if SB_KEY
+                else {}
+            )
+            url_db = (
+                f"{base_sb_url.rstrip('/')}/rest/v1/thong_so_techpack"
+                if base_sb_url
+                else ""
+            )
+            raw_styles = (
+                requests.get(
+                    url_db,
+                    headers=headers_db,
+                    params={
+                        "select": "StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL,sketch_vector",
+                        "limit": 1000,
+                    },
+                    timeout=15,
+                ).json()
+                if url_db
+                else []
+            )
+
+            if raw_styles and client and client.models:
+                valid_styles = [
+                    s
+                    for s in raw_styles
+                    if s.get("StyleName")
+                    and s.get("sketch_vector")
+                    and s.get("DetailedMeasurements")
+                ]
+                pool = (
+                    [
+                        s
+                        for s in valid_styles
+                        if str(s.get("Category", "")).strip().upper()
+                        == str(new_style_category).strip().upper()
+                    ]
+                    if new_style_category
+                    else valid_styles
+                )
+                if not pool:
+                    pool = valid_styles
+
+                # Chấm điểm từ khóa cấu trúc rập mẫu (Keyword Overlap)
+                new_keywords = set(re.findall(r"[A-Z]{4,}", new_vec))
+                current_base_size = str(new_style_base_size).strip().upper()
+
+                ranked_pool = []
+                for s in pool:
+                    cand_words = set(
+                        re.findall(
+                            r"[A-Z]{4,}",
+                            str(s.get("sketch_vector", "")).upper(),
                         )
-            else:
-                st.session_state["matched_techpack"] = None
-        except Exception as e:
-            st.sidebar.error(f"Lỗi đối soát VLM hệ thống: {str(e)}")
+                    )
+                    overlap_score = len(new_keywords.intersection(cand_words))
+                    if (
+                        current_base_size != "N/A"
+                        and str(s.get("BaseSize", "")).strip().upper()
+                        == current_base_size
+                    ):
+                        overlap_score += 3
+                    ranked_pool.append((overlap_score, s))
 
-# --- ĐẦU RA HIỂN THỊ KẾT QUẢ SAU ĐỐI SOÁT CỦA COMPONENT ---
-matched_techpack = st.session_state.get("matched_techpack")
-confidence_score = st.session_state.get("match_confidence_score", 0)
-match_reason = st.session_state.get("match_reason", "")
-detected_garment_type = st.session_state.get("detected_garment_type", "")
+                # Phân loại và trích xuất danh sách Top 20 ứng viên rập phù hợp nhất
+                ranked_pool.sort(reverse=True, key=lambda x: x)
+                top_20_candidates = [x for x in ranked_pool[:20]]
 
-if matched_techpack:
-    target_style_display_name = (
-        str(matched_techpack.get("StyleName", "N/A")).strip().upper()
-    )
-    st.markdown(
-        f"""
-        <div style='background-color: #F0FDF4; border: 1px solid #BBF7D0; padding: 12px; border-radius: 6px; margin-bottom: 15px;'>
-            <span style='color: #166534; font-weight: 700;'>🔒 HỆ THỐNG ĐÃ TỰ ĐỘNG KHÓA MÃ HÀNG GIỐNG NHẤT:</span> 
-            <code style='color: #11662e; font-weight: 700; font-size:15px; background-color: #DCFCE7; padding: 2px 6px; border-radius: 4px;'>{target_style_display_name}</code> 
-            <span style='color: #166534; font-size:12px;'>(Phân loại VLM: <b>{detected_garment_type}</b> | Độ tương đồng: <b>{confidence_score}%</b>)</span>
-            {f"<br><span style='color: #475569; font-size: 12px; margin-top: 5px; display: inline-block;'><b>Lý do đối soát kỹ thuật:</b> {match_reason}</span>" if match_reason and match_reason != "N/A" else ""}
-        </div>
-    """,
-        unsafe_allow_html=True,
-    )
-else:
-    if new_style_base_size and new_style_base_size != "32":
-        st.info(
-            f"📋 **CƠ SỞ ĐỐI SOÁT KIỂM TRA:** Mẫu mới số hóa mã hàng `{new_style_id_detected}` | Quy chuẩn kích thước hình học rập mẫu: **SIZE {new_style_base_size}**"
-        )
-    else:
-        st.info(
-            f"📋 **CƠ SỞ ĐỐI SOÁT KIỂM TRA:** Đang áp dụng quy chuẩn kích thước hình học rập mẫu cơ sở: **SIZE 32 / M (Mặc định)**"
-        )
-    st.warning(
-        "⚠️ Trạng thái: Chưa tìm thấy hoặc điểm số đối soát dưới ngưỡng an toàn (65%). Hệ thống sẵn sàng tính toán diện tích rập mô phỏng tự động."
-    )
+                # 3. Kích hoạt tải đa luồng đồng thời 20 ảnh mẫu từ kho lưu trữ dữ liệu
+                with ThreadPoolExecutor(max_workers=10) as executor:
+                    downloaded_images = list(
+                        executor.map(
+                            lambda s: download_image(s, headers_db),
+                            top_20_candidates,
+                        )
+                    )
+
 
 
 
