@@ -1468,6 +1468,7 @@ dynamic_keyword = str(st.session_state["new_style_id_detected"]).strip().upper()
 base_sb_url = SB_URL.rstrip('/') if 'SB_URL' in globals() else ""
 headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if 'SB_KEY' in globals() else {}
 # =================================================================
+# =================================================================
 # ĐOẠN 4 SỬA CHUẨN: HỆ THỐNG ĐỐI CHIẾU MÃ HÀNG SỬ DỤNG SESSION_STATE
 # =================================================================
 
@@ -1517,9 +1518,8 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
 
     st.markdown("---")
     
-    # Kiểm tra sự tồn tại của file nhị phân ảnh trong Session State
-    target_new_sketch_bytes = st.session_state.get("target_new_sketch_bytes")
-    if target_new_sketch_bytes is None:
+    # SỬA LỖI KIỂM TRA CHẶN: Chỉ kiểm tra xem widget có file chưa, không chặn bằng bytes ảnh
+    if st.session_state.get("bom_matrix_uploader") is None:
         st.info("👋 Vui lòng tải lên tệp Techpack hồ sơ thiết kế (PDF/Hình ảnh) ở phía trên để hệ thống bắt đầu quét và lập lịch trình đối soát.")
         st.stop()
 
@@ -1527,19 +1527,20 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     base_sb_url = globals().get("base_sb_url", "")
     client = globals().get("client", None)
     
-    # Thu hồi dữ liệu Techpack từ Session State thay thế cho globals()
+    # Thu hồi dữ liệu Techpack an toàn từ Session State
     new_group = st.session_state.get("new_group", "UNKNOWN")
     new_style_category = st.session_state.get("new_style_category", "") 
     new_style_id_detected = st.session_state.get("new_style_id_detected", "UNKNOWN")
     new_style_base_size = st.session_state.get("new_style_base_size", "32")
     new_specs_clean = st.session_state.get("new_specs_clean", {})
+    target_new_sketch_bytes = st.session_state.get("target_new_sketch_bytes")
 
     # Tái lập vector đặc trưng chữ phác thảo thiết kế
     new_vec = str(st.session_state.get("visual_description_str", "")).strip().upper()
-    if st.session_state["matched_techpack"] is None and len(new_vec) < 30 and client and hasattr(client, "models"):
+    if st.session_state["matched_techpack"] is None and len(new_vec) < 30 and target_new_sketch_bytes and client and hasattr(client, "models"):
         with st.spinner("🔄 Đang quét ảnh tái lập Sketch Vector cấu trúc rập..."):
             try:
-                ocr_prompt = "Analyze this apparel flat sketch and generate a detailed structural text description focusing strictly on internal construction details: waistband type, pocket placement, seams, cuffs, and silhouette."
+                ocr_prompt = "Analyze this apparel flat sketch and generate a detailed structural text description focusing strictly on internal construction details."
                 ocr_contents = [types.Part.from_text(text=ocr_prompt), types.Part.from_bytes(data=target_new_sketch_bytes, mime_type='image/jpeg')] if types and hasattr(types, "Part") else [ocr_prompt, {"mime_type": "image/jpeg", "data": target_new_sketch_bytes}]
                 ocr_res = client.models.generate_content(model='gemini-2.5-flash', contents=ocr_contents)
                 if ocr_res and ocr_res.text:
@@ -1548,18 +1549,19 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             except Exception: pass
 
     if len(new_vec) < 10: 
-        new_vec = "STANDARD APPAREL STYLE FLAT SKETCH CONSTRUCTION FROM TECHPACK"
+        # Nếu không trích xuất được text ocr, lấy thẳng tên file hoặc mã hàng làm vector từ khóa tìm kiếm dự phòng
+        new_vec = f"STANDARD APPAREL STYLE FLAT SKETCH CONSTRUCTION FROM TECHPACK {new_style_id_detected}"
         st.session_state["visual_description_str"] = new_vec
 
     # Thực thi Engine đối soát kết nối dữ liệu ứng viên trong kho lưu trữ
     top_candidates, vision_contents, historical_pool_summary, headers_db = run_database_matching_engine()
     
-    # Cơ chế tự động khóa mẫu nếu chưa có dữ liệu kết luận từ khối AI
+    # Cơ chế tự động khóa mẫu điểm từ khóa cao nhất
     if top_candidates and st.session_state.get("matched_techpack") is None:
-        best_score, best_style = top_candidates[0]
+        best_score, best_style = top_candidates
         st.session_state["matched_techpack"] = best_style
         st.session_state["match_confidence_score"] = min(70 + int(best_score), 98)
-        st.session_state["match_reason"] = f"Hệ thống tự động kết xuất dựa trên cấu trúc rập nhóm {new_group} trùng khớp từ khóa cao nhất."
+        st.session_state["match_reason"] = f"Hệ thống tự động đề xuất dựa trên cấu trúc rập nhóm {new_group} trùng khớp từ khóa cao nhất từ mã gốc."
 
     matched_techpack = st.session_state.get("matched_techpack")
     confidence_score = st.session_state.get("match_confidence_score", 0)
@@ -1568,10 +1570,8 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     # HIỂN THỊ THÔNG BÁO KHÓA MÃ HÀNG ĐỐI CHỨNG KHỚP NHẤT
     if matched_techpack:
         target_style_display_name = str(matched_techpack.get("StyleName", "N/A")).strip().upper()
-        st.success(f"🔒 HỆ THỐNG ĐÃ TỰ ĐỘNG KHÓA MÃ HÀNG GIỐNG NHẤT: {target_style_display_name} (Độ tương đồng cấu trúc rập & BaseSize: {confidence_score}%)")
+        st.success(f"🔒 HỆ THỐNG ĐÃ TỰ ĐỘNG KHÓA MÃ HÀNG GIỐNG NHẤT: {target_style_display_name} (Độ tương đồng cấu trúc rập: {confidence_score}%)")
         if match_reason: st.markdown(f"**Lý do đối soát kỹ thuật:** {match_reason}")
-    else:
-        st.warning("⚠️ Trạng thái: Chưa tìm thấy hoặc điểm số đối soát dưới ngưỡng an toàn (65%).")
 
     # KẾT XUẤT BẢNG SO SÁNH SAI LỆCH THÔNG SỐ (POM TABLE)
     st.markdown("### 📊 BẢNG SO SÁNH SAI LỆCH THÔNG SỐ KỸ THUẬT RẬP MẪU")
@@ -1608,11 +1608,14 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     with img_col1:
         if target_new_sketch_bytes is not None:
             st.image(target_new_sketch_bytes, caption=f"Mẫu mới tải lên ({new_style_id_detected})", use_container_width=True)
+        else:
+            st.info("ℹ️ Hệ thống xử lý thông số dạng text từ tệp tin thành công.")
     with img_col2:
         if matched_techpack:
             matched_sketch_url = matched_techpack.get("SketchURL") or matched_techpack.get("sketch_url")
             if matched_sketch_url:
                 st.image(matched_sketch_url, caption=f"Mẫu lưu trữ trong kho: {matched_techpack.get('StyleName')}", use_container_width=True)
+
 
 
 from concurrent.futures import ThreadPoolExecutor
