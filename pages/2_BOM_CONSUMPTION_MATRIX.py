@@ -1444,20 +1444,35 @@ if target_file_object is not None:
         # Nếu là file ảnh trực tiếp (JPG/PNG), giữ nguyên làm ảnh phác thảo (Flat Sketch)
         target_new_sketch_bytes = file_bytes
 
-# Ghi nhận danh mục nhóm hàng (TOP/BOTTOM) từ danh mục bóc tách được
+# Đảm bảo khởi tạo giá trị an toàn (Đặt đoạn này lên trước 'if has_file:' nếu chưa có)
+if 'new_style_category_detected' not in locals():
+    new_style_category_detected = ""
+if 'new_style_id_detected' not in locals():
+    new_style_id_detected = "UNKNOWN_STYLE"
+if 'new_style_base_size' not in locals():
+    new_style_base_size = "32"
+if 'target_new_sketch_bytes' not in locals():
+    target_new_sketch_bytes = None
+if 'new_style_measurements_dict' not in locals():
+    new_style_measurements_dict = {}
+
+# Xác định danh mục nhóm hàng (TOP/BOTTOM) an toàn tuyệt đối
 new_group = "UNKNOWN"
 if new_style_category_detected:
     new_group = get_garment_group(new_style_category_detected)
-elif "jacket" in file_name.lower() or "jacket" in str(new_style_id_detected).lower():
-    new_group = "TOP"
+elif 'target_file_object' in locals() and target_file_object is not None:
+    current_fname = getattr(target_file_object, 'name', '').lower()
+    if "jacket" in current_fname or "jacket" in str(new_style_id_detected).lower():
+        new_group = "TOP"
 
-# Đẩy đồng bộ toàn bộ biến vào môi trường toàn cục để Khối 3A (Engine) đọc được không bị rỗng
+# Đẩy đồng bộ toàn bộ biến vào môi trường toàn cục để khối 3A (engine) đọc được không bị rỗng
 globals()["new_group"] = new_group
 globals()["new_style_category"] = new_style_category_detected
 globals()["new_style_id_detected"] = new_style_id_detected
 globals()["new_style_base_size"] = new_style_base_size
 globals()["target_new_sketch_bytes"] = target_new_sketch_bytes
-globals()["new_specs_clean"] = new_style_measurements_dict if 'new_style_measurements_dict' in locals() else {}
+globals()["new_specs_clean"] = new_style_measurements_dict
+
 
 # KÍCH HOẠT GIAO DIỆN HIỂN THỊ STREAMLIT
 if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption Matrix":
