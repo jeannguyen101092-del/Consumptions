@@ -1400,7 +1400,8 @@ headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if SB_KEY else
 menu_selection = globals().get("menu_selection", "🧵 BOM & Consumption Matrix")
 # ==========================================
 # =================================================================
-# ĐOẠN 3 SỬA CHUẨN: KHỞI TẠO BIẾN VÀ ĐỒNG BỘ TRẠNG THÁI SESSION_STATE
+# =================================================================
+# ĐOẠN 3: ENGINE ĐỐI SOÁT DỮ LIỆU SỬ DỤNG TRẠNG THÁI SESSION_STATE
 # =================================================================
 
 # Khởi tạo các khóa lưu trữ trạng thái bền vững nếu hệ thống chạy lần đầu
@@ -1445,7 +1446,7 @@ if has_file:
         else:
             # Nếu là file ảnh trực tiếp (JPG/PNG), giữ làm ảnh Flat Sketch
             st.session_state["target_new_sketch_bytes"] = file_bytes
-            st.session_state["new_style_id_detected"] = file_name.split('.')[0] if '.' in file_name else file_name
+            st.session_state["new_style_id_detected"] = file_name.split('.') if '.' in file_name else file_name
 
         # Tính toán phân nhóm hình học rập may mặc (TOP/BOTTOM/FULLBODY)
         cat_detected = st.session_state["new_style_category"]
@@ -1467,9 +1468,68 @@ if has_file:
 dynamic_keyword = str(st.session_state["new_style_id_detected"]).strip().upper()
 base_sb_url = SB_URL.rstrip('/') if 'SB_URL' in globals() else ""
 headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if 'SB_KEY' in globals() else {}
+
+
+def run_database_matching_engine():
+    """Hàm bọc quản lý biến cục bộ an toàn, phẳng hàng lề, lấy dữ liệu hoàn toàn từ Session State."""
+    SB_KEY = globals().get("SB_KEY", "")
+    base_sb_url = globals().get("base_sb_url", "")
+    
+    new_group = st.session_state.get("new_group", "UNKNOWN")
+    new_style_base_size = st.session_state.get("new_style_base_size", "N/A")
+    new_vec = st.session_state.get("visual_description_str", "")
+
+    top_candidates = []
+    vision_contents = []
+    historical_pool_summary = []
+
+    with st.spinner("🧠 Mắt thần VLM đang so sánh trực quan ảnh và thông số kỹ thuật..."):
+        try:
+            headers_db = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if SB_KEY else {}
+            url_db = f"{base_sb_url.rstrip('/')}/rest/v1/thong_so_techpack" if base_sb_url else ""
+            raw_styles = requests.get(url_db, headers=headers_db, params={"select": "StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL,sketch_vector", "limit": 1000}, timeout=15).json() if url_db else []
+            
+            if raw_styles:
+                valid_styles = [s for s in raw_styles if s.get("StyleName") and s.get("DetailedMeasurements")]
+                pool = []
+                
+                if new_group and new_group != "UNKNOWN":
+                    for s in valid_styles:
+                        cand_cat = str(s.get("Category", "")).lower().strip()
+                        cand_pom_group = detect_pom_structure_group(s.get("DetailedMeasurements", {}), debug_mode=False)
+                        cand_group = cand_pom_group if cand_pom_group != "UNKNOWN" else get_garment_group(cand_cat)
+                        if new_group == cand_group:
+                            pool.append(s)
+                
+                # LỚP BẢO VỆ PHÒNG THỦ: Nếu bể ứng viên rỗng do sai lệch nhóm, ép sao chép toàn bộ database để đối soát
+                if not pool:
+                    pool = valid_styles.copy()
+
+                new_keywords = set(re.findall(r'[a-zA-Z]{2,}', str(new_vec).lower()))
+                current_base_size = str(new_style_base_size).strip().upper()
+                
+                ranked_pool = []
+                for s in pool:
+                    cand_words = set(re.findall(r'[a-zA-Z]{2,}', str(s.get("sketch_vector", "")).lower()))
+                    overlap_score = len(new_keywords.intersection(cand_words))
+                    for core_kw in ["pant", "skirt", "jacket", "shirt", "tee", "hoodie", "short", "dress"]:
+                        if core_kw in cand_words and core_kw in new_keywords:
+                            overlap_score += 15  
+                    if current_base_size != "N/A" and str(s.get("BaseSize", "")).strip().upper() == current_base_size: 
+                        overlap_score += 3  
+                    ranked_pool.append((overlap_score, s))
+                
+                ranked_pool.sort(reverse=True, key=lambda x: x)
+                top_candidates = ranked_pool[:8]
+                
+                return top_candidates, vision_contents, historical_pool_summary, headers_db
+        except Exception as e:
+            st.sidebar.error(f"Lỗi chuẩn bị bể dữ liệu VLM: {str(e)}")
+            
+    return [], [], [], {}
+
 # =================================================================
-# =================================================================
-# ĐOẠN 4 SỬA CHUẨN: HỆ THỐNG ĐỐI CHIẾU MÃ HÀNG SỬ DỤNG SESSION_STATE
+# ĐOẠN 4: HỆ THỐNG GIAO DIỆN VÀ ĐỐI CHIẾU MÃ HÀNG
 # =================================================================
 
 if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption Matrix":
@@ -1518,7 +1578,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
 
     st.markdown("---")
     
-    # SỬA LỖI KIỂM TRA CHẶN: Chỉ kiểm tra xem widget có file chưa, không chặn bằng bytes ảnh
+    # Kiểm tra xem người dùng đã chọn file trên widget chưa
     if st.session_state.get("bom_matrix_uploader") is None:
         st.info("👋 Vui lòng tải lên tệp Techpack hồ sơ thiết kế (PDF/Hình ảnh) ở phía trên để hệ thống bắt đầu quét và lập lịch trình đối soát.")
         st.stop()
@@ -1549,11 +1609,10 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             except Exception: pass
 
     if len(new_vec) < 10: 
-        # Nếu không trích xuất được text ocr, lấy thẳng tên file hoặc mã hàng làm vector từ khóa tìm kiếm dự phòng
         new_vec = f"STANDARD APPAREL STYLE FLAT SKETCH CONSTRUCTION FROM TECHPACK {new_style_id_detected}"
         st.session_state["visual_description_str"] = new_vec
 
-    # Thực thi Engine đối soát kết nối dữ liệu ứng viên trong kho lưu trữ
+    # Gọi hàm Engine đối soát đã được khai báo hoàn chỉnh ở Đoạn 3 phía trên
     top_candidates, vision_contents, historical_pool_summary, headers_db = run_database_matching_engine()
     
     # Cơ chế tự động khóa mẫu điểm từ khóa cao nhất
@@ -1609,12 +1668,13 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         if target_new_sketch_bytes is not None:
             st.image(target_new_sketch_bytes, caption=f"Mẫu mới tải lên ({new_style_id_detected})", use_container_width=True)
         else:
-            st.info("ℹ️ Hệ thống xử lý thông số dạng text từ tệp tin thành công.")
+            st.info("ℹ️ Hệ thống đã xử lý thông số mẫu mới thành công dạng văn bản.")
     with img_col2:
         if matched_techpack:
             matched_sketch_url = matched_techpack.get("SketchURL") or matched_techpack.get("sketch_url")
             if matched_sketch_url:
                 st.image(matched_sketch_url, caption=f"Mẫu lưu trữ trong kho: {matched_techpack.get('StyleName')}", use_container_width=True)
+
 
 
 
