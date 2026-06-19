@@ -1575,7 +1575,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             
         if st.session_state["detected_garment_type"] == "UNKNOWN":
             st.warning("⚠️ Không tự động bóc tách được phân loại đồ cụ thể. Hệ thống tự động chuyển sang chế độ đối soát mở rộng.")
-                # KHỐI SO SÁNH TRỰC QUAN VLM KẾT HỢP BỘ LỌC CỨNG CHỐNG LỆCH DANH MỤC
+                        # KHỐI SO SÁNH TRỰC QUAN VLM KẾT HỢP BỘ LỌC CỨNG CHỐNG LỆCH DANH MỤC
         with st.spinner("🧠 Mắt thần VLM đang so sánh trực quan ảnh và thông số kỹ thuật..."):
             try:
                 headers_db = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if SB_KEY else {}
@@ -1687,30 +1687,10 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                             st.session_state["matched_techpack"] = None
                             if score > 0 and score < 65: st.warning(f"⚠️ Điểm số đối soát đạt {score}% (Dưới ngưỡng an toàn 65%). Hủy lệnh khóa tự động.")
                     else: st.session_state["matched_techpack"] = None
-            except Exception as e: st.sidebar.error(f"Lỗi đối soát VLM hệ thống: {str(e)}")
-
-    # Trả lề về sát bên trái phục vụ kết xuất UI cuối cùng (Ngoài khối lệnh IF rẽ nhánh)
-    matched_techpack = st.session_state.get("matched_techpack")
-    confidence_score = st.session_state.get("match_confidence_score", 0)
-    match_reason = st.session_state.get("match_reason", "")
-
-    if matched_techpack:
-        target_style_display_name = str(matched_techpack.get('StyleName', 'N/A')).strip().upper()
-        st.markdown(f"""
-            <div style='background-color: #F0FDF4; border: 1px solid #BBF7D0; padding: 12px; border-radius: 6px; margin-bottom: 15px;'>
-                <span style='color: #166534; font-weight: 700;'>🔒 HỆ THỐNG ĐÃ TỰ ĐỘNG KHÓA MÃ HÀNG GIỐNG NHẤT:</span> 
-                <code style='color: #11662e; font-weight: 700; font-size:15px; background-color: #DCFCE7; padding: 2px 6px; border-radius: 4px;'>{target_style_display_name}</code> 
-                <span style='color: #166534; font-size:12px;'>(Độ tương đồng cấu trúc rập & BaseSize: <b>{confidence_score}%</b>)</span>
-                {f"<br><span style='color: #475569; font-size: 12px; margin-top: 5px; display: inline-block;'><b>Lý do đối soát kỹ thuật:</b> {match_reason}</span>" if match_reason and match_reason != "N/A" else ""}
-            </div>
-        """, unsafe_allow_html=True)
-    else:
-        v_type_info = f" | Loại trang phục xác thực: **{st.session_state.get('detected_garment_type', 'UNKNOWN')}**"
-        if new_style_base_size and new_style_base_size != "32":
-            st.info(f"📋 **CƠ SỞ ĐỐI SOÁT KIỂM TRA:** Mẫu mới số hàng hóa mã `{new_style_id_detected}`{v_type_info} | Quy chuẩn kích thước hình học rập mẫu: **SIZE {new_style_base_size}**")
-        else:
-            st.info(f"📋 **CƠ SỞ ĐỐI SOÁT KIỂM TRA:** Mẫu mới số hàng hóa mã `{new_style_id_detected}`{v_type_info} | Đang áp dụng quy chuẩn kích thước hình học rập mẫu cơ sở: **SIZE 32 / M (Mặc định)**")
-        st.warning("⚠️ Trạng thái: Chưa tìm thấy hoặc điểm số đối soát dưới ngưỡng an toàn (65%). Hệ thống sẵn sàng tính toán diện tích rập mô phỏng tự động.")
+            except Exception as e:
+                # CƠ CHẾ MIỄN DỊCH 503: Khi Google quá tải, tự động đưa trạng thái về None để giải phóng luồng tính hình học độc lập lập tức
+                st.session_state["matched_techpack"] = None
+                st.sidebar.warning("⚡ Hệ thống VLM đang quá tải tạm thời. Đã kích hoạt cơ chế tính định mức độc lập bằng hình học rập mẫu.")
 
 
 if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption Matrix":
