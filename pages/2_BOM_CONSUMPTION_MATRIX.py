@@ -1399,33 +1399,33 @@ base_sb_url = SB_URL.rstrip('/') if SB_URL else ""
 headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if SB_KEY else {}
 menu_selection = globals().get("menu_selection", "🧵 BOM & Consumption Matrix")
 # ==========================================
-# ĐOẠN 3: KHỞI TẠO BIẾN VÀ XỬ LÝ TỆP TẢI LÊN
-# ==========================================
+# =================================================================
+# ĐOẠN 3 & 4 ĐÃ SỬA: ĐỒNG BỘ TRẠNG THÁI VÀ KHÓA ĐỐI SOÁT TECHPACK
+# =================================================================
 
+# 1. Khởi tạo sẵn các trạng thái hệ thống trong Session State để tránh lỗi ghi đè dữ liệu
+if "matched_techpack" not in st.session_state: st.session_state["matched_techpack"] = None
+if "bom_records" not in st.session_state: st.session_state["bom_records"] = []
+if "consumption_chat_history" not in st.session_state: st.session_state["consumption_chat_history"] = []
+if "previous_uploaded_file_name" not in st.session_state: st.session_state["previous_uploaded_file_name"] = None
+if "match_confidence_score" not in st.session_state: st.session_state["match_confidence_score"] = 0
+if "match_reason" not in st.session_state: st.session_state["match_reason"] = ""
+if "visual_description_str" not in st.session_state: st.session_state["visual_description_str"] = ""
+
+# Khởi tạo các giá trị mặc định ban đầu
 new_style_id_detected = "UNKNOWN_STYLE"
 new_style_category_detected = ""
-new_style_fabric_detected = "UNKNOWN_FABRIC"
-new_style_measurements_dict = {}
 new_style_base_size = "32"
 target_new_sketch_bytes = None 
 
-# Xác định nguồn tệp tải lên từ các widget file_uploader khác nhau trong session_state
-target_file_object = None
-if 'uploaded_file' in st.session_state and st.session_state['uploaded_file'] is not None:
-    target_file_object = st.session_state['uploaded_file']
-elif 'chat_uploader' in st.session_state and st.session_state['chat_uploader'] is not None:
-    target_file_object = st.session_state['chat_uploader']
-elif 'bom_matrix_uploader' in st.session_state and st.session_state['bom_matrix_uploader'] is not None:
-    target_file_object = st.session_state['bom_matrix_uploader']
+# Xác định nguồn tệp tải lên từ widget `bom_matrix_uploader` 
+target_file_object = st.session_state.get("bom_matrix_uploader")
 
-has_file = target_file_object is not None
-
-# Nếu phát hiện có tệp, tiến hành đọc dữ liệu nhị phân (bytes)
-if has_file:
+if target_file_object is not None:
     file_bytes = target_file_object.getvalue()
     file_name = target_file_object.name
     
-    # Nếu là file PDF, kích hoạt luồng xử lý bóc tách thông số tự động qua Gemini
+    # Nếu là file PDF, tiến hành bóc tách qua Gemini thông qua hàm dự án của bạn
     if file_name.lower().endswith('.pdf'):
         try:
             res_pdf = process_single_pdf_batch(file_bytes, file_name)
@@ -1435,6 +1435,8 @@ if has_file:
                 new_style_category_detected = meta_p.get("category", "")
                 new_style_base_size = meta_p.get("base_size_name", "32")
                 new_style_measurements_dict = meta_p.get("measurements", {})
+                
+                # SỬA LỖI: Lấy chính xác dữ liệu bytes ảnh đã được render từ file PDF
                 target_new_sketch_bytes = res_pdf.get("sketch_bytes")
         except Exception:
             pass
@@ -1442,15 +1444,22 @@ if has_file:
         # Nếu là file ảnh trực tiếp (JPG/PNG), giữ nguyên làm ảnh phác thảo (Flat Sketch)
         target_new_sketch_bytes = file_bytes
 
-# Chuẩn hóa từ khóa tìm kiếm và cấu hình các biến kết nối cơ sở dữ liệu Supabase
-dynamic_keyword = str(new_style_id_detected).strip().upper()
-base_sb_url = SB_URL.rstrip('/') if 'SB_URL' in globals() else ""
-headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if 'SB_KEY' in globals() else {}
-# =================================================================
-# =================================================================
-# ĐOẠN 4 ĐÃ SỬA: HỆ THỐNG ĐỐI CHIẾU MÃ HÀNG CÓ CƠ CHẾ KHÓA TRẠNG THÁI
-# =================================================================
+# Ghi nhận danh mục nhóm hàng (TOP/BOTTOM) từ danh mục bóc tách được
+new_group = "UNKNOWN"
+if new_style_category_detected:
+    new_group = get_garment_group(new_style_category_detected)
+elif "jacket" in file_name.lower() or "jacket" in str(new_style_id_detected).lower():
+    new_group = "TOP"
 
+# Đẩy đồng bộ toàn bộ biến vào môi trường toàn cục để Khối 3A (Engine) đọc được không bị rỗng
+globals()["new_group"] = new_group
+globals()["new_style_category"] = new_style_category_detected
+globals()["new_style_id_detected"] = new_style_id_detected
+globals()["new_style_base_size"] = new_style_base_size
+globals()["target_new_sketch_bytes"] = target_new_sketch_bytes
+globals()["new_specs_clean"] = new_style_measurements_dict if 'new_style_measurements_dict' in locals() else {}
+
+# KÍCH HOẠT GIAO DIỆN HIỂN THỊ STREAMLIT
 if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption Matrix":
     import json, re, requests
     import streamlit as st
@@ -1461,22 +1470,18 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
 
     st.markdown('<div class="component-title-box">🧵 INTELLIGENT BOM & CONSUMPTION MATRIX ENGINE</div>', unsafe_allow_html=True)
     
-    if "matched_techpack" not in st.session_state: st.session_state["matched_techpack"] = None
-    if "bom_records" not in st.session_state: st.session_state["bom_records"] = []
-    if "consumption_chat_history" not in st.session_state: st.session_state["consumption_chat_history"] = []
-    if "previous_uploaded_file_name" not in st.session_state: st.session_state["previous_uploaded_file_name"] = None
-    if "match_confidence_score" not in st.session_state: st.session_state["match_confidence_score"] = 0
-    if "match_reason" not in st.session_state: st.session_state["match_reason"] = ""
-
     control_col1, control_col2 = st.columns([3.3, 0.7])
     with control_col1:
         st.markdown("<p style='font-weight:700; font-size:12px; color:#1E293B;'>📁 INGEST NEW STYLE REPRINTS (PDF/IMAGE)</p>", unsafe_allow_html=True)
         uploaded_file = st.file_uploader("Upload Techpack file", type=["pdf", "jpg", "jpeg", "png"], key="bom_matrix_uploader", label_visibility="collapsed")
+        
+        # Nếu phát hiện người dùng tải lên file mới, xóa cache cũ để thực hiện đối soát lại từ đầu
         if uploaded_file is not None and uploaded_file.name != st.session_state["previous_uploaded_file_name"]:
             st.session_state["matched_techpack"] = None
             st.session_state["bom_records"] = []
             st.session_state["match_confidence_score"] = 0
             st.session_state["match_reason"] = ""
+            st.session_state["visual_description_str"] = ""
             st.session_state["previous_uploaded_file_name"] = uploaded_file.name
             st.rerun()
             
@@ -1488,36 +1493,30 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             st.session_state["bom_records"] = []
             st.session_state["match_confidence_score"] = 0
             st.session_state["match_reason"] = ""
+            st.session_state["visual_description_str"] = ""
             st.session_state["previous_uploaded_file_name"] = None
             st.success("♻️ MEMORY PURGED - SẴN SÀNG CHO MÃ HÀNG MỚI")
             st.rerun()
 
     st.markdown("---")
-    has_file = st.session_state.get("bom_matrix_uploader") is not None or globals().get("has_file", False)
-    if not has_file:
+    
+    # Kiểm tra xem file đã được nạp vào bộ nhớ thành công chưa
+    if target_file_object is None:
         st.info("👋 Vui lòng tải lên tệp Techpack hồ sơ thiết kế (PDF/Hình ảnh) ở phía trên để hệ thống bắt đầu quét và lập lịch trình đối soát.")
         st.stop()
 
+    # Thu hồi biến API từ cấu hình hệ thống toàn cục
     SB_KEY = globals().get("SB_KEY", "")
     base_sb_url = globals().get("base_sb_url", "")
     client = globals().get("client", None)
-    new_style_category = globals().get("new_style_category", "") 
-    new_style_id_detected = globals().get("new_style_id_detected", "UNKNOWN")
-    new_style_base_size = globals().get("new_style_base_size", "N/A")
 
-    target_new_sketch_bytes = globals().get("target_new_sketch_bytes", None)
-    if not target_new_sketch_bytes and "bom_matrix_uploader" in st.session_state and st.session_state["bom_matrix_uploader"] is not None:
-        try:
-            file_buffer = st.session_state["bom_matrix_uploader"]
-            file_buffer.seek(0)
-            target_new_sketch_bytes = file_buffer.read()
-        except Exception: pass
+    # Đọc chuỗi mô tả cấu trúc rập (Sketch Vector)
+    new_vec = str(st.session_state.get("visual_description_str", "")).strip().upper()
 
-    new_vec = str(st.session_state.get("visual_description_str", "") or globals().get("visual_description_str", "") or globals().get("new_style_sketch_vector", "")).strip().upper()
-
-    if st.session_state["matched_techpack"] is None:
-        if len(new_vec) < 30 and target_new_sketch_bytes and client and client.models:
-            with st.spinner("🔄 Đang quét ảnh tái lập Sketch Vector..."):
+    # Nếu chưa có Sketch Vector chữ, tiến hành gọi AI quét ảnh vẽ phác thảo thiết kế
+    if not st.session_state["matched_techpack"]:
+        if len(new_vec) < 30 and target_new_sketch_bytes and client and hasattr(client, "models"):
+            with st.spinner("🔄 Đang quét ảnh tái lập Sketch Vector cấu trúc rập..."):
                 try:
                     ocr_prompt = "Analyze this apparel flat sketch and generate a detailed structural text description focusing strictly on internal construction details: waistband type (elastic/rigid), pocket placement/types, zipper fly presence, seams, cuffs, and silhouette."
                     ocr_contents = [types.Part.from_text(text=ocr_prompt), types.Part.from_bytes(data=target_new_sketch_bytes, mime_type='image/jpeg')] if types and hasattr(types, "Part") else [ocr_prompt, {"mime_type": "image/jpeg", "data": target_new_sketch_bytes}]
@@ -1525,9 +1524,14 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                     if ocr_res and ocr_res.text:
                         new_vec = str(ocr_res.text).strip().upper()
                         st.session_state["visual_description_str"] = new_vec
-                except Exception: pass
+                        globals()["new_vec"] = new_vec
+                except Exception: 
+                    pass
 
-        if len(new_vec) < 10: new_vec = "STANDARD APPAREL STYLE FLAT SKETCH CONSTRUCTION FROM TECHPACK"
+        if len(new_vec) < 10: 
+            new_vec = "STANDARD APPAREL STYLE FLAT SKETCH CONSTRUCTION FROM TECHPACK"
+            globals()["new_vec"] = new_vec
+
 
 from concurrent.futures import ThreadPoolExecutor
 from difflib import SequenceMatcher
