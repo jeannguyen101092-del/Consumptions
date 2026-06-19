@@ -1876,7 +1876,7 @@ from collections import defaultdict
 from difflib import SequenceMatcher
 
 # ==============================================================================
-# HÀM BỔ TRỢ ĐOẠN THÔNG SỐ (BẢN LỌC KHUNG XƯƠNG CỐT LÕI THEO CHỦNG LOẠI HÀNG)
+# HÀM BỔ TRỢ ĐOẠN THÔNG SỐ (BẢN LỌC KHUNG XƯƠNG CỐT LÕI - PHIÊN BẢN CHUẨN)
 # ==============================================================================
 
 def normalize_pom_name(name):
@@ -1956,19 +1956,18 @@ if new_specs or old_specs:
     clean_new_keys = defaultdict(list)
     clean_old_keys = defaultdict(list)
     
-    # Gom chuỗi xác định loại sản phẩm tự động (Quần hay Áo) dựa trên bộ từ khóa xuất hiện nhiều nhất
     all_raw_text = " ".join(list(new_specs.keys()) + list(old_specs.keys())).lower()
-    is_pant_or_skirt = any(k in all_raw_text for k in ["pant", "skirt", "thigh", "inseam", "outseam", "crotch", "knee"])
+    is_pant_or_skirt = any(k in all_raw_text for k in ["pant", "skirt", "thigh", "inseam", "outseam", "crotch", "knee", "rise"])
     
-    # 🌟 THIẾT LẬP BỘ BỘ LỌC CỨNG (CORE LIST): Chỉ cho phép các từ khóa xương sống này tham gia tính toán
+    # 🌟 THIẾT LẬP LẠI TRỌNG SỐ KHUNG XƯƠNG CỐT LÕI (CORE LIST):
     if is_pant_or_skirt:
-        # Bộ thông số chính cho QUẦN / VÁY (Bỏ qua túi, nẹp, đỉa...)
+        # Nâng mạnh trọng số của Crotch/Rise (Đáy quần) vì nó chi phối cấu trúc sơ đồ lớn
         CORE_PRODUCT_KEYS = {
-            "waist": 1.5, "hip": 1.5, "thigh": 1.3, "rise": 1.2, 
-            "crotch": 1.2, "inseam": 1.0, "outseam": 1.0, "knee": 1.1, "opening": 0.5
+            "waist": 1.5, "hip": 1.5, "thigh": 1.4, 
+            "rise": 1.8, "crotch": 1.8,  # Nâng lên 1.8
+            "inseam": 1.2, "outseam": 1.2, "knee": 1.1, "opening": 0.5
         }
     else:
-        # Bộ thông số chính cho ÁO / JACKET / ĐẦM (Bỏ qua túi, nẹp, cổ...)
         CORE_PRODUCT_KEYS = {
             "chest": 1.5, "bust": 1.5, "length": 1.4, "nách": 1.2,
             "armhole": 1.2, "rộng tay": 1.1, "bicep": 1.1, "sleeve": 1.0
@@ -2021,7 +2020,6 @@ if new_specs or old_specs:
                         
                     score = get_words_similarity(norm_old, norm_new)
                     
-                    # Nới lỏng ngưỡng chặn nếu chứa chung từ khóa cốt lõi (Ví dụ: Thigh width below crotch vs Thigh)
                     has_shared_anchor = any(kw in norm_old and kw in norm_new for kw in CORE_PRODUCT_KEYS.keys())
                     required_threshold = 0.4 if has_shared_anchor else 0.7
                     
@@ -2040,7 +2038,7 @@ if new_specs or old_specs:
     for o_key in old_specs.keys():
         if o_key not in used_old: matched_pairs.append((None, o_key, o_key))
 
-    # Bước 4: Tạo dữ liệu hiển thị và loại bỏ hoàn toàn các thông số phụ ra khỏi bài toán tính trung bình ĐM
+    # Bước 4: Tạo dữ liệu hiển thị và tính toán trung bình cộng trọng số sạch
     weighted_diff_sum = 0.0
     total_pom_weights = 0.0
 
@@ -2058,14 +2056,18 @@ if new_specs or old_specs:
                 diff_pct = round((diff_val / f_old) * 100, 2)
                 
                 if abs(diff_pct) <= 80.0:
-                    norm_lower = normalize_pom_name(display_name)
+                    raw_lower = str(display_name).lower()
                     
-                    # 🌟 BỘ LỌC CỨNG QUYẾT ĐỊNH: Chỉ những từ khóa nằm trong danh sách CORE_PRODUCT_KEYS mới được tính điểm
-                    # Bất kỳ dòng chi tiết túi (pocket), nẹp (placket) nào lọt vào đây đều bị gán weight = 0 và BỊ LOẠI BỎ KHỎI PHÉP TÍNH CHIA TRUNG BÌNH ĐM
-                    current_weight = 0.0
-                    for kw, w_val in CORE_PRODUCT_KEYS.items():
-                        if kw in norm_lower:
-                            current_weight = max(current_weight, w_val)
+                    # 🌟 BỘ LỌC CHẶN LOÃNG ĐỊNH MỨC: Loại trừ triệt để chữ "level" (vị trí hạ điểm đo tĩnh)
+                    # và các chi tiết túi (pocket) ra khỏi phép toán
+                    if "level" in raw_lower or "pocket" in raw_lower or "pkt" in raw_lower:
+                        current_weight = 0.0
+                    else:
+                        norm_lower = normalize_pom_name(display_name)
+                        current_weight = 0.0
+                        for kw, w_val in CORE_PRODUCT_KEYS.items():
+                            if kw in norm_lower:
+                                current_weight = max(current_weight, w_val)
                     
                     if current_weight > 0.0:
                         weighted_diff_sum += diff_pct * current_weight
