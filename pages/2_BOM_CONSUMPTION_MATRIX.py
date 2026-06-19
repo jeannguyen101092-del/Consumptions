@@ -1852,13 +1852,19 @@ if matched_techpack:
     target_style_display_name = (
         str(matched_techpack.get("StyleName", "N/A")).strip().upper()
     )
+    
+    # 🛠️ VÁ LỖI CỐT LÕI: Tách logic tạo HTML ra ngoài chuỗi f-string chính để tránh xung đột cú pháp dấu nháy
+    reason_html = ""
+    if match_reason and match_reason != "N/A":
+        reason_html = f"<br><span style='color: #475569; font-size: 12px; margin-top: 5px; display: inline-block;'><b>Lý do đối soát kỹ thuật:</b> {match_reason}</span>"
+        
     st.markdown(
         f"""
         <div style='background-color: #F0FDF4; border: 1px solid #BBF7D0; padding: 12px; border-radius: 6px; margin-bottom: 15px;'>
             <span style='color: #166534; font-weight: 700;'>🔒 HỆ THỐNG ĐÃ TỰ ĐỘNG KHÓA MÃ HÀNG GIỐNG NHẤT:</span> 
             <code style='color: #11662e; font-weight: 700; font-size:15px; background-color: #DCFCE7; padding: 2px 6px; border-radius: 4px;'>{target_style_display_name}</code> 
             <span style='color: #166534; font-size:12px;'>(Độ tương đồng cấu trúc rập & BaseSize: <b>{confidence_score}%</b>)</span>
-            {f"<br><span style='color: #475569; font-size: 12px; margin-top: 5px; display: inline-block;'><b>Lý do đối soát kỹ thuật:</b> {match_reason}</span>" if match_reason and match_reason != "N/A" else ""}
+            {reason_html}
         </div>
     """,
         unsafe_allow_html=True,
@@ -1915,6 +1921,7 @@ if (
             except Exception:
                 pass
     bom_records = st.session_state.get("bom_records", [])
+
 st.markdown("### 🖼️ ĐỐI CHIẾU SỰ TƯƠNG ĐỒNG HÌNH ẢNH THIẾT KẾ (FLAT SKETCH)")
 img_col1, img_col2 = st.columns(2)
 
