@@ -1451,9 +1451,7 @@ headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if 'SB_KEY' in
 # =========================================================================================
 
 if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption Matrix":
-    import json
-    import re
-    import requests
+    import json, re, requests
     import streamlit as st
     try:
         from google.genai import types
@@ -1479,8 +1477,6 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     with control_col1:
         st.markdown("<p style='font-weight:700; font-size:12px; color:#1E293B;'>📁 INGEST NEW STYLE REPRINTS (PDF/IMAGE)</p>", unsafe_allow_html=True)
         uploaded_file = st.file_uploader("Upload Techpack file", type=["pdf", "jpg", "jpeg", "png"], key="bom_matrix_uploader", label_visibility="collapsed")
-        
-        # Nếu có file mới được tải lên và khác với file cũ trước đó
         if uploaded_file is not None and uploaded_file.name != st.session_state["previous_uploaded_file_name"]:
             st.session_state["matched_techpack"] = None
             st.session_state["bom_records"] = []
@@ -1489,7 +1485,6 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             st.session_state["detected_garment_type"] = "UNKNOWN"
             st.session_state["new_style_extracted_bom_text"] = "CHƯA CÓ DỮ LIỆU"
             st.session_state["new_style_extracted_spec_text"] = "CHƯA CÓ DỮ LIỆU"
-            st.session_state["visual_description_str"] = ""  # Reset chuỗi vector nhận diện
             st.session_state["previous_uploaded_file_name"] = uploaded_file.name
             st.rerun()
             
@@ -1504,7 +1499,6 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             st.session_state["detected_garment_type"] = "UNKNOWN"
             st.session_state["new_style_extracted_bom_text"] = "CHƯA CÓ DỮ LIỆU"
             st.session_state["new_style_extracted_spec_text"] = "CHƯA CÓ DỮ LIỆU"
-            st.session_state["visual_description_str"] = ""
             st.session_state["previous_uploaded_file_name"] = None
             st.success("♻️ MEMORY PURGED - SẴN SÀNG CHO MÃ HÀNG MỚI")
             st.rerun()
@@ -1530,12 +1524,11 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             detected_mime_type = getattr(file_buffer, "type", "image/jpeg")
             file_buffer.seek(0)
             target_new_sketch_bytes = file_buffer.read()
-        except Exception: 
-            pass
+        except Exception: pass
 
     new_vec = str(st.session_state.get("visual_description_str", "") or globals().get("visual_description_str", "") or globals().get("new_style_sketch_vector", "")).strip().upper()
 
-    # KHÓA TRẠNG THÁI: Chỉ quét Gemini 1 lần duy nhất khi chưa có dữ liệu đối chiếu
+    # KHÓA TRẠNG THÁI: Chỉ quét khi chưa trích xuất dữ liệu thô
     if st.session_state["matched_techpack"] is None:
         if (len(new_vec) < 30 or st.session_state["new_style_extracted_bom_text"] == "CHƯA CÓ DỮ LIỆU") and target_new_sketch_bytes and client and client.models:
             with st.spinner("🔄 Đang phân tích toàn diện Techpack (Loại đồ + Khai thác trước BOM & Thông số)..."):
@@ -1563,36 +1556,35 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                     """
                     ocr_contents = [types.Part.from_text(text=ocr_prompt), types.Part.from_bytes(data=target_new_sketch_bytes, mime_type=detected_mime_type)] if types and hasattr(types, "Part") else [ocr_prompt, {"mime_type": detected_mime_type, "data": target_new_sketch_bytes}]
                     ocr_res = client.models.generate_content(model='gemini-2.5-flash', contents=ocr_contents)
-                    
                     if ocr_res and ocr_res.text:
                         raw_response = str(ocr_res.text).strip()
                         new_vec = raw_response.upper()
                         st.session_state["visual_description_str"] = new_vec
                         
-                        # 1. Bóc tách và Khóa loại trang phục (Garment Type)
-                        type_match = re.search(r"===GARMENT_TYPE_START===\s*([A-Z_\-]+)\s*===GARMENT_TYPE_END==", raw_response, re.IGNORECASE)
+                        # 1. Bóc tách và Khóa Garment Type
+                        type_match = re.search(r"===GARMENT_TYPE_START===\s*([A-Z_\-]+)\s*===GARMENT_TYPE_END===", raw_response, re.IGNORECASE)
                         if type_match:
                             st.session_state["detected_garment_type"] = type_match.group(1).strip().upper()
                         else:
                             keywords_pool = ["PANT", "SHORT", "JACKET", "SHIRT", "DRESS", "SKIRT", "VEST", "HOODIE", "T-SHIRT"]
                             st.session_state["detected_garment_type"] = next((tk for tk in keywords_pool if tk in new_vec), "UNKNOWN")
                         
-                        # 2. Bóc tách và Khóa bảng cấu trúc nguyên phụ liệu (BOM) vào Cache
+                        # 2. Bóc tách lưu bảng BOM thô
                         bom_match = re.search(r"===BOM_START===(.*?)===BOM_END===", raw_response, re.DOTALL | re.IGNORECASE)
                         if bom_match:
                             st.session_state["new_style_extracted_bom_text"] = bom_match.group(1).strip()
-                            
-                        # 3. Bóc tách và Khóa thông số kích thước hình học (SPEC) vào Cache
+                        
+                        # 3. Bóc tách lưu thông số Spec thô
                         spec_match = re.search(r"===SPEC_START===(.*?)===SPEC_END===", raw_response, re.DOTALL | re.IGNORECASE)
                         if spec_match:
                             st.session_state["new_style_extracted_spec_text"] = spec_match.group(1).strip()
-                            
-                        # Đánh dấu trạng thái đã xử lý xong tài liệu cấu trúc lõi thành công
+
+                        # Chuyển trạng thái để sang Đoạn 2 so sánh trực quan
                         st.session_state["matched_techpack"] = "EXTRACTED_HOLD"
                         st.rerun()
-                        
                 except Exception as e:
-                    st.error(f"❌ Lỗi xử lý trích xuất dữ liệu lõi từ Techpack: {str(e)}")
+                    st.session_state["matched_techpack"] = "NO_MATCH_ERROR"
+                    st.error(f"❌ Lỗi bóc tách Techpack: {str(e)}")
 
 # =========================================================================================
 # ĐOẠN 2 - PHẦN 1: KHỐI SO SÁNH TRỰC QUAN VLM KẾT HỢP BỘ LỌC CỨNG
