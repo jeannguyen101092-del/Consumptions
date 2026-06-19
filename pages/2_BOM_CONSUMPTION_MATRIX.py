@@ -1869,8 +1869,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     st.session_state["historical_bom_reference"] = bom_records
     st.session_state["main_fabric_records"] = main_fabric_records
     st.session_state["bom_summary_engine"] = bom_summary_engine
-
-     import re
+import re
 import pandas as pd
 import streamlit as st
 from collections import defaultdict
