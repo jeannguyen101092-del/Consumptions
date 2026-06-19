@@ -1594,7 +1594,8 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                 except Exception as e:
                     st.error(f"❌ Lỗi xử lý trích xuất dữ liệu lõi từ Techpack: {str(e)}")
 
-# KHỐI SO SÁNH TRỰC QUAN VLM KẾT HỢP BỘ LỌC CỨNG CHỐNG LỆCH DANH MỤC
+# =========================================================================================
+# ĐOẠN 2 - PHẦN 1: KHỐI SO SÁNH TRỰC QUAN VLM KẾT HỢP BỘ LỌC CỨNG
 # =========================================================================================
 
 # Khóa chống lặp: Chỉ thực hiện quét so sánh nếu chưa có kết quả đối chứng trong bộ nhớ tạm
@@ -1653,10 +1654,10 @@ if st.session_state["matched_techpack"] is None or st.session_state["matched_tec
                         overlap_score += 3  
                     ranked_pool.append((overlap_score, s))
                 
-                # SỬA ĐỔI CHÍNH XÁC: Buộc phải sắp xếp theo key x[0] để loại bỏ lỗi so sánh Dict vs Dict
-                ranked_pool.sort(reverse=True, key=lambda x: x[0])
+                # Sắp xếp theo key x để loại bỏ lỗi so sánh Dict vs Dict
+                ranked_pool.sort(reverse=True, key=lambda x: x)
                 
-                # SỬA LỖI LOGIC: Chỉ trích xuất phần tử Dictionary s (x[1]) từ tuple (score, s) vào danh sách ứng viên
+                # SỬA ĐỔI QUAN TRỌNG: Chỉ bóc tách phần tử Dictionary (x) từ tuple (score, dict)
                 top_candidates = [x[1] for x in ranked_pool[:4]]
                 
                 vision_contents = []
@@ -1715,7 +1716,7 @@ if st.session_state["matched_techpack"] is None or st.session_state["matched_tec
                     except Exception: 
                         s_idx, score, reason = None, 0, ""
                     
-                    # Nếu tìm thấy mã đối chứng tin cậy (Score >= 65%)
+                    # Nếu khớp mã đối chứng tin cậy (Score >= 65%)
                     if s_idx is not None and 0 <= s_idx < len(top_candidates) and score >= 65:
                         st.session_state["matched_techpack"] = top_candidates[s_idx]
                         st.session_state["match_confidence_score"] = score
@@ -1723,15 +1724,42 @@ if st.session_state["matched_techpack"] is None or st.session_state["matched_tec
                         st.toast(f"🎯 Đã khóa mã đối chứng trực quan: {top_candidates[s_idx].get('StyleName')} ({score}%)", icon="🎯")
                         st.rerun()
                     else:
-                        # SỬA THÔNG BÁO GIAO DIỆN: Khóa trạng thái mẫu độc lập thay vì bắt người dùng quay lại menu Upload ban đầu
+                        # Khóa trạng thái mẫu độc lập nếu không có mã nào giống
                         st.session_state["matched_techpack"] = "NO_MATCH_STANDALONE"
                         st.session_state["match_confidence_score"] = score if score > 0 else 0
-                        st.session_state["match_reason"] = reason if reason else "Không tìm thấy mẫu thiết kế cũ tương đồng cấu trúc hình học trên 65%."
+                        st.session_state["match_reason"] = reason if reason else "Không tìm thấy mã hàng cũ có độ tương đồng cấu trúc hình học trên 65%."
                         st.rerun()
+                else:
+                    st.session_state["matched_techpack"] = "NO_MATCH_STANDALONE"
+                    st.rerun()
                         
         except Exception as e:
+            # Ghi nhận trạng thái lỗi để không bị kẹt lặp rerun vô hạn khi Gemini sập (503)
             st.session_state["matched_techpack"] = "NO_MATCH_ERROR"
             st.error(f"❌ Lỗi trong quá trình đối soát trực quan VLM: {str(e)}")
+# =========================================================================================
+# ĐOẠN 2 - PHẦN 2: KHỐI CHỐNG SẬP VÀ TRÍCH XUẤT GIÁ TRỊ AN TOÀN (SỬA DỨT ĐIỂM DÒNG 1027)
+# =========================================================================================
+
+target_style_name = "MÃ ĐỘC LẬP (KHÔNG CÓ ĐỐI CHỨNG)"
+target_style_measurements = {}
+has_valid_match = False
+
+# Kiểm tra nghiêm ngặt: Biến trong session phải là Dictionary thì mới được gọi .get()
+if st.session_state.get("matched_techpack") and isinstance(st.session_state["matched_techpack"], dict):
+    target_style_name = str(st.session_state["matched_techpack"].get("StyleName", "")).strip().upper()
+    target_style_measurements = st.session_state["matched_techpack"].get("DetailedMeasurements", {})
+    has_valid_match = True
+else:
+    # Xử lý hiển thị thông báo lỗi hoặc cảnh báo nghiệp vụ mượt mà trên UI thay vì làm sập đỏ ứng dụng
+    state_str = str(st.session_state.get("matched_techpack", ""))
+    if "ERROR" in state_str:
+        st.warning("⚠️ Máy chủ trí tuệ nhân tạo (Gemini API) đang quá tải lệnh tạm thời. Hệ thống tự động kích hoạt cơ chế tính định mức độc lập từ cấu trúc file vừa nạp.")
+    elif "STANDALONE" in state_str:
+        st.info("💡 Hệ thống không tìm thấy mẫu thiết kế cũ tương thích cấu trúc hình học trong Database. Đang xử lý mã hàng này theo dạng cấu trúc độc lập.")
+
+# Code hiển thị hoặc tính toán logic của bạn sẽ chạy tiếp tục an toàn từ đây...
+
 
     import pandas as pd
     import requests
