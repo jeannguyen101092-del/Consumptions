@@ -1876,7 +1876,7 @@ from collections import defaultdict
 from difflib import SequenceMatcher
 
 # ==============================================================================
-# HÀM BỔ TRỢ ĐOẠN THÔNG SỐ (BẢN CẬP NHẬT TỪ KHÓA NEO CHUYÊN NGÀNH)
+# HÀM BỔ TRỢ ĐOẠN THÔNG SỐ (BẢN LỌC KHUNG XƯƠNG CỐT LÕI THEO CHỦNG LOẠI HÀNG)
 # ==============================================================================
 
 def normalize_pom_name(name):
@@ -1885,7 +1885,7 @@ def normalize_pom_name(name):
     text = str(name).lower().strip()
     text = re.sub(r"[.,:;]+", "", text)
     
-    # Bóc sạch các loại mã tiền tố đứng đầu dòng (Ví dụ: leg-002, pkt-023, hip-020)
+    # Khử triệt để mã tiền tố đầu dòng hiệu quả (Ví dụ: leg-002, pkt-023, hip-020)
     text = re.sub(r'^[a-z]{2,4}[-_\s]*\d+[-_\s]*', '', text)
     text = re.sub(r'\b\w*\d+\w*\b', '', text) # Xóa số độc lập
     
@@ -1897,7 +1897,9 @@ def normalize_pom_name(name):
     synonyms_map = {
         "ins": "inseam", "insm": "inseam", "inseam length": "inseam",
         "outseam length": "outseam", "in seam": "inseam", "out seam": "outseam",
-        "blk": "back", "bk": "back", "frt": "front", "fr": "front"
+        "blk": "back", "bk": "back", "frt": "front", "fr": "front",
+        "hem": "opening", "bottom hem": "opening", "leg opening": "opening",
+        "armhole": "nách", "bicep": "rộng tay", "sleeve width": "rộng tay"
     }
     return synonyms_map.get(text, text)
 
@@ -1948,16 +1950,29 @@ old_specs = matched_techpack.get("DetailedMeasurements", {}) if ('matched_techpa
 new_style_base_size = new_style_base_size if 'new_style_base_size' in locals() else "Base"
 
 avg_pom_growth = 0.0
-POM_AREA_WEIGHTS = {
-    "waist": 1.5, "hip": 1.5, "thigh": 1.3, "rise": 1.2, 
-    "inseam": 1.0, "outseam": 1.0, "chest": 1.5, "bust": 1.5,
-    "length": 1.4, "opening": 0.4, "width": 0.5, "knee": 1.1
-}
 
 if new_specs or old_specs:
     compare_rows = []
     clean_new_keys = defaultdict(list)
     clean_old_keys = defaultdict(list)
+    
+    # Gom chuỗi xác định loại sản phẩm tự động (Quần hay Áo) dựa trên bộ từ khóa xuất hiện nhiều nhất
+    all_raw_text = " ".join(list(new_specs.keys()) + list(old_specs.keys())).lower()
+    is_pant_or_skirt = any(k in all_raw_text for k in ["pant", "skirt", "thigh", "inseam", "outseam", "crotch", "knee"])
+    
+    # 🌟 THIẾT LẬP BỘ BỘ LỌC CỨNG (CORE LIST): Chỉ cho phép các từ khóa xương sống này tham gia tính toán
+    if is_pant_or_skirt:
+        # Bộ thông số chính cho QUẦN / VÁY (Bỏ qua túi, nẹp, đỉa...)
+        CORE_PRODUCT_KEYS = {
+            "waist": 1.5, "hip": 1.5, "thigh": 1.3, "rise": 1.2, 
+            "crotch": 1.2, "inseam": 1.0, "outseam": 1.0, "knee": 1.1, "opening": 0.5
+        }
+    else:
+        # Bộ thông số chính cho ÁO / JACKET / ĐẦM (Bỏ qua túi, nẹp, cổ...)
+        CORE_PRODUCT_KEYS = {
+            "chest": 1.5, "bust": 1.5, "length": 1.4, "nách": 1.2,
+            "armhole": 1.2, "rộng tay": 1.1, "bicep": 1.1, "sleeve": 1.0
+        }
     
     for k in new_specs.keys():
         norm = normalize_pom_name(k)
@@ -1971,7 +1986,7 @@ if new_specs or old_specs:
     used_new = set()
     used_old = set()
     
-    # Bước 1: Khớp chính xác tuyệt đối tên nhóm + SequenceMatcher ký tự nội bộ
+    # Bước 1: Khớp chính xác tên nhóm + SequenceMatcher ký tự nội bộ
     for norm_old, o_keys in clean_old_keys.items():
         if norm_old in clean_new_keys:
             n_keys = clean_new_keys[norm_old]
@@ -1991,10 +2006,7 @@ if new_specs or old_specs:
                     used_new.add(n_k)
                     used_old.add(o_k)
                 
-    # Bước 2: Khớp mờ liên nhóm thông minh (Giải quyết bài toán Thigh width below crotch vs Thigh width)
-    # Định nghĩa các từ khóa xương sống của khung xương sản phẩm
-    ANCHOR_KEYWORDS = ["waist", "hip", "thigh", "knee", "rise", "inseam", "outseam", "chest", "bust", "length"]
-    
+    # Bước 2: Khớp mờ liên nhóm thông minh dựa trên từ khóa xương sống cốt lõi
     for norm_old, o_keys in clean_old_keys.items():
         for o_k in o_keys:
             if o_k in used_old: continue
@@ -2009,8 +2021,8 @@ if new_specs or old_specs:
                         
                     score = get_words_similarity(norm_old, norm_new)
                     
-                    # 🌟 CẢI TIẾN QUYẾT ĐỊNH: Nếu chứa chung từ khóa khung chính (ví dụ: thigh) -> Nới lỏng ngưỡng chặn
-                    has_shared_anchor = any(kw in norm_old and kw in norm_new for kw in ANCHOR_KEYWORDS)
+                    # Nới lỏng ngưỡng chặn nếu chứa chung từ khóa cốt lõi (Ví dụ: Thigh width below crotch vs Thigh)
+                    has_shared_anchor = any(kw in norm_old and kw in norm_new for kw in CORE_PRODUCT_KEYS.keys())
                     required_threshold = 0.4 if has_shared_anchor else 0.7
                     
                     if score >= required_threshold and score > best_score:
@@ -2022,13 +2034,13 @@ if new_specs or old_specs:
                 used_new.add(best_match_new_key)
                 used_old.add(o_k)
                         
-    # Bước 3: Thu gom các dòng mồ côi không có đối tác tương ứng lên bảng
+    # Bước 3: Thu gom các dòng mồ côi
     for n_key in new_specs.keys():
         if n_key not in used_new: matched_pairs.append((n_key, None, n_key))
     for o_key in old_specs.keys():
         if o_key not in used_old: matched_pairs.append((None, o_key, o_key))
 
-    # Bước 4: Tạo dữ liệu hiển thị và tích lũy trọng số
+    # Bước 4: Tạo dữ liệu hiển thị và loại bỏ hoàn toàn các thông số phụ ra khỏi bài toán tính trung bình ĐM
     weighted_diff_sum = 0.0
     total_pom_weights = 0.0
 
@@ -2048,14 +2060,12 @@ if new_specs or old_specs:
                 if abs(diff_pct) <= 80.0:
                     norm_lower = normalize_pom_name(display_name)
                     
-                    # Hạ trọng số nhóm túi để không làm kéo lệch chỉ số biến thiên vải chính
-                    if "pocket" in norm_lower:
-                        current_weight = 0.05
-                    else:
-                        current_weight = 0.0
-                        for kw, w_val in POM_AREA_WEIGHTS.items():
-                            if kw in norm_lower:
-                                current_weight = max(current_weight, w_val)
+                    # 🌟 BỘ LỌC CỨNG QUYẾT ĐỊNH: Chỉ những từ khóa nằm trong danh sách CORE_PRODUCT_KEYS mới được tính điểm
+                    # Bất kỳ dòng chi tiết túi (pocket), nẹp (placket) nào lọt vào đây đều bị gán weight = 0 và BỊ LOẠI BỎ KHỎI PHÉP TÍNH CHIA TRUNG BÌNH ĐM
+                    current_weight = 0.0
+                    for kw, w_val in CORE_PRODUCT_KEYS.items():
+                        if kw in norm_lower:
+                            current_weight = max(current_weight, w_val)
                     
                     if current_weight > 0.0:
                         weighted_diff_sum += diff_pct * current_weight
@@ -2079,6 +2089,7 @@ if new_specs or old_specs:
     
     if total_pom_weights > 0.0:
         avg_pom_growth = weighted_diff_sum / total_pom_weights
+
 
 
 
