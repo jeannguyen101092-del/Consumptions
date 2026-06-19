@@ -1735,25 +1735,31 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     bom_records = st.session_state.get("bom_records", [])
 
 # ==========================================================
-# 🖼️ LỚP HIỂN THỊ GIAO DIỆN ĐỐI CHIẾU FLAT SKETCH
+# 🖼️ LỚP HIỂN THỊ GIAO DIỆN ĐỐI CHIẾU FLAT SKETCH (VÁ LỖI HIỂN THỊ FILE PDF)
 # ==========================================================
 st.markdown("### 🖼️ ĐỐI CHIẾU SỰ TƯƠNG ĐỒNG HÌNH ẢNH THIẾT KẾ (FLAT SKETCH)")
 
 matched_techpack = st.session_state.get("matched_techpack", None)
 base_url_api = globals().get("base_url_api", globals().get("SB_URL", ""))
 api_headers = globals().get("api_headers", {})
+detected_mime_type = locals().get("detected_mime_type", "image/jpeg")
 
 img_col1, img_col2 = st.columns(2)
 
 with img_col1:
     target_new_sketch_bytes = globals().get("target_new_sketch_bytes", None)
     new_style_id_detected = globals().get("new_style_id_detected", "N/A")
+    uploaded_file_name = st.session_state.get("previous_uploaded_file_name", "Techpack")
     
     if target_new_sketch_bytes is not None:
-        try:
-            st.image(target_new_sketch_bytes, caption=f"Mẫu mới tải lên ({new_style_id_detected})", use_container_width=True)
-        except Exception as e:
-            st.warning(f"Lỗi hiển thị ảnh mẫu mới: {e}")
+        # VÁ LỖI XỬ LÝ: Nếu tệp đầu vào là PDF, hiển thị hộp thông tin tài liệu thay vì ép render st.image gây lỗi
+        if "pdf" in str(detected_mime_type).lower() or str(uploaded_file_name).lower().endswith(".pdf"):
+            st.info(f"📄 **Tài liệu dạng tệp:** `{uploaded_file_name}`\n\nHệ thống đã nạp toàn bộ cấu trúc dữ liệu PDF vào bộ nhớ mô phỏng rập mẫu.")
+        else:
+            try:
+                st.image(target_new_sketch_bytes, caption=f"Mẫu mới tải lên ({new_style_id_detected})", use_container_width=True)
+            except Exception as e:
+                st.warning(f"Lỗi hiển thị ảnh mẫu mới: {e}")
     else:
         st.info("ℹ️ Chưa tải lên tệp ảnh Flat Sketch của mẫu mới.")
 
@@ -1764,7 +1770,7 @@ with img_col2:
         st.session_state["matched_style_name"] = target_style_name
         st.session_state["matched_sketch_url"] = matched_techpack.get("SketchURL") or matched_techpack.get("sketch_url", "")
         
-        # Đồng bộ an toàn score từ biến match_confidence_score của Đoạn 2B lên màn hình hiển thị
+        # Đồng bộ an toàn score từ biến match_confidence_score của Đoạn trên lên màn hình hiển thị
         similarity_score = st.session_state.get("match_confidence_score", 0.0)
         st.session_state["matched_similarity_score"] = similarity_score
 
@@ -1783,6 +1789,9 @@ with img_col2:
         img_content_final = None
         
         if base_storage_url:
+            from urllib.parse import quote
+            from concurrent.futures import ThreadPoolExecutor
+            
             safe_style_name = quote(target_style_name)
             safe_style_name_lower = quote(target_style_name.lower())
             
@@ -2111,7 +2120,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
 
     chat_header_col1, chat_header_col2 = st.columns([3.2, 0.8])
     with chat_header_col1:
-        st.markdown("### 💬 TRỢ LÝ AI PHÂN TÍCH ĐỊNH MỨC SẢN XUẤT (HỎI ĐÂU ĐÁP ĐÓ)")
+        st.markdown("### 💬 TRỢ LÝ AI PHÂN TÍCH ĐỊNH MỨC SẢN XUẤT ")
     with chat_header_col2:
         if st.button("🗑️ XÓA LỊCH SỬ CHAT", key="direct_clear_chat_btn", use_container_width=True):
             st.session_state["consumption_chat_history"] = []
@@ -2127,33 +2136,40 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                 st.write(chat["ai"])
                 
     if user_query := st.chat_input("Nhập yêu cầu phân tích (Ví dụ: Tính định mức vải chính khi co rút ngang 5%, dọc 3%)..."):
+        if "consumption_chat_history" not in st.session_state:
+            st.session_state["consumption_chat_history"] = []
+            
         with chat_container:
             with st.chat_message("user"):
                 st.write(user_query)
                 
             with st.chat_message("assistant"):
                 with st.spinner("🤖 AI đang phân tích dữ liệu và tính toán định mức..."):
-                    # Thực thi gọi bộ não phân tích tiêu hao, nạp trọn vẹn bom_records lịch sử
-                    ai_reply = ai_consumption_analyst_engine(
-                        client=client,
-                        user_message=user_query,
-                        matched_techpack=matched_techpack,
-                        bom_records=bom_records,
-                        new_style_measurements=new_style_measurements_dict,
-                        target_new_sketch_bytes=target_new_sketch_bytes,
-                        detected_size=new_style_base_size
-                    )
+                    # Bẫy lỗi an toàn cho Engine phân tích, phòng trường hợp hàm chưa định nghĩa hoặc lỗi API
+                    try:
+                        if "ai_consumption_analyst_engine" in globals():
+                            ai_reply = ai_consumption_analyst_engine(
+                                client=client,
+                                user_message=user_query,
+                                matched_techpack=matched_techpack,
+                                bom_records=bom_records,
+                                new_style_measurements=new_style_measurements_dict,
+                                target_new_sketch_bytes=target_new_sketch_bytes,
+                                detected_size=new_style_base_size
+                            )
+                        else:
+                            ai_reply = "⚠️ Khối phân tích `ai_consumption_analyst_engine` chưa được khởi tạo trong mã nguồn hệ thống."
+                    except Exception as chat_err:
+                        ai_reply = f"❌ Không thể kết nối đến bộ não AI để phân tích dữ liệu định mức. Chi tiết sự cố: {str(chat_err)}"
+                        
                     st.write(ai_reply)
                     
-                    # Đồng bộ hóa lưu kết quả vào lịch sử chat ngay lập tức để tránh lỗi mất tin nhắn khi Re-run
-                    if "consumption_chat_history" not in st.session_state:
-                        st.session_state["consumption_chat_history"] = []
+                    # ĐỒNG BỘ TRƯỚC: Lưu kết quả vào lịch sử chat lập tức trước khi chạy script cuộn màn hình
                     st.session_state["consumption_chat_history"].append({"user": user_query, "ai": ai_reply})
                     
-        # ✅ THUẬT TOÁN ĐÓNG ĐINH NEO CUỘN: Được viết phẳng hóa hoàn toàn để triệt tiêu lỗi IndentationError
+        # ✅ THUẬT TOÁN ĐÓNG ĐINH NEO CUỘN: Viết phẳng hóa hoàn toàn triệt tiêu lỗi cú pháp căn lề
         js_scroll = "<script>var d=window.parent.document; var s=d.querySelectorAll('section.main'); if(s.length>0){s[0].scrollTo({top:s[0].scrollHeight,behavior:'smooth'});}</script>"
         st.components.v1.html(js_scroll, height=0)
-
 
 
 
