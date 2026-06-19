@@ -1529,7 +1529,6 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
 
         if len(new_vec) < 10: new_vec = "STANDARD APPAREL STYLE FLAT SKETCH CONSTRUCTION FROM TECHPACK"
 
-import re
 from concurrent.futures import ThreadPoolExecutor
 from difflib import SequenceMatcher
 from urllib.parse import quote
@@ -1539,7 +1538,6 @@ import pandas as pd
 import requests
 import streamlit as st
 
-# Đảm bảo khởi tạo các trạng thái session_state an toàn
 if "matched_techpack" not in st.session_state:
     st.session_state["matched_techpack"] = None
 if "match_confidence_score" not in st.session_state:
@@ -1587,8 +1585,6 @@ def get_garment_group(cat):
     if words & top_keys:
         return "TOP"
     return "TOP"
-
-
 def detect_pom_structure_group(pom_dict, debug_mode=False):
     if not pom_dict:
         return "UNKNOWN"
@@ -1621,8 +1617,6 @@ def detect_pom_structure_group(pom_dict, debug_mode=False):
     if bottom_score >= 2 and top_score >= 2:
         return "FULLBODY"
     return "UNKNOWN"
-
-
 def clean_float(v):
     if v is None:
         return None
