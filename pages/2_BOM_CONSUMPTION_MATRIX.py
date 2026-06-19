@@ -1519,7 +1519,8 @@ def run_database_matching_engine():
                         overlap_score += 3  
                     ranked_pool.append((overlap_score, s))
                 
-                ranked_pool.sort(reverse=True, key=lambda x: x)
+                # SỬA LỖI TRIỆT ĐỂ TẠI ĐÂY: Thêm [0] vào x để ép Python CHỈ so sánh điểm số, bỏ qua việc so sánh dict thiết kế
+                ranked_pool.sort(reverse=True, key=lambda x: x[0])
                 top_candidates = ranked_pool[:8]
                 
                 return top_candidates, vision_contents, historical_pool_summary, headers_db
