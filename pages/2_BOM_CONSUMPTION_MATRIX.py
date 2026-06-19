@@ -1848,29 +1848,19 @@ confidence_score = st.session_state.get("match_confidence_score", 0)
 match_reason = st.session_state.get("match_reason", "")
 new_style_id_detected = globals().get("new_style_id_detected", "UNKNOWN")
 
+# 🛠️ VÁ LỖI CỐT LÕI: Chuyển đổi toàn bộ HTML phức tạp sang Widget thuần của Streamlit để triệt tiêu SyntaxError trên Python 3.14
 if matched_techpack:
     target_style_display_name = (
         str(matched_techpack.get("StyleName", "N/A")).strip().upper()
     )
     
-    # 🛠️ VÁ LỖI CỐT LÕI: Tách logic tạo HTML ra ngoài chuỗi f-string chính để tránh xung đột cú pháp dấu nháy
-    reason_html = ""
+    # Sử dụng st.success thay cho div màu xanh lá
+    st.success(f"🔒 HỆ THỐNG ĐÃ TỰ ĐỘNG KHÓA MÃ HÀNG GIỐNG NHẤT: {target_style_display_name} (Độ tương đồng cấu trúc rập & BaseSize: {confidence_score}%)")
+    
     if match_reason and match_reason != "N/A":
-        reason_html = f"<br><span style='color: #475569; font-size: 12px; margin-top: 5px; display: inline-block;'><b>Lý do đối soát kỹ thuật:</b> {match_reason}</span>"
-        
-    st.markdown(
-        f"""
-        <div style='background-color: #F0FDF4; border: 1px solid #BBF7D0; padding: 12px; border-radius: 6px; margin-bottom: 15px;'>
-            <span style='color: #166534; font-weight: 700;'>🔒 HỆ THỐNG ĐÃ TỰ ĐỘNG KHÓA MÃ HÀNG GIỐNG NHẤT:</span> 
-            <code style='color: #11662e; font-weight: 700; font-size:15px; background-color: #DCFCE7; padding: 2px 6px; border-radius: 4px;'>{target_style_display_name}</code> 
-            <span style='color: #166534; font-size:12px;'>(Độ tương đồng cấu trúc rập & BaseSize: <b>{confidence_score}%</b>)</span>
-            {reason_html}
-        </div>
-    """,
-        unsafe_allow_html=True,
-    )
+        st.markdown(f"**Lý do đối soát kỹ thuật:** {match_reason}")
 else:
-    if new_style_base_size and new_style_base_size != "32":
+    if "new_style_base_size" in globals() and new_style_base_size != "32":
         st.info(
             f"📋 **CƠ SỞ ĐỐI SOÁT KIỂM TRA:** Mẫu mới số hóa mã hàng `{new_style_id_detected}` | Quy chuẩn kích thước hình học rập mẫu: **SIZE {new_style_base_size}**"
         )
@@ -1887,10 +1877,10 @@ if (
     "menu_selection" in globals()
     and menu_selection == "🧵 BOM & Consumption Matrix"
 ):
-    base_url_api = base_sb_url if base_sb_url else (SB_URL if "SB_URL" in globals() else "")
+    base_url_api = base_sb_url if "base_sb_url" in globals() and base_sb_url else (SB_URL if "SB_URL" in globals() else "")
     api_headers = (
         {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
-        if SB_KEY
+        if "SB_KEY" in globals() and SB_KEY
         else {}
     )
 
@@ -1921,6 +1911,7 @@ if (
             except Exception:
                 pass
     bom_records = st.session_state.get("bom_records", [])
+
 
 st.markdown("### 🖼️ ĐỐI CHIẾU SỰ TƯƠNG ĐỒNG HÌNH ẢNH THIẾT KẾ (FLAT SKETCH)")
 img_col1, img_col2 = st.columns(2)
