@@ -1877,21 +1877,31 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     avg_area_growth_pct = 0.0
     
     # Hàm chuẩn hóa làm sạch chuỗi văn bản thô
+        # Hàm chuẩn hóa làm sạch chuỗi văn bản thô
     def normalize_pom_name(name):
         if not name: return ""
         text = str(name).lower().strip()
         text = re.sub(r"[.,:;]+", "", text)
-        text = re.sub(r'^[a-z]{2,4}[-_\s]*\d+\s*', '', text)
+        
+        # 🌟 SỬA TẠI ĐÂY: Xóa sạch mã chứa số (Ví dụ: lt000, leg-007, 10b, b12) hoặc số đứng một mình
+        # Bước 1: Xóa các cụm có chứa chữ số (chữ xen lẫn số hoặc số đứng riêng)
+        text = re.sub(r'\b\w*\d+\w*\b', '', text)
+        
+        # Loại bỏ các từ nhiễu thông thường
         for noise in ["measurement", "circumference", "position", "level", "straight", "across", "(straight)", "(across)"]:
             text = text.replace(noise, "")
+            
+        # Dọn dẹp khoảng trắng thừa và ký tự đặc biệt ký tự nối
         text = re.sub(r'[-_\/\s\(\)]+', ' ', text).strip()
         
+        # Bản đồ đồng nghĩa để quy chuẩn về một mối
         synonyms_map = {
             "ins": "inseam", "insm": "inseam", "inseam length": "inseam",
             "outseam length": "outseam", "in seam": "inseam", "out seam": "outseam",
             "blk": "back", "bk": "back", "frt": "front", "fr": "front"
         }
         return synonyms_map.get(text, text)
+
 
     if new_specs or old_specs:
         compare_rows = []
