@@ -1840,10 +1840,13 @@ def execute_vlm_semantic_matching(*args, **kwargs):
                 if db_stored_url and "public/kho_anh" not in str(db_stored_url):
                     try: st.image(db_stored_url, caption=f"Ảnh bản vẽ gốc mã {target_style_name} (Direct Link)", use_container_width=True)
                     except Exception: st.info("⚠️ Không tải được ảnh từ Direct Link.")
-                else: st.info("ℹ️ Lưu ý: Mã hàng đã khớp. Không tìm thấy ảnh minh họa trong kho.")
-        else:
-            st.session_state["matched_image_verified"] = False
-            st.warning("⚠️ CHƯA KHỚP ĐƯỢC MÃ TƯƠNG ĐỒNG! Vui lòng nạp file Techpack tại menu Upload.")
+                           else:
+                               st.info("ℹ️ Lưu ý: Mã hàng đã khớp. Không tìm thấy ảnh minh họa trong kho.")
+    
+    # 🔒 ĐÓNG KHỐI AN TOÀN CHO CÁC CHỨC NĂNG PHÍA DƯỚI CHẠY TIẾP
+    if not matched_techpack:
+        st.session_state["matched_image_verified"] = False
+
 
 
 
