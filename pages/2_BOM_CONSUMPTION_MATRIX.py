@@ -1538,13 +1538,14 @@ import pandas as pd
 import requests
 import streamlit as st
 
-# Đảm bảo khởi tạo các trạng thái session_state an toàn
+# Khởi tạo trạng thái session_state an toàn
 if "matched_techpack" not in st.session_state:
     st.session_state["matched_techpack"] = None
 if "match_confidence_score" not in st.session_state:
     st.session_state["match_confidence_score"] = 0
 if "match_reason" not in st.session_state:
     st.session_state["match_reason"] = ""
+
 def get_words_similarity(str1, str2):
     words1 = set(str(str1).split())
     words2 = set(str(str2).split())
@@ -1647,15 +1648,16 @@ def clean_float(v):
             return float(pure_frac.group(1)) / float(pure_frac.group(2))
 
         nums = re.findall(r"[-+]?\d*\.\d+|\d+", val_str)
-        return float(nums) if nums else None
+        return float(nums[0]) if nums else None
 
 
 def execute_vlm_semantic_matching(*args, **kwargs):
     """Hàm bọc an toàn tránh lỗi hệ thống."""
     pass
+
+
 def run_database_matching_engine():
-    """Hàm bọc phần A để quản lý biến cục bộ an toàn, phẳng hàng lề lề."""
-    # Khôi phục an toàn các biến hệ thống từ môi trường toàn cục
+    """Hàm xử lý tìm kiếm ứng viên phù hợp từ cơ sở dữ liệu."""
     SB_KEY = globals().get("SB_KEY", "")
     base_sb_url = globals().get("base_sb_url", "")
     client = globals().get("client", None)
@@ -1708,19 +1710,19 @@ def run_database_matching_engine():
                     ranked_pool.append((overlap_score, s))
                 
                 MIN_PRE_SCORE = 5
-                valid_ranked_pool = [x for x in ranked_pool if x >= MIN_PRE_SCORE]
+                valid_ranked_pool = [x for x in ranked_pool if x[0] >= MIN_PRE_SCORE]
                 
                 if not valid_ranked_pool:
                     st.error("❌ **DỪNG ENGINE:** Không ứng viên nào đạt điểm tối thiểu (Score >= 5).")
                     st.stop()
                     
-                valid_ranked_pool.sort(reverse=True, key=lambda x: x)
+                valid_ranked_pool.sort(reverse=True, key=lambda x: x[0])
                 top_candidates = valid_ranked_pool[:8]
                 
-                # Trả về kết quả tính toán được để Khối 3B xử lý tiếp luồng hình ảnh
                 return top_candidates, vision_contents, historical_pool_summary, new_style_category, new_group, new_style_base_size, new_vec, new_specs_clean, client, types, headers_db, target_new_sketch_bytes
         except Exception as e:
             st.sidebar.error(f"Lỗi chuẩn bị bể dữ liệu VLM: {str(e)}")
+            
     return [], [], [], new_style_category, new_group, new_style_base_size, new_vec, new_specs_clean, client, types, {}, target_new_sketch_bytes
 def main():
     # Gọi hàm xử lý Khối 3A để lấy dữ liệu ứng viên đã được sàng lọc lý tưởng
@@ -1771,7 +1773,7 @@ def main():
     SB_URL = globals().get("SB_URL", "")
     SB_KEY = globals().get("SB_KEY", "")
 
-    # 🛠️ GIAO DIỆN ĐỐI SOÁT: Cam kết phẳng lề tuyệt đối để không sập SyntaxError
+    # GIAO DIỆN ĐỐI SOÁT: Cam kết phẳng lề tuyệt đối để không sập SyntaxError
     if matched_techpack:
         target_style_display_name = str(matched_techpack.get("StyleName", "N/A")).strip().upper()
         st.success(f"🔒 HỆ THỐNG ĐÃ TỰ ĐỘNG KHÓA MÃ HÀNG GIỐNG NHẤT: {target_style_display_name} (Độ tương đồng cấu trúc rập & BaseSize: {confidence_score}%)")
@@ -1826,68 +1828,16 @@ def main():
         if matched_techpack is not None:
             target_style_name = str(matched_techpack.get("StyleName", "")).strip().upper()
             st.session_state["matched_style_name"] = target_style_name
-            st.session_state["matched_sketch_url"] = matched_techpack.get("SketchURL") or matched_techpack.get("sketch_url", "")
             
-            raw_score = matched_techpack.get("SimilarityScore", matched_techpack.get("similarity_score", 0))
-            try:
-                similarity_score = float(str(raw_score).replace("%", "").replace(",", ".").strip())
-            except Exception:
-                similarity_score = 0.0
-            st.session_state["matched_similarity_score"] = similarity_score
-
-            if st.session_state.get("bom_style_loaded", "") != target_style_name:
-                if not st.session_state.get("matched_image_verified", False):
-                    st.session_state["matched_image_verified"] = True
-                if not st.session_state.get("bom_reload_required", False):
-                    st.session_state["bom_reload_required"] = True
-
-            st.info(f"🎯 Mã tương đồng trong kho: {target_style_name}")
-            st.metric(label="🤖 Độ tương đồng thiết kế (Vision)", value=f"{similarity_score}%")
-            
-            base_storage_url = f"{base_url_api.rstrip('/')}/storage/v1/object/public/kho_anh" if 'base_url_api' in locals() and base_url_api else ""
-            img_content_final = None
-            
-            if base_storage_url:
-                safe_style_name = quote(target_style_name)
-                safe_style_name_lower = quote(target_style_name.lower())
-                url_options = [
-                    f"{base_storage_url}/{safe_style_name}.png", f"{base_storage_url}/{safe_style_name}.PNG",
-                    f"{base_storage_url}/{safe_style_name}.jpg", f"{base_storage_url}/{safe_style_name}.JPG",
-                    f"{base_storage_url}/{safe_style_name}.jpeg", f"{base_storage_url}/{safe_style_name_lower}.jpg",
-                    f"{base_storage_url}/{safe_style_name_lower}.png"
-                ]
-                
-                def fetch_image_worker(url):
-                    try:
-                        resp = requests.get(url, headers=api_headers, timeout=5)
-                        if resp.status_code == 200 and len(resp.content) > 500:
-                            content = resp.content
-                            if content.startswith(b'\xff\xd8') or content.startswith(b'\x89PNG') or b'<!DOCTYPE' not in content[:100]:
-                                return content
-                    except Exception: pass
-                    return None
-
-                with ThreadPoolExecutor(max_workers=6) as executor:
-                    results = executor.map(fetch_image_worker, url_options)
-                    for res in results:
-                        if res:
-                            img_content_final = res
-                            break
-            
-            if img_content_final:
-                try: st.image(img_content_final, caption=f"Ảnh bản vẽ gốc của mã {target_style_name}", use_container_width=True)
-                except Exception: st.warning("⚠️ Lỗi hiển thị tệp đồ họa.")
+            matched_sketch_url = matched_techpack.get("SketchURL") or matched_techpack.get("sketch_url")
+            if matched_sketch_url:
+                st.image(matched_sketch_url, caption=f"Mẫu lưu trữ khớp nhất: {target_style_name}", use_container_width=True)
             else:
-                db_stored_url = st.session_state.get("matched_sketch_url", "")
-                if db_stored_url and "public/kho_anh" not in str(db_stored_url):
-                    try: st.image(db_stored_url, caption=f"Ảnh bản vẽ gốc mã {target_style_name} (Direct Link)", use_container_width=True)
-                    except Exception: st.info("⚠️ Không tải được ảnh từ Direct Link.")
-                else: st.info("ℹ️ Lưu ý: Mã hàng đã khớp. Không tìm thấy ảnh minh họa trong kho.")
+                st.info(f"ℹ️ Không tìm thấy ảnh đính kèm cho mã gốc `{target_style_name}`.")
         else:
-            st.session_state["matched_image_verified"] = False
-            st.warning("⚠️ CHƯA KHỚP ĐƯỢC MÃ TƯƠNG ĐỒNG! Vui lòng nạp file Techpack tại menu Upload.")
+            st.info("ℹ️ Hệ thống chưa khóa được mẫu đối chứng tương thích từ Database.")
 
-# KÍCH HOẠT ĐIỂM CHẠY ỨNG DỤNG CHÍNH ĐỂ GOVERN LỀ AN TOÀN
+
 if __name__ == "__main__":
     main()
 
