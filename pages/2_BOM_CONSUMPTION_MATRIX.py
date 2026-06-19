@@ -1842,7 +1842,44 @@ with img_col2:
                 f"{base_storage_url}/{safe_style_name_lower}.jpg",
                 f"{base_storage_url}/{safe_style_name_lower}.png"
             ]
-            
+                # =========================================================================================
+    # ĐOẠN 3 FULL: KHỐI KIỂM TRA TRẠNG THÁI VÀ GÁN BIẾN AN TOÀN TUYỆT ĐỐI (DÁN VÀO ĐÂY)
+    # =========================================================================================
+    target_style_name = "MÃ ĐỘC LẬP (KHÔNG CÓ ĐỐI CHỨNG)"
+    target_style_measurements = {}
+    has_valid_match = False
+
+    current_techpack = st.session_state.get("matched_techpack")
+
+    if current_techpack and isinstance(current_techpack, dict):
+        target_style_name = str(current_techpack.get("StyleName", "")).strip().upper()
+        target_style_measurements = current_techpack.get("DetailedMeasurements", {})
+        has_valid_match = True
+        matched_techpack = current_techpack
+    else:
+        matched_techpack = {}
+        state_str = str(current_techpack)
+        if "ERROR" in state_str:
+            st.warning("⚠️ Hệ thống AI (Gemini) đã cạn hạn mức gói miễn phí (Lỗi 429) hoặc quá tải lệnh (Lỗi 503). Hệ thống tự động chuyển sang chế độ phân tích tài liệu độc lập.")
+        elif "STANDALONE" in state_str:
+            st.info("💡 Không tìm thấy mẫu rập thiết kế cũ tương thích cấu trúc hình học trong Database. Đang xử lý theo dạng mã hàng độc lập.")
+
+    st.markdown("### 📊 ĐỐI CHIẾU SỰ TƯƠNG ĐỒNG HÌNH ẢNH THIẾT KẾ (FLAT SKETCH)")
+    if has_valid_match:
+        st.success(f"🎯 ĐÃ KHÓA MÃ ĐỐI CHỨNG THÀNH CÔNG: **{target_style_name}** (Độ tin cậy: {st.session_state.get('match_confidence_score', 0)}%)")
+        with st.expander("🔍 Xem lý do đối chiếu từ VLM Engine", expanded=False):
+            st.write(st.session_state.get("match_reason", "Không có mô tả chi tiết."))
+    else:
+        st.info(f"📋 CHẾ ĐỘ XỬ LÝ: **{target_style_name}**")
+
+
+    # =========================================================================================
+    # ĐOẠN CODE CŨ TRÊN MÀN HÌNH CỦA BẠN (GIỮ NGUYÊN TỪ ĐÂY TRỞ XUỐNG)
+    # =========================================================================================
+    def fetch_image_worker(url):
+        try:
+            # ... Giữ nguyên toàn bộ phần code xử lý ảnh phía dưới của bạn ...
+
             def fetch_image_worker(url):
                 try:
                     resp = requests.get(url, headers=api_headers, timeout=5)
