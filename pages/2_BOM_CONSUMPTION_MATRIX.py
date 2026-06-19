@@ -1804,7 +1804,10 @@ with img_col1:
 with img_col2:
     if matched_techpack is not None:
         # 1. Đồng bộ mã đối chứng và URL ảnh gốc
-        target_style_name = str(matched_techpack.get("StyleName", "")).strip().upper()
+                # SỬA ĐỔI AN TOÀN CHỐNG CRASH HỆ THỐNG
+        _safe_pack = st.session_state.get("matched_techpack") if isinstance(st.session_state.get("matched_techpack"), dict) else (matched_techpack if isinstance(globals().get("matched_techpack"), dict) else {})
+        target_style_name = str(_safe_pack.get("StyleName", "MÃ ĐỘC LẬP")).strip().upper()
+
         st.session_state["matched_style_name"] = target_style_name
         st.session_state["matched_sketch_url"] = matched_techpack.get("SketchURL") or matched_techpack.get("sketch_url", "")
         
