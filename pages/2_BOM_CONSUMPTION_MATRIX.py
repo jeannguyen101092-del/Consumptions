@@ -1876,13 +1876,13 @@ from collections import defaultdict
 from difflib import SequenceMatcher
 
 # ==============================================================================
-# HÀM BỔ TRỢ ĐOẠN THÔNG SỐ (ĐÃ SỬA LỖI TIỀN TỐ MÃ VỊ TRÍ RẬP)
+# HÀM BỔ TRỢ ĐOẠN THÔNG SỐ (HOÀN CHỈNH & CHỐNG LOÃNG DỮ LIỆU SẢN XUẤT)
 # ==============================================================================
 
 def normalize_pom_name(name):
     """
     Chuẩn hóa làm sạch chuỗi văn bản thô ngành may.
-    🌟 ĐÃ SỬA: Loại bỏ triệt để các tiền tố mã vị trí rập (Ví dụ: leg-, pkt-, fly_, bottom_)
+    Loại bỏ triệt để các tiền tố mã vị trí rập (Ví dụ: leg-002, pkt-055, leg-)
     """
     if not name: 
         return ""
@@ -1891,8 +1891,7 @@ def normalize_pom_name(name):
     # Bước 1: Xóa bỏ các ký tự đặc biệt gây nhiễu
     text = re.sub(r"[.,:;]+", "", text)
     
-    # Bước 2: Xóa bỏ các tiền tố mã thông số rập đứng đầu dòng (Ví dụ: leg-002, pkt-055, leg-)
-    # Xóa các cụm chữ-số nối nhau bằng dấu gạch ngang hoặc gạch dưới ở đầu dòng
+    # Bước 2: Xóa bỏ các tiền tố mã thông số rập đứng đầu dòng
     text = re.sub(r'^(leg|pkt|fly|wgt|btm|bottom)[-_\s]*\d*[-_\s]*', '', text)
     
     # Bước 3: Xóa triệt để các cụm chứa số còn sót lại độc lập
@@ -1916,6 +1915,7 @@ def normalize_pom_name(name):
 
 
 def get_words_similarity(str1, str2):
+    """Tính Jaccard liên nhóm để chặn so lệch vị trí chính"""
     words1 = set(str1.split())
     words2 = set(str2.split())
     if not words1 or not words2: 
@@ -1924,6 +1924,7 @@ def get_words_similarity(str1, str2):
 
 
 def clean_float(v):
+    """Bóc tách phân số thập phân, phân số chuyên ngành may sang float"""
     if v is None: 
         return None
     if isinstance(v, dict):
@@ -1956,15 +1957,18 @@ def clean_float(v):
 # ==============================================================================
 st.markdown("<br>### 📐 BẢNG SO SÁNH SAI LỆCH THÔNG SỐ KỸ THUẬT RẬP MẪU", unsafe_allow_html=True)
 
+# Khởi tạo dữ liệu an toàn tránh lỗi NameError bên trong Streamlit
 new_specs = new_style_measurements_dict if 'new_style_measurements_dict' in locals() else {}
 old_specs = matched_techpack.get("DetailedMeasurements", {}) if ('matched_techpack' in locals() and matched_techpack) else {}
 new_style_base_size = new_style_base_size if 'new_style_base_size' in locals() else "Base"
 
 avg_pom_growth = 0.0
+
+# BẢNG TRỌNG SỐ CHUYÊN NGÀNH: Tập trung hoàn toàn vào khung xương quyết định ĐM vải chính
 POM_AREA_WEIGHTS = {
     "waist": 1.5, "hip": 1.5, "thigh": 1.3, "rise": 1.2, 
     "inseam": 1.0, "outseam": 1.0, "chest": 1.5, "bust": 1.5,
-    "length": 1.4, "opening": 0.4, "width": 0.5, "pocket": 0.2, "knee": 1.1
+    "length": 1.4, "opening": 0.4, "width": 0.5, "knee": 1.1
 }
 
 if new_specs or old_specs:
@@ -1984,7 +1988,7 @@ if new_specs or old_specs:
     used_new = set()
     used_old = set()
     
-    # Bước 1: Khớp chính xác dựa trên SequenceMatcher cấp độ ký tự nội bộ nhóm
+    # Bước 1: Khớp chính xác tên nhóm + SequenceMatcher ký tự nội bộ chuyên sâu
     for norm_old, o_keys in clean_old_keys.items():
         if norm_old in clean_new_keys:
             n_keys = clean_new_keys[norm_old]
@@ -1996,7 +2000,7 @@ if new_specs or old_specs:
                     score = SequenceMatcher(None, s_old, s_new).ratio()
                     sub_matches.append((score, o_k, n_k))
             
-            sub_matches.sort(key=lambda x: x[0], reverse=True)
+            sub_matches.sort(key=lambda x: x, reverse=True)
             
             for score, o_k, n_k in sub_matches:
                 if o_k not in used_old and n_k not in used_new:
@@ -2033,7 +2037,7 @@ if new_specs or old_specs:
     for o_key in old_specs.keys():
         if o_key not in used_old: matched_pairs.append((None, o_key, o_key))
 
-    # Bước 4: Tạo dữ liệu hiển thị và tích lũy trọng số
+    # Bước 4: Tạo dữ liệu hiển thị và tích lũy trọng số nâng cao
     weighted_diff_sum = 0.0
     total_pom_weights = 0.0
 
@@ -2050,12 +2054,20 @@ if new_specs or old_specs:
             if f_old != 0:
                 diff_pct = round((diff_val / f_old) * 100, 2)
                 
+                # Chặn lọc chống nhiễu OCR cực đại khi nhảy kích thước lớn (<= 80%)
                 if abs(diff_pct) <= 80.0:
                     norm_lower = normalize_pom_name(display_name)
-                    current_weight = 0.0
-                    for kw, w_val in POM_AREA_WEIGHTS.items():
-                        if kw in norm_lower:
-                            current_weight = max(current_weight, w_val)
+                    
+                    # 🌟 GIẢI PHÁP CHỐNG LOÃNG ĐỊNH MỨC VẢI CHÍNH: 
+                    # Nếu tên dòng chứa chữ túi (pocket, pkt), hạ trọng số xuống mức tối thiểu (0.05)
+                    # để biên độ sụt giảm của túi không làm lu mờ mức tăng của eo/mông/đùi.
+                    if "pocket" in norm_lower:
+                        current_weight = 0.05
+                    else:
+                        current_weight = 0.0
+                        for kw, w_val in POM_AREA_WEIGHTS.items():
+                            if kw in norm_lower:
+                                current_weight = max(current_weight, w_val)
                     
                     if current_weight > 0.0:
                         weighted_diff_sum += diff_pct * current_weight
@@ -2079,6 +2091,7 @@ if new_specs or old_specs:
     
     if total_pom_weights > 0.0:
         avg_pom_growth = weighted_diff_sum / total_pom_weights
+
 
 
 import pandas as pd
