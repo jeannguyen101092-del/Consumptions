@@ -1693,11 +1693,11 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                 st.sidebar.warning("⚡ Hệ thống VLM đang quá tải tạm thời. Đã kích hoạt cơ chế tính định mức độc lập bằng hình học rập mẫu.")
 
 
-if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption Matrix":
     import pandas as pd
     import requests
     import streamlit as st
-    # 🛠️ VÁ LỖI CỐT LÕI: Import tường minh ThreadPoolExecutor để triệt tiêu lỗi NameError khi chạy đa luồng tải ảnh
+    # VÁ LỖI MẤT ĐỊNH NGHĨA: Import tường minh thư viện mã hóa tên tệp URL có khoảng trắng
+    from urllib.parse import quote 
     from concurrent.futures import ThreadPoolExecutor
 
     # Khôi phục an toàn các biến hệ thống từ môi trường toàn cục
@@ -1734,9 +1734,8 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
 
     bom_records = st.session_state.get("bom_records", [])
 
-  # ==========================================================
 # ==========================================================
-# 🖼️ LỚP HIỂN THỊ GIAO DIỆN ĐỐI CHIẾU FLAT SKETCH (VÁ LỖI TRIGGER & AN TOÀN SỐ)
+# 🖼️ LỚP HIỂN THỊ GIAO DIỆN ĐỐI CHIẾU FLAT SKETCH
 # ==========================================================
 st.markdown("### 🖼️ ĐỐI CHIẾU SỰ TƯƠNG ĐỒNG HÌNH ẢNH THIẾT KẾ (FLAT SKETCH)")
 
@@ -1765,18 +1764,12 @@ with img_col2:
         st.session_state["matched_style_name"] = target_style_name
         st.session_state["matched_sketch_url"] = matched_techpack.get("SketchURL") or matched_techpack.get("sketch_url", "")
         
-        # 🔥 ĐIỂM CHỈNH SỬA 1: Bẫy lỗi an toàn cho dữ liệu SimilarityScore dạng chuỗi phức tạp
-        raw_score = matched_techpack.get("SimilarityScore", matched_techpack.get("similarity_score", 0))
-        try:
-            similarity_score = float(str(raw_score).replace("%", "").replace(",", ".").strip())
-        except Exception:
-            similarity_score = 0.0
+        # Đồng bộ an toàn score từ biến match_confidence_score của Đoạn 2B lên màn hình hiển thị
+        similarity_score = st.session_state.get("match_confidence_score", 0.0)
         st.session_state["matched_similarity_score"] = similarity_score
 
-        # 🔥 ĐIỂM CHỈNH SỬA 2: Độc lập luồng dữ liệu khỏi ảnh vật lý. Khớp mã = Được phép load BOM
         if st.session_state.get("bom_style_loaded", "") != target_style_name:
             st.session_state["matched_image_verified"] = True
-            # 🔥 ĐIỂM CHỈNH SỬA 3: Phát tín hiệu cưỡng bức BOM Engine reload lập tức
             st.session_state["bom_reload_required"] = True
 
         st.markdown(f"""
@@ -1786,7 +1779,6 @@ with img_col2:
             </div>
         """, unsafe_allow_html=True)
         
-        # Luồng tải ảnh minh họa (Thất bại không ảnh hưởng đến logic dữ liệu)
         base_storage_url = f"{base_url_api.rstrip('/')}/storage/v1/object/public/kho_anh" if base_url_api else ""
         img_content_final = None
         
@@ -1839,6 +1831,7 @@ with img_col2:
     else:
         st.session_state["matched_image_verified"] = False
         st.warning("⚠️ CHƯA KHỚP ĐƯỢC MÃ TƯƠNG ĐỒNG! Vui lòng nạp file Techpack tại menu Upload.")
+
 
 
 import json
