@@ -1691,8 +1691,12 @@ def run_database_matching_engine():
                             pool.append(s)
                 
                 if not pool:
-                    st.error(f"❌ **DỪNG ENGINE:** Bể ứng viên rỗng cho nhóm `{new_group}`.")
-                    st.stop()
+                   if new_group == "UNKNOWN":
+                   st.warning("📋 **HỆ THỐNG SẴN SÀNG:** Vui lòng nạp file Techpack ở menu bên trái để kích hoạt luồng AI đối soát mã hàng.")
+                   else:
+                   st.error(f"❌ **DỪNG ENGINE:** Không tìm thấy ứng viên lịch sử nào trong database thuộc nhóm mẫu `{new_group}`.")
+                   return [], [], [], new_style_category, new_group, new_style_base_size, new_vec, new_specs_clean, client, types, {}, target_new_sketch_bytes
+
 
                 new_keywords = set(re.findall(r'[a-zA-Z]{2,}', str(new_vec).lower()))
                 current_base_size = str(new_style_base_size).strip().upper()
