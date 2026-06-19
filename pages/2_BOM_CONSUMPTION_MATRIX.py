@@ -1757,7 +1757,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     bom_records = st.session_state.get("bom_records", [])
 
 # ==========================================================
-# 🖼️ LỚP HIỂN THỊ GIAO DIỆN ĐỐI CHIẾU FLAT SKETCH (VÁ LỖI HIỂN THỊ FILE PDF)
+# 🖼️ LỚP HIỂN THỊ GIAO DIỆN ĐỐI CHIẾU FLAT SKETCH (TỰ ĐỘNG RENDER TRANG PDF THÀNH ẢNH)
 # ==========================================================
 st.markdown("### 🖼️ ĐỐI CHIẾU SỰ TƯƠNG ĐỒNG HÌNH ẢNH THIẾT KẾ (FLAT SKETCH)")
 
@@ -1774,10 +1774,28 @@ with img_col1:
     uploaded_file_name = st.session_state.get("previous_uploaded_file_name", "Techpack")
     
     if target_new_sketch_bytes is not None:
-        # VÁ LỖI XỬ LÝ: Nếu tệp đầu vào là PDF, hiển thị hộp thông tin tài liệu thay vì ép render st.image gây lỗi
+        # TỰ ĐỘNG XỬ LÝ PDF: Nếu tệp là PDF, trích xuất trang 1 thành ảnh PNG trực tiếp để hiển thị công khai
         if "pdf" in str(detected_mime_type).lower() or str(uploaded_file_name).lower().endswith(".pdf"):
-            st.info(f"📄 **Tài liệu dạng tệp:** `{uploaded_file_name}`\n\nHệ thống đã nạp toàn bộ cấu trúc dữ liệu PDF vào bộ nhớ mô phỏng rập mẫu.")
+            try:
+                import fitz  # Thư viện PyMuPDF xử lý tài liệu tốc độ cao
+                # Mở tài liệu PDF trực tiếp từ luồng dữ liệu Bytes trong bộ nhớ tạm
+                doc = fitz.open(stream=target_new_sketch_bytes, filetype="pdf")
+                if len(doc) > 0:
+                    page = doc[0]  # Lấy trang đầu tiên (Trang bìa chứa Flat Sketch tổng quan)
+                    # Thiết lập độ phân giải ma trận điểm ảnh (DPI) sắc nét để thợ kỹ thuật dễ nhìn
+                    pix = page.get_pixmap(matrix=fitz.Matrix(2.0, 2.0))
+                    pdf_page_image_bytes = pix.tobytes("png")
+                    
+                    st.image(pdf_page_image_bytes, caption=f"Trang 1 của tài liệu: {uploaded_file_name}", use_container_width=True)
+                else:
+                    st.warning("⚠️ File PDF rỗng, không có trang dữ liệu.")
+            except ImportError:
+                # Nếu máy chủ chưa cài PyMuPDF (fitz), giữ cơ chế phòng vệ thông tin an toàn
+                st.info(f"📄 **Tài liệu dạng tệp:** `{uploaded_file_name}`\n\nHệ thống đã nạp toàn bộ cấu trúc dữ liệu PDF vào bộ nhớ mô phỏng rập mẫu.")
+            except Exception as e:
+                st.warning(f"⚠️ Không thể trích xuất đồ họa từ tệp PDF: {e}")
         else:
+            # Nếu là file ảnh gốc (.png/.jpg) thì render trực tiếp lập tức
             try:
                 st.image(target_new_sketch_bytes, caption=f"Mẫu mới tải lên ({new_style_id_detected})", use_container_width=True)
             except Exception as e:
@@ -1862,6 +1880,7 @@ with img_col2:
     else:
         st.session_state["matched_image_verified"] = False
         st.warning("⚠️ CHƯA KHỚP ĐƯỢC MÃ TƯƠNG ĐỒNG! Vui lòng nạp file Techpack tại menu Upload.")
+
 
 
 
