@@ -1544,6 +1544,7 @@ if "match_confidence_score" not in st.session_state:
     st.session_state["match_confidence_score"] = 0
 if "match_reason" not in st.session_state:
     st.session_state["match_reason"] = ""
+
 def get_words_similarity(str1, str2):
     words1 = set(str(str1).split())
     words2 = set(str(str2).split())
@@ -1551,12 +1552,10 @@ def get_words_similarity(str1, str2):
         return 0.0
     return len(words1 & words2) / max(len(words1), len(words2))
 
-
 def get_garment_group(cat):
     cat_lower = str(cat).lower().strip()
     if any(k in cat_lower for k in ["áo liền quần", "đầm liền", "bộ liền thân"]):
         return "FULLBODY"
-
     words = set(re.findall(r"[a-zA-ZÀ-ỹ]+", cat_lower))
     top_keys = {
         "shirt", "shirts", "jacket", "jackets", "hoodie", "hoodies", 
@@ -1572,12 +1571,10 @@ def get_garment_group(cat):
         "coverall", "coveralls", "romper", "rompers", "onesie", "onesies",
         "đầm", "gown", "gowns", "bodysuit", "bodysuits"
     }
-
     if "shirt" in words or "jacket" in words or "polo" in words:
         return "TOP"
     if "pants" in words or "pant" in words or "trousers" in words:
         return "BOTTOM"
-
     if words & fullbody_keys:
         return "FULLBODY"
     if words & bottom_keys:
@@ -1585,6 +1582,7 @@ def get_garment_group(cat):
     if words & top_keys:
         return "TOP"
     return "TOP"
+
 def detect_pom_structure_group(pom_dict, debug_mode=False):
     if not pom_dict:
         return "UNKNOWN"
@@ -1592,7 +1590,6 @@ def detect_pom_structure_group(pom_dict, debug_mode=False):
         pom_text = json.dumps(pom_dict, ensure_ascii=False).lower()
     except Exception:
         pom_text = str(pom_dict).lower()
-
     bottom_indicators = [
         "waist", "hip", "inseam", "outseam", "front rise", "back rise", "crotch", 
         "thigh", "knee", "leg opening", "bottom opening", "sweep", "thg width", 
@@ -1603,13 +1600,10 @@ def detect_pom_structure_group(pom_dict, debug_mode=False):
         "body length", "center back", "cb length", "cf length", "center front", 
         "armhole", "neck", "bicep", "cuff", "cuff width", "neck width"
     ]
-
     bottom_score = sum(1 for x in bottom_indicators if x in pom_text)
     top_score = sum(1 for x in top_indicators if x in pom_text)
-
     if debug_mode:
         st.write(f"📊 *Phân tích hình học rập nội bộ:* `TOP_SCORE={top_score}` | `BOTTOM_SCORE={bottom_score}`")
-
     if bottom_score > top_score and bottom_score >= 2:
         return "BOTTOM"
     if top_score > bottom_score and top_score >= 2:
@@ -1617,6 +1611,7 @@ def detect_pom_structure_group(pom_dict, debug_mode=False):
     if bottom_score >= 2 and top_score >= 2:
         return "FULLBODY"
     return "UNKNOWN"
+
 def clean_float(v):
     if v is None:
         return None
@@ -1625,25 +1620,20 @@ def clean_float(v):
             if field in v:
                 return clean_float(v[field])
         return None
-
     val_str = str(v).strip().lower()
     if not val_str or val_str in ["-", "nan", "none"]:
         return None
-
     try:
         return float(val_str)
     except (ValueError, TypeError):
         mixed_match = re.search(r"(\d+)\s*[- ]\s*(\d+)\s*/\s*(\d+)", val_str)
         if mixed_match:
             return float(mixed_match.group(1)) + (float(mixed_match.group(2)) / float(mixed_match.group(3)))
-
         pure_frac = re.search(r"(\d+)\s*/\s*(\d+)", val_str)
         if pure_frac:
             return float(pure_frac.group(1)) / float(pure_frac.group(2))
-
         nums = re.findall(r"[-+]?\d*\.\d+|\d+", val_str)
         return float(nums) if nums else None
-
 
 def execute_vlm_semantic_matching(*args, **kwargs):
     pass
@@ -1765,12 +1755,10 @@ else:
 if menu_selection == "🧵 BOM & Consumption Matrix":
     base_url_api = base_sb_url if base_sb_url else (SB_URL if SB_URL else "")
     api_headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if SB_KEY else {}
-
     if matched_techpack and "bom_records" not in st.session_state:
         st.session_state["bom_records"] = []
         target_style_name_bom = str(matched_techpack.get("StyleName", "")).strip()
         url_bom = f"{base_url_api.rstrip('/')}/rest/v1/san_pham" if base_url_api else ""
-
         if url_bom and target_style_name_bom:
             try:
                 query_bom = {
@@ -1802,26 +1790,21 @@ with img_col2:
         target_style_name = str(matched_techpack.get("StyleName", "")).strip().upper()
         st.session_state["matched_style_name"] = target_style_name
         st.session_state["matched_sketch_url"] = matched_techpack.get("SketchURL") or matched_techpack.get("sketch_url", "")
-        
         raw_score = matched_techpack.get("SimilarityScore", matched_techpack.get("similarity_score", 0))
         try:
             similarity_score = float(str(raw_score).replace("%", "").replace(",", ".").strip())
         except Exception:
             similarity_score = 0.0
         st.session_state["matched_similarity_score"] = similarity_score
-
         if st.session_state.get("bom_style_loaded", "") != target_style_name:
             if not st.session_state.get("matched_image_verified", False):
                 st.session_state["matched_image_verified"] = True
             if not st.session_state.get("bom_reload_required", False):
                 st.session_state["bom_reload_required"] = True
-
         st.info(f"🎯 Mã tương đồng trong kho: {target_style_name}")
         st.metric(label="🤖 Độ tương đồng thiết kế (Vision)", value=f"{similarity_score}%")
-        
         base_storage_url = f"{base_url_api.rstrip('/')}/storage/v1/object/public/kho_anh" if 'base_url_api' in locals() and base_url_api else ""
         img_content_final = None
-        
         if base_storage_url:
             safe_style_name = quote(target_style_name)
             safe_style_name_lower = quote(target_style_name.lower())
@@ -1831,7 +1814,6 @@ with img_col2:
                 f"{base_storage_url}/{safe_style_name}.jpeg", f"{base_storage_url}/{safe_style_name_lower}.jpg",
                 f"{base_storage_url}/{safe_style_name_lower}.png"
             ]
-            
             def fetch_image_worker(url):
                 try:
                     resp = requests.get(url, headers=api_headers, timeout=5)
@@ -1841,14 +1823,12 @@ with img_col2:
                             return content
                 except Exception: pass
                 return None
-
             with ThreadPoolExecutor(max_workers=6) as executor:
                 results = executor.map(fetch_image_worker, url_options)
                 for res in results:
                     if res:
                         img_content_final = res
                         break
-        
         if img_content_final:
             try: st.image(img_content_final, caption=f"Ảnh bản vẽ gốc của mã {target_style_name}", use_container_width=True)
             except Exception: st.warning("⚠️ Lỗi hiển thị tệp đồ họa.")
@@ -1858,9 +1838,10 @@ with img_col2:
                 try: st.image(db_stored_url, caption=f"Ảnh bản vẽ gốc mã {target_style_name} (Direct Link)", use_container_width=True)
                 except Exception: st.info("⚠️ Không tải được ảnh từ Direct Link.")
             else: st.info("ℹ️ Lưu ý: Mã hàng đã khớp. Không tìm thấy ảnh minh họa trong kho.")
-        else:
-            st.session_state["matched_image_verified"] = False
-            st.warning("⚠️ CHƯA KHỚP ĐƯỢC MÃ TƯƠNG ĐỒNG! Vui lòng nạp file Techpack tại menu Upload.")
+else:
+    st.session_state["matched_image_verified"] = False
+    st.warning("⚠️ CHƯA KHỚP ĐƯỢC MÃ TƯƠNG ĐỒNG! Vui lòng nạp file Techpack tại menu Upload.")
+
 
 
 
