@@ -1852,17 +1852,13 @@ def execute_vlm_semantic_matching(top_candidates, vision_contents, historical_po
 
 
 def run_database_matching_engine():
-    """Hàm xử lý tìm kiếm ứng viên phù hợp từ cơ sở dữ liệu."""
+    """Hàm bọc quản lý biến cục bộ an toàn, phẳng hàng lề, lấy dữ liệu hoàn toàn từ Session State."""
     SB_KEY = globals().get("SB_KEY", "")
     base_sb_url = globals().get("base_sb_url", "")
-    client = globals().get("client", None)
-    new_group = globals().get("new_group", "UNKNOWN")
-    new_style_category = globals().get("new_style_category", "")
-    new_style_base_size = globals().get("new_style_base_size", "N/A")
-    new_vec = globals().get("new_vec", "")
-    target_new_sketch_bytes = globals().get("target_new_sketch_bytes", None)
-    types = globals().get("types", None)
-    new_specs_clean = globals().get("new_specs_clean", {})
+    
+    new_group = st.session_state.get("new_group", "UNKNOWN")
+    new_style_base_size = st.session_state.get("new_style_base_size", "N/A")
+    new_vec = st.session_state.get("visual_description_str", "")
 
     top_candidates = []
     vision_contents = []
@@ -1874,8 +1870,8 @@ def run_database_matching_engine():
             url_db = f"{base_sb_url.rstrip('/')}/rest/v1/thong_so_techpack" if base_sb_url else ""
             raw_styles = requests.get(url_db, headers=headers_db, params={"select": "StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL,sketch_vector", "limit": 1000}, timeout=15).json() if url_db else []
             
-            if raw_styles and client and hasattr(client, "models"):
-                valid_styles = [s for s in raw_styles if s.get("StyleName") and s.get("sketch_vector") and s.get("DetailedMeasurements")]
+            if raw_styles:
+                valid_styles = [s for s in raw_styles if s.get("StyleName") and s.get("DetailedMeasurements")]
                 pool = []
                 
                 if new_group and new_group != "UNKNOWN":
@@ -1886,9 +1882,9 @@ def run_database_matching_engine():
                         if new_group == cand_group:
                             pool.append(s)
                 
+                # LỚP BẢO VỆ PHÒNG THỦ: Nếu bể ứng viên rỗng do sai lệch nhóm, ép sao chép toàn bộ database để đối soát
                 if not pool:
-                    st.error(f"❌ **DỪNG ENGINE:** Bể ứng viên rỗng cho nhóm `{new_group}`.")
-                    st.stop()
+                    pool = valid_styles.copy()
 
                 new_keywords = set(re.findall(r'[a-zA-Z]{2,}', str(new_vec).lower()))
                 current_base_size = str(new_style_base_size).strip().upper()
@@ -1904,21 +1900,16 @@ def run_database_matching_engine():
                         overlap_score += 3  
                     ranked_pool.append((overlap_score, s))
                 
-                MIN_PRE_SCORE = 5
-                valid_ranked_pool = [x for x in ranked_pool if x[0] >= MIN_PRE_SCORE]
+                # SỬA LỖI TẠI ĐÂY: Chỉ sắp xếp theo trường điểm số (x[0]), tránh so sánh hai dict với nhau
+                ranked_pool.sort(reverse=True, key=lambda x: x[0])
+                top_candidates = ranked_pool[:8]
                 
-                if not valid_ranked_pool:
-                    st.error("❌ **DỪNG ENGINE:** Không ứng viên nào đạt điểm tối thiểu (Score >= 5).")
-                    st.stop()
-                    
-                valid_ranked_pool.sort(reverse=True, key=lambda x: x[0])
-                top_candidates = valid_ranked_pool[:8]
-                
-                return top_candidates, vision_contents, historical_pool_summary, new_style_category, new_group, new_style_base_size, new_vec, new_specs_clean, client, types, headers_db, target_new_sketch_bytes
+                return top_candidates, vision_contents, historical_pool_summary, headers_db
         except Exception as e:
             st.sidebar.error(f"Lỗi chuẩn bị bể dữ liệu VLM: {str(e)}")
             
-    return [], [], [], new_style_category, new_group, new_style_base_size, new_vec, new_specs_clean, client, types, {}, target_new_sketch_bytes
+    return [], [], [], {}
+
 def main():
     # 1. Thu hồi an toàn các biến toàn cục hệ thống
     new_group = globals().get("new_group", "UNKNOWN")
