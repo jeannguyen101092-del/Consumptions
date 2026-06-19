@@ -1575,7 +1575,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             
         if st.session_state["detected_garment_type"] == "UNKNOWN":
             st.warning("⚠️ Không tự động bóc tách được phân loại đồ cụ thể. Hệ thống tự động chuyển sang chế độ đối soát mở rộng.")
-        # KHỐI SO SÁNH TRỰC QUAN VLM KẾT HỢP BỘ LỌC CỨNG CHỐNG LỆCH DANH MỤC
+                # KHỐI SO SÁNH TRỰC QUAN VLM KẾT HỢP BỘ LỌC CỨNG CHỐNG LỆCH DANH MỤC
         with st.spinner("🧠 Mắt thần VLM đang so sánh trực quan ảnh và thông số kỹ thuật..."):
             try:
                 headers_db = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if SB_KEY else {}
@@ -1628,10 +1628,11 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                         if current_base_size != "N/A" and str(s.get("BaseSize", "")).strip().upper() == current_base_size: overlap_score += 3  
                         ranked_pool.append((overlap_score, s))
                     
-                    ranked_pool.sort(reverse=True, key=lambda x: x)
+                    # SỬA ĐỔI CHÍNH XÁC: Buộc phải sắp xếp theo key x[0] để loại bỏ lỗi so sánh Dict vs Dict
+                    ranked_pool.sort(reverse=True, key=lambda x: x[0])
                     
-                    # Giới hạn cứng Top 8 giúp tăng tốc độ xử lý ảnh gấp 2.5 lần, giảm nghẽn VLM Token
-                    top_8_candidates = [x for x in ranked_pool[:8]]
+                    # Giới hạn cứng Top 8 giúp tăng tốc độ xử lý ảnh và tiết kiệm VLM Token
+                    top_8_candidates = [x[1] for x in ranked_pool[:8]]
                     vision_contents = []
                     if target_new_sketch_bytes:
                         if types and hasattr(types, "Part"):
@@ -1688,7 +1689,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                     else: st.session_state["matched_techpack"] = None
             except Exception as e: st.sidebar.error(f"Lỗi đối soát VLM hệ thống: {str(e)}")
 
-    # Nhả lề về sát lề trái phục vụ kết xuất UI cuối cùng độc lập ngoài khối IF chính
+    # Trả lề về sát bên trái phục vụ kết xuất UI cuối cùng (Ngoài khối lệnh IF rẽ nhánh)
     matched_techpack = st.session_state.get("matched_techpack")
     confidence_score = st.session_state.get("match_confidence_score", 0)
     match_reason = st.session_state.get("match_reason", "")
