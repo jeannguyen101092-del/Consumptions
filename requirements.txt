@@ -13,3 +13,4 @@ openpyxl
 pillow
 openpyxl
 google-generativeai
+PyMuPDF
