@@ -1499,8 +1499,6 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             globals()["visual_description_str"] = ""
             if "new_style_sketch_vector" in globals(): globals()["new_style_sketch_vector"] = ""
             st.rerun()
-
-            
         with control_col2:
         st.markdown("<p style='font-weight:700; font-size:12px;'>🧹 RESET</p>", unsafe_allow_html=True)
         if st.button("🗑️ PURGE", key="purge_cache_matrix_btn", use_container_width=True):
@@ -1612,6 +1610,11 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         if len(new_vec) < 10:
             st.error("🚨 Không nhận diện được cấu trúc tệp Techpack tải lên.")
             st.stop()
+
+    
+
+            
+        
 
         # =========================================================================================
         # ĐOẠN 4 - PHẦN 2: KHỐI SO SÁNH TRỰC QUAN VLM tham chiếu DỮ LIỆU LỊCH SỬ KHO HÀNG (HOÀN CHỈNH)
