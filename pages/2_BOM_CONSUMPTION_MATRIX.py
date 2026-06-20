@@ -1753,25 +1753,24 @@ with img_col1:
     
     if target_new_sketch_bytes is not None:
         try:
-            # [DEBUG 1]: Kiểm tra kiểu dữ liệu và dung lượng của tệp được truyền vào biến
+            # DEBUG CHÍNH XÁC THEO YÊU CẦU ĐỂ XÁC THỰC 100% LỖI GÁN LỚP
+            st.write("VALUE:", target_new_sketch_bytes)
             st.write("TYPE:", type(target_new_sketch_bytes))
-            st.write("SIZE:", len(target_new_sketch_bytes) if target_new_sketch_bytes else 0)
+            st.write("SIZE:", len(target_new_sketch_bytes) if hasattr(target_new_sketch_bytes, '__len__') and type(target_new_sketch_bytes) != type else 0)
             
-            # Thử hiển thị trực tiếp dữ liệu hình ảnh
+            # Thử hiển thị dữ liệu hình ảnh
             st.image(target_new_sketch_bytes, caption=f"Mẫu mới tải lên ({new_style_id_detected})", use_container_width=True)
         except Exception as e:
-            # Nếu xảy ra lỗi render ảnh và tệp đầu vào xác định là PDF, tiến hành chuyển đổi trang
             if "pdf" in str(detected_mime_type).lower() or str(uploaded_file_name).lower().endswith(".pdf"):
                 try:
                     import fitz  # Thư viện PyMuPDF
                     doc = fitz.open(stream=target_new_sketch_bytes, filetype="pdf")
-                    page = doc.load_page(0)  # Lấy trang đầu tiên của file PDF
+                    page = doc.load_page(0)  
                     pix = page.get_pixmap(dpi=150)
                     img_png_bytes = pix.tobytes("png")
                     
                     st.image(img_png_bytes, caption=f"Hình ảnh quét từ PDF ({new_style_id_detected})", use_container_width=True)
                 except Exception as pdf_err:
-                    # [DEBUG 2]: Chuyển sang thông báo lỗi dạng đỏ hệ thống để bắt chính xác nguyên nhân
                     st.error(f"PDF Render Error: {pdf_err}")
             else:
                 st.warning(f"Lỗi hiển thị ảnh mẫu mới: {e}")
@@ -1856,6 +1855,7 @@ with img_col2:
     else:
         st.session_state["matched_image_verified"] = False
         st.warning("⚠️ CHƯA KHỚP ĐƯỢC MÃ TƯƠNG ĐỒNG! Vui lòng nạp file Techpack tại menu Upload.")
+
 
 
 
