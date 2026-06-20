@@ -1752,28 +1752,27 @@ with img_col1:
     uploaded_file_name = st.session_state.get("previous_uploaded_file_name", "Techpack")
     
     if target_new_sketch_bytes is not None:
-        try:
-            # DEBUG CHÍNH XÁC THEO YÊU CẦU ĐỂ XÁC THỰC 100% LỖI GÁN LỚP
-            st.write("VALUE:", target_new_sketch_bytes)
-            st.write("TYPE:", type(target_new_sketch_bytes))
-            st.write("SIZE:", len(target_new_sketch_bytes) if hasattr(target_new_sketch_bytes, '__len__') and type(target_new_sketch_bytes) != type else 0)
-            
-            # Thử hiển thị dữ liệu hình ảnh
-            st.image(target_new_sketch_bytes, caption=f"Mẫu mới tải lên ({new_style_id_detected})", use_container_width=True)
-        except Exception as e:
-            if "pdf" in str(detected_mime_type).lower() or str(uploaded_file_name).lower().endswith(".pdf"):
-                try:
-                    import fitz  # Thư viện PyMuPDF
-                    doc = fitz.open(stream=target_new_sketch_bytes, filetype="pdf")
-                    page = doc.load_page(0)  
-                    pix = page.get_pixmap(dpi=150)
-                    img_png_bytes = pix.tobytes("png")
-                    
-                    st.image(img_png_bytes, caption=f"Hình ảnh quét từ PDF ({new_style_id_detected})", use_container_width=True)
-                except Exception as pdf_err:
-                    st.error(f"PDF Render Error: {pdf_err}")
-            else:
-                st.warning(f"Lỗi hiển thị ảnh mẫu mới: {e}")
+        # ÁP DỤNG LOGIC SỬA NGẮN GỌN: Chia luồng xử lý PDF và Ảnh thông thường
+        if str(uploaded_file_name).lower().endswith(".pdf") or b"%PDF" in target_new_sketch_bytes[:10]:
+            try:
+                import fitz  # Yêu cầu có PyMuPDF trong requirements.txt
+                doc = fitz.open(stream=target_new_sketch_bytes, filetype="pdf")
+                page = doc[0]  # Lấy nhanh trang đầu tiên
+                pix = page.get_pixmap(dpi=200)  # Tăng mật độ điểm ảnh lên 200 DPI cho nét
+                
+                st.image(
+                    pix.tobytes("png"),
+                    caption=f"Hình ảnh quét từ PDF ({new_style_id_detected})",
+                    use_container_width=True
+                )
+            except Exception as pdf_err:
+                st.error(f"PDF Render Error: {pdf_err}")
+        else:
+            st.image(
+                target_new_sketch_bytes,
+                caption=f"Mẫu mới tải lên ({new_style_id_detected})",
+                use_container_width=True
+            )
     else:
         st.info("ℹ️ Chưa tải lên tệp ảnh Flat Sketch của mẫu mới.")
 
