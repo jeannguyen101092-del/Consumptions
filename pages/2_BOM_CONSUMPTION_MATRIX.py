@@ -2303,10 +2303,11 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
 
 
 # =================================================================
-# ĐOẠN 6: GIAO DIỆN CHAT AI PHÂN TÍCH ĐỊNH MỨC VÀ SCRIPT AUTO-SCROLL
+# ĐOẠN 6 - KHỐI I: GIAO DIỆN HIỂN THỊ TIN NHẮN CHAT VÀ PURGE MEMORY
 # =================================================================
 if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption Matrix":
     import streamlit as st
+    import json, re
 
     # Khôi phục an toàn các biến ngữ cảnh phục vụ tính toán từ môi trường toàn cục
     client = globals().get("client", None)
@@ -2328,44 +2329,81 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     chat_container = st.container()
     with chat_container:
         for chat in st.session_state.get("consumption_chat_history", []):
-            with st.chat_message("user"): 
-                st.write(chat["user"])
-            with st.chat_message("assistant"): 
-                st.write(chat["ai"])
-                
+            with st.chat_message("user"): st.write(chat["user"])
+            with st.chat_message("assistant"): st.write(chat["ai"])
+# =================================================================
+# ĐOẠN 6 - KHỐI K: LÕI PHÂN TÍCH ĐA LUỒNG TỪ PDF TEXT HOÀN CHỈNH (CĂN LỀ CHUẨN)
+# =================================================================
     if user_query := st.chat_input("Nhập yêu cầu phân tích (Ví dụ: Tính định mức vải chính khi co rút ngang 5%, dọc 3%)..."):
         if "consumption_chat_history" not in st.session_state:
             st.session_state["consumption_chat_history"] = []
             
         with chat_container:
-            with st.chat_message("user"):
-                st.write(user_query)
-                
+            with st.chat_message("user"): st.write(user_query)
             with st.chat_message("assistant"):
-                with st.spinner("🤖 AI đang phân tích dữ liệu và tính toán định mức..."):
-                    # Bẫy lỗi an toàn cho Engine phân tích, phòng trường hợp hàm chưa định nghĩa hoặc lỗi API
+                with st.spinner("🤖 AI đang quét dữ liệu tài liệu và xử lý định mức..."):
                     try:
-                        if "ai_consumption_analyst_engine" in globals():
-                            ai_reply = ai_consumption_analyst_engine(
-                                client=client,
-                                user_message=user_query,
-                                matched_techpack=matched_techpack,
-                                bom_records=bom_records,
-                                new_style_measurements=new_style_measurements_dict,
-                                target_new_sketch_bytes=target_new_sketch_bytes,
-                                detected_size=new_style_base_size
-                            )
-                        else:
-                            ai_reply = "⚠️ Khối phân tích `ai_consumption_analyst_engine` chưa được khởi tạo trong mã nguồn hệ thống."
-                    except Exception as chat_err:
-                        ai_reply = f"❌ Không thể kết nối đến bộ não AI để phân tích dữ liệu định mức. Chi tiết sự cố: {str(chat_err)}"
+                        # [CHIẾN LƯỢC VÀNG]: Cào ngầm văn bản thô từ file PDF kỹ thuật làm Input dự phòng cho AI
+                        raw_pdf_text = st.session_state.get("pdf_raw_text", "")
+                        if not raw_pdf_text and target_new_sketch_bytes:
+                            try:
+                                import fitz
+                                doc = fitz.open(stream=target_new_sketch_bytes, filetype="pdf")
+                                raw_pdf_text = "".join([page.get_text() for page in doc])
+                                st.session_state["pdf_raw_text"] = raw_pdf_text
+                                doc.close()
+                            except Exception: pass
+
+                        # THIẾT LẬP PROMPT THỰC NGHIỆM ÉP GEMINI XỬ LÝ MA TRẬN ĐỊNH MỨC VÀ BIẾN ĐỔI CHỮ THÀNH BẢNG DATA
+                        factory_prompt = f"""
+                        You are an expert apparel cost engineer. Generate a valid Consumption (Định mức) matrix based on the user request.
                         
-                    st.write(ai_reply)
-                    
-                    # ĐỒNG BỘ TRƯỚC: Lưu kết quả vào lịch sử chat lập tức trước khi chạy script cuộn màn hình
-                    st.session_state["consumption_chat_history"].append({"user": user_query, "ai": ai_reply})
-                    
-        # ✅ THUẬT TOÁN ĐÓNG ĐINH NEO CUỘN: Viết phẳng hóa hoàn toàn triệt tiêu lỗi cú pháp căn lề
+                        CONTEXT DATA:
+                        - Matched Historical Style Spec: {json.dumps(matched_techpack, ensure_ascii=False) if matched_techpack else "NONE (This is a completely brand new style)"}
+                        - Current System BOM Specs: {json.dumps(bom_records, ensure_ascii=False) if bom_records else "EMPTY BOM"}
+                        - Raw Extracted Techpack PDF Text: \"\"\"{raw_pdf_text[:6000]}\"\"\"
+                        
+                        USER SPECIFIC REQUEST:
+                        \"\"\"{user_query}\"\"\"
+                        
+                        INSTRUCTIONS:
+                        1. If historical reference exists, calculate adjustments using co-shrinkage.
+                        2. If NO reference exists, read the Raw Extracted PDF Text to find materials (Vải chính, Vải phụ, lót túi...) and estimate base baselines.
+                        3. Apply shrinkage (co rút) and loss (hao hụt) based on user prompt strictly using multiplicative formula: New_DM = Base * (1 + Shrinkage/100) * (1 + Wastage/100).
+                        4. Provide your final technical analysis response to the user. At the very end of your response, if you updated or calculated a new consumption table, append a valid JSON block enclosed in [JSON_START] and [JSON_END] matching this structure:
+                        [JSON_START]
+                        [
+                          {{"Phân loại vật tư (Type)": "MAIN FABRIC", "Tổng ĐM mã cũ": 0.0, "ĐM Dự phòng mã mới": 1.688, "Cơ sở thuật toán toán AI": "Giải trình..."}}
+                        ]
+                        [JSON_END]
+                        """
+                        
+                        res = client.models.generate_content(model='gemini-2.5-flash', contents=factory_prompt)
+                        ai_reply = res.text if res and res.text else "⚠️ Không nhận được phản hồi từ bộ não AI."
+                        
+                        # Trích xuất và bóc tách khối ma trận dữ liệu JSON để vẽ đồ họa DataFrame lên UI
+                        json_block = re.search(r'\[JSON_START\]\s*([\s\S]*?)\s*\[JSON_END\]', ai_reply)
+                        if json_block:
+                            try:
+                                projected_data = json.loads(json_block.group(1).strip())
+                                st.session_state["ai_projected_consumption_matrix"] = projected_data
+                                # Dọn dẹp sạch thẻ JSON nội bộ trước khi hiển thị nội dung phân tích chữ cho người dùng đọc
+                                ai_reply = ai_reply.replace(json_block.group(0), "").strip()
+                            except Exception: pass
+                        
+                        # Render nội dung chữ giải thích kỹ thuật của AI
+                        st.write(ai_reply)
+                        
+                        # Nếu trích xuất ma trận JSON thành công, vẽ bảng DataFrame trực quan lên khung chat lập tức
+                        if "ai_projected_consumption_matrix" in st.session_state and json_block:
+                            st.dataframe(pd.DataFrame(st.session_state["ai_projected_consumption_matrix"]), use_container_width=True, hide_index=True)
+                            
+                        st.session_state["consumption_chat_history"].append({"user": user_query, "ai": ai_reply})
+                    except Exception as chat_err:
+                        ai_reply = f"❌ Lỗi kết nối AI Engine: {str(chat_err)}"
+                        st.write(ai_reply)
+
+        # HÀM NEO TỰ ĐỘNG CUỘN GIAO DIỆN (AUTO SCROLL)
         js_scroll = "<script>var d=window.parent.document; var s=d.querySelectorAll('section.main'); if(s.length>0){s[0].scrollTo({top:s[0].scrollHeight,behavior:'smooth'});}</script>"
         st.components.v1.html(js_scroll, height=0)
 
