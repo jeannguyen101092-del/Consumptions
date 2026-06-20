@@ -2159,7 +2159,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
 
 
 
-              # --- AI CONSUMPTION PROJECTION ENGINE ---
+                # --- AI CONSUMPTION PROJECTION ENGINE ---
     if 'bom_matrix_uploader' in st.session_state and st.session_state["bom_matrix_uploader"] is not None:
         st.markdown("<br>🔮 **AI CONSUMPTION PROJECTION ENGINE (DỰ PHÓNG ĐỊNH MỨC MÃ MỚI)**", unsafe_allow_html=True)
         
@@ -2171,7 +2171,6 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         elif "SHIRT" in category_context or "POLO" in category_context: default_growth = 0.55
         else: default_growth = 0.45
 
-        # Hệ số an toàn mặc định tĩnh của nhà máy
         if "JACKET" in category_context or "OUTERWEAR" in category_context: default_safety_buffer = 5.0
         elif "PANT" in category_context or "TROUSER" in category_context: default_safety_buffer = 4.0
         elif "SHORT" in category_context: default_safety_buffer = 3.0
@@ -2180,13 +2179,12 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         area_growth = float(locals().get("avg_area_growth_pct", globals().get("avg_area_growth_pct", 0.0)))
         pom_growth = float(avg_pom_diff_pct if 'avg_pom_diff_pct' in locals() and avg_pom_diff_pct is not None else 0.0)
 
-        # B. PHÂN LUỒNG LOGIC TỐI ƯU CHỐNG LOÃNG DỮ LIỆU HYBRID (SỬA LỖI MỤC 1)
-        if matched_techpack and bom_records:
+        # B. PHÂN LUỒNG LOGIC THEO KIẾN TRÚC PHÂN TẦNG HAI CHIỀU KHÔNG KHÓA GIÁ TRỊ ÂM
+        if matched_techpack and st.session_state.get("bom_records"):
             method_used = "AI Similar Style Reference"
             label_text = "Độ biến thiên phom Hybrid (%)"
             st.success(f"✅ **XÁC THỰC AI VISION:** Chế độ vận hành: {method_used}")
             
-            # XỬ LÝ CHỐNG LOÃNG: Chỉ tính tỷ lệ lai 80/20 nếu cả 2 nguồn đều có biến động thực tế
             if area_growth != 0.0 and pom_growth != 0.0:
                 raw_target_growth = (area_growth * 0.8) + (pom_growth * 0.2)
             elif area_growth != 0.0:
@@ -2198,20 +2196,19 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             else:
                 raw_target_growth = 0.0
         else:
-            # LUỒNG DỰ PHÒNG HÌNH HỌC KHI KHÔNG CÓ MÃ ĐỐI CHỨNG
             method_used = "Geometry / Vector Projection"
             label_text = "Độ biến thiên diện tích hình học rập mẫu (%)"
             st.warning(f"⚠️ **CHẾ ĐỘ DỰ PHÒNG HÌNH HỌC:** Chế độ vận hành: {method_used}")
             
             if area_growth != 0.0:
                 raw_target_growth = area_growth
-                st.info(f"📊 **GEOMETRY ENGINE:** Sử dụng Area Growth từ rập CAD Gerber: `{raw_target_growth:.2f}%`.")
+                st.info(f"📊 **GEOMETRY ENGINE:** Đã nạp Area Growth từ rập CAD Gerber: `{raw_target_growth:.2f}%`.")
             elif pom_growth != 0.0:
                 raw_target_growth = pom_growth
-                st.info(f"📊 **GEOMETRY ENGINE:** Sử dụng POM Growth vóc dáng: `{raw_target_growth:.2f}%`.")
+                st.info(f"📊 **GEOMETRY ENGINE:** Không có dữ liệu rập CAD. Tự động lấy POM Growth vóc dáng: `{raw_target_growth:.2f}%`.")
             else:
                 raw_target_growth = default_safety_buffer
-                st.info(f"📊 **GEOMETRY ENGINE:** Áp dụng hệ số an toàn mặc định chủng loại `{category_context}`: `{raw_target_growth:.1f}%`.")
+                st.info(f"📊 **GEOMETRY ENGINE:** Hệ thống áp dụng hệ số an toàn mặc định: `{raw_target_growth:.1f}%`.")
 
         # C. BỘ MÀNG LỌC CHẶN BIÊN AN TOÀN KỸ THUẬT VÀ LÀM TRÒN
         clamped_growth = max(min(raw_target_growth, 50.0), -30.0)
@@ -2220,7 +2217,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         if raw_target_growth > 50.0 or raw_target_growth < -30.0:
             st.error(f"🚨 **DỮ LIỆU BẤT THƯỜNG:** Biến động vượt biên (`{raw_target_growth:.2f}%`). AI đã ép về vùng an toàn (`{effective_shape_factor}%`).")
 
-        # D. KHỞI TẠO INPUT UI VỚI TIÊU ĐỀ ĐỘNG VÀ BIẾN ĐỔI NGỮ CẢNH
+        # D. KHỞI TẠO INPUT UI VỚI TIÊU ĐỀ ĐỘNG
         col1, col2, col3 = st.columns(3)
         with col1:
             shape_factor = st.number_input(label_text, value=float(effective_shape_factor), step=0.01)
@@ -2229,64 +2226,63 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         with col3:
             wastage_buffer = st.number_input("Hao hụt sản xuất cấu hình thêm (%)", value=0.00, step=0.5)
 
-        # [CẢI TIẾN CHIẾN LƯỢC]: Đóng gói siêu dữ liệu vào Session State phục vụ kết xuất và Chat AI (SỬA MỤC 2)
+        # Đóng gói siêu dữ liệu vào Session State phục vụ kết xuất và Chat AI giải trình dữ liệu
         st.session_state["projection_engine_metadata"] = {
-            "method_used": method_used,
-            "area_growth": area_growth,
-            "pom_growth": pom_growth,
-            "effective_shape_factor": shape_factor,
-            "fabric_growth_factor": fabric_growth_factor,
-            "garment_category": category_context
+            "method_used": method_used, "area_growth": area_growth, "pom_growth": pom_growth,
+            "effective_shape_factor": shape_factor, "fabric_growth_factor": fabric_growth_factor, "garment_category": category_context
         }
-        # E. XỬ LÝ GOM NHÓM VÀ LỌC TRÙNG BẢNG BOM CHỐNG CỘNG DỒN ĐA MÀU SẮC LỊCH SỬ
+
+        # E. VÁ TRIỆT ĐỂ LỖI ĐÈ BIẾN CUỘN LẶP: Đồng bộ dữ liệu sạch trực tiếp từ bộ nhớ Session State của bạn
         from collections import defaultdict
         bom_grouped_lists = defaultdict(list)
-        active_bom = bom_records if bom_records else [{"Phân loại vật tư (Type)": "MAIN FABRIC", "Định mức (DM)": 1.50}]
         
-        for rec in active_bom:
+        # Gọi an toàn mảng dữ liệu BOM từ bộ nhớ phiên làm việc của Streamlit
+        active_bom_source = st.session_state.get("bom_records", [])
+        
+        for rec in active_bom_source:
+            # Bẫy lỗi cột có khoảng trắng dư lẫn cột chuẩn của database để trích xuất sạch sẽ 100% dữ liệu
             raw_type = rec.get("Phân loại vật tư (Type )") or rec.get("Phân loại vật tư (Type)") or rec.get("material_type") or ""
             raw_type = str(raw_type).strip().upper()
+            
             raw_qty = rec.get("Định mức (DM)", rec.get("Định mức cũ (DM)", rec.get("consumption", 0.0)))
             try:
                 qty_f = float(raw_qty) if raw_qty is not None else 0.0
-                if qty_f > 0 and raw_type != "": bom_grouped_lists[raw_type].append(qty_f)
+                if qty_f > 0 and raw_type != "": 
+                    bom_grouped_lists[raw_type].append(qty_f)
             except Exception: pass
 
         cleaned_bom_engine = {}
         for mat_type, qty_list in bom_grouped_lists.items():
-            if qty_list: cleaned_bom_engine[mat_type] = max(qty_list)
+            if qty_list: cleaned_bom_engine[mat_type] = max(qty_list) # Lấy giá trị định mức đơn lẻ lớn nhất chống cộng dồn
 
-                # =========================================================================================
-        # ĐOẠN 5 - PHẦN 2 - KHỐI 2: VÁ LỖI ĐỒNG BỘ CHỮ HOA/THƯỜNG ĐỂ HIỆN BẢNG ĐỊNH MỨC AI LẬP TỨC
-        # =========================================================================================
+        # F. QUY HOẠCH TỪ ĐIỂN PHÂN CHỦNG LOẠI VẬT TƯ (ÉP HOA TOÀN DIỆN SO KHỚP TỪ KHÓA)
         MAIN_FABRIC_KEYS = ["MAIN", "SELF", "BODY", "SHELL", "OUTER", "FABRIC"]
         SECONDARY_FABRIC_KEYS = ["LINING", "POCKET", "POCKETING", "MESH", "CONTRAST", "RIB", "INTERLINING", "FUSING", "TRICOT"]
 
         projection_rows = []
         pom_display = round(shape_factor, 1)
 
-        # Chạy vòng lặp lập ma trận dự phóng lũy tiến nhân hai chiều tăng/giảm thực tế
+        # Chạy vòng lặp tính toán dự phóng ma trận định mức mới
         for ctype, old_qty_f in cleaned_bom_engine.items():
-            # [ÉP HOA TUYỆT ĐỐI]: Đảm bảo chuỗi luôn viết hoa 100% trước khi so khớp từ khóa
             ctype_upper = str(ctype).strip().upper()
             
             is_main_fabric = any(k in ctype_upper for k in MAIN_FABRIC_KEYS)
             is_secondary_fabric = any(k in ctype_upper for k in SECONDARY_FABRIC_KEYS)
             
-            # [LUỒNG XỬ LÝ 1]: VẢI CHÍNH THÂN SẢN PHẨM (MAIN FABRIC, MAIN, SELF FABRIC...)
+            # [LUỒNG VẢI CHÍNH THÂN]: Co giãn hai chiều linh hoạt, nhân lũy tiến hao hụt sơ đồ marker
             if is_main_fabric and not any(sub_k in ctype_upper for sub_k in ["POCKET", "POCKETING", "INTERLINING", "FUSING"]):
                 main_increase_pct = shape_factor * fabric_growth_factor
                 projected_dm = old_qty_f * (1 + main_increase_pct / 100) * (1 + wastage_buffer / 100)
                 note = f"Vải chính: Hệ số rập phân tầng Hierarchy ({method_used}: {pom_display}%) × Hệ số vải ({fabric_growth_factor}) → ĐM điều chỉnh: {main_increase_pct:.2f}%"
             
-            # [LUỒNG XỬ LÝ 2]: VẢI PHỤ / VẢI LÓT TÚI / KEO FUSING (POCKETING FABRIC, INTERLINING...)
+            # [LUỒNG VẢI PHỤ / LÓT TÚI / KEO]: Co giãn hai chiều theo hệ số giảm chấn tĩnh 0.4 an toàn chi phí
             elif is_secondary_fabric or any(sub_k in ctype_upper for sub_k in ["POCKET", "POCKETING", "INTERLINING", "FUSING"]):
                 main_increase_pct = shape_factor * fabric_growth_factor
                 sub_increase_pct = 0.4 * main_increase_pct
                 projected_dm = old_qty_f * (1 + sub_increase_pct / 100) * (1 + wastage_buffer / 100)
                 note = f"Vải phụ: Giảm chấn (0.4) × Mức tăng vải chính → ĐM điều chỉnh: {sub_increase_pct:.2f}%"
             
-            # [LUỒNG PHỤ LIỆU TĨNH]: CHỈ TÍNH LŨY TIẾN HAO HỤT SẢN XUẤT MARKER
+            # [LUỒNG PHỤ LIỆU TĨNH]: KHÔNG BIẾN ĐỘNG THEO PHOM, CHỈ TÍNH LŨY TIẾN HAO HỤT SẢN XUẤT MARKER
             else:
                 projected_dm = old_qty_f * (1 + wastage_buffer / 100)
                 note = f"Phụ liệu tĩnh (Chỉ tính lũy tiến hao hụt sản xuất {wastage_buffer}%)"
@@ -2301,6 +2297,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         df_projection = pd.DataFrame(projection_rows)
         st.session_state["ai_projected_consumption_matrix"] = projection_rows
         st.dataframe(df_projection, use_container_width=True, hide_index=True)
+
 
 
 
