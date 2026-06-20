@@ -2001,7 +2001,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     st.session_state["main_fabric_records"] = main_fabric_records
     st.session_state["bom_summary_engine"] = bom_summary_engine
 
-        # --- BẢNG SO SÁNH SAI LỆCH THÔNG SỐ RẬP ---
+       # --- BẢNG SO SÁNH SAI LỆCH THÔNG SỐ RẬP ---
     st.markdown("<br>### 📐 BẢNG SO SÁNH SAI LỆCH THÔNG SỐ KỸ THUẬT RẬP MẪU", unsafe_allow_html=True)
     new_specs = new_style_measurements_dict if new_style_measurements_dict else {}
     old_specs = matched_techpack.get("DetailedMeasurements", {}) if matched_techpack else {}
@@ -2132,7 +2132,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             try: return float(v)
             except (ValueError, TypeError):
                 nums = re.findall(r"[-+]?\d*\.\d+|\d+", str(v))
-                return float(nums[0]) if nums else None
+                return float(nums) if nums else None
 
         def calculate_advanced_cost(new_key, old_key, val_new, val_old, new_idx, old_idx):
             n_clean = clean_pom_text(new_key)
