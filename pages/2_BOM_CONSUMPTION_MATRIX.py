@@ -2159,7 +2159,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
 
 
 
-          # --- AI CONSUMPTION PROJECTION ENGINE ---
+           # --- AI CONSUMPTION PROJECTION ENGINE ---
     if matched_techpack and bom_records:
         st.markdown("<br>🔮 **AI CONSUMPTION PROJECTION ENGINE (DỰ PHÓNG ĐỊNH MỨC MÃ MỚI)**", unsafe_allow_html=True)
         st.success("✅ **XÁC THỰC AI VISION:** Cấu trúc phác thảo thiết kế tương thích cao.")
@@ -2172,7 +2172,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         elif "SHIRT" in category_context or "POLO" in category_context: default_growth = 0.55
         else: default_growth = 0.45
 
-        # 2. VÁ LỖI TRÍCH XUẤT ĐỘ TIN CẬY POM MATCH TỪ TRƯỜNG "SCORE" MỚI
+        # 2. TRÍCH XUẤT ĐỘ TIN CẬY POM MATCH TỪ TRƯỜNG "SCORE"
         valid_scores = []
         if 'compare_rows' in locals() and compare_rows:
             for r in compare_rows:
@@ -2204,16 +2204,20 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         with col3:
             wastage_buffer = st.number_input("Hao hụt sản xuất cấu hình thêm (%)", value=0.00, step=0.5)
 
-        # 6. VÁ LỖI CỘNG DỒN: Đã đồng bộ chính xác từ khóa "Định mức (DM)" khớp 100% với Database của bạn
+        # 6. VÁ LỖI CỘNG DỒN VÀ QUÉT TÊN CỘT "Phân loại vật tư (Type )" CÓ KHOẢNG TRẮNG DƯ
         from collections import defaultdict
         bom_grouped_lists = defaultdict(list)
+        
         for rec in bom_records:
-            raw_type = str(rec.get("Phân loại vật tư (Type)", rec.get("material_type", ""))).strip().upper()
-            # BẪY TÊN CỘT: Quét chính xác cột "Định mức (DM)" như hình ảnh thực tế bạn gửi
+            # BẪY TÊN CỘT: Quét cả cột có khoảng trắng dư lẫn cột chuẩn của database để tránh lỗi trống dữ liệu
+            raw_type = rec.get("Phân loại vật tư (Type )") or rec.get("Phân loại vật tư (Type)") or rec.get("material_type") or ""
+            raw_type = str(raw_type).strip().upper()
+            
             raw_qty = rec.get("Định mức (DM)", rec.get("Định mức cũ (DM)", rec.get("consumption", 0.0)))
             try:
                 qty_f = float(raw_qty) if raw_qty is not None else 0.0
-                if qty_f > 0: bom_grouped_lists[raw_type].append(qty_f)
+                if qty_f > 0 and raw_type != "": 
+                    bom_grouped_lists[raw_type].append(qty_f)
             except Exception: pass
 
         cleaned_bom_engine = {}
@@ -2227,14 +2231,14 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         projection_rows = []
         pom_display = round(shape_factor, 1)
 
-        # Vòng lặp tính toán chuyển sang quét trên cleaned_bom_engine đã dọn sạch lỗi cộng dồn
+        # Vòng lặp tính toán định mức
         for ctype, old_qty_f in cleaned_bom_engine.items():
             ctype_upper = str(ctype).strip().upper()
             
             is_main_fabric = any(k in ctype_upper for k in MAIN_FABRIC_KEYS)
             is_secondary_fabric = any(k in ctype_upper for k in SECONDARY_FABRIC_KEYS)
             
-            # [LUỒNG XỬ LÝ 1]: VẢI CHÍNH THÂN SẢN PHẨM (Nhân lũy tiến hao hụt sản xuất)
+            # [LUỒNG XỬ LÝ 1]: VẢI CHÍNH THÂN SẢN PHẨM (Nhân lũy tiến hao hụt)
             if is_main_fabric:
                 main_increase_pct = shape_factor * fabric_growth_factor
                 projected_dm = old_qty_f * (1 + main_increase_pct / 100) * (1 + wastage_buffer / 100)
@@ -2262,6 +2266,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         df_projection = pd.DataFrame(projection_rows)
         st.session_state["ai_projected_consumption_matrix"] = projection_rows
         st.dataframe(df_projection, use_container_width=True, hide_index=True)
+
 
 
 import json
