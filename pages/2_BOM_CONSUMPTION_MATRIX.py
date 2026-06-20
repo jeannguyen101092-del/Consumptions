@@ -1453,39 +1453,57 @@ headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if 'SB_KEY' in
 # =========================================================================================
 
 if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption Matrix":
-    import json, re, requests
+    import json, re, requests, hashlib
     import streamlit as st
     try:
         from google.genai import types
     except ImportError:
         types = globals().get("types", None)
 
-    st.markdown('<div class="component-title-box">🧵 INTELLIGENT BOM & CONSUMPTION MATRIX ENGINE</div>', unsafe_allow_html=True)
+    st.markdown('<div class="component-title-box">🧵 INTELLIGENT BOM & MATRIX</div>', unsafe_allow_html=True)
     
     if "matched_techpack" not in st.session_state: st.session_state["matched_techpack"] = None
     if "bom_records" not in st.session_state: st.session_state["bom_records"] = []
     if "consumption_chat_history" not in st.session_state: st.session_state["consumption_chat_history"] = []
     if "previous_uploaded_file_name" not in st.session_state: st.session_state["previous_uploaded_file_name"] = None
+    if "current_file_hash" not in st.session_state: st.session_state["current_file_hash"] = None
     if "match_confidence_score" not in st.session_state: st.session_state["match_confidence_score"] = 0
     if "match_reason" not in st.session_state: st.session_state["match_reason"] = ""
     if "detected_garment_type" not in st.session_state: st.session_state["detected_garment_type"] = "UNKNOWN"
+    if "pdf_raw_text" not in st.session_state: st.session_state["pdf_raw_text"] = ""
 
     control_col1, control_col2 = st.columns([3.3, 0.7])
     with control_col1:
         st.markdown("<p style='font-weight:700; font-size:12px; color:#1E293B;'>📁 INGEST NEW STYLE REPRINTS (PDF/IMAGE)</p>", unsafe_allow_html=True)
         uploaded_file = st.file_uploader("Upload Techpack file", type=["pdf", "jpg", "jpeg", "png"], key="bom_matrix_uploader", label_visibility="collapsed")
-        if uploaded_file is not None and uploaded_file.name != st.session_state["previous_uploaded_file_name"]:
+        
+        temp_bytes, new_file_hash = None, None
+        if uploaded_file is not None:
+            try:
+                uploaded_file.seek(0)
+                temp_bytes = uploaded_file.read()
+                new_file_hash = hashlib.md5(temp_bytes).hexdigest()
+                uploaded_file.seek(0)
+            except Exception: pass
+
+        if uploaded_file is not None and new_file_hash != st.session_state["current_file_hash"]:
             st.session_state["matched_techpack"] = None
             st.session_state["bom_records"] = []
             st.session_state["match_confidence_score"] = 0
             st.session_state["match_reason"] = ""
             st.session_state["detected_garment_type"] = "UNKNOWN"
             st.session_state["previous_uploaded_file_name"] = uploaded_file.name
+            st.session_state["current_file_hash"] = new_file_hash
+            st.session_state["visual_description_str"] = ""
+            st.session_state["pdf_raw_text"] = ""
+            globals()["visual_description_str"] = ""
+            if "new_style_sketch_vector" in globals(): globals()["new_style_sketch_vector"] = ""
             st.rerun()
+
             
-    with control_col2:
-        st.markdown("<p style='font-weight:700; font-size:12px; color:#1E293B;'>🧹 RESET CORE</p>", unsafe_allow_html=True)
-        if st.button("🗑️ PURGE CHAT CACHE", key="purge_cache_matrix_btn", use_container_width=True, type="secondary"):
+        with control_col2:
+        st.markdown("<p style='font-weight:700; font-size:12px;'>🧹 RESET</p>", unsafe_allow_html=True)
+        if st.button("🗑️ PURGE", key="purge_cache_matrix_btn", use_container_width=True):
             st.session_state["consumption_chat_history"] = []
             st.session_state["matched_techpack"] = None
             st.session_state["bom_records"] = []
@@ -1493,13 +1511,17 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             st.session_state["match_reason"] = ""
             st.session_state["detected_garment_type"] = "UNKNOWN"
             st.session_state["previous_uploaded_file_name"] = None
-            st.success("♻️ MEMORY PURGED - SẴN SÀNG CHO MÃ HÀNG MỚI")
+            st.session_state["current_file_hash"] = None
+            st.session_state["visual_description_str"] = ""
+            st.session_state["pdf_raw_text"] = ""
+            globals()["visual_description_str"] = ""
+            if "new_style_sketch_vector" in globals(): globals()["new_style_sketch_vector"] = ""
             st.rerun()
 
     st.markdown("---")
     has_file = st.session_state.get("bom_matrix_uploader") is not None or globals().get("has_file", False)
     if not has_file:
-        st.info("👋 Vui lòng tải lên tệp Techpack hồ sơ thiết kế (PDF/Hình ảnh) ở phía trên để hệ thống bắt đầu quét và lập lịch trình đối soát.")
+        st.info("👋 Vui lòng tải lên tệp Techpack hồ sơ thiết kế (PDF/Hình ảnh) ở phía trên.")
         st.stop()
 
     SB_KEY = globals().get("SB_KEY", "")
@@ -1509,7 +1531,6 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     new_style_id_detected = globals().get("new_style_id_detected", "UNKNOWN")
     new_style_base_size = globals().get("new_style_base_size", "N/A")
 
-    # VÁ LỖI CỐ ĐỊNH MIME TYPE: Tự động trích xuất định dạng thực tế từ buffer file tải lên
     detected_mime_type = "image/jpeg"
     target_new_sketch_bytes = globals().get("target_new_sketch_bytes", None)
     if "bom_matrix_uploader" in st.session_state and st.session_state["bom_matrix_uploader"] is not None:
@@ -1519,77 +1540,79 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             file_buffer.seek(0)
             target_new_sketch_bytes = file_buffer.read()
             globals()["target_new_sketch_bytes"] = target_new_sketch_bytes
-        except Exception: 
-            pass
+        except Exception: pass
 
     new_vec = str(st.session_state.get("visual_description_str", "") or globals().get("visual_description_str", "") or globals().get("new_style_sketch_vector", "")).strip().upper()
+    uploaded_file_name = st.session_state.get("previous_uploaded_file_name", "")
+
+    st.info("🛠️ PRODUCTION DIAGNOSTIC ENGINE:")
+    st.write(f"📌 **FILE:** `{uploaded_file_name}` | **HASH:** `{st.session_state['current_file_hash']}`")
+    st.write(f"📏 **SESSION LEN:** `{len(st.session_state.get('visual_description_str', ''))}` | **GLOBAL LEN:** `{len(str(globals().get('new_style_sketch_vector', '')))}`")
+
+    vision_page_index = 0
 
     if st.session_state["matched_techpack"] is None:
+        if ("pdf" in str(detected_mime_type).lower() or uploaded_file_name.lower().endswith(".pdf")) and target_new_sketch_bytes and not st.session_state["pdf_raw_text"]:
+            try:
+                import fitz
+                doc = fitz.open(stream=target_new_sketch_bytes, filetype="pdf")
+                try:
+                    extracted_text = ""
+                    for page in doc: extracted_text += page.get_text()
+                    if len(extracted_text.strip()) > 50: st.session_state["pdf_raw_text"] = extracted_text
+                finally: doc.close()
+            except Exception as pdf_extract_err: st.warning(f"Lỗi cào text: {pdf_extract_err}")
+
         if len(new_vec) < 30 and target_new_sketch_bytes and client and client.models:
             with st.spinner("🔄 Đang quét ảnh tái lập Sketch Vector..."):
                 try:
-                    ocr_prompt = """
-                    You are an expert apparel techpack analyzer. This document may be a multi-page PDF containing Cover pages, BOM tables, and Measurement charts.
-                    
-                    CRITICAL TASK: First, scan through all pages to locate the primary 'FLAT SKETCH' or 'TECHNICAL DRAWING' page. Ignore textual BOM or size chart grids.
-                    
-                    Once located, extract:
-                    1. Garment Type (Must strictly classify as one of these: PANT, SHORT, JACKET, SHIRT, DRESS, SKIRT, VEST, HOODIE, T-SHIRT)
-                    2. Structural Features (Focus on visual construction details: waistband, pockets, seams, closure fly, cuffs, collar shape)
-
-                    Return format exactly like this:
-
-                    GARMENT_TYPE: PANT
-
-                    FEATURES:
-                    ELASTIC WAISTBAND
-                    ZIPPER FLY
-                    SIDE POCKET
-                    """
-                    
-                    # Truyền chính xác định dạng mime_type động (ví dụ application/pdf) vào đối tượng cấu trúc API
-                    if types and hasattr(types, "Part"):
-                        ocr_contents = [
-                            types.Part.from_text(text=ocr_prompt), 
-                            types.Part.from_bytes(data=target_new_sketch_bytes, mime_type=detected_mime_type)
-                        ]
+                    ocr_prompt = "Extract apparel construction. Return format strictly: GARMENT_TYPE: PANT\nFEATURES:\nZIP FLY"
+                    if "pdf" in str(detected_mime_type).lower() or uploaded_file_name.lower().endswith(".pdf"):
+                        import fitz
+                        doc = fitz.open(stream=target_new_sketch_bytes, filetype="pdf")
+                        try:
+                            vision_page_index = 0
+                            page = doc[vision_page_index]
+                            pix = page.get_pixmap(dpi=150)
+                            gemini_ready_bytes = pix.tobytes("jpeg")
+                            gemini_mime = "image/jpeg"
+                        finally: doc.close()
                     else:
-                        ocr_contents = [
-                            ocr_prompt, 
-                            {"mime_type": detected_mime_type, "data": target_new_sketch_bytes}
-                        ]
+                        gemini_ready_bytes = target_new_sketch_bytes
+                        gemini_mime = detected_mime_type
+
+                    st.image(gemini_ready_bytes, caption=f"🖼️ [DEBUG] PAGE SENT TO GEMINI", use_container_width=True)
+
+                    if types and hasattr(types, "Part"):
+                        ocr_contents = [types.Part.from_text(text=ocr_prompt), types.Part.from_bytes(data=gemini_ready_bytes, mime_type=gemini_mime)]
+                    else:
+                        ocr_contents = [ocr_prompt, {"mime_type": gemini_mime, "data": gemini_ready_bytes}]
                         
                     ocr_res = client.models.generate_content(model='gemini-2.5-flash', contents=ocr_contents)
                     if ocr_res and ocr_res.text:
                         new_vec = str(ocr_res.text).strip().upper()
                         st.session_state["visual_description_str"] = new_vec
-                        
-                        type_match = re.search(r"GARMENT[\s_-]*TYPE\s*[:=]\s*([A-Z_\-]+)", new_vec, re.IGNORECASE)
-                        if type_match:
-                            st.session_state["detected_garment_type"] = type_match.group(1).strip().upper()
-                        else:
-                            keywords_fallback = ["PANT", "SHORT", "JACKET", "SHIRT", "DRESS", "SKIRT", "VEST", "HOODIE", "T-SHIRT"]
-                            found_type = "UNKNOWN"
-                            for tk in keywords_fallback:
-                                if tk in new_vec:
-                                    found_type = tk
-                                    break
-                            st.session_state["detected_garment_type"] = found_type
-                except Exception: 
-                    pass
+                        st.text_area("📄 [DEBUG] RAW GEMINI OUTPUT", value=ocr_res.text, height=250)
+                except Exception as gemini_err: st.error(f"🚨 Gemini Error: {gemini_err}")
 
-        with st.expander("🛠️ DEBUG: DỮ LIỆU THÔ VÀ TRẠNG THÁI PHÂN LOẠI VISION", expanded=False):
-            st.write(f"**MIME Type nhận diện:** `{detected_mime_type}`")
-            st.write(f"**Garment Type trích xuất:** `{st.session_state['detected_garment_type']}`")
-            st.write("**Nội dung văn bản gốc trả về từ Gemini:**")
+            if len(new_vec) >= 10:
+                type_match = re.search(r"GARMENT[\s_-]*TYPE\s*[:=]\s*([A-Z_\-]+)", new_vec, re.IGNORECASE)
+                if type_match: st.session_state["detected_garment_type"] = type_match.group(1).strip().upper()
+                else:
+                    keywords_fallback = ["PANT", "SHORT", "JACKET", "SHIRT", "DRESS", "SKIRT", "VEST", "HOODIE", "T-SHIRT"]
+                    found_type = "UNKNOWN"
+                    for tk in keywords_fallback:
+                        if tk in new_vec: found_type = tk; break
+                    st.session_state["detected_garment_type"] = found_type
+
+        with st.expander("🛠️ DEBUG: TRẠNG THÁI PHÂN LOẠI VISION CUỐI CÙNG", expanded=False):
+            st.write(f"**Garment Type:** `{st.session_state['detected_garment_type']}`")
             st.code(new_vec)
 
         if len(new_vec) < 10:
-            st.error("🚨 Không nhận diện được cấu trúc tệp Techpack tải lên. Vui lòng kiểm tra lại độ nét hoặc file lỗi.")
+            st.error("🚨 Không nhận diện được cấu trúc tệp Techpack tải lên.")
             st.stop()
-            
-        if st.session_state["detected_garment_type"] == "UNKNOWN":
-            st.warning("⚠️ Không tự động bóc tách được phân loại đồ cụ thể. Hệ thống tự động chuyển sang chế độ đối soát mở rộng.")
+
         # =========================================================================================
         # ĐOẠN 4 - PHẦN 2: KHỐI SO SÁNH TRỰC QUAN VLM tham chiếu DỮ LIỆU LỊCH SỬ KHO HÀNG (HOÀN CHỈNH)
         # =========================================================================================
