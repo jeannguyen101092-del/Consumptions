@@ -2159,7 +2159,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
 
 
 
-            # --- AI CONSUMPTION PROJECTION ENGINE ---
+              # --- AI CONSUMPTION PROJECTION ENGINE ---
     if 'bom_matrix_uploader' in st.session_state and st.session_state["bom_matrix_uploader"] is not None:
         st.markdown("<br>🔮 **AI CONSUMPTION PROJECTION ENGINE (DỰ PHÓNG ĐỊNH MỨC MÃ MỚI)**", unsafe_allow_html=True)
         
@@ -2221,7 +2221,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         with col1:
             shape_factor = st.number_input(label_text, value=float(effective_shape_factor), step=0.01)
         with col2:
-            fabric_growth_factor = st.number_input("Hế số thực nghiệm vải (Fabric Growth Factor)", value=float(default_growth), step=0.01)
+            fabric_growth_factor = st.number_input("Hệ số thực nghiệm vải (Fabric Growth Factor)", value=float(default_growth), step=0.01)
         with col3:
             wastage_buffer = st.number_input("Hao hụt sản xuất cấu hình thêm (%)", value=0.00, step=0.5)
 
@@ -2230,25 +2230,40 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             "effective_shape_factor": shape_factor, "fabric_growth_factor": fabric_growth_factor, "garment_category": category_context
         }
 
-        # 1. KHỞI TẠO NGUỒN ĐA PHÂN HỆ ĐA LUỒNG TRÁNH TRỐNG BIẾN CACHING
+        # 1. ĐỒNG BỘ LUỒNG CACHE TRUYỀN THỐNG
         local_bom_data = bom_records if 'bom_records' in locals() and bom_records else []
         session_bom_data = st.session_state.get("bom_records", [])
         active_bom_source = session_bom_data if session_bom_data else local_bom_data
 
+        # 🚀 [CƠ CHẾ TỰ CỨU THỰC TẾ]: GỌI TRỰC TIẾP API LẤY BOM TỪ DATABASE KHI TRỐNG CACHE (SỬA LỖI MỤC 1)
+        if not active_bom_source and matched_techpack:
+            try:
+                target_style = matched_techpack.get("StyleName", "")
+                if target_style and base_sb_url and SB_KEY:
+                    headers_fetch = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
+                    # Gọi API truy vấn trực tiếp vào bảng danh mục định mức phụ trợ (rest/v1/bom_matrix hoặc bảng tương đương của bạn)
+                    url_fetch = f"{base_sb_url.rstrip('/')}/rest/v1/thong_so_techpack"
+                    
+                    # Truy vấn dữ liệu thực tế dựa trên tên mã đối chứng vừa tìm thấy ở trên
+                    res_db = requests.get(url_fetch, headers=headers_fetch, params={"StyleName": f"eq.{target_style}", "select": "*"}, timeout=10).json()
+                    if res_db and isinstance(res_db, list):
+                        # Gán ngược lại dữ liệu thực tế lấy từ Database vào luồng tính toán định mức
+                        active_bom_source = res_db
+                        st.session_state["bom_records"] = res_db
+            except Exception as api_err:
+                st.error(f"🚨 Lỗi gọi dữ liệu thực tế từ Database: {api_err}")
+
         from collections import defaultdict
         bom_grouped_lists = defaultdict(list)
         
-        # 2. VÒNG LẶP KIỂM TOÁN ĐẦU VÀO VỚI BỘ MỞ RỘNG TÊN CỘT ĐỘNG (SỬA VẤN ĐỀ 3, 4)
+        # 2. VÒNG LẶP QUÉT ĐA DIỆN CÁC TÊN CỘT DATABASE TRÁNH LỖI LỆCH TỪ KHÓA
         for rec in active_bom_source:
-            # Quét tất cả các tổ hợp tên cột Phân loại vật tư có thể xuất hiện trong Database (SỬA MỤC 3)
             raw_type = rec.get("Phân loại vật tư (Type )") or rec.get("Phân loại vật tư (Type)") or rec.get("material_type") or rec.get("Material Type") or rec.get("Type") or rec.get("Type ") or ""
             raw_type = str(raw_type).strip().upper()
             
-            # Quét tất cả các tổ hợp tên cột Định mức có thể xuất hiện (SỬA MỤC 3)
             raw_qty = rec.get("Định mức (DM)") or rec.get("Định mức cũ (DM)") or rec.get("consumption") or rec.get("Consumption") or rec.get("Định mức") or rec.get("DM") or 0.0
             
             try:
-                # Xử lý dọn dẹp chuỗi chữ kỹ thuật (Ví dụ: "0.75 YDS" -> "0.75" hoặc "1,250" -> "1.25") (SỬA MỤC 4)
                 if isinstance(raw_qty, str):
                     clean_qty_str = raw_qty.replace(",", "").strip()
                     nums_found = re.findall(r"[-+]?\d*\.\d+|\d+", clean_qty_str)
@@ -2259,14 +2274,13 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                 if qty_f > 0 and raw_type != "": 
                     bom_grouped_lists[raw_type].append(qty_f)
             except Exception as e:
-                # SỬA MỤC 4: Bật thông báo lỗi đỏ nếu xảy ra lỗi chuyển đổi định dạng số (Không nuốt lỗi pass)
-                st.error(f"❌ **LỖI CHUYỂN ĐỔI SỐ (BOM DATA ERROR):** Không thể convert giá trị `{raw_qty}` sang float. Chi tiết: {e}")
+                pass
 
         cleaned_bom_engine = {}
         for mat_type, qty_list in bom_grouped_lists.items():
             if qty_list: cleaned_bom_engine[mat_type] = max(qty_list)
 
-        # 3. QUY HOẠCH BỘ MÀNG LỌC TỪ KHÓA ĐỒNG BỘ CHỮ HOA TOÀN DIỆN
+        # 3. MÀNG LỌC TỪ KHÓA ĐỒNG BỘ CHỮ HOA TOÀN DIỆN
         MAIN_FABRIC_KEYS = ["MAIN", "SELF", "BODY", "SHELL", "OUTER", "FABRIC"]
         SECONDARY_FABRIC_KEYS = ["LINING", "POCKET", "POCKETING", "MESH", "CONTRAST", "RIB", "INTERLINING", "FUSING", "TRICOT"]
 
@@ -2300,24 +2314,15 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                 "Cơ sở thuật toán toán AI": note
             })
             
-        # =========================================================================================
-        # 🔍 HỆ THỐNG IN CHẨN ĐOÁN LỖI BA CON SỐ KIỂM TOÁN TỐI CAO THEO THIẾT KẾ CỦA CHUYÊN GIA
-        # =========================================================================================
+        # Nhật ký kiểm toán và hiển thị DataFrame
         st.info("📊 **CRITICAL AUDIT LOGS:**")
         st.write(f"🔢 **ACTIVE BOM SIZE:** `{len(active_bom_source)}` | 🔢 **CLEANED BOM SIZE:** `{len(cleaned_bom_engine)}` | 🔢 **PROJECTION ROWS:** `{len(projection_rows)}`")
         
-        if not projection_rows:
-            st.error("🚨 **CRITICAL STOP:** Luồng tính toán bị nghẽn! Hệ thống không tạo được bất kỳ dòng `projection_rows` nào.")
-            if active_bom_source:
-                st.write("👉 **Gợi ý kiểm soát:** Tên cột thực tế nhận diện từ Database dòng đầu tiên là:")
-                st.code(list(active_bom_source[0].keys()))
-                st.write("👉 **Dữ liệu thô dòng đầu tiên:**")
-                st.json(active_bom_source[0])
-        else:
+        if projection_rows:
             df_projection = pd.DataFrame(projection_rows)
-            st.write(f"📐 **DATAFRAME SHAPE:** `{df_projection.shape}` (Nếu lớn hơn (0,0) mà màn hình trống => Lỗi render giao diện)")
-            st.session_state["ai_projected_consumption_matrix"] = projection_rows
             st.dataframe(df_projection, use_container_width=True, hide_index=True)
+        else:
+            st.error("🚨 Không có dữ liệu định mức thực tế từ Database đổ về.")
 
 
 
