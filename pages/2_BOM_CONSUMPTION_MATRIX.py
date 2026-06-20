@@ -2192,7 +2192,6 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         area_growth = float(locals().get("avg_area_growth_pct", globals().get("avg_area_growth_pct", 0.0)))
         pom_growth = float(avg_pom_diff_pct if avg_pom_diff_pct is not None else 0.0)
         
-        # Công thức lai phối hợp cân bằng 50/50, chặn dưới bằng 0 tránh làm giảm ĐM gốc ngoài ý muốn
         base_hybrid_factor = (pom_growth * 0.5) + (area_growth * 0.5)
         effective_shape_factor = round(max(base_hybrid_factor, 0.0), 2)
 
@@ -2205,12 +2204,13 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         with col3:
             wastage_buffer = st.number_input("Hao hụt sản xuất cấu hình thêm (%)", value=0.00, step=0.5)
 
-        # 6. VÁ LỖI CỘNG DỒN ĐA MÀU/ĐA LÔ VẢI: Gom nhóm lọc trùng lấy dữ liệu định mức sạch tối đa
+        # 6. VÁ LỖI CỘNG DỒN: Đã đồng bộ chính xác từ khóa "Định mức (DM)" khớp 100% với Database của bạn
         from collections import defaultdict
         bom_grouped_lists = defaultdict(list)
         for rec in bom_records:
             raw_type = str(rec.get("Phân loại vật tư (Type)", rec.get("material_type", ""))).strip().upper()
-            raw_qty = rec.get("Định mức cũ (DM)", rec.get("consumption", rec.get("Định mức cũ", 0.0)))
+            # BẪY TÊN CỘT: Quét chính xác cột "Định mức (DM)" như hình ảnh thực tế bạn gửi
+            raw_qty = rec.get("Định mức (DM)", rec.get("Định mức cũ (DM)", rec.get("consumption", 0.0)))
             try:
                 qty_f = float(raw_qty) if raw_qty is not None else 0.0
                 if qty_f > 0: bom_grouped_lists[raw_type].append(qty_f)
@@ -2218,7 +2218,8 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
 
         cleaned_bom_engine = {}
         for mat_type, qty_list in bom_grouped_lists.items():
-            if qty_list: cleaned_bom_engine[mat_type] = max(qty_list) # Sử dụng MAX để lấy ĐM chuẩn của 1 vóc đơn lẻ
+            if qty_list: cleaned_bom_engine[mat_type] = max(qty_list)
+
         # 7. QUY HOẠCH TỪ ĐIỂN PHÂN CHỦNG LOẠI VẬT TƯ NGÀNH MAY
         MAIN_FABRIC_KEYS = ["MAIN", "SELF", "BODY", "SHELL", "OUTER"]
         SECONDARY_FABRIC_KEYS = ["LINING", "POCKET", "POCKETING", "MESH", "CONTRAST", "RIB", "INTERLINING", "FUSING", "TRICOT"]
