@@ -1752,13 +1752,28 @@ with img_col1:
     uploaded_file_name = st.session_state.get("previous_uploaded_file_name", "Techpack")
     
     if target_new_sketch_bytes is not None:
-        # VÁ LỖI XỬ LÝ: Nếu tệp đầu vào là PDF, hiển thị hộp thông tin tài liệu thay vì ép render st.image gây lỗi
-        if "pdf" in str(detected_mime_type).lower() or str(uploaded_file_name).lower().endswith(".pdf"):
-            st.info(f"📄 **Tài liệu dạng tệp:** `{uploaded_file_name}`\n\nHệ thống đã nạp toàn bộ cấu trúc dữ liệu PDF vào bộ nhớ mô phỏng rập mẫu.")
-        else:
-            try:
-                st.image(target_new_sketch_bytes, caption=f"Mẫu mới tải lên ({new_style_id_detected})", use_container_width=True)
-            except Exception as e:
+        try:
+            # [DEBUG 1]: Kiểm tra kiểu dữ liệu và dung lượng của tệp được truyền vào biến
+            st.write("TYPE:", type(target_new_sketch_bytes))
+            st.write("SIZE:", len(target_new_sketch_bytes) if target_new_sketch_bytes else 0)
+            
+            # Thử hiển thị trực tiếp dữ liệu hình ảnh
+            st.image(target_new_sketch_bytes, caption=f"Mẫu mới tải lên ({new_style_id_detected})", use_container_width=True)
+        except Exception as e:
+            # Nếu xảy ra lỗi render ảnh và tệp đầu vào xác định là PDF, tiến hành chuyển đổi trang
+            if "pdf" in str(detected_mime_type).lower() or str(uploaded_file_name).lower().endswith(".pdf"):
+                try:
+                    import fitz  # Thư viện PyMuPDF
+                    doc = fitz.open(stream=target_new_sketch_bytes, filetype="pdf")
+                    page = doc.load_page(0)  # Lấy trang đầu tiên của file PDF
+                    pix = page.get_pixmap(dpi=150)
+                    img_png_bytes = pix.tobytes("png")
+                    
+                    st.image(img_png_bytes, caption=f"Hình ảnh quét từ PDF ({new_style_id_detected})", use_container_width=True)
+                except Exception as pdf_err:
+                    # [DEBUG 2]: Chuyển sang thông báo lỗi dạng đỏ hệ thống để bắt chính xác nguyên nhân
+                    st.error(f"PDF Render Error: {pdf_err}")
+            else:
                 st.warning(f"Lỗi hiển thị ảnh mẫu mới: {e}")
     else:
         st.info("ℹ️ Chưa tải lên tệp ảnh Flat Sketch của mẫu mới.")
@@ -1791,6 +1806,7 @@ with img_col2:
         if base_storage_url:
             from urllib.parse import quote
             from concurrent.futures import ThreadPoolExecutor
+            import requests
             
             safe_style_name = quote(target_style_name)
             safe_style_name_lower = quote(target_style_name.lower())
