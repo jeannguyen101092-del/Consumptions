@@ -1991,7 +1991,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     st.session_state["main_fabric_records"] = main_fabric_records
     st.session_state["bom_summary_engine"] = bom_summary_engine
 
-              # --- BẢNG SO SÁNH SAI LỆCH THÔNG SỐ RẬP ---
+                  # --- BẢNG SO SÁNH SAI LỆCH THÔNG SỐ RẬP ---
     st.markdown("<br>### 📐 BẢNG SO SÁNH SAI LỆCH THÔNG SỐ KỸ THUẬT RẬP MẪU", unsafe_allow_html=True)
     new_specs = new_style_measurements_dict if new_style_measurements_dict else {}
     old_specs = matched_techpack.get("DetailedMeasurements", {}) if matched_techpack else {}
@@ -1999,13 +1999,35 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     avg_pom_diff_pct = 0.0
     
     if new_specs or old_specs:
-        from collections import defaultdict
+        import numpy as np
+        import os
+        from scipy.optimize import linear_sum_assignment
         from difflib import SequenceMatcher
         
         compare_rows = []
-        valid_diff_pcts = []
         
-        # 1. TỪ ĐIỂN ALIAS CHUẨN HÓA MỞ RỘNG (VÁ LỖI PHÂN TÁCH BIẾN INSEAM)
+        # A. CẤU HÌNH TRỌNG SỐ TÁC ĐỘNG ĐỊNH MỨC SẢN XUẤT PHI TUYẾN TÍNH
+        POM_WEIGHTS = {
+            "HIP": 3.0, "THIGH": 2.5, "WAIST": 2.0, "WAIST_RELAX": 2.0, "WAIST_STRETCH": 2.0,
+            "INSEAM": 2.0, "OUTSEAM": 2.0, "FRONT_RISE": 1.5, "BACK_RISE": 1.5,
+            "KNEE": 1.0, "LEG_OPENING": 0.5
+        }
+        
+        CORE_POMS = {
+            "WAIST", "WAIST_RELAX", "WAIST_STRETCH", "HIP", "THIGH", 
+            "INSEAM", "OUTSEAM", "FRONT_RISE", "BACK_RISE", "KNEE", "LEG_OPENING"
+        }
+        
+        BODY_ZONE_LOCK = {
+            "WAIST_RELAX": "WAIST_ZONE", "WAIST_STRETCH": "WAIST_ZONE", "WAIST": "WAIST_ZONE",
+            "HIP": "HIP_ZONE", "THIGH": "THIGH_ZONE", "KNEE": "KNEE_ZONE", "LEG_OPENING": "LEG_ZONE",
+            "INSEAM": "INSEAM_ZONE", "OUTSEAM": "OUTSEAM_ZONE", "FRONT_RISE": "RISE_ZONE", "BACK_RISE": "RISE_ZONE"
+        }
+        
+        weighted_impact_sum = 0.0
+        total_impact_weight = 0.0
+
+        # B. KIẾN TRÚC QUẢN TRỊ CƠ SỞ DỮ LIỆU TỪ ĐIỂN MỞ RỘNG TỪ FILE NGOÀI
         POM_ALIAS = {
             "WAIST WIDTH RELAXED": "WAIST_RELAX", "WAIST RELAX": "WAIST_RELAX", "WAISTBAND RELAX": "WAIST_RELAX",
             "WAIST WIDTH STRETCHED": "WAIST_STRETCH", "WAIST STRETCH": "WAIST_STRETCH", "WAISTBAND STRETCH": "WAIST_STRETCH",
@@ -2015,39 +2037,32 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             "BACK CROTCH": "BACK_RISE", "BACK RISE DEPTH": "BACK_RISE", "BACK RISE": "BACK_RISE",
             "SEAT WIDTH": "HIP", "HIP WIDTH": "HIP", "LOW HIP": "HIP", "HIP": "HIP",
             "THIGH WIDTH": "THIGH", "MID THIGH": "THIGH", "THIGH": "THIGH",
-            "KNEE WIDTH": "KNEE", "KNEE": "KNEE", 
-            "INSEAM LENGTH": "INSEAM", "INSEAM": "INSEAM", "OUTSEAM": "OUTSEAM"
+            "KNEE WIDTH": "KNEE", "KNEE": "KNEE", "INSEAM LENGTH": "INSEAM", "INSEAM": "INSEAM", "OUTSEAM": "OUTSEAM"
         }
+        
+        # Tự động nạp động CSDL 300-500 từ khóa nếu file tồn tại ngoài hệ thống
+        alias_file_path = "pom_alias_master.json"
+        if os.path.exists(alias_file_path):
+            try:
+                with open(alias_file_path, "r", encoding="utf-8") as f:
+                    external_alias = json.load(f)
+                    if isinstance(external_alias, dict):
+                        POM_ALIAS.update({str(k).strip().upper(): str(v).strip().upper() for k, v in external_alias.items()})
+            except Exception as read_json_err: pass
 
-        # KHÓA VÙNG CƠ THỂ NHÂN TRẮC HỌC CHÍNH XÁC
-        BODY_ZONE_LOCK = {
-            "WAIST_RELAX": "WAIST_ZONE", "WAIST_STRETCH": "WAIST_ZONE", "WAIST": "WAIST_ZONE",
-            "HIP": "HIP_ZONE", "THIGH": "THIGH_ZONE", "KNEE": "KNEE_ZONE", "LEG_OPENING": "LEG_ZONE",
-            "INSEAM": "INSEAM_ZONE", "OUTSEAM": "OUTSEAM_ZONE", "FRONT_RISE": "RISE_ZONE", "BACK_RISE": "RISE_ZONE"
-        }
-
-        # [VÁ LỖI NÂNG CAO]: Dọn dẹp dứt điểm cả mã số đứng đầu lẫn hậu tố ghi chú đuôi ngoặc kép ""
         def clean_pom_text(text):
             raw = str(text).upper()
-            # Bước A: Xóa bỏ hoàn toàn phần nội dung nằm trong dấu ngoặc kép hoặc dấu ngoặc đơn ở cuối (Ví dụ: "NOT ROLLED UP")
             raw = re.sub(r'["\'].*?["\']|\(.*?\)', '', raw).strip()
-            # Bước B: Cắt dứt điểm tiền tố nhiễu dạng PKT-077, LEG-015 đứng đầu
             raw = re.sub(r'^[A-Z]{3,4}[\s\-_]*\d+[\s\-_:]*', '', raw, flags=re.IGNORECASE).strip()
-            # Bước C: Xóa tiền tố tỷ lệ 1/2, 1/4
             raw = re.sub(r'^1/2\s*|^1/4\s*', '', raw).strip()
             return raw
 
         def get_pom_standard(text):
             cleaned_raw = clean_pom_text(text)
-            
-            # [ƯU TIÊN TUYỆT ĐỐI]: Nếu chuỗi chứa từ khóa INSEAM hoặc OUTSEAM, trả về nhãn vùng ống ngay lập tức, chặn không cho nhảy vào LEG
             if "INSEAM" in cleaned_raw: return "INSEAM"
             if "OUTSEAM" in cleaned_raw: return "OUTSEAM"
-            
-            # Quét các từ đồng nghĩa khác trong từ điển Alias
             for k, v in POM_ALIAS.items():
                 if k == cleaned_raw or k in cleaned_raw: return v
-                    
             fallback_clean = cleaned_raw.replace("WIDTH", "").replace("CIRCUMFERENCE", "").strip()
             return fallback_clean if fallback_clean else cleaned_raw
 
@@ -2058,65 +2073,118 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                 nums = re.findall(r"[-+]?\d*\.\d+|\d+", str(v))
                 return float(nums[0]) if nums else None
 
-        def calculate_technical_score(new_name, old_name):
-            n_clean = clean_pom_text(new_name)
-            o_clean = clean_pom_text(old_name)
-            if ("RELAX" in n_clean and "STRETCH" in o_clean) or ("STRETCH" in n_clean and "RELAX" in o_clean): return 0.0
+        # KHỐI TÍNH TOÁN COST MA TRẬN LÕI KỸ THUẬT
+        def calculate_advanced_cost(new_key, old_key, val_new, val_old, new_idx, old_idx):
+            n_clean = clean_pom_text(new_key)
+            o_clean = clean_pom_text(old_key)
+            
+            std_new = get_pom_standard(new_key)
+            std_old = get_pom_standard(old_key)
+            zone_new = BODY_ZONE_LOCK.get(std_new, "OTHER_ZONE")
+            zone_old = BODY_ZONE_LOCK.get(std_old, "OTHER_ZONE")
+            
+            if zone_new != "OTHER_ZONE" and zone_old != zone_new: return 1000.0
+            if ("RELAX" in n_clean and "STRETCH" in o_clean) or ("STRETCH" in n_clean and "RELAX" in o_clean): return 1000.0
+            
+            critical_tokens = ["FRONT", "BACK", "LEFT", "RIGHT"]
+            for token in critical_tokens:
+                if (token in n_clean and token not in o_clean) or (token in o_clean and token not in n_clean): return 1000.0
             
             base_score = SequenceMatcher(None, n_clean, o_clean).ratio()
             bonus = 0.0
-            for token in ["FRONT", "BACK", "LEFT", "RIGHT", "RELAX", "STRETCH", "INSEAM", "OUTSEAM"]:
+            for token in ["RELAX", "STRETCH", "INSEAM", "OUTSEAM"]:
                 if token in n_clean and token in o_clean: bonus += 0.15
-                elif (token in n_clean and token not in o_clean) or (token not in n_clean and token in o_clean): bonus -= 0.20
-            return max(0.0, min(1.0, base_score + bonus))
+            
+            final_match_score = base_score + bonus
+            if abs(new_idx - old_idx) <= 2: final_match_score += 0.10
+            final_match_score = min(1.0, final_match_score)
+            
+            f_new = clean_float(val_new)
+            f_old = clean_float(val_old)
+            if f_new is not None and f_old is not None and f_old > 0 and f_new > 0:
+                if abs(f_new - f_old) / max(f_old, 1.0) > 2.0: return 1000.0
+            return 1.0 - final_match_score
+        # 🚀 CHUẨN BỊ MẢNG DỮ LIỆU ĐẦU VÀO ĐỂ PHÂN PHỐI 3 GIAI ĐOẠN
+        new_items = list(new_specs.items())
+        old_items = list(old_specs.items())
+        
+        final_matches = {}
+        used_old_indices = set()
+        
+        # 🚀 PHASE 1 & 2: KHỚP CỨNG ALIAS ĐỒNG NGHĨA KỸ THUẬT (CHẶN SÀN TIN CẬY > 0.75)
+        for i, (k_new, v_new) in enumerate(new_items):
+            std_new = get_pom_standard(k_new)
+            zone_new = BODY_ZONE_LOCK.get(std_new, "OTHER_ZONE")
+            if zone_new == "OTHER_ZONE": continue
+            
+            exact_j = None
+            best_hard_score = -1.0
+            
+            for j, (k_old, v_old) in enumerate(old_items):
+                if j in used_old_indices: continue
+                std_old = get_pom_standard(k_old)
+                
+                if std_new == std_old:
+                    test_cost = calculate_advanced_cost(k_new, k_old, v_new, v_old, i, j)
+                    current_score = 1.0 - test_cost
+                    
+                    if current_score >= 0.75:
+                        if current_score > best_hard_score:
+                            best_hard_score = current_score
+                            exact_j = j
+                    
+            if exact_j is not None:
+                final_matches[i] = {
+                    "old_idx": exact_j,
+                    "score": round(best_hard_score, 3),
+                    "level": "Phase 1: Hardcoded Match"
+                }
+                used_old_indices.add(exact_j)
 
-        # Khởi tạo danh sách indexed dữ liệu
-        new_list_indexed = [(k, v, idx) for idx, (k, v) in enumerate(new_specs.items())]
-        old_list_indexed = [(k, v, idx, get_pom_standard(k), BODY_ZONE_LOCK.get(get_pom_standard(k), "OTHER_ZONE")) for idx, (k, v) in enumerate(old_specs.items())]
-        used_old_keys = set()
+        # Trích xuất phần dư mơ hồ còn sót lại chuyển giao cho ma trận Hungarian (Phase 3)
+        rem_new_indices = [i for i in range(len(new_items)) if i not in final_matches]
+        rem_old_indices = [j for j in range(len(old_items)) if j not in used_old_indices]
 
-        for orig_new_name, val_new, new_idx in new_list_indexed:
+        # 🚀 PHASE 3: THỰC THI TOÁN HỌC HUNGARIAN CHO PHẦN CÒN LẠI (STRICT_THRESHOLD = 0.25)
+        if rem_new_indices and rem_old_indices:
+            sub_cost_matrix = np.zeros((len(rem_new_indices), len(rem_old_indices)))
+            
+            for sub_i, idx_new in enumerate(rem_new_indices):
+                k_new, v_new = new_items[idx_new]
+                for sub_j, idx_old in enumerate(rem_old_indices):
+                    k_old, v_old = old_items[idx_old]
+                    sub_cost_matrix[sub_i, sub_j] = calculate_advanced_cost(k_new, k_old, v_new, v_old, idx_new, idx_old)
+            
+            row_ind, col_ind = linear_sum_assignment(sub_cost_matrix)
+            
+            for r, c in zip(row_ind, col_ind):
+                idx_new = rem_new_indices[r]
+                idx_old = rem_old_indices[c]
+                if sub_cost_matrix[r, c] <= 0.25:  # Ngưỡng nghiêm ngặt lọc nhiễu chữ
+                    final_matches[idx_new] = {
+                        "old_idx": idx_old,
+                        "score": round(1.0 - sub_cost_matrix[r, c], 3),
+                        "level": "Phase 3: Hungarian Optimized"
+                    }
+                    used_old_indices.add(idx_old)
+
+        # 4. KẾT XUẤT MÀN HÌNH BẢNG ĐỐI SOÁT ĐA TẦNG ĐỒNG BỘ ĐIỂM SỐ GỐC
+        for i, (orig_new_name, val_new) in enumerate(new_items):
             std_new = get_pom_standard(orig_new_name)
             zone_new = BODY_ZONE_LOCK.get(std_new, "OTHER_ZONE")
             
-            best_old_match = None
-            best_score = -1.0
-            match_level = "None"
-            
-            # LEVEL 1: Khớp tuyệt đối theo nhãn định danh chuẩn hóa sạch đuôi ghi chú
-            for orig_old_name, val_old, old_idx, std_old, zone_old in old_list_indexed:
-                if orig_old_name in used_old_keys: continue
-                if std_old == std_new and zone_old == zone_new:
-                    score = calculate_technical_score(orig_new_name, orig_old_name) + 0.20
-                    if score > best_score:
-                        best_score = score
-                        best_old_match = (orig_old_name, val_old)
-                        match_level = "Level 1: Exact Alias"
-            
-            # LEVEL 2: Khớp mờ bảo vệ ranh giới phân vùng cơ thể
-            if best_score < 0.85:
-                for orig_old_name, val_old, old_idx, std_old, zone_old in old_list_indexed:
-                    if orig_old_name in used_old_keys: continue
-                    if zone_new != "OTHER_ZONE" and zone_old != zone_new: continue
-                    
-                    score = calculate_technical_score(orig_new_name, orig_old_name)
-                    if abs(new_idx - old_idx) <= 2: score += 0.10
-                    
-                    if score > best_score:
-                        best_score = score
-                        best_old_match = (orig_old_name, val_old)
-                        match_level = "Level 2: Fuzzy Zone Match"
-            
-            threshold = 0.85 if zone_new == "OTHER_ZONE" else 0.65 # Hạ ngưỡng chặn biên cơ thể lớn xuống 0.65 để ép Inseam bắt cặp an toàn
-            
-            if best_old_match and best_score >= threshold:
-                orig_old_name, val_old = best_old_match
-                used_old_keys.add(orig_old_name)
-                confidence_display = f"{round(min(1.0, best_score) * 100, 1)}%"
+            if i in final_matches:
+                match_info = final_matches[i]
+                j = match_info["old_idx"]
+                orig_old_name, val_old = old_items[j]
+                score_val = match_info["score"]
+                confidence_display = f"{round(score_val * 100, 1)}%"
+                match_level = match_info["level"]
             else:
                 orig_old_name, val_old = "-", None
                 confidence_display = "Mẫu mới dư"
-                match_level = "Level 3: Surplus"
+                match_level = "Phase 3: Surplus"
+                score_val = 0.0
 
             f_new = clean_float(val_new)
             f_old = clean_float(val_old)
@@ -2126,46 +2194,56 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                 diff_val = round(f_new - f_old, 2)
                 if f_old != 0:
                     diff_pct = round((diff_val / f_old) * 100, 2)
-                    core_kws = ["INSEAM", "THIGH", "HIP", "WAIST", "LEG", "LENGTH", "CHEST", "BUST", "WIDTH", "ARMHOLE", "SLEEVE", "OUTSEAM", "RISE", "CROTCH"]
-                    if any(k in std_new for k in core_kws):
+                    
+                    # CÔNG THỨC TOÁN HỌC PHI TUYẾN TÍNH - CONSUMPTION IMPACT WEIGHTING
+                    if std_new in CORE_POMS:
                         if not any(ig in std_new for ig in ["BADGE", "LABEL", "BUTTON", "TICKET", "LOOP", "STITCH"]):
-                            valid_diff_pcts.append(abs(diff_pct))
+                            pom_weight = POM_WEIGHTS.get(std_new, 1.0)
+                            nonlinear_factor = 1.0 + (abs(diff_pct) / 100.0)
+                            effective_impact = abs(diff_pct) * pom_weight * nonlinear_factor
+                            
+                            weighted_impact_sum += effective_impact
+                            total_impact_weight += (pom_weight * nonlinear_factor)
                 else: diff_pct = 0.0
 
             display_diff = f"+{diff_val}" if diff_val and diff_val > 0 else (str(diff_val) if diff_val is not None else "-")
             display_pct = f"+{diff_pct}%" if diff_pct and diff_pct > 0 else (f"{diff_pct}%" if diff_pct is not None else "-")
             
             compare_rows.append({
-                "Vị trí đo mới (New POM)": orig_new_name,
-                "Matched Old POM": orig_old_name,
-                "Zone": zone_new,
-                "Algorithm Level": match_level,
-                "Score": round(best_score, 3) if orig_old_name != "-" else 0.0,
+                "Vị trí đo mới (New POM)": orig_new_name, "Matched Old POM": orig_old_name,
+                "Zone": zone_new, "Algorithm Level": match_level, "Score": score_val,
                 f"Mẫu mới ({new_style_base_size})": val_new if val_new is not None else "-",
                 f"Mã cũ ({str(st.session_state.get('matched_style_name', 'N/A'))})": val_old if val_old is not None else "-",
-                "Chênh lệch (Diff)": display_diff,
-                "Tỷ lệ biến thiên (Diff %)": display_pct
+                "Chênh lệch (Diff)": display_diff, "Tỷ lệ biến thiên (Diff %)": display_pct
             })
 
-        for orig_old_name, val_old, old_idx, std_old, zone_old in old_list_indexed:
-            if orig_old_name not in used_old_keys:
+        for j, (orig_old_name, val_old) in enumerate(old_items):
+            if j not in used_old_indices:
+                std_old = get_pom_standard(orig_old_name)
                 compare_rows.append({
-                    "Vị trí đo mới (New POM)": "-",
-                    "Matched Old POM": orig_old_name,
-                    "Zone": zone_old,
-                    "Algorithm Level": "Mã cũ dư",
-                    "Score": 0.0,
-                    f"Mẫu mới ({new_style_base_size})": "-",
-                    f"Mã cũ ({str(st.session_state.get('matched_style_name', 'N/A'))})": val_old if val_old is not None else "-",
-                    "Chênh lệch (Diff)": "-",
-                    "Tỷ lệ biến thiên (Diff %)": "-"
+                    "Vị trí đo mới (New POM)": "-", "Matched Old POM": orig_old_name,
+                    "Zone": BODY_ZONE_LOCK.get(std_old, "OTHER_ZONE"), "Algorithm Level": "Mã cũ dư", "Score": 0.0,
+                    f"Mẫu mới ({new_style_base_size})": "-", f"Mã cũ ({str(st.session_state.get('matched_style_name', 'N/A'))})": val_old if val_old is not None else "-",
+                    "Chênh lệch (Diff)": "-", "Tỷ lệ biến thiên (Diff %)": "-"
                 })
             
         df_compare_spec = pd.DataFrame(compare_rows)
         st.dataframe(df_compare_spec, use_container_width=True, hide_index=True)
         
-        if valid_diff_pcts:
-            avg_pom_diff_pct = round(sum(valid_diff_pcts) / len(valid_diff_pcts), 2)
+        # ĐÓNG GÓI SIÊU CHỈ SỐ TOÀN DIỆN VÀO SESSION STATE PHỤC VỤ ENGINE ĐỊNH MỨC PHÍA DƯỚI
+        total_new_poms = len(new_items) if len(new_items) > 0 else 1
+        coverage_ratio = round((len(final_matches) / total_new_poms) * 100, 1)
+        
+        if total_impact_weight > 0.0:
+            avg_pom_diff_pct = round(weighted_impact_sum / total_impact_weight, 2)
+            
+        st.session_state["shape_similarity_metrics"] = {
+            "coverage_ratio": coverage_ratio,
+            "weighted_diff_pct": avg_pom_diff_pct,
+            "matched_poms": len(final_matches),
+            "total_poms": total_new_poms
+        }
+
 
 
 
