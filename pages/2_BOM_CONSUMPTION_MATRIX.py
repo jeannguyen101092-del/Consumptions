@@ -1991,7 +1991,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     st.session_state["main_fabric_records"] = main_fabric_records
     st.session_state["bom_summary_engine"] = bom_summary_engine
 
-            # --- BẢNG SO SÁNH SAI LỆCH THÔNG SỐ RẬP ---
+              # --- BẢNG SO SÁNH SAI LỆCH THÔNG SỐ RẬP ---
     st.markdown("<br>### 📐 BẢNG SO SÁNH SAI LỆCH THÔNG SỐ KỸ THUẬT RẬP MẪU", unsafe_allow_html=True)
     new_specs = new_style_measurements_dict if new_style_measurements_dict else {}
     old_specs = matched_techpack.get("DetailedMeasurements", {}) if matched_techpack else {}
@@ -2005,7 +2005,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         compare_rows = []
         valid_diff_pcts = []
         
-        # 1. TỪ ĐIỂN ALIAS CHUẨN HÓA MỞ RỘNG (Phân hệ rập Quần/Váy)
+        # 1. TỪ ĐIỂN ALIAS CHUẨN HÓA MỞ RỘNG (VÁ LỖI PHÂN TÁCH BIẾN INSEAM)
         POM_ALIAS = {
             "WAIST WIDTH RELAXED": "WAIST_RELAX", "WAIST RELAX": "WAIST_RELAX", "WAISTBAND RELAX": "WAIST_RELAX",
             "WAIST WIDTH STRETCHED": "WAIST_STRETCH", "WAIST STRETCH": "WAIST_STRETCH", "WAISTBAND STRETCH": "WAIST_STRETCH",
@@ -2015,27 +2015,41 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             "BACK CROTCH": "BACK_RISE", "BACK RISE DEPTH": "BACK_RISE", "BACK RISE": "BACK_RISE",
             "SEAT WIDTH": "HIP", "HIP WIDTH": "HIP", "LOW HIP": "HIP", "HIP": "HIP",
             "THIGH WIDTH": "THIGH", "MID THIGH": "THIGH", "THIGH": "THIGH",
-            "KNEE WIDTH": "KNEE", "KNEE": "KNEE", "INSEAM": "INSEAM", "OUTSEAM": "OUTSEAM"
+            "KNEE WIDTH": "KNEE", "KNEE": "KNEE", 
+            "INSEAM LENGTH": "INSEAM", "INSEAM": "INSEAM", "OUTSEAM": "OUTSEAM"
         }
 
-        # KHÓA VÙNG CƠ THỂ TUYỆT ĐỐI
+        # KHÓA VÙNG CƠ THỂ NHÂN TRẮC HỌC CHÍNH XÁC
         BODY_ZONE_LOCK = {
             "WAIST_RELAX": "WAIST_ZONE", "WAIST_STRETCH": "WAIST_ZONE", "WAIST": "WAIST_ZONE",
             "HIP": "HIP_ZONE", "THIGH": "THIGH_ZONE", "KNEE": "KNEE_ZONE", "LEG_OPENING": "LEG_ZONE",
             "INSEAM": "INSEAM_ZONE", "OUTSEAM": "OUTSEAM_ZONE", "FRONT_RISE": "RISE_ZONE", "BACK_RISE": "RISE_ZONE"
         }
 
+        # [VÁ LỖI NÂNG CAO]: Dọn dẹp dứt điểm cả mã số đứng đầu lẫn hậu tố ghi chú đuôi ngoặc kép ""
         def clean_pom_text(text):
-            cleaned = re.sub(r'^[A-Z]{3,4}[\s\-_]*\d+[\s\-_]*', '', str(text), flags=re.IGNORECASE).strip().upper()
-            cleaned = re.sub(r'^1/2\s*|^1/4\s*', '', cleaned).strip()
-            return cleaned
+            raw = str(text).upper()
+            # Bước A: Xóa bỏ hoàn toàn phần nội dung nằm trong dấu ngoặc kép hoặc dấu ngoặc đơn ở cuối (Ví dụ: "NOT ROLLED UP")
+            raw = re.sub(r'["\'].*?["\']|\(.*?\)', '', raw).strip()
+            # Bước B: Cắt dứt điểm tiền tố nhiễu dạng PKT-077, LEG-015 đứng đầu
+            raw = re.sub(r'^[A-Z]{3,4}[\s\-_]*\d+[\s\-_:]*', '', raw, flags=re.IGNORECASE).strip()
+            # Bước C: Xóa tiền tố tỷ lệ 1/2, 1/4
+            raw = re.sub(r'^1/2\s*|^1/4\s*', '', raw).strip()
+            return raw
 
         def get_pom_standard(text):
-            raw = clean_pom_text(text)
+            cleaned_raw = clean_pom_text(text)
+            
+            # [ƯU TIÊN TUYỆT ĐỐI]: Nếu chuỗi chứa từ khóa INSEAM hoặc OUTSEAM, trả về nhãn vùng ống ngay lập tức, chặn không cho nhảy vào LEG
+            if "INSEAM" in cleaned_raw: return "INSEAM"
+            if "OUTSEAM" in cleaned_raw: return "OUTSEAM"
+            
+            # Quét các từ đồng nghĩa khác trong từ điển Alias
             for k, v in POM_ALIAS.items():
-                if k in raw: return v
-            cleaned = raw.replace("WIDTH", "").replace("CIRCUMFERENCE", "").strip()
-            return cleaned if cleaned else raw
+                if k == cleaned_raw or k in cleaned_raw: return v
+                    
+            fallback_clean = cleaned_raw.replace("WIDTH", "").replace("CIRCUMFERENCE", "").strip()
+            return fallback_clean if fallback_clean else cleaned_raw
 
         def clean_float(v):
             if v is None: return None
@@ -2051,12 +2065,12 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             
             base_score = SequenceMatcher(None, n_clean, o_clean).ratio()
             bonus = 0.0
-            for token in ["FRONT", "BACK", "LEFT", "RIGHT", "RELAX", "STRETCH"]:
+            for token in ["FRONT", "BACK", "LEFT", "RIGHT", "RELAX", "STRETCH", "INSEAM", "OUTSEAM"]:
                 if token in n_clean and token in o_clean: bonus += 0.15
                 elif (token in n_clean and token not in o_clean) or (token not in n_clean and token in o_clean): bonus -= 0.20
             return max(0.0, min(1.0, base_score + bonus))
 
-        # Khởi tạo danh sách ứng viên mã cũ kèm vị trí index gốc
+        # Khởi tạo danh sách indexed dữ liệu
         new_list_indexed = [(k, v, idx) for idx, (k, v) in enumerate(new_specs.items())]
         old_list_indexed = [(k, v, idx, get_pom_standard(k), BODY_ZONE_LOCK.get(get_pom_standard(k), "OTHER_ZONE")) for idx, (k, v) in enumerate(old_specs.items())]
         used_old_keys = set()
@@ -2069,34 +2083,31 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             best_score = -1.0
             match_level = "None"
             
-            # 🚀 LEVEL 1: KHỚP ĐẲNG CẤP TUYỆT ĐỐI - EXACT REFERENTIAL ALIAS (Chống lỗi chéo Relax/Stretch)
+            # LEVEL 1: Khớp tuyệt đối theo nhãn định danh chuẩn hóa sạch đuôi ghi chú
             for orig_old_name, val_old, old_idx, std_old, zone_old in old_list_indexed:
                 if orig_old_name in used_old_keys: continue
-                # Trùng cả nhãn chuẩn hóa và vùng zone (ví dụ: cùng là WAIST_RELAX)
                 if std_old == std_new and zone_old == zone_new:
-                    score = calculate_technical_score(orig_new_name, orig_old_name) + 0.20 # Thưởng tầng tuyệt đối
+                    score = calculate_technical_score(orig_new_name, orig_old_name) + 0.20
                     if score > best_score:
                         best_score = score
                         best_old_match = (orig_old_name, val_old)
                         match_level = "Level 1: Exact Alias"
             
-            # 🚀 LEVEL 2: KHỚP VÙNG AN TOÀN (Kích hoạt khi Level 1 trượt do khác biệt đặt tên nhãn)
+            # LEVEL 2: Khớp mờ bảo vệ ranh giới phân vùng cơ thể
             if best_score < 0.85:
                 for orig_old_name, val_old, old_idx, std_old, zone_old in old_list_indexed:
                     if orig_old_name in used_old_keys: continue
-                    # Chặn cứng biên giới vùng: Chỉ cho phép quét tìm trong cùng Zone cơ thể
                     if zone_new != "OTHER_ZONE" and zone_old != zone_new: continue
                     
                     score = calculate_technical_score(orig_new_name, orig_old_name)
-                    if abs(new_idx - old_idx) <= 2: score += 0.10 # Thưởng vị trí tương đồng
+                    if abs(new_idx - old_idx) <= 2: score += 0.10
                     
                     if score > best_score:
                         best_score = score
                         best_old_match = (orig_old_name, val_old)
                         match_level = "Level 2: Fuzzy Zone Match"
             
-            # Thiết lập ngưỡng chặn an toàn động
-            threshold = 0.85 if zone_new == "OTHER_ZONE" else 0.75
+            threshold = 0.85 if zone_new == "OTHER_ZONE" else 0.65 # Hạ ngưỡng chặn biên cơ thể lớn xuống 0.65 để ép Inseam bắt cặp an toàn
             
             if best_old_match and best_score >= threshold:
                 orig_old_name, val_old = best_old_match
@@ -2124,7 +2135,6 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             display_diff = f"+{diff_val}" if diff_val and diff_val > 0 else (str(diff_val) if diff_val is not None else "-")
             display_pct = f"+{diff_pct}%" if diff_pct and diff_pct > 0 else (f"{diff_pct}%" if diff_pct is not None else "-")
             
-            # [NÂNG CẤP BẪY KIỂM TRA CHÍNH XÁC]: Đẩy đủ thông tin đối soát lên bảng để DEV kiểm duyệt lỗi
             compare_rows.append({
                 "Vị trí đo mới (New POM)": orig_new_name,
                 "Matched Old POM": orig_old_name,
