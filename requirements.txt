@@ -14,3 +14,4 @@ pillow
 openpyxl
 google-generativeai
 PyMuPDF
+scipy>=1.10.0
