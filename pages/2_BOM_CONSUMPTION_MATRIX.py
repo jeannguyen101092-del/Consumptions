@@ -1499,7 +1499,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             globals()["visual_description_str"] = ""
             if "new_style_sketch_vector" in globals(): globals()["new_style_sketch_vector"] = ""
             st.rerun()
-    with control_col2:
+        with control_col2:
         st.markdown("<p style='font-weight:700; font-size:12px;'>🧹 RESET</p>", unsafe_allow_html=True)
         if st.button("🗑️ PURGE", key="purge_cache_matrix_btn", use_container_width=True):
             st.session_state["consumption_chat_history"] = []
@@ -1565,11 +1565,21 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             with st.spinner("🔄 Đang quét ảnh tái lập Sketch Vector..."):
                 try:
                     ocr_prompt = "Extract apparel construction. Return format strictly: GARMENT_TYPE: PANT\nFEATURES:\nZIP FLY"
+                    
+                    # 🚀 BỘ QUÉT TỰ ĐỘNG CHỌN TRANG PDF SẠCH ĐÃ ĐƯỢC NHÚNG CHUẨN XÁC VÀO ĐÂY
                     if "pdf" in str(detected_mime_type).lower() or uploaded_file_name.lower().endswith(".pdf"):
                         import fitz
                         doc = fitz.open(stream=target_new_sketch_bytes, filetype="pdf")
                         try:
                             vision_page_index = 0
+                            for page_num in range(min(len(doc), 4)):
+                                page_text = doc[page_num].get_text().upper()
+                                if ("SKETCH" in page_text or "DRAWING" in page_text or "VISUAL" in page_text) and "TABLE OF CONTENTS" not in page_text:
+                                    vision_page_index = page_num
+                                    break
+                            if vision_page_index == 0 and len(doc) > 1:
+                                vision_page_index = 1
+                                
                             page = doc[vision_page_index]
                             pix = page.get_pixmap(dpi=150)
                             gemini_ready_bytes = pix.tobytes("jpeg")
@@ -1579,7 +1589,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                         gemini_ready_bytes = target_new_sketch_bytes
                         gemini_mime = detected_mime_type
 
-                    st.image(gemini_ready_bytes, caption=f"🖼️ [DEBUG] PAGE SENT TO GEMINI", use_container_width=True)
+                    st.image(gemini_ready_bytes, caption=f"🖼️ [DEBUG] PAGE SENT TO GEMINI (Trang số {vision_page_index+1})", use_container_width=True)
 
                     if types and hasattr(types, "Part"):
                         ocr_contents = [types.Part.from_text(text=ocr_prompt), types.Part.from_bytes(data=gemini_ready_bytes, mime_type=gemini_mime)]
@@ -1991,56 +2001,107 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     st.session_state["main_fabric_records"] = main_fabric_records
     st.session_state["bom_summary_engine"] = bom_summary_engine
 
-                  # --- BẢNG SO SÁNH SAI LỆCH THÔNG SỐ RẬP ---
+                 # --- BẢNG SO SÁNH SAI LỆCH THÔNG SỐ RẬP ---
     st.markdown("<br>### 📐 BẢNG SO SÁNH SAI LỆCH THÔNG SỐ KỸ THUẬT RẬP MẪU", unsafe_allow_html=True)
     new_specs = new_style_measurements_dict if new_style_measurements_dict else {}
     old_specs = matched_techpack.get("DetailedMeasurements", {}) if matched_techpack else {}
     
+    # BỨC TƯỜNG LỬA HÌNH THÁI: Tự động đánh sập mã đối chứng nếu bị bắt cặp sai loại sản phẩm (Áo vs Quần)
+    if matched_techpack and new_specs and old_specs:
+        new_keys_str = "".join([str(k).upper() for k in new_specs.keys()])
+        old_keys_str = "".join([str(k).upper() for k in old_specs.keys()])
+        
+        is_new_upper = any(k in new_keys_str for k in ["CHEST", "BUST", "COLLAR", "PLACKET", "NECK", "ARMHOLE"])
+        is_old_lower = any(k in old_keys_str for k in ["INSEAM", "BACK RISE", "FRONT RISE", "THIGH WIDTH", "CROTCH"])
+        is_new_lower = any(k in new_keys_str for k in ["INSEAM", "BACK RISE", "THIGH"])
+        is_old_upper = any(k in old_keys_str for k in ["CHEST", "BUST", "COLLAR"])
+
+        if (is_new_upper and is_old_lower) or (is_new_lower and is_old_upper):
+            st.session_state["matched_techpack"] = None
+            matched_techpack = None
+            old_specs = {}
+            st.error("🚨 **GARMENT LINE FIREWALL:** Phát hiện lỗi bắt cặp sai chủng loại (Áo đối soát với Quần). Hệ thống tự động chuyển sang chế độ Dự Phòng Hình Học độc lập!")
+            st.rerun()
+
     avg_pom_diff_pct = 0.0
     
     if new_specs or old_specs:
         import numpy as np
         import os
-        from scipy.optimize import linear_sum_assignment
         from difflib import SequenceMatcher
         
         compare_rows = []
+        category_context = str(st.session_state.get("detected_garment_type", globals().get("new_style_category", "PANT"))).upper()
         
-        # A. CẤU HÌNH TRỌNG SỐ TÁC ĐỘNG ĐỊNH MỨC SẢN XUẤT PHI TUYẾN TÍNH
-        POM_WEIGHTS = {
-            "HIP": 3.0, "THIGH": 2.5, "WAIST": 2.0, "WAIST_RELAX": 2.0, "WAIST_STRETCH": 2.0,
-            "INSEAM": 2.0, "OUTSEAM": 2.0, "FRONT_RISE": 1.5, "BACK_RISE": 1.5,
-            "KNEE": 1.0, "LEG_OPENING": 0.5
-        }
-        
-        CORE_POMS = {
-            "WAIST", "WAIST_RELAX", "WAIST_STRETCH", "HIP", "THIGH", 
-            "INSEAM", "OUTSEAM", "FRONT_RISE", "BACK_RISE", "KNEE", "LEG_OPENING"
-        }
-        
-        BODY_ZONE_LOCK = {
-            "WAIST_RELAX": "WAIST_ZONE", "WAIST_STRETCH": "WAIST_ZONE", "WAIST": "WAIST_ZONE",
-            "HIP": "HIP_ZONE", "THIGH": "THIGH_ZONE", "KNEE": "KNEE_ZONE", "LEG_OPENING": "LEG_ZONE",
-            "INSEAM": "INSEAM_ZONE", "OUTSEAM": "OUTSEAM_ZONE", "FRONT_RISE": "RISE_ZONE", "BACK_RISE": "RISE_ZONE"
-        }
-        
+        POM_WEIGHTS = {}
+        CORE_POMS = set()
+        BODY_ZONE_LOCK = {}
         weighted_impact_sum = 0.0
         total_impact_weight = 0.0
 
-        # B. KIẾN TRÚC QUẢN TRỊ CƠ SỞ DỮ LIỆU TỪ ĐIỂN MỞ RỘNG TỪ FILE NGOÀI
+        # 🧵 PHÂN HỆ A: QUẦN / SHORT / JOGGER / CARGO (Thân dưới)
+        if any(cat in category_context for cat in ["PANT", "SHORT", "TROUSER", "CARGO", "JOGGER"]):
+            POM_WEIGHTS = {
+                "HIP": 3.0, "THIGH": 2.5, "WAIST": 2.0, "WAIST_RELAX": 2.0, "WAIST_STRETCH": 2.0,
+                "INSEAM": 2.5, "OUTSEAM": 2.5, "FRONT_RISE": 1.5, "BACK_RISE": 1.5, "KNEE": 1.0, "LEG_OPENING": 0.5
+            }
+            CORE_POMS = {"WAIST", "WAIST_RELAX", "WAIST_STRETCH", "HIP", "THIGH", "INSEAM", "OUTSEAM", "FRONT_RISE", "BACK_RISE", "KNEE", "LEG_OPENING"}
+            BODY_ZONE_LOCK = {
+                "WAIST_RELAX": "BOTTOM_WAIST_ZONE", "WAIST_STRETCH": "BOTTOM_WAIST_ZONE", "WAIST": "BOTTOM_WAIST_ZONE",
+                "HIP": "HIP_ZONE", "THIGH": "THIGH_ZONE", "KNEE": "KNEE_ZONE", "LEG_OPENING": "LEG_ZONE",
+                "INSEAM": "INSEAM_ZONE", "OUTSEAM": "OUTSEAM_ZONE", "FRONT_RISE": "RISE_ZONE", "BACK_RISE": "RISE_ZONE"
+            }
+            
+        # 🧵 PHÂN HỆ B: ÁO SƠ MI / T-SHIRT / POLO / HOODIE (Thân trên)
+        elif any(cat in category_context for cat in ["SHIRT", "TEE", "POLO", "HOODIE", "TOP"]):
+            POM_WEIGHTS = {
+                "CHEST": 3.0, "BUST": 3.0, "BODY_LENGTH": 2.5, "SLEEVE_LENGTH": 2.0, 
+                "ARMHOLE": 1.5, "SHOULDER": 1.5, "NECK": 1.0, "COLLAR": 1.0, "CUFF": 0.5
+            }
+            CORE_POMS = {"CHEST", "BUST", "BODY_LENGTH", "SLEEVE_LENGTH", "ARMHOLE", "SHOULDER", "NECK", "COLLAR", "CUFF"}
+            BODY_ZONE_LOCK = {
+                "CHEST": "TORSO_ZONE", "BUST": "TORSO_ZONE", "BODY_LENGTH": "LENGTH_ZONE", 
+                "SLEEVE_LENGTH": "SLEEVE_ZONE", "ARMHOLE": "ARMHOLE_ZONE", "SHOULDER": "SHOULDER_ZONE",
+                "NECK": "COLLAR_ZONE", "COLLAR": "COLLAR_ZONE", "CUFF": "SLEEVE_ZONE"
+            }
+            
+        # 🧵 PHÂN HỆ C: ÁO JACKET / OUTERWEAR / COAT (Áo khoác tốn định mức vải)
+        elif any(cat in category_context for cat in ["JACKET", "OUTERWEAR", "COAT", "BLAZER"]):
+            POM_WEIGHTS = {
+                "CHEST": 3.0, "BODY_LENGTH": 3.0, "SLEEVE_LENGTH": 2.5, "ARMHOLE": 2.0, 
+                "SHOULDER": 1.5, "WAIST_JACKET": 1.5, "BOTTOM_HEM": 1.5, "PLACKET_LENGTH": 1.5, "HOOD_SIZE": 1.0
+            }
+            CORE_POMS = {"CHEST", "BODY_LENGTH", "SLEEVE_LENGTH", "ARMHOLE", "SHOULDER", "WAIST_JACKET", "BOTTOM_HEM", "PLACKET_LENGTH", "HOOD_SIZE"}
+            BODY_ZONE_LOCK = {
+                "CHEST": "TORSO_ZONE", "BODY_LENGTH": "LENGTH_ZONE", "SLEEVE_LENGTH": "SLEEVE_ZONE",
+                "ARMHOLE": "ARMHOLE_ZONE", "SHOULDER": "SHOULDER_ZONE", "WAIST_JACKET": "TORSO_ZONE",
+                "BOTTOM_HEM": "HEM_ZONE", "PLACKET_LENGTH": "PLACKET_ZONE", "HOOD_SIZE": "HOOD_ZONE"
+            }
+            
+        # 🧵 PHÂN HỆ D: VÁY / CHÂN VÁY (DRESS / SKIRT)
+        else:
+            POM_WEIGHTS = {
+                "TOTAL_LENGTH": 3.0, "BUST": 2.5, "WAIST": 2.5, "HIP": 2.5, 
+                "SKIRT_SWEEP": 3.5, "BOTTOM_HEM": 1.5, "STRAP_LENGTH": 0.5
+            }
+            CORE_POMS = {"TOTAL_LENGTH", "BUST", "WAIST", "HIP", "SKIRT_SWEEP", "BOTTOM_HEM", "STRAP_LENGTH"}
+            BODY_ZONE_LOCK = {
+                "TOTAL_LENGTH": "LENGTH_ZONE", "BUST": "TORSO_ZONE", "WAIST": "DRESS_WAIST_ZONE",
+                "HIP": "DRESS_HIP_ZONE", "SKIRT_SWEEP": "SWEEP_ZONE", "BOTTOM_HEM": "HEM_ZONE", "STRAP_LENGTH": "SHOULDER_ZONE"
+            }
+
+        # MASTER ALIAS DICTIONARY (Chuẩn hóa cho cả Áo, Quần, Váy)
         POM_ALIAS = {
-            "WAIST WIDTH RELAXED": "WAIST_RELAX", "WAIST RELAX": "WAIST_RELAX", "WAISTBAND RELAX": "WAIST_RELAX",
-            "WAIST WIDTH STRETCHED": "WAIST_STRETCH", "WAIST STRETCH": "WAIST_STRETCH", "WAISTBAND STRETCH": "WAIST_STRETCH",
-            "WAIST CIRCUMFERENCE": "WAIST", "TOP WAIST": "WAIST", "WAISTBAND WIDTH": "WAIST", "WAIST WIDTH": "WAIST",
-            "BOTTOM OPENING": "LEG_OPENING", "LEG OPENING WIDTH": "LEG_OPENING", "HEM OPENING": "LEG_OPENING", "LEG OPENING": "LEG_OPENING",
-            "FRONT CROTCH": "FRONT_RISE", "FRONT RISE DEPTH": "FRONT_RISE", "FRONT RISE": "FRONT_RISE",
-            "BACK CROTCH": "BACK_RISE", "BACK RISE DEPTH": "BACK_RISE", "BACK RISE": "BACK_RISE",
-            "SEAT WIDTH": "HIP", "HIP WIDTH": "HIP", "LOW HIP": "HIP", "HIP": "HIP",
-            "THIGH WIDTH": "THIGH", "MID THIGH": "THIGH", "THIGH": "THIGH",
-            "KNEE WIDTH": "KNEE", "KNEE": "KNEE", "INSEAM LENGTH": "INSEAM", "INSEAM": "INSEAM", "OUTSEAM": "OUTSEAM"
+            "WAIST WIDTH RELAXED": "WAIST_RELAX", "WAIST RELAX": "WAIST_RELAX", "WAIST WIDTH STRETCHED": "WAIST_STRETCH",
+            "BOTTOM OPENING": "LEG_OPENING", "LEG OPENING WIDTH": "LEG_OPENING", "HEM OPENING": "LEG_OPENING",
+            "FRONT CROTCH": "FRONT_RISE", "BACK CROTCH": "BACK_RISE", "SEAT WIDTH": "HIP", "HIP WIDTH": "HIP",
+            "CHEST WIDTH": "CHEST", "HALF CHEST": "CHEST", "BUST WIDTH": "BUST", "HALF BUST": "BUST",
+            "BODY LENGTH HPS": "BODY_LENGTH", "CENTER BACK LENGTH": "BODY_LENGTH", "CBL": "BODY_LENGTH",
+            "SLEEVE LENGTH FROM CB": "SLEEVE_LENGTH", "LONG SLEEVE": "SLEEVE_LENGTH", "SHOULDER WIDTH": "SHOULDER",
+            "ACROSS SHOULDER": "SHOULDER", "COLLAR WIDTH": "COLLAR", "NECK WIDTH": "NECK", "ARMHOLE STRAIGHT": "ARMHOLE",
+            "SWEEP WIDTH": "SKIRT_SWEEP", "BOTTOM SWEEP": "SKIRT_SWEEP", "SKIRT LENGTH": "TOTAL_LENGTH", "DRESS LENGTH": "TOTAL_LENGTH"
         }
         
-        # Tự động nạp động CSDL 300-500 từ khóa nếu file tồn tại ngoài hệ thống
         alias_file_path = "pom_alias_master.json"
         if os.path.exists(alias_file_path):
             try:
@@ -2048,7 +2109,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                     external_alias = json.load(f)
                     if isinstance(external_alias, dict):
                         POM_ALIAS.update({str(k).strip().upper(): str(v).strip().upper() for k, v in external_alias.items()})
-            except Exception as read_json_err: pass
+            except Exception: pass
 
         def clean_pom_text(text):
             raw = str(text).upper()
@@ -2073,11 +2134,9 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                 nums = re.findall(r"[-+]?\d*\.\d+|\d+", str(v))
                 return float(nums[0]) if nums else None
 
-        # KHỐI TÍNH TOÁN COST MA TRẬN LÕI KỸ THUẬT
         def calculate_advanced_cost(new_key, old_key, val_new, val_old, new_idx, old_idx):
             n_clean = clean_pom_text(new_key)
             o_clean = clean_pom_text(old_key)
-            
             std_new = get_pom_standard(new_key)
             std_old = get_pom_standard(old_key)
             zone_new = BODY_ZONE_LOCK.get(std_new, "OTHER_ZONE")
@@ -2092,7 +2151,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             
             base_score = SequenceMatcher(None, n_clean, o_clean).ratio()
             bonus = 0.0
-            for token in ["RELAX", "STRETCH", "INSEAM", "OUTSEAM"]:
+            for token in ["RELAX", "STRETCH", "INSEAM", "OUTSEAM", "CHEST", "BUST", "SWEEP"]:
                 if token in n_clean and token in o_clean: bonus += 0.15
             
             final_match_score = base_score + bonus
@@ -2104,13 +2163,6 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             if f_new is not None and f_old is not None and f_old > 0 and f_new > 0:
                 if abs(f_new - f_old) / max(f_old, 1.0) > 2.0: return 1000.0
             return 1.0 - final_match_score
-        # 🚀 CHUẨN BỊ MẢNG DỮ LIỆU ĐẦU VÀO ĐỂ PHÂN PHỐI 3 GIAI ĐOẠN
-        new_items = list(new_specs.items())
-        old_items = list(old_specs.items())
-        
-        final_matches = {}
-        used_old_indices = set()
-        
         # 🚀 PHASE 1 & 2: KHỚP CỨNG ALIAS ĐỒNG NGHĨA KỸ THUẬT (CHẶN SÀN TIN CẬY > 0.75)
         for i, (k_new, v_new) in enumerate(new_items):
             std_new = get_pom_standard(k_new)
@@ -2145,7 +2197,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         rem_new_indices = [i for i in range(len(new_items)) if i not in final_matches]
         rem_old_indices = [j for j in range(len(old_items)) if j not in used_old_indices]
 
-        # 🚀 PHASE 3: THỰC THI TOÁN HỌC HUNGARIAN CHO PHẦN CÒN LẠI (STRICT_THRESHOLD = 0.25)
+        # 🚀 PHASE 3: THỰC THI TOÁN HỌC HUNGARIAN CHO PHẦN CÒN LẠI THU HẸP (STRICT_THRESHOLD = 0.25)
         if rem_new_indices and rem_old_indices:
             sub_cost_matrix = np.zeros((len(rem_new_indices), len(rem_old_indices)))
             
@@ -2195,7 +2247,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                 if f_old != 0:
                     diff_pct = round((diff_val / f_old) * 100, 2)
                     
-                    # CÔNG THỨC TOÁN HỌC PHI TUYẾN TÍNH - CONSUMPTION IMPACT WEIGHTING
+                    # CÔNG THỨC TOÁN HỌC PHI TUYẾN TÍNH - CONSUMPTION IMPACT WEIGHTING ĐA PHÂN HỆ
                     if std_new in CORE_POMS:
                         if not any(ig in std_new for ig in ["BADGE", "LABEL", "BUTTON", "TICKET", "LOOP", "STITCH"]):
                             pom_weight = POM_WEIGHTS.get(std_new, 1.0)
