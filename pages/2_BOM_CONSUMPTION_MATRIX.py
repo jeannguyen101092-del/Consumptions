@@ -1997,11 +1997,11 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             
         bom_summary_engine[ctype] = round(bom_summary_engine.get(ctype, 0.0) + qty, 3)
 
-    st.session_state["historical_bom_reference"] = bom_records
-    st.session_state["main_fabric_records"] = main_fabric_records
-    st.session_state["bom_summary_engine"] = bom_summary_engine
+st.session_state["historical_bom_reference"] = bom_records
+st.session_state["main_fabric_records"] = main_fabric_records
+st.session_state["bom_summary_engine"] = bom_summary_engine
 
-      # --- BẢNG SO SÁNH SAI LỆCH THÔNG SỐ RẬP ---
+# --- BẢNG SO SÁNH SAI LỆCH THÔNG SỐ RẬP ---
 st.markdown("<br>### 📐 BẢNG SO SÁNH SAI LỆCH THÔNG SỐ KỸ THUẬT RẬP MẪU", unsafe_allow_html=True)
 new_specs = new_style_measurements_dict if new_style_measurements_dict else {}
 old_specs = matched_techpack.get("DetailedMeasurements", {}) if matched_techpack else {}
@@ -2015,6 +2015,7 @@ if matched_techpack and new_specs and old_specs:
     is_old_lower = any(k in old_keys_str for k in ["INSEAM", "BACK RISE", "FRONT RISE", "THIGH WIDTH", "CROTCH"])
     is_new_lower = any(k in new_keys_str for k in ["INSEAM", "BACK RISE", "THIGH"])
     is_old_upper = any(k in old_keys_str for k in ["CHEST", "BUST", "COLLAR"])
+
 
     if (is_new_upper and is_old_lower) or (is_new_lower and is_old_upper):
         st.session_state["matched_techpack"] = None
