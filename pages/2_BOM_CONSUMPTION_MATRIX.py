@@ -2159,12 +2159,12 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
 
 
 
-       # --- AI CONSUMPTION PROJECTION ENGINE ---
+          # --- AI CONSUMPTION PROJECTION ENGINE ---
     if matched_techpack and bom_records:
         st.markdown("<br>🔮 **AI CONSUMPTION PROJECTION ENGINE (DỰ PHÓNG ĐỊNH MỨC MÃ MỚI)**", unsafe_allow_html=True)
         st.success("✅ **XÁC THỰC AI VISION:** Cấu trúc phác thảo thiết kế tương thích cao.")
         
-        # 1. TỰ ĐỘNG ĐỊNH CẤU HÌNH FABRIC GROWTH FACTOR THEO CHỦNG LOẠI SẢN PHẨM (SỬA VẤN ĐỀ 3 TURN TRƯỚC)
+        # 1. TỰ ĐỘNG ĐỊNH CẤU HÌNH FABRIC GROWTH FACTOR THEO CHỦNG LOẠI SẢN PHẨM
         category_context = str(st.session_state.get("detected_garment_type", globals().get("new_style_category", "PANT"))).upper()
         if "JACKET" in category_context or "OUTERWEAR" in category_context: default_growth = 0.90
         elif "PANT" in category_context or "TROUSER" in category_context: default_growth = 0.75
@@ -2172,7 +2172,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         elif "SHIRT" in category_context or "POLO" in category_context: default_growth = 0.55
         else: default_growth = 0.45
 
-        # 2. VÁ LỖI TRÍCH XUẤT ĐỘ TIN CẬY POM MATCH TỪ TRƯỜNG "SCORE" MỚI (SỬA VẤN ĐỀ 3)
+        # 2. VÁ LỖI TRÍCH XUẤT ĐỘ TIN CẬY POM MATCH TỪ TRƯỜNG "SCORE" MỚI
         valid_scores = []
         if 'compare_rows' in locals() and compare_rows:
             for r in compare_rows:
@@ -2181,16 +2181,16 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                 
         avg_match_confidence = sum(valid_scores) / len(valid_scores) if valid_scores else 92.0
 
-        # 3. ĐỒNG BỘ HỆ THỐNG CẢNH BÁO CHẤT LƯỢNG ĐỐI SOÁT VÀ VISION (SỬA VẤN ĐỀ 1, 4)
+        # 3. ĐỒNG BỘ HỆ THỐNG CẢNH BÁO CHẤT LƯỢNG ĐỐI SOÁT VÀ VISION
         vision_score = float(st.session_state.get("matched_similarity_score", 100.0))
         if vision_score < 85.0:
             st.warning(f"⚠️ **CẢNH BÁO VISION:** Độ tương đồng ảnh phác thảo thấp (Chỉ đạt {vision_score:.1f}%). Vui lòng rà soát kỹ phom dáng.")
         if avg_match_confidence < 85.0:
             st.warning(f"⚠️ **CẢNH BÁO POM MATCH:** Độ tin cậy bắt cặp thông số thấp (Chỉ đạt {avg_match_confidence:.1f}%). Có thể xuất hiện vị trí đo mới.")
 
-        # 4. THIẾT LẬP CÔNG THỨC HIỆU NĂNG PHOM LAI INTEGRATED CHUẨN PRODUCTION (SỬA VẤN ĐỀ 1, 2)
+        # 4. THIẾT LẬP CÔNG THỨC HIỆU NĂNG PHOM LAI INTEGRATED CHUẨN PRODUCTION
         area_growth = float(locals().get("avg_area_growth_pct", globals().get("avg_area_growth_pct", 0.0)))
-        pom_growth = float(avg_pom_diff_pct if avg_pom_diff_pct is not None else 0.0)  # Loại bỏ hoàn toàn fallback 5.97% cố định
+        pom_growth = float(avg_pom_diff_pct if avg_pom_diff_pct is not None else 0.0)
         
         # Công thức lai phối hợp cân bằng 50/50, chặn dưới bằng 0 tránh làm giảm ĐM gốc ngoài ý muốn
         base_hybrid_factor = (pom_growth * 0.5) + (area_growth * 0.5)
@@ -2204,39 +2204,49 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             fabric_growth_factor = st.number_input("Hệ số thực nghiệm vải (Fabric Growth Factor)", value=float(default_growth), step=0.01)
         with col3:
             wastage_buffer = st.number_input("Hao hụt sản xuất cấu hình thêm (%)", value=0.00, step=0.5)
-        # 1. QUY HOẠCH TỪ ĐIỂN PHÂN CHỦNG LOẠI VẬT TƯ NGÀNH MAY (SỬA VẤN ĐỀ 5)
+
+        # 6. VÁ LỖI CỘNG DỒN ĐA MÀU/ĐA LÔ VẢI: Gom nhóm lọc trùng lấy dữ liệu định mức sạch tối đa
+        from collections import defaultdict
+        bom_grouped_lists = defaultdict(list)
+        for rec in bom_records:
+            raw_type = str(rec.get("Phân loại vật tư (Type)", rec.get("material_type", ""))).strip().upper()
+            raw_qty = rec.get("Định mức cũ (DM)", rec.get("consumption", rec.get("Định mức cũ", 0.0)))
+            try:
+                qty_f = float(raw_qty) if raw_qty is not None else 0.0
+                if qty_f > 0: bom_grouped_lists[raw_type].append(qty_f)
+            except Exception: pass
+
+        cleaned_bom_engine = {}
+        for mat_type, qty_list in bom_grouped_lists.items():
+            if qty_list: cleaned_bom_engine[mat_type] = max(qty_list) # Sử dụng MAX để lấy ĐM chuẩn của 1 vóc đơn lẻ
+        # 7. QUY HOẠCH TỪ ĐIỂN PHÂN CHỦNG LOẠI VẬT TƯ NGÀNH MAY
         MAIN_FABRIC_KEYS = ["MAIN", "SELF", "BODY", "SHELL", "OUTER"]
         SECONDARY_FABRIC_KEYS = ["LINING", "POCKET", "POCKETING", "MESH", "CONTRAST", "RIB", "INTERLINING", "FUSING", "TRICOT"]
 
         projection_rows = []
-        # Định dạng chuỗi hiển thị độ biến thiên phom lai (Trọng số diện tích rập chiếm 80%)
         pom_display = round(shape_factor, 1)
 
-        # Giả định dữ liệu bom_summary_engine chứa danh sách vật tư thô lấy từ BOM gốc của bạn
-        for ctype, old_qty in bom_summary_engine.items():
+        # Vòng lặp tính toán chuyển sang quét trên cleaned_bom_engine đã dọn sạch lỗi cộng dồn
+        for ctype, old_qty_f in cleaned_bom_engine.items():
             ctype_upper = str(ctype).strip().upper()
-            old_qty_f = float(old_qty) if old_qty is not None else 0.0
             
-            # VÁ LỖI CÚ PHÁP: Sử dụng vòng lặp kiểm tra k tường minh, triệt tiêu hoàn toàn lỗi NameError biến m
             is_main_fabric = any(k in ctype_upper for k in MAIN_FABRIC_KEYS)
             is_secondary_fabric = any(k in ctype_upper for k in SECONDARY_FABRIC_KEYS)
             
-            # [LUỒNG XỬ LÝ 1]: VẢI CHÍNH THÂN SẢN PHẨM (SỬA VẤN ĐỀ 4, 6)
+            # [LUỒNG XỬ LÝ 1]: VẢI CHÍNH THÂN SẢN PHẨM (Nhân lũy tiến hao hụt sản xuất)
             if is_main_fabric:
                 main_increase_pct = shape_factor * fabric_growth_factor
-                # SỬA CÔNG THỨC: Nhân lũy tiến hệ số hao hụt sản xuất thay vì cộng dồn số thập phân sai lệch
                 projected_dm = old_qty_f * (1 + main_increase_pct / 100) * (1 + wastage_buffer / 100)
                 note = f"Vải chính: Diện tích rập chính (80%) + POM (20%) × Hệ số ({fabric_growth_factor}) → ĐM tăng: {main_increase_pct:.2f}%"
             
-            # [LUỒNG XỬ LÝ 2]: VẢI PHỤ / VẢI LÓT / MESH / KEO FUSING (Áp dụng giảm chấn hệ số tĩnh 0.4 - SỬA VẤN ĐỀ 5)
+            # [LUỒNG XỬ LÝ 2]: VẢI PHỤ / VẢI LÓT TÚI / KEO FUSING (Hệ số giảm chấn tĩnh 0.4)
             elif is_secondary_fabric:
                 main_increase_pct = shape_factor * fabric_growth_factor
                 sub_increase_pct = 0.4 * main_increase_pct
-                # SỬA CÔNG THỨC: Nhân lũy tiến hệ số hao hụt sản xuất
                 projected_dm = old_qty_f * (1 + sub_increase_pct / 100) * (1 + wastage_buffer / 100)
                 note = f"Vải phụ: Giảm chấn (0.4) × Mức tăng vải chính → ĐM tăng: {sub_increase_pct:.2f}%"
             
-            # [LUỒNG XỬ LÝ 3]: PHỤ LIỆU TĨNH - NHAU, CHỈ, CÚT, NHÃN (KHÔNG THEO PHOM - SỬA CÔNG THỨC)
+            # [LUỒNG XỬ LÝ 3]: PHỤ LIỆU TĨNH (CHỈ TÍNH LŨY TIẾN HAO HỤT)
             else:
                 projected_dm = old_qty_f * (1 + wastage_buffer / 100)
                 note = f"Phụ liệu tĩnh (Chỉ tính lũy tiến hao hụt sản xuất {wastage_buffer}%)"
@@ -2249,7 +2259,6 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             })
             
         df_projection = pd.DataFrame(projection_rows)
-        # Lưu kết quả tính toán cuối cùng vào bộ nhớ Streamlit phục vụ xuất file BOM Matrix excel/pdf sau này
         st.session_state["ai_projected_consumption_matrix"] = projection_rows
         st.dataframe(df_projection, use_container_width=True, hide_index=True)
 
