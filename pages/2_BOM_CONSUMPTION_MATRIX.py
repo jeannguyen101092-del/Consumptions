@@ -2001,12 +2001,12 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     st.session_state["main_fabric_records"] = main_fabric_records
     st.session_state["bom_summary_engine"] = bom_summary_engine
 
-                 # --- BẢNG SO SÁNH SAI LỆCH THÔNG SỐ RẬP ---
+        # --- BẢNG SO SÁNH SAI LỆCH THÔNG SỐ RẬP ---
     st.markdown("<br>### 📐 BẢNG SO SÁNH SAI LỆCH THÔNG SỐ KỸ THUẬT RẬP MẪU", unsafe_allow_html=True)
     new_specs = new_style_measurements_dict if new_style_measurements_dict else {}
     old_specs = matched_techpack.get("DetailedMeasurements", {}) if matched_techpack else {}
     
-    # BỨC TƯỜNG LỬA HÌNH THÁI: Tự động đánh sập mã đối chứng nếu bị bắt cặp sai loại sản phẩm (Áo vs Quần)
+    # 🚀 BỨC TƯỜNG LỬA HÌNH THÁI: Tự động hủy mã đối chứng nếu bị bắt cặp sai loại sản phẩm (Áo vs Quần)
     if matched_techpack and new_specs and old_specs:
         new_keys_str = "".join([str(k).upper() for k in new_specs.keys()])
         old_keys_str = "".join([str(k).upper() for k in old_specs.keys()])
@@ -2093,7 +2093,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         # MASTER ALIAS DICTIONARY (Chuẩn hóa cho cả Áo, Quần, Váy)
         POM_ALIAS = {
             "WAIST WIDTH RELAXED": "WAIST_RELAX", "WAIST RELAX": "WAIST_RELAX", "WAIST WIDTH STRETCHED": "WAIST_STRETCH",
-            "BOTTOM OPENING": "LEG_OPENING", "LEG OPENING WIDTH": "LEG_OPENING", "HEM OPENING": "LEG_OPENING",
+            "BOTTOM OPENING": "LEG_OPENING", "LEG OPENING WIDTH": "LEG_OPENING", "HEM OPENING": "LEG_OPENING", "LEG OPENING": "LEG_OPENING",
             "FRONT CROTCH": "FRONT_RISE", "BACK CROTCH": "BACK_RISE", "SEAT WIDTH": "HIP", "HIP WIDTH": "HIP",
             "CHEST WIDTH": "CHEST", "HALF CHEST": "CHEST", "BUST WIDTH": "BUST", "HALF BUST": "BUST",
             "BODY LENGTH HPS": "BODY_LENGTH", "CENTER BACK LENGTH": "BODY_LENGTH", "CBL": "BODY_LENGTH",
@@ -2163,6 +2163,11 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             if f_new is not None and f_old is not None and f_old > 0 and f_new > 0:
                 if abs(f_new - f_old) / max(f_old, 1.0) > 2.0: return 1000.0
             return 1.0 - final_match_score
+
+        new_items = list(new_specs.items())
+        old_items = list(old_specs.items())
+        final_matches = {}
+        used_old_indices = set()
         # 🚀 PHASE 1 & 2: KHỚP CỨNG ALIAS ĐỒNG NGHĨA KỸ THUẬT (CHẶN SÀN TIN CẬY > 0.75)
         for i, (k_new, v_new) in enumerate(new_items):
             std_new = get_pom_standard(k_new)
@@ -2171,7 +2176,6 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             
             exact_j = None
             best_hard_score = -1.0
-            
             for j, (k_old, v_old) in enumerate(old_items):
                 if j in used_old_indices: continue
                 std_old = get_pom_standard(k_old)
@@ -2179,46 +2183,33 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                 if std_new == std_old:
                     test_cost = calculate_advanced_cost(k_new, k_old, v_new, v_old, i, j)
                     current_score = 1.0 - test_cost
-                    
                     if current_score >= 0.75:
                         if current_score > best_hard_score:
                             best_hard_score = current_score
                             exact_j = j
                     
             if exact_j is not None:
-                final_matches[i] = {
-                    "old_idx": exact_j,
-                    "score": round(best_hard_score, 3),
-                    "level": "Phase 1: Hardcoded Match"
-                }
+                final_matches[i] = {"old_idx": exact_j, "score": round(best_hard_score, 3), "level": "Phase 1: Hardcoded Match"}
                 used_old_indices.add(exact_j)
 
-        # Trích xuất phần dư mơ hồ còn sót lại chuyển giao cho ma trận Hungarian (Phase 3)
-        rem_new_indices = [i for i in range(len(new_items)) if i not in final_matches]
-        rem_old_indices = [j for j in range(len(old_items)) if j not in used_old_indices]
-
-        # 🚀 PHASE 3: THỰC THI TOÁN HỌC HUNGARIAN CHO PHẦN CÒN LẠI THU HẸP (STRICT_THRESHOLD = 0.25)
-        if rem_new_indices and rem_old_indices:
-            sub_cost_matrix = np.zeros((len(rem_new_indices), len(rem_old_indices)))
+        # 🚀 PHASE 3: THUẬT TOÁN TỐI ƯU KHỚP CẶP PYTHON THUẦN TÚY KHÔNG PHỤ THUỘC SCIPY
+        for i, (k_new, v_new) in enumerate(new_items):
+            if i in final_matches: continue
+            std_new = get_pom_standard(k_new)
+            best_sub_match_j = None
+            best_sub_score = -1.0
             
-            for sub_i, idx_new in enumerate(rem_new_indices):
-                k_new, v_new = new_items[idx_new]
-                for sub_j, idx_old in enumerate(rem_old_indices):
-                    k_old, v_old = old_items[idx_old]
-                    sub_cost_matrix[sub_i, sub_j] = calculate_advanced_cost(k_new, k_old, v_new, v_old, idx_new, idx_old)
-            
-            row_ind, col_ind = linear_sum_assignment(sub_cost_matrix)
-            
-            for r, c in zip(row_ind, col_ind):
-                idx_new = rem_new_indices[r]
-                idx_old = rem_old_indices[c]
-                if sub_cost_matrix[r, c] <= 0.25:  # Ngưỡng nghiêm ngặt lọc nhiễu chữ
-                    final_matches[idx_new] = {
-                        "old_idx": idx_old,
-                        "score": round(1.0 - sub_cost_matrix[r, c], 3),
-                        "level": "Phase 3: Hungarian Optimized"
-                    }
-                    used_old_indices.add(idx_old)
+            for j, (k_old, v_old) in enumerate(old_items):
+                if j in used_old_indices: continue
+                cost_val = calculate_advanced_cost(k_new, k_old, v_new, v_old, i, j)
+                current_score = 1.0 - cost_val
+                if cost_val <= 0.25 and current_score > best_sub_score:
+                    best_sub_score = current_score
+                    best_sub_match_j = j
+                    
+            if best_sub_match_j is not None:
+                final_matches[i] = {"old_idx": best_sub_match_j, "score": round(best_sub_score, 3), "level": "Phase 3: Optimized Local Match"}
+                used_old_indices.add(best_sub_match_j)
 
         # 4. KẾT XUẤT MÀN HÌNH BẢNG ĐỐI SOÁT ĐA TẦNG ĐỒNG BỘ ĐIỂM SỐ GỐC
         for i, (orig_new_name, val_new) in enumerate(new_items):
@@ -2247,7 +2238,6 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                 if f_old != 0:
                     diff_pct = round((diff_val / f_old) * 100, 2)
                     
-                    # CÔNG THỨC TOÁN HỌC PHI TUYẾN TÍNH - CONSUMPTION IMPACT WEIGHTING ĐA PHÂN HỆ
                     if std_new in CORE_POMS:
                         if not any(ig in std_new for ig in ["BADGE", "LABEL", "BUTTON", "TICKET", "LOOP", "STITCH"]):
                             pom_weight = POM_WEIGHTS.get(std_new, 1.0)
@@ -2282,19 +2272,16 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         df_compare_spec = pd.DataFrame(compare_rows)
         st.dataframe(df_compare_spec, use_container_width=True, hide_index=True)
         
-        # ĐÓNG GÓI SIÊU CHỈ SỐ TOÀN DIỆN VÀO SESSION STATE PHỤC VỤ ENGINE ĐỊNH MỨC PHÍA DƯỚI
         total_new_poms = len(new_items) if len(new_items) > 0 else 1
         coverage_ratio = round((len(final_matches) / total_new_poms) * 100, 1)
-        
         if total_impact_weight > 0.0:
             avg_pom_diff_pct = round(weighted_impact_sum / total_impact_weight, 2)
             
         st.session_state["shape_similarity_metrics"] = {
-            "coverage_ratio": coverage_ratio,
-            "weighted_diff_pct": avg_pom_diff_pct,
-            "matched_poms": len(final_matches),
-            "total_poms": total_new_poms
+            "coverage_ratio": coverage_ratio, "weighted_diff_pct": avg_pom_diff_pct,
+            "matched_poms": len(final_matches), "total_poms": total_new_poms
         }
+
 
 
 
