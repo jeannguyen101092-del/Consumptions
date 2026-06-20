@@ -2256,7 +2256,10 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         for mat_type, qty_list in bom_grouped_lists.items():
             if qty_list: cleaned_bom_engine[mat_type] = max(qty_list)
 
-        MAIN_FABRIC_KEYS = ["MAIN", "SELF", "BODY", "SHELL", "OUTER"]
+                # =========================================================================================
+        # ĐOẠN 5 - PHẦN 2 - KHỐI 2: VÁ LỖI ĐỒNG BỘ CHỮ HOA/THƯỜNG ĐỂ HIỆN BẢNG ĐỊNH MỨC AI LẬP TỨC
+        # =========================================================================================
+        MAIN_FABRIC_KEYS = ["MAIN", "SELF", "BODY", "SHELL", "OUTER", "FABRIC"]
         SECONDARY_FABRIC_KEYS = ["LINING", "POCKET", "POCKETING", "MESH", "CONTRAST", "RIB", "INTERLINING", "FUSING", "TRICOT"]
 
         projection_rows = []
@@ -2264,25 +2267,26 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
 
         # Chạy vòng lặp lập ma trận dự phóng lũy tiến nhân hai chiều tăng/giảm thực tế
         for ctype, old_qty_f in cleaned_bom_engine.items():
+            # [ÉP HOA TUYỆT ĐỐI]: Đảm bảo chuỗi luôn viết hoa 100% trước khi so khớp từ khóa
             ctype_upper = str(ctype).strip().upper()
             
             is_main_fabric = any(k in ctype_upper for k in MAIN_FABRIC_KEYS)
             is_secondary_fabric = any(k in ctype_upper for k in SECONDARY_FABRIC_KEYS)
             
-            # [LUỒNG VẢI CHÍNH THÂN]: Co giãn hai chiều linh hoạt, nhân lũy tiến hao hụt sơ đồ marker
-            if is_main_fabric:
+            # [LUỒNG XỬ LÝ 1]: VẢI CHÍNH THÂN SẢN PHẨM (MAIN FABRIC, MAIN, SELF FABRIC...)
+            if is_main_fabric and not any(sub_k in ctype_upper for sub_k in ["POCKET", "POCKETING", "INTERLINING", "FUSING"]):
                 main_increase_pct = shape_factor * fabric_growth_factor
                 projected_dm = old_qty_f * (1 + main_increase_pct / 100) * (1 + wastage_buffer / 100)
                 note = f"Vải chính: Hệ số rập phân tầng Hierarchy ({method_used}: {pom_display}%) × Hệ số vải ({fabric_growth_factor}) → ĐM điều chỉnh: {main_increase_pct:.2f}%"
             
-            # [LUỒNG VẢI PHỤ / LÓT TÚI / KEO]: Co giãn hai chiều theo hệ số giảm chấn tĩnh 0.4
-            elif is_secondary_fabric:
+            # [LUỒNG XỬ LÝ 2]: VẢI PHỤ / VẢI LÓT TÚI / KEO FUSING (POCKETING FABRIC, INTERLINING...)
+            elif is_secondary_fabric or any(sub_k in ctype_upper for sub_k in ["POCKET", "POCKETING", "INTERLINING", "FUSING"]):
                 main_increase_pct = shape_factor * fabric_growth_factor
                 sub_increase_pct = 0.4 * main_increase_pct
                 projected_dm = old_qty_f * (1 + sub_increase_pct / 100) * (1 + wastage_buffer / 100)
                 note = f"Vải phụ: Giảm chấn (0.4) × Mức tăng vải chính → ĐM điều chỉnh: {sub_increase_pct:.2f}%"
             
-            # [LUỒNG PHỤ LIỆU TĨNH]: KHÔNG BIẾN ĐỘNG THEO PHOM, CHỈ TÍNH LŨY TIẾN HAO HỤT SẢN XUẤT MARKER
+            # [LUỒNG PHỤ LIỆU TĨNH]: CHỈ TÍNH LŨY TIẾN HAO HỤT SẢN XUẤT MARKER
             else:
                 projected_dm = old_qty_f * (1 + wastage_buffer / 100)
                 note = f"Phụ liệu tĩnh (Chỉ tính lũy tiến hao hụt sản xuất {wastage_buffer}%)"
@@ -2297,6 +2301,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         df_projection = pd.DataFrame(projection_rows)
         st.session_state["ai_projected_consumption_matrix"] = projection_rows
         st.dataframe(df_projection, use_container_width=True, hide_index=True)
+
 
 
 
