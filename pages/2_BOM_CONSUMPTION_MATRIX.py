@@ -2159,7 +2159,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
 
 
 
-                # --- AI CONSUMPTION PROJECTION ENGINE ---
+          # --- AI CONSUMPTION PROJECTION ENGINE ---
     if 'bom_matrix_uploader' in st.session_state and st.session_state["bom_matrix_uploader"] is not None:
         st.markdown("<br>🔮 **AI CONSUMPTION PROJECTION ENGINE (DỰ PHÓNG ĐỊNH MỨC MÃ MỚI)**", unsafe_allow_html=True)
         
@@ -2179,8 +2179,10 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         area_growth = float(locals().get("avg_area_growth_pct", globals().get("avg_area_growth_pct", 0.0)))
         pom_growth = float(avg_pom_diff_pct if 'avg_pom_diff_pct' in locals() and avg_pom_diff_pct is not None else 0.0)
 
-        # B. PHÂN LUỒNG LOGIC THEO KIẾN TRÚC PHÂN TẦNG HAI CHIỀU KHÔNG KHÓA GIÁ TRỊ ÂM
-        if matched_techpack and st.session_state.get("bom_records"):
+        # [VÁ LỖI CHẶN]: Đồng bộ cơ chế kiểm tra đa luồng linh hoạt
+        has_active_bom = ('bom_records' in locals() and bom_records) or st.session_state.get("bom_records")
+
+        if matched_techpack and has_active_bom:
             method_used = "AI Similar Style Reference"
             label_text = "Độ biến thiên phom Hybrid (%)"
             st.success(f"✅ **XÁC THỰC AI VISION:** Chế độ vận hành: {method_used}")
@@ -2210,14 +2212,12 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                 raw_target_growth = default_safety_buffer
                 st.info(f"📊 **GEOMETRY ENGINE:** Hệ thống áp dụng hệ số an toàn mặc định: `{raw_target_growth:.1f}%`.")
 
-        # C. BỘ MÀNG LỌC CHẶN BIÊN AN TOÀN KỸ THUẬT VÀ LÀM TRÒN
         clamped_growth = max(min(raw_target_growth, 50.0), -30.0)
         effective_shape_factor = round(clamped_growth, 2)
         
         if raw_target_growth > 50.0 or raw_target_growth < -30.0:
             st.error(f"🚨 **DỮ LIỆU BẤT THƯỜNG:** Biến động vượt biên (`{raw_target_growth:.2f}%`). AI đã ép về vùng an toàn (`{effective_shape_factor}%`).")
 
-        # D. KHỞI TẠO INPUT UI VỚI TIÊU ĐỀ ĐỘNG
         col1, col2, col3 = st.columns(3)
         with col1:
             shape_factor = st.number_input(label_text, value=float(effective_shape_factor), step=0.01)
@@ -2226,25 +2226,38 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         with col3:
             wastage_buffer = st.number_input("Hao hụt sản xuất cấu hình thêm (%)", value=0.00, step=0.5)
 
-        # Đóng gói siêu dữ liệu vào Session State phục vụ kết xuất và Chat AI giải trình dữ liệu
         st.session_state["projection_engine_metadata"] = {
             "method_used": method_used, "area_growth": area_growth, "pom_growth": pom_growth,
             "effective_shape_factor": shape_factor, "fabric_growth_factor": fabric_growth_factor, "garment_category": category_context
         }
 
-        # E. VÁ TRIỆT ĐỂ LỖI ĐÈ BIẾN CUỘN LẶP: Đồng bộ dữ liệu sạch trực tiếp từ bộ nhớ Session State của bạn
+        # =========================================================================================
+        # VÁ LỖI CHÍ MẠNG MỤC 1 & 4: HỢP NHẤT ĐA NGUỒN DỮ LIỆU TRÁNH TRỐNG BIẾN ACTIVE_BOM_SOURCE
+        # =========================================================================================
+        local_bom_data = bom_records if 'bom_records' in locals() and bom_records else []
+        session_bom_data = st.session_state.get("bom_records", [])
+        
+        # Cơ chế Fallback an toàn: Thử lấy từ Session trước, nếu rỗng lập tức đổ ngược dữ liệu Local vào
+        active_bom_source = session_bom_data if session_bom_data else local_bom_data
+
+        # 🔍 KHỐI HỘP DEBUG KIỂM TOÁN CHẤT LƯỢNG DỮ LIỆU THEO KHUYẾN NGHỊ CHUYÊN GIA
+        with st.expander("🛠️ DIAGNOSTIC ENGINE: KIỂM TRA ĐẦU VÀO BOM MATRIX", expanded=False):
+            st.write(f"📊 **LOCAL BOM COUNT:** `{len(local_bom_data)}` | **SESSION BOM COUNT:** `{len(session_bom_data)}`")
+            st.write(f"📦 **ACTIVE BOM SOURCE SIZE:** `{len(active_bom_source)}` dòng dữ liệu thô.")
+            if active_bom_source:
+                st.write("📌 **CẤU TRÚC TRƯỜNG DỮ LIỆU DÒNG ĐẦU TIÊN (COLUMNS):**", list(active_bom_source[0].keys()))
+                st.json(active_bom_source[0])
+
         from collections import defaultdict
         bom_grouped_lists = defaultdict(list)
         
-        # Gọi an toàn mảng dữ liệu BOM từ bộ nhớ phiên làm việc của Streamlit
-        active_bom_source = st.session_state.get("bom_records", [])
-        
         for rec in active_bom_source:
-            # Bẫy lỗi cột có khoảng trắng dư lẫn cột chuẩn của database để trích xuất sạch sẽ 100% dữ liệu
-            raw_type = rec.get("Phân loại vật tư (Type )") or rec.get("Phân loại vật tư (Type)") or rec.get("material_type") or ""
+            # Mở rộng toàn bộ màng lọc quét tên cột để chặn đứng Vấn đề số 3 (Lệch từ khóa Type)
+            raw_type = rec.get("Phân loại vật tư (Type )") or rec.get("Phân loại vật tư (Type)") or rec.get("material_type") or rec.get("Type") or rec.get("Type ") or ""
             raw_type = str(raw_type).strip().upper()
             
-            raw_qty = rec.get("Định mức (DM)", rec.get("Định mức cũ (DM)", rec.get("consumption", 0.0)))
+            # Mở rộng màng lọc quét tên cột để chặn đứng Vấn đề số 2 (Lệch từ khóa Định mức)
+            raw_qty = rec.get("Định mức (DM)") or rec.get("Định mức cũ (DM)") or rec.get("consumption") or rec.get("Định mức") or rec.get("DM") or 0.0
             try:
                 qty_f = float(raw_qty) if raw_qty is not None else 0.0
                 if qty_f > 0 and raw_type != "": 
@@ -2253,36 +2266,33 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
 
         cleaned_bom_engine = {}
         for mat_type, qty_list in bom_grouped_lists.items():
-            if qty_list: cleaned_bom_engine[mat_type] = max(qty_list) # Lấy giá trị định mức đơn lẻ lớn nhất chống cộng dồn
+            if qty_list: cleaned_bom_engine[mat_type] = max(qty_list)
 
-        # F. QUY HOẠCH TỪ ĐIỂN PHÂN CHỦNG LOẠI VẬT TƯ (ÉP HOA TOÀN DIỆN SO KHỚP TỪ KHÓA)
+        with st.expander("🛠️ DIAGNOSTIC ENGINE: TRẠNG THÁI GOM NHÓM VẬT TƯ (CLEANED)", expanded=False):
+            st.write("**Dữ liệu sau khi lọc trùng màu (cleaned_bom_engine):**")
+            st.write(cleaned_bom_engine)
+
         MAIN_FABRIC_KEYS = ["MAIN", "SELF", "BODY", "SHELL", "OUTER", "FABRIC"]
         SECONDARY_FABRIC_KEYS = ["LINING", "POCKET", "POCKETING", "MESH", "CONTRAST", "RIB", "INTERLINING", "FUSING", "TRICOT"]
 
         projection_rows = []
         pom_display = round(shape_factor, 1)
 
-        # Chạy vòng lặp tính toán dự phóng ma trận định mức mới
         for ctype, old_qty_f in cleaned_bom_engine.items():
             ctype_upper = str(ctype).strip().upper()
             
             is_main_fabric = any(k in ctype_upper for k in MAIN_FABRIC_KEYS)
             is_secondary_fabric = any(k in ctype_upper for k in SECONDARY_FABRIC_KEYS)
             
-            # [LUỒNG VẢI CHÍNH THÂN]: Co giãn hai chiều linh hoạt, nhân lũy tiến hao hụt sơ đồ marker
             if is_main_fabric and not any(sub_k in ctype_upper for sub_k in ["POCKET", "POCKETING", "INTERLINING", "FUSING"]):
                 main_increase_pct = shape_factor * fabric_growth_factor
                 projected_dm = old_qty_f * (1 + main_increase_pct / 100) * (1 + wastage_buffer / 100)
                 note = f"Vải chính: Hệ số rập phân tầng Hierarchy ({method_used}: {pom_display}%) × Hệ số vải ({fabric_growth_factor}) → ĐM điều chỉnh: {main_increase_pct:.2f}%"
-            
-            # [LUỒNG VẢI PHỤ / LÓT TÚI / KEO]: Co giãn hai chiều theo hệ số giảm chấn tĩnh 0.4 an toàn chi phí
             elif is_secondary_fabric or any(sub_k in ctype_upper for sub_k in ["POCKET", "POCKETING", "INTERLINING", "FUSING"]):
                 main_increase_pct = shape_factor * fabric_growth_factor
                 sub_increase_pct = 0.4 * main_increase_pct
                 projected_dm = old_qty_f * (1 + sub_increase_pct / 100) * (1 + wastage_buffer / 100)
                 note = f"Vải phụ: Giảm chấn (0.4) × Mức tăng vải chính → ĐM điều chỉnh: {sub_increase_pct:.2f}%"
-            
-            # [LUỒNG PHỤ LIỆU TĨNH]: KHÔNG BIẾN ĐỘNG THEO PHOM, CHỈ TÍNH LŨY TIẾN HAO HỤT SẢN XUẤT MARKER
             else:
                 projected_dm = old_qty_f * (1 + wastage_buffer / 100)
                 note = f"Phụ liệu tĩnh (Chỉ tính lũy tiến hao hụt sản xuất {wastage_buffer}%)"
