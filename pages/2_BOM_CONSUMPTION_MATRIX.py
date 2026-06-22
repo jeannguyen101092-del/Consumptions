@@ -1921,7 +1921,9 @@ import streamlit as st
 import pandas as pd
 from collections import defaultdict
 
-# Lấy các biến từ session_state để chạy độc lập trên Page mới
+# Thêm tiêu đề trang chuẩn để sửa dòng lỗi font-weight cũ của bạn
+st.title("🧵 BOM & Consumption Matrix")
+
 matched_techpack = st.session_state.get("matched_techpack")
 new_style_measurements_dict = st.session_state.get("new_style_measurements_dict", {})
 new_style_base_size = st.session_state.get("new_style_base_size", "N/A")
