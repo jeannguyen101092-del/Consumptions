@@ -1451,9 +1451,7 @@ headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if 'SB_KEY' in
 # ĐOẠN 4 ĐÃ SỬA: HỆ THỐNG ĐỐI CHIẾU MÃ HÀNG CÓ CƠ CHẾ KHÓA TRẠNG THÁI VÀ PHÂN LOẠI VISION
 # =========================================================================================
 
-# ĐOẠN 1 ĐÃ SỬA: KHỞI TẠO STATE & AI VISION ENGINE ĐỊNH DANH MÃ HÀNG TỰ ĐỘNG
-# =========================================================================================
-# PART 1A: SECURITY LAYER (MD5 FINGERPRINT, METADATA & BRACKET PARSER CHUẨN ENTERPRISE)
+# PART 1A ĐÃ SỬA: BỔ SUNG ĐỊNH NGHĨA AN TOÀN TRÁNH LỖI NAMEERROR DÒNG 1493
 # =========================================================================================
 import json
 import re
@@ -1489,6 +1487,10 @@ def extract_json_object_secure(text):
             return text[start:i+1]
     return None
 
+# FIX LỖI NAMEERROR: Định nghĩa an toàn biến lấy dữ liệu trực tiếp từ widget key uploader
+uploaded_file = st.session_state.get("bom_matrix_uploader")
+current_file_name = str(uploaded_file.name) if uploaded_file is not None else ""
+
 # 2. HỆ THỐNG VÂN TAY TỆP TIN ĐÍNH THỰC (TRUE MD5 FINGERPRINT & METADATA ENGINE)
 if uploaded_file is not None:
     try:
@@ -1512,7 +1514,7 @@ if uploaded_file is not None:
             st.session_state["uploaded_file_hash"] = current_file_hash
             detected_mime = getattr(uploaded_file, "type", "image/jpeg")
             
-            if str(uploaded_file.name).lower().endswith(".pdf") and detected_mime == "image/jpeg":
+            if current_file_name.lower().endswith(".pdf") and detected_mime == "image/jpeg":
                 detected_mime = "application/pdf"
                 
             st.session_state["detected_mime_type"] = detected_mime
@@ -1520,7 +1522,7 @@ if uploaded_file is not None:
             # KẾT XUẤT METADATA PHỤC VỤ DASHBOARD AUDIT VÀ AN NINH DỮ LIỆU SẢN XUẤT
             st.session_state["file_metadata"] = {
                 "hash": current_file_hash,
-                "name": uploaded_file.name,
+                "name": current_file_name,
                 "size_mb": round(file_size_bytes / (1024 * 1024), 2),
                 "mime": detected_mime
             }
@@ -1548,6 +1550,7 @@ if uploaded_file is not None:
 target_new_sketch_bytes = st.session_state["target_new_sketch_bytes"]
 detected_mime_type = st.session_state["detected_mime_type"]
 new_vec = str(st.session_state.get("visual_description_str", "")).strip().upper()
+
 # PART 1B: AI VISION ENGINE PHÂN TÍCH GIẢI PHẪU RẬP SẢN XUẤT (STRICT JSON BALANCED PIPELINE)
 # =========================================================================================
 
