@@ -1709,61 +1709,69 @@ if st.session_state.get("matched_techpack") is None and st.session_state.get("ca
                 
                 TOP_N = min(30, len(ranked_pool))
                 top_candidates_raw = ranked_pool[:TOP_N]
-# PART 2A-2: INDUSTRIAL ROUTER ENGINE - ĐỘNG CƠ ĐỐI CHIẾU 4 CẤP ĐỘ, KHÓA TRẠNG THÁI KÉP & GIẢI PHẪU RẬP VLM
-# =========================================================================================================
+# PART 2A-2 ĐÃ SỬA: MULTI-MODAL VLM RETRIEVER (ĐỐI CHIẾU SONG SONG ẢNH THỰC TẾ & TEXT NỀN)
+# =========================================================================================
 
-                # KHỞI TẠO KHÓA TRẠNG THÁI TRÊN SESSION STATE NẾU CHƯA TỒN TẠI
-                if "routing_completed" not in st.session_state:
-                    st.session_state["routing_completed"] = False
-
-                # =========================================================================================
-                # FIX LỖI 3: COMPRESSION ENGINE - TRUYỀN DICESCORE, ĐỊNH DANH BẰNG STYLENAME (TRÁNH LỆCH INDEX)
-                # =========================================================================================
+                # 1. COMPRESSION ENGINE: Nén chặt dữ liệu, chuẩn hóa cấu trúc truyền điểm số Dice
                 compressed_candidates = []
                 for idx, (score, s) in enumerate(top_candidates_raw):
                     compressed_candidates.append({
-                        "StyleName": s.get("StyleName", "N/A"), # Định danh thực thể trực tiếp
+                        "pool_index": idx,
+                        "StyleName": s.get("StyleName", "UNKNOWN"),
                         "BaseSize": s.get("BaseSize", s.get("base_size", "N/A")),
-                        "DiceSimilarityScore": round(float(score), 4), # FIX LỖI 2: Truyền điểm toán học để AI đối chứng
-                        "SketchVector": str(s.get("sketch_vector", "")).strip()
+                        "DiceSimilarityScore": round(float(score), 4),
+                        "SketchVectorText": str(s.get("sketch_vector", "")).strip()
                     })
                 
-                # Đồng bộ danh sách ứng viên thô phục vụ Dashboard giám sát UI
+                # Lưu trữ mảng Top 30 gốc phục vụ giải nén dữ liệu
                 st.session_state["retriever_top_30_pool"] = top_candidates_raw
 
+                # CẬP NHẬT MONITOR DASHBOARD SIDEBAR (FIX LỖI CRASH MẢNG TRÊN UI)
                 with st.sidebar.expander("📊 RETRIEVER MONITORING DASHBOARD", expanded=True):
                     st.metric("Total Pool (Supabase)", len(raw_styles))
                     st.metric("Category Filtered", len(category_pool))
                     st.metric("Top N Window (Gửi AI)", TOP_N)
                     if top_candidates_raw:
-                        top_1_style = top_candidates_raw[0][1].get("StyleName", "N/A")
-                        top_1_score = top_candidates_raw[0][0]
-                        st.info(f"🥇 Top 1 Style: `{top_1_style}` (Dice: {top_1_score:.4f})")
+                        # Bóc tách chuẩn cấu trúc tuple (score, object)
+                        best_score, best_obj = top_candidates_raw[0]
+                        st.info(f"🥇 Hạng 1 Kho: `{best_obj.get('StyleName')}` (Dice: {best_score:.4f})")
+                        st.caption(f"🎯 Target Phrases: `{list(new_phrases)[:3]}...`")
 
-                # KIỂM TRA ĐIỀU KIỆN CHẠY AI: Chỉ chạy khi chưa hoàn thành Router May Mặc
-                if not st.session_state["routing_completed"] and compressed_candidates:
-                    # =========================================================================================
-                    # FIX LỖI 4: PROMPT GIẢI PHẪU RẬP MAY MẶC (GARMENT ANATOMY PROMPT) - ÉP CẤU TRÚC PHÂN TÍCH CỨNG
-                    # =========================================================================================
+                # 2. KÍCH HOẠT MULTI-MODAL VISION PROMPT (TRUYỀN CẢ ẢNH VÀ TEXT)
+                if not st.session_state.get("routing_completed", False) and compressed_candidates:
                     semantic_prompt = (
-                        f"Target Type: {vision_type}. Size: {new_style_base_size}. New features: {new_vec}. "
-                        f"Candidates Pool (Compressed): {json.dumps(compressed_candidates, ensure_ascii=False)}. "
-                        f"CRITICAL EVALUATION INSTRUCTION: You are an expert Garment Technologist. "
-                        f"Analyze the Candidates Pool. Compare the target features against each candidate across these 7 structural anchors:\n"
-                        f"1. Garment Type Match (Strictly verify silhouette)\n"
-                        f"2. Pocket Configuration (Placement, quantity, and style e.g., patch, welt, side)\n"
-                        f"3. Waist Construction (Elastic band, standard waistband, rib-knit)\n"
-                        f"4. Fly & Closure Construction (Zipper fly, button fly, pull-on, drawstring)\n"
-                        f"5. Hem & Cuff Treatment (Raw, folded, ribbed, elasticated)\n"
-                        f"6. Panel Layout & Seams (Yoke panel, side seams, darts)\n"
-                        f"7. Trims & Hardwares (Buttons, rivets, drawcords)\n\n"
-                        f"DiceSimilarityScore represents mathematical confidence. Higher score means stronger match candidates. "
-                        f"Weight the physical garment anatomy significantly higher than literal text wording similarity. "
-                        f"If NO candidate is structurally similar, return 'selected_style': 'NONE' and 'match_score': 0. "
-                        f"Return valid JSON ONLY, format exactly like this: "
-                        f'{{"selected_style": "STYLE_NAME_HERE", "match_score": 95, "reason": "Structural breakdown matched: - Elastic waistband, - Zipper fly"}}'
+                        f"You are an expert Garment Technologist and Apparel VLM Analyzer.\n"
+                        f"CRITICAL TASK: Look carefully at the uploaded garment techpack image/sketch provided in the bytes data, "
+                        f"then compare its visual layout against the historical candidates pool listed below.\n\n"
+                        f"Target Specifications:\n"
+                        f"- Garment Silhouette Type: {vision_type}\n"
+                        f"- Base Size: {new_style_base_size}\n"
+                        f"- Visual Description: {new_vec}\n\n"
+                        f"Candidates Pool from Factory DB:\n"
+                        f"{json.dumps(compressed_candidates, ensure_ascii=False)}\n\n"
+                        f"EVALUATION RULES:\n"
+                        f"1. Compare the physical shape in the image with the 'SketchVectorText' of each candidate.\n"
+                        f"2. Use 'DiceSimilarityScore' as a math baseline (Higher means text is more similar).\n"
+                        f"3. Focus on waistband, zipper fly, pocket layouts, and leg/body shapes.\n"
+                        f"4. If you find a true visual match, return its exact 'pool_index'.\n"
+                        f"5. If NO candidate structurally matches the design in the image, you MUST return 'selected_pool_index': -1 and 'match_score': 0.\n\n"
+                        f"Return valid JSON ONLY, format exactly like this:\n"
+                        f'{{"selected_pool_index": -1, "match_score": 0, "reason": "Reason why it matches or why no match found based on visual traits."}}'
                     )
-                    res = client.models.generate_content(model='gemini-2.5-flash', contents=[semantic_prompt])
+                    
+                    # SỬA LỖI CỐT LÕI: Đóng gói cả Prompt chữ VÀ file ảnh nhị phân gửi thẳng cho Gemini đối soát
+                    if types and hasattr(types, "Part"):
+                        vlm_contents = [
+                            types.Part.from_text(text=semantic_prompt),
+                            types.Part.from_bytes(data=target_new_sketch_bytes, mime_type=detected_mime_type)
+                        ]
+                    else:
+                        vlm_contents = [
+                            semantic_prompt,
+                            {"mime_type": detected_mime_type, "data": target_new_sketch_bytes}
+                        ]
+                        
+                    res = client.models.generate_content(model='gemini-2.5-flash', contents=vlm_contents)
                     
                     clean_text = res.text.strip()
                     if clean_text.startswith("```"):
@@ -1773,32 +1781,24 @@ if st.session_state.get("matched_techpack") is None and st.session_state.get("ca
                     
                     if json_match:
                         match_res = json.loads(json_match.group())
-                        selected_style_name = str(match_res.get("selected_style")).strip()
+                        chosen_idx = match_res.get("selected_pool_index")
                         score = int(match_res.get("match_score", 0))
                         reason = str(match_res.get("reason", "N/A"))
                         
-                        # Bản đồ hóa tìm kiếm ngược lại Full Object gốc từ mảng raw ban đầu qua StyleName độc bản
-                        target_matched_obj = None
-                        if selected_style_name != "NONE" and score >= 60:
-                            for sim, obj in top_candidates_raw:
-                                if str(obj.get("StyleName", "")).strip() == selected_style_name:
-                                    target_matched_obj = obj
-                                    break
-                        
-                        # Đồng bộ hóa kết quả chấm điểm của AI vào State hệ thống
-                        if target_matched_obj and score >= 60:
-                            st.session_state["matched_techpack"] = target_matched_obj
+                        # Giải nén: Bốc ngược lại Full Object gốc từ mảng tuple dựa trên index được chọn
+                        if chosen_idx is not None and 0 <= chosen_idx < len(top_candidates_raw) and score >= 60:
+                            # top_candidates_raw[chosen_idx] cấu trúc là (similarity_score, full_object) -> Lấy phần tử [1]
+                            st.session_state["matched_techpack"] = top_candidates_raw[chosen_idx][1] 
                             st.session_state["match_confidence_score"] = score
                             st.session_state["match_reason"] = reason
                         else:
                             st.session_state["matched_techpack"] = None
                             st.session_state["match_confidence_score"] = 0
-                            st.session_state["match_reason"] = reason if selected_style_name == "NONE" else "Score fell below confidence floor (60%)."
+                            st.session_state["match_reason"] = reason if chosen_idx == -1 else "Score fell below confidence floor (60%)."
                     else:
                         st.session_state["matched_techpack"] = None
                         st.session_state["match_confidence_score"] = 0
                         
-                    # Đánh dấu khóa luồng đối soát sau khi AI phản hồi thành công
                     st.session_state["routing_completed"] = True
                     
         except Exception as e:
@@ -1807,17 +1807,13 @@ if st.session_state.get("matched_techpack") is None and st.session_state.get("ca
             st.session_state["match_confidence_score"] = 0
             st.session_state["routing_completed"] = True
 
-    # =========================================================================================
-    # 5. FIX LỖI 1 & 5: ROUTER 4 CẤP ĐỘ KHÉP KÍN CÓ KHÓA TRẠNG THÁI (ANTI-INFINITE LOOP LOCK)
-    # =========================================================================================
-    # Chỉ bẻ hướng Mode định mức nếu luồng quét AI phía trên đã báo hoàn thành đóng khóa
+    # ROUTER ĐIỀU HƯỚNG 4 CẤP ĐỘ KHÉP KÍN
     if st.session_state.get("routing_completed", False):
         current_score = st.session_state["match_confidence_score"]
         current_match = st.session_state["matched_techpack"]
         
         if not current_match:
             st.session_state["calculation_mode"] = "GEOMETRIC_VECTOR"
-        # CẤP ĐỘ MỚI: TỰ ĐỘNG PHÊ DUYỆT ĐỊNH MỨC GỐC KHÔNG CẦN CẢNH BÁO MERCHANDISER
         elif current_score >= 92:
             st.session_state["calculation_mode"] = "AUTO_APPROVED"
         elif current_score >= 85:
@@ -1827,8 +1823,40 @@ if st.session_state.get("matched_techpack") is None and st.session_state.get("ca
         else:
             st.session_state["calculation_mode"] = "GEOMETRIC_VECTOR"
 
-        # Đẩy trang vẽ lại giao diện một lần duy nhất với nhãn Mode mới, chặn đứng Infinite Rerun Loop
         st.rerun()
+
+
+    # KHỐI HIỂN THỊ UI: SO SÁNH TRỰC QUAN ẢNH FLAT SKETCH VÀ THÔNG SỐ VỆ TINH
+# =========================================================================================
+
+calc_mode = st.session_state.get("calculation_mode")
+matched_techpack = st.session_state.get("matched_techpack")
+
+if calc_mode in ["AUTO_APPROVED", "HISTORICAL_MATCH", "AI_PROJECTION"] and matched_techpack is not None:
+    st.markdown("### 🖼️ ĐỐI CHIẾU TRỰC QUAN HÌNH ẢNH THIẾT KẾ & THÔNG TIN NỀN")
+    
+    img_col1, img_col2 = st.columns(2)
+    
+    with img_col1:
+        st.info("📁 **Bản thiết kế mới (Uploaded Techpack):**")
+        # Hiển thị lại file ảnh/PDF người dùng vừa tải lên ứng dụng
+        if "bom_matrix_uploader" in st.session_state and st.session_state["bom_matrix_uploader"] is not None:
+            st.image(st.session_state["bom_matrix_uploader"], use_container_width=True)
+            
+    with img_col2:
+        # Trích xuất URL hình ảnh lịch sử lưu trong cột SketchURL (hoặc sketch_url) của Supabase
+        historical_sketch_url = matched_techpack.get("SketchURL", matched_techpack.get("sketch_url"))
+        st.success(f"🥇 **Mã lịch sử tương đồng: `{matched_techpack.get('StyleName')}` (Độ chính xác: {st.session_state['match_confidence_score']}%)**")
+        
+        if historical_sketch_url:
+            st.image(historical_sketch_url, caption=f"Sketch gốc của mã {matched_techpack.get('StyleName')}", use_container_width=True)
+        else:
+            st.warning("⚠️ Mã hàng khớp thành công nhưng không tìm thấy URL ảnh đính kèm trong kho dữ liệu.")
+
+    # Hiển thị chuỗi đặc trưng thông số hình học (sketch_vector) của mã cũ để đối chiếu văn bản
+    with st.expander("📝 XEM CHUỖI ĐẶC TRƯNG HÌNH HỌC (SKETCH VECTOR CORES) CỦA MÃ CŨ", expanded=False):
+        st.write(f"**Lý do AI chọn khớp:** {st.session_state.get('match_reason')}")
+        st.code(str(matched_techpack.get("sketch_vector", "Không có dữ liệu vector chữ.")))
 
 
 
