@@ -1561,11 +1561,23 @@ if (not new_vec or len(new_vec) < 30) and target_new_sketch_bytes and client and
                 else:
                     st.session_state["vision_completed"] = False
                     st.warning(f"⚠️ Trục trặc kết nối AI Vision (Thử lại lần {st.session_state['vision_retry_count']}/3). Đang thiết lập lại... Chi tiết: {str(e)}")
-# PART 1B ĐÃ SỬA DỨT ĐIỂM: TRÍCH XUẤT CLIENT TRỰC TIẾP TỪ SESSION_STATE 
+# PART 1B: ĐỘNG CƠ AI VISION PIPELINE TỰ KHỞI TẠO ĐỘC LẬP CHỐNG LỖI NAMEERROR DÒNG 1456
 # =========================================================================================
 
-# VÁ LỖI NGUỒN TIẾP CẬN: Tìm kiếm đối tượng kết nối API thông qua cả 2 kênh Session State và Toàn cục
-client = st.session_state.get("client", globals().get("client", None))
+# SỬA LỖI CHÍ MẠNG: Tự động trích xuất cấu hình hoặc tái khởi tạo client trực tiếp tại chỗ
+if "client" in st.session_state and st.session_state["client"] is not None:
+    client = st.session_state["client"]
+elif globals().get("client") is not None:
+    client = globals().get("client")
+else:
+    # Nếu hệ thống bị mất dấu biến client, tự tạo một client cục bộ bằng API Key có sẵn trong globals
+    try:
+        from google import genai
+        # Bốc mã khóa API Key đang hoạt động của nhà máy PPJ Group
+        sb_key_backup = globals().get("SB_KEY", st.session_state.get("SB_KEY", ""))
+        client = genai.Client(api_key=sb_key_backup)
+    except Exception:
+        client = None
 
 # Đồng bộ hóa các biến cục bộ nền an toàn từ bộ nhớ phiên Streamlit
 target_new_sketch_bytes = st.session_state.get("target_new_sketch_bytes")
