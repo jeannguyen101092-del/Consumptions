@@ -2001,7 +2001,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     st.session_state["main_fabric_records"] = main_fabric_records
     st.session_state["bom_summary_engine"] = bom_summary_engine
 
-    # --- BẢNG SO SÁNH SAI LỆCH THÔNG SỐ RẬP (ĐÃ ĐƯỢC ĐƯA VÀO KHỐI IF CHUẨN) ---
+    # --- BẢNG SO SÁNH SAI LỆCH THÔNG SỐ RẬP ---
     st.markdown("<br>### 📐 BẢNG SO SÁNH SAI LỆCH THÔNG SỐ KỸ THUẬT RẬP MẪU", unsafe_allow_html=True)
 
     new_specs = new_style_measurements_dict if new_style_measurements_dict else {}
@@ -2084,12 +2084,10 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             avg_pom_growth = sum(valid_diff_pcts) / len(valid_diff_pcts)
             avg_area_growth_pct = round((((1 + avg_pom_growth/100) ** 2) - 1) * 100, 2)
 
-
-
-
     # --- AI CONSUMPTION PROJECTION ENGINE ---
     if matched_techpack and st.session_state.get("matched_image_verified", False) and bom_records:
         st.markdown("<br>🔮 **AI CONSUMPTION PROJECTION ENGINE (DỰ PHÓNG ĐỊNH MỨC MÃ MỚI)**", unsafe_allow_html=True)
+
         
         v_similarity = st.session_state.get("matched_similarity_score", 100.0)
         col1, col2 = st.columns(2)
