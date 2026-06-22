@@ -2486,338 +2486,131 @@ else:
 
 
 
-# =================================================================
-# ĐOẠN 6A: GIAO DIỆN CHAT AI PHÂN TÍCH ĐỊNH MỨC VÀ SCRIPT AUTO-SCROLL
-# =================================================================
-if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption Matrix":
-    import streamlit as st
-    import pandas as pd
-    import json
+# =========================================================================================
+# ĐOẠN 6A: GIAO DIỆN CHAT AI PHÂN TÍCH ĐỊNH MỨC VÀ SCRIPT AUTO-SCROLL ĐỘC LẬP
+# =========================================================================================
+import json
+import streamlit as st
+import streamlit.components.v1 as components
 
-    client = globals().get("client", None)
-    matched_techpack = st.session_state.get("matched_techpack", None)
-    bom_records = st.session_state.get("bom_records", [])
-    new_style_measurements_dict = globals().get("new_style_measurements_dict", {})
-    target_new_sketch_bytes = globals().get("target_new_sketch_bytes", None)
-    new_style_base_size = st.session_state.get("new_style_base_size", "M")
+st.markdown("<br><br>---", unsafe_allow_html=True)
+st.markdown("<div class='component-title-box'>💬 AI CONSUMPTION EXPERT CHATBAR</div>", unsafe_allow_html=True)
+st.caption("Trợ lý AI chuyên sâu về định mức. Bạn có thể ra lệnh hiệu chỉnh (Ví dụ: 'Tăng hao hụt vải lên 5%', 'Đổi nút sang cỡ 24L') hoặc thảo luận công đoạn kỹ thuật.")
 
-    def normalize_measurements_chat(value):
-        if isinstance(value, dict): return value
-        if isinstance(value, str) and value.strip():
-            try:
-                parsed = json.loads(value)
-                return parsed if isinstance(parsed, dict) else {}
-            except:
-                return {}
-        return {}
+# 1. KHỞI TẠO BỘ NHỚ LỊCH SỬ CHAT TRÊN SESSION STATE NẾU CHƯA TỒN TẠI
+if "consumption_chat_history" not in st.session_state:
+    st.session_state["consumption_chat_history"] = []
 
-    new_m_chat = normalize_measurements_chat(new_style_measurements_dict)
+# Đồng bộ tài nguyên cấu trúc nền từ các Tầng trên để làm ngữ cảnh nuôi Chatbot
+calc_mode_current = st.session_state.get("calculation_mode", "GEOMETRIC_VECTOR")
+bom_current_records = st.session_state.get("bom_records", [])
+vision_metadata_core = st.session_state.get("vision_json", {})
+client_chat_master = globals().get("client", st.session_state.get("client", None))
 
-    chat_header_col1, chat_header_col2 = st.columns([3.2, 0.8])
-    with chat_header_col1:
-        st.markdown("### 💬 TRỢ LÝ AI PHÂN TÍCH ĐỊNH MỨC SẢN XUẤT ")
-    with chat_header_col2:
-        if st.button("🗑️ XÓA LỊCH SỬ CHAT", key="unique_clear_consumption_chat_matrix_btn", use_container_width=True):
-            st.session_state["consumption_chat_history"] = []
-            st.toast("♻️ Đã xóa sạch lịch sử chat tức thì!")
-            st.rerun()
+# 2. KHÔNG GIAN RENDER KHUNG HIỂN THỊ TIN NHẮN (CHAT BOX CONTAINER)
+chat_container = st.container()
 
-    chat_container = st.container()
-    with chat_container:
-        for chat in st.session_state.get("consumption_chat_history", []):
-            with st.chat_message("user"): st.write(chat["user"])
-            with st.chat_message("assistant"): st.write(chat["ai"])
-                
-    if user_query := st.chat_input("Nhập yêu cầu phân tích định mức thực tế bàn cắt..."):
-        if "consumption_chat_history" not in st.session_state:
-            st.session_state["consumption_chat_history"] = []
-        with chat_container:
-            with st.chat_message("user"): st.write(user_query)
-            with st.chat_message("assistant"):
-                with st.spinner("🤖 AI đang phân tích dữ liệu và tính toán định mức..."):
-                    try:
-                        if "ai_consumption_analyst_engine" in globals():
-                            ai_reply = ai_consumption_analyst_engine(
-                                client=client, user_message=user_query, matched_techpack=matched_techpack,
-                                bom_records=bom_records, new_style_measurements=new_m_chat,
-                                target_new_sketch_bytes=target_new_sketch_bytes, detected_size=new_style_base_size
-                            )
-                        else:
-                            ai_reply = "⚠️ Khối phân tích `ai_consumption_analyst_engine` chưa được khởi tạo."
-                    except Exception as chat_err:
-                        ai_reply = f"❌ Lỗi kết nối bộ não AI: {str(chat_err)}"
-                    st.write(ai_reply)
-                    st.session_state["consumption_chat_history"].append({"user": user_query, "ai": ai_reply})
-                    
-        js_scroll = "<script>var d=window.parent.document; var s=d.querySelectorAll('section.main'); if(s.length>0){s.scrollTo({top:s.scrollHeight,behavior:'smooth'});}</script>"
-        st.components.v1.html(js_scroll, height=0)
-# =================================================================
-# ĐOẠN 6B: HỆ THỐNG ĐỊNH MỨC THÔNG MINH - LEVEL 1 & LEVEL 2 AI RETRIEVAL
-# =================================================================
-if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption Matrix":
-    import streamlit as st
-    import pandas as pd
-    import numpy as np
-    import re
-    import json
-
-    st.markdown("---")
-    st.markdown("### 📊 HỆ THỐNG ĐỊNH MỨC TOÀN DIỆN (4-LEVEL PIPELINE)")
-
-    # 1. THIẾT LẬP THAM SỐ SẢN XUẤT TOÀN CỤC
-    g1, g2, g3 = st.columns(3)
-    with g1: 
-        fabric_width = st.number_input("Khổ vải hữu dụng (Inches)", min_value=30.0, max_value=80.0, value=58.0, step=0.5, key="global_fabric_w")
-    with g2: 
-        shrinkage_rate = st.number_input("Độ co rút tổng hợp (%)", min_value=0.0, max_value=20.0, value=3.0, step=0.1, key="global_shrink_r")
-    with g3: 
-        cutting_waste = st.number_input("Hao hụt bàn cắt (%)", min_value=0.0, max_value=15.0, value=2.5, step=0.1, key="global_waste_c")
-
-    # Khôi phục dữ liệu ngữ cảnh an toàn
-    matched_techpack = st.session_state.get("matched_techpack", None)
-    new_style_measurements_dict = globals().get("new_style_measurements_dict", {})
-    new_style_base_size = st.session_state.get("new_style_base_size", "M")
-    vision_match_score = st.session_state.get("vision_match_score", 0)
-    subabat_consumption_db = st.session_state.get("subabat_consumption_history", [])
-
-    # Ma trận nhảy size và đặc trưng thiết kế DNA mẫu mới
-    SIZE_DELTA_MATRIX = {"S": 0.96, "M": 1.00, "L": 1.03, "XL": 1.06, "XXL": 1.10}
-    target_category = matched_techpack.get("category") if matched_techpack else st.session_state.get("new_style_category", "Pant")
-    target_fabric = matched_techpack.get("fabric") if matched_techpack else st.session_state.get("new_style_fabric", "Cotton")
-    target_construction = matched_techpack.get("construction") if matched_techpack else st.session_state.get("new_style_construction", "Standard")
-
-    # Bộ lọc số đo Robust xử lý phân số và đơn vị chữ dính kèm số
-    def extract_apparel_number_6b(value_str):
-        if not value_str or pd.isna(value_str): return None
-        v_clean = str(value_str).strip().replace(',', '.')
-        fraction_match = re.search(r"(\d+)-(\d+)/(\d+)", v_clean)
-        if fraction_match:
-            base = float(fraction_match.group(1))
-            num = float(fraction_match.group(2))
-            denom = float(fraction_match.group(3))
-            return base + (num / denom) if denom > 0 else base
-        num_match = re.search(r"\d+\.?\d*", v_clean)
-        return float(num_match.group()) if num_match else None
-
-    def normalize_measurements_6b(value):
-        if isinstance(value, dict): return value
-        if isinstance(value, str) and value.strip():
-            try: return json.loads(value)
-            except: return {}
-        return {}
-
-    new_m = normalize_measurements_6b(new_style_measurements_dict)
-    st.session_state["normalized_new_m"] = new_m 
-
-    # Thuật toán tính toán khoảng cách vector so khớp tương đồng DNA
-    max_similarity = 0
-    df_top_k = pd.DataFrame()
-    st.session_state["pipeline_executed_level"] = 3  # Mặc định trượt xuống Level 3 nếu 1 và 2 không đủ độ tin cậy
-
-    if len(subabat_consumption_db) > 0:
-        df_subabat = pd.DataFrame(subabat_consumption_db)
-        
-        def calculate_style_dna_score(row):
-            score = 0
-            if str(row.get("category")).lower() == str(target_category).lower(): score += 25
-            if str(row.get("fabric")).lower() == str(target_fabric).lower(): score += 25
-            if str(row.get("construction")).lower() == str(target_construction).lower(): score += 20
-            if str(row.get("size")).lower() == str(new_style_base_size).lower(): score += 10
-            
-            old_m = normalize_measurements_6b(row.get("DetailedMeasurements"))
-            common_keys = set(old_m.keys()).intersection(set(new_m.keys()))
-            
-            if common_keys:
-                diffs = []
-                for k in common_keys:
-                    n_v = extract_apparel_number_6b(new_m[k])
-                    o_v = extract_apparel_number_6b(old_m[k])
-                    if n_v and o_v and o_v > 0: diffs.append(abs(n_v - o_v) / o_v)
-                if diffs:
-                    measurement_coverage = len(common_keys) / max(len(old_m), len(new_m))
-                    score += (max(0, (1.0 - np.mean(diffs)) * 20) * measurement_coverage)
-            return score
-
-        df_subabat["Similarity_Score"] = df_subabat.apply(calculate_style_dna_score, axis=1)
-        df_top_k = df_subabat[df_subabat["Similarity_Score"] >= 50].sort_values("Similarity_Score", ascending=False).head(3)
-        if not df_top_k.empty:
-            max_similarity = df_top_k["Similarity_Score"].max()
-
-    # ĐIỀU HƯỚNG CHẠY TẦNG FALLBACK
-    if vision_match_score >= 75 and matched_techpack and matched_techpack.get("consumption"):
-        st.session_state["pipeline_executed_level"] = 1
-        st.success(f"🎯 **LEVEL 1 ACTIVE: VISION + TECHPACK MATCH (Độ khớp: {vision_match_score}%)**")
-        orig_consumption = float(matched_techpack["consumption"])
-        size_scale_factor = SIZE_DELTA_MATRIX.get(new_style_base_size, 1.00)
-        level1_consumption = orig_consumption * size_scale_factor * (1 + (shrinkage_rate / 100.0)) * (1 + (cutting_waste / 100.0))
-        st.metric(label="📐 ĐỊNH MỨC ĐỒNG BỘ GỐC CHÍNH XÁC (EXACT MATCH)", value=f"{level1_consumption:.3f} Yards / Sản phẩm", delta=f"Size Matrix: {size_scale_factor:.2f}")
-
-    elif max_similarity >= 50 and not df_top_k.empty:
-        st.session_state["pipeline_executed_level"] = 2
-        st.warning("🔮 **LEVEL 2 ACTIVE: SUBABAT AI RETRIEVAL (STYLE DNA NEAREST NEIGHBOR)**")
-        similarity_confidence = df_top_k["Similarity_Score"].mean()
-        
-        total_score = df_top_k["Similarity_Score"].sum()
-        df_top_k["Weight"] = df_top_k["Similarity_Score"] / total_score if total_score > 0 else 1/len(df_top_k)
-        weighted_base_consumption = (df_top_k["consumption"] * df_top_k["Weight"]).sum()
-        
-        # SỬA LỖI VẬN HÀNH: Đổi .iloc.get thành truy xuất chỉ mục dòng đầu tiên .iloc[0]
-        best_match_old_m = normalize_measurements_6b(df_top_k.iloc[0].get("DetailedMeasurements"))
-        common_keys = set(best_match_old_m.keys()).intersection(set(new_m.keys()))
-        
-        ratios = []
-        if common_keys:
-            for k in common_keys:
-                n_val = extract_apparel_number_6b(new_m[k])
-                o_val = extract_apparel_number_6b(best_match_old_m[k])
-                if n_val and o_val and o_val > 0: ratios.append(n_val / o_val)
-                    
-        raw_factor = np.mean(ratios) if ratios else 1.0
-        measurement_factor = max(0.85, min(raw_factor, 1.20)) # Khóa Clamped an toàn cho sản xuất
-        size_scale_factor = SIZE_DELTA_MATRIX.get(new_style_base_size, 1.00)
-        
-        final_level2_consumption = weighted_base_consumption * measurement_factor * size_scale_factor * (1 + (shrinkage_rate / 100.0)) * (1 + (cutting_waste / 100.0))
-        
-        m_col1, m_col2 = st.columns(2)
-        with m_col1:
-            st.metric(label="📊 ĐỊNH MỨC SẢN XUẤT AI SIMILARITY PROJECTION", value=f"{final_level2_consumption:.3f} Yards / Sản phẩm", delta=f"Factor: {measurement_factor:.3f}")
-        with m_col2:
-            st.metric(label="🤖 ĐỘ TIN CẬY MÔ HÌNH (AI CONFIDENCE)", value=f"{similarity_confidence:.1f}%", delta=f"Top K Selected: {len(df_top_k)}")
-        st.dataframe(df_top_k[["style", "category", "fabric", "construction", "consumption", "Similarity_Score", "Weight"]], use_container_width=True)
-# =================================================================
-# ĐOẠN 6C: HỆ THỐNG ĐỊNH MỨC HÌNH HỌC - LEVEL 3 GERBER DXF TRUE AREA COMPILER
-# =================================================================
-if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption Matrix":
-    import streamlit as st
-    import pandas as pd
-    import numpy as np
-    import tempfile
-    import ezdxf  # Thư viện biên dịch cấu trúc vector rập CAD
-
-    # Kiểm tra trạng thái rẽ nhánh từ đoạn 6B chuyển qua
-    pipeline_level = st.session_state.get("pipeline_executed_level", 3)
-
-    if pipeline_level == 3:
-        st.error("🧩 **LEVEL 3 ACTIVE: GERBER DXF TRUE AREA COMPILER**")
-        uploaded_dxf = st.file_uploader("📥 Nạp file thiết kế mẫu rập hình học thực tế (DXF/AAMA Gerber)", type=["dxf"], key="level3_dxf_uploader")
-        
-        if uploaded_dxf is not None:
-            st.success("✅ Đã kết nối cổng biên dịch đồ họa Gerber DXF!")
-            with st.spinner("📐 Gerber Engine đang quét lọc các đối tượng và nội suy chu vi tinh..."):
-                try:
-                    with tempfile.NamedTemporaryFile(delete=False, suffix=".dxf") as tmp_file:
-                        tmp_file.write(uploaded_dxf.getvalue())
-                        tmp_file_path = tmp_file.name
-                    
-                    doc = ezdxf.readfile(tmp_file_path)
-                    msp = doc.modelspace()
-                    
-                    # Trích xuất biến cấu hình từ Session State của đoạn 6B
-                    fabric_width = st.session_state.get("global_fabric_w", 58.0)
-                    shrinkage_rate = st.session_state.get("global_shrink_r", 3.0)
-                    cutting_waste = st.session_state.get("global_waste_c", 2.5)
-
-                    # Giải mã đơn vị INSUNITS từ CAD Header
-                    dxf_units = doc.header.get("$INSUNITS", 1)
-                    scale_to_inch_sq = 1.0
-                    unit_label = "Inches"
-                    if dxf_units == 4:
-                        scale_to_inch_sq = (1.0 / 25.4) * (1.0 / 25.4)
-                        unit_label = "Millimeters (Converted to SqIn)"
-                    elif dxf_units == 5:
-                        scale_to_inch_sq = (1.0 / 2.54) * (1.0 / 2.54)
-                        unit_label = "Centimeters (Converted to SqIn)"
-
-                    # ĐÃ KHẮC PHỤC: Hàm Shoelace viết cực kỳ ngắn gọn, tránh lỗi cắt chuỗi
-                    def calculate_polygon_area_safe_6c(vertices_list):
-                        if not vertices_list or len(vertices_list) = 3:
-                            raw_area = calculate_polygon_area_safe_6c(points)
-                            area_sq_inches = raw_area * scale_to_inch_sq
-                            if area_sq_inches > 4.0: 
-                                parsed_pieces.append({
-                                    "Chi tiết rập tinh (Gerber CAD)": f"Piece_{dxftype}_{len(parsed_pieces)+1}",
-                                    "Diện tích thực (Sq Inches)": round(area_sq_inches, 2),
-                                    "Số lượng chi tiết": 2 if any(x in dxftype.lower() or x in layer_name for x in ['front', 'back', 'than', 'tay', 'panel']) else 1
-                                })
-
-                    if parsed_pieces:
-                        st.session_state["dxf_parsed_pieces_records"] = parsed_pieces
-                        st.session_state["pipeline_executed_level"] = 3.5  
-                        st.rerun()
-                    else:
-                        st.warning("⚠️ File DXF không chứa thực thể đường chu vi đóng ngoài (Contour Line) nào hợp lệ.")
-                        st.session_state["pipeline_executed_level"] = 4
-                except Exception as dxf_err:
-                    st.error(f"❌ Lỗi cấu trúc hoặc phiên bản CAD thiết kế: {str(dxf_err)}")
-                    st.session_state["pipeline_executed_level"] = 4
-# =================================================================
-# ĐOẠN 6D: ĐỊNH MỨC DỰ PHÒNG CUỐI CÙNG QUA VISION & VÒNG LẶP HỌC MÁY TỰ ĐỘNG
-# =================================================================
-if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption Matrix":
-    import streamlit as st
-    import pandas as pd
-
-    pipeline_level = st.session_state.get("pipeline_executed_level", 3)
-
-    # TRƯỜNG HỢP 3.5: HIỂN THỊ VÀ ĐIỀU CHỈNH SƠ ĐỒ BÀN CẮT TỪ FILE DXF ĐÃ BIÊN DỊCH XONG
-    if pipeline_level == 3.5:
-        st.success("📐 **LEVEL 3 COMPILER OUTPUT: KẾT QUẢ ĐO ĐẠC VECTOR RẬP CHI TIẾT**")
-        parsed_pieces = st.session_state.get("dxf_parsed_pieces_records", [])
-        
-        fabric_width = st.session_state.get("global_fabric_w", 58.0)
-        shrinkage_rate = st.session_state.get("global_shrink_r", 3.0)
-        cutting_waste = st.session_state.get("global_waste_c", 2.5)
-        
-        df_dxf_real = pd.DataFrame(parsed_pieces)
-        edited_dxf_df = st.data_editor(df_dxf_real, use_container_width=True, num_rows="dynamic", key="real_dxf_editor_final")
-        
-        marker_efficiency = st.slider("Hiệu suất đi sơ đồ sản xuất thực tế (Marker Efficiency %)", min_value=60.0, max_value=98.0, value=84.5, key="dxf_eff_slider")
-        
-        total_net_area = (edited_dxf_df["Diện tích thực (Sq Inches)"] * edited_dxf_df["Số lượng chi tiết"]).sum()
-        dxf_base_consumption = (total_net_area / fabric_width) / 36.0
-        final_dxf_consumption = (dxf_base_consumption / (marker_efficiency / 100.0)) * (1 + (shrinkage_rate / 100.0)) * (1 + (cutting_waste / 100.0))
-        
-        st.metric(label="📐 ĐỊNH MỨC SẢN XUẤT THỰC TẾ (GERBER DXF COMPILER)", value=f"{final_dxf_consumption:.3f} Yards / Sản phẩm", delta=f"Tổng diện tích rập tinh: {total_net_area:.2f} SqIn")
-
-        # CƠ CHẾ AUTO LEARNING: Hồi tiếp dữ liệu thực tế làm giàu tập CSDL học máy
-        if st.button("💾 LƯU ĐỊNH MỨC NÀY VÀO KHO LỊCH SỬ SUBABAT", use_container_width=True, key="save_dxf_to_subabat_btn"):
-            matched_techpack = st.session_state.get("matched_techpack", None)
-            subabat_consumption_db = st.session_state.get("subabat_consumption_history", [])
-            
-            # ĐÃ CHUẨN HÓA: Xuống dòng gọn gàng, an toàn tuyệt đối
-            new_record = {
-                "style": st.session_state.get("new_style_code", "NEW-STYLE-DXF"),
-                "category": matched_techpack.get("category") if matched_techpack else st.session_state.get("new_style_category", "Pant"),
-                "fabric": matched_techpack.get("fabric") if matched_techpack else st.session_state.get("new_style_fabric", "Cotton"),
-                "construction": matched_techpack.get("construction") if matched_techpack else st.session_state.get("new_style_construction", "Standard"),
-                "size": st.session_state.get("new_style_base_size", "M"),
-                "consumption": round(final_dxf_consumption, 3),
-                "DetailedMeasurements": st.session_state.get("normalized_new_m", {})
-            }
-            subabat_consumption_db.append(new_record)
-            st.session_state["subabat_consumption_history"] = subabat_consumption_db
-            st.toast("✅ Thuật toán Auto Learning: Đã cập nhật định mức thực tế vào kho Subabat!")
-
-    # -----------------------------------------------------------------
-    # LEVEL 4: FLAT SKETCH VISION ESTIMATE (DỰ PHÒNG CUỐI CÙNG QUA ẢNH BYTES PHẲNG)
-    # -----------------------------------------------------------------
-    elif pipeline_level == 4:
-        st.info("📸 **LEVEL 4 ACTIVE: FLAT SKETCH VISION ESTIMATE (DỰ PHÒNG CUỐI CÙNG)**")
-        target_new_sketch_bytes = globals().get("target_new_sketch_bytes", None)
-        fabric_width = st.session_state.get("global_fabric_w", 58.0)
-        shrinkage_rate = st.session_state.get("global_shrink_r", 3.0)
-        cutting_waste = st.session_state.get("global_waste_c", 2.5)
-
-        if target_new_sketch_bytes is not None:
-            st.image(target_new_sketch_bytes, caption="Mô hình Vision đang trích xuất mật độ điểm ảnh để ước tính diện tích bao phẳng", width=280)
-            pixel_density = len(target_new_sketch_bytes)
-            computed_sq_inches = max(450.0, min(2300.0, (pixel_density / 1100.0) * 2.7))
-            
-            vision_base = (computed_sq_inches / fabric_width) / 36.0
-            final_vision_consumption = vision_base * 1.12 * (1 + (shrinkage_rate / 100.0)) * (1 + (cutting_waste / 100.0))
-            st.metric(label="🔮 ƯỚC LƯỢNG ĐỊNH MỨC SẢN XUẤT QUA AI VISION SKETCH", value=f"{final_vision_consumption:.3f} Yards / Sản phẩm", delta=f"Diện tích phẳng ước tính: {computed_sq_inches:.1f} Sq Inches")
+with chat_container:
+    # Duyệt và vẽ lại toàn bộ lịch sử tin nhắn trong phiên làm việc
+    for chat in st.session_state["consumption_chat_history"]:
+        if chat["role"] == "user":
+            st.chat_message("user", avatar="🧵").write(chat["content"])
         else:
-            st.error("⚠️ Hệ thống mất hoàn toàn kết nối dữ liệu đầu vào: Không nạp file Gerber DXF và không tìm thấy ảnh Flat Sketch.")
+            st.chat_message("assistant", avatar="🤖").write(chat["content"])
+
+# 3. TIẾP NHẬN INPUT TỪ NGƯỜI DÙNG (CHAT INPUT CONTAINER)
+user_query = st.chat_input("Nhập yêu cầu phân tích hoặc lệnh hiệu chỉnh định mức tại đây...")
+
+if user_query:
+    # Đẩy tin nhắn của Merchandiser vào bộ nhớ hiển thị ngay lập tức
+    st.session_state["consumption_chat_history"].append({"role": "user", "content": user_query})
+    
+    # Vẽ tin nhắn user lên UI tức thì để tối ưu trải nghiệm thời gian thực
+    with chat_container:
+        st.chat_message("user", avatar="🧵").write(user_query)
+        
+    # KÍCH HOẠT ĐỘNG CƠ SUY LUẬN AI CHUYÊN SÂU (CONSUMPTION DISCUSSION ENGINE)
+    if client_chat_master and hasattr(client_chat_master, "models"):
+        with st.spinner("🤖 Trợ lý định mức đang phân rã công thức may và phản hồi..."):
+            try:
+                # Đóng gói toàn bộ cấu trúc định mức và giải phẫu rập hiện tại làm ngữ cảnh (Context) cho AI
+                context_payload = {
+                    "current_calculation_mode": calc_mode_current,
+                    "active_bom_matrix_records": bom_current_records,
+                    "extracted_garment_anatomy": vision_metadata_core
+                }
+                
+                system_instruction = (
+                    "You are a Senior Apparel Merchandiser and Costing Expert at PPJ Group.\n"
+                    "Your job is to assist users in auditing, adjusting, or optimizing the Bill of Materials (BOM) and fabric consumption matrix.\n"
+                    "Analyze the current system data payload context provided by the user carefully. "
+                    "If the user requests changes (e.g., 'tăng hao hụt', 'đổi phụ liệu'), explain how it impacts production and costing mathematically. "
+                    "Always reply in Vietnamese with high professional density, short punchy fragments, and clear markdown bullet points."
+                )
+                
+                # Thiết lập chuỗi lịch sử hội thoại truyền cho Gemini
+                chat_contents = [system_instruction, f"Current System Data Context:\n{json.dumps(context_payload, ensure_ascii=False)}"]
+                
+                # Nạp dồn tối đa 10 tin nhắn gần nhất để giữ mạch ngữ cảnh cuộc thảo luận
+                for past_chat in st.session_state["consumption_chat_history"][-10:]:
+                    chat_contents.append(f"{past_chat['role'].upper()}: {past_chat['content']}")
+                
+                # Gọi mô hình Gemini 2.5 Flash phản hồi ngữ cảnh
+                chat_res = client_chat_master.models.generate_content(
+                    model='gemini-2.5-flash',
+                    contents=chat_contents
+                )
+                
+                if chat_res and chat_res.text:
+                    ai_reply = chat_res.text.strip()
+                    # Đẩy phản hồi của AI vào lịch sử phiên
+                    st.session_state["consumption_chat_history"].append({"role": "assistant", "content": ai_reply})
+                    
+                    # Vẽ phản hồi của AI lên khung hiển thị
+                    with chat_container:
+                        st.chat_message("assistant", avatar="🤖").write(ai_reply)
+                        
+                    # Ép vẽ lại toàn cục giao diện để đồng bộ dữ liệu mượt mà
+                    st.rerun()
+                    
+            except Exception as e:
+                error_msg = f"❌ Động cơ AI Chatbar gặp sự cố đường truyền: {str(e)}"
+                st.session_state["consumption_chat_history"].append({"role": "assistant", "content": error_msg})
+                st.error(error_msg)
+                st.rerun()
+    else:
+        st.error("🚨 Kết nối API Key Master của Chatbot bị gián đoạn. Vui lòng kiểm tra lại cấu hình client.")
+
+# =========================================================================================
+# 4. SCRIPT AUTO-SCROLL ĐỘC LẬP TỰ ĐỘNG CUỘN ĐÁY KHUNG CHAT (INJECTED JAVASCRIPT CORNER)
+# Công nghệ chèn mã Script gián tiếp qua iframe component, ép trình duyệt tự động định vị
+# và kéo cuộn trang xuống phần tử chat input mới nhất sau mỗi chu kỳ tương tác Rerun UI.
+# =========================================================================================
+components.html(
+    """
+    <script>
+        // Hàm thực thi tìm kiếm và cuộn trang xuống đáy
+        function performAutoScroll() {
+            // Chỉ định các mỏ neo DOM chứa khung nhập lệnh Chat của Streamlit
+            const mainWindow = window.parent.document.querySelector(".main");
+            const chatInputArea = window.parent.document.querySelector(".stChatInput");
+            
+            if (mainWindow && chatInputArea) {
+                // Thực hiện kéo cuộn mượt mà (smooth) xuống vị trí của Chat Input mới nhất
+                mainWindow.scrollTo({
+                    top: chatInputArea.offsetTop + 500,
+                    behavior: "smooth"
+                });
+            }
+        }
+        
+        // Kích hoạt hàm cuộn ngay khi component iframe được nạp vào cây DOM
+        setTimeout(performAutoScroll, 300);
+    </script>
+    """,
+    height=0, # Thiết lập chiều cao bằng 0 để tàng hình hoàn toàn, không phá vỡ bố cục thiết kế UI
+    width=0
+)
 
 
 
