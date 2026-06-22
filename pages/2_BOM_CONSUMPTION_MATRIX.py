@@ -1911,14 +1911,23 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             else:
                 st.session_state["bom_search_status"] = "API_ERROR" if is_api_error else "NOT_FOUND"
 
-    bom_records = st.session_state.get("bom_records", [])
+       bom_records = st.session_state.get("bom_records", [])
     main_fabric_records = []
-    bom_summary_engine = {}
-
-    for r in bom_records:
+    
+    # 1. Lọc chính xác bản ghi thuộc mã đối chứng đang chọn để tránh lấy lộn mã khác
+    target_style_name_bom = st.session_state.get("matched_style_name", "").strip().upper()
+    exact_bom_records = [
+        r for r in bom_records 
+        if str(r.get("style_name", "")).strip().upper() == target_style_name_bom
+    ]
+    
+    # 2. Gom nhóm định mức theo từng loại vật tư (Type) để xử lý dữ liệu lịch sử
+    bom_groups = {}
+    for r in exact_bom_records:
         ctype = str(r.get("consumption_type", "")).strip().upper()
         if not ctype: 
             ctype = "UNKNOWN"
+            
         if ctype in ["MAIN", "FABRIC", "BODY", "SHELL", "MAIN FABRIC"]:
             main_fabric_records.append(r)
             
@@ -1927,11 +1936,21 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         except (ValueError, TypeError):
             qty = 0.0
             
-        bom_summary_engine[ctype] = round(bom_summary_engine.get(ctype, 0.0) + qty, 3)
+        if ctype not in bom_groups:
+            bom_groups[ctype] = []
+        bom_groups[ctype].append(qty)
 
-    st.session_state["historical_bom_reference"] = bom_records
+    # 3. VÁ LỖI CỘNG DỒN: Tính TRUNG BÌNH CỘNG của các LOT (Lot6, Lot7, Lot8...) thay vì cộng dồn tất cả lại
+    bom_summary_engine = {}
+    for ctype, qty_list in bom_groups.items():
+        if qty_list:
+            bom_summary_engine[ctype] = round(sum(qty_list) / len(qty_list), 3)
+
+    # Đưa vào bộ nhớ để các bảng phía dưới sử dụng ổn định
+    st.session_state["historical_bom_reference"] = exact_bom_records
     st.session_state["main_fabric_records"] = main_fabric_records
     st.session_state["bom_summary_engine"] = bom_summary_engine
+
 
         # --- BẢNG SO SÁNH SAI LỆCH THÔNG SỐ RẬP ---
     st.markdown("<br>### 📐 BẢNG SO SÁNH SAI LỆCH THÔNG SỐ KỸ THUẬT RẬP MẪU", unsafe_allow_html=True)
