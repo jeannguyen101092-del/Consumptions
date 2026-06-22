@@ -1601,11 +1601,15 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                         st.rerun()
                 except Exception as e: 
                     st.warning(f"Vision Engine gặp sự cố đọc file: {str(e)}")
-   # PART 2A-1: ĐỘNG CƠ PHÂN RÃ TRỌNG SỐ PHRASE/WORD & TÍNH TOÁN DICE COEFFICIENT CHUẨN NFKC
+ # PART 2A-1: CACHE ĐA PHIÊN & ĐỘNG CƠ LỌC THÔ SIÊU PHỦ (JACCARD OVERLAP KEYWORD)
 # =========================================================================================
 import unicodedata
+import json
+import re
+import streamlit as st
+import requests
 
-# 1. CƠ CHẾ CACHE ĐA PHIÊN: Tối ưu hiệu năng, TTL 1 tiếng bảo vệ Supabase khỏi hiện tượng spam API
+# 1. CƠ CHẾ CACHE ĐA PHIÊN BẢO VỆ DATABASE SUPABASE KHÔNG BỊ QUÁ TẢI KHI RE-RUN UI
 @st.cache_data(ttl=3600, show_spinner=False)
 def fetch_all_techpacks_cached(url, headers):
     raw_data = []
@@ -1626,15 +1630,7 @@ def fetch_all_techpacks_cached(url, headers):
         except Exception: break
     return raw_data
 
-# Khởi chạy luồng giao diện chính
-with st.expander("🛠️ DEBUG: DỮ LIỆU THÔ VÀ TRẠNG THÁI PHÂN LOẠI VISION", expanded=False):
-    st.write(f"**Garment Type:** `{st.session_state['detected_garment_type']}`")
-    st.code(new_vec)
-
-if len(new_vec) < 10:
-    st.error("🚨 File Techpack lỗi hoặc không nhận diện được."); st.stop()
-    
-# KHỐI SO SÁNH TRỰC QUAN VLM ĐƯỢC CHUẨN HÓA CẤP CÔNG NGHIỆP (INDUSTRIAL Retriever ENGINE)
+# Khởi chạy khối đối soát chính ngăn lặp vô tận
 if st.session_state.get("matched_techpack") is None and st.session_state.get("calculation_mode") == "HISTORICAL_MATCH":
     with st.spinner("🧠 Mắt thần VLM đang cuộn quét toàn bộ kho dữ liệu và thẩm định cấu trúc rập..."):
         try:
@@ -1646,120 +1642,98 @@ if st.session_state.get("matched_techpack") is None and st.session_state.get("ca
             if raw_styles and client and client.models:
                 vision_type = str(st.session_state.get("detected_garment_type", "UNKNOWN")).strip().upper()
                 
-                # 2. KHÔNG PHỤ THUỘC CATEGORY CỨNG - LỌC THEO NGỮ CẢNH DÒNG DATA
-                category_pool = []
-                for s in raw_styles:
-                    full_line_text = str(s.get("sketch_vector", "")).upper() + " " + str(s.get("StyleName", "")).upper()
-                    if vision_type == "UNKNOWN" or vision_type in full_line_text:
-                        category_pool.append(s)
-                        
-                if not category_pool: category_pool = raw_styles
+                # KHÔNG LỌC CỨNG CATEGORY CHỐNG LỆCH DANH MỤC LÀM MẤT DẤU MÃ HÀNG CŨ
+                category_pool = raw_styles
                 
                 # =========================================================================================
-                # 3. FIX LỖI UNICODE & TÁCH BIỆT TẬP TỪ KHÓA (PHRASE VS SINGLE WORD)
+                # 2. ĐỘNG CƠ LỌC THÔ SIÊU PHỦ: Cắt nhỏ chuỗi văn bản thành từ đơn (Tokenization) phá vỡ bế tắc
                 # =========================================================================================
-                def Tokenize_Sketch_Features(text):
-                    if not text: return set(), set()
-                    # Sử dụng NFKC để chuẩn hóa ký tự dựng sẵn, bảo toàn nguyên vẹn nguyên âm tiếng Việt
-                    normalized_text = unicodedata.normalize('NFKC', str(text).upper())
+                def extract_flatten_keywords(text):
+                    if not text: return set()
+                    # Chuẩn hóa văn bản chữ hoa dựng sẵn NFKC bảo lưu Unicode tiếng Việt
+                    txt = unicodedata.normalize('NFKC', str(text).upper())
+                    # Làm sạch ký tự phân tách rập may thành khoảng trắng phẳng
+                    txt = re.sub(r'[^A-Z0-9\s\-]', ' ', txt)
+                    # Cắt chuỗi rập thành mảng các từ đơn độc lập
+                    raw_words = txt.split()
                     
-                    # Bóc cụm từ ghép có ý nghĩa kỹ thuật (Ví dụ: "SIDE POCKET", "ZIPPER FLY")
-                    phrases = re.findall(r'[\w\-]{3,}(?:\s+[\w\-]{3,})+', normalized_text)
+                    # Bộ lọc gạt bỏ từ nhiễu ngữ pháp, từ nối phổ biến (Stop-words)
+                    stop_words = {"WITH", "THE", "AND", "FOR", "TYPE", "GARMENT", "FEATURES", "OF", "ON", "AT", "IN"}
                     
-                    # Bóc từ đơn độc lập có độ dài từ 4 ký tự trở lên nhằm bổ khuyết thuật toán
-                    all_words = re.findall(r'\b[\w\-]{4,}\b', normalized_text)
-                    # Loại bỏ các từ đơn đã nằm trong cụm từ ghép để triệt tiêu việc lặp trọng số trùng
-                    phrase_individual_words = []
-                    for p in phrases:
-                        phrase_individual_words.extend(p.split())
-                    single_words = [w for w in all_words if w not in phrase_individual_words]
-                    
-                    return set(phrases), set(single_words)
+                    # Loại từ quá ngắn (< 2 ký tự) và từ nằm trong tập hợp stop-words
+                    valid_tokens = [w for w in raw_words if len(w) >= 2 and w not in stop_words]
+                    return set(valid_tokens)
 
-                new_phrases, new_words = Tokenize_Sketch_Features(new_vec)
+                new_keywords = extract_flatten_keywords(new_vec)
                 ranked_pool = []
                 
                 for s in category_pool:
-                    db_vector_text = str(s.get("sketch_vector", ""))
-                    cand_phrases, cand_words = Tokenize_Sketch_Features(db_vector_text)
+                    # Gộp tên mã (StyleName) và chuỗi mô tả rập (sketch_vector) để làm giàu vocabulary tìm kiếm
+                    db_combined_text = f"{s.get('StyleName', '')} {s.get('sketch_vector', '')}"
+                    cand_keywords = extract_flatten_keywords(db_combined_text)
                     
-                    # =========================================================================================
-                    # FIX LỖI 4: PHÂN RÃ TRỌNG SỐ TƯƠNG ĐỒNG (PHRASE_SCORE 80% / WORD_SCORE 20%)
-                    # =========================================================================================
-                    # Chấm điểm Dice cho cụm từ ghép (Mạch ngữ nghĩa chính)
-                    intersect_phrases = len(new_phrases.intersection(cand_phrases))
-                    phrase_dice = (2.0 * intersect_phrases) / (len(new_phrases) + len(cand_phrases)) if (len(new_phrases) + len(cand_phrases)) > 0 else 0.0
+                    # Tính hệ số tương đồng Jaccard Coefficient dựa trên tỷ lệ giao thoa từ khóa
+                    intersection = len(new_keywords.intersection(cand_keywords))
+                    union = len(new_keywords.union(cand_keywords))
                     
-                    # Chấm điểm Dice cho từ đơn lẻ dự phòng (Mạch từ khóa phụ)
-                    intersect_words = len(new_words.intersection(cand_words))
-                    word_dice = (2.0 * intersect_words) / (len(new_words) + len(cand_words)) if (len(new_words) + len(cand_words)) > 0 else 0.0
+                    jaccard_score = intersection / max(union, 1)
                     
-                    # Tổ hợp tuyến tính điểm tổng hợp cuối cùng
-                    final_similarity = (phrase_dice * 0.8) + (word_dice * 0.2)
-                    
-                    # HỆ SỐ THƯỞNG BASESIZE (MULTIPLICATIVE)
+                    # Cộng điểm thưởng hệ số nhân nếu trùng khớp kích cỡ cơ bản (Base Size) rập mẫu
                     db_base_size = s.get("BaseSize", s.get("base_size"))
                     if db_base_size and str(db_base_size).strip().upper() == str(new_style_base_size).strip().upper() and str(new_style_base_size).strip().upper() != "N/A":
-                        final_similarity *= 1.15
+                        jaccard_score *= 1.20 # Thưởng thêm 20% trọng số điểm cho mã trùng Base Size
                         
-                    ranked_pool.append((final_similarity, s))
+                    ranked_pool.append((jaccard_score, s))
                 
-                # Sắp xếp danh sách giảm dần theo điểm Dice phân rã trọng số
-                ranked_pool.sort(reverse=True, key=lambda x: x[0])
+                # Sắp xếp danh sách kho giảm dần theo điểm tương đồng Jaccard
+                ranked_pool.sort(reverse=True, key=lambda x: x)
                 
+                # Cửa sổ ứng viên mở rộng lên 30 mã ép buộc mã đúng bắt buộc phải nằm trong diện gửi AI
                 TOP_N = min(30, len(ranked_pool))
                 top_candidates_raw = ranked_pool[:TOP_N]
-# PART 2A-2 ĐÃ SỬA: MULTI-MODAL VLM RETRIEVER (ĐỐI CHIẾU SONG SONG ẢNH THỰC TẾ & TEXT NỀN)
+
+# PART 2A-2: MULTI-MODAL VISION PROMPT ENGINE & BỘ ROUTER KHÓA TRẠNG THÁI KÉP ANTI-LOOP
 # =========================================================================================
 
-                # 1. COMPRESSION ENGINE: Nén chặt dữ liệu, chuẩn hóa cấu trúc truyền điểm số Dice
+                # =========================================================================================
+                # 3. COMPRESSION ENGINE: Nén cấu trúc chỉ trích xuất trường dữ liệu mỏ neo tối giản kèm Jaccard
+                # =========================================================================================
                 compressed_candidates = []
                 for idx, (score, s) in enumerate(top_candidates_raw):
                     compressed_candidates.append({
                         "pool_index": idx,
                         "StyleName": s.get("StyleName", "UNKNOWN"),
                         "BaseSize": s.get("BaseSize", s.get("base_size", "N/A")),
-                        "DiceSimilarityScore": round(float(score), 4),
+                        "JaccardScore": round(float(score), 4),
                         "SketchVectorText": str(s.get("sketch_vector", "")).strip()
                     })
                 
-                # Lưu trữ mảng Top 30 gốc phục vụ giải nén dữ liệu
-                st.session_state["retriever_top_30_pool"] = top_candidates_raw
+                if "routing_completed" not in st.session_state:
+                    st.session_state["routing_completed"] = False
 
-                # CẬP NHẬT MONITOR DASHBOARD SIDEBAR (FIX LỖI CRASH MẢNG TRÊN UI)
-                with st.sidebar.expander("📊 RETRIEVER MONITORING DASHBOARD", expanded=True):
-                    st.metric("Total Pool (Supabase)", len(raw_styles))
-                    st.metric("Category Filtered", len(category_pool))
-                    st.metric("Top N Window (Gửi AI)", TOP_N)
-                    if top_candidates_raw:
-                        # Bóc tách chuẩn cấu trúc tuple (score, object)
-                        best_score, best_obj = top_candidates_raw[0]
-                        st.info(f"🥇 Hạng 1 Kho: `{best_obj.get('StyleName')}` (Dice: {best_score:.4f})")
-                        st.caption(f"🎯 Target Phrases: `{list(new_phrases)[:3]}...`")
-
-                # 2. KÍCH HOẠT MULTI-MODAL VISION PROMPT (TRUYỀN CẢ ẢNH VÀ TEXT)
-                if not st.session_state.get("routing_completed", False) and compressed_candidates:
+                # KÍCH HOẠT THẨM ĐỊNH MULTI-MODAL VISION (AI VỪA ĐỌC CHỮ VỪA ĐỐI SOÁT MẮT THẦN QUA HÌNH ẢNH)
+                if not st.session_state["routing_completed"] and compressed_candidates:
                     semantic_prompt = (
                         f"You are an expert Garment Technologist and Apparel VLM Analyzer.\n"
-                        f"CRITICAL TASK: Look carefully at the uploaded garment techpack image/sketch provided in the bytes data, "
+                        f"CRITICAL TASK: Look closely at the uploaded garment techpack image/sketch provided in the bytes data, "
                         f"then compare its visual layout against the historical candidates pool listed below.\n\n"
                         f"Target Specifications:\n"
                         f"- Garment Silhouette Type: {vision_type}\n"
                         f"- Base Size: {new_style_base_size}\n"
-                        f"- Visual Description: {new_vec}\n\n"
+                        f"- Visual Text Description: {new_vec}\n\n"
                         f"Candidates Pool from Factory DB:\n"
                         f"{json.dumps(compressed_candidates, ensure_ascii=False)}\n\n"
                         f"EVALUATION RULES:\n"
-                        f"1. Compare the physical shape in the image with the 'SketchVectorText' of each candidate.\n"
-                        f"2. Use 'DiceSimilarityScore' as a math baseline (Higher means text is more similar).\n"
-                        f"3. Focus on waistband, zipper fly, pocket layouts, and leg/body shapes.\n"
+                        f"1. Compare the physical construction and shape in the uploaded image with the 'SketchVectorText' of each candidate.\n"
+                        f"2. Use 'JaccardScore' as a math baseline reference.\n"
+                        f"3. Focus on waistband elements, zipper fly construction, pocket placement/styles, and leg shapes.\n"
                         f"4. If you find a true visual match, return its exact 'pool_index'.\n"
                         f"5. If NO candidate structurally matches the design in the image, you MUST return 'selected_pool_index': -1 and 'match_score': 0.\n\n"
                         f"Return valid JSON ONLY, format exactly like this:\n"
                         f'{{"selected_pool_index": -1, "match_score": 0, "reason": "Reason why it matches or why no match found based on visual traits."}}'
                     )
                     
-                    # SỬA LỖI CỐT LÕI: Đóng gói cả Prompt chữ VÀ file ảnh nhị phân gửi thẳng cho Gemini đối soát
+                    # SỬA LỖI CỐT LÕI: Đóng gói đồng bộ cả Prompt văn bản VÀ luồng Bytes hình ảnh nhị phân gửi Gemini
                     if types and hasattr(types, "Part"):
                         vlm_contents = [
                             types.Part.from_text(text=semantic_prompt),
@@ -1785,10 +1759,9 @@ if st.session_state.get("matched_techpack") is None and st.session_state.get("ca
                         score = int(match_res.get("match_score", 0))
                         reason = str(match_res.get("reason", "N/A"))
                         
-                        # Giải nén: Bốc ngược lại Full Object gốc từ mảng tuple dựa trên index được chọn
                         if chosen_idx is not None and 0 <= chosen_idx < len(top_candidates_raw) and score >= 60:
-                            # top_candidates_raw[chosen_idx] cấu trúc là (similarity_score, full_object) -> Lấy phần tử [1]
-                            st.session_state["matched_techpack"] = top_candidates_raw[chosen_idx][1] 
+                            # Giải nén: Trích xuất ngược Full Object gốc chứa Master BOM và thông số từ mảng tuple ban đầu
+                            st.session_state["matched_techpack"] = top_candidates_raw[chosen_idx] 
                             st.session_state["match_confidence_score"] = score
                             st.session_state["match_reason"] = reason
                         else:
@@ -1807,7 +1780,9 @@ if st.session_state.get("matched_techpack") is None and st.session_state.get("ca
             st.session_state["match_confidence_score"] = 0
             st.session_state["routing_completed"] = True
 
-    # ROUTER ĐIỀU HƯỚNG 4 CẤP ĐỘ KHÉP KÍN
+    # =========================================================================================
+    # 4. KHỐI ĐIỀU HƯỚNG ROUTER 4 CẤP ĐỘ KHÉP KÍN CÓ KHÓA TRẠNG THÁI (ANTI-INFINITE LOOP LOCK)
+    # =========================================================================================
     if st.session_state.get("routing_completed", False):
         current_score = st.session_state["match_confidence_score"]
         current_match = st.session_state["matched_techpack"]
