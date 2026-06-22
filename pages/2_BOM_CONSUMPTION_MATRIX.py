@@ -1561,8 +1561,11 @@ if (not new_vec or len(new_vec) < 30) and target_new_sketch_bytes and client and
                 else:
                     st.session_state["vision_completed"] = False
                     st.warning(f"⚠️ Trục trặc kết nối AI Vision (Thử lại lần {st.session_state['vision_retry_count']}/3). Đang thiết lập lại... Chi tiết: {str(e)}")
-# PART 1B: AI VISION ENGINE PHÂN TÍCH GIẢI PHẪU RẬP SẢN XUẤT (STRICT JSON BALANCED PIPELINE)
+# PART 1B ĐÃ SỬA: ĐỒNG BỘ BIẾN CLIENT TOÀN CỤC TRÁNH LỖI NAMEERROR DÒNG 1456
 # =========================================================================================
+
+# FIX LỖI NAMEERROR: Đồng bộ an toàn đối tượng kết nối API client từ môi trường toàn cục
+client = globals().get("client", None)
 
 # Đảm bảo các biến cục bộ nền được lấy ra từ session state an toàn trước khi chạy
 target_new_sketch_bytes = st.session_state.get("target_new_sketch_bytes")
@@ -1678,6 +1681,7 @@ if (not new_vec or len(new_vec) < 30) and target_new_sketch_bytes and client and
                 else:
                     st.session_state["vision_completed"] = False
                     st.warning(f"⚠️ Trục trặc kết nối AI Vision (Thử lại lần {st.session_state['vision_retry_count']}/3). Đang thiết lập lại... Chi tiết: {str(e)}")
+
 # PART 2A RÚT GỌN CHUẨN: ĐỘNG CƠ ĐỐI SOÁT VÀ PHÂN TẦNG ĐỊNH MỨC 4 CẤP ĐỘ
 # =========================================================================================
 
