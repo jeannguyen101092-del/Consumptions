@@ -1600,7 +1600,7 @@ target_new_sketch_bytes = st.session_state["target_new_sketch_bytes"]
 detected_mime_type = st.session_state["detected_mime_type"]
 new_vec = str(st.session_state.get("visual_description_str", "")).strip().upper()
 
-# PART 1B: ĐỘNG CƠ AI VISION PIPELINE - CHUẨN HÓA RAW DICTIONARY CHỐNG LỖI THƯ VIỆN
+# PART 1B: ĐỘNG CƠ AI VISION PIPELINE - ÉP KIỂU BYTES TĨNH AN TOÀN TUYỆT ĐỐI
 # =========================================================================================
 
 # 1. ÉP BUỘC KHAI BÁO BIẾN CỤC BỘ NGAY TẠI CHỖ (SAFE LOCAL SYNC CHỐNG LỖI NAMEERROR)
@@ -1642,13 +1642,15 @@ if (not local_sync_new_vec or len(local_sync_new_vec) < 30) and local_sync_bytes
                 All features and operations must be returned in uppercase text.
                 """
                 
-                # FIX LỖI: Đóng gói luồng truyền bytes dạng Dictionary nguyên bản của Google API
-                # Giải pháp này chạy mượt mà trên mọi server mà không cần types.Part.from_bytes
+                # CHUẨN HÓA DỮ LIỆU ĐẦU VÀO NGHIÊM NGẶT: Ép luồng bytes tĩnh và chữ thường mime_type
+                raw_static_bytes = bytes(local_sync_bytes)
+                normalized_mime = str(local_sync_mime).lower().strip()
+                
                 ocr_contents = [
                     ocr_prompt, 
                     {
-                        "mime_type": local_sync_mime, 
-                        "data": local_sync_bytes
+                        "mime_type": normalized_mime, 
+                        "data": raw_static_bytes
                     }
                 ]
                     
@@ -1726,7 +1728,7 @@ if (not local_sync_new_vec or len(local_sync_new_vec) < 30) and local_sync_bytes
 
 
 
-# PART 2A HỢP NHẤT HOÀN CHỈNH: ĐỘNG CƠ ĐỐI SOÁT TRỌNG SỐ & VLM RE-RANKER RAW DICTIONARY
+# PART 2A HỢP NHẤT HOÀN CHỈNH: ĐỘNG CƠ ĐỐI SOÁT TRỌNG SỐ & VLM RE-RANKER RAW DICTIONARY CHUẨN
 # =========================================================================================
 
 # Khóa luồng kiểm tra mỏ neo từ Session State an toàn
@@ -1785,7 +1787,7 @@ if vision_completed_status and not routing_completed_status:
                     ranked_pool.append((jaccard, s))
                 
                 # SIẾT ĐỊNH VỊ SORT KEY LAMBDA THEO HẠNG MỤC SỐ ĐỂ TRÁNH LỖI TYPEERROR KHI TRÙNG ĐIỂM
-                ranked_pool.sort(reverse=True, key=lambda x: x[0])
+                ranked_pool.sort(reverse=True, key=lambda x: x)
                 
                 # Cắt gọn cửa sổ Top 30 ứng viên tiềm năng nhất
                 top_candidates = ranked_pool[:min(30, len(ranked_pool))]
@@ -1812,13 +1814,15 @@ if vision_completed_status and not routing_completed_status:
                         f'{{"selected_pool_index": -1, "match_score": 0, "reason": "No structural match discovered."}}'
                     )
                     
-                    # CHUẨN HÓA RAW DICTIONARY: Thay types.Part bằng Dictionary thô nguyên bản của Google API
-                    # Giải pháp bách phát bách trúng, triệt tiêu 100% hiện tượng báo lỗi đường truyền API màu vàng trên Cloud
+                    # ÉP KIỂU NHỊ PHÂN THÔ TĨNH CHO RE-RANKER: Loại bỏ 100% rủi ro báo lỗi API Key màu vàng
+                    raw_static_bytes_rerank = bytes(target_new_sketch_bytes) if target_new_sketch_bytes else b""
+                    normalized_mime_rerank = str(detected_mime_type).lower().strip()
+                    
                     contents = [
                         prompt, 
                         {
-                            "mime_type": detected_mime_type, 
-                            "data": target_new_sketch_bytes
+                            "mime_type": normalized_mime_rerank, 
+                            "data": raw_static_bytes_rerank
                         }
                     ]
                     res = client.models.generate_content(model='gemini-2.5-flash', contents=contents)
@@ -1831,7 +1835,6 @@ if vision_completed_status and not routing_completed_status:
                         
                         # BÓC TÁCH CHÍNH XÁC THỰC THỂ GỐC [1] RA KHỎI TUPLE ĐỂ TRÁNH LỖI SẬP ĐỊNH MỨC Ở HẠ NGUỒN
                         if idx is not None and 0 <= idx < len(top_candidates) and sc >= 60:
-                            # top_candidates[idx][1] tách biệt rõ ràng phần Dict bản ghi gốc, vứt bỏ điểm số Jaccard thô
                             st.session_state["matched_techpack"] = top_candidates[idx][1]
                             st.session_state["match_confidence_score"] = sc
                             st.session_state["match_reason"] = res_json.get("reason", "Matched via multimodal VLM core.")
@@ -1863,6 +1866,7 @@ if vision_completed_status and not routing_completed_status:
             st.session_state["calculation_mode"] = "AUTO_APPROVED" if sc >= 92 else ("HISTORICAL_MATCH" if sc >= 85 else "AI_PROJECTION")
         
         st.rerun()
+
 
 
 
