@@ -1571,58 +1571,66 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                     # Fallback thô nếu JSON gãy cấu trúc ngoài ý muốn
                     st.session_state["detected_garment_type"] = "UNKNOWN"
 
-        # KHỐI ĐỊNH NGHĨA TOÁN HỌC: ĐỘNG CƠ ĐỐI SOÁT DNA KHÔNG PHỤ THUỘC VÀO TEXT (DNA SIMILARITY ENGINE)
-        def calculate_dna_similarity(new_dna: dict, old_dna_raw) -> int:
+               # KHỐI ĐỊNH NGHĨA TOÁN HỌC: ĐỘNG CƠ ĐỐI SOÁT DNA CÓ HOÀN TRẢ FALLBACK TỪ KHÓA CHỐNG REJECT OAN
+        def calculate_dna_similarity(new_dna: dict, old_dna_raw, old_sketch_vector: str) -> int:
             """
-            Tính toán khoảng cách cấu trúc DNA kỹ thuật may mặc giữa mã mới và mã lịch sử trong DB.
-            Loại bỏ tuyệt đối tình trạng râu ông nọ cắm cằm bà kia (Cargo ghép nhầm Trouser).
+            Tính toán khoảng cách cấu trúc DNA kỹ thuật. 
+            NẾU mã cũ chưa có cột structural_dna, tự động dùng cơ chế Overlap Keyword để cứu ứng viên lọt vào vòng trong.
             """
-            if not new_dna or not old_dna_raw:
+            if not new_dna:
                 return 0
                 
-            # Đảm bảo old_dna được giải mã chuẩn (nếu DB lưu dạng string JSON)
+            # Giải mã dữ liệu DNA cũ nếu có
             old_dna = {}
-            if isinstance(old_dna_raw, str):
-                try: old_dna = json.loads(old_dna_raw)
-                except Exception: return 0
-            elif isinstance(old_dna_raw, dict):
-                old_dna = old_dna_raw
-            else:
+            if old_dna_raw:
+                if isinstance(old_dna_raw, str):
+                    try: old_dna = json.loads(old_dna_raw)
+                    except Exception: old_dna = {}
+                elif isinstance(old_dna_raw, dict):
+                    old_dna = old_dna_raw
+
+            # CHẾ ĐỘ DỰ PHÒNG: Nếu mã trong DB chưa được cập nhật cột structural_dna -> Dùng Keyword Overlap để tính điểm nền
+            if not old_dna:
+                # Quét các từ khóa cốt lõi giữa mã mới và text cũ trong DB
+                new_keywords = set(str(new_dna.get("key_features_keywords", [])).upper().split() + [str(new_dna.get("silhouette", "")).upper()])
+                old_text = str(old_sketch_vector).upper()
+                overlap_count = sum(1 for kw in new_keywords if kw in old_text)
+                
+                # Trả về điểm số nền (Ví dụ: có trùng từ khóa hoặc danh mục thì cho 75 điểm để lọt vào vòng Gemini Vision)
+                if str(new_dna.get("category", "")).strip().upper() in old_text:
+                    return 70 + (overlap_count * 5)
                 return 0
 
+            # CHẾ ĐỘ NÂNG CAO: Nếu cả 2 đều có DNA -> Áp dụng bộ phạt cấu trúc cứng
             score = 100
 
-            # TẦNG 1: Khóa cứng danh mục gốc. Sai loại (Áo vs Quần) -> Loại ngay lập tức
+            # TẦNG 1: Khóa cứng danh mục gốc. Sai loại (Áo vs Quần) -> Loại ngay
             if str(new_dna.get("category", "")).strip().upper() != str(old_dna.get("category", "")).strip().upper():
                 return 0
 
-            # TẦNG 2: Phạt sai lệch phom dáng / Silhouette (Cargo vs Chino, Oversized vs Slim)
+            # TẦNG 2: Phạt lệch phom dáng / Silhouette (Trừ 20 điểm nếu lệch)
             if str(new_dna.get("silhouette", "")).strip().upper() != str(old_dna.get("silhouette", "")).strip().upper():
-                score -= 25
+                score -= 20
 
-            # TẦNG 3: Phạt tuyến tính theo độ lệch số lượng túi (Mỗi túi lệch phạt 8 điểm)
+            # TẦNG 3: Phạt theo độ lệch số lượng túi (Mỗi túi lệch phạt 5 điểm)
             try:
                 new_pockets = int(new_dna.get("pocket_count", 0))
                 old_pockets = int(old_dna.get("pocket_count", 0))
-                score -= abs(new_pockets - old_pockets) * 8
-            except (ValueError, TypeError):
-                score -= 15
-
-            # TẦNG 4: Phạt tuyến tính theo độ phức tạp đường may / rã rập rập (Mỗi cấp lệch phạt 6 điểm)
-            try:
-                new_seam = int(new_dna.get("seam_complexity", 5))
-                old_seam = int(old_dna.get("seam_complexity", 5))
-                score -= abs(new_seam - old_seam) * 6
+                score -= abs(new_pockets - old_pockets) * 5
             except (ValueError, TypeError):
                 score -= 10
 
-            # TẦNG 5: Phạt nếu lệch kiểu khóa / Fly Closure (Ví dụ: Chun Pull-on vs Khóa kéo Zipper)
-            if str(new_dna.get("fly_closure", "")).strip().upper() != str(old_dna.get("fly_closure", "")).strip().upper():
-                score -= 15
+            # TẦNG 4: Phạt theo độ phức tạp đường may (Mỗi cấp lệch phạt 5 điểm)
+            try:
+                new_seam = int(new_dna.get("seam_complexity", 5))
+                old_seam = int(old_dna.get("seam_complexity", 5))
+                score -= abs(new_seam - old_seam) * 5
+            except (ValueError, TypeError):
+                score -= 10
 
             return max(score, 0)
 
-        # KHỐI SO SÁNH TRỰC QUAN VLM KẾT HỢP BỘ LỌC DNA CHỐNG SỰ CỐ ÉP MÃ
+        # KHỐI SO SÁNH TRỰC QUAN VLM KẾT HỢP BỘ LỌC DNA THÔNG MINH
         with st.spinner("🧠 Động cơ DNA Similarity đang quét cấu trúc và cấu hình rập..."):
             match_res = None
             s_idx = None
@@ -1634,43 +1642,42 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                 headers_db = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if SB_KEY else {}
                 url_db = f"{base_sb_url.rstrip('/')}/rest/v1/thong_so_techpack" if base_sb_url else ""
                 
-                # TẦNG LỌC NHANH VỚI TRƯỜNG STRUCTURAL_DNA MỚI LƯU TRÊN SUPABASE
+                # Truy vấn đầy đủ cả cột text cũ và cột dna mới để chạy chế độ dự phòng
                 fast_filter_fields = "StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL,sketch_vector,structural_dna"
                 raw_styles = requests.get(url_db, headers=headers_db, params={"select": fast_filter_fields, "limit": 1000}, timeout=15).json() if url_db else []
                 
                 if raw_styles and client and client.models and st.session_state["new_style_dna"]:
-                    valid_styles = [s for s in raw_styles if s.get("StyleName") and s.get("structural_dna")]
+                    valid_styles = [s for s in raw_styles if s.get("StyleName")]
                     new_dna_context = st.session_state["new_style_dna"]
                     
-                    # Chạy thuật toán DNA Similarity sàng lọc tuyến tính từ 1000 mã xuống nhóm đạt chuẩn
+                    # Sàng lọc ứng viên
                     dna_pool = []
                     for s in valid_styles:
-                        sim_math_score = calculate_dna_similarity(new_dna_context, s.get("structural_dna"))
+                        # Truyền thêm trường sketch_vector vào hàm để cứu các mã chưa nâng cấp DNA trong DB
+                        sim_math_score = calculate_dna_similarity(new_dna_context, s.get("structural_dna"), s.get("sketch_vector", ""))
                         
-                        # Chỉ cho phép các mã có độ tương đồng DNA Kết cấu >= 50% đi vào tầng Vision (Chốt chặn Cargo)
-                        if sim_math_score >= 50:
+                        # Hạ ngưỡng lọc xuống >= 40 điểm để đảm bảo các mã tiệm cận vẫn lọt được vào danh sách đối soát ảnh
+                        if sim_math_score >= 40:
                             dna_pool.append((sim_math_score, s))
                     
-                    # Sắp xếp theo điểm DNA toán học giảm dần và trích xuất Top 8 Candidate cho Gemini VLM
-                    dna_pool.sort(reverse=True, key=lambda x: x[0])
-                    top_8_candidates = [x[1] for x in dna_pool[:8]]
+                    # Sắp xếp và lấy Top 8 Candidate cho Gemini VLM chấm điểm trực quan
+                    dna_pool.sort(reverse=True, key=lambda x: x)
+                    top_8_candidates = [x for x in dna_pool[:8]]
                     
-                    # BẬT ĐÈN DEBUG: Giúp kỹ sư nhìn thấy bảng điểm DNA toán học trước khi Gemini chấm
                     with st.expander("🔍 DEBUG TẦNG 2: KẾT QUẢ ĐỐI SOÁT TOÁN HỌC DNA SIMILARITY (TOP 8)", expanded=False):
                         if not dna_pool:
-                            st.write("❌ Không có mã lịch sử nào vượt qua màng lọc DNA Similarity.")
+                            st.write("❌ Không có mã lịch sử nào vượt qua màng lọc cấu trúc.")
                         for idx, item in enumerate(dna_pool[:8]):
-                            st.write(f"**[{idx}]** Mã: `{item[1].get('StyleName')}` | Điểm DNA: `{item[0]}/100` | Danh mục: `{item[1].get('Category')}`")
+                            st.write(f"**[{idx}]** Mã: `{item.get('StyleName')}` | Điểm tương đồng: `{item}/100` | Danh mục: `{item.get('Category')}`")
                     
-                    # Chỉ kích hoạt Gemini VLM nếu Top 8 có ứng viên chất lượng
                     if top_8_candidates:
                         vision_contents = []
                         if target_new_sketch_bytes:
                             if types and hasattr(types, "Part"):
-                                vision_contents.append(types.Part.from_text(text="Analyze layout geometry of new sketch against historical style pictures. Reject if structure mismatch."))
+                                vision_contents.append(types.Part.from_text(text="Analyze visual geometry and pocket placement. Find the closest match. Do not reject if silhouette matches reasonably."))
                                 vision_contents.append(types.Part.from_bytes(data=target_new_sketch_bytes, mime_type=detected_mime_type))
                             else:
-                                vision_contents.append("Analyze layout geometry of new sketch against historical style pictures. Reject if structure mismatch.")
+                                vision_contents.append("Analyze visual geometry and pocket placement. Find the closest match. Do not reject if silhouette matches reasonably.")
                                 vision_contents.append({"mime_type": detected_mime_type, "data": target_new_sketch_bytes})
                         
                         historical_pool_summary = []
@@ -1691,21 +1698,21 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                                     vision_contents.append(f"Candidate Index: {idx} (Style: {s.get('StyleName')})")
                                     vision_contents.append({"mime_type": 'image/jpeg', "data": cand_img_bytes})
                             
-                            historical_pool_summary.append({"pool_index": idx, "style_name": s.get("StyleName"), "dna_spec": str(s.get("structural_dna", {}))})
+                            historical_pool_summary.append({"pool_index": idx, "style_name": s.get("StyleName"), "features_text": str(s.get("sketch_vector", ""))})
                         
-                        # ĐÃ NÂNG CẤP PROMPT: Cho phép và ép Gemini trả về -1 (NO_MATCH) nếu kết cấu rập không khít
+                        # Nới lỏng ngưỡng ép lỗi của Gemini xuống >= 70% để chấp nhận dung sai ngành may
                         semantic_prompt = f"""
                         Cross-examine the new sketch image against the historical candidate images.
-                        Target New Garment DNA Structural Context: {json.dumps(new_dna_context)}
+                        Target New Garment Context: {json.dumps(new_dna_context)}
                         Candidates Summary List: {json.dumps(historical_pool_summary, ensure_ascii=False)}
 
-                        CRITICAL PROMPT SECURITY GATEWAY:
-                        - Evaluate structural silhouette alignment, seam curves, and pocket layouts.
-                        - If NONE of the historical candidates have a structural similarity above 85% compared to the new garment sketch, you MUST reject the matching process.
-                        - In case of rejection, return selected_pool_index as -1 and match_score as 0. Do NOT force a selection.
+                        CRITICAL INSTRUCTION:
+                        - If you see an image that is visually identical or has a very close pocket structure, select its index.
+                        - Only return selected_pool_index as -1 if the candidates are completely different garment types (e.g. comparing a jacket to a pant).
+                        - Set match_score above 85 if it is an exact visual match.
 
-                        Return valid JSON ONLY (No markdown formatting):
-                        {{"selected_pool_index": 0, "match_score": 92, "reason": "Mô tả lý do hoặc ghi rõ NO_STRUCTURAL_MATCH"}}
+                        Return valid JSON ONLY:
+                        {{"selected_pool_index": 0, "match_score": 90, "reason": "Visual match verified"}}
                         """
                         
                         if types and hasattr(types, "Part"): vision_contents.append(types.Part.from_text(text=semantic_prompt))
@@ -1713,8 +1720,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                             
                         res = client.models.generate_content(model='gemini-2.5-flash', contents=vision_contents)
                         json_match = re.search(r'\{[\s\S]*\}', res.text.strip())
-
-                        # NỐI TIẾP LOGIC ĐOẠN B: XỬ LÝ PHẢN HỒI VÀ TRUY VẤN SÂU SỬA ĐỔI CỔNG ĐĂNG KÝ MÃ MỚI
+                        # NỐI TIẾP LOGIC ĐOẠN B: XỬ LÝ PHẢN HỒI VÀ TRUY VẤN SÂU (DEEP LOAD DATA)
                         if json_match:
                             try:
                                 match_res = json.loads(json_match.group())
@@ -1722,8 +1728,8 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                                 score = int(match_res.get("match_score", 0))
                                 reason = str(match_res.get("reason", "N/A"))
                                 
-                                # CỔNG AN NINH GATEWAY NÂNG CẤP LÊN CỨNG CHUẨN ĐỊNH MỨC NĂNG SUẤT (SCORE >= 85 VÀ INDEX CHÍNH XÁC)
-                                if s_idx is not None and s_idx != -1 and score >= 85 and 0 <= s_idx < len(top_8_candidates):
+                                # HẠ NGƯỠNG CONFIDENCE GATEWAY XUỐNG DUNG SAI NGÀNH MAY (>= 70%) ĐỂ TRÁNH REJECT OAN
+                                if s_idx is not None and s_idx != -1 and score >= 70 and 0 <= s_idx < len(top_8_candidates):
                                     selected_meta = top_8_candidates[s_idx]
                                     matched_style_name = selected_meta.get("StyleName")
                                     
@@ -1739,32 +1745,34 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                                         st.json(deep_res)
                                     
                                     if deep_res and isinstance(deep_res, list) and len(deep_res) > 0:
-                                        selected_meta.update(deep_res)
+                                        # Hợp nhất dữ liệu thô tầng sâu vào metadata
+                                        selected_meta.update(deep_res[0])
+                                        
                                         st.session_state["matched_techpack"] = selected_meta
                                         st.session_state["match_confidence_score"] = score
                                         st.session_state["match_reason"] = reason
-                                        st.toast(f"🎯 Đã khóa thành công mã tương đồng chuẩn DNA: {matched_style_name} ({score}%)", icon="🎯")
+                                        st.toast(f"🎯 Đã khóa thành công mã tương đồng chuẩn kết cấu: {matched_style_name} ({score}%)", icon="🎯")
+                                        st.rerun()
                                     else:
                                         st.warning(f"⚠️ Tìm thấy mã {matched_style_name} nhưng không có dữ liệu BOM/Consumption trong kho.")
                                 else:
-                                    # Trường hợp s_idx == -1 hoặc score < 85 -> Ghi nhận đối soát thất bại
+                                    # Ghi nhận đối soát thất bại thực sự khi điểm quá thấp hoặc model trả về -1
                                     st.session_state["matched_techpack"] = None
                                     st.session_state["match_confidence_score"] = score
-                                    st.session_state["match_reason"] = f"REJECTED: {reason}"
+                                    st.session_state["match_reason"] = f"REJECTED BY VLM: {reason}"
                             except json.JSONDecodeError: pass
             except Exception as e:
                 st.error(f"🚨 Đã xảy ra lỗi trong quá trình xử lý đối soát hệ thống: {str(e)}")
 
-    # IN PHÍM KIỂM SOÁT ĐẦU RA SAU KHI GOM DỮ LIỆU THÀNH CÔNG
+    # IN PHÍM KIỂM SOÁT ĐẦU RA SAU KHI GOM DỮ LIỆU THÀNH CÔNG (NẰM NGOÀI KHỐI TRỐNG)
     if st.session_state["matched_techpack"]:
         st.success(f"🎯 Đã khóa thành công dữ liệu mã tương đồng: `{st.session_state['matched_techpack']['StyleName']}` | Confidence {st.session_state.get('match_confidence_score', 0)}%")
         with st.expander("📦 KIỂM TRA TOÀN BỘ CỘT SẴN CÓ ĐỂ CHUẨN BỊ ĐẨY QUA CONSUMPTION ENGINE", expanded=False):
             st.write(list(st.session_state["matched_techpack"].keys()))
     else:
-        # Hiển thị thông báo lý do từ chối rõ ràng cho kỹ sư rập biết
-        st.error(f"⚠️ HỆ THỐNG TỪ CHỐI KHÓA MÃ CŨ (DNA REJECTED). Lý do: `{st.session_state.get('match_reason', 'Không có cấu trúc tương đồng thích hợp >85%')}`")
+        st.error(f"⚠️ HỆ THỐNG TỪ CHỐI KHÓA MÃ CŨ (DNA REJECTED). Lý do: `{st.session_state.get('match_reason', 'Không tìm thấy cấu trúc tương đồng thích hợp trên 70%')}`")
 
-    # KÍCH HOẠT THUẬT TOÁN HÌNH HỌC RẬP CHÍNH XÁC (DXF GEOMETRY ENGINE) KHI KHÔNG CÓ MATCH HOẶC AI BỊ REJECTED
+    # KÍCH HOẠT THUẬT TOÁN HÌNH HỌC RẬP (DXF GEOMETRY ENGINE) KHI KHÔNG CÓ MATCH HOẶC AI BỊ REJECTED
     if st.session_state["matched_techpack"] is None:
         st.info("🔄 Kích hoạt Công cụ Hình học Rập (DXF Geometry Engine) - Tính toán định mức toán học độc lập...")
         with st.spinner("📐 Đang bóc tách thông số toán học đường may từ file rập hình học độc lập..."):
@@ -1774,6 +1782,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                 dxf_area = globals().get("calculate_dxf_area", lambda: 1.25)()
                 vision_type = str(st.session_state.get("detected_garment_type", "UNKNOWN")).strip().upper()
                 
+                # Cấu trúc mock an toàn kế thừa chính xác tên cột thô của database Supabase
                 st.session_state["matched_techpack"] = {
                     "StyleName": "VIRTUAL-GEOMETRY-FALLBACK",
                     "Category": vision_type,
@@ -1793,6 +1802,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                 st.success("✅ Khởi tạo cấu trúc dữ liệu hình học ảo thành công. Luồng xử lý định mức đã sẵn sàng hoạt động.")
             except Exception as geo_err:
                 st.error(f"🚨 Thất bại khi kích hoạt DXF Geometry Engine Fallback: {str(geo_err)}")
+
 
     import pandas as pd
     import requests
