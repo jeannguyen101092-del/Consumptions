@@ -1572,80 +1572,83 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                     st.session_state["detected_garment_type"] = "UNKNOWN"
 
            # ==========================================
-# ĐOẠN B (CẬP NHẬT CHÍNH XÁC VÁ LINK STORAGE SUPABASE)
-# ==========================================
-        with st.expander("🛠️ DEBUG: DỮ LIỆU THÔ VÀ TRẠNG THÁI PHÂN LOẠI VISION", expanded=False):
-            st.write(f"**MIME Type nhận diện:** `{detected_mime_type}`")
-            st.write(f"**Garment Type trích xuất:** `{st.session_state['detected_garment_type']}`")
-            st.write("**Nội dung văn bản gốc trả về từ Gemini:**")
-            st.code(new_vec)
-
-        if len(new_vec) < 10:
-            st.error("🚨 Không nhận diện được cấu trúc tệp Techpack tải lên. Vui lòng kiểm tra lại độ nét hoặc file lỗi.")
-            st.stop()
+        # KHỐI SO SÁNH TRỰC QUAN VLM KẾT HỢP BỘ LỌC ĐỒNG BỘ ĐÚNG BIẾN HỆ THỐNG CỦA XƯỞNG
+        with st.spinner("🧠 Mắt thần VLM đang kết nối dữ liệu kho Supabase..."):
+            match_res = None
+            s_idx = None
+            score = 0
+            reason = "N/A"
+            top_8_candidates = []
             
-        if st.session_state["detected_garment_type"] == "UNKNOWN":
-            st.warning("⚠️ Không tự động bóc tách được phân loại đồ cụ thể. Hệ thống tự động chuyển sang chế độ đối soát mở rộng.")
-            
-        # ĐỒNG BỘ BIẾN CATEGORY
-        new_style_category = globals().get("new_style_category_detected", st.session_state.get("new_style_category_detected", ""))
-
-        if "vlm_top_8_candidates" not in st.session_state: st.session_state["vlm_top_8_candidates"] = []
-        if "vlm_json_match_text" not in st.session_state: st.session_state["vlm_json_match_text"] = None
-
-        with st.spinner("🧠 Mắt thần VLM đang so sánh trực quan ảnh và thông số kỹ thuật..."):
             try:
-                headers_db = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if SB_KEY else {}
-                url_db = f"{base_sb_url.rstrip('/')}/rest/v1/thong_so_techpack" if base_sb_url else ""
+                # SỬA ĐỔI ĐỒNG BỘ 1: Lấy chính xác Headers xác thực và URL Supabase từ giao diện thực tế
+                headers_db = globals().get("api_headers", {})
+                target_url_api = globals().get("base_url_api", globals().get("SB_URL", ""))
                 
-                fast_filter_fields = "StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL,sketch_vector"
+                # Nếu không tìm thấy, fallback về các biến dự phòng
+                if not headers_db: 
+                    headers_db = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if SB_KEY else {}
+                url_db = f"{target_url_api.rstrip('/')}/rest/v1/thong_so_techpack" if target_url_api else ""
+                
+                fast_filter_fields = "StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL,sketch_vector,structural_dna"
                 raw_styles = requests.get(url_db, headers=headers_db, params={"select": fast_filter_fields, "limit": 1000}, timeout=15).json() if url_db else []
                 
-                if raw_styles and client and client.models and st.session_state["new_style_dna"]:
+                active_client = client if client else globals().get("genai_client", globals().get("ai_client", None))
+                new_dna_context = st.session_state.get("new_style_dna", {})
+                
+                if raw_styles and active_client:
                     valid_styles = [s for s in raw_styles if s.get("StyleName")]
-                    new_dna_context = st.session_state["new_style_dna"]
+                    
+                    # TRUY VẾT MÃ CỨNG: Quét tìm mã hàng (Ví dụ: R09-496094) xuất hiện trong text thiết kế hoặc tên file
+                    detected_style_code = None
+                    search_source = (new_vec + " " + str(st.session_state.get("previous_uploaded_file_name", ""))).upper()
+                    code_match = re.search(r'(R\d{2}-\d{5,6})', search_source)
+                    if code_match:
+                        detected_style_code = code_match.group(1).strip()
                     
                     dna_pool = []
                     for s in valid_styles:
+                        style_id_upper = str(s.get("StyleName", "")).upper()
+                        
+                        # ƯU TIÊN TUYỆT ĐỐI: Nếu database chứa đúng mã hàng vừa quét được trên ảnh -> Ép điểm tối đa 100 để lọt vào vòng VLM
+                        if detected_style_code and detected_style_code in style_id_upper:
+                            dna_pool.append((100, s))
+                            continue
+                            
                         sim_math_score = calculate_dna_similarity(new_dna_context, s.get("structural_dna"), s.get("sketch_vector", ""))
                         if sim_math_score >= 40:
                             dna_pool.append((sim_math_score, s))
                     
                     dna_pool.sort(reverse=True, key=lambda x: x)
-                    top_8_candidates = [x for x in dna_pool[:8]]
+                    top_8_candidates = [x[1] for x in dna_pool[:8]]
                     st.session_state["vlm_top_8_candidates"] = top_8_candidates
                     
                     if top_8_candidates:
                         vision_contents = []
                         if target_new_sketch_bytes:
                             if types and hasattr(types, "Part"):
-                                vision_contents.append(types.Part.from_text(text="Analyze layout geometry. Find the identical match image from the pool."))
+                                vision_contents.append(types.Part.from_text(text="Find the exact matching historical picture from the pool."))
                                 vision_contents.append(types.Part.from_bytes(data=target_new_sketch_bytes, mime_type=detected_mime_type))
                             else:
-                                vision_contents.append("Analyze layout geometry. Find the identical match image from the pool.")
+                                vision_contents.append("Find the exact matching historical picture from the pool.")
                                 vision_contents.append({"mime_type": detected_mime_type, "data": target_new_sketch_bytes})
                         
                         historical_pool_summary = []
                         for idx, s in enumerate(top_8_candidates):
-                            # CHỐT CHẶN VÁ LINK ĐỘNG: Nếu trường URL lỗi/trống, tự tạo URL public tới bucket kho_anh
                             cand_img_url = s.get("SketchURL") or s.get("sketch_url")
                             style_id = s.get("StyleName", "")
                             
-                            if (not cand_img_url) and base_sb_url and style_id:
-                                # Tách lấy domain gốc của supabase (ví dụ: https://supabase.co)
-                                base_domain = base_sb_url.split("/rest")[0]
-                                # Ép mã hóa ký tự đặc biệt như dấu gạch ngang "-" hay khoảng trắng
+                            if (not cand_img_url) and target_url_api and style_id:
                                 safe_filename = requests.utils.quote(f"{style_id}.jpg")
-                                cand_img_url = f"{base_domain}/storage/v1/object/public/kho_anh/{safe_filename}"
+                                cand_img_url = f"{target_url_api.rstrip('/')}/storage/v1/object/public/kho_anh/{safe_filename}"
                             
                             cand_img_bytes = None
                             if cand_img_url and target_new_sketch_bytes:
                                 try:
                                     img_res = requests.get(cand_img_url, headers=headers_db, timeout=5)
-                                    if img_res.status_code == 200 and len(img_res.content) > 500: 
-                                        cand_img_bytes = img_res.content
+                                    if img_res.status_code == 200 and len(img_res.content) > 500: cand_img_bytes = img_res.content
                                 except Exception: pass
-                        
+                            
                             if cand_img_bytes and target_new_sketch_bytes:
                                 if types and hasattr(types, "Part"):
                                     vision_contents.append(types.Part.from_text(text=f"Candidate Index: {idx} (Style: {style_id})"))
@@ -1657,21 +1660,44 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                             historical_pool_summary.append({"pool_index": idx, "style_name": style_id})
                         
                         semantic_prompt = f"""
-                        Cross-examine the new sketch image against the historical candidate images.
-                        Candidates Summary List: {json.dumps(historical_pool_summary, ensure_ascii=False)}
-                        - Find the candidate image that is EXACTLY identical to the new uploaded sketch.
-                        - Set match_score above 90 if it matches perfectly.
-                        Return valid JSON ONLY: {{"selected_pool_index": 0, "match_score": 95, "reason": "Exact match found"}}
+                        Compare the new sketch image against the historical candidate images.
+                        Candidates List: {json.dumps(historical_pool_summary, ensure_ascii=False)}
+                        - Select the exact visual match index. Set match_score to 95 if it matches perfectly.
+                        Return valid JSON ONLY: {{"selected_pool_index": 0, "match_score": 95, "reason": "Verified exact style match"}}
                         """
                         
                         if types and hasattr(types, "Part"): vision_contents.append(types.Part.from_text(text=semantic_prompt))
                         else: vision_contents.append(semantic_prompt)
                             
-                        res = client.models.generate_content(model='gemini-2.5-flash', contents=vision_contents)
+                        res = active_client.models.generate_content(model='gemini-2.5-flash', contents=vision_contents)
                         st.session_state["vlm_json_match_text"] = res.text.strip() if res else None
+                        
+                        # --- XỬ LÝ PHẢN HỒI VÀ TRUY VẤN SÂU ĐỂ KHÓA MÃ CHUẨN MÀN HÌNH GIAO DIỆN ---
+                        if st.session_state["vlm_json_match_text"]:
+                            json_match = re.search(r'\{[\s\S]*\}', st.session_state["vlm_json_match_text"])
+                            if json_match:
+                                match_res = json.loads(json_match.group())
+                                s_idx = match_res.get("selected_pool_index")
+                                score = int(match_res.get("match_score", 0))
+                                reason = str(match_res.get("reason", "N/A"))
+                                
+                                if s_idx is not None and s_idx != -1 and score >= 65 and 0 <= s_idx < len(top_8_candidates):
+                                    selected_meta = top_8_candidates[s_idx]
+                                    matched_style_name = selected_meta.get("StyleName")
+                                    
+                                    deep_fields = "StyleName,bom_records,thread_consumption,sewing_operation,machine_type,thread_allowance"
+                                    deep_res = requests.get(url_db, headers=headers_db, params={"StyleName": f"eq.{matched_style_name}", "select": deep_fields}, timeout=10).json()
+                                    
+                                    if deep_res and isinstance(deep_res, list) and len(deep_res) > 0:
+                                        selected_meta.update(deep_res[0])
+                                        st.session_state["matched_techpack"] = selected_meta
+                                        st.session_state["match_confidence_score"] = score
+                                        st.session_state["match_reason"] = reason
+                                        st.toast(f"🎯 Đã khóa thành công mã tương đồng: {matched_style_name} ({score}%)", icon="🎯")
+                                        st.rerun()
             except Exception as e:
-                st.error(f"🚨 Đã xảy ra lỗi trong quá trình xử lý đối soát Đoạn B: {str(e)}")
-# ==========================================
+                st.error(f"🚨 Lỗi luồng xử lý AI: {str(e)}")
+
 # ĐOẠN C: DEEP LOAD DATA EXTRACTION, IMAGE REPAIR & DISPLAY MATRIX
 # ==========================================
         try:
