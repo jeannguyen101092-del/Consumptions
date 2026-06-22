@@ -1768,88 +1768,6 @@ try:
 except Exception as e: 
     st.error(f"🚨 Lỗi luồng xử lý AI: {str(e)}")
 
-
-
-    try:
-        headers_db = globals().get("api_headers", {})
-        target_url_api = globals().get("base_url_api", globals().get("SB_URL", ""))
-        if not headers_db: headers_db = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if SB_KEY else {}
-        url_db = f"{target_url_api.rstrip('/')}/rest/v1/thong_so_techpack" if target_url_api else ""
-        raw_styles = requests.get(url_db, headers=headers_db, params={"select": "StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL,sketch_vector,structural_dna", "limit": 1000}, timeout=15).json() if url_db else []
-        active_client = client if client else globals().get("genai_client", globals().get("ai_client", None))
-        new_dna_context = st.session_state.get("new_style_dna", {})
-        if raw_styles and active_client and new_dna_context:
-            valid_styles = [s for s in raw_styles if s.get("StyleName")]
-            detected_style_code = None
-            search_source = (new_vec + " " + str(st.session_state.get("previous_uploaded_file_name", ""))).upper()
-            code_match = re.search(r'(R\d{2}-\d{5,6})', search_source)
-            if code_match: detected_style_code = code_match.group(1).strip()
-            dna_pool = []
-            for s in valid_styles:
-                style_id_upper = str(s.get("StyleName", "")).upper()
-                if detected_style_code and detected_style_code in style_id_upper:
-                    dna_pool.append((100, s))
-                    continue
-                gate_result = dna_hard_gate(new_dna_context, s.get("structural_dna"))
-                if gate_result is False: continue
-                if gate_result == "LEGACY":
-                    sim_math_score = calculate_dna_similarity(new_dna_context, s.get("structural_dna"), s.get("sketch_vector", ""))
-                    sim_math_score = int(sim_math_score * 0.75)
-                else:
-                    sim_math_score = calculate_dna_similarity(new_dna_context, s.get("structural_dna"), s.get("sketch_vector", ""))
-                dna_pool.append((sim_math_score, s))
-            dna_pool.sort(reverse=True, key=lambda x: x)
-            best_score = dna_pool[0][0] if dna_pool else 0
-            if best_score < 80:
-                st.session_state["matched_techpack"] = None
-                st.session_state["match_confidence_score"] = 0
-                st.session_state["match_reason"] = f"REJECTED: Score {best_score}% < 80%"
-                st.session_state["force_geometric_mode"] = True
-                st.warning("⚠️ Không tìm thấy mã hàng tương thích DNA kết cấu (Đo độ tương hợp < 80%). Hệ thống kích hoạt AI Geometric Consumption Engine.")
-                st.stop()
-            top_8_candidates = [x[1] for x in dna_pool[:8]]
-            st.session_state["vlm_top_8_candidates"] = top_8_candidates
-            if top_8_candidates:
-                vision_contents = []
-                if target_new_sketch_bytes:
-                    if types and hasattr(types, "Part"):
-                        vision_contents.append(types.Part.from_text(text="Verify lines, pockets and construction seams."))
-                        vision_contents.append(types.Part.from_bytes(data=target_new_sketch_bytes, mime_type=detected_mime_type))
-                    else:
-                        vision_contents.append("Verify lines, pockets and construction seams.")
-                        vision_contents.append({"mime_type": detected_mime_type, "data": target_new_sketch_bytes})
-                historical_pool_summary = []
-                for idx, s in enumerate(top_8_candidates):
-                    cand_img_url = s.get("SketchURL") or s.get("sketch_url")
-                    style_id = s.get("StyleName", "")
-                    if (not cand_img_url) and target_url_api and style_id:
-                        safe_filename = requests.utils.quote(f"{style_id}.jpg")
-                        cand_img_url = f"{target_url_api.rstrip('/')}/storage/v1/object/public/kho_anh/{safe_filename}"
-                    cand_img_bytes = None
-                    if cand_img_url and target_new_sketch_bytes:
-                        try:
-                            img_res = requests.get(cand_img_url, headers=headers_db, timeout=5)
-                            if img_res.status_code == 200 and len(img_res.content) > 500: cand_img_bytes = img_res.content
-                        except Exception: pass
-                    if cand_img_bytes and target_new_sketch_bytes:
-                        if types and hasattr(types, "Part"):
-                            vision_contents.append(types.Part.from_text(text=f"Index: {idx} (Style: {style_id})"))
-                            vision_contents.append(types.Part.from_bytes(data=cand_img_bytes, mime_type='image/jpeg'))
-                        else:
-                            vision_contents.append(f"Index: {idx} (Style: {style_id})")
-                            vision_contents.append({"mime_type": 'image/jpeg', "data": cand_img_bytes})
-                    historical_pool_summary.append({"pool_index": idx, "style_name": style_id, "dna_spec": str(s.get("structural_dna", {}))})
-                semantic_prompt = f"Compare new sketch against pool: {json.dumps(historical_pool_summary)}. If none match visually and structurally above 80%, return selected_pool_index as -1. Return valid JSON ONLY: {{\"selected_pool_index\": -1, \"match_score\": 0, \"reason\": \"Mô tả\"}}"
-                if types and hasattr(types, "Part"): vision_contents.append(types.Part.from_text(text=semantic_prompt))
-                else: vision_contents.append(semantic_prompt)
-                res = active_client.models.generate_content(model='gemini-2.5-flash', contents=vision_contents)
-                st.session_state["vlm_json_match_text"] = res.text.strip() if res else None
-    except Exception as e: st.error(f"🚨 Lỗi luồng xử lý AI: {str(e)}")
-
-
-
-
-
 # =========================================================================================
 # KHỐI ĐỐI SOÁT AI: BẢO VỆ TYPE SAFETY TUYỆT ĐỐI CHỐNG LỖI 'STR' HAS NO ATTRIBUTE 'GET'
 # =========================================================================================
@@ -1996,14 +1914,54 @@ except Exception as e:
 
     bom_records = st.session_state.get("bom_records", [])
 
-# ==========================================================
-# 🖼️ LỚP HIỂN THỊ GIAO DIỆN ĐỐI CHIẾU FLAT SKETCH (VÁ LỖI HIỂN THỊ FILE PDF)
-# ==========================================================
+# =========================================================================================
+# ĐOẠN C SỬA ĐỔI HOÀN CHỈNH: ĐỒNG BỘ TRẠNG THÁI HIỂN THỊ VÀ KHÓA CHẶT MẢNG DỮ LIỆU KHO
+# =========================================================================================
+
+# Tiếp nhận dữ liệu phân tích từ khối AI phía trên chuyển giao sang bộ nhớ tạm
+vlm_json_text = st.session_state.get("vlm_json_match_text", "")
+top_8_candidates = st.session_state.get("vlm_top_8_candidates", [])
+
+if vlm_json_text and top_8_candidates:
+    json_match = re.search(r'\{[\s\S]*\}', vlm_json_text)
+    if json_match:
+        try:
+            match_res = json.loads(json_match.group())
+            s_idx = match_res.get("selected_pool_index")
+            score = int(match_res.get("match_score", 0))
+            reason = str(match_res.get("reason", "N/A"))
+            
+            # Cổng chặn dung sai khớp mã an toàn
+            if s_idx is not None and s_idx != -1 and score >= 65 and 0 <= s_idx < len(top_8_candidates):
+                selected_meta = top_8_candidates[s_idx]
+                matched_style_name = selected_meta.get("StyleName")
+                
+                # Thực hiện kéo sâu dữ liệu định mức thô từ kho lưu trữ của xưởng
+                deep_fields = "StyleName,bom_records,thread_consumption,sewing_operation,machine_type,thread_allowance"
+                deep_res = requests.get(url_db, headers=headers_db, params={"StyleName": f"eq.{matched_style_name}", "select": deep_fields}, timeout=10).json()
+                
+                if deep_res and isinstance(deep_res, list) and len(deep_res) > 0:
+                    selected_meta.update(deep_res[0])
+                    
+                    # 🚀 VÁ URL ẢNH THỰC TẾ: Tự động dựng link public nếu link trong DB rỗng/lỗi
+                    if (not selected_meta.get("SketchURL")) and target_url_api:
+                        safe_filename = requests.utils.quote(f"{matched_style_name}.jpg")
+                        selected_meta["SketchURL"] = f"{target_url_api.rstrip('/')}/storage/v1/object/public/kho_anh/{safe_filename}"
+                    
+                    # ĐỒNG BỘ KHÓA TRẠNG THÁI VÀO BỘ NHỚ STREAMLIT CHỐNG TRÔI BIẾN KHI RERUN
+                    st.session_state["matched_techpack"] = selected_meta
+                    st.session_state["match_confidence_score"] = score
+                    st.session_state["match_reason"] = reason
+                    st.session_state["matched_image_verified"] = True
+                    st.session_state["bom_records"] = selected_meta.get("bom_records", [])
+                    st.session_state["bom_search_status"] = "SUCCESS"
+        except Exception:
+            pass
+
+# --- LỚP HIỂN THỊ GIAO DIỆN ĐỐI CHIẾU FLAT SKETCH (PHẲNG LỀ TRÁI 100%) ---
 st.markdown("### 🖼️ ĐỐI CHIẾU SỰ TƯƠNG ĐỒNG HÌNH ẢNH THIẾT KẾ (FLAT SKETCH)")
 
 matched_techpack = st.session_state.get("matched_techpack", None)
-base_url_api = globals().get("base_url_api", globals().get("SB_URL", ""))
-api_headers = globals().get("api_headers", {})
 detected_mime_type = locals().get("detected_mime_type", "image/jpeg")
 
 img_col1, img_col2 = st.columns(2)
@@ -2014,11 +1972,9 @@ with img_col1:
     uploaded_file_name = st.session_state.get("previous_uploaded_file_name", "Techpack")
     
     if target_new_sketch_bytes is not None:
-        # THAY ĐỔI LOGIC: Ưu tiên cố gắng render hình ảnh từ dữ liệu bytes đã trích xuất được trước
         try:
             st.image(target_new_sketch_bytes, caption=f"Hình ảnh đã quét từ tài liệu mới ({new_style_id_detected})", use_container_width=True)
         except Exception as e:
-            # Nếu render bytes lỗi VÀ tệp là PDF thì mới hiển thị hộp thông báo fallback
             if "pdf" in str(detected_mime_type).lower() or str(uploaded_file_name).lower().endswith(".pdf"):
                 st.info(f"📄 **Tài liệu dạng tệp:** `{uploaded_file_name}`\n\nHệ thống đã nạp toàn bộ cấu trúc dữ liệu PDF vào bộ nhớ mô phỏng rập mẫu.")
             else:
@@ -2026,21 +1982,11 @@ with img_col1:
     else:
         st.info("ℹ️ Chưa tải lên tệp ảnh Flat Sketch của mẫu mới.")
 
-
 with img_col2:
-    if matched_techpack is not None:
-        # 1. Đồng bộ mã đối chứng và URL ảnh gốc
+    # Trường hợp khóa mã thành công -> Ép hiển thị bảng chứng thực và ảnh kho song song
+    if matched_techpack is not None and matched_techpack.get("StyleName") != "VIRTUAL-GEOMETRY-FALLBACK":
         target_style_name = str(matched_techpack.get("StyleName", "")).strip().upper()
-        st.session_state["matched_style_name"] = target_style_name
-        st.session_state["matched_sketch_url"] = matched_techpack.get("SketchURL") or matched_techpack.get("sketch_url", "")
-        
-        # Đồng bộ an toàn score từ biến match_confidence_score của Đoạn trên lên màn hình hiển thị
-        similarity_score = st.session_state.get("match_confidence_score", 0.0)
-        st.session_state["matched_similarity_score"] = similarity_score
-
-        if st.session_state.get("bom_style_loaded", "") != target_style_name:
-            st.session_state["matched_image_verified"] = True
-            st.session_state["bom_reload_required"] = True
+        similarity_score = st.session_state.get("match_confidence_score", 95)
 
         st.markdown(f"""
             <div style='background-color: #EEF2F6; padding: 10px; border-radius: 5px; text-align: center; margin-bottom: 8px;'>
@@ -2049,58 +1995,14 @@ with img_col2:
             </div>
         """, unsafe_allow_html=True)
         
-        base_storage_url = f"{base_url_api.rstrip('/')}/storage/v1/object/public/kho_anh" if base_url_api else ""
-        img_content_final = None
-        
-        if base_storage_url:
-            from urllib.parse import quote
-            from concurrent.futures import ThreadPoolExecutor
-            
-            safe_style_name = quote(target_style_name)
-            safe_style_name_lower = quote(target_style_name.lower())
-            
-            url_options = [
-                f"{base_storage_url}/{safe_style_name}.png",
-                f"{base_storage_url}/{safe_style_name}.PNG",
-                f"{base_storage_url}/{safe_style_name}.jpg",
-                f"{base_storage_url}/{safe_style_name}.JPG",
-                f"{base_storage_url}/{safe_style_name}.jpeg",
-                f"{base_storage_url}/{safe_style_name_lower}.jpg",
-                f"{base_storage_url}/{safe_style_name_lower}.png"
-            ]
-            
-            def fetch_image_worker(url):
-                try:
-                    resp = requests.get(url, headers=api_headers, timeout=5)
-                    if resp.status_code == 200 and len(resp.content) > 500:
-                        content = resp.content
-                        if content.startswith(b'\xff\xd8') or content.startswith(b'\x89PNG') or b'<!DOCTYPE' not in content[:100]:
-                            return content
-                except Exception:
-                    pass
-                return None
-
-            with ThreadPoolExecutor(max_workers=6) as executor:
-                results = executor.map(fetch_image_worker, url_options)
-                for res in results:
-                    if res:
-                        img_content_final = res
-                        break
-        
-        if img_content_final:
+        db_stored_url = matched_techpack.get("SketchURL") or matched_techpack.get("sketch_url")
+        if db_stored_url:
             try:
-                st.image(img_content_final, caption=f"Ảnh bản vẽ gốc của mã {target_style_name}", use_container_width=True)
+                st.image(db_stored_url, caption=f"Ảnh bản vẽ gốc mã đối chứng {target_style_name}", use_container_width=True)
             except Exception:
-                st.warning("⚠️ Lỗi hiển thị tệp đồ họa.")
-        else:
-            db_stored_url = st.session_state["matched_sketch_url"]
-            if db_stored_url and "public/kho_anh" not in str(db_stored_url):
-                try:
-                    st.image(db_stored_url, caption=f"Ảnh bản vẽ gốc mã {target_style_name} (Direct Link)", use_container_width=True)
-                except Exception:
-                    st.info("⚠️ Không tải được ảnh từ Direct Link.")
-            else:
                 st.info("ℹ️ Lưu ý: Mã hàng đã khớp. Không tìm thấy ảnh minh họa trong kho.")
+        else:
+            st.info("ℹ️ Lưu ý: Mã hàng đã khớp. Không tìm thấy ảnh minh họa trong kho.")
     else:
         st.session_state["matched_image_verified"] = False
         st.warning("⚠️ CHƯA KHỚP ĐƯỢC MÃ TƯƠNG ĐỒNG! Vui lòng nạp file Techpack tại menu Upload.")
