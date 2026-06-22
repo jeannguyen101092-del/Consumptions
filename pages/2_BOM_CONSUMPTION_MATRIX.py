@@ -2185,7 +2185,8 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     with chat_header_col1:
         st.markdown("### 💬 TRỢ LÝ AI PHÂN TÍCH ĐỊNH MỨC SẢN XUẤT ")
     with chat_header_col2:
-        if st.button("🗑️ XÓA LỊCH SỬ CHAT", key="direct_clear_chat_btn", use_container_width=True):
+        # ĐÃ VÁ LỖI TRÙNG ĐỊNH DANH (DUPLICATE ELEMENT FIX): Đổi key thành duy nhất toàn trang
+        if st.button("🗑️ XÓA LỊCH SỬ CHAT", key="unique_clear_consumption_chat_matrix_btn", use_container_width=True):
             st.session_state["consumption_chat_history"] = []
             st.toast("♻️ Đã xóa sạch lịch sử chat tức thì!")
             st.rerun()
