@@ -1644,8 +1644,7 @@ with st.spinner("🧠 Động cơ DNA Gateway đang đối soát kết cấu..."
     try:
         headers_db = globals().get("api_headers", {})
         target_url_api = globals().get("base_url_api", globals().get("SB_URL", ""))
-        if not headers_db: 
-            headers_db = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if SB_KEY else {}
+        if not headers_db: headers_db = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if SB_KEY else {}
         url_db = f"{target_url_api.rstrip('/')}/rest/v1/thong_so_techpack" if target_url_api else ""
         raw_styles = requests.get(url_db, headers=headers_db, params={"select": "StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL,sketch_vector,structural_dna", "limit": 1000}, timeout=15).json() if url_db else []
         active_client = client if client else globals().get("genai_client", globals().get("ai_client", None))
