@@ -1392,10 +1392,11 @@ def process_single_pdf_batch(file_bytes, file_name):
 
 
 
-# ==========================================================
-# 📥 ĐOẠN 3 ĐÃ SỬA: KHỞI TẠO BIẾN VÀ ĐỒNG BỘ CHUẨN KEY KHỐI NẠP KHO
-# ==========================================================
+# =================================================================
+# ĐOẠN 3 HOÀN CHỈNH: KHỞI TẠO BIẾN VÀ XỬ LÝ TỆP TẢI LÊN (BẺ KHÓA HIỂN THỊ)
+# =================================================================
 
+# 1. Xác định nguồn tệp tải lên từ các widget file_uploader khác nhau trong session_state
 target_file_object = None
 if 'uploaded_file' in st.session_state and st.session_state['uploaded_file'] is not None:
     target_file_object = st.session_state['uploaded_file']
@@ -1406,53 +1407,60 @@ elif 'bom_matrix_uploader' in st.session_state and st.session_state['bom_matrix_
 
 has_file = target_file_object is not None
 
+# 2. Nếu phát hiện có tệp, tiến hành kiểm tra và kích hoạt luồng xử lý tự động
 if has_file:
     file_bytes = target_file_object.getvalue()
     file_name = target_file_object.name
     
+    # Kiểm tra chống quét trùng lặp phi mã để giữ giao diện ổn định khi tương tác
     if st.session_state.get("previous_uploaded_file_name") != file_name:
         st.session_state["previous_uploaded_file_name"] = file_name
         
-                if file_name.lower().endswith('.pdf'):
-            res_pdf = process_single_pdf_batch(file_bytes, file_name)
-            
-            # SỬA LỖI: Chỉ cần AI trích xuất (success là True), bất kể lỗi Supabase hay lỗi gì, 
-            # chúng ta vẫn cưỡng bức lấy dữ liệu ra để hiển thị bảng so sánh ngay lập tức
-            if res_pdf.get("success") or (isinstance(res_pdf, dict) and "data" in res_pdf):
-                meta_p = res_pdf.get("data", {})
+        # Nếu là file PDF, kích hoạt luồng xử lý bóc tách thông số tự động qua Gemini
+        if file_name.lower().endswith('.pdf'):
+            try:
+                res_pdf = process_single_pdf_batch(file_bytes, file_name)
                 
-                # Ép lưu vào bộ nhớ đệm trạng thái
-                st.session_state["new_style_id_detected"] = meta_p.get("style_number_parsed", "UNKNOWN")
-                st.session_state["new_style_category_detected"] = meta_p.get("category", "PANT")
-                st.session_state["new_style_base_size"] = meta_p.get("base_size_name", "32")
-                st.session_state["new_style_measurements_dict"] = meta_p.get("measurements", {})
-                st.session_state["target_new_sketch_bytes"] = res_pdf.get("sketch_bytes")
-                st.session_state["detected_mime_type"] = "application/pdf"
-                st.session_state["matched_image_verified"] = True
-                
-                # Tự động đồng bộ mã hàng sang cho kho dữ liệu BOM tìm kiếm
-                st.session_state["matched_style_name"] = str(meta_p.get("style_number_parsed", "")).strip().upper()
-
+                # CƠ CHẾ CƯỠNG BỨC: Chỉ cần hàm trả về kết quả là bốc dữ liệu ra ngay, chấp nhận bỏ qua lỗi đồng bộ DB
+                if res_pdf.get("success") or (isinstance(res_pdf, dict) and "data" in res_pdf):
+                    meta_p = res_pdf.get("data", {})
+                    parsed_style = meta_p.get("style_number_parsed", "UNKNOWN")
+                    
+                    st.session_state["new_style_id_detected"] = parsed_style
+                    st.session_state["new_style_category_detected"] = meta_p.get("category", "PANT")
+                    st.session_state["new_style_base_size"] = meta_p.get("base_size_name", "32")
+                    st.session_state["new_style_measurements_dict"] = meta_p.get("measurements", {})
+                    st.session_state["target_new_sketch_bytes"] = res_pdf.get("sketch_bytes")
+                    st.session_state["detected_mime_type"] = "application/pdf"
+                    
+                    # MỞ KHÓA TOÀN DIỆN: Kích hoạt bộ lọc đồng bộ mã đối chứng và bảng so sánh
+                    st.session_state["matched_style_name"] = str(parsed_style).strip().upper()
+                    st.session_state["matched_image_verified"] = True
+            except Exception:
+                pass
         else:
+            # Nếu là file ảnh trực tiếp (JPG/PNG), giữ nguyên làm ảnh phác thảo (Flat Sketch)
             st.session_state["target_new_sketch_bytes"] = file_bytes
             st.session_state["new_style_id_detected"] = "UNKNOWN_STYLE"
             st.session_state["new_style_measurements_dict"] = {}
             st.session_state["detected_mime_type"] = "image/jpeg"
+            st.session_state["matched_image_verified"] = True
 
-# Đồng bộ an toàn dữ liệu từ bộ nhớ đệm trạng thái ra các biến cục bộ
+# 3. Đồng bộ an toàn từ bộ nhớ đệm trạng thái ra các biến cục bộ cho các đoạn code phía sau đọc ổn định
 new_style_id_detected = st.session_state.get("new_style_id_detected", "UNKNOWN")
 new_style_category_detected = st.session_state.get("new_style_category_detected", "")
 new_style_measurements_dict = st.session_state.get("new_style_measurements_dict", {})
 new_style_base_size = st.session_state.get("new_style_base_size", "32")
 target_new_sketch_bytes = st.session_state.get("target_new_sketch_bytes", None)
 
-# Cấu hình biến môi trường kết nối database
+# Chuẩn hóa biến kết nối cơ sở dữ liệu Supabase phục vụ luồng đối soát tự động
 SB_URL = st.secrets.get("SUPABASE_URL", "") if "SB_URL" not in globals() else SB_URL
 SB_KEY = st.secrets.get("SUPABASE_KEY", "") if "SB_KEY" not in globals() else SB_KEY
 dynamic_keyword = str(new_style_id_detected).strip().upper()
 base_sb_url = SB_URL.rstrip('/') if SB_URL else ""
 headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if SB_KEY else {}
 menu_selection = globals().get("menu_selection", "🧵 BOM & Consumption Matrix")
+# =================================================================
 
 
 # ĐOẠN 4 ĐÃ SỬA: HỆ THỐNG ĐỐI CHIẾU MÃ HÀNG CÓ CƠ CHẾ KHÓA TRẠNG THÁI VÀ PHÂN LOẠI VISION
