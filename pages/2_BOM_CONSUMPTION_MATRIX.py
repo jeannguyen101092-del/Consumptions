@@ -1339,10 +1339,9 @@ def process_single_pdf_batch(file_bytes, file_name):
 
 
 # ==========================================================
-# 📥 KHỞI TẠO BIẾN VÀ XỬ LÝ TỆP TẢI LÊN (ĐÃ KHÓA BỘ NHỚ STATE)
+# 📥 KHỞI TẠO BIẾN VÀ XỬ LÝ TỆP TẢI LÊN (ĐỒNG BỘ MÃ HÀNG TỪ ULTRA-FALLBACK)
 # ==========================================================
 
-# 1. Tìm nguồn tệp tải lên từ các widget uploader
 target_file_object = None
 if 'uploaded_file' in st.session_state and st.session_state['uploaded_file'] is not None:
     target_file_object = st.session_state['uploaded_file']
@@ -1353,39 +1352,38 @@ elif 'bom_matrix_uploader' in st.session_state and st.session_state['bom_matrix_
 
 has_file = target_file_object is not None
 
-# 2. Xử lý quét tệp và KHÓA CHẶT dữ liệu vào st.session_state để không bị mất khi rerun
 if has_file:
     file_bytes = target_file_object.getvalue()
     file_name = target_file_object.name
     
-    # Kiểm tra xem đây có phải là tệp mới tải lên hay không để tránh lặp lại hành động quét
     if st.session_state.get("previous_uploaded_file_name") != file_name:
         st.session_state["previous_uploaded_file_name"] = file_name
         
         if file_name.lower().endswith('.pdf'):
-            try:
-                res_pdf = process_single_pdf_batch(file_bytes, file_name)
-                if res_pdf.get("success"):
-                    meta_p = res_pdf["data"]
-                    st.session_state["new_style_id_detected"] = meta_p.get("style_number_parsed", "UNKNOWN_STYLE")
-                    st.session_state["new_style_category_detected"] = meta_p.get("category", "")
-                    st.session_state["new_style_base_size"] = meta_p.get("base_size_name", "32")
-                    st.session_state["new_style_measurements_dict"] = meta_p.get("measurements", {})
-                    st.session_state["target_new_sketch_bytes"] = res_pdf.get("sketch_bytes")
-                    st.session_state["detected_mime_type"] = "application/pdf"
-            except Exception:
-                pass
+            res_pdf = process_single_pdf_batch(file_bytes, file_name)
+            if res_pdf.get("success"):
+                meta_p = res_pdf["data"]
+                
+                # SỬA LỖI: Trích xuất chuẩn xác mã hàng từ JSON của Ultra-Fallback
+                parsed_style = meta_p.get("style_number_parsed", "UNKNOWN_STYLE")
+                st.session_state["new_style_id_detected"] = parsed_style
+                st.session_state["matched_style_name"] = parsed_style.strip().upper() # Ép đồng bộ mã đối chứng
+                
+                st.session_state["new_style_category_detected"] = meta_p.get("category", "PANT")
+                st.session_state["new_style_base_size"] = meta_p.get("base_size_name", "32")
+                st.session_state["new_style_measurements_dict"] = meta_p.get("measurements", {})
+                st.session_state["target_new_sketch_bytes"] = res_pdf.get("sketch_bytes")
+                st.session_state["detected_mime_type"] = "application/pdf"
+                st.session_state["matched_image_verified"] = True  # Kích hoạt mở khóa bảng thông số và AI
         else:
-            # Nếu là file ảnh trực tiếp (JPG/PNG)
             st.session_state["target_new_sketch_bytes"] = file_bytes
             st.session_state["new_style_id_detected"] = "UNKNOWN_STYLE"
             st.session_state["new_style_measurements_dict"] = {}
             st.session_state["detected_mime_type"] = "image/jpeg"
 
-# 3. Đồng bộ an toàn dữ liệu từ bộ nhớ đệm ra các biến cục bộ cho các đoạn code phía dưới chạy ổn định
+# Đồng bộ dữ liệu ra các biến cục bộ
 new_style_id_detected = st.session_state.get("new_style_id_detected", "UNKNOWN_STYLE")
 new_style_category_detected = st.session_state.get("new_style_category_detected", "")
-new_style_fabric_detected = st.session_state.get("new_style_fabric_detected", "UNKNOWN_FABRIC")
 new_style_measurements_dict = st.session_state.get("new_style_measurements_dict", {})
 new_style_base_size = st.session_state.get("new_style_base_size", "32")
 target_new_sketch_bytes = st.session_state.get("target_new_sketch_bytes", None)
@@ -1397,10 +1395,7 @@ dynamic_keyword = str(new_style_id_detected).strip().upper()
 base_sb_url = SB_URL.rstrip('/') if SB_URL else ""
 headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if SB_KEY else {}
 menu_selection = globals().get("menu_selection", "🧵 BOM & Consumption Matrix")
-# ==========================================
 
-# =================================================================
-# =================================================================
 # ĐOẠN 4 ĐÃ SỬA: HỆ THỐNG ĐỐI CHIẾU MÃ HÀNG CÓ CƠ CHẾ KHÓA TRẠNG THÁI VÀ PHÂN LOẠI VISION
 # =========================================================================================
 
