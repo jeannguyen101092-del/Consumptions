@@ -1761,9 +1761,7 @@ try:
 except Exception as e: 
     st.error(f"🚨 Lỗi luồng xử lý AI: {str(e)}")
 
-# KÍCH HOẠT CHẠY HÀM CÔ LẬP LỀ NGAY TẠI LUỒNG CHÍNH
-with st.spinner("🧠 Động cơ DNA Gateway đang đối soát kết cấu..."):
-    run_ai_dna_matching()
+
 
     try:
         headers_db = globals().get("api_headers", {})
