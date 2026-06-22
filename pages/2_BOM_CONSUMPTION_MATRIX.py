@@ -1574,106 +1574,192 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
            # ==========================================
        # =========================================================================================
 # =========================================================================================
-# ĐOẠN B1: ĐỘNG CƠ CỔNG CHẶN KẾT CẤU CỨNG (DNA HARD GATE ENGINE) & SÀNG LỌC TOP 8 ÚNG VIÊN
+# KHỐI ĐỐI SOÁT AI CHUYỂN ĐỔI CAO CẤP: VÁ KHÓA CHẶN KIỂU DỮ LIỆU CHỐNG LỖI 'STR' (.GET)
 # =========================================================================================
 
-def run_ai_dna_matching():
+def dna_hard_gate(new_dna, old_dna_raw) -> str:
     """
-    Hàm bọc độc lập cô lập hoàn toàn lề để triệt tiêu lỗi IndentationError.
-    Tự động đồng bộ api_headers, quét tìm mã hàng R09-XXXXXX và khóa cổng bảo mật.
+    Bộ lọc kết cấu cứng an toàn tuyệt đối. Ép kiểu dữ liệu nghiêm ngặt chống sập lỗi .get
     """
+    if not isinstance(new_dna, dict):
+        return False
+        
+    old_dna = {}
+    if old_dna_raw:
+        if isinstance(old_dna_raw, str):
+            try: old_dna = json.loads(old_dna_raw)
+            except Exception: return "LEGACY"
+        elif isinstance(old_dna_raw, dict):
+            old_dna = old_dna_raw
+            
+    if not isinstance(old_dna, dict) or not old_dna:
+        return "LEGACY"
+
+    # 1. Kiểm tra Category
+    if str(new_dna.get("category", "")).strip().upper() != str(old_dna.get("category", "")).strip().upper():
+        return False
+
+    # 2. Kiểm tra Silhouette tương đối
+    new_sil = str(new_dna.get("silhouette", "")).strip().upper()
+    old_sil = str(old_dna.get("silhouette", "")).strip().upper()
+    if new_sil and old_sil:
+        if new_sil not in old_sil and old_sil not in new_sil:
+            return False
+
+    # 3. Kiểm tra số lượng túi hộp
     try:
-        headers_db = globals().get("api_headers", {})
-        target_url_api = globals().get("base_url_api", globals().get("SB_URL", ""))
-        if not headers_db: 
-            headers_db = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if SB_KEY else {}
-        url_db = f"{target_url_api.rstrip('/')}/rest/v1/thong_so_techpack" if target_url_api else ""
+        new_pockets = int(new_dna.get("pocket_count", 0))
+        old_pockets = int(old_dna.get("pocket_count", 0))
+        if abs(new_pockets - old_pockets) > 2:
+            return False
+    except Exception:
+        pass
+
+    # 4. Kiểm tra độ phức tạp đường may rã rập
+    try:
+        new_seam = int(new_dna.get("seam_complexity", 5))
+        old_seam = int(old_dna.get("seam_complexity", 5))
+        if abs(new_seam - old_seam) > 3:
+            return False
+    except Exception:
+        pass
+
+    return True
+
+
+def calculate_dna_similarity(new_dna, old_dna_raw, old_sketch_vector: str) -> int:
+    """
+    Tính toán định lượng điểm số kết cấu kỹ thuật may mặc
+    """
+    if not isinstance(new_dna, dict):
+        return 0
         
-        raw_styles = requests.get(url_db, headers=headers_db, params={"select": "StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL,sketch_vector,structural_dna", "limit": 1000}, timeout=15).json() if url_db else []
-        active_client = client if client else globals().get("genai_client", globals().get("ai_client", None))
-        new_dna_context = st.session_state.get("new_style_dna", {})
+    old_dna = {}
+    if old_dna_raw:
+        if isinstance(old_dna_raw, str):
+            try: old_dna = json.loads(old_dna_raw)
+            except Exception: old_dna = {}
+        elif isinstance(old_dna_raw, dict):
+            old_dna = old_dna_raw
+
+    if not isinstance(old_dna, dict) or not old_dna:
+        new_keywords = set(str(new_dna.get("key_features_keywords", [])).upper().split() + [str(new_dna.get("silhouette", "")).upper()])
+        old_text = str(old_sketch_vector).upper()
+        overlap_count = sum(1 for kw in new_keywords if kw in old_text)
+        if str(new_dna.get("category", "")).strip().upper() in old_text:
+            return 70 + (overlap_count * 5)
+        return 65
+
+    score = 100
+    if str(new_dna.get("waistband", "")).strip().upper() != str(old_dna.get("waistband", "")).strip().upper():
+        score -= 10
+    if str(new_dna.get("fly_closure", "")).strip().upper() != str(old_dna.get("fly_closure", "")).strip().upper():
+        score -= 10
         
-        if raw_styles and active_client and new_dna_context:
-            valid_styles = [s for s in raw_styles if s.get("StyleName")]
-            detected_style_code = None
-            search_source = (new_vec + " " + str(st.session_state.get("previous_uploaded_file_name", ""))).upper()
-            code_match = re.search(r'(R\d{2}-\d{5,6})', search_source)
-            if code_match: 
-                detected_style_code = code_match.group(1).strip()
+    try:
+        score -= abs(int(new_dna.get("pocket_count", 0)) - int(old_dna.get("pocket_count", 0))) * 6
+        score -= abs(int(new_dna.get("seam_complexity", 5)) - int(old_dna.get("seam_complexity", 5))) * 5
+    except Exception:
+        score -= 10
+
+    return max(score, 0)
+
+
+# --- KHỐI THỰC THI CHẠY ĐỐI SOÁT CHÍNH ---
+headers_db = globals().get("api_headers", {})
+target_url_api = globals().get("base_url_api", globals().get("SB_URL", ""))
+if not headers_db: 
+    headers_db = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if SB_KEY else {}
+url_db = f"{target_url_api.rstrip('/')}/rest/v1/thong_so_techpack" if target_url_api else ""
+
+try:
+    raw_styles = requests.get(url_db, headers=headers_db, params={"select": "StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL,sketch_vector,structural_dna", "limit": 1000}, timeout=15).json() if url_db else []
+    active_client = client if client else globals().get("genai_client", globals().get("ai_client", None))
+    new_dna_context = st.session_state.get("new_style_dna", {})
+    
+    if isinstance(raw_styles, list) and active_client and isinstance(new_dna_context, dict) and new_dna_context:
+        valid_styles = [s for s in raw_styles if isinstance(s, dict) and s.get("StyleName")]
+        
+        detected_style_code = None
+        search_source = (new_vec + " " + str(st.session_state.get("previous_uploaded_file_name", ""))).upper()
+        code_match = re.search(r'(R\d{2}-\d{5,6})', search_source)
+        if code_match: 
+            detected_style_code = code_match.group(1).strip()
+        
+        dna_pool = []
+        for s in valid_styles:
+            style_id_upper = str(s.get("StyleName", "")).upper()
+            if detected_style_code and detected_style_code in style_id_upper:
+                dna_pool.append((100, s))
+                continue
+                
+            gate_result = dna_hard_gate(new_dna_context, s.get("structural_dna"))
+            if gate_result is False: 
+                continue
+            if gate_result == "LEGACY":
+                sim_math_score = calculate_dna_similarity(new_dna_context, s.get("structural_dna"), s.get("sketch_vector", ""))
+                sim_math_score = int(sim_math_score * 0.75)
+            else:
+                sim_math_score = calculate_dna_similarity(new_dna_context, s.get("structural_dna"), s.get("sketch_vector", ""))
+            dna_pool.append((sim_math_score, s))
             
-            dna_pool = []
-            for s in valid_styles:
-                style_id_upper = str(s.get("StyleName", "")).upper()
-                if detected_style_code and detected_style_code in style_id_upper:
-                    dna_pool.append((100, s))
-                    continue
-                gate_result = dna_hard_gate(new_dna_context, s.get("structural_dna"))
-                if gate_result is False: 
-                    continue
-                if gate_result == "LEGACY":
-                    sim_math_score = calculate_dna_similarity(new_dna_context, s.get("structural_dna"), s.get("sketch_vector", ""))
-                    sim_math_score = int(sim_math_score * 0.75)
+        dna_pool.sort(reverse=True, key=lambda x: x[0])
+        best_score = dna_pool[0][0] if dna_pool else 0
+        
+        if best_score < 80:
+            st.session_state["matched_techpack"] = None
+            st.session_state["match_confidence_score"] = 0
+            st.session_state["match_reason"] = f"REJECTED: Score {best_score}% < 80%"
+            st.session_state["force_geometric_mode"] = True
+            st.warning("⚠️ Không tìm thấy mã hàng tương thích DNA kết cấu (Đo độ tương hợp < 80%). Hệ thống kích hoạt AI Geometric Consumption Engine.")
+            st.stop()
+            
+        top_8_candidates = [x[1] for x in dna_pool[:8]]
+        st.session_state["vlm_top_8_candidates"] = top_8_candidates
+        
+        if top_8_candidates:
+            vision_contents = []
+            if target_new_sketch_bytes:
+                if types and hasattr(types, "Part"):
+                    vision_contents.append(types.Part.from_text(text="Verify lines, pockets and construction seams."))
+                    vision_contents.append(types.Part.from_bytes(data=target_new_sketch_bytes, mime_type=detected_mime_type))
                 else:
-                    sim_math_score = calculate_dna_similarity(new_dna_context, s.get("structural_dna"), s.get("sketch_vector", ""))
-                dna_pool.append((sim_math_score, s))
-                
-            dna_pool.sort(reverse=True, key=lambda x: x)
-            best_score = dna_pool[0][0] if dna_pool else 0
-            
-            if best_score < 80:
-                st.session_state["matched_techpack"] = None
-                st.session_state["match_confidence_score"] = 0
-                st.session_state["match_reason"] = f"REJECTED: Score {best_score}% < 80%"
-                st.session_state["force_geometric_mode"] = True
-                st.warning("⚠️ Không tìm thấy mã hàng tương thích DNA kết cấu (Đo độ tương hợp < 80%). Hệ thống kích hoạt AI Geometric Consumption Engine.")
-                st.stop()
-                
-            top_8_candidates = [x[1] for x in dna_pool[:8]]
-            st.session_state["vlm_top_8_candidates"] = top_8_candidates
-            
-            if top_8_candidates:
-                vision_contents = []
-                if target_new_sketch_bytes:
+                    vision_contents.append("Verify lines, pockets and construction seams.")
+                    vision_contents.append({"mime_type": detected_mime_type, "data": target_new_sketch_bytes})
+                    
+            historical_pool_summary = []
+            for idx, s in enumerate(top_8_candidates):
+                cand_img_url = s.get("SketchURL") or s.get("sketch_url")
+                style_id = s.get("StyleName", "")
+                if (not cand_img_url) and target_url_api and style_id:
+                    safe_filename = requests.utils.quote(f"{style_id}.jpg")
+                    cand_img_url = f"{target_url_api.rstrip('/')}/storage/v1/object/public/kho_anh/{safe_filename}"
+                cand_img_bytes = None
+                if cand_img_url and target_new_sketch_bytes:
+                    try:
+                        img_res = requests.get(cand_img_url, headers=headers_db, timeout=5)
+                        if img_res.status_code == 200 and len(img_res.content) > 500: 
+                            cand_img_bytes = img_res.content
+                    except Exception: pass
+                if cand_img_bytes and target_new_sketch_bytes:
                     if types and hasattr(types, "Part"):
-                        vision_contents.append(types.Part.from_text(text="Verify lines, pockets and construction seams."))
-                        vision_contents.append(types.Part.from_bytes(data=target_new_sketch_bytes, mime_type=detected_mime_type))
+                        vision_contents.append(types.Part.from_text(text=f"Index: {idx} (Style: {style_id})"))
+                        vision_contents.append(types.Part.from_bytes(data=cand_img_bytes, mime_type='image/jpeg'))
                     else:
-                        vision_contents.append("Verify lines, pockets and construction seams.")
-                        vision_contents.append({"mime_type": detected_mime_type, "data": target_new_sketch_bytes})
-                        
-                historical_pool_summary = []
-                for idx, s in enumerate(top_8_candidates):
-                    cand_img_url = s.get("SketchURL") or s.get("sketch_url")
-                    style_id = s.get("StyleName", "")
-                    if (not cand_img_url) and target_url_api and style_id:
-                        safe_filename = requests.utils.quote(f"{style_id}.jpg")
-                        cand_img_url = f"{target_url_api.rstrip('/')}/storage/v1/object/public/kho_anh/{safe_filename}"
-                    cand_img_bytes = None
-                    if cand_img_url and target_new_sketch_bytes:
-                        try:
-                            img_res = requests.get(cand_img_url, headers=headers_db, timeout=5)
-                            if img_res.status_code == 200 and len(img_res.content) > 500: 
-                                cand_img_bytes = img_res.content
-                        except Exception: pass
-                    if cand_img_bytes and target_new_sketch_bytes:
-                        if types and hasattr(types, "Part"):
-                            vision_contents.append(types.Part.from_text(text=f"Index: {idx} (Style: {style_id})"))
-                            vision_contents.append(types.Part.from_bytes(data=cand_img_bytes, mime_type='image/jpeg'))
-                        else:
-                            vision_contents.append(f"Index: {idx} (Style: {style_id})")
-                            vision_contents.append({"mime_type": 'image/jpeg', "data": cand_img_bytes})
-                    historical_pool_summary.append({"pool_index": idx, "style_name": style_id, "dna_spec": str(s.get("structural_dna", {}))})
-                    
-                semantic_prompt = f"Compare new sketch against pool: {json.dumps(historical_pool_summary)}. If none match visually and structurally above 80%, return selected_pool_index as -1. Return valid JSON ONLY: {{\"selected_pool_index\": -1, \"match_score\": 0, \"reason\": \"Mô tả\"}}"
-                if types and hasattr(types, "Part"): 
-                    vision_contents.append(types.Part.from_text(text=semantic_prompt))
-                else: 
-                    vision_contents.append(semantic_prompt)
-                    
-                res = active_client.models.generate_content(model='gemini-2.5-flash', contents=vision_contents)
-                st.session_state["vlm_json_match_text"] = res.text.strip() if res else None
-    except Exception as e: 
-        st.error(f"🚨 Lỗi luồng xử lý AI: {str(e)}")
+                        vision_contents.append(f"Index: {idx} (Style: {style_id})")
+                        vision_contents.append({"mime_type": 'image/jpeg', "data": cand_img_bytes})
+                historical_pool_summary.append({"pool_index": idx, "style_name": style_id, "dna_spec": str(s.get("structural_dna", {}))})
+                
+            semantic_prompt = f"Compare new sketch against pool: {json.dumps(historical_pool_summary)}. If none match visually and structurally above 80%, return selected_pool_index as -1. Return valid JSON ONLY: {{\"selected_pool_index\": -1, \"match_score\": 0, \"reason\": \"Mô tả\"}}"
+            if types and hasattr(types, "Part"): 
+                vision_contents.append(types.Part.from_text(text=semantic_prompt))
+            else: 
+                vision_contents.append(semantic_prompt)
+                
+            res = active_client.models.generate_content(model='gemini-2.5-flash', contents=vision_contents)
+            st.session_state["vlm_json_match_text"] = res.text.strip() if res else None
+except Exception as e: 
+    st.error(f"🚨 Lỗi luồng xử lý AI: {str(e)}")
 
 # KÍCH HOẠT CHẠY HÀM CÔ LẬP LỀ NGAY TẠI LUỒNG CHÍNH
 with st.spinner("🧠 Động cơ DNA Gateway đang đối soát kết cấu..."):
