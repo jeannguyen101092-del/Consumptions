@@ -1274,38 +1274,43 @@ if gemini_key:
 
 def process_single_pdf_batch(file_bytes, file_name):
     """
-    Hàm bóc tách dữ liệu độc lập, tự động bẻ khóa cấu trúc tệp PDF
-    ✨ ĐÃ VÁ LỖI CẤU TRÚC JSON, TIẾP NHẬN ẢNH SKETCH VÀ ĐỒNG BỘ KHO SUPABASE
+    Retriever Layer chuyên sâu cho hệ thống BOM & Consumption Matrix.
+    ✨ Đã sửa lỗi URL REST API, làm sạch JSON, fallback text OCR, 
+    cô lập ảnh nhị phân và chuẩn bị luồng kéo dữ liệu đối chứng Supabase.
     """
     import json
     import requests
     import base64
     import time
     import io
+    import re
 
-    # Thử nghiệm import pypdf để hỗ trợ trích xuất dữ liệu thô nếu cần thiết
     try:
         import pypdf
         PYPDF_AVAILABLE = True
     except ImportError:
         PYPDF_AVAILABLE = False
 
-    # VÁ LỖI 5: Chặn PDF quá giới hạn dung lượng xử lý của Gemini API
+    # VÁ LỖI 5: Kiểm soát chặt chẽ dung lượng tệp tải lên
     MAX_MB = 18
     if len(file_bytes) > MAX_MB * 1024 * 1024:
-        return {"success": False, "error": f"Tệp PDF vượt quá giới hạn cấu hình an toàn {MAX_MB}MB."}
+        return {"success": False, "error": f"Tệp PDF vượt giới hạn xử lý {MAX_MB}MB của Gemini."}
 
     try:
-        # Lấy API Key an toàn từ Secrets
+        # Thu thập API Key an toàn từ Secrets
         gemini_key = get_secure_gemini_key() if "get_secure_gemini_key" in globals() else st.secrets.get("GEMINI_API_KEY", "").strip()
         if not gemini_key:
             return {"success": False, "error": "Thiếu GEMINI_API_KEY trong cấu hình Secrets."}
 
-        # Mã hóa trực tiếp tệp PDF sang định dạng Base64
+        # Mã hóa trực tiếp tệp PDF gốc sang định dạng Base64
         b64_pdf = base64.b64encode(file_bytes).decode('utf-8')
 
-        # VÁ LỖI 1: Sửa lại chính xác cấu trúc URL API Endpoint của Google Gemini 2.5 Flash
-        url = f"https://googleapis.com{gemini_key}"
+        # VÁ LỖI 1: Sửa chính xác 100% URL API Endpoint chuẩn của Google Gemini REST API
+        url = (
+            "https://generativelanguage.googleapis.com/"
+            "v1beta/models/gemini-2.5-flash:generateContent"
+            f"?key={gemini_key}"
+        )
         
         industrial_prompt = (
             "You are an expert Garment Specification Auditor at PPJ Group. Analyze this entire Techpack PDF file page by page.\n"
@@ -1339,28 +1344,35 @@ def process_single_pdf_batch(file_bytes, file_name):
             }
         }
 
-        # VÁ LỖI 3: Nâng cấu hình timeout lên 180 giây để thoải mái bóc tách tài liệu nhiều trang
+        # VÁ LỖI 3: Thiết lập timeout lớn (180 giây) cho các Techpack may mặc cồng kềnh
         res = requests.post(url, json=api_payload, headers={"Content-Type": "application/json"}, timeout=180)
         
         if res.status_code == 200:
             res_json = res.json()
             
-            # VÁ LỖI 4: Kiểm tra chặt chẽ cấu trúc response tránh Safety Block làm sập phần mềm
+            # VÁ LỖI 4 (Phần A): Kiểm tra nghiêm ngặt cấu trúc phản hồi tránh đứt gãy luồng
             if "candidates" not in res_json or not res_json["candidates"]:
-                return {"success": False, "error": f"Mô hình phản hồi không hợp lệ hoặc bị chặn nội dung: {res_json}"}
+                return {"success": False, "error": f"Gemini phản hồi không hợp lệ hoặc bị Safety Block: {res_json}"}
                 
-            # VÁ LỖI 2: Trích xuất text an toàn và làm sạch khối ép định dạng của markdown
-            text_response = res_json['candidates'][0]['content']['parts'][0]['text'].strip()
+            # VÁ LỖI 2: Trích xuất text phản hồi và dọn sạch các khối bao đóng markdown bọc ngoài
+            text_response = res_json['candidates']['content']['parts']['text'].strip()
             clean_json = text_response.replace("```json", "").replace("```", "").strip()
-            parsed_data = json.loads(clean_json)
             
-            # VÁ LỖI 6: Xử lý trích xuất ảnh Sketch nhị phân trực tiếp từ PDF để phục vụ cho Vision Similarity
+            # Khắc phục trường hợp dấu phẩy thừa cuối chuỗi (Trailing commas) trước khi load
+            clean_json = re.sub(r',\s*([\]}])', r'\1', clean_json)
+            
+            # VÁ LỖI 4 (Phần B): Bọc khối bẫy lỗi JSON Parse tránh nổ ứng dụng
+            try:
+                parsed_data = json.loads(clean_json)
+            except Exception:
+                return {"success": False, "error": "Mô hình trả dữ liệu không đúng cấu trúc định dạng JSON sạch."}
+            
+            # VÁ LỖI 2 THỰC TẾ: Trích xuất ảnh nhúng đặc hiệu, TUYỆT ĐỐI không dán đè PDF nhị phân thô
             extracted_sketch_bytes = None
             if PYPDF_AVAILABLE:
                 try:
                     pdf_reader = pypdf.PdfReader(io.BytesIO(file_bytes))
                     sketch_idx = int(parsed_data.get("sketch_page_index_detected", 0))
-                    # Đảm bảo chỉ mục trang an toàn
                     target_page_num = sketch_idx if (0 <= sketch_idx < len(pdf_reader.pages)) else 0
                     page = pdf_reader.pages[target_page_num]
                     
@@ -1373,11 +1385,26 @@ def process_single_pdf_batch(file_bytes, file_name):
                 except Exception:
                     pass
             
-            # Nếu trích xuất ảnh inline thất bại, lấy tạm file_bytes làm mốc phục vụ xử lý tầng dưới
+            # Điểm then chốt: Nếu không bóc tách được ảnh thực sự, để None để tầng dưới tự động kích hoạt Geometry/Text Fallback
+            # Tuyệt đối không gán đè file_bytes thô làm hỏng thuật toán trực quan Vision
             if not extracted_sketch_bytes:
-                extracted_sketch_bytes = file_bytes
+                extracted_sketch_bytes = None
 
-            # VÁ LỖI 7: Tự động gọi đồng bộ ghi nhận dữ liệu lên database Supabase để kích hoạt luồng BOM
+            # VÁ LỖI 5 THỰC TẾ: Tích hợp OCR dự phòng (Fallback) khi bảng measurements trống rỗng
+            if PYPDF_AVAILABLE and (not parsed_data.get("measurements") or len(parsed_data["measurements"]) == 0):
+                try:
+                    pdf_reader = pypdf.PdfReader(io.BytesIO(file_bytes))
+                    raw_text_fallback = ""
+                    for i in range(min(5, len(pdf_reader.pages))):
+                        p_txt = pdf_reader.pages[i].extract_text()
+                        if p_txt:
+                            raw_text_fallback += f"\n--- PAGE {i+1} ---\n{p_txt}"
+                    if raw_text_fallback.strip():
+                        parsed_data["raw_text_ocr_fallback"] = raw_text_fallback[:40000]
+                except Exception:
+                    pass
+
+            # VÁ LỖI 7 THỰC TẾ (Retriever Layer): Đồng bộ đẩy Techpack mới vào kho dữ liệu Supabase
             success_db = True
             if "save_to_supabase_techpack_table" in globals():
                 try:
@@ -1385,12 +1412,14 @@ def process_single_pdf_batch(file_bytes, file_name):
                 except Exception: 
                     success_db = False
             
+            # Đóng gói dữ liệu đầu ra chuẩn chỉnh phục vụ trực tiếp cho AI Projection Engine
             output_payload = {
                 "style_number_parsed": parsed_data.get("style_number_parsed", "UNKNOWN"),
                 "buyer": parsed_data.get("buyer", "UNKNOWN BUYER"),
                 "category": parsed_data.get("category", "PANT"),
                 "base_size_name": parsed_data.get("base_size_name", "32"),
-                "measurements": parsed_data.get("measurements", {})
+                "measurements": parsed_data.get("measurements", {}),
+                "raw_text_ocr_fallback": parsed_data.get("raw_text_ocr_fallback", "")
             }
             
             return {
@@ -1401,14 +1430,15 @@ def process_single_pdf_batch(file_bytes, file_name):
                 "category": output_payload["category"],
                 "size": output_payload["base_size_name"],
                 "measurements": output_payload["measurements"],
-                "sketch_bytes": extracted_sketch_bytes, # Trả về ảnh sạch để mở khóa thuật toán trực quan Vision
-                "error": None if success_db else "Lỗi ghi đồng bộ dữ liệu lên cơ sở dữ liệu Supabase"
+                "sketch_bytes": extracted_sketch_bytes, # Ảnh nhị phân sạch (hoặc None) bảo vệ Vision Similarity
+                "error": None if success_db else "Lỗi ghi đồng bộ cấu trúc dữ liệu Techpack lên Supabase"
             }
         else:
-            return {"success": False, "error": f"API Google phản hồi lỗi: {res.status_code} - {res.text}"}
+            return {"success": False, "error": f"API Google phản hồi mã lỗi: {res.status_code} - {res.text}"}
 
     except Exception as e:
-        return {"success": False, "error": f"Lỗi xử lý luồng truyền: {str(e)}"}
+        return {"success": False, "error": f"Lỗi xử lý luồng truyền dữ liệu thô: {str(e)}"}
+
 
 
 
