@@ -1793,63 +1793,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
 # ==========================================================
 # 🖼️ LỚP HIỂN THỊ GIAO DIỆN ĐỐI CHIẾU FLAT SKETCH (VÁ LỖI HIỂN THỊ FILE PDF)
 # ==========================================================
-st.markdown("### 🖼️ ĐỐI CHIẾU SỰ TƯƠNG ĐỒNG HÌNH ẢNH THIẾT KẾ (FLAT SKETCH)")
-
-matched_techpack = st.session_state.get("matched_techpack", None)
-base_url_api = globals().get("base_url_api", globals().get("SB_URL", ""))
-api_headers = globals().get("api_headers", {})
-detected_mime_type = locals().get("detected_mime_type", "image/jpeg")
-
-img_col1, img_col2 = st.columns(2)
-
-with img_col1:
-    target_new_sketch_bytes = globals().get("target_new_sketch_bytes", None)
-    new_style_id_detected = globals().get("new_style_id_detected", "N/A")
-    uploaded_file_name = st.session_state.get("previous_uploaded_file_name", "Techpack")
-    
-    if target_new_sketch_bytes is not None:
-        if str(uploaded_file_name).lower().endswith(".pdf") or b"%PDF" in target_new_sketch_bytes[:10]:
-            try:
-                import fitz  
-                doc = fitz.open(stream=target_new_sketch_bytes, filetype="pdf")
-                page = doc[0]  
-                pix = page.get_pixmap(dpi=200)  
-                
-                st.image(
-                    pix.tobytes("png"),
-                    caption=f"Hình ảnh quét từ PDF ({new_style_id_detected})",
-                    use_container_width=True
-                )
-            except Exception as pdf_err:
-                st.error(f"PDF Render Error: {pdf_err}")
-        else:
-            st.image(
-                target_new_sketch_bytes,
-                caption=f"Mẫu mới tải lên ({new_style_id_detected})",
-                use_container_width=True
-            )
-    else:
-        st.info("ℹ️ Chưa tải lên tệp ảnh Flat Sketch của mẫu mới.")
-
-with img_col2:
-    if matched_techpack is not None:
-        target_style_name = str(matched_techpack.get("StyleName", "")).strip().upper()
-        st.session_state["matched_style_name"] = target_style_name
-        st.session_state["matched_sketch_url"] = matched_techpack.get("SketchURL") or matched_techpack.get("sketch_url", "")
-        
-        similarity_score = st.session_state.get("match_confidence_score", 0.0)
-        st.session_state["matched_similarity_score"] = similarity_score
-
-        if st.session_state.get("bom_style_loaded", "") != target_style_name:
-            st.session_state["matched_image_verified"] = True
-            st.session_state["bom_reload_required"] = True
-
-        st.markdown(f"""
-            <div style='background-color: #EEF2F6; padding: 10px; border-radius: 5px; text-align: center; margin-bottom: 8px;'>
-                <p style='color: #1E3A8A; font-size: 14px; font-weight: 700; margin: 0;'>🎯 Mã tương đồng trong kho: {target_style_name}</p>
-                <p style='color: #10B981; font-size: 13px; font-weight: 600; margin: 4px 0 0 0;'>🤖 Độ tương đồng thiết kế (Vision): {similarity_score}%</p>
-            </div>
-        """, unsafe_allow_html=True)
+        st.markdown(f"""🎯 **Mã tương đồng trong kho:** {target_style_name}  \n🤖 **Độ tương đồng thiết kế (Vision):** {similarity_score}%""")
         
         base_storage_url = f"{base_url_api.rstrip('/')}/storage/v1/object/public/kho_anh" if base_url_api else ""
         img_content_final = None
@@ -1889,14 +1833,13 @@ with img_col2:
                     if res:
                         img_content_final = res
                         break
-        
         if img_content_final:
             try:
                 st.image(img_content_final, caption=f"Ảnh bản vẽ gốc của mã {target_style_name}", use_container_width=True)
             except Exception:
                 st.warning("⚠️ Lỗi hiển thị tệp đồ họa.")
         else:
-            db_stored_url = st.session_state["matched_sketch_url"]
+            db_stored_url = st.session_state.get("matched_sketch_url", "")
             if db_stored_url and "public/kho_anh" not in str(db_stored_url):
                 try:
                     st.image(db_stored_url, caption=f"Ảnh bản vẽ gốc mã {target_style_name} (Direct Link)", use_container_width=True)
@@ -1907,6 +1850,7 @@ with img_col2:
     else:
         st.session_state["matched_image_verified"] = False
         st.warning("⚠️ CHƯA KHỚP ĐƯỢC MÃ TƯƠNG ĐỒNG! Vui lòng nạp file Techpack tại menu Upload.")
+
 import json
 import re
 import requests
