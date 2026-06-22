@@ -2000,9 +2000,6 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     st.session_state["historical_bom_reference"] = bom_records
     st.session_state["main_fabric_records"] = main_fabric_records
     st.session_state["bom_summary_engine"] = bom_summary_engine
-
-
-   # --- BẢNG SO SÁNH SAI LỆCH THÔNG SỐ RẬP ---
 st.markdown("<br>### 📐 BẢNG SO SÁNH SAI LỆCH THÔNG SỐ KỸ THUẬT RẬP MẪU", unsafe_allow_html=True)
 
 new_specs = new_style_measurements_dict if new_style_measurements_dict else {}
@@ -2013,13 +2010,11 @@ if new_specs or old_specs:
     compare_rows = []
     valid_diff_pcts = []
     
-    # Hàm bổ sung: Lọc sạch mã tiền tố và ký tự đặc biệt để giữ lại chuỗi chữ cốt lõi phục vụ so khớp vị trí
     def clean_pom_text(text):
         cleaned = re.sub(r'^[A-Z0-9]+[\s\-_]+', '', str(text)).strip().upper()
         cleaned = re.sub(r'[^A-Z\s]', '', cleaned).strip()
         return cleaned
 
-    # Hàm bổ sung: Trích xuất chính xác số float đầu tiên từ chuỗi dữ liệu kỹ thuật
     def clean_float(v):
         if v is None:
             return None
@@ -2029,18 +2024,15 @@ if new_specs or old_specs:
             nums = re.findall(r"[-+]?\d*\.\d+|\d+", str(v))
             return float(nums[0]) if nums else None
 
-    # Tiến hành ánh xạ thông minh giữa hai bảng thông số mới và cũ thông qua chuỗi đã làm sạch
     mapped_old_specs = {clean_pom_text(k): (k, v) for k, v in old_specs.items()}
     processed_old_keys = set()
     
-    # Danh mục từ khóa kiểm soát phom dáng
     core_keywords = ["INSEAM", "THIGH", "HIP", "WAIST", "LEG", "LENGTH", "CHEST", "BUST", "WIDTH", "ARMHOLE", "SLEEVE", "OUTSEAM", "RISE"]
     ignore_keywords = ["BADGE", "LABEL", "BUTTON", "POCKET-OPENING", "TICKET", "LOOP", "STITCH"]
 
     for original_new_key, val_new in new_specs.items():
         clean_new_key = clean_pom_text(original_new_key)
         
-        # Tìm kiếm vị trí tương đồng trong kho dữ liệu cũ
         if clean_new_key in mapped_old_specs:
             original_old_key, val_old = mapped_old_specs[clean_new_key]
             processed_old_keys.add(original_old_key)
@@ -2056,14 +2048,12 @@ if new_specs or old_specs:
             if f_old != 0:
                 diff_pct = round((diff_val / f_old) * 100, 2)
 
-        # MÀNG LỌC CỨNG (Hard Core Filter): Chỉ tính toán diện tích dựa trên thông số phom chính có dữ liệu hợp lệ
         is_core = any(k in clean_new_key for k in core_keywords)
         is_ignored = any(ig in clean_new_key for ig in ignore_keywords)
         
         if is_core and not is_ignored and diff_pct is not None:
             valid_diff_pcts.append(diff_pct)
 
-        # Định dạng hiển thị chuỗi dữ liệu trên bảng
         display_diff = f"+{diff_val}" if diff_val and diff_val > 0 else (str(diff_val) if diff_val is not None else "-")
         display_pct = f"+{diff_pct}%" if diff_pct and diff_pct > 0 else (f"{diff_pct}%" if diff_pct is not None else "-")
 
@@ -2075,7 +2065,6 @@ if new_specs or old_specs:
             "Tỷ lệ biến thiên (Diff %)": display_pct
         })
 
-    # Nạp nốt các vị trí đo của mã cũ nếu mã mới không có để tránh mất mát dữ liệu hiển thị
     for original_old_key, val_old in old_specs.items():
         if original_old_key not in processed_old_keys:
             compare_rows.append({
@@ -2089,10 +2078,11 @@ if new_specs or old_specs:
     df_compare_spec = pd.DataFrame(compare_rows)
     st.dataframe(df_compare_spec, use_container_width=True, hide_index=True)
 
-    # Tính toán độ biến thiên diện tích phom (Diện tích tỉ lệ thuận với bình phương kích thước tuyến tính)
     if valid_diff_pcts:
         avg_pom_growth = sum(valid_diff_pcts) / len(valid_diff_pcts)
         avg_area_growth_pct = round((((1 + avg_pom_growth/100) ** 2) - 1) * 100, 2)
+
+
 
 
     # --- AI CONSUMPTION PROJECTION ENGINE ---
