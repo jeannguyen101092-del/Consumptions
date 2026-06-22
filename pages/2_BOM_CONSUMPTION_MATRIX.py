@@ -1760,7 +1760,7 @@ with st.spinner("🧠 Động cơ DNA Gateway đang đối soát kết cấu..."
 
 
 # =========================================================================================
-# KHỐI ĐỐI SOÁT AI CHUYỂN ĐỔI: ÉP PHẲNG LỀ TRÁI TRIỆT TIÊU 100% LỖI INDENTATION
+# KHỐI ĐỐI SOÁT AI CHUYỂN ĐỔI: SỬA LỖI BIẾN BEST_SCORE & TRIỆT TIÊU 100% LỖI HỆ THỐNG
 # =========================================================================================
 
 headers_db = globals().get("api_headers", {})
@@ -1798,18 +1798,21 @@ try:
                 sim_math_score = calculate_dna_similarity(new_dna_context, s.get("structural_dna"), s.get("sketch_vector", ""))
             dna_pool.append((sim_math_score, s))
             
-        dna_pool.sort(reverse=True, key=lambda x: x)
-        best_score = dna_pool if dna_pool else 0
+        # Sắp xếp mảng điểm giảm dần
+        dna_pool.sort(reverse=True, key=lambda x: x[0])
+        
+        # SỬA LỖI BIẾN CHÍNH XÁC: Trích xuất chuẩn số điểm Integer từ Tuple đầu tiên để so sánh toán học
+        best_score = dna_pool[0][0] if dna_pool else 0
         
         if best_score < 80:
             st.session_state["matched_techpack"] = None
             st.session_state["match_confidence_score"] = 0
             st.session_state["match_reason"] = f"REJECTED: Score {best_score}% < 80%"
             st.session_state["force_geometric_mode"] = True
-            st.warning("⚠️ Không tìm thấy mã hàng tương thích DNA kết cấu (Đo độ tương hợp < 80%). Hệ thống kích hoạt AI Geometric Consumption Engine.")
+            st.warning(f"⚠️ Không tìm thấy mã hàng tương thích DNA kết cấu (Độ tương hợp cao nhất {best_score}% < 80%). Hệ thống kích hoạt AI Geometric Consumption Engine.")
             st.stop()
             
-        top_8_candidates = [x for x in dna_pool[:8]]
+        top_8_candidates = [x[1] for x in dna_pool[:8]]
         st.session_state["vlm_top_8_candidates"] = top_8_candidates
         
         if top_8_candidates:
