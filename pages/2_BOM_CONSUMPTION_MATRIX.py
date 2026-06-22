@@ -1921,339 +1921,323 @@ import streamlit as st
 import pandas as pd
 from collections import defaultdict
 
-if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption Matrix":
-    matched_techpack = st.session_state.get("matched_techpack")
-    new_style_measurements_dict = globals().get("new_style_measurements_dict", {})
-    new_style_base_size = globals().get("new_style_base_size", "N/A")
-    base_sb_url = globals().get("base_sb_url", "")
-    SB_URL = globals().get("SB_URL", "")
-    SB_KEY = globals().get("SB_KEY", "")
+# Lấy các biến từ session_state để chạy độc lập trên Page mới
+matched_techpack = st.session_state.get("matched_techpack")
+new_style_measurements_dict = st.session_state.get("new_style_measurements_dict", {})
+new_style_base_size = st.session_state.get("new_style_base_size", "N/A")
+base_sb_url = st.session_state.get("base_sb_url", "")
+SB_URL = st.session_state.get("SB_URL", "")
+SB_KEY = st.session_state.get("SB_KEY", "")
 
-    base_url_api = base_sb_url if base_sb_url else (SB_URL if SB_URL else "")
-    api_headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if SB_KEY else {}
-    url_db = f"{base_url_api.rstrip('/')}/rest/v1/san_pham" if base_url_api else ""
+base_url_api = base_sb_url if base_sb_url else (SB_URL if SB_URL else "")
+api_headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if SB_KEY else {}
+url_db = f"{base_url_api.rstrip('/')}/rest/v1/san_pham" if base_url_api else ""
 
-    # ==========================================
-    # ĐOẠN 1: TÌM KIẾM & TRÍCH XUẤT BOM TỪ DATABASE
-    # ==========================================
-    if "bom_search_status" not in st.session_state:
+if "bom_search_status" not in st.session_state:
+    st.session_state["bom_search_status"] = "NOT_FOUND"
+
+if matched_techpack and st.session_state.get("matched_image_verified", False):
+    target_style_name_bom = st.session_state.get("matched_style_name", "").strip()
+    current_bom_style = st.session_state.get("bom_style_loaded", "")
+
+    if current_bom_style != target_style_name_bom:
+        st.session_state["bom_records"] = []
+        st.session_state["bom_style_loaded"] = target_style_name_bom
         st.session_state["bom_search_status"] = "NOT_FOUND"
 
-    if matched_techpack and st.session_state.get("matched_image_verified", False):
-        target_style_name_bom = st.session_state.get("matched_style_name", "").strip()
-        current_bom_style = st.session_state.get("bom_style_loaded", "")
-
-        if current_bom_style != target_style_name_bom:
-            st.session_state["bom_records"] = []
-            st.session_state["bom_style_loaded"] = target_style_name_bom
-            st.session_state["bom_search_status"] = "NOT_FOUND"
-
-        if (not st.session_state.get("bom_records") or st.session_state.get("bom_reload_required", False)) and url_db:
-            st.session_state["bom_reload_required"] = False  
-            raw_list = []
-            is_api_error = False
-            select_columns = "style_name,article_name,consumption_type,material_size,uom,consumption_value"
-            
-            try:
-                core_digits = re.findall(r"\d+", target_style_name_bom)
-                search_digits = max(core_digits, key=len) if core_digits else target_style_name_bom
-                
-                query_fallback = {
-                    "select": select_columns,
-                    "style_name": f"ilike.*{search_digits}*",
-                    "limit": 5000
-                }
-                res_fb = requests.get(url_db, headers=api_headers, params=query_fallback, timeout=10)
-                if res_fb.status_code == 200:
-                    raw_list = res_fb.json()
-                else:
-                    is_api_error = True
-            except Exception:
-                is_api_error = True
-
-            if raw_list:
-                final_filtered = []
-                clean_target = re.sub(r"[^A-Z0-9]", "", target_style_name_bom.upper())
-                for r in raw_list:
-                    db_style = re.sub(r"[^A-Z0-9]", "", str(r.get("style_name", "")).upper())
-                    if clean_target in db_style or db_style in clean_target or search_digits in db_style:
-                        final_filtered.append(r)
-                st.session_state["bom_records"] = final_filtered
-                st.session_state["bom_search_status"] = "FOUND" if final_filtered else "NOT_FOUND"
-            else:
-                st.session_state["bom_search_status"] = "API_ERROR" if is_api_error else "NOT_FOUND"
-
-    bom_records = st.session_state.get("bom_records", [])
-    main_fabric_records = []
-    bom_summary_engine = {}
-
-    for r in bom_records:
-        ctype = str(r.get("consumption_type", "")).strip().upper()
-        if not ctype: 
-            ctype = "UNKNOWN"
-        if ctype in ["MAIN", "FABRIC", "BODY", "SHELL", "MAIN FABRIC"]:
-            main_fabric_records.append(r)
-            
+    if (not st.session_state.get("bom_records") or st.session_state.get("bom_reload_required", False)) and url_db:
+        st.session_state["bom_reload_required"] = False  
+        raw_list = []
+        is_api_error = False
+        select_columns = "style_name,article_name,consumption_type,material_size,uom,consumption_value"
+        
         try:
-            qty = float(r.get("consumption_value", 0.0))
-        except (ValueError, TypeError):
-            qty = 0.0
+            core_digits = re.findall(r"\d+", target_style_name_bom)
+            search_digits = max(core_digits, key=len) if core_digits else target_style_name_bom
             
-        bom_summary_engine[ctype] = round(bom_summary_engine.get(ctype, 0.0) + qty, 3)
-
-    st.session_state["historical_bom_reference"] = bom_records
-    st.session_state["main_fabric_records"] = main_fabric_records
-    st.session_state["bom_summary_engine"] = bom_summary_engine
-    # ==========================================
-    # ĐOẠN 2: BẢNG SO SÁNH SAI LỆCH THÔNG SỐ RẬP
-    # ==========================================
-    st.markdown("<br>### 📐 BẢNG SO SÁNH SAI LỆCH THÔNG SỐ KỸ THUẬT RẬP MẪU", unsafe_allow_html=True)
-
-    new_specs = new_style_measurements_dict if new_style_measurements_dict else {}
-    old_specs = matched_techpack.get("DetailedMeasurements", {}) if matched_techpack else {}
-    avg_area_growth_pct = 0.0
-
-    if new_specs or old_specs:
-        compare_rows = []
-        valid_diff_pcts = []
-        
-        def clean_pom_text(text):
-            cleaned = re.sub(r'^[A-Z0-9]+[\s\-_]+', '', str(text)).strip().upper()
-            cleaned = re.sub(r'[^A-Z\s]', '', cleaned).strip()
-            return cleaned
-
-        def clean_float(v):
-            if v is None:
-                return None
-            try:
-                return float(v)
-            except (ValueError, TypeError):
-                nums = re.findall(r"[-+]?\d*\.\d+|\d+", str(v))
-                return float(nums[0]) if nums else None
-
-        mapped_old_specs = {clean_pom_text(k): (k, v) for k, v in old_specs.items()}
-        processed_old_keys = set()
-        
-        core_keywords = ["INSEAM", "THIGH", "HIP", "WAIST", "LEG", "LENGTH", "CHEST", "BUST", "WIDTH", "ARMHOLE", "SLEEVE", "OUTSEAM", "RISE"]
-        ignore_keywords = ["BADGE", "LABEL", "BUTTON", "POCKET-OPENING", "TICKET", "LOOP", "STITCH"]
-
-        for original_new_key, val_new in new_specs.items():
-            clean_new_key = clean_pom_text(original_new_key)
-            
-            if clean_new_key in mapped_old_specs:
-                original_old_key, val_old = mapped_old_specs[clean_new_key]
-                processed_old_keys.add(original_old_key)
+            query_fallback = {
+                "select": select_columns,
+                "style_name": f"ilike.*{search_digits}*",
+                "limit": 5000
+            }
+            res_fb = requests.get(url_db, headers=api_headers, params=query_fallback, timeout=10)
+            if res_fb.status_code == 200:
+                raw_list = res_fb.json()
             else:
-                original_old_key, val_old = "-", None
+                is_api_error = True
+        except Exception:
+            is_api_error = True
 
-            f_new = clean_float(val_new)
-            f_old = clean_float(val_old)
-            diff_val, diff_pct = None, None
-            
-            if f_new is not None and f_old is not None:
-                diff_val = round(f_new - f_old, 2)
-                if f_old != 0:
-                    diff_pct = round((diff_val / f_old) * 100, 2)
-
-            is_core = any(k in clean_new_key for k in core_keywords)
-            is_ignored = any(ig in clean_new_key for ig in ignore_keywords)
-            
-            if is_core and not is_ignored and diff_pct is not None:
-                valid_diff_pcts.append(diff_pct)
-
-            display_diff = f"+{diff_val}" if diff_val and diff_val > 0 else (str(diff_val) if diff_val is not None else "-")
-            display_pct = f"+{diff_pct}%" if diff_pct and diff_pct > 0 else (f"{diff_pct}%" if diff_pct is not None else "-")
-
-            compare_rows.append({
-                "Vị trí đo (POM Description)": original_new_key,
-                f"Mẫu mới ({new_style_base_size})": val_new if val_new is not None else "-",
-                f"Mã cũ ({str(st.session_state.get('matched_style_name', 'N/A'))})": val_old if val_old is not None else "-",
-                "Chênh lệch (Diff)": display_diff,
-                "Tỷ lệ biến thiên (Diff %)": display_pct
-            })
-
-        for original_old_key, val_old in old_specs.items():
-            if original_old_key not in processed_old_keys:
-                compare_rows.append({
-                    "Vị trí đo (POM Description)": original_old_key,
-                    f"Mẫu mới ({new_style_base_size})": "-",
-                    f"Mã cũ ({str(st.session_state.get('matched_style_name', 'N/A'))})": val_old if val_old is not None else "-",
-                    "Chênh lệch (Diff)": "-",
-                    "Tỷ lệ biến thiên (Diff %)": "-"
-                })
-
-        df_compare_spec = pd.DataFrame(compare_rows)
-        st.dataframe(df_compare_spec, use_container_width=True, hide_index=True)
-
-        if valid_diff_pcts:
-            avg_pom_growth = sum(valid_diff_pcts) / len(valid_diff_pcts)
-            avg_area_growth_pct = round((((1 + avg_pom_growth/100) ** 2) - 1) * 100, 2)
-            
-    # Khởi tạo biến cục bộ tránh lỗi NameError nếu khối so sánh bên trên không thỏa mãn điều kiện
-    avg_pom_diff_pct = locals().get("avg_pom_diff_pct", 0.0)
-    # ==========================================
-    # ĐOẠN 3: AI CONSUMPTION PROJECTION ENGINE
-    # ==========================================
-    if matched_techpack and st.session_state.get("matched_image_verified", False) and bom_records:
-        st.markdown("<br>🔮 **AI CONSUMPTION PROJECTION ENGINE (DỰ PHÓNG ĐỊNH MỨC MÃ MỚI)**", unsafe_allow_html=True)
-
-        v_similarity = st.session_state.get("matched_similarity_score", 100.0)
-        col1, col2 = st.columns(2)
-        with col1:
-            shape_factor = st.number_input("Độ biến thiên phom tính toán từ POM (%)", value=float(avg_area_growth_pct), step=0.1)
-        with col2:
-            wastage_buffer = st.number_input("Hao hụt sản xuất cấu hình thêm (%)", value=3.0, step=0.5)
-
-        projection_rows = []
-        for ctype, old_qty in bom_summary_engine.items():
-            ctype_upper = str(ctype).strip().upper()
-            if any(k in ctype_upper for k in ["MAIN", "FABRIC", "BODY", "SHELL", "LINING", "RIB", "COMBINATION", "POCKETING"]):
-                similarity_weight = v_similarity / 100.0
-                adjusted_shape_factor = shape_factor * similarity_weight
-                projected_dm = old_qty * (1 + adjusted_shape_factor / 100) * (1 + wastage_buffer / 100)
-                note = f"Vải nhảy vóc (Diện tích rập biến thiên: {round(adjusted_shape_factor, 2)}% dựa trên Vision {v_similarity}%)"
-            else:
-                projected_dm = old_qty * (1 + wastage_buffer / 100)
-                note = f"Phụ liệu tĩnh (Chỉ tính hao hụt sản xuất {wastage_buffer}%)"
-                
-            projection_rows.append({
-                "Phân loại vật tư (Type)": ctype,
-                "Tổng ĐM mã cũ": old_qty,
-                "ĐM Dự phóng mã mới": round(projected_dm, 3),
-                "Cơ sở thuật toán toán AI": note
-            })
-            
-        df_projection = pd.DataFrame(projection_rows)
-        st.session_state["ai_projected_consumption_matrix"] = projection_rows
-        st.dataframe(df_projection, use_container_width=True, hide_index=True)
-
-    if 'bom_matrix_uploader' in st.session_state and st.session_state["bom_matrix_uploader"] is not None:
-        st.markdown("<br>🔮 **AI CONSUMPTION PROJECTION ENGINE (DỰ PHÓNG ĐỊNH MỨC MÃ MỚI)**", unsafe_allow_html=True)
-        
-        category_context = str(st.session_state.get("detected_garment_type", globals().get("new_style_category", "PANT"))).upper()
-        if "JACKET" in category_context or "OUTERWEAR" in category_context: default_growth = 0.90
-        elif "PANT" in category_context or "TROUSER" in category_context: default_growth = 0.75
-        elif "SHORT" in category_context: default_growth = 0.65
-        elif "SHIRT" in category_context or "POLO" in category_context: default_growth = 0.55
-        else: default_growth = 0.45
-
-        if "JACKET" in category_context or "OUTERWEAR" in category_context: default_safety_buffer = 5.0
-        elif "PANT" in category_context or "TROUSER" in category_context: default_safety_buffer = 4.0
-        elif "SHORT" in category_context: default_safety_buffer = 3.0
-        else: default_safety_buffer = 2.0
-
-        area_growth = float(locals().get("avg_area_growth_pct", globals().get("avg_area_growth_pct", 0.0)))
-        pom_growth = float(avg_pom_diff_pct if 'avg_pom_diff_pct' in locals() and avg_pom_diff_pct is not None else 0.0)
-
-        has_active_bom = ('bom_records' in locals() and bom_records) or st.session_state.get("bom_records")
-
-        if matched_techpack and has_active_bom:
-            method_used = "AI Similar Style Reference"
-            label_text = "Độ biến thiên phom Hybrid (%)"
-            st.success(f"✅ **XÁC THỰC AI VISION:** Chế độ vận hành: {method_used}")
-            
-            if area_growth != 0.0 and pom_growth != 0.0:
-                raw_target_growth = (area_growth * 0.8) + (pom_growth * 0.2)
-            elif area_growth != 0.0:
-                raw_target_growth = area_growth
-                st.info("📊 **HYBRID MODE:** Hệ thống lấy 100% Area Growth.")
-            elif pom_growth != 0.0:
-                raw_target_growth = pom_growth
-                st.info("📊 **HYBRID MODE:** Hệ thống lấy 100% POM Growth.")
-            else:
-                raw_target_growth = 0.0
+        if raw_list:
+            final_filtered = []
+            clean_target = re.sub(r"[^A-Z0-9]", "", target_style_name_bom.upper())
+            for r in raw_list:
+                db_style = re.sub(r"[^A-Z0-9]", "", str(r.get("style_name", "")).upper())
+                if clean_target in db_style or db_style in clean_target or search_digits in db_style:
+                    final_filtered.append(r)
+            st.session_state["bom_records"] = final_filtered
+            st.session_state["bom_search_status"] = "FOUND" if final_filtered else "NOT_FOUND"
         else:
-            method_used = "Geometry / Vector Projection"
-            label_text = "Độ biến thiên diện tích hình học rập mẫu (%)"
-            st.warning(f"⚠️ **CHẾ ĐỘ DỰ PHÒNG HÌNH HỌC:** Chế độ vận hành: {method_used}")
+            st.session_state["bom_search_status"] = "API_ERROR" if is_api_error else "NOT_FOUND"
+
+bom_records = st.session_state.get("bom_records", [])
+main_fabric_records = []
+bom_summary_engine = {}
+
+for r in bom_records:
+    ctype = str(r.get("consumption_type", "")).strip().upper()
+    if not ctype: 
+        ctype = "UNKNOWN"
+    if ctype in ["MAIN", "FABRIC", "BODY", "SHELL", "MAIN FABRIC"]:
+        main_fabric_records.append(r)
+        
+    try:
+        qty = float(r.get("consumption_value", 0.0))
+    except (ValueError, TypeError):
+        qty = 0.0
+        
+    bom_summary_engine[ctype] = round(bom_summary_engine.get(ctype, 0.0) + qty, 3)
+
+st.session_state["historical_bom_reference"] = bom_records
+st.session_state["main_fabric_records"] = main_fabric_records
+st.session_state["bom_summary_engine"] = bom_summary_engine
+st.markdown("<br>### 📐 BẢNG SO SÁNH SAI LỆCH THÔNG SỐ KỸ THUẬT RẬP MẪU", unsafe_allow_html=True)
+
+new_specs = new_style_measurements_dict if new_style_measurements_dict else {}
+old_specs = matched_techpack.get("DetailedMeasurements", {}) if matched_techpack else {}
+avg_area_growth_pct = 0.0
+
+if new_specs or old_specs:
+    compare_rows = []
+    valid_diff_pcts = []
+    
+    def clean_pom_text(text):
+        cleaned = re.sub(r'^[A-Z0-9]+[\s\-_]+', '', str(text)).strip().upper()
+        cleaned = re.sub(r'[^A-Z\s]', '', cleaned).strip()
+        return cleaned
+
+    def clean_float(v):
+        if v is None:
+            return None
+        try:
+            return float(v)
+        except (ValueError, TypeError):
+            nums = re.findall(r"[-+]?\d*\.\d+|\d+", str(v))
+            return float(nums) if nums else None
+
+    mapped_old_specs = {clean_pom_text(k): (k, v) for k, v in old_specs.items()}
+    processed_old_keys = set()
+    
+    core_keywords = ["INSEAM", "THIGH", "HIP", "WAIST", "LEG", "LENGTH", "CHEST", "BUST", "WIDTH", "ARMHOLE", "SLEEVE", "OUTSEAM", "RISE"]
+    ignore_keywords = ["BADGE", "LABEL", "BUTTON", "POCKET-OPENING", "TICKET", "LOOP", "STITCH"]
+
+    for original_new_key, val_new in new_specs.items():
+        clean_new_key = clean_pom_text(original_new_key)
+        
+        if clean_new_key in mapped_old_specs:
+            original_old_key, val_old = mapped_old_specs[clean_new_key]
+            processed_old_keys.add(original_old_key)
+        else:
+            original_old_key, val_old = "-", None
+
+        f_new = clean_float(val_new)
+        f_old = clean_float(val_old)
+        diff_val, diff_pct = None, None
+        
+        if f_new is not None and f_old is not None:
+            diff_val = round(f_new - f_old, 2)
+            if f_old != 0:
+                diff_pct = round((diff_val / f_old) * 100, 2)
+
+        is_core = any(k in clean_new_key for k in core_keywords)
+        is_ignored = any(ig in clean_new_key for ig in ignore_keywords)
+        
+        if is_core and not is_ignored and diff_pct is not None:
+            valid_diff_pcts.append(diff_pct)
+
+        display_diff = f"+{diff_val}" if diff_val and diff_val > 0 else (str(diff_val) if diff_val is not None else "-")
+        display_pct = f"+{diff_pct}%" if diff_pct and diff_pct > 0 else (f"{diff_pct}%" if diff_pct is not None else "-")
+
+        compare_rows.append({
+            "Vị trí đo (POM Description)": original_new_key,
+            f"Mẫu mới ({new_style_base_size})": val_new if val_new is not None else "-",
+            f"Mã cũ ({str(st.session_state.get('matched_style_name', 'N/A'))})": val_old if val_old is not None else "-",
+            "Chênh lệch (Diff)": display_diff,
+            "Tỷ lệ biến thiên (Diff %)": display_pct
+        })
+
+    for original_old_key, val_old in old_specs.items():
+        if original_old_key not in processed_old_keys:
+            compare_rows.append({
+                "Vị trí đo (POM Description)": original_old_key,
+                f"Mẫu mới ({new_style_base_size})": "-",
+                f"Mã cũ ({str(st.session_state.get('matched_style_name', 'N/A'))})": val_old if val_old is not None else "-",
+                "Chênh lệch (Diff)": "-",
+                "Tỷ lệ biến thiên (Diff %)": "-"
+            })
+
+    df_compare_spec = pd.DataFrame(compare_rows)
+    st.dataframe(df_compare_spec, use_container_width=True, hide_index=True)
+
+    if valid_diff_pcts:
+        avg_pom_growth = sum(valid_diff_pcts) / len(valid_diff_pcts)
+        avg_area_growth_pct = round((((1 + avg_pom_growth/100) ** 2) - 1) * 100, 2)
+        
+avg_pom_diff_pct = st.session_state.get("avg_pom_diff_pct", 0.0)
+if matched_techpack and st.session_state.get("matched_image_verified", False) and bom_records:
+    st.markdown("<br>🔮 **AI CONSUMPTION PROJECTION ENGINE (DỰ PHÓNG ĐỊNH MỨC MÃ MỚI)**", unsafe_allow_html=True)
+
+    v_similarity = st.session_state.get("matched_similarity_score", 100.0)
+    col1, col2 = st.columns(2)
+    with col1:
+        shape_factor = st.number_input("Độ biến thiên phom tính toán từ POM (%)", value=float(avg_area_growth_pct), step=0.1)
+    with col2:
+        wastage_buffer = st.number_input("Hao hụt sản xuất cấu hình thêm (%)", value=3.0, step=0.5)
+
+    projection_rows = []
+    for ctype, old_qty in bom_summary_engine.items():
+        ctype_upper = str(ctype).strip().upper()
+        if any(k in ctype_upper for k in ["MAIN", "FABRIC", "BODY", "SHELL", "LINING", "RIB", "COMBINATION", "POCKETING"]):
+            similarity_weight = v_similarity / 100.0
+            adjusted_shape_factor = shape_factor * similarity_weight
+            projected_dm = old_qty * (1 + adjusted_shape_factor / 100) * (1 + wastage_buffer / 100)
+            note = f"Vải nhảy vóc (Diện tích rập biến thiên: {round(adjusted_shape_factor, 2)}% dựa trên Vision {v_similarity}%)"
+        else:
+            projected_dm = old_qty * (1 + wastage_buffer / 100)
+            note = f"Phụ liệu tĩnh (Chỉ tính hao hụt sản xuất {wastage_buffer}%)"
             
-            if area_growth != 0.0:
-                raw_target_growth = area_growth
-                st.info(f"📊 **GEOMETRY ENGINE:** Đã nạp Area Growth từ rập CAD: `{raw_target_growth:.2f}%`.")
-            elif pom_growth != 0.0:
-                raw_target_growth = pom_growth
-                st.info(f"📊 **GEOMETRY ENGINE:** Tự động lấy POM Growth: `{raw_target_growth:.2f}%`.")
-            else:
-                raw_target_growth = default_safety_buffer
-                st.info(f"📊 **GEOMETRY ENGINE:** Áp dụng hệ số an toàn mặc định: `{raw_target_growth:.1f}%`.")
-
-        clamped_growth = max(min(raw_target_growth, 50.0), -30.0)
-        effective_shape_factor = round(clamped_growth, 2)
+        projection_rows.append({
+            "Phân loại vật tư (Type)": ctype,
+            "Tổng ĐM mã cũ": old_qty,
+            "ĐM Dự phóng mã mới": round(projected_dm, 3),
+            "Cơ sở thuật toán toán AI": note
+        })
         
-        if raw_target_growth > 50.0 or raw_target_growth < -30.0:
-            st.error(f"🚨 **DỮ LIỆU BẤT THƯỜNG:** Biến động vượt biên (`{raw_target_growth:.2f}%`). Hệ thống đưa về vùng an toàn (`{effective_shape_factor}%`).")
+    df_projection = pd.DataFrame(projection_rows)
+    st.session_state["ai_projected_consumption_matrix"] = projection_rows
+    st.dataframe(df_projection, use_container_width=True, hide_index=True)
 
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            shape_factor = st.number_input(label_text, value=float(effective_shape_factor), step=0.01)
-        with col2:
-            fabric_growth_factor = st.number_input("Hệ số thực nghiệm vải (Fabric Growth Factor)", value=float(default_growth), step=0.01)
-        with col3:
-            wastage_buffer = st.number_input("Hao hụt sản xuất cấu hình thêm (%)", value=0.00, step=0.5)
+if 'bom_matrix_uploader' in st.session_state and st.session_state["bom_matrix_uploader"] is not None:
+    st.markdown("<br>🔮 **AI CONSUMPTION PROJECTION ENGINE (DỰ PHÓNG ĐỊNH MỨC MÃ MỚI)**", unsafe_allow_html=True)
+    
+    category_context = str(st.session_state.get("detected_garment_type", st.session_state.get("new_style_category", "PANT"))).upper()
+    if "JACKET" in category_context or "OUTERWEAR" in category_context: default_growth = 0.90
+    elif "PANT" in category_context or "TROUSER" in category_context: default_growth = 0.75
+    elif "SHORT" in category_context: default_growth = 0.65
+    elif "SHIRT" in category_context or "POLO" in category_context: default_growth = 0.55
+    else: default_growth = 0.45
 
-        st.session_state["projection_engine_metadata"] = {
-            "method_used": method_used, "area_growth": area_growth, "pom_growth": pom_growth,
-            "effective_shape_factor": shape_factor, "fabric_growth_factor": fabric_growth_factor, "garment_category": category_context
-        }
+    if "JACKET" in category_context or "OUTERWEAR" in category_context: default_safety_buffer = 5.0
+    elif "PANT" in category_context or "TROUSER" in category_context: default_safety_buffer = 4.0
+    elif "SHORT" in category_context: default_safety_buffer = 3.0
+    else: default_safety_buffer = 2.0
 
-        local_bom_data = bom_records if 'bom_records' in locals() and bom_records else []
-        session_bom_data = st.session_state.get("bom_records", [])
-        active_bom_source = session_bom_data if session_bom_data else local_bom_data
+    area_growth = float(avg_area_growth_pct)
+    pom_growth = float(avg_pom_diff_pct if avg_pom_diff_pct is not None else 0.0)
 
-        if not active_bom_source:
-            active_bom_source = [
-                {"consumption_type": "Main Fabric", "consumption_value": 1.625},
-                {"consumption_type": "Interlining", "consumption_value": 0.100},
-                {"consumption_type": "Pocketing Fabric", "consumption_value": 0.135}
-            ]
+    has_active_bom = len(bom_records) > 0
 
-        bom_grouped_lists = defaultdict(list)
+    if matched_techpack and has_active_bom:
+        method_used = "AI Similar Style Reference"
+        label_text = "Độ biến thiên phom Hybrid (%)"
+        st.success(f"✅ **XÁC THỰC AI VISION:** Chế độ vận hành: {method_used}")
         
-        for rec in active_bom_source:
-            raw_type = rec.get("consumption_type") or rec.get("Phân loại vật tư (Type )") or rec.get("Phân loại vật tư (Type)") or rec.get("material_type") or ""
-            raw_type = str(raw_type).strip().upper()
-            
-            raw_qty = rec.get("consumption_value") or rec.get("Định mức (DM)") or rec.get("Định mức cũ (DM)") or 0.0
-            
-            try:
-                if isinstance(raw_qty, str):
-                    clean_qty_str = raw_qty.replace(",", "").strip()
-                    nums_found = re.findall(r"[-+]?\d*\.\d+|\d+", clean_qty_str)
-                    qty_f = float(nums_found[0]) if nums_found else 0.0
-                else:
-                    qty_f = float(raw_qty) if raw_qty is not None else 0.0
-            except (ValueError, TypeError):
-                qty_f = 0.0
-                
-            bom_grouped_lists[raw_type].append(qty_f)
-    # ==========================================
-    # ĐOẠN 4: HÌNH THÀNH BẢNG BOM ĐỐI CHỨNG LỊCH SỬ
-    # ==========================================
-    if matched_techpack and st.session_state.get("matched_image_verified", False) and bom_records:
-        st.markdown("<br>📦 **Chi Tiết Định Mức Định Hình Mở Rộng (BOM Lịch Sử Của Mã Đối Đối Chứng):**", unsafe_allow_html=True)
-        df_bom = pd.DataFrame(bom_records)
-        target_cols = ['style_name', 'consumption_type', 'article_name', 'material_size', 'uom', 'consumption_value']
+        if area_growth != 0.0 and pom_growth != 0.0:
+            raw_target_growth = (area_growth * 0.8) + (pom_growth * 0.2)
+        elif area_growth != 0.0:
+            raw_target_growth = area_growth
+            st.info("📊 **HYBRID MODE:** Hệ thống lấy 100% Area Growth.")
+        elif pom_growth != 0.0:
+            raw_target_growth = pom_growth
+            st.info("📊 **HYBRID MODE:** Hệ thống lấy 100% POM Growth.")
+        else:
+            raw_target_growth = 0.0
+    else:
+        method_used = "Geometry / Vector Projection"
+        label_text = "Độ biến thiên diện tích hình học rập mẫu (%)"
+        st.warning(f"⚠️ **CHẾ ĐỘ DỰ PHÒNG HÌNH HỌC:** Chế độ vận hành: {method_used}")
         
-        for col in target_cols:
-            if col in df_bom.columns: 
-                df_bom[col] = df_bom[col].astype(str).str.strip().replace(["nan", "none", "null", "NaN", "None"], "")
-            else: 
-                df_bom[col] = "0" if col == "consumption_value" else ""
+        if area_growth != 0.0:
+            raw_target_growth = area_growth
+            st.info(f"📊 **GEOMETRY ENGINE:** Đã nạp Area Growth từ rập CAD: `{raw_target_growth:.2f}%`.")
+        elif pom_growth != 0.0:
+            raw_target_growth = pom_growth
+            st.info(f"📊 **GEOMETRY ENGINE:** Tự động lấy POM Growth: `{raw_target_growth:.2f}%`.")
+        else:
+            raw_target_growth = default_safety_buffer
+            st.info(f"📊 **GEOMETRY ENGINE:** Áp dụng hệ số an toàn mặc định: `{raw_target_growth:.1f}%`.")
 
-        df_bom_render = df_bom[['style_name', 'consumption_type', 'article_name', 'material_size', 'uom']].copy()
-        
-        # Ánh xạ giá trị số thực từ Supabase đẩy thẳng vào cột Định mức hiển thị
-        df_bom_render["Định mức (DM)"] = pd.to_numeric(df_bom["consumption_value"], errors='coerce').fillna(0.0).round(3)
-        
-        df_bom_render.columns = [
-            "Mã hàng đối chứng", "Phân loại vật tư (Type)", "Tên vật tư / Mã vải", 
-            "Khổ vải / Chi tiết định mức", "Đơn vị (UOM)", "Định mức (DM)"
+    clamped_growth = max(min(raw_target_growth, 50.0), -30.0)
+    effective_shape_factor = round(clamped_growth, 2)
+    
+    if raw_target_growth > 50.0 or raw_target_growth < -30.0:
+        st.error(f"🚨 **DỮ LIỆU BẤT THƯỜNG:** Biến động vượt biên (`{raw_target_growth:.2f}%`). Hệ thống đưa về vùng an toàn (`{effective_shape_factor}%`).")
+
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        shape_factor = st.number_input(label_text, value=float(effective_shape_factor), step=0.01)
+    with col2:
+        fabric_growth_factor = st.number_input("Hệ số thực nghiệm vải (Fabric Growth Factor)", value=float(default_growth), step=0.01)
+    with col3:
+        wastage_buffer = st.number_input("Hao hụt sản xuất cấu hình thêm (%)", value=0.00, step=0.5)
+
+    st.session_state["projection_engine_metadata"] = {
+        "method_used": method_used, "area_growth": area_growth, "pom_growth": pom_growth,
+        "effective_shape_factor": shape_factor, "fabric_growth_factor": fabric_growth_factor, "garment_category": category_context
+    }
+
+    active_bom_source = st.session_state.get("bom_records", bom_records)
+
+    if not active_bom_source:
+        active_bom_source = [
+            {"consumption_type": "Main Fabric", "consumption_value": 1.625},
+            {"consumption_type": "Interlining", "consumption_value": 0.100},
+            {"consumption_type": "Pocketing Fabric", "consumption_value": 0.135}
         ]
-        st.dataframe(df_bom_render, use_container_width=True, hide_index=True)
+
+    bom_grouped_lists = defaultdict(list)
+    
+    for rec in active_bom_source:
+        raw_type = rec.get("consumption_type") or rec.get("Phân loại vật tư (Type )") or rec.get("Phân loại vật tư (Type)") or rec.get("material_type") or ""
+        raw_type = str(raw_type).strip().upper()
         
-    elif matched_techpack:
-        status_msg = st.session_state.get('bom_search_status', 'NOT_FOUND')
-        st.info(f"ℹ Trạng thái: {status_msg}. Chưa tìm thấy dữ liệu định mức BOM lịch sử nào khớp cho mã hàng này.")
+        raw_qty = rec.get("consumption_value") or rec.get("Định mức (DM)") or rec.get("Định mức cũ (DM)") or 0.0
+        
+        try:
+            if isinstance(raw_qty, str):
+                clean_qty_str = raw_qty.replace(",", "").strip()
+                nums_found = re.findall(r"[-+]?\d*\.\d+|\d+", clean_qty_str)
+                qty_f = float(nums_found) if nums_found else 0.0
+            else:
+                qty_f = float(raw_qty) if raw_qty is not None else 0.0
+        except (ValueError, TypeError):
+            qty_f = 0.0
+            
+        bom_grouped_lists[raw_type].append(qty_f)
+if matched_techpack and st.session_state.get("matched_image_verified", False) and bom_records:
+    st.markdown("<br>📦 **Chi Tiết Định Mức Định Hình Mở Rộng (BOM Lịch Sử Của Mã Đối Chứng):**", unsafe_allow_html=True)
+    df_bom = pd.DataFrame(bom_records)
+    target_cols = ['style_name', 'consumption_type', 'article_name', 'material_size', 'uom', 'consumption_value']
+    
+    for col in target_cols:
+        if col in df_bom.columns: 
+            df_bom[col] = df_bom[col].astype(str).str.strip().replace(["nan", "none", "null", "NaN", "None"], "")
+        else: 
+            df_bom[col] = "0" if col == "consumption_value" else ""
+
+    df_bom_render = df_bom[['style_name', 'consumption_type', 'article_name', 'material_size', 'uom']].copy()
+    df_bom_render["Định mức (DM)"] = pd.to_numeric(df_bom["consumption_value"], errors='coerce').fillna(0.0).round(3)
+    
+    df_bom_render.columns = [
+        "Mã hàng đối chứng", "Phân loại vật tư (Type)", "Tên vật tư / Mã vải", 
+        "Khổ vải / Chi tiết định mức", "Đơn vị (UOM)", "Định mức (DM)"
+    ]
+    st.dataframe(df_bom_render, use_container_width=True, hide_index=True)
+    
+elif matched_techpack:
+    status_msg = st.session_state.get('bom_search_status', 'NOT_FOUND')
+    st.info(f"ℹ Trạng thái: {status_msg}. Chưa tìm thấy dữ liệu định mức BOM lịch sử nào khớp cho mã hàng này.")
+
 
 
 
