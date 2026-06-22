@@ -1273,112 +1273,69 @@ if gemini_key:
     )
 
 def process_single_pdf_batch(file_bytes, file_name):
-    import time
     import io
     import json
+    import requests
     
-    # Thử import thư viện đọc text dự phòng
     try:
         import pypdf
-        PYPDF_AVAILABLE = True
     except ImportError:
-        PYPDF_AVAILABLE = False
+        return {"success": False, "error": "Vui lòng cài đặt thư viện pypdf bằng lệnh: pip install pypdf"}
 
     try:
-        if "get_secure_gemini_key" in globals():
-            gemini_key_local = get_secure_gemini_key()
-        else:
-            gemini_key_local = st.secrets.get("GEMINI_API_KEY", "").strip()
-            
-        if not gemini_key_local:
-            return {"success": False, "error": "API Key cho Gemini đang bị thiếu trong Secrets."}
-            
-        client_ai = genai.Client(api_key=gemini_key_local)
-        pdf_parts_payload = []
-        
-        # --- LUỒNG 1: THỬ CHUYỂN PDF THÀNH ẢNH (ƯU TIÊN) ---
-        images_converted = False
-        extracted_sketch_bytes = None
-        
-        if 'PDF2IMAGE_AVAILABLE' in globals() and PDF2IMAGE_AVAILABLE:
-            try:
-                chat_images = convert_from_bytes(file_bytes, dpi=100, first_page=1, last_page=3)
-                for page_img in chat_images:
-                    img_buf = io.BytesIO()
-                    page_img.convert("RGB").save(img_buf, format="JPEG", quality=80)
-                    img_data = img_buf.getvalue()
-                    if not extracted_sketch_bytes:
-                        extracted_sketch_bytes = img_data  # Mặc định lấy trang 1 làm sketch
-                    pdf_parts_payload.append(types.Part.from_bytes(data=img_data, mime_type='image/jpeg'))
-                images_converted = True
-            except Exception:
-                images_converted = False
+        # 1. Lấy API Key an toàn
+        gemini_key = get_secure_gemini_key() if "get_secure_gemini_key" in globals() else st.secrets.get("GEMINI_API_KEY", "").strip()
+        if not gemini_key:
+            return {"success": False, "error": "Thiếu GEMINI_API_KEY trong Secrets."}
 
-        # --- LUỒNG 2: FALLBACK ĐỌC TEXT TRỰC TIẾP (CỨU CÁNH KHI SERVER LỖI PDF2IMAGE) ---
-        if not images_converted:
-            if PYPDF_AVAILABLE:
-                try:
-                    pdf_reader = pypdf.PdfReader(io.BytesIO(file_bytes))
-                    extracted_text = ""
-                    # Đọc tối đa 5 trang đầu để tránh quá tải
-                    max_pages = min(5, len(pdf_reader.pages))
-                    for i in range(max_pages):
-                        page_text = pdf_reader.pages[i].extract_text()
-                        if page_text:
-                            extracted_text += f"\n--- PAGE {i+1} ---\n{page_text}"
-                    
-                    if extracted_text.strip():
-                        pdf_parts_payload.append(types.Part.from_text(text=f"Here is the text extracted from Techpack PDF:\n{extracted_text}"))
-                    else:
-                        return {"success": False, "error": "PDF không chứa văn bản dạng text hoặc là PDF scan dạng ảnh thuần túy."}
-                except Exception as pdf_err:
-                    return {"success": False, "error": f"Lỗi đọc file PDF: {str(pdf_err)}"}
-            else:
-                return {"success": False, "error": "Cả pdf2image và pypdf đều không khả dụng trên server."}
+        # 2. Đọc text trực tiếp từ PDF bằng pypdf (không sợ lỗi ảnh/poppler)
+        pdf_reader = pypdf.PdfReader(io.BytesIO(file_bytes))
+        extracted_text = ""
+        for i in range(min(5, len(pdf_reader.pages))):
+            page_text = pdf_reader.pages[i].extract_text()
+            if page_text:
+                extracted_text += f"\n--- PAGE {i+1} ---\n{page_text}"
 
-        # --- GỬI PROMPT CHO GEMINI XỬ LÝ ---
-        industrial_extraction_prompt = (
-            "You are an expert Garment Specification Auditor at PPJ Group. Analyze the attached Techpack data.\n"
-            "1. Identify the core 'Base Size' / 'Sample Size' (e.g., 32, M, 28).\n"
-            "2. Identify the Buyer name and Category (Pant/Shirt/Jacket).\n"
-            "3. Find the exact 'Style ID' / 'Style Number' (e.g., F25R09).\n"
-            "4. Extract the entire measurement chart/grading matrix table for ALL available sizes.\n"
-            "Return a completely valid raw JSON string matching this schema (no markdown blocks, no ```json):\n"
+        if not extracted_text.strip():
+            return {"success": False, "error": "PDF dạng ảnh quét (Scan), không thể đọc text thô."}
+
+        # 3. Gửi thẳng qua API Request Rest của Google (Chạy ổn định 100% trên mọi Server)
+        url = f"https://googleapis.com{gemini_key}"
+        
+        prompt = (
+            "You are an expert Garment Specification Auditor. Analyze this Techpack text and return ONLY raw JSON:\n"
             "{\n"
             "  \"style_number_parsed\": \"string\",\n"
             "  \"buyer\": \"string\",\n"
             "  \"category\": \"string\",\n"
             "  \"base_size_name\": \"string\",\n"
-            "  \"sketch_page_index_detected\": 0,\n"
-            "  \"measurements\": {\"POM Description\": \"Value\"},\n"
-            "  \"full_size_matrix\": {\"POM Description\": {\"Size_Name\": \"Value\"}}\n"
-            "}"
+            "  \"measurements\": {\"POM Description\": \"Value\"}\n"
+            "}\nText:\n" + extracted_text
         )
-        pdf_parts_payload.append(types.Part.from_text(text=industrial_extraction_prompt))
+
+        payload = {
+            "contents": [{"parts": [{"text": prompt}]}],
+            "generationConfig": {"responseMimeType": "application/json", "temperature": 0.1}
+        }
+
+        res = requests.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=15)
         
-        for attempt in range(3):
-            try:
-                response = client_ai.models.generate_content(
-                    model="gemini-2.5-flash",
-                    contents=pdf_parts_payload,
-                    config=types.GenerateContentConfig(
-                        response_mime_type="application/json",
-                        temperature=0.1
-                    )
-                )
-                if response and response.text:
-                    parsed_json = json.loads(response.text)
-                    return {
-                        "success": True, 
-                        "data": parsed_json,
-                        "sketch_bytes": extracted_sketch_bytes
-                    }
-            except Exception:
-                time.sleep(1.0)
-                continue
-        return {"success": False, "error": "AI không thể cấu trúc dữ liệu JSON sau 3 lần thử."}
+        if res.status_code == 200:
+            res_json = res.json()
+            text_response = res_json['candidates'][0]['content']['parts'][0]['text']
+            parsed_data = json.loads(text_response)
+            
+            return {
+                "success": True,
+                "data": parsed_data,
+                "sketch_bytes": None # Trả về None để bảng dưới tự động dùng ảnh kho cũ
+            }
+        else:
+            return {"success": False, "error": f"API Google lỗi: {res.status_code} - {res.text}"}
+
     except Exception as e:
         return {"success": False, "error": str(e)}
+
 
 
 # ==========================================================
