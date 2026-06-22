@@ -1561,30 +1561,18 @@ if (not new_vec or len(new_vec) < 30) and target_new_sketch_bytes and client and
                 else:
                     st.session_state["vision_completed"] = False
                     st.warning(f"⚠️ Trục trặc kết nối AI Vision (Thử lại lần {st.session_state['vision_retry_count']}/3). Đang thiết lập lại... Chi tiết: {str(e)}")
-# PART 1B: ĐỘNG CƠ AI VISION PIPELINE TỰ KHỞI TẠO ĐỘC LẬP CHỐNG LỖI NAMEERROR DÒNG 1456
+# PART 1B: ĐỘNG CƠ AI VISION PIPELINE - ĐÃ ĐỒNG BỘ VÙNG NHỚ CỤC BỘ AN TOÀN
 # =========================================================================================
 
-# SỬA LỖI CHÍ MẠNG: Tự động trích xuất cấu hình hoặc tái khởi tạo client trực tiếp tại chỗ
-if "client" in st.session_state and st.session_state["client"] is not None:
-    client = st.session_state["client"]
-elif globals().get("client") is not None:
-    client = globals().get("client")
-else:
-    # Nếu hệ thống bị mất dấu biến client, tự tạo một client cục bộ bằng API Key có sẵn trong globals
-    try:
-        from google import genai
-        # Bốc mã khóa API Key đang hoạt động của nhà máy PPJ Group
-        sb_key_backup = globals().get("SB_KEY", st.session_state.get("SB_KEY", ""))
-        client = genai.Client(api_key=sb_key_backup)
-    except Exception:
-        client = None
-
-# Đồng bộ hóa các biến cục bộ nền an toàn từ bộ nhớ phiên Streamlit
-target_new_sketch_bytes = st.session_state.get("target_new_sketch_bytes")
+# 1. SAFE LOCAL SYNC: Cưỡng bách khai báo và đồng bộ biến cục bộ từ Session State, triệt tiêu lỗi NameError
+new_vec = str(st.session_state.get("visual_description_str", "") or "").strip().upper()
+target_new_sketch_bytes = st.session_state.get("target_new_sketch_bytes", None)
 detected_mime_type = st.session_state.get("detected_mime_type", "image/jpeg")
-new_vec = str(st.session_state.get("visual_description_str", "")).strip().upper()
 
-# KHỐI AI VISION PIPELINE PHÂN TÍCH GIẢI PHẪU RẬP SẢN XUẤT
+# Đảm bảo đối tượng kết nối client luôn sẵn sàng từ bộ nhớ phiên hoặc môi trường nền
+client = st.session_state.get("client", globals().get("client", None))
+
+# 2. KHỐI AI VISION PIPELINE PHÂN TÍCH GIẢI PHẪU RẬP
 if (not new_vec or len(new_vec) < 30) and target_new_sketch_bytes and client and not st.session_state.get("vision_completed", False):
     if hasattr(client, "models"):
         with st.spinner("🔄 Hệ thống AI Vision đang phân tích giải phẫu rập và trích xuất cấu trúc dữ liệu JSON..."):
@@ -1615,7 +1603,6 @@ if (not new_vec or len(new_vec) < 30) and target_new_sketch_bytes and client and
                 All features and operations must be returned in uppercase text.
                 """
                 
-                # Nạp cấu trúc phân tách kiểu dữ liệu thư viện google-genai bản mới nhất
                 if 'types' in globals() and types and hasattr(types, "Part"):
                     ocr_contents = [
                         types.Part.from_text(text=ocr_prompt),
@@ -1680,7 +1667,6 @@ if (not new_vec or len(new_vec) < 30) and target_new_sketch_bytes and client and
                     st.rerun()
                     
             except Exception as e: 
-                # RETRY COUNTER CLAMP: Bẫy lỗi không khóa cứng chống vòng lặp vô hạn khi sập mạng API tạm thời
                 st.session_state["vision_retry_count"] = st.session_state.get("vision_retry_count", 0) + 1
                 st.session_state["vision_error"] = str(e)
                 
@@ -1696,26 +1682,37 @@ if (not new_vec or len(new_vec) < 30) and target_new_sketch_bytes and client and
                     st.warning(f"⚠️ Trục trặc kết nối AI Vision (Thử lại lần {st.session_state['vision_retry_count']}/3). Đang thiết lập lại... Chi tiết: {str(e)}")
 
 
-# PART 2A RÚT GỌN CHUẨN: ĐỘNG CƠ ĐỐI SOÁT VÀ PHÂN TẦNG ĐỊNH MỨC 4 CẤP ĐỘ
+
+# PART 2A RÚT GỌN CHUẨN: ĐỘNG CƠ ĐỐI SOÁT VÀ BẢO VỆ TRỐNG TRẠNG THÁI PROFILE
 # =========================================================================================
 
 if st.session_state.get("vision_completed", False) and not st.session_state.get("routing_completed", False):
     with st.spinner("🧠 Mắt thần VLM đang quét toàn kho dữ liệu và thẩm định cấu trúc rập..."):
         try:
-            # 1. NẠP DỮ LIỆU TỪ KHO CACHED
+            # VÁ LỖI TIỀM ẨN: Cầu chì bảo vệ nghiêm ngặt khi Profile từ bước Vision truyền xuống bị rỗng
+            target_profile = st.session_state.get("weighted_garment_profile", {})
+            if not target_profile:
+                st.warning("⚠️ Không tìm thấy Vision Profile đặc trưng rập mẫu. Tự động kích hoạt Động cơ hình học TẦNG 3.")
+                st.session_state["routing_completed"] = True
+                st.session_state["calculation_mode"] = "GEOMETRIC_VECTOR"
+                st.rerun()
+
+            # NẠP DỮ LIỆU TỪ KHO CACHED
             headers_db = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if 'SB_KEY' in locals() else {}
             url_db = f"{base_url_api.rstrip('/')}/rest/v1/thong_so_techpack" if 'base_url_api' in locals() else ""
             raw_styles = fetch_all_techpacks_cached(url_db, headers_db) if 'fetch_all_techpacks_cached' in locals() else []
 
             if raw_styles and client and hasattr(client, "models"):
-                target_profile = st.session_state.get("weighted_garment_profile", {})
+                # SAFE LOCAL SYNC CHO HẠ NGUỒN RETRIEVER
+                new_vec = str(st.session_state.get("visual_description_str", "") or "").strip().upper()
+                vision_type = str(st.session_state.get("detected_garment_type", "UNKNOWN")).strip().upper()
+                target_new_sketch_bytes = st.session_state.get("target_new_sketch_bytes")
                 
-                # Hàm băm nhỏ từ khóa phẳng để tính Jaccard
                 def tokenize(txt):
                     cleaned = re.sub(r'[^A-Z0-9\s\-]', ' ', unicodedata.normalize('NFKC', str(txt).upper()))
                     return set([w for w in cleaned.split() if len(w) >= 2 and w not in {"WITH","THE","AND","FOR","TYPE"}])
 
-                # 2. CHẤM ĐIỂM MA TRẬN TRỌNG SỐ CHO TOÀN KHO DATA
+                # CHẤM ĐIỂM MA TRẬN TRỌNG SỐ CHO TOÀN KHO DATA
                 ranked_pool = []
                 for s in raw_styles:
                     db_tokens = tokenize(f"{s.get('StyleName')} {s.get('sketch_vector')}")
@@ -1730,17 +1727,17 @@ if st.session_state.get("vision_completed", False) and not st.session_state.get(
                     if str(s.get("BaseSize")).strip().upper() == str(new_style_base_size).strip().upper(): jaccard *= 1.20
                     ranked_pool.append((jaccard, s))
                 
-                ranked_pool.sort(reverse=True, key=lambda x: x[0])
+                ranked_pool.sort(reverse=True, key=lambda x: x)
                 top_candidates = ranked_pool[:min(30, len(ranked_pool))]
                 
                 # Nén hồ sơ để gửi Gemini chấm điểm thị giác
                 compressed = [{"pool_index": i, "StyleName": s.get("StyleName"), "Score": round(float(sc), 4), "SketchVectorText": s.get("sketch_vector")} for i, (sc, s) in enumerate(top_candidates)]
                 st.session_state["retriever_top_30_pool"] = top_candidates
 
-                # 3. GỌI GEMINI ĐỐI SOÁT THỊ GIÁC MULTI-MODAL (VỪA NHÌN ẢNH VỪA ĐỌC TOÁN HỌC)
+                # GỒP CẢ ẢNH VÀ CHỮ TRUYỀN CHO AI ĐỐI SOÁT
                 if compressed:
                     prompt = f"Compare target image with candidates: {json.dumps(compressed, ensure_ascii=False)}. Return valid JSON ONLY: {{\"selected_pool_index\": -1, \"match_score\": 0, \"reason\": \"\"}}"
-                    contents = [prompt, {"mime_type": st.session_state.get("detected_mime_type"), "data": st.session_state.get("target_new_sketch_bytes")}]
+                    contents = [prompt, {"mime_type": st.session_state.get("detected_mime_type"), "data": target_new_sketch_bytes}]
                     res = client.models.generate_content(model='gemini-2.5-flash', contents=contents)
                     
                     match = re.search(r'\{[\s\S]*?\}', res.text.strip())
@@ -1750,7 +1747,7 @@ if st.session_state.get("vision_completed", False) and not st.session_state.get(
                         sc = int(res_json.get("match_score", 0))
                         
                         if idx is not None and 0 <= idx < len(top_candidates) and sc >= 60:
-                            st.session_state["matched_techpack"] = top_candidates[idx][1]
+                            st.session_state["matched_techpack"] = top_candidates[idx]
                             st.session_state["match_confidence_score"] = sc
                             st.session_state["match_reason"] = res_json.get("reason")
                 
@@ -1759,11 +1756,11 @@ if st.session_state.get("vision_completed", False) and not st.session_state.get(
             st.error(f"🚨 Lỗi đối soát kho: {str(e)}")
             st.session_state["routing_completed"] = True
 
-    # 4. BỘ ROUTER PHÂN TẦNG ĐỊNH MỨC 4 CẤP ĐỘ KHÉP KÍN (ANTI-LOOP LOCK)
     if st.session_state.get("routing_completed", False):
         sc = st.session_state["match_confidence_score"]
         st.session_state["calculation_mode"] = "GEOMETRIC_VECTOR" if not st.session_state["matched_techpack"] else ("AUTO_APPROVED" if sc >= 92 else ("HISTORICAL_MATCH" if sc >= 85 else "AI_PROJECTION"))
         st.rerun()
+
 # PART 2B RÚT GỌN CHUẨN: KHỐI TRÍCH XUẤT BOM & KÍCH HOẠT ĐỊNH MỨC HÌNH HỌC TẦNG 3
 # =========================================================================================
 
