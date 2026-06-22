@@ -1561,18 +1561,18 @@ if (not new_vec or len(new_vec) < 30) and target_new_sketch_bytes and client and
                 else:
                     st.session_state["vision_completed"] = False
                     st.warning(f"⚠️ Trục trặc kết nối AI Vision (Thử lại lần {st.session_state['vision_retry_count']}/3). Đang thiết lập lại... Chi tiết: {str(e)}")
-# PART 1B ĐÃ SỬA: ĐỒNG BỘ BIẾN CLIENT TOÀN CỤC TRÁNH LỖI NAMEERROR DÒNG 1456
+# PART 1B ĐÃ SỬA DỨT ĐIỂM: TRÍCH XUẤT CLIENT TRỰC TIẾP TỪ SESSION_STATE 
 # =========================================================================================
 
-# FIX LỖI NAMEERROR: Đồng bộ an toàn đối tượng kết nối API client từ môi trường toàn cục
-client = globals().get("client", None)
+# VÁ LỖI NGUỒN TIẾP CẬN: Tìm kiếm đối tượng kết nối API thông qua cả 2 kênh Session State và Toàn cục
+client = st.session_state.get("client", globals().get("client", None))
 
-# Đảm bảo các biến cục bộ nền được lấy ra từ session state an toàn trước khi chạy
+# Đồng bộ hóa các biến cục bộ nền an toàn từ bộ nhớ phiên Streamlit
 target_new_sketch_bytes = st.session_state.get("target_new_sketch_bytes")
 detected_mime_type = st.session_state.get("detected_mime_type", "image/jpeg")
 new_vec = str(st.session_state.get("visual_description_str", "")).strip().upper()
 
-# Khối AI chạy khi chưa hoàn thành quét (not vision_completed) nhằm triệt tiêu gọi API trùng lặp khi rerun
+# KHỐI AI VISION PIPELINE PHÂN TÍCH GIẢI PHẪU RẬP SẢN XUẤT
 if (not new_vec or len(new_vec) < 30) and target_new_sketch_bytes and client and not st.session_state.get("vision_completed", False):
     if hasattr(client, "models"):
         with st.spinner("🔄 Hệ thống AI Vision đang phân tích giải phẫu rập và trích xuất cấu trúc dữ liệu JSON..."):
@@ -1603,7 +1603,8 @@ if (not new_vec or len(new_vec) < 30) and target_new_sketch_bytes and client and
                 All features and operations must be returned in uppercase text.
                 """
                 
-                if types and hasattr(types, "Part"):
+                # Nạp cấu trúc phân tách kiểu dữ liệu thư viện google-genai bản mới nhất
+                if 'types' in globals() and types and hasattr(types, "Part"):
                     ocr_contents = [
                         types.Part.from_text(text=ocr_prompt),
                         types.Part.from_bytes(data=target_new_sketch_bytes, mime_type=detected_mime_type)
@@ -1681,6 +1682,7 @@ if (not new_vec or len(new_vec) < 30) and target_new_sketch_bytes and client and
                 else:
                     st.session_state["vision_completed"] = False
                     st.warning(f"⚠️ Trục trặc kết nối AI Vision (Thử lại lần {st.session_state['vision_retry_count']}/3). Đang thiết lập lại... Chi tiết: {str(e)}")
+
 
 # PART 2A RÚT GỌN CHUẨN: ĐỘNG CƠ ĐỐI SOÁT VÀ PHÂN TẦNG ĐỊNH MỨC 4 CẤP ĐỘ
 # =========================================================================================
