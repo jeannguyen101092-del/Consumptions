@@ -1956,45 +1956,110 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     st.session_state["main_fabric_records"] = main_fabric_records
     st.session_state["bom_summary_engine"] = bom_summary_engine
 
-       # --- BẢNG SO SÁNH SAI LỆCH THÔNG SỐ RẬP ---
+      # --- BẢNG SO SÁNH SAI LỆCH THÔNG SỐ RẬP KHỚP ĐA CẤP ĐỘ ---
     st.markdown("<br>### 📐 BẢNG SO SÁNH SAI LỆCH THÔNG SỐ KỸ THUẬT RẬP MẪU", unsafe_allow_html=True)
     new_specs = new_style_measurements_dict if new_style_measurements_dict else {}
     old_specs = matched_techpack.get("DetailedMeasurements", {}) if matched_techpack else {}
     avg_area_growth_pct = 0.0
     
     if new_specs or old_specs:
+        from difflib import SequenceMatcher
+        from fractions import Fraction
+        
         compare_rows = []
         valid_diff_pcts = []
-        
-        # Hàm bổ sung: Lọc sạch mã tiền tố và ký tự đặc biệt để giữ lại chuỗi chữ cốt lõi phục vụ so khớp vị trí
-        def clean_pom_text(text):
-            cleaned = re.sub(r'^[A-Z0-9]+[\s\-_]+', '', str(text)).strip().upper()
-            cleaned = re.sub(r'[^A-Z\s]', '', cleaned).strip()
-            return cleaned
+        processed_old_keys = set()
 
-        # Hàm bổ sung: Trích xuất chính xác số float đầu tiên từ chuỗi dữ liệu kỹ thuật
+        # [HÀM BỔ SUNG 1]: Giữ lại số và ký tự cốt lõi (1", 2", /) phục vụ chống trùng phom đo
+        def clean_pom_text(text):
+            cleaned = str(text).strip().upper()
+            cleaned = re.sub(r'^[A-Z0-9]+[\s\-_]+', '', cleaned) # Xóa mã đầu dòng (ví dụ: A01-, B02_)
+            cleaned = re.sub(r'[^A-Z0-9\s\"\'\/\-]', '', cleaned) # Giữ lại số, dấu inch, gạch chéo
+            return " ".join(cleaned.split())
+
+        # [HÀM BỔ SUNG 2]: Trích xuất mã số vị trí đo nếu có (Ví dụ: "A01", "POM 02" -> "01", "02")
+        def extract_pom_code(text):
+            match = re.search(r'\b(POM)?[\s\-_]*(\d+)\b', str(text), re.IGNORECASE)
+            return match.group(2) if match else None
+
+        # [HÀM BỔ SUNG 3]: Quy đổi phân số, hỗn số chuẩn xác ngành may thành float
         def clean_float(v):
-            if v is None: return None
+            if v is None or str(v).strip() in ['', '-', 'nan']: return None
             try: 
-                return float(v)
-            except (ValueError, TypeError):
+                val_str = str(v).strip()
+                if ' ' in val_str:
+                    parts = val_str.split()
+                    return float(parts[0]) + float(Fraction(parts[1]))
+                return float(Fraction(val_str))
+            except Exception:
                 nums = re.findall(r"[-+]?\d*\.\d+|\d+", str(v))
                 return float(nums[0]) if nums else None
 
-        # Tiến hành ánh xạ thông minh giữa hai bảng thông số mới và cũ thông qua chuỗi đã làm sạch
-        mapped_old_specs = {clean_pom_text(k): (k, v) for k, v in old_specs.items()}
-        processed_old_keys = set()
+        # Chuẩn bị danh bạ mảng (List) cho mã cũ nhằm ngăn chặn lỗi ghi đè trùng Key
+        old_pool = []
+        for k, v in old_specs.items():
+            old_pool.append({
+                "original_key": k,
+                "clean_key": clean_pom_text(k),
+                "code": extract_pom_code(k),
+                "value": v
+            })
 
+        # Duyệt qua từng vị trí đo của mẫu mới
         for original_new_key, val_new in new_specs.items():
             clean_new_key = clean_pom_text(original_new_key)
+            new_code = extract_pom_code(original_new_key)
             
-            # Tìm kiếm vị trí tương đồng trong kho dữ liệu cũ
-            if clean_new_key in mapped_old_specs:
-                original_old_key, val_old = mapped_old_specs[clean_new_key]
+            best_match = None
+            best_score = 0.0
+            match_level = "NOT FOUND"
+
+            # --- ENGINE SO KHỚP ĐA CẤP ĐỘ (LEVEL 1 -> LEVEL 4) ---
+            for old_item in old_pool:
+                if old_item["original_key"] in processed_old_keys:
+                    continue
+
+                # Level 1: Match mã vị trí đo (Ví dụ: A01 vs A01)
+                if new_code and old_item["code"] and new_code == old_item["code"]:
+                    best_match = old_item
+                    match_level = "LEVEL 1 (CODE)"
+                    break # Ưu tiên tối cao, ngắt vòng lặp
+
+                # Level 2: Match chính xác tên vị trí sau clean (Ví dụ: HIP 1" BELOW WB)
+                if clean_new_key == old_item["clean_key"]:
+                    best_match = old_item
+                    match_level = "LEVEL 2 (EXACT)"
+                    break
+
+                # Level 3 & 4: Tính toán tỉ lệ tương đồng (Fuzzy Text Similarity)
+                score = SequenceMatcher(None, clean_new_key, old_item["clean_key"]).ratio()
+                
+                # Semantic Fallback (Level 4): Xử lý từ đồng nghĩa viết tắt thông dụng ngành may
+                if score < 0.82:
+                    synonyms = [("RISE", "BODY RISE"), ("WAIST", "WAIST WIDTH"), ("HIP", "HIP WIDTH")]
+                    for syn1, syn2 in synonyms:
+                        if (syn1 in clean_new_key and syn2 in old_item["clean_key"]) or (syn2 in clean_new_key and syn1 in old_item["clean_key"]):
+                            score += 0.15 # Cộng điểm phạt nội dung đồng nghĩa
+
+                if score > best_score:
+                    best_score = score
+                    best_match = old_item
+
+            # Xét duyệt ngưỡng tin cậy tối thiểu cho Fuzzy Match
+            if match_level in ["LEVEL 1 (CODE)", "LEVEL 2 (EXACT)"]:
+                original_old_key = best_match["original_key"]
+                val_old = best_match["value"]
                 processed_old_keys.add(original_old_key)
+            elif best_match and best_score >= 0.82:
+                original_old_key = best_match["original_key"]
+                val_old = best_match["value"]
+                processed_old_keys.add(original_old_key)
+                match_level = f"LEVEL 3/4 (FUZZY: {int(best_score*100)}%)"
             else:
                 original_old_key, val_old = "-", None
+                match_level = "NOT FOUND"
 
+            # Thực hiện tính toán chênh lệch số Float
             f_new = clean_float(val_new)
             f_old = clean_float(val_old)
             diff_val, diff_pct = None, None
@@ -2004,18 +2069,12 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                 if f_old != 0:
                     diff_pct = round((diff_val / f_old) * 100, 2)
                     
-                    # MÀNG LỌC CỨNG (Hard Core Filter): Chỉ lấy thông số cơ bản lớn ảnh hưởng trực tiếp đến phom rập mẫu
-                    core_keywords = [
-                        "INSEAM", "THIGH", "HIP", "WAIST", "LEG", "LENGTH", "CHEST", 
-                        "BUST", "WIDTH", "ARMHOLE", "SLEEVE", "OUTSEAM", "RISE"
-                    ]
+                    # MÀNG LỌC CỨNG: Chỉ gom cấu trúc phom lõi tính toán diện tích vải co giãn
+                    core_keywords = ["INSEAM", "THIGH", "HIP", "WAIST", "LEG", "LENGTH", "CHEST", "RISE"]
                     if any(k in clean_new_key for k in core_keywords):
-                        # Loại trừ các chi tiết quá nhỏ hoặc nhãn mác phụ thuộc để không làm lệch %
-                        ignore_keywords = ["BADGE", "LABEL", "BUTTON", "POCKET-OPENING", "TICKET", "LOOP", "STITCH"]
-                        if not any(ig in clean_new_key for ig in ignore_keywords):
+                        if not any(ig in clean_new_key for ig in ["LABEL", "BUTTON", "TICKET", "LOOP", "STITCH"]):
                             valid_diff_pcts.append(diff_pct)
-                else:
-                    diff_pct = 0.0
+                else: diff_pct = 0.0
 
             display_diff = f"+{diff_val}" if diff_val and diff_val > 0 else (str(diff_val) if diff_val is not None else "-")
             display_pct = f"+{diff_pct}%" if diff_pct and diff_pct > 0 else (f"{diff_pct}%" if diff_pct is not None else "-")
@@ -2025,27 +2084,31 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                 f"Mẫu mới ({new_style_base_size})": val_new if val_new is not None else "-",
                 f"Mã cũ ({str(st.session_state.get('matched_style_name', 'N/A'))})": val_old if val_old is not None else "-",
                 "Chênh lệch (Diff)": display_diff,
-                "Tỷ lệ biến thiên (Diff %)": display_pct
+                "Tỷ lệ biến thiên (Diff %)": display_pct,
+                "Cơ chế khớp (Match Mode)": match_level
             })
 
-        # Nạp nốt các vị trí đo của mã cũ nếu mã mới không có để tránh mất mát dữ liệu hiển thị
-        for original_old_key, val_old in old_specs.items():
-            if original_old_key not in processed_old_keys:
+        # Nạp các vị trí đo còn dư của mã cũ lên bảng để thợ rập rà soát trực quan
+        for old_item in old_pool:
+            if old_item["original_key"] not in processed_old_keys:
                 compare_rows.append({
-                    "Vị trí đo (POM Description)": original_old_key,
+                    "Vị trí đo (POM Description)": old_item["original_key"],
                     f"Mẫu mới ({new_style_base_size})": "-",
-                    f"Mã cũ ({str(st.session_state.get('matched_style_name', 'N/A'))})": val_old if val_old is not None else "-",
+                    f"Mã cũ ({str(st.session_state.get('matched_style_name', 'N/A'))})": old_item["value"] if old_item["value"] is not None else "-",
                     "Chênh lệch (Diff)": "-",
-                    "Tỷ lệ biến thiên (Diff %)": "-"
+                    "Tỷ lệ biến thiên (Diff %)": "-",
+                    "Cơ chế khớp (Match Mode)": "ORPHAN OLD KEY"
                 })
             
         df_compare_spec = pd.DataFrame(compare_rows)
         st.dataframe(df_compare_spec, use_container_width=True, hide_index=True)
         
-        # Tính toán độ biến thiên diện tích phom dựa trên các POM cốt lõi được giữ lại
+        # Tính toán chính xác biến thiên diện tích bao phom rập
         if valid_diff_pcts:
             avg_pom_growth = sum(valid_diff_pcts) / len(valid_diff_pcts)
             avg_area_growth_pct = round((((1 + avg_pom_growth/100) ** 2) - 1) * 100, 2)
+            st.metric(label="📊 ĐỘ BIẾN THIÊN DIỆN TÍCH PHOM THỰC TẾ (AREA EXPANSION VLM)", value=f"{avg_area_growth_pct:+}%")
+
 
     # --- AI CONSUMPTION PROJECTION ENGINE ---
     if matched_techpack and st.session_state.get("matched_image_verified", False) and bom_records:
