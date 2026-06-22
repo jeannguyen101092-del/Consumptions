@@ -1453,385 +1453,220 @@ headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if 'SB_KEY' in
 
 # ĐOẠN 1 ĐÃ SỬA: KHỞI TẠO STATE & AI VISION ENGINE ĐỊNH DANH MÃ HÀNG TỰ ĐỘNG
 # =========================================================================================
-
-if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption Matrix":
-    import json, re, requests
-    import streamlit as st
-    import pandas as pd
-    from urllib.parse import quote 
-    from concurrent.futures import ThreadPoolExecutor
-    try:
-        from google.genai import types
-    except ImportError:
-        types = globals().get("types", None)
-
-    st.markdown('<div class="component-title-box">🧵 INTELLIGENT BOM & CONSUMPTION MATRIX ENGINE</div>', unsafe_allow_html=True)
-    
-    # Khởi tạo các session state cốt lõi
-    if "matched_techpack" not in st.session_state: st.session_state["matched_techpack"] = None
-    if "bom_records" not in st.session_state: st.session_state["bom_records"] = []
-    if "consumption_chat_history" not in st.session_state: st.session_state["consumption_chat_history"] = []
-    if "previous_uploaded_file_name" not in st.session_state: st.session_state["previous_uploaded_file_name"] = None
-    if "match_confidence_score" not in st.session_state: st.session_state["match_confidence_score"] = 0
-    if "match_reason" not in st.session_state: st.session_state["match_reason"] = ""
-    if "detected_garment_type" not in st.session_state: st.session_state["detected_garment_type"] = "UNKNOWN"
-    if "visual_description_str" not in st.session_state: st.session_state["visual_description_str"] = ""
-    
-    # SỬA LỖI: Mặc định ban đầu luôn để HISTORICAL_MATCH để kích hoạt luồng quét đối chiếu kho trước
-    if "calculation_mode" not in st.session_state: st.session_state["calculation_mode"] = "HISTORICAL_MATCH"
-
-    control_col1, control_col2 = st.columns([3.3, 0.7])
-    with control_col1:
-        st.markdown("<p style='font-weight:700; font-size:12px; color:#1E293B;'>📁 INGEST NEW STYLE REPRINTS (PDF/IMAGE)</p>", unsafe_allow_html=True)
-        uploaded_file = st.file_uploader("Upload Techpack file", type=["pdf", "jpg", "jpeg", "png"], key="bom_matrix_uploader", label_visibility="collapsed")
-        
-        # Đồng bộ và làm mới bộ nhớ khi người dùng thay đổi file tải lên
-        if uploaded_file is not None and uploaded_file.name != st.session_state["previous_uploaded_file_name"]:
-            st.session_state["matched_techpack"] = None
-            st.session_state["bom_records"] = []
-            st.session_state["match_confidence_score"] = 0
-            st.session_state["match_reason"] = ""
-            st.session_state["detected_garment_type"] = "UNKNOWN"
-            st.session_state["visual_description_str"] = ""
-            st.session_state["calculation_mode"] = "HISTORICAL_MATCH"
-            st.session_state["previous_uploaded_file_name"] = uploaded_file.name
-            st.rerun()
-            
-    with control_col2:
-        st.markdown("<p style='font-weight:700; font-size:12px; color:#1E293B;'>🧹 RESET CORE</p>", unsafe_allow_html=True)
-        if st.button("🗑️ PURGE CHAT CACHE", key="purge_cache_matrix_btn", use_container_width=True, type="secondary"):
-            st.session_state["consumption_chat_history"] = []
-            st.session_state["matched_techpack"] = None
-            st.session_state["bom_records"] = []
-            st.session_state["match_confidence_score"] = 0
-            st.session_state["match_reason"] = ""
-            st.session_state["detected_garment_type"] = "UNKNOWN"
-            st.session_state["visual_description_str"] = ""
-            st.session_state["calculation_mode"] = "HISTORICAL_MATCH"
-            st.session_state["previous_uploaded_file_name"] = None
-            st.success("♻️ MEMORY PURGED - SẴN SÀNG CHO MÃ HÀNG MỚI")
-            st.rerun()
-
-    st.markdown("---")
-    
-    # Kiểm tra tệp tin an toàn từ uploader trực tiếp
-    has_file = (uploaded_file is not None) or globals().get("has_file", False)
-    if not has_file:
-        st.info("👋 Vui lòng tải lên tệp Techpack hồ sơ thiết kế (PDF/Hình ảnh) ở phía trên để hệ thống bắt đầu quét và lập lịch trình đối soát.")
-        st.stop()
-
-    SB_KEY = globals().get("SB_KEY", "")
-    base_sb_url = globals().get("base_sb_url", "")
-    SB_URL = globals().get("SB_URL", "")
-    client = globals().get("client", None)
-    new_style_category = globals().get("new_style_category", "") 
-    new_style_id_detected = globals().get("new_style_id_detected", "UNKNOWN")
-    new_style_base_size = globals().get("new_style_base_size", "N/A")
-
-    base_url_api = base_sb_url if base_sb_url else (SB_URL if SB_URL else "")
-    api_headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if SB_KEY else {}
-
-    detected_mime_type = "image/jpeg"
-    target_new_sketch_bytes = globals().get("target_new_sketch_bytes", None)
-    if not target_new_sketch_bytes and uploaded_file is not None:
-        try:
-            detected_mime_type = getattr(uploaded_file, "type", "image/jpeg")
-            uploaded_file.seek(0)
-            target_new_sketch_bytes = uploaded_file.read()
-        except Exception: pass
-
-    # Lấy chuỗi vector mô tả đặc trưng hình ảnh từ Session State nền
-    new_vec = str(st.session_state.get("visual_description_str", "") or globals().get("visual_description_str", "") or globals().get("new_style_sketch_vector", "")).strip().upper()
-
-    # =========================================================================================
-    # BỘ MẮT THẦN AI VISION ENGINE: TRÍCH XUẤT ĐẶC TRƯNG HÌNH ẢNH SKETCH
-    # =========================================================================================
-    # SỬA LỖI: Loại bỏ điều kiện 'calculation_mode != GEOMETRIC_VECTOR' ở đây để cho phép AI Vision luôn chạy
-    # khi có file mới, tạo tiền đề bóc tách dữ liệu để phân tầng ở Đoạn sau.
-    if (not new_vec or len(new_vec) < 30) and target_new_sketch_bytes and client:
-        if hasattr(client, "models"):
-            with st.spinner("🔄 Đang quét ảnh tái lập Sketch Vector bằng AI Vision..."):
-                try:
-                    ocr_prompt = """
-                    You are an expert apparel techpack analyzer. This document may be a multi-page PDF containing Cover pages, BOM tables, and Measurement charts.
-                    CRITICAL TASK: First, scan through all pages to locate the primary 'FLAT SKETCH' or 'TECHNICAL DRAWING' page. Ignore textual BOM or size chart grids.
-                    Once located, extract:
-                    1. Garment Type (Must strictly classify as one of these: PANT, SHORT, JACKET, SHIRT, DRESS, SKIRT, VEST, HOODIE, T-SHIRT)
-                    2. Structural Features (Focus on visual construction details: waistband, pockets, seams, closure fly, cuffs, collar shape)
-                    Return format exactly like this:
-                    GARMENT_TYPE: PANT
-                    FEATURES:
-                    ELASTIC WAISTBAND
-                    ZIPPER FLY
-                    SIDE POCKET
-                    """
-                    
-                    # Chuẩn hóa cấu trúc truyền dữ liệu nhị phân chuẩn thư viện google-genai mới
-                    if types and hasattr(types, "Part"):
-                        ocr_contents = [
-                            types.Part.from_text(text=ocr_prompt),
-                            types.Part.from_bytes(data=target_new_sketch_bytes, mime_type=detected_mime_type)
-                        ]
-                    else:
-                        ocr_contents = [
-                            ocr_prompt, 
-                            {"mime_type": detected_mime_type, "data": target_new_sketch_bytes}
-                        ]
-                        
-                    ocr_res = client.models.generate_content(model='gemini-2.5-flash', contents=ocr_contents)
-                    if ocr_res and ocr_res.text:
-                        new_vec = str(ocr_res.text).strip().upper()
-                        # Khóa giá trị vào session_state để ngắt vòng lặp rerun vô hạn
-                        st.session_state["visual_description_str"] = new_vec
-                        
-                        # Sử dụng Regex bóc tách chính xác phân loại loại áo/quần
-                        type_match = re.search(r"GARMENT[\s_-]*TYPE\s*[:=]\s*([A-Z_\-]+)", new_vec, re.IGNORECASE)
-                        if type_match:
-                            st.session_state["detected_garment_type"] = type_match.group(1).strip().upper()
-                        else:
-                            keywords_fallback = ["PANT", "SHORT", "JACKET", "SHIRT", "DRESS", "SKIRT", "VEST", "HOODIE", "T-SHIRT"]
-                            found_type = "UNKNOWN"
-                            for tk in keywords_fallback:
-                                if tk in new_vec:
-                                    found_type = tk
-                                    break
-                            st.session_state["detected_garment_type"] = found_type
-                            
-                        # Ép Streamlit tải lại để đồng bộ dữ liệu thô lên giao diện ngay lập tức
-                        st.rerun()
-                except Exception as e: 
-                    st.warning(f"Vision Engine gặp sự cố đọc file: {str(e)}")
- # PART 2A-1: CACHE ĐA PHIÊN & ĐỘNG CƠ LỌC THÔ SIÊU PHỦ (JACCARD OVERLAP KEYWORD)
+# PART 1A: SECURITY LAYER (MD5 FINGERPRINT, METADATA & BRACKET PARSER CHUẨN ENTERPRISE)
 # =========================================================================================
-import unicodedata
 import json
 import re
+import hashlib
+import unicodedata
+from datetime import datetime
 import streamlit as st
-import requests
 
-# 1. CƠ CHẾ CACHE ĐA PHIÊN BẢO VỆ DATABASE SUPABASE KHÔNG BỊ QUÁ TẢI KHI RE-RUN UI
-@st.cache_data(ttl=3600, show_spinner=False)
-def fetch_all_techpacks_cached(url, headers):
-    raw_data = []
-    if not url: return raw_data
-    limit_size = 1000
-    offset_cursor = 0
-    while True:
-        query_params = {"select": "*", "limit": limit_size, "offset": offset_cursor}
-        try:
-            response = requests.get(url, headers=headers, params=query_params, timeout=15)
-            if response.status_code == 200:
-                page_res = response.json()
-                if not page_res or len(page_res) == 0: break
-                raw_data.extend(page_res)
-                if len(page_res) < limit_size: break
-                offset_cursor += limit_size
-            else: break
-        except Exception: break
-    return raw_data
+# 1. KHỞI TẠO HỆ THỐNG BIẾN PHIÊN (SESSION STATE CORE ACCELERATORS)
+if "target_new_sketch_bytes" not in st.session_state: st.session_state["target_new_sketch_bytes"] = None
+if "detected_mime_type" not in st.session_state: st.session_state["detected_mime_type"] = "image/jpeg"
+if "vision_completed" not in st.session_state: st.session_state["vision_completed"] = False
+if "routing_completed" not in st.session_state: st.session_state["routing_completed"] = False
+if "uploaded_file_hash" not in st.session_state: st.session_state["uploaded_file_hash"] = ""
+if "vision_retry_count" not in st.session_state: st.session_state["vision_retry_count"] = 0
+if "vision_json" not in st.session_state: st.session_state["vision_json"] = {}
+if "file_metadata" not in st.session_state: st.session_state["file_metadata"] = {}
+if "vision_metadata" not in st.session_state: st.session_state["vision_metadata"] = {}
+if "vision_confidence" not in st.session_state: st.session_state["vision_confidence"] = 0
 
-# Khởi chạy khối đối soát chính ngăn lặp vô tận
-if st.session_state.get("matched_techpack") is None and st.session_state.get("calculation_mode") == "HISTORICAL_MATCH":
-    with st.spinner("🧠 Mắt thần VLM đang cuộn quét toàn bộ kho dữ liệu và thẩm định cấu trúc rập..."):
-        try:
-            headers_db = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if SB_KEY else {}
-            url_db = f"{base_url_api.rstrip('/')}/rest/v1/thong_so_techpack" if base_url_api else ""
+# THUẬT TOÁN ĐỈNH CAO: BỘ CÂN BẰNG NGOẶC CHỐNG LỖI JSON LỒNG (NESTED BRACKET PARSER)
+def extract_json_object_secure(text):
+    if not text: return None
+    start = text.find("{")
+    if start == -1: return None
+    count = 0
+    for i in range(start, len(text)):
+        if text[i] == "{":
+            count += 1
+        elif text[i] == "}":
+            count -= 1
+        if count == 0:
+            return text[start:i+1]
+    return None
+
+# 2. HỆ THỐNG VÂN TAY TỆP TIN ĐÍNH THỰC (TRUE MD5 FINGERPRINT & METADATA ENGINE)
+if uploaded_file is not None:
+    try:
+        # Giới hạn kích thước tệp tin cứng ngay tại cổng vào (Chống quá tải RAM Streamlit)
+        uploaded_file.seek(0, 2)
+        file_size_bytes = uploaded_file.tell()
+        uploaded_file.seek(0)
+        
+        MAX_FILE_SIZE = 50 * 1024 * 1024 # Giới hạn cứng 50MB
+        if file_size_bytes > MAX_FILE_SIZE:
+            st.error(f"🚨 File hồ sơ thiết kế quá lớn ({file_size_bytes / (1024*1024):.2f}MB). Hệ thống chỉ chấp nhận tài liệu Techpack dưới 50MB để đảm bảo an toàn bộ nhớ.")
+            st.stop()
             
-            raw_styles = fetch_all_techpacks_cached(url_db, headers_db)
-
-            if raw_styles and client and client.models:
-                vision_type = str(st.session_state.get("detected_garment_type", "UNKNOWN")).strip().upper()
+        # Đọc luồng nhị phân và băm mã định danh độc bản MD5
+        temp_bytes = uploaded_file.read()
+        current_file_hash = hashlib.md5(temp_bytes).hexdigest()
+        
+        # BẮT ĐẦU RESET TOÀN DIỆN NẾU PHÁT HIỆN FILE MỚI HOẶC PHIÊN BẢN MỚI TRÙNG TÊN LÀM MỚI HỒ SƠ
+        if current_file_hash != st.session_state["uploaded_file_hash"]:
+            st.session_state["target_new_sketch_bytes"] = temp_bytes
+            st.session_state["uploaded_file_hash"] = current_file_hash
+            detected_mime = getattr(uploaded_file, "type", "image/jpeg")
+            
+            if str(uploaded_file.name).lower().endswith(".pdf") and detected_mime == "image/jpeg":
+                detected_mime = "application/pdf"
                 
-                # KHÔNG LỌC CỨNG CATEGORY CHỐNG LỆCH DANH MỤC LÀM MẤT DẤU MÃ HÀNG CŨ
-                category_pool = raw_styles
-                
-                # =========================================================================================
-                # 2. ĐỘNG CƠ LỌC THÔ SIÊU PHỦ: Cắt nhỏ chuỗi văn bản thành từ đơn (Tokenization) phá vỡ bế tắc
-                # =========================================================================================
-                def extract_flatten_keywords(text):
-                    if not text: return set()
-                    # Chuẩn hóa văn bản chữ hoa dựng sẵn NFKC bảo lưu Unicode tiếng Việt
-                    txt = unicodedata.normalize('NFKC', str(text).upper())
-                    # Làm sạch ký tự phân tách rập may thành khoảng trắng phẳng
-                    txt = re.sub(r'[^A-Z0-9\s\-]', ' ', txt)
-                    # Cắt chuỗi rập thành mảng các từ đơn độc lập
-                    raw_words = txt.split()
-                    
-                    # Bộ lọc gạt bỏ từ nhiễu ngữ pháp, từ nối phổ biến (Stop-words)
-                    stop_words = {"WITH", "THE", "AND", "FOR", "TYPE", "GARMENT", "FEATURES", "OF", "ON", "AT", "IN"}
-                    
-                    # Loại từ quá ngắn (< 2 ký tự) và từ nằm trong tập hợp stop-words
-                    valid_tokens = [w for w in raw_words if len(w) >= 2 and w not in stop_words]
-                    return set(valid_tokens)
-
-                new_keywords = extract_flatten_keywords(new_vec)
-                ranked_pool = []
-                
-                for s in category_pool:
-                    # Gộp tên mã (StyleName) và chuỗi mô tả rập (sketch_vector) để làm giàu vocabulary tìm kiếm
-                    db_combined_text = f"{s.get('StyleName', '')} {s.get('sketch_vector', '')}"
-                    cand_keywords = extract_flatten_keywords(db_combined_text)
-                    
-                    # Tính hệ số tương đồng Jaccard Coefficient dựa trên tỷ lệ giao thoa từ khóa
-                    intersection = len(new_keywords.intersection(cand_keywords))
-                    union = len(new_keywords.union(cand_keywords))
-                    
-                    jaccard_score = intersection / max(union, 1)
-                    
-                    # Cộng điểm thưởng hệ số nhân nếu trùng khớp kích cỡ cơ bản (Base Size) rập mẫu
-                    db_base_size = s.get("BaseSize", s.get("base_size"))
-                    if db_base_size and str(db_base_size).strip().upper() == str(new_style_base_size).strip().upper() and str(new_style_base_size).strip().upper() != "N/A":
-                        jaccard_score *= 1.20 # Thưởng thêm 20% trọng số điểm cho mã trùng Base Size
-                        
-                    ranked_pool.append((jaccard_score, s))
-                
-                # Sắp xếp danh sách kho giảm dần theo điểm tương đồng Jaccard
-                ranked_pool.sort(reverse=True, key=lambda x: x)
-                
-                # Cửa sổ ứng viên mở rộng lên 30 mã ép buộc mã đúng bắt buộc phải nằm trong diện gửi AI
-                TOP_N = min(30, len(ranked_pool))
-                top_candidates_raw = ranked_pool[:TOP_N]
-
-# PART 2A-2: MULTI-MODAL VISION PROMPT ENGINE & BỘ ROUTER KHÓA TRẠNG THÁI KÉP ANTI-LOOP
-# =========================================================================================
-
-                # =========================================================================================
-                # 3. COMPRESSION ENGINE: Nén cấu trúc chỉ trích xuất trường dữ liệu mỏ neo tối giản kèm Jaccard
-                # =========================================================================================
-                compressed_candidates = []
-                for idx, (score, s) in enumerate(top_candidates_raw):
-                    compressed_candidates.append({
-                        "pool_index": idx,
-                        "StyleName": s.get("StyleName", "UNKNOWN"),
-                        "BaseSize": s.get("BaseSize", s.get("base_size", "N/A")),
-                        "JaccardScore": round(float(score), 4),
-                        "SketchVectorText": str(s.get("sketch_vector", "")).strip()
-                    })
-                
-                if "routing_completed" not in st.session_state:
-                    st.session_state["routing_completed"] = False
-
-                # KÍCH HOẠT THẨM ĐỊNH MULTI-MODAL VISION (AI VỪA ĐỌC CHỮ VỪA ĐỐI SOÁT MẮT THẦN QUA HÌNH ẢNH)
-                if not st.session_state["routing_completed"] and compressed_candidates:
-                    semantic_prompt = (
-                        f"You are an expert Garment Technologist and Apparel VLM Analyzer.\n"
-                        f"CRITICAL TASK: Look closely at the uploaded garment techpack image/sketch provided in the bytes data, "
-                        f"then compare its visual layout against the historical candidates pool listed below.\n\n"
-                        f"Target Specifications:\n"
-                        f"- Garment Silhouette Type: {vision_type}\n"
-                        f"- Base Size: {new_style_base_size}\n"
-                        f"- Visual Text Description: {new_vec}\n\n"
-                        f"Candidates Pool from Factory DB:\n"
-                        f"{json.dumps(compressed_candidates, ensure_ascii=False)}\n\n"
-                        f"EVALUATION RULES:\n"
-                        f"1. Compare the physical construction and shape in the uploaded image with the 'SketchVectorText' of each candidate.\n"
-                        f"2. Use 'JaccardScore' as a math baseline reference.\n"
-                        f"3. Focus on waistband elements, zipper fly construction, pocket placement/styles, and leg shapes.\n"
-                        f"4. If you find a true visual match, return its exact 'pool_index'.\n"
-                        f"5. If NO candidate structurally matches the design in the image, you MUST return 'selected_pool_index': -1 and 'match_score': 0.\n\n"
-                        f"Return valid JSON ONLY, format exactly like this:\n"
-                        f'{{"selected_pool_index": -1, "match_score": 0, "reason": "Reason why it matches or why no match found based on visual traits."}}'
-                    )
-                    
-                    # SỬA LỖI CỐT LÕI: Đóng gói đồng bộ cả Prompt văn bản VÀ luồng Bytes hình ảnh nhị phân gửi Gemini
-                    if types and hasattr(types, "Part"):
-                        vlm_contents = [
-                            types.Part.from_text(text=semantic_prompt),
-                            types.Part.from_bytes(data=target_new_sketch_bytes, mime_type=detected_mime_type)
-                        ]
-                    else:
-                        vlm_contents = [
-                            semantic_prompt,
-                            {"mime_type": detected_mime_type, "data": target_new_sketch_bytes}
-                        ]
-                        
-                    res = client.models.generate_content(model='gemini-2.5-flash', contents=vlm_contents)
-                    
-                    clean_text = res.text.strip()
-                    if clean_text.startswith("```"):
-                        clean_text = re.sub(r'^```json\s*|```$', '', clean_text, flags=re.IGNORECASE).strip()
-                    
-                    json_match = re.search(r'\{[\s\S]*\}', clean_text)
-                    
-                    if json_match:
-                        match_res = json.loads(json_match.group())
-                        chosen_idx = match_res.get("selected_pool_index")
-                        score = int(match_res.get("match_score", 0))
-                        reason = str(match_res.get("reason", "N/A"))
-                        
-                        if chosen_idx is not None and 0 <= chosen_idx < len(top_candidates_raw) and score >= 60:
-                            # Giải nén: Trích xuất ngược Full Object gốc chứa Master BOM và thông số từ mảng tuple ban đầu
-                            st.session_state["matched_techpack"] = top_candidates_raw[chosen_idx] 
-                            st.session_state["match_confidence_score"] = score
-                            st.session_state["match_reason"] = reason
-                        else:
-                            st.session_state["matched_techpack"] = None
-                            st.session_state["match_confidence_score"] = 0
-                            st.session_state["match_reason"] = reason if chosen_idx == -1 else "Score fell below confidence floor (60%)."
-                    else:
-                        st.session_state["matched_techpack"] = None
-                        st.session_state["match_confidence_score"] = 0
-                        
-                    st.session_state["routing_completed"] = True
-                    
-        except Exception as e:
-            st.error(f"Lỗi hệ thống đối soát dữ liệu: {str(e)}")
+            st.session_state["detected_mime_type"] = detected_mime
+            
+            # KẾT XUẤT METADATA PHỤC VỤ DASHBOARD AUDIT VÀ AN NINH DỮ LIỆU SẢN XUẤT
+            st.session_state["file_metadata"] = {
+                "hash": current_file_hash,
+                "name": uploaded_file.name,
+                "size_mb": round(file_size_bytes / (1024 * 1024), 2),
+                "mime": detected_mime
+            }
+            
+            # GIẢI PHÓNG TOÀN BỘ BỘ NHỚ ĐỆM PHIÊN CŨ ĐỂ ĐÓN MÃ HÀNG MỚI TỪ SỐ 0
+            st.session_state["visual_description_str"] = ""
+            st.session_state["detected_garment_type"] = "UNKNOWN"
             st.session_state["matched_techpack"] = None
+            st.session_state["bom_records"] = []
             st.session_state["match_confidence_score"] = 0
-            st.session_state["routing_completed"] = True
+            st.session_state["match_reason"] = ""
+            st.session_state["vision_json"] = {}
+            st.session_state["vision_completed"] = False
+            st.session_state["routing_completed"] = False
+            st.session_state["vision_retry_count"] = 0
+            st.session_state["vision_metadata"] = {}
+            st.session_state["vision_confidence"] = 0
+            
+            st.rerun()
+            
+    except Exception as e:
+        st.error(f"🚨 Lỗi hệ thống khi bóc tách vân tay nhị phân MD5: {str(e)}")
 
-    # =========================================================================================
-    # 4. KHỐI ĐIỀU HƯỚNG ROUTER 4 CẤP ĐỘ KHÉP KÍN CÓ KHÓA TRẠNG THÁI (ANTI-INFINITE LOOP LOCK)
-    # =========================================================================================
-    if st.session_state.get("routing_completed", False):
-        current_score = st.session_state["match_confidence_score"]
-        current_match = st.session_state["matched_techpack"]
-        
-        if not current_match:
-            st.session_state["calculation_mode"] = "GEOMETRIC_VECTOR"
-        elif current_score >= 92:
-            st.session_state["calculation_mode"] = "AUTO_APPROVED"
-        elif current_score >= 85:
-            st.session_state["calculation_mode"] = "HISTORICAL_MATCH"
-        elif current_score >= 60:
-            st.session_state["calculation_mode"] = "AI_PROJECTION"
-        else:
-            st.session_state["calculation_mode"] = "GEOMETRIC_VECTOR"
-
-        st.rerun()
-
-
-    # KHỐI HIỂN THỊ UI: SO SÁNH TRỰC QUAN ẢNH FLAT SKETCH VÀ THÔNG SỐ VỆ TINH
+# Đồng bộ hóa các biến cục bộ nền bảo vệ luồng chạy hạ nguồn
+target_new_sketch_bytes = st.session_state["target_new_sketch_bytes"]
+detected_mime_type = st.session_state["detected_mime_type"]
+new_vec = str(st.session_state.get("visual_description_str", "")).strip().upper()
+# PART 1B: AI VISION ENGINE PHÂN TÍCH GIẢI PHẪU RẬP SẢN XUẤT (STRICT JSON BALANCED PIPELINE)
 # =========================================================================================
 
-calc_mode = st.session_state.get("calculation_mode")
-matched_techpack = st.session_state.get("matched_techpack")
-
-if calc_mode in ["AUTO_APPROVED", "HISTORICAL_MATCH", "AI_PROJECTION"] and matched_techpack is not None:
-    st.markdown("### 🖼️ ĐỐI CHIẾU TRỰC QUAN HÌNH ẢNH THIẾT KẾ & THÔNG TIN NỀN")
-    
-    img_col1, img_col2 = st.columns(2)
-    
-    with img_col1:
-        st.info("📁 **Bản thiết kế mới (Uploaded Techpack):**")
-        # Hiển thị lại file ảnh/PDF người dùng vừa tải lên ứng dụng
-        if "bom_matrix_uploader" in st.session_state and st.session_state["bom_matrix_uploader"] is not None:
-            st.image(st.session_state["bom_matrix_uploader"], use_container_width=True)
-            
-    with img_col2:
-        # Trích xuất URL hình ảnh lịch sử lưu trong cột SketchURL (hoặc sketch_url) của Supabase
-        historical_sketch_url = matched_techpack.get("SketchURL", matched_techpack.get("sketch_url"))
-        st.success(f"🥇 **Mã lịch sử tương đồng: `{matched_techpack.get('StyleName')}` (Độ chính xác: {st.session_state['match_confidence_score']}%)**")
-        
-        if historical_sketch_url:
-            st.image(historical_sketch_url, caption=f"Sketch gốc của mã {matched_techpack.get('StyleName')}", use_container_width=True)
-        else:
-            st.warning("⚠️ Mã hàng khớp thành công nhưng không tìm thấy URL ảnh đính kèm trong kho dữ liệu.")
-
-    # Hiển thị chuỗi đặc trưng thông số hình học (sketch_vector) của mã cũ để đối chiếu văn bản
-    with st.expander("📝 XEM CHUỖI ĐẶC TRƯNG HÌNH HỌC (SKETCH VECTOR CORES) CỦA MÃ CŨ", expanded=False):
-        st.write(f"**Lý do AI chọn khớp:** {st.session_state.get('match_reason')}")
-        st.code(str(matched_techpack.get("sketch_vector", "Không có dữ liệu vector chữ.")))
+# Khối AI chạy khi chưa hoàn thành quét (not vision_completed) nhằm triệt tiêu gọi API trùng
+if (not new_vec or len(new_vec) < 30) and target_new_sketch_bytes and client and not st.session_state["vision_completed"]:
+    if hasattr(client, "models"):
+        with st.spinner("🔄 Hệ thống AI Vision đang phân tích giải phẫu rập và trích xuất cấu trúc dữ liệu JSON..."):
+            try:
+                ocr_prompt = """
+                You are an expert apparel techpack analyzer and senior garment technologist.
+                TASK: Scan through ALL pages of this document to locate the primary 'FLAT SKETCH' or 'TECHNICAL DRAWING' of the garment.
+                Analyze its physical shapes, pockets, waistband, fly, cuff treatments, and sewing layout.
+                You MUST return ONLY a valid, raw JSON object. Follow this strict schema:
+                {
+                  "garment_type": "PANT",
+                  "vision_confidence": 95,
+                  "construction_features": [
+                    "WAISTBAND WITH BELT LOOPS",
+                    "BUTTON WAISTBAND CLOSURE",
+                    "ZIPPER FLY",
+                    "FRONT SCOOP POCKETS",
+                    "BACK PATCH POCKETS"
+                  ],
+                  "sewing_operations_predicted": [
+                    "WAISTBAND ATTACHMENT",
+                    "ZIPPER FLY INSTALLATION",
+                    "POCKET ATTACHMENT"
+                  ]
+                }
+                Note: garment_type must strictly classify as one of these: PANT, SHORT, JACKET, SHIRT, DRESS, SKIRT, VEST, HOODIE, T-SHIRT.
+                vision_confidence must be an integer between 0 and 100 representing your structural certainty.
+                All features and operations must be returned in uppercase text.
+                """
+                
+                if types and hasattr(types, "Part"):
+                    ocr_contents = [
+                        types.Part.from_text(text=ocr_prompt),
+                        types.Part.from_bytes(data=target_new_sketch_bytes, mime_type=detected_mime_type)
+                    ]
+                else:
+                    ocr_contents = [ocr_prompt, {"mime_type": detected_mime_type, "data": target_new_sketch_bytes}]
+                    
+                ocr_res = client.models.generate_content(model='gemini-2.5-flash', contents=ocr_contents)
+                
+                if ocr_res and ocr_res.text:
+                    raw_ocr_text = ocr_res.text.strip()
+                    
+                    # ÁP DỤNG SECURE BRACKET PARSER TỪ PHẦN 1A (Giải quyết triệt để lỗi cấu trúc JSON lồng nhau)
+                    clean_ocr_text = extract_json_object_secure(raw_ocr_text)
+                    if not clean_ocr_text:
+                        raise ValueError("Hệ thống AI Vision phản hồi sai cấu trúc định dạng JSON mong muốn.")
+                        
+                    vision_json = json.loads(clean_ocr_text)
+                    
+                    # Trích xuất danh sách mảng dữ liệu thô từ cấu trúc JSON
+                    features_list = vision_json.get("construction_features", [])
+                    operations_list = vision_json.get("sewing_operations_predicted", [])
+                    
+                    # TYPE DEFENSE NORMALIZE: Phòng vệ kiểu dữ liệu mảng nghiêm ngặt chống lỗi rỗng/chuỗi đơn
+                    if features_list is None: features_list = []
+                    elif not isinstance(features_list, list): features_list = [features_list]
+                        
+                    if operations_list is None: operations_list = []
+                    elif not isinstance(operations_list, list): operations_list = [operations_list]
+                    
+                    # Đồng bộ dữ liệu sạch vào cấu trúc JSON gốc và gán điểm tin cậy mỏ neo
+                    vision_json["construction_features"] = features_list
+                    vision_json["sewing_operations_predicted"] = operations_list
+                    
+                    st.session_state["vision_json"] = vision_json
+                    st.session_state["vision_confidence"] = int(vision_json.get("vision_confidence", 0))
+                    
+                    # KẾT XUẤT PRODUCTION METADATA PHỤC VỤ AUDIT TRAIL SẢN XUẤT CHẤT LƯỢNG CAO
+                    st.session_state["vision_metadata"] = {
+                        "model": "gemini-2.5-flash",
+                        "timestamp": datetime.now().isoformat(),
+                        "file_hash": st.session_state["uploaded_file_hash"]
+                    }
+                    
+                    g_type = str(vision_json.get("garment_type", "UNKNOWN")).strip().upper()
+                    
+                    # Tạo ma trận từ điển chứa trọng số (Dictionary-Weighted Matrix) nuôi mạch Jaccard 2A
+                    weighted_profile = {
+                        "WEIGHTED_GARMENT_TYPE": {g_type: 5},
+                        "WEIGHTED_SEWING_OPERATIONS": {str(op).upper(): 3 for op in operations_list},
+                        "WEIGHTED_CONSTRUCTION_FEATURES": {str(ft).upper(): 1 for ft in features_list}
+                    }
+                    
+                    # Flatten phẳng chuỗi phục vụ kết xuất giao diện cũ và nuôi bộ lọc thô
+                    flattened_str = f"GARMENT_TYPE: {g_type}\nFEATURES:\n" + "\n".join(features_list) + "\nOPERATIONS:\n" + "\n".join(operations_list)
+                    
+                    # Đồng bộ hóa toàn bộ ma trận dữ liệu an toàn vào Session State
+                    st.session_state["visual_description_str"] = flattened_str.upper()
+                    st.session_state["weighted_garment_profile"] = weighted_profile
+                    st.session_state["detected_garment_type"] = g_type
+                    
+                    # ĐÓNG MODULE VISION THÀNH CÔNG, RESET RETRY VÀ CHUYỂN GIAO SẢN XUẤT CHO ENGINE 2A
+                    st.session_state["vision_completed"] = True
+                    st.session_state["routing_completed"] = False 
+                    st.session_state["vision_retry_count"] = 0
+                    
+                    st.rerun()
+                    
+            except Exception as e: 
+                # RETRY COUNTER CLAMP HOÀN CHỈNH (Chống vòng lặp vô hạn khi sập mạng API)
+                st.session_state["vision_retry_count"] += 1
+                st.session_state["vision_error"] = str(e)
+                
+                if st.session_state["vision_retry_count"] >= 3:
+                    # Ngắt mạch cưỡng bức nếu lỗi 3 lần liên tiếp, ép rơi xuống Tầng 3 bảo vệ giao diện
+                    st.session_state["vision_completed"] = True
+                    st.session_state["routing_completed"] = False
+                    st.session_state["visual_description_str"] = "FALLBACK_TRIGGERED_VIA_AI_ERROR_STREAM"
+                    st.session_state["detected_garment_type"] = "UNKNOWN"
+                    st.session_state["vision_confidence"] = 0
+                    st.error(f"🚨 Hệ thống AI Vision thất bại sau 3 lần thử lại. Tự động chuyển hướng xuống TẦNG 3 (Geometric Engine) để đảm bảo tiến độ sản xuất. Chi tiết lỗi: {str(e)}")
+                else:
+                    st.session_state["vision_completed"] = False # Giữ luồng mở để cho phép click chạy lại ở chu kỳ kế
+                    st.warning(f"⚠️ Trục trặc kết nối AI Vision (Lần thử {st.session_state['vision_retry_count']}/3). Hệ thống đang tự động kết nối lại... Chi tiết: {str(e)}")
 
 
 
