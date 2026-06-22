@@ -1620,6 +1620,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
 
     bom_records = st.session_state.get("bom_records", [])
     # =========================================================================================
+        # =========================================================================================
     # 🖼️ LỚP HIỂN THỊ GIAO DIỆN THEO PHÂN NHÁNH CHẾ ĐỘ
     # =========================================================================================
     
@@ -1632,7 +1633,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             uploaded_file_name = st.session_state.get("previous_uploaded_file_name", "Techpack")
             if target_new_sketch_bytes is not None:
                 try:
-                    # SỬA LỖI: Hiển thị trực tiếp ảnh đã quét dạng Bytes lên màn hình
+                    # Hiển thị trực tiếp ảnh đã quét dạng Bytes lên màn hình
                     st.image(target_new_sketch_bytes, caption=f"Mẫu mới tải lên ({new_style_id_detected})", use_container_width=True)
                 except Exception as e:
                     if "pdf" in str(detected_mime_type).lower() or str(uploaded_file_name).lower().endswith(".pdf"):
@@ -1737,7 +1738,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                 "Chi tiết bộ rập (Pattern Pieces)": ["Thân trước (Front Panel)", "Thân sau (Back Panel)", "Cạp quần (Waistband)", "Túi quần (Pocket Bag)"],
                 "Chiều dài bao (Inches)": [38.5, 39.5, 34.0, 12.0],
                 "Chiều rộng bao (Inches)": [14.0, 16.5, 4.0, 8.5],
-                "Số lượng chi tiết":
+                "Số lượng chi tiết": [1, 1, 1, 1]
             }
             df_geo = pd.DataFrame(geo_data)
             edited_df_geo = st.data_editor(df_geo, use_container_width=True, num_rows="dynamic")
@@ -1754,6 +1755,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                 st.metric(label="🔮 DỰ PHÒNG ĐỊNH MỨC TIÊU HAO VẢI (GEOMETRIC CONSUMPTION)", value=f"{dm_bien_dong:.3f} Yards / Sản phẩm")
             except Exception as geo_err:
                 st.error(f"Lỗi tính toán hình học rập vẽ: {geo_err}")
+
 
 
 # ==========================================================
