@@ -2044,21 +2044,37 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     st.session_state["main_fabric_records"] = main_fabric_records
     st.session_state["bom_summary_engine"] = bom_summary_engine
 
-# --- BẢNG SO SÁNH THÔNG SỐ KHỚP ĐA CẤP ĐỘ & MÁY DỰ PHÒNG ĐỊNH MỨC SẢN XUẤT ---
-    st.markdown("<br>### 📐 BẢNG SO SÁNH SAI LỆCH THÔNG SỐ KỸ THUẬT RẬP MẪU", unsafe_allow_html=True)
-    new_specs = new_style_measurements_dict if new_style_measurements_dict else {}
+# =========================================================================================
+# PHẦN 3A: ĐỘNG CƠ CẤU HÌNH MỎ NEO & THUẬT TOÁN SO KHỚP ĐA CẤP ĐỘ (GARMENT SPEC MATCHING)
+# =========================================================================================
+import re
+import pandas as pd
+import streamlit as st
+from fractions import Fraction
+from difflib import SequenceMatcher
+
+st.markdown("<br>### 📐 BẢNG SO SÁNH SAI LỆCH THÔNG SỐ KỸ THUẬT RẬP MẪU", unsafe_allow_html=True)
+
+# 1. LẤY BIẾN TRẠNG THÁI NỀN ĐỂ ĐIỀU HƯỚNG GIAO DIỆN CHỐNG CRASH NONE-TYPE
+calc_mode = st.session_state.get("calculation_mode")
+matched_techpack = st.session_state.get("matched_techpack")
+
+# KHỞI TẠO BIẾN CHỨA KẾT QUẢ ĐẦU RA TRÊN SESSION STATE CHỐNG BẤT ĐỒNG BỘ UI
+if "compare_rows_result" not in st.session_state:
+    st.session_state["compare_rows_result"] = []
+
+# CHỈ CHẠY LOGIC SO SÁNH KHI ĐỐI CHIẾU THÀNH CÔNG (TẦNG 1, 2) VÀ CÓ DỮ LIỆU ĐỐI CHỨNG KHÁC NONE
+if calc_mode in ["AUTO_APPROVED", "HISTORICAL_MATCH", "AI_PROJECTION"] and matched_techpack is not None:
+    new_specs = new_style_measurements_dict if 'new_style_measurements_dict' in locals() or 'new_style_measurements_dict' in globals() else {}
     old_specs = matched_techpack.get("DetailedMeasurements", {}) if matched_techpack else {}
     
     if new_specs or old_specs:
-        from difflib import SequenceMatcher
-        from fractions import Fraction
-        
         compare_rows = []
         processed_old_keys = set()
         grading_mismatch_alerts = [] # Lưu audit phục vụ quản trị rủi ro dữ liệu lỗi
         
-        # 1. TÁCH BIỆT DẢI SIZE TRÍCH XUẤT ĐỂ ĐỌC GRADING CHART CHÍNH XÁC
-        target_size_str = str(new_style_base_size).strip().upper()
+        # TÁCH BIỆT DẢI SIZE TRÍCH XUẤT ĐỂ ĐỌC GRADING CHART CHÍNH XÁC
+        target_size_str = str(new_style_base_size).strip().upper() if 'new_style_base_size' in locals() or 'new_style_base_size' in globals() else "N/A"
         new_size_range = [str(s).strip().upper() for s in globals().get("new_style_size_range_list", [target_size_str])]
         old_size_range = [str(s).strip().upper() for s in matched_techpack.get("SizeRangeList", matched_techpack.get("size_range_list", new_size_range))]
 
@@ -2082,7 +2098,6 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             str_a, str_b = str(a).upper(), str(b).upper()
             direction_tokens = {"FRONT", "BACK", "LEFT", "RIGHT", "INNER", "OUTER"}
             
-            # Nếu một vế chứa FRONT mà vế kia chứa BACK -> Ngắt luồng khớp lập tức (Sai phom)
             if ("FRONT" in str_a and "BACK" in str_b) or ("BACK" in str_a and "FRONT" in str_b): return 0.0
             if ("LEFT" in str_a and "RIGHT" in str_b) or ("RIGHT" in str_a and "LEFT" in str_b): return 0.0
             if ("INNER" in str_a and "OUTER" in str_b) or ("OUTER" in str_a and "INNER" in str_b): return 0.0
@@ -2102,9 +2117,8 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                     idx = size_range_reference.index(target_size)
                     val_str = parts[idx]
                 else:
-                    # Ghi nhận cảnh báo hệ thống phục vụ Audit log đầu vào
                     grading_mismatch_alerts.append(f"⚠️ {doc_label} - POM `{pom_name}`: Lệch pha Grading Chart (Yêu cầu {len(size_range_reference)} cỡ nhưng DB trả về {len(parts)} thông số).")
-                    val_str = parts[0] # Fallback lấy phần tử đầu tiên
+                    val_str = parts[0]
             try: 
                 if ' ' in val_str:
                     sub_parts = val_str.split()
@@ -2123,6 +2137,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                 "code": extract_pom_code(k),
                 "value": v
             })
+            
         # --- ENGINE SO KHỚP ĐA CẤP ĐỘ ---
         for original_new_key, val_new in new_specs.items():
             clean_new_key = clean_pom_text(original_new_key)
@@ -2162,7 +2177,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                     best_score = combined_score
                     best_match = old_item
 
-            # Ngưỡng tin cậy Enterprise được siết chặt lên cứng 0.80 chống bắt râu ông nọ cắm cằm bà kia
+            # Ngưỡng tin cậy Enterprise siết chặt cứng 0.80 chống bắt râu ông nọ cắm cằm bà kia
             if match_level in ["LEVEL 1 (CODE)", "LEVEL 2 (EXACT)"]:
                 original_old_key = best_match["original_key"]
                 val_old = best_match["value"]
@@ -2190,118 +2205,44 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             
             compare_rows.append({
                 "Vị trí đo (POM Description)": original_new_key,
-                "clean_key_internal": clean_new_key, 
                 f"Mẫu mới ({new_style_base_size})": val_new if val_new is not None else "-",
-                f"Mã cũ ({str(st.session_state.get('matched_style_name', 'N/A'))})": val_old if val_old is not None else "-",
-                "Chênh lệch (Diff)": display_diff,
-                "Tỷ lệ biến thiên (Diff %)": display_pct,
-                "diff_pct_float": diff_pct,
-                "Cơ chế khớp (Match Mode)": match_level
+                f"Mã kho ({matched_techpack.get('StyleName', 'Mã cũ')})": val_old if val_old is not None else "-",
+                "Sai lệch thực tế": display_diff,
+                "Tỷ lệ biến động": display_pct,
+                "Cấp độ so khớp": match_level
             })
+            
+        # Khóa mảng kết quả vào Session State để chuyển tiếp sang Phần 3B xử lý kết xuất
+        st.session_state["compare_rows_result"] = compare_rows
+        st.session_state["grading_mismatch_alerts_log"] = grading_mismatch_alerts
+# =========================================================================================
+# PHẦN 3B: KẾT XUẤT DATAFRAME & LỐI THOÁT AN TOÀN UI (FALLBACK PROTECTION ENGINE)
+# =========================================================================================
 
-        # Nạp các vị trí đo còn dư của mã cũ
-        for old_item in old_pool:
-            if old_item["original_key"] not in processed_old_keys:
-                compare_rows.append({
-                    "Vị trí đo (POM Description)": old_item["original_key"],
-                    "clean_key_internal": old_item["clean_key"],
-                    f"Mẫu mới ({new_style_base_size})": "-",
-                    f"Mã cũ ({str(st.session_state.get('matched_style_name', 'N/A'))})": old_item["value"] if old_item["value"] is not None else "-",
-                    "Chênh lệch (Diff)": "-",
-                    "Tỷ lệ biến thiên (Diff %)": "-",
-                    "diff_pct_float": None,
-                    "Cơ chế khớp (Match Mode)": "ORPHAN OLD KEY"
-                })
-            
-        df_compare_spec = pd.DataFrame(compare_rows)
-        # Render bảng hiển thị sạch cho người dùng (Ẩn cột tính toán phụ)
-        st.dataframe(df_compare_spec.drop(columns=["clean_key_internal", "diff_pct_float"]), use_container_width=True, hide_index=True)
-        
-        # Xuất bảng cảnh báo Audit Log lên màn hình nếu phát hiện lỗi lệch pha dữ liệu nhảy size của sơ đồ cũ
-        if grading_mismatch_alerts:
-            with st.expander("🚨 CẢNH BÁO KIỂM TOÁN DỮ LIỆU NHẢY SIZE (GRADING AUDIT LOG)", expanded=True):
-                for alert in set(grading_mismatch_alerts): st.error(alert)
-        # =========================================================================================
-        # HỆ THỐNG CHẤM ĐIỂM ĐẠI DIỆN VÀ MÔ HÌNH DỰ PHỎNG TIÊU HAO TUYẾN TÍNH (FABRIC ENGINE)
-        # =========================================================================================
-        
-        # Tách biệt hoàn toàn nhóm tính toán của Area Engine ra khỏi cấu trúc đối soát chuỗi phẳng
-        area_mapping_config = {
-            "HIP": ["HIP", "PELVIS", "SEAT"],
-            "WAIST": ["WAIST", "BAND WIDTH"],
-            "THIGH": ["THIGH"],
-            "INSEAM": ["INSEAM", "CROTCH TO BOTTOM"],
-            "RISE": ["RISE", "CROTCH DEPTH", "FRONT RISE", "BACK RISE"],
-            "LEG": ["LEG OPENING", "BOTTOM OPENING", "KNEE"]
-        }
-        
-        # Ma trận tính điểm ưu tiên bóc tách dòng đại diện hoàn chỉnh (CIRCUMFERENCE cao nhất)
-        priority_scoring = {"CIRCUMFERENCE": 100, "TOTAL": 90, "OVERALL": 80, "FULL": 70, "WIDTH": 50, "DEPTH": 40}
-        
-        extracted_group_deltas = {}
-        
-        for group_name, synonyms_list in area_mapping_config.items():
-            group_candidates = []
-            for r in compare_rows:
-                if r["diff_pct_float"] is not None:
-                    # Kiểm tra xem từ khóa nhóm có nằm trong chuỗi văn bản gốc hay không
-                    if any(syn in str(r["Vị trí đo (POM Description)"]).upper() for syn in synonyms_list):
-                        group_candidates.append(r)
-            
-            if group_candidates:
-                best_rep_row = None
-                max_score = -1
-                
-                # Chấm điểm để tìm ra dòng đại diện có giá trị bao hình học tốt nhất cho định mức sơ đồ
-                for cand in group_candidates:
-                    cand_text = str(cand["Vị trí đo (POM Description)"]).upper()
-                    current_score = 10 # Điểm nền cơ sở
-                    
-                    # Cộng điểm phạt theo ma trận trọng số đại diện cốt lõi
-                    for p_kw, p_score in priority_scoring.items():
-                        if p_kw in cand_text:
-                            if p_score > current_score: current_score = p_score
-                    
-                    # Loại trừ chi tiết nhãn mác phụ kiện
-                    if any(ig in cand_text for ig in ["LABEL", "BUTTON", "TICKET", "LOOP", "STITCH"]):
-                        current_score = -1
-                        
-                    if current_score > max_score:
-                        max_score = current_score
-                        best_rep_row = cand
-                
-                if best_rep_row:
-                    extracted_group_deltas[group_name] = best_rep_row["diff_pct_float"]
+# Đón nhận trạng thái chế độ từ hệ thống
+calc_mode = st.session_state.get("calculation_mode")
+matched_techpack = st.session_state.get("matched_techpack")
+compare_data = st.session_state.get("compare_rows_result", [])
+alerts_log = st.session_state.get("grading_mismatch_alerts_log", [])
 
-        # FABRIC PROJECTION MODEL (MÔ HÌNH ƯỚC TÍNH TIÊU HAO TUYẾN TÍNH THEO LỊCH SỬ SẢN XUẤT)
-        # Hệ số cấu hình thực tế bàn cắt ngành may PPJ
-        projection_weights = {
-            "HIP": 0.35,     # Vòng mông ảnh hưởng lớn nhất đến chiều rộng rải sơ đồ thân quần
-            "WAIST": 0.25,   # Vòng bụng ảnh hưởng đến diện tích đầu rập cạp
-            "THIGH": 0.20,   # Vòng đùi quyết định độ lồng ghép chi tiết rập phẳng
-            "RISE": 0.10,    # Độ dài đáy quyết định khoảng trống bù hao hụt bàn cắt
-            "INSEAM": 0.10   # Dài dọc quần quyết định chiều dài định mức bàn đi sơ đồ vải
-        }
+# NHÁNH HIỂN THỊ 1: Khi ở chế độ đối chiếu lịch sử và có dữ liệu đã được tính toán từ Phần 3A
+if calc_mode in ["AUTO_APPROVED", "HISTORICAL_MATCH", "AI_PROJECTION"] and matched_techpack is not None:
+    if compare_data:
+        # Xuất bảng so sánh sai lệch thông số kỹ thuật rập lên màn hình UI Streamlit
+        df_final_compare = pd.DataFrame(compare_data)
+        st.dataframe(df_final_compare, use_container_width=True, hide_index=True)
         
-        # Phân phối và chuẩn hóa lại trọng số dựa trên các nhóm thực tế bóc tách được từ Techpack
-        active_weights = {k: v for k, v in projection_weights.items() if k in extracted_group_deltas}
-        
-        if active_weights:
-            total_active_w = sum(active_weights.values())
-            # Tính toán độ biến động tiêu hao dựa trên các POM cốt lõi được giữ lại
-            fabric_projection_factor = sum((extracted_group_deltas[k] * w) for k, w in active_weights.items()) / total_active_w
-            
-            st.metric(
-                label="🔮 ĐỘ BIẾN THIÊN TIÊU HAO NGUYÊN VẬT LIỆU DỰ PHỎNG (AI FABRIC PROJECTION FACTOR)", 
-                value=f"{fabric_projection_factor:+.2f}%",
-                delta="Tính toán dựa trên dữ liệu cấu trúc BOM lịch sử thực tế"
-            )
-            
-            # Ghi nhớ biến vào session state để đẩy trực tiếp sang Consumption Engine xử lý định mức tự động
-            st.session_state["ai_fabric_projection_factor"] = fabric_projection_factor
-        else:
-            st.metric(label="🔮 ĐỘ BIẾN THIÊN TIÊU HAO NGUYÊN VẬT LIỆU DỰ PHỎNG (AI FABRIC PROJECTION FACTOR)", value="0.00%")
-            st.session_state["ai_fabric_projection_factor"] = 0.0
+        # Hiển thị khu vực Audit log nếu phát hiện lệch pha dải kích thước
+        if alerts_log:
+            with st.expander("⚠️ NHẬT KÝ KIỂM TOÁN LỆCH PHA SIZE (GRADING AUDIT)", expanded=False):
+                for alert in alerts_log:
+                    st.caption(alert)
+    else:
+        st.warning("⚠️ Không tìm thấy dữ liệu thông số đo tương thích giữa hai hồ sơ kỹ thuật.")
+
+# NHÁNH HIỂN THỊ 2 - VÁ LỖI TRIỆT ĐỂ: Đường lui an toàn bảo vệ giao diện cho TẦNG 3 (GEOMETRIC_VECTOR)
+else:
+    st.info("📐 Hệ thống đang vận hành ở TẦNG 3: Vector Hình Học Độc Lập. Do đây là mã thiết kế mới không có mã hàng lịch sử đối chứng trực tiếp, bảng phân tích sai lệch thông số hình học được lược bỏ để tối ưu hóa diện tích hiển thị định mức sản xuất.")
 
 
 
