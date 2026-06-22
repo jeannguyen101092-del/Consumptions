@@ -1290,37 +1290,40 @@ def process_single_pdf_batch(file_bytes, file_name):
             return {"success": False, "error": "API Key cho Gemini đang bị thiếu trong Secrets."}
             
         client_ai = genai.Client(api_key=gemini_key_local)
-        info = pdfinfo_from_bytes(file_bytes)
-        total_p = int(info.get("Pages", 1))
+        
+        # TỐI ƯU: Chỉ chuyển đổi 3 trang đầu tiên của Techpack (Nơi luôn chứa Flat Sketch và Bảng thông số POM)
+        # Việc này giúp giảm 80% dung lượng tải, giúp Gemini đọc cực nhanh và không bao giờ bị lỗi quá tải
+        chat_images = convert_from_bytes(file_bytes, dpi=100, first_page=1, last_page=3)
         
         pdf_parts_payload = []
-        chat_images = convert_from_bytes(file_bytes, dpi=90, first_page=1, last_page=total_p)
-        
         stored_pages_bytes = []
+        
         for page_img in chat_images:
             img_buf = io.BytesIO()
-            page_img.convert("RGB").save(img_buf, format="JPEG", quality=75)
+            page_img.convert("RGB").save(img_buf, format="JPEG", quality=80)
             img_data = img_buf.getvalue()
             stored_pages_bytes.append(img_data)
             pdf_parts_payload.append(types.Part.from_bytes(data=img_data, mime_type='image/jpeg'))
             
+        if not stored_pages_bytes:
+            return {"success": False, "error": "Không thể trích xuất trang ảnh từ tệp PDF."}
+
         industrial_extraction_prompt = (
-            "You are an expert Garment Specification Auditor at PPJ Group. Analyze all attached sheets page by page. "
-            "1. Identify the core 'Base Size' / 'Sample Size'. "
-            "2. Identify the Buyer name and Category (Pant/Shirt/Jacket). "
-            "3. Find the exact 'Style ID' / 'Style Number'. "
-            "4. Extract the entire grading matrix table columns for ALL available sizes. "
-            "5. Find the exact PAGE INDEX (0-based) that contains the FULL BODY APPAREL FLAT SKETCH. "
-            "6. CRITICAL APPRAISAL FOR HEM & PLACKET DETAILS: Pay extreme attention to bottom hem allowances. If the category is a Shirt or Jacket, scan for 'Placket Width', 'Center Front Placket', or center stitching lines. Identify if the placket is separate or grown-on/folded, and record its measurement inside the measurements dictionary accurately. "
-            "Return a completely valid raw JSON string matching this schema (no markdown blocks): "
-            "{"
-            "  \"style_number_parsed\": \"string\","
-            "  \"buyer\": \"string\","
-            "  \"category\": \"string\","
-            "  \"base_size_name\": \"string\","
-            "  \"sketch_page_index_detected\": 0,"
-            "  \"measurements\": {\"POM Description\": \"Value\"},"
-            "  \"full_size_matrix\": {\"POM Description\": {\"Size_Name\": \"Value\"}}"
+            "You are an expert Garment Specification Auditor at PPJ Group. Analyze the attached Techpack sheets.\n"
+            "1. Identify the core 'Base Size' / 'Sample Size' (e.g., 32, M, 28).\n"
+            "2. Identify the Buyer name and Category (Pant/Shirt/Jacket).\n"
+            "3. Find the exact 'Style ID' / 'Style Number' (e.g., 526P09).\n"
+            "4. Extract the entire measurement chart/grading matrix table for ALL available sizes.\n"
+            "5. Detect which page index (0, 1, or 2) contains the main garment flat sketch illustration.\n"
+            "Return a completely valid raw JSON string matching this schema (no markdown blocks, no ```json):\n"
+            "{\n"
+            "  \"style_number_parsed\": \"string\",\n"
+            "  \"buyer\": \"string\",\n"
+            "  \"category\": \"string\",\n"
+            "  \"base_size_name\": \"string\",\n"
+            "  \"sketch_page_index_detected\": 0,\n"
+            "  \"measurements\": {\"POM Description\": \"Value\"},\n"
+            "  \"full_size_matrix\": {\"POM Description\": {\"Size_Name\": \"Value\"}}\n"
             "}"
         )
         pdf_parts_payload.append(types.Part.from_text(text=industrial_extraction_prompt))
@@ -1331,13 +1334,15 @@ def process_single_pdf_batch(file_bytes, file_name):
                     model="gemini-2.5-flash",
                     contents=pdf_parts_payload,
                     config=types.GenerateContentConfig(
-                        response_mime_type="application/json"
+                        response_mime_type="application/json",
+                        temperature=0.1 # Đặt temperature thấp để AI trích xuất số chính xác, không bị bịa số
                     )
                 )
                 if response and response.text:
                     parsed_json = json.loads(response.text)
                     sketch_idx = int(parsed_json.get("sketch_page_index_detected", 0))
 
+                    # Đảm bảo chỉ số trang cắt ảnh luôn an toàn, không bị tràn chỉ mục
                     if 0 <= sketch_idx < len(stored_pages_bytes):
                         extracted_sketch_bytes = stored_pages_bytes[sketch_idx]
                     else:
@@ -1349,7 +1354,7 @@ def process_single_pdf_batch(file_bytes, file_name):
                         "sketch_bytes": extracted_sketch_bytes
                     }
             except Exception:
-                time.sleep(1.5)
+                time.sleep(1.0)
                 continue
         return {"success": False, "error": "AI không thể cấu trúc dữ liệu JSON sau 3 lần thử."}
     except Exception as e:
