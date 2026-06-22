@@ -1747,22 +1747,23 @@ detected_mime_type = locals().get("detected_mime_type", "image/jpeg")
 img_col1, img_col2 = st.columns(2)
 
 with img_col1:
-    target_new_sketch_bytes = globals().get("target_new_sketch_bytes", None)
-    new_style_id_detected = globals().get("new_style_id_detected", "N/A")
+    # ĐỒNG BỘ: Chuyển hoàn toàn sang sử dụng st.session_state thay vì globals()/locals()
+    target_new_sketch_bytes = st.session_state.get("target_new_sketch_bytes", None)
+    new_style_id_detected = st.session_state.get("new_style_id_detected", "N/A")
     uploaded_file_name = st.session_state.get("previous_uploaded_file_name", "Techpack")
+    detected_mime_type = st.session_state.get("detected_mime_type", "image/jpeg")
     
     if target_new_sketch_bytes is not None:
-        # THAY ĐỔI LOGIC: Ưu tiên cố gắng render hình ảnh từ dữ liệu bytes đã trích xuất được trước
         try:
             st.image(target_new_sketch_bytes, caption=f"Hình ảnh đã quét từ tài liệu mới ({new_style_id_detected})", use_container_width=True)
         except Exception as e:
-            # Nếu render bytes lỗi VÀ tệp là PDF thì mới hiển thị hộp thông báo fallback
             if "pdf" in str(detected_mime_type).lower() or str(uploaded_file_name).lower().endswith(".pdf"):
                 st.info(f"📄 **Tài liệu dạng tệp:** `{uploaded_file_name}`\n\nHệ thống đã nạp toàn bộ cấu trúc dữ liệu PDF vào bộ nhớ mô phỏng rập mẫu.")
             else:
                 st.warning(f"Lỗi hiển thị ảnh mẫu mới: {e}")
     else:
-        st.info("ℹ️ Chưa tải lên tệp ảnh Flat Sketch của mẫu mới.")
+        st.info("ℹ️ Chưa tải lên hoặc chưa trích xuất được dữ liệu Flat Sketch của mẫu mới.")
+
 
 
 with img_col2:
@@ -1932,11 +1933,15 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     st.session_state["main_fabric_records"] = main_fabric_records
     st.session_state["bom_summary_engine"] = bom_summary_engine
 
-       # --- BẢNG SO SÁNH SAI LỆCH THÔNG SỐ RẬP ---
+        # --- BẢNG SO SÁNH SAI LỆCH THÔNG SỐ RẬP ---
     st.markdown("<br>### 📐 BẢNG SO SÁNH SAI LỆCH THÔNG SỐ KỸ THUẬT RẬP MẪU", unsafe_allow_html=True)
-    new_specs = new_style_measurements_dict if new_style_measurements_dict else {}
+    
+    # SỬA LỖI: Lấy thông số và size gốc trực tiếp từ st.session_state đã quét từ Techpack
+    new_specs = st.session_state.get("new_style_measurements_dict", {})
+    new_style_base_size = st.session_state.get("new_style_base_size", "N/A")
     old_specs = matched_techpack.get("DetailedMeasurements", {}) if matched_techpack else {}
     avg_area_growth_pct = 0.0
+
     
     if new_specs or old_specs:
         compare_rows = []
@@ -1944,8 +1949,13 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         
         # Hàm bổ sung: Lọc sạch mã tiền tố và ký tự đặc biệt để giữ lại chuỗi chữ cốt lõi phục vụ so khớp vị trí
         def clean_pom_text(text):
-            cleaned = re.sub(r'^[A-Z0-9]+[\s\-_]+', '', str(text)).strip().upper()
-            cleaned = re.sub(r'[^A-Z\s]', '', cleaned).strip()
+            if not text: return ""
+            cleaned = str(text).upper()
+            cleaned = re.sub(r'[\(\)]', '', cleaned)
+            cleaned = re.sub(r'\d+', '', cleaned)
+            cleaned = re.sub(r'[\-_]', ' ', cleaned)
+            cleaned = re.sub(r'[^A-Z\s]', '', cleaned)
+            cleaned = re.sub(r'\s+', ' ', cleaned).strip()
             return cleaned
 
         # Hàm bổ sung: Trích xuất chính xác số float đầu tiên từ chuỗi dữ liệu kỹ thuật
@@ -2014,14 +2024,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                     "Chênh lệch (Diff)": "-",
                     "Tỷ lệ biến thiên (Diff %)": "-"
                 })
-            
-        df_compare_spec = pd.DataFrame(compare_rows)
-        st.dataframe(df_compare_spec, use_container_width=True, hide_index=True)
-        
-        # Tính toán độ biến thiên diện tích phom dựa trên các POM cốt lõi được giữ lại
-        if valid_diff_pcts:
-            avg_pom_growth = sum(valid_diff_pcts) / len(valid_diff_pcts)
-            avg_area_growth_pct = round((((1 + avg_pom_growth/100) ** 2) - 1) * 100, 2)
+
 
     # --- AI CONSUMPTION PROJECTION ENGINE ---
     if matched_techpack and st.session_state.get("matched_image_verified", False) and bom_records:
