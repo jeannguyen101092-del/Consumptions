@@ -1759,114 +1759,102 @@ with st.spinner("🧠 Động cơ DNA Gateway đang đối soát kết cấu..."
 
 
 
-# ĐOẠN C: DEEP LOAD DATA EXTRACTION, IMAGE REPAIR & DISPLAY MATRIX
-# ==========================================
-        try:
-            headers_db = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if SB_KEY else {}
-            url_db = f"{base_sb_url.rstrip('/')}/rest/v1/thong_so_techpack" if base_sb_url else ""
-            
-            top_8_candidates = st.session_state.get("vlm_top_8_candidates", [])
-            json_text = st.session_state.get("vlm_json_match_text", "")
-            
-            if json_text:
-                json_match = re.search(r'\{[\s\S]*\}', json_text)
-                if json_match:
-                    match_res = json.loads(json_match.group())
-                    s_idx = match_res.get("selected_pool_index")
-                    score = int(match_res.get("match_score", 0))
-                    reason = str(match_res.get("reason", "N/A"))
-                    
-                    # Ngưỡng chặn thực tế cho dung sai may mặc (>= 65%)
-                    if s_idx is not None and s_idx != -1 and score >= 65 and 0 <= s_idx < len(top_8_candidates):
-                        selected_meta = top_8_candidates[s_idx]
-                        matched_style_name = selected_meta.get("StyleName")
-                        
-                        deep_fields = "StyleName,bom_records,thread_consumption,sewing_operation,machine_type,thread_allowance"
-                        deep_res = requests.get(
-                            url_db, 
-                            headers=headers_db, 
-                            params={"StyleName": f"eq.{matched_style_name}", "select": deep_fields}, 
-                            timeout=10
-                        ).json()
-                        
-                        if deep_res and isinstance(deep_res, list) and len(deep_res) > 0:
-                            # Hợp nhất dữ liệu thô tầng sâu vào object metadata
-                            selected_meta.update(deep_res[0])
-                            
-                            # CƠ CHẾ VÁ URL ẢNH HIỂN THỊ TRÊN GIAO DIỆN:
-                            # Nếu SketchURL bị gãy hoặc trống, tự động dựng link Public trực tiếp tới bucket kho_anh
-                            if (not selected_meta.get("SketchURL")) and base_sb_url:
-                                base_domain = base_sb_url.split("/rest")[0]
-                                safe_filename = requests.utils.quote(f"{matched_style_name}.jpg")
-                                selected_meta["SketchURL"] = f"{base_domain}/storage/v1/object/public/kho_anh/{safe_filename}"
-                            
-                            st.session_state["matched_techpack"] = selected_meta
-                            st.session_state["match_confidence_score"] = score
-                            st.session_state["match_reason"] = reason
-                            st.toast(f"🎯 Đã khóa TP tham chiếu chuẩn xác: {matched_style_name} ({score}%)", icon="🎯")
-                            st.rerun()
-                        else:
-                            st.warning(f"⚠️ Tìm thấy mã {matched_style_name} nhưng không có dữ liệu định mức chi tiết.")
-                    else:
-                        st.session_state["matched_techpack"] = None
-                        st.session_state["match_confidence_score"] = score
-                        st.session_state["match_reason"] = f"REJECTED BY AI: {reason}"
-        except Exception as e:
-            st.error(f"🚨 Đã xảy ra lỗi trong quá trình xử lý đối soát Đoạn C: {str(e)}")
+# =========================================================================================
+# KHỐI ĐỐI SOÁT AI CHUYỂN ĐỔI: ÉP PHẲNG LỀ TRÁI TRIỆT TIÊU 100% LỖI INDENTATION
+# =========================================================================================
 
-        # KHỐI HIỂN THỊ ĐỐI CHIẾU TRỰC QUAN TRÊN GIAO DIỆN STREAMLIT
-        if st.session_state["matched_techpack"]:
-            current_tp = st.session_state["matched_techpack"]
-            score_val = st.session_state.get("match_confidence_score", 0)
+headers_db = globals().get("api_headers", {})
+target_url_api = globals().get("base_url_api", globals().get("SB_URL", ""))
+if not headers_db: 
+    headers_db = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if SB_KEY else {}
+url_db = f"{target_url_api.rstrip('/')}/rest/v1/thong_so_techpack" if target_url_api else ""
+
+try:
+    raw_styles = requests.get(url_db, headers=headers_db, params={"select": "StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL,sketch_vector,structural_dna", "limit": 1000}, timeout=15).json() if url_db else []
+    active_client = client if client else globals().get("genai_client", globals().get("ai_client", None))
+    new_dna_context = st.session_state.get("new_style_dna", {})
+    
+    if raw_styles and active_client and new_dna_context:
+        valid_styles = [s for s in raw_styles if s.get("StyleName")]
+        detected_style_code = None
+        search_source = (new_vec + " " + str(st.session_state.get("previous_uploaded_file_name", ""))).upper()
+        code_match = re.search(r'(R\d{2}-\d{5,6})', search_source)
+        if code_match: 
+            detected_style_code = code_match.group(1).strip()
+        
+        dna_pool = []
+        for s in valid_styles:
+            style_id_upper = str(s.get("StyleName", "")).upper()
+            if detected_style_code and detected_style_code in style_id_upper:
+                dna_pool.append((100, s))
+                continue
+            gate_result = dna_hard_gate(new_dna_context, s.get("structural_dna"))
+            if gate_result is False: 
+                continue
+            if gate_result == "LEGACY":
+                sim_math_score = calculate_dna_similarity(new_dna_context, s.get("structural_dna"), s.get("sketch_vector", ""))
+                sim_math_score = int(sim_math_score * 0.75)
+            else:
+                sim_math_score = calculate_dna_similarity(new_dna_context, s.get("structural_dna"), s.get("sketch_vector", ""))
+            dna_pool.append((sim_math_score, s))
             
-            st.success(f"🎯 Đã khóa dữ liệu mã tương đồng: `{current_tp['StyleName']}` | Độ tin cậy VLM: {score_val}%")
+        dna_pool.sort(reverse=True, key=lambda x: x)
+        best_score = dna_pool if dna_pool else 0
+        
+        if best_score < 80:
+            st.session_state["matched_techpack"] = None
+            st.session_state["match_confidence_score"] = 0
+            st.session_state["match_reason"] = f"REJECTED: Score {best_score}% < 80%"
+            st.session_state["force_geometric_mode"] = True
+            st.warning("⚠️ Không tìm thấy mã hàng tương thích DNA kết cấu (Đo độ tương hợp < 80%). Hệ thống kích hoạt AI Geometric Consumption Engine.")
+            st.stop()
             
-            # Khởi tạo giao diện đối chiếu ảnh song song trên Streamlit
-            view_col1, view_col2 = st.columns(2)
-            with view_col1:
-                st.info("🖼️ Ảnh Sketch của Mã hàng mới tải lên:")
-                if target_new_sketch_bytes:
-                    st.image(target_new_sketch_bytes, use_container_width=True)
-            with view_col2:
-                st.info(f"🗄️ Ảnh đối chiếu của Mã hàng tương đồng trong kho (`{current_tp['StyleName']}`):")
-                db_img_url = current_tp.get("SketchURL") or current_tp.get("sketch_url")
-                if db_img_url:
-                    # Gọi hiển thị ảnh public trực tiếp từ bucket Supabase lên màn hình
-                    st.image(db_img_url, use_container_width=True)
+        top_8_candidates = [x for x in dna_pool[:8]]
+        st.session_state["vlm_top_8_candidates"] = top_8_candidates
+        
+        if top_8_candidates:
+            vision_contents = []
+            if target_new_sketch_bytes:
+                if types and hasattr(types, "Part"):
+                    vision_contents.append(types.Part.from_text(text="Verify lines, pockets and construction seams."))
+                    vision_contents.append(types.Part.from_bytes(data=target_new_sketch_bytes, mime_type=detected_mime_type))
                 else:
-                    st.warning("⚠️ Không tìm thấy liên kết ảnh của mã hàng này trong kho lưu trữ dữ liệu.")
-        else:
-            st.error(f"⚠️ HỆ THỐNG TỪ CHỐI KHÓA MÃ CŨ. Lý do: `{st.session_state.get('match_reason', 'Không tìm thấy cấu trúc tương đồng thích hợp trên 70%')}`")
-
-        # KÍCH HOẠT THUẬT TOÁN HÌNH HỌC RẬP (DXF GEOMETRY ENGINE) KHI AI BỊ TỪ CHỐI HOẶC ĐIỂM THẤP
-        if st.session_state["matched_techpack"] is None:
-            st.info("🔄 Kích hoạt Công cụ Hình học Rập (DXF Geometry Engine) - Tính toán định mức toán học độc lập...")
-            with st.spinner("📐 Đang bóc tách thông số toán học đường may từ file rập hình học độc lập..."):
-                try:
-                    dxf_perimeter = globals().get("calculate_dxf_perimeter", lambda: 420.5)()
-                    dxf_seam_length = globals().get("calculate_dxf_seam_length", lambda: 185.2)()
-                    dxf_area = globals().get("calculate_dxf_area", lambda: 1.25)()
-                    vision_type = str(st.session_state.get("detected_garment_type", "UNKNOWN")).strip().upper()
+                    vision_contents.append("Verify lines, pockets and construction seams.")
+                    vision_contents.append({"mime_type": detected_mime_type, "data": target_new_sketch_bytes})
                     
-                    st.session_state["matched_techpack"] = {
-                        "StyleName": "VIRTUAL-GEOMETRY-FALLBACK",
-                        "Category": vision_type,
-                        "BaseSize": str(new_style_base_size).strip().upper() if 'new_style_base_size' in locals() else "N/A",
-                        "DetailedMeasurements": {
-                            "perimeter_mm": dxf_perimeter, 
-                            "seam_length_mm": dxf_seam_length, 
-                            "area_sq_m": dxf_area
-                        },
-                        "bom_records": [], 
-                        "thread_consumption": [{"thread_ratio_default": 2.8, "fallback_standard": "ISO-2019-GEOMETRY"}],
-                        "sewing_operation": [{"op_name": "Calculated by DXF Geometry Engine", "seam_type": "Standard"}],
-                        "machine_type": [],
-                        "thread_allowance": {"is_pure_geometry": True, "estimated_seam_consumption_ratio": 3.4},
-                        "is_pure_geometry": True
-                    }
-                    st.success("✅ Khởi tạo cấu trúc dữ liệu hình học ảo thành công. Sẵn sàng xử lý toán học định mức.")
-                except Exception as geo_err:
-                    st.error(f"🚨 Thất bại khi kích hoạt DXF Geometry Engine Fallback: {str(geo_err)}")
+            historical_pool_summary = []
+            for idx, s in enumerate(top_8_candidates):
+                cand_img_url = s.get("SketchURL") or s.get("sketch_url")
+                style_id = s.get("StyleName", "")
+                if (not cand_img_url) and target_url_api and style_id:
+                    safe_filename = requests.utils.quote(f"{style_id}.jpg")
+                    cand_img_url = f"{target_url_api.rstrip('/')}/storage/v1/object/public/kho_anh/{safe_filename}"
+                cand_img_bytes = None
+                if cand_img_url and target_new_sketch_bytes:
+                    try:
+                        img_res = requests.get(cand_img_url, headers=headers_db, timeout=5)
+                        if img_res.status_code == 200 and len(img_res.content) > 500: 
+                            cand_img_bytes = img_res.content
+                    except Exception: pass
+                if cand_img_bytes and target_new_sketch_bytes:
+                    if types and hasattr(types, "Part"):
+                        vision_contents.append(types.Part.from_text(text=f"Index: {idx} (Style: {style_id})"))
+                        vision_contents.append(types.Part.from_bytes(data=cand_img_bytes, mime_type='image/jpeg'))
+                    else:
+                        vision_contents.append(f"Index: {idx} (Style: {style_id})")
+                        vision_contents.append({"mime_type": 'image/jpeg', "data": cand_img_bytes})
+                historical_pool_summary.append({"pool_index": idx, "style_name": style_id, "dna_spec": str(s.get("structural_dna", {}))})
+                
+            semantic_prompt = f"Compare new sketch against pool: {json.dumps(historical_pool_summary)}. If none match visually and structurally above 80%, return selected_pool_index as -1. Return valid JSON ONLY: {{\"selected_pool_index\": -1, \"match_score\": 0, \"reason\": \"Mô tả\"}}"
+            if types and hasattr(types, "Part"): 
+                vision_contents.append(types.Part.from_text(text=semantic_prompt))
+            else: 
+                vision_contents.append(semantic_prompt)
+                
+            res = active_client.models.generate_content(model='gemini-2.5-flash', contents=vision_contents)
+            st.session_state["vlm_json_match_text"] = res.text.strip() if res else None
+except Exception as e: 
+    st.error(f"🚨 Lỗi luồng xử lý AI: {str(e)}")
 
 
     import pandas as pd
