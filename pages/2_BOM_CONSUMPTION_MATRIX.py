@@ -1449,7 +1449,7 @@ headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if 'SB_KEY' in
 # =================================================================
 # =================================================================
 # ĐOẠN 4 ĐÃ SỬA: HỆ THỐNG ĐỐI CHIẾU MÃ HÀNG CÓ CƠ CHẾ KHÓA TRẠNG THÁI VÀ PHÂN LOẠI VISION
-# PART 1A: SECURITY LAYER (MD5 FINGERPRINT, METADATA & SECURE BRACKET PARSER)
+# BỘ KHUNG ĐIỀU KHIỂN GIAO DIỆN HỢP NHẤT HỆ THỐNG PHÒNG VỆ FILE PHẦN 1A
 # =========================================================================================
 import json
 import re
@@ -1458,7 +1458,7 @@ import unicodedata
 from datetime import datetime
 import streamlit as st
 
-# 1. KHỞI TẠO MA TRẬN BỘ NHỚ PHIÊN AN TOÀN TRÊN RAM STREAMLIT (ANTI-OVERWRITE)
+# 1. KHỞI TẠO BỘ NHỚ PHIÊN AN TOÀN TRÊN RAM STREAMLIT (ANTI-OVERWRITE)
 if "target_new_sketch_bytes" not in st.session_state: st.session_state["target_new_sketch_bytes"] = None
 if "detected_mime_type" not in st.session_state: st.session_state["detected_mime_type"] = "image/jpeg"
 if "vision_completed" not in st.session_state: st.session_state["vision_completed"] = False
@@ -1469,8 +1469,9 @@ if "vision_json" not in st.session_state: st.session_state["vision_json"] = {}
 if "file_metadata" not in st.session_state: st.session_state["file_metadata"] = {}
 if "vision_metadata" not in st.session_state: st.session_state["vision_metadata"] = {}
 if "vision_confidence" not in st.session_state: st.session_state["vision_confidence"] = 0
+if "previous_uploaded_file_name" not in st.session_state: st.session_state["previous_uploaded_file_name"] = None
 
-# THUẬT TOÁN QUÉT CÂN BẰNG NGOẶC CHỐNG VỠ CHUỖI JSON ĐỐI VỚI CẤU TRÚC DỮ LIỆU LỒNG
+# THUẬT TOÁN QUÉT CÂN BẰNG NGOẶC CHỐNG LỖI CẤU TRÚC DỮ LIỆU JSON LỒNG
 def extract_json_object_secure(text):
     if not text: return None
     start = text.find("{")
@@ -1485,26 +1486,80 @@ def extract_json_object_secure(text):
             return text[start:i+1]
     return None
 
-# Mỏ neo an toàn định nghĩa biến, bốc trực tiếp luồng dữ liệu từ Widget Key Streamlit
-uploaded_file = st.session_state.get("bom_matrix_uploader")
-current_file_name = str(uploaded_file.name) if uploaded_file is not None else ""
+# 2. KHỐI VẼ GIAO DIỆN Ô TẢI FILE (ST.FILE_UPLOADER) RA MÀN HÌNH CHÍNH
+control_col1, control_col2 = st.columns([3.3, 0.7])
 
-# 2. HỆ THỐNG VÂN TAY TỆP TIN MD5 (FILE FINGERPRINTING ENGINE)
+with control_col1:
+    st.markdown("<p style='font-weight:700; font-size:12px; color:#1E293B;'>📁 INGEST NEW STYLE REPRINTS (PDF/IMAGE)</p>", unsafe_allow_html=True)
+    
+    # Ô TẢI FILE THỰC TẾ: Bắt buộc phải render dòng này ra UI để người dùng click tương tác
+    uploaded_file = st.file_uploader(
+        "Upload Techpack file", 
+        type=["pdf", "jpg", "jpeg", "png"], 
+        key="bom_matrix_uploader", 
+        label_visibility="collapsed"
+    )
+    current_file_name = str(uploaded_file.name) if uploaded_file is not None else ""
+    
+    # SỬA LỖI LẶP VÔ HẠN: Làm sạch và chuẩn bị bộ nhớ đệm cho file mới
+    if uploaded_file is not None and current_file_name != st.session_state.get("previous_uploaded_file_name"):
+        st.session_state["matched_techpack"] = None
+        st.session_state["bom_records"] = []
+        st.session_state["match_confidence_score"] = 0
+        st.session_state["match_reason"] = ""
+        st.session_state["detected_garment_type"] = "UNKNOWN"
+        st.session_state["visual_description_str"] = ""
+        st.session_state["vision_completed"] = False
+        st.session_state["routing_completed"] = False
+        st.session_state["target_new_sketch_bytes"] = None
+        st.session_state["uploaded_file_hash"] = ""
+        st.session_state["previous_uploaded_file_name"] = current_file_name
+        st.rerun()
+        
+with control_col2:
+    st.markdown("<p style='font-weight:700; font-size:12px; color:#1E293B;'>🧹 RESET CORE</p>", unsafe_allow_html=True)
+    if st.button("🗑️ PURGE CHAT CACHE", key="purge_cache_matrix_btn", use_container_width=True, type="secondary"):
+        st.session_state["consumption_chat_history"] = []
+        st.session_state["matched_techpack"] = None
+        st.session_state["bom_records"] = []
+        st.session_state["match_confidence_score"] = 0
+        st.session_state["match_reason"] = ""
+        st.session_state["detected_garment_type"] = "UNKNOWN"
+        st.session_state["visual_description_str"] = ""
+        st.session_state["previous_uploaded_file_name"] = None
+        st.session_state["target_new_sketch_bytes"] = None
+        st.session_state["uploaded_file_hash"] = ""
+        st.session_state["vision_completed"] = False
+        st.session_state["routing_completed"] = False
+        st.success("♻️ MEMORY PURGED - SẴN SÀNG CHO MÃ HÀNG MỚI")
+        st.rerun()
+
+st.markdown("---")
+
+# Cắt luồng dừng giao diện nếu Merchandiser chưa chọn tải file lên uploader
+if uploaded_file is None and st.session_state["target_new_sketch_bytes"] is None:
+    st.info("👋 Vui lòng tải lên tệp Techpack hồ sơ thiết kế (PDF/Hình ảnh) ở phía trên để hệ thống bắt đầu quét và lập lịch trình đối soát.")
+    st.stop()
+
+# =========================================================================================
+# 3. ĐỘNG CƠ KIỂM TRA BIÊN AN TOÀN VÀ TÍNH VÂN TAY TỆP TIN MD5
+# =========================================================================================
 if uploaded_file is not None:
     try:
+        # Sử dụng con trỏ đo dung lượng tệp tin nhị phân bảo vệ cổng vào RAM máy chủ
         uploaded_file.seek(0, 2)
         file_size_bytes = uploaded_file.tell()
         uploaded_file.seek(0)
         
-        MAX_FILE_SIZE = 50 * 1024 * 1024 # Giới hạn cứng 50MB bảo vệ RAM nhà máy
+        MAX_FILE_SIZE = 50 * 1024 * 1024 # Ngưỡng bảo vệ 50MB
         if file_size_bytes > MAX_FILE_SIZE:
-            st.error(f"🚨 Tệp Techpack quá lớn ({file_size_bytes / (1024*1024):.2f}MB). Vui lòng tải lên tài liệu dưới 50MB.")
+            st.error(f"🚨 Tệp Techpack quá lớn ({file_size_bytes / (1024*1024):.2f}MB). Vui lòng cấu hình rút gọn tài liệu dưới 50MB.")
             st.stop()
             
         temp_bytes = uploaded_file.read()
         current_file_hash = hashlib.md5(temp_bytes).hexdigest()
         
-        # PHÁT HIỆN BIẾN ĐỘNG PHIÊN BẢN HOẶC FILE MỚI: KÍCH HOẠT XẢ SẠCH BỘ NHỚ ĐỆM CŨ
+        # PHÁT HIỆN BIẾN ĐỘNG PHIÊN BẢN (DOCUMENT VERSIONING): KHÓA CỨNG LUỒNG BYTES VÀO PHIÊN
         if current_file_hash != st.session_state["uploaded_file_hash"]:
             st.session_state["target_new_sketch_bytes"] = temp_bytes
             st.session_state["uploaded_file_hash"] = current_file_hash
@@ -1521,7 +1576,7 @@ if uploaded_file is not None:
                 "mime": detected_mime
             }
             
-            # GIẢI PHÓNG TOÀN DIỆN TRẠNG THÁI PHIÊN CŨ ĐỂ ĐÓN MÃ HÀNG MỚI TỪ SỐ 0
+            # GIẢI PHÓNG TOÀN BỘ TRẠNG THÁI KHỚP LỆNH PHIÊN CŨ ĐỂ KHỞI TẠO TỪ ĐẦU
             st.session_state["visual_description_str"] = ""
             st.session_state["detected_garment_type"] = "UNKNOWN"
             st.session_state["matched_techpack"] = None
@@ -1538,9 +1593,9 @@ if uploaded_file is not None:
             st.rerun()
             
     except Exception as e:
-        st.error(f"🚨 Lỗi bóc tách vân tay nhị phân MD5: {str(e)}")
+        st.error(f"🚨 Lỗi hệ thống khi trích xuất mã nhị phân vân tay MD5: {str(e)}")
 
-# Khóa luồng đồng bộ biến cục bộ nền bảo vệ luồng chạy hạ nguồn
+# Khóa luồng đồng bộ biến cục bộ từ bộ nhớ tạm phiên làm việc Streamlit nuôi cho Phần 1B phẳng
 target_new_sketch_bytes = st.session_state["target_new_sketch_bytes"]
 detected_mime_type = st.session_state["detected_mime_type"]
 new_vec = str(st.session_state.get("visual_description_str", "")).strip().upper()
