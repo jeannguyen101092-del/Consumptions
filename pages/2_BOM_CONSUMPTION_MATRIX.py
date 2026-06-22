@@ -1922,6 +1922,18 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     ]
     
     # 2. Gom nhóm định mức theo từng loại vật tư (Type) để xử lý dữ liệu lịch sử
+    
+        bom_records = st.session_state.get("bom_records", [])
+    main_fabric_records = []
+    
+    # 1. Lọc chính xác bản ghi thuộc mã đối chứng đang chọn để tránh lấy lộn mã khác
+    target_style_name_bom = st.session_state.get("matched_style_name", "").strip().upper()
+    exact_bom_records = [
+        r for r in bom_records 
+        if str(r.get("style_name", "")).strip().upper() == target_style_name_bom
+    ]
+    
+    # 2. Gom nhóm định mức theo từng loại vật tư (Type) để xử lý dữ liệu lịch sử
     bom_groups = {}
     for r in exact_bom_records:
         ctype = str(r.get("consumption_type", "")).strip().upper()
@@ -1950,6 +1962,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     st.session_state["historical_bom_reference"] = exact_bom_records
     st.session_state["main_fabric_records"] = main_fabric_records
     st.session_state["bom_summary_engine"] = bom_summary_engine
+
 
 
         # --- BẢNG SO SÁNH SAI LỆCH THÔNG SỐ RẬP ---
