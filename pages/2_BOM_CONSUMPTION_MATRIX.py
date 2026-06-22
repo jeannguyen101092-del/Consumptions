@@ -2775,17 +2775,26 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         
         st.metric(label="📐 ĐỊNH MỨC SẢN XUẤT THỰC TẾ (GERBER DXF COMPILER)", value=f"{final_dxf_consumption:.3f} Yards / Sản phẩm", delta=f"Tổng diện tích rập tinh: {total_net_area:.2f} SqIn")
 
-        # CƠ CHẾ AUTO LEARNING: Ghi ngược dữ liệu rập thật vào CSDL kho làm giàu tập huấn luyện AI
+        #        # CƠ CHẾ AUTO LEARNING: Hồi tiếp dữ liệu thực tế làm giàu tập CSDL học máy
         if st.button("💾 LƯU ĐỊNH MỨC NÀY VÀO KHO LỊCH SỬ SUBABAT", use_container_width=True, key="save_dxf_to_subabat_btn"):
             matched_techpack = st.session_state.get("matched_techpack", None)
             subabat_consumption_db = st.session_state.get("subabat_consumption_history", [])
             
+            # ĐÃ SỬA LỖI: Xuống dòng tường minh, ngăn chặn tuyệt đối lỗi cắt cụt chuỗi (Truncate)
             new_record = {
                 "style": st.session_state.get("new_style_code", "NEW-STYLE-DXF"),
                 "category": matched_techpack.get("category") if matched_techpack else st.session_state.get("new_style_category", "Pant"),
                 "fabric": matched_techpack.get("fabric") if matched_techpack else st.session_state.get("new_style_fabric", "Cotton"),
                 "construction": matched_techpack.get("construction") if matched_techpack else st.session_state.get("new_style_construction", "Standard"),
-                "size": st.session_state.get("new_style_base_size
+                "size": st.session_state.get("new_style_base_size", "M"),
+                "consumption": round(final_dxf_consumption, 3),
+                "DetailedMeasurements": st.session_state.get("normalized_new_m", {})
+            }
+            
+            subabat_consumption_db.append(new_record)
+            st.session_state["subabat_consumption_history"] = subabat_consumption_db
+            st.toast("✅ Thuật toán Auto Learning: Đã cập nhật định mức thực tế vào kho Subabat!")
+
 
 
 
