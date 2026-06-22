@@ -1571,7 +1571,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             
         if st.session_state["detected_garment_type"] == "UNKNOWN":
             st.warning("⚠️ Không tự động bóc tách được phân loại đồ cụ thể. Hệ thống tự động chuyển sang chế độ đối soát mở rộng.")
-           # KHỐI SO SÁNH TRỰC QUAN VLM KẾT HỢP BỘ LỌC CỨNG CHỐNG LỆCH DANH MỤC (ĐÃ VÁ LỖI LẶP RERUN VÔ HẠN)
+                  # KHỐI SO SÁNH TRỰC QUAN VLM KẾT HỢP BỘ LỌC CỨNG CHỐNG LỆCH DANH MỤC (ĐÃ SỬA LỖI TRÍCH XUẤT TUPLLE)
         with st.spinner("🧠 Mắt thần VLM đang so sánh trực quan ảnh và thông số kỹ thuật..."):
             try:
                 headers_db = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if SB_KEY else {}
@@ -1623,8 +1623,9 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                                 overlap_score += 3  
                             ranked_pool.append((overlap_score, s))
                         
-                        # SỬA LỖI: Buộc phải sắp xếp theo key x[0] để loại bỏ lỗi so sánh Dict vs Dict cũ
                         ranked_pool.sort(reverse=True, key=lambda x: x[0])
+                        
+                        # VÁ LỖI CỐT LÕI: Chỉ trích xuất phần tử Dictionary dữ liệu x[1], bỏ qua phần tử điểm số x[0]
                         top_8_candidates = [x[1] for x in ranked_pool[:8]]
                         
                         vision_contents = []
@@ -1673,16 +1674,14 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                             except Exception: s_idx, score, reason = None, 0, ""
                             
                             if s_idx is not None and 0 <= s_idx < len(top_8_candidates) and score >= 65:
-                                # Khóa dữ liệu so khớp vào bộ nhớ đệm
                                 st.session_state["matched_techpack"] = top_8_candidates[s_idx]
                                 st.session_state["match_confidence_score"] = score
                                 st.session_state["match_reason"] = reason
                                 st.toast(f"🎯 Đã khóa mã đối chứng trực quan: {top_8_candidates[s_idx].get('StyleName')} ({score}%)", icon="🎯")
-                                st.rerun() # Lệnh này an toàn vì lượt sau vòng ngoài 'if matched_techpack is None' sẽ chặn lại
+                                st.rerun()
                             else:
                                 st.session_state["matched_techpack"] = None
                 
-                # Cập nhật ngược lại biến cục bộ từ session_state để các bảng bên dưới đọc được dữ liệu gốc
                 matched_techpack = st.session_state.get("matched_techpack", None)
             except Exception: pass
 
@@ -1729,14 +1728,14 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
 
     bom_records = st.session_state.get("bom_records", [])
 
-    # ==========================================================
+        # ==========================================================
     # 🖼️ GIAO DIỆN ĐỐI CHIẾU FLAT SKETCH (ĐÃ VÁ LỖI HIỂN THỊ BIẾN VÀ ẢNH)
     # ==========================================================
     st.markdown("### 🖼️ ĐỐI CHIẾU SỰ TƯƠNG ĐỒNG HÌNH ẢNH THIẾT KẾ (FLAT SKETCH)")
     img_col1, img_col2 = st.columns(2)
 
     with img_col1:
-        # SỬA LỖI: Gọi đồng bộ từ st.session_state để không bị mất ảnh khi bấm nút tương tác
+        # Đồng bộ từ st.session_state để giữ ảnh ổn định khi tương tác nút bấm
         target_new_sketch_bytes = st.session_state.get("target_new_sketch_bytes", None)
         new_style_id_detected = st.session_state.get("new_style_id_detected", "N/A")
         uploaded_file_name = st.session_state.get("previous_uploaded_file_name", "Techpack")
@@ -1754,6 +1753,9 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             st.info("ℹ️ Chưa tải lên tệp ảnh Flat Sketch của mẫu mới.")
 
     with img_col2:
+        # Đọc an toàn thông tin mã đối chứng đã khớp từ kho
+        matched_techpack = st.session_state.get("matched_techpack", None)
+        
         if matched_techpack is not None:
             target_style_name = str(matched_techpack.get("StyleName", "")).strip().upper()
             st.session_state["matched_style_name"] = target_style_name
@@ -1779,15 +1781,19 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             st.warning("⚠️ CHƯA KHỚP ĐƯỢC MÃ TƯƠNG ĐỒNG!")
 
     # ==========================================================
-    # 📐 BẢNG SO SÁNH SAI LỆCH THÔNG SỐ RẬP (ĐÃ KHÔI PHỤC HIỂN THỊ)
+    # 📐 BẢNG SO SÁNH SAI LỆCH THÔNG SỐ RẬP (CƠ CHẾ BẢO VỆ CHỐNG ẨN BẢNG)
     # ==========================================================
     st.markdown("<br>### 📐 BẢNG SO SÁNH SAI LỆCH THÔNG SỐ KỸ THUẬT RẬP MẪU", unsafe_allow_html=True)
     
-    # SỬA LỖI: Chuyển sang lấy dữ liệu từ st.session_state để bảng không bị ẩn khi rerun
     new_specs = st.session_state.get("new_style_measurements_dict", {})
     new_style_base_size = st.session_state.get("new_style_base_size", "N/A")
-    old_specs = matched_techpack.get("DetailedMeasurements", {}) if matched_techpack else {}
     
+    # Đồng bộ an toàn bảng thông số từ kho
+    old_specs = {}
+    if matched_techpack:
+        old_specs = matched_techpack.get("DetailedMeasurements", {}) or matched_techpack.get("detailed_measurements", {})
+    
+    # SỬA LỖI ĐỘC LẬP: Chỉ cần kho có số hoặc file mới có số là lập tức bật bảng, không giấu màn hình
     if new_specs or old_specs:
         compare_rows = []
         valid_diff_pcts = []
@@ -1811,6 +1817,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         mapped_old_specs = {clean_pom_text(k): (k, v) for k, v in old_specs.items()}
         processed_old_keys = set()
 
+        # Đổ dữ liệu từ file mới quét
         for original_new_key, val_new in new_specs.items():
             clean_new_key = clean_pom_text(original_new_key)
             if clean_new_key in mapped_old_specs:
@@ -1842,6 +1849,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                 "Tỷ lệ biến thiên (Diff %)": display_pct
             })
 
+        # Đổ dữ liệu tồn kho để bổ sung thông tin đầy đủ
         for original_old_key, val_old in old_specs.items():
             if original_old_key not in processed_old_keys:
                 compare_rows.append({
@@ -1854,6 +1862,9 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                 
         st.session_state["valid_diff_pcts"] = valid_diff_pcts
         st.dataframe(pd.DataFrame(compare_rows), use_container_width=True, hide_index=True)
+    else:
+        st.info("ℹ️ Hệ thống sẵn sàng đối soát. Đang đợi đồng bộ luồng dữ liệu thô.")
+
 
 
 
