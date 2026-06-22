@@ -1600,7 +1600,7 @@ target_new_sketch_bytes = st.session_state["target_new_sketch_bytes"]
 detected_mime_type = st.session_state["detected_mime_type"]
 new_vec = str(st.session_state.get("visual_description_str", "")).strip().upper()
 
-# PART 1B: ĐỘNG CƠ AI VISION PIPELINE FLAT-LOGIC CÓ BẢO VỆ ĐƯỜNG TRUYỀN API
+# PART 1B ĐÃ SỬA DỨT ĐIỂM: ĐỘNG CƠ AI VISION PIPELINE ĐỒNG BỘ MẠCH KẾT NỐI MASTER
 # =========================================================================================
 
 # 1. ÉP BUỘC KHAI BÁO BIẾN CỤC BỘ NGAY TẠI CHỖ (SAFE LOCAL SYNC CHỐNG LỖI NAMEERROR)
@@ -1608,127 +1608,117 @@ local_sync_new_vec = str(st.session_state.get("visual_description_str", "") or "
 local_sync_bytes = st.session_state.get("target_new_sketch_bytes", None)
 local_sync_mime = st.session_state.get("detected_mime_type", "application/pdf")
 
-# Khai báo đối tượng kết nối độc lập bảo vệ API Key tránh bị rỗng giữa các tab Rerun
-try:
-    from google import genai
-    # Trích xuất chính xác API Key từ biến toàn cục hoặc cấu hình session state của hệ thống PPJ
-    local_api_key = st.session_state.get("SB_KEY", globals().get("SB_KEY", ""))
-    
-    # SỬA LỖI KẾT NỐI: Ép cấu hình Client độc lập gắn chặt mã API Key
-    local_vision_client = genai.Client(api_key=local_api_key)
-except Exception:
-    local_vision_client = None
+# FIX LỖI API KEY: Ép lấy đúng đối tượng kết nối client Master đã cấu hình từ trang chủ
+local_vision_client = globals().get("client", st.session_state.get("client", None))
 
-# 2. KHỐI AI VISION PIPELINE - SỬA ĐỔI ĐƯỜNG TRUYỀN GỌI MÔ HÌNH ỔN ĐỊNH
+# 2. KHỐI AI VISION PIPELINE PHÂN TÍCH GIẢI PHẪU RẬP SẢN XUẤT (STRICT JSON BALANCED PIPELINE)
 if (not local_sync_new_vec or len(local_sync_new_vec) < 30) and local_sync_bytes is not None and local_vision_client is not None and not st.session_state.get("vision_completed", False):
-    with st.spinner("🔄 Hệ thống AI Vision đang phân tích giải phẫu rập và trích xuất cấu trúc dữ liệu JSON..."):
-        try:
-            ocr_prompt = """
-            You are an expert apparel techpack analyzer and senior garment technologist.
-            TASK: Scan through ALL pages of this document to locate the primary 'FLAT SKETCH' or 'TECHNICAL DRAWING' of the garment.
-            Analyze its physical shapes, pockets, waistband, fly, cuff treatments, and sewing layout.
-            You MUST return ONLY a valid, raw JSON object, without any markdown enclosing codeblocks. Follow this strict schema:
-            {
-              "garment_type": "PANT",
-              "vision_confidence": 95,
-              "construction_features": [
-                "WAISTBAND WITH BELT LOOPS",
-                "BUTTON WAISTBAND CLOSURE",
-                "ZIPPER FLY",
-                "FRONT SCOOP POCKETS",
-                "BACK PATCH POCKETS"
-              ],
-              "sewing_operations_predicted": [
-                "WAISTBAND ATTACHMENT",
-                "ZIPPER FLY INSTALLATION",
-                "POCKET ATTACHMENT"
-              ]
-            }
-            Note: garment_type must strictly classify as one of these: PANT, SHORT, JACKET, SHIRT, DRESS, SKIRT, VEST, HOODIE, T-SHIRT.
-            vision_confidence must be an integer between 0 and 100 representing your structural certainty.
-            All features and operations must be returned in uppercase text.
-            """
-            
-            # Đóng gói dữ liệu tệp tin Bytes đồng bộ với MIME Type thực tế
-            if 'types' in globals() and types and hasattr(types, "Part"):
-                ocr_contents = [
-                    types.Part.from_text(text=ocr_prompt),
-                    types.Part.from_bytes(data=local_sync_bytes, mime_type=local_sync_mime)
-                ]
-            else:
-                ocr_contents = [ocr_prompt, {"mime_type": local_sync_mime, "data": local_sync_bytes}]
+    if hasattr(local_vision_client, "models"):
+        with st.spinner("🔄 Hệ thống AI Vision đang phân tích giải phẫu rập và trích xuất cấu trúc dữ liệu JSON..."):
+            try:
+                ocr_prompt = """
+                You are an expert apparel techpack analyzer and senior garment technologist.
+                TASK: Scan through ALL pages of this document to locate the primary 'FLAT SKETCH' or 'TECHNICAL DRAWING' of the garment.
+                Analyze its physical shapes, pockets, waistband, fly, cuff treatments, and sewing layout.
+                You MUST return ONLY a valid, raw JSON object. Follow this strict schema:
+                {
+                  "garment_type": "PANT",
+                  "vision_confidence": 95,
+                  "construction_features": [
+                    "WAISTBAND WITH BELT LOOPS",
+                    "BUTTON WAISTBAND CLOSURE",
+                    "ZIPPER FLY",
+                    "FRONT SCOOP POCKETS",
+                    "BACK PATCH POCKETS"
+                  ],
+                  "sewing_operations_predicted": [
+                    "WAISTBAND ATTACHMENT",
+                    "ZIPPER FLY INSTALLATION",
+                    "POCKET ATTACHMENT"
+                  ]
+                }
+                Note: garment_type must strictly classify as one of these: PANT, SHORT, JACKET, SHIRT, DRESS, SKIRT, VEST, HOODIE, T-SHIRT.
+                vision_confidence must be an integer between 0 and 100 representing your structural certainty.
+                All features and operations must be returned in uppercase text.
+                """
                 
-            # GỌI MÔ HÌNH QUA MODEL CHUẨN THƯƠNG MẠI GEMINI-2.5-FLASH
-            ocr_res = local_vision_client.models.generate_content(
-                model='gemini-2.5-flash', 
-                contents=ocr_contents
-            )
-            
-            if ocr_res and ocr_res.text:
-                raw_ocr_text = ocr_res.text.strip()
-                
-                # Trích xuất dọn dẹp JSON bằng bộ cân bằng dấu ngoặc đã định nghĩa ở Phần 1A
-                clean_ocr_text = extract_json_object_secure(raw_ocr_text) if 'extract_json_object_secure' in locals() or 'extract_json_object_secure' in globals() else raw_ocr_text
-                if not clean_ocr_text:
-                    raise ValueError("Hệ thống AI Vision phản hồi sai cấu trúc định dạng JSON mong muốn.")
+                # Cấu hình nạp dữ liệu nhị phân tương thích với thư viện google-genai bản mới nhất
+                if 'types' in globals() and types and hasattr(types, "Part"):
+                    ocr_contents = [
+                        types.Part.from_text(text=ocr_prompt),
+                        types.Part.from_bytes(data=local_sync_bytes, mime_type=local_sync_mime)
+                    ]
+                else:
+                    ocr_contents = [ocr_prompt, {"mime_type": local_sync_mime, "data": local_sync_bytes}]
                     
-                vision_json = json.loads(clean_ocr_text)
+                ocr_res = local_vision_client.models.generate_content(model='gemini-2.5-flash', contents=ocr_contents)
                 
-                # TYPE DEFENSE NORMALIZE: Bảo vệ kiểu dữ liệu mảng chống sập luồng hạ nguồn
-                features_list = vision_json.get("construction_features", [])
-                operations_list = vision_json.get("sewing_operations_predicted", [])
+                if ocr_res and ocr_res.text:
+                    raw_ocr_text = ocr_res.text.strip()
+                    
+                    # Trích xuất dọn dẹp JSON bằng bộ cân bằng dấu ngoặc đã định nghĩa ở Phần 1A
+                    clean_ocr_text = extract_json_object_secure(raw_ocr_text) if 'extract_json_object_secure' in locals() or 'extract_json_object_secure' in globals() else raw_ocr_text
+                    if not clean_ocr_text:
+                        raise ValueError("Hệ thống AI Vision phản hồi sai cấu trúc định dạng JSON mong muốn.")
+                        
+                    vision_json = json.loads(clean_ocr_text)
+                    
+                    # TYPE DEFENSE NORMALIZE: Bảo vệ kiểu dữ liệu mảng chống sập luồng hạ nguồn
+                    features_list = vision_json.get("construction_features", [])
+                    operations_list = vision_json.get("sewing_operations_predicted", [])
+                    
+                    if features_list is None: features_list = []
+                    elif not isinstance(features_list, list): features_list = [features_list]
+                    if operations_list is None: operations_list = []
+                    elif not isinstance(operations_list, list): operations_list = [operations_list]
+                    
+                    vision_json["construction_features"] = features_list
+                    vision_json["sewing_operations_predicted"] = operations_list
+                    
+                    st.session_state["vision_json"] = vision_json
+                    st.session_state["vision_confidence"] = int(vision_json.get("vision_confidence", 0))
+                    st.session_state["vision_metadata"] = {
+                        "model": "gemini-2.5-flash",
+                        "timestamp": datetime.now().isoformat(),
+                        "file_hash": st.session_state.get("uploaded_file_hash", "")
+                    }
+                    
+                    g_type = str(vision_json.get("garment_type", "UNKNOWN")).strip().upper()
+                    
+                    # XÂY DỰNG TỪ ĐIỂN TRỌNG SỐ CHO THUẬT TOÁN JACCARD SẢN XUẤT PHÍA SAU
+                    weighted_profile = {
+                        "WEIGHTED_GARMENT_TYPE": {g_type: 5},
+                        "WEIGHTED_SEWING_OPERATIONS": {str(op).upper(): 3 for op in operations_list},
+                        "WEIGHTED_CONSTRUCTION_FEATURES": {str(ft).upper(): 1 for ft in features_list}
+                    }
+                    
+                    flattened_str = f"GARMENT_TYPE: {g_type}\nFEATURES:\n" + "\n".join(features_list) + "\nOPERATIONS:\n" + "\n".join(operations_list)
+                    
+                    # Đồng bộ ghi đè an toàn một lần vào bộ nhớ phiên Streamlit
+                    st.session_state["visual_description_str"] = flattened_str.upper()
+                    st.session_state["weighted_garment_profile"] = weighted_profile
+                    st.session_state["detected_garment_type"] = g_type
+                    st.session_state["vision_completed"] = True
+                    st.session_state["routing_completed"] = False 
+                    st.session_state["vision_retry_count"] = 0
+                    
+                    st.rerun()
+                    
+            except Exception as e: 
+                # RETRY COUNTER CLAMP: Bẫy lỗi không khóa cứng chống vòng lặp vô hạn khi sập mạng API tạm thời
+                st.session_state["vision_retry_count"] = st.session_state.get("vision_retry_count", 0) + 1
+                st.session_state["vision_error"] = str(e)
                 
-                if features_list is None: features_list = []
-                elif not isinstance(features_list, list): features_list = [features_list]
-                if operations_list is None: operations_list = []
-                elif not isinstance(operations_list, list): operations_list = [operations_list]
-                
-                vision_json["construction_features"] = features_list
-                vision_json["sewing_operations_predicted"] = operations_list
-                
-                st.session_state["vision_json"] = vision_json
-                st.session_state["vision_confidence"] = int(vision_json.get("vision_confidence", 0))
-                st.session_state["vision_metadata"] = {
-                    "model": "gemini-2.5-flash",
-                    "timestamp": datetime.now().isoformat(),
-                    "file_hash": st.session_state.get("uploaded_file_hash", "")
-                }
-                
-                g_type = str(vision_json.get("garment_type", "UNKNOWN")).strip().upper()
-                
-                # XÂY DỰNG TỪ ĐIỂN TRỌNG SỐ CHO THUẬT TOÁN JACCARD SẢN XUẤT PHÍA SAU
-                weighted_profile = {
-                    "WEIGHTED_GARMENT_TYPE": {g_type: 5},
-                    "WEIGHTED_SEWING_OPERATIONS": {str(op).upper(): 3 for op in operations_list},
-                    "WEIGHTED_CONSTRUCTION_FEATURES": {str(ft).upper(): 1 for ft in features_list}
-                }
-                
-                flattened_str = f"GARMENT_TYPE: {g_type}\nFEATURES:\n" + "\n".join(features_list) + "\nOPERATIONS:\n" + "\n".join(operations_list)
-                
-                # Đồng bộ ghi đè an toàn vào bộ nhớ phiên Streamlit
-                st.session_state["visual_description_str"] = flattened_str.upper()
-                st.session_state["weighted_garment_profile"] = weighted_profile
-                st.session_state["detected_garment_type"] = g_type
-                st.session_state["vision_completed"] = True
-                st.session_state["routing_completed"] = False 
-                st.session_state["vision_retry_count"] = 0
-                
-                st.rerun()
-                
-        except Exception as e: 
-            st.session_state["vision_retry_count"] = st.session_state.get("vision_retry_count", 0) + 1
-            st.session_state["vision_error"] = str(e)
-            
-            if st.session_state["vision_retry_count"] >= 3:
-                st.session_state["vision_completed"] = True
-                st.session_state["routing_completed"] = False
-                st.session_state["visual_description_str"] = "FALLBACK_TRIGGERED_VIA_AI_ERROR_STREAM"
-                st.session_state["detected_garment_type"] = "UNKNOWN"
-                st.session_state["vision_confidence"] = 0
-                st.error(f"🚨 Động cơ AI Vision lỗi kết nối sau 3 lần thử lại. Chuyển hướng khẩn cấp sang TẦNG 3. Chi tiết: {str(e)}")
-            else:
-                st.session_state["vision_completed"] = False
-                st.warning(f"⚠️ Trục trặc kết nối AI Vision (Thử lại lần {st.session_state['vision_retry_count']}/3)...")
+                if st.session_state["vision_retry_count"] >= 3:
+                    st.session_state["vision_completed"] = True
+                    st.session_state["routing_completed"] = False
+                    st.session_state["visual_description_str"] = "FALLBACK_TRIGGERED_VIA_AI_ERROR_STREAM"
+                    st.session_state["detected_garment_type"] = "UNKNOWN"
+                    st.session_state["vision_confidence"] = 0
+                    st.error(f"🚨 Động cơ AI Vision lỗi kết nối sau 3 lần thử lại. Hệ thống chuyển hướng khẩn cấp sang TẦNG 3 (Geometric Engine). Mã lỗi: {str(e)}")
+                else:
+                    st.session_state["vision_completed"] = False
+                    st.warning(f"⚠️ Trục trặc kết nối AI Vision (Thử lại lần {st.session_state['vision_retry_count']}/3)...")
 
 
 
@@ -1936,27 +1926,27 @@ if calc_mode in ["AUTO_APPROVED", "HISTORICAL_MATCH", "AI_PROJECTION"] and match
             st.error(f"🚨 Lỗi kết nối dữ liệu định mức BOM lịch sử: {str(e)}")
             st.session_state["calculation_mode"] = "GEOMETRIC_VECTOR"
             calc_mode = "GEOMETRIC_VECTOR"
-# PART 2B-2: ĐỘNG CƠ ĐỊNH MỨC HÌNH HỌC RẬP CAD THỰC TẾ & MA TRẬN PHÂN BỔ MÉT CHỈ CHI TIẾT
+# PART 2B-2: ĐỘNG CƠ ĐỊNH MỨC HÌNH HỌC RẬP CAD THỰC TẾ & MA TRẬN PHẦN BỔ MÉT CHỈ CHI TIẾT
 # =========================================================================================
 import json
 import re
 import streamlit as st
 
-# Đồng bộ hóa lại biến calc_mode từ session_state phòng khi Phần 2B-1 vừa chuyển đổi hạ tầng
+# Đồng bộ hóa lại biến calc_mode và bốc đúng client Master có sẵn từ môi trường nền (FIX LỖI API KEY)
 calc_mode = st.session_state.get("calculation_mode")
-client = st.session_state.get("client", globals().get("client", None))
+client = globals().get("client", st.session_state.get("client", None))
 
 # =========================================================================================
 # NHÁNH XỬ LÝ CHO TẦNG 3: ĐỘNG CƠ ĐỊNH MỨC HÌNH HỌC RẬP CAD THỰC TẾ (TRUE GEOMETRIC AREA ENGINE)
 # =========================================================================================
-if calc_mode == "GEOMETRIC_VECTOR" and not st.session_state.get("bom_records") and client:
+if calc_mode == "GEOMETRIC_VECTOR" and not st.session_state.get("bom_records") and client is not None:
     with st.spinner("🛸 TẦNG 3: KÍCH HOẠT THUẬT TOÁN HÌNH HỌC RẬP DXF CAD & BÓC TÁCH MÉT CHỈ THEO CÔNG ĐOẠN MAY..."):
         try:
             # 1. ĐỘNG CƠ NẠP THÔNG SỐ HÌNH HỌC THỰC TẾ TRÍCH XUẤT TỪ FILE RẬP CAD GERBER/LECTRA
             dxf_metrics = st.session_state.get("dxf_geometry", None)
             simulated_marker_efficiency = 0.82 # Hiệu suất sơ đồ cắt mặc định (82%)
             
-            # FIX VẤN ĐỀ 3: Nạp số liệu đo đạc thực tế diện tích chi tiết từ file rập CAD thay vì dùng hằng số cố định
+            # Nạp số liệu đo đạc thực tế diện tích chi tiết từ file rập CAD thay vì dùng hằng số cố định
             if dxf_metrics and isinstance(dxf_metrics, dict):
                 st.info("📐 Đang trích xuất thông số toán học từ bộ rập DXF CAD hình học thực tế...")
                 estimated_fabric_area_cm2 = float(dxf_metrics.get("total_area", 135000.0))
@@ -1976,7 +1966,7 @@ if calc_mode == "GEOMETRIC_VECTOR" and not st.session_state.get("bom_records") a
                     estimated_seam_length_cm = 700.0
 
             # =========================================================================================
-            # FIX VẤN ĐỀ 4: SỬA ĐỔI TOÁN HỌC ĐƠN VỊ ĐỊNH MỨC VẢI YARDAGE CHUẨN NGÀNH MAY QUỐC TẾ
+            # SỬA ĐỔI TOÁN HỌC ĐƠN VỊ ĐỊNH MỨC VẢI YARDAGE CHUẨN NGÀNH MAY QUỐC TẾ
             # Khổ vải quy đổi: Khổ (Inches) * 2.54 = Khổ (cm). Hệ số quy đổi 1 Yard dài = 91.44 cm
             # =========================================================================================
             fabric_width_inches = 58.0
@@ -1987,7 +1977,7 @@ if calc_mode == "GEOMETRIC_VECTOR" and not st.session_state.get("bom_records") a
             )
             
             # =========================================================================================
-            # FIX VẤN ĐỀ 5: ĐỘNG CƠ PHÂN RÃ CÔNG ĐOẠN MAY & TÍNH MÉT CHỈ CHI TIẾT (OPERATION THREAD ENGINE)
+            # ĐỘNG CƠ PHẦN RÃ CÔNG ĐOẠN MAY & TÍNH MÉT CHỈ CHI TIẾT (OPERATION THREAD ENGINE)
             # Trích xuất danh mục sewing_operations từ Module 1B để phân bổ ma trận tiêu hao chỉ chuyên sâu
             # =========================================================================================
             vision_json_data = st.session_state.get("vision_json", {})
@@ -2056,7 +2046,7 @@ if calc_mode == "GEOMETRIC_VECTOR" and not st.session_state.get("bom_records") a
                 f']'
             )
             
-            geo_res = client.models.generate_content(model='gemini-2.5-flash', contents=[geo_prompt]) if client else None
+            geo_res = client.models.generate_content(model='gemini-2.5-flash', contents=[geo_prompt])
             
             if geo_res and geo_res.text:
                 clean_geo_text = geo_res.text.strip()
@@ -2079,6 +2069,7 @@ if calc_mode == "GEOMETRIC_VECTOR" and not st.session_state.get("bom_records") a
                 {"Item": "Estimated Shell Fabric", "Consumption": calculated_yardage if 'calculated_yardage' in locals() else 1.45, "Unit": "Yds", "Type": "FABRIC", "Method": "CAD Polygon Fallback Rule"},
                 {"Item": "Core Sewing Thread", "Consumption": calculated_thread_meters if 'calculated_thread_meters' in locals() else 125.0, "Unit": "Mtrs", "Type": "TRIM", "Method": "Thread Factor Fallback Rule"}
             ]
+
 
 
 # =========================================================================================
