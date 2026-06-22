@@ -1578,15 +1578,8 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
 # =========================================================================================
 
 def dna_hard_gate(new_dna: dict, old_dna_raw) -> str:
-    """
-    Bộ lọc loại trừ tuyệt đối. Trả về:
-    - False: Nếu lệch kết cấu nghiêm trọng (Loại ngay).
-    - "LEGACY": Nếu mã hàng lịch sử chưa được phủ cấu trúc JSON DNA.
-    - True: Nếu khít thông số DNA kỹ thuật.
-    """
     if not new_dna:
         return False
-        
     old_dna = {}
     if old_dna_raw:
         if isinstance(old_dna_raw, str):
@@ -1594,41 +1587,28 @@ def dna_hard_gate(new_dna: dict, old_dna_raw) -> str:
             except Exception: return "LEGACY"
         elif isinstance(old_dna_raw, dict):
             old_dna = old_dna_raw
-    
     if not old_dna:
         return "LEGACY"
-
-    # 1. Khóa cứng Category (Áo vs Quần) -> Sai loại loại ngay
     if str(new_dna.get("category", "")).strip().upper() != str(old_dna.get("category", "")).strip().upper():
         return False
-
-    # 2. Lọc tương đối thông minh tránh lệch phom giữa CARGO, TACTICAL CARGO, UTILITY CARGO
     new_sil = str(new_dna.get("silhouette", "")).strip().upper()
     old_sil = str(old_dna.get("silhouette", "")).strip().upper()
     if new_sil and old_sil:
         if new_sil not in old_sil and old_sil not in new_sil:
             return False
-
-    # 3. Khóa cứng Dung sai số lượng túi (Lệch quá 2 túi -> Loại ngay)
     try:
         new_pockets = int(new_dna.get("pocket_count", 0))
         old_pockets = int(old_dna.get("pocket_count", 0))
         if abs(new_pockets - old_pockets) > 2:
             return False
-    except (ValueError, TypeError):
-        pass
-
-    # 4. Khóa cứng Dung sai Độ phức tạp đường may (Lệch quá 3 cấp complexity -> Loại ngay)
+    except (ValueError, TypeError): pass
     try:
         new_seam = int(new_dna.get("seam_complexity", 5))
         old_seam = int(old_dna.get("seam_complexity", 5))
         if abs(new_seam - old_seam) > 3:
             return False
-    except (ValueError, TypeError):
-        pass
-
+    except (ValueError, TypeError): pass
     return True
-
 def calculate_dna_similarity(new_dna: dict, old_dna_raw, old_sketch_vector: str) -> int:
     if not new_dna:
         return 0
@@ -1639,7 +1619,6 @@ def calculate_dna_similarity(new_dna: dict, old_dna_raw, old_sketch_vector: str)
             except Exception: old_dna = {}
         elif isinstance(old_dna_raw, dict):
             old_dna = old_dna_raw
-
     if not old_dna:
         new_keywords = set(str(new_dna.get("key_features_keywords", [])).upper().split() + [str(new_dna.get("silhouette", "")).upper()])
         old_text = str(old_sketch_vector).upper()
@@ -1647,163 +1626,98 @@ def calculate_dna_similarity(new_dna: dict, old_dna_raw, old_sketch_vector: str)
         if str(new_dna.get("category", "")).strip().upper() in old_text:
             return 70 + (overlap_count * 5)
         return 65
-
     score = 100
     if str(new_dna.get("waistband", "")).strip().upper() != str(old_dna.get("waistband", "")).strip().upper():
         score -= 10
     if str(new_dna.get("fly_closure", "")).strip().upper() != str(old_dna.get("fly_closure", "")).strip().upper():
         score -= 10
-        
     try:
         score -= abs(int(new_dna.get("pocket_count", 0)) - int(old_dna.get("pocket_count", 0))) * 6
         score -= abs(int(new_dna.get("seam_complexity", 5)) - int(old_dna.get("seam_complexity", 5))) * 5
     except Exception:
         score -= 10
-
     return max(score, 0)
 
-# Khởi tạo hoặc đặt lại trạng thái lưu bộ nhớ phiên Streamlit an toàn
 if "vlm_top_8_candidates" not in st.session_state: st.session_state["vlm_top_8_candidates"] = []
 if "vlm_json_match_text" not in st.session_state: st.session_state["vlm_json_match_text"] = None
-
 with st.spinner("🧠 Động cơ DNA Gateway đang đối soát kết cấu đường may và số lượng túi hộp..."):
     try:
         headers_db = globals().get("api_headers", {})
         target_url_api = globals().get("base_url_api", globals().get("SB_URL", ""))
-        
         if not headers_db: 
             headers_db = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if SB_KEY else {}
         url_db = f"{target_url_api.rstrip('/')}/rest/v1/thong_so_techpack" if target_url_api else ""
-        
-        fast_filter_fields = "StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL,sketch_vector,structural_dna"
-        raw_styles = requests.get(url_db, headers=headers_db, params={"select": fast_filter_fields, "limit": 1000}, timeout=15).json() if url_db else []
-        
+        raw_styles = requests.get(url_db, headers=headers_db, params={"select": "StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL,sketch_vector,structural_dna", "limit": 1000}, timeout=15).json() if url_db else []
         active_client = client if client else globals().get("genai_client", globals().get("ai_client", None))
         new_dna_context = st.session_state.get("new_style_dna", {})
-        
         if raw_styles and active_client and new_dna_context:
             valid_styles = [s for s in raw_styles if s.get("StyleName")]
-            
-            # TRUY VẾT MÃ CỨNG TRỰC TIẾP TỪ ẢNH/FILE (VÍ DỤ: R09-496094)
             detected_style_code = None
             search_source = (new_vec + " " + str(st.session_state.get("previous_uploaded_file_name", ""))).upper()
             code_match = re.search(r'(R\d{2}-\d{5,6})', search_source)
-            if code_match:
-                detected_style_code = code_match.group(1).strip()
-            
+            if code_match: detected_style_code = code_match.group(1).strip()
             dna_pool = []
             for s in valid_styles:
                 style_id_upper = str(s.get("StyleName", "")).upper()
-                
-                # CHẾ ĐỘ ƯU TIÊN 1: Nếu khớp chính xác số hiệu mã hàng cứng, ép lọt thẳng vào vòng VLM
                 if detected_style_code and detected_style_code in style_id_upper:
                     dna_pool.append((100, s))
                     continue
-                
-                # CHẾ ĐỘ CHẶN 2: Ép chạy qua DNA HARD GATE ngăn chặn tuyệt đối hiện tượng "quần giống quần"
                 gate_result = dna_hard_gate(new_dna_context, s.get("structural_dna"))
-                if gate_result is False:
-                    continue
-                    
+                if gate_result is False: continue
                 if gate_result == "LEGACY":
-                    # Mã cũ chưa nâng cấp DNA bị phạt hệ số 0.75 nhường chỗ cho mã DNA chuẩn
                     sim_math_score = calculate_dna_similarity(new_dna_context, s.get("structural_dna"), s.get("sketch_vector", ""))
                     sim_math_score = int(sim_math_score * 0.75)
                 else:
                     sim_math_score = calculate_dna_similarity(new_dna_context, s.get("structural_dna"), s.get("sketch_vector", ""))
-                    
                 dna_pool.append((sim_math_score, s))
-            
-            # Sắp xếp an toàn theo tuple (score, dict) triệt tiêu lỗi sập Dict vs Dict
             dna_pool.sort(reverse=True, key=lambda x: x)
-            
-            # CHỐT CHẶN AN TOÀN DOANH NGHIỆP: Nếu điểm cao nhất toàn bảng xếp hạng < 80 -> Bẻ luồng lập tức
-            best_score = dna_pool[0][0] if dna_pool else 0
+            best_score = dna_pool if dna_pool else 0
             if best_score < 80:
                 st.session_state["matched_techpack"] = None
                 st.session_state["match_confidence_score"] = 0
-                st.session_state["match_reason"] = f"REJECTED_BY_DNA_GATE: Best score {best_score}% is under strict safety threshold (80%)"
+                st.session_state["match_reason"] = f"REJECTED: Score {best_score}% below threshold (80%)"
                 st.session_state["force_geometric_mode"] = True
-                st.warning("⚠️ Không tìm thấy mã hàng lịch sử nào đạt độ tin cậy DNA kết cấu kỹ thuật tương thích (Độ tương hợp < 80%). Hệ thống tự động kích hoạt Động cơ Hình học Rập phẳng (AI Geometric Consumption Engine).")
+                st.warning("⚠️ Không tìm thấy mã hàng tương thích DNA kết cấu kỹ thuật tương thích (Độ tương hợp < 80%). Hệ thống kích hoạt AI Geometric Consumption Engine.")
                 st.stop()
-                
-            st.session_state["vlm_top_8_candidates"] = [x[1] for x in dna_pool[:8]]
-    except Exception as e:
-        st.error(f"🚨 Lỗi luồng xử lý Đoạn B1: {str(e)}")
-# =========================================================================================
-# ĐOẠN B2: KHỐI ĐỐI SOÁT HÌNH ẢNH GEMINI VLM NÂNG CẤP VỚI KHUNG BẢO MẬT CHỐNG ÉP MÃ
-# =========================================================================================
+            top_8_candidates = [x for x in dna_pool[:8]]
+            st.session_state["vlm_top_8_candidates"] = top_8_candidates
+            if top_8_candidates:
+                vision_contents = []
+                if target_new_sketch_bytes:
+                    if types and hasattr(types, "Part"):
+                        vision_contents.append(types.Part.from_text(text="Verify lines, pockets and construction seams."))
+                        vision_contents.append(types.Part.from_bytes(data=target_new_sketch_bytes, mime_type=detected_mime_type))
+                    else:
+                        vision_contents.append("Verify lines, pockets and construction seams.")
+                        vision_contents.append({"mime_type": detected_mime_type, "data": target_new_sketch_bytes})
+                historical_pool_summary = []
+                for idx, s in enumerate(top_8_candidates):
+                    cand_img_url = s.get("SketchURL") or s.get("sketch_url")
+                    style_id = s.get("StyleName", "")
+                    if (not cand_img_url) and target_url_api and style_id:
+                        safe_filename = requests.utils.quote(f"{style_id}.jpg")
+                        cand_img_url = f"{target_url_api.rstrip('/')}/storage/v1/object/public/kho_anh/{safe_filename}"
+                    cand_img_bytes = None
+                    if cand_img_url and target_new_sketch_bytes:
+                        try:
+                            img_res = requests.get(cand_img_url, headers=headers_db, timeout=5)
+                            if img_res.status_code == 200 and len(img_res.content) > 500: cand_img_bytes = img_res.content
+                        except Exception: pass
+                    if cand_img_bytes and target_new_sketch_bytes:
+                        if types and hasattr(types, "Part"):
+                            vision_contents.append(types.Part.from_text(text=f"Index: {idx} (Style: {style_id})"))
+                            vision_contents.append(types.Part.from_bytes(data=cand_img_bytes, mime_type='image/jpeg'))
+                        else:
+                            vision_contents.append(f"Index: {idx} (Style: {style_id})")
+                            vision_contents.append({"mime_type": 'image/jpeg', "data": cand_img_bytes})
+                    historical_pool_summary.append({"pool_index": idx, "style_name": style_id, "dna_spec": str(s.get("structural_dna", {}))})
+                semantic_prompt = f"Compare new sketch against pool: {json.dumps(historical_pool_summary)}. If none match visually and structurally above 80%, return selected_pool_index as -1. Return valid JSON ONLY: {{\"selected_pool_index\": -1, \"match_score\": 0, \"reason\": \"Mô tả\"}}"
+                if types and hasattr(types, "Part"): vision_contents.append(types.Part.from_text(text=semantic_prompt))
+                else: vision_contents.append(semantic_prompt)
+                res = active_client.models.generate_content(model='gemini-2.5-flash', contents=vision_contents)
+                st.session_state["vlm_json_match_text"] = res.text.strip() if res else None
+    except Exception as e: st.error(f"🚨 Lỗi luồng xử lý AI: {str(e)}")
 
-try:
-    headers_db = globals().get("api_headers", {})
-    target_url_api = globals().get("base_url_api", globals().get("SB_URL", ""))
-    if not headers_db: 
-        headers_db = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if SB_KEY else {}
-    
-    active_client = client if client else globals().get("genai_client", globals().get("ai_client", None))
-    new_dna_context = st.session_state.get("new_style_dna", {})
-    top_8_candidates = st.session_state.get("vlm_top_8_candidates", [])
-    
-    if top_8_candidates and active_client:
-        vision_contents = []
-        if target_new_sketch_bytes:
-            if types and hasattr(types, "Part"):
-                vision_contents.append(types.Part.from_text(text="Cross-examine layout geometry of the new sketch against historical style pictures. Verify pocket shapes, lines, and construction seams."))
-                vision_contents.append(types.Part.from_bytes(data=target_new_sketch_bytes, mime_type=detected_mime_type))
-            else:
-                vision_contents.append("Cross-examine layout geometry of the new sketch against historical style pictures. Verify pocket shapes, lines, and construction seams.")
-                vision_contents.append({"mime_type": detected_mime_type, "data": target_new_sketch_bytes})
-        
-        historical_pool_summary = []
-        for idx, s in enumerate(top_8_candidates):
-            cand_img_url = s.get("SketchURL") or s.get("sketch_url")
-            style_id = s.get("StyleName", "")
-            
-            # Vá liên kết URL bị trống hướng về kho lưu trữ công khai của bạn
-            if (not cand_img_url) and target_url_api and style_id:
-                safe_filename = requests.utils.quote(f"{style_id}.jpg")
-                cand_img_url = f"{target_url_api.rstrip('/')}/storage/v1/object/public/kho_anh/{safe_filename}"
-            
-            cand_img_bytes = None
-            if cand_img_url and target_new_sketch_bytes:
-                try:
-                    img_res = requests.get(cand_img_url, headers=headers_db, timeout=5)
-                    if img_res.status_code == 200 and len(img_res.content) > 500: 
-                        cand_img_bytes = img_res.content
-                except Exception: pass
-            
-            if cand_img_bytes and target_new_sketch_bytes:
-                if types and hasattr(types, "Part"):
-                    vision_contents.append(types.Part.from_text(text=f"Candidate Pool Index: {idx} (Style: {style_id})"))
-                    vision_contents.append(types.Part.from_bytes(data=cand_img_bytes, mime_type='image/jpeg'))
-                else:
-                    vision_contents.append(f"Candidate Pool Index: {idx} (Style: {style_id})")
-                    vision_contents.append({"mime_type": 'image/jpeg', "data": cand_img_bytes})
-            
-            historical_pool_summary.append({"pool_index": idx, "style_name": style_id, "dna_spec": str(s.get("structural_dna", {}))})
-        
-        # PROMPT THÁO GỠ BẪY ÉP MÃ: Bắt buộc chặn trên bằng ngưỡng cứng >= 80%, cho phép xuất -1 từ chối
-        semantic_prompt = f"""
-        Compare the new uploaded garment sketch against all historical candidate pictures in the pool.
-        Target New Garment Structural Context: {json.dumps(new_dna_context)}
-        Candidates Summary Meta List: {json.dumps(historical_pool_summary, ensure_ascii=False)}
-
-        CRITICAL SYSTEM CONFIGURATION GATEWAY:
-        - Examine visual line alignment, construction details, and full layout geometry.
-        - If NONE of the candidates match both the visual lines and structural DNA with a similarity exceeding 80%, you MUST decline to select any index.
-        - In case of no suitable match, you MUST return selected_pool_index as -1 and match_score as 0. Do NOT force a selection under any circumstance.
-
-        Return a valid JSON object ONLY (No markdown formatting block):
-        {{"selected_pool_index": -1, "match_score": 0, "reason": "NO_SUITABLE_HISTORICAL_STYLE_FOUND"}}
-        """
-        
-        if types and hasattr(types, "Part"): vision_contents.append(types.Part.from_text(text=semantic_prompt))
-        else: vision_contents.append(semantic_prompt)
-            
-        res = active_client.models.generate_content(model='gemini-2.5-flash', contents=vision_contents)
-        st.session_state["vlm_json_match_text"] = res.text.strip() if res else None
-except Exception as e:
-    st.error(f"🚨 Lỗi luồng xử lý Đoạn B2: {str(e)}")
 
 
 
