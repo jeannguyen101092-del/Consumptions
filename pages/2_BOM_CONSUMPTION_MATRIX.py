@@ -1413,12 +1413,15 @@ if has_file:
     if st.session_state.get("previous_uploaded_file_name") != file_name:
         st.session_state["previous_uploaded_file_name"] = file_name
         
-        if file_name.lower().endswith('.pdf'):
+                if file_name.lower().endswith('.pdf'):
             res_pdf = process_single_pdf_batch(file_bytes, file_name)
-            if res_pdf.get("success"):
-                # SỬA LỖI CHÍ MẠNG: Bốc dữ liệu từ trong dict 'data' theo đúng chuẩn hàm nạp kho sạch
+            
+            # SỬA LỖI: Chỉ cần AI trích xuất (success là True), bất kể lỗi Supabase hay lỗi gì, 
+            # chúng ta vẫn cưỡng bức lấy dữ liệu ra để hiển thị bảng so sánh ngay lập tức
+            if res_pdf.get("success") or (isinstance(res_pdf, dict) and "data" in res_pdf):
                 meta_p = res_pdf.get("data", {})
                 
+                # Ép lưu vào bộ nhớ đệm trạng thái
                 st.session_state["new_style_id_detected"] = meta_p.get("style_number_parsed", "UNKNOWN")
                 st.session_state["new_style_category_detected"] = meta_p.get("category", "PANT")
                 st.session_state["new_style_base_size"] = meta_p.get("base_size_name", "32")
@@ -1426,6 +1429,10 @@ if has_file:
                 st.session_state["target_new_sketch_bytes"] = res_pdf.get("sketch_bytes")
                 st.session_state["detected_mime_type"] = "application/pdf"
                 st.session_state["matched_image_verified"] = True
+                
+                # Tự động đồng bộ mã hàng sang cho kho dữ liệu BOM tìm kiếm
+                st.session_state["matched_style_name"] = str(meta_p.get("style_number_parsed", "")).strip().upper()
+
         else:
             st.session_state["target_new_sketch_bytes"] = file_bytes
             st.session_state["new_style_id_detected"] = "UNKNOWN_STYLE"
