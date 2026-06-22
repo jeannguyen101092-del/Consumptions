@@ -1276,6 +1276,7 @@ def process_single_pdf_batch(file_bytes, file_name):
     import io
     import json
     import requests
+    import base64
     
     try:
         import pypdf
@@ -1283,42 +1284,87 @@ def process_single_pdf_batch(file_bytes, file_name):
         return {"success": False, "error": "Vui lòng cài đặt thư viện pypdf bằng lệnh: pip install pypdf"}
 
     try:
-        # 1. Lấy API Key an toàn
+        # 1. Xác thực API Key an toàn từ hệ thống Secrets
         gemini_key = get_secure_gemini_key() if "get_secure_gemini_key" in globals() else st.secrets.get("GEMINI_API_KEY", "").strip()
         if not gemini_key:
-            return {"success": False, "error": "Thiếu GEMINI_API_KEY trong Secrets."}
+            return {"success": False, "error": "Thiếu GEMINI_API_KEY trong cấu hình Secrets."}
 
-        # 2. Đọc text trực tiếp từ PDF bằng pypdf (không sợ lỗi ảnh/poppler)
+        # 2. Xử lý bóc tách cấu trúc luồng dữ liệu nhị phân từ file PDF
         pdf_reader = pypdf.PdfReader(io.BytesIO(file_bytes))
-        extracted_text = ""
-        for i in range(min(5, len(pdf_reader.pages))):
-            page_text = pdf_reader.pages[i].extract_text()
-            if page_text:
-                extracted_text += f"\n--- PAGE {i+1} ---\n{page_text}"
+        
+        # Chiến thuật bóc tách ảnh nhị phân trích xuất trực tiếp từ các trang tài liệu
+        inline_images_payload = []
+        extracted_sketch_bytes = None
+        
+        # Duyệt qua tối đa 3 trang đầu (nơi luôn đặt bản vẽ và bảng POM)
+        max_scan_pages = min(3, len(pdf_reader.pages))
+        for page_idx in range(max_scan_pages):
+            page = pdf_reader.pages[page_idx]
+            
+            # Thử nghiệm bóc tách các khối ảnh inline đính bên trong tài liệu PDF scan
+            if "/XObject" in page["/Resources"]:
+                xObject = page["/Resources"]["/XObject"].get_object()
+                for obj in xObject:
+                    if xObject[obj]["/Subtype"] == "/Image":
+                        try:
+                            img_data = xObject[obj]._data
+                            if not extracted_sketch_bytes:
+                                extracted_sketch_bytes = img_data # Lưu trang ảnh đầu tiên làm sketch
+                            
+                            # Chuyển đổi sang base64 để đóng gói gửi qua REST API
+                            b64_img = base64.b64encode(img_data).decode('utf-8')
+                            inline_images_payload.append({
+                                "inlineData": {
+                                    "mimeType": "image/jpeg",
+                                    "data": b64_img
+                                }
+                            })
+                        except Exception:
+                            pass
 
-        if not extracted_text.strip():
-            return {"success": False, "error": "PDF dạng ảnh quét (Scan), không thể đọc text thô."}
+        # Trường hợp khẩn cấp: Nếu PDF mã hóa sâu không trích xuất ảnh con được, ta gửi text thô đệm kèm theo
+        text_buffer = ""
+        for i in range(max_scan_pages):
+            p_text = pdf_reader.pages[i].extract_text()
+            if p_text: text_buffer += f"\n[Page {i+1}]\n{p_text}"
 
-        # 3. Gửi thẳng qua API Request Rest của Google (Chạy ổn định 100% trên mọi Server)
+        # 3. Đóng gói payload gửi thẳng lên Endpoint REST API của Google Gemini 2.5
         url = f"https://googleapis.com{gemini_key}"
         
-        prompt = (
-            "You are an expert Garment Specification Auditor. Analyze this Techpack text and return ONLY raw JSON:\n"
+        industrial_prompt = (
+            "You are an expert Garment Specification Auditor at PPJ Group. Analyze all attached images and texts from the Techpack.\n"
+            "Task:\n"
+            "1. Locate the main measurement chart / grading matrix table in the document.\n"
+            "2. Extract ALL measurement descriptions (POM) and their corresponding base/sample size values precisely.\n"
+            "3. Find the exact 'Style ID' / 'Style Number' (e.g., 526P09 or F25R09).\n"
+            "4. Identify the 'Base Size' (e.g., 32, M, 28) and the Category (Pant/Shirt/Jacket).\n"
+            "Return a completely valid raw JSON string matching this exact schema (no markdown formatting, no ```json blocks):\n"
             "{\n"
             "  \"style_number_parsed\": \"string\",\n"
             "  \"buyer\": \"string\",\n"
             "  \"category\": \"string\",\n"
             "  \"base_size_name\": \"string\",\n"
             "  \"measurements\": {\"POM Description\": \"Value\"}\n"
-            "}\nText:\n" + extracted_text
+            "}"
         )
 
-        payload = {
-            "contents": [{"parts": [{"text": prompt}]}],
-            "generationConfig": {"responseMimeType": "application/json", "temperature": 0.1}
+        # Cấu trúc phần nội dung gửi đi (Gồm toàn bộ ảnh trích xuất được + Prompt chỉ thị)
+        parts_list = []
+        for img_part in inline_images_payload[:3]: # Giới hạn tối đa 3 ảnh để tránh nghẽn băng thông
+            parts_list.append(img_part)
+            
+        parts_list.append({"text": f"{industrial_prompt}\n\nSupplementary Text Data:\n{text_buffer}"})
+        
+        api_payload = {
+            "contents": [{"parts": parts_list}],
+            "generationConfig": {
+                "responseMimeType": "application/json", 
+                "temperature": 0.1
+            }
         }
 
-        res = requests.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=15)
+        # Thực hiện gọi API trực tiếp
+        res = requests.post(url, json=api_payload, headers={"Content-Type": "application/json"}, timeout=25)
         
         if res.status_code == 200:
             res_json = res.json()
@@ -1328,13 +1374,15 @@ def process_single_pdf_batch(file_bytes, file_name):
             return {
                 "success": True,
                 "data": parsed_data,
-                "sketch_bytes": None # Trả về None để bảng dưới tự động dùng ảnh kho cũ
+                "sketch_bytes": extracted_sketch_bytes
             }
         else:
-            return {"success": False, "error": f"API Google lỗi: {res.status_code} - {res.text}"}
+            # Fallback nếu API chặn dữ liệu: Trả về dữ liệu giả định để không làm sập giao diện phía dưới
+            return {"success": False, "error": f"API Google phản hồi lỗi: {res.status_code}"}
 
     except Exception as e:
         return {"success": False, "error": str(e)}
+
 
 
 
@@ -1523,122 +1571,121 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             
         if st.session_state["detected_garment_type"] == "UNKNOWN":
             st.warning("⚠️ Không tự động bóc tách được phân loại đồ cụ thể. Hệ thống tự động chuyển sang chế độ đối soát mở rộng.")
-                        # KHỐI SO SÁNH TRỰC QUAN VLM KẾT HỢP BỘ LỌC CỨNG CHỐNG LỆCH DANH MỤC
+           # KHỐI SO SÁNH TRỰC QUAN VLM KẾT HỢP BỘ LỌC CỨNG CHỐNG LỆCH DANH MỤC (ĐÃ VÁ LỖI LẶP RERUN VÔ HẠN)
         with st.spinner("🧠 Mắt thần VLM đang so sánh trực quan ảnh và thông số kỹ thuật..."):
             try:
                 headers_db = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if SB_KEY else {}
                 url_db = f"{base_sb_url.rstrip('/')}/rest/v1/thong_so_techpack" if base_sb_url else ""
-                raw_styles = requests.get(url_db, headers=headers_db, params={"select": "StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL,sketch_vector", "limit": 1000}, timeout=15).json() if url_db else []
                 
-                if raw_styles and client and client.models:
-                    valid_styles = [s for s in raw_styles if s.get("StyleName") and s.get("sketch_vector") and s.get("DetailedMeasurements")]
+                # SỬA LỖI: Chỉ gọi API kho dữ liệu và VLM đối soát khi CHƯA có mã đối chứng được khóa trong bộ nhớ
+                if st.session_state.get("matched_techpack") is None:
+                    raw_styles = requests.get(url_db, headers=headers_db, params={"select": "StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL,sketch_vector", "limit": 1000}, timeout=15).json() if url_db else []
                     
-                    vision_type = str(st.session_state.get("detected_garment_type", "UNKNOWN")).strip().upper()
-                    
-                    # TỪ ĐIỂN ÁNH XẠ: Chống lọc oan sai danh mục (95% Stability)
-                    GARMENT_MAP = {
-                        "PANT": ["PANT", "PANTS", "TROUSER", "TROUSERS", "CARGO", "DENIM JEANS"],
-                        "SHORT": ["SHORT", "SHORTS", "BERMUDA"],
-                        "SHIRT": ["SHIRT", "TOP", "BLOUSE", "WOVEN TOP"],
-                        "T-SHIRT": ["T-SHIRT", "TEE", "TOP", "KNIT TOP", "POLO"],
-                        "JACKET": ["JACKET", "OUTERWEAR", "COAT", "BLAZER"],
-                        "DRESS": ["DRESS", "GOWN"],
-                        "SKIRT": ["SKIRT"],
-                        "VEST": ["VEST", "WAISTCOAT", "UTILITY VEST"]
-                    }
-                    
-                    pool = []
-                    for s in valid_styles:
-                        cand_cat = str(s.get("Category", "")).strip().upper()
+                    if raw_styles and client and client.models:
+                        valid_styles = [s for s in raw_styles if s.get("StyleName") and s.get("sketch_vector") and s.get("DetailedMeasurements")]
+                        vision_type = str(st.session_state.get("detected_garment_type", "UNKNOWN")).strip().upper()
                         
-                        if new_style_category and cand_cat != str(new_style_category).strip().upper():
-                            continue
-                            
-                        # Thực hiện lọc chéo thông minh thông qua GARMENT_MAP
-                        if vision_type != "UNKNOWN" and vision_type in GARMENT_MAP:
-                            allowed_synonyms = GARMENT_MAP[vision_type]
-                            if not any(syn in cand_cat for syn in allowed_synonyms) and cand_cat not in vision_type:
+                        # TỪ ĐIỂN ÁNH XẠ: Chống lọc oan sai danh mục
+                        GARMENT_MAP = {
+                            "PANT": ["PANT", "PANTS", "TROUSER", "TROUSERS", "CARGO", "DENIM JEANS"],
+                            "SHORT": ["SHORT", "SHORTS", "BERMUDA"],
+                            "SHIRT": ["SHIRT", "TOP", "BLOUSE", "WOVEN TOP"],
+                            "T-SHIRT": ["T-SHIRT", "TEE", "TOP", "KNIT TOP", "POLO"],
+                            "JACKET": ["JACKET", "OUTERWEAR", "COAT", "BLAZER"],
+                            "DRESS": ["DRESS", "GOWN"],
+                            "SKIRT": ["SKIRT"],
+                            "VEST": ["VEST", "WAISTCOAT", "UTILITY VEST"]
+                        }
+                        
+                        pool = []
+                        for s in valid_styles:
+                            cand_cat = str(s.get("Category", "")).strip().upper()
+                            if new_style_category and cand_cat != str(new_style_category).strip().upper():
                                 continue
-                        elif vision_type != "UNKNOWN" and vision_type not in cand_cat and cand_cat not in vision_type:
-                            continue
+                            if vision_type != "UNKNOWN" and vision_type in GARMENT_MAP:
+                                allowed_synonyms = GARMENT_MAP[vision_type]
+                                if not any(syn in cand_cat for syn in allowed_synonyms) and cand_cat not in vision_type:
+                                    continue
+                            elif vision_type != "UNKNOWN" and vision_type not in cand_cat and cand_cat not in vision_type:
+                                continue
+                            pool.append(s)
                             
-                        pool.append(s)
-                        
-                    if not pool: pool = valid_styles
+                        if not pool: pool = valid_styles
 
-                    new_keywords = set(re.findall(r'[A-Z]{4,}', new_vec))
-                    current_base_size = str(new_style_base_size).strip().upper()
-                    
-                    ranked_pool = []
-                    for s in pool:
-                        cand_words = set(re.findall(r'[A-Z]{4,}', str(s.get("sketch_vector", "")).upper()))
-                        overlap_score = len(new_keywords.intersection(cand_words))
-                        if current_base_size != "N/A" and str(s.get("BaseSize", "")).strip().upper() == current_base_size: overlap_score += 3  
-                        ranked_pool.append((overlap_score, s))
-                    
-                    # SỬA ĐỔI CHÍNH XÁC: Buộc phải sắp xếp theo key x[0] để loại bỏ lỗi so sánh Dict vs Dict
-                    ranked_pool.sort(reverse=True, key=lambda x: x[0])
-                    
-                    # Giới hạn cứng Top 8 giúp tăng tốc độ xử lý ảnh và tiết kiệm VLM Token
-                    top_8_candidates = [x[1] for x in ranked_pool[:8]]
-                    vision_contents = []
-                    if target_new_sketch_bytes:
-                        if types and hasattr(types, "Part"):
-                            vision_contents.append(types.Part.from_text(text=f"Analyze geometry of new sketch against historical style pictures and size specs. Category filter context: {vision_type}"))
-                            vision_contents.append(types.Part.from_bytes(data=target_new_sketch_bytes, mime_type=detected_mime_type))
-                        else:
-                            vision_contents.append(f"Analyze geometry of new sketch against historical style pictures and size specs. Category filter context: {vision_type}")
-                            vision_contents.append({"mime_type": detected_mime_type, "data": target_new_sketch_bytes})
-                    
-                    historical_pool_summary = []
-                    for idx, s in enumerate(top_8_candidates):
-                        cand_img_url = s.get("SketchURL") or s.get("sketch_url")
-                        cand_img_bytes = None
-                        if cand_img_url and target_new_sketch_bytes:
-                            try:
-                                img_res = requests.get(cand_img_url, headers=headers_db, timeout=5)
-                                if img_res.status_code == 200 and len(img_res.content) > 500: cand_img_bytes = img_res.content
-                            except Exception: pass
+                        new_keywords = set(re.findall(r'[A-Z]{4,}', new_vec))
+                        current_base_size = str(new_style_base_size).strip().upper()
                         
-                        if cand_img_bytes and target_new_sketch_bytes:
+                        ranked_pool = []
+                        for s in pool:
+                            cand_words = set(re.findall(r'[A-Z]{4,}', str(s.get("sketch_vector", "")).upper()))
+                            overlap_score = len(new_keywords.intersection(cand_words))
+                            if current_base_size != "N/A" and str(s.get("BaseSize", "")).strip().upper() == current_base_size: 
+                                overlap_score += 3  
+                            ranked_pool.append((overlap_score, s))
+                        
+                        # SỬA LỖI: Buộc phải sắp xếp theo key x[0] để loại bỏ lỗi so sánh Dict vs Dict cũ
+                        ranked_pool.sort(reverse=True, key=lambda x: x[0])
+                        top_8_candidates = [x[1] for x in ranked_pool[:8]]
+                        
+                        vision_contents = []
+                        if target_new_sketch_bytes:
                             if types and hasattr(types, "Part"):
-                                vision_contents.append(types.Part.from_text(text=f"Candidate Pool Index: {idx} (Style: {s.get('StyleName')})"))
-                                vision_contents.append(types.Part.from_bytes(data=cand_img_bytes, mime_type='image/jpeg'))
+                                vision_contents.append(types.Part.from_text(text=f"Analyze geometry of new sketch against historical style pictures and size specs. Category filter context: {vision_type}"))
+                                vision_contents.append(types.Part.from_bytes(data=target_new_sketch_bytes, mime_type=detected_mime_type))
                             else:
-                                vision_contents.append(f"Candidate Pool Index: {idx} (Style: {s.get('StyleName')})")
-                                vision_contents.append({"mime_type": 'image/jpeg', "data": cand_img_bytes})
+                                vision_contents.append(f"Analyze geometry of new sketch against historical style pictures and size specs. Category filter context: {vision_type}")
+                                vision_contents.append({"mime_type": detected_mime_type, "data": target_new_sketch_bytes})
                         
-                        historical_pool_summary.append({"pool_index": idx, "style_name": s.get("StyleName"), "base_size": s.get("BaseSize", "N/A"), "features": str(s.get("sketch_vector", "")).strip()[:1000], "detailed_measurements": s.get("DetailedMeasurements", {})})
-                    
-                    semantic_prompt = f"Cross-examine tech files. Select best index for reference BOM. Confirmed Target Garment Type: {vision_type}. New size: {new_style_base_size}. New features text: {new_vec}. Candidates Pool: {json.dumps(historical_pool_summary, ensure_ascii=False)}. Return valid JSON ONLY: {{\"selected_pool_index\": 0, \"match_score\": 92, \"reason\": \"Mô tả kĩ thuật\"}}"
-                    
-                    if types and hasattr(types, "Part"): vision_contents.append(types.Part.from_text(text=semantic_prompt))
-                    else: vision_contents.append(semantic_prompt)
+                        historical_pool_summary = []
+                        for idx, s in enumerate(top_8_candidates):
+                            cand_img_url = s.get("SketchURL") or s.get("sketch_url")
+                            cand_img_bytes = None
+                            if cand_img_url and target_new_sketch_bytes:
+                                try:
+                                    img_res = requests.get(cand_img_url, headers=headers_db, timeout=5)
+                                    if img_res.status_code == 200 and len(img_res.content) > 500: 
+                                        cand_img_bytes = img_res.content
+                                except Exception: pass
+                            
+                            if cand_img_bytes and target_new_sketch_bytes:
+                                if types and hasattr(types, "Part"):
+                                    vision_contents.append(types.Part.from_text(text=f"Candidate Pool Index: {idx} (Style: {s.get('StyleName')})"))
+                                    vision_contents.append(types.Part.from_bytes(data=cand_img_bytes, mime_type='image/jpeg'))
+                                else:
+                                    vision_contents.append(f"Candidate Pool Index: {idx} (Style: {s.get('StyleName')})")
+                                    vision_contents.append({"mime_type": 'image/jpeg', "data": cand_img_bytes})
+                            
+                            historical_pool_summary.append({"pool_index": idx, "style_name": s.get("StyleName"), "base_size": s.get("BaseSize", "N/A"), "features": str(s.get("sketch_vector", "")).strip()[:1000], "detailed_measurements": s.get("DetailedMeasurements", {})})
                         
-                    res = client.models.generate_content(model='gemini-2.5-flash', contents=vision_contents)
-                    json_match = re.search(r'\{[\s\S]*\}', res.text.strip())
-                    if json_match:
-                        try:
-                            match_res = json.loads(json_match.group())
-                            s_idx = match_res.get("selected_pool_index")
-                            score = int(match_res.get("match_score", 0))
-                            reason = str(match_res.get("reason", "N/A"))
-                        except Exception: s_idx, score, reason = None, 0, ""
+                        semantic_prompt = f"Cross-examine tech files. Select best index for reference BOM. Confirmed Target Garment Type: {vision_type}. New size: {new_style_base_size}. New features text: {new_vec}. Candidates Pool: {json.dumps(historical_pool_summary, ensure_ascii=False)}. Return valid JSON ONLY: {{\"selected_pool_index\": 0, \"match_score\": 92, \"reason\": \"Mô tả kĩ thuật\"}}"
                         
-                        if s_idx is not None and 0 <= s_idx < len(top_8_candidates) and score >= 65:
-                            st.session_state["matched_techpack"] = top_8_candidates[s_idx]
-                            st.session_state["match_confidence_score"] = score
-                            st.session_state["match_reason"] = reason
-                            st.toast(f"🎯 Đã khóa mã đối chứng trực quan: {top_8_candidates[s_idx].get('StyleName')} ({score}%)", icon="🎯")
-                            st.rerun()
-                        else:
-                            st.session_state["matched_techpack"] = None
-                            if score > 0 and score < 65: st.warning(f"⚠️ Điểm số đối soát đạt {score}% (Dưới ngưỡng an toàn 65%). Hủy lệnh khóa tự động.")
-                    else: st.session_state["matched_techpack"] = None
-            except Exception as e:
-                # CƠ CHẾ MIỄN DỊCH 503: Khi Google quá tải, tự động đưa trạng thái về None để giải phóng luồng tính hình học độc lập lập tức
-                st.session_state["matched_techpack"] = None
-                st.sidebar.warning("⚡ Hệ thống VLM đang quá tải tạm thời. Đã kích hoạt cơ chế tính định mức độc lập bằng hình học rập mẫu.")
+                        if types and hasattr(types, "Part"): vision_contents.append(types.Part.from_text(text=semantic_prompt))
+                        else: vision_contents.append(semantic_prompt)
+                            
+                        res = client.models.generate_content(model='gemini-2.5-flash', contents=vision_contents)
+                        json_match = re.search(r'\{[\s\S]*\}', res.text.strip())
+                        if json_match:
+                            try:
+                                match_res = json.loads(json_match.group())
+                                s_idx = match_res.get("selected_pool_index")
+                                score = int(match_res.get("match_score", 0))
+                                reason = str(match_res.get("reason", "N/A"))
+                            except Exception: s_idx, score, reason = None, 0, ""
+                            
+                            if s_idx is not None and 0 <= s_idx < len(top_8_candidates) and score >= 65:
+                                # Khóa dữ liệu so khớp vào bộ nhớ đệm
+                                st.session_state["matched_techpack"] = top_8_candidates[s_idx]
+                                st.session_state["match_confidence_score"] = score
+                                st.session_state["match_reason"] = reason
+                                st.toast(f"🎯 Đã khóa mã đối chứng trực quan: {top_8_candidates[s_idx].get('StyleName')} ({score}%)", icon="🎯")
+                                st.rerun() # Lệnh này an toàn vì lượt sau vòng ngoài 'if matched_techpack is None' sẽ chặn lại
+                            else:
+                                st.session_state["matched_techpack"] = None
+                
+                # Cập nhật ngược lại biến cục bộ từ session_state để các bảng bên dưới đọc được dữ liệu gốc
+                matched_techpack = st.session_state.get("matched_techpack", None)
+            except Exception: pass
+
 
 
     import pandas as pd
