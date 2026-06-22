@@ -1273,115 +1273,121 @@ if gemini_key:
     )
 
 def process_single_pdf_batch(file_bytes, file_name):
+    """
+    Hàm bóc tách dữ liệu kỹ thuật từ một file PDF độc lập.
+    ✨ ĐÃ NÂNG CẤP ĐỊNH VỊ PHOM DÁNG: Ép AI Vision chỉ bốc trang hiển thị chiếc quần hoàn chỉnh (Front and Back full garment views).
+    STRICTLY FORBIDDEN: Cấm tuyệt đối lấy các trang rã rập thân quần đơn lẻ, cụm chi tiết hoặc rập tách rời.
+    """
+    import time
     import io
     import json
-    import requests
-    import base64
-    
     try:
-        import pypdf
-    except ImportError:
-        return {"success": False, "error": "Vui lòng cài đặt thư viện pypdf bằng lệnh: pip install pypdf"}
-
-    try:
-        # 1. Xác thực API Key an toàn từ hệ thống Secrets
+        # Gọi an toàn API Key
         gemini_key = get_secure_gemini_key() if "get_secure_gemini_key" in globals() else st.secrets.get("GEMINI_API_KEY", "").strip()
         if not gemini_key:
-            return {"success": False, "error": "Thiếu GEMINI_API_KEY trong cấu hình Secrets."}
-
-        # 2. Xử lý bóc tách cấu trúc luồng dữ liệu nhị phân từ file PDF
-        pdf_reader = pypdf.PdfReader(io.BytesIO(file_bytes))
-        
-        # Chiến thuật bóc tách ảnh nhị phân trích xuất trực tiếp từ các trang tài liệu
-        inline_images_payload = []
-        extracted_sketch_bytes = None
-        
-        # Duyệt qua tối đa 3 trang đầu (nơi luôn đặt bản vẽ và bảng POM)
-        max_scan_pages = min(3, len(pdf_reader.pages))
-        for page_idx in range(max_scan_pages):
-            page = pdf_reader.pages[page_idx]
+            return {"success": False, "error": "API Key cho Gemini đang bị thiếu trong Secrets."}
             
-            # Thử nghiệm bóc tách các khối ảnh inline đính bên trong tài liệu PDF scan
-            if "/XObject" in page["/Resources"]:
-                xObject = page["/Resources"]["/XObject"].get_object()
-                for obj in xObject:
-                    if xObject[obj]["/Subtype"] == "/Image":
-                        try:
-                            img_data = xObject[obj]._data
-                            if not extracted_sketch_bytes:
-                                extracted_sketch_bytes = img_data # Lưu trang ảnh đầu tiên làm sketch
-                            
-                            # Chuyển đổi sang base64 để đóng gói gửi qua REST API
-                            b64_img = base64.b64encode(img_data).decode('utf-8')
-                            inline_images_payload.append({
-                                "inlineData": {
-                                    "mimeType": "image/jpeg",
-                                    "data": b64_img
-                                }
-                            })
-                        except Exception:
-                            pass
-
-        # Trường hợp khẩn cấp: Nếu PDF mã hóa sâu không trích xuất ảnh con được, ta gửi text thô đệm kèm theo
-        text_buffer = ""
-        for i in range(max_scan_pages):
-            p_text = pdf_reader.pages[i].extract_text()
-            if p_text: text_buffer += f"\n[Page {i+1}]\n{p_text}"
-
-        # 3. Đóng gói payload gửi thẳng lên Endpoint REST API của Google Gemini 2.5
-        url = f"https://googleapis.com{gemini_key}"
+        client = genai.Client(api_key=gemini_key)
+        info = pdfinfo_from_bytes(file_bytes)
+        total_p = int(info.get("Pages", 1))
         
-        industrial_prompt = (
-            "You are an expert Garment Specification Auditor at PPJ Group. Analyze all attached images and texts from the Techpack.\n"
-            "Task:\n"
-            "1. Locate the main measurement chart / grading matrix table in the document.\n"
-            "2. Extract ALL measurement descriptions (POM) and their corresponding base/sample size values precisely.\n"
-            "3. Find the exact 'Style ID' / 'Style Number' (e.g., 526P09 or F25R09).\n"
-            "4. Identify the 'Base Size' (e.g., 32, M, 28) and the Category (Pant/Shirt/Jacket).\n"
-            "Return a completely valid raw JSON string matching this exact schema (no markdown formatting, no ```json blocks):\n"
-            "{\n"
-            "  \"style_number_parsed\": \"string\",\n"
-            "  \"buyer\": \"string\",\n"
-            "  \"category\": \"string\",\n"
-            "  \"base_size_name\": \"string\",\n"
-            "  \"measurements\": {\"POM Description\": \"Value\"}\n"
+        pdf_parts_payload = []
+        chat_images = convert_from_bytes(file_bytes, dpi=90, first_page=1, last_page=total_p)
+        for page_img in chat_images:
+            img_buf = io.BytesIO()
+            page_img.convert("RGB").save(img_buf, format="JPEG", quality=75)
+            # Sử dụng đúng cấu trúc Part truyền hình ảnh nhị phân
+            pdf_parts_payload.append(types.Part.from_bytes(data=img_buf.getvalue(), mime_type='image/jpeg'))
+            
+        industrial_extraction_prompt = (
+            "You are an expert Garment Specification Auditor at PPJ Group. Analyze all attached sheets page by page. "
+            "1. Identify the core 'Base Size' / 'Sample Size' (e.g., written as 8-, 32, or Size M). "
+            "2. Identify the Buyer name and Category. "
+            "3. Find the exact 'Style ID' / 'Style Number' (e.g. 5765). "
+            "4. FOR FUNCTION 3 (FULL SIZE MATRIX): Scan and extract the entire grading matrix table columns for ALL available sizes. "
+            "5. CRITICAL VISUAL FLAT SKETCH LOCATE RULE: Scan all pages visually. You MUST find the exact PAGE INDEX (0-based) "
+            "that contains the FULL BODY APPAREL FLAT SKETCH showing the entire completed garment (the whole pant/skort with front view and back view side-by-side or on the same page). "
+            "STRICT DISQUALIFICATION RULES: "
+            "- DO NOT select pages showing isolated technical pattern panels (e.g., just a single front panel leg or a single back panel leg cut out). "
+            "- DO NOT select pages showing inner construction details, pocket bags, zippers, or sketches of components. "
+            "We only want the complete product design presentation sketch page. "
+            "Return a completely valid raw JSON string matching this schema (no markdown blocks): "
+            "{"
+            "  \"style_number_parsed\": \"string\","
+            "  \"buyer\": \"string\","
+            "  \"category\": \"string\","
+            "  \"base_size_name\": \"string\","
+            "  \"sketch_page_index_detected\": 0,"
+            "  \"measurements\": {\"POM Description\": \"Value\"},"
+            "  \"full_size_matrix\": {\"POM Description\": {\"Size_Name\": \"Value\"}}"
             "}"
         )
-
-        # Cấu trúc phần nội dung gửi đi (Gồm toàn bộ ảnh trích xuất được + Prompt chỉ thị)
-        parts_list = []
-        for img_part in inline_images_payload[:3]: # Giới hạn tối đa 3 ảnh để tránh nghẽn băng thông
-            parts_list.append(img_part)
-            
-        parts_list.append({"text": f"{industrial_prompt}\n\nSupplementary Text Data:\n{text_buffer}"})
         
-        api_payload = {
-            "contents": [{"parts": parts_list}],
-            "generationConfig": {
-                "responseMimeType": "application/json", 
-                "temperature": 0.1
-            }
+        # SỬA LỖI 1: Bọc prompt text bằng định dạng Part chuẩn của Google GenAI SDK
+        pdf_parts_payload.append(types.Part.from_text(text=industrial_extraction_prompt))
+        
+        response = None
+        for attempt in range(3):
+            try:
+                # SỬA LỖI 2: Chuyển cấu hình response_mime_type qua lớp GenerateContentConfig vững chắc
+                response = client.models.generate_content(
+                    model='gemini-2.5-flash', 
+                    contents=pdf_parts_payload,
+                    config=types.GenerateContentConfig(
+                        response_mime_type="application/json",
+                        temperature=0.1
+                    )
+                )
+                if response and response.text: break
+            except Exception as ai_err:
+                if "503" in str(ai_err) or "UNAVAILABLE" in str(ai_err):
+                    time.sleep((attempt + 1) * 2)
+                    continue
+                else:
+                    return {"success": False, "error": f"Lỗi cổng truyền: {str(ai_err)}"}
+                    
+        if not response or not response.text:
+            return {"success": False, "error": "Mô hình không phản hồi văn bản."}
+            
+        clean_json = response.text.strip().replace("```json", "").replace("```", "").strip()
+        parsed_data = json.loads(clean_json)
+        
+        extracted_sketch_bytes = None
+        detected_idx = int(parsed_data.get("sketch_page_index_detected", 0))
+        if 0 <= detected_idx < len(chat_images):
+            b_buf = io.BytesIO()
+            chat_images[detected_idx].convert("RGB").save(b_buf, format="JPEG", quality=90)
+            extracted_sketch_bytes = b_buf.getvalue()
+            
+        # Gọi lưu trữ đồng bộ lên database Supabase giống hệt trang nạp kho của bạn
+        success_db = True
+        if "save_to_supabase_techpack_table" in globals():
+            try:
+                success_db = save_to_supabase_techpack_table(parsed_data, raw_file_bytes=file_bytes, file_name=file_name)
+            except Exception: success_db = False
+        
+        output_payload = {
+            "style_number_parsed": parsed_data.get("style_number_parsed", "UNKNOWN"),
+            "buyer": parsed_data.get("buyer", "UNKNOWN BUYER"),
+            "category": parsed_data.get("category", "GARMENT"),
+            "base_size_name": parsed_data.get("base_size_name", "32"),
+            "measurements": parsed_data.get("measurements", {}),
+            "full_size_matrix": parsed_data.get("full_size_matrix", {})
         }
-
-        # Thực hiện gọi API trực tiếp
-        res = requests.post(url, json=api_payload, headers={"Content-Type": "application/json"}, timeout=25)
         
-        if res.status_code == 200:
-            res_json = res.json()
-            text_response = res_json['candidates'][0]['content']['parts'][0]['text']
-            parsed_data = json.loads(text_response)
-            
-            return {
-                "success": True,
-                "data": parsed_data,
-                "sketch_bytes": extracted_sketch_bytes
-            }
-        else:
-            # Fallback nếu API chặn dữ liệu: Trả về dữ liệu giả định để không làm sập giao diện phía dưới
-            return {"success": False, "error": f"API Google phản hồi lỗi: {res.status_code}"}
-
+        return {
+            "success": True,
+            "data": output_payload, 
+            "style_id": output_payload["style_number_parsed"],
+            "buyer": output_payload["buyer"],
+            "category": output_payload["category"],
+            "size": output_payload["base_size_name"],
+            "measurements": output_payload["measurements"], 
+            "sketch_bytes": extracted_sketch_bytes, 
+            "error": None if success_db else "Lỗi ghi đồng bộ dữ liệu lên cơ sở dữ liệu"
+        }
     except Exception as e:
-        return {"success": False, "error": str(e)}
+        return {"success": False, "error": f"Lỗi bóc tách PDF: {str(e)}"}
 
 
 
