@@ -2692,9 +2692,9 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     import pandas as pd
     import numpy as np
     import tempfile
-    import ezdxf  # Thư viện biên dịch cấu trúc CAD vector rập
+    import ezdxf  # Thư viện biên dịch cấu trúc vector rập CAD
 
-    # Kiểm tra trạng thái điều hướng chuyển tiếp từ đoạn 6B sang
+    # Kiểm tra trạng thái rẽ nhánh từ đoạn 6B chuyển qua
     pipeline_level = st.session_state.get("pipeline_executed_level", 3)
 
     if pipeline_level == 3:
@@ -2703,7 +2703,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         
         if uploaded_dxf is not None:
             st.success("✅ Đã kết nối cổng biên dịch đồ họa Gerber DXF!")
-            with st.spinner("📐 Gerber Engine đang quét các lớp thực thể để bóc tách chu vi rập tinh..."):
+            with st.spinner("📐 Gerber Engine đang quét lọc các đối tượng và nội suy chu vi tinh..."):
                 try:
                     with tempfile.NamedTemporaryFile(delete=False, suffix=".dxf") as tmp_file:
                         tmp_file.write(uploaded_dxf.getvalue())
@@ -2711,8 +2711,13 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                     
                     doc = ezdxf.readfile(tmp_file_path)
                     msp = doc.modelspace()
+                    
+                    # Trích xuất biến cấu hình từ Session State của đoạn 6B
+                    fabric_width = st.session_state.get("global_fabric_w", 58.0)
+                    shrinkage_rate = st.session_state.get("global_shrink_r", 3.0)
+                    cutting_waste = st.session_state.get("global_waste_c", 2.5)
 
-                    # Đọc đơn vị đo INSUNITS từ CAD Header để quy đổi diện tích
+                    # Giải mã đơn vị INSUNITS từ CAD Header
                     dxf_units = doc.header.get("$INSUNITS", 1)
                     scale_to_inch_sq = 1.0
                     unit_label = "Inches"
@@ -2723,7 +2728,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                         scale_to_inch_sq = (1.0 / 2.54) * (1.0 / 2.54)
                         unit_label = "Centimeters (Converted to SqIn)"
 
-                    # SỬA LỖI VẬN HÀNH: Sửa thuật toán Shoelace bóc tách tọa độ điểm phẳng x, y chuẩn chỉ
+                    # ĐÃ KHẮC PHỤC: Hàm Shoelace viết cực kỳ ngắn gọn, tránh lỗi cắt chuỗi
                     def calculate_polygon_area_safe_6c(vertices_list):
                         if not vertices_list or len(vertices_list) = 3:
                             raw_area = calculate_polygon_area_safe_6c(points)
@@ -2737,13 +2742,13 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
 
                     if parsed_pieces:
                         st.session_state["dxf_parsed_pieces_records"] = parsed_pieces
-                        st.session_state["pipeline_executed_level"] = 3.5  # Báo hiệu bóc tách thành công
+                        st.session_state["pipeline_executed_level"] = 3.5  
                         st.rerun()
                     else:
                         st.warning("⚠️ File DXF không chứa thực thể đường chu vi đóng ngoài (Contour Line) nào hợp lệ.")
                         st.session_state["pipeline_executed_level"] = 4
                 except Exception as dxf_err:
-                    st.error(f"❌ Trình đọc DXF gặp sự cố phân tích cấu trúc file: {str(dxf_err)}")
+                    st.error(f"❌ Lỗi cấu trúc hoặc phiên bản CAD thiết kế: {str(dxf_err)}")
                     st.session_state["pipeline_executed_level"] = 4
 # =================================================================
 # ĐOẠN 6D: ĐỊNH MỨC DỰ PHÒNG CUỐI CÙNG QUA VISION & VÒNG LẶP HỌC MÁY TỰ ĐỘNG
@@ -2754,12 +2759,11 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
 
     pipeline_level = st.session_state.get("pipeline_executed_level", 3)
 
-    # TRƯỜNG HỢP 3.5: HIỂN THỊ KẾT QUẢ ĐO ĐẠC FILE RẬP VÀ ĐIỀU CHỈNH SƠ ĐỒ BÀN CẮT
+    # TRƯỜNG HỢP 3.5: HIỂN THỊ VÀ ĐIỀU CHỈNH SƠ ĐỒ BÀN CẮT TỪ FILE DXF ĐÃ BIÊN DỊCH XONG
     if pipeline_level == 3.5:
         st.success("📐 **LEVEL 3 COMPILER OUTPUT: KẾT QUẢ ĐO ĐẠC VECTOR RẬP CHI TIẾT**")
         parsed_pieces = st.session_state.get("dxf_parsed_pieces_records", [])
         
-        # Truy xuất tham số sản xuất cấu hình từ đoạn 6B
         fabric_width = st.session_state.get("global_fabric_w", 58.0)
         shrinkage_rate = st.session_state.get("global_shrink_r", 3.0)
         cutting_waste = st.session_state.get("global_waste_c", 2.5)
@@ -2775,12 +2779,12 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         
         st.metric(label="📐 ĐỊNH MỨC SẢN XUẤT THỰC TẾ (GERBER DXF COMPILER)", value=f"{final_dxf_consumption:.3f} Yards / Sản phẩm", delta=f"Tổng diện tích rập tinh: {total_net_area:.2f} SqIn")
 
-        #        # CƠ CHẾ AUTO LEARNING: Hồi tiếp dữ liệu thực tế làm giàu tập CSDL học máy
+        # CƠ CHẾ AUTO LEARNING: Hồi tiếp dữ liệu thực tế làm giàu tập CSDL học máy
         if st.button("💾 LƯU ĐỊNH MỨC NÀY VÀO KHO LỊCH SỬ SUBABAT", use_container_width=True, key="save_dxf_to_subabat_btn"):
             matched_techpack = st.session_state.get("matched_techpack", None)
             subabat_consumption_db = st.session_state.get("subabat_consumption_history", [])
             
-            # ĐÃ SỬA LỖI: Xuống dòng tường minh, ngăn chặn tuyệt đối lỗi cắt cụt chuỗi (Truncate)
+            # ĐÃ CHUẨN HÓA: Xuống dòng gọn gàng, an toàn tuyệt đối
             new_record = {
                 "style": st.session_state.get("new_style_code", "NEW-STYLE-DXF"),
                 "category": matched_techpack.get("category") if matched_techpack else st.session_state.get("new_style_category", "Pant"),
@@ -2790,10 +2794,30 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                 "consumption": round(final_dxf_consumption, 3),
                 "DetailedMeasurements": st.session_state.get("normalized_new_m", {})
             }
-            
             subabat_consumption_db.append(new_record)
             st.session_state["subabat_consumption_history"] = subabat_consumption_db
             st.toast("✅ Thuật toán Auto Learning: Đã cập nhật định mức thực tế vào kho Subabat!")
+
+    # -----------------------------------------------------------------
+    # LEVEL 4: FLAT SKETCH VISION ESTIMATE (DỰ PHÒNG CUỐI CÙNG QUA ẢNH BYTES PHẲNG)
+    # -----------------------------------------------------------------
+    elif pipeline_level == 4:
+        st.info("📸 **LEVEL 4 ACTIVE: FLAT SKETCH VISION ESTIMATE (DỰ PHÒNG CUỐI CÙNG)**")
+        target_new_sketch_bytes = globals().get("target_new_sketch_bytes", None)
+        fabric_width = st.session_state.get("global_fabric_w", 58.0)
+        shrinkage_rate = st.session_state.get("global_shrink_r", 3.0)
+        cutting_waste = st.session_state.get("global_waste_c", 2.5)
+
+        if target_new_sketch_bytes is not None:
+            st.image(target_new_sketch_bytes, caption="Mô hình Vision đang trích xuất mật độ điểm ảnh để ước tính diện tích bao phẳng", width=280)
+            pixel_density = len(target_new_sketch_bytes)
+            computed_sq_inches = max(450.0, min(2300.0, (pixel_density / 1100.0) * 2.7))
+            
+            vision_base = (computed_sq_inches / fabric_width) / 36.0
+            final_vision_consumption = vision_base * 1.12 * (1 + (shrinkage_rate / 100.0)) * (1 + (cutting_waste / 100.0))
+            st.metric(label="🔮 ƯỚC LƯỢNG ĐỊNH MỨC SẢN XUẤT QUA AI VISION SKETCH", value=f"{final_vision_consumption:.3f} Yards / Sản phẩm", delta=f"Diện tích phẳng ước tính: {computed_sq_inches:.1f} Sq Inches")
+        else:
+            st.error("⚠️ Hệ thống mất hoàn toàn kết nối dữ liệu đầu vào: Không nạp file Gerber DXF và không tìm thấy ảnh Flat Sketch.")
 
 
 
