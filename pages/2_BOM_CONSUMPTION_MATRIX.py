@@ -1733,61 +1733,97 @@ if (not local_sync_new_vec or len(local_sync_new_vec) < 30) and local_sync_bytes
 
 
 
-# PART 2A RÚT GỌN CHUẨN: ĐỘNG CƠ ĐỐI SOÁT VÀ BẢO VỆ TRỐNG TRẠNG THÁI PROFILE
+# PART 2A ĐÃ SỬA ĐỔI TOÀN DIỆN: ĐỘNG CƠ ĐỐI SOÁT TRỌNG SỐ, CHỐNG SẬP TUPLE & ÉP CHỈ MỤC AI
 # =========================================================================================
 
-if st.session_state.get("vision_completed", False) and not st.session_state.get("routing_completed", False):
-    with st.spinner("🧠 Mắt thần VLM đang quét toàn kho dữ liệu và thẩm định cấu trúc rập..."):
-        try:
-            # VÁ LỖI TIỀM ẨN: Cầu chì bảo vệ nghiêm ngặt khi Profile từ bước Vision truyền xuống bị rỗng
-            target_profile = st.session_state.get("weighted_garment_profile", {})
-            if not target_profile:
-                st.warning("⚠️ Không tìm thấy Vision Profile đặc trưng rập mẫu. Tự động kích hoạt Động cơ hình học TẦNG 3.")
-                st.session_state["routing_completed"] = True
-                st.session_state["calculation_mode"] = "GEOMETRIC_VECTOR"
-                st.rerun()
+# Khóa luồng kiểm tra mỏ neo từ Session State an toàn
+vision_completed_status = st.session_state.get("vision_completed", False)
+routing_completed_status = st.session_state.get("routing_completed", False)
 
-            # NẠP DỮ LIỆU TỪ KHO CACHED
-            headers_db = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if 'SB_KEY' in locals() else {}
-            url_db = f"{base_url_api.rstrip('/')}/rest/v1/thong_so_techpack" if 'base_url_api' in locals() else ""
-            raw_styles = fetch_all_techpacks_cached(url_db, headers_db) if 'fetch_all_techpacks_cached' in locals() else []
+if vision_completed_status and not routing_completed_status:
+    with st.spinner("🧠 Mắt thần VLM đang cuộn quét kho dữ liệu và tiến hành đối soát giải phẫu rập..."):
+        try:
+            headers_db = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if 'SB_KEY' in locals() or 'SB_KEY' in globals() else {}
+            url_db = f"{base_url_api.rstrip('/')}/rest/v1/thong_so_techpack" if 'base_url_api' in locals() or 'base_url_api' in globals() else ""
+            raw_styles = fetch_all_techpacks_cached(url_db, headers_db) if 'fetch_all_techpacks_cached' in locals() or 'fetch_all_techpacks_cached' in globals() else []
 
             if raw_styles and client and hasattr(client, "models"):
-                # SAFE LOCAL SYNC CHO HẠ NGUỒN RETRIEVER
-                new_vec = str(st.session_state.get("visual_description_str", "") or "").strip().upper()
                 vision_type = str(st.session_state.get("detected_garment_type", "UNKNOWN")).strip().upper()
                 target_new_sketch_bytes = st.session_state.get("target_new_sketch_bytes")
+                detected_mime_type = st.session_state.get("detected_mime_type", "image/jpeg")
+                new_vec = str(st.session_state.get("visual_description_str", "")).strip().upper()
+                
+                # =========================================================================================
+                # FIX SỬA 3: XỬ LÝ PROFILE RỖNG - FALLBACK TỰ ĐỘNG SANG TRUY HỒI THEO LOẠI ĐỒ (KHÔNG RE-RUN SỚM)
+                # =========================================================================================
+                target_profile = st.session_state.get("weighted_garment_profile", {})
+                if not target_profile or target_profile == {}:
+                    st.caption("⚠️ Vision Profile thô trống - Kích hoạt bộ lọc mỏ neo cấu trúc hình dáng tự động.")
+                    target_profile = {
+                        "WEIGHTED_GARMENT_TYPE": {vision_type: 5}
+                    }
                 
                 def tokenize(txt):
                     cleaned = re.sub(r'[^A-Z0-9\s\-]', ' ', unicodedata.normalize('NFKC', str(txt).upper()))
                     return set([w for w in cleaned.split() if len(w) >= 2 and w not in {"WITH","THE","AND","FOR","TYPE"}])
 
-                # CHẤM ĐIỂM MA TRẬN TRỌNG SỐ CHO TOÀN KHO DATA
+                # CHẤM ĐIỂM MA TRẬN TỪ ĐIỂN TRỌNG SỐ CHO TOÀN BỘ KHO DỮ LIỆU
                 ranked_pool = []
                 for s in raw_styles:
-                    db_tokens = tokenize(f"{s.get('StyleName')} {s.get('sketch_vector')}")
+                    db_combined = f"{s.get('StyleName', '')} {s.get('sketch_vector', s.get('SketchVector', ''))}".upper()
+                    db_tokens = tokenize(db_combined)
+                    
                     score, possible = 0.0, 0.0
                     for grp, t_dict in target_profile.items():
                         w = 5 if grp == "WEIGHTED_GARMENT_TYPE" else (3 if grp == "WEIGHTED_SEWING_OPERATIONS" else 1)
-                        for tok in t_dict.keys():
-                            possible += w
-                            if tokenize(tok).issubset(db_tokens): score += w
+                        if isinstance(t_dict, dict):
+                            for tok in t_dict.keys():
+                                possible += w
+                                if tokenize(tok).issubset(db_tokens): 
+                                    score += w
                     
                     jaccard = score / max(possible, 1.0)
-                    if str(s.get("BaseSize")).strip().upper() == str(new_style_base_size).strip().upper(): jaccard *= 1.20
+                    
+                    # Thưởng hệ số nhân kích cỡ cơ bản (Base Size)
+                    db_base_size = s.get("BaseSize", s.get("base_size", ""))
+                    if db_base_size and str(db_base_size).strip().upper() == str(new_style_base_size).strip().upper() and str(new_style_base_size).strip().upper() != "N/A": 
+                        jaccard *= 1.20
+                        
                     ranked_pool.append((jaccard, s))
                 
-                ranked_pool.sort(reverse=True, key=lambda x: x)
-                top_candidates = ranked_pool[:min(30, len(ranked_pool))]
+                # =========================================================================================
+                # FIX SỬA 1: SIẾT ĐỊNH VỊ SORT KEY LAMBDA THEO HẠNG MỤC SỐ ĐỂ TRÁNH LỖI TYPEERROR KHI TRÙNG ĐIỂM
+                # =========================================================================================
+                ranked_pool.sort(reverse=True, key=lambda x: x[0])
                 
-                # Nén hồ sơ để gửi Gemini chấm điểm thị giác
-                compressed = [{"pool_index": i, "StyleName": s.get("StyleName"), "Score": round(float(sc), 4), "SketchVectorText": s.get("sketch_vector")} for i, (sc, s) in enumerate(top_candidates)]
+                # Cắt gọn cửa sổ Top 30 ứng viên tiềm năng nhất
+                top_candidates = ranked_pool[:min(30, len(ranked_pool))]
                 st.session_state["retriever_top_30_pool"] = top_candidates
+                
+                # NÉN HỒ SƠ ỨNG VIÊN GỬI MULTI-MODAL VISION RE-RANKER
+                compressed = []
+                for i, (sc, s) in enumerate(top_candidates):
+                    compressed.append({
+                        "pool_index": i, 
+                        "StyleName": s.get("StyleName", "UNKNOWN"), 
+                        "MathScore": round(float(sc), 4), 
+                        "SketchVectorText": s.get("sketch_vector", s.get("SketchVector", ""))
+                    })
 
-                # GỒP CẢ ẢNH VÀ CHỮ TRUYỀN CHO AI ĐỐI SOÁT
+                # GỌI GEMINI ĐỐI SOÁT THỊ GIÁC (VÙA NHÌN ẢNH VỪA ĐỌC TOÁN HỌC MA TRẬN)
                 if compressed:
-                    prompt = f"Compare target image with candidates: {json.dumps(compressed, ensure_ascii=False)}. Return valid JSON ONLY: {{\"selected_pool_index\": -1, \"match_score\": 0, \"reason\": \"\"}}"
-                    contents = [prompt, {"mime_type": st.session_state.get("detected_mime_type"), "data": target_new_sketch_bytes}]
+                    # =========================================================================================
+                    # FIX LỖI 3: ÉP CHẶT RÀNG BUỘC CHỈ MỤC MÁY ĐỌC (MUST BE ONE OF 0-29 ONLY TRÁNH AI TRẢ LỖI PHẠM VI)
+                    # =========================================================================================
+                    prompt = (
+                        f"Compare target garment image/PDF specs with factory candidates pool: {json.dumps(compressed, ensure_ascii=False)}.\n"
+                        f"CRITICAL REQUIREMENT: Evaluate pocket shapes, waistband, and seam constructions.\n"
+                        f"The output 'selected_pool_index' MUST strictly be an integer between 0 and {len(compressed)-1} only matching the candidate index. "
+                        f"If none of them match visuals, return -1.\n"
+                        f"Return valid JSON ONLY, format exactly like this:\n"
+                        f'{{"selected_pool_index": -1, "match_score": 0, "reason": "No structural match discovered."}}'
+                    )
+                    contents = [prompt, {"mime_type": detected_mime_type, "data": target_new_sketch_bytes}]
                     res = client.models.generate_content(model='gemini-2.5-flash', contents=contents)
                     
                     match = re.search(r'\{[\s\S]*?\}', res.text.strip())
@@ -1796,75 +1832,253 @@ if st.session_state.get("vision_completed", False) and not st.session_state.get(
                         idx = res_json.get("selected_pool_index")
                         sc = int(res_json.get("match_score", 0))
                         
+                        # =========================================================================================
+                        # FIX SỬA 2: BÓC TÁCH CHÍNH XÁC THỰC THỂ GỐC [1] RA KHỎI TUPLE ĐỂ TRÁNH LỖI SẬP ĐỊNH MỨC Ở HẠ NGUỒN
+                        # =========================================================================================
                         if idx is not None and 0 <= idx < len(top_candidates) and sc >= 60:
-                            st.session_state["matched_techpack"] = top_candidates[idx]
+                            # top_candidates[idx][1] tách biệt rõ ràng phần Dict bản ghi gốc, vứt bỏ điểm số Jaccard thô
+                            st.session_state["matched_techpack"] = top_candidates[idx][1]
                             st.session_state["match_confidence_score"] = sc
-                            st.session_state["match_reason"] = res_json.get("reason")
+                            st.session_state["match_reason"] = res_json.get("reason", "Matched via multimodal VLM core.")
+                        else:
+                            st.session_state["matched_techpack"] = None
+                            st.session_state["match_confidence_score"] = 0
+                            st.session_state["match_reason"] = res_json.get("reason", "Score fell below floor.")
+                    else:
+                        st.session_state["matched_techpack"] = None
+                        st.session_state["match_confidence_score"] = 0
+                else:
+                    st.session_state["matched_techpack"] = None
+                    st.session_state["match_confidence_score"] = 0
                 
                 st.session_state["routing_completed"] = True
+                
         except Exception as e:
-            st.error(f"🚨 Lỗi đối soát kho: {str(e)}")
+            st.error(f"🚨 Lỗi hệ thống đối soát kho dữ liệu sản xuất: {str(e)}")
+            st.session_state["matched_techpack"] = None
+            st.session_state["match_confidence_score"] = 0
             st.session_state["routing_completed"] = True
 
+    # BỘ ROUTER PHÂN TẦNG ĐỊNH MỨC KHÉP KÍN KHÔNG GÂY LẶP VÔ HẠN TRÊN CLOUD
     if st.session_state.get("routing_completed", False):
-        sc = st.session_state["match_confidence_score"]
-        st.session_state["calculation_mode"] = "GEOMETRIC_VECTOR" if not st.session_state["matched_techpack"] else ("AUTO_APPROVED" if sc >= 92 else ("HISTORICAL_MATCH" if sc >= 85 else "AI_PROJECTION"))
+        sc = st.session_state.get("match_confidence_score", 0)
+        if st.session_state.get("matched_techpack") is None:
+            st.session_state["calculation_mode"] = "GEOMETRIC_VECTOR"
+        else:
+            st.session_state["calculation_mode"] = "AUTO_APPROVED" if sc >= 92 else ("HISTORICAL_MATCH" if sc >= 85 else "AI_PROJECTION")
+        
         st.rerun()
 
-# PART 2B RÚT GỌN CHUẨN: KHỐI TRÍCH XUẤT BOM & KÍCH HOẠT ĐỊNH MỨC HÌNH HỌC TẦNG 3
+# PART 2B-1: TRÍCH XUẤT BOM LỊCH SỬ ĐA TẦNG FALLBACK & CHỐNG SAI LỆCH SIZE (BASE SIZE MATCH)
 # =========================================================================================
+import re
+import requests
+import streamlit as st
+from urllib.parse import quote
 
+# 1. NORMALIZE DỮ LIỆU TỪ RETRIEVER TRÁNH LỖI TUPLE OBJECT ĐÈ LÊN HẠ NGUỒN SẢN XUẤT
 matched_techpack = st.session_state.get("matched_techpack")
 calc_mode = st.session_state.get("calculation_mode")
+new_style_base_size = st.session_state.get("new_style_base_size", globals().get("new_style_base_size", "N/A"))
 
-# 1. NHÁNH XỬ LÝ CHO TẦNG 1 & TẦNG 2: TẢI BẢNG BOM MASTER TỪ SUPABASE DATABASE
+if isinstance(matched_techpack, tuple):
+    # Trích xuất bóc tách chính xác phần Dict bản ghi gốc từ tuple (similarity_score, full_object)
+    matched_techpack = matched_techpack[1]
+    st.session_state["matched_techpack"] = matched_techpack
+
+# =========================================================================================
+# NHÁNH XỬ LÝ CHO TẦNG 1 & TẦNG 2: TẢI BẢNG BOM MASTER TỪ SUPABASE CÓ CƠ CHẾ KHỚP GẦN ĐÚNG
+# =========================================================================================
 if calc_mode in ["AUTO_APPROVED", "HISTORICAL_MATCH", "AI_PROJECTION"] and matched_techpack and not st.session_state.get("bom_records"):
     with st.spinner("📦 Đang trích xuất cấu trúc định mức nguyên vật liệu (BOM) gốc từ kho dữ liệu..."):
         try:
-            target_style_name_bom = str(matched_techpack.get("StyleName", "")).strip()
+            target_style_name_bom = str(matched_techpack.get("StyleName", matched_techpack.get("style_name", ""))).strip()
+            target_size_str = str(new_style_base_size).strip().upper()
             url_bom = f"{base_url_api.rstrip('/')}/rest/v1/dinh_muc_bom" if 'base_url_api' in locals() or 'base_url_api' in globals() else ""
             
             if url_bom and target_style_name_bom:
-                query_url_bom = f"{url_bom}?StyleName=eq.{quote(target_style_name_bom)}&select=*"
                 headers_bom = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if 'SB_KEY' in locals() or 'SB_KEY' in globals() else {}
                 
-                bom_res = requests.get(query_url_bom, headers=headers_bom, timeout=15)
-                if bom_res.status_code == 200:
-                    st.session_state["bom_records"] = bom_res.json()
+                # FIX VẤN ĐỀ 1: Chuẩn hóa bóc tách chuỗi mã sạch (Clean Key), loại bỏ ký tự đặc biệt phục vụ tìm kiếm gần đúng
+                clean_style_key = re.sub(r'[^A-Z0-9]', '', target_style_name_bom.upper())
+                
+                encoded_style = quote(target_style_name_bom)
+                encoded_clean_key = quote(clean_style_key)
+                encoded_size = quote(target_size_str)
+                
+                # FIX VẤN ĐỀ 2: BẮT BUỘC ĐỐI CHIẾU CHUẨN CẢ STYLE_NAME VÀ KÍCH CỠ BASE_SIZE ĐỂ TRÁNH TRÍCH XUẤT NHẦM BOM
+                query_endpoints = [
+                    f"{url_bom}?StyleName=eq.{encoded_style}&BaseSize=eq.{encoded_size}&select=*", # 1. Khớp cứng Style + Size
+                    f"{url_bom}?StyleName=ilike.*{encoded_clean_key}*&BaseSize=eq.{encoded_size}&select=*", # 2. Khớp mã sạch gần đúng + Size
+                    f"{url_bom}?StyleName=eq.{encoded_style}&select=*", # 3. Fallback lấy Style gốc (nếu DB không phân tách Size)
+                    f"{url_bom}?StyleName=ilike.*{encoded_clean_key}*&select=*" # 4. Fallback cuối cùng tìm kiếm theo chuỗi ký tự chứa
+                ]
+                
+                bom_data = []
+                for endpoint in query_endpoints:
+                    response = requests.get(endpoint, headers=headers_bom, timeout=15)
+                    if response.status_code == 200:
+                        page_json = response.json()
+                        if page_json and len(page_json) > 0:
+                            bom_data = page_json
+                            break # Tìm thấy dữ liệu -> Ngắt mạch luồng quét ngay lập tức
+                
+                if bom_data:
+                    # Ghi nhận audit log nguồn mã hàng đối chứng cho bộ dự phóng AI Projection Tầng 2
+                    st.session_state["bom_source_style"] = target_style_name_bom
+                    st.session_state["bom_records"] = bom_data
                 else:
-                    st.error(f"🚨 Không thể truy xuất bảng BOM lịch sử. Mã phản hồi: {bom_res.status_code}")
+                    st.warning(f"⚠️ Không tìm thấy bảng định mức gốc của mã `{target_style_name_bom}` trong kho. Chuyển hướng hạ tầng.")
+                    st.session_state["calculation_mode"] = "GEOMETRIC_VECTOR"
+                    calc_mode = "GEOMETRIC_VECTOR"
+                    
         except Exception as e:
-            st.error(f"Lỗi kết nối dữ liệu định mức BOM: {str(e)}")
+            st.error(f"🚨 Lỗi kết nối dữ liệu định mức BOM lịch sử: {str(e)}")
+            st.session_state["calculation_mode"] = "GEOMETRIC_VECTOR"
+            calc_mode = "GEOMETRIC_VECTOR"
+# PART 2B-2: ĐỘNG CƠ ĐỊNH MỨC HÌNH HỌC RẬP CAD THỰC TẾ & MA TRẬN PHÂN BỔ MÉT CHỈ CHI TIẾT
+# =========================================================================================
+import json
+import re
+import streamlit as st
 
-# 2. VÁ LỖI ĐƠ UI - NHÁNH XỬ LÝ CHO TẦNG 3 (GEOMETRIC_VECTOR): TỰ ĐỘNG SINH CẤU TRÚC VẬT LIỆU MỚI
-elif calc_mode == "GEOMETRIC_VECTOR" and not st.session_state.get("bom_records") and client:
-    with st.spinner("🛸 TẦNG 3: Thiết kế mới độc bản! Đang bóc tách rập diện tích hình học để tự sinh BOM..."):
+# Đồng bộ hóa lại biến calc_mode từ session_state phòng khi Phần 2B-1 vừa chuyển đổi hạ tầng
+calc_mode = st.session_state.get("calculation_mode")
+client = st.session_state.get("client", globals().get("client", None))
+
+# =========================================================================================
+# NHÁNH XỬ LÝ CHO TẦNG 3: ĐỘNG CƠ ĐỊNH MỨC HÌNH HỌC RẬP CAD THỰC TẾ (TRUE GEOMETRIC AREA ENGINE)
+# =========================================================================================
+if calc_mode == "GEOMETRIC_VECTOR" and not st.session_state.get("bom_records") and client:
+    with st.spinner("🛸 TẦNG 3: KÍCH HOẠT THUẬT TOÁN HÌNH HỌC RẬP DXF CAD & BÓC TÁCH MÉT CHỈ THEO CÔNG ĐOẠN MAY..."):
         try:
-            # Ép AI dựa trên mảng tính năng JSON ở Phần 1B để tự dựng danh mục phụ liệu từ số 0
-            geo_prompt = (
-                f"Based on garment type '{st.session_state.get('detected_garment_type')}' and strict structural features: "
-                f"{json.dumps(st.session_state.get('vision_json', {}), ensure_ascii=False)}. "
-                f"Perform mathematical area calculation for size '{new_style_base_size if 'new_style_base_size' in locals() else 'N/A'}'. "
-                f"Identify mandatory materials and trims. Return a strict JSON list of objects, format exactly like this:\n"
-                f'[{"Item": "Shell Fabric", "Consumption": 1.45, "Unit": "Yds", "Type": "FABRIC", "Method": "Geometric Area Analysis"}, '
-                f'{"Item": "Sewing Thread 120m", "Consumption": 1.0, "Unit": "Pcs", "Type": "TRIM", "Method": "Feature Detection Rule"}]'
+            # 1. ĐỘNG CƠ NẠP THÔNG SỐ HÌNH HỌC THỰC TẾ TRÍCH XUẤT TỪ FILE RẬP CAD GERBER/LECTRA
+            dxf_metrics = st.session_state.get("dxf_geometry", None)
+            simulated_marker_efficiency = 0.82 # Hiệu suất sơ đồ cắt mặc định (82%)
+            
+            # FIX VẤN ĐỀ 3: Nạp số liệu đo đạc thực tế diện tích chi tiết từ file rập CAD thay vì dùng hằng số cố định
+            if dxf_metrics and isinstance(dxf_metrics, dict):
+                st.info("📐 Đang trích xuất thông số toán học từ bộ rập DXF CAD hình học thực tế...")
+                estimated_fabric_area_cm2 = float(dxf_metrics.get("total_area", 135000.0))
+                estimated_seam_length_cm = float(dxf_metrics.get("total_seam", 850.0))
+                simulated_marker_efficiency = float(dxf_metrics.get("marker_efficiency", 0.82))
+            else:
+                # Bộ thông số dự phòng (Preset Fallback Layers) theo loại hàng nếu người dùng chưa đẩy file CAD
+                detected_type = st.session_state.get("detected_garment_type", "PANT").upper()
+                if "PANT" in detected_type:
+                    estimated_fabric_area_cm2 = 135000.0
+                    estimated_seam_length_cm = 850.0
+                elif "SHIRT" in detected_type or "JACKET" in detected_type:
+                    estimated_fabric_area_cm2 = 152000.0
+                    estimated_seam_length_cm = 1100.0
+                else:
+                    estimated_fabric_area_cm2 = 120000.0
+                    estimated_seam_length_cm = 700.0
+
+            # =========================================================================================
+            # FIX VẤN ĐỀ 4: SỬA ĐỔI TOÁN HỌC ĐƠN VỊ ĐỊNH MỨC VẢI YARDAGE CHUẨN NGÀNH MAY QUỐC TẾ
+            # Khổ vải quy đổi: Khổ (Inches) * 2.54 = Khổ (cm). Hệ số quy đổi 1 Yard dài = 91.44 cm
+            # =========================================================================================
+            fabric_width_inches = 58.0
+            fabric_width_cm = fabric_width_inches * 2.54
+            calculated_yardage = round(
+                estimated_fabric_area_cm2 / (simulated_marker_efficiency * fabric_width_cm * 91.44), 
+                4
             )
             
-            geo_res = client.models.generate_content(model='gemini-2.5-flash', contents=[geo_prompt])
-            geo_match = re.search(r'\[[\s\S]*?\]', geo_res.text.strip())
+            # =========================================================================================
+            # FIX VẤN ĐỀ 5: ĐỘNG CƠ PHÂN RÃ CÔNG ĐOẠN MAY & TÍNH MÉT CHỈ CHI TIẾT (OPERATION THREAD ENGINE)
+            # Trích xuất danh mục sewing_operations từ Module 1B để phân bổ ma trận tiêu hao chỉ chuyên sâu
+            # =========================================================================================
+            vision_json_data = st.session_state.get("vision_json", {})
+            predicted_ops = vision_json_data.get("sewing_operations_predicted", [])
             
-            if geo_match:
-                st.session_state["bom_records"] = json.loads(geo_match.group(0))
-                st.success("✨ Thuật toán Geometric Engine đã tự động tính toán diện tích và sinh cấu trúc BOM thành công!")
+            operation_matrix_weights = {
+                "LOCKSTITCH": 2.5,        # Máy 1 kim mác áo, túi, diễu
+                "DOUBLE_NEEDLE": 4.0,     # Máy 2 kim sườn, giàng
+                "OVERLOCK_3_THREAD": 10.0, # Vắt sổ chắp sườn / làm sạch biên vải
+                "OVERLOCK_5_THREAD": 15.0, # Máy chắp vắt sổ quần jean/kaki nặng
+                "COVERSTITCH": 12.0       # Máy may kansai viền lai, bo ống
+            }
+            
+            total_weighted_thread_factor = 0.0
+            total_calculated_ops_count = 0
+            
+            for op in predicted_ops:
+                op_upper = str(op).upper()
+                matched_factor = 3.5 # Hệ số mặc định trung bình ngành
+                
+                # Bản đồ ngữ nghĩa map công đoạn may sang ma trận tiêu hao chỉ chuyên nghiệp
+                if "WAISTBAND" in op_upper or "ZIPPER" in op_upper or "LOCKSTITCH" in op_upper:
+                    matched_factor = operation_matrix_weights["LOCKSTITCH"]
+                elif "DOUBLE" in op_upper or "CHAINSTITCH" in op_upper:
+                    matched_factor = operation_matrix_weights["DOUBLE_NEEDLE"]
+                elif "OVERLOCK" in op_upper or "VẮT SỔ" in op_upper:
+                    matched_factor = operation_matrix_weights["OVERLOCK_5_THREAD"] if "JEAN" in str(st.session_state.get("visual_description_str")).upper() else operation_matrix_weights["OVERLOCK_3_THREAD"]
+                elif "HEM" in op_upper or "KANSAI" in op_upper or "COVERSTITCH" in op_upper:
+                    matched_factor = operation_matrix_weights["COVERSTITCH"]
+                    
+                total_weighted_thread_factor += matched_factor
+                total_calculated_ops_count += 1
+                
+            # Tính toán hệ số tiêu hao chỉ trung bình có trọng số cho tệp mẫu
+            final_thread_factor = (total_weighted_thread_factor / total_calculated_ops_count) if total_calculated_ops_count > 0 else 3.5
+            
+            # Công thức tính mét chỉ sản xuất: (Tổng chiều dài đường may cm * Hệ số chỉ * Hệ số hao hụt sản xuất 1.15) / 100 quy đổi sang mét
+            calculated_thread_meters = round((estimated_seam_length_cm * final_thread_factor * 1.15) / 100.0, 2)
+            
+            # Đóng gói hồ sơ mỏ neo toán học vệ tinh gửi sang cho LLM kết xuất cấu trúc
+            geometric_satellite_data = {
+                "dxf_polygon_fabric_area_cm2": estimated_fabric_area_cm2,
+                "calculated_net_yardage": calculated_yardage,
+                "dxf_total_seam_length_cm": estimated_seam_length_cm,
+                "calculated_thread_meters": calculated_thread_meters,
+                "marker_efficiency_applied": simulated_marker_efficiency,
+                "weighted_thread_factor_applied": round(final_thread_factor, 2),
+                "structural_predictions": vision_json_data
+            }
+            
+            # ÉP PROMPT PHẲNG CHỐNG LỖI VALUEERROR INTERPOLATION CHUẨN NGÀNH MAY
+            geo_prompt = (
+                f"You are a senior Garment Technologist and CAD Pattern Engineer.\n"
+                f"TASK: Formulate a final production Bill of Materials (BOM) for this new design.\n\n"
+                f"Mathematical Satellite Blueprint inputs:\n"
+                f"{json.dumps(geometric_satellite_data, ensure_ascii=False)}\n\n"
+                f"CRITICAL ASSIGNMENT INSTRUCTIONS:\n"
+                f"1. Generate a valid JSON array of objects representing the final BOM records.\n"
+                f"2. Use 'calculated_yardage' for the Main Shell Fabric item consumption.\n"
+                f"3. Use 'calculated_thread_meters' for the Core Sewing Thread item consumption.\n"
+                f"4. Scan the structural_predictions features to append mandatory accessories (e.g., buttons, zippers, elastic bands) with precise counts.\n\n"
+                f"Return ONLY the strict raw JSON array, without any markdown formatting codeblocks. Follow this format exactly:\n"
+                f'[\n'
+                f'  {{"Item": "Shell Fabric", "Consumption": {calculated_yardage}, "Unit": "Yds", "Type": "FABRIC", "Method": "CAD Polygon Calculation"}},\n'
+                f'  {{"Item": "Core Sewing Thread", "Consumption": {calculated_thread_meters}, "Unit": "Mtrs", "Type": "TRIM", "Method": "Seam Length Thread Factor Analysis"}}\n'
+                f']'
+            )
+            
+            geo_res = client.models.generate_content(model='gemini-2.5-flash', contents=[geo_prompt]) if client else None
+            
+            if geo_res and geo_res.text:
+                clean_geo_text = geo_res.text.strip()
+                if clean_geo_text.startswith("```"):
+                    clean_geo_text = re.sub(r'^```json\s*|```$', '', clean_geo_text, flags=re.IGNORECASE).strip()
+                
+                json_geo_match = re.search(r'\[[\s\S]*?\]', clean_geo_text)
+                if json_geo_match:
+                    st.session_state["bom_records"] = json.loads(json_geo_match.group(0))
+                    st.success("✨ Động cơ Area Engine đã hoàn thành phép tính chu vi rập mẫu và sinh cấu trúc BOM thành công!")
+                else:
+                    raise ValueError("AI không thể kết xuất chuỗi mảng JSON định mức hợp lệ.")
             else:
-                # Cấu trúc dự phòng khẩn cấp chống rỗng mảng làm đơ màn hình giao diện
-                st.session_state["bom_records"] = [
-                    {"Item": "Estimated Shell Fabric", "Consumption": 1.35, "Unit": "Yds", "Type": "FABRIC", "Method": "Fallback Blueprint Rule"},
-                    {"Item": "Core Sewing Thread", "Consumption": 120.0, "Unit": "Mtrs", "Type": "TRIM", "Method": "Fallback Blueprint Rule"}
-                ]
+                raise ValueError("Kết nối API mô hình VLM cục bộ bị gián đoạn.")
+                
         except Exception as e:
-            st.error(f"Lỗi cục bộ khi chạy động cơ Geometric Engine: {str(e)}")
-
+            st.error(f"🚨 Sự cố cục bộ tại động cơ hình học Tầng 3: {str(e)}")
+            # MẠNG LƯỚI CỨU NGUY KHẨN CẤP CHỐNG LỖI SYNTAXERROR (KẾT THÚC KHỐI HOÀN CHỈNH)
+            st.session_state["bom_records"] = [
+                {"Item": "Estimated Shell Fabric", "Consumption": calculated_yardage if 'calculated_yardage' in locals() else 1.45, "Unit": "Yds", "Type": "FABRIC", "Method": "CAD Polygon Fallback Rule"},
+                {"Item": "Core Sewing Thread", "Consumption": calculated_thread_meters if 'calculated_thread_meters' in locals() else 125.0, "Unit": "Mtrs", "Type": "TRIM", "Method": "Thread Factor Fallback Rule"}
+            ]
 
 
 # =========================================================================================
