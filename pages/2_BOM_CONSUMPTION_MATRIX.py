@@ -1919,6 +1919,7 @@ import re
 import requests
 import streamlit as st
 import pandas as pd
+from collections import defaultdict
 
 if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption Matrix":
     matched_techpack = st.session_state.get("matched_techpack")
@@ -1932,6 +1933,9 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     api_headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if SB_KEY else {}
     url_db = f"{base_url_api.rstrip('/')}/rest/v1/san_pham" if base_url_api else ""
 
+    # ==========================================
+    # ĐOẠN 1: TÌM KIẾM & TRÍCH XUẤT BOM TỪ DATABASE
+    # ==========================================
     if "bom_search_status" not in st.session_state:
         st.session_state["bom_search_status"] = "NOT_FOUND"
 
@@ -2000,8 +2004,9 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     st.session_state["historical_bom_reference"] = bom_records
     st.session_state["main_fabric_records"] = main_fabric_records
     st.session_state["bom_summary_engine"] = bom_summary_engine
-
-    # --- BẢNG SO SÁNH SAI LỆCH THÔNG SỐ RẬP ---
+    # ==========================================
+    # ĐOẠN 2: BẢNG SO SÁNH SAI LỆCH THÔNG SỐ RẬP
+    # ==========================================
     st.markdown("<br>### 📐 BẢNG SO SÁNH SAI LỆCH THÔNG SỐ KỸ THUẬT RẬP MẪU", unsafe_allow_html=True)
 
     new_specs = new_style_measurements_dict if new_style_measurements_dict else {}
@@ -2083,12 +2088,15 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         if valid_diff_pcts:
             avg_pom_growth = sum(valid_diff_pcts) / len(valid_diff_pcts)
             avg_area_growth_pct = round((((1 + avg_pom_growth/100) ** 2) - 1) * 100, 2)
-
-    # --- AI CONSUMPTION PROJECTION ENGINE ---
+            
+    # Khởi tạo biến cục bộ tránh lỗi NameError nếu khối so sánh bên trên không thỏa mãn điều kiện
+    avg_pom_diff_pct = locals().get("avg_pom_diff_pct", 0.0)
+    # ==========================================
+    # ĐOẠN 3: AI CONSUMPTION PROJECTION ENGINE
+    # ==========================================
     if matched_techpack and st.session_state.get("matched_image_verified", False) and bom_records:
         st.markdown("<br>🔮 **AI CONSUMPTION PROJECTION ENGINE (DỰ PHÓNG ĐỊNH MỨC MÃ MỚI)**", unsafe_allow_html=True)
 
-        
         v_similarity = st.session_state.get("matched_similarity_score", 100.0)
         col1, col2 = st.columns(2)
         with col1:
@@ -2098,7 +2106,6 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
 
         projection_rows = []
         for ctype, old_qty in bom_summary_engine.items():
-            # Đồng bộ hóa định dạng chữ để kiểm tra chính xác chủng loại vải chính/vải lót chịu ảnh hưởng nhảy size
             ctype_upper = str(ctype).strip().upper()
             if any(k in ctype_upper for k in ["MAIN", "FABRIC", "BODY", "SHELL", "LINING", "RIB", "COMBINATION", "POCKETING"]):
                 similarity_weight = v_similarity / 100.0
@@ -2120,15 +2127,9 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         st.session_state["ai_projected_consumption_matrix"] = projection_rows
         st.dataframe(df_projection, use_container_width=True, hide_index=True)
 
-
-
-
-
-           # --- AI CONSUMPTION PROJECTION ENGINE ---
     if 'bom_matrix_uploader' in st.session_state and st.session_state["bom_matrix_uploader"] is not None:
         st.markdown("<br>🔮 **AI CONSUMPTION PROJECTION ENGINE (DỰ PHÓNG ĐỊNH MỨC MÃ MỚI)**", unsafe_allow_html=True)
         
-        # A. CẤU HÌNH BIẾN TOÁN HỌC CƠ SỞ CHUNG
         category_context = str(st.session_state.get("detected_garment_type", globals().get("new_style_category", "PANT"))).upper()
         if "JACKET" in category_context or "OUTERWEAR" in category_context: default_growth = 0.90
         elif "PANT" in category_context or "TROUSER" in category_context: default_growth = 0.75
@@ -2195,12 +2196,10 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             "effective_shape_factor": shape_factor, "fabric_growth_factor": fabric_growth_factor, "garment_category": category_context
         }
 
-        # 1. ĐỒNG BỘ LUỒNG ĐA PHÂN HỆ CACHE (TRÁNH LỖI LỆCH BIẾN GIỮA CÁC PHẦN)
         local_bom_data = bom_records if 'bom_records' in locals() and bom_records else []
         session_bom_data = st.session_state.get("bom_records", [])
         active_bom_source = session_bom_data if session_bom_data else local_bom_data
 
-        # [CHẾ ĐỘ DỰ PHÒNG HÌNH HỌC]: Nếu rập mới tinh trống kho, tự nạp khung xương vật tư để chat AI quy đổi khổ vải
         if not active_bom_source:
             active_bom_source = [
                 {"consumption_type": "Main Fabric", "consumption_value": 1.625},
@@ -2208,16 +2207,12 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                 {"consumption_type": "Pocketing Fabric", "consumption_value": 0.135}
             ]
 
-        from collections import defaultdict
         bom_grouped_lists = defaultdict(list)
         
-        # 2. VÒNG LẶP ĐỒNG BỘ 100% VỚI TÊN CỘT DATABASE GỐC TRÊN MÀN HÌNH CỦA BẠN (SỬA LỖI TRỐNG BẢNG)
         for rec in active_bom_source:
-            # Đồng bộ triệt để cột consumption_type và các trường alias phụ trợ
             raw_type = rec.get("consumption_type") or rec.get("Phân loại vật tư (Type )") or rec.get("Phân loại vật tư (Type)") or rec.get("material_type") or ""
             raw_type = str(raw_type).strip().upper()
             
-            # Đồng bộ triệt để cột consumption_value chứa dữ liệu định mức số float gốc của bạn
             raw_qty = rec.get("consumption_value") or rec.get("Định mức (DM)") or rec.get("Định mức cũ (DM)") or 0.0
             
             try:
@@ -2227,77 +2222,15 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                     qty_f = float(nums_found[0]) if nums_found else 0.0
                 else:
                     qty_f = float(raw_qty) if raw_qty is not None else 0.0
-                    
-                if qty_f > 0 and raw_type != "": 
-                    bom_grouped_lists[raw_type].append(qty_f)
-            except Exception: 
-                pass
-
-        cleaned_bom_engine = {}
-        for mat_type, qty_list in bom_grouped_lists.items():
-            if qty_list: cleaned_bom_engine[mat_type] = max(qty_list)
-
-        # 3. MÀNG LỌC TỪ KHÓA ĐỒNG BỘ CHỮ HOA TOÀN DIỆN
-        MAIN_FABRIC_KEYS = ["MAIN", "SELF", "BODY", "SHELL", "OUTER", "FABRIC"]
-        SECONDARY_FABRIC_KEYS = ["LINING", "POCKET", "POCKETING", "MESH", "CONTRAST", "RIB", "INTERLINING", "FUSING", "TRICOT"]
-
-        projection_rows = []
-        pom_display = round(shape_factor, 1)
-
-        # Vòng lặp kết xuất ma trận định mức mới
-        for ctype, old_qty_f in cleaned_bom_engine.items():
-            ctype_upper = str(ctype).strip().upper()
-            
-            is_main_fabric = any(k in ctype_upper for k in MAIN_FABRIC_KEYS)
-            is_secondary_fabric = any(k in ctype_upper for k in SECONDARY_FABRIC_KEYS)
-            
-            if is_main_fabric and not any(sub_k in ctype_upper for sub_k in ["POCKET", "POCKETING", "INTERLINING", "FUSING"]):
-                main_increase_pct = shape_factor * fabric_growth_factor
-                projected_dm = old_qty_f * (1 + main_increase_pct / 100) * (1 + wastage_buffer / 100)
-                note = f"Vải chính: Hệ số rập phân tầng Hierarchy ({method_used}: {pom_display}%) × Hệ số vải ({fabric_growth_factor}) → ĐM điều chỉnh: {main_increase_pct:.2f}%"
-            elif is_secondary_fabric or any(sub_k in ctype_upper for sub_k in ["POCKET", "POCKETING", "INTERLINING", "FUSING"]):
-                main_increase_pct = shape_factor * fabric_growth_factor
-                sub_increase_pct = 0.4 * main_increase_pct
-                projected_dm = old_qty_f * (1 + sub_increase_pct / 100) * (1 + wastage_buffer / 100)
-                note = f"Vải phụ: Giảm chấn (0.4) × Mức tăng vải chính → ĐM điều chỉnh: {sub_increase_pct:.2f}%"
-            else:
-                projected_dm = old_qty_f * (1 + wastage_buffer / 100)
-                note = f"Phụ liệu tĩnh (Chỉ tính lũy tiến hao hụt sản xuất {wastage_buffer}%)"
+            except (ValueError, TypeError):
+                qty_f = 0.0
                 
-            # Đổi ngược nhãn chữ hiển thị bảng kết quả sang Tiếng Việt chuẩn công nghiệp cho người dùng đọc
-            display_type = str(ctype).title()
-            projection_rows.append({
-                "Phân loại vật tư (Type)": display_type,
-                "Tổng ĐM mã cũ": old_qty_f,
-                "ĐM Dự phòng mã mới": round(projected_dm, 3),
-                "Cơ sở thuật toán toán AI": note
-            })
-            
-        # Nhật ký kiểm toán chẩn đoán hệ thống 3 con số
-        st.info("📊 **CRITICAL AUDIT LOGS:**")
-        st.write(f"🔢 **ACTIVE BOM SIZE:** `{len(active_bom_source)}` | 🔢 **CLEANED BOM SIZE:** `{len(cleaned_bom_engine)}` | 🔢 **PROJECTION ROWS:** `{len(projection_rows)}`")
-        
-        df_projection = pd.DataFrame(projection_rows)
-        st.session_state["ai_projected_consumption_matrix"] = projection_rows
-        st.dataframe(df_projection, use_container_width=True, hide_index=True)
-
-
-
-
-
-
-import json
-import re
-import streamlit as st
-import pandas as pd
-
-if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption Matrix":
-    matched_techpack = st.session_state.get("matched_techpack")
-    bom_records = st.session_state.get("bom_records", [])
-
-    # --- KẾT XUẤT BẢNG ĐỊNH MỨC NGUYÊN VẬT LIỆU (BOM) LỊCH SỬ THỰC TẾ ---
+            bom_grouped_lists[raw_type].append(qty_f)
+    # ==========================================
+    # ĐOẠN 4: HÌNH THÀNH BẢNG BOM ĐỐI CHỨNG LỊCH SỬ
+    # ==========================================
     if matched_techpack and st.session_state.get("matched_image_verified", False) and bom_records:
-        st.markdown("<br>📦 **Chi Tiết Định Mức Định Hình Mở Rộng (BOM Lịch Sử Của Mã Đối Chứng):**", unsafe_allow_html=True)
+        st.markdown("<br>📦 **Chi Tiết Định Mức Định Hình Mở Rộng (BOM Lịch Sử Của Mã Đối Đối Chứng):**", unsafe_allow_html=True)
         df_bom = pd.DataFrame(bom_records)
         target_cols = ['style_name', 'consumption_type', 'article_name', 'material_size', 'uom', 'consumption_value']
         
