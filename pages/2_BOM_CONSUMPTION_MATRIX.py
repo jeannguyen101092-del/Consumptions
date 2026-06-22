@@ -1565,7 +1565,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                                     break
                             st.session_state["detected_garment_type"] = found_type
                 except Exception: pass
-                with st.expander("🛠️ DEBUG: DỮ LIỆU THÔ VÀ TRẠNG THÁI PHÂN LOẠI VISION", expanded=False):
+        with st.expander("🛠️ DEBUG: DỮ LIỆU THÔ VÀ TRẠNG THÁI PHÂN LOẠI VISION", expanded=False):
             st.write(f"**Garment Type:** `{st.session_state['detected_garment_type']}`")
             st.code(new_vec)
 
