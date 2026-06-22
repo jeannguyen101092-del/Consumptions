@@ -1601,6 +1601,9 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                         st.rerun()
                 except Exception as e: 
                     st.warning(f"Vision Engine gặp sự cố đọc file: {str(e)}")
+       # PART 2A ĐÃ SỬA: KHỬ LỖI DANH MỤC TRỐNG & CHUẨN HÓA QUÉT CHỮ THƯỜNG TRONG SUPABASE
+# =========================================================================================
+
         with st.expander("🛠️ DEBUG: DỮ LIỆU THÔ VÀ TRẠNG THÁI PHÂN LOẠI VISION", expanded=False):
             st.write(f"**Garment Type:** `{st.session_state['detected_garment_type']}`")
             st.code(new_vec)
@@ -1622,7 +1625,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                         offset_cursor = 0
                         while True:
                             query_params = {
-                                "select": "StyleName,Category,BaseSize,DetailedMeasurements,SketchURL,sketch_vector",
+                                "select": "*", # Lấy toàn bộ các cột hiện có trong bảng thong_so_techpack
                                 "limit": limit_size,
                                 "offset": offset_cursor
                             }
@@ -1638,38 +1641,52 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                     if raw_styles and client and client.models:
                         vision_type = str(st.session_state.get("detected_garment_type", "UNKNOWN")).strip().upper()
                         
-                        # 2. LỌC DANH MỤC CỨNG (Hard Category Filter)
+                        # =========================================================================================
+                        # 2. FIX LỖI 1: BỎ BỘ LỌC CỨNG CATEGORY (Do cấu trúc bảng không có cột Category độc lập)
+                        # =========================================================================================
                         category_pool = []
                         for s in raw_styles:
-                            cand_cat = str(s.get("Category", "")).strip().upper()
-                            if vision_type != "UNKNOWN" and vision_type not in cand_cat and cand_cat not in vision_type:
-                                continue 
-                            category_pool.append(s)
-                        
+                            # Quét từ khóa loại đồ (PANT, SHIRT...) trong toàn bộ chuỗi văn bản của dòng để gom ứng viên
+                            full_line_text = str(s.get("sketch_vector", "")).upper() + " " + str(s.get("StyleName", "")).upper()
+                            if vision_type == "UNKNOWN" or vision_type in full_line_text:
+                                category_pool.append(s)
+                                
                         if not category_pool: category_pool = raw_styles
                         
-                        # 3. PHRASE EXTRACTOR ENGINE CHUẨN HÓA CỤM TỪ NGHỀ
+                        # =========================================================================================
+                        # 3. FIX LỖI 2: PHRASE EXTRACTOR ENGINE CHẤP NHẬN TOÀN BỘ CHỮ THƯỜNG VÀ CHỮ SỐ
+                        # =========================================================================================
                         def extract_technical_phrases(text):
-                            phrases = re.findall(r'[A-Z]{3,}(?:\s+[A-Z]{3,})+', str(text).upper())
-                            single_words = re.findall(r'[A-Z]{4,}', str(text).upper())
-                            return set(phrases + single_words)
+                            if not text: return set()
+                            # Chuyển đổi toàn bộ chuỗi đầu vào về dạng CHỮ HOA trước khi bóc tách từ
+                            text_upper = str(text).upper()
+                            # Bóc tách tất cả từ đơn, cụm từ và số hiệu rập mẫu từ 2 ký tự trở lên
+                            words = re.findall(r'\b[A-Z0-9ÀÁÂÃÈÉÊÌÍÒÓÔÕÙÚĂĐĨŨƠƯÝỨỨỜỜỞỞỢỢỨỨỬỬỰỰỘỘỚỚỜỜỞỞỢỢ]+\b', text_upper)
+                            return set(words)
 
                         new_keywords = extract_technical_phrases(new_vec)
                         ranked_pool = []
                         
                         for s in category_pool:
-                            cand_words = extract_technical_phrases(str(s.get("sketch_vector", "")).upper())
+                            # Lấy vector thô từ Supabase (bất kể hoa thường) đem đi phân tích từ khóa
+                            db_vector_text = str(s.get("sketch_vector", ""))
+                            cand_words = extract_technical_phrases(db_vector_text)
+                            
+                            # Tính điểm số trùng khớp từ khóa chuyên ngành
                             overlap_score = len(new_keywords.intersection(cand_words))
                             
+                            # Cộng điểm thưởng nếu trùng khớp kích cỡ cơ bản (Base Size) nếu có cột dữ liệu
                             if str(s.get("BaseSize", "")).strip().upper() == str(new_style_base_size).strip().upper():
                                 overlap_score += 3
+                                
                             ranked_pool.append((overlap_score, s))
                         
-                        ranked_pool.sort(reverse=True, key=lambda x: x)
-                        top_8_candidates = [x for x in ranked_pool[:8]]
+                        # Trích xuất Top 8 dòng dữ liệu có mật độ từ khóa rập may cao nhất để gửi Gemini chấm điểm chi tiết
+                        ranked_pool.sort(reverse=True, key=lambda x: x[0])
+                        top_8_candidates = [x[1] for x in ranked_pool[:8]]
                         
                         if top_8_candidates:
-                            # 4. SỬA LỖI ÉP BUỘC CHỌN SAI: Cải tiến Prompt cho phép Gemini từ chối Match (-1)
+                            # 4. GỬI TOPỨNG VIÊN CHO GEMINI CHẤM ĐIỂM ĐỐI CHIẾU CHUYÊN SÂU
                             semantic_prompt = (
                                 f"Target Type: {vision_type}. Size: {new_style_base_size}. New features: {new_vec}. "
                                 f"Candidates Pool: {json.dumps(top_8_candidates, ensure_ascii=False)}. "
@@ -1692,7 +1709,6 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                                 score = int(match_res.get("match_score", 0))
                                 reason = str(match_res.get("reason", "N/A"))
                                 
-                                # SỬA LỖI PHÂN VÂN: Nếu AI trả về -1 hoặc điểm dưới sàn, hủy gán kết quả ngay
                                 if s_idx is not None and 0 <= s_idx < len(top_8_candidates) and score >= 60:
                                     st.session_state["matched_techpack"] = top_8_candidates[s_idx]
                                     st.session_state["match_confidence_score"] = score
@@ -1713,7 +1729,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                     st.session_state["matched_techpack"] = None
                     st.session_state["match_confidence_score"] = 0
 
-            # 5. BỘ ROUTER PHÂN TẦNG CHUYỂN MODE TỰ ĐỘNG THEO TIÊU CHÍ 3 CẤP ĐỘ
+            # 5. BỘ ROUTER PHÂN TẦNG TỰ ĐỘNG
             current_score = st.session_state["match_confidence_score"]
             current_match = st.session_state["matched_techpack"]
             
@@ -1727,6 +1743,9 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                 st.session_state["calculation_mode"] = "GEOMETRIC_VECTOR"
 
             st.rerun()
+
+
+          
     # LẤY THÔNG TIN TRẠNG THÁI HIỆN TẠI TỪ PHẦN 2A ĐỂ ĐIỀU HƯỚNG SẢN XUẤT ĐẦU RA
     matched_techpack = st.session_state.get("matched_techpack")
     calc_mode = st.session_state.get("calculation_mode")
