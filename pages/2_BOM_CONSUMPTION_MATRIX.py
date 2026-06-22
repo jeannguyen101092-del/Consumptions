@@ -1921,7 +1921,6 @@ import streamlit as st
 import pandas as pd
 from collections import defaultdict
 
-# Thêm tiêu đề trang chuẩn để sửa dòng lỗi font-weight cũ của bạn
 st.title("🧵 BOM & Consumption Matrix")
 
 matched_techpack = st.session_state.get("matched_techpack")
@@ -1937,7 +1936,6 @@ url_db = f"{base_url_api.rstrip('/')}/rest/v1/san_pham" if base_url_api else ""
 
 if "bom_search_status" not in st.session_state:
     st.session_state["bom_search_status"] = "NOT_FOUND"
-
 if matched_techpack and st.session_state.get("matched_image_verified", False):
     target_style_name_bom = st.session_state.get("matched_style_name", "").strip()
     current_bom_style = st.session_state.get("bom_style_loaded", "")
@@ -1981,7 +1979,6 @@ if matched_techpack and st.session_state.get("matched_image_verified", False):
             st.session_state["bom_search_status"] = "FOUND" if final_filtered else "NOT_FOUND"
         else:
             st.session_state["bom_search_status"] = "API_ERROR" if is_api_error else "NOT_FOUND"
-
 bom_records = st.session_state.get("bom_records", [])
 main_fabric_records = []
 bom_summary_engine = {}
@@ -2003,7 +2000,7 @@ for r in bom_records:
 st.session_state["historical_bom_reference"] = bom_records
 st.session_state["main_fabric_records"] = main_fabric_records
 st.session_state["bom_summary_engine"] = bom_summary_engine
-st.markdown("<br>### 📐 BẢNG SO SÁNH SAI LỆCH THÔNG SỐ KỸ THUẬT RẬP MẪU", unsafe_allow_html=True)
+st.markdown("### 📐 BẢNG SO SÁNH SAI LỆCH THÔNG SỐ KỸ THUẬT RẬP MẪU")
 
 new_specs = new_style_measurements_dict if new_style_measurements_dict else {}
 old_specs = matched_techpack.get("DetailedMeasurements", {}) if matched_techpack else {}
@@ -2067,7 +2064,6 @@ if new_specs or old_specs:
             "Chênh lệch (Diff)": display_diff,
             "Tỷ lệ biến thiên (Diff %)": display_pct
         })
-
     for original_old_key, val_old in old_specs.items():
         if original_old_key not in processed_old_keys:
             compare_rows.append({
@@ -2087,7 +2083,7 @@ if new_specs or old_specs:
         
 avg_pom_diff_pct = st.session_state.get("avg_pom_diff_pct", 0.0)
 if matched_techpack and st.session_state.get("matched_image_verified", False) and bom_records:
-    st.markdown("<br>🔮 **AI CONSUMPTION PROJECTION ENGINE (DỰ PHÓNG ĐỊNH MỨC MÃ MỚI)**", unsafe_allow_html=True)
+    st.markdown("### 🔮 AI CONSUMPTION PROJECTION ENGINE")
 
     v_similarity = st.session_state.get("matched_similarity_score", 100.0)
     col1, col2 = st.columns(2)
@@ -2118,9 +2114,8 @@ if matched_techpack and st.session_state.get("matched_image_verified", False) an
     df_projection = pd.DataFrame(projection_rows)
     st.session_state["ai_projected_consumption_matrix"] = projection_rows
     st.dataframe(df_projection, use_container_width=True, hide_index=True)
-
 if 'bom_matrix_uploader' in st.session_state and st.session_state["bom_matrix_uploader"] is not None:
-    st.markdown("<br>🔮 **AI CONSUMPTION PROJECTION ENGINE (DỰ PHÓNG ĐỊNH MỨC MÃ MỚI)**", unsafe_allow_html=True)
+    st.markdown("### 🔮 AI CONSUMPTION PROJECTION ENGINE")
     
     category_context = str(st.session_state.get("detected_garment_type", st.session_state.get("new_style_category", "PANT"))).upper()
     if "JACKET" in category_context or "OUTERWEAR" in category_context: default_growth = 0.90
@@ -2187,7 +2182,6 @@ if 'bom_matrix_uploader' in st.session_state and st.session_state["bom_matrix_up
         "method_used": method_used, "area_growth": area_growth, "pom_growth": pom_growth,
         "effective_shape_factor": shape_factor, "fabric_growth_factor": fabric_growth_factor, "garment_category": category_context
     }
-
     active_bom_source = st.session_state.get("bom_records", bom_records)
 
     if not active_bom_source:
@@ -2198,11 +2192,9 @@ if 'bom_matrix_uploader' in st.session_state and st.session_state["bom_matrix_up
         ]
 
     bom_grouped_lists = defaultdict(list)
-    
     for rec in active_bom_source:
         raw_type = rec.get("consumption_type") or rec.get("Phân loại vật tư (Type )") or rec.get("Phân loại vật tư (Type)") or rec.get("material_type") or ""
         raw_type = str(raw_type).strip().upper()
-        
         raw_qty = rec.get("consumption_value") or rec.get("Định mức (DM)") or rec.get("Định mức cũ (DM)") or 0.0
         
         try:
@@ -2214,10 +2206,10 @@ if 'bom_matrix_uploader' in st.session_state and st.session_state["bom_matrix_up
                 qty_f = float(raw_qty) if raw_qty is not None else 0.0
         except (ValueError, TypeError):
             qty_f = 0.0
-            
         bom_grouped_lists[raw_type].append(qty_f)
+
 if matched_techpack and st.session_state.get("matched_image_verified", False) and bom_records:
-    st.markdown("<br>📦 **Chi Tiết Định Mức Định Hình Mở Rộng (BOM Lịch Sử Của Mã Đối Chứng):**", unsafe_allow_html=True)
+    st.markdown("### 📦 Chi Tiết Định Mức Định Hình Mở Rộng")
     df_bom = pd.DataFrame(bom_records)
     target_cols = ['style_name', 'consumption_type', 'article_name', 'material_size', 'uom', 'consumption_value']
     
@@ -2235,11 +2227,9 @@ if matched_techpack and st.session_state.get("matched_image_verified", False) an
         "Khổ vải / Chi tiết định mức", "Đơn vị (UOM)", "Định mức (DM)"
     ]
     st.dataframe(df_bom_render, use_container_width=True, hide_index=True)
-    
 elif matched_techpack:
     status_msg = st.session_state.get('bom_search_status', 'NOT_FOUND')
     st.info(f"ℹ Trạng thái: {status_msg}. Chưa tìm thấy dữ liệu định mức BOM lịch sử nào khớp cho mã hàng này.")
-
 
 
 
