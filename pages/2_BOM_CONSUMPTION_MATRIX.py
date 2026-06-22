@@ -2166,40 +2166,111 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
 
 
 
-# =========================================================================================
-# 📐 AI CONSUMPTION PROJECTION ENGINE (PHÂN KHU HẠ TẦNG TÍNH TOÁN VÀ CHAT AI)
-# =========================================================================================
+# =================================================================
+# ĐOẠN 6: GIAO DIỆN CHAT AI PHÂN TÍCH ĐỊNH MỨC VÀ SCRIPT AUTO-SCROLL
+# =================================================================
+if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption Matrix":
+    import streamlit as st
+    import pandas as pd
 
-if not st.session_state.get("match_found", False):
-    st.info("🔮 **AI GEOMETRIC VECTOR ESTIMATION ENGINE ACTIVATED**")
-    
-    # Render bảng dữ liệu hình học phẳng và số mục nhập khổ vải, độ co rút tại đây
-    g1, g2, g3 = st.columns(3)
-    with g1: 
-        fabric_width = st.number_input("Khổ vải (Inches)", min_value=30.0, max_value=80.0, value=58.0, step=0.5, key="final_geo_w")
-    with g2: 
-        shrinkage_rate = st.number_input("Độ co rút (%)", min_value=0.0, max_value=20.0, value=3.0, step=0.1, key="final_geo_s")
-    with g3: 
-        cutting_waste = st.number_input("Hao hụt cắt (%)", min_value=0.0, max_value=15.0, value=2.5, step=0.1, key="final_geo_c")
-    
-    geo_data = {
-        "Chi tiết bộ rập (Pattern Pieces)": ["Thân trước (Front Panel)", "Thân sau (Back Panel)", "Cạp quần (Waistband)", "Túi quần (Pocket Bag)"],
-        "Chiều dài bao (Inches)": [38.5, 39.5, 34.0, 12.0],
-        "Chiều rộng bao (Inches)": [14.0, 16.5, 4.0, 8.5],
-        "Số lượng chi tiết": [2, 2, 1, 4]  # ĐÃ VÁ LỖI: Điền đầy đủ mảng số lượng, sửa lỗi thụt lề dòng
-    }
-    df_geo = pd.DataFrame(geo_data)
-    edited_df_geo = st.data_editor(df_geo, use_container_width=True, num_rows="dynamic", key="final_geo_editor")
-    
-    try:
-        edited_df_geo["Diện tích (Sq Inches)"] = edited_df_geo["Chiều dài bao (Inches)"] * edited_df_geo["Chiều rộng bao (Inches)"] * edited_df_geo["Số lượng chi tiết"]
-        tong_dien_tich = edited_df_geo["Diện tích (Sq Inches)"].sum()
-        if fabric_width > 0:
-            dm_co_ban = (tong_dien_tich / fabric_width) / 36.0
-            dm_bien_dong = dm_co_ban * (1 + (shrinkage_rate / 100.0)) * (1 + (cutting_waste / 100.0))
-            st.metric(label="🔮 DỰ PHÒNG ĐỊNH MỨC HÌNH HỌC TỰ ĐỘNG", value=f"{dm_bien_dong:.3f} Yards / Sản phẩm")
-    except Exception as e:
-        pass
+    # Khôi phục an toàn các biến ngữ cảnh phục vụ tính toán từ môi trường toàn cục
+    client = globals().get("client", None)
+    matched_techpack = st.session_state.get("matched_techpack", None)
+    bom_records = st.session_state.get("bom_records", [])
+    new_style_measurements_dict = globals().get("new_style_measurements_dict", {})
+    target_new_sketch_bytes = globals().get("target_new_sketch_bytes", None)
+    new_style_base_size = globals().get("new_style_base_size", "N/A")
+
+    chat_header_col1, chat_header_col2 = st.columns([3.2, 0.8])
+    with chat_header_col1:
+        st.markdown("### 💬 TRỢ LÝ AI PHÂN TÍCH ĐỊNH MỨC SẢN XUẤT ")
+    with chat_header_col2:
+        if st.button("🗑️ XÓA LỊCH SỬ CHAT", key="direct_clear_chat_btn", use_container_width=True):
+            st.session_state["consumption_chat_history"] = []
+            st.toast("♻️ Đã xóa sạch lịch sử chat tức thì!")
+            st.rerun()
+
+    chat_container = st.container()
+    with chat_container:
+        for chat in st.session_state.get("consumption_chat_history", []):
+            with st.chat_message("user"): 
+                st.write(chat["user"])
+            with st.chat_message("assistant"): 
+                st.write(chat["ai"])
+                
+    if user_query := st.chat_input("Nhập yêu cầu phân tích (Ví dụ: Tính định mức vải chính khi co rút ngang 5%, dọc 3%)..."):
+        if "consumption_chat_history" not in st.session_state:
+            st.session_state["consumption_chat_history"] = []
+            
+        with chat_container:
+            with st.chat_message("user"):
+                st.write(user_query)
+                
+            with st.chat_message("assistant"):
+                with st.spinner("🤖 AI đang phân tích dữ liệu và tính toán định mức..."):
+                    try:
+                        if "ai_consumption_analyst_engine" in globals():
+                            ai_reply = ai_consumption_analyst_engine(
+                                client=client,
+                                user_message=user_query,
+                                matched_techpack=matched_techpack,
+                                bom_records=bom_records,
+                                new_style_measurements=new_style_measurements_dict,
+                                target_new_sketch_bytes=target_new_sketch_bytes,
+                                detected_size=new_style_base_size
+                            )
+                        else:
+                            ai_reply = "⚠️ Khối phân tích `ai_consumption_analyst_engine` chưa được khởi tạo trong mã nguồn hệ thống."
+                    except Exception as chat_err:
+                        ai_reply = f"❌ Không thể kết nối đến bộ não AI để phân tích dữ liệu định mức. Chi tiết sự cố: {str(chat_err)}"
+                        
+                    st.write(ai_reply)
+                    st.session_state["consumption_chat_history"].append({"user": user_query, "ai": ai_reply})
+                    
+        js_scroll = "<script>var d=window.parent.document; var s=d.querySelectorAll('section.main'); if(s.length>0){s[0].scrollTo({top:s[0].scrollHeight,behavior:'smooth'});}</script>"
+        st.components.v1.html(js_scroll, height=0)
+
+    # =========================================================================================
+    # 📐 ĐÃ TÍCH HỢP: AI GEOMETRIC VECTOR ENGINE (ĐẨY XUỐNG DƯỚI KHUNG CHAT KHI KHÔNG TÌM THẤY STYLE KHỚP)
+    # =========================================================================================
+    st.markdown("---")
+    if not st.session_state.get("match_found", False):
+        st.warning("🔮 **KÍCH HOẠT CHẾ ĐỘ DỰ PHÒNG: GEOMETRIC VECTOR CONSUMPTION ESTIMATION**")
+        st.caption("Do không tìm thấy mã rập mẫu lịch sử tương thích đạt độ tin cậy >= 75%, hệ thống chuyển sang phân tích diện tích rải sơ đồ đa giác dựa trên kích thước chu vi bản vẽ phẳng Flat Sketch.")
+        
+        g1, g2, g3 = st.columns(3)
+        with g1: 
+            fabric_width = st.number_input("Khổ vải hữu dụng (Inches)", min_value=30.0, max_value=80.0, value=58.0, step=0.5, key="final_geo_w")
+        with g2: 
+            shrinkage_rate = st.number_input("Độ co rút phần trăm (%)", min_value=0.0, max_value=20.0, value=3.0, step=0.1, key="final_geo_s")
+        with g3: 
+            cutting_waste = st.number_input("Hao hụt sản xuất bàn cắt (%)", min_value=0.0, max_value=15.0, value=2.5, step=0.1, key="final_geo_c")
+        
+        st.markdown("##### 📝 Cấu hình chi tiết khung kích thước bao bộ rập (Pattern Shape Grid)")
+        geo_data = {
+            "Chi tiết bộ rập (Pattern Pieces)": ["Thân trước (Front Panel)", "Thân sau (Back Panel)", "Cạp quần (Waistband)", "Túi quần (Pocket Bag)"],
+            "Chiều dài bao (Inches)": [38.5, 39.5, 34.0, 12.0],
+            "Chiều rộng bao (Inches)": [14.0, 16.5, 4.0, 8.5],
+            "Số lượng chi tiết": [2, 2, 1, 4]  # ĐÃ VÁ LỖI THỤT LỀ: Đóng ngoặc vuông và khai báo mảng đầy đủ số lượng
+        }
+        df_geo = pd.DataFrame(geo_data)
+        edited_df_geo = st.data_editor(df_geo, use_container_width=True, num_rows="dynamic", key="final_geo_editor")
+        
+        try:
+            # Thuật toán tính toán định mức Yards dựa trên diện tích bao của sơ đồ rập phẳng
+            edited_df_geo["Diện tích (Sq Inches)"] = edited_df_geo["Chiều dài bao (Inches)"] * edited_df_geo["Chiều rộng bao (Inches)"] * edited_df_geo["Số lượng chi tiết"]
+            tong_dien_tich = edited_df_geo["Diện tích (Sq Inches)"].sum()
+            
+            if fabric_width > 0:
+                dm_co_ban = (tong_dien_tich / fabric_width) / 36.0
+                dm_bien_dong = dm_co_ban * (1 + (shrinkage_rate / 100.0)) * (1 + (cutting_waste / 100.0))
+                st.metric(
+                    label="🔮 DỰ PHÒNG ĐỊNH MỨC VẢI AI HÌNH HỌC (GEOMETRIC AI CONSUMPTION)", 
+                    value=f"{dm_bien_dong:.3f} Yards / Sản phẩm",
+                    delta=f"Khổ sơ đồ: {fabric_width} Inches"
+                )
+        except Exception as e:
+            st.error(f"Lỗi tính toán định mức hình học phẳng: {e}")
 
 
 
