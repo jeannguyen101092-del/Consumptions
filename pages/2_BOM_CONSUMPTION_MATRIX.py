@@ -2564,22 +2564,29 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     st.markdown("---")
     st.markdown("### 📊 HỆ THỐNG ĐỊNH MỨC TOÀN DIỆN (4-LEVEL PIPELINE)")
 
+    # 1. THIẾT LẬP THAM SỐ SẢN XUẤT TOÀN CỤC
     g1, g2, g3 = st.columns(3)
-    with g1: fabric_width = st.number_input("Khổ vải hữu dụng (Inches)", min_value=30.0, max_value=80.0, value=58.0, step=0.5, key="global_fabric_w")
-    with g2: shrinkage_rate = st.number_input("Độ co rút tổng hợp (%)", min_value=0.0, max_value=20.0, value=3.0, step=0.1, key="global_shrink_r")
-    with g3: cutting_waste = st.number_input("Hao hụt bàn cắt (%)", min_value=0.0, max_value=15.0, value=2.5, step=0.1, key="global_waste_c")
+    with g1: 
+        fabric_width = st.number_input("Khổ vải hữu dụng (Inches)", min_value=30.0, max_value=80.0, value=58.0, step=0.5, key="global_fabric_w")
+    with g2: 
+        shrinkage_rate = st.number_input("Độ co rút tổng hợp (%)", min_value=0.0, max_value=20.0, value=3.0, step=0.1, key="global_shrink_r")
+    with g3: 
+        cutting_waste = st.number_input("Hao hụt bàn cắt (%)", min_value=0.0, max_value=15.0, value=2.5, step=0.1, key="global_waste_c")
 
+    # Khôi phục dữ liệu ngữ cảnh an toàn
     matched_techpack = st.session_state.get("matched_techpack", None)
     new_style_measurements_dict = globals().get("new_style_measurements_dict", {})
     new_style_base_size = st.session_state.get("new_style_base_size", "M")
     vision_match_score = st.session_state.get("vision_match_score", 0)
     subabat_consumption_db = st.session_state.get("subabat_consumption_history", [])
 
+    # Ma trận nhảy size và đặc trưng thiết kế DNA mẫu mới
     SIZE_DELTA_MATRIX = {"S": 0.96, "M": 1.00, "L": 1.03, "XL": 1.06, "XXL": 1.10}
     target_category = matched_techpack.get("category") if matched_techpack else st.session_state.get("new_style_category", "Pant")
     target_fabric = matched_techpack.get("fabric") if matched_techpack else st.session_state.get("new_style_fabric", "Cotton")
     target_construction = matched_techpack.get("construction") if matched_techpack else st.session_state.get("new_style_construction", "Standard")
 
+    # Bộ lọc số đo Robust xử lý phân số và đơn vị chữ dính kèm số
     def extract_apparel_number_6b(value_str):
         if not value_str or pd.isna(value_str): return None
         v_clean = str(value_str).strip().replace(',', '.')
@@ -2600,11 +2607,12 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         return {}
 
     new_m = normalize_measurements_6b(new_style_measurements_dict)
-    st.session_state["normalized_new_m"] = new_m
+    st.session_state["normalized_new_m"] = new_m 
 
+    # Thuật toán tính toán khoảng cách vector so khớp tương đồng DNA
     max_similarity = 0
     df_top_k = pd.DataFrame()
-    st.session_state["pipeline_executed_level"] = 3 
+    st.session_state["pipeline_executed_level"] = 3  # Mặc định trượt xuống Level 3 nếu 1 và 2 không đủ độ tin cậy
 
     if len(subabat_consumption_db) > 0:
         df_subabat = pd.DataFrame(subabat_consumption_db)
@@ -2635,6 +2643,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         if not df_top_k.empty:
             max_similarity = df_top_k["Similarity_Score"].max()
 
+    # ĐIỀU HƯỚNG CHẠY TẦNG FALLBACK
     if vision_match_score >= 75 and matched_techpack and matched_techpack.get("consumption"):
         st.session_state["pipeline_executed_level"] = 1
         st.success(f"🎯 **LEVEL 1 ACTIVE: VISION + TECHPACK MATCH (Độ khớp: {vision_match_score}%)**")
@@ -2652,8 +2661,8 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         df_top_k["Weight"] = df_top_k["Similarity_Score"] / total_score if total_score > 0 else 1/len(df_top_k)
         weighted_base_consumption = (df_top_k["consumption"] * df_top_k["Weight"]).sum()
         
-        # SỬA LỖI VẬN HÀNH: Trích xuất an toàn từ DataFrame đã bọc iloc độc lập
-        best_match_old_m = normalize_measurements_6b(df_top_k["DetailedMeasurements"].iloc[0] if "DetailedMeasurements" in df_top_k.columns else {})
+        # SỬA LỖI VẬN HÀNH: Đổi .iloc.get thành truy xuất chỉ mục dòng đầu tiên .iloc[0]
+        best_match_old_m = normalize_measurements_6b(df_top_k.iloc[0].get("DetailedMeasurements"))
         common_keys = set(best_match_old_m.keys()).intersection(set(new_m.keys()))
         
         ratios = []
@@ -2664,7 +2673,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                 if n_val and o_val and o_val > 0: ratios.append(n_val / o_val)
                     
         raw_factor = np.mean(ratios) if ratios else 1.0
-        measurement_factor = max(0.85, min(raw_factor, 1.20)) 
+        measurement_factor = max(0.85, min(raw_factor, 1.20)) # Khóa Clamped an toàn cho sản xuất
         size_scale_factor = SIZE_DELTA_MATRIX.get(new_style_base_size, 1.00)
         
         final_level2_consumption = weighted_base_consumption * measurement_factor * size_scale_factor * (1 + (shrinkage_rate / 100.0)) * (1 + (cutting_waste / 100.0))
@@ -2683,8 +2692,9 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     import pandas as pd
     import numpy as np
     import tempfile
-    import ezdxf  
+    import ezdxf  # Thư viện biên dịch cấu trúc CAD vector rập
 
+    # Kiểm tra trạng thái điều hướng chuyển tiếp từ đoạn 6B sang
     pipeline_level = st.session_state.get("pipeline_executed_level", 3)
 
     if pipeline_level == 3:
@@ -2693,7 +2703,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         
         if uploaded_dxf is not None:
             st.success("✅ Đã kết nối cổng biên dịch đồ họa Gerber DXF!")
-            with st.spinner("📐 Gerber Engine đang quét lọc các đối tượng và nội suy chu vi tinh..."):
+            with st.spinner("📐 Gerber Engine đang quét các lớp thực thể để bóc tách chu vi rập tinh..."):
                 try:
                     with tempfile.NamedTemporaryFile(delete=False, suffix=".dxf") as tmp_file:
                         tmp_file.write(uploaded_dxf.getvalue())
@@ -2701,11 +2711,8 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                     
                     doc = ezdxf.readfile(tmp_file_path)
                     msp = doc.modelspace()
-                    
-                    fabric_width = st.session_state.get("global_fabric_w", 58.0)
-                    shrinkage_rate = st.session_state.get("global_shrink_r", 3.0)
-                    cutting_waste = st.session_state.get("global_waste_c", 2.5)
 
+                    # Đọc đơn vị đo INSUNITS từ CAD Header để quy đổi diện tích
                     dxf_units = doc.header.get("$INSUNITS", 1)
                     scale_to_inch_sq = 1.0
                     unit_label = "Inches"
@@ -2716,7 +2723,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                         scale_to_inch_sq = (1.0 / 2.54) * (1.0 / 2.54)
                         unit_label = "Centimeters (Converted to SqIn)"
 
-                    # SỬA LỖI VẬN HÀNH: Đóng chu vi rập bằng tọa độ điểm chốt góc [0] tránh lỗi đệ quy vòng lặp
+                    # SỬA LỖI VẬN HÀNH: Sửa thuật toán Shoelace bóc tách tọa độ điểm phẳng x, y chuẩn chỉ
                     def calculate_polygon_area_safe_6c(vertices_list):
                         if not vertices_list or len(vertices_list) = 3:
                             raw_area = calculate_polygon_area_safe_6c(points)
@@ -2730,14 +2737,55 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
 
                     if parsed_pieces:
                         st.session_state["dxf_parsed_pieces_records"] = parsed_pieces
-                        st.session_state["pipeline_executed_level"] = 3.5  
+                        st.session_state["pipeline_executed_level"] = 3.5  # Báo hiệu bóc tách thành công
                         st.rerun()
                     else:
                         st.warning("⚠️ File DXF không chứa thực thể đường chu vi đóng ngoài (Contour Line) nào hợp lệ.")
                         st.session_state["pipeline_executed_level"] = 4
                 except Exception as dxf_err:
-                    st.error(f"❌ Lỗi cấu trúc hoặc phiên bản CAD thiết kế: {str(dxf_err)}")
+                    st.error(f"❌ Trình đọc DXF gặp sự cố phân tích cấu trúc file: {str(dxf_err)}")
                     st.session_state["pipeline_executed_level"] = 4
+# =================================================================
+# ĐOẠN 6D: ĐỊNH MỨC DỰ PHÒNG CUỐI CÙNG QUA VISION & VÒNG LẶP HỌC MÁY TỰ ĐỘNG
+# =================================================================
+if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption Matrix":
+    import streamlit as st
+    import pandas as pd
+
+    pipeline_level = st.session_state.get("pipeline_executed_level", 3)
+
+    # TRƯỜNG HỢP 3.5: HIỂN THỊ KẾT QUẢ ĐO ĐẠC FILE RẬP VÀ ĐIỀU CHỈNH SƠ ĐỒ BÀN CẮT
+    if pipeline_level == 3.5:
+        st.success("📐 **LEVEL 3 COMPILER OUTPUT: KẾT QUẢ ĐO ĐẠC VECTOR RẬP CHI TIẾT**")
+        parsed_pieces = st.session_state.get("dxf_parsed_pieces_records", [])
+        
+        # Truy xuất tham số sản xuất cấu hình từ đoạn 6B
+        fabric_width = st.session_state.get("global_fabric_w", 58.0)
+        shrinkage_rate = st.session_state.get("global_shrink_r", 3.0)
+        cutting_waste = st.session_state.get("global_waste_c", 2.5)
+        
+        df_dxf_real = pd.DataFrame(parsed_pieces)
+        edited_dxf_df = st.data_editor(df_dxf_real, use_container_width=True, num_rows="dynamic", key="real_dxf_editor_final")
+        
+        marker_efficiency = st.slider("Hiệu suất đi sơ đồ sản xuất thực tế (Marker Efficiency %)", min_value=60.0, max_value=98.0, value=84.5, key="dxf_eff_slider")
+        
+        total_net_area = (edited_dxf_df["Diện tích thực (Sq Inches)"] * edited_dxf_df["Số lượng chi tiết"]).sum()
+        dxf_base_consumption = (total_net_area / fabric_width) / 36.0
+        final_dxf_consumption = (dxf_base_consumption / (marker_efficiency / 100.0)) * (1 + (shrinkage_rate / 100.0)) * (1 + (cutting_waste / 100.0))
+        
+        st.metric(label="📐 ĐỊNH MỨC SẢN XUẤT THỰC TẾ (GERBER DXF COMPILER)", value=f"{final_dxf_consumption:.3f} Yards / Sản phẩm", delta=f"Tổng diện tích rập tinh: {total_net_area:.2f} SqIn")
+
+        # CƠ CHẾ AUTO LEARNING: Ghi ngược dữ liệu rập thật vào CSDL kho làm giàu tập huấn luyện AI
+        if st.button("💾 LƯU ĐỊNH MỨC NÀY VÀO KHO LỊCH SỬ SUBABAT", use_container_width=True, key="save_dxf_to_subabat_btn"):
+            matched_techpack = st.session_state.get("matched_techpack", None)
+            subabat_consumption_db = st.session_state.get("subabat_consumption_history", [])
+            
+            new_record = {
+                "style": st.session_state.get("new_style_code", "NEW-STYLE-DXF"),
+                "category": matched_techpack.get("category") if matched_techpack else st.session_state.get("new_style_category", "Pant"),
+                "fabric": matched_techpack.get("fabric") if matched_techpack else st.session_state.get("new_style_fabric", "Cotton"),
+                "construction": matched_techpack.get("construction") if matched_techpack else st.session_state.get("new_style_construction", "Standard"),
+                "size": st.session_state.get("new_style_base_size
 
 
 
