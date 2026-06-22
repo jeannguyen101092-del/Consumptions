@@ -1752,16 +1752,18 @@ with img_col1:
     uploaded_file_name = st.session_state.get("previous_uploaded_file_name", "Techpack")
     
     if target_new_sketch_bytes is not None:
-        # VÁ LỖI XỬ LÝ: Nếu tệp đầu vào là PDF, hiển thị hộp thông tin tài liệu thay vì ép render st.image gây lỗi
-        if "pdf" in str(detected_mime_type).lower() or str(uploaded_file_name).lower().endswith(".pdf"):
-            st.info(f"📄 **Tài liệu dạng tệp:** `{uploaded_file_name}`\n\nHệ thống đã nạp toàn bộ cấu trúc dữ liệu PDF vào bộ nhớ mô phỏng rập mẫu.")
-        else:
-            try:
-                st.image(target_new_sketch_bytes, caption=f"Mẫu mới tải lên ({new_style_id_detected})", use_container_width=True)
-            except Exception as e:
+        # THAY ĐỔI LOGIC: Ưu tiên cố gắng render hình ảnh từ dữ liệu bytes đã trích xuất được trước
+        try:
+            st.image(target_new_sketch_bytes, caption=f"Hình ảnh đã quét từ tài liệu mới ({new_style_id_detected})", use_container_width=True)
+        except Exception as e:
+            # Nếu render bytes lỗi VÀ tệp là PDF thì mới hiển thị hộp thông báo fallback
+            if "pdf" in str(detected_mime_type).lower() or str(uploaded_file_name).lower().endswith(".pdf"):
+                st.info(f"📄 **Tài liệu dạng tệp:** `{uploaded_file_name}`\n\nHệ thống đã nạp toàn bộ cấu trúc dữ liệu PDF vào bộ nhớ mô phỏng rập mẫu.")
+            else:
                 st.warning(f"Lỗi hiển thị ảnh mẫu mới: {e}")
     else:
         st.info("ℹ️ Chưa tải lên tệp ảnh Flat Sketch của mẫu mới.")
+
 
 with img_col2:
     if matched_techpack is not None:
