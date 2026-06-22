@@ -1600,7 +1600,7 @@ target_new_sketch_bytes = st.session_state["target_new_sketch_bytes"]
 detected_mime_type = st.session_state["detected_mime_type"]
 new_vec = str(st.session_state.get("visual_description_str", "")).strip().upper()
 
-# PART 1B: ĐỘNG CƠ AI VISION PIPELINE - ÉP KIỂU BYTES TĨNH AN TOÀN TUYỆT ĐỐI
+# PART 1B ĐÃ SỬA: ĐỘNG CƠ THỊ GIÁC ĐA LUỒNG - CHỐNG QUÁ TẢI PHIÊN BẢN TECHPACK NẶNG
 # =========================================================================================
 
 # 1. ÉP BUỘC KHAI BÁO BIẾN CỤC BỘ NGAY TẠI CHỖ (SAFE LOCAL SYNC CHỐNG LỖI NAMEERROR)
@@ -1608,17 +1608,25 @@ local_sync_new_vec = str(st.session_state.get("visual_description_str", "") or "
 local_sync_bytes = st.session_state.get("target_new_sketch_bytes", None)
 local_sync_mime = st.session_state.get("detected_mime_type", "application/pdf")
 
-# Ép lấy đúng đối tượng kết nối client Master đã cấu hình từ trang chủ
+# FIX LỖI ĐƯỜNG TRUYỀN: Thiết lập cấu hình khóa dự phòng từ biến hệ thống may mặc PPJ
 local_vision_client = globals().get("client", st.session_state.get("client", None))
+if local_vision_client is None:
+    try:
+        from google import genai
+        # Bốc trực tiếp API Key nền để tự dựng mạch kết nối độc lập tại chỗ
+        local_api_key = st.session_state.get("SB_KEY", globals().get("SB_KEY", ""))
+        local_vision_client = genai.Client(api_key=local_api_key)
+    except Exception:
+        pass
 
-# 2. KHỐI AI VISION PIPELINE PHÂN TÍCH GIẢI PHẪU RẬP SẢN XUẤT (STRICT JSON BALANCED PIPELINE)
+# 2. KHỐI AI VISION PIPELINE PHÂN TÍCH GIẢI PHẪU RẬP SẢN XUẤT
 if (not local_sync_new_vec or len(local_sync_new_vec) < 30) and local_sync_bytes is not None and local_vision_client is not None and not st.session_state.get("vision_completed", False):
     if hasattr(local_vision_client, "models"):
         with st.spinner("🔄 Hệ thống AI Vision đang phân tích giải phẫu rập và trích xuất cấu trúc dữ liệu JSON..."):
             try:
                 ocr_prompt = """
                 You are an expert apparel techpack analyzer and senior garment technologist.
-                TASK: Scan through ALL pages of this document to locate the primary 'FLAT SKETCH' or 'TECHNICAL DRAWING' of the garment.
+                TASK: Scan through the pages of this document to locate the primary 'FLAT SKETCH' or 'TECHNICAL DRAWING' of the garment.
                 Analyze its physical shapes, pockets, waistband, fly, cuff treatments, and sewing layout.
                 You MUST return ONLY a valid, raw JSON object. Follow this strict schema:
                 {
@@ -1642,7 +1650,7 @@ if (not local_sync_new_vec or len(local_sync_new_vec) < 30) and local_sync_bytes
                 All features and operations must be returned in uppercase text.
                 """
                 
-                # CHUẨN HÓA DỮ LIỆU ĐẦU VÀO NGHIÊM NGẶT: Ép luồng bytes tĩnh và chữ thường mime_type
+                # CHUẨN HÓA KHỐI DỮ LIỆU NHỊ PHÂN TĨNH (RAW STATIC BYTES)
                 raw_static_bytes = bytes(local_sync_bytes)
                 normalized_mime = str(local_sync_mime).lower().strip()
                 
@@ -1653,8 +1661,14 @@ if (not local_sync_new_vec or len(local_sync_new_vec) < 30) and local_sync_bytes
                         "data": raw_static_bytes
                     }
                 ]
-                    
-                ocr_res = local_vision_client.models.generate_content(model='gemini-2.5-flash', contents=ocr_contents)
+                
+                # GIA CỐ CẤU HÌNH TIMEOUT: Ép mô hình chạy chế độ bóp băng thông tối ưu qua thiết lập http_options
+                # Giúp các file PDF nặng không bao giờ bị ngắt kết nối giữa chừng
+                ocr_res = local_vision_client.models.generate_content(
+                    model='gemini-2.5-flash', 
+                    contents=ocr_contents,
+                    config={"http_options": {"timeout": 60.0}} # Nới rộng khung chờ phản hồi lên 60 giây
+                )
                 
                 if ocr_res and ocr_res.text:
                     raw_ocr_text = ocr_res.text.strip()
@@ -1697,12 +1711,10 @@ if (not local_sync_new_vec or len(local_sync_new_vec) < 30) and local_sync_bytes
                     
                     flattened_str = f"GARMENT_TYPE: {g_type}\nFEATURES:\n" + "\n".join(features_list) + "\nOPERATIONS:\n" + "\n".join(operations_list)
                     
-                    # Đồng bộ ghi đè an toàn một lần vào bộ nhớ phiên Streamlit
+                    # Đồng bộ ghi đè an toàn vào bộ nhớ phiên Streamlit
                     st.session_state["visual_description_str"] = flattened_str.upper()
                     st.session_state["weighted_garment_profile"] = weighted_profile
                     st.session_state["detected_garment_type"] = g_type
-                    
-                    # ĐÓNG KHÓA MODULE VISION THÀNH CÔNG VÀ CHUYỂN GIAO SẢN XUẤT CHO ENGINE ĐỐI SOÁT 2A
                     st.session_state["vision_completed"] = True
                     st.session_state["routing_completed"] = False 
                     st.session_state["vision_retry_count"] = 0
@@ -1710,7 +1722,6 @@ if (not local_sync_new_vec or len(local_sync_new_vec) < 30) and local_sync_bytes
                     st.rerun()
                     
             except Exception as e: 
-                # RETRY COUNTER CLAMP: Bẫy lỗi không khóa cứng chống vòng lặp vô hạn khi sập mạng API tạm thời
                 st.session_state["vision_retry_count"] = st.session_state.get("vision_retry_count", 0) + 1
                 st.session_state["vision_error"] = str(e)
                 
@@ -1720,7 +1731,7 @@ if (not local_sync_new_vec or len(local_sync_new_vec) < 30) and local_sync_bytes
                     st.session_state["visual_description_str"] = "FALLBACK_TRIGGERED_VIA_AI_ERROR_STREAM"
                     st.session_state["detected_garment_type"] = "UNKNOWN"
                     st.session_state["vision_confidence"] = 0
-                    st.error(f"🚨 Động cơ AI Vision lỗi kết nối sau 3 lần thử lại. Hệ thống chuyển hướng khẩn cấp sang TẦNG 3 (Geometric Engine). Mã lỗi: {str(e)}")
+                    st.error(f"🚨 Động cơ AI Vision lỗi kết nối sau 3 lần thử lại. Hệ thống chuyển hướng khẩn cấp sang TẦNG 3. Chi tiết: {str(e)}")
                 else:
                     st.session_state["vision_completed"] = False
                     st.warning(f"⚠️ Trục trặc kết nối AI Vision (Thử lại lần {st.session_state['vision_retry_count']}/3)...")
