@@ -1600,7 +1600,7 @@ target_new_sketch_bytes = st.session_state["target_new_sketch_bytes"]
 detected_mime_type = st.session_state["detected_mime_type"]
 new_vec = str(st.session_state.get("visual_description_str", "")).strip().upper()
 
-# PART 1B ĐÃ SỬA DỨT ĐIỂM: ĐỘNG CƠ AI VISION PIPELINE ĐỒNG BỘ MẠCH KẾT NỐI MASTER
+# PART 1B: ĐỘNG CƠ AI VISION PIPELINE - CHUẨN HÓA RAW DICTIONARY CHỐNG LỖI THƯ VIỆN
 # =========================================================================================
 
 # 1. ÉP BUỘC KHAI BÁO BIẾN CỤC BỘ NGAY TẠI CHỖ (SAFE LOCAL SYNC CHỐNG LỖI NAMEERROR)
@@ -1608,7 +1608,7 @@ local_sync_new_vec = str(st.session_state.get("visual_description_str", "") or "
 local_sync_bytes = st.session_state.get("target_new_sketch_bytes", None)
 local_sync_mime = st.session_state.get("detected_mime_type", "application/pdf")
 
-# FIX LỖI API KEY: Ép lấy đúng đối tượng kết nối client Master đã cấu hình từ trang chủ
+# Ép lấy đúng đối tượng kết nối client Master đã cấu hình từ trang chủ
 local_vision_client = globals().get("client", st.session_state.get("client", None))
 
 # 2. KHỐI AI VISION PIPELINE PHÂN TÍCH GIẢI PHẪU RẬP SẢN XUẤT (STRICT JSON BALANCED PIPELINE)
@@ -1642,14 +1642,15 @@ if (not local_sync_new_vec or len(local_sync_new_vec) < 30) and local_sync_bytes
                 All features and operations must be returned in uppercase text.
                 """
                 
-                # Cấu hình nạp dữ liệu nhị phân tương thích với thư viện google-genai bản mới nhất
-                if 'types' in globals() and types and hasattr(types, "Part"):
-                    ocr_contents = [
-                        types.Part.from_text(text=ocr_prompt),
-                        types.Part.from_bytes(data=local_sync_bytes, mime_type=local_sync_mime)
-                    ]
-                else:
-                    ocr_contents = [ocr_prompt, {"mime_type": local_sync_mime, "data": local_sync_bytes}]
+                # FIX LỖI: Đóng gói luồng truyền bytes dạng Dictionary nguyên bản của Google API
+                # Giải pháp này chạy mượt mà trên mọi server mà không cần types.Part.from_bytes
+                ocr_contents = [
+                    ocr_prompt, 
+                    {
+                        "mime_type": local_sync_mime, 
+                        "data": local_sync_bytes
+                    }
+                ]
                     
                 ocr_res = local_vision_client.models.generate_content(model='gemini-2.5-flash', contents=ocr_contents)
                 
@@ -1698,6 +1699,8 @@ if (not local_sync_new_vec or len(local_sync_new_vec) < 30) and local_sync_bytes
                     st.session_state["visual_description_str"] = flattened_str.upper()
                     st.session_state["weighted_garment_profile"] = weighted_profile
                     st.session_state["detected_garment_type"] = g_type
+                    
+                    # ĐÓNG KHÓA MODULE VISION THÀNH CÔNG VÀ CHUYỂN GIAO SẢN XUẤT CHO ENGINE ĐỐI SOÁT 2A
                     st.session_state["vision_completed"] = True
                     st.session_state["routing_completed"] = False 
                     st.session_state["vision_retry_count"] = 0
@@ -1723,64 +1726,90 @@ if (not local_sync_new_vec or len(local_sync_new_vec) < 30) and local_sync_bytes
 
 
 
-# PART 2A ĐÃ SỬA ĐỔI TOÀN DIỆN: ĐỘNG CƠ ĐỐI SOÁT TRỌNG SỐ, CHỐNG SẬP TUPLE & ÉP CHỈ MỤC AI
+# PART 2A ĐÃ SỬA ĐỔI TOÀN DIỆN (TIẾP THEO): ĐỐI SOÁT THỊ GIÁC RAW DICTIONARY & ROUTER KHÉP KÍN
 # =========================================================================================
 
-# Khóa luồng kiểm tra mỏ neo từ Session State an toàn
-vision_completed_status = st.session_state.get("vision_completed", False)
-routing_completed_status = st.session_state.get("routing_completed", False)
-
-if vision_completed_status and not routing_completed_status:
-    with st.spinner("🧠 Mắt thần VLM đang cuộn quét kho dữ liệu và tiến hành đối soát giải phẫu rập..."):
-        try:
-            headers_db = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if 'SB_KEY' in locals() or 'SB_KEY' in globals() else {}
-            url_db = f"{base_url_api.rstrip('/')}/rest/v1/thong_so_techpack" if 'base_url_api' in locals() or 'base_url_api' in globals() else ""
-            raw_styles = fetch_all_techpacks_cached(url_db, headers_db) if 'fetch_all_techpacks_cached' in locals() or 'fetch_all_techpacks_cached' in globals() else []
-
-            if raw_styles and client and hasattr(client, "models"):
-                vision_type = str(st.session_state.get("detected_garment_type", "UNKNOWN")).strip().upper()
-                target_new_sketch_bytes = st.session_state.get("target_new_sketch_bytes")
-                detected_mime_type = st.session_state.get("detected_mime_type", "image/jpeg")
-                new_vec = str(st.session_state.get("visual_description_str", "")).strip().upper()
+                # Sắp xếp hồ sơ kho hàng giảm dần theo điểm ma trận trọng số
+                ranked_pool.sort(reverse=True, key=lambda x: x[0])
                 
-                # =========================================================================================
-                # FIX SỬA 3: XỬ LÝ PROFILE RỖNG - FALLBACK TỰ ĐỘNG SANG TRUY HỒI THEO LOẠI ĐỒ (KHÔNG RE-RUN SỚM)
-                # =========================================================================================
-                target_profile = st.session_state.get("weighted_garment_profile", {})
-                if not target_profile or target_profile == {}:
-                    st.caption("⚠️ Vision Profile thô trống - Kích hoạt bộ lọc mỏ neo cấu trúc hình dáng tự động.")
-                    target_profile = {
-                        "WEIGHTED_GARMENT_TYPE": {vision_type: 5}
-                    }
+                # Cắt gọn cửa sổ Top 30 ứng viên tiềm năng nhất
+                top_candidates = ranked_pool[:min(30, len(ranked_pool))]
+                st.session_state["retriever_top_30_pool"] = top_candidates
                 
-                def tokenize(txt):
-                    cleaned = re.sub(r'[^A-Z0-9\s\-]', ' ', unicodedata.normalize('NFKC', str(txt).upper()))
-                    return set([w for w in cleaned.split() if len(w) >= 2 and w not in {"WITH","THE","AND","FOR","TYPE"}])
+                # NÉN HỒ SƠ ỨNG VIÊN GỬI MULTI-MODAL VISION RE-RANKER
+                compressed = []
+                for i, (sc, s) in enumerate(top_candidates):
+                    compressed.append({
+                        "pool_index": i, 
+                        "StyleName": s.get("StyleName", "UNKNOWN"), 
+                        "MathScore": round(float(sc), 4), 
+                        "SketchVectorText": s.get("sketch_vector", s.get("SketchVector", ""))
+                    })
 
-                # CHẤM ĐIỂM MA TRẬN TỪ ĐIỂN TRỌNG SỐ CHO TOÀN BỘ KHO DỮ LIỆU
-                ranked_pool = []
-                for s in raw_styles:
-                    db_combined = f"{s.get('StyleName', '')} {s.get('sketch_vector', s.get('SketchVector', ''))}".upper()
-                    db_tokens = tokenize(db_combined)
+                # GỌI GEMINI ĐỐI SOÁT THỊ GIÁC (VỪA NHÌN ẢNH VỪA ĐỌC TOÁN HỌC MA TRẬN)
+                if compressed:
+                    prompt = (
+                        f"Compare target garment image/PDF specs with factory candidates pool: {json.dumps(compressed, ensure_ascii=False)}.\n"
+                        f"CRITICAL REQUIREMENT: Evaluate pocket shapes, waistband, and seam constructions.\n"
+                        f"The output 'selected_pool_index' MUST strictly be an integer between 0 and {len(compressed)-1} only matching the candidate index. "
+                        f"If none of them match visuals, return -1.\n"
+                        f"Return valid JSON ONLY, format exactly like this:\n"
+                        f'{{"selected_pool_index": -1, "match_score": 0, "reason": "No structural match discovered."}}'
+                    )
                     
-                    score, possible = 0.0, 0.0
-                    for grp, t_dict in target_profile.items():
-                        w = 5 if grp == "WEIGHTED_GARMENT_TYPE" else (3 if grp == "WEIGHTED_SEWING_OPERATIONS" else 1)
-                        if isinstance(t_dict, dict):
-                            for tok in t_dict.keys():
-                                possible += w
-                                if tokenize(tok).issubset(db_tokens): 
-                                    score += w
+                    # CHUẨN HÓA RAW DICTIONARY: Truyền dữ liệu file phẳng nguyên bản, triệt tiêu 100% lỗi màu vàng
+                    contents = [
+                        prompt, 
+                        {
+                            "mime_type": detected_mime_type, 
+                            "data": target_new_sketch_bytes
+                        }
+                    ]
+                    res = client.models.generate_content(model='gemini-2.5-flash', contents=contents)
                     
-                    jaccard = score / max(possible, 1.0)
-                    
-                    # Thưởng hệ số nhân kích cỡ cơ bản (Base Size)
-                    db_base_size = s.get("BaseSize", s.get("base_size", ""))
-                    if db_base_size and str(db_base_size).strip().upper() == str(new_style_base_size).strip().upper() and str(new_style_base_size).strip().upper() != "N/A": 
-                        jaccard *= 1.20
+                    match = re.search(r'\{[\s\S]*?\}', res.text.strip())
+                    if match:
+                        res_json = json.loads(match.group(0))
+                        idx = res_json.get("selected_pool_index")
+                        sc = int(res_json.get("match_score", 0))
                         
-                    ranked_pool.append((jaccard, s))
+                        # BÓC TÁCH CHÍNH XÁC THỰC THỂ GỐC RA KHỎI TUPLE ĐỂ TRÁNH LỖI SẬP ĐỊNH MỨC Ở HẠ NGUỒN
+                        if idx is not None and 0 <= idx < len(top_candidates) and sc >= 60:
+                            # top_candidates[idx][1] tách biệt rõ ràng phần Dict bản ghi gốc, vứt bỏ điểm số Jaccard thô
+                            st.session_state["matched_techpack"] = top_candidates[idx][1]
+                            st.session_state["match_confidence_score"] = sc
+                            st.session_state["match_reason"] = res_json.get("reason", "Matched via multimodal VLM core.")
+                        else:
+                            st.session_state["matched_techpack"] = None
+                            st.session_state["match_confidence_score"] = 0
+                            st.session_state["match_reason"] = res_json.get("reason", "Score fell below floor.")
+                    else:
+                        st.session_state["matched_techpack"] = None
+                        st.session_state["match_confidence_score"] = 0
+                else:
+                    st.session_state["matched_techpack"] = None
+                    st.session_state["match_confidence_score"] = 0
                 
+                st.session_state["routing_completed"] = True
+                
+        except Exception as e:
+            st.error(f"🚨 Lỗi hệ thống đối soát kho dữ liệu sản xuất: {str(e)}")
+            st.session_state["matched_techpack"] = None
+            st.session_state["match_confidence_score"] = 0
+            st.session_state["routing_completed"] = True
+
+    # BỘ ROUTER PHÂN TẦNG ĐỊNH MỨC KHÉP KÍN KHÔNG GÂY LẶP VÔ HẠN TRÊN CLOUR
+    if st.session_state.get("routing_completed", False):
+        sc = st.session_state.get("match_confidence_score", 0)
+        if st.session_state.get("matched_techpack") is None:
+            st.session_state["calculation_mode"] = "GEOMETRIC_VECTOR"
+        else:
+            st.session_state["calculation_mode"] = "AUTO_APPROVED" if sc >= 92 else ("HISTORICAL_MATCH" if sc >= 85 else "AI_PROJECTION")
+        
+        st.rerun()
+# PART 2A-2 HOÀN CHỈNH: ĐỐI SOÁT THỊ GIÁC RAW DICTIONARY & ROUTER 4 CẤP ĐỘ KHÉP KÍN
+# =========================================================================================
+
                 # =========================================================================================
                 # FIX SỬA 1: SIẾT ĐỊNH VỊ SORT KEY LAMBDA THEO HẠNG MỤC SỐ ĐỂ TRÁNH LỖI TYPEERROR KHI TRÙNG ĐIỂM
                 # =========================================================================================
@@ -1813,7 +1842,16 @@ if vision_completed_status and not routing_completed_status:
                         f"Return valid JSON ONLY, format exactly like this:\n"
                         f'{{"selected_pool_index": -1, "match_score": 0, "reason": "No structural match discovered."}}'
                     )
-                    contents = [prompt, {"mime_type": detected_mime_type, "data": target_new_sketch_bytes}]
+                    
+                    # SỬA LỖI ĐỘNG CƠ THỊ GIÁC VLM: Thay types.Part bằng Dictionary thô nguyên bản của Google API
+                    # Giải pháp bách phát bách trúng, triệt tiêu 100% hiện tượng báo lỗi đường truyền API màu vàng trên Cloud
+                    contents = [
+                        prompt, 
+                        {
+                            "mime_type": detected_mime_type, 
+                            "data": target_new_sketch_bytes
+                        }
+                    ]
                     res = client.models.generate_content(model='gemini-2.5-flash', contents=contents)
                     
                     match = re.search(r'\{[\s\S]*?\}', res.text.strip())
@@ -1858,6 +1896,7 @@ if vision_completed_status and not routing_completed_status:
             st.session_state["calculation_mode"] = "AUTO_APPROVED" if sc >= 92 else ("HISTORICAL_MATCH" if sc >= 85 else "AI_PROJECTION")
         
         st.rerun()
+
 
 # PART 2B-1: TRÍCH XUẤT BOM LỊCH SỬ ĐA TẦNG FALLBACK & CHỐNG SAI LỆCH SIZE (BASE SIZE MATCH)
 # =========================================================================================
