@@ -1734,252 +1734,69 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
 
     bom_records = st.session_state.get("bom_records", [])
 
-# ==========================================================
-# 🖼️ LỚP HIỂN THỊ GIAO DIỆN ĐỐI CHIẾU FLAT SKETCH (VÁ LỖI HIỂN THỊ FILE PDF)
-# ==========================================================
-st.markdown("### 🖼️ ĐỐI CHIẾU SỰ TƯƠNG ĐỒNG HÌNH ẢNH THIẾT KẾ (FLAT SKETCH)")
+    # ==========================================================
+    # 🖼️ GIAO DIỆN ĐỐI CHIẾU FLAT SKETCH (ĐÃ VÁ LỖI HIỂN THỊ BIẾN VÀ ẢNH)
+    # ==========================================================
+    st.markdown("### 🖼️ ĐỐI CHIẾU SỰ TƯƠNG ĐỒNG HÌNH ẢNH THIẾT KẾ (FLAT SKETCH)")
+    img_col1, img_col2 = st.columns(2)
 
-matched_techpack = st.session_state.get("matched_techpack", None)
-base_url_api = globals().get("base_url_api", globals().get("SB_URL", ""))
-api_headers = globals().get("api_headers", {})
-detected_mime_type = locals().get("detected_mime_type", "image/jpeg")
-
-img_col1, img_col2 = st.columns(2)
-
-with img_col1:
-    # ĐỒNG BỘ: Chuyển hoàn toàn sang sử dụng st.session_state thay vì globals()/locals()
-    target_new_sketch_bytes = st.session_state.get("target_new_sketch_bytes", None)
-    new_style_id_detected = st.session_state.get("new_style_id_detected", "N/A")
-    uploaded_file_name = st.session_state.get("previous_uploaded_file_name", "Techpack")
-    detected_mime_type = st.session_state.get("detected_mime_type", "image/jpeg")
-    
-    if target_new_sketch_bytes is not None:
-        try:
-            st.image(target_new_sketch_bytes, caption=f"Hình ảnh đã quét từ tài liệu mới ({new_style_id_detected})", use_container_width=True)
-        except Exception as e:
-            if "pdf" in str(detected_mime_type).lower() or str(uploaded_file_name).lower().endswith(".pdf"):
-                st.info(f"📄 **Tài liệu dạng tệp:** `{uploaded_file_name}`\n\nHệ thống đã nạp toàn bộ cấu trúc dữ liệu PDF vào bộ nhớ mô phỏng rập mẫu.")
-            else:
-                st.warning(f"Lỗi hiển thị ảnh mẫu mới: {e}")
-    else:
-        st.info("ℹ️ Chưa tải lên hoặc chưa trích xuất được dữ liệu Flat Sketch của mẫu mới.")
-
-
-
-with img_col2:
-    if matched_techpack is not None:
-        # 1. Đồng bộ mã đối chứng và URL ảnh gốc
-        target_style_name = str(matched_techpack.get("StyleName", "")).strip().upper()
-        st.session_state["matched_style_name"] = target_style_name
-        st.session_state["matched_sketch_url"] = matched_techpack.get("SketchURL") or matched_techpack.get("sketch_url", "")
+    with img_col1:
+        # SỬA LỖI: Gọi đồng bộ từ st.session_state để không bị mất ảnh khi bấm nút tương tác
+        target_new_sketch_bytes = st.session_state.get("target_new_sketch_bytes", None)
+        new_style_id_detected = st.session_state.get("new_style_id_detected", "N/A")
+        uploaded_file_name = st.session_state.get("previous_uploaded_file_name", "Techpack")
+        detected_mime_type = st.session_state.get("detected_mime_type", "image/jpeg")
         
-        # Đồng bộ an toàn score từ biến match_confidence_score của Đoạn trên lên màn hình hiển thị
-        similarity_score = st.session_state.get("match_confidence_score", 0.0)
-        st.session_state["matched_similarity_score"] = similarity_score
-
-        if st.session_state.get("bom_style_loaded", "") != target_style_name:
-            st.session_state["matched_image_verified"] = True
-            st.session_state["bom_reload_required"] = True
-
-        st.markdown(f"""
-            <div style='background-color: #EEF2F6; padding: 10px; border-radius: 5px; text-align: center; margin-bottom: 8px;'>
-                <p style='color: #1E3A8A; font-size: 14px; font-weight: 700; margin: 0;'>🎯 Mã tương đồng trong kho: {target_style_name}</p>
-                <p style='color: #10B981; font-size: 13px; font-weight: 600; margin: 4px 0 0 0;'>🤖 Độ tương đồng thiết kế (Vision): {similarity_score}%</p>
-            </div>
-        """, unsafe_allow_html=True)
-        
-        base_storage_url = f"{base_url_api.rstrip('/')}/storage/v1/object/public/kho_anh" if base_url_api else ""
-        img_content_final = None
-        
-        if base_storage_url:
-            from urllib.parse import quote
-            from concurrent.futures import ThreadPoolExecutor
-            
-            safe_style_name = quote(target_style_name)
-            safe_style_name_lower = quote(target_style_name.lower())
-            
-            url_options = [
-                f"{base_storage_url}/{safe_style_name}.png",
-                f"{base_storage_url}/{safe_style_name}.PNG",
-                f"{base_storage_url}/{safe_style_name}.jpg",
-                f"{base_storage_url}/{safe_style_name}.JPG",
-                f"{base_storage_url}/{safe_style_name}.jpeg",
-                f"{base_storage_url}/{safe_style_name_lower}.jpg",
-                f"{base_storage_url}/{safe_style_name_lower}.png"
-            ]
-            
-            def fetch_image_worker(url):
-                try:
-                    resp = requests.get(url, headers=api_headers, timeout=5)
-                    if resp.status_code == 200 and len(resp.content) > 500:
-                        content = resp.content
-                        if content.startswith(b'\xff\xd8') or content.startswith(b'\x89PNG') or b'<!DOCTYPE' not in content[:100]:
-                            return content
-                except Exception:
-                    pass
-                return None
-
-            with ThreadPoolExecutor(max_workers=6) as executor:
-                results = executor.map(fetch_image_worker, url_options)
-                for res in results:
-                    if res:
-                        img_content_final = res
-                        break
-        
-        if img_content_final:
+        if target_new_sketch_bytes is not None:
             try:
-                st.image(img_content_final, caption=f"Ảnh bản vẽ gốc của mã {target_style_name}", use_container_width=True)
-            except Exception:
-                st.warning("⚠️ Lỗi hiển thị tệp đồ họa.")
-        else:
-            db_stored_url = st.session_state["matched_sketch_url"]
-            if db_stored_url and "public/kho_anh" not in str(db_stored_url):
-                try:
-                    st.image(db_stored_url, caption=f"Ảnh bản vẽ gốc mã {target_style_name} (Direct Link)", use_container_width=True)
-                except Exception:
-                    st.info("⚠️ Không tải được ảnh từ Direct Link.")
-            else:
-                st.info("ℹ️ Lưu ý: Mã hàng đã khớp. Không tìm thấy ảnh minh họa trong kho.")
-    else:
-        st.session_state["matched_image_verified"] = False
-        st.warning("⚠️ CHƯA KHỚP ĐƯỢC MÃ TƯƠNG ĐỒNG! Vui lòng nạp file Techpack tại menu Upload.")
-
-
-
-import json
-import re
-import requests
-import streamlit as st
-import pandas as pd
-
-if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption Matrix":
-    matched_techpack = st.session_state.get("matched_techpack")
-    new_style_measurements_dict = globals().get("new_style_measurements_dict", {})
-    new_style_base_size = globals().get("new_style_base_size", "N/A")
-    base_sb_url = globals().get("base_sb_url", "")
-    SB_URL = globals().get("SB_URL", "")
-    SB_KEY = globals().get("SB_KEY", "")
-
-    base_url_api = base_sb_url if base_sb_url else (SB_URL if SB_URL else "")
-    api_headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if SB_KEY else {}
-    url_db = f"{base_url_api.rstrip('/')}/rest/v1/san_pham" if base_url_api else ""
-
-    if "bom_search_status" not in st.session_state:
-        st.session_state["bom_search_status"] = "NOT_FOUND"
-
-    if matched_techpack and st.session_state.get("matched_image_verified", False):
-        target_style_name_bom = st.session_state.get("matched_style_name", "").strip()
-        current_bom_style = st.session_state.get("bom_style_loaded", "")
-
-        if current_bom_style != target_style_name_bom:
-            st.session_state["bom_records"] = []
-            st.session_state["bom_style_loaded"] = target_style_name_bom
-            st.session_state["bom_search_status"] = "NOT_FOUND"
-
-        if (not st.session_state.get("bom_records") or st.session_state.get("bom_reload_required", False)) and url_db:
-            st.session_state["bom_reload_required"] = False  
-            raw_list = []
-            is_api_error = False
-            select_columns = "style_name,article_name,consumption_type,material_size,uom,consumption_value"
-            
-            try:
-                core_digits = re.findall(r"\d+", target_style_name_bom)
-                search_digits = max(core_digits, key=len) if core_digits else target_style_name_bom
-                
-                query_fallback = {
-                    "select": select_columns,
-                    "style_name": f"ilike.*{search_digits}*",
-                    "limit": 5000
-                }
-                res_fb = requests.get(url_db, headers=api_headers, params=query_fallback, timeout=10)
-                if res_fb.status_code == 200:
-                    raw_list = res_fb.json()
+                st.image(target_new_sketch_bytes, caption=f"Hình ảnh đã quét từ tài liệu mới ({new_style_id_detected})", use_container_width=True)
+            except Exception as e:
+                if "pdf" in str(detected_mime_type).lower() or str(uploaded_file_name).lower().endswith(".pdf"):
+                    st.info(f"📄 **Tài liệu dạng tệp:** `{uploaded_file_name}`\n\nHệ thống đã nạp cấu trúc PDF thành công.")
                 else:
-                    is_api_error = True
-            except Exception:
-                is_api_error = True
+                    st.warning(f"Lỗi hiển thị ảnh mẫu mới: {e}")
+        else:
+            st.info("ℹ️ Chưa tải lên tệp ảnh Flat Sketch của mẫu mới.")
 
-            if raw_list:
-                final_filtered = []
-                clean_target = re.sub(r"[^A-Z0-9]", "", target_style_name_bom.upper())
-                for r in raw_list:
-                    db_style = re.sub(r"[^A-Z0-9]", "", str(r.get("style_name", "")).upper())
-                    if clean_target in db_style or db_style in clean_target or search_digits in db_style:
-                        final_filtered.append(r)
-                st.session_state["bom_records"] = final_filtered
-                st.session_state["bom_search_status"] = "FOUND" if final_filtered else "NOT_FOUND"
-            else:
-                st.session_state["bom_search_status"] = "API_ERROR" if is_api_error else "NOT_FOUND"
-
-       bom_records = st.session_state.get("bom_records", [])
-    main_fabric_records = []
-    
-    # 1. Lọc chính xác bản ghi thuộc mã đối chứng đang chọn để tránh lấy lộn mã khác
-    target_style_name_bom = st.session_state.get("matched_style_name", "").strip().upper()
-    exact_bom_records = [
-        r for r in bom_records 
-        if str(r.get("style_name", "")).strip().upper() == target_style_name_bom
-    ]
-    
-    # 2. Gom nhóm định mức theo từng loại vật tư (Type) để xử lý dữ liệu lịch sử
-    
-        bom_records = st.session_state.get("bom_records", [])
-    main_fabric_records = []
-    
-    # 1. Lọc chính xác bản ghi thuộc mã đối chứng đang chọn để tránh lấy lộn mã khác
-    target_style_name_bom = st.session_state.get("matched_style_name", "").strip().upper()
-    exact_bom_records = [
-        r for r in bom_records 
-        if str(r.get("style_name", "")).strip().upper() == target_style_name_bom
-    ]
-    
-    # 2. Gom nhóm định mức theo từng loại vật tư (Type) để xử lý dữ liệu lịch sử
-    bom_groups = {}
-    for r in exact_bom_records:
-        ctype = str(r.get("consumption_type", "")).strip().upper()
-        if not ctype: 
-            ctype = "UNKNOWN"
+    with img_col2:
+        if matched_techpack is not None:
+            target_style_name = str(matched_techpack.get("StyleName", "")).strip().upper()
+            st.session_state["matched_style_name"] = target_style_name
+            st.session_state["matched_sketch_url"] = matched_techpack.get("SketchURL") or matched_techpack.get("sketch_url", "")
             
-        if ctype in ["MAIN", "FABRIC", "BODY", "SHELL", "MAIN FABRIC"]:
-            main_fabric_records.append(r)
+            similarity_score = st.session_state.get("match_confidence_score", 100.0)
+            st.session_state["matched_similarity_score"] = similarity_score
+
+            st.markdown(f"""
+                <div style='background-color: #EEF2F6; padding: 10px; border-radius: 5px; text-align: center; margin-bottom: 8px;'>
+                    <p style='color: #1E3A8A; font-size: 14px; font-weight: 700; margin: 0;'>🎯 Mã tương đồng trong kho: {target_style_name}</p>
+                    <p style='color: #10B981; font-size: 13px; font-weight: 600; margin: 4px 0 0 0;'>🤖 Độ tương đồng thiết kế (Vision): {similarity_score}%</p>
+                </div>
+            """, unsafe_allow_html=True)
             
-        try:
-            qty = float(r.get("consumption_value", 0.0))
-        except (ValueError, TypeError):
-            qty = 0.0
-            
-        if ctype not in bom_groups:
-            bom_groups[ctype] = []
-        bom_groups[ctype].append(qty)
+            db_stored_url = st.session_state.get("matched_sketch_url")
+            if db_stored_url:
+                try:
+                    st.image(db_stored_url, caption=f"Ảnh bản vẽ gốc mã {target_style_name}", use_container_width=True)
+                except Exception:
+                    st.info("ℹ️ Lưu ý: Mã hàng đã khớp. Không tìm thấy ảnh minh họa trong kho.")
+        else:
+            st.warning("⚠️ CHƯA KHỚP ĐƯỢC MÃ TƯƠNG ĐỒNG!")
 
-    # 3. VÁ LỖI CỘNG DỒN: Tính TRUNG BÌNH CỘNG của các LOT (Lot6, Lot7, Lot8...) thay vì cộng dồn tất cả lại
-    bom_summary_engine = {}
-    for ctype, qty_list in bom_groups.items():
-        if qty_list:
-            bom_summary_engine[ctype] = round(sum(qty_list) / len(qty_list), 3)
-
-    # Đưa vào bộ nhớ để các bảng phía dưới sử dụng ổn định
-    st.session_state["historical_bom_reference"] = exact_bom_records
-    st.session_state["main_fabric_records"] = main_fabric_records
-    st.session_state["bom_summary_engine"] = bom_summary_engine
-
-
-
-        # --- BẢNG SO SÁNH SAI LỆCH THÔNG SỐ RẬP ---
+    # ==========================================================
+    # 📐 BẢNG SO SÁNH SAI LỆCH THÔNG SỐ RẬP (ĐÃ KHÔI PHỤC HIỂN THỊ)
+    # ==========================================================
     st.markdown("<br>### 📐 BẢNG SO SÁNH SAI LỆCH THÔNG SỐ KỸ THUẬT RẬP MẪU", unsafe_allow_html=True)
     
-    # SỬA LỖI: Lấy thông số và size gốc trực tiếp từ st.session_state đã quét từ Techpack
+    # SỬA LỖI: Chuyển sang lấy dữ liệu từ st.session_state để bảng không bị ẩn khi rerun
     new_specs = st.session_state.get("new_style_measurements_dict", {})
     new_style_base_size = st.session_state.get("new_style_base_size", "N/A")
     old_specs = matched_techpack.get("DetailedMeasurements", {}) if matched_techpack else {}
-    avg_area_growth_pct = 0.0
-
     
     if new_specs or old_specs:
         compare_rows = []
         valid_diff_pcts = []
         
-        # Hàm bổ sung: Lọc sạch mã tiền tố và ký tự đặc biệt để giữ lại chuỗi chữ cốt lõi phục vụ so khớp vị trí
         def clean_pom_text(text):
             if not text: return ""
             cleaned = str(text).upper()
@@ -1987,26 +1804,20 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             cleaned = re.sub(r'\d+', '', cleaned)
             cleaned = re.sub(r'[\-_]', ' ', cleaned)
             cleaned = re.sub(r'[^A-Z\s]', '', cleaned)
-            cleaned = re.sub(r'\s+', ' ', cleaned).strip()
-            return cleaned
+            return re.sub(r'\s+', ' ', cleaned).strip()
 
-        # Hàm bổ sung: Trích xuất chính xác số float đầu tiên từ chuỗi dữ liệu kỹ thuật
         def clean_float(v):
             if v is None: return None
-            try: 
-                return float(v)
+            try: return float(v)
             except (ValueError, TypeError):
                 nums = re.findall(r"[-+]?\d*\.\d+|\d+", str(v))
                 return float(nums[0]) if nums else None
 
-        # Tiến hành ánh xạ thông minh giữa hai bảng thông số mới và cũ thông qua chuỗi đã làm sạch
         mapped_old_specs = {clean_pom_text(k): (k, v) for k, v in old_specs.items()}
         processed_old_keys = set()
 
         for original_new_key, val_new in new_specs.items():
             clean_new_key = clean_pom_text(original_new_key)
-            
-            # Tìm kiếm vị trí tương đồng trong kho dữ liệu cũ
             if clean_new_key in mapped_old_specs:
                 original_old_key, val_old = mapped_old_specs[clean_new_key]
                 processed_old_keys.add(original_old_key)
@@ -2021,19 +1832,9 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                 diff_val = round(f_new - f_old, 2)
                 if f_old != 0:
                     diff_pct = round((diff_val / f_old) * 100, 2)
-                    
-                    # MÀNG LỌC CỨNG (Hard Core Filter): Chỉ lấy thông số cơ bản lớn ảnh hưởng trực tiếp đến phom rập mẫu
-                    core_keywords = [
-                        "INSEAM", "THIGH", "HIP", "WAIST", "LEG", "LENGTH", "CHEST", 
-                        "BUST", "WIDTH", "ARMHOLE", "SLEEVE", "OUTSEAM", "RISE"
-                    ]
+                    core_keywords = ["INSEAM", "THIGH", "HIP", "WAIST", "LEG", "LENGTH", "CHEST", "BUST", "WIDTH"]
                     if any(k in clean_new_key for k in core_keywords):
-                        # Loại trừ các chi tiết quá nhỏ hoặc nhãn mác phụ thuộc để không làm lệch %
-                        ignore_keywords = ["BADGE", "LABEL", "BUTTON", "POCKET-OPENING", "TICKET", "LOOP", "STITCH"]
-                        if not any(ig in clean_new_key for ig in ignore_keywords):
-                            valid_diff_pcts.append(diff_pct)
-                else:
-                    diff_pct = 0.0
+                        valid_diff_pcts.append(diff_pct)
 
             display_diff = f"+{diff_val}" if diff_val and diff_val > 0 else (str(diff_val) if diff_val is not None else "-")
             display_pct = f"+{diff_pct}%" if diff_pct and diff_pct > 0 else (f"{diff_pct}%" if diff_pct is not None else "-")
@@ -2041,21 +1842,27 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             compare_rows.append({
                 "Vị trí đo (POM Description)": original_new_key,
                 f"Mẫu mới ({new_style_base_size})": val_new if val_new is not None else "-",
-                f"Mã cũ ({str(st.session_state.get('matched_style_name', 'N/A'))})": val_old if val_old is not None else "-",
+                f"Mã cũ": val_old if val_old is not None else "-",
                 "Chênh lệch (Diff)": display_diff,
                 "Tỷ lệ biến thiên (Diff %)": display_pct
             })
 
-        # Nạp nốt các vị trí đo của mã cũ nếu mã mới không có để tránh mất mát dữ liệu hiển thị
         for original_old_key, val_old in old_specs.items():
             if original_old_key not in processed_old_keys:
                 compare_rows.append({
                     "Vị trí đo (POM Description)": original_old_key,
                     f"Mẫu mới ({new_style_base_size})": "-",
-                    f"Mã cũ ({str(st.session_state.get('matched_style_name', 'N/A'))})": val_old if val_old is not None else "-",
+                    f"Mã cũ": val_old if val_old is not None else "-",
                     "Chênh lệch (Diff)": "-",
                     "Tỷ lệ biến thiên (Diff %)": "-"
                 })
+                
+        st.session_state["valid_diff_pcts"] = valid_diff_pcts
+        st.dataframe(pd.DataFrame(compare_rows), use_container_width=True, hide_index=True)
+
+
+
+
 
 
     # --- AI CONSUMPTION PROJECTION ENGINE ---
