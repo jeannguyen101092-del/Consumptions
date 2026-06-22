@@ -1671,6 +1671,213 @@ if (not new_vec or len(new_vec) < 30) and target_new_sketch_bytes and client and
                     st.session_state["vision_completed"] = False # Giữ luồng mở để cho phép click chạy lại ở chu kỳ kế
                     st.warning(f"⚠️ Trục trặc kết nối AI Vision (Lần thử {st.session_state['vision_retry_count']}/3). Hệ thống đang tự động kết nối lại... Chi tiết: {str(e)}")
 
+# PART 2A-1: ĐỘNG CƠ TRUY VẤN CACHE & CHẤM ĐIỂM TỪ ĐIỂN TRỌNG SỐ (DICTIONARY-WEIGHTED MATRIX)
+# =========================================================================================
+import requests
+import json
+import re
+import unicodedata
+import streamlit as st
+
+# 1. CƠ CHẾ CACHE ĐA PHIÊN BẢO VỆ DATABASE NHÀ MÁY (Đã định nghĩa ở đoạn trước, gọi lại để nạp kho)
+@st.cache_data(ttl=3600, show_spinner=False)
+def fetch_all_techpacks_cached(url, headers):
+    raw_data = []
+    if not url: return raw_data
+    limit_size = 1000
+    offset_cursor = 0
+    while True:
+        query_params = {"select": "*", "limit": limit_size, "offset": offset_cursor}
+        try:
+            response = requests.get(url, headers=headers, params=query_params, timeout=15)
+            if response.status_code == 200:
+                page_res = response.json()
+                if not page_res or len(page_res) == 0: break
+                raw_data.extend(page_res)
+                if len(page_res) < limit_size: break
+                offset_cursor += limit_size
+            else: break
+        except Exception: break
+    return raw_data
+
+# KIỂM TRA KHÓA AN TOÀN CHÈN VÀO LUỒNG CHẠY HẠ NGUỒN CỦA STREAMLIT
+if st.session_state.get("vision_completed", False) and not st.session_state.get("routing_completed", False):
+    with st.spinner("🧠 Mắt thần VLM đang cuộn quét toàn bộ kho dữ liệu và thẩm định cấu trúc rập..."):
+        try:
+            headers_db = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if SB_KEY else {}
+            url_db = f"{base_url_api.rstrip('/')}/rest/v1/thong_so_techpack" if base_url_api else ""
+            
+            # Tải kho dữ liệu siêu tốc từ RAM Cache nội bộ
+            raw_styles = fetch_all_techpacks_cached(url_db, headers_db)
+
+            if raw_styles and client and client.models:
+                vision_type = str(st.session_state.get("detected_garment_type", "UNKNOWN")).strip().upper()
+                
+                # Đón nhận ma trận từ điển trọng số đã được bóc tách từ JSON ở Module Vision
+                target_profile = st.session_state.get("weighted_garment_profile", {})
+                
+                # Hàm Tokenizer dẹt cắt từ đơn phẳng phục vụ so khớp kho dữ liệu lịch sử
+                def extract_flatten_tokens(text):
+                    if not text: return set()
+                    txt = unicodedata.normalize('NFKC', str(text).upper())
+                    txt = re.sub(r'[^A-Z0-9\s\-]', ' ', txt)
+                    stop_words = {"WITH", "THE", "AND", "FOR", "TYPE", "GARMENT", "FEATURES", "OF", "ON", "AT", "IN"}
+                    return set([w for w in txt.split() if len(w) >= 2 and w not in stop_words])
+
+                ranked_pool = []
+                
+                # =========================================================================================
+                # 2. TOÁN HỌC MA TRẬN TRỌNG SỐ (DICTIONARY-WEIGHTED RETRIEVER MATH)
+                # =========================================================================================
+                for s in raw_styles:
+                    db_combined_text = f"{s.get('StyleName', '')} {s.get('sketch_vector', '')}".upper()
+                    db_tokens = extract_flatten_tokens(db_combined_text)
+                    
+                    total_match_score = 0.0
+                    total_possible_score = 0.0
+                    
+                    # Quét qua từng phân tầng trọng số từ Module Vision để nhân hệ số điểm chập
+                    for group_name, token_dict in target_profile.items():
+                        weight = 1
+                        if group_name == "WEIGHTED_GARMENT_TYPE": weight = 5
+                        elif group_name == "WEIGHTED_SEWING_OPERATIONS": weight = 3
+                        
+                        for token, base_score in token_dict.items():
+                            token_set = extract_flatten_tokens(token)
+                            total_possible_score += weight
+                            
+                            # Nếu từ khóa mỏ neo rập may xuất hiện trong dòng DB cũ, cộng điểm theo trọng số ngành
+                            if token_set and token_set.issubset(db_tokens):
+                                total_match_score += weight
+                                
+                    # Tính toán hệ số Jaccard hiệu chỉnh tuyến tính theo trọng số thiết kế
+                    weighted_jaccard = total_match_score / max(total_possible_score, 1.0)
+                    
+                    # Hệ số thưởng Multiplicative nhân thêm 20% tổng điểm nếu trùng khớp Base Size rập mẫu
+                    db_base_size = s.get("BaseSize", s.get("base_size"))
+                    if db_base_size and str(db_base_size).strip().upper() == str(new_style_base_size).strip().upper() and str(new_style_base_size).strip().upper() != "N/A":
+                        weighted_jaccard *= 1.20
+                        
+                    ranked_pool.append((weighted_jaccard, s))
+                
+                # Sắp xếp kho hàng giảm dần theo điểm ma trận trọng số
+                ranked_pool.sort(reverse=True, key=lambda x: x[0])
+                
+                # Cửa sổ ứng viên Top 30 tối ưu, bảo đảm không bao giờ sót mã đúng
+                TOP_N = min(30, len(ranked_pool))
+                top_candidates_raw = ranked_pool[:TOP_N]
+# PART 2A-2: NÉN PROMPT, ĐỐI SOÁT THỊ GIÁC MULTI-MODAL GEMINI & ROUTER 4 CẤP ĐỘ KHÉP KÍN
+# =========================================================================================
+
+                # =========================================================================================
+                # 3. COMPRESSION ENGINE: Nén cấu trúc dữ liệu tối giản gửi Gemini chống tràn Token đầu vào
+                # =========================================================================================
+                compressed_candidates = []
+                for idx, (score, s) in enumerate(top_candidates_raw):
+                    compressed_candidates.append({
+                        "pool_index": idx,
+                        "StyleName": s.get("StyleName", "UNKNOWN"),
+                        "BaseSize": s.get("BaseSize", s.get("base_size", "N/A")),
+                        "WeightedJaccardScore": round(float(score), 4),
+                        "SketchVectorText": str(s.get("sketch_vector", "")).strip()
+                    })
+                
+                st.session_state["retriever_top_30_pool"] = top_candidates_raw
+
+                # ĐÁNH GIÁ CHUYÊN SÂU MULTI-MODAL VISION (AI VỪA ĐỌC TOÁN HỌC VỪA ĐỐI CHIẾU MẮT THẦN QUA HÌNH ẢNH)
+                if compressed_candidates:
+                    semantic_prompt = (
+                        f"You are an expert Garment Technologist and Apparel VLM Re-Ranker.\n"
+                        f"CRITICAL INSTRUCTION: Look carefully at the uploaded garment techpack image/sketch provided in the bytes data, "
+                        f"then compare its visual layout against the historical candidates pool listed below.\n\n"
+                        f"Target Specifications:\n"
+                        f"- Garment Silhouette Type: {vision_type}\n"
+                        f"- Vision Extraction Confidence: {st.session_state.get('vision_confidence', 0)}%\n"
+                        f"- Visual Structural Description: {new_vec}\n\n"
+                        f"Candidates Pool from Factory DB (Weighted Jaccard):\n"
+                        f"{json.dumps(compressed_candidates, ensure_ascii=False)}\n\n"
+                        f"EVALUATION RULES:\n"
+                        f"1. Compare the physical construction and pocket shapes in the uploaded image with the 'SketchVectorText' of each candidate.\n"
+                        f"2. Use 'WeightedJaccardScore' as your primary mathematical alignment confidence baseline.\n"
+                        f"3. Heavily verify structural anchors: waistband elements, zipper fly seams, exact pocket styling, and panel stitching.\n"
+                        f"4. If a true structural/visual match is found, return its exact 'pool_index' and assign a confidence score between 60 and 100.\n"
+                        f"5. If NO candidate structurally matches the design in the image, you MUST return 'selected_pool_index': -1 and 'match_score': 0.\n\n"
+                        f"Return valid JSON ONLY, format exactly like this:\n"
+                        f'{{"selected_pool_index": -1, "match_score": 0, "reason": "Reason why it matches or why no match found based on visual traits."}}'
+                    )
+                    
+                    # ĐÓNG GÓI PROMPT VÀ LUỒNG BYTES ẢNH THỰC TẾ GỬI LÊN CHO GEMINI NHÌN
+                    if types and hasattr(types, "Part"):
+                        vlm_contents = [
+                            types.Part.from_text(text=semantic_prompt),
+                            types.Part.from_bytes(data=target_new_sketch_bytes, mime_type=detected_mime_type)
+                        ]
+                    else:
+                        vlm_contents = [
+                            semantic_prompt,
+                            {"mime_type": detected_mime_type, "data": target_new_sketch_bytes}
+                        ]
+                        
+                    res = client.models.generate_content(model='gemini-2.5-flash', contents=vlm_contents)
+                    
+                    clean_text = res.text.strip()
+                    if clean_text.startswith("```"):
+                        clean_text = re.sub(r'^```json\s*|```$', '', clean_text, flags=re.IGNORECASE).strip()
+                    
+                    json_match = re.search(r'\{[\s\S]*?\}', clean_text) # Khử lỗi lồng ngoặc nhọn bằng non-greedy
+                    
+                    if json_match:
+                        match_res = json.loads(json_match.group(0))
+                        chosen_idx = match_res.get("selected_pool_index")
+                        score = int(match_res.get("match_score", 0))
+                        reason = str(match_res.get("reason", "N/A"))
+                        
+                        if chosen_idx is not None and 0 <= chosen_idx < len(top_candidates_raw) and score >= 60:
+                            # Giải nén bốc ngược đối tượng gốc tuple (score, full_object) ra bộ nhớ phiên
+                            _, actual_obj = top_candidates_raw[chosen_idx]
+                            st.session_state["matched_techpack"] = actual_obj
+                            st.session_state["match_confidence_score"] = score
+                            st.session_state["match_reason"] = reason
+                        else:
+                            st.session_state["matched_techpack"] = None
+                            st.session_state["match_confidence_score"] = 0
+                            st.session_state["match_reason"] = reason if chosen_idx == -1 else "Score fell below confidence floor (60%)."
+                    else:
+                        st.session_state["matched_techpack"] = None
+                        st.session_state["match_confidence_score"] = 0
+                else:
+                    st.session_state["matched_techpack"] = None
+                    st.session_state["match_confidence_score"] = 0
+                    
+                # Khóa chốt an toàn: Động cơ đối soát kho đã hoàn thành xuất sắc nhiệm vụ
+                st.session_state["routing_completed"] = True
+                
+        except Exception as e:
+            st.error(f"🚨 Lỗi cục bộ hệ thống đối soát dữ liệu kho: {str(e)}")
+            st.session_state["matched_techpack"] = None
+            st.session_state["match_confidence_score"] = 0
+            st.session_state["routing_completed"] = True
+
+    # =========================================================================================
+    # 4. BỘ ROUTER PHÂN TẦNG ĐỊNH MỨC 4 CẤP ĐỘ CÓ KHÓA TRẠNG THÁI (ANTI-INFINITE LOOP LOCK)
+    # =========================================================================================
+    if st.session_state.get("routing_completed", False):
+        current_score = st.session_state["match_confidence_score"]
+        current_match = st.session_state["matched_techpack"]
+        
+        if not current_match:
+            st.session_state["calculation_mode"] = "GEOMETRIC_VECTOR"
+        elif current_score >= 92:
+            st.session_state["calculation_mode"] = "AUTO_APPROVED"
+        elif current_score >= 85:
+            st.session_state["calculation_mode"] = "HISTORICAL_MATCH"
+        elif current_score >= 60:
+            st.session_state["calculation_mode"] = "AI_PROJECTION"
+        else:
+            st.session_state["calculation_mode"] = "GEOMETRIC_VECTOR"
+
+        # Ép Streamlit load lại trang một lần duy nhất với trạng thái mode mới để vẽ giao diện hạ nguồn
+        st.rerun()
 
 
 # =========================================================================================
