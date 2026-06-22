@@ -2000,87 +2000,89 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     st.session_state["historical_bom_reference"] = bom_records
     st.session_state["main_fabric_records"] = main_fabric_records
     st.session_state["bom_summary_engine"] = bom_summary_engine
-st.markdown("<br>### 📐 BẢNG SO SÁNH SAI LỆCH THÔNG SỐ KỸ THUẬT RẬP MẪU", unsafe_allow_html=True)
 
-new_specs = new_style_measurements_dict if new_style_measurements_dict else {}
-old_specs = matched_techpack.get("DetailedMeasurements", {}) if matched_techpack else {}
-avg_area_growth_pct = 0.0
+    # --- BẢNG SO SÁNH SAI LỆCH THÔNG SỐ RẬP (ĐÃ ĐƯỢC ĐƯA VÀO KHỐI IF CHUẨN) ---
+    st.markdown("<br>### 📐 BẢNG SO SÁNH SAI LỆCH THÔNG SỐ KỸ THUẬT RẬP MẪU", unsafe_allow_html=True)
 
-if new_specs or old_specs:
-    compare_rows = []
-    valid_diff_pcts = []
-    
-    def clean_pom_text(text):
-        cleaned = re.sub(r'^[A-Z0-9]+[\s\-_]+', '', str(text)).strip().upper()
-        cleaned = re.sub(r'[^A-Z\s]', '', cleaned).strip()
-        return cleaned
+    new_specs = new_style_measurements_dict if new_style_measurements_dict else {}
+    old_specs = matched_techpack.get("DetailedMeasurements", {}) if matched_techpack else {}
+    avg_area_growth_pct = 0.0
 
-    def clean_float(v):
-        if v is None:
-            return None
-        try:
-            return float(v)
-        except (ValueError, TypeError):
-            nums = re.findall(r"[-+]?\d*\.\d+|\d+", str(v))
-            return float(nums[0]) if nums else None
-
-    mapped_old_specs = {clean_pom_text(k): (k, v) for k, v in old_specs.items()}
-    processed_old_keys = set()
-    
-    core_keywords = ["INSEAM", "THIGH", "HIP", "WAIST", "LEG", "LENGTH", "CHEST", "BUST", "WIDTH", "ARMHOLE", "SLEEVE", "OUTSEAM", "RISE"]
-    ignore_keywords = ["BADGE", "LABEL", "BUTTON", "POCKET-OPENING", "TICKET", "LOOP", "STITCH"]
-
-    for original_new_key, val_new in new_specs.items():
-        clean_new_key = clean_pom_text(original_new_key)
+    if new_specs or old_specs:
+        compare_rows = []
+        valid_diff_pcts = []
         
-        if clean_new_key in mapped_old_specs:
-            original_old_key, val_old = mapped_old_specs[clean_new_key]
-            processed_old_keys.add(original_old_key)
-        else:
-            original_old_key, val_old = "-", None
+        def clean_pom_text(text):
+            cleaned = re.sub(r'^[A-Z0-9]+[\s\-_]+', '', str(text)).strip().upper()
+            cleaned = re.sub(r'[^A-Z\s]', '', cleaned).strip()
+            return cleaned
 
-        f_new = clean_float(val_new)
-        f_old = clean_float(val_old)
-        diff_val, diff_pct = None, None
+        def clean_float(v):
+            if v is None:
+                return None
+            try:
+                return float(v)
+            except (ValueError, TypeError):
+                nums = re.findall(r"[-+]?\d*\.\d+|\d+", str(v))
+                return float(nums[0]) if nums else None
+
+        mapped_old_specs = {clean_pom_text(k): (k, v) for k, v in old_specs.items()}
+        processed_old_keys = set()
         
-        if f_new is not None and f_old is not None:
-            diff_val = round(f_new - f_old, 2)
-            if f_old != 0:
-                diff_pct = round((diff_val / f_old) * 100, 2)
+        core_keywords = ["INSEAM", "THIGH", "HIP", "WAIST", "LEG", "LENGTH", "CHEST", "BUST", "WIDTH", "ARMHOLE", "SLEEVE", "OUTSEAM", "RISE"]
+        ignore_keywords = ["BADGE", "LABEL", "BUTTON", "POCKET-OPENING", "TICKET", "LOOP", "STITCH"]
 
-        is_core = any(k in clean_new_key for k in core_keywords)
-        is_ignored = any(ig in clean_new_key for ig in ignore_keywords)
-        
-        if is_core and not is_ignored and diff_pct is not None:
-            valid_diff_pcts.append(diff_pct)
+        for original_new_key, val_new in new_specs.items():
+            clean_new_key = clean_pom_text(original_new_key)
+            
+            if clean_new_key in mapped_old_specs:
+                original_old_key, val_old = mapped_old_specs[clean_new_key]
+                processed_old_keys.add(original_old_key)
+            else:
+                original_old_key, val_old = "-", None
 
-        display_diff = f"+{diff_val}" if diff_val and diff_val > 0 else (str(diff_val) if diff_val is not None else "-")
-        display_pct = f"+{diff_pct}%" if diff_pct and diff_pct > 0 else (f"{diff_pct}%" if diff_pct is not None else "-")
+            f_new = clean_float(val_new)
+            f_old = clean_float(val_old)
+            diff_val, diff_pct = None, None
+            
+            if f_new is not None and f_old is not None:
+                diff_val = round(f_new - f_old, 2)
+                if f_old != 0:
+                    diff_pct = round((diff_val / f_old) * 100, 2)
 
-        compare_rows.append({
-            "Vị trí đo (POM Description)": original_new_key,
-            f"Mẫu mới ({new_style_base_size})": val_new if val_new is not None else "-",
-            f"Mã cũ ({str(st.session_state.get('matched_style_name', 'N/A'))})": val_old if val_old is not None else "-",
-            "Chênh lệch (Diff)": display_diff,
-            "Tỷ lệ biến thiên (Diff %)": display_pct
-        })
+            is_core = any(k in clean_new_key for k in core_keywords)
+            is_ignored = any(ig in clean_new_key for ig in ignore_keywords)
+            
+            if is_core and not is_ignored and diff_pct is not None:
+                valid_diff_pcts.append(diff_pct)
 
-    for original_old_key, val_old in old_specs.items():
-        if original_old_key not in processed_old_keys:
+            display_diff = f"+{diff_val}" if diff_val and diff_val > 0 else (str(diff_val) if diff_val is not None else "-")
+            display_pct = f"+{diff_pct}%" if diff_pct and diff_pct > 0 else (f"{diff_pct}%" if diff_pct is not None else "-")
+
             compare_rows.append({
-                "Vị trí đo (POM Description)": original_old_key,
-                f"Mẫu mới ({new_style_base_size})": "-",
+                "Vị trí đo (POM Description)": original_new_key,
+                f"Mẫu mới ({new_style_base_size})": val_new if val_new is not None else "-",
                 f"Mã cũ ({str(st.session_state.get('matched_style_name', 'N/A'))})": val_old if val_old is not None else "-",
-                "Chênh lệch (Diff)": "-",
-                "Tỷ lệ biến thiên (Diff %)": "-"
+                "Chênh lệch (Diff)": display_diff,
+                "Tỷ lệ biến thiên (Diff %)": display_pct
             })
 
-    df_compare_spec = pd.DataFrame(compare_rows)
-    st.dataframe(df_compare_spec, use_container_width=True, hide_index=True)
+        for original_old_key, val_old in old_specs.items():
+            if original_old_key not in processed_old_keys:
+                compare_rows.append({
+                    "Vị trí đo (POM Description)": original_old_key,
+                    f"Mẫu mới ({new_style_base_size})": "-",
+                    f"Mã cũ ({str(st.session_state.get('matched_style_name', 'N/A'))})": val_old if val_old is not None else "-",
+                    "Chênh lệch (Diff)": "-",
+                    "Tỷ lệ biến thiên (Diff %)": "-"
+                })
 
-    if valid_diff_pcts:
-        avg_pom_growth = sum(valid_diff_pcts) / len(valid_diff_pcts)
-        avg_area_growth_pct = round((((1 + avg_pom_growth/100) ** 2) - 1) * 100, 2)
+        df_compare_spec = pd.DataFrame(compare_rows)
+        st.dataframe(df_compare_spec, use_container_width=True, hide_index=True)
+
+        if valid_diff_pcts:
+            avg_pom_growth = sum(valid_diff_pcts) / len(valid_diff_pcts)
+            avg_area_growth_pct = round((((1 + avg_pom_growth/100) ** 2) - 1) * 100, 2)
 
 
 
