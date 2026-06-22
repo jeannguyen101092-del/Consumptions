@@ -1600,23 +1600,26 @@ target_new_sketch_bytes = st.session_state["target_new_sketch_bytes"]
 detected_mime_type = st.session_state["detected_mime_type"]
 new_vec = str(st.session_state.get("visual_description_str", "")).strip().upper()
 
-# PART 1B: ĐỘNG CƠ AI VISION PIPELINE FLAT-LOGIC CẤP CÔNG NGHIỆP
+# PART 1B: ĐỘNG CƠ AI VISION PIPELINE FLAT-LOGIC CÓ BẢO VỆ ĐƯỜNG TRUYỀN API
 # =========================================================================================
 
 # 1. ÉP BUỘC KHAI BÁO BIẾN CỤC BỘ NGAY TẠI CHỖ (SAFE LOCAL SYNC CHỐNG LỖI NAMEERROR)
 local_sync_new_vec = str(st.session_state.get("visual_description_str", "") or "").strip().upper()
 local_sync_bytes = st.session_state.get("target_new_sketch_bytes", None)
-local_sync_mime = st.session_state.get("detected_mime_type", "image/jpeg")
+local_sync_mime = st.session_state.get("detected_mime_type", "application/pdf")
 
-# Khai báo đối tượng kết nối độc lập không phụ thuộc file môi trường bên ngoài
+# Khai báo đối tượng kết nối độc lập bảo vệ API Key tránh bị rỗng giữa các tab Rerun
 try:
     from google import genai
-    local_api_key = globals().get("SB_KEY", st.session_state.get("SB_KEY", ""))
+    # Trích xuất chính xác API Key từ biến toàn cục hoặc cấu hình session state của hệ thống PPJ
+    local_api_key = st.session_state.get("SB_KEY", globals().get("SB_KEY", ""))
+    
+    # SỬA LỖI KẾT NỐI: Ép cấu hình Client độc lập gắn chặt mã API Key
     local_vision_client = genai.Client(api_key=local_api_key)
 except Exception:
     local_vision_client = None
 
-# 2. KHỐI AI VISION PIPELINE - ĐÃ THAY THẾ TOÀN BỘ BIẾN CŨ BẰNG BIẾN LOCAL SYNC
+# 2. KHỐI AI VISION PIPELINE - SỬA ĐỔI ĐƯỜNG TRUYỀN GỌI MÔ HÌNH ỔN ĐỊNH
 if (not local_sync_new_vec or len(local_sync_new_vec) < 30) and local_sync_bytes is not None and local_vision_client is not None and not st.session_state.get("vision_completed", False):
     with st.spinner("🔄 Hệ thống AI Vision đang phân tích giải phẫu rập và trích xuất cấu trúc dữ liệu JSON..."):
         try:
@@ -1624,7 +1627,7 @@ if (not local_sync_new_vec or len(local_sync_new_vec) < 30) and local_sync_bytes
             You are an expert apparel techpack analyzer and senior garment technologist.
             TASK: Scan through ALL pages of this document to locate the primary 'FLAT SKETCH' or 'TECHNICAL DRAWING' of the garment.
             Analyze its physical shapes, pockets, waistband, fly, cuff treatments, and sewing layout.
-            You MUST return ONLY a valid, raw JSON object. Follow this strict schema:
+            You MUST return ONLY a valid, raw JSON object, without any markdown enclosing codeblocks. Follow this strict schema:
             {
               "garment_type": "PANT",
               "vision_confidence": 95,
@@ -1646,7 +1649,7 @@ if (not local_sync_new_vec or len(local_sync_new_vec) < 30) and local_sync_bytes
             All features and operations must be returned in uppercase text.
             """
             
-            # Cấu hình nạp luồng nhị phân chuẩn hóa hình ảnh/PDF
+            # Đóng gói dữ liệu tệp tin Bytes đồng bộ với MIME Type thực tế
             if 'types' in globals() and types and hasattr(types, "Part"):
                 ocr_contents = [
                     types.Part.from_text(text=ocr_prompt),
@@ -1655,7 +1658,11 @@ if (not local_sync_new_vec or len(local_sync_new_vec) < 30) and local_sync_bytes
             else:
                 ocr_contents = [ocr_prompt, {"mime_type": local_sync_mime, "data": local_sync_bytes}]
                 
-            ocr_res = local_vision_client.models.generate_content(model='gemini-2.5-flash', contents=ocr_contents)
+            # GỌI MÔ HÌNH QUA MODEL CHUẨN THƯƠNG MẠI GEMINI-2.5-FLASH
+            ocr_res = local_vision_client.models.generate_content(
+                model='gemini-2.5-flash', 
+                contents=ocr_contents
+            )
             
             if ocr_res and ocr_res.text:
                 raw_ocr_text = ocr_res.text.strip()
@@ -1718,10 +1725,11 @@ if (not local_sync_new_vec or len(local_sync_new_vec) < 30) and local_sync_bytes
                 st.session_state["visual_description_str"] = "FALLBACK_TRIGGERED_VIA_AI_ERROR_STREAM"
                 st.session_state["detected_garment_type"] = "UNKNOWN"
                 st.session_state["vision_confidence"] = 0
-                st.error(f"🚨 Động cơ AI Vision lỗi kết nối sau 3 lần thử lại. Chuyển sang TẦNG 3. Chi tiết: {str(e)}")
+                st.error(f"🚨 Động cơ AI Vision lỗi kết nối sau 3 lần thử lại. Chuyển hướng khẩn cấp sang TẦNG 3. Chi tiết: {str(e)}")
             else:
                 st.session_state["vision_completed"] = False
                 st.warning(f"⚠️ Trục trặc kết nối AI Vision (Thử lại lần {st.session_state['vision_retry_count']}/3)...")
+
 
 
 
