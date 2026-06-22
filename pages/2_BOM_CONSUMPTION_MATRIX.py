@@ -2166,7 +2166,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
 
 
 
-   # =========================================================================================
+# =========================================================================================
 # 📐 AI CONSUMPTION PROJECTION ENGINE (PHÂN KHU HẠ TẦNG TÍNH TOÁN VÀ CHAT AI)
 # =========================================================================================
 
@@ -2175,15 +2175,18 @@ if not st.session_state.get("match_found", False):
     
     # Render bảng dữ liệu hình học phẳng và số mục nhập khổ vải, độ co rút tại đây
     g1, g2, g3 = st.columns(3)
-    with g1: fabric_width = st.number_input("Khổ vải (Inches)", min_value=30.0, max_value=80.0, value=58.0, step=0.5, key="final_geo_w")
-    with g2: shrinkage_rate = st.number_input("Độ co rút (%)", min_value=0.0, max_value=20.0, value=3.0, step=0.1, key="final_geo_s")
-    with g3: cutting_waste = st.number_input("Hao hụt cắt (%)", min_value=0.0, max_value=15.0, value=2.5, step=0.1, key="final_geo_c")
+    with g1: 
+        fabric_width = st.number_input("Khổ vải (Inches)", min_value=30.0, max_value=80.0, value=58.0, step=0.5, key="final_geo_w")
+    with g2: 
+        shrinkage_rate = st.number_input("Độ co rút (%)", min_value=0.0, max_value=20.0, value=3.0, step=0.1, key="final_geo_s")
+    with g3: 
+        cutting_waste = st.number_input("Hao hụt cắt (%)", min_value=0.0, max_value=15.0, value=2.5, step=0.1, key="final_geo_c")
     
     geo_data = {
         "Chi tiết bộ rập (Pattern Pieces)": ["Thân trước (Front Panel)", "Thân sau (Back Panel)", "Cạp quần (Waistband)", "Túi quần (Pocket Bag)"],
         "Chiều dài bao (Inches)": [38.5, 39.5, 34.0, 12.0],
         "Chiều rộng bao (Inches)": [14.0, 16.5, 4.0, 8.5],
-        "Số lượng chi tiết": [2, 2, 1, 4]
+        "Số lượng chi tiết": [2, 2, 1, 4]  # ĐÃ VÁ LỖI: Điền đầy đủ mảng số lượng, sửa lỗi thụt lề dòng
     }
     df_geo = pd.DataFrame(geo_data)
     edited_df_geo = st.data_editor(df_geo, use_container_width=True, num_rows="dynamic", key="final_geo_editor")
@@ -2197,6 +2200,7 @@ if not st.session_state.get("match_found", False):
             st.metric(label="🔮 DỰ PHÒNG ĐỊNH MỨC HÌNH HỌC TỰ ĐỘNG", value=f"{dm_bien_dong:.3f} Yards / Sản phẩm")
     except Exception as e:
         pass
+
 
 
 import json
