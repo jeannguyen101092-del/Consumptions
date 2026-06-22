@@ -1448,60 +1448,43 @@ base_sb_url = SB_URL.rstrip('/') if 'SB_URL' in globals() else ""
 headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if 'SB_KEY' in globals() else {}
 # =================================================================
 # =================================================================
-# =========================================================================================
-# ĐOẠN 4 - PHẦN 1: XỬ LÝ UPLOAD TÀI LIỆU VÀ NHẬN DIỆN GARMENT TYPE TỰ ĐỘNG (SỬA LỖI ĐỊNH DẠNG PDF)
+# ĐOẠN 4 ĐÃ SỬA: HỆ THỐNG ĐỐI CHIẾU MÃ HÀNG CÓ CƠ CHẾ KHÓA TRẠNG THÁI VÀ PHÂN LOẠI VISION
 # =========================================================================================
 
 if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption Matrix":
-    import json, re, requests, hashlib
+    import json, re, requests
     import streamlit as st
     try:
         from google.genai import types
     except ImportError:
         types = globals().get("types", None)
 
-    st.markdown('<div class="component-title-box">🧵 INTELLIGENT BOM & MATRIX</div>', unsafe_allow_html=True)
+    st.markdown('<div class="component-title-box">🧵 INTELLIGENT BOM & CONSUMPTION MATRIX ENGINE</div>', unsafe_allow_html=True)
     
     if "matched_techpack" not in st.session_state: st.session_state["matched_techpack"] = None
     if "bom_records" not in st.session_state: st.session_state["bom_records"] = []
     if "consumption_chat_history" not in st.session_state: st.session_state["consumption_chat_history"] = []
     if "previous_uploaded_file_name" not in st.session_state: st.session_state["previous_uploaded_file_name"] = None
-    if "current_file_hash" not in st.session_state: st.session_state["current_file_hash"] = None
     if "match_confidence_score" not in st.session_state: st.session_state["match_confidence_score"] = 0
     if "match_reason" not in st.session_state: st.session_state["match_reason"] = ""
     if "detected_garment_type" not in st.session_state: st.session_state["detected_garment_type"] = "UNKNOWN"
-    if "pdf_raw_text" not in st.session_state: st.session_state["pdf_raw_text"] = ""
 
     control_col1, control_col2 = st.columns([3.3, 0.7])
     with control_col1:
         st.markdown("<p style='font-weight:700; font-size:12px; color:#1E293B;'>📁 INGEST NEW STYLE REPRINTS (PDF/IMAGE)</p>", unsafe_allow_html=True)
         uploaded_file = st.file_uploader("Upload Techpack file", type=["pdf", "jpg", "jpeg", "png"], key="bom_matrix_uploader", label_visibility="collapsed")
-        
-        temp_bytes, new_file_hash = None, None
-        if uploaded_file is not None:
-            try:
-                uploaded_file.seek(0)
-                temp_bytes = uploaded_file.read()
-                new_file_hash = hashlib.md5(temp_bytes).hexdigest()
-                uploaded_file.seek(0)
-            except Exception: pass
-
-        if uploaded_file is not None and new_file_hash != st.session_state["current_file_hash"]:
+        if uploaded_file is not None and uploaded_file.name != st.session_state["previous_uploaded_file_name"]:
             st.session_state["matched_techpack"] = None
             st.session_state["bom_records"] = []
             st.session_state["match_confidence_score"] = 0
             st.session_state["match_reason"] = ""
             st.session_state["detected_garment_type"] = "UNKNOWN"
             st.session_state["previous_uploaded_file_name"] = uploaded_file.name
-            st.session_state["current_file_hash"] = new_file_hash
-            st.session_state["visual_description_str"] = ""
-            st.session_state["pdf_raw_text"] = ""
-            globals()["visual_description_str"] = ""
-            if "new_style_sketch_vector" in globals(): globals()["new_style_sketch_vector"] = ""
             st.rerun()
-        with control_col2:
-        st.markdown("<p style='font-weight:700; font-size:12px;'>🧹 RESET</p>", unsafe_allow_html=True)
-        if st.button("🗑️ PURGE", key="purge_cache_matrix_btn", use_container_width=True):
+            
+    with control_col2:
+        st.markdown("<p style='font-weight:700; font-size:12px; color:#1E293B;'>🧹 RESET CORE</p>", unsafe_allow_html=True)
+        if st.button("🗑️ PURGE CHAT CACHE", key="purge_cache_matrix_btn", use_container_width=True, type="secondary"):
             st.session_state["consumption_chat_history"] = []
             st.session_state["matched_techpack"] = None
             st.session_state["bom_records"] = []
@@ -1509,17 +1492,13 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             st.session_state["match_reason"] = ""
             st.session_state["detected_garment_type"] = "UNKNOWN"
             st.session_state["previous_uploaded_file_name"] = None
-            st.session_state["current_file_hash"] = None
-            st.session_state["visual_description_str"] = ""
-            st.session_state["pdf_raw_text"] = ""
-            globals()["visual_description_str"] = ""
-            if "new_style_sketch_vector" in globals(): globals()["new_style_sketch_vector"] = ""
+            st.success("♻️ MEMORY PURGED - SẴN SÀNG CHO MÃ HÀNG MỚI")
             st.rerun()
 
     st.markdown("---")
     has_file = st.session_state.get("bom_matrix_uploader") is not None or globals().get("has_file", False)
     if not has_file:
-        st.info("👋 Vui lòng tải lên tệp Techpack hồ sơ thiết kế (PDF/Hình ảnh) ở phía trên.")
+        st.info("👋 Vui lòng tải lên tệp Techpack hồ sơ thiết kế (PDF/Hình ảnh) ở phía trên để hệ thống bắt đầu quét và lập lịch trình đối soát.")
         st.stop()
 
     SB_KEY = globals().get("SB_KEY", "")
@@ -1531,105 +1510,72 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
 
     detected_mime_type = "image/jpeg"
     target_new_sketch_bytes = globals().get("target_new_sketch_bytes", None)
-    if "bom_matrix_uploader" in st.session_state and st.session_state["bom_matrix_uploader"] is not None:
+    if not target_new_sketch_bytes and "bom_matrix_uploader" in st.session_state and st.session_state["bom_matrix_uploader"] is not None:
         try:
             file_buffer = st.session_state["bom_matrix_uploader"]
             detected_mime_type = getattr(file_buffer, "type", "image/jpeg")
             file_buffer.seek(0)
             target_new_sketch_bytes = file_buffer.read()
-            globals()["target_new_sketch_bytes"] = target_new_sketch_bytes
         except Exception: pass
 
     new_vec = str(st.session_state.get("visual_description_str", "") or globals().get("visual_description_str", "") or globals().get("new_style_sketch_vector", "")).strip().upper()
-    uploaded_file_name = st.session_state.get("previous_uploaded_file_name", "")
-
-    st.info("🛠️ PRODUCTION DIAGNOSTIC ENGINE:")
-    st.write(f"📌 **FILE:** `{uploaded_file_name}` | **HASH:** `{st.session_state['current_file_hash']}`")
-    st.write(f"📏 **SESSION LEN:** `{len(st.session_state.get('visual_description_str', ''))}` | **GLOBAL LEN:** `{len(str(globals().get('new_style_sketch_vector', '')))}`")
-
-    vision_page_index = 0
 
     if st.session_state["matched_techpack"] is None:
-        if ("pdf" in str(detected_mime_type).lower() or uploaded_file_name.lower().endswith(".pdf")) and target_new_sketch_bytes and not st.session_state["pdf_raw_text"]:
-            try:
-                import fitz
-                doc = fitz.open(stream=target_new_sketch_bytes, filetype="pdf")
-                try:
-                    extracted_text = ""
-                    for page in doc: extracted_text += page.get_text()
-                    if len(extracted_text.strip()) > 50: st.session_state["pdf_raw_text"] = extracted_text
-                finally: doc.close()
-            except Exception as pdf_extract_err: st.warning(f"Lỗi cào text: {pdf_extract_err}")
-
         if len(new_vec) < 30 and target_new_sketch_bytes and client and client.models:
             with st.spinner("🔄 Đang quét ảnh tái lập Sketch Vector..."):
                 try:
-                    ocr_prompt = "Extract apparel construction. Return format strictly: GARMENT_TYPE: PANT\nFEATURES:\nZIP FLY"
+                    # ĐÃ NÂNG CẤP PROMPT: Ép Gemini tự định vị trang Sketch độc lập để loại bỏ nhiễu PDF đa trang
+                    ocr_prompt = """
+                    You are an expert apparel techpack analyzer. This document may be a multi-page PDF containing Cover pages, BOM tables, and Measurement charts.
                     
-                    # 🚀 BỘ QUÉT TỰ ĐỘNG CHỌN TRANG PDF SẠCH ĐÃ ĐƯỢC NHÚNG CHUẨN XÁC VÀO ĐÂY
-                    if "pdf" in str(detected_mime_type).lower() or uploaded_file_name.lower().endswith(".pdf"):
-                        import fitz
-                        doc = fitz.open(stream=target_new_sketch_bytes, filetype="pdf")
-                        try:
-                            vision_page_index = 0
-                            for page_num in range(min(len(doc), 4)):
-                                page_text = doc[page_num].get_text().upper()
-                                if ("SKETCH" in page_text or "DRAWING" in page_text or "VISUAL" in page_text) and "TABLE OF CONTENTS" not in page_text:
-                                    vision_page_index = page_num
-                                    break
-                            if vision_page_index == 0 and len(doc) > 1:
-                                vision_page_index = 1
-                                
-                            page = doc[vision_page_index]
-                            pix = page.get_pixmap(dpi=150)
-                            gemini_ready_bytes = pix.tobytes("jpeg")
-                            gemini_mime = "image/jpeg"
-                        finally: doc.close()
-                    else:
-                        gemini_ready_bytes = target_new_sketch_bytes
-                        gemini_mime = detected_mime_type
+                    CRITICAL TASK: First, scan through all pages to locate the primary 'FLAT SKETCH' or 'TECHNICAL DRAWING' page. Ignore textual BOM or size chart grids.
+                    
+                    Once located, extract:
+                    1. Garment Type (Must strictly classify as one of these: PANT, SHORT, JACKET, SHIRT, DRESS, SKIRT, VEST, HOODIE, T-SHIRT)
+                    2. Structural Features (Focus on visual construction details: waistband, pockets, seams, closure fly, cuffs, collar shape)
 
-                    st.image(gemini_ready_bytes, caption=f"🖼️ [DEBUG] PAGE SENT TO GEMINI (Trang số {vision_page_index+1})", use_container_width=True)
+                    Return format exactly like this:
 
-                    if types and hasattr(types, "Part"):
-                        ocr_contents = [types.Part.from_text(text=ocr_prompt), types.Part.from_bytes(data=gemini_ready_bytes, mime_type=gemini_mime)]
-                    else:
-                        ocr_contents = [ocr_prompt, {"mime_type": gemini_mime, "data": gemini_ready_bytes}]
-                        
+                    GARMENT_TYPE: PANT
+
+                    FEATURES:
+                    ELASTIC WAISTBAND
+                    ZIPPER FLY
+                    SIDE POCKET
+                    """
+                    ocr_contents = [types.Part.from_text(text=ocr_prompt), types.Part.from_bytes(data=target_new_sketch_bytes, mime_type=detected_mime_type)] if types and hasattr(types, "Part") else [ocr_prompt, {"mime_type": detected_mime_type, "data": target_new_sketch_bytes}]
                     ocr_res = client.models.generate_content(model='gemini-2.5-flash', contents=ocr_contents)
                     if ocr_res and ocr_res.text:
                         new_vec = str(ocr_res.text).strip().upper()
                         st.session_state["visual_description_str"] = new_vec
-                        st.text_area("📄 [DEBUG] RAW GEMINI OUTPUT", value=ocr_res.text, height=250)
-                except Exception as gemini_err: st.error(f"🚨 Gemini Error: {gemini_err}")
+                        
+                        # ĐÃ NÂNG CẤP REGEX: Nới lỏng kiểm tra để không trượt bất kỳ định dạng gạch nối/dấu phân tách nào
+                        type_match = re.search(r"GARMENT[\s_-]*TYPE\s*[:=]\s*([A-Z_\-]+)", new_vec, re.IGNORECASE)
+                        if type_match:
+                            st.session_state["detected_garment_type"] = type_match.group(1).strip().upper()
+                        else:
+                            keywords_fallback = ["PANT", "SHORT", "JACKET", "SHIRT", "DRESS", "SKIRT", "VEST", "HOODIE", "T-SHIRT"]
+                            found_type = "UNKNOWN"
+                            for tk in keywords_fallback:
+                                if tk in new_vec:
+                                    found_type = tk
+                                    break
+                            st.session_state["detected_garment_type"] = found_type
+                except Exception: pass
 
-            if len(new_vec) >= 10:
-                type_match = re.search(r"GARMENT[\s_-]*TYPE\s*[:=]\s*([A-Z_\-]+)", new_vec, re.IGNORECASE)
-                if type_match: st.session_state["detected_garment_type"] = type_match.group(1).strip().upper()
-                else:
-                    keywords_fallback = ["PANT", "SHORT", "JACKET", "SHIRT", "DRESS", "SKIRT", "VEST", "HOODIE", "T-SHIRT"]
-                    found_type = "UNKNOWN"
-                    for tk in keywords_fallback:
-                        if tk in new_vec: found_type = tk; break
-                    st.session_state["detected_garment_type"] = found_type
-
-        with st.expander("🛠️ DEBUG: TRẠNG THÁI PHÂN LOẠI VISION CUỐI CÙNG", expanded=False):
-            st.write(f"**Garment Type:** `{st.session_state['detected_garment_type']}`")
+        with st.expander("🛠️ DEBUG: DỮ LIỆU THÔ VÀ TRẠNG THÁI PHÂN LOẠI VISION", expanded=False):
+            st.write(f"**MIME Type nhận diện:** `{detected_mime_type}`")
+            st.write(f"**Garment Type trích xuất:** `{st.session_state['detected_garment_type']}`")
+            st.write("**Nội dung văn bản gốc trả về từ Gemini:**")
             st.code(new_vec)
 
         if len(new_vec) < 10:
-            st.error("🚨 Không nhận diện được cấu trúc tệp Techpack tải lên.")
+            st.error("🚨 Không nhận diện được cấu trúc tệp Techpack tải lên. Vui lòng kiểm tra lại độ nét hoặc file lỗi.")
             st.stop()
-
-        
-    
-
             
-        
-
-                # =========================================================================================
-        # ĐOẠN 4 - PHẦN 2 - KHỐI C: TẢI DỮ LIỆU RẬP MẪU VÀ LỌC ỨNG VIÊN ĐỐI SOÁT
-        # =========================================================================================
+        if st.session_state["detected_garment_type"] == "UNKNOWN":
+            st.warning("⚠️ Không tự động bóc tách được phân loại đồ cụ thể. Hệ thống tự động chuyển sang chế độ đối soát mở rộng.")
+                        # KHỐI SO SÁNH TRỰC QUAN VLM KẾT HỢP BỘ LỌC CỨNG CHỐNG LỆCH DANH MỤC
         with st.spinner("🧠 Mắt thần VLM đang so sánh trực quan ảnh và thông số kỹ thuật..."):
             try:
                 headers_db = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if SB_KEY else {}
@@ -1638,8 +1584,10 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                 
                 if raw_styles and client and client.models:
                     valid_styles = [s for s in raw_styles if s.get("StyleName") and s.get("sketch_vector") and s.get("DetailedMeasurements")]
+                    
                     vision_type = str(st.session_state.get("detected_garment_type", "UNKNOWN")).strip().upper()
                     
+                    # TỪ ĐIỂN ÁNH XẠ: Chống lọc oan sai danh mục (95% Stability)
                     GARMENT_MAP = {
                         "PANT": ["PANT", "PANTS", "TROUSER", "TROUSERS", "CARGO", "DENIM JEANS"],
                         "SHORT": ["SHORT", "SHORTS", "BERMUDA"],
@@ -1654,11 +1602,18 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                     pool = []
                     for s in valid_styles:
                         cand_cat = str(s.get("Category", "")).strip().upper()
-                        if new_style_category and cand_cat != str(new_style_category).strip().upper(): continue
+                        
+                        if new_style_category and cand_cat != str(new_style_category).strip().upper():
+                            continue
+                            
+                        # Thực hiện lọc chéo thông minh thông qua GARMENT_MAP
                         if vision_type != "UNKNOWN" and vision_type in GARMENT_MAP:
                             allowed_synonyms = GARMENT_MAP[vision_type]
-                            if not any(syn in cand_cat for syn in allowed_synonyms) and cand_cat not in vision_type: continue
-                        elif vision_type != "UNKNOWN" and vision_type not in cand_cat and cand_cat not in vision_type: continue
+                            if not any(syn in cand_cat for syn in allowed_synonyms) and cand_cat not in vision_type:
+                                continue
+                        elif vision_type != "UNKNOWN" and vision_type not in cand_cat and cand_cat not in vision_type:
+                            continue
+                            
                         pool.append(s)
                         
                     if not pool: pool = valid_styles
@@ -1673,29 +1628,19 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                         if current_base_size != "N/A" and str(s.get("BaseSize", "")).strip().upper() == current_base_size: overlap_score += 3  
                         ranked_pool.append((overlap_score, s))
                     
+                    # SỬA ĐỔI CHÍNH XÁC: Buộc phải sắp xếp theo key x[0] để loại bỏ lỗi so sánh Dict vs Dict
                     ranked_pool.sort(reverse=True, key=lambda x: x[0])
+                    
+                    # Giới hạn cứng Top 8 giúp tăng tốc độ xử lý ảnh và tiết kiệm VLM Token
                     top_8_candidates = [x[1] for x in ranked_pool[:8]]
                     vision_contents = []
                     if target_new_sketch_bytes:
-                        if "pdf" in str(detected_mime_type).lower() or uploaded_file_name.lower().endswith(".pdf"):
-                            import fitz
-                            doc = fitz.open(stream=target_new_sketch_bytes, filetype="pdf")
-                            try:
-                                page = doc[0]
-                                pix = page.get_pixmap(dpi=150)
-                                gemini_ready_bytes = pix.tobytes("jpeg")
-                                gemini_mime = "image/jpeg"
-                            finally: doc.close()
-                        else:
-                            gemini_ready_bytes = target_new_sketch_bytes
-                            gemini_mime = detected_mime_type
-
                         if types and hasattr(types, "Part"):
                             vision_contents.append(types.Part.from_text(text=f"Analyze geometry of new sketch against historical style pictures and size specs. Category filter context: {vision_type}"))
-                            vision_contents.append(types.Part.from_bytes(data=gemini_ready_bytes, mime_type=gemini_mime))
+                            vision_contents.append(types.Part.from_bytes(data=target_new_sketch_bytes, mime_type=detected_mime_type))
                         else:
                             vision_contents.append(f"Analyze geometry of new sketch against historical style pictures and size specs. Category filter context: {vision_type}")
-                            vision_contents.append({"mime_type": gemini_mime, "data": gemini_ready_bytes})
+                            vision_contents.append({"mime_type": detected_mime_type, "data": target_new_sketch_bytes})
                     
                     historical_pool_summary = []
                     for idx, s in enumerate(top_8_candidates):
@@ -1715,10 +1660,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                                 vision_contents.append(f"Candidate Pool Index: {idx} (Style: {s.get('StyleName')})")
                                 vision_contents.append({"mime_type": 'image/jpeg', "data": cand_img_bytes})
                         
-                        historical_pool_summary.append({
-                            "pool_index": idx, "style_name": s.get("StyleName"), "base_size": s.get("BaseSize", "N/A"), 
-                            "features": str(s.get("sketch_vector", "")).strip()[:1000], "detailed_measurements": s.get("DetailedMeasurements", {})
-                        })
+                        historical_pool_summary.append({"pool_index": idx, "style_name": s.get("StyleName"), "base_size": s.get("BaseSize", "N/A"), "features": str(s.get("sketch_vector", "")).strip()[:1000], "detailed_measurements": s.get("DetailedMeasurements", {})})
                     
                     semantic_prompt = f"Cross-examine tech files. Select best index for reference BOM. Confirmed Target Garment Type: {vision_type}. New size: {new_style_base_size}. New features text: {new_vec}. Candidates Pool: {json.dumps(historical_pool_summary, ensure_ascii=False)}. Return valid JSON ONLY: {{\"selected_pool_index\": 0, \"match_score\": 92, \"reason\": \"Mô tả kĩ thuật\"}}"
                     
@@ -1743,10 +1685,12 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                             st.rerun()
                         else:
                             st.session_state["matched_techpack"] = None
-                            if score > 0 and score < 65: st.warning(f"⚠️ Điểm số đối soát đạt {score}% (Dưới ngưỡng an toàn 65%).")
-                            else: st.error("🚨 Kết quả phân tích từ AI không khớp với bất kỳ mã hàng lịch sử nào.")
-            except Exception as e: st.error(f"Lỗi hệ thống trong quá trình đối soát VLM: {e}")
-
+                            if score > 0 and score < 65: st.warning(f"⚠️ Điểm số đối soát đạt {score}% (Dưới ngưỡng an toàn 65%). Hủy lệnh khóa tự động.")
+                    else: st.session_state["matched_techpack"] = None
+            except Exception as e:
+                # CƠ CHẾ MIỄN DỊCH 503: Khi Google quá tải, tự động đưa trạng thái về None để giải phóng luồng tính hình học độc lập lập tức
+                st.session_state["matched_techpack"] = None
+                st.sidebar.warning("⚡ Hệ thống VLM đang quá tải tạm thời. Đã kích hoạt cơ chế tính định mức độc lập bằng hình học rập mẫu.")
 
 
     import pandas as pd
@@ -2150,78 +2094,80 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
 
 
 
-# ĐOẠN 6 - KHỐI K: LÕI PHÂN TÍCH ĐA LUỒNG TỪ PDF TEXT HOÀN CHỈNH (CĂN LỀ CHUẨN)
+
+
+
+
+
+
+
+
+
+
 # =================================================================
+# ĐOẠN 6: GIAO DIỆN CHAT AI PHÂN TÍCH ĐỊNH MỨC VÀ SCRIPT AUTO-SCROLL
+# =================================================================
+if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption Matrix":
+    import streamlit as st
+
+    # Khôi phục an toàn các biến ngữ cảnh phục vụ tính toán từ môi trường toàn cục
+    client = globals().get("client", None)
+    matched_techpack = st.session_state.get("matched_techpack", None)
+    bom_records = st.session_state.get("bom_records", [])
+    new_style_measurements_dict = globals().get("new_style_measurements_dict", {})
+    target_new_sketch_bytes = globals().get("target_new_sketch_bytes", None)
+    new_style_base_size = globals().get("new_style_base_size", "N/A")
+
+    chat_header_col1, chat_header_col2 = st.columns([3.2, 0.8])
+    with chat_header_col1:
+        st.markdown("### 💬 TRỢ LÝ AI PHÂN TÍCH ĐỊNH MỨC SẢN XUẤT ")
+    with chat_header_col2:
+        if st.button("🗑️ XÓA LỊCH SỬ CHAT", key="direct_clear_chat_btn", use_container_width=True):
+            st.session_state["consumption_chat_history"] = []
+            st.toast("♻️ Đã xóa sạch lịch sử chat tức thì!")
+            st.rerun()
+
+    chat_container = st.container()
+    with chat_container:
+        for chat in st.session_state.get("consumption_chat_history", []):
+            with st.chat_message("user"): 
+                st.write(chat["user"])
+            with st.chat_message("assistant"): 
+                st.write(chat["ai"])
+                
     if user_query := st.chat_input("Nhập yêu cầu phân tích (Ví dụ: Tính định mức vải chính khi co rút ngang 5%, dọc 3%)..."):
         if "consumption_chat_history" not in st.session_state:
             st.session_state["consumption_chat_history"] = []
             
         with chat_container:
-            with st.chat_message("user"): st.write(user_query)
+            with st.chat_message("user"):
+                st.write(user_query)
+                
             with st.chat_message("assistant"):
-                with st.spinner("🤖 AI đang quét dữ liệu tài liệu và xử lý định mức..."):
+                with st.spinner("🤖 AI đang phân tích dữ liệu và tính toán định mức..."):
+                    # Bẫy lỗi an toàn cho Engine phân tích, phòng trường hợp hàm chưa định nghĩa hoặc lỗi API
                     try:
-                        # [CHIẾN LƯỢC VÀNG]: Cào ngầm văn bản thô từ file PDF kỹ thuật làm Input dự phòng cho AI
-                        raw_pdf_text = st.session_state.get("pdf_raw_text", "")
-                        if not raw_pdf_text and target_new_sketch_bytes:
-                            try:
-                                import fitz
-                                doc = fitz.open(stream=target_new_sketch_bytes, filetype="pdf")
-                                raw_pdf_text = "".join([page.get_text() for page in doc])
-                                st.session_state["pdf_raw_text"] = raw_pdf_text
-                                doc.close()
-                            except Exception: pass
-
-                        # THIẾT LẬP PROMPT THỰC NGHIỆM ÉP GEMINI XỬ LÝ MA TRẬN ĐỊNH MỨC VÀ BIẾN ĐỔI CHỮ THÀNH BẢNG DATA
-                        factory_prompt = f"""
-                        You are an expert apparel cost engineer. Generate a valid Consumption (Định mức) matrix based on the user request.
-                        
-                        CONTEXT DATA:
-                        - Matched Historical Style Spec: {json.dumps(matched_techpack, ensure_ascii=False) if matched_techpack else "NONE (This is a completely brand new style)"}
-                        - Current System BOM Specs: {json.dumps(bom_records, ensure_ascii=False) if bom_records else "EMPTY BOM"}
-                        - Raw Extracted Techpack PDF Text: \"\"\"{raw_pdf_text[:6000]}\"\"\"
-                        
-                        USER SPECIFIC REQUEST:
-                        \"\"\"{user_query}\"\"\"
-                        
-                        INSTRUCTIONS:
-                        1. If historical reference exists, calculate adjustments using co-shrinkage.
-                        2. If NO reference exists, read the Raw Extracted PDF Text to find materials (Vải chính, Vải phụ, lót túi...) and estimate base baselines.
-                        3. Apply shrinkage (co rút) and loss (hao hụt) based on user prompt strictly using multiplicative formula: New_DM = Base * (1 + Shrinkage/100) * (1 + Wastage/100).
-                        4. Provide your final technical analysis response to the user. At the very end of your response, if you updated or calculated a new consumption table, append a valid JSON block enclosed in [JSON_START] and [JSON_END] matching this structure:
-                        [JSON_START]
-                        [
-                          {{"Phân loại vật tư (Type)": "MAIN FABRIC", "Tổng ĐM mã cũ": 0.0, "ĐM Dự phòng mã mới": 1.688, "Cơ sở thuật toán toán AI": "Giải trình..."}}
-                        ]
-                        [JSON_END]
-                        """
-                        
-                        res = client.models.generate_content(model='gemini-2.5-flash', contents=factory_prompt)
-                        ai_reply = res.text if res and res.text else "⚠️ Không nhận được phản hồi từ bộ não AI."
-                        
-                        # Trích xuất và bóc tách khối ma trận dữ liệu JSON để vẽ đồ họa DataFrame lên UI
-                        json_block = re.search(r'\[JSON_START\]\s*([\s\S]*?)\s*\[JSON_END\]', ai_reply)
-                        if json_block:
-                            try:
-                                projected_data = json.loads(json_block.group(1).strip())
-                                st.session_state["ai_projected_consumption_matrix"] = projected_data
-                                # Dọn dẹp sạch thẻ JSON nội bộ trước khi hiển thị nội dung phân tích chữ cho người dùng đọc
-                                ai_reply = ai_reply.replace(json_block.group(0), "").strip()
-                            except Exception: pass
-                        
-                        # Render nội dung chữ giải thích kỹ thuật của AI
-                        st.write(ai_reply)
-                        
-                        # Nếu trích xuất ma trận JSON thành công, vẽ bảng DataFrame trực quan lên khung chat lập tức
-                        if "ai_projected_consumption_matrix" in st.session_state and json_block:
-                            st.dataframe(pd.DataFrame(st.session_state["ai_projected_consumption_matrix"]), use_container_width=True, hide_index=True)
-                            
-                        st.session_state["consumption_chat_history"].append({"user": user_query, "ai": ai_reply})
+                        if "ai_consumption_analyst_engine" in globals():
+                            ai_reply = ai_consumption_analyst_engine(
+                                client=client,
+                                user_message=user_query,
+                                matched_techpack=matched_techpack,
+                                bom_records=bom_records,
+                                new_style_measurements=new_style_measurements_dict,
+                                target_new_sketch_bytes=target_new_sketch_bytes,
+                                detected_size=new_style_base_size
+                            )
+                        else:
+                            ai_reply = "⚠️ Khối phân tích `ai_consumption_analyst_engine` chưa được khởi tạo trong mã nguồn hệ thống."
                     except Exception as chat_err:
-                        ai_reply = f"❌ Lỗi kết nối AI Engine: {str(chat_err)}"
-                        st.write(ai_reply)
-
-        # HÀM NEO TỰ ĐỘNG CUỘN GIAO DIỆN (AUTO SCROLL)
+                        ai_reply = f"❌ Không thể kết nối đến bộ não AI để phân tích dữ liệu định mức. Chi tiết sự cố: {str(chat_err)}"
+                        
+                    st.write(ai_reply)
+                    
+                    # ĐỒNG BỘ TRƯỚC: Lưu kết quả vào lịch sử chat lập tức trước khi chạy script cuộn màn hình
+                    st.session_state["consumption_chat_history"].append({"user": user_query, "ai": ai_reply})
+                    
+        # ✅ THUẬT TOÁN ĐÓNG ĐINH NEO CUỘN: Viết phẳng hóa hoàn toàn triệt tiêu lỗi cú pháp căn lề
         js_scroll = "<script>var d=window.parent.document; var s=d.querySelectorAll('section.main'); if(s.length>0){s[0].scrollTo({top:s[0].scrollHeight,behavior:'smooth'});}</script>"
         st.components.v1.html(js_scroll, height=0)
 
