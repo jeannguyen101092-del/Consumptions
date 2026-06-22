@@ -1571,237 +1571,215 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                     # Fallback thô nếu JSON gãy cấu trúc ngoài ý muốn
                     st.session_state["detected_garment_type"] = "UNKNOWN"
 
-               # KHỐI ĐỊNH NGHĨA TOÁN HỌC: ĐỘNG CƠ ĐỐI SOÁT DNA CÓ HOÀN TRẢ FALLBACK TỪ KHÓA CHỐNG REJECT OAN
-        def calculate_dna_similarity(new_dna: dict, old_dna_raw, old_sketch_vector: str) -> int:
-            """
-            Tính toán khoảng cách cấu trúc DNA kỹ thuật. 
-            NẾU mã cũ chưa có cột structural_dna, tự động dùng cơ chế Overlap Keyword để cứu ứng viên lọt vào vòng trong.
-            """
-            if not new_dna:
-                return 0
-                
-            # Giải mã dữ liệu DNA cũ nếu có
-            old_dna = {}
-            if old_dna_raw:
-                if isinstance(old_dna_raw, str):
-                    try: old_dna = json.loads(old_dna_raw)
-                    except Exception: old_dna = {}
-                elif isinstance(old_dna_raw, dict):
-                    old_dna = old_dna_raw
+           # ==========================================
+# ĐOẠN B (CẬP NHẬT CHÍNH XÁC VÁ LINK STORAGE SUPABASE)
+# ==========================================
+        with st.expander("🛠️ DEBUG: DỮ LIỆU THÔ VÀ TRẠNG THÁI PHÂN LOẠI VISION", expanded=False):
+            st.write(f"**MIME Type nhận diện:** `{detected_mime_type}`")
+            st.write(f"**Garment Type trích xuất:** `{st.session_state['detected_garment_type']}`")
+            st.write("**Nội dung văn bản gốc trả về từ Gemini:**")
+            st.code(new_vec)
 
-            # CHẾ ĐỘ DỰ PHÒNG: Nếu mã trong DB chưa được cập nhật cột structural_dna -> Dùng Keyword Overlap để tính điểm nền
-            if not old_dna:
-                # Quét các từ khóa cốt lõi giữa mã mới và text cũ trong DB
-                new_keywords = set(str(new_dna.get("key_features_keywords", [])).upper().split() + [str(new_dna.get("silhouette", "")).upper()])
-                old_text = str(old_sketch_vector).upper()
-                overlap_count = sum(1 for kw in new_keywords if kw in old_text)
-                
-                # Trả về điểm số nền (Ví dụ: có trùng từ khóa hoặc danh mục thì cho 75 điểm để lọt vào vòng Gemini Vision)
-                if str(new_dna.get("category", "")).strip().upper() in old_text:
-                    return 70 + (overlap_count * 5)
-                return 0
-
-            # CHẾ ĐỘ NÂNG CAO: Nếu cả 2 đều có DNA -> Áp dụng bộ phạt cấu trúc cứng
-            score = 100
-
-            # TẦNG 1: Khóa cứng danh mục gốc. Sai loại (Áo vs Quần) -> Loại ngay
-            if str(new_dna.get("category", "")).strip().upper() != str(old_dna.get("category", "")).strip().upper():
-                return 0
-
-            # TẦNG 2: Phạt lệch phom dáng / Silhouette (Trừ 20 điểm nếu lệch)
-            if str(new_dna.get("silhouette", "")).strip().upper() != str(old_dna.get("silhouette", "")).strip().upper():
-                score -= 20
-
-            # TẦNG 3: Phạt theo độ lệch số lượng túi (Mỗi túi lệch phạt 5 điểm)
-            try:
-                new_pockets = int(new_dna.get("pocket_count", 0))
-                old_pockets = int(old_dna.get("pocket_count", 0))
-                score -= abs(new_pockets - old_pockets) * 5
-            except (ValueError, TypeError):
-                score -= 10
-
-            # TẦNG 4: Phạt theo độ phức tạp đường may (Mỗi cấp lệch phạt 5 điểm)
-            try:
-                new_seam = int(new_dna.get("seam_complexity", 5))
-                old_seam = int(old_dna.get("seam_complexity", 5))
-                score -= abs(new_seam - old_seam) * 5
-            except (ValueError, TypeError):
-                score -= 10
-
-            return max(score, 0)
-
-        # KHỐI SO SÁNH TRỰC QUAN VLM KẾT HỢP BỘ LỌC DNA THÔNG MINH
-        with st.spinner("🧠 Động cơ DNA Similarity đang quét cấu trúc và cấu hình rập..."):
-            match_res = None
-            s_idx = None
-            score = 0
-            reason = "N/A"
-            top_8_candidates = []
+        if len(new_vec) < 10:
+            st.error("🚨 Không nhận diện được cấu trúc tệp Techpack tải lên. Vui lòng kiểm tra lại độ nét hoặc file lỗi.")
+            st.stop()
             
+        if st.session_state["detected_garment_type"] == "UNKNOWN":
+            st.warning("⚠️ Không tự động bóc tách được phân loại đồ cụ thể. Hệ thống tự động chuyển sang chế độ đối soát mở rộng.")
+            
+        # ĐỒNG BỘ BIẾN CATEGORY
+        new_style_category = globals().get("new_style_category_detected", st.session_state.get("new_style_category_detected", ""))
+
+        if "vlm_top_8_candidates" not in st.session_state: st.session_state["vlm_top_8_candidates"] = []
+        if "vlm_json_match_text" not in st.session_state: st.session_state["vlm_json_match_text"] = None
+
+        with st.spinner("🧠 Mắt thần VLM đang so sánh trực quan ảnh và thông số kỹ thuật..."):
             try:
                 headers_db = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if SB_KEY else {}
                 url_db = f"{base_sb_url.rstrip('/')}/rest/v1/thong_so_techpack" if base_sb_url else ""
                 
-                # Truy vấn đầy đủ cả cột text cũ và cột dna mới để chạy chế độ dự phòng
-                fast_filter_fields = "StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL,sketch_vector,structural_dna"
+                fast_filter_fields = "StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL,sketch_vector"
                 raw_styles = requests.get(url_db, headers=headers_db, params={"select": fast_filter_fields, "limit": 1000}, timeout=15).json() if url_db else []
                 
                 if raw_styles and client and client.models and st.session_state["new_style_dna"]:
                     valid_styles = [s for s in raw_styles if s.get("StyleName")]
                     new_dna_context = st.session_state["new_style_dna"]
                     
-                    # Sàng lọc ứng viên
                     dna_pool = []
                     for s in valid_styles:
-                        # Truyền thêm trường sketch_vector vào hàm để cứu các mã chưa nâng cấp DNA trong DB
                         sim_math_score = calculate_dna_similarity(new_dna_context, s.get("structural_dna"), s.get("sketch_vector", ""))
-                        
-                        # Hạ ngưỡng lọc xuống >= 40 điểm để đảm bảo các mã tiệm cận vẫn lọt được vào danh sách đối soát ảnh
                         if sim_math_score >= 40:
                             dna_pool.append((sim_math_score, s))
                     
-                    # Sắp xếp và lấy Top 8 Candidate cho Gemini VLM chấm điểm trực quan
                     dna_pool.sort(reverse=True, key=lambda x: x)
                     top_8_candidates = [x for x in dna_pool[:8]]
-                    
-                    with st.expander("🔍 DEBUG TẦNG 2: KẾT QUẢ ĐỐI SOÁT TOÁN HỌC DNA SIMILARITY (TOP 8)", expanded=False):
-                        if not dna_pool:
-                            st.write("❌ Không có mã lịch sử nào vượt qua màng lọc cấu trúc.")
-                        for idx, item in enumerate(dna_pool[:8]):
-                            st.write(f"**[{idx}]** Mã: `{item.get('StyleName')}` | Điểm tương đồng: `{item}/100` | Danh mục: `{item.get('Category')}`")
+                    st.session_state["vlm_top_8_candidates"] = top_8_candidates
                     
                     if top_8_candidates:
                         vision_contents = []
                         if target_new_sketch_bytes:
                             if types and hasattr(types, "Part"):
-                                vision_contents.append(types.Part.from_text(text="Analyze visual geometry and pocket placement. Find the closest match. Do not reject if silhouette matches reasonably."))
+                                vision_contents.append(types.Part.from_text(text="Analyze layout geometry. Find the identical match image from the pool."))
                                 vision_contents.append(types.Part.from_bytes(data=target_new_sketch_bytes, mime_type=detected_mime_type))
                             else:
-                                vision_contents.append("Analyze visual geometry and pocket placement. Find the closest match. Do not reject if silhouette matches reasonably.")
+                                vision_contents.append("Analyze layout geometry. Find the identical match image from the pool.")
                                 vision_contents.append({"mime_type": detected_mime_type, "data": target_new_sketch_bytes})
                         
                         historical_pool_summary = []
                         for idx, s in enumerate(top_8_candidates):
+                            # CHỐT CHẶN VÁ LINK ĐỘNG: Nếu trường URL lỗi/trống, tự tạo URL public tới bucket kho_anh
                             cand_img_url = s.get("SketchURL") or s.get("sketch_url")
+                            style_id = s.get("StyleName", "")
+                            
+                            if (not cand_img_url) and base_sb_url and style_id:
+                                # Tách lấy domain gốc của supabase (ví dụ: https://supabase.co)
+                                base_domain = base_sb_url.split("/rest")[0]
+                                # Ép mã hóa ký tự đặc biệt như dấu gạch ngang "-" hay khoảng trắng
+                                safe_filename = requests.utils.quote(f"{style_id}.jpg")
+                                cand_img_url = f"{base_domain}/storage/v1/object/public/kho_anh/{safe_filename}"
+                            
                             cand_img_bytes = None
                             if cand_img_url and target_new_sketch_bytes:
                                 try:
                                     img_res = requests.get(cand_img_url, headers=headers_db, timeout=5)
-                                    if img_res.status_code == 200 and len(img_res.content) > 500: cand_img_bytes = img_res.content
+                                    if img_res.status_code == 200 and len(img_res.content) > 500: 
+                                        cand_img_bytes = img_res.content
                                 except Exception: pass
-                            
+                        
                             if cand_img_bytes and target_new_sketch_bytes:
                                 if types and hasattr(types, "Part"):
-                                    vision_contents.append(types.Part.from_text(text=f"Candidate Index: {idx} (Style: {s.get('StyleName')})"))
+                                    vision_contents.append(types.Part.from_text(text=f"Candidate Index: {idx} (Style: {style_id})"))
                                     vision_contents.append(types.Part.from_bytes(data=cand_img_bytes, mime_type='image/jpeg'))
                                 else:
-                                    vision_contents.append(f"Candidate Index: {idx} (Style: {s.get('StyleName')})")
+                                    vision_contents.append(f"Candidate Index: {idx} (Style: {style_id})")
                                     vision_contents.append({"mime_type": 'image/jpeg', "data": cand_img_bytes})
                             
-                            historical_pool_summary.append({"pool_index": idx, "style_name": s.get("StyleName"), "features_text": str(s.get("sketch_vector", ""))})
+                            historical_pool_summary.append({"pool_index": idx, "style_name": style_id})
                         
-                        # Nới lỏng ngưỡng ép lỗi của Gemini xuống >= 70% để chấp nhận dung sai ngành may
                         semantic_prompt = f"""
                         Cross-examine the new sketch image against the historical candidate images.
-                        Target New Garment Context: {json.dumps(new_dna_context)}
                         Candidates Summary List: {json.dumps(historical_pool_summary, ensure_ascii=False)}
-
-                        CRITICAL INSTRUCTION:
-                        - If you see an image that is visually identical or has a very close pocket structure, select its index.
-                        - Only return selected_pool_index as -1 if the candidates are completely different garment types (e.g. comparing a jacket to a pant).
-                        - Set match_score above 85 if it is an exact visual match.
-
-                        Return valid JSON ONLY:
-                        {{"selected_pool_index": 0, "match_score": 90, "reason": "Visual match verified"}}
+                        - Find the candidate image that is EXACTLY identical to the new uploaded sketch.
+                        - Set match_score above 90 if it matches perfectly.
+                        Return valid JSON ONLY: {{"selected_pool_index": 0, "match_score": 95, "reason": "Exact match found"}}
                         """
                         
                         if types and hasattr(types, "Part"): vision_contents.append(types.Part.from_text(text=semantic_prompt))
                         else: vision_contents.append(semantic_prompt)
                             
                         res = client.models.generate_content(model='gemini-2.5-flash', contents=vision_contents)
-                        json_match = re.search(r'\{[\s\S]*\}', res.text.strip())
-                        # NỐI TIẾP LOGIC ĐOẠN B: XỬ LÝ PHẢN HỒI VÀ TRUY VẤN SÂU (DEEP LOAD DATA)
-                        if json_match:
-                            try:
-                                match_res = json.loads(json_match.group())
-                                s_idx = match_res.get("selected_pool_index")
-                                score = int(match_res.get("match_score", 0))
-                                reason = str(match_res.get("reason", "N/A"))
-                                
-                                # HẠ NGƯỠNG CONFIDENCE GATEWAY XUỐNG DUNG SAI NGÀNH MAY (>= 70%) ĐỂ TRÁNH REJECT OAN
-                                if s_idx is not None and s_idx != -1 and score >= 70 and 0 <= s_idx < len(top_8_candidates):
-                                    selected_meta = top_8_candidates[s_idx]
-                                    matched_style_name = selected_meta.get("StyleName")
-                                    
-                                    deep_fields = "StyleName,bom_records,thread_consumption,sewing_operation,machine_type,thread_allowance"
-                                    deep_res = requests.get(
-                                        url_db, 
-                                        headers=headers_db, 
-                                        params={"StyleName": f"eq.{matched_style_name}", "select": deep_fields}, 
-                                        timeout=10
-                                    ).json()
-                                    
-                                    with st.expander("🔍 DEBUG: DỮ LIỆU ĐỊNH MỨC CHI TIẾT TỪ SUPABASE (DEEP DATA)", expanded=False):
-                                        st.json(deep_res)
-                                    
-                                    if deep_res and isinstance(deep_res, list) and len(deep_res) > 0:
-                                        # Hợp nhất dữ liệu thô tầng sâu vào metadata
-                                        selected_meta.update(deep_res[0])
-                                        
-                                        st.session_state["matched_techpack"] = selected_meta
-                                        st.session_state["match_confidence_score"] = score
-                                        st.session_state["match_reason"] = reason
-                                        st.toast(f"🎯 Đã khóa thành công mã tương đồng chuẩn kết cấu: {matched_style_name} ({score}%)", icon="🎯")
-                                        st.rerun()
-                                    else:
-                                        st.warning(f"⚠️ Tìm thấy mã {matched_style_name} nhưng không có dữ liệu BOM/Consumption trong kho.")
-                                else:
-                                    # Ghi nhận đối soát thất bại thực sự khi điểm quá thấp hoặc model trả về -1
-                                    st.session_state["matched_techpack"] = None
-                                    st.session_state["match_confidence_score"] = score
-                                    st.session_state["match_reason"] = f"REJECTED BY VLM: {reason}"
-                            except json.JSONDecodeError: pass
+                        st.session_state["vlm_json_match_text"] = res.text.strip() if res else None
             except Exception as e:
-                st.error(f"🚨 Đã xảy ra lỗi trong quá trình xử lý đối soát hệ thống: {str(e)}")
+                st.error(f"🚨 Đã xảy ra lỗi trong quá trình xử lý đối soát Đoạn B: {str(e)}")
+# ==========================================
+# ĐOẠN C: DEEP LOAD DATA EXTRACTION, IMAGE REPAIR & DISPLAY MATRIX
+# ==========================================
+        try:
+            headers_db = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if SB_KEY else {}
+            url_db = f"{base_sb_url.rstrip('/')}/rest/v1/thong_so_techpack" if base_sb_url else ""
+            
+            top_8_candidates = st.session_state.get("vlm_top_8_candidates", [])
+            json_text = st.session_state.get("vlm_json_match_text", "")
+            
+            if json_text:
+                json_match = re.search(r'\{[\s\S]*\}', json_text)
+                if json_match:
+                    match_res = json.loads(json_match.group())
+                    s_idx = match_res.get("selected_pool_index")
+                    score = int(match_res.get("match_score", 0))
+                    reason = str(match_res.get("reason", "N/A"))
+                    
+                    # Ngưỡng chặn thực tế cho dung sai may mặc (>= 65%)
+                    if s_idx is not None and s_idx != -1 and score >= 65 and 0 <= s_idx < len(top_8_candidates):
+                        selected_meta = top_8_candidates[s_idx]
+                        matched_style_name = selected_meta.get("StyleName")
+                        
+                        deep_fields = "StyleName,bom_records,thread_consumption,sewing_operation,machine_type,thread_allowance"
+                        deep_res = requests.get(
+                            url_db, 
+                            headers=headers_db, 
+                            params={"StyleName": f"eq.{matched_style_name}", "select": deep_fields}, 
+                            timeout=10
+                        ).json()
+                        
+                        if deep_res and isinstance(deep_res, list) and len(deep_res) > 0:
+                            # Hợp nhất dữ liệu thô tầng sâu vào object metadata
+                            selected_meta.update(deep_res[0])
+                            
+                            # CƠ CHẾ VÁ URL ẢNH HIỂN THỊ TRÊN GIAO DIỆN:
+                            # Nếu SketchURL bị gãy hoặc trống, tự động dựng link Public trực tiếp tới bucket kho_anh
+                            if (not selected_meta.get("SketchURL")) and base_sb_url:
+                                base_domain = base_sb_url.split("/rest")[0]
+                                safe_filename = requests.utils.quote(f"{matched_style_name}.jpg")
+                                selected_meta["SketchURL"] = f"{base_domain}/storage/v1/object/public/kho_anh/{safe_filename}"
+                            
+                            st.session_state["matched_techpack"] = selected_meta
+                            st.session_state["match_confidence_score"] = score
+                            st.session_state["match_reason"] = reason
+                            st.toast(f"🎯 Đã khóa TP tham chiếu chuẩn xác: {matched_style_name} ({score}%)", icon="🎯")
+                            st.rerun()
+                        else:
+                            st.warning(f"⚠️ Tìm thấy mã {matched_style_name} nhưng không có dữ liệu định mức chi tiết.")
+                    else:
+                        st.session_state["matched_techpack"] = None
+                        st.session_state["match_confidence_score"] = score
+                        st.session_state["match_reason"] = f"REJECTED BY AI: {reason}"
+        except Exception as e:
+            st.error(f"🚨 Đã xảy ra lỗi trong quá trình xử lý đối soát Đoạn C: {str(e)}")
 
-    # IN PHÍM KIỂM SOÁT ĐẦU RA SAU KHI GOM DỮ LIỆU THÀNH CÔNG (NẰM NGOÀI KHỐI TRỐNG)
-    if st.session_state["matched_techpack"]:
-        st.success(f"🎯 Đã khóa thành công dữ liệu mã tương đồng: `{st.session_state['matched_techpack']['StyleName']}` | Confidence {st.session_state.get('match_confidence_score', 0)}%")
-        with st.expander("📦 KIỂM TRA TOÀN BỘ CỘT SẴN CÓ ĐỂ CHUẨN BỊ ĐẨY QUA CONSUMPTION ENGINE", expanded=False):
-            st.write(list(st.session_state["matched_techpack"].keys()))
-    else:
-        st.error(f"⚠️ HỆ THỐNG TỪ CHỐI KHÓA MÃ CŨ (DNA REJECTED). Lý do: `{st.session_state.get('match_reason', 'Không tìm thấy cấu trúc tương đồng thích hợp trên 70%')}`")
+        # KHỐI HIỂN THỊ ĐỐI CHIẾU TRỰC QUAN TRÊN GIAO DIỆN STREAMLIT
+        if st.session_state["matched_techpack"]:
+            current_tp = st.session_state["matched_techpack"]
+            score_val = st.session_state.get("match_confidence_score", 0)
+            
+            st.success(f"🎯 Đã khóa dữ liệu mã tương đồng: `{current_tp['StyleName']}` | Độ tin cậy VLM: {score_val}%")
+            
+            # Khởi tạo giao diện đối chiếu ảnh song song trên Streamlit
+            view_col1, view_col2 = st.columns(2)
+            with view_col1:
+                st.info("🖼️ Ảnh Sketch của Mã hàng mới tải lên:")
+                if target_new_sketch_bytes:
+                    st.image(target_new_sketch_bytes, use_container_width=True)
+            with view_col2:
+                st.info(f"🗄️ Ảnh đối chiếu của Mã hàng tương đồng trong kho (`{current_tp['StyleName']}`):")
+                db_img_url = current_tp.get("SketchURL") or current_tp.get("sketch_url")
+                if db_img_url:
+                    # Gọi hiển thị ảnh public trực tiếp từ bucket Supabase lên màn hình
+                    st.image(db_img_url, use_container_width=True)
+                else:
+                    st.warning("⚠️ Không tìm thấy liên kết ảnh của mã hàng này trong kho lưu trữ dữ liệu.")
+        else:
+            st.error(f"⚠️ HỆ THỐNG TỪ CHỐI KHÓA MÃ CŨ. Lý do: `{st.session_state.get('match_reason', 'Không tìm thấy cấu trúc tương đồng thích hợp trên 70%')}`")
 
-    # KÍCH HOẠT THUẬT TOÁN HÌNH HỌC RẬP (DXF GEOMETRY ENGINE) KHI KHÔNG CÓ MATCH HOẶC AI BỊ REJECTED
-    if st.session_state["matched_techpack"] is None:
-        st.info("🔄 Kích hoạt Công cụ Hình học Rập (DXF Geometry Engine) - Tính toán định mức toán học độc lập...")
-        with st.spinner("📐 Đang bóc tách thông số toán học đường may từ file rập hình học độc lập..."):
-            try:
-                dxf_perimeter = globals().get("calculate_dxf_perimeter", lambda: 420.5)()
-                dxf_seam_length = globals().get("calculate_dxf_seam_length", lambda: 185.2)()
-                dxf_area = globals().get("calculate_dxf_area", lambda: 1.25)()
-                vision_type = str(st.session_state.get("detected_garment_type", "UNKNOWN")).strip().upper()
-                
-                # Cấu trúc mock an toàn kế thừa chính xác tên cột thô của database Supabase
-                st.session_state["matched_techpack"] = {
-                    "StyleName": "VIRTUAL-GEOMETRY-FALLBACK",
-                    "Category": vision_type,
-                    "BaseSize": str(new_style_base_size).strip().upper() if 'new_style_base_size' in locals() else "N/A",
-                    "DetailedMeasurements": {
-                        "perimeter_mm": dxf_perimeter, 
-                        "seam_length_mm": dxf_seam_length, 
-                        "area_sq_m": dxf_area
-                    },
-                    "bom_records": [], 
-                    "thread_consumption": [{"thread_ratio_default": 2.8, "fallback_standard": "ISO-2019-GEOMETRY"}],
-                    "sewing_operation": [{"op_name": "Calculated by DXF Geometry Engine", "seam_type": "Standard"}],
-                    "machine_type": [],
-                    "thread_allowance": {"is_pure_geometry": True, "estimated_seam_consumption_ratio": 3.4},
-                    "is_pure_geometry": True
-                }
-                st.success("✅ Khởi tạo cấu trúc dữ liệu hình học ảo thành công. Luồng xử lý định mức đã sẵn sàng hoạt động.")
-            except Exception as geo_err:
-                st.error(f"🚨 Thất bại khi kích hoạt DXF Geometry Engine Fallback: {str(geo_err)}")
+        # KÍCH HOẠT THUẬT TOÁN HÌNH HỌC RẬP (DXF GEOMETRY ENGINE) KHI AI BỊ TỪ CHỐI HOẶC ĐIỂM THẤP
+        if st.session_state["matched_techpack"] is None:
+            st.info("🔄 Kích hoạt Công cụ Hình học Rập (DXF Geometry Engine) - Tính toán định mức toán học độc lập...")
+            with st.spinner("📐 Đang bóc tách thông số toán học đường may từ file rập hình học độc lập..."):
+                try:
+                    dxf_perimeter = globals().get("calculate_dxf_perimeter", lambda: 420.5)()
+                    dxf_seam_length = globals().get("calculate_dxf_seam_length", lambda: 185.2)()
+                    dxf_area = globals().get("calculate_dxf_area", lambda: 1.25)()
+                    vision_type = str(st.session_state.get("detected_garment_type", "UNKNOWN")).strip().upper()
+                    
+                    st.session_state["matched_techpack"] = {
+                        "StyleName": "VIRTUAL-GEOMETRY-FALLBACK",
+                        "Category": vision_type,
+                        "BaseSize": str(new_style_base_size).strip().upper() if 'new_style_base_size' in locals() else "N/A",
+                        "DetailedMeasurements": {
+                            "perimeter_mm": dxf_perimeter, 
+                            "seam_length_mm": dxf_seam_length, 
+                            "area_sq_m": dxf_area
+                        },
+                        "bom_records": [], 
+                        "thread_consumption": [{"thread_ratio_default": 2.8, "fallback_standard": "ISO-2019-GEOMETRY"}],
+                        "sewing_operation": [{"op_name": "Calculated by DXF Geometry Engine", "seam_type": "Standard"}],
+                        "machine_type": [],
+                        "thread_allowance": {"is_pure_geometry": True, "estimated_seam_consumption_ratio": 3.4},
+                        "is_pure_geometry": True
+                    }
+                    st.success("✅ Khởi tạo cấu trúc dữ liệu hình học ảo thành công. Sẵn sàng xử lý toán học định mức.")
+                except Exception as geo_err:
+                    st.error(f"🚨 Thất bại khi kích hoạt DXF Geometry Engine Fallback: {str(geo_err)}")
 
 
     import pandas as pd
@@ -2134,40 +2112,87 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             avg_pom_growth = sum(valid_diff_pcts) / len(valid_diff_pcts)
             avg_area_growth_pct = round((((1 + avg_pom_growth/100) ** 2) - 1) * 100, 2)
 
-    # --- AI CONSUMPTION PROJECTION ENGINE ---
-    if matched_techpack and st.session_state.get("matched_image_verified", False) and bom_records:
+        # --- AI CONSUMPTION PROJECTION ENGINE ---
+    # Bốc chính xác thực thể dữ liệu từ bộ nhớ tạm session_state
+    current_tp = st.session_state.get("matched_techpack", None)
+
+    if current_tp is not None:
         st.markdown("<br>🔮 **AI CONSUMPTION PROJECTION ENGINE (DỰ PHÓNG ĐỊNH MỨC MÃ MỚI)**", unsafe_allow_html=True)
         
-        v_similarity = st.session_state.get("matched_similarity_score", 100.0)
+        # Đọc các thông số bổ trợ toán học an toàn từ hệ thống
+        v_similarity = st.session_state.get("match_confidence_score", 100.0)
+        avg_area_growth = globals().get("avg_area_growth_pct", 0.0)
+        
         col1, col2 = st.columns(2)
         with col1:
-            shape_factor = st.number_input("Độ biến thiên phom tính toán từ POM (%)", value=float(avg_area_growth_pct), step=0.1)
+            shape_factor = st.number_input("Độ biến thiên phom tính toán từ POM (%)", value=float(avg_area_growth), step=0.1)
         with col2:
             wastage_buffer = st.number_input("Hao hụt sản xuất cấu hình thêm (%)", value=3.0, step=0.5)
 
         projection_rows = []
-        for ctype, old_qty in bom_summary_engine.items():
-            # Đồng bộ hóa định dạng chữ để kiểm tra chính xác chủng loại vải chính/vải lót chịu ảnh hưởng nhảy size
-            ctype_upper = str(ctype).strip().upper()
-            if any(k in ctype_upper for k in ["MAIN", "FABRIC", "BODY", "SHELL", "LINING", "RIB", "COMBINATION", "POCKETING"]):
-                similarity_weight = v_similarity / 100.0
-                adjusted_shape_factor = shape_factor * similarity_weight
-                projected_dm = old_qty * (1 + adjusted_shape_factor / 100) * (1 + wastage_buffer / 100)
-                note = f"Vải nhảy vóc (Diện tích rập biến thiên: {round(adjusted_shape_factor, 2)}% dựa trên Vision {v_similarity}%)"
-            else:
-                projected_dm = old_qty * (1 + wastage_buffer / 100)
-                note = f"Phụ liệu tĩnh (Chỉ tính hao hụt sản xuất {wastage_buffer}%)"
-                
-            projection_rows.append({
-                "Phân loại vật tư (Type)": ctype,
-                "Tổng ĐM mã cũ": old_qty,
-                "ĐM Dự phóng mã mới": round(projected_dm, 3),
-                "Cơ sở thuật toán toán AI": note
-            })
+
+        # LUỒNG TÌNH HUỐNG 1: MÃ HÀNG HOÀN TOÀN MỚI - TÍNH BẰNG TOÁN HỌC HÌNH HỌC RẬP (DXF ENGINE)
+        if current_tp.get("is_pure_geometry", False):
+            geo_measure = current_tp.get("DetailedMeasurements", {})
+            seam_len_mm = geo_measure.get("seam_length_mm", 0.0)
             
-        df_projection = pd.DataFrame(projection_rows)
-        st.session_state["ai_projected_consumption_matrix"] = projection_rows
-        st.dataframe(df_projection, use_container_width=True, hide_index=True)
+            # Lấy hệ số tiêu hao chỉ tiêu chuẩn từ cấu hình DNA của rập hình học
+            thread_spec = current_tp.get("thread_allowance", {})
+            base_ratio = thread_spec.get("estimated_seam_consumption_ratio", 3.4)
+            
+            # Công thức may mặc độc lập: Tổng chiều dài chỉ = Chiều dài đường may (mét) * Hệ số tiêu hao * Hao hụt
+            seam_len_meter = seam_len_mm / 1000.0
+            calculated_thread_meters = seam_len_meter * base_ratio * (1 + wastage_buffer / 100)
+            
+            projection_rows.append({
+                "Phân loại vật tư (Type)": "SEWING THREAD (CHỈ MAY NỀN)",
+                "Tổng ĐM mã cũ": 0.0,
+                "ĐM Dự phóng mã mới": round(calculated_thread_meters, 3),
+                "Cơ sở thuật toán toán AI": f"Toán học DXF hình học (Đường may: {seam_len_meter}m * Hệ số tiêu hao: {base_ratio})"
+            })
+
+        # LUỒNG TÌNH HUỐNG 2: ĐÃ KHÓA ĐƯỢC MÃ CŨ TRONG KHO (KẾ THỪA BOM VÀ NHẢY DIỆN TÍCH PHOM)
+        else:
+            # Lấy mảng dữ liệu định mức thô từ cột thực tế của database đã lưu trong session_state
+            db_bom_records = current_tp.get("bom_records", [])
+            
+            # Gom nhóm và chuẩn hóa danh mục vật tư lịch sử
+            bom_summary_engine = {}
+            if isinstance(db_bom_records, list):
+                for item in db_bom_records:
+                    if isinstance(item, dict):
+                        mat_type = item.get("material_type") or item.get("component_type") or "FABRIC"
+                        qty = float(item.get("qty") or item.get("consumption", 0.0))
+                        bom_summary_engine[mat_type] = bom_summary_engine.get(mat_type, 0.0) + qty
+            
+            for ctype, old_qty in bom_summary_engine.items():
+                ctype_upper = str(ctype).strip().upper()
+                # Kiểm tra diện tích rập ảnh hưởng trực tiếp đến định mức nguyên liệu chính
+                if any(k in ctype_upper for k in ["MAIN", "FABRIC", "BODY", "SHELL", "LINING", "RIB", "COMBINATION", "POCKETING"]):
+                    similarity_weight = v_similarity / 100.0
+                    adjusted_shape_factor = shape_factor * similarity_weight
+                    projected_dm = old_qty * (1 + adjusted_shape_factor / 100) * (1 + wastage_buffer / 100)
+                    note = f"Vải nhảy vóc (Diện tích rập biến thiên: {round(adjusted_shape_factor, 2)}% dựa trên Vision {v_similarity}%)"
+                else:
+                    projected_dm = old_qty * (1 + wastage_buffer / 100)
+                    note = f"Phụ liệu tĩnh (Chỉ tính hao hụt sản xuất {wastage_buffer}%)"
+                    
+                projection_rows.append({
+                    "Phân loại vật tư (Type)": ctype,
+                    "Tổng ĐM mã cũ": old_qty,
+                    "ĐM Dự phóng mã mới": round(projected_dm, 3),
+                    "Cơ sở thuật toán toán AI": note
+                })
+            
+        # Hiển thị bảng ma trận định mức dự phòng cuối cùng lên màn hình Streamlit
+        if projection_rows:
+            import pandas as pd
+            df_projection = pd.DataFrame(projection_rows)
+            st.session_state["ai_projected_consumption_matrix"] = projection_rows
+            st.dataframe(df_projection, use_container_width=True, hide_index=True)
+        else:
+            st.info("👋 Chưa có dữ liệu đầu vào phù hợp từ tệp BOM kỹ thuật lịch sử.")
+
 
 import json
 import re
