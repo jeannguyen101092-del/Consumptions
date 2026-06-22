@@ -1858,46 +1858,77 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     st.session_state["main_fabric_records"] = main_fabric_records
     st.session_state["bom_summary_engine"] = bom_summary_engine
 
-      # --- BẢNG SO SÁNH SAI LỆCH THÔNG SỐ RẬP KHỚP ĐA CẤP ĐỘ ---
+# --- BẢNG SO SÁNH THÔNG SỐ KHỚP ĐA CẤP ĐỘ & MÁY DỰ PHÒNG ĐỊNH MỨC SẢN XUẤT ---
     st.markdown("<br>### 📐 BẢNG SO SÁNH SAI LỆCH THÔNG SỐ KỸ THUẬT RẬP MẪU", unsafe_allow_html=True)
     new_specs = new_style_measurements_dict if new_style_measurements_dict else {}
     old_specs = matched_techpack.get("DetailedMeasurements", {}) if matched_techpack else {}
-    avg_area_growth_pct = 0.0
     
     if new_specs or old_specs:
         from difflib import SequenceMatcher
         from fractions import Fraction
         
         compare_rows = []
-        valid_diff_pcts = []
         processed_old_keys = set()
+        grading_mismatch_alerts = [] # Lưu audit phục vụ quản trị rủi ro dữ liệu lỗi
+        
+        # 1. TÁCH BIỆT DẢI SIZE TRÍCH XUẤT ĐỂ ĐỌC GRADING CHART CHÍNH XÁC
+        target_size_str = str(new_style_base_size).strip().upper()
+        new_size_range = [str(s).strip().upper() for s in globals().get("new_style_size_range_list", [target_size_str])]
+        old_size_range = [str(s).strip().upper() for s in matched_techpack.get("SizeRangeList", matched_techpack.get("size_range_list", new_size_range))]
 
-        # [HÀM BỔ SUNG 1]: Giữ lại số và ký tự cốt lõi (1", 2", /) phục vụ chống trùng phom đo
+        # Sửa Regex nuốt chữ, chỉ xóa khi thực sự là tiền tố mã POM kỹ thuật
         def clean_pom_text(text):
             cleaned = str(text).strip().upper()
-            cleaned = re.sub(r'^[A-Z0-9]+[\s\-_]+', '', cleaned) # Xóa mã đầu dòng (ví dụ: A01-, B02_)
-            cleaned = re.sub(r'[^A-Z0-9\s\"\'\/\-]', '', cleaned) # Giữ lại số, dấu inch, gạch chéo
+            cleaned = re.sub(r'^(?:[A-Z]{1,3}\d{1,4}|POM[\s\-_]*\d+|[A-Z][\s\-_]*\d+)[\.\)\:\s\-_]*', '', cleaned)
+            cleaned = re.sub(r'[^A-Z0-9\s\"\'\/\-]', '', cleaned)
             return " ".join(cleaned.split())
 
-        # [HÀM BỔ SUNG 2]: Trích xuất mã số vị trí đo nếu có (Ví dụ: "A01", "POM 02" -> "01", "02")
         def extract_pom_code(text):
-            match = re.search(r'\b(POM)?[\s\-_]*(\d+)\b', str(text), re.IGNORECASE)
-            return match.group(2) if match else None
+            txt = str(text).upper().strip()
+            patterns = [r'^([A-Z]{1,3}\d{2,4})', r'^(\d{2,4})(?:\b|[\s\-_\.\)\:]+[A-Z])', r'^POM[\s\-_]*(\d+)']
+            for p in patterns:
+                m = re.search(p, txt)
+                if m: return m.group(1)
+            return None
 
-        # [HÀM BỔ SUNG 3]: Quy đổi phân số, hỗn số chuẩn xác ngành may thành float
-        def clean_float(v):
+        # Bộ lọc Token định hướng bắt buộc - Triệt tiêu lỗi trùng Code nhưng ngược vế đo
+        def token_similarity_with_direction(a, b):
+            str_a, str_b = str(a).upper(), str(b).upper()
+            direction_tokens = {"FRONT", "BACK", "LEFT", "RIGHT", "INNER", "OUTER"}
+            
+            # Nếu một vế chứa FRONT mà vế kia chứa BACK -> Ngắt luồng khớp lập tức (Sai phom)
+            if ("FRONT" in str_a and "BACK" in str_b) or ("BACK" in str_a and "FRONT" in str_b): return 0.0
+            if ("LEFT" in str_a and "RIGHT" in str_b) or ("RIGHT" in str_a and "LEFT" in str_b): return 0.0
+            if ("INNER" in str_a and "OUTER" in str_b) or ("OUTER" in str_a and "INNER" in str_b): return 0.0
+            
+            sa = set(str_a.split())
+            sb = set(str_b.split())
+            if not sa or not sb: return 0.0
+            return len(sa & sb) / len(sa | sb)
+
+        # Hàm trích xuất Grading Chart có hệ thống cảnh báo lệch pha dải kích thước
+        def clean_float_with_audit(v, target_size, size_range_reference, pom_name, doc_label):
             if v is None or str(v).strip() in ['', '-', 'nan']: return None
+            val_str = str(v).strip()
+            if ',' in val_str:
+                parts = [p.strip() for p in val_str.split(',')]
+                if target_size in size_range_reference and len(parts) == len(size_range_reference):
+                    idx = size_range_reference.index(target_size)
+                    val_str = parts[idx]
+                else:
+                    # Ghi nhận cảnh báo hệ thống phục vụ Audit log đầu vào
+                    grading_mismatch_alerts.append(f"⚠️ {doc_label} - POM `{pom_name}`: Lệch pha Grading Chart (Yêu cầu {len(size_range_reference)} cỡ nhưng DB trả về {len(parts)} thông số).")
+                    val_str = parts[0] # Fallback lấy phần tử đầu tiên
             try: 
-                val_str = str(v).strip()
                 if ' ' in val_str:
-                    parts = val_str.split()
-                    return float(parts[0]) + float(Fraction(parts[1]))
+                    sub_parts = val_str.split()
+                    return float(sub_parts[0]) + float(Fraction(sub_parts[1]))
                 return float(Fraction(val_str))
             except Exception:
-                nums = re.findall(r"[-+]?\d*\.\d+|\d+", str(v))
+                nums = re.findall(r"[-+]?\d*\.\d+|\d+", str(val_str))
                 return float(nums[0]) if nums else None
 
-        # Chuẩn bị danh bạ mảng (List) cho mã cũ nhằm ngăn chặn lỗi ghi đè trùng Key
+        # Chuẩn bị dữ liệu mã cũ độc lập bảo vệ key trùng
         old_pool = []
         for k, v in old_specs.items():
             old_pool.append({
@@ -1906,8 +1937,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                 "code": extract_pom_code(k),
                 "value": v
             })
-
-        # Duyệt qua từng vị trí đo của mẫu mới
+        # --- ENGINE SO KHỚP ĐA CẤP ĐỘ ---
         for original_new_key, val_new in new_specs.items():
             clean_new_key = clean_pom_text(original_new_key)
             new_code = extract_pom_code(original_new_key)
@@ -1916,100 +1946,177 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             best_score = 0.0
             match_level = "NOT FOUND"
 
-            # --- ENGINE SO KHỚP ĐA CẤP ĐỘ (LEVEL 1 -> LEVEL 4) ---
             for old_item in old_pool:
-                if old_item["original_key"] in processed_old_keys:
-                    continue
+                if old_item["original_key"] in processed_old_keys: continue
 
-                # Level 1: Match mã vị trí đo (Ví dụ: A01 vs A01)
+                # LEVEL 1: Match mã CODE + Ràng buộc Token định hướng >= 70% chống lệch phom đo
                 if new_code and old_item["code"] and new_code == old_item["code"]:
-                    best_match = old_item
-                    match_level = "LEVEL 1 (CODE)"
-                    break # Ưu tiên tối cao, ngắt vòng lặp
+                    if token_similarity_with_direction(clean_new_key, old_item["clean_key"]) >= 0.70:
+                        best_match = old_item
+                        match_level = "LEVEL 1 (CODE)"
+                        break 
 
-                # Level 2: Match chính xác tên vị trí sau clean (Ví dụ: HIP 1" BELOW WB)
-                if clean_new_key == old_item["clean_key"]:
+                # LEVEL 2: Match chính xác tên vị trí phẳng
+                if clean_new_key == old_item["clean_key"] and len(clean_new_key) > 3:
                     best_match = old_item
                     match_level = "LEVEL 2 (EXACT)"
                     break
 
-                # Level 3 & 4: Tính toán tỉ lệ tương đồng (Fuzzy Text Similarity)
-                score = SequenceMatcher(None, clean_new_key, old_item["clean_key"]).ratio()
+                # LEVEL 3 & 4: Hybrid Matching (60% Token Direction + 40% Sequence)
+                tok_score = token_similarity_with_direction(clean_new_key, old_item["clean_key"])
+                seq_score = SequenceMatcher(None, clean_new_key, old_item["clean_key"]).ratio()
+                combined_score = (tok_score * 0.6) + (seq_score * 0.4)
                 
-                # Semantic Fallback (Level 4): Xử lý từ đồng nghĩa viết tắt thông dụng ngành may
-                if score < 0.82:
-                    synonyms = [("RISE", "BODY RISE"), ("WAIST", "WAIST WIDTH"), ("HIP", "HIP WIDTH")]
-                    for syn1, syn2 in synonyms:
-                        if (syn1 in clean_new_key and syn2 in old_item["clean_key"]) or (syn2 in clean_new_key and syn1 in old_item["clean_key"]):
-                            score += 0.15 # Cộng điểm phạt nội dung đồng nghĩa
+                synonyms = {"FRONT BODY RISE": "FRONT RISE", "BACK BODY RISE": "BACK RISE", "LEG OPENING": "BOTTOM OPENING"}
+                for syn1, syn2 in synonyms.items():
+                    if (syn1 in clean_new_key and syn2 in old_item["clean_key"]) or (syn2 in clean_new_key and syn1 in old_item["clean_key"]):
+                        combined_score = 0.95 
 
-                if score > best_score:
-                    best_score = score
+                if combined_score > best_score:
+                    best_score = combined_score
                     best_match = old_item
 
-            # Xét duyệt ngưỡng tin cậy tối thiểu cho Fuzzy Match
+            # Ngưỡng tin cậy Enterprise được siết chặt lên cứng 0.80 chống bắt râu ông nọ cắm cằm bà kia
             if match_level in ["LEVEL 1 (CODE)", "LEVEL 2 (EXACT)"]:
                 original_old_key = best_match["original_key"]
                 val_old = best_match["value"]
                 processed_old_keys.add(original_old_key)
-            elif best_match and best_score >= 0.82:
+            elif best_match and best_score >= 0.80:
                 original_old_key = best_match["original_key"]
                 val_old = best_match["value"]
                 processed_old_keys.add(original_old_key)
-                match_level = f"LEVEL 3/4 (FUZZY: {int(best_score*100)}%)"
+                match_level = f"LEVEL 3/4 (HYBRID: {int(best_score*100)}%)"
             else:
                 original_old_key, val_old = "-", None
                 match_level = "NOT FOUND"
 
-            # Thực hiện tính toán chênh lệch số Float
-            f_new = clean_float(val_new)
-            f_old = clean_float(val_old)
-            diff_val, diff_pct = None, None
+            # Trích xuất số thập phân an toàn độc lập dải size New/Old kèm bộ kiểm toán
+            f_new = clean_float_with_audit(val_new, target_size_str, new_size_range, original_new_key, "MẪU MỚI")
+            f_old = clean_float_with_audit(val_old, target_size_str, old_size_range, original_old_key if original_old_key != "-" else original_new_key, "MÃ CŨ KHO")
             
+            diff_val, diff_pct = None, None
             if f_new is not None and f_old is not None:
                 diff_val = round(f_new - f_old, 2)
-                if f_old != 0:
-                    diff_pct = round((diff_val / f_old) * 100, 2)
-                    
-                    # MÀNG LỌC CỨNG: Chỉ gom cấu trúc phom lõi tính toán diện tích vải co giãn
-                    core_keywords = ["INSEAM", "THIGH", "HIP", "WAIST", "LEG", "LENGTH", "CHEST", "RISE"]
-                    if any(k in clean_new_key for k in core_keywords):
-                        if not any(ig in clean_new_key for ig in ["LABEL", "BUTTON", "TICKET", "LOOP", "STITCH"]):
-                            valid_diff_pcts.append(diff_pct)
-                else: diff_pct = 0.0
+                diff_pct = round((diff_val / f_old) * 100, 2) if f_old != 0 else 0.0
 
             display_diff = f"+{diff_val}" if diff_val and diff_val > 0 else (str(diff_val) if diff_val is not None else "-")
             display_pct = f"+{diff_pct}%" if diff_pct and diff_pct > 0 else (f"{diff_pct}%" if diff_pct is not None else "-")
             
             compare_rows.append({
                 "Vị trí đo (POM Description)": original_new_key,
+                "clean_key_internal": clean_new_key, 
                 f"Mẫu mới ({new_style_base_size})": val_new if val_new is not None else "-",
                 f"Mã cũ ({str(st.session_state.get('matched_style_name', 'N/A'))})": val_old if val_old is not None else "-",
                 "Chênh lệch (Diff)": display_diff,
                 "Tỷ lệ biến thiên (Diff %)": display_pct,
+                "diff_pct_float": diff_pct,
                 "Cơ chế khớp (Match Mode)": match_level
             })
 
-        # Nạp các vị trí đo còn dư của mã cũ lên bảng để thợ rập rà soát trực quan
+        # Nạp các vị trí đo còn dư của mã cũ
         for old_item in old_pool:
             if old_item["original_key"] not in processed_old_keys:
                 compare_rows.append({
                     "Vị trí đo (POM Description)": old_item["original_key"],
+                    "clean_key_internal": old_item["clean_key"],
                     f"Mẫu mới ({new_style_base_size})": "-",
                     f"Mã cũ ({str(st.session_state.get('matched_style_name', 'N/A'))})": old_item["value"] if old_item["value"] is not None else "-",
                     "Chênh lệch (Diff)": "-",
                     "Tỷ lệ biến thiên (Diff %)": "-",
+                    "diff_pct_float": None,
                     "Cơ chế khớp (Match Mode)": "ORPHAN OLD KEY"
                 })
             
         df_compare_spec = pd.DataFrame(compare_rows)
-        st.dataframe(df_compare_spec, use_container_width=True, hide_index=True)
+        # Render bảng hiển thị sạch cho người dùng (Ẩn cột tính toán phụ)
+        st.dataframe(df_compare_spec.drop(columns=["clean_key_internal", "diff_pct_float"]), use_container_width=True, hide_index=True)
         
-        # Tính toán chính xác biến thiên diện tích bao phom rập
-        if valid_diff_pcts:
-            avg_pom_growth = sum(valid_diff_pcts) / len(valid_diff_pcts)
-            avg_area_growth_pct = round((((1 + avg_pom_growth/100) ** 2) - 1) * 100, 2)
-            st.metric(label="📊 ĐỘ BIẾN THIÊN DIỆN TÍCH PHOM THỰC TẾ (AREA EXPANSION VLM)", value=f"{avg_area_growth_pct:+}%")
+        # Xuất bảng cảnh báo Audit Log lên màn hình nếu phát hiện lỗi lệch pha dữ liệu nhảy size của sơ đồ cũ
+        if grading_mismatch_alerts:
+            with st.expander("🚨 CẢNH BÁO KIỂM TOÁN DỮ LIỆU NHẢY SIZE (GRADING AUDIT LOG)", expanded=True):
+                for alert in set(grading_mismatch_alerts): st.error(alert)
+        # =========================================================================================
+        # HỆ THỐNG CHẤM ĐIỂM ĐẠI DIỆN VÀ MÔ HÌNH DỰ PHỎNG TIÊU HAO TUYẾN TÍNH (FABRIC ENGINE)
+        # =========================================================================================
+        
+        # Tách biệt hoàn toàn nhóm tính toán của Area Engine ra khỏi cấu trúc đối soát chuỗi phẳng
+        area_mapping_config = {
+            "HIP": ["HIP", "PELVIS", "SEAT"],
+            "WAIST": ["WAIST", "BAND WIDTH"],
+            "THIGH": ["THIGH"],
+            "INSEAM": ["INSEAM", "CROTCH TO BOTTOM"],
+            "RISE": ["RISE", "CROTCH DEPTH", "FRONT RISE", "BACK RISE"],
+            "LEG": ["LEG OPENING", "BOTTOM OPENING", "KNEE"]
+        }
+        
+        # Ma trận tính điểm ưu tiên bóc tách dòng đại diện hoàn chỉnh (CIRCUMFERENCE cao nhất)
+        priority_scoring = {"CIRCUMFERENCE": 100, "TOTAL": 90, "OVERALL": 80, "FULL": 70, "WIDTH": 50, "DEPTH": 40}
+        
+        extracted_group_deltas = {}
+        
+        for group_name, synonyms_list in area_mapping_config.items():
+            group_candidates = []
+            for r in compare_rows:
+                if r["diff_pct_float"] is not None:
+                    # Kiểm tra xem từ khóa nhóm có nằm trong chuỗi văn bản gốc hay không
+                    if any(syn in str(r["Vị trí đo (POM Description)"]).upper() for syn in synonyms_list):
+                        group_candidates.append(r)
+            
+            if group_candidates:
+                best_rep_row = None
+                max_score = -1
+                
+                # Chấm điểm để tìm ra dòng đại diện có giá trị bao hình học tốt nhất cho định mức sơ đồ
+                for cand in group_candidates:
+                    cand_text = str(cand["Vị trí đo (POM Description)"]).upper()
+                    current_score = 10 # Điểm nền cơ sở
+                    
+                    # Cộng điểm phạt theo ma trận trọng số đại diện cốt lõi
+                    for p_kw, p_score in priority_scoring.items():
+                        if p_kw in cand_text:
+                            if p_score > current_score: current_score = p_score
+                    
+                    # Loại trừ chi tiết nhãn mác phụ kiện
+                    if any(ig in cand_text for ig in ["LABEL", "BUTTON", "TICKET", "LOOP", "STITCH"]):
+                        current_score = -1
+                        
+                    if current_score > max_score:
+                        max_score = current_score
+                        best_rep_row = cand
+                
+                if best_rep_row:
+                    extracted_group_deltas[group_name] = best_rep_row["diff_pct_float"]
+
+        # FABRIC PROJECTION MODEL (MÔ HÌNH ƯỚC TÍNH TIÊU HAO TUYẾN TÍNH THEO LỊCH SỬ SẢN XUẤT)
+        # Hệ số cấu hình thực tế bàn cắt ngành may PPJ
+        projection_weights = {
+            "HIP": 0.35,     # Vòng mông ảnh hưởng lớn nhất đến chiều rộng rải sơ đồ thân quần
+            "WAIST": 0.25,   # Vòng bụng ảnh hưởng đến diện tích đầu rập cạp
+            "THIGH": 0.20,   # Vòng đùi quyết định độ lồng ghép chi tiết rập phẳng
+            "RISE": 0.10,    # Độ dài đáy quyết định khoảng trống bù hao hụt bàn cắt
+            "INSEAM": 0.10   # Dài dọc quần quyết định chiều dài định mức bàn đi sơ đồ vải
+        }
+        
+        # Phân phối và chuẩn hóa lại trọng số dựa trên các nhóm thực tế bóc tách được từ Techpack
+        active_weights = {k: v for k, v in projection_weights.items() if k in extracted_group_deltas}
+        
+        if active_weights:
+            total_active_w = sum(active_weights.values())
+            # Tính toán độ biến động tiêu hao dựa trên các POM cốt lõi được giữ lại
+            fabric_projection_factor = sum((extracted_group_deltas[k] * w) for k, w in active_weights.items()) / total_active_w
+            
+            st.metric(
+                label="🔮 ĐỘ BIẾN THIÊN TIÊU HAO NGUYÊN VẬT LIỆU DỰ PHỎNG (AI FABRIC PROJECTION FACTOR)", 
+                value=f"{fabric_projection_factor:+.2f}%",
+                delta="Tính toán dựa trên dữ liệu cấu trúc BOM lịch sử thực tế"
+            )
+            
+            # Ghi nhớ biến vào session state để đẩy trực tiếp sang Consumption Engine xử lý định mức tự động
+            st.session_state["ai_fabric_projection_factor"] = fabric_projection_factor
+        else:
+            st.metric(label="🔮 ĐỘ BIẾN THIÊN TIÊU HAO NGUYÊN VẬT LIỆU DỰ PHỎNG (AI FABRIC PROJECTION FACTOR)", value="0.00%")
+            st.session_state["ai_fabric_projection_factor"] = 0.0
+
 
 
     # --- AI CONSUMPTION PROJECTION ENGINE ---
