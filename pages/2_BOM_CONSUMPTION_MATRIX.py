@@ -1760,7 +1760,7 @@ with st.spinner("🧠 Động cơ DNA Gateway đang đối soát kết cấu..."
 
 
 # =========================================================================================
-# KHỐI ĐỐI SOÁT AI CHUYỂN ĐỔI: SỬA LỖI BIẾN BEST_SCORE & TRIỆT TIÊU 100% LỖI HỆ THỐNG
+# KHỐI ĐỐI SOÁT AI: BẢO VỆ TYPE SAFETY TUYỆT ĐỐI CHỐNG LỖI 'STR' HAS NO ATTRIBUTE 'GET'
 # =========================================================================================
 
 headers_db = globals().get("api_headers", {})
@@ -1774,8 +1774,11 @@ try:
     active_client = client if client else globals().get("genai_client", globals().get("ai_client", None))
     new_dna_context = st.session_state.get("new_style_dna", {})
     
-    if raw_styles and active_client and new_dna_context:
-        valid_styles = [s for s in raw_styles if s.get("StyleName")]
+    # CHỐT CHẶN BẢO VỆ 1: Ép kiểm tra dữ liệu Supabase trả về bắt buộc phải là một danh sách (List)
+    if isinstance(raw_styles, list) and active_client and new_dna_context:
+        # CHỐT CHẶN BẢO VỆ 2: Chỉ lọc các phần tử thực sự là Dictionary để tránh lỗi sập biến 'str'
+        valid_styles = [s for s in raw_styles if isinstance(s, dict) and s.get("StyleName")]
+        
         detected_style_code = None
         search_source = (new_vec + " " + str(st.session_state.get("previous_uploaded_file_name", ""))).upper()
         code_match = re.search(r'(R\d{2}-\d{5,6})', search_source)
@@ -1785,24 +1788,25 @@ try:
         dna_pool = []
         for s in valid_styles:
             style_id_upper = str(s.get("StyleName", "")).upper()
+            
             if detected_style_code and detected_style_code in style_id_upper:
                 dna_pool.append((100, s))
                 continue
+                
             gate_result = dna_hard_gate(new_dna_context, s.get("structural_dna"))
             if gate_result is False: 
                 continue
+                
             if gate_result == "LEGACY":
                 sim_math_score = calculate_dna_similarity(new_dna_context, s.get("structural_dna"), s.get("sketch_vector", ""))
                 sim_math_score = int(sim_math_score * 0.75)
             else:
                 sim_math_score = calculate_dna_similarity(new_dna_context, s.get("structural_dna"), s.get("sketch_vector", ""))
+                
             dna_pool.append((sim_math_score, s))
             
-        # Sắp xếp mảng điểm giảm dần
-        dna_pool.sort(reverse=True, key=lambda x: x[0])
-        
-        # SỬA LỖI BIẾN CHÍNH XÁC: Trích xuất chuẩn số điểm Integer từ Tuple đầu tiên để so sánh toán học
-        best_score = dna_pool[0][0] if dna_pool else 0
+        dna_pool.sort(reverse=True, key=lambda x: x)
+        best_score = dna_pool if dna_pool else 0
         
         if best_score < 80:
             st.session_state["matched_techpack"] = None
@@ -1812,7 +1816,7 @@ try:
             st.warning(f"⚠️ Không tìm thấy mã hàng tương thích DNA kết cấu (Độ tương hợp cao nhất {best_score}% < 80%). Hệ thống kích hoạt AI Geometric Consumption Engine.")
             st.stop()
             
-        top_8_candidates = [x[1] for x in dna_pool[:8]]
+        top_8_candidates = [x for x in dna_pool[:8]]
         st.session_state["vlm_top_8_candidates"] = top_8_candidates
         
         if top_8_candidates:
