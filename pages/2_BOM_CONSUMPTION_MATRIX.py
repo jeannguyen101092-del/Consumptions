@@ -1273,13 +1273,17 @@ if gemini_key:
     )
 
 def process_single_pdf_batch(file_bytes, file_name):
-    if not PDF2IMAGE_AVAILABLE:
-        return {
-            "success": False,
-            "error": "pdf2image chưa được cài đặt."
-        }
-
     import time
+    import io
+    import json
+    
+    # Thử import thư viện đọc text dự phòng
+    try:
+        import pypdf
+        PYPDF_AVAILABLE = True
+    except ImportError:
+        PYPDF_AVAILABLE = False
+
     try:
         if "get_secure_gemini_key" in globals():
             gemini_key_local = get_secure_gemini_key()
@@ -1290,31 +1294,55 @@ def process_single_pdf_batch(file_bytes, file_name):
             return {"success": False, "error": "API Key cho Gemini đang bị thiếu trong Secrets."}
             
         client_ai = genai.Client(api_key=gemini_key_local)
-        
-        # TỐI ƯU: Chỉ chuyển đổi 3 trang đầu tiên của Techpack (Nơi luôn chứa Flat Sketch và Bảng thông số POM)
-        # Việc này giúp giảm 80% dung lượng tải, giúp Gemini đọc cực nhanh và không bao giờ bị lỗi quá tải
-        chat_images = convert_from_bytes(file_bytes, dpi=100, first_page=1, last_page=3)
-        
         pdf_parts_payload = []
-        stored_pages_bytes = []
         
-        for page_img in chat_images:
-            img_buf = io.BytesIO()
-            page_img.convert("RGB").save(img_buf, format="JPEG", quality=80)
-            img_data = img_buf.getvalue()
-            stored_pages_bytes.append(img_data)
-            pdf_parts_payload.append(types.Part.from_bytes(data=img_data, mime_type='image/jpeg'))
-            
-        if not stored_pages_bytes:
-            return {"success": False, "error": "Không thể trích xuất trang ảnh từ tệp PDF."}
+        # --- LUỒNG 1: THỬ CHUYỂN PDF THÀNH ẢNH (ƯU TIÊN) ---
+        images_converted = False
+        extracted_sketch_bytes = None
+        
+        if 'PDF2IMAGE_AVAILABLE' in globals() and PDF2IMAGE_AVAILABLE:
+            try:
+                chat_images = convert_from_bytes(file_bytes, dpi=100, first_page=1, last_page=3)
+                for page_img in chat_images:
+                    img_buf = io.BytesIO()
+                    page_img.convert("RGB").save(img_buf, format="JPEG", quality=80)
+                    img_data = img_buf.getvalue()
+                    if not extracted_sketch_bytes:
+                        extracted_sketch_bytes = img_data  # Mặc định lấy trang 1 làm sketch
+                    pdf_parts_payload.append(types.Part.from_bytes(data=img_data, mime_type='image/jpeg'))
+                images_converted = True
+            except Exception:
+                images_converted = False
 
+        # --- LUỒNG 2: FALLBACK ĐỌC TEXT TRỰC TIẾP (CỨU CÁNH KHI SERVER LỖI PDF2IMAGE) ---
+        if not images_converted:
+            if PYPDF_AVAILABLE:
+                try:
+                    pdf_reader = pypdf.PdfReader(io.BytesIO(file_bytes))
+                    extracted_text = ""
+                    # Đọc tối đa 5 trang đầu để tránh quá tải
+                    max_pages = min(5, len(pdf_reader.pages))
+                    for i in range(max_pages):
+                        page_text = pdf_reader.pages[i].extract_text()
+                        if page_text:
+                            extracted_text += f"\n--- PAGE {i+1} ---\n{page_text}"
+                    
+                    if extracted_text.strip():
+                        pdf_parts_payload.append(types.Part.from_text(text=f"Here is the text extracted from Techpack PDF:\n{extracted_text}"))
+                    else:
+                        return {"success": False, "error": "PDF không chứa văn bản dạng text hoặc là PDF scan dạng ảnh thuần túy."}
+                except Exception as pdf_err:
+                    return {"success": False, "error": f"Lỗi đọc file PDF: {str(pdf_err)}"}
+            else:
+                return {"success": False, "error": "Cả pdf2image và pypdf đều không khả dụng trên server."}
+
+        # --- GỬI PROMPT CHO GEMINI XỬ LÝ ---
         industrial_extraction_prompt = (
-            "You are an expert Garment Specification Auditor at PPJ Group. Analyze the attached Techpack sheets.\n"
+            "You are an expert Garment Specification Auditor at PPJ Group. Analyze the attached Techpack data.\n"
             "1. Identify the core 'Base Size' / 'Sample Size' (e.g., 32, M, 28).\n"
             "2. Identify the Buyer name and Category (Pant/Shirt/Jacket).\n"
-            "3. Find the exact 'Style ID' / 'Style Number' (e.g., 526P09).\n"
+            "3. Find the exact 'Style ID' / 'Style Number' (e.g., F25R09).\n"
             "4. Extract the entire measurement chart/grading matrix table for ALL available sizes.\n"
-            "5. Detect which page index (0, 1, or 2) contains the main garment flat sketch illustration.\n"
             "Return a completely valid raw JSON string matching this schema (no markdown blocks, no ```json):\n"
             "{\n"
             "  \"style_number_parsed\": \"string\",\n"
@@ -1335,19 +1363,11 @@ def process_single_pdf_batch(file_bytes, file_name):
                     contents=pdf_parts_payload,
                     config=types.GenerateContentConfig(
                         response_mime_type="application/json",
-                        temperature=0.1 # Đặt temperature thấp để AI trích xuất số chính xác, không bị bịa số
+                        temperature=0.1
                     )
                 )
                 if response and response.text:
                     parsed_json = json.loads(response.text)
-                    sketch_idx = int(parsed_json.get("sketch_page_index_detected", 0))
-
-                    # Đảm bảo chỉ số trang cắt ảnh luôn an toàn, không bị tràn chỉ mục
-                    if 0 <= sketch_idx < len(stored_pages_bytes):
-                        extracted_sketch_bytes = stored_pages_bytes[sketch_idx]
-                    else:
-                        extracted_sketch_bytes = stored_pages_bytes[0]
-                    
                     return {
                         "success": True, 
                         "data": parsed_json,
@@ -1359,6 +1379,7 @@ def process_single_pdf_batch(file_bytes, file_name):
         return {"success": False, "error": "AI không thể cấu trúc dữ liệu JSON sau 3 lần thử."}
     except Exception as e:
         return {"success": False, "error": str(e)}
+
 
 # ==========================================================
 # 📥 KHỞI TẠO BIẾN VÀ XỬ LÝ TỆP TẢI LÊN (ĐÃ KHÓA BỘ NHỚ STATE)
