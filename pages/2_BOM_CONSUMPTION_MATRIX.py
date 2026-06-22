@@ -1600,7 +1600,7 @@ target_new_sketch_bytes = st.session_state["target_new_sketch_bytes"]
 detected_mime_type = st.session_state["detected_mime_type"]
 new_vec = str(st.session_state.get("visual_description_str", "")).strip().upper()
 
-# PART 1B ĐÃ SỬA: ĐỘNG CƠ THỊ GIÁC ĐA LUỒNG - CHỐNG QUÁ TẢI PHIÊN BẢN TECHPACK NẶNG
+# PART 1B ĐÃ SỬA DỨT ĐIỂM LỖI PYDANTIC: ĐỘNG CƠ AI VISION CHUẨN TYPES PIPELINE
 # =========================================================================================
 
 # 1. ÉP BUỘC KHAI BÁO BIẾN CỤC BỘ NGAY TẠI CHỖ (SAFE LOCAL SYNC CHỐNG LỖI NAMEERROR)
@@ -1608,25 +1608,29 @@ local_sync_new_vec = str(st.session_state.get("visual_description_str", "") or "
 local_sync_bytes = st.session_state.get("target_new_sketch_bytes", None)
 local_sync_mime = st.session_state.get("detected_mime_type", "application/pdf")
 
-# FIX LỖI ĐƯỜNG TRUYỀN: Thiết lập cấu hình khóa dự phòng từ biến hệ thống may mặc PPJ
+# ÉP BUỘC IMPORT VÀ KHỞI TẠO TYPES/CLIENT MASTER TỪ ĐÚNG THƯ VIỆN GOOGLE GENAI BẢN MỚI
 local_vision_client = globals().get("client", st.session_state.get("client", None))
-if local_vision_client is None:
-    try:
-        from google import genai
-        # Bốc trực tiếp API Key nền để tự dựng mạch kết nối độc lập tại chỗ
+local_genai_types = None
+
+try:
+    from google import genai
+    from google.genai import types  # KHÔI PHỤC THƯ VIỆN TYPES ĐỂ ĐÓNG GÓI PYDANTIC MODEL
+    local_genai_types = types
+    
+    if local_vision_client is None:
         local_api_key = st.session_state.get("SB_KEY", globals().get("SB_KEY", ""))
         local_vision_client = genai.Client(api_key=local_api_key)
-    except Exception:
-        pass
+except Exception:
+    pass
 
-# 2. KHỐI AI VISION PIPELINE PHÂN TÍCH GIẢI PHẪU RẬP SẢN XUẤT
+# 2. KHỐI AI VISION PIPELINE PHÂN TÍCH GIẢI PHẪU RẬP SẢN XUẤT (STRICT JSON BALANCED PIPELINE)
 if (not local_sync_new_vec or len(local_sync_new_vec) < 30) and local_sync_bytes is not None and local_vision_client is not None and not st.session_state.get("vision_completed", False):
     if hasattr(local_vision_client, "models"):
         with st.spinner("🔄 Hệ thống AI Vision đang phân tích giải phẫu rập và trích xuất cấu trúc dữ liệu JSON..."):
             try:
                 ocr_prompt = """
                 You are an expert apparel techpack analyzer and senior garment technologist.
-                TASK: Scan through the pages of this document to locate the primary 'FLAT SKETCH' or 'TECHNICAL DRAWING' of the garment.
+                TASK: Scan through ALL pages of this document to locate the primary 'FLAT SKETCH' or 'TECHNICAL DRAWING' of the garment.
                 Analyze its physical shapes, pockets, waistband, fly, cuff treatments, and sewing layout.
                 You MUST return ONLY a valid, raw JSON object. Follow this strict schema:
                 {
@@ -1654,20 +1658,21 @@ if (not local_sync_new_vec or len(local_sync_new_vec) < 30) and local_sync_bytes
                 raw_static_bytes = bytes(local_sync_bytes)
                 normalized_mime = str(local_sync_mime).lower().strip()
                 
-                ocr_contents = [
-                    ocr_prompt, 
-                    {
-                        "mime_type": normalized_mime, 
-                        "data": raw_static_bytes
-                    }
-                ]
+                # FIX DỨT ĐIỂM LỖI PYDANTIC: Đóng gói chặt chẽ qua types.Part của google-genai SDK mới
+                if local_genai_types and hasattr(local_genai_types, "Part"):
+                    ocr_contents = [
+                        local_genai_types.Part.from_text(text=ocr_prompt),
+                        local_genai_types.Part.from_bytes(data=raw_static_bytes, mime_type=normalized_mime)
+                    ]
+                else:
+                    # Fallback dự phòng nếu môi trường không nhận diện được Pydantic Model
+                    ocr_contents = [ocr_prompt, {"mime_type": normalized_mime, "data": raw_static_bytes}]
                 
-                # GIA CỐ CẤU HÌNH TIMEOUT: Ép mô hình chạy chế độ bóp băng thông tối ưu qua thiết lập http_options
-                # Giúp các file PDF nặng không bao giờ bị ngắt kết nối giữa chừng
+                # Thực thi gọi mô hình với cấu hình Timeout bảo vệ 60 giây chống nghẽn mạng
                 ocr_res = local_vision_client.models.generate_content(
                     model='gemini-2.5-flash', 
                     contents=ocr_contents,
-                    config={"http_options": {"timeout": 60.0}} # Nới rộng khung chờ phản hồi lên 60 giây
+                    config={"http_options": {"timeout": 60.0}} if hasattr(local_vision_client, "models") else None
                 )
                 
                 if ocr_res and ocr_res.text:
@@ -1735,6 +1740,7 @@ if (not local_sync_new_vec or len(local_sync_new_vec) < 30) and local_sync_bytes
                 else:
                     st.session_state["vision_completed"] = False
                     st.warning(f"⚠️ Trục trặc kết nối AI Vision (Thử lại lần {st.session_state['vision_retry_count']}/3)...")
+
 
 
 
