@@ -1621,144 +1621,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     bom_records = st.session_state.get("bom_records", [])
     # =========================================================================================
         # =========================================================================================
-    # 🖼️ LỚP HIỂN THỊ GIAO DIỆN THEO PHÂN NHÁNH CHẾ ĐỘ
-    # =========================================================================================
-    
-    # --- CHẾ ĐỘ 1: ĐỐI CHIẾU LỊCH SỬ (Tìm thấy mẫu tương đồng) ---
-    if st.session_state.get("calculation_mode") == "HISTORICAL_MATCH" and matched_techpack:
-        st.markdown("### 🖼️ ĐỐI CHIẾU SỰ TƯƠNG ĐỒNG HÌNH ẢNH THIẾT KẾ (FLAT SKETCH)")
-        
-        img_col1, img_col2 = st.columns(2)
-        with img_col1:
-            uploaded_file_name = st.session_state.get("previous_uploaded_file_name", "Techpack")
-            if target_new_sketch_bytes is not None:
-                try:
-                    # Hiển thị trực tiếp ảnh đã quét dạng Bytes lên màn hình
-                    st.image(target_new_sketch_bytes, caption=f"Mẫu mới tải lên ({new_style_id_detected})", use_container_width=True)
-                except Exception as e:
-                    if "pdf" in str(detected_mime_type).lower() or str(uploaded_file_name).lower().endswith(".pdf"):
-                        st.info(f"📄 **Tài liệu dạng tệp:** `{uploaded_file_name}`\n\nHệ thống đã nạp toàn bộ cấu trúc dữ liệu PDF vào bộ nhớ mô phỏng rập mẫu.")
-                    else:
-                        st.warning(f"Lỗi hiển thị ảnh mẫu mới: {e}")
-            else:
-                st.info("ℹ️ Chưa tải lên tệp ảnh Flat Sketch của mẫu mới.")
-
-        with img_col2:
-            target_style_name = str(matched_techpack.get("StyleName", "")).strip().upper()
-            similarity_score = st.session_state.get("match_confidence_score", 0.0)
-            
-            st.markdown(f"""
-                <div style='background-color: #EEF2F6; padding: 10px; border-radius: 5px; text-align: center; margin-bottom: 8px;'>
-                    <p style='color: #1E3A8A; font-size: 14px; font-weight: 700; margin: 0;'>🎯 Mã tương đồng trong kho: {target_style_name}</p>
-                    <p style='color: #10B981; font-size: 13px; font-weight: 600; margin: 4px 0 0 0;'>🤖 Độ tương đồng thiết kế (Vision): {similarity_score}%</p>
-                </div>
-            """, unsafe_allow_html=True)
-            
-            base_storage_url = f"{base_url_api.rstrip('/')}/storage/v1/object/public/kho_anh" if base_url_api else ""
-            img_content_final = None
-            
-            if base_storage_url:
-                safe_style_name = quote(target_style_name)
-                safe_style_name_lower = quote(target_style_name.lower())
-                url_options = [
-                    f"{base_storage_url}/{safe_style_name}.png", f"{base_storage_url}/{safe_style_name}.PNG",
-                    f"{base_storage_url}/{safe_style_name}.jpg", f"{base_storage_url}/{safe_style_name}.JPG",
-                    f"{base_storage_url}/{safe_style_name}.jpeg", f"{base_storage_url}/{safe_style_name_lower}.jpg",
-                    f"{base_storage_url}/{safe_style_name_lower}.png"
-                ]
-                
-                def fetch_image_worker(url):
-                    try:
-                        resp = requests.get(url, headers=api_headers, timeout=5)
-                        if resp.status_code == 200 and len(resp.content) > 500:
-                            content = resp.content
-                            if content.startswith(b'\xff\xd8') or content.startswith(b'\x89PNG') or b'<!DOCTYPE' not in content[:100]:
-                                return content
-                    except Exception: pass
-                    return None
-
-                with ThreadPoolExecutor(max_workers=6) as executor:
-                    results = executor.map(fetch_image_worker, url_options)
-                    for res in results:
-                        if res:
-                            img_content_final = res
-                            break
-            
-            if img_content_final:
-                try: st.image(img_content_final, caption=f"Ảnh bản vẽ gốc của mã {target_style_name}", use_container_width=True)
-                except Exception: st.warning("⚠️ Lỗi hiển thị tệp đồ họa.")
-            else:
-                db_stored_url = matched_techpack.get("SketchURL") or matched_techpack.get("sketch_url", "")
-                if db_stored_url and "public/kho_anh" not in str(db_stored_url):
-                    try: st.image(db_stored_url, caption=f"Ảnh bản vẽ gốc mã {target_style_name} (Direct Link)", use_container_width=True)
-                    except Exception: st.info("⚠️ Không tải được ảnh từ Direct Link.")
-                else: st.info("ℹ️ Lưu ý: Mã hàng đã khớp. Không tìm thấy ảnh minh họa trong kho.")
-
-        # HIỂN THỊ BẢNG ĐỊNH MỨC NGUYÊN VẬT LIỆU (BOM) LỊCH SỬ KHỚP ĐƯỢC
-        st.markdown(f"### 📊 BẢNG ĐỊNH MỨC NGUYÊN VẬT LIỆU ĐỐI CHỨNG (BOM - {target_style_name})")
-        if bom_records:
-            df_bom = pd.DataFrame(bom_records)
-            df_bom_display = df_bom.rename(columns={
-                "article_name": "Tên nguyên phụ liệu", "material_code": "Mã vật tư",
-                "fabric_type": "Phân loại vải", "supplier": "Nhà cung cấp",
-                "color": "Màu sắc", "consumption_value": "Định mức tiêu hao", "uom": "Đơn vị tính"
-            })
-            st.dataframe(df_bom_display[["Tên nguyên phụ liệu", "Mã vật tư", "Phân loại vải", "Nhà cung cấp", "Màu sắc", "Định mức tiêu hao", "Đơn vị tính"]], use_container_width=True)
-        else:
-            st.info(f"ℹ️ Không tìm thấy chi tiết định mức phân rã (BOM) lịch sử của mã {target_style_name} trong bảng `san_pham`.")
-
-    # --- CHẾ ĐỘ 2: TỰ ĐỘNG CHUYỂN QUA VECTƠ HÌNH HỌC (Khi trống mẫu) ---
-    else:
-        st.info("ℹ️ **CƠ CHẾ FALLBACK TỰ ĐỘNG**: Hệ thống không tìm thấy mẫu tương đồng trong kho. Tự động chuyển qua chế độ phân tích hình học.")
-        st.markdown("### 📐 AI CONSUMPTION ENGINE: CHẾ ĐỘ VECTƠ HÌNH HỌC KHÔNG GIAN")
-        
-        geo_col1, geo_col2 = st.columns([1.5, 2.5])
-        with geo_col1:
-            if target_new_sketch_bytes is not None:
-                try: st.image(target_new_sketch_bytes, caption="Ảnh cấu trúc đang bóc tách hình học", use_container_width=True)
-                except Exception: st.info("📄 Hệ thống đang nạp tọa độ rập từ cấu trúc dữ liệu.")
-            else:
-                st.info("ℹ️ Vui lòng tải tài liệu mẫu để phân tích hệ tọa độ rập.")
-                
-        with geo_col2:
-            st.markdown("""
-                <div style='background-color: #FFFBEB; padding: 12px; border-left: 4px solid #F59E0B; border-radius: 4px; margin-bottom: 12px;'>
-                    <span style='color: #B45309; font-weight: 700;'>📐 THUẬT TOÁN HÌNH HỌC KHÔNG GIAN (GEOMETRIC MATH ENGINE)</span><br/>
-                    <span style='color: #D97706; font-size: 13px;'>Hệ thống tiến hành quét chu vi hình học phẳng để ước tính tổng diện tích bao rải vải (Grid Layout), giảm thiểu rủi ro khi trống dữ liệu lịch sử.</span>
-                </div>
-            """, unsafe_allow_html=True)
-            
-            g1, g2, g3 = st.columns(3)
-            with g1: fabric_width = st.number_input("Khổ vải (Inches)", min_value=30.0, max_value=80.0, value=58.0, step=0.5)
-            with g2: shrinkage_rate = st.number_input("Độ co rút (%)", min_value=0.0, max_value=20.0, value=3.0, step=0.1)
-            with g3: cutting_waste = st.number_input("Hao hụt cắt (%)", min_value=0.0, max_value=15.0, value=2.5, step=0.1)
-            
-            st.markdown("##### 📝 Khung kích thước bao rập mẫu mục tiêu (Bounding Shape Parameters)")
-            geo_data = {
-                "Chi tiết bộ rập (Pattern Pieces)": ["Thân trước (Front Panel)", "Thân sau (Back Panel)", "Cạp quần (Waistband)", "Túi quần (Pocket Bag)"],
-                "Chiều dài bao (Inches)": [38.5, 39.5, 34.0, 12.0],
-                "Chiều rộng bao (Inches)": [14.0, 16.5, 4.0, 8.5],
-                "Số lượng chi tiết": [1, 1, 1, 1]
-            }
-            df_geo = pd.DataFrame(geo_data)
-            edited_df_geo = st.data_editor(df_geo, use_container_width=True, num_rows="dynamic")
-            
-            try:
-                edited_df_geo["Diện tích (Sq Inches)"] = edited_df_geo["Chiều dài bao (Inches)"] * edited_df_geo["Chiều rộng bao (Inches)"] * edited_df_geo["Số lượng chi tiết"]
-                tong_dien_tich = edited_df_geo["Diện tích (Sq Inches)"].sum()
-                
-                if fabric_width > 0:
-                    dm_co_ban = (tong_dien_tich / fabric_width) / 36.0
-                    dm_bien_dong = dm_co_ban * (1 + (shrinkage_rate / 100.0)) * (1 + (cutting_waste / 100.0))
-                else: dm_bien_dong = 0.0
-                    
-                st.metric(label="🔮 DỰ PHÒNG ĐỊNH MỨC TIÊU HAO VẢI (GEOMETRIC CONSUMPTION)", value=f"{dm_bien_dong:.3f} Yards / Sản phẩm")
-            except Exception as geo_err:
-                st.error(f"Lỗi tính toán hình học rập vẽ: {geo_err}")
-
-
-
-# ==========================================================
+   # ==========================================================
 # 🖼️ LỚP HIỂN THỊ GIAO DIỆN ĐỐI CHIẾU FLAT SKETCH (VÁ LỖI HIỂN THỊ FILE PDF)
 # ==========================================================
 st.markdown("### 🖼️ ĐỐI CHIẾU SỰ TƯƠNG ĐỒNG HÌNH ẢNH THIẾT KẾ (FLAT SKETCH)")
@@ -1768,35 +1631,32 @@ base_url_api = globals().get("base_url_api", globals().get("SB_URL", ""))
 api_headers = globals().get("api_headers", {})
 detected_mime_type = locals().get("detected_mime_type", "image/jpeg")
 
-img_col1, img_col2 = st.columns(2)
+# --- PHÂN NHÁNH GIAO DIỆN THEO CHẾ ĐỘ TÍNH TOÁN ---
+if st.session_state.get("calculation_mode") == "HISTORICAL_MATCH" and matched_techpack is not None:
+    # CHẾ ĐỘ 1: ĐỐI CHIẾU LỊCH SỬ (Tìm thấy mẫu tương đồng)
+    img_col1, img_col2 = st.columns(2)
 
-with img_col1:
-    target_new_sketch_bytes = globals().get("target_new_sketch_bytes", None)
-    new_style_id_detected = globals().get("new_style_id_detected", "N/A")
-    uploaded_file_name = st.session_state.get("previous_uploaded_file_name", "Techpack")
-    
-    if target_new_sketch_bytes is not None:
-        # THAY ĐỔI LOGIC: Ưu tiên cố gắng render hình ảnh từ dữ liệu bytes đã trích xuất được trước
-        try:
-            st.image(target_new_sketch_bytes, caption=f"Hình ảnh đã quét từ tài liệu mới ({new_style_id_detected})", use_container_width=True)
-        except Exception as e:
-            # Nếu render bytes lỗi VÀ tệp là PDF thì mới hiển thị hộp thông báo fallback
-            if "pdf" in str(detected_mime_type).lower() or str(uploaded_file_name).lower().endswith(".pdf"):
-                st.info(f"📄 **Tài liệu dạng tệp:** `{uploaded_file_name}`\n\nHệ thống đã nạp toàn bộ cấu trúc dữ liệu PDF vào bộ nhớ mô phỏng rập mẫu.")
-            else:
-                st.warning(f"Lỗi hiển thị ảnh mẫu mới: {e}")
-    else:
-        st.info("ℹ️ Chưa tải lên tệp ảnh Flat Sketch của mẫu mới.")
+    with img_col1:
+        target_new_sketch_bytes = globals().get("target_new_sketch_bytes", None)
+        new_style_id_detected = globals().get("new_style_id_detected", "N/A")
+        uploaded_file_name = st.session_state.get("previous_uploaded_file_name", "Techpack")
+        
+        if target_new_sketch_bytes is not None:
+            try:
+                st.image(target_new_sketch_bytes, caption=f"Hình ảnh đã quét từ tài liệu mới ({new_style_id_detected})", use_container_width=True)
+            except Exception as e:
+                if "pdf" in str(detected_mime_type).lower() or str(uploaded_file_name).lower().endswith(".pdf"):
+                    st.info(f"📄 **Tài liệu dạng tệp:** `{uploaded_file_name}`\n\nHệ thống đã nạp toàn bộ cấu trúc dữ liệu PDF vào bộ nhớ mô phỏng rập mẫu.")
+                else:
+                    st.warning(f"Lỗi hiển thị ảnh mẫu mới: {e}")
+        else:
+            st.info("ℹ️ Chưa tải lên tệp ảnh Flat Sketch của mẫu mới.")
 
-
-with img_col2:
-    if matched_techpack is not None:
-        # 1. Đồng bộ mã đối chứng và URL ảnh gốc
+    with img_col2:
         target_style_name = str(matched_techpack.get("StyleName", "")).strip().upper()
         st.session_state["matched_style_name"] = target_style_name
         st.session_state["matched_sketch_url"] = matched_techpack.get("SketchURL") or matched_techpack.get("sketch_url", "")
         
-        # Đồng bộ an toàn score từ biến match_confidence_score của Đoạn trên lên màn hình hiển thị
         similarity_score = st.session_state.get("match_confidence_score", 0.0)
         st.session_state["matched_similarity_score"] = similarity_score
 
@@ -1822,12 +1682,9 @@ with img_col2:
             safe_style_name_lower = quote(target_style_name.lower())
             
             url_options = [
-                f"{base_storage_url}/{safe_style_name}.png",
-                f"{base_storage_url}/{safe_style_name}.PNG",
-                f"{base_storage_url}/{safe_style_name}.jpg",
-                f"{base_storage_url}/{safe_style_name}.JPG",
-                f"{base_storage_url}/{safe_style_name}.jpeg",
-                f"{base_storage_url}/{safe_style_name_lower}.jpg",
+                f"{base_storage_url}/{safe_style_name}.png", f"{base_storage_url}/{safe_style_name}.PNG",
+                f"{base_storage_url}/{safe_style_name}.jpg", f"{base_storage_url}/{safe_style_name}.JPG",
+                f"{base_storage_url}/{safe_style_name}.jpeg", f"{base_storage_url}/{safe_style_name_lower}.jpg",
                 f"{base_storage_url}/{safe_style_name_lower}.png"
             ]
             
@@ -1838,8 +1695,7 @@ with img_col2:
                         content = resp.content
                         if content.startswith(b'\xff\xd8') or content.startswith(b'\x89PNG') or b'<!DOCTYPE' not in content[:100]:
                             return content
-                except Exception:
-                    pass
+                except Exception: pass
                 return None
 
             with ThreadPoolExecutor(max_workers=6) as executor:
@@ -1850,22 +1706,68 @@ with img_col2:
                         break
         
         if img_content_final:
-            try:
-                st.image(img_content_final, caption=f"Ảnh bản vẽ gốc của mã {target_style_name}", use_container_width=True)
-            except Exception:
-                st.warning("⚠️ Lỗi hiển thị tệp đồ họa.")
+            try: st.image(img_content_final, caption=f"Ảnh bản vẽ gốc của mã {target_style_name}", use_container_width=True)
+            except Exception: st.warning("⚠️ Lỗi hiển thị tệp đồ họa.")
         else:
             db_stored_url = st.session_state["matched_sketch_url"]
             if db_stored_url and "public/kho_anh" not in str(db_stored_url):
-                try:
-                    st.image(db_stored_url, caption=f"Ảnh bản vẽ gốc mã {target_style_name} (Direct Link)", use_container_width=True)
-                except Exception:
-                    st.info("⚠️ Không tải được ảnh từ Direct Link.")
-            else:
-                st.info("ℹ️ Lưu ý: Mã hàng đã khớp. Không tìm thấy ảnh minh họa trong kho.")
-    else:
-        st.session_state["matched_image_verified"] = False
-        st.warning("⚠️ CHƯA KHỚP ĐƯỢC MÃ TƯƠNG ĐỒNG! Vui lòng nạp file Techpack tại menu Upload.")
+                try: st.image(db_stored_url, caption=f"Ảnh bản vẽ gốc mã {target_style_name} (Direct Link)", use_container_width=True)
+                except Exception: st.info("⚠️ Không tải được ảnh từ Direct Link.")
+            else: st.info("ℹ️ Lưu ý: Mã hàng đã khớp. Không tìm thấy ảnh minh họa trong kho.")
+
+else:
+    # CHẾ ĐỘ 2: TỰ ĐỘNG CHUYỂN QUA VECTƠ HÌNH HỌC (Khi không tìm thấy mẫu phù hợp)
+    st.info("ℹ️ **CƠ CHẾ FALLBACK TỰ ĐỘNG**: Hệ thống không tìm thấy mẫu tương đồng thích hợp trong kho. Chuyển sang chế độ phân tích hình học phẳng.")
+    
+    geo_col1, geo_col2 = st.columns([1.5, 2.5])
+    with geo_col1:
+        target_new_sketch_bytes = globals().get("target_new_sketch_bytes", None)
+        if target_new_sketch_bytes is not None:
+            try: st.image(target_new_sketch_bytes, caption="Ảnh cấu trúc phân tích hình học", use_container_width=True)
+            except Exception: st.info("📄 Hệ thống đang nạp tọa độ sơ đồ rập vải từ cấu trúc tệp dữ liệu.")
+        else:
+            st.info("ℹ️ Vui lòng tải tài liệu mẫu để phân tích hệ tọa độ rập.")
+            
+    with geo_col2:
+        st.markdown("""
+            <div style='background-color: #FFFBEB; padding: 12px; border-left: 4px solid #F59E0B; border-radius: 4px; margin-bottom: 12px;'>
+                <span style='color: #B45309; font-weight: 700;'>📐 THUẬT TOÁN HÌNH HỌC KHÔNG GIAN (GEOMETRIC MATH ENGINE)</span><br/>
+                <span style='color: #D97706; font-size: 13px;'>Hệ thống tiến hành quét chu vi hình học phẳng để ước tính tổng diện tích bao rải vải (Grid Layout), giảm thiểu rủi ro khi trống dữ liệu lịch sử.</span>
+            </div>
+        """, unsafe_allow_html=True)
+        
+        g1, g2, g3 = st.columns(3)
+        with g1: fabric_width = st.number_input("Khổ vải (Inches)", min_value=30.0, max_value=80.0, value=58.0, step=0.5, key="geo_width_f3")
+        with g2: shrinkage_rate = st.number_input("Độ co rút (%)", min_value=0.0, max_value=20.0, value=3.0, step=0.1, key="geo_shrink_f3")
+        with g3: cutting_waste = st.number_input("Hao hụt cắt (%)", min_value=0.0, max_value=15.0, value=2.5, step=0.1, key="geo_waste_f3")
+        
+        st.markdown("##### 📝 Khung kích thước bao rập mẫu mục tiêu (Bounding Shape Parameters)")
+        geo_data = {
+            "Chi tiết bộ rập (Pattern Pieces)": ["Thân trước (Front Panel)", "Thân sau (Back Panel)", "Cạp quần (Waistband)", "Túi quần (Pocket Bag)"],
+            "Chiều dài bao (Inches)": [38.5, 39.5, 34.0, 12.0],
+            "Chiều rộng bao (Inches)": [14.0, 16.5, 4.0, 8.5],
+            "Số lượng chi tiết": [2, 2, 1, 4]
+        }
+        df_geo = pd.DataFrame(geo_data)
+        edited_df_geo = st.data_editor(df_geo, use_container_width=True, num_rows="dynamic", key="geo_editor_f3")
+        
+        try:
+            edited_df_geo["Diện tích (Sq Inches)"] = edited_df_geo["Chiều dài bao (Inches)"] * edited_df_geo["Chiều rộng bao (Inches)"] * edited_df_geo["Số lượng chi tiết"]
+            tong_dien_tich = edited_df_geo["Diện tích (Sq Inches)"].sum()
+            
+            if fabric_width > 0:
+                dm_co_ban = (tong_dien_tich / fabric_width) / 36.0
+                dm_bien_dong = dm_co_ban * (1 + (shrinkage_rate / 100.0)) * (1 + (cutting_waste / 100.0))
+            else: dm_bien_dong = 0.0
+                
+            st.metric(label="🔮 DỰ PHÒNG ĐỊNH MỨC TIÊU HAO VẢI (GEOMETRIC CONSUMPTION)", value=f"{dm_bien_dong:.3f} Yards / Sản phẩm")
+        except Exception as geo_err:
+            st.error(f"Lỗi tính toán hình học rập vẽ: {geo_err}")
+
+
+
+
+
 
 
 
