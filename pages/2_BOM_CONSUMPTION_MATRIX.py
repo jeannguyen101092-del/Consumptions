@@ -1393,7 +1393,7 @@ def process_single_pdf_batch(file_bytes, file_name):
 
 
 # ==========================================================
-# 📥 KHỞI TẠO BIẾN VÀ XỬ LÝ TỆP TẢI LÊN (ĐỒNG BỘ MÃ HÀNG TỪ ULTRA-FALLBACK)
+# 📥 ĐOẠN 3 ĐÃ SỬA: KHỞI TẠO BIẾN VÀ ĐỒNG BỘ CHUẨN KEY KHỐI NẠP KHO
 # ==========================================================
 
 target_file_object = None
@@ -1416,27 +1416,24 @@ if has_file:
         if file_name.lower().endswith('.pdf'):
             res_pdf = process_single_pdf_batch(file_bytes, file_name)
             if res_pdf.get("success"):
-                meta_p = res_pdf["data"]
+                # SỬA LỖI CHÍ MẠNG: Bốc dữ liệu từ trong dict 'data' theo đúng chuẩn hàm nạp kho sạch
+                meta_p = res_pdf.get("data", {})
                 
-                # SỬA LỖI: Trích xuất chuẩn xác mã hàng từ JSON của Ultra-Fallback
-                parsed_style = meta_p.get("style_number_parsed", "UNKNOWN_STYLE")
-                st.session_state["new_style_id_detected"] = parsed_style
-                st.session_state["matched_style_name"] = parsed_style.strip().upper() # Ép đồng bộ mã đối chứng
-                
+                st.session_state["new_style_id_detected"] = meta_p.get("style_number_parsed", "UNKNOWN")
                 st.session_state["new_style_category_detected"] = meta_p.get("category", "PANT")
                 st.session_state["new_style_base_size"] = meta_p.get("base_size_name", "32")
                 st.session_state["new_style_measurements_dict"] = meta_p.get("measurements", {})
                 st.session_state["target_new_sketch_bytes"] = res_pdf.get("sketch_bytes")
                 st.session_state["detected_mime_type"] = "application/pdf"
-                st.session_state["matched_image_verified"] = True  # Kích hoạt mở khóa bảng thông số và AI
+                st.session_state["matched_image_verified"] = True
         else:
             st.session_state["target_new_sketch_bytes"] = file_bytes
             st.session_state["new_style_id_detected"] = "UNKNOWN_STYLE"
             st.session_state["new_style_measurements_dict"] = {}
             st.session_state["detected_mime_type"] = "image/jpeg"
 
-# Đồng bộ dữ liệu ra các biến cục bộ
-new_style_id_detected = st.session_state.get("new_style_id_detected", "UNKNOWN_STYLE")
+# Đồng bộ an toàn dữ liệu từ bộ nhớ đệm trạng thái ra các biến cục bộ
+new_style_id_detected = st.session_state.get("new_style_id_detected", "UNKNOWN")
 new_style_category_detected = st.session_state.get("new_style_category_detected", "")
 new_style_measurements_dict = st.session_state.get("new_style_measurements_dict", {})
 new_style_base_size = st.session_state.get("new_style_base_size", "32")
@@ -1449,6 +1446,7 @@ dynamic_keyword = str(new_style_id_detected).strip().upper()
 base_sb_url = SB_URL.rstrip('/') if SB_URL else ""
 headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if SB_KEY else {}
 menu_selection = globals().get("menu_selection", "🧵 BOM & Consumption Matrix")
+
 
 # ĐOẠN 4 ĐÃ SỬA: HỆ THỐNG ĐỐI CHIẾU MÃ HÀNG CÓ CƠ CHẾ KHÓA TRẠNG THÁI VÀ PHÂN LOẠI VISION
 # =========================================================================================
