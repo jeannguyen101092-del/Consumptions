@@ -2150,47 +2150,6 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-# =================================================================
-# ĐOẠN 6 - KHỐI I: GIAO DIỆN HIỂN THỊ TIN NHẮN CHAT VÀ PURGE MEMORY
-# =================================================================
-if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption Matrix":
-    import streamlit as st
-    import json, re
-
-    # Khôi phục an toàn các biến ngữ cảnh phục vụ tính toán từ môi trường toàn cục
-    client = globals().get("client", None)
-    matched_techpack = st.session_state.get("matched_techpack", None)
-    bom_records = st.session_state.get("bom_records", [])
-    new_style_measurements_dict = globals().get("new_style_measurements_dict", {})
-    target_new_sketch_bytes = globals().get("target_new_sketch_bytes", None)
-    new_style_base_size = globals().get("new_style_base_size", "N/A")
-
-    chat_header_col1, chat_header_col2 = st.columns([3.2, 0.8])
-    with chat_header_col1:
-        st.markdown("### 💬 TRỢ LÝ AI PHÂN TÍCH ĐỊNH MỨC SẢN XUẤT ")
-    with chat_header_col2:
-        if st.button("🗑️ XÓA LỊCH SỬ CHAT", key="direct_clear_chat_btn", use_container_width=True):
-            st.session_state["consumption_chat_history"] = []
-            st.toast("♻️ Đã xóa sạch lịch sử chat tức thì!")
-            st.rerun()
-
-    chat_container = st.container()
-    with chat_container:
-        for chat in st.session_state.get("consumption_chat_history", []):
-            with st.chat_message("user"): st.write(chat["user"])
-            with st.chat_message("assistant"): st.write(chat["ai"])
-# =================================================================
 # ĐOẠN 6 - KHỐI K: LÕI PHÂN TÍCH ĐA LUỒNG TỪ PDF TEXT HOÀN CHỈNH (CĂN LỀ CHUẨN)
 # =================================================================
     if user_query := st.chat_input("Nhập yêu cầu phân tích (Ví dụ: Tính định mức vải chính khi co rút ngang 5%, dọc 3%)..."):
