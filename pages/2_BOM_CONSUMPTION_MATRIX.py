@@ -1798,7 +1798,8 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         # =========================================================================================
        # =========================================================================================
        # =========================================================================================
-    # ĐOẠN 3: LỚP ĐỐI SOÁT SIÊU CẤP - SỬA CHUẨN CÚ PHÁP ILIKE (%) CHO ENDPOINT SUPABASE REST
+       # =========================================================================================
+    # ĐOẠN 3: BẬC THẦY VẠCH LỖI - GỠ BỎ TRY/EXCEPT ĐỂ ÉP STREAMLIT HIỆN BẢNG LỖI ĐỎ TRỰC QUAN
     # =========================================================================================
     if st.session_state.get("matched_techpack") is None:
         headers_db = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}", "Content-Type": "application/json"}
@@ -1806,48 +1807,49 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         has_matched_success = False
         raw_match = None
 
-        # 🎯 LUỒNG 1: Tìm kiếm hình học toán học bằng Vector Lai
+        # 🎯 LUỒNG 1: Đối soát toán học Cosine bằng Vector Lai
         if st.session_state.get("hybrid_search_vector") is not None and any(x != 0.0 for x in st.session_state["hybrid_search_vector"]):
-            try:
-                rpc_payload = {
-                    "query_embedding": st.session_state["hybrid_search_vector"],
-                    "match_threshold": 0.35, 
-                    "match_count": 1
-                }
-                rpc_url = f"{base_sb_url.rstrip('/')}/rest/v1/rpc/match_techpack_similarity"
-                response = requests.post(rpc_url, headers=headers_db, json=rpc_payload, timeout=15)
-                
-                if response.status_code == 200:
-                    results = response.json()
-                    if results and isinstance(results, list) and len(results) > 0:
-                        raw_match = results[0]
-                        has_matched_success = True
-            except Exception: pass
-
-        # 🎯 LUỒNG 2: ÉP KHỚP CỨNG BẰNG CHỮ CẤP CỨU (SỬA CHUẨN KÝ TỰ % CỦA SUPABASE REST)
-        if not has_matched_success and url_db:
-            try:
-                current_file_name = str(st.session_state.get("previous_uploaded_file_name", ""))
-                # Trích xuất cụm số rập may mặc xuất hiện trong tên file (Ví dụ: bóc '492496')
-                style_digits_match = re.search(r'\d+', current_file_name)
-                style_query_param = {"select": "*", "limit": 1}
-                
-                if style_digits_match:
-                    detected_digits = style_digits_match.group(0)
-                    # SỬA TRIỆT ĐỂ TẠI ĐÂY: Thay .* bằng % theo đúng tài liệu PostgREST của Supabase
-                    style_query_param["style_number"] = f"ilike.%{detected_digits}%"
-                
-                res_backup = requests.get(url_db, headers=headers_db, params=style_query_param, timeout=15)
-                if res_backup.status_code == 200 and res_backup.json():
-                    # Lấy bản ghi đầu tiên khớp trong mảng trả về từ câu lệnh SELECT
-                    res_data = res_backup.json()
-                    raw_match = res_data[0] if isinstance(res_data, list) else res_data
+            rpc_payload = {
+                "query_embedding": st.session_state["hybrid_search_vector"],
+                "match_threshold": 0.35, 
+                "match_count": 1
+            }
+            rpc_url = f"{base_sb_url.rstrip('/')}/rest/v1/rpc/match_techpack_similarity"
+            response = requests.post(rpc_url, headers=headers_db, json=rpc_payload, timeout=15)
+            
+            if response.status_code == 200:
+                results = response.json()
+                if results and isinstance(results, list) and len(results) > 0:
+                    raw_match = results[0]
                     has_matched_success = True
-                    print(f"⚡ [SUPABASE REST SUCCESS]: Ép nạp thành công dữ liệu kho qua từ khóa: {detected_digits}")
-            except Exception as backup_err:
-                print(f"❌ [FALLBACK SEARCH CRASH]: {str(backup_err)}")
 
-        # ĐÓNG GÓI DỮ LIỆU ĐỒNG BỘ ĐỂ ĐOẠN 4 & 5 IN RA MÀN HÌNH GIAO DIỆN
+        # 🎯 LUỒNG 2: ÉP KHỚP CỨNG BẰNG TÊN FILE (GỠ BỎ TRY/EXCEPT ĐỂ IN RA LỖI THỰC TẾ)
+        if not has_matched_success and url_db:
+            current_file_name = str(st.session_state.get("previous_uploaded_file_name", ""))
+            style_digits_match = re.search(r'\d+', current_file_name)
+            style_query_param = {"select": "*", "limit": 1}
+            
+            if style_digits_match:
+                detected_digits = style_digits_match.group(0)
+                style_query_param["style_number"] = f"ilike.%{detected_digits}%"
+            
+            # Khối lệnh này sẽ bắn thẳng lỗi lên màn hình nếu API Supabase từ chối hoặc trả về cấu trúc lạ
+            res_backup = requests.get(url_db, headers=headers_db, params=style_query_param, timeout=15)
+            
+            if res_backup.status_code == 200:
+                res_data = res_backup.json()
+                if res_data and isinstance(res_data, list) and len(res_data) > 0:
+                    raw_match = res_data[0]
+                    has_matched_success = True
+                elif res_data and isinstance(res_data, dict):
+                    raw_match = res_data
+                    has_matched_success = True
+            else:
+                # Ép văng lỗi HTTP trực tiếp ra màn hình Streamlit để kiểm tra mã trạng thái (400, 401, 403, etc.)
+                st.error(f"🚨 SUPABASE REST API REJECTED! Status Code: {res_backup.status_code} | Response Text: {res_backup.text}")
+                st.stop()
+
+        # ĐÓNG GÓI VÀ TẢI LẠI GIAO DIỆN
         if has_matched_success and raw_match is not None:
             st.session_state["matched_techpack"] = {
                 "style_number": raw_match.get("style_number"),
