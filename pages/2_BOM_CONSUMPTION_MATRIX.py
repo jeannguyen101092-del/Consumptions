@@ -1275,8 +1275,7 @@ if gemini_key:
 def process_single_pdf_batch(file_bytes, file_name):
     """
     Retriever Layer chuyên sâu cho hệ thống BOM & Consumption Matrix.
-    ✨ Đã sửa lỗi URL REST API, làm sạch JSON, fallback text OCR, 
-    cô lập ảnh nhị phân và chuẩn bị luồng kéo dữ liệu đối chứng Supabase.
+    ✨ Đã sửa lỗi đường dẫn JSON của Gemini API, dọn sạch phản hồi, và hoàn thiện mã nguồn.
     """
     import json
     import requests
@@ -1291,7 +1290,7 @@ def process_single_pdf_batch(file_bytes, file_name):
     except ImportError:
         PYPDF_AVAILABLE = False
 
-    # VÁ LỖI 5: Kiểm soát chặt chẽ dung lượng tệp tải lên
+    # Kiểm soát chặt chẽ dung lượng tệp tải lên
     MAX_MB = 18
     if len(file_bytes) > MAX_MB * 1024 * 1024:
         return {"success": False, "error": f"Tệp PDF vượt giới hạn xử lý {MAX_MB}MB của Gemini."}
@@ -1305,7 +1304,7 @@ def process_single_pdf_batch(file_bytes, file_name):
         # Mã hóa trực tiếp tệp PDF gốc sang định dạng Base64
         b64_pdf = base64.b64encode(file_bytes).decode('utf-8')
 
-        # VÁ LỖI 1: Sửa chính xác 100% URL API Endpoint chuẩn của Google Gemini REST API
+        # URL API Endpoint chuẩn của Google Gemini REST API
         url = (
             "https://generativelanguage.googleapis.com/"
             "v1beta/models/gemini-2.5-flash:generateContent"
@@ -1344,30 +1343,34 @@ def process_single_pdf_batch(file_bytes, file_name):
             }
         }
 
-        # VÁ LỖI 3: Thiết lập timeout lớn (180 giây) cho các Techpack may mặc cồng kềnh
+        # Thiết lập timeout lớn (180 giây) cho các Techpack cồng kềnh
         res = requests.post(url, json=api_payload, headers={"Content-Type": "application/json"}, timeout=180)
         
         if res.status_code == 200:
             res_json = res.json()
             
-            # VÁ LỖI 4 (Phần A): Kiểm tra nghiêm ngặt cấu trúc phản hồi tránh đứt gãy luồng
+            # VÁ LỖI CẤU TRÚC PHẢN HỒI (Duyệt mảng candidates an toàn)
             if "candidates" not in res_json or not res_json["candidates"]:
-                return {"success": False, "error": f"Gemini phản hồi không hợp lệ hoặc bị Safety Block: {res_json}"}
+                return {"success": False, "error": f"Gemini phản hồi không có dữ liệu hoặc bị chặn an toàn: {res_json}"}
                 
-            # VÁ LỖI 2: Trích xuất text phản hồi và dọn sạch các khối bao đóng markdown bọc ngoài
-            text_response = res_json['candidates']['content']['parts']['text'].strip()
+            try:
+                # SỬA CHÍNH XÁC ĐƯỜNG DẪN TRÍCH XUẤT TEXT TỪ MẢNG CANDIDATES VÀ PARTS
+                text_response = res_json['candidates'][0]['content']['parts'][0]['text'].strip()
+            except (KeyError, IndexError):
+                return {"success": False, "error": "Cấu trúc JSON phản hồi từ Gemini API đã thay đổi hoặc không hợp lệ."}
+
             clean_json = text_response.replace("```json", "").replace("```", "").strip()
             
-            # Khắc phục trường hợp dấu phẩy thừa cuối chuỗi (Trailing commas) trước khi load
+            # Khắc phục trường hợp dấu phẩy thừa cuối chuỗi (Trailing commas)
             clean_json = re.sub(r',\s*([\]}])', r'\1', clean_json)
             
-            # VÁ LỖI 4 (Phần B): Bọc khối bẫy lỗi JSON Parse tránh nổ ứng dụng
+            # Bọc khối bẫy lỗi JSON Parse
             try:
                 parsed_data = json.loads(clean_json)
             except Exception:
-                return {"success": False, "error": "Mô hình trả dữ liệu không đúng cấu trúc định dạng JSON sạch."}
+                return {"success": False, "error": f"Mô hình trả dữ liệu không đúng cấu trúc JSON sạch. Nội dung thô: {text_response[:200]}"}
             
-            # VÁ LỖI 2 THỰC TẾ: Trích xuất ảnh nhúng đặc hiệu, TUYỆT ĐỐI không dán đè PDF nhị phân thô
+            # Trích xuất ảnh nhúng đặc hiệu
             extracted_sketch_bytes = None
             if PYPDF_AVAILABLE:
                 try:
@@ -1385,12 +1388,10 @@ def process_single_pdf_batch(file_bytes, file_name):
                 except Exception:
                     pass
             
-            # Điểm then chốt: Nếu không bóc tách được ảnh thực sự, để None để tầng dưới tự động kích hoạt Geometry/Text Fallback
-            # Tuyệt đối không gán đè file_bytes thô làm hỏng thuật toán trực quan Vision
             if not extracted_sketch_bytes:
                 extracted_sketch_bytes = None
 
-            # VÁ LỖI 5 THỰC TẾ: Tích hợp OCR dự phòng (Fallback) khi bảng measurements trống rỗng
+            # Tích hợp OCR dự phòng (Fallback) khi bảng measurements trống rỗng
             if PYPDF_AVAILABLE and (not parsed_data.get("measurements") or len(parsed_data["measurements"]) == 0):
                 try:
                     pdf_reader = pypdf.PdfReader(io.BytesIO(file_bytes))
@@ -1404,7 +1405,7 @@ def process_single_pdf_batch(file_bytes, file_name):
                 except Exception:
                     pass
 
-            # VÁ LỖI 7 THỰC TẾ (Retriever Layer): Đồng bộ đẩy Techpack mới vào kho dữ liệu Supabase
+            # Đồng bộ đẩy Techpack mới vào kho dữ liệu Supabase
             success_db = True
             if "save_to_supabase_techpack_table" in globals():
                 try:
@@ -1430,14 +1431,15 @@ def process_single_pdf_batch(file_bytes, file_name):
                 "category": output_payload["category"],
                 "size": output_payload["base_size_name"],
                 "measurements": output_payload["measurements"],
-                "sketch_bytes": extracted_sketch_bytes, # Ảnh nhị phân sạch (hoặc None) bảo vệ Vision Similarity
+                "sketch_bytes": extracted_sketch_bytes,
                 "error": None if success_db else "Lỗi ghi đồng bộ cấu trúc dữ liệu Techpack lên Supabase"
             }
         else:
-            return {"success": False, "error": f"API Google phản hồi mã lỗi: {res.status_code} - {res.text}"}
-
+            # HOÀN THIỆN ĐOẠN XỬ LÝ LỖI HTTP KHI API THẤT BẠI
+            return {"success": False, "error": f"Gemini API thất bại với mã lỗi HTTP: {res.status_code}. Chi tiết: {res.text[:200]}"}
+            
     except Exception as e:
-        return {"success": False, "error": f"Lỗi xử lý luồng truyền dữ liệu thô: {str(e)}"}
+        return {"success": False, "error": f"Lỗi hệ thống trong quá trình xử lý Batch: {str(e)}"}
 
 
 
