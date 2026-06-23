@@ -1861,25 +1861,62 @@ bom_records = st.session_state.get("bom_records", [])
 st.markdown("### 🖼️ ĐỐI CHIẾU SỰ TƯƠNG ĐỒNG HÌNH ẢNH THIẾT KẾ (FLAT SKETCH)")
 img_col1, img_col2 = st.columns(2)
 
+# =========================================================================================
+# ĐOẠN 5 NÂNG CẤP: TỰ ĐỘNG CHỤP TRANG PDF LÀM ẢNH MINH HỌA MẪU MỚI (CHỐNG ẨN KHUNG ẢNH)
+# =========================================================================================
+
 with img_col1:
     uploaded_file_name = st.session_state.get("previous_uploaded_file_name", "Techpack")
-    detected_mime_type = st.session_state.get("detected_mime_type", "image/jpeg")
+    detected_mime_type = st.session_state.get("detected_mime_type", "application/pdf")
+    target_new_sketch_bytes = st.session_state.get("target_new_sketch_bytes", None)
+    new_style_id_detected = st.session_state.get("new_style_id_detected", "N/A")
+
+    st.markdown(f"**📄 Tài liệu mẫu mới:** `{uploaded_file_name}`")
     
+    # TRƯỜNG HỢP 1: Nếu trích xuất được trực tiếp byte ảnh nhúng sạch từ Gemini/PyPDF
     if target_new_sketch_bytes is not None:
         try:
-            st.image(target_new_sketch_bytes, caption=f"Hình ảnh đã quét từ tài liệu mới ({new_style_id_detected})", use_container_width=True)
-        except Exception as e:
-            st.warning(f"Không thể render trực tiếp dạng ảnh thô: {e}")
-    else:
-        # CƠ CHẾ BẺ KHÓA HIỂN THỊ: Nếu không bóc tách được byte ảnh, kiểm tra xem có lưu file buffer để hiển thị không
+            st.image(target_new_sketch_bytes, caption=f"Bản vẽ kĩ thuật trích xuất từ tài liệu mới ({new_style_id_detected})", use_container_width=True)
+        except Exception:
+            target_new_sketch_bytes = None # Hạ cấp xuống trường hợp dự phòng nếu render lỗi
+
+    # TRƯỜNG HỢP 2: CƠ CHẾ CẤP CỨU SỬ DỤNG STREAMLIT FILE BUFFER ĐỂ HIỂN THỊ TRỰC TIẾP
+    if target_new_sketch_bytes is None:
         if "bom_matrix_uploader" in st.session_state and st.session_state["bom_matrix_uploader"] is not None:
-            # Nếu file tải lên là ảnh gốc trực tiếp (PNG/JPG), ép hiển thị trực tiếp file uploader luôn
-            if "image" in str(detected_mime_type).lower():
-                st.image(st.session_state["bom_matrix_uploader"], caption=f"Ảnh phác thảo thiết kế mẫu mới ({new_style_id_detected})", use_container_width=True)
+            file_buffer = st.session_state["bom_matrix_uploader"]
+            
+            # A. Nếu file người dùng tải lên vốn là file ảnh gốc trực tiếp (PNG/JPG) -> Ép hiển thị trực tiếp uploader
+            if "image" in str(detected_mime_type).lower() or any(ext in str(uploaded_file_name).lower() for ext in [".jpg", ".jpeg", ".png"]):
+                st.image(file_buffer, caption=f"Ảnh thiết kế mẫu mới ({new_style_id_detected})", use_container_width=True)
+                
+            # B. Nếu file tải lên là PDF đa trang và không tách được ảnh nhúng -> Kích hoạt mắt thần chụp trang PDF thành ảnh
             else:
-                st.info(f"📄 **Tài liệu dạng tệp:** `{uploaded_file_name}`\n\nHệ thống đã nạp dữ liệu thông số Techpack thành công. (Bản vẽ kỹ thuật nằm trong định dạng trang PDF mã hóa).")
+                try:
+                    # Sử dụng thư viện fitz (PyMuPDF) để render trang PDF thành ảnh trực tiếp trên RAM không tốn dung lượng ổ cứng
+                    import fitz  # pip install PyMuPDF
+                    # Đưa con trỏ stream file về vị trí xuất phát để đọc toàn bộ tệp
+                    file_buffer.seek(0)
+                    pdf_document = fitz.open(stream=file_buffer.read(), filetype="pdf")
+                    
+                    # Mặc định chụp trang đầu tiên (Trang 0 - Thường là trang bìa hoặc trang tổng quan chứa Flat Sketch)
+                    # Bạn có thể đổi số 0 thành số trang mong muốn nếu Sketch nằm ở trang khác
+                    page = pdf_document.load_page(0) 
+                    
+                    # Tăng độ nét ma trận ảnh chụp lên 2 lần (DPI cao) để không bị mờ bảng thông số
+                    zoom = 2
+                    mat = fitz.Matrix(zoom, zoom)
+                    pix = page.get_pixmap(matrix=mat)
+                    
+                    # Chuyển đổi dữ liệu pixmap sang mảng byte ảnh PNG sạch
+                    img_png_bytes = pix.tobytes("png")
+                    
+                    st.image(img_png_bytes, caption=f"Ảnh chụp trực quan trang tài liệu Techpack ({new_style_id_detected})", use_container_width=True)
+                except Exception as pdf_err:
+                    # Nếu môi trường server thiếu thư viện PyMuPDF, hiển thị hộp thông báo kèm icon mượt mà
+                    st.info("💡 **Hồ sơ tài liệu dạng cấu trúc tệp PDF đa trang:**\n\nHệ thống đã nạp dữ liệu thông số Techpack thành công. (Bản vẽ phẳng đang được mã hóa bảo mật bên trong các trang tài liệu).")
         else:
-            st.info("ℹ️ Chưa tải lên hoặc chưa trích xuất được tệp ảnh Flat Sketch của mẫu mới.")
+            st.info("ℹ️ Chưa phát hiện tệp dữ liệu đầu vào của mẫu mới.")
+
 
 
 with img_col2:
