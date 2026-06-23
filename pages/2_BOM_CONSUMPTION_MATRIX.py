@@ -132,11 +132,12 @@ def is_valid_jpeg(data):
 def save_to_supabase_techpack_table(payload_data, raw_file_bytes=None, file_name=""):
     """
     Hàm xử lý đồng bộ dữ liệu nạp kho và SỐ HÓA HYBRID VECTOR CHUẨN CÔNG NGHIỆP.
-    🎯 SỬA LỖI SYNTAX: Khắc phục lỗi cú pháp kiểm tra status_code của HTTP response.
+    🎯 SỬA ĐOẠN 1: Tối ưu hóa kiểm soát luồng và bổ sung log debug chi tiết cho Supabase Storage.
     """
     import requests
     import json
     import re
+    import io
     import time
     import streamlit as st
 
@@ -145,7 +146,6 @@ def save_to_supabase_techpack_table(payload_data, raw_file_bytes=None, file_name
     SB_URL = st.secrets.get("SUPABASE_URL", "") if "SB_URL" not in globals() else globals().get("SB_URL", "")
 
     try:
-        # Xử lý chuẩn hóa mã Style
         style_name_db = payload_data.get("style_number_parsed", "").strip()
         if not style_name_db or style_name_db == "UNKNOWN":
             file_style_match = re.search(r'([a-zA-Z0-9]+-[a-zA-Z0-9]+)', str(file_name))
@@ -177,34 +177,51 @@ def save_to_supabase_techpack_table(payload_data, raw_file_bytes=None, file_name
             elif image_data.startswith(b'\xff\xd8'):
                 mime_type = "image/jpeg"
 
-        # 1. ĐẨY FILE HÌNH ẢNH SẢN PHẨM LÊN SUPABASE STORAGE
+        # =========================================================================================
+        # 1. ĐẨY FILE HÌNH ẢNH SẢN PHẨM LÊN SUPABASE STORAGE (ĐÃ TỐI ƯU LOG DEBUG)
+        # =========================================================================================
         if image_data:
             try:
                 storage_headers = {
                     "apikey": SB_KEY, 
                     "Authorization": f"Bearer {SB_KEY}",
                     "Content-Type": mime_type,
-                    "x-upsert": "true"
+                    "x-upsert": "true" # Ghi đè file nếu đã tồn tại mã sản phẩm trùng
                 }
+                
+                # Làm sạch tên file, phòng trường hợp chứa ký tự đặc biệt gây lỗi URL
                 style_clean_filename = re.sub(r'[^a-zA-Z0-9_-]', '', style_name_db).upper()
+                if not style_clean_filename:
+                    style_clean_filename = f"STYLE_SKETCH_{int(time.time())}"
+                    
                 ext = "png" if mime_type == "image/png" else "jpg"
                 storage_url = f"{SB_URL.rstrip('/')}/storage/v1/object/kho_anh/{style_clean_filename}.{ext}"
                 
                 upload_res = requests.put(storage_url, headers=storage_headers, data=image_data, timeout=20)
+                
                 if 200 <= upload_res.status_code <= 299:
                     public_image_url = f"{SB_URL.rstrip('/')}/storage/v1/object/public/kho_anh/{style_clean_filename}.{ext}"
+                    print(f"✅ [STORAGE SUCCESS]: Đã tải ảnh lên thành công -> {public_image_url}")
+                else:
+                    # Bổ sung in log phản hồi lỗi từ server Supabase để phát hiện sai tên Bucket hoặc lỗi RLS
+                    print(f"❌ [STORAGE ERROR {upload_res.status_code}]: {upload_res.text}")
+                    public_image_url = "" # Reset về chuỗi rỗng nếu upload không thành công
             except Exception as storage_err: 
-                print(f"[STORAGE EXCEPTION]: {str(storage_err)}")
+                print(f"[STORAGE EXCEPTION]: Không thể kết nối tới cổng lưu trữ hình ảnh: {str(storage_err)}")
+                public_image_url = ""
 
+        # =========================================================================================
         # 2. XÂY DỰNG CHUỖI ĐẶC TRƯNG VĂN BẢN (TEXT SPEC CHARACTERS)
+        # =========================================================================================
         measurements_raw = payload_data.get("measurements", {})
         visual_description_str = f"STYLE: {style_name_db}. BUYER: {payload_data.get('buyer', 'PPJ')}. CATEGORY: {payload_data.get('category', 'Pants')}. Specs layout: "
         if measurements_raw and isinstance(measurements_raw, dict):
             visual_description_str += ", ".join([f"{k}:{v}" for k, v in list(measurements_raw.items()) if v is not None])
         else:
             visual_description_str += "NO_MEASUREMENTS"
-
-        # 3. KÍCH HOẠT HỆ THỐNG SỐ HÓA VECTOR LAI HYBRID
+        # =========================================================================================
+        # ĐOẠN 1b: KÍCH HOẠT HỆ THỐNG SỐ HÓA VECTOR LAI VÀ CHUẨN HÓA JSONB (CHỐNG LỖI 22004)
+        # =========================================================================================
         hybrid_vector_embedding_array = None
         gemini_key = st.secrets.get("GEMINI_API_KEY", "").strip()
         
@@ -223,9 +240,13 @@ def save_to_supabase_techpack_table(payload_data, raw_file_bytes=None, file_name
                             model='gemini-embedding-2',
                             contents=[img_part]
                         )
+                        # Trích xuất mảng số thực an toàn từ kết quả embedding của Gemini
                         if img_embed_res and img_embed_res.embeddings:
-                            emb_obj = img_embed_res.embeddings
-                            image_vector = [float(x) for x in emb_obj.values]
+                            emb_obj = img_embed_res.embeddings[0] if isinstance(img_embed_res.embeddings, list) else img_embed_res.embeddings
+                            if hasattr(emb_obj, 'values'):
+                                image_vector = [float(x) for x in emb_obj.values]
+                            elif isinstance(emb_obj, list):
+                                image_vector = [float(x) for x in emb_obj]
                     except Exception as img_embed_err:
                         print(f"❌ [IMAGE VECTOR ERR]: {str(img_embed_err)}")
                 
@@ -237,8 +258,11 @@ def save_to_supabase_techpack_table(payload_data, raw_file_bytes=None, file_name
                         contents=[visual_description_str]
                     )
                     if text_embed_res and text_embed_res.embeddings:
-                        emb_obj = text_embed_res.embeddings
-                        text_vector = [float(x) for x in emb_obj.values]
+                        emb_obj = text_embed_res.embeddings[0] if isinstance(text_embed_res.embeddings, list) else text_embed_res.embeddings
+                        if hasattr(emb_obj, 'values'):
+                            text_vector = [float(x) for x in emb_obj.values]
+                        elif isinstance(emb_obj, list):
+                            text_vector = [float(x) for x in emb_obj]
                 except Exception as txt_embed_err:
                     print(f"❌ [TEXT VECTOR ERR]: {str(txt_embed_err)}")
                 
@@ -248,15 +272,15 @@ def save_to_supabase_techpack_table(payload_data, raw_file_bytes=None, file_name
                     
                 if image_vector and text_vector:
                     hybrid_vector_embedding_array = list(image_vector) + list(text_vector)
-                    print(f"🚀 [HYBRID VECTOR COMPLETE]: Thiết lập thành công {len(hybrid_vector_embedding_array)} phần tử.")
+                    print(f"🚀 [HYBRID VECTOR COMPLETE]: Thiết lập thành công {len(hybrid_vector_embedding_array)} phần tử float thô.")
             except Exception as embed_master_err:
                 print(f"💥 [MASTER EMBED ERR]: {str(embed_master_err)}")
 
-        # Khử lỗi thiếu hụt chiều của pgvector trong DB
+        # Khử cứng lỗi thiếu hụt chiều không phù hợp ràng buộc NOT NULL của pgvector trong Database
         if not hybrid_vector_embedding_array or len(hybrid_vector_embedding_array) != 1536:
             hybrid_vector_embedding_array = [0.0] * 1536
 
-        # Chuẩn hóa dữ liệu JSONB tránh gửi dict rỗng sập RPC SQL
+        # SỬA LỖI SỐ 2 (22004): Ép JSONB luôn có dữ liệu thực, tránh gửi bảng {} rỗng làm sập hàm Postgres
         clean_dict = {}
         if isinstance(measurements_raw, dict):
             for k, v in measurements_raw.items():
@@ -268,54 +292,6 @@ def save_to_supabase_techpack_table(payload_data, raw_file_bytes=None, file_name
         matrix_raw_data = payload_data.get("full_size_matrix", {})
         if not matrix_raw_data or not isinstance(matrix_raw_data, dict) or len(matrix_raw_data) == 0:
             matrix_raw_data = {"AI_ENGINE_STATUS": "NO_MATRIX_DATA"}
-
-        # 4. THIẾT LẬP CHIẾN LƯỢC ĐA HÌNH THAM SỐ
-        style_val = str(style_name_db).strip() if style_name_db else "STYLE_UNKNOWN_" + str(int(time.time()))
-        buyer_val = str(payload_data.get("buyer", "PPJ GROUP")).strip() if payload_data.get("buyer") else "PPJ BUYER"
-        cat_val = str(payload_data.get("category", "GARMENT")).strip() if payload_data.get("category") else "GARMENT"
-        size_val = str(payload_data.get("base_size_name", "32")).strip() if payload_data.get("base_size_name") else "32"
-
-        rpc_payload = {
-            "style_number": style_val,
-            "buyer_name": buyer_val,
-            "category_name": cat_val,
-            "base_size": size_val,
-            "measurements_json": clean_dict,
-            "size_matrix_json": matrix_raw_data,
-            "image_url": public_image_url,
-            "hybrid_vector": hybrid_vector_embedding_array,
-            
-            "styleNumber": style_val,
-            "buyerName": buyer_val,
-            "categoryName": cat_val,
-            "baseSize": size_val,
-            "measurementsJson": clean_dict,
-            "sizeMatrixJson": matrix_raw_data,
-            "imageUrl": public_image_url,
-            "hybridVector": hybrid_vector_embedding_array
-        }
-
-        # 5. THỰC THI GỌI RPC API ĐẾN SUPABASE REST GATEWAY
-        headers = {
-            "apikey": SB_KEY, 
-            "Authorization": f"Bearer {SB_KEY}",
-            "Content-Type": "application/json"
-        }
-        rpc_url = f"{SB_URL.rstrip('/')}/rest/v1/rpc/insert_techpack_data_with_vector"
-        
-        response = requests.post(rpc_url, headers=headers, json=rpc_payload, timeout=30)
-        
-        # SỬA LỖI TẠI ĐÂY: Thêm mảng kiểm tra mã trạng thái hợp lệ [200, 201]
-        if response.status_code in:
-            print("✅ [SUPABASE SYNC SUCCESS]: Dữ liệu số hóa Techpack đã nạp DB thành công!")
-            return {"status": "success", "image_url": public_image_url}
-        else:
-            print(f"❌ [RPC SERVER ERROR {response.status_code}]: {response.text}")
-            return {"status": "error", "code": response.status_code, "msg": response.text}
-
-    except Exception as master_func_err:
-        print(f"🚨 [CRITICAL FUNCTION EXCEPTION]: {str(master_func_err)}")
-        return {"status": "critical_error", "msg": str(master_func_err)}
 
 
 
