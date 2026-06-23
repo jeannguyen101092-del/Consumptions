@@ -202,7 +202,7 @@ def save_to_supabase_techpack_table(payload_data, raw_file_bytes=None, file_name
         measurements_raw = payload_data.get("measurements", {})
         visual_description_str = f"STYLE: {style_name_db}. BUYER: {payload_data.get('buyer', 'PPJ')}. CATEGORY: {payload_data.get('category', 'Pants')}. Specs details: "
         visual_description_str += ", ".join([f"{k}:{v}" for k, v in list(measurements_raw.items())])
-        # TIẾP NỐI LOGIC: KÍCH HOẠT HỆ THỐNG SỐ HÓA VECTOR LAI KHỬ TOÀN BỘ PROTOBUF
+                # TIẾP NỐI LOGIC: KÍCH HOẠT HỆ THỐNG SỐ HÓA VECTOR LAI KHỬ TOÀN BỘ PROTOBUF
         hybrid_vector_embedding_array = None
         gemini_key = st.secrets.get("GEMINI_API_KEY", "").strip()
         
@@ -238,12 +238,11 @@ def save_to_supabase_techpack_table(payload_data, raw_file_bytes=None, file_name
                 except Exception as txt_embed_err:
                     print(f"❌ [TEXT VECTOR ERR]: {str(txt_embed_err)}")
                 
-                # --- PHẦN 3C: GHÉP NỐI CONCATENATION (1536 CHIỀU MẢNG PYTHON THÔ) ---
+                # --- PHẦN 3C: GHÉP NỐI CONCATENATION (1536 CHIỀU CHUỖI VĂN BẢN MẢNG) ---
                 if not image_vector and text_vector: image_vector = [0.0] * len(text_vector)
                 if not text_vector and image_vector: text_vector = [0.0] * len(image_vector)
                     
                 if image_vector and text_vector:
-                    # FIX SỐ 1: Ép định dạng về dạng chuỗi văn bản mảng số thực tương thích chuẩn PostgREST
                     raw_floats = list(image_vector) + list(text_vector)
                     hybrid_vector_embedding_array = "[" + ",".join([str(f) for f in raw_floats]) + "]"
                     print(f"🚀 [HYBRID COMPLETE]: {len(raw_floats)} dimensions string formatted.")
@@ -260,8 +259,8 @@ def save_to_supabase_techpack_table(payload_data, raw_file_bytes=None, file_name
         insert_url = f"{SB_URL.rstrip('/')}/rest/v1/thong_so_techpack"
         clean_dict = {str(k).strip(): str(v).strip() for k, v in dict(measurements_raw).items()}
 
-        # Xây dựng gói payload cơ bản
-        base_payload = {
+        # Gói payload sạch hướng trực diện vào tên cột chữ thường geometry_vector đã cấu hình ở Bước 1
+        db_payload = {
             "StyleName": style_name_db,
             "Buyer": payload_data.get("buyer", "UNKNOWN BUYER"),
             "Category": payload_data.get("category", "GARMENT"),
@@ -269,34 +268,24 @@ def save_to_supabase_techpack_table(payload_data, raw_file_bytes=None, file_name
             "DetailedMeasurements": clean_dict,
             "GradingMatrix": payload_data.get("full_size_matrix", {}),
             "ImageURL": public_image_url,
-            "VisualDescription": visual_description_str
+            "VisualDescription": visual_description_str,
+            "geometry_vector": hybrid_vector_embedding_array if hybrid_vector_embedding_array else None
         }
 
-        # FIX SỐ 2: CHIẾN LƯỢC TỰ ĐỘNG DÒ TÊN CỘT ĐỂ KHỬ SẠCH LỖI HTTP 400 LỆCH TÊN TRƯỜNG
-        possible_column_names = ["GeometryVector", "geometry_vector", "Geometry_Vector"]
-        db_res = None
+        db_res = requests.post(insert_url, headers=headers, json=db_payload, timeout=20)
         
-        for col_name in possible_column_names:
-            db_payload = base_payload.copy()
-            db_payload[col_name] = hybrid_vector_embedding_array if hybrid_vector_embedding_array else None
+        if db_res.status_code < 200 or db_res.status_code > 299:
+            print(f"❌ [SUPABASE REST REJECT] HTTP {db_res.status_code}: {db_res.text}")
+            st.sidebar.error(f"Supabase Reject: HTTP {db_res.status_code} | {db_res.text[:60]}")
+            return False
             
-            db_res = requests.post(insert_url, headers=headers, json=db_payload, timeout=20)
-            
-            # Nếu thành công (Mã 201 hoặc 200), ngắt vòng lặp dò tìm cột ngay lập tức
-            if 200 <= db_res.status_code <= 299:
-                print(f"✅ [SUPABASE SUCCESS] Đồng bộ thành công dữ liệu lai thông qua trường cột: {col_name}")
-                return True
-                
-        # In mã lỗi HTTP cuối cùng nếu tất cả các cột dò tìm đều bị từ chối
-        if db_res is not None:
-            print(f"❌ [SUPABASE REST REJECT FINAL] HTTP {db_res.status_code}: {db_res.text}")
-            st.sidebar.error(f"Supabase Reject: HTTP {db_res.status_code} | Details: {db_res.text[:80]}")
-            
-        return False
+        print(f"✅ [SUPABASE SUCCESS] Mã hàng {style_name_db} và Hybrid Vector đã được lưu kho thành công!")
+        return True
     except Exception as e:
         print(f"❌ [CRITICAL DB MAIN ERR]: {str(e)}")
         st.sidebar.error(f"Crash Main DB: {str(e)}")
         return False
+
 
 
 
