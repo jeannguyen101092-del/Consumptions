@@ -303,7 +303,9 @@ def save_to_supabase_techpack_table(payload_data, raw_file_bytes=None, file_name
         print(f"❌ [CRITICAL SECTION 3 ERR]: {str(e3)}")
         st.sidebar.error(f"Lỗi Đoạn 3: {str(e3)}")
     # =========================================================================================
-    # ĐOẠN 4: Đóng gói gói tin đa hình và thực thi gọi API REST RPC lên Supabase.
+       # =========================================================================================
+       # =========================================================================================
+    # ĐOẠN 4: Đóng gói gói tin chuẩn chỉnh và thực thi gọi API REST RPC lên Supabase.
     # =========================================================================================
     try:
         style_val = str(style_name_db).strip() if style_name_db else "STYLE_UNKNOWN_" + str(int(time.time()))
@@ -313,7 +315,7 @@ def save_to_supabase_techpack_table(payload_data, raw_file_bytes=None, file_name
         url_val = str(public_image_url).strip() if public_image_url else "https://supabase.com"
         desc_val = str(visual_description_str).strip() if visual_description_str else "No geometric descriptions available."
 
-        # Trộn lẫn cấu trúc đặt tên tham số (Snake-case và CamelCase) chống lệch signature SQL
+        # Payload tinh gọn, chuẩn hóa theo đúng 9 tham số đầu vào của hàm SQL trong DB
         rpc_payload = {
             "p_stylename": style_val,
             "p_buyer": buyer_val,
@@ -323,31 +325,21 @@ def save_to_supabase_techpack_table(payload_data, raw_file_bytes=None, file_name
             "p_gradingmatrix": matrix_raw_data,
             "p_imageurl": url_val,
             "p_visualdescription": desc_val,
-            "p_geometry_vector": hybrid_vector_embedding_array,
-            
-            "p_style_name": style_val,
-            "p_base_size": size_val,
-            "p_measurements": clean_dict,
-            "p_detailed_measurements": clean_dict,
-            "p_matrix": matrix_raw_data,
-            "p_grading_matrix": matrix_raw_data,
-            "p_image_url": url_val,
-            "p_description": url_val,
-            "p_visual_description": desc_val,
-            "p_vector": hybrid_vector_embedding_array
+            "p_geometry_vector": hybrid_vector_embedding_array
         }
 
-        # Terminal Log sản xuất kiểm tra độ dài mảng vector
-        print("\n" + "="*25 + " RPC PAYLOAD CHECK " + "="*25)
+        # Terminal Log để kiểm tra luồng dữ liệu thô khi click button
+        print("\n" + "="*25 + " RPC PAYLOAD FINAL CHECK " + "="*25)
         for key, value in rpc_payload.items():
-            if key in ["p_geometry_vector", "p_vector"]:
-                print(f"👉 Parameter: {key:<25} | Length: {len(value) if value else 'EMPTY'} | Type: {type(value)}")
+            if key == "p_geometry_vector":
+                print(f"👉 Parameter: {key:<25} | Length: {len(value) if value else 'EMPTY':<10} | Type: {str(type(value)):<20}")
             else:
-                val_str = str(value)[:57] + "..." if len(str(value)) > 60 else str(value)
-                print(f"👉 Parameter: {key:<25} | Value: {val_str:<60} | Type: {type(value)}")
-        print("="*70 + "\n")
+                val_str = str(value)
+                if len(val_str) > 60: val_str = val_str[:57] + "..."
+                print(f"👉 Parameter: {key:<25} | Value: {val_str:<60} | Type: {str(type(value)):<20}")
+        print("="*74 + "\n")
 
-        # Gửi Request Post RESTful lên RPC API Gateway của Supabase
+        # Gửi Request Post RESTful lên cổng RPC API Gateway của Supabase
         headers = {
             "apikey": SB_KEY, 
             "Authorization": f"Bearer {SB_KEY}",
@@ -356,7 +348,7 @@ def save_to_supabase_techpack_table(payload_data, raw_file_bytes=None, file_name
         rpc_url = f"{SB_URL.rstrip('/')}/rest/v1/rpc/insert_techpack_data_with_vector"
         db_res = requests.post(rpc_url, headers=headers, json=rpc_payload, timeout=30)
         
-        # Kiểm tra trạng thái phản hồi HTTP bằng toán tử so sánh chuẩn
+        # Kiểm tra trạng thái phản hồi HTTP bằng toán tử so sánh khoảng chuẩn
         if 200 <= db_res.status_code <= 299:
             print("✅ [SUPABASE SUCCESS]: Đồng bộ dữ liệu qua hàm RPC hoàn tất.")
             return True
@@ -369,7 +361,6 @@ def save_to_supabase_techpack_table(payload_data, raw_file_bytes=None, file_name
         print(f"❌ [CRITICAL SECTION 4 ERR]: {str(e4)}")
         st.sidebar.error(f"Lỗi Đoạn 4: {str(e4)}")
         return False
-
 
 
 
