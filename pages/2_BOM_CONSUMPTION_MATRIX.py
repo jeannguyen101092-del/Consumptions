@@ -464,7 +464,7 @@ def process_single_pdf_batch(file_bytes, file_name):
                 response = requests.post(url, json=api_payload, headers={"Content-Type": "application/json"}, timeout=150)
                 if response.status_code == 200: 
                     break
-                # SỬA LỖI CÚ PHÁP HOÀN CHỈNH: Điền mảng kiểm tra mã trạng thái bận máy chủ chuẩn Python [429, 502, 503, 504]
+                # SỬA LỖI CÚ PHÁP HOÀN CHỈNH ĐÃ ĐIỀN MẢNG MÃ LỖI:
                 elif response.status_code in:
                     time.sleep((attempt + 1) * 2)
             except Exception:
