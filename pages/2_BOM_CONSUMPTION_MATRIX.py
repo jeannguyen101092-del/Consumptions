@@ -1675,12 +1675,16 @@ def process_single_pdf_batch(file_bytes, file_name):
 
 
 
+# =========================================================================================
+# ĐOẠN 1: KHỞI TẠO BIẾN HỆ THỐNG VÀ KHUNG TẢI TỆP (ĐÃ VÁ LỖI DUPLICATE ELEMENT KEY)
+# =========================================================================================
 if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption Matrix":
     import json
     import re
     import requests
     import io
     import time
+    import pandas as pd
     import streamlit as st
     try:
         from google.genai import types
@@ -1689,9 +1693,9 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
 
     st.markdown('<div class="component-title-box">🧵 INTELLIGENT BOM & CONSUMPTION MATRIX ENGINE</div>', unsafe_allow_html=True)
     
-    # 🎯 VÁ LỖI CẤU HÌNH: Tự động trích xuất URL gốc để dứt điểm các luồng xử lý bên dưới
-    SB_KEY = st.secrets.get("SUPABASE_KEY", "") if "SB_KEY" not in globals() else globals().get("SB_KEY", "")
-    SB_URL = st.secrets.get("SUPABASE_URL", "") if "SB_URL" not in globals() else globals().get("SB_URL", "")
+    # Thiết lập cấu hình URL kết nối tới REST API Gateway của Supabase an toàn
+    SB_KEY = st.secrets.get("SUPABASE_KEY", "") if "SB_KEY" not in globals() else globals().get("SUPABASE_KEY", "")
+    SB_URL = st.secrets.get("SUPABASE_URL", "") if "SB_URL" not in globals() else globals().get("SUPABASE_URL", "")
     base_sb_url = SB_URL.rstrip('/') 
 
     # Khởi tạo bộ nhớ tạm để quản lý trạng thái đối soát phom dáng tương đồng
@@ -1705,13 +1709,16 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     if "visual_description_str" not in st.session_state: st.session_state["visual_description_str"] = ""
     if "hybrid_search_vector" not in st.session_state: st.session_state["hybrid_search_vector"] = None
     if "top_similar_styles" not in st.session_state: st.session_state["top_similar_styles"] = []
+    if "new_style_id_detected" not in st.session_state: st.session_state["new_style_id_detected"] = "N/A"
+    if "new_style_measurements_dict" not in st.session_state: st.session_state["new_style_measurements_dict"] = {}
+    if "target_new_sketch_bytes" not in st.session_state: st.session_state["target_new_sketch_bytes"] = None
 
     control_col1, control_col2 = st.columns([3.3, 0.7])
     with control_col1:
         st.markdown("<p style='font-weight:700; font-size:12px; color:#1E293B;'>📁 INGEST NEW STYLE REPRINTS (PDF/IMAGE)</p>", unsafe_allow_html=True)
-        uploaded_file = st.file_uploader("Upload Techpack file", type=["pdf", "jpg", "jpeg", "png"], key="bom_matrix_uploader", label_visibility="collapsed")
+        # SỬA TẠI ĐÂY: Đổi key thành bom_matrix_uploader_v2 để triệt tiêu lỗi trùng ID phần tử
+        uploaded_file = st.file_uploader("Upload Techpack file", type=["pdf", "jpg", "jpeg", "png"], key="bom_matrix_uploader_v2", label_visibility="collapsed")
         
-        # Chỉ làm sạch vùng nhớ tạm khi người dùng thay đổi tệp thiết kế hoàn toàn mới
         if uploaded_file is not None and uploaded_file.name != st.session_state.get("previous_uploaded_file_name"):
             st.session_state["matched_techpack"] = None
             st.session_state["bom_records"] = []
@@ -1721,6 +1728,9 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             st.session_state["visual_description_str"] = ""
             st.session_state["hybrid_search_vector"] = None
             st.session_state["top_similar_styles"] = []
+            st.session_state["new_style_id_detected"] = "N/A"
+            st.session_state["new_style_measurements_dict"] = {}
+            st.session_state["target_new_sketch_bytes"] = None
             st.session_state["previous_uploaded_file_name"] = uploaded_file.name
             
     with control_col2:
@@ -1736,17 +1746,20 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             st.session_state["visual_description_str"] = ""
             st.session_state["hybrid_search_vector"] = None
             st.session_state["top_similar_styles"] = []
-            if "new_style_id_detected" in st.session_state:
-                st.session_state["new_style_id_detected"] = "UNKNOWN"
-            st.success("♻️ MEMORY PURGED - SẴN SÀNG CHO MÃ HÀNG MỚI")
+            st.session_state["new_style_id_detected"] = "N/A"
+            st.session_state["new_style_measurements_dict"] = {}
+            st.session_state["target_new_sketch_bytes"] = None
+            st.success("♻️ MEMORY PURGED")
             st.rerun()
 
     st.markdown("---")
     
-    has_file = st.session_state.get("bom_matrix_uploader") is not None
+    # ĐỒNG BỘ: Sửa lại tên key check trạng thái file trùng khớp với uploader mới
+    has_file = st.session_state.get("bom_matrix_uploader_v2") is not None
     if not has_file:
-        st.info("👋 Vui lòng tải lên tệp Techpack hồ sơ thiết kế (PDF/Hình ảnh) ở phía trên để hệ thống bắt đầu quét và lập lịch trình đối soát.")
+        st.info("👋 Vui lòng tải lên tệp Techpack thiết kế (PDF/Hình ảnh) ở phía trên để kích hoạt lõi đối soát.")
         st.stop()
+
      # =========================================================================================
     # LỚP TỰ ĐỘNG TRIGGER QUÉT TỆP TIN PDF VÀ SINH VECTOR ĐẶC TRƯNG QUA VLM LAYER
     # =========================================================================================
