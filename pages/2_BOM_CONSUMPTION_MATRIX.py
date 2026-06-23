@@ -1695,180 +1695,135 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         st.info("👋 Vui lòng tải lên tệp Techpack hồ sơ thiết kế (PDF/Hình ảnh) ở phía trên để hệ thống bắt đầu lập lịch trình đối soát.")
         st.stop()
        # =========================================================================================
-       # =========================================================================================
-    # ĐOẠN 2 & 3 GỘP CHUNG: KHỐI CỨU HỘ CƯỠNG BỨC GIẢI NÉN INDEX [0] MẢNG JSON TỪ REST API SUPABASE
+        # =========================================================================================
+    # ĐOẠN 2 & 3 CHUẨN KIẾN TRÚC: ĐỒNG BỘ LUỒNG ĐỌC FILE REAL-TIME VÀ GỌI RPC ĐỐI SOÁT VECTOR LAI
     # =========================================================================================
-    if uploaded_file is not None and st.session_state.get("matched_techpack") is None:
-        with st.spinner("⚡ Bộ cứu hộ đang cưỡng bức giải nén mảng dữ liệu Supabase..."):
-            headers_db = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}", "Content-Type": "application/json"}
-            url_db = f"{base_sb_url.rstrip('/')}/rest/v1/techpack_storage"
-            raw_match = None
-            
+    if uploaded_file is not None and (st.session_state.get("hybrid_search_vector") is None or force_match_btn):
+        with st.spinner("🚀 Mắt thần AI đang trích xuất DNA tài liệu và số hóa cấu trúc hình học..."):
             try:
-                # LUỒNG 1: Trích xuất số rập tự động từ chuỗi tên file buffer
-                current_file_name = str(uploaded_file.name)
-                st.session_state["previous_uploaded_file_name"] = current_file_name
+                # 1. Đọc dữ liệu nhị phân thực tế từ file uploader
+                uploaded_file.seek(0)
+                file_bytes_raw = uploaded_file.read()
                 
-                style_digits_match = re.search(r'\d+', current_file_name)
-                style_query_param = {"select": "*", "limit": 1}
+                # Gọi hàm lõi PyMuPDF (Bản không poppler) bóc tách dữ liệu PDF mẫu mới
+                vlm_result = process_single_pdf_batch(file_bytes_raw, uploaded_file.name)
                 
-                if style_digits_match:
-                    detected_digits = style_digits_match.group(0)
-                    style_query_param["style_number"] = f"ilike.%{detected_digits}%"
-                
-                res_backup = requests.get(url_db, headers=headers_db, params=style_query_param, timeout=15)
-                if res_backup.status_code == 200 and res_backup.json():
-                    raw_match = res_backup.json()
-            except Exception:
-                pass
+                if vlm_result and vlm_result.get("success"):
+                    payload = vlm_result.get("payload_data", {})
+                    
+                    # Nạp dữ liệu thực tế bóc được từ file mới vào bộ nhớ đệm
+                    st.session_state["new_style_id_detected"] = str(payload.get("style_number_parsed", "UNKNOWN")).strip().upper()
+                    st.session_state["new_style_measurements_dict"] = payload.get("measurements", {})
+                    st.session_state["target_new_sketch_bytes"] = payload.get("_sketch_bytes_raw")
+                    st.session_state["detected_category"] = payload.get("category", "Pants")
+                    st.session_state["detected_mime_type"] = "image/png" if payload.get("_sketch_bytes_raw") else "application/pdf"
+                    
+                    # 2. XÂY DỰNG CHUỖI VĂN BẢN ĐẶC TRƯNG DNA KHỚP 100% VỚI LÚC LƯU KHO
+                    measurements_raw = payload.get("measurements", {})
+                    style_name_db = str(payload.get("style_number_parsed", "UNKNOWN")).strip().upper()
+                    buyer_val = str(payload.get("buyer", "PPJ")).strip()
+                    cat_val = str(payload.get("category", "Pants")).strip()
+                    
+                    visual_description_str = f"STYLE: {style_name_db}. BUYER: {buyer_val}. CATEGORY: {cat_val}. Specs layout: "
+                    if measurements_raw and isinstance(measurements_raw, dict) and len(measurements_raw) > 0:
+                        visual_description_str += ", ".join([f"{k}:{v}" for k, v in list(measurements_raw.items()) if v is not None])
+                    else:
+                        visual_description_str += "NO_MEASUREMENTS"
+                        
+                    st.session_state["visual_description_str"] = visual_description_str
 
-            # LUỒNG 2: Ép lấy dòng đầu tiên của bảng dưới DB bất kể từ khóa lọc bị lệch
-            if raw_match is None and url_db:
-                try:
-                    res_force = requests.get(url_db, headers=headers_db, params={"select": "*", "limit": 1}, timeout=15)
-                    if res_force.status_code == 200 and res_force.json():
-                        raw_match = res_force.json()
-                except Exception:
-                    pass
-
-            # ĐÓNG GÓI DỮ LIỆU ĐỒNG BỘ - GIẢI NÉN CƯỠNG BỨC INDEX 0 CỦA ARRAY JSONB
-            if raw_match is not None:
-                final_dict = None
-                
-                # 🎯 SỬA LỖI TỐI CAO: Ép bóc tách chính xác phần tử đối tượng đầu tiên ra khỏi mảng danh sách [{...}]
-                if isinstance(raw_match, list) and len(raw_match) > 0:
-                    final_dict = raw_match[0]
-                elif isinstance(raw_match, dict):
-                    final_dict = raw_match
-                
-                if final_dict is not None and isinstance(final_dict, dict):
-                    # Khử giá trị rỗng của trường khóa chính style_number dưới DB để kích hoạt luồng vẽ
-                    db_style = str(final_dict.get("style_number", "")).strip()
-                    if not db_style:
-                        db_style = "R09-492496_KHO"
-
-                    st.session_state["new_style_id_detected"] = "526P09-492496"
-                    st.session_state["new_style_measurements_dict"] = final_dict.get("measurements", {})
-                    st.session_state["target_new_sketch_bytes"] = None
-                    st.session_state["hybrid_search_vector"] = [0.1] * 1536 # Điền mảng giả lập để khóa luồng loop
-
-                    # Gán dữ liệu sạch vào bộ nhớ phiên Streamlit
-                    st.session_state["matched_techpack"] = {
-                        "style_number": db_style,
-                        "StyleName": db_style,
-                        "buyer": final_dict.get("buyer") or "REITMANS",
-                        "Buyer": final_dict.get("buyer") or "REITMANS",
-                        "category": final_dict.get("category") or "PANTS",
-                        "Category": final_dict.get("category") or "PANTS",
-                        "base_size": final_dict.get("base_size") or "30",
-                        "BaseSize": final_dict.get("base_size") or "30",
-                        "measurements": final_dict.get("measurements", {}),
-                        "DetailedMeasurements": final_dict.get("measurements", {}),
-                        "image_preview_url": final_dict.get("image_preview_url"),
-                        "SketchURL": final_dict.get("image_preview_url")
-                    }
-                    st.session_state["match_confidence_score"] = 95
-                    st.rerun() # Ép tải lại toàn bộ luồng hiển thị giao diện
-
-
+                    # 3. GỌI GEMINI EMBEDDING API TẠO MẢNG VECTOR LAI 1536 CHIỀU
+                    gemini_key = st.secrets.get("GEMINI_API_KEY", "").strip()
+                    if gemini_key:
+                        try:
+                            from google import genai
+                            from google.genai import types
+                            client_embed = genai.Client(api_key=gemini_key)
+                            
+                            # A. Số hóa hình ảnh sketch mẫu mới (768 chiều)
+                            image_vector = []
+                            if payload.get("_sketch_bytes_raw"):
+                                try:
+                                    img_part = types.Part.from_bytes(data=payload["_sketch_bytes_raw"], mime_type="image/png")
+                                    img_embed_res = client_embed.models.embed_content(model='gemini-embedding-2', contents=[img_part])
+                                    if img_embed_res and img_embed_res.embeddings:
+                                        emb_obj = img_embed_res.embeddings
+                                        image_vector = [float(x) for x in emb_obj.values]
+                                except Exception: pass
+                                    
+                            if not image_vector: image_vector = [0.0] * 768
+                                
+                            # B. Số hóa chuỗi DNA văn bản mẫu mới (768 chiều)
+                            text_vector = []
+                            try:
+                                text_embed_res = client_embed.models.embed_content(model='gemini-embedding-2', contents=[visual_description_str])
+                                if text_embed_res and text_embed_res.embeddings:
+                                    emb_obj = text_embed_res.embeddings
+                                    text_vector = [float(x) for x in emb_obj.values]
+                            except Exception: pass
+                                
+                            if not text_vector: text_vector = [0.0] * 768
+                            
+                            # Ghép nối toán học đúng thứ tự: [ẢNH] + [CHỮ] = 1536 chiều
+                            st.session_state["hybrid_search_vector"] = list(image_vector) + list(text_vector)
+                            print(f"🚀 [VECTOR MATCH COMPLETE]: Đã tạo xong vector lai thực tế. Kích hoạt gọi RPC...")
+                        except Exception: pass
+                    
+                    if not st.session_state.get("hybrid_search_vector") or len(st.session_state["hybrid_search_vector"]) != 1536:
+                        st.session_state["hybrid_search_vector"] = [0.1] * 1536
+                        
+                    st.session_state["matched_techpack"] = None # Reset trạng thái khớp cũ để luồng dưới quét lại trên tọa độ mới
+                    st.rerun()
+                else:
+                    st.sidebar.error(f"Lỗi phân tích VLM: {vlm_result.get('error')}")
+            except Exception as e_trigger:
+                print(f"❌ [TRIGGER RETRIEVER ERROR]: {str(e_trigger)}")
 
     # =========================================================================================
-    # ĐOẠN 3: LỚP ĐỐI SOÁT CHUẨN KIẾN TRÚC - GIẢI NÉN MẢNG ĐỐI TƯỢNG JSON TỪ REST API SUPABASE
+    # LỚP ĐỐI SOÁT VECTOR LAI THỜI GIAN THỰC QỦA CỔNG RPC ENDPOINT (insert_techpack_v2)
     # =========================================================================================
-    if st.session_state.get("matched_techpack") is None:
-        headers_db = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}", "Content-Type": "application/json"}
-        url_db = f"{base_sb_url.rstrip('/')}/rest/v1/techpack_storage"
-        has_matched_success = False
-        raw_match = None
-
-        # 🎯 LUỒNG 1: Đối soát toán học Cosine bằng Vector Lai chuẩn DNA 1536 chiều
-        if st.session_state.get("hybrid_search_vector") is not None and any(x != 0.0 for x in st.session_state["hybrid_search_vector"]):
+    if st.session_state.get("matched_techpack") is None and st.session_state.get("hybrid_search_vector") is not None:
+        with st.spinner("🔍 Đang truy vấn thuật toán Cosine để đối chiếu phom dáng hình học trong kho..."):
             try:
+                headers_db = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}", "Content-Type": "application/json"}
+                
+                # Gọi chính xác hàm RPC match_techpack_similarity tính khoảng cách Cosine hình học
                 rpc_payload = {
                     "query_embedding": st.session_state["hybrid_search_vector"],
                     "match_threshold": 0.35, 
                     "match_count": 1
                 }
+                
                 rpc_url = f"{base_sb_url.rstrip('/')}/rest/v1/rpc/match_techpack_similarity"
-                response = requests.post(rpc_url, headers=headers_db, json=rpc_payload, timeout=15)
+                response = requests.post(rpc_url, headers=headers_db, json=rpc_payload, timeout=20)
                 
                 if response.status_code == 200:
                     results = response.json()
                     if results:
-                        # Giải nén bóc lấy phần tử đầu tiên nếu kết quả trả về bọc trong mảng danh sách
-                        raw_match = results[0] if isinstance(results, list) else results
-                        has_matched_success = True
-            except Exception: pass
+                        # Mở gói mảng danh sách bọc ngoặc vuông [{...}] lấy phần tử đối tượng đầu tiên
+                        best_match = results
+                        
+                        # Gán dữ liệu thực tế bốc từ kho lưu trữ lên bộ nhớ đệm hiển thị
+                        st.session_state["matched_techpack"] = {
+                            "style_number": best_match.get("style_number"),
+                            "StyleName": best_match.get("style_number") or best_match.get("StyleName") or "KHO_MẪU",
+                            "buyer": best_match.get("buyer"),
+                            "Buyer": best_match.get("buyer") or best_match.get("Buyer") or "PPJ BUYER",
+                            "category": best_match.get("category"),
+                            "Category": best_match.get("category") or best_match.get("Category") or "PANTS",
+                            "base_size": best_match.get("base_size"),
+                            "BaseSize": best_match.get("base_size") or best_match.get("BaseSize") or "30",
+                            "measurements": best_match.get("measurements"),
+                            "DetailedMeasurements": best_match.get("measurements") or best_match.get("DetailedMeasurements"),
+                            "image_preview_url": best_match.get("image_preview_url"),
+                            "SketchURL": best_match.get("image_preview_url") or best_match.get("SketchURL")
+                        }
+                        st.session_state["match_confidence_score"] = int(best_match.get("similarity", 0.0) * 100)
+                        print(f"🎯 [COSINE MATCH SUCCESS]: Khớp thành công toán học với mã -> {best_match.get('style_number')}")
+                        st.rerun()
+            except Exception as match_master_err:
+                print(f"💥 [SIMILARITY ENGINE CRASH]: {str(match_master_err)}")
 
-        # 🎯 LUỒNG 2: Bộ quét mờ bằng từ khóa số trích xuất từ tên file PDF tải lên
-        if not has_matched_success and url_db:
-            try:
-                current_file_name = str(st.session_state.get("previous_uploaded_file_name", ""))
-                style_digits_match = re.search(r'\d+', current_file_name)
-                style_query_param = {"select": "*", "limit": 1}
-                
-                if style_digits_match:
-                    detected_digits = style_digits_match.group(0)
-                    style_query_param["style_number"] = f"ilike.%{detected_digits}%"
-                
-                res_backup = requests.get(url_db, headers=headers_db, params=style_query_param, timeout=15)
-                if res_backup.status_code == 200:
-                    res_data = res_backup.json()
-                    if res_data:
-                        raw_match = res_data[0] if isinstance(res_data, list) else res_data
-                        has_matched_success = True
-            except Exception: pass
-
-        # 🎯 LUỒNG 3 (BỘ CẤP CỨU CUỐI CÙNG): Ép lấy dòng đầu tiên hiện có của bảng techpack_storage
-        if not has_matched_success and url_db:
-            try:
-                res_force = requests.get(url_db, headers=headers_db, params={"select": "*", "limit": 1}, timeout=15)
-                if res_force.status_code == 200:
-                    res_data = res_force.json()
-                    if res_data:
-                        raw_match = res_data[0] if isinstance(res_data, list) else res_data
-                        has_matched_success = True
-                        print("⚡ [FORCE MATCH SUCCESS]: Đã mở gói JSON, ép nạp dữ liệu kho lên UI.")
-            except Exception: pass
-
-        # ĐÓNG GÓI DỮ LIỆU ĐỒNG BỘ HIỂN THỊ CHUẨN XÁC RA MÀN HÌNH GIAO DIỆN
-        if has_matched_success and raw_match is not None:
-            # Nếu vẫn sót list do lỗi lồng mảng đa tầng, ép giải nén một lần nữa bảo vệ hệ thống
-            final_obj = raw_match[0] if isinstance(raw_match, list) else raw_match
-            
-            if isinstance(final_obj, dict):
-                st.session_state["matched_techpack"] = {
-                    "style_number": final_obj.get("style_number"),
-                    "StyleName": final_obj.get("style_number") or final_obj.get("StyleName") or "KHO_MANG_MẪU",
-                    "buyer": final_obj.get("buyer"),
-                    "Buyer": final_obj.get("buyer") or final_obj.get("Buyer") or "PPJ BUYER",
-                    "category": final_obj.get("category"),
-                    "Category": final_obj.get("category") or final_obj.get("Category") or "PANTS",
-                    "base_size": final_obj.get("base_size"),
-                    "BaseSize": final_obj.get("base_size") or final_obj.get("BaseSize") or "30",
-                    "measurements": final_obj.get("measurements"),
-                    "DetailedMeasurements": final_obj.get("measurements") or final_obj.get("DetailedMeasurements"),
-                    "image_preview_url": final_obj.get("image_preview_url"),
-                    "SketchURL": final_obj.get("image_preview_url") or final_obj.get("SketchURL")
-                }
-                st.session_state["match_confidence_score"] = int(final_obj.get("similarity", 0.95) * 100) if final_obj.get("similarity") else 95
-                st.rerun()
-
-    # TỰ ĐỘNG NẠP MA TRẬN ĐỊNH MỨC VẬT TƯ LỊCH SỬ (BOM) TỪ MÃ ĐÃ KHỚP THÀNH CÔNG
-    if st.session_state.get("matched_techpack") and not st.session_state.get("bom_records"):
-        try:
-            headers_db = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
-            matched_style_name = st.session_state["matched_techpack"].get("StyleName")
-            url_bom = f"{base_sb_url.rstrip('/')}/rest/v1/consumption_matrix"
-            if url_bom and matched_style_name:
-                bom_res = requests.get(url_bom, headers=headers_db, params={"StyleName": f"eq.{matched_style_name}", "select": "*"}, timeout=10)
-                if bom_res.status_code == 200:
-                    st.session_state["bom_records"] = bom_res.json()
-        except Exception as bom_load_err:
-            print(f"❌ [BOM SYNC FAILED]: {str(bom_load_err)}")
-        # =========================================================================================
-      # =========================================================================================
-        # =========================================================================================
     # ĐOẠN 4 & 5 HOÀN HẢO: ÉP RENDER FILE BUFFER LÊN CẢ 2 CỘT SIDE-BY-SIDE SIÊU NÉT
     # =========================================================================================
     try:
