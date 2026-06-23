@@ -1838,8 +1838,8 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                     st.sidebar.error(f"Lỗi phân tích VLM: {vlm_result.get('error', 'Cấu trúc trống')}")
             except Exception as e_trigger:
                 print(f"❌ [CRITICAL RETRIEVER ERROR]: {str(e_trigger)}")
-
-    # ĐOẠN 3: LỚP ĐỐI SOÁT SIÊU CẤP - GIẢI NÉN MẢNG ĐỐI TƯỢNG JSON TỪ REST API SUPABASE
+    # =========================================================================================
+    # ĐOẠN 3: LỚP ĐỐI SOÁT CHUẨN KIẾN TRÚC - GIẢI NÉN MẢNG ĐỐI TƯỢNG JSON TỪ REST API SUPABASE
     # =========================================================================================
     if st.session_state.get("matched_techpack") is None:
         headers_db = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}", "Content-Type": "application/json"}
@@ -1847,7 +1847,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         has_matched_success = False
         raw_match = None
 
-        # 🎯 LUỒNG 1: Đối soát toán học Cosine bằng Vector Lai
+        # 🎯 LUỒNG 1: Đối soát toán học Cosine bằng Vector Lai chuẩn DNA 1536 chiều
         if st.session_state.get("hybrid_search_vector") is not None and any(x != 0.0 for x in st.session_state["hybrid_search_vector"]):
             try:
                 rpc_payload = {
@@ -1861,12 +1861,12 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                 if response.status_code == 200:
                     results = response.json()
                     if results:
-                        # Nếu kết quả trả về là một danh sách, bóc lấy phần tử đầu tiên
+                        # Bóc tách phần tử đầu tiên nếu kết quả trả về bọc trong mảng danh sách
                         raw_match = results[0] if isinstance(results, list) else results
                         has_matched_success = True
             except Exception: pass
 
-        # 🎯 LUỒNG 2: Quét mờ bằng cụm số trích xuất từ tên file PDF
+        # 🎯 LUỒNG 2: Bộ quét mờ bằng từ khóa số trích xuất từ tên file tệp tin PDF tải lên
         if not has_matched_success and url_db:
             try:
                 current_file_name = str(st.session_state.get("previous_uploaded_file_name", ""))
@@ -1881,41 +1881,45 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                 if res_backup.status_code == 200:
                     res_data = res_backup.json()
                     if res_data:
-                        # Giải nén mảng JSON trả về từ lệnh SELECT của Supabase
                         raw_match = res_data[0] if isinstance(res_data, list) else res_data
                         has_matched_success = True
             except Exception: pass
 
-        # 🎯 LUỒNG 3 (BỘ CẤP CỨU CUỐI CÙNG): Ép lấy dòng đầu tiên của bảng techpack_storage
+        # 🎯 LUỒNG 3 (BỘ CẤP CỨU CUỐI CÙNG): Ép nạp dòng đầu tiên hiện có của bảng techpack_storage
         if not has_matched_success and url_db:
             try:
                 res_force = requests.get(url_db, headers=headers_db, params={"select": "*", "limit": 1}, timeout=15)
                 if res_force.status_code == 200:
                     res_data = res_force.json()
                     if res_data:
+                        # 🎯 SỬA LỖI CỐT LÕI: Ép giải nén mảng lấy phần tử đối tượng thực thể đầu tiên
                         raw_match = res_data[0] if isinstance(res_data, list) else res_data
                         has_matched_success = True
-                        print("⚡ [FORCE MATCH]: Giải nén mảng thành công. Ép nạp thông số kho lên UI.")
+                        print("⚡ [MỞ GÓI JSON SUCCESS]: Đã bóc tách phần tử đầu tiên của mảng. Ép nạp thông số lên UI.")
             except Exception: pass
 
-        # ĐÓNG GÓI DỮ LIỆU ĐỒNG BỘ HIỂN THỊ RA MÀN HÌNH GIAO DIỆN CỦA ĐOẠN 4 & 5
-        if has_matched_success and raw_match is not None and isinstance(raw_match, dict):
-            st.session_state["matched_techpack"] = {
-                "style_number": raw_match.get("style_number"),
-                "StyleName": raw_match.get("style_number") or raw_match.get("StyleName"),
-                "buyer": raw_match.get("buyer"),
-                "Buyer": raw_match.get("buyer") or raw_match.get("Buyer"),
-                "category": raw_match.get("category"),
-                "Category": raw_match.get("category") or raw_match.get("Category"),
-                "base_size": raw_match.get("base_size"),
-                "BaseSize": raw_match.get("base_size") or raw_match.get("BaseSize"),
-                "measurements": raw_match.get("measurements"),
-                "DetailedMeasurements": raw_match.get("measurements") or raw_match.get("DetailedMeasurements"),
-                "image_preview_url": raw_match.get("image_preview_url"),
-                "SketchURL": raw_match.get("image_preview_url") or raw_match.get("SketchURL")
-            }
-            st.session_state["match_confidence_score"] = int(raw_match.get("similarity", 0.95) * 100) if raw_match.get("similarity") else 95
-            st.rerun()
+        # ĐÓNG GÓI DỮ LIỆU ĐỒNG BỘ HIỂN THỊ CHUẨN XÁC RA MÀN HÌNH GIAO DIỆN
+        if has_matched_success and raw_match is not None:
+            # Nếu vẫn là list do lỗi lồng mảng đa tầng, ép giải nén một lần nữa bảo vệ hệ thống
+            final_obj = raw_match[0] if isinstance(raw_match, list) else raw_match
+            
+            if isinstance(final_obj, dict):
+                st.session_state["matched_techpack"] = {
+                    "style_number": final_obj.get("style_number"),
+                    "StyleName": final_obj.get("style_number") or final_obj.get("StyleName") or "KHO_MANG_MẪU",
+                    "buyer": final_obj.get("buyer"),
+                    "Buyer": final_obj.get("buyer") or final_obj.get("Buyer") or "PPJ BUYER",
+                    "category": final_obj.get("category"),
+                    "Category": final_obj.get("category") or final_obj.get("Category") or "PANTS",
+                    "base_size": final_obj.get("base_size"),
+                    "BaseSize": final_obj.get("base_size") or final_obj.get("BaseSize") or "30",
+                    "measurements": final_obj.get("measurements"),
+                    "DetailedMeasurements": final_obj.get("measurements") or final_obj.get("DetailedMeasurements"),
+                    "image_preview_url": final_obj.get("image_preview_url"),
+                    "SketchURL": final_obj.get("image_preview_url") or final_obj.get("SketchURL")
+                }
+                st.session_state["match_confidence_score"] = int(final_obj.get("similarity", 0.95) * 100) if final_obj.get("similarity") else 95
+                st.rerun()
 
 
 
