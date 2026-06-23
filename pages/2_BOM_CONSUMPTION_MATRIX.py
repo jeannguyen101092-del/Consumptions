@@ -1919,7 +1919,8 @@ if new_style_measurements_dict:
 
 
    # =========================================================================================
-# ĐOẠN 6 NÂNG CẤP: THUẬT TOÁN SIÊU LỌC TỪ KHÓA ĐỐI CHIẾU THÔNG SỐ RẬP MẪU CHỐNG RỖNG DỮ LIỆU
+# =========================================================================================
+# ĐOẠN 6 NÂNG CẤP: BỘ ĐỊNH TUYẾN SIÊU PHÂN RÃ CHỐNG LỆCH DÒNG MÃ HÀNG NGÀNH MAY
 # =========================================================================================
 
     st.markdown("<br>### 📐 BẢNG SO SÁNH SAI LỆCH THÔNG SỐ KỸ THUẬT RẬP MẪU", unsafe_allow_html=True)
@@ -1937,12 +1938,18 @@ if new_style_measurements_dict:
         compare_rows = []
         valid_diff_pcts = []
         
-        # THUẬT TOÁN SIÊU LỌC: Trích xuất chuẩn xác từ cốt lõi của ngành may (Waist, Inseam, Hip...)
+        # 📌 THUẬT TOÁN PHÂN RÃ SIÊU CẤP: Xóa sạch mã vị trí ERP (LEG-024, PKT-076, HIP-020...)
         def clean_pom_text(text):
             if not text: return ""
             cleaned = str(text).upper()
-            # Lọc bỏ toàn bộ các mã tiền tố lạ dạng BD-124, DE-147
-            cleaned = re.sub(r'[A-Z]{2,}[-\s]*\d+', '', cleaned) 
+            
+            # 1. Xóa sạch mọi loại mã vị trí dính dấu gạch ngang ở đầu câu (Ví dụ: LEG-024 -> Bỏ)
+            cleaned = re.sub(r'^[A-Z]{2,3}[-\s]*\d+[\s_-]*', '', cleaned)
+            # 2. Xóa các mã dạng BD-124, DE-147 nằm ở bất kỳ vị trí nào
+            cleaned = re.sub(r'[A-Z]{2,}[-\s]*\d+', '', cleaned)
+            # 3. Loại bỏ chữ PANT/SKIRT gây nhiễu phân tách phom dáng ở đầu chuỗi
+            cleaned = re.sub(r'^(PANT|SKIRT|PANTS|SKIRTS)[\s/_-]*', '', cleaned)
+            
             cleaned = re.sub(r'[\(\)]', '', cleaned)
             cleaned = re.sub(r'\d+', '', cleaned)
             cleaned = re.sub(r'[\-_]', ' ', cleaned)
@@ -1953,32 +1960,36 @@ if new_style_measurements_dict:
             if v is None: return None
             try: return float(v)
             except (ValueError, TypeError):
-                # Xử lý phân số dạng 31 1/2 thành 31.5
-                if " " in str(v) and "/" in str(v):
-                    try:
-                        parts = str(v).split()
+                # Xử lý quy đổi phân số may mặc (ví dụ: 13 7/8 -> 13.875, 16 1/2 -> 16.5)
+                try:
+                    str_v = str(v).strip()
+                    if " " in str_v and "/" in str_v:
+                        parts = str_v.split()
                         whole = float(parts[0])
-                        frac = parts[1].split('/')
-                        return whole + (float(frac[0]) / float(frac[1]))
-                    except Exception: pass
+                        frac_parts = parts[1].split('/')
+                        return whole + (float(frac_parts[0]) / float(frac_parts[1]))
+                    elif "/" in str_v and " " not in str_v:
+                        frac_parts = str_v.split('/')
+                        return float(frac_parts[0]) / float(frac_parts[1])
+                except Exception: pass
+                
                 nums = re.findall(r"[-+]?\d*\.\d+|\d+", str(v))
                 return float(nums[0]) if nums else None
 
-        # Khởi tạo từ điển ánh xạ thông minh danh mục cũ
+        # Khởi tạo từ điển ánh xạ đã dọn sạch mã của kho cũ
         mapped_old_specs = {clean_pom_text(k): (k, v) for k, v in old_specs.items()}
         processed_old_keys = set()
 
-        # Duyệt qua từng vị trí đo của file mới quét
+        # Duyệt khớp dòng từ file mới quét
         for original_new_key, val_new in new_specs.items():
             clean_new_key = clean_pom_text(original_new_key)
             
-            # CƠ CHẾ QUÉT ĐỐI CHIẾU THÔNG MINH (MỜ):
+            # CƠ CHẾ KHỚP MỜ HAI CHIỀU:
             matched_key = None
-            # Bước 1: Tìm khớp tuyệt đối sau khi dọn sạch chữ viết tắt
             if clean_new_key in mapped_old_specs:
                 matched_key = clean_new_key
             else:
-                # Bước 2: Quét mờ, nếu chứa chung từ khóa may mặc cốt lõi thì ép khớp
+                # Quét đối chiếu chéo tự động: Chỉ cần chuỗi sạch chứa nhau là ép chập dòng
                 for old_clean_k in mapped_old_specs.keys():
                     if clean_new_key and old_clean_k and (clean_new_key in old_clean_k or old_clean_k in clean_new_key):
                         matched_key = old_clean_k
@@ -1998,7 +2009,7 @@ if new_style_measurements_dict:
                 diff_val = round(f_new - f_old, 2)
                 if f_old != 0:
                     diff_pct = round((diff_val / f_old) * 100, 2)
-                    core_keywords = ["INSEAM", "THIGH", "HIP", "WAIST", "LEG", "LENGTH", "CHEST", "BUST", "WIDTH", "RISE", "FLY"]
+                    core_keywords = ["INSEAM", "THIGH", "HIP", "WAIST", "LEG", "LENGTH", "CHEST", "BUST", "WIDTH", "RISE", "FLY", "KNEE", "OPENING", "POCKET"]
                     if any(k in clean_new_key for k in core_keywords):
                         valid_diff_pcts.append(diff_pct)
 
@@ -2013,7 +2024,7 @@ if new_style_measurements_dict:
                 "Tỷ lệ biến thiên (Diff %)": display_pct
             })
 
-        # Đổ nốt các thông số còn sót của mã lịch sử cũ vào bảng để không mất dữ liệu mẫu rập
+        # Đổ nốt các thông số còn sót của mã lịch sử cũ vào bảng so sánh
         for original_old_key, val_old in old_specs.items():
             if original_old_key not in processed_old_keys:
                 compare_rows.append({
@@ -2028,6 +2039,7 @@ if new_style_measurements_dict:
         st.dataframe(pd.DataFrame(compare_rows), use_container_width=True, hide_index=True)
     else:
         st.info("ℹ️ Hệ thống sẵn sàng đối soát. Đang đợi đồng bộ luồng dữ liệu thô.")
+
 
 
 
