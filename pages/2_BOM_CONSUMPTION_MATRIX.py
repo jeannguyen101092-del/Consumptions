@@ -1918,9 +1918,10 @@ if new_style_measurements_dict:
     st.session_state["new_style_measurements_dict"] = new_style_measurements_dict
 
 
-    # ==========================================================
-    # 📐 BẢNG SO SÁNH SAI LỆCH THÔNG SỐ RẬP (CƠ CHẾ BẢO VỆ CHỐNG ẨN BẢNG)
-    # ==========================================================
+   # =========================================================================================
+# ĐOẠN 6 NÂNG CẤP: THUẬT TOÁN SIÊU LỌC TỪ KHÓA ĐỐI CHIẾU THÔNG SỐ RẬP MẪU CHỐNG RỖNG DỮ LIỆU
+# =========================================================================================
+
     st.markdown("<br>### 📐 BẢNG SO SÁNH SAI LỆCH THÔNG SỐ KỸ THUẬT RẬP MẪU", unsafe_allow_html=True)
     
     new_specs = st.session_state.get("new_style_measurements_dict", {})
@@ -1928,17 +1929,20 @@ if new_style_measurements_dict:
     
     # Đồng bộ an toàn bảng thông số từ kho
     old_specs = {}
-    if matched_techpack:
+    if st.session_state.get("matched_techpack"):
+        matched_techpack = st.session_state["matched_techpack"]
         old_specs = matched_techpack.get("DetailedMeasurements", {}) or matched_techpack.get("detailed_measurements", {})
     
-    # SỬA LỖI ĐỘC LẬP: Chỉ cần kho có số hoặc file mới có số là lập tức bật bảng, không giấu màn hình
     if new_specs or old_specs:
         compare_rows = []
         valid_diff_pcts = []
         
+        # THUẬT TOÁN SIÊU LỌC: Trích xuất chuẩn xác từ cốt lõi của ngành may (Waist, Inseam, Hip...)
         def clean_pom_text(text):
             if not text: return ""
             cleaned = str(text).upper()
+            # Lọc bỏ toàn bộ các mã tiền tố lạ dạng BD-124, DE-147
+            cleaned = re.sub(r'[A-Z]{2,}[-\s]*\d+', '', cleaned) 
             cleaned = re.sub(r'[\(\)]', '', cleaned)
             cleaned = re.sub(r'\d+', '', cleaned)
             cleaned = re.sub(r'[\-_]', ' ', cleaned)
@@ -1949,17 +1953,39 @@ if new_style_measurements_dict:
             if v is None: return None
             try: return float(v)
             except (ValueError, TypeError):
+                # Xử lý phân số dạng 31 1/2 thành 31.5
+                if " " in str(v) and "/" in str(v):
+                    try:
+                        parts = str(v).split()
+                        whole = float(parts[0])
+                        frac = parts[1].split('/')
+                        return whole + (float(frac[0]) / float(frac[1]))
+                    except Exception: pass
                 nums = re.findall(r"[-+]?\d*\.\d+|\d+", str(v))
                 return float(nums[0]) if nums else None
 
+        # Khởi tạo từ điển ánh xạ thông minh danh mục cũ
         mapped_old_specs = {clean_pom_text(k): (k, v) for k, v in old_specs.items()}
         processed_old_keys = set()
 
-        # Đổ dữ liệu từ file mới quét
+        # Duyệt qua từng vị trí đo của file mới quét
         for original_new_key, val_new in new_specs.items():
             clean_new_key = clean_pom_text(original_new_key)
+            
+            # CƠ CHẾ QUÉT ĐỐI CHIẾU THÔNG MINH (MỜ):
+            matched_key = None
+            # Bước 1: Tìm khớp tuyệt đối sau khi dọn sạch chữ viết tắt
             if clean_new_key in mapped_old_specs:
-                original_old_key, val_old = mapped_old_specs[clean_new_key]
+                matched_key = clean_new_key
+            else:
+                # Bước 2: Quét mờ, nếu chứa chung từ khóa may mặc cốt lõi thì ép khớp
+                for old_clean_k in mapped_old_specs.keys():
+                    if clean_new_key and old_clean_k and (clean_new_key in old_clean_k or old_clean_k in clean_new_key):
+                        matched_key = old_clean_k
+                        break
+                        
+            if matched_key:
+                original_old_key, val_old = mapped_old_specs[matched_key]
                 processed_old_keys.add(original_old_key)
             else:
                 original_old_key, val_old = "-", None
@@ -1972,7 +1998,7 @@ if new_style_measurements_dict:
                 diff_val = round(f_new - f_old, 2)
                 if f_old != 0:
                     diff_pct = round((diff_val / f_old) * 100, 2)
-                    core_keywords = ["INSEAM", "THIGH", "HIP", "WAIST", "LEG", "LENGTH", "CHEST", "BUST", "WIDTH"]
+                    core_keywords = ["INSEAM", "THIGH", "HIP", "WAIST", "LEG", "LENGTH", "CHEST", "BUST", "WIDTH", "RISE", "FLY"]
                     if any(k in clean_new_key for k in core_keywords):
                         valid_diff_pcts.append(diff_pct)
 
@@ -1982,18 +2008,18 @@ if new_style_measurements_dict:
             compare_rows.append({
                 "Vị trí đo (POM Description)": original_new_key,
                 f"Mẫu mới ({new_style_base_size})": val_new if val_new is not None else "-",
-                f"Mã cũ": val_old if val_old is not None else "-",
+                f"Mã cũ ({st.session_state['matched_techpack'].get('BaseSize', 'N/A')})": val_old if val_old is not None else "-",
                 "Chênh lệch (Diff)": display_diff,
                 "Tỷ lệ biến thiên (Diff %)": display_pct
             })
 
-        # Đổ dữ liệu tồn kho để bổ sung thông tin đầy đủ
+        # Đổ nốt các thông số còn sót của mã lịch sử cũ vào bảng để không mất dữ liệu mẫu rập
         for original_old_key, val_old in old_specs.items():
             if original_old_key not in processed_old_keys:
                 compare_rows.append({
                     "Vị trí đo (POM Description)": original_old_key,
                     f"Mẫu mới ({new_style_base_size})": "-",
-                    f"Mã cũ": val_old if val_old is not None else "-",
+                    f"Mã cũ ({st.session_state['matched_techpack'].get('BaseSize', 'N/A')})": val_old if val_old is not None else "-",
                     "Chênh lệch (Diff)": "-",
                     "Tỷ lệ biến thiên (Diff %)": "-"
                 })
@@ -2003,26 +2029,6 @@ if new_style_measurements_dict:
     else:
         st.info("ℹ️ Hệ thống sẵn sàng đối soát. Đang đợi đồng bộ luồng dữ liệu thô.")
 
-
-    # SỬA LỖI VÁ CHÍ MẠNG 1: Tự động tính toán tỷ lệ tăng trưởng diện tích trung bình để làm mồi cho AI Engine
-    if valid_diff_pcts:
-        avg_area_growth_pct = round(sum(valid_diff_pcts) / len(valid_diff_pcts), 2)
-    else:
-        avg_area_growth_pct = 0.0
-
-    # SỬA LỖI VÁ CHÍ MẠNG 2: Khởi tạo và tổng hợp bom_summary_engine từ danh sách vật tư bom_records thu được từ Đoạn 5
-    bom_summary_engine = {}
-    if 'bom_records' in st.session_state and st.session_state["bom_records"]:
-        for record in st.session_state["bom_records"]:
-            # Phân nhóm vật tư theo tên chủng loại (Ví dụ: Vải chính, Vải lót, Chỉ may...)
-            material_type = record.get("consumption_type") or record.get("article_name") or "PHỤ LIỆU CHUNG"
-            try:
-                consumption_value = float(record.get("consumption_value", 0) or 0)
-            except (ValueError, TypeError):
-                consumption_value = 0.0
-                
-            if material_type:
-                bom_summary_engine[material_type] = bom_summary_engine.get(material_type, 0) + consumption_value
 
 
     # --- AI CONSUMPTION PROJECTION ENGINE ---
