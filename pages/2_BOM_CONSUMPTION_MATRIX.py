@@ -367,13 +367,12 @@ def get_techpack_spec_from_db(style_name_keyword=None):
 
 def process_single_pdf_batch(file_bytes, file_name):
     """
-    Hàm bóc tách dữ liệu kỹ thuật từ một file PDF độc lập.
-    ✨ ĐÃ NÂNG CẤP ĐỊNH VỊ PHOM DÁNG: Ép AI Vision chỉ bốc trang hiển thị chiếc quần hoàn chỉnh (Front and Back full garment views).
-    STRICTLY FORBIDDEN: Cấm tuyệt đối lấy các trang rã rập thân quần đơn lẻ, cụm chi tiết hoặc rập tách rời.
+    Hàm bóc tách dữ liệu kỹ thuật từ một file PDF độc lập - BẢN PRODUCTION-GRADE CHỐNG SẬP.
     """
     import time
     import io
     import json
+    import re
     from google import genai
     from google.genai import types
 
@@ -386,32 +385,49 @@ def process_single_pdf_batch(file_bytes, file_name):
         info = pdfinfo_from_bytes(file_bytes)
         total_p = int(info.get("Pages", 1))
         
-        # Nén dung lượng ảnh để truyền tải mượt mà qua API
-        contents_payload = []
-        chat_images = convert_from_bytes(file_bytes, dpi=140, first_page=1, last_page=total_p)
-        for page_img in chat_images:
-            img_buf = io.BytesIO()
-            page_img.convert("RGB").save(img_buf, format="JPEG", quality=65)
-            contents_payload.append(
-                types.Part.from_bytes(data=img_buf.getvalue(), mime_type='image/jpeg')
-            )
-            
+        # CƠ CHẾ CHIA BATCH TRANG AN TOÀN (CHỐNG MAX_TOKENS & RECITATION)
+        pages_to_scan = set()
+        for p in range(1, min(6, total_p + 1)):
+            pages_to_scan.add(p)
+        if total_p > 5:
+            for p in range(max(6, total_p - 4), total_p + 1):
+                pages_to_scan.add(p)
+        
+        sorted_pages = sorted(list(pages_to_scan))
+        print(f"📋 [PRODUCTION LOG] {file_name}: Tổng {total_p} trang. Quét: {sorted_pages}")
+        
         industrial_extraction_prompt = (
-            "You are an expert Garment Specification Auditor at PPJ Group. Analyze all attached sheets page by page. "
-            "1. Identify the core 'Base Size' / 'Sample Size' (e.g., written as 8-, 32, or Size M). "
-            "2. Identify the Buyer name and Category. "
-            "3. Find the exact 'Style ID' / 'Style Number' (e.g. 5765). "
-            "4. FOR FUNCTION 3 (FULL SIZE MATRIX): Scan and extract the entire grading matrix table columns for ALL available sizes. "
-            "5. CRITICAL VISUAL FLAT SKETCH LOCATE RULE: Scan all pages visually. You MUST find the exact PAGE INDEX (0-based) "
-            "that contains the FULL BODY APPAREL FLAT SKETCH showing the entire completed garment (the whole pant/skort with front view and back view side-by-side or on the same page). "
-            "STRICT DISQUALIFICATION RULES: "
-            "- DO NOT select pages showing isolated technical pattern panels (e.g., just a single front panel leg or a single back panel leg cut out). "
-            "- DO NOT select pages showing inner construction details, pocket bags, zippers, or sketches of components. "
-            "We only want the complete product design presentation sketch page."
+            "You are an expert Garment Specification Auditor at PPJ Group. Analyze all attached sheets page by page.\n"
+            "1. Identify the core 'Base Size' / 'Sample Size' (e.g., written as 8-, 32, or Size M).\n"
+            "2. Identify the Buyer name and Category.\n"
+            "3. Find the exact 'Style ID' / 'Style Number' (e.g. 5765).\n"
+            "4. Scan and extract the technical measurement specification chart into key-value pairs inside measurements_list.\n"
+            "5. FOR THE GRADING MATRIX TABLE: Scan and extract the full grading matrix table columns for ALL available sizes into full_size_matrix object.\n"
+            "6. CRITICAL VISUAL FLAT SKETCH LOCATE RULE: Scan all pages visually. You MUST find the exact 1-BASED PAGE NUMBER "
+            "that contains the FULL BODY APPAREL FLAT SKETCH showing the entire completed garment."
         )
         
-        contents_payload.append(
-            types.Part.from_text(text=industrial_extraction_prompt)
+        contents_payload = [types.Part.from_text(text=industrial_extraction_prompt)]
+        chat_images_dict = {}
+        
+        for page_num in sorted_pages:
+            single_page_list = convert_from_bytes(file_bytes, dpi=100, first_page=page_num, last_page=page_num)
+            if single_page_list:
+                page_img = single_page_list[0]
+                chat_images_dict[page_num] = page_img
+                img_buf = io.BytesIO()
+                page_img.convert("RGB").save(img_buf, format="JPEG", quality=50)
+                contents_payload.append(
+                    types.Part.from_bytes(data=img_buf.getvalue(), mime_type='image/jpeg')
+                )
+            
+        kv_pair_schema = types.Schema(
+            type=types.Type.OBJECT,
+            properties={
+                "pom_description": types.Schema(type=types.Type.STRING),
+                "value": types.Schema(type=types.Type.STRING)
+            },
+            required=["pom_description", "value"]
         )
         
         json_schema = types.Schema(
@@ -421,87 +437,137 @@ def process_single_pdf_batch(file_bytes, file_name):
                 "buyer": types.Schema(type=types.Type.STRING),
                 "category": types.Schema(type=types.Type.STRING),
                 "base_size_name": types.Schema(type=types.Type.STRING),
-                "sketch_page_index_detected": types.Schema(type=types.Type.INTEGER),
-                "measurements": types.Schema(type=types.Type.OBJECT),
-                "full_size_matrix": types.Schema(type=types.Type.OBJECT)
+                "sketch_page_number_detected": types.Schema(type=types.Type.INTEGER),
+                "measurements_list": types.Schema(type=types.Type.ARRAY, items=kv_pair_schema),
+                "full_size_matrix": types.Schema(type=types.Type.OBJECT) 
             },
             required=[
                 "style_number_parsed", "buyer", "category", "base_size_name", 
-                "sketch_page_index_detected", "measurements", "full_size_matrix"
+                "sketch_page_number_detected", "measurements_list", "full_size_matrix"
             ]
         )
-        
+        # TIẾP NỐI LOGIC: CƠ CHẾ DỰ PHÒNG MÔ HÌNH CHỦ ĐỘNG (MODEL FALLBACK ENGINE)
+        models_to_try = ['gemini-2.5-flash', 'gemini-2.5-flash-lite']
         response = None
-        for attempt in range(3):
-            try:
-                response = client.models.generate_content(
-                    model='gemini-2.5-flash', 
-                    contents=contents_payload,
-                    config=types.GenerateContentConfig(
-                        response_mime_type="application/json",
-                        response_schema=json_schema,
-                        temperature=0.1
-                    )
-                )
-                if response:
-                    break
-            except Exception as ai_err:
-                if "503" in str(ai_err) or "UNAVAILABLE" in str(ai_err):
-                    time.sleep((attempt + 1) * 2)
-                    continue
-                else:
-                    return {"success": False, "error": f"Lỗi cổng truyền: {str(ai_err)}"}
-                    
-        parsed_data = None
+        current_model_used = 'gemini-2.5-flash'
         
-        if response:
-            # SỬA LỖI: Trích xuất chuỗi JSON thô bằng chỉ số mảng chuẩn, tránh lỗi sập phương thức của list
-            if getattr(response, "text", None):
+        for active_model in models_to_try:
+            current_model_used = active_model
+            success_call = False
+            for attempt in range(2):
                 try:
-                    text_content = response.text.strip()
-                    if "```json" in text_content:
-                        text_content = text_content.split("```json")[1].split("```")[0].strip()
-                    elif "```" in text_content:
-                        text_content = text_content.split("```")[1].split("```")[0].strip()
-                    parsed_data = json.loads(text_content)
-                except Exception as raw_parse_err:
-                    print(f"Lỗi phân tách chuỗi văn bản thô: {str(raw_parse_err)}")
-            
-            # Khối dự phòng 2: Lấy dữ liệu cấu trúc trực tiếp nếu cơ chế text bị trống
-            if not parsed_data and getattr(response, "parsed", None):
-                try:
-                    parsed_data = response.parsed
-                    if hasattr(parsed_data, "model_dump"):
-                        parsed_data = parsed_data.model_dump()
-                    elif hasattr(parsed_data, "__dict__"):
-                        parsed_data = dict(parsed_data)
-                except Exception as p_err:
-                    print(f"Lỗi bóc parsed object: {str(p_err)}")
+                    response = client.models.generate_content(
+                        model=active_model, 
+                        contents=contents_payload,
+                        config=types.GenerateContentConfig(
+                            response_mime_type="application/json",
+                            response_schema=json_schema,
+                            temperature=0.1,
+                            max_output_tokens=8192
+                        )
+                    )
+                    if response:
+                        candidates = getattr(response, "candidates", [])
+                        if candidates:
+                            candidate = candidates[0]
+                            reason = str(getattr(candidate, "finish_reason", "STOP"))
+                            if reason in ["RECITATION", "SAFETY", "MAX_TOKENS"]:
+                                print(f"⚠️ Model {active_model} bị dừng do {reason}. Fallback...")
+                                break
+                        success_call = True
+                        break
+                except Exception as ai_err:
+                    if "503" in str(ai_err) or "UNAVAILABLE" in str(ai_err):
+                        time.sleep((attempt + 1) * 2)
+                        continue
+                    break
+            if success_call:
+                break
+                
+        print("="*80)
+        print(f"🚨 [CORE LOG] FILE: [{file_name}] | MODEL: {current_model_used}")
+        print(f"HAS TEXT: {bool(getattr(response, 'text', None))} | HAS PARSED: {bool(getattr(response, 'parsed', None))}")
+        print("="*80)
+        
+        parsed_data = None
+        if response and getattr(response, "parsed", None):
+            parsed_data = response.parsed
+            if hasattr(parsed_data, "model_dump"):
+                parsed_data = parsed_data.model_dump()
+            elif hasattr(parsed_data, "__dict__"):
+                parsed_data = dict(parsed_data)
+                
+        if not parsed_data and response and getattr(response, "text", None):
+            try:
+                text_content = response.text.strip()
+                text_content = re.sub(r',\s*([\]}])', r'\1', text_content)
+                match = re.search(r"\{.*\}", text_content, re.S)
+                if match:
+                    parsed_data = json.loads(match.group(0))
+            except:
+                pass
             
         if not parsed_data:
-            return {"success": False, "error": "Mô hình không phản hồi văn bản hoặc cấu trúc dữ liệu trống."}
+            finish_reason = "UNKNOWN"
+            try:
+                if response and response.candidates:
+                    candidate = response.candidates[0]
+                    finish_reason = str(getattr(candidate, "finish_reason", "UNKNOWN"))
+            except:
+                pass
+            return {"success": False, "error": f"Mô hình trống. FinishReason={finish_reason} (Model={current_model_used})"}
             
-        measurements = parsed_data.get("measurements", {})
+        measurements_list = parsed_data.get("measurements_list", [])
+        measurements = {item.get("pom_description"): item.get("value") for item in measurements_list if "pom_description" in item}
+        
+        matrix_data = parsed_data.get("full_size_matrix", {})
+        full_size_matrix = {}
+        if isinstance(matrix_data, dict):
+            full_size_matrix = matrix_data
+        elif isinstance(matrix_data, str) and matrix_data.strip():
+            try:
+                matrix_raw_str = matrix_data.strip()
+                if matrix_raw_str.startswith("```json"):
+                    matrix_raw_str = matrix_raw_str.split("```json")[-1].split("```").strip()
+                elif matrix_raw_str.startswith("```"):
+                    matrix_raw_str = matrix_raw_str.split("```").strip()
+                matrix_raw_str = re.sub(r',\s*([\]}])', r'\1', matrix_raw_str)
+                full_size_matrix = json.loads(matrix_raw_str)
+            except:
+                pass
+        
+        parsed_data["measurements"] = measurements
+        parsed_data["full_size_matrix"] = full_size_matrix
+        
         warning_msg = None
-        if not measurements or len(measurements) == 0:
-            print(f"⚠️ WARNING [{file_name}]: Measurements chart rỗng.")
-            warning_msg = "Không phát hiện bảng thông số kỹ thuật (BOM/Sketch Sheet đơn thuần)."
+        if not measurements:
+            warning_msg = "Không phát hiện bảng thông số kỹ thuật."
         
         extracted_sketch_bytes = None
-        detected_idx = int(parsed_data.get("sketch_page_index_detected", 0))
+        detected_page_num = int(parsed_data.get("sketch_page_number_detected", 1))
         
-        if 0 <= detected_idx < len(chat_images):
+        if detected_page_num in chat_images_dict:
             b_buf = io.BytesIO()
-            chat_images[detected_idx].convert("RGB").save(b_buf, format="JPEG", quality=90)
+            chat_images_dict[detected_page_num].convert("RGB").save(b_buf, format="JPEG", quality=90)
             extracted_sketch_bytes = b_buf.getvalue()
         else:
-            print(f"❌ INVALID SKETCH INDEX: {detected_idx}. Fallback về trang đầu.")
-            detected_idx = 0
-            b_buf = io.BytesIO()
-            chat_images[detected_idx].convert("RGB").save(b_buf, format="JPEG", quality=90)
-            extracted_sketch_bytes = b_buf.getvalue()
+            if sorted_pages:
+                fallback_page = sorted_pages[0]
+                if fallback_page in chat_images_dict:
+                    detected_page_num = fallback_page
+                    b_buf = io.BytesIO()
+                    chat_images_dict[fallback_page].convert("RGB").save(b_buf, format="JPEG", quality=90)
+                    extracted_sketch_bytes = b_buf.getvalue()
             
-        success_db = save_to_supabase_techpack_table(parsed_data, raw_file_bytes=file_bytes, file_name=file_name)
+        success_db = False
+        for db_attempt in range(3):
+            try:
+                success_db = save_to_supabase_techpack_table(parsed_data, raw_file_bytes=file_bytes, file_name=file_name)
+                if success_db:
+                    break
+                time.sleep(1)
+            except:
+                time.sleep(1)
         
         output_payload = {
             "style_number_parsed": parsed_data.get("style_number_parsed", "UNKNOWN"),
@@ -509,7 +575,7 @@ def process_single_pdf_batch(file_bytes, file_name):
             "category": parsed_data.get("category", "GARMENT"),
             "base_size_name": parsed_data.get("base_size_name", "32"),
             "measurements": measurements,
-            "full_size_matrix": parsed_data.get("full_size_matrix", {})
+            "full_size_matrix": full_size_matrix
         }
         
         return {
@@ -521,9 +587,10 @@ def process_single_pdf_batch(file_bytes, file_name):
             "size": output_payload["base_size_name"],
             "measurements": output_payload["measurements"], 
             "sketch_bytes": extracted_sketch_bytes,
-            "sketch_page_index": detected_idx, 
+            "sketch_page_index": detected_page_num, 
             "warning": warning_msg,
-            "error": None if success_db else "Lỗi ghi đồng bộ dữ liệu lên cơ sở dữ liệu"
+            "model_used": current_model_used,
+            "error": None if success_db else "Lỗi cổng đồng bộ Database."
         }
     except Exception as e:
         return {"success": False, "error": f"Lỗi bóc tách PDF: {str(e)}"}
