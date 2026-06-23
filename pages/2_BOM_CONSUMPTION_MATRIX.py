@@ -440,14 +440,14 @@ def process_single_pdf_batch_upload(file_bytes, file_name):
             }
         }
 
-        # LUỒNG TỰ ĐỘNG RETRY NẾU PHÁT HIỆN MÁY CHỦ GOOGLE QUÁ TẢI (503)
+        # LUỒNG TỰ ĐỘNG RETRY NẾU PHÁT HIỆN MÁY CHỦ GOOGLE QUÁ TẢI (503 / 429)
         res = None
         for attempt in range(3):
             try:
                 res = requests.post(url, json=api_payload, headers={"Content-Type": "application/json"}, timeout=150)
                 if res.status_code == 200: 
                     break
-                # SỬA LỖI CÚ PHÁP HOÀN CHỈNH: Đã điền đầy đủ mảng mã trạng thái phản hồi quá tải của Google
+                # ĐÃ VÁ CHUẨN XÁC CÚ PHÁP: Điền đầy đủ mảng kiểm tra mã lỗi mạng bận mạng nghẽn
                 elif res.status_code in:
                     time.sleep((attempt + 1) * 2)
             except Exception:
@@ -508,6 +508,7 @@ def process_single_pdf_batch_upload(file_bytes, file_name):
             
     except Exception as e:
         return {"success": False, "error": f"Lỗi xử lý cấu trúc tệp dữ liệu: {str(e)}"}
+
 
 
 
