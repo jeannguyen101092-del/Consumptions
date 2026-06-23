@@ -1761,22 +1761,23 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         st.stop()
 
      # =========================================================================================
-    # LỚP TỰ ĐỘNG TRIGGER QUÉT TỆP TIN PDF VÀ SINH VECTOR ĐẶC TRƯNG QUA VLM LAYER
+       # =========================================================================================
+    # ĐOẠN 2 NÂNG CẤP: LUỒNG TỰ ĐỘNG TRIGGER QUÉT FILE VÀ SINH VECTOR ĐỂ ĐỐI SOÁT KHO TỨC THỜI
     # =========================================================================================
     if uploaded_file is not None and st.session_state.get("hybrid_search_vector") is None:
-        with st.spinner("🚀 Mắt thần AI đang nén trang và trích xuất đặc trưng cấu trúc tài liệu..."):
+        with st.spinner("🚀 Hệ thống đang nén trang và trích xuất đặc trưng cấu trúc tài liệu..."):
             try:
-                # Đọc dữ liệu nhị phân thô từ file buffer của Streamlit uploader
+                # Đọc dữ liệu nhị phân thô từ file uploader
                 uploaded_file.seek(0)
                 file_bytes_raw = uploaded_file.read()
                 
-                # Gọi hàm lõi trích xuất dữ liệu đa phương thức (Hàm Đoạn A & B độc lập)
+                # 1. Gọi hàm trích xuất đa phương thức (Đoạn A & B độc lập) để lấy bảng thông số mẫu mới
                 vlm_result = process_single_pdf_batch(file_bytes_raw, uploaded_file.name)
                 
                 if vlm_result and vlm_result.get("success"):
                     payload = vlm_result.get("payload_data", {})
                     
-                    # Đồng bộ toàn bộ thông số rập mẫu mới vào bộ nhớ đệm session_state
+                    # Đồng bộ dữ liệu mẫu mới vào bộ nhớ tạm
                     st.session_state["new_style_id_detected"] = payload.get("style_number_parsed", "UNKNOWN")
                     st.session_state["new_style_measurements_dict"] = payload.get("measurements", {})
                     st.session_state["detected_category"] = payload.get("category", "")
@@ -1784,8 +1785,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                     st.session_state["detected_mime_type"] = "image/jpeg" if payload.get("_sketch_bytes_raw") else "application/pdf"
                     st.session_state["visual_description_str"] = f"STYLE: {payload.get('style_number_parsed')}. BUYER: {payload.get('buyer')}. CATEGORY: {payload.get('category')}."
                     
-                    # Tự động kích hoạt hệ thống số hóa vector lai chuẩn công nghiệp độc lập từ Đoạn 1b
-                    # Để tạo ra vector lai 1536 chiều từ payload mới trích xuất
+                    # 2. GỌI GEMINI EMBEDDING API SINH VECTOR 1536 CHIỀU TỨC THỜI
                     gemini_key = st.secrets.get("GEMINI_API_KEY", "").strip()
                     if gemini_key:
                         try:
@@ -1793,7 +1793,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                             from google.genai import types
                             client_embed = genai.Client(api_key=gemini_key)
                             
-                            # Số hóa hình ảnh sketch mẫu mới
+                            # Số hóa cấu trúc hình ảnh sketch (768 chiều)
                             img_vector = [0.0] * 768
                             if payload.get("_sketch_bytes_raw"):
                                 try:
@@ -1804,7 +1804,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                                         img_vector = [float(x) for x in emb_obj.values]
                                 except Exception: pass
                                 
-                            # Số hóa chuỗi thông số văn bản mẫu mới
+                            # Số hóa thông số văn bản (768 chiều)
                             text_vector = [0.0] * 768
                             try:
                                 text_embed_res = client_embed.models.embed_content(model='gemini-embedding-2', contents=[st.session_state["visual_description_str"]])
@@ -1813,20 +1813,21 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                                     text_vector = [float(x) for x in emb_obj.values]
                             except Exception: pass
                             
+                            # Ghép nối toán học tạo Vector Lai Hybrid (1536 chiều)
                             st.session_state["hybrid_search_vector"] = list(img_vector) + list(text_vector)
+                            print(f"🚀 [EMBEDDING SUCCESS]: Đã tạo mảng vector lai {len(st.session_state['hybrid_search_vector'])} phần tử.")
                         except Exception as embed_err:
                             print(f"❌ [EMBEDDING COMPUTE ERROR]: {str(embed_err)}")
                     
-                    # Phòng ngự chiều dài vector
+                    # Phòng ngự chiều dài vector tránh sập thuật toán Cosine của DB
                     if not st.session_state.get("hybrid_search_vector") or len(st.session_state["hybrid_search_vector"]) != 1536:
-                        st.session_state["hybrid_search_vector"] = [0.0] * 1536
+                        st.session_state["hybrid_search_vector"] = [0.1] * 1536
                         
-                    print(f"✅ [VLM RETRIEVER SUCCESS]: Đã tạo mảng đặc trưng hình học cho {st.session_state['new_style_id_detected']}.")
-                    st.rerun()
+                    st.rerun() # Ép giao diện tải lại để Đoạn 3 bắt được Vector và kích hoạt đối soát ngay
                 else:
                     st.sidebar.error(f"Lỗi phân tích tệp: {vlm_result.get('error', 'Cấu trúc trống')}")
             except Exception as e_trigger:
-                print(f"❌ [CRITICAL RETRIEVER TRIGGER FAILED]: {str(e_trigger)}")
+                print(f"❌ [CRITICAL TRIGGER FAILED]: {str(e_trigger)}")
 
     # =========================================================================================
     # LỚP ĐỐI SOÁT VECTOR LAI THỜI GIAN THỰC QUA CỔNG RPC ENDPOINT (insert_techpack_v2 / match_techpack_similarity)
