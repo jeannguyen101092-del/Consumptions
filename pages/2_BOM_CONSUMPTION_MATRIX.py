@@ -1676,7 +1676,7 @@ def process_single_pdf_batch(file_bytes, file_name):
 
 
 # =========================================================================================
-# ĐOẠN 1: KHỞI TẠO BIẾN HỆ THỐNG VÀ KHUNG TẢI TỆP (ĐÃ VÁ LỖI DUPLICATE ELEMENT KEY)
+# ĐOẠN 1 & 2 NÂNG CẤP: TÍCH HỢP NÚT BẤM CƯỠNG BỨC CHẠY ĐỐI SOÁT (FORCE TRIGGER LAYER)
 # =========================================================================================
 if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption Matrix":
     import json
@@ -1693,141 +1693,106 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
 
     st.markdown('<div class="component-title-box">🧵 INTELLIGENT BOM & CONSUMPTION MATRIX ENGINE</div>', unsafe_allow_html=True)
     
-    # Thiết lập cấu hình URL kết nối tới REST API Gateway của Supabase an toàn
-    SB_KEY = st.secrets.get("SUPABASE_KEY", "") if "SB_KEY" not in globals() else globals().get("SUPABASE_KEY", "")
+    # Cấu hình kết nối API Supabase Gateway
+    SB_KEY = st.secrets.get("SUPABASE_KEY", "") if "SB_KEY" not in globals() else globals().get("SB_KEY", "")
     SB_URL = st.secrets.get("SUPABASE_URL", "") if "SB_URL" not in globals() else globals().get("SUPABASE_URL", "")
     base_sb_url = SB_URL.rstrip('/') 
 
-    # Khởi tạo bộ nhớ tạm để quản lý trạng thái đối soát phom dáng tương đồng
+    # Khởi tạo bộ nhớ tạm quản lý luồng dữ liệu
     if "matched_techpack" not in st.session_state: st.session_state["matched_techpack"] = None
     if "bom_records" not in st.session_state: st.session_state["bom_records"] = []
     if "consumption_chat_history" not in st.session_state: st.session_state["consumption_chat_history"] = []
     if "previous_uploaded_file_name" not in st.session_state: st.session_state["previous_uploaded_file_name"] = None
     if "match_confidence_score" not in st.session_state: st.session_state["match_confidence_score"] = 0
     if "match_reason" not in st.session_state: st.session_state["match_reason"] = ""
-    if "detected_garment_type" not in st.session_state: st.session_state["detected_garment_type"] = "UNKNOWN"
-    if "visual_description_str" not in st.session_state: st.session_state["visual_description_str"] = ""
-    if "hybrid_search_vector" not in st.session_state: st.session_state["hybrid_search_vector"] = None
-    if "top_similar_styles" not in st.session_state: st.session_state["top_similar_styles"] = []
     if "new_style_id_detected" not in st.session_state: st.session_state["new_style_id_detected"] = "N/A"
     if "new_style_measurements_dict" not in st.session_state: st.session_state["new_style_measurements_dict"] = {}
     if "target_new_sketch_bytes" not in st.session_state: st.session_state["target_new_sketch_bytes"] = None
+    if "hybrid_search_vector" not in st.session_state: st.session_state["hybrid_search_vector"] = None
 
-    control_col1, control_col2 = st.columns([3.3, 0.7])
+    control_col1, control_col2, control_col3 = st.columns([2.5, 0.8, 0.7])
     with control_col1:
         st.markdown("<p style='font-weight:700; font-size:12px; color:#1E293B;'>📁 INGEST NEW STYLE REPRINTS (PDF/IMAGE)</p>", unsafe_allow_html=True)
-        # SỬA TẠI ĐÂY: Đổi key thành bom_matrix_uploader_v2 để triệt tiêu lỗi trùng ID phần tử
         uploaded_file = st.file_uploader("Upload Techpack file", type=["pdf", "jpg", "jpeg", "png"], key="bom_matrix_uploader_v2", label_visibility="collapsed")
         
         if uploaded_file is not None and uploaded_file.name != st.session_state.get("previous_uploaded_file_name"):
             st.session_state["matched_techpack"] = None
             st.session_state["bom_records"] = []
-            st.session_state["match_confidence_score"] = 0
-            st.session_state["match_reason"] = ""
-            st.session_state["detected_garment_type"] = "UNKNOWN"
-            st.session_state["visual_description_str"] = ""
             st.session_state["hybrid_search_vector"] = None
-            st.session_state["top_similar_styles"] = []
-            st.session_state["new_style_id_detected"] = "N/A"
-            st.session_state["new_style_measurements_dict"] = {}
-            st.session_state["target_new_sketch_bytes"] = None
             st.session_state["previous_uploaded_file_name"] = uploaded_file.name
             
+    # BỔ SUNG CỘT 2: NÚT BẤM CƯỠNG BỨC QUÈT AI VÀ LIÊN KẾT KHO DỮ LIỆU TỨC THỜI
     with control_col2:
+        st.markdown("<p style='font-weight:700; font-size:12px; color:#1E293B;'>🔄 RUN COMPLIANCE</p>", unsafe_allow_html=True)
+        force_match_btn = st.button("🚀 KÍCH HOẠT ĐỐI SOÁT KHO", key="force_trigger_match_core_btn", use_container_width=True, type="primary")
+            
+    with control_col3:
         st.markdown("<p style='font-weight:700; font-size:12px; color:#1E293B;'>🧹 RESET CORE</p>", unsafe_allow_html=True)
-        if st.button("🗑️ PURGE CHAT CACHE", key="purge_cache_matrix_btn", use_container_width=True, type="secondary"):
+        if st.button("🗑️ PURGE CACHE", key="purge_cache_matrix_btn_v2", use_container_width=True, type="secondary"):
             st.session_state["consumption_chat_history"] = []
             st.session_state["matched_techpack"] = None
             st.session_state["bom_records"] = []
-            st.session_state["match_confidence_score"] = 0
-            st.session_state["match_reason"] = ""
-            st.session_state["detected_garment_type"] = "UNKNOWN"
-            st.session_state["previous_uploaded_file_name"] = None
-            st.session_state["visual_description_str"] = ""
             st.session_state["hybrid_search_vector"] = None
-            st.session_state["top_similar_styles"] = []
-            st.session_state["new_style_id_detected"] = "N/A"
-            st.session_state["new_style_measurements_dict"] = {}
-            st.session_state["target_new_sketch_bytes"] = None
-            st.success("♻️ MEMORY PURGED")
+            st.session_state["previous_uploaded_file_name"] = None
+            st.success("♻️ CACHE CLEANED")
             st.rerun()
 
     st.markdown("---")
     
-    # ĐỒNG BỘ: Sửa lại tên key check trạng thái file trùng khớp với uploader mới
-    has_file = st.session_state.get("bom_matrix_uploader_v2") is not None
-    if not has_file:
+    if not st.session_state.get("bom_matrix_uploader_v2"):
         st.info("👋 Vui lòng tải lên tệp Techpack thiết kế (PDF/Hình ảnh) ở phía trên để kích hoạt lõi đối soát.")
         st.stop()
 
-     # =========================================================================================
-       # =========================================================================================
-    # ĐOẠN 2 NÂNG CẤP: LUỒNG TỰ ĐỘNG TRIGGER QUÉT FILE VÀ SINH VECTOR ĐỂ ĐỐI SOÁT KHO TỨC THỜI
-    # =========================================================================================
-    if uploaded_file is not None and st.session_state.get("hybrid_search_vector") is None:
-        with st.spinner("🚀 Hệ thống đang nén trang và trích xuất đặc trưng cấu trúc tài liệu..."):
+    # KHỐI THỰC THI CHẠY AI: Kích hoạt khi có file mới HOẶC khi người dùng bấm nút cưỡng bức bằng tay
+    if uploaded_file is not None and (st.session_state.get("hybrid_search_vector") is None or force_match_btn):
+        with st.spinner("🚀 Lớp VLM đang nén trang và phân tích kết cấu hình học..."):
             try:
-                # Đọc dữ liệu nhị phân thô từ file uploader
                 uploaded_file.seek(0)
                 file_bytes_raw = uploaded_file.read()
-                
-                # 1. Gọi hàm trích xuất đa phương thức (Đoạn A & B độc lập) để lấy bảng thông số mẫu mới
                 vlm_result = process_single_pdf_batch(file_bytes_raw, uploaded_file.name)
                 
                 if vlm_result and vlm_result.get("success"):
                     payload = vlm_result.get("payload_data", {})
-                    
-                    # Đồng bộ dữ liệu mẫu mới vào bộ nhớ tạm
                     st.session_state["new_style_id_detected"] = payload.get("style_number_parsed", "UNKNOWN")
                     st.session_state["new_style_measurements_dict"] = payload.get("measurements", {})
-                    st.session_state["detected_category"] = payload.get("category", "")
                     st.session_state["target_new_sketch_bytes"] = payload.get("_sketch_bytes_raw")
-                    st.session_state["detected_mime_type"] = "image/jpeg" if payload.get("_sketch_bytes_raw") else "application/pdf"
-                    st.session_state["visual_description_str"] = f"STYLE: {payload.get('style_number_parsed')}. BUYER: {payload.get('buyer')}. CATEGORY: {payload.get('category')}."
                     
-                    # 2. GỌI GEMINI EMBEDDING API SINH VECTOR 1536 CHIỀU TỨC THỜI
+                    # Tạo mảng vector lai mẫu (768 ảnh + 768 văn bản)
                     gemini_key = st.secrets.get("GEMINI_API_KEY", "").strip()
                     if gemini_key:
                         try:
                             from google import genai
                             from google.genai import types
                             client_embed = genai.Client(api_key=gemini_key)
-                            
-                            # Số hóa cấu trúc hình ảnh sketch (768 chiều)
                             img_vector = [0.0] * 768
                             if payload.get("_sketch_bytes_raw"):
                                 try:
                                     img_part = types.Part.from_bytes(data=payload["_sketch_bytes_raw"], mime_type="image/jpeg")
                                     img_embed_res = client_embed.models.embed_content(model='gemini-embedding-2', contents=[img_part])
                                     if img_embed_res and img_embed_res.embeddings:
-                                        emb_obj = img_embed_res.embeddings if isinstance(img_embed_res.embeddings, list) else img_embed_res.embeddings
+                                        emb_obj = img_embed_res.embeddings
                                         img_vector = [float(x) for x in emb_obj.values]
                                 except Exception: pass
                                 
-                            # Số hóa thông số văn bản (768 chiều)
                             text_vector = [0.0] * 768
                             try:
-                                text_embed_res = client_embed.models.embed_content(model='gemini-embedding-2', contents=[st.session_state["visual_description_str"]])
+                                text_embed_res = client_embed.models.embed_content(model='gemini-embedding-2', contents=[str(payload.get("measurements"))])
                                 if text_embed_res and text_embed_res.embeddings:
-                                    emb_obj = text_embed_res.embeddings if isinstance(text_embed_res.embeddings, list) else text_embed_res.embeddings
+                                    emb_obj = text_embed_res.embeddings
                                     text_vector = [float(x) for x in emb_obj.values]
                             except Exception: pass
                             
-                            # Ghép nối toán học tạo Vector Lai Hybrid (1536 chiều)
                             st.session_state["hybrid_search_vector"] = list(img_vector) + list(text_vector)
-                            print(f"🚀 [EMBEDDING SUCCESS]: Đã tạo mảng vector lai {len(st.session_state['hybrid_search_vector'])} phần tử.")
-                        except Exception as embed_err:
-                            print(f"❌ [EMBEDDING COMPUTE ERROR]: {str(embed_err)}")
+                        except Exception: pass
                     
-                    # Phòng ngự chiều dài vector tránh sập thuật toán Cosine của DB
                     if not st.session_state.get("hybrid_search_vector") or len(st.session_state["hybrid_search_vector"]) != 1536:
                         st.session_state["hybrid_search_vector"] = [0.1] * 1536
                         
-                    st.rerun() # Ép giao diện tải lại để Đoạn 3 bắt được Vector và kích hoạt đối soát ngay
-                else:
-                    st.sidebar.error(f"Lỗi phân tích tệp: {vlm_result.get('error', 'Cấu trúc trống')}")
+                    # Sau khi tạo xong Vector, ép xóa kết quả khớp cũ để kích hoạt Đoạn 3 tìm kiếm lại từ đầu
+                    st.session_state["matched_techpack"] = None
+                    st.rerun()
             except Exception as e_trigger:
-                print(f"❌ [CRITICAL TRIGGER FAILED]: {str(e_trigger)}")
+                st.error(f"Lỗi kích hoạt: {str(e_trigger)}")
 
        # =========================================================================================
         # =========================================================================================
