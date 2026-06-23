@@ -202,7 +202,7 @@ def save_to_supabase_techpack_table(payload_data, raw_file_bytes=None, file_name
         measurements_raw = payload_data.get("measurements", {})
         visual_description_str = f"STYLE: {style_name_db}. BUYER: {payload_data.get('buyer', 'PPJ')}. CATEGORY: {payload_data.get('category', 'Pants')}. Specs details: "
         visual_description_str += ", ".join([f"{k}:{v}" for k, v in list(measurements_raw.items())])
-               # TIẾP NỐI LOGIC: KÍCH HOẠT HỆ THỐNG SỐ HÓA VECTOR LAI KHỬ TOÀN BỘ PROTOBUF
+             # TIẾP NỐI LOGIC: KÍCH HOẠT HỆ THỐNG SỐ HÓA VECTOR LAI KHỬ TOÀN BỘ PROTOBUF
         hybrid_vector_embedding_array = None
         gemini_key = st.secrets.get("GEMINI_API_KEY", "").strip()
         
@@ -255,7 +255,6 @@ def save_to_supabase_techpack_table(payload_data, raw_file_bytes=None, file_name
             "Content-Type": "application/json"
         }
         
-        # Trỏ thẳng vào endpoint rpc của hàm vừa khởi tạo ở Bước 1
         rpc_url = f"{SB_URL.rstrip('/')}/rest/v1/rpc/insert_techpack_data_with_vector"
         clean_dict = {str(k).strip(): str(v).strip() for k, v in dict(measurements_raw).items()}
 
@@ -268,7 +267,6 @@ def save_to_supabase_techpack_table(payload_data, raw_file_bytes=None, file_name
             "p_gradingmatrix": payload_data.get("full_size_matrix", {}),
             "p_imageurl": public_image_url,
             "p_visualdescription": visual_description_str,
-            # Truyền trực tiếp mảng số thực thường của Python dạng JSON array
             "p_geometry_vector": hybrid_vector_embedding_array if hybrid_vector_embedding_array else None
         }
 
