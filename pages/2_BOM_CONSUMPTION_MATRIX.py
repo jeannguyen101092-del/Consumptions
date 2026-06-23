@@ -131,10 +131,15 @@ def is_valid_jpeg(data):
 
 def save_to_supabase_techpack_table(payload_data, raw_file_bytes=None, file_name=""):
     """
-    Hàm xử lý đồng bộ dữ liệu nạp kho của Chức năng 1.
-    🎯 SỬA LỖI GỐC MÀN HÌNH ĐEN: Thêm bộ kiểm định cấu trúc ảnh (is_valid_jpeg) trước khi nạp.
-    Chỉ cho phép đẩy dữ liệu RAW bytes chuẩn lên Supabase Storage bằng phương thức PUT.
+    Hàm xử lý đồng bộ dữ liệu nạp kho và SỐ HÓA HYBRID VECTOR CHUẨN CÔNG NGHIỆP.
+    🎯 SỬA LỖI GỐC: Tích hợp Image Vector + Text Vector tạo vector lai 1536 chiều đại diện trọn vẹn sản phẩm.
+    🛡️ AN TOÀN: Chấp nhận mọi cấu trúc định dạng ảnh (JPEG/PNG), bọc an toàn tránh crash luồng chính.
     """
+    import requests
+    import json
+    import re
+    import io
+
     try:
         style_name_db = payload_data.get("style_number_parsed", "").strip()
         if not style_name_db or style_name_db == "UNKNOWN":
@@ -148,121 +153,106 @@ def save_to_supabase_techpack_table(payload_data, raw_file_bytes=None, file_name
         sketch_b64 = payload_data.get("sketch_image", "")
         public_image_url = ""
         image_data = None
+        mime_type = "image/jpeg" # Mime mặc định
 
-        # 1. Luồng trích xuất dữ liệu hình ảnh phẳng từ tệp PDF bản vẽ kỹ thuật
-        if raw_file_bytes and file_name.lower().endswith('.pdf'):
-            try:
-                import pdfplumber
-                from pdf2image import convert_from_bytes, pdfinfo_from_bytes
-                
-                info_pdf = pdfinfo_from_bytes(raw_file_bytes)
-                total_p = int(info_pdf.get("Pages", 1))
-                pdf_images = convert_from_bytes(raw_file_bytes, dpi=90, first_page=1, last_page=total_p)
-                
-                detected_idx = int(payload_data.get("sketch_page_index_detected", 0))
-                best_idx = detected_idx
-                
-                with pdfplumber.open(io.BytesIO(raw_file_bytes)) as pdf:
-                    if 0 <= detected_idx < len(pdf.pages):
-                        page_text = pdf.pages[detected_idx].extract_text() or ""
-                        tech_words = ["WAIST", "HIP", "INSEAM", "THIGH", "RISE", "SPEC", "TARGET", "TOLERANCE", "SIZE"]
-                        word_count = sum(1 for w in tech_words if w in page_text.upper())
-                        
-                        if word_count >= 4 or len(page_text) > 400:
-                            min_text_len = 99999
-                            for i in range(min(4, len(pdf.pages))):
-                                txt = pdf.pages[i].extract_text() or ""
-                                c_count = sum(1 for w in txt.upper() if w in tech_words)
-                                if c_count < 3 and len(txt) < min_text_len:
-                                    min_text_len = len(txt)
-                                    best_idx = i
-                
-                if 0 <= best_idx < len(pdf_images):
-                    img_buf = io.BytesIO()
-                    pdf_images[best_idx].convert("RGB").save(img_buf, format="JPEG", quality=85)
-                    image_data = img_buf.getvalue()
-            except Exception as img_err:
-                print(f"[IMAGE EXTRACT ERROR]: Thất bại khi cắt ảnh từ PDF -> {str(img_err)}")
-                image_data = None
-
-        # Nếu trích xuất PDF không ra dữ liệu, thử giải mã chuỗi Base64 gửi kèm từ FE
-        if not image_data and sketch_b64:
+        # Giải mã và nhận diện dữ liệu nhị phân của ảnh
+        if payload_data.get("_sketch_bytes_raw"):
+            image_data = payload_data["_sketch_bytes_raw"]
+        elif sketch_b64:
             try:
                 import base64
-                # Loại bỏ phần tiền tố data:image/...;base64, nếu có
                 if "," in sketch_b64:
                     sketch_b64 = sketch_b64.split(",")[1]
                 image_data = base64.b64decode(sketch_b64)
             except Exception as b64_err:
-                print(f"[BASE64 DECODE ERROR]: Chuỗi Base64 ảnh bị lỗi -> {str(b64_err)}")
-                image_data = None
+                print(f"[BASE64 DECODE ERROR]: {str(b64_err)}")
 
-        # 2. ĐỂY TẬP TIN HÌNH ẢNH SẢN PHẨM LÊN SUPABASE STORAGE KHO_ANH (ĐÃ KIỂM ĐỊNH FILE CHUẨN)
+        # FIX SỐ 1: Chấp nhận đa định dạng PNG/JPEG, tự động nhận biết Magic Bytes của tệp tin ảnh
         if image_data:
-            # 🛑 CHẶN ĐỨNG HÀNH VI ĐẨY FILE LỖI: Kiểm tra dữ liệu byte ảnh có đúng định dạng JPEG không
-            if not is_valid_jpeg(image_data):
-                print(f"[CRITICAL WARNING] Huỷ upload! Biến image_data cho mã {style_name_db} KHÔNG phải dữ liệu ảnh JPEG hợp lệ (kích thước: {len(image_data)} bytes). Vui lòng kiểm tra lại file PDF đầu vào.")
-            else:
-                try:
-                    storage_headers = {
-                        "apikey": SB_KEY, 
-                        "Authorization": f"Bearer {SB_KEY}",
-                        "Content-Type": "image/jpeg",
-                        "x-upsert": "true"  # Cho phép ghi đè khi sửa lỗi
-                    }
-                    style_clean_filename = re.sub(r'[^a-zA-Z0-9_-]', '', style_name_db).upper()
-                    storage_url = f"{SB_URL.rstrip('/')}/storage/v1/object/kho_anh/{style_clean_filename}.jpg"
-                    
-                    # Đẩy dữ liệu thô (raw bytes) lên API Supabase bằng phương thức PUT
-                    upload_res = requests.put(
-                        storage_url, 
-                        headers=storage_headers, 
-                        data=image_data, 
-                        timeout=20
-                    )
-                    
-                    if 200 <= upload_res.status_code <= 299:
-                        print(f"[STORAGE SUCCESS] Upload ảnh gốc thành công cho mã: {style_clean_filename}")
-                        public_image_url = f"{SB_URL.rstrip('/')}/storage/v1/object/public/kho_anh/{style_clean_filename}.jpg"
-                    else:
-                        print(f"[STORAGE ERROR] Supabase từ chối file. Mã lỗi {upload_res.status_code}: {upload_res.text}")
-                except Exception as storage_err: 
-                    print(f"[STORAGE EXCEPTION] Mất kết nối tới máy chủ Storage: {str(storage_err)}")
-        else:
-            print(f"[WARN] Không tìm thấy bất kỳ dữ liệu hình ảnh nào (image_data rỗng) cho mã {style_name_db}")
+            if image_data.startswith(b'\x89PNG\r\n\x1a\n'):
+                mime_type = "image/png"
+            elif image_data.startswith(b'\xff\xd8'):
+                mime_type = "image/jpeg"
 
-        # 3. LUỒNG KÍCH HOẠT MẮT THẦN AI VISION: TRÍCH XUẤT CHUỒI ĐẶC TRƯNG HÌNH HỌC
+        # 1. ĐẨY FILE HÌNH ẢNH SẢN PHẨM LÊN SUPABASE STORAGE KHO_ANH
+        if image_data:
+            try:
+                storage_headers = {
+                    "apikey": SB_KEY, 
+                    "Authorization": f"Bearer {SB_KEY}",
+                    "Content-Type": mime_type,
+                    "x-upsert": "true"
+                }
+                style_clean_filename = re.sub(r'[^a-zA-Z0-9_-]', '', style_name_db).upper()
+                ext = "png" if mime_type == "image/png" else "jpg"
+                storage_url = f"{SB_URL.rstrip('/')}/storage/v1/object/kho_anh/{style_clean_filename}.{ext}"
+                
+                upload_res = requests.put(storage_url, headers=storage_headers, data=image_data, timeout=20)
+                if 200 <= upload_res.status_code <= 299:
+                    public_image_url = f"{SB_URL.rstrip('/')}/storage/v1/object/public/kho_anh/{style_clean_filename}.{ext}"
+                    print(f"[STORAGE SUCCESS] Upload ảnh thành công: {public_image_url}")
+            except Exception as storage_err: 
+                print(f"[STORAGE EXCEPTION] Thất bại khi đẩy tệp lên Storage: {str(storage_err)}")
+
+        # 2. XÂY DỰNG CHUỖI ĐẶC TRƯNG VĂN BẢN (TEXT SPEC CHARACTERS)
         measurements_raw = payload_data.get("measurements", {})
-        visual_description_str = f"GARMENT TYPE: {payload_data.get('category', 'Garment Pants')}. Specs profile summary: " + ", ".join([f"{k}:{v}" for k, v in list(measurements_raw.items())[:6]])
+        visual_description_str = f"STYLE: {style_name_db}. BUYER: {payload_data.get('buyer', 'PPJ')}. CATEGORY: {payload_data.get('category', 'Pants')}. Specifications profile details: "
+        visual_description_str += ", ".join([f"{k}:{v}" for k, v in list(measurements_raw.items())])
         
-        # Chỉ chạy AI Vision khi file ảnh được xác định là ảnh chuẩn
-        if image_data and is_valid_jpeg(image_data):
-            gemini_key = get_secure_gemini_key()
-            if gemini_key:
+        # 3. KÍCH HOẠT HỆ THỐNG SỐ HÓA VECTOR LAI (HYBRID VECTOR COUPLING ENGINE)
+        hybrid_vector_embedding_array = []
+        gemini_key = get_secure_gemini_key()
+        
+        if gemini_key:
+            try:
+                from google import genai
+                from google.genai import types
+                client_embed = genai.Client(api_key=gemini_key)
+                
+                # --- PHẦN 3A: SỐ HÓA TRỰC QUAN HÌNH ẢNH SKETCH (IMAGE VECTOR - 768 CHIỀU) ---
+                image_vector = []
+                if image_data:
+                    try:
+                        # Sử dụng gemini-embedding-2 tích hợp sâu, ổn định tuyệt đối trên SDK google-genai mới
+                        img_part = types.Part.from_bytes(data=image_data, mime_type=mime_type)
+                        img_embed_res = client_embed.models.embed_content(
+                            model='gemini-embedding-2',
+                            contents=[img_part]
+                        )
+                        if img_embed_res and img_embed_res.embeddings:
+                            image_vector = img_embed_res.embeddings[0].values
+                            print(f"🖼️ [IMAGE VECTOR OK] Trích xuất thành công {len(image_vector)} chiều hình học.")
+                    except Exception as img_embed_err:
+                        print(f"❌ [IMAGE VECTOR ERR] Lỗi trích xuất vector ảnh: {str(img_embed_err)}")
+                
+                # --- PHẦN 3B: SỐ HÓA THÔNG SỐ VĂN BẢN (TEXT SPEC VECTOR - 768 CHIỀU) ---
+                text_vector = []
                 try:
-                    from google import genai
-                    from google.genai import types
-                    
-                    client_db = genai.Client(api_key=gemini_key)
-                    vision_prompt = """
-                    Analyze this technical garment flat sketch in detail.
-                    List all unique geometric attributes, structural silhouette, waistband closure type, front/back pockets layout, panel shapes, and stitch lines.
-                    Output a single dense string of these visual characteristics for apparel similarity vector matching.
-                    Do not include greetings, just return the raw dense characteristic description string.
-                    """
-                    vision_res = client_db.models.generate_content(
-                        model='gemini-2.5-flash',
-                        contents=[
-                            types.Part.from_bytes(data=image_data, mime_type='image/jpeg'),
-                            vision_prompt
-                        ]
+                    text_embed_res = client_embed.models.embed_content(
+                        model='gemini-embedding-2',
+                        contents=[visual_description_str]
                     )
-                    if vision_res and vision_res.text:
-                        visual_description_str = vision_res.text.strip()
-                except Exception as ai_vision_err:
-                    print(f"[AI VISION RE-EXTRACT ERROR]: {str(ai_vision_err)}")
+                    if text_embed_res and text_embed_res.embeddings:
+                        text_vector = text_embed_res.embeddings[0].values
+                        print(f"📝 [TEXT VECTOR OK] Trích xuất thành công {len(text_vector)} chiều thông số.")
+                except Exception as txt_embed_err:
+                    print(f"❌ [TEXT VECTOR ERR] Lỗi trích xuất vector văn bản: {str(txt_embed_err)}")
+                
+                # --- PHẦN 3C: GHÉP NỐI TOÁN HỌC (HYBRID CONCATENATION - 1536 CHIỀU) ---
+                # Đảm bảo cả 2 vector con đều sẵn sàng, nếu thiếu một trong hai thì sử dụng mảng không để bù kích thước
+                if not image_vector and text_vector:
+                    image_vector = [0.0] * len(text_vector)
+                if not text_vector and image_vector:
+                    text_vector = [0.0] * len(image_vector)
+                    
+                if image_vector and text_vector:
+                    hybrid_vector_embedding_array = list(image_vector) + list(text_vector)
+                    print(f"🚀 [HYBRID VECTOR COMPLETE] Tạo thành công Vector ma trận tích hợp {len(hybrid_vector_embedding_array)} chiều.")
+                    
+            except Exception as embed_master_err:
+                print(f"💥 [MASTER EMBED CRITICAL ERROR]: {str(embed_master_err)}")
 
-        # 4. Đẩy gói dữ liệu sạch đồng bộ lên bảng thong_so_techpack của Supabase
+        # 4. ĐẨY GÓI DỮ LIỆU ĐỒNG BỘ CHUẨN LÊN TABLE REST API CỦA SUPABASE
         headers = {
             "apikey": SB_KEY, 
             "Authorization": f"Bearer {SB_KEY}",
@@ -274,28 +264,23 @@ def save_to_supabase_techpack_table(payload_data, raw_file_bytes=None, file_name
 
         db_payload = {
             "StyleName": style_name_db,
-            "Buyer": payload_data.get("buyer"),
-            "Category": payload_data.get("category"),
-            "BaseSize": payload_data.get("base_size_name"),
+            "Buyer": payload_data.get("buyer", "UNKNOWN BUYER"),
+            "Category": payload_data.get("category", "GARMENT"),
+            "BaseSize": payload_data.get("base_size_name", "32"),
             "DetailedMeasurements": clean_dict,
-            "SketchURL": public_image_url,
-            "sketch_vector": visual_description_str
+            "GradingMatrix": payload_data.get("full_size_matrix", {}),
+            "ImageURL": public_image_url,
+            "VisualDescription": visual_description_str,
+            # Nạp trực tiếp mảng số thực vào trường GeometryVector để kích hoạt truy vấn pgvector
+            "GeometryVector": hybrid_vector_embedding_array if hybrid_vector_embedding_array else None 
         }
-        
-        response = requests.post(insert_url, headers=headers, json=[db_payload], timeout=15)
-        
-        if 200 <= response.status_code <= 299:
-            print("[DB SUCCESS] Đồng bộ dữ liệu bảng thong_so_techpack thành công!")
-            return True
-        else:
-            print(f"[DB ERROR] Lỗi đồng bộ database {response.status_code}: {response.text}")
-            return False
-            
+
+        db_res = requests.post(insert_url, headers=headers, json=db_payload, timeout=20)
+        return 200 <= db_res.status_code <= 299
     except Exception as e:
-        import streamlit as st
-        st.sidebar.error(f"Lỗi xử lý hệ thống nạp kho: {str(e)}")
-        print(f"[CRITICAL ERROR] Toàn hệ thống nạp kho thất bại: {str(e)}")
+        print(f"❌ [CRITICAL DB MAIN ERR]: {str(e)}")
         return False
+
 
 
 
@@ -1412,251 +1397,213 @@ if gemini_key:
 
 def process_single_pdf_batch(file_bytes, file_name):
     """
-    Retriever Layer chuyên sâu cho hệ thống BOM & Consumption Matrix.
-    ✨ Đã sửa lỗi cấu trúc JSON phản hồi từ Gemini API.
+    Retriever Layer chuyên sâu cho hệ thống quét file mới để TÌM MÃ TƯƠNG ĐỒNG.
+    🎯 ĐÃ ĐỒNG BỘ 100%: Định dạng chuẩn mảng đối tượng phục vụ trực tiếp cho lõi Số hóa Hybrid Vector.
+    🛡️ CHỐNG SẬP: Cắt trang chiến lược (7 đầu / 5 cuối), nén ảnh chất lượng cao kiểm soát token budget.
     """
-    import json
-    import requests
-    import base64
     import time
     import io
+    import json
     import re
     import streamlit as st
+    from google import genai
+    from google.genai import types
+    from pdf2image import convert_from_bytes, pdfinfo_from_bytes
 
-    try:
-        import pypdf
-        PYPDF_AVAILABLE = True
-    except ImportError:
-        PYPDF_AVAILABLE = False
-
-    # Kiểm soát chặt chẽ dung lượng tệp tải lên của hệ thống
     MAX_MB = 18
     if len(file_bytes) > MAX_MB * 1024 * 1024:
-        return {"success": False, "error": f"Tệp PDF vượt giới hạn xử lý {MAX_MB}MB của Gemini."}
+        return {"success": False, "error": f"Tệp PDF vượt giới hạn xử lý {MAX_MB}MB."}
 
     try:
-        # Thu thập API Key an toàn từ Secrets hệ thống
-        gemini_key = get_secure_gemini_key() if "get_secure_gemini_key" in globals() else st.secrets.get("GEMINI_API_KEY", "").strip()
+        gemini_key = st.secrets.get("GEMINI_API_KEY", "").strip()
         if not gemini_key:
             return {"success": False, "error": "Thiếu GEMINI_API_KEY trong cấu hình Secrets."}
-
-        # Mã hóa trực tiếp tệp PDF gốc sang định dạng Base64
-        b64_pdf = base64.b64encode(file_bytes).decode('utf-8')
-
-        # URL API Endpoint chuẩn của Google Gemini REST API
-        url = (
-            "https://googleapis.com"
-            "v1beta/models/gemini-2.5-flash:generateContent"
-            f"?key={gemini_key}"
-        )
+            
+        client = genai.Client(api_key=gemini_key)
+        info = pdfinfo_from_bytes(file_bytes)
+        total_p = int(info.get("Pages", 1))
+        
+        # Chiến lược lọc trang thông minh kiểm soát payload an toàn tuyệt đối
+        pages_to_scan = set()
+        for p in range(1, min(8, total_p + 1)):
+            pages_to_scan.add(p)
+        if total_p > 7:
+            for p in range(max(8, total_p - 4), total_p + 1):
+                pages_to_scan.add(p)
+        
+        sorted_pages = sorted(list(pages_to_scan))
+        print(f"📋 [RETRIEVER SCAN] {file_name}: Tiến hành trích xuất {len(sorted_pages)} trang chiến lược.")
         
         industrial_prompt = (
-            "You are an expert Garment Specification Auditor at PPJ Group. Analyze this entire Techpack PDF file page by page.\n"
-            "Task:\n"
-            "1. Locate the main measurement chart / grading matrix table inside the document.\n"
-            "2. Extract ALL measurement descriptions (POM Description) and their corresponding base/sample size values precisely.\n"
-            "3. Find the exact 'Style ID' / 'Style Number' (e.g., F25R09 or 526P09).\n"
-            "4. Identify the 'Base Size' (e.g., 32, M, 28) and the Category (strictly classify as PANT, SHIRT, JACKET, or SHORT).\n"
-            "5. Detect which 0-based page index contains the full body apparel flat sketch drawing.\n"
-            "Return a completely valid raw JSON string matching this exact schema (no markdown formatting):\n"
-            "{\n"
-            "  \"style_number_parsed\": \"string\",\n"
-            "  \"buyer\": \"string\",\n"
-            "  \"category\": \"string\",\n"
-            "  \"base_size_name\": \"string\",\n"
-            "  \"sketch_page_index_detected\": 0,\n"
-            "  \"measurements\": {\"POM Description\": \"Value\"}\n"
-            "}"
+            "You are an expert Garment Specification Auditor at PPJ Group. Analyze all attached sheets page by page.\n"
+            "1. Identify the core 'Base Size' / 'Sample Size' (e.g., written as 8-, 32, or Size M).\n"
+            "2. Identify the Buyer name and Category.\n"
+            "3. Find the exact 'Style ID' / 'Style Number' (e.g. 5765).\n"
+            "4. Scan and extract the technical measurement specification chart into key-value pairs inside measurements_list.\n"
+            "5. FOR THE GRADING MATRIX TABLE: Scan and extract the full grading matrix table columns for ALL available sizes into full_size_matrix object.\n"
+            "6. CRITICAL VISUAL FLAT SKETCH LOCATE RULE: Scan all pages visually. You MUST find the exact 1-BASED PAGE NUMBER "
+            "written on the page sheet or corresponding to the actual page sequence that contains the FULL BODY APPAREL FLAT SKETCH showing the entire completed garment.\n\n"
+            "STRICT DISQUALIFICATION RULES:\n"
+            "- DO NOT select pages showing isolated technical pattern panels.\n"
+            "- DO NOT select pages showing inner construction details, pocket bags, zippers, or sketches of components."
         )
-
-        api_payload = {
-            "contents": [{
-                "parts": [
-                    {"inlineData": {"mimeType": "application/pdf", "data": b64_pdf}},
-                    {"text": industrial_prompt}
-                ]
-            }],
-            "generationConfig": {
-                "responseMimeType": "application/json", 
-                "temperature": 0.1
-            }
-        }
-
-        # Thiết lập timeout lớn (180 giây) cho các Techpack cồng kềnh
-        res = requests.post(url, json=api_payload, headers={"Content-Type": "application/json"}, timeout=180)
         
-        if res.status_code == 200:
-            res_json = res.json()
-            
-            if "candidates" not in res_json or not res_json["candidates"]:
-                return {"success": False, "error": f"Gemini phản hồi không có dữ liệu hoặc bị Safety Block: {res_json}"}
+        contents_payload = [types.Part.from_text(text=industrial_prompt)]
+        chat_images_dict = {}
+        
+        # Sử dụng pdf2image trích xuất ảnh chuẩn hóa thay thế hoàn toàn thư viện pypdf lỗi bytes thô
+        for page_num in sorted_pages:
+            single_page_list = convert_from_bytes(file_bytes, dpi=100, first_page=page_num, last_page=page_num)
+            if single_page_list:
+                page_img = single_page_list[0]
+                chat_images_dict[page_num] = page_img
                 
-            try:
-                # Trích xuất chính xác text phản hồi từ mảng Candidates của Google Gemini
-                text_response = res_json['candidates'][0]['content']['parts'][0]['text'].strip()
-            except (KeyError, IndexError):
-                return {"success": False, "error": "Cấu trúc JSON phản hồi từ Gemini API đã thay đổi hoặc không hợp lệ."}
-
-            clean_json = text_response.replace("```json", "").replace("```", "").strip()
-            clean_json = re.sub(r',\s*([\]}])', r'\1', clean_json)
+                img_buf = io.BytesIO()
+                page_img.convert("RGB").save(img_buf, format="JPEG", quality=50)
+                contents_payload.append(
+                    types.Part.from_bytes(data=img_buf.getvalue(), mime_type='image/jpeg')
+                )
             
-            try:
-                parsed_data = json.loads(clean_json)
-            except Exception:
-                return {"success": False, "error": f"Mô hình trả dữ liệu không đúng cấu trúc định dạng JSON sạch. Nội dung thô: {text_response[:200]}"}
-# =========================================================================================
-# ĐOẠN 3 - PHẦN 2: BÓC TÁCH KHỐI ẢNH VÀ KHÓA LỆNH LƯU KHO (DÁN TIẾP NỐI PHẦN 1)
-# =========================================================================================
-
-            # Trích xuất ảnh nhúng đặc hiệu từ tài liệu PDF gốc
-            extracted_sketch_bytes = None
-            if PYPDF_AVAILABLE:
+        kv_pair_schema = types.Schema(
+            type=types.Type.OBJECT,
+            properties={
+                "pom_description": types.Schema(type=types.Type.STRING),
+                "value": types.Schema(type=types.Type.STRING)
+            },
+            required=["pom_description", "value"]
+        )
+        
+        json_schema = types.Schema(
+            type=types.Type.OBJECT,
+            properties={
+                "style_number_parsed": types.Schema(type=types.Type.STRING),
+                "buyer": types.Schema(type=types.Type.STRING),
+                "category": types.Schema(type=types.Type.STRING),
+                "base_size_name": types.Schema(type=types.Type.STRING),
+                "sketch_page_number_detected": types.Schema(type=types.Type.INTEGER),
+                "measurements_list": types.Schema(type=types.Type.ARRAY, items=kv_pair_schema),
+                "full_size_matrix": types.Schema(type=types.Type.OBJECT) 
+            },
+            required=[
+                "style_number_parsed", "buyer", "category", "base_size_name", 
+                "sketch_page_number_detected", "measurements_list", "full_size_matrix"
+            ]
+        )
+        # TIẾP NỐI LOGIC: KHỞI CHẠY MÔ HÌNH VÀ PHÒNG NGỰ DỰ PHÒNG CHỦ ĐỘNG
+        models_to_try = ['gemini-2.5-flash', 'gemini-2.5-flash-lite']
+        response = None
+        current_model_used = 'gemini-2.5-flash'
+        
+        for active_model in models_to_try:
+            current_model_used = active_model
+            success_call = False
+            for attempt in range(2):
                 try:
-                    pdf_reader = pypdf.PdfReader(io.BytesIO(file_bytes))
-                    sketch_idx = int(parsed_data.get("sketch_page_index_detected", 0))
-                    target_page_num = sketch_idx if (0 <= sketch_idx < len(pdf_reader.pages)) else 0
-                    page = pdf_reader.pages[target_page_num]
-                    
-                    if "/XObject" in page["/Resources"]:
-                        xObject = page["/Resources"]["/XObject"].get_object()
-                        for obj in xObject:
-                            if xObject[obj]["/Subtype"] == "/Image":
-                                extracted_sketch_bytes = xObject[obj]._data
+                    response = client.models.generate_content(
+                        model=active_model, 
+                        contents=contents_payload,
+                        config=types.GenerateContentConfig(
+                            response_mime_type="application/json",
+                            response_schema=json_schema,
+                            temperature=0.1,
+                            max_output_tokens=8192
+                        )
+                    )
+                    if response:
+                        candidates = getattr(response, "candidates", [])
+                        if candidates:
+                            candidate = candidates[0]
+                            reason = str(getattr(candidate, "finish_reason", "STOP"))
+                            if reason in ["RECITATION", "SAFETY", "MAX_TOKENS"]:
                                 break
-                except Exception:
-                    pass
-            
-            if not extracted_sketch_bytes:
-                extracted_sketch_bytes = None
-
-            # Tích hợp OCR dự phòng (Fallback) khi bảng measurements trống rỗng
-            if PYPDF_AVAILABLE and (not parsed_data.get("measurements") or len(parsed_data["measurements"]) == 0):
-                try:
-                    pdf_reader = pypdf.PdfReader(io.BytesIO(file_bytes))
-                    raw_text_fallback = ""
-                    for i in range(min(5, len(pdf_reader.pages))):
-                        p_txt = pdf_reader.pages[i].extract_text()
-                        if p_txt:
-                            raw_text_fallback += f"\n--- PAGE {i+1} ---\n{p_txt}"
-                    if raw_text_fallback.strip():
-                        parsed_data["raw_text_ocr_fallback"] = raw_text_fallback[:40000]
-                except Exception:
-                    pass
-
-            # 🚨 ĐÃ KHÓA CHẶT CƠ CHẾ TỰ ĐỘNG GHI ĐÈ VÀO BẢNG THONG_SO_TECHPACK TRÊN DATABASE TẠI ĐÂY:
-            success_db = True
-            # if "save_to_supabase_techpack_table" in globals():
-            #     try:
-            #         success_db = save_to_supabase_techpack_table(parsed_data, raw_file_bytes=file_bytes, file_name=file_name)
-            #     except Exception: 
-            #         success_db = False
-            
-            # Đóng gói dữ liệu đầu ra chuẩn chỉnh phục vụ trực tiếp cho AI Engine
-            output_payload = {
-                "style_number_parsed": parsed_data.get("style_number_parsed", "UNKNOWN"),
-                "buyer": parsed_data.get("buyer", "UNKNOWN BUYER"),
-                "category": parsed_data.get("category", "PANT"),
-                "base_size_name": parsed_data.get("base_size_name", "32"),
-                "measurements": parsed_data.get("measurements", {}),
-                "raw_text_ocr_fallback": parsed_data.get("raw_text_ocr_fallback", "")
-            }
-            
-            return {
-                "success": True,
-                "data": output_payload,
-                "style_id": output_payload["style_number_parsed"],
-                "buyer": output_payload["buyer"],
-                "category": output_payload["category"],
-                "size": output_payload["base_size_name"],
-                "measurements": output_payload["measurements"],
-                "sketch_bytes": extracted_sketch_bytes,
-                "error": None
-            }
-        else:
-            return {"success": False, "error": f"Gemini API thất bại với mã HTTP: {res.status_code}. Chi tiết: {res.text[:200]}"}
-            
-    except Exception as e:
-        return {"success": False, "error": f"Lỗi hệ thống trong quá trình xử lý Batch: {str(e)}"}
-# =========================================================================================
-# ĐOẠN 3 - PHẦN 3: ĐỒNG BỘ TRẠNG THÁI RA MÀN HÌNH GIAO DIỆN UI (DÁN TIẾP NỐI PHẦN 2)
-# =========================================================================================
-
-# 1. Xác định nguồn tệp tải lên từ các widget file_uploader khác nhau trong session_state
-target_file_object = None
-if 'uploaded_file' in st.session_state and st.session_state['uploaded_file'] is not None:
-    target_file_object = st.session_state['uploaded_file']
-elif 'chat_uploader' in st.session_state and st.session_state['chat_uploader'] is not None:
-    target_file_object = st.session_state['chat_uploader']
-elif 'bom_matrix_uploader' in st.session_state and st.session_state['bom_matrix_uploader'] is not None:
-    target_file_object = st.session_state['bom_matrix_uploader']
-
-has_file = target_file_object is not None
-
-# 2. Nếu phát hiện có tệp, tiến hành kiểm tra và kích hoạt luồng xử lý tự động
-if has_file:
-    file_bytes = target_file_object.getvalue()
-    file_name = target_file_object.name
-    
-    # Kiểm tra chống quét trùng lặp phi mã để giữ giao diện ổn định khi tương tác
-    if st.session_state.get("previous_uploaded_file_name") != file_name:
-        st.session_state["previous_uploaded_file_name"] = file_name
-        
-        # Nếu là file PDF, kích hoạt luồng xử lý bóc tách thông số tự động qua Gemini
-        if file_name.lower().endswith('.pdf'):
-            try:
-                res_pdf = process_single_pdf_batch(file_bytes, file_name)
+                        success_call = True
+                        break
+                except:
+                    time.sleep(1)
+                    continue
+            if success_call:
+                break
                 
-                # Kiểm tra kết quả trả về từ hàm xử lý batch một cách nghiêm ngặt
-                if isinstance(res_pdf, dict) and res_pdf.get("success") == True:
-                    meta_p = res_pdf.get("data", {})
-                    parsed_style = meta_p.get("style_number_parsed", "UNKNOWN")
-                    
-                    st.session_state["new_style_id_detected"] = parsed_style
-                    st.session_state["new_style_category_detected"] = meta_p.get("category", "PANT")
-                    st.session_state["new_style_base_size"] = meta_p.get("base_size_name", "32")
-                    st.session_state["new_style_measurements_dict"] = meta_p.get("measurements", {})
-                    st.session_state["target_new_sketch_bytes"] = res_pdf.get("sketch_bytes")
-                    st.session_state["detected_mime_type"] = "application/pdf"
-                    
-                    # MỞ KHÓA TOÀN DIỆN: Kích hoạt bộ lọc đồng bộ mã đối chứng và bảng so sánh
-                    st.session_state["matched_style_name"] = str(parsed_style).strip().upper()
-                    st.session_state["matched_image_verified"] = True
-                    st.session_state["gemini_error_log"] = None  # Xóa log lỗi cũ khi thành công
-                else:
-                    # Ghi nhận lỗi cụ thể từ API trả về thay vì âm thầm bỏ qua
-                    error_msg = res_pdf.get("error") if isinstance(res_pdf, dict) else "Cấu trúc phản hồi từ Engine lỗi."
-                    st.session_state["gemini_error_log"] = error_msg
-                    st.session_state["new_style_id_detected"] = "UNKNOWN"
-                    st.session_state["matched_image_verified"] = False
-                    
-            except Exception as e:
-                # Không nuốt lỗi, bắt trọn ngoại lệ hệ thống và đẩy lên giao diện công khai
-                st.session_state["gemini_error_log"] = f"Lỗi thực thi luồng xử lý: {str(e)}"
-                st.session_state["new_style_id_detected"] = "UNKNOWN"
-                st.session_state["matched_image_verified"] = False
+        parsed_data = None
+        if response and getattr(response, "parsed", None):
+            parsed_data = response.parsed
+            if hasattr(parsed_data, "model_dump"):
+                parsed_data = parsed_data.model_dump()
+            elif hasattr(parsed_data, "__dict__"):
+                parsed_data = dict(parsed_data)
+                
+        if not parsed_data and response and getattr(response, "text", None):
+            try:
+                text_content = response.text.strip()
+                text_content = re.sub(r',\s*([\]}])', r'\1', text_content)
+                match = re.search(r"\{.*\}", text_content, re.S)
+                if match:
+                    parsed_data = json.loads(match.group(0))
+            except:
+                pass
+            
+        if not parsed_data:
+            finish_reason = "UNKNOWN"
+            try:
+                if response and response.candidates:
+                    finish_reason = str(getattr(response.candidates[0], "finish_reason", "UNKNOWN"))
+            except:
+                pass
+            return {"success": False, "error": f"AI phản hồi cấu trúc trống. FinishReason={finish_reason}"}
+            
+        # Đồng bộ hóa cấu trúc dữ liệu tương thích ngược với hệ thống
+        measurements_list = parsed_data.get("measurements_list", [])
+        measurements = {item.get("pom_description"): item.get("value") for item in measurements_list if "pom_description" in item}
+        
+        matrix_data = parsed_data.get("full_size_matrix", {})
+        full_size_matrix = {}
+        if isinstance(matrix_data, dict):
+            full_size_matrix = matrix_data
+            
+        parsed_data["measurements"] = measurements
+        parsed_data["full_size_matrix"] = full_size_matrix
+        
+        # Trích xuất hình ảnh phẳng (Flat Sketch) chuẩn định dạng JPEG chất lượng cao
+        extracted_sketch_bytes = None
+        detected_page_num = int(parsed_data.get("sketch_page_number_detected", 1))
+        
+        if detected_page_num in chat_images_dict:
+            b_buf = io.BytesIO()
+            chat_images_dict[detected_page_num].convert("RGB").save(b_buf, format="JPEG", quality=90)
+            extracted_sketch_bytes = b_buf.getvalue()
         else:
-            # Nếu là file ảnh trực tiếp (JPG/PNG), giữ nguyên làm ảnh phác thảo (Flat Sketch)
-            st.session_state["target_new_sketch_bytes"] = file_bytes
-            st.session_state["new_style_id_detected"] = "UNKNOWN_STYLE"
-            st.session_state["new_style_measurements_dict"] = {}
-            st.session_state["detected_mime_type"] = "image/jpeg"
-            st.session_state["matched_image_verified"] = True
-            st.session_state["gemini_error_log"] = None
-
-# 3. Đồng bộ an toàn từ bộ nhớ đệm trạng thái ra các biến cục bộ cho các đoạn code phía sau đọc ổn định
-new_style_id_detected = st.session_state.get("new_style_id_detected", "UNKNOWN")
-new_style_category_detected = st.session_state.get("new_style_category_detected", "")
-new_style_measurements_dict = st.session_state.get("new_style_measurements_dict", {})
-new_style_base_size = st.session_state.get("new_style_base_size", "32")
-target_new_sketch_bytes = st.session_state.get("target_new_sketch_bytes", None)
-
-# Chuẩn hóa biến kết nối cơ sở dữ liệu Supabase phục vụ luồng đối soát tự động
-SB_URL = st.secrets.get("SUPABASE_URL", "") if "SB_URL" not in globals() else SB_URL
-SB_KEY = st.secrets.get("SUPABASE_KEY", "") if "SB_KEY" not in globals() else SB_KEY
-dynamic_keyword = str(new_style_id_detected).strip().upper()
-base_sb_url = SB_URL.rstrip('/') if SB_URL else ""
-headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if SB_KEY else {}
-menu_selection = globals().get("menu_selection", "🧵 BOM & Consumption Matrix")
+            if sorted_pages and sorted_pages[0] in chat_images_dict:
+                detected_page_num = sorted_pages[0]
+                b_buf = io.BytesIO()
+                chat_images_dict[detected_page_num].convert("RGB").save(b_buf, format="JPEG", quality=90)
+                extracted_sketch_bytes = b_buf.getvalue()
+            
+        # Đóng gói gói dữ liệu hỗn hợp (Hybrid Payload) sẵn sàng để truyền thẳng vào bộ tìm kiếm tương đồng
+        output_payload = {
+            "style_number_parsed": parsed_data.get("style_number_parsed", "UNKNOWN"),
+            "buyer": parsed_data.get("buyer", "UNKNOWN BUYER"),
+            "category": parsed_data.get("category", "GARMENT"),
+            "base_size_name": parsed_data.get("base_size_name", "32"),
+            "measurements": measurements,
+            "full_size_matrix": full_size_matrix,
+            # Bơm trường dữ liệu ảnh nhị phân chuẩn JPEG để Image Embedding không bị rỗng
+            "_sketch_bytes_raw": extracted_sketch_bytes 
+        }
+        
+        return {
+            "success": True,
+            "data": output_payload,
+            "style_id": output_payload["style_number_parsed"],
+            "buyer": output_payload["buyer"],
+            "category": output_payload["category"],
+            "size": output_payload["base_size_name"],
+            "measurements": output_payload["measurements"],
+            "sketch_bytes": extracted_sketch_bytes,
+            "sketch_page_index": detected_page_num,
+            "error": None
+        }
+    except Exception as e:
+        return {"success": False, "error": f"Lỗi bóc tách PDF: {str(e)}"}
 
 
 
@@ -1665,7 +1612,10 @@ menu_selection = globals().get("menu_selection", "🧵 BOM & Consumption Matrix"
 # =========================================================================================
 
 if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption Matrix":
-    import json, re, requests
+    import json
+    import re
+    import requests
+    import io
     import streamlit as st
     try:
         from google.genai import types
@@ -1674,6 +1624,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
 
     st.markdown('<div class="component-title-box">🧵 INTELLIGENT BOM & CONSUMPTION MATRIX ENGINE</div>', unsafe_allow_html=True)
     
+    # Khởi tạo bộ nhớ tạm để quản lý trạng thái đối soát phom dáng tương đồng
     if "matched_techpack" not in st.session_state: st.session_state["matched_techpack"] = None
     if "bom_records" not in st.session_state: st.session_state["bom_records"] = []
     if "consumption_chat_history" not in st.session_state: st.session_state["consumption_chat_history"] = []
@@ -1682,13 +1633,15 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     if "match_reason" not in st.session_state: st.session_state["match_reason"] = ""
     if "detected_garment_type" not in st.session_state: st.session_state["detected_garment_type"] = "UNKNOWN"
     if "visual_description_str" not in st.session_state: st.session_state["visual_description_str"] = ""
+    if "hybrid_search_vector" not in st.session_state: st.session_state["hybrid_search_vector"] = None
+    if "top_similar_styles" not in st.session_state: st.session_state["top_similar_styles"] = []
 
     control_col1, control_col2 = st.columns([3.3, 0.7])
     with control_col1:
         st.markdown("<p style='font-weight:700; font-size:12px; color:#1E293B;'>📁 INGEST NEW STYLE REPRINTS (PDF/IMAGE)</p>", unsafe_allow_html=True)
         uploaded_file = st.file_uploader("Upload Techpack file", type=["pdf", "jpg", "jpeg", "png"], key="bom_matrix_uploader", label_visibility="collapsed")
         
-        # SỬA LỖI LOOPS: Chỉ làm sạch biến tạm khi đổi file, TUYỆT ĐỐI không gọi st.rerun() ở đây
+        # Chỉ làm sạch vùng nhớ tạm khi người dùng thay đổi tệp thiết kế hoàn toàn mới
         if uploaded_file is not None and uploaded_file.name != st.session_state.get("previous_uploaded_file_name"):
             st.session_state["matched_techpack"] = None
             st.session_state["bom_records"] = []
@@ -1696,6 +1649,9 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             st.session_state["match_reason"] = ""
             st.session_state["detected_garment_type"] = "UNKNOWN"
             st.session_state["visual_description_str"] = ""
+            st.session_state["hybrid_search_vector"] = None
+            st.session_state["top_similar_styles"] = []
+            st.session_state["previous_uploaded_file_name"] = uploaded_file.name
             
     with control_col2:
         st.markdown("<p style='font-weight:700; font-size:12px; color:#1E293B;'>🧹 RESET CORE</p>", unsafe_allow_html=True)
@@ -1708,6 +1664,8 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             st.session_state["detected_garment_type"] = "UNKNOWN"
             st.session_state["previous_uploaded_file_name"] = None
             st.session_state["visual_description_str"] = ""
+            st.session_state["hybrid_search_vector"] = None
+            st.session_state["top_similar_styles"] = []
             if "new_style_id_detected" in st.session_state:
                 st.session_state["new_style_id_detected"] = "UNKNOWN"
             st.success("♻️ MEMORY PURGED - SẴN SÀNG CHO MÃ HÀNG MỚI")
@@ -1720,100 +1678,114 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         st.info("👋 Vui lòng tải lên tệp Techpack hồ sơ thiết kế (PDF/Hình ảnh) ở phía trên để hệ thống bắt đầu quét và lập lịch trình đối soát.")
         st.stop()
 # =========================================================================================
-# ĐOẠN 4B - PHẦN 1 (CẬP NHẬT): TỰ ĐỘNG THỬ LẠI KHI API GEMINI BỊ NGHẼN MÁY CHỦ (LỖI 503)
+# ĐOẠN 4B - PHẦN 1: TỰ ĐỘNG PHÂN TÁCH TRANG VÀ TRÍCH XUẤT HYBRID VECTOR TÌM KIẾM
 # =========================================================================================
 
-    # Đồng bộ cấu hình bảo mật hệ thống từ st.secrets
     SB_KEY = st.secrets.get("SUPABASE_KEY", "") if "SB_KEY" not in globals() else globals().get("SB_KEY", "")
-    base_sb_url = st.secrets.get("SUPABASE_URL", "") if "base_sb_url" not in globals() else globals().get("base_sb_url", "")
-    client = globals().get("client", None)
+    SB_URL = st.secrets.get("SUPABASE_URL", "") if "SB_URL" not in globals() else globals().get("SB_URL", "")
+    
+    # Thu thập API Key an toàn
+    gemini_key = st.secrets.get("GEMINI_API_KEY", "").strip()
     
     new_style_id_detected = st.session_state.get("new_style_id_detected", "UNKNOWN")
     new_style_category = st.session_state.get("new_style_category_detected", "") 
     new_style_base_size = st.session_state.get("new_style_base_size", "N/A")
 
-    # Đọc byte file an toàn bằng getvalue() tránh mất con trỏ Stream của uploader
-    detected_mime_type = "application/pdf"
-    target_new_sketch_bytes = None
-    if st.session_state["bom_matrix_uploader"] is not None:
-        file_buffer = st.session_state["bom_matrix_uploader"]
-        detected_mime_type = getattr(file_buffer, "type", "application/pdf")
-        target_new_sketch_bytes = file_buffer.getvalue()
+    file_buffer = st.session_state["bom_matrix_uploader"]
+    file_bytes = file_buffer.getvalue()
+    file_name = file_buffer.name
 
-    new_vec = str(st.session_state.get("visual_description_str", "")).strip().upper()
-
-    # KHỞI CHẠY TIẾN TRÌNH TRÍCH XUẤT ĐẶC TRƯNG HÌNH HỌC (TÍCH HỢP BỘ TỰ ĐỘNG THỬ LẠI CHỐNG NGHẼN)
-    if st.session_state["matched_techpack"] is None:
-        if (not new_vec or len(new_vec) < 30) and target_new_sketch_bytes and client and hasattr(client, "models"):
-            with st.spinner("🔄 Đang quét ảnh tái lập Sketch Vector..."):
+    # Thực hiện bóc tách cấu trúc tệp mới khi chưa có dữ liệu lưu trữ tạm thời
+    if st.session_state["hybrid_search_vector"] is None and gemini_key:
+        with st.spinner("🔄 Hệ thống đang số hóa Vector Lai (Hybrid Embedding) cho mã hàng mới..."):
+            
+            # Bước 1: Gọi hàm xử lý cốt lõi bản mới (Đồng bộ 100% định dạng, nén ảnh thông minh)
+            # Hàm này đảm bảo trả về trường '_sketch_bytes_raw' chứa bytes ảnh JPEG chuẩn
+            analysis_res = process_single_pdf_batch(file_bytes, file_name)
+            
+            if analysis_res.get("success") == True:
+                payload_data = analysis_res.get("data", {})
+                measurements_raw = payload_data.get("measurements", {})
+                image_data_raw = payload_data.get("_sketch_bytes_raw", None)
                 
-                # 📌 THUẬT TOÁN AUTO-RETRY: Thiết lập vòng lặp thử lại tối đa 3 lần khi máy chủ Google quá tải
-                max_retries = 3
-                retry_delay = 2  # Số giây ngủ ban đầu
-                success_api = False
-                last_error_msg = ""
-
-                for attempt in range(max_retries):
+                style_parsed = payload_data.get("style_number_parsed", "UNKNOWN")
+                buyer_parsed = payload_data.get("buyer", "UNKNOWN BUYER")
+                category_parsed = payload_data.get("category", "GARMENT")
+                size_parsed = payload_data.get("base_size_name", "32")
+                
+                st.session_state["detected_garment_type"] = category_parsed
+                
+                # Tạo chuỗi thông số chữ tương đương định dạng kho lưu trữ
+                visual_description_str = f"STYLE: {style_parsed}. BUYER: {buyer_parsed}. CATEGORY: {category_parsed}. Specifications profile details: "
+                visual_description_str += ", ".join([f"{k}:{v}" for k, v in list(measurements_raw.items())])
+                st.session_state["visual_description_str"] = visual_description_str
+                
+                try:
+                    from google import genai
+                    from google.genai import types
+                    client_embed = genai.Client(api_key=gemini_key)
+                    
+                    # 📌 PHẦN 3A: SỐ HÓA HÌNH ẢNH SKETCH MÃ MỚI (768 CHIỀU)
+                    image_vector = []
+                    if image_data_raw:
+                        try:
+                            img_part = types.Part.from_bytes(data=image_data_raw, mime_type="image/jpeg")
+                            img_embed_res = client_embed.models.embed_content(
+                                model='gemini-embedding-2',
+                                contents=[img_part]
+                            )
+                            if img_embed_res and img_embed_res.embeddings:
+                                image_vector = img_embed_res.embeddings.values
+                        except Exception as img_e:
+                            print(f"[IMAGE EMBED ERR]: {str(img_e)}")
+                            
+                    # 📌 PHẦN 3B: SỐ HÓA THÔNG SỐ CHỮ MÃ MỚI (768 CHIỀU)
+                    text_vector = []
                     try:
-                        ocr_prompt = """
-                        You are an expert apparel techpack analyzer. This document may be a multi-page PDF containing Cover pages, BOM tables, and Measurement charts.
-                        CRITICAL TASK: First, scan through all pages to locate the primary 'FLAT SKETCH' or 'TECHNICAL DRAWING' page. Ignore textual BOM or size chart grids.
-                        Once located, extract:
-                        1. Garment Type (Must strictly classify as one of these: PANT, SHORT, JACKET, SHIRT, DRESS, SKIRT, VEST, HOODIE, T-SHIRT)
-                        2. Structural Features (Focus on visual construction details)
-                        Return format exactly like this:
-                        GARMENT_TYPE: PANT
-                        FEATURES:
-                        ZIPPER FLY
-                        """
-                        if types and hasattr(types, "Part"):
-                            ocr_contents = [types.Part.from_text(text=ocr_prompt), types.Part.from_bytes(data=target_new_sketch_bytes, mime_type=detected_mime_type)]
-                        else:
-                            ocr_contents = [ocr_prompt, {"mime_type": detected_mime_type, "data": target_new_sketch_bytes}]
-                            
-                        ocr_res = client.models.generate_content(model='gemini-2.5-flash', contents=ocr_contents)
+                        text_embed_res = client_embed.models.embed_content(
+                            model='gemini-embedding-2',
+                            contents=[visual_description_str]
+                        )
+                        if text_embed_res and text_embed_res.embeddings:
+                            text_vector = text_embed_res.embeddings.values
+                    except Exception as txt_e:
+                        print(f"[TEXT EMBED ERR]: {str(txt_e)}")
                         
-                        if ocr_res and ocr_res.text:
-                            new_vec = str(ocr_res.text).strip().upper()
-                            st.session_state["visual_description_str"] = new_vec
-                            
-                            type_match = re.search(r"GARMENT[\s_-]*TYPE\s*[:=]\s*([A-Z_\-]+)", new_vec, re.IGNORECASE)
-                            if type_match:
-                                st.session_state["detected_garment_type"] = type_match.group(1).strip().upper()
-                            else:
-                                keywords_fallback = ["PANT", "SHORT", "JACKET", "SHIRT", "DRESS", "SKIRT", "VEST", "HOODIE", "T-SHIRT"]
-                                found_type = "UNKNOWN"
-                                for tk in keywords_fallback:
-                                    if tk in new_vec: found_type = tk; break
-                                st.session_state["detected_garment_type"] = found_type
-                            
-                            success_api = True
-                            break  # Thoát khỏi vòng lặp ngay lập tức nếu gọi API thành công
-                            
-                    except Exception as e:
-                        last_error_msg = str(e)
-                        # Nếu gặp lỗi quá tải 503 hoặc giới hạn quota, tiến hành ngủ tăng tiến và thử lại
-                        if "503" in last_error_msg or "RESOURCE_EXHAUSTED" in last_error_msg or "429" in last_error_msg:
-                            import time
-                            time.sleep(retry_delay)
-                            retry_delay *= 2  # Tăng gấp đôi thời gian ngủ cho lượt sau (Exponential Backoff)
+                    # 📌 PHẦN 3C: GHÉP NỐI KHỚP ĐỊNH DẠNG KHO LUU TRỮ (1536 CHIỀU)
+                    if not image_vector and text_vector: image_vector = [0.0] * len(text_vector)
+                    if not text_vector and image_vector: text_vector = [0.0] * len(image_vector)
+                    
+                    if image_vector and text_vector:
+                        hybrid_vector = list(image_vector) + list(text_vector)
+                        st.session_state["hybrid_search_vector"] = hybrid_vector
+                        
+                        # --- TRUY VẤN TÌM KIẾM MÃ TƯƠNG ĐỒNG TRÊN SUPABASE (pgvector) ---
+                        # Gọi RPC (Remote Procedure Call) chuyên dụng để tính khoảng cách Cosine nhanh chóng
+                        rpc_url = f"{SB_URL.rstrip('/')}/rest/v1/rpc/match_techpack_vectors"
+                        rpc_headers = {
+                            "apikey": SB_KEY,
+                            "Authorization": f"Bearer {SB_KEY}",
+                            "Content-Type": "application/json"
+                        }
+                        rpc_payload = {
+                            "query_vector": hybrid_vector,
+                            "match_threshold": 0.5, # Chỉ lấy mã hàng có độ tương đồng trên 50%
+                            "match_count": 5       # Lấy ra top 5 mã quần cũ giống nhất
+                        }
+                        
+                        search_res = requests.post(rpc_url, headers=rpc_headers, json=rpc_payload, timeout=20)
+                        if search_res.status_code == 200:
+                            st.session_state["top_similar_styles"] = search_res.json()
+                            if search_res.json():
+                                st.session_state["matched_techpack"] = search_res.json()[0] # Gán mã giống nhất làm master gốc
+                                st.session_state["match_confidence_score"] = int(search_res.json()[0].get("similarity", 0) * 100)
+                                st.session_state["match_reason"] = f"Phát hiện phom dáng và bảng thông số đo khớp lên tới {st.session_state['match_confidence_score']}% với mã gốc lưu trữ."
                         else:
-                            break  # Nếu là lỗi khác (ví dụ sai Key), thoát luôn không thử lại mất thời gian
-
-                # Nếu sau 3 lần thử lại liên tục mà máy chủ Google vẫn sập hoàn toàn
-                if not success_api:
-                    st.session_state["detected_garment_type"] = f"ERROR_VISION: {last_error_msg}"
-
-        # RENDER GIAO DIỆN DEBUG
-        with st.expander("🛠️ DEBUG: DỮ LIỆU THÔ VÀ TRẠNG THÁI PHÂN LOẠI VISION", expanded=True):
-            st.write(f"**MIME Type nhận diện:** `{detected_mime_type}`")
-            st.write(f"**Garment Type trích xuất:** `{st.session_state['detected_garment_type']}`")
-            st.code(new_vec)
-
-        if len(new_vec) < 10:
-            new_vec = "FALLBACK_EMPTY_VECTOR_SPEC"
-            if st.session_state["detected_garment_type"] == "UNKNOWN" or "ERROR_VISION" in st.session_state["detected_garment_type"]:
-                st.session_state["detected_garment_type"] = "PANT"
+                            print(f"[VECTOR SEARCH ERROR]: {search_res.text}")
+                except Exception as master_embed_err:
+                    st.error(f"💥 Lỗi nghiêm trọng khi thiết lập chuỗi vector lai: {str(master_embed_err)}")
+            else:
+                st.error(f"❌ FAIL RETRIEVER: {analysis_res.get('error')}")
 
 # =========================================================================================
 # ĐOẠN 4B - PHẦN 2 HOÀN CHỈNH: THUẬT TOÁN ĐỐI SOÁT VLM VÀ ÉP CHỌN MÃ GẦN NHẤT
