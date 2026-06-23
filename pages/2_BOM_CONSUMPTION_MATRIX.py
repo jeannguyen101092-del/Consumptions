@@ -132,8 +132,7 @@ def is_valid_jpeg(data):
 def save_to_supabase_techpack_table(payload_data, raw_file_bytes=None, file_name=""):
     """
     Hàm xử lý đồng bộ dữ liệu nạp kho và SỐ HÓA HYBRID VECTOR CHUẨN CÔNG NGHIỆP.
-    🎯 SỬA LỖI GỐC: Tích hợp Image Vector + Text Vector tạo vector lai 1536 chiều đại diện trọn vẹn sản phẩm.
-    🛡️ AN TOÀN: Chấp nhận mọi cấu trúc định dạng ảnh (JPEG/PNG), bọc an toàn tránh crash luồng chính.
+    🎯 KHẮC PHỤC TRIỆT ĐỂ LỖI 0/1: Truy cập đúng cấu trúc mảng giá trị của SDK Gemini v2 mới.
     """
     import requests
     import json
@@ -153,9 +152,9 @@ def save_to_supabase_techpack_table(payload_data, raw_file_bytes=None, file_name
         sketch_b64 = payload_data.get("sketch_image", "")
         public_image_url = ""
         image_data = None
-        mime_type = "image/jpeg" # Mime mặc định
+        mime_type = "image/jpeg"
 
-        # Giải mã và nhận diện dữ liệu nhị phân của ảnh
+        # Khôi phục dữ liệu ảnh thô từ các bước trước
         if payload_data.get("_sketch_bytes_raw"):
             image_data = payload_data["_sketch_bytes_raw"]
         elif sketch_b64:
@@ -167,14 +166,13 @@ def save_to_supabase_techpack_table(payload_data, raw_file_bytes=None, file_name
             except Exception as b64_err:
                 print(f"[BASE64 DECODE ERROR]: {str(b64_err)}")
 
-        # FIX SỐ 1: Chấp nhận đa định dạng PNG/JPEG, tự động nhận biết Magic Bytes của tệp tin ảnh
         if image_data:
             if image_data.startswith(b'\x89PNG\r\n\x1a\n'):
                 mime_type = "image/png"
             elif image_data.startswith(b'\xff\xd8'):
                 mime_type = "image/jpeg"
 
-        # 1. ĐẨY FILE HÌNH ẢNH SẢN PHẨM LÊN SUPABASE STORAGE KHO_ANH
+        # 1. ĐẨY FILE HÌNH ẢNH SẢN PHẨM LÊN SUPABASE STORAGE
         if image_data:
             try:
                 storage_headers = {
@@ -190,16 +188,15 @@ def save_to_supabase_techpack_table(payload_data, raw_file_bytes=None, file_name
                 upload_res = requests.put(storage_url, headers=storage_headers, data=image_data, timeout=20)
                 if 200 <= upload_res.status_code <= 299:
                     public_image_url = f"{SB_URL.rstrip('/')}/storage/v1/object/public/kho_anh/{style_clean_filename}.{ext}"
-                    print(f"[STORAGE SUCCESS] Upload ảnh thành công: {public_image_url}")
             except Exception as storage_err: 
-                print(f"[STORAGE EXCEPTION] Thất bại khi đẩy tệp lên Storage: {str(storage_err)}")
+                print(f"[STORAGE EXCEPTION]: {str(storage_err)}")
 
-        # 2. XÂY DỰNG CHUỖI ĐẶC TRƯNG VĂN BẢN (TEXT SPEC CHARACTERS)
+        # 2. XÂY DỰNG CHUỖI ĐẶC TRƯNG VĂN BẢN
         measurements_raw = payload_data.get("measurements", {})
-        visual_description_str = f"STYLE: {style_name_db}. BUYER: {payload_data.get('buyer', 'PPJ')}. CATEGORY: {payload_data.get('category', 'Pants')}. Specifications profile details: "
+        visual_description_str = f"STYLE: {style_name_db}. BUYER: {payload_data.get('buyer', 'PPJ')}. CATEGORY: {payload_data.get('category', 'Pants')}. Specs: "
         visual_description_str += ", ".join([f"{k}:{v}" for k, v in list(measurements_raw.items())])
         
-        # 3. KÍCH HOẠT HỆ THỐNG SỐ HÓA VECTOR LAI (HYBRID VECTOR COUPLING ENGINE)
+        # 3. KÍCH HOẠT HỆ THỐNG SỐ HÓA VECTOR LAI 1536 CHIỀU
         hybrid_vector_embedding_array = []
         gemini_key = get_secure_gemini_key()
         
@@ -209,7 +206,7 @@ def save_to_supabase_techpack_table(payload_data, raw_file_bytes=None, file_name
                 from google.genai import types
                 client_embed = genai.Client(api_key=gemini_key)
                 
-                                # --- PHẦN 3A: SỐ HÓA HÌNH ẢNH SKETCH (IMAGE VECTOR - 768 CHIỀU) ---
+                # --- PHẦN 3A: SỐ HÓA TRỰC QUAN HÌNH ẢNH SKETCH (IMAGE VECTOR - 768 CHIỀU) ---
                 image_vector = []
                 if image_data:
                     try:
@@ -218,12 +215,13 @@ def save_to_supabase_techpack_table(payload_data, raw_file_bytes=None, file_name
                             model='gemini-embedding-2',
                             contents=[img_part]
                         )
-                        # SỬA LỖI TRUY CẬP SDK MỚI: Bốc trực tiếp giá trị mảng số thực đại diện
-                        if img_embed_res and getattr(img_embed_res, "embeddings", None):
-                            image_vector = img_embed_res.embeddings[0].values if isinstance(img_embed_res.embeddings, list) else img_embed_res.embeddings.values
-                            print(f"🖼️ [IMAGE VECTOR OK] Trích xuất thành công {len(image_vector)} chiều hình học.")
+                        # SỬA LỖI CẤU TRÚC SDK V2: Trích xuất chuẩn xác thuộc tính .values từ danh sách lặp Protobuf
+                        if img_embed_res and img_embed_res.embeddings:
+                            image_vector = img_embed_res.embeddings.values
+                            if not isinstance(image_vector, list) and hasattr(image_vector, "values"):
+                                image_vector = list(image_vector.values)
                     except Exception as img_embed_err:
-                        print(f"❌ [IMAGE VECTOR ERR] Lỗi trích xuất vector ảnh: {str(img_embed_err)}")
+                        print(f"❌ [IMAGE VECTOR ERR]: {str(img_embed_err)}")
                 
                 # --- PHẦN 3B: SỐ HÓA THÔNG SỐ VĂN BẢN (TEXT SPEC VECTOR - 768 CHIỀU) ---
                 text_vector = []
@@ -232,42 +230,25 @@ def save_to_supabase_techpack_table(payload_data, raw_file_bytes=None, file_name
                         model='gemini-embedding-2',
                         contents=[visual_description_str]
                     )
-                    # SỬA LỖI TRUY CẬP SDK MỚI: Bốc trực tiếp giá trị mảng số thực văn bản
-                    if text_embed_res and getattr(text_embed_res, "embeddings", None):
-                        text_vector = text_embed_res.embeddings[0].values if isinstance(text_embed_res.embeddings, list) else text_embed_res.embeddings.values
-                        print(f"📝 [TEXT VECTOR OK] Trích xuất thành công {len(text_vector)} chiều thông số.")
-                except Exception as txt_embed_err:
-                    print(f"❌ [TEXT VECTOR ERR] Lỗi trích xuất vector văn bản: {str(txt_embed_err)}")
-
-                
-                # --- PHẦN 3B: SỐ HÓA THÔNG SỐ VĂN BẢN (TEXT SPEC VECTOR - 768 CHIỀU) ---
-                text_vector = []
-                try:
-                    text_embed_res = client_embed.models.embed_content(
-                        model='gemini-embedding-2',
-                        contents=[visual_description_str]
-                    )
+                    # SỬA LỖI CẤU TRÚC SDK V2: Trích xuất chuẩn xác thuộc tính .values từ văn bản thô
                     if text_embed_res and text_embed_res.embeddings:
-                        text_vector = text_embed_res.embeddings[0].values
-                        print(f"📝 [TEXT VECTOR OK] Trích xuất thành công {len(text_vector)} chiều thông số.")
+                        text_vector = text_embed_res.embeddings.values
+                        if not isinstance(text_vector, list) and hasattr(text_vector, "values"):
+                            text_vector = list(text_vector.values)
                 except Exception as txt_embed_err:
-                    print(f"❌ [TEXT VECTOR ERR] Lỗi trích xuất vector văn bản: {str(txt_embed_err)}")
+                    print(f"❌ [TEXT VECTOR ERR]: {str(txt_embed_err)}")
                 
-                # --- PHẦN 3C: GHÉP NỐI TOÁN HỌC (HYBRID CONCATENATION - 1536 CHIỀU) ---
-                # Đảm bảo cả 2 vector con đều sẵn sàng, nếu thiếu một trong hai thì sử dụng mảng không để bù kích thước
-                if not image_vector and text_vector:
-                    image_vector = [0.0] * len(text_vector)
-                if not text_vector and image_vector:
-                    text_vector = [0.0] * len(image_vector)
+                # --- PHẦN 3C: GHÉP NỐI KHỚP ĐỊNH DẠNG (1536 CHIỀU) ---
+                if not image_vector and text_vector: image_vector = [0.0] * len(text_vector)
+                if not text_vector and image_vector: text_vector = [0.0] * len(image_vector)
                     
                 if image_vector and text_vector:
                     hybrid_vector_embedding_array = list(image_vector) + list(text_vector)
-                    print(f"🚀 [HYBRID VECTOR COMPLETE] Tạo thành công Vector ma trận tích hợp {len(hybrid_vector_embedding_array)} chiều.")
-                    
+                    print(f"🚀 [HYBRID VECTOR COMPLETE]: {len(hybrid_vector_embedding_array)} dimensions generated.")
             except Exception as embed_master_err:
-                print(f"💥 [MASTER EMBED CRITICAL ERROR]: {str(embed_master_err)}")
+                print(f"💥 [MASTER EMBED ERR]: {str(embed_master_err)}")
 
-        # 4. ĐẨY GÓI DỮ LIỆU ĐỒNG BỘ CHUẨN LÊN TABLE REST API CỦA SUPABASE
+        # 4. ĐẨY DỮ LIỆU ĐỒNG BỘ LÊN TABLE REST API CỦA SUPABASE
         headers = {
             "apikey": SB_KEY, 
             "Authorization": f"Bearer {SB_KEY}",
@@ -286,7 +267,6 @@ def save_to_supabase_techpack_table(payload_data, raw_file_bytes=None, file_name
             "GradingMatrix": payload_data.get("full_size_matrix", {}),
             "ImageURL": public_image_url,
             "VisualDescription": visual_description_str,
-            # Nạp trực tiếp mảng số thực vào trường GeometryVector để kích hoạt truy vấn pgvector
             "GeometryVector": hybrid_vector_embedding_array if hybrid_vector_embedding_array else None 
         }
 
