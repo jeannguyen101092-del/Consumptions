@@ -131,20 +131,11 @@ def is_valid_jpeg(data):
 
 def save_to_supabase_techpack_table(payload_data, raw_file_bytes=None, file_name=""):
     """
-    Hàm xử lý đồng bộ dữ liệu nạp kho của Chức năng 1 (ĐÃ VÁ LỖI TOÀN DIỆN).
-    ✨ Đã loại bỏ luồng gọi API Gemini Vision chạy ngầm gây nghẽn 503.
-    ✨ Sử dụng trực tiếp byte ảnh cô lập từ Đoạn 3, vứt bỏ pdf2image/poppler lỗi.
+    Hàm xử lý đồng bộ dữ liệu nạp kho của Chức năng 1.
+    🎯 SỬA LỖI GỐC MÀN HÌNH ĐEN: Thêm bộ kiểm định cấu trúc ảnh (is_valid_jpeg) trước khi nạp.
+    Chỉ cho phép đẩy dữ liệu RAW bytes chuẩn lên Supabase Storage bằng phương thức PUT.
     """
-    import io
-    import re
-    import requests
-    import streamlit as st
-
     try:
-        # Thu thập cấu hình bảo mật trực tiếp từ Secrets
-        SB_URL = st.secrets.get("SUPABASE_URL", "")
-        SB_KEY = st.secrets.get("SUPABASE_KEY", "")
-        
         style_name_db = payload_data.get("style_number_parsed", "").strip()
         if not style_name_db or style_name_db == "UNKNOWN":
             file_style_match = re.search(r'([a-zA-Z0-9]+-[a-zA-Z0-9]+)', str(file_name))
@@ -154,49 +145,124 @@ def save_to_supabase_techpack_table(payload_data, raw_file_bytes=None, file_name
                 style_name_db = str(file_name).split('.')[0].strip()
                 
         style_name_db = style_name_db.upper()
+        sketch_b64 = payload_data.get("sketch_image", "")
         public_image_url = ""
-        
-        # 📌 SỬA LỖI 2: Lấy trực tiếp byte ảnh nhúng sạch đã được Đoạn 3 cô lập sẵn trong Session State
-        # Tuyệt đối không gọi lại pdf2image hay poppler gây sập lỗi hồng hệ thống
-        image_data = st.session_state.get("target_new_sketch_bytes", None)
+        image_data = None
 
-        # 1. ĐẨY TẬP TIN HÌNH ẢNH SẢN PHẨM LÊN SUPABASE STORAGE KHO_ANH
-        if image_data:
+        # 1. Luồng trích xuất dữ liệu hình ảnh phẳng từ tệp PDF bản vẽ kỹ thuật
+        if raw_file_bytes and file_name.lower().endswith('.pdf'):
             try:
-                storage_headers = {
-                    "apikey": SB_KEY, 
-                    "Authorization": f"Bearer {SB_KEY}",
-                    "Content-Type": "image/jpeg",
-                    "x-upsert": "true"
-                }
-                style_clean_filename = re.sub(r'[^a-zA-Z0-9_-]', '', style_name_db).upper()
-                storage_url = f"{SB_URL.rstrip('/')}/storage/v1/object/kho_anh/{style_clean_filename}.jpg"
+                import pdfplumber
+                from pdf2image import convert_from_bytes, pdfinfo_from_bytes
                 
-                upload_res = requests.put(
-                    storage_url, 
-                    headers=storage_headers, 
-                    data=image_data, 
-                    timeout=20
-                )
+                info_pdf = pdfinfo_from_bytes(raw_file_bytes)
+                total_p = int(info_pdf.get("Pages", 1))
+                pdf_images = convert_from_bytes(raw_file_bytes, dpi=90, first_page=1, last_page=total_p)
                 
-                if 200 <= upload_res.status_code <= 299:
-                    public_image_url = f"{SB_URL.rstrip('/')}/storage/v1/object/public/kho_anh/{style_clean_filename}.jpg"
-                    print(f"[STORAGE SUCCESS] Upload ảnh gốc thành công: {public_image_url}")
-            except Exception as storage_err: 
-                print(f"[STORAGE ERROR] Thất bại kết nối máy chủ ảnh: {str(storage_err)}")
+                detected_idx = int(payload_data.get("sketch_page_index_detected", 0))
+                best_idx = detected_idx
+                
+                with pdfplumber.open(io.BytesIO(raw_file_bytes)) as pdf:
+                    if 0 <= detected_idx < len(pdf.pages):
+                        page_text = pdf.pages[detected_idx].extract_text() or ""
+                        tech_words = ["WAIST", "HIP", "INSEAM", "THIGH", "RISE", "SPEC", "TARGET", "TOLERANCE", "SIZE"]
+                        word_count = sum(1 for w in tech_words if w in page_text.upper())
+                        
+                        if word_count >= 4 or len(page_text) > 400:
+                            min_text_len = 99999
+                            for i in range(min(4, len(pdf.pages))):
+                                txt = pdf.pages[i].extract_text() or ""
+                                c_count = sum(1 for w in txt.upper() if w in tech_words)
+                                if c_count < 3 and len(txt) < min_text_len:
+                                    min_text_len = len(txt)
+                                    best_idx = i
+                
+                if 0 <= best_idx < len(pdf_images):
+                    img_buf = io.BytesIO()
+                    pdf_images[best_idx].convert("RGB").save(img_buf, format="JPEG", quality=85)
+                    image_data = img_buf.getvalue()
+            except Exception as img_err:
+                print(f"[IMAGE EXTRACT ERROR]: Thất bại khi cắt ảnh từ PDF -> {str(img_err)}")
+                image_data = None
 
-        # 2. LUỒNG TRÍCH XUẤT CHUỒI ĐẶC TRƯNG HÌNH HỌC (ĐÃĐỒNG BỘ 100%)
-        # SỬA LỖI 1: KHÔNG gọi API Gemini chạy ngầm lần 2 nữa. 
-        # Tận dụng chính các tên vị trí đo vừa quét sạch để làm Vector văn bản, đạt độ chính xác và tốc độ tuyệt đối
-        measurements_raw = payload_data.get("measurements", {})
-        
-        if measurements_raw:
-            # Tạo chuỗi đặc trưng vector đồng bộ hoàn hảo bằng tên các vị trí đo cốt lõi
-            visual_description_str = "GARMENT TYPE: " + str(payload_data.get('category', 'PANT')).upper() + " . FEATURES: " + " ".join([str(k).upper() for k in measurements_raw.keys()])
+        # Nếu trích xuất PDF không ra dữ liệu, thử giải mã chuỗi Base64 gửi kèm từ FE
+        if not image_data and sketch_b64:
+            try:
+                import base64
+                # Loại bỏ phần tiền tố data:image/...;base64, nếu có
+                if "," in sketch_b64:
+                    sketch_b64 = sketch_b64.split(",")[1]
+                image_data = base64.b64decode(sketch_b64)
+            except Exception as b64_err:
+                print(f"[BASE64 DECODE ERROR]: Chuỗi Base64 ảnh bị lỗi -> {str(b64_err)}")
+                image_data = None
+
+        # 2. ĐỂY TẬP TIN HÌNH ẢNH SẢN PHẨM LÊN SUPABASE STORAGE KHO_ANH (ĐÃ KIỂM ĐỊNH FILE CHUẨN)
+        if image_data:
+            # 🛑 CHẶN ĐỨNG HÀNH VI ĐẨY FILE LỖI: Kiểm tra dữ liệu byte ảnh có đúng định dạng JPEG không
+            if not is_valid_jpeg(image_data):
+                print(f"[CRITICAL WARNING] Huỷ upload! Biến image_data cho mã {style_name_db} KHÔNG phải dữ liệu ảnh JPEG hợp lệ (kích thước: {len(image_data)} bytes). Vui lòng kiểm tra lại file PDF đầu vào.")
+            else:
+                try:
+                    storage_headers = {
+                        "apikey": SB_KEY, 
+                        "Authorization": f"Bearer {SB_KEY}",
+                        "Content-Type": "image/jpeg",
+                        "x-upsert": "true"  # Cho phép ghi đè khi sửa lỗi
+                    }
+                    style_clean_filename = re.sub(r'[^a-zA-Z0-9_-]', '', style_name_db).upper()
+                    storage_url = f"{SB_URL.rstrip('/')}/storage/v1/object/kho_anh/{style_clean_filename}.jpg"
+                    
+                    # Đẩy dữ liệu thô (raw bytes) lên API Supabase bằng phương thức PUT
+                    upload_res = requests.put(
+                        storage_url, 
+                        headers=storage_headers, 
+                        data=image_data, 
+                        timeout=20
+                    )
+                    
+                    if 200 <= upload_res.status_code <= 299:
+                        print(f"[STORAGE SUCCESS] Upload ảnh gốc thành công cho mã: {style_clean_filename}")
+                        public_image_url = f"{SB_URL.rstrip('/')}/storage/v1/object/public/kho_anh/{style_clean_filename}.jpg"
+                    else:
+                        print(f"[STORAGE ERROR] Supabase từ chối file. Mã lỗi {upload_res.status_code}: {upload_res.text}")
+                except Exception as storage_err: 
+                    print(f"[STORAGE EXCEPTION] Mất kết nối tới máy chủ Storage: {str(storage_err)}")
         else:
-            visual_description_str = f"GARMENT TYPE: {str(payload_data.get('category', 'PANT')).upper()}"
+            print(f"[WARN] Không tìm thấy bất kỳ dữ liệu hình ảnh nào (image_data rỗng) cho mã {style_name_db}")
 
-        # 3. ĐẨY GÓI DỮ LIỆU SẠCH ĐỒNG BỘ LÊN BẢNG THONG_SO_TECHPACK CỦA SUPABASE
+        # 3. LUỒNG KÍCH HOẠT MẮT THẦN AI VISION: TRÍCH XUẤT CHUỒI ĐẶC TRƯNG HÌNH HỌC
+        measurements_raw = payload_data.get("measurements", {})
+        visual_description_str = f"GARMENT TYPE: {payload_data.get('category', 'Garment Pants')}. Specs profile summary: " + ", ".join([f"{k}:{v}" for k, v in list(measurements_raw.items())[:6]])
+        
+        # Chỉ chạy AI Vision khi file ảnh được xác định là ảnh chuẩn
+        if image_data and is_valid_jpeg(image_data):
+            gemini_key = get_secure_gemini_key()
+            if gemini_key:
+                try:
+                    from google import genai
+                    from google.genai import types
+                    
+                    client_db = genai.Client(api_key=gemini_key)
+                    vision_prompt = """
+                    Analyze this technical garment flat sketch in detail.
+                    List all unique geometric attributes, structural silhouette, waistband closure type, front/back pockets layout, panel shapes, and stitch lines.
+                    Output a single dense string of these visual characteristics for apparel similarity vector matching.
+                    Do not include greetings, just return the raw dense characteristic description string.
+                    """
+                    vision_res = client_db.models.generate_content(
+                        model='gemini-2.5-flash',
+                        contents=[
+                            types.Part.from_bytes(data=image_data, mime_type='image/jpeg'),
+                            vision_prompt
+                        ]
+                    )
+                    if vision_res and vision_res.text:
+                        visual_description_str = vision_res.text.strip()
+                except Exception as ai_vision_err:
+                    print(f"[AI VISION RE-EXTRACT ERROR]: {str(ai_vision_err)}")
+
+        # 4. Đẩy gói dữ liệu sạch đồng bộ lên bảng thong_so_techpack của Supabase
         headers = {
             "apikey": SB_KEY, 
             "Authorization": f"Bearer {SB_KEY}",
@@ -208,9 +274,9 @@ def save_to_supabase_techpack_table(payload_data, raw_file_bytes=None, file_name
 
         db_payload = {
             "StyleName": style_name_db,
-            "Buyer": payload_data.get("buyer", "UNKNOWN BUYER"),
-            "Category": payload_data.get("category", "PANT"),
-            "BaseSize": payload_data.get("base_size_name", "32"),
+            "Buyer": payload_data.get("buyer"),
+            "Category": payload_data.get("category"),
+            "BaseSize": payload_data.get("base_size_name"),
             "DetailedMeasurements": clean_dict,
             "SketchURL": public_image_url,
             "sketch_vector": visual_description_str
@@ -226,8 +292,11 @@ def save_to_supabase_techpack_table(payload_data, raw_file_bytes=None, file_name
             return False
             
     except Exception as e:
+        import streamlit as st
+        st.sidebar.error(f"Lỗi xử lý hệ thống nạp kho: {str(e)}")
         print(f"[CRITICAL ERROR] Toàn hệ thống nạp kho thất bại: {str(e)}")
         return False
+
 
 
 
@@ -237,7 +306,7 @@ def save_to_supabase_techpack_table(payload_data, raw_file_bytes=None, file_name
 def get_historical_fabric_consumption_from_db(search_keyword=None):
     """
     Hàm tra cứu kho dữ liệu san_pham lịch sử nâng cao.
-    ✨ ĐÃ SỬA LỖI TRỐNG BẢNG BOM: Quét đa biến thể (viết liền, viết cách, cụm số) để bẻ khóa triệt để lỗi NOT_FOUND.
+    ✨ ĐÃ SỬA LỖI TRỐNG BẢNG BOM: Áp dụng tìm kiếm mờ chuỗi lõi, không chia cắt chữ/số làm mất hậu tố wash dệt may.
     """
     try:
         headers = {
@@ -253,61 +322,27 @@ def get_historical_fabric_consumption_from_db(search_keyword=None):
         
         if search_keyword:
             kw_raw = str(search_keyword).strip().upper()
-            # 1. Tạo biến thể viết liền loại bỏ ký tự đặc biệt (Ví dụ: R09490976)
+            # Làm sạch ký tự đặc biệt nhưng giữ nguyên vẹn chuỗi dài mã hàng để Supabase quét chính xác
             kw_clean = re.sub(r'[^A-Z0-9]', '', kw_raw)
             
-            # 2. Trích xuất cụm số độc lập cốt lõi của ngành may (Ví dụ: 490976)
-            numbers_inside = re.findall(r'\d{4,}', kw_raw)
-            sub_token = numbers_inside if numbers_inside else kw_raw
-
             if len(kw_clean) >= 5:
-                # 🔥 ĐỒNG BỘ TOÀN DIỆN: Ép Supabase tìm kiếm tất cả các biến thể cùng lúc trong bảng vật tư
-                or_filter = (
-                    f"(style_name.ilike.*{kw_raw}*,"        # Khớp mã gốc "R09-490976"
-                    f"style_name.ilike.*{kw_clean}*,"      # Khớp mã liền "R09490976"
-                    f"style_name.ilike.*{sub_token}*,"      # Khớp chuỗi số "490976"
-                    f"article_name.ilike.*{kw_raw}*,"
-                    f"article_name.ilike.*{kw_clean}*)"
-                )
+                # Tìm kiếm mờ thông minh bao quát cả mã gốc lẫn các biến thể wash rách rập phân xưởng
+                or_filter = f"(style_name.ilike.*{kw_clean}*,article_name.ilike.*{kw_clean}*)"
             else:
                 or_filter = f"(style_name.ilike.*{kw_raw}*,article_name.ilike.*{kw_raw}*)"
                 
             query_params["or"] = or_filter
         
         response = requests.get(url, headers=headers, params=query_params, timeout=15)
-        
-        if response.status_code == 200:
-            raw_list = response.json()
-            
-            # Thêm bộ lọc an toàn chống tự đối soát ở tầng đọc dữ liệu vật tư May mặc
-            current_new_style = str(st.session_state.get("new_style_id_detected", "UNKNOWN")).strip().lower()
-            clean_current_new_style = re.sub(r'[^A-Za-z0-9]', '', current_new_style)
-            
-            valid_records = []
-            for r in raw_list:
-                db_style = str(r.get("style_name", "")).lower()
-                db_style_clean = re.sub(r'[^A-Za-z0-9]', '', db_style)
-                
-                # Chặn đứng tuyệt đối không cho phép lấy định mức vật tư của chính file mới tải lên
-                if (current_new_style in db_style or 
-                    clean_current_new_style in db_style_clean or 
-                    db_style in current_new_style):
-                    continue
-                valid_records.append(r)
-                
-            return valid_records
-        else:
-            return []
-            
+        return response.json() if response.status_code == 200 else []
     except Exception: 
         return []
-
 
 
 def get_techpack_spec_from_db(style_name_keyword=None):
     """
     Hàm cho phép AI tự động tra cứu thông số từ bảng thong_so_techpack.
-    ✨ ĐÃ NÂNG CẤP ĐA BIẾN THỂ: Tự động phân rã dấu gạch và cụm số cốt lõi để chống trượt kết quả tra cứu của AI.
+    ✨ ĐÃ CHUẨN HÓA: Đảm bảo đồng bộ chính xác tên các trường dữ liệu để trả về cho Đoạn 3 hiển thị.
     """
     try:
         headers = {
@@ -322,55 +357,13 @@ def get_techpack_spec_from_db(style_name_keyword=None):
         }
         
         if style_name_keyword and str(style_name_keyword).strip().upper() != "UNKNOWN":
-            kw_raw = str(style_name_keyword).strip().upper()
-            
-            # 1. Tạo biến thể viết liền loại bỏ toàn bộ ký tự đặc biệt (Ví dụ: R09490976)
-            kw_clean = re.sub(r'[^A-Z0-9]', '', kw_raw)
-            
-            # 2. Trích xuất cụm số độc lập kết cấu lớn (Ví dụ: lấy cụm số "490976")
-            numbers_inside = re.findall(r'\d{4,}', kw_raw)
-            sub_token = numbers_inside if numbers_inside else kw_raw
-            
-            # 🔥 ĐỒNG BỘ TOÀN DIỆN: Sử dụng bộ lọc OR đa hướng để ép Supabase tìm trúng rập mẫu lịch sử
-            query_params["or"] = (
-                f"(StyleName.ilike.*{kw_raw}*,"      # Tìm theo mã gốc "R09-490976"
-                f"StyleName.ilike.*{kw_clean}*,"    # Tìm theo mã liền "R09490976"
-                f"StyleName.ilike.*{sub_token}*)"    # Tìm theo cụm số cốt lõi "490976"
-            )
+            clean_kw = str(style_name_keyword).strip()
+            query_params["StyleName"] = f"ilike.*{clean_kw}*"
             
         response = requests.get(url, headers=headers, params=query_params, timeout=15)
-        
-        if response.status_code == 200:
-            raw_styles = response.json()
-            
-            # 🚨 BỘ LỌC CHỐNG TỰ ĐỐI SOÁT TỐI CAO:
-            # Ngăn chặn không cho phép AI tự động lôi bản ghi của chính file mới tải lên ra làm kết quả tra cứu tương đồng
-            current_new_style = str(st.session_state.get("new_style_id_detected", "UNKNOWN")).strip().upper()
-            clean_current_new_style = re.sub(r'[^A-Za-z0-9]', '', current_new_style)
-            
-            valid_styles = []
-            for s in raw_styles:
-                cand_style_name = str(s.get("StyleName", "")).strip().upper()
-                clean_cand_style = re.sub(r'[^A-Za-z0-9]', '', cand_style_name)
-                
-                # Loại bỏ ngay lập tức nếu bản ghi trong kho trùng tên hoặc chứa mã Style ID của file mới đang quét
-                if (current_new_style in cand_style_name or 
-                    clean_current_new_style in clean_cand_style or 
-                    cand_style_name in current_new_style):
-                    continue # Bỏ qua bản ghi tự đối soát
-                    
-                valid_styles.append(s)
-                
-            return valid_styles
-        else:
-            return []
-            
+        return response.json() if response.status_code == 200 else []
     except Exception:
         return []
-
-# =========================================================================================
-# ĐOẠN 3 HOÀN CHỈNH: ENGINE SỐ HÓA PDF THUẦN PYTHON SIÊU TỐC VÀ SẠCH LỖI CÚ PHÁP
-# =========================================================================================
 
 def process_single_pdf_batch(file_bytes, file_name):
     """
@@ -474,17 +467,6 @@ def process_single_pdf_batch(file_bytes, file_name):
         }
     except Exception as e:
         return {"success": False, "error": f"Lỗi bóc tách PDF: {str(e)}"}
-
-
-
-
-
-
-
-
-
-
-
 
 
 
