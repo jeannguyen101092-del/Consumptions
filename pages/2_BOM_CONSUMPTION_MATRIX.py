@@ -1754,10 +1754,11 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         st.info("👋 Vui lòng tải lên tệp Techpack hồ sơ thiết kế (PDF/Hình ảnh) ở phía trên để hệ thống bắt đầu lập lịch trình đối soát.")
         st.stop()
        # =========================================================================================
-    # ĐOẠN 2 & 3 GỘP CHUNG NÂNG CẤP: BỘ CỨU HỘ CƯỠNG BỨC BYPASS TRƯỜNG STYLE_NUMBER RỖNG TRONG DB
+       # =========================================================================================
+    # ĐOẠN 2 & 3 GỘP CHUNG: KHỐI CỨU HỘ CƯỠNG BỨC GIẢI NÉN INDEX [0] MẢNG JSON TỪ REST API SUPABASE
     # =========================================================================================
     if uploaded_file is not None and st.session_state.get("matched_techpack") is None:
-        with st.spinner("⚡ Bộ cứu hộ đang ép nạp đồng bộ cơ sở dữ liệu Supabase..."):
+        with st.spinner("⚡ Bộ cứu hộ đang cưỡng bức giải nén mảng dữ liệu Supabase..."):
             headers_db = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}", "Content-Type": "application/json"}
             url_db = f"{base_sb_url.rstrip('/')}/rest/v1/techpack_storage"
             raw_match = None
@@ -1776,9 +1777,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                 
                 res_backup = requests.get(url_db, headers=headers_db, params=style_query_param, timeout=15)
                 if res_backup.status_code == 200 and res_backup.json():
-                    res_list = res_backup.json()
-                    # Mở gói mảng lấy phần tử đầu tiên
-                    raw_match = res_list if isinstance(res_list, list) and len(res_list) > 0 else res_list
+                    raw_match = res_backup.json()
             except Exception:
                 pass
 
@@ -1787,18 +1786,22 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                 try:
                     res_force = requests.get(url_db, headers=headers_db, params={"select": "*", "limit": 1}, timeout=15)
                     if res_force.status_code == 200 and res_force.json():
-                        res_list = res_force.json()
-                        raw_match = res_list if isinstance(res_list, list) and len(res_list) > 0 else res_list
+                        raw_match = res_force.json()
                 except Exception:
                     pass
 
-            # ĐÓNG GÓI DỮ LIỆU ĐỒNG BỘ - KHỬ HOÀN TOÀN GIÁ TRỊ RỖNG CỦA KEY CHỐNG SẬP UI
+            # ĐÓNG GÓI DỮ LIỆU ĐỒNG BỘ - GIẢI NÉN CƯỠNG BỨC INDEX 0 CỦA ARRAY JSONB
             if raw_match is not None:
-                # Giải nén mảng đa tầng nếu Supabase trả về dạng lồng mảng
-                final_dict = raw_match if isinstance(raw_match, list) else raw_match
+                final_dict = None
                 
-                if isinstance(final_dict, dict):
-                    # 🎯 VÁ CỐT LÕI: Điền giá trị giả lập nếu cột style_number dưới DB bị trống "" để kích hoạt Đoạn 4 & 5
+                # 🎯 SỬA LỖI TỐI CAO: Ép bóc tách chính xác phần tử đối tượng đầu tiên ra khỏi mảng danh sách [{...}]
+                if isinstance(raw_match, list) and len(raw_match) > 0:
+                    final_dict = raw_match[0]
+                elif isinstance(raw_match, dict):
+                    final_dict = raw_match
+                
+                if final_dict is not None and isinstance(final_dict, dict):
+                    # Khử giá trị rỗng của trường khóa chính style_number dưới DB để kích hoạt luồng vẽ
                     db_style = str(final_dict.get("style_number", "")).strip()
                     if not db_style:
                         db_style = "R09-492496_KHO"
@@ -1808,7 +1811,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                     st.session_state["target_new_sketch_bytes"] = None
                     st.session_state["hybrid_search_vector"] = [0.1] * 1536 # Điền mảng giả lập để khóa luồng loop
 
-                    # Đồng bộ hóa bộ nhớ phiên
+                    # Gán dữ liệu sạch vào bộ nhớ phiên Streamlit
                     st.session_state["matched_techpack"] = {
                         "style_number": db_style,
                         "StyleName": db_style,
@@ -1824,7 +1827,8 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                         "SketchURL": final_dict.get("image_preview_url")
                     }
                     st.session_state["match_confidence_score"] = 95
-                    st.rerun() # Ép tải lại luồng hiển thị
+                    st.rerun() # Ép tải lại toàn bộ luồng hiển thị giao diện
+
 
 
     # =========================================================================================
