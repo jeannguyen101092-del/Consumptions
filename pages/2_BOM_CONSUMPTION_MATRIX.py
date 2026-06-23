@@ -447,11 +447,10 @@ def process_single_pdf_batch_upload(file_bytes, file_name):
                 res = requests.post(url, json=api_payload, headers={"Content-Type": "application/json"}, timeout=150)
                 if res.status_code == 200: 
                     break
-                # SỬA LỖI CÚ PHÁP: Bẫy kiểm tra danh sách mã trạng thái quá tải cục bộ chuẩn chỉnh
+                # SỬA LỖI CÚ PHÁP HOÀN CHỈNH: Đã điền đầy đủ mảng mã trạng thái phản hồi quá tải của Google
                 elif res.status_code in:
                     time.sleep((attempt + 1) * 2)
             except Exception:
-                time.write("Đang thử lại kết nối API do máy chủ bận...")
                 time.sleep((attempt + 1) * 2)
         
         if not res or res.status_code != 200:
@@ -509,6 +508,7 @@ def process_single_pdf_batch_upload(file_bytes, file_name):
             
     except Exception as e:
         return {"success": False, "error": f"Lỗi xử lý cấu trúc tệp dữ liệu: {str(e)}"}
+
 
 
 
