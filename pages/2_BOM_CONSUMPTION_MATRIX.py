@@ -1696,43 +1696,47 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         st.stop()
        # =========================================================================================
         # =========================================================================================
-    # ĐOẠN 2 & 3 CHUẨN KIẾN TRÚC: ĐỒNG BỘ LUỒNG ĐỌC FILE REAL-TIME VÀ GỌI RPC ĐỐI SOÁT VECTOR LAI
+        # =========================================================================================
+    # ĐOẠN 2 & 3 HOÀN CHỈNH: VÁ LỖI 503 TOÀN CỤC CHỐNG QUÁ TẢI API GEMINI (RETRY LOOP BACKOFF)
     # =========================================================================================
     if uploaded_file is not None and (st.session_state.get("hybrid_search_vector") is None or force_match_btn):
         with st.spinner("🚀 Mắt thần AI đang trích xuất DNA tài liệu và số hóa cấu trúc hình học..."):
             try:
-                # 1. Đọc dữ liệu nhị phân thực tế từ file uploader
                 uploaded_file.seek(0)
                 file_bytes_raw = uploaded_file.read()
                 
-                # Gọi hàm lõi PyMuPDF (Bản không poppler) bóc tách dữ liệu PDF mẫu mới
-                vlm_result = process_single_pdf_batch(file_bytes_raw, uploaded_file.name)
+                # Khởi tạo luồng gọi lại tự động chống lỗi 503 / Máy chủ bận
+                vlm_result = {"success": False, "error": "Chưa kết nối"}
+                for attempt in range(3): # Thử lại tối đa 3 lần liên tiếp
+                    vlm_result = process_single_pdf_batch(file_bytes_raw, uploaded_file.name)
+                    if vlm_result and vlm_result.get("success"):
+                        break
+                    elif "503" in str(vlm_result.get("error")) or "UNAVAILABLE" in str(vlm_result.get("error")):
+                        # Nếu dính lỗi 503, tạm dừng tăng dần theo thời gian (Exponential Backoff) để đợi rảnh máy chủ
+                        time.sleep(2 * (attempt + 1))
+                        continue
+                    else:
+                        break
                 
                 if vlm_result and vlm_result.get("success"):
                     payload = vlm_result.get("payload_data", {})
                     
-                    # Nạp dữ liệu thực tế bóc được từ file mới vào bộ nhớ đệm
                     st.session_state["new_style_id_detected"] = str(payload.get("style_number_parsed", "UNKNOWN")).strip().upper()
                     st.session_state["new_style_measurements_dict"] = payload.get("measurements", {})
                     st.session_state["target_new_sketch_bytes"] = payload.get("_sketch_bytes_raw")
                     st.session_state["detected_category"] = payload.get("category", "Pants")
                     st.session_state["detected_mime_type"] = "image/png" if payload.get("_sketch_bytes_raw") else "application/pdf"
                     
-                    # 2. XÂY DỰNG CHUỖI VĂN BẢN ĐẶC TRƯNG DNA KHỚP 100% VỚI LÚC LƯU KHO
+                    # Cấu hình chuỗi DNA đặc trưng đồng bộ không gian hình học
                     measurements_raw = payload.get("measurements", {})
                     style_name_db = str(payload.get("style_number_parsed", "UNKNOWN")).strip().upper()
-                    buyer_val = str(payload.get("buyer", "PPJ")).strip()
-                    cat_val = str(payload.get("category", "Pants")).strip()
-                    
-                    visual_description_str = f"STYLE: {style_name_db}. BUYER: {buyer_val}. CATEGORY: {cat_val}. Specs layout: "
+                    visual_description_str = f"STYLE: {style_name_db}. BUYER: {str(payload.get('buyer','PPJ'))}. CATEGORY: {str(payload.get('category','Pants'))}. Specs layout: "
                     if measurements_raw and isinstance(measurements_raw, dict) and len(measurements_raw) > 0:
                         visual_description_str += ", ".join([f"{k}:{v}" for k, v in list(measurements_raw.items()) if v is not None])
                     else:
                         visual_description_str += "NO_MEASUREMENTS"
-                        
-                    st.session_state["visual_description_str"] = visual_description_str
 
-                    # 3. GỌI GEMINI EMBEDDING API TẠO MẢNG VECTOR LAI 1536 CHIỀU
+                    # Tạo mảng vector lai mẫu 1536 chiều qua cổng an toàn
                     gemini_key = st.secrets.get("GEMINI_API_KEY", "").strip()
                     if gemini_key:
                         try:
@@ -1740,44 +1744,78 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                             from google.genai import types
                             client_embed = genai.Client(api_key=gemini_key)
                             
-                            # A. Số hóa hình ảnh sketch mẫu mới (768 chiều)
-                            image_vector = []
+                            img_vector = [0.0] * 768
                             if payload.get("_sketch_bytes_raw"):
                                 try:
                                     img_part = types.Part.from_bytes(data=payload["_sketch_bytes_raw"], mime_type="image/png")
                                     img_embed_res = client_embed.models.embed_content(model='gemini-embedding-2', contents=[img_part])
                                     if img_embed_res and img_embed_res.embeddings:
-                                        emb_obj = img_embed_res.embeddings
-                                        image_vector = [float(x) for x in emb_obj.values]
+                                        img_vector = [float(x) for x in img_embed_res.embeddings.values]
                                 except Exception: pass
                                     
-                            if not image_vector: image_vector = [0.0] * 768
+                            if not img_vector: img_vector = [0.0] * 768
                                 
-                            # B. Số hóa chuỗi DNA văn bản mẫu mới (768 chiều)
-                            text_vector = []
+                            text_vector = [0.0] * 768
                             try:
                                 text_embed_res = client_embed.models.embed_content(model='gemini-embedding-2', contents=[visual_description_str])
                                 if text_embed_res and text_embed_res.embeddings:
-                                    emb_obj = text_embed_res.embeddings
-                                    text_vector = [float(x) for x in emb_obj.values]
+                                    text_vector = [float(x) for x in text_embed_res.embeddings.values]
                             except Exception: pass
                                 
                             if not text_vector: text_vector = [0.0] * 768
                             
-                            # Ghép nối toán học đúng thứ tự: [ẢNH] + [CHỮ] = 1536 chiều
-                            st.session_state["hybrid_search_vector"] = list(image_vector) + list(text_vector)
-                            print(f"🚀 [VECTOR MATCH COMPLETE]: Đã tạo xong vector lai thực tế. Kích hoạt gọi RPC...")
+                            st.session_state["hybrid_search_vector"] = list(img_vector) + list(text_vector)
+                            print(f"🚀 [EMBEDDING SUCCESS]: Tạo thành công vector 1536 chiều.")
                         except Exception: pass
                     
                     if not st.session_state.get("hybrid_search_vector") or len(st.session_state["hybrid_search_vector"]) != 1536:
                         st.session_state["hybrid_search_vector"] = [0.1] * 1536
                         
-                    st.session_state["matched_techpack"] = None # Reset trạng thái khớp cũ để luồng dưới quét lại trên tọa độ mới
+                    st.session_state["matched_techpack"] = None 
                     st.rerun()
                 else:
                     st.sidebar.error(f"Lỗi phân tích VLM: {vlm_result.get('error')}")
             except Exception as e_trigger:
                 print(f"❌ [TRIGGER RETRIEVER ERROR]: {str(e_trigger)}")
+
+    # =========================================================================================
+    # LỚP ĐỐI SOÁT VECTOR LAI THỜI GIAN THỰC QỦA CỔNG RPC ENDPOINT (insert_techpack_v2)
+    # =========================================================================================
+    if st.session_state.get("matched_techpack") is None and st.session_state.get("hybrid_search_vector") is not None:
+        with st.spinner("🔍 Đang truy vấn thuật toán Cosine để đối chiếu phom dáng hình học trong kho..."):
+            try:
+                headers_db = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}", "Content-Type": "application/json"}
+                rpc_payload = {
+                    "query_embedding": st.session_state["hybrid_search_vector"],
+                    "match_threshold": 0.35, 
+                    "match_count": 1
+                }
+                rpc_url = f"{base_sb_url.rstrip('/')}/rest/v1/rpc/match_techpack_similarity"
+                response = requests.post(rpc_url, headers=headers_db, json=rpc_payload, timeout=20)
+                
+                if response.status_code == 200:
+                    results = response.json()
+                    if results:
+                        best_match = results
+                        st.session_state["matched_techpack"] = {
+                            "style_number": best_match.get("style_number"),
+                            "StyleName": best_match.get("style_number") or best_match.get("StyleName") or "KHO_MẪU",
+                            "buyer": best_match.get("buyer"),
+                            "Buyer": best_match.get("buyer") or best_match.get("Buyer") or "PPJ BUYER",
+                            "category": best_match.get("category"),
+                            "Category": best_match.get("category") or best_match.get("Category") or "PANTS",
+                            "base_size": best_match.get("base_size"),
+                            "BaseSize": best_match.get("base_size") or best_match.get("BaseSize") or "30",
+                            "measurements": best_match.get("measurements"),
+                            "DetailedMeasurements": best_match.get("measurements") or best_match.get("DetailedMeasurements"),
+                            "image_preview_url": best_match.get("image_preview_url"),
+                            "SketchURL": best_match.get("image_preview_url") or best_match.get("SketchURL")
+                        }
+                        st.session_state["match_confidence_score"] = int(best_match.get("similarity", 0.0) * 100)
+                        st.rerun()
+            except Exception as match_master_err:
+                print(f"💥 [SIMILARITY ENGINE CRASH]: {str(match_master_err)}")
+
 
     # =========================================================================================
     # LỚP ĐỐI SOÁT VECTOR LAI THỜI GIAN THỰC QỦA CỔNG RPC ENDPOINT (insert_techpack_v2)
