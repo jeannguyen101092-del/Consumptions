@@ -1797,7 +1797,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
 
     # =========================================================================================
 # =========================================================================================
-# ĐOẠN 5 HOÀN CHỈNH: TRÍCH XUẤT ĐỊNH MỨC (BOM) THÔNG MINH VÀ ĐỐI CHIẾU FLAT SKETCH
+# ĐOẠN 5 HOÀN CHỈNH: TRÍCH XUẤT ĐỊNH MỨC (BOM) VÀ ĐỐI CHIẾU FLAT SKETCH (CHỐNG TỰ ĐỐI SOÁT)
 # =========================================================================================
 
 import pandas as pd
@@ -1823,7 +1823,7 @@ matched_techpack = st.session_state.get("matched_techpack")
 base_url_api = base_sb_url if base_sb_url else (SB_URL if SB_URL else "")
 api_headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if SB_KEY else {}
 
-# 2. VÁ LỖI TRUY VẤN BOM: TỰ ĐỘNG BÓC TÁCH MÃ SỐ VÀ NỚI LỎNG ĐIỀU KIỆN TÌM KIẾM CHỐNG LỆCH ĐỊNH DẠNG
+# 2. VÁ LỖI TRUY VẤN BOM: CHỐNG TỰ ĐỐI SOÁT VỚI CHÍNH MÌNH (ANTI-SELF MATCHING FILTER)
 if matched_techpack and "bom_records" not in st.session_state:
     st.session_state["bom_records"] = []
     target_style_name_bom = str(matched_techpack.get("StyleName", "")).strip()
@@ -1831,13 +1831,15 @@ if matched_techpack and "bom_records" not in st.session_state:
 
     if url_bom and target_style_name_bom:
         try:
-            # Tạo các biến thể tìm kiếm để bao quát các cách lưu trữ (Ví dụ: "R09-490436" -> "R09490436")
+            # Tạo các biến thể tìm kiếm để bao quát các cách lưu trữ (Ví dụ: "R09-496094")
             clean_style_num = re.sub(r'[^A-Za-z0-9]', '', target_style_name_bom)
-            
-            # Trích xuất chuỗi số cốt lõi (Ví dụ: lấy cụm số "490436") để làm fallback truy tìm
             numbers_inside = re.findall(r'\d{4,}', target_style_name_bom)
-            sub_token = numbers_inside[0] if numbers_inside else target_style_name_bom
+            sub_token = numbers_inside if numbers_inside else target_style_name_bom
             
+            # Lấy mã Style thực tế của file mới vừa tải lên để làm bộ lọc chặn trùng lặp
+            current_new_style = str(st.session_state.get("new_style_id_detected", "UNKNOWN")).strip().lower()
+            clean_current_new_style = re.sub(r'[^A-Za-z0-9]', '', current_new_style)
+
             # Sử dụng cú pháp query "or" của PostgREST (Supabase) để quét diện rộng
             query_bom = {
                 "select": "style_name,article_name,material_code,fabric_type,supplier,color,consumption_type,material_size,uom,consumption_value,notes",
@@ -1848,12 +1850,18 @@ if matched_techpack and "bom_records" not in st.session_state:
             if res_bom.status_code == 200:
                 raw_list = res_bom.json()
                 
-                # Nới lỏng bộ lọc: Chỉ cần trùng khớp mã thô, mã viết liền hoặc cụm số cốt lõi là ghi nhận
                 valid_records = []
                 for r in raw_list:
                     db_style = str(r.get("style_name", "")).lower()
                     db_style_clean = re.sub(r'[^A-Za-z0-9]', '', db_style)
                     
+                    # 🔥 ĐIỀU KIỆN TIÊN QUYẾT: Loại bỏ ngay lập tức nếu bản ghi trong kho chứa tên của chính mã mới đang quét
+                    if (current_new_style in db_style or 
+                        clean_current_new_style in db_style_clean or 
+                        db_style in current_new_style):
+                        continue # Bỏ qua bản ghi tự đối soát
+                    
+                    # Nếu vượt qua bộ lọc chặn trùng lặp, tiến hành kiểm tra khớp mã hàng lịch sử
                     if (target_style_name_bom.lower() in db_style or 
                         clean_style_num.lower() in db_style_clean or 
                         sub_token.lower() in db_style_clean):
