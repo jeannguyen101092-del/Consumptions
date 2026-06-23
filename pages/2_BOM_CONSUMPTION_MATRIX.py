@@ -1923,7 +1923,6 @@ if new_style_measurements_dict:
     st.session_state["new_style_measurements_dict"] = new_style_measurements_dict
 
 
-
     # ==========================================================
     # 📐 BẢNG SO SÁNH SAI LỆCH THÔNG SỐ RẬP (CƠ CHẾ BẢO VỆ CHỐNG ẨN BẢNG)
     # ==========================================================
@@ -2010,13 +2009,30 @@ if new_style_measurements_dict:
         st.info("ℹ️ Hệ thống sẵn sàng đối soát. Đang đợi đồng bộ luồng dữ liệu thô.")
 
 
+    # SỬA LỖI VÁ CHÍ MẠNG 1: Tự động tính toán tỷ lệ tăng trưởng diện tích trung bình để làm mồi cho AI Engine
+    if valid_diff_pcts:
+        avg_area_growth_pct = round(sum(valid_diff_pcts) / len(valid_diff_pcts), 2)
+    else:
+        avg_area_growth_pct = 0.0
 
-
-
+    # SỬA LỖI VÁ CHÍ MẠNG 2: Khởi tạo và tổng hợp bom_summary_engine từ danh sách vật tư bom_records thu được từ Đoạn 5
+    bom_summary_engine = {}
+    if 'bom_records' in st.session_state and st.session_state["bom_records"]:
+        for record in st.session_state["bom_records"]:
+            # Phân nhóm vật tư theo tên chủng loại (Ví dụ: Vải chính, Vải lót, Chỉ may...)
+            material_type = record.get("consumption_type") or record.get("article_name") or "PHỤ LIỆU CHUNG"
+            try:
+                consumption_value = float(record.get("consumption_value", 0) or 0)
+            except (ValueError, TypeError):
+                consumption_value = 0.0
+                
+            if material_type:
+                bom_summary_engine[material_type] = bom_summary_engine.get(material_type, 0) + consumption_value
 
 
     # --- AI CONSUMPTION PROJECTION ENGINE ---
-    if matched_techpack and st.session_state.get("matched_image_verified", False) and bom_records:
+    # Kiểm tra điều kiện: Phải khớp được mã và kho vật tư bom_summary_engine phải có dữ liệu mới chạy dự phóng
+    if matched_techpack and bom_summary_engine:
         st.markdown("<br>🔮 **AI CONSUMPTION PROJECTION ENGINE (DỰ PHÓNG ĐỊNH MỨC MÃ MỚI)**", unsafe_allow_html=True)
         
         v_similarity = st.session_state.get("matched_similarity_score", 100.0)
@@ -2030,7 +2046,7 @@ if new_style_measurements_dict:
         for ctype, old_qty in bom_summary_engine.items():
             # Đồng bộ hóa định dạng chữ để kiểm tra chính xác chủng loại vải chính/vải lót chịu ảnh hưởng nhảy size
             ctype_upper = str(ctype).strip().upper()
-            if any(k in ctype_upper for k in ["MAIN", "FABRIC", "BODY", "SHELL", "LINING", "RIB", "COMBINATION", "POCKETING"]):
+            if any(k in ctype_upper for k in ["MAIN", "FABRIC", "BODY", "SHELL", "LINING", "RIB", "COMBINATION", "POCKETING", "VẢI"]):
                 similarity_weight = v_similarity / 100.0
                 adjusted_shape_factor = shape_factor * similarity_weight
                 projected_dm = old_qty * (1 + adjusted_shape_factor / 100) * (1 + wastage_buffer / 100)
@@ -2041,14 +2057,19 @@ if new_style_measurements_dict:
                 
             projection_rows.append({
                 "Phân loại vật tư (Type)": ctype,
-                "Tổng ĐM mã cũ": old_qty,
+                "Tổng ĐM mã cũ": round(old_qty, 3),
                 "ĐM Dự phóng mã mới": round(projected_dm, 3),
                 "Cơ sở thuật toán toán AI": note
             })
             
         df_projection = pd.DataFrame(projection_rows)
         st.session_state["ai_projected_consumption_matrix"] = projection_rows
-        st.dataframe(df_projection, use_container_width=True, hide_index=True)
+        
+        # Kiểm tra nếu bảng tạo ra có dòng dữ liệu thì mới hiển thị lên Streamlit UI
+        if not df_projection.empty:
+            st.dataframe(df_projection, use_container_width=True, hide_index=True)
+        else:
+            st.info("ℹ️ Đang phân tích cấu trúc định mức nguyên vật liệu nâng cao...")
 
 import json
 import re
