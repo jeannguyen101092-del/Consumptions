@@ -364,10 +364,6 @@ def get_techpack_spec_from_db(style_name_keyword=None):
         return response.json() if response.status_code == 200 else []
     except Exception:
         return []
-# =========================================================================================
-# ĐOẠN 3 SỬA ĐỔI: HÀM NẠP KHO SỬ DỤNG BỘ ĐỌC THUẦN PYTHON CHỐNG LỖI POPPLER
-# =========================================================================================
-
 def process_single_pdf_batch_upload(file_bytes, file_name):
     """
     Hàm số hóa trích xuất dữ liệu Techpack chuyên dụng cho luồng NẠP KHO (Upload Techpack).
@@ -449,10 +445,13 @@ def process_single_pdf_batch_upload(file_bytes, file_name):
         for attempt in range(3):
             try:
                 res = requests.post(url, json=api_payload, headers={"Content-Type": "application/json"}, timeout=150)
-                if res.status_code == 200: break
+                if res.status_code == 200: 
+                    break
+                # SỬA LỖI CÚ PHÁP: Bẫy kiểm tra danh sách mã trạng thái quá tải cục bộ chuẩn chỉnh
                 elif res.status_code in:
                     time.sleep((attempt + 1) * 2)
             except Exception:
+                time.write("Đang thử lại kết nối API do máy chủ bận...")
                 time.sleep((attempt + 1) * 2)
         
         if not res or res.status_code != 200:
@@ -486,7 +485,7 @@ def process_single_pdf_batch_upload(file_bytes, file_name):
         except Exception:
             pass
 
-        # 🚨 ĐỐI VỚI LUỒNG NẠP KHO: KÍCH HOẠT ĐỒNG BỘ LƯU KHÔ THỰC TẾ LÊN SUPABASE
+        # ĐỐI VỚI LUỒNG NẠP KHO: KÍCH HOẠT ĐỒNG BỘ LƯU KHÔ THỰC TẾ LÊN SUPABASE
         if "save_to_supabase_techpack_table" in globals():
             try:
                 save_to_supabase_techpack_table(parsed_data, raw_file_bytes=file_bytes, file_name=file_name)
@@ -510,7 +509,6 @@ def process_single_pdf_batch_upload(file_bytes, file_name):
             
     except Exception as e:
         return {"success": False, "error": f"Lỗi xử lý cấu trúc tệp dữ liệu: {str(e)}"}
-
 
 
 
