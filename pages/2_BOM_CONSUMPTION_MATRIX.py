@@ -132,7 +132,7 @@ def is_valid_jpeg(data):
 def save_to_supabase_techpack_table(payload_data, raw_file_bytes=None, file_name=""):
     """
     Hàm xử lý đồng bộ dữ liệu nạp kho và SỐ HÓA HYBRID VECTOR CHUẨN CÔNG NGHIỆP.
-    🎯 SỬA LỖI 0/1: Ép triệt để Protobuf Array về mảng float thô tương thích Rest API Supabase.
+    🎯 ĐOẠN 1a: Nhận dạng định dạng ảnh, xử lý tệp nhị phân và đẩy lên Supabase Storage.
     """
     import requests
     import json
@@ -159,6 +159,7 @@ def save_to_supabase_techpack_table(payload_data, raw_file_bytes=None, file_name
         image_data = None
         mime_type = "image/jpeg"
 
+        # Khôi phục dữ liệu ảnh thô từ bộ nhớ tạm _sketch_bytes_raw do Backend chuyển sang
         if payload_data.get("_sketch_bytes_raw"):
             image_data = payload_data["_sketch_bytes_raw"]
         elif sketch_b64:
@@ -170,13 +171,14 @@ def save_to_supabase_techpack_table(payload_data, raw_file_bytes=None, file_name
             except Exception as b64_err:
                 print(f"[BASE64 DECODE ERROR]: {str(b64_err)}")
 
+        # Tự động nhận diện định dạng ảnh thực tế bằng các Magic Bytes đầu tệp
         if image_data:
             if image_data.startswith(b'\x89PNG\r\n\x1a\n'):
                 mime_type = "image/png"
             elif image_data.startswith(b'\xff\xd8'):
                 mime_type = "image/jpeg"
 
-        # 1. ĐẨY FILE HÌNH ẢNH SẢN PHẨM LÊN SUPABASE STORAGE
+        # 1. ĐẨY FILE HÌNH ẢNH SẢN PHẨM LÊN SUPABASE STORAGE KHO_ANH
         if image_data:
             try:
                 storage_headers = {
@@ -192,10 +194,11 @@ def save_to_supabase_techpack_table(payload_data, raw_file_bytes=None, file_name
                 upload_res = requests.put(storage_url, headers=storage_headers, data=image_data, timeout=20)
                 if 200 <= upload_res.status_code <= 299:
                     public_image_url = f"{SB_URL.rstrip('/')}/storage/v1/object/public/kho_anh/{style_clean_filename}.{ext}"
+                    print(f"[STORAGE SUCCESS] Upload ảnh thành công: {public_image_url}")
             except Exception as storage_err: 
                 print(f"[STORAGE EXCEPTION]: {str(storage_err)}")
 
-        # 2. XÂY DỰNG CHUỒI ĐẶC TRƯNG VĂN BẢN
+        # 2. XÂY DỰNG CHUỖI ĐẶC TRƯNG VĂN BẢN (TEXT SPEC CHARACTERS)
         measurements_raw = payload_data.get("measurements", {})
         visual_description_str = f"STYLE: {style_name_db}. BUYER: {payload_data.get('buyer', 'PPJ')}. CATEGORY: {payload_data.get('category', 'Pants')}. Specs details: "
         visual_description_str += ", ".join([f"{k}:{v}" for k, v in list(measurements_raw.items())])
@@ -219,7 +222,6 @@ def save_to_supabase_techpack_table(payload_data, raw_file_bytes=None, file_name
                             contents=[img_part]
                         )
                         if img_embed_res and img_embed_res.embeddings:
-                            # SỬA LỖI ĐÚNG 100%: Dùng List Comprehension ép cứng Protobuf về float thường
                             image_vector = [float(x) for x in img_embed_res.embeddings.values]
                     except Exception as img_embed_err:
                         print(f"❌ [IMAGE VECTOR ERR]: {str(img_embed_err)}")
@@ -232,7 +234,6 @@ def save_to_supabase_techpack_table(payload_data, raw_file_bytes=None, file_name
                         contents=[visual_description_str]
                     )
                     if text_embed_res and text_embed_res.embeddings:
-                        # Ép mảng thông số chữ về float thường
                         text_vector = [float(x) for x in text_embed_res.embeddings.values]
                 except Exception as txt_embed_err:
                     print(f"❌ [TEXT VECTOR ERR]: {str(txt_embed_err)}")
@@ -242,8 +243,10 @@ def save_to_supabase_techpack_table(payload_data, raw_file_bytes=None, file_name
                 if not text_vector and image_vector: text_vector = [0.0] * len(image_vector)
                     
                 if image_vector and text_vector:
-                    hybrid_vector_embedding_array = list(image_vector) + list(text_vector)
-                    print(f"🚀 [HYBRID COMPLETE]: {len(hybrid_vector_embedding_array)} floats arrays packed.")
+                    # FIX SỐ 1: Ép định dạng về dạng chuỗi văn bản mảng số thực tương thích chuẩn PostgREST
+                    raw_floats = list(image_vector) + list(text_vector)
+                    hybrid_vector_embedding_array = "[" + ",".join([str(f) for f in raw_floats]) + "]"
+                    print(f"🚀 [HYBRID COMPLETE]: {len(raw_floats)} dimensions string formatted.")
             except Exception as embed_master_err:
                 print(f"💥 [MASTER EMBED ERR]: {str(embed_master_err)}")
 
@@ -257,7 +260,8 @@ def save_to_supabase_techpack_table(payload_data, raw_file_bytes=None, file_name
         insert_url = f"{SB_URL.rstrip('/')}/rest/v1/thong_so_techpack"
         clean_dict = {str(k).strip(): str(v).strip() for k, v in dict(measurements_raw).items()}
 
-        db_payload = {
+        # Xây dựng gói payload cơ bản
+        base_payload = {
             "StyleName": style_name_db,
             "Buyer": payload_data.get("buyer", "UNKNOWN BUYER"),
             "Category": payload_data.get("category", "GARMENT"),
@@ -265,18 +269,30 @@ def save_to_supabase_techpack_table(payload_data, raw_file_bytes=None, file_name
             "DetailedMeasurements": clean_dict,
             "GradingMatrix": payload_data.get("full_size_matrix", {}),
             "ImageURL": public_image_url,
-            "VisualDescription": visual_description_str,
-            "GeometryVector": hybrid_vector_embedding_array if hybrid_vector_embedding_array else None 
+            "VisualDescription": visual_description_str
         }
 
-        db_res = requests.post(insert_url, headers=headers, json=db_payload, timeout=20)
+        # FIX SỐ 2: CHIẾN LƯỢC TỰ ĐỘNG DÒ TÊN CỘT ĐỂ KHỬ SẠCH LỖI HTTP 400 LỆCH TÊN TRƯỜNG
+        possible_column_names = ["GeometryVector", "geometry_vector", "Geometry_Vector"]
+        db_res = None
         
-        # In mã lỗi HTTP và lý do chi tiết trực tiếp lên Terminal để kiểm soát sập kết nối
-        if db_res.status_code < 200 or db_res.status_code > 299:
-            print(f"❌ [SUPABASE REST REJECT] HTTP {db_res.status_code}: {db_res.text}")
-            st.sidebar.error(f"Supabase Reject: HTTP {db_res.status_code}")
+        for col_name in possible_column_names:
+            db_payload = base_payload.copy()
+            db_payload[col_name] = hybrid_vector_embedding_array if hybrid_vector_embedding_array else None
             
-        return 200 <= db_res.status_code <= 299
+            db_res = requests.post(insert_url, headers=headers, json=db_payload, timeout=20)
+            
+            # Nếu thành công (Mã 201 hoặc 200), ngắt vòng lặp dò tìm cột ngay lập tức
+            if 200 <= db_res.status_code <= 299:
+                print(f"✅ [SUPABASE SUCCESS] Đồng bộ thành công dữ liệu lai thông qua trường cột: {col_name}")
+                return True
+                
+        # In mã lỗi HTTP cuối cùng nếu tất cả các cột dò tìm đều bị từ chối
+        if db_res is not None:
+            print(f"❌ [SUPABASE REST REJECT FINAL] HTTP {db_res.status_code}: {db_res.text}")
+            st.sidebar.error(f"Supabase Reject: HTTP {db_res.status_code} | Details: {db_res.text[:80]}")
+            
+        return False
     except Exception as e:
         print(f"❌ [CRITICAL DB MAIN ERR]: {str(e)}")
         st.sidebar.error(f"Crash Main DB: {str(e)}")
