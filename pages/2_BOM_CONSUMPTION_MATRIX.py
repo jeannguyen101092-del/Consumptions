@@ -1858,224 +1858,116 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
 
 
 
-    # =========================================================================================
 # =========================================================================================
-# ĐOẠN 5 HOÀN CHỈNH: TRÍCH XUẤT ĐỊNH MỨC (BOM) VÀ ĐỐI CHIẾU FLAT SKETCH (CHỐNG TỰ ĐỐI SOÁT)
-# =========================================================================================
-# =========================================================================================
-# ĐOẠN 5 ĐÃ SỬA: KHÓA TRIỆT ĐỂ GIAO DIỆN ĐỐI CHIẾU CHỈ HIỂN THỊ TRONG MENU BOM & MATRIX
+# ĐOẠN 5 HOÀN CHỈNH: GIAO DIỆN ĐỐI CHIẾU FLAT SKETCH (KHÓA CHẶT TRẠNG THÁI THEO MENU)
 # =========================================================================================
 
-# 🚨 CHÈN ĐIỀU KIỆN NÀY VÀO ĐẦU ĐOẠN 5 ĐỂ KHÓA CHẶT GIAO DIỆN:
+# 🚨 BỘ KHÓA TỐI CAO: Chỉ cho phép render toàn bộ giao diện đối chiếu hình ảnh khi đang ở đúng menu chức năng
 if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption Matrix":
-    
     import pandas as pd
     import requests
     import streamlit as st
     import re
     from urllib.parse import quote 
 
-    # Toàn bộ logic xử lý trích xuất định mức BOM cũ và render giao diện img_col1, img_col2...
-    target_new_sketch_bytes = st.session_state.get("target_new_sketch_bytes", None)
-    new_style_id_detected = st.session_state.get("new_style_id_detected", "UNKNOWN")
-    new_style_base_size = st.session_state.get("new_style_base_size", "N/A")
-    new_style_measurements_dict = st.session_state.get("new_style_measurements_dict", {})
-
-    base_sb_url = globals().get("base_sb_url", "")
-    SB_URL = globals().get("SB_URL", "")
-    SB_KEY = globals().get("SB_KEY", "")
-    matched_techpack = st.session_state.get("matched_techpack")
-    base_url_api = base_sb_url if base_sb_url else (SB_URL if SB_URL else "")
-    api_headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if SB_KEY else {}
-
-    # (Giữ nguyên toàn bộ logic kết nối database và render img_col1, img_col2 của Đoạn 5 đã viết trước đó...)
-    st.markdown("### 🖼️ ĐỐI CHIẾU SỰ TƯƠNG ĐỒNG HÌNH ẢNH THIẾT KẾ (FLAT SKETCH)")
-    img_col1, img_col2 = st.columns(2)
-    
-    with img_col1:
-        # Code hiển thị ảnh chụp/ảnh trích xuất mẫu mới
-        # ...
-        pass
-        
-    with img_col2:
-        # Code hiển thị ảnh gốc đối chứng mã tương đồng từ kho
-        # ...
-        pass
-
-    if new_style_measurements_dict:
-        st.session_state["new_style_measurements_dict"] = new_style_measurements_dict
-
-import pandas as pd
-import requests
-import streamlit as st
-import re
-# Định nghĩa thư viện mã hóa tên tệp URL có khoảng trắng hoặc ký tự đặc biệt
-from urllib.parse import quote 
-from concurrent.futures import ThreadPoolExecutor
-
-# 1. ĐỒNG BỘ AN TOÀN TRẠNG THÁI BIẾN TỪ SESSION STATE ĐỂ TRÁNH MẤT BYTE HOẶC ĐÈ BIẾN RỖNG
-target_new_sketch_bytes = st.session_state.get("target_new_sketch_bytes", None)
-new_style_id_detected = st.session_state.get("new_style_id_detected", "UNKNOWN")
-new_style_base_size = st.session_state.get("new_style_base_size", "N/A")
-new_style_measurements_dict = st.session_state.get("new_style_measurements_dict", {})
-
-base_sb_url = globals().get("base_sb_url", "")
-SB_URL = globals().get("SB_URL", "")
-SB_KEY = globals().get("SB_KEY", "")
-
-matched_techpack = st.session_state.get("matched_techpack")
-
-base_url_api = base_sb_url if base_sb_url else (SB_URL if SB_URL else "")
-api_headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if SB_KEY else {}
-
-# 2. VÁ LỖI TRUY VẤN BOM: CHỐNG TỰ ĐỐI SOÁT VỚI CHÍNH MÌNH (ANTI-SELF MATCHING FILTER)
-if matched_techpack and "bom_records" not in st.session_state:
-    st.session_state["bom_records"] = []
-    target_style_name_bom = str(matched_techpack.get("StyleName", "")).strip()
-    url_bom = f"{base_url_api.rstrip('/')}/rest/v1/san_pham" if base_url_api else ""
-
-    if url_bom and target_style_name_bom:
-        try:
-            # Tạo các biến thể tìm kiếm để bao quát các cách lưu trữ (Ví dụ: "R09-496094")
-            clean_style_num = re.sub(r'[^A-Za-z0-9]', '', target_style_name_bom)
-            numbers_inside = re.findall(r'\d{4,}', target_style_name_bom)
-            sub_token = numbers_inside if numbers_inside else target_style_name_bom
-            
-            # Lấy mã Style thực tế của file mới vừa tải lên để làm bộ lọc chặn trùng lặp
-            current_new_style = str(st.session_state.get("new_style_id_detected", "UNKNOWN")).strip().lower()
-            clean_current_new_style = re.sub(r'[^A-Za-z0-9]', '', current_new_style)
-
-            # Sử dụng cú pháp query "or" của PostgREST (Supabase) để quét diện rộng
-            query_bom = {
-                "select": "style_name,article_name,material_code,fabric_type,supplier,color,consumption_type,material_size,uom,consumption_value,notes",
-                "or": f"(style_name.ilike.*{target_style_name_bom}*,style_name.ilike.*{clean_style_num}*,style_name.ilike.*{sub_token}*)"
-            }
-            
-            res_bom = requests.get(url_bom, headers=api_headers, params=query_bom, timeout=12)
-            if res_bom.status_code == 200:
-                raw_list = res_bom.json()
-                
-                valid_records = []
-                for r in raw_list:
-                    db_style = str(r.get("style_name", "")).lower()
-                    db_style_clean = re.sub(r'[^A-Za-z0-9]', '', db_style)
-                    
-                    # 🔥 ĐIỀU KIỆN TIÊN QUYẾT: Loại bỏ ngay lập tức nếu bản ghi trong kho chứa tên của chính mã mới đang quét
-                    if (current_new_style in db_style or 
-                        clean_current_new_style in db_style_clean or 
-                        db_style in current_new_style):
-                        continue # Bỏ qua bản ghi tự đối soát
-                    
-                    # Nếu vượt qua bộ lọc chặn trùng lặp, tiến hành kiểm tra khớp mã hàng lịch sử
-                    if (target_style_name_bom.lower() in db_style or 
-                        clean_style_num.lower() in db_style_clean or 
-                        sub_token.lower() in db_style_clean):
-                        valid_records.append(r)
-                        
-                st.session_state["bom_records"] = valid_records
-        except Exception as e:
-            st.warning(f"Lỗi kết nối trích xuất tầng dữ liệu BOM: {str(e)}")
-
-bom_records = st.session_state.get("bom_records", [])
-
-# ==========================================================
-# 🖼️ GIAO DIỆN ĐỐI CHIẾU FLAT SKETCH (ĐÃ CHUẨN HÓA ĐƯỜNG DẪN ẢNH)
-# ==========================================================
-st.markdown("### 🖼️ ĐỐI CHIẾU SỰ TƯƠNG ĐỒNG HÌNH ẢNH THIẾT KẾ (FLAT SKETCH)")
-img_col1, img_col2 = st.columns(2)
-
-# =========================================================================================
-# ĐOẠN 5 NÂNG CẤP: TỰ ĐỘNG CHỤP TRANG PDF LÀM ẢNH MINH HỌA MẪU MỚI (CHỐNG ẨN KHUNG ẢNH)
-# =========================================================================================
-
-with img_col1:
-    uploaded_file_name = st.session_state.get("previous_uploaded_file_name", "Techpack")
-    detected_mime_type = st.session_state.get("detected_mime_type", "application/pdf")
+    # Thu thập cấu hình an toàn từ bộ nhớ đệm session_state
     target_new_sketch_bytes = st.session_state.get("target_new_sketch_bytes", None)
     new_style_id_detected = st.session_state.get("new_style_id_detected", "N/A")
+    new_style_measurements_dict = st.session_state.get("new_style_measurements_dict", {})
+    matched_techpack = st.session_state.get("matched_techpack", None)
 
-    st.markdown(f"**📄 Tài liệu mẫu mới:** `{uploaded_file_name}`")
-    
-    # TRƯỜNG HỢP 1: Nếu trích xuất được trực tiếp byte ảnh nhúng sạch từ Gemini/PyPDF
-    if target_new_sketch_bytes is not None:
-        try:
-            st.image(target_new_sketch_bytes, caption=f"Bản vẽ kĩ thuật trích xuất từ tài liệu mới ({new_style_id_detected})", use_container_width=True)
-        except Exception:
-            target_new_sketch_bytes = None # Hạ cấp xuống trường hợp dự phòng nếu render lỗi
+    st.markdown("### 🖼️ ĐỐI CHIẾU SỰ TƯƠNG ĐỒNG HÌNH ẢNH THIẾT KẾ (FLAT SKETCH)")
+    img_col1, img_col2 = st.columns(2)
 
-    # TRƯỜNG HỢP 2: CƠ CHẾ CẤP CỨU SỬ DỤNG STREAMLIT FILE BUFFER ĐỂ HIỂN THỊ TRỰC TIẾP
-    if target_new_sketch_bytes is None:
-        if "bom_matrix_uploader" in st.session_state and st.session_state["bom_matrix_uploader"] is not None:
-            file_buffer = st.session_state["bom_matrix_uploader"]
-            
-            # A. Nếu file người dùng tải lên vốn là file ảnh gốc trực tiếp (PNG/JPG) -> Ép hiển thị trực tiếp uploader
-            if "image" in str(detected_mime_type).lower() or any(ext in str(uploaded_file_name).lower() for ext in [".jpg", ".jpeg", ".png"]):
-                st.image(file_buffer, caption=f"Ảnh thiết kế mẫu mới ({new_style_id_detected})", use_container_width=True)
-                
-            # B. Nếu file tải lên là PDF đa trang và không tách được ảnh nhúng -> Kích hoạt mắt thần chụp trang PDF thành ảnh
-            else:
-                try:
-                    # Sử dụng thư viện fitz (PyMuPDF) để render trang PDF thành ảnh trực tiếp trên RAM không tốn dung lượng ổ cứng
-                    import fitz  # pip install PyMuPDF
-                    # Đưa con trỏ stream file về vị trí xuất phát để đọc toàn bộ tệp
-                    file_buffer.seek(0)
-                    pdf_document = fitz.open(stream=file_buffer.read(), filetype="pdf")
-                    
-                    # Mặc định chụp trang đầu tiên (Trang 0 - Thường là trang bìa hoặc trang tổng quan chứa Flat Sketch)
-                    # Bạn có thể đổi số 0 thành số trang mong muốn nếu Sketch nằm ở trang khác
-                    page = pdf_document.load_page(0) 
-                    
-                    # Tăng độ nét ma trận ảnh chụp lên 2 lần (DPI cao) để không bị mờ bảng thông số
-                    zoom = 2
-                    mat = fitz.Matrix(zoom, zoom)
-                    pix = page.get_pixmap(matrix=mat)
-                    
-                    # Chuyển đổi dữ liệu pixmap sang mảng byte ảnh PNG sạch
-                    img_png_bytes = pix.tobytes("png")
-                    
-                    st.image(img_png_bytes, caption=f"Ảnh chụp trực quan trang tài liệu Techpack ({new_style_id_detected})", use_container_width=True)
-                except Exception as pdf_err:
-                    # Nếu môi trường server thiếu thư viện PyMuPDF, hiển thị hộp thông báo kèm icon mượt mà
-                    st.info("💡 **Hồ sơ tài liệu dạng cấu trúc tệp PDF đa trang:**\n\nHệ thống đã nạp dữ liệu thông số Techpack thành công. (Bản vẽ phẳng đang được mã hóa bảo mật bên trong các trang tài liệu).")
-        else:
-            st.info("ℹ️ Chưa phát hiện tệp dữ liệu đầu vào của mẫu mới.")
+    # -------------------------------------------------------------------------------------
+    # CỘT 1: HIỂN THỊ HÌNH ẢNH MẪU MỚI (TÍCH HỢP MẮT THẦN CHỤP TRANG PDF DỰ PHÒNG)
+    # -------------------------------------------------------------------------------------
+    with img_col1:
+        uploaded_file_name = st.session_state.get("previous_uploaded_file_name", "Techpack")
+        detected_mime_type = st.session_state.get("detected_mime_type", "application/pdf")
 
-
-
-with img_col2:
-    if matched_techpack is not None:
-        target_style_name = str(matched_techpack.get("StyleName", "")).strip().upper()
-        st.session_state["matched_style_name"] = target_style_name
-        st.session_state["matched_sketch_url"] = matched_techpack.get("SketchURL") or matched_techpack.get("sketch_url", "")
+        st.markdown(f"**📄 Tài liệu mẫu mới:** `{uploaded_file_name}`")
         
-        similarity_score = st.session_state.get("match_confidence_score", 100.0)
-        st.session_state["matched_similarity_score"] = similarity_score
-
-        st.markdown(f"""
-            <div style='background-color: #EEF2F6; padding: 10px; border-radius: 5px; text-align: center; margin-bottom: 8px;'>
-                <p style='color: #1E3A8A; font-size: 14px; font-weight: 700; margin: 0;'>🎯 Mã tương đồng trong kho: {target_style_name}</p>
-                <p style='color: #10B981; font-size: 13px; font-weight: 600; margin: 4px 0 0 0;'>🤖 Độ tương đồng thiết kế (Vision): {similarity_score}%</p>
-            </div>
-        """, unsafe_allow_html=True)
-        
-        db_stored_url = st.session_state.get("matched_sketch_url")
-        if db_stored_url:
+        # TRƯỜNG HỢP 1: Nếu trích xuất được trực tiếp byte ảnh nhúng sạch từ Gemini/PyPDF ở Đoạn 3
+        if target_new_sketch_bytes is not None:
             try:
-                # Ép mã hóa ký tự trống/đặc biệt của URL để hiển thị mượt mà trên Streamlit UI từ Supabase Storage
-                safe_url = quote(db_stored_url, safe=':/')
-                st.image(safe_url, caption=f"Ảnh bản vẽ gốc mã đối chứng {target_style_name}", use_container_width=True)
+                st.image(target_new_sketch_bytes, caption=f"Bản vẽ kĩ thuật trích xuất từ tài liệu mới ({new_style_id_detected})", use_container_width=True)
             except Exception:
-                st.info(f"ℹ️ Mã rập đã khớp. Link ảnh: {db_stored_url[:50]}... (Vui lòng kiểm tra quyền truy cập Storage)")
-        else:
-            st.info("ℹ️ Lưu ý: Mã hàng đã khớp hoàn toàn. Bản ghi này hiện chưa cập nhật ảnh minh họa trong kho.")
-    else:
-        st.warning("⚠️ CHƯA KHỚP ĐƯỢC MÃ TƯƠNG ĐỒNG!")
+                target_new_sketch_bytes = None # Hạ cấp xuống trường hợp dự phòng nếu xảy ra lỗi render byte thô
 
-# ==========================================================
-# 📊 ÉP ĐỒNG BỘ DỮ LIỆU PHỤC VỤ TẦNG RENDER BẢNG SO SÁNH PHÍA DƯỚI
-# ==========================================================
-if new_style_measurements_dict:
-    st.session_state["new_style_measurements_dict"] = new_style_measurements_dict
+        # TRƯỜNG HỢP 2: CƠ CHẾ CẤP CỨU SỬ DỤNG STREAMLIT FILE BUFFER ĐỂ TỰ ĐỘNG CHỤP TRANG PDF
+        if target_new_sketch_bytes is None:
+            if "bom_matrix_uploader" in st.session_state and st.session_state["bom_matrix_uploader"] is not None:
+                file_buffer = st.session_state["bom_matrix_uploader"]
+                
+                # A. Nếu file gốc tải lên vốn là định dạng ảnh trực tiếp (PNG/JPG) -> Ép render trực tiếp
+                if "image" in str(detected_mime_type).lower() or any(ext in str(uploaded_file_name).lower() for ext in [".jpg", ".jpeg", ".png"]):
+                    st.image(file_buffer, caption=f"Ảnh thiết kế mẫu mới ({new_style_id_detected})", use_container_width=True)
+                    
+                # B. Nếu file tải lên là PDF đa trang và không tách được ảnh nhúng -> Kích hoạt mắt thần chụp trang PDF thành ảnh
+                else:
+                    try:
+                        # Sử dụng thư viện fitz (PyMuPDF) để render trang PDF thành ảnh trực tiếp trên RAM siêu tốc
+                        import fitz  
+                        # Đưa con trỏ stream file về vị trí xuất phát để đọc toàn bộ tệp tránh lỗi dữ liệu rỗng
+                        file_buffer.seek(0)
+                        pdf_document = fitz.open(stream=file_buffer.read(), filetype="pdf")
+                        
+                        # Mặc định chụp trang đầu tiên (Trang 0 - Trang tổng quan chứa Flat Sketch kết cấu lớn)
+                        page = pdf_document.load_page(0) 
+                        
+                        # Cấu hình tăng ma trận ảnh lên 2 lần (DPI cao) để nét bảng thông số rập mẫu
+                        zoom = 2
+                        mat = fitz.Matrix(zoom, zoom)
+                        pix = page.get_pixmap(matrix=mat)
+                        
+                        # Chuyển đổi dữ liệu pixmap sang mảng byte ảnh PNG sạch
+                        img_png_bytes = pix.tobytes("png")
+                        
+                        st.image(img_png_bytes, caption=f"Ảnh chụp trực quan trang tài liệu Techpack ({new_style_id_detected})", use_container_width=True)
+                    except Exception as pdf_err:
+                        # Fallback hiển thị thông báo văn bản nếu môi trường server thiếu thư viện PyMuPDF
+                        st.info("💡 **Hồ sơ tài liệu dạng cấu trúc tệp PDF đa trang:**\n\nHệ thống đã nạp dữ liệu thông số Techpack thành công. (Bản vẽ phẳng đang được mã hóa bảo mật bên trong các trang tài liệu).")
+            else:
+                st.info("ℹ️ Chưa phát hiện tệp dữ liệu đầu vào của mẫu mới.")
+
+    # -------------------------------------------------------------------------------------
+    # CỘT 2: HIỂN THỊ HÌNH ẢNH MÃ ĐỐI CHỨNG LỊCH SỬ ĐÃ KHỚP TỪ SUPABASE
+    # -------------------------------------------------------------------------------------
+    with img_col2:
+        if matched_techpack is not None:
+            target_style_name = str(matched_techpack.get("StyleName", "")).strip().upper()
+            st.session_state["matched_style_name"] = target_style_name
+            st.session_state["matched_sketch_url"] = matched_techpack.get("SketchURL") or matched_techpack.get("sketch_url", "")
+            
+            similarity_score = st.session_state.get("match_confidence_score", 100.0)
+            st.session_state["matched_similarity_score"] = similarity_score
+
+            st.markdown(f"""
+                <div style='background-color: #EEF2F6; padding: 10px; border-radius: 5px; text-align: center; margin-bottom: 8px;'>
+                    <p style='color: #1E3A8A; font-size: 14px; font-weight: 700; margin: 0;'>🎯 Mã tương đồng trong kho: {target_style_name}</p>
+                    <p style='color: #10B981; font-size: 13px; font-weight: 600; margin: 4px 0 0 0;'>🤖 Độ tương đồng thiết kế (Vision): {similarity_score}%</p>
+                </div>
+            """, unsafe_allow_html=True)
+            
+            db_stored_url = st.session_state.get("matched_sketch_url")
+            if db_stored_url:
+                try:
+                    # Ép mã hóa ký tự trống/đặc biệt của URL để hiển thị mượt mà trên Streamlit UI từ Supabase Storage
+                    safe_url = quote(db_stored_url, safe=':/')
+                    st.image(safe_url, caption=f"Ảnh bản vẽ gốc mã đối chứng {target_style_name}", use_container_width=True)
+                except Exception:
+                    st.info(f"ℹ️ Mã rập đã khớp. Link ảnh: {db_stored_url[:50]}... (Vui lòng kiểm tra quyền truy cập Storage)")
+            else:
+                st.info("ℹ️ Lưu ý: Mã hàng đã khớp hoàn toàn. Bản ghi này hiện chưa cập nhật ảnh minh họa trong kho.")
+        else:
+            st.warning("⚠️ CHƯA KHỚP ĐƯỢC MÃ TƯƠNG ĐỒNG!")
+
+    # =====================================================================================
+    # 📊 ÉP ĐỒNG BỘ DỮ LIỆU PHỤC VỤ TẦNG RENDER BẢNG SO SÁNH PHÍA DƯỚI
+    # =====================================================================================
+    if new_style_measurements_dict:
+        st.session_state["new_style_measurements_dict"] = new_style_measurements_dict
 
 
  # =========================================================================================
