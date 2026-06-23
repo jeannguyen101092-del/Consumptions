@@ -1272,10 +1272,14 @@ if gemini_key:
         http_options=types.HttpOptions(api_version='v1')
     )
 
+# =========================================================================================
+# ĐOẠN 3 - PHẦN 1: HÀM TRÍCH XUẤT THÔNG SỐ QUA GEMINI API
+# =========================================================================================
+
 def process_single_pdf_batch(file_bytes, file_name):
     """
     Retriever Layer chuyên sâu cho hệ thống BOM & Consumption Matrix.
-    ✨ Đã sửa lỗi đường dẫn JSON của Gemini API, dọn sạch phản hồi, và hoàn thiện mã nguồn.
+    ✨ Đã sửa lỗi cấu trúc JSON phản hồi từ Gemini API.
     """
     import json
     import requests
@@ -1283,6 +1287,7 @@ def process_single_pdf_batch(file_bytes, file_name):
     import time
     import io
     import re
+    import streamlit as st
 
     try:
         import pypdf
@@ -1290,13 +1295,13 @@ def process_single_pdf_batch(file_bytes, file_name):
     except ImportError:
         PYPDF_AVAILABLE = False
 
-    # Kiểm soát chặt chẽ dung lượng tệp tải lên
+    # Kiểm soát chặt chẽ dung lượng tệp tải lên của hệ thống
     MAX_MB = 18
     if len(file_bytes) > MAX_MB * 1024 * 1024:
         return {"success": False, "error": f"Tệp PDF vượt giới hạn xử lý {MAX_MB}MB của Gemini."}
 
     try:
-        # Thu thập API Key an toàn từ Secrets
+        # Thu thập API Key an toàn từ Secrets hệ thống
         gemini_key = get_secure_gemini_key() if "get_secure_gemini_key" in globals() else st.secrets.get("GEMINI_API_KEY", "").strip()
         if not gemini_key:
             return {"success": False, "error": "Thiếu GEMINI_API_KEY trong cấu hình Secrets."}
@@ -1306,7 +1311,7 @@ def process_single_pdf_batch(file_bytes, file_name):
 
         # URL API Endpoint chuẩn của Google Gemini REST API
         url = (
-            "https://generativelanguage.googleapis.com/"
+            "https://googleapis.com"
             "v1beta/models/gemini-2.5-flash:generateContent"
             f"?key={gemini_key}"
         )
@@ -1319,7 +1324,7 @@ def process_single_pdf_batch(file_bytes, file_name):
             "3. Find the exact 'Style ID' / 'Style Number' (e.g., F25R09 or 526P09).\n"
             "4. Identify the 'Base Size' (e.g., 32, M, 28) and the Category (strictly classify as PANT, SHIRT, JACKET, or SHORT).\n"
             "5. Detect which 0-based page index contains the full body apparel flat sketch drawing.\n"
-            "Return a completely valid raw JSON string matching this exact schema (no markdown formatting, no ```json blocks):\n"
+            "Return a completely valid raw JSON string matching this exact schema (no markdown formatting):\n"
             "{\n"
             "  \"style_number_parsed\": \"string\",\n"
             "  \"buyer\": \"string\",\n"
@@ -1349,28 +1354,27 @@ def process_single_pdf_batch(file_bytes, file_name):
         if res.status_code == 200:
             res_json = res.json()
             
-            # VÁ LỖI CẤU TRÚC PHẢN HỒI (Duyệt mảng candidates an toàn)
             if "candidates" not in res_json or not res_json["candidates"]:
-                return {"success": False, "error": f"Gemini phản hồi không có dữ liệu hoặc bị chặn an toàn: {res_json}"}
+                return {"success": False, "error": f"Gemini phản hồi không có dữ liệu hoặc bị Safety Block: {res_json}"}
                 
             try:
-                # SỬA CHÍNH XÁC ĐƯỜNG DẪN TRÍCH XUẤT TEXT TỪ MẢNG CANDIDATES VÀ PARTS
+                # Trích xuất chính xác text phản hồi từ mảng Candidates của Google Gemini
                 text_response = res_json['candidates'][0]['content']['parts'][0]['text'].strip()
             except (KeyError, IndexError):
                 return {"success": False, "error": "Cấu trúc JSON phản hồi từ Gemini API đã thay đổi hoặc không hợp lệ."}
 
             clean_json = text_response.replace("```json", "").replace("```", "").strip()
-            
-            # Khắc phục trường hợp dấu phẩy thừa cuối chuỗi (Trailing commas)
             clean_json = re.sub(r',\s*([\]}])', r'\1', clean_json)
             
-            # Bọc khối bẫy lỗi JSON Parse
             try:
                 parsed_data = json.loads(clean_json)
             except Exception:
-                return {"success": False, "error": f"Mô hình trả dữ liệu không đúng cấu trúc JSON sạch. Nội dung thô: {text_response[:200]}"}
-            
-            # Trích xuất ảnh nhúng đặc hiệu
+                return {"success": False, "error": f"Mô hình trả dữ liệu không đúng cấu trúc định dạng JSON sạch. Nội dung thô: {text_response[:200]}"}
+# =========================================================================================
+# ĐOẠN 3 - PHẦN 2: BÓC TÁCH KHỐI ẢNH VÀ KHÓA LỆNH LƯU KHO (DÁN TIẾP NỐI PHẦN 1)
+# =========================================================================================
+
+            # Trích xuất ảnh nhúng đặc hiệu từ tài liệu PDF gốc
             extracted_sketch_bytes = None
             if PYPDF_AVAILABLE:
                 try:
@@ -1405,15 +1409,15 @@ def process_single_pdf_batch(file_bytes, file_name):
                 except Exception:
                     pass
 
-            # Đồng bộ đẩy Techpack mới vào kho dữ liệu Supabase
+            # 🚨 ĐÃ KHÓA CHẶT CƠ CHẾ TỰ ĐỘNG GHI ĐÈ VÀO BẢNG THONG_SO_TECHPACK TRÊN DATABASE TẠI ĐÂY:
             success_db = True
-            if "save_to_supabase_techpack_table" in globals():
-                try:
-                    success_db = save_to_supabase_techpack_table(parsed_data, raw_file_bytes=file_bytes, file_name=file_name)
-                except Exception: 
-                    success_db = False
+            # if "save_to_supabase_techpack_table" in globals():
+            #     try:
+            #         success_db = save_to_supabase_techpack_table(parsed_data, raw_file_bytes=file_bytes, file_name=file_name)
+            #     except Exception: 
+            #         success_db = False
             
-            # Đóng gói dữ liệu đầu ra chuẩn chỉnh phục vụ trực tiếp cho AI Projection Engine
+            # Đóng gói dữ liệu đầu ra chuẩn chỉnh phục vụ trực tiếp cho AI Engine
             output_payload = {
                 "style_number_parsed": parsed_data.get("style_number_parsed", "UNKNOWN"),
                 "buyer": parsed_data.get("buyer", "UNKNOWN BUYER"),
@@ -1432,23 +1436,16 @@ def process_single_pdf_batch(file_bytes, file_name):
                 "size": output_payload["base_size_name"],
                 "measurements": output_payload["measurements"],
                 "sketch_bytes": extracted_sketch_bytes,
-                "error": None if success_db else "Lỗi ghi đồng bộ cấu trúc dữ liệu Techpack lên Supabase"
+                "error": None
             }
         else:
-            # HOÀN THIỆN ĐOẠN XỬ LÝ LỖI HTTP KHI API THẤT BẠI
-            return {"success": False, "error": f"Gemini API thất bại với mã lỗi HTTP: {res.status_code}. Chi tiết: {res.text[:200]}"}
+            return {"success": False, "error": f"Gemini API thất bại với mã HTTP: {res.status_code}. Chi tiết: {res.text[:200]}"}
             
     except Exception as e:
         return {"success": False, "error": f"Lỗi hệ thống trong quá trình xử lý Batch: {str(e)}"}
-
-
-
-
-
-
-# =================================================================
-# ĐOẠN 3 HOÀN CHỈNH: KHỞI TẠO BIẾN VÀ XỬ LÝ TỆP TẢI LÊN (BẺ KHÓA HIỂN THỊ)
-# =================================================================
+# =========================================================================================
+# ĐOẠN 3 - PHẦN 3: ĐỒNG BỘ TRẠNG THÁI RA MÀN HÌNH GIAO DIỆN UI (DÁN TIẾP NỐI PHẦN 2)
+# =========================================================================================
 
 # 1. Xác định nguồn tệp tải lên từ các widget file_uploader khác nhau trong session_state
 target_file_object = None
@@ -1492,7 +1489,7 @@ if has_file:
                     st.session_state["matched_image_verified"] = True
                     st.session_state["gemini_error_log"] = None  # Xóa log lỗi cũ khi thành công
                 else:
-                    # Ghi nhận lỗi cụ thể từ API trả về thay vì bỏ qua
+                    # Ghi nhận lỗi cụ thể từ API trả về thay vì âm thầm bỏ qua
                     error_msg = res_pdf.get("error") if isinstance(res_pdf, dict) else "Cấu trúc phản hồi từ Engine lỗi."
                     st.session_state["gemini_error_log"] = error_msg
                     st.session_state["new_style_id_detected"] = "UNKNOWN"
@@ -1526,7 +1523,6 @@ dynamic_keyword = str(new_style_id_detected).strip().upper()
 base_sb_url = SB_URL.rstrip('/') if SB_URL else ""
 headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if SB_KEY else {}
 menu_selection = globals().get("menu_selection", "🧵 BOM & Consumption Matrix")
-# =================================================================
 
 
 
