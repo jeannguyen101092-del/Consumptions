@@ -16,30 +16,6 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
-def find_product_by_keyword_direct(base_sb_url, sb_key, keyword):
-    """
-    Tìm kiếm trực tiếp trong bảng 'san_pham' bằng từ khóa (Không qua AI).
-    """
-    import requests
-    headers_db = {"apikey": sb_key, "Authorization": f"Bearer {sb_key}"}
-    
-    # CHUYỂN HƯỚNG: Gọi đến bảng san_pham
-    url_db = f"{base_sb_url}/rest/v1/san_pham"
-    
-    # Tìm kiếm theo tên sản phẩm hoặc mã sản phẩm (Bạn đổi tên cột lại nếu trên DB viết khác)
-    query_params = {
-        "select": "*",  # Lấy tất cả các cột của bảng sản phẩm
-        "or": f"(ten_san_pham.ilike.*{keyword}*,ma_san_pham.ilike.*{keyword}*)"
-    }
-    try:
-        response = requests.get(url_db, headers=headers_db, params=query_params, timeout=10)
-        if response.status_code == 200:
-            return response.json()
-        return []
-    except Exception as e:
-        st.error(f"Lỗi truy vấn bảng sản phẩm: {str(e)}")
-        return []
-
 
 # ĐỒ HỌA HIGH-CONTRAST INDUSTRIAL LIGHT THEME (XÓA BỎ BÓNG TỐI, CỐ ĐỊNH CHỮ RÕ NÉT)
 st.markdown("""
@@ -302,10 +278,47 @@ def save_to_supabase_techpack_table(payload_data, raw_file_bytes=None, file_name
 
 
 
+
+def get_historical_fabric_consumption_from_db(search_keyword=None):
+    """
+    Hàm tra cứu kho dữ liệu san_pham lịch sử nâng cao.
+    ✨ ĐÃ SỬA LỖI TRỐNG BẢNG BOM: Áp dụng tìm kiếm mờ chuỗi lõi, không chia cắt chữ/số làm mất hậu tố wash dệt may.
+    """
+    try:
+        headers = {
+            "apikey": SB_KEY, 
+            "Authorization": f"Bearer {SB_KEY}"
+        }
+        url = f"{SB_URL.rstrip('/')}/rest/v1/san_pham"
+        
+        query_params = {
+            "select": "style_name,article_name,consumption_type,material_size,uom,consumption_value,notes",
+            "limit": 1000
+        }
+        
+        if search_keyword:
+            kw_raw = str(search_keyword).strip().upper()
+            # Làm sạch ký tự đặc biệt nhưng giữ nguyên vẹn chuỗi dài mã hàng để Supabase quét chính xác
+            kw_clean = re.sub(r'[^A-Z0-9]', '', kw_raw)
+            
+            if len(kw_clean) >= 5:
+                # Tìm kiếm mờ thông minh bao quát cả mã gốc lẫn các biến thể wash rách rập phân xưởng
+                or_filter = f"(style_name.ilike.*{kw_clean}*,article_name.ilike.*{kw_clean}*)"
+            else:
+                or_filter = f"(style_name.ilike.*{kw_raw}*,article_name.ilike.*{kw_raw}*)"
+                
+            query_params["or"] = or_filter
+        
+        response = requests.get(url, headers=headers, params=query_params, timeout=15)
+        return response.json() if response.status_code == 200 else []
+    except Exception: 
+        return []
+
+
 def get_techpack_spec_from_db(style_name_keyword=None):
     """
     Hàm cho phép AI tự động tra cứu thông số từ bảng thong_so_techpack.
-    ✨ ĐÃ SỬA LỖI: Sửa lại cú pháp query tham số mờ (ilike) đúng chuẩn API Supabase PostgREST.
+    ✨ ĐÃ CHUẨN HÓA: Đảm bảo đồng bộ chính xác tên các trường dữ liệu để trả về cho Đoạn 3 hiển thị.
     """
     try:
         headers = {
@@ -321,35 +334,35 @@ def get_techpack_spec_from_db(style_name_keyword=None):
         
         if style_name_keyword and str(style_name_keyword).strip().upper() != "UNKNOWN":
             clean_kw = str(style_name_keyword).strip()
-            # SỬA LỖI: Sử dụng tham số toán tử 'or' hoặc định dạng chuẩn '{cột}' làm key là sai, phải truyền qua định dạng postgrest
-            query_params["StyleName"] = f"ilike.*{clean_kw}*" # Trường hợp lỗi nếu thư viện requests không unpack đúng, nên dùng cấu trúc dưới:
-            query_params.update({"StyleName": f"ilike.*{clean_kw}*"})
+            query_params["StyleName"] = f"ilike.*{clean_kw}*"
             
         response = requests.get(url, headers=headers, params=query_params, timeout=15)
         return response.json() if response.status_code == 200 else []
     except Exception:
         return []
 
-
 def process_single_pdf_batch(file_bytes, file_name):
     """
     Hàm bóc tách dữ liệu kỹ thuật từ một file PDF độc lập.
-    ✨ FIX LỖI QUÁ TẢI LỆNH XỬ LÝ: Ép chặt cấu hình đầu ra JSON + Tự động giãn cách thời gian khi API nghẽn.
+    ✨ ĐÃ NÂNG CẤP ĐỊNH VỊ PHOM DÁNG: Ép AI Vision chỉ bốc trang hiển thị chiếc quần hoàn chỉnh (Front and Back full garment views).
+    STRICTLY FORBIDDEN: Cấm tuyệt đối lấy các trang rã rập thân quần đơn lẻ, cụm chi tiết hoặc rập tách rời.
     """
     import time
-    import json
-    import io
     try:
         gemini_key = get_secure_gemini_key()
         if not gemini_key:
             return {"success": False, "error": "API Key cho Gemini đang bị thiếu trong Secrets."}
             
         client = genai.Client(api_key=gemini_key)
+        info = pdfinfo_from_bytes(file_bytes)
+        total_p = int(info.get("Pages", 1))
         
-        # 1. Đóng gói trực tiếp tệp PDF gốc dưới dạng bytes để giảm tải dung lượng truyền
-        pdf_parts_payload = [
-            types.Part.from_bytes(data=file_bytes, mime_type='application/pdf')
-        ]
+        pdf_parts_payload = []
+        chat_images = convert_from_bytes(file_bytes, dpi=90, first_page=1, last_page=total_p)
+        for page_img in chat_images:
+            img_buf = io.BytesIO()
+            page_img.convert("RGB").save(img_buf, format="JPEG", quality=75)
+            pdf_parts_payload.append(types.Part.from_bytes(data=img_buf.getvalue(), mime_type='image/jpeg'))
             
         industrial_extraction_prompt = (
             "You are an expert Garment Specification Auditor at PPJ Group. Analyze all attached sheets page by page. "
@@ -358,8 +371,12 @@ def process_single_pdf_batch(file_bytes, file_name):
             "3. Find the exact 'Style ID' / 'Style Number' (e.g. 5765). "
             "4. FOR FUNCTION 3 (FULL SIZE MATRIX): Scan and extract the entire grading matrix table columns for ALL available sizes. "
             "5. CRITICAL VISUAL FLAT SKETCH LOCATE RULE: Scan all pages visually. You MUST find the exact PAGE INDEX (0-based) "
-            "that contains the FULL BODY APPAREL FLAT SKETCH showing the entire completed garment. "
-            "Return a completely valid raw JSON string matching this schema: "
+            "that contains the FULL BODY APPAREL FLAT SKETCH showing the entire completed garment (the whole pant/skort with front view and back view side-by-side or on the same page). "
+            "STRICT DISQUALIFICATION RULES: "
+            "- DO NOT select pages showing isolated technical pattern panels (e.g., just a single front panel leg or a single back panel leg cut out). "
+            "- DO NOT select pages showing inner construction details, pocket bags, zippers, or sketches of components. "
+            "We only want the complete product design presentation sketch page. "
+            "Return a completely valid raw JSON string matching this schema (no markdown blocks): "
             "{"
             "  \"style_number_parsed\": \"string\","
             "  \"buyer\": \"string\","
@@ -370,61 +387,37 @@ def process_single_pdf_batch(file_bytes, file_name):
             "  \"full_size_matrix\": {\"POM Description\": {\"Size_Name\": \"Value\"}}"
             "}"
         )
+        
         pdf_parts_payload.append(industrial_extraction_prompt)
         
-        # Cấu hình tối ưu cấu trúc phản hồi đầu ra để AI không cần suy nghĩ lan man
-        generation_config = types.GenerationConfig(
-            response_mime_type="application/json",
-            temperature=0.1,  # Hạ thấp nhiệt độ để tăng độ chính xác của cấu trúc dữ liệu cấu trúc
-            max_output_tokens=4000
-        )
-        
         response = None
-        # Cơ chế vòng lặp thử lại thông minh chống lỗi 429 / RESOURCE_EXHAUSTED / 503
-        for attempt in range(4):
+        for attempt in range(3):
             try:
                 response = client.models.generate_content(
                     model='gemini-2.5-flash', 
                     contents=pdf_parts_payload,
-                    config=generation_config
+                    config={"response_mime_type": "application/json"}
                 )
-                if response and response.text and response.text.strip(): 
-                    break
+                if response and response.text: break
             except Exception as ai_err:
-                err_msg = str(ai_err).lower()
-                # Nếu hệ thống báo quá tải lệnh (Rate Limit hoặc Service Unavailable)
-                if "429" in err_msg or "exhausted" in err_msg or "503" in err_msg or "unavailable" in err_msg:
-                    # Giãn cách thời gian tăng dần theo từng lượt lỗi: 4s -> 8s -> 12s
-                    wait_time = (attempt + 1) * 4
-                    print(f"[RATE LIMIT HOTFIX]: Hệ thống đang quá tải, tự động thử lại sau {wait_time} giây...")
-                    time.sleep(wait_time)
+                if "503" in str(ai_err) or "UNAVAILABLE" in str(ai_err):
+                    time.sleep((attempt + 1) * 2)
                     continue
                 else:
-                    return {"success": False, "error": f"Lỗi cổng truyền API: {str(ai_err)}"}
+                    return {"success": False, "error": f"Lỗi cổng truyền: {str(ai_err)}"}
                     
-        if not response or not response.text or not response.text.strip():
-            return {"success": False, "error": "Mô hình không phản hồi văn bản do hàng chờ hệ thống quá tải. Vui lòng bấm thử lại."}
+        if not response or not response.text:
+            return {"success": False, "error": "Mô hình không phản hồi văn bản."}
             
         clean_json = response.text.strip().replace("```json", "").replace("```", "").strip()
         parsed_data = json.loads(clean_json)
         
-        # 2. Xử lý trích xuất duy nhất trang ảnh bản vẽ kỹ thuật (Cắt ảnh đơn để tối ưu hiệu năng RAM)
         extracted_sketch_bytes = None
         detected_idx = int(parsed_data.get("sketch_page_index_detected", 0))
-        try:
-            from pdf2image import convert_from_bytes, pdfinfo_from_bytes
-            info = pdfinfo_from_bytes(file_bytes)
-            total_p = int(info.get("Pages", 1))
-            
-            if 0 <= detected_idx < total_p:
-                # Chỉ render đúng một trang duy nhất được định vị
-                single_image_list = convert_from_bytes(file_bytes, dpi=110, first_page=detected_idx+1, last_page=detected_idx+1)
-                if single_image_list:
-                    b_buf = io.BytesIO()
-                    single_image_list[0].convert("RGB").save(b_buf, format="JPEG", quality=85)
-                    extracted_sketch_bytes = b_buf.getvalue()
-        except Exception as e_img:
-            print(f"[WARN]: Không thể cắt ảnh đơn trang kĩ thuật: {str(e_img)}")
+        if 0 <= detected_idx < len(chat_images):
+            b_buf = io.BytesIO()
+            chat_images[detected_idx].convert("RGB").save(b_buf, format="JPEG", quality=90)
+            extracted_sketch_bytes = b_buf.getvalue()
             
         success_db = save_to_supabase_techpack_table(parsed_data, raw_file_bytes=file_bytes, file_name=file_name)
         
@@ -446,10 +439,10 @@ def process_single_pdf_batch(file_bytes, file_name):
             "size": output_payload["base_size_name"],
             "measurements": output_payload["measurements"], 
             "sketch_bytes": extracted_sketch_bytes, 
-            "error": None if success_db else "Lỗi ghi đồng bộ dữ liệu lên database."
+            "error": None if success_db else "Lỗi ghi đồng bộ dữ liệu lên cơ sở dữ liệu"
         }
     except Exception as e:
-        return {"success": False, "error": f"Lỗi bóc tách cấu trúc PDF: {str(e)}"}
+        return {"success": False, "error": f"Lỗi bóc tách PDF: {str(e)}"}
 
 
 
