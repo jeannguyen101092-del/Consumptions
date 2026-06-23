@@ -16,6 +16,30 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+def find_product_by_keyword_direct(base_sb_url, sb_key, keyword):
+    """
+    Tìm kiếm trực tiếp trong bảng 'san_pham' bằng từ khóa (Không qua AI).
+    """
+    import requests
+    headers_db = {"apikey": sb_key, "Authorization": f"Bearer {sb_key}"}
+    
+    # CHUYỂN HƯỚNG: Gọi đến bảng san_pham
+    url_db = f"{base_sb_url}/rest/v1/san_pham"
+    
+    # Tìm kiếm theo tên sản phẩm hoặc mã sản phẩm (Bạn đổi tên cột lại nếu trên DB viết khác)
+    query_params = {
+        "select": "*",  # Lấy tất cả các cột của bảng sản phẩm
+        "or": f"(ten_san_pham.ilike.*{keyword}*,ma_san_pham.ilike.*{keyword}*)"
+    }
+    try:
+        response = requests.get(url_db, headers=headers_db, params=query_params, timeout=10)
+        if response.status_code == 200:
+            return response.json()
+        return []
+    except Exception as e:
+        st.error(f"Lỗi truy vấn bảng sản phẩm: {str(e)}")
+        return []
+
 
 # ĐỒ HỌA HIGH-CONTRAST INDUSTRIAL LIGHT THEME (XÓA BỎ BÓNG TỐI, CỐ ĐỊNH CHỮ RÕ NÉT)
 st.markdown("""
