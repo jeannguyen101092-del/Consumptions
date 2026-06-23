@@ -1919,14 +1919,13 @@ if new_style_measurements_dict:
 
 
  # =========================================================================================
-# ĐOẠN 6: BẢNG SO SÁNH NÂNG CẤP - CHỈ TRÍCH XUẤT % BIẾN THIÊN CỦA CHI TIẾT CỐT LÕI HỆ HÀNG PANT/SHIRT
+# ĐOẠN 6: BẢNG SO SÁNH SIÊU CẤP AN TOÀN - CẤM TUYỆT ĐỐI CÁC CHI TIẾT TÚI LỌT VÀO % TRUNG BÌNH
 # =========================================================================================
 
     st.markdown("<br>### 📐 BẢNG SO SÁNH SAI LỆCH THÔNG SỐ KỸ THUẬT RẬP MẪU", unsafe_allow_html=True)
     
     new_specs = st.session_state.get("new_style_measurements_dict", {})
     new_style_base_size = st.session_state.get("new_style_base_size", "N/A")
-    # Lấy phân loại sản phẩm (Quần/Áo) từ bộ nhớ để ép cấu trúc điều kiện ngành may
     garment_category = str(st.session_state.get("new_style_category_detected", "PANT")).strip().upper()
     
     # Đồng bộ an toàn bảng thông số từ kho
@@ -2028,25 +2027,26 @@ if new_style_measurements_dict:
                 if f_old != 0:
                     diff_pct = round((diff_val / f_old) * 100, 2)
                     
-                    # 🚨 BỘ LỌC NGHIỆP VỤ PPJ GROUP: Chỉ gom % chênh lệch của cấu trúc chi tiết lớn chịu ảnh hưởng nhảy size
+                    # 🚨 BỘ LỌC NGHIỆP VỤ PPJ GROUP (BẢN SIẾT CHẶT CỨNG):
                     is_core_pom = False
                     
-                    # 👖 A. Xử lý bộ lọc hệ hàng QUẦN (Pant, Short)
-                    if any(x in garment_category for x in ["PANT", "SHORT", "TROUSER"]):
-                        # Kiểm tra từ khóa chi tiết lớn: inseam, đùi, mông, gối, đáy/vòng cạp
-                        if any(k in clean_new_key for k in ["INSEAM", "THIGH", "HIP", "KNEE", "WAIST", "RISE", "FLY", "OPENING"]):
-                            is_core_pom = True
-                        # Kiểm tra hệ túi: Chỉ lấy nếu thông số thực tế có giá trị lớn (Ví dụ dài túi/rộng túi lớn hơn hoặc bằng 5.0 inch)
-                        elif "POCKET" in clean_new_key and f_old >= 5.0:
-                            is_core_pom = True
-                            
-                    # 🧥 B. Xử lý bộ lọc hệ hàng ÁO (Shirt, Jacket, T-shirt)
+                    # Chặn đứng tuyệt đối: Nếu tên vị trí đo có chứa chữ túi (POCKET / COIN) -> LOẠI BỎ NGAY VÔ ĐIỀU KIỆN
+                    if "POCKET" in clean_new_key or "COIN" in clean_new_key:
+                        is_core_pom = False
                     else:
-                        # Chỉ lấy chênh lệch của: Dài áo, Ngực/Bust, Nách/Vòng nách, Dài tay
-                        if any(k in clean_new_key for k in ["LENGTH", "CHEST", "BUST", "ARMHOLE", "SLEEVE", "WIDTH"]):
-                            is_core_pom = True
+                        # 👖 A. Kiểm soát hệ hàng QUẦN (Pant, Short, Trouser)
+                        if any(x in garment_category for x in ["PANT", "SHORT", "TROUSER"]):
+                            # Chỉ lấy đúng chuỗi kết cấu lớn cốt lõi chịu trách nhiệm nhảy vóc dáng rập
+                            if any(k in clean_new_key for k in ["INSEAM", "THIGH", "HIP", "KNEE", "WAIST", "RISE", "FLY", "OPENING"]):
+                                is_core_pom = True
+                                
+                        # 🧥 B. Kiểm soát hệ hàng ÁO (Shirt, Jacket, T-shirt)
+                        else:
+                            # Chỉ lấy chênh lệch của: Dài áo, Ngực, Vòng nách, Dài tay
+                            if any(k in clean_new_key for k in ["LENGTH", "CHEST", "BUST", "ARMHOLE", "SLEEVE", "WIDTH"]):
+                                is_core_pom = True
                     
-                    # Nếu thỏa mãn điều kiện chi tiết kết cấu lớn, đẩy % lệch vào mồi AI tính toán diện tích nhảy vóc
+                    # Nếu vượt qua bộ lọc nghiêm ngặt, mới đẩy vào danh sách tính toán trung bình nhảy size
                     if is_core_pom:
                         valid_diff_pcts.append(diff_pct)
 
@@ -2076,7 +2076,7 @@ if new_style_measurements_dict:
         st.session_state["valid_diff_pcts"] = valid_diff_pcts
         st.dataframe(pd.DataFrame(compare_rows), use_container_width=True, hide_index=True)
     else:
-        st.info("ℹ️ Hệ thống sẵn sàng đối soát. Đang đợi luồng dữ liệu thô.")
+        st.info("ℹ️ Hệ thống sẵn sàng đối soát. Đang đợi dữ liệu.")
 
 
 
