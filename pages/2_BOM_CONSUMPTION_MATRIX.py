@@ -209,21 +209,36 @@ def save_to_supabase_techpack_table(payload_data, raw_file_bytes=None, file_name
                 from google.genai import types
                 client_embed = genai.Client(api_key=gemini_key)
                 
-                # --- PHẦN 3A: SỐ HÓA TRỰC QUAN HÌNH ẢNH SKETCH (IMAGE VECTOR - 768 CHIỀU) ---
+                                # --- PHẦN 3A: SỐ HÓA HÌNH ẢNH SKETCH (IMAGE VECTOR - 768 CHIỀU) ---
                 image_vector = []
                 if image_data:
                     try:
-                        # Sử dụng gemini-embedding-2 tích hợp sâu, ổn định tuyệt đối trên SDK google-genai mới
                         img_part = types.Part.from_bytes(data=image_data, mime_type=mime_type)
                         img_embed_res = client_embed.models.embed_content(
                             model='gemini-embedding-2',
                             contents=[img_part]
                         )
-                        if img_embed_res and img_embed_res.embeddings:
-                            image_vector = img_embed_res.embeddings[0].values
+                        # SỬA LỖI TRUY CẬP SDK MỚI: Bốc trực tiếp giá trị mảng số thực đại diện
+                        if img_embed_res and getattr(img_embed_res, "embeddings", None):
+                            image_vector = img_embed_res.embeddings[0].values if isinstance(img_embed_res.embeddings, list) else img_embed_res.embeddings.values
                             print(f"🖼️ [IMAGE VECTOR OK] Trích xuất thành công {len(image_vector)} chiều hình học.")
                     except Exception as img_embed_err:
                         print(f"❌ [IMAGE VECTOR ERR] Lỗi trích xuất vector ảnh: {str(img_embed_err)}")
+                
+                # --- PHẦN 3B: SỐ HÓA THÔNG SỐ VĂN BẢN (TEXT SPEC VECTOR - 768 CHIỀU) ---
+                text_vector = []
+                try:
+                    text_embed_res = client_embed.models.embed_content(
+                        model='gemini-embedding-2',
+                        contents=[visual_description_str]
+                    )
+                    # SỬA LỖI TRUY CẬP SDK MỚI: Bốc trực tiếp giá trị mảng số thực văn bản
+                    if text_embed_res and getattr(text_embed_res, "embeddings", None):
+                        text_vector = text_embed_res.embeddings[0].values if isinstance(text_embed_res.embeddings, list) else text_embed_res.embeddings.values
+                        print(f"📝 [TEXT VECTOR OK] Trích xuất thành công {len(text_vector)} chiều thông số.")
+                except Exception as txt_embed_err:
+                    print(f"❌ [TEXT VECTOR ERR] Lỗi trích xuất vector văn bản: {str(txt_embed_err)}")
+
                 
                 # --- PHẦN 3B: SỐ HÓA THÔNG SỐ VĂN BẢN (TEXT SPEC VECTOR - 768 CHIỀU) ---
                 text_vector = []
