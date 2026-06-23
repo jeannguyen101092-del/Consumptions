@@ -1796,16 +1796,19 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
 
 
     # =========================================================================================
-# ĐOẠN 5 ĐÃ SỬA: TỰ ĐỘNG HIỂN THỊ HÌNH ẢNH VÀ NẠP THÔNG SỐ SO SÁNH TỪ KHO DỮ LIỆU CŨ
+# =========================================================================================
+# ĐOẠN 5 HOÀN CHỈNH: TRÍCH XUẤT ĐỊNH MỨC (BOM) THÔNG MINH VÀ ĐỐI CHIẾU FLAT SKETCH
 # =========================================================================================
 
 import pandas as pd
 import requests
 import streamlit as st
+import re
+# Định nghĩa thư viện mã hóa tên tệp URL có khoảng trắng hoặc ký tự đặc biệt
 from urllib.parse import quote 
 from concurrent.futures import ThreadPoolExecutor
 
-# SỬA LỖI 1: Ưu tiên đồng bộ an toàn các biến từ st.session_state để không bị mất byte hoặc dán đè None từ globals()
+# 1. ĐỒNG BỘ AN TOÀN TRẠNG THÁI BIẾN TỪ SESSION STATE ĐỂ TRÁNH MẤT BYTE HOẶC ĐÈ BIẾN RỖNG
 target_new_sketch_bytes = st.session_state.get("target_new_sketch_bytes", None)
 new_style_id_detected = st.session_state.get("new_style_id_detected", "UNKNOWN")
 new_style_base_size = st.session_state.get("new_style_base_size", "N/A")
@@ -1820,7 +1823,7 @@ matched_techpack = st.session_state.get("matched_techpack")
 base_url_api = base_sb_url if base_sb_url else (SB_URL if SB_URL else "")
 api_headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if SB_KEY else {}
 
-# 1. TRUY VẤN VÀ ĐỒNG BỘ HÓA DỮ LIỆU ĐỊNH MỨC NGUYÊN VẬT LIỆU (BOM) LỊCH SỬ
+# 2. VÁ LỖI TRUY VẤN BOM: TỰ ĐỘNG BÓC TÁCH MÃ SỐ VÀ NỚI LỎNG ĐIỀU KIỆN TÌM KIẾM CHỐNG LỆCH ĐỊNH DẠNG
 if matched_techpack and "bom_records" not in st.session_state:
     st.session_state["bom_records"] = []
     target_style_name_bom = str(matched_techpack.get("StyleName", "")).strip()
@@ -1828,21 +1831,42 @@ if matched_techpack and "bom_records" not in st.session_state:
 
     if url_bom and target_style_name_bom:
         try:
+            # Tạo các biến thể tìm kiếm để bao quát các cách lưu trữ (Ví dụ: "R09-490436" -> "R09490436")
+            clean_style_num = re.sub(r'[^A-Za-z0-9]', '', target_style_name_bom)
+            
+            # Trích xuất chuỗi số cốt lõi (Ví dụ: lấy cụm số "490436") để làm fallback truy tìm
+            numbers_inside = re.findall(r'\d{4,}', target_style_name_bom)
+            sub_token = numbers_inside[0] if numbers_inside else target_style_name_bom
+            
+            # Sử dụng cú pháp query "or" của PostgREST (Supabase) để quét diện rộng
             query_bom = {
                 "select": "style_name,article_name,material_code,fabric_type,supplier,color,consumption_type,material_size,uom,consumption_value,notes",
-                "style_name": f"ilike.*{target_style_name_bom}*"
+                "or": f"(style_name.ilike.*{target_style_name_bom}*,style_name.ilike.*{clean_style_num}*,style_name.ilike.*{sub_token}*)"
             }
+            
             res_bom = requests.get(url_bom, headers=api_headers, params=query_bom, timeout=12)
             if res_bom.status_code == 200:
                 raw_list = res_bom.json()
-                st.session_state["bom_records"] = [r for r in raw_list if target_style_name_bom.lower() in str(r.get("style_name", "")).lower()]
-        except Exception:
-            pass
+                
+                # Nới lỏng bộ lọc: Chỉ cần trùng khớp mã thô, mã viết liền hoặc cụm số cốt lõi là ghi nhận
+                valid_records = []
+                for r in raw_list:
+                    db_style = str(r.get("style_name", "")).lower()
+                    db_style_clean = re.sub(r'[^A-Za-z0-9]', '', db_style)
+                    
+                    if (target_style_name_bom.lower() in db_style or 
+                        clean_style_num.lower() in db_style_clean or 
+                        sub_token.lower() in db_style_clean):
+                        valid_records.append(r)
+                        
+                st.session_state["bom_records"] = valid_records
+        except Exception as e:
+            st.warning(f"Lỗi kết nối trích xuất tầng dữ liệu BOM: {str(e)}")
 
 bom_records = st.session_state.get("bom_records", [])
 
 # ==========================================================
-# 🖼️ GIAO DIỆN ĐỐI CHIẾU FLAT SKETCH (ĐÃ VÁ LỖI HIỂN THỊ BIẾN VÀ ẢNH)
+# 🖼️ GIAO DIỆN ĐỐI CHIẾU FLAT SKETCH (ĐÃ CHUẨN HÓA ĐƯỜNG DẪN ẢNH)
 # ==========================================================
 st.markdown("### 🖼️ ĐỐI CHIẾU SỰ TƯƠNG ĐỒNG HÌNH ẢNH THIẾT KẾ (FLAT SKETCH)")
 img_col1, img_col2 = st.columns(2)
@@ -1851,14 +1875,13 @@ with img_col1:
     uploaded_file_name = st.session_state.get("previous_uploaded_file_name", "Techpack")
     detected_mime_type = st.session_state.get("detected_mime_type", "image/jpeg")
     
-    # SỬA LỖI HIỂN THỊ ẢNH MẪU MỚI: Nếu là file PDF, trích xuất byte sketch_bytes thu được từ Gemini
+    # Hiển thị ảnh mẫu mới trích xuất từ PDF batch
     if target_new_sketch_bytes is not None:
         try:
             st.image(target_new_sketch_bytes, caption=f"Hình ảnh đã quét từ tài liệu mới ({new_style_id_detected})", use_container_width=True)
         except Exception as e:
             st.warning(f"Không thể render trực tiếp dạng ảnh thô: {e}")
     else:
-        # Cơ chế dự phòng thông báo nếu tài liệu gốc là PDF đa trang
         if "pdf" in str(detected_mime_type).lower() or str(uploaded_file_name).lower().endswith(".pdf"):
             st.info(f"📄 **Tài liệu dạng cấu trúc tệp:** `{uploaded_file_name}`\n\nHệ thống đã nạp dữ liệu thông số Techpack thành công (Ảnh Sketch nhúng đang được cô lập).")
         else:
@@ -1868,8 +1891,6 @@ with img_col2:
     if matched_techpack is not None:
         target_style_name = str(matched_techpack.get("StyleName", "")).strip().upper()
         st.session_state["matched_style_name"] = target_style_name
-        
-        # Đồng bộ URL ảnh trực tiếp từ Object đã match để tránh bị reset rỗng
         st.session_state["matched_sketch_url"] = matched_techpack.get("SketchURL") or matched_techpack.get("sketch_url", "")
         
         similarity_score = st.session_state.get("match_confidence_score", 100.0)
@@ -1885,7 +1906,7 @@ with img_col2:
         db_stored_url = st.session_state.get("matched_sketch_url")
         if db_stored_url:
             try:
-                # Ép mã hóa URL để hiển thị mượt mà kể cả khi tên file chứa khoảng trắng/ký tự đặc biệt trên Supabase Storage
+                # Ép mã hóa ký tự trống/đặc biệt của URL để hiển thị mượt mà trên Streamlit UI từ Supabase Storage
                 safe_url = quote(db_stored_url, safe=':/')
                 st.image(safe_url, caption=f"Ảnh bản vẽ gốc mã đối chứng {target_style_name}", use_container_width=True)
             except Exception:
@@ -1896,11 +1917,11 @@ with img_col2:
         st.warning("⚠️ CHƯA KHỚP ĐƯỢC MÃ TƯƠNG ĐỒNG!")
 
 # ==========================================================
-# 📊 BẮT BUỘC ĐỒNG BỘ DỮ LIỆU ĐỂ RENDER BẢNG SO SÁNH SAI LỆCH THÔNG SỐ (PHÍA DƯỚI)
+# 📊 ÉP ĐỒNG BỘ DỮ LIỆU PHỤC VỤ TẦNG RENDER BẢNG SO SÁNH PHÍA DƯỚI
 # ==========================================================
-# Ghi đè cấu trúc ngược trở lại session_state để các hàm render bảng so sánh (Đoạn 6) đọc được giá trị "Mẫu mới"
 if new_style_measurements_dict:
     st.session_state["new_style_measurements_dict"] = new_style_measurements_dict
+
 
 
     # ==========================================================
