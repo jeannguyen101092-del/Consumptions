@@ -132,6 +132,7 @@ def is_valid_jpeg(data):
 def save_to_supabase_techpack_table(payload_data, raw_file_bytes=None, file_name=""):
     """
     ĐOẠN 1: Khởi tạo, chuẩn hóa thông tin ban đầu và tải ảnh lên Storage.
+    (Đã đóng gói try/except độc lập để tránh lỗi SyntaxError)
     """
     import requests
     import json
@@ -142,6 +143,13 @@ def save_to_supabase_techpack_table(payload_data, raw_file_bytes=None, file_name
     # Thu thập cấu hình kết nối toàn cục an toàn từ Secrets
     SB_KEY = st.secrets.get("SUPABASE_KEY", "") if "SB_KEY" not in globals() else globals().get("SB_KEY", "")
     SB_URL = st.secrets.get("SUPABASE_URL", "") if "SB_URL" not in globals() else globals().get("SB_URL", "")
+
+    # Khởi tạo các biến global trong phạm vi hàm để các đoạn sau sử dụng
+    global style_name_db, public_image_url, image_data, mime_type
+    style_name_db = ""
+    public_image_url = ""
+    image_data = None
+    mime_type = "image/jpeg"
 
     try:
         # Chuẩn hóa mã Style sản phẩm
@@ -155,9 +163,6 @@ def save_to_supabase_techpack_table(payload_data, raw_file_bytes=None, file_name
                 
         style_name_db = style_name_db.upper()
         sketch_b64 = payload_data.get("sketch_image", "")
-        public_image_url = ""
-        image_data = None
-        mime_type = "image/jpeg"
 
         if payload_data.get("_sketch_bytes_raw"):
             image_data = payload_data["_sketch_bytes_raw"]
@@ -200,6 +205,11 @@ def save_to_supabase_techpack_table(payload_data, raw_file_bytes=None, file_name
                     print(f"❌ [STORAGE ERROR {upload_res.status_code}]: {upload_res.text}")
             except Exception as storage_err: 
                 print(f"[STORAGE EXCEPTION]: {str(storage_err)}")
+
+    except Exception as e1:
+        print(f"❌ [CRITICAL SECTION 1 ERR]: {str(e1)}")
+        st.sidebar.error(f"Lỗi Đoạn 1: {str(e1)}")
+
         # ĐOẠN 2: Trích xuất văn bản đặc trưng và gọi Gemini Embedding API tạo Vector Lai.
         measurements_raw = payload_data.get("measurements", {})
         visual_description_str = f"STYLE: {style_name_db}. BUYER: {payload_data.get('buyer', 'PPJ')}. CATEGORY: {payload_data.get('category', 'Pants')}. Specs layout: "
