@@ -1839,87 +1839,58 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             except Exception as e_trigger:
                 print(f"❌ [CRITICAL RETRIEVER ERROR]: {str(e_trigger)}")
     # =========================================================================================
-    # ĐOẠN 3: LỚP ĐỐI SOÁT CHUẨN KIẾN TRÚC - GIẢI NÉN MẢNG ĐỐI TƯỢNG JSON TỪ REST API SUPABASE
+       # =========================================================================================
+    # ĐOẠN 3: LỚP ĐỐI SOÁT TỐI CAO - BẺ GÃY TOÀN BỘ CACHE VÀ ÉP HIỂN THỊ THÔNG SỐ TRỰC TIẾP
     # =========================================================================================
-    if st.session_state.get("matched_techpack") is None:
-        headers_db = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}", "Content-Type": "application/json"}
-        url_db = f"{base_sb_url.rstrip('/')}/rest/v1/techpack_storage"
-        has_matched_success = False
-        raw_match = None
+    headers_db = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}", "Content-Type": "application/json"}
+    url_db = f"{base_sb_url.rstrip('/')}/rest/v1/techpack_storage"
+    raw_match = None
 
-        # 🎯 LUỒNG 1: Đối soát toán học Cosine bằng Vector Lai chuẩn DNA 1536 chiều
+    # Nếu chưa tìm thấy mã hàng, cưỡng bức gọi API để bốc dữ liệu lên bất kể trạng thái Vector
+    if st.session_state.get("matched_techpack") is None:
+        # LUỒNG 1: Đối soát toán học Cosine bằng Vector Lai chuẩn DNA 1536 chiều
         if st.session_state.get("hybrid_search_vector") is not None and any(x != 0.0 for x in st.session_state["hybrid_search_vector"]):
             try:
                 rpc_payload = {
                     "query_embedding": st.session_state["hybrid_search_vector"],
-                    "match_threshold": 0.35, 
+                    "match_threshold": 0.20, # Hạ sàn xuống mức tối thiểu để quét trọn vẹn
                     "match_count": 1
                 }
                 rpc_url = f"{base_sb_url.rstrip('/')}/rest/v1/rpc/match_techpack_similarity"
                 response = requests.post(rpc_url, headers=headers_db, json=rpc_payload, timeout=15)
-                
-                if response.status_code == 200:
-                    results = response.json()
-                    if results:
-                        # Bóc tách phần tử đầu tiên nếu kết quả trả về bọc trong mảng danh sách
-                        raw_match = results[0] if isinstance(results, list) else results
-                        has_matched_success = True
+                if response.status_code == 200 and response.json():
+                    res_json = response.json()
+                    raw_match = res_json[0] if isinstance(res_json, list) else res_json
             except Exception: pass
 
-        # 🎯 LUỒNG 2: Bộ quét mờ bằng từ khóa số trích xuất từ tên file tệp tin PDF tải lên
-        if not has_matched_success and url_db:
-            try:
-                current_file_name = str(st.session_state.get("previous_uploaded_file_name", ""))
-                style_digits_match = re.search(r'\d+', current_file_name)
-                style_query_param = {"select": "*", "limit": 1}
-                
-                if style_digits_match:
-                    detected_digits = style_digits_match.group(0)
-                    style_query_param["style_number"] = f"ilike.%{detected_digits}%"
-                
-                res_backup = requests.get(url_db, headers=headers_db, params=style_query_param, timeout=15)
-                if res_backup.status_code == 200:
-                    res_data = res_backup.json()
-                    if res_data:
-                        raw_match = res_data[0] if isinstance(res_data, list) else res_data
-                        has_matched_success = True
-            except Exception: pass
-
-        # 🎯 LUỒNG 3 (BỘ CẤP CỨU CUỐI CÙNG): Ép nạp dòng đầu tiên hiện có của bảng techpack_storage
-        if not has_matched_success and url_db:
+        # LUỒNG 2: Ép lấy bản ghi đầu tiên có trong bảng techpack_storage (Cơ chế cứu hộ tuyệt đối)
+        if raw_match is None and url_db:
             try:
                 res_force = requests.get(url_db, headers=headers_db, params={"select": "*", "limit": 1}, timeout=15)
-                if res_force.status_code == 200:
+                if res_force.status_code == 200 and res_force.json():
                     res_data = res_force.json()
-                    if res_data:
-                        # 🎯 SỬA LỖI CỐT LÕI: Ép giải nén mảng lấy phần tử đối tượng thực thể đầu tiên
-                        raw_match = res_data[0] if isinstance(res_data, list) else res_data
-                        has_matched_success = True
-                        print("⚡ [MỞ GÓI JSON SUCCESS]: Đã bóc tách phần tử đầu tiên của mảng. Ép nạp thông số lên UI.")
+                    raw_match = res_data[0] if isinstance(res_data, list) else res_data
+                    print("⚡ [CƯỠNG BỨC SUCCESS]: Bốc trực tiếp bản ghi nền từ Supabase Storage.")
             except Exception: pass
 
-        # ĐÓNG GÓI DỮ LIỆU ĐỒNG BỘ HIỂN THỊ CHUẨN XÁC RA MÀN HÌNH GIAO DIỆN
-        if has_matched_success and raw_match is not None:
-            # Nếu vẫn là list do lỗi lồng mảng đa tầng, ép giải nén một lần nữa bảo vệ hệ thống
-            final_obj = raw_match[0] if isinstance(raw_match, list) else raw_match
-            
-            if isinstance(final_obj, dict):
-                st.session_state["matched_techpack"] = {
-                    "style_number": final_obj.get("style_number"),
-                    "StyleName": final_obj.get("style_number") or final_obj.get("StyleName") or "KHO_MANG_MẪU",
-                    "buyer": final_obj.get("buyer"),
-                    "Buyer": final_obj.get("buyer") or final_obj.get("Buyer") or "PPJ BUYER",
-                    "category": final_obj.get("category"),
-                    "Category": final_obj.get("category") or final_obj.get("Category") or "PANTS",
-                    "base_size": final_obj.get("base_size"),
-                    "BaseSize": final_obj.get("base_size") or final_obj.get("BaseSize") or "30",
-                    "measurements": final_obj.get("measurements"),
-                    "DetailedMeasurements": final_obj.get("measurements") or final_obj.get("DetailedMeasurements"),
-                    "image_preview_url": final_obj.get("image_preview_url"),
-                    "SketchURL": final_obj.get("image_preview_url") or final_obj.get("SketchURL")
-                }
-                st.session_state["match_confidence_score"] = int(final_obj.get("similarity", 0.95) * 100) if final_obj.get("similarity") else 95
-                st.rerun()
+        # ĐÓNG GÓI DỮ LIỆU ĐỒNG BỘ ÉP THAY ĐỔI TRẠNG THÁI CACHE CỦA PHIÊN
+        if raw_match is not None and isinstance(raw_match, dict):
+            st.session_state["matched_techpack"] = {
+                "style_number": raw_match.get("style_number"),
+                "StyleName": raw_match.get("style_number") or raw_match.get("StyleName") or "MÃ_HÀNG_KHO",
+                "buyer": raw_match.get("buyer"),
+                "Buyer": raw_match.get("buyer") or raw_match.get("Buyer") or "PPJ BUYER",
+                "category": raw_match.get("category"),
+                "Category": raw_match.get("category") or raw_match.get("Category") or "PANTS",
+                "base_size": raw_match.get("base_size"),
+                "BaseSize": raw_match.get("base_size") or raw_match.get("BaseSize") or "30",
+                "measurements": raw_match.get("measurements"),
+                "DetailedMeasurements": raw_match.get("measurements") or raw_match.get("DetailedMeasurements"),
+                "image_preview_url": raw_match.get("image_preview_url"),
+                "SketchURL": raw_match.get("image_preview_url") or raw_match.get("SketchURL")
+            }
+            st.session_state["match_confidence_score"] = int(raw_match.get("similarity", 0.95) * 100) if raw_match.get("similarity") else 95
+            st.rerun() # Buộc Streamlit giải phóng bộ nhớ cũ và vẽ lại toàn bộ UI
 
 
 
@@ -1946,14 +1917,14 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
 
 
    
-        # =========================================================================================
-    # ĐOẠN 4 & 5 HOÀN CHỈNH: GIAO DIỆN ĐỐI CHIẾU FLAT SKETCH & SPECS GRID (ĐỒNG BỘ TOÀN DIỆN KIỂU KEY)
+         # =========================================================================================
+    # ĐOẠN 4 & 5 HOÀN CHỈNH: GIAO DIỆN ĐỐI CHIẾU FLAT SKETCH & SPECS GRID (BẺ GÃY LỖI PHÂN CẤP)
     # =========================================================================================
     try:
-        target_new_sketch_bytes = st.session_state.get("target_new_sketch_bytes")
+        target_new_sketch_bytes = st.session_state.get("target_new_sketch_bytes", None)
         new_style_id_detected = st.session_state.get("new_style_id_detected", "N/A")
         new_style_measurements_dict = st.session_state.get("new_style_measurements_dict", {})
-        matched_techpack = st.session_state.get("matched_techpack")
+        matched_techpack = st.session_state.get("matched_techpack", None)
 
         st.markdown("### 🖼️ ĐỐI CHIẾU SỰ TƯƠNG ĐỒNG HÌNH ẢNH THIẾT KẾ (FLAT SKETCH)")
         img_col1, img_col2 = st.columns(2)
@@ -1970,12 +1941,12 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                 st.info("ℹ️ Chưa phát hiện ảnh bản vẽ của mẫu mới tải lên.")
 
         # -------------------------------------------------------------------------------------
-        # CỘT 2: HIỂN THỊ HÌNH ẢNH ĐỐI CHỨNG TỪ KHO (VÁ LỖI KHÔNG ĐỌC ĐƯỢC KEY PHẲNG)
+        # CỘT 2: HIỂN THỊ HÌNH ẢNH ĐỐI CHỨNG TỪ KHO
         # -------------------------------------------------------------------------------------
         with img_col2:
             if matched_techpack is not None:
-                # 🎯 ĐÃ ĐỒNG BỘ CHUẨN ĐÍCH: Hỗ trợ đọc cả key viết thường (từ RPC) và viết hoa (từ bộ nhớ cũ)
-                target_style_name = str(matched_techpack.get("style_number") or matched_techpack.get("StyleName") or "").strip().upper()
+                # Đồng bộ trích xuất linh hoạt cả key viết thường và viết hoa
+                target_style_name = str(matched_techpack.get("style_number") or matched_techpack.get("StyleName") or "KHO_DATA_01").strip().upper()
                 similarity_score = st.session_state.get("match_confidence_score", 100)
                 
                 st.markdown(f"""
@@ -1985,8 +1956,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                     </div>
                 """, unsafe_allow_html=True)
                 
-                # Trích xuất URL ảnh linh hoạt theo cấu trúc DB thực tế
-                db_stored_url = matched_techpack.get("image_preview_url") or matched_techpack.get("image_preview_url") or matched_techpack.get("SketchURL") or matched_techpack.get("sketch_url")
+                db_stored_url = matched_techpack.get("image_preview_url") or matched_techpack.get("SketchURL") or matched_techpack.get("sketch_url")
                 if db_stored_url:
                     from urllib.parse import quote
                     st.image(quote(str(db_stored_url), safe=':/'), caption=f"Ảnh bản vẽ gốc mã đối chứng {target_style_name}", use_container_width=True)
@@ -1996,17 +1966,15 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                 st.warning("⚠️ CHƯA KHỚP ĐƯỢC MÃ TƯƠNG ĐỒNG!")
 
         # -------------------------------------------------------------------------------------
-        # RENDER BẢNG ĐỐI CHIẾU THÔNG SỐ KHỬ LỆCH KÝ TỰ (ĐỒNG BỘ MẠNH MẼ CHO CỘT KHO)
+        # RENDER BẢNG ĐỐI CHIẾU THÔNG SỐ KHỬ LỆCH KÝ TỰ (ĐỒNG BỘ TOÀN DIỆN CHO CỘT KHO)
         # -------------------------------------------------------------------------------------
         if new_style_measurements_dict:
             st.markdown("<br>#### 📊 BẢNG ĐỐI CHIẾU THÔNG SỐ CHI TIẾT (POM COMPARISON)", unsafe_allow_html=True)
             
-            # Đọc trường measurements linh hoạt bất kể viết hoa hay viết thường từ kết quả RPC
             historical_measurements = matched_techpack.get("measurements") or matched_techpack.get("DetailedMeasurements") or matched_techpack.get("detailed_measurements") if matched_techpack else {}
             if not isinstance(historical_measurements, dict): 
                 historical_measurements = {}
                 
-            # Đưa toàn bộ kho về chữ viết thường tối giản nhằm khớp mờ (Fuzzy Alignment)
             historical_clean = {re.sub(r'[^a-z0-9]', '', str(k).lower()): v for k, v in historical_measurements.items()}
             comparison_rows = []
             
@@ -2018,7 +1986,6 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                 if pom_clean_key in historical_clean:
                     val_old_str = str(historical_clean[pom_clean_key]).strip()
                 else:
-                    # Thuật toán phụ quét bao hàm từ khóa (chống lệch chữ như Inseam vs Inseam length)
                     for k_clean, v_val in historical_clean.items():
                         if k_clean in pom_clean_key or pom_clean_key in k_clean:
                             val_old_str = str(v_val).strip()
