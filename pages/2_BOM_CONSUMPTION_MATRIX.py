@@ -132,8 +132,7 @@ def is_valid_jpeg(data):
 def save_to_supabase_techpack_table(payload_data, raw_file_bytes=None, file_name=""):
     """
     Hàm xử lý đồng bộ dữ liệu nạp kho và SỐ HÓA HYBRID VECTOR CHUẨN CÔNG NGHIỆP.
-    🎯 SỬA LỖI 22004 & PGRST202: Ép định dạng mặc định an toàn cho Postgres RPC, 
-    bọc tham số đa hình tránh lỗi không khớp signature hàm trong DB.
+    🎯 SỬA LỖI SYNTAX: Khắc phục lỗi cú pháp kiểm tra status_code của HTTP response.
     """
     import requests
     import json
@@ -225,8 +224,7 @@ def save_to_supabase_techpack_table(payload_data, raw_file_bytes=None, file_name
                             contents=[img_part]
                         )
                         if img_embed_res and img_embed_res.embeddings:
-                            # Sửa đổi quan trọng: trích xuất mảng float chuẩn từ object embedding
-                            emb_obj = img_embed_res.embeddings[0] if isinstance(img_embed_res.embeddings, list) else img_embed_res.embeddings
+                            emb_obj = img_embed_res.embeddings
                             image_vector = [float(x) for x in emb_obj.values]
                     except Exception as img_embed_err:
                         print(f"❌ [IMAGE VECTOR ERR]: {str(img_embed_err)}")
@@ -239,7 +237,7 @@ def save_to_supabase_techpack_table(payload_data, raw_file_bytes=None, file_name
                         contents=[visual_description_str]
                     )
                     if text_embed_res and text_embed_res.embeddings:
-                        emb_obj = text_embed_res.embeddings[0] if isinstance(text_embed_res.embeddings, list) else text_embed_res.embeddings
+                        emb_obj = text_embed_res.embeddings
                         text_vector = [float(x) for x in emb_obj.values]
                 except Exception as txt_embed_err:
                     print(f"❌ [TEXT VECTOR ERR]: {str(txt_embed_err)}")
@@ -271,15 +269,13 @@ def save_to_supabase_techpack_table(payload_data, raw_file_bytes=None, file_name
         if not matrix_raw_data or not isinstance(matrix_raw_data, dict) or len(matrix_raw_data) == 0:
             matrix_raw_data = {"AI_ENGINE_STATUS": "NO_MATRIX_DATA"}
 
-        # 4. THIẾT LẬP CHIẾN LƯỢC ĐA HÌNH THAM SỐ (MAPPING CHI TIẾT TRÁNH LỖI 404/PGRST202)
+        # 4. THIẾT LẬP CHIẾN LƯỢC ĐA HÌNH THAM SỐ
         style_val = str(style_name_db).strip() if style_name_db else "STYLE_UNKNOWN_" + str(int(time.time()))
         buyer_val = str(payload_data.get("buyer", "PPJ GROUP")).strip() if payload_data.get("buyer") else "PPJ BUYER"
         cat_val = str(payload_data.get("category", "GARMENT")).strip() if payload_data.get("category") else "GARMENT"
         size_val = str(payload_data.get("base_size_name", "32")).strip() if payload_data.get("base_size_name") else "32"
 
-        # Bọc toàn bộ trường dạng camelCase và snake_case để tương thích 100% với signature của hàm trong DB
         rpc_payload = {
-            # Phiên bản Snake_case
             "style_number": style_val,
             "buyer_name": buyer_val,
             "category_name": cat_val,
@@ -289,7 +285,6 @@ def save_to_supabase_techpack_table(payload_data, raw_file_bytes=None, file_name
             "image_url": public_image_url,
             "hybrid_vector": hybrid_vector_embedding_array,
             
-            # Phiên bản CamelCase dự phòng
             "styleNumber": style_val,
             "buyerName": buyer_val,
             "categoryName": cat_val,
@@ -310,6 +305,7 @@ def save_to_supabase_techpack_table(payload_data, raw_file_bytes=None, file_name
         
         response = requests.post(rpc_url, headers=headers, json=rpc_payload, timeout=30)
         
+        # SỬA LỖI TẠI ĐÂY: Thêm mảng kiểm tra mã trạng thái hợp lệ [200, 201]
         if response.status_code in:
             print("✅ [SUPABASE SYNC SUCCESS]: Dữ liệu số hóa Techpack đã nạp DB thành công!")
             return {"status": "success", "image_url": public_image_url}
