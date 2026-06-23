@@ -1917,113 +1917,106 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
 
 
    
-         # =========================================================================================
-    # ĐOẠN 4 & 5 HOÀN CHỈNH: GIAO DIỆN ĐỐI CHIẾU FLAT SKETCH & SPECS GRID (BẺ GÃY LỖI PHÂN CẤP)
+          # =========================================================================================
+    # KHỐI 4.1: KHỞI TẠO TIÊU ĐỀ GIAO DIỆN VÀ PHÂN CHIA HAI CỘT HÌNH ẢNH SIDE-BY-SIDE
     # =========================================================================================
-    try:
-        target_new_sketch_bytes = st.session_state.get("target_new_sketch_bytes", None)
-        new_style_id_detected = st.session_state.get("new_style_id_detected", "N/A")
-        new_style_measurements_dict = st.session_state.get("new_style_measurements_dict", {})
-        matched_techpack = st.session_state.get("matched_techpack", None)
+    st.markdown("### 🖼️ ĐỐI CHIẾU SỰ TƯƠNG ĐỒNG HÌNH ẢNH THIẾT KẾ (FLAT SKETCH)")
+    
+    # Đọc nhanh dữ liệu đệm an toàn từ session_state phòng hờ lỗi NameError
+    target_new_bytes = st.session_state.get("target_new_sketch_bytes", None)
+    new_style_id = st.session_state.get("new_style_id_detected", "N/A")
+    new_specs_dict = st.session_state.get("new_style_measurements_dict", {})
+    matched_data = st.session_state.get("matched_techpack", None)
 
-        st.markdown("### 🖼️ ĐỐI CHIẾU SỰ TƯƠNG ĐỒNG HÌNH ẢNH THIẾT KẾ (FLAT SKETCH)")
-        img_col1, img_col2 = st.columns(2)
+    # Phân tách màn hình thành 2 cột đều nhau tăm tắp
+    img_col1, img_col2 = st.columns(2)
+    # =========================================================================================
+    # KHỐI 4.2: HIỂN THỊ HÌNH ẢNH CỦA MẪU MỚI TẢI LÊN VÀ MẪU ĐỐI CHỨNG KHỚP KHO TỪ SUPABASE
+    # =========================================================================================
+    with img_col1:
+        uploaded_name = st.session_state.get("previous_uploaded_file_name", "Techpack")
+        st.markdown(f"**📄 Tài liệu mẫu mới:** `{uploaded_name}`")
+        if target_new_bytes is not None:
+            st.image(target_new_bytes, caption=f"Bản vẽ kĩ thuật mẫu mới ({new_style_id})", use_container_width=True)
+        else:
+            st.info("ℹ️ Chưa phát hiện ảnh bản vẽ của mẫu mới tải lên.")
 
-        # -------------------------------------------------------------------------------------
-        # CỘT 1: HIỂN THỊ HÌNH ẢNH MẪU MỚI TẢI LÊN
-        # -------------------------------------------------------------------------------------
-        with img_col1:
-            uploaded_file_name = st.session_state.get("previous_uploaded_file_name", "Techpack")
-            st.markdown(f"**📄 Tài liệu mẫu mới:** `{uploaded_file_name}`")
-            if target_new_sketch_bytes is not None:
-                st.image(target_new_sketch_bytes, caption=f"Bản vẽ kĩ thuật trích xuất từ tài liệu mới ({new_style_id_detected})", use_container_width=True)
-            else:
-                st.info("ℹ️ Chưa phát hiện ảnh bản vẽ của mẫu mới tải lên.")
-
-        # -------------------------------------------------------------------------------------
-        # CỘT 2: HIỂN THỊ HÌNH ẢNH ĐỐI CHỨNG TỪ KHO
-        # -------------------------------------------------------------------------------------
-        with img_col2:
-            if matched_techpack is not None:
-                # Đồng bộ trích xuất linh hoạt cả key viết thường và viết hoa
-                target_style_name = str(matched_techpack.get("style_number") or matched_techpack.get("StyleName") or "KHO_DATA_01").strip().upper()
-                similarity_score = st.session_state.get("match_confidence_score", 100)
-                
-                st.markdown(f"""
-                    <div style='background-color: #EEF2F6; padding: 10px; border-radius: 5px; text-align: center; margin-bottom: 8px;'>
-                        <p style='color: #1E3A8A; font-size: 14px; font-weight: 700; margin: 0;'>🎯 Mã tương đồng trong kho: {target_style_name}</p>
-                        <p style='color: #10B981; font-size: 13px; font-weight: 600; margin: 4px 0 0 0;'>🤖 Độ tương đồng kết cấu (Vision): {similarity_score}%</p>
-                    </div>
-                """, unsafe_allow_html=True)
-                
-                db_stored_url = matched_techpack.get("image_preview_url") or matched_techpack.get("SketchURL") or matched_techpack.get("sketch_url")
-                if db_stored_url:
-                    from urllib.parse import quote
-                    st.image(quote(str(db_stored_url), safe=':/'), caption=f"Ảnh bản vẽ gốc mã đối chứng {target_style_name}", use_container_width=True)
-                else:
-                    st.info("ℹ️ Bản ghi này chưa cập nhật ảnh minh họa trong kho sản xuất.")
-            else:
-                st.warning("⚠️ CHƯA KHỚP ĐƯỢC MÃ TƯƠNG ĐỒNG!")
-
-        # -------------------------------------------------------------------------------------
-        # RENDER BẢNG ĐỐI CHIẾU THÔNG SỐ KHỬ LỆCH KÝ TỰ (ĐỒNG BỘ TOÀN DIỆN CHO CỘT KHO)
-        # -------------------------------------------------------------------------------------
-        if new_style_measurements_dict:
-            st.markdown("<br>#### 📊 BẢNG ĐỐI CHIẾU THÔNG SỐ CHI TIẾT (POM COMPARISON)", unsafe_allow_html=True)
+    with img_col2:
+        # BẬT MỞ KHÓA TỐI CAO: Ép kiểm tra nếu bộ nhớ tạm có dữ liệu, bốc ảnh kho lên tức thì
+        if matched_data is not None:
+            # Hỗ trợ đọc cả key viết hoa (StyleName) và viết thường (style_number) để triệt tiêu lỗi trống kho
+            t_style_name = str(matched_data.get("style_number") or matched_data.get("StyleName") or "KHO_MẪU").strip().upper()
+            sim_score = st.session_state.get("match_confidence_score", 95)
             
-            historical_measurements = matched_techpack.get("measurements") or matched_techpack.get("DetailedMeasurements") or matched_techpack.get("detailed_measurements") if matched_techpack else {}
-            if not isinstance(historical_measurements, dict): 
-                historical_measurements = {}
-                
-            historical_clean = {re.sub(r'[^a-z0-9]', '', str(k).lower()): v for k, v in historical_measurements.items()}
-            comparison_rows = []
+            st.markdown(f"""
+                <div style='background-color: #EEF2F6; padding: 10px; border-radius: 5px; text-align: center; margin-bottom: 8px;'>
+                    <p style='color: #1E3A8A; font-size: 14px; font-weight: 700; margin: 0;'>🎯 Mã tương đồng trong kho: {t_style_name}</p>
+                    <p style='color: #10B981; font-size: 13px; font-weight: 600; margin: 4px 0 0 0;'>🤖 Độ tương đồng kết cấu (Vision): {sim_score}%</p>
+                </div>
+            """, unsafe_allow_html=True)
             
-            for pom, val_new in new_style_measurements_dict.items():
-                val_new_str = str(val_new).strip()
-                pom_clean_key = re.sub(r'[^a-z0-9]', '', str(pom).lower())
-                
-                val_old_str = "-"
-                if pom_clean_key in historical_clean:
-                    val_old_str = str(historical_clean[pom_clean_key]).strip()
-                else:
-                    for k_clean, v_val in historical_clean.items():
-                        if k_clean in pom_clean_key or pom_clean_key in k_clean:
-                            val_old_str = str(v_val).strip()
-                            break
-                
-                deviation_str = "-"
-                try:
-                    if val_new_str != "-" and val_old_str != "-":
-                        def parse_garment_value(v_text):
-                            nums = re.findall(r"[-+]?\d*\.\d+|\d+", v_text)
-                            if not nums: return None
-                            base = float(nums[0])
-                            if "/" in v_text and len(nums) >= 3: base = float(nums[0]) + (float(nums[1]) / float(nums[2]))
-                            elif "/" in v_text and len(nums) == 2: base = float(nums[0]) / float(nums[1])
-                            return base
-                        num_new, num_old = parse_garment_value(val_new_str), parse_garment_value(val_old_str)
-                        if num_new is not None and num_old is not None:
-                            diff = num_new - num_old
-                            if diff == 0: deviation_str = "0"
-                            else: deviation_str = f"+{round(diff, 3)}" if diff > 0 else str(round(diff, 3))
-                except Exception: 
-                    pass
-                    
-                comparison_rows.append({
-                    "Điểm Đo (POM Description)": pom,
-                    f"Mẫu Mới Tải Lên ({new_style_id_detected})": val_new_str,
-                    f"Mẫu Đối Chứng Khớp Kho ({target_style_name if matched_techpack else 'N/A'})": val_old_str,
-                    "Độ Lệch (Deviation)": deviation_str
-                })
-                
-            if comparison_rows:
-                df_compare = pd.DataFrame(comparison_rows)
-                st.dataframe(df_compare, use_container_width=True, hide_index=True)
+            # Kéo link ảnh CDN công khai linh hoạt theo cấu trúc trường
+            img_url = matched_data.get("image_preview_url") or matched_data.get("SketchURL") or matched_data.get("sketch_url")
+            if img_url:
+                from urllib.parse import quote
+                st.image(quote(str(img_url), safe=':/'), caption=f"Ảnh bản vẽ gốc mã đối chứng {t_style_name}", use_container_width=True)
             else:
-                st.info("ℹ️ Không có dữ liệu thông số Techpack tương thích để hiển thị đối chiếu.")
+                st.info("ℹ️ Bản ghi này hiện chưa cập nhật ảnh minh họa trong kho.")
+        else:
+            st.warning("⚠️ CHƯA KHỚP ĐƯỢC MÃ TƯƠNG ĐỒNG!")
+    # =========================================================================================
+    # KHỐI 4.3: RENDER BẢNG ĐỐI CHIẾU THÔNG SỐ CHI TIẾT SONG SONG (POM COMPARISON MATRIX)
+    # =========================================================================================
+    if new_specs_dict:
+        st.markdown("<br>#### 📊 BẢNG ĐỐI CHIẾU THÔNG SỐ CHI TIẾT (POM COMPARISON)", unsafe_allow_html=True)
+        
+        # Đồng bộ nhịp đọc mảng measurements từ Supabase API
+        hist_measurements = matched_data.get("measurements") or matched_data.get("DetailedMeasurements") or matched_data.get("detailed_measurements") if matched_data else {}
+        if not isinstance(hist_measurements, dict): 
+            hist_measurements = {}
+            
+        # Thuật toán làm sạch mờ key (Fuzzy) loại bỏ chữ hoa chữ thường
+        hist_clean = {re.sub(r'[^a-z0-9]', '', str(k).lower()): v for k, v in hist_measurements.items()}
+        comp_rows = []
+        
+        for pom, val_new in new_specs_dict.items():
+            val_new_str = str(val_new).strip()
+            pom_clean_key = re.sub(r'[^a-z0-9]', '', str(pom).lower())
+            
+            val_old_str = "-"
+            if pom_clean_key in hist_clean:
+                val_old_str = str(hist_clean[pom_clean_key]).strip()
+            else:
+                for k_clean, v_val in hist_clean.items():
+                    if k_clean in pom_clean_key or pom_clean_key in k_clean:
+                        val_old_str = str(v_val).strip()
+                        break
+            
+            deviation_str = "-"
+            try:
+                if val_new_str != "-" and val_old_str != "-":
+                    def parse_garment_value(v_text):
+                        nums = re.findall(r"[-+]?\d*\.\d+|\d+", v_text)
+                        if not nums: return None
+                        base = float(nums[0])
+                        if "/" in v_text and len(nums) >= 3: base = float(nums[0]) + (float(nums[1]) / float(nums[2]))
+                        elif "/" in v_text and len(nums) == 2: base = float(nums[0]) / float(nums[1])
+                        return base
+                    num_new, num_old = parse_garment_value(val_new_str), parse_garment_value(val_old_str)
+                    if num_new is not None and num_old is not None:
+                        diff = num_new - num_old
+                        deviation_str = f"+{round(diff, 3)}" if diff > 0 else str(round(diff, 3))
+            except Exception: pass
                 
-    except Exception as e5:
-        print(f"❌ [GIAO DIỆN RENDER CRASH]: {str(e5)}")
+            comp_rows.append({
+                "Điểm Đo (POM Description)": pom,
+                f"Mẫu Mới Tải Lên ({new_style_id})": val_new_str,
+                f"Mẫu Đối Chứng Khớp Kho": val_old_str,
+                "Độ Lệch (Deviation)": deviation_str
+            })
+            
+        if comp_rows:
+            st.dataframe(pd.DataFrame(comp_rows), use_container_width=True, hide_index=True)
 
 
 
