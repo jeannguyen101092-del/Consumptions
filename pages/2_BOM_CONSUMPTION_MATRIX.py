@@ -1586,7 +1586,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         st.info("👋 Vui lòng tải lên tệp Techpack hồ sơ thiết kế (PDF/Hình ảnh) ở phía trên để hệ thống bắt đầu quét và lập lịch trình đối soát.")
         st.stop()
 # =========================================================================================
-# ĐOẠN 4B - PHẦN 1: ĐỒNG BỘ BIẾN VÀ PHÂN LOẠI GARMENT TYPE QUA VISION
+# ĐOẠN 4B - PHẦN 1 (CẬP NHẬT): TỰ ĐỘNG THỬ LẠI KHI API GEMINI BỊ NGHẼN MÁY CHỦ (LỖI 503)
 # =========================================================================================
 
     # Đồng bộ cấu hình bảo mật hệ thống từ st.secrets
@@ -1608,53 +1608,79 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
 
     new_vec = str(st.session_state.get("visual_description_str", "")).strip().upper()
 
-    # KHỞI CHẠY TIẾN TRÌNH TRÍCH XUẤT ĐẶC TRƯNG HÌNH HỌC (SKETCH VECTOR)
+    # KHỞI CHẠY TIẾN TRÌNH TRÍCH XUẤT ĐẶC TRƯNG HÌNH HỌC (TÍCH HỢP BỘ TỰ ĐỘNG THỬ LẠI CHỐNG NGHẼN)
     if st.session_state["matched_techpack"] is None:
         if (not new_vec or len(new_vec) < 30) and target_new_sketch_bytes and client and hasattr(client, "models"):
             with st.spinner("🔄 Đang quét ảnh tái lập Sketch Vector..."):
-                try:
-                    ocr_prompt = """
-                    You are an expert apparel techpack analyzer. This document may be a multi-page PDF containing Cover pages, BOM tables, and Measurement charts.
-                    CRITICAL TASK: First, scan through all pages to locate the primary 'FLAT SKETCH' or 'TECHNICAL DRAWING' page. Ignore textual BOM or size chart grids.
-                    Once located, extract:
-                    1. Garment Type (Must strictly classify as one of these: PANT, SHORT, JACKET, SHIRT, DRESS, SKIRT, VEST, HOODIE, T-SHIRT)
-                    2. Structural Features (Focus on visual construction details)
-                    Return format exactly like this:
-                    GARMENT_TYPE: PANT
-                    FEATURES:
-                    ZIPPER FLY
-                    """
-                    if types and hasattr(types, "Part"):
-                        ocr_contents = [types.Part.from_text(text=ocr_prompt), types.Part.from_bytes(data=target_new_sketch_bytes, mime_type=detected_mime_type)]
-                    else:
-                        ocr_contents = [ocr_prompt, {"mime_type": detected_mime_type, "data": target_new_sketch_bytes}]
-                        
-                    ocr_res = client.models.generate_content(model='gemini-2.5-flash', contents=ocr_contents)
-                    if ocr_res and ocr_res.text:
-                        new_vec = str(ocr_res.text).strip().upper()
-                        st.session_state["visual_description_str"] = new_vec
-                        
-                        type_match = re.search(r"GARMENT[\s_-]*TYPE\s*[:=]\s*([A-Z_\-]+)", new_vec, re.IGNORECASE)
-                        if type_match:
-                            st.session_state["detected_garment_type"] = type_match.group(1).strip().upper()
-                        else:
-                            keywords_fallback = ["PANT", "SHORT", "JACKET", "SHIRT", "DRESS", "SKIRT", "VEST", "HOODIE", "T-SHIRT"]
-                            found_type = "UNKNOWN"
-                            for tk in keywords_fallback:
-                                if tk in new_vec: found_type = tk; break
-                            st.session_state["detected_garment_type"] = found_type
-                except Exception as e: 
-                    st.session_state["detected_garment_type"] = f"ERROR_VISION: {str(e)}"
+                
+                # 📌 THUẬT TOÁN AUTO-RETRY: Thiết lập vòng lặp thử lại tối đa 3 lần khi máy chủ Google quá tải
+                max_retries = 3
+                retry_delay = 2  # Số giây ngủ ban đầu
+                success_api = False
+                last_error_msg = ""
 
-        with st.expander("🛠️ DEBUG: DỮ LIỆU THÔ VÀ TRẠNG THÁI PHÂN LOẠI VISION", expanded=False):
+                for attempt in range(max_retries):
+                    try:
+                        ocr_prompt = """
+                        You are an expert apparel techpack analyzer. This document may be a multi-page PDF containing Cover pages, BOM tables, and Measurement charts.
+                        CRITICAL TASK: First, scan through all pages to locate the primary 'FLAT SKETCH' or 'TECHNICAL DRAWING' page. Ignore textual BOM or size chart grids.
+                        Once located, extract:
+                        1. Garment Type (Must strictly classify as one of these: PANT, SHORT, JACKET, SHIRT, DRESS, SKIRT, VEST, HOODIE, T-SHIRT)
+                        2. Structural Features (Focus on visual construction details)
+                        Return format exactly like this:
+                        GARMENT_TYPE: PANT
+                        FEATURES:
+                        ZIPPER FLY
+                        """
+                        if types and hasattr(types, "Part"):
+                            ocr_contents = [types.Part.from_text(text=ocr_prompt), types.Part.from_bytes(data=target_new_sketch_bytes, mime_type=detected_mime_type)]
+                        else:
+                            ocr_contents = [ocr_prompt, {"mime_type": detected_mime_type, "data": target_new_sketch_bytes}]
+                            
+                        ocr_res = client.models.generate_content(model='gemini-2.5-flash', contents=ocr_contents)
+                        
+                        if ocr_res and ocr_res.text:
+                            new_vec = str(ocr_res.text).strip().upper()
+                            st.session_state["visual_description_str"] = new_vec
+                            
+                            type_match = re.search(r"GARMENT[\s_-]*TYPE\s*[:=]\s*([A-Z_\-]+)", new_vec, re.IGNORECASE)
+                            if type_match:
+                                st.session_state["detected_garment_type"] = type_match.group(1).strip().upper()
+                            else:
+                                keywords_fallback = ["PANT", "SHORT", "JACKET", "SHIRT", "DRESS", "SKIRT", "VEST", "HOODIE", "T-SHIRT"]
+                                found_type = "UNKNOWN"
+                                for tk in keywords_fallback:
+                                    if tk in new_vec: found_type = tk; break
+                                st.session_state["detected_garment_type"] = found_type
+                            
+                            success_api = True
+                            break  # Thoát khỏi vòng lặp ngay lập tức nếu gọi API thành công
+                            
+                    except Exception as e:
+                        last_error_msg = str(e)
+                        # Nếu gặp lỗi quá tải 503 hoặc giới hạn quota, tiến hành ngủ tăng tiến và thử lại
+                        if "503" in last_error_msg or "RESOURCE_EXHAUSTED" in last_error_msg or "429" in last_error_msg:
+                            import time
+                            time.sleep(retry_delay)
+                            retry_delay *= 2  # Tăng gấp đôi thời gian ngủ cho lượt sau (Exponential Backoff)
+                        else:
+                            break  # Nếu là lỗi khác (ví dụ sai Key), thoát luôn không thử lại mất thời gian
+
+                # Nếu sau 3 lần thử lại liên tục mà máy chủ Google vẫn sập hoàn toàn
+                if not success_api:
+                    st.session_state["detected_garment_type"] = f"ERROR_VISION: {last_error_msg}"
+
+        # RENDER GIAO DIỆN DEBUG
+        with st.expander("🛠️ DEBUG: DỮ LIỆU THÔ VÀ TRẠNG THÁI PHÂN LOẠI VISION", expanded=True):
             st.write(f"**MIME Type nhận diện:** `{detected_mime_type}`")
             st.write(f"**Garment Type trích xuất:** `{st.session_state['detected_garment_type']}`")
             st.code(new_vec)
 
         if len(new_vec) < 10:
             new_vec = "FALLBACK_EMPTY_VECTOR_SPEC"
-            if st.session_state["detected_garment_type"] == "UNKNOWN":
+            if st.session_state["detected_garment_type"] == "UNKNOWN" or "ERROR_VISION" in st.session_state["detected_garment_type"]:
                 st.session_state["detected_garment_type"] = "PANT"
+
 # =========================================================================================
 # ĐOẠN 4B - PHẦN 2 HOÀN CHỈNH: THUẬT TOÁN ĐỐI SOÁT VLM VÀ ÉP CHỌN MÃ GẦN NHẤT
 # =========================================================================================
