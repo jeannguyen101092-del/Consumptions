@@ -210,72 +210,84 @@ def save_to_supabase_techpack_table(payload_data, raw_file_bytes=None, file_name
         print(f"❌ [CRITICAL SECTION 1 ERR]: {str(e1)}")
         st.sidebar.error(f"Lỗi Đoạn 1: {str(e1)}")
 
-        # ĐOẠN 2: Trích xuất văn bản đặc trưng và gọi Gemini Embedding API tạo Vector Lai.
-        measurements_raw = payload_data.get("measurements", {})
-        visual_description_str = f"STYLE: {style_name_db}. BUYER: {payload_data.get('buyer', 'PPJ')}. CATEGORY: {payload_data.get('category', 'Pants')}. Specs layout: "
-        if measurements_raw and isinstance(measurements_raw, dict):
-            visual_description_str += ", ".join([f"{k}:{v}" for k, v in list(measurements_raw.items()) if v is not None])
-        else:
-            visual_description_str += "NO_MEASUREMENTS"
+           # =========================================================================================
+    # ĐOẠN 2: Trích xuất văn bản đặc trưng và gọi Gemini Embedding API tạo Vector Lai.
+    # =========================================================================================
+    global hybrid_vector_embedding_array, clean_dict, matrix_raw_data, visual_description_str
+    hybrid_vector_embedding_array = None
+    clean_dict = {}
+    matrix_raw_data = {}
+    visual_description_str = ""
 
-        hybrid_vector_embedding_array = None
-        gemini_key = st.secrets.get("GEMINI_API_KEY", "").strip()
-        
-        if gemini_key:
-            try:
-                from google import genai
-                from google.genai import types
-                client_embed = genai.Client(api_key=gemini_key)
-                
-                # --- PHẦN A: SỐ HÓA VECTOR HÌNH ẢNH SKETCH (768 CHIỀU) ---
-                image_vector = []
-                if image_data:
-                    try:
-                        img_part = types.Part.from_bytes(data=image_data, mime_type=mime_type)
-                        img_embed_res = client_embed.models.embed_content(
-                            model='gemini-embedding-2',
-                            contents=[img_part]
-                        )
-                        if img_embed_res and img_embed_res.embeddings:
-                            emb_obj = img_embed_res.embeddings if isinstance(img_embed_res.embeddings, list) else img_embed_res.embeddings
-                            if hasattr(emb_obj, 'values'):
-                                image_vector = [float(x) for x in emb_obj.values]
-                            elif isinstance(emb_obj, list):
-                                image_vector = [float(x) for x in emb_obj]
-                    except Exception as img_embed_err:
-                        print(f"❌ [IMAGE VECTOR ERR]: {str(img_embed_err)}")
-                
-                # --- PHẦN B: SỐ HÓA VECTOR THÔNG SỐ VĂN BẢN (768 CHIỀU) ---
-                text_vector = []
+    # Lấy dữ liệu thông số từ payload đầu vào
+    measurements_raw = payload_data.get("measurements", {})
+    visual_description_str = f"STYLE: {style_name_db}. BUYER: {payload_data.get('buyer', 'PPJ')}. CATEGORY: {payload_data.get('category', 'Pants')}. Specs layout: "
+    if measurements_raw and isinstance(measurements_raw, dict):
+        visual_description_str += ", ".join([f"{k}:{v}" for k, v in list(measurements_raw.items()) if v is not None])
+    else:
+        visual_description_str += "NO_MEASUREMENTS"
+
+    gemini_key = st.secrets.get("GEMINI_API_KEY", "").strip()
+    
+    if gemini_key:
+        try:
+            from google import genai
+            from google.genai import types
+            client_embed = genai.Client(api_key=gemini_key)
+            
+            # --- PHẦN A: SỐ HÓA VECTOR HÌNH ẢNH SKETCH (768 CHIỀU) ---
+            image_vector = []
+            if image_data:
                 try:
-                    text_embed_res = client_embed.models.embed_content(
+                    img_part = types.Part.from_bytes(data=image_data, mime_type=mime_type)
+                    img_embed_res = client_embed.models.embed_content(
                         model='gemini-embedding-2',
-                        contents=[visual_description_str]
+                        contents=[img_part]
                     )
-                    if text_embed_res and text_embed_res.embeddings:
-                        emb_obj = text_embed_res.embeddings if isinstance(text_embed_res.embeddings, list) else text_embed_res.embeddings
+                    if img_embed_res and img_embed_res.embeddings:
+                        emb_obj = img_embed_res.embeddings if isinstance(img_embed_res.embeddings, list) else img_embed_res.embeddings
                         if hasattr(emb_obj, 'values'):
-                            text_vector = [float(x) for x in emb_obj.values]
+                            image_vector = [float(x) for x in emb_obj.values]
                         elif isinstance(emb_obj, list):
-                            text_vector = [float(x) for x in emb_obj]
-                except Exception as txt_embed_err:
-                    print(f"❌ [TEXT VECTOR ERR]: {str(txt_embed_err)}")
+                            image_vector = [float(x) for x in emb_obj]
+                except Exception as img_embed_err:
+                    print(f"❌ [IMAGE VECTOR ERR]: {str(img_embed_err)}")
+            
+            # --- PHẦN B: SỐ HÓA VECTOR THÔNG SỐ VĂN BẢN (768 CHIỀU) ---
+            text_vector = []
+            try:
+                text_embed_res = client_embed.models.embed_content(
+                    model='gemini-embedding-2',
+                    contents=[visual_description_str]
+                )
+                if text_embed_res and text_embed_res.embeddings:
+                    emb_obj = text_embed_res.embeddings if isinstance(text_embed_res.embeddings, list) else text_embed_res.embeddings
+                    if hasattr(emb_obj, 'values'):
+                        text_vector = [float(x) for x in emb_obj.values]
+                    elif isinstance(emb_obj, list):
+                        text_vector = [float(x) for x in emb_obj]
+            except Exception as txt_embed_err:
+                print(f"❌ [TEXT VECTOR ERR]: {str(txt_embed_err)}")
+            
+            # --- PHẦN C: GHÉP NỐI THÀNH VECTOR LAI HYBRID (1536 CHIỀU) ---
+            if not image_vector and text_vector: image_vector = [0.0] * len(text_vector)
+            if not text_vector and image_vector: text_vector = [0.0] * len(image_vector)
                 
-                # --- PHẦN C: GHÉP NỐI THÀNH VECTOR LAI HYBRID (1536 CHIỀU) ---
-                if not image_vector and text_vector: image_vector = [0.0] * len(text_vector)
-                if not text_vector and image_vector: text_vector = [0.0] * len(image_vector)
-                    
-                if image_vector and text_vector:
-                    hybrid_vector_embedding_array = list(image_vector) + list(text_vector)
-                    print(f"🚀 [HYBRID VECTOR COMPLETE]: Lấy thành công {len(hybrid_vector_embedding_array)} chiều.")
-            except Exception as embed_master_err:
-                print(f"💥 [MASTER EMBED ERR]: {str(embed_master_err)}")
-        # ĐOẠN 3: Khử lỗi thiếu hụt chiều vector và làm sạch cấu trúc JSONB.
+            if image_vector and text_vector:
+                hybrid_vector_embedding_array = list(image_vector) + list(text_vector)
+                print(f"🚀 [HYBRID VECTOR COMPLETE]: Lấy thành công {len(hybrid_vector_embedding_array)} chiều.")
+        except Exception as embed_master_err:
+            print(f"💥 [MASTER EMBED ERR]: {str(embed_master_err)}")
+
+            # =========================================================================================
+    # ĐOẠN 3: Khử lỗi thiếu hụt chiều vector và làm sạch cấu trúc JSONB.
+    # =========================================================================================
+    try:
+        # Đảm bảo mảng vector luôn đủ 1536 chiều để pgvector trong DB không từ chối nhận
         if not hybrid_vector_embedding_array or len(hybrid_vector_embedding_array) != 1536:
             hybrid_vector_embedding_array = [0.0] * 1536
 
         # Ép dữ liệu thông số đo lường không bị rỗng khi đẩy vào Postgres JSONB
-        clean_dict = {}
         if isinstance(measurements_raw, dict):
             for k, v in measurements_raw.items():
                 if v is not None and str(v).strip():
@@ -286,7 +298,14 @@ def save_to_supabase_techpack_table(payload_data, raw_file_bytes=None, file_name
         matrix_raw_data = payload_data.get("full_size_matrix", {})
         if not matrix_raw_data or not isinstance(matrix_raw_data, dict) or len(matrix_raw_data) == 0:
             matrix_raw_data = {"AI_ENGINE_STATUS": "NO_MATRIX_DATA"}
-        # ĐOẠN 4: Đóng gói gói tin đa hình và thực thi gọi API REST RPC lên Supabase.
+            
+    except Exception as e3:
+        print(f"❌ [CRITICAL SECTION 3 ERR]: {str(e3)}")
+        st.sidebar.error(f"Lỗi Đoạn 3: {str(e3)}")
+    # =========================================================================================
+    # ĐOẠN 4: Đóng gói gói tin đa hình và thực thi gọi API REST RPC lên Supabase.
+    # =========================================================================================
+    try:
         style_val = str(style_name_db).strip() if style_name_db else "STYLE_UNKNOWN_" + str(int(time.time()))
         buyer_val = str(payload_data.get("buyer", "PPJ GROUP")).strip() if payload_data.get("buyer") else "PPJ BUYER"
         cat_val = str(payload_data.get("category", "GARMENT")).strip() if payload_data.get("category") else "GARMENT"
@@ -294,7 +313,7 @@ def save_to_supabase_techpack_table(payload_data, raw_file_bytes=None, file_name
         url_val = str(public_image_url).strip() if public_image_url else "https://supabase.com"
         desc_val = str(visual_description_str).strip() if visual_description_str else "No geometric descriptions available."
 
-        # Trộn lẫn cấu trúc đặt tên tham số (Snake-case và CamelCase) chống lệch signature
+        # Trộn lẫn cấu trúc đặt tên tham số (Snake-case và CamelCase) chống lệch signature SQL
         rpc_payload = {
             "p_stylename": style_val,
             "p_buyer": buyer_val,
@@ -318,7 +337,7 @@ def save_to_supabase_techpack_table(payload_data, raw_file_bytes=None, file_name
             "p_vector": hybrid_vector_embedding_array
         }
 
-        # Terminal Log sản xuất
+        # Terminal Log sản xuất kiểm tra độ dài mảng vector
         print("\n" + "="*25 + " RPC PAYLOAD CHECK " + "="*25)
         for key, value in rpc_payload.items():
             if key in ["p_geometry_vector", "p_vector"]:
@@ -328,7 +347,7 @@ def save_to_supabase_techpack_table(payload_data, raw_file_bytes=None, file_name
                 print(f"👉 Parameter: {key:<25} | Value: {val_str:<60} | Type: {type(value)}")
         print("="*70 + "\n")
 
-        # Gửi Request Post RESTful lên RPC API Gateway
+        # Gửi Request Post RESTful lên RPC API Gateway của Supabase
         headers = {
             "apikey": SB_KEY, 
             "Authorization": f"Bearer {SB_KEY}",
@@ -337,7 +356,7 @@ def save_to_supabase_techpack_table(payload_data, raw_file_bytes=None, file_name
         rpc_url = f"{SB_URL.rstrip('/')}/rest/v1/rpc/insert_techpack_data_with_vector"
         db_res = requests.post(rpc_url, headers=headers, json=rpc_payload, timeout=30)
         
-        # ĐÃ VÁ LỖI CÚ PHÁP: Kiểm tra trạng thái phản hồi HTTP bằng toán tử so sánh chuẩn
+        # Kiểm tra trạng thái phản hồi HTTP bằng toán tử so sánh chuẩn
         if 200 <= db_res.status_code <= 299:
             print("✅ [SUPABASE SUCCESS]: Đồng bộ dữ liệu qua hàm RPC hoàn tất.")
             return True
@@ -346,12 +365,10 @@ def save_to_supabase_techpack_table(payload_data, raw_file_bytes=None, file_name
             st.sidebar.error(f"RPC Reject: HTTP {db_res.status_code} | {db_res.text[:60]}")
             return False
 
-    except Exception as e:
-        print(f"❌ [CRITICAL DB MAIN ERR]: {str(e)}")
-        st.sidebar.error(f"Crash Main DB: {str(e)}")
+    except Exception as e4:
+        print(f"❌ [CRITICAL SECTION 4 ERR]: {str(e4)}")
+        st.sidebar.error(f"Lỗi Đoạn 4: {str(e4)}")
         return False
-
-
 
 
 
