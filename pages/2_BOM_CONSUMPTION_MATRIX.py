@@ -542,7 +542,6 @@ def process_single_pdf_batch(file_bytes, file_name):
         info = pdfinfo_from_bytes(file_bytes)
         total_p = int(info.get("Pages", 1))
         
-        # 1. Nâng DPI lên 220 để làm rõ chữ nhỏ trong Spec Sheet / Measurement Chart
         contents_payload = []
         chat_images = convert_from_bytes(file_bytes, dpi=220, first_page=1, last_page=total_p)
         for page_img in chat_images:
@@ -566,7 +565,6 @@ def process_single_pdf_batch(file_bytes, file_name):
             "We only want the complete product design presentation sketch page."
         )
         
-        # Ép prompt qua Part.from_text để tránh Flash Vision bỏ qua câu lệnh
         contents_payload.append(
             types.Part.from_text(text=industrial_extraction_prompt)
         )
@@ -627,7 +625,6 @@ def process_single_pdf_batch(file_bytes, file_name):
         if not parsed_data:
             return {"success": False, "error": "Mô hình không phản hồi văn bản hoặc cấu trúc dữ liệu trống."}
             
-        # Kiểm tra hạ cấp lỗi - Cho phép Measurements trống hoạt động tiếp (Cảnh báo thay vì chặn sập)
         measurements = parsed_data.get("measurements", {})
         warning_msg = None
         if not measurements or len(measurements) == 0:
@@ -645,7 +642,7 @@ def process_single_pdf_batch(file_bytes, file_name):
             print(f"❌ INVALID SKETCH INDEX: {detected_idx}. Fallback về trang đầu.")
             detected_idx = 0
             b_buf = io.BytesIO()
-            chat_images[0].convert("RGB").save(b_buf, format="JPEG", quality=90)
+            chat_images[detected_idx].convert("RGB").save(b_buf, format="JPEG", quality=90)
             extracted_sketch_bytes = b_buf.getvalue()
             
         success_db = save_to_supabase_techpack_table(parsed_data, raw_file_bytes=file_bytes, file_name=file_name)
@@ -674,6 +671,7 @@ def process_single_pdf_batch(file_bytes, file_name):
         }
     except Exception as e:
         return {"success": False, "error": f"Lỗi bóc tách PDF: {str(e)}"}
+
 # PHASE 5: USER INTERFACE STRUCTURE & AUTOMATION FACTORY 
 # =============================================================================
 with st.sidebar:
@@ -686,6 +684,7 @@ with st.sidebar:
     
     st.markdown("<p style='font-size:11px; font-weight:700; color:#64748B; margin: 15px 0 5px 5px; letter-spacing:0.5px;'>🏭 AUTOMATION FACTORY</p>", unsafe_allow_html=True)
     
+    # ĐÃ ĐỒNG BỘ: Đảm bảo khớp hoàn toàn các nhãn chức năng
     menu_selection = st.radio(
         label="Chức năng hệ thống",
         options=["📊 Upload Techpack", "🔄 Pattern Spec Comparison", "🧵 BOM & Consumption Matrix","🛒 Purchase Consumption","🔍 Tra cứu kho trực tiếp"],
@@ -697,8 +696,6 @@ with st.sidebar:
 
 if "processed_styles" not in st.session_state:
     st.session_state["processed_styles"] = {}
-
-
 if menu_selection == "📊 Upload Techpack":
     import base64
     import concurrent.futures
@@ -775,10 +772,10 @@ if menu_selection == "📊 Upload Techpack":
                                     st.warning(f"⚠️ {f_name}: {task_res.get('warning')}")
                             else:
                                 fail_count_batch += 1
-                                st.error(f"❌ FAIL ENGINE [{f_name}]: {task_res.get('error')}")
+                                st.error(f"FAIL ENGINE [{f_name}]: {task_res.get('error')}")
                         except Exception as exc:
                             fail_count_batch += 1
-                            st.error(f"💥 CRITICAL CRASH [{f_name}]: {str(exc)}")
+                            st.error(f"CRITICAL CRASH [{f_name}]: {str(exc)}")
                         
                         completed = idx + 1
                         progress_bar.progress(completed / total_new_files)
@@ -786,10 +783,9 @@ if menu_selection == "📊 Upload Techpack":
                 
                 status_text.empty()
                 progress_bar.empty()
-                
                 if success_count_batch > 0:
-                    st.success(f"🎉 Tiến trình hoàn tất! Số hóa thành công {success_count_batch}/{total_new_files} tệp mới.")
-
+                    st.success("🎉 Số hóa dữ liệu thành công! Hãy kiểm tra bảng thông số bên dưới trước khi bấm lưu.")
+                    
         for file in uploaded_files:
             if file.name in st.session_state["processed_styles"]:
                 files_to_render.append(file.name)
@@ -815,28 +811,32 @@ if menu_selection == "📊 Upload Techpack":
                 col_target = cols[idx % 2]
                 data = st.session_state["processed_styles"][f_name]
                 with col_target:
-                    st.markdown(f"""
-                        <div class="card-container">
-                            <div class="tech-card-header">📊 STYLE ID: {data.get('style_number_parsed')}</div>
-                            <div class="metric-grid-box">
-                                <div><p class="metric-label">BUYER</p><p class="metric-value">{data.get('buyer')}</p></div>
-                                <div><p class="metric-label">PRODUCT LINE</p><p class="metric-value">{data.get('category')}</p></div>
-                                <div><p class="metric-label">BASE SIZE</p><p class="metric-value">{data.get('base_size_name')}</p></div>
-                            </div>
-                        </div>
-                    """, unsafe_allow_html=True)
+                    st.markdown(f"""<div class="card-container"><div class="tech-card-header">{data.get('style_number_parsed')}</div>
+                        <div class="metric-grid-box"><div><p class="metric-label">BUYER</p><p class="metric-value">{data.get('buyer')}</p></div>
+                        <div><p class="metric-label">PRODUCT LINE</p><p class="metric-value">{data.get('category')}</p></div>
+                        <div><p class="metric-label">BASE SIZE</p><p class="metric-value">{data.get('base_size_name')}</p></div></div></div>""", unsafe_allow_html=True)
                     
-                    sub_col1, sub_col2 = st.columns([1.3, 0.7])
+                    sub_col1, sub_col2 = st.columns([1.2, 0.8])
                     with sub_col1:
-                        st.markdown("<p style='font-weight:700; font-size:12px; color:#1E293B; margin-top:10px;'>📋 SPECIFICATION DATA GRID</p>", unsafe_allow_html=True)
+                        st.markdown("<p style='font-weight:700; font-size:12px; color:#1E293B;'>📋 SPECIFICATION DATA GRID</p>", unsafe_allow_html=True)
                         measurements = data.get("measurements", {})
                         if measurements and isinstance(measurements, dict):
-                            table_html = """
-                            <div class="data-table-container" style="max-height: 280px; overflow-y: auto; border: 1px solid #E2E8F0; border-radius: 4px;">
-                                <table class="industrial-table" style="width:100%; border-collapse: collapse; font-size:11px; text-align:left;">
-                                    <thead style="background-color: #F8FAFC; position: sticky; top: 0;">
-                                        <tr style="border-bottom: 2px solid #CBD5E1;">
-                                            <th style="padding: 6px 8px; color: #475569;">Điểm Đo (POM Description)</th>
+                            table_html = '<div class="data-table-container" style="max-height: 280px; overflow-y: auto;"><table class="industrial-table"><thead><tr><th>Điểm Đo (POM)</th><th>Thông Số</th></tr></thead><tbody>'
+                            for pom, val in measurements.items():
+                                table_html += f'<tr><td>{pom}</td><td>{val}</td></tr>'
+                            table_html += '</tbody></table></div>'
+                            st.markdown(table_html, unsafe_allow_html=True)
+                        else:
+                            st.info("Bảng thông số trống.")
+                            
+                    with sub_col2:
+                        st.markdown(f"<p style='font-weight:700; font-size:12px; color:#1E293B;'>🖼️ FLAT SKETCH (P.{data.get('sketch_page_index', 0)})</p>", unsafe_allow_html=True)
+                        sketch_img = data.get("sketch_image", "")
+                        if sketch_img:
+                            st.image(sketch_img, use_container_width=True)
+                        else:
+                            st.info("Không có ảnh thiết kế.")
+                    st.markdown("<br>", unsafe_allow_html=True)
 
 
 
