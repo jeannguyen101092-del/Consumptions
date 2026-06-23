@@ -132,12 +132,17 @@ def is_valid_jpeg(data):
 def save_to_supabase_techpack_table(payload_data, raw_file_bytes=None, file_name=""):
     """
     Hàm xử lý đồng bộ dữ liệu nạp kho và SỐ HÓA HYBRID VECTOR CHUẨN CÔNG NGHIỆP.
-    🎯 KHẮC PHỤC TRIỆT ĐỂ LỖI 0/1: Truy cập đúng cấu trúc mảng giá trị của SDK Gemini v2 mới.
+    🎯 SỬA LỖI 0/1: Ép triệt để Protobuf Array về mảng float thô tương thích Rest API Supabase.
     """
     import requests
     import json
     import re
     import io
+    import streamlit as st
+
+    # Thu thập biến cấu hình toàn cục từ secrets hệ thống
+    SB_KEY = st.secrets.get("SUPABASE_KEY", "") if "SB_KEY" not in globals() else globals().get("SB_KEY", "")
+    SB_URL = st.secrets.get("SUPABASE_URL", "") if "SB_URL" not in globals() else globals().get("SB_URL", "")
 
     try:
         style_name_db = payload_data.get("style_number_parsed", "").strip()
@@ -154,7 +159,6 @@ def save_to_supabase_techpack_table(payload_data, raw_file_bytes=None, file_name
         image_data = None
         mime_type = "image/jpeg"
 
-        # Khôi phục dữ liệu ảnh thô từ các bước trước
         if payload_data.get("_sketch_bytes_raw"):
             image_data = payload_data["_sketch_bytes_raw"]
         elif sketch_b64:
@@ -191,14 +195,13 @@ def save_to_supabase_techpack_table(payload_data, raw_file_bytes=None, file_name
             except Exception as storage_err: 
                 print(f"[STORAGE EXCEPTION]: {str(storage_err)}")
 
-        # 2. XÂY DỰNG CHUỖI ĐẶC TRƯNG VĂN BẢN
+        # 2. XÂY DỰNG CHUỒI ĐẶC TRƯNG VĂN BẢN
         measurements_raw = payload_data.get("measurements", {})
-        visual_description_str = f"STYLE: {style_name_db}. BUYER: {payload_data.get('buyer', 'PPJ')}. CATEGORY: {payload_data.get('category', 'Pants')}. Specs: "
+        visual_description_str = f"STYLE: {style_name_db}. BUYER: {payload_data.get('buyer', 'PPJ')}. CATEGORY: {payload_data.get('category', 'Pants')}. Specs details: "
         visual_description_str += ", ".join([f"{k}:{v}" for k, v in list(measurements_raw.items())])
-        
-        # 3. KÍCH HOẠT HỆ THỐNG SỐ HÓA VECTOR LAI 1536 CHIỀU
-        hybrid_vector_embedding_array = []
-        gemini_key = get_secure_gemini_key()
+        # TIẾP NỐI LOGIC: KÍCH HOẠT HỆ THỐNG SỐ HÓA VECTOR LAI KHỬ TOÀN BỘ PROTOBUF
+        hybrid_vector_embedding_array = None
+        gemini_key = st.secrets.get("GEMINI_API_KEY", "").strip()
         
         if gemini_key:
             try:
@@ -206,7 +209,7 @@ def save_to_supabase_techpack_table(payload_data, raw_file_bytes=None, file_name
                 from google.genai import types
                 client_embed = genai.Client(api_key=gemini_key)
                 
-                # --- PHẦN 3A: SỐ HÓA TRỰC QUAN HÌNH ẢNH SKETCH (IMAGE VECTOR - 768 CHIỀU) ---
+                # --- PHẦN 3A: VECTOR HÌNH ẢNH (768 CHIỀU) ---
                 image_vector = []
                 if image_data:
                     try:
@@ -215,40 +218,36 @@ def save_to_supabase_techpack_table(payload_data, raw_file_bytes=None, file_name
                             model='gemini-embedding-2',
                             contents=[img_part]
                         )
-                        # SỬA LỖI CẤU TRÚC SDK V2: Trích xuất chuẩn xác thuộc tính .values từ danh sách lặp Protobuf
                         if img_embed_res and img_embed_res.embeddings:
-                            image_vector = img_embed_res.embeddings.values
-                            if not isinstance(image_vector, list) and hasattr(image_vector, "values"):
-                                image_vector = list(image_vector.values)
+                            # SỬA LỖI ĐÚNG 100%: Dùng List Comprehension ép cứng Protobuf về float thường
+                            image_vector = [float(x) for x in img_embed_res.embeddings.values]
                     except Exception as img_embed_err:
                         print(f"❌ [IMAGE VECTOR ERR]: {str(img_embed_err)}")
                 
-                # --- PHẦN 3B: SỐ HÓA THÔNG SỐ VĂN BẢN (TEXT SPEC VECTOR - 768 CHIỀU) ---
+                # --- PHẦN 3B: VECTOR THÔNG SỐ VĂN BẢN (768 CHIỀU) ---
                 text_vector = []
                 try:
                     text_embed_res = client_embed.models.embed_content(
                         model='gemini-embedding-2',
                         contents=[visual_description_str]
                     )
-                    # SỬA LỖI CẤU TRÚC SDK V2: Trích xuất chuẩn xác thuộc tính .values từ văn bản thô
                     if text_embed_res and text_embed_res.embeddings:
-                        text_vector = text_embed_res.embeddings.values
-                        if not isinstance(text_vector, list) and hasattr(text_vector, "values"):
-                            text_vector = list(text_vector.values)
+                        # Ép mảng thông số chữ về float thường
+                        text_vector = [float(x) for x in text_embed_res.embeddings.values]
                 except Exception as txt_embed_err:
                     print(f"❌ [TEXT VECTOR ERR]: {str(txt_embed_err)}")
                 
-                # --- PHẦN 3C: GHÉP NỐI KHỚP ĐỊNH DẠNG (1536 CHIỀU) ---
+                # --- PHẦN 3C: GHÉP NỐI CONCATENATION (1536 CHIỀU MẢNG PYTHON THÔ) ---
                 if not image_vector and text_vector: image_vector = [0.0] * len(text_vector)
                 if not text_vector and image_vector: text_vector = [0.0] * len(image_vector)
                     
                 if image_vector and text_vector:
                     hybrid_vector_embedding_array = list(image_vector) + list(text_vector)
-                    print(f"🚀 [HYBRID VECTOR COMPLETE]: {len(hybrid_vector_embedding_array)} dimensions generated.")
+                    print(f"🚀 [HYBRID COMPLETE]: {len(hybrid_vector_embedding_array)} floats arrays packed.")
             except Exception as embed_master_err:
                 print(f"💥 [MASTER EMBED ERR]: {str(embed_master_err)}")
 
-        # 4. ĐẨY DỮ LIỆU ĐỒNG BỘ LÊN TABLE REST API CỦA SUPABASE
+        # 4. ĐẨY DỮ LIỆU SẠCH ĐỒNG BỘ LÊN TABLE REST API CỦA SUPABASE
         headers = {
             "apikey": SB_KEY, 
             "Authorization": f"Bearer {SB_KEY}",
@@ -271,9 +270,16 @@ def save_to_supabase_techpack_table(payload_data, raw_file_bytes=None, file_name
         }
 
         db_res = requests.post(insert_url, headers=headers, json=db_payload, timeout=20)
+        
+        # In mã lỗi HTTP và lý do chi tiết trực tiếp lên Terminal để kiểm soát sập kết nối
+        if db_res.status_code < 200 or db_res.status_code > 299:
+            print(f"❌ [SUPABASE REST REJECT] HTTP {db_res.status_code}: {db_res.text}")
+            st.sidebar.error(f"Supabase Reject: HTTP {db_res.status_code}")
+            
         return 200 <= db_res.status_code <= 299
     except Exception as e:
         print(f"❌ [CRITICAL DB MAIN ERR]: {str(e)}")
+        st.sidebar.error(f"Crash Main DB: {str(e)}")
         return False
 
 
