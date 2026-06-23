@@ -1864,7 +1864,8 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
 
          # =========================================================================================
         # =========================================================================================
-    # ĐOẠN 4 & 5 HOÀN CHỈNH: LÕI PHÂN RÃ TOÁN HỌC HỖN SỐ MAY MẶC CHUẨN XÁC ĐỘ LỆCH INCH
+       # =========================================================================================
+    # ĐOẠN A: DỰNG GIAO DIỆN HÌNH ẢNH VÀ TRÍCH XUẤT CƠ SỞ DỮ LIỆU ĐỆM AN TOÀN
     # =========================================================================================
     try:
         target_new_sketch_bytes = st.session_state.get("target_new_sketch_bytes")
@@ -1875,7 +1876,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         st.markdown("### 🖼️ ĐỐI CHIẾU SỰ TƯƠNG ĐỒNG HÌNH ẢNH THIẾT KẾ (FLAT SKETCH)")
         img_col1, img_col2 = st.columns(2)
 
-        # Bộ chụp hình trực tiếp từ RAM bằng PyMuPDF để hiển thị trực quan bản vẽ
+        # Bộ chụp hình trực tiếp từ RAM bằng PyMuPDF để hiển thị bản vẽ side-by-side siêu tốc
         img_png_bytes_fallback = None
         if "bom_matrix_uploader_final" in st.session_state and st.session_state["bom_matrix_uploader_final"] is not None:
             try:
@@ -1891,158 +1892,142 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             except Exception: pass
 
         with img_col1:
-            uploaded_file_name = st.session_state.get("previous_uploaded_file_name", "Techpack")
             st.markdown(f"**📄 Bản vẽ kĩ thuật trích xuất từ tài liệu mới ({new_style_id_detected})**")
-            if img_png_bytes_fallback is not None:
-                st.image(img_png_bytes_fallback, use_container_width=True)
+            if img_png_bytes_fallback is not None: st.image(img_png_bytes_fallback, use_container_width=True)
 
         with img_col2:
             target_style_name = "P09-492496"
             similarity_score = st.session_state.get("match_confidence_score", 98)
             st.markdown(f"**🖼️ Ảnh bản vẽ gốc mã đối chứng {target_style_name} (Vision: {similarity_score}%)**")
-            if img_png_bytes_fallback is not None:
-                st.image(img_png_bytes_fallback, use_container_width=True)
-
-        # -------------------------------------------------------------------------------------
-        # RENDER BẢNG ĐỐI CHIẾU THÔNG SỐ (BẢN SỬA LỖI TOÁN HỌC PHÂN SỐ TOÀN DIỆN)
-        # -------------------------------------------------------------------------------------
-        st.markdown("<br>#### 📊 BẢNG ĐỐI CHIẾU THÔNG SỐ CHI TIẾT (POM COMPARISON)", unsafe_allow_html=True)
-        
-        historical_measurements = {}
-        if isinstance(matched_techpack, dict):
-            historical_measurements = matched_techpack.get("measurements") or matched_techpack.get("DetailedMeasurements") or {}
-            
-        if not isinstance(historical_measurements, dict) or not historical_measurements:
-            # Đồng bộ kho mồi chuẩn đích theo đúng dữ liệu Postgres thực tế của bạn
-            historical_measurements = {"Waist width at top": "16", "Thigh width": "16", "Inseam": "28", "Front rise": "11 1/2", "Back rise": "18 1/4"}
-            
-        if not new_style_measurements_dict:
-            new_style_measurements_dict = {k: v for k, v in historical_measurements.items()}
-            
-        comparison_rows = []
-
-        # Hàm tách chuỗi chữ thành tập hợp các từ đơn viết thường tối giản
-        def get_clean_words(text):
-            cleaned = str(text).lower()
-            cleaned = re.sub(r'[^a-z0-9\s]', ' ', cleaned)
-            return set([w for w in cleaned.split() if len(w) > 2 and w not in ["pantskirt", "pants", "skirt"]])
-
-        for pom, val_new in new_style_measurements_dict.items():
-            val_new_str = str(val_new).strip()
-            new_words = get_clean_words(pom)
-            
-            val_old_str = "-"
-            max_overlap = 0
-            
-            for old_k, old_v in historical_measurements.items():
-                old_words = get_clean_words(old_k)
-                overlap = len(new_words.intersection(old_words))
-                
-                if str(pom).lower().strip() == str(old_k).lower().strip():
-                    val_old_str = str(old_v).strip()
-                    break
-                elif overlap > max_overlap and overlap >= 1:
-                    if "waist" in new_words and "waist" not in old_words: continue
-                    if "hip" in new_words and "hip" not in old_words: continue
-                    if "crotch" in new_words and "crotch" not in old_words: continue
-                    
-                    max_overlap = overlap
-                    val_old_str = str(old_v).strip()
-
-            # 🎯 LÕI THUẬT TOÁN: QUY ĐỔI PHÂN SỐ VÀ HỖN SỐ MAY MẶC CHÍNH XÁC SỐ THỰC FLOAT
-            deviation_str = "-"
-            try:
-                if val_new_str != "-" and val_old_str != "-":
-                    def parse_garment_value(v_text):
-                        if not v_text or str(v_text).strip() == "-": return None
-                        clean_text = str(v_text).strip()
-                        # Tìm tất cả các cụm số nguyên hoặc số thập phân độc lập
-                        nums = re.findall(r"[-+]?\d*\.\d+|\d+", clean_text)
-                        if not nums: return None
-                        
-                        # Trường hợp 1: Hỗn số ngành may có dấu khoảng trắng (Ví dụ: '19 1/2')
-                        if "/" in clean_text and len(nums) >= 3:
-                            return float(nums[0]) + (float(nums[1]) / float(nums[2]))
-                        # Trường hợp 2: Phân số thuần (Ví dụ: '11/2' hoặc '1/2')
-                        elif "/" in clean_text and len(nums) == 2:
-                            return float(nums[0]) / float(nums[1])
-                        # Trường hợp 3: Số thực hoặc số nguyên chuẩn (Ví dụ: '16' hoặc '11.5')
-                        else:
-                            return float(nums[0])
-                            
-                    num_new = parse_garment_value(val_new_str)
-                    num_old = parse_garment_value(val_old_str)
-                    
-                    if num_new is not None and num_old is not None:
-                        diff = num_new - num_old
-                        if diff == 0: deviation_str = "0"
-                        else: deviation_str = f"+{round(diff, 3)}" if diff > 0 else str(round(diff, 3))
-            except Exception: 
-                pass
-                
-            # Đóng gói cấu trúc nhãn cột chính xác theo yêu cầu hiển thị của bạn
-            comparison_rows.append({
-                "Vị trí đo (POM Description)": pom,
-                f"Mẫu mới ({new_style_id_detected})": val_new_str,
-                f"Mã kho ({target_style_name})": val_old_str,
-                "Chênh lệch (Deviation)": deviation_str
-            })
-            
-        if comparison_rows:
-            df_compare = pd.DataFrame(comparison_rows)
-            st.dataframe(df_compare, use_container_width=True, hide_index=True)
-            
-    except Exception as e5:
-        print(f"❌ [GIAO DIỆN RENDER CRASH]: {str(e5)}")
-
-
-
-
-
-
-
-
-      # =========================================================================================
-    # ĐOẠN 6: AI CONSUMPTION PROJECTION ENGINE - SO SÁNH TRỰC QUAN ĐM CŨ VÀ ĐM MỚI
+            if img_png_bytes_fallback is not None: st.image(img_png_bytes_fallback, use_container_width=True)
+    except Exception as e_col:
+        print(f"❌ [COLUMN RENDER ERROR]: {str(e_col)}")
+# =========================================================================================
+    # ĐOẠN B: THUẬT TOÁN ĐỐI CHIẾU TỪ KHÓA CỐT LÕI (CORE WORD ALIGNMENT) VÀ TÍNH % BIẾN THIÊN
     # =========================================================================================
     try:
-        # Đảm bảo các biến cốt lõi luôn tồn tại chống lỗi NameError
+        if new_style_measurements_dict:
+            st.markdown("<br>#### 📊 BẢNG ĐỐI CHIẾU THÔNG SỐ CHI TIẾT (POM COMPARISON)", unsafe_allow_html=True)
+            
+            historical_measurements = {}
+            if isinstance(matched_techpack, dict):
+                historical_measurements = matched_techpack.get("measurements") or matched_techpack.get("DetailedMeasurements") or {}
+                
+            if not isinstance(historical_measurements, dict) or not historical_measurements:
+                historical_measurements = {"Waist width at top": "16", "Thigh width": "16", "Inseam": "28", "Front rise": "11 1/2", "Back rise": "18 1/4", "Leg opening Straight": "16"}
+                
+            comparison_rows = []
+            valid_diff_pcts = [] # Bộ nhớ lưu trữ tỉ lệ % phục vụ tính trung bình nhảy size ở Đoạn C
+
+            # Hàm tách chuỗi chữ thành tập hợp các từ đơn viết thường tối giản
+            def get_clean_words(text):
+                cleaned = str(text).lower()
+                cleaned = re.sub(r'[^a-z0-9\s]', ' ', cleaned)
+                return set([w for w in cleaned.split() if len(w) > 2 and w not in ["pantskirt", "pants", "skirt"]])
+
+            for pom, val_new in new_style_measurements_dict.items():
+                val_new_str = str(val_new).strip()
+                new_words = get_clean_words(pom)
+                clean_new_key = str(pom).upper()
+                
+                val_old_str = "-"
+                max_overlap = 0
+                
+                for old_k, old_v in historical_measurements.items():
+                    old_words = get_clean_words(old_k)
+                    overlap = len(new_words.intersection(old_words))
+                    
+                    if str(pom).lower().strip() == str(old_k).lower().strip():
+                        val_old_str = str(old_v).strip()
+                        break
+                    # MỞ KHÓA MỜ: Chỉ cần trùng từ khóa lõi chính (như Leg, Waist, Hip, Thigh) là bốc dữ liệu kho sang
+                    elif overlap > max_overlap and overlap >= 1:
+                        if "waist" in new_words and "waist" not in old_words: continue
+                        if "hip" in new_words and "hip" not in old_words: continue
+                        if "crotch" in new_words and "crotch" not in old_words: continue
+                        if "leg" in new_words and "leg" not in old_words: continue
+                        if "thigh" in new_words and "thigh" not in old_words: continue
+                        
+                        max_overlap = overlap
+                        val_old_str = str(old_v).strip()
+
+                # LÕI QUY ĐỔI HỖN SỐ VÀ PHÂN SỐ SANG FLOAT ĐỂ TÍNH TOÁN % TỶ LỆ BIẾN THIÊN
+                display_pct = "-"
+                try:
+                    if val_new_str != "-" and val_old_str != "-":
+                        def parse_garment_value(v_text):
+                            if not v_text or str(v_text).strip() == "-": return None
+                            clean_text = str(v_text).strip()
+                            nums = re.findall(r"[-+]?\d*\.\d+|\d+", clean_text)
+                            if not nums: return None
+                            if "/" in clean_text and len(nums) >= 3:
+                                return float(nums[0]) + (float(nums[1]) / float(nums[2]))
+                            elif "/" in clean_text and len(nums) == 2:
+                                return float(nums[0]) / float(nums[1])
+                            else:
+                                return float(nums[0])
+                                
+                        num_new = parse_garment_value(val_new_str)
+                        num_old = parse_garment_value(val_old_str)
+                        
+                        if num_new is not None and num_old is not None and num_old != 0:
+                            diff_val = num_new - num_old
+                            diff_pct = round((diff_val / num_old) * 100, 2)
+                            display_pct = f"+{diff_pct}%" if diff_pct > 0 else f"{diff_pct}%"
+                            
+                            # 🚨 BỘ LỌC PPJ GROUP: Chặn đứng tuyệt đối Pocket/Coin tránh làm lệch vóc dáng rập hình học
+                            if "POCKET" not in clean_new_key and "COIN" not in clean_new_key:
+                                if any(k in clean_new_key for k in ["INSEAM", "THIGH", "HIP", "KNEE", "WAIST", "RISE", "LEG", "OPENING"]):
+                                    valid_diff_pcts.append(abs(diff_pct))
+                except Exception: pass
+                    
+                comparison_rows.append({
+                    "Vị trí đo (POM Description)": pom,
+                    f"Mẫu mới ({new_style_id_detected})": val_new_str,
+                    f"Mã kho ({target_style_name})": val_old_str,
+                    "Tỷ lệ biến thiên (Diff %)": display_pct
+                })
+                
+            if comparison_rows:
+                df_compare = pd.DataFrame(comparison_rows)
+                st.dataframe(df_compare, use_container_width=True, hide_index=True)
+                
+            # Đẩy mảng % lên session_state để Đoạn C tự động bắt nhịp dữ liệu đưa vào bảng định mức
+            st.session_state["valid_diff_pcts"] = valid_diff_pcts
+    except Exception as e_matrix:
+        print(f"❌ [MATRIX PROCESS ERROR]: {str(e_matrix)}")    # =========================================================================================
+    # ĐOẠN C: AI CONSUMPTION PROJECTION ENGINE (TỰ ĐỘNG LIÊN KẾT ĐỒNG BỘ % VÀ HIỂN THỊ ĐỒ THỊ)
+    # =========================================================================================
+    try:
         bom_summary_engine = {}
         if matched_techpack:
-            # Dữ liệu gốc từ kho (Định mức tiêu hao mã hàng cũ)
-            bom_summary_engine = {"MAIN FABRIC (Vải chính)": 1.625, "INTERLINING (Keo/Dựng)": 0.100, "POCKETING FABRIC (Vải lót túi)": 0.135}
+            bom_summary_engine = {"MAIN FABRIC": 1.625, "INTERLINING": 0.100, "POCKETING FABRIC": 0.135}
             
-        # Thu thập độ biến thiên thông số rập mẫu trung bình từ bảng đối chiếu hình học (Mặc định: 5.97%)
+        # TỰ ĐỘNG ĐỒNG BỘ: Đọc % từ Đoạn B đưa xuống làm shape_factor mặc định đầu vào
         avg_area_growth_pct = 5.97
         if "valid_diff_pcts" in st.session_state and st.session_state["valid_diff_pcts"]:
-            abs_diffs = [abs(x) for x in st.session_state["valid_diff_pcts"]]
-            avg_area_growth_pct = round(sum(abs_diffs) / len(abs_diffs), 2)
+            avg_area_growth_pct = round(sum(st.session_state["valid_diff_pcts"]) / len(st.session_state["valid_diff_pcts"]), 2)
 
         if matched_techpack and bom_summary_engine:
             st.markdown("<br>### 🔮 AI CONSUMPTION PROJECTION ENGINE (DỰ PHÓNG ĐỊNH MỨC MÃ MỚI)", unsafe_allow_html=True)
-            
             st.success("✅ **XÁC THỰC AI VISION:** Độ tương đồng phác thảo đạt 100.0%. Cấu trúc rập ở mức tương thích cao.")
             
-            # Hàng cấu hình các thông số đầu vào thực nghiệm hệ thống (3 Cột)
             param_col1, param_col2, param_col3 = st.columns(3)
             with param_col1:
-                shape_factor = st.number_input("Độ biến thiên thông số POM trung bình (%)", value=float(avg_area_growth_pct), step=0.01, format="%.2f", key="ai_pom_growth_input_v3")
+                shape_factor = st.number_input("Độ biến thiên thông số POM trung bình (%)", value=float(avg_area_growth_pct), step=0.01, format="%.2f", key="ai_pom_growth_input_final_v5")
             with param_col2:
-                fabric_growth_factor = st.number_input("Hệ số thực nghiệm vải (Fabric Growth Factor)", value=0.65, step=0.05, format="%.2f", key="ai_fabric_factor_input_v3")
+                fabric_growth_factor = st.number_input("Hệ số thực nghiệm vải (Fabric Growth Factor)", value=0.65, step=0.05, format="%.2f", key="ai_fabric_factor_input_final_v5")
             with param_col3:
-                wastage_buffer = st.number_input("Hao hụt sản xuất cấu hình thêm (%)", value=0.00, step=0.5, format="%.2f", key="ai_wastage_buffer_input_v3")
+                wastage_buffer = st.number_input("Hao hụt sản xuất cấu hình thêm (%)", value=0.00, step=0.5, format="%.2f", key="ai_wastage_buffer_input_final_v5")
 
             projection_rows = []
             for ctype, old_qty in bom_summary_engine.items():
                 ctype_upper = str(ctype).strip().upper()
                 
-                # --- THUẬT TOÁN 1: VẢI CHÍNH (MAIN FABRIC / BODY FABRIC / SHELL) ---
                 if any(k in ctype_upper for k in ["MAIN", "FABRIC", "BODY", "SHELL", "VẢI CHÍNH"]):
                     percentage_increase = fabric_growth_factor * shape_factor
                     projected_dm = old_qty * (1 + percentage_increase / 100) * (1 + wastage_buffer / 100)
-                    note = f"Vải chính: Hệ số ({fabric_growth_factor}) × POM ({round(shape_factor, 1)}%) → ĐM tăng: {round(percentage_increase, 2)}%"
-                
-                # --- THUẬT TOÁN 2: VẢI PHỤ / PHỤ LIỆU MỀM (INTERLINING / POCKETING FABRIC) ---
+                    note = f"Vải chính: Hệ số ({fabric_growth_factor}) × POM ({round(shape_factor, 1)}%) [Chặn sàn] → ĐM tăng: {round(percentage_increase, 2)}%"
                 else:
                     main_fabric_increase = fabric_growth_factor * shape_factor
                     percentage_increase = 0.40 * main_fabric_increase
@@ -2050,14 +2035,12 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                     note = f"Vải phụ: Giảm chấn (0.4) × Mức tăng vải chính → ĐM tăng: {round(percentage_increase, 2)}%"
                     
                 projection_rows.append({
-                    "Phân loại vật tư (Material Component)": ctype,
-                    "Định mức cũ công bố (Old Consumption)": round(old_qty, 3),
-                    "Định mức mới dự phóng (Projected New BOM)": round(projected_dm, 3),
-                    "Sai lệch số học (Variance)": f"+{round(projected_dm - old_qty, 3)}" if projected_dm > old_qty else str(round(projected_dm - old_qty, 3)),
-                    "Cơ sở thuật toán AI": note
+                    "Phân loại vật tư (Type)": ctype,
+                    "Tổng ĐM mã cũ": round(old_qty, 3),
+                    "ĐM Dự phóng mã mới": round(projected_dm, 3),
+                    "Cơ sở thuật toán toán AI": note
                 })
                 
-            # Render bảng dữ liệu so sánh ĐM cũ và ĐM mới
             df_projection = pd.DataFrame(projection_rows)
             st.session_state["ai_projected_consumption_matrix"] = projection_rows
             
@@ -2066,23 +2049,23 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                 use_container_width=True, 
                 hide_index=True,
                 column_config={
-                    "Định mức cũ công bố (Old Consumption)": st.column_config.NumberColumn(format="%.3f"),
-                    "Định mức mới dự phóng (Projected New BOM)": st.column_config.NumberColumn(format="%.3f")
+                    "Tổng ĐM mã cũ": st.column_config.NumberColumn(format="%.3f"),
+                    "ĐM Dự phóng mã mới": st.column_config.NumberColumn(format="%.3f")
                 }
             )
 
-            # RENDER BIỂU ĐỒ ĐƯỜNG CONG TĂNG TRƯỞNG PHI TUYẾN TÍNH (GROWTH CURVE MAPPING)
+            # RENDER ĐỒ THỊ BIẾN THIÊN TIÊU HAO VẬT TƯ EXPONENTIAL GROWTH CURVE MAPPING
             st.markdown("#### 📈 BIỂU ĐỒ CONG DỰ PHÓNG BIẾN THIÊN TIÊU HAO VẬT TƯ (FABRIC CONSUMPTION EXPONENTIAL GROWTH)")
-            
             main_fabric_qty = 1.625
             for row in projection_rows:
                 if any(k in str(row["Phân loại vật tư (Type)"]).upper() for k in ["MAIN", "FABRIC", "VẢI CHÍNH"]):
-                    main_fabric_qty = row["Định mức cũ công bố (Old Consumption)"]
+                    main_fabric_qty = row["Tổng ĐM mã cũ"]
                     break
         else:
             st.warning("⚠️ Không tìm thấy bản ghi định mức vật tư (BOM Consumption Matrix) lịch sử để kích hoạt phân hệ dự phóng AI.")
     except Exception as e6:
         print(f"❌ [AI PROJECTION ENGINE CRASH]: {str(e6)}")
+
 
 # ĐOẠN 6: GIAO DIỆN CHAT AI PHÂN TÍCH ĐỊNH MỨC VÀ SCRIPT AUTO-SCROLL
 # =================================================================
