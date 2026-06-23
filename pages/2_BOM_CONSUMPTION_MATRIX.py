@@ -305,7 +305,8 @@ def save_to_supabase_techpack_table(payload_data, raw_file_bytes=None, file_name
     # =========================================================================================
        # =========================================================================================
        # =========================================================================================
-    # ĐOẠN 4: Đóng gói gói tin chuẩn chỉnh và thực thi gọi API REST RPC lên Supabase.
+       # =========================================================================================
+    # ĐOẠN 4: Đóng gói gói tin chuẩn chỉnh và thực thi gọi API RPC V2 lên Supabase.
     # =========================================================================================
     try:
         style_val = str(style_name_db).strip() if style_name_db else "STYLE_UNKNOWN_" + str(int(time.time()))
@@ -315,7 +316,6 @@ def save_to_supabase_techpack_table(payload_data, raw_file_bytes=None, file_name
         url_val = str(public_image_url).strip() if public_image_url else "https://supabase.com"
         desc_val = str(visual_description_str).strip() if visual_description_str else "No geometric descriptions available."
 
-        # Payload tinh gọn, chuẩn hóa theo đúng 9 tham số đầu vào của hàm SQL trong DB
         rpc_payload = {
             "p_stylename": style_val,
             "p_buyer": buyer_val,
@@ -328,29 +328,17 @@ def save_to_supabase_techpack_table(payload_data, raw_file_bytes=None, file_name
             "p_geometry_vector": hybrid_vector_embedding_array
         }
 
-        # Terminal Log để kiểm tra luồng dữ liệu thô khi click button
-        print("\n" + "="*25 + " RPC PAYLOAD FINAL CHECK " + "="*25)
-        for key, value in rpc_payload.items():
-            if key == "p_geometry_vector":
-                print(f"👉 Parameter: {key:<25} | Length: {len(value) if value else 'EMPTY':<10} | Type: {str(type(value)):<20}")
-            else:
-                val_str = str(value)
-                if len(val_str) > 60: val_str = val_str[:57] + "..."
-                print(f"👉 Parameter: {key:<25} | Value: {val_str:<60} | Type: {str(type(value)):<20}")
-        print("="*74 + "\n")
-
-        # Gửi Request Post RESTful lên cổng RPC API Gateway của Supabase
         headers = {
             "apikey": SB_KEY, 
             "Authorization": f"Bearer {SB_KEY}",
             "Content-Type": "application/json"
         }
-        rpc_url = f"{SB_URL.rstrip('/')}/rest/v1/rpc/insert_techpack_data_with_vector"
+        # ĐÃ ĐỔI: Trỏ trực tiếp tới RPC V2 độc nhất
+        rpc_url = f"{SB_URL.rstrip('/')}/rest/v1/rpc/insert_techpack_v2"
         db_res = requests.post(rpc_url, headers=headers, json=rpc_payload, timeout=30)
         
-        # Kiểm tra trạng thái phản hồi HTTP bằng toán tử so sánh khoảng chuẩn
         if 200 <= db_res.status_code <= 299:
-            print("✅ [SUPABASE SUCCESS]: Đồng bộ dữ liệu qua hàm RPC hoàn tất.")
+            print("✅ [SUPABASE SUCCESS]: Đồng bộ dữ liệu qua hàm RPC V2 hoàn tất.")
             return True
         else:
             print(f"❌ [SUPABASE RPC REJECT] HTTP {db_res.status_code}: {db_res.text}")
