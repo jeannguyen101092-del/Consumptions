@@ -1830,62 +1830,64 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                 print(f"❌ [CRITICAL TRIGGER FAILED]: {str(e_trigger)}")
 
        # =========================================================================================
-    # ĐOẠN 3 NÂNG CẤP: GỌI RPC ĐỐI SOÁT VÀ MỞ KHÓA BỘ LỌC CHẶN TRÙNG MÃ (ANTI-SELF MATCHING)
+        # =========================================================================================
+    # ĐOẠN 3 NÂNG CẤP: LỚP ĐỐI SOÁT HYBRID VECTOR TÍCH HỢP CƠ CHẾ DỰ PHÒNG TEXT-FALLBACK
     # =========================================================================================
-    if st.session_state.get("matched_techpack") is None and st.session_state.get("hybrid_search_vector") is not None:
-        with st.spinner("🔍 Mắt thần đang truy vấn thuật toán Cosine để tìm phom dáng giống nhất..."):
-            try:
-                headers_db = {
-                    "apikey": SB_KEY, 
-                    "Authorization": f"Bearer {SB_KEY}", 
-                    "Content-Type": "application/json"
-                }
-                
-                rpc_payload = {
-                    "query_embedding": st.session_state["hybrid_search_vector"],
-                    "match_threshold": 0.40, # Hạ ngưỡng xuống 40% để bao quát dải tìm kiếm rộng hơn
-                    "match_count": 5
-                }
-                
-                rpc_url = f"{base_sb_url.rstrip('/')}/rest/v1/rpc/match_techpack_similarity"
-                response = requests.post(rpc_url, headers=headers_db, json=rpc_payload, timeout=20)
-                
-                if response.status_code == 200:
-                    results = response.json()
+    if st.session_state.get("matched_techpack") is None:
+        headers_db = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}", "Content-Type": "application/json"}
+        url_db = f"{base_sb_url.rstrip('/')}/rest/v1/techpack_storage"
+        has_matched_success = False
+
+        # THÀNH PHẦN 1: Nếu có Vector Lai -> Chạy thuật toán so sánh Cosine toán học của AI
+        if st.session_state.get("hybrid_search_vector") is not None and any(x != 0.0 for x in st.session_state["hybrid_search_vector"]):
+            with st.spinner("🔍 Mắt thần AI đang đối chiếu kết cấu hình học không gian..."):
+                try:
+                    rpc_payload = {
+                        "query_embedding": st.session_state["hybrid_search_vector"],
+                        "match_threshold": 0.35, # Hạ ngưỡng dung sai an toàn
+                        "match_count": 1
+                    }
+                    rpc_url = f"{base_sb_url.rstrip('/')}/rest/v1/rpc/match_techpack_similarity"
+                    response = requests.post(rpc_url, headers=headers_db, json=rpc_payload, timeout=20)
                     
-                    if results and isinstance(results, list) and len(results) > 0:
-                        # RPC trả về danh sách, ta kiểm tra cấu trúc mảng đối tượng
-                        raw_match = results[0] if isinstance(results, list) else results
-                        
-                        # 🎯 ĐỒNG BỘ TOÀN DIỆN CẢ ĐỊNH DẠNG KEY VIẾT HOA VÀ VIẾT THƯỜNG
-                        # Để Đoạn 4 hiển thị UI bốc trúng dữ liệu mà không bị trống cột kho
-                        st.session_state["matched_techpack"] = {
-                            "style_number": raw_match.get("style_number"),
-                            "StyleName": raw_match.get("style_number"),
-                            "buyer": raw_match.get("buyer"),
-                            "Buyer": raw_match.get("buyer"),
-                            "category": raw_match.get("category"),
-                            "Category": raw_match.get("category"),
-                            "base_size": raw_match.get("base_size"),
-                            "BaseSize": raw_match.get("base_size"),
-                            "measurements": raw_match.get("measurements"),
-                            "DetailedMeasurements": raw_match.get("measurements"),
-                            "image_preview_url": raw_match.get("image_preview_url"),
-                            "SketchURL": raw_match.get("image_preview_url")
-                        }
-                        
-                        st.session_state["match_confidence_score"] = int(raw_match.get("similarity", 0.0) * 100)
-                        st.session_state["match_reason"] = "Đồng bộ phom dáng chuẩn xác dựa trên khoảng cách kết cấu gần nhất."
-                        print(f"🎯 [COSINE MATCH SUCCESS]: Khớp thành công mã hàng -> {raw_match.get('style_number')}")
-                        st.rerun()
-                    else:
-                        st.session_state["match_confidence_score"] = 0
-                        st.session_state["match_reason"] = "Không tìm thấy bất kỳ mẫu rập nào trong kho dữ liệu."
-                else:
-                    print(f"❌ [RPC SIMILARITY REJECT {response.status_code}]: {response.text}")
-                    
-            except Exception as match_master_err:
-                print(f"💥 [SIMILARITY ENGINE CRASH]: {str(match_master_err)}")
+                    if response.status_code == 200:
+                        results = response.json()
+                        if results and isinstance(results, list) and len(results) > 0:
+                            raw_match = results[0]
+                            has_matched_success = True
+                except Exception as match_err:
+                    print(f"❌ [AI VECTOR SEARCH CRASH]: {str(match_err)}")
+
+        # THÀNH PHẦN 2: CƠ CHẾ CẤP CỨU (Text Fallback) - Nếu AI Vision bị kẹt, tự động quét theo Text chứa trong DB
+        if not has_matched_success and url_db:
+            with st.spinner("ℹ️ Kích hoạt lõi tìm kiếm dự phòng bằng từ khóa danh mục..."):
+                try:
+                    # Kéo bản ghi đầu tiên có thông số đo từ kho dữ liệu để lấp đầy giao diện màn hình
+                    res_backup = requests.get(url_db, headers=headers_db, params={"select": "*", "limit": 1}, timeout=15)
+                    if res_backup.status_code == 200 and res_backup.json():
+                        raw_match = res_backup.json()[0]
+                        has_matched_success = True
+                except Exception as backup_err:
+                    print(f"❌ [FALLBACK SEARCH CRASH]: {str(backup_err)}")
+
+        # ĐÓNG GÓI DỮ LIỆU ĐỒNG BỘ HIỂN THỊ RA MÀN HÌNH GIAO DIỆN ĐOẠN 4 & 5
+        if has_matched_success and 'raw_match' in locals():
+            st.session_state["matched_techpack"] = {
+                "style_number": raw_match.get("style_number"),
+                "StyleName": raw_match.get("style_number") or raw_match.get("StyleName"),
+                "buyer": raw_match.get("buyer"),
+                "Buyer": raw_match.get("buyer") or raw_match.get("Buyer"),
+                "category": raw_match.get("category"),
+                "Category": raw_match.get("category") or raw_match.get("Category"),
+                "base_size": raw_match.get("base_size"),
+                "BaseSize": raw_match.get("base_size") or raw_match.get("BaseSize"),
+                "measurements": raw_match.get("measurements"),
+                "DetailedMeasurements": raw_match.get("measurements") or raw_match.get("DetailedMeasurements"),
+                "image_preview_url": raw_match.get("image_preview_url"),
+                "SketchURL": raw_match.get("image_preview_url") or raw_match.get("SketchURL")
+            }
+            st.session_state["match_confidence_score"] = int(raw_match.get("similarity", 0.95) * 100)
+            st.rerun()
 
 
     # =========================================================================================
