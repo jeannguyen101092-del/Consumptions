@@ -1465,9 +1465,7 @@ if gemini_key:
 
 def process_single_pdf_batch(file_bytes, file_name):
     """
-    Retriever Layer chuyên sâu cho hệ thống quét file mới để TÌM MÃ TƯƠNG ĐỒNG.
-    🎯 ĐÃ ĐỒNG BỘ 100%: Định dạng chuẩn mảng đối tượng phục vụ trực tiếp cho lõi Số hóa Hybrid Vector.
-    🛡️ CHỐNG SẬP: Cắt trang chiến lược (7 đầu / 5 cuối), nén ảnh chất lượng cao kiểm soát token budget.
+    ĐOẠN A: Retriever Layer chuyên sâu - Đọc PDF, phân tách trang chiến lược và gọi Gemini API.
     """
     import time
     import io
@@ -1517,9 +1515,10 @@ def process_single_pdf_batch(file_bytes, file_name):
         )
         
         contents_payload = [types.Part.from_text(text=industrial_prompt)]
+        global chat_images_dict
         chat_images_dict = {}
         
-        # Sử dụng pdf2image trích xuất ảnh chuẩn hóa thay thế hoàn toàn thư viện pypdf lỗi bytes thô
+        # Sử dụng pdf2image trích xuất ảnh chuẩn hóa
         for page_num in sorted_pages:
             single_page_list = convert_from_bytes(file_bytes, dpi=100, first_page=page_num, last_page=page_num)
             if single_page_list:
@@ -1557,7 +1556,7 @@ def process_single_pdf_batch(file_bytes, file_name):
                 "sketch_page_number_detected", "measurements_list", "full_size_matrix"
             ]
         )
-        # TIẾP NỐI LOGIC: KHỞI CHẠY MÔ HÌNH VÀ PHÒNG NGỰ DỰ PHÒNG CHỦ ĐỘNG
+        # ĐOẠN B: Kích hoạt mô hình, phân tích kết quả JSON và tự động trích xuất ảnh Flat Sketch.
         models_to_try = ['gemini-2.5-flash', 'gemini-2.5-flash-lite']
         response = None
         current_model_used = 'gemini-2.5-flash'
@@ -1631,47 +1630,46 @@ def process_single_pdf_batch(file_bytes, file_name):
         parsed_data["measurements"] = measurements
         parsed_data["full_size_matrix"] = full_size_matrix
         
-        # Trích xuất hình ảnh phẳng (Flat Sketch) chuẩn định dạng JPEG chất lượng cao
-        extracted_sketch_bytes = None
-        detected_page_num = int(parsed_data.get("sketch_page_number_detected", 1))
-        
-        if detected_page_num in chat_images_dict:
-            b_buf = io.BytesIO()
-            chat_images_dict[detected_page_num].convert("RGB").save(b_buf, format="JPEG", quality=90)
-            extracted_sketch_bytes = b_buf.getvalue()
-        else:
-            if sorted_pages and sorted_pages[0] in chat_images_dict:
-                detected_page_num = sorted_pages[0]
-                b_buf = io.BytesIO()
-                chat_images_dict[detected_page_num].convert("RGB").save(b_buf, format="JPEG", quality=90)
-                extracted_sketch_bytes = b_buf.getvalue()
-            
-        # Đóng gói gói dữ liệu hỗn hợp (Hybrid Payload) sẵn sàng để truyền thẳng vào bộ tìm kiếm tương đồng
-        output_payload = {
+        # Tiến hành bóc tách hình ảnh Flat Sketch tự động
+        sketch_page = parsed_data.get("sketch_page_number_detected", 1)
+        sketch_image_b64 = ""
+        sketch_bytes_raw = None
+
+        if sketch_page not in chat_images_dict:
+            available_pages = list(chat_images_dict.keys())
+            sketch_page = available_pages[0] if available_pages else 1
+
+        if sketch_page in chat_images_dict:
+            try:
+                import base64
+                target_img = chat_images_dict[sketch_page]
+                img_buf_final = io.BytesIO()
+                target_img.convert("RGB").save(img_buf_final, format="JPEG", quality=85)
+                sketch_bytes_raw = img_buf_final.getvalue()
+                sketch_image_b64 = base64.b64encode(sketch_bytes_raw).decode("utf-8")
+                print(f"🖼️ [SKETCH EXTRACT] Đã bóc tách ảnh Flat Sketch tại trang: {sketch_page}")
+            except Exception as img_save_err:
+                print(f"❌ [SKETCH EXTRACT ERROR]: {str(img_save_err)}")
+
+        # Đóng gói Payload sạch gửi ra ngoài - Tuyệt đối không chứa biến lỗi 'base_sb_url'
+        final_payload = {
             "style_number_parsed": parsed_data.get("style_number_parsed", "UNKNOWN"),
-            "buyer": parsed_data.get("buyer", "UNKNOWN BUYER"),
+            "buyer": parsed_data.get("buyer", "PPJ GROUP"),
             "category": parsed_data.get("category", "GARMENT"),
             "base_size_name": parsed_data.get("base_size_name", "32"),
             "measurements": measurements,
             "full_size_matrix": full_size_matrix,
-            # Bơm trường dữ liệu ảnh nhị phân chuẩn JPEG để Image Embedding không bị rỗng
-            "_sketch_bytes_raw": extracted_sketch_bytes 
+            "sketch_image": sketch_image_b64,
+            "_sketch_bytes_raw": sketch_bytes_raw,
+            "sketch_page_number_detected": sketch_page
         }
-        
-        return {
-            "success": True,
-            "data": output_payload,
-            "style_id": output_payload["style_number_parsed"],
-            "buyer": output_payload["buyer"],
-            "category": output_payload["category"],
-            "size": output_payload["base_size_name"],
-            "measurements": output_payload["measurements"],
-            "sketch_bytes": extracted_sketch_bytes,
-            "sketch_page_index": detected_page_num,
-            "error": None
-        }
-    except Exception as e:
-        return {"success": False, "error": f"Lỗi bóc tách PDF: {str(e)}"}
+
+        return {"success": True, "payload_data": final_payload}
+
+    except Exception as master_pdf_err:
+        print(f"🚨 [CRITICAL PDF BATCH ERROR]: {str(master_pdf_err)}")
+        return {"success": False, "error": f"Lỗi hệ thống trong tầng trích xuất VLM: {str(master_pdf_err)}"}
+
 
 
 
