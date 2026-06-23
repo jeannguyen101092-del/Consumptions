@@ -1748,78 +1748,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         st.info("👋 Vui lòng tải lên tệp Techpack hồ sơ thiết kế (PDF/Hình ảnh) ở phía trên để hệ thống bắt đầu quét và lập lịch trình đối soát.")
         st.stop()
 
-    # =========================================================================================
-    # LỚP ĐỐI SOÁT VLM CHUYÊN SÂU NỐI LIỀN MẠCH (KHÔNG BỊ ĐỨT ĐOẠN LOGIC)
-    # =========================================================================================
-    with st.spinner("🧠 Mắt thần VLM đang so sánh trực quan ảnh và thông số kỹ thuật..."):
-        try:
-            headers_db = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if SB_KEY else {}
-            url_db = f"{base_sb_url.rstrip('/')}/rest/v1/techpack_storage" if base_sb_url else ""
-            
-            # Chỉ kích hoạt tính năng quét đối chiếu nếu bộ nhớ phiên đang trống kết quả
-            if st.session_state.get("matched_techpack") is None:
-                # Gọi dữ liệu lịch sử từ bảng lưu trữ thực tế techpack_storage
-                raw_styles = requests.get(url_db, headers=headers_db, params={"select": "style_number,buyer,category,base_size,measurements,image_preview_url,embedding_1536", "limit": 1000}, timeout=15).json() if url_db else []
-                
-                # Biến giả định luồng phân tích phục vụ logic trích xuất (Thay bằng biến session_state thực tế của bạn nếu có)
-                current_new_style = str(st.session_state.get("new_style_id_detected", "UNKNOWN")).strip().upper()
-                clean_current_new_style = re.sub(r'[^A-Za-z0-9]', '', current_new_style)
-                vision_type = str(st.session_state.get("detected_garment_type", "UNKNOWN")).strip().upper()
-                new_style_category = st.session_state.get("detected_category", "")
-                
-                # Tạo bộ lọc nhóm sản phẩm thông minh ngăn chặn lệch danh mục hình học
-                valid_styles = [s for s in raw_styles if s.get("style_number") and s.get("measurements")]
-                pool = []
-                for s in valid_styles:
-                    cand_style_name = str(s.get("style_number", "")).strip().upper()
-                    clean_cand_style = re.sub(r'[^A-Za-z0-9]', '', cand_style_name)
-
-                    # 🚨 KHÓA CHblock ANTI-SELF MATCHING: Chặn đối chiếu trùng lặp với chính nó
-                    if (current_new_style in cand_style_name or clean_current_new_style in clean_cand_style or cand_style_name in current_new_style):
-                        continue 
-
-                    pool.append(s)
-                    
-                if not pool: 
-                    pool = [s for s in valid_styles if str(s.get("style_number", "")).strip().upper() != current_new_style]
-
-                # Sắp xếp thô các ứng viên phù hợp
-                top_8_candidates = pool[:8]
-                has_decision = False
-                
-                # Giả lập phản hồi từ mô hình đối soát trực quan kết cấu
-                if top_8_candidates:
-                    try:
-                        # Mặc định lựa chọn ứng viên hàng đầu trong danh mục
-                        sel_idx = 0 
-                        st.session_state["matched_techpack"] = top_8_candidates[sel_idx]
-                        st.session_state["match_confidence_score"] = 95
-                        st.session_state["match_reason"] = "Phân tích thành công qua mô hình đối sánh hình học phẳng."
-                        has_decision = True
-                        print(f"🎯 [VLM DECISION SUCCESS]: Khớp mã hàng mẫu với mã kho {top_8_candidates[sel_idx].get('style_number')}")
-                    except Exception as json_parse_err:
-                        print(f"❌ [VLM JSON PARSE ERROR]: {str(json_parse_err)}")
-                
-                # Fallback khẩn cấp nếu hệ thống trống quyết định
-                if not has_decision and top_8_candidates:
-                    st.session_state["matched_techpack"] = top_8_candidates[0]
-                    st.session_state["match_confidence_score"] = 65
-                    st.session_state["match_reason"] = "Hệ thống tự động ép chọn mẫu có điểm chồng từ khóa cao nhất."
-            
-            # Nạp thông tin định mức vật tư (BOM) tương ứng từ mã đã đối soát thành công
-            if st.session_state.get("matched_techpack"):
-                matched_style_name = st.session_state["matched_techpack"].get("style_number")
-                url_bom = f"{base_sb_url.rstrip('/')}/rest/v1/consumption_matrix" if base_sb_url else ""
-                if url_bom and matched_style_name:
-                    bom_res = requests.get(url_bom, headers=headers_db, params={"StyleName": f"eq.{matched_style_name}", "select": "*"}, timeout=10)
-                    if bom_res.status_code == 200:
-                        st.session_state["bom_records"] = bom_res.json()
-                        print(f"📊 [BOM FETCH SUCCESS]: Đã nạp thành công {len(st.session_state['bom_records'])} dòng định mức tiêu hao.")
-
-        except Exception as inner_vlm_err:
-            print(f"❌ [VLM PROCESSOR ERROR]: {str(inner_vlm_err)}")
-            st.error(f"Lỗi tầng đối soát VLM: {str(inner_vlm_err)}")
-
+   
 
 
 
