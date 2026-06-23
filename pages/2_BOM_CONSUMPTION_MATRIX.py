@@ -386,7 +386,7 @@ def process_single_pdf_batch(file_bytes, file_name):
         info = pdfinfo_from_bytes(file_bytes)
         total_p = int(info.get("Pages", 1))
         
-        # Giữ nguyên cấu hình nén ảnh tối ưu để tránh quá tải bộ nhớ payload
+        # Nén dung lượng ảnh để truyền tải mượt mà qua API
         contents_payload = []
         chat_images = convert_from_bytes(file_bytes, dpi=140, first_page=1, last_page=total_p)
         for page_img in chat_images:
@@ -454,8 +454,8 @@ def process_single_pdf_batch(file_bytes, file_name):
                     
         parsed_data = None
         
-        # SỬA LỖI: Tái cấu trúc logic bóc tách chuỗi thô an toàn, không bị crash lỗi .strip() trên list
         if response:
+            # SỬA LỖI: Trích xuất chuỗi JSON thô bằng chỉ số mảng chuẩn, tránh lỗi sập phương thức của list
             if getattr(response, "text", None):
                 try:
                     text_content = response.text.strip()
@@ -467,7 +467,7 @@ def process_single_pdf_batch(file_bytes, file_name):
                 except Exception as raw_parse_err:
                     print(f"Lỗi phân tách chuỗi văn bản thô: {str(raw_parse_err)}")
             
-            # Nếu đọc text lỗi hoặc trống, thử lấy từ object cấu trúc parsed trực tiếp của SDK v2
+            # Khối dự phòng 2: Lấy dữ liệu cấu trúc trực tiếp nếu cơ chế text bị trống
             if not parsed_data and getattr(response, "parsed", None):
                 try:
                     parsed_data = response.parsed
@@ -484,7 +484,7 @@ def process_single_pdf_batch(file_bytes, file_name):
         measurements = parsed_data.get("measurements", {})
         warning_msg = None
         if not measurements or len(measurements) == 0:
-            print(f"⚠️ WARNING [{file_name}]: Measurements chart rỗng. Vẫn tiếp tục xử lý các trường khác.")
+            print(f"⚠️ WARNING [{file_name}]: Measurements chart rỗng.")
             warning_msg = "Không phát hiện bảng thông số kỹ thuật (BOM/Sketch Sheet đơn thuần)."
         
         extracted_sketch_bytes = None
@@ -527,6 +527,7 @@ def process_single_pdf_batch(file_bytes, file_name):
         }
     except Exception as e:
         return {"success": False, "error": f"Lỗi bóc tách PDF: {str(e)}"}
+
 
 # PHASE 5: USER INTERFACE STRUCTURE & AUTOMATION FACTORY 
 # =============================================================================
