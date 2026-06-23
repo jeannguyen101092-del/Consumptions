@@ -238,53 +238,54 @@ def save_to_supabase_techpack_table(payload_data, raw_file_bytes=None, file_name
                 except Exception as txt_embed_err:
                     print(f"❌ [TEXT VECTOR ERR]: {str(txt_embed_err)}")
                 
-                # --- PHẦN 3C: GHÉP NỐI CONCATENATION (1536 CHIỀU CHUỖI VĂN BẢN MẢNG) ---
+                # --- PHẦN 3C: GHÉP NỐI CONCATENATION (MẢNG KHỚP 1536 PHẦN TỬ SỐ THỰC CHUẨN) ---
                 if not image_vector and text_vector: image_vector = [0.0] * len(text_vector)
                 if not text_vector and image_vector: text_vector = [0.0] * len(image_vector)
                     
                 if image_vector and text_vector:
-                    raw_floats = list(image_vector) + list(text_vector)
-                    # Ép cứng về chuỗi định dạng văn bản mảng bọc ngoặc vuông chuẩn PostgREST pgvector
-                    hybrid_vector_embedding_array = "[" + ",".join([str(f) for f in raw_floats]) + "]"
-                    print(f"🚀 [HYBRID COMPLETE]: {len(raw_floats)} dimensions string formatted.")
+                    hybrid_vector_embedding_array = list(image_vector) + list(text_vector)
+                    print(f"🚀 [HYBRID COMPLETE]: {len(hybrid_vector_embedding_array)} float values packed.")
             except Exception as embed_master_err:
                 print(f"💥 [MASTER EMBED ERR]: {str(embed_master_err)}")
 
-        # 4. ĐẨY DỮ LIỆU SẠCH ĐỒNG BỘ LÊN TABLE REST API CỦA SUPABASE
+        # 4. GỌI TRỰC TIẾP HÀM RPC ĐỂ ĐẨY DỮ LIỆU CHUẨN (BỎ QUA LUỒNG POSTGREST TABLE)
         headers = {
             "apikey": SB_KEY, 
             "Authorization": f"Bearer {SB_KEY}",
-            "Content-Type": "application/json", 
-            "Prefer": "resolution=merge-duplicates"
+            "Content-Type": "application/json"
         }
-        insert_url = f"{SB_URL.rstrip('/')}/rest/v1/thong_so_techpack"
+        
+        # Trỏ thẳng vào endpoint rpc của hàm vừa khởi tạo ở Bước 1
+        rpc_url = f"{SB_URL.rstrip('/')}/rest/v1/rpc/insert_techpack_data_with_vector"
         clean_dict = {str(k).strip(): str(v).strip() for k, v in dict(measurements_raw).items()}
 
-        db_payload = {
-            "StyleName": style_name_db,
-            "Buyer": payload_data.get("buyer", "UNKNOWN BUYER"),
-            "Category": payload_data.get("category", "GARMENT"),
-            "BaseSize": payload_data.get("base_size_name", "32"),
-            "DetailedMeasurements": clean_dict,
-            "GradingMatrix": payload_data.get("full_size_matrix", {}),
-            "ImageURL": public_image_url,
-            "VisualDescription": visual_description_str,
-            "geometry_vector": hybrid_vector_embedding_array if hybrid_vector_embedding_array else None
+        rpc_payload = {
+            "p_stylename": style_name_db,
+            "p_buyer": payload_data.get("buyer", "UNKNOWN BUYER"),
+            "p_category": payload_data.get("category", "GARMENT"),
+            "p_basesize": payload_data.get("base_size_name", "32"),
+            "p_detailedmeasurements": clean_dict,
+            "p_gradingmatrix": payload_data.get("full_size_matrix", {}),
+            "p_imageurl": public_image_url,
+            "p_visualdescription": visual_description_str,
+            # Truyền trực tiếp mảng số thực thường của Python dạng JSON array
+            "p_geometry_vector": hybrid_vector_embedding_array if hybrid_vector_embedding_array else None
         }
 
-        db_res = requests.post(insert_url, headers=headers, json=db_payload, timeout=20)
+        db_res = requests.post(rpc_url, headers=headers, json=rpc_payload, timeout=20)
         
         if db_res.status_code < 200 or db_res.status_code > 299:
-            print(f"❌ [SUPABASE REST REJECT] HTTP {db_res.status_code}: {db_res.text}")
-            st.sidebar.error(f"Supabase Reject: HTTP {db_res.status_code} | {db_res.text[:60]}")
+            print(f"❌ [SUPABASE RPC REJECT] HTTP {db_res.status_code}: {db_res.text}")
+            st.sidebar.error(f"RPC Reject: HTTP {db_res.status_code} | {db_res.text[:60]}")
             return False
             
-        print(f"✅ [SUPABASE SUCCESS] Mã hàng {style_name_db} và Hybrid Vector đã được lưu kho thành công!")
+        print(f"✅ [SUPABASE SUCCESS] Khởi tạo lưu kho thông qua hàm RPC thành công!")
         return True
     except Exception as e:
         print(f"❌ [CRITICAL DB MAIN ERR]: {str(e)}")
         st.sidebar.error(f"Crash Main DB: {str(e)}")
         return False
+
 
 
 
