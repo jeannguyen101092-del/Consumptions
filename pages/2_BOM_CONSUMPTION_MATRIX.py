@@ -386,7 +386,7 @@ def process_single_pdf_batch(file_bytes, file_name):
         info = pdfinfo_from_bytes(file_bytes)
         total_p = int(info.get("Pages", 1))
         
-        # GIẢM DPI XUỐNG 140 VÀ CHẤT LƯỢNG 65%: Tránh tràn bộ nhớ đệm Payload khi gửi nhiều ảnh
+        # Giữ nguyên cấu hình nén ảnh tối ưu để tránh quá tải bộ nhớ payload
         contents_payload = []
         chat_images = convert_from_bytes(file_bytes, dpi=140, first_page=1, last_page=total_p)
         for page_img in chat_images:
@@ -452,28 +452,31 @@ def process_single_pdf_batch(file_bytes, file_name):
                 else:
                     return {"success": False, "error": f"Lỗi cổng truyền: {str(ai_err)}"}
                     
-        print("=== GEMINI DEBUG RESPONSE ===")
-        
         parsed_data = None
-        # Cơ chế dự phòng đọc chuỗi text thô nếu response.parsed không tự dựng object
+        
+        # SỬA LỖI: Tái cấu trúc logic bóc tách chuỗi thô an toàn, không bị crash lỗi .strip() trên list
         if response:
-            try:
-                if getattr(response, "text", None):
+            if getattr(response, "text", None):
+                try:
                     text_content = response.text.strip()
-                    # Khử chuỗi markdown bọc json nếu mô hình cố tình thêm vào trái quy định
-                    if text_content.startswith("```json"):
-                        text_content = text_content.split("```json")[-1].split("```")[0].strip()
-                    elif text_content.startswith("```"):
+                    if "```json" in text_content:
+                        text_content = text_content.split("```json")[1].split("```")[0].strip()
+                    elif "```" in text_content:
                         text_content = text_content.split("```")[1].split("```")[0].strip()
                     parsed_data = json.loads(text_content)
-                elif getattr(response, "parsed", None):
+                except Exception as raw_parse_err:
+                    print(f"Lỗi phân tách chuỗi văn bản thô: {str(raw_parse_err)}")
+            
+            # Nếu đọc text lỗi hoặc trống, thử lấy từ object cấu trúc parsed trực tiếp của SDK v2
+            if not parsed_data and getattr(response, "parsed", None):
+                try:
                     parsed_data = response.parsed
                     if hasattr(parsed_data, "model_dump"):
                         parsed_data = parsed_data.model_dump()
                     elif hasattr(parsed_data, "__dict__"):
                         parsed_data = dict(parsed_data)
-            except Exception as parse_e:
-                print(f"Lỗi phân tách văn bản chuỗi: {str(parse_e)}")
+                except Exception as p_err:
+                    print(f"Lỗi bóc parsed object: {str(p_err)}")
             
         if not parsed_data:
             return {"success": False, "error": "Mô hình không phản hồi văn bản hoặc cấu trúc dữ liệu trống."}
