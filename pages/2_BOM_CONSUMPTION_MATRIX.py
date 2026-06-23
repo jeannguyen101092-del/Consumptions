@@ -132,12 +132,12 @@ def is_valid_jpeg(data):
 def save_to_supabase_techpack_table(payload_data, raw_file_bytes=None, file_name=""):
     """
     Hàm xử lý đồng bộ dữ liệu nạp kho và SỐ HÓA HYBRID VECTOR CHUẨN CÔNG NGHIỆP.
-    🎯 SỬA LỖI 22004: Khử triệt để toàn bộ giá trị Null/None, ép định dạng mặc định an toàn cho Postgres RPC.
+    🎯 SỬA LỖI 22004 & PGRST202: Ép định dạng mặc định an toàn cho Postgres RPC, 
+    bọc tham số đa hình tránh lỗi không khớp signature hàm trong DB.
     """
     import requests
     import json
     import re
-    import io
     import time
     import streamlit as st
 
@@ -146,6 +146,7 @@ def save_to_supabase_techpack_table(payload_data, raw_file_bytes=None, file_name
     SB_URL = st.secrets.get("SUPABASE_URL", "") if "SB_URL" not in globals() else globals().get("SB_URL", "")
 
     try:
+        # Xử lý chuẩn hóa mã Style
         style_name_db = payload_data.get("style_number_parsed", "").strip()
         if not style_name_db or style_name_db == "UNKNOWN":
             file_style_match = re.search(r'([a-zA-Z0-9]+-[a-zA-Z0-9]+)', str(file_name))
@@ -204,10 +205,7 @@ def save_to_supabase_techpack_table(payload_data, raw_file_bytes=None, file_name
         else:
             visual_description_str += "NO_MEASUREMENTS"
 
-                  # TIẾP NỐI LOGIC: KÍCH HOẠT HỆ THỐNG SỐ HÓA VECTOR LAI KHỬ TOÀN BỘ PROTOBUF CONTAINER
-               # =========================================================================================
-        # ĐOẠN 1b: KÍCH HOẠT HỆ THỐNG SỐ HÓA VECTOR LAI VÀ GỌI RPC BẢO MẬT (CHỐNG LỖI 22004)
-        # =========================================================================================
+        # 3. KÍCH HOẠT HỆ THỐNG SỐ HÓA VECTOR LAI HYBRID
         hybrid_vector_embedding_array = None
         gemini_key = st.secrets.get("GEMINI_API_KEY", "").strip()
         
@@ -227,7 +225,9 @@ def save_to_supabase_techpack_table(payload_data, raw_file_bytes=None, file_name
                             contents=[img_part]
                         )
                         if img_embed_res and img_embed_res.embeddings:
-                            image_vector = [float(x) for x in img_embed_res.embeddings.values]
+                            # Sửa đổi quan trọng: trích xuất mảng float chuẩn từ object embedding
+                            emb_obj = img_embed_res.embeddings[0] if isinstance(img_embed_res.embeddings, list) else img_embed_res.embeddings
+                            image_vector = [float(x) for x in emb_obj.values]
                     except Exception as img_embed_err:
                         print(f"❌ [IMAGE VECTOR ERR]: {str(img_embed_err)}")
                 
@@ -239,7 +239,8 @@ def save_to_supabase_techpack_table(payload_data, raw_file_bytes=None, file_name
                         contents=[visual_description_str]
                     )
                     if text_embed_res and text_embed_res.embeddings:
-                        text_vector = [float(x) for x in text_embed_res.embeddings.values]
+                        emb_obj = text_embed_res.embeddings[0] if isinstance(text_embed_res.embeddings, list) else text_embed_res.embeddings
+                        text_vector = [float(x) for x in emb_obj.values]
                 except Exception as txt_embed_err:
                     print(f"❌ [TEXT VECTOR ERR]: {str(txt_embed_err)}")
                 
@@ -249,15 +250,15 @@ def save_to_supabase_techpack_table(payload_data, raw_file_bytes=None, file_name
                     
                 if image_vector and text_vector:
                     hybrid_vector_embedding_array = list(image_vector) + list(text_vector)
-                    print(f"🚀 [HYBRID VECTOR COMPLETE]: Thiết lập thành công {len(hybrid_vector_embedding_array)} phần tử float thô.")
+                    print(f"🚀 [HYBRID VECTOR COMPLETE]: Thiết lập thành công {len(hybrid_vector_embedding_array)} phần tử.")
             except Exception as embed_master_err:
                 print(f"💥 [MASTER EMBED ERR]: {str(embed_master_err)}")
 
-        # Khử cứng lỗi thiếu hụt chiều không phù hợp ràng buộc NOT NULL của pgvector
+        # Khử lỗi thiếu hụt chiều của pgvector trong DB
         if not hybrid_vector_embedding_array or len(hybrid_vector_embedding_array) != 1536:
             hybrid_vector_embedding_array = [0.0] * 1536
 
-        # SỬA LỖI SỐ 2: Ép JSONB luôn có dữ liệu thực, tránh gửi bảng {} rỗng làm sập hàm Postgres
+        # Chuẩn hóa dữ liệu JSONB tránh gửi dict rỗng sập RPC SQL
         clean_dict = {}
         if isinstance(measurements_raw, dict):
             for k, v in measurements_raw.items():
@@ -270,73 +271,55 @@ def save_to_supabase_techpack_table(payload_data, raw_file_bytes=None, file_name
         if not matrix_raw_data or not isinstance(matrix_raw_data, dict) or len(matrix_raw_data) == 0:
             matrix_raw_data = {"AI_ENGINE_STATUS": "NO_MATRIX_DATA"}
 
-        # 4. THIẾT LẬP CHIẾN LƯỢC ĐA HÌNH THAM SỐ (PARAMETER AUTO-MAPPING) CHỐNG KHÔNG KHỚP SQL RPC
-        # Chúng ta bọc cả 2 định dạng đặt tên tham số phổ biến: CamelCase lửng và Snake_case gạch dưới
+        # 4. THIẾT LẬP CHIẾN LƯỢC ĐA HÌNH THAM SỐ (MAPPING CHI TIẾT TRÁNH LỖI 404/PGRST202)
+        style_val = str(style_name_db).strip() if style_name_db else "STYLE_UNKNOWN_" + str(int(time.time()))
+        buyer_val = str(payload_data.get("buyer", "PPJ GROUP")).strip() if payload_data.get("buyer") else "PPJ BUYER"
+        cat_val = str(payload_data.get("category", "GARMENT")).strip() if payload_data.get("category") else "GARMENT"
+        size_val = str(payload_data.get("base_size_name", "32")).strip() if payload_data.get("base_size_name") else "32"
+
+        # Bọc toàn bộ trường dạng camelCase và snake_case để tương thích 100% với signature của hàm trong DB
+        rpc_payload = {
+            # Phiên bản Snake_case
+            "style_number": style_val,
+            "buyer_name": buyer_val,
+            "category_name": cat_val,
+            "base_size": size_val,
+            "measurements_json": clean_dict,
+            "size_matrix_json": matrix_raw_data,
+            "image_url": public_image_url,
+            "hybrid_vector": hybrid_vector_embedding_array,
+            
+            # Phiên bản CamelCase dự phòng
+            "styleNumber": style_val,
+            "buyerName": buyer_val,
+            "categoryName": cat_val,
+            "baseSize": size_val,
+            "measurementsJson": clean_dict,
+            "sizeMatrixJson": matrix_raw_data,
+            "imageUrl": public_image_url,
+            "hybridVector": hybrid_vector_embedding_array
+        }
+
+        # 5. THỰC THI GỌI RPC API ĐẾN SUPABASE REST GATEWAY
         headers = {
             "apikey": SB_KEY, 
             "Authorization": f"Bearer {SB_KEY}",
             "Content-Type": "application/json"
         }
         rpc_url = f"{SB_URL.rstrip('/')}/rest/v1/rpc/insert_techpack_data_with_vector"
-
-        style_val = str(style_name_db).strip() if style_name_db else "STYLE_UNKNOWN_" + str(int(time.time()))
-        buyer_val = str(payload_data.get("buyer", "PPJ GROUP")).strip() if payload_data.get("buyer") else "PPJ BUYER"
-        cat_val = str(payload_data.get("category", "GARMENT")).strip() if payload_data.get("category") else "GARMENT"
-        size_val = str(payload_data.get("base_size_name", "32")).strip() if payload_data.get("base_size_name") else "32"
-        url_val = str(public_image_url).strip() if public_image_url else "https://supabase.com"
-        desc_val = str(visual_description_str).strip() if visual_description_str else "No geometric descriptions available."
-
-        # Payload đa hình nhồi cả hai kiểu cấu trúc đặt tên tham số của Postgres để triệt tiêu lỗi 50% parameter mismatch
-        rpc_payload = {
-            # Kiểu đặt tên 1: Viết liền lửng
-            "p_stylename": style_val,
-            "p_buyer": buyer_val,
-            "p_category": cat_val,
-            "p_basesize": size_val,
-            "p_detailedmeasurements": clean_dict,
-            "p_gradingmatrix": matrix_raw_data,
-            "p_imageurl": url_val,
-            "p_visualdescription": desc_val,
-            "p_geometry_vector": hybrid_vector_embedding_array,
-            
-            # Kiểu đặt tên 2: Dự phòng định dạng viết cách gạch dưới (Snake Case)
-            "p_style_name": style_val,
-            "p_base_size": size_val,
-            "p_measurements": clean_dict,
-            "p_detailed_measurements": clean_dict,
-            "p_matrix": matrix_raw_data,
-            "p_grading_matrix": matrix_raw_data,
-            "p_image_url": url_val,
-            "p_description": url_val,
-            "p_visual_description": desc_val,
-            "p_vector": hybrid_vector_embedding_array,
-            "p_geometry_vector": hybrid_vector_embedding_array
-        }
-
-        # 📌 THỰC THI CỤM IN LOG DEBUG SÂU THEO YÊU CẦU TRÊN TERMINAL ĐỂ KIỂM SOÁT LUỒNG DỮ LIỆU CẬP NHẬT
-        print("\n" + "="*25 + " RPC PAYLOAD PRODUCTION CHECK " + "="*25)
-        for key, value in rpc_payload.items():
-            if key == "p_geometry_vector" or key == "p_vector":
-                print(f"👉 Parameter: {key:<25} | Length: {len(value) if value else 'EMPTY':<10} | Type: {str(type(value)):<20}")
-            else:
-                val_str = str(value)
-                if len(val_str) > 60: val_str = val_str[:57] + "..."
-                print(f"👉 Parameter: {key:<25} | Value: {val_str:<60} | Type: {str(type(value)):<20}")
-        print("="*78 + "\n")
-
-        db_res = requests.post(rpc_url, headers=headers, json=rpc_payload, timeout=20)
         
-        if db_res.status_code < 200 or db_res.status_code > 299:
-            print(f"❌ [SUPABASE RPC REJECT] HTTP {db_res.status_code}: {db_res.text}")
-            st.sidebar.error(f"RPC Reject: HTTP {db_res.status_code} | {db_res.text[:60]}")
-            return False
-            
-        print(f"✅ [SUPABASE SUCCESS] Đồng bộ thông qua cấu trúc hàm RPC thông minh thành công!")
-        return True
-    except Exception as e:
-        print(f"❌ [CRITICAL DB MAIN ERR]: {str(e)}")
-        st.sidebar.error(f"Crash Main DB: {str(e)}")
-        return False
+        response = requests.post(rpc_url, headers=headers, json=rpc_payload, timeout=30)
+        
+        if response.status_code in:
+            print("✅ [SUPABASE SYNC SUCCESS]: Dữ liệu số hóa Techpack đã nạp DB thành công!")
+            return {"status": "success", "image_url": public_image_url}
+        else:
+            print(f"❌ [RPC SERVER ERROR {response.status_code}]: {response.text}")
+            return {"status": "error", "code": response.status_code, "msg": response.text}
+
+    except Exception as master_func_err:
+        print(f"🚨 [CRITICAL FUNCTION EXCEPTION]: {str(master_func_err)}")
+        return {"status": "critical_error", "msg": str(master_func_err)}
 
 
 
