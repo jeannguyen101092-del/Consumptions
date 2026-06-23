@@ -1465,72 +1465,71 @@ if gemini_key:
 
 def process_single_pdf_batch(file_bytes, file_name):
     """
-    ĐOẠN A: Retriever Layer chuyên sâu - Đọc PDF, phân tách trang chiến lược và gọi Gemini API.
+    HÀM SỬA ĐỔI TỐI CAO: Thay thế hoàn toàn pdf2image bằng PyMuPDF (fitz) chuyên sâu.
+    🎯 KHÔNG CẦN POPPLER: Chạy trực tiếp trên RAM siêu tốc, bóc tách ảnh nét x2 cho Gemini.
     """
-    import time
     import io
     import json
     import re
+    import time
     import streamlit as st
     from google import genai
     from google.genai import types
-    from pdf2image import convert_from_bytes, pdfinfo_from_bytes
-
-    MAX_MB = 18
-    if len(file_bytes) > MAX_MB * 1024 * 1024:
-        return {"success": False, "error": f"Tệp PDF vượt giới hạn xử lý {MAX_MB}MB."}
+    import fitz  # Sử dụng PyMuPDF thay cho pdf2image để triệt tiêu lỗi ngầm
 
     try:
         gemini_key = st.secrets.get("GEMINI_API_KEY", "").strip()
         if not gemini_key:
-            return {"success": False, "error": "Thiếu GEMINI_API_KEY trong cấu hình Secrets."}
+            return {"success": False, "error": "Thiếu GEMINI_API_KEY trong Secrets."}
             
         client = genai.Client(api_key=gemini_key)
-        info = pdfinfo_from_bytes(file_bytes)
-        total_p = int(info.get("Pages", 1))
         
-        # Chiến lược lọc trang thông minh kiểm soát payload an toàn tuyệt đối
+        # Mở tài liệu PDF trực tiếp từ luồng byte nhị phân trên RAM
+        pdf_document = fitz.open(stream=file_bytes, filetype="pdf")
+        total_p = len(pdf_document)
+        
+        # Chiến lược lọc trang thông minh kiểm soát token budget
         pages_to_scan = set()
-        for p in range(1, min(8, total_p + 1)):
+        for p in range(0, min(7, total_p)): # 7 trang đầu (fitz dùng index từ 0)
             pages_to_scan.add(p)
         if total_p > 7:
-            for p in range(max(8, total_p - 4), total_p + 1):
+            for p in range(max(7, total_p - 4), total_p): # 4 trang cuối
                 pages_to_scan.add(p)
         
         sorted_pages = sorted(list(pages_to_scan))
-        print(f"📋 [RETRIEVER SCAN] {file_name}: Tiến hành trích xuất {len(sorted_pages)} trang chiến lược.")
+        print(f"📋 [RETRIEVER SCAN] {file_name}: Tiến hành trích xuất {len(sorted_pages)} trang bằng PyMuPDF.")
         
         industrial_prompt = (
             "You are an expert Garment Specification Auditor at PPJ Group. Analyze all attached sheets page by page.\n"
-            "1. Identify the core 'Base Size' / 'Sample Size' (e.g., written as 8-, 32, or Size M).\n"
+            "1. Identify the core 'Base Size' / 'Sample Size' (e.g., written as 8, 32, or Size 30).\n"
             "2. Identify the Buyer name and Category.\n"
-            "3. Find the exact 'Style ID' / 'Style Number' (e.g. 5765).\n"
-            "4. Scan and extract the technical measurement specification chart into key-value pairs inside measurements_list.\n"
-            "5. FOR THE GRADING MATRIX TABLE: Scan and extract the full grading matrix table columns for ALL available sizes into full_size_matrix object.\n"
-            "6. CRITICAL VISUAL FLAT SKETCH LOCATE RULE: Scan all pages visually. You MUST find the exact 1-BASED PAGE NUMBER "
-            "written on the page sheet or corresponding to the actual page sequence that contains the FULL BODY APPAREL FLAT SKETCH showing the entire completed garment.\n\n"
-            "STRICT DISQUALIFICATION RULES:\n"
-            "- DO NOT select pages showing isolated technical pattern panels.\n"
-            "- DO NOT select pages showing inner construction details, pocket bags, zippers, or sketches of components."
+            "3. Find the exact 'Style ID' / 'Style Number' (e.g. 492496).\n"
+            "4. Scan and extract EVERY SINGLE measurement specification line from the chart into key-value pairs inside measurements_list.\n"
+            "5. FOR THE GRADING MATRIX TABLE: Scan and extract the full grading matrix table columns.\n"
+            "6. Find the exact 0-based page index number that contains the FULL BODY APPAREL FLAT SKETCH showing the entire completed garment."
         )
         
         contents_payload = [types.Part.from_text(text=industrial_prompt)]
-        global chat_images_dict
         chat_images_dict = {}
         
-        # Sử dụng pdf2image trích xuất ảnh chuẩn hóa
+        # CHUYỂN ĐỔI TRANG PDF THÀNH ẢNH DÙNG PYMUPDF SIÊU NÉT (KHÔNG CẦN POPPLER)
         for page_num in sorted_pages:
-            single_page_list = convert_from_bytes(file_bytes, dpi=100, first_page=page_num, last_page=page_num)
-            if single_page_list:
-                page_img = single_page_list[0]
-                chat_images_dict[page_num] = page_img
+            try:
+                page = pdf_document.load_page(page_num)
+                # Zoom x2 lần (DPI cao) để Gemini nhìn rõ từng dòng chữ nhỏ le te trong bảng specs
+                pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
+                img_png_bytes = pix.tobytes("png")
                 
-                img_buf = io.BytesIO()
-                page_img.convert("RGB").save(img_buf, format="JPEG", quality=50)
+                # Lưu trữ đối tượng vào bộ nhớ tạm phục vụ bóc tách Flat Sketch ở cuối hàm
+                chat_images_dict[page_num] = img_png_bytes
+                
                 contents_payload.append(
-                    types.Part.from_bytes(data=img_buf.getvalue(), mime_type='image/jpeg')
+                    types.Part.from_bytes(data=img_png_bytes, mime_type='image/png')
                 )
-            
+            except Exception as e_page:
+                print(f"⚠️ Lỗi render trang {page_num}: {str(e_page)}")
+                
+        # Khai báo cấu hình Schema JSON nghiêm ngặt để ép Gemini trả ra dữ liệu cấu trúc sạch
         kv_pair_schema = types.Schema(
             type=types.Type.OBJECT,
             properties={
@@ -1556,119 +1555,61 @@ def process_single_pdf_batch(file_bytes, file_name):
                 "sketch_page_number_detected", "measurements_list", "full_size_matrix"
             ]
         )
-        # ĐOẠN B: Kích hoạt mô hình, phân tích kết quả JSON và tự động trích xuất ảnh Flat Sketch.
-        models_to_try = ['gemini-2.5-flash', 'gemini-2.5-flash-lite']
-        response = None
-        current_model_used = 'gemini-2.5-flash'
+
+        # Kích hoạt mô hình AI thế hệ mới nhất
+        response = client.models.generate_content(
+            model='gemini-2.5-flash', 
+            contents=contents_payload,
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                response_schema=json_schema,
+                temperature=0.1,
+                max_output_tokens=8192
+            )
+        )
         
-        for active_model in models_to_try:
-            current_model_used = active_model
-            success_call = False
-            for attempt in range(2):
-                try:
-                    response = client.models.generate_content(
-                        model=active_model, 
-                        contents=contents_payload,
-                        config=types.GenerateContentConfig(
-                            response_mime_type="application/json",
-                            response_schema=json_schema,
-                            temperature=0.1,
-                            max_output_tokens=8192
-                        )
-                    )
-                    if response:
-                        candidates = getattr(response, "candidates", [])
-                        if candidates:
-                            candidate = candidates[0]
-                            reason = str(getattr(candidate, "finish_reason", "STOP"))
-                            if reason in ["RECITATION", "SAFETY", "MAX_TOKENS"]:
-                                break
-                        success_call = True
-                        break
-                except:
-                    time.sleep(1)
-                    continue
-            if success_call:
-                break
-                
         parsed_data = None
         if response and getattr(response, "parsed", None):
             parsed_data = response.parsed
             if hasattr(parsed_data, "model_dump"):
                 parsed_data = parsed_data.model_dump()
-            elif hasattr(parsed_data, "__dict__"):
-                parsed_data = dict(parsed_data)
                 
         if not parsed_data and response and getattr(response, "text", None):
-            try:
-                text_content = response.text.strip()
-                text_content = re.sub(r',\s*([\]}])', r'\1', text_content)
-                match = re.search(r"\{.*\}", text_content, re.S)
-                if match:
-                    parsed_data = json.loads(match.group(0))
-            except:
-                pass
-            
+            match = re.search(r"\{.*\}", response.text.strip(), re.S)
+            if match:
+                parsed_data = json.loads(match.group(0))
+                
         if not parsed_data:
-            finish_reason = "UNKNOWN"
-            try:
-                if response and response.candidates:
-                    finish_reason = str(getattr(response.candidates[0], "finish_reason", "UNKNOWN"))
-            except:
-                pass
-            return {"success": False, "error": f"AI phản hồi cấu trúc trống. FinishReason={finish_reason}"}
+            return {"success": False, "error": "AI phản hồi cấu trúc rỗng."}
             
-        # Đồng bộ hóa cấu trúc dữ liệu tương thích ngược với hệ thống
+        # Giải nén measurements_list thành đối tượng Dict phẳng chứa TOÀN BỘ các dòng specs
         measurements_list = parsed_data.get("measurements_list", [])
-        measurements = {item.get("pom_description"): item.get("value") for item in measurements_list if "pom_description" in item}
+        measurements = {str(item.get("pom_description")).strip(): str(item.get("value")).strip() for item in measurements_list if "pom_description" in item}
         
-        matrix_data = parsed_data.get("full_size_matrix", {})
-        full_size_matrix = {}
-        if isinstance(matrix_data, dict):
-            full_size_matrix = matrix_data
-            
-        parsed_data["measurements"] = measurements
-        parsed_data["full_size_matrix"] = full_size_matrix
-        
-        # Tiến hành bóc tách hình ảnh Flat Sketch tự động
-        sketch_page = parsed_data.get("sketch_page_number_detected", 1)
-        sketch_image_b64 = ""
-        sketch_bytes_raw = None
-
+        # Trích xuất tự động ảnh Flat Sketch dạng bytes sạch từ trang AI chỉ định
+        sketch_page = parsed_data.get("sketch_page_number_detected", 0)
         if sketch_page not in chat_images_dict:
-            available_pages = list(chat_images_dict.keys())
-            sketch_page = available_pages[0] if available_pages else 1
-
-        if sketch_page in chat_images_dict:
-            try:
-                import base64
-                target_img = chat_images_dict[sketch_page]
-                img_buf_final = io.BytesIO()
-                target_img.convert("RGB").save(img_buf_final, format="JPEG", quality=85)
-                sketch_bytes_raw = img_buf_final.getvalue()
-                sketch_image_b64 = base64.b64encode(sketch_bytes_raw).decode("utf-8")
-                print(f"🖼️ [SKETCH EXTRACT] Đã bóc tách ảnh Flat Sketch tại trang: {sketch_page}")
-            except Exception as img_save_err:
-                print(f"❌ [SKETCH EXTRACT ERROR]: {str(img_save_err)}")
-
-        # Đóng gói Payload sạch gửi ra ngoài - Tuyệt đối không chứa biến lỗi 'base_sb_url'
+            sketch_page = sorted_pages[0] if sorted_pages else 0
+            
+        sketch_bytes_raw = chat_images_dict.get(sketch_page, None)
+        
+        # Đóng gói đối tượng trả về chuẩn chỉnh
         final_payload = {
             "style_number_parsed": parsed_data.get("style_number_parsed", "UNKNOWN"),
             "buyer": parsed_data.get("buyer", "PPJ GROUP"),
-            "category": parsed_data.get("category", "GARMENT"),
-            "base_size_name": parsed_data.get("base_size_name", "32"),
-            "measurements": measurements,
-            "full_size_matrix": full_size_matrix,
-            "sketch_image": sketch_image_b64,
+            "category": parsed_data.get("category", "PANTS"),
+            "base_size_name": parsed_data.get("base_size_name", "30"),
+            "measurements": measurements, # Chứa toàn bộ danh sách điểm đo chi tiết
+            "full_size_matrix": parsed_data.get("full_size_matrix", {}),
             "_sketch_bytes_raw": sketch_bytes_raw,
             "sketch_page_number_detected": sketch_page
         }
-
+        
+        pdf_document.close()
         return {"success": True, "payload_data": final_payload}
 
     except Exception as master_pdf_err:
-        print(f"🚨 [CRITICAL PDF BATCH ERROR]: {str(master_pdf_err)}")
-        return {"success": False, "error": f"Lỗi hệ thống trong tầng trích xuất VLM: {str(master_pdf_err)}"}
+        return {"success": False, "error": f"Lỗi hệ thống tầng PyMuPDF: {str(master_pdf_err)}"}
 
 
 
