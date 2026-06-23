@@ -2021,15 +2021,15 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
 
 
 
-    # =========================================================================================
-    # ĐOẠN 6: AI CONSUMPTION PROJECTION ENGINE (HIỂN THỊ CÔNG THỨC TOÁN HỌC & ĐỒ THỊ GROWTH CURVE)
+      # =========================================================================================
+    # ĐOẠN 6: AI CONSUMPTION PROJECTION ENGINE - SO SÁNH TRỰC QUAN ĐM CŨ VÀ ĐM MỚI
     # =========================================================================================
     try:
         # Đảm bảo các biến cốt lõi luôn tồn tại chống lỗi NameError
         bom_summary_engine = {}
         if matched_techpack:
-            # Tạo dữ liệu nền tảng vật tư gốc từ kho (Main fabric, Interlining, Pocketing fabric)
-            bom_summary_engine = {"MAIN FABRIC": 1.625, "INTERLINING": 0.100, "POCKETING FABRIC": 0.135}
+            # Dữ liệu gốc từ kho (Định mức tiêu hao mã hàng cũ)
+            bom_summary_engine = {"MAIN FABRIC (Vải chính)": 1.625, "INTERLINING (Keo/Dựng)": 0.100, "POCKETING FABRIC (Vải lót túi)": 0.135}
             
         # Thu thập độ biến thiên thông số rập mẫu trung bình từ bảng đối chiếu hình học (Mặc định: 5.97%)
         avg_area_growth_pct = 5.97
@@ -2040,17 +2040,16 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         if matched_techpack and bom_summary_engine:
             st.markdown("<br>### 🔮 AI CONSUMPTION PROJECTION ENGINE (DỰ PHÓNG ĐỊNH MỨC MÃ MỚI)", unsafe_allow_html=True)
             
-            # 1. Thanh trạng thái xác thực AI Vision màu xanh lá cây
             st.success("✅ **XÁC THỰC AI VISION:** Độ tương đồng phác thảo đạt 100.0%. Cấu trúc rập ở mức tương thích cao.")
             
-            # 2. Hàng cấu hình các thông số đầu vào thực nghiệm hệ thống (3 Cột)
+            # Hàng cấu hình các thông số đầu vào thực nghiệm hệ thống (3 Cột)
             param_col1, param_col2, param_col3 = st.columns(3)
             with param_col1:
-                shape_factor = st.number_input("Độ biến thiên thông số POM trung bình (%)", value=float(avg_area_growth_pct), step=0.01, format="%.2f", key="ai_pom_growth_input")
+                shape_factor = st.number_input("Độ biến thiên thông số POM trung bình (%)", value=float(avg_area_growth_pct), step=0.01, format="%.2f", key="ai_pom_growth_input_v3")
             with param_col2:
-                fabric_growth_factor = st.number_input("Hệ số thực nghiệm vải (Fabric Growth Factor)", value=0.65, step=0.05, format="%.2f", key="ai_fabric_factor_input")
+                fabric_growth_factor = st.number_input("Hệ số thực nghiệm vải (Fabric Growth Factor)", value=0.65, step=0.05, format="%.2f", key="ai_fabric_factor_input_v3")
             with param_col3:
-                wastage_buffer = st.number_input("Hao hụt sản xuất cấu hình thêm (%)", value=0.00, step=0.5, format="%.2f", key="ai_wastage_buffer_input")
+                wastage_buffer = st.number_input("Hao hụt sản xuất cấu hình thêm (%)", value=0.00, step=0.5, format="%.2f", key="ai_wastage_buffer_input_v3")
 
             projection_rows = []
             for ctype, old_qty in bom_summary_engine.items():
@@ -2058,27 +2057,26 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                 
                 # --- THUẬT TOÁN 1: VẢI CHÍNH (MAIN FABRIC / BODY FABRIC / SHELL) ---
                 if any(k in ctype_upper for k in ["MAIN", "FABRIC", "BODY", "SHELL", "VẢI CHÍNH"]):
-                    # Công thức toán học: Tỷ lệ tăng ĐM = Hệ số vải (0.65) * Độ biến thiên POM
                     percentage_increase = fabric_growth_factor * shape_factor
                     projected_dm = old_qty * (1 + percentage_increase / 100) * (1 + wastage_buffer / 100)
-                    note = f"Vải chính: Hệ số ({fabric_growth_factor}) × POM ({round(shape_factor, 1)}%) [Chặn sàn] → ĐM tăng: {round(percentage_increase, 2)}%"
+                    note = f"Vải chính: Hệ số ({fabric_growth_factor}) × POM ({round(shape_factor, 1)}%) → ĐM tăng: {round(percentage_increase, 2)}%"
                 
                 # --- THUẬT TOÁN 2: VẢI PHỤ / PHỤ LIỆU MỀM (INTERLINING / POCKETING FABRIC) ---
                 else:
-                    # Công thức toán học cho vải phụ: Sử dụng hệ số giảm chấn cố định 0.40 nhân với mức tăng vải chính
                     main_fabric_increase = fabric_growth_factor * shape_factor
                     percentage_increase = 0.40 * main_fabric_increase
                     projected_dm = old_qty * (1 + percentage_increase / 100) * (1 + wastage_buffer / 100)
                     note = f"Vải phụ: Giảm chấn (0.4) × Mức tăng vải chính → ĐM tăng: {round(percentage_increase, 2)}%"
                     
                 projection_rows.append({
-                    "Phân loại vật tư (Type)": ctype,
-                    "Tổng ĐM mã cũ": round(old_qty, 3),
-                    "ĐM Dự phóng mã mới": round(projected_dm, 3),
-                    "Cơ sở thuật toán toán AI": note
+                    "Phân loại vật tư (Material Component)": ctype,
+                    "Định mức cũ công bố (Old Consumption)": round(old_qty, 3),
+                    "Định mức mới dự phóng (Projected New BOM)": round(projected_dm, 3),
+                    "Sai lệch số học (Variance)": f"+{round(projected_dm - old_qty, 3)}" if projected_dm > old_qty else str(round(projected_dm - old_qty, 3)),
+                    "Cơ sở thuật toán AI": note
                 })
                 
-            # 3. Render bảng dữ liệu dự phóng AI định mức vật tư độc lập
+            # Render bảng dữ liệu so sánh ĐM cũ và ĐM mới
             df_projection = pd.DataFrame(projection_rows)
             st.session_state["ai_projected_consumption_matrix"] = projection_rows
             
@@ -2087,21 +2085,23 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                 use_container_width=True, 
                 hide_index=True,
                 column_config={
-                    "Tổng ĐM mã cũ": st.column_config.NumberColumn(format="%.3f"),
-                    "ĐM Dự phóng mã mới": st.column_config.NumberColumn(format="%.3f")
+                    "Định mức cũ công bố (Old Consumption)": st.column_config.NumberColumn(format="%.3f"),
+                    "Định mức mới dự phóng (Projected New BOM)": st.column_config.NumberColumn(format="%.3f")
                 }
             )
 
-            # 4. RENDER ĐỒ THỊ HÀM TĂNG TRƯỞNG PHI TUYẾN TÍNH (GROWTH CURVE MAPPING)
+            # RENDER BIỂU ĐỒ ĐƯỜNG CONG TĂNG TRƯỞNG PHI TUYẾN TÍNH (GROWTH CURVE MAPPING)
             st.markdown("#### 📈 BIỂU ĐỒ CONG DỰ PHÓNG BIẾN THIÊN TIÊU HAO VẬT TƯ (FABRIC CONSUMPTION EXPONENTIAL GROWTH)")
-            pom_range_text = "[-10.0, -5.0, 0.0, 5.0, 10.0, 15.0, 20.0, 25.0]"
             
-            # Trích xuất nhãn dữ liệu vải chính phục vụ phân rã toán học đồ thị
             main_fabric_qty = 1.625
             for row in projection_rows:
                 if any(k in str(row["Phân loại vật tư (Type)"]).upper() for k in ["MAIN", "FABRIC", "VẢI CHÍNH"]):
-                    main_fabric_qty = row["Tổng ĐM mã cũ"]
+                    main_fabric_qty = row["Định mức cũ công bố (Old Consumption)"]
                     break
+        else:
+            st.warning("⚠️ Không tìm thấy bản ghi định mức vật tư (BOM Consumption Matrix) lịch sử để kích hoạt phân hệ dự phóng AI.")
+    except Exception as e6:
+        print(f"❌ [AI PROJECTION ENGINE CRASH]: {str(e6)}")
 
 # ĐOẠN 6: GIAO DIỆN CHAT AI PHÂN TÍCH ĐỊNH MỨC VÀ SCRIPT AUTO-SCROLL
 # =================================================================
