@@ -375,7 +375,7 @@ def get_techpack_spec_from_db(style_name_keyword=None):
 def process_single_pdf_batch(file_bytes, file_name):
     """
     Hàm bóc tách dữ liệu kỹ thuật từ một file PDF độc lập sử dụng cấu trúc thuần Python.
-    ✨ ĐA VÁ LỖI TOÀN DIỆN: Loại bỏ hoàn toàn pdf2image/poppler chống sập RAM và lỗi phản hồi rỗng.
+    ✨ ĐẠI VÁ LỖI TOÀN DIỆN: Loại bỏ hoàn toàn pdf2image/poppler chống sập RAM và lỗi phản hồi rỗng.
     ✨ Đã tích hợp cơ chế khóa ghi kho tự động để chống lỗi tự đối soát với chính mình.
     """
     import io
@@ -464,7 +464,7 @@ def process_single_pdf_batch(file_bytes, file_name):
                 response = requests.post(url, json=api_payload, headers={"Content-Type": "application/json"}, timeout=150)
                 if response.status_code == 200: 
                     break
-                # SỬA LỖI CÚ PHÁP HOÀN CHỈNH: Điền mảng kiểm tra mã trạng thái bận máy chủ chuẩn Python
+                # SỬA LỖI CÚ PHÁP HOÀN CHỈNH: Điền mảng kiểm tra mã trạng thái bận máy chủ chuẩn Python [429, 503]
                 elif response.status_code in:
                     time.sleep((attempt + 1) * 2)
             except Exception:
@@ -479,7 +479,7 @@ def process_single_pdf_batch(file_bytes, file_name):
             return {"success": False, "error": "Gemini phản hồi dữ liệu rỗng hoặc bị bộ lọc an toàn chặn."}
             
         try:
-            text_response = res_json['candidates'][0]['content']['parts'][0]['text'].strip()
+            text_response = res_json['candidates']['content']['parts']['text'].strip()
         except (KeyError, IndexError):
             return {"success": False, "error": "Cấu trúc gói tin phản hồi từ Google Gemini đã bị thay đổi."}
 
