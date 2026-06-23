@@ -1747,6 +1747,134 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     if not has_file:
         st.info("👋 Vui lòng tải lên tệp Techpack hồ sơ thiết kế (PDF/Hình ảnh) ở phía trên để hệ thống bắt đầu quét và lập lịch trình đối soát.")
         st.stop()
+     # =========================================================================================
+    # LỚP TỰ ĐỘNG TRIGGER QUÉT TỆP TIN PDF VÀ SINH VECTOR ĐẶC TRƯNG QUA VLM LAYER
+    # =========================================================================================
+    if uploaded_file is not None and st.session_state.get("hybrid_search_vector") is None:
+        with st.spinner("🚀 Mắt thần AI đang nén trang và trích xuất đặc trưng cấu trúc tài liệu..."):
+            try:
+                # Đọc dữ liệu nhị phân thô từ file buffer của Streamlit uploader
+                uploaded_file.seek(0)
+                file_bytes_raw = uploaded_file.read()
+                
+                # Gọi hàm lõi trích xuất dữ liệu đa phương thức (Hàm Đoạn A & B độc lập)
+                vlm_result = process_single_pdf_batch(file_bytes_raw, uploaded_file.name)
+                
+                if vlm_result and vlm_result.get("success"):
+                    payload = vlm_result.get("payload_data", {})
+                    
+                    # Đồng bộ toàn bộ thông số rập mẫu mới vào bộ nhớ đệm session_state
+                    st.session_state["new_style_id_detected"] = payload.get("style_number_parsed", "UNKNOWN")
+                    st.session_state["new_style_measurements_dict"] = payload.get("measurements", {})
+                    st.session_state["detected_category"] = payload.get("category", "")
+                    st.session_state["target_new_sketch_bytes"] = payload.get("_sketch_bytes_raw")
+                    st.session_state["detected_mime_type"] = "image/jpeg" if payload.get("_sketch_bytes_raw") else "application/pdf"
+                    st.session_state["visual_description_str"] = f"STYLE: {payload.get('style_number_parsed')}. BUYER: {payload.get('buyer')}. CATEGORY: {payload.get('category')}."
+                    
+                    # Tự động kích hoạt hệ thống số hóa vector lai chuẩn công nghiệp độc lập từ Đoạn 1b
+                    # Để tạo ra vector lai 1536 chiều từ payload mới trích xuất
+                    gemini_key = st.secrets.get("GEMINI_API_KEY", "").strip()
+                    if gemini_key:
+                        try:
+                            from google import genai
+                            from google.genai import types
+                            client_embed = genai.Client(api_key=gemini_key)
+                            
+                            # Số hóa hình ảnh sketch mẫu mới
+                            img_vector = [0.0] * 768
+                            if payload.get("_sketch_bytes_raw"):
+                                try:
+                                    img_part = types.Part.from_bytes(data=payload["_sketch_bytes_raw"], mime_type="image/jpeg")
+                                    img_embed_res = client_embed.models.embed_content(model='gemini-embedding-2', contents=[img_part])
+                                    if img_embed_res and img_embed_res.embeddings:
+                                        emb_obj = img_embed_res.embeddings if isinstance(img_embed_res.embeddings, list) else img_embed_res.embeddings
+                                        img_vector = [float(x) for x in emb_obj.values]
+                                except Exception: pass
+                                
+                            # Số hóa chuỗi thông số văn bản mẫu mới
+                            text_vector = [0.0] * 768
+                            try:
+                                text_embed_res = client_embed.models.embed_content(model='gemini-embedding-2', contents=[st.session_state["visual_description_str"]])
+                                if text_embed_res and text_embed_res.embeddings:
+                                    emb_obj = text_embed_res.embeddings if isinstance(text_embed_res.embeddings, list) else text_embed_res.embeddings
+                                    text_vector = [float(x) for x in emb_obj.values]
+                            except Exception: pass
+                            
+                            st.session_state["hybrid_search_vector"] = list(img_vector) + list(text_vector)
+                        except Exception as embed_err:
+                            print(f"❌ [EMBEDDING COMPUTE ERROR]: {str(embed_err)}")
+                    
+                    # Phòng ngự chiều dài vector
+                    if not st.session_state.get("hybrid_search_vector") or len(st.session_state["hybrid_search_vector"]) != 1536:
+                        st.session_state["hybrid_search_vector"] = [0.0] * 1536
+                        
+                    print(f"✅ [VLM RETRIEVER SUCCESS]: Đã tạo mảng đặc trưng hình học cho {st.session_state['new_style_id_detected']}.")
+                    st.rerun()
+                else:
+                    st.sidebar.error(f"Lỗi phân tích tệp: {vlm_result.get('error', 'Cấu trúc trống')}")
+            except Exception as e_trigger:
+                print(f"❌ [CRITICAL RETRIEVER TRIGGER FAILED]: {str(e_trigger)}")
+
+    # =========================================================================================
+    # LỚP ĐỐI SOÁT VECTOR LAI THỜI GIAN THỰC QUA CỔNG RPC ENDPOINT (insert_techpack_v2 / match_techpack_similarity)
+    # =========================================================================================
+    if st.session_state.get("matched_techpack") is None and st.session_state.get("hybrid_search_vector") is not None:
+        with st.spinner("🔍 Đang truy vấn đa dữ liệu và đối chiếu phom dáng hình học trong kho..."):
+            try:
+                headers_db = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}", "Content-Type": "application/json"}
+                
+                # Cấu hình gói Payload gọi chính xác RPC thuật toán Cosine Similarity trong Postgres
+                rpc_payload = {
+                    "query_embedding": st.session_state["hybrid_search_vector"],
+                    "match_threshold": 0.50, # Ngưỡng an toàn tối thiểu 50% độ giống thiết kế
+                    "match_count": 1
+                }
+                
+                rpc_url = f"{base_sb_url.rstrip('/')}/rest/v1/rpc/match_techpack_similarity"
+                response = requests.post(rpc_url, headers=headers_db, json=rpc_payload, timeout=20)
+                
+                if response.status_code == 200:
+                    results = response.json()
+                    if results and isinstance(results, list) and len(results) > 0:
+                        best_match = results[0]
+                        
+                        # Ánh xạ chuẩn hóa từ cột cơ sở dữ liệu (Snake Case) sang thuộc tính Render (CamelCase) của Đoạn 5
+                        st.session_state["matched_techpack"] = {
+                            "StyleName": best_match.get("style_number"),
+                            "Buyer": best_match.get("buyer"),
+                            "Category": best_match.get("category"),
+                            "BaseSize": best_match.get("base_size"),
+                            "DetailedMeasurements": best_match.get("measurements"),
+                            "SketchURL": best_match.get("image_preview_url")
+                        }
+                        st.session_state["match_confidence_score"] = int(best_match.get("similarity", 0.0) * 100)
+                        st.session_state["match_reason"] = "Hệ thống tự động đồng bộ phom dáng dựa trên khoảng cách Cosine gần nhất."
+                        print(f"🎯 [COSINE MATCH SUCCESS]: Khớp thành công mã mới với mẫu cũ trong kho -> {best_match.get('style_number')}")
+                        st.rerun()
+                    else:
+                        st.session_state["match_confidence_score"] = 0
+                        st.session_state["match_reason"] = "Không tìm thấy bất kỳ mẫu rập nào có độ tương đồng hình học vượt mức yêu cầu."
+                else:
+                    print(f"❌ [RPC SIMILARITY REJECT {response.status_code}]: {response.text}")
+            except Exception as match_master_err:
+                print(f"💥 [SIMILARITY ENGINE CRASH]: {str(match_master_err)}")
+
+    # =========================================================================================
+    # LỚP TỰ ĐỘNG NẠP MA TRẬN ĐỊNH MỨC TIÊU HAO (BOM RECORDS) TỪ MÃ ĐÃ ĐỐI SOÁT
+    # =========================================================================================
+    if st.session_state.get("matched_techpack") and not st.session_state.get("bom_records"):
+        try:
+            headers_db = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
+            matched_style_name = st.session_state["matched_techpack"].get("StyleName")
+            url_bom = f"{base_sb_url.rstrip('/')}/rest/v1/consumption_matrix"
+            
+            if url_bom and matched_style_name:
+                bom_res = requests.get(url_bom, headers=headers_db, params={"StyleName": f"eq.{matched_style_name}", "select": "*"}, timeout=10)
+                if bom_res.status_code == 200:
+                    st.session_state["bom_records"] = bom_res.json()
+                    print(f"📊 [BOM RETRIEVED]: Đã nạp tự động {len(st.session_state['bom_records'])} dòng tiêu hao nguyên phụ liệu.")
+        except Exception as bom_load_err:
+            print(f"❌ [BOM SYNC FAILED]: {str(bom_load_err)}")
 
    
 
