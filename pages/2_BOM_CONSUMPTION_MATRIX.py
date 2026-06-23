@@ -1747,13 +1747,98 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         st.info("👋 Vui lòng tải lên tệp Techpack thiết kế (PDF/Hình ảnh) ở phía trên để kích hoạt lõi đối soát.")
         st.stop()
 
-       # =========================================================================================
-        # =========================================================================================
-       # =========================================================================================
-       # =========================================================================================
-       # =========================================================================================
-        # =========================================================================================
-       # =========================================================================================
+         # =========================================================================================
+    # ĐOẠN 2 CHUẨN KIẾN TRÚC: ĐỒNG BỘ 100% PIPELINE DNA TEXT VÀ CƠ CHẾ GHÉP NỐI VECTOR LAI 1536
+    # =========================================================================================
+    if uploaded_file is not None and st.session_state.get("hybrid_search_vector") is None:
+        with st.spinner("🚀 Mắt thần AI đang trích xuất DNA tài liệu và số hóa cấu trúc hình học..."):
+            try:
+                uploaded_file.seek(0)
+                file_bytes_raw = uploaded_file.read()
+                
+                # 1. Gọi tầng trích xuất VLM bóc tách dữ liệu PDF mẫu mới
+                vlm_result = process_single_pdf_batch(file_bytes_raw, uploaded_file.name)
+                
+                if vlm_result and vlm_result.get("success"):
+                    payload = vlm_result.get("payload_data", {})
+                    
+                    # Nạp dữ liệu thô vào bộ nhớ phiên Streamlit
+                    st.session_state["new_style_id_detected"] = payload.get("style_number_parsed", "UNKNOWN")
+                    st.session_state["new_style_measurements_dict"] = payload.get("measurements", {})
+                    st.session_state["detected_category"] = payload.get("category", "Pants")
+                    st.session_state["target_new_sketch_bytes"] = payload.get("_sketch_bytes_raw")
+                    st.session_state["detected_mime_type"] = "image/jpeg" if payload.get("_sketch_bytes_raw") else "application/pdf"
+                    
+                    # 🎯 ĐỒNG BỘ BƯỚC 1: Tái dựng cấu trúc chuỗi DNA Text khớp từng ký tự với lúc lưu kho
+                    measurements_raw = payload.get("measurements", {})
+                    style_name_db = str(payload.get("style_number_parsed", "UNKNOWN")).strip().upper()
+                    buyer_val = str(payload.get("buyer", "PPJ")).strip()
+                    cat_val = str(payload.get("category", "Pants")).strip()
+                    
+                    visual_description_str = f"STYLE: {style_name_db}. BUYER: {buyer_val}. CATEGORY: {cat_val}. Specs layout: "
+                    if measurements_raw and isinstance(measurements_raw, dict):
+                        visual_description_str += ", ".join([f"{k}:{v}" for k, v in list(measurements_raw.items()) if v is not None])
+                    else:
+                        visual_description_str += "NO_MEASUREMENTS"
+                        
+                    st.session_state["visual_description_str"] = visual_description_str
+
+                    # 🎯 ĐỒNG BỘ BƯỚC 2: Gọi Gemini Embedding sinh mảng 768 chiều độc lập
+                    gemini_key = st.secrets.get("GEMINI_API_KEY", "").strip()
+                    if gemini_key:
+                        try:
+                            from google import genai
+                            from google.genai import types
+                            client_embed = genai.Client(api_key=gemini_key)
+                            
+                            # A. Số hóa hình ảnh sketch mẫu mới (768 chiều)
+                            image_vector = []
+                            if payload.get("_sketch_bytes_raw"):
+                                try:
+                                    img_part = types.Part.from_bytes(data=payload["_sketch_bytes_raw"], mime_type="image/jpeg")
+                                    img_embed_res = client_embed.models.embed_content(model='gemini-embedding-2', contents=[img_part])
+                                    if img_embed_res and img_embed_res.embeddings:
+                                        emb_obj = img_embed_res.embeddings
+                                        image_vector = [float(x) for x in emb_obj.values]
+                                except Exception as img_err:
+                                    print(f"❌ [IMAGE VECTOR SEARCH ERR]: {str(img_err)}")
+                                    
+                            # Khôi phục mảng không nếu cấu trúc hình ảnh bị lỗi khuyết chiều
+                            if not image_vector:
+                                image_vector = [0.0] * 768
+                                
+                            # B. Số hóa chuỗi DNA văn bản mẫu mới (768 chiều)
+                            text_vector = []
+                            try:
+                                text_embed_res = client_embed.models.embed_content(model='gemini-embedding-2', contents=[visual_description_str])
+                                if text_embed_res and text_embed_res.embeddings:
+                                    emb_obj = text_embed_res.embeddings
+                                    text_vector = [float(x) for x in emb_obj.values]
+                            except Exception as txt_err:
+                                print(f"❌ [TEXT VECTOR SEARCH ERR]: {str(txt_err)}")
+                                
+                            if not text_vector:
+                                text_vector = [0.0] * 768
+                            
+                            # 🎯 ĐỒNG BỘ BƯỚC 3: Ghép nối toán học đúng thứ tự: [ẢNH] + [CHỮ] = 1536 chiều
+                            st.session_state["hybrid_search_vector"] = list(image_vector) + list(text_vector)
+                            print(f"🚀 [VECTOR MATCH COMPLETE]: DNA pipeline aligned. Vector length: {len(st.session_state['hybrid_search_vector'])}")
+                            
+                        except Exception as embed_master_err:
+                            print(f"💥 [MASTER EMBEDDING CRASH]: {str(embed_master_err)}")
+                    
+                    # Kiểm soát nghiêm ngặt chiều không gian pgvector
+                    if not st.session_state.get("hybrid_search_vector") or len(st.session_state["hybrid_search_vector"]) != 1536:
+                        st.session_state["hybrid_search_vector"] = [0.0] * 1536
+                        
+                    # Ép xóa trạng thái cũ để cưỡng bức Đoạn 3 kích hoạt đối soát trên tọa độ không gian mới
+                    st.session_state["matched_techpack"] = None
+                    st.rerun()
+                else:
+                    st.sidebar.error(f"Lỗi phân tích VLM: {vlm_result.get('error', 'Cấu trúc trống')}")
+            except Exception as e_trigger:
+                print(f"❌ [CRITICAL RETRIEVER ERROR]: {str(e_trigger)}")
+
     # ĐOẠN 3: LỚP ĐỐI SOÁT SIÊU CẤP - GIẢI NÉN MẢNG ĐỐI TƯỢNG JSON TỪ REST API SUPABASE
     # =========================================================================================
     if st.session_state.get("matched_techpack") is None:
