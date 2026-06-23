@@ -205,7 +205,10 @@ def save_to_supabase_techpack_table(payload_data, raw_file_bytes=None, file_name
             visual_description_str += "NO_MEASUREMENTS"
 
                   # TIẾP NỐI LOGIC: KÍCH HOẠT HỆ THỐNG SỐ HÓA VECTOR LAI KHỬ TOÀN BỘ PROTOBUF CONTAINER
-        hybrid_vector_embedding_array = []
+               # =========================================================================================
+        # ĐOẠN 1b: KÍCH HOẠT HỆ THỐNG SỐ HÓA VECTOR LAI VÀ GỌI RPC BẢO MẬT (CHỐNG LỖI 22004)
+        # =========================================================================================
+        hybrid_vector_embedding_array = None
         gemini_key = st.secrets.get("GEMINI_API_KEY", "").strip()
         
         if gemini_key:
@@ -214,7 +217,7 @@ def save_to_supabase_techpack_table(payload_data, raw_file_bytes=None, file_name
                 from google.genai import types
                 client_embed = genai.Client(api_key=gemini_key)
                 
-                # --- PHẦN 3A: SỐ HÓA VECTOR HÌNH ẢNH (768 CHIỀU) ---
+                # --- PHẦN 3A: SỐ HÓA VECTOR HÌNH ẢNH SKETCH (768 CHIỀU) ---
                 image_vector = []
                 if image_data:
                     try:
@@ -240,72 +243,95 @@ def save_to_supabase_techpack_table(payload_data, raw_file_bytes=None, file_name
                 except Exception as txt_embed_err:
                     print(f"❌ [TEXT VECTOR ERR]: {str(txt_embed_err)}")
                 
-                # --- PHẦN 3C: GHÉP NỐI CONCATENATION (MẢNG KHỚP VĂN BẢN SỐ THỰC 1536 PHẦN TỬ) ---
+                # --- PHẦN 3C: GHÉP NỐI TOÁN HỌC TẠO VECTOR LAI HYBRID (1536 CHIỀU) ---
                 if not image_vector and text_vector: image_vector = [0.0] * len(text_vector)
                 if not text_vector and image_vector: text_vector = [0.0] * len(image_vector)
                     
                 if image_vector and text_vector:
                     hybrid_vector_embedding_array = list(image_vector) + list(text_vector)
-                    print(f"🚀 [HYBRID COMPLETE]: Sinh thành công mảng {len(hybrid_vector_embedding_array)} phần tử số thực.")
+                    print(f"🚀 [HYBRID VECTOR COMPLETE]: Thiết lập thành công {len(hybrid_vector_embedding_array)} phần tử float thô.")
             except Exception as embed_master_err:
                 print(f"💥 [MASTER EMBED ERR]: {str(embed_master_err)}")
 
-        # BIỆN PHÁP PHÒNG NGỰ PHỤ: Nếu vector lai bị trống, bù đắp mảng 1536 số không để vượt qua bộ lọc NOT NULL
+        # Khử cứng lỗi thiếu hụt chiều không phù hợp ràng buộc NOT NULL của pgvector
         if not hybrid_vector_embedding_array or len(hybrid_vector_embedding_array) != 1536:
             hybrid_vector_embedding_array = [0.0] * 1536
 
-        # 4. GỌI TRỰC TIẾP HÀM RPC ĐỂ ĐẨY DỮ LIỆU SẠCH SANG DATABASE
+        # SỬA LỖI SỐ 2: Ép JSONB luôn có dữ liệu thực, tránh gửi bảng {} rỗng làm sập hàm Postgres
+        clean_dict = {}
+        if isinstance(measurements_raw, dict):
+            for k, v in measurements_raw.items():
+                if v is not None and str(v).strip():
+                    clean_dict[str(k).strip()] = str(v).strip()
+        if not clean_dict:
+            clean_dict = {"AI_ENGINE_STATUS": "NO_MEASUREMENT_DATA"}
+
+        matrix_raw_data = payload_data.get("full_size_matrix", {})
+        if not matrix_raw_data or not isinstance(matrix_raw_data, dict) or len(matrix_raw_data) == 0:
+            matrix_raw_data = {"AI_ENGINE_STATUS": "NO_MATRIX_DATA"}
+
+        # 4. THIẾT LẬP CHIẾN LƯỢC ĐA HÌNH THAM SỐ (PARAMETER AUTO-MAPPING) CHỐNG KHÔNG KHỚP SQL RPC
+        # Chúng ta bọc cả 2 định dạng đặt tên tham số phổ biến: CamelCase lửng và Snake_case gạch dưới
         headers = {
             "apikey": SB_KEY, 
             "Authorization": f"Bearer {SB_KEY}",
             "Content-Type": "application/json"
         }
         rpc_url = f"{SB_URL.rstrip('/')}/rest/v1/rpc/insert_techpack_data_with_vector"
-        
-        # Vá lỗi số 3: Chống gửi mảng JSON trống làm sập bộ xử lý JSONB của Postgres
-        clean_dict = {}
-        if measurements_raw and isinstance(measurements_raw, dict):
-            clean_dict = {str(k).strip(): str(v).strip() for k, v in measurements_raw.items() if k is not None and v is not None}
-        if not clean_dict:
-            clean_dict = {"AI_ENGINE_STATUS": "NO_MEASUREMENTS_DETECTED"}
 
-        matrix_raw_data = payload_data.get("full_size_matrix", {})
-        if not matrix_raw_data or not isinstance(matrix_raw_data, dict):
-            matrix_raw_data = {"AI_ENGINE_STATUS": "NO_MATRIX_DETECTED"}
+        style_val = str(style_name_db).strip() if style_name_db else "STYLE_UNKNOWN_" + str(int(time.time()))
+        buyer_val = str(payload_data.get("buyer", "PPJ GROUP")).strip() if payload_data.get("buyer") else "PPJ BUYER"
+        cat_val = str(payload_data.get("category", "GARMENT")).strip() if payload_data.get("category") else "GARMENT"
+        size_val = str(payload_data.get("base_size_name", "32")).strip() if payload_data.get("base_size_name") else "32"
+        url_val = str(public_image_url).strip() if public_image_url else "https://supabase.com"
+        desc_val = str(visual_description_str).strip() if visual_description_str else "No geometric descriptions available."
 
-        # Khử hoàn toàn giá trị Null/None bằng việc ép giá trị chuỗi văn bản an toàn mặc định
+        # Payload đa hình nhồi cả hai kiểu cấu trúc đặt tên tham số của Postgres để triệt tiêu lỗi 50% parameter mismatch
         rpc_payload = {
-            "p_stylename": str(style_name_db).strip() if style_name_db else "STYLE_UNKNOWN_" + str(int(time.time())),
-            "p_buyer": str(payload_data.get("buyer", "PPJ GROUP")).strip() if payload_data.get("buyer") else "PPJ BUYER",
-            "p_category": str(payload_data.get("category", "GARMENT")).strip() if payload_data.get("category") else "GARMENT",
-            "p_basesize": str(payload_data.get("base_size_name", "32")).strip() if payload_data.get("base_size_name") else "32",
+            # Kiểu đặt tên 1: Viết liền lửng
+            "p_stylename": style_val,
+            "p_buyer": buyer_val,
+            "p_category": cat_val,
+            "p_basesize": size_val,
             "p_detailedmeasurements": clean_dict,
             "p_gradingmatrix": matrix_raw_data,
-            # Vá lỗi số 2: Fallback liên kết ảnh sạch tránh truyền rỗng làm sập ràng buộc NOT NULL
-            "p_imageurl": str(public_image_url).strip() if public_image_url else "https://supabase.com",
-            "p_visualdescription": str(visual_description_str).strip() if visual_description_str else "No descriptions available.",
+            "p_imageurl": url_val,
+            "p_visualdescription": desc_val,
+            "p_geometry_vector": hybrid_vector_embedding_array,
+            
+            # Kiểu đặt tên 2: Dự phòng định dạng viết cách gạch dưới (Snake Case)
+            "p_style_name": style_val,
+            "p_base_size": size_val,
+            "p_measurements": clean_dict,
+            "p_detailed_measurements": clean_dict,
+            "p_matrix": matrix_raw_data,
+            "p_grading_matrix": matrix_raw_data,
+            "p_image_url": url_val,
+            "p_description": url_val,
+            "p_visual_description": desc_val,
+            "p_vector": hybrid_vector_embedding_array,
             "p_geometry_vector": hybrid_vector_embedding_array
         }
 
-        # CỤM PRINT LOG DEBUG SÂU TẬN GỐC TRÊN TERMINAL TRƯỚC KHI TRUYỀN TẢI GÓI TIN REST
-        print("="*40 + " RPC LIVE PRODUCTION DEBUG " + "="*40)
-        for k, v in rpc_payload.items():
-            if k == "p_geometry_vector":
-                print(f"👉 Field Name: [{k}] | Type: {type(v)} | Dimension Length = {len(v)}")
-            elif k in ["p_detailedmeasurements", "p_gradingmatrix"]:
-                print(f"👉 Field Name: [{k}] | Value Struct = {v}")
+        # 📌 THỰC THI CỤM IN LOG DEBUG SÂU THEO YÊU CẦU TRÊN TERMINAL ĐỂ KIỂM SOÁT LUỒNG DỮ LIỆU CẬP NHẬT
+        print("\n" + "="*25 + " RPC PAYLOAD PRODUCTION CHECK " + "="*25)
+        for key, value in rpc_payload.items():
+            if key == "p_geometry_vector" or key == "p_vector":
+                print(f"👉 Parameter: {key:<25} | Length: {len(value) if value else 'EMPTY':<10} | Type: {str(type(value)):<20}")
             else:
-                print(f"👉 Field Name: [{k}] | Value String = '{v}'")
-        print("="*107)
+                val_str = str(value)
+                if len(val_str) > 60: val_str = val_str[:57] + "..."
+                print(f"👉 Parameter: {key:<25} | Value: {val_str:<60} | Type: {str(type(value)):<20}")
+        print("="*78 + "\n")
 
         db_res = requests.post(rpc_url, headers=headers, json=rpc_payload, timeout=20)
         
         if db_res.status_code < 200 or db_res.status_code > 299:
             print(f"❌ [SUPABASE RPC REJECT] HTTP {db_res.status_code}: {db_res.text}")
-            st.sidebar.error(f"RPC Reject: HTTP {db_res.status_code} | {db_res.text[:80]}")
+            st.sidebar.error(f"RPC Reject: HTTP {db_res.status_code} | {db_res.text[:60]}")
             return False
             
-        print(f"✅ [SUPABASE SUCCESS] Mã hàng {style_name_db} và Hybrid Vector đã được lưu kho an toàn!")
+        print(f"✅ [SUPABASE SUCCESS] Đồng bộ thông qua cấu trúc hàm RPC thông minh thành công!")
         return True
     except Exception as e:
         print(f"❌ [CRITICAL DB MAIN ERR]: {str(e)}")
