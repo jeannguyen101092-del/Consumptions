@@ -202,7 +202,7 @@ def save_to_supabase_techpack_table(payload_data, raw_file_bytes=None, file_name
         measurements_raw = payload_data.get("measurements", {})
         visual_description_str = f"STYLE: {style_name_db}. BUYER: {payload_data.get('buyer', 'PPJ')}. CATEGORY: {payload_data.get('category', 'Pants')}. Specs details: "
         visual_description_str += ", ".join([f"{k}:{v}" for k, v in list(measurements_raw.items())])
-                # TIẾP NỐI LOGIC: KÍCH HOẠT HỆ THỐNG SỐ HÓA VECTOR LAI KHỬ TOÀN BỘ PROTOBUF
+               # TIẾP NỐI LOGIC: KÍCH HOẠT HỆ THỐNG SỐ HÓA VECTOR LAI KHỬ TOÀN BỘ PROTOBUF
         hybrid_vector_embedding_array = None
         gemini_key = st.secrets.get("GEMINI_API_KEY", "").strip()
         
@@ -244,6 +244,7 @@ def save_to_supabase_techpack_table(payload_data, raw_file_bytes=None, file_name
                     
                 if image_vector and text_vector:
                     raw_floats = list(image_vector) + list(text_vector)
+                    # Ép cứng về chuỗi định dạng văn bản mảng bọc ngoặc vuông chuẩn PostgREST pgvector
                     hybrid_vector_embedding_array = "[" + ",".join([str(f) for f in raw_floats]) + "]"
                     print(f"🚀 [HYBRID COMPLETE]: {len(raw_floats)} dimensions string formatted.")
             except Exception as embed_master_err:
@@ -259,7 +260,6 @@ def save_to_supabase_techpack_table(payload_data, raw_file_bytes=None, file_name
         insert_url = f"{SB_URL.rstrip('/')}/rest/v1/thong_so_techpack"
         clean_dict = {str(k).strip(): str(v).strip() for k, v in dict(measurements_raw).items()}
 
-        # Gói payload sạch hướng trực diện vào tên cột chữ thường geometry_vector đã cấu hình ở Bước 1
         db_payload = {
             "StyleName": style_name_db,
             "Buyer": payload_data.get("buyer", "UNKNOWN BUYER"),
