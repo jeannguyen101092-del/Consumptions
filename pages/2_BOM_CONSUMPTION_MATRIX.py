@@ -1475,8 +1475,8 @@ if has_file:
             try:
                 res_pdf = process_single_pdf_batch(file_bytes, file_name)
                 
-                # CƠ CHẾ CƯỠNG BỨC: Chỉ cần hàm trả về kết quả là bốc dữ liệu ra ngay, chấp nhận bỏ qua lỗi đồng bộ DB
-                if res_pdf.get("success") or (isinstance(res_pdf, dict) and "data" in res_pdf):
+                # Kiểm tra kết quả trả về từ hàm xử lý batch một cách nghiêm ngặt
+                if isinstance(res_pdf, dict) and res_pdf.get("success") == True:
                     meta_p = res_pdf.get("data", {})
                     parsed_style = meta_p.get("style_number_parsed", "UNKNOWN")
                     
@@ -1490,8 +1490,19 @@ if has_file:
                     # MỞ KHÓA TOÀN DIỆN: Kích hoạt bộ lọc đồng bộ mã đối chứng và bảng so sánh
                     st.session_state["matched_style_name"] = str(parsed_style).strip().upper()
                     st.session_state["matched_image_verified"] = True
-            except Exception:
-                pass
+                    st.session_state["gemini_error_log"] = None  # Xóa log lỗi cũ khi thành công
+                else:
+                    # Ghi nhận lỗi cụ thể từ API trả về thay vì bỏ qua
+                    error_msg = res_pdf.get("error") if isinstance(res_pdf, dict) else "Cấu trúc phản hồi từ Engine lỗi."
+                    st.session_state["gemini_error_log"] = error_msg
+                    st.session_state["new_style_id_detected"] = "UNKNOWN"
+                    st.session_state["matched_image_verified"] = False
+                    
+            except Exception as e:
+                # Không nuốt lỗi, bắt trọn ngoại lệ hệ thống và đẩy lên giao diện công khai
+                st.session_state["gemini_error_log"] = f"Lỗi thực thi luồng xử lý: {str(e)}"
+                st.session_state["new_style_id_detected"] = "UNKNOWN"
+                st.session_state["matched_image_verified"] = False
         else:
             # Nếu là file ảnh trực tiếp (JPG/PNG), giữ nguyên làm ảnh phác thảo (Flat Sketch)
             st.session_state["target_new_sketch_bytes"] = file_bytes
@@ -1499,6 +1510,7 @@ if has_file:
             st.session_state["new_style_measurements_dict"] = {}
             st.session_state["detected_mime_type"] = "image/jpeg"
             st.session_state["matched_image_verified"] = True
+            st.session_state["gemini_error_log"] = None
 
 # 3. Đồng bộ an toàn từ bộ nhớ đệm trạng thái ra các biến cục bộ cho các đoạn code phía sau đọc ổn định
 new_style_id_detected = st.session_state.get("new_style_id_detected", "UNKNOWN")
@@ -1515,6 +1527,7 @@ base_sb_url = SB_URL.rstrip('/') if SB_URL else ""
 headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if SB_KEY else {}
 menu_selection = globals().get("menu_selection", "🧵 BOM & Consumption Matrix")
 # =================================================================
+
 
 
 # ĐOẠN 4 ĐÃ SỬA: HỆ THỐNG ĐỐI CHIẾU MÃ HÀNG CÓ CƠ CHẾ KHÓA TRẠNG THÁI VÀ PHÂN LOẠI VISION
