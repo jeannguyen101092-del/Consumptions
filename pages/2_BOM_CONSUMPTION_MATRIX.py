@@ -1862,6 +1862,48 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
 # =========================================================================================
 # ĐOẠN 5 HOÀN CHỈNH: TRÍCH XUẤT ĐỊNH MỨC (BOM) VÀ ĐỐI CHIẾU FLAT SKETCH (CHỐNG TỰ ĐỐI SOÁT)
 # =========================================================================================
+# =========================================================================================
+# ĐOẠN 5 ĐÃ SỬA: KHÓA TRIỆT ĐỂ GIAO DIỆN ĐỐI CHIẾU CHỈ HIỂN THỊ TRONG MENU BOM & MATRIX
+# =========================================================================================
+
+# 🚨 CHÈN ĐIỀU KIỆN NÀY VÀO ĐẦU ĐOẠN 5 ĐỂ KHÓA CHẶT GIAO DIỆN:
+if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption Matrix":
+    
+    import pandas as pd
+    import requests
+    import streamlit as st
+    import re
+    from urllib.parse import quote 
+
+    # Toàn bộ logic xử lý trích xuất định mức BOM cũ và render giao diện img_col1, img_col2...
+    target_new_sketch_bytes = st.session_state.get("target_new_sketch_bytes", None)
+    new_style_id_detected = st.session_state.get("new_style_id_detected", "UNKNOWN")
+    new_style_base_size = st.session_state.get("new_style_base_size", "N/A")
+    new_style_measurements_dict = st.session_state.get("new_style_measurements_dict", {})
+
+    base_sb_url = globals().get("base_sb_url", "")
+    SB_URL = globals().get("SB_URL", "")
+    SB_KEY = globals().get("SB_KEY", "")
+    matched_techpack = st.session_state.get("matched_techpack")
+    base_url_api = base_sb_url if base_sb_url else (SB_URL if SB_URL else "")
+    api_headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if SB_KEY else {}
+
+    # (Giữ nguyên toàn bộ logic kết nối database và render img_col1, img_col2 của Đoạn 5 đã viết trước đó...)
+    st.markdown("### 🖼️ ĐỐI CHIẾU SỰ TƯƠNG ĐỒNG HÌNH ẢNH THIẾT KẾ (FLAT SKETCH)")
+    img_col1, img_col2 = st.columns(2)
+    
+    with img_col1:
+        # Code hiển thị ảnh chụp/ảnh trích xuất mẫu mới
+        # ...
+        pass
+        
+    with img_col2:
+        # Code hiển thị ảnh gốc đối chứng mã tương đồng từ kho
+        # ...
+        pass
+
+    if new_style_measurements_dict:
+        st.session_state["new_style_measurements_dict"] = new_style_measurements_dict
 
 import pandas as pd
 import requests
