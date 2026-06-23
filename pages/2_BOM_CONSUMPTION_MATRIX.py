@@ -1795,98 +1795,113 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
 
 
 
-    import pandas as pd
-    import requests
-    import streamlit as st
-    # VÁ LỖI MẤT ĐỊNH NGHĨA: Import tường minh thư viện mã hóa tên tệp URL có khoảng trắng
-    from urllib.parse import quote 
-    from concurrent.futures import ThreadPoolExecutor
+    # =========================================================================================
+# ĐOẠN 5 ĐÃ SỬA: TỰ ĐỘNG HIỂN THỊ HÌNH ẢNH VÀ NẠP THÔNG SỐ SO SÁNH TỪ KHO DỮ LIỆU CŨ
+# =========================================================================================
 
-    # Khôi phục an toàn các biến hệ thống từ môi trường toàn cục
-    target_new_sketch_bytes = globals().get("target_new_sketch_bytes", None)
-    new_style_id_detected = globals().get("new_style_id_detected", "UNKNOWN")
-    new_style_base_size = globals().get("new_style_base_size", "N/A")
-    base_sb_url = globals().get("base_sb_url", "")
-    SB_URL = globals().get("SB_URL", "")
-    SB_KEY = globals().get("SB_KEY", "")
+import pandas as pd
+import requests
+import streamlit as st
+from urllib.parse import quote 
+from concurrent.futures import ThreadPoolExecutor
+
+# SỬA LỖI 1: Ưu tiên đồng bộ an toàn các biến từ st.session_state để không bị mất byte hoặc dán đè None từ globals()
+target_new_sketch_bytes = st.session_state.get("target_new_sketch_bytes", None)
+new_style_id_detected = st.session_state.get("new_style_id_detected", "UNKNOWN")
+new_style_base_size = st.session_state.get("new_style_base_size", "N/A")
+new_style_measurements_dict = st.session_state.get("new_style_measurements_dict", {})
+
+base_sb_url = globals().get("base_sb_url", "")
+SB_URL = globals().get("SB_URL", "")
+SB_KEY = globals().get("SB_KEY", "")
+
+matched_techpack = st.session_state.get("matched_techpack")
+
+base_url_api = base_sb_url if base_sb_url else (SB_URL if SB_URL else "")
+api_headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if SB_KEY else {}
+
+# 1. TRUY VẤN VÀ ĐỒNG BỘ HÓA DỮ LIỆU ĐỊNH MỨC NGUYÊN VẬT LIỆU (BOM) LỊCH SỬ
+if matched_techpack and "bom_records" not in st.session_state:
+    st.session_state["bom_records"] = []
+    target_style_name_bom = str(matched_techpack.get("StyleName", "")).strip()
+    url_bom = f"{base_url_api.rstrip('/')}/rest/v1/san_pham" if base_url_api else ""
+
+    if url_bom and target_style_name_bom:
+        try:
+            query_bom = {
+                "select": "style_name,article_name,material_code,fabric_type,supplier,color,consumption_type,material_size,uom,consumption_value,notes",
+                "style_name": f"ilike.*{target_style_name_bom}*"
+            }
+            res_bom = requests.get(url_bom, headers=api_headers, params=query_bom, timeout=12)
+            if res_bom.status_code == 200:
+                raw_list = res_bom.json()
+                st.session_state["bom_records"] = [r for r in raw_list if target_style_name_bom.lower() in str(r.get("style_name", "")).lower()]
+        except Exception:
+            pass
+
+bom_records = st.session_state.get("bom_records", [])
+
+# ==========================================================
+# 🖼️ GIAO DIỆN ĐỐI CHIẾU FLAT SKETCH (ĐÃ VÁ LỖI HIỂN THỊ BIẾN VÀ ẢNH)
+# ==========================================================
+st.markdown("### 🖼️ ĐỐI CHIẾU SỰ TƯƠNG ĐỒNG HÌNH ẢNH THIẾT KẾ (FLAT SKETCH)")
+img_col1, img_col2 = st.columns(2)
+
+with img_col1:
+    uploaded_file_name = st.session_state.get("previous_uploaded_file_name", "Techpack")
+    detected_mime_type = st.session_state.get("detected_mime_type", "image/jpeg")
     
-    matched_techpack = st.session_state.get("matched_techpack")
-    
-    base_url_api = base_sb_url if base_sb_url else (SB_URL if SB_URL else "")
-    api_headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if SB_KEY else {}
+    # SỬA LỖI HIỂN THỊ ẢNH MẪU MỚI: Nếu là file PDF, trích xuất byte sketch_bytes thu được từ Gemini
+    if target_new_sketch_bytes is not None:
+        try:
+            st.image(target_new_sketch_bytes, caption=f"Hình ảnh đã quét từ tài liệu mới ({new_style_id_detected})", use_container_width=True)
+        except Exception as e:
+            st.warning(f"Không thể render trực tiếp dạng ảnh thô: {e}")
+    else:
+        # Cơ chế dự phòng thông báo nếu tài liệu gốc là PDF đa trang
+        if "pdf" in str(detected_mime_type).lower() or str(uploaded_file_name).lower().endswith(".pdf"):
+            st.info(f"📄 **Tài liệu dạng cấu trúc tệp:** `{uploaded_file_name}`\n\nHệ thống đã nạp dữ liệu thông số Techpack thành công (Ảnh Sketch nhúng đang được cô lập).")
+        else:
+            st.info("ℹ️ Chưa tải lên hoặc chưa trích xuất được tệp ảnh Flat Sketch của mẫu mới.")
 
-    # 1. TRUY VẤN VÀ ĐỒNG BỘ HÓA DỮ LIỆU ĐỊNH MỨC NGUYÊN VẬT LIỆU (BOM) LỊCH SỬ
-    if matched_techpack and "bom_records" not in st.session_state:
-        st.session_state["bom_records"] = []
-        target_style_name_bom = str(matched_techpack.get("StyleName", "")).strip()
-        url_bom = f"{base_url_api.rstrip('/')}/rest/v1/san_pham" if base_url_api else ""
+with img_col2:
+    if matched_techpack is not None:
+        target_style_name = str(matched_techpack.get("StyleName", "")).strip().upper()
+        st.session_state["matched_style_name"] = target_style_name
+        
+        # Đồng bộ URL ảnh trực tiếp từ Object đã match để tránh bị reset rỗng
+        st.session_state["matched_sketch_url"] = matched_techpack.get("SketchURL") or matched_techpack.get("sketch_url", "")
+        
+        similarity_score = st.session_state.get("match_confidence_score", 100.0)
+        st.session_state["matched_similarity_score"] = similarity_score
 
-        if url_bom and target_style_name_bom:
+        st.markdown(f"""
+            <div style='background-color: #EEF2F6; padding: 10px; border-radius: 5px; text-align: center; margin-bottom: 8px;'>
+                <p style='color: #1E3A8A; font-size: 14px; font-weight: 700; margin: 0;'>🎯 Mã tương đồng trong kho: {target_style_name}</p>
+                <p style='color: #10B981; font-size: 13px; font-weight: 600; margin: 4px 0 0 0;'>🤖 Độ tương đồng thiết kế (Vision): {similarity_score}%</p>
+            </div>
+        """, unsafe_allow_html=True)
+        
+        db_stored_url = st.session_state.get("matched_sketch_url")
+        if db_stored_url:
             try:
-                query_bom = {
-                    "select": "style_name,article_name,material_code,fabric_type,supplier,color,consumption_type,material_size,uom,consumption_value,notes",
-                    "style_name": f"ilike.*{target_style_name_bom}*"
-                }
-                res_bom = requests.get(url_bom, headers=api_headers, params=query_bom, timeout=12)
-                if res_bom.status_code == 200:
-                    raw_list = res_bom.json()
-                    st.session_state["bom_records"] = [r for r in raw_list if target_style_name_bom.lower() in str(r.get("style_name", "")).lower()]
+                # Ép mã hóa URL để hiển thị mượt mà kể cả khi tên file chứa khoảng trắng/ký tự đặc biệt trên Supabase Storage
+                safe_url = quote(db_stored_url, safe=':/')
+                st.image(safe_url, caption=f"Ảnh bản vẽ gốc mã đối chứng {target_style_name}", use_container_width=True)
             except Exception:
-                pass
-
-    bom_records = st.session_state.get("bom_records", [])
-
-        # ==========================================================
-    # 🖼️ GIAO DIỆN ĐỐI CHIẾU FLAT SKETCH (ĐÃ VÁ LỖI HIỂN THỊ BIẾN VÀ ẢNH)
-    # ==========================================================
-    st.markdown("### 🖼️ ĐỐI CHIẾU SỰ TƯƠNG ĐỒNG HÌNH ẢNH THIẾT KẾ (FLAT SKETCH)")
-    img_col1, img_col2 = st.columns(2)
-
-    with img_col1:
-        # Đồng bộ từ st.session_state để giữ ảnh ổn định khi tương tác nút bấm
-        target_new_sketch_bytes = st.session_state.get("target_new_sketch_bytes", None)
-        new_style_id_detected = st.session_state.get("new_style_id_detected", "N/A")
-        uploaded_file_name = st.session_state.get("previous_uploaded_file_name", "Techpack")
-        detected_mime_type = st.session_state.get("detected_mime_type", "image/jpeg")
-        
-        if target_new_sketch_bytes is not None:
-            try:
-                st.image(target_new_sketch_bytes, caption=f"Hình ảnh đã quét từ tài liệu mới ({new_style_id_detected})", use_container_width=True)
-            except Exception as e:
-                if "pdf" in str(detected_mime_type).lower() or str(uploaded_file_name).lower().endswith(".pdf"):
-                    st.info(f"📄 **Tài liệu dạng tệp:** `{uploaded_file_name}`\n\nHệ thống đã nạp cấu trúc PDF thành công.")
-                else:
-                    st.warning(f"Lỗi hiển thị ảnh mẫu mới: {e}")
+                st.info(f"ℹ️ Mã rập đã khớp. Link ảnh: {db_stored_url[:50]}... (Vui lòng kiểm tra quyền truy cập Storage)")
         else:
-            st.info("ℹ️ Chưa tải lên tệp ảnh Flat Sketch của mẫu mới.")
+            st.info("ℹ️ Lưu ý: Mã hàng đã khớp hoàn toàn. Bản ghi này hiện chưa cập nhật ảnh minh họa trong kho.")
+    else:
+        st.warning("⚠️ CHƯA KHỚP ĐƯỢC MÃ TƯƠNG ĐỒNG!")
 
-    with img_col2:
-        # Đọc an toàn thông tin mã đối chứng đã khớp từ kho
-        matched_techpack = st.session_state.get("matched_techpack", None)
-        
-        if matched_techpack is not None:
-            target_style_name = str(matched_techpack.get("StyleName", "")).strip().upper()
-            st.session_state["matched_style_name"] = target_style_name
-            st.session_state["matched_sketch_url"] = matched_techpack.get("SketchURL") or matched_techpack.get("sketch_url", "")
-            
-            similarity_score = st.session_state.get("match_confidence_score", 100.0)
-            st.session_state["matched_similarity_score"] = similarity_score
+# ==========================================================
+# 📊 BẮT BUỘC ĐỒNG BỘ DỮ LIỆU ĐỂ RENDER BẢNG SO SÁNH SAI LỆCH THÔNG SỐ (PHÍA DƯỚI)
+# ==========================================================
+# Ghi đè cấu trúc ngược trở lại session_state để các hàm render bảng so sánh (Đoạn 6) đọc được giá trị "Mẫu mới"
+if new_style_measurements_dict:
+    st.session_state["new_style_measurements_dict"] = new_style_measurements_dict
 
-            st.markdown(f"""
-                <div style='background-color: #EEF2F6; padding: 10px; border-radius: 5px; text-align: center; margin-bottom: 8px;'>
-                    <p style='color: #1E3A8A; font-size: 14px; font-weight: 700; margin: 0;'>🎯 Mã tương đồng trong kho: {target_style_name}</p>
-                    <p style='color: #10B981; font-size: 13px; font-weight: 600; margin: 4px 0 0 0;'>🤖 Độ tương đồng thiết kế (Vision): {similarity_score}%</p>
-                </div>
-            """, unsafe_allow_html=True)
-            
-            db_stored_url = st.session_state.get("matched_sketch_url")
-            if db_stored_url:
-                try:
-                    st.image(db_stored_url, caption=f"Ảnh bản vẽ gốc mã {target_style_name}", use_container_width=True)
-                except Exception:
-                    st.info("ℹ️ Lưu ý: Mã hàng đã khớp. Không tìm thấy ảnh minh họa trong kho.")
-        else:
-            st.warning("⚠️ CHƯA KHỚP ĐƯỢC MÃ TƯƠNG ĐỒNG!")
 
     # ==========================================================
     # 📐 BẢNG SO SÁNH SAI LỆCH THÔNG SỐ RẬP (CƠ CHẾ BẢO VỆ CHỐNG ẨN BẢNG)
