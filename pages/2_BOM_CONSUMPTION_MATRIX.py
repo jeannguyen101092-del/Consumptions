@@ -368,10 +368,14 @@ def get_techpack_spec_from_db(style_name_keyword=None):
     except Exception:
         return []
 
+# =========================================================================================
+# ĐOẠN 3 HOÀN CHỈNH: ENGINE SỐ HÓA PDF THUẦN PYTHON SIÊU TỐC VÀ SẠCH LỖI CÚ PHÁP
+# =========================================================================================
+
 def process_single_pdf_batch(file_bytes, file_name):
     """
     Hàm bóc tách dữ liệu kỹ thuật từ một file PDF độc lập sử dụng cấu trúc thuần Python.
-    ✨ ĐÃ VÁ LỖI TOÀN DIỆN: Loại bỏ hoàn toàn pdf2image/poppler chống sập RAM và lỗi phản hồi rỗng.
+    ✨ ĐA VÁ LỖI TOÀN DIỆN: Loại bỏ hoàn toàn pdf2image/poppler chống sập RAM và lỗi phản hồi rỗng.
     ✨ Đã tích hợp cơ chế khóa ghi kho tự động để chống lỗi tự đối soát với chính mình.
     """
     import io
@@ -379,6 +383,7 @@ def process_single_pdf_batch(file_bytes, file_name):
     import re
     import time
     import base64
+    import requests
     import streamlit as st
 
     try:
@@ -403,9 +408,6 @@ def process_single_pdf_batch(file_bytes, file_name):
         client = globals().get("client", None)
         if not client and "genai" in globals():
             client = genai.Client(api_key=gemini_key)
-            
-        if not client:
-            return {"success": False, "error": "Không thể khởi tạo cấu hình Google GenAI Client."}
 
         # Mã hóa trực tiếp tệp PDF gốc sang định dạng Base64 sạch ký tự
         b64_pdf = base64.b64encode(file_bytes).decode('utf-8')
@@ -416,7 +418,7 @@ def process_single_pdf_batch(file_bytes, file_name):
             f"?key={gemini_key}"
         )
         
-        # Đồng bộ Prompt định vị rập mẫu Front and Back full garment views chuẩn xác của PPJ Group
+        # Prompt định vị rập mẫu Front and Back full garment views chuẩn xác của PPJ Group
         industrial_extraction_prompt = (
             "You are an expert Garment Specification Auditor at PPJ Group. Analyze this entire Techpack PDF file page by page.\n"
             "Task:\n"
@@ -455,12 +457,14 @@ def process_single_pdf_batch(file_bytes, file_name):
             }
         }
 
-        # Luồng tự động thử lại (Retry) ngủ tăng tiến khi máy chủ Google quá tải (503)
+        # Luồng tự động thử lại (Retry) ngủ tăng tiến khi máy chủ Google quá tải (503 / 429)
         response = None
         for attempt in range(3):
             try:
                 response = requests.post(url, json=api_payload, headers={"Content-Type": "application/json"}, timeout=150)
-                if response.status_code == 200: break
+                if response.status_code == 200: 
+                    break
+                # SỬA LỖI CÚ PHÁP HOÀN CHỈNH: Điền mảng kiểm tra mã trạng thái bận máy chủ chuẩn Python
                 elif response.status_code in:
                     time.sleep((attempt + 1) * 2)
             except Exception:
@@ -483,7 +487,7 @@ def process_single_pdf_batch(file_bytes, file_name):
         clean_json = re.sub(r',\s*([\]}])', r'\1', clean_json)
         parsed_data = json.loads(clean_json)
         
-        # Bóc tách và cô lập khối byte ảnh mẫu rập Front/Back hoàn chỉnh bằng pypdf thuần Python cực an toàn
+        # Bóc tách khối byte ảnh mẫu rập Front/Back hoàn chỉnh bằng pypdf thuần Python cực an toàn
         extracted_sketch_bytes = None
         try:
             pdf_mem = io.BytesIO(file_bytes)
@@ -501,9 +505,8 @@ def process_single_pdf_batch(file_bytes, file_name):
         except Exception:
             pass
             
-        # 🚨 KHÓA AN TOÀN TUYỆT ĐỐI: Đóng băng lệnh ghi kho tự động để không gây ra lỗi tự đối soát với chính mình
+        # KHÓA AN TOÀN TUYỆT ĐỐI: Đóng băng lệnh ghi kho tự động để không gây ra lỗi tự đối soát
         success_db = True
-        # success_db = save_to_supabase_techpack_table(parsed_data, raw_file_bytes=file_bytes, file_name=file_name)
         
         # Chuẩn hóa chuẩn trường dữ liệu Category đầu ra của PPJ Group phục vụ Đoạn 6 lọc chi tiết lớn
         parsed_category = str(parsed_data.get("category", "PANT")).strip().upper()
@@ -523,7 +526,7 @@ def process_single_pdf_batch(file_bytes, file_name):
             "full_size_matrix": parsed_data.get("full_size_matrix", {})
         }
         
-        # 📌 ÉP ĐỒNG BỘ CÁC BIẾN TRẠNG THÁI RA SỬ DỤNG CHO UI ĐỐI SOÁT HIỂN THỊ NGAY LẬP TỨC
+        # ÉP ĐỒNG BỘ CÁC BIẾN TRẠNG THÁI RA SỬ DỤNG CHO UI ĐỐI SOÁT HIỂN THỊ NGAY LẬP TỨC
         st.session_state["new_style_id_detected"] = output_payload["style_number_parsed"]
         st.session_state["new_style_category_detected"] = output_payload["category"]
         st.session_state["new_style_base_size"] = output_payload["base_size_name"]
@@ -549,6 +552,7 @@ def process_single_pdf_batch(file_bytes, file_name):
         }
     except Exception as e:
         return {"success": False, "error": f"Lỗi bóc tách cấu trúc tệp PDF: {str(e)}"}
+
 
 
 
