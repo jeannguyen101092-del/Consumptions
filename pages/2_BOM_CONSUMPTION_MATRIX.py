@@ -1996,14 +1996,24 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             st.session_state["valid_diff_pcts"] = valid_diff_pcts
     except Exception as e_matrix:
         print(f"❌ [MATRIX PROCESS ERROR]: {str(e_matrix)}")    # =========================================================================================
-    # ĐOẠN C: AI CONSUMPTION PROJECTION ENGINE (TỰ ĐỘNG LIÊN KẾT ĐỒNG BỘ % VÀ HIỂN THỊ ĐỒ THỊ)
+       # =========================================================================================
+    # ĐOẠN 6 ĐỒNG BỘ: AI CONSUMPTION PROJECTION ENGINE (BẮT ĐÚNG PHOM DỮ LIỆU TỪ ĐOẠN 3 CHUẨN)
     # =========================================================================================
     try:
+        # 📊 1. TRÍCH XUẤT VÀ ÉP ĐỒNG BỘ CẤU TRÚC VẬT TƯ TỪ ĐOẠN 3 PHÍA TRÊN ĐƯA XUỐNG
         bom_summary_engine = {}
-        if matched_techpack:
+        for record in st.session_state.get("bom_records", []):
+            # Bộ quét đọc linh hoạt cả key viết thường và viết hoa từ API Supabase
+            c_name = record.get("component_name") or record.get("ComponentName") or record.get("MaterialType")
+            c_qty = record.get("consumption_qty") or record.get("ConsumptionQty") or record.get("old_qty")
+            if c_name and c_qty is not None:
+                bom_summary_engine[str(c_name).upper()] = float(c_qty)
+                
+        # Khung bảo vệ fallback nếu mảng nạp từ kho vẫn bị trống rỗng hoàn toàn
+        if not bom_summary_engine:
             bom_summary_engine = {"MAIN FABRIC": 1.625, "INTERLINING": 0.100, "POCKETING FABRIC": 0.135}
             
-        # TỰ ĐỘNG ĐỒNG BỘ: Đọc % từ Đoạn B đưa xuống làm shape_factor mặc định đầu vào
+        # Thu thập tự động biên độ phần trăm biến thiên rập mẫu trung bình tính toán được từ Đoạn B phía trên
         avg_area_growth_pct = 5.97
         if "valid_diff_pcts" in st.session_state and st.session_state["valid_diff_pcts"]:
             avg_area_growth_pct = round(sum(st.session_state["valid_diff_pcts"]) / len(st.session_state["valid_diff_pcts"]), 2)
@@ -2012,22 +2022,26 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             st.markdown("<br>### 🔮 AI CONSUMPTION PROJECTION ENGINE (DỰ PHÓNG ĐỊNH MỨC MÃ MỚI)", unsafe_allow_html=True)
             st.success("✅ **XÁC THỰC AI VISION:** Độ tương đồng phác thảo đạt 100.0%. Cấu trúc rập ở mức tương thích cao.")
             
+            # Hàng cấu hình đầu vào thực nghiệm (3 Cột)
             param_col1, param_col2, param_col3 = st.columns(3)
             with param_col1:
-                shape_factor = st.number_input("Độ biến thiên thông số POM trung bình (%)", value=float(avg_area_growth_pct), step=0.01, format="%.2f", key="ai_pom_growth_input_final_v5")
+                # Ô nhập liệu tự động bắt trọn số % vừa tính được từ bảng đối chiếu hình học phía trên
+                shape_factor = st.number_input("Độ biến thiên thông số POM trung bình (%)", value=float(avg_area_growth_pct), step=0.01, format="%.2f", key="ai_pom_growth_input_final_v6")
             with param_col2:
-                fabric_growth_factor = st.number_input("Hệ số thực nghiệm vải (Fabric Growth Factor)", value=0.65, step=0.05, format="%.2f", key="ai_fabric_factor_input_final_v5")
+                fabric_growth_factor = st.number_input("Hệ số thực nghiệm vải (Fabric Growth Factor)", value=0.65, step=0.05, format="%.2f", key="ai_fabric_factor_input_final_v6")
             with param_col3:
-                wastage_buffer = st.number_input("Hao hụt sản xuất cấu hình thêm (%)", value=0.00, step=0.5, format="%.2f", key="ai_wastage_buffer_input_final_v5")
+                wastage_buffer = st.number_input("Hao hụt sản xuất cấu hình thêm (%)", value=0.00, step=0.5, format="%.2f", key="ai_wastage_buffer_input_final_v6")
 
             projection_rows = []
             for ctype, old_qty in bom_summary_engine.items():
                 ctype_upper = str(ctype).strip().upper()
                 
+                # --- THUẬT TOÁN VẢI CHÍNH (MAIN FABRIC) ---
                 if any(k in ctype_upper for k in ["MAIN", "FABRIC", "BODY", "SHELL", "VẢI CHÍNH"]):
                     percentage_increase = fabric_growth_factor * shape_factor
                     projected_dm = old_qty * (1 + percentage_increase / 100) * (1 + wastage_buffer / 100)
                     note = f"Vải chính: Hệ số ({fabric_growth_factor}) × POM ({round(shape_factor, 1)}%) [Chặn sàn] → ĐM tăng: {round(percentage_increase, 2)}%"
+                # --- THUẬT TOÁN VẢI PHỤ / PHỤ LIỆU MỀM ---
                 else:
                     main_fabric_increase = fabric_growth_factor * shape_factor
                     percentage_increase = 0.40 * main_fabric_increase
@@ -2041,30 +2055,18 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                     "Cơ sở thuật toán toán AI": note
                 })
                 
+            # Đổ bảng dữ liệu dự phóng độc lập lên Streamlit UI
             df_projection = pd.DataFrame(projection_rows)
             st.session_state["ai_projected_consumption_matrix"] = projection_rows
-            
-            st.dataframe(
-                df_projection, 
-                use_container_width=True, 
-                hide_index=True,
-                column_config={
-                    "Tổng ĐM mã cũ": st.column_config.NumberColumn(format="%.3f"),
-                    "ĐM Dự phóng mã mới": st.column_config.NumberColumn(format="%.3f")
-                }
-            )
+            st.dataframe(df_projection, use_container_width=True, hide_index=True)
 
-            # RENDER ĐỒ THỊ BIẾN THIÊN TIÊU HAO VẬT TƯ EXPONENTIAL GROWTH CURVE MAPPING
+            # RENDER BIỂU ĐỒ CONG BIẾN THIÊN TIÊU HAO VẬT TƯ (GROWTH CURVE GRAPH)
             st.markdown("#### 📈 BIỂU ĐỒ CONG DỰ PHÓNG BIẾN THIÊN TIÊU HAO VẬT TƯ (FABRIC CONSUMPTION EXPONENTIAL GROWTH)")
-            main_fabric_qty = 1.625
-            for row in projection_rows:
-                if any(k in str(row["Phân loại vật tư (Type)"]).upper() for k in ["MAIN", "FABRIC", "VẢI CHÍNH"]):
-                    main_fabric_qty = row["Tổng ĐM mã cũ"]
-                    break
         else:
             st.warning("⚠️ Không tìm thấy bản ghi định mức vật tư (BOM Consumption Matrix) lịch sử để kích hoạt phân hệ dự phóng AI.")
     except Exception as e6:
         print(f"❌ [AI PROJECTION ENGINE CRASH]: {str(e6)}")
+
 
 
     # =========================================================================================
