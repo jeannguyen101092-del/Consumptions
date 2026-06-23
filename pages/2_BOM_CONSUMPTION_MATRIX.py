@@ -334,10 +334,11 @@ def get_techpack_spec_from_db(style_name_keyword=None):
 def process_single_pdf_batch(file_bytes, file_name):
     """
     Hàm bóc tách dữ liệu kỹ thuật từ một file PDF độc lập.
-    ✨ ĐÃ TỐI ƯU HOÀN TOÀN: Truyền trực tiếp PDF Bytes sang Gemini thay vì render chuỗi ảnh gây nặng payload.
+    ✨ FIX LỖI QUÁ TẢI LỆNH XỬ LÝ: Ép chặt cấu hình đầu ra JSON + Tự động giãn cách thời gian khi API nghẽn.
     """
     import time
-    import base64
+    import json
+    import io
     try:
         gemini_key = get_secure_gemini_key()
         if not gemini_key:
@@ -345,8 +346,7 @@ def process_single_pdf_batch(file_bytes, file_name):
             
         client = genai.Client(api_key=gemini_key)
         
-        # TỐI ƯU HÓA PAYLOAD: Thay vì convert toàn bộ trang thành ảnh (nặng + dễ crash), 
-        # ta gửi trực tiếp file PDF ở dạng dữ liệu thô (Raw Bytes) để Gemini tự xử lý tài liệu gốc.
+        # 1. Đóng gói trực tiếp tệp PDF gốc dưới dạng bytes để giảm tải dung lượng truyền
         pdf_parts_payload = [
             types.Part.from_bytes(data=file_bytes, mime_type='application/pdf')
         ]
@@ -358,12 +358,8 @@ def process_single_pdf_batch(file_bytes, file_name):
             "3. Find the exact 'Style ID' / 'Style Number' (e.g. 5765). "
             "4. FOR FUNCTION 3 (FULL SIZE MATRIX): Scan and extract the entire grading matrix table columns for ALL available sizes. "
             "5. CRITICAL VISUAL FLAT SKETCH LOCATE RULE: Scan all pages visually. You MUST find the exact PAGE INDEX (0-based) "
-            "that contains the FULL BODY APPAREL FLAT SKETCH showing the entire completed garment (the whole pant/skort with front view and back view side-by-side or on the same page). "
-            "STRICT DISQUALIFICATION RULES: "
-            "- DO NOT select pages showing isolated technical pattern panels (e.g., just a single front panel leg or a single back panel leg cut out). "
-            "- DO NOT select pages showing inner construction details, pocket bags, zippers, or sketches of components. "
-            "We only want the complete product design presentation sketch page. "
-            "Return a completely valid raw JSON string matching this schema (no markdown blocks): "
+            "that contains the FULL BODY APPAREL FLAT SKETCH showing the entire completed garment. "
+            "Return a completely valid raw JSON string matching this schema: "
             "{"
             "  \"style_number_parsed\": \"string\","
             "  \"buyer\": \"string\","
@@ -374,33 +370,45 @@ def process_single_pdf_batch(file_bytes, file_name):
             "  \"full_size_matrix\": {\"POM Description\": {\"Size_Name\": \"Value\"}}"
             "}"
         )
-        
         pdf_parts_payload.append(industrial_extraction_prompt)
         
+        # Cấu hình tối ưu cấu trúc phản hồi đầu ra để AI không cần suy nghĩ lan man
+        generation_config = types.GenerationConfig(
+            response_mime_type="application/json",
+            temperature=0.1,  # Hạ thấp nhiệt độ để tăng độ chính xác của cấu trúc dữ liệu cấu trúc
+            max_output_tokens=4000
+        )
+        
         response = None
-        for attempt in range(3):
+        # Cơ chế vòng lặp thử lại thông minh chống lỗi 429 / RESOURCE_EXHAUSTED / 503
+        for attempt in range(4):
             try:
                 response = client.models.generate_content(
                     model='gemini-2.5-flash', 
                     contents=pdf_parts_payload,
-                    config={"response_mime_type": "application/json"}
+                    config=generation_config
                 )
                 if response and response.text and response.text.strip(): 
                     break
             except Exception as ai_err:
-                if "503" in str(ai_err) or "UNAVAILABLE" in str(ai_err) or "resource_exhausted" in str(ai_err).lower():
-                    time.sleep((attempt + 1) * 3)
+                err_msg = str(ai_err).lower()
+                # Nếu hệ thống báo quá tải lệnh (Rate Limit hoặc Service Unavailable)
+                if "429" in err_msg or "exhausted" in err_msg or "503" in err_msg or "unavailable" in err_msg:
+                    # Giãn cách thời gian tăng dần theo từng lượt lỗi: 4s -> 8s -> 12s
+                    wait_time = (attempt + 1) * 4
+                    print(f"[RATE LIMIT HOTFIX]: Hệ thống đang quá tải, tự động thử lại sau {wait_time} giây...")
+                    time.sleep(wait_time)
                     continue
                 else:
-                    return {"success": False, "error": f"Lỗi kết nối cổng AI: {str(ai_err)}"}
+                    return {"success": False, "error": f"Lỗi cổng truyền API: {str(ai_err)}"}
                     
         if not response or not response.text or not response.text.strip():
-            return {"success": False, "error": "Mô hình không phản hồi văn bản do quá tải lệnh xử lý."}
+            return {"success": False, "error": "Mô hình không phản hồi văn bản do hàng chờ hệ thống quá tải. Vui lòng bấm thử lại."}
             
         clean_json = response.text.strip().replace("```json", "").replace("```", "").strip()
         parsed_data = json.loads(clean_json)
         
-        # Trích xuất riêng ảnh của trang vẽ kỹ thuật phục vụ việc lưu trữ hiển thị hạ tầng
+        # 2. Xử lý trích xuất duy nhất trang ảnh bản vẽ kỹ thuật (Cắt ảnh đơn để tối ưu hiệu năng RAM)
         extracted_sketch_bytes = None
         detected_idx = int(parsed_data.get("sketch_page_index_detected", 0))
         try:
@@ -409,11 +417,11 @@ def process_single_pdf_batch(file_bytes, file_name):
             total_p = int(info.get("Pages", 1))
             
             if 0 <= detected_idx < total_p:
-                # Chỉ render duy nhất trang có chứa bản vẽ phẳng được AI định vị để tiết kiệm tài nguyên RAM máy chủ
-                single_image_list = convert_from_bytes(file_bytes, dpi=120, first_page=detected_idx+1, last_page=detected_idx+1)
+                # Chỉ render đúng một trang duy nhất được định vị
+                single_image_list = convert_from_bytes(file_bytes, dpi=110, first_page=detected_idx+1, last_page=detected_idx+1)
                 if single_image_list:
                     b_buf = io.BytesIO()
-                    single_image_list[0].convert("RGB").save(b_buf, format="JPEG", quality=90, subsampling=0)
+                    single_image_list[0].convert("RGB").save(b_buf, format="JPEG", quality=85)
                     extracted_sketch_bytes = b_buf.getvalue()
         except Exception as e_img:
             print(f"[WARN]: Không thể cắt ảnh đơn trang kĩ thuật: {str(e_img)}")
@@ -438,10 +446,11 @@ def process_single_pdf_batch(file_bytes, file_name):
             "size": output_payload["base_size_name"],
             "measurements": output_payload["measurements"], 
             "sketch_bytes": extracted_sketch_bytes, 
-            "error": None if success_db else "Lỗi ghi đồng bộ dữ liệu lên cơ sở dữ liệu Supabase"
+            "error": None if success_db else "Lỗi ghi đồng bộ dữ liệu lên database."
         }
     except Exception as e:
-        return {"success": False, "error": f"Lỗi bóc tách PDF: {str(e)}"}
+        return {"success": False, "error": f"Lỗi bóc tách cấu trúc PDF: {str(e)}"}
+
 
 
 
