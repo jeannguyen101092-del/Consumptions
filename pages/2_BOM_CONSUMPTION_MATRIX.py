@@ -2067,67 +2067,57 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         print(f"❌ [AI PROJECTION ENGINE CRASH]: {str(e6)}")
 
 
-# ĐOẠN 6: GIAO DIỆN CHAT AI PHÂN TÍCH ĐỊNH MỨC VÀ SCRIPT AUTO-SCROLL
-# =================================================================
-if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption Matrix":
-    import streamlit as st
-
-    # Khôi phục an toàn các biến ngữ cảnh phục vụ tính toán từ môi trường toàn cục
-    client = globals().get("client", None)
-    matched_techpack = st.session_state.get("matched_techpack", None)
-    bom_records = st.session_state.get("bom_records", [])
-    new_style_measurements_dict = globals().get("new_style_measurements_dict", {})
-    target_new_sketch_bytes = globals().get("target_new_sketch_bytes", None)
-    new_style_base_size = globals().get("new_style_base_size", "N/A")
-
-    chat_header_col1, chat_header_col2 = st.columns([3.2, 0.8])
-    with chat_header_col1:
-        st.markdown("### 💬 TRỢ LÝ AI PHÂN TÍCH ĐỊNH MỨC SẢN XUẤT ")
-    with chat_header_col2:
-        if st.button("🗑️ XÓA LỊCH SỬ CHAT", key="direct_clear_chat_btn", use_container_width=True):
-            st.session_state["consumption_chat_history"] = []
-            st.toast("♻️ Đã xóa sạch lịch sử chat tức thì!")
+    # =========================================================================================
+    # ĐOẠN D: TRỢ LÝ AI PHÂN TÍCH ĐỊNH MỨC SẢN XUẤT (VÁ LỖI TRIỆT ĐỂ NAMEERROR 'user_query')
+    # =========================================================================================
+    try:
+        # Sử dụng đúng khóa key="matrix_chat_input_final" độc nhất để kích hoạt ô nhập liệu chat
+        matrix_prompt_input = st.chat_input("Nhập yêu cầu phân tích (Ví dụ: Tính định mức vải chính khi co rút ngang 5%, dọc 2%)...", key="matrix_chat_input_final")
+        
+        if matrix_prompt_input:
+            # Lưu trữ tin nhắn của người dùng vào bộ nhớ lịch sử phiên
+            st.session_state["consumption_chat_history"].append({"role": "user", "content": matrix_prompt_input})
+            
+            # Kích hoạt mô hình AI để xử lý câu hỏi
+            gemini_key = st.secrets.get("GEMINI_API_KEY", "").strip()
+            if gemini_key:
+                try:
+                    from google import genai
+                    client_chat = genai.Client(api_key=gemini_key)
+                    
+                    # Thu thập ma trận định mức dự phóng AI vừa tính toán ở Đoạn C để làm bối cảnh (Context) cho Bot
+                    context_bom = st.session_state.get("ai_projected_consumption_matrix", [])
+                    
+                    chat_system_instruction = (
+                        "You are an expert Costing & Material Utilization Engineer at PPJ Group.\n"
+                        f"Analyze this projected BOM matrix data context: {json.dumps(context_bom, ensure_ascii=False)}.\n"
+                        "Answer the user's question clearly in Vietnamese, focusing on fabric utilization, shrinkage risks, and cost efficiency."
+                    )
+                    
+                    chat_res = client_chat.models.generate_content(
+                        model='gemini-2.5-flash',
+                        contents=matrix_prompt_input,
+                        config=types.GenerateContentConfig(
+                            system_instruction=chat_system_instruction,
+                            temperature=0.3
+                        )
+                    )
+                    
+                    if chat_res and chat_res.text:
+                        st.session_state["consumption_chat_history"].append({"role": "model", "content": chat_res.text})
+                except Exception as chat_ai_err:
+                    st.session_state["consumption_chat_history"].append({"role": "model", "content": f"⚠️ Trợ lý AI đang bận: {str(chat_ai_err)}"})
             st.rerun()
 
-    chat_container = st.container()
-    with chat_container:
-        for chat in st.session_state.get("consumption_chat_history", []):
-            with st.chat_message("user"): 
-                st.write(chat["user"])
-            with st.chat_message("assistant"): 
-                st.write(chat["ai"])
-           
-        with chat_container:
-            with st.chat_message("user"):
-                st.write(user_query)
+        # Render trực quan lịch sử trò chuyện side-by-side ra giao diện màn hình
+        for msg in st.session_state.get("consumption_chat_history", []):
+            if msg["role"] == "user":
+                st.chat_message("user").write(msg["content"])
+            else:
+                st.chat_message("assistant").write(msg["content"])
                 
-            with st.chat_message("assistant"):
-                with st.spinner("🤖 AI đang phân tích dữ liệu và tính toán định mức..."):
-                    # Bẫy lỗi an toàn cho Engine phân tích, phòng trường hợp hàm chưa định nghĩa hoặc lỗi API
-                    try:
-                        if "ai_consumption_analyst_engine" in globals():
-                            ai_reply = ai_consumption_analyst_engine(
-                                client=client,
-                                user_message=user_query,
-                                matched_techpack=matched_techpack,
-                                bom_records=bom_records,
-                                new_style_measurements=new_style_measurements_dict,
-                                target_new_sketch_bytes=target_new_sketch_bytes,
-                                detected_size=new_style_base_size
-                            )
-                        else:
-                            ai_reply = "⚠️ Khối phân tích `ai_consumption_analyst_engine` chưa được khởi tạo trong mã nguồn hệ thống."
-                    except Exception as chat_err:
-                        ai_reply = f"❌ Không thể kết nối đến bộ não AI để phân tích dữ liệu định mức. Chi tiết sự cố: {str(chat_err)}"
-                        
-                    st.write(ai_reply)
-                    
-                    # ĐỒNG BỘ TRƯỚC: Lưu kết quả vào lịch sử chat lập tức trước khi chạy script cuộn màn hình
-                    st.session_state["consumption_chat_history"].append({"user": user_query, "ai": ai_reply})
-                    
-        # ✅ THUẬT TOÁN ĐÓNG ĐINH NEO CUỘN: Viết phẳng hóa hoàn toàn triệt tiêu lỗi cú pháp căn lề
-        js_scroll = "<script>var d=window.parent.document; var s=d.querySelectorAll('section.main'); if(s.length>0){s[0].scrollTo({top:s[0].scrollHeight,behavior:'smooth'});}</script>"
-        st.components.v1.html(js_scroll, height=0)
+    except Exception as e_chat_master:
+        print(f"❌ [CHAT SYSTEM CRASH]: {str(e_chat_master)}")
 
 
 
