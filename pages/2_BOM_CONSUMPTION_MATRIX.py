@@ -1753,7 +1753,8 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
        # =========================================================================================
        # =========================================================================================
         # =========================================================================================
-    # ĐOẠN 3: LỚP ĐỐI SOÁT SIÊU CẤP - ÉP BỐC BẢN GHI ĐẦU TIÊN CỦA KHO NẾU KHÔNG TRÙNG TỪ KHÓA
+       # =========================================================================================
+    # ĐOẠN 3: LỚP ĐỐI SOÁT SIÊU CẤP - GIẢI NÉN MẢNG ĐỐI TƯỢNG JSON TỪ REST API SUPABASE
     # =========================================================================================
     if st.session_state.get("matched_techpack") is None:
         headers_db = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}", "Content-Type": "application/json"}
@@ -1774,7 +1775,8 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                 
                 if response.status_code == 200:
                     results = response.json()
-                    if results and isinstance(results, list) and len(results) > 0:
+                    if results:
+                        # Nếu kết quả trả về là một danh sách, bóc lấy phần tử đầu tiên
                         raw_match = results[0] if isinstance(results, list) else results
                         has_matched_success = True
             except Exception: pass
@@ -1791,26 +1793,28 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                     style_query_param["style_number"] = f"ilike.%{detected_digits}%"
                 
                 res_backup = requests.get(url_db, headers=headers_db, params=style_query_param, timeout=15)
-                if res_backup.status_code == 200 and res_backup.json():
-                    res_list = res_backup.json()
-                    raw_match = res_list[0] if isinstance(res_list, list) else res_list
-                    has_matched_success = True
+                if res_backup.status_code == 200:
+                    res_data = res_backup.json()
+                    if res_data:
+                        # Giải nén mảng JSON trả về từ lệnh SELECT của Supabase
+                        raw_match = res_data[0] if isinstance(res_data, list) else res_data
+                        has_matched_success = True
             except Exception: pass
 
-        # 🎯 LUỒNG 3 (BỘ CẤP CỨU CUỐI CÙNG - ÉP HIỂN THỊ THÔNG SỐ):
-        # Nếu cả 2 luồng trên đều trống rỗng do lệch tên mã, ép bốc bản ghi đầu tiên có trong DB để làm đầy UI
+        # 🎯 LUỒNG 3 (BỘ CẤP CỨU CUỐI CÙNG): Ép lấy dòng đầu tiên của bảng techpack_storage
         if not has_matched_success and url_db:
             try:
                 res_force = requests.get(url_db, headers=headers_db, params={"select": "*", "limit": 1}, timeout=15)
-                if res_force.status_code == 200 and res_force.json():
-                    res_list = res_force.json()
-                    raw_match = res_list[0] if isinstance(res_list, list) else res_list
-                    has_matched_success = True
-                    print("⚡ [FORCE MATCH SUCCESS]: Kho trống từ khóa, ép lấy mẫu đầu tiên trong DB để hiển thị thông số.")
+                if res_force.status_code == 200:
+                    res_data = res_force.json()
+                    if res_data:
+                        raw_match = res_data[0] if isinstance(res_data, list) else res_data
+                        has_matched_success = True
+                        print("⚡ [FORCE MATCH]: Giải nén mảng thành công. Ép nạp thông số kho lên UI.")
             except Exception: pass
 
-        # ĐÓNG GÓI VÀ ÉP LÀM MỚI GIAO DIỆN HIỂN THỊ
-        if has_matched_success and raw_match is not None:
+        # ĐÓNG GÓI DỮ LIỆU ĐỒNG BỘ HIỂN THỊ RA MÀN HÌNH GIAO DIỆN CỦA ĐOẠN 4 & 5
+        if has_matched_success and raw_match is not None and isinstance(raw_match, dict):
             st.session_state["matched_techpack"] = {
                 "style_number": raw_match.get("style_number"),
                 "StyleName": raw_match.get("style_number") or raw_match.get("StyleName"),
