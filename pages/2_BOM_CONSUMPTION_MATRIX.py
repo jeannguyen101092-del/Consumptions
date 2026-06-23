@@ -1918,9 +1918,8 @@ if new_style_measurements_dict:
     st.session_state["new_style_measurements_dict"] = new_style_measurements_dict
 
 
-   # =========================================================================================
-# =========================================================================================
-# ĐOẠN 6 NÂNG CẤP: BỘ ĐỊNH TUYẾN SIÊU PHÂN RÃ CHỐNG LỆCH DÒNG MÃ HÀNG NGÀNH MAY
+  # =========================================================================================
+# ĐOẠN 6 HOÀN CHỈNH: BỘ ĐỊNH TUYẾN SIÊU PHÂN RÃ CHỐNG LỆCH DÒNG MÃ HÀNG NGÀNH MAY
 # =========================================================================================
 
     st.markdown("<br>### 📐 BẢNG SO SÁNH SAI LỆCH THÔNG SỐ KỸ THUẬT RẬP MẪU", unsafe_allow_html=True)
@@ -1938,68 +1937,94 @@ if new_style_measurements_dict:
         compare_rows = []
         valid_diff_pcts = []
         
-        # 📌 THUẬT TOÁN PHÂN RÃ SIÊU CẤP: Xóa sạch mã vị trí ERP (LEG-024, PKT-076, HIP-020...)
-        def clean_pom_text(text):
-            if not text: return ""
+        # 📌 1. THUẬT TOÁN PHÂN RÃ SIÊU CẤP: Bỏ hết số, xóa sạch mọi dấu ngoặc/gạch để lấy từ cốt lõi
+        def get_core_tokens(text):
+            if not text: return set()
             cleaned = str(text).upper()
+            # Xóa sạch toàn bộ ký tự đặc biệt, dấu ngoặc, dấu gạch chéo, dấu gạch ngang
+            cleaned = re.sub(r'[\(\)\[\]\/\-_\.,:\+]', ' ', cleaned)
+            # Xóa sổ toàn bộ chữ số ở bất kỳ vị trí nào (ở trước, ở giữa, hay ở sau)
+            cleaned = re.sub(r'\d+', ' ', cleaned)
             
-            # 1. Xóa sạch mọi loại mã vị trí dính dấu gạch ngang ở đầu câu (Ví dụ: LEG-024 -> Bỏ)
-            cleaned = re.sub(r'^[A-Z]{2,3}[-\s]*\d+[\s_-]*', '', cleaned)
-            # 2. Xóa các mã dạng BD-124, DE-147 nằm ở bất kỳ vị trí nào
-            cleaned = re.sub(r'[A-Z]{2,}[-\s]*\d+', '', cleaned)
-            # 3. Loại bỏ chữ PANT/SKIRT gây nhiễu phân tách phom dáng ở đầu chuỗi
-            cleaned = re.sub(r'^(PANT|SKIRT|PANTS|SKIRTS)[\s/_-]*', '', cleaned)
+            # Tách chuỗi thành mảng các từ độc lập
+            words = cleaned.split()
             
-            cleaned = re.sub(r'[\(\)]', '', cleaned)
-            cleaned = re.sub(r'\d+', '', cleaned)
-            cleaned = re.sub(r'[\-_]', ' ', cleaned)
-            cleaned = re.sub(r'[^A-Z\s]', '', cleaned)
-            return re.sub(r'\s+', ' ', cleaned).strip()
+            # Loại bỏ các từ dừng, từ gây nhiễu chung của ngành quần áo để tập trung vào vị trí đo cốt lõi
+            stop_words = {"PANT", "SKIRT", "PANTS", "SKIRTS", "AT", "FROM", "ON", "IN", "FOR", "TOTAL", "WITH"}
+            core_words = [w for w in words if w not in stop_words and len(w) > 2]
+            
+            return set(core_words)
 
+        # 📌 2. HÀM QUY ĐỔI PHÂN SỐ MAY MẶC CHUẨN XÁC ĐẾN 3 CHỮ SỐ THẬP PHÂN
         def clean_float(v):
             if v is None: return None
             try: return float(v)
             except (ValueError, TypeError):
-                # Xử lý quy đổi phân số may mặc (ví dụ: 13 7/8 -> 13.875, 16 1/2 -> 16.5)
                 try:
                     str_v = str(v).strip()
+                    # Xử lý quy đổi phân số dạng cách (Ví dụ: "13 7/8" -> 13 + 7/8 = 13.875)
                     if " " in str_v and "/" in str_v:
                         parts = str_v.split()
                         whole = float(parts[0])
                         frac_parts = parts[1].split('/')
                         return whole + (float(frac_parts[0]) / float(frac_parts[1]))
-                    elif "/" in str_v and " " not in str_v:
+                    # Xử lý quy đổi phân số dạng viết liền (Ví dụ: "1/2" -> 0.5)
+                    elif "/" in str_v:
                         frac_parts = str_v.split('/')
                         return float(frac_parts[0]) / float(frac_parts[1])
                 except Exception: pass
                 
+                # Trích xuất số thực cuối cùng bằng Regex nếu dính chữ
                 nums = re.findall(r"[-+]?\d*\.\d+|\d+", str(v))
                 return float(nums[0]) if nums else None
 
-        # Khởi tạo từ điển ánh xạ đã dọn sạch mã của kho cũ
-        mapped_old_specs = {clean_pom_text(k): (k, v) for k, v in old_specs.items()}
+        # Xây dựng kho ứng viên cũ kèm theo bể từ khóa tương ứng
+        old_pool_tokens = []
+        for k, v in old_specs.items():
+            old_pool_tokens.append({
+                "original_key": k,
+                "value": v,
+                "tokens": get_core_tokens(k)
+            })
+            
         processed_old_keys = set()
 
-        # Duyệt khớp dòng từ file mới quét
+        # Duyệt khớp dòng thông minh từ file mới quét
         for original_new_key, val_new in new_specs.items():
-            clean_new_key = clean_pom_text(original_new_key)
+            new_tokens = get_core_tokens(original_new_key)
             
-            # CƠ CHẾ KHỚP MỜ HAI CHIỀU:
-            matched_key = None
-            if clean_new_key in mapped_old_specs:
-                matched_key = clean_new_key
+            best_match_key = None
+            best_match_val = None
+            max_overlap = 0
+            
+            # CƠ CHẾ ĐỐI CHIẾU TRỌNG SỐ TỪ KHÓA (TOKEN OVERLAP MATCHING):
+            for old_item in old_pool_tokens:
+                old_k = old_item["original_key"]
+                if old_k in processed_old_keys:
+                    continue
+                    
+                old_tokens = old_item["tokens"]
+                
+                # Tính toán số lượng từ khóa trùng nhau giữa cũ và mới
+                overlap = len(new_tokens.intersection(old_tokens))
+                
+                # Nếu hai dòng khớp nhau từ 2 từ cốt lõi trở lên (Ví dụ: ["KNEE", "WIDTH"]), tiến hành ép chập dòng
+                if overlap > 0 and overlap > max_overlap:
+                    # Kiểm tra độ an toàn phụ: Nếu một bên có "WAIST" một bên có "KNEE" thì tuyệt đối không được chập nhầm
+                    if "WAIST" in new_tokens and "WAIST" not in old_tokens: continue
+                    if "KNEE" in new_tokens and "KNEE" not in old_tokens: continue
+                    if "OPENING" in new_tokens and "OPENING" not in old_tokens: continue
+                    if "INSEAM" in new_tokens and "INSEAM" not in old_tokens: continue
+                    
+                    max_overlap = overlap
+                    best_match_key = old_k
+                    best_match_val = old_item["value"]
+            
+            if best_match_key:
+                val_old = best_match_val
+                processed_old_keys.add(best_match_key)
             else:
-                # Quét đối chiếu chéo tự động: Chỉ cần chuỗi sạch chứa nhau là ép chập dòng
-                for old_clean_k in mapped_old_specs.keys():
-                    if clean_new_key and old_clean_k and (clean_new_key in old_clean_k or old_clean_k in clean_new_key):
-                        matched_key = old_clean_k
-                        break
-                        
-            if matched_key:
-                original_old_key, val_old = mapped_old_specs[matched_key]
-                processed_old_keys.add(original_old_key)
-            else:
-                original_old_key, val_old = "-", None
+                val_old = None
 
             f_new = clean_float(val_new)
             f_old = clean_float(val_old)
@@ -2009,9 +2034,7 @@ if new_style_measurements_dict:
                 diff_val = round(f_new - f_old, 2)
                 if f_old != 0:
                     diff_pct = round((diff_val / f_old) * 100, 2)
-                    core_keywords = ["INSEAM", "THIGH", "HIP", "WAIST", "LEG", "LENGTH", "CHEST", "BUST", "WIDTH", "RISE", "FLY", "KNEE", "OPENING", "POCKET"]
-                    if any(k in clean_new_key for k in core_keywords):
-                        valid_diff_pcts.append(diff_pct)
+                    valid_diff_pcts.append(diff_pct)
 
             display_diff = f"+{diff_val}" if diff_val and diff_val > 0 else (str(diff_val) if diff_val is not None else "-")
             display_pct = f"+{diff_pct}%" if diff_pct and diff_pct > 0 else (f"{diff_pct}%" if diff_pct is not None else "-")
@@ -2024,13 +2047,14 @@ if new_style_measurements_dict:
                 "Tỷ lệ biến thiên (Diff %)": display_pct
             })
 
-        # Đổ nốt các thông số còn sót của mã lịch sử cũ vào bảng so sánh
-        for original_old_key, val_old in old_specs.items():
+        # Đổ nốt các thông số còn lại của mã rập cũ vào bảng so sánh
+        for old_item in old_pool_tokens:
+            original_old_key = old_item["original_key"]
             if original_old_key not in processed_old_keys:
                 compare_rows.append({
                     "Vị trí đo (POM Description)": original_old_key,
                     f"Mẫu mới ({new_style_base_size})": "-",
-                    f"Mã cũ ({st.session_state['matched_techpack'].get('BaseSize', 'N/A')})": val_old if val_old is not None else "-",
+                    f"Mã cũ ({st.session_state['matched_techpack'].get('BaseSize', 'N/A')})": old_item["value"] if old_item["value"] is not None else "-",
                     "Chênh lệch (Diff)": "-",
                     "Tỷ lệ biến thiên (Diff %)": "-"
                 })
