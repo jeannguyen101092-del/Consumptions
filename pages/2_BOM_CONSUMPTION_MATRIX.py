@@ -368,10 +368,13 @@ def get_techpack_spec_from_db(style_name_keyword=None):
 def process_single_pdf_batch(file_bytes, file_name):
     """
     Hàm bóc tách dữ liệu kỹ thuật từ một file PDF độc lập.
-    ✨ ĐÃ NÂNG CẤP ĐỊNH VỊ PHOM DÁNG: Ép AI Vision chỉ bốc trang hiển thị chiếc quần hoàn chỉnh (Front and Back full garment views).
-    STRICTLY FORBIDDEN: Cấm tuyệt đối lấy các trang rã rập thân quần đơn lẻ, cụm chi tiết hoặc rập tách rời.
     """
     import time
+    import io
+    import json
+    from google import genai
+    from google.genai import types
+
     try:
         gemini_key = get_secure_gemini_key()
         if not gemini_key:
@@ -381,12 +384,173 @@ def process_single_pdf_batch(file_bytes, file_name):
         info = pdfinfo_from_bytes(file_bytes)
         total_p = int(info.get("Pages", 1))
         
-        pdf_parts_payload = []
-        chat_images = convert_from_bytes(file_bytes, dpi=90, first_page=1, last_page=total_p)
+        contents_payload = []
+        chat_images = convert_from_bytes(file_bytes, dpi=220, first_page=1, last_page=total_p)
         for page_img in chat_images:
             img_buf = io.BytesIO()
             page_img.convert("RGB").save(img_buf, format="JPEG", quality=75)
-            pdf_parts_payload.append(types.Part.from_bytes(data=img_buf.getvalue(), mime_type='image/jpeg'))
+            contents_payload.append(
+                types.Part.from_bytes(data=img_buf.getvalue(), mime_type='image/jpeg')
+            )
+            
+        industrial_extraction_prompt = (
+            "You are an expert Garment Specification Auditor at PPJ Group. Analyze all attached sheets page by page. "
+            "1. Identify the core 'Base Size' / 'Sample Size' (e.g., written as 8-, 32, or Size M). "
+            "2. Identify the Buyer name and Category. "
+            "3. Find the exact 'Style ID' / 'Style Number' (e.g. 5765). "
+            "4. FOR FUNCTION 3 (FULL SIZE MATRIX): Scan and extract the entire grading matrix table columns for ALL available sizes. "
+            "5. CRITICAL VISUAL FLAT SKETCH LOCATE RULE: Scan all pages visually. You MUST find the exact PAGE INDEX (0-based) "
+            "that contains the FULL BODY APPAREL FLAT SKETCH showing the entire completed garment. "
+            "STRICT DISQUALIFICATION RULES: "
+            "- DO NOT select pages showing isolated technical pattern panels. "
+            "- DO NOT select pages showing inner construction details, pocket bags, zippers, or sketches of components."
+        )
+        
+        contents_payload.append(types.Part.from_text(text=industrial_extraction_prompt))
+        
+        json_schema = types.Schema(
+            type=types.Type.OBJECT,
+            properties={
+                "style_number_parsed": types.Schema(type=types.Type.STRING),
+                "buyer": types.Schema(type=types.Type.STRING),
+                "category": types.Schema(type=types.Type.STRING),
+                "base_size_name": types.Schema(type=types.Type.STRING),
+                "sketch_page_index_detected": types.Schema(type=types.Type.INTEGER),
+                "measurements": types.Schema(type=types.Type.OBJECT),
+                "full_size_matrix": types.Schema(type=types.Type.OBJECT)
+            },
+            required=[
+                "style_number_parsed", "buyer", "category", "base_size_name", 
+                "sketch_page_index_detected", "measurements", "full_size_matrix"
+            ]
+        )
+        
+        response = None
+        for attempt in range(3):
+            try:
+                response = client.models.generate_content(
+                    model='gemini-2.5-flash', 
+                    contents=contents_payload,
+                    config=types.GenerateContentConfig(
+                        response_mime_type="application/json",
+                        response_schema=json_schema,
+                        temperature=0.1
+                    )
+                )
+                # Cải tiến 1: Chấp nhận response nếu có parsed cấu trúc hoặc text phản hồi
+                if response:
+                    if getattr(response, "parsed", None) or getattr(response, "text", None):
+                        break
+            except Exception as ai_err:
+                if "503" in str(ai_err) or "UNAVAILABLE" in str(ai_err):
+                    time.sleep((attempt + 1) * 2)
+                    continue
+                else:
+                    return {"success": False, "error": f"Lỗi cổng truyền: {str(ai_err)}"}
+                    
+        print("=== GEMINI DEBUG RESPONSE ===")
+        print(f"Has parsed attr: {hasattr(response, 'parsed')}")
+        print(f"Has text attr: {hasattr(response, 'text')}")
+        
+        # Cải tiến 2: Ưu tiên bốc dữ liệu đã qua xử lý định dạng từ hệ thống (response.parsed)
+        parsed_data = None
+        if response and getattr(response, "parsed", None):
+            parsed_data = response.parsed
+            # Nếu response.parsed là một Pydantic model hoặc object, chuyển thành dict
+            if hasattr(parsed_data, "model_dump"):
+                parsed_data = parsed_data.model_dump()
+            elif hasattr(parsed_data, "__dict__"):
+                parsed_data = dict(parsed_data)
+        elif response and getattr(response, "text", None):
+            parsed_data = json.loads(response.text.strip())
+            
+        if not parsed_data:
+            return {"success": False, "error": "Mô hình không phản hồi văn bản hoặc cấu trúc dữ liệu trống."}
+            
+        # Cải tiến 3: Đoạn kiểm tra hạ cấp lỗi - Cho phép Measurements trống hoạt động tiếp
+        measurements = parsed_data.get("measurements", {})
+        warning_msg = None
+        if not measurements or len(measurements) == 0:
+            print(f"⚠️ WARNING [{file_name}]: Measurements chart rỗng. Vẫn tiếp tục xử lý các trường dữ liệu khác.")
+            warning_msg = "Không phát hiện bảng thông số kỹ thuật (BOM/Sketch Sheet đơn thuần)."
+        
+        extracted_sketch_bytes = None
+        detected_idx = int(parsed_data.get("sketch_page_index_detected", 0))
+        
+        if 0 <= detected_idx < len(chat_images):
+            b_buf = io.BytesIO()
+            chat_images[detected_idx].convert("RGB").save(b_buf, format="JPEG", quality=90)
+            extracted_sketch_bytes = b_buf.getvalue()
+        else:
+            print(f"❌ INVALID SKETCH INDEX: {detected_idx}. Fallback về trang đầu.")
+            detected_idx = 0
+            b_buf = io.BytesIO()
+            chat_images[0].convert("RGB").save(b_buf, format="JPEG", quality=90)
+            extracted_sketch_bytes = b_buf.getvalue()
+            
+        success_db = save_to_supabase_techpack_table(parsed_data, raw_file_bytes=file_bytes, file_name=file_name)
+        
+        output_payload = {
+            "style_number_parsed": parsed_data.get("style_number_parsed", "UNKNOWN"),
+            "buyer": parsed_data.get("buyer", "UNKNOWN BUYER"),
+            "category": parsed_data.get("category", "GARMENT"),
+            "base_size_name": parsed_data.get("base_size_name", "32"),
+            "measurements": measurements,
+            "full_size_matrix": parsed_data.get("full_size_matrix", {})
+        }
+        
+        return {
+            "success": True,
+            "data": output_payload, 
+            "style_id": output_payload["style_number_parsed"],
+            "buyer": output_payload["buyer"],
+            "category": output_payload["category"],
+            "size": output_payload["base_size_name"],
+            "measurements": output_payload["measurements"], 
+            "sketch_bytes": extracted_sketch_bytes,
+            "sketch_page_index": detected_idx, 
+            "warning": warning_msg,
+            "error": None if success_db else "Lỗi ghi đồng bộ dữ liệu lên cơ sở dữ liệu"
+        }
+    except Exception as e:
+        return {"success": False, "error": f"Lỗi bóc tách PDF: {str(e)}"}
+
+
+
+
+
+
+
+def process_single_pdf_batch(file_bytes, file_name):
+    """
+    Hàm bóc tách dữ liệu kỹ thuật từ một file PDF độc lập.
+    ✨ ĐÃ NÂNG CẤP ĐỊNH VỊ PHOM DÁNG: Ép AI Vision chỉ bốc trang hiển thị chiếc quần hoàn chỉnh (Front and Back full garment views).
+    STRICTLY FORBIDDEN: Cấm tuyệt đối lấy các trang rã rập thân quần đơn lẻ, cụm chi tiết hoặc rập tách rời.
+    """
+    import time
+    import io
+    import json
+    from google import genai
+    from google.genai import types
+
+    try:
+        gemini_key = get_secure_gemini_key()
+        if not gemini_key:
+            return {"success": False, "error": "API Key cho Gemini đang bị thiếu trong Secrets."}
+            
+        client = genai.Client(api_key=gemini_key)
+        info = pdfinfo_from_bytes(file_bytes)
+        total_p = int(info.get("Pages", 1))
+        
+        # 1. Nâng DPI lên 220 để làm rõ chữ nhỏ trong Spec Sheet / Measurement Chart
+        contents_payload = []
+        chat_images = convert_from_bytes(file_bytes, dpi=220, first_page=1, last_page=total_p)
+        for page_img in chat_images:
+            img_buf = io.BytesIO()
+            page_img.convert("RGB").save(img_buf, format="JPEG", quality=75)
+            contents_payload.append(
+                types.Part.from_bytes(data=img_buf.getvalue(), mime_type='image/jpeg')
+            )
             
         industrial_extraction_prompt = (
             "You are an expert Garment Specification Auditor at PPJ Group. Analyze all attached sheets page by page. "
@@ -399,30 +563,46 @@ def process_single_pdf_batch(file_bytes, file_name):
             "STRICT DISQUALIFICATION RULES: "
             "- DO NOT select pages showing isolated technical pattern panels (e.g., just a single front panel leg or a single back panel leg cut out). "
             "- DO NOT select pages showing inner construction details, pocket bags, zippers, or sketches of components. "
-            "We only want the complete product design presentation sketch page. "
-            "Return a completely valid raw JSON string matching this schema (no markdown blocks): "
-            "{"
-            "  \"style_number_parsed\": \"string\","
-            "  \"buyer\": \"string\","
-            "  \"category\": \"string\","
-            "  \"base_size_name\": \"string\","
-            "  \"sketch_page_index_detected\": 0,"
-            "  \"measurements\": {\"POM Description\": \"Value\"},"
-            "  \"full_size_matrix\": {\"POM Description\": {\"Size_Name\": \"Value\"}}"
-            "}"
+            "We only want the complete product design presentation sketch page."
         )
         
-        pdf_parts_payload.append(industrial_extraction_prompt)
+        # Ép prompt qua Part.from_text để tránh Flash Vision bỏ qua câu lệnh
+        contents_payload.append(
+            types.Part.from_text(text=industrial_extraction_prompt)
+        )
+        
+        json_schema = types.Schema(
+            type=types.Type.OBJECT,
+            properties={
+                "style_number_parsed": types.Schema(type=types.Type.STRING),
+                "buyer": types.Schema(type=types.Type.STRING),
+                "category": types.Schema(type=types.Type.STRING),
+                "base_size_name": types.Schema(type=types.Type.STRING),
+                "sketch_page_index_detected": types.Schema(type=types.Type.INTEGER),
+                "measurements": types.Schema(type=types.Type.OBJECT),
+                "full_size_matrix": types.Schema(type=types.Type.OBJECT)
+            },
+            required=[
+                "style_number_parsed", "buyer", "category", "base_size_name", 
+                "sketch_page_index_detected", "measurements", "full_size_matrix"
+            ]
+        )
         
         response = None
         for attempt in range(3):
             try:
                 response = client.models.generate_content(
                     model='gemini-2.5-flash', 
-                    contents=pdf_parts_payload,
-                    config={"response_mime_type": "application/json"}
+                    contents=contents_payload,
+                    config=types.GenerateContentConfig(
+                        response_mime_type="application/json",
+                        response_schema=json_schema,
+                        temperature=0.1
+                    )
                 )
-                if response and response.text: break
+                if response:
+                    if getattr(response, "parsed", None) or getattr(response, "text", None):
+                        break
             except Exception as ai_err:
                 if "503" in str(ai_err) or "UNAVAILABLE" in str(ai_err):
                     time.sleep((attempt + 1) * 2)
@@ -430,17 +610,42 @@ def process_single_pdf_batch(file_bytes, file_name):
                 else:
                     return {"success": False, "error": f"Lỗi cổng truyền: {str(ai_err)}"}
                     
-        if not response or not response.text:
-            return {"success": False, "error": "Mô hình không phản hồi văn bản."}
+        print("=== GEMINI DEBUG RESPONSE ===")
+        print(f"Has parsed attr: {hasattr(response, 'parsed')}")
+        print(f"Has text attr: {hasattr(response, 'text')}")
+        
+        parsed_data = None
+        if response and getattr(response, "parsed", None):
+            parsed_data = response.parsed
+            if hasattr(parsed_data, "model_dump"):
+                parsed_data = parsed_data.model_dump()
+            elif hasattr(parsed_data, "__dict__"):
+                parsed_data = dict(parsed_data)
+        elif response and getattr(response, "text", None):
+            parsed_data = json.loads(response.text.strip())
             
-        clean_json = response.text.strip().replace("```json", "").replace("```", "").strip()
-        parsed_data = json.loads(clean_json)
+        if not parsed_data:
+            return {"success": False, "error": "Mô hình không phản hồi văn bản hoặc cấu trúc dữ liệu trống."}
+            
+        # Kiểm tra hạ cấp lỗi - Cho phép Measurements trống hoạt động tiếp (Cảnh báo thay vì chặn sập)
+        measurements = parsed_data.get("measurements", {})
+        warning_msg = None
+        if not measurements or len(measurements) == 0:
+            print(f"⚠️ WARNING [{file_name}]: Measurements chart rỗng. Vẫn tiếp tục xử lý các trường khác.")
+            warning_msg = "Không phát hiện bảng thông số kỹ thuật (BOM/Sketch Sheet đơn thuần)."
         
         extracted_sketch_bytes = None
         detected_idx = int(parsed_data.get("sketch_page_index_detected", 0))
+        
         if 0 <= detected_idx < len(chat_images):
             b_buf = io.BytesIO()
             chat_images[detected_idx].convert("RGB").save(b_buf, format="JPEG", quality=90)
+            extracted_sketch_bytes = b_buf.getvalue()
+        else:
+            print(f"❌ INVALID SKETCH INDEX: {detected_idx}. Fallback về trang đầu.")
+            detected_idx = 0
+            b_buf = io.BytesIO()
+            chat_images[0].convert("RGB").save(b_buf, format="JPEG", quality=90)
             extracted_sketch_bytes = b_buf.getvalue()
             
         success_db = save_to_supabase_techpack_table(parsed_data, raw_file_bytes=file_bytes, file_name=file_name)
@@ -450,7 +655,7 @@ def process_single_pdf_batch(file_bytes, file_name):
             "buyer": parsed_data.get("buyer", "UNKNOWN BUYER"),
             "category": parsed_data.get("category", "GARMENT"),
             "base_size_name": parsed_data.get("base_size_name", "32"),
-            "measurements": parsed_data.get("measurements", {}),
+            "measurements": measurements,
             "full_size_matrix": parsed_data.get("full_size_matrix", {})
         }
         
@@ -462,17 +667,13 @@ def process_single_pdf_batch(file_bytes, file_name):
             "category": output_payload["category"],
             "size": output_payload["base_size_name"],
             "measurements": output_payload["measurements"], 
-            "sketch_bytes": extracted_sketch_bytes, 
+            "sketch_bytes": extracted_sketch_bytes,
+            "sketch_page_index": detected_idx, 
+            "warning": warning_msg,
             "error": None if success_db else "Lỗi ghi đồng bộ dữ liệu lên cơ sở dữ liệu"
         }
     except Exception as e:
         return {"success": False, "error": f"Lỗi bóc tách PDF: {str(e)}"}
-
-
-
-
-
-
 # PHASE 5: USER INTERFACE STRUCTURE & AUTOMATION FACTORY 
 # =============================================================================
 with st.sidebar:
@@ -485,7 +686,6 @@ with st.sidebar:
     
     st.markdown("<p style='font-size:11px; font-weight:700; color:#64748B; margin: 15px 0 5px 5px; letter-spacing:0.5px;'>🏭 AUTOMATION FACTORY</p>", unsafe_allow_html=True)
     
-    # ĐÃ ĐỒNG BỘ: Đảm bảo khớp hoàn toàn các nhãn chức năng
     menu_selection = st.radio(
         label="Chức năng hệ thống",
         options=["📊 Upload Techpack", "🔄 Pattern Spec Comparison", "🧵 BOM & Consumption Matrix","🛒 Purchase Consumption","🔍 Tra cứu kho trực tiếp"],
@@ -520,6 +720,9 @@ if menu_selection == "📊 Upload Techpack":
                 progress_bar = st.progress(0)
                 total_new_files = len(files_need_processing)
                 
+                success_count_batch = 0
+                fail_count_batch = 0
+                
                 def thread_worker(file_obj):
                     try:
                         f_bytes = file_obj.getvalue()
@@ -532,7 +735,10 @@ if menu_selection == "📊 Upload Techpack":
                             "category": res.get("category", "GARMENT"),
                             "size": res.get("size", "32"),
                             "measurements": res.get("measurements", {}),
+                            "full_size_matrix": res.get("full_size_matrix", {}),
                             "sketch_bytes": res.get("sketch_bytes", None),
+                            "sketch_page_index": res.get("sketch_page_index", 0),
+                            "warning": res.get("warning", None),
                             "error": res.get("error", None),
                             "raw_bytes": f_bytes  
                         }
@@ -547,7 +753,7 @@ if menu_selection == "📊 Upload Techpack":
                         try:
                             task_res = future.result()
                             if task_res.get("success") == True:
-                                # ĐỒNG BỘ TIỀN TỐ ẢNH BASE64: Ép trình duyệt tự động bung hình rập nét mảnh lớn lập tức
+                                success_count_batch += 1
                                 s_bytes = task_res.get("sketch_bytes")
                                 img_base64_str = f"data:image/jpeg;base64,{base64.b64encode(s_bytes).decode('utf-8')}" if s_bytes else ""
                                 
@@ -557,14 +763,22 @@ if menu_selection == "📊 Upload Techpack":
                                     "category": task_res.get("category"),
                                     "base_size_name": task_res.get("size"),
                                     "measurements": task_res.get("measurements", {}), 
+                                    "full_size_matrix": task_res.get("full_size_matrix", {}),
                                     "sketch_image": img_base64_str, 
+                                    "sketch_page_index": task_res.get("sketch_page_index", 0),
+                                    "warning": task_res.get("warning"),
                                     "_raw_file_bytes": task_res["raw_bytes"] 
                                 }
                                 st.session_state["processed_styles"][f_name] = mock_data
+                                
+                                if task_res.get("warning"):
+                                    st.warning(f"⚠️ {f_name}: {task_res.get('warning')}")
                             else:
-                                st.error(f"FAIL ENGINE [{f_name}]: {task_res.get('error')}")
+                                fail_count_batch += 1
+                                st.error(f"❌ FAIL ENGINE [{f_name}]: {task_res.get('error')}")
                         except Exception as exc:
-                            st.error(f"CRITICAL CRASH [{f_name}]: {str(exc)}")
+                            fail_count_batch += 1
+                            st.error(f"💥 CRITICAL CRASH [{f_name}]: {str(exc)}")
                         
                         completed = idx + 1
                         progress_bar.progress(completed / total_new_files)
@@ -572,7 +786,10 @@ if menu_selection == "📊 Upload Techpack":
                 
                 status_text.empty()
                 progress_bar.empty()
-                st.success("🎉 Số hóa dữ liệu thành công! Hãy kiểm tra bảng thông số bên dưới trước khi bấm lưu.")
+                
+                if success_count_batch > 0:
+                    st.success(f"🎉 Tiến trình hoàn tất! Số hóa thành công {success_count_batch}/{total_new_files} tệp mới.")
+
         for file in uploaded_files:
             if file.name in st.session_state["processed_styles"]:
                 files_to_render.append(file.name)
@@ -598,32 +815,28 @@ if menu_selection == "📊 Upload Techpack":
                 col_target = cols[idx % 2]
                 data = st.session_state["processed_styles"][f_name]
                 with col_target:
-                    st.markdown(f"""<div class="card-container"><div class="tech-card-header">{data.get('style_number_parsed')}</div>
-                        <div class="metric-grid-box"><div><p class="metric-label">BUYER</p><p class="metric-value">{data.get('buyer')}</p></div>
-                        <div><p class="metric-label">PRODUCT LINE</p><p class="metric-value">{data.get('category')}</p></div>
-                        <div><p class="metric-label">BASE SIZE</p><p class="metric-value">{data.get('base_size_name')}</p></div></div></div>""", unsafe_allow_html=True)
+                    st.markdown(f"""
+                        <div class="card-container">
+                            <div class="tech-card-header">📊 STYLE ID: {data.get('style_number_parsed')}</div>
+                            <div class="metric-grid-box">
+                                <div><p class="metric-label">BUYER</p><p class="metric-value">{data.get('buyer')}</p></div>
+                                <div><p class="metric-label">PRODUCT LINE</p><p class="metric-value">{data.get('category')}</p></div>
+                                <div><p class="metric-label">BASE SIZE</p><p class="metric-value">{data.get('base_size_name')}</p></div>
+                            </div>
+                        </div>
+                    """, unsafe_allow_html=True)
                     
-                    sub_col1, sub_col2 = st.columns([1.2, 0.8])
+                    sub_col1, sub_col2 = st.columns([1.3, 0.7])
                     with sub_col1:
-                        st.markdown("<p style='font-weight:700; font-size:12px; color:#1E293B;'>📋 SPECIFICATION DATA GRID</p>", unsafe_allow_html=True)
-                        table_html = '<div class="data-table-container"><table class="industrial-table"><thead><tr><th>Point of Measurement</th><th>Target Spec</th></tr></thead><tbody>'
-                        for k, v in data.get("measurements", {}).items():
-                            table_html += f"<tr><td>{k}</td><td>{v}</td></tr>"
-                        table_html += "</tbody></table></div>"
-                        st.markdown(table_html, unsafe_allow_html=True)
-                    with sub_col2:
-                        st.markdown("<p style='font-weight:700; font-size:12px; color:#1E293B;'>📐 GARMENT FLAT SKETCH</p>", unsafe_allow_html=True)
-                        # SỬA TRIỆT ĐỂ: Gọi biến trực tiếp chứa thẻ định vị, xóa hoàn toàn dấu ngoặc kép gây lỗi thô chữ
-                        if data.get("sketch_image") and data["sketch_image"] != "":
-                            try:
-                                st.image(data["sketch_image"], use_container_width=True)
-                            except Exception:
-                                st.info("Hệ thống đang tải cổng ảnh vẽ phẳng kĩ thuật...")
-                    st.markdown("<br><hr style='border-color:#E2E8F0;'><br>", unsafe_allow_html=True)
-    else:
-        st.markdown('<div class="idle-alert-box">⚠️ INITIALIZATION SYSTEM IDLE: Hiện tại chưa có tệp dữ liệu Techpack nào được nạp vào hệ thống để AI khởi chạy mô hình.</div>', unsafe_allow_html=True)
-
-
+                        st.markdown("<p style='font-weight:700; font-size:12px; color:#1E293B; margin-top:10px;'>📋 SPECIFICATION DATA GRID</p>", unsafe_allow_html=True)
+                        measurements = data.get("measurements", {})
+                        if measurements and isinstance(measurements, dict):
+                            table_html = """
+                            <div class="data-table-container" style="max-height: 280px; overflow-y: auto; border: 1px solid #E2E8F0; border-radius: 4px;">
+                                <table class="industrial-table" style="width:100%; border-collapse: collapse; font-size:11px; text-align:left;">
+                                    <thead style="background-color: #F8FAFC; position: sticky; top: 0;">
+                                        <tr style="border-bottom: 2px solid #CBD5E1;">
+                                            <th style="padding: 6px 8px; color: #475569;">Điểm Đo (POM Description)</th>
 
 
 
