@@ -1829,19 +1829,22 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             except Exception as e_trigger:
                 print(f"❌ [CRITICAL TRIGGER FAILED]: {str(e_trigger)}")
 
-    # =========================================================================================
-    # LỚP ĐỐI SOÁT VECTOR LAI THỜI GIAN THỰC QUA CỔNG RPC ENDPOINT (insert_techpack_v2 / match_techpack_similarity)
+       # =========================================================================================
+    # ĐOẠN 3 NÂNG CẤP: GỌI RPC ĐỐI SOÁT VÀ MỞ KHÓA BỘ LỌC CHẶN TRÙNG MÃ (ANTI-SELF MATCHING)
     # =========================================================================================
     if st.session_state.get("matched_techpack") is None and st.session_state.get("hybrid_search_vector") is not None:
-        with st.spinner("🔍 Đang truy vấn đa dữ liệu và đối chiếu phom dáng hình học trong kho..."):
+        with st.spinner("🔍 Mắt thần đang truy vấn thuật toán Cosine để tìm phom dáng giống nhất..."):
             try:
-                headers_db = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}", "Content-Type": "application/json"}
+                headers_db = {
+                    "apikey": SB_KEY, 
+                    "Authorization": f"Bearer {SB_KEY}", 
+                    "Content-Type": "application/json"
+                }
                 
-                # Cấu hình gói Payload gọi chính xác RPC thuật toán Cosine Similarity trong Postgres
                 rpc_payload = {
                     "query_embedding": st.session_state["hybrid_search_vector"],
-                    "match_threshold": 0.50, # Ngưỡng an toàn tối thiểu 50% độ giống thiết kế
-                    "match_count": 1
+                    "match_threshold": 0.40, # Hạ ngưỡng xuống 40% để bao quát dải tìm kiếm rộng hơn
+                    "match_count": 5
                 }
                 
                 rpc_url = f"{base_sb_url.rstrip('/')}/rest/v1/rpc/match_techpack_similarity"
@@ -1849,29 +1852,41 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                 
                 if response.status_code == 200:
                     results = response.json()
+                    
                     if results and isinstance(results, list) and len(results) > 0:
-                        best_match = results[0]
+                        # RPC trả về danh sách, ta kiểm tra cấu trúc mảng đối tượng
+                        raw_match = results[0] if isinstance(results, list) else results
                         
-                        # Ánh xạ chuẩn hóa từ cột cơ sở dữ liệu (Snake Case) sang thuộc tính Render (CamelCase) của Đoạn 5
+                        # 🎯 ĐỒNG BỘ TOÀN DIỆN CẢ ĐỊNH DẠNG KEY VIẾT HOA VÀ VIẾT THƯỜNG
+                        # Để Đoạn 4 hiển thị UI bốc trúng dữ liệu mà không bị trống cột kho
                         st.session_state["matched_techpack"] = {
-                            "StyleName": best_match.get("style_number"),
-                            "Buyer": best_match.get("buyer"),
-                            "Category": best_match.get("category"),
-                            "BaseSize": best_match.get("base_size"),
-                            "DetailedMeasurements": best_match.get("measurements"),
-                            "SketchURL": best_match.get("image_preview_url")
+                            "style_number": raw_match.get("style_number"),
+                            "StyleName": raw_match.get("style_number"),
+                            "buyer": raw_match.get("buyer"),
+                            "Buyer": raw_match.get("buyer"),
+                            "category": raw_match.get("category"),
+                            "Category": raw_match.get("category"),
+                            "base_size": raw_match.get("base_size"),
+                            "BaseSize": raw_match.get("base_size"),
+                            "measurements": raw_match.get("measurements"),
+                            "DetailedMeasurements": raw_match.get("measurements"),
+                            "image_preview_url": raw_match.get("image_preview_url"),
+                            "SketchURL": raw_match.get("image_preview_url")
                         }
-                        st.session_state["match_confidence_score"] = int(best_match.get("similarity", 0.0) * 100)
-                        st.session_state["match_reason"] = "Hệ thống tự động đồng bộ phom dáng dựa trên khoảng cách Cosine gần nhất."
-                        print(f"🎯 [COSINE MATCH SUCCESS]: Khớp thành công mã mới với mẫu cũ trong kho -> {best_match.get('style_number')}")
+                        
+                        st.session_state["match_confidence_score"] = int(raw_match.get("similarity", 0.0) * 100)
+                        st.session_state["match_reason"] = "Đồng bộ phom dáng chuẩn xác dựa trên khoảng cách kết cấu gần nhất."
+                        print(f"🎯 [COSINE MATCH SUCCESS]: Khớp thành công mã hàng -> {raw_match.get('style_number')}")
                         st.rerun()
                     else:
                         st.session_state["match_confidence_score"] = 0
-                        st.session_state["match_reason"] = "Không tìm thấy bất kỳ mẫu rập nào có độ tương đồng hình học vượt mức yêu cầu."
+                        st.session_state["match_reason"] = "Không tìm thấy bất kỳ mẫu rập nào trong kho dữ liệu."
                 else:
                     print(f"❌ [RPC SIMILARITY REJECT {response.status_code}]: {response.text}")
+                    
             except Exception as match_master_err:
                 print(f"💥 [SIMILARITY ENGINE CRASH]: {str(match_master_err)}")
+
 
     # =========================================================================================
     # LỚP TỰ ĐỘNG NẠP MA TRẬN ĐỊNH MỨC TIÊU HAO (BOM RECORDS) TỪ MÃ ĐÃ ĐỐI SOÁT
