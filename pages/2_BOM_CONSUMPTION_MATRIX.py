@@ -1988,7 +1988,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     st.session_state["main_fabric_records"] = main_fabric_records
     st.session_state["bom_summary_engine"] = bom_summary_engine
 
-              # --- BẢNG SO SÁNH SAI LỆCH THÔNG SỐ RẬP ---
+          # --- BẢNG SO SÁNH SAI LỆCH THÔNG SỐ RẬP ---
     st.markdown("<br>### 📐 BẢNG SO SÁNH SAI LỆCH THÔNG SỐ KỸ THUẬT RẬP MẪU", unsafe_allow_html=True)
     
     # ĐỒNG BỘ NÂNG CẤP: Lấy dữ liệu an toàn từ session_state đã parse bởi AI
@@ -2013,20 +2013,16 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         # Hàm bổ sung: VÁ LỖI BÓC TÁCH CHUỖI DICTIONARY / JSON PHỨC TẠP THÀNH SỐ FLOAT
         def clean_float(v):
             if v is None: return None
-            # Trường hợp dữ liệu là một Dictionary thực tế
             if isinstance(v, dict):
-                v = v.get("Placement Amount") or v.get("Value") or list(v.values())[0]
+                v = v.get("Placement Amount") or v.get("Value") or list(v.values())
             
             v_str = str(v).strip()
-            # Trường hợp chuỗi dạng JSON thô "{'POM Name': ...}"
             if v_str.startswith("{"):
                 try:
-                    # Chuyển đổi dấu nháy đơn thành nháy kép để parse JSON hợp lệ
                     import json
                     parsed_v = json.loads(v_str.replace("'", '"'))
-                    v_str = str(parsed_v.get("Placement Amount") or parsed_v.get("Value") or list(parsed_v.values())[0])
+                    v_str = str(parsed_v.get("Placement Amount") or parsed_v.get("Value") or list(parsed_v.values()))
                 except Exception:
-                    # Fallback quét bằng Regex tìm giá trị của Placement Amount hoặc Value
                     match = re.search(r"'(?:Placement Amount|Value)'\s*:\s*'([^']+)'", v_str)
                     if match:
                         v_str = match.group(1)
@@ -2042,7 +2038,6 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             if v is None: return "-"
             f_val = clean_float(v)
             if f_val is not None:
-                # Nếu phần thập phân bằng 0 thì chuyển về số nguyên, ngược lại giữ 2 chữ số thập phân
                 return str(int(f_val)) if f_val.is_integer() else str(round(f_val, 2))
             return str(v)
 
@@ -2053,12 +2048,20 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         for original_new_key, val_new in new_specs.items():
             clean_new_key = clean_pom_text(original_new_key)
             
-            # Tìm kiếm vị trí tương đồng trong kho dữ liệu cũ
-            if clean_new_key in mapped_old_specs:
-                original_old_key, val_old = mapped_old_specs[clean_new_key]
-                processed_old_keys.add(original_old_key)
-            else:
-                original_old_key, val_old = "-", None
+            # -----------------------------------------------------------------
+            # THUẬT TOÁN MỚI: SO KHỚP TƯƠNG ĐỐI TỪ KHÓA (FUZZY LOGIC)
+            # -----------------------------------------------------------------
+            found_match = False
+            original_old_key, val_old = "-", None
+            
+            for clean_old_k, (old_key_raw, old_val_raw) in mapped_old_specs.items():
+                # Nếu từ khóa của mã cũ nằm trong tên mã mới hoặc ngược lại (Ví dụ: WAIST nằm trong WAIST_WIDTH)
+                if (len(clean_old_k) > 2 and clean_old_k in clean_new_key) or (len(clean_new_key) > 2 and clean_new_key in clean_old_k):
+                    original_old_key, val_old = old_key_raw, old_val_raw
+                    processed_old_keys.add(old_key_raw)
+                    found_match = True
+                    break
+            # -----------------------------------------------------------------
 
             f_new = clean_float(val_new)
             f_old = clean_float(val_old)
@@ -2075,7 +2078,6 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                         "BUST", "WIDTH", "ARMHOLE", "SLEEVE", "OUTSEAM", "RISE"
                     ]
                     if any(k in clean_new_key for k in core_keywords):
-                        # Loại trừ các chi tiết quá nhỏ hoặc nhãn mác phụ thuộc để không làm lệch %
                         ignore_keywords = ["BADGE", "LABEL", "BUTTON", "POCKET-OPENING", "TICKET", "LOOP", "STITCH"]
                         if not any(ig in clean_new_key for ig in ignore_keywords):
                             valid_diff_pcts.append(diff_pct)
@@ -2096,7 +2098,6 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         # VÁ LỖI ĐOẠN CUỐI: Nạp nốt các vị trí đo của mã cũ nếu mã mới không có để tránh mất mát dữ liệu hiển thị
         for original_old_key, val_old in old_specs.items():
             if original_old_key not in processed_old_keys:
-                f_old = clean_float(val_old)
                 compare_rows.append({
                     "Vị trí đo (POM Description)": original_old_key,
                     f"Mẫu mới ({new_style_base_size})": "-",
@@ -2114,6 +2115,8 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             if valid_diff_pcts:
                 avg_area_growth_pct = round(sum(valid_diff_pcts) / len(valid_diff_pcts), 2)
                 st.metric(label="📈 Tỷ lệ biến thiên diện tích rập trung bình (Core POMs)", value=f"{avg_area_growth_pct}%")
+            else:
+                st.metric(label="📈 Tỷ lệ biến thiên diện tích rập trung bình (Core POMs)", value="0.0%")
         else:
             st.info("ℹ️ Không có dữ liệu thông số khả dụng để tiến hành đối chiếu lập bảng biểu.")
 
