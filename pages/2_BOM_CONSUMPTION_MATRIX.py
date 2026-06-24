@@ -1824,167 +1824,158 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     except Exception as e_col:
         print(f"❌ [COLUMN RENDER ERROR]: {str(e_col)}")
     # =========================================================================================
-       # Khởi tạo biến cục bộ an toàn ở scope menu tab
-    old_specs = {}
-    new_specs = {}
-    old_base_size = "N/A"
-    target_style_name = "Chưa xác định"
-    confidence_score = 0
+    # --- BẢNG SO SÁNH SAI LỆCH THÔNG SỐ RẬP ---
+st.markdown("<br>### 📐 BẢNG SO SÁNH SAI LỆCH THÔNG SỐ KỸ THUẬT RẬP MẪU", unsafe_allow_html=True)
+new_specs = new_style_measurements_dict if new_style_measurements_dict else {}
+old_specs = matched_techpack.get("DetailedMeasurements", {}) if matched_techpack else {}
+avg_area_growth_pct = 0.0
 
-    # 💡 SỬA LỖI ĐỌC BỘ NHỚ TẠM: Ép đọc trực tiếp cấu trúc Dict phẳng từ Hàm B trả về
-    new_specs_raw = st.session_state.get("new_style_measurements_dict", {})
-    if not new_specs_raw:
-        # Dự phòng nếu hệ thống lưu ở trường 'measurements'
-        new_specs_raw = st.session_state.get("measurements", {})
+if new_specs or old_specs:
+    compare_rows = []
+    valid_diff_pcts = []
+    
+    # Hàm bổ sung: Lọc sạch mã tiền tố và ký tự đặc biệt để giữ lại chuỗi chữ cốt lõi phục vụ so khớp vị trí
+    def clean_pom_text(text):
+        cleaned = re.sub(r'^[A-Z0-9]+[\s\-_]+', '', str(text)).strip().upper()
+        cleaned = re.sub(r'[^A-Z\s]', '', cleaned).strip()
+        return cleaned
 
-    if isinstance(new_specs_raw, dict):
-        new_specs = new_specs_raw
-    elif isinstance(new_specs_raw, list):
-        for item in new_specs_raw:
-            if isinstance(item, dict) and "pom_description" in item:
-                new_specs[item["pom_description"]] = item.get("value")
-
-    garment_category = str(st.session_state.get("new_style_category_detected", "PANT")).strip().upper()
-    new_style_base_size = st.session_state.get("new_style_base_size", "N/A")
-    raw_new_style_id = str(st.session_state.get("new_style_number_detected", "")).strip()
-    clean_new_style_id = re.sub(r'[-_\s]', '', raw_new_style_id).upper()
-    matched_profile = st.session_state.get("matched_techpack")
-
-    if not matched_profile and "all_downloaded_techpacks" in st.session_state:
-        for profile in st.session_state["all_downloaded_techpacks"]:
-            db_style = str(profile.get("style_number", profile.get("StyleName", "")))
-            if clean_new_style_id and (clean_new_style_id in re.sub(r'[-_\s]', '', db_style).upper()):
-                matched_profile = profile
-                st.session_state["matched_techpack"] = profile
-                break
-
-    if isinstance(matched_profile, dict) and matched_profile:
-        raw_old_specs = matched_profile.get("measurements") or matched_profile.get("DetailedMeasurements") or matched_profile.get("detailed_measurements") or {}
-        if isinstance(raw_old_specs, dict):
-            old_specs = raw_old_specs
-        elif isinstance(raw_old_specs, list):
-            for item in raw_old_specs:
-                if isinstance(item, dict):
-                    k = item.get("pom_description") or item.get("pom_code") or "UNKNOWN"
-                    old_specs[k] = item.get("value")
-        old_base_size = str(matched_profile.get("base_size", matched_profile.get("BaseSize", "N/A")))
-        target_style_name = str(matched_profile.get("style_number", matched_profile.get("StyleName", "KHO_MẪU")))
-        confidence_score = int(st.session_state.get("match_confidence_score", 0)) or 100
-
-    POM_ALIAS = {
-        "CHEST WIDTH": "1/2 CHEST", "HALF CHEST": "1/2 CHEST", "CHEST WIDTH 1/2": "1/2 CHEST",
-        "WAIST WIDTH": "1/2 WAIST", "HALF WAIST": "1/2 WAIST", "HIP WIDTH": "1/2 HIP", "HALF HIP": "1/2 HIP",
-        "CENTER BACK LENGTH": "CB LENGTH", "BODY LENGTH CB": "CB LENGTH", "FRONT LENGTH": "CF LENGTH",
-        "INSEAM LENGTH": "INSEAM", "OUTSEAM LENGTH": "OUTSEAM", "LEG OPENING": "BOTTOM OPENING",
-        "BACK CROTCH DEPTH": "BACK RISE", "FRONT CROTCH DEPTH": "FRONT RISE"
-    }
-
-    def normalize_pom_key(k):
-        if not k: return ""
-        k = re.sub(r'^[A-Z0-9]+[-_]\d+\s*[-\s:]*', '', str(k).upper().strip()).strip()
-        k = re.sub(r'\s+', ' ', k)
-        for alias, standard in POM_ALIAS.items():
-            if alias in k or k == alias: return standard
-        return k
-
-    def parse_garment_value_industrial(v):
-        if v is None or str(v).strip().lower() in ["none", "", "-", "null"]: return None
-        try: return float(str(v).strip())
-        except:
-            try:
-                str_v = str(v).strip()
-                uni_map = {"½": " 1/2", "¼": " 1/4", "¾": " 3/4", "⅛": " 1/8", "⅜": " 3/8", "⅝": " 5/8", "⅞": " 7/8"}
-                for uni_char, repl_str in uni_map.items():
-                    if uni_char in str_v: str_v = str_v.replace(uni_char, repl_str)
-                str_v = re.sub(r'\s+', ' ', str_v).strip()
-                if " " in str_v and "/" in str_v:
-                    parts = str_v.split(" ")
-                    if len(parts) >= 2:
-                        whole = float(parts[0])
-                        if "/" in parts[1]:
-                            num, den = parts[1].split('/')
-                            return whole + (float(num) / float(den))
-                elif "/" in str_v:
-                    num, den = str_v.split('/')
-                    return float(num) / float(den)
-            except: pass
+    # SỬA LỖI 1: Bọc kiểm tra mảng nums để tránh lỗi rỗng (IndexError) gây sập bảng hiển thị
+    def clean_float(v):
+        if v is None or str(v).strip() == "": return None
+        try: 
+            return float(v)
+        except (ValueError, TypeError):
             nums = re.findall(r"[-+]?\d*\.\d+|\d+", str(v))
-            return float(nums[0]) if nums else None
+            return float(nums[0]) if nums else None # Đã bảo vệ, nếu không tìm thấy số sẽ trả về None
 
-    def highlight_deviation_industrial(row):
-        styles = [''] * len(row)
-        pct_str = str(row["Tỷ lệ biến thiên (Diff %)"])
-        if pct_str and pct_str != "-":
-            try:
-                val = float(pct_str.replace('%', '').replace('+', ''))
-                if abs(val) >= 5.0: return ['background-color: #FCE8E6; color: #A61C06; font-weight: bold;'] * len(row)
-                elif abs(val) > 0: return ['background-color: #FFF2CC; color: #B2A200;'] * len(row)
-            except: pass
-        return styles
+    # Tiến hành ánh xạ thông minh giữa hai bảng thông số mới và cũ thông qua chuỗi đã làm sạch
+    mapped_old_specs = {clean_pom_text(k): (k, v) for k, v in old_specs.items()}
+    processed_old_keys = set()
 
-    if old_specs and new_specs:
-        compare_rows = []
-        valid_diff_pcts = []
-        st.markdown("---")
-        debug_col1, debug_col2 = st.columns(2)
-        debug_col1.info(f"1️⃣ **Mã đối chứng:** `{target_style_name}` | 2️⃣ **Tự tin:** `{confidence_score}%`")
-        debug_col2.success(f"3️⃣ **POM mới:** `{len(new_specs)}` | 4️⃣ **POM cũ:** `{len(old_specs)}`")
-        st.markdown("---<br>### 📐 BẢNG SO SÁNH SAI LỆCH THÔNG SỐ KỸ THUẬT RẬP MẪU", unsafe_allow_html=True)
-        col_new_title, col_old_title, processed_old_keys_global = f"Mẫu mới ({new_style_base_size})", f"Mã cũ ({old_base_size})", set()
+    for original_new_key, val_new in new_specs.items():
+        clean_new_key = clean_pom_text(original_new_key)
+        
+        # Tìm kiếm vị trí tương đồng trong kho dữ liệu cũ
+        if clean_new_key in mapped_old_specs:
+            original_old_key, val_old = mapped_old_specs[clean_new_key]
+            processed_old_keys.add(original_old_key)
+        else:
+            original_old_key, val_old = "-", None
 
-        flattened_old_specs = {normalize_pom_key(k): v for k, v in old_specs.items()}
-        for original_new_key, val_new in new_specs.items():
-            clean_new_key = normalize_pom_key(original_new_key)
-            val_old = flattened_old_specs.get(clean_new_key)
-            if clean_new_key in flattened_old_specs: processed_old_keys_global.add(str(clean_new_key))
-            f_new, f_old = parse_garment_value_industrial(val_new), parse_garment_value_industrial(val_old)
-            diff_val = round(f_new - f_old, 2) if f_new is not None and f_old is not None else None
-            diff_pct = round((diff_val / f_old) * 100, 2) if diff_val is not None and f_old and f_old != 0 else None
-            if diff_pct is not None: valid_diff_pcts.append(diff_pct)
+        f_new = clean_float(val_new)
+        f_old = clean_float(val_old)
+        diff_val, diff_pct = None, None
+        
+        if f_new is not None and f_old is not None:
+            diff_val = round(f_new - f_old, 2)
+            if f_old != 0:
+                diff_pct = round((diff_val / f_old) * 100, 2)
+                
+                # MÀNG LỌC CỨNG (Hard Core Filter): Chỉ lấy thông số cơ bản lớn ảnh hưởng trực tiếp đến phom rập mẫu
+                core_keywords = [
+                    "INSEAM", "THIGH", "HIP", "WAIST", "LEG", "LENGTH", "CHEST", 
+                    "BUST", "WIDTH", "ARMHOLE", "SLEEVE", "OUTSEAM", "RISE"
+                ]
+                if any(k in clean_new_key for k in core_keywords):
+                    # Loại trừ các chi tiết quá nhỏ hoặc nhãn mác phụ thuộc để không làm lệch %
+                    ignore_keywords = ["BADGE", "LABEL", "BUTTON", "POCKET-OPENING", "TICKET", "LOOP", "STITCH"]
+                    if not any(ig in clean_new_key for ig in ignore_keywords):
+                        valid_diff_pcts.append(diff_pct)
+            else:
+                diff_pct = 0.0
 
-            display_key = re.sub(r'^[A-Z0-9]+[-_]\d+\s*[-\s:]*', '', str(original_new_key)).strip().upper()
-            display_diff = f"+{diff_val}" if diff_val is not None and diff_val > 0 else (str(diff_val) if diff_val is not None else "-")
-            display_pct = f"+{diff_pct}%" if diff_pct is not None and diff_pct > 0 else (f"{diff_pct}%" if diff_pct is not None else "-")
-            compare_rows.append({"Vị trí đo (POM Description)": display_key, col_new_title: val_new or "-", col_old_title: val_old or "-", "Chênh lệch (Diff)": display_diff, "Tỷ lệ biến thiên (Diff %)": display_pct})
+        display_diff = f"+{diff_val}" if diff_val and diff_val > 0 else (str(diff_val) if diff_val is not None else "-")
+        display_pct = f"+{diff_pct}%" if diff_pct and diff_pct > 0 else (f"{diff_pct}%" if diff_pct is not None else "-")
+        
+        # Lấy tên size an toàn
+        current_size = new_style_base_size if 'new_style_base_size' in locals() or 'new_style_base_size' in globals() else "N/A"
+        matched_style_name = str(st.session_state.get('matched_style_name', 'N/A'))
 
-        for original_old_key, val_old in old_specs.items():
-            if normalize_pom_key(original_old_key) not in processed_old_keys_global:
-                display_old_key = re.sub(r'^[A-Z0-9]+[-_]\d+\s*[-\s:]*', '', str(original_old_key)).strip().upper()
-                compare_rows.append({"Vị trí đo (POM Description)": display_old_key, col_new_title: "-", col_old_title: val_old or "-", "Chênh lệch (Diff)": "-", "Tỷ lệ biến thiên (Diff %)": "-"})
+        compare_rows.append({
+            "Vị trí đo (POM Description)": original_new_key,
+            f"Mẫu mới ({current_size})": val_new if val_new is not None else "-",
+            f"Mã cũ ({matched_style_name})": val_old if val_old is not None else "-",
+            "Chênh lệch (Diff)": display_diff,
+            "Tỷ lệ biến thiên (Diff %)": display_pct
+        })
 
-        df_compare = pd.DataFrame(compare_rows)
-        if not df_compare.empty: st.dataframe(df_compare.style.apply(highlight_deviation_industrial, axis=1), use_container_width=True, hide_index=True)
-        else: st.info("Không có vị trí đo nào khớp chữ nhau.")
-        st.session_state["valid_diff_pcts"] = valid_diff_pcts
+    # Nạp nốt các vị trí đo của mã cũ nếu mã mới không có để tránh mất mát dữ liệu hiển thị
+    for original_old_key, val_old in old_specs.items():
+        if original_old_key not in processed_old_keys:
+            current_size = new_style_base_size if 'new_style_base_size' in locals() or 'new_style_base_size' in globals() else "N/A"
+            matched_style_name = str(st.session_state.get('matched_style_name', 'N/A'))
+            
+            compare_rows.append({
+                "Vị trí đo (POM Description)": original_old_key,
+                f"Mẫu mới ({current_size})": "-",
+                f"Mã cũ ({matched_style_name})": val_old if val_old is not None else "-",
+                "Chênh lệch (Diff)": "-",
+                "Tỷ lệ biến thiên (Diff %)": "-"
+            })
+        
+    if compare_rows:
+        df_compare_spec = pd.DataFrame(compare_rows)
+        st.dataframe(df_compare_spec, use_container_width=True, hide_index=True)
     else:
-        st.markdown("---")
-        st.error("⚠️ **HỆ THỐNG PHÁT HIỆN THIẾU DỮ LIỆU ĐỂ LẬP BẢNG SO SÁNH THÔNG SỐ**")
-        diag_col1, diag_col2 = st.columns(2)
-        diag_col1.warning("❌ Dữ liệu mẫu mới trống.") if not new_specs else diag_col1.success("✅ Mẫu mới sẵn sàng.")
-        diag_col2.warning("❌ Dữ liệu mã cũ trống.") if not old_specs else diag_col2.success("✅ Mã cũ sẵn sàng.")
-        st.markdown("---")
-        st.session_state["valid_diff_pcts"] = []
+        st.info("Không có dữ liệu thông số để so sánh.")
+    
+    # Tính toán độ biến thiên diện tích phom dựa trên các POM cốt lõi được giữ lại
+    if valid_diff_pcts:
+        avg_pom_growth = sum(valid_diff_pcts) / len(valid_diff_pcts)
+        avg_area_growth_pct = round((((1 + avg_pom_growth/100) ** 2) - 1) * 100, 2)
 
-    try:
-        from google import genai
-        from google.genai import types
-        if "consumption_chat_history" not in st.session_state: st.session_state["consumption_chat_history"] = []
-        matrix_prompt_input = st.chat_input("Nhập yêu cầu phân tích định mức...", key="matrix_chat_input_final")
-        if matrix_prompt_input:
-            st.session_state["consumption_chat_history"].append({"role": "user", "content": matrix_prompt_input})
-            gemini_key = st.secrets.get("GEMINI_API_KEY", "").strip() or (get_secure_gemini_key() if 'get_secure_gemini_key' in globals() else "")
-            if gemini_key:
-                try:
-                    client_chat = genai.Client(api_key=gemini_key)
-                    context_bom = st.session_state.get("ai_projected_consumption_matrix", [])
-                    chat_system_instruction = f"You are an expert Costing Engineer at PPJ Group. Analyze context: {json.dumps(context_bom, ensure_ascii=False)}. Answer in Vietnamese."
-                    chat_res = client_chat.models.generate_content(model='gemini-2.5-flash', contents=matrix_prompt_input, config=types.GenerateContentConfig(system_instruction=chat_system_instruction, temperature=0.3))
-                    if chat_res and chat_res.text: st.session_state["consumption_chat_history"].append({"role": "model", "content": chat_res.text})
-                except Exception as ce: st.session_state["consumption_chat_history"].append({"role": "model", "content": f"⚠️ Trợ lý lỗi: {str(ce)}"})
-            st.rerun()
+# --- AI CONSUMPTION PROJECTION ENGINE ---
+if matched_techpack and st.session_state.get("matched_image_verified", False) and bom_records:
+    st.markdown("<br>🔮 **AI CONSUMPTION PROJECTION ENGINE (DỰ PHÓNG ĐỊNH MỨC MÃ MỚI)**", unsafe_allow_html=True)
+    
+    v_similarity = st.session_state.get("matched_similarity_score", 100.0)
+    col1, col2 = st.columns(2)
+    with col1:
+        # SỬA LỖI 2: Đảm bảo avg_area_growth_pct luôn hợp lệ, bọc ép kiểu an toàn
+        try:
+            val_shape = float(avg_area_growth_pct)
+        except Exception:
+            val_shape = 0.0
+        shape_factor = st.number_input("Độ biến thiên phom tính toán từ POM (%)", value=val_shape, step=0.1)
+    with col2:
+        wastage_buffer = st.number_input("Hao hụt sản xuất cấu hình thêm (%)", value=3.0, step=0.5)
 
-        for msg in st.session_state.get("consumption_chat_history", []): st.chat_message("user" if msg["role"] == "user" else "assistant").write(msg["content"])
-    except Exception as e_chat_master: st.error(f"❌ [CHAT SYSTEM ERROR]: {str(e_chat_master)}")
+    projection_rows = []
+    # Đảm bảo bom_summary_engine tồn tại tránh lỗi lặp
+    bom_engine_data = bom_summary_engine if 'bom_summary_engine' in locals() or 'bom_summary_engine' in globals() else {}
+    
+    for ctype, old_qty in bom_engine_data.items():
+        # Ép kiểu dữ liệu lượng sang float phòng khi đầu vào là chuỗi số
+        try:
+            old_qty_float = float(old_qty)
+        except Exception:
+            old_qty_float = 0.0
+
+        ctype_upper = str(ctype).strip().upper()
+        if any(k in ctype_upper for k in ["MAIN", "FABRIC", "BODY", "SHELL", "LINING", "RIB", "COMBINATION", "POCKETING"]):
+            similarity_weight = v_similarity / 100.0
+            adjusted_shape_factor = shape_factor * similarity_weight
+            projected_dm = old_qty_float * (1 + adjusted_shape_factor / 100) * (1 + wastage_buffer / 100)
+            note = f"Vải nhảy vóc (Diện tích rập biến thiên: {round(adjusted_shape_factor, 2)}% dựa trên Vision {v_similarity}%)"
+        else:
+            projected_dm = old_qty_float * (1 + wastage_buffer / 100)
+            note = f"Phụ liệu tĩnh (Chỉ tính hao hụt sản xuất {wastage_buffer}%)"
+            
+        projection_rows.append({
+            "Phân loại vật tư (Type)": ctype,
+            "Tổng ĐM mã cũ": old_qty_float,
+            "ĐM Dự phóng mã mới": round(projected_dm, 3),
+            "Cơ sở thuật toán toán AI": note
+        })
+        
+    if projection_rows:
+        df_projection = pd.DataFrame(projection_rows)
+        st.session_state["ai_projected_consumption_matrix"] = projection_rows
+        st.dataframe(df_projection, use_container_width=True, hide_index=True)
+    else:
+        st.info("Không có dữ liệu định mức (BOM) để tính toán dự phóng.")
+
 
 
 
