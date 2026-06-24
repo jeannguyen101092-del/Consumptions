@@ -1931,7 +1931,7 @@ from rapidfuzz import fuzz
 from scipy.optimize import linear_sum_assignment
 
 # =========================================================================================
-# ĐOẠN 1a: INDUSTRIAL May Mặc POM MATCHING ENGINE - STRICT & CLEAN PROCESSING
+# ĐOẠN 1a: INDUSTRIAL May Mặc POM MATCHING ENGINE - SUPABASE UPPERCASE SYNCHRONIZATION
 # =========================================================================================
 
 UNICODE_FRACTION_MAP = {
@@ -1951,17 +1951,17 @@ def parse_garment_value_industrial(v):
             
             if " " in str_v and "/" in str_v:
                 parts = str_v.split()
-                whole = float(parts[0])
-                frac_parts = parts[1].split('/')
-                return whole + (float(frac_parts[0]) / float(frac_parts[1]))
+                whole = float(parts)
+                frac_parts = parts.split('/')
+                return whole + (float(frac_parts) / float(frac_parts))
             elif "/" in str_v:
                 frac_parts = str_v.split('/')
-                return float(frac_parts[0]) / float(frac_parts[1])
+                return float(frac_parts) / float(frac_parts)
         except Exception: pass
         
         nums = re.findall(r"[-+]?\d*\.\d+|\d+", str_v)
         if nums:
-            try: return float(nums[0])
+            try: return float(nums)
             except Exception: return None
         return None
 
@@ -1969,12 +1969,9 @@ def parse_garment_value_industrial(v):
 def clean_pom_description_text(text):
     if not text: return ""
     cleaned = str(text).upper().strip()
-    # 1. Triệt tiêu toàn bộ nội dung nằm trong dấu ngoặc đơn () và ngoặc vuông []
     cleaned = re.sub(r'\([^\)]*\)', ' ', cleaned)
     cleaned = re.sub(r'\[[^\]]*\]', ' ', cleaned)
-    # 2. Triệt tiêu các mã định danh đầu ngữ dạng chữ-số (Ví dụ: "WST-007 ", "HIP-011 ", "LEG-002 ")
     cleaned = re.sub(r'\b[A-Z]{3,4}\s*-\s*\d+\b', ' ', cleaned)
-    # 3. Làm sạch các khoảng trắng thừa
     cleaned = re.sub(r'\s+', ' ', cleaned).strip()
     return cleaned
 
@@ -1985,7 +1982,6 @@ def analyze_garment_pom_structure(text):
     
     cleaned = clean_pom_description_text(text)
     
-    # Trích xuất chính xác vị trí đo Inch (Ví dụ: "THIGH 1 BELOW CROTCH")
     pos_regex = r'(\d+(?:\s+\d+/\d+|\.\d+|\/\d+)?)\s*(?:INCH|")?\s*(?:BELOW|ABOVE|FROM|DOWN)'
     pos_match = re.search(pos_regex, cleaned)
     position_inch = 0.0
@@ -2019,16 +2015,18 @@ garment_category = str(st.session_state.get("new_style_category_detected", "PANT
 new_style_base_size = st.session_state.get("new_style_base_size", "N/A")
 
 matched_techpack = st.session_state.get("matched_techpack", {})
-old_specs = {}
+raw_old_specs = {}
 if matched_techpack and isinstance(matched_techpack, dict):
-    old_specs = matched_techpack.get("DetailedMeasurements", {}) or matched_techpack.get("detailed_measurements", {}) or {}
+    raw_old_specs = matched_techpack.get("DetailedMeasurements", {}) or matched_techpack.get("detailed_measurements", {}) or {}
 old_base_size = matched_techpack.get("BaseSize", "N/A") if matched_techpack else "N/A"
+
+# ✅ ĐÃ SỬA: Ép toàn bộ Key của kho cũ về viết hoa toàn bộ để đồng bộ tuyệt đối với dữ liệu máy quét
+old_specs = {str(k).upper().strip(): v for k, v in raw_old_specs.items()}
 
 # Bản đồ ánh xạ đầu ra toàn cục cho Đoạn 1b tiếp quản
 final_matched_map = {}
 processed_old_keys_global = set()
 
-# CHỈ THỰC THI PIPELINE KHI CẢ HAI BÊN ĐỀU CÓ DỮ LIỆU THỰC TẾ
 if isinstance(new_specs, dict) and isinstance(old_specs, dict) and new_specs and old_specs:
     new_keys_list = list(new_specs.keys())
     old_keys_list = list(old_specs.keys())
@@ -2106,6 +2104,7 @@ if isinstance(new_specs, dict) and isinstance(old_specs, dict) and new_specs and
                         "val_old": old_specs[ok_target]
                     }
                     processed_old_keys_global.add(ok_target)
+
 
 
 
