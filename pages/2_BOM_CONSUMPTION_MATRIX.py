@@ -1927,11 +1927,9 @@ import re
 import streamlit as st
 import pandas as pd
 import numpy as np
-from rapidfuzz import fuzz
-from scipy.optimize import linear_sum_assignment
 
 # =========================================================================================
-# ĐOẠN 1a: INDUSTRIAL May Mặc POM MATCHING ENGINE - DYNAMIC REALTIME SUPABASE QUERY
+# ĐOẠN 1a.1: INDUSTRIAL ERP - REALTIME DB RETRIEVER & DEBUG CONTROLLER
 # =========================================================================================
 
 UNICODE_FRACTION_MAP = {
@@ -1939,6 +1937,7 @@ UNICODE_FRACTION_MAP = {
     "⅜": " 3/8", "⅝": " 5/8", "⅞": " 7/8"
 }
 
+# ✅ ĐÃ SỬA: Khắc phục lỗi cú pháp logic xử lý phân số và hỗn số may mặc công nghiệp
 def parse_garment_value_industrial(v):
     if v is None: return None
     try: return float(v)
@@ -1951,17 +1950,17 @@ def parse_garment_value_industrial(v):
             
             if " " in str_v and "/" in str_v:
                 parts = str_v.split()
-                whole = float(parts)
-                frac_parts = parts.split('/')
-                return whole + (float(frac_parts) / float(frac_parts))
+                whole = float(parts[0])
+                num, den = parts[1].split('/')
+                return whole + (float(num) / float(den))
             elif "/" in str_v:
-                frac_parts = str_v.split('/')
-                return float(frac_parts) / float(frac_parts)
+                num, den = str_v.split('/')
+                return float(num) / float(den)
         except Exception: pass
         
         nums = re.findall(r"[-+]?\d*\.\d+|\d+", str_v)
         if nums:
-            try: return float(nums)
+            try: return float(nums[0])
             except Exception: return None
         return None
 
@@ -1974,11 +1973,107 @@ def clean_pom_description_text(text):
     cleaned = re.sub(r'\s+', ' ', cleaned).strip()
     return cleaned
 
+# 1. TRÍCH XUẤT THÔNG TIN MẪU MỚI TỪ BỘ QUÉT TÀI LIỆU
+new_specs = st.session_state.get("new_style_measurements_dict", {})
+garment_category = str(st.session_state.get("new_style_category_detected", "PANT")).strip().upper()
+new_style_base_size = st.session_state.get("new_style_base_size", "N/A")
+
+# 2. ĐỒNG BỘ TRUY VẤN KHO ĐỘNG QUA TẤT CẢ CÁC BIẾN TUYỂN DỤNG CỦA ERP
+old_specs = {}
+old_base_size = "N/A"
+records_found_count = 0
+record_keys_list = []
+
+# Tìm kiếm mã hàng tương đồng xuyên suốt các cổng biến lưu trữ của bộ lọc trước
+target_style_name = (
+    st.session_state.get("target_style_name") or 
+    st.session_state.get("matched_style_id") or 
+    st.session_state.get("selected_style") or 
+    st.session_state.get("nearest_style")
+)
+
+supabase = st.session_state.get("supabase_client")
+query_response = None
+
+if target_style_name and supabase:
+    try:
+        # Thực hiện truy vấn động đồng thời kiểm soát cả hai biến thể bảng (techpack_storage hoặc techpack_library)
+        for table_name in ["techpack_storage", "techpack_library", "techpack_master"]:
+            try:
+                query_response = supabase.table(table_name).select("*").eq("style_number", target_style_name).execute()
+                if query_response and query_response.data:
+                    break
+            except Exception:
+                continue
+                
+        if query_response and query_response.data:
+            record = query_response.data[0]
+            records_found_count = len(query_response.data)
+            record_keys_list = list(record.keys())
+            
+            # Khớp động trường dữ liệu JSON chứa Specs của Supabase
+            old_specs = (
+                record.get("measurements", {}) or 
+                record.get("DetailedMeasurements", {}) or 
+                record.get("detailed_measurements", {}) or 
+                record.get("measurements_json", {})
+            )
+            old_base_size = str(record.get("base_size", record.get("BaseSize", "N/A")))
+            
+            # Cập nhật ngược bộ nhớ tạm hệ thống
+            st.session_state["matched_techpack"] = {
+                "StyleName": target_style_name,
+                "BaseSize": old_base_size,
+                "DetailedMeasurements": old_specs
+            }
+    except Exception as db_err:
+        pass
+
+# 3. ✅ ĐÃ SỬA LỖI: Bộ phòng thủ bẫy kiểu dữ liệu LIST/DICT đối với dữ liệu lịch sử gốc
+if not old_specs:
+    matched_techpack_raw = st.session_state.get("matched_techpack", {})
+    if matched_techpack_raw:
+        # Nếu bộ khớp lưu trữ dạng mảng LIST, bóc lấy phần tử đầu tiên
+        if isinstance(matched_techpack_raw, list) and len(matched_techpack_raw) > 0:
+            matched_techpack_raw = matched_techpack_raw[0]
+            
+        if isinstance(matched_techpack_raw, dict):
+            old_specs = (
+                matched_techpack_raw.get("DetailedMeasurements", {}) or 
+                matched_techpack_raw.get("measurements", {}) or 
+                matched_techpack_raw.get("detailed_measurements", {}) or {}
+            )
+            old_base_size = str(matched_techpack_raw.get("BaseSize", matched_techpack_raw.get("BaseSize", "N/A")))
+
+# =========================================================================================
+# 🚨 5 DÒNG DEBUG PHỤC VỤ KIỂM SOÁT TOÀN VẸN DỮ LIỆU ĐẦU VÀO TRỰC QUAN
+# =========================================================================================
+st.markdown("---")
+st.subheader("🛠️ CỔNG DEBUG CHẨN ĐOÁN KHO DỮ LIỆU SUPABASE")
+debug_col1, debug_col2 = st.columns(2)
+with debug_col1:
+    st.write(f"1️⃣ **target_style_name:** `{target_style_name}`")
+    st.write(f"2️⃣ **matched_techpack type:** `{type(st.session_state.get('matched_techpack'))}`")
+    st.write(f"3️⃣ **records found:** `{records_found_count}`")
+with debug_col2:
+    st.write(f"4️⃣ **record keys:** `{record_keys_list}`")
+    st.write(f"5️⃣ **NEW SPECS count:** `{len(new_specs) if new_specs else 0}` | **OLD SPECS count:** `{len(old_specs) if old_specs else 0}`")
+st.markdown("---")
+import streamlit as st
+import numpy as np
+from rapidfuzz import fuzz
+from scipy.optimize import linear_sum_assignment
+
+# =========================================================================================
+# ĐOẠN 1a.2: INDUSTRIAL May Mặc POM MATCHING ENGINE - HUNGARIAN CALCULATOR
+# =========================================================================================
+
 def analyze_garment_pom_structure(text):
     if not text:
         return {"base": "UNK", "type": "WIDTH", "subtype": "GENERIC", "pos": 0.0}
     
     cleaned = clean_pom_description_text(text)
+    
     pos_regex = r'(\d+(?:\s+\d+/\d+|\.\d+|\/\d+)?)\s*(?:INCH|")?\s*(?:BELOW|ABOVE|FROM|DOWN)'
     pos_match = re.search(pos_regex, cleaned)
     position_inch = 0.0
@@ -2006,56 +2101,10 @@ def analyze_garment_pom_structure(text):
     
     return {"base": base, "type": p_type, "subtype": subtype, "pos": position_inch}
 
-# 1. TRÍCH XUẤT THÔNG TIN MẪU MỚI TỪ BỘ QUÉT FILE
-new_specs = st.session_state.get("new_style_measurements_dict", {})
-garment_category = str(st.session_state.get("new_style_category_detected", "PANT")).strip().upper()
-new_style_base_size = st.session_state.get("new_style_base_size", "N/A")
-
-# 2. 🔌 TẦNG TRUY VẤN SUPABASE ĐỘNG THEO MÃ TƯƠNG ĐỒNG ĐÃ TÌM ĐƯỢC
-old_specs = {}
-old_base_size = "N/A"
-
-# Lấy mã đối chứng tương đồng đã được tầng AI Vision hoặc Text Matching tìm thấy trước đó
-# (Ví dụ hệ thống của bạn đang lưu biến này ở st.session_state["target_style_name"] hoặc tương đương)
-target_style_name = st.session_state.get("target_style_name") or st.session_state.get("matched_style_id")
-
-if target_style_name:
-    try:
-        # Sử dụng client kết nối Supabase có sẵn trong dự án của bạn (ví dụ: st.session_state["supabase_client"])
-        # Nếu bạn dùng thư viện khác, chỉ cần thay đổi cú pháp query tương đương tại đây.
-        supabase = st.session_state.get("supabase_client")
-        
-        if supabase:
-            # Thực hiện Query động vào bảng public.techpack_storage dựa trên style_number thực tế
-            query_response = supabase.table("techpack_storage").select("*").eq("style_number", target_style_name).execute()
-            
-            if query_response and query_response.data:
-                record = query_response.data[0] # Lấy bản ghi khớp đầu tiên
-                
-                # Trích xuất Base Size và trường dữ liệu JSON 'measurements' từ kho dữ liệu gốc của bạn
-                old_base_size = str(record.get("base_size", "N/A"))
-                old_specs = record.get("measurements", {}) or {}
-                
-                # Cập nhật ngược lại matched_techpack toàn cục để đồng bộ hệ thống May mặc ERP
-                st.session_state["matched_techpack"] = {
-                    "StyleName": target_style_name,
-                    "BaseSize": old_base_size,
-                    "DetailedMeasurements": old_specs
-                }
-    except Exception as db_err:
-        st.error(f"❌ Lỗi kết nối truy vấn kho dữ liệu Supabase: {str(db_err)}")
-
-# Trường hợp dự phòng nếu luồng trên chưa chạy hoặc thiếu Client DB, kế thừa an toàn từ session_state hiện tại
-if not old_specs:
-    matched_techpack = st.session_state.get("matched_techpack", {})
-    if matched_techpack and isinstance(matched_techpack, dict):
-        old_specs = matched_techpack.get("DetailedMeasurements", {}) or matched_techpack.get("detailed_measurements", {}) or {}
-        old_base_size = matched_techpack.get("BaseSize", "N/A")
-
 final_matched_map = {}
 processed_old_keys_global = set()
 
-# 3. THỰC THI PIPELINE MA TRẬN ĐỐI CHIẾU HUNGARIAN CHUẨN XÁC
+# CHỈ BẬT ENGINE TÍNH TOÁN MA TRẬN KHI ĐẢM BẢO KHO CŨ ĐÃ ĐƯỢC NẠP SỐ LIỆU THÀNH CÔNG TỪ ĐOẠN 1a.1
 if isinstance(new_specs, dict) and isinstance(old_specs, dict) and new_specs and old_specs:
     new_keys_list = list(new_specs.keys())
     old_keys_list = list(old_specs.keys())
@@ -2063,6 +2112,7 @@ if isinstance(new_specs, dict) and isinstance(old_specs, dict) and new_specs and
     exact_matched_new = set()
     exact_matched_old = set()
     
+    # 📌 TẦNG 1: EXACT CLEAN MATCH LAYER
     for nk in new_keys_list:
         nk_clean = clean_pom_description_text(nk)
         if not nk_clean: continue
