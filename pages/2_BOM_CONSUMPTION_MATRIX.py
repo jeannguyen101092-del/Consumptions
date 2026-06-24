@@ -1826,6 +1826,131 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     # =========================================================================================
     # ĐOẠN 1a & 1b: XỬ LÝ VÀ HIỂN THỊ BẢNG SO SÁNH (ĐÃ THỤT LỀ CHỐNG SẬP APPS)
     # =========================================================================================
+# ĐOẠN 1a: KẾ THỪA TRỰC TIẾP TỪ TẦNG TRÊN (ĐÃ SỬA LỖI LỆCH DẤU GẠCH MÃ STYLE ID)
+# =========================================================================================
+
+old_specs = {}
+old_base_size = "N/A"
+target_style_name = "Chưa xác định"
+confidence_score = 0
+
+# 1. Thu thập dữ liệu mẫu mới quét từ bộ nhớ tạm
+new_specs_raw = st.session_state.get("new_style_measurements_dict", {})
+if isinstance(new_specs_raw, list):
+    new_specs = {}
+    for item in new_specs_raw:
+        if isinstance(item, dict) and "pom_description" in item:
+            new_specs[item["pom_description"]] = item.get("value")
+else:
+    new_specs = new_specs_raw if isinstance(new_specs_raw, dict) else {}
+
+garment_category = str(st.session_state.get("new_style_category_detected", "PANT")).strip().upper()
+new_style_base_size = st.session_state.get("new_style_base_size", "N/A")
+
+# 💡 LOGIC NÂNG CẤP: Lấy mã style mới quét được và chuẩn hóa sạch dấu gạch ngang
+raw_new_style_id = str(st.session_state.get("new_style_number_detected", "")).strip()
+clean_new_style_id = re.sub(r'[-_\s]', '', raw_new_style_id).upper()
+
+# 2. ÉP KẾ THỪA: Duyệt kho đối chứng kế thừa kết hợp cơ chế dự phòng khớp chuỗi sạch dấu gạch ngang
+matched_profile = st.session_state.get("matched_techpack")
+
+# Nếu biến matched_profile tầng trên bị rỗng do lệch dấu gạch, ta chủ động quét nhanh trong danh sách lưu kho
+if not matched_profile and "all_downloaded_techpacks" in st.session_state:
+    for profile in st.session_state["all_downloaded_techpacks"]:
+        db_style = str(profile.get("style_number", profile.get("StyleName", "")))
+        clean_db_style = re.sub(r'[-_\s]', '', db_style).upper()
+        # Đối chiếu mã sạch ký tự phân tách
+        if clean_new_style_id and clean_db_style and (clean_new_style_id in clean_db_style or clean_db_style in clean_new_style_id):
+            matched_profile = profile
+            st.session_state["matched_techpack"] = profile
+            break
+
+if isinstance(matched_profile, dict) and matched_profile:
+    raw_old_specs = (
+        matched_profile.get("measurements") or 
+        matched_profile.get("DetailedMeasurements") or 
+        matched_profile.get("detailed_measurements") or {}
+    )
+    if isinstance(raw_old_specs, list):
+        old_specs = {}
+        for item in raw_old_specs:
+            if isinstance(item, dict):
+                k = item.get("pom_description") or item.get("pom_code") or "UNKNOWN"
+                old_specs[k] = item.get("value")
+    else:
+        old_specs = raw_old_specs if isinstance(raw_old_specs, dict) else {}
+        
+    old_base_size = str(matched_profile.get("base_size", matched_profile.get("BaseSize", "N/A")))
+    target_style_name = str(matched_profile.get("style_number", matched_profile.get("StyleName", "KHO_MẪU")))
+    confidence_score = int(st.session_state.get("match_confidence_score", 0))
+    if confidence_score == 0:
+        confidence_score = 100  # Kích hoạt điểm tự tin mặc định khi khớp chuỗi ID sạch
+
+# 3. 🎯 LỚP CHUẨN HÓA VÀ KHỬ MÃ TIỀN TỐ ĐỂ SO KHỚP CHỮ THUẦN TÚY
+POM_ALIAS = {
+    "CHEST WIDTH": "1/2 CHEST", "HALF CHEST": "1/2 CHEST", "CHEST WIDTH 1/2": "1/2 CHEST",
+    "WAIST WIDTH": "1/2 WAIST", "HALF WAIST": "1/2 WAIST",
+    "HIP WIDTH": "1/2 HIP", "HALF HIP": "1/2 HIP",
+    "CENTER BACK LENGTH": "CB LENGTH", "BODY LENGTH CB": "CB LENGTH",
+    "FRONT LENGTH": "CF LENGTH", "INSEAM LENGTH": "INSEAM", "OUTSEAM LENGTH": "OUTSEAM",
+    "LEG OPENING": "BOTTOM OPENING", "BACK CROTCH DEPTH": "BACK RISE", "FRONT CROTCH DEPTH": "FRONT RISE"
+}
+
+def normalize_pom_key(k):
+    if not k: return ""
+    k = str(k).upper().strip()
+    k = re.sub(r'^[A-Z0-9]+[-_]\d+\s*[-\s:]*', '', k).strip()
+    k = re.sub(r'\s+', ' ', k)
+    for alias, standard in POM_ALIAS.items():
+        if alias in k or k == alias: 
+            return standard
+    return k
+
+def parse_garment_value_industrial(v):
+    if v is None: return None
+    str_v = str(v).strip()
+    if not str_v or str_v.lower() == "none" or str_v == "-":
+        return None
+    try: 
+        return float(str_v)
+    except (ValueError, TypeError):
+        try:
+            uni_map = {"½": " 1/2", "¼": " 1/4", "¾": " 3/4", "⅛": " 1/8", "⅜": " 3/8", "⅝": " 5/8", "⅞": " 7/8"}
+            for uni_char, repl_str in uni_map.items():
+                if uni_char in str_v: str_v = str_v.replace(uni_char, repl_str)
+            str_v = re.sub(r'\s+', ' ', str_v).strip()
+            if " " in str_v and "/" in str_v:
+                parts = str_v.split(" ")
+                if len(parts) >= 2:
+                    whole = float(parts[0])
+                    fraction_part = str(parts[1])
+                    if "/" in fraction_part:
+                        num, den = fraction_part.split('/')
+                        return whole + (float(num) / float(den))
+            elif "/" in str_v:
+                num, den = str_v.split('/')
+                return float(num) / float(den)
+        except Exception: pass
+        nums = re.findall(r"[-+]?\d*\.\d+|\d+", str_v)
+        if nums:
+            try: return float(nums[0])
+            except Exception: return None
+        return None
+
+def highlight_deviation_industrial(row):
+    styles = [''] * len(row)
+    pct_str = str(row["Tỷ lệ biến thiên (Diff %)"])
+    if pct_str and pct_str != "-":
+        try:
+            val = float(pct_str.replace('%', '').replace('+', ''))
+            if abs(val) >= 5.0:
+                return ['background-color: #FCE8E6; color: #A61C06; font-weight: bold;'] * len(row)
+            elif abs(val) > 0:
+                return ['background-color: #FFF2CC; color: #B2A200;'] * len(row)
+        except Exception: pass
+    return styles
+
+    # =========================================================================================
     old_specs = {}
     old_base_size = "N/A"
     target_style_name = "Chưa xác định"
