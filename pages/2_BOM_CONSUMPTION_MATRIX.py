@@ -1931,7 +1931,7 @@ from rapidfuzz import fuzz
 from scipy.optimize import linear_sum_assignment
 
 # =========================================================================================
-# ĐOẠN 1a: INDUSTRIAL May Mặc POM MATCHING ENGINE - SUPABASE UPPERCASE SYNCHRONIZATION
+# ĐOẠN 1a: INDUSTRIAL May Mặc POM MATCHING ENGINE - DYNAMIC REALTIME SUPABASE QUERY
 # =========================================================================================
 
 UNICODE_FRACTION_MAP = {
@@ -1965,7 +1965,6 @@ def parse_garment_value_industrial(v):
             except Exception: return None
         return None
 
-# TRIỆT TIÊU MÃ SỐ ĐẦU NGỮ VÀ NỘI DUNG TRONG NGOẶC (STRICT CLEANING LAYER)
 def clean_pom_description_text(text):
     if not text: return ""
     cleaned = str(text).upper().strip()
@@ -1975,13 +1974,11 @@ def clean_pom_description_text(text):
     cleaned = re.sub(r'\s+', ' ', cleaned).strip()
     return cleaned
 
-# BÓC TÁCH KẾT CẤU POM ĐA TẦNG DỰA TRÊN CHUỖI ĐÃ LÀM SẠCH SẮC NÉT
 def analyze_garment_pom_structure(text):
     if not text:
         return {"base": "UNK", "type": "WIDTH", "subtype": "GENERIC", "pos": 0.0}
     
     cleaned = clean_pom_description_text(text)
-    
     pos_regex = r'(\d+(?:\s+\d+/\d+|\.\d+|\/\d+)?)\s*(?:INCH|")?\s*(?:BELOW|ABOVE|FROM|DOWN)'
     pos_match = re.search(pos_regex, cleaned)
     position_inch = 0.0
@@ -2009,24 +2006,56 @@ def analyze_garment_pom_structure(text):
     
     return {"base": base, "type": p_type, "subtype": subtype, "pos": position_inch}
 
-# Khởi tạo an toàn dữ liệu đầu vào
+# 1. TRÍCH XUẤT THÔNG TIN MẪU MỚI TỪ BỘ QUÉT FILE
 new_specs = st.session_state.get("new_style_measurements_dict", {})
 garment_category = str(st.session_state.get("new_style_category_detected", "PANT")).strip().upper()
 new_style_base_size = st.session_state.get("new_style_base_size", "N/A")
 
-matched_techpack = st.session_state.get("matched_techpack", {})
-raw_old_specs = {}
-if matched_techpack and isinstance(matched_techpack, dict):
-    raw_old_specs = matched_techpack.get("DetailedMeasurements", {}) or matched_techpack.get("detailed_measurements", {}) or {}
-old_base_size = matched_techpack.get("BaseSize", "N/A") if matched_techpack else "N/A"
+# 2. 🔌 TẦNG TRUY VẤN SUPABASE ĐỘNG THEO MÃ TƯƠNG ĐỒNG ĐÃ TÌM ĐƯỢC
+old_specs = {}
+old_base_size = "N/A"
 
-# ✅ ĐÃ SỬA: Ép toàn bộ Key của kho cũ về viết hoa toàn bộ để đồng bộ tuyệt đối với dữ liệu máy quét
-old_specs = {str(k).upper().strip(): v for k, v in raw_old_specs.items()}
+# Lấy mã đối chứng tương đồng đã được tầng AI Vision hoặc Text Matching tìm thấy trước đó
+# (Ví dụ hệ thống của bạn đang lưu biến này ở st.session_state["target_style_name"] hoặc tương đương)
+target_style_name = st.session_state.get("target_style_name") or st.session_state.get("matched_style_id")
 
-# Bản đồ ánh xạ đầu ra toàn cục cho Đoạn 1b tiếp quản
+if target_style_name:
+    try:
+        # Sử dụng client kết nối Supabase có sẵn trong dự án của bạn (ví dụ: st.session_state["supabase_client"])
+        # Nếu bạn dùng thư viện khác, chỉ cần thay đổi cú pháp query tương đương tại đây.
+        supabase = st.session_state.get("supabase_client")
+        
+        if supabase:
+            # Thực hiện Query động vào bảng public.techpack_storage dựa trên style_number thực tế
+            query_response = supabase.table("techpack_storage").select("*").eq("style_number", target_style_name).execute()
+            
+            if query_response and query_response.data:
+                record = query_response.data[0] # Lấy bản ghi khớp đầu tiên
+                
+                # Trích xuất Base Size và trường dữ liệu JSON 'measurements' từ kho dữ liệu gốc của bạn
+                old_base_size = str(record.get("base_size", "N/A"))
+                old_specs = record.get("measurements", {}) or {}
+                
+                # Cập nhật ngược lại matched_techpack toàn cục để đồng bộ hệ thống May mặc ERP
+                st.session_state["matched_techpack"] = {
+                    "StyleName": target_style_name,
+                    "BaseSize": old_base_size,
+                    "DetailedMeasurements": old_specs
+                }
+    except Exception as db_err:
+        st.error(f"❌ Lỗi kết nối truy vấn kho dữ liệu Supabase: {str(db_err)}")
+
+# Trường hợp dự phòng nếu luồng trên chưa chạy hoặc thiếu Client DB, kế thừa an toàn từ session_state hiện tại
+if not old_specs:
+    matched_techpack = st.session_state.get("matched_techpack", {})
+    if matched_techpack and isinstance(matched_techpack, dict):
+        old_specs = matched_techpack.get("DetailedMeasurements", {}) or matched_techpack.get("detailed_measurements", {}) or {}
+        old_base_size = matched_techpack.get("BaseSize", "N/A")
+
 final_matched_map = {}
 processed_old_keys_global = set()
 
+# 3. THỰC THI PIPELINE MA TRẬN ĐỐI CHIẾU HUNGARIAN CHUẨN XÁC
 if isinstance(new_specs, dict) and isinstance(old_specs, dict) and new_specs and old_specs:
     new_keys_list = list(new_specs.keys())
     old_keys_list = list(old_specs.keys())
@@ -2034,7 +2063,6 @@ if isinstance(new_specs, dict) and isinstance(old_specs, dict) and new_specs and
     exact_matched_new = set()
     exact_matched_old = set()
     
-    # 📌 TẦNG 1: EXACT CLEAN MATCH LAYER (Khớp tuyệt đối sau khi dọn sạch nhiễu)
     for nk in new_keys_list:
         nk_clean = clean_pom_description_text(nk)
         if not nk_clean: continue
