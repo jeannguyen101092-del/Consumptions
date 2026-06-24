@@ -1928,13 +1928,8 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 
-import re
-import streamlit as st
-import pandas as pd
-import numpy as np
-
 # =========================================================================================
-# ĐOẠN 1a.1: INDUSTRIAL ERP - REALTIME DB RETRIEVER & DEBUG CONTROLLER (SUPABASE FIX)
+# ĐOẠN 1a.1: INDUSTRIAL ERP - DYNAMIC REALTIME RETRIEVER FOR ALL STYLES (SUPABASE MATRIX)
 # =========================================================================================
 
 UNICODE_FRACTION_MAP = {
@@ -1982,7 +1977,7 @@ new_specs = st.session_state.get("new_style_measurements_dict", {})
 garment_category = str(st.session_state.get("new_style_category_detected", "PANT")).strip().upper()
 new_style_base_size = st.session_state.get("new_style_base_size", "N/A")
 
-# 2. ĐỒNG BỘ MÃ HÀNG TƯƠNG ĐỒNG THỰC TẾ
+# 2. LẤY MÃ ĐỐI CHỨNG ĐỘNG ĐƯỢC CHỌN TỪ GIAO DIỆN HOẶC AI VISION
 target_style_name = (
     st.session_state.get("target_style_name") or 
     st.session_state.get("matched_style_id") or 
@@ -1990,10 +1985,6 @@ target_style_name = (
     st.session_state.get("nearest_style") or
     st.session_state.get("style_number_parsed")
 )
-
-# Khóa cứng an toàn: Nếu trống, ép buộc đồng bộ theo mã hàng thực tế đang có trong Supabase của bạn
-if not target_style_name or str(target_style_name).strip().upper() == "NONE":
-    target_style_name = "P09-429496"  # Hoặc "R09-497570" tùy thuộc vào file bạn test
 
 old_specs = {}
 old_base_size = "N/A"
@@ -2003,32 +1994,38 @@ record_keys_list = []
 supabase = st.session_state.get("supabase_client")
 query_response = None
 
-# 3. THỰC THI TRUY VẤN ĐỘNG VÀO BẢNG TECHPACK_STORAGE CỦA SUPABASE
+# 3. THỰC THI TRUY VẤN ĐỘNG XUYÊN SUỐT TOÀN KHO SUPABASE
 if target_style_name and supabase:
-    try:
-        # Thực hiện câu lệnh select chính xác theo tên bảng và cột thực tế trên màn hình của bạn
-        query_response = supabase.table("techpack_storage").select("*").eq("style_number", target_style_name).execute()
-        
-        # ✅ ĐÃ SỬA LỖI: Bóc tách chính xác phần tử [0] từ danh sách list dữ liệu trả về từ DB
-        if query_response and query_response.data and len(query_response.data) > 0:
-            records_found_count = len(query_response.data)
-            first_row_record = query_response.data[0]  # Lấy dòng bản ghi đầu tiên (Dạng dict)
-            record_keys_list = list(first_row_record.keys())
+    # Đảm bảo loại bỏ khoảng trắng thừa để tránh lỗi so khớp chuỗi SQL
+    clean_target_style = str(target_style_name).strip()
+    
+    if clean_target_style and clean_target_style.upper() != "NONE":
+        try:
+            # Query thời gian thực vào bảng techpack_storage dựa trên style_number động người dùng chọn
+            query_response = supabase.table("techpack_storage").select("*").eq("style_number", clean_target_style).execute()
             
-            # Trích xuất an toàn dữ liệu từ cột JSON 'measurements' và 'base_size' chuẩn theo DB của bạn
-            old_specs = first_row_record.get("measurements", {}) or {}
-            old_base_size = str(first_row_record.get("base_size", "N/A"))
-            
-            # Đồng bộ ngược bộ nhớ đệm hệ thống May mặc ERP để cung cấp dữ liệu cho Đoạn 1b và Đoạn 2
-            st.session_state["matched_techpack"] = {
-                "StyleName": target_style_name,
-                "BaseSize": old_base_size,
-                "DetailedMeasurements": old_specs
-            }
-    except Exception as db_err:
-        st.error(f"⚠️ Cảnh báo lỗi kết nối Supabase: {str(db_err)}")
+            # ✅ ĐÃ SỬA DỨT ĐIỂM: Truy cập đúng phần tử chỉ mục [0] của danh sách mảng dữ liệu Supabase trả về
+            if query_response and query_response.data and len(query_response.data) > 0:
+                records_found_count = len(query_response.data)
+                
+                # Trích xuất dòng dữ liệu đầu tiên từ mảng list kết quả dưới dạng dict
+                first_row_record = query_response.data[0] 
+                record_keys_list = list(first_row_record.keys())
+                
+                # Đọc động cấu trúc cột JSON measurements và trường base_size từ database
+                old_specs = first_row_record.get("measurements", {}) or {}
+                old_base_size = str(first_row_record.get("base_size", "N/A"))
+                
+                # Lưu đồng bộ vào bộ nhớ đệm phục vụ cho thuật toán khớp dòng ở Đoạn 1a.2 và định mức ở Đoạn 2
+                st.session_state["matched_techpack"] = {
+                    "StyleName": clean_target_style,
+                    "BaseSize": old_base_size,
+                    "DetailedMeasurements": old_specs
+                }
+        except Exception as db_err:
+            st.error(f"⚠️ Lỗi xử lý kết nối cấu trúc Supabase: {str(db_err)}")
 
-# 4. TẦNG DỰ PHÒNG AN TOÀN NẾU BIẾN TOÀN CỤC ĐÃ ĐƯỢC NẠP SẴN TỪ TRƯỚC
+# 4. TẦNG DỰ PHÒNG CHỐNG TRỐNG DỮ LIỆU KHI RE-RUN TRANG
 if not old_specs:
     matched_techpack_raw = st.session_state.get("matched_techpack", {})
     if matched_techpack_raw:
@@ -2040,7 +2037,7 @@ if not old_specs:
             old_base_size = str(matched_techpack_raw.get("BaseSize", "N/A"))
 
 # =========================================================================================
-# ĐOẠN HIỂN THỊ KIỂM SOÁT DEBUG SAU KHI SỬA LỖI ĐỐI TƯỢNG LIST
+# CỔNG HIỂN THỊ KIỂM SOÁT ĐỘNG TOÀN KHO
 # =========================================================================================
 st.markdown("---")
 st.subheader("🎛️ CỔNG DEBUG CHẨN ĐOÁN KHO DỮ LIỆU SUPABASE")
