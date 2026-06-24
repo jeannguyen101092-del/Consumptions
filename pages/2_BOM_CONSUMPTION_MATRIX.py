@@ -1977,8 +1977,8 @@ def parse_garment_value_industrial(v):
 # Khởi tạo kết nối Supabase trực tiếp
 try:
     from supabase import create_client, Client
-    SUPABASE_URL = "https://supabase.co"
-    SUPABASE_KEY = "eyJhY0ciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdWJhc2UiLCJzdWIiOiI2ZzU1SInJlZiI6ImV3cXFvZHNtZmx2YnJ6c3lsYXl5IiwiYm9sZSI6ImFub24iLCJpYXQiOjE3NzUxMikyOTAsImV4cCI6MjA5MDY5NTI1MH0.BWPxOsysw8T5CLRZgluRC1F2xSEpU0GoexUFyakGhyc"
+    SUPABASE_URL = "https://ewqqodsfvlvnrzsylawy.supabase.co"
+    SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV3cXFvZHNmdmx2bnJ6c3lsYXd5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUxMTkyOTAsImV4cCI6MjA5MDY5NTI5MH0.BWPxOsyswBT5CLrZgluRC1F2x5EpU06oexUFyakGhyc"
     supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 except Exception:
     supabase = None
