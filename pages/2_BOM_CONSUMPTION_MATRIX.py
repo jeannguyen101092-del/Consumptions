@@ -1920,10 +1920,12 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             valid_diff_pcts = [] # Bộ nhớ lưu trữ tỉ lệ % phục vụ tính trung bình nhảy size ở Đoạn C
 
             # Hàm tách chuỗi chữ thành tập hợp các từ đơn viết thường tối giản
+                        # Hàm tách chuỗi chữ: Giữ lại cả số ngắn (như 5") phục vụ đo thông số thông minh
             def get_clean_words(text):
                 cleaned = str(text).lower()
                 cleaned = re.sub(r'[^a-z0-9\s]', ' ', cleaned)
-                return set([w for w in cleaned.split() if len(w) > 2 and w not in ["pantskirt", "pants", "skirt"]])
+                # Thay đổi: Cho phép từ có 1 ký tự nếu là số để không làm mất thông số kích thước (ví dụ: 5 inch)
+                return set([w for w in cleaned.split() if (len(w) > 2 or w.isdigit()) and w not in ["pantskirt", "pants", "skirt"]])
 
             for pom, val_new in new_style_measurements_dict.items():
                 val_new_str = str(val_new).strip()
@@ -1940,13 +1942,18 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                     if str(pom).lower().strip() == str(old_k).lower().strip():
                         val_old_str = str(old_v).strip()
                         break
-                    # MỞ KHÓA MỜ: Chỉ cần trùng từ khóa lõi chính (như Leg, Waist, Hip, Thigh) là bốc dữ liệu kho sang
+                    
+                    # MỞ KHÓA MỜ: Sửa lại logic chặn 2 chiều nghiêm ngặt cho cấu trúc hình học Rập
                     elif overlap > max_overlap and overlap >= 1:
-                        if "waist" in new_words and "waist" not in old_words: continue
-                        if "hip" in new_words and "hip" not in old_words: continue
-                        if "crotch" in new_words and "crotch" not in old_words: continue
-                        if "leg" in new_words and "leg" not in old_words: continue
-                        if "thigh" in new_words and "thigh" not in old_words: continue
+                        # Kiểm tra nghiêm ngặt tính tương đồng của bộ từ khóa lõi (Phải cùng thuộc nhóm hoặc cùng không thuộc nhóm)
+                        core_keywords = ["waist", "hip", "crotch", "leg", "thigh", "rise", "inseam", "knee"]
+                        mismatch = False
+                        for kw in core_keywords:
+                            # Nếu 1 bên có từ khóa lõi này mà bên kia không có -> Sai vị trí hình học -> Loại bỏ ngay
+                            if (kw in new_words) != (kw in old_words):
+                                mismatch = True
+                                break
+                        if mismatch: continue
                         
                         max_overlap = overlap
                         val_old_str = str(old_v).strip()
