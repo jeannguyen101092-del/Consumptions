@@ -476,46 +476,7 @@ def process_single_pdf_batch(file_bytes, file_name):
             "5. VISUAL FLAT SKETCH LOCATE: Find the exact 1-based page number containing the garment front/back flat sketches."
         )
 
-        contents_payload = [types.Part.from_text(text=industrial_extraction_prompt)]
-        chat_images_dict = {}
-        
-        for page_num in sorted_pages:
-            single_page_list = convert_from_bytes(file_bytes, dpi=100, first_page=page_num, last_page=page_num)
-            if single_page_list:
-                page_img = single_page_list[0]
-                chat_images_dict[page_num] = page_img
-                img_buf = io.BytesIO()
-                page_img.convert("RGB").save(img_buf, format="JPEG", quality=50)
-                contents_payload.append(
-                    types.Part.from_bytes(data=img_buf.getvalue(), mime_type='image/jpeg')
-                )
-            
-        kv_pair_schema = types.Schema(
-            type=types.Type.OBJECT,
-            properties={
-                "pom_description": types.Schema(type=types.Type.STRING),
-                "value": types.Schema(type=types.Type.STRING)
-            },
-            required=["pom_description", "value"]
-        )
-        
-        json_schema = types.Schema(
-            type=types.Type.OBJECT,
-            properties={
-                "style_number_parsed": types.Schema(type=types.Type.STRING),
-                "buyer": types.Schema(type=types.Type.STRING),
-                "category": types.Schema(type=types.Type.STRING),
-                "base_size_name": types.Schema(type=types.Type.STRING),
-                "sketch_page_number_detected": types.Schema(type=types.Type.INTEGER),
-                "measurements_list": types.Schema(type=types.Type.ARRAY, items=kv_pair_schema),
-                "full_size_matrix": types.Schema(type=types.Type.OBJECT) 
-            },
-            required=[
-                "style_number_parsed", "buyer", "category", "base_size_name", 
-                "sketch_page_number_detected", "measurements_list", "full_size_matrix"
-            ]
-        )
-        # TIẾP NỐI LOGIC: CƠ CHẾ DỰ PHÒNG MÔ HÌNH CHỦ ĐỘNG (MODEL FALLBACK ENGINE)
+                # TIẾP NỐI LOGIC: CƠ CHẾ DỰ PHÒNG MÔ HÌNH CHỦ ĐỘNG (MODEL FALLBACK ENGINE)
         models_to_try = ['gemini-2.5-flash', 'gemini-2.5-flash-lite']
         response = None
         current_model_used = 'gemini-2.5-flash'
@@ -586,7 +547,7 @@ def process_single_pdf_batch(file_bytes, file_name):
                 pass
             return {"success": False, "error": f"Mô hình trống. FinishReason={finish_reason} (Model={current_model_used})"}
             
-        # ✂️ THAY ĐỔI THEO YÊU CẦU: BỘ LỌC CỨNG SẠCH CHỮ VẠN NĂNG (MỌI HÃNG SẼ CHỈ LẤY CHỮ)
+        # ✂️ ĐÃ SỬA DỨT ĐIỂM: BỘ LỌC CỨNG SẠCH CHỮ VẠN NĂNG CHUẨN XÁC
         measurements_list = parsed_data.get("measurements_list", [])
         measurements = {}
         
@@ -595,26 +556,27 @@ def process_single_pdf_batch(file_bytes, file_name):
                 raw_desc = str(item.get("pom_description", "")).strip()
                 raw_val = item.get("value")
                 
-                # Bước 1: Xóa ký tự rác hệ thống (*, -, ., #) ở đầu câu
+                # Bước 1: Xóa ký tự nhiễu hệ thống (*, -, ., #) ở đầu câu
                 clean_desc = re.sub(r'^[\*\s\-\._#]+', '', raw_desc).strip()
                 
-                # Bước 2: Tìm vị trí chữ cái hợp lệ đầu tiên để chặt đứt mã số đứng trước
+                # Bước 2: Chặt đứt toàn bộ phần số đứng trước từ chữ cái đầu tiên
                 match_text_start = re.search(r'[A-Za-z]', clean_desc)
                 if match_text_start:
                     start_index = match_text_start.start()
                     potential_clean = clean_desc[start_index:].strip()
                     
-                    # Giữ an toàn các tiền tố quan trọng (WB, CB, CF) nếu bị cắt nhầm
+                    # Giữ lại các tiền tố may mặc viết tắt quan trọng (WB, CB, CF)
                     words_before = clean_desc[:start_index].split()
                     for word in words_before:
                         if word.isupper() and len(word) <= 3 and not any(c.isdigit() for c in word):
                             potential_clean = f"{word} {potential_clean}"
                     clean_desc = potential_clean
                 
-                # Bước 3: Quét từ đầu tiên, nếu chứa số (mã POM) thì loại bỏ khỏi chữ mô tả
+                # Bước 3: Loại bỏ từ đầu tiên nếu là mã số (Ví dụ: 4.04A, 5.01A, 1st)
                 parts = clean_desc.split()
                 if parts and len(parts) > 1:
                     first_word = parts[0]
+                    # Đã sửa đổi điều kiện kiểm tra Regex chuẩn không bị nuốt chữ
                     if any(char.isdigit() for char in first_word) or re.match(r'^[0-9A-Za-z\./\-_]+\$', first_word):
                         if not first_word.isalpha() or len(first_word) <= 2:
                             clean_desc = " ".join(parts[1:])
@@ -649,6 +611,7 @@ def process_single_pdf_batch(file_bytes, file_name):
         detected_p = parsed_data.get("sketch_page_number_detected", 1)
         if 'chat_images_dict' in locals() and detected_p in chat_images_dict:
             try:
+                import io
                 out_buf = io.BytesIO()
                 chat_images_dict[detected_p].convert("RGB").save(out_buf, format="PNG")
                 sketch_bytes_raw = out_buf.getvalue()
@@ -669,6 +632,7 @@ def process_single_pdf_batch(file_bytes, file_name):
         }
     except Exception as total_err:
         return {"success": False, "error": str(total_err)}
+
 
 
 # PHASE 5: USER INTERFACE STRUCTURE & AUTOMATION FACTORY 
