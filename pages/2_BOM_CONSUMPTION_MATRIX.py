@@ -1904,136 +1904,137 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         print(f"❌ [COLUMN RENDER ERROR]: {str(e_col)}")
     # =========================================================================================
     # =========================================================================================
-# ĐOẠN 6A: BẢNG SO SÁNH SIÊU CẤP AN TOÀN - KIỂM TRA ĐỘ LỆCH THÔNG SỐ RẬP MẪU
-# =========================================================================================
+    # =========================================================================================
+    # ĐOẠN 6A: BẢNG SO SÁNH SIÊU CẤP AN TOÀN - KIỂM TRA ĐỘ LỆCH THÔNG SỐ RẬP MẪU
+    # =========================================================================================
 
-st.markdown("<br>### 📐 BẢNG SO SÁNH SAI LỆCH THÔNG SỐ KỸ THUẬT RẬP MẪU", unsafe_allow_html=True)
+    st.markdown("<br>### 📐 BẢNG SO SÁNH SAI LỆCH THÔNG SỐ KỸ THUẬT RẬP MẪU", unsafe_allow_html=True)
 
-new_specs = st.session_state.get("new_style_measurements_dict", {})
-new_style_base_size = st.session_state.get("new_style_base_size", "N/A")
-garment_category = str(st.session_state.get("new_style_category_detected", "PANT")).strip().upper()
+    new_specs = st.session_state.get("new_style_measurements_dict", {})
+    new_style_base_size = st.session_state.get("new_style_base_size", "N/A")
+    garment_category = str(st.session_state.get("new_style_category_detected", "PANT")).strip().upper()
 
-# Đồng bộ an toàn bảng thông số từ kho
-old_specs = {}
-matched_techpack = st.session_state.get("matched_techpack")
-if matched_techpack:
-    old_specs = matched_techpack.get("DetailedMeasurements", {}) or matched_techpack.get("detailed_measurements", {})
+    # Đồng bộ an toàn bảng thông số từ kho
+    old_specs = {}
+    matched_techpack = st.session_state.get("matched_techpack")
+    if matched_techpack:
+        old_specs = matched_techpack.get("DetailedMeasurements", {}) or matched_techpack.get("detailed_measurements", {})
 
-old_base_size = matched_techpack.get("BaseSize", "N/A") if matched_techpack else "N/A"
+    old_base_size = matched_techpack.get("BaseSize", "N/A") if matched_techpack else "N/A"
 
-compare_rows = []
-valid_diff_pcts = []
+    compare_rows = []
+    valid_diff_pcts = []
 
-if new_specs or old_specs:
-    # 📌 1. THUẬT TOÁN PHÂN RÃ TOKENS CỐT LÕI
-    def get_core_tokens(text):
-        if not text: return set()
-        cleaned = str(text).upper()
-        cleaned = re.sub(r'[\(\)\[\]\/\-_\.,:\+]', ' ', cleaned)
-        cleaned = re.sub(r'\d+', ' ', cleaned)
-        words = cleaned.split()
-        stop_words = {"PANT", "SKIRT", "PANTS", "SKIRTS", "AT", "FROM", "ON", "IN", "FOR", "TOTAL", "WITH"}
-        return set([w for w in words if w not in stop_words and len(w) > 2])
+    if new_specs or old_specs:
+        # 📌 1. THUẬT TOÁN PHÂN RÃ TOKENS CỐT LÕI
+        def get_core_tokens(text):
+            if not text: return set()
+            cleaned = str(text).upper()
+            cleaned = re.sub(r'[\(\)\[\]\/\-_\.,:\+]', ' ', cleaned)
+            cleaned = re.sub(r'\d+', ' ', cleaned)
+            words = cleaned.split()
+            stop_words = {"PANT", "SKIRT", "PANTS", "SKIRTS", "AT", "FROM", "ON", "IN", "FOR", "TOTAL", "WITH"}
+            return set([w for w in words if w not in stop_words and len(w) > 2])
 
-    # 📌 2. HÀM QUY ĐỔI PHÂN SỐ MAY MẶC CHUẨN XÁC ĐẾN 3 CHỮ SỐ THẬP PHÂN
-    def clean_float(v):
-        if v is None: return None
-        try: return float(v)
-        except (ValueError, TypeError):
-            try:
-                str_v = str(v).strip()
-                if " " in str_v and "/" in str_v:
-                    parts = str_v.split()
-                    whole = float(parts)
-                    frac_parts = parts.split('/')
-                    return whole + (float(frac_parts) / float(frac_parts))
-                elif "/" in str_v:
-                    frac_parts = str_v.split('/')
-                    return float(frac_parts) / float(frac_parts)
-            except Exception: pass
-            nums = re.findall(r"[-+]?\d*\.\d+|\d+", str(v))
-            return float(nums) if nums else None
+        # 📌 2. HÀM QUY ĐỔI PHÂN SỐ MAY MẶC CHUẨN XÁC ĐẾN 3 CHỮ SỐ THẬP PHÂN
+        def clean_float(v):
+            if v is None: return None
+            try: return float(v)
+            except (ValueError, TypeError):
+                try:
+                    str_v = str(v).strip()
+                    if " " in str_v and "/" in str_v:
+                        parts = str_v.split()
+                        whole = float(parts)
+                        frac_parts = parts.split('/')
+                        return whole + (float(frac_parts) / float(frac_parts))
+                    elif "/" in str_v:
+                        frac_parts = str_v.split('/')
+                        return float(frac_parts) / float(frac_parts)
+                except Exception: pass
+                nums = re.findall(r"[-+]?\d*\.\d+|\d+", str(v))
+                return float(nums) if nums else None
 
-    old_pool_tokens = [{"original_key": k, "value": v, "tokens": get_core_tokens(k)} for k, v in old_specs.items()]
-    processed_old_keys = set()
+        old_pool_tokens = [{"original_key": k, "value": v, "tokens": get_core_tokens(k)} for k, v in old_specs.items()]
+        processed_old_keys = set()
 
-    for original_new_key, val_new in new_specs.items():
-        new_tokens = get_core_tokens(original_new_key)
-        clean_new_key = str(original_new_key).upper()
-        
-        best_match_key, best_match_val, max_overlap = None, None, 0
-        
-        for old_item in old_pool_tokens:
-            old_k = old_item["original_key"]
-            if old_k in processed_old_keys: continue
-            old_tokens = old_item["tokens"]
-            overlap = len(new_tokens.intersection(old_tokens))
+        for original_new_key, val_new in new_specs.items():
+            new_tokens = get_core_tokens(original_new_key)
+            clean_new_key = str(original_new_key).upper()
             
-            if overlap > 0 and overlap > max_overlap:
-                if "WIDTH" in new_tokens and any(x in old_tokens for x in ["POSITION", "DROP", "PLACEMENT", "LOCATION"]): continue
-                if any(x in new_tokens for x in ["POSITION", "DROP", "PLACEMENT", "LOCATION"]) and "WIDTH" in old_tokens: continue
-                if any(k in new_tokens and k not in old_tokens for k in ["WAIST", "HIP", "THIGH", "KNEE", "OPENING", "INSEAM"]): continue
+            best_match_key, best_match_val, max_overlap = None, None, 0
+            
+            for old_item in old_pool_tokens:
+                old_k = old_item["original_key"]
+                if old_k in processed_old_keys: continue
+                old_tokens = old_item["tokens"]
+                overlap = len(new_tokens.intersection(old_tokens))
                 
-                max_overlap = overlap
-                best_match_key = old_k
-                best_match_val = old_item["value"]
-        
-        if best_match_key:
-            val_old = best_match_val
-            processed_old_keys.add(best_match_key)
-        else:
-            val_old = None
+                if overlap > 0 and overlap > max_overlap:
+                    if "WIDTH" in new_tokens and any(x in old_tokens for x in ["POSITION", "DROP", "PLACEMENT", "LOCATION"]): continue
+                    if any(x in new_tokens for x in ["POSITION", "DROP", "PLACEMENT", "LOCATION"]) and "WIDTH" in old_tokens: continue
+                    if any(k in new_tokens and k not in old_tokens for k in ["WAIST", "HIP", "THIGH", "KNEE", "OPENING", "INSEAM"]): continue
+                    
+                    max_overlap = overlap
+                    best_match_key = old_k
+                    best_match_val = old_item["value"]
+            
+            if best_match_key:
+                val_old = best_match_val
+                processed_old_keys.add(best_match_key)
+            else:
+                val_old = None
 
-        f_new = clean_float(val_new)
-        f_old = clean_float(val_old)
-        diff_val, diff_pct = None, None
-        
-        if f_new is not None and f_old is not None:
-            diff_val = round(f_new - f_old, 2)
-            if f_old != 0:
-                diff_pct = round((diff_val / f_old) * 100, 2)
-                is_core_pom = False
-                
-                if "POCKET" in clean_new_key or "COIN" in clean_new_key:
+            f_new = clean_float(val_new)
+            f_old = clean_float(val_old)
+            diff_val, diff_pct = None, None
+            
+            if f_new is not None and f_old is not None:
+                diff_val = round(f_new - f_old, 2)
+                if f_old != 0:
+                    diff_pct = round((diff_val / f_old) * 100, 2)
                     is_core_pom = False
-                else:
-                    if any(x in garment_category for x in ["PANT", "SHORT", "TROUSER"]):
-                        if any(k in clean_new_key for k in ["INSEAM", "THIGH", "HIP", "KNEE", "WAIST", "RISE", "FLY", "OPENING"]):
-                            is_core_pom = True
+                    
+                    if "POCKET" in clean_new_key or "COIN" in clean_new_key:
+                        is_core_pom = False
                     else:
-                        if any(k in clean_new_key for k in ["LENGTH", "CHEST", "BUST", "ARMHOLE", "SLEEVE", "WIDTH"]):
-                            is_core_pom = True
-                
-                if is_core_pom:
-                    valid_diff_pcts.append(diff_pct)
+                        if any(x in garment_category for x in ["PANT", "SHORT", "TROUSER"]):
+                            if any(k in clean_new_key for k in ["INSEAM", "THIGH", "HIP", "KNEE", "WAIST", "RISE", "FLY", "OPENING"]):
+                                is_core_pom = True
+                        else:
+                            if any(k in clean_new_key for k in ["LENGTH", "CHEST", "BUST", "ARMHOLE", "SLEEVE", "WIDTH"]):
+                                is_core_pom = True
+                    
+                    if is_core_pom:
+                        valid_diff_pcts.append(diff_pct)
 
-        display_diff = f"+{diff_val}" if diff_val and diff_val > 0 else (str(diff_val) if diff_val is not None else "-")
-        display_pct = f"+{diff_pct}%" if diff_pct and diff_pct > 0 else (f"{diff_pct}%" if diff_pct is not None else "-")
-        
-        compare_rows.append({
-            "Vị trí đo (POM Description)": original_new_key,
-            f"Mẫu mới ({new_style_base_size})": val_new if val_new is not None else "-",
-            f"Mã cũ ({old_base_size})": val_old if val_old is not None else "-",
-            "Chênh lệch (Diff)": display_diff,
-            "Tỷ lệ biến thiên (Diff %)": display_pct
-        })
-
-    for old_item in old_pool_tokens:
-        original_old_key = old_item["original_key"]
-        if original_old_key not in processed_old_keys:
+            display_diff = f"+{diff_val}" if diff_val and diff_val > 0 else (str(diff_val) if diff_val is not None else "-")
+            display_pct = f"+{diff_pct}%" if diff_pct and diff_pct > 0 else (f"{diff_pct}%" if diff_pct is not None else "-")
+            
             compare_rows.append({
-                "Vị trí đo (POM Description)": original_old_key,
-                f"Mẫu mới ({new_style_base_size})": "-",
-                f"Mã cũ ({old_base_size})": old_item["value"] if old_item["value"] is not None else "-",
-                "Chênh lệch (Diff)": "-",
-                "Tỷ lệ biến thiên (Diff %)": "-"
+                "Vị trí đo (POM Description)": original_new_key,
+                f"Mẫu mới ({new_style_base_size})": val_new if val_new is not None else "-",
+                f"Mã cũ ({old_base_size})": val_old if val_old is not None else "-",
+                "Chênh lệch (Diff)": display_diff,
+                "Tỷ lệ biến thiên (Diff %)": display_pct
             })
 
-    import pandas as pd
-    if compare_rows:
-        st.dataframe(pd.DataFrame(compare_rows), use_container_width=True, hide_index=True)
+        for old_item in old_pool_tokens:
+            original_old_key = old_item["original_key"]
+            if original_old_key not in processed_old_keys:
+                compare_rows.append({
+                    "Vị trí đo (POM Description)": original_old_key,
+                    f"Mẫu mới ({new_style_base_size})": "-",
+                    f"Mã cũ ({old_base_size})": old_item["value"] if old_item["value"] is not None else "-",
+                    "Chênh lệch (Diff)": "-",
+                    "Tỷ lệ biến thiên (Diff %)": "-"
+                })
 
-st.session_state["valid_diff_pcts"] = valid_diff_pcts
+        import pandas as pd
+        if compare_rows:
+            st.dataframe(pd.DataFrame(compare_rows), use_container_width=True, hide_index=True)
+
+    st.session_state["valid_diff_pcts"] = valid_diff_pcts
 
 # =========================================================================================
 # ĐOẠN 6B: AI CONSUMPTION PROJECTION ENGINE - DỰ PHÒNG ĐỊNH MỨC DỰA TRÊN DỮ LIỆU KHO
