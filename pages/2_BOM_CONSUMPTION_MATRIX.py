@@ -449,34 +449,57 @@ def process_single_pdf_batch(file_bytes, file_name):
         sorted_pages = sorted(list(pages_to_scan))
         print(f"📋 [PRODUCTION LOG] {file_name}: Tổng {total_p} trang. Quét: {sorted_pages}")
         
-        # =========================================================================================
-        # 🎯 PROMPT VÁ LỖI LỆCH DÒNG: BUỘC AI NEO THEO MÃ SỐ POM TRÊN TÀI LIỆU AEO
-        # =========================================================================================
         industrial_extraction_prompt = (
-            "You are an expert Garment Specification Auditor at PPJ Group. You are auditing an American Eagle Outfitters (AEO) Techpack.\n"
-            "The numbers are currently misaligned because you are skipping or miscounting rows with note headers (like '***MUST CATCH ELASTIC...').\n"
-            "FIX THIS BY USING THE 'POM CODE' COLUMN AS A STRICT GEOMETRIC ANCHOR.\n\n"
-            
-            "🎯 STRICT ROW-MATCHING PROTOCOL:\n"
-            "1. Locate the spec table with columns: [POM, Description, Tol-, Tol+, XXS, XS, S, M, L, XL, XXL].\n"
-            "2. Read row-by-row by anchoring the POM Code (1st column) to its exact horizontal values.\n"
-            "3. For EACH row that has a valid POM code or valid description:\n"
-            "   - 'pom_description': Combine the POM code and Description, clean it, and format it exactly as: '[POM_CODE] - [DESCRIPTION]' "
-            "(e.g., '4.04A - WAIST AT TOP EDGE - RELAXED', '5.01A - INSEAM PANT - SHORT').\n"
-            "   - 'base_value': Look STRAIGHT HORIZONTALLY to the column marked 'M' (Base Size). Extract the exact fraction string value from this 'M' column only.\n"
-            "   - CRITICAL WARNING: Do NOT drift down or up to the next row's number. If a row has no number in column 'M', return '0'.\n"
-            "   - Look at '5.01A INSEAM PANT - SHORT': the value in column M is EXACTLY '27 1/2'. Do NOT look at the row below it.\n"
-            "   - Look at '5.01A INSEAM PANT - REGULAR': the value in column M is EXACTLY '29 1/2'.\n"
-            "   - Look at '5.01A INSEAM PANT - LONG': the value in column M is EXACTLY '31 1/2'.\n"
-            "4. EXTRACTION FIELD MAP:\n"
-            "   - 'style_number_parsed': Look at the top-left token 'STYLE: XXXX'. Extract the number only.\n"
-            "   - 'buyer': 'AMERICAN EAGLE OUTFITTERS'.\n"
-            "   - 'category': 'PANTS'.\n"
-            "   - 'base_size_name': 'M'.\n"
-            "5. VISUAL FLAT SKETCH LOCATE: Find the exact 1-based page number containing the garment front/back flat sketches."
+            "You are an expert Garment Specification Auditor at PPJ Group. Analyze all attached sheets page by page.\n"
+            "1. Identify the core 'Base Size' / 'Sample Size' (e.g., written as 8-, 32, or Size M).\n"
+            "2. Identify the Buyer name and Category.\n"
+            "3. Find the exact 'Style ID' / 'Style Number' (e.g. 5765).\n"
+            "4. Scan and extract the technical measurement specification chart into key-value pairs inside measurements_list.\n"
+            "5. FOR THE GRADING MATRIX TABLE: Scan and extract the full grading matrix table columns for ALL available sizes into full_size_matrix object.\n"
+            "6. CRITICAL VISUAL FLAT SKETCH LOCATE RULE: Scan all pages visually. You MUST find the exact 1-BASED PAGE NUMBER "
+            "that contains the FULL BODY APPAREL FLAT SKETCH showing the entire completed garment."
         )
-
-                # TIẾP NỐI LOGIC: CƠ CHẾ DỰ PHÒNG MÔ HÌNH CHỦ ĐỘNG (MODEL FALLBACK ENGINE)
+        
+        contents_payload = [types.Part.from_text(text=industrial_extraction_prompt)]
+        chat_images_dict = {}
+        
+        for page_num in sorted_pages:
+            single_page_list = convert_from_bytes(file_bytes, dpi=100, first_page=page_num, last_page=page_num)
+            if single_page_list:
+                page_img = single_page_list[0]
+                chat_images_dict[page_num] = page_img
+                img_buf = io.BytesIO()
+                page_img.convert("RGB").save(img_buf, format="JPEG", quality=50)
+                contents_payload.append(
+                    types.Part.from_bytes(data=img_buf.getvalue(), mime_type='image/jpeg')
+                )
+            
+        kv_pair_schema = types.Schema(
+            type=types.Type.OBJECT,
+            properties={
+                "pom_description": types.Schema(type=types.Type.STRING),
+                "value": types.Schema(type=types.Type.STRING)
+            },
+            required=["pom_description", "value"]
+        )
+        
+        json_schema = types.Schema(
+            type=types.Type.OBJECT,
+            properties={
+                "style_number_parsed": types.Schema(type=types.Type.STRING),
+                "buyer": types.Schema(type=types.Type.STRING),
+                "category": types.Schema(type=types.Type.STRING),
+                "base_size_name": types.Schema(type=types.Type.STRING),
+                "sketch_page_number_detected": types.Schema(type=types.Type.INTEGER),
+                "measurements_list": types.Schema(type=types.Type.ARRAY, items=kv_pair_schema),
+                "full_size_matrix": types.Schema(type=types.Type.OBJECT) 
+            },
+            required=[
+                "style_number_parsed", "buyer", "category", "base_size_name", 
+                "sketch_page_number_detected", "measurements_list", "full_size_matrix"
+            ]
+        )
+        # TIẾP NỐI LOGIC: CƠ CHẾ DỰ PHÒNG MÔ HÌNH CHỦ ĐỘNG (MODEL FALLBACK ENGINE)
         models_to_try = ['gemini-2.5-flash', 'gemini-2.5-flash-lite']
         response = None
         current_model_used = 'gemini-2.5-flash'
@@ -547,49 +570,30 @@ def process_single_pdf_batch(file_bytes, file_name):
                 pass
             return {"success": False, "error": f"Mô hình trống. FinishReason={finish_reason} (Model={current_model_used})"}
             
-        # ✂️ ĐÃ SỬA DỨT ĐIỂM: BỘ LỌC CỨNG SẠCH CHỮ VẠN NĂNG CHUẨN XÁC
-        measurements_list = parsed_data.get("measurements_list", [])
-        measurements = {}
-        
-        for item in measurements_list:
-            if item and "pom_description" in item:
-                raw_desc = str(item.get("pom_description", "")).strip()
-                raw_val = item.get("value")
-                
-                # Bước 1: Xóa ký tự nhiễu hệ thống (*, -, ., #) ở đầu câu
-                clean_desc = re.sub(r'^[\*\s\-\._#]+', '', raw_desc).strip()
-                
-                # Bước 2: Chặt đứt toàn bộ phần số đứng trước từ chữ cái đầu tiên
-                match_text_start = re.search(r'[A-Za-z]', clean_desc)
-                if match_text_start:
-                    start_index = match_text_start.start()
-                    potential_clean = clean_desc[start_index:].strip()
-                    
-                    # Giữ lại các tiền tố may mặc viết tắt quan trọng (WB, CB, CF)
-                    words_before = clean_desc[:start_index].split()
-                    for word in words_before:
-                        if word.isupper() and len(word) <= 3 and not any(c.isdigit() for c in word):
-                            potential_clean = f"{word} {potential_clean}"
-                    clean_desc = potential_clean
-                
-                # Bước 3: Loại bỏ từ đầu tiên nếu là mã số (Ví dụ: 4.04A, 5.01A, 1st)
-                parts = clean_desc.split()
-                if parts and len(parts) > 1:
-                    first_word = parts[0]
-                    # Đã sửa đổi điều kiện kiểm tra Regex chuẩn không bị nuốt chữ
-                    if any(char.isdigit() for char in first_word) or re.match(r'^[0-9A-Za-z\./\-_]+\$', first_word):
-                        if not first_word.isalpha() or len(first_word) <= 2:
-                            clean_desc = " ".join(parts[1:])
-                
-                # Đồng bộ in hoa sạch sẽ chuẩn Master DB ERP
-                clean_desc = clean_desc.strip().upper()
-                clean_desc = re.sub(r'^[\s\-\._]+', '', clean_desc).strip()
-                
-                if clean_desc:
-                    measurements[clean_desc] = raw_val
-                else:
-                    measurements[raw_desc.upper().strip()] = raw_val
+        # HÀM LỌC CHỮ VÀ SỐ, BỎ QUA KÝ TỰ ĐẶC BIỆT (GIỮ LẠI KHOẢNG TRẮNG ĐỂ KHÔNG DÍNH CHỮ)
+        def clean_text(val):
+            if not isinstance(val, str):
+                return val
+            return re.sub(r'[^a-zA-Z0-9\s]', '', val).strip()
 
+        # ÁP DỤNG LỌC SẠCH CHO CÁC THÔNG SỐ CƠ BẢN ĐÚNG VỊ TRÍ
+        if "style_number_parsed" in parsed_data:
+            parsed_data["style_number_parsed"] = clean_text(parsed_data["style_number_parsed"])
+        if "buyer" in parsed_data:
+            parsed_data["buyer"] = clean_text(parsed_data["buyer"])
+        if "category" in parsed_data:
+            parsed_data["category"] = clean_text(parsed_data["category"])
+        if "base_size_name" in parsed_data:
+            parsed_data["base_size_name"] = clean_text(parsed_data["base_size_name"])
+
+        measurements_list = parsed_data.get("measurements_list", [])
+        # LỌC SẠCH TRONG QUÁ TRÌNH CHUYỂN ĐỔI LIST THÀNH DICT MEASUREMENTS
+        measurements = {
+            clean_text(item.get("pom_description")): clean_text(item.get("value")) 
+            for item in measurements_list 
+            if "pom_description" in item
+        }
+        
         matrix_data = parsed_data.get("full_size_matrix", {})
         full_size_matrix = {}
         if isinstance(matrix_data, dict):
@@ -598,40 +602,16 @@ def process_single_pdf_batch(file_bytes, file_name):
             try:
                 matrix_raw_str = matrix_data.strip()
                 if matrix_raw_str.startswith("```json"):
-                    matrix_raw_str = matrix_raw_str.split("```json")[-1].split("```").strip()
+                    matrix_raw_str = matrix_raw_str.split("```json")[-1].split("```")[0].strip()
                 elif matrix_raw_str.startswith("```"):
-                    matrix_raw_str = matrix_raw_str.split("```").strip()
+                    matrix_raw_str = matrix_raw_str.split("```")[0].strip()
                 matrix_raw_str = re.sub(r',\s*([\]}])', r'\1', matrix_raw_str)
                 full_size_matrix = json.loads(matrix_raw_str)
             except:
                 pass
-        
-        # Cắt lấy ảnh Sketch rập vẽ phẳng từ số trang phát hiện
-        sketch_bytes_raw = None
-        detected_p = parsed_data.get("sketch_page_number_detected", 1)
-        if 'chat_images_dict' in locals() and detected_p in chat_images_dict:
-            try:
-                import io
-                out_buf = io.BytesIO()
-                chat_images_dict[detected_p].convert("RGB").save(out_buf, format="PNG")
-                sketch_bytes_raw = out_buf.getvalue()
-            except:
-                pass
 
-        return {
-            "success": True,
-            "payload_data": {
-                "style_number_parsed": parsed_data.get("style_number_parsed", "UNKNOWN"),
-                "buyer": parsed_data.get("buyer", "PPJ"),
-                "category": parsed_data.get("category", "Pants"),
-                "base_size_name": parsed_data.get("base_size_name", "N/A"),
-                "measurements": measurements,
-                "full_size_matrix": full_size_matrix,
-                "_sketch_bytes_raw": sketch_bytes_raw
-            }
-        }
-    except Exception as total_err:
-        return {"success": False, "error": str(total_err)}
+        # Gán lại measurements đã chuẩn hóa sạch vào parsed_data nếu bạn cần dùng tiếp phía dưới
+        parsed_data["measurements_clean_dict"] = measurements
 
 
 
