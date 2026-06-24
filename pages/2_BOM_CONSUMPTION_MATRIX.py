@@ -1752,10 +1752,30 @@ with img_col1:
     uploaded_file_name = st.session_state.get("previous_uploaded_file_name", "Techpack")
     
     if target_new_sketch_bytes is not None:
-        # VÁ LỖI XỬ LÝ: Nếu tệp đầu vào là PDF, hiển thị hộp thông tin tài liệu thay vì ép render st.image gây lỗi
+        # KIỂM TRA VÀ CHUYỂN ĐỔI PDF THÀNH ẢNH ĐỂ HIỂN THỊ SKETCH
         if "pdf" in str(detected_mime_type).lower() or str(uploaded_file_name).lower().endswith(".pdf"):
-            st.info(f"📄 **Tài liệu dạng tệp:** `{uploaded_file_name}`\n\nHệ thống đã nạp toàn bộ cấu trúc dữ liệu PDF vào bộ nhớ mô phỏng rập mẫu.")
+            try:
+                from pdf2image import convert_from_bytes
+                import io
+
+                # Chuyển đổi trang đầu tiên của file PDF thành đối tượng PIL Image
+                pages = convert_from_bytes(target_new_sketch_bytes, first_page=1, last_page=1)
+                
+                if pages:
+                    # Chuyển đổi ảnh sang dạng bytes để Streamlit hiển thị ổn định
+                    img_byte_arr = io.BytesIO()
+                    pages[0].save(img_byte_arr, format='PNG')
+                    render_bytes = img_byte_arr.getvalue()
+                    
+                    st.image(render_bytes, caption=f"Hình Sketch quét từ PDF ({new_style_id_detected})", use_container_width=True)
+                else:
+                    st.error("⚠️ Không thể trích xuất trang từ file PDF.")
+            except Exception as e:
+                # Nếu thiếu thư viện hoặc lỗi hệ thống, fallback về hộp thông tin cũ kèm thông báo lỗi chi tiết
+                st.info(f"📄 **Tài liệu dạng tệp:** `{uploaded_file_name}`")
+                st.warning(f"Chưa cấu hình bộ chuyển đổi PDF sang Ảnh: {e}")
         else:
+            # Render bình thường nếu là file ảnh (JPEG/PNG)
             try:
                 st.image(target_new_sketch_bytes, caption=f"Mẫu mới tải lên ({new_style_id_detected})", use_container_width=True)
             except Exception as e:
