@@ -2063,20 +2063,7 @@ def execute_pom_comparison_matrix(new_style_measurements, matched_techpack, targ
         })
 
     return comparison_rows
-# Giả lập dữ liệu đầu vào
-new_specs = {"Waist (Relaxed)": "32 1/2", "Inseam": "30"}
-old_techpack = {"measurements": {"WAIST RELAXED": "32", "INSEAM": "31"}}
 
-# Chạy hàm xử lý ma trận so khớp
-results = execute_pom_comparison_matrix(new_specs, old_techpack, "Old Jacket v1", "ST-2026")
-
-# Chuyển đổi sang DataFrame và hiển thị lên Streamlit
-if results:
-    df = pd.DataFrame(results)
-    st.subheader("📊 Bảng So Sánh Thông Số Kỹ Thuật (POM)")
-    st.dataframe(df, use_container_width=True)
-else:
-    st.warning("⚠️ Không tìm thấy dữ liệu thông số lịch sử để so sánh!")
 
 
        # =========================================================================================
