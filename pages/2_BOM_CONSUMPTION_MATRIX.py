@@ -1929,7 +1929,7 @@ import streamlit as st
 import pandas as pd
 
 # =========================================================================================
-# ĐOẠN 1: INDUSTRIAL RETRIEVER - PHIÊN BẢN LIÊN KẾT KHO KHÉP KÍN 
+# ĐOẠN 1: INDUSTRIAL RETRIEVER - FIX INDEX MẢNG DỮ LIỆU [0]
 # =========================================================================================
 
 old_specs = {}
@@ -1980,7 +1980,8 @@ try:
     SUPABASE_URL = "https://ewqqodsfvlvnrzsylawy.supabase.co"
     SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV3cXFvZHNmdmx2bnJ6c3lsYXd5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUxMTkyOTAsImV4cCI6MjA5MDY5NTI5MH0.BWPxOsyswBT5CLrZgluRC1F2x5EpU06oexUFyakGhyc"
     supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
-except Exception:
+except Exception as e:
+    st.error(f"Lỗi khởi tạo Supabase Client: {e}")
     supabase = None
 
 # KÍCH HOẠT TRUY VẤN DỮ LIỆU BẢNG THỰC TẾ
@@ -1991,7 +1992,7 @@ if supabase:
         if query_response and query_response.data and len(query_response.data) > 0:
             records_found_count = len(query_response.data)
             
-            # ✅ ĐÃ SỬA CỐT LÕI: Lấy chính xác phần tử đầu tiên [0] của mảng dữ liệu trả về từ Supabase
+            # ✅ ĐÃ SỬA: Dùng chỉ mục [0] để lấy chính xác hàng đầu tiên thay vì chuỗi text
             chosen_row = query_response.data[0]
             record_keys_list = list(chosen_row.keys())
             
