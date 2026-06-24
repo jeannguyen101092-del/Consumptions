@@ -1824,12 +1824,12 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     except Exception as e_col:
         print(f"❌ [COLUMN RENDER ERROR]: {str(e_col)}")
     # =========================================================================================
-    #    old_specs, old_base_size, target_style_name, confidence_score = {}, "N/A", "Chưa xác định", 0
+       old_specs, new_specs, old_base_size, target_style_name, confidence_score = {}, {}, "N/A", "Chưa xác định", 0
     new_specs_raw = st.session_state.get("new_style_measurements_dict", {})
     if isinstance(new_specs_raw, list):
         new_specs = {item["pom_description"]: item.get("value") for item in new_specs_raw if isinstance(item, dict) and "pom_description" in item}
-    else:
-        new_specs = new_specs_raw if isinstance(new_specs_raw, dict) else {}
+    elif isinstance(new_specs_raw, dict):
+        new_specs = new_specs_raw
 
     garment_category = str(st.session_state.get("new_style_category_detected", "PANT")).strip().upper()
     new_style_base_size = st.session_state.get("new_style_base_size", "N/A")
