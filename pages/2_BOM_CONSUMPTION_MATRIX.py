@@ -1928,7 +1928,7 @@ import json
 import re
 
 # =========================================================================================
-# ĐOẠN 1: INDUSTRIAL ERP - SUPABASE RETRIEVER & JSONB CORRECTOR (SUPER DEBUG VERSION)
+# ĐOẠN 1: INDUSTRIAL ERP - SUPABASE RETRIEVER & JSONB CORRECTOR (VÁ SẠCH LỖI CÚ PHÁP)
 # =========================================================================================
 
 old_specs = {}
@@ -1942,7 +1942,7 @@ new_specs = st.session_state.get("new_style_measurements_dict", {})
 garment_category = str(st.session_state.get("new_style_category_detected", "PANT")).strip().upper()
 new_style_base_size = st.session_state.get("new_style_base_size", "N/A")
 
-# 1. HÀM CHUẨN HÓA MÃ HÀNG (Điểm lỗi 3: Loại bỏ ký tự đặc biệt để so khớp tối đa)
+# 1. HÀM CHUẨN HÓA MÃ HÀNG
 def normalize_style_code(x):
     if not x: return ""
     return re.sub(r"[^A-Z0-9]", "", str(x).upper().strip())
@@ -1957,7 +1957,7 @@ def clean_pom_description_text(text):
     cleaned = re.sub(r'\s+', ' ', cleaned).strip()
     return cleaned
 
-# 3. HÀM PARSER PHÂN SỐ NGÀNH MAY (Đã vá lỗi thiếu chỉ mục [0] theo phát hiện của bạn)
+# 3. HÀM PARSER PHÂN SỐ NGÀNH MAY (ĐÃ VÁ LỖI CHỈ MỤC CHUẨN 100%)
 def parse_garment_value_industrial(v):
     if v is None: return None
     try: return float(v)
@@ -1971,8 +1971,8 @@ def parse_garment_value_industrial(v):
             
             if " " in str_v and "/" in str_v:
                 parts = str_v.split()
-                whole = float(parts[0])  # ✅ ĐÃ SỬA: Thêm [0]
-                num, den = parts[1].split('/')
+                whole = float(parts[0])  # Sửa từ parts sang parts[0]
+                num, den = parts[1].split('/') # Sửa từ parts sang parts[1]
                 return whole + (float(num) / float(den))
             elif "/" in str_v:
                 num, den = str_v.split('/')
@@ -1981,7 +1981,7 @@ def parse_garment_value_industrial(v):
         
         nums = re.findall(r"[-+]?\d*\.\d+|\d+", str_v)
         if nums:
-            try: return float(nums[0])  # ✅ ĐÃ SỬA: Thêm [0]
+            try: return float(nums[0])  # Sửa từ nums sang nums[0]
             except Exception: return None
         return None
 
@@ -2003,21 +2003,18 @@ if not target_style_name or str(target_style_name).strip().upper() == "NONE":
 if not target_style_name or str(target_style_name).strip().upper() == "NONE":
     target_style_name = "P09-492496"
 
-# 4. KÍCH HOẠT SIÊU TRUY VẤN CHẨN ĐOÁN (Điểm lỗi 1, 2, 4)
+# 4. KÍCH HOẠT SIÊU TRUY VẤN CHẨN ĐOÁN
 supabase = st.session_state.get("supabase_client")
 
 if supabase:
     st.info("🔍 **HỆ THỐNG ĐANG QUÉT TOÀN BỘ CẤU TRÚC KHO DB SUPABASE...**")
     
-    # Danh sách các bảng (Bạn có thể thêm/sửa tên bảng thực tế ở đây)
     table_list = ["techpack_storage", "techpack_library", "techpack_master"]
-    
-    # Chuẩn hóa mã tìm kiếm (Ví dụ: "P09-492496" -> "P09492496")
     norm_target = normalize_style_code(target_style_name)
     
     for table_name in table_list:
         try:
-            # TẦNG CỔNG TRỰC QUAN: Quét thử cấu trúc schema thực tế của bảng
+            # Lấy 10 dòng đầu tiên của bảng để kiểm tra cấu trúc schema thực tế
             resp = supabase.table(table_name).select("*").limit(10).execute()
             
             with st.expander(f"⚙️ Log chẩn đoán bảng: `{table_name}`", expanded=True):
@@ -2029,7 +2026,6 @@ if supabase:
                 available_cols = list(resp.data[0].keys())
                 st.write(f"📊 Số dòng quét thử: `{len(resp.data)}` | Danh sách cột thực tế: `{available_cols}`")
                 
-                # Điểm lỗi 2: Duyệt tìm hàng có chứa thông số đo bằng Python
                 target_row = None
                 for row in resp.data:
                     # Tìm kiếm động cột chứa dữ liệu measurements
@@ -2042,7 +2038,7 @@ if supabase:
                     if not detected_measurements_col:
                         continue
                     
-                    # Điểm lỗi 1: Xác định cột mã hàng thực tế
+                    # Xác định cột mã hàng thực tế
                     detected_style_col = None
                     for col in ["style_number", "style_id", "style_no", "style", "style_code", "StyleNumber", "article"]:
                         if col in row and row[col]:
@@ -2052,7 +2048,6 @@ if supabase:
                     # Nếu tìm thấy cả cột mã hàng và cột thông số, tiến hành so khớp mã hàng đã chuẩn hóa
                     if detected_style_col:
                         db_style_norm = normalize_style_code(row[detected_style_col])
-                        # Kiểm tra xem mã hàng trong DB có chứa mã đích đã chuẩn hóa hay không
                         if norm_target in db_style_norm or db_style_norm in norm_target:
                             target_row = row
                             st.success(f"🎉 ĐÃ KHỚP MÃ HÀNG: `{row[detected_style_col]}` tại cột `{detected_style_col}`!")
@@ -2121,6 +2116,7 @@ with debug_col2:
     st.write(f"4️⃣ **record keys:** `{record_keys_list}`")
     st.write(f"5️⃣ **NEW SPECS count:** `{len(new_specs) if new_specs else 0}` | **OLD SPECS count:** `{len(old_specs) if old_specs else 0}`")
 st.markdown("---")
+
 
 import streamlit as st
 import pandas as pd
