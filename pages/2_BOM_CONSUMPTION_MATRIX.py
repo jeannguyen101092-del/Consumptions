@@ -466,7 +466,6 @@ def process_single_pdf_batch(file_bytes, file_name):
         for page_num in sorted_pages:
             single_page_list = convert_from_bytes(file_bytes, dpi=100, first_page=page_num, last_page=page_num)
             if single_page_list:
-                # SỬA LỖI TẠI ĐÂY: Phải lấy phần tử đầu tiên [0] của list ảnh trả về
                 page_img = single_page_list[0]
                 chat_images_dict[page_num] = page_img
                 img_buf = io.BytesIO()
@@ -571,31 +570,9 @@ def process_single_pdf_batch(file_bytes, file_name):
                 pass
             return {"success": False, "error": f"Mô hình trống. FinishReason={finish_reason} (Model={current_model_used})"}
             
-        # HÀM LOGIC LỌC SẠCH: CHỈ GIỮ LẠI CHỮ, SỐ VÀ KHOẢNG TRẮNG ĐỂ KHÔNG BỊ DÍNH TỪ
-        def clean_text(val):
-            if not isinstance(val, str):
-                return val
-            return re.sub(r'[^a-zA-Z0-9\s]', '', val).strip()
-
-        # THỰC HIỆN LỌC SẠCH ĐÚNG VỊ TRÍ CHO CÁC BIẾN KIỂU CHUỖI TRẢ VỀ
-        if "style_number_parsed" in parsed_data:
-            parsed_data["style_number_parsed"] = clean_text(parsed_data["style_number_parsed"])
-        if "buyer" in parsed_data:
-            parsed_data["buyer"] = clean_text(parsed_data["buyer"])
-        if "category" in parsed_data:
-            parsed_data["category"] = clean_text(parsed_data["category"])
-        if "base_size_name" in parsed_data:
-            parsed_data["base_size_name"] = clean_text(parsed_data["base_size_name"])
-
-        # ĐÚNG CẤU TRÚC GỐC: Chuyển đổi list sang dict và làm sạch dữ liệu đo
         measurements_list = parsed_data.get("measurements_list", [])
-        measurements = {
-            clean_text(item.get("pom_description")): clean_text(item.get("value")) 
-            for item in measurements_list 
-            if "pom_description" in item
-        }
+        measurements = {item.get("pom_description"): item.get("value") for item in measurements_list if "pom_description" in item}
         
-        # ĐÚNG CẤU TRÚC GỐC: Xử lý phần chuỗi thô hoặc dict của full_size_matrix bị cắt cụt ở file cũ
         matrix_data = parsed_data.get("full_size_matrix", {})
         full_size_matrix = {}
         if isinstance(matrix_data, dict):
@@ -611,16 +588,66 @@ def process_single_pdf_batch(file_bytes, file_name):
                 full_size_matrix = json.loads(matrix_raw_str)
             except:
                 pass
-
-        # CẬP NHẬT LẠI LIST ĐÃ LỌC SẠCH VÀO THEO ĐÚNG ĐẦU RA MÀ APP STREAMLIT ĐANG ĐỌC
-        parsed_data["measurements_list"] = [{"pom_description": k, "value": v} for k, v in measurements.items()]
+        
+        parsed_data["measurements"] = measurements
         parsed_data["full_size_matrix"] = full_size_matrix
-
-        # GIỮ NGUYÊN BLOCK ĐÓNG GÓI HOÀN CHỈNH CHO TOÀN BỘ LOGIC TRÊN
-        return {"success": True, "data": parsed_data}
-
+        
+        warning_msg = None
+        if not measurements:
+            warning_msg = "Không phát hiện bảng thông số kỹ thuật."
+        
+        extracted_sketch_bytes = None
+        detected_page_num = int(parsed_data.get("sketch_page_number_detected", 1))
+        
+        if detected_page_num in chat_images_dict:
+            b_buf = io.BytesIO()
+            chat_images_dict[detected_page_num].convert("RGB").save(b_buf, format="JPEG", quality=90)
+            extracted_sketch_bytes = b_buf.getvalue()
+        else:
+            if sorted_pages:
+                fallback_page = sorted_pages[0]
+                if fallback_page in chat_images_dict:
+                    detected_page_num = fallback_page
+                    b_buf = io.BytesIO()
+                    chat_images_dict[fallback_page].convert("RGB").save(b_buf, format="JPEG", quality=90)
+                    extracted_sketch_bytes = b_buf.getvalue()
+            
+        success_db = False
+        for db_attempt in range(3):
+            try:
+                success_db = save_to_supabase_techpack_table(parsed_data, raw_file_bytes=file_bytes, file_name=file_name)
+                if success_db:
+                    break
+                time.sleep(1)
+            except:
+                time.sleep(1)
+        
+        output_payload = {
+            "style_number_parsed": parsed_data.get("style_number_parsed", "UNKNOWN"),
+            "buyer": parsed_data.get("buyer", "UNKNOWN BUYER"),
+            "category": parsed_data.get("category", "GARMENT"),
+            "base_size_name": parsed_data.get("base_size_name", "32"),
+            "measurements": measurements,
+            "full_size_matrix": full_size_matrix
+        }
+        
+        return {
+            "success": True,
+            "data": output_payload, 
+            "style_id": output_payload["style_number_parsed"],
+            "buyer": output_payload["buyer"],
+            "category": output_payload["category"],
+            "size": output_payload["base_size_name"],
+            "measurements": output_payload["measurements"], 
+            "sketch_bytes": extracted_sketch_bytes,
+            "sketch_page_index": detected_page_num, 
+            "warning": warning_msg,
+            "model_used": current_model_used,
+            "error": None if success_db else "Lỗi cổng đồng bộ Database."
+        }
     except Exception as e:
-        return {"success": False, "error": f"Lỗi hệ thống: {str(e)}"}
+        return {"success": False, "error": f"Lỗi bóc tách PDF: {str(e)}"}
+
 
 
 
