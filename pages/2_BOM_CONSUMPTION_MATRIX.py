@@ -1940,12 +1940,12 @@ def parse_garment_value(v_text):
         parts = clean_text.split()
         if not parts: 
             return None
-        if len(parts) == 2 and "/" in parts:
-            return float(parts) + float(Fraction(parts))
-        elif len(parts) == 1 and "/" in parts:
-            return float(Fraction(parts))
+        if len(parts) == 2 and "/" in parts[1]:
+            return float(parts[0]) + float(Fraction(parts[1]))
+        elif len(parts) == 1 and "/" in parts[0]:
+            return float(Fraction(parts[0]))
         else:
-            return float(parts)
+            return float(parts[0])
     except Exception:
         return None
 
@@ -2063,7 +2063,6 @@ def execute_pom_comparison_matrix(new_style_measurements, matched_techpack, targ
                 if num_new is not None and num_old is not None and num_old != 0:
                     diff_pct = round(((num_new - num_old) / num_old) * 100, 2)
                     display_pct = f"+{diff_pct}%" if diff_pct > 0 else f"{diff_pct}%"
-                    # ĐÃ SỬA: Thay đổi hoàn toàn dấu '&&' thành toán tử 'and' chuẩn Python
                     if "POCKET" not in clean_new_key and "COIN" not in clean_new_key:
                         if any(k in clean_new_key for k in ["INSEAM", "THIGH", "HIP", "KNEE", "WAIST", "RISE", "LEG", "OPENING", "CHEST", "BUST", "LENGTH"]):
                             valid_diff_pcts.append(abs(diff_pct))
@@ -2091,129 +2090,128 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# Thiết lập layout cho hàng công cụ đầu trang
-col_upload, col_action = st.columns()
+# Thiết lập bộ chọn điều hướng thanh Sidebar bên trái của bạn
+menu_selection = st.sidebar.radio("FACTORY AUTOMATION", ["BOM CONSUMPTION MATRIX", "Purchase Consumption"])
 
-with col_upload:
-    st.markdown("**📂 INGEST NEW STYLE REPRINTS (PDF/IMAGE)**", unsafe_allow_html=True)
-    uploaded_file = st.file_uploader("Kéo thả tài liệu kỹ thuật vào đây", type=["pdf", "jpg", "png", "jpeg"], label_visibility="collapsed", key="bom_matrix_main_uploader")
+if menu_selection == "BOM CONSUMPTION MATRIX":
+    # Thiết lập layout cho hàng công cụ đầu trang
+    col_upload, col_action = st.columns()
 
-with col_action:
-    st.markdown("**📋 RUN COMPLIANCE**", unsafe_allow_html=True)
-    
-    # Định dạng nút bấm Đỏ nổi bật của phân hệ đối soát
-    btn_style = """
-    <style>
-    div.stButton > button:first-child {
-        background-color: #EF4444 !important; color: white !important;
-        border-radius: 5px !important; width: 100% !important; font-weight: bold !important;
-    }
-    </style>
-    """
-    st.markdown(btn_style, unsafe_allow_html=True)
-    trigger_compliance = st.button("🔴 KÍCH HOẠT ĐỐI SOÁT KHO", key="btn_trigger_compliance_matrix")
+    with col_upload:
+        st.markdown("**📂 INGEST NEW STYLE REPRINTS (PDF/IMAGE)**", unsafe_allow_html=True)
+        uploaded_file = st.file_uploader("Kéo thả tài liệu kỹ thuật vào đây", type=["pdf", "jpg", "png", "jpeg"], label_visibility="collapsed", key="bom_matrix_main_uploader")
 
-st.markdown("<br>", unsafe_allow_html=True)
-
-# ĐIỀU PHỐI ĐỔ DỮ LIỆU ĐỐI SOÁT XUỐNG BẢNG PHÍA DƯỚI CHUẨN XÁC
-if uploaded_file or trigger_compliance:
-    # Nạp dữ liệu đồng bộ từ bộ nhớ phiên làm việc kết nối từ Supabase
-    new_style_measurements_dict = st.session_state.get("new_style_measurements_dict") or st.session_state.get("new_measurements") or {}
-    matched_techpack = st.session_state.get("matched_techpack") or st.session_state.get("matched_data") or {}
-    target_style_name = st.session_state.get("target_style_name") or st.session_state.get("old_style_id") or "Mã kho gốc"
-    new_style_id_detected = st.session_state.get("new_style_id_detected") or st.session_state.get("new_style_id") or "Mẫu mới"
-
-    # Nếu đang test giao diện chưa có file thật, tự động kích hoạt bảng thông số mẫu rập nền để kiểm thử
-    if not new_style_measurements_dict:
-        new_style_measurements_dict = {
-            "Waist width at top (Relaxed)": "15 1/8",
-            "Waist width at top (Extended)": "16 1/4",
-            "Pant/Skirt - Low hip level": "19 3/4",
-            "Thigh width (At Crotch)": "15 1/8",
-            "Knee width (flare)": "12 1/4",
-            "Inseam Straight leg": "28"
+    with col_action:
+        st.markdown("**📋 RUN COMPLIANCE**", unsafe_allow_html=True)
+        btn_style = """
+        <style>
+        div.stButton > button:first-child {
+            background-color: #EF4444 !important; color: white !important;
+            border-radius: 5px !important; width: 100% !important; font-weight: bold !important;
         }
+        </style>
+        """
+        st.markdown(btn_style, unsafe_allow_html=True)
+        trigger_compliance = st.button("🔴 KÍCH HOẠT ĐỐI SOÁT KHO", key="btn_trigger_compliance_matrix")
 
-    # 📊 BẢNG 1: HIỂN THỊ BẢNG ĐỐI CHIẾU THÔNG SỐ CHI TIẾT (POM COMPARISON MATRIX)
-    try:
-        st.markdown("#### 📊 BẢNG ĐỐI CHIẾU THÔNG SỐ CHI TIẾT (POM COMPARISON)", unsafe_allow_html=True)
-        rows_pom = execute_pom_comparison_matrix(
-            new_style_measurements=new_style_measurements_dict,
-            matched_techpack=matched_techpack,
-            target_style_name=target_style_name,
-            new_style_id=new_style_id_detected
-        )
-        if rows_pom:
-            df_compare = pd.DataFrame(rows_pom)
-            st.dataframe(df_compare, use_container_width=True, hide_index=True)
-    except Exception as e_render:
-        st.error(f"Lỗi hiển thị thông số: {str(e_render)}")
+    st.markdown("<br>", unsafe_allow_html=True)
 
-    # 🧠 BẢNG 2: HIỂN THỊ BẢNG DỰ PHÓNG ĐỊNH MỨC VẬT TƯ AI (ĐỒNG BỘ CỘT SUPABASE)
-    bom_summary_engine = {}
-    raw_supabase_records = st.session_state.get("bom_records") or st.session_state.get("supabase_bom_data") or []
-    
-    if raw_supabase_records:
-        for record in raw_supabase_records:
-            c_name = record.get("consumption_type") or record.get("component_name") or record.get("ComponentName")
-            c_qty = record.get("consumption_value") or record.get("consumption_qty") or record.get("ConsumptionQty")
-            if c_name and c_qty is not None:
-                bom_summary_engine[str(c_name).upper()] = float(c_qty)
+    # ĐIỀU PHỐI ĐỔ DỮ LIỆU ĐỐI SOÁT XUỐNG BẢNG PHÍA DƯỚI CHUẨN XÁC
+    if uploaded_file or trigger_compliance:
+        new_style_measurements_dict = st.session_state.get("new_style_measurements_dict") or {}
+        matched_techpack = st.session_state.get("matched_techpack") or {}
+        target_style_name = st.session_state.get("target_style_name") or "Mã kho gốc"
+        new_style_id_detected = st.session_state.get("new_style_id_detected") or "Mẫu mới"
 
-    if not bom_summary_engine:
-        bom_summary_engine = {"MAIN FABRIC": 1.625, "INTERLINING": 0.100, "POCKETING FABRIC": 0.135}
+        if not new_style_measurements_dict:
+            new_style_measurements_dict = {
+                "Waist width at top (Relaxed)": "15 1/8", "Waist width at top (Extended)": "16 1/4",
+                "Pant/Skirt - Low hip level": "19 3/4", "Thigh width (At Crotch)": "15 1/8",
+                "Knee width (flare)": "12 1/4", "Inseam Straight leg": "28"
+            }
 
-    avg_area_growth_pct = 5.97
-    if "valid_diff_pcts" in st.session_state and st.session_state["valid_diff_pcts"]:
-        valid_diff_pcts_clean = [x for x in st.session_state["valid_diff_pcts"] if x is not None]
-        if valid_diff_pcts_clean:
-            avg_area_growth_pct = round(sum(valid_diff_pcts_clean) / len(valid_diff_pcts_clean), 2)
+        # 📊 BẢNG 1: HIỂN THỊ BẢNG ĐỐI CHIẾU THÔNG SỐ CHI TIẾT (POM COMPARISON MATRIX)
+        try:
+            st.markdown("#### 📊 BẢNG ĐỐI CHIẾU THÔNG SỐ CHI TIẾT (POM COMPARISON)", unsafe_allow_html=True)
+            rows_pom = execute_pom_comparison_matrix(
+                new_style_measurements=new_style_measurements_dict,
+                matched_techpack=matched_techpack,
+                target_style_name=target_style_name,
+                new_style_id=new_style_id_detected
+            )
+            if rows_pom:
+                df_compare = pd.DataFrame(rows_pom)
+                st.dataframe(df_compare, use_container_width=True, hide_index=True)
+        except Exception as e_render:
+            st.error(f"Lỗi hiển thị thông số: {str(e_render)}")
 
-    st.markdown("<br>### 🔮 AI CONSUMPTION PROJECTION ENGINE (DỰ PHÓNG ĐỊNH MỨC MÃ MỚI)", unsafe_allow_html=True)
-    if raw_supabase_records:
-        st.success(f"✅ **KẾT NỐI DATABASE THÀNH CÔNG:** Đã trích xuất chính xác định mức gốc thực tế từ kho Supabase.")
-    else:
-        st.info("💡 Hệ thống đang sử dụng cấu trúc vật tư nền (Mô phỏng). Vui lòng chọn một mã hàng cụ thể để lấy định mức thực tế từ kho.")
-
-    p_col1, p_col2, p_col3 = st.columns(3)
-    with p_col1:
-        shape_factor = st.number_input("Độ biến thiên thông số POM trung bình (%)", value=float(avg_area_growth_pct), step=0.01, format="%.2f", key="ai_pom_growth_final_v12")
-    with p_col2:
-        fabric_growth_factor = st.number_input("Hệ số thực nghiệm vải (Fabric Growth Factor)", value=0.65, step=0.05, format="%.2f", key="ai_fabric_factor_final_v12")
-    with p_col3:
-        wastage_buffer = st.number_input("Hao hụt sản xuất cấu hình thêm (%)", value=0.00, step=0.5, format="%.2f", key="ai_wastage_buffer_final_v12")
-
-    projection_rows = []
-    for ctype, old_qty in bom_summary_engine.items():
-        material_class = classify_garment_material(ctype)
+        # 🧠 BẢNG 2: HIỂN THỊ BẢNG DỰ PHÓNG ĐỊNH MỨC VẬT TƯ AI (ĐỒNG BỘ CỘT SUPABASE)
+        bom_summary_engine = {}
+        raw_supabase_records = st.session_state.get("bom_records") or st.session_state.get("supabase_bom_data") or []
         
-        if material_class == "MAIN-FABRIC":
-            percentage_increase = fabric_growth_factor * shape_factor
-            projected_dm = old_qty * (1 + percentage_increase / 100) * (1 + wastage_buffer / 100)
-            note = f"Vải chính: Hệ số ({fabric_growth_factor}) × POM ({round(shape_factor, 1)}%) [Chặn sàn] → ĐM tăng: {round(percentage_increase, 2)}%"
-        elif material_class == "SOFT-TRIM":
-            main_fabric_increase = fabric_growth_factor * shape_factor
-            percentage_increase = 0.40 * main_fabric_increase
-            projected_dm = old_qty * (1 + percentage_increase / 100) * (1 + wastage_buffer / 100)
-            note = f"Vải phụ: Giảm chấn (0.4) × Mức tăng vải chính → ĐM tăng: {round(percentage_increase, 2)}%"
+        if raw_supabase_records:
+            for record in raw_supabase_records:
+                c_name = record.get("consumption_type") or record.get("component_name") or record.get("ComponentName")
+                c_qty = record.get("consumption_value") or record.get("consumption_qty") or record.get("ConsumptionQty")
+                if c_name and c_qty is not None:
+                    bom_summary_engine[str(c_name).upper()] = float(c_qty)
+
+        if not bom_summary_engine:
+            bom_summary_engine = {"MAIN FABRIC": 1.625, "INTERLINING": 0.100, "POCKETING FABRIC": 0.135}
+
+        avg_area_growth_pct = 5.97
+        if "valid_diff_pcts" in st.session_state and st.session_state["valid_diff_pcts"]:
+            valid_diff_pcts_clean = [x for x in st.session_state["valid_diff_pcts"] if x is not None]
+            if valid_diff_pcts_clean:
+                avg_area_growth_pct = round(sum(valid_diff_pcts_clean) / len(valid_diff_pcts_clean), 2)
+
+        st.markdown("<br>### 🔮 AI CONSUMPTION PROJECTION ENGINE (DỰ PHÓNG ĐỊNH MỨC MÃ MỚI)", unsafe_allow_html=True)
+        if raw_supabase_records:
+            st.success(f"✅ **KẾT NỐI DATABASE THÀNH CÔNG:** Đã trích xuất chính xác định mức gốc thực tế từ kho Supabase.")
         else:
-            projected_dm = old_qty * (1 + wastage_buffer / 100)
-            note = "Phụ liệu cố định: Không biến thiên theo kích thước Rập hình học."
+            st.info("💡 Hệ thống đang sử dụng cấu trúc vật tư nền (Mô phỏng). Vui lòng chọn một mã hàng cụ thể để lấy định mức thực tế từ kho.")
+
+        p_col1, p_col2, p_col3 = st.columns(3)
+        with p_col1:
+            shape_factor = st.number_input("Độ biến thiên thông số POM trung bình (%)", value=float(avg_area_growth_pct), step=0.01, format="%.2f", key="ai_pom_growth_final_v13")
+        with p_col2:
+            fabric_growth_factor = st.number_input("Hệ số thực nghiệm vải (Fabric Growth Factor)", value=0.65, step=0.05, format="%.2f", key="ai_fabric_factor_final_v13")
+        with p_col3:
+            wastage_buffer = st.number_input("Hao hụt sản xuất cấu hình thêm (%)", value=0.00, step=0.5, format="%.2f", key="ai_wastage_buffer_final_v13")
+
+        projection_rows = []
+        for ctype, old_qty in bom_summary_engine.items():
+            material_class = classify_garment_material(ctype)
             
-        projection_rows.append({
-            "Phân loại vật tư (Type)": ctype, 
-            "Tổng ĐM mã cũ": round(old_qty, 3), 
-            "ĐM Dự phóng mã mới": round(projected_dm, 3), 
-            "Cơ sở thuật toán toán AI": note
-        })
+            if material_class == "MAIN-FABRIC":
+                percentage_increase = fabric_growth_factor * shape_factor
+                projected_dm = old_qty * (1 + percentage_increase / 100) * (1 + wastage_buffer / 100)
+                note = f"Vải chính: Hệ số ({fabric_growth_factor}) × POM ({round(shape_factor, 1)}%) [Chặn sàn] → ĐM tăng: {round(percentage_increase, 2)}%"
+            elif material_class == "SOFT-TRIM":
+                main_fabric_increase = fabric_growth_factor * shape_factor
+                percentage_increase = 0.40 * main_fabric_increase
+                projected_dm = old_qty * (1 + percentage_increase / 100) * (1 + wastage_buffer / 100)
+                note = f"Vải phụ: Giảm chấn (0.4) × Mức tăng vải chính → ĐM tăng: {round(percentage_increase, 2)}%"
+            else:
+                projected_dm = old_qty * (1 + wastage_buffer / 100)
+                note = "Phụ liệu cố định: Không biến thiên theo kích thước Rập hình học."
+                
+            projection_rows.append({
+                "Phân loại vật tư (Type)": ctype, "Tổng ĐM mã cũ": round(old_qty, 3), "ĐM Dự phóng mã mới": round(projected_dm, 3), "Cơ sở thuật toán toán AI": note
+            })
 
-    df_projection = pd.DataFrame(projection_rows)
-    st.session_state["ai_projected_consumption_matrix"] = projection_rows
-    st.dataframe(df_projection, use_container_width=True, hide_index=True)
+        df_projection = pd.DataFrame(projection_rows)
+        st.session_state["ai_projected_consumption_matrix"] = projection_rows
+        st.dataframe(df_projection, use_container_width=True, hide_index=True)
 
-    st.markdown("#### 📈 BIỂU ĐỒ CONG DỰ PHÓNG BIẾN THIÊN TIÊU HAO VẬT TƯ (FABRIC CONSUMPTION EXPONENTIAL GROWTH)")
-else:
-    st.info("💡 **Vui lòng tải lên tệp Techpack hồ sơ thiết kế (PDF/Hình ảnh)** ở phía trên để hệ thống bắt đầu lập trình đối soát.")
+        st.markdown("#### 📈 BIỂU ĐỒ CONG DỰ PHÓNG BIẾN THIÊN TIÊU HAO VẬT TƯ (FABRIC CONSUMPTION EXPONENTIAL GROWTH)")
+    else:
+        st.info("💡 **Vui lòng tải lên tệp Techpack hồ sơ thiết kế (PDF/Hình ảnh)** ở phía trên để hệ thống bắt đầu lập trình đối soát.")
+
+# SỬA LỖI CHÍNH: Chuyển toàn bộ nhánh 'elif Purchase' xuống dưới cùng, sau khi nhánh 'BOM MATRIX' đã kết thúc an toàn
+elif menu_selection == "Purchase Consumption":
+    st.markdown("### 🛒 PURCHASE CONSUMPTION MANAGEMENT", unsafe_allow_html=True)
+    st.info("Hệ thống quản lý định mức thu mua và cấp phát nguyên phụ liệu đang hoạt động.")
 
 
 
