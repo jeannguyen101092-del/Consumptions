@@ -1908,7 +1908,7 @@ import pandas as pd
 import streamlit as st
 
 def normalize_key(text):
-    """Làm sạch và viết hoa toàn bộ chuỗi text để chống lệch chữ."""
+    """Làm sạch văn bản thông số rập, viết hoa đồng bộ."""
     t = str(text).upper().strip()
     t = t.replace('"', ' INCH ').replace("''", " INCH ")
     t = t.replace("(", " ").replace(")", " ")
@@ -1918,12 +1918,12 @@ def normalize_key(text):
     return t.strip()
 
 def extract_below_position(text):
-    """Trích xuất số inch hạ lửng (Ví dụ: 10 Inch Below -> 10)."""
+    """Trích xuất mốc vị trí đo hình học (Ví dụ: 10" Below -> 10)."""
     m = re.search(r'(\d+)\s*(?:INCH)?\s*BELOW', str(text).upper())
     return int(m.group(1)) if m else None
 
 def parse_garment_value(v_text):
-    """Đổi hỗn số ngành may sang số thập phân, bảo vệ phân số không bị cắt lỗi."""
+    """Quy đổi hỗn số, phân số phân tách an toàn cho Diff%."""
     if not v_text or str(v_text).strip() == "-": 
         return None
     try:
@@ -1940,17 +1940,17 @@ def parse_garment_value(v_text):
         parts = clean_text.split()
         if not parts: 
             return None
-        if len(parts) == 2 and "/" in parts:
+        if len(parts) == 2 and "/" in parts[1]:
             return float(parts[0]) + float(Fraction(parts[1]))
-        elif len(parts) == 1 and "/" in parts:
+        elif len(parts) == 1 and "/" in parts[0]:
             return float(Fraction(parts[0]))
         else:
-            return float(parts)
+            return float(parts[0])
     except Exception:
         return None
 
 def classify_garment_material(ctype_text):
-    """Phân loại vật tư chuẩn xác 3 nhóm ngành may để áp dụng thuật toán dự phóng riêng biệt."""
+    """Phân nhóm vật tư may mặc chuẩn xác tránh lỗi tranh chấp từ khóa."""
     text = str(ctype_text).strip().upper()
     if "INTERLINING" in text or "LINING" in text or "MEX" in text or "DỰNG" in text:
         return "SOFT-TRIM"
@@ -1999,7 +1999,7 @@ def get_pom_position_code(text):
     return None
 
 def execute_pom_comparison_matrix(new_style_measurements, matched_techpack, target_style_name, new_style_id):
-    """Hàm lõi đối chiếu thông số hình học rập đa chủng loại."""
+    """Hàm lõi đối chiếu và kiểm tra rập mẫu hình học."""
     historical_measurements = {}
     if isinstance(matched_techpack, dict):
         historical_measurements = matched_techpack.get("measurements") or matched_techpack.get("DetailedMeasurements") or {}
@@ -2088,7 +2088,7 @@ if menu_selection == "BOM CONSUMPTION MATRIX":
     target_style_name = st.session_state.get("target_style_name") or st.session_state.get("old_style_id") or "Mã kho gốc"
     new_style_id_detected = st.session_state.get("new_style_id_detected") or st.session_state.get("new_style_id") or "Mẫu mới"
 
-    # 📊 B.1: HIỂN THỊ BẢNG ĐỐI CHIẾU THÔNG SỐ CHI TIẾT (POM COMPARISON)
+    # 📊 B.1: HIỂN THỊ BẢNG ĐỐI CHIẾU THÔNG SỐ CHI TIẾT (POM COMPARISON) - ĐƯA LÊN ĐẦU TIÊN
     if new_style_measurements_dict:
         try:
             st.markdown("<br>#### 📊 BẢNG ĐỐI CHIẾU THÔNG SỐ CHI TIẾT (POM COMPARISON)", unsafe_allow_html=True)
@@ -2104,25 +2104,25 @@ if menu_selection == "BOM CONSUMPTION MATRIX":
         except Exception as e_render:
             st.error(f"Lỗi hiển thị thông số: {str(e_render)}")
     else:
-        st.warning("⚠️ Đang đợi nạp file tài liệu... Hãy đảm bảo đã Upload Techpack ở menu bên trái để lấy thông số.")
+        st.warning("⚠️ Đang đợi nạp file tài liệu... Hãy đảm bảo đã chọn mã hàng hoặc Upload Techpack hợp lệ.")
 
-    # 📊 B.2: HIỂN THỊ BẢNG DỰ PHÓNG ĐỊNH MỨC VẬT TƯ AI (LẤY TỪ KHO ĐỊNH MỨC SUPABASE)
+    # 🧠 B.2: HIỂN THỊ BẢNG DỰ PHÓNG ĐỊNH MỨC VẬT TƯ AI (ĐỌC ĐÚNG CỘT SUPABASE TRỰC TIẾP)
     bom_summary_engine = {}
     raw_supabase_records = st.session_state.get("bom_records") or st.session_state.get("supabase_bom_data") or []
     
     if raw_supabase_records:
         for record in raw_supabase_records:
-            # 🎯 BẮT TRÚNG CỘT KHO THỰC TẾ: consumption_type và consumption_value từ bảng san_pham Supabase
+            # 🎯 ĐỒNG BỘ CỘT KHO THỰC TẾ: Bắt trúng cột 'consumption_type' và 'consumption_value' trên Supabase của bạn
             c_name = record.get("consumption_type") or record.get("component_name") or record.get("ComponentName")
             c_qty = record.get("consumption_value") or record.get("consumption_qty") or record.get("ConsumptionQty")
             if c_name and c_qty is not None:
                 bom_summary_engine[str(c_name).upper()] = float(c_qty)
 
-    # Chặn không cho dùng data mẫu nếu cột Supabase bị cấu hình lệch trường tên
+    # Chặn dùng dữ liệu mẫu nếu DB đã nạp thành công để bảo vệ định mức gốc
     if not bom_summary_engine and raw_supabase_records:
         st.error("❌ Lỗi cấu trúc: Đã tìm thấy bản ghi trên Supabase nhưng tên cột không khớp với 'consumption_type' hoặc 'consumption_value'.")
     elif not bom_summary_engine:
-        # Bản ghi fallback mẫu hiển thị ban đầu
+        # Bản ghi fallback hiển thị mặc định
         bom_summary_engine = {"MAIN FABRIC": 1.625, "INTERLINING": 0.100, "POCKETING FABRIC": 0.135}
 
     avg_area_growth_pct = 5.97
@@ -2139,11 +2139,11 @@ if menu_selection == "BOM CONSUMPTION MATRIX":
 
     p_col1, p_col2, p_col3 = st.columns(3)
     with p_col1:
-        shape_factor = st.number_input("Độ biến thiên thông số POM trung bình (%)", value=float(avg_area_growth_pct), step=0.01, format="%.2f", key="ai_pom_growth_final_v7_clean")
+        shape_factor = st.number_input("Độ biến thiên thông số POM trung bình (%)", value=float(avg_area_growth_pct), step=0.01, format="%.2f", key="ai_pom_growth_final_v10")
     with p_col2:
-        fabric_growth_factor = st.number_input("Hệ số thực nghiệm vải (Fabric Growth Factor)", value=0.65, step=0.05, format="%.2f", key="ai_fabric_factor_final_v7_clean")
+        fabric_growth_factor = st.number_input("Hệ số thực nghiệm vải (Fabric Growth Factor)", value=0.65, step=0.05, format="%.2f", key="ai_fabric_factor_final_v10")
     with p_col3:
-        wastage_buffer = st.number_input("Hao hụt sản xuất cấu hình thêm (%)", value=0.00, step=0.5, format="%.2f", key="ai_wastage_buffer_final_v7_clean")
+        wastage_buffer = st.number_input("Hao hụt sản xuất cấu hình thêm (%)", value=0.00, step=0.5, format="%.2f", key="ai_wastage_buffer_final_v10")
 
     projection_rows = []
     for ctype, old_qty in bom_summary_engine.items():
