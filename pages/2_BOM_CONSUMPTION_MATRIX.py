@@ -1905,17 +1905,17 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
 import re
 import streamlit as st
 import pandas as pd
+import numpy as np  # Thêm numpy để xử lý ma trận chi phí chính xác
 from rapidfuzz import fuzz
-from scipy.optimize import linear_sum_assignment  # Thuật toán Hungarian toán học
+from scipy.optimize import linear_sum_assignment
 
 # =========================================================================================
-# ĐOẠN 1a: INDUSTRIAL AI POM MATCHING & HUNGARIAN ASSIGNMENT ENGINE
+# ĐOẠN 1a: INDUSTRIAL AI POM MATCHING & HUNGARIAN ASSIGNMENT ENGINE (FIXED VALUEERROR)
 # =========================================================================================
 
-# 1. BỘ CHUYỂN ĐỔI UNICODE FRACTION VÀ PARSER SỐ ĐO MAY MẶC CÔNG NGHIỆP
 UNICODE_FRACTION_MAP = {
     "½": " 1/2", "¼": " 1/4", "¾": " 3/4", "⅛": " 1/8", 
-    "⅜": " 3/8", "⅝": " 5/8", "⅞": " 7/8", "¾": " 3/4"
+    "⅜": " 3/8", "⅝": " 5/8", "⅞": " 7/8"
 }
 
 def parse_garment_value_industrial(v):
@@ -1924,7 +1924,6 @@ def parse_garment_value_industrial(v):
     except (ValueError, TypeError):
         try:
             str_v = str(v).strip()
-            # Khử ký tự phân số Unicode đặc biệt trước khi bóc tách hình học
             for uni_char, repl_str in UNICODE_FRACTION_MAP.items():
                 if uni_char in str_v:
                     str_v = str_v.replace(uni_char, repl_str)
@@ -1942,37 +1941,28 @@ def parse_garment_value_industrial(v):
         nums = re.findall(r"[-+]?\d*\.\d+|\d+", str_v)
         return float(nums[0]) if nums else None
 
-# 2. CƠ CHẾ PHÂN LOẠI SỚM CHI TIẾT TÚI (POCKET CLASSIFICATION ENGINE)
 POCKET_KEYWORDS = ["POCKET", "COIN", "WATCH", "TICKET", "UTILITY", "5TH"]
 
-# 3. MỞ RỘNG BẢN ĐỒ ALIAS NGÀNH MAY TOÀN DIỆN (POM ALIAS MASTER MAP)
 POM_ALIAS_MAP = {
-    # Nhóm Vòng eo / Cật quần
     "WAISTBAND": "WAIST-GEN", "WAIST WIDTH": "WAIST-GEN", "WAIST CIRCUMFERENCE": "WAIST-GEN",
     "RELAXED WAIST": "WAIST-GEN", "EXTENDED WAIST": "WAIST-GEN", "TOP WAIST": "WAIST-GEN",
-    # Nhóm Vòng mông
     "FULL HIP": "HIP-GEN", "LOW HIP": "HIP-GEN", "HIP WIDTH": "HIP-GEN", 
     "SEAT WIDTH": "HIP-GEN", "SEAT CIRCUMFERENCE": "HIP-GEN", "HIP CIRCUMFERENCE": "HIP-GEN",
-    # Nhóm Đáy quần (Rise)
     "FRONT RISE": "RISE-FRONT", "FRONT BODY RISE": "RISE-FRONT", "FRONT CROTCH DEPTH": "RISE-FRONT",
     "BACK RISE": "RISE-BACK", "BACK BODY RISE": "RISE-BACK", "BACK CROTCH DEPTH": "RISE-BACK",
-    # Nhóm Đùi / Gối / Ống
     "THIGH WIDTH": "THIGH-GEN", "THIGH CIRCUMFERENCE": "THIGH-GEN", "UPPER THIGH": "THIGH-GEN",
     "KNEE WIDTH": "KNEE-GEN", "KNEE CIRCUMFERENCE": "KNEE-GEN",
     "LEG OPENING": "OPENING-GEN", "BOTTOM OPENING": "OPENING-GEN", "HEM OPENING": "OPENING-GEN",
     "INSEAM LENGTH": "INSEAM-GEN", "OUTSEAM LENGTH": "OUTSEAM-GEN"
 }
 
-# 4. CHUYÊN BIỆT HÓA REGEX VỊ TRÍ ĐO (ADVANCED POSITION RE-ENGINEERING)
 def get_pom_position_code_industrial(text):
     if not text: return "UNK-GEN", 0.0
     cleaned = str(text).upper().strip()
     
-    # Phân loại và cô lập sớm cấu trúc Túi để không bị đánh nhầm vào phân vùng kết cấu lớn
     if any(pk in cleaned for pk in POCKET_KEYWORDS):
         return "POCKET-GEN", 0.0
         
-    # SỬA LỖI NGHIỆM TRỌNG: Chỉ bắt số đi kèm các từ khóa chỉ định vị trí hình học may mặc
     pos_regex = r'(\d+(?:\s+\d+/\d+|\.\d+|\/\d+)?)\s*(?:INCH|")?\s*(?:BELOW|ABOVE|FROM|DOWN)'
     pos_match = re.search(pos_regex, cleaned)
     
@@ -1980,7 +1970,6 @@ def get_pom_position_code_industrial(text):
     if pos_match:
         position_inch = parse_garment_value_industrial(pos_match.group(1)) or 0.0
     
-    # Định dạng phân vùng cơ sở hạ tầng rập
     base_code = "UNK-GEN"
     for keyword, alias_code in POM_ALIAS_MAP.items():
         if keyword in cleaned:
@@ -1989,7 +1978,6 @@ def get_pom_position_code_industrial(text):
             
     return base_code, position_inch
 
-# 5. ĐỒNG BỘ NẠP DỮ LIỆU ĐẦU VÀO VÀ KHỬ LỖI N/A SIZE
 new_specs = st.session_state.get("new_style_measurements_dict", {})
 garment_category = str(st.session_state.get("new_style_category_detected", "PANT")).strip().upper()
 
@@ -2006,11 +1994,9 @@ old_base_size = matched_techpack.get("BaseSize", "N/A") if matched_techpack else
 if not old_base_size or str(old_base_size).strip().upper() == "N/A":
     old_base_size = "32"
 
-# Khởi tạo bản đồ ánh xạ đầu ra toàn cục cho Đoạn 1b tiếp quản
 final_matched_map = {}
 processed_old_keys_global = set()
 
-# THỰC THI TOÀN BỘ PIPELINE MA TRẬN ĐỐI CHIẾU
 if new_specs and old_specs:
     new_keys_list = list(new_specs.keys())
     old_keys_list = list(old_specs.keys())
@@ -2030,7 +2016,6 @@ if new_specs and old_specs:
                 processed_old_keys_global.add(ok)
                 break
 
-    # Lọc bỏ các phần tử đã khớp Exact để chuẩn bị đưa vào ma trận tối ưu Hungarian
     filtered_new_keys = [k for k in new_keys_list if k not in exact_matched_new]
     filtered_old_keys = [k for k in old_keys_list if k not in exact_matched_old]
     
@@ -2039,9 +2024,9 @@ if new_specs and old_specs:
         num_old = len(filtered_old_keys)
         max_dim = max(num_new, num_old)
         
-        # Thiết lập ma trận chi phí (Cost Matrix - Hungarian giải bài toán tìm cực tiểu nên lấy 1000 - Score)
-        cost_matrix = pd.DataFrame(1000.0, index=range(max_dim), columns=range(max_dim)).values
-        score_tracker = {} # Bộ nhớ đệm lưu điểm số thực tế phục vụ bẫy ngưỡng lọc
+        # ✅ ĐÃ SỬA LỖI: Tạo ma trận vuông chi phí nền bằng NumPy có kiểu dữ liệu float64 chuẩn xác
+        cost_matrix = np.full((max_dim, max_dim), 1000.0, dtype=np.float64)
+        score_tracker = {}
         
         for i, nk in enumerate(filtered_new_keys):
             new_base_code, new_pos = get_pom_position_code_industrial(nk)
@@ -2049,34 +2034,28 @@ if new_specs and old_specs:
             for j, ok in enumerate(filtered_old_keys):
                 old_base_code, old_pos = get_pom_position_code_industrial(ok)
                 
-                # Tính điểm Fuzzy Set Ratio nền
                 fuzzy_score = float(fuzz.token_set_ratio(nk, ok))
-                
-                # Pha trộn điểm phi tuyến tính kết hợp cấu trúc phân vùng
                 pair_score = fuzzy_score * 0.40
                 
-                # Tầng điều hợp Alias đặc hiệu
                 if new_base_code != "UNK-GEN" and new_base_code == old_base_code:
                     pair_score += 60.0
                     
-                # Tầng điều hợp khoảng cách địa hình hình học vị trí (Penalty Distance Match)
                 if new_base_code == old_base_code and new_base_code != "POCKET-GEN":
                     distance = abs(new_pos - old_pos)
                     pair_score -= min(distance * 5.0, 40.0)
                 elif new_pos != old_pos:
-                    pair_score -= 15.0 # Phạt nhẹ nếu khác số định vị khi chưa rõ phân vùng
+                    pair_score -= 15.0
                     
-                # Chống chập chùm chéo vùng chức năng rập
                 if new_base_code != old_base_code and "UNK-GEN" not in [new_base_code, old_base_code]:
                     pair_score = 0.0
                     
+                # Gán dữ liệu an toàn vào ma trận chi phí hình học
                 cost_matrix[i, j] = 1000.0 - pair_score
                 score_tracker[(i, j)] = pair_score
                 
-        # Thực thi thuật toán Linear Sum Assignment (Hungarian Matrix Optimization)
+        # Giải toán tối ưu hóa phân phối dòng bằng thuật toán Hungarian
         row_ind, col_ind = linear_sum_assignment(cost_matrix)
         
-        # 📌 TẦNG SÀN NGHIỆP VỤ: Áp ngưỡng lọc ngặt nghèo sau Hungarian loại bỏ ô giả
         for r, c in zip(row_ind, col_ind):
             if r < num_new and c < num_old:
                 final_score = score_tracker.get((r, c), 0)
@@ -2084,8 +2063,6 @@ if new_specs and old_specs:
                 ok_target = filtered_old_keys[c]
                 
                 new_base_code, _ = get_pom_position_code_industrial(nk_target)
-                
-                # Nâng cao ngưỡng chặn cứng đối với các vùng nhảy size kết cấu nhạy cảm
                 core_critical_poms = ["WAIST-GEN", "HIP-GEN", "RISE-FRONT", "RISE-BACK", "THIGH-GEN", "INSEAM-GEN"]
                 required_threshold = 60.0 if new_base_code in core_critical_poms else 35.0
                 
@@ -2095,6 +2072,7 @@ if new_specs and old_specs:
                         "val_old": old_specs[ok_target]
                     }
                     processed_old_keys_global.add(ok_target)
+
 import streamlit as st
 import pandas as pd
 
