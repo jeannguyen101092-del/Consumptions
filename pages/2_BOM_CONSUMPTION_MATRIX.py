@@ -2053,129 +2053,6 @@ with debug_col2:
 st.markdown("---")
 
 
-import streamlit as st
-import numpy as np
-from rapidfuzz import fuzz
-from scipy.optimize import linear_sum_assignment
-
-# =========================================================================================
-# ĐOẠN 1a.2: INDUSTRIAL May Mặc POM MATCHING ENGINE - HUNGARIAN CALCULATOR
-# =========================================================================================
-
-def analyze_garment_pom_structure(text):
-    if not text:
-        return {"base": "UNK", "type": "WIDTH", "subtype": "GENERIC", "pos": 0.0}
-    
-    cleaned = clean_pom_description_text(text)
-    
-    pos_regex = r'(\d+(?:\s+\d+/\d+|\.\d+|\/\d+)?)\s*(?:INCH|")?\s*(?:BELOW|ABOVE|FROM|DOWN)'
-    pos_match = re.search(pos_regex, cleaned)
-    position_inch = 0.0
-    if pos_match:
-        position_inch = parse_garment_value_industrial(pos_match.group(1)) or 0.0
-        
-    base = "UNK"
-    if "WAIST" in cleaned: base = "WAIST"
-    elif "HIP" in cleaned or "SEAT" in cleaned: base = "HIP"
-    elif "THIGH" in cleaned: base = "THIGH"
-    elif "RISE" in cleaned or "CROTCH" in cleaned: base = "RISE"
-    elif "INSEAM" in cleaned: base = "INSEAM"
-    elif "OPENING" in cleaned: base = "OPENING"
-    
-    p_type = "WIDTH"
-    if "LEVEL" in cleaned or "POSITION" in cleaned or "PLACEMENT" in cleaned: p_type = "LEVEL"
-    elif "LENGTH" in cleaned or "OUTSEAM" in cleaned: p_type = "LENGTH"
-    elif "DEPTH" in cleaned: p_type = "DEPTH"
-    
-    subtype = "GENERIC"
-    if "FRONT" in cleaned: subtype = "FRONT"
-    elif "BACK" in cleaned: subtype = "BACK"
-    elif "HIGH" in cleaned or "TOP" in cleaned: subtype = "HIGH"
-    elif "LOW" in cleaned or "BOTTOM" in cleaned: subtype = "LOW"
-    
-    return {"base": base, "type": p_type, "subtype": subtype, "pos": position_inch}
-
-final_matched_map = {}
-processed_old_keys_global = set()
-
-# CHỈ BẬT ENGINE TÍNH TOÁN MA TRẬN KHI ĐẢM BẢO KHO CŨ ĐÃ ĐƯỢC NẠP SỐ LIỆU THÀNH CÔNG TỪ ĐOẠN 1a.1
-if isinstance(new_specs, dict) and isinstance(old_specs, dict) and new_specs and old_specs:
-    new_keys_list = list(new_specs.keys())
-    old_keys_list = list(old_specs.keys())
-    
-    exact_matched_new = set()
-    exact_matched_old = set()
-    
-    # 📌 TẦNG 1: EXACT CLEAN MATCH LAYER
-    for nk in new_keys_list:
-        nk_clean = clean_pom_description_text(nk)
-        if not nk_clean: continue
-        for ok in old_keys_list:
-            if ok in exact_matched_old: continue
-            if nk_clean == clean_pom_description_text(ok):
-                final_matched_map[nk] = {"old_key": ok, "val_old": old_specs[ok]}
-                exact_matched_new.add(nk)
-                exact_matched_old.add(ok)
-                processed_old_keys_global.add(ok)
-                break
-
-    filtered_new_keys = [k for k in new_keys_list if k not in exact_matched_new]
-    filtered_old_keys = [k for k in old_keys_list if k not in exact_matched_old]
-    
-    if filtered_new_keys and filtered_old_keys:
-        num_new = len(filtered_new_keys)
-        num_old = len(filtered_old_keys)
-        max_dim = max(num_new, num_old)
-        
-        cost_matrix = np.full((max_dim, max_dim), 1000.0, dtype=np.float64)
-        score_tracker = {}
-        
-        for i, nk in enumerate(filtered_new_keys):
-            nk_clean = clean_pom_description_text(nk)
-            n_struct = analyze_garment_pom_structure(nk)
-            
-            for j, ok in enumerate(filtered_old_keys):
-                ok_clean = clean_pom_description_text(ok)
-                o_struct = analyze_garment_pom_structure(ok)
-                
-                fuzzy_score = float(fuzz.token_set_ratio(nk_clean, ok_clean))
-                pair_score = fuzzy_score * 0.35
-                
-                if n_struct["base"] != "UNK" and n_struct["base"] == o_struct["base"]:
-                    pair_score += 45.0  
-                    if n_struct["type"] == o_struct["type"]:
-                        pair_score += 15.0
-                    else:
-                        pair_score -= 45.0  
-                        
-                    if n_struct["subtype"] == o_struct["subtype"]:
-                        pair_score += 10.0
-                    elif "GENERIC" not in [n_struct["subtype"], o_struct["subtype"]]:
-                        pair_score -= 25.0  
-                        
-                    distance = abs(n_struct["pos"] - o_struct["pos"])
-                    pair_score -= min(distance * 5.0, 30.0)
-                else:
-                    if "UNK" not in [n_struct["base"], o_struct["base"]]:
-                        pair_score = 0.0
-                
-                cost_matrix[i, j] = 1000.0 - pair_score
-                score_tracker[(i, j)] = pair_score
-                
-        row_ind, col_ind = linear_sum_assignment(cost_matrix)
-        
-        for r, c in zip(row_ind, col_ind):
-            if r < num_new and c < num_old:
-                final_score = score_tracker.get((r, c), 0)
-                nk_target = filtered_new_keys[r]
-                ok_target = filtered_old_keys[c]
-                
-                if final_score >= 35.0:
-                    final_matched_map[nk_target] = {
-                        "old_key": ok_target,
-                        "val_old": old_specs[ok_target]
-                    }
-                    processed_old_keys_global.add(ok_target)
 
 
 
@@ -2185,7 +2062,7 @@ import streamlit as st
 import pandas as pd
 
 # =========================================================================================
-# ĐOẠN 1b: VISUALIZATION RENDERER & ANTI-HARDCODE DATA PACKAGING
+# ĐOẠN 1b: VISUALIZATION RENDERER & ANTI-HARDCODE DATA PACKAGING (FIXED UPPERCASE MATCH)
 # =========================================================================================
 
 st.markdown("<br>### 📐 BẢNG SO SÁNH SAI LỆCH THÔNG SỐ KỸ THUẬT RẬP MẪU", unsafe_allow_html=True)
@@ -2197,16 +2074,26 @@ valid_diff_pcts = []
 col_new_title = f"Mẫu mới ({new_style_base_size})"
 col_old_title = f"Mã cũ ({old_base_size})"
 
+# Tạo một tập hợp hoa toàn bộ các key cũ đã được xử lý để tra cứu tầng fallback chính xác
+processed_old_keys_upper = {str(k).upper().strip() for k in processed_old_keys_global}
+
 # Chỉ xử lý render dữ liệu khi đối tượng đầu vào hợp lệ
 if isinstance(new_specs, dict) and new_specs:
     for original_new_key, val_new in new_specs.items():
         clean_new_key = str(original_new_key).upper().strip()
         
         # Trích xuất dữ liệu đối chứng an toàn từ cổng nối Đoạn 1a
+        val_old = None
+        
+        # 🔥 SỬA LỖI TRA CỨU: Kiểm tra so khớp linh hoạt theo cả key gốc và key đã chuẩn hóa in hoa
         if original_new_key in final_matched_map:
             val_old = final_matched_map[original_new_key]["val_old"]
         else:
-            val_old = None
+            # Tra cứu dự phòng trong trường hợp engine lưu theo cấu trúc key in hoa
+            for nk_map, details in final_matched_map.items():
+                if str(nk_map).upper().strip() == clean_new_key:
+                    val_old = details["val_old"]
+                    break
 
         f_new = parse_garment_value_industrial(val_new)
         f_old = parse_garment_value_industrial(val_old)
@@ -2237,10 +2124,12 @@ if isinstance(new_specs, dict) and new_specs:
             "Tỷ lệ biến thiên (Diff %)": display_pct
         })
 
-    # Đổ các thông số rập cũ lịch sử còn sót trong bảng Supabase ra giao diện dưới dạng Fallback Row
+    # 🔥 SỬA LỖI FALLBACK ROW: Đổ các thông số rập cũ còn sót trên Supabase (Đã ép in hoa để đối chiếu tập check)
     if isinstance(old_specs, dict) and old_specs:
         for original_old_key, val_old in old_specs.items():
-            if original_old_key not in processed_old_keys_global:
+            clean_old_key = str(original_old_key).upper().strip()
+            
+            if clean_old_key not in processed_old_keys_upper:
                 compare_rows.append({
                     "Vị trí đo (POM Description)": original_old_key,
                     col_new_title: "-",
@@ -2253,7 +2142,7 @@ if isinstance(new_specs, dict) and new_specs:
 if compare_rows:
     st.dataframe(pd.DataFrame(compare_rows), use_container_width=True, hide_index=True)
 else:
-    # 🛡️ Nếu dữ liệu trống (Lỗi API 503), hiển thị khung bảng trống có tiêu đề cột cấu trúc, TUYỆT ĐỐI KHÔNG HÀRDCODE SỐ GIẢ
+    # 🛡️ Nếu dữ liệu trống, hiển thị khung bảng trống có tiêu đề cấu trúc
     st.info("ℹ️ Hệ thống đang trống danh sách thông số kỹ thuật mới (Chưa quét hoặc API nghẽn).")
     empty_df = pd.DataFrame(columns=[
         "Vị trí đo (POM Description)", col_new_title, col_old_title, "Chênh lệch (Diff)", "Tỷ lệ biến thiên (Diff %)"
