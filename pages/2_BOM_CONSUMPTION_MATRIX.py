@@ -392,147 +392,129 @@ def get_historical_fabric_consumption_from_db(search_keyword=None):
         return []
 
 
-def get_techpack_spec_from_db(style_name_keyword=None):
-    """
-    Hàm cho phép AI tự động tra cứu thông số từ bảng thong_so_techpack.
-    ✨ ĐÃ CHUẨN HÓA: Đảm bảo đồng bộ chính xác tên các trường dữ liệu để trả về cho Đoạn 3 hiển thị.
-    """
-    try:
-        headers = {
-            "apikey": SB_KEY, 
-            "Authorization": f"Bearer {SB_KEY}"
-        }
-        url = f"{SB_URL.rstrip('/')}/rest/v1/thong_so_techpack"
-        
-        query_params = {
-            "select": "StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL,sketch_vector",
-            "limit": 500
-        }
-        
-        if style_name_keyword and str(style_name_keyword).strip().upper() != "UNKNOWN":
-            clean_kw = str(style_name_keyword).strip()
-            query_params["StyleName"] = f"ilike.*{clean_kw}*"
-            
-        response = requests.get(url, headers=headers, params=query_params, timeout=15)
-        return response.json() if response.status_code == 200 else []
-    except Exception:
-        return []
-
 def call_gemini_extraction_engine(file_bytes, file_name, sorted_pages):
     """
-    HÀM A: Chịu trách nhiệm giao tiếp trực tiếp với Gemini API và ép cấu trúc JSON Schema.
+    HÀM A: Chịu trách nhiệm giao tiếp trực tiếp với Gemini API.
+    Đã hạ tải cấu trúc dữ liệu để ép mô hình viết ngắn gọn, chống tràn 8192 tokens.
     """
     import io
     import time
     from google import genai
     from google.genai import types
 
-    gemini_key = get_secure_gemini_key()
-    if not gemini_key:
-        return {"success": False, "error": "API Key cho Gemini đang bị thiếu trong Secrets."}
-        
-    client = genai.Client(api_key=gemini_key)
-    
-    # PROMPT ĐỊNH HƯỚNG MÔ HÌNH LỌC NGAY TỪ ĐẦU
-    industrial_extraction_prompt = (
-        "You are an expert Garment Specification Auditor at PPJ Group. Analyze all attached sheets page by page.\n"
-        "Each image is preceded by a text label indicating its ORIGINAL 1-BASED PAGE NUMBER in the PDF.\n"
-        "1. Identify the core 'Base Size' / 'Sample Size' (e.g., written as 8, 32, or Size M).\n"
-        "2. Identify the Buyer name and Category.\n"
-        "3. Find the exact 'Style ID' / 'Style Number' (e.g. 5765).\n"
-        "4. Scan and extract the technical measurement specification chart into key-value pairs inside measurements_list.\n"
-        "   CRITICAL FILTER: ONLY include valid technical measurement points that have a real POM code (e.g., 5.01A, 6.01A GR). "
-        "   DO NOT extract rows where the POM column is empty, contains notes (like '***'), or contains placeholder values like '0.00'.\n"
-        "5. FOR THE GRADING MATRIX TABLE: Scan and extract the full grading matrix table columns for ALL available sizes into full_size_matrix.\n"
-        "6. CRITICAL VISUAL FLAT SKETCH LOCATE RULE: Find the exact original page number containing the full body garment flat sketch."
-    )
-    
-    contents_payload = [types.Part.from_text(text=industrial_extraction_prompt)]
-    
-    for page_num in sorted_pages:
-        single_page_list = convert_from_bytes(file_bytes, dpi=100, first_page=page_num, last_page=page_num)
-        if single_page_list:
-            page_img = single_page_list[0]
-            img_buf = io.BytesIO()
-            page_img.convert("RGB").save(img_buf, format="JPEG", quality=50)
+    try:
+        gemini_key = get_secure_gemini_key()
+        if not gemini_key:
+            return None, "gemini-2.5-flash", "API Key cho Gemini đang bị thiếu trong Secrets."
             
-            contents_payload.append(types.Part.from_text(text=f"--- START OF ORIGINAL PDF PAGE {page_num} ---"))
-            contents_payload.append(
-                types.Part.from_bytes(data=img_buf.getvalue(), mime_type='image/jpeg')
-            )
+        client = genai.Client(api_key=gemini_key)
         
-    kv_pair_schema = types.Schema(
-        type=types.Type.OBJECT,
-        properties={
-            "pom_code": types.Schema(type=types.Type.STRING, description="The technical POM code, e.g., 5.01A"),
-            "pom_description": types.Schema(type=types.Type.STRING, description="The description of the measurement point"),
-            "value": types.Schema(type=types.Type.STRING, description="The base size specification value")
-        },
-        required=["pom_code", "pom_description", "value"]
-    )
-    
-    json_schema = types.Schema(
-        type=types.Type.OBJECT,
-        properties={
-            "style_number_parsed": types.Schema(type=types.Type.STRING),
-            "buyer": types.Schema(type=types.Type.STRING),
-            "category": types.Schema(type=types.Type.STRING),
-            "base_size_name": types.Schema(type=types.Type.STRING),
-            "sketch_page_number_detected": types.Schema(type=types.Type.INTEGER),
-            "measurements_list": types.Schema(type=types.Type.ARRAY, items=kv_pair_schema),
-            "full_size_matrix": types.Schema(
-                type=types.Type.OBJECT,
-                description="Dynamic object mapping sizes to their respective grading matrix columns"
-            ) 
-        },
-        required=[
-            "style_number_parsed", "buyer", "category", "base_size_name", 
-            "sketch_page_number_detected", "measurements_list", "full_size_matrix"
-        ]
-    )
+        # PROMPT ĐÃ ĐƯỢC THU GỌN VÀ ÉP ĐẦU RA MA TRẬN DẠNG CHUỖI NÉN
+        industrial_extraction_prompt = (
+            "You are an expert Garment Specification Auditor at PPJ Group. Analyze all attached sheets page by page.\n"
+            "Each image is preceded by a text label indicating its ORIGINAL 1-BASED PAGE NUMBER in the PDF.\n"
+            "1. Identify the core 'Base Size' / 'Sample Size'.\n"
+            "2. Identify the Buyer name and Category.\n"
+            "3. Find the exact 'Style ID' / 'Style Number'.\n"
+            "4. Scan and extract the technical measurement specification chart into key-value pairs inside measurements_list.\n"
+            "   CRITICAL FILTER: ONLY include valid technical measurement points that have a real POM code (e.g., 5.01A, 6.01A GR). "
+            "   DO NOT extract rows where the POM column is empty, contains notes (like '***'), or contains placeholder values like '0.00'.\n"
+            "5. FOR THE GRADING MATRIX TABLE: Scan and extract the full grading matrix table columns into a simple, valid JSON string inside 'full_size_matrix'.\n"
+            "6. CRITICAL VISUAL FLAT SKETCH LOCATE RULE: Find the exact original page number containing the full body garment flat sketch."
+        )
+        
+        contents_payload = [types.Part.from_text(text=industrial_extraction_prompt)]
+        
+        for page_num in sorted_pages:
+            single_page_list = convert_from_bytes(file_bytes, dpi=100, first_page=page_num, last_page=page_num)
+            if single_page_list:
+                page_img = single_page_list[0]
+                img_buf = io.BytesIO()
+                page_img.convert("RGB").save(img_buf, format="JPEG", quality=50)
+                
+                contents_payload.append(types.Part.from_text(text=f"--- START OF ORIGINAL PDF PAGE {page_num} ---"))
+                contents_payload.append(types.Part.from_bytes(data=img_buf.getvalue(), mime_type='image/jpeg'))
+            
+        kv_pair_schema = types.Schema(
+            type=types.Type.OBJECT,
+            properties={
+                "pom_code": types.Schema(type=types.Type.STRING, description="The technical POM code, e.g., 5.01A"),
+                "pom_description": types.Schema(type=types.Type.STRING, description="The description of the measurement point"),
+                "value": types.Schema(type=types.Type.STRING, description="The base size specification value")
+            },
+            required=["pom_code", "pom_description", "value"]
+        )
+        
+        # GIẢI PHÁP: Chuyển full_size_matrix thành STRING để tiết kiệm token đầu ra của mô hình
+        json_schema = types.Schema(
+            type=types.Type.OBJECT,
+            properties={
+                "style_number_parsed": types.Schema(type=types.Type.STRING),
+                "buyer": types.Schema(type=types.Type.STRING),
+                "category": types.Schema(type=types.Type.STRING),
+                "base_size_name": types.Schema(type=types.Type.STRING),
+                "sketch_page_number_detected": types.Schema(type=types.Type.INTEGER),
+                "measurements_list": types.Schema(type=types.Type.ARRAY, items=kv_pair_schema),
+                "full_size_matrix": types.Schema(
+                    type=types.Type.STRING,
+                    description="Raw valid JSON string representing the sizing matrix table to avoid token overflow."
+                ) 
+            },
+            required=[
+                "style_number_parsed", "buyer", "category", "base_size_name", 
+                "sketch_page_number_detected", "measurements_list", "full_size_matrix"
+            ]
+        )
 
-    models_to_try = ['gemini-2.5-flash', 'gemini-2.5-flash-lite']
-    response = None
-    current_model_used = 'gemini-2.5-flash'
-    
-    for active_model in models_to_try:
-        current_model_used = active_model
-        success_call = False
-        for attempt in range(2):
-            try:
-                response = client.models.generate_content(
-                    model=active_model, 
-                    contents=contents_payload,
-                    config=types.GenerateContentConfig(
-                        response_mime_type="application/json",
-                        response_schema=json_schema,
-                        temperature=0.1,
-                        max_output_tokens=8192
+        models_to_try = ['gemini-2.5-flash', 'gemini-2.5-flash-lite']
+        response = None
+        current_model_used = 'gemini-2.5-flash'
+        err_msg = None
+        
+        for active_model in models_to_try:
+            current_model_used = active_model
+            success_call = False
+            for attempt in range(2):
+                try:
+                    response = client.models.generate_content(
+                        model=active_model, 
+                        contents=contents_payload,
+                        config=types.GenerateContentConfig(
+                            response_mime_type="application/json",
+                            response_schema=json_schema,
+                            temperature=0.1,
+                            max_output_tokens=8192
+                        )
                     )
-                )
-                if response:
-                    candidates = getattr(response, "candidates", [])
-                    if candidates:
-                        candidate = candidates[0]
-                        reason = str(getattr(candidate, "finish_reason", "STOP"))
-                        if reason in ["RECITATION", "SAFETY", "MAX_TOKENS"]:
-                            print(f"⚠️ Model {active_model} bị dừng do {reason}. Fallback...")
-                            break
-                    success_call = True
+                    if response:
+                        candidates = getattr(response, "candidates", [])
+                        if candidates:
+                            candidate = candidates[0]
+                            reason = str(getattr(candidate, "finish_reason", "STOP"))
+                            if reason in ["RECITATION", "SAFETY", "MAX_TOKENS"]:
+                                print(f"⚠️ Model {active_model} bị dừng do {reason}. Fallback...")
+                                err_msg = f"Mô hình bị dừng do {reason}"
+                                break
+                        success_call = True
+                        break
+                except Exception as ai_err:
+                    err_msg = str(ai_err)
+                    if "503" in err_msg or "UNAVAILABLE" in err_msg:
+                        time.sleep((attempt + 1) * 2)
+                        continue
                     break
-            except Exception as ai_err:
-                if "503" in str(ai_err) or "UNAVAILABLE" in str(ai_err):
-                    time.sleep((attempt + 1) * 2)
-                    continue
+            if success_call:
+                err_msg = None
                 break
-        if success_call:
-            break
 
-    return response, current_model_used
+        return response, current_model_used, err_msg
+
+    except Exception as fatal_a_err:
+        return None, "gemini-2.5-flash", f"Lỗi nghiêm trọng tại Hàm A: {str(fatal_a_err)}"
 def process_single_pdf_batch(file_bytes, file_name):
     """
-    HÀM B: Hàm điều phối chính (Main workflow). Tính toán số trang, gọi HÀM A, 
-    và chạy bộ lọc hậu xử lý (Post-processing Filter) để làm sạch dữ liệu POM rác.
+    HÀM B: Phân tách số trang, gọi HÀM A, sau đó chạy bộ lọc Regex Local
+    để dọn sạch các dòng POM 0.00 và giải mã (parse) chuỗi ma trận size nén.
     """
     import json
     import re
@@ -553,10 +535,13 @@ def process_single_pdf_batch(file_bytes, file_name):
         print(f"📋 [PRODUCTION LOG] {file_name}: Tổng {total_p} trang. Quét: {sorted_pages}")
         
         # =====================================================================
-        # GỌI HÀM A ĐỂ LẤY DỮ LIỆU THÔ TỪ AI
+        # GỌI HÀM A ĐỂ LẤY DỮ LIỆU TỪ AI
         # =====================================================================
-        response, current_model_used = call_gemini_extraction_engine(file_bytes, file_name, sorted_pages)
+        response, current_model_used, err_msg = call_gemini_extraction_engine(file_bytes, file_name, sorted_pages)
         
+        if err_msg:
+            return {"success": False, "error": f"{err_msg} (Model={current_model_used})"}
+            
         print("="*80)
         print(f"🚨 [CORE LOG] FILE: [{file_name}] | MODEL: {current_model_used}")
         print(f"HAS TEXT: {bool(getattr(response, 'text', None))} | HAS PARSED: {bool(getattr(response, 'parsed', None))}")
@@ -588,15 +573,15 @@ def process_single_pdf_batch(file_bytes, file_name):
                     finish_reason = str(getattr(candidate, "finish_reason", "UNKNOWN"))
             except:
                 pass
-            return {"success": False, "error": f"Mô hình trống. FinishReason={finish_reason} (Model={current_model_used})"}
+            return {"success": False, "error": f"Mô hình trống hoặc lỗi cú pháp JSON trả về. FinishReason={finish_reason} (Model={current_model_used})"}
             
         # =====================================================================
-        # 🛡️ BỘ LỌC HẬU XỬ LÝ (POST-PROCESSING FILTER ENGINE)
+        # 🛡️ BỘ LỌC HẬU XỬ LÝ (CHỈ LẤY VỊ TRÍ VÀ THÔNG SỐ - KHỬ 0.00)
         # =====================================================================
         measurements_list = parsed_data.get("measurements_list", [])
         filtered_measurements = {}
         
-        # Regex kiểm tra mã POM hợp lệ (Phải chứa ký tự/số và không phải dạng chuỗi 0.00 hoặc trống)
+        # Biểu thức Regex loại trừ nghiêm ngặt các chuỗi định dạng '0.00' hoặc số '0'
         valid_pom_regex = re.compile(r'^(?!0\.00\$|0\()\s*[A-Za-z0-9\.\s_-]+\)')
 
         for item in measurements_list:
@@ -607,33 +592,41 @@ def process_single_pdf_batch(file_bytes, file_name):
             pom_desc = str(item.get("pom_description", "")).strip()
             spec_val = str(item.get("value", "")).strip()
             
-            # Điều kiện loại bỏ dòng rác (POM 0.00 hoặc tiêu đề ghi chú rỗng)
+            # Kiểm tra xem mã định vị kỹ thuật (POM) có hợp lệ không
             if pom_code and valid_pom_regex.match(pom_code):
+                # Khử bỏ các dòng ghi chú có ký hiệu hệ thống như '***'
                 if not pom_code.startswith("***") and pom_desc:
-                    # Gộp mã POM và vị trí đo tạo ra key duy nhất, tránh trùng đè dữ liệu
+                    # Gộp key sạch dạng: "Mã POM - Tên vị trí đo"
                     unique_key = f"{pom_code} - {pom_desc}" if pom_code not in pom_desc else pom_desc
                     filtered_measurements[unique_key] = spec_val
 
-        # Xử lý làm sạch bảng ma trận size (grading matrix)
+        # =====================================================================
+        # GIẢI MÃ CHUỖI MA TRẬN SIZE NÉN Ở LOCAL (ÉP CHUYỂN JSON THÀNH DICT)
+        # =====================================================================
         matrix_data = parsed_data.get("full_size_matrix", {})
         full_size_matrix = {}
+        
         if isinstance(matrix_data, dict):
             full_size_matrix = matrix_data
         elif isinstance(matrix_data, str) and matrix_data.strip():
             try:
                 matrix_raw_str = matrix_data.strip()
+                # Khử các block bọc markdown nếu có
                 if matrix_raw_str.startswith("```json"):
-                    matrix_raw_str = matrix_raw_str.split("```json")[-1].split("```").strip()
+                    matrix_raw_str = matrix_raw_str.split("```json")[-1].split("```")[0].strip()
                 elif matrix_raw_str.startswith("```"):
-                    matrix_raw_str = matrix_raw_str.split("```").strip()
+                    matrix_raw_str = matrix_raw_str.split("```")[1].strip()
+                
+                matrix_raw_str = re.sub(r',\s*([\]}])', r'\1', matrix_raw_str)
                 full_size_matrix = json.loads(matrix_raw_str)
             except:
                 pass
         
+        # Dọn sạch các key lỗi 0.00 sinh ra trong ma trận nếu có
         if isinstance(full_size_matrix, dict):
-            full_size_matrix = {k: v for k, v in full_size_matrix.items() if not k.startswith("0.00") and "0.00" not in k[:5]}
+            full_size_matrix = {k: v for k, v in full_size_matrix.items() if not str(k).startswith("0.00") and "0.00" not in str(k)[:5]}
 
-        # Đóng gói dữ liệu đầu ra đạt chuẩn kỹ thuật lưu kho dữ liệu
+        # ĐÓNG GÓI KẾT QUẢ CUỐI CÙNG TRẢ VỀ CHO DATABASE HỆ THỐNG DOWNSTREAM
         return {
             "success": True,
             "model_used": current_model_used,
@@ -643,13 +636,14 @@ def process_single_pdf_batch(file_bytes, file_name):
                 "category": parsed_data.get("category"),
                 "base_size": parsed_data.get("base_size_name"),
                 "sketch_page": parsed_data.get("sketch_page_number_detected"),
-                "measurements": filtered_measurements,  # Chỉ bao gồm Vị trí đo thực tế và Thông số
+                "measurements": filtered_measurements,  # Dữ liệu vị trí đo và thông số đã lọc sạch
                 "full_size_matrix": full_size_matrix
             }
         }
 
     except Exception as fatal_err:
-        return {"success": False, "error": f"Lỗi hệ thống nghiêm trọng: {str(fatal_err)}"}
+        # Chặn đứng toàn bộ lỗi sập ứng dụng, trả lỗi về giao diện hiển thị mượt mà
+        return {"success": False, "error": f"Lỗi hệ thống nghiêm trọng tại Hàm B: {str(fatal_err)}"}
 
 
 
