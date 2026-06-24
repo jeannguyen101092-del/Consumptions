@@ -1929,25 +1929,46 @@ import streamlit as st
 import pandas as pd
 
 # =========================================================================================
-# ĐOẠN 1: INDUSTRIAL RETRIEVER - FIX INDEX MẢNG DỮ LIỆU [0]
+# ĐOẠN 1: KẾ THỪA DIRECT TỪ VECTOR SIMILARITY ENGINE (KHO KHÔNG CẦN TRUY VẤN LẠI)
 # =========================================================================================
 
 old_specs = {}
 old_base_size = "N/A"
-records_found_count = 0
-record_keys_list = []
+target_style_name = "Chưa xác định"
 
-# Thu thập thông tin máy quét mẫu mới từ session_state
+# 1. Thu thập dữ liệu mẫu mới quét từ Session State
 new_specs = st.session_state.get("new_style_measurements_dict", {})
 garment_category = str(st.session_state.get("new_style_category_detected", "PANT")).strip().upper()
 new_style_base_size = st.session_state.get("new_style_base_size", "N/A")
 
-# Hàm làm sạch văn bản POM Description
-def clean_pom_description_text(text):
-    if not text: return ""
-    return str(text).upper().strip()
+# 2. 🔥 KẾ THỪA TRỰC TIẾP TỪ KẾT QUẢ TRUY VẤN VECTOR RPC Ở TRÊN
+matched_profile = st.session_state.get("matched_techpack")
 
-# Hàm dịch phân số ngành may độc lập, siêu an toàn
+if isinstance(matched_profile, dict) and matched_profile:
+    # Trích xuất an toàn bảng thông số cũ, tên mã và cỡ gốc đã tìm thấy từ thuật toán Cosine
+    old_specs = matched_profile.get("measurements") or matched_profile.get("DetailedMeasurements") or {}
+    old_base_size = str(matched_profile.get("base_size", matched_profile.get("BaseSize", "N/A")))
+    target_style_name = str(matched_profile.get("style_number", matched_profile.get("StyleName", "KHO_MẪU")))
+
+# 3. 🎯 LỚP CHUẨN HÓA TỪ ĐỒNG NGHĨA NGÀNH MAY (Chống lệch Chest Width / 1/2 Chest)
+POM_ALIAS = {
+    "CHEST WIDTH": "1/2 CHEST", "HALF CHEST": "1/2 CHEST", "CHEST WIDTH 1/2": "1/2 CHEST",
+    "WAIST WIDTH": "1/2 WAIST", "HALF WAIST": "1/2 WAIST",
+    "HIP WIDTH": "1/2 HIP", "HALF HIP": "1/2 HIP",
+    "CENTER BACK LENGTH": "CB LENGTH", "BODY LENGTH CB": "CB LENGTH",
+    "FRONT LENGTH": "CF LENGTH", "INSEAM LENGTH": "INSEAM", "OUTSEAM LENGTH": "OUTSEAM",
+    "LEG OPENING": "BOTTOM OPENING", "BACK CROTCH DEPTH": "BACK RISE", "FRONT CROTCH DEPTH": "FRONT RISE"
+}
+
+def normalize_pom_key(k):
+    if not k: return ""
+    k = str(k).upper().strip()
+    k = re.sub(r'\s+', ' ', k)
+    for alias, standard in POM_ALIAS.items():
+        if alias in k or k == alias: return standard
+    return k
+
+# 4. Bộ giải mã phân số ngành may đo công nghiệp
 def parse_garment_value_industrial(v):
     if v is None: return None
     try: return float(v)
@@ -1957,7 +1978,6 @@ def parse_garment_value_industrial(v):
             uni_map = {"½": " 1/2", "¼": " 1/4", "¾": " 3/4", "⅛": " 1/8", "⅜": " 3/8", "⅝": " 5/8", "⅞": " 7/8"}
             for uni_char, repl_str in uni_map.items():
                 if uni_char in str_v: str_v = str_v.replace(uni_char, repl_str)
-            
             if " " in str_v and "/" in str_v:
                 parts = str_v.split()
                 whole = float(parts[0])
@@ -1967,62 +1987,11 @@ def parse_garment_value_industrial(v):
                 num, den = str_v.split('/')
                 return float(num) / float(den)
         except Exception: pass
-        
         nums = re.findall(r"[-+]?\d*\.\d+|\d+", str_v)
         if nums:
             try: return float(nums[0])
             except Exception: return None
         return None
-
-# Khởi tạo kết nối Supabase trực tiếp
-try:
-    from supabase import create_client, Client
-    SUPABASE_URL = "https://ewqqodsfvlvnrzsylawy.supabase.co"
-    SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV3cXFvZHNmdmx2bnJ6c3lsYXd5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUxMTkyOTAsImV4cCI6MjA5MDY5NTI5MH0.BWPxOsyswBT5CLrZgluRC1F2x5EpU06oexUFyakGhyc"
-    supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
-except Exception as e:
-    st.error(f"Lỗi khởi tạo Supabase Client: {e}")
-    supabase = None
-
-# KÍCH HOẠT TRUY VẤN DỮ LIỆU BẢNG THỰC TẾ
-if supabase:
-    try:
-        query_response = supabase.table("techpack_storage").select("*").execute()
-        
-        if query_response and query_response.data and len(query_response.data) > 0:
-            records_found_count = len(query_response.data)
-            
-            # ✅ ĐÃ SỬA: Dùng chỉ mục [0] để lấy chính xác hàng đầu tiên thay vì chuỗi text
-            chosen_row = query_response.data[0]
-            record_keys_list = list(chosen_row.keys())
-            
-            # Trích xuất cột measurements dạng jsonb của bạn hiển thị trên màn hình
-            raw_measurements = chosen_row.get("measurements") or chosen_row.get("text") or {}
-            
-            if isinstance(raw_measurements, str):
-                try:
-                    old_specs = json.loads(raw_measurements)
-                except Exception:
-                    old_specs = dict(re.findall(r'"([^"]+)"\s*:\s*"([^"]+)"', raw_measurements))
-            elif isinstance(raw_measurements, dict):
-                old_specs = raw_measurements
-                
-            old_base_size = str(chosen_row.get("base_size", "N/A"))
-            
-            # Đồng bộ ngược vào session_state cốt lõi
-            st.session_state["matched_techpack"] = {
-                "StyleName": "Mẫu đối chứng từ kho",
-                "BaseSize": old_base_size,
-                "DetailedMeasurements": old_specs
-            }
-    except Exception as err:
-        st.error(f"❌ Trục trặc API kết nối Supabase: {str(err)}")
-
-if not old_specs:
-    fallback_data = st.session_state.get("matched_techpack", {})
-    if isinstance(fallback_data, dict) and fallback_data:
-        old_specs = fallback_data.get("DetailedMeasurements", {})
-        old_base_size = str(fallback_data.get("BaseSize", "N/A"))
 
 # =========================================================================================
 # 🎛️ KẾT XUẤT CỔNG CHẨN ĐOÁN TRẠNG THÁI TOÀN VẸN DỮ LIỆU
@@ -2031,91 +2000,90 @@ st.markdown("---")
 st.subheader("🎛️ CỔNG DEBUG CHẨN ĐOÁN KHO DỮ LIỆU SUPABASE")
 debug_col1, debug_col2 = st.columns(2)
 with debug_col1:
-    st.write(f"1️⃣ **matched_techpack type:** `{type(st.session_state.get('matched_techpack'))}`")
-    st.write(f"2️⃣ **records found:** `{records_found_count}`")
+    st.write(f"1️⃣ **Mã đối chứng tìm thấy từ Vector:** `{target_style_name}`")
+    st.write(f"2️⃣ **Điểm tự tin khớp DNA:** `{st.session_state.get('match_confidence_score', 0)}%`")
 with debug_col2:
-    st.write(f"3️⃣ **record keys:** `{record_keys_list}`")
-    st.write(f"4️⃣ **NEW SPECS count:** `{len(new_specs) if new_specs else 0}` | **OLD SPECS count:** `{len(old_specs) if old_specs else 0}`")
+    st.write(f"3️⃣ **Số lượng POM mẫu mới:** `{len(new_specs) if new_specs else 0}`")
+    st.write(f"4️⃣ **Số lượng POM mã đối chứng:** `{len(old_specs) if old_specs else 0}`")
 st.markdown("---")
 
 processed_old_keys_global = set()
 
 # =========================================================================================
-# ĐOẠN 1b: VISUALIZATION RENDERER & ANTI-HARDCODE DATA PACKAGING
+# 📐 ĐOẠN 1b: VISUALIZATION RENDERER & SYNONYM COMPARATOR
 # =========================================================================================
 
 st.markdown("<br>### 📐 BẢNG SO SÁNH SAI LỆCH THÔNG SỐ KỸ THUẬT RẬP MẪU", unsafe_allow_html=True)
 
-compare_rows = []
-valid_diff_pcts = []
+# Kiểm tra nếu thuật toán Vector phía trên tìm thấy dữ liệu cũ, tiến hành dựng bảng
+if old_specs:
+    compare_rows = []
+    valid_diff_pcts = []
 
-col_new_title = f"Mẫu mới ({new_style_base_size})"
-col_old_title = f"Mã cũ ({old_base_size})"
+    col_new_title = f"Mẫu mới ({new_style_base_size})"
+    col_old_title = f"Mã cũ ({old_base_size})"
 
-# Chuẩn hóa chữ in hoa cho toàn bộ key kho dữ liệu cũ để tránh lệch chữ hoa thường
-flattened_old_specs = {}
-if isinstance(old_specs, dict):
-    for k, v in old_specs.items():
-        flattened_old_specs[str(k).upper().strip()] = v
+    # Chuẩn hóa từ đồng nghĩa cho dữ liệu mã cũ từ kho dữ liệu
+    flattened_old_specs = {}
+    if isinstance(old_specs, dict):
+        for k, v in old_specs.items():
+            norm_old_k = normalize_pom_key(k)
+            flattened_old_specs[norm_old_k] = v
 
-if isinstance(new_specs, dict) and new_specs:
-    for original_new_key, val_new in new_specs.items():
-        clean_new_key = str(original_new_key).upper().strip()
-        
-        val_old = None
-        if clean_new_key in flattened_old_specs:
-            val_old = flattened_old_specs[clean_new_key]
-            processed_old_keys_global.add(str(original_new_key))
+    # Tiến hành đối so soát từng cặp thông số
+    if isinstance(new_specs, dict) and new_specs:
+        for original_new_key, val_new in new_specs.items():
+            clean_new_key = normalize_pom_key(original_new_key)
             
-        f_new = parse_garment_value_industrial(val_new)
-        f_old = parse_garment_value_industrial(val_old)
-        diff_val, diff_pct = None, None
-        
-        if f_new is not None and f_old is not None:
-            diff_val = round(f_new - f_old, 2)
-            if f_old != 0:
-                diff_pct = round((diff_val / f_old) * 100, 2)
-                valid_diff_pcts.append(diff_pct)
-
-        display_diff = f"+{diff_val}" if diff_val and diff_val > 0 else (str(diff_val) if diff_val is not None else "-")
-        display_pct = f"+{diff_pct}%" if diff_pct and diff_pct > 0 else (f"{diff_pct}%" if diff_pct is not None else "-")
-        
-        compare_rows.append({
-            "Vị trí đo (POM Description)": original_new_key,
-            col_new_title: val_new if val_new is not None else "-",
-            col_old_title: val_old if val_old is not None else "-",
-            "Chênh lệch (Diff)": display_diff,
-            "Tỷ lệ biến thiên (Diff %)": display_pct
-        })
-
-    # Đổ các thông số rập cũ còn sót trong bảng Supabase ra giao diện
-    if isinstance(old_specs, dict) and old_specs:
-        for original_old_key, val_old in old_specs.items():
-            clean_old_key = str(original_old_key).upper().strip()
+            val_old = None
+            if clean_new_key in flattened_old_specs:
+                val_old = flattened_old_specs[clean_new_key]
+                processed_old_keys_global.add(str(clean_new_key))
+                
+            f_new = parse_garment_value_industrial(val_new)
+            f_old = parse_garment_value_industrial(val_old)
+            diff_val, diff_pct = None, None
             
-            is_processed = False
-            for k in processed_old_keys_global:
-                if str(k).upper().strip() == clean_old_key:
-                    is_processed = True
-                    break
-                    
-            if not is_processed:
-                compare_rows.append({
-                    "Vị trí đo (POM Description)": original_old_key,
-                    col_new_title: "-",
-                    col_old_title: val_old if val_old is not None else "-",
-                    "Chênh lệch (Diff)": "-",
-                    "Tỷ lệ biến thiên (Diff %)": "-"
-                })
+            if f_new is not None and f_old is not None:
+                diff_val = round(f_new - f_old, 2)
+                if f_old != 0:
+                    diff_pct = round((diff_val / f_old) * 100, 2)
+                    valid_diff_pcts.append(diff_pct)
 
-if compare_rows:
+            display_diff = f"+{diff_val}" if diff_val and diff_val > 0 else (str(diff_val) if diff_val is not None else "-")
+            display_pct = f"+{diff_pct}%" if diff_pct and diff_pct > 0 else (f"{diff_pct}%" if diff_pct is not None else "-")
+            
+            compare_rows.append({
+                "Vị trí đo (POM Description)": original_new_key,
+                col_new_title: val_new if val_new is not None else "-",
+                col_old_title: val_old if val_old is not None else "-",
+                "Chênh lệch (Diff)": display_diff,
+                "Tỷ lệ biến thiên (Diff %)": display_pct
+            })
+
+        # Đổ các thông số rập cũ còn sót trong bảng Supabase ra giao diện dưới dạng dòng Fallback
+        if isinstance(old_specs, dict):
+            for original_old_key, val_old in old_specs.items():
+                norm_old_key = normalize_pom_key(original_old_key)
+                
+                if norm_old_key not in processed_old_keys_global:
+                    compare_rows.append({
+                        "Vị trí đo (POM Description)": original_old_key,
+                        col_new_title: "-",
+                        col_old_title: val_old if val_old is not None else "-",
+                        "Chênh lệch (Diff)": "-",
+                        "Tỷ lệ biến thiên (Diff %)": "-"
+                    })
+
+    # Hiển thị bảng dữ liệu cấu trúc phẳng lên Streamlit
     st.dataframe(pd.DataFrame(compare_rows), use_container_width=True, hide_index=True)
-else:
-    st.info("ℹ️ Hệ thống đang trống danh sách thông số kỹ thuật mới.")
-    empty_df = pd.DataFrame(columns=["Vị trí đo (POM Description)", col_new_title, col_old_title, "Chênh lệch (Diff)", "Tỷ lệ biến thiên (Diff %)"])
-    st.dataframe(empty_df, use_container_width=True, hide_index=True)
+    st.session_state["valid_diff_pcts"] = valid_diff_pcts
 
-st.session_state["valid_diff_pcts"] = valid_diff_pcts
+else:
+    # Cảnh báo an toàn nếu luồng Vector AI phía trước chưa chạy hoặc chưa tìm thấy mẫu
+    st.warning("⚠️ Thuật toán Cosine Vector chưa tìm thấy mã hàng tương đồng phù hợp trong kho.")
+    st.info("ℹ️ Vui lòng kiểm tra lại file Techpack tải lên hoặc bấm nút ép buộc tìm kiếm (Force Match).")
+    st.session_state["valid_diff_pcts"] = []
 
 
 
