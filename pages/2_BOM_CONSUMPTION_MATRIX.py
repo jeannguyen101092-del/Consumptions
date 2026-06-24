@@ -1910,7 +1910,7 @@ from rapidfuzz import fuzz
 from scipy.optimize import linear_sum_assignment
 
 # =========================================================================================
-# ĐOẠN 1a: INDUSTRIAL May Mặc POM MATCHING ENGINE - SUPABASE SPECIFIC RESOLUTION
+# ĐOẠN 1a: INDUSTRIAL May Mặc POM MATCHING ENGINE - PRODUCTION ROBUST VERSION
 # =========================================================================================
 
 UNICODE_FRACTION_MAP = {
@@ -1930,32 +1930,39 @@ def parse_garment_value_industrial(v):
             
             if " " in str_v and "/" in str_v:
                 parts = str_v.split()
-                whole = float(parts)
-                frac_parts = parts.split('/')
-                return whole + (float(frac_parts) / float(frac_parts))
+                whole = float(parts[0])
+                frac_parts = parts[1].split('/')
+                return whole + (float(frac_parts[0]) / float(frac_parts[1]))
             elif "/" in str_v:
                 frac_parts = str_v.split('/')
-                return float(frac_parts) / float(frac_parts)
+                return float(frac_parts[0]) / float(frac_parts[1])
         except Exception: pass
         
+        # Trích xuất và bẫy lỗi ép kiểu danh sách dữ liệu đầu ra
         nums = re.findall(r"[-+]?\d*\.\d+|\d+", str_v)
-        return float(nums) if nums else None
+        if nums:
+            try:
+                # ✅ ĐÃ SỬA DỨT ĐIỂM: Lấy phần tử đầu tiên nums[0] thay vì ép kiểu float cho cả list
+                return float(nums[0])
+            except Exception:
+                return None
+        return None
 
-# HÀM BÓC TÁCH KẾT CẤU POM ĐA TẦNG ĐỂ KHÓA CHẶN HUNGARIAN GHÉP SAI
+# HÀM BÓC TÁCH KẾT CẤU POM ĐA TẦNG KHÓA CHẶN HUNGARIAN GHÉP SAI VỊ TRÍ
 def analyze_garment_pom_structure(text):
     if not text:
         return {"base": "UNK", "type": "UNK", "subtype": "UNK", "pos": 0.0}
     
     cleaned = str(text).upper().strip().replace("-", " ")
     
-    # 1. Trích xuất chính xác vị trí đo Inch chuyên dụng (Ví dụ: Thigh 1" Below Crotch)
+    # 1. Trích xuất chính xác vị trí đo Inch (Ví dụ: Thigh 1" Below Crotch)
     pos_regex = r'(\d+(?:\s+\d+/\d+|\.\d+|\/\d+)?)\s*(?:INCH|")?\s*(?:BELOW|ABOVE|FROM|DOWN)'
     pos_match = re.search(pos_regex, cleaned)
     position_inch = 0.0
     if pos_match:
         position_inch = parse_garment_value_industrial(pos_match.group(1)) or 0.0
         
-    # 2. Định nghĩa Phân vùng Kết cấu cơ sở
+    # 2. Định nghĩa Phân vùng Kết cấu cơ sở hình học
     base = "UNK"
     if "WAIST" in cleaned or "WST" in cleaned: base = "WAIST"
     elif "HIP" in cleaned or "SEAT" in cleaned: base = "HIP"
@@ -1965,7 +1972,7 @@ def analyze_garment_pom_structure(text):
     elif "OPENING" in cleaned: base = "OPENING"
     
     # 3. Định nghĩa Thuộc tính Đo (Rộng / Dài / Hạ vị trí)
-    p_type = "WIDTH" # Mặc định là đo chiều rộng/vòng
+    p_type = "WIDTH"
     if "LEVEL" in cleaned or "POSITION" in cleaned or "PLACEMENT" in cleaned: p_type = "LEVEL"
     elif "LENGTH" in cleaned or "OUTSEAM" in cleaned: p_type = "LENGTH"
     elif "DEPTH" in cleaned: p_type = "DEPTH"
@@ -1996,7 +2003,7 @@ if new_specs and old_specs:
     new_keys_list = list(new_specs.keys())
     old_keys_list = list(old_specs.keys())
     
-    # 📌 TẦNG 1: EXACT MATCH LAYER (Làm sạch và so khớp tuyệt đối trước)
+    # TẦNG 1: EXACT MATCH LAYER (So khớp chuỗi thô tuyệt đối trước)
     exact_matched_new = set()
     exact_matched_old = set()
     
@@ -2028,38 +2035,32 @@ if new_specs and old_specs:
             for j, ok in enumerate(filtered_old_keys):
                 o_struct = analyze_garment_pom_structure(ok)
                 
-                # Tính điểm nền bằng Token Set Ratio
                 fuzzy_score = float(fuzz.token_set_ratio(nk, ok))
                 pair_score = fuzzy_score * 0.35
                 
                 # --- HỆ THỐNG ĐIỀU PHỐI MA TRẬN KẾT CẤU CHẶN LỖI GHÉP SAI ---
                 if n_struct["base"] != "UNK" and n_struct["base"] == o_struct["base"]:
-                    pair_score += 45.0  # Thưởng điểm cùng vùng kết cấu gốc (Waist, Hip...)
+                    pair_score += 45.0  
                     
-                    # Thưởng thêm nếu cùng kiểu đo (Cùng là Width hoặc cùng là Level)
                     if n_struct["type"] == o_struct["type"]:
                         pair_score += 15.0
                     else:
-                        pair_score -= 40.0  # PHẠT NẶNG nếu ghép nhầm giữa LEVEL (Hạ) và WIDTH (Rộng)
+                        pair_score -= 40.0  # CẤM ghép nhầm giữa LEVEL (Hạ) và WIDTH (Rộng)
                         
-                    # Thưởng thêm nếu cùng Hướng phụ (Cùng là High hip, cùng là Low hip)
                     if n_struct["subtype"] == o_struct["subtype"]:
                         pair_score += 10.0
                     elif "GENERIC" not in [n_struct["subtype"], o_struct["subtype"]]:
-                        pair_score -= 20.0  # Phạt nếu ghép lệch hướng (High hip sang Low hip)
+                        pair_score -= 20.0  # CẤM ghép lệch hướng (High hip sang Low hip)
                         
-                    # Phạt khoảng cách Inch nếu có chỉ định vị trí hình học
                     distance = abs(n_struct["pos"] - o_struct["pos"])
                     pair_score -= min(distance * 5.0, 30.0)
                 else:
-                    # Chặn đứng hoàn toàn không cho ghép xuyên vùng kết cấu khác nhau (Ví dụ Waist sang Hip)
                     if "UNK" not in [n_struct["base"], o_struct["base"]]:
                         pair_score = 0.0
                 
                 cost_matrix[i, j] = 1000.0 - pair_score
                 score_tracker[(i, j)] = pair_score
                 
-        # Thực thi giải thuật Hungarian tìm phân phối tối ưu toàn cục
         row_ind, col_ind = linear_sum_assignment(cost_matrix)
         
         for r, c in zip(row_ind, col_ind):
@@ -2068,7 +2069,6 @@ if new_specs and old_specs:
                 nk_target = filtered_new_keys[r]
                 ok_target = filtered_old_keys[c]
                 
-                # Đặt ngưỡng sàn chấp nhận khớp thông minh sau tối ưu hóa ma trận
                 if final_score >= 35.0:
                     final_matched_map[nk_target] = {
                         "old_key": ok_target,
