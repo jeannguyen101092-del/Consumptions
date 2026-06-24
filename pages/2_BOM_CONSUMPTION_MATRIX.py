@@ -1927,7 +1927,6 @@ import json
 import re
 import streamlit as st
 import pandas as pd
-from supabase import create_client, Client # Đã chạy mượt mà nhờ file requirements.txt
 
 # =========================================================================================
 # ĐOẠN 1: INDUSTRIAL RETRIEVER - PHIÊN BẢN LIÊN KẾT KHO KHÉP KÍN 
@@ -1975,18 +1974,14 @@ def parse_garment_value_industrial(v):
             except Exception: return None
         return None
 
-# Kết nối cơ sở dữ liệu Supabase thông qua cấu trúc Secrets an toàn
-supabase = st.session_state.get("supabase_client")
-
-if not supabase:
-    try:
-        SUPABASE_URL = st.secrets.get("supabase_url") or "https://supabase.co"
-        SUPABASE_KEY = st.secrets.get("supabase_key")
-        if SUPABASE_URL and SUPABASE_KEY:
-            supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
-            st.session_state["supabase_client"] = supabase
-    except Exception:
-        pass
+# 🔥 Ô NHẬP THỦ CÔNG TRỰC TIẾP TRÊN CODE - BẠN COPY DÁN VÀO ĐÂY:
+try:
+    from supabase import create_client, Client
+    SUPABASE_URL = "https://ewqqodsfvlvnrzsylawy.supabase.co"
+    SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV3cXFvZHNmdmx2bnJ6c3lsYXd5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUxMTkyOTAsImV4cCI6MjA5MDY5NTI5MH0.BWPxOsyswBT5CLrZgluRC1F2x5EpU06oexUFyakGhyc"
+    supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+except Exception:
+    supabase = None
 
 # KÍCH HOẠT TRUY VẤN DỮ LIỆU BẢNG THỰC TẾ
 if supabase:
@@ -2120,7 +2115,6 @@ else:
     st.dataframe(empty_df, use_container_width=True, hide_index=True)
 
 st.session_state["valid_diff_pcts"] = valid_diff_pcts
-
 
 
 
