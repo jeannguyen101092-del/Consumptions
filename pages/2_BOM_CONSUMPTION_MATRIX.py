@@ -1931,7 +1931,7 @@ from rapidfuzz import fuzz
 from scipy.optimize import linear_sum_assignment
 
 # =========================================================================================
-# ĐOẠN 1a: INDUSTRIAL May Mặc POM MATCHING ENGINE - NO-NUMBER CHUẨN HOÀN CHỈNH
+# ĐOẠN 1a: INDUSTRIAL May Mặc POM MATCHING ENGINE - STRICT & CLEAN PROCESSING
 # =========================================================================================
 
 UNICODE_FRACTION_MAP = {
@@ -1965,38 +1965,33 @@ def parse_garment_value_industrial(v):
             except Exception: return None
         return None
 
-# ✅ HÀM TRIỆT TIÊU MÃ SỐ ĐẦU NGỮ VÀ NỘI DUNG TRONG NGOẶC (STRICT CLEANING LAYER)
+# TRIỆT TIÊU MÃ SỐ ĐẦU NGỮ VÀ NỘI DUNG TRONG NGOẶC (STRICT CLEANING LAYER)
 def clean_pom_description_text(text):
     if not text: return ""
     cleaned = str(text).upper().strip()
-    
-    # 1. Triệt tiêu toàn bộ nội dung nằm trong dấu ngoặc đơn () và ngoặc vuông [] (Ví dụ: "(2 KG)" -> "")
+    # 1. Triệt tiêu toàn bộ nội dung nằm trong dấu ngoặc đơn () và ngoặc vuông []
     cleaned = re.sub(r'\([^\)]*\)', ' ', cleaned)
     cleaned = re.sub(r'\[[^\]]*\]', ' ', cleaned)
-    
     # 2. Triệt tiêu các mã định danh đầu ngữ dạng chữ-số (Ví dụ: "WST-007 ", "HIP-011 ", "LEG-002 ")
     cleaned = re.sub(r'\b[A-Z]{3,4}\s*-\s*\d+\b', ' ', cleaned)
-    
-    # 3. Làm sạch các khoảng trắng thừa do quá trình xóa để lại
+    # 3. Làm sạch các khoảng trắng thừa
     cleaned = re.sub(r'\s+', ' ', cleaned).strip()
     return cleaned
 
-# HÀM BÓC TÁCH KẾT CẤU POM ĐA TẦNG DỰA TRÊN CHUỖI ĐÃ LÀM SẠCH SẮC NÉT
+# BÓC TÁCH KẾT CẤU POM ĐA TẦNG DỰA TRÊN CHUỖI ĐÃ LÀM SẠCH SẮC NÉT
 def analyze_garment_pom_structure(text):
     if not text:
         return {"base": "UNK", "type": "WIDTH", "subtype": "GENERIC", "pos": 0.0}
     
-    # Ép dọn sạch mã số và dấu ngoặc trước khi phân tích hình học
     cleaned = clean_pom_description_text(text)
     
-    # 1. Trích xuất chính xác vị trí đo Inch (Ví dụ: "THIGH 1 BELOW CROTCH")
+    # Trích xuất chính xác vị trí đo Inch (Ví dụ: "THIGH 1 BELOW CROTCH")
     pos_regex = r'(\d+(?:\s+\d+/\d+|\.\d+|\/\d+)?)\s*(?:INCH|")?\s*(?:BELOW|ABOVE|FROM|DOWN)'
     pos_match = re.search(pos_regex, cleaned)
     position_inch = 0.0
     if pos_match:
         position_inch = parse_garment_value_industrial(pos_match.group(1)) or 0.0
         
-    # 2. Định nghĩa Phân vùng Kết cấu cơ sở hình học (Chỉ dựa trên chữ cái thuần túy)
     base = "UNK"
     if "WAIST" in cleaned: base = "WAIST"
     elif "HIP" in cleaned or "SEAT" in cleaned: base = "HIP"
@@ -2005,13 +2000,11 @@ def analyze_garment_pom_structure(text):
     elif "INSEAM" in cleaned: base = "INSEAM"
     elif "OPENING" in cleaned: base = "OPENING"
     
-    # 3. Định nghĩa Thuộc tính Đo (Rộng / Dài / Hạ vị trí)
     p_type = "WIDTH"
     if "LEVEL" in cleaned or "POSITION" in cleaned or "PLACEMENT" in cleaned: p_type = "LEVEL"
     elif "LENGTH" in cleaned or "OUTSEAM" in cleaned: p_type = "LENGTH"
     elif "DEPTH" in cleaned: p_type = "DEPTH"
     
-    # 4. Định nghĩa Hướng/Vị trí phụ (Trước / Sau / Trên / Dưới)
     subtype = "GENERIC"
     if "FRONT" in cleaned: subtype = "FRONT"
     elif "BACK" in cleaned: subtype = "BACK"
@@ -2020,27 +2013,30 @@ def analyze_garment_pom_structure(text):
     
     return {"base": base, "type": p_type, "subtype": subtype, "pos": position_inch}
 
+# Khởi tạo an toàn dữ liệu đầu vào
 new_specs = st.session_state.get("new_style_measurements_dict", {})
 garment_category = str(st.session_state.get("new_style_category_detected", "PANT")).strip().upper()
-new_style_base_size = st.session_state.get("new_style_base_size", "32")
+new_style_base_size = st.session_state.get("new_style_base_size", "N/A")
 
 matched_techpack = st.session_state.get("matched_techpack", {})
 old_specs = {}
-if matched_techpack:
+if matched_techpack and isinstance(matched_techpack, dict):
     old_specs = matched_techpack.get("DetailedMeasurements", {}) or matched_techpack.get("detailed_measurements", {}) or {}
-old_base_size = matched_techpack.get("BaseSize", "32")
+old_base_size = matched_techpack.get("BaseSize", "N/A") if matched_techpack else "N/A"
 
+# Bản đồ ánh xạ đầu ra toàn cục cho Đoạn 1b tiếp quản
 final_matched_map = {}
 processed_old_keys_global = set()
 
-if new_specs and old_specs:
+# CHỈ THỰC THI PIPELINE KHI CẢ HAI BÊN ĐỀU CÓ DỮ LIỆU THỰC TẾ
+if isinstance(new_specs, dict) and isinstance(old_specs, dict) and new_specs and old_specs:
     new_keys_list = list(new_specs.keys())
     old_keys_list = list(old_specs.keys())
     
-    # 📌 TẦNG 1: EXACT CLEAN MATCH LAYER (Khớp tuyệt đối sau khi dọn sạch nhiễu)
     exact_matched_new = set()
     exact_matched_old = set()
     
+    # 📌 TẦNG 1: EXACT CLEAN MATCH LAYER (Khớp tuyệt đối sau khi dọn sạch nhiễu)
     for nk in new_keys_list:
         nk_clean = clean_pom_description_text(nk)
         if not nk_clean: continue
@@ -2072,23 +2068,20 @@ if new_specs and old_specs:
                 ok_clean = clean_pom_description_text(ok)
                 o_struct = analyze_garment_pom_structure(ok)
                 
-                # Tính điểm chuỗi văn bản dựa trên chuỗi đã dọn sạch mã số nhiễu
                 fuzzy_score = float(fuzz.token_set_ratio(nk_clean, ok_clean))
                 pair_score = fuzzy_score * 0.35
                 
-                # --- HỆ THỐNG ĐIỀU PHỐI MA TRẬN KẾT CẤU AN TOÀN ---
                 if n_struct["base"] != "UNK" and n_struct["base"] == o_struct["base"]:
                     pair_score += 45.0  
-                    
                     if n_struct["type"] == o_struct["type"]:
                         pair_score += 15.0
                     else:
-                        pair_score -= 45.0  # CẤM GHÉP NHẦM LEVEL (Hạ) và WIDTH (Rộng)
+                        pair_score -= 45.0  
                         
                     if n_struct["subtype"] == o_struct["subtype"]:
                         pair_score += 10.0
                     elif "GENERIC" not in [n_struct["subtype"], o_struct["subtype"]]:
-                        pair_score -= 25.0  # CẤM ghép lệch hướng (High sang Low)
+                        pair_score -= 25.0  
                         
                     distance = abs(n_struct["pos"] - o_struct["pos"])
                     pair_score -= min(distance * 5.0, 30.0)
@@ -2116,11 +2109,12 @@ if new_specs and old_specs:
 
 
 
+
 import streamlit as st
 import pandas as pd
 
 # =========================================================================================
-# ĐOẠN 1b: VISUALIZATION RENDERER & DATA PACKAGING (ĐỒNG BỘ CẤU TRÚC ĐA TẦNG)
+# ĐOẠN 1b: VISUALIZATION RENDERER & ANTI-HARDCODE DATA PACKAGING
 # =========================================================================================
 
 st.markdown("<br>### 📐 BẢNG SO SÁNH SAI LỆCH THÔNG SỐ KỸ THUẬT RẬP MẪU", unsafe_allow_html=True)
@@ -2128,65 +2122,72 @@ st.markdown("<br>### 📐 BẢNG SO SÁNH SAI LỆCH THÔNG SỐ KỸ THUẬT R�
 compare_rows = []
 valid_diff_pcts = []
 
-for original_new_key, val_new in new_specs.items():
-    clean_new_key = str(original_new_key).upper().strip()
-    
-    if original_new_key in final_matched_map:
-        val_old = final_matched_map[original_new_key]["val_old"]
-    else:
-        val_old = None
+# Định nghĩa trước tiêu đề cột chuẩn May mặc ERP
+col_new_title = f"Mẫu mới ({new_style_base_size})"
+col_old_title = f"Mã cũ ({old_base_size})"
 
-    f_new = parse_garment_value_industrial(val_new)
-    f_old = parse_garment_value_industrial(val_old)
-    diff_val, diff_pct = None, None
-    
-    if f_new is not None and f_old is not None:
-        diff_val = round(f_new - f_old, 2)
-        if f_old != 0:
-            diff_pct = round((diff_val / f_old) * 100, 2)
-            
-            # ✅ ĐÃ SỬA: Đồng bộ gọi cấu trúc bóc tách hình học đa tầng nâng cao từ Đoạn 1a
-            n_struct = analyze_garment_pom_structure(original_new_key)
-            
-            # Loại bỏ chi tiết túi khỏi % trung bình nhảy size
-            if n_struct["base"] != "POCKET-GEN":
-                if any(x in garment_category for x in ["PANT", "SHORT", "TROUSER"]):
-                    # Bộ lọc nghiệp vụ kiểm soát hệ Quần
-                    if any(k in clean_new_key for k in ["INSEAM", "THIGH", "HIP", "KNEE", "WAIST", "RISE", "FLY", "OPENING"]):
-                        valid_diff_pcts.append(diff_pct)
-                else:
-                    # Bộ lọc nghiệp vụ kiểm soát hệ Áo
-                    if any(k in clean_new_key for k in ["LENGTH", "CHEST", "BUST", "ARMHOLE", "SLEEVE", "WIDTH"]):
-                        valid_diff_pcts.append(diff_pct)
+# Chỉ xử lý render dữ liệu khi đối tượng đầu vào hợp lệ
+if isinstance(new_specs, dict) and new_specs:
+    for original_new_key, val_new in new_specs.items():
+        clean_new_key = str(original_new_key).upper().strip()
+        
+        # Trích xuất dữ liệu đối chứng an toàn từ cổng nối Đoạn 1a
+        if original_new_key in final_matched_map:
+            val_old = final_matched_map[original_new_key]["val_old"]
+        else:
+            val_old = None
 
-    display_diff = f"+{diff_val}" if diff_val and diff_val > 0 else (str(diff_val) if diff_val is not None else "-")
-    display_pct = f"+{diff_pct}%" if diff_pct and diff_pct > 0 else (f"{diff_pct}%" if diff_pct is not None else "-")
-    
-    compare_rows.append({
-        "Vị trí đo (POM Description)": original_new_key,
-        f"Mẫu mới ({new_style_base_size})": val_new if val_new is not None else "-",
-        f"Mã cũ ({old_base_size})": val_old if val_old is not None else "-",
-        "Chênh lệch (Diff)": display_diff,
-        "Tỷ lệ biến thiên (Diff %)": display_pct
-    })
+        f_new = parse_garment_value_industrial(val_new)
+        f_old = parse_garment_value_industrial(val_old)
+        diff_val, diff_pct = None, None
+        
+        if f_new is not None and f_old is not None:
+            diff_val = round(f_new - f_old, 2)
+            if f_old != 0:
+                diff_pct = round((diff_val / f_old) * 100, 2)
+                
+                n_struct = analyze_garment_pom_structure(original_new_key)
+                if n_struct["base"] != "POCKET-GEN":
+                    if any(x in garment_category for x in ["PANT", "SHORT", "TROUSER"]):
+                        if any(k in clean_new_key for k in ["INSEAM", "THIGH", "HIP", "KNEE", "WAIST", "RISE", "FLY", "OPENING"]):
+                            valid_diff_pcts.append(diff_pct)
+                    else:
+                        if any(k in clean_new_key for k in ["LENGTH", "CHEST", "BUST", "ARMHOLE", "SLEEVE", "WIDTH"]):
+                            valid_diff_pcts.append(diff_pct)
 
-# Đổ các thông số rập cũ lịch sử còn sót trong bảng Supabase ra giao diện dưới dạng Fallback Row
-if old_specs:
-    for original_old_key, val_old in old_specs.items():
-        if original_old_key not in processed_old_keys_global:
-            compare_rows.append({
-                "Vị trí đo (POM Description)": original_old_key,
-                f"Mẫu mới ({new_style_base_size})": "-",
-                f"Mã cũ ({old_base_size})": val_old if val_old is not None else "-",
-                "Chênh lệch (Diff)": "-",
-                "Tỷ lệ biến thiên (Diff %)": "-"
-            })
+        display_diff = f"+{diff_val}" if diff_val and diff_val > 0 else (str(diff_val) if diff_val is not None else "-")
+        display_pct = f"+{diff_pct}%" if diff_pct and diff_pct > 0 else (f"{diff_pct}%" if diff_pct is not None else "-")
+        
+        compare_rows.append({
+            "Vị trí đo (POM Description)": original_new_key,
+            col_new_title: val_new if val_new is not None else "-",
+            col_old_title: val_old if val_old is not None else "-",
+            "Chênh lệch (Diff)": display_diff,
+            "Tỷ lệ biến thiên (Diff %)": display_pct
+        })
 
-# Render đồ họa bảng so sánh thông số kỹ thuật tối ưu lên màn hình Streamlit
+    # Đổ các thông số rập cũ lịch sử còn sót trong bảng Supabase ra giao diện dưới dạng Fallback Row
+    if isinstance(old_specs, dict) and old_specs:
+        for original_old_key, val_old in old_specs.items():
+            if original_old_key not in processed_old_keys_global:
+                compare_rows.append({
+                    "Vị trí đo (POM Description)": original_old_key,
+                    col_new_title: "-",
+                    col_old_title: val_old if val_old is not None else "-",
+                    "Chênh lệch (Diff)": "-",
+                    "Tỷ lệ biến thiên (Diff %)": "-"
+                })
+
+# RENDER GIAO DIỆN KIỂM SOÁT AN TOÀN TUYỆT ĐỐI
 if compare_rows:
     st.dataframe(pd.DataFrame(compare_rows), use_container_width=True, hide_index=True)
 else:
-    st.info("ℹ️ Không tìm thấy danh sách thông số kỹ thuật hợp lệ để so sánh đối chiếu.")
+    # 🛡️ Nếu dữ liệu trống (Lỗi API 503), hiển thị khung bảng trống có tiêu đề cột cấu trúc, TUYỆT ĐỐI KHÔNG HÀRDCODE SỐ GIẢ
+    st.info("ℹ️ Hệ thống đang trống danh sách thông số kỹ thuật mới (Chưa quét hoặc API nghẽn).")
+    empty_df = pd.DataFrame(columns=[
+        "Vị trí đo (POM Description)", col_new_title, col_old_title, "Chênh lệch (Diff)", "Tỷ lệ biến thiên (Diff %)"
+    ])
+    st.dataframe(empty_df, use_container_width=True, hide_index=True)
 
 # Đóng gói mảng phần trăm biến thiên chuẩn đưa xuống tầng tính toán Định mức ở Đoạn 2
 st.session_state["valid_diff_pcts"] = valid_diff_pcts
