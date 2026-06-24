@@ -1974,11 +1974,11 @@ def parse_garment_value_industrial(v):
             except Exception: return None
         return None
 
-# 🔥 Ô NHẬP THỦ CÔNG TRỰC TIẾP TRÊN CODE - BẠN COPY DÁN VÀO ĐÂY:
+# Khởi tạo kết nối Supabase trực tiếp
 try:
     from supabase import create_client, Client
-    SUPABASE_URL = "https://ewqqodsfvlvnrzsylawy.supabase.co"
-    SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV3cXFvZHNmdmx2bnJ6c3lsYXd5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUxMTkyOTAsImV4cCI6MjA5MDY5NTI5MH0.BWPxOsyswBT5CLrZgluRC1F2x5EpU06oexUFyakGhyc"
+    SUPABASE_URL = "https://supabase.co"
+    SUPABASE_KEY = "eyJhY0ciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdWJhc2UiLCJzdWIiOiI2ZzU1SInJlZiI6ImV3cXFvZHNtZmx2YnJ6c3lsYXl5IiwiYm9sZSI6ImFub24iLCJpYXQiOjE3NzUxMikyOTAsImV4cCI6MjA5MDY5NTI1MH0.BWPxOsysw8T5CLRZgluRC1F2xSEpU0GoexUFyakGhyc"
     supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 except Exception:
     supabase = None
@@ -1991,11 +1991,11 @@ if supabase:
         if query_response and query_response.data and len(query_response.data) > 0:
             records_found_count = len(query_response.data)
             
-            # Đọc dòng đầu tiên có chứa dữ liệu đo lường thực tế từ Supabase
+            # ✅ ĐÃ SỬA CỐT LÕI: Lấy chính xác phần tử đầu tiên [0] của mảng dữ liệu trả về từ Supabase
             chosen_row = query_response.data[0]
             record_keys_list = list(chosen_row.keys())
             
-            # Trích xuất cột measurements của bạn hiển thị trên màn hình
+            # Trích xuất cột measurements dạng jsonb của bạn hiển thị trên màn hình
             raw_measurements = chosen_row.get("measurements") or chosen_row.get("text") or {}
             
             if isinstance(raw_measurements, str):
@@ -2115,6 +2115,7 @@ else:
     st.dataframe(empty_df, use_container_width=True, hide_index=True)
 
 st.session_state["valid_diff_pcts"] = valid_diff_pcts
+
 
 
 
