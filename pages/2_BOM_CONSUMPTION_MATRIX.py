@@ -1946,9 +1946,10 @@ def parse_garment_value(v_text):
         elif len(parts) == 1 and "/" in parts[0]:
             return float(Fraction(parts[0]))
         else:
-            return float(parts)
+            return float(parts[0]) # ĐÃ SỬA: Lấy phần tử đầu tiên để ép kiểu thay vì ép cả list
     except Exception:
         return None
+
 POM_ALIAS_MAP = {
     # --- QUẦN / VÁY ĐỘC LẬP (PANTS / SKIRTS) ---
     "FRONT CROTCH DEPTH": "RISE-FRNT", "FRONT BODY RISE": "RISE-FRNT", "FRONT CROTCH LENGTH": "RISE-FRNT", "FRONT RISE": "RISE-FRNT",
@@ -1988,6 +1989,7 @@ def get_pom_position_code(text):
     if "OUTSEAM" in t: return "OUTSEAM"
     if "LENGTH" in t: return "LENGTH-FRONT" if "FRONT" in t else ("LENGTH-BACK" if "BACK" in t else ("LENGTH-SKIRT" if "SKIRT" in t else "LENGTH-BODY"))
     return None
+
 def execute_pom_comparison_matrix(new_style_measurements, matched_techpack, target_style_name, new_style_id):
     """Hàm lõi điều phối thuật toán so khớp đa tầng hiệu năng cao."""
     historical_measurements = {}
@@ -2009,7 +2011,6 @@ def execute_pom_comparison_matrix(new_style_measurements, matched_techpack, targ
         if code: historical_code_index.setdefault(code, []).append({"name": old_k, "value": old_v})
 
     comparison_rows = []
-    valid_diff_pcts = []
 
     for pom, val_new in new_style_measurements.items():
         val_new_str, clean_new_key, val_old_str = str(val_new).strip(), str(pom).upper(), "-"
@@ -2040,36 +2041,43 @@ def execute_pom_comparison_matrix(new_style_measurements, matched_techpack, targ
                         val_old_str = str(historical_code_index[fallback_code][0]["value"]).strip()
                         break
 
+        # ĐÃ SỬA: Hoàn thiện logic tính toán % chênh lệch và chống crash dữ liệu
         display_pct = "-"
         try:
             if val_new_str != "-" and val_old_str != "-":
-                num_new, num_old = parse_garment_value(val_new_str), parse_garment_value(val_old_str)
+                num_new = parse_garment_value(val_new_str)
+                num_old = parse_garment_value(val_old_str)
                 if num_new is not None and num_old is not None and num_old != 0:
                     diff_pct = round(((num_new - num_old) / num_old) * 100, 2)
                     display_pct = f"+{diff_pct}%" if diff_pct > 0 else f"{diff_pct}%"
-                    if "POCKET" not in clean_new_key and "COIN" not in clean_new_key:
-                        if any(k in clean_new_key for k in ["INSEAM", "THIGH", "HIP", "KNEE", "WAIST", "RISE", "LEG", "OPENING", "CHEST", "BUST", "LENGTH"]):
-                            valid_diff_pcts.append(abs(diff_pct))
-        except Exception: pass
-            
-        comparison_rows.append({"Vị trí đo (POM Description)": pom, f"Mẫu mới ({new_style_id})": val_new_str, f"Mã kho ({target_style_name})": val_old_str, "Tỷ lệ biến thiên (Diff %)": display_pct})
-        
-    st.session_state["valid_diff_pcts"] = valid_diff_pcts
+        except Exception:
+            display_pct = "ERR"
+
+        comparison_rows.append({
+            "New Style ID": new_style_id,
+            "Target Style Name": target_style_name,
+            "POM Position": pom,
+            "New Value": val_new_str,
+            "Historical Value": val_old_str,
+            "Variance (%)": display_pct
+        })
+
     return comparison_rows
-# Thực thi render bảng lên Streamlit UI (Tự động nhận diện dữ liệu đầu vào)
-if "new_style_measurements_dict" in locals() or "new_style_measurements_dict" in globals():
-    try:
-        rows = execute_pom_comparison_matrix(
-            new_style_measurements=new_style_measurements_dict,
-            matched_techpack=matched_techpack,
-            target_style_name=target_style_name,
-            new_style_id=new_style_id_detected
-        )
-        if rows:
-            df_compare = pd.DataFrame(rows)
-            st.dataframe(df_compare, use_container_width=True, hide_index=True)
-    except Exception as e_matrix:
-        st.error(f"Lỗi hiển thị bảng đối chiếu: {str(e_matrix)}")
+# Giả lập dữ liệu đầu vào
+new_specs = {"Waist (Relaxed)": "32 1/2", "Inseam": "30"}
+old_techpack = {"measurements": {"WAIST RELAXED": "32", "INSEAM": "31"}}
+
+# Chạy hàm xử lý ma trận so khớp
+results = execute_pom_comparison_matrix(new_specs, old_techpack, "Old Jacket v1", "ST-2026")
+
+# Chuyển đổi sang DataFrame và hiển thị lên Streamlit
+if results:
+    df = pd.DataFrame(results)
+    st.subheader("📊 Bảng So Sánh Thông Số Kỹ Thuật (POM)")
+    st.dataframe(df, use_container_width=True)
+else:
+    st.warning("⚠️ Không tìm thấy dữ liệu thông số lịch sử để so sánh!")
+
 
        # =========================================================================================
     # HỆ THỐNG ĐỒNG BỘ: HIỂN THỊ BẢNG POM VÀ DỰ PHÓNG AI (CẬP NHẬT TÊN TRƯỜNG SUPABASE CHUẨN)
