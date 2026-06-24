@@ -1928,22 +1928,54 @@ import json
 import re
 
 # =========================================================================================
-# ĐOẠN 1a.1a + 1a.1b: INDUSTRIAL ERP SUPABASE ADVANCED RETRIEVER & JSONB CLEANER
+# ĐOẠN 1: INDUSTRIAL ERP - SUPABASE RETRIEVER & JSONB AUTO-CORRECTOR (SỬA LỖI MẢNG)
 # =========================================================================================
 
-# Khởi tạo các biến trạng thái ban đầu
+# 1. KHỞI TẠO BIẾN TRẠNG THÁI AN TOÀN TRƯỚC TRUY VẤN
 old_specs = {}
 old_base_size = "N/A"
 records_found_count = 0
 record_keys_list = []
 query_response = None
 
-# 1. THU THẬP THÔNG TIN MÁY QUÉT MẪU MỚI
+# Thu thập thông tin máy quét mẫu mới từ session_state
 new_specs = st.session_state.get("new_style_measurements_dict", {})
 garment_category = str(st.session_state.get("new_style_category_detected", "PANT")).strip().upper()
 new_style_base_size = st.session_state.get("new_style_base_size", "N/A")
 
-# 2. BÓC TÁCH MÃ TARGET STYLE NAME BIẾN ĐỘNG
+# Hàm làm sạch văn bản POM Description
+def clean_pom_description_text(text):
+    if not text: return ""
+    cleaned = str(text).upper().strip()
+    cleaned = re.sub(r'\([^\)]*\)', ' ', cleaned)
+    cleaned = re.sub(r'\[[^\]]*\]', ' ', cleaned)
+    cleaned = re.sub(r'\b[A-Z]{3,4}\s*-\s*\d+\b', ' ', cleaned)
+    cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+    return cleaned
+
+# Hàm parse phân số ngành may
+def parse_garment_value_industrial(v):
+    if v is None: return None
+    try: return float(v)
+    except (ValueError, TypeError):
+        try:
+            str_v = str(v).strip()
+            uni_map = {"½": " 1/2", "¼": " 1/4", "¾": " 3/4", "⅛": " 1/8", "⅜": " 3/8", "⅝": " 5/8", "⅞": " 7/8"}
+            for uni_char, repl_str in uni_map.items():
+                if uni_char in str_v: str_v = str_v.replace(uni_char, repl_str)
+            if " " in str_v and "/" in str_v:
+                parts = str_v.split()
+                return float(parts[0]) + (float(parts[1].split('/')[0]) / float(parts[1].split('/')[1]))
+            elif "/" in str_v:
+                return float(str_v.split('/')[0]) / float(str_v.split('/')[1])
+        except Exception: pass
+        nums = re.findall(r"[-+]?\d*\.\d+|\d+", str_v)
+        if nums:
+            try: return float(nums[0])
+            except Exception: return None
+        return None
+
+# 2. BÓC TÁCH MÃ TARGET STYLE NAME
 target_style_name = (
     st.session_state.get("target_style_name") or 
     st.session_state.get("matched_style_id") or
@@ -1954,26 +1986,25 @@ target_style_name = (
 if not target_style_name or str(target_style_name).strip().upper() == "NONE":
     matched = st.session_state.get("matched_techpack")
     if isinstance(matched, list) and matched:
-        first_item = matched[0]
-        if isinstance(first_item, dict):
-            target_style_name = first_item.get("style_number") or first_item.get("style_id")
+        if isinstance(matched[0], dict):
+            target_style_name = matched[0].get("style_number") or matched[0].get("style_id")
     elif isinstance(matched, dict) and matched:
         target_style_name = matched.get("style_number") or matched.get("style_id")
 
-# 🛡️ CHẶN ĐƯỜNG PHÒNG THỦ: Ép mã thực tế từ bảng dữ liệu của bạn để test nếu hệ thống trống
+# 🛡️ MÃ ĐỐI CHỨNG THỰC TẾ TRÊN MÀN HÌNH ĐỂ KHỚP VỚI SUPABASE CỦA BẠN
 if not target_style_name or str(target_style_name).strip().upper() == "NONE":
     target_style_name = "P09-492496"
 
-# 3. KÍCH HOẠT ENGINE TRUY VẤN VÀ SỬA LỖI ĐỊNH DẠNG JSONB CHUỖI VĂN BẢN
+# 3. KÍCH HOẠT TRUY VẤN VÀ KHẮC PHỤC LỖI ĐỊNH DẠNG DATA
 supabase = st.session_state.get("supabase_client")
 
 if target_style_name and supabase:
     clean_target = str(target_style_name).strip()
     try:
-        # Quét qua các bảng trong hệ thống của bạn
+        # Duyệt qua các bảng thực tế trong DB của bạn
         for table_name in ["techpack_storage", "techpack_library", "techpack_master"]:
             try:
-                # Tìm kiếm không phân biệt hoa thường bằng ilike để tránh sót mã
+                # Sử dụng .eq() hoặc .ilike() để tìm kiếm chính xác mã hàng
                 query_response = supabase.table(table_name).select("*").ilike("style_number", f"%{clean_target}%").execute()
                 if query_response and query_response.data and len(query_response.data) > 0:
                     break
@@ -1983,59 +2014,55 @@ if target_style_name and supabase:
             except Exception:
                 continue
                 
-        # Xử lý dữ liệu trả về từ Supabase
+        # ✅ ĐÃ SỬA DỨT ĐIỂM: Kiểm tra mảng và truy cập chính xác phần tử đầu tiên [0]
         if query_response and query_response.data and len(query_response.data) > 0:
             records_found_count = len(query_response.data)
-            first_row_record = query_response.data[0]
+            
+            # Ép lấy đúng Dict của hàng đầu tiên thay vì lấy cả List dữ liệu thô
+            first_row_record = query_response.data[0] 
             record_keys_list = list(first_row_record.keys())
             
-            # Trích xuất cột measurements (Hỗ trợ tất cả các tên cột có thể có)
+            # Đọc động trường dữ liệu measurements
             raw_measurements = (
                 first_row_record.get("measurements") or 
                 first_row_record.get("DetailedMeasurements") or 
-                first_row_record.get("detailed_measurements") or 
-                first_row_record.get("measurements_json") or {}
+                first_row_record.get("detailed_measurements") or {}
             )
             
-            # 🔥 BỘ SỬA LỖI CUỒNG PHONG: Ép kiểu chuỗi văn bản dạng jsonb bẩn về Dict Python chuẩn
+            # 🔥 BỘ KHỬ ĐỘC JSONB TEXT: Ép văn bản thô dạng nháy kép trên Supabase về Dict chuẩn
             if isinstance(raw_measurements, str):
-                cleaned_json_str = raw_measurements.strip()
-                # Sửa lỗi nếu chuỗi bị lỗi định dạng dấu nháy kép hoặc dính liền ký tự phân tách
-                cleaned_json_str = re.sub(r'([a-zA-Z0-9_\s"\'-]+)\s*:\s*([-+?\.a-zA-Z0-9_\s"\'/]+)', r'"\1":"\2"', cleaned_json_str)
                 try:
-                    old_specs = json.loads(cleaned_json_str)
+                    old_specs = json.loads(raw_measurements)
                 except Exception:
-                    # Nếu giải mã lỗi, dùng Regex quét trực tiếp các cặp Key-Value dạng chuỗi
-                    old_specs = dict(re.findall(r'"([^"]+)":"([^"]+)"', cleaned_json_str))
+                    # Cứu nguy bằng Regex nếu chuỗi JSON bị lỗi khoảng trắng hoặc dính ký tự đặc biệt
+                    old_specs = dict(re.findall(r'"([^"]+)":"([^"]+)"', raw_measurements))
             elif isinstance(raw_measurements, dict):
                 old_specs = raw_measurements
-            else:
-                old_specs = {}
                 
             old_base_size = str(first_row_record.get("base_size", first_row_record.get("BaseSize", "N/A")))
             
-            # Đồng bộ ngược lại vào Session State của hệ thống
+            # Đóng gói chuẩn hóa đồng bộ ngược lại bộ nhớ tạm hệ thống
             st.session_state["matched_techpack"] = {
                 "StyleName": clean_target,
                 "BaseSize": old_base_size,
                 "DetailedMeasurements": old_specs
             }
     except Exception as db_err:
-        st.error(f"❌ Sự cố kết nối hoặc trích xuất dữ liệu: {str(db_err)}")
+        st.error(f"❌ Hệ thống gặp sự cố truy vấn Supabase ở Đoạn 1: {str(db_err)}")
 
-# Tầng dự phòng bảo vệ dòng chảy dữ liệu khi rớt mạng DB
+# Tầng dự phòng giải nén dữ liệu cũ khi mất kết nối mạng
 if not old_specs:
-    matched_raw = st.session_state.get("matched_techpack", {})
-    if isinstance(matched_raw, list) and len(matched_raw) > 0:
-        matched_raw = matched_raw[0]
-    if isinstance(matched_raw, dict):
-        fallback_measurements = matched_raw.get("DetailedMeasurements") or matched_raw.get("measurements") or {}
-        if isinstance(fallback_measurements, str):
-            try: old_specs = json.loads(fallback_measurements)
-            except Exception: old_specs = dict(re.findall(r'"([^"]+)":"([^"]+)"', fallback_measurements))
-        elif isinstance(fallback_measurements, dict):
-            old_specs = fallback_measurements
-        old_base_size = str(matched_raw.get("BaseSize", "N/A"))
+    matched_techpack_raw = st.session_state.get("matched_techpack", {})
+    if isinstance(matched_techpack_raw, list) and len(matched_techpack_raw) > 0:
+        matched_techpack_raw = matched_techpack_raw[0]
+    if isinstance(matched_techpack_raw, dict):
+        fallback_meas = matched_techpack_raw.get("DetailedMeasurements") or matched_techpack_raw.get("measurements") or {}
+        if isinstance(fallback_meas, str):
+            try: old_specs = json.loads(fallback_meas)
+            except Exception: old_specs = dict(re.findall(r'"([^"]+)":"([^"]+)"', fallback_meas))
+        elif isinstance(fallback_meas, dict):
+            old_specs = fallback_meas
+        old_base_size = str(matched_techpack_raw.get("BaseSize", "N/A"))
 
 # =========================================================================================
 # 🎛️ KẾT XUẤT CỔNG CHẨN ĐOÁN TRẠNG THÁI TOÀN VẸN DỮ LIỆU
@@ -2051,12 +2078,12 @@ with debug_col2:
     st.write(f"4️⃣ **record keys:** `{record_keys_list}`")
     st.write(f"5️⃣ **NEW SPECS count:** `{len(new_specs) if new_specs else 0}` | **OLD SPECS count:** `{len(old_specs) if old_specs else 0}`")
 st.markdown("---")
-
 import streamlit as st
 import pandas as pd
+import re
 
 # =========================================================================================
-# ĐOẠN 1b: VISUALIZATION RENDERER & ANTI-HARDCODE DATA PACKAGING (SAFE INITIALIZATION)
+# ĐOẠN 1b: VISUALIZATION RENDERER & ANTI-HARDCODE DATA PACKAGING (TOTAL ENCAPSULATION)
 # =========================================================================================
 
 st.markdown("<br>### 📐 BẢNG SO SÁNH SAI LỆCH THÔNG SỐ KỸ THUẬT RẬP MẪU", unsafe_allow_html=True)
@@ -2065,19 +2092,50 @@ compare_rows = []
 valid_diff_pcts = []
 
 # Định nghĩa trước tiêu đề cột chuẩn May mặc ERP
-col_new_title = f"Mẫu mới ({new_style_base_size})"
-col_old_title = f"Mã cũ ({old_base_size})"
+col_new_title = f"Mẫu mới ({new_style_base_size})" if 'new_style_base_size' in locals() or 'new_style_base_size' in globals() else "Mẫu mới (N/A)"
+col_old_title = f"Mã cũ ({old_base_size})" if 'old_base_size' in locals() or 'old_base_size' in globals() else "Mã cũ (N/A)"
 
-# 🔥 BỘ PHÒNG THỦ TUYỆT ĐỐI: Kiểm tra và tự động khởi tạo biến nếu Đoạn 1a.2 chưa kịp tạo do lỗi DB
+# 🔥 BỘ PHÒNG THỦ 1: Tự định nghĩa hàm parse tại chỗ nếu hệ thống quên import từ đoạn 1a
+def local_parse_garment_value(v):
+    if v is None: return None
+    try: return float(v)
+    except (ValueError, TypeError):
+        try:
+            str_v = str(v).strip()
+            # Xử lý các ký tự phân số Unicode phổ biến trong ngành may
+            uni_map = {"½": " 1/2", "¼": " 1/4", "¾": " 3/4", "⅛": " 1/8", "⅜": " 3/8", "⅝": " 5/8", "⅞": " 7/8"}
+            for uni_char, repl_str in uni_map.items():
+                if uni_char in str_v: str_v = str_v.replace(uni_char, repl_str)
+            
+            if " " in str_v and "/" in str_v:
+                parts = str_v.split()
+                whole = float(parts[0])
+                num, den = parts[1].split('/')
+                return whole + (float(num) / float(den))
+            elif "/" in str_v:
+                num, den = str_v.split('/')
+                return float(num) / float(den)
+        except Exception: pass
+        nums = re.findall(r"[-+]?\d*\.\d+|\d+", str_v)
+        if nums:
+            try: return float(nums[0])
+            except Exception: return None
+        return None
+
+# 🔥 BỘ PHÒNG THỦ 2: Tự động khởi tạo các biến toàn cục nếu các đoạn trước bị lỗi/rỗng
 if 'processed_old_keys_global' not in locals() and 'processed_old_keys_global' not in globals():
     processed_old_keys_global = set()
-
-# Tạo một tập hợp hoa toàn bộ các key cũ đã được xử lý để tra cứu tầng fallback chính xác
-processed_old_keys_upper = {str(k).upper().strip() for k in processed_old_keys_global if k is not None}
-
-# Khởi tạo an toàn cấu trúc bản đồ so khớp nếu chưa tồn tại
 if 'final_matched_map' not in locals() and 'final_matched_map' not in globals():
     final_matched_map = {}
+if 'new_specs' not in locals() and 'new_specs' not in globals():
+    new_specs = {}
+if 'old_specs' not in locals() and 'old_specs' not in globals():
+    old_specs = {}
+if 'garment_category' not in locals() and 'garment_category' not in globals():
+    garment_category = "PANT"
+
+# Ép toàn bộ danh sách key cũ đã được xử lý về chữ in hoa để tra cứu tầng fallback chính xác
+processed_old_keys_upper = {str(k).upper().strip() for k in processed_old_keys_global if k is not None}
 
 # Chỉ xử lý render dữ liệu khi đối tượng đầu vào hợp lệ
 if isinstance(new_specs, dict) and new_specs:
@@ -2097,8 +2155,9 @@ if isinstance(new_specs, dict) and new_specs:
                     val_old = details["val_old"]
                     break
 
-        f_new = parse_garment_value_industrial(val_new)
-        f_old = parse_garment_value_industrial(val_old)
+        # Sử dụng bộ giải mã nội bộ an toàn để triệt tiêu hoàn toàn NameError
+        f_new = local_parse_garment_value(val_new)
+        f_old = local_parse_garment_value(val_old)
         diff_val, diff_pct = None, None
         
         if f_new is not None and f_old is not None:
@@ -2106,7 +2165,7 @@ if isinstance(new_specs, dict) and new_specs:
             if f_old != 0:
                 diff_pct = round((diff_val / f_old) * 100, 2)
                 
-                # Gọi an toàn hàm phân tích cấu trúc POM nếu hàm này tồn tại
+                # Gọi an toàn hàm phân tích cấu trúc POM
                 if 'analyze_garment_pom_structure' in globals() or 'analyze_garment_pom_structure' in locals():
                     n_struct = analyze_garment_pom_structure(original_new_key)
                     if n_struct.get("base") != "POCKET-GEN":
@@ -2148,7 +2207,6 @@ if isinstance(new_specs, dict) and new_specs:
 if compare_rows:
     st.dataframe(pd.DataFrame(compare_rows), use_container_width=True, hide_index=True)
 else:
-    # 🛡️ Nếu dữ liệu trống hoàn toàn, hiển thị khung bảng trống có cấu trúc tiêu đề cột sạch
     st.info("ℹ️ Hệ thống đang trống danh sách thông số kỹ thuật mới (Chưa quét hoặc API nghẽn).")
     empty_df = pd.DataFrame(columns=[
         "Vị trí đo (POM Description)", col_new_title, col_old_title, "Chênh lệch (Diff)", "Tỷ lệ biến thiên (Diff %)"
