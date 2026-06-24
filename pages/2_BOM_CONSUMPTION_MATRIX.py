@@ -1903,7 +1903,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     except Exception as e_col:
         print(f"❌ [COLUMN RENDER ERROR]: {str(e_col)}")
 # =========================================================================================
-  import re
+import re
 from fractions import Fraction
 import pandas as pd
 import streamlit as st
