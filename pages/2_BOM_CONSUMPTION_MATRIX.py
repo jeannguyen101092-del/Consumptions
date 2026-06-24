@@ -2029,92 +2029,43 @@ else:
 
 
 
-import streamlit as st
-import pandas as pd
+    # =========================================================================================
+    # 📐 ĐOẠN 1b: VISUALIZATION RENDERER & COMPARATOR WITH ALARM HIGHLIGHT
+    # =========================================================================================
 
-# =========================================================================================
-# ĐOẠN 2: AI CONSUMPTION PROJECTION ENGINE & BẢNG BOM LỊCH SỬ (ĐỒNG BỘ ĐỊNH MỨC KHO)
-# =========================================================================================
+    # Chuyển đổi mảng dòng dữ liệu sang cấu trúc DataFrame của Pandas
+    df_compare = pd.DataFrame(compare_rows)
 
-# Khai báo cấu trúc nhận diện dữ liệu
-bom_summary_engine = {}
-matched_techpack = st.session_state.get("matched_techpack", {})
-bom_records = st.session_state.get("bom_records", [])
-
-# Đồng bộ chuyển đổi danh sách vật tư kho thực tế vào bộ máy tính toán định mức AI
-if bom_records:
-    for r in bom_records:
-        # Nhóm gọn theo nhóm vật tư cốt lõi
-        bom_summary_engine[r["consumption_type"]] = float(r["consumption_value"])
-
-# Tính toán chỉ số POM thực tế truyền từ Đoạn 1 xuống
-valid_diff_pcts = st.session_state.get("valid_diff_pcts", [])
-if valid_diff_pcts:
-    avg_area_growth_pct = round(sum([abs(x) for x in valid_diff_pcts]) / len(valid_diff_pcts), 2)
-else:
-    avg_area_growth_pct = 5.97  # Chỉ số dự phòng mặc định khi không tìm thấy thông số so sánh
-
-if matched_techpack and bom_summary_engine:
-    st.markdown("<br>### 🔮 AI CONSUMPTION PROJECTION ENGINE (DỰ PHÓNG ĐỊNH MỨC MÃ MỚI)", unsafe_allow_html=True)
-    st.success("✅ **XÁC THỰC AI VISION:** Kết nối thành công hệ cơ sở dữ liệu định mức đối chứng từ kho.")
-
-    # Thiết lập bộ tham số đầu vào giao diện (Đã thêm tiền tố key chống trùng lặp ID phần tử)
-    param_col1, param_col2, param_col3 = st.columns(3)
-    with param_col1:
-        shape_factor = st.number_input("Độ biến thiên thông số POM trung bình (%)", value=float(avg_area_growth_pct), step=0.01, format="%.2f", key="input_shape_factor")
-    with param_col2:
-        fabric_growth_factor = st.number_input("Hệ số thực nghiệm vải (Fabric Growth Factor)", value=0.65, step=0.05, format="%.2f", key="input_fabric_factor")
-    with param_col3:
-        wastage_buffer = st.number_input("Hao hụt sản xuất cấu hình thêm (%)", value=0.00, step=0.5, format="%.2f", key="input_wastage_factor")
-
-    projection_rows = []
-    for ctype, old_qty in bom_summary_engine.items():
-        ctype_upper = str(ctype).strip().upper()
+    def highlight_deviation_industrial(row):
+        """
+        Hàm định dạng màu sắc: Tự động quét cột 'Tỷ lệ biến thiên (Diff %)'
+        Nếu thông số vượt quá biên dung sai của ngành, tô màu để bộ phận kỹ thuật chú ý.
+        """
+        styles = [''] * len(row)
+        pct_str = str(row["Tỷ lệ biến thiên (Diff %)"])
         
-        # Cấu trúc thuật toán vải chính
-        if any(k in ctype_upper for k in ["MAIN", "FABRIC", "BODY", "SHELL", "VẢI CHÍNH"]):
-            percentage_increase = fabric_growth_factor * shape_factor
-            projected_dm = old_qty * (1 + percentage_increase / 100) * (1 + wastage_buffer / 100)
-            note = f"Vải chính: Hệ số ({fabric_growth_factor}) × POM ({round(shape_factor, 1)}%) → ĐM tăng: {round(percentage_increase, 2)}%"
-        # Cấu trúc thuật toán vải phụ mềm / lót túi
-        else:
-            main_fabric_increase = fabric_growth_factor * shape_factor
-            percentage_increase = 0.40 * main_fabric_increase
-            projected_dm = old_qty * (1 + percentage_increase / 100) * (1 + wastage_buffer / 100)
-            note = f"Vải phụ: Giảm chấn (0.4) × Mức tăng vải chính → ĐM tăng: {round(percentage_increase, 2)}%"
-            
-        projection_rows.append({
-            "Phân loại vật tư (Type)": ctype,
-            "Tổng ĐM mã cũ": round(old_qty, 3),
-            "ĐM Dự phóng mã mới": round(projected_dm, 3),
-            "Cơ sở thuật toán toán AI": note
-        })
-        
-    # Render bảng tính toán định mức dự phóng mã mới của AI
-    st.dataframe(
-        pd.DataFrame(projection_rows), 
-        use_container_width=True, 
-        hide_index=True,
-        column_config={
-            "Tổng ĐM mã cũ": st.column_config.NumberColumn(format="%.3f"),
-            "ĐM Dự phóng mã mới": st.column_config.NumberColumn(format="%.3f")
-        }
-    )
+        if pct_str and pct_str != "-":
+            try:
+                # Trích xuất số thực từ chuỗi phần trăm (Ví dụ: "+10.53%" -> 10.53)
+                val = float(pct_str.replace('%', '').replace('+', ''))
+                
+                # BIÊN DUNG SAI CẢNH BÁO: Lệch quá ±5% (Bạn có thể tăng giảm con số này)
+                if abs(val) >= 5.0:
+                    # Tô màu nền đỏ nhạt và chữ đỏ đậm cho toàn bộ hàng để cảnh báo rủi ro nhảy rập
+                    return ['background-color: #FCE8E6; color: #A61C06; font-weight: bold;'] * len(row)
+                elif abs(val) > 0:
+                    # Tô màu vàng nhạt cho các hàng có biến động nhỏ trong tầm kiểm soát
+                    return ['background-color: #FFF2CC; color: #B2A200;'] * len(row)
+            except Exception:
+                pass
+        return styles
 
-# --- HIỂN THỊ CHI TIẾT BẢNG ĐỊNH MỨC NGUYÊN VẬT LIỆU (BOM) GỐC TRONG KHO ---
-if matched_techpack and bom_records:
-    st.markdown("<br>📦 **Chi Tiết Định Mức Định Hình Mở Rộng (BOM Lịch Sử Của Mã Đối Chứng):**", unsafe_allow_html=True)
-    df_bom = pd.DataFrame(bom_records)
-    
-    # Định dạng mượt cấu trúc chuỗi và số
-    df_bom_render = df_bom[['style_name', 'consumption_type', 'article_name', 'material_size', 'uom']].copy()
-    df_bom_render["Định mức (DM)"] = pd.to_numeric(df_bom["consumption_value"], errors='coerce').fillna(0.0).round(3)
-    
-    df_bom_render.columns = [
-        "Mã hàng đối chứng", "Phân loại vật tư (Type)", "Tên vật tư / Mã vải", 
-        "Khổ vải / Chi tiết định mức", "Đơn vị (UOM)", "Định mức (DM)"
-    ]
-    st.dataframe(df_bom_render, use_container_width=True, hide_index=True)
+    # Áp dụng bộ tạo kiểu Style và đẩy thẳng lên lưới Streamlit UI
+    if not df_compare.empty:
+        styled_df = df_compare.style.apply(highlight_deviation_industrial, axis=1)
+        st.dataframe(styled_df, use_container_width=True, hide_index=True)
+    else:
+        st.info("Không có vị trí đo nào khớp nhau để tiến hành tính tỷ lệ chênh lệch.")
 
 
 
