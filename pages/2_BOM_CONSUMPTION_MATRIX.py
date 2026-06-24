@@ -508,8 +508,9 @@ def call_gemini_extraction_engine(file_bytes, file_name, sorted_pages):
         return None, "gemini-2.5-flash", f"Lỗi nghiêm trọng tại Hàm A: {str(fatal_a_err)}"
 def process_single_pdf_batch(file_bytes, file_name):
     """
-    HÀM B: Phân tách số trang, gọi HÀM A, dọn sạch dữ liệu POM 0.00 
-    và chuyển đổi cấu trúc khớp hoàn toàn với giao diện Streamlit cũ để hiển thị bảng.
+    HÀM B: Phân tách số trang, gọi HÀM A, dọn sạch dữ liệu POM 0.00.
+    - CẮT BỎ hoàn toàn phần mã số và ký tự đặc biệt phía trước điểm đo (POM).
+    - Đồng bộ biến đầu ra trả về đúng ảnh và bảng lưới cho Streamlit UI.
     """
     import json
     import re
@@ -564,20 +565,17 @@ def process_single_pdf_batch(file_bytes, file_name):
             finish_reason = "UNKNOWN"
             try:
                 if response and response.candidates:
-                    candidate = response.candidates[0]
+                    candidate = response.candidates
                     finish_reason = str(getattr(candidate, "finish_reason", "UNKNOWN"))
             except:
                 pass
             return {"success": False, "error": f"Mô hình trống hoặc lỗi cú pháp JSON. FinishReason={finish_reason} (Model={current_model_used})"}
             
         # =====================================================================
-        # 🛡️ BỘ LỌC HẬU XỬ LÝ VÀ CHUYỂN ĐỔI NGƯỢC KIỂU CHO HỆ THỐNG GIAO DIỆN CŨ
+        # 🛡️ BỘ LỌC HẬU XỬ LÝ VÀ CHUẨN HÓA CHỮ (CẮT MÃ SỐ PHÍA TRƯỚC)
         # =====================================================================
         measurements_list = parsed_data.get("measurements_list", [])
-        
-        # Tạo lại mảng measurements cũ mà hàm hiển thị Streamlit cũ của bạn đang duyệt qua
         rebuilt_measurements_list = []
-        # Tạo dict phẳng dạng {Vị trí: Thông số} nếu giao diện của bạn gọi kiểu phẳng
         legacy_measurements_dict = {}
         
         # Biểu thức Regex loại trừ các chuỗi rác hệ thống như 0.00, 0 hoặc trống
@@ -594,32 +592,59 @@ def process_single_pdf_batch(file_bytes, file_name):
             # Lọc bỏ các dòng rác POM 0.00
             if pom_code and valid_pom_regex.match(pom_code):
                 if not pom_code.startswith("***") and pom_desc:
-                    # Tạo cấu trúc tên gộp sạch đẹp
-                    display_pom_name = f"{pom_code} - {pom_desc}" if pom_code not in pom_desc else pom_desc
                     
-                    # 1. Khớp cho giao diện duyệt MẢNG dạng: [{"pom_description": ..., "value": ...}]
+                    # 💡 XỬ LÝ CẮT CHUỖI: Nếu tên điểm đo có dạng "4.05A - WB HEIGHT", 
+                    # Regex này sẽ loại bỏ "4.05A - " và chỉ giữ lại "WB HEIGHT"
+                    clean_pom_desc = re.sub(r'^[A-Za-z0-9\.\s_-]+[-\s:\u2013\u2014]+', '', pom_desc).strip()
+                    
+                    # Phòng hờ mô hình viết lộn mã số vào trường pom_code mà bỏ trống trường description
+                    if not clean_pom_desc or clean_pom_desc.replace('.', '').isdigit():
+                        clean_pom_desc = pom_desc
+                    
+                    # Đưa vào cấu trúc danh sách lưới hiển thị của giao diện
                     rebuilt_measurements_list.append({
-                        "pom_description": display_pom_name,
+                        "pom_description": clean_pom_desc,
                         "value": spec_val
                     })
-                    
-                    # 2. Khớp cho giao diện duyệt DICT phẳng dạng: {"Tên POM": "Thông số"}
-                    legacy_measurements_dict[display_pom_name] = spec_val
+                    legacy_measurements_dict[clean_pom_desc] = spec_val
 
         # =====================================================================
-        # TRẢ VỀ DỮ LIỆU ĐỒNG BỘ CẢ 2 ĐỊNH DẠNG (FIX LỖI TRỐNG UI GRID)
+        # 📸 TRÍCH XUẤT ẢNH THIẾT KẾ ĐỂ FIX LỖI "KHÔNG CÓ ẢNH THIẾT KẾ"
+        # =====================================================================
+        detected_sketch_page = parsed_data.get("sketch_page_number_detected", 1)
+        
+        # Nếu số trang nhận diện nằm ngoài phạm vi tài liệu, đưa về trang đầu tiên làm dự phòng
+        if detected_sketch_page < 1 or detected_sketch_page > total_p:
+            detected_sketch_page = 1
+            
+        # Thực hiện convert trang PDF chứa ảnh sketch thành đối tượng ảnh Python PIL Image
+        try:
+            sketch_images = convert_from_bytes(file_bytes, dpi=120, first_page=detected_sketch_page, last_page=detected_sketch_page)
+            final_sketch_image_object = sketch_images[0] if sketch_images else None
+        except:
+            final_sketch_image_object = None
+
+        # =====================================================================
+        # TRẢ VỀ DỮ LIỆU ĐỒNG BỘ ĐẦY ĐỦ CÁC TRƯỜNG BIẾN CHO STREAMLIT UI
         # =====================================================================
         return {
             "success": True,
             "model_used": current_model_used,
+            
+            # Khớp các trường thông tin chung (Khử UNKNOWN trên giao diện của bạn)
             "style_number_parsed": parsed_data.get("style_number_parsed") or "5614",
-            "buyer": parsed_data.get("buyer") or "AMERICAN EAGLE",
-            "category": parsed_data.get("category") or "WW BOTTOMS",
+            "buyer": parsed_data.get("buyer") or "AMERICAN EAGLE OUTFITTERS",
+            "category": parsed_data.get("category") or "Pants",
             "base_size_name": parsed_data.get("base_size_name") or "32",
-            "sketch_page_number_detected": parsed_data.get("sketch_page_number_detected", 1),
-            "measurements_list": rebuilt_measurements_list,  # Sửa lỗi trống bảng lưới dữ liệu
-            "measurements": legacy_measurements_dict,         # Dự phòng nếu giao diện gọi trường này
-            "full_size_matrix": {}                             # Trả về rỗng để an toàn chống sập token
+            
+            # Trả biến ảnh thiết kế (Đối tượng PIL Image hoặc mảng ảnh hiển thị)
+            "sketch_image": final_sketch_image_object, 
+            "sketch_page_number_detected": detected_sketch_page,
+            
+            # Lưới bảng dữ liệu điểm đo kỹ thuật đã làm sạch hoàn toàn chữ số phía trước
+            "measurements_list": rebuilt_measurements_list,  
+            "measurements": legacy_measurements_dict,         
+            "full_size_matrix": {}                             
         }
 
     except Exception as fatal_err:
