@@ -395,7 +395,7 @@ def get_historical_fabric_consumption_from_db(search_keyword=None):
 def call_gemini_extraction_engine(file_bytes, file_name, sorted_pages):
     """
     HÀM A: Chịu trách nhiệm giao tiếp trực tiếp với Gemini API.
-    Đã hạ tải cấu trúc dữ liệu để ép mô hình viết ngắn gọn, chống tràn 8192 tokens.
+    Đã loại bỏ hoàn toàn full_size_matrix khỏi Schema để triệt tiêu lỗi sập MAX_TOKENS.
     """
     import io
     import time
@@ -409,18 +409,17 @@ def call_gemini_extraction_engine(file_bytes, file_name, sorted_pages):
             
         client = genai.Client(api_key=gemini_key)
         
-        # PROMPT ĐÃ ĐƯỢC THU GỌN VÀ ÉP ĐẦU RA MA TRẬN DẠNG CHUỖI NÉN
+        # PROMPT CHỈ TẬP TRUNG VÀO THÔNG SỐ VÀ THÔNG TIN CHUNG
         industrial_extraction_prompt = (
             "You are an expert Garment Specification Auditor at PPJ Group. Analyze all attached sheets page by page.\n"
             "Each image is preceded by a text label indicating its ORIGINAL 1-BASED PAGE NUMBER in the PDF.\n"
-            "1. Identify the core 'Base Size' / 'Sample Size'.\n"
+            "1. Identify the core 'Base Size' / 'Sample Size' (e.g., written as 8, 32, or Size M).\n"
             "2. Identify the Buyer name and Category.\n"
-            "3. Find the exact 'Style ID' / 'Style Number'.\n"
+            "3. Find the exact 'Style ID' / 'Style Number' (e.g. 5765).\n"
             "4. Scan and extract the technical measurement specification chart into key-value pairs inside measurements_list.\n"
             "   CRITICAL FILTER: ONLY include valid technical measurement points that have a real POM code (e.g., 5.01A, 6.01A GR). "
             "   DO NOT extract rows where the POM column is empty, contains notes (like '***'), or contains placeholder values like '0.00'.\n"
-            "5. FOR THE GRADING MATRIX TABLE: Scan and extract the full grading matrix table columns into a simple, valid JSON string inside 'full_size_matrix'.\n"
-            "6. CRITICAL VISUAL FLAT SKETCH LOCATE RULE: Find the exact original page number containing the full body garment flat sketch."
+            "5. CRITICAL VISUAL FLAT SKETCH LOCATE RULE: Find the exact original page number containing the full body garment flat sketch."
         )
         
         contents_payload = [types.Part.from_text(text=industrial_extraction_prompt)]
@@ -445,7 +444,7 @@ def call_gemini_extraction_engine(file_bytes, file_name, sorted_pages):
             required=["pom_code", "pom_description", "value"]
         )
         
-        # GIẢI PHÁP: Chuyển full_size_matrix thành STRING để tiết kiệm token đầu ra của mô hình
+        # SCHEMA KHÔNG CÒN TRƯỜNG FULL_SIZE_MATRIX NÊN ĐẦU RA SẼ RẤT NHẸ
         json_schema = types.Schema(
             type=types.Type.OBJECT,
             properties={
@@ -454,15 +453,11 @@ def call_gemini_extraction_engine(file_bytes, file_name, sorted_pages):
                 "category": types.Schema(type=types.Type.STRING),
                 "base_size_name": types.Schema(type=types.Type.STRING),
                 "sketch_page_number_detected": types.Schema(type=types.Type.INTEGER),
-                "measurements_list": types.Schema(type=types.Type.ARRAY, items=kv_pair_schema),
-                "full_size_matrix": types.Schema(
-                    type=types.Type.STRING,
-                    description="Raw valid JSON string representing the sizing matrix table to avoid token overflow."
-                ) 
+                "measurements_list": types.Schema(type=types.Type.ARRAY, items=kv_pair_schema)
             },
             required=[
                 "style_number_parsed", "buyer", "category", "base_size_name", 
-                "sketch_page_number_detected", "measurements_list", "full_size_matrix"
+                "sketch_page_number_detected", "measurements_list"
             ]
         )
 
@@ -514,7 +509,7 @@ def call_gemini_extraction_engine(file_bytes, file_name, sorted_pages):
 def process_single_pdf_batch(file_bytes, file_name):
     """
     HÀM B: Phân tách số trang, gọi HÀM A, sau đó chạy bộ lọc Regex Local
-    để dọn sạch các dòng POM 0.00 và giải mã (parse) chuỗi ma trận size nén.
+    để dọn sạch các dòng POM 0.00 và trả về kết quả an toàn.
     """
     import json
     import re
@@ -573,16 +568,16 @@ def process_single_pdf_batch(file_bytes, file_name):
                     finish_reason = str(getattr(candidate, "finish_reason", "UNKNOWN"))
             except:
                 pass
-            return {"success": False, "error": f"Mô hình trống hoặc lỗi cú pháp JSON trả về. FinishReason={finish_reason} (Model={current_model_used})"}
+            return {"success": False, "error": f"Mô hình trống hoặc lỗi cú pháp JSON. FinishReason={finish_reason} (Model={current_model_used})"}
             
         # =====================================================================
-        # 🛡️ BỘ LỌC HẬU XỬ LÝ (CHỈ LẤY VỊ TRÍ VÀ THÔNG SỐ - KHỬ 0.00)
+        # 🛡️ BỘ LỌC HẬU XỬ LÝ (CHỈ LẤY VỊ TRÍ VÀ THÔNG SỐ - KHỬ O.OOb / 0.00)
         # =====================================================================
         measurements_list = parsed_data.get("measurements_list", [])
         filtered_measurements = {}
         
-        # Biểu thức Regex loại trừ nghiêm ngặt các chuỗi định dạng '0.00' hoặc số '0'
-        valid_pom_regex = re.compile(r'^(?!0\.00\$|0\()\s*[A-Za-z0-9\.\s_-]+\)')
+        # Biểu thức Regex loại trừ các chuỗi dạng 0.00, 0 hoặc trống
+        valid_pom_regex = re.compile(r'^(?!0\.00$|0$)\s*[A-Za-z0-9\.\s_-]+$')
 
         for item in measurements_list:
             if not isinstance(item, dict):
@@ -592,41 +587,14 @@ def process_single_pdf_batch(file_bytes, file_name):
             pom_desc = str(item.get("pom_description", "")).strip()
             spec_val = str(item.get("value", "")).strip()
             
-            # Kiểm tra xem mã định vị kỹ thuật (POM) có hợp lệ không
+            # Chỉ lấy các dòng có mã vị trí đo hợp lệ
             if pom_code and valid_pom_regex.match(pom_code):
-                # Khử bỏ các dòng ghi chú có ký hiệu hệ thống như '***'
                 if not pom_code.startswith("***") and pom_desc:
                     # Gộp key sạch dạng: "Mã POM - Tên vị trí đo"
                     unique_key = f"{pom_code} - {pom_desc}" if pom_code not in pom_desc else pom_desc
                     filtered_measurements[unique_key] = spec_val
 
-        # =====================================================================
-        # GIẢI MÃ CHUỖI MA TRẬN SIZE NÉN Ở LOCAL (ÉP CHUYỂN JSON THÀNH DICT)
-        # =====================================================================
-        matrix_data = parsed_data.get("full_size_matrix", {})
-        full_size_matrix = {}
-        
-        if isinstance(matrix_data, dict):
-            full_size_matrix = matrix_data
-        elif isinstance(matrix_data, str) and matrix_data.strip():
-            try:
-                matrix_raw_str = matrix_data.strip()
-                # Khử các block bọc markdown nếu có
-                if matrix_raw_str.startswith("```json"):
-                    matrix_raw_str = matrix_raw_str.split("```json")[-1].split("```")[0].strip()
-                elif matrix_raw_str.startswith("```"):
-                    matrix_raw_str = matrix_raw_str.split("```")[1].strip()
-                
-                matrix_raw_str = re.sub(r',\s*([\]}])', r'\1', matrix_raw_str)
-                full_size_matrix = json.loads(matrix_raw_str)
-            except:
-                pass
-        
-        # Dọn sạch các key lỗi 0.00 sinh ra trong ma trận nếu có
-        if isinstance(full_size_matrix, dict):
-            full_size_matrix = {k: v for k, v in full_size_matrix.items() if not str(k).startswith("0.00") and "0.00" not in str(k)[:5]}
-
-        # ĐÓNG GÓI KẾT QUẢ CUỐI CÙNG TRẢ VỀ CHO DATABASE HỆ THỐNG DOWNSTREAM
+        # Trả về kết quả sạch (Mặc định full_size_matrix trả rỗng để không bị sập worker)
         return {
             "success": True,
             "model_used": current_model_used,
@@ -636,13 +604,12 @@ def process_single_pdf_batch(file_bytes, file_name):
                 "category": parsed_data.get("category"),
                 "base_size": parsed_data.get("base_size_name"),
                 "sketch_page": parsed_data.get("sketch_page_number_detected"),
-                "measurements": filtered_measurements,  # Dữ liệu vị trí đo và thông số đã lọc sạch
-                "full_size_matrix": full_size_matrix
+                "measurements": filtered_measurements,  
+                "full_size_matrix": {} 
             }
         }
 
     except Exception as fatal_err:
-        # Chặn đứng toàn bộ lỗi sập ứng dụng, trả lỗi về giao diện hiển thị mượt mà
         return {"success": False, "error": f"Lỗi hệ thống nghiêm trọng tại Hàm B: {str(fatal_err)}"}
 
 
