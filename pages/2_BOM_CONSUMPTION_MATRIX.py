@@ -1923,61 +1923,27 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             if img_png_bytes_fallback is not None: st.image(img_png_bytes_fallback, use_container_width=True)
     except Exception as e_col:
         print(f"❌ [COLUMN RENDER ERROR]: {str(e_col)}")
-import re
 import streamlit as st
-import pandas as pd
-import numpy as np
+import json
+import re
 
 # =========================================================================================
-# ĐOẠN 1a.1a: INDUSTRIAL ERP - STATE EXTRACTOR & REALTIME VALUE RESOLVER
+# ĐOẠN 1a.1a + 1a.1b: INDUSTRIAL ERP SUPABASE ADVANCED RETRIEVER & JSONB CLEANER
 # =========================================================================================
 
-UNICODE_FRACTION_MAP = {
-    "½": " 1/2", "¼": " 1/4", "¾": " 3/4", "⅛": " 1/8", 
-    "⅜": " 3/8", "⅝": " 5/8", "⅞": " 7/8"
-}
-
-def parse_garment_value_industrial(v):
-    if v is None: return None
-    try: return float(v)
-    except (ValueError, TypeError):
-        try:
-            str_v = str(v).strip()
-            for uni_char, repl_str in UNICODE_FRACTION_MAP.items():
-                if uni_char in str_v:
-                    str_v = str_v.replace(uni_char, repl_str)
-            
-            if " " in str_v and "/" in str_v:
-                parts = str_v.split()
-                whole = float(parts[0])
-                num, den = parts[1].split('/')
-                return whole + (float(num) / float(den))
-            elif "/" in str_v:
-                num, den = str_v.split('/')
-                return float(num) / float(den)
-        except Exception: pass
-        
-        nums = re.findall(r"[-+]?\d*\.\d+|\d+", str_v)
-        if nums:
-            try: return float(nums[0])
-            except Exception: return None
-        return None
-
-def clean_pom_description_text(text):
-    if not text: return ""
-    cleaned = str(text).upper().strip()
-    cleaned = re.sub(r'\([^\)]*\)', ' ', cleaned)
-    cleaned = re.sub(r'\[[^\]]*\]', ' ', cleaned)
-    cleaned = re.sub(r'\b[A-Z]{3,4}\s*-\s*\d+\b', ' ', cleaned)
-    cleaned = re.sub(r'\s+', ' ', cleaned).strip()
-    return cleaned
+# Khởi tạo các biến trạng thái ban đầu
+old_specs = {}
+old_base_size = "N/A"
+records_found_count = 0
+record_keys_list = []
+query_response = None
 
 # 1. THU THẬP THÔNG TIN MÁY QUÉT MẪU MỚI
 new_specs = st.session_state.get("new_style_measurements_dict", {})
 garment_category = str(st.session_state.get("new_style_category_detected", "PANT")).strip().upper()
 new_style_base_size = st.session_state.get("new_style_base_size", "N/A")
 
-# 2. ✅ BỘ VÁ LỖI RETRIEVER: BÓC TÁCH MẢNG PHỨC HỢP GIẢI CỨU TARGET_STYLE_NAME
+# 2. BÓC TÁCH MÃ TARGET STYLE NAME BIẾN ĐỘNG
 target_style_name = (
     st.session_state.get("target_style_name") or 
     st.session_state.get("matched_style_id") or
@@ -1985,106 +1951,91 @@ target_style_name = (
     st.session_state.get("nearest_style")
 )
 
-# Tiến hành phân rã cấu trúc nếu biến toàn cục bị None nhằm tìm kiếm sâu trong matched_techpack
 if not target_style_name or str(target_style_name).strip().upper() == "NONE":
     matched = st.session_state.get("matched_techpack")
-    
-    # Trường hợp 1: matched_techpack lưu trữ ở dạng mảng LIST phức hợp từ Supabase
     if isinstance(matched, list) and matched:
         first_item = matched[0]
         if isinstance(first_item, dict):
-            target_style_name = (
-                first_item.get("style_number") or 
-                first_item.get("StyleNumber") or 
-                first_item.get("style_id") or
-                first_item.get("StyleName")
-            )
-    # Trường hợp 2: matched_techpack lưu trữ ở dạng DICT bản ghi phẳng
+            target_style_name = first_item.get("style_number") or first_item.get("style_id")
     elif isinstance(matched, dict) and matched:
-        target_style_name = (
-            matched.get("style_number") or 
-            matched.get("StyleNumber") or 
-            matched.get("style_id") or
-            matched.get("StyleName")
-        )
+        target_style_name = matched.get("style_number") or matched.get("style_id")
 
-# 🛡️ CHẶN ĐƯỜNG PHÒNG THỦ CUỐI: Nếu l lùng sục toàn hệ thống vẫn trống, ép về mã đối chứng thực tế trên màn hình của bạn
+# 🛡️ CHẶN ĐƯỜNG PHÒNG THỦ: Ép mã thực tế từ bảng dữ liệu của bạn để test nếu hệ thống trống
 if not target_style_name or str(target_style_name).strip().upper() == "NONE":
     target_style_name = "P09-492496"
-import streamlit as st
 
-import streamlit as st
-
-# =========================================================================================
-# ĐOẠN 1a.1b: DYNAMIC SUPABASE INJECTOR & DEBUG MONITOR - FIXED ARRAY INDEX
-# =========================================================================================
-
-old_specs = {}
-old_base_size = "N/A"
-records_found_count = 0
-record_keys_list = []
-
+# 3. KÍCH HOẠT ENGINE TRUY VẤN VÀ SỬA LỖI ĐỊNH DẠNG JSONB CHUỖI VĂN BẢN
 supabase = st.session_state.get("supabase_client")
-query_response = None
 
-# KÍCH HOẠT TRUY VẤN THỜI GIAN THỰC ĐA BẢNG VÀO SUPABASE
 if target_style_name and supabase:
     clean_target = str(target_style_name).strip()
     try:
-        # Tự động rà soát xuyên phân hệ các bảng dữ liệu thực tế trong kho của bạn
+        # Quét qua các bảng trong hệ thống của bạn
         for table_name in ["techpack_storage", "techpack_library", "techpack_master"]:
             try:
-                # Truy vấn kiểm tra theo trường khóa chuẩn 'style_number'
-                query_response = supabase.table(table_name).select("*").eq("style_number", clean_target).execute()
+                # Tìm kiếm không phân biệt hoa thường bằng ilike để tránh sót mã
+                query_response = supabase.table(table_name).select("*").ilike("style_number", f"%{clean_target}%").execute()
                 if query_response and query_response.data and len(query_response.data) > 0:
                     break
-                # Bẫy dự phòng nếu cơ sở dữ liệu của bạn lưu trường tên cột dạng 'style_id'
-                query_response = supabase.table(table_name).select("*").eq("style_id", clean_target).execute()
+                query_response = supabase.table(table_name).select("*").ilike("style_id", f"%{clean_target}%").execute()
                 if query_response and query_response.data and len(query_response.data) > 0:
                     break
             except Exception:
                 continue
                 
-        # ✅ ĐÃ SỬA DỨT ĐIỂM: Truy cập chính xác phần tử chỉ mục [0] của mảng list dữ liệu Supabase trả về
+        # Xử lý dữ liệu trả về từ Supabase
         if query_response and query_response.data and len(query_response.data) > 0:
             records_found_count = len(query_response.data)
-            
-            # Trích xuất hàng dữ liệu đầu tiên từ mảng list kết quả dưới dạng đối tượng dict chuẩn
-            first_row_record = query_response.data[0]  # Sửa từ query_response.data thành query_response.data[0]
+            first_row_record = query_response.data[0]
             record_keys_list = list(first_row_record.keys())
             
-            # Đọc động cấu trúc cột JSON 'measurements' chứa Specs và trường 'base_size' chuẩn từ Supabase
-            old_specs = (
-                first_row_record.get("measurements", {}) or 
-                first_row_record.get("DetailedMeasurements", {}) or 
-                first_row_record.get("detailed_measurements", {}) or 
-                first_row_record.get("measurements_json", {})
+            # Trích xuất cột measurements (Hỗ trợ tất cả các tên cột có thể có)
+            raw_measurements = (
+                first_row_record.get("measurements") or 
+                first_row_record.get("DetailedMeasurements") or 
+                first_row_record.get("detailed_measurements") or 
+                first_row_record.get("measurements_json") or {}
             )
+            
+            # 🔥 BỘ SỬA LỖI CUỒNG PHONG: Ép kiểu chuỗi văn bản dạng jsonb bẩn về Dict Python chuẩn
+            if isinstance(raw_measurements, str):
+                cleaned_json_str = raw_measurements.strip()
+                # Sửa lỗi nếu chuỗi bị lỗi định dạng dấu nháy kép hoặc dính liền ký tự phân tách
+                cleaned_json_str = re.sub(r'([a-zA-Z0-9_\s"\'-]+)\s*:\s*([-+?\.a-zA-Z0-9_\s"\'/]+)', r'"\1":"\2"', cleaned_json_str)
+                try:
+                    old_specs = json.loads(cleaned_json_str)
+                except Exception:
+                    # Nếu giải mã lỗi, dùng Regex quét trực tiếp các cặp Key-Value dạng chuỗi
+                    old_specs = dict(re.findall(r'"([^"]+)":"([^"]+)"', cleaned_json_str))
+            elif isinstance(raw_measurements, dict):
+                old_specs = raw_measurements
+            else:
+                old_specs = {}
+                
             old_base_size = str(first_row_record.get("base_size", first_row_record.get("BaseSize", "N/A")))
             
-            # Đóng gói chuẩn hóa và lưu ngược lại bộ nhớ tạm session_state cốt lõi
+            # Đồng bộ ngược lại vào Session State của hệ thống
             st.session_state["matched_techpack"] = {
                 "StyleName": clean_target,
                 "BaseSize": old_base_size,
                 "DetailedMeasurements": old_specs
             }
     except Exception as db_err:
-        st.error(f"❌ Hệ thống gặp sự cố truy vấn Supabase: {str(db_err)}")
+        st.error(f"❌ Sự cố kết nối hoặc trích xuất dữ liệu: {str(db_err)}")
 
-# TẦNG DỰ PHÒNG GIẢI NÉN CHỐNG TRỐNG DỮ LIỆU KHI KHÔNG CÓ KẾT NỐI MẠNG DB
+# Tầng dự phòng bảo vệ dòng chảy dữ liệu khi rớt mạng DB
 if not old_specs:
-    matched_techpack_raw = st.session_state.get("matched_techpack", {})
-    if matched_techpack_raw:
-        if isinstance(matched_techpack_raw, list) and len(matched_techpack_raw) > 0:
-            matched_techpack_raw = matched_techpack_raw[0]
-            
-        if isinstance(matched_techpack_raw, dict):
-            old_specs = (
-                matched_techpack_raw.get("DetailedMeasurements", {}) or 
-                matched_techpack_raw.get("measurements", {}) or 
-                matched_techpack_raw.get("detailed_measurements", {}) or {}
-            )
-            old_base_size = str(matched_techpack_raw.get("BaseSize", matched_techpack_raw.get("base_size", "N/A")))
+    matched_raw = st.session_state.get("matched_techpack", {})
+    if isinstance(matched_raw, list) and len(matched_raw) > 0:
+        matched_raw = matched_raw[0]
+    if isinstance(matched_raw, dict):
+        fallback_measurements = matched_raw.get("DetailedMeasurements") or matched_raw.get("measurements") or {}
+        if isinstance(fallback_measurements, str):
+            try: old_specs = json.loads(fallback_measurements)
+            except Exception: old_specs = dict(re.findall(r'"([^"]+)":"([^"]+)"', fallback_measurements))
+        elif isinstance(fallback_measurements, dict):
+            old_specs = fallback_measurements
+        old_base_size = str(matched_raw.get("BaseSize", "N/A"))
 
 # =========================================================================================
 # 🎛️ KẾT XUẤT CỔNG CHẨN ĐOÁN TRẠNG THÁI TOÀN VẸN DỮ LIỆU
