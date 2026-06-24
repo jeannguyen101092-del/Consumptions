@@ -1923,26 +1923,14 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             if img_png_bytes_fallback is not None: st.image(img_png_bytes_fallback, use_container_width=True)
     except Exception as e_col:
         print(f"❌ [COLUMN RENDER ERROR]: {str(e_col)}")
-import subprocess
-import sys
 import json
 import re
-
-# =========================================================================================
-# 🛡️ BỘ KHỞI TẠO HỆ THỐNG MAY MẶC ERP & TỰ ĐỘNG CÀI ĐẶT THƯ VIỆN KHẨN CẤP
-# =========================================================================================
 import streamlit as st
 import pandas as pd
-
-try:
-    from supabase import create_client, Client
-except ModuleNotFoundError:
-    # Nếu máy chủ Streamlit Cloud báo thiếu thư viện kết nối, cưỡng ép cài đặt lập tức tại chỗ
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "supabase"])
-    from supabase import create_client, Client
+from supabase import create_client, Client # Gọi trực tiếp sau khi đã khai báo ở requirements.txt
 
 # =========================================================================================
-# ĐOẠN 1: INDUSTRIAL RETRIEVER - PHIÊN BẢN TỰ KẾT NỐI AN TOÀN 100%
+# ĐOẠN 1: INDUSTRIAL RETRIEVER - PHIÊN BẢN LIÊN KẾT KHO KHÉP KÍN 
 # =========================================================================================
 
 old_specs = {}
@@ -1960,7 +1948,7 @@ def clean_pom_description_text(text):
     if not text: return ""
     return str(text).upper().strip()
 
-# Hàm dịch phân số ngành may độc lập, siêu an toàn (Đã vá lỗi chỉ mục mảng)
+# Hàm dịch phân số ngành may độc lập, siêu an toàn
 def parse_garment_value_industrial(v):
     if v is None: return None
     try: return float(v)
@@ -1987,7 +1975,7 @@ def parse_garment_value_industrial(v):
             except Exception: return None
         return None
 
-# Khởi tạo kết nối Supabase an toàn qua hệ thống Secrets (Không lo lộ key trên GitHub)
+# Kết nối cơ sở dữ liệu Supabase thông qua cấu trúc Secrets an toàn
 supabase = st.session_state.get("supabase_client")
 
 if not supabase:
@@ -2000,7 +1988,7 @@ if not supabase:
     except Exception:
         pass
 
-# KÍCH HOẠT ENGINE TRÍCH XUẤT CƯỠNG ÉP DỮ LIỆU BẢNG TECHPACK_STORAGE
+# KÍCH HOẠT TRUY VẤN DỮ LIỆU BẢNG THỰC TẾ
 if supabase:
     try:
         query_response = supabase.table("techpack_storage").select("*").execute()
@@ -2008,14 +1996,13 @@ if supabase:
         if query_response and query_response.data and len(query_response.data) > 0:
             records_found_count = len(query_response.data)
             
-            # Cưỡng ép lấy hàng dữ liệu mẫu trước tiên để thông mạch giao diện
+            # Đọc dòng đầu tiên có chứa dữ liệu đo lường thực tế từ Supabase
             chosen_row = query_response.data[0]
             record_keys_list = list(chosen_row.keys())
             
-            # Khai thác cột dữ liệu measurements của bạn
+            # Trích xuất cột measurements của bạn hiển thị trên màn hình
             raw_measurements = chosen_row.get("measurements") or chosen_row.get("text") or {}
             
-            # Bộ xử lý chuỗi JSON văn bản thô
             if isinstance(raw_measurements, str):
                 try:
                     old_specs = json.loads(raw_measurements)
@@ -2026,16 +2013,15 @@ if supabase:
                 
             old_base_size = str(chosen_row.get("base_size", "N/A"))
             
-            # Lưu đồng bộ ngược lên bộ nhớ tạm hệ thống
+            # Đồng bộ ngược vào session_state cốt lõi
             st.session_state["matched_techpack"] = {
                 "StyleName": "Mẫu đối chứng từ kho",
                 "BaseSize": old_base_size,
                 "DetailedMeasurements": old_specs
             }
     except Exception as err:
-        st.error(f"❌ Lỗi API kết nối Supabase: {str(err)}")
+        st.error(f"❌ Trục trặc API kết nối Supabase: {str(err)}")
 
-# Tầng dự phòng khôi phục bộ nhớ tạm
 if not old_specs:
     fallback_data = st.session_state.get("matched_techpack", {})
     if isinstance(fallback_data, dict) and fallback_data:
@@ -2056,7 +2042,6 @@ with debug_col2:
     st.write(f"4️⃣ **NEW SPECS count:** `{len(new_specs) if new_specs else 0}` | **OLD SPECS count:** `{len(old_specs) if old_specs else 0}`")
 st.markdown("---")
 
-# Khởi tạo tập hợp kiểm soát khóa rập cũ toàn cục cho Đoạn 1b
 processed_old_keys_global = set()
 
 # =========================================================================================
@@ -2071,7 +2056,7 @@ valid_diff_pcts = []
 col_new_title = f"Mẫu mới ({new_style_base_size})"
 col_old_title = f"Mã cũ ({old_base_size})"
 
-# Chuẩn hóa in hoa toàn bộ key cũ của bản ghi Supabase để chuẩn bị map thông số phẳng
+# Chuẩn hóa chữ in hoa cho toàn bộ key kho dữ liệu cũ để tránh lệch chữ hoa thường
 flattened_old_specs = {}
 if isinstance(old_specs, dict):
     for k, v in old_specs.items():
@@ -2081,11 +2066,10 @@ if isinstance(new_specs, dict) and new_specs:
     for original_new_key, val_new in new_specs.items():
         clean_new_key = str(original_new_key).upper().strip()
         
-        # Đồng bộ so khớp thông số in hoa trực diện loại bỏ lỗi lệch kiểu chữ
         val_old = None
         if clean_new_key in flattened_old_specs:
             val_old = flattened_old_specs[clean_new_key]
-            processed_old_keys_global.add(str(original_new_key)) # Đánh dấu đã dùng key này
+            processed_old_keys_global.add(str(original_new_key))
             
         f_new = parse_garment_value_industrial(val_new)
         f_old = parse_garment_value_industrial(val_old)
@@ -2108,11 +2092,11 @@ if isinstance(new_specs, dict) and new_specs:
             "Tỷ lệ biến thiên (Diff %)": display_pct
         })
 
-    # Đổ các thông số rập cũ lịch sử còn sót dưới dạng Fallback Row
+    # Đổ các thông số rập cũ còn sót trong bảng Supabase ra giao diện
     if isinstance(old_specs, dict) and old_specs:
         for original_old_key, val_old in old_specs.items():
             clean_old_key = str(original_old_key).upper().strip()
-            # Kiểm tra xem vị trí đo cũ đã xuất hiện trong bảng so sánh chưa
+            
             is_processed = False
             for k in processed_old_keys_global:
                 if str(k).upper().strip() == clean_old_key:
@@ -2128,16 +2112,15 @@ if isinstance(new_specs, dict) and new_specs:
                     "Tỷ lệ biến thiên (Diff %)": "-"
                 })
 
-# RENDER GIAO DIỆN KIỂM SOÁT AN TOÀN TUYỆT ĐỐI
 if compare_rows:
     st.dataframe(pd.DataFrame(compare_rows), use_container_width=True, hide_index=True)
 else:
-    st.info("ℹ️ Hệ thống đang trống danh sách thông số kỹ thuật mới (Chưa quét hoặc API nghẽn).")
+    st.info("ℹ️ Hệ thống đang trống danh sách thông số kỹ thuật mới.")
     empty_df = pd.DataFrame(columns=["Vị trí đo (POM Description)", col_new_title, col_old_title, "Chênh lệch (Diff)", "Tỷ lệ biến thiên (Diff %)"])
     st.dataframe(empty_df, use_container_width=True, hide_index=True)
 
-# Đóng gói đưa xuống tầng tính toán Định mức nguyên phụ liệu ở Đoạn 2
 st.session_state["valid_diff_pcts"] = valid_diff_pcts
+
 
 
 
