@@ -450,26 +450,31 @@ def process_single_pdf_batch(file_bytes, file_name):
         print(f"📋 [PRODUCTION LOG] {file_name}: Tổng {total_p} trang. Quét: {sorted_pages}")
         
                 # =========================================================================================
-        # ĐOẠN ĐÃ SỬA: INDUSTRIAL PROMPT TRÍCH XUẤT ĐỘC QUYỀN TÀI LIỆU MAY MẶC RE-ENGINEERED
+                # =========================================================================================
+        # 🎯 PROMPT VÁ LỖI LỆCH DÒNG: BUỘC AI NEO THEO MÃ SỐ POM TRÊN TÀI LIỆU AEO
         # =========================================================================================
         industrial_extraction_prompt = (
-            "You are an expert Garment Specification Auditor at PPJ Group specialized in American Eagle Outfitters (AEO) Techpacks.\n"
-            "Analyze all attached sheets page by page with strict geometric line-by-line alignment rules.\n\n"
+            "You are an expert Garment Specification Auditor at PPJ Group. You are auditing an American Eagle Outfitters (AEO) Techpack.\n"
+            "The numbers are currently misaligned because you are skipping or miscounting rows with note headers (like '***MUST CATCH ELASTIC...').\n"
+            "FIX THIS BY USING THE 'POM CODE' COLUMN AS A STRICT GEOMETRIC ANCHOR.\n\n"
             
-            "🎯 CRITICAL EXTRACTION RULES FOR AEO SPEC CHARTS:\n"
-            "1. IDENTIFY BASE SIZE: Look at 'Base Size' field in the header (e.g., written as 'M'). This is your TARGET COLUMN.\n"
-            "2. SPEC GRID SCANNING RULE: Locate the main measurement table containing columns: [POM, Description, Tol-, Tol+, XXS, XS, S, M, L, XL, XXL].\n"
-            "3. BASE VALUE CAPTURE RULE: For every row in the table, map the 'pom_description' from the 'Description' column "
-            "and extract the 'base_value' EXACTLY from the column header matching the 'Base Size' (Column 'M' in this document).\n"
-            "   - DO NOT extract from Tol-, Tol+, or grading delta columns.\n"
-            "   - Capture the exact fraction string value as written (e.g., '1 5/8', '1 3/4', '33 1/2', '43 1/2', '11 1/2', '29 1/4', '27 1/2').\n"
-            "4. ALL SIZES GRADING MATRIX SCAN: For 'all_sizes_grading' array inside each POM item, map through ALL size columns "
-            "[XXS, XS, S, M, L, XL, XXL] horizontally and capture their values explicitly. If a size column contains '0' or blank, record it as '0'.\n"
-            "5. HEADER IDENTIFICATION:\n"
-            "   - 'style_number_parsed': Extract from top-left 'STYLE: 5614'. Only grab the number '5614'.\n"
-            "   - 'buyer': Extract from header 'Company: AMERICAN EAGLE OUTFITTERS'.\n"
-            "   - 'category': Extract from top header line '5164 LR PULL ON TRACK PANTS' -> classify as 'PANTS'.\n"
-            "6. VISUAL FLAT SKETCH LOCATE: Visually inspect all pages. Find the exact 1-based page number containing the full clothing product flat drawings/sketches."
+            "🎯 STRICT ROW-MATCHING PROTOCOL:\n"
+            "1. Locate the spec table with columns: [POM, Description, Tol-, Tol+, XXS, XS, S, M, L, XL, XXL].\n"
+            "2. Read row-by-row by anchoring the POM Code (1st column) to its exact horizontal values.\n"
+            "3. For EACH row that has a valid POM code or valid description:\n"
+            "   - 'pom_description': Combine the POM code and Description, clean it, and format it exactly as: '[POM_CODE] - [DESCRIPTION]' "
+            "(e.g., '4.04A - WAIST AT TOP EDGE - RELAXED', '5.01A - INSEAM PANT - SHORT').\n"
+            "   - 'base_value': Look STRAIGHT HORIZONTALLY to the column marked 'M' (Base Size). Extract the exact fraction string value from this 'M' column only.\n"
+            "   - CRITICAL WARNING: Do NOT drift down or up to the next row's number. If a row has no number in column 'M', return '0'.\n"
+            "   - Look at '5.01A INSEAM PANT - SHORT': the value in column M is EXACTLY '27 1/2'. Do NOT look at the row below it.\n"
+            "   - Look at '5.01A INSEAM PANT - REGULAR': the value in column M is EXACTLY '29 1/2'.\n"
+            "   - Look at '5.01A INSEAM PANT - LONG': the value in column M is EXACTLY '31 1/2'.\n"
+            "4. EXTRACTION FIELD MAP:\n"
+            "   - 'style_number_parsed': Look at the top-left token 'STYLE: XXXX'. Extract the number only.\n"
+            "   - 'buyer': 'AMERICAN EAGLE OUTFITTERS'.\n"
+            "   - 'category': 'PANTS'.\n"
+            "   - 'base_size_name': 'M'.\n"
+            "5. VISUAL FLAT SKETCH LOCATE: Find the exact 1-based page number containing the garment front/back flat sketches."
         )
 
         
