@@ -1518,6 +1518,12 @@ def process_single_pdf_batch(file_bytes, file_name):
             "full_size_matrix": parsed_data.get("full_size_matrix", {})
         }
         
+        # --- ĐOẠN SỬA ĐỒNG BỘ: Ép lưu dữ liệu trực tiếp vào bộ nhớ tạm Session State ---
+        import streamlit as st
+        st.session_state["new_style_measurements_dict"] = output_payload["measurements"]
+        st.session_state["new_style_base_size"] = output_payload["base_size_name"]
+        st.session_state["matched_image_verified"] = True
+        
         return {
             "success": True,
             "data": output_payload, 
