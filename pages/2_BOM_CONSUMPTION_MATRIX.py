@@ -466,6 +466,7 @@ def process_single_pdf_batch(file_bytes, file_name):
         for page_num in sorted_pages:
             single_page_list = convert_from_bytes(file_bytes, dpi=100, first_page=page_num, last_page=page_num)
             if single_page_list:
+                # SỬA LỖI TẠI ĐÂY: Phải lấy phần tử đầu tiên [0] của list ảnh trả về
                 page_img = single_page_list[0]
                 chat_images_dict[page_num] = page_img
                 img_buf = io.BytesIO()
@@ -570,13 +571,13 @@ def process_single_pdf_batch(file_bytes, file_name):
                 pass
             return {"success": False, "error": f"Mô hình trống. FinishReason={finish_reason} (Model={current_model_used})"}
             
-        # HÀM LỌC CHỮ VÀ SỐ, BỎ QUA KÝ TỰ ĐẶC BIỆT (GIỮ LẠI KHOẢNG TRẮNG ĐỂ TRANH DÍNH CHỮ)
+        # HÀM LOGIC LỌC SẠCH: CHỈ GIỮ LẠI CHỮ, SỐ VÀ KHOẢNG TRẮNG ĐỂ KHÔNG BỊ DÍNH TỪ
         def clean_text(val):
             if not isinstance(val, str):
                 return val
             return re.sub(r'[^a-zA-Z0-9\s]', '', val).strip()
 
-        # ÁP DỤNG LỌC SẠCH CHO CÁC THÔNG SỐ CƠ BẢN
+        # THỰC HIỆN LỌC SẠCH ĐÚNG VỊ TRÍ CHO CÁC BIẾN KIỂU CHUỖI TRẢ VỀ
         if "style_number_parsed" in parsed_data:
             parsed_data["style_number_parsed"] = clean_text(parsed_data["style_number_parsed"])
         if "buyer" in parsed_data:
@@ -586,14 +587,15 @@ def process_single_pdf_batch(file_bytes, file_name):
         if "base_size_name" in parsed_data:
             parsed_data["base_size_name"] = clean_text(parsed_data["base_size_name"])
 
+        # ĐÚNG CẤU TRÚC GỐC: Chuyển đổi list sang dict và làm sạch dữ liệu đo
         measurements_list = parsed_data.get("measurements_list", [])
-        # LỌC SẠCH TRONG QUÁ TRÌNH CHUYỂN ĐỔI LIST THÀNH DICT MEASUREMENTS
         measurements = {
             clean_text(item.get("pom_description")): clean_text(item.get("value")) 
             for item in measurements_list 
             if "pom_description" in item
         }
         
+        # ĐÚNG CẤU TRÚC GỐC: Xử lý phần chuỗi thô hoặc dict của full_size_matrix bị cắt cụt ở file cũ
         matrix_data = parsed_data.get("full_size_matrix", {})
         full_size_matrix = {}
         if isinstance(matrix_data, dict):
@@ -610,14 +612,16 @@ def process_single_pdf_batch(file_bytes, file_name):
             except:
                 pass
 
-        # Gán lại dữ liệu đã chuẩn hóa sạch
+        # CẬP NHẬT LẠI LIST ĐÃ LỌC SẠCH VÀO THEO ĐÚNG ĐẦU RA MÀ APP STREAMLIT ĐANG ĐỌC
         parsed_data["measurements_list"] = [{"pom_description": k, "value": v} for k, v in measurements.items()]
         parsed_data["full_size_matrix"] = full_size_matrix
-        
+
+        # GIỮ NGUYÊN BLOCK ĐÓNG GÓI HOÀN CHỈNH CHO TOÀN BỘ LOGIC TRÊN
         return {"success": True, "data": parsed_data}
 
     except Exception as e:
         return {"success": False, "error": f"Lỗi hệ thống: {str(e)}"}
+
 
 
 # PHASE 5: USER INTERFACE STRUCTURE & AUTOMATION FACTORY 
