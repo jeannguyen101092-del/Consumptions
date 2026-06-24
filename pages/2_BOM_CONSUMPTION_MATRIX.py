@@ -449,16 +449,29 @@ def process_single_pdf_batch(file_bytes, file_name):
         sorted_pages = sorted(list(pages_to_scan))
         print(f"📋 [PRODUCTION LOG] {file_name}: Tổng {total_p} trang. Quét: {sorted_pages}")
         
+                # =========================================================================================
+        # ĐOẠN ĐÃ SỬA: INDUSTRIAL PROMPT TRÍCH XUẤT ĐỘC QUYỀN TÀI LIỆU MAY MẶC RE-ENGINEERED
+        # =========================================================================================
         industrial_extraction_prompt = (
-            "You are an expert Garment Specification Auditor at PPJ Group. Analyze all attached sheets page by page.\n"
-            "1. Identify the core 'Base Size' / 'Sample Size' (e.g., written as 8-, 32, or Size M).\n"
-            "2. Identify the Buyer name and Category.\n"
-            "3. Find the exact 'Style ID' / 'Style Number' (e.g. 5765).\n"
-            "4. Scan and extract the technical measurement specification chart into key-value pairs inside measurements_list.\n"
-            "5. FOR THE GRADING MATRIX TABLE: Scan and extract the full grading matrix table columns for ALL available sizes into full_size_matrix object.\n"
-            "6. CRITICAL VISUAL FLAT SKETCH LOCATE RULE: Scan all pages visually. You MUST find the exact 1-BASED PAGE NUMBER "
-            "that contains the FULL BODY APPAREL FLAT SKETCH showing the entire completed garment."
+            "You are an expert Garment Specification Auditor at PPJ Group specialized in American Eagle Outfitters (AEO) Techpacks.\n"
+            "Analyze all attached sheets page by page with strict geometric line-by-line alignment rules.\n\n"
+            
+            "🎯 CRITICAL EXTRACTION RULES FOR AEO SPEC CHARTS:\n"
+            "1. IDENTIFY BASE SIZE: Look at 'Base Size' field in the header (e.g., written as 'M'). This is your TARGET COLUMN.\n"
+            "2. SPEC GRID SCANNING RULE: Locate the main measurement table containing columns: [POM, Description, Tol-, Tol+, XXS, XS, S, M, L, XL, XXL].\n"
+            "3. BASE VALUE CAPTURE RULE: For every row in the table, map the 'pom_description' from the 'Description' column "
+            "and extract the 'base_value' EXACTLY from the column header matching the 'Base Size' (Column 'M' in this document).\n"
+            "   - DO NOT extract from Tol-, Tol+, or grading delta columns.\n"
+            "   - Capture the exact fraction string value as written (e.g., '1 5/8', '1 3/4', '33 1/2', '43 1/2', '11 1/2', '29 1/4', '27 1/2').\n"
+            "4. ALL SIZES GRADING MATRIX SCAN: For 'all_sizes_grading' array inside each POM item, map through ALL size columns "
+            "[XXS, XS, S, M, L, XL, XXL] horizontally and capture their values explicitly. If a size column contains '0' or blank, record it as '0'.\n"
+            "5. HEADER IDENTIFICATION:\n"
+            "   - 'style_number_parsed': Extract from top-left 'STYLE: 5614'. Only grab the number '5614'.\n"
+            "   - 'buyer': Extract from header 'Company: AMERICAN EAGLE OUTFITTERS'.\n"
+            "   - 'category': Extract from top header line '5164 LR PULL ON TRACK PANTS' -> classify as 'PANTS'.\n"
+            "6. VISUAL FLAT SKETCH LOCATE: Visually inspect all pages. Find the exact 1-based page number containing the full clothing product flat drawings/sketches."
         )
+
         
         contents_payload = [types.Part.from_text(text=industrial_extraction_prompt)]
         chat_images_dict = {}
