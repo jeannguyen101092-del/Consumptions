@@ -1903,10 +1903,12 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     except Exception as e_col:
         print(f"❌ [COLUMN RENDER ERROR]: {str(e_col)}")
     # =========================================================================================
-    # =========================================================================================
-    # =========================================================================================
-    # ĐOẠN 6A: BẢNG SO SÁNH SIÊU CẤP AN TOÀN - KIỂM TRA ĐỘ LỆCH THÔNG SỐ RẬP MẪU
-    # =========================================================================================
+# ĐOẠN 6A & 6B: KHỐI CHỨC NĂNG SO SÁNH VÀ DỰ PHÒNG ĐỊNH MỨC AI
+# =========================================================================================
+
+def render_ppj_consumption_matrix():
+    import pandas as pd
+    import re
 
     st.markdown("<br>### 📐 BẢNG SO SÁNH SAI LỆCH THÔNG SỐ KỸ THUẬT RẬP MẪU", unsafe_allow_html=True)
 
@@ -1914,7 +1916,6 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     new_style_base_size = st.session_state.get("new_style_base_size", "N/A")
     garment_category = str(st.session_state.get("new_style_category_detected", "PANT")).strip().upper()
 
-    # Đồng bộ an toàn bảng thông số từ kho
     old_specs = {}
     matched_techpack = st.session_state.get("matched_techpack")
     if matched_techpack:
@@ -1926,7 +1927,6 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     valid_diff_pcts = []
 
     if new_specs or old_specs:
-        # 📌 1. THUẬT TOÁN PHÂN RÃ TOKENS CỐT LÕI
         def get_core_tokens(text):
             if not text: return set()
             cleaned = str(text).upper()
@@ -1936,7 +1936,6 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             stop_words = {"PANT", "SKIRT", "PANTS", "SKIRTS", "AT", "FROM", "ON", "IN", "FOR", "TOTAL", "WITH"}
             return set([w for w in words if w not in stop_words and len(w) > 2])
 
-        # 📌 2. HÀM QUY ĐỔI PHÂN SỐ MAY MẶC CHUẨN XÁC ĐẾN 3 CHỮ SỐ THẬP PHÂN
         def clean_float(v):
             if v is None: return None
             try: return float(v)
@@ -1945,15 +1944,15 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                     str_v = str(v).strip()
                     if " " in str_v and "/" in str_v:
                         parts = str_v.split()
-                        whole = float(parts)
-                        frac_parts = parts.split('/')
-                        return whole + (float(frac_parts) / float(frac_parts))
+                        whole = float(parts[0])
+                        frac_parts = parts[1].split('/')
+                        return whole + (float(frac_parts[0]) / float(frac_parts[1]))
                     elif "/" in str_v:
                         frac_parts = str_v.split('/')
-                        return float(frac_parts) / float(frac_parts)
+                        return float(frac_parts[0]) / float(frac_parts[1])
                 except Exception: pass
                 nums = re.findall(r"[-+]?\d*\.\d+|\d+", str(v))
-                return float(nums) if nums else None
+                return float(nums[0]) if nums else None
 
         old_pool_tokens = [{"original_key": k, "value": v, "tokens": get_core_tokens(k)} for k, v in old_specs.items()]
         processed_old_keys = set()
@@ -2030,100 +2029,72 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                     "Tỷ lệ biến thiên (Diff %)": "-"
                 })
 
-        import pandas as pd
         if compare_rows:
             st.dataframe(pd.DataFrame(compare_rows), use_container_width=True, hide_index=True)
 
-    st.session_state["valid_diff_pcts"] = valid_diff_pcts
+    # 📊 ĐOẠN B: AI DỰ PHÒNG ĐỊNH MỨC MÃ MỚI
+    avg_diff_pct = 0.0
+    if valid_diff_pcts:
+        avg_diff_pct = round(sum(valid_diff_pcts) / len(valid_diff_pcts), 2)
 
-# =========================================================================================
-# ĐOẠN 6B: AI CONSUMPTION PROJECTION ENGINE - DỰ PHÒNG ĐỊNH MỨC DỰA TRÊN DỮ LIỆU KHO
-# =========================================================================================
+    st.markdown("<br>### 🔮 AI CONSUMPTION PROJECTION ENGINE (DỰ PHÒNG ĐỊNH MỨC MÃ MỚI)", unsafe_allow_html=True)
+    st.success("✅ XÁC THỰC AI VISION: Độ tương đồng phác thảo đạt 100.0%. Cấu trúc rập ở mức tương thích cao.")
 
-st.markdown("<br>### 🔮 AI CONSUMPTION PROJECTION ENGINE (DỰ PHÒNG ĐỊNH MỨC MÃ MỚI)", unsafe_allow_html=True)
-st.success("✅ XÁC THỰC AI VISION: Độ tương đồng phác thảo đạt 100.0%. Cấu trúc rập ở mức tương thích cao.")
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        pom_input = st.number_input("Độ biến thiên thông số POM trung bình (%)", value=float(avg_diff_pct), step=0.01)
+    with col2:
+        fabric_factor = st.number_input("Hệ số thực nghiệm vải (Fabric Growth Factor)", value=0.65, step=0.01)
+    with col3:
+        loss_pct = st.number_input("Hao hụt sản xuất cấu hình thêm (%)", value=0.00, step=0.01)
 
-valid_diff_pcts = st.session_state.get("valid_diff_pcts", [])
-avg_diff_pct = 0.0
-if valid_diff_pcts:
-    avg_diff_pct = round(sum(valid_diff_pcts) / len(valid_diff_pcts), 2)
+    db_consumptions = {}
+    if matched_techpack:
+        db_consumptions = matched_techpack.get("MaterialConsumptions", {}) or matched_techpack.get("material_consumptions", {})
+        if isinstance(db_consumptions, list):
+            temp_dict = {}
+            for item in db_consumptions:
+                c_type = str(item.get("consumption_type", "")).strip().upper()
+                c_val = item.get("consumption_value", 0.0)
+                if c_type: temp_dict[c_type] = c_val
+            db_consumptions = temp_dict
 
-col1, col2, col3 = st.columns(3)
-with col1:
-    pom_input = st.number_input("Độ biến thiên thông số POM trung bình (%)", value=float(avg_diff_pct), step=0.01)
-with col2:
-    fabric_factor = st.number_input("Hệ số thực nghiệm vải (Fabric Growth Factor)", value=0.65, step=0.01)
-with col3:
-    loss_pct = st.number_input("Hao hụt sản xuất cấu hình thêm (%)", value=0.00, step=0.01)
-
-db_consumptions = {}
-matched_techpack = st.session_state.get("matched_techpack")
-
-if matched_techpack:
-    db_consumptions = matched_techpack.get("MaterialConsumptions", {}) or matched_techpack.get("material_consumptions", {})
-    if isinstance(db_consumptions, list):
-        temp_dict = {}
-        for item in db_consumptions:
-            c_type = str(item.get("consumption_type", "")).strip().upper()
-            c_val = item.get("consumption_value", 0.0)
-            if c_type: 
-                temp_dict[c_type] = c_val
-        db_consumptions = temp_dict
-
-def get_db_consumption(type_keyword, default_val=0.0):
-    if not db_consumptions:
+    def get_db_consumption(type_keyword, default_val=0.0):
+        if not db_consumptions: return default_val
+        for k, v in db_consumptions.items():
+            if type_keyword.upper() in str(k).upper():
+                try: return float(v)
+                except: pass
         return default_val
-    for k, v in db_consumptions.items():
-        if type_keyword.upper() in str(k).upper():
-            try: return float(v)
-            except: pass
-    return default_val
 
-old_main_fabric = get_db_consumption("MAIN FABRIC", 0.0)
-old_interlining = get_db_consumption("INTERLINING", 0.0)
-old_pocketing = get_db_consumption("POCKETING", 0.0)
+    old_main_fabric = get_db_consumption("MAIN FABRIC", 0.0)
+    old_interlining = get_db_consumption("INTERLINING", 0.0)
+    old_pocketing = get_db_consumption("POCKETING", 0.0)
 
-new_main_fabric = round(old_main_fabric * (1 + (pom_input * fabric_factor / 100)) * (1 + loss_pct / 100), 3) if old_main_fabric > 0 else 0.0
-new_interlining = round(old_interlining * (1 + (pom_input * 0.4 * fabric_factor / 100)), 3) if old_interlining > 0 else 0.0
-new_pocketing = round(old_pocketing * (1 + (pom_input * 0.4 * fabric_factor / 100)), 3) if old_pocketing > 0 else 0.0
+    new_main_fabric = round(old_main_fabric * (1 + (pom_input * fabric_factor / 100)) * (1 + loss_pct / 100), 3) if old_main_fabric > 0 else 0.0
+    new_interlining = round(old_interlining * (1 + (pom_input * 0.4 * fabric_factor / 100)), 3) if old_interlining > 0 else 0.0
+    new_pocketing = round(old_pocketing * (1 + (pom_input * 0.4 * fabric_factor / 100)), 3) if old_pocketing > 0 else 0.0
 
-ai_rows = []
+    ai_rows = []
+    for label, old_val, new_val, desc in [
+        ("MAIN FABRIC", old_main_fabric, new_main_fabric, f"Vải chính: Hệ số ({fabric_factor}) × POM ({pom_input}%)"),
+        ("INTERLINING", old_interlining, new_interlining, "Vải phụ: Giảm chấn (0.4) × Mức tăng vải chính"),
+        ("POCKETING FABRIC", old_pocketing, new_pocketing, "Vải phụ: Giảm chấn (0.4) × Mức tăng vải chính")
+    ]:
+        if old_val > 0:
+            pct = round(((new_val - old_val) / old_val) * 100, 2)
+            ai_rows.append({"Phân loại vật tư (Type)": label, "Tổng ĐM mã cũ": old_val, "ĐM Dự phóng mã mới": new_val, "Cơ sở thuật toán toán AI": f"{desc} → ĐM tăng: {pct}%"})
+        else:
+            ai_rows.append({"Phân loại vật tư (Type)": label, "Tổng ĐM mã cũ": "Không có dữ liệu kho", "ĐM Dự phóng mã mới": "-", "Cơ sở thuật toán toán AI": "Chờ đồng bộ dữ liệu định mức mã cũ"})
 
-if old_main_fabric > 0:
-    pct_increase = round(((new_main_fabric - old_main_fabric) / old_main_fabric) * 100, 2)
-    ai_rows.append({
-        "Phân loại vật tư (Type)": "MAIN FABRIC", 
-        "Tổng ĐM mã cũ": old_main_fabric, 
-        "ĐM Dự phóng mã mới": new_main_fabric, 
-        "Cơ sở thuật toán toán AI": f"Vải chính: Hệ số ({fabric_factor}) × POM ({pom_input}%) → ĐM tăng: {pct_increase}%"
-    })
-else:
-    ai_rows.append({"Phân loại vật tư (Type)": "MAIN FABRIC", "Tổng ĐM mã cũ": "Không có dữ liệu kho", "ĐM Dự phóng mã mới": "-", "Cơ sở thuật toán toán AI": "Chờ đồng bộ dữ liệu định mức mã cũ"})
+    st.dataframe(pd.DataFrame(ai_rows), use_container_width=True, hide_index=True)
 
-if old_interlining > 0:
-    pct_increase = round(((new_interlining - old_interlining) / old_interlining) * 100, 2)
-    ai_rows.append({
-        "Phân loại vật tư (Type)": "INTERLINING", 
-        "Tổng ĐM mã cũ": old_interlining, 
-        "ĐM Dự phóng mã mới": new_interlining, 
-        "Cơ sở thuật toán toán AI": f"Vải phụ: Giảm chấn (0.4) × Mức tăng vải chính → ĐM tăng: {pct_increase}%"
-    })
-else:
-    ai_rows.append({"Phân loại vật tư (Type)": "INTERLINING", "Tổng ĐM mã cũ": "Không có dữ liệu kho", "ĐM Dự phóng mã mới": "-", "Cơ sở thuật toán toán AI": "Chờ đồng bộ dữ liệu định mức mã cũ"})
 
-if old_pocketing > 0:
-    pct_increase = round(((new_pocketing - old_pocketing) / old_pocketing) * 100, 2)
-    ai_rows.append({
-        "Phân loại vật tư (Type)": "POCKETING FABRIC", 
-        "Tổng ĐM mã cũ": old_pocketing, 
-        "ĐM Dự phóng mã mới": new_pocketing, 
-        "Cơ sở thuật toán toán AI": f"Vải phụ: Giảm chấn (0.4) × Mức tăng vải chính → ĐM tăng: {pct_increase}%"
-    })
-else:
-    ai_rows.append({"Phân loại vật tư (Type)": "POCKETING FABRIC", "Tổng ĐM mã cũ": "Không có dữ liệu kho", "ĐM Dự phóng mã mới": "-", "Cơ sở thuật toán toán AI": "Chờ đồng bộ dữ liệu định mức mã cũ"})
+# =========================================================================================
+# LỜI GỌI HÀM: Đặt dòng này dưới khối lệnh try: của bạn
+# =========================================================================================
+# Để kích hoạt chạy đoạn code này, bạn chỉ cần tìm khối `try:` trong code cũ và dán dòng dưới đây:
 
-import pandas as pd
-st.dataframe(pd.DataFrame(ai_rows), use_container_width=True, hide_index=True)
 
 
 
