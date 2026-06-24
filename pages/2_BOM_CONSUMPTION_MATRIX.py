@@ -2000,41 +2000,36 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
 
           # --- BẢNG SO SÁNH SAI LỆCH THÔNG SỐ RẬP ---
        # =========================================================================
-    # VÁ LỖI AN TOÀN: CHẠY HÀM XỬ LÝ CHUYÊN SÂU KHI PHÁT HIỆN FILE PDF
+        # =========================================================================
+    # KIỂM TRA ĐỊNH DẠNG THỰC TẾ ĐỂ PHÂN TÁCH LUỒNG CHÍNH XÁC (KHÔNG LỖI XREF)
     # =========================================================================
-    if "pdf" in str(detected_mime_type).lower() and target_new_sketch_bytes:
-        if "extracted_spec_data" not in st.session_state or st.session_state.get("previous_uploaded_file_name_checked") != st.session_state["previous_uploaded_file_name"]:
-            raw_pdf_bytes_backup = target_new_sketch_bytes
-            
-            with st.spinner("🤖 AI đang tiến hành phân tích sâu cấu trúc PDF để bóc tách thông số & hình ảnh vẽ..."):
-                pdf_res = process_single_pdf_batch(raw_pdf_bytes_backup, st.session_state["previous_uploaded_file_name"])
-                
-                if pdf_res.get("success"):
-                    target_new_sketch_bytes = pdf_res["sketch_bytes"]
-                    globals()["target_new_sketch_bytes"] = pdf_res["sketch_bytes"]
-                    
-                    st.session_state["extracted_spec_data"] = pdf_res["data"]
-                    st.session_state["previous_uploaded_file_name_checked"] = st.session_state["previous_uploaded_file_name"]
-                    
-                    globals()["new_style_id_detected"] = pdf_res["data"].get("style_number_parsed", "UNKNOWN")
-                    globals()["new_style_base_size"] = pdf_res["data"].get("base_size_name", "N/A")
-                    
-                    new_vec = f"GARMENT_TYPE: {pdf_res['data'].get('category', 'UNKNOWN').upper()}\n\nFEATURES:\nEXTRACTED VIA MATRIX ENGINE"
-                    st.session_state["visual_description_str"] = new_vec
-                    st.session_state["detected_garment_type"] = pdf_res["data"].get("category", "UNKNOWN").upper()
-                else:
-                    st.error(f"🚨 Lỗi bóc tách cấu trúc tài liệu từ AI: {pdf_res.get('error')}")
-                    try:
-                        from pdf2image import convert_from_bytes
-                        import io
-                        fallback_images = convert_from_bytes(raw_pdf_bytes_backup, first_page=1, last_page=1)
-                        if fallback_images:
-                            img_buf = io.BytesIO()
-                            fallback_images[0].convert("RGB").save(img_buf, format="JPEG")
-                            target_new_sketch_bytes = img_buf.getvalue()
-                            globals()["target_new_sketch_bytes"] = target_new_sketch_bytes
-                    except Exception:
-                        pass
+    uploaded_file_name_str = str(st.session_state.get("previous_uploaded_file_name", "")).lower()
+    is_pdf_file = "pdf" in str(detected_mime_type).lower() or uploaded_file_name_str.endswith(".pdf")
+
+    if is_pdf_file and target_new_sketch_bytes:
+        if target_new_sketch_bytes.startswith(b"%PDF"):
+            if "extracted_spec_data" not in st.session_state or st.session_state.get("previous_uploaded_file_name_checked") != st.session_state["previous_uploaded_file_name"]:
+                raw_pdf_bytes_backup = target_new_sketch_bytes
+                with st.spinner("🤖 AI đang phân tích cấu trúc PDF để bóc tách thông số..."):
+                    pdf_res = process_single_pdf_batch(raw_pdf_bytes_backup, st.session_state["previous_uploaded_file_name"])
+                    if pdf_res.get("success"):
+                        target_new_sketch_bytes = pdf_res["sketch_bytes"]
+                        globals()["target_new_sketch_bytes"] = pdf_res["sketch_bytes"]
+                        st.session_state["extracted_spec_data"] = pdf_res["data"]
+                        st.session_state["previous_uploaded_file_name_checked"] = st.session_state["previous_uploaded_file_name"]
+                        globals()["new_style_id_detected"] = pdf_res["data"].get("style_number_parsed", "UNKNOWN")
+                        globals()["new_style_base_size"] = pdf_res["data"].get("base_size_name", "N/A")
+                        
+                        new_vec = f"GARMENT_TYPE: {pdf_res['data'].get('category', 'UNKNOWN').upper()}\n\nFEATURES:\nEXTRACTED VIA MATRIX ENGINE"
+                        st.session_state["visual_description_str"] = new_vec
+                        st.session_state["detected_garment_type"] = pdf_res["data"].get("category", "UNKNOWN").upper()
+                    else:
+                        # ĐÃ SỬA: Xóa bỏ hoàn toàn lệnh gọi convert_from_bytes dư thừa gây lỗi trailer dictionary
+                        st.warning("⚠️ Không bóc tách được bảng thông số tự động qua AI. Hệ thống duy trì hiển thị đồ họa trực quan.")
+        else:
+            is_pdf_file = False
+    # =========================================================================
+
 
     # KHỐI LOG ĐỂ KIỂM TRA ĐỘ TIN CẬY DỮ LIỆU ĐẦU VÀO CỦA GEMINI VÀ DATABASE
     with st.expander("🔍 KHỐI LOG KIỂM TRA DỮ LIỆU THÔ (NEW VS OLD SPECS)", expanded=False):
