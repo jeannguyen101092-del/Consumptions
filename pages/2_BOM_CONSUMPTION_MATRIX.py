@@ -1448,7 +1448,7 @@ base_sb_url = SB_URL.rstrip('/') if 'SB_URL' in globals() else ""
 headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if 'SB_KEY' in globals() else {}
 # =================================================================
 # =================================================================
-# ĐOẠN 4 ĐÃ SỬA: HỆ THỐNG ĐỐI CHIẾU MÃ HÀNG CÓ CƠ CHẾ KHÓA TRẠNG THÁI VÀ PHÂN LOẠI VISION
+# # ĐOẠN 4 ĐÃ SỬA: HỆ THỐNG ĐỐI CHIẾU MÃ HÀNG CÓ CƠ CHẾ KHÓA TRẠNG THÁI VÀ PHÂN LOẠI VISION
 # =========================================================================================
 
 if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption Matrix":
@@ -1518,13 +1518,37 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             target_new_sketch_bytes = file_buffer.read()
         except Exception: pass
 
+    # =========================================================================
+    # VÁ LỖI: CHẠY HÀM XỬ LÝ CHUYÊN SÂU KHI PHÁT HIỆN FILE PDF ĐỂ LẤY THÔNG SỐ VÀ SKETCH
+    # =========================================================================
+    if "pdf" in str(detected_mime_type).lower() and target_new_sketch_bytes:
+        if "extracted_spec_data" not in st.session_state or st.session_state.get("previous_uploaded_file_name_checked") != st.session_state["previous_uploaded_file_name"]:
+            with st.spinner("🤖 AI đang tiến hành phân tích sâu cấu trúc PDF để bóc tách thông số & hình ảnh vẽ..."):
+                pdf_res = process_single_pdf_batch(target_new_sketch_bytes, st.session_state["previous_uploaded_file_name"])
+                if pdf_res.get("success"):
+                    target_new_sketch_bytes = pdf_res["sketch_bytes"]
+                    globals()["target_new_sketch_bytes"] = pdf_res["sketch_bytes"]
+                    
+                    st.session_state["extracted_spec_data"] = pdf_res["data"]
+                    st.session_state["previous_uploaded_file_name_checked"] = st.session_state["previous_uploaded_file_name"]
+                    
+                    globals()["new_style_id_detected"] = pdf_res["data"].get("style_number_parsed", "UNKNOWN")
+                    globals()["new_style_base_size"] = pdf_res["data"].get("base_size_name", "N/A")
+                    
+                    new_vec = f"GARMENT_TYPE: {pdf_res['data'].get('category', 'UNKNOWN').upper()}\n\nFEATURES:\nEXTRACTED VIA MATRIX ENGINE"
+                    st.session_state["visual_description_str"] = new_vec
+                    st.session_state["detected_garment_type"] = pdf_res["data"].get("category", "UNKNOWN").upper()
+                else:
+                    st.error(f"🚨 Lỗi bóc tách cấu trúc tài liệu từ AI: {pdf_res.get('error')}")
+    # =========================================================================
+
     new_vec = str(st.session_state.get("visual_description_str", "") or globals().get("visual_description_str", "") or globals().get("new_style_sketch_vector", "")).strip().upper()
 
-    if st.session_state["matched_techpack"] is None:
+    # Thêm điều kiện bỏ qua khối xử lý ảnh nếu tệp tải lên là file PDF
+    if st.session_state["matched_techpack"] is None and "pdf" not in str(detected_mime_type).lower():
         if len(new_vec) < 30 and target_new_sketch_bytes and client and client.models:
             with st.spinner("🔄 Đang quét ảnh tái lập Sketch Vector..."):
                 try:
-                    # ĐÃ NÂNG CẤP PROMPT: Ép Gemini tự định vị trang Sketch độc lập để loại bỏ nhiễu PDF đa trang
                     ocr_prompt = """
                     You are an expert apparel techpack analyzer. This document may be a multi-page PDF containing Cover pages, BOM tables, and Measurement charts.
                     
@@ -1549,7 +1573,6 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                         new_vec = str(ocr_res.text).strip().upper()
                         st.session_state["visual_description_str"] = new_vec
                         
-                        # ĐÃ NÂNG CẤP REGEX: Nới lỏng kiểm tra để không trượt bất kỳ định dạng gạch nối/dấu phân tách nào
                         type_match = re.search(r"GARMENT[\s_-]*TYPE\s*[:=]\s*([A-Z_\-]+)", new_vec, re.IGNORECASE)
                         if type_match:
                             st.session_state["detected_garment_type"] = type_match.group(1).strip().upper()
@@ -1575,6 +1598,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             
         if st.session_state["detected_garment_type"] == "UNKNOWN":
             st.warning("⚠️ Không tự động bóc tách được phân loại đồ cụ thể. Hệ thống tự động chuyển sang chế độ đối soát mở rộng.")
+
                         # KHỐI SO SÁNH TRỰC QUAN VLM KẾT HỢP BỘ LỌC CỨNG CHỐNG LỆCH DANH MỤC
         with st.spinner("🧠 Mắt thần VLM đang so sánh trực quan ảnh và thông số kỹ thuật..."):
             try:
@@ -1752,36 +1776,30 @@ with img_col1:
     uploaded_file_name = st.session_state.get("previous_uploaded_file_name", "Techpack")
     
     if target_new_sketch_bytes is not None:
-        # KIỂM TRA VÀ CHUYỂN ĐỔI PDF THÀNH ẢNH ĐỂ HIỂN THỊ SKETCH
-        if "pdf" in str(detected_mime_type).lower() or str(uploaded_file_name).lower().endswith(".pdf"):
+        # 1. HIỂN THỊ HÌNH ẢNH FLAT SKETCH ĐÃ TRÍCH XUẤT ĐƯỢC TỪ FILE
+        try:
+            st.image(target_new_sketch_bytes, caption=f"Hình Sketch quét từ tài liệu ({new_style_id_detected})", use_container_width=True)
+        except Exception as e:
+            st.warning(f"Lỗi hiển thị hình ảnh bản vẽ: {e}")
+            
+        # 2. HIỂN THỊ BẢNG THÔNG SỐ MA TRẬN KÍCH THƯỚC (AI EXTRACTED)
+        extracted_spec = st.session_state.get("extracted_spec_data", None)
+        if extracted_spec and "full_size_matrix" in extracted_spec:
+            st.markdown("#### 📊 BẢNG THÔNG SỐ KỸ THUẬT (SPEC MATRIX)")
+            
+            import pandas as pd
             try:
-                from pdf2image import convert_from_bytes
-                import io
-
-                # Chuyển đổi trang đầu tiên của file PDF thành đối tượng PIL Image
-                pages = convert_from_bytes(target_new_sketch_bytes, first_page=1, last_page=1)
-                
-                if pages:
-                    # Chuyển đổi ảnh sang dạng bytes để Streamlit hiển thị ổn định
-                    img_byte_arr = io.BytesIO()
-                    pages[0].save(img_byte_arr, format='PNG')
-                    render_bytes = img_byte_arr.getvalue()
-                    
-                    st.image(render_bytes, caption=f"Hình Sketch quét từ PDF ({new_style_id_detected})", use_container_width=True)
-                else:
-                    st.error("⚠️ Không thể trích xuất trang từ file PDF.")
-            except Exception as e:
-                # Nếu thiếu thư viện hoặc lỗi hệ thống, fallback về hộp thông tin cũ kèm thông báo lỗi chi tiết
-                st.info(f"📄 **Tài liệu dạng tệp:** `{uploaded_file_name}`")
-                st.warning(f"Chưa cấu hình bộ chuyển đổi PDF sang Ảnh: {e}")
+                # Chuyển đổi dữ liệu JSON ma trận kích thước của Gemini thành DataFrame để tạo bảng Streamlit trực quan
+                matrix_df = pd.DataFrame.from_dict(extracted_spec["full_size_matrix"], orient='index')
+                st.dataframe(matrix_df, use_container_width=True)
+            except Exception as table_err:
+                # Fallback hiển thị định dạng JSON thô nếu cấu trúc bảng bị lệch cấu trúc định dạng
+                st.json(extracted_spec["full_size_matrix"])
         else:
-            # Render bình thường nếu là file ảnh (JPEG/PNG)
-            try:
-                st.image(target_new_sketch_bytes, caption=f"Mẫu mới tải lên ({new_style_id_detected})", use_container_width=True)
-            except Exception as e:
-                st.warning(f"Lỗi hiển thị ảnh mẫu mới: {e}")
+            st.info("ℹ️ Không tìm thấy dữ liệu bảng thông số hình học được bóc tách cho tệp này.")
     else:
         st.info("ℹ️ Chưa tải lên tệp ảnh Flat Sketch của mẫu mới.")
+
 
 with img_col2:
     if matched_techpack is not None:
