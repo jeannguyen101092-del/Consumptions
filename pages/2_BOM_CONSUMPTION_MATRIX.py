@@ -1923,11 +1923,6 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             if img_png_bytes_fallback is not None: st.image(img_png_bytes_fallback, use_container_width=True)
     except Exception as e_col:
         print(f"❌ [COLUMN RENDER ERROR]: {str(e_col)}")
-import json
-import re
-import streamlit as st
-import pandas as pd
-
 # =========================================================================================
 # ĐOẠN 1: KẾ THỪA TRỰC TIẾP 100% KẾT QUẢ VECTOR TỪ TẦNG TRÊN (KHÔNG CALL API)
 # =========================================================================================
@@ -1942,11 +1937,10 @@ new_specs = st.session_state.get("new_style_measurements_dict", {})
 garment_category = str(st.session_state.get("new_style_category_detected", "PANT")).strip().upper()
 new_style_base_size = st.session_state.get("new_style_base_size", "N/A")
 
-# 2. 🔥 ÉP KẾ THỪA TUYỆT ĐỐI: Lấy trực tiếp cục dữ liệu mà thuật toán Cosine phía trên đã tìm thấy
+# 2. ÉP KẾ THỪA TUYỆT ĐỐI: Lấy trực tiếp cục dữ liệu mà thuật toán Cosine phía trên đã tìm thấy
 matched_profile = st.session_state.get("matched_techpack")
 
 if isinstance(matched_profile, dict) and matched_profile:
-    # 🎯 SỬA LỖI LỆCH KEY: Quét sạch mọi tên key có khả năng lưu trữ thông số cũ ở tầng trên
     old_specs = (
         matched_profile.get("measurements") or 
         matched_profile.get("DetailedMeasurements") or 
@@ -1956,7 +1950,7 @@ if isinstance(matched_profile, dict) and matched_profile:
     target_style_name = str(matched_profile.get("style_number", matched_profile.get("StyleName", "KHO_MẪU")))
     confidence_score = int(st.session_state.get("match_confidence_score", 0))
 
-# 3. 🎯 LỚP CHUẨN HÓA TỪ ĐỒNG NGHĨA NGÀNH MAY (Đồng bộ Chest Width / 1/2 Chest...)
+# 3. 🎯 LỚP CHUẨN HÓA TỪ ĐỒNG NGHĨA NGÀNH MAY
 POM_ALIAS = {
     "CHEST WIDTH": "1/2 CHEST", "HALF CHEST": "1/2 CHEST", "CHEST WIDTH 1/2": "1/2 CHEST",
     "WAIST WIDTH": "1/2 WAIST", "HALF WAIST": "1/2 WAIST",
@@ -1974,7 +1968,6 @@ def normalize_pom_key(k):
         if alias in k or k == alias: return standard
     return k
 
-# 4. Bộ giải mã phân số ngành may đo công nghiệp
 def parse_garment_value_industrial(v):
     if v is None: return None
     try: return float(v)
@@ -1986,8 +1979,8 @@ def parse_garment_value_industrial(v):
                 if uni_char in str_v: str_v = str_v.replace(uni_char, repl_str)
             if " " in str_v and "/" in str_v:
                 parts = str_v.split()
-                whole = float(parts[0])
-                num, den = parts[1].split('/')
+                whole = float(parts)
+                num, den = parts.split('/')
                 return whole + (float(num) / float(den))
             elif "/" in str_v:
                 num, den = str_v.split('/')
@@ -1995,97 +1988,92 @@ def parse_garment_value_industrial(v):
         except Exception: pass
         nums = re.findall(r"[-+]?\d*\.\d+|\d+", str_v)
         if nums:
-            try: return float(nums[0])
+            try: return float(nums)
             except Exception: return None
         return None
 
-# =========================================================================================
-# 🎛️ KẾT XUẤT CỔNG CHẨN ĐOÁN TRẠNG THÁI TOÀN VẸN DỮ LIỆU
-# =========================================================================================
-st.markdown("---")
-st.subheader("🎛️ CỔNG DEBUG CHẨN ĐOÁN KHO DỮ LIỆU SUPABASE")
-debug_col1, debug_col2 = st.columns(2)
-with debug_col1:
-    st.write(f"1️⃣ **Mã đối chứng kế thừa:** `{target_style_name}`")
-    st.write(f"2️⃣ **Điểm tự tin trùng khớp hình ảnh:** `{confidence_score}%`")
-with debug_col2:
-    st.write(f"3️⃣ **Số lượng POM mẫu mới:** `{len(new_specs) if new_specs else 0}`")
-    st.write(f"4️⃣ **Số lượng POM mã cũ kế thừa:** `{len(old_specs) if old_specs else 0}`")
-st.markdown("---")
 
-processed_old_keys_global = set()
+# 🔥 BỘ PHÒNG THỦ ẨN GIAO DIỆN THÔNG MINH: Chỉ hiện bảng khi kho cũ đã có dữ liệu matching thành công
+if old_specs and new_specs:
 
-# =========================================================================================
-# 📐 ĐOẠN 1b: VISUALIZATION RENDERER & COMPARATOR
-# =========================================================================================
+    # =========================================================================================
+    # 🎛️ KẾT XUẤT CỔNG CHẨN ĐOÁN TRẠNG THÁI TOÀN VẸN DỮ LIỆU
+    # =========================================================================================
+    st.markdown("---")
+    st.subheader("🎛️ CỔNG DEBUG CHẨN ĐOÁN KHO DỮ LIỆU SUPABASE")
+    debug_col1, debug_col2 = st.columns(2)
+    with debug_col1:
+        st.write(f"1️⃣ **Mã đối chứng kế thừa:** `{target_style_name}`")
+        st.write(f"2️⃣ **Điểm tự tin trùng khớp hình ảnh:** `{confidence_score}%`")
+    with debug_col2:
+        st.write(f"3️⃣ **Số lượng POM mẫu mới:** `{len(new_specs)}`")
+        st.write(f"4️⃣ **Số lượng POM mã cũ kế thừa:** `{len(old_specs)}`")
+    st.markdown("---")
 
-st.markdown("<br>### 📐 BẢNG SO SÁNH SAI LỆCH THÔNG SỐ KỸ THUẬT RẬP MẪU", unsafe_allow_html=True)
+    processed_old_keys_global = set()
 
-# Nếu tầng trên đã tìm thấy số liệu cũ, tiến hành dựng bảng lập tức
-if old_specs:
+    # =========================================================================================
+    # 📐 ĐOẠN 1b: VISUALIZATION RENDERER & COMPARATOR
+    # =========================================================================================
+
+    st.markdown("<br>### 📐 BẢNG SO SÁNH SAI LỆCH THÔNG SỐ KỸ THUẬT RẬP MẪU", unsafe_allow_html=True)
+
     compare_rows = []
     valid_diff_pcts = []
 
     col_new_title = f"Mẫu mới ({new_style_base_size})"
     col_old_title = f"Mã cũ ({old_base_size})"
 
-    # Chuẩn hóa chữ in hoa + đồng nghĩa cho dữ liệu mã cũ kế thừa từ kho
     flattened_old_specs = {}
-    if isinstance(old_specs, dict):
-        for k, v in old_specs.items():
-            norm_old_k = normalize_pom_key(k)
-            flattened_old_specs[norm_old_k] = v
+    for k, v in old_specs.items():
+        norm_old_k = normalize_pom_key(k)
+        flattened_old_specs[norm_old_k] = v
 
-    # Tiến hành đối soát thông số chi tiết
-    if isinstance(new_specs, dict) and new_specs:
-        for original_new_key, val_new in new_specs.items():
-            clean_new_key = normalize_pom_key(original_new_key)
+    for original_new_key, val_new in new_specs.items():
+        clean_new_key = normalize_pom_key(original_new_key)
+        
+        val_old = None
+        if clean_new_key in flattened_old_specs:
+            val_old = flattened_old_specs[clean_new_key]
+            processed_old_keys_global.add(str(clean_new_key))
             
-            val_old = None
-            if clean_new_key in flattened_old_specs:
-                val_old = flattened_old_specs[clean_new_key]
-                processed_old_keys_global.add(str(clean_new_key))
-                
-            f_new = parse_garment_value_industrial(val_new)
-            f_old = parse_garment_value_industrial(val_old)
-            diff_val, diff_pct = None, None
-            
-            if f_new is not None and f_old is not None:
-                diff_val = round(f_new - f_old, 2)
-                if f_old != 0:
-                    diff_pct = round((diff_val / f_old) * 100, 2)
-                    valid_diff_pcts.append(diff_pct)
+        f_new = parse_garment_value_industrial(val_new)
+        f_old = parse_garment_value_industrial(val_old)
+        diff_val, diff_pct = None, None
+        
+        if f_new is not None and f_old is not None:
+            diff_val = round(f_new - f_old, 2)
+            if f_old != 0:
+                diff_pct = round((diff_val / f_old) * 100, 2)
+                valid_diff_pcts.append(diff_pct)
 
-            display_diff = f"+{diff_val}" if diff_val and diff_val > 0 else (str(diff_val) if diff_val is not None else "-")
-            display_pct = f"+{diff_pct}%" if diff_pct and diff_pct > 0 else (f"{diff_pct}%" if diff_pct is not None else "-")
-            
+        display_diff = f"+{diff_val}" if diff_val and diff_val > 0 else (str(diff_val) if diff_val is not None else "-")
+        display_pct = f"+{diff_pct}%" if diff_pct and diff_pct > 0 else (f"{diff_pct}%" if diff_pct is not None else "-")
+        
+        compare_rows.append({
+            "Vị trí đo (POM Description)": original_new_key,
+            col_new_title: val_new if val_new is not None else "-",
+            col_old_title: val_old if val_old is not None else "-",
+            "Chênh lệch (Diff)": display_diff,
+            "Tỷ lệ biến thiên (Diff %)": display_pct
+        })
+
+    for original_old_key, val_old in old_specs.items():
+        norm_old_key = normalize_pom_key(original_old_key)
+        if norm_old_key not in processed_old_keys_global:
             compare_rows.append({
-                "Vị trí đo (POM Description)": original_new_key,
-                col_new_title: val_new if val_new is not None else "-",
+                "Vị trí đo (POM Description)": original_old_key,
+                col_new_title: "-",
                 col_old_title: val_old if val_old is not None else "-",
-                "Chênh lệch (Diff)": display_diff,
-                "Tỷ lệ biến thiên (Diff %)": display_pct
+                "Chênh lệch (Diff)": "-",
+                "Tỷ lệ biến thiên (Diff %)": "-"
             })
-
-        # Đổ các thông số rập cũ còn sót ra giao diện dưới dạng dòng Fallback Row
-        if isinstance(old_specs, dict):
-            for original_old_key, val_old in old_specs.items():
-                norm_old_key = normalize_pom_key(original_old_key)
-                if norm_old_key not in processed_old_keys_global:
-                    compare_rows.append({
-                        "Vị trí đo (POM Description)": original_old_key,
-                        col_new_title: "-",
-                        col_old_title: val_old if val_old is not None else "-",
-                        "Chênh lệch (Diff)": "-",
-                        "Tỷ lệ biến thiên (Diff %)": "-"
-                    })
 
     st.dataframe(pd.DataFrame(compare_rows), use_container_width=True, hide_index=True)
     st.session_state["valid_diff_pcts"] = valid_diff_pcts
+
 else:
-    # Cảnh báo an toàn nếu người dùng nhảy thẳng vào trang này mà chưa chạy upload khớp hình ảnh ở trang trước
-    st.warning("⚠️ Hệ thống chưa nhận được dữ liệu mã cũ kế thừa từ tầng tìm kiếm hình ảnh tương đồng.")
-    st.info("ℹ️ Bạn vui lòng quay lại trang **Upload Techpack** trước, tải file PDF lên để AI thực hiện tìm kiếm hình ảnh tương đồng, sau đó quay lại trang này bảng sẽ tự động hiện ra số liệu.")
+    # 🤫 Khi mới mở file, chưa upload gì thì im lặng tuyệt đối, không hiện cảnh báo rác
     st.session_state["valid_diff_pcts"] = []
 
 
