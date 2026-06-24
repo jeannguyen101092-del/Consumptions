@@ -1429,7 +1429,7 @@ if gemini_key:
 # ĐOẠN 3 - PHẦN 1: HÀM TRÍCH XUẤT THÔNG SỐ QUA GEMINI API
 # =========================================================================================
 
-ddef process_single_pdf_batch(file_bytes, file_name):
+def process_single_pdf_batch(file_bytes, file_name):
     """
     Hàm bóc tách dữ liệu kỹ thuật từ một file PDF độc lập.
     ✨ ĐÃ NÂNG CẤP ĐỊNH VỊ PHOM DÁNG: Ép AI Vision chỉ bốc trang hiển thị chiếc quần hoàn chỉnh (Front and Back full garment views).
