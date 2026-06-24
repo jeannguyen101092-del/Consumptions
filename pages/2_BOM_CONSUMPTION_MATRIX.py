@@ -1824,7 +1824,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     except Exception as e_col:
         print(f"❌ [COLUMN RENDER ERROR]: {str(e_col)}")
     # =========================================================================================
- import json
+import json
 import re
 import streamlit as st
 import pandas as pd
