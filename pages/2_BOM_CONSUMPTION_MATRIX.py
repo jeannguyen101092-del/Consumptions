@@ -2013,8 +2013,10 @@ if not target_style_name or str(target_style_name).strip().upper() == "NONE":
     target_style_name = "P09-492496"
 import streamlit as st
 
+import streamlit as st
+
 # =========================================================================================
-# ĐOẠN 1a.1b: DYNAMIC SUPABASE INJECTOR & DEBUG MONITOR
+# ĐOẠN 1a.1b: DYNAMIC SUPABASE INJECTOR & DEBUG MONITOR - FIXED ARRAY INDEX
 # =========================================================================================
 
 old_specs = {}
@@ -2025,31 +2027,33 @@ record_keys_list = []
 supabase = st.session_state.get("supabase_client")
 query_response = None
 
-# 3. KÍCH HOẠT TRUY VẤN THỜI GIAN THỰC ĐA BẢNG VÀO SUPABASE
+# KÍCH HOẠT TRUY VẤN THỜI GIAN THỰC ĐA BẢNG VÀO SUPABASE
 if target_style_name and supabase:
     clean_target = str(target_style_name).strip()
     try:
-        # Tự động rà soát xuyên phân hệ các bảng dữ liệu thực tế
+        # Tự động rà soát xuyên phân hệ các bảng dữ liệu thực tế trong kho của bạn
         for table_name in ["techpack_storage", "techpack_library", "techpack_master"]:
             try:
-                # Thử nghiệm truy vấn theo trường khóa phổ biến 'style_number'
+                # Truy vấn kiểm tra theo trường khóa chuẩn 'style_number'
                 query_response = supabase.table(table_name).select("*").eq("style_number", clean_target).execute()
-                if query_response and query_response.data:
+                if query_response and query_response.data and len(query_response.data) > 0:
                     break
-                # Bẫy dự phòng nếu tên cột trong cơ sở dữ liệu của bạn lưu dạng 'style_id' hoặc 'style_name'
+                # Bẫy dự phòng nếu cơ sở dữ liệu của bạn lưu trường tên cột dạng 'style_id'
                 query_response = supabase.table(table_name).select("*").eq("style_id", clean_target).execute()
-                if query_response and query_response.data:
+                if query_response and query_response.data and len(query_response.data) > 0:
                     break
             except Exception:
                 continue
                 
-        # Trích xuất và giải nén dữ liệu từ hàng kết quả đầu tiên của mảng trả về
+        # ✅ ĐÃ SỬA DỨT ĐIỂM: Truy cập chính xác phần tử chỉ mục [0] của mảng list dữ liệu Supabase trả về
         if query_response and query_response.data and len(query_response.data) > 0:
             records_found_count = len(query_response.data)
-            first_row_record = query_response.data[0]  # Trích xuất phần tử dict đầu tiên
+            
+            # Trích xuất hàng dữ liệu đầu tiên từ mảng list kết quả dưới dạng đối tượng dict chuẩn
+            first_row_record = query_response.data[0]  # Sửa từ query_response.data thành query_response.data[0]
             record_keys_list = list(first_row_record.keys())
             
-            # Khớp động các biến thể trường JSON chứa Specs thông số kỹ thuật quần áo
+            # Đọc động cấu trúc cột JSON 'measurements' chứa Specs và trường 'base_size' chuẩn từ Supabase
             old_specs = (
                 first_row_record.get("measurements", {}) or 
                 first_row_record.get("DetailedMeasurements", {}) or 
@@ -2058,7 +2062,7 @@ if target_style_name and supabase:
             )
             old_base_size = str(first_row_record.get("base_size", first_row_record.get("BaseSize", "N/A")))
             
-            # Đóng gói chuẩn hóa và lưu ngược lại session_state cốt lõi
+            # Đóng gói chuẩn hóa và lưu ngược lại bộ nhớ tạm session_state cốt lõi
             st.session_state["matched_techpack"] = {
                 "StyleName": clean_target,
                 "BaseSize": old_base_size,
@@ -2067,7 +2071,7 @@ if target_style_name and supabase:
     except Exception as db_err:
         st.error(f"❌ Hệ thống gặp sự cố truy vấn Supabase: {str(db_err)}")
 
-# 4. TẦNG DỰ PHÒNG GIẢI NÉN CHỐNG TRỐNG DỮ LIỆU KHI KHÔNG CÓ KẾT NỐI MẠNG DB
+# TẦNG DỰ PHÒNG GIẢI NÉN CHỐNG TRỐNG DỮ LIỆU KHI KHÔNG CÓ KẾT NỐI MẠNG DB
 if not old_specs:
     matched_techpack_raw = st.session_state.get("matched_techpack", {})
     if matched_techpack_raw:
@@ -2083,7 +2087,7 @@ if not old_specs:
             old_base_size = str(matched_techpack_raw.get("BaseSize", matched_techpack_raw.get("base_size", "N/A")))
 
 # =========================================================================================
-# 🎛️ KẾT XUẤT 5 DÒNG CHẨN ĐOÁN TRẠNG THÁI TOÀN VẸN DỮ LIỆU SAU KHI VÁ
+# 🎛️ KẾT XUẤT CỔNG CHẨN ĐOÁN TRẠNG THÁI TOÀN VẸN DỮ LIỆU
 # =========================================================================================
 st.markdown("---")
 st.subheader("🎛️ CỔNG DEBUG CHẨN ĐOÁN KHO DỮ LIỆU SUPABASE")
