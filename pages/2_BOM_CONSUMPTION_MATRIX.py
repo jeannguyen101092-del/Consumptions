@@ -1824,6 +1824,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     except Exception as e_col:
         print(f"❌ [COLUMN RENDER ERROR]: {str(e_col)}")
 # =========================================================================================
+# =========================================================================================
 # ĐOẠN 1a: KẾ THỪA TRỰC TIẾP 100% KẾT QUẢ VECTOR TỪ TẦNG TRÊN (KHÔNG CALL API)
 # =========================================================================================
 
@@ -1925,13 +1926,31 @@ def parse_garment_value_industrial(v):
             try: return float(nums[0])
             except Exception: return None
         return None
+
+def highlight_deviation_industrial(row):
+    """
+    HÀM GLOBAL: Định dạng cấu trúc màu CSS phòng ngừa lỗi lồng hàm SyntaxError.
+    Tô đỏ nhạt nếu lệch >= 5%, tô vàng nhạt nếu lệch nhỏ hơn.
+    """
+    styles = [''] * len(row)
+    pct_str = str(row["Tỷ lệ biến thiên (Diff %)"])
+    
+    if pct_str and pct_str != "-":
+        try:
+            val = float(pct_str.replace('%', '').replace('+', ''))
+            if abs(val) >= 5.0:
+                return ['background-color: #FCE8E6; color: #A61C06; font-weight: bold;'] * len(row)
+            elif abs(val) > 0:
+                return ['background-color: #FFF2CC; color: #B2A200;'] * len(row)
+        except Exception:
+            pass
+    return styles
 # =========================================================================================
 # ĐOẠN 1b: VISUALIZATION RENDERER & COMPARATOR WITH ALARM HIGHLIGHT
 # =========================================================================================
 
 # 🔥 BỘ PHÒNG THỦ GIAO DIỆN THÔNG MINH
 if old_specs and new_specs:
-    # Khai báo biến cục bộ an toàn bên trong khối IF để tránh lỗi cú pháp
     compare_rows = []
     valid_diff_pcts = []
 
@@ -2000,25 +2019,8 @@ if old_specs and new_specs:
 
     df_compare = pd.DataFrame(compare_rows)
 
-    def highlight_deviation_industrial(row):
-        """
-        Hàm tạo kiểu CSS: Tô màu đỏ nhạt cho hàng lệch >= 5.0%, màu vàng nhạt cho hàng lệch nhỏ.
-        """
-        styles = [''] * len(row)
-        pct_str = str(row["Tỷ lệ biến thiên (Diff %)"])
-        
-        if pct_str and pct_str != "-":
-            try:
-                val = float(pct_str.replace('%', '').replace('+', ''))
-                if abs(val) >= 5.0:
-                    return ['background-color: #FCE8E6; color: #A61C06; font-weight: bold;'] * len(row)
-                elif abs(val) > 0:
-                    return ['background-color: #FFF2CC; color: #B2A200;'] * len(row)
-            except Exception:
-                pass
-        return styles
-
     if not df_compare.empty:
+        # Gọi hàm Global xử lý màu đã định nghĩa ở đoạn 1a
         styled_df = df_compare.style.apply(highlight_deviation_industrial, axis=1)
         st.dataframe(styled_df, use_container_width=True, hide_index=True)
     else:
@@ -2033,13 +2035,13 @@ else:
     diag_col1, diag_col2 = st.columns(2)
     with diag_col1:
         if not st.session_state.get("new_style_measurements_dict"):
-            st.warning("❌ **Dữ liệu mẫu mới quét (new_specs) đang bị TRỐNG.** Cần chạy chức năng trích xuất PDF trước.")
+            st.warning("❌ **Dữ liệu mẫu mới quét đang bị TRỐNG.**")
         else:
             st.success("✅ Dữ liệu mẫu mới đã sẵn sàng.")
             
     with diag_col2:
         if not old_specs:
-            st.warning("❌ **Dữ liệu đối chứng mã cũ từ Supabase (old_specs) đang bị TRỐNG.** Kiểm tra lại hàm Vector Search.")
+            st.warning("❌ **Dữ liệu đối chứng mã cũ đang bị TRỐNG.**")
         else:
             st.success("✅ Dữ liệu mã cũ đã sẵn sàng.")
             
