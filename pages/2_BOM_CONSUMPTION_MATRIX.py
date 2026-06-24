@@ -1824,12 +1824,25 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     except Exception as e_col:
         print(f"❌ [COLUMN RENDER ERROR]: {str(e_col)}")
     # =========================================================================================
-    old_specs, new_specs, old_base_size, target_style_name, confidence_score = {}, {}, "N/A", "Chưa xác định", 0
+       # Khởi tạo biến cục bộ an toàn ở scope menu tab
+    old_specs = {}
+    new_specs = {}
+    old_base_size = "N/A"
+    target_style_name = "Chưa xác định"
+    confidence_score = 0
+
+    # 💡 SỬA LỖI ĐỌC BỘ NHỚ TẠM: Ép đọc trực tiếp cấu trúc Dict phẳng từ Hàm B trả về
     new_specs_raw = st.session_state.get("new_style_measurements_dict", {})
-    if isinstance(new_specs_raw, list):
-        new_specs = {item["pom_description"]: item.get("value") for item in new_specs_raw if isinstance(item, dict) and "pom_description" in item}
-    elif isinstance(new_specs_raw, dict):
+    if not new_specs_raw:
+        # Dự phòng nếu hệ thống lưu ở trường 'measurements'
+        new_specs_raw = st.session_state.get("measurements", {})
+
+    if isinstance(new_specs_raw, dict):
         new_specs = new_specs_raw
+    elif isinstance(new_specs_raw, list):
+        for item in new_specs_raw:
+            if isinstance(item, dict) and "pom_description" in item:
+                new_specs[item["pom_description"]] = item.get("value")
 
     garment_category = str(st.session_state.get("new_style_category_detected", "PANT")).strip().upper()
     new_style_base_size = st.session_state.get("new_style_base_size", "N/A")
@@ -1847,10 +1860,13 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
 
     if isinstance(matched_profile, dict) and matched_profile:
         raw_old_specs = matched_profile.get("measurements") or matched_profile.get("DetailedMeasurements") or matched_profile.get("detailed_measurements") or {}
-        if isinstance(raw_old_specs, list):
-            old_specs = {(item.get("pom_description") or item.get("pom_code") or "UNKNOWN"): item.get("value") for item in raw_old_specs if isinstance(item, dict)}
-        else:
-            old_specs = raw_old_specs if isinstance(raw_old_specs, dict) else {}
+        if isinstance(raw_old_specs, dict):
+            old_specs = raw_old_specs
+        elif isinstance(raw_old_specs, list):
+            for item in raw_old_specs:
+                if isinstance(item, dict):
+                    k = item.get("pom_description") or item.get("pom_code") or "UNKNOWN"
+                    old_specs[k] = item.get("value")
         old_base_size = str(matched_profile.get("base_size", matched_profile.get("BaseSize", "N/A")))
         target_style_name = str(matched_profile.get("style_number", matched_profile.get("StyleName", "KHO_MẪU")))
         confidence_score = int(st.session_state.get("match_confidence_score", 0)) or 100
@@ -1883,9 +1899,11 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                 str_v = re.sub(r'\s+', ' ', str_v).strip()
                 if " " in str_v and "/" in str_v:
                     parts = str_v.split(" ")
-                    if len(parts) >= 2 and "/" in str(parts[1]):
-                        num, den = str(parts[1]).split('/')
-                        return float(parts[0]) + (float(num) / float(den))
+                    if len(parts) >= 2:
+                        whole = float(parts[0])
+                        if "/" in parts[1]:
+                            num, den = parts[1].split('/')
+                            return whole + (float(num) / float(den))
                 elif "/" in str_v:
                     num, den = str_v.split('/')
                     return float(num) / float(den)
@@ -1905,11 +1923,12 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         return styles
 
     if old_specs and new_specs:
-        compare_rows, valid_diff_pcts = [], []
+        compare_rows = []
+        valid_diff_pcts = []
         st.markdown("---")
         debug_col1, debug_col2 = st.columns(2)
-        debug_col1.info(f"1️⃣ **Mã đối chứng kế thừa:** `{target_style_name}` | 2️⃣ **Điểm tự tin:** `{confidence_score}%`")
-        debug_col2.success(f"3️⃣ **POM mẫu mới:** `{len(new_specs)}` | 4️⃣ **POM mã cũ kế thừa:** `{len(old_specs)}`")
+        debug_col1.info(f"1️⃣ **Mã đối chứng:** `{target_style_name}` | 2️⃣ **Tự tin:** `{confidence_score}%`")
+        debug_col2.success(f"3️⃣ **POM mới:** `{len(new_specs)}` | 4️⃣ **POM cũ:** `{len(old_specs)}`")
         st.markdown("---<br>### 📐 BẢNG SO SÁNH SAI LỆCH THÔNG SỐ KỸ THUẬT RẬP MẪU", unsafe_allow_html=True)
         col_new_title, col_old_title, processed_old_keys_global = f"Mẫu mới ({new_style_base_size})", f"Mã cũ ({old_base_size})", set()
 
@@ -1941,7 +1960,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         st.markdown("---")
         st.error("⚠️ **HỆ THỐNG PHÁT HIỆN THIẾU DỮ LIỆU ĐỂ LẬP BẢNG SO SÁNH THÔNG SỐ**")
         diag_col1, diag_col2 = st.columns(2)
-        diag_col1.warning("❌ Dữ liệu mẫu mới trống.") if not st.session_state.get("new_style_measurements_dict") else diag_col1.success("✅ Mẫu mới sẵn sàng.")
+        diag_col1.warning("❌ Dữ liệu mẫu mới trống.") if not new_specs else diag_col1.success("✅ Mẫu mới sẵn sàng.")
         diag_col2.warning("❌ Dữ liệu mã cũ trống.") if not old_specs else diag_col2.success("✅ Mã cũ sẵn sàng.")
         st.markdown("---")
         st.session_state["valid_diff_pcts"] = []
@@ -1963,6 +1982,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                     if chat_res and chat_res.text: st.session_state["consumption_chat_history"].append({"role": "model", "content": chat_res.text})
                 except Exception as ce: st.session_state["consumption_chat_history"].append({"role": "model", "content": f"⚠️ Trợ lý lỗi: {str(ce)}"})
             st.rerun()
+
         for msg in st.session_state.get("consumption_chat_history", []): st.chat_message("user" if msg["role"] == "user" else "assistant").write(msg["content"])
     except Exception as e_chat_master: st.error(f"❌ [CHAT SYSTEM ERROR]: {str(e_chat_master)}")
 
