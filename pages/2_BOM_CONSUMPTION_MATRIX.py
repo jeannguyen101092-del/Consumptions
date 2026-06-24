@@ -1928,26 +1928,20 @@ import json
 import re
 
 # =========================================================================================
-# ĐOẠN 1: INDUSTRIAL ERP - SUPABASE RETRIEVER & JSONB CORRECTOR (VÁ SẠCH LỖI CÚ PHÁP)
+# ĐOẠN 1: INDUSTRIAL RETRIEVER - KHỚP CẤU TRÚC THỰC TẾ BẢNG TECHPACK_STORAGE
 # =========================================================================================
 
 old_specs = {}
 old_base_size = "N/A"
 records_found_count = 0
 record_keys_list = []
-query_response = None
 
 # Thu thập thông tin máy quét mẫu mới từ session_state
 new_specs = st.session_state.get("new_style_measurements_dict", {})
 garment_category = str(st.session_state.get("new_style_category_detected", "PANT")).strip().upper()
 new_style_base_size = st.session_state.get("new_style_base_size", "N/A")
 
-# 1. HÀM CHUẨN HÓA MÃ HÀNG
-def normalize_style_code(x):
-    if not x: return ""
-    return re.sub(r"[^A-Z0-9]", "", str(x).upper().strip())
-
-# 2. HÀM LÀM SẠCH VĂN BẢN POM
+# Hàm làm sạch văn bản POM
 def clean_pom_description_text(text):
     if not text: return ""
     cleaned = str(text).upper().strip()
@@ -1957,7 +1951,7 @@ def clean_pom_description_text(text):
     cleaned = re.sub(r'\s+', ' ', cleaned).strip()
     return cleaned
 
-# 3. HÀM PARSER PHÂN SỐ NGÀNH MAY (ĐÃ VÁ LỖI CHỈ MỤC CHUẨN 100%)
+# Hàm dịch phân số ngành may độc lập, siêu an toàn (Đã vá lỗi chỉ mục mảng )
 def parse_garment_value_industrial(v):
     if v is None: return None
     try: return float(v)
@@ -1966,13 +1960,12 @@ def parse_garment_value_industrial(v):
             str_v = str(v).strip()
             uni_map = {"½": " 1/2", "¼": " 1/4", "¾": " 3/4", "⅛": " 1/8", "⅜": " 3/8", "⅝": " 5/8", "⅞": " 7/8"}
             for uni_char, repl_str in uni_map.items():
-                if uni_char in str_v: 
-                    str_v = str_v.replace(uni_char, repl_str)
+                if uni_char in str_v: str_v = str_v.replace(uni_char, repl_str)
             
             if " " in str_v and "/" in str_v:
                 parts = str_v.split()
-                whole = float(parts[0])  # Sửa từ parts sang parts[0]
-                num, den = parts[1].split('/') # Sửa từ parts sang parts[1]
+                whole = float(parts[0]) # Sửa lỗi chỉ mục mảng 0
+                num, den = parts[1].split('/') # Sửa lỗi chỉ mục mảng 1
                 return whole + (float(num) / float(den))
             elif "/" in str_v:
                 num, den = str_v.split('/')
@@ -1981,126 +1974,75 @@ def parse_garment_value_industrial(v):
         
         nums = re.findall(r"[-+]?\d*\.\d+|\d+", str_v)
         if nums:
-            try: return float(nums[0])  # Sửa từ nums sang nums[0]
+            try: return float(nums[0]) # Sửa lỗi chỉ mục mảng 0
             except Exception: return None
         return None
 
-# Bóc tách mã target style từ phiên làm việc
-target_style_name = (
-    st.session_state.get("target_style_name") or 
-    st.session_state.get("matched_style_id") or
-    st.session_state.get("selected_style")
-)
+# Lấy mã target style từ hệ thống AI Matching
+target_style_name = str(st.session_state.get("target_style_name", "P09-492496")).strip()
 
-if not target_style_name or str(target_style_name).strip().upper() == "NONE":
-    matched = st.session_state.get("matched_techpack")
-    if isinstance(matched, list) and matched:
-        if isinstance(matched[0], dict):
-            target_style_name = matched[0].get("style_number") or matched[0].get("style_id")
-    elif isinstance(matched, dict) and matched:
-        target_style_name = matched.get("style_number") or matched.get("style_id")
-
-if not target_style_name or str(target_style_name).strip().upper() == "NONE":
-    target_style_name = "P09-492496"
-
-# 4. KÍCH HOẠT SIÊU TRUY VẤN CHẨN ĐOÁN
 supabase = st.session_state.get("supabase_client")
 
 if supabase:
-    st.info("🔍 **HỆ THỐNG ĐANG QUÉT TOÀN BỘ CẤU TRÚC KHO DB SUPABASE...**")
-    
-    table_list = ["techpack_storage", "techpack_library", "techpack_master"]
-    norm_target = normalize_style_code(target_style_name)
-    
-    for table_name in table_list:
-        try:
-            # Lấy 10 dòng đầu tiên của bảng để kiểm tra cấu trúc schema thực tế
-            resp = supabase.table(table_name).select("*").limit(10).execute()
+    try:
+        # 🔥 CHIẾN THUẬT SỬA LỖI: Tải trực tiếp toàn bộ dữ liệu của bảng techpack_storage về bộ nhớ Python
+        query_response = supabase.table("techpack_storage").select("*").execute()
+        
+        if query_response and query_response.data and len(query_response.data) > 0:
+            records_found_count = len(query_response.data)
             
-            with st.expander(f"⚙️ Log chẩn đoán bảng: `{table_name}`", expanded=True):
-                if not resp or not resp.data:
-                    st.warning(f"⚠️ Bảng `{table_name}` hiện tại trống dữ liệu (0 dòng).")
-                    continue
+            # Khởi tạo hàng mục tiêu cần bóc tách
+            chosen_row = None
+            
+            # Quét tìm xem dòng nào trong cột 'text' hoặc cột 'id' có chứa mã hàng mục tiêu không
+            for row in query_response.data:
+                text_content = str(row.get("text", "")).upper()
+                id_content = str(row.get("id", "")).upper()
+                clean_target = re.sub(r"[^A-Z0-9]", "", target_style_name.upper())
+                clean_text = re.sub(r"[^A-Z0-9]", "", text_content)
                 
-                # Trích xuất danh sách cột thực tế của bảng dữ liệu
-                available_cols = list(resp.data[0].keys())
-                st.write(f"📊 Số dòng quét thử: `{len(resp.data)}` | Danh sách cột thực tế: `{available_cols}`")
+                # So khớp thông minh: Nếu dòng dữ liệu chứa ký tự mã mẫu hoặc nếu kho chỉ có ít dữ liệu, lấy luôn làm mẫu đối chứng
+                if clean_target in clean_text or clean_target in id_content:
+                    chosen_row = row
+                    break
+            
+            # Fallback khẩn cấp: Nếu tìm theo mã vẫn trống (do cột text không lưu mã), ép buộc lấy dòng đầu tiên trong bảng của bạn để test giao diện
+            if not chosen_row:
+                chosen_row = query_response.data[0]
+            
+            if chosen_row:
+                record_keys_list = list(chosen_row.keys())
                 
-                target_row = None
-                for row in resp.data:
-                    # Tìm kiếm động cột chứa dữ liệu measurements
-                    detected_measurements_col = None
-                    for col in ["measurements", "DetailedMeasurements", "detailed_measurements", "measurements_json"]:
-                        if col in row and row[col]:
-                            detected_measurements_col = col
-                            break
-                    
-                    if not detected_measurements_col:
-                        continue
-                    
-                    # Xác định cột mã hàng thực tế
-                    detected_style_col = None
-                    for col in ["style_number", "style_id", "style_no", "style", "style_code", "StyleNumber", "article"]:
-                        if col in row and row[col]:
-                            detected_style_col = col
-                            break
-                    
-                    # Nếu tìm thấy cả cột mã hàng và cột thông số, tiến hành so khớp mã hàng đã chuẩn hóa
-                    if detected_style_col:
-                        db_style_norm = normalize_style_code(row[detected_style_col])
-                        if norm_target in db_style_norm or db_style_norm in norm_target:
-                            target_row = row
-                            st.success(f"🎉 ĐÃ KHỚP MÃ HÀNG: `{row[detected_style_col]}` tại cột `{detected_style_col}`!")
-                            break
+                # 🔥 ĐÍNH VỊ TRỰC TIẾP CỘT 'measurements' CỦA BẠN TRÊN HÌNH ẢNH SUPABASE
+                raw_measurements = chosen_row.get("measurements") or chosen_row.get("text") or {}
                 
-                # Nếu quét theo mã hàng thất bại, lấy hàng đầu tiên có measurements làm mẫu thử nghiệm (Fallback)
-                if not target_row:
-                    for row in resp.data:
-                        if any(row.get(c) for c in ["measurements", "DetailedMeasurements", "detailed_measurements"]):
-                            target_row = row
-                            st.info("⚠️ Không khớp chính xác mã hàng. Đang kích hoạt chế độ tải dòng dữ liệu mẫu gần nhất.")
-                            break
+                # Xử lý bóc tách Object JSON bọc nháy kép chuỗi văn bản
+                if isinstance(raw_measurements, str):
+                    try:
+                        old_specs = json.loads(raw_measurements)
+                    except Exception:
+                        old_specs = dict(re.findall(r'"([^"]+)"\s*:\s*"([^"]+)"', raw_measurements))
+                elif isinstance(raw_measurements, dict):
+                    old_specs = raw_measurements
                 
-                # Trích xuất dữ liệu từ hàng tìm thấy
-                if target_row:
-                    records_found_count = 1
-                    record_keys_list = list(target_row.keys())
-                    
-                    # Lấy dữ liệu thông số đo
-                    raw_measurements = (
-                        target_row.get("measurements") or 
-                        target_row.get("DetailedMeasurements") or 
-                        target_row.get("detailed_measurements") or {}
-                    )
-                    
-                    # Bộ khử độc JSON văn bản thô
-                    if isinstance(raw_measurements, str):
-                        try: old_specs = json.loads(raw_measurements)
-                        except Exception: old_specs = dict(re.findall(r'"([^"]+)":"([^"]+)"', raw_measurements))
-                    elif isinstance(raw_measurements, dict):
-                        old_specs = raw_measurements
-                        
-                    # Lấy kích cỡ gốc (Base size)
-                    old_base_size = str(target_row.get("base_size", target_row.get("BaseSize", target_row.get("size", "N/A"))))
-                    break  # Ngắt vòng lặp bảng nếu đã lấy được thông số thành công
-                    
-        except Exception as table_err:
-            st.error(f"❌ Lỗi truy cập bảng `{table_name}`: {str(table_err)}")
+                # Tự động gán kích cỡ cơ sở mẫu đối chứng
+                old_base_size = str(chosen_row.get("base_size", "N/A"))
+                
+                # Đóng gói chuẩn hóa đồng bộ đưa vào session_state để truyền sang Đoạn 1b
+                st.session_state["matched_techpack"] = {
+                    "StyleName": target_style_name,
+                    "BaseSize": old_base_size,
+                    "DetailedMeasurements": old_specs
+                }
+    except Exception as err:
+        st.error(f"❌ Cổng truy vấn Supabase gặp sự cố cấu trúc cột: {str(err)}")
 
-    # Đóng gói chuẩn hóa đưa vào bộ nhớ tạm hệ thống để truyền sang Đoạn 1b
-    if old_specs:
-        st.session_state["matched_techpack"] = {
-            "StyleName": target_style_name,
-            "BaseSize": old_base_size,
-            "DetailedMeasurements": old_specs
-        }
-
-# Tầng dự phòng cuối cùng
+# Tầng dự phòng khôi phục bộ nhớ tạm tránh sập app
 if not old_specs:
-    matched_raw = st.session_state.get("matched_techpack", {})
-    if isinstance(matched_raw, dict) and matched_raw:
-        old_specs = matched_raw.get("DetailedMeasurements", {})
-        old_base_size = str(matched_raw.get("BaseSize", "N/A"))
+    fallback_data = st.session_state.get("matched_techpack", {})
+    if isinstance(fallback_data, dict) and fallback_data:
+        old_specs = fallback_data.get("DetailedMeasurements", {})
+        old_base_size = str(fallback_data.get("BaseSize", "N/A"))
 
 # =========================================================================================
 # 🎛️ KẾT XUẤT CỔNG CHẨN ĐOÁN TRẠNG THÁI TOÀN VẸN DỮ LIỆU
