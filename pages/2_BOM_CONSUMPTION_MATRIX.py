@@ -1456,8 +1456,7 @@ def process_single_pdf_batch(file_bytes, file_name):
             "You are an expert Garment Specification Auditor at PPJ Group. Analyze all attached sheets page by page. "
             "1. Identify the core 'Base Size' / 'Sample Size' (e.g., written as 8-, 32, or Size M). "
             "2. Identify the Buyer name and Category. "
-            "3. CRITICAL STYLE NUMBER RULE: Look extremely closely at the 'Style ID' / 'Style Number' field on the Cover Page (e.g., P09-490416). "
-            "Examine each digit carefully to prevent OCR confusion (such as misreading '490416' as '2496' or '492496'). Ensure every single number is captured exactly as printed. "
+            "3. Find the exact 'Style ID' / 'Style Number' (e.g. 5765). "
             "4. FOR FUNCTION 3 (FULL SIZE MATRIX): Scan and extract the entire grading matrix table columns for ALL available sizes. "
             "5. CRITICAL VISUAL FLAT SKETCH LOCATE RULE: Scan all pages visually. You MUST find the exact PAGE INDEX (0-based) "
             "that contains the FULL BODY APPAREL FLAT SKETCH showing the entire completed garment (the whole pant/skort with front view and back view side-by-side or on the same page). "
@@ -1508,7 +1507,9 @@ def process_single_pdf_batch(file_bytes, file_name):
             chat_images[detected_idx].convert("RGB").save(b_buf, format="JPEG", quality=90)
             extracted_sketch_bytes = b_buf.getvalue()
             
-        success_db = save_to_supabase_techpack_table(parsed_data, raw_file_bytes=file_bytes, file_name=file_name)
+        # 🛠️ ĐÃ SỬA CÁCH 1: Tắt tự động ghi đồng bộ lên database để tránh lỗi lấy trùng chính nó khi đối chiếu
+        # success_db = save_to_supabase_techpack_table(parsed_data, raw_file_bytes=file_bytes, file_name=file_name)
+        success_db = True 
         
         output_payload = {
             "style_number_parsed": parsed_data.get("style_number_parsed", "UNKNOWN"),
@@ -1518,12 +1519,6 @@ def process_single_pdf_batch(file_bytes, file_name):
             "measurements": parsed_data.get("measurements", {}),
             "full_size_matrix": parsed_data.get("full_size_matrix", {})
         }
-        
-        # --- ĐOẠN SỬA ĐỒNG BỘ: Ép lưu dữ liệu trực tiếp vào bộ nhớ tạm Session State ---
-        import streamlit as st
-        st.session_state["new_style_measurements_dict"] = output_payload["measurements"]
-        st.session_state["new_style_base_size"] = output_payload["base_size_name"]
-        st.session_state["matched_image_verified"] = True
         
         return {
             "success": True,
