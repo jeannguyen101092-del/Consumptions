@@ -508,151 +508,107 @@ def call_gemini_extraction_engine(file_bytes, file_name, sorted_pages):
         return None, "gemini-2.5-flash", f"Lỗi nghiêm trọng tại Hàm A: {str(fatal_a_err)}"
 def process_single_pdf_batch(file_bytes, file_name):
     """
-    HÀM B: Phân tách số trang, gọi HÀM A, dọn sạch dữ liệu POM 0.00.
-    - Bảo toàn 100% chữ gốc kỹ thuật (INSEAM, FRONT FLAT...), chỉ xóa đúng mã số.
-    - Ép ảnh thiết kế ra luồng Byte nén để tương thích mọi cấu trúc Streamlit UI cũ.
+    Hàm bóc tách dữ liệu kỹ thuật từ một file PDF độc lập.
+    ✨ ĐÃ NÂNG CẤP ĐỊNH VỊ PHOM DÁNG: Ép AI Vision chỉ bốc trang hiển thị chiếc quần hoàn chỉnh (Front and Back full garment views).
+    STRICTLY FORBIDDEN: Cấm tuyệt đối lấy các trang rã rập thân quần đơn lẻ, cụm chi tiết hoặc rập tách rời.
     """
-    import json
-    import re
-    import io
-
+    import time
     try:
+        gemini_key = get_secure_gemini_key()
+        if not gemini_key:
+            return {"success": False, "error": "API Key cho Gemini đang bị thiếu trong Secrets."}
+            
+        client = genai.Client(api_key=gemini_key)
         info = pdfinfo_from_bytes(file_bytes)
         total_p = int(info.get("Pages", 1))
         
-        # CƠ CHẾ CHIA BATCH TRANG AN TOÀN
-        pages_to_scan = set()
-        for p in range(1, min(6, total_p + 1)):
-            pages_to_scan.add(p)
-        if total_p > 5:
-            for p in range(max(6, total_p - 4), total_p + 1):
-                pages_to_scan.add(p)
-        
-        sorted_pages = sorted(list(pages_to_scan))
-        print(f"📋 [PRODUCTION LOG] {file_name}: Tổng {total_p} trang. Quét: {sorted_pages}")
-        
-        # =====================================================================
-        # GỌI HÀM A ĐỂ LẤY DỮ LIỆU TỪ AI
-        # =====================================================================
-        response, current_model_used, err_msg = call_gemini_extraction_engine(file_bytes, file_name, sorted_pages)
-        
-        if err_msg:
-            return {"success": False, "error": f"{err_msg} (Model={current_model_used})"}
+        pdf_parts_payload = []
+        chat_images = convert_from_bytes(file_bytes, dpi=90, first_page=1, last_page=total_p)
+        for page_img in chat_images:
+            img_buf = io.BytesIO()
+            page_img.convert("RGB").save(img_buf, format="JPEG", quality=75)
+            pdf_parts_payload.append(types.Part.from_bytes(data=img_buf.getvalue(), mime_type='image/jpeg'))
             
-        parsed_data = None
-        if response and getattr(response, "parsed", None):
-            parsed_data = response.parsed
-            if hasattr(parsed_data, "model_dump"):
-                parsed_data = parsed_data.model_dump()
-            elif hasattr(parsed_data, "__dict__"):
-                parsed_data = dict(parsed_data)
-                
-        if not parsed_data and response and getattr(response, "text", None):
+        industrial_extraction_prompt = (
+            "You are an expert Garment Specification Auditor at PPJ Group. Analyze all attached sheets page by page. "
+            "1. Identify the core 'Base Size' / 'Sample Size' (e.g., written as 8-, 32, or Size M). "
+            "2. Identify the Buyer name and Category. "
+            "3. Find the exact 'Style ID' / 'Style Number' (e.g. 5765). "
+            "4. FOR FUNCTION 3 (FULL SIZE MATRIX): Scan and extract the entire grading matrix table columns for ALL available sizes. "
+            "5. CRITICAL VISUAL FLAT SKETCH LOCATE RULE: Scan all pages visually. You MUST find the exact PAGE INDEX (0-based) "
+            "that contains the FULL BODY APPAREL FLAT SKETCH showing the entire completed garment (the whole pant/skort with front view and back view side-by-side or on the same page). "
+            "STRICT DISQUALIFICATION RULES: "
+            "- DO NOT select pages showing isolated technical pattern panels (e.g., just a single front panel leg or a single back panel leg cut out). "
+            "- DO NOT select pages showing inner construction details, pocket bags, zippers, or sketches of components. "
+            "We only want the complete product design presentation sketch page. "
+            "Return a completely valid raw JSON string matching this schema (no markdown blocks): "
+            "{"
+            "  \"style_number_parsed\": \"string\","
+            "  \"buyer\": \"string\","
+            "  \"category\": \"string\","
+            "  \"base_size_name\": \"string\","
+            "  \"sketch_page_index_detected\": 0,"
+            "  \"measurements\": {\"POM Description\": \"Value\"},"
+            "  \"full_size_matrix\": {\"POM Description\": {\"Size_Name\": \"Value\"}}"
+            "}"
+        )
+        
+        pdf_parts_payload.append(industrial_extraction_prompt)
+        
+        response = None
+        for attempt in range(3):
             try:
-                text_content = response.text.strip()
-                text_content = re.sub(r',\s*([\]}])', r'\1', text_content)
-                match = re.search(r"\{.*\}", text_content, re.S)
-                if match:
-                    parsed_data = json.loads(match.group(0))
-            except:
-                pass
+                response = client.models.generate_content(
+                    model='gemini-2.5-flash', 
+                    contents=pdf_parts_payload,
+                    config={"response_mime_type": "application/json"}
+                )
+                if response and response.text: break
+            except Exception as ai_err:
+                if "503" in str(ai_err) or "UNAVAILABLE" in str(ai_err):
+                    time.sleep((attempt + 1) * 2)
+                    continue
+                else:
+                    return {"success": False, "error": f"Lỗi cổng truyền: {str(ai_err)}"}
+                    
+        if not response or not response.text:
+            return {"success": False, "error": "Mô hình không phản hồi văn bản."}
             
-        if not parsed_data:
-            return {"success": False, "error": f"Mô hình trống hoặc lỗi cú pháp JSON. (Model={current_model_used})"}
-            
-        # =====================================================================
-        # 🛡️ BỘ LỌC HẬU XỬ LÝ CHUẨN XÁC: CHỈ XÓA MÃ SỐ, BẢO TOÀN CHỮ INSEAM
-        # =====================================================================
-        measurements_list = parsed_data.get("measurements_list", [])
-        rebuilt_measurements_list = []
-        legacy_measurements_dict = {}
+        clean_json = response.text.strip().replace("```json", "").replace("```", "").strip()
+        parsed_data = json.loads(clean_json)
         
-        valid_pom_regex = re.compile(r'^(?!0\.00$|0$)\s*[A-Za-z0-9\.\s_-]+$')
-
-        for item in measurements_list:
-            if not isinstance(item, dict):
-                continue
-                
-            pom_code = str(item.get("pom_code", "")).strip()
-            pom_desc = str(item.get("pom_description", "")).strip()
-            spec_val = str(item.get("value", "")).strip()
+        extracted_sketch_bytes = None
+        detected_idx = int(parsed_data.get("sketch_page_index_detected", 0))
+        if 0 <= detected_idx < len(chat_images):
+            b_buf = io.BytesIO()
+            chat_images[detected_idx].convert("RGB").save(b_buf, format="JPEG", quality=90)
+            extracted_sketch_bytes = b_buf.getvalue()
             
-            if pom_code and valid_pom_regex.match(pom_code):
-                if not pom_code.startswith("***") and pom_desc:
-                    
-                    # 💡 FIX REGEX AN TOÀN TRUYỆT ĐỐI: 
-                    # Chỉ quét tìm mã số cố định dạng đầu dòng (Ví dụ: "4.05A", "6.02A GR") và dấu phân cách liền kề.
-                    # Không đụng vào bất cứ ký tự chữ cái tiếng Anh đứng độc lập nào phía sau.
-                    clean_pom_desc = pom_desc
-                    
-                    # Bước 1: Xóa cụm mã số đầu dòng có kèm dấu gạch ngang
-                    clean_pom_desc = re.sub(r'^[A-Za-z0-9\.]+(\s+[A-Za-z0-9]+)?\s*[-\s:\u2013\u2014]+\s*', '', clean_pom_desc).strip()
-                    
-                    # Bước 2: Dự phòng nếu chuỗi vẫn bị dính ký tự trắng đầu dòng
-                    clean_pom_desc = clean_pom_desc.strip()
-                    
-                    # Nếu sau khi lọc chuỗi bị lỗi trống hoặc biến thành số, trả về chuỗi mô tả gốc của mô hình
-                    if not clean_pom_desc:
-                        clean_pom_desc = pom_desc
-
-                    rebuilt_measurements_list.append({
-                        "pom_description": clean_pom_desc.upper(), # Viết hoa toàn bộ cho chuẩn format Techpack
-                        "value": spec_val
-                    })
-                    legacy_measurements_dict[clean_pom_desc.upper()] = spec_val
-
-        # =====================================================================
-        # 🖼️ TRÍCH XUẤT VÀ ĐÓNG GÓI ĐA ĐỊNH DẠNG ẢNH THIẾT KẾ KỸ THUẬT (FLAT SKETCH)
-        # =====================================================================
-        detected_sketch_page = parsed_data.get("sketch_page_number_detected", 1)
+        success_db = save_to_supabase_techpack_table(parsed_data, raw_file_bytes=file_bytes, file_name=file_name)
         
-        # Giới hạn trang an toàn chống crash
-        if detected_sketch_page < 1 or detected_sketch_page > total_p:
-            detected_sketch_page = 1
-            
-        sketch_image_bytes = None
-        final_sketch_image_object = None
-
-        try:
-            sketch_images = convert_from_bytes(file_bytes, dpi=120, first_page=detected_sketch_page, last_page=detected_sketch_page)
-            if sketch_images:
-                # Định dạng 1: Lưu đối tượng PIL gốc
-                final_sketch_image_object = sketch_images[0]
-                
-                # Định dạng 2: Nén ra chuỗi luồng bytes (Streamlit UI gốc thường dùng kiểu này để kết xuất ảnh)
-                img_byte_arr = io.BytesIO()
-                final_sketch_image_object.convert("RGB").save(img_byte_arr, format='JPEG', quality=85)
-                sketch_image_bytes = img_byte_arr.getvalue()
-        except Exception as img_err:
-            print(f"⚠️ Cảnh báo lỗi trích xuất ảnh hệ thống: {str(img_err)}")
-
-        # =====================================================================
-        # ĐỒNG BỘ TOÀN BỘ CÁC BIẾN ĐẦU RA (FIX KHUNG ẢNH VÀ LƯỚI CHỮ)
-        # =====================================================================
+        output_payload = {
+            "style_number_parsed": parsed_data.get("style_number_parsed", "UNKNOWN"),
+            "buyer": parsed_data.get("buyer", "UNKNOWN BUYER"),
+            "category": parsed_data.get("category", "GARMENT"),
+            "base_size_name": parsed_data.get("base_size_name", "32"),
+            "measurements": parsed_data.get("measurements", {}),
+            "full_size_matrix": parsed_data.get("full_size_matrix", {})
+        }
+        
         return {
             "success": True,
-            "model_used": current_model_used,
-            
-            # Đồng bộ cấu trúc thông tin chung
-            "style_number_parsed": parsed_data.get("style_number_parsed") or "5614",
-            "buyer": parsed_data.get("buyer") or "AMERICAN EAGLE OUTFITTERS",
-            "category": parsed_data.get("category") or "Pants",
-            "base_size_name": parsed_data.get("base_size_name") or "32",
-            
-            # Trả biến ảnh đa định dạng (Khớp cho cả 3 kiểu đặt tên biến UI thông dụng)
-            "sketch_image": final_sketch_image_object,       # Biến dạng đối tượng ảnh PIL
-            "sketch_image_raw": sketch_image_bytes,         # Biến dạng Byte luồng nén
-            "sketch_image_bytes": sketch_image_bytes,       # Biến dự phòng hệ thống cũ
-            "sketch_page_number_detected": detected_sketch_page,
-            
-            # Trả bảng thông số lưới sạch, chữ dài đầy đủ không bị cụt đầu
-            "measurements_list": rebuilt_measurements_list,  
-            "measurements": legacy_measurements_dict,         
-            "full_size_matrix": {}                             
+            "data": output_payload, 
+            "style_id": output_payload["style_number_parsed"],
+            "buyer": output_payload["buyer"],
+            "category": output_payload["category"],
+            "size": output_payload["base_size_name"],
+            "measurements": output_payload["measurements"], 
+            "sketch_bytes": extracted_sketch_bytes, 
+            "error": None if success_db else "Lỗi ghi đồng bộ dữ liệu lên cơ sở dữ liệu"
         }
+    except Exception as e:
+        return {"success": False, "error": f"Lỗi bóc tách PDF: {str(e)}"}
 
-    except Exception as fatal_err:
-        return {"success": False, "error": f"Lỗi hệ thống nghiêm trọng tại Hàm B: {str(fatal_err)}"}
 
 
 
