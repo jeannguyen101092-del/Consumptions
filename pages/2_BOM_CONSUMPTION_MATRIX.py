@@ -570,13 +570,13 @@ def process_single_pdf_batch(file_bytes, file_name):
                 pass
             return {"success": False, "error": f"Mô hình trống. FinishReason={finish_reason} (Model={current_model_used})"}
             
-        # HÀM LỌC CHỮ VÀ SỐ, BỎ QUA KÝ TỰ ĐẶC BIỆT (GIỮ LẠI KHOẢNG TRẮNG ĐỂ KHÔNG DÍNH CHỮ)
+        # HÀM LỌC CHỮ VÀ SỐ, BỎ QUA KÝ TỰ ĐẶC BIỆT (GIỮ LẠI KHOẢNG TRẮNG ĐỂ TRANH DÍNH CHỮ)
         def clean_text(val):
             if not isinstance(val, str):
                 return val
             return re.sub(r'[^a-zA-Z0-9\s]', '', val).strip()
 
-        # ÁP DỤNG LỌC SẠCH CHO CÁC THÔNG SỐ CƠ BẢN ĐÚNG VỊ TRÍ
+        # ÁP DỤNG LỌC SẠCH CHO CÁC THÔNG SỐ CƠ BẢN
         if "style_number_parsed" in parsed_data:
             parsed_data["style_number_parsed"] = clean_text(parsed_data["style_number_parsed"])
         if "buyer" in parsed_data:
@@ -602,17 +602,22 @@ def process_single_pdf_batch(file_bytes, file_name):
             try:
                 matrix_raw_str = matrix_data.strip()
                 if matrix_raw_str.startswith("```json"):
-                    matrix_raw_str = matrix_raw_str.split("```json")[-1].split("```")[0].strip()
+                    matrix_raw_str = matrix_raw_str.split("```json")[-1].split("```").strip()
                 elif matrix_raw_str.startswith("```"):
-                    matrix_raw_str = matrix_raw_str.split("```")[0].strip()
+                    matrix_raw_str = matrix_raw_str.split("```").strip()
                 matrix_raw_str = re.sub(r',\s*([\]}])', r'\1', matrix_raw_str)
                 full_size_matrix = json.loads(matrix_raw_str)
             except:
                 pass
 
-        # Gán lại measurements đã chuẩn hóa sạch vào parsed_data nếu bạn cần dùng tiếp phía dưới
-        parsed_data["measurements_clean_dict"] = measurements
+        # Gán lại dữ liệu đã chuẩn hóa sạch
+        parsed_data["measurements_list"] = [{"pom_description": k, "value": v} for k, v in measurements.items()]
+        parsed_data["full_size_matrix"] = full_size_matrix
+        
+        return {"success": True, "data": parsed_data}
 
+    except Exception as e:
+        return {"success": False, "error": f"Lỗi hệ thống: {str(e)}"}
 
 
 # PHASE 5: USER INTERFACE STRUCTURE & AUTOMATION FACTORY 
