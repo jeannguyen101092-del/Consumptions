@@ -1856,133 +1856,117 @@ if 'menu_selection' in globals() or 'menu_selection' in locals():
             # Hiển thị bảng dữ liệu lịch sử thực tế lên giao diện
             st.dataframe(df_bom, use_container_width=True, hide_index=True)
 
-        # --- 2. BẢNG SO SÁNH SAI LỆCH THÔNG SỐ RẬP ---
-        st.markdown("<br>### 📐 BẢNG SO SÁNH SAI LỆCH THÔNG SỐ KỸ THUẬT RẬP MẪU", unsafe_allow_html=True)
-        new_specs = new_style_measurements_dict if new_style_measurements_dict else {}
-        old_specs = matched_techpack.get("DetailedMeasurements", {}) if matched_techpack else {}
-        avg_area_growth_pct = 0.0
+        # --- BẢNG SO SÁNH SAI LỆCH THÔNG SỐ RẬP ---
+st.markdown("<br>### 📐 BẢNG SO SÁNH SAI LỆCH THÔNG SỐ KỸ THUẬT RẬP MẪU", unsafe_allow_html=True)
+
+# Lấy dữ liệu rập mới an toàn
+new_specs = new_style_measurements_dict if 'new_style_measurements_dict' in locals() or 'new_style_measurements_dict' in globals() else {}
+if not new_specs:
+    new_specs = {}
+
+# SỬA LỖI TỰ ĐỘNG: Quét tìm DetailedMeasurements bất kể hệ thống viết hoa/thường hoặc nằm lồng trong dictionary khác
+old_specs = {}
+if 'matched_techpack' in locals() or 'matched_techpack' in globals():
+    if isinstance(matched_techpack, dict):
+        # Quét tìm trực tiếp theo các biến thể tên thường gặp
+        for target_key in ["DetailedMeasurements", "detailed_measurements", "Detailed_Measurements", "measurements", "DetailedMeasurementsDict"]:
+            if target_key in matched_techpack:
+                old_specs = matched_techpack[target_key]
+                break
+        # Phòng hờ dữ liệu bị lồng sâu hơn hoặc ở dạng chuỗi JSON
+        if not old_specs:
+            for k, v in matched_techpack.items():
+                if isinstance(v, dict) and any(x in k.lower() for x in ["measurement", "spec", "thongso"]):
+                    old_specs = v
+                    break
+
+avg_area_growth_pct = 0.0
+compare_rows = []
+valid_diff_pcts = []
+
+def clean_pom_text(text):
+    cleaned = re.sub(r'^[A-Z0-9]+[\s\-_]+', '', str(text)).strip().upper()
+    cleaned = re.sub(r'[^A-Z\s]', '', cleaned).strip()
+    return cleaned
+
+def clean_float(v):
+    if v is None or str(v).strip() == "" or str(v).strip() == "-": 
+        return None
+    try: 
+        return float(v)
+    except (ValueError, TypeError):
+        nums = re.findall(r"[-+]?\d*\.\d+|\d+", str(v))
+        return float(nums[0]) if nums else None
+
+# BẮT BUỘC CHẠY: Nếu cả 2 đều rỗng thì tạo bảng giả lập chứa khung cảnh báo để giao diện không bị trống
+if not new_specs and not old_specs:
+    st.warning("⚠️ Hệ thống không tìm thấy cặp Key thông số kỹ thuật hợp lệ. Đang kiểm tra cấu trúc dữ liệu thô...")
+    with st.expander("🔍 Click xem cấu trúc dữ liệu thô (Debug Techpack Data)"):
+        st.write("Dữ liệu rập mới của bạn:", new_specs)
+        st.write("Dữ liệu đối chứng của bạn (matched_techpack):", matched_techpack)
+else:
+    mapped_old_specs = {clean_pom_text(k): (k, v) for k, v in old_specs.items()}
+    processed_old_keys = set()
+
+    for original_new_key, val_new in new_specs.items():
+        clean_new_key = clean_pom_text(original_new_key)
         
-        compare_rows = []
-        valid_diff_pcts = []
-        
-        def clean_pom_text(text):
-            cleaned = re.sub(r'^[A-Z0-9]+[\s\-_]+', '', str(text)).strip().upper()
-            cleaned = re.sub(r'[^A-Z\s]', '', cleaned).strip()
-            return cleaned
-
-        def clean_float(v):
-            if v is None or str(v).strip() == "" or str(v).strip() == "-": 
-                return None
-            try: 
-                return float(v)
-            except (ValueError, TypeError):
-                nums = re.findall(r"[-+]?\d*\.\d+|\d+", str(v))
-                return float(nums[0]) if nums else None
-
-        if new_specs or old_specs:
-            mapped_old_specs = {clean_pom_text(k): (k, v) for k, v in old_specs.items()}
-            processed_old_keys = set()
-
-            for original_new_key, val_new in new_specs.items():
-                clean_new_key = clean_pom_text(original_new_key)
-                
-                if clean_new_key in mapped_old_specs:
-                    original_old_key, val_old = mapped_old_specs[clean_new_key]
-                    processed_old_keys.add(original_old_key)
-                else:
-                    original_old_key, val_old = "-", None
-
-                f_new = clean_float(val_new)
-                f_old = clean_float(val_old)
-                diff_val, diff_pct = None, None
-                
-                if f_new is not None and f_old is not None:
-                    diff_val = round(f_new - f_old, 2)
-                    if f_old != 0:
-                        diff_pct = round((diff_val / f_old) * 100, 2)
-                        
-                        core_keywords = ["INSEAM", "THIGH", "HIP", "WAIST", "LEG", "LENGTH", "CHEST", "BUST", "WIDTH", "ARMHOLE", "SLEEVE", "OUTSEAM", "RISE"]
-                        if any(k in clean_new_key for k in core_keywords):
-                            ignore_keywords = ["BADGE", "LABEL", "BUTTON", "POCKET-OPENING", "TICKET", "LOOP", "STITCH"]
-                            if not any(ig in clean_new_key for ig in ignore_keywords):
-                                valid_diff_pcts.append(diff_pct)
-                    else:
-                        diff_pct = 0.0
-
-                display_diff = f"+{diff_val}" if diff_val and diff_val > 0 else (str(diff_val) if diff_val is not None else "-")
-                display_pct = f"+{diff_pct}%" if diff_pct and diff_pct > 0 else (f"{diff_pct}%" if diff_pct is not None else "-")
-                
-                compare_rows.append({
-                    "Vị trí đo (POM Description)": original_new_key,
-                    f"Mẫu mới ({new_style_base_size})": val_new if val_new is not None else "-",
-                    f"Mã cũ ({matched_style_name})": val_old if val_old is not None else "-",
-                    "Chênh lệch (Diff)": display_diff,
-                    "Tỷ lệ biến thiên (Diff %)": display_pct
-                })
-
-            for original_old_key, val_old in old_specs.items():
-                if original_old_key not in processed_old_keys:
-                    compare_rows.append({
-                        "Vị trí đo (POM Description)": original_old_key,
-                        f"Mẫu mới ({new_style_base_size})": "-",
-                        f"Mã cũ ({matched_style_name})": val_old if val_old is not None else "-",
-                        "Chênh lệch (Diff)": "-",
-                        "Tỷ lệ biến thiên (Diff %)": "-"
-                    })
-                
-            if compare_rows:
-                df_compare_spec = pd.DataFrame(compare_rows)
-                st.dataframe(df_compare_spec, use_container_width=True, hide_index=True)
-            
-            if valid_diff_pcts:
-                avg_pom_growth = sum(valid_diff_pcts) / len(valid_diff_pcts)
-                avg_area_growth_pct = round((((1 + avg_pom_growth/100) ** 2) - 1) * 100, 2)
+        if clean_new_key in mapped_old_specs:
+            original_old_key, val_old = mapped_old_specs[clean_new_key]
+            processed_old_keys.add(original_old_key)
         else:
-            st.info("ℹ️ Không tìm thấy dữ liệu thông số rập mẫu của hai mã để tiến hành so sánh.")
+            original_old_key, val_old = "-", None
 
-        # --- 3. AI CONSUMPTION PROJECTION ENGINE ---
-        if matched_techpack and is_verified and bom_records:
-            st.markdown("<br>🔮 **AI CONSUMPTION PROJECTION ENGINE (DỰ PHÓNG ĐỊNH MỨC MÃ MỚI)**", unsafe_allow_html=True)
-            
-            v_similarity = st.session_state.get("matched_similarity_score", 100.0)
-            col1, col2 = st.columns(2)
-            with col1:
-                shape_factor = st.number_input("Độ biến thiên phom tính toán từ POM (%)", value=float(avg_area_growth_pct), step=0.1)
-            with col2:
-                wastage_buffer = st.number_input("Hao hụt sản xuất cấu hình thêm (%)", value=3.0, step=0.5)
-
-            projection_rows = []
-            bom_engine_data = bom_summary_engine if 'bom_summary_engine' in locals() or 'bom_summary_engine' in globals() else {}
-            
-            for ctype, old_qty in bom_engine_data.items():
-                try:
-                    old_qty_float = float(old_qty)
-                except:
-                    old_qty_float = 0.0
-
-                ctype_upper = str(ctype).strip().upper()
-                if any(k in ctype_upper for k in ["MAIN", "FABRIC", "BODY", "SHELL", "LINING", "RIB", "COMBINATION", "POCKETING"]):
-                    similarity_weight = v_similarity / 100.0
-                    adjusted_shape_factor = shape_factor * similarity_weight
-                    projected_dm = old_qty_float * (1 + adjusted_shape_factor / 100) * (1 + wastage_buffer / 100)
-                    note = f"Vải nhảy vóc (Diện tích rập biến thiên: {round(adjusted_shape_factor, 2)}% dựa trên Vision {v_similarity}%)"
-                else:
-                    projected_dm = old_qty_float * (1 + wastage_buffer / 100)
-                    note = f"Phụ liệu tĩnh (Chỉ tính hao hụt sản xuất {wastage_buffer}%)"
-                    
-                projection_rows.append({
-                    "Phân loại vật tư (Type)": ctype,
-                    "Tổng ĐM mã cũ": old_qty_float,
-                    "ĐM Dự phóng mã mới": round(projected_dm, 3),
-                    "Cơ sở thuật toán toán AI": note
-                })
+        f_new = clean_float(val_new)
+        f_old = clean_float(val_old)
+        diff_val, diff_pct = None, None
+        
+        if f_new is not None and f_old is not None:
+            diff_val = round(f_new - f_old, 2)
+            if f_old != 0:
+                diff_pct = round((diff_val / f_old) * 100, 2)
                 
-            if projection_rows:
-                df_projection = pd.DataFrame(projection_rows)
-                st.session_state["ai_projected_consumption_matrix"] = projection_rows
-                st.dataframe(df_projection, use_container_width=True, hide_index=True)
+                core_keywords = ["INSEAM", "THIGH", "HIP", "WAIST", "LEG", "LENGTH", "CHEST", "BUST", "WIDTH", "ARMHOLE", "SLEEVE", "OUTSEAM", "RISE"]
+                if any(k in clean_new_key for k in core_keywords):
+                    ignore_keywords = ["BADGE", "LABEL", "BUTTON", "POCKET-OPENING", "TICKET", "LOOP", "STITCH"]
+                    if not any(ig in clean_new_key for ig in ignore_keywords):
+                        valid_diff_pcts.append(diff_pct)
             else:
-                st.info("ℹ️ Không có dữ liệu tổng hợp `bom_summary_engine` để tính toán dự phóng.")
+                diff_pct = 0.0
+
+        display_diff = f"+{diff_val}" if diff_val and diff_val > 0 else (str(diff_val) if diff_val is not None else "-")
+        display_pct = f"+{diff_pct}%" if diff_pct and diff_pct > 0 else (f"{diff_pct}%" if diff_pct is not None else "-")
+        
+        size_label = new_style_base_size if 'new_style_base_size' in locals() or 'new_style_base_size' in globals() else "Mới"
+        style_label = str(st.session_state.get('matched_style_name', 'N/A'))
+
+        compare_rows.append({
+            "Vị trí đo (POM Description)": original_new_key,
+            f"Mẫu mới ({size_label})": val_new if val_new is not None else "-",
+            f"Mã cũ ({style_label})": val_old if val_old is not None else "-",
+            "Chênh lệch (Diff)": display_diff,
+            "Tỷ lệ biến thiên (Diff %)": display_pct
+        })
+
+    for original_old_key, val_old in old_specs.items():
+        if original_old_key not in processed_old_keys:
+            size_label = new_style_base_size if 'new_style_base_size' in locals() or 'new_style_base_size' in globals() else "Mới"
+            style_label = str(st.session_state.get('matched_style_name', 'N/A'))
+            compare_rows.append({
+                "Vị trí đo (POM Description)": original_old_key,
+                f"Mẫu mới ({size_label})": "-",
+                f"Mã cũ ({style_label})": val_old if val_old is not None else "-",
+                "Chênh lệch (Diff)": "-",
+                "Tỷ lệ biến thiên (Diff %)": "-"
+            })
+        
+    if compare_rows:
+        df_compare_spec = pd.DataFrame(compare_rows)
+        st.dataframe(df_compare_spec, use_container_width=True, hide_index=True)
+    
+    if valid_diff_pcts:
+        avg_pom_growth = sum(valid_diff_pcts) / len(valid_diff_pcts)
+        avg_area_growth_pct = round((((1 + avg_pom_growth/100) ** 2) - 1) * 100, 2)
 
 
 
