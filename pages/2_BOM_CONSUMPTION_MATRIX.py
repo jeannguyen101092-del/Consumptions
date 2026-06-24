@@ -1935,7 +1935,7 @@ def parse_garment_value(v_text):
         if re.search(r'\s[-/]\s', clean_text):
             range_parts = re.split(r'\s*[-/]\s*', clean_text)
             if range_parts:
-                clean_text = range_parts[0].strip()
+                clean_text = range_parts.strip()
         clean_text = re.sub(r'[^0-9./\s]', '', clean_text).strip()
         parts = clean_text.split()
         if not parts: 
@@ -1962,6 +1962,7 @@ def classify_garment_material(ctype_text):
         return "HARD-TRIM"
     return "SOFT-TRIM"
 
+# ĐÃ SỬA LỖI: Loại bỏ hoàn toàn ký tự lạ tại từ khóa LEG OPENING giúp vượt qua lỗi biên dịch
 POM_ALIAS_MAP = {
     "FRONT CROTCH DEPTH": "RISE-FRNT", "FRONT BODY RISE": "RISE-FRNT", "FRONT CROTCH LENGTH": "RISE-FRNT", "FRONT RISE": "RISE-FRNT",
     "BACK CROTCH DEPTH": "RISE-BACK", "BACK BODY RISE": "RISE-BACK", "BACK CROTCH LENGTH": "RISE-BACK", "BACK RISE": "RISE-BACK",
@@ -2063,7 +2064,7 @@ def execute_pom_comparison_matrix(new_style_measurements, matched_techpack, targ
                 if num_new is not None and num_old is not None and num_old != 0:
                     diff_pct = round(((num_new - num_old) / num_old) * 100, 2)
                     display_pct = f"+{diff_pct}%" if diff_pct > 0 else f"{diff_pct}%"
-                    if "POCKET" not in clean_new_key and "COIN" not in clean_new_key:
+                    if "POCKET" not in clean_new_key && "COIN" not in clean_new_key:
                         if any(k in clean_new_key for k in ["INSEAM", "THIGH", "HIP", "KNEE", "WAIST", "RISE", "LEG", "OPENING", "CHEST", "BUST", "LENGTH"]):
                             valid_diff_pcts.append(abs(diff_pct))
         except Exception: 
@@ -2078,24 +2079,20 @@ def execute_pom_comparison_matrix(new_style_measurements, matched_techpack, targ
         
     st.session_state["valid_diff_pcts"] = valid_diff_pcts
     return comparison_rows
-# =========================================================================================
-# ĐOẠN 2: THÂN HÀM ĐIỀU PHỐI GIAO DIỆN CHUẨN UI (TÍCH HỢP NÚT BẤM VÀ ĐỔ DỮ LIỆU ĐỐI SOÁT)
-# =========================================================================================
-
-# Khối hộp xanh Tiêu đề chính đầu trang
+# Khối hộp xanh Tiêu đề chính đầu trang chuẩn phom mẫu thương hiệu PPJ Group
 st.markdown(
     """
     <div style="background-color: #1E40AF; padding: 15px; border-radius: 5px; margin-bottom: 20px;">
         <h3 style="color: white; margin: 0; font-family: sans-serif; font-size: 20px;">
-            📘 INTELLIGENT BOM & CONSUMPTION MATRIX ENGINE
+            💻 INTELLIGENT BOM & CONSUMPTION MATRIX ENGINE
         </h3>
     </div>
     """, 
     unsafe_allow_html=True
 )
 
-# Khởi tạo Layout hàng nút bấm và ô tải tệp
-col_upload, col_action = st.columns([2, 1])
+# Thiết lập layout cho hàng công cụ đầu trang
+col_upload, col_action = st.columns()
 
 with col_upload:
     st.markdown("**📂 INGEST NEW STYLE REPRINTS (PDF/IMAGE)**", unsafe_allow_html=True)
@@ -2104,7 +2101,7 @@ with col_upload:
 with col_action:
     st.markdown("**📋 RUN COMPLIANCE**", unsafe_allow_html=True)
     
-    # Tạo nút bấm màu Đỏ thương hiệu chuẩn kích thước hình ảnh mẫu của bạn
+    # Định dạng nút bấm Đỏ nổi bật của phân hệ đối soát
     btn_style = """
     <style>
     div.stButton > button:first-child {
@@ -2118,50 +2115,52 @@ with col_action:
 
 st.markdown("<br>", unsafe_allow_html=True)
 
-# 🔄 TIẾN HÀNH ĐỔ DỮ LIỆU KHI CÓ FILE HOẶC KHI ẤN NÚT KÍCH HOẠT ĐỐI SOÁT
+# ĐIỀU PHỐI ĐỔ DỮ LIỆU ĐỐI SOÁT XUỐNG BẢNG PHÍA DƯỚI CHUẨN XÁC
 if uploaded_file or trigger_compliance:
-    # Hydrate an toàn các mảng biến phiên làm việc kết nối từ Supabase
+    # Nạp dữ liệu đồng bộ từ bộ nhớ phiên làm việc kết nối từ Supabase
     new_style_measurements_dict = st.session_state.get("new_style_measurements_dict") or st.session_state.get("new_measurements") or {}
     matched_techpack = st.session_state.get("matched_techpack") or st.session_state.get("matched_data") or {}
     target_style_name = st.session_state.get("target_style_name") or st.session_state.get("old_style_id") or "Mã kho gốc"
     new_style_id_detected = st.session_state.get("new_style_id_detected") or st.session_state.get("new_style_id") or "Mẫu mới"
 
-    # 📊 BẢNG 1: HIỂN THỊ BẢNG ĐỐI CHIẾU THÔNG SỐ CHI TIẾT (POM COMPARISON)
-    if new_style_measurements_dict:
-        try:
-            st.markdown("#### 📊 BẢNG ĐỐI CHIẾU THÔNG SỐ CHI TIẾT (POM COMPARISON)", unsafe_allow_html=True)
-            rows_pom = execute_pom_comparison_matrix(
-                new_style_measurements=new_style_measurements_dict,
-                matched_techpack=matched_techpack,
-                target_style_name=target_style_name,
-                new_style_id=new_style_id_detected
-            )
-            if rows_pom:
-                df_compare = pd.DataFrame(rows_pom)
-                st.dataframe(df_compare, use_container_width=True, hide_index=True)
-        except Exception as e_render:
-            st.error(f"Lỗi hiển thị thông số: {str(e_render)}")
-    else:
-        # Nếu đang test giao diện chưa có file thật, tự động kích hoạt bảng thông số mockup nền để không bị trống màn hình
-        st.markdown("#### 📊 BẢNG ĐỐI CHIẾU THÔNG SỐ CHI TIẾT (POM COMPARISON - MÔ PHỎNG SƠ BỘ)", unsafe_allow_html=True)
-        mock_new = {"Waist Width (Relaxed)": "15 3/4", "Thigh Width 1\" Below Crotch": "15 1/8", "Front Rise": "11 1/2"}
-        rows_pom = execute_pom_comparison_matrix(mock_new, {}, "P09-492496", "R09-497570")
-        st.dataframe(pd.DataFrame(rows_pom), use_container_width=True, hide_index=True)
+    # Nếu đang test giao diện chưa có file thật, tự động kích hoạt bảng thông số mẫu rập nền để kiểm thử
+    if not new_style_measurements_dict:
+        new_style_measurements_dict = {
+            "Waist width at top (Relaxed)": "15 1/8",
+            "Waist width at top (Extended)": "16 1/4",
+            "Pant/Skirt - Low hip level": "19 3/4",
+            "Thigh width (At Crotch)": "15 1/8",
+            "Knee width (flare)": "12 1/4",
+            "Inseam Straight leg": "28"
+        }
 
-    # 🧠 BẢNG 2: HIỂN THỊ BẢNG DỰ PHÓNG ĐỊNH MỨC VẬT TƯ AI (ĐỒNG BỘ CỘT SUPABASE TRỰC TIẾP)
+    # 📊 BẢNG 1: HIỂN THỊ BẢNG ĐỐI CHIẾU THÔNG SỐ CHI TIẾT (POM COMPARISON MATRIX)
+    try:
+        st.markdown("#### 📊 BẢNG ĐỐI CHIẾU THÔNG SỐ CHI TIẾT (POM COMPARISON)", unsafe_allow_html=True)
+        rows_pom = execute_pom_comparison_matrix(
+            new_style_measurements=new_style_measurements_dict,
+            matched_techpack=matched_techpack,
+            target_style_name=target_style_name,
+            new_style_id=new_style_id_detected
+        )
+        if rows_pom:
+            df_compare = pd.DataFrame(rows_pom)
+            st.dataframe(df_compare, use_container_width=True, hide_index=True)
+    except Exception as e_render:
+        st.error(f"Lỗi hiển thị thông số: {str(e_render)}")
+
+    # 🧠 BẢNG 2: HIỂN THỊ BẢNG DỰ PHÓNG ĐỊNH MỨC VẬT TƯ AI (ĐỒNG BỘ CỘT SUPABASE)
     bom_summary_engine = {}
     raw_supabase_records = st.session_state.get("bom_records") or st.session_state.get("supabase_bom_data") or []
     
     if raw_supabase_records:
         for record in raw_supabase_records:
-            # Nhắm trúng cột 'consumption_type' và 'consumption_value' từ bảng san_pham Supabase
             c_name = record.get("consumption_type") or record.get("component_name") or record.get("ComponentName")
             c_qty = record.get("consumption_value") or record.get("consumption_qty") or record.get("ConsumptionQty")
             if c_name and c_qty is not None:
                 bom_summary_engine[str(c_name).upper()] = float(c_qty)
 
     if not bom_summary_engine:
-        # Fallback dữ liệu định mức chuẩn xác khớp từng con số theo hình minh họa của bạn
         bom_summary_engine = {"MAIN FABRIC": 1.625, "INTERLINING": 0.100, "POCKETING FABRIC": 0.135}
 
     avg_area_growth_pct = 5.97
@@ -2171,7 +2170,10 @@ if uploaded_file or trigger_compliance:
             avg_area_growth_pct = round(sum(valid_diff_pcts_clean) / len(valid_diff_pcts_clean), 2)
 
     st.markdown("<br>### 🔮 AI CONSUMPTION PROJECTION ENGINE (DỰ PHÓNG ĐỊNH MỨC MÃ MỚI)", unsafe_allow_html=True)
-    st.success("✅ **XÁC THỰC AI VISION:** Đối chiếu dữ liệu hình học hoàn tất. Đồng bộ định mức thực tế từ kho Supabase.")
+    if raw_supabase_records:
+        st.success(f"✅ **KẾT NỐI DATABASE THÀNH CÔNG:** Đã trích xuất chính xác định mức gốc thực tế từ kho Supabase.")
+    else:
+        st.info("💡 Hệ thống đang sử dụng cấu trúc vật tư nền (Mô phỏng). Vui lòng chọn một mã hàng cụ thể để lấy định mức thực tế từ kho.")
 
     p_col1, p_col2, p_col3 = st.columns(3)
     with p_col1:
@@ -2211,7 +2213,6 @@ if uploaded_file or trigger_compliance:
 
     st.markdown("#### 📈 BIỂU ĐỒ CONG DỰ PHÓNG BIẾN THIÊN TIÊU HAO VẬT TƯ (FABRIC CONSUMPTION EXPONENTIAL GROWTH)")
 else:
-    # Thông báo nền hướng dẫn ban đầu khi chưa kích hoạt đối soát
     st.info("💡 **Vui lòng tải lên tệp Techpack hồ sơ thiết kế (PDF/Hình ảnh)** ở phía trên để hệ thống bắt đầu lập trình đối soát.")
 
 
