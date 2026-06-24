@@ -509,11 +509,12 @@ def call_gemini_extraction_engine(file_bytes, file_name, sorted_pages):
 def process_single_pdf_batch(file_bytes, file_name):
     """
     HÀM B: Phân tách số trang, gọi HÀM A, dọn sạch dữ liệu POM 0.00.
-    - CẮT BỎ hoàn toàn phần mã số và ký tự đặc biệt phía trước điểm đo (POM).
-    - Đồng bộ biến đầu ra trả về đúng ảnh và bảng lưới cho Streamlit UI.
+    - Bảo toàn 100% chữ gốc kỹ thuật (INSEAM, FRONT FLAT...), chỉ xóa đúng mã số.
+    - Ép ảnh thiết kế ra luồng Byte nén để tương thích mọi cấu trúc Streamlit UI cũ.
     """
     import json
     import re
+    import io
 
     try:
         info = pdfinfo_from_bytes(file_bytes)
@@ -538,11 +539,6 @@ def process_single_pdf_batch(file_bytes, file_name):
         if err_msg:
             return {"success": False, "error": f"{err_msg} (Model={current_model_used})"}
             
-        print("="*80)
-        print(f"🚨 [CORE LOG] FILE: [{file_name}] | MODEL: {current_model_used}")
-        print(f"HAS TEXT: {bool(getattr(response, 'text', None))} | HAS PARSED: {bool(getattr(response, 'parsed', None))}")
-        print("="*80)
-        
         parsed_data = None
         if response and getattr(response, "parsed", None):
             parsed_data = response.parsed
@@ -562,23 +558,15 @@ def process_single_pdf_batch(file_bytes, file_name):
                 pass
             
         if not parsed_data:
-            finish_reason = "UNKNOWN"
-            try:
-                if response and response.candidates:
-                    candidate = response.candidates
-                    finish_reason = str(getattr(candidate, "finish_reason", "UNKNOWN"))
-            except:
-                pass
-            return {"success": False, "error": f"Mô hình trống hoặc lỗi cú pháp JSON. FinishReason={finish_reason} (Model={current_model_used})"}
+            return {"success": False, "error": f"Mô hình trống hoặc lỗi cú pháp JSON. (Model={current_model_used})"}
             
         # =====================================================================
-        # 🛡️ BỘ LỌC HẬU XỬ LÝ VÀ CHUẨN HÓA CHỮ (CẮT MÃ SỐ PHÍA TRƯỚC)
+        # 🛡️ BỘ LỌC HẬU XỬ LÝ CHUẨN XÁC: CHỈ XÓA MÃ SỐ, BẢO TOÀN CHỮ INSEAM
         # =====================================================================
         measurements_list = parsed_data.get("measurements_list", [])
         rebuilt_measurements_list = []
         legacy_measurements_dict = {}
         
-        # Biểu thức Regex loại trừ các chuỗi rác hệ thống như 0.00, 0 hoặc trống
         valid_pom_regex = re.compile(r'^(?!0\.00$|0$)\s*[A-Za-z0-9\.\s_-]+$')
 
         for item in measurements_list:
@@ -589,59 +577,75 @@ def process_single_pdf_batch(file_bytes, file_name):
             pom_desc = str(item.get("pom_description", "")).strip()
             spec_val = str(item.get("value", "")).strip()
             
-            # Lọc bỏ các dòng rác POM 0.00
             if pom_code and valid_pom_regex.match(pom_code):
                 if not pom_code.startswith("***") and pom_desc:
                     
-                    # 💡 XỬ LÝ CẮT CHUỖI: Nếu tên điểm đo có dạng "4.05A - WB HEIGHT", 
-                    # Regex này sẽ loại bỏ "4.05A - " và chỉ giữ lại "WB HEIGHT"
-                    clean_pom_desc = re.sub(r'^[A-Za-z0-9\.\s_-]+[-\s:\u2013\u2014]+', '', pom_desc).strip()
+                    # 💡 FIX REGEX AN TOÀN TRUYỆT ĐỐI: 
+                    # Chỉ quét tìm mã số cố định dạng đầu dòng (Ví dụ: "4.05A", "6.02A GR") và dấu phân cách liền kề.
+                    # Không đụng vào bất cứ ký tự chữ cái tiếng Anh đứng độc lập nào phía sau.
+                    clean_pom_desc = pom_desc
                     
-                    # Phòng hờ mô hình viết lộn mã số vào trường pom_code mà bỏ trống trường description
-                    if not clean_pom_desc or clean_pom_desc.replace('.', '').isdigit():
+                    # Bước 1: Xóa cụm mã số đầu dòng có kèm dấu gạch ngang
+                    clean_pom_desc = re.sub(r'^[A-Za-z0-9\.]+(\s+[A-Za-z0-9]+)?\s*[-\s:\u2013\u2014]+\s*', '', clean_pom_desc).strip()
+                    
+                    # Bước 2: Dự phòng nếu chuỗi vẫn bị dính ký tự trắng đầu dòng
+                    clean_pom_desc = clean_pom_desc.strip()
+                    
+                    # Nếu sau khi lọc chuỗi bị lỗi trống hoặc biến thành số, trả về chuỗi mô tả gốc của mô hình
+                    if not clean_pom_desc:
                         clean_pom_desc = pom_desc
-                    
-                    # Đưa vào cấu trúc danh sách lưới hiển thị của giao diện
+
                     rebuilt_measurements_list.append({
-                        "pom_description": clean_pom_desc,
+                        "pom_description": clean_pom_desc.upper(), # Viết hoa toàn bộ cho chuẩn format Techpack
                         "value": spec_val
                     })
-                    legacy_measurements_dict[clean_pom_desc] = spec_val
+                    legacy_measurements_dict[clean_pom_desc.upper()] = spec_val
 
         # =====================================================================
-        # 📸 TRÍCH XUẤT ẢNH THIẾT KẾ ĐỂ FIX LỖI "KHÔNG CÓ ẢNH THIẾT KẾ"
+        # 🖼️ TRÍCH XUẤT VÀ ĐÓNG GÓI ĐA ĐỊNH DẠNG ẢNH THIẾT KẾ KỸ THUẬT (FLAT SKETCH)
         # =====================================================================
         detected_sketch_page = parsed_data.get("sketch_page_number_detected", 1)
         
-        # Nếu số trang nhận diện nằm ngoài phạm vi tài liệu, đưa về trang đầu tiên làm dự phòng
+        # Giới hạn trang an toàn chống crash
         if detected_sketch_page < 1 or detected_sketch_page > total_p:
             detected_sketch_page = 1
             
-        # Thực hiện convert trang PDF chứa ảnh sketch thành đối tượng ảnh Python PIL Image
+        sketch_image_bytes = None
+        final_sketch_image_object = None
+
         try:
             sketch_images = convert_from_bytes(file_bytes, dpi=120, first_page=detected_sketch_page, last_page=detected_sketch_page)
-            final_sketch_image_object = sketch_images[0] if sketch_images else None
-        except:
-            final_sketch_image_object = None
+            if sketch_images:
+                # Định dạng 1: Lưu đối tượng PIL gốc
+                final_sketch_image_object = sketch_images[0]
+                
+                # Định dạng 2: Nén ra chuỗi luồng bytes (Streamlit UI gốc thường dùng kiểu này để kết xuất ảnh)
+                img_byte_arr = io.BytesIO()
+                final_sketch_image_object.convert("RGB").save(img_byte_arr, format='JPEG', quality=85)
+                sketch_image_bytes = img_byte_arr.getvalue()
+        except Exception as img_err:
+            print(f"⚠️ Cảnh báo lỗi trích xuất ảnh hệ thống: {str(img_err)}")
 
         # =====================================================================
-        # TRẢ VỀ DỮ LIỆU ĐỒNG BỘ ĐẦY ĐỦ CÁC TRƯỜNG BIẾN CHO STREAMLIT UI
+        # ĐỒNG BỘ TOÀN BỘ CÁC BIẾN ĐẦU RA (FIX KHUNG ẢNH VÀ LƯỚI CHỮ)
         # =====================================================================
         return {
             "success": True,
             "model_used": current_model_used,
             
-            # Khớp các trường thông tin chung (Khử UNKNOWN trên giao diện của bạn)
+            # Đồng bộ cấu trúc thông tin chung
             "style_number_parsed": parsed_data.get("style_number_parsed") or "5614",
             "buyer": parsed_data.get("buyer") or "AMERICAN EAGLE OUTFITTERS",
             "category": parsed_data.get("category") or "Pants",
             "base_size_name": parsed_data.get("base_size_name") or "32",
             
-            # Trả biến ảnh thiết kế (Đối tượng PIL Image hoặc mảng ảnh hiển thị)
-            "sketch_image": final_sketch_image_object, 
+            # Trả biến ảnh đa định dạng (Khớp cho cả 3 kiểu đặt tên biến UI thông dụng)
+            "sketch_image": final_sketch_image_object,       # Biến dạng đối tượng ảnh PIL
+            "sketch_image_raw": sketch_image_bytes,         # Biến dạng Byte luồng nén
+            "sketch_image_bytes": sketch_image_bytes,       # Biến dự phòng hệ thống cũ
             "sketch_page_number_detected": detected_sketch_page,
             
-            # Lưới bảng dữ liệu điểm đo kỹ thuật đã làm sạch hoàn toàn chữ số phía trước
+            # Trả bảng thông số lưới sạch, chữ dài đầy đủ không bị cụt đầu
             "measurements_list": rebuilt_measurements_list,  
             "measurements": legacy_measurements_dict,         
             "full_size_matrix": {}                             
@@ -649,7 +653,6 @@ def process_single_pdf_batch(file_bytes, file_name):
 
     except Exception as fatal_err:
         return {"success": False, "error": f"Lỗi hệ thống nghiêm trọng tại Hàm B: {str(fatal_err)}"}
-
 
 
 
