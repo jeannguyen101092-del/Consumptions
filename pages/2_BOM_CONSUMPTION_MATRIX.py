@@ -1907,53 +1907,28 @@ import streamlit as st
 import pandas as pd
 
 # =========================================================================================
-# ĐOẠN ĐỒNG BỘ NẠP DỮ LIỆU BOM THỰC TẾ VÀ KHÓA DÒNG THÔNG BÁO NOT_FOUND (ĐẢO LÊN ĐẦU)
+# ĐOẠN 1: BẢNG SO SÁNH SAI LỆCH THÔNG SỐ KỸ THUẬT RẬP MẪU (KẾT NỐI KHO THỰC TẾ)
 # =========================================================================================
-bom_summary_engine = {}
-bom_records = st.session_state.get("bom_records", [])
-matched_techpack = st.session_state.get("matched_techpack", {})
 
-# BẪY DỮ LIỆU GIẢ LẬP ĐỂ LUÔN CÓ DỮ LIỆU CHẠY BẢNG (Mồi dữ liệu theo ảnh mẫu P09-491916)
-if not matched_techpack:
-    matched_techpack = {
-        "StyleName": "P09-491916",
-        "BaseSize": "32",
-        "DetailedMeasurements": {"WAIST": 34.0, "HIP": 40.0, "INSEAM": 30.0, "THIGH": 24.5}
-    }
-    st.session_state["matched_techpack"] = matched_techpack
-
-if not bom_records:
-    target_style_name = str(matched_techpack.get("StyleName", "P09-491916")).strip().upper()
-    bom_records = [
-        {"style_name": target_style_name, "consumption_type": "MAIN FABRIC", "article_name": "VẢI CHÍNH DENIM 100% COTTON", "material_size": "Khổ 58 inch", "uom": "YDS", "consumption_value": 1.625},
-        {"style_name": target_style_name, "consumption_type": "INTERLINING", "article_name": "MẾCH DỰNG / KEO HỘT MỀM", "material_size": "Chi tiết waistband", "uom": "MTS", "consumption_value": 0.100},
-        {"style_name": target_style_name, "consumption_type": "POCKETING FABRIC", "article_name": "VẢI LÓT TÚI T/C 65/35", "material_size": "Khổ 44 inch", "uom": "YDS", "consumption_value": 0.135}
-    ]
-    st.session_state["bom_records"] = bom_records
-
-# Nạp kho dữ liệu tính toán định mức
-for r in bom_records:
-    bom_summary_engine[r["consumption_type"]] = r["consumption_value"]
-
-
-# =========================================================================================
-# ĐOẠN 1: BẢNG SO SÁNH SAI LỆCH THÔNG SỐ KỸ THUẬT (MỞ KHÓA HIỂN THỊ)
-# =========================================================================================
 st.markdown("<br>### 📐 BẢNG SO SÁNH SAI LỆCH THÔNG SỐ KỸ THUẬT RẬP MẪU", unsafe_allow_html=True)
 
+# Lấy dữ liệu thực tế từ kho lưu trữ session_state
 new_specs = st.session_state.get("new_style_measurements_dict", {})
-# Nếu dữ liệu quét mới bị rỗng, tự động điền dữ liệu giả lập để hiển thị bảng test
-if not new_specs:
-    new_specs = {"WAIST BOUND": "34 1/2", "HIP SEAM": "41", "INSEAM LENGTH": "30", "THIGH WIDTH": "25"}
-
-new_style_base_size = st.session_state.get("new_style_base_size", "32")
+new_style_base_size = st.session_state.get("new_style_base_size", "N/A")
 garment_category = str(st.session_state.get("new_style_category_detected", "PANT")).strip().upper()
-old_specs = matched_techpack.get("DetailedMeasurements", {})
-old_base_size = matched_techpack.get("BaseSize", "N/A")
+
+# Đồng bộ an toàn bảng thông số gốc từ mã đối chứng trong kho dữ liệu thực tế
+matched_techpack = st.session_state.get("matched_techpack", {})
+old_specs = {}
+if matched_techpack:
+    old_specs = matched_techpack.get("DetailedMeasurements", {}) or matched_techpack.get("detailed_measurements", {}) or {}
+
+old_base_size = matched_techpack.get("BaseSize", "N/A") if matched_techpack else "N/A"
 
 compare_rows = []
 valid_diff_pcts = []
 
+# 📌 1. Thuật toán phân rã từ khóa lõi phục vụ đối chiếu
 def get_core_tokens(text):
     if not text: return set()
     cleaned = str(text).upper()
@@ -1963,6 +1938,7 @@ def get_core_tokens(text):
     stop_words = {"PANT", "SKIRT", "PANTS", "SKIRTS", "AT", "FROM", "ON", "IN", "FOR", "TOTAL", "WITH"}
     return set([w for w in words if w not in stop_words and len(w) > 2])
 
+# 📌 2. Hàm xử lý quy đổi phân số may mặc thành số thập phân thực tế
 def clean_float(v):
     if v is None: return None
     try: return float(v)
@@ -1981,192 +1957,137 @@ def clean_float(v):
         nums = re.findall(r"[-+]?\d*\.\d+|\d+", str(v))
         return float(nums[0]) if nums else None
 
+# Xây dựng bể token từ kho mã hàng cũ
 old_pool_tokens = [{"original_key": k, "value": v, "tokens": get_core_tokens(k)} for k, v in old_specs.items()]
 processed_old_keys = set()
 
-for original_new_key, val_new in new_specs.items():
-    new_tokens = get_core_tokens(original_new_key)
-    clean_new_key = str(original_new_key).upper()
-    best_match_key, best_match_val, max_overlap = None, None, 0
-    
-    for old_item in old_pool_tokens:
-        old_k = old_item["original_key"]
-        if old_k in processed_old_keys: continue
-        old_tokens = old_item["tokens"]
-        overlap = len(new_tokens.intersection(old_tokens))
+# Duyệt khớp thông số mới quét với dữ liệu kho lịch sử
+if new_specs or old_specs:
+    for original_new_key, val_new in new_specs.items():
+        new_tokens = get_core_tokens(original_new_key)
+        clean_new_key = str(original_new_key).upper()
+        best_match_key, best_match_val, max_overlap = None, None, 0
         
-        if overlap > 0 and overlap > max_overlap:
-            if "WIDTH" in new_tokens and any(x in old_tokens for x in ["POSITION", "DROP", "PLACEMENT", "LOCATION"]): continue
-            if any(x in new_tokens for x in ["POSITION", "DROP", "PLACEMENT", "LOCATION"]) and "WIDTH" in old_tokens: continue
-            if "WAIST" in new_tokens and "WAIST" not in old_tokens: continue
-            if "HIP" in new_tokens and "HIP" not in old_tokens: continue
-            max_overlap = overlap
-            best_match_key = old_k
-            best_match_val = old_item["value"]
+        for old_item in old_pool_tokens:
+            old_k = old_item["original_key"]
+            if old_k in processed_old_keys: continue
+            old_tokens = old_item["tokens"]
+            overlap = len(new_tokens.intersection(old_tokens))
             
-    if best_match_key:
-        val_old = best_match_val
-        processed_old_keys.add(best_match_key)
-    else:
-        val_old = None
+            if overlap > 0 and overlap > max_overlap:
+                # Các bộ phanh chống dính chùm dòng lẻ
+                if "WIDTH" in new_tokens and any(x in old_tokens for x in ["POSITION", "DROP", "PLACEMENT", "LOCATION"]): continue
+                if any(x in new_tokens for x in ["POSITION", "DROP", "PLACEMENT", "LOCATION"]) and "WIDTH" in old_tokens: continue
+                if "WAIST" in new_tokens and "WAIST" not in old_tokens: continue
+                if "HIP" in new_tokens and "HIP" not in old_tokens: continue
+                if "THIGH" in new_tokens and "THIGH" not in old_tokens: continue
+                if "INSEAM" in new_tokens and "INSEAM" not in old_tokens: continue
+                max_overlap = overlap
+                best_match_key = old_k
+                best_match_val = old_item["value"]
+                
+        if best_match_key:
+            val_old = best_match_val
+            processed_old_keys.add(best_match_key)
+        else:
+            val_old = None
 
-    f_new = clean_float(val_new)
-    f_old = clean_float(val_old)
-    diff_val, diff_pct = None, None
-    
-    if f_new is not None and f_old is not None:
-        diff_val = round(f_new - f_old, 2)
-        if f_old != 0:
-            diff_pct = round((diff_val / f_old) * 100, 2)
-            valid_diff_pcts.append(diff_pct)
+        f_new = clean_float(val_new)
+        f_old = clean_float(val_old)
+        diff_val, diff_pct = None, None
+        
+        if f_new is not None and f_old is not None:
+            diff_val = round(f_new - f_old, 2)
+            if f_old != 0:
+                diff_pct = round((diff_val / f_old) * 100, 2)
+                
+                # Bộ lọc nghiêm ngặt PPJ GROUP loại bỏ túi lọt vào % trung bình
+                if "POCKET" not in clean_new_key and "COIN" not in clean_new_key:
+                    if any(x in garment_category for x in ["PANT", "SHORT", "TROUSER"]):
+                        if any(k in clean_new_key for k in ["INSEAM", "THIGH", "HIP", "KNEE", "WAIST", "RISE", "FLY", "OPENING"]):
+                            valid_diff_pcts.append(diff_pct)
+                    else:
+                        if any(k in clean_new_key for k in ["LENGTH", "CHEST", "BUST", "ARMHOLE", "SLEEVE", "WIDTH"]):
+                            valid_diff_pcts.append(diff_pct)
 
-    display_diff = f"+{diff_val}" if diff_val and diff_val > 0 else (str(diff_val) if diff_val is not None else "-")
-    display_pct = f"+{diff_pct}%" if diff_pct and diff_pct > 0 else (f"{diff_pct}%" if diff_pct is not None else "-")
-    
-    compare_rows.append({
-        "Vị trí đo (POM Description)": original_new_key,
-        f"Mẫu mới ({new_style_base_size})": val_new if val_new is not None else "-",
-        f"Mã cũ ({old_base_size})": val_old if val_old is not None else "-",
-        "Chênh lệch (Diff)": display_diff,
-        "Tỷ lệ biến thiên (Diff %)": display_pct
-    })
+        display_diff = f"+{diff_val}" if diff_val and diff_val > 0 else (str(diff_val) if diff_val is not None else "-")
+        display_pct = f"+{diff_pct}%" if diff_pct and diff_pct > 0 else (f"{diff_pct}%" if diff_pct is not None else "-")
+        
+        compare_rows.append({
+            "Vị trí đo (POM Description)": original_new_key,
+            f"Mẫu mới ({new_style_base_size})": val_new if val_new is not None else "-",
+            f"Mã cũ ({old_base_size})": val_old if val_old is not None else "-",
+            "Chênh lệch (Diff)": display_diff,
+            "Tỷ lệ biến thiên (Diff %)": display_pct
+        })
 
-# ÉP HIỂN THỊ BẢNG SO SÁNH LÊN MÀN HÌNH STREAMLIT
-st.dataframe(pd.DataFrame(compare_rows), use_container_width=True, hide_index=True)
+    # Đổ nốt các thông số chỉ xuất hiện ở dữ liệu cũ kho
+    for old_item in old_pool_tokens:
+        original_old_key = old_item["original_key"]
+        if original_old_key not in processed_old_keys:
+            compare_rows.append({
+                "Vị trí đo (POM Description)": original_old_key,
+                f"Mẫu mới ({new_style_base_size})": "-",
+                f"Mã cũ ({old_base_size})": old_item["value"] if old_item["value"] is not None else "-",
+                "Chênh lệch (Diff)": "-",
+                "Tỷ lệ biến thiên (Diff %)": "-"
+            })
+
+    # Kết xuất giao diện bảng so sánh động lên Streamlit
+    st.dataframe(pd.DataFrame(compare_rows), use_container_width=True, hide_index=True)
+
+# Lưu trữ lại mảng phần trăm biến thiên chuẩn phục vụ cho công cụ định mức Đoạn 2
 st.session_state["valid_diff_pcts"] = valid_diff_pcts
 
 
-# =========================================================================================
-# ĐOẠN 2: AI CONSUMPTION PROJECTION ENGINE & BẢNG ĐM MÃ MỚI (MỞ KHÓA HIỂN THỊ)
-# =========================================================================================
-if valid_diff_pcts:
-    avg_area_growth_pct = round(sum([abs(x) for x in valid_diff_pcts]) / len(valid_diff_pcts), 2)
-else:
-    avg_area_growth_pct = 5.97
-
-st.markdown("<br>### 🔮 AI CONSUMPTION PROJECTION ENGINE (DỰ PHÓNG ĐỊNH MỨC MÃ MỚI)", unsafe_allow_html=True)
-st.success("✅ **XÁC THỰC AI VISION:** Chế độ hiển thị ép buộc dữ liệu kiểm tra cấu trúc vóc dáng rập.")
-
-param_col1, param_col2, param_col3 = st.columns(3)
-with param_col1:
-    shape_factor = st.number_input("Độ biến thiên thông số POM trung bình (%)", value=float(avg_area_growth_pct), step=0.01, format="%.2f")
-with param_col2:
-    fabric_growth_factor = st.number_input("Hệ số thực nghiệm vải (Fabric Growth Factor)", value=0.65, step=0.05, format="%.2f")
-with param_col3:
-    wastage_buffer = st.number_input("Hao hụt sản xuất cấu hình thêm (%)", value=0.00, step=0.5, format="%.2f")
-
-projection_rows = []
-for ctype, old_qty in bom_summary_engine.items():
-    ctype_upper = str(ctype).strip().upper()
-    if any(k in ctype_upper for k in ["MAIN", "FABRIC", "BODY", "SHELL", "VẢI CHÍNH"]):
-        percentage_increase = fabric_growth_factor * shape_factor
-        projected_dm = old_qty * (1 + percentage_increase / 100) * (1 + wastage_buffer / 100)
-        note = f"Vải chính: Hệ số ({fabric_growth_factor}) × POM ({round(shape_factor, 1)}%) → ĐM tăng: {round(percentage_increase, 2)}%"
-    else:
-        main_fabric_increase = fabric_growth_factor * shape_factor
-        percentage_increase = 0.40 * main_fabric_increase
-        projected_dm = old_qty * (1 + percentage_increase / 100) * (1 + wastage_buffer / 100)
-        note = f"Vải phụ: Giảm chấn (0.4) × Mức tăng vải chính → ĐM tăng: {round(percentage_increase, 2)}%"
-        
-    projection_rows.append({
-        "Phân loại vật tư (Type)": ctype,
-        "Tổng ĐM mã cũ": round(old_qty, 3),
-        "ĐM Dự phóng mã mới": round(projected_dm, 3),
-        "Cơ sở thuật toán toán AI": note
-    })
-    
-# ÉP HIỂN THỊ BẢNG DỰ PHÓNG ĐỊNH MỨC AI MỚI
-st.dataframe(
-    pd.DataFrame(projection_rows), 
-    use_container_width=True, 
-    hide_index=True,
-    column_config={
-        "Tổng ĐM mã cũ": st.column_config.NumberColumn(format="%.3f"),
-        "ĐM Dự phóng mã mới": st.column_config.NumberColumn(format="%.3f")
-    }
-)
-
-# --- HIỂN THỊ BẢNG ĐỊNH MỨC (BOM) LỊCH SỬ GỐC TRỰC QUAN ---
-st.markdown("<br>📦 **Chi Tiết Định Mức Định Hình Mở Rộng (BOM Lịch Sử Của Mã Đối Chứng):**", unsafe_allow_html=True)
-df_bom = pd.DataFrame(bom_records)
-df_bom_render = df_bom[['style_name', 'consumption_type', 'article_name', 'material_size', 'uom']].copy()
-df_bom_render["Định mức (DM)"] = pd.to_numeric(df_bom["consumption_value"]).round(3)
-df_bom_render.columns = ["Mã hàng đối chứng", "Phân loại vật tư (Type)", "Tên vật tư / Mã vải", "Khổ vải", "Đơn vị", "Định mức (DM)"]
-st.dataframe(df_bom_render, use_container_width=True, hide_index=True)
-
-import re
 import streamlit as st
 import pandas as pd
 
 # =========================================================================================
-# ĐOẠN ĐỒNG BỘ NẠP DỮ LIỆU BOM THỰC TẾ VÀ KHÓA DÒNG THÔNG BÁO NOT_FOUND (ĐẢO LÊN TRÊN)
+# ĐOẠN 2: AI CONSUMPTION PROJECTION ENGINE & BẢNG BOM LỊCH SỬ (ĐỒNG BỘ ĐỊNH MỨC KHO)
 # =========================================================================================
 
-# Khởi tạo sẵn cấu trúc dữ liệu tổng để tránh lỗi NameError ở mọi nhánh chạy
+# Khai báo cấu trúc nhận diện dữ liệu
 bom_summary_engine = {}
+matched_techpack = st.session_state.get("matched_techpack", {})
 bom_records = st.session_state.get("bom_records", [])
-matched_techpack = st.session_state.get("matched_techpack")
 
-# Kiểm tra điều kiện menu (nếu có biến menu_selection, mặc định hoạt động an toàn)
-menu_selection = globals().get('menu_selection', "🧵 BOM & Consumption Matrix")
+# Đồng bộ chuyển đổi danh sách vật tư kho thực tế vào bộ máy tính toán định mức AI
+if bom_records:
+    for r in bom_records:
+        # Nhóm gọn theo nhóm vật tư cốt lõi
+        bom_summary_engine[r["consumption_type"]] = float(r["consumption_value"])
 
-if menu_selection == "🧵 BOM & Consumption Matrix":
-    # CƠ CHẾ KHÓA VÀ NẠP DỮ LIỆU MỒI THÔNG MINH (SMART FALLBACK DATA)
-    if matched_techpack and not bom_records:
-        target_style_name = str(matched_techpack.get("StyleName", "R09-490976")).strip().upper()
-        
-        # Tự động nạp bộ hồ sơ vật tư chuẩn tương thích với mã đối chứng để làm mồi chạy cho hệ thống
-        bom_records = [
-            {"style_name": target_style_name, "consumption_type": "MAIN FABRIC", "article_name": "VẢI CHÍNH DENIM 100% COTTON", "material_size": "Khổ 58 inch", "uom": "YDS", "consumption_value": 1.625},
-            {"style_name": target_style_name, "consumption_type": "INTERLINING", "article_name": "MẾCH DỰNG / KEO HỘT MỀM", "material_size": "Chi tiết waistband", "uom": "MTS", "consumption_value": 0.100},
-            {"style_name": target_style_name, "consumption_type": "POCKETING FABRIC", "article_name": "VẢI LÓT TÚI T/C 65/35", "material_size": "Khổ 44 inch", "uom": "YDS", "consumption_value": 0.135}
-        ]
-        # Cập nhật ngược lại bộ nhớ đệm để đồng bộ dữ liệu
-        st.session_state["bom_records"] = bom_records
-
-    # Trích xuất dữ liệu từ bom_records nạp vào công cụ tính toán của Engine AI
-    if bom_records:
-        for r in bom_records:
-            bom_summary_engine[r["consumption_type"]] = r["consumption_value"]
-
-# =========================================================================================
-# ĐOẠN 6 NÂNG CẤP CHUYÊN SÂU: AI CONSUMPTION PROJECTION ENGINE
-# =========================================================================================
-
-if "valid_diff_pcts" in st.session_state and st.session_state["valid_diff_pcts"]:
-    # Tính trị tuyệt đối trung bình độ biến thiên thông số rập mẫu
-    abs_diffs = [abs(x) for x in st.session_state["valid_diff_pcts"]]
-    avg_area_growth_pct = round(sum(abs_diffs) / len(abs_diffs), 2)
+# Tính toán chỉ số POM thực tế truyền từ Đoạn 1 xuống
+valid_diff_pcts = st.session_state.get("valid_diff_pcts", [])
+if valid_diff_pcts:
+    avg_area_growth_pct = round(sum([abs(x) for x in valid_diff_pcts]) / len(valid_diff_pcts), 2)
 else:
-    avg_area_growth_pct = 5.97  # Giá trị mặc định chuẩn theo thiết kế mẫu
+    avg_area_growth_pct = 5.97  # Chỉ số dự phòng mặc định khi không tìm thấy thông số so sánh
 
-# --- KHỞI CHẠY ENGINE HIỂN THỊ DỰ PHÒNG NÂNG CAO ---
 if matched_techpack and bom_summary_engine:
     st.markdown("<br>### 🔮 AI CONSUMPTION PROJECTION ENGINE (DỰ PHÓNG ĐỊNH MỨC MÃ MỚI)", unsafe_allow_html=True)
-    
-    # 1. Thanh trạng thái xác thực AI Vision màu xanh lá cây
-    st.success("✅ **XÁC THỰC AI VISION:** Độ tương đồng phác thảo đạt 100.0%. Cấu trúc rập ở mức tương thích cao.")
-    
-    # 2. Hàng cấu hình các thông số đầu vào (3 Cột)
+    st.success("✅ **XÁC THỰC AI VISION:** Kết nối thành công hệ cơ sở dữ liệu định mức đối chứng từ kho.")
+
+    # Thiết lập bộ tham số đầu vào giao diện (Đã thêm tiền tố key chống trùng lặp ID phần tử)
     param_col1, param_col2, param_col3 = st.columns(3)
     with param_col1:
-        shape_factor = st.number_input("Độ biến thiên thông số POM trung bình (%)", value=float(avg_area_growth_pct), step=0.01, format="%.2f")
+        shape_factor = st.number_input("Độ biến thiên thông số POM trung bình (%)", value=float(avg_area_growth_pct), step=0.01, format="%.2f", key="input_shape_factor")
     with param_col2:
-        fabric_growth_factor = st.number_input("Hệ số thực nghiệm vải (Fabric Growth Factor)", value=0.65, step=0.05, format="%.2f")
+        fabric_growth_factor = st.number_input("Hệ số thực nghiệm vải (Fabric Growth Factor)", value=0.65, step=0.05, format="%.2f", key="input_fabric_factor")
     with param_col3:
-        wastage_buffer = st.number_input("Hao hụt sản xuất cấu hình thêm (%)", value=0.00, step=0.5, format="%.2f")
+        wastage_buffer = st.number_input("Hao hụt sản xuất cấu hình thêm (%)", value=0.00, step=0.5, format="%.2f", key="input_wastage_factor")
 
     projection_rows = []
     for ctype, old_qty in bom_summary_engine.items():
         ctype_upper = str(ctype).strip().upper()
         
-        # --- THUẬT TOÁN 1: VẢI CHÍNH (MAIN FABRIC / BODY FABRIC / SHELL) ---
+        # Cấu trúc thuật toán vải chính
         if any(k in ctype_upper for k in ["MAIN", "FABRIC", "BODY", "SHELL", "VẢI CHÍNH"]):
             percentage_increase = fabric_growth_factor * shape_factor
             projected_dm = old_qty * (1 + percentage_increase / 100) * (1 + wastage_buffer / 100)
-            note = f"Vải chính: Hệ số ({fabric_growth_factor}) × POM ({round(shape_factor, 1)}%) [Chặn sàn] → ĐM tăng: {round(percentage_increase, 2)}%"
-        
-        # --- THUẬT TOÁN 2: VẢI PHỤ / PHỤ LIỆU MỀM (INTERLINING / POCKETING) ---
+            note = f"Vải chính: Hệ số ({fabric_growth_factor}) × POM ({round(shape_factor, 1)}%) → ĐM tăng: {round(percentage_increase, 2)}%"
+        # Cấu trúc thuật toán vải phụ mềm / lót túi
         else:
             main_fabric_increase = fabric_growth_factor * shape_factor
             percentage_increase = 0.40 * main_fabric_increase
@@ -2180,12 +2101,9 @@ if matched_techpack and bom_summary_engine:
             "Cơ sở thuật toán toán AI": note
         })
         
-    # 3. Render bảng dữ liệu dự phóng AI
-    df_projection = pd.DataFrame(projection_rows)
-    st.session_state["ai_projected_consumption_matrix"] = projection_rows
-    
+    # Render bảng tính toán định mức dự phóng mã mới của AI
     st.dataframe(
-        df_projection, 
+        pd.DataFrame(projection_rows), 
         use_container_width=True, 
         hide_index=True,
         column_config={
@@ -2194,32 +2112,20 @@ if matched_techpack and bom_summary_engine:
         }
     )
 
-# --- HIỂN THỊ BẢNG ĐỊNH MỨC NGUYÊN VẬT LIỆU (BOM) LỊCH SỬ THỰC TẾ ---
-if menu_selection == "🧵 BOM & Consumption Matrix":
-    if matched_techpack and st.session_state.get("matched_image_verified", False) and bom_records:
-        st.markdown("<br>📦 **Chi Tiết Định Mức Định Hình Mở Rộng (BOM Lịch Sử Của Mã Đối Chứng):**", unsafe_allow_html=True)
-        df_bom = pd.DataFrame(bom_records)
-        target_cols = ['style_name', 'consumption_type', 'article_name', 'material_size', 'uom', 'consumption_value']
-        
-        for col in target_cols:
-            if col in df_bom.columns: 
-                df_bom[col] = df_bom[col].astype(str).str.strip().replace(["nan", "none", "null", "NaN", "None"], "")
-            else: 
-                df_bom[col] = "0" if col == "consumption_value" else ""
-
-        df_bom_render = df_bom[['style_name', 'consumption_type', 'article_name', 'material_size', 'uom']].copy()
-        df_bom_render["Định mức (DM)"] = pd.to_numeric(df_bom["consumption_value"], errors='coerce').fillna(0.0).round(3)
-        
-        df_bom_render.columns = [
-            "Mã hàng đối chứng", "Phân loại vật tư (Type)", "Tên vật tư / Mã vải", 
-            "Khổ vải / Chi tiết định mức", "Đơn vị (UOM)", "Định mức (DM)"
-        ]
-        st.dataframe(df_bom_render, use_container_width=True, hide_index=True)
-        
-    elif matched_techpack:
-        # ✅ ĐÃ SỬA LỖI CẮT CHỮ: Hiển thị thông báo khi không tìm thấy trạng thái kiểm soát BOM
-        status_msg = st.session_state.get('bom_search_status', "Không tìm thấy dữ liệu định mức (BOM) gốc cho mã đối chứng này.")
-        st.warning(f"⚠️ {status_msg}")
+# --- HIỂN THỊ CHI TIẾT BẢNG ĐỊNH MỨC NGUYÊN VẬT LIỆU (BOM) GỐC TRONG KHO ---
+if matched_techpack and bom_records:
+    st.markdown("<br>📦 **Chi Tiết Định Mức Định Hình Mở Rộng (BOM Lịch Sử Của Mã Đối Chứng):**", unsafe_allow_html=True)
+    df_bom = pd.DataFrame(bom_records)
+    
+    # Định dạng mượt cấu trúc chuỗi và số
+    df_bom_render = df_bom[['style_name', 'consumption_type', 'article_name', 'material_size', 'uom']].copy()
+    df_bom_render["Định mức (DM)"] = pd.to_numeric(df_bom["consumption_value"], errors='coerce').fillna(0.0).round(3)
+    
+    df_bom_render.columns = [
+        "Mã hàng đối chứng", "Phân loại vật tư (Type)", "Tên vật tư / Mã vải", 
+        "Khổ vải / Chi tiết định mức", "Đơn vị (UOM)", "Định mức (DM)"
+    ]
+    st.dataframe(df_bom_render, use_container_width=True, hide_index=True)
 
 
 
