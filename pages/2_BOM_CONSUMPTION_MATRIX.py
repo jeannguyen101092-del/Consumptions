@@ -1430,172 +1430,107 @@ if gemini_key:
 
 def process_single_pdf_batch(file_bytes, file_name):
     """
-    HÀM SỬA ĐỔI TỐI CAO: Thay thế hoàn toàn pdf2image bằng PyMuPDF (fitz) chuyên sâu.
-    🎯 SỬA LỖI QUÉT LỘN SỐ: Tinh chỉnh prompt ép Gemini triệt tiêu mã số và ngoặc đơn đầu dòng.
+    Hàm bóc tách dữ liệu kỹ thuật từ một file PDF độc lập.
+    ✨ ĐÃ NÂNG CẤP ĐỊNH VỊ PHOM DÁNG: Ép AI Vision chỉ bốc trang hiển thị chiếc quần hoàn chỉnh (Front and Back full garment views).
+    STRICTLY FORBIDDEN: Cấm tuyệt đối lấy các trang rã rập thân quần đơn lẻ, cụm chi tiết hoặc rập tách rời.
     """
-    import io
-    import json
-    import re
     import time
-    import streamlit as st
-    from google import genai
-    from google.genai import types
-    import fitz  # Sử dụng PyMuPDF thay cho pdf2image để triệt tiêu lỗi ngầm
-
     try:
-        gemini_key = st.secrets.get("GEMINI_API_KEY", "").strip()
+        gemini_key = get_secure_gemini_key()
         if not gemini_key:
-            return {"success": False, "error": "Thiếu GEMINI_API_KEY trong Secrets."}
+            return {"success": False, "error": "API Key cho Gemini đang bị thiếu trong Secrets."}
             
         client = genai.Client(api_key=gemini_key)
+        info = pdfinfo_from_bytes(file_bytes)
+        total_p = int(info.get("Pages", 1))
         
-        # Mở tài liệu PDF trực tiếp từ luồng byte nhị phân trên RAM
-        pdf_document = fitz.open(stream=file_bytes, filetype="pdf")
-        total_p = len(pdf_document)
-        
-        # Chiến lược lọc trang thông minh kiểm soát token budget
-        pages_to_scan = set()
-        for p in range(0, min(7, total_p)): # 7 trang đầu (fitz dùng index từ 0)
-            pages_to_scan.add(p)
-        if total_p > 7:
-            for p in range(max(7, total_p - 4), total_p): # 4 trang cuối
-                pages_to_scan.add(p)
-        
-        sorted_pages = sorted(list(pages_to_scan))
-        print(f"📋 [RETRIEVER SCAN] {file_name}: Tiến hành trích xuất {len(sorted_pages)} trang bằng PyMuPDF.")
-        
-        # ✅ ĐÃ SỬA: Prompt siết chặt cứng quy tắc bóc tách TEXT thuần túy cho pom_description
-        industrial_prompt = (
-            "You are an expert Garment Specification Auditor at PPJ Group. Analyze all attached sheets page by page.\n"
-            "1. Identify the core 'Base Size' / 'Sample Size' (e.g., written as 8, 32, or Size 30).\n"
-            "2. Identify the Buyer name and Category.\n"
-            "3. Find the exact 'Style ID' / 'Style Number' (e.g. 492496).\n"
-            "4. Scan and extract EVERY SINGLE measurement specification line from the chart into key-value pairs inside measurements_list.\n"
-            "   ⚠️ CRITICAL RULE FOR 'pom_description': Extract ONLY the descriptive words of the position (e.g., 'Waist width at top edge', 'Thigh width 1 inch below crotch').\n"
-            "   ❌ ABSOLUTELY FORBIDDEN: Do NOT include prefix IDs, item numbers, or sequence codes (e.g., do NOT include 'WST-007', 'HIP-011', '01.', '02').\n"
-            "   ❌ REMOVE ALL parenthetical notes like '(2 KG)', '(RELAXED)' from the pom_description string.\n"
-            "5. FOR THE GRADING MATRIX TABLE: Scan and extract the full grading matrix table columns.\n"
-            "6. Find the exact 0-based page index number that contains the FULL BODY APPAREL FLAT SKETCH showing the entire completed garment."
+        pdf_parts_payload = []
+        chat_images = convert_from_bytes(file_bytes, dpi=90, first_page=1, last_page=total_p)
+        for page_img in chat_images:
+            img_buf = io.BytesIO()
+            page_img.convert("RGB").save(img_buf, format="JPEG", quality=75)
+            pdf_parts_payload.append(types.Part.from_bytes(data=img_buf.getvalue(), mime_type='image/jpeg'))
+            
+        industrial_extraction_prompt = (
+            "You are an expert Garment Specification Auditor at PPJ Group. Analyze all attached sheets page by page. "
+            "1. Identify the core 'Base Size' / 'Sample Size' (e.g., written as 8-, 32, or Size M). "
+            "2. Identify the Buyer name and Category. "
+            "3. Find the exact 'Style ID' / 'Style Number' (e.g. 5765). "
+            "4. FOR FUNCTION 3 (FULL SIZE MATRIX): Scan and extract the entire grading matrix table columns for ALL available sizes. "
+            "5. CRITICAL VISUAL FLAT SKETCH LOCATE RULE: Scan all pages visually. You MUST find the exact PAGE INDEX (0-based) "
+            "that contains the FULL BODY APPAREL FLAT SKETCH showing the entire completed garment (the whole pant/skort with front view and back view side-by-side or on the same page). "
+            "STRICT DISQUALIFICATION RULES: "
+            "- DO NOT select pages showing isolated technical pattern panels (e.g., just a single front panel leg or a single back panel leg cut out). "
+            "- DO NOT select pages showing inner construction details, pocket bags, zippers, or sketches of components. "
+            "We only want the complete product design presentation sketch page. "
+            "Return a completely valid raw JSON string matching this schema (no markdown blocks): "
+            "{"
+            "  \"style_number_parsed\": \"string\","
+            "  \"buyer\": \"string\","
+            "  \"category\": \"string\","
+            "  \"base_size_name\": \"string\","
+            "  \"sketch_page_index_detected\": 0,"
+            "  \"measurements\": {\"POM Description\": \"Value\"},"
+            "  \"full_size_matrix\": {\"POM Description\": {\"Size_Name\": \"Value\"}}"
+            "}"
         )
         
-        contents_payload = [types.Part.from_text(text=industrial_prompt)]
-        chat_images_dict = {}
+        pdf_parts_payload.append(industrial_extraction_prompt)
         
-        # CHUYỂN ĐỔI TRANG PDF THÀNH ẢNH DÙNG PYMUPDF SIÊU NÉT (KHÔNG CẦN POPPLER)
-        for page_num in sorted_pages:
+        response = None
+        for attempt in range(3):
             try:
-                page = pdf_document.load_page(page_num)
-                # Zoom x2 lần (DPI cao) để Gemini nhìn rõ từng dòng chữ nhỏ le te trong bảng specs
-                pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
-                img_png_bytes = pix.tobytes("png")
-                
-                # Lưu trữ đối tượng vào bộ nhớ tạm phục vụ bóc tách Flat Sketch ở cuối hàm
-                chat_images_dict[page_num] = img_png_bytes
-                
-                contents_payload.append(
-                    types.Part.from_bytes(data=img_png_bytes, mime_type='image/png')
+                response = client.models.generate_content(
+                    model='gemini-2.5-flash', 
+                    contents=pdf_parts_payload,
+                    config={"response_mime_type": "application/json"}
                 )
-            except Exception as e_page:
-                print(f"⚠️ Lỗi render trang {page_num}: {str(e_page)}")
-                
-        # Khai báo cấu hình Schema JSON nghiêm ngặt để ép Gemini trả ra dữ liệu cấu trúc sạch
-        kv_pair_schema = types.Schema(
-            type=types.Type.OBJECT,
-            properties={
-                "pom_description": types.Schema(type=types.Type.STRING),
-                "value": types.Schema(type=types.Type.STRING)
-            },
-            required=["pom_description", "value"]
-        )
-        
-        json_schema = types.Schema(
-            type=types.Type.OBJECT,
-            properties={
-                "style_number_parsed": types.Schema(type=types.Type.STRING),
-                "buyer": types.Schema(type=types.Type.STRING),
-                "category": types.Schema(type=types.Type.STRING),
-                "base_size_name": types.Schema(type=types.Type.STRING),
-                "sketch_page_number_detected": types.Schema(type=types.Type.INTEGER),
-                "measurements_list": types.Schema(type=types.Type.ARRAY, items=kv_pair_schema),
-                "full_size_matrix": types.Schema(type=types.Type.OBJECT) 
-            },
-            required=[
-                "style_number_parsed", "buyer", "category", "base_size_name", 
-                "sketch_page_number_detected", "measurements_list", "full_size_matrix"
-            ]
-        )
-
-        # Kích hoạt mô hình AI thế hệ mới nhất
-        response = client.models.generate_content(
-            model='gemini-2.5-flash', 
-            contents=contents_payload,
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json",
-                response_schema=json_schema,
-                temperature=0.1,
-                max_output_tokens=8192
-            )
-        )
-        
-        parsed_data = None
-        if response and getattr(response, "parsed", None):
-            parsed_data = response.parsed
-            if hasattr(parsed_data, "model_dump"):
-                parsed_data = parsed_data.model_dump()
-                
-        if not parsed_data and response and getattr(response, "text", None):
-            match = re.search(r"\{.*\}", response.text.strip(), re.S)
-            if match:
-                parsed_data = json.loads(match.group(0))
-                
-        if not parsed_data:
-            return {"success": False, "error": "AI phản hồi cấu trúc rỗng."}
+                if response and response.text: break
+            except Exception as ai_err:
+                if "503" in str(ai_err) or "UNAVAILABLE" in str(ai_err):
+                    time.sleep((attempt + 1) * 2)
+                    continue
+                else:
+                    return {"success": False, "error": f"Lỗi cổng truyền: {str(ai_err)}"}
+                    
+        if not response or not response.text:
+            return {"success": False, "error": "Mô hình không phản hồi văn bản."}
             
-        # Giải nén measurements_list thành đối tượng Dict phẳng chứa TOÀN BỘ các dòng specs
-        measurements_list = parsed_data.get("measurements_list", [])
+        clean_json = response.text.strip().replace("```json", "").replace("```", "").strip()
+        parsed_data = json.loads(clean_json)
         
-        # ✅ BỘ SÀN HẬU XỬ LÝ AN TOÀN (Post-processing Cleaner): Gạt bỏ thêm một lần nữa nếu AI vẫn sót mã số hoặc dấu ngoặc
-        measurements = {}
-        for item in measurements_list:
-            if "pom_description" in item and "value" in item:
-                desc = str(item.get("pom_description")).strip()
-                val = str(item.get("value")).strip()
-                
-                # 1. Triệt tiêu nội dung trong ngoặc đơn/vuông
-                desc_clean = re.sub(r'\([^\)]*\)', '', desc)
-                desc_clean = re.sub(r'\[[^\]]*\]', '', desc_clean)
-                # 2. Triệt tiêu các mã định danh viết tắt đầu dòng (Ví dụ: WST-007, HIP-011)
-                desc_clean = re.sub(r'\b[A-Z]{3,4}\s*-\s*\d+\b', '', desc_clean)
-                # 3. Làm sạch khoảng trắng thừa
-                desc_clean = re.sub(r'\s+', ' ', desc_clean).strip()
-                
-                if desc_clean:
-                    measurements[desc_clean] = val
-        
-        # Trích xuất tự động ảnh Flat Sketch dạng bytes sạch từ trang AI chỉ định
-        sketch_page = parsed_data.get("sketch_page_number_detected", 0)
-        if sketch_page not in chat_images_dict:
-            sketch_page = sorted_pages[0] if sorted_pages else 0
+        extracted_sketch_bytes = None
+        detected_idx = int(parsed_data.get("sketch_page_index_detected", 0))
+        if 0 <= detected_idx < len(chat_images):
+            b_buf = io.BytesIO()
+            chat_images[detected_idx].convert("RGB").save(b_buf, format="JPEG", quality=90)
+            extracted_sketch_bytes = b_buf.getvalue()
             
-        sketch_bytes_raw = chat_images_dict.get(sketch_page, None)
+        success_db = save_to_supabase_techpack_table(parsed_data, raw_file_bytes=file_bytes, file_name=file_name)
         
-        # Đóng gói đối tượng trả về chuẩn chỉnh
-        final_payload = {
+        output_payload = {
             "style_number_parsed": parsed_data.get("style_number_parsed", "UNKNOWN"),
-            "buyer": parsed_data.get("buyer", "PPJ GROUP"),
-            "category": parsed_data.get("category", "PANTS"),
-            "base_size_name": parsed_data.get("base_size_name", "30"),
-            "measurements": measurements, # Đã làm sạch chữ thuần túy
-            "full_size_matrix": parsed_data.get("full_size_matrix", {}),
-            "_sketch_bytes_raw": sketch_bytes_raw,
-            "sketch_page_number_detected": sketch_page
+            "buyer": parsed_data.get("buyer", "UNKNOWN BUYER"),
+            "category": parsed_data.get("category", "GARMENT"),
+            "base_size_name": parsed_data.get("base_size_name", "32"),
+            "measurements": parsed_data.get("measurements", {}),
+            "full_size_matrix": parsed_data.get("full_size_matrix", {})
         }
         
-        pdf_document.close()
-        return {"success": True, "payload_data": final_payload}
+        return {
+            "success": True,
+            "data": output_payload, 
+            "style_id": output_payload["style_number_parsed"],
+            "buyer": output_payload["buyer"],
+            "category": output_payload["category"],
+            "size": output_payload["base_size_name"],
+            "measurements": output_payload["measurements"], 
+            "sketch_bytes": extracted_sketch_bytes, 
+            "error": None if success_db else "Lỗi ghi đồng bộ dữ liệu lên cơ sở dữ liệu"
+        }
+    except Exception as e:
+        return {"success": False, "error": f"Lỗi bóc tách PDF: {str(e)}"}
 
-    except Exception as master_pdf_err:
-        return {"success": False, "error": f"Lỗi hệ thống tầng PyMuPDF: {str(master_pdf_err)}"}
 
 
 
