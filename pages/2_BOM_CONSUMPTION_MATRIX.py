@@ -1274,9 +1274,15 @@ if gemini_key:
 
 def process_single_pdf_batch(file_bytes, file_name):
     if not PDF2IMAGE_AVAILABLE:
-        return {"success": False, "error": "pdf2image chưa được cài đặt."}
+        return {
+            "success": False,
+            "error": "pdf2image chưa được cài đặt."
+        }
 
     import time
+    import io
+    import json
+    import re
     try:
         if "get_secure_gemini_key" in globals():
             gemini_key_local = get_secure_gemini_key()
@@ -1290,7 +1296,6 @@ def process_single_pdf_batch(file_bytes, file_name):
         info = pdfinfo_from_bytes(file_bytes)
         total_p = int(info.get("Pages", 1))
         
-        # Tạo payload danh sách các trang
         pdf_parts_payload = []
         chat_images = convert_from_bytes(file_bytes, dpi=90, first_page=1, last_page=total_p)
         
@@ -1303,40 +1308,43 @@ def process_single_pdf_batch(file_bytes, file_name):
             pdf_parts_payload.append(types.Part.from_bytes(data=img_data, mime_type='image/jpeg'))
             
         industrial_extraction_prompt = (
-            "You are an expert Garment Specification Auditor at PPJ Group. Analyze all attached sheets page by page.\n"
-            "1. Identify the core 'Base Size' / 'Sample Size'.\n"
-            "2. Identify the Buyer name and Category (Pant/Shirt/Jacket).\n"
-            "3. Find the exact 'Style ID' / 'Style Number'.\n"
-            "4. Extract the entire grading matrix table columns for ALL available sizes.\n"
-            "5. Find the exact PAGE INDEX (0-based) that contains the FULL BODY APPAREL FLAT SKETCH.\n"
-            "6. CRITICAL APPRAISAL FOR HEM & PLACKET DETAILS: Scan for tolerances or details.\n"
-            "Return a completely valid JSON object matching this structural keys:\n"
-            "{\n"
-            "  \"style_number_parsed\": \"string\",\n"
-            "  \"buyer\": \"string\",\n"
-            "  \"category\": \"string\",\n"
-            "  \"base_size_name\": \"string\",\n"
-            "  \"sketch_page_index_detected\": 0,\n"
-            "  \"measurements\": {},\n"
-            "  \"full_size_matrix\": {}\n"
+            "You are an expert Garment Specification Auditor at PPJ Group. Analyze all attached sheets page by page. "
+            "1. Identify the core 'Base Size' / 'Sample Size'. "
+            "2. Identify the Buyer name and Category (Pant/Shirt/Jacket). "
+            "3. Find the exact 'Style ID' / 'Style Number'. "
+            "4. Extract the entire grading matrix table columns for ALL available sizes. "
+            "5. Find the exact PAGE INDEX (0-based) that contains the FULL BODY APPAREL FLAT SKETCH. "
+            "6. CRITICAL APPRAISAL FOR HEM & PLACKET DETAILS: Pay extreme attention to bottom hem allowances. If the category is a Shirt or Jacket, scan for 'Placket Width', 'Center Front Placket', or center stitching lines. Identify if the placket is separate or grown-on/folded, and record its measurement inside the measurements dictionary accurately. "
+            "Return a completely valid raw JSON string matching this schema (no markdown blocks): "
+            "{"
+            "  \"style_number_parsed\": \"string\","
+            "  \"buyer\": \"string\","
+            "  \"category\": \"string\","
+            "  \"base_size_name\": \"string\","
+            "  \"sketch_page_index_detected\": 0,"
+            "  \"measurements\": {\"POM Description\": \"Value\"},"
+            "  \"full_size_matrix\": {\"POM Description\": {\"Size_Name\": \"Value\"}}"
             "}"
         )
         pdf_parts_payload.append(types.Part.from_text(text=industrial_extraction_prompt))
         
-        for attempt in range(3):
+        # CHIẾN LƯỢC MỚI: Tự động đổi cụm máy chủ Model nếu gặp lỗi 503 quá tải hệ thống từ Google
+        models_fallback = ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-1.5-pro"]
+        last_err = "Không có phản hồi từ API"
+        
+        for attempt, model_name in enumerate(models_fallback):
             try:
-                # SỬA ĐỔI: Sử dụng cấu trúc truyền tham số chuẩn của SDK google-genai
                 response = client_ai.models.generate_content(
-                    model="gemini-2.5-flash",
+                    model=model_name,
                     contents=pdf_parts_payload,
                     config=types.GenerateContentConfig(
                         response_mime_type="application/json",
-                        temperature=0.1 # Thêm temperature thấp để trích xuất dữ liệu bảng biểu chính xác, không bị sáng tạo rác
+                        temperature=0.0  # Ép độ chính xác tối đa, chống AI tự biên dịch rác
                     )
                 )
                 if response and response.text:
-                    # Vá lỗi nếu AI trả về block code markdown ```json ... ```
                     clean_text = response.text.strip()
+                    # Khử sạch các khối mã markdown bọc ngoài nếu AI trả về sai định dạng thô
                     if clean_text.startswith("```"):
                         clean_text = re.sub(r"^```(?:json)?\n|```$", "", clean_text, flags=re.MULTILINE).strip()
                     
@@ -1354,12 +1362,15 @@ def process_single_pdf_batch(file_bytes, file_name):
                         "sketch_bytes": extracted_sketch_bytes
                     }
             except Exception as e:
-                time.sleep(2.0)
                 last_err = str(e)
+                # Nghỉ 2 giây để đường truyền ổn định trước khi nhảy sang mô hình dự phòng tiếp theo
+                time.sleep(2.0)
                 continue
-        return {"success": False, "error": f"AI không thể cấu trúc dữ liệu JSON sau 3 lần thử. Chi tiết lỗi: {last_err}"}
+                
+        return {"success": False, "error": f"AI không thể cấu trúc dữ liệu JSON sau khi thử luân chuyển toàn bộ các mô hình dự phòng. Chi tiết lỗi: {last_err}"}
     except Exception as e:
         return {"success": False, "error": str(e)}
+
 
 # Khởi tạo trạng thái mặc định của các biến
 new_style_id_detected = "UNKNOWN_STYLE"
