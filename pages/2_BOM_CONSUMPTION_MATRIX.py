@@ -1824,292 +1824,147 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     except Exception as e_col:
         print(f"❌ [COLUMN RENDER ERROR]: {str(e_col)}")
     # =========================================================================================
-    # ĐOẠN 1a & 1b: XỬ LÝ VÀ HIỂN THỊ BẢNG SO SÁNH (ĐÃ THỤT LỀ CHỐNG SẬP APPS)
-    # =========================================================================================
-# ĐOẠN 1a: KẾ THỪA TRỰC TIẾP TỪ TẦNG TRÊN (ĐÃ SỬA LỖI LỆCH DẤU GẠCH MÃ STYLE ID)
-# =========================================================================================
-
-old_specs = {}
-old_base_size = "N/A"
-target_style_name = "Chưa xác định"
-confidence_score = 0
-
-# 1. Thu thập dữ liệu mẫu mới quét từ bộ nhớ tạm
-new_specs_raw = st.session_state.get("new_style_measurements_dict", {})
-if isinstance(new_specs_raw, list):
-    new_specs = {}
-    for item in new_specs_raw:
-        if isinstance(item, dict) and "pom_description" in item:
-            new_specs[item["pom_description"]] = item.get("value")
-else:
-    new_specs = new_specs_raw if isinstance(new_specs_raw, dict) else {}
-
-garment_category = str(st.session_state.get("new_style_category_detected", "PANT")).strip().upper()
-new_style_base_size = st.session_state.get("new_style_base_size", "N/A")
-
-# 💡 LOGIC NÂNG CẤP: Lấy mã style mới quét được và chuẩn hóa sạch dấu gạch ngang
-raw_new_style_id = str(st.session_state.get("new_style_number_detected", "")).strip()
-clean_new_style_id = re.sub(r'[-_\s]', '', raw_new_style_id).upper()
-
-# 2. ÉP KẾ THỪA: Duyệt kho đối chứng kế thừa kết hợp cơ chế dự phòng khớp chuỗi sạch dấu gạch ngang
-matched_profile = st.session_state.get("matched_techpack")
-
-# Nếu biến matched_profile tầng trên bị rỗng do lệch dấu gạch, ta chủ động quét nhanh trong danh sách lưu kho
-if not matched_profile and "all_downloaded_techpacks" in st.session_state:
-    for profile in st.session_state["all_downloaded_techpacks"]:
-        db_style = str(profile.get("style_number", profile.get("StyleName", "")))
-        clean_db_style = re.sub(r'[-_\s]', '', db_style).upper()
-        # Đối chiếu mã sạch ký tự phân tách
-        if clean_new_style_id and clean_db_style and (clean_new_style_id in clean_db_style or clean_db_style in clean_new_style_id):
-            matched_profile = profile
-            st.session_state["matched_techpack"] = profile
-            break
-
-if isinstance(matched_profile, dict) and matched_profile:
-    raw_old_specs = (
-        matched_profile.get("measurements") or 
-        matched_profile.get("DetailedMeasurements") or 
-        matched_profile.get("detailed_measurements") or {}
-    )
-    if isinstance(raw_old_specs, list):
-        old_specs = {}
-        for item in raw_old_specs:
-            if isinstance(item, dict):
-                k = item.get("pom_description") or item.get("pom_code") or "UNKNOWN"
-                old_specs[k] = item.get("value")
-    else:
-        old_specs = raw_old_specs if isinstance(raw_old_specs, dict) else {}
-        
-    old_base_size = str(matched_profile.get("base_size", matched_profile.get("BaseSize", "N/A")))
-    target_style_name = str(matched_profile.get("style_number", matched_profile.get("StyleName", "KHO_MẪU")))
-    confidence_score = int(st.session_state.get("match_confidence_score", 0))
-    if confidence_score == 0:
-        confidence_score = 100  # Kích hoạt điểm tự tin mặc định khi khớp chuỗi ID sạch
-
-# 3. 🎯 LỚP CHUẨN HÓA VÀ KHỬ MÃ TIỀN TỐ ĐỂ SO KHỚP CHỮ THUẦN TÚY
-POM_ALIAS = {
-    "CHEST WIDTH": "1/2 CHEST", "HALF CHEST": "1/2 CHEST", "CHEST WIDTH 1/2": "1/2 CHEST",
-    "WAIST WIDTH": "1/2 WAIST", "HALF WAIST": "1/2 WAIST",
-    "HIP WIDTH": "1/2 HIP", "HALF HIP": "1/2 HIP",
-    "CENTER BACK LENGTH": "CB LENGTH", "BODY LENGTH CB": "CB LENGTH",
-    "FRONT LENGTH": "CF LENGTH", "INSEAM LENGTH": "INSEAM", "OUTSEAM LENGTH": "OUTSEAM",
-    "LEG OPENING": "BOTTOM OPENING", "BACK CROTCH DEPTH": "BACK RISE", "FRONT CROTCH DEPTH": "FRONT RISE"
-}
-
-def normalize_pom_key(k):
-    if not k: return ""
-    k = str(k).upper().strip()
-    k = re.sub(r'^[A-Z0-9]+[-_]\d+\s*[-\s:]*', '', k).strip()
-    k = re.sub(r'\s+', ' ', k)
-    for alias, standard in POM_ALIAS.items():
-        if alias in k or k == alias: 
-            return standard
-    return k
-
-def parse_garment_value_industrial(v):
-    if v is None: return None
-    str_v = str(v).strip()
-    if not str_v or str_v.lower() == "none" or str_v == "-":
-        return None
-    try: 
-        return float(str_v)
-    except (ValueError, TypeError):
-        try:
-            uni_map = {"½": " 1/2", "¼": " 1/4", "¾": " 3/4", "⅛": " 1/8", "⅜": " 3/8", "⅝": " 5/8", "⅞": " 7/8"}
-            for uni_char, repl_str in uni_map.items():
-                if uni_char in str_v: str_v = str_v.replace(uni_char, repl_str)
-            str_v = re.sub(r'\s+', ' ', str_v).strip()
-            if " " in str_v and "/" in str_v:
-                parts = str_v.split(" ")
-                if len(parts) >= 2:
-                    whole = float(parts[0])
-                    fraction_part = str(parts[1])
-                    if "/" in fraction_part:
-                        num, den = fraction_part.split('/')
-                        return whole + (float(num) / float(den))
-            elif "/" in str_v:
-                num, den = str_v.split('/')
-                return float(num) / float(den)
-        except Exception: pass
-        nums = re.findall(r"[-+]?\d*\.\d+|\d+", str_v)
-        if nums:
-            try: return float(nums[0])
-            except Exception: return None
-        return None
-
-def highlight_deviation_industrial(row):
-    styles = [''] * len(row)
-    pct_str = str(row["Tỷ lệ biến thiên (Diff %)"])
-    if pct_str and pct_str != "-":
-        try:
-            val = float(pct_str.replace('%', '').replace('+', ''))
-            if abs(val) >= 5.0:
-                return ['background-color: #FCE8E6; color: #A61C06; font-weight: bold;'] * len(row)
-            elif abs(val) > 0:
-                return ['background-color: #FFF2CC; color: #B2A200;'] * len(row)
-        except Exception: pass
-    return styles
-
-    # =========================================================================================
-    old_specs = {}
-    old_base_size = "N/A"
-    target_style_name = "Chưa xác định"
-    confidence_score = 0
-
+    #    old_specs, old_base_size, target_style_name, confidence_score = {}, "N/A", "Chưa xác định", 0
     new_specs_raw = st.session_state.get("new_style_measurements_dict", {})
     if isinstance(new_specs_raw, list):
-        new_specs = {}
-        for item in new_specs_raw:
-            if isinstance(item, dict) and "pom_description" in item:
-                new_specs[item["pom_description"]] = item.get("value")
+        new_specs = {item["pom_description"]: item.get("value") for item in new_specs_raw if isinstance(item, dict) and "pom_description" in item}
     else:
         new_specs = new_specs_raw if isinstance(new_specs_raw, dict) else {}
 
     garment_category = str(st.session_state.get("new_style_category_detected", "PANT")).strip().upper()
     new_style_base_size = st.session_state.get("new_style_base_size", "N/A")
-
+    raw_new_style_id = str(st.session_state.get("new_style_number_detected", "")).strip()
+    clean_new_style_id = re.sub(r'[-_\s]', '', raw_new_style_id).upper()
     matched_profile = st.session_state.get("matched_techpack")
+
+    if not matched_profile and "all_downloaded_techpacks" in st.session_state:
+        for profile in st.session_state["all_downloaded_techpacks"]:
+            db_style = str(profile.get("style_number", profile.get("StyleName", "")))
+            if clean_new_style_id and (clean_new_style_id in re.sub(r'[-_\s]', '', db_style).upper()):
+                matched_profile = profile
+                st.session_state["matched_techpack"] = profile
+                break
+
     if isinstance(matched_profile, dict) and matched_profile:
-        raw_old_specs = (
-            matched_profile.get("measurements") or 
-            matched_profile.get("DetailedMeasurements") or 
-            matched_profile.get("detailed_measurements") or {}
-        )
+        raw_old_specs = matched_profile.get("measurements") or matched_profile.get("DetailedMeasurements") or matched_profile.get("detailed_measurements") or {}
         if isinstance(raw_old_specs, list):
-            old_specs = {}
-            for item in raw_old_specs:
-                if isinstance(item, dict):
-                    k = item.get("pom_description") or item.get("pom_code") or "UNKNOWN"
-                    old_specs[k] = item.get("value")
+            old_specs = {(item.get("pom_description") or item.get("pom_code") or "UNKNOWN"): item.get("value") for item in raw_old_specs if isinstance(item, dict)}
         else:
             old_specs = raw_old_specs if isinstance(raw_old_specs, dict) else {}
-            
         old_base_size = str(matched_profile.get("base_size", matched_profile.get("BaseSize", "N/A")))
         target_style_name = str(matched_profile.get("style_number", matched_profile.get("StyleName", "KHO_MẪU")))
-        confidence_score = int(st.session_state.get("match_confidence_score", 0))
+        confidence_score = int(st.session_state.get("match_confidence_score", 0)) or 100
+
+    POM_ALIAS = {
+        "CHEST WIDTH": "1/2 CHEST", "HALF CHEST": "1/2 CHEST", "CHEST WIDTH 1/2": "1/2 CHEST",
+        "WAIST WIDTH": "1/2 WAIST", "HALF WAIST": "1/2 WAIST", "HIP WIDTH": "1/2 HIP", "HALF HIP": "1/2 HIP",
+        "CENTER BACK LENGTH": "CB LENGTH", "BODY LENGTH CB": "CB LENGTH", "FRONT LENGTH": "CF LENGTH",
+        "INSEAM LENGTH": "INSEAM", "OUTSEAM LENGTH": "OUTSEAM", "LEG OPENING": "BOTTOM OPENING",
+        "BACK CROTCH DEPTH": "BACK RISE", "FRONT CROTCH DEPTH": "FRONT RISE"
+    }
+
+    def normalize_pom_key(k):
+        if not k: return ""
+        k = re.sub(r'^[A-Z0-9]+[-_]\d+\s*[-\s:]*', '', str(k).upper().strip()).strip()
+        k = re.sub(r'\s+', ' ', k)
+        for alias, standard in POM_ALIAS.items():
+            if alias in k or k == alias: return standard
+        return k
+
+    def parse_garment_value_industrial(v):
+        if v is None or str(v).strip().lower() in ["none", "", "-", "null"]: return None
+        try: return float(str(v).strip())
+        except:
+            try:
+                str_v = str(v).strip()
+                uni_map = {"½": " 1/2", "¼": " 1/4", "¾": " 3/4", "⅛": " 1/8", "⅜": " 3/8", "⅝": " 5/8", "⅞": " 7/8"}
+                for uni_char, repl_str in uni_map.items():
+                    if uni_char in str_v: str_v = str_v.replace(uni_char, repl_str)
+                str_v = re.sub(r'\s+', ' ', str_v).strip()
+                if " " in str_v and "/" in str_v:
+                    parts = str_v.split(" ")
+                    if len(parts) >= 2 and "/" in str(parts[1]):
+                        num, den = str(parts[1]).split('/')
+                        return float(parts[0]) + (float(num) / float(den))
+                elif "/" in str_v:
+                    num, den = str_v.split('/')
+                    return float(num) / float(den)
+            except: pass
+            nums = re.findall(r"[-+]?\d*\.\d+|\d+", str(v))
+            return float(nums[0]) if nums else None
+
+    def highlight_deviation_industrial(row):
+        styles = [''] * len(row)
+        pct_str = str(row["Tỷ lệ biến thiên (Diff %)"])
+        if pct_str and pct_str != "-":
+            try:
+                val = float(pct_str.replace('%', '').replace('+', ''))
+                if abs(val) >= 5.0: return ['background-color: #FCE8E6; color: #A61C06; font-weight: bold;'] * len(row)
+                elif abs(val) > 0: return ['background-color: #FFF2CC; color: #B2A200;'] * len(row)
+            except: pass
+        return styles
 
     if old_specs and new_specs:
-        compare_rows = []
-        valid_diff_pcts = []
-
+        compare_rows, valid_diff_pcts = [], []
         st.markdown("---")
-        st.subheader("🎛️ CỔNG DEBUG CHẨN ĐOÁN KHO DỮ LIỆU SUPABASE")
         debug_col1, debug_col2 = st.columns(2)
-        with debug_col1:
-            st.info(f"1️⃣ **Mã đối chứng kế thừa:** `{target_style_name}`")
-            st.info(f"2️⃣ **Điểm tự tin trùng khớp hình ảnh:** `{confidence_score}%`")
-        with debug_col2:
-            st.success(f"3️⃣ **Số lượng POM mẫu mới:** `{len(new_specs)}`")
-            st.success(f"4️⃣ **Số lượng POM mã cũ kế thừa:** `{len(old_specs)}`")
-        st.markdown("---")
+        debug_col1.info(f"1️⃣ **Mã đối chứng kế thừa:** `{target_style_name}` | 2️⃣ **Điểm tự tin:** `{confidence_score}%`")
+        debug_col2.success(f"3️⃣ **POM mẫu mới:** `{len(new_specs)}` | 4️⃣ **POM mã cũ kế thừa:** `{len(old_specs)}`")
+        st.markdown("---<br>### 📐 BẢNG SO SÁNH SAI LỆCH THÔNG SỐ KỸ THUẬT RẬP MẪU", unsafe_allow_html=True)
+        col_new_title, col_old_title, processed_old_keys_global = f"Mẫu mới ({new_style_base_size})", f"Mã cũ ({old_base_size})", set()
 
-        st.markdown("<br>### 📐 BẢNG SO SÁNH SAI LỆCH THÔNG SỐ KỸ THUẬT RẬP MẪU", unsafe_allow_html=True)
-
-        col_new_title = f"Mẫu mới ({new_style_base_size})"
-        col_old_title = f"Mã cũ ({old_base_size})"
-        processed_old_keys_global = set()
-
-        flattened_old_specs = {}
-        for k, v in old_specs.items():
-            norm_old_k = normalize_pom_key(k) if 'normalize_pom_key' in globals() else k
-            flattened_old_specs[norm_old_k] = v
-
+        flattened_old_specs = {normalize_pom_key(k): v for k, v in old_specs.items()}
         for original_new_key, val_new in new_specs.items():
-            clean_new_key = normalize_pom_key(original_new_key) if 'normalize_pom_key' in globals() else original_new_key
-            
-            val_old = None
-            if clean_new_key in flattened_old_specs:
-                val_old = flattened_old_specs[clean_new_key]
-                processed_old_keys_global.add(str(clean_new_key))
-                
-            f_new = parse_garment_value_industrial(val_new) if 'parse_garment_value_industrial' in globals() else None
-            f_old = parse_garment_value_industrial(val_old) if 'parse_garment_value_industrial' in globals() else None
-            diff_val, diff_pct = None, None
-            
-            if f_new is not None and f_old is not None:
-                diff_val = round(f_new - f_old, 2)
-                if f_old != 0:
-                    diff_pct = round((diff_val / f_old) * 100, 2)
-                    valid_diff_pcts.append(diff_pct)
+            clean_new_key = normalize_pom_key(original_new_key)
+            val_old = flattened_old_specs.get(clean_new_key)
+            if clean_new_key in flattened_old_specs: processed_old_keys_global.add(str(clean_new_key))
+            f_new, f_old = parse_garment_value_industrial(val_new), parse_garment_value_industrial(val_old)
+            diff_val = round(f_new - f_old, 2) if f_new is not None and f_old is not None else None
+            diff_pct = round((diff_val / f_old) * 100, 2) if diff_val is not None and f_old and f_old != 0 else None
+            if diff_pct is not None: valid_diff_pcts.append(diff_pct)
 
-            display_key = str(original_new_key).strip().upper()
+            display_key = re.sub(r'^[A-Z0-9]+[-_]\d+\s*[-\s:]*', '', str(original_new_key)).strip().upper()
             display_diff = f"+{diff_val}" if diff_val is not None and diff_val > 0 else (str(diff_val) if diff_val is not None else "-")
             display_pct = f"+{diff_pct}%" if diff_pct is not None and diff_pct > 0 else (f"{diff_pct}%" if diff_pct is not None else "-")
-            
-            compare_rows.append({
-                "Vị trí đo (POM Description)": display_key,
-                col_new_title: val_new if val_new is not None else "-",
-                col_old_title: val_old if val_old is not None else "-",
-                "Chênh lệch (Diff)": display_diff,
-                "Tỷ lệ biến thiên (Diff %)": display_pct
-            })
+            compare_rows.append({"Vị trí đo (POM Description)": display_key, col_new_title: val_new or "-", col_old_title: val_old or "-", "Chênh lệch (Diff)": display_diff, "Tỷ lệ biến thiên (Diff %)": display_pct})
 
         for original_old_key, val_old in old_specs.items():
-            norm_old_key = normalize_pom_key(original_old_key) if 'normalize_pom_key' in globals() else original_old_key
-            if norm_old_key not in processed_old_keys_global:
-                compare_rows.append({
-                    "Vị trí đo (POM Description)": str(original_old_key).upper(),
-                    col_new_title: "-",
-                    col_old_title: val_old if val_old is not None else "-",
-                    "Chênh lệch (Diff)": "-",
-                    "Tỷ lệ biến thiên (Diff %)": "-"
-                })
+            if normalize_pom_key(original_old_key) not in processed_old_keys_global:
+                display_old_key = re.sub(r'^[A-Z0-9]+[-_]\d+\s*[-\s:]*', '', str(original_old_key)).strip().upper()
+                compare_rows.append({"Vị trí đo (POM Description)": display_old_key, col_new_title: "-", col_old_title: val_old or "-", "Chênh lệch (Diff)": "-", "Tỷ lệ biến thiên (Diff %)": "-"})
 
         df_compare = pd.DataFrame(compare_rows)
-        if not df_compare.empty:
-            styled_df = df_compare.style.apply(highlight_deviation_industrial, axis=1) if 'highlight_deviation_industrial' in globals() else df_compare
-            st.dataframe(styled_df, use_container_width=True, hide_index=True)
-        else:
-            st.info("Không có vị trí đo nào khớp nhau để tiến hành tính tỷ lệ chênh lệch.")
+        if not df_compare.empty: st.dataframe(df_compare.style.apply(highlight_deviation_industrial, axis=1), use_container_width=True, hide_index=True)
+        else: st.info("Không có vị trí đo nào khớp chữ nhau.")
         st.session_state["valid_diff_pcts"] = valid_diff_pcts
     else:
         st.markdown("---")
         st.error("⚠️ **HỆ THỐNG PHÁT HIỆN THIẾU DỮ LIỆU ĐỂ LẬP BẢNG SO SÁNH THÔNG SỐ**")
+        diag_col1, diag_col2 = st.columns(2)
+        diag_col1.warning("❌ Dữ liệu mẫu mới trống.") if not st.session_state.get("new_style_measurements_dict") else diag_col1.success("✅ Mẫu mới sẵn sàng.")
+        diag_col2.warning("❌ Dữ liệu mã cũ trống.") if not old_specs else diag_col2.success("✅ Mã cũ sẵn sàng.")
+        st.markdown("---")
+        st.session_state["valid_diff_pcts"] = []
 
-    # =========================================================================================
-    # ĐOẠN D: TRỢ LÝ AI PHÂN TÍCH ĐỊNH MỨC SẢN XUẤT (ĐÃ THỤT LỀ CHUẨN TRONG MENU)
-    # =========================================================================================
     try:
-        import json
         from google import genai
         from google.genai import types
-
-        if "consumption_chat_history" not in st.session_state:
-            st.session_state["consumption_chat_history"] = []
-
+        if "consumption_chat_history" not in st.session_state: st.session_state["consumption_chat_history"] = []
         matrix_prompt_input = st.chat_input("Nhập yêu cầu phân tích định mức...", key="matrix_chat_input_final")
         if matrix_prompt_input:
             st.session_state["consumption_chat_history"].append({"role": "user", "content": matrix_prompt_input})
-            gemini_key = st.secrets.get("GEMINI_API_KEY", "").strip()
+            gemini_key = st.secrets.get("GEMINI_API_KEY", "").strip() or (get_secure_gemini_key() if 'get_secure_gemini_key' in globals() else "")
             if gemini_key:
                 try:
                     client_chat = genai.Client(api_key=gemini_key)
                     context_bom = st.session_state.get("ai_projected_consumption_matrix", [])
-                    chat_system_instruction = (
-                        "You are an expert Costing & Material Utilization Engineer at PPJ Group.\n"
-                        f"Analyze this projected BOM matrix context: {json.dumps(context_bom, ensure_ascii=False)}."
-                    )
-                    chat_res = client_chat.models.generate_content(
-                        model='gemini-2.5-flash',
-                        contents=matrix_prompt_input,
-                        config=types.GenerateContentConfig(system_instruction=chat_system_instruction, temperature=0.3)
-                    )
-                    if chat_res and chat_res.text:
-                        st.session_state["consumption_chat_history"].append({"role": "model", "content": chat_res.text})
-                except Exception as chat_ai_err:
-                    st.session_state["consumption_chat_history"].append({"role": "model", "content": f"⚠️ Trợ lý AI đang bận: {str(chat_ai_err)}"})
+                    chat_system_instruction = f"You are an expert Costing Engineer at PPJ Group. Analyze context: {json.dumps(context_bom, ensure_ascii=False)}. Answer in Vietnamese."
+                    chat_res = client_chat.models.generate_content(model='gemini-2.5-flash', contents=matrix_prompt_input, config=types.GenerateContentConfig(system_instruction=chat_system_instruction, temperature=0.3))
+                    if chat_res and chat_res.text: st.session_state["consumption_chat_history"].append({"role": "model", "content": chat_res.text})
+                except Exception as ce: st.session_state["consumption_chat_history"].append({"role": "model", "content": f"⚠️ Trợ lý lỗi: {str(ce)}"})
             st.rerun()
-
-        for msg in st.session_state.get("consumption_chat_history", []):
-            if msg["role"] == "user":
-                st.chat_message("user").write(msg["content"])
-            else:
-                st.chat_message("assistant").write(msg["content"])
-    except Exception as e_chat_master:
-        st.error(f"❌ [CHAT SYSTEM ERROR]: {str(e_chat_master)}")
-
-# LƯU Ý: Phía dưới dòng này chính là câu lệnh dính lỗi trong ảnh của bạn:
-# elif menu_selection == "Purchase Consumption":
+        for msg in st.session_state.get("consumption_chat_history", []): st.chat_message("user" if msg["role"] == "user" else "assistant").write(msg["content"])
+    except Exception as e_chat_master: st.error(f"❌ [CHAT SYSTEM ERROR]: {str(e_chat_master)}")
 
 
 
