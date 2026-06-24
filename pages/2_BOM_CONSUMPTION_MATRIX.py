@@ -1988,8 +1988,14 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     st.session_state["main_fabric_records"] = main_fabric_records
     st.session_state["bom_summary_engine"] = bom_summary_engine
 
-       # --- BẢNG SO SÁNH SAI LỆCH THÔNG SỐ RẬP ---
+              # --- BẢNG SO SÁNH SAI LỆCH THÔNG SỐ RẬP ---
     st.markdown("<br>### 📐 BẢNG SO SÁNH SAI LỆCH THÔNG SỐ KỸ THUẬT RẬP MẪU", unsafe_allow_html=True)
+    
+    # ĐỒNG BỘ NÂNG CẤP: Lấy dữ liệu an toàn từ session_state đã parse bởi AI
+    extracted_spec = st.session_state.get("extracted_spec_data", {})
+    if extracted_spec and not new_style_measurements_dict:
+        new_style_measurements_dict = extracted_spec.get("measurements", {})
+
     new_specs = new_style_measurements_dict if new_style_measurements_dict else {}
     old_specs = matched_techpack.get("DetailedMeasurements", {}) if matched_techpack else {}
     avg_area_growth_pct = 0.0
@@ -2004,14 +2010,41 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             cleaned = re.sub(r'[^A-Z\s]', '', cleaned).strip()
             return cleaned
 
-        # Hàm bổ sung: Trích xuất chính xác số float đầu tiên từ chuỗi dữ liệu kỹ thuật
+        # Hàm bổ sung: VÁ LỖI BÓC TÁCH CHUỖI DICTIONARY / JSON PHỨC TẠP THÀNH SỐ FLOAT
         def clean_float(v):
             if v is None: return None
+            # Trường hợp dữ liệu là một Dictionary thực tế
+            if isinstance(v, dict):
+                v = v.get("Placement Amount") or v.get("Value") or list(v.values())[0]
+            
+            v_str = str(v).strip()
+            # Trường hợp chuỗi dạng JSON thô "{'POM Name': ...}"
+            if v_str.startswith("{"):
+                try:
+                    # Chuyển đổi dấu nháy đơn thành nháy kép để parse JSON hợp lệ
+                    import json
+                    parsed_v = json.loads(v_str.replace("'", '"'))
+                    v_str = str(parsed_v.get("Placement Amount") or parsed_v.get("Value") or list(parsed_v.values())[0])
+                except Exception:
+                    # Fallback quét bằng Regex tìm giá trị của Placement Amount hoặc Value
+                    match = re.search(r"'(?:Placement Amount|Value)'\s*:\s*'([^']+)'", v_str)
+                    if match:
+                        v_str = match.group(1)
+            
             try: 
-                return float(v)
+                return float(v_str)
             except (ValueError, TypeError):
-                nums = re.findall(r"[-+]?\d*\.\d+|\d+", str(v))
+                nums = re.findall(r"[-+]?\d*\.\d+|\d+", v_str)
                 return float(nums[0]) if nums else None
+
+        # Hàm bổ sung: Định dạng lại chuỗi hiển thị thô trên bảng Dataframe cho sạch đẹp
+        def get_display_value(v):
+            if v is None: return "-"
+            f_val = clean_float(v)
+            if f_val is not None:
+                # Nếu phần thập phân bằng 0 thì chuyển về số nguyên, ngược lại giữ 2 chữ số thập phân
+                return str(int(f_val)) if f_val.is_integer() else str(round(f_val, 2))
+            return str(v)
 
         # Tiến hành ánh xạ thông minh giữa hai bảng thông số mới và cũ thông qua chuỗi đã làm sạch
         mapped_old_specs = {clean_pom_text(k): (k, v) for k, v in old_specs.items()}
@@ -2054,30 +2087,36 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             
             compare_rows.append({
                 "Vị trí đo (POM Description)": original_new_key,
-                f"Mẫu mới ({new_style_base_size})": val_new if val_new is not None else "-",
-                f"Mã cũ ({str(st.session_state.get('matched_style_name', 'N/A'))})": val_old if val_old is not None else "-",
+                f"Mẫu mới ({new_style_base_size})": get_display_value(val_new),
+                f"Mã cũ ({str(st.session_state.get('matched_style_name', 'N/A'))})": get_display_value(val_old),
                 "Chênh lệch (Diff)": display_diff,
                 "Tỷ lệ biến thiên (Diff %)": display_pct
             })
 
-        # Nạp nốt các vị trí đo của mã cũ nếu mã mới không có để tránh mất mát dữ liệu hiển thị
+        # VÁ LỖI ĐOẠN CUỐI: Nạp nốt các vị trí đo của mã cũ nếu mã mới không có để tránh mất mát dữ liệu hiển thị
         for original_old_key, val_old in old_specs.items():
             if original_old_key not in processed_old_keys:
+                f_old = clean_float(val_old)
                 compare_rows.append({
                     "Vị trí đo (POM Description)": original_old_key,
                     f"Mẫu mới ({new_style_base_size})": "-",
-                    f"Mã cũ ({str(st.session_state.get('matched_style_name', 'N/A'))})": val_old if val_old is not None else "-",
+                    f"Mã cũ ({str(st.session_state.get('matched_style_name', 'N/A'))})": get_display_value(val_old),
                     "Chênh lệch (Diff)": "-",
                     "Tỷ lệ biến thiên (Diff %)": "-"
                 })
+
+        # Dựng DataFrame sạch lên màn hình giao diện người dùng
+        if compare_rows:
+            compare_df = pd.DataFrame(compare_rows)
+            st.dataframe(compare_df, use_container_width=True)
             
-        df_compare_spec = pd.DataFrame(compare_rows)
-        st.dataframe(df_compare_spec, use_container_width=True, hide_index=True)
-        
-        # Tính toán độ biến thiên diện tích phom dựa trên các POM cốt lõi được giữ lại
-        if valid_diff_pcts:
-            avg_pom_growth = sum(valid_diff_pcts) / len(valid_diff_pcts)
-            avg_area_growth_pct = round((((1 + avg_pom_growth/100) ** 2) - 1) * 100, 2)
+            # Tính định mức biến thiên trung bình phục vụ dự phòng định mức phía dưới
+            if valid_diff_pcts:
+                avg_area_growth_pct = round(sum(valid_diff_pcts) / len(valid_diff_pcts), 2)
+                st.metric(label="📈 Tỷ lệ biến thiên diện tích rập trung bình (Core POMs)", value=f"{avg_area_growth_pct}%")
+        else:
+            st.info("ℹ️ Không có dữ liệu thông số khả dụng để tiến hành đối chiếu lập bảng biểu.")
+
 
     # --- AI CONSUMPTION PROJECTION ENGINE ---
     if matched_techpack and st.session_state.get("matched_image_verified", False) and bom_records:
