@@ -2089,9 +2089,10 @@ def classify_garment_material(ctype_text):
         return "HARD-TRIM"
     return "SOFT-TRIM"
 
-# --- PHẦN EXECUTE CHẠY TRỰC TIẾP TRÊN FILE (KHÔNG ĐẶT TRONG KHỐI TRY/EXCEPT THỤT LỀ SAI) ---
+# --- KHỐI XỬ LÝ CHÍNH KHÔNG ĐẶT TRONG TRY/EXCEPT ĐỂ TRÁNH LỆCH THỤT LỀ ---
 bom_summary_engine = {}
-# Quét đọc an toàn từ session_state
+
+# Đọc dữ liệu từ session_state an toàn
 if "bom_records" in st.session_state and st.session_state["bom_records"]:
     for record in st.session_state["bom_records"]:
         c_name = record.get("component_name") or record.get("ComponentName") or record.get("MaterialType")
@@ -2099,7 +2100,7 @@ if "bom_records" in st.session_state and st.session_state["bom_records"]:
         if c_name and c_qty is not None:
             bom_summary_engine[str(c_name).upper()] = float(c_qty)
 
-# Nạp dữ liệu fallback chuẩn cấu trúc hình mẫu nếu trống
+# Cấu hình dữ liệu mặc định hiển thị giống hình mẫu nếu kho trống
 if not bom_summary_engine:
     bom_summary_engine = {
         "MAIN FABRIC": 1.625, 
@@ -2151,6 +2152,7 @@ for ctype, old_qty in bom_summary_engine.items():
 df_projection = pd.DataFrame(projection_rows)
 st.session_state["ai_projected_consumption_matrix"] = projection_rows
 st.dataframe(df_projection, use_container_width=True, hide_index=True)
+
 
 
 
