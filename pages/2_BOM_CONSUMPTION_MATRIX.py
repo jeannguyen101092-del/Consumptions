@@ -1429,40 +1429,46 @@ if gemini_key:
 # ĐOẠN 3 - PHẦN 1: HÀM TRÍCH XUẤT THÔNG SỐ QUA GEMINI API
 # =========================================================================================
 
-def process_single_pdf_batch(file_bytes, file_name):
+ddef process_single_pdf_batch(file_bytes, file_name):
     """
     Hàm bóc tách dữ liệu kỹ thuật từ một file PDF độc lập.
     ✨ ĐÃ NÂNG CẤP ĐỊNH VỊ PHOM DÁNG: Ép AI Vision chỉ bốc trang hiển thị chiếc quần hoàn chỉnh (Front and Back full garment views).
     STRICTLY FORBIDDEN: Cấm tuyệt đối lấy các trang rã rập thân quần đơn lẻ, cụm chi tiết hoặc rập tách rời.
     """
     import time
+    import io
+    import json
+    import re
+    import streamlit as st
+    
     try:
         gemini_key = get_secure_gemini_key()
         if not gemini_key:
             return {"success": False, "error": "API Key cho Gemini đang bị thiếu trong Secrets."}
             
-        # SỬA LỖI ĐỒNG BỘ THƯ VIỆN: Gọi trực tiếp từ google.generativeai để không bị lỗi Object Part
         import google.generativeai as genai
         genai.configure(api_key=gemini_key)
         
-        from pdf2image import convert_from_bytes
-        from pdfinfo import pdfinfo_from_bytes
+        # SỬA LỖI MODULE: Sử dụng pdf2image chuẩn để lấy thông tin trang, loại bỏ import pdfinfo lỗi
+        from pdf2image import convert_from_bytes, pdfinfo_from_bytes
         
-        info = pdfinfo_from_bytes(file_bytes)
-        total_p = int(info.get("Pages", 1))
+        # Lấy tổng số trang một cách an toàn từ thư viện pdf2image
+        try:
+            info = pdfinfo_from_bytes(file_bytes)
+            total_p = int(info.get("Pages", 1))
+        except Exception:
+            total_p = 1
         
         pdf_parts_payload = []
         chat_images = convert_from_bytes(file_bytes, dpi=90, first_page=1, last_page=total_p)
         for page_img in chat_images:
             img_buf = io.BytesIO()
             page_img.convert("RGB").save(img_buf, format="JPEG", quality=75)
-            # Sửa cú pháp nạp ảnh chuẩn cho model
             pdf_parts_payload.append({
                 "mime_type": "image/jpeg",
                 "data": img_buf.getvalue()
             })
             
-        # NÂNG CẤP PROMPT: Ép căng mắt nhìn chuẩn Style ID tránh đọc nhầm 490416 thành 2496
         industrial_extraction_prompt = (
             "You are an expert Garment Specification Auditor at PPJ Group. Analyze all attached sheets page by page. "
             "1. Identify the core 'Base Size' / 'Sample Size' (e.g., written as 8-, 32, or Size M). "
@@ -1490,7 +1496,6 @@ def process_single_pdf_batch(file_bytes, file_name):
         
         pdf_parts_payload.append(industrial_extraction_prompt)
         
-        # Gọi model thế hệ mới nhất xử lý
         model = genai.GenerativeModel('gemini-2.5-flash')
         response = None
         
@@ -1521,7 +1526,6 @@ def process_single_pdf_batch(file_bytes, file_name):
             chat_images[detected_idx].convert("RGB").save(b_buf, format="JPEG", quality=90)
             extracted_sketch_bytes = b_buf.getvalue()
             
-        # 🛠️ CÁCH 1: Tắt hoàn toàn tự động lưu kho ngầm lên cơ sở dữ liệu
         success_db = True
         
         output_payload = {
@@ -1546,6 +1550,7 @@ def process_single_pdf_batch(file_bytes, file_name):
         }
     except Exception as e:
         return {"success": False, "error": f"Lỗi bóc tách PDF: {str(e)}"}
+
 
 
 
