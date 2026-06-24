@@ -1466,7 +1466,7 @@ if gemini_key:
 def process_single_pdf_batch(file_bytes, file_name):
     """
     HÀM SỬA ĐỔI TỐI CAO: Thay thế hoàn toàn pdf2image bằng PyMuPDF (fitz) chuyên sâu.
-    🎯 KHÔNG CẦN POPPLER: Chạy trực tiếp trên RAM siêu tốc, bóc tách ảnh nét x2 cho Gemini.
+    🎯 SỬA LỖI QUÉT LỘN SỐ: Tinh chỉnh prompt ép Gemini triệt tiêu mã số và ngoặc đơn đầu dòng.
     """
     import io
     import json
@@ -1499,12 +1499,16 @@ def process_single_pdf_batch(file_bytes, file_name):
         sorted_pages = sorted(list(pages_to_scan))
         print(f"📋 [RETRIEVER SCAN] {file_name}: Tiến hành trích xuất {len(sorted_pages)} trang bằng PyMuPDF.")
         
+        # ✅ ĐÃ SỬA: Prompt siết chặt cứng quy tắc bóc tách TEXT thuần túy cho pom_description
         industrial_prompt = (
             "You are an expert Garment Specification Auditor at PPJ Group. Analyze all attached sheets page by page.\n"
             "1. Identify the core 'Base Size' / 'Sample Size' (e.g., written as 8, 32, or Size 30).\n"
             "2. Identify the Buyer name and Category.\n"
             "3. Find the exact 'Style ID' / 'Style Number' (e.g. 492496).\n"
             "4. Scan and extract EVERY SINGLE measurement specification line from the chart into key-value pairs inside measurements_list.\n"
+            "   ⚠️ CRITICAL RULE FOR 'pom_description': Extract ONLY the descriptive words of the position (e.g., 'Waist width at top edge', 'Thigh width 1 inch below crotch').\n"
+            "   ❌ ABSOLUTELY FORBIDDEN: Do NOT include prefix IDs, item numbers, or sequence codes (e.g., do NOT include 'WST-007', 'HIP-011', '01.', '02').\n"
+            "   ❌ REMOVE ALL parenthetical notes like '(2 KG)', '(RELAXED)' from the pom_description string.\n"
             "5. FOR THE GRADING MATRIX TABLE: Scan and extract the full grading matrix table columns.\n"
             "6. Find the exact 0-based page index number that contains the FULL BODY APPAREL FLAT SKETCH showing the entire completed garment."
         )
@@ -1584,7 +1588,24 @@ def process_single_pdf_batch(file_bytes, file_name):
             
         # Giải nén measurements_list thành đối tượng Dict phẳng chứa TOÀN BỘ các dòng specs
         measurements_list = parsed_data.get("measurements_list", [])
-        measurements = {str(item.get("pom_description")).strip(): str(item.get("value")).strip() for item in measurements_list if "pom_description" in item}
+        
+        # ✅ BỘ SÀN HẬU XỬ LÝ AN TOÀN (Post-processing Cleaner): Gạt bỏ thêm một lần nữa nếu AI vẫn sót mã số hoặc dấu ngoặc
+        measurements = {}
+        for item in measurements_list:
+            if "pom_description" in item and "value" in item:
+                desc = str(item.get("pom_description")).strip()
+                val = str(item.get("value")).strip()
+                
+                # 1. Triệt tiêu nội dung trong ngoặc đơn/vuông
+                desc_clean = re.sub(r'\([^\)]*\)', '', desc)
+                desc_clean = re.sub(r'\[[^\]]*\]', '', desc_clean)
+                # 2. Triệt tiêu các mã định danh viết tắt đầu dòng (Ví dụ: WST-007, HIP-011)
+                desc_clean = re.sub(r'\b[A-Z]{3,4}\s*-\s*\d+\b', '', desc_clean)
+                # 3. Làm sạch khoảng trắng thừa
+                desc_clean = re.sub(r'\s+', ' ', desc_clean).strip()
+                
+                if desc_clean:
+                    measurements[desc_clean] = val
         
         # Trích xuất tự động ảnh Flat Sketch dạng bytes sạch từ trang AI chỉ định
         sketch_page = parsed_data.get("sketch_page_number_detected", 0)
@@ -1599,7 +1620,7 @@ def process_single_pdf_batch(file_bytes, file_name):
             "buyer": parsed_data.get("buyer", "PPJ GROUP"),
             "category": parsed_data.get("category", "PANTS"),
             "base_size_name": parsed_data.get("base_size_name", "30"),
-            "measurements": measurements, # Chứa toàn bộ danh sách điểm đo chi tiết
+            "measurements": measurements, # Đã làm sạch chữ thuần túy
             "full_size_matrix": parsed_data.get("full_size_matrix", {}),
             "_sketch_bytes_raw": sketch_bytes_raw,
             "sketch_page_number_detected": sketch_page
