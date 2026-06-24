@@ -1935,7 +1935,7 @@ def parse_garment_value(v_text):
         if re.search(r'\s[-/]\s', clean_text):
             range_parts = re.split(r'\s*[-/]\s*', clean_text)
             if range_parts:
-                clean_text = range_parts.strip()
+                clean_text = range_parts[0].strip()
         clean_text = re.sub(r'[^0-9./\s]', '', clean_text).strip()
         parts = clean_text.split()
         if not parts: 
@@ -1962,7 +1962,6 @@ def classify_garment_material(ctype_text):
         return "HARD-TRIM"
     return "SOFT-TRIM"
 
-# ĐÃ SỬA LỖI: Loại bỏ hoàn toàn ký tự lạ tại từ khóa LEG OPENING giúp vượt qua lỗi biên dịch
 POM_ALIAS_MAP = {
     "FRONT CROTCH DEPTH": "RISE-FRNT", "FRONT BODY RISE": "RISE-FRNT", "FRONT CROTCH LENGTH": "RISE-FRNT", "FRONT RISE": "RISE-FRNT",
     "BACK CROTCH DEPTH": "RISE-BACK", "BACK BODY RISE": "RISE-BACK", "BACK CROTCH LENGTH": "RISE-BACK", "BACK RISE": "RISE-BACK",
@@ -2064,7 +2063,8 @@ def execute_pom_comparison_matrix(new_style_measurements, matched_techpack, targ
                 if num_new is not None and num_old is not None and num_old != 0:
                     diff_pct = round(((num_new - num_old) / num_old) * 100, 2)
                     display_pct = f"+{diff_pct}%" if diff_pct > 0 else f"{diff_pct}%"
-                    if "POCKET" not in clean_new_key && "COIN" not in clean_new_key:
+                    # ĐÃ SỬA: Thay đổi hoàn toàn dấu '&&' thành toán tử 'and' chuẩn Python
+                    if "POCKET" not in clean_new_key and "COIN" not in clean_new_key:
                         if any(k in clean_new_key for k in ["INSEAM", "THIGH", "HIP", "KNEE", "WAIST", "RISE", "LEG", "OPENING", "CHEST", "BUST", "LENGTH"]):
                             valid_diff_pcts.append(abs(diff_pct))
         except Exception: 
