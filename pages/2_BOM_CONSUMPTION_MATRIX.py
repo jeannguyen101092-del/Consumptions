@@ -1907,14 +1907,12 @@ from fractions import Fraction
 import pandas as pd
 import streamlit as st
 
-# TỰ ĐỘNG KIỂM TRA VÀ CÀI ĐẶT THƯ VIỆN FUZZY MATCHING HIỆU NĂNG CAO
+# 🛡️ SỬA LỖI: Bọc bảo vệ an toàn, nếu Server chưa kịp nạp rapidfuzz thì dùng thuật toán so khớp chuỗi thay thế, tuyệt đối không gây sập màn hình hồng
 try:
     from rapidfuzz import fuzz
+    HAS_RAPIDFUZZ = True
 except ImportError:
-    import subprocess
-    import sys
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "rapidfuzz"])
-    from rapidfuzz import fuzz
+    HAS_RAPIDFUZZ = False
 
 def normalize_key(text):
     """Làm sạch văn bản thông số rập, viết hoa đồng bộ toàn hệ thống."""
@@ -1939,17 +1937,17 @@ def parse_garment_value(v_text):
         if re.search(r'\s[-/]\s', clean_text):
             range_parts = re.split(r'\s*[-/]\s*', clean_text)
             if range_parts:
-                clean_text = range_parts[0].strip()
+                clean_text = range_parts.strip()
         clean_text = re.sub(r'[^0-9./\s]', '', clean_text).strip()
         parts = clean_text.split()
         if not parts: 
             return None
-        if len(parts) == 2 and "/" in parts[1]:
-            return float(parts[0]) + float(Fraction(parts[1]))
-        elif len(parts) == 1 and "/" in parts[0]:
-            return float(Fraction(parts[0]))
+        if len(parts) == 2 and "/" in parts:
+            return float(parts) + float(Fraction(parts))
+        elif len(parts) == 1 and "/" in parts:
+            return float(Fraction(parts))
         else:
-            return float(parts[0])
+            return float(parts)
     except Exception:
         return None
 
@@ -1968,6 +1966,7 @@ def extract_below_position(text):
         parsed = parse_garment_value(m_frac.group(1))
         if parsed is not None: return parsed
     return None
+
 def classify_garment_material(ctype_text):
     """Phân loại vật tư vật lý chuẩn xác để áp dụng thuật toán dự phóng riêng biệt."""
     text = str(ctype_text).strip().upper()
