@@ -1824,7 +1824,6 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     except Exception as e_col:
         print(f"❌ [COLUMN RENDER ERROR]: {str(e_col)}")
 # =========================================================================================
-# =========================================================================================
 # ĐOẠN 1a: KẾ THỪA TRỰC TIẾP 100% KẾT QUẢ VECTOR TỪ TẦNG TRÊN (KHÔNG CALL API)
 # =========================================================================================
 
@@ -1890,6 +1889,7 @@ def normalize_pom_key(k):
 def parse_garment_value_industrial(v):
     """
     Hàm giải mã thông số ngành may (Hỗ trợ phân số dạng hỗn số như 28 1/2, ký tự đặc biệt).
+    Đã sửa lỗi gán nhầm mảng danh sách cho chuỗi phân số con.
     """
     if v is None: return None
     str_v = str(v).strip()
@@ -1907,11 +1907,12 @@ def parse_garment_value_industrial(v):
             
             str_v = re.sub(r'\s+', ' ', str_v).strip()
             
+            # GIẢI PHÁP TÁCH HỖN SỐ BẰNG INDEX MẢNG CHUẨN XÁC
             if " " in str_v and "/" in str_v:
                 parts = str_v.split(" ")
                 if len(parts) >= 2:
                     whole = float(parts[0])
-                    fraction_part = parts[1]
+                    fraction_part = str(parts[1])
                     if "/" in fraction_part:
                         num, den = fraction_part.split('/')
                         return whole + (float(num) / float(den))
@@ -1929,7 +1930,7 @@ def parse_garment_value_industrial(v):
 
 def highlight_deviation_industrial(row):
     """
-    HÀM GLOBAL: Định dạng cấu trúc màu CSS phòng ngừa lỗi lồng hàm SyntaxError.
+    HÀM GLOBAL: Định dạng cấu trúc màu CSS.
     Tô đỏ nhạt nếu lệch >= 5%, tô vàng nhạt nếu lệch nhỏ hơn.
     """
     styles = [''] * len(row)
@@ -2065,58 +2066,72 @@ else:
 
 
 
+# =========================================================================================
+# ĐOẠN D: TRỢ LÝ AI PHÂN TÍCH ĐỊNH MỨC SẢN XUẤT (VÁ LỖI TRIỆT ĐỂ SYNTAX & NAMEERROR)
+# =========================================================================================
+try:
+    import json
+    from google import genai
+    from google.genai import types
 
-    # =========================================================================================
-    # ĐOẠN D: TRỢ LÝ AI PHÂN TÍCH ĐỊNH MỨC SẢN XUẤT (VÁ LỖI TRIỆT ĐỂ NAMEERROR 'user_query')
-    # =========================================================================================
-    try:
-        # Sử dụng đúng khóa key="matrix_chat_input_final" độc nhất để kích hoạt ô nhập liệu chat
-        matrix_prompt_input = st.chat_input("Nhập yêu cầu phân tích (Ví dụ: Tính định mức vải chính khi co rút ngang 5%, dọc 2%)...", key="matrix_chat_input_final")
+    # Khởi tạo bộ nhớ lịch sử chat nếu chưa tồn tại trong session để tránh lỗi rỗng
+    if "consumption_chat_history" not in st.session_state:
+        st.session_state["consumption_chat_history"] = []
+
+    # Sử dụng đúng khóa key="matrix_chat_input_final" độc nhất để kích hoạt ô nhập liệu chat
+    matrix_prompt_input = st.chat_input("Nhập yêu cầu phân tích (Ví dụ: Tính định mức vải chính khi co rút ngang 5%, dọc 2%)...", key="matrix_chat_input_final")
+    
+    if matrix_prompt_input:
+        # Lưu trữ tin nhắn của người dùng vào bộ nhớ lịch sử phiên
+        st.session_state["consumption_chat_history"].append({"role": "user", "content": matrix_prompt_input})
         
-        if matrix_prompt_input:
-            # Lưu trữ tin nhắn của người dùng vào bộ nhớ lịch sử phiên
-            st.session_state["consumption_chat_history"].append({"role": "user", "content": matrix_prompt_input})
-            
-            # Kích hoạt mô hình AI để xử lý câu hỏi
-            gemini_key = st.secrets.get("GEMINI_API_KEY", "").strip()
-            if gemini_key:
-                try:
-                    from google import genai
-                    client_chat = genai.Client(api_key=gemini_key)
-                    
-                    # Thu thập ma trận định mức dự phóng AI vừa tính toán ở Đoạn C để làm bối cảnh (Context) cho Bot
-                    context_bom = st.session_state.get("ai_projected_consumption_matrix", [])
-                    
-                    chat_system_instruction = (
-                        "You are an expert Costing & Material Utilization Engineer at PPJ Group.\n"
-                        f"Analyze this projected BOM matrix data context: {json.dumps(context_bom, ensure_ascii=False)}.\n"
-                        "Answer the user's question clearly in Vietnamese, focusing on fabric utilization, shrinkage risks, and cost efficiency."
-                    )
-                    
-                    chat_res = client_chat.models.generate_content(
-                        model='gemini-2.5-flash',
-                        contents=matrix_prompt_input,
-                        config=types.GenerateContentConfig(
-                            system_instruction=chat_system_instruction,
-                            temperature=0.3
-                        )
-                    )
-                    
-                    if chat_res and chat_res.text:
-                        st.session_state["consumption_chat_history"].append({"role": "model", "content": chat_res.text})
-                except Exception as chat_ai_err:
-                    st.session_state["consumption_chat_history"].append({"role": "model", "content": f"⚠️ Trợ lý AI đang bận: {str(chat_ai_err)}"})
-            st.rerun()
+        # Kích hoạt mô hình AI để xử lý câu hỏi
+        gemini_key = st.secrets.get("GEMINI_API_KEY", "").strip()
+        if not gemini_key:
+            # Dự phòng lấy hàm secrets từ tầng rập mẫu của bạn
+            gemini_key = get_secure_gemini_key() if 'get_secure_gemini_key' in globals() else ""
 
-        # Render trực quan lịch sử trò chuyện side-by-side ra giao diện màn hình
-        for msg in st.session_state.get("consumption_chat_history", []):
-            if msg["role"] == "user":
-                st.chat_message("user").write(msg["content"])
-            else:
-                st.chat_message("assistant").write(msg["content"])
+        if gemini_key:
+            try:
+                client_chat = genai.Client(api_key=gemini_key)
                 
-    except Exception as e_chat_master:
-        print(f"❌ [CHAT SYSTEM CRASH]: {str(e_chat_master)}")
+                # Thu thập ma trận định mức dự phóng AI vừa tính toán ở Đoạn C để làm bối cảnh (Context) cho Bot
+                context_bom = st.session_state.get("ai_projected_consumption_matrix", [])
+                
+                chat_system_instruction = (
+                    "You are an expert Costing & Material Utilization Engineer at PPJ Group.\n"
+                    f"Analyze this projected BOM matrix data context: {json.dumps(context_bom, ensure_ascii=False)}.\n"
+                    "Answer the user's question clearly in Vietnamese, focusing on fabric utilization, shrinkage risks, and cost efficiency."
+                )
+                
+                chat_res = client_chat.models.generate_content(
+                    model='gemini-2.5-flash',
+                    contents=matrix_prompt_input,
+                    config=types.GenerateContentConfig(
+                        system_instruction=chat_system_instruction,
+                        temperature=0.3
+                    )
+                )
+                
+                if chat_res and chat_res.text:
+                    st.session_state["consumption_chat_history"].append({"role": "model", "content": chat_res.text})
+            except Exception as chat_ai_err:
+                st.session_state["consumption_chat_history"].append({"role": "model", "content": f"⚠️ Trợ lý AI đang bận: {str(chat_ai_err)}"})
+        else:
+            st.session_state["consumption_chat_history"].append({"role": "model", "content": "⚠️ Hệ thống thiếu API Key cấu hình cho khung Chat."})
+            
+        st.rerun()
+
+    # Render trực quan lịch sử trò chuyện side-by-side ra giao diện màn hình
+    for msg in st.session_state.get("consumption_chat_history", []):
+        if msg["role"] == "user":
+            st.chat_message("user").write(msg["content"])
+        else:
+            st.chat_message("assistant").write(msg["content"])
+            
+except Exception as e_chat_master:
+    # Thay vì print ngầm ra terminal, hiển thị thẳng lỗi lên màn hình Streamlit để dễ kiểm soát gỡ lỗi
+    st.error(f"❌ [CHAT SYSTEM ERROR]: {str(e_chat_master)}")
 
 
 
