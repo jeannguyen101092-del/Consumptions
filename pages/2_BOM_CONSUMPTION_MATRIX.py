@@ -1296,13 +1296,14 @@ def process_single_pdf_batch(file_bytes, file_name):
         info = pdfinfo_from_bytes(file_bytes)
         total_p = int(info.get("Pages", 1))
         
+        # TỐI ƯU PAYLOAD: Giảm DPI xuống 80 và Chất lượng 65% để triệt tiêu hoàn toàn lỗi quá tải 503 mạng
         pdf_parts_payload = []
-        chat_images = convert_from_bytes(file_bytes, dpi=90, first_page=1, last_page=total_p)
+        chat_images = convert_from_bytes(file_bytes, dpi=80, first_page=1, last_page=total_p)
         
         stored_pages_bytes = []
         for page_img in chat_images:
             img_buf = io.BytesIO()
-            page_img.convert("RGB").save(img_buf, format="JPEG", quality=75)
+            page_img.convert("RGB").save(img_buf, format="JPEG", quality=65)
             img_data = img_buf.getvalue()
             stored_pages_bytes.append(img_data)
             pdf_parts_payload.append(types.Part.from_bytes(data=img_data, mime_type='image/jpeg'))
@@ -1328,8 +1329,8 @@ def process_single_pdf_batch(file_bytes, file_name):
         )
         pdf_parts_payload.append(types.Part.from_text(text=industrial_extraction_prompt))
         
-        # CHIẾN LƯỢC MỚI: Tự động đổi cụm máy chủ Model nếu gặp lỗi 503 quá tải hệ thống từ Google
-        models_fallback = ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-1.5-pro"]
+        # ĐỒNG BỘ TÊN MÔ HÌNH CHUẨN SDK MỚI (SỬA LỖI 404 VÀ LUÂN CHUYỂN DỰ PHÒNG CHUẨN)
+        models_fallback = ["gemini-2.5-flash", "gemini-2.5-pro"]
         last_err = "Không có phản hồi từ API"
         
         for attempt, model_name in enumerate(models_fallback):
@@ -1339,12 +1340,11 @@ def process_single_pdf_batch(file_bytes, file_name):
                     contents=pdf_parts_payload,
                     config=types.GenerateContentConfig(
                         response_mime_type="application/json",
-                        temperature=0.0  # Ép độ chính xác tối đa, chống AI tự biên dịch rác
+                        temperature=0.0
                     )
                 )
                 if response and response.text:
                     clean_text = response.text.strip()
-                    # Khử sạch các khối mã markdown bọc ngoài nếu AI trả về sai định dạng thô
                     if clean_text.startswith("```"):
                         clean_text = re.sub(r"^```(?:json)?\n|```$", "", clean_text, flags=re.MULTILINE).strip()
                     
@@ -1363,13 +1363,13 @@ def process_single_pdf_batch(file_bytes, file_name):
                     }
             except Exception as e:
                 last_err = str(e)
-                # Nghỉ 2 giây để đường truyền ổn định trước khi nhảy sang mô hình dự phòng tiếp theo
-                time.sleep(2.0)
+                time.sleep(2.5)
                 continue
                 
         return {"success": False, "error": f"AI không thể cấu trúc dữ liệu JSON sau khi thử luân chuyển toàn bộ các mô hình dự phòng. Chi tiết lỗi: {last_err}"}
     except Exception as e:
         return {"success": False, "error": str(e)}
+
 
 
 # Khởi tạo trạng thái mặc định của các biến
