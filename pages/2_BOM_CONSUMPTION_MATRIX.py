@@ -1824,39 +1824,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     except Exception as e_col:
         print(f"❌ [COLUMN RENDER ERROR]: {str(e_col)}")
     # =========================================================================================
-import json
-import re
-import streamlit as st
-import pandas as pd
-
-# Kiểm tra điều kiện menu trước khi chạy
-if 'menu_selection' in globals() or 'menu_selection' in locals():
-    if menu_selection == "🧵 BOM & Consumption Matrix":
-        
-        # Lấy dữ liệu an toàn từ session_state
-        matched_techpack = st.session_state.get("matched_techpack")
-        bom_records = st.session_state.get("bom_records", [])
-        new_style_measurements_dict = st.session_state.get("new_style_measurements_dict", {})
-        new_style_base_size = st.session_state.get("new_style_base_size", "N/A")
-        matched_style_name = str(st.session_state.get('matched_style_name', 'N/A'))
-        is_verified = st.session_state.get("matched_image_verified", False)
-
-        # --- 1. KẾT XUẤT BẢNG ĐỊNH MỨC NGUYÊN VẬT LIỆU (BOM) LỊCH SỬ THỰC TẾ ---
-        if matched_techpack and is_verified and bom_records:
-            st.markdown("<br>📦 **Chi Tiết Định Mức Định Hình Mở Rộng (BOM Lịch Sử Của Mã Đối Chứng):**", unsafe_allow_html=True)
-            df_bom = pd.DataFrame(bom_records)
-            target_cols = ['style_name', 'consumption_type', 'article_name', 'material_size', 'uom', 'consumption_value']
-            
-            for col in target_cols:
-                if col in df_bom.columns: 
-                    df_bom[col] = df_bom[col].astype(str).str.strip().replace(["nan", "none", "null", "NaN", "None"], "")
-                else: 
-                    df_bom[col] = "0" if col == "consumption_value" else ""
-
-            # Hiển thị bảng dữ liệu lịch sử thực tế lên giao diện
-            st.dataframe(df_bom, use_container_width=True, hide_index=True)
-
-        # --- BẢNG SO SÁNH SAI LỆCH THÔNG SỐ RẬP ---
+# --- BẢNG SO SÁNH SAI LỆCH THÔNG SỐ RẬP ---
 st.markdown("<br>### 📐 BẢNG SO SÁNH SAI LỆCH THÔNG SỐ KỸ THUẬT RẬP MẪU", unsafe_allow_html=True)
 
 # Lấy dữ liệu rập mới an toàn
@@ -1967,6 +1935,7 @@ else:
     if valid_diff_pcts:
         avg_pom_growth = sum(valid_diff_pcts) / len(valid_diff_pcts)
         avg_area_growth_pct = round((((1 + avg_pom_growth/100) ** 2) - 1) * 100, 2)
+
 
 
 
