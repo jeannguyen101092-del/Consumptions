@@ -1910,7 +1910,7 @@ from rapidfuzz import fuzz
 from scipy.optimize import linear_sum_assignment
 
 # =========================================================================================
-# ĐOẠN 1a: INDUSTRIAL AI POM MATCHING ENGINE - CROSS-BRAND ALIGNMENT VERSION
+# ĐOẠN 1a: INDUSTRIAL AI POM MATCHING ENGINE - FIXED TYPEERROR
 # =========================================================================================
 
 UNICODE_FRACTION_MAP = {
@@ -1930,28 +1930,24 @@ def parse_garment_value_industrial(v):
             
             if " " in str_v and "/" in str_v:
                 parts = str_v.split()
-                whole = float(parts)
-                frac_parts = parts.split('/')
-                return whole + (float(frac_parts) / float(frac_parts))
+                whole = float(parts[0])
+                frac_parts = parts[1].split('/')
+                return whole + (float(frac_parts[0]) / float(frac_parts[1]))
             elif "/" in str_v:
                 frac_parts = str_v.split('/')
-                return float(frac_parts) / float(frac_parts)
+                return float(frac_parts[0]) / float(frac_parts[1])
         except Exception: pass
         
         nums = re.findall(r"[-+]?\d*\.\d+|\d+", str_v)
-        return float(nums) if nums else None
+        # ✅ ĐÃ SỬA LỖI: Lấy phần tử đầu tiên nums[0] thay vì ép kiểu float cho cả list
+        return float(nums[0]) if nums else None
 
 POCKET_KEYWORDS = ["POCKET", "COIN", "WATCH", "TICKET", "UTILITY", "5TH"]
 
-# MỞ RỘNG BỘ TỪ KHÓA ĐẦY ĐỦ ĐỂ ĐÁNH TRÚNG CÁC ĐẦU MÃ TRÊN MÀN HÌNH (WST, LEG, RIS, HIP)
 POM_ALIAS_MAP = {
-    # Nhóm Vòng eo / Cật quần
     "WST": "WAIST-GEN", "WAISTBAND": "WAIST-GEN", "WAIST": "WAIST-GEN", "TOP WAIST": "WAIST-GEN",
-    # Nhóm Vòng mông
     "HIP": "HIP-GEN", "SEAT": "HIP-GEN", "LOW HIP": "HIP-GEN", "HIGH HIP": "HIP-GEN",
-    # Nhóm Đáy quần (Rise)
     "RIS": "RISE-FRONT", "FRONT RISE": "RISE-FRONT", "BACK RISE": "RISE-BACK", "CROTCH": "RISE-FRONT",
-    # Nhóm Đùi / Gối / Ống quần
     "THIGH": "THIGH-GEN", "LEG": "THIGH-GEN", "KNEE": "KNEE-GEN",
     "OPENING": "OPENING-GEN", "BOTTOM": "OPENING-GEN", "HEM": "OPENING-GEN",
     "INSEAM": "INSEAM-GEN", "OUTSEAM": "OUTSEAM-GEN"
@@ -1959,15 +1955,11 @@ POM_ALIAS_MAP = {
 
 def get_pom_position_code_industrial(text):
     if not text: return "UNK-GEN", 0.0
-    cleaned = str(text).upper().strip()
-    
-    # Loại bỏ các dấu gạch ngang đầu ngữ mã hàng để tránh làm nhiễu Jaccard/Fuzzy (Ví dụ: WST-007 -> WST 007)
-    cleaned = cleaned.replace("-", " ")
+    cleaned = str(text).upper().strip().replace("-", " ")
     
     if any(pk in cleaned for pk in POCKET_KEYWORDS):
         return "POCKET-GEN", 0.0
         
-    # Bẫy chính xác số vị trí hình học may mặc
     pos_regex = r'(\d+(?:\s+\d+/\d+|\.\d+|\/\d+)?)\s*(?:INCH|")?\s*(?:BELOW|ABOVE|FROM|DOWN)'
     pos_match = re.search(pos_regex, cleaned)
     
@@ -1977,7 +1969,6 @@ def get_pom_position_code_industrial(text):
     
     base_code = "UNK-GEN"
     for keyword, alias_code in POM_ALIAS_MAP.items():
-        # Kiểm tra khớp từ độc lập hoặc nằm trong cụm viết tắt của Techpack khách hàng
         if keyword in cleaned or re.search(r'\b' + re.escape(keyword) + r'\b', cleaned):
             base_code = alias_code
             break
@@ -2007,7 +1998,6 @@ if new_specs and old_specs:
     new_keys_list = list(new_specs.keys())
     old_keys_list = list(old_specs.keys())
     
-    # 📌 TẦNG 1: EXACT MATCH LAYER
     exact_matched_new = set()
     exact_matched_old = set()
     
@@ -2042,13 +2032,12 @@ if new_specs and old_specs:
                 fuzzy_score = float(fuzz.token_set_ratio(nk, ok))
                 pair_score = fuzzy_score * 0.40
                 
-                # Tăng mạnh điểm cộng nếu cùng nhóm phân loại cốt lõi
                 if new_base_code != "UNK-GEN" and new_base_code == old_base_code:
                     pair_score += 60.0
                     
                 if new_base_code == old_base_code and new_base_code != "POCKET-GEN":
                     distance = abs(new_pos - old_pos)
-                    pair_score -= min(distance * 4.0, 30.0) # Điều chỉnh giảm biên độ phạt khoảng cách vị trí đo
+                    pair_score -= min(distance * 4.0, 30.0)
                 elif new_pos != old_pos:
                     pair_score -= 10.0
                     
@@ -2066,12 +2055,7 @@ if new_specs and old_specs:
                 nk_target = filtered_new_keys[r]
                 ok_target = filtered_old_keys[c]
                 
-                new_base_code, _ = get_pom_position_code_industrial(nk_target)
-                
-                # Hạ ngưỡng sàn thông minh xuống 30.0 để chấp nhận các mô tả viết tắt của khách hàng khác Brand
-                required_threshold = 30.0
-                
-                if final_score >= required_threshold:
+                if final_score >= 30.0:
                     final_matched_map[nk_target] = {
                         "old_key": ok_target,
                         "val_old": old_specs[ok_target]
@@ -2086,10 +2070,11 @@ import pandas as pd
 # ĐOẠN 1b: VISUALIZATION RENDERER & DATA PACKAGING
 # =========================================================================================
 
+st.markdown("<br>### 📐 BẢNG SO SÁNH SAI LỆCH THÔNG SỐ KỸ THUẬT RẬP MẪU", unsafe_allow_html=True)
+
 compare_rows = []
 valid_diff_pcts = []
 
-# Duyệt đổ dữ liệu trực quan từ cổng kiểm soát thuật toán Đoạn 1a chuyển giao
 for original_new_key, val_new in new_specs.items():
     clean_new_key = str(original_new_key).upper().strip()
     
@@ -2107,16 +2092,12 @@ for original_new_key, val_new in new_specs.items():
         if f_old != 0:
             diff_pct = round((diff_val / f_old) * 100, 2)
             
-            # Sử dụng cổng phân loại Position Engine để loại bỏ vĩnh viễn chi tiết túi khỏi thống kê trung bình
             new_base_code, _ = get_pom_position_code_industrial(original_new_key)
-            
             if new_base_code != "POCKET-GEN":
                 if any(x in garment_category for x in ["PANT", "SHORT", "TROUSER"]):
-                    # Lọc lấy chuỗi kết cấu lớn chịu trách nhiệm nhảy vóc dáng rập hàng Quần
                     if any(k in clean_new_key for k in ["INSEAM", "THIGH", "HIP", "KNEE", "WAIST", "RISE", "FLY", "OPENING"]):
                         valid_diff_pcts.append(diff_pct)
                 else:
-                    # Lọc lấy kết cấu lớn hàng Áo
                     if any(k in clean_new_key for k in ["LENGTH", "CHEST", "BUST", "ARMHOLE", "SLEEVE", "WIDTH"]):
                         valid_diff_pcts.append(diff_pct)
 
@@ -2131,7 +2112,6 @@ for original_new_key, val_new in new_specs.items():
         "Tỷ lệ biến thiên (Diff %)": display_pct
     })
 
-# Đổ các thông số rập cũ còn sót lịch sử độc lập ra bảng dưới dạng Fallback Row
 if old_specs:
     for original_old_key, val_old in old_specs.items():
         if original_old_key not in processed_old_keys_global:
@@ -2143,13 +2123,11 @@ if old_specs:
                 "Tỷ lệ biến thiên (Diff %)": "-"
             })
 
-# Render đồ họa bảng so sánh thông số kỹ thuật tối ưu lên Streamlit
 if compare_rows:
     st.dataframe(pd.DataFrame(compare_rows), use_container_width=True, hide_index=True)
 else:
     st.info("ℹ️ Không tìm thấy danh sách thông số kỹ thuật hợp lệ để so sánh đối chiếu.")
 
-# Đóng gói và lưu trữ mảng phần trăm biến thiên sạch vượt qua bộ lọc nghiêm ngặt vào bộ nhớ đệm
 st.session_state["valid_diff_pcts"] = valid_diff_pcts
 
 
