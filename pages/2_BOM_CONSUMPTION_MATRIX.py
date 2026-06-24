@@ -1905,12 +1905,12 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
 import re
 import streamlit as st
 import pandas as pd
-import numpy as np  # Thêm numpy để xử lý ma trận chi phí chính xác
+import numpy as np
 from rapidfuzz import fuzz
 from scipy.optimize import linear_sum_assignment
 
 # =========================================================================================
-# ĐOẠN 1a: INDUSTRIAL AI POM MATCHING & HUNGARIAN ASSIGNMENT ENGINE (FIXED VALUEERROR)
+# ĐOẠN 1a: INDUSTRIAL AI POM MATCHING ENGINE - CROSS-BRAND ALIGNMENT VERSION
 # =========================================================================================
 
 UNICODE_FRACTION_MAP = {
@@ -1930,39 +1930,44 @@ def parse_garment_value_industrial(v):
             
             if " " in str_v and "/" in str_v:
                 parts = str_v.split()
-                whole = float(parts[0])
-                frac_parts = parts[1].split('/')
-                return whole + (float(frac_parts[0]) / float(frac_parts[1]))
+                whole = float(parts)
+                frac_parts = parts.split('/')
+                return whole + (float(frac_parts) / float(frac_parts))
             elif "/" in str_v:
                 frac_parts = str_v.split('/')
-                return float(frac_parts[0]) / float(frac_parts[1])
+                return float(frac_parts) / float(frac_parts)
         except Exception: pass
         
         nums = re.findall(r"[-+]?\d*\.\d+|\d+", str_v)
-        return float(nums[0]) if nums else None
+        return float(nums) if nums else None
 
 POCKET_KEYWORDS = ["POCKET", "COIN", "WATCH", "TICKET", "UTILITY", "5TH"]
 
+# MỞ RỘNG BỘ TỪ KHÓA ĐẦY ĐỦ ĐỂ ĐÁNH TRÚNG CÁC ĐẦU MÃ TRÊN MÀN HÌNH (WST, LEG, RIS, HIP)
 POM_ALIAS_MAP = {
-    "WAISTBAND": "WAIST-GEN", "WAIST WIDTH": "WAIST-GEN", "WAIST CIRCUMFERENCE": "WAIST-GEN",
-    "RELAXED WAIST": "WAIST-GEN", "EXTENDED WAIST": "WAIST-GEN", "TOP WAIST": "WAIST-GEN",
-    "FULL HIP": "HIP-GEN", "LOW HIP": "HIP-GEN", "HIP WIDTH": "HIP-GEN", 
-    "SEAT WIDTH": "HIP-GEN", "SEAT CIRCUMFERENCE": "HIP-GEN", "HIP CIRCUMFERENCE": "HIP-GEN",
-    "FRONT RISE": "RISE-FRONT", "FRONT BODY RISE": "RISE-FRONT", "FRONT CROTCH DEPTH": "RISE-FRONT",
-    "BACK RISE": "RISE-BACK", "BACK BODY RISE": "RISE-BACK", "BACK CROTCH DEPTH": "RISE-BACK",
-    "THIGH WIDTH": "THIGH-GEN", "THIGH CIRCUMFERENCE": "THIGH-GEN", "UPPER THIGH": "THIGH-GEN",
-    "KNEE WIDTH": "KNEE-GEN", "KNEE CIRCUMFERENCE": "KNEE-GEN",
-    "LEG OPENING": "OPENING-GEN", "BOTTOM OPENING": "OPENING-GEN", "HEM OPENING": "OPENING-GEN",
-    "INSEAM LENGTH": "INSEAM-GEN", "OUTSEAM LENGTH": "OUTSEAM-GEN"
+    # Nhóm Vòng eo / Cật quần
+    "WST": "WAIST-GEN", "WAISTBAND": "WAIST-GEN", "WAIST": "WAIST-GEN", "TOP WAIST": "WAIST-GEN",
+    # Nhóm Vòng mông
+    "HIP": "HIP-GEN", "SEAT": "HIP-GEN", "LOW HIP": "HIP-GEN", "HIGH HIP": "HIP-GEN",
+    # Nhóm Đáy quần (Rise)
+    "RIS": "RISE-FRONT", "FRONT RISE": "RISE-FRONT", "BACK RISE": "RISE-BACK", "CROTCH": "RISE-FRONT",
+    # Nhóm Đùi / Gối / Ống quần
+    "THIGH": "THIGH-GEN", "LEG": "THIGH-GEN", "KNEE": "KNEE-GEN",
+    "OPENING": "OPENING-GEN", "BOTTOM": "OPENING-GEN", "HEM": "OPENING-GEN",
+    "INSEAM": "INSEAM-GEN", "OUTSEAM": "OUTSEAM-GEN"
 }
 
 def get_pom_position_code_industrial(text):
     if not text: return "UNK-GEN", 0.0
     cleaned = str(text).upper().strip()
     
+    # Loại bỏ các dấu gạch ngang đầu ngữ mã hàng để tránh làm nhiễu Jaccard/Fuzzy (Ví dụ: WST-007 -> WST 007)
+    cleaned = cleaned.replace("-", " ")
+    
     if any(pk in cleaned for pk in POCKET_KEYWORDS):
         return "POCKET-GEN", 0.0
         
+    # Bẫy chính xác số vị trí hình học may mặc
     pos_regex = r'(\d+(?:\s+\d+/\d+|\.\d+|\/\d+)?)\s*(?:INCH|")?\s*(?:BELOW|ABOVE|FROM|DOWN)'
     pos_match = re.search(pos_regex, cleaned)
     
@@ -1972,7 +1977,8 @@ def get_pom_position_code_industrial(text):
     
     base_code = "UNK-GEN"
     for keyword, alias_code in POM_ALIAS_MAP.items():
-        if keyword in cleaned:
+        # Kiểm tra khớp từ độc lập hoặc nằm trong cụm viết tắt của Techpack khách hàng
+        if keyword in cleaned or re.search(r'\b' + re.escape(keyword) + r'\b', cleaned):
             base_code = alias_code
             break
             
@@ -2001,15 +2007,15 @@ if new_specs and old_specs:
     new_keys_list = list(new_specs.keys())
     old_keys_list = list(old_specs.keys())
     
-    # 📌 TẦNG 1: EXACT MATCH LAYER (Chặn đầu khóa cứng tuyệt đối)
+    # 📌 TẦNG 1: EXACT MATCH LAYER
     exact_matched_new = set()
     exact_matched_old = set()
     
     for nk in new_keys_list:
-        nk_norm = str(nk).upper().strip()
+        nk_norm = str(nk).upper().strip().replace("-", " ")
         for ok in old_keys_list:
             if ok in exact_matched_old: continue
-            if nk_norm == str(ok).upper().strip():
+            if nk_norm == str(ok).upper().strip().replace("-", " "):
                 final_matched_map[nk] = {"old_key": ok, "val_old": old_specs[ok]}
                 exact_matched_new.add(nk)
                 exact_matched_old.add(ok)
@@ -2024,7 +2030,6 @@ if new_specs and old_specs:
         num_old = len(filtered_old_keys)
         max_dim = max(num_new, num_old)
         
-        # ✅ ĐÃ SỬA LỖI: Tạo ma trận vuông chi phí nền bằng NumPy có kiểu dữ liệu float64 chuẩn xác
         cost_matrix = np.full((max_dim, max_dim), 1000.0, dtype=np.float64)
         score_tracker = {}
         
@@ -2037,23 +2042,22 @@ if new_specs and old_specs:
                 fuzzy_score = float(fuzz.token_set_ratio(nk, ok))
                 pair_score = fuzzy_score * 0.40
                 
+                # Tăng mạnh điểm cộng nếu cùng nhóm phân loại cốt lõi
                 if new_base_code != "UNK-GEN" and new_base_code == old_base_code:
                     pair_score += 60.0
                     
                 if new_base_code == old_base_code and new_base_code != "POCKET-GEN":
                     distance = abs(new_pos - old_pos)
-                    pair_score -= min(distance * 5.0, 40.0)
+                    pair_score -= min(distance * 4.0, 30.0) # Điều chỉnh giảm biên độ phạt khoảng cách vị trí đo
                 elif new_pos != old_pos:
-                    pair_score -= 15.0
+                    pair_score -= 10.0
                     
                 if new_base_code != old_base_code and "UNK-GEN" not in [new_base_code, old_base_code]:
                     pair_score = 0.0
                     
-                # Gán dữ liệu an toàn vào ma trận chi phí hình học
                 cost_matrix[i, j] = 1000.0 - pair_score
                 score_tracker[(i, j)] = pair_score
                 
-        # Giải toán tối ưu hóa phân phối dòng bằng thuật toán Hungarian
         row_ind, col_ind = linear_sum_assignment(cost_matrix)
         
         for r, c in zip(row_ind, col_ind):
@@ -2063,8 +2067,9 @@ if new_specs and old_specs:
                 ok_target = filtered_old_keys[c]
                 
                 new_base_code, _ = get_pom_position_code_industrial(nk_target)
-                core_critical_poms = ["WAIST-GEN", "HIP-GEN", "RISE-FRONT", "RISE-BACK", "THIGH-GEN", "INSEAM-GEN"]
-                required_threshold = 60.0 if new_base_code in core_critical_poms else 35.0
+                
+                # Hạ ngưỡng sàn thông minh xuống 30.0 để chấp nhận các mô tả viết tắt của khách hàng khác Brand
+                required_threshold = 30.0
                 
                 if final_score >= required_threshold:
                     final_matched_map[nk_target] = {
@@ -2072,6 +2077,7 @@ if new_specs and old_specs:
                         "val_old": old_specs[ok_target]
                     }
                     processed_old_keys_global.add(ok_target)
+
 
 import streamlit as st
 import pandas as pd
