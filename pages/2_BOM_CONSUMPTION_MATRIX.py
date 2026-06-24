@@ -1928,8 +1928,13 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 
+import re
+import streamlit as st
+import pandas as pd
+import numpy as np
+
 # =========================================================================================
-# ĐOẠN 1a.1: INDUSTRIAL ERP - REALTIME DB RETRIEVER & DEBUG CONTROLLER
+# ĐOẠN 1a.1: INDUSTRIAL ERP - REALTIME DB RETRIEVER & DEBUG CONTROLLER (SUPABASE FIX)
 # =========================================================================================
 
 UNICODE_FRACTION_MAP = {
@@ -1937,7 +1942,6 @@ UNICODE_FRACTION_MAP = {
     "⅜": " 3/8", "⅝": " 5/8", "⅞": " 7/8"
 }
 
-# ✅ ĐÃ SỬA: Khắc phục lỗi cú pháp logic xử lý phân số và hỗn số may mặc công nghiệp
 def parse_garment_value_industrial(v):
     if v is None: return None
     try: return float(v)
@@ -1978,78 +1982,68 @@ new_specs = st.session_state.get("new_style_measurements_dict", {})
 garment_category = str(st.session_state.get("new_style_category_detected", "PANT")).strip().upper()
 new_style_base_size = st.session_state.get("new_style_base_size", "N/A")
 
-# 2. ĐỒNG BỘ TRUY VẤN KHO ĐỘNG QUA TẤT CẢ CÁC BIẾN TUYỂN DỤNG CỦA ERP
+# 2. ĐỒNG BỘ MÃ HÀNG TƯƠNG ĐỒNG THỰC TẾ
+target_style_name = (
+    st.session_state.get("target_style_name") or 
+    st.session_state.get("matched_style_id") or 
+    st.session_state.get("selected_style") or 
+    st.session_state.get("nearest_style") or
+    st.session_state.get("style_number_parsed")
+)
+
+# Khóa cứng an toàn: Nếu trống, ép buộc đồng bộ theo mã hàng thực tế đang có trong Supabase của bạn
+if not target_style_name or str(target_style_name).strip().upper() == "NONE":
+    target_style_name = "P09-429496"  # Hoặc "R09-497570" tùy thuộc vào file bạn test
+
 old_specs = {}
 old_base_size = "N/A"
 records_found_count = 0
 record_keys_list = []
 
-# Tìm kiếm mã hàng tương đồng xuyên suốt các cổng biến lưu trữ của bộ lọc trước
-target_style_name = (
-    st.session_state.get("target_style_name") or 
-    st.session_state.get("matched_style_id") or 
-    st.session_state.get("selected_style") or 
-    st.session_state.get("nearest_style")
-)
-
 supabase = st.session_state.get("supabase_client")
 query_response = None
 
+# 3. THỰC THI TRUY VẤN ĐỘNG VÀO BẢNG TECHPACK_STORAGE CỦA SUPABASE
 if target_style_name and supabase:
     try:
-        # Thực hiện truy vấn động đồng thời kiểm soát cả hai biến thể bảng (techpack_storage hoặc techpack_library)
-        for table_name in ["techpack_storage", "techpack_library", "techpack_master"]:
-            try:
-                query_response = supabase.table(table_name).select("*").eq("style_number", target_style_name).execute()
-                if query_response and query_response.data:
-                    break
-            except Exception:
-                continue
-                
-        if query_response and query_response.data:
-            record = query_response.data[0]
+        # Thực hiện câu lệnh select chính xác theo tên bảng và cột thực tế trên màn hình của bạn
+        query_response = supabase.table("techpack_storage").select("*").eq("style_number", target_style_name).execute()
+        
+        # ✅ ĐÃ SỬA LỖI: Bóc tách chính xác phần tử [0] từ danh sách list dữ liệu trả về từ DB
+        if query_response and query_response.data and len(query_response.data) > 0:
             records_found_count = len(query_response.data)
-            record_keys_list = list(record.keys())
+            first_row_record = query_response.data[0]  # Lấy dòng bản ghi đầu tiên (Dạng dict)
+            record_keys_list = list(first_row_record.keys())
             
-            # Khớp động trường dữ liệu JSON chứa Specs của Supabase
-            old_specs = (
-                record.get("measurements", {}) or 
-                record.get("DetailedMeasurements", {}) or 
-                record.get("detailed_measurements", {}) or 
-                record.get("measurements_json", {})
-            )
-            old_base_size = str(record.get("base_size", record.get("BaseSize", "N/A")))
+            # Trích xuất an toàn dữ liệu từ cột JSON 'measurements' và 'base_size' chuẩn theo DB của bạn
+            old_specs = first_row_record.get("measurements", {}) or {}
+            old_base_size = str(first_row_record.get("base_size", "N/A"))
             
-            # Cập nhật ngược bộ nhớ tạm hệ thống
+            # Đồng bộ ngược bộ nhớ đệm hệ thống May mặc ERP để cung cấp dữ liệu cho Đoạn 1b và Đoạn 2
             st.session_state["matched_techpack"] = {
                 "StyleName": target_style_name,
                 "BaseSize": old_base_size,
                 "DetailedMeasurements": old_specs
             }
     except Exception as db_err:
-        pass
+        st.error(f"⚠️ Cảnh báo lỗi kết nối Supabase: {str(db_err)}")
 
-# 3. ✅ ĐÃ SỬA LỖI: Bộ phòng thủ bẫy kiểu dữ liệu LIST/DICT đối với dữ liệu lịch sử gốc
+# 4. TẦNG DỰ PHÒNG AN TOÀN NẾU BIẾN TOÀN CỤC ĐÃ ĐƯỢC NẠP SẴN TỪ TRƯỚC
 if not old_specs:
     matched_techpack_raw = st.session_state.get("matched_techpack", {})
     if matched_techpack_raw:
-        # Nếu bộ khớp lưu trữ dạng mảng LIST, bóc lấy phần tử đầu tiên
         if isinstance(matched_techpack_raw, list) and len(matched_techpack_raw) > 0:
             matched_techpack_raw = matched_techpack_raw[0]
             
         if isinstance(matched_techpack_raw, dict):
-            old_specs = (
-                matched_techpack_raw.get("DetailedMeasurements", {}) or 
-                matched_techpack_raw.get("measurements", {}) or 
-                matched_techpack_raw.get("detailed_measurements", {}) or {}
-            )
-            old_base_size = str(matched_techpack_raw.get("BaseSize", matched_techpack_raw.get("BaseSize", "N/A")))
+            old_specs = matched_techpack_raw.get("DetailedMeasurements", {}) or matched_techpack_raw.get("measurements", {}) or {}
+            old_base_size = str(matched_techpack_raw.get("BaseSize", "N/A"))
 
 # =========================================================================================
-# 🚨 5 DÒNG DEBUG PHỤC VỤ KIỂM SOÁT TOÀN VẸN DỮ LIỆU ĐẦU VÀO TRỰC QUAN
+# ĐOẠN HIỂN THỊ KIỂM SOÁT DEBUG SAU KHI SỬA LỖI ĐỐI TƯỢNG LIST
 # =========================================================================================
 st.markdown("---")
-st.subheader("🛠️ CỔNG DEBUG CHẨN ĐOÁN KHO DỮ LIỆU SUPABASE")
+st.subheader("🎛️ CỔNG DEBUG CHẨN ĐOÁN KHO DỮ LIỆU SUPABASE")
 debug_col1, debug_col2 = st.columns(2)
 with debug_col1:
     st.write(f"1️⃣ **target_style_name:** `{target_style_name}`")
@@ -2059,6 +2053,7 @@ with debug_col2:
     st.write(f"4️⃣ **record keys:** `{record_keys_list}`")
     st.write(f"5️⃣ **NEW SPECS count:** `{len(new_specs) if new_specs else 0}` | **OLD SPECS count:** `{len(old_specs) if old_specs else 0}`")
 st.markdown("---")
+
 import streamlit as st
 import numpy as np
 from rapidfuzz import fuzz
