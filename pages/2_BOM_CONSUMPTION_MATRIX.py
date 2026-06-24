@@ -2080,7 +2080,7 @@ def execute_pom_comparison_matrix(new_style_measurements, matched_techpack, targ
     st.session_state["valid_diff_pcts"] = valid_diff_pcts
     return comparison_rows
 # =========================================================================================
-# ĐOẠN B: PHÂN NHÁNH GIAO DIỆN CHÍNH (ĐỒNG BỘ CỨNG SUPABASE LẤY SẠCH LỖI TRỐNG HÀNG)
+# ĐOẠN B: PHÂN NHÁNH GIAO DIỆN CHÍNH (ĐỒNG BỘ CỨNG SUPABASE - ĐÃ LÀM SẠCH NÚT BẤM DỒN HÀNG)
 # =========================================================================================
 
 # Khởi tạo thanh menu điều hướng từ thanh Sidebar bên trái của bạn
@@ -2088,7 +2088,6 @@ menu_selection = st.sidebar.radio("FACTORY AUTOMATION", ["BOM CONSUMPTION MATRIX
 
 if menu_selection == "BOM CONSUMPTION MATRIX":
     # 🌟 BƯỚC 1: TRIỆT TIÊU LỖI TRỐNG THÔNG SỐ (HYDRATE SPECS)
-    # Ép đọc trực tiếp các biến rập mẫu đang chạy trong bộ nhớ ứng dụng
     new_style_measurements_dict = st.session_state.get("new_style_measurements_dict") or st.session_state.get("new_measurements") or {}
     matched_techpack = st.session_state.get("matched_techpack") or st.session_state.get("matched_data") or {}
     target_style_name = st.session_state.get("target_style_name") or st.session_state.get("old_style_id") or "Mã kho gốc"
@@ -2114,26 +2113,22 @@ if menu_selection == "BOM CONSUMPTION MATRIX":
 
     # 🌟 BƯỚC 2: SỬA LỖI ĐỊNH MỨC KHO KHÔNG ĐÚNG (HYDRATE BOM)
     bom_summary_engine = {}
-    
-    # Ép bốc trúng danh sách mảng dữ liệu trả về từ bảng public.san_pham của Supabase
     raw_supabase_records = st.session_state.get("bom_records") or st.session_state.get("supabase_bom_data") or []
     
     if raw_supabase_records:
         for record in raw_supabase_records:
-            # Nhắm trúng cột 'consumption_type' (Vải chính/Vải phụ) và 'consumption_value' (Số lượng) trên Supabase của bạn
             c_name = record.get("consumption_type") or record.get("component_name") or record.get("ComponentName")
             c_qty = record.get("consumption_value") or record.get("consumption_qty") or record.get("ConsumptionQty")
             if c_name and c_qty is not None:
                 bom_summary_engine[str(c_name).upper()] = float(c_qty)
 
-    # 🚨 CHẶN TUYỆT ĐỐI KHÔNG CHO SỬ DỤNG DATA MẪU LÀM SAI ĐỊNH MỨC THỰC TẾ
+    # Chặn không cho sử dụng dữ liệu mẫu nếu hệ thống đã nạp được kho thực tế từ Supabase
     if not bom_summary_engine and raw_supabase_records:
         st.error("❌ Lỗi cấu trúc: Đã tìm thấy bản ghi trên Supabase nhưng cột dữ liệu không khớp với 'consumption_type' hoặc 'consumption_value'.")
     elif not bom_summary_engine:
-        # Chỉ bật data nền nếu hệ thống hoàn toàn chưa chọn mã hàng nào trong DB
         bom_summary_engine = {"MAIN FABRIC": 1.625, "INTERLINING": 0.100, "POCKETING FABRIC": 0.135}
 
-    # Bắt nhịp số % biến thiên hình học nhảy size rập từ bảng thông số phía trên truyền xuống
+    # Bắt nhịp số % biến thiên hình học nhảy size rập từ bảng thông số truyền xuống
     avg_area_growth_pct = 5.97
     if "valid_diff_pcts" in st.session_state and st.session_state["valid_diff_pcts"]:
         valid_diff_pcts_clean = [x for x in st.session_state["valid_diff_pcts"] if x is not None]
@@ -2142,7 +2137,6 @@ if menu_selection == "BOM CONSUMPTION MATRIX":
 
     # Vẽ phân hệ dự phóng định mức vật tư AI lên màn hình
     st.markdown("<br>### 🔮 AI CONSUMPTION PROJECTION ENGINE (DỰ PHÓNG ĐỊNH MỨC MÃ MỚI)", unsafe_allow_html=True)
-    
     if raw_supabase_records:
         st.success(f"✅ **KẾT NỐI DATABASE THÀNH CÔNG:** Đã bóc tách thành công {len(bom_summary_engine)} dòng vật tư gốc từ kho Supabase.")
     else:
@@ -2150,11 +2144,11 @@ if menu_selection == "BOM CONSUMPTION MATRIX":
 
     p_col1, p_col2, p_col3 = st.columns(3)
     with p_col1:
-        shape_factor = st.number_input("Độ biến thiên thông số POM trung bình (%)", value=float(avg_area_growth_pct), step=0.01, format="%.2f", key="ai_pom_growth_final_v7")
+        shape_factor = st.number_input("Độ biến thiên thông số POM trung bình (%)", value=float(avg_area_growth_pct), step=0.01, format="%.2f", key="ai_pom_growth_final_v7_clean")
     with p_col2:
-        fabric_growth_factor = st.number_input("Hệ số thực nghiệm vải (Fabric Growth Factor)", value=0.65, step=0.05, format="%.2f", key="ai_fabric_factor_final_v7")
+        fabric_growth_factor = st.number_input("Hệ số thực nghiệm vải (Fabric Growth Factor)", value=0.65, step=0.05, format="%.2f", key="ai_fabric_factor_final_v7_clean")
     with p_col3:
-        wastage_buffer = st.number_input("Hao hụt sản xuất cấu hình thêm (%)", value=0.00, step=0.5, format="%.2f", key="ai_wastage_buffer_final_v7")
+        wastage_buffer = st.number_input("Hao hụt sản xuất cấu hình thêm (%)", value=0.00, step=0.5, format="%.2f", key="ai_wastage_buffer_final_v7_clean")
 
     projection_rows = []
     for ctype, old_qty in bom_summary_engine.items():
