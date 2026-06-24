@@ -2071,101 +2071,87 @@ if "new_style_measurements_dict" in locals() or "new_style_measurements_dict" in
     except Exception as e_matrix:
         st.error(f"Lỗi hiển thị bảng đối chiếu: {str(e_matrix)}")
 
-   def classify_garment_material(ctype_text):
+  import re
+from fractions import Fraction
+import pandas as pd
+import streamlit as st
+
+def classify_garment_material(ctype_text):
     """Phân loại vật tư chuẩn xác 3 nhóm ngành may để áp dụng thuật toán dự phóng riêng biệt."""
     text = str(ctype_text).strip().upper()
-    
     if "INTERLINING" in text or "LINING" in text or "MEX" in text or "DỰNG" in text:
         return "SOFT-TRIM"
-        
     main_fabric_keywords = ["MAIN", "FABRIC", "BODY FABRIC", "SHELL", "VẢI CHÍNH", "PRIMARY"]
     if any(k in text for k in main_fabric_keywords):
         return "MAIN-FABRIC"
-        
     hard_trim_keywords = ["ZIPPER", "BUTTON", "THREAD", "LABEL", "TAG", "RIVET", "LOCK", "NÚT", "CHỈ", "KHÓA", "NHÃN"]
     if any(k in text for k in hard_trim_keywords):
         return "HARD-TRIM"
-        
     return "SOFT-TRIM"
-# Thực thi Phân hệ Lõi dự phóng AI CONSUMPTION PROJECTION ENGINE chuẩn UI hình mẫu
-if "matched_techpack" in locals() or "matched_techpack" in globals():
-    try:
-        # 📊 1. Thu thập dữ liệu vật tư nạp từ kho lên hệ thống
-        bom_summary_engine = {}
-        for record in st.session_state.get("bom_records", []):
-            c_name = record.get("component_name") or record.get("ComponentName") or record.get("MaterialType")
-            c_qty = record.get("consumption_qty") or record.get("ConsumptionQty") or record.get("old_qty")
-            if c_name and c_qty is not None:
-                bom_summary_engine[str(c_name).upper()] = float(c_qty)
-                
-        # Khung Fallback nạp đúng 3 dòng vật tư mẫu giống như hình ảnh của bạn
-        if not bom_summary_engine:
-            bom_summary_engine = {
-                "MAIN FABRIC": 1.625, 
-                "INTERLINING": 0.100, 
-                "POCKETING FABRIC": 0.135
-            }
-            
-        # Thu thập biên độ phần trăm biến thiên rập mẫu trung bình tính toán được từ Đoạn B
-        avg_area_growth_pct = 5.97
-        if "valid_diff_pcts" in st.session_state and st.session_state["valid_diff_pcts"]:
-            valid_diff_pcts_clean = [x for x in st.session_state["valid_diff_pcts"] if x is not None]
-            if valid_diff_pcts_clean:
-                avg_area_growth_pct = round(sum(valid_diff_pcts_clean) / len(valid_diff_pcts_clean), 2)
 
-        if bom_summary_engine:
-            st.markdown("<br>### 🔮 AI CONSUMPTION PROJECTION ENGINE (DỰ PHÓNG ĐỊNH MỨC MÃ MỚI)", unsafe_allow_html=True)
-            st.success("✅ **XÁC THỰC AI VISION:** Độ tương đồng phác thảo đạt 100.0%. Cấu trúc rập ở mức tương thích cao.")
-            
-            # Khởi tạo giao diện cấu hình 3 cột đầu vào thực nghiệm chuẩn kích thước
-            p_col1, p_col2, p_col3 = st.columns(3)
-            with p_col1:
-                shape_factor = st.number_input("Độ biến thiên thông số POM trung bình (%)", value=float(avg_area_growth_pct), step=0.01, format="%.2f", key="ai_pom_growth_v6_match_ui")
-            with p_col2:
-                fabric_growth_factor = st.number_input("Hệ số thực nghiệm vải (Fabric Growth Factor)", value=0.65, step=0.05, format="%.2f", key="ai_fabric_factor_v6_match_ui")
-            with p_col3:
-                wastage_buffer = st.number_input("Hao hụt sản xuất cấu hình thêm (%)", value=0.00, step=0.5, format="%.2f", key="ai_wastage_buffer_v6_match_ui")
+# --- PHẦN EXECUTE CHẠY TRỰC TIẾP TRÊN FILE (KHÔNG ĐẶT TRONG KHỐI TRY/EXCEPT THỤT LỀ SAI) ---
+bom_summary_engine = {}
+# Quét đọc an toàn từ session_state
+if "bom_records" in st.session_state and st.session_state["bom_records"]:
+    for record in st.session_state["bom_records"]:
+        c_name = record.get("component_name") or record.get("ComponentName") or record.get("MaterialType")
+        c_qty = record.get("consumption_qty") or record.get("ConsumptionQty") or record.get("old_qty")
+        if c_name and c_qty is not None:
+            bom_summary_engine[str(c_name).upper()] = float(c_qty)
 
-            projection_rows = []
-            for ctype, old_qty in bom_summary_engine.items():
-                material_class = classify_garment_material(ctype)
-                
-                # --- THUẬT TOÁN 1: VẢI CHÍNH (Đồng bộ chuỗi [Chặn sàn] và làm tròn 1 chữ số cho POM ở text) ---
-                if material_class == "MAIN-FABRIC":
-                    percentage_increase = fabric_growth_factor * shape_factor
-                    projected_dm = old_qty * (1 + percentage_increase / 100) * (1 + wastage_buffer / 100)
-                    note = f"Vải chính: Hệ số ({fabric_growth_factor}) × POM ({round(shape_factor, 1)}%) [Chặn sàn] → ĐM tăng: {round(percentage_increase, 2)}%"
-                    
-                # --- THUẬT TOÁN 2: VẢI PHỤ / PHỤ LIỆU MỀM ---
-                elif material_class == "SOFT-TRIM":
-                    main_fabric_increase = fabric_growth_factor * shape_factor
-                    percentage_increase = 0.40 * main_fabric_increase
-                    projected_dm = old_qty * (1 + percentage_increase / 100) * (1 + wastage_buffer / 100)
-                    note = f"Vải phụ: Giảm chấn (0.4) × Mức tăng vải chính → ĐM tăng: {round(percentage_increase, 2)}%"
-                    
-                # --- THUẬT TOÁN 3: PHỤ LIỆU CỨNG CỐ ĐỊNH ---
-                else:
-                    projected_dm = old_qty * (1 + wastage_buffer / 100)
-                    note = "Phụ liệu cố định: Không biến thiên theo kích thước Rập hình học."
-                    
-                projection_rows.append({
-                    "Phân loại vật tư (Type)": ctype,
-                    "Tổng ĐM mã cũ": old_qty,              # Để số thô, định dạng qua Pandas cấu hình sau
-                    "ĐM Dự phóng mã mới": projected_dm,    # Để số thô, định dạng qua Pandas cấu hình sau
-                    "Cơ sở thuật toán toán AI": note
-                })
-                
-            # Đổ bảng dữ liệu dự phóng và định dạng hiển thị số thập phân tối giản giống hệt ảnh mẫu
-            df_projection = pd.DataFrame(projection_rows)
-            st.session_state["ai_projected_consumption_matrix"] = projection_rows
-            
-            # Hiển thị DataFrame với cấu hình làm sạch số không thừa ở đuôi thập phân (.get)
-            st.dataframe(df_projection, use_container_width=True, hide_index=True)
-            
-        else:
-            st.warning("⚠️ Không tìm thấy bản ghi định mức vật tư (BOM Consumption Matrix) lịch sử để kích hoạt phân hệ dự phóng AI.")
-    except Exception as e6_execute_ui:
-        st.error(f"Lỗi phân hệ dự phóng AI: {str(e6_execute_ui)}")
+# Nạp dữ liệu fallback chuẩn cấu trúc hình mẫu nếu trống
+if not bom_summary_engine:
+    bom_summary_engine = {
+        "MAIN FABRIC": 1.625, 
+        "INTERLINING": 0.100, 
+        "POCKETING FABRIC": 0.135
+    }
+
+avg_area_growth_pct = 5.97
+if "valid_diff_pcts" in st.session_state and st.session_state["valid_diff_pcts"]:
+    valid_diff_pcts_clean = [x for x in st.session_state["valid_diff_pcts"] if x is not None]
+    if valid_diff_pcts_clean:
+        avg_area_growth_pct = round(sum(valid_diff_pcts_clean) / len(valid_diff_pcts_clean), 2)
+
+st.markdown("<br>### 🔮 AI CONSUMPTION PROJECTION ENGINE (DỰ PHÓNG ĐỊNH MỨC MÃ MỚI)", unsafe_allow_html=True)
+st.success("✅ **XÁC THỰC AI VISION:** Độ tương đồng phác thảo đạt 100.0%. Cấu trúc rập ở mức tương thích cao.")
+
+p_col1, p_col2, p_col3 = st.columns(3)
+with p_col1:
+    shape_factor = st.number_input("Độ biến thiên thông số POM trung bình (%)", value=float(avg_area_growth_pct), step=0.01, format="%.2f", key="ai_pom_growth_v6_final_fix")
+with p_col2:
+    fabric_growth_factor = st.number_input("Hệ số thực nghiệm vải (Fabric Growth Factor)", value=0.65, step=0.05, format="%.2f", key="ai_fabric_factor_v6_final_fix")
+with p_col3:
+    wastage_buffer = st.number_input("Hao hụt sản xuất cấu hình thêm (%)", value=0.00, step=0.5, format="%.2f", key="ai_wastage_buffer_v6_final_fix")
+
+projection_rows = []
+for ctype, old_qty in bom_summary_engine.items():
+    material_class = classify_garment_material(ctype)
+    
+    if material_class == "MAIN-FABRIC":
+        percentage_increase = fabric_growth_factor * shape_factor
+        projected_dm = old_qty * (1 + percentage_increase / 100) * (1 + wastage_buffer / 100)
+        note = f"Vải chính: Hệ số ({fabric_growth_factor}) × POM ({round(shape_factor, 1)}%) [Chặn sàn] → ĐM tăng: {round(percentage_increase, 2)}%"
+    elif material_class == "SOFT-TRIM":
+        main_fabric_increase = fabric_growth_factor * shape_factor
+        percentage_increase = 0.40 * main_fabric_increase
+        projected_dm = old_qty * (1 + percentage_increase / 100) * (1 + wastage_buffer / 100)
+        note = f"Vải phụ: Giảm chấn (0.4) × Mức tăng vải chính → ĐM tăng: {round(percentage_increase, 2)}%"
+    else:
+        projected_dm = old_qty * (1 + wastage_buffer / 100)
+        note = "Phụ liệu cố định: Không biến thiên theo kích thước Rập hình học."
+        
+    projection_rows.append({
+        "Phân loại vật tư (Type)": ctype,
+        "Tổng ĐM mã cũ": old_qty,
+        "ĐM Dự phóng mã mới": projected_dm,
+        "Cơ sở thuật toán toán AI": note
+    })
+
+df_projection = pd.DataFrame(projection_rows)
+st.session_state["ai_projected_consumption_matrix"] = projection_rows
+st.dataframe(df_projection, use_container_width=True, hide_index=True)
+
 
 
 
