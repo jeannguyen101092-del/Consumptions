@@ -1441,7 +1441,13 @@ def process_single_pdf_batch(file_bytes, file_name):
         if not gemini_key:
             return {"success": False, "error": "API Key cho Gemini đang bị thiếu trong Secrets."}
             
-        client = genai.Client(api_key=gemini_key)
+        # SỬA LỖI ĐỒNG BỘ THƯ VIỆN: Gọi trực tiếp từ google.generativeai để không bị lỗi Object Part
+        import google.generativeai as genai
+        genai.configure(api_key=gemini_key)
+        
+        from pdf2image import convert_from_bytes
+        from pdfinfo import pdfinfo_from_bytes
+        
         info = pdfinfo_from_bytes(file_bytes)
         total_p = int(info.get("Pages", 1))
         
@@ -1450,13 +1456,19 @@ def process_single_pdf_batch(file_bytes, file_name):
         for page_img in chat_images:
             img_buf = io.BytesIO()
             page_img.convert("RGB").save(img_buf, format="JPEG", quality=75)
-            pdf_parts_payload.append(types.Part.from_bytes(data=img_buf.getvalue(), mime_type='image/jpeg'))
+            # Sửa cú pháp nạp ảnh chuẩn cho model
+            pdf_parts_payload.append({
+                "mime_type": "image/jpeg",
+                "data": img_buf.getvalue()
+            })
             
+        # NÂNG CẤP PROMPT: Ép căng mắt nhìn chuẩn Style ID tránh đọc nhầm 490416 thành 2496
         industrial_extraction_prompt = (
             "You are an expert Garment Specification Auditor at PPJ Group. Analyze all attached sheets page by page. "
             "1. Identify the core 'Base Size' / 'Sample Size' (e.g., written as 8-, 32, or Size M). "
             "2. Identify the Buyer name and Category. "
-            "3. Find the exact 'Style ID' / 'Style Number' (e.g. 5765). "
+            "3. CRITICAL STYLE NUMBER RULE: Look extremely closely at the 'Style ID' / 'Style Number' field on the Cover Page (e.g., P09-490416). "
+            "Examine each digit carefully to prevent OCR confusion (such as misreading '490416' as '2496' or '492496'). Ensure every single number is captured exactly as printed. "
             "4. FOR FUNCTION 3 (FULL SIZE MATRIX): Scan and extract the entire grading matrix table columns for ALL available sizes. "
             "5. CRITICAL VISUAL FLAT SKETCH LOCATE RULE: Scan all pages visually. You MUST find the exact PAGE INDEX (0-based) "
             "that contains the FULL BODY APPAREL FLAT SKETCH showing the entire completed garment (the whole pant/skort with front view and back view side-by-side or on the same page). "
@@ -1478,13 +1490,15 @@ def process_single_pdf_batch(file_bytes, file_name):
         
         pdf_parts_payload.append(industrial_extraction_prompt)
         
+        # Gọi model thế hệ mới nhất xử lý
+        model = genai.GenerativeModel('gemini-2.5-flash')
         response = None
+        
         for attempt in range(3):
             try:
-                response = client.models.generate_content(
-                    model='gemini-2.5-flash', 
+                response = model.generate_content(
                     contents=pdf_parts_payload,
-                    config={"response_mime_type": "application/json"}
+                    generation_config={"response_mime_type": "application/json"}
                 )
                 if response and response.text: break
             except Exception as ai_err:
@@ -1507,9 +1521,8 @@ def process_single_pdf_batch(file_bytes, file_name):
             chat_images[detected_idx].convert("RGB").save(b_buf, format="JPEG", quality=90)
             extracted_sketch_bytes = b_buf.getvalue()
             
-        # 🛠️ ĐÃ SỬA CÁCH 1: Tắt tự động ghi đồng bộ lên database để tránh lỗi lấy trùng chính nó khi đối chiếu
-        # success_db = save_to_supabase_techpack_table(parsed_data, raw_file_bytes=file_bytes, file_name=file_name)
-        success_db = True 
+        # 🛠️ CÁCH 1: Tắt hoàn toàn tự động lưu kho ngầm lên cơ sở dữ liệu
+        success_db = True
         
         output_payload = {
             "style_number_parsed": parsed_data.get("style_number_parsed", "UNKNOWN"),
@@ -1533,7 +1546,6 @@ def process_single_pdf_batch(file_bytes, file_name):
         }
     except Exception as e:
         return {"success": False, "error": f"Lỗi bóc tách PDF: {str(e)}"}
-
 
 
 
