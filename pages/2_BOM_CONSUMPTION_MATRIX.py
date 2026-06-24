@@ -1525,13 +1525,18 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         except Exception: pass
 
         # =========================================================================
-    # VÁ LỖI AN TOÀN: CHẠY HÀM XỬ LÝ CHUYÊN SÂU KHI PHÁT HIỆN FILE PDF
+       # =========================================================================
+    # VÁ LỖI LUỒNG THỰC TẾ: PHÂN TÁCH BIẾN VÀ NĂNG LỰC XỬ LÝ (PDF VS IMAGE)
     # =========================================================================
-    if "pdf" in str(detected_mime_type).lower() and target_new_sketch_bytes:
+    is_actual_pdf = "pdf" in str(detected_mime_type).lower() or str(st.session_state.get("previous_uploaded_file_name", "")).lower().endswith(".pdf")
+
+    if is_actual_pdf and target_new_sketch_bytes:
         if "extracted_spec_data" not in st.session_state or st.session_state.get("previous_uploaded_file_name_checked") != st.session_state["previous_uploaded_file_name"]:
             raw_pdf_bytes_backup = target_new_sketch_bytes
+            
             with st.spinner("🤖 AI đang tiến hành phân tích sâu cấu trúc PDF để bóc tách thông số & hình ảnh vẽ..."):
                 pdf_res = process_single_pdf_batch(raw_pdf_bytes_backup, st.session_state["previous_uploaded_file_name"])
+                
                 if pdf_res.get("success"):
                     target_new_sketch_bytes = pdf_res["sketch_bytes"]
                     globals()["target_new_sketch_bytes"] = pdf_res["sketch_bytes"]
@@ -1546,7 +1551,8 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                     st.session_state["visual_description_str"] = new_vec
                     st.session_state["detected_garment_type"] = pdf_res["data"].get("category", "UNKNOWN").upper()
                 else:
-                    st.error(f"🚨 Lỗi bóc tách cấu trúc tài liệu từ AI: {pdf_res.get('error')}")
+                    st.error(f"🚨 Lỗi phân tích cấu trúc tài liệu: {pdf_res.get('error')}")
+                    # Chỉ gọi bộ chuyển đổi dự phòng nếu đây thực sự là tệp PDF điện tử
                     try:
                         from pdf2image import convert_from_bytes
                         import io
@@ -1556,9 +1562,10 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                             fallback_images[0].convert("RGB").save(img_buf, format="JPEG")
                             target_new_sketch_bytes = img_buf.getvalue()
                             globals()["target_new_sketch_bytes"] = target_new_sketch_bytes
-                    except Exception:
-                        pass
+                    except Exception as pdf_err:
+                        st.warning(f"⚠️ Trình đọc ảnh dự phòng từ PDF bị gián đoạn do định dạng tệp không khớp.")
     # =========================================================================
+
 
     # =========================================================================
 
@@ -2143,26 +2150,42 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             st.warning("⚠️ Không tự động bóc tách được phân loại đồ cụ thể. Hệ thống tự động chuyển sang chế độ đối soát mở rộng.")
 
 
-    # --- AI CONSUMPTION PROJECTION ENGINE ---
+       # --- AI CONSUMPTION PROJECTION ENGINE ---
     if matched_techpack and st.session_state.get("matched_image_verified", False) and bom_records:
         st.markdown("<br>🔮 **AI CONSUMPTION PROJECTION ENGINE (DỰ PHÓNG ĐỊNH MỨC MÃ MỚI)**", unsafe_allow_html=True)
         
+        # Đồng bộ an toàn giá trị biến thiên trung bình từ khối so khớp rập phía trên
+        safe_growth_val = float(globals().get("avg_area_growth_pct", locals().get("avg_area_growth_pct", 5.97)))
         v_similarity = st.session_state.get("matched_similarity_score", 100.0)
-        col1, col2 = st.columns(2)
+        
+        # CHIA THÀNH 3 CỘT ĐỂ HIỂN THỊ ĐÚNG THEO GIAO DIỆN THỰC TẾ TRONG ẢNH
+        col1, col2, col3 = st.columns(3)
         with col1:
-            shape_factor = st.number_input("Độ biến thiên phom tính toán từ POM (%)", value=float(avg_area_growth_pct), step=0.1)
+            shape_factor = st.number_input("Độ biến thiên thông số POM trung bình (%)", value=safe_growth_val, step=0.1)
         with col2:
-            wastage_buffer = st.number_input("Hao hụt sản xuất cấu hình thêm (%)", value=3.0, step=0.5)
+            fabric_growth_factor = st.number_input("Hệ số thực nghiệm vải (Fabric Growth Factor)", value=0.65, step=0.05)
+        with col3:
+            wastage_buffer = st.number_input("Hao hụt sản xuất cấu hình thêm (%)", value=0.0, step=0.5)
 
         projection_rows = []
         for ctype, old_qty in bom_summary_engine.items():
-            # Đồng bộ hóa định dạng chữ để kiểm tra chính xác chủng loại vải chính/vải lót chịu ảnh hưởng nhảy size
             ctype_upper = str(ctype).strip().upper()
-            if any(k in ctype_upper for k in ["MAIN", "FABRIC", "BODY", "SHELL", "LINING", "RIB", "COMBINATION", "POCKETING"]):
-                similarity_weight = v_similarity / 100.0
-                adjusted_shape_factor = shape_factor * similarity_weight
-                projected_dm = old_qty * (1 + adjusted_shape_factor / 100) * (1 + wastage_buffer / 100)
-                note = f"Vải nhảy vóc (Diện tích rập biến thiên: {round(adjusted_shape_factor, 2)}% dựa trên Vision {v_similarity}%)"
+            
+            # 1. THUẬT TOÁN CHO VẢI CHÍNH (MAIN FABRIC / SHELL / BODY)
+            if any(k in ctype_upper for k in ["MAIN", "FABRIC", "BODY", "SHELL"]):
+                # Mức tăng vải chính = Hệ số vải (0.65) * % POM (ví dụ: 6.0%)
+                adjusted_growth = fabric_growth_factor * shape_factor
+                projected_dm = old_qty * (1 + adjusted_growth / 100) * (1 + wastage_buffer / 100)
+                note = f"Vải chính: Hệ số ({fabric_growth_factor}) × POM ({round(shape_factor, 1)}%) [Chặn sàn] → ĐM tăng: {round(adjusted_growth, 2)}%"
+            
+            # 2. THUẬT TOÁN CHO VẢI PHỤ / KEO / LÓT (INTERLINING / POCKETING)
+            elif any(k in ctype_upper for k in ["INTERLINING", "POCKETING", "LINING", "COMBINATION"]):
+                # Áp dụng hệ số giảm chấn phụ (0.4) so với mức tăng của vải chính theo chuẩn hình học rập mẫu
+                adjusted_growth = (fabric_growth_factor * shape_factor) * 0.4
+                projected_dm = old_qty * (1 + adjusted_growth / 100) * (1 + wastage_buffer / 100)
+                note = f"Vải phụ: Giảm chấn (0.4) × Mức tăng vải chính → ĐM tăng: {round(adjusted_growth, 2)}%"
+            
+            # 3. THUẬT TOÁN CHO PHỤ LIỆU TĨNH KHÔNG NHẢY SIZE (CHỈ TÍNH HAO HỤT)
             else:
                 projected_dm = old_qty * (1 + wastage_buffer / 100)
                 note = f"Phụ liệu tĩnh (Chỉ tính hao hụt sản xuất {wastage_buffer}%)"
