@@ -1935,17 +1935,17 @@ def parse_garment_value(v_text):
         if re.search(r'\s[-/]\s', clean_text):
             range_parts = re.split(r'\s*[-/]\s*', clean_text)
             if range_parts:
-                clean_text = range_parts[0].strip()
+                clean_text = range_parts.strip()
         clean_text = re.sub(r'[^0-9./\s]', '', clean_text).strip()
         parts = clean_text.split()
         if not parts: 
             return None
-        if len(parts) == 2 and "/" in parts[1]:
-            return float(parts[0]) + float(Fraction(parts[1]))
-        elif len(parts) == 1 and "/" in parts[0]:
-            return float(Fraction(parts[0]))
+        if len(parts) == 2 and "/" in parts:
+            return float(parts) + float(Fraction(parts))
+        elif len(parts) == 1 and "/" in parts:
+            return float(Fraction(parts))
         else:
-            return float(parts[0])
+            return float(parts)
     except Exception:
         return None
 
@@ -2094,8 +2094,8 @@ st.markdown(
 menu_selection = st.sidebar.radio("FACTORY AUTOMATION", ["BOM CONSUMPTION MATRIX", "Purchase Consumption"])
 
 if menu_selection == "BOM CONSUMPTION MATRIX":
-    # Thiết lập layout cho hàng công cụ đầu trang
-    col_upload, col_action = st.columns()
+    # ĐÃ SỬA: Ép truyền đối số số 2 để tạo bố cục phân bổ cột tải file và nút đỏ
+    col_upload, col_action = st.columns(2)
 
     with col_upload:
         st.markdown("**📂 INGEST NEW STYLE REPRINTS (PDF/IMAGE)**", unsafe_allow_html=True)
@@ -2208,7 +2208,6 @@ if menu_selection == "BOM CONSUMPTION MATRIX":
     else:
         st.info("💡 **Vui lòng tải lên tệp Techpack hồ sơ thiết kế (PDF/Hình ảnh)** ở phía trên để hệ thống bắt đầu lập trình đối soát.")
 
-# SỬA LỖI CHÍNH: Chuyển toàn bộ nhánh 'elif Purchase' xuống dưới cùng, sau khi nhánh 'BOM MATRIX' đã kết thúc an toàn
 elif menu_selection == "Purchase Consumption":
     st.markdown("### 🛒 PURCHASE CONSUMPTION MANAGEMENT", unsafe_allow_html=True)
     st.info("Hệ thống quản lý định mức thu mua và cấp phát nguyên phụ liệu đang hoạt động.")
