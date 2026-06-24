@@ -1835,7 +1835,6 @@ confidence_score = 0
 # 1. Thu thập dữ liệu mẫu mới quét từ bộ nhớ tạm và Chuẩn hóa cấu trúc sang Dict phẳng nếu là List
 new_specs_raw = st.session_state.get("new_style_measurements_dict", {})
 if isinstance(new_specs_raw, list):
-    # Nếu bộ nhớ tạm lưu dạng mảng [{"pom_description": ..., "value": ...}], tự động chuyển về dict phẳng
     new_specs = {}
     for item in new_specs_raw:
         if isinstance(item, dict) and "pom_description" in item:
@@ -1846,7 +1845,7 @@ else:
 garment_category = str(st.session_state.get("new_style_category_detected", "PANT")).strip().upper()
 new_style_base_size = st.session_state.get("new_style_base_size", "N/A")
 
-# 2. ÉP KẾ THỪA TUYỆT ĐỐI: Lấy trực tiếp cục dữ liệu mà thuật toán Cosine phía trên đã tìm thấy
+# 2. ÉP KẾ THỪA TUYỆT ĐỐI: Lấy trực tiếp cục dữ liệu từ kho mẫu
 matched_profile = st.session_state.get("matched_techpack")
 
 if isinstance(matched_profile, dict) and matched_profile:
@@ -1855,7 +1854,6 @@ if isinstance(matched_profile, dict) and matched_profile:
         matched_profile.get("DetailedMeasurements") or 
         matched_profile.get("detailed_measurements") or {}
     )
-    # Chuẩn hóa dữ liệu cũ sang dict phẳng nếu dính dạng mảng hệ thống
     if isinstance(raw_old_specs, list):
         old_specs = {}
         for item in raw_old_specs:
@@ -1869,7 +1867,7 @@ if isinstance(matched_profile, dict) and matched_profile:
     target_style_name = str(matched_profile.get("style_number", matched_profile.get("StyleName", "KHO_MẪU")))
     confidence_score = int(st.session_state.get("match_confidence_score", 0))
 
-# 3. 🎯 LỚP CHUẨN HÓA TỪ ĐỒNG NGHĨA NGÀNH MAY (Bảo toàn chữ gốc)
+# 3. 🎯 LỚP CHUẨN HÓA TỪ ĐỒNG NGHĨA NGÀNH MAY
 POM_ALIAS = {
     "CHEST WIDTH": "1/2 CHEST", "HALF CHEST": "1/2 CHEST", "CHEST WIDTH 1/2": "1/2 CHEST",
     "WAIST WIDTH": "1/2 WAIST", "HALF WAIST": "1/2 WAIST",
@@ -1891,7 +1889,6 @@ def normalize_pom_key(k):
 def parse_garment_value_industrial(v):
     """
     Hàm giải mã thông số ngành may (Hỗ trợ phân số dạng hỗn số như 28 1/2, ký tự đặc biệt).
-    Đã sửa triệt để lỗi logic phân tách mảng chuỗi con.
     """
     if v is None: return None
     str_v = str(v).strip()
@@ -1909,7 +1906,6 @@ def parse_garment_value_industrial(v):
             
             str_v = re.sub(r'\s+', ' ', str_v).strip()
             
-            # GIẢI PHÁP TÁCH HỖN SỐ AN TOÀN TUYỆT ĐỐI (Ví dụ: "31 1/2")
             if " " in str_v and "/" in str_v:
                 parts = str_v.split(" ")
                 if len(parts) >= 2:
@@ -1929,16 +1925,15 @@ def parse_garment_value_industrial(v):
             try: return float(nums[0])
             except Exception: return None
         return None
-
-# Chuẩn bị sẵn mảng lưu cấu trúc hàng so sánh
-compare_rows = []
-valid_diff_pcts = []
 # =========================================================================================
 # ĐOẠN 1b: VISUALIZATION RENDERER & COMPARATOR WITH ALARM HIGHLIGHT
 # =========================================================================================
 
-# 🔥 BỘ PHÒNG THỦ GIAO DIỆN THÔNG MINH: Chỉ hiện bảng khi kho cũ đã có dữ liệu matching thành công
+# 🔥 BỘ PHÒNG THỦ GIAO DIỆN THÔNG MINH
 if old_specs and new_specs:
+    # Khai báo biến cục bộ an toàn bên trong khối IF để tránh lỗi cú pháp
+    compare_rows = []
+    valid_diff_pcts = []
 
     st.markdown("---")
     st.subheader("🎛️ CỔNG DEBUG CHẨN ĐOÁN KHO DỮ LIỆU SUPABASE")
@@ -2037,16 +2032,16 @@ else:
     
     diag_col1, diag_col2 = st.columns(2)
     with diag_col1:
-        if not new_specs:
+        if not st.session_state.get("new_style_measurements_dict"):
             st.warning("❌ **Dữ liệu mẫu mới quét (new_specs) đang bị TRỐNG.** Cần chạy chức năng trích xuất PDF trước.")
         else:
-            st.success(f"✅ Dữ liệu mẫu mới đã sẵn sàng: `{len(new_specs)}` vị trí đo.")
+            st.success("✅ Dữ liệu mẫu mới đã sẵn sàng.")
             
     with diag_col2:
         if not old_specs:
             st.warning("❌ **Dữ liệu đối chứng mã cũ từ Supabase (old_specs) đang bị TRỐNG.** Kiểm tra lại hàm Vector Search.")
         else:
-            st.success(f"✅ Dữ liệu mã cũ đã sẵn sàng: `{len(old_specs)}` vị trí đo.")
+            st.success("✅ Dữ liệu mã cũ đã sẵn sàng.")
             
     st.markdown("---")
     st.session_state["valid_diff_pcts"] = []
