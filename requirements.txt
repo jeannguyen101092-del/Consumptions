@@ -16,3 +16,4 @@ google-generativeai
 PyMuPDF
 scipy>=1.10.0
 rapidfuzz==3.9.3
+supabase
