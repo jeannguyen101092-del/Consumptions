@@ -1927,7 +1927,7 @@ import json
 import re
 import streamlit as st
 import pandas as pd
-from supabase import create_client, Client # Gọi trực tiếp sau khi đã khai báo ở requirements.txt
+from supabase import create_client, Client # Đã chạy mượt mà nhờ file requirements.txt
 
 # =========================================================================================
 # ĐOẠN 1: INDUSTRIAL RETRIEVER - PHIÊN BẢN LIÊN KẾT KHO KHÉP KÍN 
@@ -2120,6 +2120,7 @@ else:
     st.dataframe(empty_df, use_container_width=True, hide_index=True)
 
 st.session_state["valid_diff_pcts"] = valid_diff_pcts
+
 
 
 
