@@ -1906,6 +1906,9 @@ import re
 import requests
 import streamlit as st
 import pandas as pd
+# KHỞI TẠO BIẾN DỰ PHÒNG TOÀN CỤC ĐỂ TRÁNH LỖI NAMEERROR PHÍA DƯỚI
+if "avg_area_growth_pct" not in locals() and "avg_area_growth_pct" not in globals():
+    avg_area_growth_pct = 0.0
 
 if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption Matrix":
     matched_techpack = st.session_state.get("matched_techpack")
