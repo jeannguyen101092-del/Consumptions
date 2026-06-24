@@ -2082,7 +2082,7 @@ import streamlit as st
 import pandas as pd
 
 # =========================================================================================
-# ĐOẠN 1b: VISUALIZATION RENDERER & DATA PACKAGING
+# ĐOẠN 1b: VISUALIZATION RENDERER & DATA PACKAGING (ĐỒNG BỘ CẤU TRÚC ĐA TẦNG)
 # =========================================================================================
 
 st.markdown("<br>### 📐 BẢNG SO SÁNH SAI LỆCH THÔNG SỐ KỸ THUẬT RẬP MẪU", unsafe_allow_html=True)
@@ -2107,12 +2107,17 @@ for original_new_key, val_new in new_specs.items():
         if f_old != 0:
             diff_pct = round((diff_val / f_old) * 100, 2)
             
-            new_base_code, _ = get_pom_position_code_industrial(original_new_key)
-            if new_base_code != "POCKET-GEN":
+            # ✅ ĐÃ SỬA: Đồng bộ gọi cấu trúc bóc tách hình học đa tầng nâng cao từ Đoạn 1a
+            n_struct = analyze_garment_pom_structure(original_new_key)
+            
+            # Loại bỏ chi tiết túi khỏi % trung bình nhảy size
+            if n_struct["base"] != "POCKET-GEN":
                 if any(x in garment_category for x in ["PANT", "SHORT", "TROUSER"]):
+                    # Bộ lọc nghiệp vụ kiểm soát hệ Quần
                     if any(k in clean_new_key for k in ["INSEAM", "THIGH", "HIP", "KNEE", "WAIST", "RISE", "FLY", "OPENING"]):
                         valid_diff_pcts.append(diff_pct)
                 else:
+                    # Bộ lọc nghiệp vụ kiểm soát hệ Áo
                     if any(k in clean_new_key for k in ["LENGTH", "CHEST", "BUST", "ARMHOLE", "SLEEVE", "WIDTH"]):
                         valid_diff_pcts.append(diff_pct)
 
@@ -2127,6 +2132,7 @@ for original_new_key, val_new in new_specs.items():
         "Tỷ lệ biến thiên (Diff %)": display_pct
     })
 
+# Đổ các thông số rập cũ lịch sử còn sót trong bảng Supabase ra giao diện dưới dạng Fallback Row
 if old_specs:
     for original_old_key, val_old in old_specs.items():
         if original_old_key not in processed_old_keys_global:
@@ -2138,11 +2144,13 @@ if old_specs:
                 "Tỷ lệ biến thiên (Diff %)": "-"
             })
 
+# Render đồ họa bảng so sánh thông số kỹ thuật tối ưu lên màn hình Streamlit
 if compare_rows:
     st.dataframe(pd.DataFrame(compare_rows), use_container_width=True, hide_index=True)
 else:
     st.info("ℹ️ Không tìm thấy danh sách thông số kỹ thuật hợp lệ để so sánh đối chiếu.")
 
+# Đóng gói mảng phần trăm biến thiên chuẩn đưa xuống tầng tính toán Định mức ở Đoạn 2
 st.session_state["valid_diff_pcts"] = valid_diff_pcts
 
 
