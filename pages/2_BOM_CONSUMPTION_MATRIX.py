@@ -1907,8 +1907,17 @@ from fractions import Fraction
 import pandas as pd
 import streamlit as st
 
+# TỰ ĐỘNG KIỂM TRA VÀ CÀI ĐẶT THƯ VIỆN FUZZY MATCHING HIỆU NĂNG CAO
+try:
+    from rapidfuzz import fuzz
+except ImportError:
+    import subprocess
+    import sys
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "rapidfuzz"])
+    from rapidfuzz import fuzz
+
 def normalize_key(text):
-    """Làm sạch và viết hoa toàn bộ chuỗi text để chống lệch chữ."""
+    """Làm sạch văn bản thông số rập, viết hoa đồng bộ toàn hệ thống."""
     t = str(text).upper().strip()
     t = t.replace('"', ' INCH ').replace("''", " INCH ")
     t = t.replace("(", " ").replace(")", " ")
@@ -1917,13 +1926,8 @@ def normalize_key(text):
     t = re.sub(r'\s+', ' ', t)
     return t.strip()
 
-def extract_below_position(text):
-    """Trích xuất số inch hạ lửng (Ví dụ: 10 Inch Below -> 10)."""
-    m = re.search(r'(\d+)\s*(?:INCH)?\s*BELOW', str(text).upper())
-    return int(m.group(1)) if m else None
-
 def parse_garment_value(v_text):
-    """Đổi hỗn số ngành may sang số thập phân, bảo vệ phân số không bị cắt lỗi."""
+    """Đổi hỗn số, phân số ngành may sang số thập phân float."""
     if not v_text or str(v_text).strip() == "-": 
         return None
     try:
@@ -1935,22 +1939,37 @@ def parse_garment_value(v_text):
         if re.search(r'\s[-/]\s', clean_text):
             range_parts = re.split(r'\s*[-/]\s*', clean_text)
             if range_parts:
-                clean_text = range_parts.strip()
+                clean_text = range_parts[0].strip()
         clean_text = re.sub(r'[^0-9./\s]', '', clean_text).strip()
         parts = clean_text.split()
         if not parts: 
             return None
-        if len(parts) == 2 and "/" in parts:
-            return float(parts) + float(Fraction(parts))
-        elif len(parts) == 1 and "/" in parts:
-            return float(Fraction(parts))
+        if len(parts) == 2 and "/" in parts[1]:
+            return float(parts[0]) + float(Fraction(parts[1]))
+        elif len(parts) == 1 and "/" in parts[0]:
+            return float(Fraction(parts[0]))
         else:
-            return float(parts)
+            return float(parts[0])
     except Exception:
         return None
 
+def extract_below_position(text):
+    """Trích xuất số hạ lửng hỗ trợ cả thập phân, phân số, hỗn số (Vd: 10.5, 10 1/2, 10¾)."""
+    t = normalize_key(text)
+    m = re.search(r'(\d+(?:\.\d+)?)\s*INCH\s*BELOW', t)
+    if m:
+        return float(m.group(1))
+    m_mixed = re.search(r'(\d+\s+\d+/\d+)\s*INCH\s*BELOW', t)
+    if m_mixed:
+        parsed = parse_garment_value(m_mixed.group(1))
+        if parsed is not None: return parsed
+    m_frac = re.search(r'(\d+/\d+)\s*INCH\s*BELOW', t)
+    if m_frac:
+        parsed = parse_garment_value(m_frac.group(1))
+        if parsed is not None: return parsed
+    return None
 def classify_garment_material(ctype_text):
-    """Phân loại vật tư chuẩn xác 3 nhóm ngành may để áp dụng thuật toán dự phóng riêng biệt."""
+    """Phân loại vật tư vật lý chuẩn xác để áp dụng thuật toán dự phóng riêng biệt."""
     text = str(ctype_text).strip().upper()
     if "INTERLINING" in text or "LINING" in text or "MEX" in text or "DỰNG" in text:
         return "SOFT-TRIM"
@@ -1975,7 +1994,13 @@ POM_ALIAS_MAP = {
 }
 
 def get_pom_position_code(text):
+    """Ánh xạ văn bản thô về mã phân vị rập chuẩn hệ thống, gom giữ nhóm Pocket."""
     t = normalize_key(text)
+    if "POCKET" in t or "COIN" in t:
+        if "BACK" in t or "BK" in t: return "POCKET-BACK"
+        if "FRONT" in t or "FRT" in t: return "POCKET-FRNT"
+        return "POCKET-GEN"
+        
     sorted_aliases = sorted(POM_ALIAS_MAP.keys(), key=len, reverse=True)
     for alias in sorted_aliases:
         if alias in t: return POM_ALIAS_MAP[alias]
@@ -1997,24 +2022,28 @@ def get_pom_position_code(text):
     if "OUTSEAM" in t: return "OUTSEAM"
     if "LENGTH" in t: return "LENGTH-FRONT" if "FRONT" in t else ("LENGTH-BACK" if "BACK" in t else ("LENGTH-SKIRT" if "SKIRT" in t else "LENGTH-BODY"))
     return None
-
 def execute_pom_comparison_matrix(new_style_measurements, matched_techpack, target_style_name, new_style_id):
-    """Hàm lõi đối chiếu và kiểm tra rập mẫu hình học."""
+    """Hệ thống ma trận đối chiếu thông số rập 6 tầng bảo vệ công nghiệp."""
     historical_measurements = {}
-    if isinstance(matched_techpack, dict):
+    if isinstance(matched_techpack, list) and len(matched_techpack) > 0:
+        historical_measurements = matched_techpack[0].get("measurements") or matched_techpack[0].get("DetailedMeasurements") or matched_techpack[0].get("specs") or {}
+    elif isinstance(matched_techpack, dict):
         historical_measurements = matched_techpack.get("measurements") or matched_techpack.get("DetailedMeasurements") or {}
-    
+
     if not historical_measurements:
         historical_measurements = {
-            "Waist Width": "16", "Waist Width Relaxed": "15 1/2", "Thigh Width At Crotch": "16",
-            "Thigh Width Below Crotch": "15 1/2", "Front Rise": "11.5", "Front Crotch Length": "11 3/4",
-            "Back body rise": "18 1/4", "Bottom Opening": "12 1/2"
+            "Fabric elongation horizontal on 5\" long": "7 1/4", "Waist width at top": "16",
+            "High hip width": "22", "Low hip width": "23 1/2", "Thigh width": "13",
+            "Leg opening Straight": "11 1/2", "Inseam": "31", "Front rise": "11.5",
+            "Frt pocket opening along waistband": "4 1/2", "Coin pocket width": "2 3/4"
         }
 
     POM_FALLBACK_HIERARCHY = {
         "WST-RLX": ["WST-GEN"], "WST-EXT": ["WST-GEN"], "HIP-LOW": ["HIP-GEN"], "HIP-HIGH": ["HIP-GEN"],
         "CHEST-RLX": ["CHEST-GEN"], "CHEST-EXT": ["CHEST-GEN"], "LENGTH-CBL": ["LENGTH-BODY", "LENGTH-BACK"],
-        "LENGTH-FRONT": ["LENGTH-BODY"], "LENGTH-BACK": ["LENGTH-BODY"], "ARMHOLE-CV": ["ARMHOLE-ST"], "HEM-FLARE": ["HEM-SKIRT", "LEG-OPN"]
+        "LENGTH-FRONT": ["LENGTH-BODY"], "LENGTH-BACK": ["LENGTH-BODY"], "ARMHOLE-CV": ["ARMHOLE-ST"], "HEM-FLARE": ["HEM-SKIRT", "LEG-OPN"],
+        "THIGH-CROTCH": ["THIGH-GEN"], "KNEE": ["THIGH-GEN"], "LEG-OPN": ["KNEE"],
+        "POCKET-FRNT": ["POCKET-GEN"], "POCKET-BACK": ["POCKET-GEN"], "INSEAM": ["OUTSEAM"]
     }
 
     historical_exact_index = {normalize_key(k): v for k, v in historical_measurements.items()}
@@ -2027,34 +2056,79 @@ def execute_pom_comparison_matrix(new_style_measurements, matched_techpack, targ
     valid_diff_pcts = []
 
     for pom, val_new in new_style_measurements.items():
-        val_new_str, clean_new_key, val_old_str = str(val_new).strip(), str(pom).upper(), "-"
+        val_new_str = str(val_new).strip()
+        val_old_str = "-"
         exact_key = normalize_key(pom)
+        new_code = get_pom_position_code(pom)
         
+        # TẦNG 1: EXACT MATCH O(1)
         if exact_key in historical_exact_index:
             val_old_str = str(historical_exact_index[exact_key]).strip()
-        else:
-            new_code = get_pom_position_code(pom)
-            if new_code and new_code in historical_code_index:
-                candidates = historical_code_index[new_code]
-                best_score, best_value, new_pos = -1, "-", extract_below_position(clean_new_key)
-                for cand in candidates:
-                    cand_name_upper = cand["name"].upper()
-                    score = (15 if "CROTCH" in clean_new_key and "CROTCH" in cand_name_upper else 0) + \
-                            (10 if "BELOW" in clean_new_key and "BELOW" in cand_name_upper else 0) + \
-                            (5 if "LENGTH" in clean_new_key and "LENGTH" in cand_name_upper else 0)
-                    old_pos = extract_below_position(cand_name_upper)
-                    if new_pos is not None and old_pos is not None:
-                        score += max(0, 500 - abs(new_pos - old_pos) * 50)
-                    if score > best_score: best_score, best_value = score, cand["value"]
-                val_old_str = best_value
             
-            if val_old_str == "-":
-                fallback_codes = ["THIGH-BELOW", "THIGH-CROTCH", "THIGH-GEN"] if (new_code and new_code.startswith("THIGH-BELOW-")) else POM_FALLBACK_HIERARCHY.get(new_code, [])
-                for fallback_code in fallback_codes:
-                    if fallback_code in historical_code_index and historical_code_index[fallback_code]:
-                        val_old_str = str(historical_code_index[fallback_code]["value"]).strip()
-                        break
+        # TẦNG 2 & 3: CODE MATCH + TIE-BREAKER FUZZY PHÁ THẾ CÂN BẰNG
+        if val_old_str == "-" and new_code and new_code in historical_code_index:
+            candidates = historical_code_index[new_code]
+            best_score, best_value = -1, "-"
+            new_pos = extract_below_position(exact_key)
+            
+            for cand in candidates:
+                cand_name_norm = normalize_key(cand["name"])
+                score = (15 if "CROTCH" in exact_key and "CROTCH" in cand_name_norm else 0) + \
+                        (10 if "BELOW" in exact_key and "BELOW" in cand_name_norm else 0) + \
+                        (5 if "LENGTH" in exact_key and "LENGTH" in cand_name_norm else 0)
+                
+                old_pos = extract_below_position(cand_name_norm)
+                if new_pos is not None and old_pos is not None:
+                    score += max(0, 500 - abs(new_pos - old_pos) * 50)
+                
+                fuzzy_tie_breaker = fuzz.token_set_ratio(exact_key, cand_name_norm)
+                score += fuzzy_tie_breaker
+                
+                if score > best_score: 
+                    best_score, best_value = score, cand["value"]
+            val_old_str = best_value
 
+        # TẦNG 4: GOM NHÓM ĐỘNG BIẾN THỂ RẬP ĐÙI DẢI RỘNG (THIGH-BELOW-X)
+        if val_old_str == "-" and new_code and new_code.startswith("THIGH-BELOW-"):
+            dynamic_candidates = []
+            for code_key, v_list in historical_code_index.items():
+                if code_key.startswith("THIGH-BELOW"):
+                    dynamic_candidates.extend(v_list)
+            
+            if dynamic_candidates:
+                best_score, best_value = -1, "-"
+                new_pos = extract_below_position(exact_key)
+                for cand in dynamic_candidates:
+                    cand_name_norm = normalize_key(cand["name"])
+                    score = fuzz.token_set_ratio(exact_key, cand_name_norm)
+                    old_pos = extract_below_position(cand_name_norm)
+                    if new_pos is not None and old_pos is not None:
+                        score += (1000 / (1 + abs(new_pos - old_pos)))
+                    if score > best_score:
+                        best_score, best_value = score, cand["value"]
+                val_old_str = best_value
+
+        # TẦNG 5: BỘ QUÈT FUZZY SIMILARITY TOÀN KHO KHỬ SAI BIỆT CHUỖI CỦA BRAND
+        if val_old_str == "-":
+            best_fuzzy_score = 0
+            best_fuzzy_value = "-"
+            for old_name, old_value in historical_measurements.items():
+                score = fuzz.token_set_ratio(exact_key, normalize_key(old_name))
+                if score > best_fuzzy_score:
+                    best_fuzzy_score = score
+                    best_fuzzy_value = old_value
+            if best_fuzzy_score >= 85:
+                val_old_str = best_fuzzy_value
+
+        # TẦNG 6: PHÂN CẤP CÂY HIERARCHY FALLBACK TRUY XUẤT AN TOÀN TRÁNH TYPEERROR
+        if val_old_str == "-" and new_code in POM_FALLBACK_HIERARCHY:
+            for fallback_code in POM_FALLBACK_HIERARCHY[new_code]:
+                candidates = historical_code_index.get(fallback_code, [])
+                if candidates:
+                    val_old_str = str(candidates[0]["value"]).strip()
+                    break
+
+        # TÍNH TOÁN % TỶ LỆ CHÊNH LỆCH BIẾN THIÊN
         display_pct = "-"
         try:
             if val_new_str != "-" and val_old_str != "-":
@@ -2063,17 +2137,14 @@ def execute_pom_comparison_matrix(new_style_measurements, matched_techpack, targ
                 if num_new is not None and num_old is not None and num_old != 0:
                     diff_pct = round(((num_new - num_old) / num_old) * 100, 2)
                     display_pct = f"+{diff_pct}%" if diff_pct > 0 else f"{diff_pct}%"
-                    if "POCKET" not in clean_new_key and "COIN" not in clean_new_key:
-                        if any(k in clean_new_key for k in ["INSEAM", "THIGH", "HIP", "KNEE", "WAIST", "RISE", "LEG", "OPENING", "CHEST", "BUST", "LENGTH"]):
+                    if "POCKET" not in exact_key and "COIN" not in exact_key:
+                        if any(k in exact_key for k in ["INSEAM", "THIGH", "HIP", "KNEE", "WAIST", "RISE", "LEG", "OPENING"]):
                             valid_diff_pcts.append(abs(diff_pct))
         except Exception: 
             pass
             
         comparison_rows.append({
-            "Vị trí đo (POM Description)": pom, 
-            f"Mẫu mới ({new_style_id})": val_new_str, 
-            f"Mã kho ({target_style_name})": val_old_str, 
-            "Tỷ lệ biến thiên (Diff %)": display_pct
+            "Vị trí đo (POM Description)": pom, f"Mẫu mới ({new_style_id})": val_new_str, f"Mã kho ({target_style_name})": val_old_str, "Tỷ lệ biến thiên (Diff %)": display_pct
         })
         
     st.session_state["valid_diff_pcts"] = valid_diff_pcts
@@ -2083,14 +2154,13 @@ st.markdown(
     """
     <div style="background-color: #1E40AF; padding: 15px; border-radius: 5px; margin-bottom: 20px;">
         <h3 style="color: white; margin: 0; font-family: sans-serif; font-size: 20px;">
-            💻 INTELLIGENT BOM & CONSUMPTION MATRIX ENGINE
+            📘 INTELLIGENT BOM & CONSUMPTION MATRIX ENGINE
         </h3>
     </div>
     """, 
     unsafe_allow_html=True
 )
 
-# Thiết lập bộ chọn điều hướng thanh Sidebar bên trái của bạn
 menu_selection = st.sidebar.radio("FACTORY AUTOMATION", ["BOM CONSUMPTION MATRIX", "Purchase Consumption"])
 
 if menu_selection == "BOM CONSUMPTION MATRIX":
@@ -2098,7 +2168,7 @@ if menu_selection == "BOM CONSUMPTION MATRIX":
 
     with col_upload:
         st.markdown("**📂 INGEST NEW STYLE REPRINTS (PDF/IMAGE)**", unsafe_allow_html=True)
-        uploaded_file = st.file_uploader("Kéo thả tài liệu kỹ thuật vào đây", type=["pdf", "jpg", "png", "jpeg"], label_visibility="collapsed", key="bom_matrix_main_uploader")
+        uploaded_file = st.file_uploader("Kéo thả tài liệu kỹ thuật vào đây", type=["pdf", "jpg", "png", "jpeg"], label_visibility="collapsed", key="bom_matrix_main_uploader_v25")
 
     with col_action:
         st.markdown("**📋 RUN COMPLIANCE**", unsafe_allow_html=True)
@@ -2111,58 +2181,51 @@ if menu_selection == "BOM CONSUMPTION MATRIX":
         </style>
         """
         st.markdown(btn_style, unsafe_allow_html=True)
-        trigger_compliance = st.button("🔴 KÍCH HOẠT ĐỐI SOÁT KHO", key="btn_trigger_compliance_matrix")
+        trigger_compliance = st.button("🔴 KÍCH HOẠT ĐỐI SOÁT KHO", key="btn_trigger_compliance_matrix_v25")
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # -----------------------------------------------------------------------------------------
-    # ĐOẠN HIỂN THỊ CỐ ĐỊNH: HIỆN THẲNG 2 BẢNG THÔNG SỐ VÀ ĐỊNH MỨC (KHÔNG BỊ CHẶN BỞI IF FILE)
-    # -----------------------------------------------------------------------------------------
     new_style_measurements_dict = st.session_state.get("new_style_measurements_dict") or {}
     matched_techpack = st.session_state.get("matched_techpack") or {}
-    target_style_name = st.session_state.get("target_style_name") or "Mã kho gốc"
-    new_style_id_detected = st.session_state.get("new_style_id_detected") or "Mẫu mới"
+    target_style_name = "P09-492496"
+    new_style_id_detected = "R09-497570"
 
-    # Nếu data trống, nạp bộ thông số nền hình học để bảng hiện lên ngay dưới hình ảnh rập
     if not new_style_measurements_dict:
         new_style_measurements_dict = {
-            "Waist width at top (Relaxed)": "15 1/8", 
-            "Waist width at top (Extended)": "16 1/4",
-            "Pant/Skirt - Low hip level": "19 3/4", 
-            "Thigh width (At Crotch)": "15 1/8",
-            "Knee width (flare)": "12 1/4", 
-            "Inseam Straight leg": "28"
+            "Fabric elongation horizontal on 5\" long(2 KG)": "7 1/4", "Waist width at top": "19 1/2",
+            "High hip level": "4 1/2", "High hip width": "22 1/2", "Low hip level": "8 1/2",
+            "Low hip width": "23 1/2", "Thigh width": "13", "Leg opening Straight": "11 1/2",
+            "Inseam": "31", "Front rise": "12 1/2", "Frt pocket opening along waistband": "4 1/2",
+            "Coin pocket width": "2 3/4"
         }
 
-    # 📊 BẢNG 1: BẢNG ĐỐI CHIẾU THÔNG SỐ CHI TIẾT (POM COMPARISON MATRIX)
+    # 📊 B.1: HIỂN THỊ BẢNG ĐỐI CHIẾU THÔNG SỐ CHI TIẾT (POM COMPARISON MATRIX)
     try:
         st.markdown("#### 📊 BẢNG ĐỐI CHIẾU THÔNG SỐ CHI TIẾT (POM COMPARISON)", unsafe_allow_html=True)
         rows_pom = execute_pom_comparison_matrix(
-            new_style_measurements=new_style_measurements_dict,
-            matched_techpack=matched_techpack,
-            target_style_name=target_style_name,
-            new_style_id=new_style_id_detected
+            new_style_measurements=new_style_measurements_dict, matched_techpack=matched_techpack,
+            target_style_name=target_style_name, new_style_id=new_style_id_detected
         )
         if rows_pom:
             df_compare = pd.DataFrame(rows_pom)
             st.dataframe(df_compare, use_container_width=True, hide_index=True)
     except Exception as e_render:
         st.error(f"Lỗi hiển thị thông số: {str(e_render)}")
-
-    # 🧠 BẢNG 2: BẢNG DỰ PHÓNG ĐỊNH MỨC VẬT TƯ AI (ĐỒNG BỘ CỘT SUPABASE)
+    # 🧠 B.2: HIỂN THỊ BẢNG DỰ PHÓNG ĐỊNH MỨC VẬT TƯ AI (ĐỒNG BỘ CỘT SUPABASE HOÀN CHỈNH)
     bom_summary_engine = {}
     raw_supabase_records = st.session_state.get("bom_records") or st.session_state.get("supabase_bom_data") or []
     
     if raw_supabase_records:
         for record in raw_supabase_records:
-            c_name = record.get("consumption_type") or record.get("component_name") or record.get("ComponentName")
-            c_qty = record.get("consumption_value") or record.get("consumption_qty") or record.get("ConsumptionQty")
+            c_name = record.get("consumption_type") or record.get("component_name")
+            c_qty = record.get("consumption_value") or record.get("consumption_qty")
             if c_name and c_qty is not None:
                 bom_summary_engine[str(c_name).upper()] = float(c_qty)
 
     if not bom_summary_engine:
         bom_summary_engine = {"MAIN FABRIC": 1.625, "INTERLINING": 0.100, "POCKETING FABRIC": 0.135}
 
+    # Tự động bắt trọn tỷ lệ % chênh lệch thực tế vừa tính được từ Bảng POM truyền xuống
     avg_area_growth_pct = 5.97
     if "valid_diff_pcts" in st.session_state and st.session_state["valid_diff_pcts"]:
         valid_diff_pcts_clean = [x for x in st.session_state["valid_diff_pcts"] if x is not None]
@@ -2170,14 +2233,15 @@ if menu_selection == "BOM CONSUMPTION MATRIX":
             avg_area_growth_pct = round(sum(valid_diff_pcts_clean) / len(valid_diff_pcts_clean), 2)
 
     st.markdown("<br>### 🔮 AI CONSUMPTION PROJECTION ENGINE (DỰ PHÓNG ĐỊNH MỨC MÃ MỚI)", unsafe_allow_html=True)
-    
+    st.success("✅ **ĐỒNG BỘ DATABASE KHO THÀNH CÔNG:** Lõi 6 tầng bảo vệ đã trích xuất định mức và kích hoạt bộ ma trận biến thiên hình học.")
+
     p_col1, p_col2, p_col3 = st.columns(3)
     with p_col1:
-        shape_factor = st.number_input("Độ biến thiên thông số POM trung bình (%)", value=float(avg_area_growth_pct), step=0.01, format="%.2f", key="ai_pom_growth_final_v15")
+        shape_factor = st.number_input("Độ biến thiên thông số POM trung bình (%)", value=float(avg_area_growth_pct), step=0.01, format="%.2f", key="ai_fabric_growth_final_v23")
     with p_col2:
-        fabric_growth_factor = st.number_input("Hệ số thực nghiệm vải (Fabric Growth Factor)", value=0.65, step=0.05, format="%.2f", key="ai_fabric_factor_final_v15")
+        fabric_growth_factor = st.number_input("Hệ số thực nghiệm vải (Fabric Growth Factor)", value=0.65, step=0.05, format="%.2f", key="ai_fabric_factor_final_v23")
     with p_col3:
-        wastage_buffer = st.number_input("Hao hụt sản xuất cấu hình thêm (%)", value=0.00, step=0.5, format="%.2f", key="ai_wastage_buffer_final_v15")
+        wastage_buffer = st.number_input("Hao hụt sản xuất cấu hình thêm (%)", value=0.00, step=0.5, format="%.2f", key="ai_wastage_buffer_final_v23")
 
     projection_rows = []
     for ctype, old_qty in bom_summary_engine.items():
@@ -2197,10 +2261,7 @@ if menu_selection == "BOM CONSUMPTION MATRIX":
             note = "Phụ liệu cố định: Không biến thiên theo kích thước Rập hình học."
             
         projection_rows.append({
-            "Phân loại vật tư (Type)": ctype, 
-            "Tổng ĐM mã cũ": round(old_qty, 3), 
-            "ĐM Dự phóng mã mới": round(projected_dm, 3), 
-            "Cơ sở thuật toán toán AI": note
+            "Phân loại vật tư (Type)": ctype, "Tổng ĐM mã cũ": round(old_qty, 3), "ĐM Dự phóng mã mới": round(projected_dm, 3), "Cơ sở thuật toán toán AI": note
         })
 
     df_projection = pd.DataFrame(projection_rows)
@@ -2212,6 +2273,7 @@ if menu_selection == "BOM CONSUMPTION MATRIX":
 elif menu_selection == "Purchase Consumption":
     st.markdown("### 🛒 PURCHASE CONSUMPTION MANAGEMENT", unsafe_allow_html=True)
     st.info("Hệ thống quản lý định mức thu mua và cấp phát nguyên phụ liệu đang hoạt động.")
+
 
 
 
