@@ -2052,17 +2052,11 @@ with debug_col2:
     st.write(f"5️⃣ **NEW SPECS count:** `{len(new_specs) if new_specs else 0}` | **OLD SPECS count:** `{len(old_specs) if old_specs else 0}`")
 st.markdown("---")
 
-
-
-
-
-
-
 import streamlit as st
 import pandas as pd
 
 # =========================================================================================
-# ĐOẠN 1b: VISUALIZATION RENDERER & ANTI-HARDCODE DATA PACKAGING (FIXED UPPERCASE MATCH)
+# ĐOẠN 1b: VISUALIZATION RENDERER & ANTI-HARDCODE DATA PACKAGING (SAFE INITIALIZATION)
 # =========================================================================================
 
 st.markdown("<br>### 📐 BẢNG SO SÁNH SAI LỆCH THÔNG SỐ KỸ THUẬT RẬP MẪU", unsafe_allow_html=True)
@@ -2074,8 +2068,16 @@ valid_diff_pcts = []
 col_new_title = f"Mẫu mới ({new_style_base_size})"
 col_old_title = f"Mã cũ ({old_base_size})"
 
+# 🔥 BỘ PHÒNG THỦ TUYỆT ĐỐI: Kiểm tra và tự động khởi tạo biến nếu Đoạn 1a.2 chưa kịp tạo do lỗi DB
+if 'processed_old_keys_global' not in locals() and 'processed_old_keys_global' not in globals():
+    processed_old_keys_global = set()
+
 # Tạo một tập hợp hoa toàn bộ các key cũ đã được xử lý để tra cứu tầng fallback chính xác
-processed_old_keys_upper = {str(k).upper().strip() for k in processed_old_keys_global}
+processed_old_keys_upper = {str(k).upper().strip() for k in processed_old_keys_global if k is not None}
+
+# Khởi tạo an toàn cấu trúc bản đồ so khớp nếu chưa tồn tại
+if 'final_matched_map' not in locals() and 'final_matched_map' not in globals():
+    final_matched_map = {}
 
 # Chỉ xử lý render dữ liệu khi đối tượng đầu vào hợp lệ
 if isinstance(new_specs, dict) and new_specs:
@@ -2085,7 +2087,7 @@ if isinstance(new_specs, dict) and new_specs:
         # Trích xuất dữ liệu đối chứng an toàn từ cổng nối Đoạn 1a
         val_old = None
         
-        # 🔥 SỬA LỖI TRA CỨU: Kiểm tra so khớp linh hoạt theo cả key gốc và key đã chuẩn hóa in hoa
+        # Kiểm tra so khớp linh hoạt theo cả key gốc và key đã chuẩn hóa in hoa
         if original_new_key in final_matched_map:
             val_old = final_matched_map[original_new_key]["val_old"]
         else:
@@ -2104,14 +2106,18 @@ if isinstance(new_specs, dict) and new_specs:
             if f_old != 0:
                 diff_pct = round((diff_val / f_old) * 100, 2)
                 
-                n_struct = analyze_garment_pom_structure(original_new_key)
-                if n_struct["base"] != "POCKET-GEN":
-                    if any(x in garment_category for x in ["PANT", "SHORT", "TROUSER"]):
-                        if any(k in clean_new_key for k in ["INSEAM", "THIGH", "HIP", "KNEE", "WAIST", "RISE", "FLY", "OPENING"]):
-                            valid_diff_pcts.append(diff_pct)
-                    else:
-                        if any(k in clean_new_key for k in ["LENGTH", "CHEST", "BUST", "ARMHOLE", "SLEEVE", "WIDTH"]):
-                            valid_diff_pcts.append(diff_pct)
+                # Gọi an toàn hàm phân tích cấu trúc POM nếu hàm này tồn tại
+                if 'analyze_garment_pom_structure' in globals() or 'analyze_garment_pom_structure' in locals():
+                    n_struct = analyze_garment_pom_structure(original_new_key)
+                    if n_struct.get("base") != "POCKET-GEN":
+                        if any(x in garment_category for x in ["PANT", "SHORT", "TROUSER"]):
+                            if any(k in clean_new_key for k in ["INSEAM", "THIGH", "HIP", "KNEE", "WAIST", "RISE", "FLY", "OPENING"]):
+                                valid_diff_pcts.append(diff_pct)
+                        else:
+                            if any(k in clean_new_key for k in ["LENGTH", "CHEST", "BUST", "ARMHOLE", "SLEEVE", "WIDTH"]):
+                                valid_diff_pcts.append(diff_pct)
+                else:
+                    valid_diff_pcts.append(diff_pct)
 
         display_diff = f"+{diff_val}" if diff_val and diff_val > 0 else (str(diff_val) if diff_val is not None else "-")
         display_pct = f"+{diff_pct}%" if diff_pct and diff_pct > 0 else (f"{diff_pct}%" if diff_pct is not None else "-")
@@ -2124,7 +2130,7 @@ if isinstance(new_specs, dict) and new_specs:
             "Tỷ lệ biến thiên (Diff %)": display_pct
         })
 
-    # 🔥 SỬA LỖI FALLBACK ROW: Đổ các thông số rập cũ còn sót trên Supabase (Đã ép in hoa để đối chiếu tập check)
+    # Đổ các thông số rập cũ còn sót trên Supabase (Đã ép in hoa để đối chiếu tập check)
     if isinstance(old_specs, dict) and old_specs:
         for original_old_key, val_old in old_specs.items():
             clean_old_key = str(original_old_key).upper().strip()
@@ -2142,7 +2148,7 @@ if isinstance(new_specs, dict) and new_specs:
 if compare_rows:
     st.dataframe(pd.DataFrame(compare_rows), use_container_width=True, hide_index=True)
 else:
-    # 🛡️ Nếu dữ liệu trống, hiển thị khung bảng trống có tiêu đề cấu trúc
+    # 🛡️ Nếu dữ liệu trống hoàn toàn, hiển thị khung bảng trống có cấu trúc tiêu đề cột sạch
     st.info("ℹ️ Hệ thống đang trống danh sách thông số kỹ thuật mới (Chưa quét hoặc API nghẽn).")
     empty_df = pd.DataFrame(columns=[
         "Vị trí đo (POM Description)", col_new_title, col_old_title, "Chênh lệch (Diff)", "Tỷ lệ biến thiên (Diff %)"
@@ -2151,6 +2157,7 @@ else:
 
 # Đóng gói mảng phần trăm biến thiên chuẩn đưa xuống tầng tính toán Định mức ở Đoạn 2
 st.session_state["valid_diff_pcts"] = valid_diff_pcts
+
 
 
 
