@@ -449,8 +449,7 @@ def process_single_pdf_batch(file_bytes, file_name):
         sorted_pages = sorted(list(pages_to_scan))
         print(f"📋 [PRODUCTION LOG] {file_name}: Tổng {total_p} trang. Quét: {sorted_pages}")
         
-                # =========================================================================================
-                # =========================================================================================
+        # =========================================================================================
         # 🎯 PROMPT VÁ LỖI LỆCH DÒNG: BUỘC AI NEO THEO MÃ SỐ POM TRÊN TÀI LIỆU AEO
         # =========================================================================================
         industrial_extraction_prompt = (
@@ -477,7 +476,6 @@ def process_single_pdf_batch(file_bytes, file_name):
             "5. VISUAL FLAT SKETCH LOCATE: Find the exact 1-based page number containing the garment front/back flat sketches."
         )
 
-        
         contents_payload = [types.Part.from_text(text=industrial_extraction_prompt)]
         chat_images_dict = {}
         
@@ -588,9 +586,48 @@ def process_single_pdf_batch(file_bytes, file_name):
                 pass
             return {"success": False, "error": f"Mô hình trống. FinishReason={finish_reason} (Model={current_model_used})"}
             
+        # ✂️ THAY ĐỔI THEO YÊU CẦU: BỘ LỌC CỨNG SẠCH CHỮ VẠN NĂNG (MỌI HÃNG SẼ CHỈ LẤY CHỮ)
         measurements_list = parsed_data.get("measurements_list", [])
-        measurements = {item.get("pom_description"): item.get("value") for item in measurements_list if "pom_description" in item}
+        measurements = {}
         
+        for item in measurements_list:
+            if item and "pom_description" in item:
+                raw_desc = str(item.get("pom_description", "")).strip()
+                raw_val = item.get("value")
+                
+                # Bước 1: Xóa ký tự rác hệ thống (*, -, ., #) ở đầu câu
+                clean_desc = re.sub(r'^[\*\s\-\._#]+', '', raw_desc).strip()
+                
+                # Bước 2: Tìm vị trí chữ cái hợp lệ đầu tiên để chặt đứt mã số đứng trước
+                match_text_start = re.search(r'[A-Za-z]', clean_desc)
+                if match_text_start:
+                    start_index = match_text_start.start()
+                    potential_clean = clean_desc[start_index:].strip()
+                    
+                    # Giữ an toàn các tiền tố quan trọng (WB, CB, CF) nếu bị cắt nhầm
+                    words_before = clean_desc[:start_index].split()
+                    for word in words_before:
+                        if word.isupper() and len(word) <= 3 and not any(c.isdigit() for c in word):
+                            potential_clean = f"{word} {potential_clean}"
+                    clean_desc = potential_clean
+                
+                # Bước 3: Quét từ đầu tiên, nếu chứa số (mã POM) thì loại bỏ khỏi chữ mô tả
+                parts = clean_desc.split()
+                if parts and len(parts) > 1:
+                    first_word = parts[0]
+                    if any(char.isdigit() for char in first_word) or re.match(r'^[0-9A-Za-z\./\-_]+\$', first_word):
+                        if not first_word.isalpha() or len(first_word) <= 2:
+                            clean_desc = " ".join(parts[1:])
+                
+                # Đồng bộ in hoa sạch sẽ chuẩn Master DB ERP
+                clean_desc = clean_desc.strip().upper()
+                clean_desc = re.sub(r'^[\s\-\._]+', '', clean_desc).strip()
+                
+                if clean_desc:
+                    measurements[clean_desc] = raw_val
+                else:
+                    measurements[raw_desc.upper().strip()] = raw_val
+
         matrix_data = parsed_data.get("full_size_matrix", {})
         full_size_matrix = {}
         if isinstance(matrix_data, dict):
@@ -607,64 +644,31 @@ def process_single_pdf_batch(file_bytes, file_name):
             except:
                 pass
         
-        parsed_data["measurements"] = measurements
-        parsed_data["full_size_matrix"] = full_size_matrix
-        
-        warning_msg = None
-        if not measurements:
-            warning_msg = "Không phát hiện bảng thông số kỹ thuật."
-        
-        extracted_sketch_bytes = None
-        detected_page_num = int(parsed_data.get("sketch_page_number_detected", 1))
-        
-        if detected_page_num in chat_images_dict:
-            b_buf = io.BytesIO()
-            chat_images_dict[detected_page_num].convert("RGB").save(b_buf, format="JPEG", quality=90)
-            extracted_sketch_bytes = b_buf.getvalue()
-        else:
-            if sorted_pages:
-                fallback_page = sorted_pages[0]
-                if fallback_page in chat_images_dict:
-                    detected_page_num = fallback_page
-                    b_buf = io.BytesIO()
-                    chat_images_dict[fallback_page].convert("RGB").save(b_buf, format="JPEG", quality=90)
-                    extracted_sketch_bytes = b_buf.getvalue()
-            
-        success_db = False
-        for db_attempt in range(3):
+        # Cắt lấy ảnh Sketch rập vẽ phẳng từ số trang phát hiện
+        sketch_bytes_raw = None
+        detected_p = parsed_data.get("sketch_page_number_detected", 1)
+        if 'chat_images_dict' in locals() and detected_p in chat_images_dict:
             try:
-                success_db = save_to_supabase_techpack_table(parsed_data, raw_file_bytes=file_bytes, file_name=file_name)
-                if success_db:
-                    break
-                time.sleep(1)
+                out_buf = io.BytesIO()
+                chat_images_dict[detected_p].convert("RGB").save(out_buf, format="PNG")
+                sketch_bytes_raw = out_buf.getvalue()
             except:
-                time.sleep(1)
-        
-        output_payload = {
-            "style_number_parsed": parsed_data.get("style_number_parsed", "UNKNOWN"),
-            "buyer": parsed_data.get("buyer", "UNKNOWN BUYER"),
-            "category": parsed_data.get("category", "GARMENT"),
-            "base_size_name": parsed_data.get("base_size_name", "32"),
-            "measurements": measurements,
-            "full_size_matrix": full_size_matrix
-        }
-        
+                pass
+
         return {
             "success": True,
-            "data": output_payload, 
-            "style_id": output_payload["style_number_parsed"],
-            "buyer": output_payload["buyer"],
-            "category": output_payload["category"],
-            "size": output_payload["base_size_name"],
-            "measurements": output_payload["measurements"], 
-            "sketch_bytes": extracted_sketch_bytes,
-            "sketch_page_index": detected_page_num, 
-            "warning": warning_msg,
-            "model_used": current_model_used,
-            "error": None if success_db else "Lỗi cổng đồng bộ Database."
+            "payload_data": {
+                "style_number_parsed": parsed_data.get("style_number_parsed", "UNKNOWN"),
+                "buyer": parsed_data.get("buyer", "PPJ"),
+                "category": parsed_data.get("category", "Pants"),
+                "base_size_name": parsed_data.get("base_size_name", "N/A"),
+                "measurements": measurements,
+                "full_size_matrix": full_size_matrix,
+                "_sketch_bytes_raw": sketch_bytes_raw
+            }
         }
-    except Exception as e:
-        return {"success": False, "error": f"Lỗi bóc tách PDF: {str(e)}"}
+    except Exception as total_err:
+        return {"success": False, "error": str(total_err)}
 
 
 # PHASE 5: USER INTERFACE STRUCTURE & AUTOMATION FACTORY 
