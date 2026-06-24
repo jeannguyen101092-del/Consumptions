@@ -1910,7 +1910,7 @@ from rapidfuzz import fuzz
 from scipy.optimize import linear_sum_assignment
 
 # =========================================================================================
-# ĐOẠN 1a: INDUSTRIAL May Mặc POM MATCHING ENGINE - PRODUCTION ROBUST VERSION
+# ĐOẠN 1a: INDUSTRIAL May Mặc POM MATCHING ENGINE - NO-NUMBER CHUẨN HOÀN CHỈNH
 # =========================================================================================
 
 UNICODE_FRACTION_MAP = {
@@ -1938,33 +1938,46 @@ def parse_garment_value_industrial(v):
                 return float(frac_parts[0]) / float(frac_parts[1])
         except Exception: pass
         
-        # Trích xuất và bẫy lỗi ép kiểu danh sách dữ liệu đầu ra
         nums = re.findall(r"[-+]?\d*\.\d+|\d+", str_v)
         if nums:
-            try:
-                # ✅ ĐÃ SỬA DỨT ĐIỂM: Lấy phần tử đầu tiên nums[0] thay vì ép kiểu float cho cả list
-                return float(nums[0])
-            except Exception:
-                return None
+            try: return float(nums[0])
+            except Exception: return None
         return None
 
-# HÀM BÓC TÁCH KẾT CẤU POM ĐA TẦNG KHÓA CHẶN HUNGARIAN GHÉP SAI VỊ TRÍ
+# ✅ HÀM TRIỆT TIÊU MÃ SỐ ĐẦU NGỮ VÀ NỘI DUNG TRONG NGOẶC (STRICT CLEANING LAYER)
+def clean_pom_description_text(text):
+    if not text: return ""
+    cleaned = str(text).upper().strip()
+    
+    # 1. Triệt tiêu toàn bộ nội dung nằm trong dấu ngoặc đơn () và ngoặc vuông [] (Ví dụ: "(2 KG)" -> "")
+    cleaned = re.sub(r'\([^\)]*\)', ' ', cleaned)
+    cleaned = re.sub(r'\[[^\]]*\]', ' ', cleaned)
+    
+    # 2. Triệt tiêu các mã định danh đầu ngữ dạng chữ-số (Ví dụ: "WST-007 ", "HIP-011 ", "LEG-002 ")
+    cleaned = re.sub(r'\b[A-Z]{3,4}\s*-\s*\d+\b', ' ', cleaned)
+    
+    # 3. Làm sạch các khoảng trắng thừa do quá trình xóa để lại
+    cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+    return cleaned
+
+# HÀM BÓC TÁCH KẾT CẤU POM ĐA TẦNG DỰA TRÊN CHUỖI ĐÃ LÀM SẠCH SẮC NÉT
 def analyze_garment_pom_structure(text):
     if not text:
-        return {"base": "UNK", "type": "UNK", "subtype": "UNK", "pos": 0.0}
+        return {"base": "UNK", "type": "WIDTH", "subtype": "GENERIC", "pos": 0.0}
     
-    cleaned = str(text).upper().strip().replace("-", " ")
+    # Ép dọn sạch mã số và dấu ngoặc trước khi phân tích hình học
+    cleaned = clean_pom_description_text(text)
     
-    # 1. Trích xuất chính xác vị trí đo Inch (Ví dụ: Thigh 1" Below Crotch)
+    # 1. Trích xuất chính xác vị trí đo Inch (Ví dụ: "THIGH 1 BELOW CROTCH")
     pos_regex = r'(\d+(?:\s+\d+/\d+|\.\d+|\/\d+)?)\s*(?:INCH|")?\s*(?:BELOW|ABOVE|FROM|DOWN)'
     pos_match = re.search(pos_regex, cleaned)
     position_inch = 0.0
     if pos_match:
         position_inch = parse_garment_value_industrial(pos_match.group(1)) or 0.0
         
-    # 2. Định nghĩa Phân vùng Kết cấu cơ sở hình học
+    # 2. Định nghĩa Phân vùng Kết cấu cơ sở hình học (Chỉ dựa trên chữ cái thuần túy)
     base = "UNK"
-    if "WAIST" in cleaned or "WST" in cleaned: base = "WAIST"
+    if "WAIST" in cleaned: base = "WAIST"
     elif "HIP" in cleaned or "SEAT" in cleaned: base = "HIP"
     elif "THIGH" in cleaned: base = "THIGH"
     elif "RISE" in cleaned or "CROTCH" in cleaned: base = "RISE"
@@ -2003,15 +2016,16 @@ if new_specs and old_specs:
     new_keys_list = list(new_specs.keys())
     old_keys_list = list(old_specs.keys())
     
-    # TẦNG 1: EXACT MATCH LAYER (So khớp chuỗi thô tuyệt đối trước)
+    # 📌 TẦNG 1: EXACT CLEAN MATCH LAYER (Khớp tuyệt đối sau khi dọn sạch nhiễu)
     exact_matched_new = set()
     exact_matched_old = set()
     
     for nk in new_keys_list:
-        nk_norm = str(nk).upper().strip().replace("-", " ")
+        nk_clean = clean_pom_description_text(nk)
+        if not nk_clean: continue
         for ok in old_keys_list:
             if ok in exact_matched_old: continue
-            if nk_norm == str(ok).upper().strip().replace("-", " "):
+            if nk_clean == clean_pom_description_text(ok):
                 final_matched_map[nk] = {"old_key": ok, "val_old": old_specs[ok]}
                 exact_matched_new.add(nk)
                 exact_matched_old.add(ok)
@@ -2030,27 +2044,30 @@ if new_specs and old_specs:
         score_tracker = {}
         
         for i, nk in enumerate(filtered_new_keys):
+            nk_clean = clean_pom_description_text(nk)
             n_struct = analyze_garment_pom_structure(nk)
             
             for j, ok in enumerate(filtered_old_keys):
+                ok_clean = clean_pom_description_text(ok)
                 o_struct = analyze_garment_pom_structure(ok)
                 
-                fuzzy_score = float(fuzz.token_set_ratio(nk, ok))
+                # Tính điểm chuỗi văn bản dựa trên chuỗi đã dọn sạch mã số nhiễu
+                fuzzy_score = float(fuzz.token_set_ratio(nk_clean, ok_clean))
                 pair_score = fuzzy_score * 0.35
                 
-                # --- HỆ THỐNG ĐIỀU PHỐI MA TRẬN KẾT CẤU CHẶN LỖI GHÉP SAI ---
+                # --- HỆ THỐNG ĐIỀU PHỐI MA TRẬN KẾT CẤU AN TOÀN ---
                 if n_struct["base"] != "UNK" and n_struct["base"] == o_struct["base"]:
                     pair_score += 45.0  
                     
                     if n_struct["type"] == o_struct["type"]:
                         pair_score += 15.0
                     else:
-                        pair_score -= 40.0  # CẤM ghép nhầm giữa LEVEL (Hạ) và WIDTH (Rộng)
+                        pair_score -= 45.0  # CẤM GHÉP NHẦM LEVEL (Hạ) và WIDTH (Rộng)
                         
                     if n_struct["subtype"] == o_struct["subtype"]:
                         pair_score += 10.0
                     elif "GENERIC" not in [n_struct["subtype"], o_struct["subtype"]]:
-                        pair_score -= 20.0  # CẤM ghép lệch hướng (High hip sang Low hip)
+                        pair_score -= 25.0  # CẤM ghép lệch hướng (High sang Low)
                         
                     distance = abs(n_struct["pos"] - o_struct["pos"])
                     pair_score -= min(distance * 5.0, 30.0)
