@@ -1906,6 +1906,19 @@ import re
 from fractions import Fraction
 import pandas as pd
 import streamlit as st
+# Mẹo CSS Ép ẩn khối nạp kho của trang 1 bị tràn sang trang 3 (Dán dòng đầu tiên của file 2_BOM)
+st.markdown(
+    """
+    <style>
+        /* Ẩn tiêu đề Multi-Batch */
+        div[data-testid="stMarkdownContainer"] h3:contains("MULTI-BATCH"),
+        div[data-testid="stMarkdownContainer"]:has(h3:contains("MULTI-BATCH")) { display: none !important; }
+        /* Ẩn khối Ingestion Engine kèm nút Upload PDF thừa phía trên */
+        div[data-testid="stVerticalBlock"]:has(div[data-testid="stMarkdownContainer"] h3:contains("INGESTION")) { display: none !important; }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
 
 def normalize_key(text):
     """Làm sạch văn bản thông số rập, viết hoa đồng bộ toàn hệ thống."""
