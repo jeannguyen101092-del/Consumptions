@@ -1910,7 +1910,7 @@ from rapidfuzz import fuzz
 from scipy.optimize import linear_sum_assignment
 
 # =========================================================================================
-# ĐOẠN 1a: INDUSTRIAL AI POM MATCHING ENGINE - FIXED TYPEERROR
+# ĐOẠN 1a: INDUSTRIAL May Mặc POM MATCHING ENGINE - SUPABASE SPECIFIC RESOLUTION
 # =========================================================================================
 
 UNICODE_FRACTION_MAP = {
@@ -1930,66 +1930,64 @@ def parse_garment_value_industrial(v):
             
             if " " in str_v and "/" in str_v:
                 parts = str_v.split()
-                whole = float(parts[0])
-                frac_parts = parts[1].split('/')
-                return whole + (float(frac_parts[0]) / float(frac_parts[1]))
+                whole = float(parts)
+                frac_parts = parts.split('/')
+                return whole + (float(frac_parts) / float(frac_parts))
             elif "/" in str_v:
                 frac_parts = str_v.split('/')
-                return float(frac_parts[0]) / float(frac_parts[1])
+                return float(frac_parts) / float(frac_parts)
         except Exception: pass
         
         nums = re.findall(r"[-+]?\d*\.\d+|\d+", str_v)
-        # ✅ ĐÃ SỬA LỖI: Lấy phần tử đầu tiên nums[0] thay vì ép kiểu float cho cả list
-        return float(nums[0]) if nums else None
+        return float(nums) if nums else None
 
-POCKET_KEYWORDS = ["POCKET", "COIN", "WATCH", "TICKET", "UTILITY", "5TH"]
-
-POM_ALIAS_MAP = {
-    "WST": "WAIST-GEN", "WAISTBAND": "WAIST-GEN", "WAIST": "WAIST-GEN", "TOP WAIST": "WAIST-GEN",
-    "HIP": "HIP-GEN", "SEAT": "HIP-GEN", "LOW HIP": "HIP-GEN", "HIGH HIP": "HIP-GEN",
-    "RIS": "RISE-FRONT", "FRONT RISE": "RISE-FRONT", "BACK RISE": "RISE-BACK", "CROTCH": "RISE-FRONT",
-    "THIGH": "THIGH-GEN", "LEG": "THIGH-GEN", "KNEE": "KNEE-GEN",
-    "OPENING": "OPENING-GEN", "BOTTOM": "OPENING-GEN", "HEM": "OPENING-GEN",
-    "INSEAM": "INSEAM-GEN", "OUTSEAM": "OUTSEAM-GEN"
-}
-
-def get_pom_position_code_industrial(text):
-    if not text: return "UNK-GEN", 0.0
+# HÀM BÓC TÁCH KẾT CẤU POM ĐA TẦNG ĐỂ KHÓA CHẶN HUNGARIAN GHÉP SAI
+def analyze_garment_pom_structure(text):
+    if not text:
+        return {"base": "UNK", "type": "UNK", "subtype": "UNK", "pos": 0.0}
+    
     cleaned = str(text).upper().strip().replace("-", " ")
     
-    if any(pk in cleaned for pk in POCKET_KEYWORDS):
-        return "POCKET-GEN", 0.0
-        
+    # 1. Trích xuất chính xác vị trí đo Inch chuyên dụng (Ví dụ: Thigh 1" Below Crotch)
     pos_regex = r'(\d+(?:\s+\d+/\d+|\.\d+|\/\d+)?)\s*(?:INCH|")?\s*(?:BELOW|ABOVE|FROM|DOWN)'
     pos_match = re.search(pos_regex, cleaned)
-    
     position_inch = 0.0
     if pos_match:
         position_inch = parse_garment_value_industrial(pos_match.group(1)) or 0.0
+        
+    # 2. Định nghĩa Phân vùng Kết cấu cơ sở
+    base = "UNK"
+    if "WAIST" in cleaned or "WST" in cleaned: base = "WAIST"
+    elif "HIP" in cleaned or "SEAT" in cleaned: base = "HIP"
+    elif "THIGH" in cleaned: base = "THIGH"
+    elif "RISE" in cleaned or "CROTCH" in cleaned: base = "RISE"
+    elif "INSEAM" in cleaned: base = "INSEAM"
+    elif "OPENING" in cleaned: base = "OPENING"
     
-    base_code = "UNK-GEN"
-    for keyword, alias_code in POM_ALIAS_MAP.items():
-        if keyword in cleaned or re.search(r'\b' + re.escape(keyword) + r'\b', cleaned):
-            base_code = alias_code
-            break
-            
-    return base_code, position_inch
+    # 3. Định nghĩa Thuộc tính Đo (Rộng / Dài / Hạ vị trí)
+    p_type = "WIDTH" # Mặc định là đo chiều rộng/vòng
+    if "LEVEL" in cleaned or "POSITION" in cleaned or "PLACEMENT" in cleaned: p_type = "LEVEL"
+    elif "LENGTH" in cleaned or "OUTSEAM" in cleaned: p_type = "LENGTH"
+    elif "DEPTH" in cleaned: p_type = "DEPTH"
+    
+    # 4. Định nghĩa Hướng/Vị trí phụ (Trước / Sau / Trên / Dưới)
+    subtype = "GENERIC"
+    if "FRONT" in cleaned: subtype = "FRONT"
+    elif "BACK" in cleaned: subtype = "BACK"
+    elif "HIGH" in cleaned or "TOP" in cleaned: subtype = "HIGH"
+    elif "LOW" in cleaned or "BOTTOM" in cleaned: subtype = "LOW"
+    
+    return {"base": base, "type": p_type, "subtype": subtype, "pos": position_inch}
 
 new_specs = st.session_state.get("new_style_measurements_dict", {})
 garment_category = str(st.session_state.get("new_style_category_detected", "PANT")).strip().upper()
-
 new_style_base_size = st.session_state.get("new_style_base_size", "32")
-if not new_style_base_size or str(new_style_base_size).strip().upper() == "N/A":
-    new_style_base_size = "32"
 
 matched_techpack = st.session_state.get("matched_techpack", {})
 old_specs = {}
 if matched_techpack:
     old_specs = matched_techpack.get("DetailedMeasurements", {}) or matched_techpack.get("detailed_measurements", {}) or {}
-
-old_base_size = matched_techpack.get("BaseSize", "N/A") if matched_techpack else "N/A"
-if not old_base_size or str(old_base_size).strip().upper() == "N/A":
-    old_base_size = "32"
+old_base_size = matched_techpack.get("BaseSize", "32")
 
 final_matched_map = {}
 processed_old_keys_global = set()
@@ -1998,6 +1996,7 @@ if new_specs and old_specs:
     new_keys_list = list(new_specs.keys())
     old_keys_list = list(old_specs.keys())
     
+    # 📌 TẦNG 1: EXACT MATCH LAYER (Làm sạch và so khớp tuyệt đối trước)
     exact_matched_new = set()
     exact_matched_old = set()
     
@@ -2024,29 +2023,43 @@ if new_specs and old_specs:
         score_tracker = {}
         
         for i, nk in enumerate(filtered_new_keys):
-            new_base_code, new_pos = get_pom_position_code_industrial(nk)
+            n_struct = analyze_garment_pom_structure(nk)
             
             for j, ok in enumerate(filtered_old_keys):
-                old_base_code, old_pos = get_pom_position_code_industrial(ok)
+                o_struct = analyze_garment_pom_structure(ok)
                 
+                # Tính điểm nền bằng Token Set Ratio
                 fuzzy_score = float(fuzz.token_set_ratio(nk, ok))
-                pair_score = fuzzy_score * 0.40
+                pair_score = fuzzy_score * 0.35
                 
-                if new_base_code != "UNK-GEN" and new_base_code == old_base_code:
-                    pair_score += 60.0
+                # --- HỆ THỐNG ĐIỀU PHỐI MA TRẬN KẾT CẤU CHẶN LỖI GHÉP SAI ---
+                if n_struct["base"] != "UNK" and n_struct["base"] == o_struct["base"]:
+                    pair_score += 45.0  # Thưởng điểm cùng vùng kết cấu gốc (Waist, Hip...)
                     
-                if new_base_code == old_base_code and new_base_code != "POCKET-GEN":
-                    distance = abs(new_pos - old_pos)
-                    pair_score -= min(distance * 4.0, 30.0)
-                elif new_pos != old_pos:
-                    pair_score -= 10.0
-                    
-                if new_base_code != old_base_code and "UNK-GEN" not in [new_base_code, old_base_code]:
-                    pair_score = 0.0
-                    
+                    # Thưởng thêm nếu cùng kiểu đo (Cùng là Width hoặc cùng là Level)
+                    if n_struct["type"] == o_struct["type"]:
+                        pair_score += 15.0
+                    else:
+                        pair_score -= 40.0  # PHẠT NẶNG nếu ghép nhầm giữa LEVEL (Hạ) và WIDTH (Rộng)
+                        
+                    # Thưởng thêm nếu cùng Hướng phụ (Cùng là High hip, cùng là Low hip)
+                    if n_struct["subtype"] == o_struct["subtype"]:
+                        pair_score += 10.0
+                    elif "GENERIC" not in [n_struct["subtype"], o_struct["subtype"]]:
+                        pair_score -= 20.0  # Phạt nếu ghép lệch hướng (High hip sang Low hip)
+                        
+                    # Phạt khoảng cách Inch nếu có chỉ định vị trí hình học
+                    distance = abs(n_struct["pos"] - o_struct["pos"])
+                    pair_score -= min(distance * 5.0, 30.0)
+                else:
+                    # Chặn đứng hoàn toàn không cho ghép xuyên vùng kết cấu khác nhau (Ví dụ Waist sang Hip)
+                    if "UNK" not in [n_struct["base"], o_struct["base"]]:
+                        pair_score = 0.0
+                
                 cost_matrix[i, j] = 1000.0 - pair_score
                 score_tracker[(i, j)] = pair_score
                 
+        # Thực thi giải thuật Hungarian tìm phân phối tối ưu toàn cục
         row_ind, col_ind = linear_sum_assignment(cost_matrix)
         
         for r, c in zip(row_ind, col_ind):
@@ -2055,12 +2068,14 @@ if new_specs and old_specs:
                 nk_target = filtered_new_keys[r]
                 ok_target = filtered_old_keys[c]
                 
-                if final_score >= 30.0:
+                # Đặt ngưỡng sàn chấp nhận khớp thông minh sau tối ưu hóa ma trận
+                if final_score >= 35.0:
                     final_matched_map[nk_target] = {
                         "old_key": ok_target,
                         "val_old": old_specs[ok_target]
                     }
                     processed_old_keys_global.add(ok_target)
+
 
 
 import streamlit as st
