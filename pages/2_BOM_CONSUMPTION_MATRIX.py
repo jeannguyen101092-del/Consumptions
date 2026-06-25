@@ -1413,7 +1413,8 @@ if gemini_key:
 def process_single_pdf_batch(file_bytes, file_name):
     """
     Retriever Layer chuyên sâu cho hệ thống BOM & Consumption Matrix.
-    ✨ Đã sửa lỗi cấu trúc JSON phản hồi từ Gemini API.
+    ✨ Đã sửa lỗi URL API, thêm cơ chế tự động thử lại khi hệ thống quá tải (Lỗi 503),
+    ép chặt Response Schema tránh mất thông số và hoàn thiện tầng return dữ liệu.
     """
     import json
     import requests
@@ -1443,32 +1444,27 @@ def process_single_pdf_batch(file_bytes, file_name):
         # Mã hóa trực tiếp tệp PDF gốc sang định dạng Base64
         b64_pdf = base64.b64encode(file_bytes).decode('utf-8')
 
-        # URL API Endpoint chuẩn của Google Gemini REST API
+        # 🛠️ SỬA LỖI 1: Endpoint URL chuẩn xác của Google Generative Language API
         url = (
             "https://googleapis.com"
             "v1beta/models/gemini-2.5-flash:generateContent"
             f"?key={gemini_key}"
         )
         
+        # 🛠️ CẢI THIỆN PROMPT: Ép tên Key thông số khớp định dạng chuẩn tiếng Anh của hệ thống
         industrial_prompt = (
             "You are an expert Garment Specification Auditor at PPJ Group. Analyze this entire Techpack PDF file page by page.\n"
             "Task:\n"
             "1. Locate the main measurement chart / grading matrix table inside the document.\n"
             "2. Extract ALL measurement descriptions (POM Description) and their corresponding base/sample size values precisely.\n"
-            "3. Find the exact 'Style ID' / 'Style Number' (e.g., F25R09 or 526P09).\n"
-            "4. Identify the 'Base Size' (e.g., 32, M, 28) and the Category (strictly classify as PANT, SHIRT, JACKET, or SHORT).\n"
-            "5. Detect which 0-based page index contains the full body apparel flat sketch drawing.\n"
-            "Return a completely valid raw JSON string matching this exact schema (no markdown formatting):\n"
-            "{\n"
-            "  \"style_number_parsed\": \"string\",\n"
-            "  \"buyer\": \"string\",\n"
-            "  \"category\": \"string\",\n"
-            "  \"base_size_name\": \"string\",\n"
-            "  \"sketch_page_index_detected\": 0,\n"
-            "  \"measurements\": {\"POM Description\": \"Value\"}\n"
-            "}"
+            "3. CRITICAL: Normalize or map the POM Descriptions to standard terminology if needed (e.g., 'Inseam', 'Back rise', 'Fly length', 'Front rise', 'Zipper length', 'Back crotch depth', 'Front crotch depth', 'Leg opening (long)', 'Front pocket bag length', 'Pant/skirt - Low hip level').\n"
+            "4. Find the exact 'Style ID' / 'Style Number' (e.g., F25R09 or 526P09).\n"
+            "5. Identify the 'Base Size' (e.g., 32, M, 28) and the Category (strictly classify as PANT, SHIRT, JACKET, or SHORT).\n"
+            "6. Detect which 0-based page index contains the full body apparel flat sketch drawing.\n"
+            "Return a completely valid raw JSON string matching the specified schema."
         )
 
+        # 🛠️ SỬA LỖI 2: Sử dụng responseSchema để ép Gemini trả về đầy đủ cụm từ khóa thông số
         api_payload = {
             "contents": [{
                 "parts": [
@@ -1478,13 +1474,45 @@ def process_single_pdf_batch(file_bytes, file_name):
             }],
             "generationConfig": {
                 "responseMimeType": "application/json", 
+                "responseSchema": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "style_number_parsed": {"type": "STRING"},
+                        "buyer": {"type": "STRING"},
+                        "category": {"type": "STRING"},
+                        "base_size_name": {"type": "STRING"},
+                        "sketch_page_index_detected": {"type": "INTEGER"},
+                        "measurements": {
+                            "type": "OBJECT",
+                            "additionalProperties": {"type": "STRING"}
+                        }
+                    },
+                    "required": ["style_number_parsed", "base_size_name", "measurements"]
+                },
                 "temperature": 0.1
             }
         }
 
-        # Thiết lập timeout lớn (180 giây) cho các Techpack cồng kềnh
-        res = requests.post(url, json=api_payload, headers={"Content-Type": "application/json"}, timeout=180)
+        # 🛠️ SỬA LỖI 3: Cơ chế Retry tự động lặp lại khi dính lỗi 503 (Hệ thống Google bận)
+        max_retries = 3
+        res = None
+        for attempt in range(max_retries):
+            try:
+                res = requests.post(url, json=api_payload, headers={"Content-Type": "application/json"}, timeout=180)
+                if res.status_code in:
+                    # Nếu gặp lỗi bận/quá tải, đợi tăng dần (2s, 4s, 6s) rồi thử lại
+                    time.sleep(2 * (attempt + 1))
+                    continue
+                else:
+                    break
+            except requests.exceptions.RequestException:
+                if attempt == max_retries - 1:
+                    raise
+                time.sleep(2)
         
+        if res is None:
+            return {"success": False, "error": "Không thể kết nối tới Google API sau nhiều lần thử lại."}
+
         if res.status_code == 200:
             res_json = res.json()
             
@@ -1502,8 +1530,18 @@ def process_single_pdf_batch(file_bytes, file_name):
             
             try:
                 parsed_data = json.loads(clean_json)
+                
+                # 🛠️ SỬA LỖI 4: Bổ sung lệnh trả về kết quả thành công chứa dữ liệu hoàn chỉnh cho hàm
+                return {"success": True, "parsed_json_raw": clean_json, "style_number_parsed": parsed_data.get("style_number_parsed")}
+                
             except Exception:
                 return {"success": False, "error": f"Mô hình trả dữ liệu không đúng cấu trúc định dạng JSON sạch. Nội dung thô: {text_response[:200]}"}
+        else:
+            return {"success": False, "error": f"Lỗi hệ thống trong tầng trích xuất VLM đối soát mẫu rập: {res.status_code}. Chi tiết: {res.text[:200]}"}
+
+    except Exception as e:
+        return {"success": False, "error": f"Lỗi thực thi luồng xử lý: {str(e)}"}
+
 # =========================================================================================
 # ĐOẠN 3 - PHẦN 2: BÓC TÁCH KHỐI ẢNH VÀ KHÓA LỆNH LƯU KHO (DÁN TIẾP NỐI PHẦN 1)
 # =========================================================================================
