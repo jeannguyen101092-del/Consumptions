@@ -2032,118 +2032,124 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     st.session_state["main_fabric_records"] = main_fabric_records
     st.session_state["bom_summary_engine"] = bom_summary_engine
 
-            # =========================================================================
-    # 📑 KHỐI XỬ LÝ LOGIC ĐẦU VÀO: PHÂN TÁCH LUỒNG PDF VÀ HÌNH ẢNH (BÓC TÁCH THÔNG SỐ)
-    # =========================================================================
-    
-    # 1. Thu thập thông tin tệp tin ban đầu an toàn
-    uploaded_file_name_str = str(st.session_state.get("previous_uploaded_file_name", "")).lower()
-    detected_mime_type = "image/jpeg"
-    
-    # Đọc dữ liệu thô từ file uploader nếu biến cục bộ đang trống
-    target_new_sketch_bytes = globals().get("target_new_sketch_bytes", None)
-    if not target_new_sketch_bytes and "bom_matrix_uploader" in st.session_state and st.session_state["bom_matrix_uploader"] is not None:
-        try:
-            file_buffer = st.session_state["bom_matrix_uploader"]
-            detected_mime_type = getattr(file_buffer, "type", "image/jpeg")
-            file_buffer.seek(0)
-            target_new_sketch_bytes = file_buffer.read()
-            globals()["target_new_sketch_bytes"] = target_new_sketch_bytes
-        except Exception: 
-            pass
+     # =========================================================================
+# 📊 BẢNG SO SÁNH SAI LỆCH THÔNG SỐ KỸ THUẬT RẬP MẪU (NEW VS OLD SPECS)
+# =========================================================================
+st.markdown("### 📊 BẢNG SO SÁNH SAI LỆCH THÔNG SỐ KỸ THUẬT RẬP MẪU")
 
-    # Xác định tệp tin có phải định dạng PDF hay không
-    is_pdf_file = "pdf" in str(detected_mime_type).lower() or uploaded_file_name_str.endswith(".pdf") or (target_new_sketch_bytes and target_new_sketch_bytes.startswith(b"%PDF"))
+import pandas as pd
+import re
 
-    # 2. XỬ LÝ DUY NHẤT MỘT LUỒNG CHO FILE PDF (BỎ HOÀN TOÀN KHỐI LẶP LẠI PHÍA DƯỚI)
-    if is_pdf_file and target_new_sketch_bytes:
-        # Kiểm tra xem file này đã được AI bóc tách ở lượt chạy trước chưa để tránh gọi API trùng lặp
-        if "extracted_spec_data" not in st.session_state or st.session_state.get("previous_uploaded_file_name_checked") != st.session_state.get("previous_uploaded_file_name"):
-            raw_pdf_bytes_backup = target_new_sketch_bytes
-            
-            with st.spinner("🤖 AI đang phân tích cấu trúc PDF để bóc tách thông số & hình ảnh vẽ..."):
-                pdf_res = process_single_pdf_batch(raw_pdf_bytes_backup, st.session_state.get("previous_uploaded_file_name", "Techpack"))
-                
-                if pdf_res.get("success"):
-                    # Cập nhật hình ảnh thiết kế phẳng (Flat Sketch) đã trích xuất từ PDF
-                    target_new_sketch_bytes = pdf_res["sketch_bytes"]
-                    globals()["target_new_sketch_bytes"] = pdf_res["sketch_bytes"]
-                    st.session_state["target_new_sketch_bytes_state"] = pdf_res["sketch_bytes"]
-                    
-                    # Lưu trữ cấu trúc ma trận thông số phục vụ hiển thị bảng tính
-                    st.session_state["extracted_spec_data"] = pdf_res["data"]
-                    st.session_state["previous_uploaded_file_name_checked"] = st.session_state.get("previous_uploaded_file_name")
-                    
-                    # Đồng bộ các biến định danh cấu trúc sản phẩm
-                    globals()["new_style_id_detected"] = pdf_res["data"].get("style_number_parsed", "UNKNOWN")
-                    globals()["new_style_base_size"] = pdf_res["data"].get("base_size_name", "N/A")
-                    st.session_state["new_style_id_detected"] = pdf_res["data"].get("style_number_parsed", "UNKNOWN")
-                    
-                    new_vec = f"GARMENT_TYPE: {pdf_res['data'].get('category', 'UNKNOWN').upper()}\n\nFEATURES:\nEXTRACTED VIA MATRIX ENGINE"
-                    st.session_state["visual_description_str"] = new_vec
-                    st.session_state["detected_garment_type"] = pdf_res["data"].get("category", "UNKNOWN").upper()
-                else:
-                    st.warning("⚠️ Không bóc tách được bảng thông số tự động qua AI. Tiến hành luân chuyển chế độ hiển thị đồ họa dự phòng.")
-                    try:
-                        from pdf2image import convert_from_bytes
-                        import io
-                        fallback_images = convert_from_bytes(raw_pdf_bytes_backup, first_page=1, last_page=1)
-                        if fallback_images:
-                            img_buf = io.BytesIO()
-                            fallback_images[0].convert("RGB").save(img_buf, format="JPEG")
-                            target_new_sketch_bytes = img_buf.getvalue()
-                            globals()["target_new_sketch_bytes"] = target_new_sketch_bytes
-                            st.session_state["target_new_sketch_bytes_state"] = target_new_sketch_bytes
-                    except Exception:
-                        pass
-    
-    # Đồng bộ lại dữ liệu ảnh từ trạng thái Session State nếu có để tránh bị reset khi render lại thành phần giao diện khác
-    if target_new_sketch_bytes is None and "target_new_sketch_bytes_state" in st.session_state:
-        target_new_sketch_bytes = st.session_state["target_new_sketch_bytes_state"]
-        globals()["target_new_sketch_bytes"] = target_new_sketch_bytes
-
-    # =========================================================================
-    # 🔍 KHỐI LOG ĐỂ KIỂM TRA ĐỘ TIN CẬY DỮ LIỆU ĐẦU VÀO CỦA GEMINI VÀ DATABASE
-    # =========================================================================
-    with st.expander("🔍 KHỐI LOG KIỂM TRA DỮ LIỆU THÔ (NEW VS OLD SPECS)", expanded=False):
-        st.markdown("**Dữ liệu mẫu mới do AI Gemini trích xuất (new_specs):**")
-        if st.session_state.get("extracted_spec_data"):
-            st.json(st.session_state["extracted_spec_data"].get("measurements", {}))
+# --- HÀM BỔ TRỢ: CHUYỂN PHÂN SỐ INCH THÀNH SỐ THẬP PHÂN ---
+def parse_inch_fraction(val_str):
+    """Chuyển đổi các chuỗi dạng '31 1/2', '6 1/4', '11' hoặc 'N/A' về dạng float để tính toán"""
+    if val_str is None:
+        return 0.0
+    val_clean = str(val_str).strip().replace('"', '').replace('”', '')
+    if not val_clean or val_clean.upper() in ["N/A", "UNKNOWN", "-", "0"]:
+        return 0.0
+    try:
+        # Trường hợp chứa khoảng trắng: "31 1/2"
+        if " " in val_clean:
+            parts = val_clean.split()
+            whole = float(parts[0])
+            frac = parts[1]
+            if "/" in frac:
+                num, denom = frac.split("/")
+                return whole + (float(num) / float(denom))
+        # Trường hợp chỉ có phân số đơn thuần: "1/2"
+        elif "/" in val_clean:
+            num, denom = val_clean.split("/")
+            return float(num) / float(denom)
+        # Trường hợp là số nguyên hoặc thập phân sẵn: "11" hoặc "11.5"
         else:
-            st.warning("Chưa có dữ liệu mẫu mới trong Session State.")
+            return float(val_clean)
+    except Exception:
+        # Nếu chuỗi lỗi hoặc chứa chữ lạ, trích xuất số đầu tiên tìm thấy
+        match = re.search(r"[-+]?\d*\.\d+|\d+", val_clean)
+        if match:
+            return float(match.group())
+    return 0.0
+
+# --- HÀM BỔ TRỢ: FORMAT SỐ HIỂN THỊ ĐẸP ---
+def format_diff(val):
+    if val == 0: return "0.0"
+    return f"+{val:.2f}" if val > 0 else f"{val:.2f}"
+
+def format_pct(val):
+    if val == 0: return "0.0%"
+    return f"+{val:.2f}%" if val > 0 else f"{val:.2f}%"
+
+
+# 1. Thu thập dữ liệu thông số thô từ hai nguồn
+extracted_spec = st.session_state.get("extracted_spec_data", None)
+if isinstance(extracted_spec, dict) and "data" in extracted_spec:
+    extracted_spec = extracted_spec["data"]
+
+# Trích xuất từ điển Measurements { "Vị trí": "Giá trị" }
+new_specs = {}
+if extracted_spec and isinstance(extracted_spec, dict):
+    new_specs = extracted_spec.get("measurements", {}) or extracted_spec.get("full_size_matrix", {})
+
+old_specs = {}
+target_style_code = "Đối chứng"
+if matched_techpack and isinstance(matched_techpack, dict):
+    old_specs = matched_techpack.get("DetailedMeasurements", {}) or matched_techpack.get("measurements", {})
+    target_style_code = str(matched_techpack.get("StyleName", "N/A")).strip().upper()
+
+# 2. XỬ LÝ SO KHỚP VÀ TÍNH TOÁN SAI LỆCH VỊ TRÍ ĐO (POM)
+if new_specs and old_specs:
+    comparison_rows = []
+    
+    # Gom tất cả các vị trí đo duy nhất từ cả 2 tài liệu
+    all_poms = sorted(list(set(list(new_specs.keys()) + list(old_specs.keys()))))
+    
+    for pom in all_poms:
+        # Lấy giá trị chuỗi hiển thị gốc
+        raw_new_val = str(new_specs.get(pom, "-")).strip()
+        raw_old_val = str(old_specs.get(pom, "-")).strip()
+        
+        # Nếu vị trí đo không tồn tại ở một trong hai bên, bỏ qua hoặc hiển thị mặc định
+        if raw_new_val == "-" or raw_old_val == "-":
+            continue
             
-        st.markdown("**Dữ liệu mã đối chứng trong kho DB (old_specs):**")
-        if matched_techpack:
-            st.json(matched_techpack.get("DetailedMeasurements", {}))
-        else:
-            st.warning("Chưa khớp được mã đối chứng trong kho.")
+        # Chuyển đổi sang float để tính toán toán học
+        float_new = parse_inch_fraction(raw_new_val)
+        float_old = parse_inch_fraction(raw_old_val)
+        
+        # Tính độ chênh lệch thực tế (Diff)
+        diff_val = float_new - float_old
+        
+        # Tính tỷ lệ biến thiên dựa trên thông số mã cũ trong kho (Diff %)
+        diff_pct = 0.0
+        if float_old > 0:
+            diff_pct = (diff_val / float_old) * 100
+            
+        comparison_rows.append({
+            "Vị trí đo (POM Description)": pom,
+            "Mẫu mới (30)": raw_new_val,
+            f"Mã cũ ({target_style_code})": raw_old_val,
+            "Chênh lệch (Diff)": diff_val,
+            "Tỷ lệ biến thiên (Diff %)": diff_pct
+        })
+        
+    if comparison_rows:
+        # Khởi tạo DataFrame cấu trúc hiển thị
+        diff_df = pd.DataFrame(comparison_rows)
+        
+        # Định dạng thẩm mỹ cho các cột số liệu tính toán toán học giống hệt như ảnh mẫu
+        diff_df["Chênh lệch (Diff)"] = diff_df["Chênh lệch (Diff)"].apply(format_diff)
+        diff_df["Tỷ lệ biến thiên (Diff %)"] = diff_df["Tỷ lệ biến thiên (Diff %)"].apply(format_pct)
+        
+        # Đổ bảng dữ liệu lên màn hình Streamlit tối ưu theo độ rộng container toàn cục
+        st.dataframe(diff_df, use_container_width=True, hide_index=True)
+    else:
+        st.info("ℹ️ Không tìm thấy các vị trí đo (POM) trùng tên chính xác để tiến hành so sánh dữ liệu.")
+elif not new_specs:
+    st.info("ℹ️ Đang chờ dữ liệu bóc tách mẫu mới từ AI để tạo bảng so sánh sai lệch thông số.")
+else:
+    st.warning("⚠️ Chưa kết nối hoặc không tìm thấy dữ liệu thông số rập mẫu của Mã cũ trong kho lưu trữ dữ liệu.")
 
-    # =========================================================================
-    # 🛠️ NHÁNH DỰ PHÒNG XỬ LÝ ẢNH THƯỜNG (KHÔNG PHẢI PDF VÀ CHƯA KHỚP ĐƯỢC MÃ)
-    # =========================================================================
-    new_vec = str(st.session_state.get("visual_description_str", "") or globals().get("visual_description_str", "") or globals().get("new_style_sketch_vector", "")).strip().upper()
-
-    if not is_pdf_file and st.session_state.get("matched_techpack") is None:
-        if len(new_vec) < 30 and target_new_sketch_bytes and 'client' in globals() and client and client.models:
-            with st.spinner("🔄 Đang quét ảnh tái lập Sketch Vector..."):
-                try:
-                    ocr_prompt = """
-                    You are an expert apparel techpack analyzer. Scan the image to locate the primary 'FLAT SKETCH' or 'TECHNICAL DRAWING'.
-                    Extract:
-                    1. Garment Type (Must strictly classify as one of these: PANT, SHORT, JACKET, SHIRT, DRESS, SKIRT, VEST, HOODIE, T-SHIRT)
-                    2. Structural Features (Focus on visual construction details)
-                    Return format exactly like this:
-                    GARMENT_TYPE: PANT
-                    FEATURES:
-                    ELASTIC WAISTBAND
-                    """
-                    ocr_contents = [
-                        types.Part.from_text(text=ocr_prompt), 
-                        types.Part.from_bytes(data=target_new_sketch_bytes, mime_type=detected_mime_type)
-                    ]
-                    # Logic xử lý gọi API lưu vào vector của bạn ở đây...
-                except Exception as e:
-                    st.error(f"Lỗi phân tích nhận diện ảnh thông thường: {e}")
 
 
        # --- AI CONSUMPTION PROJECTION ENGINE ---
