@@ -1409,10 +1409,30 @@ if gemini_key:
 # =========================================================================================
 # ĐOẠN 3 - PHẦN 1: HÀM TRÍCH XUẤT THÔNG SỐ QUA GEMINI API
 # =========================================================================================
+if "get_secure_gemini_key" in globals():
+    gemini_key = get_secure_gemini_key()
+else:
+    gemini_key = st.secrets.get("GEMINI_API_KEY", "").strip()
+
+client = None
+if gemini_key:
+    try:
+        from google import genai
+        from google.genai import types
+        client = genai.Client(
+            api_key=gemini_key,
+            http_options=types.HttpOptions(api_version="v1")
+        )
+    except Exception:
+        pass
+
+# ==============================================================================
+# HÀM TRÍCH XUẤT THÔNG SỐ QUA GEMINI REST API
+# ==============================================================================
 def process_single_pdf_batch(file_bytes, file_name=None):
     """
     Retriever Layer chuyên sâu cho hệ thống BOM & Consumption Matrix.
-    ✨ Đã sửa triệt để lỗi thụt lề IndentationError và khôi phục index [0] của candidates.
+    ✨ Đã chuẩn hóa lề tuyệt đối bằng 4 khoảng trắng, sạch lỗi IndentationError.
     """
     import json
     import requests
@@ -1430,15 +1450,15 @@ def process_single_pdf_batch(file_bytes, file_name=None):
         extracted_sketch_bytes = None
 
         # 3. Thu thập API Key an toàn từ Secrets hệ thống
-        gemini_key = get_secure_gemini_key() if "get_secure_gemini_key" in globals() else st.secrets.get("GEMINI_API_KEY", "").strip()
-        if not gemini_key:
+        gemini_key_local = get_secure_gemini_key() if "get_secure_gemini_key" in globals() else st.secrets.get("GEMINI_API_KEY", "").strip()
+        if not gemini_key_local:
             return {"success": False, "error": "Thiếu GEMINI_API_KEY trong cấu hình Secrets."}
 
         # 4. Mã hóa trực tiếp tệp PDF gốc sang định dạng Base64
         b64_pdf = base64.b64encode(file_bytes).decode('utf-8')
 
-        # 5. URL endpoint chuẩn xác của Gemini API (sử dụng model gemini-1.5-flash chuyên đọc tài liệu)
-        url = f"https://googleapis.com{gemini_key}"
+        # 5. URL endpoint chuẩn xác của Gemini API (sử dụng model gemini-1.5-flash)
+        url = f"https://googleapis.com{gemini_key_local}"
         
         industrial_prompt = (
             "You are an expert Garment Specification Auditor at PPJ Group. Analyze this entire Techpack PDF file page by page.\n"
@@ -1496,7 +1516,7 @@ def process_single_pdf_batch(file_bytes, file_name=None):
             return {"success": False, "error": "Gemini phản hồi không có dữ liệu hoặc bị Safety Block."}
             
         try:
-            # Khôi phục chuẩn xác cấu trúc mảng lồng nhau của Gemini API
+            # Chỉ định rõ phần tử index [0] của mảng candidates
             first_candidate = res_json['candidates'][0]
             text_response = first_candidate['content']['parts'][0]['text'].strip()
         except (KeyError, IndexError, TypeError):
