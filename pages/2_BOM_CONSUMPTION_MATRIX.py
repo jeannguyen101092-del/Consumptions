@@ -2169,14 +2169,7 @@ if new_specs or old_specs:
         
     new_style_base_size = globals().get("new_style_base_size", st.session_state.get("new_style_base_size", "32"))
 
-    # HIỂN THỊ HỘP KIỂM SOÁT ĐẦU VÀO ĐỒNG BỘ THEO TIÊU CHUẨN ĐƠN VỊ VẬN HÀNH
-    st.write("===== 🔍 STYLE MATCH DEBUG CẤP ĐỘ ERP =====")
-    st.write({
-        "MÃ CŨ THỰC TẾ TRONG KHO (DB)": old_style_display,
-        "MÃ SẢN PHẨM TRONG SESSION": st.session_state.get("matched_style_name"),
-        "MÃ TRA CỨU HỆ THỐNG BOM": st.session_state.get("bom_matched_db_style"),
-        "CẤU TRÚC PHẦN TỬ JSON GỐC": list(matched_techpack.keys()) if matched_techpack else None
-    })
+   
 
     # VÒNG LẶP ĐỐI CHIẾU 1: Duyệt theo danh sách mã cũ trong kho kỹ thuật Supabase
     for original_old_key, val_old in old_specs.items():
