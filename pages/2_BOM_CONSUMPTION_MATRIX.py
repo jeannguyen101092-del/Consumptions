@@ -1910,27 +1910,53 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             else:
                 st.session_state["bom_search_status"] = "API_ERROR" if is_api_error else "NOT_FOUND"
 
+        # =========================================================================
+    # 🧵 ĐỒNG BỘ DỮ LIỆU ĐỊNH MỨC GỐC TỪ SUPABASE (ĐÃ VÁ LỖI CHỮ HOA/THƯỜNG)
+    # =========================================================================
     bom_records = st.session_state.get("bom_records", [])
     main_fabric_records = []
-    bom_summary_engine = {}
+    
+    # Sử dụng cấu trúc tạm để tính trung bình cộng toán học chuẩn ngành may
+    bom_sum_accumulator = {}
+    bom_count_accumulator = {}
 
     for r in bom_records:
-        ctype = str(r.get("consumption_type", "")).strip().upper()
-        if not ctype: 
-            ctype = "UNKNOWN"
-        if ctype in ["MAIN", "FABRIC", "BODY", "SHELL", "MAIN FABRIC"]:
+        # Lấy chủng loại vật tư nguyên bản từ cột consumption_type của Supabase
+        raw_ctype = str(r.get("consumption_type", "")).strip()
+        if not raw_ctype: 
+            raw_ctype = "UNKNOWN"
+            
+        # Biến đổi chữ hoa để kiểm tra điều kiện lọc an toàn, không phân biệt hoa thường
+        ctype_upper = raw_ctype.upper()
+        
+        # SỬA LỖI: So khớp linh hoạt, chấp nhận cả 'Main Fabric', 'MAIN FABRIC', 'Main Fabric '...
+        if any(k in ctype_upper for k in ["MAIN", "FABRIC", "BODY", "SHELL"]):
             main_fabric_records.append(r)
             
         try:
+            # Lấy giá trị định mức từ cột consumption_value của Supabase
             qty = float(r.get("consumption_value", 0.0))
         except (ValueError, TypeError):
             qty = 0.0
             
-        bom_summary_engine[ctype] = round(bom_summary_engine.get(ctype, 0.0) + qty, 3)
+        if qty > 0:
+            # Lưu trữ theo tên chủng loại nguyên bản (raw_ctype) để hiển thị giao diện đẹp
+            bom_sum_accumulator[raw_ctype] = bom_sum_accumulator.get(raw_ctype, 0.0) + qty
+            bom_count_accumulator[raw_ctype] = bom_count_accumulator.get(raw_ctype, 0) + 1
 
+    # ĐÃ NÂNG CẤP: Chuyển đổi sang định mức trung bình lịch sử (Triệt tiêu lỗi đa đơn hàng/nhà máy trong DB)
+    bom_summary_engine = {}
+    for ctype in bom_sum_accumulator:
+        total_qty = bom_sum_accumulator[ctype]
+        total_records = bom_count_accumulator[ctype]
+        # Tính trung bình cộng thực tế của loại vật tư đó trong kho dữ liệu cũ
+        bom_summary_engine[ctype] = round(total_qty / total_records, 4)
+
+    # Đồng bộ an toàn lên session_state để kích hoạt AI Consumption Engine ở phân đoạn sau
     st.session_state["historical_bom_reference"] = bom_records
     st.session_state["main_fabric_records"] = main_fabric_records
     st.session_state["bom_summary_engine"] = bom_summary_engine
+
 
       # --- BẢNG SO SÁNH SAI LỆCH THÔNG SỐ RẬP ---
     st.markdown("<br>### 📐 BẢNG SO SÁNH SAI LỆCH THÔNG SỐ KỸ THUẬT RẬP MẪU", unsafe_allow_html=True)
