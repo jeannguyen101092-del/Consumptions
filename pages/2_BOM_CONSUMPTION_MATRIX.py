@@ -1754,19 +1754,24 @@ with img_col1:
     uploaded_file_name = st.session_state.get("previous_uploaded_file_name", "Techpack")
     
     if target_new_sketch_bytes is not None:
-        # 1. Nếu là PDF, in hộp thông tin tài liệu lên trước để thông báo cho người dùng
+        # 1. Nếu là PDF, hiển thị hộp thông tin tài liệu thông báo cho người dùng
         if "pdf" in str(detected_mime_type).lower() or str(uploaded_file_name).lower().endswith(".pdf"):
             st.info(f"📄 **Tài liệu dạng tệp:** `{uploaded_file_name}`\n\nHệ thống đã nạp toàn bộ cấu trúc dữ liệu PDF vào bộ nhớ mô phỏng rập mẫu.")
         
-        # 2. XỬ LÝ GỐC: Ép dữ liệu bytes qua bộ dựng ảo của Pillow để Streamlit nhận diện chính xác mọi định dạng đồ họa
+        # 2. XỬ LÝ AN TOÀN TUYỆT ĐỐI: Nạp thư viện cục bộ tại chỗ để tránh lỗi "not defined" dây chuyền
         try:
-            image_object = Image.open(io.BytesIO(target_new_sketch_bytes))
+            import io
+            import PIL.Image
+            
+            # Sử dụng đường dẫn thư viện đầy đủ để bọc chuỗi bytes ảnh từ PDF
+            image_object = PIL.Image.open(io.BytesIO(target_new_sketch_bytes))
             st.image(image_object, caption=f"Mẫu mới tải lên ({new_style_id_detected})", use_container_width=True)
         except Exception as e:
             st.warning(f"Lỗi hiển thị ảnh mẫu mới: {e}")
             
     else:
         st.info("ℹ️ Chưa tải lên hoặc không trích xuất được tệp ảnh Flat Sketch của mẫu mới.")
+
 
 with img_col2:
     if matched_techpack is not None:
