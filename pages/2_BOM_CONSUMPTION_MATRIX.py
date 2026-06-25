@@ -1942,10 +1942,16 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         compare_rows = []
         valid_diff_pcts = []
         
-        # Hàm bổ sung: Lọc sạch mã tiền tố và ký tự đặc biệt để giữ lại chuỗi chữ cốt lõi phục vụ so khớp vị trí
+        # SỬA TẠI ĐÂY: Loại bỏ dấu ngoặc đơn và nội dung bên trong trước khi chuẩn hóa ký tự
         def clean_pom_text(text):
-            cleaned = re.sub(r'^[A-Z0-9]+[\s\-_]+', '', str(text)).strip().upper()
+            text_str = str(text)
+            # 1. Xóa nội dung trong dấu ngoặc đơn (ví dụ: "(Base Size 30)", "(from Sketch)")
+            text_str = re.sub(r'\(.*?\)', '', text_str)
+            # 2. Xóa mã tiền tố và ký tự đặc biệt như code cũ của bạn
+            cleaned = re.sub(r'^[A-Z0-9]+[\s\-_]+', '', text_str).strip().upper()
             cleaned = re.sub(r'[^A-Z\s]', '', cleaned).strip()
+            # 3. Thu gọn khoảng trắng thừa để đảm bảo chuỗi sạch tuyệt đối
+            cleaned = " ".join(cleaned.split())
             return cleaned
 
         # Hàm bổ sung: Trích xuất chính xác số float đầu tiên từ chuỗi dữ liệu kỹ thuật
