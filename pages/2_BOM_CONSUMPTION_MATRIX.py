@@ -1942,63 +1942,34 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         compare_rows = []
         valid_diff_pcts = []
         
-        # 1. Hàm lọc sạch mã tiền tố để giữ lại chuỗi chữ cốt lõi phục vụ so khớp vị trí
+        # SỬA TẠI ĐÂY: Loại bỏ dấu ngoặc đơn và nội dung bên trong trước khi chuẩn hóa ký tự
         def clean_pom_text(text):
             text_str = str(text)
+            # 1. Xóa nội dung trong dấu ngoặc đơn (ví dụ: "(Base Size 30)", "(from Sketch)")
             text_str = re.sub(r'\(.*?\)', '', text_str)
+            # 2. Xóa mã tiền tố và ký tự đặc biệt như code cũ của bạn
             cleaned = re.sub(r'^[A-Z0-9]+[\s\-_]+', '', text_str).strip().upper()
             cleaned = re.sub(r'[^A-Z\s]', '', cleaned).strip()
-            return " ".join(cleaned.split())
+            # 3. Thu gọn khoảng trắng thừa để đảm bảo chuỗi sạch tuyệt đối
+            cleaned = " ".join(cleaned.split())
+            return cleaned
 
-        # 2. ĐÃ SỬA: Hàm trích xuất và quy đổi thông minh phân số ngành may (Ví dụ: 6 3/4 -> 6.75)
+        # Hàm bổ sung: Trích xuất chính xác số float đầu tiên từ chuỗi dữ liệu kỹ thuật
         def clean_float(v):
             if v is None: return None
-            v_str = str(v).strip()
             try: 
-                return float(v_str)
+                return float(v)
             except (ValueError, TypeError):
-                # Tìm cấu trúc phân số hỗn hợp dạng: "Số_nguyên Phân_số" (Ví dụ: 6 3/4 hoặc 6-3/4)
-                mixed_match = re.search(r"(\d+)[\s\-]+(\d+)/(\d+)", v_str)
-                if mixed_match:
-                    whole = float(mixed_match.group(1))
-                    num = float(mixed_match.group(2))
-                    denom = float(mixed_match.group(3))
-                    return whole + (num / denom)
-                
-                # Tìm phân số thuần túy không có số nguyên đứng trước (Ví dụ: 3/4)
-                frac_match = re.search(r"(\d+)/(\d+)", v_str)
-                if frac_match:
-                    return float(frac_match.group(1)) / float(frac_match.group(2))
-                
-                # Phương án dự phòng cuối cùng nếu chỉ là số thập phân thông thường
-                nums = re.findall(r"[-+]?\d*\.\d+|\d+", v_str)
+                nums = re.findall(r"[-+]?\d*\.\d+|\d+", str(v))
                 return float(nums[0]) if nums else None
 
         # Tiến hành ánh xạ thông minh giữa hai bảng thông số mới và cũ thông qua chuỗi đã làm sạch
         mapped_old_specs = {clean_pom_text(k): (k, v) for k, v in old_specs.items()}
         processed_old_keys = set()
 
-        # Định nghĩa bộ từ khóa bộ lọc cứng cho các điểm đo lớn quyết định phom dáng sản phẩm
-        core_major_keywords = [
-            "INSEAM", "THIGH", "DUI", "HIP", "MONG", "WAIST", "LUNG", "CAP", "EO",
-            "RISE", "DAY", "LENGTH", "CHEST", "NGUC", "BUST", "WIDTH", "THÂN", 
-            "OUTSEAM", "DAI AO", "DAI VAY", "DAI QUAN", "BACK LENGTH", "FRONT LENGTH"
-        ]
-        # Bộ từ khóa chi tiết phụ loại bỏ thẳng tay khỏi bảng hiển thị đối chiếu phom để tránh loãng dữ liệu
-        strict_ignore_keywords = [
-            "POCKET", "TUI", "BADGE", "LABEL", "BUTTON", "TICKET", "LOOP", "STITCH", 
-            "FLAP", "COLLAR WIDTH", "CUFF", "ZIPPER", "FLY", "ELONGATION"
-        ]
-
         for original_new_key, val_new in new_specs.items():
             clean_new_key = clean_pom_text(original_new_key)
             
-            # MÀNG LỌC CỨNG: Bỏ qua chi tiết phụ lè tè ngay từ vòng lặp bảng hiển thị giao diện
-            if any(ig in clean_new_key for ig in strict_ignore_keywords):
-                continue
-            if not any(k in clean_new_key for k in core_major_keywords):
-                continue
-
             # Tìm kiếm vị trí tương đồng trong kho dữ liệu cũ
             if clean_new_key in mapped_old_specs:
                 original_old_key, val_old = mapped_old_specs[clean_new_key]
@@ -2014,7 +1985,17 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                 diff_val = round(f_new - f_old, 2)
                 if f_old != 0:
                     diff_pct = round((diff_val / f_old) * 100, 2)
-                    valid_diff_pcts.append(diff_pct)
+                    
+                    # MÀNG LỌC CỨNG (Hard Core Filter): Chỉ lấy thông số cơ bản lớn ảnh hưởng trực tiếp đến phom rập mẫu
+                    core_keywords = [
+                        "INSEAM", "THIGH", "HIP", "WAIST", "LEG", "LENGTH", "CHEST", 
+                        "BUST", "WIDTH", "ARMHOLE", "SLEEVE", "OUTSEAM", "RISE"
+                    ]
+                    if any(k in clean_new_key for k in core_keywords):
+                        # Loại trừ các chi tiết quá nhỏ hoặc nhãn mác phụ thuộc để không làm lệch %
+                        ignore_keywords = ["BADGE", "LABEL", "BUTTON", "POCKET-OPENING", "TICKET", "LOOP", "STITCH"]
+                        if not any(ig in clean_new_key for ig in ignore_keywords):
+                            valid_diff_pcts.append(diff_pct)
                 else:
                     diff_pct = 0.0
 
@@ -2029,16 +2010,8 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                 "Tỷ lệ biến thiên (Diff %)": display_pct
             })
 
-        # Nạp nốt các vị trí đo cốt lõi của mã cũ nếu mã mới chưa bổ sung dữ liệu
+        # Nạp nốt các vị trí đo của mã cũ nếu mã mới không có để tránh mất mát dữ liệu hiển thị
         for original_old_key, val_old in old_specs.items():
-            clean_old_key = clean_pom_text(original_old_key)
-            
-            # Áp dụng bộ lọc tương tự cho phần quét sót mã cũ
-            if any(ig in clean_old_key for ig in strict_ignore_keywords):
-                continue
-            if not any(k in clean_old_key for k in core_major_keywords):
-                continue
-                
             if original_old_key not in processed_old_keys:
                 compare_rows.append({
                     "Vị trí đo (POM Description)": original_old_key,
@@ -2051,109 +2024,95 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         df_compare_spec = pd.DataFrame(compare_rows)
         st.dataframe(df_compare_spec, use_container_width=True, hide_index=True)
         
-        # Tính toán độ biến thiên diện tích phom chuẩn dựa trên dữ liệu phân số đã được quy đổi chính xác
+        # Tính toán độ biến thiên diện tích phom dựa trên các POM cốt lõi được giữ lại
         if valid_diff_pcts:
             avg_pom_growth = sum(valid_diff_pcts) / len(valid_diff_pcts)
             avg_area_growth_pct = round((((1 + avg_pom_growth/100) ** 2) - 1) * 100, 2)
 
 
-    # --- AI CONSUMPTION PROJECTION ENGINE ---
+
+      # =========================================================================
+    # 🔮 AI CONSUMPTION PROJECTION ENGINE (TÁCH RIÊNG ĐỘC LẬP THEO CẤU TRÚC DB)
+    # =========================================================================
     if matched_techpack and st.session_state.get("matched_image_verified", False) and bom_records:
         st.markdown("<br>🔮 **AI CONSUMPTION PROJECTION ENGINE (DỰ PHÓNG ĐỊNH MỨC MÃ MỚI)**", unsafe_allow_html=True)
-        
-        # =========================================================================
-        # BƯỚC 1: TÍNH LẠI TRUNG BÌNH % CHÊNH LỆCH CHỈ DỰA TRÊN CÁC ĐIỂM ĐO LỚN (CORE POMs)
-        # =========================================================================
-        core_pom_pcts = []
-        
-        # Danh mục từ khóa cho các điểm đo lớn quyết định diện tích phom rập chính
-        industry_core_keywords = [
-            "INSEAM", "THIGH", "HIP", "WAIST", "LEG OPENING", "LENGTH", "CHEST", 
-            "BUST", "OUTSEAM", "RISE", "FRONT RISE", "BACK RISE"
-        ]
-        
-        for original_new_key, val_new in new_specs.items():
-            clean_new_key = clean_pom_text(original_new_key)
-            
-            # Chỉ xét nếu từ khóa nằm trong danh mục điểm đo cốt lõi
-            if any(k in clean_new_key for k in industry_core_keywords):
-                # Loại trừ nghiêm ngặt các chi tiết nhỏ/phụ trợ dễ gây nhiễu %
-                noise_keywords = ["POCKET", "LOOP", "STITCH", "BUTTON", "LABEL", "TICKET", "FLY", "ZIPPER", "BADGE", "FLAP"]
-                if not any(nk in clean_new_key for nk in noise_keywords):
-                    if clean_new_key in mapped_old_specs:
-                        _, val_old = mapped_old_specs[clean_new_key]
-                        f_new = clean_float(val_new)
-                        f_old = clean_float(val_old)
-                        
-                        if f_new is not None and f_old is not None and f_old > 0:
-                            diff_pct = ((f_new - f_old) / f_old) * 100
-                            core_pom_pcts.append(diff_pct)
-        
-        # Tính toán lại diện tích phom tăng trưởng dựa trên các điểm đo lớn cốt lõi
-        if core_pom_pcts:
-            avg_core_pom_growth = sum(core_pom_pcts) / len(core_pom_pcts)
-            # Công thức ngành: Biến thiên diện tích rập = (1 + % biến thiên kích thước trung bình)^2 - 1
-            refined_area_growth_pct = round((((1 + avg_core_pom_growth/100) ** 2) - 1) * 100, 2)
-        else:
-            refined_area_growth_pct = 0.0
 
-        # =========================================================================
-        # BƯỚC 2: TÍNH ĐỊNH MỨC TRUNG BÌNH CỦA MÃ CŨ TỪ KHO (XỬ LÝ TRƯỜNG HỢP NHIỀU ĐM)
-        # =========================================================================
-        # Gom nhóm và tính trung bình định mức (old_qty) theo từng chủng loại vật tư
-        bom_avg_dict = {}
-        bom_counts = {}
+        # 1. Hàm bổ trợ chuyển đổi chuỗi sang float (Hỗ trợ bóc tách phân số may mặc nếu có)
+        def clean_float(v):
+            if v is None: return None
+            v_str = str(v).strip()
+            try: 
+                return float(v_str)
+            except (ValueError, TypeError):
+                mixed_match = re.search(r"(\d+)[\s\-]+(\d+)/(\d+)", v_str)
+                if mixed_match:
+                    whole = float(mixed_match.group(1))
+                    num = float(mixed_match.group(2))
+                    denom = float(mixed_match.group(3))
+                    return whole + (num / denom)
+                frac_match = re.search(r"(\d+)/(\d+)", v_str)
+                if frac_match:
+                    return float(frac_match.group(1)) / float(frac_match.group(2))
+                nums = re.findall(r"[-+]?\d*\.\d+|\d+", v_str)
+                return float(nums[0]) if nums else None
+
+        # 2. XỬ LÝ ĐA ĐỊNH MỨC KHO: Gom nhóm theo consumption_type và tính Trung Bình Cộng thực tế
+        bom_sum_dict = {}
+        bom_count_dict = {}
         
-        for record in bom_records:
-            # Tùy thuộc vào cấu trúc dữ liệu của bom_records, lấy trường loại vật tư và số lượng ĐM
-            ctype = record.get("MaterialType") or record.get("Type") or record.get("ComponentType", "UNKNOWN")
-            qty = clean_float(record.get("Consumption") or record.get("Qty") or record.get("Quantity", 0))
+        for r in bom_records:
+            # Đồng bộ theo trường dữ liệu chuẩn từ DB của bạn
+            ctype = str(r.get("consumption_type", "")).strip().upper()
+            if not ctype: 
+                ctype = "UNKNOWN"
+                
+            qty = clean_float(r.get("consumption_value", 0.0))
             
             if qty is not None and qty > 0:
-                bom_avg_dict[ctype] = bom_avg_dict.get(ctype, 0.0) + qty
-                bom_counts[ctype] = bom_counts.get(ctype, 0) + 1
+                bom_sum_dict[ctype] = bom_sum_dict.get(ctype, 0.0) + qty
+                bom_count_dict[ctype] = bom_count_dict.get(ctype, 0) + 1
                 
-        # Tính toán giá trị định mức trung bình cuối cùng cho mỗi chủng loại
-        final_old_bom_summary = {k: round(bom_avg_dict[k] / bom_counts[k], 4) for k in bom_avg_dict}
+        # Tạo bảng định mức trung bình cơ sở cho mã cũ (Triệt tiêu lỗi nhân trùng lặp định mức)
+        final_old_bom_summary = {k: round(bom_sum_dict[k] / bom_count_dict[k], 4) for k in bom_sum_dict}
 
-        # =========================================================================
-        # BƯỚC 3: CẤU HÌNH GIAO DIỆN & TÍNH TOÁN DỰ PHÓNG ĐỊNH MỨC MÃ MỚI
-        # =========================================================================
+        # 3. CẤU HÌNH CÁC HỆ SỐ AI CHO NGÀNH MAY CÔNG NGHIỆP
         v_similarity = st.session_state.get("matched_similarity_score", 100.0)
         
         col1, col2, col3 = st.columns(3)
         with col1:
-            shape_factor = st.number_input("Độ biến thiên phom chính xác (%)", value=float(refined_area_growth_pct), step=0.1, help="Chỉ tính toán dựa trên các thông số chính như eo, mông, dài quần/áo để tránh sai số.")
+            # Liên kết động với kết quả tính toán từ các điểm đo CORE POM ở khối trên
+            shape_factor = st.number_input("Độ biến thiên thông số POM trung bình (%)", value=float(globals().get("avg_area_growth_pct", 0.0)), step=0.1, help="Kích thước nhảy vóc tính từ các điểm đo lớn cốt lõi.")
         with col2:
-            fabric_growth_factor = st.number_input("Hệ số thực nghiệm vải (Fabric Factor)", value=0.65, step=0.05, help="Hệ số hiệu chỉnh độ co giãn của vải khi nhảy vóc rập rải sớ vải.")
+            fabric_growth_factor = st.number_input("Hệ số thực nghiệm vải (Fabric Growth Factor)", value=0.65, step=0.05, help="Hệ số hiệu chỉnh độ sụt/co dãn vải khi rải sớ sơ đồ.")
         with col3:
-            wastage_buffer = st.number_input("Hao hụt sản xuất cấu hình thêm (%)", value=3.0, step=0.5)
+            wastage_buffer = st.number_input("Hao hụt sản xuất cấu hình thêm (%)", value=0.0, step=0.5)
 
+        # 4. TIẾN HÀNH TÍNH TOÁN DỰ PHÓNG THEO PHÂN TẦNG VẬT TƯ
         projection_rows = []
         for ctype, avg_old_qty in final_old_bom_summary.items():
             ctype_upper = str(ctype).strip().upper()
             similarity_weight = v_similarity / 100.0
             
-            # Nhóm 1: Vải chính chịu tác động trực tiếp từ diện tích nhảy vóc rập sơ đồ nhân với hệ số co giãn vải
+            # Nhóm 1: Vải chính - biến thiên phom rập diện tích lớn kết hợp hệ số thực nghiệm vải
             if any(k in ctype_upper for k in ["MAIN", "FABRIC", "BODY", "SHELL"]):
                 adjusted_shape_factor = shape_factor * fabric_growth_factor * similarity_weight
                 projected_dm = avg_old_qty * (1 + adjusted_shape_factor / 100) * (1 + wastage_buffer / 100)
                 note = f"Vải chính: Hệ số ({fabric_growth_factor}) × POM ({round(shape_factor, 1)}%) → ĐM tăng: {round(adjusted_shape_factor, 2)}%"
                 
-            # Nhóm 2: Vải lót, vải phối, keo/dựng dựng (Interlining/Pocketing) chịu ảnh hưởng gián tiếp (hệ số giảm chấn 0.4)
+            # Nhóm 2: Vải phụ, vải lót, mếch dựng túi - chịu tác động giảm chấn cơ học biên độ 0.4
             elif any(k in ctype_upper for k in ["LINING", "RIB", "COMBINATION", "POCKET", "INTERLINING"]):
                 reduced_factor = shape_factor * 0.4 * similarity_weight
                 projected_dm = avg_old_qty * (1 + reduced_factor / 100) * (1 + wastage_buffer / 100)
                 note = f"Vải phụ: Giảm chấn (0.4) × Mức tăng vải chính → ĐM tăng: {round(reduced_factor, 2)}%"
                 
-            # Nhóm 3: Phụ liệu tĩnh không thay đổi kích thước theo phom rập (Chỉ cộng hao hụt sản xuất)
+            # Nhóm 3: Phụ liệu tĩnh (chỉ tính hao hụt sản xuất cấu hình, không co giãn theo phom nhảy size)
             else:
                 projected_dm = avg_old_qty * (1 + wastage_buffer / 100)
                 note = f"Phụ liệu tĩnh (Chỉ tính hao hụt sản xuất {wastage_buffer}%)"
                 
             projection_rows.append({
                 "Phân loại vật tư (Type)": ctype,
-                "Tổng ĐM mã cũ (TB kho)": avg_old_qty,
+                "ĐM Trung bình mã cũ": avg_old_qty,
                 "ĐM Dự phóng mã mới": round(projected_dm, 3),
                 "Cơ sở thuật toán toán AI": note
             })
@@ -2161,6 +2120,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         df_projection = pd.DataFrame(projection_rows)
         st.session_state["ai_projected_consumption_matrix"] = projection_rows
         st.dataframe(df_projection, use_container_width=True, hide_index=True)
+
 
 import json
 import re
