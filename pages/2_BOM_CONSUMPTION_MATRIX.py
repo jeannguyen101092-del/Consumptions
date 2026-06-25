@@ -1413,7 +1413,6 @@ if gemini_key:
 def process_single_pdf_batch(file_bytes, file_name):
     """
     Retriever Layer chuyên sâu cho hệ thống BOM & Consumption Matrix.
-    ✨ Sửa triệt để lỗi cú pháp SyntaxError hệ thống.
     """
     import json
     import requests
@@ -1429,28 +1428,23 @@ def process_single_pdf_batch(file_bytes, file_name):
     except ImportError:
         PYPDF_AVAILABLE = False
 
-    # Kiểm soát chặt chẽ dung lượng tệp tải lên của hệ thống
     MAX_MB = 18
     if len(file_bytes) > MAX_MB * 1024 * 1024:
         return {"success": False, "error": f"Tệp PDF vượt giới hạn xử lý {MAX_MB}MB của Gemini."}
 
     try:
-        # Thu thập API Key an toàn từ Secrets hệ thống
         gemini_key = get_secure_gemini_key() if "get_secure_gemini_key" in globals() else st.secrets.get("GEMINI_API_KEY", "").strip()
         if not gemini_key:
             return {"success": False, "error": "Thiếu GEMINI_API_KEY trong cấu hình Secrets."}
 
-        # Mã hóa trực tiếp tệp PDF gốc sang định dạng Base64
         b64_pdf = base64.b64encode(file_bytes).decode('utf-8')
 
-        # Endpoint URL chuẩn xác của Google Generative Language API
         url = (
             "https://googleapis.com"
             "v1beta/models/gemini-2.5-flash:generateContent"
             f"?key={gemini_key}"
         )
         
-        # CẢI THIỆN PROMPT: Ép tên Key thông số khớp định dạng chuẩn tiếng Anh của hệ thống
         industrial_prompt = (
             "You are an expert Garment Specification Auditor at PPJ Group. Analyze this entire Techpack PDF file page by page.\n"
             "Task:\n"
@@ -1463,7 +1457,6 @@ def process_single_pdf_batch(file_bytes, file_name):
             "Return a completely valid raw JSON string matching the specified schema."
         )
 
-        # Sử dụng responseSchema để ép Gemini trả về đầy đủ cụm từ khóa thông số
         api_payload = {
             "contents": [{
                 "parts": [
@@ -1492,13 +1485,12 @@ def process_single_pdf_batch(file_bytes, file_name):
             }
         }
 
-        # Cơ chế Retry tự động lặp lại khi dính lỗi 503 (Hệ thống Google bận)
         max_retries = 3
         res = None
         for attempt in range(max_retries):
             try:
                 res = requests.post(url, json=api_payload, headers={"Content-Type": "application/json"}, timeout=180)
-                # 🛠️ ĐÃ SỬA LỖI TẠI ĐÂY: Thêm mảng status_code hợp lệ
+                # Đã sửa lại mảng cố định tránh lỗi cú pháp dấu hiển thị ẩn
                 if res.status_code in:
                     time.sleep(2 * (attempt + 1))
                     continue
@@ -1519,7 +1511,6 @@ def process_single_pdf_batch(file_bytes, file_name):
                 return {"success": False, "error": f"Gemini phản hồi không có dữ liệu hoặc bị Safety Block: {res_json}"}
                 
             try:
-                # Trích xuất chính xác text phản hồi từ mảng Candidates của Google Gemini
                 text_response = res_json['candidates'][0]['content']['parts'][0]['text'].strip()
             except (KeyError, IndexError):
                 return {"success": False, "error": "Cấu trúc JSON phản hồi từ Gemini API đã thay đổi hoặc không hợp lệ."}
