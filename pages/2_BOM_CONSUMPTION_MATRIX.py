@@ -2033,29 +2033,99 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     if matched_techpack and st.session_state.get("matched_image_verified", False) and bom_records:
         st.markdown("<br>🔮 **AI CONSUMPTION PROJECTION ENGINE (DỰ PHÓNG ĐỊNH MỨC MÃ MỚI)**", unsafe_allow_html=True)
         
+        # =========================================================================
+        # BƯỚC 1: TÍNH LẠI TRUNG BÌNH % CHÊNH LỆCH CHỈ DỰA TRÊN CÁC ĐIỂM ĐO LỚN (CORE POMs)
+        # =========================================================================
+        core_pom_pcts = []
+        
+        # Danh mục từ khóa cho các điểm đo lớn quyết định diện tích phom rập chính
+        industry_core_keywords = [
+            "INSEAM", "THIGH", "HIP", "WAIST", "LEG OPENING", "LENGTH", "CHEST", 
+            "BUST", "OUTSEAM", "RISE", "FRONT RISE", "BACK RISE"
+        ]
+        
+        for original_new_key, val_new in new_specs.items():
+            clean_new_key = clean_pom_text(original_new_key)
+            
+            # Chỉ xét nếu từ khóa nằm trong danh mục điểm đo cốt lõi
+            if any(k in clean_new_key for k in industry_core_keywords):
+                # Loại trừ nghiêm ngặt các chi tiết nhỏ/phụ trợ dễ gây nhiễu %
+                noise_keywords = ["POCKET", "LOOP", "STITCH", "BUTTON", "LABEL", "TICKET", "FLY", "ZIPPER", "BADGE", "FLAP"]
+                if not any(nk in clean_new_key for nk in noise_keywords):
+                    if clean_new_key in mapped_old_specs:
+                        _, val_old = mapped_old_specs[clean_new_key]
+                        f_new = clean_float(val_new)
+                        f_old = clean_float(val_old)
+                        
+                        if f_new is not None and f_old is not None and f_old > 0:
+                            diff_pct = ((f_new - f_old) / f_old) * 100
+                            core_pom_pcts.append(diff_pct)
+        
+        # Tính toán lại diện tích phom tăng trưởng dựa trên các điểm đo lớn cốt lõi
+        if core_pom_pcts:
+            avg_core_pom_growth = sum(core_pom_pcts) / len(core_pom_pcts)
+            # Công thức ngành: Biến thiên diện tích rập = (1 + % biến thiên kích thước trung bình)^2 - 1
+            refined_area_growth_pct = round((((1 + avg_core_pom_growth/100) ** 2) - 1) * 100, 2)
+        else:
+            refined_area_growth_pct = 0.0
+
+        # =========================================================================
+        # BƯỚC 2: TÍNH ĐỊNH MỨC TRUNG BÌNH CỦA MÃ CŨ TỪ KHO (XỬ LÝ TRƯỜNG HỢP NHIỀU ĐM)
+        # =========================================================================
+        # Gom nhóm và tính trung bình định mức (old_qty) theo từng chủng loại vật tư
+        bom_avg_dict = {}
+        bom_counts = {}
+        
+        for record in bom_records:
+            # Tùy thuộc vào cấu trúc dữ liệu của bom_records, lấy trường loại vật tư và số lượng ĐM
+            ctype = record.get("MaterialType") or record.get("Type") or record.get("ComponentType", "UNKNOWN")
+            qty = clean_float(record.get("Consumption") or record.get("Qty") or record.get("Quantity", 0))
+            
+            if qty is not None and qty > 0:
+                bom_avg_dict[ctype] = bom_avg_dict.get(ctype, 0.0) + qty
+                bom_counts[ctype] = bom_counts.get(ctype, 0) + 1
+                
+        # Tính toán giá trị định mức trung bình cuối cùng cho mỗi chủng loại
+        final_old_bom_summary = {k: round(bom_avg_dict[k] / bom_counts[k], 4) for k in bom_avg_dict}
+
+        # =========================================================================
+        # BƯỚC 3: CẤU HÌNH GIAO DIỆN & TÍNH TOÁN DỰ PHÓNG ĐỊNH MỨC MÃ MỚI
+        # =========================================================================
         v_similarity = st.session_state.get("matched_similarity_score", 100.0)
-        col1, col2 = st.columns(2)
+        
+        col1, col2, col3 = st.columns(3)
         with col1:
-            shape_factor = st.number_input("Độ biến thiên phom tính toán từ POM (%)", value=float(avg_area_growth_pct), step=0.1)
+            shape_factor = st.number_input("Độ biến thiên phom chính xác (%)", value=float(refined_area_growth_pct), step=0.1, help="Chỉ tính toán dựa trên các thông số chính như eo, mông, dài quần/áo để tránh sai số.")
         with col2:
+            fabric_growth_factor = st.number_input("Hệ số thực nghiệm vải (Fabric Factor)", value=0.65, step=0.05, help="Hệ số hiệu chỉnh độ co giãn của vải khi nhảy vóc rập rải sớ vải.")
+        with col3:
             wastage_buffer = st.number_input("Hao hụt sản xuất cấu hình thêm (%)", value=3.0, step=0.5)
 
         projection_rows = []
-        for ctype, old_qty in bom_summary_engine.items():
-            # Đồng bộ hóa định dạng chữ để kiểm tra chính xác chủng loại vải chính/vải lót chịu ảnh hưởng nhảy size
+        for ctype, avg_old_qty in final_old_bom_summary.items():
             ctype_upper = str(ctype).strip().upper()
-            if any(k in ctype_upper for k in ["MAIN", "FABRIC", "BODY", "SHELL", "LINING", "RIB", "COMBINATION", "POCKETING"]):
-                similarity_weight = v_similarity / 100.0
-                adjusted_shape_factor = shape_factor * similarity_weight
-                projected_dm = old_qty * (1 + adjusted_shape_factor / 100) * (1 + wastage_buffer / 100)
-                note = f"Vải nhảy vóc (Diện tích rập biến thiên: {round(adjusted_shape_factor, 2)}% dựa trên Vision {v_similarity}%)"
+            similarity_weight = v_similarity / 100.0
+            
+            # Nhóm 1: Vải chính chịu tác động trực tiếp từ diện tích nhảy vóc rập sơ đồ nhân với hệ số co giãn vải
+            if any(k in ctype_upper for k in ["MAIN", "FABRIC", "BODY", "SHELL"]):
+                adjusted_shape_factor = shape_factor * fabric_growth_factor * similarity_weight
+                projected_dm = avg_old_qty * (1 + adjusted_shape_factor / 100) * (1 + wastage_buffer / 100)
+                note = f"Vải chính: Hệ số ({fabric_growth_factor}) × POM ({round(shape_factor, 1)}%) → ĐM tăng: {round(adjusted_shape_factor, 2)}%"
+                
+            # Nhóm 2: Vải lót, vải phối, keo/dựng dựng (Interlining/Pocketing) chịu ảnh hưởng gián tiếp (hệ số giảm chấn 0.4)
+            elif any(k in ctype_upper for k in ["LINING", "RIB", "COMBINATION", "POCKET", "INTERLINING"]):
+                reduced_factor = shape_factor * 0.4 * similarity_weight
+                projected_dm = avg_old_qty * (1 + reduced_factor / 100) * (1 + wastage_buffer / 100)
+                note = f"Vải phụ: Giảm chấn (0.4) × Mức tăng vải chính → ĐM tăng: {round(reduced_factor, 2)}%"
+                
+            # Nhóm 3: Phụ liệu tĩnh không thay đổi kích thước theo phom rập (Chỉ cộng hao hụt sản xuất)
             else:
-                projected_dm = old_qty * (1 + wastage_buffer / 100)
+                projected_dm = avg_old_qty * (1 + wastage_buffer / 100)
                 note = f"Phụ liệu tĩnh (Chỉ tính hao hụt sản xuất {wastage_buffer}%)"
                 
             projection_rows.append({
                 "Phân loại vật tư (Type)": ctype,
-                "Tổng ĐM mã cũ": old_qty,
+                "Tổng ĐM mã cũ (TB kho)": avg_old_qty,
                 "ĐM Dự phóng mã mới": round(projected_dm, 3),
                 "Cơ sở thuật toán toán AI": note
             })
