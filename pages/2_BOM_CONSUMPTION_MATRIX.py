@@ -1742,7 +1742,9 @@ st.markdown("### 🖼️ ĐỐI CHIẾU SỰ TƯƠNG ĐỒNG HÌNH ẢNH THIẾT
 matched_techpack = st.session_state.get("matched_techpack", None)
 base_url_api = globals().get("base_url_api", globals().get("SB_URL", ""))
 api_headers = globals().get("api_headers", {})
-detected_mime_type = locals().get("detected_mime_type", "image/jpeg")
+
+# SỬA TẠI ĐÂY: Lấy từ globals() giống các biến cấu hình khác để tránh bị nhận diện nhầm thành image/jpeg khi là file PDF
+detected_mime_type = globals().get("detected_mime_type", "image/jpeg")
 
 img_col1, img_col2 = st.columns(2)
 
@@ -1752,15 +1754,15 @@ with img_col1:
     uploaded_file_name = st.session_state.get("previous_uploaded_file_name", "Techpack")
     
     if target_new_sketch_bytes is not None:
-        # VÁ LỖI XỬ LÝ: Nếu tệp đầu vào là PDF, hiển thị hộp thông tin tài liệu thay vì ép render st.image gây lỗi
+        # SỬA TẠI ĐÂY: Vừa in thông tin PDF nếu có, vừa chạy xuống hiển thị ảnh bên dưới chứ không dùng 'if-else' chặn hiển thị nữa
         if "pdf" in str(detected_mime_type).lower() or str(uploaded_file_name).lower().endswith(".pdf"):
             st.info(f"📄 **Tài liệu dạng tệp:** `{uploaded_file_name}`\n\nHệ thống đã nạp toàn bộ cấu trúc dữ liệu PDF vào bộ nhớ mô phỏng rập mẫu.")
-        else:
-            try:
-                # ĐÃ SỬA: Truyền dữ liệu bytes trực tiếp, loại bỏ biến 'image' chưa định nghĩa gây lỗi
-                st.image(bytes(target_new_sketch_bytes), caption=f"Mẫu mới tải lên ({new_style_id_detected})", use_container_width=True)
-            except Exception as e:
-                st.warning(f"Lỗi hiển thị ảnh mẫu mới: {e}")
+        
+        try:
+            # Truyền dữ liệu bytes trực tiếp, loại bỏ biến 'image' chưa định nghĩa gây lỗi
+            st.image(bytes(target_new_sketch_bytes), caption=f"Mẫu mới tải lên ({new_style_id_detected})", use_container_width=True)
+        except Exception as e:
+            st.warning(f"Lỗi hiển thị ảnh mẫu mới: {e}")
     else:
         st.info("ℹ️ Chưa tải lên tệp ảnh Flat Sketch của mẫu mới.")
 
@@ -1841,7 +1843,6 @@ with img_col2:
     else:
         st.session_state["matched_image_verified"] = False
         st.warning("⚠️ CHƯA KHỚP ĐƯỢC MÃ TƯƠNG ĐỒNG! Vui lòng nạp file Techpack tại menu Upload.")
-
 
 
 import json
