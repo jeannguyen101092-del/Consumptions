@@ -1553,11 +1553,22 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
 
     # =========================================================================
 
+        # =========================================================================
+    # ĐÃ SỬA: KHỞI TẠO BIẾN BẢO VỆ PHÒNG THỦ VÀ PHÂN TÁCH LUỒNG VISION (AN TOÀN TUYỆT ĐỐI)
+    # =========================================================================
+    
+    # 1. Định nghĩa an toàn biến detected_mime_type để triệt tiêu lỗi NameError tại dòng 1559
+    detected_mime_type = "image/jpeg"
+    if "bom_matrix_uploader" in st.session_state and st.session_state["bom_matrix_uploader"] is not None:
+        detected_mime_type = getattr(st.session_state["bom_matrix_uploader"], "type", "image/jpeg")
+
+    # 2. Thu thập chuỗi vector trực quan từ bộ nhớ đệm
     new_vec = str(st.session_state.get("visual_description_str", "") or globals().get("visual_description_str", "") or globals().get("new_style_sketch_vector", "")).strip().upper()
 
-    # Thêm điều kiện bỏ qua khối xử lý ảnh nếu tệp tải lên là file PDF
-    if st.session_state["matched_techpack"] is None and "pdf" not in str(detected_mime_type).lower():
-        if len(new_vec) < 30 and target_new_sketch_bytes and client and client.models:
+    # 3. Thêm điều kiện bỏ qua khối xử lý ảnh nếu tệp tải lên là file PDF
+    # Thay thế st.session_state["matched_techpack"] bằng phương thức .get() an toàn tránh lỗi sập cache
+    if st.session_state.get("matched_techpack") is None and "pdf" not in str(detected_mime_type).lower():
+        if len(new_vec) < 30 and target_new_sketch_bytes and 'client' in globals() and client and client.models:
             with st.spinner("🔄 Đang quét ảnh tái lập Sketch Vector..."):
                 try:
                     ocr_prompt = """
@@ -1595,11 +1606,13 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                                     found_type = tk
                                     break
                             st.session_state["detected_garment_type"] = found_type
-                except Exception: pass
+                except Exception: 
+                    pass
 
+        # 4. KHỐI LOG VÀ HIỂN THỊ CẢNH BÁO AN TOÀN
         with st.expander("🛠️ DEBUG: DỮ LIỆU THÔ VÀ TRẠNG THÁI PHÂN LOẠI VISION", expanded=False):
             st.write(f"**MIME Type nhận diện:** `{detected_mime_type}`")
-            st.write(f"**Garment Type trích xuất:** `{st.session_state['detected_garment_type']}`")
+            st.write(f"**Garment Type trích xuất:** `{st.session_state.get('detected_garment_type', 'UNKNOWN')}`")
             st.write("**Nội dung văn bản gốc trả về từ Gemini:**")
             st.code(new_vec)
 
@@ -1607,8 +1620,9 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             st.error("🚨 Không nhận diện được cấu trúc tệp Techpack tải lên. Vui lòng kiểm tra lại độ nét hoặc file lỗi.")
             st.stop()
             
-        if st.session_state["detected_garment_type"] == "UNKNOWN":
+        if st.session_state.get("detected_garment_type") == "UNKNOWN":
             st.warning("⚠️ Không tự động bóc tách được phân loại đồ cụ thể. Hệ thống tự động chuyển sang chế độ đối soát mở rộng.")
+
 
                         # KHỐI SO SÁNH TRỰC QUAN VLM KẾT HỢP BỘ LỌC CỨNG CHỐNG LỆCH DANH MỤC
         with st.spinner("🧠 Mắt thần VLM đang so sánh trực quan ảnh và thông số kỹ thuật..."):
