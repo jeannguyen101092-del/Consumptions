@@ -1750,18 +1750,14 @@ with img_col1:
     target_new_sketch_bytes = globals().get("target_new_sketch_bytes", None)
     new_style_id_detected = globals().get("new_style_id_detected", "N/A")
     uploaded_file_name = st.session_state.get("previous_uploaded_file_name", "Techpack")
-    # Đảm bảo biến detected_mime_type đã được định nghĩa trước đó, nếu không sẽ lấy giá trị mặc định
-    detected_mime_type = globals().get("detected_mime_type", "")
     
     if target_new_sketch_bytes is not None:
-        # VÁ LỖI XỬ LÝ: Nếu tệp đầu vào là PDF, hiển thị hộp thông tin tài liệu
+        # VÁ LỖI XỬ LÝ: Nếu tệp đầu vào là PDF, hiển thị hộp thông tin tài liệu thay vì ép render st.image gây lỗi
         if "pdf" in str(detected_mime_type).lower() or str(uploaded_file_name).lower().endswith(".pdf"):
             st.info(f"📄 **Tài liệu dạng tệp:** `{uploaded_file_name}`\n\nHệ thống đã nạp toàn bộ cấu trúc dữ liệu PDF vào bộ nhớ mô phỏng rập mẫu.")
         else:
             try:
-                # SỬA TẠI ĐÂY: Chuyển đổi bytes thành đối tượng Image trước khi hiển thị
-                image = Image.open(io.BytesIO(target_new_sketch_bytes))
-                st.image(image, caption=f"Mẫu mới tải lên ({new_style_id_detected})", use_container_width=True)
+                st.image(target_new_sketch_bytes, caption=f"Mẫu mới tải lên ({new_style_id_detected})", use_container_width=True)
             except Exception as e:
                 st.warning(f"Lỗi hiển thị ảnh mẫu mới: {e}")
     else:
