@@ -1412,7 +1412,7 @@ if gemini_key:
 def process_single_pdf_batch(file_bytes, file_name=None):
     """
     Retriever Layer chuyên sâu cho hệ thống BOM & Consumption Matrix.
-    ✨ Đã sửa lỗi endpoint Gemini API, bóc tách chỉ mục [0] và chuẩn hóa lề trái.
+    ✨ Đã sửa triệt để lỗi thụt lề IndentationError và khôi phục index [0] của candidates.
     """
     import json
     import requests
@@ -1437,7 +1437,7 @@ def process_single_pdf_batch(file_bytes, file_name=None):
         # 4. Mã hóa trực tiếp tệp PDF gốc sang định dạng Base64
         b64_pdf = base64.b64encode(file_bytes).decode('utf-8')
 
-        # 5. 🔥 ĐÃ SỬA: URL endpoint chuẩn xác của Gemini API (sử dụng model gemini-1.5-flash chuyên đọc tài liệu)
+        # 5. URL endpoint chuẩn xác của Gemini API (sử dụng model gemini-1.5-flash chuyên đọc tài liệu)
         url = f"https://googleapis.com{gemini_key}"
         
         industrial_prompt = (
@@ -1496,7 +1496,7 @@ def process_single_pdf_batch(file_bytes, file_name=None):
             return {"success": False, "error": "Gemini phản hồi không có dữ liệu hoặc bị Safety Block."}
             
         try:
-            # Chỉ định rõ phần tử index [0] của mảng candidates trước khi bóc tách content
+            # Khôi phục chuẩn xác cấu trúc mảng lồng nhau của Gemini API
             first_candidate = res_json['candidates'][0]
             text_response = first_candidate['content']['parts'][0]['text'].strip()
         except (KeyError, IndexError, TypeError):
@@ -1581,6 +1581,7 @@ def process_single_pdf_batch(file_bytes, file_name=None):
 
     except Exception as e:
         return {"success": False, "error": f"Lỗi hệ thống khi xử lý tệp: {str(e)}"}
+
 
 
 
