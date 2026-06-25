@@ -1288,14 +1288,10 @@ def _generate_ai_report_layer(
     shrinkage_report_text,
     is_estimated_mode,
 ):
-    """
-    Hàm bổ trợ đóng vai trò Reporting Layer, đóng gói cấu trúc prompt và gọi API Gemini.
-    ✨ Đã import đầy đủ thư viện cục bộ và đồng bộ cấu trúc SDK mới.
-    """
-    import json
-    import streamlit as st
-    from google.genai import types
+    """Hàm bổ trợ đóng vai trò Reporting Layer, đóng gói cấu trúc prompt và gọi
 
+    API Gemini.
+    """
     # 4. THIẾT LẬP PROMPT KHÓA CỨNG (LOCK NUMBER) TUYỆT ĐỐI QUYỀN TÍNH TOÁN CỦA GEMINI
     lock_instruction = ""
     if final_engine_yard > 0.0:
@@ -1364,12 +1360,7 @@ def _generate_ai_report_layer(
 
     # 7. Đóng gói danh sách ngữ cảnh Chat gửi lên API Gemini
     chat_contents = [types.Part.from_text(text=system_instruction)]
-    
-    # Khởi tạo history an toàn nếu chưa tồn tại trong session_state
-    if "consumption_chat_history" not in st.session_state:
-        st.session_state["consumption_chat_history"] = []
-
-    for past_chat in st.session_state["consumption_chat_history"]:
+    for past_chat in st.session_state.get("consumption_chat_history", []):
         chat_contents.append(
             types.Part.from_text(text=f"User: {past_chat['user']}")
         )
@@ -1387,7 +1378,6 @@ def _generate_ai_report_layer(
 
     # 8. Gọi mô hình xử lý xuất báo cáo trực quan
     try:
-        # Cấu hình gọi model đồng bộ với bộ SDK google-genai mới
         response = client.models.generate_content(
             model="gemini-2.5-flash", contents=chat_contents
         )
@@ -1404,7 +1394,6 @@ def _generate_ai_report_layer(
     except Exception as e:
         return f"🚨 Lỗi cổng phân tích định mức: {str(e)}"
 
-
 if "get_secure_gemini_key" in globals():
     gemini_key = get_secure_gemini_key()
 else:
@@ -1420,222 +1409,101 @@ if gemini_key:
 # =========================================================================================
 # ĐOẠN 3 - PHẦN 1: HÀM TRÍCH XUẤT THÔNG SỐ QUA GEMINI API
 # =========================================================================================
+
 def process_single_pdf_batch(file_bytes, file_name):
     """
-    Hàm bóc tách dữ liệu kỹ thuật từ một file PDF độc lập - BẢN PRODUCTION-GRADE CHỐNG SẬP.
-    ✨ Đã hoàn thiện dòng code bị cắt cụt ở cuối và căn lề chuẩn hóa chống IndentationError.
+    Retriever Layer chuyên sâu cho hệ thống BOM & Consumption Matrix.
+    ✨ Đã sửa lỗi cấu trúc JSON phản hồi từ Gemini API.
     """
+    import json
+    import requests
+    import base64
     import time
     import io
-    import json
     import re
-    from google import genai
-    from google.genai import types
+    import streamlit as st
 
     try:
-        gemini_key = get_secure_gemini_key()
+        import pypdf
+        PYPDF_AVAILABLE = True
+    except ImportError:
+        PYPDF_AVAILABLE = False
+
+    # Kiểm soát chặt chẽ dung lượng tệp tải lên của hệ thống
+    MAX_MB = 18
+    if len(file_bytes) > MAX_MB * 1024 * 1024:
+        return {"success": False, "error": f"Tệp PDF vượt giới hạn xử lý {MAX_MB}MB của Gemini."}
+
+    try:
+        # Thu thập API Key an toàn từ Secrets hệ thống
+        gemini_key = get_secure_gemini_key() if "get_secure_gemini_key" in globals() else st.secrets.get("GEMINI_API_KEY", "").strip()
         if not gemini_key:
-            return {"success": False, "error": "API Key cho Gemini đang bị thiếu trong Secrets."}
-            
-        client = genai.Client(api_key=gemini_key)
-        info = pdfinfo_from_bytes(file_bytes)
-        total_p = int(info.get("Pages", 1))
-        
-        # CƠ CHẾ CHIA BATCH TRANG AN TOÀN (CHỐNG MAX_TOKENS & RECITATION)
-        pages_to_scan = set()
-        for p in range(1, min(6, total_p + 1)):
-            pages_to_scan.add(p)
-        if total_p > 5:
-            for p in range(max(6, total_p - 4), total_p + 1):
-                pages_to_scan.add(p)
-        
-        sorted_pages = sorted(list(pages_to_scan))
-        print(f"📋 [PRODUCTION LOG] {file_name}: Tổng {total_p} trang. Quét: {sorted_pages}")
-        
-        industrial_extraction_prompt = (
-            "You are an expert Garment Specification Auditor at PPJ Group. Analyze all attached sheets page by page.\n"
-            "1. Identify the core 'Base Size' / 'Sample Size' (e.g., written as 8-, 32, or Size M).\n"
-            "2. Identify the Buyer name and Category.\n"
-            "3. Find the exact 'Style ID' / 'Style Number' (e.g. 5765).\n"
-            "4. Scan and extract the technical measurement specification chart into key-value pairs inside measurements_list.\n"
-            "5. FOR THE GRADING MATRIX TABLE: Scan and extract the full grading matrix table columns for ALL available sizes into full_size_matrix object.\n"
-            "6. CRITICAL VISUAL FLAT SKETCH LOCATE RULE: Scan all pages visually. You MUST find the exact 1-BASED PAGE NUMBER "
-            "that contains the FULL BODY APPAREL FLAT SKETCH showing the entire completed garment."
-        )
-        
-        contents_payload = [types.Part.from_text(text=industrial_extraction_prompt)]
-        chat_images_dict = {}
-        
-        for page_num in sorted_pages:
-            single_page_list = convert_from_bytes(file_bytes, dpi=100, first_page=page_num, last_page=page_num)
-            if single_page_list:
-                page_img = single_page_list[0]
-                chat_images_dict[page_num] = page_img
-                img_buf = io.BytesIO()
-                page_img.convert("RGB").save(img_buf, format="JPEG", quality=50)
-                contents_payload.append(
-                    types.Part.from_bytes(data=img_buf.getvalue(), mime_type='image/jpeg')
-                )
-            
-        kv_pair_schema = types.Schema(
-            type=types.Type.OBJECT,
-            properties={
-                "pom_description": types.Schema(type=types.Type.STRING),
-                "value": types.Schema(type=types.Type.STRING)
-            },
-            required=["pom_description", "value"]
-        )
-        
-        json_schema = types.Schema(
-            type=types.Type.OBJECT,
-            properties={
-                "style_number_parsed": types.Schema(type=types.Type.STRING),
-                "buyer": types.Schema(type=types.Type.STRING),
-                "category": types.Schema(type=types.Type.STRING),
-                "base_size_name": types.Schema(type=types.Type.STRING),
-                "sketch_page_number_detected": types.Schema(type=types.Type.INTEGER),
-                "measurements_list": types.Schema(type=types.Type.ARRAY, items=kv_pair_schema),
-                "full_size_matrix": types.Schema(type=types.Type.OBJECT) 
-            },
-            required=[
-                "style_number_parsed", "buyer", "category", "base_size_name", 
-                "sketch_page_number_detected", "measurements_list", "full_size_matrix"
-            ]
-        )
-        # TIẾP NỐI LOGIC: CƠ CHẾ DỰ PHÒNG MÔ HÌNH CHỦ ĐỘNG (MODEL FALLBACK ENGINE)
-        models_to_try = ['gemini-2.5-flash', 'gemini-2.5-flash-lite']
-        response = None
-        current_model_used = 'gemini-2.5-flash'
-        
-        for active_model in models_to_try:
-            current_model_used = active_model
-            success_call = False
-            for attempt in range(2):
-                try:
-                    response = client.models.generate_content(
-                        model=active_model, 
-                        contents=contents_payload,
-                        config=types.GenerateContentConfig(
-                            response_mime_type="application/json",
-                            response_schema=json_schema,
-                            temperature=0.1,
-                            max_output_tokens=8192
-                        )
-                    )
-                    if response:
-                        candidates = getattr(response, "candidates", [])
-                        if candidates:
-                            candidate = candidates[0]
-                            reason = str(getattr(candidate, "finish_reason", "STOP"))
-                            if reason in ["RECITATION", "SAFETY", "MAX_TOKENS"]:
-                                print(f"⚠️ Model {active_model} bị dừng do {reason}. Fallback...")
-                                break
-                        success_call = True
-                        break
-                except Exception as ai_err:
-                    if "503" in str(ai_err) or "UNAVAILABLE" in str(ai_err):
-                        time.sleep((attempt + 1) * 2)
-                        continue
-                    break
-            if success_call:
-                break
-                
-        print("="*80)
-        print(f"🚨 [CORE LOG] FILE: [{file_name}] | MODEL: {current_model_used}")
-        print(f"HAS TEXT: {bool(getattr(response, 'text', None))} | HAS PARSED: {bool(getattr(response, 'parsed', None))}")
-        print("="*80)
-        
-        parsed_data = None
-        if response and getattr(response, "parsed", None):
-            parsed_data = response.parsed
-            if hasattr(parsed_data, "model_dump"):
-                parsed_data = parsed_data.model_dump()
-            elif hasattr(parsed_data, "__dict__"):
-                parsed_data = dict(parsed_data)
-                
-        if not parsed_data and response and getattr(response, "text", None):
-            try:
-                text_content = response.text.strip()
-                text_content = re.sub(r',\s*([\]}])', r'\1', text_content)
-                match = re.search(r"\{.*\}", text_content, re.S)
-                if match:
-                    parsed_data = json.loads(match.group(0))
-            except:
-                pass
-            
-        if not parsed_data:
-            finish_reason = "UNKNOWN"
-            try:
-                if response and response.candidates:
-                    candidate = response.candidates[0]
-                    finish_reason = str(getattr(candidate, "finish_reason", "UNKNOWN"))
-            except:
-                pass
-            return {"success": False, "error": f"Mô hình trống. FinishReason={finish_reason} (Model={current_model_used})"}
-            
-        measurements_list = parsed_data.get("measurements_list", [])
-        measurements = {item.get("pom_description"): item.get("value") for item in measurements_list if "pom_description" in item}
-        
-        matrix_data = parsed_data.get("full_size_matrix", {})
-        full_size_matrix = {}
-        if isinstance(matrix_data, dict):
-            full_size_matrix = matrix_data
-        elif isinstance(matrix_data, str) and matrix_data.strip():
-            try:
-                matrix_raw_str = matrix_data.strip()
-                if matrix_raw_str.startswith("```json"):
-                    matrix_raw_str = matrix_raw_str.split("```json")[-1].split("```").strip()
-                elif matrix_raw_str.startswith("```"):
-                    matrix_raw_str = matrix_raw_str.split("```").strip()
-                matrix_raw_str = re.sub(r',\s*([\]}])', r'\1', matrix_raw_str)
-                full_size_matrix = json.loads(matrix_raw_str)
-            except:
-                pass
-        
-        # 🔥 ĐÃ HOÀN THIỆN ĐOẠN CODE BỊ CẮT CỤT: Đóng gói và trả về payload đồng nhất
-        style_id = parsed_data.get("style_number_parsed", "UNKNOWN")
-        buyer = parsed_data.get("buyer", "UNKNOWN BUYER")
-        category = parsed_data.get("category", "PANT")
-        base_size = parsed_data.get("base_size_name", "M")
-        sketch_page = parsed_data.get("sketch_page_number_detected", 1)
+            return {"success": False, "error": "Thiếu GEMINI_API_KEY trong cấu hình Secrets."}
 
-        # Trích xuất sketch bytes nếu trang dò tìm hợp lệ
-        extracted_sketch_bytes = None
-        if sketch_page in chat_images_dict:
-            try:
-                sketch_img = chat_images_dict[sketch_page]
-                out_buf = io.BytesIO()
-                sketch_img.convert("RGB").save(out_buf, format="JPEG", quality=85)
-                extracted_sketch_bytes = out_buf.getvalue()
-            except:
-                pass
+        # Mã hóa trực tiếp tệp PDF gốc sang định dạng Base64
+        b64_pdf = base64.b64encode(file_bytes).decode('utf-8')
 
-        output_payload = {
-            "style_number_parsed": style_id,
-            "buyer": buyer,
-            "category": category,
-            "base_size_name": base_size,
-            "measurements": measurements,
-            "full_size_matrix": full_size_matrix
+        # URL API Endpoint chuẩn của Google Gemini REST API
+        url = (
+            "https://googleapis.com"
+            "v1beta/models/gemini-2.5-flash:generateContent"
+            f"?key={gemini_key}"
+        )
+        
+        industrial_prompt = (
+            "You are an expert Garment Specification Auditor at PPJ Group. Analyze this entire Techpack PDF file page by page.\n"
+            "Task:\n"
+            "1. Locate the main measurement chart / grading matrix table inside the document.\n"
+            "2. Extract ALL measurement descriptions (POM Description) and their corresponding base/sample size values precisely.\n"
+            "3. Find the exact 'Style ID' / 'Style Number' (e.g., F25R09 or 526P09).\n"
+            "4. Identify the 'Base Size' (e.g., 32, M, 28) and the Category (strictly classify as PANT, SHIRT, JACKET, or SHORT).\n"
+            "5. Detect which 0-based page index contains the full body apparel flat sketch drawing.\n"
+            "Return a completely valid raw JSON string matching this exact schema (no markdown formatting):\n"
+            "{\n"
+            "  \"style_number_parsed\": \"string\",\n"
+            "  \"buyer\": \"string\",\n"
+            "  \"category\": \"string\",\n"
+            "  \"base_size_name\": \"string\",\n"
+            "  \"sketch_page_index_detected\": 0,\n"
+            "  \"measurements\": {\"POM Description\": \"Value\"}\n"
+            "}"
+        )
+
+        api_payload = {
+            "contents": [{
+                "parts": [
+                    {"inlineData": {"mimeType": "application/pdf", "data": b64_pdf}},
+                    {"text": industrial_prompt}
+                ]
+            }],
+            "generationConfig": {
+                "responseMimeType": "application/json", 
+                "temperature": 0.1
+            }
         }
 
-        return {
-            "success": True,
-            "data": output_payload,
-            "style_id": style_id,
-            "buyer": buyer,
-            "category": category,
-            "size": base_size,
-            "measurements": measurements,
-            "full_size_matrix": full_size_matrix,
-            "sketch_bytes": extracted_sketch_bytes,
-            "error": None
-        }
+        # Thiết lập timeout lớn (180 giây) cho các Techpack cồng kềnh
+        res = requests.post(url, json=api_payload, headers={"Content-Type": "application/json"}, timeout=180)
+        
+        if res.status_code == 200:
+            res_json = res.json()
+            
+            if "candidates" not in res_json or not res_json["candidates"]:
+                return {"success": False, "error": f"Gemini phản hồi không có dữ liệu hoặc bị Safety Block: {res_json}"}
+                
+            try:
+                # Trích xuất chính xác text phản hồi từ mảng Candidates của Google Gemini
+                text_response = res_json['candidates'][0]['content']['parts'][0]['text'].strip()
+            except (KeyError, IndexError):
+                return {"success": False, "error": "Cấu trúc JSON phản hồi từ Gemini API đã thay đổi hoặc không hợp lệ."}
 
-    except Exception as e:
-        return {"success": False, "error": f"Lỗi hệ thống khi xử lý tệp: {str(e)}"}
-
-
+            clean_json = text_response.replace("```json", "").replace("```", "").strip()
+            clean_json = re.sub(r',\s*([\]}])', r'\1', clean_json)
+            
+            try:
+                parsed_data = json.loads(clean_json)
+            except Exception:
+                return {"success": False, "error": f"Mô hình trả dữ liệu không đúng cấu trúc định dạng JSON sạch. Nội dung thô: {text_response[:200]}"}
 # =========================================================================================
 # ĐOẠN 3 - PHẦN 2: BÓC TÁCH KHỐI ẢNH VÀ KHÓA LỆNH LƯU KHO (DÁN TIẾP NỐI PHẦN 1)
 # =========================================================================================
