@@ -1734,157 +1734,157 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
 
     bom_records = st.session_state.get("bom_records", [])
 
-# ==========================================================
-# 🖼️ LỚP HIỂN THỊ GIAO DIỆN ĐỐI CHIẾU FLAT SKETCH (VÁ LỖI HIỂN THỊ FILE PDF)
-# ==========================================================
-st.markdown("### 🖼️ ĐỐI CHIẾU SỰ TƯƠNG ĐỒNG HÌNH ẢNH THIẾT KẾ (FLAT SKETCH)")
+# ÉP BUỘC CÔ LẬP GIAO DIỆN ĐỐI CHIẾU ẢNH: Chỉ hiển thị khi nhấn đúng vào menu BOM
+if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption Matrix":
 
-matched_techpack = st.session_state.get("matched_techpack", None)
-base_url_api = globals().get("base_url_api", globals().get("SB_URL", ""))
-api_headers = globals().get("api_headers", {})
+    # ---------------------------------------------------------------------
+    # TOÀN BỘ KHỐI CODE PHÍA DƯỚI ĐÃ ĐƯỢC THỤT LỀ 1 TAB ĐỂ ẨN KHỎI CÁC TRANG KHÁC
+    # ---------------------------------------------------------------------
+    st.markdown("### 🖼️ ĐỐI CHIẾU SỰ TƯƠNG ĐỒNG HÌNH ẢNH THIẾT KẾ (FLAT SKETCH)")
 
-# SỬA TẠI ĐÂY: Lấy từ globals() giống các biến cấu hình khác để tránh bị nhận diện nhầm thành image/jpeg khi là file PDF
-detected_mime_type = globals().get("detected_mime_type", "image/jpeg")
+    matched_techpack = st.session_state.get("matched_techpack", None)
+    base_url_api = globals().get("base_url_api", globals().get("SB_URL", ""))
+    api_headers = globals().get("api_headers", {})
 
-img_col1, img_col2 = st.columns(2)
+    # Lấy từ globals() giống các biến cấu hình khác để tránh bị nhận diện nhầm thành image/jpeg khi là file PDF
+    detected_mime_type = globals().get("detected_mime_type", "image/jpeg")
 
-with img_col1:
-    target_new_sketch_bytes = globals().get("target_new_sketch_bytes", None)
-    new_style_id_detected = globals().get("new_style_id_detected", "N/A")
-    uploaded_file_name = st.session_state.get("previous_uploaded_file_name", "Techpack")
-    
-    if target_new_sketch_bytes is not None:
-        is_pdf = "pdf" in str(detected_mime_type).lower() or str(uploaded_file_name).lower().endswith(".pdf")
+    img_col1, img_col2 = st.columns(2)
+
+    with img_col1:
+        target_new_sketch_bytes = globals().get("target_new_sketch_bytes", None)
+        new_style_id_detected = globals().get("new_style_id_detected", "N/A")
+        uploaded_file_name = st.session_state.get("previous_uploaded_file_name", "Techpack")
         
-        if is_pdf:
-            st.info(f"📄 **Tài liệu dạng tệp:** `{uploaded_file_name}`\n\nHệ thống đã nạp toàn bộ cấu trúc dữ liệu PDF vào bộ nhớ mô phỏng rập mẫu.")
+        if target_new_sketch_bytes is not None:
+            is_pdf = "pdf" in str(detected_mime_type).lower() or str(uploaded_file_name).lower().endswith(".pdf")
             
-            # TIẾN HÀNH RENDER TRANG PDF THÀNH ẢNH PNG HOÀN CHỈNH NẾU DỮ LIỆU ĐANG BỊ LỖI PHÂN GIẢI
+            if is_pdf:
+                st.info(f"📄 **Tài liệu dạng tệp:** `{uploaded_file_name}`\n\nHệ thống đã nạp toàn bộ cấu trúc dữ liệu PDF vào bộ nhớ mô phỏng rập mẫu.")
+                
+                # TIẾN HÀNH RENDER TRANG PDF THÀNH ẢNH PNG HOÀN CHỈNH NẾU DỮ LIỆU ĐANG BỊ LỖI PHÂN GIẢI
+                try:
+                    import io
+                    import PIL.Image
+                    
+                    # THỬ PHƯƠNG ÁN 1: Dùng PyMuPDF (fitz) để render trang PDF thành ảnh chất lượng cao
+                    try:
+                        import fitz  # PyMuPDF
+                        pdf_file_bytes = st.session_state.get("uploaded_file_bytes") or target_new_sketch_bytes
+                        doc = fitz.open(stream=pdf_file_bytes, filetype="pdf")
+                        
+                        page_num = globals().get("sketch_page_idx", 0)
+                        if page_num >= len(doc): page_num = 0
+                        
+                        page = doc.load_page(page_num)
+                        pix = page.get_pixmap(matrix=fitz.Matrix(2, 2)) # Zoom 2x cho nét
+                        target_new_sketch_bytes = pix.tobytes("png")
+                        doc.close()
+                    except Exception:
+                        # THỬ PHƯƠNG ÁN 2: Dùng pdf2image nếu không có fitz
+                        try:
+                            from pdf2image import convert_from_bytes
+                            pdf_file_bytes = st.session_state.get("uploaded_file_bytes") or target_new_sketch_bytes
+                            images = convert_from_bytes(pdf_file_bytes, first_page=1, last_page=1)
+                            if images:
+                                img_byte_arr = io.BytesIO()
+                                images[0].save(img_byte_arr, format='PNG')
+                                target_new_sketch_bytes = img_byte_arr.getvalue()
+                        except Exception:
+                            pass 
+                except Exception:
+                    pass
+
+            # HIỂN THỊ ẢNH RA MÀN HÌNH
             try:
                 import io
                 import PIL.Image
+                image_object = PIL.Image.open(io.BytesIO(target_new_sketch_bytes))
+                st.image(image_object, caption=f"Mẫu mới tải lên ({new_style_id_detected})", use_container_width=True)
+            except Exception as e:
+                st.warning(f"Lỗi hiển thị ảnh mẫu mới: {e}")
                 
-                # THỬ PHƯƠNG ÁN 1: Dùng PyMuPDF (fitz) để render trang PDF thành ảnh chất lượng cao
-                try:
-                    import fitz  # PyMuPDF
-                    # Đọc file bytes gốc từ session state (Bạn hãy đổi tên biến file gốc nếu cần)
-                    pdf_file_bytes = st.session_state.get("uploaded_file_bytes") or target_new_sketch_bytes
-                    doc = fitz.open(stream=pdf_file_bytes, filetype="pdf")
-                    
-                    # Lấy số trang chỉ định từ kết quả AI quét được (mặc định lấy trang đầu tiên)
-                    page_num = globals().get("sketch_page_idx", 0)
-                    if page_num >= len(doc): page_num = 0
-                    
-                    page = doc.load_page(page_num)
-                    pix = page.get_pixmap(matrix=fitz.Matrix(2, 2)) # Zoom 2x cho nét
-                    target_new_sketch_bytes = pix.tobytes("png")
-                    doc.close()
-                except Exception:
-                    # THỬ PHƯƠNG ÁN 2: Dùng pdf2image nếu không có fitz
-                    try:
-                        from pdf2image import convert_from_bytes
-                        pdf_file_bytes = st.session_state.get("uploaded_file_bytes") or target_new_sketch_bytes
-                        images = convert_from_bytes(pdf_file_bytes, first_page=1, last_page=1)
-                        if images:
-                            img_byte_arr = io.BytesIO()
-                            images[0].save(img_byte_arr, format='PNG')
-                            target_new_sketch_bytes = img_byte_arr.getvalue()
-                    except Exception:
-                        pass # Nếu thiếu thư viện hệ thống sẽ dùng cơ chế trích xuất thô hiện tại
-            except Exception:
-                pass
-
-        # 2. HIỂN THỊ ẢNH RA MÀN HÌNH
-        try:
-            import io
-            import PIL.Image
-            image_object = PIL.Image.open(io.BytesIO(target_new_sketch_bytes))
-            st.image(image_object, caption=f"Mẫu mới tải lên ({new_style_id_detected})", use_container_width=True)
-        except Exception as e:
-            st.warning(f"Lỗi hiển thị ảnh mẫu mới: {e}")
-            
-    else:
-        st.info("ℹ️ Chưa tải lên hoặc không trích xuất được tệp ảnh Flat Sketch của mẫu mới.")
-
-
-
-with img_col2:
-    if matched_techpack is not None:
-        # 1. Đồng bộ mã đối chứng và URL ảnh gốc
-        target_style_name = str(matched_techpack.get("StyleName", "")).strip().upper()
-        st.session_state["matched_style_name"] = target_style_name
-        st.session_state["matched_sketch_url"] = matched_techpack.get("SketchURL") or matched_techpack.get("sketch_url", "")
-        
-        # Đồng bộ an toàn score từ biến match_confidence_score của Đoạn trên lên màn hình hiển thị
-        similarity_score = st.session_state.get("match_confidence_score", 0.0)
-        st.session_state["matched_similarity_score"] = similarity_score
-
-        if st.session_state.get("bom_style_loaded", "") != target_style_name:
-            st.session_state["matched_image_verified"] = True
-            st.session_state["bom_reload_required"] = True
-
-        st.markdown(f"""
-            <div style='background-color: #EEF2F6; padding: 10px; border-radius: 5px; text-align: center; margin-bottom: 8px;'>
-                <p style='color: #1E3A8A; font-size: 14px; font-weight: 700; margin: 0;'>🎯 Mã tương đồng trong kho: {target_style_name}</p>
-                <p style='color: #10B981; font-size: 13px; font-weight: 600; margin: 4px 0 0 0;'>🤖 Độ tương đồng thiết kế (Vision): {similarity_score}%</p>
-            </div>
-        """, unsafe_allow_html=True)
-        
-        base_storage_url = f"{base_url_api.rstrip('/')}/storage/v1/object/public/kho_anh" if base_url_api else ""
-        img_content_final = None
-        
-        if base_storage_url:
-            from urllib.parse import quote
-            from concurrent.futures import ThreadPoolExecutor
-            
-            safe_style_name = quote(target_style_name)
-            safe_style_name_lower = quote(target_style_name.lower())
-            
-            url_options = [
-                f"{base_storage_url}/{safe_style_name}.png",
-                f"{base_storage_url}/{safe_style_name}.PNG",
-                f"{base_storage_url}/{safe_style_name}.jpg",
-                f"{base_storage_url}/{safe_style_name}.JPG",
-                f"{base_storage_url}/{safe_style_name}.jpeg",
-                f"{base_storage_url}/{safe_style_name_lower}.jpg",
-                f"{base_storage_url}/{safe_style_name_lower}.png"
-            ]
-            
-            def fetch_image_worker(url):
-                try:
-                    resp = requests.get(url, headers=api_headers, timeout=5)
-                    if resp.status_code == 200 and len(resp.content) > 500:
-                        content = resp.content
-                        if content.startswith(b'\xff\xd8') or content.startswith(b'\x89PNG') or b'<!DOCTYPE' not in content[:100]:
-                            return content
-                except Exception:
-                    pass
-                return None
-
-            with ThreadPoolExecutor(max_workers=6) as executor:
-                results = executor.map(fetch_image_worker, url_options)
-                for res in results:
-                    if res:
-                        img_content_final = res
-                        break
-        
-        if img_content_final:
-            try:
-                st.image(img_content_final, caption=f"Ảnh bản vẽ gốc của mã {target_style_name}", use_container_width=True)
-            except Exception:
-                st.warning("⚠️ Lỗi hiển thị tệp đồ họa.")
         else:
-            db_stored_url = st.session_state["matched_sketch_url"]
-            if db_stored_url and "public/kho_anh" not in str(db_stored_url):
+            st.info("ℹ️ Chưa tải lên hoặc không trích xuất được tệp ảnh Flat Sketch của mẫu mới.")
+
+    with img_col2:
+        if matched_techpack is not None:
+            # 1. Đồng bộ mã đối chứng và URL ảnh gốc
+            target_style_name = str(matched_techpack.get("StyleName", "")).strip().upper()
+            st.session_state["matched_style_name"] = target_style_name
+            st.session_state["matched_sketch_url"] = matched_techpack.get("SketchURL") or matched_techpack.get("sketch_url", "")
+            
+            # Đồng bộ an toàn score từ biến match_confidence_score của Đoạn trên lên màn hình hiển thị
+            similarity_score = st.session_state.get("match_confidence_score", 0.0)
+            st.session_state["matched_similarity_score"] = similarity_score
+
+            if st.session_state.get("bom_style_loaded", "") != target_style_name:
+                st.session_state["matched_image_verified"] = True
+                st.session_state["bom_reload_required"] = True
+
+            st.markdown(f"""
+                <div style='background-color: #EEF2F6; padding: 10px; border-radius: 5px; text-align: center; margin-bottom: 8px;'>
+                    <p style='color: #1E3A8A; font-size: 14px; font-weight: 700; margin: 0;'>🎯 Mã tương đồng trong kho: {target_style_name}</p>
+                    <p style='color: #10B981; font-size: 13px; font-weight: 600; margin: 4px 0 0 0;'>🤖 Độ tương đồng thiết kế (Vision): {similarity_score}%</p>
+                </div>
+            """, unsafe_allow_html=True)
+            
+            base_storage_url = f"{base_url_api.rstrip('/')}/storage/v1/object/public/kho_anh" if base_url_api else ""
+            img_content_final = None
+            
+            if base_storage_url:
+                from urllib.parse import quote
+                from concurrent.futures import ThreadPoolExecutor
+                
+                safe_style_name = quote(target_style_name)
+                safe_style_name_lower = quote(target_style_name.lower())
+                
+                url_options = [
+                    f"{base_storage_url}/{safe_style_name}.png",
+                    f"{base_storage_url}/{safe_style_name}.PNG",
+                    f"{base_storage_url}/{safe_style_name}.jpg",
+                    f"{base_storage_url}/{safe_style_name}.JPG",
+                    f"{base_storage_url}/{safe_style_name}.jpeg",
+                    f"{base_storage_url}/{safe_style_name_lower}.jpg",
+                    f"{base_storage_url}/{safe_style_name_lower}.png"
+                ]
+                
+                def fetch_image_worker(url):
+                    try:
+                        resp = requests.get(url, headers=api_headers, timeout=5)
+                        if resp.status_code == 200 and len(resp.content) > 500:
+                            content = resp.content
+                            if content.startswith(b'\xff\xd8') or content.startswith(b'\x89PNG') or b'<!DOCTYPE' not in content[:100]:
+                                return content
+                    except Exception:
+                        pass
+                    return None
+
+                with ThreadPoolExecutor(max_workers=6) as executor:
+                    results = executor.map(fetch_image_worker, url_options)
+                    for res in results:
+                        if res:
+                            img_content_final = res
+                            break
+            
+            if img_content_final:
                 try:
-                    st.image(db_stored_url, caption=f"Ảnh bản vẽ gốc mã {target_style_name} (Direct Link)", use_container_width=True)
+                    st.image(img_content_final, caption=f"Ảnh bản vẽ gốc của mã {target_style_name}", use_container_width=True)
                 except Exception:
-                    st.info("⚠️ Không tải được ảnh từ Direct Link.")
+                    st.warning("⚠️ Lỗi hiển thị tệp đồ họa.")
             else:
-                st.info("ℹ️ Lưu ý: Mã hàng đã khớp. Không tìm thấy ảnh minh họa trong kho.")
-    else:
-        st.session_state["matched_image_verified"] = False
-        st.warning("⚠️ CHƯA KHỚP ĐƯỢC MÃ TƯƠNG ĐỒNG! Vui lòng nạp file Techpack tại menu Upload.")
+                db_stored_url = st.session_state["matched_sketch_url"]
+                if db_stored_url and "public/kho_anh" not in str(db_stored_url):
+                    try:
+                        st.image(db_stored_url, caption=f"Ảnh bản vẽ gốc mã {target_style_name} (Direct Link)", use_container_width=True)
+                    except Exception:
+                        st.info("⚠️ Không tải được ảnh từ Direct Link.")
+                else:
+                    st.info("ℹ️ Lưu ý: Mã hàng đã khớp. Không tìm thấy ảnh minh họa trong kho.")
+        else:
+            st.session_state["matched_image_verified"] = False
+            st.warning("⚠️ CHƯA KHỚP ĐƯỢC MÃ TƯƠNG ĐỒNG! Vui lòng nạp file Techpack tại menu Upload.")
+
 
 
 import json
