@@ -1296,7 +1296,8 @@ def process_single_pdf_batch(file_bytes, file_name):
         info = pdfinfo_from_bytes(file_bytes)
         total_p = int(info.get("Pages", 1))
         
-        # TỐI ƯU PAYLOAD: Giảm DPI xuống 80 và Chất lượng 65% để triệt tiêu hoàn toàn lỗi quá tải 503 mạng
+        # TỐI ƯU PAYLOAD: Khởi tạo danh sách chứa nội dung gửi cho Gemini
+        # Đưa các ảnh và prompt vào chung một mảng content thống nhất
         pdf_parts_payload = []
         chat_images = convert_from_bytes(file_bytes, dpi=80, first_page=1, last_page=total_p)
         
@@ -1306,6 +1307,7 @@ def process_single_pdf_batch(file_bytes, file_name):
             page_img.convert("RGB").save(img_buf, format="JPEG", quality=65)
             img_data = img_buf.getvalue()
             stored_pages_bytes.append(img_data)
+            # Thêm trực tiếp Part ảnh vào payload
             pdf_parts_payload.append(types.Part.from_bytes(data=img_data, mime_type='image/jpeg'))
             
         industrial_extraction_prompt = (
@@ -1327,14 +1329,16 @@ def process_single_pdf_batch(file_bytes, file_name):
             "  \"full_size_matrix\": {\"POM Description\": {\"Size_Name\": \"Value\"}}"
             "}"
         )
+        # Thêm câu lệnh Prompt vào cuối danh sách thực thi ngữ cảnh
         pdf_parts_payload.append(types.Part.from_text(text=industrial_extraction_prompt))
         
-        # ĐỒNG BỘ TÊN MÔ HÌNH CHUẨN SDK MỚI (SỬA LỖI 404 VÀ LUÂN CHUYỂN DỰ PHÒNG CHUẨN)
+        # ĐỒNG BỘ TÊN MÔ HÌNH CHUẨN SDK MỚI
         models_fallback = ["gemini-2.5-flash", "gemini-2.5-pro"]
         last_err = "Không có phản hồi từ API"
         
-        for attempt, model_name in enumerate(models_fallback):
+        for model_name in models_fallback:
             try:
+                # Sử dụng trực tiếp cấu trúc mảng nội dung chuẩn của Google GenAI SDK
                 response = client_ai.models.generate_content(
                     model=model_name,
                     contents=pdf_parts_payload,
@@ -1345,12 +1349,14 @@ def process_single_pdf_batch(file_bytes, file_name):
                 )
                 if response and response.text:
                     clean_text = response.text.strip()
+                    # Loại bỏ markdown ```json ... ``` nếu mô hình vô tình trả về
                     if clean_text.startswith("```"):
                         clean_text = re.sub(r"^```(?:json)?\n|```$", "", clean_text, flags=re.MULTILINE).strip()
                     
                     parsed_json = json.loads(clean_text)
                     sketch_idx = int(parsed_json.get("sketch_page_index_detected", 0))
 
+                    # Kiểm tra an toàn chỉ mục ảnh thiết kế (sketch) tránh lỗi IndexError ngoài phạm vi trang
                     if 0 <= sketch_idx < len(stored_pages_bytes):
                         extracted_sketch_bytes = stored_pages_bytes[sketch_idx]
                     else:
@@ -1362,14 +1368,14 @@ def process_single_pdf_batch(file_bytes, file_name):
                         "sketch_bytes": extracted_sketch_bytes
                     }
             except Exception as e:
-                last_err = str(e)
-                time.sleep(2.5)
+                # Ghi nhận lại chi tiết lỗi của model hiện tại trước khi chuyển sang model dự phòng
+                last_err = f"Model {model_name} thất bại: {str(e)}"
+                time.sleep(2.0)
                 continue
                 
         return {"success": False, "error": f"AI không thể cấu trúc dữ liệu JSON sau khi thử luân chuyển toàn bộ các mô hình dự phòng. Chi tiết lỗi: {last_err}"}
     except Exception as e:
-        return {"success": False, "error": str(e)}
-
+        return {"success": False, "error": f"Lỗi hệ thống ngoài vòng lặp AI: {str(e)}"}
 
 
 # Khởi tạo trạng thái mặc định của các biến
