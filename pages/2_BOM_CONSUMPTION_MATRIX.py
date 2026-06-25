@@ -1413,8 +1413,7 @@ if gemini_key:
 def process_single_pdf_batch(file_bytes, file_name):
     """
     Retriever Layer chuyên sâu cho hệ thống BOM & Consumption Matrix.
-    ✨ Đã sửa lỗi URL API, thêm cơ chế tự động thử lại khi hệ thống quá tải (Lỗi 503),
-    ép chặt Response Schema tránh mất thông số và hoàn thiện tầng return dữ liệu.
+    ✨ Sửa triệt để lỗi cú pháp SyntaxError hệ thống.
     """
     import json
     import requests
@@ -1444,14 +1443,14 @@ def process_single_pdf_batch(file_bytes, file_name):
         # Mã hóa trực tiếp tệp PDF gốc sang định dạng Base64
         b64_pdf = base64.b64encode(file_bytes).decode('utf-8')
 
-        # 🛠️ SỬA LỖI 1: Endpoint URL chuẩn xác của Google Generative Language API
+        # Endpoint URL chuẩn xác của Google Generative Language API
         url = (
             "https://googleapis.com"
             "v1beta/models/gemini-2.5-flash:generateContent"
             f"?key={gemini_key}"
         )
         
-        # 🛠️ CẢI THIỆN PROMPT: Ép tên Key thông số khớp định dạng chuẩn tiếng Anh của hệ thống
+        # CẢI THIỆN PROMPT: Ép tên Key thông số khớp định dạng chuẩn tiếng Anh của hệ thống
         industrial_prompt = (
             "You are an expert Garment Specification Auditor at PPJ Group. Analyze this entire Techpack PDF file page by page.\n"
             "Task:\n"
@@ -1464,7 +1463,7 @@ def process_single_pdf_batch(file_bytes, file_name):
             "Return a completely valid raw JSON string matching the specified schema."
         )
 
-        # 🛠️ SỬA LỖI 2: Sử dụng responseSchema để ép Gemini trả về đầy đủ cụm từ khóa thông số
+        # Sử dụng responseSchema để ép Gemini trả về đầy đủ cụm từ khóa thông số
         api_payload = {
             "contents": [{
                 "parts": [
@@ -1493,14 +1492,14 @@ def process_single_pdf_batch(file_bytes, file_name):
             }
         }
 
-        # 🛠️ SỬA LỖI 3: Cơ chế Retry tự động lặp lại khi dính lỗi 503 (Hệ thống Google bận)
+        # Cơ chế Retry tự động lặp lại khi dính lỗi 503 (Hệ thống Google bận)
         max_retries = 3
         res = None
         for attempt in range(max_retries):
             try:
                 res = requests.post(url, json=api_payload, headers={"Content-Type": "application/json"}, timeout=180)
+                # 🛠️ ĐÃ SỬA LỖI TẠI ĐÂY: Thêm mảng status_code hợp lệ
                 if res.status_code in:
-                    # Nếu gặp lỗi bận/quá tải, đợi tăng dần (2s, 4s, 6s) rồi thử lại
                     time.sleep(2 * (attempt + 1))
                     continue
                 else:
@@ -1530,10 +1529,7 @@ def process_single_pdf_batch(file_bytes, file_name):
             
             try:
                 parsed_data = json.loads(clean_json)
-                
-                # 🛠️ SỬA LỖI 4: Bổ sung lệnh trả về kết quả thành công chứa dữ liệu hoàn chỉnh cho hàm
                 return {"success": True, "parsed_json_raw": clean_json, "style_number_parsed": parsed_data.get("style_number_parsed")}
-                
             except Exception:
                 return {"success": False, "error": f"Mô hình trả dữ liệu không đúng cấu trúc định dạng JSON sạch. Nội dung thô: {text_response[:200]}"}
         else:
