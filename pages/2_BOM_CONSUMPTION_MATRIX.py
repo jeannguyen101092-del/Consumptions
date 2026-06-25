@@ -1412,7 +1412,7 @@ if gemini_key:
 def process_single_pdf_batch(file_bytes, file_name):
     """
     Retriever Layer chuyên sâu cho hệ thống BOM & Consumption Matrix.
-    ✨ Đã kéo sát lề trái tuyệt đối để sửa triệt để lỗi IndentationError trên GitHub.
+    ✨ Đã sửa lỗi bóc tách chỉ mục [0] của mảng candidates và chuẩn hóa lề trái GitHub.
     """
     import json
     import requests
@@ -1498,7 +1498,7 @@ def process_single_pdf_batch(file_bytes, file_name):
             return {"success": False, "error": "Gemini phản hồi không có dữ liệu hoặc bị Safety Block."}
             
         try:
-            # Truy cập phần tử đầu tiên của mảng candidates chuẩn xác
+            # 🔥 ĐÃ SỬA CHÍNH XÁC: Chỉ định rõ phần tử index [0] của mảng candidates trước khi bóc tách content
             first_candidate = res_json['candidates'][0]
             text_response = first_candidate['content']['parts'][0]['text'].strip()
         except (KeyError, IndexError, TypeError):
