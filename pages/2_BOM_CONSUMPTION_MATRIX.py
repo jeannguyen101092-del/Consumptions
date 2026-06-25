@@ -2225,117 +2225,120 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             globals()["avg_area_growth_pct"] = avg_area_growth_pct
             st.session_state["avg_area_growth_pct"] = avg_area_growth_pct
 
-# =========================================================================
-# 🔮 PHẦN 4/4: AI CONSUMPTION PROJECTION ENGINE (TÍNH TOÁN ĐỊNH MỨC VẬT TƯ)
-# =========================================================================
-bom_records = st.session_state.get("bom_records", [])
+    # =========================================================================
+    # 🔮 PHẦN 4/4: AI CONSUMPTION PROJECTION ENGINE (TÍNH TOÁN ĐỊNH MỨC VẬT TƯ)
+    # =========================================================================
+    bom_records = st.session_state.get("bom_records", [])
 
-if st.session_state.get("matched_techpack") and st.session_state.get("matched_image_verified", False) and bom_records:
-    st.markdown("<br>🔮 **AI CONSUMPTION PROJECTION ENGINE (DỰ PHÓNG ĐỊNH MỨC MÃ MỚI)**", unsafe_allow_html=True)
-    st.success("✅ **XÁC THỰC AI VISION:** Độ tương đồng phác thảo đạt 100.0%. Cấu trúc rập ở mức tương thích cao.")
+    if st.session_state.get("matched_techpack") and st.session_state.get("matched_image_verified", False) and bom_records:
+        st.markdown("<br>🔮 **AI CONSUMPTION PROJECTION ENGINE (DỰ PHÓNG ĐỊNH MỨC MÃ MỚI)**", unsafe_allow_html=True)
+        st.success("✅ **XÁC THỰC AI VISION:** Độ tương đồng phác thảo đạt 100.0%. Cấu trúc rập ở mức tương thích cao.")
 
-    # 1. Đồng bộ an toàn biến thiên diện tích phom rập bàn giao từ Khối đối chiếu rập (Phần 3)
-    avg_area_growth_pct = st.session_state.get("avg_area_growth_pct", globals().get("avg_area_growth_pct", 0.0))
-    if pd.isna(avg_area_growth_pct) or not isinstance(avg_area_growth_pct, (int, float)):
-        avg_area_growth_pct = 0.0
+        # 1. Đồng bộ an toàn biến thiên diện tích phom rập bàn giao từ Khối đối chiếu rập (Khối 3)
+        avg_area_growth_pct = st.session_state.get("avg_area_growth_pct", globals().get("avg_area_growth_pct", 0.0))
+        if pd.isna(avg_area_growth_pct) or not isinstance(avg_area_growth_pct, (int, float)):
+            avg_area_growth_pct = 0.0
 
-    # Hàm nội bộ phụ trợ xử lý đổi thập phân / phân số ngành may
-    def internal_clean_float(v):
-        if v is None: return 0.0
-        v_str = str(v).strip()
-        try: return float(v_str)
-        except Exception:
-            import re
-            m = re.search(r"(\d+)[\s\-]+(\d+)/(\d+)", v_str)
-            if m: return float(m.group(1)) + (float(m.group(2)) / float(m.group(3)))
-            f = re.search(r"(\d+)/(\d+)", v_str)
-            if f: return float(f.group(1)) / float(f.group(2))
-            nums = re.findall(r"[-+]?\d*\.\d+|\d+", v_str)
-            return float(nums) if nums else 0.0
+        def internal_clean_float(v):
+            if v is None: return 0.0
+            v_str = str(v).strip()
+            try: return float(v_str)
+            except Exception:
+                m = re.search(r"(\d+)[\s\-]+(\d+)/(\d+)", v_str)
+                if m: return float(m.group(1)) + (float(m.group(2)) / float(m.group(3)))
+                f = re.search(r"(\d+)/(\d+)", v_str)
+                if f: return float(f.group(1)) / float(f.group(2))
+                nums = re.findall(r"[-+]?\d*\.\d+|\d+", v_str)
+                return float(nums) if nums else 0.0
 
-    # 2. XỬ LÝ ĐA ĐỊNH MỨC TRONG KHO: Nhóm theo loại vật tư để tính Trung Bình Cộng, chống trùng lặp dữ liệu
-    bom_sum_accumulator = {}
-    bom_count_accumulator = {}
-    
-    for r in bom_records:
-        ctype_key = str(r.get("consumption_type", "UNKNOWN")).strip()
-        if not ctype_key: ctype_key = "UNKNOWN"
-            
-        qty_val = internal_clean_float(r.get("consumption_value", 0.0))
-        if qty_val > 0:
-            bom_sum_accumulator[ctype_key] = bom_sum_accumulator.get(ctype_key, 0.0) + qty_val
-            bom_count_accumulator[ctype_key] = bom_count_accumulator.get(ctype_key, 0) + 1
-            
-    final_old_bom_summary = {k: round(bom_sum_accumulator[k] / bom_count_accumulator[k], 4) for k in bom_sum_accumulator}
-
-    # 3. THUẬT TOÁN ĐIỀU KHIỂN HỆ SỐ THỰC NGHIỆM VẢI THÔNG MINH THEO TỪ KHÓA DÒNG HÀNG
-    sample_record = bom_records if bom_records else {}
-    article_name_upper = str(sample_record.get("article_name", "")).upper()
-    style_name_upper = str(st.session_state.get("matched_style_name", "")).upper()
-    product_context = f"{style_name_upper} {article_name_upper}"
-    
-    default_fabric_factor = 0.65 
-    product_type_label = "Tiêu chuẩn (Mặc định)"
-    
-    if any(k in product_context for k in ["LONG PANT", "TROUSER", "JEAN", "QUAN DAI"]):
-        default_fabric_factor = 0.85
-        product_type_label = "Quần dài (Diện tích sơ đồ nhảy vóc lớn)"
-    elif any(k in product_context for k in ["SHORT", "QUAN NGON", "QUAN ĐUI"]):
-        default_fabric_factor = 0.45
-        product_type_label = "Quần đùi/Shorts (Sơ đồ ngắn, biến thiên ít)"
-    elif any(k in product_context for k in ["JACKET", "COAT", "AO KHOAC", "BLAZER", "VEST"]):
-        default_fabric_factor = 0.75
-        product_type_label = "Áo khoác / Vest / Blazer (Khổ rập lớn)"
-    elif any(k in product_context for k in ["TEE", "SHIRT", "POLO", "AO THUN", "AO SOMI"]):
-        default_fabric_factor = 0.55
-        product_type_label = "Áo thun / Áo sơ mi"
-    elif any(k in product_context for k in ["SKIRT", "DRESS", "VAY", "DAM"]):
-        default_fabric_factor = 0.70
-        product_type_label = "Váy / Đầm liền"
-
-    # 4. THIẾT KẾ CỘT NHẬP LIỆU GIAO DIỆN HỆ SỐ AI
-    v_similarity = st.session_state.get("matched_similarity_score", 100.0)
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        shape_factor = st.number_input("Độ biến thiên thông số POM trung bình (%)", value=float(avg_area_growth_pct), step=0.1)
-    with col2:
-        fabric_growth_factor = st.number_input(f"Hệ số thực nghiệm vải ({product_type_label})", value=float(default_fabric_factor), step=0.05)
-    with col3:
-        wastage_buffer = st.number_input("Hao hụt sản xuất cấu hình thêm (%)", value=0.0, step=0.5)
-
-    # 5. VÒNG LẶP TOÁN HỌC PHÂN TẦNG VẬT TƯ (VẢI CHÍNH / VẢI PHỤ LÓT / PHỤ LIỆU TĨNH)
-    projection_rows = []
-    for ctype, avg_old_qty in final_old_bom_summary.items():
-        ctype_upper = str(ctype).strip().upper()
-        similarity_weight = v_similarity / 100.0
+        # 2. XỬ LÝ ĐA ĐỊNH MỨC TRONG KHO: Nhóm theo loại vật tư để tính Trung Bình Cộng, chống trùng lặp dữ liệu
+        bom_sum_accumulator = {}
+        bom_count_accumulator = {}
         
-        # Nhóm A: Vải chính chịu tác động toàn phần từ phom diện tích bề mặt rập lớn
-        if any(k in ctype_upper for k in ["MAIN", "FABRIC", "BODY", "SHELL"]):
-            adjusted_shape_factor = shape_factor * fabric_growth_factor * similarity_weight
-            projected_dm = avg_old_qty * (1 + adjusted_shape_factor / 100) * (1 + wastage_buffer / 100)
-            note = f"Vải chính: Hệ số ({fabric_growth_factor}) × POM ({round(shape_factor, 1)}%) → ĐM tăng: {round(adjusted_shape_factor, 2)}%"
-            
-        # Nhóm B: Vải phụ, lót túi, dựng mếch keo (Chịu hệ số giảm chấn cơ học biên độ nhẹ 0.4)
-        elif any(k in ctype_upper for k in ["LINING", "RIB", "COMBINATION", "POCKET", "INTERLINING"]):
-            reduced_factor = shape_factor * 0.4 * similarity_weight
-            projected_dm = avg_old_qty * (1 + reduced_factor / 100) * (1 + wastage_buffer / 100)
-            note = f"Vải phụ: Giảm chấn (0.4) × Mức tăng vải chính → ĐM tăng: {round(reduced_factor, 2)}%"
-            
-        # Nhóm C: Phụ liệu tĩnh cố định không đổi chiều dài theo size (Chỉ tính % hao hụt đầu bàn)
+        for r in bom_records:
+            ctype_key = str(r.get("consumption_type", "UNKNOWN")).strip()
+            if not ctype_key: ctype_key = "UNKNOWN"
+                
+            qty_val = internal_clean_float(r.get("consumption_value", 0.0))
+            if qty_val > 0:
+                bom_sum_accumulator[ctype_key] = bom_sum_accumulator.get(ctype_key, 0.0) + qty_val
+                bom_count_accumulator[ctype_key] = bom_count_accumulator.get(ctype_key, 0) + 1
+                
+        final_old_bom_summary = {k: round(bom_sum_accumulator[k] / bom_count_accumulator[k], 4) for k in bom_sum_accumulator}
+
+        # ĐÃ SỬA TẠI ĐÂY: Lấy an toàn phần tử đầu tiên từ list bom_records để tránh lỗi AttributeError
+        if isinstance(bom_records, list) and len(bom_records) > 0:
+            sample_record = bom_records[0]
         else:
-            projected_dm = avg_old_qty * (1 + wastage_buffer / 100)
-            note = f"Phụ liệu tĩnh (Chỉ tính hao hụt sản xuất {wastage_buffer}%)"
-            
-        projection_rows.append({
-            "Phân loại vật tư (Type)": ctype,
-            "ĐM Trung bình mã cũ (Kho)": round(avg_old_qty, 4),
-            "ĐM Dự phóng mã mới": round(projected_dm, 3),
-            "Cơ sở thuật toán toán AI": note
-        })
+            sample_record = bom_records if isinstance(bom_records, dict) else {}
+
+        # 3. THUẬT TOÁN ĐIỀU KHIỂN HỆ SỐ THỰC NGHIỆM VẢI THÔNG MINH THEO TỪ KHÓA DÒNG HÀNG
+        article_name_upper = str(sample_record.get("article_name", "")).upper() if isinstance(sample_record, dict) else ""
+        style_name_upper = str(st.session_state.get("matched_style_name", "")).upper()
+        product_context = f"{style_name_upper} {article_name_upper}"
         
-    df_projection = pd.DataFrame(projection_rows)
-    st.session_state["ai_projected_consumption_matrix"] = projection_rows
-    st.dataframe(df_projection, use_container_width=True, hide_index=True)
+        default_fabric_factor = 0.65 
+        product_type_label = "Tiêu chuẩn (Mặc định)"
+        
+        if any(k in product_context for k in ["LONG PANT", "TROUSER", "JEAN", "QUAN DAI"]):
+            default_fabric_factor = 0.85
+            product_type_label = "Quần dài (Diện tích sơ đồ nhảy vóc lớn)"
+        elif any(k in product_context for k in ["SHORT", "QUAN NGON", "QUAN ĐUI"]):
+            default_fabric_factor = 0.45
+            product_type_label = "Quần đùi/Shorts (Sơ đồ ngắn, biến thiên ít)"
+        elif any(k in product_context for k in ["JACKET", "COAT", "AO KHOAC", "BLAZER", "VEST"]):
+            default_fabric_factor = 0.75
+            product_type_label = "Áo khoác / Vest / Blazer (Khổ rập lớn)"
+        elif any(k in product_context for k in ["TEE", "SHIRT", "POLO", "AO THUN", "AO SOMI"]):
+            default_fabric_factor = 0.55
+            product_type_label = "Áo thun / Áo sơ mi"
+        elif any(k in product_context for k in ["SKIRT", "DRESS", "VAY", "DAM"]):
+            default_fabric_factor = 0.70
+            product_type_label = "Váy / Đầm liền"
+
+        # 4. THIẾT KẾ CỘT NHẬP LIỆU GIAO DIỆN HỆ SỐ AI
+        v_similarity = st.session_state.get("matched_similarity_score", 100.0)
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            shape_factor = st.number_input("Độ biến thiên thông số POM trung bình (%)", value=float(avg_area_growth_pct), step=0.1)
+        with col2:
+            fabric_growth_factor = st.number_input(f"Hệ số thực nghiệm vải ({product_type_label})", value=float(default_fabric_factor), step=0.05)
+        with col3:
+            wastage_buffer = st.number_input("Hao hụt sản xuất cấu hình thêm (%)", value=0.0, step=0.5)
+
+        # 5. VÒNG LẶP TOÁN HỌC PHÂN TẦNG VẬT TƯ (VẢI CHÍNH / VẢI PHỤ LÓT / PHỤ LIỆU TĨNH)
+        projection_rows = []
+        for ctype, avg_old_qty in final_old_bom_summary.items():
+            ctype_upper = str(ctype).strip().upper()
+            similarity_weight = v_similarity / 100.0
+            
+            # Nhóm A: Vải chính chịu tác động toàn phần từ phom diện tích bề mặt rập lớn
+            if any(k in ctype_upper for k in ["MAIN", "FABRIC", "BODY", "SHELL"]):
+                adjusted_shape_factor = shape_factor * fabric_growth_factor * similarity_weight
+                projected_dm = avg_old_qty * (1 + adjusted_shape_factor / 100) * (1 + wastage_buffer / 100)
+                note = f"Vải chính: Hệ số ({fabric_growth_factor}) × POM ({round(shape_factor, 1)}%) → ĐM tăng: {round(adjusted_shape_factor, 2)}%"
+                
+            # Nhóm B: Vải phụ, lót túi, dựng mếch keo (Chịu hệ số giảm chấn cơ học biên độ nhẹ 0.4)
+            elif any(k in ctype_upper for k in ["LINING", "RIB", "COMBINATION", "POCKET", "INTERLINING"]):
+                reduced_factor = shape_factor * 0.4 * similarity_weight
+                projected_dm = avg_old_qty * (1 + reduced_factor / 100) * (1 + wastage_buffer / 100)
+                note = f"Vải phụ: Giảm chấn (0.4) × Mức tăng vải chính → ĐM tăng: {round(reduced_factor, 2)}%"
+                
+            # Nhóm C: Phụ liệu tĩnh cố định không đổi chiều dài theo size (Chỉ tính % hao hụt đầu bàn)
+            else:
+                projected_dm = avg_old_qty * (1 + wastage_buffer / 100)
+                note = f"Phụ liệu tĩnh (Chỉ tính hao hụt sản xuất {wastage_buffer}%)"
+                
+            projection_rows.append({
+                "Phân loại vật tư (Type)": ctype,
+                "ĐM Trung bình mã cũ (Kho)": round(avg_old_qty, 4),
+                "ĐM Dự phóng mã mới": round(projected_dm, 3),
+                "Cơ sở thuật toán toán AI": note
+            })
+            
+        df_projection = pd.DataFrame(projection_rows)
+        st.session_state["ai_projected_consumption_matrix"] = projection_rows
+        st.dataframe(df_projection, use_container_width=True, hide_index=True)
 
 
 
