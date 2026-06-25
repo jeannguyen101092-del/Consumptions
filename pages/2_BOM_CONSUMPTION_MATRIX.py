@@ -1828,16 +1828,33 @@ with img_col1:
             
         # 2. HIỂN THỊ BẢNG THÔNG SỐ MA TRẬN KÍCH THƯỚC (AI EXTRACTED)
         extracted_spec = st.session_state.get("extracted_spec_data", None)
+        
+        # SỬA LỖI: Tự động bóc tách tầng dữ liệu nếu biến bị lưu cả cục dictionary phản hồi từ AI
+        if isinstance(extracted_spec, dict) and "data" in extracted_spec:
+            extracted_spec = extracted_spec["data"]
+            
         if extracted_spec and "full_size_matrix" in extracted_spec:
             st.markdown("#### 📊 BẢNG THÔNG SỐ KỸ THUẬT (SPEC MATRIX)")
             
             import pandas as pd
             try:
-                # Chuyển đổi dữ liệu JSON ma trận kích thước của Gemini thành DataFrame để tạo bảng Streamlit trực quan
-                matrix_df = pd.DataFrame.from_dict(extracted_spec["full_size_matrix"], orient='index')
-                st.dataframe(matrix_df, use_container_width=True)
+                # SỬA LỖI: Ép kiểu dữ liệu an toàn, xử lý trường hợp cấu trúc bảng bị lồng ghép phức tạp
+                raw_matrix = extracted_spec["full_size_matrix"]
+                if isinstance(raw_matrix, dict):
+                    matrix_df = pd.DataFrame.from_dict(raw_matrix, orient='index')
+                    
+                    # Tối ưu giao diện hiển thị bảng trên Streamlit
+                    st.dataframe(
+                        matrix_df, 
+                        use_container_width=True,
+                        column_config={"index": st.column_config.TextColumn("Point of Measure (POM)", width="medium")}
+                    )
+                else:
+                    st.warning("⚠️ Cấu trúc ma trận kích thước trả về không phải dạng bảng (Dictionary).")
+                    st.json(raw_matrix)
             except Exception as table_err:
                 # Fallback hiển thị định dạng JSON thô nếu cấu trúc bảng bị lệch cấu trúc định dạng
+                st.info(f"Hiển thị cấu trúc thô do lỗi định dạng DataFrame: {table_err}")
                 st.json(extracted_spec["full_size_matrix"])
         else:
             st.info("ℹ️ Không tìm thấy dữ liệu bảng thông số hình học được bóc tách cho tệp này.")
@@ -1871,6 +1888,7 @@ with img_col2:
         img_content_final = None
         
         if base_storage_url:
+            import requests
             from urllib.parse import quote
             from concurrent.futures import ThreadPoolExecutor
             
@@ -1922,7 +1940,6 @@ with img_col2:
     else:
         st.session_state["matched_image_verified"] = False
         st.warning("⚠️ CHƯA KHỚP ĐƯỢC MÃ TƯƠNG ĐỒNG! Vui lòng nạp file Techpack tại menu Upload.")
-
 
 
 import json
