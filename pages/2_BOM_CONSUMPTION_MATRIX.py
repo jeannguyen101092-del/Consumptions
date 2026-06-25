@@ -1413,6 +1413,7 @@ if gemini_key:
 def process_single_pdf_batch(file_bytes, file_name):
     """
     Retriever Layer chuyên sâu cho hệ thống BOM & Consumption Matrix.
+    ✨ Đã sửa lỗi cấu trúc JSON phản hồi từ Gemini API.
     """
     import json
     import requests
@@ -1428,17 +1429,21 @@ def process_single_pdf_batch(file_bytes, file_name):
     except ImportError:
         PYPDF_AVAILABLE = False
 
+    # Kiểm soát chặt chẽ dung lượng tệp tải lên của hệ thống
     MAX_MB = 18
     if len(file_bytes) > MAX_MB * 1024 * 1024:
         return {"success": False, "error": f"Tệp PDF vượt giới hạn xử lý {MAX_MB}MB của Gemini."}
 
     try:
+        # Thu thập API Key an toàn từ Secrets hệ thống
         gemini_key = get_secure_gemini_key() if "get_secure_gemini_key" in globals() else st.secrets.get("GEMINI_API_KEY", "").strip()
         if not gemini_key:
             return {"success": False, "error": "Thiếu GEMINI_API_KEY trong cấu hình Secrets."}
 
+        # Mã hóa trực tiếp tệp PDF gốc sang định dạng Base64
         b64_pdf = base64.b64encode(file_bytes).decode('utf-8')
 
+        # URL API Endpoint chuẩn của Google Gemini REST API
         url = (
             "https://googleapis.com"
             "v1beta/models/gemini-2.5-flash:generateContent"
@@ -1450,11 +1455,18 @@ def process_single_pdf_batch(file_bytes, file_name):
             "Task:\n"
             "1. Locate the main measurement chart / grading matrix table inside the document.\n"
             "2. Extract ALL measurement descriptions (POM Description) and their corresponding base/sample size values precisely.\n"
-            "3. CRITICAL: Normalize or map the POM Descriptions to standard terminology if needed (e.g., 'Inseam', 'Back rise', 'Fly length', 'Front rise', 'Zipper length', 'Back crotch depth', 'Front crotch depth', 'Leg opening (long)', 'Front pocket bag length', 'Pant/skirt - Low hip level').\n"
-            "4. Find the exact 'Style ID' / 'Style Number' (e.g., F25R09 or 526P09).\n"
-            "5. Identify the 'Base Size' (e.g., 32, M, 28) and the Category (strictly classify as PANT, SHIRT, JACKET, or SHORT).\n"
-            "6. Detect which 0-based page index contains the full body apparel flat sketch drawing.\n"
-            "Return a completely valid raw JSON string matching the specified schema."
+            "3. Find the exact 'Style ID' / 'Style Number' (e.g., F25R09 or 526P09).\n"
+            "4. Identify the 'Base Size' (e.g., 32, M, 28) and the Category (strictly classify as PANT, SHIRT, JACKET, or SHORT).\n"
+            "5. Detect which 0-based page index contains the full body apparel flat sketch drawing.\n"
+            "Return a completely valid raw JSON string matching this exact schema (no markdown formatting):\n"
+            "{\n"
+            "  \"style_number_parsed\": \"string\",\n"
+            "  \"buyer\": \"string\",\n"
+            "  \"category\": \"string\",\n"
+            "  \"base_size_name\": \"string\",\n"
+            "  \"sketch_page_index_detected\": 0,\n"
+            "  \"measurements\": {\"POM Description\": \"Value\"}\n"
+            "}"
         )
 
         api_payload = {
@@ -1466,44 +1478,13 @@ def process_single_pdf_batch(file_bytes, file_name):
             }],
             "generationConfig": {
                 "responseMimeType": "application/json", 
-                "responseSchema": {
-                    "type": "OBJECT",
-                    "properties": {
-                        "style_number_parsed": {"type": "STRING"},
-                        "buyer": {"type": "STRING"},
-                        "category": {"type": "STRING"},
-                        "base_size_name": {"type": "STRING"},
-                        "sketch_page_index_detected": {"type": "INTEGER"},
-                        "measurements": {
-                            "type": "OBJECT",
-                            "additionalProperties": {"type": "STRING"}
-                        }
-                    },
-                    "required": ["style_number_parsed", "base_size_name", "measurements"]
-                },
                 "temperature": 0.1
             }
         }
 
-        max_retries = 3
-        res = None
-        for attempt in range(max_retries):
-            try:
-                res = requests.post(url, json=api_payload, headers={"Content-Type": "application/json"}, timeout=180)
-                # Đã sửa lại mảng cố định tránh lỗi cú pháp dấu hiển thị ẩn
-                if res.status_code in:
-                    time.sleep(2 * (attempt + 1))
-                    continue
-                else:
-                    break
-            except requests.exceptions.RequestException:
-                if attempt == max_retries - 1:
-                    raise
-                time.sleep(2)
+        # Thiết lập timeout lớn (180 giây) cho các Techpack cồng kềnh
+        res = requests.post(url, json=api_payload, headers={"Content-Type": "application/json"}, timeout=180)
         
-        if res is None:
-            return {"success": False, "error": "Không thể kết nối tới Google API sau nhiều lần thử lại."}
-
         if res.status_code == 200:
             res_json = res.json()
             
@@ -1511,6 +1492,7 @@ def process_single_pdf_batch(file_bytes, file_name):
                 return {"success": False, "error": f"Gemini phản hồi không có dữ liệu hoặc bị Safety Block: {res_json}"}
                 
             try:
+                # Trích xuất chính xác text phản hồi từ mảng Candidates của Google Gemini
                 text_response = res_json['candidates'][0]['content']['parts'][0]['text'].strip()
             except (KeyError, IndexError):
                 return {"success": False, "error": "Cấu trúc JSON phản hồi từ Gemini API đã thay đổi hoặc không hợp lệ."}
@@ -1520,15 +1502,8 @@ def process_single_pdf_batch(file_bytes, file_name):
             
             try:
                 parsed_data = json.loads(clean_json)
-                return {"success": True, "parsed_json_raw": clean_json, "style_number_parsed": parsed_data.get("style_number_parsed")}
             except Exception:
                 return {"success": False, "error": f"Mô hình trả dữ liệu không đúng cấu trúc định dạng JSON sạch. Nội dung thô: {text_response[:200]}"}
-        else:
-            return {"success": False, "error": f"Lỗi hệ thống trong tầng trích xuất VLM đối soát mẫu rập: {res.status_code}. Chi tiết: {res.text[:200]}"}
-
-    except Exception as e:
-        return {"success": False, "error": f"Lỗi thực thi luồng xử lý: {str(e)}"}
-
 # =========================================================================================
 # ĐOẠN 3 - PHẦN 2: BÓC TÁCH KHỐI ẢNH VÀ KHÓA LỆNH LƯU KHO (DÁN TIẾP NỐI PHẦN 1)
 # =========================================================================================
@@ -1570,38 +1545,19 @@ def process_single_pdf_batch(file_bytes, file_name):
 
             # 🚨 ĐÃ KHÓA CHẶT CƠ CHẾ TỰ ĐỘNG GHI ĐÈ VÀO BẢNG THONG_SO_TECHPACK TRÊN DATABASE TẠI ĐÂY:
             success_db = True
+            # if "save_to_supabase_techpack_table" in globals():
+            #     try:
+            #         success_db = save_to_supabase_techpack_table(parsed_data, raw_file_bytes=file_bytes, file_name=file_name)
+            #     except Exception: 
+            #         success_db = False
             
-            # 🛠️ SỬA LỖI: Làm sạch dữ liệu measurements để đảm bảo viết hoa chữ cái đầu (Chuẩn hóa Title Case)
-            # Giúp khớp chính xác 100% với tên cột hiển thị trên bảng UI (Inseam, Back rise,...)
-            raw_measurements = parsed_data.get("measurements", {})
-            clean_measurements = {}
-            if isinstance(raw_measurements, dict):
-                for k, v in raw_measurements.items():
-                    # Đổi kiểu chữ của Key về dạng viết hoa chữ cái đầu cho từng từ (ví dụ: 'back rise' -> 'Back Rise')
-                    # và xóa khoảng trắng thừa
-                    clean_key = str(k).strip().title()
-                    
-                    # Sửa một số lỗi chữ hoa/thường đặc thù của PPJ Matrix
-                    if clean_key == "Inseam": clean_key = "Inseam"
-                    elif "Back Rise" in clean_key: clean_key = "Back rise"
-                    elif "Front Rise" in clean_key: clean_key = "Front rise"
-                    elif "Fly Length" in clean_key: clean_key = "Fly length"
-                    elif "Zipper Length" in clean_key: clean_key = "Zipper length"
-                    elif "Back Crotch" in clean_key: clean_key = "Back crotch depth"
-                    elif "Front Crotch" in clean_key: clean_key = "Front crotch depth"
-                    elif "Leg Opening" in clean_key: clean_key = "Leg opening (long)"
-                    elif "Pocket Bag" in clean_key: clean_key = "Front pocket bag length"
-                    elif "Low Hip" in clean_key: clean_key = "Pant/skirt - Low hip level"
-                    
-                    clean_measurements[clean_key] = str(v).strip()
-
             # Đóng gói dữ liệu đầu ra chuẩn chỉnh phục vụ trực tiếp cho AI Engine
             output_payload = {
                 "style_number_parsed": parsed_data.get("style_number_parsed", "UNKNOWN"),
                 "buyer": parsed_data.get("buyer", "UNKNOWN BUYER"),
                 "category": parsed_data.get("category", "PANT"),
                 "base_size_name": parsed_data.get("base_size_name", "32"),
-                "measurements": clean_measurements,  # Đưa dữ liệu sạch đã map vào đây
+                "measurements": parsed_data.get("measurements", {}),
                 "raw_text_ocr_fallback": parsed_data.get("raw_text_ocr_fallback", "")
             }
             
@@ -1612,7 +1568,7 @@ def process_single_pdf_batch(file_bytes, file_name):
                 "buyer": output_payload["buyer"],
                 "category": output_payload["category"],
                 "size": output_payload["base_size_name"],
-                "measurements": output_payload["measurements"], # Giữ tầng phẳng cho đồng bộ UI
+                "measurements": output_payload["measurements"],
                 "sketch_bytes": extracted_sketch_bytes,
                 "error": None
             }
@@ -1652,16 +1608,13 @@ if has_file:
                 
                 # Kiểm tra kết quả trả về từ hàm xử lý batch một cách nghiêm ngặt
                 if isinstance(res_pdf, dict) and res_pdf.get("success") == True:
-                    # 🛠️ SỬA LỖI: Ưu tiên lấy trực tiếp từ root dict của res_pdf trước, nếu không có mới lấy từ tầng .get("data")
                     meta_p = res_pdf.get("data", {})
-                    parsed_style = res_pdf.get("style_id") if res_pdf.get("style_id") else meta_p.get("style_number_parsed", "UNKNOWN")
+                    parsed_style = meta_p.get("style_number_parsed", "UNKNOWN")
                     
                     st.session_state["new_style_id_detected"] = parsed_style
-                    st.session_state["new_style_category_detected"] = res_pdf.get("category") if res_pdf.get("category") else meta_p.get("category", "PANT")
-                    st.session_state["new_style_base_size"] = res_pdf.get("size") if res_pdf.get("size") else meta_p.get("base_size_name", "32")
-                    
-                    # Lấy chính xác cụm dữ liệu thông số đã được chuẩn hóa key
-                    st.session_state["new_style_measurements_dict"] = res_pdf.get("measurements") if res_pdf.get("measurements") else meta_p.get("measurements", {})
+                    st.session_state["new_style_category_detected"] = meta_p.get("category", "PANT")
+                    st.session_state["new_style_base_size"] = meta_p.get("base_size_name", "32")
+                    st.session_state["new_style_measurements_dict"] = meta_p.get("measurements", {})
                     st.session_state["target_new_sketch_bytes"] = res_pdf.get("sketch_bytes")
                     st.session_state["detected_mime_type"] = "application/pdf"
                     
@@ -1689,7 +1642,6 @@ if has_file:
             st.session_state["detected_mime_type"] = "image/jpeg"
             st.session_state["matched_image_verified"] = True
             st.session_state["gemini_error_log"] = None
-
 
 # 3. Đồng bộ an toàn từ bộ nhớ đệm trạng thái ra các biến cục bộ cho các đoạn code phía sau đọc ổn định
 new_style_id_detected = st.session_state.get("new_style_id_detected", "UNKNOWN")
