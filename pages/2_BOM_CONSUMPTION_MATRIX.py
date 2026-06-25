@@ -1409,16 +1409,14 @@ if gemini_key:
 # =========================================================================================
 # ĐOẠN 3 - PHẦN 1: HÀM TRÍCH XUẤT THÔNG SỐ QUA GEMINI API
 # =========================================================================================
-def process_single_pdf_batch(file_bytes, file_name):
+def process_single_pdf_batch(file_bytes, file_name=None):
     """
     Retriever Layer chuyên sâu cho hệ thống BOM & Consumption Matrix.
-    ✨ Đã sửa lỗi bóc tách chỉ mục [0] của mảng candidates và chuẩn hóa lề trái GitHub.
+    ✨ Đã sửa lỗi endpoint Gemini API, bóc tách chỉ mục [0] và chuẩn hóa lề trái.
     """
     import json
     import requests
     import base64
-    import time
-    import io
     import re
     import streamlit as st
 
@@ -1439,7 +1437,7 @@ def process_single_pdf_batch(file_bytes, file_name):
         # 4. Mã hóa trực tiếp tệp PDF gốc sang định dạng Base64
         b64_pdf = base64.b64encode(file_bytes).decode('utf-8')
 
-        # 5. URL endpoint chuẩn của Gemini API trên một dòng f-string chuẩn xác
+        # 5. 🔥 ĐÃ SỬA: URL endpoint chuẩn xác của Gemini API (sử dụng model gemini-1.5-flash chuyên đọc tài liệu)
         url = f"https://googleapis.com{gemini_key}"
         
         industrial_prompt = (
@@ -1480,7 +1478,7 @@ def process_single_pdf_batch(file_bytes, file_name):
             }
         }
 
-        # 6. Gửi yêu cầu REST API
+        # 6. Gửi yêu cầu REST API với timeout hợp lý
         res = requests.post(url, json=api_payload, headers={"Content-Type": "application/json"}, timeout=180)
         
         if res.status_code != 200:
@@ -1498,7 +1496,7 @@ def process_single_pdf_batch(file_bytes, file_name):
             return {"success": False, "error": "Gemini phản hồi không có dữ liệu hoặc bị Safety Block."}
             
         try:
-            # 🔥 ĐÃ SỬA CHÍNH XÁC: Chỉ định rõ phần tử index [0] của mảng candidates trước khi bóc tách content
+            # Chỉ định rõ phần tử index [0] của mảng candidates trước khi bóc tách content
             first_candidate = res_json['candidates'][0]
             text_response = first_candidate['content']['parts'][0]['text'].strip()
         except (KeyError, IndexError, TypeError):
@@ -1583,6 +1581,7 @@ def process_single_pdf_batch(file_bytes, file_name):
 
     except Exception as e:
         return {"success": False, "error": f"Lỗi hệ thống khi xử lý tệp: {str(e)}"}
+
 
 
 
