@@ -1413,7 +1413,7 @@ if gemini_key:
 def process_single_pdf_batch(file_bytes, file_name):
     """
     Retriever Layer chuyên sâu cho hệ thống BOM & Consumption Matrix.
-    🛠️ FIX SỬA LỖI CÚ PHÁP: Truy cập mảng [0] chính xác theo tài liệu API Gemini.
+    🛠️ ĐÃ FIX TRIỆT ĐỂ: Đồng nhất 100% khoảng trắng thụt lề đầu dòng (4 Spaces).
     """
     import json
     import requests
@@ -1429,24 +1429,24 @@ def process_single_pdf_batch(file_bytes, file_name):
     except ImportError:
         PYPDF_AVAILABLE = False
 
-    # Kiểm soát chặt chẽ dung lượng tệp tải lên của hệ thống
+    # 1. Kiểm soát dung lượng tệp
     MAX_MB = 18
     if len(file_bytes) > MAX_MB * 1024 * 1024:
         return {"success": False, "error": f"Tệp PDF vượt giới hạn xử lý {MAX_MB}MB của Gemini."}
 
-    # Khởi tạo mặc định cho biến chứa bytes ảnh phác thảo (sketch)
+    # 2. Khởi tạo biến cục bộ (Đã sửa lỗi thụt lề)
     extracted_sketch_bytes = None
 
     try:
-        # Thu thập API Key an toàn từ Secrets hệ thống
+        # 3. Thu thập API Key
         gemini_key = get_secure_gemini_key() if "get_secure_gemini_key" in globals() else st.secrets.get("GEMINI_API_KEY", "").strip()
         if not gemini_key:
             return {"success": False, "error": "Thiếu GEMINI_API_KEY trong cấu hình Secrets."}
 
-        # Mã hóa trực tiếp tệp PDF gốc sang định dạng Base64
+        # 4. Mã hóa Base64
         b64_pdf = base64.b64encode(file_bytes).decode('utf-8')
 
-        # URL chuẩn xác tuyệt đối trên một dòng f-string
+        # 5. URL Endpoint chuẩn xác trên 1 dòng
         url = f"https://googleapis.com{gemini_key}"
         
         industrial_prompt = (
@@ -1487,10 +1487,9 @@ def process_single_pdf_batch(file_bytes, file_name):
             }
         }
 
-        # Gửi dữ liệu lên API
+        # 6. Gửi dữ liệu tới REST API
         res = requests.post(url, json=api_payload, headers={"Content-Type": "application/json"}, timeout=180)
         
-        # Kiểm tra mã trạng thái HTTP trước
         if res.status_code != 200:
             st.error(f"LỖI ĐƯỜNG TRUYỀN API - Mã HTTP: {res.status_code}")
             st.code(res.text, language="json")
@@ -1498,21 +1497,21 @@ def process_single_pdf_batch(file_bytes, file_name):
             
         res_json = res.json()
         
-        # BẬT DEBUG PHẢN HỒI THÔ (RAW)
+        # BẬT KHỐI DEBUG RAW DATA THÔ TỪ GOOGLE
         st.write("===== 1. RAW GEMINI RESPONSE =====")
         st.json(res_json)
         
         if "candidates" not in res_json or not res_json["candidates"]:
             return {"success": False, "error": "Gemini phản hồi không có dữ liệu hoặc bị Safety Block."}
             
-        # 🛠️ ĐÃ SỬA CHÍNH XÁC: Truy cập phần tử [0] của mảng candidates trước khi lấy content
         try:
+            # Truy cập phần tử chỉ mục 0 của danh sách candidates an toàn
             first_candidate = res_json['candidates'][0]
             text_response = first_candidate['content']['parts'][0]['text'].strip()
         except (KeyError, IndexError, TypeError):
             return {"success": False, "error": "Cấu trúc phản hồi JSON thô của Gemini không đúng định dạng parts/text."}
 
-        # Trích xuất và dọn dẹp JSON bọc bởi ký tự thừa nếu có
+        # 7. Trích xuất và làm sạch dữ liệu chuỗi JSON
         clean_json = text_response
         json_match = re.search(r"({.*})", clean_json, re.DOTALL)
         if json_match:
@@ -1523,14 +1522,13 @@ def process_single_pdf_batch(file_bytes, file_name):
         try:
             parsed_data = json.loads(clean_json)
             
-            # BẬT DEBUG DỮ LIỆU ĐÃ LỌC
+            # BẬT KHỐI DEBUG DỮ LIỆU SAU PHÂN TÍCH (PARSED)
             st.write("===== 2. GEMINI PARSED JSON =====")
             st.json(parsed_data)
 
-            # Phục hồi tầng xử lý dữ liệu đo đạc
             measurements_dict = parsed_data.get("measurements", {})
 
-            # Ép kiểu dữ liệu thông minh phòng hờ LLM tự biến đổi Dict thành List
+            # Bộ chuyển đổi mảng/danh sách (List) thông minh về từ điển (Dict) phẳng
             if isinstance(measurements_dict, list):
                 fixed = {}
                 for row in measurements_dict:
@@ -1558,7 +1556,7 @@ def process_single_pdf_batch(file_bytes, file_name):
             st.write("📈 SỐ LƯỢNG VỊ TRÍ ĐO ĐÃ KHÔI PHỤC (MEASUREMENTS):", len(measurements_dict))
             st.write("📏 CỠ MẪU GỐC ĐƯỢC CHỌN (BASE SIZE):", parsed_data.get("base_size_name"))
             
-            # Đóng gói dữ liệu phẳng để đẩy sang tầng view (giao diện hiển thị)
+            # 8. Đóng gói payload đầu ra cho cấu trúc cũ
             output_payload = {
                 "style_number_parsed": parsed_data.get("style_number_parsed", "UNKNOWN"),
                 "buyer": parsed_data.get("buyer", "UNKNOWN BUYER"),
