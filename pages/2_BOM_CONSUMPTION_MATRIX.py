@@ -1393,7 +1393,7 @@ def process_single_pdf_batch(file_bytes, file_name):
 # ⚙️ KHỞI TẠO BIẾN VÀ XỬ LÝ TỆP TẢI LÊN (BẢN VÁ LỖI MẤT BẢNG THÔNG SỐ)
 # =========================================================================
 # =========================================================================
-# ⚙️ ĐOẠN 3 CHUẨN HOÀN CHỈNH: TỰ ĐỘNG KHỚP KHO THÔNG MINH (CHỐNG LỆCH KÝ TỰ)
+# ⚙️ ĐOẠN 3 ĐÃ SỬA: CÔ LẬP LUỒNG FILE THEO TỪNG MENU (TRIỆT TIÊU LỖI NHẢY LỘN XN)
 # =========================================================================
 
 import requests
@@ -1406,14 +1406,26 @@ new_style_measurements_dict = {}
 new_style_base_size = "32"
 target_new_sketch_bytes = None 
 
-# 2. Xác định nguồn tệp tải lên từ các widget file_uploader khác nhau trong session_state
+# Lấy trạng thái menu hiện tại để ép luồng đọc file chính xác
+menu_selection = globals().get("menu_selection", st.session_state.get("menu_selection", "🧵 BOM & Consumption Matrix"))
+
+# 2. XỬ LÝ AN TOÀN: ÉP BUỘC CHỈ LẤY FILE CỦA ĐÚNG MENU ĐANG CHỌN
 target_file_object = None
-if st.session_state.get('uploaded_file') is not None:
-    target_file_object = st.session_state['uploaded_file']
-elif st.session_state.get('chat_uploader') is not None:
-    target_file_object = st.session_state['chat_uploader']
-elif st.session_state.get('bom_matrix_uploader') is not None:
-    target_file_object = st.session_state['bom_matrix_uploader']
+
+if menu_selection == "🧵 BOM & Consumption Matrix":
+    # Nếu đang ở menu BOM, tuyệt đối CHỈ lấy file từ uploader của trang BOM
+    if st.session_state.get('bom_matrix_uploader') is not None:
+        target_file_object = st.session_state['bom_matrix_uploader']
+        
+elif menu_selection == "📁 Upload Techpack":
+    # Nếu đang ở menu Upload, tuyệt đối CHỈ lấy file từ uploader của trang Upload
+    if st.session_state.get('uploaded_file') is not None:
+        target_file_object = st.session_state['uploaded_file']
+        
+else:
+    # Luồng dự phòng cho các thành phần hội thoại khác
+    if st.session_state.get('chat_uploader') is not None:
+        target_file_object = st.session_state['chat_uploader']
 
 has_file = target_file_object is not None
 
@@ -1423,14 +1435,12 @@ if has_file:
     file_name = target_file_object.name
     
     if file_name.lower().endswith('.pdf'):
-        # Dùng biến '_checked' riêng biệt bảo vệ luồng AI không bị đứng im khi widget rerun
         if st.session_state.get("extracted_spec_data") is None or st.session_state.get("previous_uploaded_file_name_checked") != file_name:
             
             with st.spinner("🤖 AI đang phân tích sâu cấu trúc PDF để bóc tách hình ảnh & thông số..."):
                 try:
                     res_pdf = process_single_pdf_batch(file_bytes, file_name)
                     if res_pdf and res_pdf.get("success"):
-                        # Lưu trữ dữ liệu bóc tách của mẫu mới vào Session State
                         st.session_state["extracted_spec_data"] = res_pdf["data"]
                         st.session_state["target_new_sketch_bytes_state"] = res_pdf.get("sketch_bytes")
                         st.session_state["previous_uploaded_file_name_checked"] = file_name
@@ -1444,11 +1454,7 @@ if has_file:
                             
                             if sb_url_clean and sb_key_clean:
                                 db_headers = {"apikey": sb_key_clean, "Authorization": f"Bearer {sb_key_clean}"}
-                                
-                                # Tách chuỗi: Nếu mã là F25R09-490416 -> lấy phần đuôi 490416 để đối chứng phòng xa kho lưu số ngắn
                                 core_style_number = detected_style.split('-')[-1] if '-' in detected_style else detected_style
-                                
-                                # Sử dụng toán tử ilike.* để tìm kiếm tương đối không phân biệt chữ hoa/thường trong Supabase
                                 query_url = f"{sb_url_clean}/rest/v1/techpacks?StyleName=ilike.*{core_style_number}*&select=*"
                                 
                                 try:
@@ -1456,15 +1462,13 @@ if has_file:
                                     if db_resp.status_code == 200:
                                         records = db_resp.json()
                                         if records and len(records) > 0:
-                                            # Giải nén phần tử đầu tiên của mảng nếu tìm thấy
-                                            st.session_state["matched_techpack"] = records[0]
+                                            st.session_state["matched_techpack"] = records
                                             st.session_state["match_confidence_score"] = 100.0
                                         else:
-                                            # LUỒNG DỰ PHÒNG: Quét bằng nguyên mẫu chuỗi ban đầu nếu tách chuỗi thất bại
                                             fallback_url = f"{sb_url_clean}/rest/v1/techpacks?StyleName=ilike.*{detected_style}*&select=*"
                                             fb_resp = requests.get(fallback_url, headers=db_headers, timeout=5)
                                             if fb_resp.status_code == 200 and fb_resp.json():
-                                                st.session_state["matched_techpack"] = fb_resp.json()[0]
+                                                st.session_state["matched_techpack"] = fb_resp.json()
                                                 st.session_state["match_confidence_score"] = 100.0
                                             else:
                                                 st.session_state["matched_techpack"] = None
@@ -1479,7 +1483,6 @@ if has_file:
                     st.session_state["extracted_spec_data"] = None
                     st.session_state["target_new_sketch_bytes_state"] = None
         
-        # ĐỒNG BỘ DỮ LIỆU TỪ SESSION STATE RA CÁC BIẾN CỤC BỘ ĐỂ HIỂN THỊ GIAO DIỆN
         extracted_spec = st.session_state.get("extracted_spec_data", None)
         if extracted_spec:
             if "data" in extracted_spec:
@@ -1492,12 +1495,11 @@ if has_file:
             
         target_new_sketch_bytes = st.session_state.get("target_new_sketch_bytes_state", None)
     else:
-        # Nếu tải lên là file ảnh trực tiếp, giữ nguyên làm ảnh bản vẽ Flat Sketch
         target_new_sketch_bytes = file_bytes
         st.session_state["target_new_sketch_bytes_state"] = file_bytes
         st.session_state["extracted_spec_data"] = None 
 
-# Đồng bộ an toàn ra phạm vi biến toàn cục để các tầng render giao diện đọc mượt mà
+# Đồng bộ an toàn ra phạm vi biến toàn cục
 globals()["target_new_sketch_bytes"] = target_new_sketch_bytes
 globals()["new_style_id_detected"] = new_style_id_detected
 globals()["new_style_category"] = new_style_category_detected
@@ -1509,7 +1511,7 @@ SB_KEY = st.secrets.get("SUPABASE_KEY", "") if "SB_KEY" not in globals() else SB
 dynamic_keyword = str(new_style_id_detected).strip().upper()
 base_sb_url = SB_URL.rstrip('/') if SB_URL else ""
 headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if SB_KEY else {}
-menu_selection = globals().get("menu_selection", "🧵 BOM & Consumption Matrix")
+
 
 
 
