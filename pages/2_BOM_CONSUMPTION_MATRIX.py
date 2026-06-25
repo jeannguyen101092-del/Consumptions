@@ -491,7 +491,7 @@ with st.sidebar:
     # ĐÃ ĐỒNG BỘ: Đảm bảo khớp hoàn toàn các nhãn chức năng
     menu_selection = st.radio(
         label="Chức năng hệ thống",
-        options=["📊 Upload Techpack", "🔄 Pattern Spec Comparison", "🧵 BOM & Consumption Matrix","🛒 Purchase Consumption","🔍 Tra cứu kho trực tiếp"],
+        options=["📊 Upload Techpack", "🔄 Pattern Spec Comparison", "🧵 BOM & Consumption Matrix","🛒 Purchase Consumption"],
         label_visibility="collapsed"
     )
     st.markdown("---")
@@ -3531,23 +3531,3 @@ elif menu_selection == "🛒 Purchase Consumption":
                         st.metric("Chênh lệch so với tài liệu", f"{variance:+.3f}" if st.session_state["consumption_activated"] else "0.000", delta_color="inverse" if variance > 0 else "normal")
                 else:
                     st.info("💡 Quy trình: Bấm nút 1 để tính tác nghiệp sơ đồ -> Điền độ dài CAD -> Bấm nút 2 để kích hoạt nhảy số định mức.")
-if menu_selection == "🔍 Tra cứu kho trực tiếp":
-    st.markdown('<div class="component-title-box">🔍 TRUY XUẤT MỤC SẢN PHẨM TRỰC TIẾP TỪ KHO</div>', unsafe_allow_html=True)
-    st.markdown("---")
-    
-    search_keyword = st.text_input("✍️ Nhập tên hoặc mã sản phẩm cần tìm:", placeholder="Ví dụ: Vải Denim, Chỉ may, Mã hàng...", key="direct_prod_search_input")
-    
-    if search_keyword:
-        with st.spinner("💾 Đang kết nối bảng sản phẩm..."):
-            results = find_product_by_keyword_direct(base_sb_url, SB_KEY, search_keyword.strip())
-            
-            if results:
-                st.success(f"🎉 Tìm thấy {len(results)} sản phẩm khớp với từ khóa!")
-                
-                # Chuyển dữ liệu sang bảng DataFrame
-                df_display = pd.DataFrame(results)
-                
-                st.markdown("### 📊 Bảng dữ liệu sản phẩm")
-                st.dataframe(df_display, use_container_width=True, hide_index=True)
-            else:
-                st.warning(f"❌ Không tìm thấy sản phẩm nào khớp với từ khóa `{search_keyword}`.")
