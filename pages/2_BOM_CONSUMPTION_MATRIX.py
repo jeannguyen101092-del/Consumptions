@@ -1754,16 +1754,50 @@ with img_col1:
     uploaded_file_name = st.session_state.get("previous_uploaded_file_name", "Techpack")
     
     if target_new_sketch_bytes is not None:
-        # 1. Nếu là PDF, hiển thị hộp thông tin tài liệu thông báo cho người dùng
-        if "pdf" in str(detected_mime_type).lower() or str(uploaded_file_name).lower().endswith(".pdf"):
-            st.info(f"📄 **Tài liệu dạng tệp:** `{uploaded_file_name}`\n\nHệ thống đã nạp toàn bộ cấu trúc dữ liệu PDF vào bộ nhớ mô phỏng rập mẫu.")
+        is_pdf = "pdf" in str(detected_mime_type).lower() or str(uploaded_file_name).lower().endswith(".pdf")
         
-        # 2. XỬ LÝ AN TOÀN TUYỆT ĐỐI: Nạp thư viện cục bộ tại chỗ để tránh lỗi "not defined" dây chuyền
+        if is_pdf:
+            st.info(f"📄 **Tài liệu dạng tệp:** `{uploaded_file_name}`\n\nHệ thống đã nạp toàn bộ cấu trúc dữ liệu PDF vào bộ nhớ mô phỏng rập mẫu.")
+            
+            # TIẾN HÀNH RENDER TRANG PDF THÀNH ẢNH PNG HOÀN CHỈNH NẾU DỮ LIỆU ĐANG BỊ LỖI PHÂN GIẢI
+            try:
+                import io
+                import PIL.Image
+                
+                # THỬ PHƯƠNG ÁN 1: Dùng PyMuPDF (fitz) để render trang PDF thành ảnh chất lượng cao
+                try:
+                    import fitz  # PyMuPDF
+                    # Đọc file bytes gốc từ session state (Bạn hãy đổi tên biến file gốc nếu cần)
+                    pdf_file_bytes = st.session_state.get("uploaded_file_bytes") or target_new_sketch_bytes
+                    doc = fitz.open(stream=pdf_file_bytes, filetype="pdf")
+                    
+                    # Lấy số trang chỉ định từ kết quả AI quét được (mặc định lấy trang đầu tiên)
+                    page_num = globals().get("sketch_page_idx", 0)
+                    if page_num >= len(doc): page_num = 0
+                    
+                    page = doc.load_page(page_num)
+                    pix = page.get_pixmap(matrix=fitz.Matrix(2, 2)) # Zoom 2x cho nét
+                    target_new_sketch_bytes = pix.tobytes("png")
+                    doc.close()
+                except Exception:
+                    # THỬ PHƯƠNG ÁN 2: Dùng pdf2image nếu không có fitz
+                    try:
+                        from pdf2image import convert_from_bytes
+                        pdf_file_bytes = st.session_state.get("uploaded_file_bytes") or target_new_sketch_bytes
+                        images = convert_from_bytes(pdf_file_bytes, first_page=1, last_page=1)
+                        if images:
+                            img_byte_arr = io.BytesIO()
+                            images[0].save(img_byte_arr, format='PNG')
+                            target_new_sketch_bytes = img_byte_arr.getvalue()
+                    except Exception:
+                        pass # Nếu thiếu thư viện hệ thống sẽ dùng cơ chế trích xuất thô hiện tại
+            except Exception:
+                pass
+
+        # 2. HIỂN THỊ ẢNH RA MÀN HÌNH
         try:
             import io
             import PIL.Image
-            
-            # Sử dụng đường dẫn thư viện đầy đủ để bọc chuỗi bytes ảnh từ PDF
             image_object = PIL.Image.open(io.BytesIO(target_new_sketch_bytes))
             st.image(image_object, caption=f"Mẫu mới tải lên ({new_style_id_detected})", use_container_width=True)
         except Exception as e:
@@ -1771,6 +1805,7 @@ with img_col1:
             
     else:
         st.info("ℹ️ Chưa tải lên hoặc không trích xuất được tệp ảnh Flat Sketch của mẫu mới.")
+
 
 
 with img_col2:
