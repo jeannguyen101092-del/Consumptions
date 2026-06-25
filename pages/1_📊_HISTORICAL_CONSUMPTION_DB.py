@@ -18,7 +18,7 @@ supabase = get_supabase_client()
 # ==============================================================================
 # 2. GIAO DIỆN ỨNG DỤNG STREAMLIT
 # ==============================================================================
-st.title("📦 Upload File & Kiểm Trùng Nạp Vào Bảng Sản Phẩm")
+st.title("📊 BOM CONSUMPTION MATRIX")
 
 # Ô tải file Excel (.xlsx) từ máy tính
 uploaded_file = st.file_uploader("Kéo và thả file Excel định mức vào đây", type=["xlsx", "xls"])
@@ -49,31 +49,28 @@ if uploaded_file is not None:
                 current_time = datetime.utcnow().isoformat()
                 
                 for index, row in df.iterrows():
-                    # Đọc dữ liệu từ file Excel của bạn (StyleName, ArticleName...)
+                    # Đọc dữ liệu text từ file Excel (StyleName, ArticleName...)
                     excel_style = str(row.get("StyleName", "")).strip() if pd.notna(row.get("StyleName")) else ""
                     excel_article = str(row.get("ArticleName", "")).strip() if pd.notna(row.get("ArticleName")) else ""
                     
-                    # Kiểm tra nếu đã trùng mã hàng + mã vải trong kho thì bỏ qua
+                    # Kiểm tra trùng lặp dựa trên mã cặp định danh
                     if (excel_style, excel_article) in existing_records:
                         duplicate_count += 1
                         continue 
                     
-                    # Đọc giá trị định mức từ file Excel (Thử lấy từ tiêu đề 'DM' hoặc cột số cuối)
-                    # Ép kiểu dữ liệu về float để khớp với cột numeric trong database
-                    excel_dm = row.get("DM", 0.0)
+                    # 🔴 SỬA TẠI ĐÂY: Đọc trực tiếp định mức từ tiêu đề cột "Input Purchase Cons"
+                    excel_dm = row.get("Input Purchase Cons")
+                    
+                    # Ép kiểu dữ liệu về số thực float (Ví dụ: 0.56, 0.103...), nếu ô trống hoặc lỗi thì để 0.0
                     if pd.isna(excel_dm):
-                        # Nếu file Excel đặt tên cột định mức là kiểu khác, hệ thống tự động bốc cột số cuối
-                        try:
-                            excel_dm = float(row.iloc[-1]) if pd.notna(row.iloc[-1]) else 0.0
-                        except:
-                            excel_dm = 0.0
+                        excel_dm = 0.0
                     else:
                         try:
                             excel_dm = float(excel_dm)
                         except:
                             excel_dm = 0.0
                     
-                    # Ánh xạ chính xác 100% theo các cột hiển thị trên Supabase của bạn
+                    # Tạo cấu trúc hàng để chuẩn bị ghi vào database
                     data_row = {
                         "created_at": current_time,
                         "style_name": excel_style if excel_style else None,
@@ -82,19 +79,19 @@ if uploaded_file is not None:
                         "material_size": str(row.get("MaterialSize", "")).strip() if pd.notna(row.get("MaterialSize")) else None,
                         "uom": str(row.get("UOM", "")).strip() if pd.notna(row.get("UOM")) else None,
                         
-                        # 🔴 ĐÃ KHỚP TÊN CỘT: Nạp số liệu định mức vào đúng cột consumption_value
+                        # Đẩy giá trị định mức thực tế bốc từ cột "Input Purchase Cons" vào đúng cột dữ liệu này
                         "consumption_value": excel_dm 
                     }
                     rows_to_insert.append(data_row)
                 
                 # --- BƯỚC 3: TIẾN HÀNH ĐẨY DỮ LIỆU VÀO SUPABASE ---
                 if duplicate_count > 0:
-                    st.warning(f"⚠️ Phát hiện {duplicate_count} dòng sản phẩm đã tồn tại sẵn. Hệ thống tự động bỏ qua không nạp trùng.")
+                    st.warning(f"⚠️ Phát hiện {duplicate_count} dòng sản phẩm đã tồn tại sẵn trong kho. Hệ thống tự động bỏ qua không nạp trùng.")
                 
                 if rows_to_insert:
                     supabase.table("san_pham").insert(rows_to_insert).execute()
-                    st.success(f"🎉 Đã nạp thành công {len(rows_to_insert)} dòng kèm số liệu định mức (consumption_value) vào bảng san_pham!")
-                    st.rerun() # Làm mới giao diện để hiển thị số liệu mới ngay lập tức
+                    st.success(f"🎉 Đã nạp thành công {len(rows_to_insert)} dòng kèm định mức thực tế vào bảng san_pham!")
+                    st.rerun() # Làm mới giao diện để lấy số liệu mới
                 else:
                     st.info("💡 Không có dữ liệu mới nào cần nạp thêm.")
                     
@@ -107,7 +104,42 @@ if uploaded_file is not None:
                         file_options={"cache-control": "3600", "upsert": "true"}
                     )
                 except:
-                    pass # Ẩn lỗi upload file để tránh làm sập luồng ghi database chính
+                    pass 
 
     except Exception as e:
         st.error(f"❌ Đã xảy ra lỗi khi xử lý dữ liệu: {str(e)}")
+
+st.write("---")
+
+# ==============================================================================
+# 3. TRUY VẤN VÀ HIỂN THỊ DỮ LIỆU LÊN MÀN HÌNH CHÍNH XÁC
+# ==============================================================================
+st.subheader("📋 Chi Tiết Định Mức Định Hình Mở Rộng (BOM Lịch Sử Của Mã Đối Chứng)")
+
+try:
+    # Truy vấn dữ liệu thực tế từ bảng san_pham để hiển thị
+    response = supabase.table("san_pham")\
+                       .select("style_name, consumption_type, article_name, material_size, uom, consumption_value")\
+                       .order("created_at", ascending=False)\
+                       .limit(10)\
+                       .execute()
+    
+    if response.data:
+        df_display = pd.DataFrame(response.data)
+        
+        # Ánh xạ lại tên tiêu đề hiển thị cho đồng bộ giao diện web của bạn
+        df_display.rename(columns={
+            "style_name": "Mã hàng đối chứng",
+            "consumption_type": "Phân loại vật tư (Type)",
+            "article_name": "Tên vật tư / Mã vải",
+            "material_size": "Khổ vải / Chi tiết định mức",
+            "uom": "Đơn vị (UOM)",
+            "consumption_value": "Định mức (DM)" 
+        }, inplace=True)
+        
+        # Xuất bảng dữ liệu ra giao diện Streamlit
+        st.dataframe(df_display, use_container_width=True)
+    else:
+        st.info("Chưa có dữ liệu hiển thị trong bảng.")
+except Exception as display_err:
+    st.error(f"Lỗi hiển thị bảng: {str(display_err)}")
