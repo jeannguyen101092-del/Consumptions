@@ -1734,8 +1734,13 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
 
     bom_records = st.session_state.get("bom_records", [])
 
+import fitz  # PyMuPDF
+import io
+from PIL import Image
+import streamlit as st
+
 # ==========================================================
-# 🖼️ LỚP HIỂN THỊ GIAO DIỆN ĐỐI CHIẾU FLAT SKETCH (VÁ LỖI HIỂN THỊ FILE PDF)
+# 🖼️ LỚP HIỂN THỊ GIAO DIỆN ĐỐI CHIẾU FLAT SKETCH (ĐÃ VÁ LỖI HIỂN THỊ PDF)
 # ==========================================================
 st.markdown("### 🖼️ ĐỐI CHIẾU SỰ TƯƠNG ĐỒNG HÌNH ẢNH THIẾT KẾ (FLAT SKETCH)")
 
@@ -1752,9 +1757,20 @@ with img_col1:
     uploaded_file_name = st.session_state.get("previous_uploaded_file_name", "Techpack")
     
     if target_new_sketch_bytes is not None:
-        # VÁ LỖI XỬ LÝ: Nếu tệp đầu vào là PDF, hiển thị hộp thông tin tài liệu thay vì ép render st.image gây lỗi
+        # KIỂM TRA ĐỊNH DẠNG PDF
         if "pdf" in str(detected_mime_type).lower() or str(uploaded_file_name).lower().endswith(".pdf"):
-            st.info(f"📄 **Tài liệu dạng tệp:** `{uploaded_file_name}`\n\nHệ thống đã nạp toàn bộ cấu trúc dữ liệu PDF vào bộ nhớ mô phỏng rập mẫu.")
+            try:
+                # Trích xuất trang đầu tiên của PDF thành ảnh để hiển thị công nghệ quét
+                with st.spinner("🔄 Đang trích xuất hình ảnh từ tài liệu PDF..."):
+                    doc = fitz.open(stream=target_new_sketch_bytes, filetype="pdf")
+                    page = doc.load_page(0)  # Lấy trang đầu tiên
+                    pix = page.get_pixmap(dpi=150)  # Render trang thành ảnh với DPI 150
+                    img_data = pix.tobytes("png")  # Chuyển đổi thành bytes dạng PNG
+                    
+                st.image(img_data, caption=f"Hình ảnh quét từ PDF: {uploaded_file_name} ({new_style_id_detected})", use_container_width=True)
+                st.info("ℹ️ Hệ thống đã nạp toàn bộ cấu trúc dữ liệu PDF vào bộ nhớ mô phỏng rập mẫu.")
+            except Exception as e:
+                st.error(f"❌ Không thể trích xuất hình ảnh từ tệp PDF: {e}")
         else:
             try:
                 st.image(target_new_sketch_bytes, caption=f"Mẫu mới tải lên ({new_style_id_detected})", use_container_width=True)
@@ -1762,6 +1778,7 @@ with img_col1:
                 st.warning(f"Lỗi hiển thị ảnh mẫu mới: {e}")
     else:
         st.info("ℹ️ Chưa tải lên tệp ảnh Flat Sketch của mẫu mới.")
+
 
 with img_col2:
     if matched_techpack is not None:
