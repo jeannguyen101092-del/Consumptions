@@ -2002,8 +2002,6 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
 
 
 
-# ÉP BUỘC CÔ LẬP MENU BOM (Dán sát lề trái, bọc khép kín toàn bộ luồng xử lý trang BOM)
-if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption Matrix":
 
    # =========================================================================
 # 🧱 [ĐOẠN 1/6] - ÉP BUỘC CÔ LẬP MENU BOM & TRÍCH XUẤT JSON KHO ĐA TẦNG SÂU
