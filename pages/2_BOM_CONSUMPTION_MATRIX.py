@@ -2000,9 +2000,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     st.session_state["bom_summary_engine"] = bom_summary_engine
 
 
-import streamlit as st
-import pandas as pd
-import re
+
 
 # =========================================================================
 # 🧱 PHẦN 1/4: TRÍCH XUẤT DỮ LIỆU THÔNG SỐ RẬP CŨ TỪ DATABASE KHO (DEEP SCAN)
