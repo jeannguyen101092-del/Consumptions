@@ -2092,138 +2092,73 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     # =========================================================================
     # 🔍 PHẦN 3/4: THUẬT TOÁN ĐỐI CHIẾU TOKEN-BASED & DỰNG BẢNG SO SÁNH THÔNG SỐ
     # =========================================================================
-    avg_area_growth_pct = 0.0
+    import re
 
-    if new_specs or old_specs:
-        compare_rows = []
-        match_logs_pool = []
-        valid_diff_pcts = []
+def is_valid_core_pom(pom_text):
+    # 1. Làm sạch văn bản chuẩn hóa
+    if not pom_text: return False
+    t = str(pom_text).upper().strip()
+    t = re.sub(r'\(.*?\)', '', t)
+    t = re.sub(r'^\d+[\s\.\-_]*', '', t)
+    tokens = set(t.split())
+    
+    # 2. Định nghĩa cấu trúc bộ lọc ngành may
+    core_major_keywords = [
+        "INSEAM", "THIGH", "HIP", "MONG", "WAIST", "LUNG", "RISE", "OUTSEAM", "LEG OPENING", 
+        "KNEE", "GOI", "GỐI", "CHEST", "NGUC", "BUST", "WIDTH", "THAN", "THÂN", "RONG THAN", 
+        "BODY LENGTH", "DAI AO", "BACK LENGTH", "FRONT LENGTH", "SHOULDER", "VAI", "SLEEVE", 
+        "TAY", "DAI TAY", "ARMHOLE", "NACH", "BICEP", "BAP TAY", "SKIRT LENGTH", "DAI VAY", 
+        "DRESS LENGTH", "DAI DAM", "BOTTOM OPENING", "LAI", "CROTCH"
+    ]
+    strict_ignore_keywords = ["BADGE", "LABEL", "BUTTON", "CUC", "TICKET", "LOOP", "STITCH", "LOGO", "HANGER"]
+    token_weight = {"POCKET": -6, "TUI": -6, "FLAP": -4, "PATCH": -4, "POUCH": -4, "TAB": -3, "FLY": -3}
+    
+    # Tạo bộ từ khóa Token đơn
+    core_token_keywords = {token for kw in core_major_keywords for token in kw.split() if len(token) >= 3}
+    
+    # 3. Chạy logic Token Engine nâng cao
+    has_core = any(tk in core_token_keywords for tk in tokens)
+    has_negative = any(token_weight.get(tk, 0) < 0 for tk in tokens)
+    is_ignored = any(ig in t for ig in strict_ignore_keywords)
+    
+    return has_core and not has_negative and not is_ignored
+
+# --- Test nhanh kết quả ---
+# print(is_valid_core_pom("CHEST WIDTH"))   # Trả về: True
+# print(is_valid_core_pom("POCKET WIDTH"))  # Trả về: False (Bị loại vì POCKET)
+# print(is_valid_core_pom("LABEL WIDTH"))   # Trả về: False (Bị loại vì LABEL)
+def calculate_weighted_jaccard(old_tokens, new_tokens):
+    # Bảng trọng số điểm thưởng/phạt
+    token_weight = {
+        "HIP": 5, "MONG": 5, "WAIST": 5, "LUNG": 5, "CHEST": 5, "NGUC": 5, "BUST": 5,
+        "INSEAM": 5, "OUTSEAM": 5, "SHOULDER": 5, "VAI": 5, "SLEEVE": 5, "TAY": 5, "RISE": 5, "DAY": 5,
+        "WIDTH": 3, "RONG": 3, "LENGTH": 3, "DAI": 3, "OPENING": 2, "ONG": 2, "KNEE": 2, "GOI": 2
+    }
+    
+    # Tìm các từ trùng nhau giữa 2 chuỗi
+    common_tokens = old_tokens.intersection(new_tokens)
+    if not common_tokens:
+        return 0.0
         
-        def clean_pom_text(text):
-            if not text: return ""
-            t = str(text).upper().strip()
-            t = re.sub(r'\(.*?\)', '', t)
-            t = re.sub(r'^\d+[\s\.\-_]*', '', t)
-            return " ".join(t.split())
-
-        def clean_float(v):
-            if v is None: return None
-            v_str = str(v).strip()
-            try: return float(v_str)
-            except (ValueError, TypeError):
-                mixed_match = re.search(r"(\d+)[\s\-]+(\d+)/(\d+)", v_str)
-                if mixed_match:
-                    return float(mixed_match.group(1)) + (float(mixed_match.group(2)) / float(mixed_match.group(3)))
-                frac_match = re.search(r"(\d+)/(\d+)", v_str)
-                if frac_match: return float(frac_match.group(1)) / float(frac_match.group(2))
-                nums = re.findall(r"[-+]?\d*\.\d+|\d+", v_str)
-                return float(nums) if nums else None
-
-        # Danh mục từ khóa điểm đo phom chính, đã lọc sạch các từ ngắn dễ bắt nhầm
-        core_major_keywords = [
-            "INSEAM", "THIGH", "HIP", "MONG", "WAIST", "LUNG", "RISE", "OUTSEAM", "LEG OPENING", "KNEE", "GỐI",
-            "CHEST", "NGUC", "BUST", "WIDTH", "THÂN", "BODY LENGTH", "DAI AO", "BACK LENGTH", "FRONT LENGTH", 
-            "SHOULDER", "VAI", "SLEEVE", "TAY", "SKIRT", "DRESS", "VAY", "DAM", "LAI", "CROTCH"
-        ]
-        strict_ignore_keywords = ["BADGE", "LABEL", "BUTTON", "CUC", "TICKET", "LOOP", "STITCH", "LOGO", "HANGER"]
-
-        cleaned_new_specs = {clean_pom_text(k): (k, v) for k, v in new_specs.items()}
-        processed_new_keys = set()
-
-        # VÒNG LẶP ĐỐI CHIẾU DỰA TRÊN DANH SÁCH MÃ CŨ TRONG KHO KỸ THUẬT
-        for original_old_key, val_old in old_specs.items():
-            clean_old_key = clean_pom_text(original_old_key)
-            is_core_pom = any(k in clean_old_key for k in core_major_keywords)
-            is_ignored = any(ig in clean_old_key for ig in strict_ignore_keywords)
-            
-            if is_core_pom and not is_ignored:
-                original_new_key, val_new = "-", "-"
-                
-                # Tầng 1: Khớp tuyệt đối 100%
-                if clean_old_key in cleaned_new_specs:
-                    original_new_key, val_new = cleaned_new_specs[clean_old_key]
-                    processed_new_keys.add(original_new_key)
-                else:
-                    # Tầng 2 & 3: Khớp chuỗi con an toàn (Độ dài chữ dài đầu dòng >= 5)
-                    found_by_contain = False
-                    for cl_new_k, (orig_new_k, v_new) in cleaned_new_specs.items():
-                        if (
-                            clean_old_key == cl_new_k
-                            or (len(clean_old_key) >= 5 and clean_old_key.startswith(cl_new_k))
-                            or (len(cl_new_k) >= 5 and cl_new_k.startswith(clean_old_key))
-                        ):
-                            original_new_key, val_new = orig_new_k, v_new
-                            processed_new_keys.add(orig_new_k)
-                            found_by_contain = True
-                            break
-                    
-                    # Tầng 4: Phân tách Token độc lập, chống hoàn toàn lỗi gộp nhầm chữ
-                    if not found_by_contain:
-                        old_words = set(clean_old_key.split())
-                        for cl_new_k, (orig_new_k, v_new) in cleaned_new_specs.items():
-                            new_words = set(cl_new_k.split())
-                            for kw in core_major_keywords:
-                                if kw in old_words and kw in new_words:
-                                    original_new_key, val_new = orig_new_k, v_new
-                                    processed_new_keys.add(orig_new_k)
-                                    found_by_contain = True
-                                    break
-                            if found_by_contain: break
-
-            f_new = clean_float(val_new)
-            f_old = clean_float(val_old)
-            diff_val, diff_pct = None, None
-            
-            if f_new is not None and f_old is not None:
-                diff_val = round(f_new - f_old, 2)
-                if f_old != 0:
-                    diff_pct = round((diff_val / f_old) * 100, 2)
-                    valid_diff_pcts.append(diff_pct)
-                else: diff_pct = 0.0
-
-            if original_new_key != "-":
-                match_logs_pool.append({
-                    "VỊ TRÍ CŨ (DB)": original_old_key,
-                    "VỊ TRÍ MỚI (PDF)": original_new_key,
-                    "SỐ ĐO CŨ": val_old,
-                    "SỐ ĐO MỚI": val_new
-                })
-
-            display_diff = f"+{diff_val}" if diff_val and diff_val > 0 else (str(diff_val) if diff_val is not None else "-")
-            display_pct = f"+{diff_pct}%" if diff_pct and diff_pct > 0 else (f"{diff_pct}%" if diff_pct is not None else "-")
-            
-            compare_rows.append({
-                "Vị trí đo (POM Description)": original_old_key,
-                f"Mẫu mới ({new_style_base_size})": val_new if val_new is not None else "-",
-                f"Mã cũ ({old_style_display})": val_old if val_old is not None else "-",
-                "Chênh lệch (Diff)": display_diff,
-                "Tỷ lệ biến thiên (Diff %)": display_pct
-            })
-
-        for original_new_key, val_new in new_specs.items():
-            if original_new_key not in processed_new_keys:
-                clean_new_key = clean_pom_text(original_new_key)
-                if any(k in clean_new_key for k in core_major_keywords) and not any(ig in clean_new_key for ig in strict_ignore_keywords):
-                    compare_rows.append({
-                        "Vị trí đo (POM Description)": original_new_key,
-                        f"Mẫu mới ({new_style_base_size})": val_new if val_new is not None else "-",
-                        f"Mã cũ ({old_style_display})": "-",
-                        "Chênh lệch (Diff)": "-",
-                        "Tỷ lệ biến thiên (Diff %)": "-"
-                    })
-
-        if match_logs_pool:
-            with st.expander("🔍 Chi tiết nhật ký bắt cặp POM"):
-                st.dataframe(pd.DataFrame(match_logs_pool), use_container_width=True, hide_index=True)
-            
-        df_compare_spec = pd.DataFrame(compare_rows)
-        st.dataframe(df_compare_spec, use_container_width=True, hide_index=True)
+    # Tính tổng điểm thô và chặn điểm số âm
+    raw_score = sum(token_weight.get(t, 1) for t in common_tokens)
+    if raw_score <= 0:
+        return 0.0
         
-        if valid_diff_pcts:
-            avg_pom_growth = sum(valid_diff_pcts) / len(valid_diff_pcts)
-            avg_area_growth_pct = round((((1 + avg_pom_growth/100) ** 2) - 1) * 100, 2)
-            globals()["avg_area_growth_pct"] = avg_area_growth_pct
-            st.session_state["avg_area_growth_pct"] = avg_area_growth_pct
+    # Công thức Jaccard Weighted chuẩn
+    union_count = len(old_tokens.union(new_tokens))
+    similarity = raw_score / union_count if union_count > 0 else 0.0
+    
+    # Áp ngưỡng sàn AI match thực tế
+    return similarity if similarity >= 0.35 else 0.0
+
+# --- Test nhanh kết quả ---
+# old = {"CHEST", "WIDTH"}
+# new_1 = {"CHEST", "WIDTH", "RELAXED", "FIT", "GARMENT"}
+# new_2 = {"BODY", "STYLE"}
+# print(calculate_weighted_jaccard(old, new_1)) # Trả về điểm Jaccard đã giảm chấn: 1.6
+# print(calculate_weighted_jaccard(old, new_2)) # Trả về: 0.0 (Bị loại vì < ngưỡng sàn 0.35)
+
 
     # =========================================================================
     # 🔮 PHẦN 4/4: AI CONSUMPTION PROJECTION ENGINE (TÍNH TOÁN ĐỊNH MỨC VẬT TƯ)
