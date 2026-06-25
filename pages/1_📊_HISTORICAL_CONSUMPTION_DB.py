@@ -7,9 +7,6 @@ from supabase import create_client, Client
 # 1. CẤU HÌNH THÔNG TIN SUPABASE
 # ==============================================================================
 SUPABASE_URL = "https://ewqqodsfvlvnrzsylawy.supabase.co"
-
-# 🔴 LƯU Ý: Thay bằng Service Role Key (Secret Key) lấy từ Project Settings -> API
-# của Supabase để có toàn quyền ghi vào database và storage.
 SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV3cXFvZHNmdmx2bnJ6c3lsYXd5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUxMTkyOTAsImV4cCI6MjA5MDY5NTI5MH0.BWPxOsyswBT5CLrZgluRC1F2x5EpU06oexUFyakGhyc"
 
 @st.cache_resource
@@ -21,61 +18,83 @@ supabase = get_supabase_client()
 # ==============================================================================
 # 2. GIAO DIỆN ỨNG DỤNG STREAMLIT
 # ==============================================================================
-st.title("📦 Upload File & Nạp Số Liệu Vào Bảng Sản Phẩm")
+st.title("📦 Upload File & Kiểm Trùng Nạp Vào Bảng Sản Phẩm")
 
-# Ô tải file Excel từ máy tính
 uploaded_file = st.file_uploader("Kéo và thả file Excel định mức vào đây", type=["xlsx", "xls"])
 
 if uploaded_file is not None:
     st.write("📋 Xem trước dữ liệu từ file của bạn:")
     try:
-        # Đọc dữ liệu từ file Excel
         df = pd.read_excel(uploaded_file)
         st.dataframe(df.head(10)) 
         
-        # Nút xác nhận xử lý nạp vào bảng san_pham
-        if st.button("🚀 Bắt đầu Up File và Nạp Vào Bảng Sản Phẩm"):
-            with st.spinner("Đang xử lý nạp dữ liệu hệ thống..."):
+        if st.button("🚀 Bắt đầu Kiểm Trùng và Nạp Dữ Liệu"):
+            with st.spinner("Đang kiểm tra dữ liệu cũ trên hệ thống..."):
                 
-                # --- BƯỚC 1: UPLOAD FILE VÀO KHO STORAGE (Có bảo vệ tránh lỗi sập app) ---
-                bucket_name = "techpack_storage" 
-                file_name = uploaded_file.name
-                file_data = uploaded_file.getvalue()
+                # --- BƯỚC 1: LẤY DỮ LIỆU HIỆN TẠI TỪ BẢNG ĐỂ SO SÁNH ---
+                db_response = supabase.table("san_pham").select("style_name, article_name").execute()
+                db_data = db_response.data
                 
-                try:
-                    supabase.storage.from_(bucket_name).upload(
-                        file=file_data,
-                        path=file_name,
-                        file_options={"cache-control": "3600", "upsert": "true"}
-                    )
-                    st.success(f"📦 Đã lưu file vật lý '{file_name}' vào kho techpack_storage!")
-                except Exception as storage_err:
-                    st.warning(f"⚠️ Cảnh báo Storage: Không thể up file vật lý do '{str(storage_err)}'. Hệ thống vẫn tiếp tục nạp số liệu vào bảng dữ liệu...")
+                existing_records = {
+                    (str(item["style_name"]).strip(), str(item["article_name"]).strip())
+                    for item in db_data if item.get("style_name") and item.get("article_name")
+                }
 
-                # --- BƯỚC 2: ĐỌC EXCEL VÀ NẠP CHÍNH XÁC VÀO BẢNG san_pham ---
+                # --- BƯỚC 2: ĐỌC EXCEL, LẤY ĐỊNH MỨC VÀ LỌC TRÙNG ---
                 rows_to_insert = []
+                duplicate_count = 0
                 current_time = datetime.utcnow().isoformat()
                 
                 for index, row in df.iterrows():
-                    # Ánh xạ dữ liệu từ file Excel sang cấu trúc của bảng san_pham.
-                    # Đoạn này tự động lấy theo các cột có sẵn trong file Excel của bạn:
+                    excel_style = str(row.get("StyleName", "")).strip() if pd.notna(row.get("StyleName")) else ""
+                    excel_article = str(row.get("ArticleName", "")).strip() if pd.notna(row.get("ArticleName")) else ""
+                    
+                    # KIỂM TRA TRÙNG LẶP
+                    if (excel_style, excel_article) in existing_records:
+                        duplicate_count += 1
+                        continue 
+                    
+                    # LẤY GIÁ TRỊ ĐỊNH MỨC (Cột F trong file Excel của bạn: 3, 0.2, 0.65...)
+                    # Ép kiểu dữ liệu về dạng số thực (float), nếu rỗng hoặc lỗi thì để mặc định là 0
+                    try:
+                        excel_dm = float(row.iloc[5]) if pd.notna(row.iloc[5]) else 0.0
+                    except:
+                        excel_dm = 0.0
+                    
+                    # Tạo cấu trúc dữ liệu đẩy vào bảng san_pham
                     data_row = {
                         "created_at": current_time,
-                        "style_name": str(row.get("StyleName", "")).strip() if pd.notna(row.get("StyleName")) else None,
-                        "article_name": str(row.get("ArticleName", "")).strip() if pd.notna(row.get("ArticleName")) else None,
+                        "style_name": excel_style if excel_style else None,
+                        "article_name": excel_article if excel_article else None,
                         "consumption_type": str(row.get("BodyType", "")).strip() if pd.notna(row.get("BodyType")) else None,
                         "material_size": str(row.get("MaterialSize", "")).strip() if pd.notna(row.get("MaterialSize")) else None,
-                        "uom": str(row.get("UOM", "")).strip() if pd.notna(row.get("UOM")) else None
+                        "uom": str(row.get("UOM", "")).strip() if pd.notna(row.get("UOM")) else None,
+                        
+                        # 🔴 NẠP GIÁ TRỊ ĐỊNH MỨC VÀO ĐÂY (Thay "consumption" bằng tên chuẩn cột định mức trong DB của bạn nếu khác)
+                        "consumption": excel_dm 
                     }
                     rows_to_insert.append(data_row)
                 
-                # Thực hiện đẩy hàng loạt dữ liệu trực tiếp vào bảng san_pham
+                # --- BƯỚC 3: TIẾN HÀNH NẠP DỮ LIỆU ---
+                if duplicate_count > 0:
+                    st.warning(f"⚠️ Phát hiện {duplicate_count} dòng sản phẩm đã tồn tại sẵn. Hệ thống tự động bỏ qua không nạp trùng.")
+                
                 if rows_to_insert:
-                    # Đổi tên bảng đích chính xác thành "san_pham" ở đây
                     supabase.table("san_pham").insert(rows_to_insert).execute()
-                    st.success(f"🎉 Đã nạp thành công {len(rows_to_insert)} dòng số liệu vào bảng san_pham!")
+                    st.success(f"🎉 Đã nạp thành công {len(rows_to_insert)} dòng kèm số liệu định mức chuẩn vào bảng san_pham!")
+                    st.rerun() # Làm mới lại giao diện Streamlit để cập nhật bảng số liệu mới nhất
                 else:
-                    st.warning("⚠️ Không tìm thấy số liệu hợp lệ trong file Excel để nạp.")
+                    st.info("💡 Không có dữ liệu mới nào được nạp thêm.")
                     
+                # --- BƯỚC 4: LƯU TRỮ FILE ---
+                try:
+                    supabase.storage.from_("techpack_storage").upload(
+                        file=uploaded_file.getvalue(),
+                        path=uploaded_file.name,
+                        file_options={"cache-control": "3600", "upsert": "true"}
+                    )
+                except:
+                    pass
+
     except Exception as e:
         st.error(f"❌ Đã xảy ra lỗi khi xử lý dữ liệu: {str(e)}")
