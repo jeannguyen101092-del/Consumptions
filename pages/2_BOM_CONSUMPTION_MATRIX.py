@@ -1545,19 +1545,38 @@ def process_single_pdf_batch(file_bytes, file_name):
 
             # 🚨 ĐÃ KHÓA CHẶT CƠ CHẾ TỰ ĐỘNG GHI ĐÈ VÀO BẢNG THONG_SO_TECHPACK TRÊN DATABASE TẠI ĐÂY:
             success_db = True
-            # if "save_to_supabase_techpack_table" in globals():
-            #     try:
-            #         success_db = save_to_supabase_techpack_table(parsed_data, raw_file_bytes=file_bytes, file_name=file_name)
-            #     except Exception: 
-            #         success_db = False
             
+            # 🛠️ SỬA LỖI: Làm sạch dữ liệu measurements để đảm bảo viết hoa chữ cái đầu (Chuẩn hóa Title Case)
+            # Giúp khớp chính xác 100% với tên cột hiển thị trên bảng UI (Inseam, Back rise,...)
+            raw_measurements = parsed_data.get("measurements", {})
+            clean_measurements = {}
+            if isinstance(raw_measurements, dict):
+                for k, v in raw_measurements.items():
+                    # Đổi kiểu chữ của Key về dạng viết hoa chữ cái đầu cho từng từ (ví dụ: 'back rise' -> 'Back Rise')
+                    # và xóa khoảng trắng thừa
+                    clean_key = str(k).strip().title()
+                    
+                    # Sửa một số lỗi chữ hoa/thường đặc thù của PPJ Matrix
+                    if clean_key == "Inseam": clean_key = "Inseam"
+                    elif "Back Rise" in clean_key: clean_key = "Back rise"
+                    elif "Front Rise" in clean_key: clean_key = "Front rise"
+                    elif "Fly Length" in clean_key: clean_key = "Fly length"
+                    elif "Zipper Length" in clean_key: clean_key = "Zipper length"
+                    elif "Back Crotch" in clean_key: clean_key = "Back crotch depth"
+                    elif "Front Crotch" in clean_key: clean_key = "Front crotch depth"
+                    elif "Leg Opening" in clean_key: clean_key = "Leg opening (long)"
+                    elif "Pocket Bag" in clean_key: clean_key = "Front pocket bag length"
+                    elif "Low Hip" in clean_key: clean_key = "Pant/skirt - Low hip level"
+                    
+                    clean_measurements[clean_key] = str(v).strip()
+
             # Đóng gói dữ liệu đầu ra chuẩn chỉnh phục vụ trực tiếp cho AI Engine
             output_payload = {
                 "style_number_parsed": parsed_data.get("style_number_parsed", "UNKNOWN"),
                 "buyer": parsed_data.get("buyer", "UNKNOWN BUYER"),
                 "category": parsed_data.get("category", "PANT"),
                 "base_size_name": parsed_data.get("base_size_name", "32"),
-                "measurements": parsed_data.get("measurements", {}),
+                "measurements": clean_measurements,  # Đưa dữ liệu sạch đã map vào đây
                 "raw_text_ocr_fallback": parsed_data.get("raw_text_ocr_fallback", "")
             }
             
@@ -1568,7 +1587,7 @@ def process_single_pdf_batch(file_bytes, file_name):
                 "buyer": output_payload["buyer"],
                 "category": output_payload["category"],
                 "size": output_payload["base_size_name"],
-                "measurements": output_payload["measurements"],
+                "measurements": output_payload["measurements"], # Giữ tầng phẳng cho đồng bộ UI
                 "sketch_bytes": extracted_sketch_bytes,
                 "error": None
             }
@@ -1608,13 +1627,16 @@ if has_file:
                 
                 # Kiểm tra kết quả trả về từ hàm xử lý batch một cách nghiêm ngặt
                 if isinstance(res_pdf, dict) and res_pdf.get("success") == True:
+                    # 🛠️ SỬA LỖI: Ưu tiên lấy trực tiếp từ root dict của res_pdf trước, nếu không có mới lấy từ tầng .get("data")
                     meta_p = res_pdf.get("data", {})
-                    parsed_style = meta_p.get("style_number_parsed", "UNKNOWN")
+                    parsed_style = res_pdf.get("style_id") if res_pdf.get("style_id") else meta_p.get("style_number_parsed", "UNKNOWN")
                     
                     st.session_state["new_style_id_detected"] = parsed_style
-                    st.session_state["new_style_category_detected"] = meta_p.get("category", "PANT")
-                    st.session_state["new_style_base_size"] = meta_p.get("base_size_name", "32")
-                    st.session_state["new_style_measurements_dict"] = meta_p.get("measurements", {})
+                    st.session_state["new_style_category_detected"] = res_pdf.get("category") if res_pdf.get("category") else meta_p.get("category", "PANT")
+                    st.session_state["new_style_base_size"] = res_pdf.get("size") if res_pdf.get("size") else meta_p.get("base_size_name", "32")
+                    
+                    # Lấy chính xác cụm dữ liệu thông số đã được chuẩn hóa key
+                    st.session_state["new_style_measurements_dict"] = res_pdf.get("measurements") if res_pdf.get("measurements") else meta_p.get("measurements", {})
                     st.session_state["target_new_sketch_bytes"] = res_pdf.get("sketch_bytes")
                     st.session_state["detected_mime_type"] = "application/pdf"
                     
@@ -1642,6 +1664,7 @@ if has_file:
             st.session_state["detected_mime_type"] = "image/jpeg"
             st.session_state["matched_image_verified"] = True
             st.session_state["gemini_error_log"] = None
+
 
 # 3. Đồng bộ an toàn từ bộ nhớ đệm trạng thái ra các biến cục bộ cho các đoạn code phía sau đọc ổn định
 new_style_id_detected = st.session_state.get("new_style_id_detected", "UNKNOWN")
