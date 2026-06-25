@@ -1932,7 +1932,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     st.session_state["main_fabric_records"] = main_fabric_records
     st.session_state["bom_summary_engine"] = bom_summary_engine
 
-       # --- BẢNG SO SÁNH SAI LỆCH THÔNG SỐ RẬP ---
+      # --- BẢNG SO SÁNH SAI LỆCH THÔNG SỐ RẬP ---
     st.markdown("<br>### 📐 BẢNG SO SÁNH SAI LỆCH THÔNG SỐ KỸ THUẬT RẬP MẪU", unsafe_allow_html=True)
     new_specs = new_style_measurements_dict if new_style_measurements_dict else {}
     old_specs = matched_techpack.get("DetailedMeasurements", {}) if matched_techpack else {}
@@ -1942,34 +1942,63 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         compare_rows = []
         valid_diff_pcts = []
         
-        # SỬA TẠI ĐÂY: Loại bỏ dấu ngoặc đơn và nội dung bên trong trước khi chuẩn hóa ký tự
+        # 1. Hàm lọc sạch mã tiền tố để giữ lại chuỗi chữ cốt lõi phục vụ so khớp vị trí
         def clean_pom_text(text):
             text_str = str(text)
-            # 1. Xóa nội dung trong dấu ngoặc đơn (ví dụ: "(Base Size 30)", "(from Sketch)")
             text_str = re.sub(r'\(.*?\)', '', text_str)
-            # 2. Xóa mã tiền tố và ký tự đặc biệt như code cũ của bạn
             cleaned = re.sub(r'^[A-Z0-9]+[\s\-_]+', '', text_str).strip().upper()
             cleaned = re.sub(r'[^A-Z\s]', '', cleaned).strip()
-            # 3. Thu gọn khoảng trắng thừa để đảm bảo chuỗi sạch tuyệt đối
-            cleaned = " ".join(cleaned.split())
-            return cleaned
+            return " ".join(cleaned.split())
 
-        # Hàm bổ sung: Trích xuất chính xác số float đầu tiên từ chuỗi dữ liệu kỹ thuật
+        # 2. ĐÃ SỬA: Hàm trích xuất và quy đổi thông minh phân số ngành may (Ví dụ: 6 3/4 -> 6.75)
         def clean_float(v):
             if v is None: return None
+            v_str = str(v).strip()
             try: 
-                return float(v)
+                return float(v_str)
             except (ValueError, TypeError):
-                nums = re.findall(r"[-+]?\d*\.\d+|\d+", str(v))
+                # Tìm cấu trúc phân số hỗn hợp dạng: "Số_nguyên Phân_số" (Ví dụ: 6 3/4 hoặc 6-3/4)
+                mixed_match = re.search(r"(\d+)[\s\-]+(\d+)/(\d+)", v_str)
+                if mixed_match:
+                    whole = float(mixed_match.group(1))
+                    num = float(mixed_match.group(2))
+                    denom = float(mixed_match.group(3))
+                    return whole + (num / denom)
+                
+                # Tìm phân số thuần túy không có số nguyên đứng trước (Ví dụ: 3/4)
+                frac_match = re.search(r"(\d+)/(\d+)", v_str)
+                if frac_match:
+                    return float(frac_match.group(1)) / float(frac_match.group(2))
+                
+                # Phương án dự phòng cuối cùng nếu chỉ là số thập phân thông thường
+                nums = re.findall(r"[-+]?\d*\.\d+|\d+", v_str)
                 return float(nums[0]) if nums else None
 
         # Tiến hành ánh xạ thông minh giữa hai bảng thông số mới và cũ thông qua chuỗi đã làm sạch
         mapped_old_specs = {clean_pom_text(k): (k, v) for k, v in old_specs.items()}
         processed_old_keys = set()
 
+        # Định nghĩa bộ từ khóa bộ lọc cứng cho các điểm đo lớn quyết định phom dáng sản phẩm
+        core_major_keywords = [
+            "INSEAM", "THIGH", "DUI", "HIP", "MONG", "WAIST", "LUNG", "CAP", "EO",
+            "RISE", "DAY", "LENGTH", "CHEST", "NGUC", "BUST", "WIDTH", "THÂN", 
+            "OUTSEAM", "DAI AO", "DAI VAY", "DAI QUAN", "BACK LENGTH", "FRONT LENGTH"
+        ]
+        # Bộ từ khóa chi tiết phụ loại bỏ thẳng tay khỏi bảng hiển thị đối chiếu phom để tránh loãng dữ liệu
+        strict_ignore_keywords = [
+            "POCKET", "TUI", "BADGE", "LABEL", "BUTTON", "TICKET", "LOOP", "STITCH", 
+            "FLAP", "COLLAR WIDTH", "CUFF", "ZIPPER", "FLY", "ELONGATION"
+        ]
+
         for original_new_key, val_new in new_specs.items():
             clean_new_key = clean_pom_text(original_new_key)
             
+            # MÀNG LỌC CỨNG: Bỏ qua chi tiết phụ lè tè ngay từ vòng lặp bảng hiển thị giao diện
+            if any(ig in clean_new_key for ig in strict_ignore_keywords):
+                continue
+            if not any(k in clean_new_key for k in core_major_keywords):
+                continue
+
             # Tìm kiếm vị trí tương đồng trong kho dữ liệu cũ
             if clean_new_key in mapped_old_specs:
                 original_old_key, val_old = mapped_old_specs[clean_new_key]
@@ -1985,17 +2014,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                 diff_val = round(f_new - f_old, 2)
                 if f_old != 0:
                     diff_pct = round((diff_val / f_old) * 100, 2)
-                    
-                    # MÀNG LỌC CỨNG (Hard Core Filter): Chỉ lấy thông số cơ bản lớn ảnh hưởng trực tiếp đến phom rập mẫu
-                    core_keywords = [
-                        "INSEAM", "THIGH", "HIP", "WAIST", "LEG", "LENGTH", "CHEST", 
-                        "BUST", "WIDTH", "ARMHOLE", "SLEEVE", "OUTSEAM", "RISE"
-                    ]
-                    if any(k in clean_new_key for k in core_keywords):
-                        # Loại trừ các chi tiết quá nhỏ hoặc nhãn mác phụ thuộc để không làm lệch %
-                        ignore_keywords = ["BADGE", "LABEL", "BUTTON", "POCKET-OPENING", "TICKET", "LOOP", "STITCH"]
-                        if not any(ig in clean_new_key for ig in ignore_keywords):
-                            valid_diff_pcts.append(diff_pct)
+                    valid_diff_pcts.append(diff_pct)
                 else:
                     diff_pct = 0.0
 
@@ -2010,8 +2029,16 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                 "Tỷ lệ biến thiên (Diff %)": display_pct
             })
 
-        # Nạp nốt các vị trí đo của mã cũ nếu mã mới không có để tránh mất mát dữ liệu hiển thị
+        # Nạp nốt các vị trí đo cốt lõi của mã cũ nếu mã mới chưa bổ sung dữ liệu
         for original_old_key, val_old in old_specs.items():
+            clean_old_key = clean_pom_text(original_old_key)
+            
+            # Áp dụng bộ lọc tương tự cho phần quét sót mã cũ
+            if any(ig in clean_old_key for ig in strict_ignore_keywords):
+                continue
+            if not any(k in clean_old_key for k in core_major_keywords):
+                continue
+                
             if original_old_key not in processed_old_keys:
                 compare_rows.append({
                     "Vị trí đo (POM Description)": original_old_key,
@@ -2024,10 +2051,11 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         df_compare_spec = pd.DataFrame(compare_rows)
         st.dataframe(df_compare_spec, use_container_width=True, hide_index=True)
         
-        # Tính toán độ biến thiên diện tích phom dựa trên các POM cốt lõi được giữ lại
+        # Tính toán độ biến thiên diện tích phom chuẩn dựa trên dữ liệu phân số đã được quy đổi chính xác
         if valid_diff_pcts:
             avg_pom_growth = sum(valid_diff_pcts) / len(valid_diff_pcts)
             avg_area_growth_pct = round((((1 + avg_pom_growth/100) ** 2) - 1) * 100, 2)
+
 
     # --- AI CONSUMPTION PROJECTION ENGINE ---
     if matched_techpack and st.session_state.get("matched_image_verified", False) and bom_records:
