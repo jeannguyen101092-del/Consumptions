@@ -2090,19 +2090,38 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         st.write("📌 **Xem trước 5 điểm đo MẪU MỚI đầu tiên bóc từ PDF:**")
         st.json(dict(list(new_specs.items())[:5]))
     # =========================================================================
-    # 🔍 PHẦN 3/4: THUẬT TOÁN ĐỐI CHIẾU TOKEN-BASED & DỰNG BẢNG SO SÁNH THÔNG SỐ
     # =========================================================================
-    import re
+# 🔍 [ĐOẠN 3] - THUẬT TOÁN ĐỐI CHIẾU WEIGHTED TOKEN SCORE 3.0 (ERP READY)
+# =========================================================================
+avg_area_growth_pct = 0.0
 
-def is_valid_core_pom(pom_text):
-    # 1. Làm sạch văn bản chuẩn hóa
-    if not pom_text: return False
-    t = str(pom_text).upper().strip()
-    t = re.sub(r'\(.*?\)', '', t)
-    t = re.sub(r'^\d+[\s\.\-_]*', '', t)
-    tokens = set(t.split())
+if new_specs or old_specs:
+    compare_rows = []
+    match_logs_pool = []
+    valid_diff_pcts = []
     
-    # 2. Định nghĩa cấu trúc bộ lọc ngành may
+    def clean_pom_text(text):
+        if not text: return ""
+        t = str(text).upper().strip()
+        t = re.sub(r'\(.*?\)', '', t)
+        t = re.sub(r'^\d+[\s\.\-_]*', '', t)
+        return " ".join(t.split())
+
+    def clean_float(v):
+        if v is None: return None
+        v_str = str(v).strip()
+        try: return float(v_str)
+        except (ValueError, TypeError):
+            import re
+            mixed_match = re.search(r"(\d+)[\s\-]+(\d+)/(\d+)", v_str)
+            if mixed_match:
+                return float(mixed_match.group(1)) + (float(mixed_match.group(2)) / float(mixed_match.group(3)))
+            frac_match = re.search(r"(\d+)/(\d+)", v_str)
+            if frac_match: return float(frac_match.group(1)) / float(frac_match.group(2))
+            nums = re.findall(r"[-+]?\d*\.\d+|\d+", v_str)
+            return float(nums) if nums else None
+
+    # Danh mục từ khóa điểm đo phom chính quyết định nhảy vóc vách rập
     core_major_keywords = [
         "INSEAM", "THIGH", "HIP", "MONG", "WAIST", "LUNG", "RISE", "OUTSEAM", "LEG OPENING", 
         "KNEE", "GOI", "GỐI", "CHEST", "NGUC", "BUST", "WIDTH", "THAN", "THÂN", "RONG THAN", 
@@ -2111,169 +2130,282 @@ def is_valid_core_pom(pom_text):
         "DRESS LENGTH", "DAI DAM", "BOTTOM OPENING", "LAI", "CROTCH"
     ]
     strict_ignore_keywords = ["BADGE", "LABEL", "BUTTON", "CUC", "TICKET", "LOOP", "STITCH", "LOGO", "HANGER"]
-    token_weight = {"POCKET": -6, "TUI": -6, "FLAP": -4, "PATCH": -4, "POUCH": -4, "TAB": -3, "FLY": -3}
-    
-    # Tạo bộ từ khóa Token đơn
-    core_token_keywords = {token for kw in core_major_keywords for token in kw.split() if len(token) >= 3}
-    
-    # 3. Chạy logic Token Engine nâng cao
-    has_core = any(tk in core_token_keywords for tk in tokens)
-    has_negative = any(token_weight.get(tk, 0) < 0 for tk in tokens)
-    is_ignored = any(ig in t for ig in strict_ignore_keywords)
-    
-    return has_core and not has_negative and not is_ignored
 
-# --- Test nhanh kết quả ---
-# print(is_valid_core_pom("CHEST WIDTH"))   # Trả về: True
-# print(is_valid_core_pom("POCKET WIDTH"))  # Trả về: False (Bị loại vì POCKET)
-# print(is_valid_core_pom("LABEL WIDTH"))   # Trả về: False (Bị loại vì LABEL)
-def calculate_weighted_jaccard(old_tokens, new_tokens):
-    # Bảng trọng số điểm thưởng/phạt
+    # Tạo bộ từ khóa Token đơn phục vụ đối chiếu phân tầng
+    core_token_keywords = set()
+    for kw in core_major_keywords:
+        for token in kw.split():
+            if len(token) >= 3:
+                core_token_keywords.add(token)
+
+    # Bảng trọng số kết hợp Trọng Số Phạt Âm triệt tiêu bẫy bắt nhầm POCKET/FLAP
     token_weight = {
         "HIP": 5, "MONG": 5, "WAIST": 5, "LUNG": 5, "CHEST": 5, "NGUC": 5, "BUST": 5,
         "INSEAM": 5, "OUTSEAM": 5, "SHOULDER": 5, "VAI": 5, "SLEEVE": 5, "TAY": 5, "RISE": 5, "DAY": 5,
-        "WIDTH": 3, "RONG": 3, "LENGTH": 3, "DAI": 3, "OPENING": 2, "ONG": 2, "KNEE": 2, "GOI": 2
+        "WIDTH": 3, "RONG": 3, "LENGTH": 3, "DAI": 3, "OPENING": 2, "ONG": 2, "KNEE": 2, "GOI": 2,
+        "POCKET": -6, "TUI": -6, "FLAP": -4, "PATCH": -4, "POUCH": -4, "TAB": -3, "FLY": -3
     }
-    
-    # Tìm các từ trùng nhau giữa 2 chuỗi
-    common_tokens = old_tokens.intersection(new_tokens)
-    if not common_tokens:
-        return 0.0
+
+    # Cấu trúc List lồng nhau (setdefault) chống mất dữ liệu khi trùng tên POM
+    cleaned_new_specs = {}
+    for k, v in new_specs.items():
+        ck = clean_pom_text(k)
+        new_item = {
+            "original_key": k,
+            "value": v,
+            "tokens": set(ck.split())
+        }
+        cleaned_new_specs.setdefault(ck, []).append(new_item)
         
-    # Tính tổng điểm thô và chặn điểm số âm
-    raw_score = sum(token_weight.get(t, 1) for t in common_tokens)
-    if raw_score <= 0:
-        return 0.0
+    processed_new_keys = set()
+
+    # Đồng bộ nhãn Mã Cũ phục vụ trích xuất và hiển thị đồ họa từ Supabase
+    old_style_display_raw = st.session_state.get("bom_matched_db_style") or st.session_state.get("matched_style_name") or "N/A"
+    if matched_techpack and isinstance(matched_techpack, dict):
+        old_style_display = (matched_techpack.get("style") or matched_techpack.get("style_no") or 
+                             matched_techpack.get("style_name") or matched_techpack.get("StyleNo") or old_style_display_raw)
+    else:
+        old_style_display = old_style_display_raw
         
-    # Công thức Jaccard Weighted chuẩn
-    union_count = len(old_tokens.union(new_tokens))
-    similarity = raw_score / union_count if union_count > 0 else 0.0
-    
-    # Áp ngưỡng sàn AI match thực tế
-    return similarity if similarity >= 0.35 else 0.0
+    new_style_base_size = globals().get("new_style_base_size", st.session_state.get("new_style_base_size", "32"))
 
-# --- Test nhanh kết quả ---
-# old = {"CHEST", "WIDTH"}
-# new_1 = {"CHEST", "WIDTH", "RELAXED", "FIT", "GARMENT"}
-# new_2 = {"BODY", "STYLE"}
-# print(calculate_weighted_jaccard(old, new_1)) # Trả về điểm Jaccard đã giảm chấn: 1.6
-# print(calculate_weighted_jaccard(old, new_2)) # Trả về: 0.0 (Bị loại vì < ngưỡng sàn 0.35)
+    # HIỂN THỊ HỘP KIỂM SOÁT ĐẦU VÀO ĐỒNG BỘ THEO TIÊU CHUẨN ĐƠN VỊ VẬN HÀNH
+    st.write("===== 🔍 STYLE MATCH DEBUG CẤP ĐỘ ERP =====")
+    st.write({
+        "MÃ CŨ THỰC TẾ TRONG KHO (DB)": old_style_display,
+        "MÃ SẢN PHẨM TRONG SESSION": st.session_state.get("matched_style_name"),
+        "MÃ TRA CỨU HỆ THỐNG BOM": st.session_state.get("bom_matched_db_style"),
+        "CẤU TRÚC PHẦN TỬ JSON GỐC": list(matched_techpack.keys()) if matched_techpack else None
+    })
 
-
-    # =========================================================================
-    # 🔮 PHẦN 4/4: AI CONSUMPTION PROJECTION ENGINE (TÍNH TOÁN ĐỊNH MỨC VẬT TƯ)
-    # =========================================================================
-    bom_records = st.session_state.get("bom_records", [])
-
-    if st.session_state.get("matched_techpack") and st.session_state.get("matched_image_verified", False) and bom_records:
-        st.markdown("<br>🔮 **AI CONSUMPTION PROJECTION ENGINE (DỰ PHÓNG ĐỊNH MỨC MÃ MỚI)**", unsafe_allow_html=True)
-        st.success("✅ **XÁC THỰC AI VISION:** Độ tương đồng phác thảo đạt 100.0%. Cấu trúc rập ở mức tương thích cao.")
-
-        # 1. Đồng bộ an toàn biến thiên diện tích phom rập bàn giao từ Khối đối chiếu rập (Khối 3)
-        avg_area_growth_pct = st.session_state.get("avg_area_growth_pct", globals().get("avg_area_growth_pct", 0.0))
-        if pd.isna(avg_area_growth_pct) or not isinstance(avg_area_growth_pct, (int, float)):
-            avg_area_growth_pct = 0.0
-
-        def internal_clean_float(v):
-            if v is None: return 0.0
-            v_str = str(v).strip()
-            try: return float(v_str)
-            except Exception:
-                m = re.search(r"(\d+)[\s\-]+(\d+)/(\d+)", v_str)
-                if m: return float(m.group(1)) + (float(m.group(2)) / float(m.group(3)))
-                f = re.search(r"(\d+)/(\d+)", v_str)
-                if f: return float(f.group(1)) / float(f.group(2))
-                nums = re.findall(r"[-+]?\d*\.\d+|\d+", v_str)
-                return float(nums) if nums else 0.0
-
-        # 2. XỬ LÝ ĐA ĐỊNH MỨC TRONG KHO: Nhóm theo loại vật tư để tính Trung Bình Cộng, chống trùng lặp dữ liệu
-        bom_sum_accumulator = {}
-        bom_count_accumulator = {}
+    # VÒNG LẶP ĐỐI CHIẾU 1: Duyệt theo danh sách mã cũ trong kho kỹ thuật Supabase
+    for original_old_key, val_old in old_specs.items():
+        clean_old_key = clean_pom_text(original_old_key)
         
-        for r in bom_records:
-            ctype_key = str(r.get("consumption_type", "UNKNOWN")).strip()
-            if not ctype_key: ctype_key = "UNKNOWN"
-                
-            qty_val = internal_clean_float(r.get("consumption_value", 0.0))
-            if qty_val > 0:
-                bom_sum_accumulator[ctype_key] = bom_sum_accumulator.get(ctype_key, 0.0) + qty_val
-                bom_count_accumulator[ctype_key] = bom_count_accumulator.get(ctype_key, 0) + 1
-                
-        final_old_bom_summary = {k: round(bom_sum_accumulator[k] / bom_count_accumulator[k], 4) for k in bom_sum_accumulator}
-
-        # ĐÃ SỬA TẠI ĐÂY: Lấy an toàn phần tử đầu tiên từ list bom_records để tránh lỗi AttributeError
-        if isinstance(bom_records, list) and len(bom_records) > 0:
-            sample_record = bom_records[0]
-        else:
-            sample_record = bom_records if isinstance(bom_records, dict) else {}
-
-        # 3. THUẬT TOÁN ĐIỀU KHIỂN HỆ SỐ THỰC NGHIỆM VẢI THÔNG MINH THEO TỪ KHÓA DÒNG HÀNG
-        article_name_upper = str(sample_record.get("article_name", "")).upper() if isinstance(sample_record, dict) else ""
-        style_name_upper = str(st.session_state.get("matched_style_name", "")).upper()
-        product_context = f"{style_name_upper} {article_name_upper}"
+        is_core_pom = any(k in clean_old_key for k in core_major_keywords)
+        is_ignored = any(ig in clean_old_key for ig in strict_ignore_keywords)
         
-        default_fabric_factor = 0.65 
-        product_type_label = "Tiêu chuẩn (Mặc định)"
-        
-        if any(k in product_context for k in ["LONG PANT", "TROUSER", "JEAN", "QUAN DAI"]):
-            default_fabric_factor = 0.85
-            product_type_label = "Quần dài (Diện tích sơ đồ nhảy vóc lớn)"
-        elif any(k in product_context for k in ["SHORT", "QUAN NGON", "QUAN ĐUI"]):
-            default_fabric_factor = 0.45
-            product_type_label = "Quần đùi/Shorts (Sơ đồ ngắn, biến thiên ít)"
-        elif any(k in product_context for k in ["JACKET", "COAT", "AO KHOAC", "BLAZER", "VEST"]):
-            default_fabric_factor = 0.75
-            product_type_label = "Áo khoác / Vest / Blazer (Khổ rập lớn)"
-        elif any(k in product_context for k in ["TEE", "SHIRT", "POLO", "AO THUN", "AO SOMI"]):
-            default_fabric_factor = 0.55
-            product_type_label = "Áo thun / Áo sơ mi"
-        elif any(k in product_context for k in ["SKIRT", "DRESS", "VAY", "DAM"]):
-            default_fabric_factor = 0.70
-            product_type_label = "Váy / Đầm liền"
-
-        # 4. THIẾT KẾ CỘT NHẬP LIỆU GIAO DIỆN HỆ SỐ AI
-        v_similarity = st.session_state.get("matched_similarity_score", 100.0)
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            shape_factor = st.number_input("Độ biến thiên thông số POM trung bình (%)", value=float(avg_area_growth_pct), step=0.1)
-        with col2:
-            fabric_growth_factor = st.number_input(f"Hệ số thực nghiệm vải ({product_type_label})", value=float(default_fabric_factor), step=0.05)
-        with col3:
-            wastage_buffer = st.number_input("Hao hụt sản xuất cấu hình thêm (%)", value=0.0, step=0.5)
-
-        # 5. VÒNG LẶP TOÁN HỌC PHÂN TẦNG VẬT TƯ (VẢI CHÍNH / VẢI PHỤ LÓT / PHỤ LIỆU TĨNH)
-        projection_rows = []
-        for ctype, avg_old_qty in final_old_bom_summary.items():
-            ctype_upper = str(ctype).strip().upper()
-            similarity_weight = v_similarity / 100.0
+        if is_core_pom and not is_ignored:
+            original_new_key, val_new = "-", "-"
+            match_status = "KHO CÓ - MẪU MỚI THIẾU"
             
-            # Nhóm A: Vải chính chịu tác động toàn phần từ phom diện tích bề mặt rập lớn
-            if any(k in ctype_upper for k in ["MAIN", "FABRIC", "BODY", "SHELL"]):
-                adjusted_shape_factor = shape_factor * fabric_growth_factor * similarity_weight
-                projected_dm = avg_old_qty * (1 + adjusted_shape_factor / 100) * (1 + wastage_buffer / 100)
-                note = f"Vải chính: Hệ số ({fabric_growth_factor}) × POM ({round(shape_factor, 1)}%) → ĐM tăng: {round(adjusted_shape_factor, 2)}%"
-                
-            # Nhóm B: Vải phụ, lót túi, dựng mếch keo (Chịu hệ số giảm chấn cơ học biên độ nhẹ 0.4)
-            elif any(k in ctype_upper for k in ["LINING", "RIB", "COMBINATION", "POCKET", "INTERLINING"]):
-                reduced_factor = shape_factor * 0.4 * similarity_weight
-                projected_dm = avg_old_qty * (1 + reduced_factor / 100) * (1 + wastage_buffer / 100)
-                note = f"Vải phụ: Giảm chấn (0.4) × Mức tăng vải chính → ĐM tăng: {round(reduced_factor, 2)}%"
-                
-            # Nhóm C: Phụ liệu tĩnh cố định không đổi chiều dài theo size (Chỉ tính % hao hụt đầu bàn)
-            else:
-                projected_dm = avg_old_qty * (1 + wastage_buffer / 100)
-                note = f"Phụ liệu tĩnh (Chỉ tính hao hụt sản xuất {wastage_buffer}%)"
-                
-            projection_rows.append({
-                "Phân loại vật tư (Type)": ctype,
-                "ĐM Trung bình mã cũ (Kho)": round(avg_old_qty, 4),
-                "ĐM Dự phóng mã mới": round(projected_dm, 3),
-                "Cơ sở thuật toán toán AI": note
+            old_tokens = set(clean_old_key.split())
+            best_match_item = None
+            max_similarity = 0.0
+            
+            for cl_new_k, new_items_list in cleaned_new_specs.items():
+                for new_info in new_items_list:
+                    if new_info["original_key"] in processed_new_keys:
+                        continue
+                        
+                    if clean_old_key == cl_new_k:
+                        best_match_item = new_info
+                        max_similarity = 999.0
+                        break
+                        
+                    common_tokens = old_tokens.intersection(new_info["tokens"])
+                    
+                    if len(common_tokens) >= 1 and common_tokens.intersection(core_token_keywords):
+                        raw_score = sum(token_weight.get(t, 1) for t in common_tokens)
+                        denominator = max(len(old_tokens), len(new_info["tokens"]))
+                        similarity = raw_score / denominator if denominator > 0 else 0.0
+                        
+                        if similarity > max_similarity:
+                            max_similarity = similarity
+                            best_match_item = new_info
+                if max_similarity == 999.0: break
+                        
+            if best_match_item is not None:
+                original_new_key = best_match_item["original_key"]
+                val_new = best_match_item["value"]
+                processed_new_keys.add(original_new_key)
+                match_status = "KHỚP TUYỆT ĐỐI" if max_similarity == 999.0 else "AI GHÉP TRỌNG SỐ TRÙNG"
+
+            f_new = clean_float(val_new)
+            f_old = clean_float(val_old)
+            diff_val, diff_pct = None, None
+            
+            if f_new is not None and f_old is not None:
+                diff_val = round(f_new - f_old, 2)
+                if f_old != 0:
+                    diff_pct = round((diff_val / f_old) * 100, 2)
+                    
+                    # Bộ lọc giảm chấn may công nghiệp biên độ co giãn phom lớn (50%)
+                    if -50.0 <= diff_pct <= 50.0:
+                        valid_diff_pcts.append(diff_pct)
+                    else:
+                        match_status = "LỆCH SỐ LIỆU SẢN XUẤT (CỰC ĐOAN)"
+                else:
+                    diff_pct = 0.0
+
+            if original_new_key != "-":
+                match_logs_pool.append({
+                    "STYLE KHO CỦA DÒNG": old_style_display,
+                    "VỊ TRÍ CŨ (DB)": original_old_key,
+                    "VỊ TRÍ MỚI (PDF)": original_new_key,
+                    "SỐ ĐO CŨ": val_old,
+                    "SỐ ĐO MỚI": val_new,
+                    "HỆ SỐ KHỚP": "100.0%" if max_similarity == 999.0 else f"{round(max_similarity * 100, 1)}% Sim"
+                })
+
+            display_diff = f"+{diff_val}" if diff_val and diff_val > 0 else (str(diff_val) if diff_val is not None else "-")
+            display_pct = f"+{diff_pct}%" if diff_pct and diff_pct > 0 else (f"{diff_pct}%" if diff_pct is not None else "-")
+            
+            compare_rows.append({
+                "Vị trí đo (POM Description)": original_old_key,
+                f"Mẫu mới ({new_style_base_size})": val_new if val_new is not None else "-",
+                f"Mã cũ ({old_style_display})": val_old if val_old is not None else "-",
+                "Chênh lệch (Diff)": display_diff,
+                "Tỷ lệ biến thiên (Diff %)": display_pct,
+                "Trạng thái Match": match_status
             })
+
+    # VÒNG LẶP ĐỐI CHIẾU 2: Quét vét nốt các thông số độc lập của Mẫu mới nếu kho DB cũ không có
+    for cl_new_k, new_items_list in cleaned_new_specs.items():
+        for new_info in new_items_list:
+            orig_new_key = new_info["original_key"]
+            if orig_new_key not in processed_new_keys:
+                if any(k in cl_new_k for k in core_major_keywords) and not any(ig in cl_new_k for ig in strict_ignore_keywords):
+                    compare_rows.append({
+                        "Vị trí đo (POM Description)": orig_new_key,
+                        f"Mẫu mới ({new_style_base_size})": new_info["value"] if new_info["value"] is not None else "-",
+                        f"Mã cũ ({old_style_display})": "-",
+                        "Chênh lệch (Diff)": "-",
+                        "Tỷ lệ biến thiên (Diff %)": "-",
+                        "Trạng thái Match": "MẪU MỚI CÓ - KHO THIẾU"
+                    })
+
+    if match_logs_pool:
+        with st.expander("🔍 Chi tiết nhật ký bắt cặp POM"):
+            st.dataframe(pd.DataFrame(match_logs_pool), use_container_width=True, hide_index=True)
+        
+    df_compare_spec = pd.DataFrame(compare_rows)
+    st.dataframe(df_compare_spec, use_container_width=True, hide_index=True)
+    
+    if valid_diff_pcts:
+        avg_pom_growth = sum(valid_diff_pcts) / len(valid_diff_pcts)
+        avg_area_growth_pct = round((((1 + avg_pom_growth/100) ** 2) - 1) * 100, 2)
+        globals()["avg_area_growth_pct"] = avg_area_growth_pct
+        st.session_state["avg_area_growth_pct"] = avg_area_growth_pct
+
+
+
+    # =========================================================================
+# 🔮 [ĐOẠN 4] - KHỐI 2: AI CONSUMPTION PROJECTION ENGINE (TÍNH TOÁN ĐỊNH MỨC)
+# =========================================================================
+bom_records = st.session_state.get("bom_records", [])
+
+if st.session_state.get("matched_techpack") and st.session_state.get("matched_image_verified", False) and bom_records:
+    st.markdown("<br>🔮 **AI CONSUMPTION PROJECTION ENGINE (DỰ PHÓNG ĐỊNH MỨC MÃ MỚI)**", unsafe_allow_html=True)
+    st.success("✅ **XÁC THỰC AI VISION:** Độ tương đồng phác thảo đạt 100.0%. Cấu trúc rập ở mức tương thích cao.")
+
+    # Lấy biến thiên diện tích phom rập được bàn giao từ Khối đối chiếu rập (Đoạn 3)
+    avg_area_growth_pct = st.session_state.get("avg_area_growth_pct", globals().get("avg_area_growth_pct", 0.0))
+    if pd.isna(avg_area_growth_pct) or not isinstance(avg_area_growth_pct, (int, float)):
+        avg_area_growth_pct = 0.0
+
+    def internal_clean_float(v):
+        if v is None: return 0.0
+        v_str = str(v).strip()
+        try: return float(v_str)
+        except Exception:
+            import re
+            m = re.search(r"(\d+)[\s\-]+(\d+)/(\d+)", v_str)
+            if m: return float(m.group(1)) + (float(m.group(2)) / float(m.group(3)))
+            f = re.search(r"(\d+)/(\d+)", v_str)
+            if f: return float(f.group(1)) / float(f.group(2))
+            nums = re.findall(r"[-+]?\d*\.\d+|\d+", v_str)
+            return float(nums) if nums else 0.0
+
+    # XỬ LÝ ĐA ĐỊNH MỨC TRONG KHO: Nhóm theo loại vật tư để tính Trung Bình Cộng, chống trùng lặp dữ liệu
+    bom_sum_accumulator = {}
+    bom_count_accumulator = {}
+    
+    for r in bom_records:
+        ctype_key = str(r.get("consumption_type", "UNKNOWN")).strip()
+        if not ctype_key: ctype_key = "UNKNOWN"
             
-        df_projection = pd.DataFrame(projection_rows)
-        st.session_state["ai_projected_consumption_matrix"] = projection_rows
-        st.dataframe(df_projection, use_container_width=True, hide_index=True)
+        qty_val = internal_clean_float(r.get("consumption_value", 0.0))
+        if qty_val > 0:
+            bom_sum_accumulator[ctype_key] = bom_sum_accumulator.get(ctype_key, 0.0) + qty_val
+            bom_count_accumulator[ctype_key] = bom_count_accumulator.get(ctype_key, 0) + 1
+            
+    final_old_bom_summary = {k: round(bom_sum_accumulator[k] / bom_count_accumulator[k], 4) for k in bom_sum_accumulator}
+
+    # Lấy an toàn phần tử đầu tiên từ list bom_records để tránh lỗi AttributeError
+    if isinstance(bom_records, list) and len(bom_records) > 0:
+        sample_record = bom_records[0]
+    else:
+        sample_record = bom_records if isinstance(bom_records, dict) else {}
+
+    # THUẬT TOÁN ĐIỀU KHIỂN HỆ SỐ THỰC NGHIỆM VẢI THÔNG MINH THEO TỪ KHÓA DÒNG HÀNG
+    article_name_upper = str(sample_record.get("article_name", "")).upper() if isinstance(sample_record, dict) else ""
+    style_name_upper = str(st.session_state.get("matched_style_name", "")).upper()
+    product_context = f"{style_name_upper} {article_name_upper}"
+    
+    default_fabric_factor = 0.65 
+    product_type_label = "Tiêu chuẩn (Mặc định)"
+    
+    if any(k in product_context for k in ["LONG PANT", "TROUSER", "JEAN", "QUAN DAI"]):
+        default_fabric_factor = 0.85
+        product_type_label = "Quần dài (Diện tích sơ đồ nhảy vóc lớn)"
+    elif any(k in product_context for k in ["SHORT", "QUAN NGON", "QUAN ĐUI"]):
+        default_fabric_factor = 0.45
+        product_type_label = "Quần đùi/Shorts (Sơ đồ ngắn, biến thiên ít)"
+    elif any(k in product_context for k in ["JACKET", "COAT", "AO KHOAC", "BLAZER", "VEST"]):
+        default_fabric_factor = 0.75
+        product_type_label = "Áo khoác / Vest / Blazer (Khổ rập lớn)"
+    elif any(k in product_context for k in ["TEE", "SHIRT", "POLO", "AO THUN", "AO SOMI"]):
+        default_fabric_factor = 0.55
+        product_type_label = "Áo thun / Áo sơ mi"
+    elif any(k in product_context for k in ["SKIRT", "DRESS", "VAY", "DAM"]):
+        default_fabric_factor = 0.70
+        product_type_label = "Váy / Đầm liền"
+
+    # THIẾT KẾ CỘT NHẬP LIỆU GIAO DIỆN HỆ SỐ AI
+    v_similarity = st.session_state.get("matched_similarity_score", 100.0)
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        shape_factor = st.number_input("Độ biến thiên thông số POM trung bình (%)", value=float(avg_area_growth_pct), step=0.1)
+    with col2:
+        fabric_growth_factor = st.number_input(f"Hệ số thực nghiệm vải ({product_type_label})", value=float(default_fabric_factor), step=0.05)
+    with col3:
+        wastage_buffer = st.number_input("Hao hụt sản xuất cấu hình thêm (%)", value=0.0, step=0.5)
+
+    # VÒNG LẶP TOÁN HỌC PHÂN TẦNG VẬT TƯ (VẢI CHÍNH / VẢI PHỤ LÓT / PHỤ LIỆU TĨNH)
+    projection_rows = []
+    for ctype, avg_old_qty in final_old_bom_summary.items():
+        ctype_upper = str(ctype).strip().upper()
+        similarity_weight = v_similarity / 100.0
+        
+        # Nhóm A: Vải chính chịu tác động toàn phần từ phom diện tích bề mặt rập lớn
+        if any(k in ctype_upper for k in ["MAIN", "FABRIC", "BODY", "SHELL"]):
+            adjusted_shape_factor = shape_factor * fabric_growth_factor * similarity_weight
+            projected_dm = avg_old_qty * (1 + adjusted_shape_factor / 100) * (1 + wastage_buffer / 100)
+            note = f"Vải chính: Hệ số ({fabric_growth_factor}) × POM ({round(shape_factor, 1)}%) → ĐM tăng: {round(adjusted_shape_factor, 2)}%"
+            
+        # Nhóm B: Vải phụ, lót túi, dựng mếch keo (Chịu hệ số giảm chấn cơ học biên độ nhẹ 0.4)
+        elif any(k in ctype_upper for k in ["LINING", "RIB", "COMBINATION", "POCKET", "INTERLINING"]):
+            reduced_factor = shape_factor * 0.4 * similarity_weight
+            projected_dm = avg_old_qty * (1 + reduced_factor / 100) * (1 + wastage_buffer / 100)
+            note = f"Vải phụ: Giảm chấn (0.4) × Mức tăng vải chính → ĐM tăng: {round(reduced_factor, 2)}%"
+            
+        # Nhóm C: Phụ liệu tĩnh cố định không đổi chiều dài theo size (Chỉ tính % hao hụt đầu bàn)
+        else:
+            projected_dm = avg_old_qty * (1 + wastage_buffer / 100)
+            note = f"Phụ liệu tĩnh (Chỉ tính hao hụt sản xuất {wastage_buffer}%)"
+            
+        projection_rows.append({
+            "Phân loại vật tư (Type)": ctype,
+            "ĐM Trung bình mã cũ (Kho)": round(avg_old_qty, 4),
+            "ĐM Dự phóng mã mới": round(projected_dm, 3),
+            "Cơ sở thuật toán toán AI": note
+        })
+        
+    df_projection = pd.DataFrame(projection_rows)
+    st.session_state["ai_projected_consumption_matrix"] = projection_rows
+    st.dataframe(df_projection, use_container_width=True, hide_index=True)
+
 
 
 
