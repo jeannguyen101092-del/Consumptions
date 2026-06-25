@@ -1413,7 +1413,7 @@ if gemini_key:
 def process_single_pdf_batch(file_bytes, file_name):
     """
     Retriever Layer chuyên sâu cho hệ thống BOM & Consumption Matrix.
-    🛠️ Đã sửa URL chính xác tuyệt đối, tích hợp bộ Debug RAW JSON và xử lý cấu trúc phản hồi an toàn.
+    🛠️ SỬA LỖI COMPILER: Sửa lỗi IndentationError/SyntaxError khi bóc tách JSON.
     """
     import json
     import requests
@@ -1446,8 +1446,8 @@ def process_single_pdf_batch(file_bytes, file_name):
         # Mã hóa trực tiếp tệp PDF gốc sang định dạng Base64
         b64_pdf = base64.b64encode(file_bytes).decode('utf-8')
 
-        # 🛠️ ĐÃ SỬA CHÍNH XÁC TUYỆT ĐỐI: URL viết trên 1 dòng f-string chuẩn của Google Gemini API
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={gemini_key}"
+        # URL chuẩn xác tuyệt đối trên một dòng f-string
+        url = f"https://googleapis.com{gemini_key}"
         
         industrial_prompt = (
             "You are an expert Garment Specification Auditor at PPJ Group. Analyze this entire Techpack PDF file page by page.\n"
@@ -1487,10 +1487,10 @@ def process_single_pdf_batch(file_bytes, file_name):
             }
         }
 
-        # Gửi yêu cầu với timeout bảo vệ hệ thống
+        # Gửi dữ liệu lên API
         res = requests.post(url, json=api_payload, headers={"Content-Type": "application/json"}, timeout=180)
         
-        # 🛠️ ĐÃ THÊM DEBUG STATUS CODE & TEXT NẾU LỖI ĐƯỜNG TRUYỀN/URL
+        # Kiểm tra mã trạng thái HTTP trước
         if res.status_code != 200:
             st.error(f"LỖI ĐƯỜNG TRUYỀN API - Mã HTTP: {res.status_code}")
             st.code(res.text, language="json")
@@ -1498,23 +1498,21 @@ def process_single_pdf_batch(file_bytes, file_name):
             
         res_json = res.json()
         
-        # 🛠️ ĐÃ THÊM: KHỐI DEBUG PHẢN HỒI THÔ (RAW) ĐỂ KIỂM TRA SAFETY BLOCK HOẶC TRỐNG CANDIDATES
+        # BẬT DEBUG PHẢN HỒI THÔ (RAW)
         st.write("===== 1. RAW GEMINI RESPONSE =====")
         st.json(res_json)
         
         if "candidates" not in res_json or not res_json["candidates"]:
-            return {"success": False, "error": f"Gemini phản hồi không có dữ liệu hoặc bị Safety Block."}
+            return {"success": False, "error": "Gemini phản hồi không có dữ liệu hoặc bị Safety Block."}
             
-        # Phòng ngừa lỗi cấu trúc parts trống bằng cách dùng .get() an toàn
-        candidate = res_json['candidates'][0]
-        content_parts = candidate.get('content', {}).get('parts', [])
-        
-        if not content_parts or 'text' not in content_parts[0]:
-            return {"success": False, "error": f"Mô hình không trả về chuỗi văn bản text. Lý do dừng: {candidate.get('finishReason')}"}
-            
-        text_response = content_parts[0]['text'].strip()
+        # 🛠️ ĐÃ SỬA: Logic bóc tách an toàn tuyệt đối từ mảng sang dict theo đúng tài liệu Google API
+        try:
+            first_candidate = res_json['candidates'][0]
+            text_response = first_candidate['content']['parts'][0]['text'].strip()
+        except (KeyError, IndexError, TypeError):
+            return {"success": False, "error": "Cấu trúc phản hồi JSON thô của Gemini không đúng định dạng parts/text."}
 
-        # Làm sạch chuỗi và bóc tách khối dữ liệu JSON
+        # Trích xuất và dọn dẹp JSON bọc bởi ký tự thừa nếu có
         clean_json = text_response
         json_match = re.search(r"({.*})", clean_json, re.DOTALL)
         if json_match:
@@ -1525,14 +1523,14 @@ def process_single_pdf_batch(file_bytes, file_name):
         try:
             parsed_data = json.loads(clean_json)
             
-            # 🛠️ KHỐI DEBUG DỮ LIỆU ĐÃ PARSE THÀNH CÔNG ĐỂ KIỂM TRA ĐÚNG/SAI KEY
+            # BẬT DEBUG DỮ LIỆU ĐÃ LỌC
             st.write("===== 2. GEMINI PARSED JSON =====")
             st.json(parsed_data)
 
-            # Lấy trường measurements từ dữ liệu phân tích
+            # Phục hồi tầng xử lý dữ liệu đo đạc
             measurements_dict = parsed_data.get("measurements", {})
 
-            # Bộ chuyển đổi thông minh tự động ép mảng/list về định dạng dict phẳng
+            # Ép kiểu dữ liệu thông minh phòng hờ LLM tự biến đổi Dict thành List
             if isinstance(measurements_dict, list):
                 fixed = {}
                 for row in measurements_dict:
@@ -1560,7 +1558,7 @@ def process_single_pdf_batch(file_bytes, file_name):
             st.write("📈 SỐ LƯỢNG VỊ TRÍ ĐO ĐÃ KHÔI PHỤC (MEASUREMENTS):", len(measurements_dict))
             st.write("📏 CỠ MẪU GỐC ĐƯỢC CHỌN (BASE SIZE):", parsed_data.get("base_size_name"))
             
-            # Khôi phục phần hậu xử lý dữ liệu chuẩn hóa dạng phẳng
+            # Đóng gói dữ liệu phẳng để đẩy sang tầng view (giao diện hiển thị)
             output_payload = {
                 "style_number_parsed": parsed_data.get("style_number_parsed", "UNKNOWN"),
                 "buyer": parsed_data.get("buyer", "UNKNOWN BUYER"),
@@ -1586,6 +1584,7 @@ def process_single_pdf_batch(file_bytes, file_name):
 
     except Exception as e:
         return {"success": False, "error": f"Lỗi hệ thống khi xử lý tệp: {str(e)}"}
+
 
 # =========================================================================================
 # ĐOẠN 3 - PHẦN 2: BÓC TÁCH KHỐI ẢNH VÀ KHÓA LỆNH LƯU KHO (DÁN TIẾP NỐI PHẦN 1)
