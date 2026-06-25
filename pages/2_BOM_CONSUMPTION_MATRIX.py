@@ -2085,236 +2085,140 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         
     new_style_base_size = globals().get("new_style_base_size", st.session_state.get("new_style_base_size", "32"))
     # =========================================================================
-      # =========================================================================
-    # 🛡️ [ĐOẠN 3a] - RÀO CHẮN THÉP AI: SIÊU TỪ ĐIỂN ĐỒNG NGHĨA TOÀN NGÀNH MAY 4.0
-    # =========================================================================
-    avg_area_growth_pct = 0.0
+   # =========================================================================
+# 🧵 [ĐOẠN 3 CHUẨN ERP] - RÀO CHẮN THÉP AI NÂNG CẤP KHỬ NHIỄU MÃ TIỀN TỐ ERP
+# =========================================================================
+avg_area_growth_pct = 0.0
 
-    if new_specs or old_specs:
-        compare_rows = []
-        match_logs_pool = []
-        valid_diff_pcts = []
-        
-        def clean_pom_text(text):
-            if not text: return ""
-            t = str(text).upper().strip()
-            t = re.sub(r'\(.*?\)', '', t)
-            t = re.sub(r'^\d+[\s\.\-_]*', '', t)
-            return " ".join(t.split())
+if new_specs or old_specs:
+    compare_rows = []
+    match_logs_pool = []
+    valid_diff_pcts = []
+    
+    # ĐÃ SỬA CỐT LÕI: Hàm làm sạch loại bỏ triệt để các mã ERP dạng LEG-012:, RIS-002: và dấu đặc biệt
+    def clean_pom_text(text):
+        if not text: return ""
+        t = str(text).upper().strip()
+        # Khử toàn bộ các chuỗi dạng AAA-000: hoặc BBB-000: đứng đầu dòng
+        t = re.sub(r'^[A-Z]{3,4}-\d{2,4}[\s\.\-_:]*', '', t)
+        # Khử các ký tự đặc biệt lặp lại, dấu ngoặc và dấu hai chấm đơn lẻ
+        t = re.sub(r'[\(\):\-_\.]', ' ', t)
+        t = re.sub(r'^\d+[\s\.\-_]*', '', t)
+        return " ".join(t.split())
 
-        def clean_float(v):
-            if v is None: return None
-            v_str = str(v).strip()
-            try: return float(v_str)
-            except (ValueError, TypeError):
-                import re
-                mixed_match = re.search(r"(\d+)[\s\-]+(\d+)/(\d+)", v_str)
-                if mixed_match:
-                    return float(mixed_match.group(1)) + (float(mixed_match.group(2)) / float(mixed_match.group(3)))
-                frac_match = re.search(r"(\d+)/(\d+)", v_str)
-                if frac_match: return float(frac_match.group(1)) / float(frac_match.group(2))
-                nums = re.findall(r"[-+]?\d*\.\d+|\d+", v_str)
-                return float(nums) if nums else None
+    def clean_float(v):
+        if v is None: return None
+        v_str = str(v).strip()
+        try: return float(v_str)
+        except (ValueError, TypeError):
+            # re đã được import toàn cục ở trên, không cần import lại ở đây
+            mixed_match = re.search(r"(\d+)[\s\-]+(\d+)/(\d+)", v_str)
+            if mixed_match:
+                return float(mixed_match.group(1)) + (float(mixed_match.group(2)) / float(mixed_match.group(3)))
+            frac_match = re.search(r"(\d+)/(\d+)", v_str)
+            if frac_match: return float(frac_match.group(1)) / float(frac_match.group(2))
+            nums = re.findall(r"[-+]?\d*\.\d+|\d+", v_str)
+            return float(nums[0]) if nums else None  # ĐÃ SỬA: Lấy nums[0] thay vì ép kiểu float(list) gây crash
 
-        # ---------------------------------------------------------------------
-        # 🛡️ SIÊU TỪ ĐIỂN ĐỒNG NGHĨA KHÉP KÍN TOÀN NGÀNH MAY VÀ BẢNG TRỌNG SỐ ERP
-        # ---------------------------------------------------------------------
-        semantic_dictionary = {
-            # 1. NHÓM ĐƯỜNG DÀI VÀ THÂN TRÊN (TOPS/JACKETS/COATS LENGTH)
-            "BODY LENGTH": ["BODY LENGTH", "BACK LENGTH", "FRONT LENGTH", "DAI AO", "DAI VAY", "DAI DAM", "LENGTH FROM HSP", "CB LENGTH", "CENTER BACK LENGTH", "LGT 001", "LGT-004", "LGT", "TOTAL LENGTH", "HPS TO HEM", "HSP", "CF LENGTH", "OVERALL LENGTH"],
-            # 2. NHÓM VÒNG THÂN VÀ CHIỀU RỘNG (CHEST/BUST/ACROSS)
-            "CHEST": ["CHEST", "BUST", "NGUC", "RONG THAN", "CMT 001", "CMT", "CHEST WIDTH", "HALF CHEST", "BUST WIDTH", "ACROSS CHEST", "ACROSS BUST", "BODY WIDTH", "PIT TO PIT", "UNDERBUST", "VÒNG NGỰC"],
-            # 3. NHÓM VAI VÀ NẸP CỔ (SHOULDER/NECK)
-            "SHOULDER": ["SHOULDER", "VAI", "SLD-001", "SLD-007", "SLD", "SHOULDER SLOPE", "SHOULDER TO SHOULDER", "ACROSS SHOULDER", "RONG VAI", "SHOULDER SEAM", "ACROSS BACK", "ACROSS FRONT", "NK 001", "NECK WIDTH", "RỘNG CỔ", "COLLAR", "NECK OPENING"],
-            # 4. NHÓM TAY VÀ NÁCH (SLEEVE/ARMHOLE)
-            "SLEEVE": ["SLEEVE", "TAY", "DAI TAY", "SLV-013", "SLV-018", "SLV", "SLEEVE OPENING", "SLEEVE LENGTH", "BICEP", "ARMHOLE", "NACH", "BAP TAY", "CUFF", "WRIST", "UNDERARM", "RỘNG ỐNG TAY", "CỬA TAY"],
-            # 5. NHÓM VÒNG LƯNG VÀ CẠP (WAISTBAND)
-            "WAIST": ["WAIST", "LUNG", "EO", "CAP", "WAIST WIDTH", "HALF WAIST", "WAISTBAND", "RELAXED WAIST", "EXTENDED WAIST", "TOP OF WAISTBAND", "CẠP QUẦN", "VÒNG BỤNG", "VÒNG LƯNG"],
-            # 6. NHÓM VÒNG MÔNG (HIPS LEVEL)
-            "HIP": ["HIP", "MONG", "LOW HIP", "HIP WIDTH", "HALF HIP", "SEAT", "VÒNG MÔNG", "RỘNG MÔNG", "PELVIS"],
-            # 7. NHÓM ĐÁY VÀ ĐÙI (CROTCH/RISE/THIGH)
-            "THIGH": ["THIGH", "DUI", "THIGH WIDTH", "HALF THIGH", "RỘNG ĐÙI", "VÒNG ĐÙI"],
-            "RISE": ["RISE", "DAY", "FRONT RISE", "BACK RISE", "CROTCH", "DAY QUAN", "ĐÁY TRƯỚC", "ĐÁY SAU", "CROTCH SEAM", "TOTAL RISE"],
-            # 8. NHÓM ĐƯỜNG DÀI THÂN DƯỚI (BOTTOMS LENGTH)
-            "INSEAM": ["INSEAM", "DAI QUAN TRO TRONG", "INS", "INSEAM LENGTH", "DÀI GIÀNG", "GIÀNG QUẦN"],
-            "OUTSEAM": ["OUTSEAM", "DAI QUAN", "SIDE LENGTH", "OUTS", "SIDE SEAM LENGTH", "PANT LENGTH", "DÀI QUẦN"],
-            # 9. NHÓM ỐNG VÀ LAI (LEG OPENING/HEM/SWEEP)
-            "LEG OPENING": ["LEG OPENING", "RONG ONG", "BOTTOM OPENING", "LAI", "SWP-001", "SWP-002", "SWP", "SWEEP", "BOTTOM HEM", "HEM WIDTH", "RỘNG ỐNG QUẦN", "LAI ÁO"]
-        }
+    # 🛡️ SIÊU TỪ ĐIỂN ĐỒNG NGHĨA KHÉP KÍN TOÀN NGÀNH MAY VÀ BẢNG TRỌNG SỐ ERP
+    semantic_dictionary = {
+        "BODY LENGTH": ["BODY LENGTH", "BACK LENGTH", "FRONT LENGTH", "DAI AO", "DAI VAY", "DAI DAM", "LENGTH FROM HSP", "CB LENGTH", "CENTER BACK LENGTH", "LGT 001", "LGT-004", "LGT", "TOTAL LENGTH", "HPS TO HEM", "HSP", "CF LENGTH", "OVERALL LENGTH"],
+        "CHEST": ["CHEST", "BUST", "NGUC", "RONG THAN", "CMT 001", "CMT", "CHEST WIDTH", "HALF CHEST", "BUST WIDTH", "ACROSS CHEST", "ACROSS BUST", "BODY WIDTH", "PIT TO PIT", "UNDERBUST", "VÒNG NGỰC"],
+        "SHOULDER": ["SHOULDER", "VAI", "SLD-001", "SLD-007", "SLD", "SHOULDER SLOPE", "SHOULDER TO SHOULDER", "ACROSS SHOULDER", "RONG VAI", "SHOULDER SEAM", "ACROSS BACK", "ACROSS FRONT", "NK 001", "NECK WIDTH", "RỘNG CỔ", "COLLAR", "NECK OPENING"],
+        "SLEEVE": ["SLEEVE", "TAY", "DAI TAY", "SLV-013", "SLV-018", "SLV", "SLEEVE OPENING", "SLEEVE LENGTH", "BICEP", "ARMHOLE", "NACH", "BAP TAY", "CUFF", "WRIST", "UNDERARM", "RỘNG ỐNG TAY", "CỬA TAY"],
+        "WAIST": ["WAIST", "LUNG", "EO", "CAP", "WAIST WIDTH", "HALF WAIST", "WAISTBAND", "RELAXED WAIST", "EXTENDED WAIST", "TOP OF WAISTBAND", "CẠP QUẦN", "VÒNG BỤNG", "VÒNG LƯNG", "PANT SKIRT WAIST WIDTH"],
+        "HIP": ["HIP", "MONG", "LOW HIP", "HIP WIDTH", "HALF HIP", "SEAT", "VÒNG MÔNG", "RỘNG MÔNG", "PELVIS", "PANT SKIRT LOW HIP LEVEL"],
+        "THIGH": ["THIGH", "DUI", "THIGH WIDTH", "HALF THIGH", "RỘNG ĐÙI", "VÒNG ĐÙI", "THIGH WIDTH 1 INCH BELOW CROTCH"],
+        "RISE": ["RISE", "DAY", "FRONT RISE", "BACK RISE", "CROTCH", "DAY QUAN", "ĐÁY TRƯỚC", "ĐÁY SAU", "CROTCH SEAM", "TOTAL RISE", "BACK CROTCH DEPTH", "FRONT CROTCH DEPTH"],
+        "INSEAM": ["INSEAM", "DAI QUAN TRO TRONG", "INS", "INSEAM LENGTH", "DÀI GIÀNG", "GIÀNG QUẦN"],
+        "OUTSEAM": ["OUTSEAM", "DAI QUAN", "SIDE LENGTH", "OUTS", "SIDE SEAM LENGTH", "PANT LENGTH", "DÀI QUẦN"],
+        "LEG OPENING": ["LEG OPENING", "RONG ONG", "BOTTOM OPENING", "LAI", "SWP-001", "SWP-002", "SWP", "SWEEP", "BOTTOM HEM", "HEM WIDTH", "RỘNG ỐNG QUẦN", "LAI ÁO"]
+    }
 
-        # Trọng số May Công Nghiệp kết hợp Phạt Điểm Triệt Để nhóm Chi Tiết Phụ
-        token_weight = {
-            "HIP": 5, "MONG": 5, "WAIST": 5, "LUNG": 5, "CHEST": 5, "NGUC": 5, "BUST": 5,
-            "INSEAM": 5, "OUTSEAM": 5, "SHOULDER": 5, "VAI": 5, "SLEEVE": 5, "TAY": 5, "RISE": 5, "DAY": 5,
-            "WIDTH": 3, "RONG": 3, "LENGTH": 3, "DAI": 3, "OPENING": 2, "ONG": 2, "KNEE": 2, "GOI": 2,
-            # RÀO CHẮN THÉP: Điểm phạt rất nặng để bóc tách túi, nhãn mác lọt lưới
-            "POCKET": -8, "TUI": -8, "FLAP": -5, "PATCH": -5, "POUCH": -5, "TAB": -4, "BADGE": -6, "LABEL": -6, "BUTTON": -6
-        }
+    # Trọng số kết hợp Trọng Số Phạt Âm triệt tiêu bẫy bắt nhầm POCKET/FLAP
+    token_weight = {
+        "HIP": 5, "MONG": 5, "WAIST": 5, "LUNG": 5, "CHEST": 5, "NGUC": 5, "BUST": 5,
+        "INSEAM": 5, "OUTSEAM": 5, "SHOULDER": 5, "VAI": 5, "SLEEVE": 5, "TAY": 5, "RISE": 5, "DAY": 5,
+        "WIDTH": 3, "RONG": 3, "LENGTH": 3, "DAI": 3, "OPENING": 2, "ONG": 2, "KNEE": 2, "GOI": 2,
+        "POCKET": -8, "TUI": -8, "FLAP": -5, "PATCH": -5, "POUCH": -5, "TAB": -4, "BADGE": -6, "LABEL": -6, "BUTTON": -6
+    }
 
-        # Tạo bộ từ khóa Token đơn phục vụ bộ tìm kiếm tương đồng
-        core_token_keywords = set()
-        for kw_list in semantic_dictionary.values():
-            for kw in kw_list:
-                for token in kw.split():
-                    if len(token) >= 3:
-                        core_token_keywords.add(token)
+    # Tạo bộ từ khóa Token đơn phục vụ bộ tìm kiếm tương đồng
+    core_token_keywords = set()
+    for kw_list in semantic_dictionary.values():
+        for kw in kw_list:
+            for token in kw.split():
+                if len(token) >= 3:
+                    core_token_keywords.add(token)
 
-        # Hàm quét Ngữ nghĩa tìm Nhóm Nghĩa Gốc từ chữ trần
-        def get_semantic_standard_key(raw_text):
-            clean_text = clean_pom_text(raw_text)
-            for standard_key, synonyms in semantic_dictionary.items():
-                for syn in synonyms:
-                    if syn in clean_text or clean_text in syn:
-                        return standard_key
-            words = clean_text.split()
-            for standard_key, synonyms in semantic_dictionary.items():
-                if any(w in words for w in synonyms):
+    # Hàm quét Ngữ nghĩa tìm Nhóm Nghĩa Gốc từ chữ trần
+    def get_semantic_standard_key(raw_text):
+        clean_text = clean_pom_text(raw_text)
+        for standard_key, synonyms in semantic_dictionary.items():
+            for syn in synonyms:
+                if syn in clean_text or clean_text in syn:
                     return standard_key
-            return None
+        words = clean_text.split()
+        for standard_key, synonyms in semantic_dictionary.items():
+            if any(w in words for w in synonyms):
+                return standard_key
+        return None
 
-        # Cấu trúc List lồng nhau dạng setdefault ngăn chặn lỗi ghi đè dữ liệu trùng tên POM
-        cleaned_new_specs = {}
-        for k, v in new_specs.items():
-            ck = clean_pom_text(k)
-            semantic_k = get_semantic_standard_key(k)
-            new_item = {
-                "original_key": k,
-                "value": v,
-                "semantic_key": semantic_k,
-                "tokens": set(ck.split())
-            }
-            cleaned_new_specs.setdefault(ck, []).append(new_item)
-            
-        processed_new_keys = set()
-
-        # Đồng bộ nhãn tên hiển thị tiêu đề Mã Cũ từ DB kho
-        old_style_display_raw = st.session_state.get("bom_matched_db_style") or st.session_state.get("matched_style_name") or "N/A"
-        if matched_techpack and isinstance(matched_techpack, dict):
-            old_style_display = (matched_techpack.get("style") or matched_techpack.get("style_no") or 
-                                 matched_techpack.get("style_name") or matched_techpack.get("StyleNo") or old_style_display_raw)
-        else:
-            old_style_display = old_style_display_raw
-            
-        new_style_base_size = globals().get("new_style_base_size", st.session_state.get("new_style_base_size", "32"))
-        # =========================================================================
-        # 🔍 [ĐOẠN 3b] - VÒNG LẶP ĐỐI CHIẾU WEIGHTED JACCARD & DỰNG GIAO DIỆN BẢNG
-        # =========================================================================
-        # VÒNG LẶP ĐỐI CHIẾU CHÍNH: Duyệt theo danh sách mã cũ trong kho kỹ thuật Supabase
-        for original_old_key, val_old in old_specs.items():
-            clean_old_key = clean_pom_text(original_old_key)
-            old_semantic_key = get_semantic_standard_key(original_old_key)
-            
-            if old_semantic_key is not None:
-                original_new_key, val_new = "-", "-"
-                match_status = "KHO CÓ - MẪU MỚI THIẾU"
-                
-                old_tokens = set(clean_old_key.split())
-                best_match_item = None
-                max_similarity = 0.0
-                
-                for cl_new_k, new_items_list in cleaned_new_specs.items():
-                    for new_info in new_items_list:
-                        # Khóa bảo vệ nghiêm ngặt không dùng lại POM mới đã match
-                        if new_info["original_key"] in processed_new_keys:
-                            continue
-                            
-                        # TẦNG ƯU TIÊN 1: Khớp tuyệt đối qua nhóm Nghĩa Gốc
-                        if old_semantic_key == new_info["semantic_key"]:
-                            common_tokens = old_tokens.intersection(new_info["tokens"])
-                            raw_score = sum(token_weight.get(t, 1) for t in common_tokens)
-                            
-                            # Thuật toán tính tỷ lệ tương đồng Jaccard điều hướng Trọng Số (Chặn lỗi gộp nhầm)
-                            denominator = max(len(old_tokens), len(new_info["tokens"]))
-                            similarity = (raw_score / denominator if denominator > 0 else 0.0) + 10.0 # Thưởng điểm lớn vì cùng nhóm nghĩa
-                            
-                            if similarity > max_similarity:
-                                max_similarity = similarity
-                                best_match_item = new_info
-                                
-                        # TẦNG ƯU TIÊN 2: Khớp Fuzzy trùng từ tự nhiên
-                        elif best_match_item is None:
-                            common_tokens = old_tokens.intersection(new_info["tokens"])
-                            if len(common_tokens) >= 1 and common_tokens.intersection(core_token_keywords):
-                                raw_score = sum(token_weight.get(t, 1) for t in common_tokens)
-                                denominator = max(len(old_tokens), len(new_info["tokens"]))
-                                similarity = raw_score / denominator if denominator > 0 else 0.0
-                                
-                                if similarity > max_similarity:
-                                    max_similarity = similarity
-                                    best_match_item = new_info
-                            
-                if best_match_item is not None:
-                    original_new_key = best_match_item["original_key"]
-                    val_new = best_match_item["value"]
-                    processed_new_keys.add(original_new_key)
-                    match_status = "BẮT CẶP NGỮ NGHĨA" if max_similarity >= 10.0 else "AI GHÉP TRỌNG SỐ TRÙNG"
-
-                f_new = clean_float(val_new)
-                f_old = clean_float(val_old)
-                diff_val, diff_pct = None, None
-                
-                if f_new is not None and f_old is not None:
-                    diff_val = round(f_new - f_old, 2)
-                    if f_old != 0:
-                        diff_pct = round((diff_val / f_old) * 100, 2)
-                        
-                        # Bộ lọc an toàn sản xuất: Chặn đứng sai lệch cực đoan
-                        if -50.0 <= diff_pct <= 50.0:
-                            valid_diff_pcts.append(diff_pct)
-                        else:
-                            match_status = "LỆCH SỐ LIỆU SẢN XUẤT (CỰC ĐOAN)"
-                    else:
-                        diff_pct = 0.0
-
-                if original_new_key != "-":
-                    match_logs_pool.append({
-                        "NHÓM NGHĨA GỐC": old_semantic_key,
-                        "VỊ TRÍ CŨ (DB)": original_old_key,
-                        "VỊ TRÍ MỚI (PDF)": original_new_key,
-                        "SỐ ĐO CŨ": val_old,
-                        "SỐ ĐO MỚI": val_new,
-                        "KẾT QUẢ SƠ BỘ": "SO KHỚP SẠCH"
-                    })
-
-                display_diff = f"+{diff_val}" if diff_val and diff_val > 0 else (str(diff_val) if diff_val is not None else "-")
-                display_pct = f"+{diff_pct}%" if diff_pct and diff_pct > 0 else (f"{diff_pct}%" if diff_pct is not None else "-")
-                
-                compare_rows.append({
-                    "Vị trí đo (POM Description)": original_old_key,
-                    f"Mẫu mới ({new_style_base_size})": val_new if val_new is not None else "-",
-                    f"Mã cũ ({old_style_display})": val_old if val_old is not None else "-",
-                    "Chênh lệch (Diff)": display_diff,
-                    "Tỷ lệ biến thiên (Diff %)": display_pct,
-                    "Trạng thái Match": match_status
-                })
-
-        # VÒNG LẶP VÉT: Nạp nốt các điểm đo của mẫu mới lọt lưới nếu kho cũ không có dữ liệu
-        for cl_new_k, new_items_list in cleaned_new_specs.items():
-            for new_info in new_items_list:
-                orig_new_key = new_info["original_key"]
-                if orig_new_key not in processed_new_keys:
-                    compare_rows.append({
-                        "Vị trí đo (POM Description)": orig_new_key,
-                        f"Mẫu mới ({new_style_base_size})": new_info["value"] if new_info["value"] is not None else "-",
-                        f"Mã cũ ({old_style_display})": "-",
-                        "Chênh lệch (Diff)": "-",
-                        "Tỷ lệ biến thiên (Diff %)": "-",
-                        "Trạng thái Match": "MẪU MỚI CÓ - KHO THIẾU"
-                    })
-
-        if match_logs_pool:
-            with st.expander("🔍 Chi tiết nhật ký bắt cặp POM"):
-                st.dataframe(pd.DataFrame(match_logs_pool), use_container_width=True, hide_index=True)
-            
-        df_compare_spec = pd.DataFrame(compare_rows)
-        st.dataframe(df_compare_spec, use_container_width=True, hide_index=True)
+    # Cấu trúc List lồng nhau dạng setdefault ngăn chặn lỗi ghi đè dữ liệu trùng tên POM
+    cleaned_new_specs = {}
+    for k, v in new_specs.items():
+        ck = clean_pom_text(k)
+        semantic_k = get_semantic_standard_key(k)
+        new_item = {
+            "original_key": k,
+            "value": v,
+            "semantic_key": semantic_k,
+            "tokens": set(ck.split())
+        }
+        cleaned_new_specs.setdefault(ck, []).append(new_item)
         
-        if valid_diff_pcts:
-            avg_pom_growth = sum(valid_diff_pcts) / len(valid_diff_pcts)
-            avg_area_growth_pct = round((((1 + avg_pom_growth/100) ** 2) - 1) * 100, 2)
-            globals()["avg_area_growth_pct"] = avg_area_growth_pct
-            st.session_state["avg_area_growth_pct"] = avg_area_growth_pct
+    processed_new_keys = set()
 
+    # Đồng bộ nhãn tên hiển thị tiêu đề Mã Cũ từ DB kho
+    old_style_display_raw = st.session_state.get("bom_matched_db_style") or st.session_state.get("matched_style_name") or "N/A"
+    if 'matched_techpack' in globals() and matched_techpack and isinstance(matched_techpack, dict): # ĐÃ SỬA: Thêm kiểm tra biến tồn tại
+        old_style_display = (matched_techpack.get("style") or matched_techpack.get("style_no") or 
+                             matched_techpack.get("style_name") or matched_techpack.get("StyleNo") or old_style_display_raw)
+    else:
+        old_style_display = old_style_display_raw
+        
+    new_style_base_size = globals().get("new_style_base_size", st.session_state.get("new_style_base_size", "32"))
+
+    # VÒNG LẶP ĐỐI CHIẾU CHÍNH: Duyệt theo danh sách mã cũ trong kho kỹ thuật Supabase
+    for original_old_key, val_old in old_specs.items():
+        clean_old_key = clean_pom_text(original_old_key)
+        old_semantic_key = get_semantic_standard_key(original_old_key)
+        
+        if old_semantic_key is not None:
+            original_new_key, val_new = "-", "-"
+            match_status = "KHO CÓ - MẪU MỚI THIẾU"
+            
+            old_tokens = set(clean_old_key.split())
+            best_match_item = None
+            max_similarity = 0.0
+            match_found = False
+            
+            for cl_new_k, new_items_list in cleaned_new_specs.items():
+                for new_info in new_items_list:
+                    if new_info["original_key"] in processed_new_keys:
+                        continue
+                        
+                    # TẦNG ƯU TIÊN 1: Khớp tuyệt đối qua nhóm Nghĩa Gốc
+                    if old_semantic_key == new_info["semantic_key"]:
+                        common_tokens = old_tokens.intersection(new_info["tokens"])
+                        # Tính tổng trọng số (bao gồm cả phạt âm nếu dính các token bẫy)
+                        raw_score = sum(token_weight.get(t, 1) for t in common_tokens)
+                        denominator = max(len(old_tokens), len(new_info["tokens"]))
+                        similarity = (raw_score / denominator if denominator > 0 else 0.0) + 10.0
+                        
+                        if similarity > max_similarity:
+                            max_similarity = similarity
+                            best_match_item = new_info
 
 
 
