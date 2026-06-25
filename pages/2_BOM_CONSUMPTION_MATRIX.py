@@ -1862,110 +1862,8 @@ with img_col2:
 
 st.markdown("---")
 
-# =========================================================================
-# 📊 RENDER BẢNG SO SÁNH SAI LỆCH THÔNG SỐ (DUY NHẤT MỘT KHỐI - KHÔNG BỊ LẶP)
-# =========================================================================
-st.markdown("### 📊 BẢNG SO SÁNH SAI LỆCH THÔNG SỐ KỸ THUẬT RẬP MẪU")
 
-import pandas as pd
-import re
 
-def parse_inch_fraction(val_str):
-    if val_str is None: return 0.0
-    val_clean = str(val_str).strip().replace('"', '').replace('”', '')
-    if not val_clean or val_clean.upper() in ["N/A", "UNKNOWN", "-", "0"]: return 0.0
-    try:
-        if " " in val_clean:
-            parts = val_clean.split()
-            whole = float(parts[0])
-            frac = parts[1]
-            if "/" in frac:
-                num, denom = frac.split("/")
-                return whole + (float(num) / float(denom))
-        elif "/" in val_clean:
-            num, denom = val_clean.split("/")
-            return float(num) / float(denom)
-        return float(val_clean)
-    except Exception:
-        match = re.search(r"[-+]?\d*\.\d+|\d+", val_clean)
-        return float(match.group()) if match else 0.0
-
-def format_diff(val, has_old):
-    if not has_old: return "-"
-    if val == 0: return "0.0"
-    return f"+{val:.2f}" if val > 0 else f"{val:.2f}"
-
-def format_pct(val, has_old):
-    if not has_old: return "-"
-    if val == 0: return "0.0%"
-    return f"+{val:.2f}%" if val > 0 else f"{val:.2f}%"
-
-# 1. Bóc tách thông số mẫu mới phẳng
-extracted_spec = st.session_state.get("extracted_spec_data", None)
-if isinstance(extracted_spec, dict) and "data" in extracted_spec:
-    extracted_spec = extracted_spec["data"]
-
-new_specs = {}
-if extracted_spec and isinstance(extracted_spec, dict):
-    raw_meas = extracted_spec.get("measurements", {})
-    if raw_meas and isinstance(raw_meas, dict) and len(raw_meas) > 0:
-        new_specs = raw_meas
-    elif "full_size_matrix" in extracted_spec and isinstance(extracted_spec["full_size_matrix"], dict):
-        for pom, size_dict in extracted_spec["full_size_matrix"].items():
-            if isinstance(size_dict, dict):
-                target_k = next((k for k in size_dict.keys() if "30" in str(k) or "base" in str(k).lower()), list(size_dict.keys()) if size_dict.keys() else None)
-                if target_k: new_specs[pom] = size_dict[target_k]
-            else:
-                new_specs[pom] = size_dict
-
-# 2. Bóc tách thông số mã cũ trong DB
-old_specs = {}
-target_style_code = "Chưa kết nối kho"
-has_db_data = False
-
-if matched_techpack and isinstance(matched_techpack, dict):
-    old_specs = matched_techpack.get("DetailedMeasurements", {}) or matched_techpack.get("measurements", {})
-    target_style_code = str(matched_techpack.get("StyleName", "N/A")).strip().upper()
-    if old_specs:
-        has_db_data = True
-
-# 3. Tiến hành vẽ bảng tính toán
-if new_specs:
-    comparison_rows = []
-    all_poms = sorted(list(set(list(new_specs.keys()) + list(old_specs.keys())))) if has_db_data else sorted(list(new_specs.keys()))
-    
-    for pom in all_poms:
-        raw_new_val = str(new_specs.get(pom, "-")).strip()
-        raw_old_val = str(old_specs.get(pom, "-")).strip() if has_db_data else "-"
-        
-        if raw_new_val != "-" and raw_old_val != "-":
-            float_new = parse_inch_fraction(raw_new_val)
-            float_old = parse_inch_fraction(raw_old_val)
-            diff_val = float_new - float_old
-            diff_pct = (diff_val / float_old * 100) if float_old > 0 else 0.0
-        else:
-            diff_val = 0.0
-            diff_pct = 0.0
-            
-        comparison_rows.append({
-            "Vị trí đo (POM Description)": pom,
-            "Mẫu mới (30)": raw_new_val,
-            f"Mã cũ ({target_style_code})": raw_old_val,
-            "Chênh lệch (Diff)": diff_val,
-            "Tỷ lệ biến thiên (Diff %)": diff_pct
-        })
-        
-    if comparison_rows:
-        diff_df = pd.DataFrame(comparison_rows)
-        diff_df["Chênh lệch (Diff)"] = diff_df.apply(lambda row: format_diff(row["Chênh lệch (Diff)"], has_db_data), axis=1)
-        diff_df["Tỷ lệ biến thiên (Diff %)"] = diff_df.apply(lambda row: format_pct(row["Tỷ lệ biến thiên (Diff %)"], has_db_data), axis=1)
-        
-        # Đổ bảng chuẩn lên màn hình
-        st.dataframe(diff_df, use_container_width=True, hide_index=True)
-    else:
-        st.info("ℹ️ Không trích xuất được danh sách dòng vị trí đo.")
-else:
-    st.info("ℹ️ Đang chờ dữ liệu bóc tách mẫu mới từ AI để tạo bảng thông số kỹ thuật...")
 
 
 
@@ -2060,14 +1958,13 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     st.session_state["bom_summary_engine"] = bom_summary_engine
 
 # =========================================================================
-# 📊 BẢNG SO SÁNH SAI LỆCH THÔNG SỐ KỸ THUẬT RẬP MẪU (BẢN VÁ LUỒNG KHÔNG PHỤ THUỘC DB)
+# 📊 BẢNG SO SÁNH SAI LỆCH THÔNG SỐ KỸ THUẬT RẬP MẪU (DUY NHẤT MỘT KHỐI)
 # =========================================================================
 st.markdown("### 📊 BẢNG SO SÁNH SAI LỆCH THÔNG SỐ KỸ THUẬT RẬP MẪU")
 
 import pandas as pd
 import re
 
-# --- CÁC HÀM FORMAT VÀ PARSE SỐ HỆ INCH ---
 def parse_inch_fraction(val_str):
     if val_str is None: return 0.0
     val_clean = str(val_str).strip().replace('"', '').replace('”', '')
@@ -2098,8 +1995,7 @@ def format_pct(val, has_old):
     if val == 0: return "0.0%"
     return f"+{val:.2f}%" if val > 0 else f"{val:.2f}%"
 
-
-# 1. THU THẬP VÀ ĐỒNG BỘ DỮ LIỆU TỪ AI GEMINI (MẪU MỚI)
+# 1. Bóc tách thông số mẫu mới phẳng
 extracted_spec = st.session_state.get("extracted_spec_data", None)
 if isinstance(extracted_spec, dict) and "data" in extracted_spec:
     extracted_spec = extracted_spec["data"]
@@ -2117,29 +2013,33 @@ if extracted_spec and isinstance(extracted_spec, dict):
             else:
                 new_specs[pom] = size_dict
 
-# 2. THU THẬP DỮ LIỆU TỪ KHO DATABASE (MẪU CŨ)
+# 2. Bóc tách thông số mã cũ trong DB
 matched_techpack = st.session_state.get("matched_techpack", None)
 old_specs = {}
 target_style_code = "Chưa kết nối kho"
 has_db_data = False
 
-if matched_techpack and isinstance(matched_techpack, dict):
-    old_specs = matched_techpack.get("DetailedMeasurements", {}) or matched_techpack.get("measurements", {})
-    target_style_code = str(matched_techpack.get("StyleName", "N/A")).strip().upper()
+if matched_techpack:
+    # Nếu matched_techpack là list, lấy phần tử đầu tiên
+    if isinstance(matched_techpack, list) and len(matched_techpack) > 0:
+        db_record = matched_techpack[0]
+    else:
+        db_record = matched_techpack
+        
+    old_specs = db_record.get("DetailedMeasurements", {}) or db_record.get("measurements", {})
+    target_style_code = str(db_record.get("StyleName", "N/A")).strip().upper()
     if old_specs:
         has_db_data = True
 
-# 3. LUỒNG DỰNG BẢNG LINH HOẠT (CHỈ CẦN CÓ DỮ LIỆU AI LÀ PHẢI HIỂN THỊ)
+# 3. Tiến hành vẽ bảng tính toán
 if new_specs:
     comparison_rows = []
-    # Gom danh sách vị trí đo, nếu chưa có DB thì chỉ lấy danh sách từ AI mẫu mới
     all_poms = sorted(list(set(list(new_specs.keys()) + list(old_specs.keys())))) if has_db_data else sorted(list(new_specs.keys()))
     
     for pom in all_poms:
         raw_new_val = str(new_specs.get(pom, "-")).strip()
         raw_old_val = str(old_specs.get(pom, "-")).strip() if has_db_data else "-"
         
-        # Tính toán sai lệch toán học nếu có dữ liệu đối chứng của cả hai bên
         if raw_new_val != "-" and raw_old_val != "-":
             float_new = parse_inch_fraction(raw_new_val)
             float_old = parse_inch_fraction(raw_old_val)
@@ -2159,17 +2059,12 @@ if new_specs:
         
     if comparison_rows:
         diff_df = pd.DataFrame(comparison_rows)
-        
-        # Định dạng cột số dựa trên việc có dữ liệu kho hay không
         diff_df["Chênh lệch (Diff)"] = diff_df.apply(lambda row: format_diff(row["Chênh lệch (Diff)"], has_db_data), axis=1)
         diff_df["Tỷ lệ biến thiên (Diff %)"] = diff_df.apply(lambda row: format_pct(row["Tỷ lệ biến thiên (Diff %)"], has_db_data), axis=1)
         
-        # Đổ bảng lên màn hình Streamlit ngay lập tức
+        # Đổ bảng chuẩn duy nhất lên màn hình
         st.dataframe(diff_df, use_container_width=True, hide_index=True)
-    else:
-        st.info("ℹ️ Không trích xuất được danh sách dòng vị trí đo.")
-else:
-    st.info("ℹ️ Đang chờ dữ liệu bóc tách mẫu mới từ AI để tạo bảng thông số kỹ thuật...")
+
 
 
 
