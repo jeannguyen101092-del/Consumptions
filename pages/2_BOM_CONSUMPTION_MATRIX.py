@@ -1751,18 +1751,24 @@ with img_col1:
     new_style_id_detected = globals().get("new_style_id_detected", "N/A")
     uploaded_file_name = st.session_state.get("previous_uploaded_file_name", "Techpack")
     
+    # Kiểm tra nhanh kiểu dữ liệu và độ dài của bytes như bạn đã đề xuất
+    # st.write(f"DEBUG - Kiểu dữ liệu: {type(target_new_sketch_bytes)}")
+    # st.write(f"DEBUG - Kích thước bytes: {len(target_new_sketch_bytes) if target_new_sketch_bytes else 0}")
+    
     if target_new_sketch_bytes is not None:
-        # VÁ LỖI XỬ LÝ: Nếu tệp đầu vào là PDF, hiển thị hộp thông tin tài liệu thay vì ép render st.image gây lỗi
+        # 1. Nếu là PDF, in hộp thông tin tài liệu lên trước để thông báo cho người dùng
         if "pdf" in str(detected_mime_type).lower() or str(uploaded_file_name).lower().endswith(".pdf"):
             st.info(f"📄 **Tài liệu dạng tệp:** `{uploaded_file_name}`\n\nHệ thống đã nạp toàn bộ cấu trúc dữ liệu PDF vào bộ nhớ mô phỏng rập mẫu.")
-        else:
-            try:
-                st.image(target_new_sketch_bytes, caption=f"Mẫu mới tải lên ({new_style_id_detected})", use_container_width=True)
-            except Exception as e:
-                st.warning(f"Lỗi hiển thị ảnh mẫu mới: {e}")
+        
+        # 2. Không dùng 'else' nữa, luôn chạy xuống đây để hiển thị ảnh mẫu mới (bất kể là file gốc ảnh hay PDF đã trích xuất ảnh thành công)
+        try:
+            image_object = Image.open(io.BytesIO(target_new_sketch_bytes))
+            st.image(image_object, caption=f"Mẫu mới tải lên ({new_style_id_detected})", use_container_width=True)
+        except Exception as e:
+            st.warning(f"Lỗi hiển thị ảnh mẫu mới: {e}")
+            
     else:
-        st.info("ℹ️ Chưa tải lên tệp ảnh Flat Sketch của mẫu mới.")
-
+        st.info("ℹ️ Chưa tải lên hoặc không trích xuất được tệp ảnh Flat Sketch của mẫu mới.")
 with img_col2:
     if matched_techpack is not None:
         # 1. Đồng bộ mã đối chứng và URL ảnh gốc
