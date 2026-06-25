@@ -1392,9 +1392,8 @@ def process_single_pdf_batch(file_bytes, file_name):
 # =========================================================================
 # ⚙️ KHỞI TẠO BIẾN VÀ XỬ LÝ TỆP TẢI LÊN (BẢN VÁ LỖI MẤT BẢNG THÔNG SỐ)
 # =========================================================================
-
 # =========================================================================
-# ⚙️ ĐOẠN 3 SỬA CHUẨN TRỌN GÓI: LUỒNG XỬ LÝ TỆP VÀ TỰ ĐỘNG KHỚP KHO SUPABASE
+# ⚙️ ĐOẠN 3 CHUẨN HOÀN CHỈNH: LUỒNG TỰ ĐỘNG KHỚP KHO & GIẢI NÉN MẢNG SUPABASE
 # =========================================================================
 
 import requests
@@ -1424,7 +1423,6 @@ if has_file:
     file_name = target_file_object.name
     
     if file_name.lower().endswith('.pdf'):
-        # Dùng biến '_checked' riêng biệt bảo vệ luồng AI không bị đứng im khi widget rerun
         if st.session_state.get("extracted_spec_data") is None or st.session_state.get("previous_uploaded_file_name_checked") != file_name:
             
             with st.spinner("🤖 AI đang phân tích sâu cấu trúc PDF để bóc tách hình ảnh & thông số..."):
@@ -1436,16 +1434,16 @@ if has_file:
                         st.session_state["target_new_sketch_bytes_state"] = res_pdf.get("sketch_bytes")
                         st.session_state["previous_uploaded_file_name_checked"] = file_name
                         
-                        # --- 🚀 TIẾN HÀNH TRUY VẤN TỰ ĐỘNG KHO DATABASE SUPABASE ---
-                        detected_style = res_pdf["data"].get("style_number_parsed", "").strip()
+                        # --- 🚀 SỬA LỖI TRUY VẤN VÀ BÓC TÁCH DỮ LIỆU TỪ KHO SUPABASE ---
+                        detected_style = str(res_pdf["data"].get("style_number_parsed", "")).strip()
                         
-                        if detected_style and detected_style != "UNKNOWN":
+                        if detected_style and detected_style != "UNKNOWN" and detected_style != "UNKNOWN_STYLE":
                             sb_url_clean = st.secrets.get("SUPABASE_URL", "").rstrip('/')
                             sb_key_clean = st.secrets.get("SUPABASE_KEY", "")
                             
                             if sb_url_clean and sb_key_clean:
                                 db_headers = {"apikey": sb_key_clean, "Authorization": f"Bearer {sb_key_clean}"}
-                                # Gọi API truy vấn trực tiếp bản ghi đối chứng của mã vừa bóc tách được
+                                # Ép kiểu chuỗi tường minh để Supabase không bị lỗi Type Mismatch
                                 query_url = f"{sb_url_clean}/rest/v1/techpacks?StyleName=eq.{detected_style}&select=*"
                                 
                                 try:
@@ -1453,7 +1451,7 @@ if has_file:
                                     if db_resp.status_code == 200:
                                         records = db_resp.json()
                                         if records and len(records) > 0:
-                                            # Nếu tìm thấy, gán thẳng dữ liệu vào kho đối chứng để cột "Mã cũ" tự tính toán số liệu
+                                            # SỬA LỖI CỐT LÕI: Giải nén phần tử đầu tiên của mảng để lấy Dictionary chuẩn
                                             st.session_state["matched_techpack"] = records[0]
                                             st.session_state["match_confidence_score"] = 100.0
                                         else:
@@ -1482,12 +1480,11 @@ if has_file:
             
         target_new_sketch_bytes = st.session_state.get("target_new_sketch_bytes_state", None)
     else:
-        # Nếu tải lên là file ảnh trực tiếp, giữ nguyên làm ảnh bản vẽ Flat Sketch
         target_new_sketch_bytes = file_bytes
         st.session_state["target_new_sketch_bytes_state"] = file_bytes
         st.session_state["extracted_spec_data"] = None 
 
-# Đồng bộ an toàn ra phạm vi biến toàn cục để các hàm vẽ ảnh và tạo bảng DataFrame ở dưới đọc được ngay
+# Đồng bộ an toàn ra phạm vi biến toàn cục
 globals()["target_new_sketch_bytes"] = target_new_sketch_bytes
 globals()["new_style_id_detected"] = new_style_id_detected
 globals()["new_style_category"] = new_style_category_detected
@@ -1500,6 +1497,7 @@ dynamic_keyword = str(new_style_id_detected).strip().upper()
 base_sb_url = SB_URL.rstrip('/') if SB_URL else ""
 headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if SB_KEY else {}
 menu_selection = globals().get("menu_selection", "🧵 BOM & Consumption Matrix")
+
 
 
 # =========================================================================================
