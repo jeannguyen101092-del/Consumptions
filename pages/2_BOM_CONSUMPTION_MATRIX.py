@@ -1981,14 +1981,15 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     st.session_state["main_fabric_records"] = main_fabric_records
     st.session_state["bom_summary_engine"] = bom_summary_engine
 
- # =========================================================================
-# 📊 BẢNG SO SÁNH SAI LỆCH THÔNG SỐ KỸ THUẬT RẬP MẪU (BẢN VÁ LỖI CẤU TRÚC MATRIX)
+# =========================================================================
+# 📊 BẢNG SO SÁNH SAI LỆCH THÔNG SỐ KỸ THUẬT RẬP MẪU (BẢN VÁ LUỒNG KHÔNG PHỤ THUỘC DB)
 # =========================================================================
 st.markdown("### 📊 BẢNG SO SÁNH SAI LỆCH THÔNG SỐ KỸ THUẬT RẬP MẪU")
 
 import pandas as pd
 import re
 
+# --- CÁC HÀM FORMAT VÀ PARSE SỐ HỆ INCH ---
 def parse_inch_fraction(val_str):
     if val_str is None: return 0.0
     val_clean = str(val_str).strip().replace('"', '').replace('”', '')
@@ -1996,82 +1997,80 @@ def parse_inch_fraction(val_str):
     try:
         if " " in val_clean:
             parts = val_clean.split()
-            return float(parts[0]) + (float(parts[1].split("/")[0]) / float(parts[1].split("/")[1]))
+            whole = float(parts[0])
+            frac = parts[1]
+            if "/" in frac:
+                num, denom = frac.split("/")
+                return whole + (float(num) / float(denom))
         elif "/" in val_clean:
-            return float(val_clean.split("/")[0]) / float(val_clean.split("/")[1])
+            num, denom = val_clean.split("/")
+            return float(num) / float(denom)
         return float(val_clean)
     except Exception:
         match = re.search(r"[-+]?\d*\.\d+|\d+", val_clean)
         return float(match.group()) if match else 0.0
 
-def format_diff(val):
+def format_diff(val, has_old):
+    if not has_old: return "-"
     if val == 0: return "0.0"
     return f"+{val:.2f}" if val > 0 else f"{val:.2f}"
 
-def format_pct(val):
+def format_pct(val, has_old):
+    if not has_old: return "-"
     if val == 0: return "0.0%"
     return f"+{val:.2f}%" if val > 0 else f"{val:.2f}%"
 
-# 1. THU THẬP VÀ CHUẨN HÓA DỮ LIỆU TỪ SESSION STATE
+
+# 1. THU THẬP VÀ ĐỒNG BỘ DỮ LIỆU TỪ AI GEMINI (MẪU MỚI)
 extracted_spec = st.session_state.get("extracted_spec_data", None)
 if isinstance(extracted_spec, dict) and "data" in extracted_spec:
     extracted_spec = extracted_spec["data"]
 
-# Khởi tạo từ điển chứa thông số mẫu mới phẳng phẳng dạng { "POM": "Giá trị" }
 new_specs = {}
-
 if extracted_spec and isinstance(extracted_spec, dict):
-    # Ưu tiên 1: Nếu AI bóc tách trực tiếp được dictionary phẳng trong 'measurements'
     raw_meas = extracted_spec.get("measurements", {})
     if raw_meas and isinstance(raw_meas, dict) and len(raw_meas) > 0:
         new_specs = raw_meas
-    
-    # Ưu tiên 2 (QUAN TRỌNG): Nếu dữ liệu nằm trong ma trận kích cỡ 'full_size_matrix' lồng nhau
     elif "full_size_matrix" in extracted_spec and isinstance(extracted_spec["full_size_matrix"], dict):
-        matrix_data = extracted_spec["full_size_matrix"]
-        
-        for pom, size_dict in matrix_data.items():
+        for pom, size_dict in extracted_spec["full_size_matrix"].items():
             if isinstance(size_dict, dict):
-                # Tìm kiếm xem có cột thông số nào đại diện cho size cần so khớp (Ví dụ: ưu tiên size 30, Base Size, hoặc lấy size đầu tiên)
-                target_size_key = None
-                for k in size_dict.keys():
-                    if "30" in str(k) or "base" in str(k).lower() or "sample" in str(k).lower():
-                        target_size_key = k
-                        break
-                if not target_size_key and size_dict.keys():
-                    target_size_key = list(size_dict.keys())[0] # Fallback lấy size đầu tiên trong ma trận
-                
-                if target_size_key:
-                    new_specs[pom] = size_dict[target_size_key]
+                target_k = next((k for k in size_dict.keys() if "30" in str(k) or "base" in str(k).lower()), list(size_dict.keys()) if size_dict.keys() else None)
+                if target_k: new_specs[pom] = size_dict[target_k]
             else:
-                # Nếu cấu trúc trả về vốn dĩ đã phẳng sẵn
                 new_specs[pom] = size_dict
 
-# Thu thập dữ liệu từ kho DB đối chứng
+# 2. THU THẬP DỮ LIỆU TỪ KHO DATABASE (MẪU CŨ)
+matched_techpack = st.session_state.get("matched_techpack", None)
 old_specs = {}
-target_style_code = "ĐỐI CHỨNG"
+target_style_code = "Chưa kết nối kho"
+has_db_data = False
+
 if matched_techpack and isinstance(matched_techpack, dict):
     old_specs = matched_techpack.get("DetailedMeasurements", {}) or matched_techpack.get("measurements", {})
     target_style_code = str(matched_techpack.get("StyleName", "N/A")).strip().upper()
+    if old_specs:
+        has_db_data = True
 
-# 2. TIẾN HÀNH DỰNG BẢNG ĐỐI CHIẾU NẾU ĐÃ SẴN SÀNG HAI NGUỒN DỮ LIỆU
-if new_specs and old_specs:
+# 3. LUỒNG DỰNG BẢNG LINH HOẠT (CHỈ CẦN CÓ DỮ LIỆU AI LÀ PHẢI HIỂN THỊ)
+if new_specs:
     comparison_rows = []
-    all_poms = sorted(list(set(list(new_specs.keys()) + list(old_specs.keys()))))
+    # Gom danh sách vị trí đo, nếu chưa có DB thì chỉ lấy danh sách từ AI mẫu mới
+    all_poms = sorted(list(set(list(new_specs.keys()) + list(old_specs.keys())))) if has_db_data else sorted(list(new_specs.keys()))
     
     for pom in all_poms:
         raw_new_val = str(new_specs.get(pom, "-")).strip()
-        raw_old_val = str(old_specs.get(pom, "-")).strip()
+        raw_old_val = str(old_specs.get(pom, "-")).strip() if has_db_data else "-"
         
-        if raw_new_val == "-" or raw_old_val == "-":
-            continue
+        # Tính toán sai lệch toán học nếu có dữ liệu đối chứng của cả hai bên
+        if raw_new_val != "-" and raw_old_val != "-":
+            float_new = parse_inch_fraction(raw_new_val)
+            float_old = parse_inch_fraction(raw_old_val)
+            diff_val = float_new - float_old
+            diff_pct = (diff_val / float_old * 100) if float_old > 0 else 0.0
+        else:
+            diff_val = 0.0
+            diff_pct = 0.0
             
-        float_new = parse_inch_fraction(raw_new_val)
-        float_old = parse_inch_fraction(raw_old_val)
-        
-        diff_val = float_new - float_old
-        diff_pct = (diff_val / float_old * 100) if float_old > 0 else 0.0
-        
         comparison_rows.append({
             "Vị trí đo (POM Description)": pom,
             "Mẫu mới (30)": raw_new_val,
@@ -2082,15 +2081,17 @@ if new_specs and old_specs:
         
     if comparison_rows:
         diff_df = pd.DataFrame(comparison_rows)
-        diff_df["Chênh lệch (Diff)"] = diff_df["Chênh lệch (Diff)"].apply(format_diff)
-        diff_df["Tỷ lệ biến thiên (Diff %)"] = diff_df["Tỷ lệ biến thiên (Diff %)"].apply(format_pct)
+        
+        # Định dạng cột số dựa trên việc có dữ liệu kho hay không
+        diff_df["Chênh lệch (Diff)"] = diff_df.apply(lambda row: format_diff(row["Chênh lệch (Diff)"], has_db_data), axis=1)
+        diff_df["Tỷ lệ biến thiên (Diff %)"] = diff_df.apply(lambda row: format_pct(row["Tỷ lệ biến thiên (Diff %)"], has_db_data), axis=1)
+        
+        # Đổ bảng lên màn hình Streamlit ngay lập tức
         st.dataframe(diff_df, use_container_width=True, hide_index=True)
     else:
-        st.info("ℹ️ Không có vị trí đo (POM) nào khớp nhau giữa mẫu mới và mẫu cũ.")
-elif not new_specs:
-    st.info("ℹ️ Đang chờ dữ liệu bóc tách mẫu mới từ AI để tạo bảng so sánh sai lệch thông số.")
+        st.info("ℹ️ Không trích xuất được danh sách dòng vị trí đo.")
 else:
-    st.warning("⚠️ Chưa kết nối hoặc không tìm thấy dữ liệu thông số rập mẫu của Mã cũ trong kho.")
+    st.info("ℹ️ Đang chờ dữ liệu bóc tách mẫu mới từ AI để tạo bảng thông số kỹ thuật...")
 
 
 
