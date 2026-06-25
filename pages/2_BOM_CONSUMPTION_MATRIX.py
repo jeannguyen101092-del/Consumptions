@@ -2002,170 +2002,173 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
 
 
 
-# =========================================================================
-# 🧱 PHẦN 1/4: TRÍCH XUẤT DỮ LIỆU THÔNG SỐ RẬP CŨ TỪ DATABASE KHO (DEEP SCAN)
-# =========================================================================
-# Lấy nguồn dữ liệu thông số Mẫu mới (PDF) từ globals/session_state
-new_specs_raw = globals().get("new_style_measurements_dict", st.session_state.get("new_style_measurements_dict", {}))
-    
-# Quét tìm cấu trúc bảng thông số mã cũ lồng sâu đa tầng trong DB kho
-matched_techpack = st.session_state.get("matched_techpack")
-old_specs_raw = {}
+if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption Matrix":
 
-if matched_techpack and isinstance(matched_techpack, dict):
-    possible_sources = [
-        matched_techpack,
-        matched_techpack.get("techpack", {}),
-        matched_techpack.get("data", {}),
-        matched_techpack.get("payload", {}),
-        matched_techpack.get("raw_json", {}),
-        matched_techpack.get("extracted_data", {}),
-        matched_techpack.get("json_data", {})
-    ]
-    for src in possible_sources:
-        if isinstance(src, dict):
-            for key in ["DetailedMeasurements", "detailed_measurements", "Measurements", "measurements", "POM", "pom"]:
-                data = src.get(key)
-                if data and (isinstance(data, dict) or isinstance(data, list)) and len(data) > 0:
-                    old_specs_raw = data
-                    break
-        if old_specs_raw:
-            break
-# =========================================================================
-# 📊 PHẦN 2/4: CHUẨN HÓA DỮ LIỆU KHO CŨ / MẪU MỚI & BẪY LỖI SỐ 0
-# =========================================================================
-# 1. Chuẩn hóa dữ liệu kho cũ (Xử lý cả dạng mảng List và lồng Dict)
-old_specs = {}
-if isinstance(old_specs_raw, list):
-    for item in old_specs_raw:
-        if isinstance(item, dict):
-            key = (item.get("description") or item.get("pom") or item.get("name") or item.get("POM") or "")
-            v = (item.get("measurement") or item.get("value") or item.get("spec") or item.get("quantity"))
+    # =========================================================================
+    # 🧱 PHẦN 1/4: TRÍCH XUẤT DỮ LIỆU THÔNG SỐ RẬP CỦA MÃ CŨ TỪ DATABASE KHO (DEEP SCAN)
+    # =========================================================================
+    # Lấy nguồn dữ liệu thông số Mẫu mới (PDF) từ globals/session_state an toàn
+    new_specs_raw = globals().get("new_style_measurements_dict", st.session_state.get("new_style_measurements_dict", {}))
+        
+    # Quét tìm cấu trúc bảng thông số mã cũ lồng sâu đa tầng trong DB kho
+    matched_techpack = st.session_state.get("matched_techpack")
+    old_specs_raw = {}
+
+    if matched_techpack and isinstance(matched_techpack, dict):
+        possible_sources = [
+            matched_techpack,
+            matched_techpack.get("techpack", {}),
+            matched_techpack.get("data", {}),
+            matched_techpack.get("payload", {}),
+            matched_techpack.get("raw_json", {}),
+            matched_techpack.get("extracted_data", {}),
+            matched_techpack.get("json_data", {})
+        ]
+        for src in possible_sources:
+            if isinstance(src, dict):
+                for key in ["DetailedMeasurements", "detailed_measurements", "Measurements", "measurements", "POM", "pom"]:
+                    data = src.get(key)
+                    if data and (isinstance(data, dict) or isinstance(data, list)) and len(data) > 0:
+                        old_specs_raw = data
+                        break
+            if old_specs_raw:
+                break
+
+    # =========================================================================
+    # 📊 PHẦN 2/4: CHUẨN HÓA DỮ LIỆU KHO CŨ / MẪU MỚI & BẪY LỖI SỐ 0
+    # =========================================================================
+    # 1. Chuẩn hóa dữ liệu kho cũ (Xử lý cả dạng mảng List và lồng Dict)
+    old_specs = {}
+    if isinstance(old_specs_raw, list):
+        for item in old_specs_raw:
+            if isinstance(item, dict):
+                key = (item.get("description") or item.get("pom") or item.get("name") or item.get("POM") or "")
+                v = (item.get("measurement") or item.get("value") or item.get("spec") or item.get("quantity"))
+                val = (
+                    v.get("value") if isinstance(v, dict) and v.get("value") is not None
+                    else v.get("measurement") if isinstance(v, dict) and v.get("measurement") is not None
+                    else v.get("spec") if isinstance(v, dict) and v.get("spec") is not None
+                    else v
+                )
+                if key: old_specs[str(key).strip()] = val
+
+    elif isinstance(old_specs_raw, dict):
+        for k, v in old_specs_raw.items():
             val = (
                 v.get("value") if isinstance(v, dict) and v.get("value") is not None
                 else v.get("measurement") if isinstance(v, dict) and v.get("measurement") is not None
                 else v.get("spec") if isinstance(v, dict) and v.get("spec") is not None
                 else v
             )
-            if key: old_specs[str(key).strip()] = val
+            old_specs[k] = val
 
-elif isinstance(old_specs_raw, dict):
-    for k, v in old_specs_raw.items():
-        val = (
-            v.get("value") if isinstance(v, dict) and v.get("value") is not None
-            else v.get("measurement") if isinstance(v, dict) and v.get("measurement") is not None
-            else v.get("spec") if isinstance(v, dict) and v.get("spec") is not None
-            else v
-        )
-        old_specs[k] = val
+    # 2. Chuẩn hóa dữ liệu Mẫu mới (PDF)
+    new_specs = {}
+    if isinstance(new_specs_raw, dict):
+        for k, v in new_specs_raw.items():
+            val = (
+                v.get("value") if isinstance(v, dict) and v.get("value") is not None
+                else v.get("measurement") if isinstance(v, dict) and v.get("measurement") is not None
+                else v.get("spec") if isinstance(v, dict) and v.get("spec") is not None
+                else v
+            )
+            new_specs[k] = val
 
-# 2. Chuẩn hóa dữ liệu Mẫu mới (PDF)
-new_specs = {}
-if isinstance(new_specs_raw, dict):
-    for k, v in new_specs_raw.items():
-        val = (
-            v.get("value") if isinstance(v, dict) and v.get("value") is not None
-            else v.get("measurement") if isinstance(v, dict) and v.get("measurement") is not None
-            else v.get("spec") if isinstance(v, dict) and v.get("spec") is not None
-            else v
-        )
-        new_specs[k] = val
+    # 3. Đồng bộ nhãn tên hiển thị tiêu đề cột
+    old_style_display = st.session_state.get("bom_matched_db_style") or st.session_state.get("matched_style_name") or "N/A"
+    new_style_base_size = globals().get("new_style_base_size", st.session_state.get("new_style_base_size", "32"))
 
-# 3. Đồng bộ nhãn tên hiển thị tiêu đề cột
-old_style_display = st.session_state.get("bom_matched_db_style") or st.session_state.get("matched_style_name") or "N/A"
-new_style_base_size = globals().get("new_style_base_size", st.session_state.get("new_style_base_size", "32"))
+    # 4. Hiển thị hộp điều tra dữ liệu trực quan lên màn hình Streamlit
+    st.write("===== 🔍 HỆ THỐNG KIỂM TRA DỮ LIỆU ĐẦU VÀO SẢN XUẤT =====")
+    st.write(f"🔹 STYLE MỚI (Size): `{new_style_base_size}` | 🔹 STYLE CŨ (Mã DB): `{old_style_display}`")
+    st.write(f"📊 SỐ ĐIỂM ĐO MẪU MỚI: `{len(new_specs)}` | 📊 SỐ ĐIỂM ĐO MÃ CŨ TRONG KHO: `{len(old_specs)}`")
 
-# 4. Hiển thị hộp điều tra dữ liệu trực quan lên màn hình Streamlit
-st.write("===== 🔍 HỆ THỐNG KIỂM TRA DỮ LIỆU ĐẦU VÀO SẢN XUẤT =====")
-st.write(f"🔹 STYLE MỚI (Size): `{new_style_base_size}` | 🔹 STYLE CŨ (Mã DB): `{old_style_display}`")
-st.write(f"📊 SỐ ĐIỂM ĐO MẪU MỚI: `{len(new_specs)}` | 📊 SỐ ĐIỂM ĐO MÃ CŨ TRONG KHO: `{len(old_specs)}`")
+    if old_specs:
+        st.write("📌 **Xem trước 5 điểm đo MÃ CŨ đầu tiên trong DB:**")
+        st.json(dict(list(old_specs.items())[:5]))
+    if new_specs:
+        st.write("📌 **Xem trước 5 điểm đo MẪU MỚI đầu tiên bóc từ PDF:**")
+        st.json(dict(list(new_specs.items())[:5]))
+    # =========================================================================
+    # 🔍 PHẦN 3/4: THUẬT TOÁN ĐỐI CHIẾU TOKEN-BASED & DỰNG BẢNG SO SÁNH THÔNG SỐ
+    # =========================================================================
+    avg_area_growth_pct = 0.0
 
-if old_specs:
-    st.write("📌 **Xem trước 5 điểm đo MÃ CŨ đầu tiên trong DB:**")
-    st.json(dict(list(old_specs.items())[:5]))
-if new_specs:
-    st.write("📌 **Xem trước 5 điểm đo MẪU MỚI đầu tiên bóc từ PDF:**")
-    st.json(dict(list(new_specs.items())[:5]))
-# =========================================================================
-# 🔍 PHẦN 3/4: THUẬT TOÁN ĐỐI CHIẾU TOKEN-BASED & DỰNG BẢNG SO SÁNH THÔNG SỐ
-# =========================================================================
-avg_area_growth_pct = 0.0
-
-if new_specs or old_specs:
-    compare_rows = []
-    match_logs_pool = []
-    valid_diff_pcts = []
-    
-    def clean_pom_text(text):
-        if not text: return ""
-        t = str(text).upper().strip()
-        t = re.sub(r'\(.*?\)', '', t)
-        t = re.sub(r'^\d+[\s\.\-_]*', '', t)
-        return " ".join(t.split())
-
-    def clean_float(v):
-        if v is None: return None
-        v_str = str(v).strip()
-        try: return float(v_str)
-        except (ValueError, TypeError):
-            mixed_match = re.search(r"(\d+)[\s\-]+(\d+)/(\d+)", v_str)
-            if mixed_match:
-                return float(mixed_match.group(1)) + (float(mixed_match.group(2)) / float(mixed_match.group(3)))
-            frac_match = re.search(r"(\d+)/(\d+)", v_str)
-            if frac_match: return float(frac_match.group(1)) / float(frac_match.group(2))
-            nums = re.findall(r"[-+]?\d*\.\d+|\d+", v_str)
-            return float(nums) if nums else None
-
-    # Danh mục từ khóa điểm đo phom chính, đã lọc sạch các từ ngắn dễ bắt nhầm
-    core_major_keywords = [
-        "INSEAM", "THIGH", "HIP", "MONG", "WAIST", "LUNG", "RISE", "OUTSEAM", "LEG OPENING", "KNEE", "GỐI",
-        "CHEST", "NGUC", "BUST", "WIDTH", "THÂN", "BODY LENGTH", "DAI AO", "BACK LENGTH", "FRONT LENGTH", 
-        "SHOULDER", "VAI", "SLEEVE", "TAY", "SKIRT", "DRESS", "VAY", "DAM", "LAI", "CROTCH"
-    ]
-    strict_ignore_keywords = ["BADGE", "LABEL", "BUTTON", "CUC", "TICKET", "LOOP", "STITCH", "LOGO", "HANGER"]
-
-    cleaned_new_specs = {clean_pom_text(k): (k, v) for k, v in new_specs.items()}
-    processed_new_keys = set()
-
-    # VÒNG LẶP ĐỐI CHIẾU DỰA TRÊN DANH SÁCH MÃ CŨ TRONG KHO KỸ THUẬT
-    for original_old_key, val_old in old_specs.items():
-        clean_old_key = clean_pom_text(original_old_key)
-        is_core_pom = any(k in clean_old_key for k in core_major_keywords)
-        is_ignored = any(ig in clean_old_key for ig in strict_ignore_keywords)
+    if new_specs or old_specs:
+        compare_rows = []
+        match_logs_pool = []
+        valid_diff_pcts = []
         
-        if is_core_pom and not is_ignored:
-            original_new_key, val_new = "-", "-"
+        def clean_pom_text(text):
+            if not text: return ""
+            t = str(text).upper().strip()
+            t = re.sub(r'\(.*?\)', '', t)
+            t = re.sub(r'^\d+[\s\.\-_]*', '', t)
+            return " ".join(t.split())
+
+        def clean_float(v):
+            if v is None: return None
+            v_str = str(v).strip()
+            try: return float(v_str)
+            except (ValueError, TypeError):
+                mixed_match = re.search(r"(\d+)[\s\-]+(\d+)/(\d+)", v_str)
+                if mixed_match:
+                    return float(mixed_match.group(1)) + (float(mixed_match.group(2)) / float(mixed_match.group(3)))
+                frac_match = re.search(r"(\d+)/(\d+)", v_str)
+                if frac_match: return float(frac_match.group(1)) / float(frac_match.group(2))
+                nums = re.findall(r"[-+]?\d*\.\d+|\d+", v_str)
+                return float(nums) if nums else None
+
+        # Danh mục từ khóa điểm đo phom chính, đã lọc sạch các từ ngắn dễ bắt nhầm
+        core_major_keywords = [
+            "INSEAM", "THIGH", "HIP", "MONG", "WAIST", "LUNG", "RISE", "OUTSEAM", "LEG OPENING", "KNEE", "GỐI",
+            "CHEST", "NGUC", "BUST", "WIDTH", "THÂN", "BODY LENGTH", "DAI AO", "BACK LENGTH", "FRONT LENGTH", 
+            "SHOULDER", "VAI", "SLEEVE", "TAY", "SKIRT", "DRESS", "VAY", "DAM", "LAI", "CROTCH"
+        ]
+        strict_ignore_keywords = ["BADGE", "LABEL", "BUTTON", "CUC", "TICKET", "LOOP", "STITCH", "LOGO", "HANGER"]
+
+        cleaned_new_specs = {clean_pom_text(k): (k, v) for k, v in new_specs.items()}
+        processed_new_keys = set()
+
+        # VÒNG LẶP ĐỐI CHIẾU DỰA TRÊN DANH SÁCH MÃ CŨ TRONG KHO KỸ THUẬT
+        for original_old_key, val_old in old_specs.items():
+            clean_old_key = clean_pom_text(original_old_key)
+            is_core_pom = any(k in clean_old_key for k in core_major_keywords)
+            is_ignored = any(ig in clean_old_key for ig in strict_ignore_keywords)
             
-            # Tầng 1: Khớp tuyệt đối 100%
-            if clean_old_key in cleaned_new_specs:
-                original_new_key, val_new = cleaned_new_specs[clean_old_key]
-                processed_new_keys.add(original_new_key)
-            else:
-                # Tầng 2 & 3: Khớp chuỗi con an toàn (Độ dài chữ dài đầu dòng >= 5)
-                found_by_contain = False
-                for cl_new_k, (orig_new_k, v_new) in cleaned_new_specs.items():
-                    if (
-                        clean_old_key == cl_new_k
-                        or (len(clean_old_key) >= 5 and clean_old_key.startswith(cl_new_k))
-                        or (len(cl_new_k) >= 5 and cl_new_k.startswith(clean_old_key))
-                    ):
-                        original_new_key, val_new = orig_new_k, v_new
-                        processed_new_keys.add(orig_new_k)
-                        found_by_contain = True
-                        break
+            if is_core_pom and not is_ignored:
+                original_new_key, val_new = "-", "-"
                 
-                # Tầng 4: Phân tách Token độc lập, chống hoàn toàn lỗi gộp nhầm chữ
-                if not found_by_contain:
-                    old_words = set(clean_old_key.split())
+                # Tầng 1: Khớp tuyệt đối 100%
+                if clean_old_key in cleaned_new_specs:
+                    original_new_key, val_new = cleaned_new_specs[clean_old_key]
+                    processed_new_keys.add(original_new_key)
+                else:
+                    # Tầng 2 & 3: Khớp chuỗi con an toàn (Độ dài chữ dài đầu dòng >= 5)
+                    found_by_contain = False
                     for cl_new_k, (orig_new_k, v_new) in cleaned_new_specs.items():
-                        new_words = set(cl_new_k.split())
-                        for kw in core_major_keywords:
-                            if kw in old_words and kw in new_words:
-                                original_new_key, val_new = orig_new_k, v_new
-                                processed_new_keys.add(orig_new_k)
-                                found_by_contain = True
-                                break
-                        if found_by_contain: break
+                        if (
+                            clean_old_key == cl_new_k
+                            or (len(clean_old_key) >= 5 and clean_old_key.startswith(cl_new_k))
+                            or (len(cl_new_k) >= 5 and cl_new_k.startswith(clean_old_key))
+                        ):
+                            original_new_key, val_new = orig_new_k, v_new
+                            processed_new_keys.add(orig_new_k)
+                            found_by_contain = True
+                            break
+                    
+                    # Tầng 4: Phân tách Token độc lập, chống hoàn toàn lỗi gộp nhầm chữ
+                    if not found_by_contain:
+                        old_words = set(clean_old_key.split())
+                        for cl_new_k, (orig_new_k, v_new) in cleaned_new_specs.items():
+                            new_words = set(cl_new_k.split())
+                            for kw in core_major_keywords:
+                                if kw in old_words and kw in new_words:
+                                    original_new_key, val_new = orig_new_k, v_new
+                                    processed_new_keys.add(orig_new_k)
+                                    found_by_contain = True
+                                    break
+                            if found_by_contain: break
 
             f_new = clean_float(val_new)
             f_old = clean_float(val_old)
@@ -2197,33 +2200,31 @@ if new_specs or old_specs:
                 "Tỷ lệ biến thiên (Diff %)": display_pct
             })
 
-    # Nạp nốt thông số mẫu mới nếu kho dữ liệu cũ không có
-    for original_new_key, val_new in new_specs.items():
-        if original_new_key not in processed_new_keys:
-            clean_new_key = clean_pom_text(original_new_key)
-            if any(k in clean_new_key for k in core_major_keywords) and not any(ig in clean_new_key for ig in strict_ignore_keywords):
-                compare_rows.append({
-                    "Vị trí đo (POM Description)": original_new_key,
-                    f"Mẫu mới ({new_style_base_size})": val_new if val_new is not None else "-",
-                    f"Mã cũ ({old_style_display})": "-",
-                    "Chênh lệch (Diff)": "-",
-                    "Tỷ lệ biến thiên (Diff %)": "-"
-                })
+        for original_new_key, val_new in new_specs.items():
+            if original_new_key not in processed_new_keys:
+                clean_new_key = clean_pom_text(original_new_key)
+                if any(k in clean_new_key for k in core_major_keywords) and not any(ig in clean_new_key for ig in strict_ignore_keywords):
+                    compare_rows.append({
+                        "Vị trí đo (POM Description)": original_new_key,
+                        f"Mẫu mới ({new_style_base_size})": val_new if val_new is not None else "-",
+                        f"Mã cũ ({old_style_display})": "-",
+                        "Chênh lệch (Diff)": "-",
+                        "Tỷ lệ biến thiên (Diff %)": "-"
+                    })
 
-    # Hiển thị cấu trúc Match Log và bảng DataFrame lên màn hình
-    if match_logs_pool:
-        with st.expander("🔍 Chi tiết nhật ký bắt cặp POM"):
-            st.dataframe(pd.DataFrame(match_logs_pool), use_container_width=True, hide_index=True)
+        if match_logs_pool:
+            with st.expander("🔍 Chi tiết nhật ký bắt cặp POM"):
+                st.dataframe(pd.DataFrame(match_logs_pool), use_container_width=True, hide_index=True)
+            
+        df_compare_spec = pd.DataFrame(compare_rows)
+        st.dataframe(df_compare_spec, use_container_width=True, hide_index=True)
         
-    df_compare_spec = pd.DataFrame(compare_rows)
-    st.dataframe(df_compare_spec, use_container_width=True, hide_index=True)
-    
-    # Xuất dữ liệu % biến thiên diện tích sơ đồ sang bộ nhớ đệm
-    if valid_diff_pcts:
-        avg_pom_growth = sum(valid_diff_pcts) / len(valid_diff_pcts)
-        avg_area_growth_pct = round((((1 + avg_pom_growth/100) ** 2) - 1) * 100, 2)
-        globals()["avg_area_growth_pct"] = avg_area_growth_pct
-        st.session_state["avg_area_growth_pct"] = avg_area_growth_pct
+        if valid_diff_pcts:
+            avg_pom_growth = sum(valid_diff_pcts) / len(valid_diff_pcts)
+            avg_area_growth_pct = round((((1 + avg_pom_growth/100) ** 2) - 1) * 100, 2)
+            globals()["avg_area_growth_pct"] = avg_area_growth_pct
+            st.session_state["avg_area_growth_pct"] = avg_area_growth_pct
+
 # =========================================================================
 # 🔮 PHẦN 4/4: AI CONSUMPTION PROJECTION ENGINE (TÍNH TOÁN ĐỊNH MỨC VẬT TƯ)
 # =========================================================================
