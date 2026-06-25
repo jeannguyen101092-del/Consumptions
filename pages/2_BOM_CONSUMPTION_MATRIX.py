@@ -1413,7 +1413,7 @@ if gemini_key:
 def process_single_pdf_batch(file_bytes, file_name):
     """
     Retriever Layer chuyên sâu cho hệ thống BOM & Consumption Matrix.
-    🛠️ FIX CỨNG: Đưa biến vào trong try để triệt tiêu hoàn toàn lỗi IndentationError.
+    🛠️ ĐÃ CHUẨN HÓA SẠCH LỀ: Đảm bảo 100% không bị lệch khoảng trắng Tab/Space.
     """
     import json
     import requests
@@ -1434,18 +1434,12 @@ def process_single_pdf_batch(file_bytes, file_name):
         return {"success": False, "error": f"Tệp PDF vượt giới hạn xử lý {MAX_MB}MB của Gemini."}
 
     try:
-        # ✨ Đã chuyển vào đây để đảm bảo lề luôn chuẩn 8 dấu cách
         extracted_sketch_bytes = None
-
-        # Thu thập API Key
         gemini_key = get_secure_gemini_key() if "get_secure_gemini_key" in globals() else st.secrets.get("GEMINI_API_KEY", "").strip()
         if not gemini_key:
             return {"success": False, "error": "Thiếu GEMINI_API_KEY trong cấu hình Secrets."}
 
-        # Mã hóa Base64
         b64_pdf = base64.b64encode(file_bytes).decode('utf-8')
-
-        # URL Endpoint chuẩn xác của Gemini
         url = f"https://googleapis.com{gemini_key}"
         
         industrial_prompt = (
@@ -1495,14 +1489,12 @@ def process_single_pdf_batch(file_bytes, file_name):
             
         res_json = res.json()
         
-        # BẬT DEBUG RAW DATA THÔ TỪ GOOGLE
         st.write("===== 1. RAW GEMINI RESPONSE =====")
         st.json(res_json)
         
         if "candidates" not in res_json or not res_json["candidates"]:
             return {"success": False, "error": "Gemini phản hồi không có dữ liệu hoặc bị Safety Block."}
             
-        # 🛠️ SỬA CHÍNH XÁC CÚ PHÁP BÓC TÁCH MẢNG CANDIDATES
         try:
             first_candidate = res_json['candidates'][0]
             text_response = first_candidate['content']['parts'][0]['text'].strip()
@@ -1519,7 +1511,6 @@ def process_single_pdf_batch(file_bytes, file_name):
         try:
             parsed_data = json.loads(clean_json)
             
-            # BẬT KHỐI DEBUG DỮ LIỆU SAU PHÂN TÍCH
             st.write("===== 2. GEMINI PARSED JSON =====")
             st.json(parsed_data)
 
@@ -1576,6 +1567,7 @@ def process_single_pdf_batch(file_bytes, file_name):
 
     except Exception as e:
         return {"success": False, "error": f"Lỗi hệ thống khi xử lý tệp: {str(e)}"}
+
 
 
 
