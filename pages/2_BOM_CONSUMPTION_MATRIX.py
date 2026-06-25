@@ -1288,10 +1288,14 @@ def _generate_ai_report_layer(
     shrinkage_report_text,
     is_estimated_mode,
 ):
-    """Hàm bổ trợ đóng vai trò Reporting Layer, đóng gói cấu trúc prompt và gọi
-
-    API Gemini.
     """
+    Hàm bổ trợ đóng vai trò Reporting Layer, đóng gói cấu trúc prompt và gọi API Gemini.
+    ✨ Đã import đầy đủ thư viện cục bộ và đồng bộ cấu trúc SDK mới.
+    """
+    import json
+    import streamlit as st
+    from google.genai import types
+
     # 4. THIẾT LẬP PROMPT KHÓA CỨNG (LOCK NUMBER) TUYỆT ĐỐI QUYỀN TÍNH TOÁN CỦA GEMINI
     lock_instruction = ""
     if final_engine_yard > 0.0:
@@ -1360,7 +1364,12 @@ def _generate_ai_report_layer(
 
     # 7. Đóng gói danh sách ngữ cảnh Chat gửi lên API Gemini
     chat_contents = [types.Part.from_text(text=system_instruction)]
-    for past_chat in st.session_state.get("consumption_chat_history", []):
+    
+    # Khởi tạo history an toàn nếu chưa tồn tại trong session_state
+    if "consumption_chat_history" not in st.session_state:
+        st.session_state["consumption_chat_history"] = []
+
+    for past_chat in st.session_state["consumption_chat_history"]:
         chat_contents.append(
             types.Part.from_text(text=f"User: {past_chat['user']}")
         )
@@ -1378,6 +1387,7 @@ def _generate_ai_report_layer(
 
     # 8. Gọi mô hình xử lý xuất báo cáo trực quan
     try:
+        # Cấu hình gọi model đồng bộ với bộ SDK google-genai mới
         response = client.models.generate_content(
             model="gemini-2.5-flash", contents=chat_contents
         )
@@ -1393,6 +1403,7 @@ def _generate_ai_report_layer(
         return ai_reply
     except Exception as e:
         return f"🚨 Lỗi cổng phân tích định mức: {str(e)}"
+
 
 if "get_secure_gemini_key" in globals():
     gemini_key = get_secure_gemini_key()
