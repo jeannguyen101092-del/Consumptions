@@ -1871,16 +1871,27 @@ if st.session_state.get("matched_techpack") is None and st.session_state["vlm_pr
     bom_records = st.session_state.get("bom_records", [])
 
 # =========================================================================
-# 🖼️ LỚP HIỂN THỊ GIAO DIỆN ĐỐI CHIẾU FLAT SKETCH & BẢNG THÔNG SỐ (BẢN CHUẨN)
+# 🖼️ LỚP HIỂN THỊ ĐỒNG BỘ: HÌNH ẢNH THIẾT KẾ MỚI VS ẢNH GỐC TRONG KHO (VÁ LUỒNG LIST)
 # =========================================================================
 st.markdown("### 🖼️ ĐỐI CHIẾU SỰ TƯƠNG ĐỒNG HÌNH ẢNH THIẾT KẾ (FLAT SKETCH)")
 
-matched_techpack = st.session_state.get("matched_techpack", None)
+# 1. Thu thập dữ liệu đối chứng an toàn từ bộ nhớ đệm
+matched_data_raw = st.session_state.get("matched_techpack", None)
+matched_techpack = None
+
+# SỬA LỖI CHÍ MẠNG: Nếu dữ liệu kho trả về dạng danh sách [ {...} ], bốc ngay phần tử đầu tiên ra làm từ điển chuẩn
+if matched_data_raw:
+    if isinstance(matched_data_raw, list) and len(matched_data_raw) > 0:
+        matched_techpack = matched_data_raw[0]
+    elif isinstance(matched_data_raw, dict):
+        matched_techpack = matched_data_raw
+
 base_url_api = globals().get("base_url_api", globals().get("SB_URL", ""))
 api_headers = globals().get("api_headers", {})
 
 img_col1, img_col2 = st.columns(2)
 
+# --- CỘT BÊN TRÁI: HÌNH ẢNH MẪU MỚI DO AI TRÍCH XUẤT TỪ PDF ---
 with img_col1:
     target_new_sketch_bytes = st.session_state.get("target_new_sketch_bytes_state", globals().get("target_new_sketch_bytes", None))
     new_style_id_detected = st.session_state.get("new_style_id_detected", globals().get("new_style_id_detected", "N/A"))
@@ -1889,33 +1900,86 @@ with img_col1:
         try:
             st.image(target_new_sketch_bytes, caption=f"Hình Thiết kế quét từ tệp PDF mẫu mới ({new_style_id_detected})", use_container_width=True)
         except Exception as e:
-            st.error(f"Lỗi hiển thị hình ảnh bản vẽ: {e}")
+            st.error(f"Lỗi hiển thị hình ảnh bản vẽ mới: {e}")
     else:
         st.info("ℹ️ Chưa tải lên hoặc chưa trích xuất được ảnh phác thảo từ file PDF.")
 
+# --- CỘT BÊN PHẢI: HÌNH ẢNH ĐỐI CHỨNG TRONG KHO DỮ LIỆU ---
 with img_col2:
-    if matched_techpack is not None:
-        # Nếu đã khớp mã từ Database, bốc tách bản ghi đối chứng đầu tiên nếu trả về dạng mảng danh sách
-        if isinstance(matched_techpack, list) and len(matched_techpack) > 0:
-            matched_techpack = matched_techpack[0]
-            st.session_state["matched_techpack"] = matched_techpack
-            
-        target_style_name = str(matched_techpack.get("StyleName", "")).strip().upper()
+    if matched_techpack is not None and isinstance(matched_techpack, dict):
+        # 1. Đồng bộ mã đối chứng và URL ảnh gốc trong kho lưu trữ dữ liệu
+        target_style_name = str(matched_techpack.get("StyleName", matched_techpack.get("style_name", ""))).strip().upper()
+        st.session_state["matched_style_name"] = target_style_name
+        st.session_state["matched_sketch_url"] = matched_techpack.get("SketchURL") or matched_techpack.get("sketch_url", "")
+        
         similarity_score = st.session_state.get("match_confidence_score", 100.0)
+        st.session_state["matched_similarity_score"] = similarity_score
 
         st.markdown(f"""
             <div style='background-color: #EEF2F6; padding: 10px; border-radius: 5px; text-align: center; margin-bottom: 8px;'>
                 <p style='color: #1E3A8A; font-size: 14px; font-weight: 700; margin: 0;'>🎯 Mã tương đồng trong kho: {target_style_name}</p>
-                <p style='color: #10B981; font-size: 13px; font-weight: 600; margin: 4px 0 0 0;'>🤖 Trạng thái kết nối kho: TỰ ĐỘNG KHỚP KHỎA ({similarity_score}%)</p>
+                <p style='color: #10B981; font-size: 13px; font-weight: 600; margin: 4px 0 0 0;'>🤖 Hệ thống kết nối kho: KHỚP MÃ THÀNH CÔNG ({similarity_score}%)</p>
             </div>
         """, unsafe_allow_html=True)
         
-        # [Mẹo]: Giữ lại phần logic requests.get() tải ảnh `img_content_final` từ kho dữ liệu cũ của bạn ở đây...
+        # 2. Xử lý tải ảnh gốc từ kho lưu trữ Supabase Storage
+        base_storage_url = f"{base_url_api.rstrip('/')}/storage/v1/object/public/kho_anh" if base_url_api else ""
+        img_content_final = None
+        
+        if base_storage_url:
+            import requests
+            from urllib.parse import quote
+            from concurrent.futures import ThreadPoolExecutor
+            
+            safe_style_name = quote(target_style_name)
+            safe_style_name_lower = quote(target_style_name.lower())
+            
+            url_options = [
+                f"{base_storage_url}/{safe_style_name}.png",
+                f"{base_storage_url}/{safe_style_name}.PNG",
+                f"{base_storage_url}/{safe_style_name}.jpg",
+                f"{base_storage_url}/{safe_style_name}.JPG",
+                f"{base_storage_url}/{safe_style_name}.jpeg",
+                f"{base_storage_url}/{safe_style_name_lower}.jpg",
+                f"{base_storage_url}/{safe_style_name_lower}.png"
+            ]
+            
+            def fetch_image_worker(url):
+                try:
+                    resp = requests.get(url, headers=api_headers, timeout=5)
+                    if resp.status_code == 200 and len(resp.content) > 500:
+                        content = resp.content
+                        if content.startswith(b'\xff\xd8') or content.startswith(b'\x89PNG') or b'<!DOCTYPE' not in content[:100]:
+                            return content
+                except Exception:
+                    pass
+                return None
+
+            with ThreadPoolExecutor(max_workers=6) as executor:
+                results = executor.map(fetch_image_worker, url_options)
+                for res in results:
+                    if res:
+                        img_content_final = res
+                        break
+        
+        # 3. Tiến hành vẽ ảnh kho lên màn hình giao diện
+        if img_content_final:
+            try:
+                st.image(img_content_final, caption=f"Ảnh bản vẽ gốc trong kho mã {target_style_name}", use_container_width=True)
+            except Exception:
+                st.warning("⚠️ Lỗi hiển thị tệp đồ họa từ Storage.")
+        else:
+            db_stored_url = st.session_state.get("matched_sketch_url", "")
+            if db_stored_url and "public/kho_anh" not in str(db_stored_url):
+                try:
+                    st.image(db_stored_url, caption=f"Ảnh bản vẽ gốc mã {target_style_name} (Direct Link)", use_container_width=True)
+                except Exception:
+                    st.info("⚠️ Không tải được ảnh kho từ Direct Link.")
+            else:
+                st.info("ℹ️ Lưu ý: Bản ghi đã khớp, nhưng chưa nạp ảnh minh họa trong kho.")
     else:
-        st.warning("⚠️ CHƯA KHỚP ĐƯỢC MÃ TƯƠNG ĐỒNG! Vui lòng kiểm tra lại mã hàng hoặc đảm bảo mã tồn tại trên hệ thống.")
-
-st.markdown("---")
-
+        st.session_state["matched_image_verified"] = False
+        st.warning("⚠️ CHƯA KHỚP ĐƯỢC MÃ TƯƠNG ĐỒNG! Vui lòng kiểm tra lại mã hoặc nạp thông tin lên kho dữ liệu.")
 
 
 
