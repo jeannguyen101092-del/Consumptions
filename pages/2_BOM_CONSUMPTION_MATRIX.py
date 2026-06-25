@@ -2305,8 +2305,8 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         else:
             globals()["avg_area_growth_pct"] = 0.0
             st.session_state["avg_area_growth_pct"] = 0.0
-    # =========================================================================
-    # 🔮 [ĐOẠN 6/6] - AI CONSUMPTION PROJECTION ENGINE & TOÁN CỘNG BÙ CHI TIẾT TÚI
+       # =========================================================================
+    # 🔮 [ĐOẠN 6/6 CHUẨN LỀ] - AI CONSUMPTION PROJECTION ENGINE & CỘNG BÙ ĐỊNH MỨC
     # =========================================================================
     bom_records = st.session_state.get("bom_records", [])
 
@@ -2353,7 +2353,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                 final_old_bom_summary[k] = round(bom_sum_accumulator[k] / bom_count_accumulator[k], 4)
 
         if isinstance(bom_records, list) and len(bom_records) > 0:
-            sample_record = bom_records[0]
+            sample_record = bom_records
         else:
             sample_record = bom_records if isinstance(bom_records, dict) else {}
 
@@ -2419,7 +2419,6 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             ctype_upper = str(ctype).strip().upper()
             similarity_weight = v_similarity / 100.0
             
-            # Nhóm Vải chính: Chịu biến thiên phom rập lớn + TỰ ĐỘNG TÍNH TOÁN CỘT BÙ SỚ VẢI TÚI PHÁT SINH
             if any(k in ctype_upper for k in ["MAIN", "FABRIC", "BODY", "SHELL"]):
                 adjusted_shape_factor = shape_factor * fabric_growth_factor * similarity_weight
                 base_projected = avg_old_qty * (1 + adjusted_shape_factor / 100)
@@ -2430,23 +2429,21 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                 else:
                     note = f"Vải chính: Hệ số ({fabric_growth_factor}) × POM ({round(shape_factor, 1)}%) → ĐM tăng: {round(adjusted_shape_factor, 2)}%"
                 
-            # Nhóm Vải phụ / Vải lót (Chịu hệ số giảm chấn cơ học biên độ nhẹ 0.4)
             elif any(k in ctype_upper for k in ["LINING", "RIB", "COMBINATION", "POCKET", "INTERLINING"]):
                 reduced_factor = shape_factor * 0.4 * similarity_weight
                 projected_dm = avg_old_qty * (1 + reduced_factor / 100) * (1 + wastage_buffer / 100)
                 note = f"Vải phụ: Giảm chấn (0.4) × Mức tăng vải chính → ĐM tăng: {round(reduced_factor, 2)}%"
                 
-            # Nhóm Phụ liệu tĩnh cố định (Giữ nguyên định mức gốc, chỉ nhân hệ số hao hụt đầu bàn)
             else:
                 projected_dm = avg_old_qty * (1 + wastage_buffer / 100)
                 note = f"Phụ liệu tĩnh (Chỉ tính hao hụt sản xuất {wastage_buffer}%, giữ nguyên định mức gốc)"
                 
-            projection_rows.append({
-                "Phân loại vật tư (Type)": ctype,
-                "ĐM Trung bình mã cũ (Kho)": round(avg_old_qty, 4),
-                "ĐM Dự phóng mã mới": round(projected_dm, 3),
-                "Cơ sở thuật toán toán AI": note
-            })
+                projection_rows.append({
+                    "Phân loại vật tư (Type)": ctype,
+                    "ĐM Trung bình mã cũ (Kho)": round(avg_old_qty, 4),
+                    "ĐM Dự phóng mã mới": round(projected_dm, 3),
+                    "Cơ sở thuật toán toán AI": note
+                })
             
         if projection_rows:
             df_projection = pd.DataFrame(projection_rows)
