@@ -1678,10 +1678,10 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
 
 
         # =========================================================================================
-# # KHỐI SO SÁNH TRỰC QUAN VLM KẾT HỢP BỘ LỌC CỨNG CHỐNG LỆCH DANH MỤC (VÁ LỖI INFINITE RERUN)
+# =========================================================================================
+# # KHỐI SO SÁNH TRỰC QUAN VLM KẾT HỢP BỘ LỌC CỨNG (BẢN VÁ LỖI 'STR' HAS NO ATTRIBUTE 'GET')
 # =========================================================================================
 
-# Khởi tạo khóa kiểm tra tên file để chống gọi lại VLM liên tục gây lặp vô hạn
 current_active_file = st.session_state.get("previous_uploaded_file_name", "Techpack")
 
 if "vlm_processed_file_checked" not in st.session_state:
@@ -1693,17 +1693,14 @@ if st.session_state.get("matched_techpack") is None and st.session_state["vlm_pr
     with st.spinner("🧠 Mắt thần VLM đang so sánh trực quan ảnh và thông số kỹ thuật..."):
         try:
             headers_db = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if SB_KEY else {}
-            
-            # ĐỒNG BỘ: Sử dụng chung endpoint bảng dữ liệu 'techpacks' đồng nhất hệ thống
             url_db = f"{base_sb_url.rstrip('/')}/rest/v1/techpacks" if base_sb_url else ""
             raw_styles = requests.get(url_db, headers=headers_db, params={"select": "StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL,sketch_vector", "limit": 1000}, timeout=15).json() if url_db else []
             
             if raw_styles and client and client.models:
-                valid_styles = [s for s in raw_styles if s.get("StyleName") and s.get("sketch_vector") and s.get("DetailedMeasurements")]
+                valid_styles = [s for s in raw_styles if isinstance(s, dict) and s.get("StyleName") and s.get("sketch_vector") and s.get("DetailedMeasurements")]
                 
                 vision_type = str(st.session_state.get("detected_garment_type", "UNKNOWN")).strip().upper()
                 
-                # TỪ ĐIỂN ÁNH XẠ: Chống lọc oan sai danh mục (95% Stability)
                 GARMENT_MAP = {
                     "PANT": ["PANT", "PANTS", "TROUSER", "TROUSERS", "CARGO", "DENIM JEANS"],
                     "SHORT": ["SHORT", "SHORTS", "BERMUDA"],
@@ -1718,18 +1715,14 @@ if st.session_state.get("matched_techpack") is None and st.session_state["vlm_pr
                 pool = []
                 for s in valid_styles:
                     cand_cat = str(s.get("Category", "")).strip().upper()
-                    
                     if 'new_style_category' in globals() and new_style_category and cand_cat != str(new_style_category).strip().upper():
                         continue
-                        
-                    # Thực hiện lọc chéo thông minh thông qua GARMENT_MAP
                     if vision_type != "UNKNOWN" and vision_type in GARMENT_MAP:
                         allowed_synonyms = GARMENT_MAP[vision_type]
                         if not any(syn in cand_cat for syn in allowed_synonyms) and cand_cat not in vision_type:
                             continue
                     elif vision_type != "UNKNOWN" and vision_type not in cand_cat and cand_cat not in vision_type:
                         continue
-                        
                     pool.append(s)
                     
                 if not pool: pool = valid_styles
@@ -1745,26 +1738,30 @@ if st.session_state.get("matched_techpack") is None and st.session_state["vlm_pr
                         overlap_score += 3  
                     ranked_pool.append((overlap_score, s))
                 
-                # SẮP XẾP AN TOÀN THEO ĐIỂM SỐ OVERLAP KÝ TỰ
+                # SỬA LỖI CHÍNH XÁC: Sắp xếp theo điểm số phần tử thứ 0 của Tuple
                 ranked_pool.sort(reverse=True, key=lambda x: x[0])
                 
-                # Giới hạn cứng Top 8 giúp tăng tốc độ xử lý ảnh và tiết kiệm VLM Token
-                top_8_candidates = [x[1] for x in ranked_pool[:8]]
-                vision_contents = []
+                # SỬA LỖI CỐT LÕI: Giải nén bốc riêng phần tử từ điển x[1] từ bộ (score, dict)
+                top_8_candidates = [x[1] for x in ranked_pool[:8] if isinstance(x, tuple) and len(x) > 1]
                 
+                vision_contents = []
                 target_new_sketch_bytes = st.session_state.get("target_new_sketch_bytes_state", globals().get("target_new_sketch_bytes", None))
                 detected_mime_type = locals().get("detected_mime_type", globals().get("detected_mime_type", "image/jpeg"))
                 
                 if target_new_sketch_bytes:
                     if types and hasattr(types, "Part"):
-                        vision_contents.append(types.Part.from_text(text=f"Analyze geometry of new sketch against historical style pictures and size specs. Category filter context: {vision_type}"))
+                        vision_contents.append(types.Part.from_text(text=f"Analyze geometry against history style pictures. Context: {vision_type}"))
                         vision_contents.append(types.Part.from_bytes(data=target_new_sketch_bytes, mime_type=detected_mime_type))
                     else:
-                        vision_contents.append(f"Analyze geometry of new sketch against historical style pictures and size specs. Category filter context: {vision_type}")
+                        vision_contents.append(f"Analyze geometry against history style pictures. Context: {vision_type}")
                         vision_contents.append({"mime_type": detected_mime_type, "data": target_new_sketch_bytes})
                 
                 historical_pool_summary = []
                 for idx, s in enumerate(top_8_candidates):
+                    # Kiểm tra phòng vệ nghiêm ngặt để s luôn luôn là một Dictionary
+                    if not isinstance(s, dict): 
+                        continue
+                        
                     cand_img_url = s.get("SketchURL") or s.get("sketch_url")
                     cand_img_bytes = None
                     if cand_img_url and target_new_sketch_bytes:
@@ -1783,19 +1780,16 @@ if st.session_state.get("matched_techpack") is None and st.session_state["vlm_pr
                             vision_contents.append(f"Candidate Pool Index: {idx} (Style: {s.get('StyleName')})")
                             vision_contents.append({"mime_type": 'image/jpeg', "data": cand_img_bytes})
                     
-                    historical_pool_summary.append({"pool_index": idx, "style_name": s.get("StyleName"), "base_size": s.get("BaseSize", "N/A"), "features": str(s.get("sketch_vector", "")).strip()[:1000], "detailed_measurements": s.get("DetailedMeasurements", {})})
+                    historical_pool_summary.append({"pool_index": idx, "style_name": s.get("StyleName"), "base_size": s.get("BaseSize", "N/A"), "features": str(s.get("sketch_vector", "")).strip()[:500], "detailed_measurements": s.get("DetailedMeasurements", {})})
                 
-                semantic_prompt = f"Cross-examine tech files. Select best index for reference BOM. Confirmed Target Garment Type: {vision_type}. New size: {current_base_size}. Candidates Pool: {json.dumps(historical_pool_summary, ensure_ascii=False)}. Return valid JSON ONLY: {{\"selected_pool_index\": 0, \"match_score\": 92, \"reason\": \"Mô tả kĩ thuật\"}}"
+                semantic_prompt = f"Cross-examine tech files. Select best index. Return valid JSON ONLY: {{\"selected_pool_index\": 0, \"match_score\": 92, \"reason\": \"Mô tả\"}}"
                 
-                if types and hasattr(types, "Part"): 
-                    vision_contents.append(types.Part.from_text(text=semantic_prompt))
-                else: 
-                    vision_contents.append(semantic_prompt)
+                if types and hasattr(types, "Part"): vision_contents.append(types.Part.from_text(text=semantic_prompt))
+                else: vision_contents.append(semantic_prompt)
                     
                 res = client.models.generate_content(model='gemini-2.5-flash', contents=vision_contents)
                 json_match = re.search(r'\{[\s\S]*\}', res.text.strip())
                 
-                # Khóa trạng thái file đã xử lý xong trước khi thực hiện Rerun để chặn vòng lặp vô hạn
                 st.session_state["vlm_processed_file_checked"] = current_active_file
                 
                 if json_match:
@@ -1811,11 +1805,10 @@ if st.session_state.get("matched_techpack") is None and st.session_state["vlm_pr
                         st.session_state["matched_techpack"] = top_8_candidates[s_idx]
                         st.session_state["match_confidence_score"] = score
                         st.session_state["match_reason"] = reason
-                        st.toast(f"🎯 Đã khóa mã đối chứng trực quan: {top_8_candidates[s_idx].get('StyleName')} ({score}%)", icon="🎯")
+                        st.toast(f"🎯 Khóa đối chứng VLM: {top_8_candidates[s_idx].get('StyleName')} ({score}%)", icon="🎯")
                         st.rerun()
                     else:
                         st.session_state["matched_techpack"] = None
-                        st.sidebar.info(f"Độ tương đồng VLM thấp ({score}%) - Giữ chế độ hiển thị mẫu tự do.")
         except Exception as vlm_err:
             st.session_state["vlm_processed_file_checked"] = current_active_file
             st.sidebar.warning(f"Trình đối so trực quan VLM tạm nghỉ: {vlm_err}")
