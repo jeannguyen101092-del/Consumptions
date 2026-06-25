@@ -1817,14 +1817,17 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     bom_records = st.session_state.get("bom_records", [])
 
 # =========================================================================
-# 🖼️ LỚP HIỂN THỊ ĐỒNG THỜI: HÌNH ẢNH THIẾT KẾ & BẢNG SAI LỆCH THÔNG SỐ RẬP
+# 🖼️ LỚP HIỂN THỊ GIAO DIỆN ĐỐI CHIẾU FLAT SKETCH & BẢNG THÔNG SỐ (BẢN CHUẨN)
 # =========================================================================
 st.markdown("### 🖼️ ĐỐI CHIẾU SỰ TƯƠNG ĐỒNG HÌNH ẢNH THIẾT KẾ (FLAT SKETCH)")
+
+matched_techpack = st.session_state.get("matched_techpack", None)
+base_url_api = globals().get("base_url_api", globals().get("SB_URL", ""))
+api_headers = globals().get("api_headers", {})
 
 img_col1, img_col2 = st.columns(2)
 
 with img_col1:
-    # 1. HIỂN THỊ HÌNH ẢNH SKETCH MÀ AI VỪA TRÍCH XUẤT ĐƯỢC TỪ PDF
     target_new_sketch_bytes = st.session_state.get("target_new_sketch_bytes_state", globals().get("target_new_sketch_bytes", None))
     new_style_id_detected = st.session_state.get("new_style_id_detected", globals().get("new_style_id_detected", "N/A"))
     
@@ -1832,75 +1835,118 @@ with img_col1:
         try:
             st.image(target_new_sketch_bytes, caption=f"Hình Thiết kế quét từ tệp PDF mẫu mới ({new_style_id_detected})", use_container_width=True)
         except Exception as e:
-            st.error(f"Lỗi render hình ảnh bản vẽ: {e}")
+            st.error(f"Lỗi hiển thị hình ảnh bản vẽ: {e}")
     else:
-        st.info("ℹ️ Chưa tải lên hoặc chưa trích xuất được hình ảnh thiết kế từ tệp PDF.")
+        st.info("ℹ️ Chưa tải lên hoặc chưa trích xuất được ảnh phác thảo từ file PDF.")
 
 with img_col2:
-    # 2. HIỂN THỊ HÌNH ẢNH ĐỐI CHỨNG TRONG KHO (NẾU ĐÃ KHỚP MÃ)
-    matched_techpack = st.session_state.get("matched_techpack", None)
     if matched_techpack is not None:
+        # Nếu đã khớp mã từ Database, bốc tách bản ghi đối chứng đầu tiên nếu trả về dạng mảng danh sách
+        if isinstance(matched_techpack, list) and len(matched_techpack) > 0:
+            matched_techpack = matched_techpack[0]
+            st.session_state["matched_techpack"] = matched_techpack
+            
         target_style_name = str(matched_techpack.get("StyleName", "")).strip().upper()
-        similarity_score = st.session_state.get("match_confidence_score", 92.0)
-        
+        similarity_score = st.session_state.get("match_confidence_score", 100.0)
+
         st.markdown(f"""
             <div style='background-color: #EEF2F6; padding: 10px; border-radius: 5px; text-align: center; margin-bottom: 8px;'>
                 <p style='color: #1E3A8A; font-size: 14px; font-weight: 700; margin: 0;'>🎯 Mã tương đồng trong kho: {target_style_name}</p>
-                <p style='color: #10B981; font-size: 13px; font-weight: 600; margin: 4px 0 0 0;'>🤖 Độ tương đồng thiết kế (Vision): {similarity_score}%</p>
+                <p style='color: #10B981; font-size: 13px; font-weight: 600; margin: 4px 0 0 0;'>🤖 Trạng thái kết nối kho: TỰ ĐỘNG KHỚP KHỎA ({similarity_score}%)</p>
             </div>
         """, unsafe_allow_html=True)
         
-        # Gọi hiển thị ảnh kho dữ liệu gốc của bạn ở đây...
-        # (Giữ nguyên đoạn code fetch_image_worker và st.image của ảnh col2 cũ của bạn)
+        # [Mẹo]: Giữ lại phần logic requests.get() tải ảnh `img_content_final` từ kho dữ liệu cũ của bạn ở đây...
     else:
-        st.warning("⚠️ CHƯA KHỚP ĐƯỢC MÃ TƯƠNG ĐỒNG! Vui lòng nạp file Techpack tại menu Upload.")
+        st.warning("⚠️ CHƯA KHỚP ĐƯỢC MÃ TƯƠNG ĐỒNG! Vui lòng kiểm tra lại mã hàng hoặc đảm bảo mã tồn tại trên hệ thống.")
 
 st.markdown("---")
 
-# 3. DỰNG BẢNG ĐỐI CHIẾU SAI LỆCH THÔNG SỐ (GIÁ TRỊ PHÂN SỐ INCH TO FLOATS)
+# =========================================================================
+# 📊 RENDER BẢNG SO SÁNH SAI LỆCH THÔNG SỐ (DUY NHẤT MỘT KHỐI - KHÔNG BỊ LẶP)
+# =========================================================================
 st.markdown("### 📊 BẢNG SO SÁNH SAI LỆCH THÔNG SỐ KỸ THUẬT RẬP MẪU")
 
+import pandas as pd
+import re
+
+def parse_inch_fraction(val_str):
+    if val_str is None: return 0.0
+    val_clean = str(val_str).strip().replace('"', '').replace('”', '')
+    if not val_clean or val_clean.upper() in ["N/A", "UNKNOWN", "-", "0"]: return 0.0
+    try:
+        if " " in val_clean:
+            parts = val_clean.split()
+            whole = float(parts[0])
+            frac = parts[1]
+            if "/" in frac:
+                num, denom = frac.split("/")
+                return whole + (float(num) / float(denom))
+        elif "/" in val_clean:
+            num, denom = val_clean.split("/")
+            return float(num) / float(denom)
+        return float(val_clean)
+    except Exception:
+        match = re.search(r"[-+]?\d*\.\d+|\d+", val_clean)
+        return float(match.group()) if match else 0.0
+
+def format_diff(val, has_old):
+    if not has_old: return "-"
+    if val == 0: return "0.0"
+    return f"+{val:.2f}" if val > 0 else f"{val:.2f}"
+
+def format_pct(val, has_old):
+    if not has_old: return "-"
+    if val == 0: return "0.0%"
+    return f"+{val:.2f}%" if val > 0 else f"{val:.2f}%"
+
+# 1. Bóc tách thông số mẫu mới phẳng
 extracted_spec = st.session_state.get("extracted_spec_data", None)
 if isinstance(extracted_spec, dict) and "data" in extracted_spec:
     extracted_spec = extracted_spec["data"]
 
 new_specs = {}
 if extracted_spec and isinstance(extracted_spec, dict):
-    # Ưu tiên lấy bảng measurements phẳng, nếu trống thì tự bóc tách tầng size từ full_size_matrix
     raw_meas = extracted_spec.get("measurements", {})
     if raw_meas and isinstance(raw_meas, dict) and len(raw_meas) > 0:
         new_specs = raw_meas
     elif "full_size_matrix" in extracted_spec and isinstance(extracted_spec["full_size_matrix"], dict):
         for pom, size_dict in extracted_spec["full_size_matrix"].items():
             if isinstance(size_dict, dict):
-                # Tự động bắt lấy cột giá trị của size 30 hoặc size đầu tiên có sẵn
-                target_k = next((k for k in size_dict.keys() if "30" in str(k) or "base" in str(k).lower()), list(size_dict.keys())[0] if size_dict.keys() else None)
+                target_k = next((k for k in size_dict.keys() if "30" in str(k) or "base" in str(k).lower()), list(size_dict.keys()) if size_dict.keys() else None)
                 if target_k: new_specs[pom] = size_dict[target_k]
             else:
                 new_specs[pom] = size_dict
 
+# 2. Bóc tách thông số mã cũ trong DB
 old_specs = {}
-target_style_code = "ĐỐI CHỨNG"
+target_style_code = "Chưa kết nối kho"
+has_db_data = False
+
 if matched_techpack and isinstance(matched_techpack, dict):
     old_specs = matched_techpack.get("DetailedMeasurements", {}) or matched_techpack.get("measurements", {})
     target_style_code = str(matched_techpack.get("StyleName", "N/A")).strip().upper()
+    if old_specs:
+        has_db_data = True
 
-if new_specs and old_specs:
+# 3. Tiến hành vẽ bảng tính toán
+if new_specs:
     comparison_rows = []
-    all_poms = sorted(list(set(list(new_specs.keys()) + list(old_specs.keys()))))
+    all_poms = sorted(list(set(list(new_specs.keys()) + list(old_specs.keys())))) if has_db_data else sorted(list(new_specs.keys()))
     
     for pom in all_poms:
         raw_new_val = str(new_specs.get(pom, "-")).strip()
-        raw_old_val = str(old_specs.get(pom, "-")).strip()
+        raw_old_val = str(old_specs.get(pom, "-")).strip() if has_db_data else "-"
         
-        if raw_new_val == "-" or raw_old_val == "-": continue
+        if raw_new_val != "-" and raw_old_val != "-":
+            float_new = parse_inch_fraction(raw_new_val)
+            float_old = parse_inch_fraction(raw_old_val)
+            diff_val = float_new - float_old
+            diff_pct = (diff_val / float_old * 100) if float_old > 0 else 0.0
+        else:
+            diff_val = 0.0
+            diff_pct = 0.0
             
-        float_new = parse_inch_fraction(raw_new_val)
-        float_old = parse_inch_fraction(raw_old_val)
-        
-        diff_val = float_new - float_old
-        diff_pct = (diff_val / float_old * 100) if float_old > 0 else 0.0
-        
         comparison_rows.append({
             "Vị trí đo (POM Description)": pom,
             "Mẫu mới (30)": raw_new_val,
@@ -1911,13 +1957,15 @@ if new_specs and old_specs:
         
     if comparison_rows:
         diff_df = pd.DataFrame(comparison_rows)
-        diff_df["Chênh lệch (Diff)"] = diff_df["Chênh lệch (Diff)"].apply(format_diff)
-        diff_df["Tỷ lệ biến thiên (Diff %)"] = diff_df["Tỷ lệ biến thiên (Diff %)"].apply(format_pct)
+        diff_df["Chênh lệch (Diff)"] = diff_df.apply(lambda row: format_diff(row["Chênh lệch (Diff)"], has_db_data), axis=1)
+        diff_df["Tỷ lệ biến thiên (Diff %)"] = diff_df.apply(lambda row: format_pct(row["Tỷ lệ biến thiên (Diff %)"], has_db_data), axis=1)
+        
+        # Đổ bảng chuẩn lên màn hình
         st.dataframe(diff_df, use_container_width=True, hide_index=True)
     else:
-        st.info("ℹ️ Không tìm thấy vị trí đo trùng khớp hoàn toàn.")
+        st.info("ℹ️ Không trích xuất được danh sách dòng vị trí đo.")
 else:
-    st.info("ℹ️ Đang kiểm tra luồng dữ liệu... Vui lòng kiểm tra Log hoặc đảm bảo file PDF chứa ma trận kích thước.")
+    st.info("ℹ️ Đang chờ dữ liệu bóc tách mẫu mới từ AI để tạo bảng thông số kỹ thuật...")
 
 
 
