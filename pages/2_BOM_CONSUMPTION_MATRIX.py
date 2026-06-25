@@ -1378,7 +1378,11 @@ def process_single_pdf_batch(file_bytes, file_name):
         return {"success": False, "error": f"Lỗi hệ thống ngoài vòng lặp AI: {str(e)}"}
 
 
-# Khởi tạo trạng thái mặc định của các biến
+# =========================================================================
+# ⚙️ KHỞI TẠO BIẾN VÀ XỬ LÝ TỆP TẢI LÊN (BẢN VÁ LỖI MẤT BẢNG THÔNG SỐ)
+# =========================================================================
+
+# 1. Định nghĩa các giá trị mặc định ban đầu cho biến cục bộ
 new_style_id_detected = "UNKNOWN_STYLE"
 new_style_category_detected = ""
 new_style_fabric_detected = "UNKNOWN_FABRIC"
@@ -1386,91 +1390,75 @@ new_style_measurements_dict = {}
 new_style_base_size = "32"
 target_new_sketch_bytes = None 
 
+# 2. Xác định nguồn tệp tải lên từ các widget file_uploader khác nhau trong session_state
 target_file_object = None
-if 'uploaded_file' in st.session_state and st.session_state['uploaded_file'] is not None:
+if st.session_state.get('uploaded_file') is not None:
     target_file_object = st.session_state['uploaded_file']
-elif 'chat_uploader' in st.session_state and st.session_state['chat_uploader'] is not None:
+elif st.session_state.get('chat_uploader') is not None:
     target_file_object = st.session_state['chat_uploader']
-elif 'bom_matrix_uploader' in st.session_state and st.session_state['bom_matrix_uploader'] is not None:
+elif st.session_state.get('bom_matrix_uploader') is not None:
     target_file_object = st.session_state['bom_matrix_uploader']
 
 has_file = target_file_object is not None
 
+# 3. LUỒNG XỬ LÝ DỮ LIỆU TỆP TIN AN TOÀN TRÁNH TRÙNG LẶP API
 if has_file:
     file_bytes = target_file_object.getvalue()
     file_name = target_file_object.name
+    
+    # Kiểm tra xem file này đã được phân tích thành công ở lượt chạy trước chưa
     if file_name.lower().endswith('.pdf'):
-        try:
-            res_pdf = process_single_pdf_batch(file_bytes, file_name)
-            if res_pdf.get("success"):
-                meta_p = res_pdf["data"]
-                new_style_id_detected = meta_p.get("style_number_parsed", "UNKNOWN_STYLE")
-                new_style_category_detected = meta_p.get("category", "")
-                new_style_base_size = meta_p.get("base_size_name", "32")
-                new_style_measurements_dict = meta_p.get("measurements", {})
-                target_new_sketch_bytes = res_pdf.get("sketch_bytes")
-        except Exception:
-            pass
+        # Đồng bộ tên file để nhận diện lượt upload mới
+        if "previous_uploaded_file_name" not in st.session_state or st.session_state["previous_uploaded_file_name"] != file_name:
+            st.session_state["previous_uploaded_file_name"] = file_name
+            
+            with st.spinner("🤖 AI đang tiến hành phân tích sâu cấu trúc PDF để bóc tách thông số..."):
+                try:
+                    res_pdf = process_single_pdf_batch(file_bytes, file_name)
+                    if res_pdf and res_pdf.get("success"):
+                        # Lưu trữ vĩnh viễn cục dữ liệu AI trả về vào Session State để không bị mất khi render lại
+                        st.session_state["extracted_spec_data"] = res_pdf["data"]
+                        st.session_state["target_new_sketch_bytes_state"] = res_pdf.get("sketch_bytes")
+                    else:
+                        st.session_state["extracted_spec_data"] = None
+                        st.session_state["target_new_sketch_bytes_state"] = None
+                except Exception as pdf_fatal_err:
+                    st.session_state["extracted_spec_data"] = None
+                    st.session_state["target_new_sketch_bytes_state"] = None
+        
+        # ĐỒNG BỘ DỮ LIỆU TỪ SESSION STATE RA CÁC BIẾN HIỂN THỊ GIAO DIỆN
+        extracted_spec = st.session_state.get("extracted_spec_data", None)
+        if extracted_spec:
+            # Hỗ trợ bóc tách nếu dữ liệu trả về bị bọc bởi khóa "data"
+            if "data" in extracted_spec:
+                extracted_spec = extracted_spec["data"]
+                
+            new_style_id_detected = extracted_spec.get("style_number_parsed", "UNKNOWN_STYLE")
+            new_style_category_detected = extracted_spec.get("category", "")
+            new_style_base_size = extracted_spec.get("base_size_name", "32")
+            new_style_measurements_dict = extracted_spec.get("measurements", {})
+            
+        target_new_sketch_bytes = st.session_state.get("target_new_sketch_bytes_state", None)
     else:
+        # Nếu là file ảnh trực tiếp (JPG/PNG), giữ nguyên làm ảnh phác thảo (Flat Sketch)
         target_new_sketch_bytes = file_bytes
+        st.session_state["target_new_sketch_bytes_state"] = file_bytes
+        st.session_state["extracted_spec_data"] = None # Reset thông số vì đây là ảnh thô
 
-# Cấu hình biến môi trường kết nối database
+# ĐỒNG BỘ ĐỂ ĐẢM BẢO LỚP HIỂN THỊ GIAO DIỆN PHÍA DƯỚI ĐỌC ĐƯỢC GIÁ TRỊ TOÀN CỤC
+globals()["target_new_sketch_bytes"] = target_new_sketch_bytes
+globals()["new_style_id_detected"] = new_style_id_detected
+
+# 4. CHUẨN HÓA BIẾN MÔI TRƯỜNG KẾT NỐI DATABASE SUPABASE
 SB_URL = st.secrets.get("SUPABASE_URL", "") if "SB_URL" not in globals() else SB_URL
 SB_KEY = st.secrets.get("SUPABASE_KEY", "") if "SB_KEY" not in globals() else SB_KEY
 dynamic_keyword = str(new_style_id_detected).strip().upper()
 base_sb_url = SB_URL.rstrip('/') if SB_URL else ""
 headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if SB_KEY else {}
 menu_selection = globals().get("menu_selection", "🧵 BOM & Consumption Matrix")
-# ==========================================
-# ĐOẠN 3: KHỞI TẠO BIẾN VÀ XỬ LÝ TỆP TẢI LÊN
-# ==========================================
 
-new_style_id_detected = "UNKNOWN_STYLE"
-new_style_category_detected = ""
-new_style_fabric_detected = "UNKNOWN_FABRIC"
-new_style_measurements_dict = {}
-new_style_base_size = "32"
-target_new_sketch_bytes = None 
-
-# Xác định nguồn tệp tải lên từ các widget file_uploader khác nhau trong session_state
-target_file_object = None
-if 'uploaded_file' in st.session_state and st.session_state['uploaded_file'] is not None:
-    target_file_object = st.session_state['uploaded_file']
-elif 'chat_uploader' in st.session_state and st.session_state['chat_uploader'] is not None:
-    target_file_object = st.session_state['chat_uploader']
-elif 'bom_matrix_uploader' in st.session_state and st.session_state['bom_matrix_uploader'] is not None:
-    target_file_object = st.session_state['bom_matrix_uploader']
-
-has_file = target_file_object is not None
-
-# Nếu phát hiện có tệp, tiến hành đọc dữ liệu nhị phân (bytes)
-if has_file:
-    file_bytes = target_file_object.getvalue()
-    file_name = target_file_object.name
-    
-    # Nếu là file PDF, kích hoạt luồng xử lý bóc tách thông số tự động qua Gemini
-    if file_name.lower().endswith('.pdf'):
-        try:
-            res_pdf = process_single_pdf_batch(file_bytes, file_name)
-            if res_pdf.get("success"):
-                meta_p = res_pdf["data"]
-                new_style_id_detected = meta_p.get("style_number_parsed", "UNKNOWN_STYLE")
-                new_style_category_detected = meta_p.get("category", "")
-                new_style_base_size = meta_p.get("base_size_name", "32")
-                new_style_measurements_dict = meta_p.get("measurements", {})
-                target_new_sketch_bytes = res_pdf.get("sketch_bytes")
-        except Exception:
-            pass
-    else:
-        # Nếu là file ảnh trực tiếp (JPG/PNG), giữ nguyên làm ảnh phác thảo (Flat Sketch)
-        target_new_sketch_bytes = file_bytes
-
-# Chuẩn hóa từ khóa tìm kiếm và cấu hình các biến kết nối cơ sở dữ liệu Supabase
-dynamic_keyword = str(new_style_id_detected).strip().upper()
-base_sb_url = SB_URL.rstrip('/') if 'SB_URL' in globals() else ""
-headers = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if 'SB_KEY' in globals() else {}
 # =================================================================
-# =================================================================
+# =========================================================================================
 # # ĐOẠN 4 ĐÃ SỬA: HỆ THỐNG ĐỐI CHIẾU MÃ HÀNG CÓ CƠ CHẾ KHÓA TRẠNG THÁI VÀ PHÂN LOẠI VISION
 # =========================================================================================
 
@@ -1527,60 +1515,28 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     SB_KEY = globals().get("SB_KEY", "")
     base_sb_url = globals().get("base_sb_url", "")
     client = globals().get("client", None)
-    new_style_category = globals().get("new_style_category", "") 
-    new_style_id_detected = globals().get("new_style_id_detected", "UNKNOWN")
-    new_style_base_size = globals().get("new_style_base_size", "N/A")
+    
+    # --- ĐỒNG BỘ AN TOÀN DỮ LIỆU ĐÃ ĐƯỢC XỬ LÝ TỪ ĐOẠN 3 ---
+    extracted_spec = st.session_state.get("extracted_spec_data", None)
+    if isinstance(extracted_spec, dict) and "data" in extracted_spec:
+        extracted_spec = extracted_spec["data"]
 
-    detected_mime_type = "image/jpeg"
-    target_new_sketch_bytes = globals().get("target_new_sketch_bytes", None)
-    if not target_new_sketch_bytes and "bom_matrix_uploader" in st.session_state and st.session_state["bom_matrix_uploader"] is not None:
-        try:
-            file_buffer = st.session_state["bom_matrix_uploader"]
-            detected_mime_type = getattr(file_buffer, "type", "image/jpeg")
-            file_buffer.seek(0)
-            target_new_sketch_bytes = file_buffer.read()
-        except Exception: pass
+    if extracted_spec:
+        new_style_id_detected = extracted_spec.get("style_number_parsed", "UNKNOWN")
+        new_style_base_size = extracted_spec.get("base_size_name", "N/A")
+        new_style_category = extracted_spec.get("category", "")
+        st.session_state["detected_garment_type"] = new_style_category.upper()
+    else:
+        new_style_category = globals().get("new_style_category", "") 
+        new_style_id_detected = globals().get("new_style_id_detected", "UNKNOWN")
+        new_style_base_size = globals().get("new_style_base_size", "N/A")
 
-        # =========================================================================
-       # =========================================================================
-    # VÁ LỖI LUỒNG THỰC TẾ: PHÂN TÁCH BIẾN VÀ NĂNG LỰC XỬ LÝ (PDF VS IMAGE)
+    # Lấy dữ liệu ảnh thô/ảnh sketch ổn định từ Session State để hiển thị ra cột giao diện phía dưới
+    target_new_sketch_bytes = st.session_state.get("target_new_sketch_bytes_state", globals().get("target_new_sketch_bytes", None))
+    
+    # [ĐÃ XÓA BỎ]: Khối gọi hàm process_single_pdf_batch trùng lặp gây lỗi trailer dictionary và văng thông báo đỏ/vàng lên màn hình.
     # =========================================================================
-    is_actual_pdf = "pdf" in str(detected_mime_type).lower() or str(st.session_state.get("previous_uploaded_file_name", "")).lower().endswith(".pdf")
 
-    if is_actual_pdf and target_new_sketch_bytes:
-        if "extracted_spec_data" not in st.session_state or st.session_state.get("previous_uploaded_file_name_checked") != st.session_state["previous_uploaded_file_name"]:
-            raw_pdf_bytes_backup = target_new_sketch_bytes
-            
-            with st.spinner("🤖 AI đang tiến hành phân tích sâu cấu trúc PDF để bóc tách thông số & hình ảnh vẽ..."):
-                pdf_res = process_single_pdf_batch(raw_pdf_bytes_backup, st.session_state["previous_uploaded_file_name"])
-                
-                if pdf_res.get("success"):
-                    target_new_sketch_bytes = pdf_res["sketch_bytes"]
-                    globals()["target_new_sketch_bytes"] = pdf_res["sketch_bytes"]
-                    
-                    st.session_state["extracted_spec_data"] = pdf_res["data"]
-                    st.session_state["previous_uploaded_file_name_checked"] = st.session_state["previous_uploaded_file_name"]
-                    
-                    globals()["new_style_id_detected"] = pdf_res["data"].get("style_number_parsed", "UNKNOWN")
-                    globals()["new_style_base_size"] = pdf_res["data"].get("base_size_name", "N/A")
-                    
-                    new_vec = f"GARMENT_TYPE: {pdf_res['data'].get('category', 'UNKNOWN').upper()}\n\nFEATURES:\nEXTRACTED VIA MATRIX ENGINE"
-                    st.session_state["visual_description_str"] = new_vec
-                    st.session_state["detected_garment_type"] = pdf_res["data"].get("category", "UNKNOWN").upper()
-                else:
-                    st.error(f"🚨 Lỗi phân tích cấu trúc tài liệu: {pdf_res.get('error')}")
-                    # Chỉ gọi bộ chuyển đổi dự phòng nếu đây thực sự là tệp PDF điện tử
-                    try:
-                        from pdf2image import convert_from_bytes
-                        import io
-                        fallback_images = convert_from_bytes(raw_pdf_bytes_backup, first_page=1, last_page=1)
-                        if fallback_images:
-                            img_buf = io.BytesIO()
-                            fallback_images[0].convert("RGB").save(img_buf, format="JPEG")
-                            target_new_sketch_bytes = img_buf.getvalue()
-                            globals()["target_new_sketch_bytes"] = target_new_sketch_bytes
-                    except Exception as pdf_err:
-                        st.warning(f"⚠️ Trình đọc ảnh dự phòng từ PDF bị gián đoạn do định dạng tệp không khớp.")
     # =========================================================================
 
 
