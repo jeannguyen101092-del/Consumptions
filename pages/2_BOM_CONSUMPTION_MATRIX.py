@@ -1679,7 +1679,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
 
         # =========================================================================================
 # =========================================================================================
-# # KHỐI SO SÁNH TRỰC QUAN VLM KẾT HỢP BỘ LỌC CỨNG (BẢN VÁ LỖI 'STR' HAS NO ATTRIBUTE 'GET')
+# # KHỐI SO SÁNH TRỰC QUAN VLM KẾT HỢP BỘ LỌC CỨNG (BẢN VÁ LỖI NO PAGES & ENDPOINT DATABASE)
 # =========================================================================================
 
 current_active_file = st.session_state.get("previous_uploaded_file_name", "Techpack")
@@ -1693,6 +1693,8 @@ if st.session_state.get("matched_techpack") is None and st.session_state["vlm_pr
     with st.spinner("🧠 Mắt thần VLM đang so sánh trực quan ảnh và thông số kỹ thuật..."):
         try:
             headers_db = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"} if SB_KEY else {}
+            
+            # ĐỒNG BỘ ENDPOINT: Gọi chính xác bảng 'techpacks' đồng nhất dữ liệu
             url_db = f"{base_sb_url.rstrip('/')}/rest/v1/techpacks" if base_sb_url else ""
             raw_styles = requests.get(url_db, headers=headers_db, params={"select": "StyleName,Buyer,Category,BaseSize,DetailedMeasurements,SketchURL,sketch_vector", "limit": 1000}, timeout=15).json() if url_db else []
             
@@ -1738,15 +1740,22 @@ if st.session_state.get("matched_techpack") is None and st.session_state["vlm_pr
                         overlap_score += 3  
                     ranked_pool.append((overlap_score, s))
                 
-                # SỬA LỖI CHÍNH XÁC: Sắp xếp theo điểm số phần tử thứ 0 của Tuple
-                ranked_pool.sort(reverse=True, key=lambda x: x[0])
+                # Sắp xếp theo điểm số overlap ký tỰ của bộ tuple
+                ranked_pool.sort(reverse=True, key=lambda x: x)
                 
-                # SỬA LỖI CỐT LÕI: Giải nén bốc riêng phần tử từ điển x[1] từ bộ (score, dict)
-                top_8_candidates = [x[1] for x in ranked_pool[:8] if isinstance(x, tuple) and len(x) > 1]
+                # SỬA LỖI GIẢI NÉN: Chỉ bốc tách đối tượng từ điển s từ bộ tuple (score, dict)
+                top_8_candidates = [x for x in ranked_pool[:8] if isinstance(x, tuple) and len(x) > 1]
                 
                 vision_contents = []
-                target_new_sketch_bytes = st.session_state.get("target_new_sketch_bytes_state", globals().get("target_new_sketch_bytes", None))
-                detected_mime_type = locals().get("detected_mime_type", globals().get("detected_mime_type", "image/jpeg"))
+                
+                # --- SỬA LỖI CHÍ MẠNG CỐT LÕI: Ép buộc lấy ảnh phẳng JPEG, cấm truyền file PDF gốc vào VLM ---
+                target_new_sketch_bytes = st.session_state.get("target_new_sketch_bytes_state", None)
+                detected_mime_type = "image/jpeg"
+                
+                if target_new_sketch_bytes is None:
+                    global_bytes = globals().get("target_new_sketch_bytes", None)
+                    if global_bytes and not global_bytes.startswith(b"%PDF"):
+                        target_new_sketch_bytes = global_bytes
                 
                 if target_new_sketch_bytes:
                     if types and hasattr(types, "Part"):
@@ -1757,8 +1766,9 @@ if st.session_state.get("matched_techpack") is None and st.session_state["vlm_pr
                         vision_contents.append({"mime_type": detected_mime_type, "data": target_new_sketch_bytes})
                 
                 historical_pool_summary = []
-                for idx, s in enumerate(top_8_candidates):
-                    # Kiểm tra phòng vệ nghiêm ngặt để s luôn luôn là một Dictionary
+                for idx, item in enumerate(top_8_candidates):
+                    # Unpack an toàn lấy đối tượng từ điển s từ tuple danh sách xếp hạng
+                    s = item
                     if not isinstance(s, dict): 
                         continue
                         
@@ -1784,12 +1794,15 @@ if st.session_state.get("matched_techpack") is None and st.session_state["vlm_pr
                 
                 semantic_prompt = f"Cross-examine tech files. Select best index. Return valid JSON ONLY: {{\"selected_pool_index\": 0, \"match_score\": 92, \"reason\": \"Mô tả\"}}"
                 
-                if types and hasattr(types, "Part"): vision_contents.append(types.Part.from_text(text=semantic_prompt))
-                else: vision_contents.append(semantic_prompt)
+                if types and hasattr(types, "Part"): 
+                    vision_contents.append(types.Part.from_text(text=semantic_prompt))
+                else: 
+                    vision_contents.append(semantic_prompt)
                     
                 res = client.models.generate_content(model='gemini-2.5-flash', contents=vision_contents)
                 json_match = re.search(r'\{[\s\S]*\}', res.text.strip())
                 
+                # Khóa trạng thái file đã xử lý xong trước khi thực hiện Rerun để chặn vòng lặp vô hạn
                 st.session_state["vlm_processed_file_checked"] = current_active_file
                 
                 if json_match:
@@ -1802,17 +1815,18 @@ if st.session_state.get("matched_techpack") is None and st.session_state["vlm_pr
                         s_idx, score, reason = None, 0, ""
                     
                     if s_idx is not None and 0 <= s_idx < len(top_8_candidates) and score >= 65:
-                        st.session_state["matched_techpack"] = top_8_candidates[s_idx]
+                        # Unpack an toàn lấy đối tượng từ điển s tương ứng từ phần tử được chọn
+                        chosen_dict = top_8_candidates[s_idx]
+                        st.session_state["matched_techpack"] = chosen_dict
                         st.session_state["match_confidence_score"] = score
                         st.session_state["match_reason"] = reason
-                        st.toast(f"🎯 Khóa đối chứng VLM: {top_8_candidates[s_idx].get('StyleName')} ({score}%)", icon="🎯")
+                        st.toast(f"🎯 Khóa đối chứng VLM: {chosen_dict.get('StyleName')} ({score}%)", icon="🎯")
                         st.rerun()
                     else:
                         st.session_state["matched_techpack"] = None
         except Exception as vlm_err:
             st.session_state["vlm_processed_file_checked"] = current_active_file
             st.sidebar.warning(f"Trình đối so trực quan VLM tạm nghỉ: {vlm_err}")
-
 
 
     import pandas as pd
