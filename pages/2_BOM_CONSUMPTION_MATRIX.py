@@ -1413,7 +1413,7 @@ if gemini_key:
 def process_single_pdf_batch(file_bytes, file_name):
     """
     Retriever Layer chuyên sâu cho hệ thống BOM & Consumption Matrix.
-    🛠️ ĐÃ CHUẨN HÓA SẠCH LỀ: Đảm bảo 100% không bị lệch khoảng trắng Tab/Space.
+    🛠️ SỬA TUYỆT ĐỐI: Sửa URL Endpoint, thêm Fallback cho Base Size và giữ nguyên tầng Debug.
     """
     import json
     import requests
@@ -1440,7 +1440,9 @@ def process_single_pdf_batch(file_bytes, file_name):
             return {"success": False, "error": "Thiếu GEMINI_API_KEY trong cấu hình Secrets."}
 
         b64_pdf = base64.b64encode(file_bytes).decode('utf-8')
-        url = f"https://googleapis.com{gemini_key}"
+        
+        # 🔥 ĐÃ SỬA CHÍNH XÁC: URL endpoint chuẩn của Gemini API trên một dòng f-string
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={gemini_key}"
         
         industrial_prompt = (
             "You are an expert Garment Specification Auditor at PPJ Group. Analyze this entire Techpack PDF file page by page.\n"
@@ -1496,6 +1498,7 @@ def process_single_pdf_batch(file_bytes, file_name):
             return {"success": False, "error": "Gemini phản hồi không có dữ liệu hoặc bị Safety Block."}
             
         try:
+            # Sửa lỗi logic lấy phần tử đầu tiên của mảng candidates
             first_candidate = res_json['candidates'][0]
             text_response = first_candidate['content']['parts'][0]['text'].strip()
         except (KeyError, IndexError, TypeError):
@@ -1540,13 +1543,22 @@ def process_single_pdf_batch(file_bytes, file_name):
             elif not isinstance(measurements_dict, dict):
                 measurements_dict = {}
 
+            # 🔥 ĐÃ THÊM FALLBACK LOGIC CHO BASE SIZE NHƯ BẠN ĐỀ XUẤT
+            base_size = (
+                parsed_data.get("base_size_name")
+                or parsed_data.get("base_size")
+                or parsed_data.get("sample_size")
+                or "32"
+            )
+
             st.write("📈 SỐ LƯỢNG VỊ TRÍ ĐO ĐÃ KHÔI PHỤC:", len(measurements_dict))
+            st.write("📏 CỠ MẪU GỐC ĐƯỢC CHỌN (BASE SIZE):", base_size)
             
             output_payload = {
-                "style_number_parsed": parsed_data.get("style_number_parsed", "UNKNOWN"),
+                "style_number_parsed": parsed_data.get("style_number_parsed") or parsed_data.get("style_id") or parsed_data.get("style_no") or "UNKNOWN",
                 "buyer": parsed_data.get("buyer", "UNKNOWN BUYER"),
                 "category": parsed_data.get("category", "PANT"),
-                "base_size_name": parsed_data.get("base_size_name", "32"),
+                "base_size_name": base_size,
                 "measurements": measurements_dict
             }
 
