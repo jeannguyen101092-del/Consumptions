@@ -32,7 +32,6 @@ if uploaded_file is not None:
         if st.button("🚀 Xác Nhận Kiểm Trùng Và Nạp Vào Kho"):
             with st.spinner("Đang xử lý nạp dữ liệu hệ thống..."):
                 
-                # --- Lấy dữ liệu cũ từ bảng san_pham để lọc trùng ---
                 db_response = supabase.table("san_pham").select("style_name, article_name").execute()
                 db_data = db_response.data
                 
@@ -53,15 +52,12 @@ if uploaded_file is not None:
                         duplicate_count += 1
                         continue 
                     
-                    # Đọc chính xác giá trị định mức từ cột 'Input Purchase Cons'
                     excel_dm = row.get("Input Purchase Cons")
                     if pd.isna(excel_dm):
                         excel_dm = 0.0
                     else:
-                        try:
-                            excel_dm = float(excel_dm)
-                        except:
-                            excel_dm = 0.0
+                        try: excel_dm = float(excel_dm)
+                        except: excel_dm = 0.0
                     
                     rows_to_insert.append({
                         "created_at": current_time,
@@ -81,37 +77,60 @@ if uploaded_file is not None:
                     st.success(f"🎉 Nạp kho thành công thêm {len(rows_to_insert)} dòng sản phẩm mới kèm định mức!")
                     st.rerun()
                 else:
-                    st.info("💡 Không có dữ liệu mới nào cần nạp (Tất cả sản phẩm trong file đã có sẵn).")
-                    
-                # --- Đẩy file sao lưu vào storage ---
-                try:
-                    supabase.storage.from_("techpack_storage").upload(
-                        file=uploaded_file.getvalue(), path=uploaded_file.name, file_options={"upsert": "true"}
-                    )
-                except:
-                    pass
+                    st.info("💡 Không có dữ liệu mới nào cần nạp.")
     except Exception as e:
         st.error(f"❌ Lỗi xử lý file Excel: {str(e)}")
 
 st.write("---")
 
 # ==============================================================================
-# 3. CHỨC NĂNG KẾT HỢP TRA CỨU / TRUY VẤN KHO TRỰC TIẾP
+# 3. 🔴 CHỨC NĂNG SỬA ĐỔI: XÓA CHÍNH XÁC 1 DÒNG SẢN PHẨM KHỚP MÃ
+# ==============================================================================
+st.subheader("🗑️ Quản Lý Xóa Dòng Dữ Liệu Lỗi")
+with st.expander("👉 Bấm vào đây để mở vùng xóa duy nhất 1 dòng lỗi", expanded=False):
+    col1, col2 = st.columns(2)
+    with col1:
+        delete_style_code = st.text_input("1. Nhập Mã hàng (Style Name):", placeholder="Ví dụ: P08-500722").strip()
+    with col2:
+        delete_article_code = st.text_input("2. Nhập Mã vải / Vật tư (Article Name):", placeholder="Ví dụ: D01527").strip()
+    
+    if delete_style_code and delete_article_code:
+        st.warning(f"⚠️ Hệ thống sẽ xóa duy nhất dòng có Mã hàng: `{delete_style_code}` và Mã vải: `{delete_article_code}`.")
+        if st.button("🔥 Xác nhận xóa dòng này khỏi kho", type="primary"):
+            with st.spinner("Đang thực hiện xóa dòng chỉ định..."):
+                try:
+                    # Lệnh xóa kết hợp 2 điều kiện bằng .eq() nối tiếp nhau để định vị đúng 1 dòng duy nhất
+                    delete_response = supabase.table("san_pham")\
+                                              .delete()\
+                                              .eq("style_name", delete_style_code)\
+                                              .eq("article_name", delete_article_code)\
+                                              .execute()
+                    
+                    if delete_response.data:
+                        st.success(f"✅ Đã xóa thành công dòng sản phẩm khớp mã khỏi database!")
+                        st.rerun()
+                    else:
+                        st.error("❌ Không tìm thấy dòng nào khớp chính xác đồng thời cả Mã hàng và Mã vải trên.")
+                except Exception as del_err:
+                    st.error(f"Lỗi khi thực hiện xóa: {str(del_err)}")
+
+st.write("---")
+
+# ==============================================================================
+# 4. CHỨC NĂNG KẾT HỢP TRA CỨU / TRUY VẤN KHO TRỰC TIẾP
 # ==============================================================================
 st.subheader("🔍 Bộ Công Cụ Tra Cứu Kho Định Mức")
 
-# Tạo thanh tìm kiếm không phân biệt hoa thường
 search_query = st.text_input(
     "Nhập Mã hàng (Style Name) hoặc Tên vật tư / Mã vải (Article Name) để tìm kiếm nhanh:",
-    placeholder="Nhập từ khóa tìm kiếm tại đây..."
+    placeholder="Nhập từ khóa tìm kiếm tại đây...",
+    key="search_input_unique"
 ).strip()
 
 if search_query:
     with st.spinner("Đang lọc dữ liệu từ kho..."):
         try:
-            # Tạo chuỗi điều kiện tìm kiếm mờ (ilike) trên cả 2 cột style_name và article_name
             query_string = f"style_name.ilike.%{search_query}%,article_name.ilike.%{search_query}%"
-            
             response = supabase.table("san_pham")\
                                .select("style_name, consumption_type, article_name, material_size, uom, consumption_value")\
                                .or_(query_string)\
@@ -136,7 +155,6 @@ if search_query:
         except Exception as search_err:
             st.error(f"Lỗi truy vấn tìm kiếm: {str(search_err)}")
 else:
-    # Trạng thái mặc định: Hiển thị 10 dòng số liệu mới nhất vừa nạp vào kho
     st.info("💡 Điền từ khóa vào ô trên để tìm kiếm dữ liệu cụ thể. Dưới đây là 10 dòng số liệu mới nhất trong kho:")
     try:
         response = supabase.table("san_pham")\
@@ -156,4 +174,4 @@ else:
             }, inplace=True)
             st.dataframe(df_display, use_container_width=True)
     except Exception as display_err:
-        st.error(f"Lỗi hiển thị danh sách kho: {str(display_err)}")
+        pass
