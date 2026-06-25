@@ -1413,7 +1413,7 @@ if gemini_key:
 def process_single_pdf_batch(file_bytes, file_name):
     """
     Retriever Layer chuyên sâu cho hệ thống BOM & Consumption Matrix.
-    ✨ Đã sửa lỗi cấu trúc JSON phản hồi từ Gemini API.
+    🛠️ Đã sửa URL chính xác tuyệt đối, tích hợp bộ Debug RAW JSON và xử lý cấu trúc phản hồi an toàn.
     """
     import json
     import requests
@@ -1434,6 +1434,9 @@ def process_single_pdf_batch(file_bytes, file_name):
     if len(file_bytes) > MAX_MB * 1024 * 1024:
         return {"success": False, "error": f"Tệp PDF vượt giới hạn xử lý {MAX_MB}MB của Gemini."}
 
+    # Khởi tạo mặc định cho biến chứa bytes ảnh phác thảo (sketch)
+    extracted_sketch_bytes = None
+
     try:
         # Thu thập API Key an toàn từ Secrets hệ thống
         gemini_key = get_secure_gemini_key() if "get_secure_gemini_key" in globals() else st.secrets.get("GEMINI_API_KEY", "").strip()
@@ -1443,12 +1446,8 @@ def process_single_pdf_batch(file_bytes, file_name):
         # Mã hóa trực tiếp tệp PDF gốc sang định dạng Base64
         b64_pdf = base64.b64encode(file_bytes).decode('utf-8')
 
-        # URL API Endpoint chuẩn của Google Gemini REST API
-        url = (
-            "https://googleapis.com"
-            "v1beta/models/gemini-2.5-flash:generateContent"
-            f"?key={gemini_key}"
-        )
+        # 🛠️ ĐÃ SỬA CHÍNH XÁC TUYỆT ĐỐI: URL viết trên 1 dòng f-string chuẩn của Google Gemini API
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={gemini_key}"
         
         industrial_prompt = (
             "You are an expert Garment Specification Auditor at PPJ Group. Analyze this entire Techpack PDF file page by page.\n"
@@ -1457,7 +1456,13 @@ def process_single_pdf_batch(file_bytes, file_name):
             "2. Extract ALL measurement descriptions (POM Description) and their corresponding base/sample size values precisely.\n"
             "3. Find the exact 'Style ID' / 'Style Number' (e.g., F25R09 or 526P09).\n"
             "4. Identify the 'Base Size' (e.g., 32, M, 28) and the Category (strictly classify as PANT, SHIRT, JACKET, or SHORT).\n"
-            "5. Detect which 0-based page index contains the full body apparel flat sketch drawing.\n"
+            "5. Detect which 0-based page index contains the full body apparel flat sketch drawing.\n\n"
+            "IMPORTANT FORMATTING RULE:\n"
+            "Return the 'measurements' field ONLY as a flat JSON object/dictionary. DO NOT use arrays or lists of objects.\n"
+            "Correct format:\n"
+            "\"measurements\": {\"WAIST\": \"32\", \"HIP\": \"40\"}\n"
+            "Wrong format:\n"
+            "\"measurements\": [{\"pom\": \"WAIST\", \"value\": \"32\"}]\n\n"
             "Return a completely valid raw JSON string matching this exact schema (no markdown formatting):\n"
             "{\n"
             "  \"style_number_parsed\": \"string\",\n"
@@ -1482,28 +1487,106 @@ def process_single_pdf_batch(file_bytes, file_name):
             }
         }
 
-        # Thiết lập timeout lớn (180 giây) cho các Techpack cồng kềnh
+        # Gửi yêu cầu với timeout bảo vệ hệ thống
         res = requests.post(url, json=api_payload, headers={"Content-Type": "application/json"}, timeout=180)
         
-        if res.status_code == 200:
-            res_json = res.json()
+        # 🛠️ ĐÃ THÊM DEBUG STATUS CODE & TEXT NẾU LỖI ĐƯỜNG TRUYỀN/URL
+        if res.status_code != 200:
+            st.error(f"LỖI ĐƯỜNG TRUYỀN API - Mã HTTP: {res.status_code}")
+            st.code(res.text, language="json")
+            return {"success": False, "error": f"Lỗi API Gemini (Mã HTTP {res.status_code})"}
             
-            if "candidates" not in res_json or not res_json["candidates"]:
-                return {"success": False, "error": f"Gemini phản hồi không có dữ liệu hoặc bị Safety Block: {res_json}"}
-                
-            try:
-                # Trích xuất chính xác text phản hồi từ mảng Candidates của Google Gemini
-                text_response = res_json['candidates'][0]['content']['parts'][0]['text'].strip()
-            except (KeyError, IndexError):
-                return {"success": False, "error": "Cấu trúc JSON phản hồi từ Gemini API đã thay đổi hoặc không hợp lệ."}
+        res_json = res.json()
+        
+        # 🛠️ ĐÃ THÊM: KHỐI DEBUG PHẢN HỒI THÔ (RAW) ĐỂ KIỂM TRA SAFETY BLOCK HOẶC TRỐNG CANDIDATES
+        st.write("===== 1. RAW GEMINI RESPONSE =====")
+        st.json(res_json)
+        
+        if "candidates" not in res_json or not res_json["candidates"]:
+            return {"success": False, "error": f"Gemini phản hồi không có dữ liệu hoặc bị Safety Block."}
+            
+        # Phòng ngừa lỗi cấu trúc parts trống bằng cách dùng .get() an toàn
+        candidate = res_json['candidates'][0]
+        content_parts = candidate.get('content', {}).get('parts', [])
+        
+        if not content_parts or 'text' not in content_parts[0]:
+            return {"success": False, "error": f"Mô hình không trả về chuỗi văn bản text. Lý do dừng: {candidate.get('finishReason')}"}
+            
+        text_response = content_parts[0]['text'].strip()
 
-            clean_json = text_response.replace("```json", "").replace("```", "").strip()
-            clean_json = re.sub(r',\s*([\]}])', r'\1', clean_json)
+        # Làm sạch chuỗi và bóc tách khối dữ liệu JSON
+        clean_json = text_response
+        json_match = re.search(r"({.*})", clean_json, re.DOTALL)
+        if json_match:
+            clean_json = json_match.group(1)
             
-            try:
-                parsed_data = json.loads(clean_json)
-            except Exception:
-                return {"success": False, "error": f"Mô hình trả dữ liệu không đúng cấu trúc định dạng JSON sạch. Nội dung thô: {text_response[:200]}"}
+        clean_json = re.sub(r',\s*([\]}])', r'\1', clean_json)
+        
+        try:
+            parsed_data = json.loads(clean_json)
+            
+            # 🛠️ KHỐI DEBUG DỮ LIỆU ĐÃ PARSE THÀNH CÔNG ĐỂ KIỂM TRA ĐÚNG/SAI KEY
+            st.write("===== 2. GEMINI PARSED JSON =====")
+            st.json(parsed_data)
+
+            # Lấy trường measurements từ dữ liệu phân tích
+            measurements_dict = parsed_data.get("measurements", {})
+
+            # Bộ chuyển đổi thông minh tự động ép mảng/list về định dạng dict phẳng
+            if isinstance(measurements_dict, list):
+                fixed = {}
+                for row in measurements_dict:
+                    if isinstance(row, dict):
+                        pom = (
+                            row.get("pom")
+                            or row.get("description")
+                            or row.get("name")
+                            or row.get("POM")
+                            or row.get("pom_description")
+                        )
+                        value = (
+                            row.get("value")
+                            or row.get("measurement")
+                            or row.get("spec")
+                            or row.get("base_value")
+                        )
+                        if pom:
+                            fixed[str(pom).strip()] = str(value) if value is not None else ""
+                measurements_dict = fixed
+                
+            elif not isinstance(measurements_dict, dict):
+                measurements_dict = {}
+
+            st.write("📈 SỐ LƯỢNG VỊ TRÍ ĐO ĐÃ KHÔI PHỤC (MEASUREMENTS):", len(measurements_dict))
+            st.write("📏 CỠ MẪU GỐC ĐƯỢC CHỌN (BASE SIZE):", parsed_data.get("base_size_name"))
+            
+            # Khôi phục phần hậu xử lý dữ liệu chuẩn hóa dạng phẳng
+            output_payload = {
+                "style_number_parsed": parsed_data.get("style_number_parsed", "UNKNOWN"),
+                "buyer": parsed_data.get("buyer", "UNKNOWN BUYER"),
+                "category": parsed_data.get("category", "PANT"),
+                "base_size_name": parsed_data.get("base_size_name", "32"),
+                "measurements": measurements_dict
+            }
+
+            return {
+                "success": True,
+                "data": output_payload,
+                "style_id": output_payload["style_number_parsed"],
+                "buyer": output_payload["buyer"],
+                "category": output_payload["category"],
+                "size": output_payload["base_size_name"],
+                "measurements": output_payload["measurements"],
+                "sketch_bytes": extracted_sketch_bytes,
+                "error": None
+            }
+
+        except Exception as parse_err:
+            return {"success": False, "error": f"Mô hình trả dữ liệu không đúng cấu trúc định dạng JSON sạch. Chi tiết: {str(parse_err)}"}
+
+    except Exception as e:
+        return {"success": False, "error": f"Lỗi hệ thống khi xử lý tệp: {str(e)}"}
+
 # =========================================================================================
 # ĐOẠN 3 - PHẦN 2: BÓC TÁCH KHỐI ẢNH VÀ KHÓA LỆNH LƯU KHO (DÁN TIẾP NỐI PHẦN 1)
 # =========================================================================================
