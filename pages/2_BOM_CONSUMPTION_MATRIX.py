@@ -1413,7 +1413,7 @@ if gemini_key:
 def process_single_pdf_batch(file_bytes, file_name):
     """
     Retriever Layer chuyên sâu cho hệ thống BOM & Consumption Matrix.
-    🛠️ SỬA LỖI COMPILER: Sửa lỗi IndentationError/SyntaxError khi bóc tách JSON.
+    🛠️ FIX SỬA LỖI CÚ PHÁP: Truy cập mảng [0] chính xác theo tài liệu API Gemini.
     """
     import json
     import requests
@@ -1505,7 +1505,7 @@ def process_single_pdf_batch(file_bytes, file_name):
         if "candidates" not in res_json or not res_json["candidates"]:
             return {"success": False, "error": "Gemini phản hồi không có dữ liệu hoặc bị Safety Block."}
             
-        # 🛠️ ĐÃ SỬA: Logic bóc tách an toàn tuyệt đối từ mảng sang dict theo đúng tài liệu Google API
+        # 🛠️ ĐÃ SỬA CHÍNH XÁC: Truy cập phần tử [0] của mảng candidates trước khi lấy content
         try:
             first_candidate = res_json['candidates'][0]
             text_response = first_candidate['content']['parts'][0]['text'].strip()
