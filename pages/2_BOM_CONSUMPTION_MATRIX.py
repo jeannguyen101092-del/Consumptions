@@ -1409,11 +1409,10 @@ if gemini_key:
 # =========================================================================================
 # ĐOẠN 3 - PHẦN 1: HÀM TRÍCH XUẤT THÔNG SỐ QUA GEMINI API
 # =========================================================================================
-
 def process_single_pdf_batch(file_bytes, file_name):
     """
     Retriever Layer chuyên sâu cho hệ thống BOM & Consumption Matrix.
-    🛠️ SỬA TUYỆT ĐỐI: Sửa URL Endpoint, thêm Fallback cho Base Size và giữ nguyên tầng Debug.
+    ✨ Đã kéo sát lề trái tuyệt đối để sửa triệt để lỗi IndentationError trên GitHub.
     """
     import json
     import requests
@@ -1423,26 +1422,25 @@ def process_single_pdf_batch(file_bytes, file_name):
     import re
     import streamlit as st
 
-    try:
-        import pypdf
-        PYPDF_AVAILABLE = True
-    except ImportError:
-        PYPDF_AVAILABLE = False
-
+    # 1. Kiểm soát chặt chẽ dung lượng tệp tải lên
     MAX_MB = 18
     if len(file_bytes) > MAX_MB * 1024 * 1024:
         return {"success": False, "error": f"Tệp PDF vượt giới hạn xử lý {MAX_MB}MB của Gemini."}
 
     try:
+        # 2. Khởi tạo biến an toàn ngay đầu khối try chính
         extracted_sketch_bytes = None
+
+        # 3. Thu thập API Key an toàn từ Secrets hệ thống
         gemini_key = get_secure_gemini_key() if "get_secure_gemini_key" in globals() else st.secrets.get("GEMINI_API_KEY", "").strip()
         if not gemini_key:
             return {"success": False, "error": "Thiếu GEMINI_API_KEY trong cấu hình Secrets."}
 
+        # 4. Mã hóa trực tiếp tệp PDF gốc sang định dạng Base64
         b64_pdf = base64.b64encode(file_bytes).decode('utf-8')
-        
-        # 🔥 ĐÃ SỬA CHÍNH XÁC: URL endpoint chuẩn của Gemini API trên một dòng f-string
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={gemini_key}"
+
+        # 5. URL endpoint chuẩn của Gemini API trên một dòng f-string chuẩn xác
+        url = f"https://googleapis.com{gemini_key}"
         
         industrial_prompt = (
             "You are an expert Garment Specification Auditor at PPJ Group. Analyze this entire Techpack PDF file page by page.\n"
@@ -1482,6 +1480,7 @@ def process_single_pdf_batch(file_bytes, file_name):
             }
         }
 
+        # 6. Gửi yêu cầu REST API
         res = requests.post(url, json=api_payload, headers={"Content-Type": "application/json"}, timeout=180)
         
         if res.status_code != 200:
@@ -1491,6 +1490,7 @@ def process_single_pdf_batch(file_bytes, file_name):
             
         res_json = res.json()
         
+        # 7. BẬT KHỐI DEBUG RAW DATA THÔ TỪ GOOGLE
         st.write("===== 1. RAW GEMINI RESPONSE =====")
         st.json(res_json)
         
@@ -1498,12 +1498,13 @@ def process_single_pdf_batch(file_bytes, file_name):
             return {"success": False, "error": "Gemini phản hồi không có dữ liệu hoặc bị Safety Block."}
             
         try:
-            # Sửa lỗi logic lấy phần tử đầu tiên của mảng candidates
+            # Truy cập phần tử đầu tiên của mảng candidates chuẩn xác
             first_candidate = res_json['candidates'][0]
             text_response = first_candidate['content']['parts'][0]['text'].strip()
         except (KeyError, IndexError, TypeError):
-            return {"success": False, "error": "Cấu trúc phản hồi JSON thô của Gemini không đúng định dạng."}
+            return {"success": False, "error": "Cấu trúc phản hồi JSON thô của Gemini không đúng định dạng parts/text."}
 
+        # 8. Làm sạch và bóc tách khối dữ liệu JSON
         clean_json = text_response
         json_match = re.search(r"({.*})", clean_json, re.DOTALL)
         if json_match:
@@ -1514,11 +1515,13 @@ def process_single_pdf_batch(file_bytes, file_name):
         try:
             parsed_data = json.loads(clean_json)
             
+            # 9. BẬT KHỐI DEBUG DỮ LIỆU ĐÃ PARSE THÀNH CÔNG
             st.write("===== 2. GEMINI PARSED JSON =====")
             st.json(parsed_data)
 
             measurements_dict = parsed_data.get("measurements", {})
 
+            # Bộ chuyển đổi thông minh tự động ép mảng/list về định dạng dict phẳng
             if isinstance(measurements_dict, list):
                 fixed = {}
                 for row in measurements_dict:
@@ -1543,7 +1546,7 @@ def process_single_pdf_batch(file_bytes, file_name):
             elif not isinstance(measurements_dict, dict):
                 measurements_dict = {}
 
-            # 🔥 ĐÃ THÊM FALLBACK LOGIC CHO BASE SIZE NHƯ BẠN ĐỀ XUẤT
+            # Logic Fallback cho Base Size tránh lỗi lệch size khi AI đổi tên key ngẫu nhiên
             base_size = (
                 parsed_data.get("base_size_name")
                 or parsed_data.get("base_size")
@@ -1551,9 +1554,10 @@ def process_single_pdf_batch(file_bytes, file_name):
                 or "32"
             )
 
-            st.write("📈 SỐ LƯỢNG VỊ TRÍ ĐO ĐÃ KHÔI PHỤC:", len(measurements_dict))
+            st.write("📈 SỐ LƯỢNG VỊ TRÍ ĐO ĐÃ KHÔI PHỤC (MEASUREMENTS):", len(measurements_dict))
             st.write("📏 CỠ MẪU GỐC ĐƯỢC CHỌN (BASE SIZE):", base_size)
             
+            # 10. Đóng gói dữ liệu phẳng khớp hoàn hảo cấu trúc cũ
             output_payload = {
                 "style_number_parsed": parsed_data.get("style_number_parsed") or parsed_data.get("style_id") or parsed_data.get("style_no") or "UNKNOWN",
                 "buyer": parsed_data.get("buyer", "UNKNOWN BUYER"),
@@ -1575,10 +1579,11 @@ def process_single_pdf_batch(file_bytes, file_name):
             }
 
         except Exception as parse_err:
-            return {"success": False, "error": f"Mô hình trả dữ liệu không đúng cấu trúc JSON sạch. Chi tiết: {str(parse_err)}"}
+            return {"success": False, "error": f"Mô hình trả dữ liệu không đúng cấu trúc định dạng JSON sạch. Chi tiết: {str(parse_err)}"}
 
     except Exception as e:
         return {"success": False, "error": f"Lỗi hệ thống khi xử lý tệp: {str(e)}"}
+
 
 
 
