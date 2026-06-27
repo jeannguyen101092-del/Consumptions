@@ -2151,122 +2151,152 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                 # =========================================================================
                # =========================================================================
                 # =========================================================================
-        # 🔍 [ĐOẠN 4/6 CHUẨN SẢN XUẤT] - VÒNG LẶP ĐỐI CHIẾU ÉP KHỚP ĐỘNG TỪ FILE QUÉT
+                # =========================================================================
+        # 🔍 [ĐOẠN 4/6 HOÀN CHỈNH STANDARD] - KHẮC PHỤC LỖI HÀM & ÉP KHỚP ĐỘNG TỪ FILE
         # =========================================================================
+        # Định nghĩa hàm quét Ngữ nghĩa ngay tại đầu Đoạn 4/6 để triệt tiêu lỗi NameError
+        def get_semantic_standard_key(raw_text):
+            if 'semantic_dictionary' not in locals() and 'semantic_dictionary' not in globals():
+                return None
+            clean_text = clean_pom_text(raw_text)
+            for standard_key, synonyms in semantic_dictionary.items():
+                for syn in synonyms:
+                    if syn in clean_text or clean_text in syn:
+                        return standard_key
+            words = clean_text.split()
+            for standard_key, synonyms in semantic_dictionary.items():
+                if any(w in words for w in synonyms):
+                    return standard_key
+            return None
+
+        # Đóng gói danh sách mẫu mới dạng setdefault ngăn chặn lỗi ghi đè dữ liệu trùng tên POM
+        cleaned_new_specs = {}
+        if 'new_specs' in locals() and new_specs:
+            for k, v in new_specs.items():
+                ck = clean_pom_text(k)
+                semantic_k = get_semantic_standard_key(k)
+                new_item = {
+                    "original_key": k,
+                    "value": v,
+                    "semantic_key": semantic_k,
+                    "tokens": set(ck.split())
+                }
+                cleaned_new_specs.setdefault(ck, []).append(new_item)
+            
         processed_new_keys = set()
 
-        # 2. VÒNG LẶP ĐỐI CHIẾU CHÍNH: Duyệt theo danh sách mã cũ trong kho kỹ thuật Supabase
-        for original_old_key, val_old in old_specs.items():
-            # Sử dụng hàm clean_pom_text từ Đoạn 3/6 để gọt sạch mã tiền tố (ví dụ: LEG-012: Inseam -> INSEAM)
-            clean_old_key = clean_pom_text(original_old_key)
-            old_semantic_key = get_semantic_standard_key(original_old_key)
-            
-            original_new_key, val_new = "-", "-"
-            match_status = "KHO CÓ - MẪU MỚI THIẾU"
-            
-            old_tokens = set(clean_old_key.split())
-            best_match_item = None
-            max_similarity = -1.0
-            
-            # Cờ hiệu bảo vệ nghiêm ngặt chống kẹt vòng lặp vô hạn gây đơ máy
-            match_found = False
-            
-            for cl_new_k, new_items_list in cleaned_new_specs.items():
-                for new_info in new_items_list:
-                    if new_info["original_key"] in processed_new_keys:
-                        continue
-                        
-                    # TẦNG ƯU TIÊN 1: Khớp tuyệt đối qua nhóm Nghĩa Gốc (Cùng nhóm cốt lõi từ điển)
-                    if old_semantic_key is not None and old_semantic_key == new_info["semantic_key"]:
-                        common_tokens = old_tokens.intersection(new_info["tokens"])
-                        raw_score = sum(token_weight.get(t, 1) for t in common_tokens)
-                        denominator = max(len(old_tokens), len(new_info["tokens"]))
-                        similarity = (raw_score / denominator if denominator > 0 else 0.0) + 10.0 
-                        
-                        if similarity > max_similarity:
-                            max_similarity = similarity
-                            best_match_item = new_info
-                            # Nếu chuỗi đã làm sạch trùng nhau hoàn toàn -> Thoát sớm bảo vệ luồng
-                            if clean_old_key == cl_new_k:
-                                match_found = True
-                                break
-                                
-                    # TẦNG ƯU TIÊN 2: Khớp Fuzzy trùng từ tự nhiên ngoài từ điển dựa trên trọng số token
-                    elif best_match_item is None:
-                        common_tokens = old_tokens.intersection(new_info["tokens"])
-                        if len(common_tokens) >= 1 and common_tokens.intersection(core_token_keywords):
+        # VÒNG LẶP ĐỐI CHIẾU CHÍNH: Duyệt theo danh sách mã cũ trong kho kỹ thuật Supabase
+        if 'old_specs' in locals() and old_specs:
+            for original_old_key, val_old in old_specs.items():
+                clean_old_key = clean_pom_text(original_old_key)
+                old_semantic_key = get_semantic_standard_key(original_old_key)
+                
+                original_new_key, val_new = "-", "-"
+                match_status = "KHO CÓ - MẪU MỚI THIẾU"
+                
+                old_tokens = set(clean_old_key.split())
+                best_match_item = None
+                max_similarity = -1.0
+                
+                # Cờ hiệu bảo vệ nghiêm ngặt chống kẹt vòng lặp vô hạn gây đơ máy
+                match_found = False
+                
+                for cl_new_k, new_items_list in cleaned_new_specs.items():
+                    for new_info in new_items_list:
+                        if new_info["original_key"] in processed_new_keys:
+                            continue
+                            
+                        # TẦNG ƯU TIÊN 1: Khớp tuyệt đối qua nhóm Nghĩa Gốc (Cùng nhóm cốt lõi từ điển)
+                        if old_semantic_key is not None and old_semantic_key == new_info["semantic_key"]:
+                            common_tokens = old_tokens.intersection(new_info["tokens"])
                             raw_score = sum(token_weight.get(t, 1) for t in common_tokens)
                             denominator = max(len(old_tokens), len(new_info["tokens"]))
-                            similarity = raw_score / denominator if denominator > 0 else 0.0
+                            similarity = (raw_score / denominator if denominator > 0 else 0.0) + 10.0 
                             
                             if similarity > max_similarity:
                                 max_similarity = similarity
                                 best_match_item = new_info
+                                # Nếu chuỗi đã làm sạch trùng nhau hoàn toàn -> Thoát sớm bảo vệ luồng
+                                if clean_old_key == cl_new_k:
+                                    match_found = True
+                                    break
+                                    
+                        # TẦNG ƯU TIÊN 2: Khớp Fuzzy trùng từ tự nhiên ngoài từ điển dựa trên trọng số token
+                        elif best_match_item is None:
+                            common_tokens = old_tokens.intersection(new_info["tokens"])
+                            if 'core_token_keywords' in locals() and len(common_tokens) >= 1 and common_tokens.intersection(core_token_keywords):
+                                raw_score = sum(token_weight.get(t, 1) for t in common_tokens)
+                                denominator = max(len(old_tokens), len(new_info["tokens"]))
+                                similarity = raw_score / denominator if denominator > 0 else 0.0
+                                
+                                if similarity > max_similarity:
+                                    max_similarity = similarity
+                                    best_match_item = new_info
 
-                    # 🛠️ TẦNG ƯU TIÊN 3 (VÁ LỖI LỌT LƯỚI TỪ FILE): Khớp tiệm cận chứa chuỗi tự động (Substring Inclusion)
-                    # Nếu từ điển chưa bao phủ, nhưng chữ sau khi gọt của mã cũ nằm trong file quét hoặc ngược lại
-                    elif best_match_item is None:
-                        if clean_old_key in cl_new_k or cl_new_k in clean_old_key:
-                            max_similarity = 5.0
-                            best_match_item = new_info
+                        # TẦNG ƯU TIÊN 3: Khớp tiệm cận chứa chuỗi tự động (Substring Inclusion) từ file quét
+                        elif best_match_item is None:
+                            if clean_old_key in cl_new_k or cl_new_k in clean_old_key:
+                                max_similarity = 5.0
+                                best_match_item = new_info
+                                
+                    if match_found: 
+                        break
                             
-                if match_found: 
-                    break
-                        
-            if best_match_item is not None:
-                original_new_key = best_match_item["original_key"]
-                val_new = best_match_item["value"]
-                processed_new_keys.add(original_new_key)
-                
-                # Định nghĩa lại trạng thái bắt cặp trực quan lên bảng Streamlit
-                if max_similarity >= 10.0:
-                    match_status = "BẮT CẶP NGỮ NGHĨA"
-                elif max_similarity >= 5.0:
-                    match_status = "KHỚP CHUỖI FILE QUÉT (SUBSTRING)"
-                else:
-                    match_status = "AI GHÉP TRỌNG SỐ TRÙNG"
-
-            # Luồng tính chênh lệch số đo rập mẫu chuyển tiếp sang Đoạn 5
-            f_new = clean_float(val_new) if val_new != "-" else None
-            f_old = clean_float(val_old) if val_old != "-" else None
-            
-            diff_val, diff_pct = None, None
-            if f_new is not None and f_old is not None:
-                diff_val = round(f_new - f_old, 2)
-                if f_old != 0:
-                    diff_pct = round((diff_val / f_old) * 100, 2)
+                if best_match_item is not None:
+                    original_new_key = best_match_item["original_key"]
+                    val_new = best_match_item["value"]
+                    processed_new_keys.add(original_new_key)
                     
-                    # Màng lọc thích ứng biên độ nhảy vóc lớn cho dòng quần shorts lên dài
-                    if -70.0 <= diff_pct <= 120.0:
-                        valid_diff_pcts.append(diff_pct)
-                        if diff_pct > 50.0 or diff_pct < -30.0:
-                            match_status = "BẮT CẶP NGỮ NGHĨA (BIẾN THIÊN LỚN)"
+                    if max_similarity >= 10.0:
+                        match_status = "BẮT CẶP NGỮ NGHĨA"
+                    elif max_similarity >= 5.0:
+                        match_status = "KHỚP CHUỖI FILE QUÉT (SUBSTRING)"
                     else:
-                        match_status = "LỆCH SỐ LIỆU SẢN XUẤT (CỰC ĐOAN)"
-                else:
-                    diff_pct = 0.0
+                        match_status = "AI GHÉP TRỌNG SỐ TRÙNG"
 
-            if original_new_key != "-":
-                match_logs_pool.append({
-                    "NHÓM NGHĨA GỐC": old_semantic_key if old_semantic_key else "TRÙNG CHUỖI TỰ NHIÊN",
-                    "VỊ TRÍ CŨ (DB)": original_old_key,
-                    "VỊ TRÍ MỚI (PDF)": original_new_key,
-                    "SỐ ĐO CŨ": val_old,
-                    "SỐ ĐO MỚI": val_new,
-                    "KẾT QUẢ SƠ BỘ": "SO KHỚP SẠCH"
+                # Luồng tính chênh lệch số đo rập mẫu chuyển tiếp sang Đoạn 5
+                f_new = clean_float(val_new) if val_new != "-" else None
+                f_old = clean_float(val_old) if val_old != "-" else None
+                
+                diff_val, diff_pct = None, None
+                if f_new is not None and f_old is not None:
+                    diff_val = round(f_new - f_old, 2)
+                    if f_old != 0:
+                        diff_pct = round((diff_val / f_old) * 100, 2)
+                        
+                        # Màng lọc thích ứng biên độ nhảy vóc lớn cho dòng quần shorts lên dài
+                        if -70.0 <= diff_pct <= 120.0:
+                            if 'valid_diff_pcts' in locals():
+                                valid_diff_pcts.append(diff_pct)
+                            if diff_pct > 50.0 or diff_pct < -30.0:
+                                match_status = "BẮT CẶP NGỮ NGHĨA (BIẾN THIÊN LỚN)"
+                        else:
+                            match_status = "LỆCH SỐ LIỆU SẢN XUẤT (CỰC ĐOAN)"
+                    else:
+                        diff_pct = 0.0
+
+                if original_new_key != "-":
+                    if 'match_logs_pool' in locals():
+                        match_logs_pool.append({
+                            "NHÓM NGHĨA GỐC": old_semantic_key if old_semantic_key else "TRÙNG CHUỖI TỰ NHIÊN",
+                            "VỊ TRÍ CŨ (DB)": original_old_key,
+                            "VỊ TRÍ MỚI (PDF)": original_new_key,
+                            "SỐ ĐO CŨ": val_old,
+                            "SỐ ĐO MỚI": val_new,
+                            "KẾT QUẢ SƠ BỘ": "SO KHỚP SẠCH"
+                        })
+
+                display_diff = f"+{diff_val}" if diff_val and diff_val > 0 else (str(diff_val) if diff_val is not None else "-")
+                display_pct = f"+{diff_pct}%" if diff_pct and diff_pct > 0 else (f"{diff_pct}%" if diff_pct is not None else "-")
+                
+                compare_rows.append({
+                    "Vị trí đo (POM Description)": original_old_key,
+                    f"Mẫu mới ({new_style_base_size if 'new_style_base_size' in locals() else '32'})": val_new if val_new is not None else "-",
+                    f"Mã cũ ({old_style_display if 'old_style_display' in locals() else 'KHO'})": val_old if val_old is not None else "-",
+                    "Chênh lệch (Diff)": display_diff,
+                    "Tỷ lệ biến thiên (Diff %)": display_pct,
+                    "Trạng thái Match": match_status
                 })
-
-            display_diff = f"+{diff_val}" if diff_val and diff_val > 0 else (str(diff_val) if diff_val is not None else "-")
-            display_pct = f"+{diff_pct}%" if diff_pct and diff_pct > 0 else (f"{diff_pct}%" if diff_pct is not None else "-")
-            
-            compare_rows.append({
-                "Vị trí đo (POM Description)": original_old_key,
-                f"Mẫu mới ({new_style_base_size})": val_new if val_new is not None else "-",
-                f"Mã cũ ({old_style_display})": val_old if val_old is not None else "-",
-                "Chênh lệch (Diff)": display_diff,
-                "Tỷ lệ biến thiên (Diff %)": display_pct,
-                "Trạng thái Match": match_status
-            })
 
         # VÒNG LẶP VÉT: Nạp nốt các điểm đo của mẫu mới lọt lưới nếu kho cũ không có dữ liệu
         for cl_new_k, new_items_list in cleaned_new_specs.items():
@@ -2275,19 +2305,20 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                 if orig_new_key not in processed_new_keys:
                     compare_rows.append({
                         "Vị trí đo (POM Description)": orig_new_key,
-                        f"Mẫu mới ({new_style_base_size})": new_info["value"] if new_info["value"] is not None else "-",
-                        f"Mã cũ ({old_style_display})": "-",
+                        f"Mẫu mới ({new_style_base_size if 'new_style_base_size' in locals() else '32'})": new_info["value"] if new_info["value"] is not None else "-",
+                        f"Mã cũ ({old_style_display if 'old_style_display' in locals() else 'KHO'})": "-",
                         "Chênh lệch (Diff)": "-",
                         "Tỷ lệ biến thiên (Diff %)": "-",
                         "Trạng thái Match": "MẪU MỚI CÓ - KHO THIẾU"
                     })
 
-        if match_logs_pool:
+        if 'match_logs_pool' in locals() and match_logs_pool:
             with st.expander("🔍 Chi tiết nhật ký bắt cặp POM"):
                 st.dataframe(pd.DataFrame(match_logs_pool), use_container_width=True, hide_index=True)
             
         df_compare_spec = pd.DataFrame(compare_rows)
         st.dataframe(df_compare_spec, use_container_width=True, hide_index=True)
+
 
 
        
