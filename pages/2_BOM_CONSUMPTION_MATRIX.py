@@ -2303,15 +2303,61 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
 
 
         
-        # Đóng gói và truyền tải % diện tích biến thiên phom rập sang bộ nhớ toàn cục
-        if valid_diff_pcts:
-            avg_pom_growth = sum(valid_diff_pcts) / len(valid_diff_pcts)
-            avg_area_growth_pct = round((((1 + avg_pom_growth/100) ** 2) - 1) * 100, 2)
-            globals()["avg_area_growth_pct"] = avg_area_growth_pct
-            st.session_state["avg_area_growth_pct"] = avg_area_growth_pct
-        else:
-            globals()["avg_area_growth_pct"] = 0.0
-            st.session_state["avg_area_growth_pct"] = 0.0
+               # =========================================================================
+        # 📐 [ĐOẠN 5/6 SỬA LỖI TOÁN HÌNH HỌC] - ĐÓNG GÓI % DIỆN TÍCH PHOM RẬP CHUẨN ERP
+        # =========================================================================
+        # Khởi tạo các mảng phân tầng trục tọa độ rập mẫu
+        vertical_growth_pcts = []    # Chứa biến thiên chiều dài (Inseam, Outseam, Rise...)
+        horizontal_growth_pcts = []  # Chứa biến thiên chiều rộng (Thigh, Leg opening, Waist, Hip...)
+
+        if 'compare_rows' in locals() and compare_rows:
+            for row in compare_rows:
+                pom_name = str(row.get("Vị trí đo (POM Description)", "")).upper()
+                pct_str = str(row.get("Tỷ lệ biến thiên (Diff %)", "-"))
+                
+                # Chỉ xử lý các dòng có dữ liệu phần trăm hợp lệ, bỏ qua dấu gạch ngang
+                if pct_str and pct_str != "-":
+                    try:
+                        # Làm sạch chuỗi chuyển đổi "+100.0%" hoặc "-1.54%" thành số thực float
+                        clean_pct = float(pct_str.replace("%", "").replace("+", "").strip())
+                        
+                        # PHÂN TẦNG TRỤC 1: Các thông số đo chiều dọc (Quyết định chiều dài sơ đồ vải)
+                        if any(v in pom_name for v in ["INSEAM", "OUTSEAM", "LENGTH", "RISE", "CROTCH"]):
+                            vertical_growth_pcts.append(clean_pct)
+                            
+                        # PHÂN TẦNG TRỤC 2: Các thông số đo chiều ngang (Quyết định chiều rộng sơ đồ vải)
+                        elif any(h in pom_name for h in ["THIGH", "OPENING", "WAIST", "HIP", "WIDTH"]):
+                            horizontal_growth_pcts.append(clean_pct)
+                    except (ValueError, TypeError):
+                        continue
+
+        # Tính toán trung bình thích ứng cho từng trục phom rập (Tránh lỗi cào bằng)
+        avg_vertical = sum(vertical_growth_pcts) / len(vertical_growth_pcts) if vertical_growth_pcts else 0.0
+        avg_horizontal = sum(horizontal_growth_pcts) / len(horizontal_growth_pcts) if horizontal_growth_pcts else 0.0
+
+        # RÀO CHẮN BẢO VỆ PRODUCTION: Nếu thực tế dòng Inseam tăng mạnh (nhảy từ quần đùi lên quần dài) 
+        # thì hệ số dọc bắt buộc phải lấy giá trị dương lớn, không được để các chi tiết khác kéo âm.
+        if avg_vertical == 0.0 and valid_diff_pcts:
+            # Fallback nếu không phân tách được trục: Lấy giá trị lớn nhất của mảng thay vì lấy trung bình cộng rác
+            avg_vertical = max(valid_diff_pcts)
+
+        # CÔNG THỨC DIỆN TÍCH LÊN SƠ ĐỒ THỰC TẾ (Bỏ công thức bình phương cào bằng cũ)
+        # Diện tích sơ đồ mới = (1 + %Dài/100) * (1 + %Rộng/100)
+        geometric_area_multiplier = (1 + avg_vertical / 100) * (1 + avg_horizontal / 100)
+        avg_area_growth_pct = round((geometric_area_multiplier - 1) * 100, 2)
+
+        # Chặn rào bảo vệ dưới: Định mức vải phom quần dài hơn không bao giờ được phép âm
+        if avg_vertical > 20.0 and avg_area_growth_pct < 0:
+            # Ép số tăng trưởng diện tích sơ đồ dương dựa trên bước nhảy vóc dài quần thực tế
+            avg_area_growth_pct = round(avg_vertical * 0.35, 2)
+
+        # Truyền tải an toàn sang bộ nhớ toàn cục và Streamlit State để chuyển tiếp sang Đoạn 6/6
+        globals()["avg_area_growth_pct"] = float(avg_area_growth_pct)
+        st.session_state["avg_area_growth_pct"] = float(avg_area_growth_pct)
+
+        # Hiển thị thông tin kiểm soát thuật toán ra màn hình nội bộ
+        # st.caption(f"📊 [AI Debug] Biến thiên trục dọc: {round(avg_vertical,2)}% | Trục ngang: {round(avg_horizontal,2)}% → Diện tích sơ đồ: {avg_area_growth_pct}%")
+
        # =========================================================================
       # =========================================================================
     # 🔮 [ĐOẠN 6/6 CHUẨN LỀ] - AI CONSUMPTION PROJECTION ENGINE & CỘNG BÙ ĐỊNH MỨC
