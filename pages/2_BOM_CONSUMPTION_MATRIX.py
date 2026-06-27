@@ -2235,8 +2235,8 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                     match_status = "BẮT CẶP NGỮ NGHĨA" if max_similarity >= 10.0 else "AI GHÉP TRỌNG SỐ TRÙNG"
 
                 # Luồng tính chênh lệch số đo rập mẫu chuyển tiếp sang Đoạn 5
-                f_new = clean_float(val_new)
-                f_old = clean_float(val_old)
+                f_new = clean_float(val_new) if val_new != "-" else None
+                f_old = clean_float(val_old) if val_old != "-" else None
                 diff_val, diff_pct = None, None
                 if f_new is not None and f_old is not None:
                     diff_val = round(f_new - f_old, 2)
