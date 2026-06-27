@@ -2086,11 +2086,16 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
     new_style_base_size = globals().get("new_style_base_size", st.session_state.get("new_style_base_size", "32"))
     # =========================================================================
        # =========================================================================
-    # 🔍 [ĐOẠN 3/6 CHUẨN LỀ] - BỘ LỌC KHỬ NHIỄU ERP VÀ SIÊU TỪ ĐIỂN ĐỒNG NGHĨA TOÀN NGÀNH
+       # =========================================================================
+    # 🔍 [ĐOẠN 3/6 HOÀN CHỈNH] - BỘ LỌC KHỬ NHIỄU ERP VÀ SIÊU TỪ ĐIỂN ĐỒNG NGHĨA
     # =========================================================================
     avg_area_growth_pct = 0.0
 
     if new_specs or old_specs:
+        # 🧪 ĐOẠN CODE DEBUG TỰ ĐỘNG - IN DỮ LIỆU THÔ ĐỂ KIỂM TRA LỖI KHÔNG HIỂN THỊ
+        st.write("🔍 [DEBUG] Dữ liệu AI bóc từ file PDF (new_specs):", new_specs)
+        st.write("📊 [DEBUG] Dữ liệu gốc lấy từ kho Supabase (old_specs):", old_specs)
+
         compare_rows = []
         match_logs_pool = []
         valid_diff_pcts = []
@@ -2104,7 +2109,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             t = re.sub(r'^\d+[\s\.\-_]*', '', t)
             return " ".join(t.split())
 
-        # Hàm trợ lực xử lý chuyển đổi phân số và chuỗi số ngành may (Đã fix thụt lề chuẩn Production)
+        # Hàm trợ lực xử lý chuyển đổi phân số và chuỗi số ngành may
         def clean_float(v):
             if v is None: 
                 return None
@@ -2122,7 +2127,6 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                 if frac_match: 
                     return float(frac_match.group(1)) / float(frac_match.group(2))
                 nums = re.findall(r"[-+]?\d*\.\d+|\d+", v_str)
-                # FIX LỖI TRIỆT ĐỂ: Trích xuất phần tử chuỗi số đầu tiên nums[0] thay vì ép float nguyên mảng
                 return float(nums[0]) if nums else None
 
         # 2. RÀO CHẮN THÉP: Bộ từ điển đồng nghĩa quốc tế bao phủ toàn diện 11 nhóm phom rập
@@ -2148,11 +2152,6 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             "POCKET": -8, "TUI": -8, "FLAP": -5, "PATCH": -5, "POUCH": -5, "TAB": -4, "BADGE": -6, "LABEL": -6, "BUTTON": -6
         }
 
-                # =========================================================================
-               # =========================================================================
-                # =========================================================================
-                # =========================================================================
-                # =========================================================================
         # 🔍 [ĐOẠN 4/6 SỬA LỖI BẮT CẶP SAI] - THUẬT TOÁN ĐỐI CHIẾU THÍCH ỨNG PHOM TRÙNG
         # =========================================================================
         def get_semantic_standard_key(raw_text):
