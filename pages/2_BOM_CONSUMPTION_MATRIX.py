@@ -2104,19 +2104,26 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             return " ".join(t.split())
 
         # Hàm trợ lực xử lý chuyển đổi phân số và chuỗi số ngành may
-        def clean_float(v):
-            if v is None: return None
-            v_str = str(v).strip()
-            try: return float(v_str)
-            except (ValueError, TypeError):
-                import re
-                mixed_match = re.search(r"(\d+)[\s\-]+(\d+)/(\d+)", v_str)
-                if mixed_match:
-                    return float(mixed_match.group(1)) + (float(mixed_match.group(2)) / float(mixed_match.group(3)))
-                frac_match = re.search(r"(\d+)/(\d+)", v_str)
-                if frac_match: return float(frac_match.group(1)) / float(frac_match.group(2))
-                nums = re.findall(r"[-+]?\d*\.\d+|\d+", v_str)
-                return float(nums) if nums else None
+       def clean_float(v):
+    if v is None: 
+        return None
+    v_str = str(v).strip()
+    if v_str in ["", "-", "None"]:
+        return None
+    try: 
+        return float(v_str)
+    except (ValueError, TypeError):
+        import re
+        mixed_match = re.search(r"(\d+)[\s\-]+(\d+)/(\d+)", v_str)
+        if mixed_match:
+            return float(mixed_match.group(1)) + (float(mixed_match.group(2)) / float(mixed_match.group(3)))
+        frac_match = re.search(r"(\d+)/(\d+)", v_str)
+        if frac_match: 
+            return float(frac_match.group(1)) / float(frac_match.group(2))
+        nums = re.findall(r"[-+]?\d*\.\d+|\d+", v_str)
+        # SỬA LỖI TẠI ĐÂY: Lấy phần tử đầu tiên nums[0] thay vì ép float cả mảng nums
+        return float(nums[0]) if nums else None
+
 
         # 2. RÀO CHẮN THÉP: Bộ từ điển đồng nghĩa quốc tế bao phủ toàn diện 11 nhóm phom rập
         semantic_dictionary = {
