@@ -2152,9 +2152,9 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                # =========================================================================
                 # =========================================================================
                 # =========================================================================
-        # 🔍 [ĐOẠN 4/6 HOÀN CHỈNH STANDARD] - KHẮC PHỤC LỖI HÀM & ÉP KHỚP ĐỘNG TỪ FILE
+                # =========================================================================
+        # 🔍 [ĐOẠN 4/6 SỬA LỖI BẮT CẶP SAI] - THUẬT TOÁN ĐỐI CHIẾU THÍCH ỨNG PHOM TRÙNG
         # =========================================================================
-        # Định nghĩa hàm quét Ngữ nghĩa ngay tại đầu Đoạn 4/6 để triệt tiêu lỗi NameError
         def get_semantic_standard_key(raw_text):
             if 'semantic_dictionary' not in locals() and 'semantic_dictionary' not in globals():
                 return None
@@ -2169,7 +2169,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                     return standard_key
             return None
 
-        # Đóng gói danh sách mẫu mới dạng setdefault ngăn chặn lỗi ghi đè dữ liệu trùng tên POM
+        # Đóng gói danh sách mẫu mới
         cleaned_new_specs = {}
         if 'new_specs' in locals() and new_specs:
             for k, v in new_specs.items():
@@ -2198,15 +2198,23 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                 best_match_item = None
                 max_similarity = -1.0
                 
-                # Cờ hiệu bảo vệ nghiêm ngặt chống kẹt vòng lặp vô hạn gây đơ máy
-                match_found = False
+                # Ép kiểu số đo mã cũ để làm màng lọc rào chắn chống bắt cặp sai
+                f_old_check = clean_float(val_old) if val_old != "-" else None
                 
                 for cl_new_k, new_items_list in cleaned_new_specs.items():
                     for new_info in new_items_list:
                         if new_info["original_key"] in processed_new_keys:
                             continue
-                            
-                        # TẦNG ƯU TIÊN 1: Khớp tuyệt đối qua nhóm Nghĩa Gốc (Cùng nhóm cốt lõi từ điển)
+                        
+                        # 🛠️ RÀO CHẮN CHỐNG BẮT CẶP NHẦM (VALUE CHECK): 
+                        # Nếu hai quần giống nhau, số đo thực tế không được lệch quá 3.5 inches cho cùng một chi tiết túi/nẹp
+                        f_new_check = clean_float(new_info["value"]) if new_info["value"] != "-" else None
+                        if f_old_check is not None and f_new_check is not None:
+                            # Nếu lệch quá xa, đây chắc chắn là bắt cặp nhầm dòng (Mismatch chéo), lập tức loại bỏ
+                            if abs(f_new_check - f_old_check) > 3.5 and any(k in clean_old_key for k in ["PKT", "POCKET", "TUI", "ZIPPER"]):
+                                continue
+
+                        # TẦNG ƯU TIÊN 1: Khớp tuyệt đối qua nhóm Nghĩa Gốc
                         if old_semantic_key is not None and old_semantic_key == new_info["semantic_key"]:
                             common_tokens = old_tokens.intersection(new_info["tokens"])
                             raw_score = sum(token_weight.get(t, 1) for t in common_tokens)
@@ -2216,12 +2224,10 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                             if similarity > max_similarity:
                                 max_similarity = similarity
                                 best_match_item = new_info
-                                # Nếu chuỗi đã làm sạch trùng nhau hoàn toàn -> Thoát sớm bảo vệ luồng
                                 if clean_old_key == cl_new_k:
-                                    match_found = True
                                     break
                                     
-                        # TẦNG ƯU TIÊN 2: Khớp Fuzzy trùng từ tự nhiên ngoài từ điển dựa trên trọng số token
+                        # TẦNG ƯU TIÊN 2: Khớp Fuzzy trùng từ tự nhiên ngoài từ điển
                         elif best_match_item is None:
                             common_tokens = old_tokens.intersection(new_info["tokens"])
                             if 'core_token_keywords' in locals() and len(common_tokens) >= 1 and common_tokens.intersection(core_token_keywords):
@@ -2233,15 +2239,12 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                                     max_similarity = similarity
                                     best_match_item = new_info
 
-                        # TẦNG ƯU TIÊN 3: Khớp tiệm cận chứa chuỗi tự động (Substring Inclusion) từ file quét
+                        # TẦNG ƯU TIÊN 3: Khớp tiệm cận chứa chuỗi tự động (Substring)
                         elif best_match_item is None:
                             if clean_old_key in cl_new_k or cl_new_k in clean_old_key:
                                 max_similarity = 5.0
                                 best_match_item = new_info
                                 
-                    if match_found: 
-                        break
-                            
                 if best_match_item is not None:
                     original_new_key = best_match_item["original_key"]
                     val_new = best_match_item["value"]
@@ -2264,12 +2267,10 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                     if f_old != 0:
                         diff_pct = round((diff_val / f_old) * 100, 2)
                         
-                        # Màng lọc thích ứng biên độ nhảy vóc lớn cho dòng quần shorts lên dài
-                        if -70.0 <= diff_pct <= 120.0:
+                        # Màng lọc may công nghiệp tiêu chuẩn
+                        if -50.0 <= diff_pct <= 50.0:
                             if 'valid_diff_pcts' in locals():
                                 valid_diff_pcts.append(diff_pct)
-                            if diff_pct > 50.0 or diff_pct < -30.0:
-                                match_status = "BẮT CẶP NGỮ NGHĨA (BIẾN THIÊN LỚN)"
                         else:
                             match_status = "LỆCH SỐ LIỆU SẢN XUẤT (CỰC ĐOAN)"
                     else:
@@ -2318,7 +2319,6 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             
         df_compare_spec = pd.DataFrame(compare_rows)
         st.dataframe(df_compare_spec, use_container_width=True, hide_index=True)
-
 
 
        
