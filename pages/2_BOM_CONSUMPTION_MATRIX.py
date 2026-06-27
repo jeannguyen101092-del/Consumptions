@@ -2141,7 +2141,8 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             "POCKET": -8, "TUI": -8, "FLAP": -5, "PATCH": -5, "POUCH": -5, "TAB": -4, "BADGE": -6, "LABEL": -6, "BUTTON": -6
         }
                 # =========================================================================
-        # 🔍 [ĐOẠN 4/6 SỬA LỖI] - THIẾT LẬP BỘ TOKENS NGỮ NGHĨA & THOÁT VÒNG LẶP SỚM
+               # =========================================================================
+        # 🔍 [ĐOẠN 4/6 SỬA LỖI INSEAM & CHỐNG ĐƠ] - THIẾT LẬP TOKENS & VÒNG LẶP ĐỐI CHIẾU
         # =========================================================================
         # 1. Tạo bộ từ khóa Token đơn phục vụ bộ tìm kiếm tương đồng
         core_token_keywords = set()
@@ -2209,6 +2210,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                         if similarity > max_similarity:
                             max_similarity = similarity
                             best_match_item = new_info
+                            # Đã khớp cùng mã gốc và trùng tên tuyệt đối -> Kích hoạt cờ thoát sớm chống đơ
                             if clean_old_key == cl_new_k:
                                 match_found = True
                                 break
@@ -2224,13 +2226,6 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                             if similarity > max_similarity:
                                 max_similarity = similarity
                                 best_match_item = new_info
-                                
-                    # TẦNG ƯU TIÊN 3 (VÁ LỖI): Khớp dựa trên cụm từ chứa nhau (Substring Match) khi từ điển bị rỗng
-                    elif best_match_item is None:
-                        if clean_old_key in cl_new_k or cl_new_k in clean_old_key:
-                            max_similarity = 5.0
-                            best_match_item = new_info
-                            
                 if match_found: 
                     break
                         
@@ -2238,26 +2233,26 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                 original_new_key = best_match_item["original_key"]
                 val_new = best_match_item["value"]
                 processed_new_keys.add(original_new_key)
-                if max_similarity >= 10.0:
-                    match_status = "BẮT CẶP NGỮ NGHĨA"
-                elif max_similarity >= 5.0:
-                    match_status = "KHỚP CHUỖI TỰ ĐỘNG (SUBSTRING)"
-                else:
-                    match_status = "AI GHÉP TRỌNG SỐ TRÙNG"
+                match_status = "BẮT CẶP NGỮ NGHĨA" if max_similarity >= 10.0 else "AI GHÉP TRỌNG SỐ TRÙNG"
 
             # Luồng tính chênh lệch số đo rập mẫu chuyển tiếp sang Đoạn 5
-            # Thêm rào chắn an toàn loại trừ dấu gạch ngang "-" gây lỗi ép kiểu sập app
+            # SỬA LỖI CRASH: Thêm rào chắn an toàn kiểm tra chuỗi gạch ngang "-" trước khi ép kiểu số thực
             f_new = clean_float(val_new) if val_new != "-" else None
             f_old = clean_float(val_old) if val_old != "-" else None
+            
             diff_val, diff_pct = None, None
             if f_new is not None and f_old is not None:
                 diff_val = round(f_new - f_old, 2)
                 if f_old != 0:
                     diff_pct = round((diff_val / f_old) * 100, 2)
                     
-                    # Màng lọc giảm chấn may công nghiệp: Loại bỏ các tỷ lệ biến thiên nhảy số ảo
-                    if -50.0 <= diff_pct <= 50.0:
+                    # 🛠️ SỬA LỖI INSEAM: Nới lỏng màng lọc may công nghiệp từ -70% đến +120% 
+                    # để ghi nhận chính xác bước nhảy vóc lớn (+100.0%) của dòng quần ngố/shorts
+                    if -70.0 <= diff_pct <= 120.0:
                         valid_diff_pcts.append(diff_pct)
+                        # Nếu nhảy vóc mạnh ngoài biên thông thường nhưng vẫn hợp lệ thì đổi trạng thái thông báo
+                        if diff_pct > 50.0 or diff_pct < -30.0:
+                            match_status = "BẮT CẶP NGỮ NGHĨA (BIẾN THIÊN LỚN)"
                     else:
                         match_status = "LỆCH SỐ LIỆU SẢN XUẤT (CỰC ĐOAN)"
                 else:
@@ -2265,7 +2260,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
 
             if original_new_key != "-":
                 match_logs_pool.append({
-                    "NHÓM NGHĨA GỐC": old_semantic_key if old_semantic_key else "BẮT THẲNG CHUỖI",
+                    "NHÓM NGHĨA GỐC": old_semantic_key,
                     "VỊ TRÍ CŨ (DB)": original_old_key,
                     "VỊ TRÍ MỚI (PDF)": original_new_key,
                     "SỐ ĐO CŨ": val_old,
@@ -2299,13 +2294,13 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                         "Trạng thái Match": "MẪU MỚI CÓ - KHO THIẾU"
                     })
 
-        # Hiển thị bảng kết quả ra Streamlit
         if match_logs_pool:
             with st.expander("🔍 Chi tiết nhật ký bắt cặp POM"):
                 st.dataframe(pd.DataFrame(match_logs_pool), use_container_width=True, hide_index=True)
             
         df_compare_spec = pd.DataFrame(compare_rows)
         st.dataframe(df_compare_spec, use_container_width=True, hide_index=True)
+
 
         
         # Đóng gói và truyền tải % diện tích biến thiên phom rập sang bộ nhớ toàn cục
