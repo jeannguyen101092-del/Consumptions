@@ -372,7 +372,7 @@ if st.session_state.saved_pdf_bytes is not None:
 
         chat_history = st.session_state.get("sidebar_chat_history", [])
         last_chat = str(chat_history[-1].get("content", "")).lower() if len(chat_history) > 1 else ""
-# --- SECTION 2b2b: COMMERCIAL CAD MARKER CONSUMPTION ENGINE ---
+# --- SECTION 2b2b: UNIVERSAL COMMERCIAL CAD MARKER ENGINE ---
         if len(panels) > 0:
             for mat in materials:
                 placement = str(mat.get("placement")).upper()
@@ -422,49 +422,65 @@ if st.session_state.saved_pdf_bytes is not None:
                     
                     mat["shrinkage_warp"], mat["shrinkage_weft"] = round(s_warp*100, 1), round(s_weft*100, 1)
 
-                # ZERO-DIVISION SAFEGUARD: Compute effective width before wash (minus 1 inch border)
+                # ZERO-DIVISION SAFEGUARD: Compute effective width before wash (minus 1 inch safety border)
                 effective_width = max(10.0, w_inch - 1.0)
 
                 # -----------------------------------------------------------------
-                # ARITHMETIC CORE ENGINE: ALWAYS CALCULATE - REMOVED WASTE FACTOR (LOSS = 1.0)
+                # ARITHMETIC CORE ENGINE: AUTOMATIC NESTING EFFICIENCY FOR ALL CATEGORIES
                 # -----------------------------------------------------------------
-                if "PANT" in str(category).upper():
-                    # DYNAMIC AREA ASSIGNMENT: Pulls real dynamic area (v_shell) parsed from current PDF file
-                    target_area = v_shell if v_shell > 10.0 else 1395.0
-                    eff, loss = 0.82, 1.0  
+                loss = 1.0  # Loại bỏ hoàn toàn hao hụt dư thừa (Loss = 1.0)
+                cat_upper = str(category).upper()
+
+                if "PANT" in cat_upper:
+                    # --- THUẬT TOÁN ĐỊNH MỨC QUẦN (JEANS, KHAKI, TROUSERS...) ---
+                    main_body_area = sum([safe_float(p.get("area_inch2")) for p in body_panels if any(x in str(p.get("panel_name", "")).lower() for x in ["thân", "front", "back"])])
+                    target_area = main_body_area if main_body_area > 10.0 else v_shell
+                    eff = 0.82  # Gerber/Lectra industrial efficiency baseline cho phom lồng quần
                     
                     if "POCKETING" in placement: 
-                        calc_consumption = round(((max_back_pant) / 39.37) * 0.21, 3); target_area = v_pocket; eff, loss = 0.86, 1.0
+                        calc_consumption = round(((max_back_pant) / 39.37) * 0.21, 3); target_area = v_pocket; eff = 0.86
                     elif "INTERLINING" in placement: 
-                        calc_consumption = round(((max_back_pant) / 39.37) * 0.09, 3); target_area = v_inter; eff, loss = 0.88, 1.0
+                        calc_consumption = round(((max_back_pant) / 39.37) * 0.09, 3); target_area = v_inter; eff = 0.88
                     else:
                         if target_area > 0 and effective_width > 0:
                             marker_length_inch = target_area / effective_width
-                            # Divide by 2 because input total area includes a quantity size multiplier of SL=2
+                            # Chia 2 vì tổng diện tích đầu vào chứa số lượng SL=2 (Cặp chi tiết trái/phải)
                             calc_consumption = ((marker_length_inch / 39.37) / eff * loss) / 2.0
-                        else:
-                            calc_consumption = 0.0
-                else:
-                    # --- APPAREL CORE ALGORITHM: JACKET / BOMBER LAYOUTS ---
-                    if "SHELL" in placement:
-                        base_layout_length = (max_body_length + (2 * sewing_seam_allowance)) + (max_sleeve + (2 * sewing_seam_allowance)) + hem_allowance
-                        has_long_rib = any("bo gấu" in str(p.get("panel_name", "")).lower() or "bo lưng" in str(p.get("panel_name", "")).lower() for p in panels)
-                        base_layout_length += 4.5 if has_long_rib else 2.0
-                        
-                        final_layout_inch = base_layout_length * (1.0 + s_warp)
-                        jacket_factor = 1.375 if (s_weft >= 0.12 and max_body_width >= 26.0) else (1.15 if w_inch <= 58.0 else 1.09)
-                        calc_consumption = ((final_layout_inch * jacket_factor) / 39.37) * 1.0
-                        target_area, eff, loss = v_shell, 0.85, 1.0
-                    elif "POCKETING" in placement:
-                        calc_consumption = round(((max_body_length + max_sleeve) / 39.37) * 0.22, 3)
-                        target_area, eff, loss = v_pocket, 0.86, 1.0
-                    else:
+                        else: calc_consumption = 0.0
+
+                elif any(x in cat_upper for x in ["JACKET", "BOMBER", "COAT"]):
+                    # --- THUẬT TOÁN ĐỊNH MỨC ÁO KHOÁC (JACKET, BOMBER...) ---
+                    target_area = v_shell
+                    eff = 0.85  # Hiệu suất sơ đồ tinh cho áo khoác dày chi tiết lớn
+                    
+                    if "POCKETING" in placement:
+                        calc_consumption = round(((max_body_length + max_sleeve) / 39.37) * 0.22, 3); target_area = v_pocket; eff = 0.86
+                    elif "INTERLINING" in placement:
                         if v_inter > 0 and effective_width > 0:
-                            m_len_inter = v_inter / effective_width
-                            calc_consumption = (m_len_inter / 39.37) / 0.88 * 1.0
-                        else:
-                            calc_consumption = round(((max_body_length) / 39.37) * 0.15, 3)
-                        target_area, eff, loss = v_inter, 0.88, 1.0
+                            calc_consumption = (v_inter / effective_width / 39.37) / 0.88
+                        else: calc_consumption = round(((max_body_length) / 39.37) * 0.15, 3)
+                        target_area = v_inter; eff = 0.88
+                    else:
+                        if target_area > 0 and effective_width > 0:
+                            marker_length_inch = target_area / effective_width
+                            # Áo khoác có kết cấu thân trước x2, thân sau x1, tay x2 độc lập nên tính trực tiếp theo cụm diện tích
+                            calc_consumption = (marker_length_inch / 39.37) / eff * loss
+                        else: calc_consumption = 0.0
+
+                else:
+                    # --- THUẬT TOÁN ĐỊNH MỨC CHO CÁC DÒNG HÀNG CÒN LẠI (SHIRT, T-SHIRT, HOODIE, POLO...) ---
+                    target_area = v_shell
+                    eff = 0.88  # Sơ đồ dệt kim/sơ mi vuông vắn, hiệu suất sơ đồ tinh Gerber đạt tới 88%
+                    
+                    if "POCKETING" in placement:
+                        calc_consumption = round((max_body_length / 39.37) * 0.12, 3); target_area = v_pocket; eff = 0.86
+                    elif "INTERLINING" in placement:
+                        calc_consumption = round((max_body_length / 39.37) * 0.05, 3); target_area = v_inter; eff = 0.88
+                    else:
+                        if target_area > 0 and effective_width > 0:
+                            marker_length_inch = target_area / effective_width
+                            calc_consumption = (marker_length_inch / 39.37) / eff * loss
+                        else: calc_consumption = 0.0
 
                 # DATA STREAM COMPILATION AND ASSIGNMENT
                 final_consumption = round(max(0.0, calc_consumption), 3)
