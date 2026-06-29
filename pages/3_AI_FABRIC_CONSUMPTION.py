@@ -144,7 +144,6 @@ with st.sidebar:
 
 if user_prompt:
     st.session_state.sidebar_chat_history.append({"role": "user", "content": user_prompt})
-    # Trích xuất dữ liệu từ chữ gõ vào session_state ngay lập tức
     update_config_from_text(user_prompt)
     
     st.session_state.sidebar_chat_history.append({
@@ -154,7 +153,7 @@ if user_prompt:
     st.rerun()
 
 # =====================================================================
-# ENGINE QUY ĐỔI PHÂN SỐ NGÀNH MAY (ĐÃ SỬA CHUẨN ĐỊNH VỊ CHỈ MỤC ARRAY INDEX)
+# ENGINE QUY ĐỔI PHÂN SỐ NGÀNH MAY (ĐÃ VÁ CHUẨN ĐỊNH VỊ CHỈ MỤC MẢNG)
 # =====================================================================
 def parse_garment_fraction(val) -> float:
     """Chuyển đổi chính xác phân số hỗn hợp ngành may thành số thập phân thực tế"""
@@ -189,6 +188,7 @@ def parse_garment_fraction(val) -> float:
         pass
         
     return safe_float(val, 0.0)
+
 # =====================================================================
 # ĐOẠN 2b: GIAO DIỆN CHÍNH, ĐỒNG BỘ ĐƠN VỊ VÀ ĐỔ BẢNG VECTOR CAD ĐỊNH MỨC THỰC TẾ
 # =====================================================================
