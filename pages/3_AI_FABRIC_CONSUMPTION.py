@@ -153,6 +153,53 @@ if user_prompt:
     st.rerun()
 
 # =====================================================================
+# ENGINE QUY ĐỔI PHÂN SỐ NGÀNH MAY (THUẬT TOÁN KHÔNG DÙNG NGOẶC VUÔNG)
+# =====================================================================
+def parse_garment_fraction(val) -> float:
+    """Chuyển đổi chính xác phân số hỗn hợp ngành may thành số thập phân thực tế"""
+    if val is None: return 0.0
+    val_str = str(val).strip()
+    if not val_str or val_str.lower() in ['none', 'null', 'n/a']: return 0.0
+    
+    # 1. Nếu bản chất đã là số thập phân, ép kiểu trực tiếp
+    try: 
+        return float(val_str)
+    except ValueError: 
+        pass
+    
+    # 2. Xử lý phân số bằng thuật toán bóc tách Pop/Unpack (Chống lỗi nuốt ký tự)
+    try:
+        if '/' in val_str:
+            parts_list = re.split(r'[\s\-]+', val_str)
+            
+            if len(parts_list) == 2:
+                # Dạng hỗn số: '16 1/2'
+                frac_part_str = parts_list.pop()
+                whole_part_str = parts_list.pop()
+                
+                whole_num = float(whole_part_str)
+                
+                sub_parts = frac_part_str.split('/')
+                den_num = float(sub_parts.pop())
+                num_num = float(sub_parts.pop())
+                
+                return whole_num + (num_num / den_num)
+                
+            elif len(parts_list) == 1:
+                # Dạng phân số thuần: '1/2'
+                frac_part_str = parts_list.pop()
+                sub_parts = frac_part_str.split('/')
+                den_num = float(sub_parts.pop())
+                num_num = float(sub_parts.pop())
+                
+                return num_num / den_num
+    except Exception:
+        pass
+        
+    return safe_float(val, 0.0)
+
+
+# =====================================================================
 # ENGINE QUY ĐỔI PHÂN SỐ NGÀNH MAY (ĐÃ FIX TRIỆT ĐỂ KHÔNG BỊ NUỐT TEXT)
 # =====================================================================
 def parse_garment_fraction(val) -> float:
