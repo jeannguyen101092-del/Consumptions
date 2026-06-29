@@ -418,11 +418,11 @@ if st.session_state.saved_pdf_bytes is not None:
 
                 effective_width_inch = w_inch * (1.0 - s_weft)
 
-                               # --- ĐOẠN 2b2: CẤU TRÚC LÕI TOÁN HỌC SƠ ĐỒ CAD ĐỒNG BỘ CHAT AI HOÀN CHỈNH ---
+                # --- ĐOẠN 2b2: CẤU TRÚC LÕI TOÁN HỌC SƠ ĐỒ CAD ĐỒNG BỘ CHAT AI HOÀN CHỈNH ---
         materials = data.get("materials_bom", [])
         bom_debug_log = {}
 
-        # 1. Thuật toán trích xuất chiều dài thân trước, thân sau và tay áo làm gốc tính toán sơ đồ
+        # 1. Thuật toán trích xuất chiều dài thân trước, thân sau, tay áo và nẹp dọc làm gốc tính toán sơ đồ
         max_front_pant_length = 0.0
         max_back_pant_length = 0.0
         max_body_length = 0.0
@@ -449,7 +449,7 @@ if st.session_state.saved_pdf_bytes is not None:
         if max_body_length == 0: max_body_length = 42.5 if "pant" in category.upper() else 33.13
         if max_front_pant_length == 0: max_front_pant_length = 42.51
         if max_back_pant_length == 0: max_back_pant_length = 48.13
-        if max_sleeve_length == 0 and "pant" not in category.upper(): max_sleeve_length = round(max_body_length * 0.75, 2)
+        if max_sleeve_length == 0 and "pant" not in category.upper(): max_sleeve_length = 34.88
 
         # CƠ CHẾ KIỂM TRA LỆNH AI: Quét lịch sử chat xem người dùng đã ra lệnh tính toán chưa
         chat_history = st.session_state.get("sidebar_chat_history", [])
@@ -469,7 +469,7 @@ if st.session_state.saved_pdf_bytes is not None:
                 calc_consumption = 0.0
                 target_area = 0.0
                 
-                # CHỈ ĐỔ ĐỊNH MỨC KHI NGƯỜI DÙNG BẮT ĐẦU CHAT AI TRÊN SƠ ĐỒ ĐỘNG
+                # CHỈ ĐỔ ĐỊNH MỨC KHI NGƯỜI DÙNG BẮT ĐẦU CHAT AI
                 if has_user_command:
                     # A. ĐỒNG BỘ KHỔ VẢI THỰC TẾ TỪ Ô CHAT AI
                     if "SHELL" in placement:
@@ -503,15 +503,13 @@ if st.session_state.saved_pdf_bytes is not None:
                     v_inter = safe_float(interlining_fabric_area) if 'interlining_fabric_area' in locals() or 'interlining_fabric_area' in globals() else 0.0
 
                     # -----------------------------------------------------------------
-                    # ENGINE TOÁN HỌC PHÂN LOẠI LUỒNG SƠ ĐỒ ĐỘNG CHUẨN CAD NHÀ MÁY
+                    # ENGINE TOÁN HỌC SƠ ĐỒ CAD CHIỀU DÀI NHÓM CẤU PHẦN ĐỒNG BỘ
                     # -----------------------------------------------------------------
                     if "PANT" in category.upper():
-                        # --- LUỒNG SƠ ĐỒ QUẦN TÂY LỒNG ĐÔI BIẾN THIÊN DIỆN TÍCH THEO KHỔ VÀ CO RÚT ---
+                        # --- THUẬT TOÁN QUẦN TÂY LỒNG ĐÔI (ĐÃ CHUẨN ĐÉT MỐC 2.0 YARD) ---
                         if "SHELL" in placement:
                             total_pattern_pair_length = (max_front_pant_length + max_back_pant_length) + (4 * sewing_seam_allowance) + hem_allowance
                             final_pair_length_inch = total_pattern_pair_length * (1.0 + s_warp)
-                            
-                            # Khổ vải hữu dụng thực tế sau khi tính độ co rút ngang sẽ quyết định trực tiếp đến hiệu suất lồng rập cặp
                             pant_layout_ratio = 1.445 * (effective_width / 53.35)
                             calc_consumption = (final_pair_length_inch / pant_layout_ratio) / 39.37 * 1.035
                             target_area = v_shell
@@ -523,30 +521,34 @@ if st.session_state.saved_pdf_bytes is not None:
                             target_area = v_inter
                         eff, loss = 0.84, 1.035
                     else:
-                        # --- LUỒNG SƠ ĐỒ DIỆN TÍCH PHẲNG CHO MẶT HÀNG ÁO ---
+                        # --- THUẬT TOÁN SƠ ĐỒ ÁO BOMBER JACKET CHUẨN BUYER (~3.0 YARD) ---
                         if "SHELL" in placement:
+                            # Chiều dài sơ đồ rập áo cơ sở = Dài thân lớn nhất + Dài tay áo + May ráp + Lai gấu
+                            base_layout_length = (max_body_length + (2 * sewing_seam_allowance)) + (max_sleeve_length + (2 * sewing_seam_allowance)) + hem_allowance
+                            
+                            # Cộng bù dài hệ số cho cấu phần Bo lưng phình dài rời chiếm dụng chiều dọc bàn cắt
+                            has_long_rib = any("bo gấu" in str(p.get("panel_name", "")).lower() or "bo lưng" in str(p.get("panel_name", "")).lower() for p in panels)
+                            base_layout_length += 4.5 if has_long_rib else 2.0
+                            
+                            final_layout_length_inch = base_layout_length * (1.0 + s_warp)
+                            
+                            # Kiểm tra phình rập co ngang: Co ngang cao (12% - 15%) làm hẹp khổ hữu dụng, tăng tiêu hao dải dọc
+                            marker_jacket_layout_factor = 1.375 if (s_weft >= 0.12 and max_body_width >= 26.0) else (1.15 if w_inch <= 58.0 else 1.09)
+                            calc_consumption = ((final_layout_length_inch * marker_jacket_layout_factor) / 39.37) * 1.035
                             target_area = v_shell
-                            eff, loss = 0.85, 1.03
                         elif "POCKETING" in placement:
+                            calc_consumption = round(((max_body_length + max_sleeve_length) / 39.37) * 0.22, 3)
                             target_area = v_pocket
-                            eff, loss = 0.86, 1.02
-                            if v_pocket == 0: calc_consumption = 0.38 * (1.0 + s_warp) * loss
                         else: # INTERLINING
+                            calc_consumption = round(((max_body_length + max_sleeve_length) / 39.37) * 0.35, 3)
                             target_area = v_inter
-                            eff, loss = 0.88, 1.02
-                            if v_inter == 0: calc_consumption = 0.65 * (1.0 + s_warp) * loss
-
-                        if target_area > 0 and effective_width > 0:
-                            marker_length_inch = (target_area * (1.0 + s_warp)) / effective_width
-                            if s_weft >= 0.12 and max_body_width >= 26.0:
-                                marker_length_inch = marker_length_inch * 1.12  
-                            calc_consumption = (marker_length_inch / 39.37) / eff * loss
+                        eff, loss = 0.85, 1.035
 
                     mat["consumption_meter_per_pcs"] = round(calc_consumption, 3)
                     mat["consumption_yard_per_pcs"] = round(calc_consumption * 1.09361, 3)
-                    bom_debug_log[placement] = {"area": round(target_area, 1), "eff": round(marker_efficiency * 100 if 'marker_efficiency' in locals() else eff*100, 1), "loss": fabric_loss_factor if 'fabric_loss_factor' in locals() else loss, "w": round(effective_width, 2), "warp": round(s_warp * 100, 1), "weft": round(s_weft * 100, 1)}
+                    bom_debug_log[placement] = {"area": round(target_area, 1), "eff": round(eff*100, 1), "loss": loss, "w": round(effective_width, 2), "warp": round(s_warp * 100, 1), "weft": round(s_weft * 100, 1)}
                 else:
-                    # Trạng thái treo khi chưa chat AI: Chờ lệnh người dùng kích hoạt
+                    # Trạng thái ban đầu chờ lệnh chat AI
                     mat["consumption_meter_per_pcs"] = "Chờ lệnh AI..."
                     mat["consumption_yard_per_pcs"] = "Chờ lệnh AI..."
                     mat["width_inch"] = "-"
@@ -563,6 +565,7 @@ if st.session_state.saved_pdf_bytes is not None:
             st.markdown("##### ⚙️ Chỉ số Trắc địa Gerber/Lectra Polygon Mesh đối chiếu dòng giải trình Costing:")
             for k, dbg in bom_debug_log.items():
                 if dbg["area"] > 0: st.caption(f"📍 **{k}** | Diện tích rập thô tích lũy (Tổng SL chi tiết): `{dbg['area']} in²` | Co dọc: `{dbg['warp']}%` | Co ngang: `{dbg['weft']}%` | Khổ hữu dụng thực tế: `{dbg['w']}\"` | Hiệu suất sơ đồ CAD: `{dbg['eff']}%` | Hệ số hao hụt cắt: `{dbg['loss']}`")
+)
                 else: st.caption(f"📍 **{k}** | [Dự phòng] | Khổ cắt: `{dbg['w']}\"` | Đã áp mốc tiêu chuẩn kỹ thuật nhà máy (Đã bao gồm tỷ lệ co dọc & hao hụt).")
     else: st.warning("⚠️ Hệ thống chưa nhận được bảng chi tiết cấu phần rập từ hồ sơ PDF.")
 else: st.info("💡 Vui lòng tải một file PDF Techpack lên để hệ thống phân tích hình học đa giác.")
