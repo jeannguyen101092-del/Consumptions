@@ -236,9 +236,19 @@ if uploaded_file is not None:
     st.markdown("---")
     st.subheader("📋 BƯỚC 2: BẢNG MA TRẬN ĐỊNH MỨC NGUYÊN PHỤ LIỆU TRẢ VỀ")
     
+    # Tìm thông số vải chính (SHELL) trong danh mục BOM của Gemini để làm thông số mặc định an toàn
+    default_width = 56.0
+    default_shrink = 5.0
+    if "materials_bom" in bom_data and isinstance(bom_data["materials_bom"], list) and len(bom_data["materials_bom"]) > 0:
+        for mat in bom_data["materials_bom"]:
+            if mat.get("placement") == "SHELL":
+                default_width = mat.get("width_inch", 56.0)
+                default_shrink = mat.get("shrinkage_warp", 5.0)
+                break
+
     # Đồng bộ thông số từ ô chat ghi đè lên thuộc tính gốc trong BOM nếu có lệnh từ người dùng
-    active_width = st.session_state.width_inch_override if st.session_state.width_inch_override else bom_data["materials_bom"][0]["width_inch"]
-    active_shrink = st.session_state.shrinkage_override if st.session_state.shrinkage_override else bom_data["materials_bom"][0]["shrinkage_warp"]
+    active_width = st.session_state.width_inch_override if st.session_state.width_inch_override else default_width
+    active_shrink = st.session_state.shrinkage_override if st.session_state.shrinkage_override else default_shrink
     
     if st.session_state.is_calculated:
         st.info(
@@ -249,45 +259,46 @@ if uploaded_file is not None:
         st.warning("⚠️ **Trạng thái:** Chờ nhận lệnh thông số từ phòng kỹ thuật qua ô Chat (Sidebar) để thực thi tính toán các cột định mức.")
         
     # Áp dụng bộ nhảy mẫu Rule Table hình học cho danh mục sản phẩm từ file PDF thật
-    net_geometry_areas = GarmentCADCoreEngine.apply_rule_table_grading(bom_data["category"], bom_data["specifications_pom"])
+    net_geometry_areas = GarmentCADCoreEngine.apply_rule_table_grading(bom_data.get("category", "jacket"), bom_data.get("specifications_pom", {}))
     
     table_rows = []
     # Khởi tạo ma trận bóc tách cấu trúc lớp vật liệu dệt may biệt lập từ danh mục BOM thật
-    for material in bom_data["materials_bom"]:
-        placement = material["placement"].upper()
-        
-        # Cấu hình điều kiện biên vật lý độc lập cho từng nhóm vải chính, vải lót, vải phối
-        config_context = {
-            "width_inch": active_width if placement == "SHELL" else material["width_inch"],
-            "shrinkage_warp": active_shrink if placement == "SHELL" else material["shrinkage_warp"]
-        }
-        
-        # Chạy mô phỏng gá đặt xếp sơ đồ lồng ghép chi tiết (Advanced Nesting)
-        nest_results = GarmentCADCoreEngine.Advanced_Marker_Nesting_Engine(bom_data["category"], net_geometry_areas, config_context)
-        
-        is_calc_active = st.session_state.is_calculated
-        
-        table_rows.append({
-            "Style": bom_data["style_code"],
-            "Mô tả sản phẩm": bom_data["description"],
-            "Vị trí chi tiết (BOM)": placement,
-            "Chất liệu thành phần": material["material_name"],
-            "Khổ vải (inch)": f"{config_context['width_inch']}''" if is_calc_active else "Chờ chat...",
-            "Độ co L": f"{config_context['shrinkage_warp']}%" if is_calc_active else "Chờ chat...",
-            "Hiệu suất sơ đồ": f"{nest_results['efficiency_predicted']}%" if is_calc_active else "Chờ chat...",
-            "Định mức tinh (yds/pc)": nest_results["consumption_yds"] if is_calc_active else 0.00,
-            "Ghi chú kỹ thuật": f"GSM: {material['gsm']} | Trích xuất trực tiếp từ BOM tài liệu PDF."
-        })
+    if "materials_bom" in bom_data and isinstance(bom_data["materials_bom"], list):
+        for material in bom_data["materials_bom"]:
+            placement = material.get("placement", "SHELL").upper()
+            
+            # Cấu hình điều kiện biên vật lý độc lập cho từng nhóm vải chính, vải lót, vải phối
+            config_context = {
+                "width_inch": active_width if placement == "SHELL" else material.get("width_inch", 56.0),
+                "shrinkage_warp": active_shrink if placement == "SHELL" else material.get("shrinkage_warp", 5.0)
+            }
+            
+            # Chạy mô phỏng gá đặt xếp sơ đồ lồng ghép chi tiết (Advanced Nesting)
+            nest_results = GarmentCADCoreEngine.Advanced_Marker_Nesting_Engine(bom_data.get("category", "jacket"), net_geometry_areas, config_context)
+            
+            is_calc_active = st.session_state.is_calculated
+            
+            table_rows.append({
+                "Style": bom_data.get("style_code", "UNKNOWN"),
+                "Mô tả sản phẩm": bom_data.get("description", "Garment Product Description"),
+                "Vị trí chi tiết (BOM)": placement,
+                "Chất liệu thành phần": material.get("material_name", "Fabric Component"),
+                "Khổ vải (inch)": f"{config_context['width_inch']}''" if is_calc_active else "Chờ chat...",
+                "Độ co L": f"{config_context['shrinkage_warp']}%" if is_calc_active else "Chờ chat...",
+                "Hiệu suất sơ đồ": f"{nest_results['efficiency_predicted']}%" if is_calc_active else "Chờ chat...",
+                "Định mức tinh (yds/pc)": nest_results["consumption_yds"] if is_calc_active else 0.00,
+                "Ghi chú kỹ thuật": f"GSM: {material.get('gsm', 200)} | Trích xuất trực tiếp từ BOM tài liệu PDF."
+            })
         
     df_matrix = pd.DataFrame(table_rows)
-    # Hiển thị trực quan bảng ma trận định mức lớn co giãn toàn màn hình phẳng trung tâm
+    # Kết xuất bảng ma trận định mức lớn lên trung tâm màn hình phẳng
     st.dataframe(df_matrix, use_container_width=True, height=360)
     
     if st.session_state.is_calculated:
         st.download_button(
             label="📥 Xuất File Định Mức Sản Xuất Thương Mại (CSV)",
             data=df_matrix.to_csv(index=False).encode('utf-8-sig'),
-            file_name=f"AI_BOM_Matrix_Report_{bom_data['style_code']}.csv",
+            file_name=f"AI_BOM_Matrix_Report_{bom_data.get('style_code', 'BOM')}.csv",
             mime="text/csv"
         )
 else:
