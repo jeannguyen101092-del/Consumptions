@@ -312,29 +312,30 @@ if st.session_state.saved_pdf_bytes is not None:
             materials.append({"placement": "INTERLINING", "width_inch": 44.0, "shrinkage_warp": 0.0, "shrinkage_weft": 0.0, "material_name": "TRICOT FUSING (Keo lót phôi)"})
         data["materials_bom"] = materials
 
-                     # --- ĐOẠN 2b2: TOÁN HỌC SƠ ĐỒ CÔNG NGHIỆP CỘNG DỒN CHI TIẾT RẬP VÀ ĐỔ BẢNG BOM ---
+                # --- ĐOẠN 2b2: TOÁN HỌC SƠ ĐỒ CÔNG NGHIỆP CỘNG DỒN CHI TIẾT RẬP VÀ ĐỔ BẢNG BOM ---
         materials = data.get("materials_bom", [])
         
-        # 1. DÒ THÔNG SỐ ĐỂ LẬP GỐC SƠ ĐỒ:
-        max_body_length = 0.0  # Chiều dài thân (Áo/Quần) dài nhất
-        max_sleeve_length = 0.0 # Chiều dài tay áo (nếu có)
+        # 1. Thuật toán trích xuất chiều dài thân áo, chiều dài tay áo và chi tiết dài auxiliary từ danh mục rập PANEL LOG
+        max_body_length = 0.0
+        max_sleeve_length = 0.0
+        max_placket_length = 0.0 # Chi tiết phụ dài như nẹp áo (Front Placket)
         
         for p in panels:
             name_lower = p.get("panel_name", "").lower()
             l_val = parse_garment_fraction(p.get("length_inch"))
             
-            # Quét tìm chi tiết thân chính làm gốc chiều dài
-            if any(x in name_lower for x in ["thân", "main", "outseam", "sau", "trước", "body"]):
-                if l_val > max_body_length:
-                    max_body_length = l_val
-            # Quét tìm chi tiết tay áo
-            if any(x in name_lower for x in ["tay", "sleeve"]):
-                if l_val > max_sleeve_length:
-                    max_sleeve_length = l_val
+            # Quét tìm chi tiết thân chính dài nhất (Thân trước/Thân sau)
+            if any(x in name_lower for x in ["thân", "body", "front", "back"]) and "sleeve" not in name_lower:
+                if l_val > max_body_length: max_body_length = l_val
+            # Quét tìm chi tiết tay áo (Sleeve)
+            if "sleeve" in name_lower or "tay" in name_lower:
+                if l_val > max_sleeve_length: max_sleeve_length = l_val
+            # Quét tìm chi tiết nẹp rời hoặc chi tiết phụ dài chiếm sơ đồ (Placket)
+            if "placket" in name_lower or "nẹp" in name_lower:
+                if l_val > max_placket_length: max_placket_length = l_val
 
-        # Bộ số phòng hờ an toàn nếu file thiếu nhãn chi tiết chính
-        if max_body_length == 0: 
-            max_body_length = 42.5 if "pant" in category.lower() else 28.0
+        # Bộ số dự phòng an toàn
+        if max_body_length == 0: max_body_length = 42.5 if "pant" in category.lower() else 33.0
 
         for mat in materials:
             placement_upper = str(mat.get("placement")).upper()
@@ -358,34 +359,39 @@ if st.session_state.saved_pdf_bytes is not None:
             if "SHELL" in placement_upper and st.session_state.shrinkage_override:
                 s_warp = st.session_state.shrinkage_override / 100.0
 
-            # 2. TIẾN HÀNH CHẠY THUẬT TOÁN SƠ ĐỒ CAD THEO PHÂN LOẠI CHỦNG LOẠI HÀNG:
+            # 2. TIẾN HÀNH CHẠY THUẬT TOÁN SƠ ĐỒ THEO PHÂN LOẠI CHỦNG LOẠI HÀNG THỰC TẾ:
             if "PANT" in category.upper():
-                # --- THUẬT TOÁN SƠ ĐỒ QUẦN JEANS (ĐÃ CHUẨN XÁC) ---
+                # --- THUẬT TOÁN QUẦN JEANS ĐÃ CHUẨN XÁC HOÀN HẢO ---
                 total_p_length = max_body_length + (2 * sewing_seam_allowance) + hem_allowance
                 final_p_length_inch = total_p_length * (1 + s_warp)
                 marker_layout_factor = 1.15 if w_inch <= 58.0 else 1.10
                 calc_consumption = ((final_p_length_inch * marker_layout_factor) / 39.37) * 1.05
                 
-                if "POCKETING" in placement_upper: calc_consumption = 0.20  # Lót túi quần tiêu chuẩn vải phối
-                elif "INTERLINING" in placement_upper: calc_consumption = 0.12 # Keo lót cạp quần
+                if "POCKETING" in placement_upper: calc_consumption = 0.20
+                elif "INTERLINING" in placement_upper: calc_consumption = 0.12
             else:
-                # --- THUẬT TOÁN SƠ ĐỒ ÁO HIỆU CHỈNH (JACKET, SHIRT, POLO) ---
-                # Chiều dài sơ đồ rập áo bao gồm: Dài thân áo lớn nhất + Dài tay áo (nếu có) + Biên may ráp (+0.44" x 2) + Lai gấu
-                total_pattern_length = max_body_length + max_sleeve_length + (2 * sewing_seam_allowance) + hem_allowance
+                # --- THUẬT TOÁN SƠ ĐỒ ÁO KHOÁC JACKET/BOMBER ĐUÔI DÀI TIÊU CHUẨN BUYER ---
+                # Vì rập thân áo khoác Bomber chiếm dụng gần như trọn bề ngang khổ vải, tay áo và nẹp rời bắt buộc phải xếp nối đuôi.
+                # Chiều dài sơ đồ thực tế = Dài thân áo + Dài tay áo + Hao hụt đường may ráp ráp chi tiết (+0.44" mỗi đầu ráp)
+                base_layout_length = (max_body_length + (2 * sewing_seam_allowance)) + (max_sleeve_length + (2 * sewing_seam_allowance))
                 
-                # Áp dụng độ co rút dọc (warp shrinkage) theo sườn cây vải chính
-                final_pattern_length = total_pattern_length * (1 + s_warp)
+                # Nếu áo có cấu trúc nẹp rời dài (Front Placket) cắt bằng vải chính, cộng bù chiều dài nối đuôi của nẹp rập vào sơ đồ
+                if max_placket_length > 0:
+                    base_layout_length += (max_placket_length + (2 * sewing_seam_allowance))
+                else:
+                    # Nếu không có nẹp rời, bù dài hệ số cho các chi tiết phụ cắt gộp khác (Cổ, Bo tay, nắp túi)
+                    base_layout_length += 6.5
                 
-                # Hệ số xếp lồng rập đan xen sơ đồ của ÁO công nghiệp (Marker Efficiency bù hao chi tiết nhỏ cổ, đáp)
-                # Sơ đồ áo phom chuẩn thường tiêu hao dao động hệ số xếp từ 1.12 đến 1.16 tùy theo độ rộng khổ vải
-                marker_shirt_factor = 1.14 if w_inch <= 58.0 else 1.08
+                # Áp dụng tỷ lệ co rút dọc cây vải (Warp Shrinkage) ảnh hưởng lên chiều dài sơ đồ
+                final_layout_length_inch = base_layout_length * (1 + s_warp)
                 
-                # Quy đổi tổng chiều dài chiếm dụng từ inch sang mét + 5% biên hao hụt kỹ thuật đầu cây cắt
-                calc_consumption = ((final_pattern_length * marker_shirt_factor) / 39.37) * 1.05
+                # Quy đổi tổng chiều dài inch sang mét + 5% biên hao hụt cắt hao kỹ thuật đầu cây vải chính
+                # Vì sơ đồ dải rập đã được kéo nối đuôi chi tiết lớn theo chiều dọc thực tế, hiệu suất đạt mức 92% phom phẳng rập
+                calc_consumption = (final_layout_length_inch / 39.37) / 0.92 * 1.05
                 
-                # Phân bổ tỷ lệ tiêu hao phụ hỗ trợ cho vải phối lót hoặc mếch dựng mếch cổ/nẹp của áo
-                if "POCKETING" in placement_upper: calc_consumption = 0.15 # Vải phối lót/lót túi áo
-                elif "INTERLINING" in placement_upper: calc_consumption = 0.20 # Mếch keo dựng cổ, nẹp áo
+                # Gán định mức đi sơ đồ cho phụ liệu mếch keo lót phối Áo Jacket theo file mẫu Buyer
+                if "POCKETING" in placement_upper: calc_consumption = 0.20 # Vải lót túi áo khoác
+                elif "INTERLINING" in placement_upper: calc_consumption = 0.65 # Mex keo lót phối (Đúng chuỗi 0.3->0.65 của Buyer)
 
             mat["consumption_meter_per_pcs"] = round(calc_consumption, 3)
             mat["consumption_yard_per_pcs"] = round(calc_consumption * 1.09361, 3)
@@ -393,15 +399,16 @@ if st.session_state.saved_pdf_bytes is not None:
         st.markdown("### 🧵 BẢNG ĐỊNH MỨC NGUYÊN PHỤ LIỆU ĐỘNG (MATERIALS BOM)")
         df_bom = pd.DataFrame(materials)
         
+        # Ép hiển thị bảng dữ liệu định mức BOM động ra màn hình chính
         cols_order = ['placement', 'material_name', 'consumption_meter_per_pcs', 'consumption_yard_per_pcs', 'width_inch', 'shrinkage_warp', 'shrinkage_weft', 'gsm']
         df_bom = df_bom[[c for c in cols_order if c in df_bom.columns]]
         st.dataframe(df_bom, use_container_width=True)
         
-        # In băng thông báo thông số rập minh chứng kỹ thuật dưới chân bảng
+        # In minh chứng thông số sơ đồ CAD thực tế dưới chân bảng
         if "PANT" in category.upper():
             st.info(f"⚙️ **Lõi Sơ đồ CAD Quần Jeans:** Thân dài gốc làm gốc sơ đồ: `{round(max_body_length, 2)}\"`. Cộng ráp nối (+0.44\"), Lai gấu (+{round(hem_allowance, 2)}\"), Nhân hệ số dải sơ đồ đan xen ống.")
         else:
-            st.info(f"⚙️ **Lõi Sơ đồ CAD Áo:** Thân dài gốc: `{round(max_body_length, 2)}\"`, Tay dài gốc: `{round(max_sleeve_length, 2)}\"`. Cộng ráp nối (+0.44\"), Lai gấu (+{round(hem_allowance, 2)}\"), Nhân hệ số dải sơ đồ cấu phần cổ/đáp.")
+            st.info(f"⚙️ **Lõi Sơ đồ CAD Áo Bomber:** Thân dài: `{round(max_body_length, 2)}\"`, Tay dài: `{round(max_sleeve_length, 2)}\"`, Nẹp placket dọc: `{round(max_placket_length, 2)}\"`. Tính toán theo thuật toán xếp nối đuôi rập công nghiệp.")
     else:
         st.warning("⚠️ AI không thể trích xuất cấu trúc dữ liệu từ file PDF này. Vui lòng kiểm tra lại chất lượng file.")
 else:
