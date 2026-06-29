@@ -419,7 +419,7 @@ if st.session_state.saved_pdf_bytes is not None:
 
                 effective_width_inch = w_inch * (1.0 - s_weft)
 # --- ĐOẠN 2b2: COMMERCIAL CAD MARKER CONSUMPTION ENGINE (LÕI PHẲNG POLYGON MESH) ---
-        import re  # SỬA LỖI: Import thư viện Regex để tránh lỗi NameError khi re.search chạy
+        import re
 
         materials = data.get("materials_bom", [])
         bom_debug_log = {}
@@ -504,6 +504,8 @@ if st.session_state.saved_pdf_bytes is not None:
                     eff, loss = 0.84, 1.045
                     
                     # SỬA LỖI 3: Thuật toán Hệ số lồng rập đan xen đa giác (Nested Polygon Envelope Factor)
+                    # Biến thiên tự động dựa trên tỷ lệ giữa diện tích hộp bao sườn ống và diện tích đa giác rập thật.
+                    # Phân biệt chính xác tỷ lệ tiêu hao của Skinny Jeans (ít khoảng trống) và Wide Leg (phình chân)
                     total_pant_box_area = ((max_front_pant + max_back_pant) + 1.76 + 0.75) * (max_body_width * 2.0)
                     marker_pant_geometric_factor = 1.160 if total_pant_box_area == 0 else max(1.11, min(1.22, (total_pant_box_area / max(1.0, target_area)) * 0.55))
                     
@@ -530,9 +532,5 @@ if st.session_state.saved_pdf_bytes is not None:
                         calc_consumption = round(((max_body_length + max_sleeve) / 39.37) * 0.22, 3)
                         target_area, eff, loss = v_pocket, 0.86, 1.02
                     else:
-                        # SỬA LỖI: Hoàn thiện logic khối else cuối cùng cho INTERLINING / Dựng keo của Jacket
                         calc_consumption = round(((max_body_length) / 39.37) * 0.15, 3)
                         target_area, eff, loss = v_inter, 0.88, 1.02
-
-                # Lưu giá trị tính toán cuối cùng vào object vật liệu
-                mat["calculated_consumption"] = max(0.0, round(calc_consumption, 3))
