@@ -3,10 +3,11 @@ import pandas as pd
 import re
 import json
 import io
+from shapely.geometry import Polygon
 import google.generativeai as genai
 
 # =====================================================================
-# CẤU HÌNH TRANG VÀ KHÓA TRẠNG THÁI CHỐNG RESET KHI CHAT (STATE LOCK)
+# CONFIGURATION & MULTI-LAYER STATE LOCK
 # =====================================================================
 st.set_page_config(
     page_title="3. AI FABRIC CONSUMPTION", 
@@ -18,27 +19,26 @@ st.title("📊 TRỢ LÝ ĐỊNH MỨC NGUYÊN PHỤ LIỆU TỰ ĐỘNG (BOM)")
 st.caption("Cấu trúc lõi 13-Engine CAD/AI - Kết nối Gemini Vision dựng rập ảo và mô phỏng sơ đồ cắt")
 st.markdown("---")
 
-# Bộ nhớ đệm khóa cứng dữ liệu, tuyệt đối không bị đặt lại khi người dùng thao tác ô Chat
+# Khởi tạo bộ nhớ đệm an toàn. Mặc định ban đầu is_calculated = False (Tất cả đều ẩn, chờ lệnh)
 if "width_inch_override" not in st.session_state: st.session_state.width_inch_override = None
 if "shrinkage_override" not in st.session_state: st.session_state.shrinkage_override = None
 if "is_calculated" not in st.session_state: st.session_state.is_calculated = False
 if "gemini_parsed_bom_data" not in st.session_state: st.session_state.gemini_parsed_bom_data = None
-if "file_processed" not in st.session_state: st.session_state.file_processed = False # Biến cờ khóa trạng thái file
 if "sidebar_chat_history" not in st.session_state:
     st.session_state.sidebar_chat_history = [
-        {"role": "assistant", "content": "Xin chào! Hệ thống đã nạp cấu trúc 13-Engine CAD/AI. Vui lòng tải file PDF Techpack lên để AI thực thi quét hình ảnh và bóc tách toàn bộ ma trận POM/BOM."}
+        {"role": "assistant", "content": "Xin chào! Sau khi bạn kéo thả file PDF Techpack lên ở khung chính, hãy gõ thông số vải tại đây để ra lệnh cho AI bắt đầu phân tích và trả về bảng định mức."}
     ]
 
 def update_config_from_text(text: str):
-    """NLP Parser bóc tách dữ liệu ghi đè thông số từ ô chat của người dùng"""
+    """NLP Parser bóc tách dữ liệu và kích hoạt lệnh tính toán"""
     if not text: return
     text_lower = text.lower()
     
-    # Bộ lọc Regex thông minh bắt trọn mọi kiểu gõ (khổ 58, tính đm khổ 58, vải 58...)
+    # Bộ lọc Regex bắt trọn mọi cụm từ ra lệnh: tính đm khổ 58, khổ 58, vải 58...
     width_match = re.search(r'(?:khổ|width|vải|đm|mức)\s*(\d+)', text_lower)
     if width_match: 
         st.session_state.width_inch_override = float(width_match.group(1))
-        st.session_state.is_calculated = True
+        st.session_state.is_calculated = True  # CHỈ KHI CHAT MỚI BẬT LỆNH TÍNH
 
     co_match = re.search(r'(?:co dọc|co l|độ co|dọc|co rút)\s*(\d+)', text_lower)
     if co_match: 
@@ -89,11 +89,12 @@ class GarmentCADCoreEngine:
         marker_length_cm = (required_gross_area / width_cm) * shrinkage_l
         return {"efficiency_predicted": round(base_efficiency * 100, 1), "consumption_yds": round(marker_length_cm / 91.44, 2)}
 # =====================================================================
-# ĐOẠN 2: GEMINI VISION CORE ENGINE VÀ GIAO DIỆN KHÓA BẢNG CỐ ĐỊNH
+# ĐOẠN 2: CHẠY GEMINI VISION NGẦM VÀ XUẤT BẢNG KHI CÓ LỆNH CHAT
 # =====================================================================
 
+@st.cache_data(show_spinner=False)
 def ai_gemini_vision_pdf_parser(pdf_file_name, pdf_bytes) -> dict:
-    """Gửi file PDF sang Gemini Vision để quét cấu tạo hình ảnh phác thảo (Sketch) và bóc tách toàn bộ ma trận POM/BOM"""
+    """Gửi file PDF sang Gemini Vision để bóc tách ma trận POM/BOM"""
     fallback_data = {
         "style_code": "R09-490416", "description": "THE BAGGY JEANS", "category": "pant",
         "materials_bom": [
@@ -107,7 +108,6 @@ def ai_gemini_vision_pdf_parser(pdf_file_name, pdf_bytes) -> dict:
         }
     }
     try:
-        from pypdf import PdfReader
         if "GEMINI_API_KEY" in st.secrets: genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
         elif "gemini" in st.secrets: genai.configure(api_key=st.secrets["gemini"].get("api_key", ""))
         
@@ -134,22 +134,21 @@ def ai_gemini_vision_pdf_parser(pdf_file_name, pdf_bytes) -> dict:
         return fallback_data
 
 # =====================================================================
-# SIDEBAR CHAT CONTROL INTERACTION
+# SIDEBAR CHAT INTERACTION
 # =====================================================================
 with st.sidebar:
     st.header("💬 TRỢ LÝ SẢN XUẤT AI")
     
-    # NÚT RESET TOÀN DIỆN KHÔI PHỤC TRẠNG THÁI GỐC BAN ĐẦU
+    # SỬA LỖI CÚ PHÁP XÓA CACHE TRONG STREAMLIT MỚI
     if st.button("🗑️ Xóa lịch sử & Reset định mức", use_container_width=True):
         st.session_state.width_inch_override = None
         st.session_state.shrinkage_override = None
         st.session_state.is_calculated = False
         st.session_state.gemini_parsed_bom_data = None
-        st.session_state.file_processed = False
         st.session_state.sidebar_chat_history = [
-            {"role": "assistant", "content": "Hệ thống đã reset. Vui lòng tải lại file PDF Techpack mới để bắt đầu."}
+            {"role": "assistant", "content": "Hệ thống đã dọn dẹp bộ nhớ. Vui lòng tải file PDF Techpack mới để bắt đầu."}
         ]
-        st.clear_cache()  # Xóa bộ nhớ cache để sẵn sàng quét file mới
+        st.cache_data.clear()  # Đúng cú pháp Streamlit mới để xóa cache
         st.rerun()
         
     st.write("Nhập bổ sung thông tin vải, độ co rút sau khi tải PDF.")
@@ -172,77 +171,74 @@ for msg in st.session_state.sidebar_chat_history:
 st.subheader("📁 BƯỚC 1: TẢI TÀI LIỆU KỸ THUẬT SẢN XUẤT (TECHPACK / BOM)")
 uploaded_file = st.file_uploader("Kéo và thả file PDF Techpack hoặc bảng BOM của bạn vào đây", type=["pdf"])
 
-# Khóa chặt luồng dữ liệu file vào Session State ngay lần đầu tiên upload
-if uploaded_file is not None and not st.session_state.file_processed:
+if uploaded_file is not None:
+    # Bước quét ngầm file lưu vào bộ nhớ cache, tuyệt đối không hiện bất kỳ bảng nào ra màn hình
     pdf_bytes = uploaded_file.read()
-    st.session_state.gemini_parsed_bom_data = ai_gemini_vision_pdf_parser(uploaded_file.name, pdf_bytes)
-    st.session_state.file_processed = True  # Bật cờ khóa cố định giao diện
-
-# RENDER BẢNG: Chỉ cần bộ nhớ đệm đã chứa dữ liệu PDF quét được (Chống sập bảng khi chat)
-if st.session_state.file_processed and st.session_state.gemini_parsed_bom_data is not None:
+    if st.session_state.gemini_parsed_bom_data is None:
+        st.session_state.gemini_parsed_bom_data = ai_gemini_vision_pdf_parser(uploaded_file.name, pdf_bytes)
+        
     bom_data = st.session_state.gemini_parsed_bom_data
     
-    st.success("✔️ Đã nhận diện thành công tài liệu PDF | Bộ não AI Gemini Vision đã ánh xạ cấu trúc hình học.")
-    st.markdown("---")
-    st.subheader("📋 BƯỚC 2: BẢNG MA TRẬN ĐỊNH MỨC NGUYÊN PHỤ LIỆU TRẢ VỀ")
-    
-    # Ép kiểu dữ liệu an toàn chặn đứng hoàn toàn lỗi Type-Safe Error
-    default_width = 56.0
-    default_shrink = 5.0
-    materials_list = bom_data.get("materials_bom", [])
-    
-    if isinstance(materials_list, list) and len(materials_list) > 0:
-        for mat in materials_list:
-            if isinstance(mat, dict) and mat.get("placement") == "SHELL":
-                default_width = safe_float(mat.get("width_inch"), 56.0)
-                default_shrink = safe_float(mat.get("shrinkage_warp"), 5.0)
-                break
-
-    active_width = st.session_state.width_inch_override if st.session_state.width_inch_override else default_width
-    active_shrink = st.session_state.shrinkage_override if st.session_state.shrinkage_override else default_shrink
-    
+    # ĐIỀU KIỆN QUYẾT ĐỊNH: Chỉ render bảng khi trạng thái is_calculated là True (Người dùng đã chat thông số)
     if st.session_state.is_calculated:
-        st.info(f"🎯 **AI đã thực thi thuật toán CAD thành công:** Khổ vải tính toán: **{active_width} Inch** | Độ co rút áp dụng: **L {active_shrink}%**")
-    else:
-        st.warning("⚠️ **Trạng thái:** Chờ nhận lệnh thông số từ phòng kỹ thuật qua ô Chat (Sidebar) để thực thi tính toán các cột định mức.")
+        st.success(f"✔️ Đã bóc tách thành công tài liệu: {uploaded_file.name}")
+        st.markdown("---")
+        st.subheader("📋 BƯỚC 2: BẢNG MA TRẬN ĐỊNH MỨC NGUYÊN PHỤ LIỆU TRẢ VỀ")
         
-    net_geometry_areas = GarmentCADCoreEngine.apply_rule_table_grading(bom_data.get("category", "jacket"), bom_data.get("specifications_pom", {}))
-    
-    table_rows = []
-    if isinstance(materials_list, list):
-        for material in materials_list:
-            if not isinstance(material, dict): continue
-            placement = str(material.get("placement", "SHELL")).upper()
-            
-            config_context = {
-                "width_inch": active_width if placement == "SHELL" else safe_float(material.get("width_inch"), 56.0),
-                "shrinkage_warp": active_shrink if placement == "SHELL" else safe_float(material.get("shrinkage_warp"), 5.0)
-            }
-            
-            nest_results = GarmentCADCoreEngine.Advanced_Marker_Nesting_Engine(bom_data.get("category", "jacket"), net_geometry_areas, config_context)
-            is_calc_active = st.session_state.is_calculated
-            
-            table_rows.append({
-                "Style": bom_data.get("style_code", "UNKNOWN"),
-                "Mô tả sản phẩm": bom_data.get("description", "Garment Product Description"),
-                "Vị trí chi tiết (BOM)": placement,
-                "Chất liệu thành phần": material.get("material_name", "Fabric Component"),
-                "Khổ vải (inch)": f"{config_context['width_inch']}''" if is_calc_active else "Chờ chat...",
-                "Độ co L": f"{config_context['shrinkage_warp']}%" if is_calc_active else "Chờ chat...",
-                "Hiệu suất sơ đồ": f"{nest_results['efficiency_predicted']}%" if is_calc_active else "Chờ chat...",
-                "Định mức tinh (yds/pc)": nest_results["consumption_yds"] if is_calc_active else 0.00,
-                "Ghi chú kỹ thuật": f"GSM: {material.get('gsm', 200)} | Trích xuất trực tiếp từ BOM tài liệu PDF."
-            })
+        default_width = 56.0
+        default_shrink = 5.0
+        materials_list = bom_data.get("materials_bom", [])
         
-    df_matrix = pd.DataFrame(table_rows)
-    st.dataframe(df_matrix, use_container_width=True, height=380)
-    
-    if st.session_state.is_calculated and len(table_rows) > 0:
+        if isinstance(materials_list, list) and len(materials_list) > 0:
+            for mat in materials_list:
+                if isinstance(mat, dict) and mat.get("placement") == "SHELL":
+                    default_width = safe_float(mat.get("width_inch"), 56.0)
+                    default_shrink = safe_float(mat.get("shrinkage_warp"), 5.0)
+                    break
+
+        active_width = st.session_state.width_inch_override if st.session_state.width_inch_override else default_width
+        active_shrink = st.session_state.shrinkage_override if st.session_state.shrinkage_override else default_shrink
+        
+        st.info(f"🎯 **AI đã xử lý lệnh tính định mức thành công:** Khổ vải: **{active_width} Inch** | Độ co rút áp dụng: **L {active_shrink}%**")
+            
+        net_geometry_areas = GarmentCADCoreEngine.apply_rule_table_grading(bom_data.get("category", "jacket"), bom_data.get("specifications_pom", {}))
+        
+        table_rows = []
+        if isinstance(materials_list, list):
+            for material in materials_list:
+                if not isinstance(material, dict): continue
+                placement = str(material.get("placement", "SHELL")).upper()
+                
+                config_context = {
+                    "width_inch": active_width if placement == "SHELL" else safe_float(material.get("width_inch"), 56.0),
+                    "shrinkage_warp": active_shrink if placement == "SHELL" else safe_float(material.get("shrinkage_warp"), 5.0)
+                }
+                
+                nest_results = GarmentCADCoreEngine.Advanced_Marker_Nesting_Engine(bom_data.get("category", "jacket"), net_geometry_areas, config_context)
+                
+                table_rows.append({
+                    "Style": bom_data.get("style_code", "UNKNOWN"),
+                    "Mô tả sản phẩm": bom_data.get("description", "Garment Product Description"),
+                    "Vị trí chi tiết (BOM)": placement,
+                    "Chất liệu thành phần": material.get("material_name", "Fabric Component"),
+                    "Khổ vải (inch)": f"{config_context['width_inch']}''",
+                    "Độ co L": f"{config_context['shrinkage_warp']}%",
+                    "Hiệu suất sơ đồ": f"{nest_results['efficiency_predicted']}%",
+                    "Định mức tinh (yds/pc)": nest_results["consumption_yds"],
+                    "Ghi chú kỹ thuật": f"GSM: {material.get('gsm', 200)} | Trích xuất trực tiếp từ BOM tài liệu PDF."
+                })
+            
+        df_matrix = pd.DataFrame(table_rows)
+        st.dataframe(df_matrix, use_container_width=True, height=380)
+        
         st.download_button(
             label="📥 Xuất File Định Mức Sản Xuất Thương Mại (CSV)",
             data=df_matrix.to_csv(index=False).encode('utf-8-sig'),
             file_name=f"AI_BOM_Matrix_Report_{bom_data.get('style_code', 'BOM')}.csv",
             mime="text/csv"
         )
+    else:
+        # Nếu chưa gõ vào ô chat, chỉ hiện thanh thông báo trạng thái sẵn sàng
+        st.info(f"📥 Đã tải file: **{uploaded_file.name}**. Hệ thống đang ở trạng thái chờ nhận lệnh thông số từ phòng kỹ thuật qua ô Chat (Sidebar) để kích hoạt kết quả tính toán định mức.")
 else:
-    st.warning("👉 Vui lòng kéo thả hoặc tải file PDF Techpack lên ở khung phía trên để kích hoạt AI bóc tách danh sách mã hàng.")
+    st.warning("👉 Vui lòng kéo thả hoặc tải file PDF Techpack lên ở khung phía trên để bắt đầu quy trình.")
