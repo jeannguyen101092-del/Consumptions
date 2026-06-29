@@ -127,10 +127,12 @@ if uploaded_file is not None:
     st.markdown("---")
     st.subheader("📋 BƯỚC 2: BẢNG KẾT QUẢ ĐỊNH MỨC MỌI BỘ TRẢ VỀ TỪ AI")
     
-    current_config = st.session_state.fabric_config
+    # Ép lấy biến an toàn tránh lỗi đệm state cũ
+    current_config = st.session_state.get("fabric_config", {"width_inch": None, "shrinkage_l": None, "shrinkage_w": None, "marker_efficiency": 85.0, "has_lining": True, "has_padding": True, "has_rib": True, "has_interlining": True, "is_calculated": False})
+    is_calc_active = current_config.get("is_calculated", False)
     
     # Hiển thị trạng thái điều kiện biên linh hoạt
-    if current_config["is_calculated"]:
+    if is_calc_active and current_config["width_inch"] is not None:
         st.info(
             f"🎯 **AI đã xử lý lệnh tính định mức thành công:** Khổ vải chỉ định: **{current_config['width_inch']} Inch** | "
             f"Độ co: **L {current_config['shrinkage_l']}% / W {current_config['shrinkage_w']}%** | Hiệu suất sơ đồ tham chiếu: **85%**"
@@ -140,7 +142,7 @@ if uploaded_file is not None:
     
     table_rows = []
     for item in parsed_styles_from_pdf:
-        # Gọi lõi tính toán CAD. Nếu trạng thái is_calculated là False, các cột định mức sẽ tự động trả về 0.00
+        # Gọi lõi tính toán CAD. Nếu chưa tính toán, các cột định mức sẽ tự động trả về 0.00
         res = GarmentCADCoreEngine.calculate_matrix_consumption(item["cat"], current_config)
         
         comp_desc = "Puffer jacket" if "jacket" in item["cat"] else "Raincoat/Vest"
@@ -149,23 +151,23 @@ if uploaded_file is not None:
             "Style": item["style"],
             "Mô tả": item["desc"],
             "Cấu trúc": comp_desc,
-            "Khổ vải (inch)": f"{current_config['width_inch']}''" if current_config["width_inch"] else "Chờ chat...",
-            "Độ co L": f"{current_config['shrinkage_l']}%" if current_config["shrinkage_l"] else "Chờ chat...",
-            "Độ co W": f"{current_config['shrinkage_w']}%" if current_config["shrinkage_w"] else "Chờ chat...",
+            "Khổ vải (inch)": f"{current_config['width_inch']}''" if (is_calc_active and current_config["width_inch"]) else "Chờ chat...",
+            "Độ co L": f"{current_config['shrinkage_l']}%" if (is_calc_active and current_config["shrinkage_l"]) else "Chờ chat...",
+            "Độ co W": f"{current_config['shrinkage_w']}%" if (is_calc_active and current_config["shrinkage_w"]) else "Chờ chat...",
             "Hiệu suất": "85%",
-            "Shell/Main Fabric Net (yds/pc)": res["shell"] if current_config["is_calculated"] else 0.00,
-            "Lining Net (yds/pc)": res["lining"] if (current_config["is_calculated"] and res["lining"] > 0) else 0.00,
-            "Padding/Gòn Net (yds/pc)": res["padding"] if (current_config["is_calculated"] and res["padding"] > 0) else 0.00,
-            "Bo/Rib Net (yds/pc)": res["rib"] if current_config["is_calculated"] else 0.00,
-            "Keo/Interlining Net (yds/pc)": res["interlining"] if current_config["is_calculated"] else 0.00,
-            "Tổng yds vải/pc": res["total"] if current_config["is_calculated"] else 0.00,
+            "Shell/Main Fabric Net (yds/pc)": res["shell"] if is_calc_active else 0.00,
+            "Lining Net (yds/pc)": res["lining"] if (is_calc_active and res["lining"] > 0) else 0.00,
+            "Padding/Gòn Net (yds/pc)": res["padding"] if (is_calc_active and res["padding"] > 0) else 0.00,
+            "Bo/Rib Net (yds/pc)": res["rib"] if is_calc_active else 0.00,
+            "Keo/Interlining Net (yds/pc)": res["interlining"] if is_calc_active else 0.00,
+            "Tổng yds vải/pc": res["total"] if is_calc_active else 0.00,
             "Ghi chú kỹ thuật dệt may": item["note"]
         })
         
     df_matrix = pd.DataFrame(table_rows)
     st.dataframe(df_matrix, use_container_width=True, height=380)
     
-    if current_config["is_calculated"]:
+    if is_calc_active:
         st.download_button(
             label="📥 Xuất File Định Mức Sản Xuất (CSV)",
             data=df_matrix.to_csv(index=False).encode('utf-8-sig'),
