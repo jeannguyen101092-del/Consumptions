@@ -80,7 +80,6 @@ class GarmentCADCoreEngine:
             back_points = [(x * 1.15, y if y < (L - R) else y + 4.5) for (x, y) in front_points]
             back_poly = Polygon(back_points)
             
-            # Khóa dập hệ số baggy dôi dư phom rộng thùng thình chân thực
             baggy_fit_factor = 1.22
             return {
                 "Front_Body": front_poly.area * 2.0 * baggy_fit_factor,
@@ -117,13 +116,15 @@ class GarmentCADCoreEngine:
         
         total_net_area = pieces_area.get("Front_Body", 0.0) + pieces_area.get("Back_Body", 0.0) + pieces_area.get("Sleeve", 0.0)
         seam_allowance_factor = 1.09 if "pant" in str(category).lower() or "jeans" in str(category).lower() else 1.08
-        total_gross_area = total_net_area * seam_allowance_factor
+        
+        # SỬA ĐỒNG BỘ TÊN BIẾN TẠI ĐÂY ĐỂ TRÁNH LỖI NAMEERROR
+        required_gross_area = total_net_area * seam_allowance_factor
         
         base_efficiency = 0.84 if "pant" in str(category).lower() or "jeans" in str(category).lower() else 0.85
         if "jacket" in str(category).lower(): base_efficiency = 0.82
             
-        required_fabric_area = total_gross_area / base_efficiency
-        marker_length_cm = (required_gross_area / width_cm) * shrinkage_warp_factor
+        required_fabric_area = required_gross_area / base_efficiency
+        marker_length_cm = (required_fabric_area / width_cm) * shrinkage_warp_factor
         return {"efficiency_predicted": round(base_efficiency * 100, 1), "consumption_yds": round(marker_length_cm / 91.44, 2)}
 # =====================================================================
 # AI GEMINI VISION PDF PARSER
@@ -177,7 +178,7 @@ with st.sidebar:
         st.session_state.saved_pdf_bytes = None
         st.session_state.saved_pdf_name = None
         st.session_state.sidebar_chat_history = [
-            {"role": "assistant", "content": "Hệ thống đã reset. Vui lòng tải file PDF mới để bắt đầu quy trình."}
+            {"role": "assistant", "content": "Hệ thống đã reset. Vui lòng tải file PDF Techpack mới để bắt đầu quy trình."}
         ]
         st.cache_data.clear()
         st.rerun()
@@ -192,9 +193,6 @@ if user_prompt:
     st.session_state.sidebar_chat_history.append({"role": "user", "content": user_prompt})
     update_config_from_text(user_prompt)
     st.rerun()
-
-for msg in st.session_state.sidebar_chat_history:
-    if msg["role"] == "user": update_config_from_text(msg["content"])
 
 # =====================================================================
 # MAIN PANEL INTERFACE
@@ -216,7 +214,7 @@ if st.session_state.saved_pdf_bytes is not None:
         bom_data = st.session_state.gemini_parsed_bom_data
         st.success(f"✔️ Đã bóc tách thành công tài liệu: {st.session_state.saved_pdf_name}")
         st.markdown("---")
-        st.subheader("📋 BƯỚC 2: BẢNG MA TRẬN ĐỊNH MỨC NGUYÊN PHỤ LIỆU TRẢ VỀ")
+        st.subheader("📋 BƯỚC 2: BẢNG MA TRẬN ĐỊNH MỨC NGUYÊN PHỤ LIỆU TRẢ VỀ TRÊN TOÀN BỘ FILE")
         
         default_width = 56.0
         default_shrink_l = 5.0
