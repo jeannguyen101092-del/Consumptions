@@ -538,12 +538,15 @@ if st.session_state.saved_pdf_bytes is not None:
                 # -----------------------------------------------------------------
                 # ARITHMETIC CORE ENGINE: ALWAYS CALCULATE - REMOVED WASTE FACTOR (LOSS = 1.0)
                 # -----------------------------------------------------------------
+                               # -----------------------------------------------------------------
+                # ARITHMETIC CORE ENGINE: ALWAYS CALCULATE - REMOVED WASTE FACTOR (LOSS = 1.0)
+                # -----------------------------------------------------------------
                 if "PANT" in str(category).upper():
-                    # Lấy chính xác diện tích hiển thị từ bảng Nesting Area trên giao diện của bạn (2798.25 inch²) làm gốc
-                    target_area = v_shell if v_shell > 100.0 else 2798.25
+                    # DYNAMIC AREA ASSIGNMENT: Tự động lấy tổng diện tích thực tế (v_shell) quét từ file, không gán cứng số.
+                    # Nếu v_shell bằng 0 do lỗi đọc PDF thì mới tự động lùi về số diện tích trung bình chuẩn (1395.0)
+                    target_area = v_shell if v_shell > 10.0 else 1395.0
                     
-                    # Áp dụng hiệu suất sơ đồ tinh thực tế của hệ Gerber khi đi lồng thân (Eff = 82%)
-                    # Tỷ lệ này tự động khấu trừ các khoảng trống sườn đùi đan xen, kéo định mức giảm xuống đúng mức tinh cắt xưởng.
+                    # Industrial efficiency mapping for Jeans nesting configurations (2 Fronts + 2 Backs interleaved)
                     eff, loss = 0.82, 1.0  
                     
                     if "POCKETING" in placement: 
@@ -552,12 +555,13 @@ if st.session_state.saved_pdf_bytes is not None:
                         calc_consumption = round(((max_back_pant) / 39.37) * 0.09, 3); target_area = v_inter; eff, loss = 0.88, 1.0
                     else:
                         if target_area > 0 and effective_width > 0:
-                            # Tính chiều dài sơ đồ dựa trên diện tích thực tế (inch)
+                            # Mathematical Marker Calculation based on real dynamic area
                             marker_length_inch = target_area / effective_width
-                            # Chia cho 2 để đưa về định mức chuẩn cho 1 sản phẩm (vì diện tích rập gốc đầu vào đang nhân đôi cho SL=2)
+                            # Chia cho 2 để đưa về định mức chuẩn cho 1 sản phẩm (vì diện tích rập gốc đầu vào đang chứa SL=2)
                             calc_consumption = ((marker_length_inch / 39.37) / eff * loss) / 2.0
                         else:
                             calc_consumption = 0.0
+
                 else:
                     # --- APPAREL CORE ALGORITHM: JACKET / BOMBER LAYOUTS ---
                     if "SHELL" in placement:
