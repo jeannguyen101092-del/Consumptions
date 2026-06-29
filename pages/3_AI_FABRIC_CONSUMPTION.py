@@ -29,11 +29,11 @@ if "saved_pdf_name" not in st.session_state: st.session_state.saved_pdf_name = N
 
 if "sidebar_chat_history" not in st.session_state:
     st.session_state.sidebar_chat_history = [
-        {"role": "assistant", "content": "Xin chào! Lõi VECTOR CAD công nghiệp đã được tích hợp thành công. Vui lòng tải file PDF Techpack lên để AI thực hiện quét sâu trang thông số và trang quy cách may thực tế."}
+        {"role": "assistant", "content": "Xin chào! Lõi VECTOR CAD công nghiệp đã được tích hợp thành công. Vui lòng tải file PDF Techpack lên để AI bắt đầu quy trình quét thông số kỹ thuật thực tế."}
     ]
 
 def update_config_from_text(text: str):
-    """NLP Parser công nghiệp: Tự động trích xuất thông số bất kể người dùng gõ kiểu gì"""
+    """NLP Parser công nghiệp: Tự động trích xuất thông số từ nội dung chat"""
     if not text: return
     text_lower = text.lower()
     
@@ -71,7 +71,7 @@ def safe_float(val, default=0.0) -> float:
     except (ValueError, TypeError): return default
 
 # =====================================================================
-# AI GEMINI VISION PDF PARSER QUÉT TRANG THÔNG SỐ & QUY CÁCH MAY ĐỂ TÍNH ĐM
+# AI GEMINI VISION PDF PARSER QUÉT SÂU THÔNG SỐ VÀ QUY CÁCH
 # =====================================================================
 def ai_gemini_vision_pdf_parser(pdf_file_name, pdf_bytes) -> dict:
     """Ép buộc AI phân tích sâu tài liệu PDF thực tế và trả về cấu trúc dữ liệu chính xác"""
@@ -83,9 +83,9 @@ def ai_gemini_vision_pdf_parser(pdf_file_name, pdf_bytes) -> dict:
         prompt = """
         Bạn là một chuyên gia kỹ thuật dệt may cấp cao. Hãy đọc thật kỹ tài liệu kỹ thuật PDF này.
         Nhiệm vụ bắt buộc:
-        1. Tìm trang BẢNG THÔNG SỐ (POM Specifications) để bóc tách chính xác các số đo thực tế của mã hàng.
-        2. Tìm trang QUY CÁCH MAY (Sewing Construction/Specification): Xác định cấu trúc sản phẩm (Ví dụ đối với ÁO: Tà áo là liền hay rời; cấu trúc đường lai gấu cuộn bao nhiêu inch; đối với QUẦN: quy cách may túi, may lưng như thế nào).
-        3. Tuyệt đối không tự bịa ra thông số nếu không tìm thấy trong file PDF.
+        1. Tìm trang BẢNG THÔNG SỐ (POM Specifications) để bóc tách chính xác các số đo thực tế của mã hàng cho cỡ mẫu chuẩn (thường là size M hoặc size chính giữa).
+        2. Tìm trang QUY CÁCH MAY (Sewing Construction/Specification): Xác định cấu trúc sản phẩm (Chiều rộng đường may lai gấu, tà áo liền hay rời).
+        3. Tuyệt đối không tự bịa ra thông số nếu không tìm thấy. Nếu không tìm thấy, trả về giá trị trống hoặc 0.
 
         Trả về chuỗi JSON duy nhất theo cấu trúc chính xác dưới đây:
         {
@@ -93,21 +93,21 @@ def ai_gemini_vision_pdf_parser(pdf_file_name, pdf_bytes) -> dict:
             "description": "Mô tả sản phẩm",
             "category": "jacket hoặc vest hoặc polo hoặc t-shirt hoặc pant hoặc shirt",
             "sewing_spec": {
-                "hem_allowance_inch": Chiều rộng đường may lai gấu tìm thấy ở trang quy cách (dạng số, ví dụ gấu cuộn 1.5 inch thì ghi 1.5, nếu không ghi rõ thì để mặc định ngành may là 0.75),
-                "is_detached_hem": true hoặc false (Áo tà rời ghi true, tà liền ghi false. Nếu là quần thì để false)
+                "hem_allowance_inch": Chiều rộng đường may lai gấu tìm thấy (dạng số, ví dụ gấu cuộn 1.5 inch thì ghi 1.5, không thấy ghi 0)",
+                "is_detached_hem": true hoặc false (Áo tà rời ghi true, tà liền ghi false)
             },
             "materials_bom": [
                 {
                     "placement": "Điền rõ SHELL hoặc POCKETING hoặc INTERLINING",
-                    "width_inch": Khổ vải thô tìm thấy trong file (Nếu không thấy, để trống để người dùng nhập từ ô chat)",
-                    "shrinkage_warp": Độ co rút dọc (nếu có, hoặc để trống)",
-                    "shrinkage_weft": Độ co rút ngang (nếu có, hoặc để trống)",
-                    "gsm": Định lượng vải (nếu có)",
+                    "width_inch": Khổ vải tìm thấy (dạng số, nếu không thấy để trống)",
+                    "shrinkage_warp": Độ co rút dọc (nếu thấy, dạng số)",
+                    "shrinkage_weft": Độ co rút ngang (nếu thấy, dạng số)",
+                    "gsm": Định lượng vải (nếu có, dạng số)",
                     "material_name": "Tên chi tiết nguyên phụ liệu tương ứng"
                 }
             ],
             "specifications_pom": {
-                "Ghi lại toàn bộ các cặp tên_thông_số: giá_trị tìm thấy trong bảng thông số (Ví dụ: chest_width, body_length, sleeve_length, waist_width, inseam, outseam...)"
+                "Ghi lại toàn bộ tên thông số viết chính xác trong bảng và số đo đi kèm tương ứng dạng số (Ví dụ: 'Outseam': 38.5, 'Waist': 28.0...)"
             }
         }
         """
@@ -157,10 +157,10 @@ if uploaded_file is not None:
     if st.session_state.saved_pdf_name != uploaded_file.name:
         st.session_state.saved_pdf_bytes = uploaded_file.read()
         st.session_state.saved_pdf_name = uploaded_file.name
-        st.session_state.gemini_parsed_bom_data = None  # Bắt buộc quét lại file mới
+        st.session_state.gemini_parsed_bom_data = None  
 
     if st.session_state.gemini_parsed_bom_data is None:
-        with st.spinner("AI đang tiến hành bóc tách trang thông số và kiểm tra quy cách may..."):
+        with st.spinner("AI đang bóc tách dữ liệu thực tế từ file PDF..."):
             st.session_state.gemini_parsed_bom_data = ai_gemini_vision_pdf_parser(
                 st.session_state.saved_pdf_name, st.session_state.saved_pdf_bytes
             )
@@ -182,56 +182,43 @@ if st.session_state.saved_pdf_bytes is not None:
         poms = data.get("specifications_pom", {})
         sewing_spec = data.get("sewing_spec", {})
 
-        # Lấy thông số cấu trúc may
+        # Hiển thị bảng số đo thực tế AI quét được để người dùng kiểm chứng
+        st.markdown("### 📏 THÔNG SỐ KÍCH THƯỚC THỰC TẾ TRÍCH XUẤT TỪ FILE (POM)")
+        if poms:
+            df_poms = pd.DataFrame(list(poms.items()), columns=["Tên thông số (POM)", "Số đo thật (Inch)"])
+            st.dataframe(df_poms, use_container_width=True, hide_index=True)
+        else:
+            st.warning("⚠️ Không tìm thấy bảng số đo trong file PDF.")
+
+        # Lấy quy cách cấu trúc may từ AI
         sewing_seam_allowance = 0.44  
-        hem_allowance = safe_float(sewing_spec.get("hem_allowance_inch", 0.75))
+        hem_allowance = safe_float(sewing_spec.get("hem_allowance_inch", 0.0))
         is_detached_hem = sewing_spec.get("is_detached_hem", False)
 
-        # --- DÒ TÌM THÔNG SỐ KHỚP TỪ KHÓA THÔNG MINH (THAY THẾ CHỮ KHỚP TUYỆT ĐỐI) ---
+        # --- DÒ TÌM SỐ ĐO THỰC TẾ ---
         body_length = 0.0
         body_width = 0.0
-
-        # Chuyển đổi toàn bộ keys của bảng thông số về chữ thường để quét Regex gần đúng
         poms_lower = {str(k).lower(): safe_float(v) for k, v in poms.items()}
 
         if "pant" in category:
-            # Dò chiều dài quần (Chứa outseam, inseam, length, dài)
             for k, v in poms_lower.items():
                 if any(x in k for x in ['outseam', 'inseam', 'length', 'dài', 'side', 'total']):
                     if v > 0: body_length = v; break
-            # Dò chiều rộng quần (Chứa waist, hip, bụng, eo, mông)
             for k, v in poms_lower.items():
                 if any(x in k for x in ['waist', 'hip', 'bụng', 'eo', 'mông', 'relax']):
                     if v > 0: body_width = v; break
         else:
-            # Dò chiều dài áo (Chứa body, length, dài, back, front)
             for k, v in poms_lower.items():
                 if any(x in k for x in ['body', 'length', 'dài', 'back', 'front']):
                     if v > 0: body_length = v; break
-            # Dò chiều rộng áo (Chứa chest, bust, ngực, thân)
             for k, v in poms_lower.items():
                 if any(x in k for x in ['chest', 'bust', 'ngực', 'thân', 'width']):
                     if v > 0: body_width = v; break
-
-        # CƠ CHẾ DỰ PHÒNG: Nếu file PDF thực tế quét ra không có trang thông số số đo
-        if body_length == 0: body_length = 102.0  # Mặc định chiều dài quần mẫu
-        if body_width == 0: body_width = 42.0     # Mặc định chiều rộng quần mẫu
 
         # --- THUẬT TOÁN ĐỊNH MỨC NGHÀNH MAY KỸ THUẬT CAO ---
         for mat in materials:
             placement_upper = str(mat.get("placement")).upper()
             
-            # Đồng bộ thông minh khổ vải trống
-            if mat.get("width_inch") is None or pd.isna(mat.get("width_inch")) or safe_float(mat.get("width_inch")) == 0:
-                if "SHELL" in placement_upper:
-                    mat["width_inch"] = st.session_state.width_inch_override if st.session_state.width_inch_override else 58.0
-                elif "POCKETING" in placement_upper:
-                    mat["width_inch"] = 60.0
-                elif "INTERLINING" in placement_upper:
-                    mat["width_inch"] = 44.0
-                else:
-                    mat["width_inch"] = 58.0
-
             # Ghi đè thông số tương tác từ Chatbot NLP
             if "SHELL" in placement_upper:
                 if st.session_state.width_inch_override: mat["width_inch"] = st.session_state.width_inch_override
@@ -245,30 +232,34 @@ if st.session_state.saved_pdf_bytes is not None:
             s_warp = safe_float(mat.get("shrinkage_warp", 0.0)) / 100.0
             s_weft = safe_float(mat.get("shrinkage_weft", 0.0)) / 100.0
 
-            # 1. Cộng hao hụt đường may ráp (+0.44" cho mỗi đầu công đoạn ráp nối)
-            calculated_length = body_length + (2 * sewing_seam_allowance)
-            calculated_width = body_width + (2 * sewing_seam_allowance)
+            # KHÓA TUYỆT ĐỐI: Nếu không trích xuất được số đo hoặc thiếu khổ vải, không tự tính bừa số mặc định
+            if w_inch == 0 or body_length == 0 or body_width == 0:
+                mat["consumption_meter_per_pcs"] = "Chờ nhập/quét số đo..."
+                mat["consumption_yard_per_pcs"] = "Chờ nhập/quét số đo..."
+            else:
+                # 1. Cộng hao hụt đường may ráp công đoạn (+0.44" x 2 đầu sườn/ống)
+                calculated_length = body_length + (2 * sewing_seam_allowance)
+                calculated_width = body_width + (2 * sewing_seam_allowance)
 
-            # 2. Cộng hao hụt phần lai gấu dựa theo trang quy cách may
-            calculated_length += hem_allowance
+                # 2. Cộng lai gấu theo đúng quy cách tài liệu trích xuất
+                calculated_length += hem_allowance
 
-            # 3. Phân tích cấu trúc Áo: Nếu tà rời, cộng bù thêm biên may nối tà rời (+0.44")
-            if "pant" not in category and is_detached_hem:
-                calculated_length += sewing_seam_allowance
+                # 3. Phân tích cấu trúc Áo tà rời
+                if "pant" not in category and is_detached_hem:
+                    calculated_length += sewing_seam_allowance
 
-            # 4. Nhân hệ số co rút vải sau giặt (Shrinkage)
-            final_length = calculated_length * (1 + s_warp)
-            final_width = calculated_width * (1 + s_weft)
+                # 4. Nhân tỷ lệ co rút sau giặt
+                final_length = calculated_length * (1 + s_warp)
+                final_width = calculated_width * (1 + s_weft)
 
-            # 5. Quy đổi diện tích sơ đồ cắt thực tế sang đơn vị Mét (m) + 5% hao hụt biên đầu cây
-            calc_consumption = (final_length * final_width) / (w_inch * 39.37) * 1.05
-            
-            # Tỷ lệ định mức phụ trợ mếch dán phôi và vải lót túi so với vải chính
-            if "POCKETING" in placement_upper: calc_consumption *= 0.35
-            if "INTERLINING" in placement_upper: calc_consumption *= 0.20
+                # 5. Quy đổi diện tích sơ đồ cắt thực tế sang đơn vị Mét (m) + 5% hao hụt đầu cây biên cắt kỹ thuật
+                calc_consumption = (final_length * final_width) / (w_inch * 39.37) * 1.05
+                
+                if "POCKETING" in placement_upper: calc_consumption *= 0.35
+                if "INTERLINING" in placement_upper: calc_consumption *= 0.20
 
-            mat["consumption_meter_per_pcs"] = round(calc_consumption, 3)
-            mat["consumption_yard_per_pcs"] = round(calc_consumption * 1.09361, 3)
+                mat["consumption_meter_per_pcs"] = round(calc_consumption, 3)
+                mat["consumption_yard_per_pcs"] = round(calc_consumption * 1.09361, 3)
 
         st.markdown("### 🧵 BẢNG ĐỊNH MỨC NGUYÊN PHỤ LIỆU ĐỘNG (MATERIALS BOM)")
         df_bom = pd.DataFrame(materials)
@@ -277,7 +268,7 @@ if st.session_state.saved_pdf_bytes is not None:
         df_bom = df_bom[[c for c in cols_order if c in df_bom.columns]]
         st.dataframe(df_bom, use_container_width=True)
         
-        st.info(f"⚙️ **Thông số hình học áp dụng:** Dài tính toán: `{round(body_length, 2)}\"`, Rộng tính toán: `{round(body_width, 2)}\"`. Cộng đường ráp nối (+0.44\"), Cộng đường lai gấu (+{hem_allowance}\")")
+        st.info(f"⚙️ **Thông số hình học bóc tách thực tế:** Dài gốc: `{round(body_length, 2)}\"`, Rộng gốc: `{round(body_width, 2)}\"`. Cộng biên ráp nối (+0.44\"), Cộng lai gấu (+{hem_allowance}\")")
     else:
         st.warning("⚠️ AI không thể trích xuất cấu trúc dữ liệu từ file PDF này. Vui lòng kiểm tra lại chất lượng file.")
 else:
