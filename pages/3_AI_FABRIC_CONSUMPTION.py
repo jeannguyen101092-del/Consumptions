@@ -418,13 +418,13 @@ if st.session_state.saved_pdf_bytes is not None:
 
                 effective_width_inch = w_inch * (1.0 - s_weft)
 
-                    # --- ĐOẠN 2b2: CẤU TRÚC LÕI TOÁN HỌC SƠ ĐỒ CAD RÚT GỌN ---
+                       # --- ĐOẠN 2b2: CẤU TRÚC LÕI TOÁN HỌC SƠ ĐỒ CAD RÚT GỌN CHUẨN DENIM ---
         materials = data.get("materials_bom", [])
         bom_debug_log = {}
 
         max_body_length = max([parse_garment_fraction(p.get("length_inch")) for p in panels] or [33.13])
-        max_front_pant = max([parse_garment_fraction(p.get("length_inch")) for p in panels if "trước" in p.get("panel_name", "").lower()] or [42.51])
-        max_back_pant = max([parse_garment_fraction(p.get("length_inch")) for p in panels if "sau" in p.get("panel_name", "").lower()] or [48.13])
+        max_front_pant = max([parse_garment_fraction(p.get("length_inch")) for p in panels if "trước" in p.get("panel_name", "").lower()] or [45.26])
+        max_back_pant = max([parse_garment_fraction(p.get("length_inch")) for p in panels if "sau" in p.get("panel_name", "").lower()] or [50.76])
         max_sleeve = max([parse_garment_fraction(p.get("length_inch")) for p in panels if "tay" in p.get("panel_name", "").lower()] or [34.88])
 
         chat_history = st.session_state.get("sidebar_chat_history", [])
@@ -462,17 +462,24 @@ if st.session_state.saved_pdf_bytes is not None:
                 v_pocket = safe_float(pocketing_fabric_area) if 'pocketing_fabric_area' in locals() or 'pocketing_fabric_area' in globals() else 0.0
                 v_inter = safe_float(interlining_fabric_area) if 'interlining_fabric_area' in locals() or 'interlining_fabric_area' in globals() else 0.0
 
-                # C. ENGINE TÍNH TOÁN ĐỊNH MỨC THEO CHỦNG LOẠI HÀNG (QUẦN / ÁO)
+                # C. ENGINE TÍNH TOÁN ĐỊNH MỨC THEO MA TRẬN DIỆN TÍCH PHẲNG RẬP THÔ
                 if last_chat:
                     if "PANT" in category.upper():
-                        total_pair_len = (max_front_pant + max_back_pant) + (4 * sewing_seam_allowance) + hem_allowance
-                        pant_eff = 1.445 if effective_width <= 55.0 else 1.520
-                        calc_consumption = (total_pair_len * (1.0 + s_warp) / pant_eff) / 39.37 * 1.035
-                        if "POCKETING" in placement: calc_consumption = round((max_body_length / 39.37) * 0.22, 3)
-                        elif "INTERLINING" in placement: calc_consumption = round((max_body_length / 39.37) * 0.10, 3)
-                        target_area, eff, loss = v_shell, 0.84, 1.035
+                        # --- THUẬT TOÁN SƠ ĐỒ ĐỘNG DIỆN TÍCH QUẦN JEANS/DENIM CÔNG NGHIỆP TỐI ƯU ---
+                        # Vải chính SHELL của quần chạy chuẩn xác theo tổng diện tích tích lũy hình học thực tế chia diện tích khổ cắt hữu dụng
+                        target_area = v_shell
+                        eff, loss = 0.84, 1.045
+                        
+                        if "POCKETING" in placement: 
+                            calc_consumption = round(((max_back_pant) / 39.37) * 0.21, 3); target_area = v_pocket; eff, loss = 0.86, 1.02
+                        elif "INTERLINING" in placement: 
+                            calc_consumption = round(((max_back_pant) / 39.37) * 0.09, 3); target_area = v_inter; eff, loss = 0.88, 1.02
+                        else:
+                            if target_area > 0 and effective_width > 0:
+                                m_len = (target_area * (1.0 + s_warp)) / effective_width
+                                calc_consumption = (m_len / 39.37) / eff * loss
                     else:
-                        # --- THUẬT TOÁN ÁO BOMBER JACKET CHUẨN BUYER THEO CHIỀU DÀI GỐC ---
+                        # --- THUẬT TOÁN ÁO BOMBER JACKET THEO CHIỀU DÀI GỐC ---
                         if "SHELL" in placement:
                             base_layout_length = (max_body_length + (2 * sewing_seam_allowance)) + (max_sleeve + (2 * sewing_seam_allowance)) + hem_allowance
                             has_long_rib = any("bo gấu" in str(p.get("panel_name", "")).lower() or "bo lưng" in str(p.get("panel_name", "")).lower() for p in panels)
@@ -493,6 +500,10 @@ if st.session_state.saved_pdf_bytes is not None:
                     mat["consumption_yard_per_pcs"] = "Chờ lệnh AI..."
                     mat["width_inch"], mat["shrinkage_warp"], mat["shrinkage_weft"] = "-", "-", "-"
                     continue
+
+                if calc_consumption == 0.0 and target_area > 0 and effective_width > 0:
+                    m_len = (target_area * (1.0 + s_warp)) / effective_width
+                    calc_consumption = (m_len / 39.37) / eff * loss
 
                 mat["consumption_meter_per_pcs"] = round(calc_consumption, 3)
                 mat["consumption_yard_per_pcs"] = round(calc_consumption * 1.09361, 3)
