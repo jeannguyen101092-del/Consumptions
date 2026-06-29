@@ -58,115 +58,33 @@ def safe_float(val, default=0.0) -> float:
 # =====================================================================
 # ENGINE 4, 5 & 6: PARAMETRIC POLYGON ENGINE (DỰNG RẬP ĐỘNG & TÍNH SHOELACE)
 # =====================================================================
-class GarmentCADCoreEngine:
-    """Lõi CAD Công nghiệp: Dựng đa giác tọa độ thực tế theo ma trận POM chi tiết mở rộng"""
-    
-    @staticmethod
-    def apply_rule_table_grading(category: str, pom: dict) -> dict:
-        """Dựng rập đa giác điểm động (Polygon) thay vì tính diện tích hình chữ nhật nhân hệ số thô"""
-        if not isinstance(pom, dict): pom = {}
-        
-        # 1. THUẬT TOÁN DỰNG RẬP QUẦN JEANS/TÂY ĐA ĐIỂM (CHÍNH XÁC >95%)
-        if any(k in str(category).lower() for k in ["pant", "shorts", "jeans"]):
-            L = safe_float(pom.get("body_length", pom.get("outseam", 102.0)), 102.0)
-            W = safe_float(pom.get("waist_width", 42.0), 42.0) / 2 # Eo chia 2 cho một nửa sườn
-            H = safe_float(pom.get("hip_width", 52.0), 52.0) / 2   # Mông chia 2
-            T = safe_float(pom.get("thigh_width", 32.0), 32.0)     # Rộng đùi
-            O = safe_float(pom.get("sleeve_opening", pom.get("leg_opening", 22.0)), 22.0) # Ống quần
-            R = safe_float(pom.get("front_rise", 28.0), 28.0)      # Hạ đáy/Hạ cạp
-            
-            # Khởi tạo ma trận tọa độ điểm (x, y) vẽ trực tiếp một nửa Thân Trước quần Jeans
-            front_points = [
-                (0, 0),          # Gốc tọa độ gấu quần bên trong
-                (O, 0),          # Rộng ống quần (Gấu ngoài)
-                (H, L - R),      # Điểm ngang mông ngoài sườn
-                (W, L),          # Điểm ngang eo dọc cạp quần ngoài
-                (0, L),          # Điểm tâm cạp quần trước
-                (0, L - R + 4),  # Điểm vòng cong đũng quần trước (Crotch curve)
-                (T - O, L - R)   # Điểm hạ đáy trong đùi
-            ]
-            front_poly = Polygon(front_points)
-            
-            # Thân sau quần Jeans luôn to hơn thân trước (Cộng dôi dư đáy mông ngoài và chồm cạp sau)
-            back_points = [(x * 1.12, y if y < (L - R) else y + 3.5) for (x, y) in front_points]
-            back_poly = Polygon(back_points)
-            
-            # Nhân đôi diện tích vì một chiếc quần hoàn chỉnh gồm 2 thân trước và 2 thân sau đối xứng
-            return {
-                "Front_Body": front_poly.area * 2.0,
-                "Back_Body": back_poly.area * 2.0,
-                "Sleeve": 0.0
-            }
-            
-        # 2. THUẬT TOÁN DỰNG RẬP ÁO (JACKET/POLO) SỬ DỤNG ĐƯỜNG CONG ĐA ĐIỂM NGỰC, NÁCH, VAI
-        chest = safe_float(pom.get("chest_width", 54.0), 54.0) / 2
-        length = safe_float(pom.get("body_length", 72.0), 72.0)
-        shoulder = safe_float(pom.get("shoulder_width", 44.0), 44.0) / 2
-        bicep = safe_float(pom.get("bicep_width", 22.0), 22.0)
-        sleeve_len = safe_float(pom.get("sleeve_length", 64.0), 64.0)
-        s_opening = safe_float(pom.get("sleeve_opening", 14.5), 14.5)
-        ah_straight = safe_float(pom.get("armhole_straight", 24.0), 24.0)
-        
-        # Dựng đa giác tọa độ một nửa Thân trước áo (Trừ trực tiếp vao nách cong, xuôi vai và hạ cổ trước)
-        front_points = [
-            (0, 0),                     # Gấu áo tâm trước (Lai áo)
-            (chest, 0),                 # Rộng sườn sấu áo ngoài
-            (chest, length - ah_straight), # Hạ nách dưới nách sườn
-            (shoulder, length - 4.0),   # Xuôi vai (Hạ vai 4cm kỹ thuật)
-            (7.5, length),              # Rộng cổ trước ngang họng cổ
-            (0, length - 8.5)           # Hạ sâu cổ trước tâm thân
-        ]
-        front_poly = Polygon(front_points)
-        back_net_area = front_poly.area * 1.03  # Thân sau chồm vai dôi dư diện tích đường ráp sườn
-        
-        # Dựng đa giác Tay áo hình quả chuối (Sleeve Cap Polygon Engine) dựa theo Cap Height và Cửa tay
-        cap_height = ah_straight * 0.65 # Cao đầu tay chiếm khoảng 65% hạ nách thẳng chuẩn CAD
-        sleeve_points = [
-            (0, 0),                     # Cửa tay áo tâm sườn tay
-            (s_opening, 0),             # Rộng ống tay/cửa tay ngoài
-            (bicep, sleeve_len - cap_height), # Ngang bắp tay dưới nách tay
-            (0, sleeve_len)             # Đỉnh đầu tay áo (Sleeve Cap peak)
-        ]
-        sleeve_poly = Polygon(sleeve_points)
-        
-        # Thân trước x2, Thân sau x1 (vải gập đôi), Tay áo x2
-        return {
-            "Front_Body": front_poly.area * 2.0,
-            "Back_Body": back_net_area * 1.0,
-            "Sleeve": sleeve_poly.area * 2.0
-        }
     @staticmethod
     def Advanced_Marker_Nesting_Engine(category: str, pieces_area: dict, config: dict) -> dict:
         """
-        Virtual Marker CAD Engine: Mô phỏng thuật toán lồng ghép đa giác thực tế.
+        Virtual Marker CAD Engine Thương mại: Mô phỏng thuật toán lồng ghép đa giác thực tế.
         Áp dụng đồng thời Co rút dọc (Shrinkage Warp) và Co rút ngang (Shrinkage Weft).
         """
-        width_inch = config.get("width_inch", 56.0)
-        # Khổ vải hữu ích sau khi áp dụng độ co rút ngang (Shrinkage Weft) để tính độ co hẹp sơ đồ
-        shrinkage_weft_factor = 1.0 - (safe_float(config.get("shrinkage_weft", 3.0), 3.0) / 100)
-        width_cm = safe_float(width_inch, 56.0) * 2.54 * shrinkage_weft_factor
+        width_inch = config.get("width_inch", 58.0)
         
-        # Hệ số co rút dọc (Shrinkage Warp) ảnh hưởng trực tiếp đến chiều dài đi sơ đồ vải
+        # 1. ẢNH HƯỞNG CỦA CO RÚT NGANG (Shrinkage Weft): Làm co hẹp khổ vải hữu ích trên bàn cắt
+        shrinkage_weft_factor = 1.0 - (safe_float(config.get("shrinkage_weft", 15.0), 15.0) / 100)
+        width_cm = safe_float(width_inch, 58.0) * 2.54 * shrinkage_weft_factor
+        
+        # 2. ẢNH HƯỞNG CỦA CO RÚT DỌC (Shrinkage Warp): Làm tăng chiều dài vải dôi dư tiêu hao
         shrinkage_warp_factor = 1.0 + (safe_float(config.get("shrinkage_warp", 5.0), 5.0) / 100)
         
-        # Tổng diện tích tịnh (Net Area) của toàn bộ các cấu phần chi tiết rập
         total_net_area = pieces_area.get("Front_Body", 0.0) + pieces_area.get("Back_Body", 0.0) + pieces_area.get("Sleeve", 0.0)
         
-        # Cộng dôi dư đường may công nghiệp (Seam Allowance: 0.8cm - 1.2cm quanh chu vi đa giác)
-        # Giả lập tăng thêm diện tích từ Net sang Gross Pattern trung bình từ 8% - 12% tùy dòng hàng
-        seam_allowance_factor = 1.10 if "jacket" in str(category).lower() else 1.08
+        # 3. ĐỘI ĐƯỜNG MAY CÔNG NGHIỆP (Seam Allowance): Chuyển đổi từ Net Pattern sang Gross Pattern
+        # Dòng quần Baggy Jeans có chu vi đường ráp sườn lớn, hệ số dôi dư đường may chiếm khoảng 9% diện tích tinh
+        seam_allowance_factor = 1.09 if "pant" in str(category).lower() or "jeans" in str(category).lower() else 1.08
         total_gross_area = total_net_area * seam_allowance_factor
         
-        # Advanced Marker Engine: Tính toán hiệu suất gá rập phi tuyến tính biến thiên theo số lượng 
-        # chi tiết cấu cấu phần và hướng canh sợi cản trở (Grain line / Piece Rotation 0-180)
-        if "pant" in str(category).lower() or "jeans" in str(category).lower():
-            base_efficiency = 0.84  # Sơ đồ quần Jeans lồng ống ngược chiều khít biên dệt
-        elif "jacket" in str(category).lower():
-            base_efficiency = 0.81  # Áo khoác nhiều panel mảnh cắt nhỏ, sinh nhiều góc chết hình học
-        else:
-            base_efficiency = 0.85  # Chuẩn trung bình cho Polo/T-shirt dệt kim
+        # 4. HIỆU SUẤT SƠ ĐỒ PHI TUYẾN TÍNH (Nesting Efficiency): Biến thiên theo phom dáng hình học
+        base_efficiency = 0.84 if "pant" in str(category).lower() or "jeans" in str(category).lower() else 0.85
+        if "jacket" in str(category).lower(): base_efficiency = 0.82
             
-        # Tính toán chiều dài sơ đồ thực tế (cm) và quy đổi sang đơn vị Yards ngành may (91.44 cm)
+        # Tính toán tổng diện tích thô bàn cắt và quy đổi tịnh tiến sang đơn vị Yards (91.44 cm)
         required_fabric_area = total_gross_area / base_efficiency
         marker_length_cm = (required_fabric_area / width_cm) * shrinkage_warp_factor
         consumption_yds = marker_length_cm / 91.44
@@ -244,7 +162,7 @@ if st.session_state.saved_pdf_bytes is not None:
                 if isinstance(mat, dict) and mat.get("placement") == "SHELL":
                     default_width = safe_float(mat.get("width_inch"), 56.0)
                     default_shrink_l = safe_float(mat.get("shrinkage_warp"), 5.0)
-                    default_shrink_w = safe_float(mat.get("shrinkage_weft", 3.0), 3.0)
+                    default_shrink_w = safe_float(mat.get("shrinkage_weft", 15.0), 15.0)
                     break
 
         active_width = st.session_state.width_inch_override if st.session_state.width_inch_override else default_width
@@ -252,8 +170,7 @@ if st.session_state.saved_pdf_bytes is not None:
         
         st.info(f"🎯 **AI đã thực thi thuật toán CAD thành công:** Khổ vải tính toán: **{active_width} Inch** | Độ co rút áp dụng: **L {active_shrink_l}% / W {default_shrink_w}%**")
             
-        # Gọi mô hình tham số đa giác động (Parametric Polygon Engine) thay vì hình chữ nhật cơ học
-        net_geometry_areas = GarmentCADCoreEngine.apply_rule_table_grading(bom_data.get("category", "jacket"), bom_data.get("specifications_pom", {}))
+        net_geometry_areas = GarmentCADCoreEngine.apply_rule_table_grading(bom_data.get("category", "pant"), bom_data.get("specifications_pom", {}))
         
         table_rows = []
         if isinstance(materials_list, list):
@@ -264,11 +181,10 @@ if st.session_state.saved_pdf_bytes is not None:
                 config_context = {
                     "width_inch": active_width if placement == "SHELL" else safe_float(material.get("width_inch"), 56.0),
                     "shrinkage_warp": active_shrink_l if placement == "SHELL" else safe_float(material.get("shrinkage_warp"), 5.0),
-                    "shrinkage_weft": default_shrink_w if placement == "SHELL" else safe_float(material.get("shrinkage_weft", 3.0), 3.0)
+                    "shrinkage_weft": default_shrink_w if placement == "SHELL" else safe_float(material.get("shrinkage_weft", 15.0), 15.0)
                 }
                 
-                # Chạy mô phỏng gá đặt xếp sơ đồ lồng ghép chi tiết nâng cao (Advanced Nesting với Seam Allowance)
-                nest_results = GarmentCADCoreEngine.Advanced_Marker_Nesting_Engine(bom_data.get("category", "jacket"), net_geometry_areas, config_context)
+                nest_results = GarmentCADCoreEngine.Advanced_Marker_Nesting_Engine(bom_data.get("category", "pant"), net_geometry_areas, config_context)
                 
                 table_rows.append({
                     "Style": bom_data.get("style_code", "UNKNOWN"),
