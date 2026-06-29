@@ -182,7 +182,7 @@ def parse_garment_fraction(val) -> float:
     return safe_float(val, 0.0)
 
 # =====================================================================
-# ĐOẠN 2b1: GIAO DIỆN CHÍNH, KHÓA BỘ NHỚ VÀ ENGINE BÓC TÁCH CHI TIẾT RẬP CAD
+# ĐOẠN 2b1 & 2b2_PHẦN_1: GIAO DIỆN CHÍNH, KHÓA BỘ NHỚ VÀ TIỀN XỬ LÝ SƠ ĐỒ
 # =====================================================================
 st.subheader("📁 BƯỚC 1: TẢI TÀI LIỆU KỸ THUẬT SẢN XUẤT (TECHPACK / BOM)")
 uploaded_file = st.file_uploader("Kéo và thả file PDF Techpack hoặc bảng BOM của bạn vào đây", type=["pdf"], key="pdf_uploader")
@@ -220,10 +220,10 @@ if st.session_state.saved_pdf_bytes is not None:
         sewing_spec = data.get("sewing_spec", {})
         hem_allowance = parse_garment_fraction(sewing_spec.get("hem_allowance_inch", 0.75))
 
-        # SỬA LỖI 5: Tạo 3 lớp tích lũy diện tích riêng biệt dựa trên bản chất cấu phần rập rập thực tế
-        shell_fabric_area = 0.0       # Tích lũy diện tích Vải Chính (Thân, tay, cổ, bo, nẹp, đáp cơi túi...)
-        pocketing_fabric_area = 0.0   # Tích lũy diện tích Vải Lót Túi (Pocket Bag)
-        interlining_fabric_area = 0.0  # Tích lũy diện tích Keo/Mếch dựng dán phôi chi tiết
+        # Tạo 3 lớp tích lũy diện tích riêng biệt dựa trên bản chất cấu phần rập thực tế
+        shell_fabric_area = 0.0       
+        pocketing_fabric_area = 0.0   
+        interlining_fabric_area = 0.0  
 
         for p in panels:
             name = p.get("panel_name", "Chi tiết phụ")
@@ -247,17 +247,15 @@ if st.session_state.saved_pdf_bytes is not None:
             # Diện tích hình học rập phẳng thô của cấu phần (SL * Dài rập * Rộng rập)
             panel_area = p_length * p_width * qty
 
-            # PHÂN LOẠI DIỆN TÍCH THEO NHÓM VẬT LIỆU:
+            # PHÂN LOẠI DIỆN TÍCH THEO NHÓM VẬT LIỆU CHÍNH XÁC:
             name_lower = name.lower()
             if "bag" in name_lower or "lót túi" in name_lower or "pocket bag" in name_lower:
                 pocketing_fabric_area += panel_area
-                # Vải lót túi mổ/túi quần vẫn cần một miếng vải chính làm đáp cơi dán đè lên (Facing)
-                shell_fabric_area += (p_length * 3.0 * qty) # Ước lượng rập đáp cơi rộng ~3 inch bằng vải chính
+                shell_fabric_area += (p_length * 3.0 * qty) # Bù đáp cơi túi vải chính rộng ~3"
             elif "keo" in name_lower or "mếch" in name_lower or "fusing" in name_lower or "interlining" in name_lower:
                 interlining_fabric_area += panel_area
             else:
                 shell_fabric_area += panel_area
-                # Nếu là chi tiết rập cần dán dựng mex phối (như cổ áo, cạp quần, nẹp áo placket)
                 if any(x in name_lower for x in ["cổ", "collar", "cạp", "lưng", "waistband", "nẹp", "placket", "cuff", "bo tay"]):
                     interlining_fabric_area += panel_area
 
@@ -273,7 +271,7 @@ if st.session_state.saved_pdf_bytes is not None:
         df_panels = pd.DataFrame(panel_records)
         st.dataframe(df_panels, use_container_width=True, hide_index=True)
 
-        # ĐỒNG BỘ BẢO TOÀN DANH MỤC PHỤ LIỆU
+        # ĐỒNG BỘ BẢO TOÀN DANH MỤC PHỤ LIỆU GỐC
         materials = data.get("materials_bom", [])
         has_pocketing = any("POCKETING" in str(m.get("placement")).upper() for m in materials)
         has_interlining = any("INTERLINING" in str(m.get("placement")).upper() for m in materials)
@@ -283,10 +281,8 @@ if st.session_state.saved_pdf_bytes is not None:
         if not has_interlining:
             materials.append({"placement": "INTERLINING", "width_inch": 44.0, "shrinkage_warp": 0.0, "shrinkage_weft": 0.0, "material_name": "TRICOT FUSING (Keo lót phôi)"})
         data["materials_bom"] = materials
-               # --- ĐOẠN 2b2_PHẦN_1: TOÁN HỌC SƠ ĐỒ CÔNG NGHIỆP DIỆN TÍCH RẬP THÔ VÀ ĐỔ BẢNG BOM ---
-        materials = data.get("materials_bom", [])
-        
-        # 1. Thuật toán trích xuất chiều dài và chiều rộng của Thân, Tay áo làm gốc tính toán sơ đồ
+
+        # --- TIỀN XỬ LÝ SƠ ĐỒ ĐỂ TRÍCH XUẤT CÁC THÔNG SỐ KHUNG CƠ SỞ ---
         max_body_length = 0.0
         max_body_width = 0.0
         max_sleeve_length = 0.0
@@ -302,29 +298,31 @@ if st.session_state.saved_pdf_bytes is not None:
             if any(x in name_lower for x in ["tay", "sleeve"]):
                 if l_val > max_sleeve_length: max_sleeve_length = l_val
 
-        # Bộ số dự phòng an toàn nếu file khuyết nhãn chi tiết chính
+        # Bộ số dự phòng an toàn nếu hồ sơ khuyết nhãn
         if max_body_length == 0:
             max_body_length = 42.5 if "pant" in category.upper() else 33.13
         if max_sleeve_length == 0 and "pant" not in category.upper():
             max_sleeve_length = round(max_body_length * 0.75, 2)
 
-        # Mảng lưu dữ liệu cấu hình debug để hiển thị chính xác theo từng hàng
         bom_debug_log = {}
 
         if len(panels) > 0:
             for mat in materials:
                 placement_upper = str(mat.get("placement")).upper()
                 
-                # Đồng bộ thông số khổ vải và độ co rút tương tác động từ ô chat bên trái
+                # Khởi tạo biến cục bộ chặn đứng lỗi UnboundLocalError
+                calc_consumption = 0.0
+                target_panel_area = 0.0
+                
+                # Đồng bộ thông số tương tác động từ ô chat Sidebar
                 if "SHELL" in placement_upper:
                     if st.session_state.width_inch_override: mat["width_inch"] = st.session_state.width_inch_override
                     if st.session_state.shrinkage_override: mat["shrinkage_warp"] = st.session_state.shrinkage_override
                 elif any(x in placement_upper for x in ["INTERLINING", "POCKETING"]):
                     chat_history = st.session_state.get("sidebar_chat_history", [])
+                    chat_content = ""
                     if chat_history:
                         chat_content = str(chat_history[-1].get("content", "")).lower()
-                    else:
-                        chat_content = ""
                         
                     if any(x in chat_content for x in ["keo", "mếch", "lót", "phối"]) and st.session_state.width_inch_override:
                         mat["width_inch"] = st.session_state.width_inch_override
@@ -335,85 +333,66 @@ if st.session_state.saved_pdf_bytes is not None:
                     elif "INTERLINING" in placement_upper: w_inch = 44.0; mat["width_inch"] = 44.0
                     else: w_inch = 58.0; mat["width_inch"] = 58.0
 
-                # LẤY ĐỘ CO RÚT ĐỘNG THỰC TẾ: Ưu tiên bóc tách từ lệnh chat, nếu không có lấy mặc định trong file
                 s_warp = safe_float(mat.get("shrinkage_warp", 5.0 if "SHELL" in placement_upper else 0.0)) / 100.0
                 s_weft = safe_float(mat.get("shrinkage_weft", 15.0 if "SHELL" in placement_upper else 0.0)) / 100.0
                 
-                # Đồng bộ trực tiếp lệnh co rút dọc từ ô chat người dùng gõ
-                if "SHELL" in placement_upper:
-                    if st.session_state.shrinkage_override:
-                        s_warp = st.session_state.shrinkage_override / 100.0
-                    # Tự động đồng bộ độ co rút ngang sang mốc 15% thực tế cho dòng vải SHELL chính
-                    chat_history = st.session_state.get("sidebar_chat_history", [])
-                    if chat_history:
-                        last_chat = str(chat_history[-1].get("content", "")).lower()
-                        # Dò quét Regex tìm con số co rút ngang đi sau chữ 'ngang' hoặc chữ 'w' bạn gõ ở ô chat
-                        weft_match = re.search(r'(?:co ngang|ngang|w|weft)\s*(\d+)', last_chat)
-                        if weft_match:
-                            s_weft = float(weft_match.group(1)) / 100.0
-                        else:
-                            # Nếu bạn gõ lệnh co rút gộp dạng '5-15', tự động bóc tách con số 15 gán vào co ngang
-                            generic_match = re.search(r'\d+\s*-\s*(\d+)', last_chat)
-                            if generic_match: s_weft = float(generic_match.group(1)) / 100.0
+                if "SHELL" in placement_upper and st.session_state.shrinkage_override:
+                    s_warp = st.session_state.shrinkage_override / 100.0
                 # -----------------------------------------------------------------
-                # THUẬT TOÁN PHÂN LOẠI SƠ ĐỒ ĐỘNG CHUẨN CAD NHÀ MÁY
+                # ĐOẠN 2b2_PHẦN_2: THỰC THI TOÁN HỌC SƠ ĐỒ DIỆN TÍCH PHẲNG VÀ ĐỔ BẢNG BOM
                 # -----------------------------------------------------------------
-                if "PANT" in category.upper():
-                    # --- LÕI SƠ ĐỒ DIỆN TÍCH RẬP THÔ ĐỘNG CHO QUẦN ---
-                    effective_width_inch = w_inch * (1.0 - s_weft)
-                    target_panel_area = shell_fabric_area if "SHELL" in placement_upper else (pocketing_fabric_area if "POCKETING" in placement_upper else interlining_fabric_area)
-                    
-                    marker_efficiency = 0.84 if "SHELL" in placement_upper else (0.86 if "POCKETING" in placement_upper else 0.88)
-                    fabric_loss_factor = 1.04 if w_inch <= 58.0 else 1.02
-                    
-                    if "POCKETING" in placement_upper and pocketing_fabric_area == 0: 
-                        calc_consumption = round(((max_body_length + 2.0) / 39.37) * 0.28, 3)
-                    elif "INTERLINING" in placement_upper and interlining_fabric_area == 0: 
-                        calc_consumption = round(((max_body_length + 2.0) / 39.37) * 0.12, 3)
-                    else:
-                        if target_panel_area > 0 and effective_width_inch > 0:
-                            marker_length_inch = (target_panel_area * (1.0 + s_warp)) / effective_width_inch
-                            calc_consumption = (marker_length_inch / 39.37) / marker_efficiency * fabric_loss_factor
-                        else:
-                            calc_consumption = 0.0
-                else:
-                    # --- LÕI SƠ ĐỒ NHÓM CẤU PHẦN ĐAN XEN CHO ÁO (JACKET/SHIRT) ---
-                    # Chiều dài rập áo tổng hợp cơ sở = Dài thân áo lớn nhất + Dài tay áo + Biên may ráp công đoạn (+0.44" x 2) + Lai gấu
-                    base_layout_length = (max_body_length + (2 * sewing_seam_allowance)) + (max_sleeve_length + (2 * sewing_seam_allowance)) + hem_allowance
-                    
-                    # Áp dụng tỷ lệ co rút dọc cây vải (Warp Shrinkage) ảnh hưởng trực tiếp đến chiều dài bàn cắt tiêu hao
-                    final_layout_length_inch = base_layout_length * (1.0 + s_warp)
-                    
-                    # TOÁN HỌC KIỂM TRA PHÌNH RẬP CO NGANG:
-                    # Nếu bề ngang thân áo thành phẩm rất to kết hợp với độ co rút ngang cao, rập phình rộng 
-                    # chiếm trọn khổ vải khiến tay áo bắt buộc xếp nối đuôi kéo dài sườn sơ đồ dọc.
-                    if s_weft >= 0.12 and max_body_width >= 26.0:
-                        marker_jacket_layout_factor = 1.265  # Hệ số rập phình ngang bắt buộc xếp nối đuôi kéo dài
-                    else:
-                        marker_jacket_layout_factor = 1.14 if w_inch <= 58.0 else 1.08
-                    
-                    # Quy đổi tổng chiều dài chiếm dụng thực tế từ inch sang đơn vị Mét (m) + 3% biên hao hụt cắt đầu bàn kỹ thuật
-                    fabric_loss_factor = 1.03
-                    calc_consumption = ((final_layout_length_inch * marker_jacket_layout_factor) / 39.37) * fabric_loss_factor
-                    
-                    # Thiết lập định mức phối lót động dựa trên cấu phần rập thô
-                    if "POCKETING" in placement_upper: 
-                        calc_consumption = round((base_layout_length / 39.37) * 0.22, 3)
-                    elif "INTERLINING" in placement_upper: 
-                        calc_consumption = round((base_layout_length / 39.37) * 0.35, 3)
-                    
-                    marker_efficiency = 0.85
-                    effective_width_inch = w_inch * (1.0 - s_weft)
+                # Áp dụng độ co rút ngang (Weft Shrinkage) ảnh hưởng trực tiếp hạ hẹp khổ vải hữu dụng
+                effective_width_inch = w_inch * (1.0 - s_weft)
 
+                # Định nghĩa bảng Loss / Efficiency đồng nhất theo loại vật liệu và chủng loại hàng
+                if "SHELL" in placement_upper:
+                    target_panel_area = shell_fabric_area
+                    marker_efficiency = 0.84 if "PANT" in category.upper() else 0.85
+                    fabric_loss_factor = 1.04 if w_inch <= 58.0 else 1.02
+                
+                elif "POCKETING" in placement_upper:
+                    marker_efficiency = 0.86  # Sơ đồ cấu phần nhỏ dải đan xen khít
+                    fabric_loss_factor = 1.02
+                    if pocketing_fabric_area > 0:
+                        target_panel_area = pocketing_fabric_area
+                    else:
+                        # Luồng Fallback dự phòng quy đổi kỹ thuật chuẩn của xưởng may (Áo Jacket ~ 0.38m; Quần Jeans ~ 0.25m)
+                        base_fallback = 0.25 if "PANT" in category.upper() else 0.38
+                        calc_consumption = base_fallback * (1.0 + s_warp) * fabric_loss_factor
+                
+                else:  # INTERLINING (Mếch keo lót phối)
+                    marker_efficiency = 0.88  # Ép mex phôi dải sơ đồ đạt hiệu suất rất cao
+                    fabric_loss_factor = 1.02
+                    if interlining_fabric_area > 0:
+                        target_panel_area = interlining_fabric_area
+                    else:
+                        # Luồng Fallback dự phòng quy đổi kỹ thuật chuẩn (Áo Jacket ~ 0.65m; Quần Jeans ~ 0.12m)
+                        base_fallback = 0.12 if "PANT" in category.upper() else 0.65
+                        calc_consumption = base_fallback * (1.0 + s_warp) * fabric_loss_factor
+
+                # THỰC THI TOÁN HỌC SƠ ĐỒ THEO LÕI CAD PHẲNG (Dựa trên tổng diện tích rập thô đã nhân SL chi tiết)
+                if target_panel_area > 0 and effective_width_inch > 0:
+                    # 1. Chiều dài sơ đồ chiếm dụng (inch) = (Diện tích rập thô tích lũy * Hệ số co rút dọc) / Khổ vải hữu dụng
+                    marker_length_inch = (target_panel_area * (1.0 + s_warp)) / effective_width_inch
+                    
+                    # Hệ số tinh chỉnh sơ đồ biến thiên khi co ngang lớn cho Áo khoác phom to
+                    if "PANT" not in category.upper() and s_weft >= 0.12 and max_body_width >= 26.0:
+                        marker_length_inch = marker_length_inch * 1.12  # Tăng 12% tiêu hao do triệt tiêu khoảng lồng rập tay
+                    
+                    # 2. Quy đổi chính xác đơn vị từ inch sơ đồ sang số Mét tiêu hao dài thực tế của cây vải
+                    calc_consumption = (marker_length_inch / 39.37) / marker_efficiency * fabric_loss_factor
+                
                 mat["consumption_meter_per_pcs"] = round(calc_consumption, 3)
                 mat["consumption_yard_per_pcs"] = round(calc_consumption * 1.09361, 3)
 
-                # Đẩy cấu hình gán độc lập vào mảng log debug để hiển thị chính xác theo từng hàng, chống ghi đè dòng cuối
+                # Lưu cấu hình gán độc lập vào mảng log debug để hiển thị chính xác theo từng hàng, chống ghi đè For Loop
                 bom_debug_log[placement_upper] = {
+                    "area": round(target_panel_area, 1),
                     "eff": round(marker_efficiency * 100, 1),
                     "loss": fabric_loss_factor,
                     "eff_width": round(effective_width_inch, 2),
-                    "co_ngang": round(s_weft * 100, 1)
+                    "co_ngang": round(s_weft * 100, 1),
+                    "co_doc": round(s_warp * 100, 1)
                 }
 
         st.markdown("### 🧵 BẢNG ĐỊNH MỨC NGUYÊN PHỤ LIỆU ĐỘNG (MATERIALS BOM)")
@@ -423,10 +402,13 @@ if st.session_state.saved_pdf_bytes is not None:
         df_bom = df_bom[[c for c in cols_order if c in df_bom.columns]]
         st.dataframe(df_bom, use_container_width=True)
         
-        # HIỂN THỊ MINH BẠCH LỚP DỮ LIỆU ĐỐI CHIẾU DEBUG CAD CHO TỪNG LOẠI VẬT LIỆU
-        st.markdown("##### ⚙️ Chỉ số Trắc địa Gerber/Lectra Polygon Mesh đối chiếu dòng:")
+        # HIỂN THỊ LỚP DỮ LIỆU ĐỐI CHIẾU DEBUG ERP MINH BẠCH THEO TỪNG VẬT LIỆU
+        st.markdown("##### ⚙️ Chỉ số Trắc địa Gerber/Lectra Polygon Mesh đối chiếu dòng giải trình Costing:")
         for placement_key, dbg in bom_debug_log.items():
-            st.caption(f"📍 **{placement_key}** | Độ co ngang thực nhận: `{dbg['co_ngang']}%` | Khổ hữu dụng thực tế: `{dbg['eff_width']}\"` | Hiệu suất sơ đồ CAD: `{dbg['eff']}%` | Hệ số hao hụt cắt: `{dbg['loss']}`")
+            if dbg["area"] > 0:
+                st.caption(f"📍 **{placement_key}** | Diện tích rập thô tích lũy (Tổng SL chi tiết): `{dbg['area']} in²` | Co dọc: `{dbg['co_doc']}%` | Co ngang: `{dbg['co_ngang']}%` | Khổ hữu dụng thực tế: `{dbg['eff_width']}\"` | Hiệu suất sơ đồ CAD: `{dbg['eff']}%` | Hệ số hao hụt cắt: `{dbg['loss']}`")
+            else:
+                st.caption(f"📍 **{placement_key}** | [Dữ liệu Dự phòng] | Co dọc: `{dbg['co_doc']}%` | Co ngang: `{dbg['co_ngang']}%` | Khổ cắt: `{dbg['eff_width']}\"` | Đã áp mốc tiêu chuẩn kỹ thuật xưởng may (Đã bao gồm tỷ lệ co dọc & hao hụt).")
     else:
         st.warning("⚠️ Hệ thống chưa nhận được bảng chi tiết cấu phần rập từ hồ sơ PDF. Không thể thực thi toán học sơ đồ.")
 else:
