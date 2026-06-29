@@ -158,6 +158,76 @@ def parse_garment_fraction(val) -> float:
     return safe_float(val, 0.0)
 
 # =====================================================================
+# SIDEBAR CONTROL (KHÔI PHỤC HOÀN TOÀN Ô CHAT VÀ LỊCH SỬ TƯƠNG TÁC)
+# =====================================================================
+with st.sidebar:
+    st.header("💬 TRỢ LÝ SẢN XUẤT AI")
+    if st.button("🗑️ Xóa lịch sử & Reset định mức", use_container_width=True):
+        st.session_state.width_inch_override = None
+        st.session_state.shrinkage_override = None
+        st.session_state.is_calculated = False
+        st.session_state.gemini_parsed_bom_data = None
+        st.session_state.saved_pdf_bytes = None
+        st.session_state.saved_pdf_name = None
+        st.session_state.sidebar_chat_history = [
+            {"role": "assistant", "content": "Hệ thống đã reset. Vui lòng tải file PDF Techpack mới để bắt đầu quy trình."}
+        ]
+        st.cache_data.clear()
+        st.rerun()
+        
+    st.write("Nhập bổ sung thông tin vải, độ co rút sau khi tải PDF.")
+    st.markdown("---")
+    
+    # Kết nối bộ nhớ đệm hiển thị lại toàn bộ lịch sử chat chit
+    for chat in st.session_state.sidebar_chat_history:
+        with st.chat_message(chat["role"]): st.markdown(chat["content"])
+            
+    user_prompt = st.chat_input("Gửi thông số cho AI...", key="garment_chat_input_unique")
+
+if user_prompt:
+    st.session_state.sidebar_chat_history.append({"role": "user", "content": user_prompt})
+    update_config_from_text(user_prompt)
+    st.session_state.sidebar_chat_history.append({
+        "role": "assistant", 
+        "content": f"⚙️ Đã nhận diện thông số: '{user_prompt}'. Tiến hành giải mã phân số bảng POM và đẩy định mức mới cập nhật vào bảng BOM ngay lặp tức..."
+    })
+    st.rerun()
+
+# =====================================================================
+# ENGINE QUY ĐỔI PHÂN SỐ NGÀNH MAY 
+# =====================================================================
+def parse_garment_fraction(val) -> float:
+    """Chuyển đổi chính xác phân số hỗn hợp ngành may thành số thập phân thực tế"""
+    if val is None: return 0.0
+    val_str = str(val).strip()
+    if not val_str or val_str.lower() in ['none', 'null', 'n/a']: return 0.0
+    
+    try: return float(val_str)
+    except ValueError: pass
+    
+    try:
+        if '/' in val_str:
+            parts_list = re.split(r'[\s\-]+', val_str)
+            if len(parts_list) == 2:
+                frac_part_str = parts_list.pop()
+                whole_part_str = parts_list.pop()
+                whole_num = float(whole_part_str)
+                
+                sub_parts = frac_part_str.split('/')
+                den_num = float(sub_parts.pop())
+                num_num = float(sub_parts.pop())
+                return whole_num + (num_num / den_num)
+            elif len(parts_list) == 1:
+                frac_part_str = parts_list.pop()
+                sub_parts = frac_part_str.split('/')
+                den_num = float(sub_parts.pop())
+                num_num = float(sub_parts.pop())
+                return num_num / den_num
+    except Exception:
+        pass
+    return safe_float(val, 0.0)
+
+# =====================================================================
 # ĐOẠN 2b1: GIAO DIỆN CHÍNH, KHÓA BỘ NHỚ VÀ ENGINE BÓC TÁCH CHI TIẾT RẬP CAD
 # =====================================================================
 st.subheader("📁 BƯỚC 1: TẢI TÀI LIỆU KỸ THUẬT SẢN XUẤT (TECHPACK / BOM)")
@@ -212,8 +282,6 @@ if st.session_state.saved_pdf_bytes is not None:
             else:
                 m_display = "Kích thước phẳng thực tế chi tiết"
 
-            # Áp dụng công thức rập may: Mỗi chi tiết cắt rập đều phải cộng biên đường may ráp nối (+0.44" mỗi đầu)
-            # Đối với chi tiết thân chính, chiều dài cộng thêm biên lai gấu (hem)
             p_length = l_inch + (2 * sewing_seam_allowance)
             if "thân" in name.lower() or "main" in name.lower() or "outseam" in name.lower():
                 p_length += hem_allowance
@@ -235,7 +303,6 @@ if st.session_state.saved_pdf_bytes is not None:
 
         df_panels = pd.DataFrame(panel_records)
         st.dataframe(df_panels, use_container_width=True, hide_index=True)
-
         # --- ĐOẠN 2b2: TOÁN HỌC SƠ ĐỒ CÔNG NGHIỆP CỘNG DỒN CHI TIẾT RẬP VÀ ĐỔ BẢNG BOM ---
         materials = data.get("materials_bom", [])
         
@@ -265,7 +332,7 @@ if st.session_state.saved_pdf_bytes is not None:
             if "SHELL" in placement_upper and st.session_state.shrinkage_override:
                 s_warp = st.session_state.shrinkage_override / 100.0
 
-            # THUẬT TOÁN ĐỊNH MỨC SƠ ĐỒ BÀN CẮT (MARKER CAD PLOTTER):
+            # THUẬT TOÁN ĐỊNH MỨC SƠ ĐỒ BÀN CẮT (MARKER CAD PLOTTER) BASED ON PANEL AREA:
             if total_garment_fabric_area > 0:
                 # 1. Nhân hệ số co rút cơ học cho diện tích rập tổng hợp (Phình rập theo warp và weft)
                 final_fabric_area_sq_inch = total_garment_fabric_area * (1 + s_warp) * (1 + s_weft)
@@ -308,3 +375,4 @@ if st.session_state.saved_pdf_bytes is not None:
         st.warning("⚠️ AI không thể trích xuất cấu trúc dữ liệu từ file PDF này. Vui lòng kiểm tra lại chất lượng file.")
 else:
     st.info("💡 Vui lòng tải một file PDF Techpack lên để hệ thống phân tích hình học đa giác.")
+PDF Techpack lên để hệ thống phân tích hình học đa giác.")
