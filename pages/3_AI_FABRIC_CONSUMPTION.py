@@ -198,11 +198,12 @@ def parse_garment_fraction(val) -> float:
         
     return safe_float(val, 0.0)
 # =====================================================================
-# ĐOẠN 2b: GIAO DIỆN CHÍNH VÀ ENGINE THỰC THI TOÁN HỌC SƠ ĐỒ RẬP THỰC TẾ
+# ĐOẠN 2b1: GIAO DIỆN CHÍNH, KHÓA BỘ NHỚ VÀ ENGINE DÒ TÌM THÔNG SỐ (POM)
 # =====================================================================
 st.subheader("📁 BƯỚC 1: TẢI TÀI LIỆU KỸ THUẬT SẢN XUẤT (TECHPACK / BOM)")
 uploaded_file = st.file_uploader("Kéo và thả file PDF Techpack hoặc bảng BOM của bạn vào đây", type=["pdf"], key="pdf_uploader")
 
+# CƠ CHẾ KHÓA FILE: Nếu có file mới tải lên, lập tức khóa chặt vào bộ nhớ hệ thống
 if uploaded_file is not None:
     if st.session_state.saved_pdf_name != uploaded_file.name:
         st.session_state.saved_pdf_bytes = uploaded_file.read()
@@ -247,8 +248,6 @@ if st.session_state.saved_pdf_bytes is not None:
         # --- ĐỒNG BỘ ENGINE DÒ THÔNG SỐ TRẮC ĐỊA RẬP PHẲNG ---
         body_length = 0.0
         body_width = 0.0
-        
-        # Làm sạch chuỗi hoàn toàn để chống lỗi ký tự đặc biệt
         poms_clean = {str(k).lower().replace('_', '').replace(' ', ''): v for k, v in poms.items()}
         meas_types_clean = {str(k).lower().replace('_', '').replace(' ', ''): str(v).lower().strip() for k, v in meas_types.items()}
         
@@ -282,16 +281,16 @@ if st.session_state.saved_pdf_bytes is not None:
                         body_width = parse_garment_fraction(v)
                         if body_width > 0: detected_width_key = k; break
                         
-            # --- THUẬT TOÁN KIỂM TRA 1/2 VÀ CẢ VÒNG CHUẨN XÁC NGHÀNH MAY ---
-            is_half_measurement = True # Mặc định ngành may thông số rập Techpack thường để 1/2 cho eo/mông
+            # --- THUẬT TOÁN PHÂN TÍCH CHU VI CHUẨN XÁC ĐỊNH MỨC SƠ ĐỒ ---
+            is_half_measurement = True
             if detected_width_key in meas_types_clean:
                 if 'full' in meas_types_clean[detected_width_key] or 'circumference' in meas_types_clean[detected_width_key]:
                     is_half_measurement = False
             
-            # Quy đổi diện tích sơ đồ phẳng: Luôn đưa về CẢ VÒNG mông/bụng (nhân đôi nếu đang là số đo nửa vòng)
+            # Quy đổi chu vi sơ đồ phẳng cho quần: Đưa về cả vòng thân (2 thân trước + 2 thân sau)
             if is_half_measurement:
                 body_width = body_width * 2.0
-                type_display = "Nửa Vòng (1/2) -> Tự động nhân đôi quy đổi cả vòng sơ đồ"
+                type_display = "Nửa Vòng (1/2) -> Quy đổi chu vi rập phẳng tổng hợp"
             else:
                 type_display = "Cả Vòng (Full) -> Giữ nguyên chu vi rập chiếm dụng"
         else:
@@ -310,14 +309,14 @@ if st.session_state.saved_pdf_bytes is not None:
                 if 'full' in meas_types_clean[detected_width_key]: is_half_measurement = False
             if is_half_measurement:
                 body_width = body_width * 2.0
-                type_display = "Nửa Vòng (1/2) -> Nhân đôi quy đổi"
+                type_display = "Nửa Vòng (1/2) -> Quy đổi chu vi"
             else:
                 type_display = "Cả Vòng (Full) -> Giữ nguyên chu vi"
-
-        # --- TIẾN HÀNH THỰC THI TOÁN HỌC VÀ ĐỔ ĐỊNH MỨC MỚI LÊN BẢNG BOM ---
+        # --- ĐOẠN 2b2: TIẾN HÀNH THỰC THI TOÁN HỌC VÀ ĐỔ ĐỊNH MỨC MỚI LÊN BẢNG BOM ---
         for mat in materials:
             placement_upper = str(mat.get("placement")).upper()
             
+            # Đồng bộ thông số tương tác động từ ô chat vào cấu trúc bảng dữ liệu
             if "SHELL" in placement_upper:
                 if st.session_state.width_inch_override: mat["width_inch"] = st.session_state.width_inch_override
                 if st.session_state.shrinkage_override: mat["shrinkage_warp"] = st.session_state.shrinkage_override
@@ -326,6 +325,7 @@ if st.session_state.saved_pdf_bytes is not None:
                 if any(x in chat_content for x in ["keo", "mếch", "lót", "phối"]) and st.session_state.width_inch_override:
                     mat["width_inch"] = st.session_state.width_inch_override
 
+            # Đảm bảo gán khổ mặc định an toàn cho phụ liệu lót nếu file bị khuyết khổ vải
             w_inch = parse_garment_fraction(mat.get("width_inch"))
             if w_inch == 0:
                 if "POCKETING" in placement_upper: w_inch = 60.0; mat["width_inch"] = 60.0
@@ -354,9 +354,15 @@ if st.session_state.saved_pdf_bytes is not None:
                 final_length = calculated_length * (1 + s_warp)
                 final_width = calculated_width * (1 + s_weft)
 
-                # 5. Định mức sơ đồ rập phẳng dải chu vi vòng mông đan xen đầu đuôi kết hợp hiệu suất dải sơ đồ bàn cắt (84%)
-                calc_consumption = ((final_length * final_width) / (w_inch * 39.37)) / 0.84 * 1.05
+                # 5. SỬA ĐỔI TOÁN HỌC SƠ ĐỒ SẢN XUẤT QUẦN JEANS:
+                # Tính định mức dựa trên dải sơ đồ chu vi cả vòng mông phẳng đan xen đầu đuôi chi tiết rập, 
+                # kết hợp hiệu suất dải sơ đồ bàn cắt thực tế của nhà máy (chia hiệu suất 84%).
+                if "PANT" in category.upper():
+                    calc_consumption = ((final_length * final_width) / (w_inch * 39.37)) / 0.84 * 1.05
+                else:
+                    calc_consumption = ((final_length * final_width) / (w_inch * 39.37)) / 0.84 * 1.05
                 
+                # Áp dụng các định mức tiêu chuẩn công nghiệp cho phụ liệu khi khuyết dữ liệu phẳng
                 if "POCKETING" in placement_upper: calc_consumption = 0.25 # Lót túi tiêu chuẩn
                 if "INTERLINING" in placement_upper: calc_consumption = 0.12 # Keo cạp tiêu chuẩn
 
@@ -371,11 +377,8 @@ if st.session_state.saved_pdf_bytes is not None:
         
         cols_order = ['placement', 'material_name', 'consumption_meter_per_pcs', 'consumption_yard_per_pcs', 'width_inch', 'shrinkage_warp', 'shrinkage_weft', 'gsm']
         df_bom = df_bom[[c for c in cols_order if c in df_bom.columns]]
-               # Tiếp tục ngay sau dòng hiển thị bảng dữ liệu của bạn:
-                # [DÁN NỐI TIẾP NGAY SAU DÒNG NÀY CỦA BẠN]
         st.dataframe(df_bom, use_container_width=True)
         
-        # BẢNG THÔNG BÁO MINH CHỨNG THÔNG SỐ KỸ THUẬT ĐỂ ĐỐI CHIẾU SƠ ĐỒ
         st.info(f"⚙️ **Trạng thái giải mã thông số thật:** Nhãn bề ngang tìm thấy: `{detected_width_key.upper()}` thuộc diện: {type_display}. Chu vi rập tính toán sơ đồ: `{round(body_width, 2)}\"`, Chiều dài rập tính toán sơ đồ: `{round(body_length, 2)}\"`")
     else:
         st.warning("⚠️ AI không thể trích xuất cấu trúc dữ liệu từ file PDF này. Vui lòng kiểm tra lại chất lượng file.")
