@@ -17,7 +17,7 @@ st.title("📊 TRỢ LÝ ĐỊNH MỨC NGUYÊN PHỤ LIỆU TỰ ĐỘNG (BOM)")
 st.caption("Cấu trúc lõi 13-Engine CAD/AI - Kết nối Gemini AI phân tích Techpack PDF và tính toán định mức đa lớp")
 st.markdown("---")
 
-# Khởi tạo bộ nhớ đệm vĩnh viễn, tuyệt đối không bị đặt lại khi trang tải lại
+# Khởi tạo bộ nhớ đệm an toàn
 if "width_inch" not in st.session_state: st.session_state.width_inch = None
 if "shrinkage_l" not in st.session_state: st.session_state.shrinkage_l = 5.0
 if "shrinkage_w" not in st.session_state: st.session_state.shrinkage_w = 5.0
@@ -43,16 +43,14 @@ def update_config_from_text(text: str):
     co_w_match = re.search(r'(?:co ngang|co w|ngang)\s*(\d+)', text_lower)
     if co_w_match: st.session_state.shrinkage_w = float(co_w_match.group(1))
 
-# Khóa chặt file PDF sau khi quét bằng bộ nhớ cache dữ liệu của Streamlit
+# Khóa chặt file PDF bằng bộ nhớ cache dữ liệu của Streamlit
 @st.cache_data(show_spinner=False)
 def ai_gemini_pdf_parser(pdf_file_name, pdf_bytes) -> list:
     """Đọc tệp tin PDF và chuyển giao toàn bộ nội dung sang Gemini để phân tích ngữ nghĩa dệt may"""
     try:
-        # Cấu hình API Key an toàn
         if "GEMINI_API_KEY" in st.secrets: genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
         elif "gemini" in st.secrets: genai.configure(api_key=st.secrets["gemini"].get("api_key", ""))
         
-        # Đọc dữ liệu từ luồng bytes
         import io
         reader = PdfReader(io.BytesIO(pdf_bytes))
         raw_pdf_text = ""
@@ -116,16 +114,28 @@ class GarmentCADCoreEngine:
             "total": round(shell_yds + (shell_yds * 0.82) + 0.37, 2)
         }
 # =====================================================================
-# ĐOẠN 2: SIDEBAR CHAT VÀ BẢNG HIỂN THỊ TRUNG TÂM CHỐNG MẤT DỮ LIỆU
+# ĐOẠN 2: SIDEBAR CHAT (TÍCH HỢP NÚT XÓA CHAT) VÀ BẢNG HIỂN THỊ
 # =====================================================================
 
 # 1. Quản lý tương tác phòng kỹ thuật qua ô Chatbot AI ở Sidebar
 with st.sidebar:
     st.header("💬 TRỢ LÝ SẢN XUẤT AI")
+    
+    # NÚT XÓA LỊCH SỬ CHAT VÀ RESET TRẠNG THÁI BẢNG TÍNH
+    if st.button("🗑️ Xóa lịch sử & Reset định mức", use_container_width=True):
+        st.session_state.width_inch = None
+        st.session_state.shrinkage_l = 5.0
+        st.session_state.shrinkage_w = 5.0
+        st.session_state.is_calculated = False
+        st.session_state.sidebar_chat_history = [
+            {"role": "assistant", "content": "Xin chào! Lịch sử chat đã được làm sạch và bảng định mức đã được đưa về trạng thái trống (0.00). Vui lòng nhập thông số mới để tính toán."}
+        ]
+        st.rerun()
+        
     st.write("Nhập bổ sung thông tin vải, độ co rút sau khi tải PDF.")
     st.markdown("---")
     
-    # Render toàn bộ hội thoại cũ
+    # Render toàn bộ hội thoại
     for chat in st.session_state.sidebar_chat_history:
         with st.chat_message(chat["role"]): 
             st.markdown(chat["content"])
