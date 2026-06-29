@@ -440,6 +440,28 @@ if st.session_state.saved_pdf_bytes is not None:
                     p["length_inch"] = p.get("width_inch")
                     p["width_inch"] = orig_len
 
+        # SỬA LỖI DIỆN TÍCH BỊ QUÉT SAI (AREA RECALCULATION GUARD):
+        # Nếu cột diện tích trong PDF bị lỗi trích xuất (ví dụ diện tích quá nhỏ < 10 inch² đối với chi tiết chính),
+        # hệ thống tự động tính lại diện tích bằng công thức: Chiều dài * Chiều rộng * Số lượng (SL) để khôi phục dữ liệu gốc.
+        for p in panels:
+            p_area = safe_float(p.get("area_inch2", 0.0))
+            p_qty = safe_float(p.get("quantity", p.get("sl", 1.0)))
+            if p_qty <= 0: p_qty = 1.0
+            
+            raw_len = parse_garment_fraction(p.get("length_inch"))
+            raw_wid = parse_garment_fraction(p.get("width_inch"))
+            
+            # Nếu diện tích trích xuất bị lỗi vô lý (< 10 inch²) trong khi kích thước rập thô có giá trị thực
+            if p_area < 10.0 and raw_len > 0 and raw_wid > 0:
+                # Tính toán lại diện tích hộp bao (bounding box area) nhân với số lượng chi tiết thực tế
+                calculated_p_area = raw_len * raw_wid * p_qty
+                p["area_inch2"] = calculated_p_area
+
+        # Cập nhật lại tổng diện tích an toàn cho toàn bộ hệ thống sau khi đã fix lỗi từng chi tiết
+        v_shell = sum([safe_float(p.get("area_inch2", 0.0)) for p in panels if "shell" in str(p.get("material", "shell")).lower() or "vải chính" in str(p.get("material", "")).lower()])
+        v_pocket = sum([safe_float(p.get("area_inch2", 0.0)) for p in panels if "pocket" in str(p.get("material", "")).lower() or "lót" in str(p.get("material", "")).lower()])
+        v_inter = sum([safe_float(p.get("area_inch2", 0.0)) for p in panels if "inter" in str(p.get("material", "")).lower() or "keo" in str(p.get("material", "")).lower() or "mếch" in str(p.get("material", "")).lower()])
+
         # SỬA LỖI 4: Bộ lọc Thân chính mở rộng toàn diện (Global Body Panels Filter) - Bọc Regex chuẩn Gerber/Lectra Techpack
         body_keywords = ["front", "back", "body", "panel", "side", "thân", "trước", "sau", "sườn"]
         noise_keywords = ["yoke", "cầu vai", "đô", "waistband", "cạp", "lưng", "hood", "nón", "mũ", "pocket", "túi", "cuff", "bo", "collar", "cổ", "flap"]
