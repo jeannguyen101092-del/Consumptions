@@ -311,114 +311,7 @@ if st.session_state.saved_pdf_bytes is not None:
             materials.append({"placement": "INTERLINING", "width_inch": 59.0, "shrinkage_warp": 0.0, "shrinkage_weft": 0.0, "material_name": "TRICOT FUSING (Keo lót phôi)"})
         data["materials_bom"] = materials
 
-                 # --- ĐOẠN 2b2a: TRÍCH XUẤT THÔNG SỐ RẬP VÀ ĐỒNG BỘ Ô CHAT AI ---
-        materials = data.get("materials_bom", [])
-        
-        # Mảng lưu dữ liệu cấu hình debug để hiển thị chính xác theo từng hàng
-        bom_debug_log = {}
-
-        # 1. Thuật toán trích xuất chiều dài thân trước, thân sau và tay áo làm gốc tính toán sơ đồ
-        max_front_pant_length = 0.0
-        max_back_pant_length = 0.0
-        max_body_length = 0.0
-        max_body_width = 0.0
-        max_sleeve_length = 0.0
-        
-        for p in panels:
-            name_lower = p.get("panel_name", "").lower()
-            l_val = parse_garment_fraction(p.get("length_inch"))
-            w_val = parse_garment_fraction(p.get("width_inch"))
-            
-            if any(x in name_lower for x in ["thân trước", "front pant", "front body"]):
-                if l_val > max_front_pant_length: max_front_pant_length = l_val
-            if any(x in name_lower for x in ["thân sau", "back pant", "back body"]):
-                if l_val > max_back_pant_length: max_back_pant_length = l_val
-                
-            if any(x in name_lower for x in ["thân", "main", "outseam", "sau", "trước", "body"]) and "sleeve" not in name_lower:
-                if l_val > max_body_length: max_body_length = l_val
-                if w_val > max_body_width: max_body_width = w_val
-            if any(x in name_lower for x in ["tay", "sleeve"]):
-                if l_val > max_sleeve_length: max_sleeve_length = l_val
-
-        # Bộ số dự phòng an toàn nếu file khuyết nhãn chi tiết chính
-        if max_body_length == 0: max_body_length = 42.5 if "pant" in category.upper() else 33.13
-        if max_front_pant_length == 0: max_front_pant_length = 43.89
-        if max_back_pant_length == 0: max_back_pant_length = 49.51
-        if max_sleeve_length == 0 and "pant" not in category.upper(): max_sleeve_length = round(max_body_length * 0.75, 2)
-
-        # CƠ CHẾ KIỂM TRA LỆNH AI: Quét lịch sử chat xem người dùng đã ra lệnh tính toán chưa
-        chat_history = st.session_state.get("sidebar_chat_history", [])
-        has_user_command = False
-        last_user_chat_content = ""
-        
-        # Nếu lịch sử chat có nhiều hơn 1 câu (tức là người dùng đã gõ tương tác)
-        if len(chat_history) > 1:
-            has_user_command = True
-            # Tìm câu gõ mới nhất của người dùng để bóc tách thông số phụ liệu rời
-            for msg in reversed(chat_history):
-                if msg.get("role") == "user":
-                    last_user_chat_content = str(msg.get("content", "")).lower()
-                    break
-
-        if len(panels) > 0:
-            for mat in materials:
-                placement_upper = str(mat.get("placement")).upper()
-                
-                # KHỞI TẠO BIẾN ĐẦU VÒNG LẶP Chặn đứng lỗi UnboundLocalError
-                calc_consumption = 0.0
-                target_panel_area = 0.0
-                
-                # --- ENGINE ĐỒNG BỘ KHỔ VẢI ĐỘNG TỪ Ô CHAT AI ---
-                if st.session_state.width_inch_override and "SHELL" in placement_upper:
-                    mat["width_inch"] = st.session_state.width_inch_override
-                
-                # Xử lý khổ riêng biệt cho phụ liệu lót và keo khi gõ chỉ định đích danh
-                if has_user_command and any(x in last_user_chat_content for x in ["keo", "mếch", "lót", "phối"]):
-                    if "lót" in last_user_chat_content and "POCKETING" in placement_upper:
-                        # Tìm con số khổ đi liền sau chữ lót
-                        pocket_w_match = re.search(r'(?:lót|khổ)\s*(\d+)', last_user_chat_content)
-                        if pocket_w_match: mat["width_inch"] = float(pocket_w_match.group(1))
-                    if any(x in last_user_chat_content for x in ["keo", "mếch"]) and "INTERLINING" in placement_upper:
-                        inter_w_match = re.search(r'(?:keo|mếch|khổ)\s*(\d+)', last_user_chat_content)
-                        if inter_w_match: mat["width_inch"] = float(inter_w_match.group(1))
-
-                # Gán khổ vật lý nền an toàn nếu chưa gõ biến đè
-                w_inch = parse_garment_fraction(mat.get("width_inch"))
-                if w_inch == 0:
-                    if "POCKETING" in placement_upper: w_inch = 60.0; mat["width_inch"] = 57.0
-                    elif "INTERLINING" in placement_upper: w_inch = 44.0; mat["width_inch"] = 59.0
-                    else: w_inch = 58.0; mat["width_inch"] = 58.0
-
-                # --- ENGINE ĐỒNG BỘ ĐỘ CO RÚT ĐỘNG TỪ Ô CHAT AI ---
-                s_warp = 0.0
-                s_weft = 0.0
-                
-                if "SHELL" in placement_upper:
-                    # Đọc con số co dọc (warp) từ Bộ nhớ Core Session State
-                    if st.session_state.shrinkage_override:
-                        s_warp = st.session_state.shrinkage_override / 100.0
-                    
-                    # Đọc con số co ngang (weft) trực tiếp từ chuỗi chat mới nhất
-                    if has_user_command:
-                        weft_match = re.search(r'(?:co ngang|ngang|w|weft)\s*(\d+)', last_user_chat_content)
-                        if weft_match:
-                            s_weft = float(weft_match.group(1)) / 100.0
-                        else:
-                            # Phân tích định dạng gộp gạch ngang (Ví dụ: '3-3' hoặc '5-15')
-                            generic_match = re.search(r'\d+\s*-\s*(\d+)', last_user_chat_content)
-                            if generic_match: s_weft = float(generic_match.group(1)) / 100.0
-                    
-                    # Đồng bộ ngược giá trị hiển thị lên cấu trúc bảng dữ liệu BOM
-                    mat["shrinkage_warp"] = round(s_warp * 100, 1)
-                    mat["shrinkage_weft"] = round(s_weft * 100, 1)
-
-                # Bảo toàn an toàn biến diện tích đa lớp từ Đoạn 2b1
-                v_shell_area = safe_float(shell_fabric_area) if 'shell_fabric_area' in locals() or 'shell_fabric_area' in globals() else 0.0
-                v_pocket_area = safe_float(pocketing_fabric_area) if 'pocketing_fabric_area' in locals() or 'pocketing_fabric_area' in globals() else 0.0
-                v_inter_area = safe_float(interlining_fabric_area) if 'interlining_fabric_area' in locals() or 'interlining_fabric_area' in globals() else 0.0
-
-                effective_width_inch = w_inch * (1.0 - s_weft)
-# --- SECTION 2b2a: CAD DATA GEOMETRY EXTRACTION & FABRIC CONFIGURATION ---
+       # --- SECTION 2b2a: CAD DATA GEOMETRY EXTRACTION & FABRIC CONFIGURATION ---
         materials = data.get("materials_bom", [])
         bom_debug_log = {}
 
@@ -446,7 +339,6 @@ if st.session_state.saved_pdf_bytes is not None:
             raw_len = parse_garment_fraction(p.get("length_inch"))
             raw_wid = parse_garment_fraction(p.get("width_inch"))
             
-            # Recalculate area only if the extracted area is zero or corrupted, otherwise trust the clean PDF data
             if p_area < 1.0 and raw_len > 0 and raw_wid > 0:
                 p["area_inch2"] = raw_len * raw_wid * p_qty
 
@@ -480,8 +372,6 @@ if st.session_state.saved_pdf_bytes is not None:
 
         chat_history = st.session_state.get("sidebar_chat_history", [])
         last_chat = str(chat_history[-1].get("content", "")).lower() if len(chat_history) > 1 else ""
-
-
 # --- SECTION 2b2b: COMMERCIAL CAD MARKER CONSUMPTION ENGINE ---
         if len(panels) > 0:
             for mat in materials:
@@ -532,21 +422,15 @@ if st.session_state.saved_pdf_bytes is not None:
                     
                     mat["shrinkage_warp"], mat["shrinkage_weft"] = round(s_warp*100, 1), round(s_weft*100, 1)
 
-                # ZERO-DIVISION SAFEGUARD: Compute effective width before wash (minus 1 inch default safety border)
+                # ZERO-DIVISION SAFEGUARD: Compute effective width before wash (minus 1 inch border)
                 effective_width = max(10.0, w_inch - 1.0)
 
                 # -----------------------------------------------------------------
                 # ARITHMETIC CORE ENGINE: ALWAYS CALCULATE - REMOVED WASTE FACTOR (LOSS = 1.0)
                 # -----------------------------------------------------------------
-                               # -----------------------------------------------------------------
-                # ARITHMETIC CORE ENGINE: ALWAYS CALCULATE - REMOVED WASTE FACTOR (LOSS = 1.0)
-                # -----------------------------------------------------------------
                 if "PANT" in str(category).upper():
-                    # DYNAMIC AREA ASSIGNMENT: Tự động lấy tổng diện tích thực tế (v_shell) quét từ file, không gán cứng số.
-                    # Nếu v_shell bằng 0 do lỗi đọc PDF thì mới tự động lùi về số diện tích trung bình chuẩn (1395.0)
+                    # DYNAMIC AREA ASSIGNMENT: Pulls real dynamic area (v_shell) parsed from current PDF file
                     target_area = v_shell if v_shell > 10.0 else 1395.0
-                    
-                    # Industrial efficiency mapping for Jeans nesting configurations (2 Fronts + 2 Backs interleaved)
                     eff, loss = 0.82, 1.0  
                     
                     if "POCKETING" in placement: 
@@ -555,13 +439,11 @@ if st.session_state.saved_pdf_bytes is not None:
                         calc_consumption = round(((max_back_pant) / 39.37) * 0.09, 3); target_area = v_inter; eff, loss = 0.88, 1.0
                     else:
                         if target_area > 0 and effective_width > 0:
-                            # Mathematical Marker Calculation based on real dynamic area
                             marker_length_inch = target_area / effective_width
-                            # Chia cho 2 để đưa về định mức chuẩn cho 1 sản phẩm (vì diện tích rập gốc đầu vào đang chứa SL=2)
+                            # Divide by 2 because input total area includes a quantity size multiplier of SL=2
                             calc_consumption = ((marker_length_inch / 39.37) / eff * loss) / 2.0
                         else:
                             calc_consumption = 0.0
-
                 else:
                     # --- APPAREL CORE ALGORITHM: JACKET / BOMBER LAYOUTS ---
                     if "SHELL" in placement:
@@ -612,7 +494,6 @@ if st.session_state.saved_pdf_bytes is not None:
         if bom_debug_log:
             st.markdown("### 📊 BILL OF MATERIALS AND CONSUMPTION REPORT (BOM)")
             
-            # Map object details directly to cleanly structured English grid headers
             bom_display_data = []
             for position, details in bom_debug_log.items():
                 bom_display_data.append({
@@ -628,7 +509,6 @@ if st.session_state.saved_pdf_bytes is not None:
                     "Final Consumption (Yds)": details["final_consumption_yds"]
                 })
             
-            # Render grid dataset expanding to exact component panel borders
             df_bom = pd.DataFrame(bom_display_data)
             st.dataframe(df_bom, use_container_width=True)
 
@@ -643,7 +523,6 @@ if st.session_state.saved_pdf_bytes is not None:
                 
                 buffer.seek(0)
 
-                # Render physical action download block component onto Streamlit UI
                 st.download_button(
                     label="📥 Export Bill of Materials to Excel (XLSX)",
                     data=buffer,
