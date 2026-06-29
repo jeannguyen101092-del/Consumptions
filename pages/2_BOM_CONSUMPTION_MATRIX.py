@@ -2351,7 +2351,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
 
 
         
-               # =========================================================================
+                # =========================================================================
         # 📐 [ĐOẠN 5/6 CHUẨN ERP] - CHỈ TRÍCH XUẤT THÔNG SỐ CƠ BẢN ĐỂ TÍNH ĐỊNH MỨC VẢI
         # =========================================================================
         # Khởi tạo các mảng phân tầng trục tọa độ rập mẫu
@@ -2401,8 +2401,8 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         avg_area_growth_pct = round((geometric_area_multiplier - 1) * 100, 2)
 
         # RÀO CHẮN BẢO VỆ TUYỆT ĐỐI KHÔNG CHO TRÀN SỐ TRÊN GIAO DIỆN
-        # Biên độ biến thiên diện tích rập tổng thể thực tế của quần dài so với quần đùi chỉ dao động quanh mức này
-        if avg_area_growth_pct > 15.0 or avg_area_growth_pct <= 0.0:
+        # 🛠️ SỬA LỖI: Đổi điều kiện `<= 0.0` thành `< 0.0`. Khi khớp hết (0.0%), hệ thống sẽ giữ nguyên 0.0% thay vì nhảy sang 4.25%
+        if avg_area_growth_pct > 15.0 or avg_area_growth_pct < 0.0:
             avg_area_growth_pct = 4.25  # Ép về biên độ tăng diện tích sơ đồ chuẩn để định mức vải chính đạt ~1.05 lân
 
         # Truyền tải an toàn sang bộ nhớ toàn cục và Streamlit State để chuyển tiếp sang Đoạn 6/6
@@ -2411,7 +2411,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
 
 
 
-         # =========================================================================
+    # =========================================================================
     # 🔮 [ĐOẠN 6/6 CHUẨN LỀ] - AI CONSUMPTION PROJECTION ENGINE (BỎ CỘNG BÙ TÚI ẢO)
     # =========================================================================
     # Đọc dữ liệu BOM trực tiếp từ session_state hoặc từ bảng lịch sử đã hiển thị trên UI
@@ -2428,9 +2428,9 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         st.success("✅ **XÁC THỰC AI VISION:** Đối chiếu dữ liệu kho hoàn tất. Kích hoạt thuật toán dự phóng định mức nguyên vật liệu.")
 
         # Lấy an toàn biên độ biến thiên diện tích phom rập được truyền xuống từ Đoạn 5
-        avg_area_growth_pct = st.session_state.get("avg_area_growth_pct", globals().get("avg_area_growth_pct", 0.96))
+        avg_area_growth_pct = st.session_state.get("avg_area_growth_pct", globals().get("avg_area_growth_pct", 0.0))
         if pd.isna(avg_area_growth_pct) or not isinstance(avg_area_growth_pct, (int, float)):
-            avg_area_growth_pct = 0.96  # Neo mặc định theo ảnh chụp màn hình của user
+            avg_area_growth_pct = 0.0  # Mặc định bằng 0.0 nếu khớp hoàn toàn và không có biến thiên
 
         def internal_clean_float(v):
             if v is None: return 0.0
@@ -2528,7 +2528,11 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                 if shape_factor >= 15.0 and projected_dm < 1.05:
                     projected_dm = round(avg_old_qty * 1.05, 4)
                 
-                note = f"Vải chính: Hệ số rập ({actual_fabric_factor}) × Biến thiên phom ({round(shape_factor, 2)}%)"
+                # Cập nhật hiển thị rõ ràng khi độ biến thiên bằng 0
+                if shape_factor == 0.0:
+                    note = f"Vải chính: Phom rập khớp hoàn toàn (0.0%), áp dụng định mức gốc + hao hụt phụ thêm."
+                else:
+                    note = f"Vải chính: Hệ số rập ({actual_fabric_factor}) × Biến thiên phom ({round(shape_factor, 2)}%)"
                 
             elif any(k in ctype_upper for k in ["LINING", "RIB", "COMBINATION", "POCKET", "INTERLINING", "POCKETING"]):
                 # Vải phụ/Lót túi: Bản chất quần giống nhau nên giữ nguyên định mức gốc kho, tính hao hụt sản xuất tĩnh
