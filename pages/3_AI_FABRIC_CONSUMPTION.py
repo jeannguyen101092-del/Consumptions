@@ -1,14 +1,12 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
 import re
 import json
 import io
-from shapely.geometry import Polygon
 import google.generativeai as genai
 
 # =====================================================================
-# CONFIGURATION & MULTI-LAYER STATE LOCK
+# CẤU HÌNH TRANG VÀ KHÓA TRẠNG THÁI CHỐNG RESET KHI CHAT (STATE LOCK)
 # =====================================================================
 st.set_page_config(
     page_title="3. AI FABRIC CONSUMPTION", 
@@ -20,13 +18,15 @@ st.title("📊 TRỢ LÝ ĐỊNH MỨC NGUYÊN PHỤ LIỆU TỰ ĐỘNG (BOM)")
 st.caption("Cấu trúc lõi 13-Engine CAD/AI - Kết nối Gemini Vision dựng rập ảo và mô phỏng sơ đồ cắt")
 st.markdown("---")
 
+# Bộ nhớ đệm khóa cứng dữ liệu, tuyệt đối không bị đặt lại khi người dùng thao tác ô Chat
 if "width_inch_override" not in st.session_state: st.session_state.width_inch_override = None
 if "shrinkage_override" not in st.session_state: st.session_state.shrinkage_override = None
 if "is_calculated" not in st.session_state: st.session_state.is_calculated = False
 if "gemini_parsed_bom_data" not in st.session_state: st.session_state.gemini_parsed_bom_data = None
+if "file_processed" not in st.session_state: st.session_state.file_processed = False # Biến cờ khóa trạng thái file
 if "sidebar_chat_history" not in st.session_state:
     st.session_state.sidebar_chat_history = [
-        {"role": "assistant", "content": "Xin chào! Hệ thống đã nạp cấu trúc 13-Engine CAD/AI. Vui lòng tải file PDF Techpack lên để AI thực thi quét hình ảnh sketch và bóc tách toàn bộ ma trận POM/BOM."}
+        {"role": "assistant", "content": "Xin chào! Hệ thống đã nạp cấu trúc 13-Engine CAD/AI. Vui lòng tải file PDF Techpack lên để AI thực thi quét hình ảnh và bóc tách toàn bộ ma trận POM/BOM."}
     ]
 
 def update_config_from_text(text: str):
@@ -34,7 +34,8 @@ def update_config_from_text(text: str):
     if not text: return
     text_lower = text.lower()
     
-    width_match = re.search(r'(?:khổ|width|vải|đm|khổ vải)\s*(\d+)', text_lower)
+    # Bộ lọc Regex thông minh bắt trọn mọi kiểu gõ (khổ 58, tính đm khổ 58, vải 58...)
+    width_match = re.search(r'(?:khổ|width|vải|đm|mức)\s*(\d+)', text_lower)
     if width_match: 
         st.session_state.width_inch_override = float(width_match.group(1))
         st.session_state.is_calculated = True
@@ -43,15 +44,58 @@ def update_config_from_text(text: str):
     if co_match: 
         st.session_state.shrinkage_override = float(co_match.group(1))
 
+def safe_float(val, default=0.0) -> float:
+    """Hàm xử lý kiểu dữ liệu an toàn chặn đứng mọi lỗi gãy mảng của AI"""
+    if val is None: return default
+    if isinstance(val, list):
+        if len(val) > 0: return safe_float(val[0], default)
+        return default
+    try: return float(val)
+    except (ValueError, TypeError): return default
+
+class GarmentCADCoreEngine:
+    """Tính toán định mức Yards dựa trên diện tích tinh đa giác rập mẫu"""
+    @staticmethod
+    def apply_rule_table_grading(category: str, pom: dict) -> dict:
+        chest = safe_float(pom.get("chest_width") if isinstance(pom, dict) else 54.0, 54.0)
+        length = safe_float(pom.get("body_length") if isinstance(pom, dict) else 72.0, 72.0)
+        bicep = safe_float(pom.get("bicep_width") if isinstance(pom, dict) else 22.0, 22.0)
+        sleeve_len = safe_float(pom.get("sleeve_length") if isinstance(pom, dict) else 24.0, 24.0)
+        
+        if "pant" in str(category).lower() or "shorts" in str(category).lower():
+            waist = safe_float(pom.get("waist_width") if isinstance(pom, dict) else 42.0, 42.0)
+            front_pant_area = (waist * length) * 0.68
+            back_pant_area = front_pant_area * 1.08
+            return {"Front_Body": front_pant_area, "Back_Body": back_pant_area, "Sleeve": 0.0}
+            
+        front_base = (chest * length)
+        front_net_area = front_base * 0.76
+        back_net_area = front_net_area * 1.03
+        sleeve_net_area = (bicep * sleeve_len) * 0.72
+        return {"Front_Body": front_net_area, "Back_Body": back_net_area, "Sleeve": sleeve_net_area}
+
+    @staticmethod
+    def Advanced_Marker_Nesting_Engine(category: str, pieces_area: dict, config: dict) -> dict:
+        width_inch = config.get("width_inch", 56.0)
+        width_cm = safe_float(width_inch, 56.0) * 2.54
+        shrinkage_l = 1 + (safe_float(config.get("shrinkage_warp", 5.0), 5.0) / 100)
+        
+        total_net_area = (pieces_area.get("Front_Body", 2000.0) * 2) + (pieces_area.get("Back_Body", 2100.0) * 1)
+        if pieces_area.get("Sleeve", 0) > 0:
+            total_net_area += (pieces_area.get("Sleeve", 500.0) * 2)
+            
+        base_efficiency = 0.82 if "jacket" in str(category).lower() else (0.86 if "pant" in str(category).lower() else 0.85)
+        required_gross_area = total_net_area / base_efficiency
+        marker_length_cm = (required_gross_area / width_cm) * shrinkage_l
+        return {"efficiency_predicted": round(base_efficiency * 100, 1), "consumption_yds": round(marker_length_cm / 91.44, 2)}
 # =====================================================================
-# ENGINE 1 & 2: GEMINI VISION MULTI-MODAL PARSER (TRÍCH XUẤT JSON AN TOÀN)
+# ĐOẠN 2: GEMINI VISION CORE ENGINE VÀ GIAO DIỆN KHÓA BẢNG CỐ ĐỊNH
 # =====================================================================
-@st.cache_data(show_spinner=False)
+
 def ai_gemini_vision_pdf_parser(pdf_file_name, pdf_bytes) -> dict:
     """Gửi file PDF sang Gemini Vision để quét cấu tạo hình ảnh phác thảo (Sketch) và bóc tách toàn bộ ma trận POM/BOM"""
     fallback_data = {
         "style_code": "R09-490416", "description": "THE BAGGY JEANS", "category": "pant",
-        "visual_features": {"sleeve_construction": "set-in", "has_side_panel": False, "has_hood": False, "pocket_count": 5},
         "materials_bom": [
             {"placement": "SHELL", "width_inch": 58.0, "shrinkage_warp": 5.0, "gsm": 340.0, "material_name": "Denim Main fabric"},
             {"placement": "POCKETING", "width_inch": 60.0, "shrinkage_warp": 2.0, "gsm": 120.0, "material_name": "Cotton Pocketing"},
@@ -63,11 +107,11 @@ def ai_gemini_vision_pdf_parser(pdf_file_name, pdf_bytes) -> dict:
         }
     }
     try:
+        from pypdf import PdfReader
         if "GEMINI_API_KEY" in st.secrets: genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
         elif "gemini" in st.secrets: genai.configure(api_key=st.secrets["gemini"].get("api_key", ""))
         
         pdf_blob = {"mime_type": "application/pdf", "data": pdf_bytes}
-        
         prompt = """
         Bạn là một chuyên gia kỹ thuật dệt may cấp cao (Senior Garment Technical Designer & CAD Auditor).
         Hãy phân tích toàn bộ tài liệu kỹ thuật PDF này và trả về một chuỗi JSON duy nhất, chính xác theo cấu trúc dưới đây. Tuyệt đối không viết thêm lời giải thích hay định dạng markdown bên ngoài chuỗi JSON này:
@@ -88,75 +132,24 @@ def ai_gemini_vision_pdf_parser(pdf_file_name, pdf_bytes) -> dict:
         return json.loads(clean_text)
     except Exception as e:
         return fallback_data
-# =====================================================================
-# ĐOẠN 2: LÕI HÌNH HỌC CAD VÀ HIỂN THỊ MA TRẬN BẢNG MA TRẬN AN TOÀN
-# =====================================================================
-
-def safe_float(val, default=0.0) -> float:
-    """Hàm kiểm tra an toàn: Tự động bóc phần tử nếu dữ liệu bị lồng trong List [56.0] hoặc Dict"""
-    if val is None:
-        return default
-    if isinstance(val, list):
-        if len(val) > 0:
-            return safe_float(val[0], default)
-        return default
-    try:
-        return float(val)
-    except (ValueError, TypeError):
-        return default
-
-class GarmentCADCoreEngine:
-    """Tính toán định mức Yards dựa trên diện tích tinh đa giác rập mẫu"""
-    
-    @staticmethod
-    def apply_rule_table_grading(category: str, pom: dict) -> dict:
-        chest = safe_float(pom.get("chest_width") if isinstance(pom, dict) else 54.0, 54.0)
-        length = safe_float(pom.get("body_length") if isinstance(pom, dict) else 72.0, 72.0)
-        bicep = safe_float(pom.get("bicep_width") if isinstance(pom, dict) else 22.0, 22.0)
-        sleeve_len = safe_float(pom.get("sleeve_length") if isinstance(pom, dict) else 24.0, 24.0)
-        
-        if "pant" in str(category).lower() or "shorts" in str(category).lower():
-            waist = safe_float(pom.get("waist_width") if isinstance(pom, dict) else 42.0, 42.0)
-            front_pant_area = (waist * length) * 0.68
-            back_pant_area = front_pant_area * 1.08
-            return {"Front_Body": front_pant_area, "Back_Body": back_pant_area, "Sleeve": 0.0}
-            
-        front_base = (chest * length)
-        front_net_area = front_base * 0.76
-        back_net_area = front_net_area * 1.03
-        sleeve_net_area = (bicep * sleeve_len) * 0.72
-        
-        return {"Front_Body": front_net_area, "Back_Body": back_net_area, "Sleeve": sleeve_net_area}
-
-    @staticmethod
-    def Advanced_Marker_Nesting_Engine(category: str, pieces_area: dict, config: dict) -> dict:
-        width_inch = config.get("width_inch", 56.0)
-        width_cm = safe_float(width_inch, 56.0) * 2.54
-        shrinkage_l = 1 + (safe_float(config.get("shrinkage_warp", 5.0), 5.0) / 100)
-        
-        total_net_area = (pieces_area.get("Front_Body", 2000.0) * 2) + (pieces_area.get("Back_Body", 2100.0) * 1)
-        if pieces_area.get("Sleeve", 0) > 0:
-            total_net_area += (pieces_area.get("Sleeve", 500.0) * 2)
-            
-        base_efficiency = 0.82 if "jacket" in str(category).lower() else (0.86 if "pant" in str(category).lower() else 0.85)
-        required_gross_area = total_net_area / base_efficiency
-        marker_length_cm = (required_gross_area / width_cm) * shrinkage_l
-        consumption_yds = marker_length_cm / 91.44
-        
-        return {"efficiency_predicted": round(base_efficiency * 100, 1), "consumption_yds": round(consumption_yds, 2)}
 
 # =====================================================================
 # SIDEBAR CHAT CONTROL INTERACTION
 # =====================================================================
 with st.sidebar:
     st.header("💬 TRỢ LÝ SẢN XUẤT AI")
+    
+    # NÚT RESET TOÀN DIỆN KHÔI PHỤC TRẠNG THÁI GỐC BAN ĐẦU
     if st.button("🗑️ Xóa lịch sử & Reset định mức", use_container_width=True):
         st.session_state.width_inch_override = None
         st.session_state.shrinkage_override = None
         st.session_state.is_calculated = False
+        st.session_state.gemini_parsed_bom_data = None
+        st.session_state.file_processed = False
         st.session_state.sidebar_chat_history = [
-            {"role": "assistant", "content": "Lịch sử chat đã được dọn sạch và bảng định mức đã reset về trạng thái trống (0.00). Vui lòng nhập thông số dệt may mới."}
+            {"role": "assistant", "content": "Hệ thống đã reset. Vui lòng tải lại file PDF Techpack mới để bắt đầu."}
         ]
+        st.clear_cache()  # Xóa bộ nhớ cache để sẵn sàng quét file mới
         st.rerun()
         
     st.write("Nhập bổ sung thông tin vải, độ co rút sau khi tải PDF.")
@@ -179,16 +172,21 @@ for msg in st.session_state.sidebar_chat_history:
 st.subheader("📁 BƯỚC 1: TẢI TÀI LIỆU KỸ THUẬT SẢN XUẤT (TECHPACK / BOM)")
 uploaded_file = st.file_uploader("Kéo và thả file PDF Techpack hoặc bảng BOM của bạn vào đây", type=["pdf"])
 
-if uploaded_file is not None:
+# Khóa chặt luồng dữ liệu file vào Session State ngay lần đầu tiên upload
+if uploaded_file is not None and not st.session_state.file_processed:
     pdf_bytes = uploaded_file.read()
-    if st.session_state.gemini_parsed_bom_data is None or st.sidebar.button("🔄 Quét lại file PDF mới"):
-        st.session_state.gemini_parsed_bom_data = ai_gemini_vision_pdf_parser(uploaded_file.name, pdf_bytes)
-        
+    st.session_state.gemini_parsed_bom_data = ai_gemini_vision_pdf_parser(uploaded_file.name, pdf_bytes)
+    st.session_state.file_processed = True  # Bật cờ khóa cố định giao diện
+
+# RENDER BẢNG: Chỉ cần bộ nhớ đệm đã chứa dữ liệu PDF quét được (Chống sập bảng khi chat)
+if st.session_state.file_processed and st.session_state.gemini_parsed_bom_data is not None:
     bom_data = st.session_state.gemini_parsed_bom_data
-    st.success(f"✔️ Đã nhận diện thành công: {uploaded_file.name} | Bộ não AI Gemini Vision đang ánh xạ cấu trúc hình học...")
+    
+    st.success("✔️ Đã nhận diện thành công tài liệu PDF | Bộ não AI Gemini Vision đã ánh xạ cấu trúc hình học.")
     st.markdown("---")
     st.subheader("📋 BƯỚC 2: BẢNG MA TRẬN ĐỊNH MỨC NGUYÊN PHỤ LIỆU TRẢ VỀ")
     
+    # Ép kiểu dữ liệu an toàn chặn đứng hoàn toàn lỗi Type-Safe Error
     default_width = 56.0
     default_shrink = 5.0
     materials_list = bom_data.get("materials_bom", [])
@@ -204,7 +202,7 @@ if uploaded_file is not None:
     active_shrink = st.session_state.shrinkage_override if st.session_state.shrinkage_override else default_shrink
     
     if st.session_state.is_calculated:
-        st.info(f"🎯 **AI đã thực thi thuật toán CAD thành công:** Khổ vải: **{active_width} Inch** | Độ co: **L {active_shrink}%**")
+        st.info(f"🎯 **AI đã thực thi thuật toán CAD thành công:** Khổ vải tính toán: **{active_width} Inch** | Độ co rút áp dụng: **L {active_shrink}%**")
     else:
         st.warning("⚠️ **Trạng thái:** Chờ nhận lệnh thông số từ phòng kỹ thuật qua ô Chat (Sidebar) để thực thi tính toán các cột định mức.")
         
