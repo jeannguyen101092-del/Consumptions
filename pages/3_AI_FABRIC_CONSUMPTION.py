@@ -385,8 +385,8 @@ if st.session_state.saved_pdf_bytes is not None:
                 # Gán khổ vật lý nền an toàn nếu chưa gõ biến đè
                 w_inch = parse_garment_fraction(mat.get("width_inch"))
                 if w_inch == 0:
-                    if "POCKETING" in placement_upper: w_inch = 60.0; mat["width_inch"] = 60.0
-                    elif "INTERLINING" in placement_upper: w_inch = 44.0; mat["width_inch"] = 44.0
+                    if "POCKETING" in placement_upper: w_inch = 60.0; mat["width_inch"] = 57.0
+                    elif "INTERLINING" in placement_upper: w_inch = 44.0; mat["width_inch"] = 59.0
                     else: w_inch = 58.0; mat["width_inch"] = 58.0
 
                 # --- ENGINE ĐỒNG BỘ ĐỘ CO RÚT ĐỘNG TỪ Ô CHAT AI ---
