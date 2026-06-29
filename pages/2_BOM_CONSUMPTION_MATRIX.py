@@ -2152,7 +2152,8 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             "POCKET": -8, "TUI": -8, "FLAP": -5, "PATCH": -5, "POUCH": -5, "TAB": -4, "BADGE": -6, "LABEL": -6, "BUTTON": -6
         }
 
-        # 🔍 [ĐOẠN 4/6 SỬA LỖI BẮT CẶP SAI] - THUẬT TOÁN ĐỐI CHIẾU THÍCH ỨNG PHOM TRÙNG
+                # =========================================================================
+        # 🔍 [ĐOẠN 4/6 HOÀN CHỈNH CO-KHỚP] - THUẬT TOÁN ĐỐI CHIẾU THÍCH ỨNG PHOM TRÙNG
         # =========================================================================
         def get_semantic_standard_key(raw_text):
             if 'semantic_dictionary' not in locals() and 'semantic_dictionary' not in globals():
@@ -2205,11 +2206,15 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                         if new_info["original_key"] in processed_new_keys:
                             continue
                         
-                        # 🛠️ RÀO CHẮN CHỐNG BẮT CẶP NHẦM (VALUE CHECK): 
-                        # Nếu hai quần giống nhau, số đo thực tế không được lệch quá 3.5 inches cho cùng một chi tiết túi/nẹp
+                        # 🛠️ RÀO CHẮN 1: Ngăn chặn tuyệt đối lệch vị trí địa lý chi tiết túi (Waist vs Side Seam)
+                        # Nếu dòng cũ chứa gốc từ eo (WAIST) mà dòng mới lại thuộc sườn (SIDE/SEAM), lập tức bỏ qua
+                        if any(k in old_tokens for k in ["WAIST", "LUNG", "EO"]) and any(h in new_info["tokens"] for h in ["SIDE", "SEAM", "SUON", "ALONG"]):
+                            if not any(x in new_info["tokens"] for x in ["WAIST", "LUNG", "EO"]):
+                                continue
+                        
+                        # 🛠️ RÀO CHẮN 2 (VALUE CHECK): Nếu lệch quá 3.5 inches cho cùng một chi tiết túi/nẹp -> Loại bỏ
                         f_new_check = clean_float(new_info["value"]) if new_info["value"] != "-" else None
                         if f_old_check is not None and f_new_check is not None:
-                            # Nếu lệch quá xa, đây chắc chắn là bắt cặp nhầm dòng (Mismatch chéo), lập tức loại bỏ
                             if abs(f_new_check - f_old_check) > 3.5 and any(k in clean_old_key for k in ["PKT", "POCKET", "TUI", "ZIPPER"]):
                                 continue
 
@@ -2317,6 +2322,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                 st.dataframe(pd.DataFrame(match_logs_pool), use_container_width=True, hide_index=True)
             
         df_compare_spec = pd.DataFrame(compare_rows)
+
         st.dataframe(df_compare_spec, use_container_width=True, hide_index=True)
 
 
@@ -2384,9 +2390,8 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
 
 
 
-       # =========================================================================
-      # =========================================================================
-    # 🔮 [ĐOẠN 6/6 CHUẨN LỀ] - AI CONSUMPTION PROJECTION ENGINE & CỘNG BÙ ĐỊNH MỨC
+         # =========================================================================
+    # 🔮 [ĐOẠN 6/6 CHUẨN LỀ] - AI CONSUMPTION PROJECTION ENGINE (BỎ CỘNG BÙ TÚI ẢO)
     # =========================================================================
     # Đọc dữ liệu BOM trực tiếp từ session_state hoặc từ bảng lịch sử đã hiển thị trên UI
     bom_records = st.session_state.get("bom_records", [])
@@ -2474,26 +2479,11 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         with col3:
             wastage_buffer = st.number_input("Hao hụt sản xuất cấu hình thêm (%)", value=0.0, step=0.5)
 
-        # TOÁN CỘNG BÙ ĐỊNH MỨC CHI TIẾT TÚI PHÁT SINH THỰC TẾ (BẬT RÀO CHẮN LOẠI TRỪ DÂY KÉO)
+        # ❌ ĐÃ LOẠI BỎ TOÀN BỘ LOGIC CỘNG BÙ CHI TIẾT TÚI ẢO 0.06 YRD
         addon_fabric_consumption = 0.0
         addon_notes = []
-        
-        if 'compare_rows' in locals() and compare_rows:
-            for row in compare_rows:
-                if row.get("Trạng thái Match") == "MẪU MỚI CÓ - KHO THIẾU":
-                    pom_desc = str(row.get("Vị trí đo (POM Description)", "")).upper()
-                    
-                    # Chặn thép nghiêm ngặt: Loại trừ dây kéo và phụ liệu kim loại theo yêu cầu phân xưởng
-                    if any(z in pom_desc for z in ["ZIPPER", "CLOSURE", "SLIDER", "BUTTON", "CUC"]):
-                        continue
-                        
-                    # Cộng bù định mức tiêu thụ sớ vải cho các chi tiết túi/đáp/nẹp bổ sung
-                    if any(p in pom_desc for p in ["POCKET", "TUI", "FLAP", "PATCH", "POUCH", "TAB", "PLACKET"]):
-                        base_addon_unit = 0.06 
-                        addon_fabric_consumption += base_addon_unit
-                        addon_notes.append(f"Cộng bù vải chi tiết thêm mới: {row.get('Vị trí đo (POM Description)')} (+{base_addon_unit} YRD)")
 
-               # VÒNG LẶP PHÂN TẦNG VẬT TƯ VÀ TÍCH HỢP ĐỊNH MỨC CỘNG BÙ CỦA MẪU MỚI (PRODUCTION STANDARD)
+        # VÒNG LẶP PHÂN TẦNG VẬT TƯ VÀ TÍCH HỢP ĐỊNH MỨC MẪU MỚI
         projection_rows = []
         if not final_old_bom_summary:
             final_old_bom_summary = {"MAIN FABRIC": 0.8275, "INTERLINING": 0.1200, "POCKETING FABRIC": 0.1575}
@@ -2503,36 +2493,30 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             similarity_weight = v_similarity / 100.0
             
             if any(k in ctype_upper for k in ["MAIN", "FABRIC", "BODY", "SHELL"]):
-                # Nâng hệ số thực nghiệm thích ứng khi phom rập nhảy vóc lớn (Inseam tăng mạnh)
+                # Tự động hiệu chỉnh hệ số lên mức 0.88 đối với quần dài nhảy vóc từ quần short
                 actual_fabric_factor = fabric_growth_factor
                 if shape_factor > 10.0:
-                    # Tự động hiệu chỉnh hệ số lên mức 0.88 đối với quần dài nhảy vóc từ quần short
                     actual_fabric_factor = max(0.88, fabric_growth_factor)
                 
-                # Tính toán biên độ tăng chiều dài sơ đồ thực tế
+                # Tính toán biên độ biến thiên diện tích sơ đồ thực tế
                 adjusted_shape_factor = shape_factor * actual_fabric_factor * similarity_weight
                 base_projected = avg_old_qty * (1 + adjusted_shape_factor / 100)
+                projected_dm = base_projected * (1 + wastage_buffer / 100)
                 
-                # Tích hợp add-on chi tiết phát sinh dựa trên sớ vải dài
-                projected_dm = (base_projected + addon_fabric_consumption) * (1 + wastage_buffer / 100)
-                
-                # RÀO CHẮN ÉP TRẦN ĐỊNH MỨC THỰC TẾ SẢN XUẤT (DENIM LONG PANT RE-ALIGNMENT)
+                # RÀO CHẮN ÉP ĐỊNH MỨC THỰC TẾ THEO TIÊU CHUẨN SÀN CẮT PPJ
                 if shape_factor >= 15.0 and projected_dm < 1.05:
-                    # Ép số tiệm cận chính xác định mức sàn cắt thực tế của PPJ khi nhảy từ short lên dài
-                    projected_dm = 1.05
-                    adjusted_shape_factor = ((projected_dm / avg_old_qty) - 1) * 100
+                    projected_dm = round(avg_old_qty * 1.05, 4)
                 
-                note = f"Vải chính: Hệ số rập dài ({actual_fabric_factor}) × Biến thiên ({round(shape_factor, 2)}%) → ĐM đạt chuẩn sàn cắt."
+                note = f"Vải chính: Hệ số rập ({actual_fabric_factor}) × Biến thiên phom ({round(shape_factor, 2)}%)"
                 
             elif any(k in ctype_upper for k in ["LINING", "RIB", "COMBINATION", "POCKET", "INTERLINING", "POCKETING"]):
-                # Vải phụ/Lót túi: Không tăng theo sớ dài quần, chỉ tính hao hụt tĩnh hoặc biến thiên rất nhỏ (giảm chấn 0.15)
-                reduced_factor = shape_factor * 0.15 * similarity_weight
-                projected_dm = avg_old_qty * (1 + reduced_factor / 100) * (1 + wastage_buffer / 100)
-                note = f"Vải lót/phụ: Giảm chấn sớ dọc (0.15) → Giữ ổn định phom túi gốc, ĐM tăng nhẹ: {round(reduced_factor, 2)}%"
+                # Vải phụ/Lót túi: Bản chất quần giống nhau nên giữ nguyên định mức gốc kho, tính hao hụt sản xuất tĩnh
+                projected_dm = avg_old_qty * (1 + wastage_buffer / 100)
+                note = f"Vải lót/phụ: Giữ ổn định theo phom cũ (Không tăng diện tích đáp túi)"
                 
             else:
                 projected_dm = avg_old_qty * (1 + wastage_buffer / 100)
-                note = f"Phụ liệu tĩnh (Giữ nguyên định mức gốc kho, tính thêm hao hụt {wastage_buffer}%)"
+                note = f"Phụ liệu tĩnh (Giữ nguyên định mức gốc kho)"
                 
             projection_rows.append({
                 "Phân loại vật tư (Type)": ctype,
@@ -2541,16 +2525,9 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                 "Cơ sở thuật toán cấu thành": note
             })
 
-
-        # HIỂN THỊ BẢNG KẾT QUẢ DỰ PHÓNG HOÀN CHỈNH RA SÀN STREAMLIT
+        # HIỂN THỊ BẢNG KẾT QUẢ DỰ PHÓNG HOÀN CHỈNH
         df_projection = pd.DataFrame(projection_rows)
         st.dataframe(df_projection, use_container_width=True, hide_index=True)
-
-        # Hiển thị nhật ký cộng bù chi tiết (nếu có chi tiết phát sinh lọt lưới)
-        if addon_notes:
-            with st.expander("📝 Nhật ký cộng bù chi tiết phom rập (Add-on Logs)"):
-                for log in addon_notes:
-                    st.caption(log)
 
 
     
