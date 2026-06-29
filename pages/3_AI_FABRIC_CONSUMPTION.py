@@ -418,26 +418,45 @@ if st.session_state.saved_pdf_bytes is not None:
 
                 effective_width_inch = w_inch * (1.0 - s_weft)
 
-                       # --- ĐOẠN 2b2: LÕI SƠ ĐỒ CAD HÌNH HỌC PHẲNG - CHỈ KÍCH HOẠT KHI CHAT AI ---
+                               # --- ĐOẠN 2b2: CẤU TRÚC LÕI TOÁN HỌC SƠ ĐỒ CAD ĐỒNG BỘ CHAT AI HOÀN CHỈNH ---
         materials = data.get("materials_bom", [])
         bom_debug_log = {}
 
-        # 1. Trích xuất thông số chiều rộng để phục vụ thuật toán kiểm tra xung đột rập Áo
+        # 1. Thuật toán trích xuất chiều dài thân trước, thân sau và tay áo làm gốc tính toán sơ đồ
+        max_front_pant_length = 0.0
+        max_back_pant_length = 0.0
+        max_body_length = 0.0
         max_body_width = 0.0
+        max_sleeve_length = 0.0
+        
         for p in panels:
             name_lower = p.get("panel_name", "").lower()
-            if any(x in name_lower for x in ["thân", "body", "front", "back"]) and "sleeve" not in name_lower:
-                w_val = parse_garment_fraction(p.get("width_inch"))
+            l_val = parse_garment_fraction(p.get("length_inch"))
+            w_val = parse_garment_fraction(p.get("width_inch"))
+            
+            if any(x in name_lower for x in ["thân trước", "front pant", "front body"]):
+                if l_val > max_front_pant_length: max_front_pant_length = l_val
+            if any(x in name_lower for x in ["thân sau", "back pant", "back body"]):
+                if l_val > max_back_pant_length: max_back_pant_length = l_val
+                
+            if any(x in name_lower for x in ["thân", "main", "outseam", "sau", "trước", "body"]) and "sleeve" not in name_lower:
+                if l_val > max_body_length: max_body_length = l_val
                 if w_val > max_body_width: max_body_width = w_val
+            if any(x in name_lower for x in ["tay", "sleeve"]):
+                if l_val > max_sleeve_length: max_sleeve_length = l_val
 
-        # CƠ CHẾ CHẶN ĐỊNH MỨC MẶC ĐỊNH: Kiểm tra xem người dùng đã bắt đầu chat chưa
+        # Bộ số dự phòng an toàn nếu file khuyết nhãn chi tiết chính
+        if max_body_length == 0: max_body_length = 42.5 if "pant" in category.upper() else 33.13
+        if max_front_pant_length == 0: max_front_pant_length = 42.51
+        if max_back_pant_length == 0: max_back_pant_length = 48.13
+        if max_sleeve_length == 0 and "pant" not in category.upper(): max_sleeve_length = round(max_body_length * 0.75, 2)
+
+        # CƠ CHẾ KIỂM TRA LỆNH AI: Quét lịch sử chat xem người dùng đã ra lệnh tính toán chưa
         chat_history = st.session_state.get("sidebar_chat_history", [])
         has_user_command = False
         last_user_chat_content = ""
         
-        # Nếu lịch sử chat có từ 2 câu trở lên (tức là người dùng đã gõ lệnh tương tác thực tế)
         if len(chat_history) > 1:
-            # Tìm câu chat mới nhất của người dùng để bóc tách thông số phụ liệu rời
             for msg in reversed(chat_history):
                 if msg.get("role") == "user":
                     last_user_chat_content = str(msg.get("content", "")).lower()
@@ -450,16 +469,16 @@ if st.session_state.saved_pdf_bytes is not None:
                 calc_consumption = 0.0
                 target_area = 0.0
                 
-                # CHỈ THỰC THI KHI NGƯỜI DÙNG BẮT ĐẦU CHAT AI (SỬA LỖI 1)
+                # CHỈ ĐỔ ĐỊNH MỨC KHI NGƯỜI DÙNG BẮT ĐẦU CHAT AI TRÊN SƠ ĐỒ ĐỘNG
                 if has_user_command:
                     # A. ĐỒNG BỘ KHỔ VẢI THỰC TẾ TỪ Ô CHAT AI
                     if "SHELL" in placement:
                         w_inch = st.session_state.width_inch_override if st.session_state.width_inch_override else 58.0
                     elif "POCKETING" in placement:
-                        pkt_match = re.search(r'lót khổ\s*(\d+)', last_chat_content if 'last_chat_content' in locals() else last_user_chat_content)
+                        pkt_match = re.search(r'lót khổ\s*(\d+)', last_user_chat_content)
                         w_inch = float(pkt_match.group(1)) if pkt_match else 60.0
                     else: # INTERLINING
-                        fus_match = re.search(r'keo khổ\s*(\d+)', last_chat_content if 'last_chat_content' in locals() else last_user_chat_content)
+                        fus_match = re.search(r'keo khổ\s*(\d+)', last_user_chat_content)
                         w_inch = float(fus_match.group(1)) if fus_match else 44.0
                     mat["width_inch"] = w_inch
 
@@ -478,47 +497,56 @@ if st.session_state.saved_pdf_bytes is not None:
                         mat["shrinkage_warp"] = round(s_warp * 100, 1)
                         mat["shrinkage_weft"] = round(s_weft * 100, 1)
 
-                    # Áp dụng tỷ lệ co rút ngang thực tế làm hạ hẹp khổ vải hữu dụng cắt rập
                     effective_width = w_inch * (1.0 - s_weft)
-                    
-                    # Bảo toàn an toàn biến diện tích đa lớp hình học rập thô từ Đoạn 2b1
                     v_shell = safe_float(shell_fabric_area) if 'shell_fabric_area' in locals() or 'shell_fabric_area' in globals() else 0.0
                     v_pocket = safe_float(pocketing_fabric_area) if 'pocketing_fabric_area' in locals() or 'pocketing_fabric_area' in globals() else 0.0
                     v_inter = safe_float(interlining_fabric_area) if 'interlining_fabric_area' in locals() or 'interlining_fabric_area' in globals() else 0.0
 
                     # -----------------------------------------------------------------
-                    # CỘNG NGHỆ LÕI CAD DIỆN TÍCH PHẲNG (SỬA LỖI 2 - PHÂN TÍCH ĐÚNG CAD)
+                    # ENGINE TOÁN HỌC PHÂN LOẠI LUỒNG SƠ ĐỒ ĐỘNG CHUẨN CAD NHÀ MÁY
                     # -----------------------------------------------------------------
-                    if "SHELL" in placement:
-                        target_area = v_shell
-                        marker_efficiency = 0.84 if "PANT" in category.upper() else 0.85
-                        fabric_loss_factor = 1.04 if w_inch <= 58.0 else 1.02
-                    elif "POCKETING" in placement:
-                        marker_efficiency = 0.86  
-                        fabric_loss_factor = 1.02
-                        if v_pocket > 0: target_area = v_pocket
-                        else: calc_consumption = 0.25 * (1.0 + s_warp) * fabric_loss_factor
-                    else: # INTERLINING
-                        marker_efficiency = 0.88  
-                        fabric_loss_factor = 1.02
-                        if v_inter > 0: target_area = v_inter
-                        else: calc_consumption = 0.12 * (1.0 + s_warp) * fabric_loss_factor
+                    if "PANT" in category.upper():
+                        # --- LUỒNG SƠ ĐỒ QUẦN TÂY LỒNG ĐÔI BIẾN THIÊN DIỆN TÍCH THEO KHỔ VÀ CO RÚT ---
+                        if "SHELL" in placement:
+                            total_pattern_pair_length = (max_front_pant_length + max_back_pant_length) + (4 * sewing_seam_allowance) + hem_allowance
+                            final_pair_length_inch = total_pattern_pair_length * (1.0 + s_warp)
+                            
+                            # Khổ vải hữu dụng thực tế sau khi tính độ co rút ngang sẽ quyết định trực tiếp đến hiệu suất lồng rập cặp
+                            pant_layout_ratio = 1.445 * (effective_width / 53.35)
+                            calc_consumption = (final_pair_length_inch / pant_layout_ratio) / 39.37 * 1.035
+                            target_area = v_shell
+                        elif "POCKETING" in placement:
+                            calc_consumption = round((max_body_length / 39.37) * 0.22, 3)
+                            target_area = v_pocket
+                        else: # INTERLINING
+                            calc_consumption = round((max_body_length / 39.37) * 0.10, 3)
+                            target_area = v_inter
+                        eff, loss = 0.84, 1.035
+                    else:
+                        # --- LUỒNG SƠ ĐỒ DIỆN TÍCH PHẲNG CHO MẶT HÀNG ÁO ---
+                        if "SHELL" in placement:
+                            target_area = v_shell
+                            eff, loss = 0.85, 1.03
+                        elif "POCKETING" in placement:
+                            target_area = v_pocket
+                            eff, loss = 0.86, 1.02
+                            if v_pocket == 0: calc_consumption = 0.38 * (1.0 + s_warp) * loss
+                        else: # INTERLINING
+                            target_area = v_inter
+                            eff, loss = 0.88, 1.02
+                            if v_inter == 0: calc_consumption = 0.65 * (1.0 + s_warp) * loss
 
-                    # Công thức tính định mức dựa trên tổng diện tích polygon rập dải khổ vải chuẩn Gerber/Lectra
-                    if target_area > 0 and effective_width > 0:
-                        marker_length_inch = (target_area * (1.0 + s_warp)) / effective_width
-                        
-                        # Tinh chỉnh hệ số biến thiên sơ đồ cho Áo khi co ngang quá lớn làm phình rập ngang
-                        if "PANT" not in category.upper() and s_weft >= 0.12 and max_body_width >= 26.0:
-                            marker_length_inch = marker_length_inch * 1.12  
-                        
-                        calc_consumption = (marker_length_inch / 39.37) / marker_efficiency * fabric_loss_factor
+                        if target_area > 0 and effective_width > 0:
+                            marker_length_inch = (target_area * (1.0 + s_warp)) / effective_width
+                            if s_weft >= 0.12 and max_body_width >= 26.0:
+                                marker_length_inch = marker_length_inch * 1.12  
+                            calc_consumption = (marker_length_inch / 39.37) / eff * loss
 
                     mat["consumption_meter_per_pcs"] = round(calc_consumption, 3)
                     mat["consumption_yard_per_pcs"] = round(calc_consumption * 1.09361, 3)
-                    bom_debug_log[placement] = {"area": round(target_area, 1), "eff": round(marker_efficiency * 100, 1), "loss": fabric_loss_factor, "w": round(effective_width, 2), "warp": round(s_warp * 100, 1), "weft": round(s_weft * 100, 1)}
+                    bom_debug_log[placement] = {"area": round(target_area, 1), "eff": round(marker_efficiency * 100 if 'marker_efficiency' in locals() else eff*100, 1), "loss": fabric_loss_factor if 'fabric_loss_factor' in locals() else loss, "w": round(effective_width, 2), "warp": round(s_warp * 100, 1), "weft": round(s_weft * 100, 1)}
                 else:
-                    # Trạng thái ban đầu khi chưa chat AI: Ép bảng hiển thị chữ chờ lệnh
+                    # Trạng thái treo khi chưa chat AI: Chờ lệnh người dùng kích hoạt
                     mat["consumption_meter_per_pcs"] = "Chờ lệnh AI..."
                     mat["consumption_yard_per_pcs"] = "Chờ lệnh AI..."
                     mat["width_inch"] = "-"
