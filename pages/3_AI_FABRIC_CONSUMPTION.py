@@ -194,7 +194,7 @@ if user_prompt:
     st.rerun()
 
 # =====================================================================
-# ENGINE QUY ĐỔI PHÂN SỐ NGÀNH MAY 
+# ENGINE QUY ĐỔI PHÂN SỐ NGÀNH MAY (ĐÃ ĐƯA LÊN ĐẦU ĐOẠN ĐỂ VÁ LỖI BIÊN DỊCH)
 # =====================================================================
 def parse_garment_fraction(val) -> float:
     """Chuyển đổi chính xác phân số hỗn hợp ngành may thành số thập phân thực tế"""
@@ -273,36 +273,45 @@ if st.session_state.saved_pdf_bytes is not None:
             qty = int(safe_float(p.get("quantity_per_garment", 1.0)))
             l_inch = parse_garment_fraction(p.get("length_inch"))
             w_inch = parse_garment_fraction(p.get("width_inch"))
-            m_type = str(p.get("measurement_type", "half")).lower()
 
-            # Chuẩn hóa số đo bề ngang: Nếu là số đo nửa vòng (1/2), quy đổi chu vi tổng bằng cách nhân đôi
-            if m_type == "half" and any(x in name.lower() for x in ["thân", "lưng", "cạp", "waist", "hip"]):
-                w_inch = w_inch * 2.0
-                m_display = "1/2 Vòng (Đã nhân đôi chu vi)"
-            else:
-                m_display = "Kích thước phẳng thực tế chi tiết"
+            # SỬA LỖI TẠI ĐÂY: Xóa bỏ hoàn toàn lệnh nhân đôi cưỡng ép cũ.
+            # Đối với bảng liệt kê chi tiết rập đơn lẻ, kích thước đã là kích thước rập thật.
+            m_display = "Kích thước rập phẳng thực tế chi tiết"
 
+            # Áp dụng công thức rập may: Cộng biên đường may ráp nối (+0.44" mỗi đầu chi tiết)
             p_length = l_inch + (2 * sewing_seam_allowance)
-            if "thân" in name.lower() or "main" in name.lower() or "outseam" in name.lower():
+            if any(x in name.lower() for x in ["thân", "main", "outseam"]):
                 p_length += hem_allowance
                 
             p_width = w_inch + (2 * sewing_seam_allowance)
 
-            # Tính diện tích hình học rập phẳng chiếm dụng của cấu phần này (inch vuông)
+            # Tính diện tích rập phẳng chiếm dụng thật của cấu phần này (SL * Dài * Rộng)
             panel_area = p_length * p_width * qty
             total_garment_fabric_area += panel_area
 
             panel_records.append({
                 "Chi tiết rập": name,
                 "Số lượng cắt (SL)": qty,
-                "Dài gốc (inch)": l_inch,
-                "Rộng gốc (inch)": w_inch,
-                "Quy cách đo": m_display,
-                "Diện tích rập dải phẳng (+May)": round(panel_area, 2)
+                "Dài rập (+May)": round(p_length, 2),
+                "Rộng rập (+May)": round(p_width, 2),
+                "Quy cách": m_display,
+                "Diện tích tích lũy (inch vuông)": round(panel_area, 2)
             })
 
         df_panels = pd.DataFrame(panel_records)
         st.dataframe(df_panels, use_container_width=True, hide_index=True)
+
+        # ĐỒNG BỘ BẢO TOÀN DANH MỤC PHỤ LIỆU (Ép thêm Keo lót lót và Lót túi nếu thiếu)
+        materials = data.get("materials_bom", [])
+        has_pocketing = any("POCKETING" in str(m.get("placement")).upper() for m in materials)
+        has_interlining = any("INTERLINING" in str(m.get("placement")).upper() for m in materials)
+        
+        if not has_pocketing:
+            materials.append({"placement": "POCKETING", "width_inch": 60.0, "shrinkage_warp": 0.0, "shrinkage_weft": 0.0, "material_name": "TC POCKETING (Vải lót túi)"})
+        if not has_interlining:
+            materials.append({"placement": "INTERLINING", "width_inch": 44.0, "shrinkage_warp": 0.0, "shrinkage_weft": 0.0, "material_name": "TRICOT FUSING (Keo lót phôi)"})
+        data["materials_bom"] = materials
+
                # --- ĐOẠN 2b2: TOÁN HỌC SƠ ĐỒ CÔNG NGHIỆP CỘNG DỒN CHI TIẾT RẬP VÀ ĐỔ BẢNG BOM ---
         materials = data.get("materials_bom", [])
         
