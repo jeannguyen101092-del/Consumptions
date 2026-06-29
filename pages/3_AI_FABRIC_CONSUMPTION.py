@@ -372,11 +372,12 @@ if st.session_state.saved_pdf_bytes is not None:
         cols_order = ['placement', 'material_name', 'consumption_meter_per_pcs', 'consumption_yard_per_pcs', 'width_inch', 'shrinkage_warp', 'shrinkage_weft', 'gsm']
         df_bom = df_bom[[c for c in cols_order if c in df_bom.columns]]
                # Tiếp tục ngay sau dòng hiển thị bảng dữ liệu của bạn:
+                # [DÁN NỐI TIẾP NGAY SAU DÒNG NÀY CỦA BẠN]
         st.dataframe(df_bom, use_container_width=True)
         
         # BẢNG THÔNG BÁO MINH CHỨNG THÔNG SỐ KỸ THUẬT ĐỂ ĐỐI CHIẾU SƠ ĐỒ
-        st.info(f"⚙️ **Trạng thái giải mã thông số thật:** Nhãn bề ngang tìm thấy: `{detected_width_key.upper()}` thuộc diện **{type_display}**. Chu vi rập tính toán sơ đồ: `{round(body_width, 2)}\"`, Chiều dài rập tính toán sơ đồ: `{round(body_length, 2)}\"`")
+        st.info(f"⚙️ **Trạng thái giải mã thông số thật:** Nhãn bề ngang tìm thấy: `{detected_width_key.upper()}` thuộc diện: {type_display}. Chu vi rập tính toán sơ đồ: `{round(body_width, 2)}\"`, Chiều dài rập tính toán sơ đồ: `{round(body_length, 2)}\"`")
     else:
         st.warning("⚠️ AI không thể trích xuất cấu trúc dữ liệu từ file PDF này. Vui lòng kiểm tra lại chất lượng file.")
-    else:
-        st.info("💡 Vui lòng tải một file PDF Techpack lên để hệ thống phân tích hình học đa giác.")
+else:
+    st.info("💡 Vui lòng tải một file PDF Techpack lên để hệ thống phân tích hình học đa giác.")
