@@ -102,7 +102,7 @@ class GarmentCADCoreEngine:
             "total": round(total_yds, 2)
         }
 # =====================================================================
-# ĐOẠN 3: CƠ SỞ DỮ LIỆU MÃ HÀNG, SIDEBAR CHAT VÀ BẢNG HIỂN THỊ LỚN UI
+# ĐOẠN 3 CHUẨN HÓA: CƠ SỞ DỮ LIỆU, SIDEBAR CHAT VÀ BẢNG HIỂN THỊ UI LỚN
 # =====================================================================
 
 # 1. Cơ sở dữ liệu mẫu các mã hàng sản xuất (Techpack / BOM Data)
@@ -120,26 +120,21 @@ with st.sidebar:
     st.write("Nhập thông tin vải, độ co rút để cập nhật bảng định mức.")
     st.markdown("---")
     
-    # Khởi tạo lưu trữ lịch sử chat của trang
     if "sidebar_chat_history" not in st.session_state:
         st.session_state.sidebar_chat_history = [
             {"role": "assistant", "content": "Xin chào! Nhập lệnh cấp thông số dệt may tại đây. Ví dụ: *'Khổ 56, co L5, áo jacket có lót gòn bông và phối bo thun rib'*"}
         ]
         
-    # Render hội thoại
     for chat in st.session_state.sidebar_chat_history:
         with st.chat_message(chat["role"]):
             st.markdown(chat["content"])
             
-    # Ô tiếp nhận văn bản chat từ người dùng
     user_prompt = st.chat_input("Gửi thông số cho AI...")
 
-# Nếu người dùng nhấn gửi lệnh chat, cập nhật session và tải lại giao diện
 if user_prompt:
     st.session_state.sidebar_chat_history.append({"role": "user", "content": user_prompt})
     st.rerun()
 
-# Trích xuất câu lệnh chat mới nhất của người dùng phục vụ tính toán
 last_user_message = ""
 for msg in reversed(st.session_state.sidebar_chat_history):
     if msg["role"] == "user":
@@ -151,19 +146,16 @@ current_fabric_config = parse_conversational_input(last_user_message)
 # 3. Khu vực màn hình lớn ở trung tâm hiển thị bảng biểu
 st.subheader("📋 BẢNG ĐỊNH MỨC MỌI BỘ - SƠ ĐỒ 1 CHIỀU")
 
-# Dòng ghi chú thông tin biên dệt may động (Đồng bộ với tiêu chuẩn nhà máy)
 st.info(
     f"**Điều kiện chung:** Size M | Khổ vải: **{current_fabric_config['width_inch']} Inch** | "
     f"Độ co: **L {int(current_fabric_config['shrinkage_l'])}% / W {int(current_fabric_config['shrinkage_w'])}%** | "
     f"Hiệu suất sơ đồ tham chiếu: **{int(current_fabric_config['marker_efficiency'])}%** | Chưa bao gồm hao hụt hao hụt booking."
 )
 
-# Chạy vòng lặp bóc tách định mức đa lớp cho toàn bộ DB mã hàng
 table_rows = []
 for item in mock_production_db:
     config_by_style = current_fabric_config.copy()
     
-    # Ép cấu hình cứng theo đặc trưng mẫu của từng nhóm kiểu dáng (Vest, Áo mưa)
     if item["cat"] == "vest":
         config_by_style["has_lining"] = True
         config_by_style["has_padding"] = True
@@ -173,7 +165,6 @@ for item in mock_production_db:
         
     res = GarmentCADCoreEngine.calculate_matrix_consumption(item["cat"], item["pom"], config_by_style)
     
-    # Chuỗi mô tả thành phần cấu trúc của sản phẩm
     comp_desc = "Puffer jacket" if config_by_style["has_padding"] else "Raincoat/Vest"
     if config_by_style["has_lining"]: comp_desc += " + lót"
     if config_by_style["has_padding"]: comp_desc += " - gòn tấm"
@@ -195,19 +186,17 @@ for item in mock_production_db:
         "Ghi chú kỹ thuật dệt may": item["note"]
     })
 
-# Tự động dọn dẹp và chuẩn hóa dữ liệu số trước khi render bảng
-df_display = df_matrix.copy()
+# Đảm bảo định nghĩa chính xác cấu trúc DataFrame
+df_matrix = pd.DataFrame(table_rows)
 
-# Render bảng ma trận định mức lớn lên trung tâm màn hình phẳng
+# Hiển thị trực tiếp bảng DataFrame lên trung tâm màn hình lớn
 st.dataframe(
-    df_display,
+    df_matrix,
     use_container_width=True,
     height=450
 )
 
-
-
-# Nút cho phép người dùng trích xuất dữ liệu nhanh về máy tính dưới dạng file CSV/Excel
+# Nút trích xuất file báo cáo
 st.download_button(
     label="📥 Xuất File Định Mức Sản Xuất (CSV)",
     data=df_matrix.to_csv(index=False).encode('utf-8-sig'),
