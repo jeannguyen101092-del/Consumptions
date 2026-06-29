@@ -33,18 +33,36 @@ if "sidebar_chat_history" not in st.session_state:
     ]
 
 def update_config_from_text(text: str):
-    """NLP Parser bóc tách dữ liệu và kích hoạt lệnh tính toán"""
+    """NLP Parser công nghiệp: Tự động trích xuất thông số bất kể người dùng gõ kiểu gì"""
     if not text: return
     text_lower = text.lower()
     
-    width_match = re.search(r'(?:khổ|width|vải|đm|mức)\s*(\d+)', text_lower)
+    # 1. Quét tìm khổ vải vật lý (Bắt trọn: khổ vải 58, khổ 58, vải 58, đm 58, mếch 58...)
+    width_match = re.search(r'(?:khổ|width|vải|đm|mức|cắt)\s*(\d+)', text_lower)
     if width_match: 
         st.session_state.width_inch_override = float(width_match.group(1))
-        st.session_state.is_calculated = True
+        st.session_state.is_calculated = True # KÍCH HOẠT LỆNH ĐỔ BẢNG
 
-    co_match = re.search(r'(?:co dọc|co l|độ co|dọc|co rút)\s*(\d+)', text_lower)
-    if co_match: 
-        st.session_state.shrinkage_override = float(co_match.group(1))
+    # 2. Quét tìm độ co rút dọc L (Bắt trọn: co dọc 5, dọc 5, l5, l 5, co rút 5)
+    co_l_match = re.search(r'(?:co dọc|dọc|l|warp)\s*(\d+)', text_lower)
+    if co_l_match: 
+        st.session_state.shrinkage_override = float(co_l_match.group(1))
+    else:
+        # Nếu gõ "co rút 5" chung chung, tự động áp vào độ co dọc
+        generic_co = re.search(r'(?:co rút|độ co|co)\s*(\d+)', text_lower)
+        if generic_co: st.session_state.shrinkage_override = float(generic_co.group(1))
+
+    # 3. Quét tìm độ co rút ngang W (Bắt trọn: co ngang 15, ngang 15, w15, weft 15)
+    # ĐỒNG BỘ AN TOÀN: Ép trực tiếp giá trị vào bộ nhớ đệm hệ thống để tránh lỗi đè trùng biến
+    co_w_match = re.search(r'(?:co ngang|ngang|w|weft)\s*(\d+)', text_lower)
+    if co_w_match:
+        if "gemini_parsed_bom_data" in st.session_state and st.session_state.gemini_parsed_bom_data:
+            materials = st.session_state.gemini_parsed_bom_data.get("materials_bom", [])
+            if isinstance(materials, list):
+                for mat in materials:
+                    if isinstance(mat, dict) and mat.get("placement") == "SHELL":
+                        mat["shrinkage_weft"] = float(co_w_match.group(1))
+
 
 def safe_float(val, default=0.0) -> float:
     """Hàm xử lý kiểu dữ liệu an toàn chặn đứng mọi lỗi gãy mảng của AI"""
