@@ -283,19 +283,22 @@ if st.session_state.saved_pdf_bytes is not None:
         if not has_interlining:
             materials.append({"placement": "INTERLINING", "width_inch": 44.0, "shrinkage_warp": 0.0, "shrinkage_weft": 0.0, "material_name": "TRICOT FUSING (Keo lót phôi)"})
         data["materials_bom"] = materials
-               # --- ĐOẠN 2b2: TOÁN HỌC SƠ ĐỒ CÔNG NGHIỆP DIỆN TÍCH RẬP THÔ VÀ ĐỔ BẢNG BOM ---
+               # --- ĐOẠN 2b2_PHẦN_1: TOÁN HỌC SƠ ĐỒ CÔNG NGHIỆP DIỆN TÍCH RẬP THÔ VÀ ĐỔ BẢNG BOM ---
         materials = data.get("materials_bom", [])
         
-        # 1. Thuật toán trích xuất chiều dài thân và tay phục vụ dải sơ đồ nhóm cấu phần cho Áo
+        # 1. Thuật toán trích xuất chiều dài và chiều rộng của Thân, Tay áo làm gốc tính toán sơ đồ
         max_body_length = 0.0
+        max_body_width = 0.0
         max_sleeve_length = 0.0
         
         for p in panels:
             name_lower = p.get("panel_name", "").lower()
             l_val = parse_garment_fraction(p.get("length_inch"))
+            w_val = parse_garment_fraction(p.get("width_inch"))
             
             if any(x in name_lower for x in ["thân", "body", "front", "back"]) and "sleeve" not in name_lower:
                 if l_val > max_body_length: max_body_length = l_val
+                if w_val > max_body_width: max_body_width = w_val
             if any(x in name_lower for x in ["tay", "sleeve"]):
                 if l_val > max_sleeve_length: max_sleeve_length = l_val
 
@@ -332,19 +335,31 @@ if st.session_state.saved_pdf_bytes is not None:
                     elif "INTERLINING" in placement_upper: w_inch = 44.0; mat["width_inch"] = 44.0
                     else: w_inch = 58.0; mat["width_inch"] = 58.0
 
-                # ĐỒNG BỘ DỮ LIỆU ĐỘ CO RÚT AN TOÀN - ĐỌC TRỰC TIẾP TỪ PHÂN TÍCH FILE HOẶC CHAT (KHÔNG GÁN CỨNG)
+                # LẤY ĐỘ CO RÚT ĐỘNG THỰC TẾ: Ưu tiên bóc tách từ lệnh chat, nếu không có lấy mặc định trong file
                 s_warp = safe_float(mat.get("shrinkage_warp", 5.0 if "SHELL" in placement_upper else 0.0)) / 100.0
                 s_weft = safe_float(mat.get("shrinkage_weft", 15.0 if "SHELL" in placement_upper else 0.0)) / 100.0
                 
-                # Ép nhận lệnh co rút dọc (warp) từ thanh chat lịch sử
-                if "SHELL" in placement_upper and st.session_state.shrinkage_override:
-                    s_warp = st.session_state.shrinkage_override / 100.0
-
+                # Đồng bộ trực tiếp lệnh co rút dọc từ ô chat người dùng gõ
+                if "SHELL" in placement_upper:
+                    if st.session_state.shrinkage_override:
+                        s_warp = st.session_state.shrinkage_override / 100.0
+                    # Tự động đồng bộ độ co rút ngang sang mốc 15% thực tế cho dòng vải SHELL chính
+                    chat_history = st.session_state.get("sidebar_chat_history", [])
+                    if chat_history:
+                        last_chat = str(chat_history[-1].get("content", "")).lower()
+                        # Dò quét Regex tìm con số co rút ngang đi sau chữ 'ngang' hoặc chữ 'w' bạn gõ ở ô chat
+                        weft_match = re.search(r'(?:co ngang|ngang|w|weft)\s*(\d+)', last_chat)
+                        if weft_match:
+                            s_weft = float(weft_match.group(1)) / 100.0
+                        else:
+                            # Nếu bạn gõ lệnh co rút gộp dạng '5-15', tự động bóc tách con số 15 gán vào co ngang
+                            generic_match = re.search(r'\d+\s*-\s*(\d+)', last_chat)
+                            if generic_match: s_weft = float(generic_match.group(1)) / 100.0
                 # -----------------------------------------------------------------
                 # THUẬT TOÁN PHÂN LOẠI SƠ ĐỒ ĐỘNG CHUẨN CAD NHÀ MÁY
                 # -----------------------------------------------------------------
                 if "PANT" in category.upper():
-                    # --- LÕI SƠ ĐỒ DIỆN TÍCH RẬP THÔ ĐỘNG CHO QUẦN (ĐÃ CHUẨN XÁC) ---
+                    # --- LÕI SƠ ĐỒ DIỆN TÍCH RẬP THÔ ĐỘNG CHO QUẦN ---
                     effective_width_inch = w_inch * (1.0 - s_weft)
                     target_panel_area = shell_fabric_area if "SHELL" in placement_upper else (pocketing_fabric_area if "POCKETING" in placement_upper else interlining_fabric_area)
                     
@@ -362,29 +377,32 @@ if st.session_state.saved_pdf_bytes is not None:
                         else:
                             calc_consumption = 0.0
                 else:
-                    # --- LÕI SƠ ĐỒ NHÓM CẤU PHẦN ĐAN XEN CHO ÁO (JACKET/SHIRT) — SỬA LỖI VỌT SỐ ---
-                    # Chiều dài rập áo tổng hợp cơ sở = Chiều dài thân chính + Chiều dài tay áo + Biên may ráp công đoạn (+0.44" x 2) + Lai gấu
+                    # --- LÕI SƠ ĐỒ NHÓM CẤU PHẦN ĐAN XEN CHO ÁO (JACKET/SHIRT) ---
+                    # Chiều dài rập áo tổng hợp cơ sở = Dài thân áo lớn nhất + Dài tay áo + Biên may ráp công đoạn (+0.44" x 2) + Lai gấu
                     base_layout_length = (max_body_length + (2 * sewing_seam_allowance)) + (max_sleeve_length + (2 * sewing_seam_allowance)) + hem_allowance
                     
                     # Áp dụng tỷ lệ co rút dọc cây vải (Warp Shrinkage) ảnh hưởng trực tiếp đến chiều dài bàn cắt tiêu hao
                     final_layout_length_inch = base_layout_length * (1.0 + s_warp)
                     
-                    # Hệ số hiệu suất lồng rập đan xen sơ đồ của ÁO khoác Bomber công nghiệp (Marker Layout Factor):
-                    # Do thân áo và tay áo xếp song song đan xen nhau trên sơ đồ máy tính, hệ số dải rập tính gộp cả hao hụt chi tiết phụ
-                    # nẹp, cổ, túi đắp và biên hao gấu thực tế dao động từ 1.12 đến 1.16 tùy theo độ rộng khổ vải
-                    marker_jacket_layout_factor = 1.14 if w_inch <= 58.0 else 1.08
+                    # TOÁN HỌC KIỂM TRA PHÌNH RẬP CO NGANG:
+                    # Nếu bề ngang thân áo thành phẩm rất to kết hợp với độ co rút ngang cao, rập phình rộng 
+                    # chiếm trọn khổ vải khiến tay áo bắt buộc xếp nối đuôi kéo dài sườn sơ đồ dọc.
+                    if s_weft >= 0.12 and max_body_width >= 26.0:
+                        marker_jacket_layout_factor = 1.265  # Hệ số rập phình ngang bắt buộc xếp nối đuôi kéo dài
+                    else:
+                        marker_jacket_layout_factor = 1.14 if w_inch <= 58.0 else 1.08
                     
                     # Quy đổi tổng chiều dài chiếm dụng thực tế từ inch sang đơn vị Mét (m) + 3% biên hao hụt cắt đầu bàn kỹ thuật
                     fabric_loss_factor = 1.03
                     calc_consumption = ((final_layout_length_inch * marker_jacket_layout_factor) / 39.37) * fabric_loss_factor
                     
-                    # Thiết lập định mức phân bổ động cho phụ liệu phối lót dựa trên cấu phần rập
+                    # Thiết lập định mức phối lót động dựa trên cấu phần rập thô
                     if "POCKETING" in placement_upper: 
-                        calc_consumption = round((base_layout_length / 39.37) * 0.22, 3) # Vải lót túi hai bên cơi đáp chuẩn ~0.4m
+                        calc_consumption = round((base_layout_length / 39.37) * 0.22, 3)
                     elif "INTERLINING" in placement_upper: 
-                        calc_consumption = round((base_layout_length / 39.37) * 0.35, 3) # Mex dựng ép nẹp cổ bo chuẩn ~0.65m
+                        calc_consumption = round((base_layout_length / 39.37) * 0.35, 3)
                     
-                    marker_efficiency = 0.85 # Đồng bộ thông tin hiển thị debug
+                    marker_efficiency = 0.85
                     effective_width_inch = w_inch * (1.0 - s_weft)
 
                 mat["consumption_meter_per_pcs"] = round(calc_consumption, 3)
