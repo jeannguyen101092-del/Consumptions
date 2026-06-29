@@ -182,7 +182,7 @@ def parse_garment_fraction(val) -> float:
     return safe_float(val, 0.0)
 
 # =====================================================================
-# ĐOẠN 2b1 & 2b2_PHẦN_1: GIAO DIỆN CHÍNH, KHÓA BỘ NHỚ VÀ TIỀN XỬ LÝ SƠ ĐỒ
+# ĐOẠN 2b1: GIAO DIỆN CHÍNH, KHÓA BỘ NHỚ VÀ ENGINE BÓC TÁCH CHI TIẾT RẬP CAD
 # =====================================================================
 st.subheader("📁 BƯỚC 1: TẢI TÀI LIỆU KỸ THUẬT SẢN XUẤT (TECHPACK / BOM)")
 uploaded_file = st.file_uploader("Kéo và thả file PDF Techpack hoặc bảng BOM của bạn vào đây", type=["pdf"], key="pdf_uploader")
@@ -213,7 +213,7 @@ if st.session_state.saved_pdf_bytes is not None:
 
         # LƯU TRỮ VÀ HIỂN THỊ DANH MỤC CHI TIẾT RẬP AI BÓC TÁCH ĐƯỢC TỪ TRANG SKETCH/POM
         panels = data.get("garment_panels", [])
-        st.markdown("### 📐 DANH MỤC CÁC CHI TIẾT RẬP THÔ KỸ THUẬT MAY (GROSS PANEL LOG)")
+        st.markdown("### 📐 DANH MỤC CÁ C CHI TIẾT RẬP THÔ KỸ THUẬT MAY (GROSS PANEL LOG)")
         
         panel_records = []
         sewing_seam_allowance = 0.44  # Biên đường may ráp công đoạn 0.44" chuẩn
@@ -234,8 +234,17 @@ if st.session_state.saved_pdf_bytes is not None:
 
             # Chuẩn hóa số đo bề ngang cho các chi tiết thân lớn dải chu vi sơ đồ
             m_type = str(p.get("measurement_type", "half")).lower()
-            if m_type == "half" and any(x in name.lower() for x in ["thân", "lưng", "cạp", "waist", "hip"]):
+            
+            # SỬA LOGIC CHÍ CHÁT TẠI ĐÂY: Nếu nhãn thông số bề ngang lớn (>40 inch) bị gán nhầm cho Thân Sau hoặc Thân áo liền mảnh,
+            # hệ thống sơ đồ phẳng CAD bắt buộc phải chia đôi về mốc số đo rập 1/2 để dải sơ đồ không bị vọt số diện tích.
+            if any(x in name.lower() for x in ["thân sau", "back body", "back main"]) and w_inch > 40.0:
+                w_inch = w_inch / 2.0
+                m_display = "Phát hiện số đo Cả Vòng -> Đã tự động chia đôi về rập phẳng 1/2"
+            elif m_type == "half" and any(x in name.lower() for x in ["thân", "lưng", "cạp", "waist", "hip"]) and w_inch < 35.0:
                 w_inch = w_inch * 2.0
+                m_display = "1/2 Vòng -> Đã nhân đôi quy đổi chu vi tổng"
+            else:
+                m_display = "Kích thước phẳng thực tế chi tiết rập"
 
             # Áp dụng công thức rập thô: Cộng biên đường may ráp nối (+0.44" mỗi đầu chi tiết)
             p_length = l_inch + (2 * sewing_seam_allowance)
@@ -282,62 +291,6 @@ if st.session_state.saved_pdf_bytes is not None:
             materials.append({"placement": "INTERLINING", "width_inch": 44.0, "shrinkage_warp": 0.0, "shrinkage_weft": 0.0, "material_name": "TRICOT FUSING (Keo lót phôi)"})
         data["materials_bom"] = materials
 
-        # --- TIỀN XỬ LÝ SƠ ĐỒ ĐỂ TRÍCH XUẤT CÁC THÔNG SỐ KHUNG CƠ SỞ ---
-        max_body_length = 0.0
-        max_body_width = 0.0
-        max_sleeve_length = 0.0
-        
-        for p in panels:
-            name_lower = p.get("panel_name", "").lower()
-            l_val = parse_garment_fraction(p.get("length_inch"))
-            w_val = parse_garment_fraction(p.get("width_inch"))
-            
-            if any(x in name_lower for x in ["thân", "body", "front", "back"]) and "sleeve" not in name_lower:
-                if l_val > max_body_length: max_body_length = l_val
-                if w_val > max_body_width: max_body_width = w_val
-            if any(x in name_lower for x in ["tay", "sleeve"]):
-                if l_val > max_sleeve_length: max_sleeve_length = l_val
-
-        # Bộ số dự phòng an toàn nếu hồ sơ khuyết nhãn
-        if max_body_length == 0:
-            max_body_length = 42.5 if "pant" in category.upper() else 33.13
-        if max_sleeve_length == 0 and "pant" not in category.upper():
-            max_sleeve_length = round(max_body_length * 0.75, 2)
-
-        bom_debug_log = {}
-
-        if len(panels) > 0:
-            for mat in materials:
-                placement_upper = str(mat.get("placement")).upper()
-                
-                # Khởi tạo biến cục bộ chặn đứng lỗi UnboundLocalError
-                calc_consumption = 0.0
-                target_panel_area = 0.0
-                
-                # Đồng bộ thông số tương tác động từ ô chat Sidebar
-                if "SHELL" in placement_upper:
-                    if st.session_state.width_inch_override: mat["width_inch"] = st.session_state.width_inch_override
-                    if st.session_state.shrinkage_override: mat["shrinkage_warp"] = st.session_state.shrinkage_override
-                elif any(x in placement_upper for x in ["INTERLINING", "POCKETING"]):
-                    chat_history = st.session_state.get("sidebar_chat_history", [])
-                    chat_content = ""
-                    if chat_history:
-                        chat_content = str(chat_history[-1].get("content", "")).lower()
-                        
-                    if any(x in chat_content for x in ["keo", "mếch", "lót", "phối"]) and st.session_state.width_inch_override:
-                        mat["width_inch"] = st.session_state.width_inch_override
-
-                w_inch = parse_garment_fraction(mat.get("width_inch"))
-                if w_inch == 0:
-                    if "POCKETING" in placement_upper: w_inch = 60.0; mat["width_inch"] = 60.0
-                    elif "INTERLINING" in placement_upper: w_inch = 44.0; mat["width_inch"] = 44.0
-                    else: w_inch = 58.0; mat["width_inch"] = 58.0
-
-                s_warp = safe_float(mat.get("shrinkage_warp", 5.0 if "SHELL" in placement_upper else 0.0)) / 100.0
-                s_weft = safe_float(mat.get("shrinkage_weft", 15.0 if "SHELL" in placement_upper else 0.0)) / 100.0
-                
-                if "SHELL" in placement_upper and st.session_state.shrinkage_override:
-                    s_warp = st.session_state.shrinkage_override / 100.0
                 # -----------------------------------------------------------------
                 # ĐOẠN 2b2_PHẦN_2: THỰC THI TOÁN HỌC SƠ ĐỒ DIỆN TÍCH PHẲNG VÀ ĐỔ BẢNG BOM
                 # -----------------------------------------------------------------
