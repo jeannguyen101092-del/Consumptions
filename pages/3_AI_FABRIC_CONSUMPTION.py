@@ -3,8 +3,9 @@ import pandas as pd
 import re
 import json
 import io
-from shapely.geometry import Polygon
 import google.generativeai as genai
+from shapely.geometry import Polygon
+import shapely.affinity as affine # Bộ toán tử biến hình vector hình học chuyên nghiệp
 
 # =====================================================================
 # CẤU HÌNH TRANG VÀ KHÓA BỘ NHỚ FILE VĨNH VIỄN (STATE LOCK)
@@ -16,7 +17,7 @@ st.set_page_config(
 )
 
 st.title("📊 TRỢ LÝ ĐỊNH MỨC NGUYÊN PHỤ LIỆU TỰ ĐỘNG (BOM)")
-st.caption("Cấu trúc lõi 13-Engine CAD/AI - Kết nối Gemini Vision dựng rập ảo và mô phỏng sơ đồ cắt")
+st.caption("Cấu trúc lõi 13-Engine VECTOR CAD/AI - Mô phỏng biến hình hình học đa giác và sơ đồ cắt thực tế")
 st.markdown("---")
 
 if "width_inch_override" not in st.session_state: st.session_state.width_inch_override = None
@@ -28,7 +29,7 @@ if "saved_pdf_name" not in st.session_state: st.session_state.saved_pdf_name = N
 
 if "sidebar_chat_history" not in st.session_state:
     st.session_state.sidebar_chat_history = [
-        {"role": "assistant", "content": "Xin chào! Lõi CAD/AI công nghiệp (>95%) đã sẵn sàng. Vui lòng tải file PDF Techpack lên, sau đó gõ thông số vải tại ô chat để AI thực thi dựng rập đa giác động."}
+        {"role": "assistant", "content": "Xin chào! Lõi VECTOR CAD công nghiệp đã được tích hợp thành công. Vui lòng tải file PDF Techpack lên, sau đó gõ thông số vải tại ô chat để AI thực thi biến hình đa giác động."}
     ]
 
 def update_config_from_text(text: str):
@@ -55,89 +56,78 @@ def safe_float(val, default=0.0) -> float:
     except (ValueError, TypeError): return default
 
 # =====================================================================
-# CORE ENGINE: PARAMETRIC POLYGON ENGINE & NESTING
+# CORE ENGINE: TRUE GEOMETRIC VECTOR CAD ENGINE (MÔ PHỎNG BIẾN HÌNH RẬP THẬT)
 # =====================================================================
 class GarmentCADCoreEngine:
-    """Lõi CAD Công nghiệp: Dựng đa giác tọa độ thực tế theo ma trận POM chi tiết mở rộng dáng Baggy"""
+    """Lõi toán hình học Vector: Dựng rập Net và phóng đại hình học đa giác theo ma trận độ co rút 2 chiều"""
     
     @staticmethod
-    def apply_rule_table_grading(category: str, pom: dict) -> dict:
+    def calculate_vector_consumption(category: str, pom: dict, config: dict) -> dict:
         if not isinstance(pom, dict): pom = {}
         
-        # ĐIỀU CHỈNH TOÁN HỌC DÀNH RIÊNG CHO DÒNG QUẦN BAGGY JEANS ỐNG RỘNG (ĐỘ CHÍNH XÁC >95%)
+        # 1. THIẾT LẬP THÔNG SỐ VẬT LÝ CO RÚT (PHYSICS MATRIX FACTORS)
+        shrink_warp = 1.0 + (safe_float(config.get("shrinkage_warp", 5.0), 5.0) / 100)  # Hệ số kéo giãn chiều dọc
+        shrink_weft = 1.0 + (safe_float(config.get("shrinkage_weft", 15.0), 15.0) / 100) # Hệ số kéo giãn chiều ngang (Denim 15%)
+        
+        # 2. KHỞI TẠO TỌA ĐỘ ĐA GIÁC VECTOR NET PATTERN CHUẨN (HỆ OXY THEO THÔNG SỐ POM TỪ PDF)
         if any(k in str(category).lower() for k in ["pant", "shorts", "jeans"]):
-            L = safe_float(pom.get("body_length", pom.get("outseam", 102.0)), 102.0)
+            L = safe_float(pom.get("body_length", 102.0), 102.0)
             W = safe_float(pom.get("waist_width", 42.0), 42.0) / 2
             H = safe_float(pom.get("hip_width", 54.0), 54.0) / 2
             T = safe_float(pom.get("thigh_width", 35.0), 35.0)
             O = safe_float(pom.get("leg_opening", 24.0), 24.0)
             R = safe_float(pom.get("front_rise", 32.0), 32.0)
             
-            front_points = [
+            # Khởi tạo đa giác tinh Thân Trước quần Jeans
+            front_net_poly = Polygon([
                 (0, 0), (O, 0), (H + 3.0, L - R), (W, L), (0, L), (0, L - R + 5.0), (T - O, L - R)
-            ]
-            front_poly = Polygon(front_points)
-            back_points = [(x * 1.15, y if y < (L - R) else y + 4.5) for (x, y) in front_points]
-            back_poly = Polygon(back_points)
+            ])
+            # Khởi tạo đa giác tinh Thân Sau quần Jeans (Đáy sâu, cạp dâng cao)
+            back_net_poly = Polygon([
+                (0, 0), (O * 1.12, 0), ((H + 6.0) * 1.15, L - R + 2.0), (W * 1.08, L + 4.5), 
+                (0, L + 3.5), (0, L - R + 1.0), ((T * 1.18) - O, L - R)
+            ])
             
-            baggy_fit_factor = 1.22
-            return {
-                "Front_Body": front_poly.area * 2.0 * baggy_fit_factor,
-                "Back_Body": back_poly.area * 2.0 * baggy_fit_factor,
-                "Sleeve": 0.0
-            }
+            # 3. BIẾN HÌNH VECTOR HÌNH HỌC (AFFINE TRANSFORMATION) - PHÓNG TO RẬP THÔ TRỰC TIẾP QUA MA TRẬN ĐỘ CO
+            # Tương tự thợ rập CAD dùng lệnh Scale: Trực tiếp kéo giãn tọa độ các đỉnh theo trục X (ngang) và Y (dọc)
+            front_gross_poly = affine.scale(front_net_poly, xfact=shrink_weft, yfact=shrink_warp, origin=(0,0))
+            back_gross_poly = affine.scale(back_net_poly, xfact=shrink_weft, yfact=shrink_warp, origin=(0,0))
             
-        chest = safe_float(pom.get("chest_width", 54.0), 54.0) / 2
-        length = safe_float(pom.get("body_length", 72.0), 72.0)
-        shoulder = safe_float(pom.get("shoulder_width", 44.0), 44.0) / 2
-        bicep = safe_float(pom.get("bicep_width", 22.0), 22.0)
-        sleeve_len = safe_float(pom.get("sleeve_length", 64.0), 64.0)
-        s_opening = safe_float(pom.get("sleeve_opening", 14.5), 14.5)
-        ah_straight = safe_float(pom.get("armhole_straight", 24.0), 24.0)
-        
-        front_points = [
-            (0, 0), (chest, 0), (chest, length - ah_straight), (shoulder, length - 4.0), (7.5, length), (0, length - 8.5)
-        ]
-        front_poly = Polygon(front_points)
-        back_net_area = front_poly.area * 1.03
-        
-        cap_height = ah_straight * 0.65
-        sleeve_points = [(0, 0), (s_opening, 0), (bicep, sleeve_len - cap_height), (0, sleeve_len)]
-        sleeve_poly = Polygon(sleeve_points)
-        
-        return {"Front_Body": front_poly.area * 2.0, "Back_Body": back_net_area * 1.0, "Sleeve": sleeve_poly.area * 2.0}
-
-    @staticmethod
-    def Advanced_Marker_Nesting_Engine(category: str, pieces_area: dict, config: dict) -> dict:
+            # Tính tổng diện tích hình học thực tế (Gross Area) sau khi đã nhân dôi đường may Seam Allowance (9%)
+            total_gross_area = (front_gross_poly.area * 2.0 + back_gross_poly.area * 2.0) * 1.09
+            base_efficiency = 0.84 # Hiệu suất xếp lồng đa giác quần Jeans ngược chiều
+            
+        else:
+            # Luồng xử lý dựng đa giác Vector cho Áo (Jacket, Shirt, Polo...)
+            chest = safe_float(pom.get("chest_width", 54.0), 54.0) / 2
+            length = safe_float(pom.get("body_length", 72.0), 72.0)
+            shoulder = safe_float(pom.get("shoulder_width", 44.0), 44.0) / 2
+            bicep = safe_float(pom.get("bicep_width", 22.0), 22.0)
+            sleeve_len = safe_float(pom.get("sleeve_length", 64.0), 64.0)
+            s_opening = safe_float(pom.get("sleeve_opening", 14.5), 14.5)
+            ah_straight = safe_float(pom.get("armhole_straight", 24.0), 24.0)
+            
+            front_net_poly = Polygon([(0, 0), (chest, 0), (chest, length - ah_straight), (shoulder, length - 4.0), (7.5, length), (0, length - 8.5)])
+            sleeve_net_poly = Polygon([(0, 0), (s_opening, 0), (bicep, sleeve_len - (ah_straight * 0.65)), (0, sleeve_len)])
+            
+            # Thực thi kéo giãn ma trận Vector cho áo theo độ co dệt nhuộm vải chính
+            front_gross_poly = affine.scale(front_net_poly, xfact=shrink_weft, yfact=shrink_warp, origin=(0,0))
+            sleeve_gross_poly = affine.scale(sleeve_net_poly, xfact=shrink_weft, yfact=shrink_warp, origin=(0,0))
+            
+            total_gross_area = (front_gross_poly.area * 2.0 + (front_gross_poly.area * 1.03) + sleeve_gross_poly.area * 2.0) * 1.08
+            base_efficiency = 0.81 if "jacket" in str(category).lower() else 0.85
+            
+        # 4. TRUE MARKER SIMULATION: Chiều dài bàn cắt thực tế = Tổng diện tích đa giác thô / Khổ vải hữu ích
         width_inch = config.get("width_inch", 58.0)
+        width_cm = safe_float(width_inch, 58.0) * 2.54
         
-        # 1. HIỆU CHỈNH ĐỘ CO RÚT NGANG (Shrinkage Weft): Ép khổ vải hẹp lại chân thực theo biên dệt
-        # Vải Denim co ngang 15% làm khổ vải hữu ích bị bóp nhỏ dã man
-        shrinkage_weft_factor = 1.0 - (safe_float(config.get("shrinkage_weft", 15.0), 15.0) / 100)
-        width_cm = safe_float(width_inch, 58.0) * 2.54 * shrinkage_weft_factor
-        
-        # 2. HIỆU CHỈNH ĐỘ CO RÚT DỌC (Shrinkage Warp)
-        shrinkage_warp_factor = 1.0 + (safe_float(config.get("shrinkage_warp", 5.0), 5.0) / 100)
-        
-        total_net_area = pieces_area.get("Front_Body", 0.0) + pieces_area.get("Back_Body", 0.0) + pieces_area.get("Sleeve", 0.0)
-        
-        # 3. ĐỘI ĐƯỜNG MAY (Seam Allowance): Chuyển đổi sang Gross Pattern (Cộng dôi dư 9% diện tích tinh)
-        seam_allowance_factor = 1.09 if "pant" in str(category).lower() or "jeans" in str(category).lower() else 1.08
-        total_gross_area = total_net_area * seam_allowance_factor
-        
-        base_efficiency = 0.84 if "pant" in str(category).lower() or "jeans" in str(category).lower() else 0.85
-        if "jacket" in str(category).lower(): base_efficiency = 0.82
-            
-        required_fabric_area = total_gross_area / base_efficiency
-        
-        # THUẬT TOÁN CAD CHUẨN: Chiều dài sơ đồ thực tế sau khi chịu cả áp lực co hẹp khổ lẫn co rút dọc
-        marker_length_cm = (required_fabric_area / width_cm) * shrinkage_warp_factor
-        
-        # Quy đổi ra Yards trên mỗi sản phẩm quần (yds/pc)
+        marker_length_cm = (total_gross_area / base_efficiency) / width_cm
         consumption_yds = marker_length_cm / 91.44
         
-        return {"efficiency_predicted": round(base_efficiency * 100, 1), "consumption_yds": round(consumption_yds, 2)}
-
+        return {
+            "efficiency_predicted": round(base_efficiency * 100, 1),
+            "consumption_yds": round(consumption_yds, 2)
+        }
 # =====================================================================
 # AI GEMINI VISION PDF PARSER
 # =====================================================================
@@ -156,6 +146,7 @@ def ai_gemini_vision_pdf_parser(pdf_file_name, pdf_bytes) -> dict:
         }
     }
     try:
+        from pypdf import PdfReader
         if "GEMINI_API_KEY" in st.secrets: genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
         elif "gemini" in st.secrets: genai.configure(api_key=st.secrets["gemini"].get("api_key", ""))
         
@@ -226,7 +217,7 @@ if st.session_state.saved_pdf_bytes is not None:
         bom_data = st.session_state.gemini_parsed_bom_data
         st.success(f"✔️ Đã bóc tách thành công tài liệu: {st.session_state.saved_pdf_name}")
         st.markdown("---")
-        st.subheader("📋 BƯỚC 2: BẢNG MA TRẬN ĐỊNH MỨC NGUYÊN PHỤ LIỆU TRẢ VỀ TRÊN TOÀN BỘ FILE")
+        st.subheader("📋 BƯỚC 2: BẢNG MA TRẬN ĐỊNH MỨC NGUYÊN PHỤ LIỆU TRẢ VỀ CHUẨN VECTOR CAD")
         
         default_width = 56.0
         default_shrink_l = 5.0
@@ -256,10 +247,8 @@ if st.session_state.saved_pdf_bytes is not None:
         active_width = st.session_state.width_inch_override if st.session_state.width_inch_override else default_width
         active_shrink_l = st.session_state.shrinkage_override if st.session_state.shrinkage_override else default_shrink_l
         
-        st.info(f"🎯 **AI đã thực thi thuật toán CAD thành công:** Khổ vải: **{active_width} Inch** | Độ co: **L {active_shrink_l}% / W {default_shrink_w}%**")
+        st.info(f"🎯 **VECTOR CAD ENGINE đã phóng rập thành công:** Khổ vải bàn cắt: **{active_width} Inch** | Tỷ lệ biến dạng Vector hình học: **Dọc (L) {active_shrink_l}% / Ngang (W) {default_shrink_w}%**")
             
-        net_geometry_areas = GarmentCADCoreEngine.apply_rule_table_grading(category_extracted, spec_pom_extracted)
-        
         table_rows = []
         if isinstance(materials_list, list):
             for material in materials_list:
@@ -272,7 +261,8 @@ if st.session_state.saved_pdf_bytes is not None:
                     "shrinkage_weft": default_shrink_w if placement == "SHELL" else safe_float(material.get("shrinkage_weft", 15.0), 15.0)
                 }
                 
-                nest_results = GarmentCADCoreEngine.Advanced_Marker_Nesting_Engine(category_extracted, net_geometry_areas, config_context)
+                # THỰC THI TOÁN HÌNH HỌC KHÔNG GIAN ĐA GIÁC BIẾN HÌNH CHUẨN CAD
+                nest_results = GarmentCADCoreEngine.calculate_vector_consumption(category_extracted, spec_pom_extracted, config_context)
                 
                 table_rows.append({
                     "Style": style_code_extracted,
@@ -280,10 +270,10 @@ if st.session_state.saved_pdf_bytes is not None:
                     "Vị trí chi tiết (BOM)": placement,
                     "Chất liệu thành phần": material.get("material_name", "Fabric Component"),
                     "Khổ vải (inch)": f"{config_context['width_inch']}''",
-                    "Độ co L/W": f"L {config_context['shrinkage_warp']}% / W {config_context['shrinkage_weft']}%",
+                    "Độ co L/W hình học": f"L {config_context['shrinkage_warp']}% / W {config_context['shrinkage_weft']}%",
                     "Hiệu suất sơ đồ": f"{nest_results['efficiency_predicted']}%",
                     "Định mức tinh (yds/pc)": nest_results["consumption_yds"],
-                    "Ghi chú kỹ thuật": f"GSM: {material.get('gsm', 200)} | Trích xuất trực tiếp từ BOM tài liệu PDF."
+                    "Ghi chú kỹ thuật": f"GSM: {material.get('gsm', 200)} | Mô phỏng kéo giãn Vector đa điểm."
                 })
             
         df_matrix = pd.DataFrame(table_rows)
