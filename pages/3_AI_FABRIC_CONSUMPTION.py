@@ -231,7 +231,7 @@ if st.session_state.saved_pdf_bytes is not None:
 
         # LƯU TRỮ VÀ HIỂN THỊ DANH MỤC CHI TIẾT RẬP AI BÓC TÁCH ĐƯỢC TỪ TRANG SKETCH/POM
         panels = data.get("garment_panels", [])
-        st.markdown("### 📐 DANH MỤC CÁ C CHI TIẾT RẬP THÔ KỸ THUẬT MAY (GROSS PANEL LOG)")
+        st.markdown("### 📐 DANH MỤC CÁC CHI TIẾT RẬP THÔ KỸ THUẬT MAY (GROSS PANEL LOG)")
         
         panel_records = []
         sewing_seam_allowance = 0.44  # Biên đường may ráp công đoạn 0.44" chuẩn
@@ -250,17 +250,18 @@ if st.session_state.saved_pdf_bytes is not None:
             w_inch = parse_garment_fraction(p.get("width_inch"))
             allowance_note = p.get("added_allowance_for_pleats_or_walls", "0")
 
-            # HIỆU CHỈNH CHU VI RẬP CAD CHỐNG VỌT SỐ (ÁP DỤNG ĐỒNG BỘ QUẦN VÀ ÁO):
-            name_lower = name.lower()
-            if "pant" in category.upper() or "quần" in name_lower:
-                # Đối với Quần: Nếu thông số rộng rập thân (>35 inch) bị bóc trúng cả vòng, bắt buộc chia 4 để ra mảnh rập 1/4 đơn lẻ
-                if any(x in name_lower for x in ["thân trước", "thân sau", "front body", "back body", "panel"]) and w_inch > 35.0:
-                    w_inch = w_inch / 4.0
-                elif w_inch < 15.0 and any(x in name_lower for x in ["thân trước", "thân sau", "front", "back"]):
-                    # Nếu rập đã là 1/4 sẵn, giữ nguyên
-                    pass
+            # CHUẨN HÓA VÀ LÀM SẠCH CHUỖI TOÀN DIỆN CHỐNG LỖI KÝ TỰ VIẾT HOA
+            name_lower = str(name).lower().strip()
+            category_upper = str(category).upper()
+
+            # BỘ LỌC KIỂM TRA CHU VI RẬP PHẲNG:
+            if "PANT" in category_upper or "quần" in name_lower:
+                # Đối với Quần: Nếu thông số rộng rập thân (>28 inch) bị bóc trúng cả vòng hông/mông, bắt buộc chia 4 về mảnh rập 1/4 đơn lẻ
+                if any(x in name_lower for x in ["thân trước", "thân sau", "front", "back", "panel"]):
+                    if w_inch > 28.0:
+                        w_inch = w_inch / 4.0
             else:
-                # Đối với Áo khoác Jacket/Bomber: Thân sau là mảnh lớn chia 2 nếu bóc trúng cả vòng
+                # Đối với Áo khoác Jacket/Bomber: Thân sau là mảnh lớn chia 2 nếu bóc trúng cả vòng chu vi ngực
                 if any(x in name_lower for x in ["thân sau", "back body", "back main"]) and w_inch > 40.0:
                     w_inch = w_inch / 2.0
                 elif w_inch < 35.0 and any(x in name_lower for x in ["thân", "lưng", "cạp", "waist", "hip"]):
@@ -268,7 +269,7 @@ if st.session_state.saved_pdf_bytes is not None:
 
             # Áp dụng công thức rập thô: Cộng biên đường may ráp nối (+0.44" mỗi đầu chi tiết)
             p_length = l_inch + (2 * sewing_seam_allowance)
-            if any(x in name.lower() for x in ["thân", "main", "outseam"]):
+            if any(x in name_lower for x in ["thân", "main", "outseam"]):
                 p_length += hem_allowance
                 
             p_width = w_inch + (2 * sewing_seam_allowance)
@@ -305,9 +306,9 @@ if st.session_state.saved_pdf_bytes is not None:
         has_interlining = any("INTERLINING" in str(m.get("placement")).upper() for m in materials)
         
         if not has_pocketing:
-            materials.append({"placement": "POCKETING", "width_inch": 60.0, "shrinkage_warp": 0.0, "shrinkage_weft": 0.0, "material_name": "TC POCKETING (Vải lót túi)"})
+            materials.append({"placement": "POCKETING", "width_inch": 56.0, "shrinkage_warp": 0.0, "shrinkage_weft": 0.0, "material_name": "TC POCKETING (Vải lót túi)"})
         if not has_interlining:
-            materials.append({"placement": "INTERLINING", "width_inch": 44.0, "shrinkage_warp": 0.0, "shrinkage_weft": 0.0, "material_name": "TRICOT FUSING (Keo lót phôi)"})
+            materials.append({"placement": "INTERLINING", "width_inch": 59.0, "shrinkage_warp": 0.0, "shrinkage_weft": 0.0, "material_name": "TRICOT FUSING (Keo lót phôi)"})
         data["materials_bom"] = materials
 
                  # --- ĐOẠN 2b2a: TRÍCH XUẤT THÔNG SỐ RẬP VÀ ĐỒNG BỘ Ô CHAT AI ---
