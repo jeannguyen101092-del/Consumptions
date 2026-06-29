@@ -192,7 +192,6 @@ if st.session_state.saved_pdf_bytes is not None:
         body_width = 0.0
 
         if "pant" in category:
-            # Nhãn quần thông dụng
             for k in ['outseam', 'total_length', 'inseam', 'length', 'dài quần']:
                 actual_key = next((key for key in poms.keys() if key.lower() == k.lower()), None)
                 if actual_key: body_length = safe_float(poms.get(actual_key)); break
@@ -200,7 +199,6 @@ if st.session_state.saved_pdf_bytes is not None:
                 actual_key = next((key for key in poms.keys() if key.lower() == k.lower()), None)
                 if actual_key: body_width = safe_float(poms.get(actual_key)); break
         else:
-            # Nhãn áo thông dụng (Jacket, Polo, T-shirt, Shirt)
             for k in ['body_length', 'back_length', 'front_length', 'length', 'dài áo']:
                 actual_key = next((key for key in poms.keys() if key.lower() == k.lower()), None)
                 if actual_key: body_length = safe_float(poms.get(actual_key)); break
@@ -209,14 +207,25 @@ if st.session_state.saved_pdf_bytes is not None:
                 if actual_key: body_width = safe_float(poms.get(actual_key)); break
 
         # --- THUẬT TOÁN ĐỊNH MỨC NGHÀNH MAY KỸ THUẬT CAO ---
-        has_user_input = st.session_state.width_inch_override is not None or st.session_state.shrinkage_override is not None
-        
         for mat in materials:
-            # Ghi đè thông số tương tác từ Chatbot NLP
-            if mat.get("placement") == "SHELL":
+            placement_upper = str(mat.get("placement")).upper()
+            
+            # Đồng bộ thông minh: Điền khổ vải tự động nếu file PDF quét ra bị trống (None)
+            if mat.get("width_inch") is None or pd.isna(mat.get("width_inch")) or safe_float(mat.get("width_inch")) == 0:
+                if "SHELL" in placement_upper:
+                    mat["width_inch"] = st.session_state.width_inch_override if st.session_state.width_inch_override else 58.0
+                elif "POCKETING" in placement_upper:
+                    mat["width_inch"] = 60.0
+                elif "INTERLINING" in placement_upper:
+                    mat["width_inch"] = 44.0
+                else:
+                    mat["width_inch"] = 58.0
+
+            # Ghi đè trực tiếp nếu người dùng ra lệnh điều chỉnh riêng qua ô chat
+            if "SHELL" in placement_upper:
                 if st.session_state.width_inch_override: mat["width_inch"] = st.session_state.width_inch_override
                 if st.session_state.shrinkage_override: mat["shrinkage_warp"] = st.session_state.shrinkage_override
-            elif any(x in str(mat.get("placement")).upper() for x in ["INTERLINING", "POCKETING"]):
+            elif any(x in placement_upper for x in ["INTERLINING", "POCKETING"]):
                 chat_content = str(st.session_state.sidebar_chat_history[-1].get("content", "")).lower()
                 if any(x in chat_content for x in ["keo", "mếch", "lót", "phối"]) and st.session_state.width_inch_override:
                     mat["width_inch"] = st.session_state.width_inch_override
@@ -225,19 +234,19 @@ if st.session_state.saved_pdf_bytes is not None:
             s_warp = safe_float(mat.get("shrinkage_warp", 0.0)) / 100.0
             s_weft = safe_float(mat.get("shrinkage_weft", 0.0)) / 100.0
 
-            # NẾU CHƯA NHẬP THÔNG TIN KHỔ VÀI HOẶC FILE KHÔNG CÓ KÍCH THƯỚC -> ĐỂ TRỐNG KHÔNG TỰ TÍNH MẪU LÊN BẢNG
+            # Kiểm tra độc lập từng dòng: Chỉ dòng nào thiếu thông số gốc từ file mới chặn
             if w_inch == 0 or body_length == 0 or body_width == 0:
-                mat["consumption_meter_per_pcs"] = "Đợi gõ thông số khổ vải tại ô chat..."
-                mat["consumption_yard_per_pcs"] = "Đợi gõ thông số khổ vải tại ô chat..."
+                mat["consumption_meter_per_pcs"] = "Thiếu số đo gốc..."
+                mat["consumption_yard_per_pcs"] = "Thiếu số đo gốc..."
             else:
-                # 1. Cộng hao hụt đường may ráp (Ví dụ ráp vai, ráp sườn, ráp ống: trung bình 2 đầu công đoạn = 2 * 0.44")
+                # 1. Cộng hao hụt đường may ráp (+0.44" cho mỗi đầu công đoạn ráp nối)
                 calculated_length = body_length + (2 * sewing_seam_allowance)
                 calculated_width = body_width + (2 * sewing_seam_allowance)
 
                 # 2. Cộng hao hụt phần lai gấu dựa theo trang quy cách may
                 calculated_length += hem_allowance
 
-                # 3. Phân tích cấu trúc Áo: Nếu tà rời, phải tính thêm biên may gập nối tà rời (cộng bù thêm 1 lần 0.44")
+                # 3. Phân tích cấu trúc Áo: Nếu tà rời, cộng bù thêm biên may nối tà (+0.44")
                 if "pant" not in category and is_detached_hem:
                     calculated_length += sewing_seam_allowance
 
@@ -245,12 +254,12 @@ if st.session_state.saved_pdf_bytes is not None:
                 final_length = calculated_length * (1 + s_warp)
                 final_width = calculated_width * (1 + s_weft)
 
-                # 5. Quy đổi diện tích sơ đồ cắt thực tế sang đơn vị Mét (m) + 5% đầu tấm hao hụt biên kỹ thuật đầu cây
+                # 5. Quy đổi diện tích sơ đồ cắt thực tế sang đơn vị Mét (m) + 5% hao hụt đầu cây biên cắt kỹ thuật
                 calc_consumption = (final_length * final_width) / (w_inch * 39.37) * 1.05
                 
-                # Tỷ lệ định mức phụ trợ mếch dán phôi và vải lót túi
-                if "POCKETING" in str(mat.get("placement")).upper(): calc_consumption *= 0.35
-                if "INTERLINING" in str(mat.get("placement")).upper(): calc_consumption *= 0.20
+                # Tỷ lệ định mức phụ trợ mếch dán phôi và vải lót túi so với vải chính
+                if "POCKETING" in placement_upper: calc_consumption *= 0.35
+                if "INTERLINING" in placement_upper: calc_consumption *= 0.20
 
                 mat["consumption_meter_per_pcs"] = round(calc_consumption, 3)
                 mat["consumption_yard_per_pcs"] = round(calc_consumption * 1.09361, 3)
@@ -262,7 +271,6 @@ if st.session_state.saved_pdf_bytes is not None:
         df_bom = df_bom[[c for c in cols_order if c in df_bom.columns]]
         st.dataframe(df_bom, use_container_width=True)
         
-        # In minh chứng thông tin cấu trúc may để người kiểm tra đối chiếu kỹ thuật
         st.info(f"⚙️ **Cấu trúc tính toán ngành may:** Đường ráp nối ráp (+0.44\"), Đường lai gấu (+{hem_allowance}\"), Trạng thái tà áo rời: `{is_detached_hem}`")
     else:
         st.warning("⚠️ AI không thể trích xuất cấu trúc dữ liệu từ file PDF này. Vui lòng kiểm tra lại chất lượng file.")
