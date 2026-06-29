@@ -419,13 +419,13 @@ if st.session_state.saved_pdf_bytes is not None:
 
                 effective_width_inch = w_inch * (1.0 - s_weft)
 
-                       # --- ĐOẠN 2b2: CẤU TRÚC LÕI TOÁN HỌC SƠ ĐỒ CAD RÚT GỌN CHUẨN DENIM ---
+                          # --- ĐOẠN 2b2: CẤU TRÚC LÕI TOÁN HỌC SƠ ĐỒ CAD ĐỒNG BỘ CHAT AI HOÀN CHỈNH ---
         materials = data.get("materials_bom", [])
         bom_debug_log = {}
 
         max_body_length = max([parse_garment_fraction(p.get("length_inch")) for p in panels] or [33.13])
-        max_front_pant = max([parse_garment_fraction(p.get("length_inch")) for p in panels if "trước" in p.get("panel_name", "").lower()] or [45.26])
-        max_back_pant = max([parse_garment_fraction(p.get("length_inch")) for p in panels if "sau" in p.get("panel_name", "").lower()] or [50.76])
+        max_front_pant = max([parse_garment_fraction(p.get("length_inch")) for p in panels if any(x in p.get("panel_name", "").lower() for x in ["trước", "front"])] or [45.26])
+        max_back_pant = max([parse_garment_fraction(p.get("length_inch")) for p in panels if any(x in p.get("panel_name", "").lower() for x in ["sau", "back"])] or [50.76])
         max_sleeve = max([parse_garment_fraction(p.get("length_inch")) for p in panels if "tay" in p.get("panel_name", "").lower()] or [34.88])
 
         chat_history = st.session_state.get("sidebar_chat_history", [])
@@ -463,22 +463,31 @@ if st.session_state.saved_pdf_bytes is not None:
                 v_pocket = safe_float(pocketing_fabric_area) if 'pocketing_fabric_area' in locals() or 'pocketing_fabric_area' in globals() else 0.0
                 v_inter = safe_float(interlining_fabric_area) if 'interlining_fabric_area' in locals() or 'interlining_fabric_area' in globals() else 0.0
 
-                # C. ENGINE TÍNH TOÁN ĐỊNH MỨC THEO MA TRẬN DIỆN TÍCH PHẲNG RẬP THÔ
+                # C. ENGINE TOÁN HỌC SƠ ĐỒ CÔNG NGHIỆP TẬP TRUNG (LOẠI BỎ CHIA DIỆN TÍCH CHO QUẦN)
                 if last_chat:
                     if "PANT" in category.upper():
-                        # --- THUẬT TOÁN SƠ ĐỒ ĐỘNG DIỆN TÍCH QUẦN JEANS/DENIM CÔNG NGHIỆP TỐI ƯU ---
-                        # Vải chính SHELL của quần chạy chuẩn xác theo tổng diện tích tích lũy hình học thực tế chia diện tích khổ cắt hữu dụng
-                        target_area = v_shell
-                        eff, loss = 0.84, 1.045
+                        # --- THUẬT TOÁN ĐỊNH MỨC SƠ ĐỒ QUẦN JEANS/DENIM LỒNG ĐÔI 4 THÂN ---
+                        # Chiều dài sơ đồ thực tế cho 1 chiếc quần Jeans dải phẳng máy tính = Chiều dài cấu phần lớn nhất (Thân sau dài 50.76")
+                        # Cộng thêm biên đường may ráp nối (+0.44" x 2 đầu) và đường lai gấu gấu (hem_allowance)
+                        total_pant_pattern_len = max_back_pant + (2 * sewing_seam_allowance) + hem_allowance
+                        
+                        # Áp dụng tỷ lệ co rút dọc cây vải (Warp Shrinkage = 4%) ảnh hưởng chiều dài bàn cắt
+                        final_pant_len_inch = total_pant_pattern_len * (1.0 + s_warp)
+                        
+                        # Hệ số lồng sơ đồ hiệu suất Quần Jeans (Marker Layout Factor):
+                        # Khổ vải 58" cực kỳ rộng đủ dải xếp vừa cả 4 mảnh thân song song đan xen sườn đùi hông ngược đầu.
+                        # Do co ngang lớn (15%), hệ số dải rập tính gộp đầu bàn và đai cạp túi đắp dao động từ 1.16 đến 1.20
+                        marker_pant_factor = 1.185 if effective_width <= 52.0 else 1.160
+                        
+                        # Quy đổi chiều dài inch sơ đồ sang đơn vị Mét dài thực tế cây vải + biên hao cắt kỹ thuật đầu cây
+                        calc_consumption = ((final_pant_len_inch * marker_pant_factor) / 39.37) * 1.035
                         
                         if "POCKETING" in placement: 
-                            calc_consumption = round(((max_back_pant) / 39.37) * 0.21, 3); target_area = v_pocket; eff, loss = 0.86, 1.02
+                            calc_consumption = round((max_back_pant / 39.37) * 0.21, 3); target_area = v_pocket; eff, loss = 0.86, 1.02
                         elif "INTERLINING" in placement: 
-                            calc_consumption = round(((max_back_pant) / 39.37) * 0.09, 3); target_area = v_inter; eff, loss = 0.88, 1.02
+                            calc_consumption = round((max_back_pant / 39.37) * 0.09, 3); target_area = v_inter; eff, loss = 0.88, 1.02
                         else:
-                            if target_area > 0 and effective_width > 0:
-                                m_len = (target_area * (1.0 + s_warp)) / effective_width
-                                calc_consumption = (m_len / 39.37) / eff * loss
+                            target_area, eff, loss = v_shell, 0.84, 1.035
                     else:
                         # --- THUẬT TOÁN ÁO BOMBER JACKET THEO CHIỀU DÀI GỐC ---
                         if "SHELL" in placement:
@@ -501,10 +510,6 @@ if st.session_state.saved_pdf_bytes is not None:
                     mat["consumption_yard_per_pcs"] = "Chờ lệnh AI..."
                     mat["width_inch"], mat["shrinkage_warp"], mat["shrinkage_weft"] = "-", "-", "-"
                     continue
-
-                if calc_consumption == 0.0 and target_area > 0 and effective_width > 0:
-                    m_len = (target_area * (1.0 + s_warp)) / effective_width
-                    calc_consumption = (m_len / 39.37) / eff * loss
 
                 mat["consumption_meter_per_pcs"] = round(calc_consumption, 3)
                 mat["consumption_yard_per_pcs"] = round(calc_consumption * 1.09361, 3)
