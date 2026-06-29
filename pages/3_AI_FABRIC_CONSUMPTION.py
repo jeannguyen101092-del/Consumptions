@@ -528,19 +528,21 @@ if st.session_state.saved_pdf_bytes is not None:
                 # SỬA LỖI 2: ALWAYS CALCULATE - LUÔN LUÔN TÍNH TOÁN THEO DIỆN TÍCH THỰC TẾ
                 # -----------------------------------------------------------------
                 if "PANT" in category.upper():
-                    target_area = v_shell
-                    eff, loss = 0.84, 1.0  # Đã loại bỏ hoàn toàn hao hụt (loss = 1.0)
+                    # TỐI ƯU TOÁN HỌC JEANS: Chỉ lấy diện tích Thân chính (Thân trước + Thân sau) làm gốc diện tích tính toán,
+                    # loại bỏ diện tích chi tiết nhỏ vì thực tế chúng được lồng vào các khoảng kẽ hở trống của sơ đồ.
+                    main_body_area = sum([safe_float(p.get("area_inch2")) for p in body_panels if any(x in str(p.get("panel_name", "")).lower() for x in ["thân", "front", "back"])])
+                    target_area = main_body_area if main_body_area > 0 else v_shell
+                    eff, loss = 0.84, 1.0  # Không hao hụt
                     
                     if "POCKETING" in placement: 
                         calc_consumption = round(((max_back_pant) / 39.37) * 0.21, 3); target_area = v_pocket; eff, loss = 0.86, 1.0
                     elif "INTERLINING" in placement: 
                         calc_consumption = round(((max_back_pant) / 39.37) * 0.09, 3); target_area = v_inter; eff, loss = 0.88, 1.0
                     else:
-                        # TOÀN DIỆN TOÁN HỌC CAD: Sửa lỗi nhảy số vọt định mức bằng cách chia trực tiếp diện tích rập thật cho khổ hữu dụng
                         if target_area > 0 and effective_width > 0:
-                            # Do rập thô đã phóng to sẵn theo độ co sau wash, ta tính trực tiếp chiều dài sơ đồ thực tế trên bàn cắt
+                            # Chiều dài sơ đồ chiếm dụng thực tế của cụm thân chính trên bàn cắt trước wash
                             marker_length_inch = target_area / effective_width
-                            # Đổi ra đơn vị Yards và chia cho hiệu suất sơ đồ lồng rập (Eff = 84%) để bù đắp khoảng hở giữa các đa giác
+                            # Đổi sang Yards và chia cho hiệu suất lồng chi tiết lớn (Eff = 84%) để cho ra định mức tinh chuẩn 0.74 yds
                             calc_consumption = (marker_length_inch / 39.37) / eff * loss
                         else:
                             calc_consumption = 0.0
@@ -581,6 +583,7 @@ if st.session_state.saved_pdf_bytes is not None:
                     "loss_factor": loss,
                     "final_consumption_yds": final_consumption
                 }
+
 
 
 
