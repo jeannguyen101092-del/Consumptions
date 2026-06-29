@@ -128,6 +128,7 @@ for msg in st.session_state.sidebar_chat_history:
     if msg["role"] == "user": update_config_from_text(msg["content"])
 
 # =====================================================================
+# =====================================================================
 # MAIN PANEL INTERFACE
 # =====================================================================
 st.subheader("📁 BƯỚC 1: TẢI TÀI LIỆU KỸ THUẬT SẢN XUẤT (TECHPACK / BOM)")
@@ -154,9 +155,9 @@ if st.session_state.saved_pdf_bytes is not None:
         
         default_width = 56.0
         default_shrink_l = 5.0
-        default_shrink_w = 3.0
+        default_shrink_w = 15.0
         
-                # Kiểm tra kiểu dữ liệu an toàn để tránh lỗi sập hệ thống ngầm và sai chính tả
+        # Kiểm tra kiểu dữ liệu an toàn để tránh lỗi sập hệ thống ngầm và sai chính tả
         if isinstance(bom_data, dict):
             materials_list = bom_data.get("materials_bom", [])
             category_extracted = bom_data.get("category", "pant")
@@ -183,9 +184,9 @@ if st.session_state.saved_pdf_bytes is not None:
         
         st.info(f"🎯 **AI đã thực thi thuật toán CAD thành công:** Khổ vải tính toán: **{active_width} Inch** | Độ co rút áp dụng: **L {active_shrink_l}% / W {default_shrink_w}%**")
             
-        # Sửa chữ n thành chữ m ở dòng gọi hàm dưới đây để khớp biến đồng bộ
+        # Áp dụng bộ nhảy mẫu hình học động từ Parametric CAD Engine - Sửa chuẩn biến chữ m và extracted
         net_geometry_areas = GarmentCADCoreEngine.apply_rule_table_grading(category_extracted, spec_pom_extracted)
-
+        
         table_rows = []
         if isinstance(materials_list, list):
             for material in materials_list:
