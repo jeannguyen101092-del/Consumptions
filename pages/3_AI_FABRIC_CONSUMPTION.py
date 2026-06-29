@@ -303,7 +303,7 @@ if st.session_state.saved_pdf_bytes is not None:
 
         df_panels = pd.DataFrame(panel_records)
         st.dataframe(df_panels, use_container_width=True, hide_index=True)
-        # --- ĐOẠN 2b2: TOÁN HỌC SƠ ĐỒ CÔNG NGHIỆP CỘNG DỒN CHI TIẾT RẬP VÀ ĐỔ BẢNG BOM ---
+               # --- ĐOẠN 2b2: TOÁN HỌC SƠ ĐỒ CÔNG NGHIỆP CỘNG DỒN CHI TIẾT RẬP VÀ ĐỔ BẢNG BOM ---
         materials = data.get("materials_bom", [])
         
         for mat in materials:
@@ -332,18 +332,15 @@ if st.session_state.saved_pdf_bytes is not None:
             if "SHELL" in placement_upper and st.session_state.shrinkage_override:
                 s_warp = st.session_state.shrinkage_override / 100.0
 
-            # THUẬT TOÁN ĐỊNH MỨC SƠ ĐỒ BÀN CẮT (MARKER CAD PLOTTER) BASED ON PANEL AREA:
+            # THUẬT TOÁN ĐỊNH MỨC SƠ ĐỒ BÀN CẮT BASED ON PANEL AREA:
             if total_garment_fabric_area > 0:
                 # 1. Nhân hệ số co rút cơ học cho diện tích rập tổng hợp (Phình rập theo warp và weft)
                 final_fabric_area_sq_inch = total_garment_fabric_area * (1 + s_warp) * (1 + s_weft)
                 
                 # 2. Quy đổi diện tích chi tiết rập chiếm dụng sang số mét chiều dài của cây vải:
-                # Chiều dài mét = (Tổng diện tích inch vuông / Khổ vải inch) / 39.37 inch_per_meter
                 base_consumption_meter = (final_fabric_area_sq_inch / w_inch) / 39.37
                 
                 # 3. Áp dụng Hiệu suất đi sơ đồ bàn cắt công nghiệp (Marker Efficiency Factor):
-                # Các chi tiết rập cong, góc nhọn đan xen đầu đuôi luôn có khoảng trống hao hụt (vải vụn đầu tấm).
-                # Tiêu chuẩn định mức bàn cắt xưởng may: Hiệu suất đạt 84% diện tích cây vải (chia cho 0.84)
                 calc_consumption = base_consumption_meter / 0.84
                 
                 # 4. Cộng thêm đầu cây hao hụt biên lỗi cắt kỹ thuật đầu cây (5%)
@@ -351,9 +348,9 @@ if st.session_state.saved_pdf_bytes is not None:
                 
                 # Gán định mức riêng biệt cho các vị trí phụ trợ lót túi và mếch theo tiêu chuẩn ngành may
                 if "POCKETING" in placement_upper: 
-                    calc_consumption = 0.25  # Định mức lót túi quần Jeans mặc định tiêu chuẩn xưởng
+                    calc_consumption = 0.25  
                 elif "INTERLINING" in placement_upper: 
-                    calc_consumption = 0.12  # Định mức keo mếch lót cạp/lưng mặc định tiêu chuẩn xưởng
+                    calc_consumption = 0.12  
 
                 mat["consumption_meter_per_pcs"] = round(calc_consumption, 3)
                 mat["consumption_yard_per_pcs"] = round(calc_consumption * 1.09361, 3)
@@ -369,10 +366,9 @@ if st.session_state.saved_pdf_bytes is not None:
         df_bom = df_bom[[c for c in cols_order if c in df_bom.columns]]
         st.dataframe(df_bom, use_container_width=True)
         
-        # Băng thông báo thông số trắc địa minh chứng cấu trúc rập
-        st.info(f"⚙️ **Lõi Sơ đồ CAD Tích lũy:** Tổng diện tích hình học rập dải phẳng (thân+lưng+túi+đáp) có cộng biên may ráp ráp (+0.44\"): `{round(total_garment_fabric_area, 2)} inch²`. Hiệu suất đi sơ đồ thực tế xưởng: `84.0%`")
+        # SỬA LỖI TẠI ĐÂY: Xóa bỏ hoàn toàn ký tự mũ 2 đặc biệt, viết chữ inch vuông thuần túy
+        st.info(f"⚙️ **Lõi Sơ đồ CAD Tích lũy:** Tổng diện tích hình học rập dải phẳng (thân+lưng+túi+đáp) có cộng biên may ráp ráp (+0.44\"): `{round(total_garment_fabric_area, 2)} inch vuong`. Hieu suat di so do thuc te xuong: `84.0%`")
     else:
         st.warning("⚠️ AI không thể trích xuất cấu trúc dữ liệu từ file PDF này. Vui lòng kiểm tra lại chất lượng file.")
 else:
     st.info("💡 Vui lòng tải một file PDF Techpack lên để hệ thống phân tích hình học đa giác.")
-PDF Techpack lên để hệ thống phân tích hình học đa giác.")
