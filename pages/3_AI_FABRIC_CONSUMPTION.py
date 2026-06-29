@@ -562,3 +562,53 @@ if st.session_state.saved_pdf_bytes is not None:
                     "loss_factor": loss,
                     "final_consumption_yds": final_consumption
                 }
+# --- ĐOẠN 2b3: STREAMLIT BOM INTERFACE RENDERER & EXCEL EXPORTER ---
+        import pandas as pd
+        import io
+
+        if bom_debug_log:
+            st.markdown("### 📊 BẢNG ĐỊNH MỨC VẬT LIỆU CHI TIẾT (BOM CONSUMPTION)")
+            
+            # Chuyển đổi dictionary log sang cấu trúc list để tạo bảng dữ liệu sạch
+            bom_display_data = []
+            for position, details in bom_debug_log.items():
+                bom_display_data.append({
+                    "Vị trí (Placement)": position,
+                    "Tên nguyên liệu": details["material_name"],
+                    "Khổ vải (Inch)": details["width_inch"],
+                    "Khổ hữu dụng (Inch)": details["effective_width"],
+                    "Co dọc (%)": details["shrinkage_warp"],
+                    "Co ngang (%)": details["shrinkage_weft"],
+                    "Diện tích rập (Inch²)": details["target_area_inch2"],
+                    "Hiệu suất sơ đồ (Eff)": details["efficiency"],
+                    "Hao hụt (Loss)": details["loss_factor"],
+                    "Định mức cuối (Yds)": details["final_consumption_yds"]
+                })
+            
+            # Hiển thị bảng dạng DataFrame trực quan trên giao diện
+            df_bom = pd.DataFrame(bom_display_data)
+            st.dataframe(df_bom, use_container_width=True)
+
+            # --- XỬ LÝ ĐẨY DỮ LIỆU SANG FILE EXCEL BIẾN BUFFER RE-DOWNLOAD ---
+            try:
+                # Trích xuất mã sản phẩm từ biến data để đặt tên file tự động
+                style_code = str(data.get("style_code", "BOM_Dinh_Muc")).strip()
+                excel_filename = f"BOM_{style_code}.xlsx"
+
+                # Khởi tạo luồng bytes độc lập lưu file Excel trong RAM
+                buffer = io.BytesIO()
+                with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
+                    df_bom.to_excel(writer, index=False, sheet_name="BOM Consumption")
+                
+                # Trả con trỏ luồng về đầu tệp để chuẩn bị cho Streamlit Download
+                buffer.seek(0)
+
+                # Render nút bấm Download Excel lên thanh Action UI
+                st.download_button(
+                    label="📥 Xuất bảng định mức ra file Excel (XLSX)",
+                    data=buffer,
+                    file_name=excel_filename,
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
+            except Exception as ex:
+                st.warning(f"Lưu ý: Không thể khởi tạo nút tải Excel do thiếu thư viện phụ trợ (xlsxwriter): {str(ex)}")
