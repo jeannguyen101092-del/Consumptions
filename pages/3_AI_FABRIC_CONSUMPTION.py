@@ -63,7 +63,6 @@ def update_config_from_text(text: str):
                     if isinstance(mat, dict) and mat.get("placement") == "SHELL":
                         mat["shrinkage_weft"] = float(co_w_match.group(1))
 
-
 def safe_float(val, default=0.0) -> float:
     """Hàm xử lý kiểu dữ liệu an toàn chặn đứng mọi lỗi gãy mảng của AI"""
     if val is None: return default
@@ -72,99 +71,8 @@ def safe_float(val, default=0.0) -> float:
         return default
     try: return float(val)
     except (ValueError, TypeError): return default
-
 # =====================================================================
-# CORE ENGINE: TRUE GEOMETRIC VECTOR CAD ENGINE (SỬA LỖI ĐỒNG BỘ ĐƠN VỊ)
-# =====================================================================
-class GarmentCADCoreEngine:
-    """Lõi CAD Thương mại: Dựng rập Net phẳng và phóng đại hình học đa giác theo ma trận độ co 2 chiều"""
-    
-    @staticmethod
-    def calculate_vector_consumption(category: str, pom: dict, config: dict) -> dict:
-        if not isinstance(pom, dict): pom = {}
-        
-        # 1. BIẾN THÔNG SỐ VẬT LÝ CO RÚT (PHYSICS FACTOR MATRIX)
-        shrink_warp = 1.0 + (safe_float(config.get("shrinkage_warp", 5.0), 5.0) / 100)
-        shrink_weft = 1.0 + (safe_float(config.get("shrinkage_weft", 15.0), 15.0) / 100)
-        
-        # 2. KHỞI TẠO TỌA ĐỘ ĐA GIÁC VECTOR TRÊN HỆ MÉT ĐỒNG BỘ (ĐƠN VỊ: CENTIMET)
-        if any(k in str(category).lower() for k in ["pant", "shorts", "jeans"]):
-            # Ép kiểm tra giá trị POM thô. Nếu thông số bị nhỏ (hệ inch), tự động nhân 2.54 để đưa về hệ cm chuẩn
-            L_raw = safe_float(pom.get("body_length", pom.get("outseam", 102.0)), 102.0)
-            L = L_raw if L_raw > 45.0 else L_raw * 2.54
-            
-            W_raw = safe_float(pom.get("waist_width", 42.0), 42.0) / 2
-            W = W_raw if W_raw > 25.0 else W_raw * 2.54
-            
-            H_raw = safe_float(pom.get("hip_width", 54.0), 54.0) / 2
-            H = H_raw if H_raw > 30.0 else H_raw * 2.54
-            
-            T_raw = safe_float(pom.get("thigh_width", 35.0), 35.0)
-            T = T_raw if T_raw > 20.0 else T_raw * 2.54
-            
-            O_raw = safe_float(pom.get("leg_opening", 24.0), 24.0)
-            O = O_raw if O_raw > 15.0 else O_raw * 2.54
-            
-            R_raw = safe_float(pom.get("front_rise", 32.0), 32.0)
-            R = R_raw if R_raw > 15.0 else R_raw * 2.54
-            
-            # Dựng cấu trúc đa giác phẳng rập thân trước quần Baggy Jeans (cm)
-            front_net_poly = Polygon([
-                (0, 0), (O, 0), (H + 3.0, L - R), (W, L), (0, L), (0, L - R + 5.0), (T - O, L - R)
-            ])
-            # Dựng cấu trúc đa giác phẳng rập thân sau quần Baggy Jeans (cm)
-            back_net_poly = Polygon([
-                (0, 0), (O * 1.12, 0), ((H + 6.0) * 1.15, L - R + 2.0), (W * 1.08, L + 4.5), 
-                (0, L + 3.5), (0, L - R + 1.0), ((T * 1.18) - O, L - R)
-            ])
-            
-            # BIẾN HÌNH HÌNH HỌC VECTOR (SCALE TRANSFORMATION): Phóng đại trực tiếp đỉnh tọa độ theo trục X và Y
-            front_gross_poly = affine.scale(front_net_poly, xfact=shrink_weft, yfact=shrink_warp, origin=(0,0))
-            back_gross_poly = affine.scale(back_net_poly, xfact=shrink_weft, yfact=shrink_warp, origin=(0,0))
-            
-            # Tính toán tổng diện tích thô bao gồm cả dôi dư 9% đường may Seam Allowance công nghiệp (cm2)
-            total_gross_area = (front_gross_poly.area * 2.0 + back_gross_poly.area * 2.0) * 1.09
-            base_efficiency = 0.84
-            
-        else:
-            # Luồng xử lý đồng bộ đơn vị mét cho rập Áo
-            chest_raw = safe_float(pom.get("chest_width", 54.0), 54.0) / 2
-            chest = chest_raw if chest_raw > 30.0 else chest_raw * 2.54
-            length_raw = safe_float(pom.get("body_length", 72.0), 72.0)
-            length = length_raw if length_raw > 40.0 else length_raw * 2.54
-            shoulder_raw = safe_float(pom.get("shoulder_width", 44.0), 44.0) / 2
-            shoulder = shoulder_raw if shoulder_raw > 20.0 else shoulder_raw * 2.54
-            bicep_raw = safe_float(pom.get("bicep_width", 22.0), 22.0)
-            bicep = bicep_raw if bicep_raw > 15.0 else bicep_raw * 2.54
-            sleeve_len_raw = safe_float(pom.get("sleeve_length", 64.0), 64.0)
-            sleeve_len = sleeve_len_raw if sleeve_len_raw > 35.0 else sleeve_len_raw * 2.54
-            s_opening_raw = safe_float(pom.get("sleeve_opening", 14.5), 14.5)
-            s_opening = s_opening_raw if s_opening_raw > 9.0 else s_opening_raw * 2.54
-            ah_straight_raw = safe_float(pom.get("armhole_straight", 24.0), 24.0)
-            ah_straight = ah_straight_raw if ah_straight_raw > 15.0 else ah_straight_raw * 2.54
-            
-            front_net_poly = Polygon([(0, 0), (chest, 0), (chest, length - ah_straight), (shoulder, length - 4.0), (7.5 * 2.54, length), (0, length - 8.5 * 2.54)])
-            sleeve_net_poly = Polygon([(0, 0), (s_opening, 0), (bicep, sleeve_len - (ah_straight * 0.65)), (0, sleeve_len)])
-            
-            front_gross_poly = affine.scale(front_net_poly, xfact=shrink_weft, yfact=shrink_warp, origin=(0,0))
-            sleeve_gross_poly = affine.scale(sleeve_net_poly, xfact=shrink_weft, yfact=shrink_warp, origin=(0,0))
-            
-            total_gross_area = (front_gross_poly.area * 2.0 + (front_gross_poly.area * 1.03) + sleeve_gross_poly.area * 2.0) * 1.08
-            base_efficiency = 0.81 if "jacket" in str(category).lower() else 0.85
-            
-        # 3. TRUE MARKER SIMULATION: Đồng bộ đơn vị đo lường bàn cắt hệ centimet trước khi chia đổi sang Yards
-        width_inch = config.get("width_inch", 58.0)
-        width_cm = safe_float(width_inch, 58.0) * 2.54
-        
-        marker_length_cm = (total_gross_area / base_efficiency) / width_cm
-        consumption_yds = marker_length_cm / 91.44
-        
-        return {
-            "efficiency_predicted": round(base_efficiency * 100, 1),
-            "consumption_yds": round(consumption_yds, 2)
-        }
-# =====================================================================
-# AI GEMINI VISION PDF PARSER
+# ĐOẠN 2a: AI GEMINI VISION PDF PARSER VÀ HỘI THOẠI SIDEBAR CHAT
 # =====================================================================
 @st.cache_data(show_spinner=False)
 def ai_gemini_vision_pdf_parser(pdf_file_name, pdf_bytes) -> dict:
@@ -231,9 +139,8 @@ if user_prompt:
     st.session_state.sidebar_chat_history.append({"role": "user", "content": user_prompt})
     update_config_from_text(user_prompt)
     st.rerun()
-
 # =====================================================================
-# MAIN PANEL INTERFACE
+# ĐOẠN 2b: GIAO DIỆN CHÍNH, ĐỒNG BỘ ĐƠN VỊ VÀ ĐỔ BẢNG VECTOR CAD
 # =====================================================================
 st.subheader("📁 BƯỚC 1: TẢI TÀI LIỆU KỸ THUẬT SẢN XUẤT (TECHPACK / BOM)")
 uploaded_file = st.file_uploader("Kéo và thả file PDF Techpack hoặc bảng BOM của bạn vào đây", type=["pdf"])
