@@ -17,11 +17,12 @@ st.title("📊 TRỢ LÝ ĐỊNH MỨC NGUYÊN PHỤ LIỆU TỰ ĐỘNG (BOM)")
 st.caption("Cấu trúc lõi 13-Engine CAD/AI - Kết nối Gemini AI phân tích Techpack PDF và tính toán định mức đa lớp")
 st.markdown("---")
 
-# Khởi tạo bộ nhớ đệm an toàn
+# Khởi tạo bộ nhớ đệm an toàn tuyệt đối không bị đặt lại khi trang tải lại
 if "width_inch" not in st.session_state: st.session_state.width_inch = None
 if "shrinkage_l" not in st.session_state: st.session_state.shrinkage_l = 5.0
 if "shrinkage_w" not in st.session_state: st.session_state.shrinkage_w = 5.0
 if "is_calculated" not in st.session_state: st.session_state.is_calculated = False
+if "parsed_styles" not in st.session_state: st.session_state.parsed_styles = None  # Khóa dữ liệu bảng PDF tại đây
 if "sidebar_chat_history" not in st.session_state:
     st.session_state.sidebar_chat_history = [
         {"role": "assistant", "content": "Xin chào! Đã cấu hình bộ não AI Gemini. Vui lòng tải file PDF lên để quét mã, sau đó nhập thông số vải để tính định mức."}
@@ -32,7 +33,7 @@ def update_config_from_text(text: str):
     if not text: return
     text_lower = text.lower()
     
-    width_match = re.search(r'(?:khổ|width|vải|đm khổ)\s*(\d+)', text_lower)
+    width_match = re.search(r'(?:khổ|width|vải|đm khổ|khổ vải)\s*(\d+)', text_lower)
     if width_match: 
         st.session_state.width_inch = float(width_match.group(1))
         st.session_state.is_calculated = True
@@ -43,8 +44,6 @@ def update_config_from_text(text: str):
     co_w_match = re.search(r'(?:co ngang|co w|ngang)\s*(\d+)', text_lower)
     if co_w_match: st.session_state.shrinkage_w = float(co_w_match.group(1))
 
-# Khóa chặt file PDF bằng bộ nhớ cache dữ liệu của Streamlit
-@st.cache_data(show_spinner=False)
 def ai_gemini_pdf_parser(pdf_file_name, pdf_bytes) -> list:
     """Đọc tệp tin PDF và chuyển giao toàn bộ nội dung sang Gemini để phân tích ngữ nghĩa dệt may"""
     try:
@@ -75,7 +74,7 @@ def ai_gemini_pdf_parser(pdf_file_name, pdf_bytes) -> list:
             if "||" in line:
                 parts = [p.strip() for p in line.split("||")]
                 if len(parts) >= 4:
-                    results.append({"style": parts[0], "desc": parts[1], "cat": parts[2], "note": parts[3]})
+                    results.append({"style": parts, "desc": parts, "cat": parts, "note": parts})
         if results: return results
     except Exception as e:
         pass
@@ -114,21 +113,21 @@ class GarmentCADCoreEngine:
             "total": round(shell_yds + (shell_yds * 0.82) + 0.37, 2)
         }
 # =====================================================================
-# ĐOẠN 2: SIDEBAR CHAT (TÍCH HỢP NÚT XÓA CHAT) VÀ BẢNG HIỂN THỊ
+# ĐOẠN 2: SIDEBAR CHAT VÀ CƠ CHẾ KHÓA BẢNG ĐỊNH MỨC CỐ ĐỊNH (PERSISTENT UI)
 # =====================================================================
 
 # 1. Quản lý tương tác phòng kỹ thuật qua ô Chatbot AI ở Sidebar
 with st.sidebar:
     st.header("💬 TRỢ LÝ SẢN XUẤT AI")
     
-    # NÚT XÓA LỊCH SỬ CHAT VÀ RESET TRẠNG THÁI BẢNG TÍNH
+    # NÚT XÓA LỊCH SỬ CHAT VÀ RESET TRẠNG THÁI BẢNG TÍNH (GIỮ LẠI BẢNG CHỈ RESET SỐ CỘT SỐ)
     if st.button("🗑️ Xóa lịch sử & Reset định mức", use_container_width=True):
         st.session_state.width_inch = None
         st.session_state.shrinkage_l = 5.0
         st.session_state.shrinkage_w = 5.0
         st.session_state.is_calculated = False
         st.session_state.sidebar_chat_history = [
-            {"role": "assistant", "content": "Xin chào! Lịch sử chat đã được làm sạch và bảng định mức đã được đưa về trạng thái trống (0.00). Vui lòng nhập thông số mới để tính toán."}
+            {"role": "assistant", "content": "Lịch sử chat đã được làm sạch và bảng định mức đã được đưa về trạng thái trống (0.00). Vui lòng nhập thông số mới."}
         ]
         st.rerun()
         
@@ -145,9 +144,11 @@ with st.sidebar:
 
 if user_prompt:
     st.session_state.sidebar_chat_history.append({"role": "user", "content": user_prompt})
-    # Kích hoạt bộ phân tích NLP để cập nhật và khóa thông số vào bộ nhớ vĩnh viễn
     update_config_from_text(user_prompt)
     st.rerun()
+
+for msg in st.session_state.sidebar_chat_history:
+    if msg["role"] == "user": update_config_from_text(msg["content"])
 
 # =====================================================================
 # MAIN PANEL INTERFACE
@@ -155,13 +156,14 @@ if user_prompt:
 st.subheader("📁 BƯỚC 1: TẢI TÀI LIỆU KỸ THUẬT SẢN XUẤT (TECHPACK / BOM)")
 uploaded_file = st.file_uploader("Kéo và thả file PDF Techpack hoặc bảng BOM của bạn vào đây", type=["pdf"])
 
+# Nếu người dùng tải file mới lên, kích hoạt bộ não Gemini quét dữ liệu và khóa vào Session State
 if uploaded_file is not None:
-    st.success(f"✔️ Đã tải tệp tin: {uploaded_file.name} | Bộ não AI Gemini đang bóc tách nội dung...")
-    
-    # Đọc file ra luồng bytes để truyền an toàn vào hàm Cache chống quét lại nhiều lần
     pdf_bytes = uploaded_file.read()
-    parsed_styles_from_pdf = ai_gemini_pdf_parser(uploaded_file.name, pdf_bytes)
-    
+    st.session_state.parsed_styles = ai_gemini_pdf_parser(uploaded_file.name, pdf_bytes)
+
+# BẢNG CHỈ CẦN HIỂN THỊ NẾU BỘ NHỚ ĐỆM ĐÃ CÓ DỮ LIỆU (GIÚP KHÔNG BỊ MẤT KHI CHAT)
+if st.session_state.parsed_styles is not None:
+    st.success("✔️ Đã bóc tách thông tin cấu trúc mã hàng từ tệp tin PDF thành công.")
     st.markdown("---")
     st.subheader("📋 BƯỚC 2: BẢNG KẾT QUẢ ĐỊNH MỨC MỌI BỘ TRẢ VỀ TỪ AI")
     
@@ -175,10 +177,8 @@ if uploaded_file is not None:
         st.warning("⚠️ **Trạng thái:** Chờ nhận lệnh thông số từ phòng kỹ thuật qua ô Chat (Sidebar) để thực thi tính toán các cột định mức.")
     
     table_rows = []
-    for item in parsed_styles_from_pdf:
-        # Gọi lõi tính toán độc lập. Nếu chưa kích hoạt chat thông số, kết quả tự động trả về 0.00
+    for item in st.session_state.parsed_styles:
         res = GarmentCADCoreEngine.calculate_matrix_consumption(item["cat"])
-        
         comp_desc = "Puffer jacket" if "jacket" in item["cat"] else ("Pant/Jeans" if "pant" in item["cat"] else "Raincoat/Vest")
         
         table_rows.append({
@@ -199,10 +199,8 @@ if uploaded_file is not None:
         })
         
     df_matrix = pd.DataFrame(table_rows)
-    # Kết xuất ma trận bảng lớn ra toàn màn hình chính
     st.dataframe(df_matrix, use_container_width=True, height=380)
     
-    # Chỉ cho phép xuất file báo cáo nếu các cột số liệu định mức đã được tính toán xong
     if st.session_state.is_calculated:
         st.download_button(
             label="📥 Xuất File Định Mức Sản Xuất (CSV)",
