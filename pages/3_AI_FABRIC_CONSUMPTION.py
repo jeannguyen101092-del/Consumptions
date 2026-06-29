@@ -432,10 +432,10 @@ if st.session_state.saved_pdf_bytes is not None:
                 cat_upper = str(category).upper()
 
                 if "PANT" in cat_upper:
-                    # --- THUẬT TOÁN ĐỊNH MỨC QUẦN (JEANS, KHAKI, TROUSERS...) ---
+                    # --- THUẬT TOÁN ĐỊNH MỨC QUẦN DÀI (DIỆN TÍCH THỰC TẾ 1 SẢN PHẨM KHÔNG CHIA ĐÔI) ---
                     main_body_area = sum([safe_float(p.get("area_inch2")) for p in body_panels if any(x in str(p.get("panel_name", "")).lower() for x in ["thân", "front", "back"])])
                     target_area = main_body_area if main_body_area > 10.0 else v_shell
-                    eff = 0.82  # Gerber/Lectra industrial efficiency baseline cho phom lồng quần
+                    eff = 0.82  # Hiệu suất sơ đồ tinh chuẩn Gerber cho phom quần Jeans
                     
                     if "POCKETING" in placement: 
                         calc_consumption = round(((max_back_pant) / 39.37) * 0.21, 3); target_area = v_pocket; eff = 0.86
@@ -444,14 +444,14 @@ if st.session_state.saved_pdf_bytes is not None:
                     else:
                         if target_area > 0 and effective_width > 0:
                             marker_length_inch = target_area / effective_width
-                            # Chia 2 vì tổng diện tích đầu vào chứa số lượng SL=2 (Cặp chi tiết trái/phải)
-                            calc_consumption = ((marker_length_inch / 39.37) / eff * loss) / 2.0
+                            # SỬA DỨT ĐIỂM: Bỏ chia đôi, tính chuẩn xác 100% không gian chiếm chỗ của một chiếc quần dài hoàn chỉnh
+                            calc_consumption = (marker_length_inch / 39.37) / eff * loss
                         else: calc_consumption = 0.0
 
                 elif any(x in cat_upper for x in ["JACKET", "BOMBER", "COAT"]):
                     # --- THUẬT TOÁN ĐỊNH MỨC ÁO KHOÁC (JACKET, BOMBER...) ---
                     target_area = v_shell
-                    eff = 0.85  # Hiệu suất sơ đồ tinh cho áo khoác dày chi tiết lớn
+                    eff = 0.85  
                     
                     if "POCKETING" in placement:
                         calc_consumption = round(((max_body_length + max_sleeve) / 39.37) * 0.22, 3); target_area = v_pocket; eff = 0.86
@@ -463,14 +463,13 @@ if st.session_state.saved_pdf_bytes is not None:
                     else:
                         if target_area > 0 and effective_width > 0:
                             marker_length_inch = target_area / effective_width
-                            # Áo khoác có kết cấu thân trước x2, thân sau x1, tay x2 độc lập nên tính trực tiếp theo cụm diện tích
                             calc_consumption = (marker_length_inch / 39.37) / eff * loss
                         else: calc_consumption = 0.0
 
                 else:
-                    # --- THUẬT TOÁN ĐỊNH MỨC CHO CÁC DÒNG HÀNG CÒN LẠI (SHIRT, T-SHIRT, HOODIE, POLO...) ---
+                    # --- THUẬT TOÁN ĐỊNH MỨC CHO CÁC DÒNG HÀNG CÒN LẠI (SHIRT, T-SHIRT, HOODIE...) ---
                     target_area = v_shell
-                    eff = 0.88  # Sơ đồ dệt kim/sơ mi vuông vắn, hiệu suất sơ đồ tinh Gerber đạt tới 88%
+                    eff = 0.88  
                     
                     if "POCKETING" in placement:
                         calc_consumption = round((max_body_length / 39.37) * 0.12, 3); target_area = v_pocket; eff = 0.86
