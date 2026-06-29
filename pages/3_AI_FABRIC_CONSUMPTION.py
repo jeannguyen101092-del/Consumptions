@@ -199,6 +199,7 @@ for item in mock_production_db:
 df_matrix = pd.DataFrame(table_rows)
 
 # Render bảng ma trận định mức lớn lên trung tâm màn hình, có dải màu gradient ở cột Tổng số lượng
+# Render bảng ma trận định mức lớn lên trung tâm màn hình, có dải màu gradient ở cột Tổng số lượng
 st.dataframe(
     df_matrix.style.format({
         "Shell/Main Fabric Net (yds/pc)": "{:.2f}",
@@ -208,6 +209,7 @@ st.dataframe(
     use_container_width=True,
     height=420
 )
+
 
 # Nút cho phép người dùng trích xuất dữ liệu nhanh về máy tính dưới dạng file CSV/Excel
 st.download_button(
