@@ -552,3 +552,25 @@ if st.session_state.saved_pdf_bytes is not None:
                     "loss_factor": loss,
                     "final_consumption_yds": final_consumption
                 }
+        # --- ĐOẠN 2b3: HIỂN THỊ BẢNG ĐỊNH MỨC VẬT LIỆU (BOM) LÊN GIAO DIỆN STREAMLIT ---
+        if bom_debug_log:
+            st.markdown("### 📊 BẢNG ĐỊNH MỨC VẬT LIỆU CHI TIẾT (BOM CONSUMPTION)")
+            
+            # Chuyển đổi dictionary log sang cấu trúc list để tạo bảng dữ liệu sạch
+            bom_display_data = []
+            for position, details in bom_debug_log.items():
+                bom_display_data.append({
+                    "Vị trí (Placement)": position,
+                    "Tên nguyên liệu": details["material_name"],
+                    "Khổ vải (Inch)": details["width_inch"],
+                    "Khổ hữu dụng (Inch)": details["effective_width"],
+                    "Co dọc (%)": details["shrinkage_warp"],
+                    "Co ngang (%)": details["shrinkage_weft"],
+                    "Diện tích rập (Inch²)": details["target_area_inch2"],
+                    "Hiệu suất sơ đồ (Eff)": details["efficiency"],
+                    "Hao hụt (Loss)": details["loss_factor"],
+                    "Định mức cuối (Yds)": details["final_consumption_yds"]
+                })
+            
+            # Hiển thị bảng dạng DataFrame trực quan, mở rộng hết chiều ngang màn hình
+            st.dataframe(bom_display_data, use_container_width=True)
