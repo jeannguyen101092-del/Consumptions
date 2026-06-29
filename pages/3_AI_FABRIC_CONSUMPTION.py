@@ -112,6 +112,52 @@ def ai_gemini_vision_pdf_parser(pdf_file_name, pdf_bytes) -> dict:
         st.error(f"Lỗi phân tích AI: {str(e)}")
         return None
 # =====================================================================
+# ENGINE QUY ĐỔI PHÂN SỐ NGÀNH MAY (ĐÃ ĐƯA LÊN ĐẦU ĐOẠN ĐỂ VÁ LỖI BIÊN DỊCH)
+# =====================================================================
+def parse_garment_fraction(val) -> float:
+    """Chuyển đổi chính xác phân số hỗn hợp ngành may thành số thập phân thực tế"""
+    if val is None: return 0.0
+    val_str = str(val).strip()
+    if not val_str or val_str.lower() in ['none', 'null', 'n/a']: return 0.0
+    
+    # 1. Nếu bản chất đã là số thập phân, ép kiểu trực tiếp
+    try: 
+        return float(val_str)
+    except ValueError: 
+        pass
+    
+    # 2. Xử lý phân số bằng thuật toán bóc tách Pop/Unpack (Chống lỗi nuốt ký tự)
+    try:
+        if '/' in val_str:
+            parts_list = re.split(r'[\s\-]+', val_str)
+            
+            if len(parts_list) == 2:
+                # Dạng hỗn số: '16 1/2'
+                frac_part_str = parts_list.pop()
+                whole_part_str = parts_list.pop()
+                
+                whole_num = float(whole_part_str)
+                
+                sub_parts = frac_part_str.split('/')
+                den_num = float(sub_parts.pop())
+                num_num = float(sub_parts.pop())
+                
+                return whole_num + (num_num / den_num)
+                
+            elif len(parts_list) == 1:
+                # Dạng phân số thuần: '1/2'
+                frac_part_str = parts_list.pop()
+                sub_parts = frac_part_str.split('/')
+                den_num = float(sub_parts.pop())
+                num_num = float(sub_parts.pop())
+                
+                return num_num / den_num
+    except Exception:
+        pass
+        
+    return safe_float(val, 0.0)
+
+# =====================================================================
 # ĐOẠN 2b1: GIAO DIỆN CHÍNH, KHÓA BỘ NHỚ VÀ ENGINE BÓC TÁCH CHI TIẾT RẬP CAD
 # =====================================================================
 st.subheader("📁 BƯỚC 1: TẢI TÀI LIỆU KỸ THUẬT SẢN XUẤT (TECHPACK / BOM)")
@@ -145,7 +191,6 @@ if st.session_state.saved_pdf_bytes is not None:
         panels = data.get("garment_panels", [])
         st.markdown("### 📐 DANH MỤC CÁC CHI TIẾT RẬP VẢI CHÍNH TỰ ĐỘNG BÓC TÁCH (PANEL LOG)")
         
-        # Tạo bảng đệm trực quan cho người dùng kiểm tra các chi tiết quần Jeans (thân, lưng, túi đắp, túi đáp...)
         panel_records = []
         sewing_seam_allowance = 0.44  # Biên đường may ráp công đoạn 0.44" chuẩn
         sewing_spec = data.get("sewing_spec", {})
@@ -190,6 +235,7 @@ if st.session_state.saved_pdf_bytes is not None:
 
         df_panels = pd.DataFrame(panel_records)
         st.dataframe(df_panels, use_container_width=True, hide_index=True)
+
         # --- ĐOẠN 2b2: TOÁN HỌC SƠ ĐỒ CÔNG NGHIỆP CỘNG DỒN CHI TIẾT RẬP VÀ ĐỔ BẢNG BOM ---
         materials = data.get("materials_bom", [])
         
