@@ -153,7 +153,7 @@ if user_prompt:
     st.rerun()
 
 # =====================================================================
-# ENGINE QUY ĐỔI PHÂN SỐ NGÀNH MAY (ĐÃ VÁ CHUẨN ĐỊNH VỊ CHỈ MỤC MẢNG)
+# ENGINE QUY ĐỔI PHÂN SỐ NGÀNH MAY (ĐÃ FIX TRIỆT ĐỂ KHÔNG BỊ NUỐT TEXT)
 # =====================================================================
 def parse_garment_fraction(val) -> float:
     """Chuyển đổi chính xác phân số hỗn hợp ngành may thành số thập phân thực tế"""
@@ -173,16 +173,24 @@ def parse_garment_fraction(val) -> float:
             parts = re.split(r'[\s\-]+', val_str)
             if len(parts) == 2:
                 # Trường hợp hỗn số như '16 1/2' -> parts[0]='16', parts[1]='1/2'
-                whole = float(parts[0])
-                frac_parts = parts[1].split('/')
-                num = float(frac_parts[0])
-                den = float(frac_parts[1])
+                whole_str = parts[0]
+                frac_str = parts[1]
+                whole = float(whole_str)
+                
+                frac_parts = frac_str.split('/')
+                num_str = frac_parts[0]
+                den_str = frac_parts[1]
+                num = float(num_str)
+                den = float(den_str)
                 return whole + (num / den)
             elif len(parts) == 1:
                 # Trường hợp phân số thuần như '1/2' -> parts[0]='1/2'
-                frac_parts = parts[0].split('/')
-                num = float(frac_parts[0])
-                den = float(frac_parts[1])
+                frac_str = parts[0]
+                frac_parts = frac_str.split('/')
+                num_str = frac_parts[0]
+                den_str = frac_parts[1]
+                num = float(num_str)
+                den = float(den_str)
                 return num / den
     except Exception:
         pass
