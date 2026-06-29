@@ -454,8 +454,9 @@ if st.session_state.saved_pdf_bytes is not None:
         max_body_length = max([parse_garment_fraction(p.get("length_inch")) for p in body_panels] or [33.13])
         max_body_width = max([parse_garment_fraction(p.get("width_inch")) for p in body_panels] or [24.0])
         
-        max_front_pant = max([parse_garment_fraction(p.get("length_inch")) for p in body_panels if any(x in str(p.get("panel_name", "")).lower() for x in ["trước", "front"]) and "pant" in category.lower()] or [45.26])
-        max_back_pant = max([parse_garment_fraction(p.get("length_inch")) for p in body_panels if any(x in str(p.get("panel_name", "")).lower() for x in ["sau", "back"]) and "pant" in category.lower()] or [50.76])
+        # CẬP NHẬT MỞ RỘNG TỪ KHÓA ANH/VIỆT: Đảm bảo quét trúng chi tiết Front/Back Body Panel từ file PDF hệ Gerber/Lectra
+        max_front_pant = max([parse_garment_fraction(p.get("length_inch")) for p in body_panels if any(x in str(p.get("panel_name", "")).lower() for x in ["trước", "front", "front body"])] or [45.26])
+        max_back_pant = max([parse_garment_fraction(p.get("length_inch")) for p in body_panels if any(x in str(p.get("panel_name", "")).lower() for x in ["sau", "back", "back body"])] or [50.76])
         
         # Trích xuất chiều dài tay áo chính xác phục vụ luồng xử lý Jacket
         sleeve_panels = [p for p in panels if any(x in str(p.get("panel_name", "")).lower() for x in ["tay", "sleeve"])]
@@ -485,10 +486,10 @@ if st.session_state.saved_pdf_bytes is not None:
                         w_inch = st.session_state.width_inch_override if st.session_state.width_inch_override else 58.0
                 elif "POCKETING" in placement:
                     pkt_match = re.search(r'lót khổ\s*(\d+(?:\.\d+)?)', last_chat) if last_chat else None
-                    w_inch = float(pkt_match.group(1)) if pkt_match else 57.0  # SỬA LỖI: Mặc định lót khổ 57
+                    w_inch = float(pkt_match.group(1)) if pkt_match else 57.0
                 else:
                     fus_match = re.search(r'keo khổ\s*(\d+(?:\.\d+)?)', last_chat) if last_chat else None
-                    w_inch = float(fus_match.group(1)) if fus_match else 59.0  # SỬA LỖI: Mặc định keo khổ 59
+                    w_inch = float(fus_match.group(1)) if fus_match else 59.0
                 mat["width_inch"] = w_inch
 
                 # B. BỘ TRÍCH XUẤT ĐỘ CO RÚT TỪ Ô CHAT AI
@@ -528,7 +529,7 @@ if st.session_state.saved_pdf_bytes is not None:
                 # -----------------------------------------------------------------
                 if "PANT" in category.upper():
                     target_area = v_shell
-                    eff, loss = 0.84, 1.0  # SỬA LỖI: Triệt tiêu hao hụt quần về 1.0
+                    eff, loss = 0.84, 1.0
                     
                     total_pant_box_area = ((max_front_pant + max_back_pant) + 1.76 + 0.75) * (max_body_width * 2.0)
                     marker_pant_geometric_factor = 1.160 if total_pant_box_area == 0 else max(1.11, min(1.22, (total_pant_box_area / max(1.0, target_area)) * 0.55))
@@ -538,8 +539,10 @@ if st.session_state.saved_pdf_bytes is not None:
                     elif "INTERLINING" in placement: 
                         calc_consumption = round(((max_back_pant) / 39.37) * 0.09, 3); target_area = v_inter; eff, loss = 0.88, 1.0
                     else:
+                        # TOÀN DIỆN TOÁN HỌC CAD: Khôi phục tính định mức theo chiều dài chi tiết lớn nhất đã sửa Swap Guard
                         max_pant_length = max(max_front_pant, max_back_pant)
-                        if max_pant_length > 10.0 and effective_width > 0:
+                        if max_pant_length > 5.0 and effective_width > 0:
+                            # Khổ vải rộng (ví dụ 58 hữu dụng 57) đủ xếp song song tối thiểu 2 thân (Cặp rập Thân trước + Thân sau đan xen dọc)
                             is_narrow_fabric = effective_width < (max_body_width * 2.0)
                             width_factor = 1.85 if is_narrow_fabric else 1.25
                             calc_consumption = (max_pant_length / 39.37) * width_factor * loss
@@ -556,17 +559,17 @@ if st.session_state.saved_pdf_bytes is not None:
                         final_layout_inch = base_layout_length * (1.0 + s_warp)
                         jacket_factor = 1.375 if (s_weft >= 0.12 and max_body_width >= 26.0) else (1.15 if w_inch <= 58.0 else 1.09)
                         calc_consumption = ((final_layout_inch * jacket_factor) / 39.37) * 1.0
-                        target_area, eff, loss = v_shell, 0.85, 1.0  # SỬA LỖI: Triệt tiêu hao hụt vỏ áo về 1.0
+                        target_area, eff, loss = v_shell, 0.85, 1.0
                     elif "POCKETING" in placement:
                         calc_consumption = round(((max_body_length + max_sleeve) / 39.37) * 0.22, 3)
-                        target_area, eff, loss = v_pocket, 0.86, 1.0  # SỬA LỖI: Triệt tiêu hao hụt lót áo về 1.0
+                        target_area, eff, loss = v_pocket, 0.86, 1.0
                     else:
                         if v_inter > 0 and effective_width > 0:
                             m_len_inter = v_inter / effective_width
                             calc_consumption = (m_len_inter / 39.37) / 0.88 * 1.0
                         else:
                             calc_consumption = round(((max_body_length) / 39.37) * 0.15, 3)
-                        target_area, eff, loss = v_inter, 0.88, 1.0  # SỬA LỖI: Triệt tiêu hao hụt keo áo về 1.0
+                        target_area, eff, loss = v_inter, 0.88, 1.0
 
                 # --- ĐOẠN KHỞI TẠO VÀ ĐẨY DỮ LIỆU VÀO BẢNG BOM DEBUG LOG ---
                 final_consumption = round(max(0.0, calc_consumption), 3)
