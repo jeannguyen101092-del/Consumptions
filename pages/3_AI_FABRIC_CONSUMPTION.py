@@ -293,10 +293,10 @@ if st.session_state.saved_pdf_bytes is not None:
             materials.append({"placement": "INTERLINING", "width_inch": 44.0, "shrinkage_warp": 0.0, "shrinkage_weft": 0.0, "material_name": "TRICOT FUSING (Keo lót phôi)"})
         data["materials_bom"] = materials
 
-                     # --- ĐOẠN 2b2a: TRÍCH XUẤT THÔNG SỐ RẬP VÀ ĐỒNG BỘ BỘ LỌC ĐẦU VÀO ---
+                 # --- ĐOẠN 2b2a: TRÍCH XUẤT THÔNG SỐ RẬP VÀ ĐỒNG BỘ Ô CHAT AI ---
         materials = data.get("materials_bom", [])
         
-        # Mảng lưu dữ liệu cấu hình debug để hiển thị chính xác theo từng hàng, chống ghi đè dòng cuối
+        # Mảng lưu dữ liệu cấu hình debug để hiển thị chính xác theo từng hàng
         bom_debug_log = {}
 
         # 1. Thuật toán trích xuất chiều dài thân trước, thân sau và tay áo làm gốc tính toán sơ đồ
@@ -311,7 +311,6 @@ if st.session_state.saved_pdf_bytes is not None:
             l_val = parse_garment_fraction(p.get("length_inch"))
             w_val = parse_garment_fraction(p.get("width_inch"))
             
-            # Tách biệt số đo Thân trước và Thân sau Quần tây phục vụ sơ đồ lồng đôi
             if any(x in name_lower for x in ["thân trước", "front pant", "front body"]):
                 if l_val > max_front_pant_length: max_front_pant_length = l_val
             if any(x in name_lower for x in ["thân sau", "back pant", "back body"]):
@@ -329,49 +328,71 @@ if st.session_state.saved_pdf_bytes is not None:
         if max_back_pant_length == 0: max_back_pant_length = 49.51
         if max_sleeve_length == 0 and "pant" not in category.upper(): max_sleeve_length = round(max_body_length * 0.75, 2)
 
+        # CƠ CHẾ KIỂM TRA LỆNH AI: Quét lịch sử chat xem người dùng đã ra lệnh tính toán chưa
+        chat_history = st.session_state.get("sidebar_chat_history", [])
+        has_user_command = False
+        last_user_chat_content = ""
+        
+        # Nếu lịch sử chat có nhiều hơn 1 câu (tức là người dùng đã gõ tương tác)
+        if len(chat_history) > 1:
+            has_user_command = True
+            # Tìm câu gõ mới nhất của người dùng để bóc tách thông số phụ liệu rời
+            for msg in reversed(chat_history):
+                if msg.get("role") == "user":
+                    last_user_chat_content = str(msg.get("content", "")).lower()
+                    break
+
         if len(panels) > 0:
             for mat in materials:
                 placement_upper = str(mat.get("placement")).upper()
                 
-                # KHỞI TẠO BIẾN ĐẦU VÒNG LẶP: Chặn đứng hoàn toàn lỗi UnboundLocalError
+                # KHỞI TẠO BIẾN ĐẦU VÒNG LẶP Chặn đứng lỗi UnboundLocalError
                 calc_consumption = 0.0
                 target_panel_area = 0.0
                 
-                # Đồng bộ thông số khổ vải và độ co rút tương tác động từ ô chat bên trái
-                if "SHELL" in placement_upper:
-                    if st.session_state.width_inch_override: mat["width_inch"] = st.session_state.width_inch_override
-                    if st.session_state.shrinkage_override: mat["shrinkage_warp"] = st.session_state.shrinkage_override
-                elif any(x in placement_upper for x in ["INTERLINING", "POCKETING"]):
-                    chat_history = st.session_state.get("sidebar_chat_history", [])
-                    chat_content = ""
-                    if chat_history:
-                        chat_content = str(chat_history[-1].get("content", "")).lower()
-                        
-                    if any(x in chat_content for x in ["keo", "mếch", "lót", "phối"]) and st.session_state.width_inch_override:
-                        mat["width_inch"] = st.session_state.width_inch_override
+                # --- ENGINE ĐỒNG BỘ KHỔ VẢI ĐỘNG TỪ Ô CHAT AI ---
+                if st.session_state.width_inch_override and "SHELL" in placement_upper:
+                    mat["width_inch"] = st.session_state.width_inch_override
+                
+                # Xử lý khổ riêng biệt cho phụ liệu lót và keo khi gõ chỉ định đích danh
+                if has_user_command and any(x in last_user_chat_content for x in ["keo", "mếch", "lót", "phối"]):
+                    if "lót" in last_user_chat_content and "POCKETING" in placement_upper:
+                        # Tìm con số khổ đi liền sau chữ lót
+                        pocket_w_match = re.search(r'(?:lót|khổ)\s*(\d+)', last_user_chat_content)
+                        if pocket_w_match: mat["width_inch"] = float(pocket_w_match.group(1))
+                    if any(x in last_user_chat_content for x in ["keo", "mếch"]) and "INTERLINING" in placement_upper:
+                        inter_w_match = re.search(r'(?:keo|mếch|khổ)\s*(\d+)', last_user_chat_content)
+                        if inter_w_match: mat["width_inch"] = float(inter_w_match.group(1))
 
+                # Gán khổ vật lý nền an toàn nếu chưa gõ biến đè
                 w_inch = parse_garment_fraction(mat.get("width_inch"))
                 if w_inch == 0:
                     if "POCKETING" in placement_upper: w_inch = 60.0; mat["width_inch"] = 60.0
                     elif "INTERLINING" in placement_upper: w_inch = 44.0; mat["width_inch"] = 44.0
                     else: w_inch = 58.0; mat["width_inch"] = 58.0
 
-                s_warp = safe_float(mat.get("shrinkage_warp", 5.0 if "SHELL" in placement_upper else 0.0)) / 100.0
-                s_weft = safe_float(mat.get("shrinkage_weft", 15.0 if "SHELL" in placement_upper else 0.0)) / 100.0
+                # --- ENGINE ĐỒNG BỘ ĐỘ CO RÚT ĐỘNG TỪ Ô CHAT AI ---
+                s_warp = 0.0
+                s_weft = 0.0
                 
                 if "SHELL" in placement_upper:
+                    # Đọc con số co dọc (warp) từ Bộ nhớ Core Session State
                     if st.session_state.shrinkage_override:
                         s_warp = st.session_state.shrinkage_override / 100.0
                     
-                    chat_history = st.session_state.get("sidebar_chat_history", [])
-                    if chat_history:
-                        last_chat = str(chat_history[-1].get("content", "")).lower()
-                        weft_match = re.search(r'(?:co ngang|ngang|w|weft)\s*(\d+)', last_chat)
+                    # Đọc con số co ngang (weft) trực tiếp từ chuỗi chat mới nhất
+                    if has_user_command:
+                        weft_match = re.search(r'(?:co ngang|ngang|w|weft)\s*(\d+)', last_user_chat_content)
                         if weft_match:
                             s_weft = float(weft_match.group(1)) / 100.0
                         else:
-                            generic_match = re.search(r'\d+\s*-\s*(\d+)', last_chat)
+                            # Phân tích định dạng gộp gạch ngang (Ví dụ: '3-3' hoặc '5-15')
+                            generic_match = re.search(r'\d+\s*-\s*(\d+)', last_user_chat_content)
                             if generic_match: s_weft = float(generic_match.group(1)) / 100.0
+                    
+                    # Đồng bộ ngược giá trị hiển thị lên cấu trúc bảng dữ liệu BOM
+                    mat["shrinkage_warp"] = round(s_warp * 100, 1)
+                    mat["shrinkage_weft"] = round(s_weft * 100, 1)
 
                 # Bảo toàn an toàn biến diện tích đa lớp từ Đoạn 2b1
                 v_shell_area = safe_float(shell_fabric_area) if 'shell_fabric_area' in locals() or 'shell_fabric_area' in globals() else 0.0
@@ -379,6 +400,7 @@ if st.session_state.saved_pdf_bytes is not None:
                 v_inter_area = safe_float(interlining_fabric_area) if 'interlining_fabric_area' in locals() or 'interlining_fabric_area' in globals() else 0.0
 
                 effective_width_inch = w_inch * (1.0 - s_weft)
+
                 # -----------------------------------------------------------------
                 # ĐOẠN 2b2b: THUẬT TOÁN SƠ ĐỒ ĐỘNG CHUẨN CAD NHÀ MÁY VÀ ĐỔ BẢNG BOM
                 # -----------------------------------------------------------------
