@@ -8,7 +8,7 @@ from shapely.geometry import Polygon
 import google.generativeai as genai
 
 # =====================================================================
-# ĐOẠN 1: CẤU HÌNH TRANG VÀ BỘ NÃO GEMINI VISION PARSER NÂNG CAO
+# CONFIGURATION & MULTI-LAYER STATE LOCK
 # =====================================================================
 st.set_page_config(
     page_title="3. AI FABRIC CONSUMPTION", 
@@ -43,6 +43,9 @@ def update_config_from_text(text: str):
     if co_match: 
         st.session_state.shrinkage_override = float(co_match.group(1))
 
+# =====================================================================
+# ENGINE 1 & 2: GEMINI VISION MULTI-MODAL PARSER (TRÍCH XUẤT JSON AN TOÀN)
+# =====================================================================
 @st.cache_data(show_spinner=False)
 def ai_gemini_vision_pdf_parser(pdf_file_name, pdf_bytes) -> dict:
     """Gửi file PDF sang Gemini Vision để quét cấu tạo hình ảnh phác thảo (Sketch) và bóc tách toàn bộ ma trận POM/BOM"""
@@ -85,18 +88,35 @@ def ai_gemini_vision_pdf_parser(pdf_file_name, pdf_bytes) -> dict:
         return json.loads(clean_text)
     except Exception as e:
         return fallback_data
+# =====================================================================
+# ĐOẠN 2: LÕI HÌNH HỌC CAD VÀ HIỂN THỊ MA TRẬN BẢNG MA TRẬN AN TOÀN
+# =====================================================================
+
+def safe_float(val, default=0.0) -> float:
+    """Hàm kiểm tra an toàn: Tự động bóc phần tử nếu dữ liệu bị lồng trong List [56.0] hoặc Dict"""
+    if val is None:
+        return default
+    if isinstance(val, list):
+        if len(val) > 0:
+            return safe_float(val[0], default)
+        return default
+    try:
+        return float(val)
+    except (ValueError, TypeError):
+        return default
+
 class GarmentCADCoreEngine:
     """Tính toán định mức Yards dựa trên diện tích tinh đa giác rập mẫu"""
     
     @staticmethod
     def apply_rule_table_grading(category: str, pom: dict) -> dict:
-        chest = pom.get("chest_width", 54.0) if isinstance(pom, dict) else 54.0
-        length = pom.get("body_length", 72.0) if isinstance(pom, dict) else 72.0
-        bicep = pom.get("bicep_width", 22.0) if isinstance(pom, dict) else 22.0
-        sleeve_len = pom.get("sleeve_length", 24.0) if isinstance(pom, dict) else 24.0
+        chest = safe_float(pom.get("chest_width") if isinstance(pom, dict) else 54.0, 54.0)
+        length = safe_float(pom.get("body_length") if isinstance(pom, dict) else 72.0, 72.0)
+        bicep = safe_float(pom.get("bicep_width") if isinstance(pom, dict) else 22.0, 22.0)
+        sleeve_len = safe_float(pom.get("sleeve_length") if isinstance(pom, dict) else 24.0, 24.0)
         
         if "pant" in str(category).lower() or "shorts" in str(category).lower():
-            waist = pom.get("waist_width", 42.0) if isinstance(pom, dict) else 42.0
+            waist = safe_float(pom.get("waist_width") if isinstance(pom, dict) else 42.0, 42.0)
             front_pant_area = (waist * length) * 0.68
             back_pant_area = front_pant_area * 1.08
             return {"Front_Body": front_pant_area, "Back_Body": back_pant_area, "Sleeve": 0.0}
@@ -111,8 +131,8 @@ class GarmentCADCoreEngine:
     @staticmethod
     def Advanced_Marker_Nesting_Engine(category: str, pieces_area: dict, config: dict) -> dict:
         width_inch = config.get("width_inch", 56.0)
-        width_cm = float(width_inch) * 2.54
-        shrinkage_l = 1 + (float(config.get("shrinkage_warp", 5.0)) / 100)
+        width_cm = safe_float(width_inch, 56.0) * 2.54
+        shrinkage_l = 1 + (safe_float(config.get("shrinkage_warp", 5.0), 5.0) / 100)
         
         total_net_area = (pieces_area.get("Front_Body", 2000.0) * 2) + (pieces_area.get("Back_Body", 2100.0) * 1)
         if pieces_area.get("Sleeve", 0) > 0:
@@ -176,8 +196,8 @@ if uploaded_file is not None:
     if isinstance(materials_list, list) and len(materials_list) > 0:
         for mat in materials_list:
             if isinstance(mat, dict) and mat.get("placement") == "SHELL":
-                default_width = float(mat.get("width_inch", 56.0))
-                default_shrink = float(mat.get("shrinkage_warp", 5.0))
+                default_width = safe_float(mat.get("width_inch"), 56.0)
+                default_shrink = safe_float(mat.get("shrinkage_warp"), 5.0)
                 break
 
     active_width = st.session_state.width_inch_override if st.session_state.width_inch_override else default_width
@@ -197,8 +217,8 @@ if uploaded_file is not None:
             placement = str(material.get("placement", "SHELL")).upper()
             
             config_context = {
-                "width_inch": active_width if placement == "SHELL" else float(material.get("width_inch", 56.0)),
-                "shrinkage_warp": active_shrink if placement == "SHELL" else float(material.get("shrinkage_warp", 5.0))
+                "width_inch": active_width if placement == "SHELL" else safe_float(material.get("width_inch"), 56.0),
+                "shrinkage_warp": active_shrink if placement == "SHELL" else safe_float(material.get("shrinkage_warp"), 5.0)
             }
             
             nest_results = GarmentCADCoreEngine.Advanced_Marker_Nesting_Engine(bom_data.get("category", "jacket"), net_geometry_areas, config_context)
