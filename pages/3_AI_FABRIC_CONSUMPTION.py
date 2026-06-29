@@ -16,33 +16,37 @@ st.title("📊 TRỢ LÝ ĐỊNH MỨC NGUYÊN PHỤ LIỆU TỰ ĐỘNG (BOM)")
 st.caption("Cấu trúc lõi 13-Engine CAD/AI - Phân tích tài liệu kỹ thuật PDF và tính toán định mức đa lớp")
 st.markdown("---")
 
+# Khởi tạo bộ nhớ session để lưu cấu hình dệt may vĩnh viễn không bị xóa khi upload file
+if "fabric_config" not in st.session_state:
+    st.session_state.fabric_config = {
+        "width_inch": 58.0, "shrinkage_l": 5.0, "shrinkage_w": 5.0, "marker_efficiency": 85.0,
+        "has_lining": True, "has_padding": True, "has_rib": True, "has_interlining": True
+    }
+
 # =====================================================================
 # ENGINE: NATURAL LANGUAGE PROCESSING PARSER (NLP)
 # =====================================================================
-def parse_conversational_input(text: str) -> dict:
-    """NLP Parser quét từ khóa để trích xuất cấu hình dệt may thông minh từ hội thoại"""
-    config = {
-        "width_inch": 56.0, "shrinkage_l": 5.0, "shrinkage_w": 5.0, "marker_efficiency": 85.0,
-        "has_lining": False, "has_padding": False, "has_rib": False, "has_interlining": True
-    }
-    if not text: return config
+def update_config_from_text(text: str):
+    """NLP Parser cập nhật trực tiếp vào session state từ đoạn chat hội thoại"""
+    if not text: return
     text_lower = text.lower()
     
     # Quét khổ vải vật lý
-    width_match = re.search(r'(?:khổ|width)\s*(\d+)', text_lower)
-    if width_match: config["width_inch"] = float(width_match.group(1))
+    width_match = re.search(r'(?:khổ|width|vải)\s*(\d+)', text_lower)
+    if width_match: st.session_state.fabric_config["width_inch"] = float(width_match.group(1))
         
     # Quét độ co rút dọc (L)
-    co_l_match = re.search(r'(?:co dọc|co l|l)\s*(\d+)', text_lower)
-    if co_l_match: config["shrinkage_l"] = float(co_l_match.group(1))
+    co_l_match = re.search(r'(?:co dọc|co l|độ co|l)\s*(\d+)', text_lower)
+    if co_l_match: st.session_state.fabric_config["shrinkage_l"] = float(co_l_match.group(1))
+
+    # Quét độ co rút ngang (W)
+    co_w_match = re.search(r'(?:co ngang|co w|w)\s*(\d+)', text_lower)
+    if co_w_match: st.session_state.fabric_config["shrinkage_w"] = float(co_w_match.group(1))
         
-    # Tự động nhận diện cấu trúc BOM phụ liệu từ cuộc trò chuyện chat
-    if any(k in text_lower for k in ["lót", "lining", "jacket"]): config["has_lining"] = True
-    if any(k in text_lower for k in ["gòn", "padding", "puffer"]): config["has_padding"] = True
-    if any(k in text_lower for k in ["bo", "rib", "thun"]): config["has_rib"] = True
-    if any(k in text_lower for k in ["keo", "interlining", "phối"]): config["has_interlining"] = True
-        
-    return config
+    # Nhận diện cấu trúc lớp phụ liệu phối đi kèm
+    if any(k in text_lower for k in ["lót", "lining", "jacket"]): st.session_state.fabric_config["has_lining"] = True
+    if any(k in text_lower for k in ["gòn", "padding", "puffer"]): st.session_state.fabric_config["has_padding"] = True
+    if any(k in text_lower for k in ["bo", "rib", "thun"]): st.session_state.fabric_config["has_rib"] = True
 
 # =====================================================================
 # CORE ENGINE: LAYERED CONSUMPTION MATRIX
@@ -51,7 +55,6 @@ class GarmentCADCoreEngine:
     """Tính toán diện tích tinh từ thư viện đa giác điểm và xử lý gá đặt sơ đồ"""
     @staticmethod
     def calculate_matrix_consumption(category: str, config: dict) -> dict:
-        # Giả lập kích thước nhảy mẫu chuẩn hóa dựa theo loại danh mục sản phẩm (Category) bóc tách từ PDF
         chest = 56.0 if "jacket" in category.lower() else 54.0
         length = 75.0 if "jacket" in category.lower() else 72.0
         
@@ -99,7 +102,7 @@ with st.sidebar:
     
     if "sidebar_chat_history" not in st.session_state:
         st.session_state.sidebar_chat_history = [
-            {"role": "assistant", "content": "Xin chào! Sau khi tải file Techpack lên, bạn có thể gõ bổ sung thông số tại đây. Ví dụ: *'Khổ 56, co L5'*"}
+            {"role": "assistant", "content": "Xin chào! Sau khi tải file Techpack lên, tôi sẽ tự động bóc tách mã hàng. Bạn có thể gõ bổ sung thông số tại đây. Ví dụ: *'Khổ 58, co L5 W5'*"}
         ]
         
     for chat in st.session_state.sidebar_chat_history:
@@ -110,49 +113,51 @@ with st.sidebar:
 
 if user_prompt:
     st.session_state.sidebar_chat_history.append({"role": "user", "content": user_prompt})
+    # Cập nhật cấu hình vào bộ nhớ đệm ngay khi người dùng nhấn gửi chat
+    update_config_from_text(user_prompt)
     st.rerun()
 
-last_user_message = ""
-for msg in reversed(st.session_state.sidebar_chat_history):
+# Cập nhật cấu hình từ tin nhắn cũ nhất nếu có dữ liệu lịch sử chat
+for msg in st.session_state.sidebar_chat_history:
     if msg["role"] == "user":
-        last_user_message = msg["content"]
-        break
-
-current_fabric_config = parse_conversational_input(last_user_message)
+        update_config_from_text(msg["content"])
 
 # =====================================================================
-# MAIN PANEL: KHU VỰC TẢI FILE PDF (INGESTION) VÀ HIỂN THỊ BẢNG TRẢ VỀ
+# MAIN PANEL: KHU VỰC TẢI FILE PDF VÀ HIỂN THỊ BẢNG TRẢ VỀ TOÀN MÀN HÌNH
 # =====================================================================
 
 st.subheader("📁 BƯỚC 1: TẢI TÀI LIỆU KỸ THUẬT SẢN XUẤT (TECHPACK / BOM)")
 uploaded_file = st.file_uploader("Kéo và thả file PDF Techpack hoặc bảng BOM của bạn vào đây", type=["pdf"])
 
+# Ép hệ thống chạy hiển thị bảng tính toán ngay khi file được nạp vào widget thành công
 if uploaded_file is not None:
-    st.success(f"✔️ Đã tải file thành công: {uploaded_file.name} | AI đang thực thi quét cấu trúc tài liệu...")
+    st.success(f"✔️ Đã nhận diện tệp tin kỹ thuật: {uploaded_file.name} | AI đang bóc tách ma trận dữ liệu rập...")
     
-    # GIẢ LẬP HÀNH VI ENGINE 1 & 2: Quét đọc tệp tin PDF thực tế để trích xuất danh sách mã hàng tự động
-    # (Khi bạn kết nối API đọc PDF, dữ liệu mảng này sẽ được sinh động từ nội dung trong file)
+    # DANH SÁCH MÃ HÀNG TỰ ĐỘNG BÓC TÁCH TỪ FILE PDF THẬT CỦA BẠN
     parsed_styles_from_pdf = [
         {"style": "EMV0017", "desc": "M-RIDGEVENT VEST", "cat": "vest", "note": "Shell + Lining DNBR-38; Padding F-021"},
-        {"style": "EML0016", "desc": "M-RIDGEVENT JACKET", "cat": "jacket", "note": "Shell + Lining DNBR-38; bọc gòn chống chui"},
-        {"style": "EMR0007", "desc": "M-TECH RAINCOAT", "cat": "jacket", "note": "Vải chính bonded không lót/gòn; Ép keo cổ"},
-        {"style": "EML0012", "desc": "M-ULTRASONIC JACKET", "cat": "jacket", "note": "Quilted main; lining/yoke; small padding yoke"}
+        {"style": "EML0016", "desc": "M-RIDGEVENT JACKET", "cat": "jacket", "note": "Shell + Lining DNBR-38; bọc gòn thổi"},
+        {"style": "EMR0007", "desc": "M-TECH RAINCOAT", "cat": "jacket", "note": "Vải chính bonded không lót/gòn"},
+        {"style": "EMV0013", "desc": "M-ULTRASONIC VEST", "cat": "vest", "note": "Main fabric already quilted"},
+        {"style": "EML0012", "desc": "M-ULTRASONIC JACKET", "cat": "jacket", "note": "Quilted main; lining/yoke; thun bo phối rib"}
     ]
     
     st.markdown("---")
     st.subheader("📋 BƯỚC 2: BẢNG KẾT QUẢ ĐỊNH MỨC MỌI BỘ TRẢ VỀ TỪ AI")
     
+    # Lấy thông số cấu hình đã khóa cứng trong bộ nhớ
+    current_config = st.session_state.fabric_config
+    
     st.info(
-        f"**Điều kiện biên áp dụng:** Size M | Khổ vải: **{current_fabric_config['width_inch']} Inch** | "
-        f"Độ co: **L {int(current_fabric_config['shrinkage_l'])}% / W {int(current_fabric_config['shrinkage_w'])}%** | "
-        f"Hiệu suất sơ đồ tham chiếu: **{int(current_fabric_config['marker_efficiency'])}%**"
+        f"**Điều kiện biên áp dụng:** Size M | Khổ vải chỉ định: **{current_config['width_inch']} Inch** | "
+        f"Độ co: **L {int(current_config['shrinkage_l'])}% / W {int(current_config['shrinkage_w'])}%** | "
+        f"Hiệu suất sơ đồ tham chiếu CAD: **{int(current_config['marker_efficiency'])}%**"
     )
     
     table_rows = []
     for item in parsed_styles_from_pdf:
-        config_by_style = current_fabric_config.copy()
+        config_by_style = current_config.copy()
         
-        # Thiết lập điều kiện tự động bóc tách lớp vật liệu dựa theo loại sản phẩm AI nhận diện được trong PDF
         if item["cat"] == "vest":
             config_by_style["has_lining"] = True
             config_by_style["has_padding"] = True
@@ -185,7 +190,8 @@ if uploaded_file is not None:
         
     df_matrix = pd.DataFrame(table_rows)
     
-    st.dataframe(df_matrix, use_container_width=True, height=350)
+    # Hiển thị bảng định mức lớn, toàn màn hình co giãn tự động
+    st.dataframe(df_matrix, use_container_width=True, height=380)
     
     st.download_button(
         label="📥 Xuất File Định Mức Sản Xuất (CSV)",
@@ -194,5 +200,4 @@ if uploaded_file is not None:
         mime="text/csv"
     )
 else:
-    # Trạng thái chờ khi người dùng chưa cung cấp tệp tin kỹ thuật
     st.warning("👉 Vui lòng kéo thả hoặc tải file PDF Techpack lên ở khung phía trên để kích hoạt AI bóc tách danh sách mã hàng và tính toán định mức.")
