@@ -438,41 +438,22 @@ if st.session_state.saved_pdf_bytes is not None:
                     p["length_inch"] = p.get("width_inch")
                     p["width_inch"] = orig_len
 
-        # ULTIMATE FALLBACK GUARD FOR CORRUPTED PDF DATA:
-        is_pdf_data_corrupted = False
+        # AREA CORRECTION STREAM FOR CLEAN CAD DATA
         for p in panels:
-            p_name = str(p.get("panel_name", "")).lower()
-            if any(x in p_name for x in ["thân", "front", "back", "body"]):
-                raw_len = parse_garment_fraction(p.get("length_inch"))
-                if raw_len < 10.0:  # Size is physically impossible for an adult garment
-                    is_pdf_data_corrupted = True
-                    break
+            p_area = safe_float(p.get("area_inch2", 0.0))
+            p_qty = safe_float(p.get("quantity", p.get("sl", 1.0)))
+            if p_qty <= 0: p_qty = 1.0
+            raw_len = parse_garment_fraction(p.get("length_inch"))
+            raw_wid = parse_garment_fraction(p.get("width_inch"))
+            
+            # Recalculate area only if the extracted area is zero or corrupted, otherwise trust the clean PDF data
+            if p_area < 1.0 and raw_len > 0 and raw_wid > 0:
+                p["area_inch2"] = raw_len * raw_wid * p_qty
 
-        # FIXED CONDITION: Convert to .upper() to precisely match your system structural category ("PANT")
-        if is_pdf_data_corrupted or "PANT" in str(category).upper():
-            # Force-load precise industrial geometric area baseline for standard Denim Jeans marker layouts
-            v_shell = 1395.0
-            v_pocket = 128.0
-            v_inter = 259.0
-            for p in panels:
-                p_name = str(p.get("panel_name", "")).lower()
-                if "front" in p_name: p["area_inch2"] = 442.5
-                elif "back" in p_name: p["area_inch2"] = 442.5
-        else:
-            # Standard operational stream for clean PDF structural data inputs
-            for p in panels:
-                p_area = safe_float(p.get("area_inch2", 0.0))
-                p_qty = safe_float(p.get("quantity", p.get("sl", 1.0)))
-                if p_qty <= 0: p_qty = 1.0
-                raw_len = parse_garment_fraction(p.get("length_inch"))
-                raw_wid = parse_garment_fraction(p.get("width_inch"))
-                
-                if p_area < 10.0 and raw_len > 0 and raw_wid > 0:
-                    p["area_inch2"] = raw_len * raw_wid * p_qty
-
-            v_shell = sum([safe_float(p.get("area_inch2", 0.0)) for p in panels if "shell" in str(p.get("material", "shell")).lower() or "vải chính" in str(p.get("material", "")).lower()])
-            v_pocket = sum([safe_float(p.get("area_inch2", 0.0)) for p in panels if "pocket" in str(p.get("material", "")).lower() or "lót" in str(p.get("material", "")).lower()])
-            v_inter = sum([safe_float(p.get("area_inch2", 0.0)) for p in panels if "inter" in str(p.get("material", "")).lower() or "keo" in str(p.get("material", "")).lower() or "mếch" in str(p.get("material", "")).lower()])
+        # Dynamically aggregate total material areas directly from the parsed pattern table
+        v_shell = sum([safe_float(p.get("area_inch2", 0.0)) for p in panels if "shell" in str(p.get("material", "shell")).lower() or "vải chính" in str(p.get("material", "")).lower()])
+        v_pocket = sum([safe_float(p.get("area_inch2", 0.0)) for p in panels if "pocket" in str(p.get("material", "")).lower() or "lót" in str(p.get("material", "")).lower()])
+        v_inter = sum([safe_float(p.get("area_inch2", 0.0)) for p in panels if "inter" in str(p.get("material", "")).lower() or "keo" in str(p.get("material", "")).lower() or "mếch" in str(p.get("material", "")).lower()])
 
         # GLOBAL BODY PANELS FILTER: Gerber/Lectra techpack filtering regex
         body_keywords = ["front", "back", "body", "panel", "side", "thân", "trước", "sau", "sườn"]
@@ -499,7 +480,6 @@ if st.session_state.saved_pdf_bytes is not None:
 
         chat_history = st.session_state.get("sidebar_chat_history", [])
         last_chat = str(chat_history[-1].get("content", "")).lower() if len(chat_history) > 1 else ""
-
 
 
 # --- SECTION 2b2b: COMMERCIAL CAD MARKER CONSUMPTION ENGINE ---
@@ -559,24 +539,21 @@ if st.session_state.saved_pdf_bytes is not None:
                 # ARITHMETIC CORE ENGINE: ALWAYS CALCULATE - REMOVED WASTE FACTOR (LOSS = 1.0)
                 # -----------------------------------------------------------------
                 if "PANT" in str(category).upper():
-                    # JEANS NESTING OPTIMIZATION: Default to protective fallback baseline area if extracted values are broken
-                    if is_pdf_data_corrupted or v_shell < 100.0:
-                        target_area = 1395.0
-                    else:
-                        main_body_area = sum([safe_float(p.get("area_inch2")) for p in body_panels if any(x in str(p.get("panel_name", "")).lower() for x in ["thân", "front", "back"])])
-                        target_area = main_body_area if main_body_area > 100.0 else v_shell
-                        
-                    eff, loss = 0.84, 1.0
+                    # DYNAMIC AREA EXTRACTION: Sum up actual Front + Back panels dynamically from your clean PDF data
+                    main_body_area = sum([safe_float(p.get("area_inch2")) for p in body_panels if any(x in str(p.get("panel_name", "")).lower() for x in ["thân", "front", "back"])])
+                    target_area = main_body_area if main_body_area > 100.0 else v_shell
+                    
+                    # Industrial efficiency mapping for Jeans nesting configurations (2 Fronts + 2 Backs interleaved)
+                    eff, loss = 0.72, 1.0  
                     
                     if "POCKETING" in placement: 
-                        calc_consumption = 0.271 if is_pdf_data_corrupted else round(((max_back_pant) / 39.37) * 0.21, 3); target_area = v_pocket; eff, loss = 0.86, 1.0
+                        calc_consumption = round(((max_back_pant) / 39.37) * 0.21, 3); target_area = v_pocket; eff, loss = 0.86, 1.0
                     elif "INTERLINING" in placement: 
-                        calc_consumption = 0.116 if is_pdf_data_corrupted else round(((max_back_pant) / 39.37) * 0.09, 3); target_area = v_inter; eff, loss = 0.88, 1.0
+                        calc_consumption = round(((max_back_pant) / 39.37) * 0.09, 3); target_area = v_inter; eff, loss = 0.88, 1.0
                     else:
                         if target_area > 0 and effective_width > 0:
-                            # Direct envelope mapping area yield ratio against cuttable pre-wash fabric boundary
+                            # Mathematical Marker Calculation based on real dynamic area
                             marker_length_inch = target_area / effective_width
-                            # Yield conversion factor mapping to exact 0.74 yds engineering baseline
                             calc_consumption = (marker_length_inch / 39.37) / eff * loss
                         else:
                             calc_consumption = 0.0
@@ -617,6 +594,7 @@ if st.session_state.saved_pdf_bytes is not None:
                     "loss_factor": loss,
                     "final_consumption_yds": final_consumption
                 }
+
 
 
 
