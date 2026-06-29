@@ -461,32 +461,57 @@ if st.session_state.saved_pdf_bytes is not None:
                 placement = str(mat.get("placement")).upper()
                 calc_consumption, target_area = 0.0, 0.0
                 
-                # A. BỘ GHI ĐÈ KHỔ VẢI VẬT LÝ TỪ Ô CHAT AI
+                # A. BỘ TRÍCH XUẤT KHỔ VẢI VẬT LÝ CHÍNH THỨC TỪ Ô CHAT AI
+                # Luồng xử lý: Ưu tiên bắt thông tin từ ô chat trước, nếu trống mới dùng thông số cấu hình mặc định
                 if "SHELL" in placement:
-                    w_inch = st.session_state.width_inch_override if st.session_state.width_inch_override else 58.0
+                    # Kiểm tra ô chat tìm khổ vải chính (ví dụ: "khổ 58" hoặc "58 dọc 5")
+                    shell_w_match = re.search(r'(?:khổ|k|w)\s*(\d+(?:\.\d+)?)', last_chat) if last_chat else None
+                    if shell_w_match:
+                        w_inch = float(shell_w_match.group(1))
+                    else:
+                        w_inch = st.session_state.width_inch_override if st.session_state.width_inch_override else 58.0
                 elif "POCKETING" in placement:
-                    pkt_match = re.search(r'lót khổ\s*(\d+)', last_chat) if last_chat else None
+                    pkt_match = re.search(r'lót khổ\s*(\d+(?:\.\d+)?)', last_chat) if last_chat else None
                     w_inch = float(pkt_match.group(1)) if pkt_match else 60.0
                 else:
-                    fus_match = re.search(r'keo khổ\s*(\d+)', last_chat) if last_chat else None
+                    fus_match = re.search(r'keo khổ\s*(\d+(?:\.\d+)?)', last_chat) if last_chat else None
                     w_inch = float(fus_match.group(1)) if fus_match else 44.0
                 mat["width_inch"] = w_inch
 
-                # B. BỘ GHI ĐÈ ĐỘ CO RÚT TỪ Ô CHAT AI
+                # B. BỘ TRÍCH XUẤT ĐỘ CO RÚT CHÍNH THỨC TỪ Ô CHAT AI
                 s_warp, s_weft = 0.0, 0.0
                 if "SHELL" in placement:
-                    # Lấy độ co gốc trích xuất từ file (nếu có), ô chat chỉ đóng vai trò ghi đè (Override)
-                    s_warp = safe_float(mat.get("shrinkage_warp", 5.0)) / 100.0
-                    s_weft = safe_float(mat.get("shrinkage_weft", 15.0)) / 100.0
+                    # Luồng xử lý: Ô chat nhận thông tin nhập chính thức từ người dùng để tính định mức
+                    has_chat_shrinkage = False
                     
-                    if st.session_state.shrinkage_override: 
-                        s_warp = st.session_state.shrinkage_override / 100.0
                     if last_chat:
-                        weft_match = re.search(r'(?:co ngang|ngang|w|weft)\s*(\d+)', last_chat)
-                        if weft_match: s_weft = float(weft_match.group(1)) / 100.0
+                        # 1. Tìm độ co dọc (Warp): Bắt các cụm như "dọc 5", "co dọc 5", "warp 5"
+                        warp_match = re.search(r'(?:co dọc|dọc|warp)\s*(\d+(?:\.\d+)?)', last_chat)
+                        # 2. Tìm độ co ngang (Weft): Bắt các cụm như "ngang 15", "co ngang 15", "weft 15"
+                        weft_match = re.search(r'(?:co ngang|ngang|w|weft)\s*(\d+(?:\.\d+)?)', last_chat)
+                        # 3. Tìm định dạng viết tắt nhanh (ví dụ người dùng nhập: "5 dọc 15 ngang" hoặc "5-15")
+                        generic_match = re.search(r'(\d+(?:\.\d+)?)\s*-\s*(\d+(?:\.\d+)?)', last_chat)
+                        
+                        if warp_match:
+                            s_warp = float(warp_match.group(1)) / 100.0
+                            has_chat_shrinkage = True
+                        if weft_match:
+                            s_weft = float(weft_match.group(1)) / 100.0
+                            has_chat_shrinkage = True
+                            
+                        # Nếu người dùng nhập dạng nhanh "5-15" mà chưa bắt được bằng từ khóa riêng lẻ
+                        if not has_chat_shrinkage and generic_match:
+                            s_warp = float(generic_match.group(1)) / 100.0
+                            s_weft = float(generic_match.group(2)) / 100.0
+                            has_chat_shrinkage = True
+
+                    # Fallback: Nếu ô chat trống hoặc không chứa thông tin co rút, lấy thông số mặc định gốc từ file/hệ thống
+                    if not has_chat_shrinkage:
+                        if st.session_state.shrinkage_override:
+                            s_warp = st.session_state.shrinkage_override / 100.0
                         else:
-                            g_match = re.search(r'\d+\s*-\s*(\d+)', last_chat)
-                            if g_match: s_weft = float(g_match.group(1)) / 100.0
+                            s_warp = safe_float(mat.get("shrinkage_warp", 5.0)) / 100.0
+                        s_weft = safe_float(mat.get("shrinkage_weft", 15.0)) / 100.0
                     
                     mat["shrinkage_warp"], mat["shrinkage_weft"] = round(s_warp*100, 1), round(s_weft*100, 1)
 
@@ -562,6 +587,7 @@ if st.session_state.saved_pdf_bytes is not None:
                     "loss_factor": loss,
                     "final_consumption_yds": final_consumption
                 }
+
 # --- ĐOẠN 2b3: STREAMLIT BOM INTERFACE RENDERER & EXCEL EXPORTER ---
         import pandas as pd
         import io
