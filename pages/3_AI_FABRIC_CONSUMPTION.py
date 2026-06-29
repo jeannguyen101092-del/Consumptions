@@ -142,18 +142,53 @@ with st.sidebar:
         with st.chat_message(chat["role"]): st.markdown(chat["content"])
     user_prompt = st.chat_input("Gửi thông số cho AI...")
 
-# SỬA LỖI TẠI ĐÂY: Lưu chữ gõ từ ô chat vào lịch sử trước khi xử lý Regex
 if user_prompt:
     st.session_state.sidebar_chat_history.append({"role": "user", "content": user_prompt})
-    # Kích hoạt hàm trích xuất thông số khổ vải/co rút từ câu chữ bạn gõ
     update_config_from_text(user_prompt)
     
-    # AI trả lời phản hồi xác nhận trên ô chat để không bị im lặng
     st.session_state.sidebar_chat_history.append({
         "role": "assistant", 
         "content": f"Đã nhận lệnh tinh chỉnh: '{user_prompt}'. Định mức rập phẳng đang được tính toán lại ngay..."
     })
     st.rerun()
+
+# =====================================================================
+# ENGINE QUY ĐỔI PHÂN SỐ NGÀNH MAY (ĐÃ SỬA LỖI ĐỊNH VỊ CHỈ MỤC)
+# =====================================================================
+def parse_garment_fraction(val) -> float:
+    """Chuyển đổi chính xác phân số hỗn hợp ngành may thành số thập phân thực tế"""
+    if val is None: return 0.0
+    val_str = str(val).strip()
+    if not val_str or val_str.lower() in ['none', 'null', 'n/a']: return 0.0
+    
+    # 1. Nếu bản chất đã là số thập phân, ép kiểu trực tiếp
+    try: 
+        return float(val_str)
+    except ValueError: 
+        pass
+    
+    # 2. Xử lý chuỗi chứa dấu phân số '/' (Ví dụ: '16 1/2' hoặc '31 1/2')
+    try:
+        if '/' in val_str:
+            parts = re.split(r'[\s\-]+', val_str)
+            if len(parts) == 2:
+                # Trường hợp hỗn số như '16 1/2' -> parts[0]='16', parts[1]='1/2'
+                whole = float(parts[0])
+                frac_parts = parts[1].split('/')
+                num = float(frac_parts[0])
+                den = float(frac_parts[1])
+                return whole + (num / den)
+            elif len(parts) == 1:
+                # Trường hợp phân số thuần như '1/2' -> parts[0]='1/2'
+                frac_parts = parts[0].split('/')
+                num = float(frac_parts[0])
+                den = float(frac_parts[1])
+                return num / den
+    except Exception:
+        pass
+        
+    return safe_float(val, 0.0)
+
 
 # =====================================================================
 # ENGINE QUY ĐỔI PHÂN SỐ NGÀNH MAY (Ví dụ: 16 1/2 -> 16.5)
