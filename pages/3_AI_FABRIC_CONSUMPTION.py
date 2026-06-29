@@ -110,22 +110,34 @@ class GarmentCADCoreEngine:
     @staticmethod
     def Advanced_Marker_Nesting_Engine(category: str, pieces_area: dict, config: dict) -> dict:
         width_inch = config.get("width_inch", 58.0)
+        
+        # 1. HIỆU CHỈNH ĐỘ CO RÚT NGANG (Shrinkage Weft): Ép khổ vải hẹp lại chân thực theo biên dệt
+        # Vải Denim co ngang 15% làm khổ vải hữu ích bị bóp nhỏ dã man
         shrinkage_weft_factor = 1.0 - (safe_float(config.get("shrinkage_weft", 15.0), 15.0) / 100)
         width_cm = safe_float(width_inch, 58.0) * 2.54 * shrinkage_weft_factor
+        
+        # 2. HIỆU CHỈNH ĐỘ CO RÚT DỌC (Shrinkage Warp)
         shrinkage_warp_factor = 1.0 + (safe_float(config.get("shrinkage_warp", 5.0), 5.0) / 100)
         
         total_net_area = pieces_area.get("Front_Body", 0.0) + pieces_area.get("Back_Body", 0.0) + pieces_area.get("Sleeve", 0.0)
-        seam_allowance_factor = 1.09 if "pant" in str(category).lower() or "jeans" in str(category).lower() else 1.08
         
-        # SỬA ĐỒNG BỘ TÊN BIẾN TẠI ĐÂY ĐỂ TRÁNH LỖI NAMEERROR
-        required_gross_area = total_net_area * seam_allowance_factor
+        # 3. ĐỘI ĐƯỜNG MAY (Seam Allowance): Chuyển đổi sang Gross Pattern (Cộng dôi dư 9% diện tích tinh)
+        seam_allowance_factor = 1.09 if "pant" in str(category).lower() or "jeans" in str(category).lower() else 1.08
+        total_gross_area = total_net_area * seam_allowance_factor
         
         base_efficiency = 0.84 if "pant" in str(category).lower() or "jeans" in str(category).lower() else 0.85
         if "jacket" in str(category).lower(): base_efficiency = 0.82
             
-        required_fabric_area = required_gross_area / base_efficiency
+        required_fabric_area = total_gross_area / base_efficiency
+        
+        # THUẬT TOÁN CAD CHUẨN: Chiều dài sơ đồ thực tế sau khi chịu cả áp lực co hẹp khổ lẫn co rút dọc
         marker_length_cm = (required_fabric_area / width_cm) * shrinkage_warp_factor
-        return {"efficiency_predicted": round(base_efficiency * 100, 1), "consumption_yds": round(marker_length_cm / 91.44, 2)}
+        
+        # Quy đổi ra Yards trên mỗi sản phẩm quần (yds/pc)
+        consumption_yds = marker_length_cm / 91.44
+        
+        return {"efficiency_predicted": round(base_efficiency * 100, 1), "consumption_yds": round(consumption_yds, 2)}
+
 # =====================================================================
 # AI GEMINI VISION PDF PARSER
 # =====================================================================
