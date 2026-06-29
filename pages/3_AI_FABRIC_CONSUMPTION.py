@@ -469,6 +469,7 @@ if st.session_state.saved_pdf_bytes is not None:
         chat_history = st.session_state.get("sidebar_chat_history", [])
         last_chat = str(chat_history[-1].get("content", "")).lower() if len(chat_history) > 1 else ""
 
+
 # --- ĐOẠN 2b2b: COMMERCIAL CAD MARKER CONSUMPTION ENGINE ---
         if len(panels) > 0:
             for mat in materials:
@@ -476,9 +477,7 @@ if st.session_state.saved_pdf_bytes is not None:
                 calc_consumption, target_area = 0.0, 0.0
                 
                 # A. BỘ TRÍCH XUẤT KHỔ VẢI VẬT LÝ CHÍNH THỨC TỪ Ô CHAT AI
-                # Luồng xử lý: Ưu tiên bắt thông tin từ ô chat trước, nếu trống mới dùng thông số cấu hình mặc định
                 if "SHELL" in placement:
-                    # Kiểm tra ô chat tìm khổ vải chính (ví dụ: "khổ 58" hoặc "58 dọc 5")
                     shell_w_match = re.search(r'(?:khổ|k|w)\s*(\d+(?:\.\d+)?)', last_chat) if last_chat else None
                     if shell_w_match:
                         w_inch = float(shell_w_match.group(1))
@@ -486,24 +485,19 @@ if st.session_state.saved_pdf_bytes is not None:
                         w_inch = st.session_state.width_inch_override if st.session_state.width_inch_override else 58.0
                 elif "POCKETING" in placement:
                     pkt_match = re.search(r'lót khổ\s*(\d+(?:\.\d+)?)', last_chat) if last_chat else None
-                    w_inch = float(pkt_match.group(1)) if pkt_match else 60.0
+                    w_inch = float(pkt_match.group(1)) if pkt_match else 57.0  # SỬA LỖI: Mặc định lót khổ 57
                 else:
                     fus_match = re.search(r'keo khổ\s*(\d+(?:\.\d+)?)', last_chat) if last_chat else None
-                    w_inch = float(fus_match.group(1)) if fus_match else 44.0
+                    w_inch = float(fus_match.group(1)) if fus_match else 59.0  # SỬA LỖI: Mặc định keo khổ 59
                 mat["width_inch"] = w_inch
 
-                # B. BỘ TRÍCH XUẤT ĐỘ CO RÚT CHÍNH THỨC TỪ Ô CHAT AI
+                # B. BỘ TRÍCH XUẤT ĐỘ CO RÚT TỪ Ô CHAT AI
                 s_warp, s_weft = 0.0, 0.0
                 if "SHELL" in placement:
-                    # Luồng xử lý: Ô chat nhận thông tin nhập chính thức từ người dùng để tính định mức
                     has_chat_shrinkage = False
-                    
                     if last_chat:
-                        # 1. Tìm độ co dọc (Warp): Bắt các cụm như "dọc 5", "co dọc 5", "warp 5"
                         warp_match = re.search(r'(?:co dọc|dọc|warp)\s*(\d+(?:\.\d+)?)', last_chat)
-                        # 2. Tìm độ co ngang (Weft): Bắt các cụm như "ngang 15", "co ngang 15", "weft 15"
                         weft_match = re.search(r'(?:co ngang|ngang|w|weft)\s*(\d+(?:\.\d+)?)', last_chat)
-                        # 3. Tìm định dạng viết tắt nhanh (ví dụ người dùng nhập: "5 dọc 15 ngang" hoặc "5-15")
                         generic_match = re.search(r'(\d+(?:\.\d+)?)\s*-\s*(\d+(?:\.\d+)?)', last_chat)
                         
                         if warp_match:
@@ -512,14 +506,11 @@ if st.session_state.saved_pdf_bytes is not None:
                         if weft_match:
                             s_weft = float(weft_match.group(1)) / 100.0
                             has_chat_shrinkage = True
-                            
-                        # Nếu người dùng nhập dạng nhanh "5-15" mà chưa bắt được bằng từ khóa riêng lẻ
                         if not has_chat_shrinkage and generic_match:
                             s_warp = float(generic_match.group(1)) / 100.0
                             s_weft = float(generic_match.group(2)) / 100.0
                             has_chat_shrinkage = True
 
-                    # Fallback: Nếu ô chat trống hoặc không chứa thông tin co rút, lấy thông số mặc định gốc từ file/hệ thống
                     if not has_chat_shrinkage:
                         if st.session_state.shrinkage_override:
                             s_warp = st.session_state.shrinkage_override / 100.0
@@ -529,33 +520,26 @@ if st.session_state.saved_pdf_bytes is not None:
                     
                     mat["shrinkage_warp"], mat["shrinkage_weft"] = round(s_warp*100, 1), round(s_weft*100, 1)
 
-                # SỬA LỖI 5: Chống lỗi chia cho số 0 (Zero-Division Safeguard) - Khóa biên hẹp khổ vải tối thiểu 10 inch
-                # SỬA ĐỔI TOÀN DIỆN KỸ THUẬT: Sơ đồ CAD cắt xưởng trải vải thực tế theo khổ vật lý trước wash (trừ biên vải an toàn cố định 1 inch)
+                # SỬA LỖI 5: Khóa biên hẹp khổ vải tối thiểu 10 inch, trừ biên vải an toàn cố định 1 inch trước wash
                 effective_width = max(10.0, w_inch - 1.0)
 
                 # -----------------------------------------------------------------
-                # SỬA LỖI 2: ALWAYS CALCULATE (QUY TRÌNH ERP/CAD CHUẨN) - LUÔN LUÔN TÍNH TOÁN TỰ ĐỘNG
+                # SỬA LỖI 2: ALWAYS CALCULATE - LOẠI BỎ TOÀN BỘ HAO HỤT (LOSS = 1.0)
                 # -----------------------------------------------------------------
                 if "PANT" in category.upper():
-                    # --- THUẬT TOÁN ĐỊNH MỨC SƠ ĐỒ QUẦN JEANS / DENIM CÔNG NGHIỆP TỐI ƯU ---
                     target_area = v_shell
-                    eff, loss = 0.84, 1.045
+                    eff, loss = 0.84, 1.0  # SỬA LỖI: Triệt tiêu hao hụt quần về 1.0
                     
-                    # SỬA LỖI 3: Thuật toán Hệ số lồng rập đan xen đa giác (Nested Polygon Envelope Factor)
-                    # Biến thiên tự động dựa trên tỷ lệ giữa diện tích hộp bao sườn ống và diện tích đa giác rập thật.
-                    # Phân biệt chính xác tỷ lệ tiêu hao của Skinny Jeans (ít khoảng trống) và Wide Leg (phình chân)
                     total_pant_box_area = ((max_front_pant + max_back_pant) + 1.76 + 0.75) * (max_body_width * 2.0)
                     marker_pant_geometric_factor = 1.160 if total_pant_box_area == 0 else max(1.11, min(1.22, (total_pant_box_area / max(1.0, target_area)) * 0.55))
                     
                     if "POCKETING" in placement: 
-                        calc_consumption = round(((max_back_pant) / 39.37) * 0.21, 3); target_area = v_pocket; eff, loss = 0.86, 1.02
+                        calc_consumption = round(((max_back_pant) / 39.37) * 0.21, 3); target_area = v_pocket; eff, loss = 0.86, 1.0
                     elif "INTERLINING" in placement: 
-                        calc_consumption = round(((max_back_pant) / 39.37) * 0.09, 3); target_area = v_inter; eff, loss = 0.88, 1.02
+                        calc_consumption = round(((max_back_pant) / 39.37) * 0.09, 3); target_area = v_inter; eff, loss = 0.88, 1.0
                     else:
-                        # TOÀN DIỆN TOÁN HỌC CAD: Tính chiều dài sơ đồ lồng rập thực tế (không chia bừa diện tích) cho vải co sau wash
                         max_pant_length = max(max_front_pant, max_back_pant)
                         if max_pant_length > 10.0 and effective_width > 0:
-                            # Khổ vải thực tế trước wash đủ xếp song song tối thiểu 2 thân (Cặp rập Thân trước + Thân sau đan xen dọc)
                             is_narrow_fabric = effective_width < (max_body_width * 2.0)
                             width_factor = 1.85 if is_narrow_fabric else 1.25
                             calc_consumption = (max_pant_length / 39.37) * width_factor * loss
@@ -564,7 +548,6 @@ if st.session_state.saved_pdf_bytes is not None:
                                 m_len = (target_area * (1.0 + s_warp)) / effective_width
                                 calc_consumption = (m_len / 39.37) / eff * loss * marker_pant_geometric_factor
                 else:
-                    # --- THUẬT TOÁN ĐỊNH MỨC ÁO JACKET / BOMBER CÔNG NGHIỆP TỐI ƯU ---
                     if "SHELL" in placement:
                         base_layout_length = (max_body_length + (2 * sewing_seam_allowance)) + (max_sleeve + (2 * sewing_seam_allowance)) + hem_allowance
                         has_long_rib = any("bo gấu" in str(p.get("panel_name", "")).lower() or "bo lưng" in str(p.get("panel_name", "")).lower() for p in panels)
@@ -572,19 +555,18 @@ if st.session_state.saved_pdf_bytes is not None:
                         
                         final_layout_inch = base_layout_length * (1.0 + s_warp)
                         jacket_factor = 1.375 if (s_weft >= 0.12 and max_body_width >= 26.0) else (1.15 if w_inch <= 58.0 else 1.09)
-                        calc_consumption = ((final_layout_inch * jacket_factor) / 39.37) * 1.035
-                        target_area, eff, loss = v_shell, 0.85, 1.035
+                        calc_consumption = ((final_layout_inch * jacket_factor) / 39.37) * 1.0
+                        target_area, eff, loss = v_shell, 0.85, 1.0  # SỬA LỖI: Triệt tiêu hao hụt vỏ áo về 1.0
                     elif "POCKETING" in placement:
                         calc_consumption = round(((max_body_length + max_sleeve) / 39.37) * 0.22, 3)
-                        target_area, eff, loss = v_pocket, 0.86, 1.02
+                        target_area, eff, loss = v_pocket, 0.86, 1.0  # SỬA LỖI: Triệt tiêu hao hụt lót áo về 1.0
                     else:
-                        # TOÀN DIỆN TOÁN HỌC CAD CHO ÁO: Tính định mức mex/keo dựng áo Jacket dựa trên diện tích hình học rập thật
                         if v_inter > 0 and effective_width > 0:
                             m_len_inter = v_inter / effective_width
-                            calc_consumption = (m_len_inter / 39.37) / 0.88 * 1.02
+                            calc_consumption = (m_len_inter / 39.37) / 0.88 * 1.0
                         else:
                             calc_consumption = round(((max_body_length) / 39.37) * 0.15, 3)
-                        target_area, eff, loss = v_inter, 0.88, 1.02
+                        target_area, eff, loss = v_inter, 0.88, 1.0  # SỬA LỖI: Triệt tiêu hao hụt keo áo về 1.0
 
                 # --- ĐOẠN KHỞI TẠO VÀ ĐẨY DỮ LIỆU VÀO BẢNG BOM DEBUG LOG ---
                 final_consumption = round(max(0.0, calc_consumption), 3)
@@ -601,6 +583,7 @@ if st.session_state.saved_pdf_bytes is not None:
                     "loss_factor": loss,
                     "final_consumption_yds": final_consumption
                 }
+
 
 # --- ĐOẠN 2b3: STREAMLIT BOM INTERFACE RENDERER & EXCEL EXPORTER ---
         import pandas as pd
@@ -621,7 +604,7 @@ if st.session_state.saved_pdf_bytes is not None:
                     "Co ngang (%)": details["shrinkage_weft"],
                     "Diện tích rập (Inch²)": details["target_area_inch2"],
                     "Hiệu suất sơ đồ (Eff)": details["efficiency"],
-                    "Hao hụt (Loss)": details["loss_factor"],
+                    "Hao hụt (Loss = 1.0)": details["loss_factor"],  # Thay đổi tên cột hiển thị rõ giá trị 1.0 (Không hao hụt)
                     "Định mức cuối (Yds)": details["final_consumption_yds"]
                 })
             
