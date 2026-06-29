@@ -117,17 +117,21 @@ class GarmentCADCoreEngine:
             total_gross_area = (front_gross_poly.area * 2.0 + (front_gross_poly.area * 1.03) + sleeve_gross_poly.area * 2.0) * 1.08
             base_efficiency = 0.81 if "jacket" in str(category).lower() else 0.85
             
-        # 4. TRUE MARKER SIMULATION: Chiều dài bàn cắt thực tế = Tổng diện tích đa giác thô / Khổ vải hữu ích
+                # 4. TRUE MARKER SIMULATION: Tính toán chiều dài sơ đồ bằng đơn vị Inch và đổi thẳng sang Yards
         width_inch = config.get("width_inch", 58.0)
-        width_cm = safe_float(width_inch, 58.0) * 2.54
+        active_w_inch = safe_float(width_inch, 58.0)
         
-        marker_length_cm = (total_gross_area / base_efficiency) / width_cm
-        consumption_yds = marker_length_cm / 91.44
+        # Chiều dài sơ đồ thực tế tính bằng đơn vị Inch
+        marker_length_inch = total_gross_area / (base_efficiency * active_w_inch)
+        
+        # Quy đổi từ đơn vị Inch trực tiếp sang đơn vị Yards ngành may (1 yard = 36 inch)
+        consumption_yds = marker_length_inch / 36.0
         
         return {
             "efficiency_predicted": round(base_efficiency * 100, 1),
             "consumption_yds": round(consumption_yds, 2)
         }
+
 # =====================================================================
 # AI GEMINI VISION PDF PARSER
 # =====================================================================
