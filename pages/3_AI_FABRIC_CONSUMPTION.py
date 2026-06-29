@@ -418,7 +418,7 @@ if st.session_state.saved_pdf_bytes is not None:
                 v_inter_area = safe_float(interlining_fabric_area) if 'interlining_fabric_area' in locals() or 'interlining_fabric_area' in globals() else 0.0
 
                 effective_width_inch = w_inch * (1.0 - s_weft)
-# --- ĐOẠN 2b2: COMMERCIAL CAD MARKER CONSUMPTION ENGINE (LÕI PHẲNG POLYGON MESH) ---
+# --- ĐOẠN 2b2a: CAD DATA GEOMETRY EXTRACTION & FABRIC CONFIGURATION ---
         materials = data.get("materials_bom", [])
         bom_debug_log = {}
 
@@ -455,7 +455,7 @@ if st.session_state.saved_pdf_bytes is not None:
 
         chat_history = st.session_state.get("sidebar_chat_history", [])
         last_chat = str(chat_history[-1].get("content", "")).lower() if len(chat_history) > 1 else ""
-
+# --- ĐOẠN 2b2b: COMMERCIAL CAD MARKER CONSUMPTION ENGINE ---
         if len(panels) > 0:
             for mat in materials:
                 placement = str(mat.get("placement")).upper()
@@ -491,7 +491,8 @@ if st.session_state.saved_pdf_bytes is not None:
                     mat["shrinkage_warp"], mat["shrinkage_weft"] = round(s_warp*100, 1), round(s_weft*100, 1)
 
                 # SỬA LỖI 5: Chống lỗi chia cho số 0 (Zero-Division Safeguard) - Khóa biên hẹp khổ vải tối thiểu 10 inch
-                effective_width = max(10.0, w_inch * (1.0 - s_weft))
+                # SỬA ĐỔI TOÀN DIỆN KỸ THUẬT: Sơ đồ CAD cắt xưởng trải vải thực tế theo khổ vật lý trước wash (trừ biên vải an toàn cố định 1 inch)
+                effective_width = max(10.0, w_inch - 1.0)
 
                 # -----------------------------------------------------------------
                 # SỬA LỖI 2: ALWAYS CALCULATE (QUY TRÌNH ERP/CAD CHUẨN) - LUÔN LUÔN TÍNH TOÁN TỰ ĐỘNG
@@ -512,9 +513,17 @@ if st.session_state.saved_pdf_bytes is not None:
                     elif "INTERLINING" in placement: 
                         calc_consumption = round(((max_back_pant) / 39.37) * 0.09, 3); target_area = v_inter; eff, loss = 0.88, 1.02
                     else:
-                        if target_area > 0 and effective_width > 0:
-                            m_len = (target_area * (1.0 + s_warp)) / effective_width
-                            calc_consumption = (m_len / 39.37) / eff * loss * marker_pant_geometric_factor
+                        # TOÀN DIỆN TOÁN HỌC CAD: Tính chiều dài sơ đồ lồng rập thực tế (không chia bừa diện tích) cho vải co sau wash
+                        max_pant_length = max(max_front_pant, max_back_pant)
+                        if max_pant_length > 10.0 and effective_width > 0:
+                            # Khổ vải thực tế trước wash đủ xếp song song tối thiểu 2 thân (Cặp rập Thân trước + Thân sau đan xen dọc)
+                            is_narrow_fabric = effective_width < (max_body_width * 2.0)
+                            width_factor = 1.85 if is_narrow_fabric else 1.25
+                            calc_consumption = (max_pant_length / 39.37) * width_factor * loss
+                        else:
+                            if target_area > 0 and effective_width > 0:
+                                m_len = (target_area * (1.0 + s_warp)) / effective_width
+                                calc_consumption = (m_len / 39.37) / eff * loss * marker_pant_geometric_factor
                 else:
                     # --- THUẬT TOÁN ĐỊNH MỨC ÁO JACKET / BOMBER CÔNG NGHIỆP TỐI ƯU ---
                     if "SHELL" in placement:
@@ -530,11 +539,12 @@ if st.session_state.saved_pdf_bytes is not None:
                         calc_consumption = round(((max_body_length + max_sleeve) / 39.37) * 0.22, 3)
                         target_area, eff, loss = v_pocket, 0.86, 1.02
                     else:
-                        if target_area > 0 and effective_width > 0:
-                            m_len = (target_area * (1.0 + s_warp)) / effective_width
-                            calc_consumption = (m_len / 39.37) / eff * loss
+                        # TOÀN DIỆN TOÁN HỌC CAD CHO ÁO: Tính định mức mex/keo dựng áo Jacket dựa trên diện tích hình học rập thật
+                        if v_inter > 0 and effective_width > 0:
+                            m_len_inter = v_inter / effective_width
+                            calc_consumption = (m_len_inter / 39.37) / 0.88 * 1.02
                         else:
-                            calc_consumption = 0.0
+                            calc_consumption = round(((max_body_length) / 39.37) * 0.15, 3)
                         target_area, eff, loss = v_inter, 0.88, 1.02
 
                 # --- ĐOẠN KHỞI TẠO VÀ ĐẨY DỮ LIỆU VÀO BẢNG BOM DEBUG LOG ---
@@ -552,25 +562,3 @@ if st.session_state.saved_pdf_bytes is not None:
                     "loss_factor": loss,
                     "final_consumption_yds": final_consumption
                 }
-        # --- ĐOẠN 2b3: HIỂN THỊ BẢNG ĐỊNH MỨC VẬT LIỆU (BOM) LÊN GIAO DIỆN STREAMLIT ---
-        if bom_debug_log:
-            st.markdown("### 📊 BẢNG ĐỊNH MỨC VẬT LIỆU CHI TIẾT (BOM CONSUMPTION)")
-            
-            # Chuyển đổi dictionary log sang cấu trúc list để tạo bảng dữ liệu sạch
-            bom_display_data = []
-            for position, details in bom_debug_log.items():
-                bom_display_data.append({
-                    "Vị trí (Placement)": position,
-                    "Tên nguyên liệu": details["material_name"],
-                    "Khổ vải (Inch)": details["width_inch"],
-                    "Khổ hữu dụng (Inch)": details["effective_width"],
-                    "Co dọc (%)": details["shrinkage_warp"],
-                    "Co ngang (%)": details["shrinkage_weft"],
-                    "Diện tích rập (Inch²)": details["target_area_inch2"],
-                    "Hiệu suất sơ đồ (Eff)": details["efficiency"],
-                    "Hao hụt (Loss)": details["loss_factor"],
-                    "Định mức cuối (Yds)": details["final_consumption_yds"]
-                })
-            
-            # Hiển thị bảng dạng DataFrame trực quan, mở rộng hết chiều ngang màn hình
-            st.dataframe(bom_display_data, use_container_width=True)
