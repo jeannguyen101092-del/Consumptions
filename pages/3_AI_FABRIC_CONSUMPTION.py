@@ -432,10 +432,10 @@ if st.session_state.saved_pdf_bytes is not None:
                 cat_upper = str(category).upper()
 
                 if "PANT" in cat_upper:
-                    # --- THUẬT TOÁN ĐỊNH MỨC QUẦN DÀI (DIỆN TÍCH THỰC TẾ 1 SẢN PHẨM KHÔNG CHIA ĐÔI) ---
+                    # --- THUẬT TOÁN ĐỊNH MỨC QUẦN DÀI ---
                     main_body_area = sum([safe_float(p.get("area_inch2")) for p in body_panels if any(x in str(p.get("panel_name", "")).lower() for x in ["thân", "front", "back"])])
                     target_area = main_body_area if main_body_area > 10.0 else v_shell
-                    eff = 0.82  # Hiệu suất sơ đồ tinh chuẩn Gerber cho phom quần Jeans
+                    eff = 0.82  # Gerber/Lectra industrial efficiency baseline cho phom lồng quần
                     
                     if "POCKETING" in placement: 
                         calc_consumption = round(((max_back_pant) / 39.37) * 0.21, 3); target_area = v_pocket; eff = 0.86
@@ -443,8 +443,8 @@ if st.session_state.saved_pdf_bytes is not None:
                         calc_consumption = round(((max_back_pant) / 39.37) * 0.09, 3); target_area = v_inter; eff = 0.88
                     else:
                         if target_area > 0 and effective_width > 0:
-                            marker_length_inch = target_area / effective_width
-                            # SỬA DỨT ĐIỂM: Bỏ chia đôi, tính chuẩn xác 100% không gian chiếm chỗ của một chiếc quần dài hoàn chỉnh
+                            # SỬA LỖI HỤT VẢI: Nhân thêm độ co dọc (s_warp = 5%) để bù chiều dài co rút sau wash của vải Denim
+                            marker_length_inch = (target_area / effective_width) * (1.0 + s_warp)
                             calc_consumption = (marker_length_inch / 39.37) / eff * loss
                         else: calc_consumption = 0.0
 
@@ -462,7 +462,7 @@ if st.session_state.saved_pdf_bytes is not None:
                         target_area = v_inter; eff = 0.88
                     else:
                         if target_area > 0 and effective_width > 0:
-                            marker_length_inch = target_area / effective_width
+                            marker_length_inch = (target_area / effective_width) * (1.0 + s_warp)
                             calc_consumption = (marker_length_inch / 39.37) / eff * loss
                         else: calc_consumption = 0.0
 
@@ -477,7 +477,7 @@ if st.session_state.saved_pdf_bytes is not None:
                         calc_consumption = round((max_body_length / 39.37) * 0.05, 3); target_area = v_inter; eff = 0.88
                     else:
                         if target_area > 0 and effective_width > 0:
-                            marker_length_inch = target_area / effective_width
+                            marker_length_inch = (target_area / effective_width) * (1.0 + s_warp)
                             calc_consumption = (marker_length_inch / 39.37) / eff * loss
                         else: calc_consumption = 0.0
 
@@ -496,6 +496,7 @@ if st.session_state.saved_pdf_bytes is not None:
                     "loss_factor": loss,
                     "final_consumption_yds": final_consumption
                 }
+
 
 
 
