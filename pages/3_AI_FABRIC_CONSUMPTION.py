@@ -427,6 +427,19 @@ if st.session_state.saved_pdf_bytes is not None:
         v_pocket = safe_float(pocketing_fabric_area) if 'pocketing_fabric_area' in locals() or 'pocketing_fabric_area' in globals() else 0.0
         v_inter = safe_float(interlining_fabric_area) if 'interlining_fabric_area' in locals() or 'interlining_fabric_area' in globals() else 0.0
 
+        # FIX BẪY LỖI QUÉT NGƯỢC THÔNG SỐ (LENGTH/WIDTH SWAP GUARD):
+        # Tự động duyệt qua các panel, nếu phát hiện cấu trúc cột Rộng lớn hơn cột Dài của chi tiết Thân áo/quần thì tự động đảo lại cho đúng kỹ thuật.
+        for p in panels:
+            p_name = str(p.get("panel_name", "")).lower()
+            if any(x in p_name for x in ["thân", "front", "back", "body", "panel"]):
+                raw_len = parse_garment_fraction(p.get("length_inch"))
+                raw_wid = parse_garment_fraction(p.get("width_inch"))
+                # Nếu chiều rộng rập thân lớn hơn chiều dài (vô lý đối với quần/áo thông thường), tiến hành đảo ngược giá trị key
+                if raw_wid > raw_len and raw_len < 10.0:
+                    orig_len = p.get("length_inch")
+                    p["length_inch"] = p.get("width_inch")
+                    p["width_inch"] = orig_len
+
         # SỬA LỖI 4: Bộ lọc Thân chính mở rộng toàn diện (Global Body Panels Filter) - Bọc Regex chuẩn Gerber/Lectra Techpack
         body_keywords = ["front", "back", "body", "panel", "side", "thân", "trước", "sau", "sườn"]
         noise_keywords = ["yoke", "cầu vai", "đô", "waistband", "cạp", "lưng", "hood", "nón", "mũ", "pocket", "túi", "cuff", "bo", "collar", "cổ", "flap"]
@@ -455,6 +468,7 @@ if st.session_state.saved_pdf_bytes is not None:
 
         chat_history = st.session_state.get("sidebar_chat_history", [])
         last_chat = str(chat_history[-1].get("content", "")).lower() if len(chat_history) > 1 else ""
+
 # --- ĐOẠN 2b2b: COMMERCIAL CAD MARKER CONSUMPTION ENGINE ---
         if len(panels) > 0:
             for mat in materials:
