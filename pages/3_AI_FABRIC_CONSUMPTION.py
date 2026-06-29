@@ -113,7 +113,8 @@ def ai_gemini_vision_pdf_parser(pdf_file_name, pdf_bytes) -> dict:
         st.error(f"Lỗi phân tích AI: {str(e)}")
         return None
 # =====================================================================
-# SIDEBAR CONTROL (KHÔI PHỤC HOÀN TOÀN Ô CHAT VÀ LỊCH SỬ TƯƠNG TÁC)
+# =====================================================================
+# SIDEBAR CONTROL (ĐOẠN 2a: VÁ LỖI CƠ CHẾ LƯU STATE LOCK CHỐNG ĐƠ TRANG)
 # =====================================================================
 with st.sidebar:
     st.header("💬 TRỢ LÝ SẢN XUẤT AI")
@@ -138,12 +139,28 @@ with st.sidebar:
             
     user_prompt = st.chat_input("Gửi thông số cho AI...", key="garment_chat_input_unique")
 
+# XỬ LÝ LỆNH CHAT: Đồng bộ và khóa cứng dữ liệu vào core RAM hệ thống trước khi rerun
 if user_prompt:
     st.session_state.sidebar_chat_history.append({"role": "user", "content": user_prompt})
-    update_config_from_text(user_prompt)
+    
+    # 1. Trích xuất NLP và lưu thẳng vào Session State vĩnh viễn
+    text_lower = user_prompt.lower()
+    width_match = re.search(r'(?:khổ|width|vải|đm|mức|cắt)\s*(\d+)', text_lower)
+    if width_match: 
+        st.session_state.width_inch_override = float(width_match.group(1))
+        st.session_state.is_calculated = True
+
+    co_l_match = re.search(r'(?:co dọc|dọc|l|warp)\s*(\d+)', text_lower)
+    if co_l_match: 
+        st.session_state.shrinkage_override = float(co_l_match.group(1))
+    else:
+        generic_co = re.search(r'(?:co rút|độ co|co)\s*(\d+)', text_lower)
+        if generic_co: st.session_state.shrinkage_override = float(generic_co.group(1))
+        
+    # 2. Tạo câu phản hồi của AI
     st.session_state.sidebar_chat_history.append({
         "role": "assistant", 
-        "content": f"⚙️ Đã nhận diện thông số: '{user_prompt}'. Tiến hành giải mã phân số bảng POM và đẩy định mức mới cập nhật vào bảng BOM ngay lập tức..."
+        "content": f"⚙️ Đã ghi nhận thông số: '{user_prompt}'. Tiến hành giải mã sơ đồ diện tích rập thô và đẩy định mức mới cập nhật lên bảng BOM lập tức..."
     })
     st.rerun()
 
