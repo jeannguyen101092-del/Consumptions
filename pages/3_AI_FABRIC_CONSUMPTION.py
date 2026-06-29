@@ -248,23 +248,29 @@ def parse_garment_fraction(val) -> float:
 # ĐOẠN 2b: GIAO DIỆN CHÍNH, ĐỒNG BỘ ĐƠN VỊ VÀ ĐỔ BẢNG VECTOR CAD ĐỊNH MỨC THỰC TẾ
 # =====================================================================
 st.subheader("📁 BƯỚC 1: TẢI TÀI LIỆU KỸ THUẬT SẢN XUẤT (TECHPACK / BOM)")
-uploaded_file = st.file_uploader("Kéo và thả file PDF Techpack hoặc bảng BOM của bạn vào đây", type=["pdf"])
 
+# Sử dụng khóa key="pdf_uploader" để ép Streamlit không tự xóa bộ nhớ file
+uploaded_file = st.file_uploader("Kéo và thả file PDF Techpack hoặc bảng BOM của bạn vào đây", type=["pdf"], key="pdf_uploader")
+
+# CƠ CHẾ KHÓA FILE: Nếu có file mới tải lên, lập tức khóa chặt vào bộ nhớ hệ thống
 if uploaded_file is not None:
     if st.session_state.saved_pdf_name != uploaded_file.name:
         st.session_state.saved_pdf_bytes = uploaded_file.read()
         st.session_state.saved_pdf_name = uploaded_file.name
-        st.session_state.gemini_parsed_bom_data = None  
+        st.session_state.gemini_parsed_bom_data = None  # Xóa dữ liệu cũ để ép AI quét file mới
 
+# LUỒNG CHẠY TỰ ĐỘNG: Kiểm tra trong bộ nhớ hệ thống, nếu có dữ liệu file đã khóa thì thực thi ngay
+if st.session_state.saved_pdf_bytes is not None:
+    st.success(f"📥 **Hệ thống đã khóa file và duy trì liên tục:** `{st.session_state.saved_pdf_name}`")
+    
+    # Nếu file đã tải nhưng AI chưa quét (hoặc vừa đổi file mới) -> Gọi Gemini quét lập tức
     if st.session_state.gemini_parsed_bom_data is None:
-        with st.spinner("AI đang bóc tách dữ liệu thực tế từ file PDF..."):
+        with st.spinner("AI đang tiến hành bóc tách dữ liệu thực tế từ file PDF..."):
             st.session_state.gemini_parsed_bom_data = ai_gemini_vision_pdf_parser(
                 st.session_state.saved_pdf_name, st.session_state.saved_pdf_bytes
             )
 
-if st.session_state.saved_pdf_bytes is not None:
-    st.success(f"📥 **Đã nhận diện thành công file từ hệ thống:** `{st.session_state.saved_pdf_name}`")
-    
+    # Đọc dữ liệu đã quét từ bộ nhớ hệ thống ra để xử lý toán học sơ đồ rập
     data = st.session_state.gemini_parsed_bom_data
     if data:
         st.markdown("### 📋 THÔNG TIN CHUNG SẢN PHẨM")
@@ -286,12 +292,12 @@ if st.session_state.saved_pdf_bytes is not None:
         else:
             st.warning("⚠️ Không tìm thấy bảng số đo trong file PDF.")
 
-        # Cấu hình biên thông số kỹ thuật may nối cố định
+        # Định hình thông số biên đường may kỹ thuật may ráp
         sewing_seam_allowance = 0.44  
         hem_allowance = parse_garment_fraction(sewing_spec.get("hem_allowance_inch", 0.75))
         is_detached_hem = sewing_spec.get("is_detached_hem", False)
 
-        # --- ĐỒNG BỘ ENGINE DÒ THÔNG SỐ QUẦN JEANS / ÁO ---
+        # --- ĐỒNG BỘ ENGINE DÒ THÔNG SỐ TRẮC ĐỊA RẬP PHẲNG ---
         body_length = 0.0
         body_width = 0.0
         poms_clean = {str(k).lower(): v for k, v in poms.items()}
@@ -300,7 +306,7 @@ if st.session_state.saved_pdf_bytes is not None:
         front_rise_val = 0.0
 
         if "pant" in category:
-            # 1. Tính toán chiều dài quần (Ưu tiên Outseam hoặc dồn Inseam + Front Rise)
+            # 1. Tính toán chiều dài quần chuẩn xác (Outseam hoặc Inseam + Front Rise)
             for k, v in poms_clean.items():
                 if any(x in k for x in ['outseam', 'total_length', 'dài quần', 'side_length']):
                     body_length = parse_garment_fraction(v)
@@ -313,7 +319,7 @@ if st.session_state.saved_pdf_bytes is not None:
                 if inseam_val > 0 and front_rise_val > 0:
                     body_length = inseam_val + front_rise_val
 
-            # 2. Tính toán bề ngang rập sơ đồ: Dò tìm hông mông phình to nhất (Hip/Low Hip)
+            # 2. Tính toán bề ngang lớn nhất (Hip/Low Hip) bao phủ diện tích rập chiếm dụng sơ đồ phẳng
             for k, v in poms_clean.items():
                 if any(x in k for x in ['low_hip', 'hip_width', 'hip', 'mông']):
                     body_width = parse_garment_fraction(v)
@@ -325,10 +331,10 @@ if st.session_state.saved_pdf_bytes is not None:
                         body_width = parse_garment_fraction(v)
                         if body_width > 0: break
                         
-            # Cấu trúc sơ đồ phẳng dải chi tiết rập chiếm diện tích gấp đôi nửa vòng đo
+            # Bề ngang tổng sơ đồ phẳng (Tương đương kích thước dải rập của hai thân quần)
             body_width = body_width * 2.0
         else:
-            # Xử lý bóc tách kích thước đối với các mặt hàng Áo
+            # Dò tìm số đo cho cấu trúc các loại Áo
             for k, v in poms_clean.items():
                 if any(x in k for x in ['body_length', 'back_length', 'front_length', 'length', 'dài áo']):
                     body_length = parse_garment_fraction(v)
@@ -338,11 +344,11 @@ if st.session_state.saved_pdf_bytes is not None:
                     body_width = parse_garment_fraction(v)
                     if body_width > 0: break
 
-        # --- TOÁN HỌC ĐỊNH MỨC VÀ ĐỔ DỮ LIỆU ĐỘNG TRỰC TIẾP LÊN BẢNG BOM ---
+        # --- TIẾN HÀNH THỰC THI TOÁN HỌC VÀ ĐỔ ĐỊNH MỨC MỚI LÊN BẢNG BOM ---
         for mat in materials:
             placement_upper = str(mat.get("placement")).upper()
             
-            # Ép ghi đè dữ liệu tương tác từ ô chat ngay tức thì
+            # Đồng bộ dữ liệu tương tác từ ô chat ngay tức khắc vào cấu trúc bảng dữ liệu
             if "SHELL" in placement_upper:
                 if st.session_state.width_inch_override: mat["width_inch"] = st.session_state.width_inch_override
                 if st.session_state.shrinkage_override: mat["shrinkage_warp"] = st.session_state.shrinkage_override
@@ -351,7 +357,7 @@ if st.session_state.saved_pdf_bytes is not None:
                 if any(x in chat_content for x in ["keo", "mếch", "lót", "phối"]) and st.session_state.width_inch_override:
                     mat["width_inch"] = st.session_state.width_inch_override
 
-            # Đảm bảo gán khổ mặc định an toàn cho phụ liệu lót nếu file bị khuyết
+            # Đảm bảo gán khổ mặc định an toàn cho phụ liệu lót nếu file bị khuyết khổ vải
             w_inch = parse_garment_fraction(mat.get("width_inch"))
             if w_inch == 0:
                 if "POCKETING" in placement_upper: w_inch = 60.0; mat["width_inch"] = 60.0
@@ -361,31 +367,31 @@ if st.session_state.saved_pdf_bytes is not None:
             s_warp = safe_float(mat.get("shrinkage_warp", 5.0 if "SHELL" in placement_upper else 0.0)) / 100.0
             s_weft = safe_float(mat.get("shrinkage_weft", 15.0 if "SHELL" in placement_upper else 0.0)) / 100.0
             
-            # Ghi đè đồng bộ các lệnh co rút từ bộ nhớ chat
+            # Ghi đè đồng bộ các lệnh co rút dọc từ bộ nhớ chat bên trái
             if "SHELL" in placement_upper and st.session_state.shrinkage_override:
                 s_warp = st.session_state.shrinkage_override / 100.0
 
-            # Tính toán định mức dựa trên giải mã POM thật
+            # Tính toán định mức dựa trên giải mã số đo thật trích xuất từ bảng POM
             if body_length > 0 and body_width > 0:
-                # 1. Cộng biên hao hụt đường may ráp công đoạn nối chi tiết (+0.44" cho mỗi đầu ráp nối)
+                # 1. Cộng hao hụt biên đường may ráp công đoạn (+0.44" x 2 đầu ráp nối chi tiết)
                 calculated_length = body_length + (2 * sewing_seam_allowance)
                 calculated_width = body_width + (2 * sewing_seam_allowance)
 
-                # 2. Cộng hao hụt lai gấu theo quy cách tài liệu
+                # 2. Cộng biên hao hụt lai gấu theo cấu trúc may tài liệu
                 calculated_length += hem_allowance
 
                 # 3. Phân tích cấu trúc Áo tà rời hay tà liền (+0.44" nếu tà rời)
                 if "pant" not in category and is_detached_hem:
                     calculated_length += sewing_seam_allowance
 
-                # 4. Nhân hệ số co rút cơ học sau giặt (Shrinkage)
+                # 4. Nhân hệ số co rút cơ học vải sau giặt giũ (Shrinkage)
                 final_length = calculated_length * (1 + s_warp)
                 final_width = calculated_width * (1 + s_weft)
 
-                # 5. Định mức sơ đồ rập phẳng quy đổi ra đơn vị Mét (m) + 5% biên hao hụt cắt đầu tấm
+                # 5. Định mức sơ đồ phẳng quy đổi sang đơn vị Mét (m) + 5% biên hao hụt cắt đầu cây biên rập kỹ thuật
                 calc_consumption = (final_length * final_width) / (w_inch * 39.37) * 1.05
                 
-                # Phân bổ tỷ lệ định mức phụ trợ diện tích cho mếch lót và lót túi
+                # Phân bổ diện tích sơ đồ cho vải lót túi và keo dựng dán phôi chi tiết
                 if "POCKETING" in placement_upper: calc_consumption *= 0.35
                 if "INTERLINING" in placement_upper: calc_consumption *= 0.20
 
@@ -398,12 +404,12 @@ if st.session_state.saved_pdf_bytes is not None:
         st.markdown("### 🧵 BẢNG ĐỊNH MỨC NGUYÊN PHỤ LIỆU ĐỘNG (MATERIALS BOM)")
         df_bom = pd.DataFrame(materials)
         
-        # Sắp xếp và hiển thị dữ liệu định mức ra màn hình chính
+        # Sắp xếp thứ tự cột và ép hiển thị bảng định mức ra màn hình
         cols_order = ['placement', 'material_name', 'consumption_meter_per_pcs', 'consumption_yard_per_pcs', 'width_inch', 'shrinkage_warp', 'shrinkage_weft', 'gsm']
         df_bom = df_bom[[c for c in cols_order if c in df_bom.columns]]
         st.dataframe(df_bom, use_container_width=True)
         
-        st.info(f"⚙️ **Giải mã CAD rập phẳng:** Thân dài tổng hợp (`Inseam + Rise`): `{round(body_length, 2)}\"`, Ngang chiếm sơ đồ phẳng (2 thân): `{round(body_width, 2)}\"`. Biên ráp nối (+0.44\"), Lai gấu (+{round(hem_allowance, 2)}\")")
+        st.info(f"⚙️ **Giải mã CAD rập phẳng liên tục:** Thân dài tổng hợp (`Inseam + Rise`): `{round(body_length, 2)}\"`, Ngang chiếm sơ đồ phẳng (2 thân): `{round(body_width, 2)}\"`. Biên ráp nối (+0.44\"), Lai gấu (+{round(hem_allowance, 2)}\")")
     else:
         st.warning("⚠️ AI không thể trích xuất cấu trúc dữ liệu từ file PDF này. Vui lòng kiểm tra lại chất lượng file.")
 else:
