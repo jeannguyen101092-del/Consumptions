@@ -119,7 +119,7 @@ def ai_gemini_vision_pdf_parser(pdf_file_name, pdf_bytes) -> dict:
         st.error(f"Lỗi phân tích AI: {str(e)}")
         return None
 # =====================================================================
-# SIDEBAR CONTROL
+# SIDEBAR CONTROL (KHÔNG GIAN TƯƠNG TÁC VÀ ĐIỀU CHỈNH THÔNG SỐ)
 # =====================================================================
 with st.sidebar:
     st.header("💬 TRỢ LÝ SẢN XUẤT AI")
@@ -172,9 +172,8 @@ def parse_garment_fraction(val) -> float:
     except Exception:
         pass
     return safe_float(val, 0.0)
-
 # =====================================================================
-# GIAO DIỆN CHÍNH, ĐỒNG BỘ ĐƠN VỊ VÀ ĐỔ BẢNG VECTOR CAD ĐỊNH MỨC THỰC TẾ
+# ĐOẠN 2b: GIAO DIỆN CHÍNH, ĐỒNG BỘ ĐƠN VỊ VÀ ĐỔ BẢNG VECTOR CAD ĐỊNH MỨC THỰC TẾ
 # =====================================================================
 st.subheader("📁 BƯỚC 1: TẢI TÀI LIỆU KỸ THUẬT SẢN XUẤT (TECHPACK / BOM)")
 uploaded_file = st.file_uploader("Kéo và thả file PDF Techpack hoặc bảng BOM của bạn vào đây", type=["pdf"])
@@ -228,6 +227,7 @@ if st.session_state.saved_pdf_bytes is not None:
         front_rise_val = 0.0
 
         if "pant" in category:
+            # 1. Dò tìm chiều dài (Ưu tiên Outseam hoặc dồn Inseam + Front Rise)
             for k, v in poms_clean.items():
                 if any(x in k for x in ['outseam', 'total_length', 'dài quần', 'side_length']):
                     body_length = parse_garment_fraction(v)
@@ -240,11 +240,22 @@ if st.session_state.saved_pdf_bytes is not None:
                 if inseam_val > 0 and front_rise_val > 0:
                     body_length = inseam_val + front_rise_val
 
+            # 2. Hiệu chỉnh dò bề ngang rập cho Quần Jeans: Ưu tiên lấy chiều rộng hông/mông (Hip/Low Hip)
             for k, v in poms_clean.items():
-                if any(x in k for x in ['low_hip', 'hip_width', 'waist_width', 'waist', 'bụng', 'mông']):
+                if any(x in k for x in ['low_hip', 'hip_width', 'hip', 'mông']):
                     body_width = parse_garment_fraction(v)
                     if body_width > 0: break
+            
+            if body_width == 0:
+                for k, v in poms_clean.items():
+                    if any(x in k for x in ['waist_width', 'waist', 'bụng', 'eo']):
+                        body_width = parse_garment_fraction(v)
+                        if body_width > 0: break
+                        
+            # Bề ngang chiếm dụng sơ đồ phẳng chiếm diện tích bằng tối thiểu 2 lần nửa vòng mông/eo
+            body_width = body_width * 2.0
         else:
+            # Xử lý cho cấu trúc Áo
             for k, v in poms_clean.items():
                 if any(x in k for x in ['body_length', 'back_length', 'front_length', 'length', 'dài áo']):
                     body_length = parse_garment_fraction(v)
@@ -305,7 +316,7 @@ if st.session_state.saved_pdf_bytes is not None:
         df_bom = df_bom[[c for c in cols_order if c in df_bom.columns]]
         st.dataframe(df_bom, use_container_width=True)
         
-        st.info(f"⚙ *Giải mã hình học thực tế:* Dài tổng hợp (`Inseam + Rise` hoặc `Outseam`): `{round(body_length, 2)}\"`, Rộng tối đa: `{round(body_width, 2)}\"`. Biên ráp nối (+0.44\"), Lai gấu (+{round(hem_allowance, 2)}\")")
+        st.info(f"⚙️ **Giải mã hình học thực tế:** Dài tổng hợp: `{round(body_length, 2)}\"`, Rộng sơ đồ phẳng tổng (2 thân): `{round(body_width, 2)}\"`. Biên ráp nối (+0.44\"), Lai gấu (+{round(hem_allowance, 2)}\")")
     else:
         st.warning("⚠️ AI không thể trích xuất cấu trúc dữ liệu từ file PDF này. Vui lòng kiểm tra lại chất lượng file.")
 else:
