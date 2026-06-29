@@ -7,7 +7,7 @@ from shapely.geometry import Polygon
 import google.generativeai as genai
 
 # =====================================================================
-# CONFIGURATION & MULTI-LAYER STATE LOCK
+# CẤU HÌNH TRANG VÀ KHÓA BỘ NHỚ FILE VĨNH VIỄN (PERSISTENT STATE LOCK)
 # =====================================================================
 st.set_page_config(
     page_title="3. AI FABRIC CONSUMPTION", 
@@ -19,14 +19,19 @@ st.title("📊 TRỢ LÝ ĐỊNH MỨC NGUYÊN PHỤ LIỆU TỰ ĐỘNG (BOM)")
 st.caption("Cấu trúc lõi 13-Engine CAD/AI - Kết nối Gemini Vision dựng rập ảo và mô phỏng sơ đồ cắt")
 st.markdown("---")
 
-# Khởi tạo bộ nhớ đệm an toàn. Mặc định ban đầu is_calculated = False (Tất cả đều ẩn, chờ lệnh)
+# Khởi tạo bộ nhớ đệm an toàn tuyệt đối không bị đặt lại khi trang tải lại (Rerun)
 if "width_inch_override" not in st.session_state: st.session_state.width_inch_override = None
 if "shrinkage_override" not in st.session_state: st.session_state.shrinkage_override = None
 if "is_calculated" not in st.session_state: st.session_state.is_calculated = False
 if "gemini_parsed_bom_data" not in st.session_state: st.session_state.gemini_parsed_bom_data = None
+
+# ĐÂY LÀ CHÌA KHÓA: Khóa chặt file PDF thô và tên file trong bộ nhớ để không bị mất khi nhấn chat
+if "saved_pdf_bytes" not in st.session_state: st.session_state.saved_pdf_bytes = None
+if "saved_pdf_name" not in st.session_state: st.session_state.saved_pdf_name = None
+
 if "sidebar_chat_history" not in st.session_state:
     st.session_state.sidebar_chat_history = [
-        {"role": "assistant", "content": "Xin chào! Sau khi bạn kéo thả file PDF Techpack lên ở khung chính, hãy gõ thông số vải tại đây để ra lệnh cho AI bắt đầu phân tích và trả về bảng định mức."}
+        {"role": "assistant", "content": "Xin chào! Hãy kéo thả file PDF Techpack lên trước. Hệ thống sẽ ghi nhận ngầm. Sau đó bạn gõ thông số vải tại đây để AI lập tức xuất bảng định mức."}
     ]
 
 def update_config_from_text(text: str):
@@ -34,11 +39,10 @@ def update_config_from_text(text: str):
     if not text: return
     text_lower = text.lower()
     
-    # Bộ lọc Regex bắt trọn mọi cụm từ ra lệnh: tính đm khổ 58, khổ 58, vải 58...
     width_match = re.search(r'(?:khổ|width|vải|đm|mức)\s*(\d+)', text_lower)
     if width_match: 
         st.session_state.width_inch_override = float(width_match.group(1))
-        st.session_state.is_calculated = True  # CHỈ KHI CHAT MỚI BẬT LỆNH TÍNH
+        st.session_state.is_calculated = True
 
     co_match = re.search(r'(?:co dọc|co l|độ co|dọc|co rút)\s*(\d+)', text_lower)
     if co_match: 
@@ -48,7 +52,7 @@ def safe_float(val, default=0.0) -> float:
     """Hàm xử lý kiểu dữ liệu an toàn chặn đứng mọi lỗi gãy mảng của AI"""
     if val is None: return default
     if isinstance(val, list):
-        if len(val) > 0: return safe_float(val[0], default)
+        if len(val) > 0: return safe_float(val, default)
         return default
     try: return float(val)
     except (ValueError, TypeError): return default
@@ -89,7 +93,7 @@ class GarmentCADCoreEngine:
         marker_length_cm = (required_gross_area / width_cm) * shrinkage_l
         return {"efficiency_predicted": round(base_efficiency * 100, 1), "consumption_yds": round(marker_length_cm / 91.44, 2)}
 # =====================================================================
-# ĐOẠN 2: CHẠY GEMINI VISION NGẦM VÀ XUẤT BẢNG KHI CÓ LỆNH CHAT
+# ĐOẠN 2: SIDEBAR CONTROL, KHÓA FILE PDF VÀ KẾT XUẤT BẢNG KHI CÓ LỆNH CHAT
 # =====================================================================
 
 @st.cache_data(show_spinner=False)
@@ -108,6 +112,7 @@ def ai_gemini_vision_pdf_parser(pdf_file_name, pdf_bytes) -> dict:
         }
     }
     try:
+        from pypdf import PdfReader
         if "GEMINI_API_KEY" in st.secrets: genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
         elif "gemini" in st.secrets: genai.configure(api_key=st.secrets["gemini"].get("api_key", ""))
         
@@ -134,21 +139,23 @@ def ai_gemini_vision_pdf_parser(pdf_file_name, pdf_bytes) -> dict:
         return fallback_data
 
 # =====================================================================
-# SIDEBAR CHAT INTERACTION
+# SIDEBAR CHAT CONTROL INTERACTION
 # =====================================================================
 with st.sidebar:
     st.header("💬 TRỢ LÝ SẢN XUẤT AI")
     
-    # SỬA LỖI CÚ PHÁP XÓA CACHE TRONG STREAMLIT MỚI
+    # NÚT XÓA RESET TOÀN BỘ BỘ NHỚ FILE VÀ LỊCH SỬ CHAT
     if st.button("🗑️ Xóa lịch sử & Reset định mức", use_container_width=True):
         st.session_state.width_inch_override = None
         st.session_state.shrinkage_override = None
         st.session_state.is_calculated = False
         st.session_state.gemini_parsed_bom_data = None
+        st.session_state.saved_pdf_bytes = None
+        st.session_state.saved_pdf_name = None
         st.session_state.sidebar_chat_history = [
-            {"role": "assistant", "content": "Hệ thống đã dọn dẹp bộ nhớ. Vui lòng tải file PDF Techpack mới để bắt đầu."}
+            {"role": "assistant", "content": "Hệ thống đã reset toàn bộ file và lịch sử chat. Vui lòng tải file PDF mới để bắt đầu quy trình."}
         ]
-        st.cache_data.clear()  # Đúng cú pháp Streamlit mới để xóa cache
+        st.cache_data.clear()
         st.rerun()
         
     st.write("Nhập bổ sung thông tin vải, độ co rút sau khi tải PDF.")
@@ -171,19 +178,28 @@ for msg in st.session_state.sidebar_chat_history:
 st.subheader("📁 BƯỚC 1: TẢI TÀI LIỆU KỸ THUẬT SẢN XUẤT (TECHPACK / BOM)")
 uploaded_file = st.file_uploader("Kéo và thả file PDF Techpack hoặc bảng BOM của bạn vào đây", type=["pdf"])
 
+# Nếu người dùng tải file lên trực tiếp từ widget, khóa nó vào bộ nhớ đệm vĩnh viễn
 if uploaded_file is not None:
-    # Bước quét ngầm file lưu vào bộ nhớ cache, tuyệt đối không hiện bất kỳ bảng nào ra màn hình
-    pdf_bytes = uploaded_file.read()
-    if st.session_state.gemini_parsed_bom_data is None:
-        st.session_state.gemini_parsed_bom_data = ai_gemini_vision_pdf_parser(uploaded_file.name, pdf_bytes)
-        
-    bom_data = st.session_state.gemini_parsed_bom_data
+    st.session_state.saved_pdf_bytes = uploaded_file.read()
+    st.session_state.saved_pdf_name = uploaded_file.name
+
+# KIỂM TRA ĐIỀU KIỆN: Chỉ cần trong bộ nhớ đã lưu file (Dù widget file_uploader có bị reset trống khi chat)
+if st.session_state.saved_pdf_bytes is not None:
     
-    # ĐIỀU KIỆN QUYẾT ĐỊNH: Chỉ render bảng khi trạng thái is_calculated là True (Người dùng đã chat thông số)
-    if st.session_state.is_calculated:
-        st.success(f"✔️ Đã bóc tách thành công tài liệu: {uploaded_file.name}")
+    # LUỒNG XỬ LÝ 1: Khi có file nhưng chưa có lệnh chat thông số vải -> Chỉ hiện thanh thông báo xanh chờ lệnh
+    if not st.session_state.is_calculated:
+        st.info(f"📥 **Đã nhận diện file ngầm thành công:** `{st.session_state.saved_pdf_name}`. Hệ thống đang đợi lệnh thông số vải (Khổ vải, Độ co) từ bạn tại ô Chat (Sidebar) để kích hoạt thuật toán Gemini bóc tách và trả về bảng ma trận định mức.")
+        
+    # LUỒNG XỬ LÝ 2: Khi người dùng gõ chat thông số -> AI Gemini Vision chính thức quét và đổ bảng số liệu Yards
+    else:
+        if st.session_state.gemini_parsed_bom_data is None:
+            st.session_state.gemini_parsed_bom_data = ai_gemini_vision_pdf_parser(st.session_state.saved_pdf_name, st.session_state.saved_pdf_bytes)
+            
+        bom_data = st.session_state.gemini_parsed_bom_data
+        
+        st.success(f"✔️ Đã bóc tách thành công tài liệu: {st.session_state.saved_pdf_name}")
         st.markdown("---")
-        st.subheader("📋 BƯỚC 2: BẢNG MA TRẬN ĐỊNH MỨC NGUYÊN PHỤ LIỆU TRẢ VỀ")
+        st.subheader("📋 BƯỚC 2: BẢNG MA TRẬN ĐỊNH MỨC NGUYÊN PHỤ LIỆU TRẢ VỀ TRÊN TOÀN BỘ FILE")
         
         default_width = 56.0
         default_shrink = 5.0
@@ -199,7 +215,7 @@ if uploaded_file is not None:
         active_width = st.session_state.width_inch_override if st.session_state.width_inch_override else default_width
         active_shrink = st.session_state.shrinkage_override if st.session_state.shrinkage_override else default_shrink
         
-        st.info(f"🎯 **AI đã xử lý lệnh tính định mức thành công:** Khổ vải: **{active_width} Inch** | Độ co rút áp dụng: **L {active_shrink}%**")
+        st.info(f"🎯 **AI đã thực thi thuật toán CAD thành công:** Khổ vải tính toán: **{active_width} Inch** | Độ co rút áp dụng: **L {active_shrink}%**")
             
         net_geometry_areas = GarmentCADCoreEngine.apply_rule_table_grading(bom_data.get("category", "jacket"), bom_data.get("specifications_pom", {}))
         
@@ -237,8 +253,5 @@ if uploaded_file is not None:
             file_name=f"AI_BOM_Matrix_Report_{bom_data.get('style_code', 'BOM')}.csv",
             mime="text/csv"
         )
-    else:
-        # Nếu chưa gõ vào ô chat, chỉ hiện thanh thông báo trạng thái sẵn sàng
-        st.info(f"📥 Đã tải file: **{uploaded_file.name}**. Hệ thống đang ở trạng thái chờ nhận lệnh thông số từ phòng kỹ thuật qua ô Chat (Sidebar) để kích hoạt kết quả tính toán định mức.")
 else:
     st.warning("👉 Vui lòng kéo thả hoặc tải file PDF Techpack lên ở khung phía trên để bắt đầu quy trình.")
