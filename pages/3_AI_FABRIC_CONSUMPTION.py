@@ -419,8 +419,6 @@ if st.session_state.saved_pdf_bytes is not None:
 
                 effective_width_inch = w_inch * (1.0 - s_weft)
 # --- ĐOẠN 2b2: COMMERCIAL CAD MARKER CONSUMPTION ENGINE (LÕI PHẲNG POLYGON MESH) ---
-        import re
-
         materials = data.get("materials_bom", [])
         bom_debug_log = {}
 
@@ -532,5 +530,4 @@ if st.session_state.saved_pdf_bytes is not None:
                         calc_consumption = round(((max_body_length + max_sleeve) / 39.37) * 0.22, 3)
                         target_area, eff, loss = v_pocket, 0.86, 1.02
                     else:
-                        calc_consumption = round(((max_body_length) / 39.37) * 0.15, 3)
-                        target_area, eff, loss = v_inter, 0.88, 1.02
+                        calc_consumption = 0.0
