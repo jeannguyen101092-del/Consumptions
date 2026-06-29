@@ -118,19 +118,24 @@ class GarmentCADCoreEngine:
             base_efficiency = 0.81 if "jacket" in str(category).lower() else 0.85
             
                 # 4. TRUE MARKER SIMULATION: Tính toán chiều dài sơ đồ bằng đơn vị Inch và đổi thẳng sang Yards
+               # 4. TRUE MARKER SIMULATION: Đồng bộ đơn vị tính toán (Quy đổi toàn bộ sang hệ Centimet)
         width_inch = config.get("width_inch", 58.0)
         active_w_inch = safe_float(width_inch, 58.0)
         
-        # Chiều dài sơ đồ thực tế tính bằng đơn vị Inch
-        marker_length_inch = total_gross_area / (base_efficiency * active_w_inch)
+        # Quy đổi khổ vải từ hệ Inch sang hệ Centimet (1 inch = 2.54 cm) để đồng bộ diện tích rập (cm2)
+        width_cm = active_w_inch * 2.54
         
-        # Quy đổi từ đơn vị Inch trực tiếp sang đơn vị Yards ngành may (1 yard = 36 inch)
-        consumption_yds = marker_length_inch / 36.0
+        # Chiều dài sơ đồ thực tế tính bằng đơn vị Centimet (cm)
+        marker_length_cm = total_gross_area / (base_efficiency * width_cm)
+        
+        # Quy đổi từ đơn vị Centimet sang đơn vị Yards ngành may (1 yard = 91.44 cm)
+        consumption_yds = marker_length_cm / 91.44
         
         return {
             "efficiency_predicted": round(base_efficiency * 100, 1),
             "consumption_yds": round(consumption_yds, 2)
         }
+
 
 # =====================================================================
 # AI GEMINI VISION PDF PARSER
