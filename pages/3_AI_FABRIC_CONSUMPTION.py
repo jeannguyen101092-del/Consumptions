@@ -1,91 +1,154 @@
-# =====================================================================
-# ĐOẠN 2b1: GIAO DIỆN CHÍNH, KHÓA BỘ NHỚ VÀ ENGINE BÓC TÁCH CHI TIẾT RẬP CAD
-# =====================================================================
-st.subheader("📁 BƯỚC 1: TẢI TÀI LIỆU KỸ THUẬT SẢN XUẤT (TECHPACK / BOM)")
-uploaded_file = st.file_uploader("Kéo và thả file PDF Techpack hoặc bảng BOM của bạn vào đây", type=["pdf"], key="pdf_uploader")
+import streamlit as st
+import pandas as pd
+import re
+import json
+import io
+import google.generativeai as genai
 
-if uploaded_file is not None:
-    if st.session_state.saved_pdf_name != uploaded_file.name:
-        st.session_state.saved_pdf_bytes = uploaded_file.read()
-        st.session_state.saved_pdf_name = uploaded_file.name
-        st.session_state.gemini_parsed_bom_data = None  
+# =====================================================================
+# CẤU HÌNH TRANG VÀ KHÓA BỘ NHỚ FILE VĨNH VIỄN (STATE LOCK)
+# =====================================================================
+st.set_page_config(
+    page_title="3. AI FABRIC CONSUMPTION", 
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
-if st.session_state.saved_pdf_bytes is not None:
-    st.success(f"📥 **Hệ thống đã khóa file và duy trì liên tục:** `{st.session_state.saved_pdf_name}`")
+st.title("📊 TRỢ LÝ ĐỊNH MỨC NGUYÊN PHỤ LIỆU TỰ ĐỘNG (BOM)")
+st.caption("Cấu trúc lõi 13-Engine VECTOR CAD/AI - Phân tích rập thô xếp ly, cơi đáp túi mổ thực tế xưởng sản xuất")
+st.markdown("---")
+
+if "width_inch_override" not in st.session_state: st.session_state.width_inch_override = None
+if "shrinkage_override" not in st.session_state: st.session_state.shrinkage_override = None
+if "is_calculated" not in st.session_state: st.session_state.is_calculated = False
+if "gemini_parsed_bom_data" not in st.session_state: st.session_state.gemini_parsed_bom_data = None
+if "saved_pdf_bytes" not in st.session_state: st.session_state.saved_pdf_bytes = None
+if "saved_pdf_name" not in st.session_state: st.session_state.saved_pdf_name = None
+
+if "sidebar_chat_history" not in st.session_state:
+    st.session_state.sidebar_chat_history = [
+        {"role": "assistant", "content": "Xin chào! Hệ thống đã được nâng cấp lên Lõi Phân Tích Rập Thô Công Nghiệp. AI sẽ tự động phân tích xếp ly, cấu trúc túi mổ (cơi, đáp) và túi hộp để tính toán diện tích vải trước khi may."}
+    ]
+
+def update_config_from_text(text: str):
+    """NLP Parser công nghiệp: Tự động trích xuất thông số từ nội dung chat"""
+    if not text: return
+    text_lower = text.lower()
     
-    if st.session_state.gemini_parsed_bom_data is None:
-        with st.spinner("AI đang bóc tách quy cách may, tính toán bù xếp ly và cấu trúc túi mổ..."):
-            st.session_state.gemini_parsed_bom_data = ai_gemini_vision_pdf_parser(
-                st.session_state.saved_pdf_name, st.session_state.saved_pdf_bytes
-            )
+    # 1. Quét tìm khổ vải vật lý
+    width_match = re.search(r'(?:khổ|width|vải|đm|mức|cắt)\s*(\d+)', text_lower)
+    if width_match: 
+        st.session_state.width_inch_override = float(width_match.group(1))
+        st.session_state.is_calculated = True
 
-    data = st.session_state.gemini_parsed_bom_data
-    if data:
-        st.markdown("### 📋 THÔNG TIN CHUNG SẢN PHẨM")
-        col1, col2, col3 = st.columns(3)
-        col1.metric("Mã sản phẩm (Style)", data.get("style_code", "N/A"))
-        col2.metric("Mô tả", data.get("description", "N/A"))
-        category = data.get("category", "pant").lower()
-        col3.metric("Phân loại cấu trúc", category.upper())
+    # 2. Quét tìm độ co rút dọc L
+    co_l_match = re.search(r'(?:co dọc|dọc|l|warp)\s*(\d+)', text_lower)
+    if co_l_match: 
+        st.session_state.shrinkage_override = float(co_l_match.group(1))
+    else:
+        generic_co = re.search(r'(?:co rút|độ co|co)\s*(\d+)', text_lower)
+        if generic_co: st.session_state.shrinkage_override = float(generic_co.group(1))
 
-        # LƯU TRỮ VÀ HIỂN THỊ DANH MỤC CHI TIẾT RẬP AI BÓC TÁCH ĐƯỢC TỪ TRANG SKETCH/POM
-        panels = data.get("garment_panels", [])
-        st.markdown("### 📐 DANH MỤC CÁC CHI TIẾT RẬP THÔ KỸ THUẬT MAY (GROSS PANEL LOG)")
-        
-        panel_records = []
-        sewing_seam_allowance = 0.44  # Biên đường may ráp công đoạn 0.44" chuẩn
-        sewing_spec = data.get("sewing_spec", {})
-        hem_allowance = parse_garment_fraction(sewing_spec.get("hem_allowance_inch", 0.75))
+    # 3. Quét tìm độ co rút ngang W
+    co_w_match = re.search(r'(?:co ngang|ngang|w|weft)\s*(\d+)', text_lower)
+    if co_w_match:
+        if "gemini_parsed_bom_data" in st.session_state and st.session_state.gemini_parsed_bom_data:
+            materials = st.session_state.gemini_parsed_bom_data.get("materials_bom", [])
+            if isinstance(materials, list):
+                for mat in materials:
+                    if isinstance(mat, dict) and mat.get("placement") == "SHELL":
+                        mat["shrinkage_weft"] = float(co_w_match.group(1))
 
-        total_garment_fabric_area = 0.0  # Biến tích lũy diện tích rập hình học thực tế
+def safe_float(val, default=0.0) -> float:
+    if val is None: return default
+    try: return float(val)
+    except (ValueError, TypeError): return default
 
-        for p in panels:
-            name = p.get("panel_name", "Chi tiết phụ")
-            qty = int(safe_float(p.get("quantity_per_garment", 1.0)))
-            l_inch = parse_garment_fraction(p.get("length_inch"))
-            w_inch = parse_garment_fraction(p.get("width_inch"))
-            allowance_note = p.get("added_allowance_for_pleats_or_walls", "0")
-
-            # Chuẩn hóa số đo bề ngang cho các chi tiết thân lớn dải chu vi sơ đồ
-            m_type = str(p.get("measurement_type", "half")).lower()
-            if m_type == "half" and any(x in name.lower() for x in ["thân", "lưng", "cạp", "waist", "hip"]):
-                w_inch = w_inch * 2.0
-
-            # Áp dụng công thức rập thô: Cộng biên đường may ráp nối (+0.44" mỗi đầu chi tiết)
-            p_length = l_inch + (2 * sewing_seam_allowance)
-            if any(x in name.lower() for x in ["thân", "main", "outseam"]):
-                p_length += hem_allowance
-                
-            p_width = w_inch + (2 * sewing_seam_allowance)
-
-            # Tính diện tích rập phẳng chiếm dụng thật của cấu phần này (SL * Dài rập * Rộng rập)
-            panel_area = p_length * p_width * qty
-            total_garment_fabric_area += panel_area
-
-            panel_records.append({
-                "Chi tiết rập thô": name,
-                "Số lượng (SL)": qty,
-                "Dài rập thô (+May)": round(p_length, 2),
-                "Rộng rập thô (+May)": round(p_width, 2),
-                "Cộng bù kỹ thuật (Ly/Cơi/Thành)": allowance_note,
-                "Diện tích rập (inch²)": round(panel_area, 2)
-            })
-
-        df_panels = pd.DataFrame(panel_records)
-        st.dataframe(df_panels, use_container_width=True, hide_index=True)
-
-        # ĐỒNG BỘ BẢO TOÀN DANH MỤC PHỤ LIỆU (Ép thêm Keo lót lót và Lót túi nếu thiếu)
-        materials = data.get("materials_bom", [])
-        has_pocketing = any("POCKETING" in str(m.get("placement")).upper() for m in materials)
-        has_interlining = any("INTERLINING" in str(m.get("placement")).upper() for m in materials)
-        
-        if not has_pocketing:
-            materials.append({"placement": "POCKETING", "width_inch": 60.0, "shrinkage_warp": 0.0, "shrinkage_weft": 0.0, "material_name": "TC POCKETING (Vải lót túi)"})
-        if not has_interlining:
-            materials.append({"placement": "INTERLINING", "width_inch": 44.0, "shrinkage_warp": 0.0, "shrinkage_weft": 0.0, "material_name": "TRICOT FUSING (Keo lót phôi)"})
-        data["materials_bom"] = materials
 # =====================================================================
-# ENGINE QUY ĐỔI PHÂN SỐ NGÀNH MAY (ĐÃ ĐƯA LÊN ĐẦU ĐOẠN ĐỂ VÁ LỖI BIÊN DỊCH)
+# AI GEMINI VISION PARSER QUÉT CẤU TRÚC MAY RẬP THÔ THỰC TẾ
+# =====================================================================
+def ai_gemini_vision_pdf_parser(pdf_file_name, pdf_bytes) -> dict:
+    """Ép buộc AI đóng vai trò Pattern Maker bóc tách rập thô dựa trên kỹ thuật may ráp"""
+    try:
+        if "GEMINI_API_KEY" in st.secrets: genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+        elif "gemini" in st.secrets: genai.configure(api_key=st.secrets["gemini"].get("api_key", ""))
+        
+        pdf_blob = {"mime_type": "application/pdf", "data": pdf_bytes}
+        prompt = """
+        Bạn là một Trưởng phòng kỹ thuật rập CAD (Pattern Master). Hãy phân tích toàn bộ tài liệu kỹ thuật PDF này (Bản vẽ Sketch, Bảng thông số, Mô tả quy cách may).
+        Nhiệm vụ bắt buộc là phải bóc tách đầy đủ các chi tiết rập thô (Gross Pattern Pieces) trước khi may ráp, cụ thể:
+        1. KIỂM TRA XẾP LY (Pleats/Tucks): Xem thân áo/quần hay túi hộp có xếp ly không. Nếu có, kích thước rập thô bắt buộc phải CỘNG THÊM độ sâu của ly (Ví dụ: ly lật cộng thêm 1.5 inch đến 3 inch tùy quy cách ly).
+        2. KIỂM TRA CẤU TRÚC TÚI MỔ (Welt/Piping Pocket): Nếu có túi mổ, bắt buộc phải bóc tách thêm chi tiết vải chính gồm: Cơi túi (Welt), Đáp cơi túi (Facing), và các miếng Lót túi (Pocket Bag) bằng vải lót phối.
+        3. KIỂM TRA TÚI HỘP (Cargo Pocket): Xác định xem túi có thành túi (Pocket Wall/Bellow) và xếp ly không. Kích thước rập thô của túi phải bằng: Ngang thành phẩm + (Độ sâu ly * số lượng) + (Chiều cao thành túi * 2) + Đường may.
+        4. Tuyệt đối liệt kê đủ tất cả chi tiết vải chính (SHELL) cấu thành nên sản phẩm thật trên bàn cắt.
+
+        Trả về chuỗi JSON duy nhất theo cấu trúc chính xác dưới đây:
+        {
+            "style_code": "Mã style hàng",
+            "description": "Mô tả sản phẩm",
+            "category": "pant hoặc jacket hoặc shirt",
+            "sewing_spec": {
+                "hem_allowance_inch": Chiều rộng đường may lai gấu (dạng số, ví dụ gấu cuộn 1.5 inch thì ghi 1.5)"
+            },
+            "materials_bom": [
+                {"placement": "SHELL", "width_inch": 58.0, "shrinkage_warp": 5.0, "shrinkage_weft": 15.0, "material_name": "Vải chính"}
+            ],
+            "garment_panels": [
+                {
+                    "panel_name": "Tên chi tiết rập thô (Ví dụ: Thân Trước, Thân Sau, Lưng/Cạp, Cơi Túi Mổ, Đáp Túi Mổ, Túi Hộp Cargo, Nắp Túi, Đỉa...)",
+                    "quantity_per_garment": Số lượng chi tiết này cần cắt trên 1 sản phẩm dạng số,
+                    "length_inch": "Kích thước chiều dài thành phẩm đo từ bảng (chuỗi hoặc số)",
+                    "width_inch": "Kích thước chiều rộng thành phẩm đo từ bảng (chuỗi hoặc số)",
+                    "measurement_type": "half hoặc full",
+                    "added_allowance_for_pleats_or_walls": "Ghi chú kỹ thuật số inch đã cộng thêm cho xếp ly/thành túi/đáp cơi (Ví dụ: '+3.0 inch cho ly hộp và thành túi', hoặc '0' nếu không có)"
+                }
+            ]
+        }
+        """
+        model = genai.GenerativeModel('gemini-2.5-flash')
+        response = model.generate_content([pdf_blob, prompt])
+        clean_text = response.text.strip().replace("```json", "").replace("```", "")
+        return json.loads(clean_text)
+    except Exception as e:
+        st.error(f"Lỗi phân tích AI: {str(e)}")
+        return None
+# =====================================================================
+# SIDEBAR CONTROL (KHÔI PHỤC HOÀN TOÀN Ô CHAT VÀ LỊCH SỬ TƯƠNG TÁC)
+# =====================================================================
+with st.sidebar:
+    st.header("💬 TRỢ LÝ SẢN XUẤT AI")
+    if st.button("🗑️ Xóa lịch sử & Reset định mức", use_container_width=True):
+        st.session_state.width_inch_override = None
+        st.session_state.shrinkage_override = None
+        st.session_state.is_calculated = False
+        st.session_state.gemini_parsed_bom_data = None
+        st.session_state.saved_pdf_bytes = None
+        st.session_state.saved_pdf_name = None
+        st.session_state.sidebar_chat_history = [
+            {"role": "assistant", "content": "Hệ thống đã reset. Vui lòng tải file PDF Techpack mới để bắt đầu quy trình."}
+        ]
+        st.cache_data.clear()
+        st.rerun()
+        
+    st.write("Nhập bổ sung thông tin vải, độ co rút sau khi tải PDF.")
+    st.markdown("---")
+    
+    for chat in st.session_state.sidebar_chat_history:
+        with st.chat_message(chat["role"]): st.markdown(chat["content"])
+            
+    user_prompt = st.chat_input("Gửi thông số cho AI...", key="garment_chat_input_unique")
+
+if user_prompt:
+    st.session_state.sidebar_chat_history.append({"role": "user", "content": user_prompt})
+    update_config_from_text(user_prompt)
+    st.session_state.sidebar_chat_history.append({
+        "role": "assistant", 
+        "content": f"⚙️ Đã nhận diện thông số: '{user_prompt}'. Tiến hành giải mã phân số bảng POM và đẩy định mức mới cập nhật vào bảng BOM ngay lập tức..."
+    })
+    st.rerun()
+
+# =====================================================================
+# ENGINE QUY ĐỔI PHÂN SỐ NGÀNH MAY 
 # =====================================================================
 def parse_garment_fraction(val) -> float:
     """Chuyển đổi chính xác phân số hỗn hợp ngành may thành số thập phân thực tế"""
@@ -117,7 +180,6 @@ def parse_garment_fraction(val) -> float:
     except Exception:
         pass
     return safe_float(val, 0.0)
-
 # =====================================================================
 # ĐOẠN 2b1: GIAO DIỆN CHÍNH, KHÓA BỘ NHỚ VÀ ENGINE BÓC TÁCH CHI TIẾT RẬP CAD
 # =====================================================================
@@ -171,7 +233,6 @@ if st.session_state.saved_pdf_bytes is not None:
             if m_type == "half" and any(x in name.lower() for x in ["thân", "lưng", "cạp", "waist", "hip"]):
                 w_inch = w_inch * 2.0
 
-            # Áp dụng công thức rập thô: Cộng biên đường may ráp nối (+0.44" mỗi đầu chi tiết)
             p_length = l_inch + (2 * sewing_seam_allowance)
             if any(x in name.lower() for x in ["thân", "main", "outseam"]):
                 p_length += hem_allowance
@@ -194,7 +255,7 @@ if st.session_state.saved_pdf_bytes is not None:
         df_panels = pd.DataFrame(panel_records)
         st.dataframe(df_panels, use_container_width=True, hide_index=True)
 
-        # ĐỒNG BỘ BẢO TOÀN DANH MỤC PHỤ LIỆU (Ép thêm Keo lót phối và Lót túi nếu thiếu)
+        # ĐỒNG BỘ BẢO TOÀN DANH MỤC PHỤ LIỆU (Ép thêm Keo lót lót và Lót túi nếu thiếu)
         materials = data.get("materials_bom", [])
         has_pocketing = any("POCKETING" in str(m.get("placement")).upper() for m in materials)
         has_interlining = any("INTERLINING" in str(m.get("placement")).upper() for m in materials)
