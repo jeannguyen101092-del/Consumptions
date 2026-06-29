@@ -530,4 +530,25 @@ if st.session_state.saved_pdf_bytes is not None:
                         calc_consumption = round(((max_body_length + max_sleeve) / 39.37) * 0.22, 3)
                         target_area, eff, loss = v_pocket, 0.86, 1.02
                     else:
-                        calc_consumption = 0.0
+                        if target_area > 0 and effective_width > 0:
+                            m_len = (target_area * (1.0 + s_warp)) / effective_width
+                            calc_consumption = (m_len / 39.37) / eff * loss
+                        else:
+                            calc_consumption = 0.0
+                        target_area, eff, loss = v_inter, 0.88, 1.02
+
+                # --- ĐOẠN KHỞI TẠO VÀ ĐẨY DỮ LIỆU VÀO BẢNG BOM DEBUG LOG ---
+                final_consumption = round(max(0.0, calc_consumption), 3)
+                mat["calculated_consumption"] = final_consumption
+                
+                bom_debug_log[placement] = {
+                    "material_name": mat.get("material_name", ""),
+                    "width_inch": w_inch,
+                    "effective_width": round(effective_width, 2),
+                    "shrinkage_warp": round(s_warp * 100, 1),
+                    "shrinkage_weft": round(s_weft * 100, 1),
+                    "target_area_inch2": round(target_area, 2),
+                    "efficiency": eff,
+                    "loss_factor": loss,
+                    "final_consumption_yds": final_consumption
+                }
