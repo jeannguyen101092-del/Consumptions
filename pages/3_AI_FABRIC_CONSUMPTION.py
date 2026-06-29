@@ -293,14 +293,16 @@ if st.session_state.saved_pdf_bytes is not None:
             materials.append({"placement": "INTERLINING", "width_inch": 44.0, "shrinkage_warp": 0.0, "shrinkage_weft": 0.0, "material_name": "TRICOT FUSING (Keo lót phôi)"})
         data["materials_bom"] = materials
 
-               # --- ĐOẠN 2b2: TOÁN HỌC SƠ ĐỒ CÔNG NGHIỆP DIỆN TÍCH RẬP THÔ VÀ ĐỔ BẢNG BOM ---
+                     # --- ĐOẠN 2b2a: TRÍCH XUẤT THÔNG SỐ RẬP VÀ ĐỒNG BỘ BỘ LỌC ĐẦU VÀO ---
         materials = data.get("materials_bom", [])
         
-        # Mảng lưu dữ liệu cấu hình debug để hiển thị chính xác theo từng hàng
+        # Mảng lưu dữ liệu cấu hình debug để hiển thị chính xác theo từng hàng, chống ghi đè dòng cuối
         bom_debug_log = {}
 
-        # 1. Thuật toán trích xuất chiều dài cấu phần lớn nhất (Thân chính) làm lõi định vị bàn cắt
-        max_panel_length = 0.0
+        # 1. Thuật toán trích xuất chiều dài thân trước, thân sau và tay áo làm gốc tính toán sơ đồ
+        max_front_pant_length = 0.0
+        max_back_pant_length = 0.0
+        max_body_length = 0.0
         max_body_width = 0.0
         max_sleeve_length = 0.0
         
@@ -309,17 +311,23 @@ if st.session_state.saved_pdf_bytes is not None:
             l_val = parse_garment_fraction(p.get("length_inch"))
             w_val = parse_garment_fraction(p.get("width_inch"))
             
+            # Tách biệt số đo Thân trước và Thân sau Quần tây phục vụ sơ đồ lồng đôi
+            if any(x in name_lower for x in ["thân trước", "front pant", "front body"]):
+                if l_val > max_front_pant_length: max_front_pant_length = l_val
+            if any(x in name_lower for x in ["thân sau", "back pant", "back body"]):
+                if l_val > max_back_pant_length: max_back_pant_length = l_val
+                
             if any(x in name_lower for x in ["thân", "main", "outseam", "sau", "trước", "body"]) and "sleeve" not in name_lower:
-                if l_val > max_panel_length: max_panel_length = l_val
+                if l_val > max_body_length: max_body_length = l_val
                 if w_val > max_body_width: max_body_width = w_val
             if any(x in name_lower for x in ["tay", "sleeve"]):
                 if l_val > max_sleeve_length: max_sleeve_length = l_val
 
         # Bộ số dự phòng an toàn nếu file khuyết nhãn chi tiết chính
-        if max_panel_length == 0:
-            max_panel_length = 42.5 if "pant" in category.upper() else 33.13
-        if max_sleeve_length == 0 and "pant" not in category.upper():
-            max_sleeve_length = round(max_panel_length * 0.75, 2)
+        if max_body_length == 0: max_body_length = 42.5 if "pant" in category.upper() else 33.13
+        if max_front_pant_length == 0: max_front_pant_length = 43.89
+        if max_back_pant_length == 0: max_back_pant_length = 49.51
+        if max_sleeve_length == 0 and "pant" not in category.upper(): max_sleeve_length = round(max_body_length * 0.75, 2)
 
         if len(panels) > 0:
             for mat in materials:
@@ -371,55 +379,53 @@ if st.session_state.saved_pdf_bytes is not None:
                 v_inter_area = safe_float(interlining_fabric_area) if 'interlining_fabric_area' in locals() or 'interlining_fabric_area' in globals() else 0.0
 
                 effective_width_inch = w_inch * (1.0 - s_weft)
-
                 # -----------------------------------------------------------------
-                # THUẬT TOÁN ĐỊNH MỨC SƠ ĐỒ CHIỀU DÀI GỐC CÔNG NGHIỆP (ĐỒNG BỘ ĐỘNG)
+                # ĐOẠN 2b2b: THUẬT TOÁN SƠ ĐỒ ĐỘNG CHUẨN CAD NHÀ MÁY VÀ ĐỔ BẢNG BOM
                 # -----------------------------------------------------------------
                 if "PANT" in category.upper():
-                    # --- LÕI SƠ ĐỒ CHIỀU DÀI CHI TIẾT RẬP CHO QUẦN TRÁNH DỒN DIỆN TÍCH PHẲNG ---
-                    # Chiều dài rập quần cơ sở = Chiều dài sườn ống quần (Outseam/Thân dài nhất) + Biên ráp may ráp ráp (+0.44" x 2 đầu)
-                    # Biên đường may lai gấu (hem_allowance) tự động trích xuất từ file
-                    total_p_length = max_panel_length + (2 * sewing_seam_allowance) + hem_allowance
+                    # --- LÕI SƠ ĐỒ QUẦN TÂY LỒNG ĐÔI CÔNG NGHIỆP CẢI TIẾN THỰC TẾ ---
+                    # Chiều dài rập ống cơ sở = Dài thân trước (+May) + Dài thân sau (+May) + Lai gấu
+                    # Cộng ráp nối công đoạn (+0.44" x 4 vị trí ráp nối sườn dọc)
+                    total_pattern_pair_length = (max_front_pant_length + max_back_pant_length) + (4 * sewing_seam_allowance) + hem_allowance
                     
                     # Áp dụng tỷ lệ co rút dọc cây vải (Warp Shrinkage)
-                    final_p_length_inch = total_p_length * (1.0 + s_warp)
+                    final_pair_length_inch = total_pattern_pair_length * (1.0 + s_warp)
                     
-                    # Hệ số đi sơ đồ đan xen lồng rập sườn ống Quần người lớn (Marker Layout Factor):
-                    # Khổ vải 58" đủ rộng xếp vừa 2 thân chính đảo chiều nhau nằm ngang. Hệ số dao động từ 1.15 đến 1.18
-                    marker_layout_factor = 1.15 if w_inch <= 58.0 else 1.10
+                    # THUẬT TOÁN SƠ ĐỒ QUẦN TÂY LỒNG ĐÔI ĐAN XEN BIẾN THIÊN:
+                    # Do khổ vải 58" đủ rộng chứa 2 thân nằm ngang song song, chiều dài sơ đồ bình quân của 1 sản phẩm
+                    # trên bàn cắt dài khi đi gộp nhiều cỡ vóc tương đương với: Tổng dài cặp thân / 1.445 hiệu suất rập
+                    marker_pant_efficiency = 1.445 if w_inch <= 58.0 else 1.520
                     
-                    # Quy đổi chu vi rập từ inch sang đơn vị Mét dài cây vải + 4% biên lỗi cắt đại trà đầu cây
-                    fabric_loss_factor = 1.04
-                    calc_consumption = ((final_p_length_inch * marker_layout_factor) / 39.37) * fabric_loss_factor
+                    # Quy đổi chiều dài inch sang đơn vị Mét + 3.5% biên lỗi cắt kỹ thuật đầu cây cắt đại trà
+                    fabric_loss_factor = 1.035
+                    calc_consumption = (final_pair_length_inch / marker_pant_efficiency) / 39.37 * fabric_loss_factor
                     
-                    # Thiết lập định mức động cho phụ liệu Quần theo diện tích rập thật dải phối
+                    # Thiết lập định mức phối lót động dựa trên cấu phần rập thô
                     if "POCKETING" in placement_upper: 
-                        calc_consumption = round(((max_panel_length + 2.0) / 39.37) * 0.22, 3) # Vải lót túi quần tiêu chuẩn ~0.25m
+                        calc_consumption = round((max_body_length / 39.37) * 0.22, 3) # Vải lót túi quần tiêu chuẩn ~0.25m
                     elif "INTERLINING" in placement_upper: 
-                        calc_consumption = round(((max_panel_length + 2.0) / 39.37) * 0.10, 3) # Keo mếch ép cạp lưng ~0.12m
+                        calc_consumption = round((max_body_length / 39.37) * 0.10, 3) # Keo mếch ép cạp lưng ~0.12m
                     
                     marker_efficiency = 0.84
-                    target_panel_area = v_shell_area if "SHELL" in placement_upper else (v_pocket_area if "POCKETING" in placement_upper else v_inter_area)
+                    target_panel_area = v_shell_area
                 else:
                     # --- LÕI SƠ ĐỒ NHÓM CẤU PHẦN ĐAN XEN CHO ÁO (JACKET/SHIRT) ---
                     base_layout_length = (max_body_length + (2 * sewing_seam_allowance)) + (max_sleeve_length + (2 * sewing_seam_allowance)) + hem_allowance
                     final_layout_length_inch = base_layout_length * (1.0 + s_warp)
                     
                     if s_weft >= 0.12 and max_body_width >= 26.0:
-                        marker_jacket_layout_factor = 1.265  
+                        marker_jacket_layout_factor = 1.375  
                     else:
                         marker_jacket_layout_factor = 1.14 if w_inch <= 58.0 else 1.08
                     
                     fabric_loss_factor = 1.03
                     calc_consumption = ((final_layout_length_inch * marker_jacket_layout_factor) / 39.37) * fabric_loss_factor
                     
-                    if "POCKETING" in placement_upper: 
-                        calc_consumption = round((base_layout_length / 39.37) * 0.22, 3)
-                    elif "INTERLINING" in placement_upper: 
-                        calc_consumption = round((base_layout_length / 39.37) * 0.35, 3)
+                    if "POCKETING" in placement_upper: calc_consumption = round((base_layout_length / 39.37) * 0.22, 3)
+                    elif "INTERLINING" in placement_upper: calc_consumption = round((base_layout_length / 39.37) * 0.35, 3)
                     
                     marker_efficiency = 0.85
-                    target_panel_area = v_shell_area if "SHELL" in placement_upper else (v_pocket_area if "POCKETING" in placement_upper else v_inter_area)
+                    target_panel_area = v_shell_area
 
                 mat["consumption_meter_per_pcs"] = round(calc_consumption, 3)
                 mat["consumption_yard_per_pcs"] = round(calc_consumption * 1.09361, 3)
@@ -444,7 +450,6 @@ if st.session_state.saved_pdf_bytes is not None:
         st.markdown("##### ⚙️ Chỉ số Trắc địa Gerber/Lectra Polygon Mesh đối chiếu dòng giải trình Costing:")
         for placement_key, dbg in bom_debug_log.items():
             st.caption(f"📍 **{placement_key}** | Diện tích rập thô tích lũy: `{dbg['area']} in²` | Co dọc: `{dbg['co_doc']}%` | Co ngang: `{dbg['co_ngang']}%` | Khổ hữu dụng thực tế: `{dbg['eff_width']}\"` | Hiệu suất sơ đồ CAD: `{dbg['eff']}%` | Hệ số hao hụt cắt: `{dbg['loss']}`")
-
     else:
         st.warning("⚠️ Hệ thống chưa nhận được bảng chi tiết cấu phần rập từ hồ sơ PDF. Không thể thực thi toán học sơ đồ.")
 else:
