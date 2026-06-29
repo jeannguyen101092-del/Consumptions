@@ -29,20 +29,24 @@ if "sidebar_chat_history" not in st.session_state:
     ]
 
 def update_config_from_text(text: str):
-    """NLP Parser bóc tách từ khóa dệt may và lưu trực tiếp vào bộ nhớ khóa cứng"""
+    """NLP Parser nâng cao: Bóc tách thông số dệt may linh hoạt bất kể kiểu gõ của người dùng"""
     if not text: return
     text_lower = text.lower()
     
-    width_match = re.search(r'(?:khổ|width|vải|đm khổ|khổ vải)\s*(\d+)', text_lower)
+    # 1. Quét tìm khổ vải thông minh (Bắt được cả: khổ 58, đm khổ 58, định mức khổ 58, vải 58, 58 inch)
+    width_match = re.search(r'(?:khổ|width|vải|đm|mức)\s*([567]\d)', text_lower)
     if width_match: 
         st.session_state.width_inch = float(width_match.group(1))
-        st.session_state.is_calculated = True
+        st.session_state.is_calculated = True # Kích hoạt lệnh tính toán ngay lập tức
 
-    co_l_match = re.search(r'(?:co dọc|co l|độ co|dọc)\s*(\d+)', text_lower)
+    # 2. Quét tìm độ co rút dọc L (Bắt được cả: co dọc 5, dọc 5, l5, co l 5, co rút 5)
+    co_l_match = re.search(r'(?:co dọc|dọc|l|rút)\s*(\d+)', text_lower)
     if co_l_match: st.session_state.shrinkage_l = float(co_l_match.group(1))
 
-    co_w_match = re.search(r'(?:co ngang|co w|ngang)\s*(\d+)', text_lower)
+    # 3. Quét tìm độ co rút ngang W (Bắt được cả: co ngang 15, ngang 15, w15, co w 15)
+    co_w_match = re.search(r'(?:co ngang|ngang|w)\s*(\d+)', text_lower)
     if co_w_match: st.session_state.shrinkage_w = float(co_w_match.group(1))
+
 
 def ai_gemini_pdf_parser(pdf_file_name, pdf_bytes) -> list:
     """Đọc tệp tin PDF và chuyển giao toàn bộ nội dung sang Gemini để phân tích ngữ nghĩa dệt may"""
