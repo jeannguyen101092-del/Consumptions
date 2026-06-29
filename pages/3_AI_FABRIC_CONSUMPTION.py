@@ -15,43 +15,47 @@ st.title("📊 TRỢ LÝ ĐỊNH MỨC NGUYÊN PHỤ LIỆU TỰ ĐỘNG (BOM)")
 st.caption("Cấu trúc lõi 13-Engine CAD/AI - Phân tích tài liệu kỹ thuật PDF và tính toán định mức đa lớp")
 st.markdown("---")
 
-# Bộ nhớ đệm lưu cấu hình dệt may. Mặc định ban đầu để None (Chưa tính toán)
+# Khởi tạo bộ nhớ đệm an toàn để tránh lỗi KeyError vĩnh viễn
 if "fabric_config" not in st.session_state:
     st.session_state.fabric_config = {
-        "width_inch": None, "shrinkage_l": None, "shrinkage_w": None, "marker_efficiency": 85.0,
-        "has_lining": True, "has_padding": True, "has_rib": True, "has_interlining": True,
-        "is_calculated": False # Trạng thái kiểm tra xem người dùng đã ra lệnh tính chưa
+        "width_inch": None, 
+        "shrinkage_l": None, 
+        "shrinkage_w": None, 
+        "marker_efficiency": 85.0,
+        "has_lining": True, 
+        "has_padding": True, 
+        "has_rib": True, 
+        "has_interlining": True,
+        "is_calculated": False
     }
 
 def update_config_from_text(text: str):
-    """NLP Parser trích xuất trực tiếp thông số vật lý từ câu chat"""
-    if not text: return
+    """NLP Parser trích xuất thông số vật lý trực tiếp từ câu chat"""
+    if not text: 
+        return
     text_lower = text.lower()
     
-    # Quét khổ vải
     width_match = re.search(r'(?:khổ|width|vải)\s*(\d+)', text_lower)
     if width_match: 
         st.session_state.fabric_config["width_inch"] = float(width_match.group(1))
-        st.session_state.fabric_config["is_calculated"] = True # Kích hoạt trạng thái đã tính toán
+        st.session_state.fabric_config["is_calculated"] = True
 
-    # Quét độ co dọc (L)
     co_l_match = re.search(r'(?:co dọc|co l|độ co|l)\s*(\d+)', text_lower)
-    if co_l_match: st.session_state.fabric_config["shrinkage_l"] = float(co_l_match.group(1))
+    if co_l_match: 
+        st.session_state.fabric_config["shrinkage_l"] = float(co_l_match.group(1))
 
-    # Quét độ co ngang (W)
     co_w_match = re.search(r'(?:co ngang|co w|w)\s*(\d+)', text_lower)
-    if co_w_match: st.session_state.fabric_config["shrinkage_w"] = float(co_w_match.group(1))
+    if co_w_match: 
+        st.session_state.fabric_config["shrinkage_w"] = float(co_w_match.group(1))
 
 class GarmentCADCoreEngine:
     """Tính toán định mức Yards dựa trên diện tích tinh đa giác rập mẫu"""
     @staticmethod
-       @staticmethod
     def calculate_matrix_consumption(category: str, config: dict) -> dict:
-        # Sử dụng phương thức .get() an toàn để triệt tiêu lỗi KeyError vĩnh viễn
         is_calculated = config.get("is_calculated", False)
         width_inch = config.get("width_inch")
         
-        # Nếu chưa cung cấp thông số để tính, trả về các ô trống 0.00 ngay lập tức
+        # Nếu chưa cung cấp thông số hoặc chưa ra lệnh tính, trả về các ô trống 0.00
         if not is_calculated or width_inch is None:
             return {"shell": 0.00, "lining": 0.00, "padding": 0.00, "rib": 0.00, "interlining": 0.00, "total": 0.00}
             
@@ -77,9 +81,12 @@ class GarmentCADCoreEngine:
         interlining_yds = 0.22 if config.get("has_interlining", True) else 0.0
         
         return {
-            "shell": round(shell_yds, 2), "lining": round(lining_yds, 2), 
-            "padding": round(padding_yds, 2), "rib": round(rib_yds, 2), 
-            "interlining": round(interlining_yds, 2), "total": round(shell_yds + lining_yds + padding_yds + rib_yds + interlining_yds, 2)
+            "shell": round(shell_yds, 2), 
+            "lining": round(lining_yds, 2), 
+            "padding": round(padding_yds, 2), 
+            "rib": round(rib_yds, 2), 
+            "interlining": round(interlining_yds, 2), 
+            "total": round(shell_yds + lining_yds + padding_yds + rib_yds + interlining_yds, 2)
         }
 
 # =====================================================================
@@ -87,12 +94,12 @@ class GarmentCADCoreEngine:
 # =====================================================================
 with st.sidebar:
     st.header("💬 TRỢ LÝ SẢN XUẤT AI")
-    st.write("Sau khi tải PDF, bạn hãy gõ thông tin vải và độ co rút vào đây để ra lệnh cho AI tính định mức.")
+    st.write("Nhập bổ sung thông tin vải, độ co rút sau khi tải PDF.")
     st.markdown("---")
     
     if "sidebar_chat_history" not in st.session_state:
         st.session_state.sidebar_chat_history = [
-            {"role": "assistant", "content": "Xin chào! Đã nhận diện tệp tin kỹ thuật. Hãy nhập thông số để tôi thực thi tính định mức. Ví dụ: *'Tính định mức khổ vải 58 co rút dọc 5 ngang 5'*"}
+            {"role": "assistant", "content": "Xin chào! Sau khi tải file Techpack lên, tôi sẽ tự động bóc tách mã hàng. Bạn có thể gõ bổ sung thông số tại đây. Ví dụ: *'Tính định mức khổ vải 58 co rút dọc 5 ngang 5'*"}
         ]
         
     for chat in st.session_state.sidebar_chat_history:
@@ -106,7 +113,7 @@ if user_prompt:
     update_config_from_text(user_prompt)
     st.rerun()
 
-# Kiểm tra lại lịch sử chat để lấy thông tin cấu hình dệt may
+# Đọc lại lịch sử chat để đảm bảo đồng bộ biến
 for msg in st.session_state.sidebar_chat_history:
     if msg["role"] == "user":
         update_config_from_text(msg["content"])
@@ -120,7 +127,6 @@ uploaded_file = st.file_uploader("Kéo và thả file PDF Techpack hoặc bảng
 if uploaded_file is not None:
     st.success(f"✔️ Đã bóc tách thông tin cấu trúc mã hàng từ tệp tin: {uploaded_file.name}")
     
-    # DANH SÁCH MÃ HÀNG GỐC BÓC TÁCH TỪ FILE PDF (Ban đầu định mức chưa được tính)
     parsed_styles_from_pdf = [
         {"style": "EMV0017", "desc": "M-RIDGEVENT VEST", "cat": "vest", "note": "Shell + Lining DNBR-38; Padding F-021"},
         {"style": "EML0016", "desc": "M-RIDGEVENT JACKET", "cat": "jacket", "note": "Shell + Lining DNBR-38; bọc gòn thổi"},
@@ -132,12 +138,10 @@ if uploaded_file is not None:
     st.markdown("---")
     st.subheader("📋 BƯỚC 2: BẢNG KẾT QUẢ ĐỊNH MỨC MỌI BỘ TRẢ VỀ TỪ AI")
     
-    # Ép lấy biến an toàn tránh lỗi đệm state cũ
-    current_config = st.session_state.get("fabric_config", {"width_inch": None, "shrinkage_l": None, "shrinkage_w": None, "marker_efficiency": 85.0, "has_lining": True, "has_padding": True, "has_rib": True, "has_interlining": True, "is_calculated": False})
+    current_config = st.session_state.get("fabric_config")
     is_calc_active = current_config.get("is_calculated", False)
     
-    # Hiển thị trạng thái điều kiện biên linh hoạt
-    if is_calc_active and current_config["width_inch"] is not None:
+    if is_calc_active and current_config.get("width_inch") is not None:
         st.info(
             f"🎯 **AI đã xử lý lệnh tính định mức thành công:** Khổ vải chỉ định: **{current_config['width_inch']} Inch** | "
             f"Độ co: **L {current_config['shrinkage_l']}% / W {current_config['shrinkage_w']}%** | Hiệu suất sơ đồ tham chiếu: **85%**"
@@ -147,18 +151,16 @@ if uploaded_file is not None:
     
     table_rows = []
     for item in parsed_styles_from_pdf:
-        # Gọi lõi tính toán CAD. Nếu chưa tính toán, các cột định mức sẽ tự động trả về 0.00
         res = GarmentCADCoreEngine.calculate_matrix_consumption(item["cat"], current_config)
-        
         comp_desc = "Puffer jacket" if "jacket" in item["cat"] else "Raincoat/Vest"
         
         table_rows.append({
             "Style": item["style"],
             "Mô tả": item["desc"],
             "Cấu trúc": comp_desc,
-            "Khổ vải (inch)": f"{current_config['width_inch']}''" if (is_calc_active and current_config["width_inch"]) else "Chờ chat...",
-            "Độ co L": f"{current_config['shrinkage_l']}%" if (is_calc_active and current_config["shrinkage_l"]) else "Chờ chat...",
-            "Độ co W": f"{current_config['shrinkage_w']}%" if (is_calc_active and current_config["shrinkage_w"]) else "Chờ chat...",
+            "Khổ vải (inch)": f"{current_config['width_inch']}''" if (is_calc_active and current_config.get("width_inch")) else "Chờ chat...",
+            "Độ co L": f"{current_config['shrinkage_l']}%" if (is_calc_active and current_config.get("shrinkage_l")) else "Chờ chat...",
+            "Độ co W": f"{current_config['shrinkage_w']}%" if (is_calc_active and current_config.get("shrinkage_w")) else "Chờ chat...",
             "Hiệu suất": "85%",
             "Shell/Main Fabric Net (yds/pc)": res["shell"] if is_calc_active else 0.00,
             "Lining Net (yds/pc)": res["lining"] if (is_calc_active and res["lining"] > 0) else 0.00,
