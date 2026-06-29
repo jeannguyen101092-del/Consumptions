@@ -312,21 +312,29 @@ if st.session_state.saved_pdf_bytes is not None:
             materials.append({"placement": "INTERLINING", "width_inch": 44.0, "shrinkage_warp": 0.0, "shrinkage_weft": 0.0, "material_name": "TRICOT FUSING (Keo lót phôi)"})
         data["materials_bom"] = materials
 
-                 # --- ĐOẠN 2b2: TOÁN HỌC SƠ ĐỒ CÔNG NGHIỆP CỘNG DỒN CHI TIẾT RẬP VÀ ĐỔ BẢNG BOM ---
+                     # --- ĐOẠN 2b2: TOÁN HỌC SƠ ĐỒ CÔNG NGHIỆP CỘNG DỒN CHI TIẾT RẬP VÀ ĐỔ BẢNG BOM ---
         materials = data.get("materials_bom", [])
         
-        # Dò tìm cấu phần chi tiết rập dài nhất (Thân quần) để làm gốc tính chiều dài sơ đồ bàn cắt
-        max_panel_length = 0.0
+        # 1. DÒ THÔNG SỐ ĐỂ LẬP GỐC SƠ ĐỒ:
+        max_body_length = 0.0  # Chiều dài thân (Áo/Quần) dài nhất
+        max_sleeve_length = 0.0 # Chiều dài tay áo (nếu có)
+        
         for p in panels:
             name_lower = p.get("panel_name", "").lower()
-            if any(x in name_lower for x in ["thân", "main", "outseam", "sau", "trước"]):
-                l_val = parse_garment_fraction(p.get("length_inch"))
-                if l_val > max_panel_length:
-                    max_panel_length = l_val
-                    
-        # Nếu không quét được tên thân, lấy số đo mặc định an toàn cho chiều dài quần Jeans thiết kế
-        if max_panel_length == 0:
-            max_panel_length = 42.5
+            l_val = parse_garment_fraction(p.get("length_inch"))
+            
+            # Quét tìm chi tiết thân chính làm gốc chiều dài
+            if any(x in name_lower for x in ["thân", "main", "outseam", "sau", "trước", "body"]):
+                if l_val > max_body_length:
+                    max_body_length = l_val
+            # Quét tìm chi tiết tay áo
+            if any(x in name_lower for x in ["tay", "sleeve"]):
+                if l_val > max_sleeve_length:
+                    max_sleeve_length = l_val
+
+        # Bộ số phòng hờ an toàn nếu file thiếu nhãn chi tiết chính
+        if max_body_length == 0: 
+            max_body_length = 42.5 if "pant" in category.lower() else 28.0
 
         for mat in materials:
             placement_upper = str(mat.get("placement")).upper()
@@ -347,44 +355,40 @@ if st.session_state.saved_pdf_bytes is not None:
                 else: w_inch = 58.0; mat["width_inch"] = 58.0
 
             s_warp = safe_float(mat.get("shrinkage_warp", 5.0 if "SHELL" in placement_upper else 0.0)) / 100.0
-            
             if "SHELL" in placement_upper and st.session_state.shrinkage_override:
                 s_warp = st.session_state.shrinkage_override / 100.0
 
-            # THUẬT TOÁN ĐỊNH MỨC SƠ ĐỒ BÀN CẮT QUẦN JEANS CÔNG NGHIỆP THỰC TẾ:
-            if max_panel_length > 0:
-                if "PANT" in category.upper():
-                    # 1. Chiều dài tổng rập thân chính bao gồm: Dài gốc + Đường may ráp (0.44" x 2) + Đường lai gấu (hem_allowance)
-                    total_p_length = max_panel_length + (2 * sewing_seam_allowance) + hem_allowance
-                    
-                    # 2. Áp dụng độ co rút dọc (Warp Shrinkage) ảnh hưởng trực tiếp lên chiều dài cây vải tiêu hao
-                    final_p_length_inch = total_p_length * (1 + s_warp)
-                    
-                    # 3. Áp dụng Hệ số lồng rập đan xen đầu đuôi (Marker Layout Factor) của Quần Jeans người lớn trên khổ vải 58"
-                    # Kỹ thuật CAD sơ đồ công nghiệp: 1 sơ đồ đơn (1 sản phẩm) tiêu hao chiều dài bằng: Chiều dài rập * hệ số 1.15
-                    marker_layout_factor = 1.15 if w_inch <= 58.0 else 1.10
-                    
-                    # 4. Quy đổi chiều dài inch sang đơn vị Mét (m) + 5% hao hụt biên đầu cây kỹ thuật đầu cây cắt
-                    calc_consumption = ((final_p_length_inch * marker_layout_factor) / 39.37) * 1.05
-                    
-                    # Gán định mức định biên phụ trợ lót túi và mếch theo quy trình nhà máy
-                    if "POCKETING" in placement_upper: calc_consumption = 0.25
-                    elif "INTERLINING" in placement_upper: calc_consumption = 0.12
-                else:
-                    # Thuật toán tính diện tích cho cấu trúc các loại Áo
-                    s_weft = safe_float(mat.get("shrinkage_weft", 0.0)) / 100.0
-                    final_fabric_area_sq_inch = total_garment_fabric_area * (1 + s_warp) * (1 + s_weft)
-                    base_consumption_meter = (final_fabric_area_sq_inch / w_inch) / 39.37
-                    calc_consumption = (base_consumption_meter / 0.84) * 1.05
-                    
-                    if "POCKETING" in placement_upper: calc_consumption *= 0.35
-                    if "INTERLINING" in placement_upper: calc_consumption *= 0.20
-
-                mat["consumption_meter_per_pcs"] = round(calc_consumption, 3)
-                mat["consumption_yard_per_pcs"] = round(calc_consumption * 1.09361, 3)
+            # 2. TIẾN HÀNH CHẠY THUẬT TOÁN SƠ ĐỒ CAD THEO PHÂN LOẠI CHỦNG LOẠI HÀNG:
+            if "PANT" in category.upper():
+                # --- THUẬT TOÁN SƠ ĐỒ QUẦN JEANS (ĐÃ CHUẨN XÁC) ---
+                total_p_length = max_body_length + (2 * sewing_seam_allowance) + hem_allowance
+                final_p_length_inch = total_p_length * (1 + s_warp)
+                marker_layout_factor = 1.15 if w_inch <= 58.0 else 1.10
+                calc_consumption = ((final_p_length_inch * marker_layout_factor) / 39.37) * 1.05
+                
+                if "POCKETING" in placement_upper: calc_consumption = 0.20  # Lót túi quần tiêu chuẩn vải phối
+                elif "INTERLINING" in placement_upper: calc_consumption = 0.12 # Keo lót cạp quần
             else:
-                mat["consumption_meter_per_pcs"] = "Khuyết số đo"
-                mat["consumption_yard_per_pcs"] = "Khuyết số đo"
+                # --- THUẬT TOÁN SƠ ĐỒ ÁO HIỆU CHỈNH (JACKET, SHIRT, POLO) ---
+                # Chiều dài sơ đồ rập áo bao gồm: Dài thân áo lớn nhất + Dài tay áo (nếu có) + Biên may ráp (+0.44" x 2) + Lai gấu
+                total_pattern_length = max_body_length + max_sleeve_length + (2 * sewing_seam_allowance) + hem_allowance
+                
+                # Áp dụng độ co rút dọc (warp shrinkage) theo sườn cây vải chính
+                final_pattern_length = total_pattern_length * (1 + s_warp)
+                
+                # Hệ số xếp lồng rập đan xen sơ đồ của ÁO công nghiệp (Marker Efficiency bù hao chi tiết nhỏ cổ, đáp)
+                # Sơ đồ áo phom chuẩn thường tiêu hao dao động hệ số xếp từ 1.12 đến 1.16 tùy theo độ rộng khổ vải
+                marker_shirt_factor = 1.14 if w_inch <= 58.0 else 1.08
+                
+                # Quy đổi tổng chiều dài chiếm dụng từ inch sang mét + 5% biên hao hụt kỹ thuật đầu cây cắt
+                calc_consumption = ((final_pattern_length * marker_shirt_factor) / 39.37) * 1.05
+                
+                # Phân bổ tỷ lệ tiêu hao phụ hỗ trợ cho vải phối lót hoặc mếch dựng mếch cổ/nẹp của áo
+                if "POCKETING" in placement_upper: calc_consumption = 0.15 # Vải phối lót/lót túi áo
+                elif "INTERLINING" in placement_upper: calc_consumption = 0.20 # Mếch keo dựng cổ, nẹp áo
+
+            mat["consumption_meter_per_pcs"] = round(calc_consumption, 3)
+            mat["consumption_yard_per_pcs"] = round(calc_consumption * 1.09361, 3)
 
         st.markdown("### 🧵 BẢNG ĐỊNH MỨC NGUYÊN PHỤ LIỆU ĐỘNG (MATERIALS BOM)")
         df_bom = pd.DataFrame(materials)
@@ -393,8 +397,11 @@ if st.session_state.saved_pdf_bytes is not None:
         df_bom = df_bom[[c for c in cols_order if c in df_bom.columns]]
         st.dataframe(df_bom, use_container_width=True)
         
-        # Cập nhật thông tin trích xuất sơ đồ CAD thực tế dưới chân bảng
-        st.info(f"⚙️ **Lõi Sơ đồ CAD Bàn Cắt:** Chiều dài rập thân chính dài nhất làm gốc sơ đồ: `{round(max_panel_length, 2)}\"`. Cộng biên ráp nối (+0.44\"), Lai gấu (+{round(hem_allowance, 2)}\"), Nhân hệ số lồng xếp rập công nghiệp độc lập.")
+        # In băng thông báo thông số rập minh chứng kỹ thuật dưới chân bảng
+        if "PANT" in category.upper():
+            st.info(f"⚙️ **Lõi Sơ đồ CAD Quần Jeans:** Thân dài gốc làm gốc sơ đồ: `{round(max_body_length, 2)}\"`. Cộng ráp nối (+0.44\"), Lai gấu (+{round(hem_allowance, 2)}\"), Nhân hệ số dải sơ đồ đan xen ống.")
+        else:
+            st.info(f"⚙️ **Lõi Sơ đồ CAD Áo:** Thân dài gốc: `{round(max_body_length, 2)}\"`, Tay dài gốc: `{round(max_sleeve_length, 2)}\"`. Cộng ráp nối (+0.44\"), Lai gấu (+{round(hem_allowance, 2)}\"), Nhân hệ số dải sơ đồ cấu phần cổ/đáp.")
     else:
         st.warning("⚠️ AI không thể trích xuất cấu trúc dữ liệu từ file PDF này. Vui lòng kiểm tra lại chất lượng file.")
 else:
