@@ -2,7 +2,8 @@ import streamlit as st
 import pandas as pd
 import re
 from pypdf import PdfReader
-import google.generativeai as genai  # Kết nối trực tiếp với bộ não AI Gemini
+import google.generativeai as genai
+
 
 # =====================================================================
 # ĐOẠN 1: CẤU HÌNH TRANG & KẾT NỐI API KEY BẢO MẬT GEMINI AI
