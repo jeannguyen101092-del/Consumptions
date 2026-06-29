@@ -45,9 +45,14 @@ def update_config_from_text(text: str):
 class GarmentCADCoreEngine:
     """Tính toán định mức Yards dựa trên diện tích tinh đa giác rập mẫu"""
     @staticmethod
+       @staticmethod
     def calculate_matrix_consumption(category: str, config: dict) -> dict:
-        # Nếu chưa cung cấp thông số để tính, trả về các ô trống (0.00 hoặc trống)
-        if not config["is_calculated"] or config["width_inch"] is None:
+        # Sử dụng phương thức .get() an toàn để triệt tiêu lỗi KeyError vĩnh viễn
+        is_calculated = config.get("is_calculated", False)
+        width_inch = config.get("width_inch")
+        
+        # Nếu chưa cung cấp thông số để tính, trả về các ô trống 0.00 ngay lập tức
+        if not is_calculated or width_inch is None:
             return {"shell": 0.00, "lining": 0.00, "padding": 0.00, "rib": 0.00, "interlining": 0.00, "total": 0.00}
             
         chest = 56.0 if "jacket" in category.lower() else 54.0
@@ -58,18 +63,18 @@ class GarmentCADCoreEngine:
         back_area = front_area * 1.03
         sleeve_area = (22.0 * 24.0) * 0.75 if "vest" not in category.lower() else 0.0
         
-        width_cm = config["width_inch"] * 2.54
-        efficiency = config["marker_efficiency"] / 100
-        shrinkage_l = 1 + (config["shrinkage_l"] / 100)
+        width_cm = width_inch * 2.54
+        efficiency = config.get("marker_efficiency", 85.0) / 100
+        shrinkage_l = 1 + (config.get("shrinkage_l", 5.0) / 100)
         
         total_shell_area = (front_area * 2) + (back_area * 2) + (sleeve_area * 2)
         shell_length_cm = (total_shell_area / efficiency) / width_cm
         shell_yds = (shell_length_cm / 91.44) * shrinkage_l
 
-        lining_yds = shell_yds * 0.82 if config["has_lining"] else 0.0
-        padding_yds = shell_yds * 0.95 if config["has_padding"] else 0.0
-        rib_yds = 0.15 if config["has_rib"] else 0.0
-        interlining_yds = 0.22 if config["has_interlining"] else 0.0
+        lining_yds = shell_yds * 0.82 if config.get("has_lining", True) else 0.0
+        padding_yds = shell_yds * 0.95 if config.get("has_padding", True) else 0.0
+        rib_yds = 0.15 if config.get("has_rib", True) else 0.0
+        interlining_yds = 0.22 if config.get("has_interlining", True) else 0.0
         
         return {
             "shell": round(shell_yds, 2), "lining": round(lining_yds, 2), 
