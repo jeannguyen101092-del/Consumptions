@@ -182,6 +182,7 @@ def parse_garment_fraction(val) -> float:
     return safe_float(val, 0.0)
 
 # =====================================================================
+# =====================================================================
 # ĐOẠN 2b1: GIAO DIỆN CHÍNH, KHÓA BỘ NHỚ VÀ ENGINE BÓC TÁCH CHI TIẾT RẬP CAD
 # =====================================================================
 st.subheader("📁 BƯỚC 1: TẢI TÀI LIỆU KỸ THUẬT SẢN XUẤT (TECHPACK / BOM)")
@@ -213,7 +214,7 @@ if st.session_state.saved_pdf_bytes is not None:
 
         # LƯU TRỮ VÀ HIỂN THỊ DANH MỤC CHI TIẾT RẬP AI BÓC TÁCH ĐƯỢC TỪ TRANG SKETCH/POM
         panels = data.get("garment_panels", [])
-        st.markdown("### 📐 DANH MỤC CÁC CHI TIẾT RẬP THÔ KỸ THUẬT MAY (GROSS PANEL LOG)")
+        st.markdown("### 📐 DANH MỤC CÁ C CHI TIẾT RẬP THÔ KỸ THUẬT MAY (GROSS PANEL LOG)")
         
         panel_records = []
         sewing_seam_allowance = 0.44  # Biên đường may ráp công đoạn 0.44" chuẩn
@@ -232,12 +233,21 @@ if st.session_state.saved_pdf_bytes is not None:
             w_inch = parse_garment_fraction(p.get("width_inch"))
             allowance_note = p.get("added_allowance_for_pleats_or_walls", "0")
 
-            # HIỆU CHỈNH CHU VI THÂN SAU: Nếu AI bóc tách nhầm cả vòng đo của thân sau (>40 inch),
-            # tự động chia đôi về mốc rập phẳng mảnh 1/2 để diện tích phẳng không bị phóng đại sai thực tế.
-            if any(x in name.lower() for x in ["thân sau", "back body", "back main"]) and w_inch > 40.0:
-                w_inch = w_inch / 2.0
-            elif str(p.get("measurement_type", "half")).lower() == "half" and any(x in name.lower() for x in ["thân", "lưng", "cạp", "waist", "hip"]) and w_inch < 35.0:
-                w_inch = w_inch * 2.0
+            # HIỆU CHỈNH CHU VI RẬP CAD CHỐNG VỌT SỐ (ÁP DỤNG ĐỒNG BỘ QUẦN VÀ ÁO):
+            name_lower = name.lower()
+            if "pant" in category.upper() or "quần" in name_lower:
+                # Đối với Quần: Nếu thông số rộng rập thân (>35 inch) bị bóc trúng cả vòng, bắt buộc chia 4 để ra mảnh rập 1/4 đơn lẻ
+                if any(x in name_lower for x in ["thân trước", "thân sau", "front body", "back body", "panel"]) and w_inch > 35.0:
+                    w_inch = w_inch / 4.0
+                elif w_inch < 15.0 and any(x in name_lower for x in ["thân trước", "thân sau", "front", "back"]):
+                    # Nếu rập đã là 1/4 sẵn, giữ nguyên
+                    pass
+            else:
+                # Đối với Áo khoác Jacket/Bomber: Thân sau là mảnh lớn chia 2 nếu bóc trúng cả vòng
+                if any(x in name_lower for x in ["thân sau", "back body", "back main"]) and w_inch > 40.0:
+                    w_inch = w_inch / 2.0
+                elif w_inch < 35.0 and any(x in name_lower for x in ["thân", "lưng", "cạp", "waist", "hip"]):
+                    w_inch = w_inch * 2.0
 
             # Áp dụng công thức rập thô: Cộng biên đường may ráp nối (+0.44" mỗi đầu chi tiết)
             p_length = l_inch + (2 * sewing_seam_allowance)
@@ -250,10 +260,9 @@ if st.session_state.saved_pdf_bytes is not None:
             panel_area = p_length * p_width * qty
 
             # PHÂN LOẠI DIỆN TÍCH THEO NHÓM VẬT LIỆU CHÍNH XÁC:
-            name_lower = name.lower()
             if "bag" in name_lower or "lót túi" in name_lower or "pocket bag" in name_lower:
                 pocketing_fabric_area += panel_area
-                shell_fabric_area += (p_length * 3.0 * qty) # Bù đáp cơi túi vải chính rộng ~3"
+                shell_fabric_area += (p_length * 3.0 * qty) 
             elif "keo" in name_lower or "mếch" in name_lower or "fusing" in name_lower or "interlining" in name_lower:
                 interlining_fabric_area += panel_area
             else:
@@ -283,6 +292,7 @@ if st.session_state.saved_pdf_bytes is not None:
         if not has_interlining:
             materials.append({"placement": "INTERLINING", "width_inch": 44.0, "shrinkage_warp": 0.0, "shrinkage_weft": 0.0, "material_name": "TRICOT FUSING (Keo lót phôi)"})
         data["materials_bom"] = materials
+
         # --- ĐOẠN 2b2: TOÁN HỌC SƠ ĐỒ CÔNG NGHIỆP DIỆN TÍCH RẬP THÔ VÀ ĐỔ BẢNG BOM ---
         materials = data.get("materials_bom", [])
         
