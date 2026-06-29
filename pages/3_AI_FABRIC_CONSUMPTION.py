@@ -142,9 +142,17 @@ with st.sidebar:
         with st.chat_message(chat["role"]): st.markdown(chat["content"])
     user_prompt = st.chat_input("Gửi thông số cho AI...")
 
+# SỬA LỖI TẠI ĐÂY: Lưu chữ gõ từ ô chat vào lịch sử trước khi xử lý Regex
 if user_prompt:
     st.session_state.sidebar_chat_history.append({"role": "user", "content": user_prompt})
+    # Kích hoạt hàm trích xuất thông số khổ vải/co rút từ câu chữ bạn gõ
     update_config_from_text(user_prompt)
+    
+    # AI trả lời phản hồi xác nhận trên ô chat để không bị im lặng
+    st.session_state.sidebar_chat_history.append({
+        "role": "assistant", 
+        "content": f"Đã nhận lệnh tinh chỉnh: '{user_prompt}'. Định mức rập phẳng đang được tính toán lại ngay..."
+    })
     st.rerun()
 
 # =====================================================================
@@ -172,6 +180,7 @@ def parse_garment_fraction(val) -> float:
     except Exception:
         pass
     return safe_float(val, 0.0)
+
 # =====================================================================
 # ĐOẠN 2b: GIAO DIỆN CHÍNH, ĐỒNG BỘ ĐƠN VỊ VÀ ĐỔ BẢNG VECTOR CAD ĐỊNH MỨC THỰC TẾ
 # =====================================================================
