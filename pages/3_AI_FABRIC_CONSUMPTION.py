@@ -37,22 +37,21 @@ def update_config_from_text(text: str):
     if not text: return
     text_lower = text.lower()
     
-    # 1. Quét tìm khổ vải vật lý (Bắt trọn: khổ vải 58, khổ 58, vải 58, đm 58, mếch 58...)
+    # 1. Quét tìm khổ vải vật lý
     width_match = re.search(r'(?:khổ|width|vải|đm|mức|cắt)\s*(\d+)', text_lower)
     if width_match: 
         st.session_state.width_inch_override = float(width_match.group(1))
-        st.session_state.is_calculated = True # KÍCH HOẠT LỆNH ĐỔ BẢNG
+        st.session_state.is_calculated = True
 
-    # 2. Quét tìm độ co rút dọc L (Bắt trọn: co dọc 5, dọc 5, l5, l 5, co rút 5)
+    # 2. Quét tìm độ co rút dọc L
     co_l_match = re.search(r'(?:co dọc|dọc|l|warp)\s*(\d+)', text_lower)
     if co_l_match: 
         st.session_state.shrinkage_override = float(co_l_match.group(1))
     else:
-        # Nếu gõ "co rút 5" chung chung, tự động áp vào độ co dọc
         generic_co = re.search(r'(?:co rút|độ co|co)\s*(\d+)', text_lower)
         if generic_co: st.session_state.shrinkage_override = float(generic_co.group(1))
 
-    # 3. Quét tìm độ co rút ngang W (Bắt trọn: co ngang 15, ngang 15, w15, weft 15)
+    # 3. Quét tìm độ co rút ngang W
     co_w_match = re.search(r'(?:co ngang|ngang|w|weft)\s*(\d+)', text_lower)
     if co_w_match:
         if "gemini_parsed_bom_data" in st.session_state and st.session_state.gemini_parsed_bom_data:
@@ -66,7 +65,7 @@ def safe_float(val, default=0.0) -> float:
     """Hàm xử lý kiểu dữ liệu an toàn chặn đứng mọi lỗi gãy mảng của AI"""
     if val is None: return default
     if isinstance(val, list):
-        if len(val) > 0: return safe_float(val[0], default)
+        if len(val) > 0: return safe_float(val, default)
         return default
     try: return float(val)
     except (ValueError, TypeError): return default
@@ -74,42 +73,43 @@ def safe_float(val, default=0.0) -> float:
 # =====================================================================
 # ĐOẠN 2a: AI GEMINI VISION PDF PARSER VÀ HỘI THOẠI SIDEBAR CHAT
 # =====================================================================
-@st.cache_data(show_spinner=False)
 def ai_gemini_vision_pdf_parser(pdf_file_name, pdf_bytes) -> dict:
-    fallback_data = {
-        "style_code": "R09-490416", "description": "THE BAGGY JEANS", "category": "pant",
-        "materials_bom": [
-            {"placement": "SHELL", "width_inch": 58.0, "shrinkage_warp": 5.0, "shrinkage_weft": 15.0, "gsm": 356.0, "material_name": "Denim Main fabric"},
-            {"placement": "POCKETING", "width_inch": 60.0, "shrinkage_warp": 2.0, "shrinkage_weft": 2.0, "gsm": 120.0, "material_name": "Cotton Pocketing"},
-            {"placement": "INTERLINING", "width_inch": 44.0, "shrinkage_warp": 1.0, "shrinkage_weft": 1.0, "gsm": 40.0, "material_name": "Fusible Interlining"}
-        ],
-        "specifications_pom": {
-            "chest_width": 54.0, "body_length": 102.0, "shoulder_width": 42.0, "bicep_width": 22.0, "sleeve_length": 24.0,
-            "armhole_straight": 24.0, "neck_width": 17.0, "waist_width": 42.0, "bottom_width": 22.0, "sleeve_opening": 21.0
-        }
-    }
+    """Ép buộc AI phân tích sâu tài liệu PDF thực tế và trả về cấu trúc dữ liệu chính xác"""
     try:
         if "GEMINI_API_KEY" in st.secrets: genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
         elif "gemini" in st.secrets: genai.configure(api_key=st.secrets["gemini"].get("api_key", ""))
         
         pdf_blob = {"mime_type": "application/pdf", "data": pdf_bytes}
         prompt = """
-        Bạn là một chuyên gia kỹ thuật dệt may cấp cao. Hãy phân tích toàn bộ tài liệu kỹ thuật PDF này và trả về một chuỗi JSON duy nhất:
+        Bạn là một chuyên gia kỹ thuật dệt may cấp cao. Hãy đọc thật kỹ tài liệu kỹ thuật PDF này. 
+        Tìm kiếm tất cả thông tin về nguyên phụ liệu (vải chính Shell, vải lót Pocketing, keo/mếch Interlining) và bảng thông số kích thước (POM) để trả về một chuỗi JSON duy nhất, TUYỆT ĐỐI không được bịa ra thông tin nếu không có trong file:
         {
-            "style_code": "Mã style hàng",
+            "style_code": "Mã style hàng tìm thấy trong file",
             "description": "Mô tả đặt tên sản phẩm",
             "category": "jacket hoặc vest hoặc polo hoặc t-shirt hoặc pant hoặc shirt",
-            "materials_bom": [{"placement": "SHELL", "width_inch": 56.0, "shrinkage_warp": 5.0, "shrinkage_weft": 15.0, "gsm": 220.0, "material_name": "Tên vải"}],
-            "specifications_pom": {"chest_width": 54.5, "body_length": 73.0, "bicep_width": 23.5, "sleeve_length": 64.0}
+            "materials_bom": [
+                {
+                    "placement": "Điền rõ SHELL hoặc POCKETING hoặc INTERLINING dựa trên tài liệu",
+                    "width_inch": Khổ vải dạng số (nếu không thấy, điền khổ mặc định tương ứng như 58.0 hoặc 44.0)",
+                    "shrinkage_warp": Độ co rút dọc dạng số (nếu không có, để mặc định 3.0)",
+                    "shrinkage_weft": Độ co rút ngang dạng số (nếu không có, để mặc định 3.0)",
+                    "gsm": Định lượng vải dạng số (nếu có)",
+                    "material_name": "Tên chi tiết nguyên phụ liệu trong file"
+                }
+            ],
+            "specifications_pom": {
+                "Ghi lại toàn bộ các cặp tên_thông_số: giá_trị tìm thấy trong bảng thông số (Ví dụ: waist_width, hip_width, total_length, inseam, outseam...)"
+            }
         }
+        Yêu cầu trả về chuỗi JSON chuẩn hóa để hệ thống lập tức trích xuất dữ liệu.
         """
         model = genai.GenerativeModel('gemini-2.5-flash')
         response = model.generate_content([pdf_blob, prompt])
         clean_text = response.text.strip().replace("```json", "").replace("```", "")
         return json.loads(clean_text)
     except Exception as e:
-        return fallback_data
-
+        st.error(f"Lỗi phân tích AI: {str(e)}")
+        return None
 # =====================================================================
 # SIDEBAR CONTROL
 # =====================================================================
@@ -146,17 +146,19 @@ st.subheader("📁 BƯỚC 1: TẢI TÀI LIỆU KỸ THUẬT SẢN XUẤT (TECHP
 uploaded_file = st.file_uploader("Kéo và thả file PDF Techpack hoặc bảng BOM của bạn vào đây", type=["pdf"])
 
 if uploaded_file is not None:
-    st.session_state.saved_pdf_bytes = uploaded_file.read()
-    st.session_state.saved_pdf_name = uploaded_file.name
-    # Tự động gọi API phân tích khi có file mới
+    if st.session_state.saved_pdf_name != uploaded_file.name:
+        st.session_state.saved_pdf_bytes = uploaded_file.read()
+        st.session_state.saved_pdf_name = uploaded_file.name
+        st.session_state.gemini_parsed_bom_data = None  # Reset để bắt buộc quét lại file mới
+
     if st.session_state.gemini_parsed_bom_data is None:
-        with st.spinner("AI đang quét lập hồ sơ Techpack hình học..."):
+        with st.spinner("AI đang ép buộc quét sâu lập hồ sơ Techpack từ file PDF thực tế..."):
             st.session_state.gemini_parsed_bom_data = ai_gemini_vision_pdf_parser(
                 st.session_state.saved_pdf_name, st.session_state.saved_pdf_bytes
             )
 
 if st.session_state.saved_pdf_bytes is not None:
-    st.success(f"📥 **Đã nhận diện thành công file:** `{st.session_state.saved_pdf_name}`")
+    st.success(f"📥 **Đã nhận diện thành công file từ hệ thống:** `{st.session_state.saved_pdf_name}`")
     
     data = st.session_state.gemini_parsed_bom_data
     if data:
@@ -166,54 +168,68 @@ if st.session_state.saved_pdf_bytes is not None:
         col2.metric("Mô tả", data.get("description", "N/A"))
         col3.metric("Phân loại cấu trúc", data.get("category", "N/A").upper())
 
-        # Lấy danh sách nguyên phụ liệu (nếu trống tự động lấy bộ fallback có cả keo lót phối)
         materials = data.get("materials_bom", [])
-        if not materials or len(materials) <= 1:
-            materials = [
-                {"placement": "SHELL", "width_inch": 58.0, "shrinkage_warp": 5.0, "shrinkage_weft": 15.0, "gsm": 356.0, "material_name": "Denim Main fabric"},
-                {"placement": "POCKETING", "width_inch": 60.0, "shrinkage_warp": 2.0, "shrinkage_weft": 2.0, "gsm": 120.0, "material_name": "Cotton Pocketing"},
-                {"placement": "INTERLINING", "width_inch": 44.0, "shrinkage_warp": 1.0, "shrinkage_weft": 1.0, "gsm": 40.0, "material_name": "Fusible Interlining (Keo lót phôi)"}
-            ]
-
-        # Lấy thông số POM để tính toán định mức hình học phẳng 
         poms = data.get("specifications_pom", {})
-        body_length = safe_float(poms.get("body_length", 102.0))
-        waist_width = safe_float(poms.get("waist_width", 42.0))
 
-        # Cập nhật thông số từ ô Chat NLP vào từng loại cấu trúc cụ thể
+        # --- ENGINE DÒ TÌM THÔNG SỐ TRẮC ĐỊA HÌNH HỌC TỰ ĐỘNG ---
+        # Tìm giá trị Chiều dài (Ưu tiên các nhãn phổ biến của Quần)
+        length_keys = ['body_length', 'total_length', 'outseam', 'inseam', 'length', 'dài', 'dài quần']
+        body_length = 0.0
+        for k in length_keys:
+            if k in poms or k.lower() in [key.lower() for key in poms.keys()]:
+                actual_key = next((key for key in poms.keys() if key.lower() == k.lower()), k)
+                body_length = safe_float(poms.get(actual_key))
+                if body_length > 0: break
+        if body_length == 0: body_length = 102.0 # Giá trị dự phòng nếu file thiếu thông số
+
+        # Tìm giá trị Chiều rộng (Vòng bụng/Vòng mông)
+        width_keys = ['waist_width', 'waist', 'hip_width', 'hip', 'rộng bụng', 'ngang eo']
+        waist_width = 0.0
+        for k in width_keys:
+            if k in poms or k.lower() in [key.lower() for key in poms.keys()]:
+                actual_key = next((key for key in poms.keys() if key.lower() == k.lower()), k)
+                waist_width = safe_float(poms.get(actual_key))
+                if waist_width > 0: break
+        if waist_width == 0: waist_width = 42.0 # Giá trị dự phòng
+
+        # --- TIẾN HÀNH TÍNH TOÁN ĐỊNH MỨC CHO TỪNG NGUYÊN PHỤ LIỆU ---
         for mat in materials:
-            # Ghi đè thông số vải chính (SHELL)
+            # Ghi đè thông số tương tác từ Chatbot
             if mat.get("placement") == "SHELL":
                 if st.session_state.width_inch_override:
                     mat["width_inch"] = st.session_state.width_inch_override
                 if st.session_state.shrinkage_override:
                     mat["shrinkage_warp"] = st.session_state.shrinkage_override
             
-            # Ghi đè thông số nếu bạn gõ lệnh tinh chỉnh Keo lót phôi / Mếch (INTERLINING)
-            elif mat.get("placement") == "INTERLINING" and st.session_state.width_inch_override:
-                # Nếu người dùng gõ lệnh chứa chữ "mếch" hoặc "keo", hệ thống sẽ ép riêng vào đây
-                if "mếch" in str(st.session_state.sidebar_chat_history[-1].get("content", "")).lower() or "keo" in str(st.session_state.sidebar_chat_history[-1].get("content", "")).lower():
+            elif "INTERLINING" in str(mat.get("placement")).upper() or "POCKETING" in str(mat.get("placement")).upper():
+                chat_content = str(st.session_state.sidebar_chat_history[-1].get("content", "")).lower()
+                if any(x in chat_content for x in ["keo", "mếch", "lót", "phối"]) and st.session_state.width_inch_override:
                     mat["width_inch"] = st.session_state.width_inch_override
 
-            # TỰ ĐỘNG TÍNH TOÁN ĐỊNH MỨC (Engine mô phỏng diện tích phẳng + Hao hụt co rút)
-            # Công thức CAD tiêu chuẩn: (Dài quần + Hao hụt dọc) * (Rộng quần + Hao hụt ngang) / Khổ vải thực tế + 5% biên lỗi cắt
+            # Thuật toán tính định mức hình học CAD phẳng thực tế
             w_inch = safe_float(mat.get("width_inch", 58.0))
-            s_warp = safe_float(mat.get("shrinkage_warp", 0.0)) / 100.0
-            s_weft = safe_float(mat.get("shrinkage_weft", 0.0)) / 100.0
+            s_warp = safe_float(mat.get("shrinkage_warp", 3.0)) / 100.0
+            s_weft = safe_float(mat.get("shrinkage_weft", 3.0)) / 100.0
             
-            # Tính định mức quy đổi ra mét (m) trên mỗi sản phẩm
+            # Công thức quy đổi định mức diện tích hình học (mét) + 5% hao hụt biên cắt
             calc_consumption = ((body_length * (1 + s_warp)) * (waist_width * (1 + s_weft))) / (w_inch * 39.37) * 1.05
-            mat["consumption_yard_per_pcs"] = round(calc_consumption * 1.09361, 3) # Quy đổi ra Yard
-            mat["consumption_meter_per_pcs"] = round(calc_consumption, 3)          # Quy đổi ra Mét
+            
+            # Tỷ lệ diện tích phân bổ cho mếch lót và lót túi phụ so với vải chính
+            if "POCKETING" in str(mat.get("placement")).upper(): calc_consumption *= 0.35
+            if "INTERLINING" in str(mat.get("placement")).upper(): calc_consumption *= 0.20
+
+            mat["consumption_meter_per_pcs"] = round(calc_consumption, 3)
+            mat["consumption_yard_per_pcs"] = round(calc_consumption * 1.09361, 3)
 
         st.markdown("### 🧵 BẢNG ĐỊNH MỨC NGUYÊN PHỤ LIỆU ĐỘNG (MATERIALS BOM)")
         df_bom = pd.DataFrame(materials)
         
-        # Sắp xếp lại cột để Định Mức (Consumption) nhảy lên đầu cho dễ nhìn
+        # Sắp xếp thứ tự cột hiển thị trực quan
         cols_order = ['placement', 'material_name', 'consumption_meter_per_pcs', 'consumption_yard_per_pcs', 'width_inch', 'shrinkage_warp', 'shrinkage_weft', 'gsm']
         df_bom = df_bom[[c for c in cols_order if c in df_bom.columns]]
         
-        # Hiển thị bảng kèm định mức đã tính
         st.dataframe(df_bom, use_container_width=True)
+    else:
+        st.warning("⚠️ AI không thể trích xuất cấu trúc dữ liệu từ file PDF này. Vui lòng kiểm tra lại chất lượng file.")
 else:
     st.info("💡 Vui lòng tải một file PDF Techpack lên để hệ thống phân tích hình học đa giác.")
