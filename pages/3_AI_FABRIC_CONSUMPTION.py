@@ -521,36 +521,31 @@ if st.session_state.saved_pdf_bytes is not None:
                     
                     mat["shrinkage_warp"], mat["shrinkage_weft"] = round(s_warp*100, 1), round(s_weft*100, 1)
 
-                # SỬA LỖI 5: Khóa biên hẹp khổ vải tối thiểu 10 inch, trừ biên vải an toàn cố định 1 inch trước wash
+                # SỬA LỖI 5: Biên vải an toàn cố định 1 inch trước wash cho sơ đồ cắt CAD thực tế
                 effective_width = max(10.0, w_inch - 1.0)
 
                 # -----------------------------------------------------------------
-                # SỬA LỖI 2: ALWAYS CALCULATE - LOẠI BỎ TOÀN BỘ HAO HỤT (LOSS = 1.0)
+                # SỬA LỖI 2: ALWAYS CALCULATE - LUÔN LUÔN TÍNH TOÁN THEO DIỆN TÍCH THỰC TẾ
                 # -----------------------------------------------------------------
                 if "PANT" in category.upper():
                     target_area = v_shell
-                    eff, loss = 0.84, 1.0
-                    
-                    total_pant_box_area = ((max_front_pant + max_back_pant) + 1.76 + 0.75) * (max_body_width * 2.0)
-                    marker_pant_geometric_factor = 1.160 if total_pant_box_area == 0 else max(1.11, min(1.22, (total_pant_box_area / max(1.0, target_area)) * 0.55))
+                    eff, loss = 0.84, 1.0  # Đã loại bỏ hoàn toàn hao hụt (loss = 1.0)
                     
                     if "POCKETING" in placement: 
                         calc_consumption = round(((max_back_pant) / 39.37) * 0.21, 3); target_area = v_pocket; eff, loss = 0.86, 1.0
                     elif "INTERLINING" in placement: 
                         calc_consumption = round(((max_back_pant) / 39.37) * 0.09, 3); target_area = v_inter; eff, loss = 0.88, 1.0
                     else:
-                        # TOÀN DIỆN TOÁN HỌC CAD: Khôi phục tính định mức theo chiều dài chi tiết lớn nhất đã sửa Swap Guard
-                        max_pant_length = max(max_front_pant, max_back_pant)
-                        if max_pant_length > 5.0 and effective_width > 0:
-                            # Khổ vải rộng (ví dụ 58 hữu dụng 57) đủ xếp song song tối thiểu 2 thân (Cặp rập Thân trước + Thân sau đan xen dọc)
-                            is_narrow_fabric = effective_width < (max_body_width * 2.0)
-                            width_factor = 1.85 if is_narrow_fabric else 1.25
-                            calc_consumption = (max_pant_length / 39.37) * width_factor * loss
+                        # TOÀN DIỆN TOÁN HỌC CAD: Sửa lỗi nhảy số vọt định mức bằng cách chia trực tiếp diện tích rập thật cho khổ hữu dụng
+                        if target_area > 0 and effective_width > 0:
+                            # Do rập thô đã phóng to sẵn theo độ co sau wash, ta tính trực tiếp chiều dài sơ đồ thực tế trên bàn cắt
+                            marker_length_inch = target_area / effective_width
+                            # Đổi ra đơn vị Yards và chia cho hiệu suất sơ đồ lồng rập (Eff = 84%) để bù đắp khoảng hở giữa các đa giác
+                            calc_consumption = (marker_length_inch / 39.37) / eff * loss
                         else:
-                            if target_area > 0 and effective_width > 0:
-                                m_len = (target_area * (1.0 + s_warp)) / effective_width
-                                calc_consumption = (m_len / 39.37) / eff * loss * marker_pant_geometric_factor
+                            calc_consumption = 0.0
                 else:
+                    # --- THUẬT TOÁN ĐỊNH MỨC ÁO JACKET / BOMBER CÔNG NGHIỆP TỐI ƯU ---
                     if "SHELL" in placement:
                         base_layout_length = (max_body_length + (2 * sewing_seam_allowance)) + (max_sleeve + (2 * sewing_seam_allowance)) + hem_allowance
                         has_long_rib = any("bo gấu" in str(p.get("panel_name", "")).lower() or "bo lưng" in str(p.get("panel_name", "")).lower() for p in panels)
@@ -586,6 +581,7 @@ if st.session_state.saved_pdf_bytes is not None:
                     "loss_factor": loss,
                     "final_consumption_yds": final_consumption
                 }
+
 
 
 # --- ĐOẠN 2b3: STREAMLIT BOM INTERFACE RENDERER & EXCEL EXPORTER ---
