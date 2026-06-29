@@ -27,7 +27,7 @@ if "saved_pdf_name" not in st.session_state: st.session_state.saved_pdf_name = N
 
 if "sidebar_chat_history" not in st.session_state:
     st.session_state.sidebar_chat_history = [
-        {"role": "assistant", "content": "Xin chào! Hệ thống đã được nâng cấp lên Lõi Phân Tích Rập Thô Công Nghiệp. AI sẽ tự động phân tích xếp ly, cấu trúc túi mổ (cơi, đáp) và túi hộp để tính toán diện tích vải trước khi may."}
+        {"role": "assistant", "content": "Xin chào!."}
     ]
 
 def update_config_from_text(text: str):
