@@ -195,20 +195,16 @@ for item in mock_production_db:
         "Ghi chú kỹ thuật dệt may": item["note"]
     })
 
-# Đổ mảng dữ liệu vào cấu trúc bảng Pandas DataFrame
-df_matrix = pd.DataFrame(table_rows)
+# Tự động dọn dẹp và chuẩn hóa dữ liệu số trước khi render bảng
+df_display = df_matrix.copy()
 
-# Render bảng ma trận định mức lớn lên trung tâm màn hình, có dải màu gradient ở cột Tổng số lượng
-# Render bảng ma trận định mức lớn lên trung tâm màn hình, có dải màu gradient ở cột Tổng số lượng
+# Render bảng ma trận định mức lớn lên trung tâm màn hình phẳng
 st.dataframe(
-    df_matrix.style.format({
-        "Shell/Main Fabric Net (yds/pc)": "{:.2f}",
-        "Bo/Rib Net (yds/pc)": "{:.2f}",
-        "Keo/Interlining Net (yds/pc)": "{:.2f}"
-    }).background_gradient(cmap="Blues", subset=["Tổng yds vải/pc"]),
+    df_display,
     use_container_width=True,
-    height=420
+    height=450
 )
+
 
 
 # Nút cho phép người dùng trích xuất dữ liệu nhanh về máy tính dưới dạng file CSV/Excel
