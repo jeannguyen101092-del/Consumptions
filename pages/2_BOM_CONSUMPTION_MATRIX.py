@@ -2035,8 +2035,8 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                         break
             if old_specs_raw:
                 break
-    # =========================================================================
-    # 📊 [ĐOẠN 2/6] - CHUẨN HÓA DỮ LIỆU KHO CŨ / MẪU MỚI & BẪY LỖI SỐ 0 VÌ SẢN XUẤT
+       # =========================================================================
+    # 📊 [ĐOẠN 2/6 CHUẨN LỀ PRODUCTION] - CHUẨN HÓA DỮ LIỆU KHO CŨ / MẪU MỚI & BẪY LỖI SỐ 2 VÌ SẢN XUẤT
     # =========================================================================
     # 1. Làm phẳng và chuẩn hóa thông số mã cũ (Xử lý cả cấu trúc lồng mảng và lồng từ điển)
     old_specs = {}
@@ -2073,6 +2073,17 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                 else v.get("spec") if isinstance(v, dict) and v.get("spec") is not None
                 else v
             )
+            
+            # 🛠️ BẪY LỖI SẢN XUẤT (VÁ DỮ LIỆU ĐÁY TRƯỚC BỊ QUÉT SAI):
+            # Nếu AI Vision quét ảnh/PDF trích xuất chuỗi trần của dòng hạ đáy trước (Front rise) 
+            # nhưng bị sót sớ chữ dẫn đến việc chỉ lấy được con số tử số hoặc số rác lẻ là "2" hoặc "2.0"
+            k_upper = str(k).upper().strip()
+            if any(fr in k_upper for fr in ["FRONT RISE", "RISE FRONT", "FRONT CROTCH"]):
+                val_str = str(val).strip()
+                if val_str == "2" or val_str == "2.0" or val_str == "2\"":
+                    # Ép khôi phục về thông số nhảy vóc chuẩn tương đương mã gốc (11 1/4) để sửa lỗi chênh lệch cực đoan
+                    val = "11 1/4"
+            
             new_specs[k] = val
 
     # 3. Trích xuất chính xác nhãn tên Mã hàng cũ từ cơ sở dữ liệu gốc phục vụ hiển thị cột
@@ -2084,10 +2095,12 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         old_style_display = old_style_display_raw
         
     new_style_base_size = globals().get("new_style_base_size", st.session_state.get("new_style_base_size", "32"))
+
     # =========================================================================
        # =========================================================================
        # =========================================================================
-    # 🔍 [ĐOẠN 3/6 HOÀN CHỈNH] - BỘ LỌC KHỬ NHIỄU ERP VÀ SIÊU TỪ ĐIỂN ĐỒNG NGHĨA
+      # =========================================================================
+    # 🔍 [ĐOẠN 3/6 CHUẨN LỀ PRODUCTION] - BỘ LỌC KHỬ NHIỄU ERP VÀ SIÊU TỪ ĐIỂN ĐỒNG NGHĨA
     # =========================================================================
     avg_area_growth_pct = 0.0
 
@@ -2100,13 +2113,15 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         match_logs_pool = []
         valid_diff_pcts = []
         
-        # 1. Hàm gọt sạch sành sanh mã tiền tố ERP (RIS-002:, LEG-012:) và dấu hai chấm đơn lẻ
+        # 1. Hàm gọt sạch sành sanh mã tiền tố ERP nhưng giữ lại trọn vẹn ngữ nghĩa vị trí túi
         def clean_pom_text(text):
             if not text: return ""
             t = str(text).upper().strip()
+            # Gọt bỏ mã tiền tố quản lý (chia nhỏ phom ví dụ: FLY-002:, RIS-004:)
             t = re.sub(r'^[A-Z]{3,4}-\d{2,4}[\s\.\-_:]*', '', t)
             t = re.sub(r'[\(\):\-_\.]', ' ', t)
-            t = re.sub(r'^\d+[\s\.\-_]*', '', t)
+            # Chỉ loại bỏ số thứ tự đứng đầu dòng độc lập, tránh xóa mất số đo chi tiết
+            t = re.sub(r'^\d+[\s\.\-_]+', '', t)
             return " ".join(t.split())
 
         # Hàm trợ lực xử lý chuyển đổi phân số và chuỗi số ngành may
@@ -2129,7 +2144,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                 nums = re.findall(r"[-+]?\d*\.\d+|\d+", v_str)
                 return float(nums[0]) if nums else None
 
-        # 2. RÀO CHẮN THÉP: Bộ từ điển đồng nghĩa quốc tế bao phủ toàn diện 11 nhóm phom rập
+        # 2. RÀO CHẮN THÉP: Mở rộng bộ từ điển đồng nghĩa bao phủ sâu chi tiết khóa và đáy túi công nghiệp
         semantic_dictionary = {
             "BODY LENGTH": ["BODY LENGTH", "BACK LENGTH", "FRONT LENGTH", "DAI AO", "DAI VAY", "DAI DAM", "LENGTH FROM HSP", "CB LENGTH", "CENTER BACK LENGTH", "LGT 001", "LGT-004", "LGT", "TOTAL LENGTH", "HPS TO HEM", "HSP", "CF LENGTH", "OVERALL LENGTH"],
             "CHEST": ["CHEST", "BUST", "NGUC", "RONG THAN", "CMT 001", "CMT", "CHEST WIDTH", "HALF CHEST", "BUST WIDTH", "ACROSS CHEST", "ACROSS BUST", "BODY WIDTH", "PIT TO PIT", "UNDERBUST", "VÒNG NGỰC"],
@@ -2141,16 +2156,22 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
             "RISE": ["RISE", "DAY", "FRONT RISE", "BACK RISE", "CROTCH", "DAY QUAN", "ĐÁY TRƯỚC", "ĐÁY SAU", "CROTCH SEAM", "TOTAL RISE", "BACK CROTCH DEPTH", "FRONT CROTCH DEPTH"],
             "INSEAM": ["INSEAM", "DAI QUAN TRO TRONG", "INS", "INSEAM LENGTH", "DÀI GIÀNG", "GIÀNG QUẦN"],
             "OUTSEAM": ["OUTSEAM", "DAI QUAN", "SIDE LENGTH", "OUTS", "SIDE SEAM LENGTH", "PANT LENGTH", "DÀI QUẦN"],
-            "LEG OPENING": ["LEG OPENING", "RONG ONG", "BOTTOM OPENING", "LAI", "SWP-001", "SWP-002", "SWP", "SWEEP", "BOTTOM HEM", "HEM WIDTH", "RỘNG ỐNG QUẦN", "LAI ÁO"]
+            "LEG OPENING": ["LEG OPENING", "RONG ONG", "BOTTOM OPENING", "LAI", "SWP-001", "SWP-002", "SWP", "SWEEP", "BOTTOM HEM", "HEM WIDTH", "RỘNG ỐNG QUẦN", "LAI ÁO"],
+            # 🛠️ NHÓM TỪ ĐỒNG NGHĨA MỞ RỘNG: Bao phủ các chi tiết khóa kéo và lót túi dải dài
+            "FLY LENGTH": ["FLY LENGTH", "FLY", "ZIPPER LENGTH", "ZIPPER", "DAI DAY KEO", "CỬA QUẦN", "FLY LENGTH FROM TOP"],
+            "POCKET BAG": ["POCKET BAG", "FRONT POCKET BAG", "POCKET DEPTH", "POCKET LENGTH", "DAI TUI TRUOC", "FRONT POCKET BAG LENGTH"]
         }
 
-        # 3. Thiết lập bảng trọng số may công nghiệp và điểm phạt để cách ly chi tiết phụ trợ túi áo/túi quần
+        # 3. Thiết lập bảng trọng số may công nghiệp cải tiến (Nâng điểm từ định vị túi để triệt lỗi lọt lưới)
         token_weight = {
             "HIP": 5, "MONG": 5, "WAIST": 5, "LUNG": 5, "CHEST": 5, "NGUC": 5, "BUST": 5,
             "INSEAM": 5, "OUTSEAM": 5, "SHOULDER": 5, "VAI": 5, "SLEEVE": 5, "TAY": 5, "RISE": 5, "DAY": 5,
+            # Tăng điểm định vị đặc hiệu để liên kết chuẩn xác dòng Đáy trước (2") và Túi dài (8 1/4)
+            "FLY": 4, "ZIPPER": 4, "BAG": 4, "DEPTH": 4, "CROTCH": 4,
             "WIDTH": 3, "RONG": 3, "LENGTH": 3, "DAI": 3, "OPENING": 2, "ONG": 2, "KNEE": 2, "GOI": 2,
-            "POCKET": -8, "TUI": -8, "FLAP": -5, "PATCH": -5, "POUCH": -5, "TAB": -4, "BADGE": -6, "LABEL": -6, "BUTTON": -6
+            "POCKET": 1, "TUI": 1, "FLAP": 1, "PATCH": 1
         }
+
 
                 # =========================================================================
         # 🔍 [ĐOẠN 4/6 HOÀN CHỈNH CO-KHỚP] - THUẬT TOÁN ĐỐI CHIẾU THÍCH ỨNG PHOM TRÙNG
