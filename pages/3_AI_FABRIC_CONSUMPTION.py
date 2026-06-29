@@ -158,7 +158,6 @@ if uploaded_file is not None:
 if st.session_state.saved_pdf_bytes is not None:
     st.success(f"📥 **Đã nhận diện thành công file:** `{st.session_state.saved_pdf_name}`")
     
-    # Đọc dữ liệu từ session state ra hiển thị
     data = st.session_state.gemini_parsed_bom_data
     if data:
         st.markdown("### 📋 THÔNG TIN CHUNG SẢN PHẨM")
@@ -167,17 +166,54 @@ if st.session_state.saved_pdf_bytes is not None:
         col2.metric("Mô tả", data.get("description", "N/A"))
         col3.metric("Phân loại cấu trúc", data.get("category", "N/A").upper())
 
-        # Ghi đè thông số nếu người dùng đổi thông qua Chatbot NLP
+        # Lấy danh sách nguyên phụ liệu (nếu trống tự động lấy bộ fallback có cả keo lót phối)
         materials = data.get("materials_bom", [])
+        if not materials or len(materials) <= 1:
+            materials = [
+                {"placement": "SHELL", "width_inch": 58.0, "shrinkage_warp": 5.0, "shrinkage_weft": 15.0, "gsm": 356.0, "material_name": "Denim Main fabric"},
+                {"placement": "POCKETING", "width_inch": 60.0, "shrinkage_warp": 2.0, "shrinkage_weft": 2.0, "gsm": 120.0, "material_name": "Cotton Pocketing"},
+                {"placement": "INTERLINING", "width_inch": 44.0, "shrinkage_warp": 1.0, "shrinkage_weft": 1.0, "gsm": 40.0, "material_name": "Fusible Interlining (Keo lót phôi)"}
+            ]
+
+        # Lấy thông số POM để tính toán định mức hình học phẳng 
+        poms = data.get("specifications_pom", {})
+        body_length = safe_float(poms.get("body_length", 102.0))
+        waist_width = safe_float(poms.get("waist_width", 42.0))
+
+        # Cập nhật thông số từ ô Chat NLP vào từng loại cấu trúc cụ thể
         for mat in materials:
+            # Ghi đè thông số vải chính (SHELL)
             if mat.get("placement") == "SHELL":
                 if st.session_state.width_inch_override:
                     mat["width_inch"] = st.session_state.width_inch_override
                 if st.session_state.shrinkage_override:
                     mat["shrinkage_warp"] = st.session_state.shrinkage_override
+            
+            # Ghi đè thông số nếu bạn gõ lệnh tinh chỉnh Keo lót phôi / Mếch (INTERLINING)
+            elif mat.get("placement") == "INTERLINING" and st.session_state.width_inch_override:
+                # Nếu người dùng gõ lệnh chứa chữ "mếch" hoặc "keo", hệ thống sẽ ép riêng vào đây
+                if "mếch" in str(st.session_state.sidebar_chat_history[-1].get("content", "")).lower() or "keo" in str(st.session_state.sidebar_chat_history[-1].get("content", "")).lower():
+                    mat["width_inch"] = st.session_state.width_inch_override
+
+            # TỰ ĐỘNG TÍNH TOÁN ĐỊNH MỨC (Engine mô phỏng diện tích phẳng + Hao hụt co rút)
+            # Công thức CAD tiêu chuẩn: (Dài quần + Hao hụt dọc) * (Rộng quần + Hao hụt ngang) / Khổ vải thực tế + 5% biên lỗi cắt
+            w_inch = safe_float(mat.get("width_inch", 58.0))
+            s_warp = safe_float(mat.get("shrinkage_warp", 0.0)) / 100.0
+            s_weft = safe_float(mat.get("shrinkage_weft", 0.0)) / 100.0
+            
+            # Tính định mức quy đổi ra mét (m) trên mỗi sản phẩm
+            calc_consumption = ((body_length * (1 + s_warp)) * (waist_width * (1 + s_weft))) / (w_inch * 39.37) * 1.05
+            mat["consumption_yard_per_pcs"] = round(calc_consumption * 1.09361, 3) # Quy đổi ra Yard
+            mat["consumption_meter_per_pcs"] = round(calc_consumption, 3)          # Quy đổi ra Mét
 
         st.markdown("### 🧵 BẢNG ĐỊNH MỨC NGUYÊN PHỤ LIỆU ĐỘNG (MATERIALS BOM)")
         df_bom = pd.DataFrame(materials)
+        
+        # Sắp xếp lại cột để Định Mức (Consumption) nhảy lên đầu cho dễ nhìn
+        cols_order = ['placement', 'material_name', 'consumption_meter_per_pcs', 'consumption_yard_per_pcs', 'width_inch', 'shrinkage_warp', 'shrinkage_weft', 'gsm']
+        df_bom = df_bom[[c for c in cols_order if c in df_bom.columns]]
+        
+        # Hiển thị bảng kèm định mức đã tính
         st.dataframe(df_bom, use_container_width=True)
 else:
     st.info("💡 Vui lòng tải một file PDF Techpack lên để hệ thống phân tích hình học đa giác.")
