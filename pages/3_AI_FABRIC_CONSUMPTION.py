@@ -297,37 +297,41 @@ if st.session_state.saved_pdf_bytes is not None:
         hem_allowance = parse_garment_fraction(sewing_spec.get("hem_allowance_inch", 0.75))
         is_detached_hem = sewing_spec.get("is_detached_hem", False)
 
-        # --- ĐỒNG BỘ ENGINE DÒ THÔNG SỐ TRẮC ĐỊA RẬP PHẲNG ---
+        # --- ĐỒNG BỘ ENGINE DÒ THÔNG SỐ TRẮC ĐỊA RẬP PHẲNG (ĐÃ VÁ LỖI CHUỖI) ---
         body_length = 0.0
         body_width = 0.0
-        poms_clean = {str(k).lower(): v for k, v in poms.items()}
+        
+        # Làm sạch hoàn toàn chuỗi: viết thường và xóa bỏ toàn bộ khoảng trắng, dấu gạch dưới
+        poms_clean = {str(k).lower().replace('_', '').replace(' ', ''): v for k, v in poms.items()}
         
         inseam_val = 0.0
         front_rise_val = 0.0
 
         if "pant" in category:
-            # 1. Tính toán chiều dài quần chuẩn xác (Outseam hoặc Inseam + Front Rise)
+            # 1. Tính toán chiều dài quần chuẩn xác (Outseam hoặc dồn Inseam + Front Rise)
             for k, v in poms_clean.items():
-                if any(x in k for x in ['outseam', 'total_length', 'dài quần', 'side_length']):
+                if any(x in k for x in ['outseam', 'totallength', 'dàiquần', 'sidelength']):
                     body_length = parse_garment_fraction(v)
                     if body_length > 0: break
             
             if body_length == 0:
                 for k, v in poms_clean.items():
-                    if 'inseam' in k: inseam_val = parse_garment_fraction(v)
-                    if 'front_rise' in k: front_rise_val = parse_garment_fraction(v)
+                    if 'inseam' in k: 
+                        inseam_val = parse_garment_fraction(v)
+                    if 'frontrise' in k or 'rise' in k: 
+                        front_rise_val = parse_garment_fraction(v)
                 if inseam_val > 0 and front_rise_val > 0:
                     body_length = inseam_val + front_rise_val
 
             # 2. Tính toán bề ngang lớn nhất (Hip/Low Hip) bao phủ diện tích rập chiếm dụng sơ đồ phẳng
             for k, v in poms_clean.items():
-                if any(x in k for x in ['low_hip', 'hip_width', 'hip', 'mông']):
+                if any(x in k for x in ['lowhip', 'hipwidth', 'hip', 'mông']):
                     body_width = parse_garment_fraction(v)
                     if body_width > 0: break
             
             if body_width == 0:
                 for k, v in poms_clean.items():
-                    if any(x in k for x in ['waist_width', 'waist', 'bụng', 'eo']):
+                    if any(x in k for x in ['waistwidth', 'waist', 'bụng', 'eo']):
                         body_width = parse_garment_fraction(v)
                         if body_width > 0: break
                         
@@ -336,11 +340,11 @@ if st.session_state.saved_pdf_bytes is not None:
         else:
             # Dò tìm số đo cho cấu trúc các loại Áo
             for k, v in poms_clean.items():
-                if any(x in k for x in ['body_length', 'back_length', 'front_length', 'length', 'dài áo']):
+                if any(x in k for x in ['bodylength', 'backlength', 'frontlength', 'length', 'dàiáo']):
                     body_length = parse_garment_fraction(v)
                     if body_length > 0: break
             for k, v in poms_clean.items():
-                if any(x in k for x in ['chest_width', 'chest', 'bust_width', 'rộng ngực', 'thân']):
+                if any(x in k for x in ['chestwidth', 'chest', 'bustwidth', 'rộngngực', 'thân']):
                     body_width = parse_garment_fraction(v)
                     if body_width > 0: break
 
@@ -388,7 +392,7 @@ if st.session_state.saved_pdf_bytes is not None:
                 final_length = calculated_length * (1 + s_warp)
                 final_width = calculated_width * (1 + s_weft)
 
-                # 5. Định mức sơ đồ phẳng quy đổi sang đơn vị Mét (m) + 5% biên hao hụt cắt đầu cây biên rập kỹ thuật
+                # 5. Định mức sơ đồ phẳng quy đổi sang đơn vị Mét (m) + 5% biên hao hụt cắt đầu tấm biên rập kỹ thuật
                 calc_consumption = (final_length * final_width) / (w_inch * 39.37) * 1.05
                 
                 # Phân bổ diện tích sơ đồ cho vải lót túi và keo dựng dán phôi chi tiết
@@ -413,4 +417,5 @@ if st.session_state.saved_pdf_bytes is not None:
     else:
         st.warning("⚠️ AI không thể trích xuất cấu trúc dữ liệu từ file PDF này. Vui lòng kiểm tra lại chất lượng file.")
 else:
+
     st.info("💡 Vui lòng tải một file PDF Techpack lên để hệ thống phân tích hình học đa giác.")
