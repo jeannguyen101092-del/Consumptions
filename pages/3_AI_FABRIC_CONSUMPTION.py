@@ -155,7 +155,20 @@ if st.session_state.saved_pdf_bytes is not None:
         default_width = 56.0
         default_shrink_l = 5.0
         default_shrink_w = 3.0
-        materials_list = bom_data.get("materials_bom", [])
+        
+        # Kiểm tra kiểu dữ liệu an toàn để tránh lỗi sập hệ thống ngầm
+        if isinstance(bom_data, dict):
+            materials_list = bom_data.get("materials_bom", [])
+            category_extracted = bom_data.get("category", "pant")
+            spec_pom_extracted = bom_data.get("specifications_pom", {})
+            style_code_extracted = bom_data.get("style_code", "UNKNOWN")
+            description_extracted = bom_data.get("description", "Garment Product Description")
+        else:
+            materials_list = []
+            category_extracted = "pant"
+            spec_pom_extracted = {}
+            style_code_extracted = "UNKNOWN"
+            description_extracted = "Garment Product Description"
         
         if isinstance(materials_list, list) and len(materials_list) > 0:
             for mat in materials_list:
@@ -170,7 +183,8 @@ if st.session_state.saved_pdf_bytes is not None:
         
         st.info(f"🎯 **AI đã thực thi thuật toán CAD thành công:** Khổ vải tính toán: **{active_width} Inch** | Độ co rút áp dụng: **L {active_shrink_l}% / W {default_shrink_w}%**")
             
-        net_geometry_areas = GarmentCADCoreEngine.apply_rule_table_grading(bom_data.get("category", "pant"), bom_data.get("specifications_pom", {}))
+        # Áp dụng bộ nhảy mẫu hình học động từ Parametric CAD Engine
+        net_geometry_areas = GarmentCADCoreEngine.apply_rule_table_grading(category_extracted, spec_pom_extracted)
         
         table_rows = []
         if isinstance(materials_list, list):
@@ -184,11 +198,12 @@ if st.session_state.saved_pdf_bytes is not None:
                     "shrinkage_weft": default_shrink_w if placement == "SHELL" else safe_float(material.get("shrinkage_weft", 15.0), 15.0)
                 }
                 
-                nest_results = GarmentCADCoreEngine.Advanced_Marker_Nesting_Engine(bom_data.get("category", "pant"), net_geometry_areas, config_context)
+                # Gọi Nesting Engine tính toán lồng ghép chi tiết nâng cao kèm Seam Allowance
+                nest_results = GarmentCADCoreEngine.Advanced_Marker_Nesting_Engine(category_extracted, net_geometry_areas, config_context)
                 
                 table_rows.append({
-                    "Style": bom_data.get("style_code", "UNKNOWN"),
-                    "Mô tả sản phẩm": bom_data.get("description", "Garment Product Description"),
+                    "Style": style_code_extracted,
+                    "Mô tả sản phẩm": description_extracted,
                     "Vị trí chi tiết (BOM)": placement,
                     "Chất liệu thành phần": material.get("material_name", "Fabric Component"),
                     "Khổ vải (inch)": f"{config_context['width_inch']}''",
@@ -204,7 +219,7 @@ if st.session_state.saved_pdf_bytes is not None:
         st.download_button(
             label="📥 Xuất File Định Mức Sản Xuất Thương Mại (CSV)",
             data=df_matrix.to_csv(index=False).encode('utf-8-sig'),
-            file_name=f"AI_BOM_Matrix_Report_{bom_data.get('style_code', 'BOM')}.csv",
+            file_name=f"AI_BOM_Matrix_Report_{style_code_extracted}.csv",
             mime="text/csv"
         )
 else:
