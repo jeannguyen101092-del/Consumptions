@@ -1,93 +1,108 @@
 import streamlit as st
 import pandas as pd
-import json
-import google.generativeai as genai
-from google.generativeai import types
-import io
 import re
 
 # =====================================================================
-# CẤU HÌNH TRANG VÀ BỘ NHỚ LƯU TRỮ (STATE LOCK)
+# CẤU HÌNH HẰNG SỐ TOÀN CỤC (GLOBAL CONSTANTS - KHỞI TẠO DUY NHẤT MỘT LẦN)
 # =====================================================================
-st.set_page_config(page_title="3. AI FABRIC CONSUMPTION", layout="wide")
-st.title("📊 TRỢ LÝ ĐỊNH MỨC NGUYÊN PHỤ LIỆU TỰ ĐỘNG (BOM)")
-st.caption("Kiến trúc Techpack Engine - Bản vá dứt điểm lỗi bóc tách văn bản ô chat")
-st.markdown("---")
+# 4. ĐÃ SỬA: Đưa LIMITS lên đầu file làm Global Constant
+LIMITS = {
+    "JACKET": {"range": (1.65, 2.65), "warn_thresh": 2.5},
+    "PANT":   {"range": (1.15, 1.75), "warn_thresh": 1.8},
+    "JORT":   {"range": (1.05, 1.35), "warn_thresh": 1.25},
+    "DRESS":  {"range": (1.45, 3.25), "warn_thresh": 3.0},
+    "TSHIRT": {"range": (0.65, 1.35), "warn_thresh": 1.4},
+    "SHIRT":  {"range": (1.15, 1.95), "warn_thresh": 2.0},
+    "DEFAULT":{"range": (1.15, 2.20), "warn_thresh": 2.2}
+}
 
-if "gemini_parsed_bom_data" not in st.session_state: st.session_state.gemini_parsed_bom_data = None
-if "saved_pdf_bytes" not in st.session_state: st.session_state.saved_pdf_bytes = None
-if "saved_pdf_name" not in st.session_state: st.session_state.saved_pdf_name = None
-if "chat_history" not in st.session_state:
-    st.session_state.chat_history = [{"role": "assistant", "content": "Xin chào! Vui lòng nạp file PDF Techpack lên, hệ thống sẽ thực hiện toán học sơ đồ dài tích hợp co rút hai chiều."}]
+# 2. ĐÃ SỬA: Mở rộng bộ từ khóa quét vải chính toàn diện theo chuẩn CAD/Gerber quốc tế
+MAIN_KEYS = (
+    "MAIN", "BODY", "SHELL", "SELF", "SELF FABRIC", "SELFFABRIC", "FACE", 
+    "OUTER", "PRIMARY", "FABRIC", "MAIN FABRIC", "SELF-FABRIC", "THÂN", 
+    "VẢI CHÍNH", "DENIM", "COTTON"
+)
 
-import streamlit as st
-import pandas as pd
-import re
-
-# =====================================================================
-# ĐOẠN 1: BỘ HÀM KIỂM TRA AN TOÀN VÀ NHẬN DIỆN PHOM DÁNG SẢN PHẨM
-# =====================================================================
-
-def safe_float(val, default=0.0) -> float:
-    """Chuyển đổi hoàn chỉnh các chuỗi 'null', 'unknown', None về số thực float an toàn."""
-    if val is None: return default
-    val_clean = str(val).replace("%", "").replace('"', '').strip().lower()
-    if val_clean in ["null", "none", "unknown", "na", "n/a", ""]: return default
-    try: return float(val_clean)
-    except (ValueError, TypeError): return default
-
-def get_dynamic_marker_efficiency(description: str, style_code: str) -> float:
-    """Bộ lọc nhận diện phom dáng đặc thù dựa trên mô tả và mã để áp hiệu suất sơ đồ mục tiêu"""
-    desc_upper = (str(description) + " " + str(style_code)).upper()
-    if any(x in desc_upper for x in ["JACKET", "COAT", "VEST"]): return 84.0
-    elif any(x in desc_upper for x in ["BAGGY", "FLARE", "WIDE LEG"]): return 87.0
-    elif any(x in desc_upper for x in ["JEAN", "DENIM", "5 POCKET", "5-POCKET", "MOM SHORT", "SHORT"]): return 88.0
-    return 86.0
+THREAD_KEYS = ("CHỈ", "THREAD", "ZIPPER", "BUTTON", "SHANK", "RIVET", "LABEL", "TAG")
 
 # =====================================================================
-# ĐOẠN 2: LÕI TOÁN HỌC ĐỊNH MỨC & PHÂN TẦNG CẢNH BÁO PLM CHUẨN XƯỞNG MAY
+# CÁC HÀM SƠ BỘ VÀ TIỆN ÍCH MODULE (UTILITY FUNCTIONS)
 # =====================================================================
+# 1. ĐÃ SỬA: Đưa hàm tính diện tích CAD ra ngoài vòng lặp để tối ưu CPU và bộ nhớ
+def calculate_cad_area(length: float, width: float, cutable_w: float, row_eff: float) -> float:
+    """Quy đổi diện tích hình học rập phẳng phẳng sang đơn vị Yards dài."""
+    return ((length * width) / (cutable_w * 36.0)) / (row_eff / 100.0)
 
+def detect_product_type(desc_upper: str, raw_inseam_val: float) -> str:
+    """Hàm phân loại kiểu dáng trang phục từ siêu dữ liệu Techpack."""
+    if any(x in desc_upper for x in ["JACKET", "COAT", "VEST", "OUTERWEAR"]): 
+        return "JACKET"
+    elif any(x in desc_upper for x in ["JEAN", "DENIM", "PANT", "BAGGY", "TROUSER", "LEGGING", "JORT"]):
+        return "JORT" if raw_inseam_val < 15.0 else "PANT"
+    elif any(x in desc_upper for x in ["DRESS", "SKIRT", "VÁY", "ĐẦM", "MAXI"]): 
+        return "DRESS"
+    elif any(x in desc_upper for x in ["TSHIRT", "T-SHIRT", "TEE", "POLO", "ÁO THUN"]): 
+        return "TSHIRT"
+    elif any(x in desc_upper for x in ["SHIRT", "SƠ MI", "BLOUSE", "BUTTON DOWN"]): 
+        return "SHIRT"
+    return "DEFAULT"
+
+# 10/10 REFACTOR: Tách riêng phần bóc tách nhận diện BOM để dễ bảo trì và làm Unit Test
+def check_material_type(body_type: str, c_type: str, placement: str) -> tuple:
+    """Phân tách rạch ròi 3 nhóm nguyên phụ liệu phẳng, tránh bẫy nhầm lót túi và vải chính."""
+    is_main = any(k in body_type for k in MAIN_KEYS) or any(k in c_type for k in MAIN_KEYS) or any(k in placement for k in MAIN_KEYS)
+    
+    is_pocketing = False
+    if "POCKETING" in body_type or "TÚI" in body_type: is_pocketing = True
+    elif "POCKETING" in c_type or "TÚI" in c_type: is_pocketing = True
+    elif "POCKETING" in placement or "TÚI" in placement:
+        if not any(x in placement for x in ["MAIN", "SHELL", "BODY"]): is_pocketing = True
+        
+    is_interlining = False
+    if "INTERLINING" in body_type or "FUSING" in body_type: is_interlining = True
+    elif "INTERLINING" in c_type or "FUSING" in c_type: is_interlining = True
+    elif any(k in placement for k in ["INTERLINING", "FUSING", "LÓT", "DỰNG", "KEO"]): is_interlining = True
+    
+    return is_main, is_pocketing, is_interlining
+
+# =====================================================================
+# LÕI ĐỘNG CƠ TÍNH TOÁN TOÁN HỌC (MAIN ENGINE)
+# =====================================================================
 def python_consumption_sanity_check(bom_data: dict) -> dict:
     if bom_data is None: bom_data = {}
     style_code_raw = str(bom_data.get("style_code", ""))
     desc_upper = (str(bom_data.get("description", "")) + " " + str(bom_data.get("style_code", "")) + " " + str(bom_data.get("style_name", ""))).upper()
     default_eff = get_dynamic_marker_efficiency(desc_upper, style_code_raw)
     
-    # Phân loại trang phục tự động bằng từ khóa kỹ thuật rập
-    is_jacket = any(x in desc_upper for x in ["JACKET", "COAT", "VEST", "OUTERWEAR"])
-    is_pant = any(x in desc_upper for x in ["JEAN", "DENIM", "PANT", "BAGGY", "SHORT", "TROUSER", "LEGGING", "JORT"])
-    is_dress = any(x in desc_upper for x in ["DRESS", "SKIRT", "VÁY", "ĐẦM", "MAXI"])
-    is_tshirt = any(x in desc_upper for x in ["TSHIRT", "T-SHIRT", "TEE", "POLO", "ÁO THUN"])
-    is_shirt = any(x in desc_upper for x in ["SHIRT", "SƠ MI", "BLOUSE", "BUTTON DOWN"]) and not is_tshirt
-    
-    # Trích xuất thông số đo (Spec)
+    # Trích xuất thông số spec kích thước từ tài liệu
     body_length = safe_float(bom_data.get("body_length") or bom_data.get("length") or bom_data.get("center_back_length"), default=28.0)
     sleeve_length = safe_float(bom_data.get("sleeve_length") or bom_data.get("sleeve"), default=24.0)
     chest_width = safe_float(bom_data.get("chest") or bom_data.get("chest_width") or bom_data.get("bust"), default=20.0)
     skirt_hem = safe_float(bom_data.get("hem") or bom_data.get("hem_width") or bom_data.get("sweep"), default=35.0)
     
-    # VÁ LỖI 1: Khống chế bẫy số Front Rise bóc tách lỗi từ AI (Ví dụ 31 1/2 dính dấu cách thành 31.5)
     raw_rise_val = safe_float(bom_data.get("front_rise") or bom_data.get("rise"), default=11.5)
-    if raw_rise_val > 20.0: raw_rise_val = 11.5 # Ép về thông số đũng quần người lớn chuẩn kỹ thuật
+    if raw_rise_val > 20.0: raw_rise_val = 11.5 
     
     raw_inseam_val = safe_float(bom_data.get("inseam") or bom_data.get("inseam_length"), default=13.0)
     calculated_outseam = raw_inseam_val + raw_rise_val
     hip_width = safe_float(bom_data.get("hip") or bom_data.get("hip_width"), default=21.0)
 
-    # Đọc đè thông số cấu hình vải từ ô chat
-    w_shell, s_shell_l, s_shell_w = 58.0, 3.0, 3.0
-    chat_text = "".join([str(m["content"]) for m in st.session_state.chat_history if m["role"] == "user"][-1:]).lower()
+    # Khởi chạy hàm bóc tách nhận diện kiểu dáng trang phục
+    product_type = detect_product_type(desc_upper, raw_inseam_val)
+
+    # Kiểm tra an toàn bộ nhớ chat_history
+    chat_history = st.session_state.get("chat_history", [])
+    chat_text = "".join(str(m.get("content", "")) for m in chat_history if m.get("role") == "user").lower()
     
-    if re.search(r'(?:khổ|kho)\s*(\d+)', chat_text): w_shell = float(re.search(r'(?:khổ|kho)\s*(\d+)', chat_text).group(1))
-    
-    # Sửa bộ quét co rút linh hoạt bắt đúng dải số cách nhau bằng dấu cách/gạch ngang
+    w_shell_chat, s_shell_l_chat, s_shell_w_chat = None, None, None
+    match_w = re.search(r'(?:khổ|kho)\s*(\d+)', chat_text)
+    if match_w: w_shell_chat = float(match_w.group(1))
+        
     match_range = re.search(r'(?:co\s*rút|co\s*rut|co)\s*(\d+)\s*(?:-|–|ngang|\s+)\s*(\d+)', chat_text)
     if match_range: 
-        s_shell_l = float(match_range.group(1))
-        s_shell_w = float(match_range.group(2))
+        s_shell_l_chat = float(match_range.group(1))
+        s_shell_w_chat = float(match_range.group(2))
 
-    # Đọc hiệu suất sơ đồ nền từ dòng đầu tiên có dữ liệu gốc
     eff_val = default_eff
     if "bom_rows" in bom_data and isinstance(bom_data["bom_rows"], list):
         for row in bom_data["bom_rows"]:
@@ -98,65 +113,76 @@ def python_consumption_sanity_check(bom_data: dict) -> dict:
 
     clean_rows = []
     for row in bom_data.get("bom_rows", []):
-        c_type, placement = str(row.get("component_type", "")).upper(), str(row.get("placement", "")).upper()
+        row_eff = default_eff # Triệt tiêu hoàn toàn lỗi UnboundLocalError cục bộ
         
-        # Loại bỏ phụ liệu phần cứng (Nut, Đinh tán Rivet, Nhãn mác) khỏi bảng tính diện tích phẳng
-        if any(k in c_type or k in placement for k in ["CHỈ", "THREAD", "ZIPPER", "BUTTON", "SHANK", "RIVET", "LABEL", "TAG"]): 
+        c_type = str(row.get("component_type", "")).upper()
+        placement = str(row.get("placement", "")).upper()
+        body_type = str(row.get("body_type", "")).upper()
+        
+        if any(k in c_type or k in placement for k in THREAD_KEYS): 
             continue
         
-        is_main = any(k in placement for k in ["BODY", "SHELL", "MAIN", "THÂN"]) or any(k in c_type for k in ["SHELL", "DENIM", "VẢI CHÍNH", "COTTON"])
+        # Gọi hàm phân tách module hóa cấu trúc phụ liệu
+        is_main, is_pocketing, is_interlining = check_material_type(body_type, c_type, placement)
         row_status, notes_log, final_gross_yards = "PASS", "", 0.0
         
         if is_main:
+            w_shell = safe_float(row.get("fabric_width_inch"), default=58.0)
+            s_shell_l = safe_float(row.get("shrinkage_warp_pct"), default=3.0)
+            s_shell_w = safe_float(row.get("shrinkage_weft_pct"), default=3.0)
+            
+            if w_shell_chat is not None: w_shell = w_shell_chat
+            if s_shell_l_chat is not None: s_shell_l = s_shell_l_chat
+            if s_shell_w_chat is not None: s_shell_w = s_shell_w_chat
+            
             raw_eff = row.get("marker_efficiency_pct", "")
-            if raw_eff: eff_val = max(80.0, min(safe_float(raw_eff, default_eff), 95.0))
+            if raw_eff: row_eff = max(80.0, min(safe_float(raw_eff, default_eff), 95.0))
+            
             cutable_w = max(40.0, w_shell - 1.5)
-            shrink_f_warp, shrink_f_weft = 1.0 + (s_shell_l / 100.0), 1.0 + (s_shell_w / 100.0)
+            shrink_f_warp = 1.0 + (s_shell_l / 100.0)
+            shrink_f_weft = 1.0 + (s_shell_w / 100.0)
+            wastage_factor = 1.04
             
-            if is_jacket:
-                base_cons = (((body_length * 2) + sleeve_length + 4.0) * ((chest_width * 2) + 5.0) / (cutable_w * 36.0)) / (eff_val / 100.0)
-                final_gross_yards = max(1.65, min(base_cons * shrink_f_warp * shrink_f_weft * 1.04, 2.65))
-                row_status = "WARNING" if final_gross_yards > 2.5 else "PASS"
-            elif is_pant:
-                # Tính toán sơ đồ rập cho Quần dài/Quần Shorts chuẩn diện tích bề mặt hình học
-                base_cons = ((calculated_outseam + 3.0) * ((hip_width * 2) + 6.0) / (cutable_w * 36.0)) / (eff_val / 100.0)
-                
-                # Nếu là quần Short (Jort) có Inseam ngắn dưới 15 inch, giới hạn định mức thực tế xưởng cắt
-                if raw_inseam_val < 15.0:
-                    final_gross_yards = max(0.65, min(base_cons * shrink_f_warp * shrink_f_weft * 1.04, 0.95))
-                else:
-                    final_gross_yards = max(1.15, min(base_cons * shrink_f_warp * shrink_f_weft * 1.04, 1.75))
-                    
-                row_status = "WARNING" if final_gross_yards > 1.8 else "PASS"
-            elif is_dress:
-                base_cons = ((body_length + 6.0) * ((skirt_hem * 2) + 4.0) / (cutable_w * 36.0)) / (eff_val / 100.0)
-                final_gross_yards = max(1.45, min(base_cons * shrink_f_warp * shrink_f_weft * 1.04, 3.25))
-                row_status = "WARNING" if final_gross_yards > 3.0 else "PASS"
-            elif is_tshirt:
-                base_cons = (((body_length * 2) + 3.0) * ((chest_width * 2) + 3.0) / (cutable_w * 36.0)) / (eff_val / 100.0)
-                final_gross_yards = max(0.65, min(base_cons * shrink_f_warp * shrink_f_weft * 1.04, 1.35))
-                row_status = "WARNING" if final_gross_yards > 1.4 else "PASS"
-            elif is_shirt:
-                base_cons = (((body_length * 2) + sleeve_length + 3.5) * ((chest_width * 2) + 4.5) / (cutable_w * 36.0)) / (eff_val / 100.0)
-                final_gross_yards = max(1.15, min(base_cons * shrink_f_warp * shrink_f_weft * 1.04, 1.95))
-                row_status = "WARNING" if final_gross_yards > 2.0 else "PASS"
+            # Khối gọi hàm tính diện tích CAD xử lý tối ưu CPU [INDEX]
+            if product_type == "JACKET":
+                base_cons = calculate_cad_area((body_length * 2) + sleeve_length + 4.0, (chest_width * 2) + 5.0, cutable_w, row_eff)
+            elif product_type == "JORT":
+                base_cons = calculate_cad_area(calculated_outseam + 4.0, (hip_width * 2) + 16.0, cutable_w, row_eff)
+            elif product_type == "PANT":
+                base_cons = calculate_cad_area(calculated_outseam + 3.0, (hip_width * 2) + 6.0, cutable_w, row_eff)
+            elif product_type == "DRESS":
+                base_cons = calculate_cad_area(body_length + 6.0, (skirt_hem * 2) + 4.0, cutable_w, row_eff)
+            elif product_type == "TSHIRT":
+                base_cons = calculate_cad_area((body_length * 2) + 3.0, (chest_width * 2) + 3.0, cutable_w, row_eff)
+            elif product_type == "SHIRT":
+                base_cons = calculate_cad_area((body_length * 2) + sleeve_length + 3.5, (chest_width * 2) + 4.5, cutable_w, row_eff)
             else:
-                final_gross_yards = 1.40
+                base_cons = 1.40
                 
-            final_gross_yards = round(final_gross_yards, 2)
-            if final_gross_yards > 3.3: row_status = "CRITICAL"
-            notes_log = f"Bù co rút Warp x Weft, hao hụt xưởng cắt 4%"
+            raw_total = base_cons * shrink_f_warp * shrink_f_weft * wastage_factor
             
-        # VÁ LỖI 2: Quét chặt chẽ từ khóa POCKETING / INTERLINING để tính vải lót phối túi
-        elif any(k in placement or k in c_type for k in ["LINING", "FUSING", "INTERLINING", "LÓT", "DỰNG", "KEO", "POCKETING", "TÚI"]):
-            if is_jacket or is_dress: final_gross_yards = 0.65
-            elif is_pant or is_shirt: final_gross_yards = 0.25  # Ép ra số 0.25 yds cho lót túi quần jean/short
-            else: final_gross_yards = 0.15
-            notes_log = "Định mức cụm keo dựng dựng phối"
+            cfg = LIMITS.get(product_type, LIMITS["DEFAULT"])
+            row_status = "WARNING" if raw_total > cfg["warn_thresh"] else "PASS"
+            
+            low, high = cfg["range"]
+            final_gross_yards = round(max(low, min(raw_total, high)), 2)
+            if raw_total > 3.3: row_status = "CRITICAL"
+            
+            # 3. ĐÃ SỬA: Tối ưu Telemetry siêu ngắn, gọn gàng, trực quan cho kỹ sư PLM [INDEX]
+            notes_log = f"{int(w_shell)}\"/{int(row_eff)}%/{int(s_shell_l)}x{int(s_shell_w)} | Raw={round(raw_total, 2)} → {final_gross_yards}"
+            
+        elif is_pocketing:
+            final_gross_yards = 0.15 if product_type == "JORT" else 0.25  
+            notes_log = "Định mức vải lót túi (Pocketing Fabric)"
+            row_status = "PASS"
+            
+        elif is_interlining:
+            final_gross_yards = 0.10 if product_type in ["PANT", "JORT"] else 0.65  
+            notes_log = "Định mức cụm keo dựng phối (Interlining)"
             row_status = "PASS"
 
-        # Đồng bộ hiển thị dấu % hiệu suất sơ đồ cho toàn bảng
-        row["marker_efficiency_pct"] = f"{int(eff_val)}%"
+        row["marker_efficiency_pct"] = f"{int(row_eff)}%" if is_main else "N/A"
+
         row["calculated_gross_consumption_yds"], row["status"], row["reason_or_logs"] = final_gross_yards, row_status, notes_log
         clean_rows.append(row)
         
