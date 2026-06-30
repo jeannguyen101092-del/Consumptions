@@ -9,25 +9,21 @@ from google.generativeai import types
 # =====================================================================
 st.set_page_config(page_title="3. AI FABRIC CONSUMPTION", layout="wide")
 st.title("📊 TRỢ LÝ ĐỊNH MỨC NGUYÊN PHỤ LIỆU TỰ ĐỘNG (BOM)")
-st.caption("Kiến trúc Toán học CAD Engine - Tích hợp bộ lọc safe_float sạch lỗi hệ thống")
+st.caption("Kiến trúc TECHPACK PDF CONSUMPTION ESTIMATION ENGINE - Bản hoàn thiện chuẩn PLM")
 st.markdown("---")
 
 if "gemini_parsed_bom_data" not in st.session_state: st.session_state.gemini_parsed_bom_data = None
 if "saved_pdf_bytes" not in st.session_state: st.session_state.saved_pdf_bytes = None
 if "saved_pdf_name" not in st.session_state: st.session_state.saved_pdf_name = None
 if "chat_history" not in st.session_state:
-    st.session_state.chat_history = [{"role": "assistant", "content": "Xin chào! Vui lòng nạp file PDF Techpack lên để hệ thống tự động bóc tách và ước tính định mức Yards."}]
+    st.session_state.chat_history = [{"role": "assistant", "content": "Xin chào! Vui lòng nạp file PDF Techpack lên, hệ thống sẽ bóc tách POM và ước tính định mức Gross Yards."}]
 
 # =====================================================================
-# LÕI ENGINE 1: BỘ LỌC AN TOÀN TOÁN HỌC KHỬ LỖI CHUỖI 'NULL'
+# LÕI ENGINE 1: THUẬT TOÁN TOÁN HỌC ƯỚC TÍNH (TECHPACK CONSUMPTION ENGINE)
 # =====================================================================
 def safe_float(val, default=0.0) -> float:
-    """
-    VÁ LỖI TOÀN DIỆN CỦA HỆ THỐNG:
-    Chuyển đổi hoàn chỉnh các chuỗi 'null', 'unknown', None về số thực an toàn.
-    """
-    if val is None: 
-        return default
+    """Chuyển đổi hoàn chỉnh các chuỗi 'null', 'unknown', None về số thực float an toàn."""
+    if val is None: return default
     val_clean = str(val).replace("%", "").replace('"', '').strip().lower()
     if val_clean in ["null", "none", "unknown", "na", "n/a", ""]:
         return default
@@ -36,9 +32,8 @@ def safe_float(val, default=0.0) -> float:
     except (ValueError, TypeError):
         return default
 
-def get_dynamic_marker_efficiency(description: str, style_code: str) -> float:
-    """Bộ lọc nhận diện phom dáng đặc thù để áp hiệu suất sơ đồ chuẩn mục tiêu của xưởng"""
-    desc_upper = str(description).upper() + " " + str(style_code).upper()
+def get_dynamic_marker_efficiency(desc_upper: str) -> float:
+    """Bộ lọc nhận diện phom dáng đặc thù dựa trên chuỗi thông tin gộp để áp hiệu suất sơ đồ mục tiêu"""
     if any(x in desc_upper for x in ["BAGGY", "FLARE", "WIDE LEG"]):
         return 87.0
     elif any(x in desc_upper for x in ["JEAN", "DENIM", "5 POCKET", "5-POCKET"]):
@@ -51,84 +46,111 @@ def get_dynamic_marker_efficiency(description: str, style_code: str) -> float:
 
 def python_consumption_sanity_check(bom_data: dict) -> dict:
     """
-    BỘ KHUNG MA TRẬN 3 DÒNG ĐỘC LẬP TỰ ĐỘNG CẬP NHẬT:
-    Tính toán dựa trên chiều dài quần thực tế từ bảng thông số kết hợp 
-    với khổ vải và hiệu suất để cho ra kết quả Yards chuẩn xác cho xưởng may.
+    TECHPACK PDF CONSUMPTION ESTIMATION ENGINE:
+    Tính toán định mức Gross dựa trên thông số dài quần Outseam thực tế bóc từ PDF 
+    kết hợp với bộ hệ số bao phủ thân quần vật lý (Body Coverage Factor).
     """
-    desc_upper = str(bom_data.get("description", "")).upper()
-    style_upper = str(bom_data.get("style_code", "")).upper()
-    default_eff = get_dynamic_marker_efficiency(desc_upper, style_upper)
+    # ĐIỂM CẢI TIẾN 1: Gộp toàn bộ nhận dạng kiểu hàng bao gồm Description, Style Code, Style Name
+    desc_upper = (
+        str(bom_data.get("description", "")) + " " +
+        str(bom_data.get("style_code", "")) + " " +
+        str(bom_data.get("style_name", ""))
+    ).upper()  # [INDEX]
     
-    # Sử dụng safe_float xử lý dứt điểm lỗi chữ null ngầm [INDEX]
-    raw_length = safe_float(bom_data.get("raw_length_inch"), default=40.5)
+    default_eff = get_dynamic_marker_efficiency(desc_upper)
     
-    # Cấu hình giá trị số nền tảng mặc định ban đầu cho 3 dòng vật liệu
+    # Đọc trực tiếp thông số Outseam thực tế do AI bóc từ bảng kích cỡ POM
+    raw_outseam = safe_float(
+        bom_data.get("outseam") 
+        or bom_data.get("outseam_inch")
+        or bom_data.get("length"),
+        default=40.5
+    )
+    
     w_shell, w_fusing, w_lining = 58.0, 59.0, 57.0
     s_shell_l, s_shell_w = 5.0, 15.0
     eff_val = default_eff
     
-    # TRÍCH XUẤT THÔNG SỐ ĐẦU VÀO KHÔNG PHỤ THUỘC THỨ TỰ AI TRẢ VỀ
     if "bom_rows" in bom_data and isinstance(bom_data["bom_rows"], list):
         for row in bom_data["bom_rows"]:
             c_type = str(row.get("component_type", "")).upper()
             width_parsed = safe_float(row.get("fabric_width_inch"), default=0.0)
             
             if any(k in c_type for k in ["SHELL", "DENIM", "VẢI CHÍNH", "MAIN"]):
-                if width_parsed > 0: 
-                    w_shell = width_parsed
+                if width_parsed > 0: w_shell = width_parsed
                 s_shell_l = safe_float(row.get("shrinkage_warp_pct"), default=5.0)
                 s_shell_w = safe_float(row.get("shrinkage_weft_pct"), default=15.0)
                 
                 raw_eff = row.get("marker_efficiency_pct", "")
                 if raw_eff and "UNKNOWN" not in str(raw_eff).upper() and "NONE" not in str(raw_eff).upper():
-                    eff_val = safe_float(raw_eff, default=default_eff)
+                    try: eff_val = float(str(raw_eff).replace("%", "").strip())
+                    except: eff_val = default_eff
             
             elif any(k in c_type for k in ["FUSING", "KEO", "INTERLINING", "MEX"]):
-                if width_parsed > 0: 
-                    w_fusing = width_parsed
+                if width_parsed > 0: w_fusing = width_parsed
                 
             elif any(k in c_type for k in ["POCKETING", "LINING", "LÓT", "TÚI"]):
-                if width_parsed > 0: 
-                    w_lining = width_parsed
+                if width_parsed > 0: w_lining = width_parsed
 
     clean_rows = []
     
-    # 🧵 DÒNG 1: TÍNH TOÁN ĐỊNH MỨC VẢI CHÍNH (DENIM / SHELL)
-    gross_length_inch = raw_length + 4.0
-    width_multiplier = 2.45 if any(x in desc_upper for x in ["BAGGY", "FLARE", "WIDE LEG"]) else 2.32
+    # 🧵 DÒNG 1: CÔNG THỨC TOÁN HỌC ƯỚC TÍNH VẢI CHÍNH (DENIM PANTS CONSUMPTION ENGINE)
+    pant_length = raw_outseam + 4.0  # Chiều dài thô bao gồm lai gấu và đường may ráp
     
-    # Tính diện tích 4 lớp thân quần jean lớn hoàn chỉnh [INDEX]
-    total_garment_area_sq_inch = gross_length_inch * width_multiplier * 4.0
+    # Áp dụng cấu hình PDF POM BASED BODY COVERAGE FACTOR
+    if any(x in desc_upper for x in ["BAGGY", "FLARE", "WIDE LEG"]):
+        body_width_factor = 32.0
+    elif "STRAIGHT" in desc_upper:
+        body_width_factor = 28.0
+    else:
+        body_width_factor = 26.0
+        
+    # Tính diện tích tích lũy bề ngang rập thô theo hệ số bao phủ 2.2 lớp chuẩn hóa hình học
+    total_garment_area_sq_inch = pant_length * body_width_factor * 2.2
+    
+    # Cộng thêm 18% diện tích phụ của cạp quần, lót túi sau, đáp fly và đai lưng
+    total_garment_area_sq_inch *= 1.18
+    
+    # Tính toán định mức tổng Gross Yards dựa trên hiệu suất sơ đồ và độ co rút dọc
     usable_area_per_yard_shell = w_shell * 36.0 * (eff_val / 100.0)
     net_consumption_shell = total_garment_area_sq_inch / usable_area_per_yard_shell
-    final_yards_shell = (net_consumption_shell / (1.0 - (s_shell_l / 100.0))) * 1.02
+    
+    # ĐIỂM CẢI TIẾN 2: Bảo vệ co rút an toàn bàn cắt bằng hàm giới hạn trần dưới max(0.85, ...)
+    shrink_factor = max(0.85, 1.0 - (s_shell_l / 100.0))  # [INDEX]
+    final_gross_yards_shell = (net_consumption_shell / shrink_factor) * 1.02  # [INDEX]
+    
+    # ĐIỂM CẢI TIẾN 3: Thay đổi trần ngưỡng đánh giá cảnh báo 3 cấp độ thực tế của xưởng
+    validation_status = (
+        "CRITICAL" if final_gross_yards_shell > 2.6 
+        else ("WARNING" if final_gross_yards_shell > 2.2 else "PASS")
+    )  # [INDEX]
     
     clean_rows.append({
         "component_type": "Vải Chính (Main Fabric/Denim)", "fabric_width_inch": str(int(w_shell)),
         "shrinkage_warp_pct": f"{int(s_shell_l)}%", "shrinkage_weft_pct": f"{int(s_shell_w)}%",
-        "marker_efficiency_pct": f"{int(eff_val)}%", "net_consumption_yds_pc": round(final_yards_shell, 3),
-        "validation_status": "CRITICAL" if final_yards_shell > 2.2 else ("WARNING" if final_yards_shell > 1.8 else "PASS"),
-        "notes": "Tính toán diện tích hình học rập thành công dựa trên thông số thực tế xưởng may."
+        "marker_efficiency_pct": f"{int(eff_val)}%", "gross_consumption_yds_pc": round(final_gross_yards_shell, 3),
+        "validation_status": validation_status,
+        "notes": f"Ước tính tự động dựa trên thông số Outseam thực tế ({raw_outseam} in) từ bảng POM."
     })
     
-    # 🧵 DÒNG 2: TÍNH TOÁN ĐỊNH MỨC KEO DỰNG (INTERLINING)
+    # 🧵 DÒNG 2: ƯỚC TÍNH KEO DỰNG (INTERLINING)
     calculated_fusing = (4.5 * 38.0) / (w_fusing * 36.0 * 0.90)
     clean_rows.append({
         "component_type": "Keo Dựng (Interlining/Mex)", "fabric_width_inch": str(int(w_fusing)),
         "shrinkage_warp_pct": "0%", "shrinkage_weft_pct": "0%",
-        "marker_efficiency_pct": f"{int(eff_val)}%", "net_consumption_yds_pc": round(calculated_fusing, 3),
+        "marker_efficiency_pct": f"{int(eff_val)}%", "gross_consumption_yds_pc": round(calculated_fusing, 3),
         "validation_status": "WARNING" if calculated_fusing > 0.20 else "PASS",
-        "notes": "Tính toán diện tích bản cạp lưng quần thực tế."
+        "notes": "Ước tính bản cạp lưng quần thực tế."
     })
     
-    # 🧵 DÒNG 3: TÍNH TOÁN ĐỊNH MỨC VẢI LÓT TÚI (LINING FABRIC)
+    # 🧵 DÒNG 3: ƯỚC TÍNH VẢI LÓT TÚI (LINING FABRIC)
     calculated_lining = (22.0 * 14.0 * 2) / (w_lining * 36.0 * 0.85)
     clean_rows.append({
         "component_type": "Vải Lót (Lining Fabric/Pocketing)", "fabric_width_inch": str(int(w_lining)),
         "shrinkage_warp_pct": "0%", "shrinkage_weft_pct": "0%",
-        "marker_efficiency_pct": f"{int(eff_val)}%", "net_consumption_yds_pc": round(calculated_lining, 3),
+        "marker_efficiency_pct": f"{int(eff_val)}%", "gross_consumption_yds_pc": round(calculated_lining, 3),
         "validation_status": "WARNING" if calculated_lining > 0.35 else "PASS",
-        "notes": "Cân đối diện tích lót túi cho cặp túi trước quần Jean."
+        "notes": "Cân đối diện tích cặp túi trước quần Jean."
     })
     
     bom_data["bom_rows"] = clean_rows
@@ -148,10 +170,14 @@ def ai_gemini_vision_pdf_parser(pdf_bytes, user_custom_prompt) -> dict:
             "type": "OBJECT",
             "properties": {
                 "style_code": {"type": "STRING"},
+                "style_name": {"type": "STRING"},
                 "description": {"type": "STRING"},
                 "calculated_size": {"type": "STRING"},
+                "outseam": {"type": "STRING"},          
+                "outseam_inch": {"type": "STRING"},     
+                "length": {"type": "STRING"},           
+                "hip": {"type": "STRING"},              
                 "consumption_type": {"type": "STRING"},
-                "raw_length_inch": {"type": "STRING"},
                 "bom_rows": {
                     "type": "ARRAY",
                     "items": {
@@ -171,16 +197,17 @@ def ai_gemini_vision_pdf_parser(pdf_bytes, user_custom_prompt) -> dict:
         }
 
         base_prompt = f"""
-        Bạn là Trợ lý AI bóc tách tài liệu kỹ thuật ngành may mặc.
-        Nhiệm vụ duy nhất của bạn là ĐỌC và TRÍCH XUẤT chính xác các thông số từ bảng BOM và POM trong file PDF [INDEX].
+        Bạn là Trợ lý AI bóc tách tài liệu kỹ thuật ngành may mặc chuyên nghiệp (Techpack & BOM Parser).
+        Nhiệm vụ duy nhất của bạn là ĐỌC và TRÍCH XUẤT chính xác các siêu dữ liệu từ bảng BOM và bảng kích thước POM trong file PDF.
 
-        🚨 QUY TẮC AN TOÀN TUYỆT ĐỐI (CẤM TỰ TÍNH TOÁN):
-        1. Tuyệt đối KHÔNG ĐƯỢC tự tính toán định mức số Yards, không được điền trường net_consumption [INDEX].
-        2. Hãy tìm trong bảng thông số kích thước (POM) để lấy số chiều dài thành phẩm của quần dài (Outseam hoặc Inseam chiều dài từ cạp đến gấu quần, ví dụ: 39, 40, 41.5...) và điền vào trường `raw_length_inch` dạng chuỗi (Ví dụ: "40.5"). Nếu tài liệu không ghi bắt buộc điền chữ "null" [INDEX].
-        3. Phân tách danh sách theo dòng nguyên phụ liệu độc lập (Vải chính, Keo dựng, Vải lót) [INDEX]. 
-        4. LUỒNG ĐỒNG BỘ THÔNG TIN TỪ Ô CHAT CỦA USER: Nếu người dùng có gõ chỉ định khổ vải riêng biệt ở câu lệnh chat (Ví dụ: "khổ 58 co rút dọc 5 ngang 15"), bạn phải điền chính xác con số khổ vải đó vào trường `fabric_width_inch` của đúng dòng vật liệu tương ứng [INDEX].
-
-        YÊU CẦU BỔ SUNG TỪ USER: "{user_custom_prompt}"
+        🚨 QUY TẮC TRÍCH XUẤT THÔNG SỐ (POM EXTRACTION):
+        1. Tuyệt đối KHÔNG ĐƯỢC tự tính toán định mức số Yards, giữ các trường tính toán trống.
+        2. Hãy quét bảng thông số kích cỡ (POM) để trích xuất:
+           - Ký hiệu kích cỡ làm gốc tính toán đưa vào trường `calculated_size` (Ví dụ: M hoặc L hoặc 32).
+           - Tên gọi mã sản phẩm đưa vào `style_code`, tên riêng sản phẩm đưa vào `style_name`.
+           - Thông số chiều dài quần ngoài dọc hông (OUTSEAM) đưa vào trường `outseam`, `outseam_inch` hoặc trường `length` tùy theo tên key xuất hiện trong tài liệu gốc. Bạn phải ghi nhận giá trị thô này dạng số chuỗi (Ví dụ: "41.5"). Nếu tài liệu không ghi, điền chữ "null".
+           - Thông số vòng mông (HIP) đưa vào trường `hip` dạng chuỗi (Ví dụ: "44").
+        3. Phân tách danh sách mảng bom_rows theo dòng nguyên phụ liệu độc lập (Vải chính, Keo dựng, Vải lót). Đồng bộ chỉ số khổ vải do người dùng gõ chỉ định ở ô chat nếu có yêu cầu.
         """
 
         model = genai.GenerativeModel('gemini-2.5-flash')
@@ -235,24 +262,26 @@ if user_prompt:
         st.session_state.chat_history.append({"role": "assistant", "content": "⚠️ Vui lòng tải file PDF lên ở Bước 1 trước."})
         st.rerun()
     else:
-        with st.spinner("Hệ thống Matrix Engine đang kết nối Gemini quét file và tự động tính toán số liệu..."):
+        with st.spinner("Hệ thống Techpack PDF Engine đang bóc tách POM và xử lý định mức Yards..."):
             parsed_result = ai_gemini_vision_pdf_parser(st.session_state.saved_pdf_bytes, user_prompt)
             if parsed_result and "error" not in parsed_result:
                 st.session_state.gemini_parsed_bom_data = parsed_result
-                ai_response_text = f"**🤖 HỆ THỐNG ĐÃ XỬ LÝ XONG FILE:** `{st.session_state.saved_pdf_name}`\n\n* **Mã Style:** {parsed_result.get('style_code', 'N/A')}\n* **Mô tả:** {parsed_result.get('description', 'N/A')}\n\n👉 *Mời xem bảng định mức do Python độc lập tính toán 100% ở phía dưới.*"
+                
+                final_outseam = parsed_result.get('outseam') or parsed_result.get('outseam_inch') or parsed_result.get('length') or 'N/A'
+                ai_response_text = f"**🤖 HỆ THỐNG ĐÃ XỬ LÝ XONG FILE:** `{st.session_state.saved_pdf_name}`\n\n* **Mã Style:** {parsed_result.get('style_code', 'N/A')} | **Tên hàng:** {parsed_result.get('style_name', 'N/A')}\n* **Mô tả:** {parsed_result.get('description', 'N/A')}\n* **Size bóc được:** `{parsed_result.get('calculated_size', 'N/A')}` | **Outseam:** `{final_outseam}\"` | **Hip:** `{parsed_result.get('hip', 'N/A')}\"`"
                 st.session_state.chat_history.append({"role": "assistant", "content": ai_response_text})
             else:
                 st.session_state.chat_history.append({"role": "assistant", "content": f"❌ Lỗi: {parsed_result.get('error', 'Lỗi dữ liệu')}"})
         st.rerun()
 
-# BẢNG HIỂN THỊ ĐỊNH MỨC DẠNG HÀNG DỌC XẾP CHỒNG THEO DÒNG VẬT LIỆU
+# BẢNG HIỂN THỊ ĐỊNH MỨC DẠNG HÀNG DỌC XẾP CHỒNG THEO TIÊU CHUẨN ĐỊNH MỨC GROSS
 if st.session_state.gemini_parsed_bom_data:
     st.markdown("---")
     st.subheader("📋 BẢNG ĐỊNH MỨC MỌI BỘ - HỆ THỐNG GIÁM SÁT PLM")
     
     col1, col2, col3 = st.columns(3)
     col1.markdown(f"📌 **Mã Style:** `{st.session_state.gemini_parsed_bom_data.get('style_code', 'N/A')}`")
-    col2.markdown(f"📐 **Cơ chế tính:** `PYTHON_DETERMINISTIC_MATRIX_ENGINE`")
+    col2.markdown(f"📐 **Cơ chế tính:** `TECHPACK_PDF_CONSUMPTION_ESTIMATION_ENGINE`")
     col3.markdown(f"🧥 **Mô tả dáng:** {st.session_state.gemini_parsed_bom_data.get('description', 'N/A')}")
         
     bom_rows = st.session_state.gemini_parsed_bom_data.get("bom_rows", [])
@@ -271,7 +300,7 @@ if st.session_state.gemini_parsed_bom_data:
                 "Độ co L (Dọc)": row.get("shrinkage_warp_pct"),
                 "Độ co W (Ngang)": row.get("shrinkage_weft_pct"),
                 "Hiệu suất sơ đồ": row.get("marker_efficiency_pct"),
-                "Định mức Net (yds/pc)": row.get("net_consumption_yds_pc"),
+                "Định mức Gross (yds/pc)": row.get("gross_consumption_yds_pc"),
                 "Ghi chú Hệ thống / Nhật ký Cảnh báo": row.get("notes")
             })
             
