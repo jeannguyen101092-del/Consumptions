@@ -70,8 +70,8 @@ def safe_float(val, default=0.0) -> float:
 # AI GEMINI VISION PARSER QUÉT CẤU TRÚC MAY RẬP THÔ THỰC TẾ
 # =====================================================================
 def ai_gemini_vision_pdf_parser(pdf_bytes, user_custom_prompt) -> dict:
-    """Ép buộc AI đóng vai trò Chuyên viên định mức (BOM/Costing Specialist).
-    Trích xuất và tính toán toàn bộ định mức nguyên phụ liệu theo đơn vị YARDS giống mẫu."""
+    """Ép buộc AI phân tích trực tiếp bảng BOM gốc từ PDF.
+    Quy tắc: Gom toàn bộ vải chính (Shell), tách riêng Keo, Lót, Rib và kiểm soát chặt định mức."""
     try:
         if "GEMINI_API_KEY" in st.secrets: genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
         elif "gemini" in st.secrets: genai.configure(api_key=st.secrets["gemini"].get("api_key", ""))
@@ -81,36 +81,43 @@ def ai_gemini_vision_pdf_parser(pdf_bytes, user_custom_prompt) -> dict:
         pdf_blob = {"mime_type": "application/pdf", "data": pdf_bytes}
         
         base_prompt = f"""
-        Bạn là một Trưởng phòng tài liệu kỹ thuật và tính toán định mức ngành may mặc (Costing & BOM Specialist).
-        Hãy phân tích tài liệu PDF này và trích xuất bảng định mức nguyên phụ liệu tự động.
+        Bạn là Chuyên gia tối ưu hóa định mức xưởng may (Garment Costing & Efficiency Master).
+        Nhiệm vụ của bạn là quét bảng BOM (Bill of Materials) trong file PDF để trích xuất dữ liệu rập thực tế.
+
+        🚨 QUY TẮC PHÂN LOẠI VÀ GOM ĐỊNH MỨC (BẮT BUỘC):
+        1. VẢI CHÍNH (SHELL): Gom TẤT CẢ các chi tiết cắt bằng vải chính (Thân trước, thân sau, tay, nắp túi, cơi túi, đáp...) thành DUY NHẤT 1 ĐỊNH MỨC TỔNG (Shell Net) cho mỗi mã hàng.
+        2. TÁCH RIÊNG NGUYÊN PHỤ LIỆU PHỐI: Tuyệt đối KHÔNG gom chung vào vải chính. Phải bóc tách thành các cột độc lập:
+           - LINING: Vải lót (Tách riêng).
+           - INTERLINING/KEO: Keo dựng, mếch vải (Tách riêng).
+           - RIB: Vải bo (Tách riêng).
+           - PADDING/GÒN: Gòn tấm/gòn thổi (Tách riêng).
         
-        YÊU CẦU BẮT BUỘC KHÔNG ĐƯỢC SAI SÓT:
-        1. ĐƠN VỊ TÍNH: Tất cả định mức tiêu hao của nguyên phụ liệu (Vải chính, vải lót, gòn tấm/gòn thổi, keo...) PHẢI ĐƯỢC TÍNH HOẶC QUY ĐỔI VỀ ĐƠN VỊ YARDS TRÊN MỖI SẢN PHẨM (yds/pc).
-        2. TỔNG HỢP: Tính cột 'Tổng yds vải/pc' bằng tổng của (Shell Net + Lining Net + Padding Net) hoặc các thành phần chính tương đương của mã đó.
-        3. CHI TIẾT: Phân tách rõ ràng định mức của từng loại:
-           - Shell Net (yds/pc): Vải chính.
-           - Lining Net (yds/pc): Vải lót (nếu không có ghi N/A hoặc 0.00).
-           - Padding/Gòn Net (yds/pc): Gòn tấm hoặc gòn thổi quy đổi (nếu không có ghi N/A hoặc 0.00).
+        📉 QUY TẮC KIỂM SOÁT ĐỊNH MỨC (CHỐNG PHÌNH SỐ LIỆU):
+        - Đối với Quần (Pants) / Áo thun / Sơ mi: Định mức vải chính thông thường dao động từ 1.0 đến 1.8 Yds/pc tùy khổ vải.
+        - Đối với Áo khoác (Jacket/Vest): Định mức vải chính thường từ 1.8 đến 2.8 Yds/pc.
+        - Hãy kiểm tra lại phép tính của bạn: Đảm bảo định mức đầu ra (Net Consumption) phản ánh đúng diện tích thực tế trên sơ đồ, KHÔNG ĐƯỢC nhân trùng lặp hoặc tự ý cộng dồn hao hụt sơ đồ quá mức. Tất cả quy đổi về YARDS (yds/pc).
 
         YÊU CẦU BỔ SUNG TỪ Ô CHAT CỦA USER:
         "{user_custom_prompt}"
 
-        Trả về chuỗi JSON duy nhất theo cấu trúc chính xác sau (Không bao gồm text giải thích ngoài JSON):
+        Trả về chuỗi JSON duy nhất (Tuyệt đối không viết thêm chữ giải thích bên ngoài):
         {{
             "bom_table": [
                 {{
-                    "style_code": "Mã Style (Ví dụ: EMV0017)",
-                    "description": "Mô tả sản phẩm (Ví dụ: M-RIDGEVENT VEST)",
-                    "structure": "Cấu trúc (Ví dụ: Puffer vest - gòn tấm 120gsm)",
-                    "fabric_width_inch": "Khổ vải dạng chuỗi hoặc số (Ví dụ: 56)",
-                    "shrinkage_warp_pct": "Độ co dọc L % (Ví dụ: 5%)",
-                    "shrinkage_weft_pct": "Độ co ngang W % (Ví dụ: 5%)",
-                    "marker_efficiency_pct": "Hiệu suất sơ đồ % (Ví dụ: 85%)",
-                    "shell_main_fabric_net_yds_pc": 1.30,
+                    "style_code": "Mã Style",
+                    "description": "Mô tả dáng hàng",
+                    "structure": "Cấu trúc sản phẩm",
+                    "fabric_width_inch": "Khổ vải (Ví dụ: 56)",
+                    "shrinkage_warp_pct": "Độ co L (Ví dụ: 5%)",
+                    "shrinkage_weft_pct": "Độ co W (Ví dụ: 5%)",
+                    "marker_efficiency_pct": "Hiệu suất (Ví dụ: 85%)",
+                    "shell_main_fabric_net_yds_pc": 1.35,
                     "lining_net_yds_pc": 1.05,
-                    "padding_gon_net_yds_pc": 1.25,
-                    "total_yds_pc": 3.60,
-                    "notes": "Ghi chú chi tiết nguyên phụ liệu phối đi kèm (Ví dụ: Shell + lining DNBR-38; padding F-021)"
+                    "interlining_keo_net_yds_pc": 0.25,
+                    "rib_net_yds_pc": 0.15,
+                    "padding_gon_net_yds_pc": 0.00,
+                    "total_yds_pc": 2.80,
+                    "notes": "Ghi chú nguyên liệu phối"
                 }}
             ]
         }}
@@ -226,16 +233,14 @@ if user_prompt:
 # =====================================================================
 if st.session_state.gemini_parsed_bom_data:
     st.markdown("---")
-    st.subheader("📊 BẢNG ĐỊNH MỨC MỌI BỘ - SƠ ĐỒ 1 CHIỀU (TÍNH THEO YARDS)")
+    st.subheader("📊 BẢNG ĐỊNH MỨC MỌI BỘ - PHÂN TÁCH CHUẨN XƯỞNG")
     
-    # Lấy danh sách dữ liệu bảng từ kết quả trả về của Gemini
     bom_data = st.session_state.gemini_parsed_bom_data.get("bom_table", [])
     
     if bom_data and isinstance(bom_data, list):
-        # Chuyển đổi dữ liệu JSON sang DataFrame của Pandas
         df_bom = pd.DataFrame(bom_data)
         
-        # Định nghĩa lại tên các cột để hiển thị chuyên nghiệp giống ảnh mẫu của bạn
+        # Định nghĩa map tên cột mới bám sát yêu cầu tách biệt NPL của bạn
         column_mapping = {
             "style_code": "Style",
             "description": "Mô tả",
@@ -244,28 +249,19 @@ if st.session_state.gemini_parsed_bom_data:
             "shrinkage_warp_pct": "Độ co L",
             "shrinkage_weft_pct": "Độ co W",
             "marker_efficiency_pct": "Hiệu suất",
-            "shell_main_fabric_net_yds_pc": "Shell/Main Fabric Net (yds/pc)",
-            "lining_net_yds_pc": "Lining Net (yds/pc)",
-            "padding_gon_net_yds_pc": "Padding/Gòn Net (yds/pc)",
-            "total_yds_pc": "Tổng yds vải/pc",
+            "shell_main_fabric_net_yds_pc": "Shell (Vải chính Tổng) (yds/pc)",
+            "lining_net_yds_pc": "Lining (Vải lót) (yds/pc)",
+            "interlining_keo_net_yds_pc": "Keo / Dựng (yds/pc)",
+            "rib_net_yds_pc": "Rib (Bo) (yds/pc)",
+            "padding_gon_net_yds_pc": "Padding (Gòn) (yds/pc)",
+            "total_yds_pc": "Tổng yds/pc",
             "notes": "Ghi chú"
         }
         
-        # Đổi tên cột nếu cột đó tồn tại trong dữ liệu trả về
+        # Đổi tên hiển thị cho bảng
         df_bom = df_bom.rename(columns={k: v for k, v in column_mapping.items() if k in df_bom.columns})
-        
-        # Hiển thị bảng định mức ra màn hình chính, kéo giãn hết chiều ngang trang
         st.dataframe(df_bom, use_container_width=True)
         
-        # Tính năng bổ sung: Cho phép người dùng tải trực tiếp bảng này về máy dưới dạng file Excel/CSV
+        # Nút tải file
         csv = df_bom.to_csv(index=False).encode('utf-8-sig')
-        st.download_button(
-            label="📥 Tải bảng định mức (.CSV)",
-            data=csv,
-            file_name="bang_dinh_muc_ai_bom.csv",
-            mime="text/csv",
-        )
-    else:
-        # Nếu AI trả về cấu trúc lỗi không đúng định dạng bảng mong muốn
-        st.error("Cấu trúc phản hồi không phù hợp để tạo bảng. Đang hiển thị dữ liệu thô dưới dạng JSON:")
-        st.json(st.session_state.gemini_parsed_bom_data)
+        st.download_button("📥 Tải bảng định mức sạch (.CSV)", data=csv, file_name="ai_clean_bom_report.csv", mime="text/csv")
