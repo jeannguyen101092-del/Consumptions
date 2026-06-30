@@ -87,7 +87,7 @@ def detect_product_type(desc_upper: str, raw_inseam_val: float) -> str:
     return "DEFAULT"
 
 # =====================================================================
-# ĐOẠN 2a: LÕI PYTHON CAD ENGINE - TỰ ĐỘNG CỘNG ĐƯỜNG MAY & XẾP LY (V14.4)
+# ĐOẠN 2a: LÕI PYTHON CAD ENGINE - TỰ ĐỘNG CỘNG ĐƯỜNG MAY & XẾP LY (V14.5)
 # =====================================================================
 
 def execute_cad_polygon_consumption(ai_blueprint: dict, user_chat: str) -> dict:
@@ -112,7 +112,7 @@ def execute_cad_polygon_consumption(ai_blueprint: dict, user_chat: str) -> dict:
     hip_width = safe_float(ai_blueprint.get("extracted_hip_width"), 21.0)
     skirt_hem = safe_float(ai_blueprint.get("extracted_skirt_hem_width"), 35.0)
 
-    # QUY CÁCH BIÊN ĐỘ ĐƯỜNG MAY XƯỞNG MAY PHONG PHÚ
+    # QUY CÁCH BIÊN ĐỘ ĐƯỜNG MAY BÁN THÀNH PHẨM XƯỞNG PHONG PHÚ
     SEAM_INCH = 1.0              
     HEM_INCH = 1.5              
     WAISTBAND_INCH = 2.5        
@@ -123,6 +123,8 @@ def execute_cad_polygon_consumption(ai_blueprint: dict, user_chat: str) -> dict:
         hip_pattern = hip_width + SEAM_INCH + PLEAT_INCH
         base_area_sq_in = outseam_pattern * (hip_pattern * 2)
     else:
+        outseam_pattern = outseam_length + 4.0
+        hip_pattern = hip_width + 6.0
         base_area_sq_in = (body_length + 4.0) * ((chest_width * 2) + 12.0)
 
     all_rows = ai_blueprint.get("bom_rows", [])
@@ -211,7 +213,8 @@ def execute_cad_polygon_consumption(ai_blueprint: dict, user_chat: str) -> dict:
                 
                 p_name = str(panel.get("panel_name", "")).upper()
                 if "FRONT" in p_name or "BACK" in p_name or "THÂN" in p_name:
-                    panel_area += (calculated_outseam * SEAM_INCH) + (hip_width * HEM_INCH)
+                    # ĐA ĐỒNG BỘ: Sửa dứt điểm sang biến outseam_pattern đã khai báo đầu hàm [INDEX]
+                    panel_area += (outseam_pattern * SEAM_INCH) + (hip_pattern * HEM_INCH)
                 elif "WAISTBAND" in p_name or "CẠP" in p_name or "LƯNG" in p_name:
                     panel_area += (p_len * WAISTBAND_INCH)
                 elif "POCKET" in p_name or "TÚI" in p_name:
@@ -219,7 +222,6 @@ def execute_cad_polygon_consumption(ai_blueprint: dict, user_chat: str) -> dict:
                     
                 row_area_sq_in += panel_area
         else:
-            # ĐÃ VÁ DỨT ĐIỂM: Đồng bộ tên biến thô sang base_area_sq_in
             row_area_sq_in = base_area_sq_in
 
         if is_main_shell and not panels: 
@@ -247,6 +249,7 @@ def execute_cad_polygon_consumption(ai_blueprint: dict, user_chat: str) -> dict:
         row["marker_efficiency_pct"] = f"{int(eff)}%" if f_class != "FUSING" else "N/A"
         fabric_registry[fabric_id]["rows_to_update"].append(row)
         processed_bom_blueprint.append(row)
+
 
 # =====================================================================
 # ĐOẠN 2b: PHÂN BỔ ĐỊNH MỨC THEO FABRIC ID & KIỂM SOÁT THỰC TẾ (V14.1)
