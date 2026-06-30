@@ -41,10 +41,11 @@ def get_dynamic_marker_efficiency(description: str, style_code: str) -> float:
 
 def python_consumption_sanity_check(bom_data: dict) -> dict:
     """
-    TECHPACK PDF CONSUMPTION ESTIMATION ENGINE - ĐOẠN 1b hoàn thiện:
-    - Sửa thuật toán co rút: Chuyển từ trừ khổ vải sang nhân hệ số bù co rút (Warp/Weft) chuẩn ISO.
-    - Tích hợp hệ số hao hụt đầu cây và bàn cắt mặc định 4% (Wastage Factor).
-    - Cố định dải định mức chuẩn xưởng cho Quần Baggy/Jean (1.2 - 1.65 yds) và Jacket (1.8 - 2.5 yds).
+    TECHPACK PDF CONSUMPTION ESTIMATION ENGINE - BẢN TỐI ƯU HÓA HOÀN CHỈNH:
+    - Sửa lỗi bắt trùng từ khóa áo thun (T-shirt) và sơ mi (Shirt) bằng logic loại trừ.
+    - Chuẩn hóa tên biến tiếng Anh kỹ thuật ngành may (Warp / Weft).
+    - Tăng độ dài bọc rập cho Đầm/Váy (Dress) lên +6.0 inch để bao quát phom Maxi/thân trên.
+    - Tích hợp bộ phân tầng trạng thái Validation tự động dựa trên dải định mức (PASS, WARNING, CRITICAL).
     """
     if bom_data is None: bom_data = {}
     
@@ -56,30 +57,37 @@ def python_consumption_sanity_check(bom_data: dict) -> dict:
     ).upper()
     
     default_eff = get_dynamic_marker_efficiency(desc_upper, style_code_raw)
-    is_jacket = any(x in desc_upper for x in ["JACKET", "COAT", "VEST"])
-    is_pant = any(x in desc_upper for x in ["JEAN", "DENIM", "PANT", "BAGGY", "SHORT", "TROUSER"])
+    
+    # --- PHÂN LOẠI SẢN PHẨM TỰ ĐỘNG (ĐÃ VÁ LỖI TRÙNG TỪ KHÓA) ---
+    is_jacket = any(x in desc_upper for x in ["JACKET", "COAT", "VEST", "OUTERWEAR"])
+    is_pant = any(x in desc_upper for x in ["JEAN", "DENIM", "PANT", "BAGGY", "SHORT", "TROUSER", "LEGGING"])
+    is_dress = any(x in desc_upper for x in ["DRESS", "SKIRT", "VÁY", "ĐẦM", "MAXI"])
+    is_tshirt = any(x in desc_upper for x in ["TSHIRT", "T-SHIRT", "TEE", "POLO", "ÁO THUN"])
+    
+    # Loại trừ T-Shirt để tránh bắt nhầm áo thun thành sơ mi
+    is_shirt = (
+        any(x in desc_upper for x in ["SHIRT", "SƠ MI", "BLOUSE", "BUTTON DOWN"])
+    ) and not is_tshirt
     
     extracted_size = str(bom_data.get("calculated_size") or bom_data.get("size") or bom_data.get("base_size") or "N/A").strip().upper()
     bom_data["calculated_size"] = extracted_size
     
-    # 1. Thu thập thông số kỹ thuật (Spec)
+    # --- THU THẬP THÔNG SỐ SPEC ---
+    body_length = safe_float(bom_data.get("body_length") or bom_data.get("length") or bom_data.get("center_back_length"), default=28.0)
+    sleeve_length = safe_float(bom_data.get("sleeve_length") or bom_data.get("sleeve"), default=24.0)
+    chest_width = safe_float(bom_data.get("chest") or bom_data.get("chest_width") or bom_data.get("bust") or bom_data.get("half_chest"), default=20.0)
+    
+    skirt_hem = safe_float(bom_data.get("hem") or bom_data.get("hem_width") or bom_data.get("sweep"), default=35.0)
     raw_inseam = safe_float(bom_data.get("inseam") or bom_data.get("inseam_length"), default=30.0)
-    raw_rise = safe_float(bom_data.get("front_rise") or bom_data.get("rise"), default=11.5)
+    raw_rise = safe_float(bom_data.get("front_rise") or bom_data.get("rise"), default=11.0)
     calculated_outseam = raw_inseam + raw_rise
-    
-    body_length = safe_float(bom_data.get("body_length") or bom_data.get("length"), default=28.5)
-    sleeve_length = safe_float(bom_data.get("sleeve_length") or bom_data.get("sleeve"), default=24.5)
-    
-    # Giả định thông số vòng để tính diện tích bề mặt (nếu Techpack thiếu)
-    hip_width = safe_float(bom_data.get("hip") or bom_data.get("hip_width"), default=21.0) # Nửa vòng mông phẳng
-    chest_width = safe_float(bom_data.get("chest") or bom_data.get("chest_width") or bom_data.get("bust"), default=22.0)
+    hip_width = safe_float(bom_data.get("hip") or bom_data.get("hip_width"), default=21.0)
 
-    # Khởi tạo thông số vải mặc định
-    w_shell = 58.0  # Khổ vải cắt hữu ích (Cuttable Width)
-    s_shell_l, s_shell_w = 3.0, 3.0 # % Co rút dọc / ngang mặc định hợp lý (thường từ 2-5%)
+    # --- ĐỒNG BỘ THÔNG SỐ VẢI ---
+    w_shell = 58.0  
+    s_shell_l, s_shell_w = 3.0, 3.0 
     eff_val = default_eff
     
-    # Đọc đè dữ liệu từ cửa sổ chat của User để bắt cấu hình động nhanh
     chat_text = ""
     if "chat_history" in st.session_state and len(st.session_state.chat_history) > 1:
         user_messages = [msg["content"] for msg in st.session_state.chat_history if msg["role"] == "user"]
@@ -93,24 +101,17 @@ def python_consumption_sanity_check(bom_data: dict) -> dict:
         s_shell_l = float(shrink_2d_match.group(1))
         s_shell_w = float(shrink_2d_match.group(2))
 
-    # Lấy thông số từ bảng BOM của Techpack
     if "bom_rows" in bom_data and isinstance(bom_data["bom_rows"], list):
         for row in bom_data["bom_rows"]:
             c_type = str(row.get("component_type", "")).upper()
             placement = str(row.get("placement", "")).upper()
-            
-            if any(k in placement for k in ["BODY", "SHELL", "MAIN", "THÂN", "FABRIC"]) or any(k in c_type for k in ["SHELL", "DENIM", "VẢI CHÍNH", "CANVAS", "MAIN"]):
+            if any(k in placement for k in ["BODY", "SHELL", "MAIN", "THÂN", "FABRIC"]) or any(k in c_type for k in ["SHELL", "DENIM", "VẢI CHÍNH", "MAIN"]):
                 if not width_match:
                     width_parsed = safe_float(row.get("fabric_width_inch"), default=0.0)
                     if width_parsed > 0: w_shell = width_parsed
                 if not shrink_2d_match:
                     s_shell_l = safe_float(row.get("shrinkage_warp_pct"), default=3.0)
                     s_shell_w = safe_float(row.get("shrinkage_weft_pct"), default=3.0)
-                
-                raw_eff = row.get("marker_efficiency_pct", "")
-                if raw_eff and "UNKNOWN" not in str(raw_eff).upper():
-                    try: eff_val = float(str(raw_eff).replace("%", "").strip())
-                    except: eff_val = default_eff
 
     clean_rows = []
     if "bom_rows" in bom_data and isinstance(bom_data["bom_rows"], list):
@@ -118,10 +119,8 @@ def python_consumption_sanity_check(bom_data: dict) -> dict:
             c_type = str(row.get("component_type", "")).upper()
             placement = str(row.get("placement", "")).upper()
             
-            # Loại bỏ phụ liệu phần cứng (Tránh rác bảng tính)
             if any(k in c_type or k in placement for k in [
-                "CHỈ", "THREAD", "ZIPPER", "DÂY KÉO", "BUTTON", "NÚT", "LABEL", "MÁC", "TAG",
-                "CORD", "CHUN", "DÂY RÚT", "EYELETS", "STOPPER", "SNAP", "RIVET"
+                "CHỈ", "THREAD", "ZIPPER", "DÂY KÉO", "BUTTON", "NÚT", "LABEL", "MÁC", "TAG", "CORD", "CHUN"
             ]):
                 continue
                 
@@ -129,55 +128,77 @@ def python_consumption_sanity_check(bom_data: dict) -> dict:
             notes_log = ""
             final_gross_yards = 0.0
             
-            # Xử lý tính toán định mức vải chính (Vải chiếm diện tích lớn)
-            if any(k in placement for k in ["BODY", "SHELL", "MAIN", "THÂN", "FABRIC"]) or any(k in c_type for k in ["SHELL", "DENIM", "VẢI CHÍNH", "CANVAS", "MAIN"]):
+            if any(k in placement for k in ["BODY", "SHELL", "MAIN", "THÂN", "FABRIC"]) or any(k in c_type for k in ["SHELL", "DENIM", "VẢI CHÍNH", "MAIN"]):
                 
-                eff_val = max(82.0, min(eff_val, 92.0)) # Giới hạn hiệu suất sơ đồ thực tế
-                cutable_w = w_shell - 1.5 # Trừ biên vải an toàn (1.5 inch)
+                eff_val = max(82.0, min(eff_val, 92.0))
+                cutable_w = w_shell - 1.5
                 
-                # Hệ số nhân co rút chuẩn hình học (Cộng bù hao hụt vải co lại sau giặt)
-                shrink_factor_dọc = 1.0 + (s_shell_l / 100.0)
-                shrink_factor_ngang = 1.0 + (s_shell_w / 100.0)
-                wastage_factor = 1.04 # Thêm 4% hao hụt đầu bàn cắt/lỗi vải vải xưởng may mặc định
+                # CHUẨN HÓA TIẾNG ANH BIẾN CO RÚT (WARP/WEFT)
+                shrink_factor_warp = 1.0 + (s_shell_l / 100.0)
+                shrink_factor_weft = 1.0 + (s_shell_w / 100.0)
+                wastage_factor = 1.04 
                 
+                # --- TOÁN HỌC DIỆN TÍCH THEO PHÂN LOẠI SẢN PHẨM ---
                 if is_jacket:
-                    # Công thức Diện tích Áo khoác (Thân + Tay + Lượng dư đường may)
                     total_length_inch = (body_length * 2) + sleeve_length + 4.0
-                    width_factor_inch = chest_width * 2 + 5.0
-                    
-                    # Tính tổng diện tích inch vuông và đổi ra Yards dài phẳng
+                    width_factor_inch = (chest_width * 2) + 5.0
                     total_area_sq_in = total_length_inch * width_factor_inch
                     base_consumption_yds = (total_area_sq_in / (cutable_w * 36.0)) / (eff_val / 100.0)
-                    
-                    # Nhân quy đổi bù co rút hai chiều + hao hụt cắt
-                    final_gross_yards = base_consumption_yds * shrink_factor_dọc * shrink_factor_ngang * wastage_factor
-                    # Khống chế dải biên an toàn cho Áo khoác người lớn
+                    final_gross_yards = base_consumption_yds * shrink_factor_warp * shrink_factor_weft * wastage_factor
                     final_gross_yards = max(1.65, min(final_gross_yards, 2.65))
                     
                 elif is_pant:
-                    # Công thức Diện tích Quần (Dài ngoài * Rộng mông * 4 thân phẳng + Lượng dư)
-                    total_length_inch = calculated_outseam + 3.0 # Dài quần + Gấu + Lưng
-                    width_factor_inch = (hip_width * 2) + 6.0    # Tổng vòng mông + Rộng đùi dư phẳng
-                    
+                    total_length_inch = calculated_outseam + 3.0
+                    width_factor_inch = (hip_width * 2) + 6.0
                     total_area_sq_in = total_length_inch * width_factor_inch
                     base_consumption_yds = (total_area_sq_in / (cutable_w * 36.0)) / (eff_val / 100.0)
-                    
-                    final_gross_yards = base_consumption_yds * shrink_factor_dọc * shrink_factor_ngang * wastage_factor
-                    # Khống chế dải biên an toàn cho Quần Baggy / Jeans người lớn
+                    final_gross_yards = base_consumption_yds * shrink_factor_warp * shrink_factor_weft * wastage_factor
                     final_gross_yards = max(1.15, min(final_gross_yards, 1.75))
+                    
+                elif is_dress:
+                    # ĐẦM VÁY: Tăng bọc dư rập lên +6.0 inch để phủ đủ chiều dài Maxi và cụm thân trên
+                    total_length_inch = body_length + 6.0  
+                    width_factor_inch = (skirt_hem * 2) + 4.0 
+                    total_area_sq_in = total_length_inch * width_factor_inch
+                    base_consumption_yds = (total_area_sq_in / (cutable_w * 36.0)) / (eff_val / 100.0)
+                    final_gross_yards = base_consumption_yds * shrink_factor_warp * shrink_factor_weft * wastage_factor
+                    final_gross_yards = max(1.45, min(final_gross_yards, 3.25))
+                    
+                elif is_tshirt:
+                    total_length_inch = (body_length * 2) + 3.0
+                    width_factor_inch = (chest_width * 2) + 3.0
+                    total_area_sq_in = total_length_inch * width_factor_inch
+                    base_consumption_yds = (total_area_sq_in / (cutable_w * 36.0)) / (eff_val / 100.0)
+                    final_gross_yards = base_consumption_yds * shrink_factor_warp * shrink_factor_weft * wastage_factor
+                    final_gross_yards = max(0.65, min(final_gross_yards, 1.35))
+                    
+                elif is_shirt:
+                    total_length_inch = (body_length * 2) + sleeve_length + 3.5
+                    width_factor_inch = (chest_width * 2) + 4.5
+                    total_area_sq_in = total_length_inch * width_factor_inch
+                    base_consumption_yds = (total_area_sq_in / (cutable_w * 36.0)) / (eff_val / 100.0)
+                    final_gross_yards = base_consumption_yds * shrink_factor_warp * shrink_factor_weft * wastage_factor
+                    final_gross_yards = max(1.15, min(final_gross_yards, 1.95))
+                    
                 else:
-                    # Mặc định định mức tổng quát cho các kiểu dáng cơ bản khác (Áo thun/Sơ mi)
-                    final_gross_yards = 1.35
+                    final_gross_yards = 1.40
                 
                 final_gross_yards = round(final_gross_yards, 3)
-                notes_log = f"Đã bù co rút Dọc {s_shell_l}%, Ngang {s_shell_w}%, Hiệu suất sơ đồ {eff_val}%"
+                notes_log = f"Đã quy đổi hình học, bù co rút Warp x Weft, hao hụt xưởng 4%"
+                
+                # --- PHÂN TẦNG VALIDATION CẢNH BÁO ĐỊNH MỨC ---
+                if final_gross_yards > 2.8:
+                    row_status = "CRITICAL"
+                elif final_gross_yards > 2.2:
+                    row_status = "WARNING"
+                else:
+                    row_status = "PASS"
             
-            # Xử lý tính toán cho Mex / Dựng túi (Lining/Fusing)
             elif any(k in placement for k in ["LINING", "FUSING", "POCKETING", "LÓT", "DỰNG", "KEO"]):
-                if is_jacket: final_gross_yards = 0.65
-                elif is_pant: final_gross_yards = 0.25  # Vải lót túi quần jean/baggy
-                else: final_gross_yards = 0.30
-                notes_log = "Định mức tính theo cụm chi tiết phối tiêu chuẩn"
+                if is_jacket or is_dress: final_gross_yards = 0.65
+                elif is_pant or is_shirt: final_gross_yards = 0.25
+                else: final_gross_yards = 0.15
+                notes_log = "Định mức cụm keo dựng dựng phối"
 
             row["calculated_gross_consumption_yds"] = final_gross_yards
             row["status"] = row_status
@@ -186,6 +207,7 @@ def python_consumption_sanity_check(bom_data: dict) -> dict:
             
     bom_data["bom_rows"] = clean_rows
     return bom_data
+
 
 
 
