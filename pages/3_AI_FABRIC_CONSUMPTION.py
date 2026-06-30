@@ -477,18 +477,21 @@ if st.session_state.gemini_parsed_bom_data:
             ws.cell(row=current_row, column=11, value="YDS").alignment = Alignment(horizontal="center") # Unit
             ws.cell(row=current_row, column=12, value=row.get("reason_or_logs", ""))                 # Noted / Nhật ký
 
-                        # GÁN FONT VÀ BORDER CHO TOÀN BỘ CÁC Ô DỮ LIỆU VỪA TẠO
+                     # GÁN FONT VÀ BORDER CHO TOÀN BỘ CÁC Ô DỮ LIỆU VỪA TẠO
             for col_num in range(2, 13):
                 c = ws.cell(row=current_row, column=col_num)
                 c.font = font_data
                 c.border = border_all
                 
-                # SỬA TRIỆT ĐỂ: Điền đầy đủ mảng số cột để Python biên dịch chính xác
-                if col_num in:
+                # SỬA TRIỆT ĐỂ: Dùng toán tử so sánh tường minh để tránh lỗi cú pháp biên dịch
+                is_center_col = (col_num == 2 or col_num == 6 or col_num == 8 or col_num == 9 or col_num == 10 or col_num == 11)
+                
+                if is_center_col:
                     c.alignment = Alignment(horizontal="center", vertical="center")
                 elif col_num == 7:
-                    # Căn phải cho cột định mức tiêu chuẩn dễ nhìn số thập phân
+                    # Căn phải và cố định 3 chữ số thập phân cho cột định mức kỹ thuật
                     c.alignment = Alignment(horizontal="right", vertical="center")
+                    c.number_format = '0.000'
                     
             current_row += 1
 
