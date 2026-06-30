@@ -20,10 +20,9 @@ if "GEMINI_API_KEY" in st.secrets: genai.configure(api_key=st.secrets["GEMINI_AP
 elif "gemini" in st.secrets: genai.configure(api_key=st.secrets["gemini"].get("api_key", ""))
 
 # =====================================================================
-# ĐOẠN 2: BẢN CẬP NHẬT GIAO DIỆN STREAMLIT LUỒNG CHÍNH (CÓ NÚT RESET)
+# ĐOẠN 2: BẢN VÁ LỖI CHẶN VÒNG LẶP VÔ HẠN (ANTI-LOOP ENGINE)
 # =====================================================================
 
-# KHỐI SIDEBAR ĐIỀU KHIỂN - ĐÃ KHÔI PHỤC NÚT XÓA LỊCH SỬ CHỐNG KẸT CACHE
 with st.sidebar:
     st.header("⚙️ HỆ THỐNG")
     if st.button("🗑️ Xóa lịch sử & Reset định mức", use_container_width=True):
@@ -44,15 +43,17 @@ with chat_container:
     for chat in st.session_state.get("chat_history", []):
         with st.chat_message(chat["role"]): st.markdown(chat["content"])
 
-user_prompt = st.chat_input("Nhập thêm ghi chú cấu hình vải (nếu xưởng có thay đổi thực tế)...")
+user_prompt = st.chat_input("Nhập thêm ghi chú cấu hình vải (khổ vải, co rút nếu có)...")
 
-# Tự động kích hoạt luồng xử lý ngay khi người dùng vừa tải file PDF lên
-if ("pdf_bytes" in st.session_state and st.session_state.bom_data is None) or (user_prompt and "pdf_bytes" in st.session_state):
+# --- ĐÃ SỬA: SỬ DỤNG NÚT BẤM KÍCH HOẠT THỦ CÔNG ĐỂ TRIỆT TIÊU LỖI NHẢY TRANG LIÊN TỤC ---
+st.markdown(" ")
+trigger_calc = st.button("🚀 BẮT ĐẦU CHẠY AI TÍNH ĐỊNH MỨC SẢN XUẤT", use_container_width=True, type="primary")
+
+if (trigger_calc and "pdf_bytes" in st.session_state) or (user_prompt and "pdf_bytes" in st.session_state):
     current_prompt = user_prompt if user_prompt else "Hãy tự động bóc tách và tính toán định mức thực tế xưởng cho file này."
     if user_prompt:
         st.session_state.chat_history.append({"role": "user", "content": user_prompt})
     
-    # Định nghĩa cấu trúc JSON đầu ra cho giao diện hiển thị phẳng
     json_schema = {
         "type": "OBJECT",
         "properties": {
@@ -77,7 +78,6 @@ if ("pdf_bytes" in st.session_state and st.session_state.bom_data is None) or (u
         "required": ["detected_product_style", "bom_rows"]
     }
 
-    # BỘ LỆNH ĐIỀU HÀNH AI TỰ TOÁN HỌC NGÀNH MAY (MASTER REASONING PROMPT)
     master_reasoning_prompt = f"""
     Bạn là một Chuyên gia Cấp cao về Sơ đồ Rập và Kỹ sư IE (Industrial Engineer) tại xưởng may mặc công nghiệp quy mô lớn.
     Nhiệm vụ của bạn: Đọc toàn bộ file PDF Techpack được cung cấp, tự suy luận, tự phân tích cấu trúc hình học rập và TỰ TÍNH TOÁN định mức Yards thực tế cuối cùng (Gross Consumption) cho từng dòng nguyên phụ liệu.
@@ -101,9 +101,10 @@ if ("pdf_bytes" in st.session_state and st.session_state.bom_data is None) or (u
                 generation_config=types.GenerationConfig(response_mime_type="application/json", response_schema=json_schema, temperature=0.1)
             )
             st.session_state.bom_data = json.loads(response.text.strip())
-            st.session_state.chat_history.append({"role": "assistant", "content": f"✅ Đã xử lý xong file `{st.session_state.pdf_name}`. AI đã tự suy luận phom dáng và tính toán xong định mức Yards."})
+            st.session_state.chat_history.append({"role": "assistant", "content": f"✅ Đã xử lý xong file `{st.session_state.pdf_name}`. AI đã tự tính toán xong định mức Yards."})
         except Exception as e:
-            st.session_state.chat_history.append({"role": "assistant", "content": f"❌ Lỗi xử lý AI: {str(e)}"})
+            # ĐÃ SỬA: Lưu thông tin lỗi thô ra ô chat để ngắt luồng st.rerun(), giải phóng tình trạng đứng đơ màn hình
+            st.session_state.chat_history.append({"role": "assistant", "content": f"❌ Lỗi API Google (Vượt quá giới hạn miễn phí): {str(e)}. Vui lòng chờ 1 phút hoặc đổi sang API Key trả phí (Pay-as-you-go)."})
     st.rerun()
 
 # =====================================================================
@@ -115,7 +116,6 @@ if st.session_state.bom_data:
     flat_rows = []
     for r in st.session_state.bom_data["bom_rows"]:
         display_yds = r.get("final_gross_consumption_yds")
-        
         if display_yds == 0 and any(k in str(r.get("ai_calculation_log")).upper() for k in ["INCLUDED", "CỘNG DỒN", "MAIN"]):
             display_yds = "Included in Main"
             
@@ -127,5 +127,4 @@ if st.session_state.bom_data:
             "Định mức Yards Gross (AI Calc)": display_yds,
             "Nhật ký Nhật giải toán học của AI": r.get("ai_calculation_log")
         })
-        
     st.dataframe(pd.DataFrame(flat_rows), use_container_width=True)
