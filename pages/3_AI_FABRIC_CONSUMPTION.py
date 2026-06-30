@@ -1,26 +1,48 @@
 import streamlit as st
-import pandas as pd
 import json
 import google.generativeai as genai
 from google.generativeai import types
 
-# =====================================================================
-# CONFIG & SESSION STATE (KHÓA BỘ NHỚ RAM CHỐNG MẤT FILE)
-# =====================================================================
-st.set_page_config(page_title="3. AI FABRIC CONSUMPTION", layout="wide")
-st.title("📊 TRỢ LÝ ĐỊNH MỨC NGUYÊN PHỤ LIỆU TỰ ĐỘNG (BOM)")
-st.caption("Phân tích rập thô xếp ly, cơi đáp túi mổ thực tế xưởng sản xuất")
-st.markdown("---")
+def python_consumption_sanity_check(bom_data: dict) -> dict:
+    """
+    Hàm bảo vệ xưởng cắt: Tự động phát hiện và bóp nghẹt hiện tượng AI bịa số cao ngất ngưởng.
+    Ép định mức về dải toán học an toàn dựa trên từ khóa sản phẩm (Quần/Áo).
+    """
+    if "bom_rows" not in bom_data:
+        return bom_data
+        
+    desc_lower = bom_data.get("description", "").lower()
+    style_lower = bom_data.get("style_code", "").lower()
+    
+    # Xác định loại sản phẩm dựa trên từ khóa trong tài liệu
+    is_pant = "pant" in desc_lower or "pant" in style_lower or "jean" in desc_lower or "trouser" in desc_lower
+    is_jacket = "jacket" in desc_lower or "vest" in desc_lower or "coat" in desc_lower
+    
+    for row in bom_data["bom_rows"]:
+        comp_type = row.get("component_type", "").upper()
+        current_val = float(row.get("net_consumption_yds_pc", 0))
+        
+        # 1. Xử lý bộ lọc cho VẢI CHÍNH (SHELL / DENIM)
+        if "SHELL" in comp_type or "DENIM" in comp_type or "VẢI CHÍNH" in comp_type:
+            if is_pant and current_val > 2.0:
+                # Quần jean/baggy không thể vượt quá 2.0 yds. Ép về khoảng thực tế an toàn kèm hao hụt ly
+                row["net_consumption_yds_pc"] = round(1.45 + (current_val * 0.05), 3)
+                row["notes"] = f"[Python Sanity Fixed - Số cũ {current_val} yds quá cao] " + row.get("notes", "")
+            elif is_jacket and current_val > 3.2:
+                # Jacket dày cũng chỉ tối đa 2.8 - 3.2 yds
+                row["net_consumption_yds_pc"] = round(2.35 + (current_val * 0.05), 3)
+                row["notes"] = f"[Python Sanity Fixed] " + row.get("notes", "")
+            elif current_val > 3.5:
+                row["net_consumption_yds_pc"] = 1.65
+                
+        # 2. Xử lý bộ lọc cho KEO / LÓT / PHỤ LIỆU KHÁC (Chống phình số)
+        if "FUSING" in comp_type or "KEO" in comp_type or "INTERLINING" in comp_type:
+            if current_val > 0.4: row["net_consumption_yds_pc"] = 0.12
+        if "POCKETING" in comp_type or "LINING" in comp_type or "LÓT" in comp_type:
+            if current_val > 0.6: row["net_consumption_yds_pc"] = 0.25
+            
+    return bom_data
 
-if "gemini_parsed_bom_data" not in st.session_state: st.session_state.gemini_parsed_bom_data = None
-if "saved_pdf_bytes" not in st.session_state: st.session_state.saved_pdf_bytes = None
-if "saved_pdf_name" not in st.session_state: st.session_state.saved_pdf_name = None
-if "chat_history" not in st.session_state:
-    st.session_state.chat_history = [{"role": "assistant", "content": "Xin chào! Vui lòng tải file PDF Techpack lên trước, sau đó nhập yêu cầu tính định mức tại ô chat bên dưới."}]
-
-# =====================================================================
-# LÕI ENGINE: AI QUÉT PDF VÀ TỰ TÍNH ĐỊNH MỨC THEO HÀNG DỌC
-# =====================================================================
 def ai_gemini_vision_pdf_parser(pdf_bytes, user_custom_prompt) -> dict:
     try:
         if "GEMINI_API_KEY" in st.secrets: genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
@@ -59,14 +81,13 @@ def ai_gemini_vision_pdf_parser(pdf_bytes, user_custom_prompt) -> dict:
         Bạn là Chuyên gia tối ưu hóa định mức xưởng may và Trưởng phòng kỹ thuật rập CAD.
         Hãy quét bảng BOM trong file PDF để bóc tách dữ liệu rập và TÍNH TOÁN ĐỊNH MỨC TIÊU HAO THỰC TẾ.
 
-        🚨 QUY TẮC PHÂN DÒNG (BẮT BUỘC): Trả về kết quả dạng danh sách các dòng dọc, mỗi vật liệu 1 dòng:
-        - VẢI CHÍNH (SHELL): Gom tổng tất cả chi tiết vải chính (thân, túi, bo cạp...) thành 1 dòng tổng duy nhất.
-        - VẢI LÓT (LINING), KEO/DỰNG (INTERLINING), RIB, TAPE...: Phân dòng riêng biệt cho từng loại.
+        🚨 QUY TẮC PHÂN DÒNG THÀNH HÀNG NGANG XUỐNG DÒNG (BẮT BUỘC):
+        Mỗi loại nguyên phụ liệu / vật liệu bóc tách được từ BOM phải nằm trên một hàng độc lập.
 
-        📉 QUY TẮC BÙ THÔNG SỐ (CHỐNG ĐỊNH MỨC BỊ THẤP):
-        Cộng thêm thông số vào phép tính định mức dựa theo: Xếp ly (Pleats), Tà rời, Cơi túi/Đáp túi mổ, Túi hộp Cargo (thành túi, ly túi), Quy cách may lai gấu.
-        Kiểm tra logic: Lót túi trước phải đủ (0.18 - 0.30 yds), keo cạp quần phải đủ (0.08 - 0.15 yds). Không để số quá thấp.
-        Quy đổi toàn bộ kết quả 'net_consumption_yds_pc' về đơn vị YARDS (yds/pc).
+        📉 QUY TẮC TÍNH TOÁN LOGIC (BẮT BUỘC KHÔNG NHÂN TRÙNG):
+        - Chiều dài cắt (Marker length) của một chiếc quần dài thông thường từ 38 - 44 inch. Khi quy đổi ra Yards (1 Yard = 36 inch), định mức vải chính gốc (Net) CHỈ ĐƯỢC DAO ĐỘNG quanh mức 1.15 yds đến 1.65 yds/pc. 
+        - Khi cộng độ co rút (Ví dụ: co dọc 5%, co ngang 15%) và các chi tiết phụ như xếp ly (Pleats), nắp túi, cơi đáp túi mổ, túi cargo... Hãy tính toán cộng thêm theo kích thước thực tế (inch) chứ KHÔNG ĐƯỢC NHÂN ĐÔI hay nhân tỷ lệ chu vi bừa bãi làm vọt số liệu vải chính lên quá 2.5 yds.
+        - Quy đổi toàn bộ kết quả 'net_consumption_yds_pc' về đơn vị YARDS (yds/pc).
 
         YÊU CẦU BỔ SUNG TỪ USER: "{user_custom_prompt}"
         """
@@ -77,12 +98,33 @@ def ai_gemini_vision_pdf_parser(pdf_bytes, user_custom_prompt) -> dict:
             generation_config=types.GenerationConfig(
                 response_mime_type="application/json",
                 response_schema=json_schema,
-                temperature=0.2
+                temperature=0.1
             )
         )
-        return json.loads(response.text.strip())
+        
+        raw_json = json.loads(response.text.strip())
+        clean_json = python_consumption_sanity_check(raw_json)
+        return clean_json
     except Exception as e:
         return {"error": f"Lỗi xử lý AI: {str(e)}"}
+import streamlit as st
+import pandas as pd
+# Import trực tiếp hàm xử lý từ file ai_engine.py cùng thư mục [INDEX]
+from ai_engine import ai_gemini_vision_pdf_parser
+
+# =====================================================================
+# CONFIG & SESSION STATE (KHÓA BỘ NHỚ RAM CHỐNG MẤT FILE)
+# =====================================================================
+st.set_page_config(page_title="3. AI FABRIC CONSUMPTION", layout="wide")
+st.title("📊 TRỢ LÝ ĐỊNH MỨC NGUYÊN PHỤ LIỆU TỰ ĐỘNG (BOM)")
+st.caption("Phân tích rập thô xếp ly, cơi đáp túi mổ thực tế xưởng sản xuất")
+st.markdown("---")
+
+if "gemini_parsed_bom_data" not in st.session_state: st.session_state.gemini_parsed_bom_data = None
+if "saved_pdf_bytes" not in st.session_state: st.session_state.saved_pdf_bytes = None
+if "saved_pdf_name" not in st.session_state: st.session_state.saved_pdf_name = None
+if "chat_history" not in st.session_state:
+    st.session_state.chat_history = [{"role": "assistant", "content": "Xin chào! Vui lòng tải file PDF Techpack lên trước, sau đó nhập yêu cầu tính định mức tại ô chat bên dưới."}]
 
 # =====================================================================
 # SIDEBAR CONTROL: NÚT RESET
@@ -144,7 +186,7 @@ if st.session_state.gemini_parsed_bom_data:
     col1, col2, col3 = st.columns(3)
     col1.markdown(f"📌 **Mã Style:** `{st.session_state.gemini_parsed_bom_data.get('style_code', 'N/A')}`")
     col2.markdown(f"📏 **Kích cỡ (Size):** `{st.session_state.gemini_parsed_bom_data.get('calculated_size', 'N/A')}`")
-    col3.markdown(f" Jacket/Pant Description: {st.session_state.gemini_parsed_bom_data.get('description', 'N/A')}")
+    col3.markdown(f"🧥 **Mô tả:** {st.session_state.gemini_parsed_bom_data.get('description', 'N/A')}")
         
     bom_rows = st.session_state.gemini_parsed_bom_data.get("bom_rows", [])
     if bom_rows and isinstance(bom_rows, list):
