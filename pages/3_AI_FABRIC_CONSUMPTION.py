@@ -43,13 +43,26 @@ def get_dynamic_marker_efficiency(description: str, style_code: str) -> float:
     return 86.0
 
 def detect_product_type(desc_upper: str, raw_inseam_val: float) -> str:
-    if any(x in desc_upper for x in ["JACKET", "COAT", "VEST", "OUTERWEAR"]): return "JACKET"
-    elif any(x in desc_upper for x in ["JEAN", "DENIM", "PANT", "BAGGY", "TROUSER", "LEGGING", "JORT"]):
+    """Hàm trung tâm nhận diện phân loại sản phẩm - Đã sửa lỗi trùng chữ POCKETS và SHORT."""
+    # 1. ƯU TIÊN KIỂM TRA ÁO KHOÁC TRƯỚC (BẬT CỜ JACKET)
+    if any(x in desc_upper for x in ["JACKET", "COAT", "VEST", "OUTERWEAR"]): 
+        return "JACKET"
+        
+    # 2. SỬ DỤNG REGEX CHẶN TỪ ĐỘC LẬP TÌM QUẦN (Tránh từ 'Pockets' nuốt mất chữ 'Short')
+    # \b giúp tìm chính xác từ độc lập, không bắt các ký tự nằm trong từ khác
+    pant_keywords = r"\b(JEAN|DENIM|PANT|PANTS|BAGGY|TROUSER|TROUSERS|LEGGING|JORT|SHORT|SHORTS)\b"
+    if re.search(pant_keywords, desc_upper):
         return "JORT" if raw_inseam_val < 15.0 else "PANT"
-    elif any(x in desc_upper for x in ["DRESS", "SKIRT", "VÁY", "ĐẦM", "MAXI"]): return "DRESS"
-    elif any(x in desc_upper for x in ["TSHIRT", "T-SHIRT", "TEE", "POLO", "ÁO THUN"]): return "TSHIRT"
-    elif any(x in desc_upper for x in ["SHIRT", "SƠ MI", "BLOUSE", "BUTTON DOWN"]): return "SHIRT"
+        
+    if any(x in desc_upper for x in ["DRESS", "SKIRT", "VÁY", "ĐẦM", "MAXI"]): 
+        return "DRESS"
+    elif any(x in desc_upper for x in ["TSHIRT", "T-SHIRT", "TEE", "POLO", "ÁO THUN"]): 
+        return "TSHIRT"
+    elif any(x in desc_upper for x in ["SHIRT", "SƠ MI", "BLOUSE", "BUTTON DOWN"]): 
+        return "SHIRT"
+        
     return "DEFAULT"
+
 
 # ĐƯA HÀM TÍNH DIỆN TÍCH RA NGOÀI VÒNG LẶP ĐỂ GIẢM TẢI CPU
 def calculate_cad_area(length: float, width: float, cutable_w: float, row_eff: float) -> float:
