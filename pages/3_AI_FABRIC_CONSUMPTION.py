@@ -5,12 +5,16 @@ import re
 import google.generativeai as genai
 from google.generativeai import types
 
-# --- 1. MA TRẬN ĐỘ PHỨC TẠP SẢN PHẨM TOÀN CỤC CHỐNG LẶP CODE (QUALITY GATE CONSTANTS) ---
+# =====================================================================
+# ĐOẠN 1: GLOBAL CONFIG REGISTRY & LÕI TRÍCH XUẤT SỐ HỌC NỀN (V11)
+# =====================================================================
+
+# KHỐI QUẢN LÝ BIÊN ĐỘ GIỚI HẠN CHUẨN ĐỊNH MỨC XƯỞNG
 LIMITS = {
     "JACKET":     {"range": (1.65, 2.65), "warn_thresh": 2.5},
-    "PANT":       {"range": (1.15, 1.75), "warn_thresh": 1.6},  # Quần dài basic phẳng
-    "CAPRI_PANT": {"range": (1.15, 2.45), "warn_thresh": 2.2},  # Quần ngố, lửng nữ tốn vải phối SELF [INDEX]
-    "CARGO_PANT": {"range": (1.45, 2.85), "warn_thresh": 2.4},  # Quần túi hộp hầm hố diện tích lớn
+    "PANT":       {"range": (1.15, 1.75), "warn_thresh": 1.6},  
+    "CAPRI_PANT": {"range": (1.15, 2.45), "warn_thresh": 2.2},  
+    "CARGO_PANT": {"range": (1.45, 2.85), "warn_thresh": 2.4},  
     "JORT":       {"range": (1.05, 1.35), "warn_thresh": 1.25},
     "DRESS":      {"range": (1.45, 3.25), "warn_thresh": 3.0},
     "TSHIRT":     {"range": (0.65, 1.35), "warn_thresh": 1.4},
@@ -34,19 +38,27 @@ def safe_float(val, default=0.0) -> float:
 def calculate_cad_area(length: float, width: float, cutable_w: float, row_eff: float) -> float:
     return ((length * width) / (cutable_w * 36.0)) / (row_eff / 100.0)
 
-# 3. ĐÃ SỬA: NHẬN DIỆN CAPRI MẠNH MẼ VÀ TÁCH BIỆT THÊM KHỐI QUẦN TÚI HỘP CARGO [INDEX]
 def detect_product_type(desc_upper: str, raw_inseam_val: float) -> str:
-    if any(x in desc_upper for x in ["JACKET", "COAT", "VEST", "OUTERWEAR"]): return "JACKET"
+    """Hàm phân loại sản phẩm nâng cao - Đã chuẩn hóa 100% thụt lề thụt dòng."""
+    if any(x in desc_upper for x in ["JACKET", "COAT", "VEST", "OUTERWEAR"]):
+        return "JACKET"
+        
     elif any(x in desc_upper for x in ["JEAN", "DENIM", "PANT", "PANTS", "BAGGY", "TROUSER", "LEGGING", "JORT", "CAPRI", "CARGO"]):
-        if any(k in desc_upper for k in ["CARGO", "UTILITY", "CARPENTER", "DOUBLE KNEE"]): 
+        if any(k in desc_upper for k in ["CARGO", "UTILITY", "CARPENTER", "DOUBLE KNEE"]):
             return "CARGO_PANT"
-        if any(k in desc_upper for x in ["CAPRI", "CROP PANT", "CROPPED", "CROP", "ANKLE PANT"]): [INDEX]
+        if any(k in desc_upper for k in ["CAPRI", "CROP PANT", "CROPPED", "CROP", "ANKLE PANT"]):
             return "CAPRI_PANT"
         return "JORT" if raw_inseam_val < 15.0 else "PANT"
-    elif any(x in desc_upper for x in ["DRESS", "SKIRT", "VÁY", "ĐẦM", "MAXI"]): return "DRESS"
-    elif any(x in desc_upper for x in ["TSHIRT", "T-SHIRT", "TEE", "POLO", "ÁO THUN"]): return "TSHIRT"
-    elif any(x in desc_upper for x in ["SHIRT", "SƠ MI", "BLOUSE", "BUTTON DOWN"]): return "SHIRT"
+        
+    elif any(x in desc_upper for x in ["DRESS", "SKIRT", "VÁY", "ĐẦM", "MAXI"]):
+        return "DRESS"
+    elif any(x in desc_upper for x in ["TSHIRT", "T-SHIRT", "TEE", "POLO", "ÁO THUN"]):
+        return "TSHIRT"
+    elif any(x in desc_upper for x in ["SHIRT", "SƠ MI", "BLOUSE", "BUTTON DOWN"]):
+        return "SHIRT"
+        
     return "DEFAULT"
+
 def execute_numerical_consumption(ai_blueprint: dict, user_chat: str) -> dict:
     w_chat, s_l_chat, s_w_chat = None, None, None
     chat_clean = str(user_chat).lower().strip()
