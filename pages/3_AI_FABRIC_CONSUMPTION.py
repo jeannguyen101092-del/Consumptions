@@ -427,7 +427,7 @@ with st.sidebar:
         st.session_state.chat_history = [{"role": "assistant", "content": "Hệ thống đã reset sạch cache dữ liệu. Vui lòng tải file PDF mới."}]
         st.rerun()
 
-st.subheader("📁 BƯỚC 1: TẢI BIỂU MẪU SẢN XUẤT TECHPACK PDF")
+st.subheader("📤 Upload Techpack")
 uploaded_file = st.file_uploader("Kéo và thả file PDF Techpack hoặc hình vẽ Sketch vào đây", type=["pdf"], key="final_v15_sewing_uploader")
 if uploaded_file is not None:
     st.session_state.pdf_bytes = uploaded_file.read()
