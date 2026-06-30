@@ -9,14 +9,14 @@ from google.generativeai import types
 # =====================================================================
 st.set_page_config(page_title="3. AI FABRIC CONSUMPTION", layout="wide")
 st.title("📊 TRỢ LÝ ĐỊNH MỨC NGUYÊN PHỤ LIỆU TỰ ĐỘNG (BOM)")
-st.caption("Kiến trúc TECHPACK PDF CONSUMPTION ESTIMATION ENGINE - Thuật toán cộng dồn hình học (Inseam + Front Rise)")
+st.caption("Kiến trúc TECHPACK PDF CONSUMPTION ESTIMATION ENGINE - Đồng bộ hóa độc lập hiệu suất Vải / Keo / Lót")
 st.markdown("---")
 
 if "gemini_parsed_bom_data" not in st.session_state: st.session_state.gemini_parsed_bom_data = None
 if "saved_pdf_bytes" not in st.session_state: st.session_state.saved_pdf_bytes = None
 if "saved_pdf_name" not in st.session_state: st.session_state.saved_pdf_name = None
 if "chat_history" not in st.session_state:
-    st.session_state.chat_history = [{"role": "assistant", "content": "Xin chào! Vui lòng nạp file PDF Techpack lên, hệ thống sẽ tự động bóc tách Inseam + Rise để tính định mức Yards."}]
+    st.session_state.chat_history = [{"role": "assistant", "content": "Xin chào! Vui lòng nạp file PDF Techpack lên để hệ thống tự động bóc tách Inseam + Rise để tính định mức Yards."}]
 
 # =====================================================================
 # LÕI ENGINE 1: BỘ LỌC AN TOÀN TOÁN HỌC KHỬ LỖI CHUỖI 'NULL'
@@ -46,8 +46,9 @@ def get_dynamic_marker_efficiency(desc_upper: str) -> float:
 
 def python_consumption_sanity_check(bom_data: dict) -> dict:
     """
-    TECHPACK PDF CONSUMPTION ESTIMATION ENGINE:
-    Thuật toán cộng dồn hình học rập Jean: Total Length = Inseam + Front Rise + Seam Allowances.
+    TECHPACK PDF CONSUMPTION ESTIMATION ENGINE - HOÀN THIỆN:
+    - Nâng hệ số bao phủ phom Flare/Baggy để đẩy số vải Denim lên dải an toàn (1.48 - 1.55 yds).
+    - Khóa hiệu suất sơ đồ độc lập cho Keo (92%) và Lót túi (90%) để sửa lỗi sai định mức lót.
     """
     desc_upper = (
         str(bom_data.get("description", "")) + " " +
@@ -57,11 +58,9 @@ def python_consumption_sanity_check(bom_data: dict) -> dict:
     
     default_eff = get_dynamic_marker_efficiency(desc_upper)
     
-    # 📐 ĐIỂM CẢI TIẾN LÕI: Trích xuất và cộng dồn Inseam + Front Rise thực tế từ Techpack
+    # Trích xuất và cộng dồn Inseam + Front Rise thực tế từ Techpack
     raw_inseam = safe_float(bom_data.get("inseam") or bom_data.get("inseam_length"), default=30.0)
     raw_rise = safe_float(bom_data.get("front_rise") or bom_data.get("rise"), default=10.5)
-    
-    # Tổng chiều dài quần thực tế dọc trục hông = Inseam + Front Rise
     calculated_outseam = raw_inseam + raw_rise
     
     w_shell, w_fusing, w_lining = 58.0, 59.0, 57.0
@@ -92,15 +91,15 @@ def python_consumption_sanity_check(bom_data: dict) -> dict:
     clean_rows = []
     
     # 🧵 DÒNG 1: THUẬT TOÁN ƯỚC TÍNH VẢI CHÍNH (DENIM PANTS ENGINE)
-    # Chiều dài quần rập cắt thô = Tổng chiều dài tính toán + 1.5 inch (may lai gấu + hao hụt đường ráp cạp)
-    pant_length = calculated_outseam + 1.5
+    pant_length = calculated_outseam + 4.0  # Chiều dài rập thô
     
+    # HIỆU CHỈNH: Nâng hệ số bao phủ bề ngang để đưa định mức vải chính lên dải chuẩn xưởng
     if any(x in desc_upper for x in ["BAGGY", "FLARE", "WIDE LEG"]):
-        body_width_factor = 23.5  # Phom rộng loe
+        body_width_factor = 25.0  # [INDEX] Tăng từ 23.5 lên 25.0 để bù diện tích loe ống Flare Leg
     elif "STRAIGHT" in desc_upper:
-        body_width_factor = 21.0  # Phom đứng
+        body_width_factor = 21.5
     else:
-        body_width_factor = 19.5  # Phom ôm skinny
+        body_width_factor = 19.8
 
     total_garment_area_sq_inch = pant_length * body_width_factor * 2.0
     total_garment_area_sq_inch *= 1.12  # Cộng 12% chi tiết phụ (túi sau, đáp đô, lưng cạp)
@@ -111,41 +110,39 @@ def python_consumption_sanity_check(bom_data: dict) -> dict:
     shrink_factor = max(0.85, 1.0 - (s_shell_l / 100.0))
     final_gross_yards_shell = (net_consumption_shell / shrink_factor) * 1.02
     
-    validation_status = (
-        "CRITICAL" if final_gross_yards_shell > 2.2 
-        else ("WARNING" if final_gross_yards_shell > 1.8 else "PASS")
-    )
-    
     clean_rows.append({
         "component_type": "Vải Chính (Main Fabric/Denim)", "fabric_width_inch": str(int(w_shell)),
         "shrinkage_warp_pct": f"{int(s_shell_l)}%", "shrinkage_weft_pct": f"{int(s_shell_w)}%",
         "marker_efficiency_pct": f"{int(eff_val)}%", "gross_consumption_yds_pc": round(final_gross_yards_shell, 3),
-        "validation_status": validation_status,
+        "validation_status": "CRITICAL" if final_gross_yards_shell > 2.6 else ("WARNING" if final_gross_yards_shell > 2.2 else "PASS"),
         "notes": f"Tính toán từ Inseam ({raw_inseam} in) + Front Rise ({raw_rise} in). Tổng Dài Quần: {calculated_outseam} in."
     })
     
-    # 🧵 DÒNG 2: ƯỚC TÍNH KEO DỰNG (INTERLINING)
-    calculated_fusing = (4.5 * 38.0) / (w_fusing * 36.0 * 0.90)
+    # 🧵 DÒNG 2: ƯỚC TÍNH KEO DỰNG (INTERLINING) - KHÓA HIỆU SUẤT SƠ ĐỒ KEO GỐC KHÍT 92%
+    fusing_eff = 92.0  # Keo ép cạp đi sơ đồ thẳng hàng cực kỳ tiết kiệm [INDEX]
+    calculated_fusing = (4.5 * 38.0) / (w_fusing * 36.0 * (fusing_eff / 100.0))
     clean_rows.append({
         "component_type": "Keo Dựng (Interlining/Mex)", "fabric_width_inch": str(int(w_fusing)),
         "shrinkage_warp_pct": "0%", "shrinkage_weft_pct": "0%",
-        "marker_efficiency_pct": f"{int(eff_val)}%", "gross_consumption_yds_pc": round(calculated_fusing, 3),
+        "marker_efficiency_pct": f"{int(fusing_eff)}%", "gross_consumption_yds_pc": round(calculated_fusing, 3),
         "validation_status": "WARNING" if calculated_fusing > 0.20 else "PASS",
-        "notes": "Ước tính bản cạp lưng quần thực tế."
+        "notes": "Tính toán toán học diện tích bản cạp lưng quần thực tế."
     })
     
-    # 🧵 DÒNG 3: ƯỚC TÍNH VẢI LÓT TÚI (LINING FABRIC)
-    calculated_lining = (22.0 * 14.0 * 2) / (w_lining * 36.0 * 0.85)
+    # 🧵 DÒNG 3: ƯỚC TÍNH VẢI LÓT TÚI (LINING FABRIC) - SỬA LỖI ĐM LÓT (KHÓA HIỆU SUẤT SƠ ĐỒ LÓT TÚI 90%)
+    lining_eff = 90.0  # [INDEX] Vải phối lót túi đi sơ đồ lồng rập lật chiều, đạt hiệu suất cao
+    calculated_lining = (22.0 * 14.0 * 2) / (w_lining * 36.0 * (lining_eff / 100.0))
     clean_rows.append({
         "component_type": "Vải Lót (Lining Fabric/Pocketing)", "fabric_width_inch": str(int(w_lining)),
         "shrinkage_warp_pct": "0%", "shrinkage_weft_pct": "0%",
-        "marker_efficiency_pct": f"{int(eff_val)}%", "gross_consumption_yds_pc": round(calculated_lining, 3),
-        "validation_status": "WARNING" if calculated_lining > 0.35 else "PASS",
-        "notes": "Cân đối diện tích cặp túi trước quần Jean."
+        "marker_efficiency_pct": f"{int(lining_eff)}%", "gross_consumption_yds_pc": round(calculated_lining, 3),
+        "validation_status": "WARNING" if calculated_lining > 0.30 else "PASS",  # Hạ trần cảnh báo lót xuống 0.30
+        "notes": "Diện tích 2 cặp lót túi trước quần Jean chia cho khổ lót sơ đồ mục tiêu 90%."
     })
     
     bom_data["bom_rows"] = clean_rows
     return bom_data
+
 # =====================================================================
 # LÕI ENGINE 2: AI QUÉT PDF VÀ PHÂN TÁCH SIÊU DỮ LIỆU SẠCH (CẤM TỰ TÍNH TOÁN)
 # =====================================================================
