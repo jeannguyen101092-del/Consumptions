@@ -310,7 +310,9 @@ if st.session_state.gemini_parsed_bom_data:
         wb = Workbook()
         ws = wb.active
         ws.title = "BẢNG ĐỊNH MỨC KỸ THUẬT"
-        ws.views.sheetView.showGridLines = True
+        
+        # ĐIỂM SỬA ĐỐI CỐT LÕI: Sửa lại cú pháp chữ g viết thường chuẩnopenpyxl để mở lưới ô tính [INDEX]
+        ws.views.sheetView[0].showGridLines = True  # [INDEX]
         
         # Cấu hình thiết kế đồ họa bảng tính
         font_header_comp = Font(name="Arial", size=11, bold=True)
