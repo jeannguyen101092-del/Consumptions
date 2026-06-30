@@ -9,7 +9,7 @@ from google.generativeai import types
 # =====================================================================
 st.set_page_config(page_title="3. AI FABRIC CONSUMPTION", layout="wide")
 st.title("📊 TRỢ LÝ ĐỊNH MỨC NGUYÊN PHỤ LIỆU TỰ ĐỘNG (BOM)")
-st.caption("Kiến trúc Toán học CAD Engine - Tích hợp bộ lọc safe_float khử lỗi chuyển đổi chuỗi")
+st.caption("Kiến trúc Toán học CAD Engine - Tích hợp bộ lọc safe_float sạch lỗi hệ thống")
 st.markdown("---")
 
 if "gemini_parsed_bom_data" not in st.session_state: st.session_state.gemini_parsed_bom_data = None
@@ -24,10 +24,10 @@ if "chat_history" not in st.session_state:
 def safe_float(val, default=0.0) -> float:
     """
     VÁ LỖI TOÀN DIỆN CỦA HỆ THỐNG:
-    Tự động chặn và chuyển đổi các giá trị chuỗi rác như 'null', 'UNKNOWN', None 
-    về dạng số thực float an toàn, chống làm sập luồng xử lý ứng dụng [INDEX].
+    Chuyển đổi hoàn chỉnh các chuỗi 'null', 'unknown', None về số thực an toàn.
     """
-    if val is None: return default
+    if val is None: 
+        return default
     val_clean = str(val).replace("%", "").replace('"', '').strip().lower()
     if val_clean in ["null", "none", "unknown", "na", "n/a", ""]:
         return default
@@ -52,16 +52,17 @@ def get_dynamic_marker_efficiency(description: str, style_code: str) -> float:
 def python_consumption_sanity_check(bom_data: dict) -> dict:
     """
     BỘ KHUNG MA TRẬN 3 DÒNG ĐỘC LẬP TỰ ĐỘNG CẬP NHẬT:
-    Ứng dụng hàm bọc safe_float để xử lý dứt điểm lỗi 'could not convert string to float' [INDEX].
+    Tính toán dựa trên chiều dài quần thực tế từ bảng thông số kết hợp 
+    với khổ vải và hiệu suất để cho ra kết quả Yards chuẩn xác cho xưởng may.
     """
     desc_upper = str(bom_data.get("description", "")).upper()
     style_upper = str(bom_data.get("style_code", "")).upper()
     default_eff = get_dynamic_marker_efficiency(desc_upper, style_upper)
     
-    # Sử dụng safe_float để bóc tách chiều dài thành phẩm an toàn (Mặc định quần dài là 40.5 inch)
-    raw_length = safe_float(bom_data.get("raw_length_inch"), default=40.5) [INDEX]
+    # Sử dụng safe_float xử lý dứt điểm lỗi chữ null ngầm [INDEX]
+    raw_length = safe_float(bom_data.get("raw_length_inch"), default=40.5)
     
-    # Thiết lập giá trị số nền tảng mặc định ban đầu cho 3 dòng vật liệu
+    # Cấu hình giá trị số nền tảng mặc định ban đầu cho 3 dòng vật liệu
     w_shell, w_fusing, w_lining = 58.0, 59.0, 57.0
     s_shell_l, s_shell_w = 5.0, 15.0
     eff_val = default_eff
@@ -70,24 +71,25 @@ def python_consumption_sanity_check(bom_data: dict) -> dict:
     if "bom_rows" in bom_data and isinstance(bom_data["bom_rows"], list):
         for row in bom_data["bom_rows"]:
             c_type = str(row.get("component_type", "")).upper()
-            
-            # Quét gom thông số Khổ vải vật lý bằng bộ safe_float bảo vệ
-            width_parsed = safe_float(row.get("fabric_width_inch"), default=0.0) [INDEX]
+            width_parsed = safe_float(row.get("fabric_width_inch"), default=0.0)
             
             if any(k in c_type for k in ["SHELL", "DENIM", "VẢI CHÍNH", "MAIN"]):
-                if width_parsed > 0: w_shell = width_parsed
-                s_shell_l = safe_float(row.get("shrinkage_warp_pct"), default=5.0) [INDEX]
-                s_shell_w = safe_float(row.get("shrinkage_weft_pct"), default=15.0) [INDEX]
+                if width_parsed > 0: 
+                    w_shell = width_parsed
+                s_shell_l = safe_float(row.get("shrinkage_warp_pct"), default=5.0)
+                s_shell_w = safe_float(row.get("shrinkage_weft_pct"), default=15.0)
                 
                 raw_eff = row.get("marker_efficiency_pct", "")
                 if raw_eff and "UNKNOWN" not in str(raw_eff).upper() and "NONE" not in str(raw_eff).upper():
-                    eff_val = safe_float(raw_eff, default=default_eff) [INDEX]
+                    eff_val = safe_float(raw_eff, default=default_eff)
             
             elif any(k in c_type for k in ["FUSING", "KEO", "INTERLINING", "MEX"]):
-                if width_parsed > 0: w_fusing = width_parsed
+                if width_parsed > 0: 
+                    w_fusing = width_parsed
                 
             elif any(k in c_type for k in ["POCKETING", "LINING", "LÓT", "TÚI"]):
-                if width_parsed > 0: w_lining = width_parsed
+                if width_parsed > 0: 
+                    w_lining = width_parsed
 
     clean_rows = []
     
@@ -95,8 +97,8 @@ def python_consumption_sanity_check(bom_data: dict) -> dict:
     gross_length_inch = raw_length + 4.0
     width_multiplier = 2.45 if any(x in desc_upper for x in ["BAGGY", "FLARE", "WIDE LEG"]) else 2.32
     
-    # Công thức nhân diện tích cụm rập thô 4 lớp thân chính hoàn chỉnh của quần [INDEX]
-    total_garment_area_sq_inch = gross_length_inch * width_multiplier * 4.0 [INDEX]
+    # Tính diện tích 4 lớp thân quần jean lớn hoàn chỉnh [INDEX]
+    total_garment_area_sq_inch = gross_length_inch * width_multiplier * 4.0
     usable_area_per_yard_shell = w_shell * 36.0 * (eff_val / 100.0)
     net_consumption_shell = total_garment_area_sq_inch / usable_area_per_yard_shell
     final_yards_shell = (net_consumption_shell / (1.0 - (s_shell_l / 100.0))) * 1.02
@@ -149,7 +151,7 @@ def ai_gemini_vision_pdf_parser(pdf_bytes, user_custom_prompt) -> dict:
                 "description": {"type": "STRING"},
                 "calculated_size": {"type": "STRING"},
                 "consumption_type": {"type": "STRING"},
-                "raw_length_inch": {"type": "STRING"}, # Ép kiểu dữ liệu chuỗi STRING để AI trả về tự do
+                "raw_length_inch": {"type": "STRING"},
                 "bom_rows": {
                     "type": "ARRAY",
                     "items": {
@@ -233,7 +235,7 @@ if user_prompt:
         st.session_state.chat_history.append({"role": "assistant", "content": "⚠️ Vui lòng tải file PDF lên ở Bước 1 trước."})
         st.rerun()
     else:
-        with st.spinner("Hệ thống Matrix Engine đang đồng bộ hóa tính toán số liệu Yards..."):
+        with st.spinner("Hệ thống Matrix Engine đang kết nối Gemini quét file và tự động tính toán số liệu..."):
             parsed_result = ai_gemini_vision_pdf_parser(st.session_state.saved_pdf_bytes, user_prompt)
             if parsed_result and "error" not in parsed_result:
                 st.session_state.gemini_parsed_bom_data = parsed_result
