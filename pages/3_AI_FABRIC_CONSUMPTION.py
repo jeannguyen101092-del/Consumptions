@@ -222,16 +222,50 @@ if user_prompt:
         st.rerun()
 
 # =====================================================================
-# BẢNG HIỂN THỊ KẾT QUẢ ĐẦU RA CỦA RẬP THÔ
+# BẢNG HIỂN THỊ KẾT QUẢ ĐẦU RA THEO PHONG CÁCH BẢNG ĐỊNH MỨC MỌI BỘ
 # =====================================================================
 if st.session_state.gemini_parsed_bom_data:
     st.markdown("---")
-    st.subheader("📋 Bảng chi tiết rập thô bóc tách từ PDF")
+    st.subheader("📊 BẢNG ĐỊNH MỨC MỌI BỘ - SƠ ĐỒ 1 CHIỀU (TÍNH THEO YARDS)")
     
-    # Thử nghiệm trích xuất danh sách chi tiết rập ra DataFrame để hiển thị dạng bảng trực quan
-    panels = st.session_state.gemini_parsed_bom_data.get("garment_panels", [])
-    if panels and isinstance(panels, list):
-        df_panels = pd.DataFrame(panels)
-        st.dataframe(df_panels, use_container_width=True)
+    # Lấy danh sách dữ liệu bảng từ kết quả trả về của Gemini
+    bom_data = st.session_state.gemini_parsed_bom_data.get("bom_table", [])
+    
+    if bom_data and isinstance(bom_data, list):
+        # Chuyển đổi dữ liệu JSON sang DataFrame của Pandas
+        df_bom = pd.DataFrame(bom_data)
+        
+        # Định nghĩa lại tên các cột để hiển thị chuyên nghiệp giống ảnh mẫu của bạn
+        column_mapping = {
+            "style_code": "Style",
+            "description": "Mô tả",
+            "structure": "Cấu trúc",
+            "fabric_width_inch": "Khổ vải (inch)",
+            "shrinkage_warp_pct": "Độ co L",
+            "shrinkage_weft_pct": "Độ co W",
+            "marker_efficiency_pct": "Hiệu suất",
+            "shell_main_fabric_net_yds_pc": "Shell/Main Fabric Net (yds/pc)",
+            "lining_net_yds_pc": "Lining Net (yds/pc)",
+            "padding_gon_net_yds_pc": "Padding/Gòn Net (yds/pc)",
+            "total_yds_pc": "Tổng yds vải/pc",
+            "notes": "Ghi chú"
+        }
+        
+        # Đổi tên cột nếu cột đó tồn tại trong dữ liệu trả về
+        df_bom = df_bom.rename(columns={k: v for k, v in column_mapping.items() if k in df_bom.columns})
+        
+        # Hiển thị bảng định mức ra màn hình chính, kéo giãn hết chiều ngang trang
+        st.dataframe(df_bom, use_container_width=True)
+        
+        # Tính năng bổ sung: Cho phép người dùng tải trực tiếp bảng này về máy dưới dạng file Excel/CSV
+        csv = df_bom.to_csv(index=False).encode('utf-8-sig')
+        st.download_button(
+            label="📥 Tải bảng định mức (.CSV)",
+            data=csv,
+            file_name="bang_dinh_muc_ai_bom.csv",
+            mime="text/csv",
+        )
     else:
+        # Nếu AI trả về cấu trúc lỗi không đúng định dạng bảng mong muốn
+        st.error("Cấu trúc phản hồi không phù hợp để tạo bảng. Đang hiển thị dữ liệu thô dưới dạng JSON:")
         st.json(st.session_state.gemini_parsed_bom_data)
