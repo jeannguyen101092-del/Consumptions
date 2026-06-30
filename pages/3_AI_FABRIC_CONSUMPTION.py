@@ -38,8 +38,8 @@ def get_dynamic_marker_efficiency(desc_upper: str) -> float:
 def python_consumption_sanity_check(bom_data: dict) -> dict:
     """
     TECHPACK PDF CONSUMPTION ESTIMATION ENGINE - ĐOẠN 1b:
-    Tích hợp trực tiếp phần trăm co rút ngang (Weft Shrinkage) làm co hẹp khổ vải hữu ích,
-    đồng thời bảo vệ hiển thị kích cỡ Size chuẩn xưởng may không bị dính N/A [INDEX].
+    Tích hợp trực tiếp phần trăm co rút ngang (Weft Shrinkage) làm co hẹp khổ vải hữu ích.
+    Bổ sung bộ lọc khống chế chiều dài sàn cho hàng SHORT để chống sụt định mức phi lý [INDEX].
     """
     if bom_data is None: bom_data = {}
     desc_upper = (
@@ -51,7 +51,7 @@ def python_consumption_sanity_check(bom_data: dict) -> dict:
     default_eff = get_dynamic_marker_efficiency(desc_upper)
     is_jacket = any(x in desc_upper for x in ["JACKET", "COAT", "VEST"])
     
-    # Đồng bộ bọc dự phòng trường dữ liệu Size để tránh lỗi hiển thị N/A [INDEX]
+    # Đồng bộ bọc dự phòng trường dữ liệu Size để tránh lỗi hiển thị N/A
     extracted_size = str(bom_data.get("calculated_size") or bom_data.get("size") or bom_data.get("base_size") or "N/A").strip().upper()
     bom_data["calculated_size"] = extracted_size
     
@@ -97,7 +97,7 @@ def python_consumption_sanity_check(bom_data: dict) -> dict:
             c_type = str(row.get("component_type", "")).upper()
             placement = str(row.get("placement", "")).upper()
             
-            # Thanh lọc 100% rác phụ liệu đếm chiếc kim loại nhựa khỏi bảng yards dài phẳng [INDEX]
+            # Thanh lọc 100% rác phụ liệu đếm chiếc kim loại nhựa khỏi bảng yards dài phẳng
             if any(k in c_type or k in placement for k in [
                 "CHỈ", "THREAD", "ZIPPER", "DÂY KÉO", "BUTTON", "NÚT", "LABEL", "MÁC", "TAG",
                 "CORD", "CHUN", "DÂY RÚT", "EYELETS", "Ô DÊ", "STOPPER", "CHẶN", "SNAP", "BẤM", "RIVET"
@@ -108,7 +108,7 @@ def python_consumption_sanity_check(bom_data: dict) -> dict:
             notes_log = ""
             final_gross_yards = 0.0
             
-            # VẢI CHÍNH CHẠY CO RÚT 2 CHIỀU ĐỘNG CO GIÃN ĐỊNH MỨC XƯỞNG MAY [INDEX]
+            # VẢI CHÍNH CHẠY CO RÚT 2 CHIỀU ĐỘNG CO GIÃN ĐỊNH MỨC XƯỞNG MAY
             if any(k in placement for k in ["BODY", "SHELL", "MAIN", "THÂN", "FABRIC"]) or any(k in c_type for k in ["SHELL", "DENIM", "VẢI CHÍNH", "CANVAS", "MAIN"]):
                 usable_width_inch = w_shell * (1.0 - (s_shell_w / 100.0))
                 usable_area_per_yard = usable_width_inch * 36.0 * (eff_val / 100.0)
@@ -118,8 +118,14 @@ def python_consumption_sanity_check(bom_data: dict) -> dict:
                     jacket_width_factor = 28.5
                     total_pieces_area_sq_inch = jacket_total_length * jacket_width_factor * 2.0 * 1.25
                 else:
-                    pant_length = calculated_outseam + 4.0 if "SHORT" not in desc_upper else calculated_outseam + 2.5
-                    body_width_factor = 27.2 if "BAGGY" in desc_upper else (25.0 if any(x in desc_upper for x in ["FLARE", "WIDE LEG"]) else 21.5)
+                    # ĐIỂM ĐIỀU CHỈNH: Thiết lập chiều dài sàn tối thiểu cho rập Quần ngắn (Short) chống sụt số [INDEX]
+                    if "SHORT" in desc_upper:
+                        pant_length = max(24.5, calculated_outseam + 2.5) # Ép sàn tối thiểu 24.5 inch cho rập thô quần short [INDEX]
+                        body_width_factor = 25.5 # Bù diện tích xòe ống đùi đặc trưng của Mom Short
+                    else:
+                        pant_length = calculated_outseam + 4.0
+                        body_width_factor = 27.2 if "BAGGY" in desc_upper else (25.0 if any(x in desc_upper for x in ["FLARE", "WIDE LEG"]) else 21.5)
+                        
                     total_pieces_area_sq_inch = pant_length * body_width_factor * 2.0 * 1.12
 
                 net_consumption = total_pieces_area_sq_inch / usable_area_per_yard
@@ -170,6 +176,7 @@ def python_consumption_sanity_check(bom_data: dict) -> dict:
     st.session_state.gemini_parsed_bom_data.update(bom_data)
     if "bom_rows" in bom_data: st.session_state.gemini_parsed_bom_data["bom_rows"] = clean_rows
     return bom_data
+
 
 
 
