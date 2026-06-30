@@ -9,40 +9,84 @@ from google.generativeai import types
 # =====================================================================
 st.set_page_config(page_title="3. AI FABRIC CONSUMPTION", layout="wide")
 st.title("📊 TRỢ LÝ ĐỊNH MỨC NGUYÊN PHỤ LIỆU TỰ ĐỘNG (BOM)")
-st.caption("Kiến trúc AI Estimated Engine - Tự động ước tính định mức trực tiếp từ cấu trúc tài liệu PDF")
+st.caption("Kiến trúc Costing Validation Engine - Hệ thống giám sát 3 cấp độ (🟢 PASS | 🟡 WARNING | 🔴 CRITICAL)")
 st.markdown("---")
 
 if "gemini_parsed_bom_data" not in st.session_state: st.session_state.gemini_parsed_bom_data = None
 if "saved_pdf_bytes" not in st.session_state: st.session_state.saved_pdf_bytes = None
 if "saved_pdf_name" not in st.session_state: st.session_state.saved_pdf_name = None
 if "chat_history" not in st.session_state:
-    st.session_state.chat_history = [{"role": "assistant", "content": "Xin chào! Vui lòng tải file PDF Techpack lên, AI sẽ tiến hành quét BOM và ước tính định mức Yards."}]
+    st.session_state.chat_history = [{"role": "assistant", "content": "Xin chào! Vui lòng nạp file PDF Techpack lên, tôi sẽ tự động phân tích và kích hoạt hệ thống kiểm soát 3 cấp độ cho xưởng."}]
 
 # =====================================================================
-# LÕI ENGINE 1: BỘ LỌC AN TOÀN - CHỈ LỌC BỎ CHỈ MAY VÀ PHỤ LIỆU ĐẾM CÁI
+# LÕI ENGINE 1: PHÂN LOẠI BẬC CAO VÀ KIỂM SOÁT 3 CẤP ĐỘ (VALIDATION MATRIX)
 # =====================================================================
+def get_dynamic_marker_efficiency(description: str, style_code: str):
+    """Ưu tiên nhận diện phom dáng đặc thù trước chủng loại vải. Không khớp trả về None."""
+    desc_upper = str(description).upper() + " " + str(style_code).upper()
+    if any(x in desc_upper for x in ["BAGGY", "FLARE", "WIDE LEG"]):
+        return 87.0
+    elif any(x in desc_upper for x in ["JEAN", "DENIM", "5 POCKET", "5-POCKET"]):
+        return 88.0
+    elif any(x in desc_upper for x in ["JACKET", "COAT", "VEST"]):
+        return 84.0
+    elif any(x in desc_upper for x in ["KNIT", "TEE", "T-SHIRT", "THUN"]):
+        return 90.0
+    return None
+
 def python_consumption_sanity_check(bom_data: dict) -> dict:
     """
-    Bộ lọc an toàn xưởng:
-    1. Giữ nguyên 100% con số ước tính toán học động từ AI.
-    2. Chỉ quét và loại bỏ các phụ liệu đếm bằng cái/cuộn không dùng đơn vị Yards (như Chỉ may, nhãn mác).
+    HỆ THỐNG GIÁM SÁT SẢN XUẤT 3 CẤP ĐỘ:
+    Sửa lỗi cú pháp Python, áp dụng dải định mức thực tế của quần Jean 
+    và phân loại trạng thái trực quan: PASS, WARNING, CRITICAL.
     """
     if "bom_rows" not in bom_data: return bom_data
     
     filtered_rows = []
     for row in bom_data["bom_rows"]:
         comp_type = str(row.get("component_type", "")).upper()
+        current_val = float(row.get("net_consumption_yds_pc", 0))
         
-        # Loại bỏ hoàn toàn chỉ may và các phụ liệu không dùng đơn vị yards
+        # Lọc bỏ phụ liệu đếm mác nhãn/chỉ may
         if any(keyword in comp_type for keyword in ["CHỈ", "THREAD", "LABEL", "BUTTON", "ZIPPER", "MÁC", "NÚT"]):
             continue
             
+        # Thiết lập trạng thái an toàn mặc định ban đầu
+        row["validation_status"] = "PASS"
+        
+        # 1. KIỂM TRA ĐỊNH MỨC VẢI CHÍNH (DENIM / SHELL / MAIN FABRIC)
+        if any(keyword in comp_type for keyword in ["SHELL", "DENIM", "VẢI CHÍNH", "MAIN"]):
+            if current_val > 2.3:
+                row["validation_status"] = "CRITICAL"
+                row["notes"] = f"🔴 [CRITICAL] Shell Consumption ({current_val:.3f} yds) exceeds limit! " + row.get("notes", "")
+            elif current_val > 2.0:
+                row["validation_status"] = "WARNING"
+                row["notes"] = f"🟡 [WARNING] Check Shell Consumption ({current_val:.3f} yds). " + row.get("notes", "")
+                
+        # 2. KIỂM TRA VẢI LÓT TÚI (POCKETING / LINING)
+        elif any(keyword in comp_type for keyword in ["POCKETING", "LINING", "LÓT", "TÚI"]):
+            if current_val > 0.35:
+                row["validation_status"] = "WARNING"
+                row["notes"] = f"🟡 [WARNING] Check Pocketing Consumption ({current_val:.3f} yds). " + row.get("notes", "")
+                
+        # 3. KIỂM TRA KEO / DỰNG / MEX (FUSING / INTERLINING)
+        elif any(keyword in comp_type for keyword in ["FUSING", "KEO", "INTERLINING", "MEX", "MẾCH"]):
+            if current_val > 0.20:
+                row["validation_status"] = "WARNING"
+                row["notes"] = f"🟡 [WARNING] Check Fusing Consumption ({current_val:.3f} yds). " + row.get("notes", "")
+                
+        # 4. KIỂM TRA DÂY BĂNG / TAPE
+        elif "TAPE" in comp_type:
+            if current_val > 0.30:
+                row["validation_status"] = "WARNING"
+                row["notes"] = f"🟡 [WARNING] Check Tape Consumption ({current_val:.3f} yds). " + row.get("notes", "")
+                
         filtered_rows.append(row)
         
     bom_data["bom_rows"] = filtered_rows
     return bom_data
 # =====================================================================
-# LÕI ENGINE 2: AI QUÉT PDF VÀ TỰ ĐỘNG ƯỚC TÍNH ĐỊNH MỨC YARDS (ESTIMATED)
+# LÕI ENGINE 2: AI QUÉT PDF VÀ ƯỚC TÍNH ĐỊNH MỨC THEO TARGET EFFICIENCY
 # =====================================================================
 def ai_gemini_vision_pdf_parser(pdf_bytes, user_custom_prompt) -> dict:
     try:
@@ -52,14 +96,32 @@ def ai_gemini_vision_pdf_parser(pdf_bytes, user_custom_prompt) -> dict:
         
         pdf_blob = {"mime_type": "application/pdf", "data": pdf_bytes}
         
-        # Đã thêm lại net_consumption_yds_pc và trường trạng thái bóc tách theo yêu cầu của bạn
+        # --- BƯỚC PRE-SCAN METADATA ---
+        meta_prompt = "Hãy trích xuất từ tài liệu PDF này và trả về chuỗi JSON phẳng gồm duy nhất 2 trường sau: {'style_code': 'Mã style', 'description': 'Mô tả sản phẩm'}. Không ghi thêm chữ giải thích bên ngoài."
+        model_meta = genai.GenerativeModel('gemini-2.5-flash')
+        meta_res = model_meta.generate_content([pdf_blob, meta_prompt], generation_config=types.GenerationConfig(response_mime_type="application/json"))
+        
+        try:
+            meta_json = json.loads(meta_res.text.strip())
+            desc_text = meta_json.get("description", "")
+            style_text = meta_json.get("style_code", "")
+        except:
+            desc_text, style_text = "", ""
+
+        # --- BẢNG TRA CỨU EFFICIENCY BẬC CAO QUA PYTHON ---
+        default_eff = get_dynamic_marker_efficiency(desc_text, style_text)
+        if default_eff is not None:
+            eff_instruction = f"Nếu tài liệu kỹ thuật PDF không ghi rõ chỉ số hiệu suất sơ đồ, bạn BẮT BUỘC phải sử dụng mức hiệu suất mặc định của xưởng chúng tôi cho chủng loại hàng này là: {int(default_eff)}% làm căn cứ gốc để tính toán."
+        else:
+            eff_instruction = "Nếu tài liệu kỹ thuật PDF không ghi rõ chỉ số hiệu suất sơ đồ, hãy tự phân tích và đưa ra mức hiệu suất an toàn toán học từ 85% đến 88% dựa trên cấu trúc phom dáng sản phẩm."
+
         json_schema = {
             "type": "OBJECT",
             "properties": {
                 "style_code": {"type": "STRING"},
                 "description": {"type": "STRING"},
                 "calculated_size": {"type": "STRING"},
-                "consumption_type": {"type": "STRING"}, # Trả về "ESTIMATED_FROM_PDF"
+                "consumption_type": {"type": "STRING"},
                 "bom_rows": {
                     "type": "ARRAY",
                     "items": {
@@ -70,7 +132,7 @@ def ai_gemini_vision_pdf_parser(pdf_bytes, user_custom_prompt) -> dict:
                             "shrinkage_warp_pct": {"type": "STRING"},
                             "shrinkage_weft_pct": {"type": "STRING"},
                             "marker_efficiency_pct": {"type": "STRING"},
-                            "net_consumption_yds_pc": {"type": "NUMBER"}, # Định mức AI tự ước tính toán học
+                            "net_consumption_yds_pc": {"type": "NUMBER"},
                             "notes": {"type": "STRING"}
                         },
                         "required": ["component_type", "net_consumption_yds_pc"]
@@ -80,21 +142,22 @@ def ai_gemini_vision_pdf_parser(pdf_bytes, user_custom_prompt) -> dict:
             "required": ["style_code", "bom_rows"]
         }
 
+        # --- PROMPT CHÍNH GỬI AI ---
         base_prompt = f"""
-        Bạn là Chuyên gia tối ưu hóa định mức xưởng may và Trưởng phòng kỹ thuật rập CAD (Pattern & Costing Master).
-        Hãy quét bảng BOM (Bill of Materials) và bảng thông số POM trong file PDF để bóc tách dữ liệu và ước tính định mức tiêu hao.
+        Bạn là Chuyên gia tối ưu hóa định mức xưởng may và Trưởng phòng kỹ thuật rập CAD.
+        Hãy quét bảng BOM và bảng thông số trong file PDF để bóc tách dữ liệu và ước tính định mức tiêu hao Yards.
 
-        🚨 QUY TẮC PHÂN DÒNG HÀNG NGANG XUỐNG DÒNG (BẮT BUỘC):
-        Mỗi loại nguyên phụ liệu / vật liệu bóc tách được từ BOM phải nằm trên một hàng độc lập (Vải chính, Vải lót, Keo dựng, Twill tape...).
+        🚨 QUY TẮC PHÂN DÒNG (BẮT BUỘC):
+        Mỗi loại nguyên phụ liệu / vật liệu bóc tách được phải nằm trên một hàng dọc độc lập (Vải chính, Vải lót, Keo dựng...).
 
-        📐 THUẬT TOÁN ƯỚC TÍNH TOÁN HỌC (ESTIMATED CONSUMPTION):
-        - Chỉ khi không có tệp hình học DXF, bạn được phép dựa vào bảng thông số POM (Chiều dài quần/áo thành phẩm), khổ vải vật lý (Fabric Width), độ co rút dọc/ngang (Shrinkage), và hiệu suất sơ đồ (Marker Efficiency) để tính toán định mức ước tính [INDEX].
-        - Đối với vải chính (Denim/Shell): Hãy tính toán dựa trên chiều dài quần thực tế + thông số may lai gấu + bo cạp rồi bù co rút dọc. Định mức quần dài dáng Baggy/Flare Leg thông thường chỉ dao động quanh mức 1.35 yds đến 1.75 yds/pc trên khổ vải 56-58 inch. Tuyệt đối không được tính vọt lên quá cao trên 2.2 yds. Hãy kiểm soát chặt trần số liệu này.
-        - Đối với Keo dựng (Tricot Fusing) và Vải lót túi (TC Pocketing): Ước tính dựa trên diện tích vùng ép keo cạp quần và diện tích 2 túi trước (thường keo từ 0.08 - 0.15 yds, lót túi từ 0.18 - 0.30 yds). Không để bằng 0 hoặc None.
-        - Quy đổi toàn bộ kết quả 'net_consumption_yds_pc' về đơn vị YARDS (yds/pc) [INDEX].
+        📉 QUY TẮC ƯỚC TÍNH SỐ LIỆU ĐỊNH MỨC GỐC (ESTIMATED):
+        - Hãy đọc kỹ trường dữ liệu hiệu suất sơ đồ 'marker_efficiency_pct' ghi trong PDF trước. Nếu tài liệu có sẵn chỉ số, hãy sử dụng con số đó để tính.
+        - {eff_instruction}
+        - Tiến hành tính toán định mức tiêu hao Net Yards dựa trên: Chiều dài thành phẩm, khổ vải, thông số may lai gấu, bo cạp, độ co rút dọc/ngang và biến số hiệu suất sơ đồ mục tiêu nêu trên. Phép tính phải đảm bảo tính nhất quán dữ liệu công nghiệp.
+        - Quy đổi toàn bộ kết quả cuối cùng ở trường 'net_consumption_yds_pc' về đơn vị YARDS (yds/pc).
 
         🚨 TRẠNG THÁI HỆ THỐNG:
-        - Bắt buộc điền giá trị "ESTIMATED_FROM_PDF" vào trường dữ liệu `consumption_type` [INDEX].
+        - Điền giá trị "ESTIMATED_FROM_PDF" vào trường dữ liệu `consumption_type`.
 
         YÊU CẦU BỔ SUNG TỪ USER: "{user_custom_prompt}"
         """
@@ -105,7 +168,7 @@ def ai_gemini_vision_pdf_parser(pdf_bytes, user_custom_prompt) -> dict:
             generation_config=types.GenerationConfig(
                 response_mime_type="application/json",
                 response_schema=json_schema,
-                temperature=0.1 # Giảm độ sáng tạo để số liệu bám sát toán học thực tế
+                temperature=0.1
             )
         )
         return python_consumption_sanity_check(json.loads(response.text.strip()))
@@ -154,16 +217,16 @@ if user_prompt:
             parsed_result = ai_gemini_vision_pdf_parser(st.session_state.saved_pdf_bytes, user_prompt)
             if parsed_result and "error" not in parsed_result:
                 st.session_state.gemini_parsed_bom_data = parsed_result
-                ai_response_text = f"**🤖 AI ĐÃ PHÂN TÍCH XONG FILE:** `{st.session_state.saved_pdf_name}`\n\n* **Mã Style:** {parsed_result.get('style_code', 'N/A')}\n* **Mô tả:** {parsed_result.get('description', 'N/A')}\n* **Phương thức xử lý:** `{parsed_result.get('consumption_type', 'N/A')}`\n\n👉 *Mời xem bảng định mức tự động điền số liệu dạng Yards ở dưới.*"
+                ai_response_text = f"**🤖 AI ĐÃ PHÂN TÍCH XONG FILE:** `{st.session_state.saved_pdf_name}`\n\n* **Mã Style:** {parsed_result.get('style_code', 'N/A')}\n* **Mô tả:** {parsed_result.get('description', 'N/A')}\n* **Phương thức xử lý:** `{parsed_result.get('consumption_type', 'N/A')}`\n\n👉 *Mời xem bảng định mức có gắn nhãn giám sát 3 cấp độ ở phía dưới.*"
                 st.session_state.chat_history.append({"role": "assistant", "content": ai_response_text})
             else:
                 st.session_state.chat_history.append({"role": "assistant", "content": f"❌ Lỗi: {parsed_result.get('error', 'Lỗi dữ liệu')}"})
         st.rerun()
 
-# BẢNG HIỂN THỊ ĐỊNH MỨC DẠNG HÀNG DỌC XẾP CHỒNG THEO DÒNG VẬT LIỆU
+# BẢNG HIỂN THỊ ĐỊNH MỨC DẠNG HÀNG DỌC PHÂN MÀU TRẠNG THÁI CHUYÊN NGHIỆP
 if st.session_state.gemini_parsed_bom_data:
     st.markdown("---")
-    st.subheader("📋 BẢNG ĐỊNH MỨC MỌI BỘ - PHÂN TÁCH THEO DÒNG NGUYÊN PHỤ LIỆU")
+    st.subheader("📋 BẢNG ĐỊNH MỨC MỌI BỘ - HỆ THỐNG GIÁM SÁT PLM")
     
     col1, col2, col3 = st.columns(3)
     col1.markdown(f"📌 **Mã Style:** `{st.session_state.gemini_parsed_bom_data.get('style_code', 'N/A')}`")
@@ -172,15 +235,30 @@ if st.session_state.gemini_parsed_bom_data:
         
     bom_rows = st.session_state.gemini_parsed_bom_data.get("bom_rows", [])
     if bom_rows and isinstance(bom_rows, list):
-        df_rows = pd.DataFrame(bom_rows)
-        column_mapping = {
-            "component_type": "Loại Nguyên Phụ Liệu", "fabric_width_inch": "Khổ vải (inch)",
-            "shrinkage_warp_pct": "Độ co L (Dọc)", "shrinkage_weft_pct": "Độ co W (Ngang)",
-            "marker_efficiency_pct": "Hiệu suất sơ đồ", "net_consumption_yds_pc": "Định mức Net (yds/pc)",
-            "notes": "Chi tiết / Ghi chú bóc tách từ BOM"
-        }
-        df_rows = df_rows.rename(columns={k: v for k, v in column_mapping.items() if k in df_rows.columns})
+        flat_table_data = []
+        for row in bom_rows:
+            # Quy đổi trạng thái chuỗi ký tự sang Icon màu sắc trực quan trên giao diện
+            status_raw = row.get("validation_status", "PASS")
+            if status_raw == "CRITICAL":
+                status_display = "🔴 CRITICAL"
+            elif status_raw == "WARNING":
+                status_display = "🟡 WARNING"
+            else:
+                status_display = "🟢 PASS"
+                
+            flat_table_data.append({
+                "Giám Sát PLM": status_display,
+                "Loại Nguyên Phụ Liệu": row.get("component_type"),
+                "Khổ vải (inch)": row.get("fabric_width_inch"),
+                "Độ co L (Dọc)": row.get("shrinkage_warp_pct"),
+                "Độ co W (Ngang)": row.get("shrinkage_weft_pct"),
+                "Hiệu suất sơ đồ": row.get("marker_efficiency_pct"),
+                "Định mức Net (yds/pc)": row.get("net_consumption_yds_pc"),
+                "Ghi chú Hệ thống / Nhật ký Cảnh báo": row.get("notes")
+            })
+            
+        df_rows = pd.DataFrame(flat_table_data)
         st.dataframe(df_rows, use_container_width=True)
         
         csv = df_rows.to_csv(index=False).encode('utf-8-sig')
-        st.download_button("📥 Tải bảng định mức dọc (.CSV)", data=csv, file_name="ai_estimated_bom_report.csv", mime="text/csv")
+        st.download_button("📥 Tải bảng định mức kiểm chuẩn (.CSV)", data=csv, file_name="ai_validated_bom_report.csv", mime="text/csv")
