@@ -9,7 +9,7 @@ from google.generativeai import types
 # =====================================================================
 st.set_page_config(page_title="3. AI FABRIC CONSUMPTION", layout="wide")
 st.title("📊 TRỢ LÝ ĐỊNH MỨC NGUYÊN PHỤ LIỆU TỰ ĐỘNG (BOM)")
-st.caption("Kiến trúc Toán học CAD Engine - Tích hợp hệ số bù diện tích bề ngang rập thô thực tế xưởng")
+st.caption("Kiến trúc Toán học CAD Engine - Vá lỗi cú pháp biên dịch hệ thống")
 st.markdown("---")
 
 if "gemini_parsed_bom_data" not in st.session_state: st.session_state.gemini_parsed_bom_data = None
@@ -37,8 +37,8 @@ def get_dynamic_marker_efficiency(description: str, style_code: str) -> float:
 def python_consumption_sanity_check(bom_data: dict) -> dict:
     """
     THUẬT TOÁN CAD BÙ DIỆN TÍCH BỀ NGANG THỰC TẾ:
-    Thay vì chỉ tính chiều dài trục dọc, công thức mới tự động bù diện tích bề ngang rập thô 
-    (Diện tích trung bình của Thân trước + Thân sau + Đô + Túi + Cạp quần) theo phom dáng dáng quần [INDEX].
+    Đã sửa dứt điểm lỗi SyntaxError gán trùng toán tử. Tính toán diện tích 
+    hình học rập phẳng quần Jean độc lập dựa trên khổ vải và hiệu suất thực tế.
     """
     if "bom_rows" not in bom_data: return bom_data
     
@@ -73,28 +73,28 @@ def python_consumption_sanity_check(bom_data: dict) -> dict:
         try: shrink_l = float(shrink_l_text) / 100.0
         except: shrink_l = 0.0
 
-        # Lấy thông số dài quần thô do AI bóc (Mặc định quần dài 40 inch)
-        raw_length = float(row.get("raw_length_inch", 40.0)) if row.get("raw_length_inch") else 40.0
+        # Lấy thông số dài quần thô do AI bóc (Mặc định quần dài 40.5 inch nếu Techpack trống)
+        raw_length = float(row.get("raw_length_inch", 40.5)) if row.get("raw_length_inch") else 40.5
 
         # --- TÍNH TOÁN VẢI CHÍNH (DENIM / SHELL) ÁP DỤNG HỆ SỐ DIỆN TÍCH BỀ NGANG ---
         if any(keyword in comp_type for keyword in ["SHELL", "DENIM", "VẢI CHÍNH", "MAIN"]):
             # Quy cách dài quần cắt rập thô (bao gồm lai gấu và bo cạp)
             gross_length_inch = raw_length + 3.0
             
-            # ĐIỂM SỬA ĐỔI CỐT LÕI: Hệ số nhân diện tích bề ngang rập thô thực tế (Width Multiplier)
-            # Đối với dáng Flare Leg (ống loe) hoặc Baggy, vải luôn tốn hơn Regular do bản đùi và ống rộng.
+            # Hệ số nhân diện tích bề ngang rập thô thực tế (Width Multiplier) cho quần dáng loe/rộng
             if any(x in desc_upper for x in ["BAGGY", "FLARE", "WIDE LEG"]):
-                width_multiplier = 2.42  # Bù diện tích bề ngang loe/rộng lớn
+                width_multiplier = 2.42
             else:
-                width_multiplier = 2.30  # Bù diện tích quần jean 5 túi regular tiêu chuẩn
+                width_multiplier = 2.30
                 
-            # Công thức tính diện tích hình học phẳng thực tế cho 1 sản phẩm quần (Square Inches):
-            # Diện tích = Chiều dài thô * Hệ số bề ngang * 2 (Thân trước + Thân sau đối xứng)
+            # Tính tổng diện tích hình học rập phẳng cho quần (Thân trước + Thân sau đối xứng)
             total_garment_area_sq_inch = gross_length_inch * width_multiplier * 2.0
             
-            # Quy đổi diện tích ra định mức Yards dựa trên diện tích hữu ích thực tế của khổ vải
+            # Diện tích hữu ích thực tế trên mỗi Yard của khổ vải tương ứng
             usable_area_per_yard = width * 36.0 * (eff_val / 100.0)
-            net_consumption = total_gross_area := total_garment_area_sq_inch / usable_area_per_yard
+            
+            # Thực hiện phép toán chia diện tích thô (Đã vá dứt điểm lỗi SyntaxError gán trùng)
+            net_consumption = total_garment_area_sq_inch / usable_area_per_yard
             
             # Nhân hệ số bù trừ độ co rút dọc bàn cắt và cộng hao hụt đầu cây 2%
             final_yards = (net_consumption / (1.0 - shrink_l)) * 1.02
@@ -106,18 +106,19 @@ def python_consumption_sanity_check(bom_data: dict) -> dict:
 
         # --- TÍNH TOÁN KEO DỰNG (ĐẢM BẢO CHUẨN XƯỞNG) ---
         elif any(keyword in comp_type for keyword in ["FUSING", "KEO", "INTERLINING", "MEX"]):
-            row["net_consumption_yds_pc"] = round((4.5 * 38.0) / (width * 36.0 * 0.90), 3) # Chuẩn 0.105 yds
+            row["net_consumption_yds_pc"] = round((4.5 * 38.0) / (width * 36.0 * 0.90), 3)
             if row["net_consumption_yds_pc"] > 0.20: row["validation_status"] = "WARNING"
 
         # --- TÍNH TOÁN VẢI LÓT TÚI (ĐẢM BẢO CHUẨN XƯỞNG) ---
         elif any(keyword in comp_type for keyword in ["POCKETING", "LINING", "LÓT", "TÚI"]):
-            row["net_consumption_yds_pc"] = round((22.0 * 14.0 * 2) / (width * 36.0 * 0.85), 3) # Chuẩn 0.243 yds
+            row["net_consumption_yds_pc"] = round((22.0 * 14.0 * 2) / (width * 36.0 * 0.85), 3)
             if row["net_consumption_yds_pc"] > 0.35: row["validation_status"] = "WARNING"
             
         filtered_rows.append(row)
         
     bom_data["bom_rows"] = filtered_rows
     return bom_data
+
 # =====================================================================
 # LÕI ENGINE 2: AI QUÉT PDF VÀ PHÂN TÁCH SIÊU DỮ LIỆU SẠCH (CẤM TỰ TÍNH TOÁN)
 # =====================================================================
