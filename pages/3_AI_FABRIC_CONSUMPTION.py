@@ -9,7 +9,7 @@ from google.generativeai import types
 # =====================================================================
 st.set_page_config(page_title="3. AI FABRIC CONSUMPTION", layout="wide")
 st.title("📊 TRỢ LÝ ĐỊNH MỨC NGUYÊN PHỤ LIỆU TỰ ĐỘNG (BOM)")
-st.caption("Kiến trúc Toán học CAD Engine - Khởi tạo bảng mẫu cố định sạch bằng Python")
+st.caption("Kiến trúc Toán học CAD Engine - Tự động cập nhật số liệu không lưu cache")
 st.markdown("---")
 
 if "gemini_parsed_bom_data" not in st.session_state: st.session_state.gemini_parsed_bom_data = None
@@ -37,9 +37,8 @@ def get_dynamic_marker_efficiency(description: str, style_code: str) -> float:
 def python_consumption_sanity_check(bom_data: dict) -> dict:
     """
     BỘ KHUNG TOÁN HỌC ĐỘC LẬP CHUẨN XƯỞNG:
-    Bỏ hoàn toàn việc bắt chỉ mục idx dựa trên AI trả về. 
-    Python tự bóc tách các trường thông số của Vải chính, Keo, Lót từ dữ liệu AI 
-    và tính toán theo 3 công thức hình học độc lập, chặn đứng 100% lỗi lệch dòng.
+    Tính toán dựa trên chiều dài quần thực tế từ bảng thông số kết hợp 
+    với khổ vải và hiệu suất để cho ra kết quả Yards chuẩn xác.
     """
     desc_upper = str(bom_data.get("description", "")).upper()
     style_upper = str(bom_data.get("style_code", "")).upper()
@@ -53,7 +52,7 @@ def python_consumption_sanity_check(bom_data: dict) -> dict:
     s_shell_l, s_shell_w = 5.0, 15.0
     eff_val = default_eff
     
-    # TRÍCH XUẤT TOÀN BỘ THÔNG SỐ ĐẦU VÀO DO AI BÓC ĐƯỢC TỪ PDF/Ô CHAT KHÔNG PHỤ THUỘC THỨ TỰ
+    # TRÍCH XUẤT TOÀN BỘ THÔNG SỐ ĐẦU VÀO DO AI BÓC ĐƯỢC TỪ PDF/Ô CHAT
     if "bom_rows" in bom_data and isinstance(bom_data["bom_rows"], list):
         for row in bom_data["bom_rows"]:
             c_type = str(row.get("component_type", "")).upper()
@@ -80,15 +79,18 @@ def python_consumption_sanity_check(bom_data: dict) -> dict:
             elif any(k in c_type for k in ["POCKETING", "LINING", "LÓT", "TÚI"]):
                 if width_val > 0: w_lining = width_val
 
-    # ĐỘC LẬP TUYỆT ĐỐI: TỰ XÂY DỰNG LẠI BẢNG MẪU 3 DÒNG SẠCH BẰNG PYTHON
     clean_rows = []
     
     # 🧵 DÒNG 1: TÍNH ĐỊNH MỨC VẢI CHÍNH (DENIM / SHELL)
-    gross_length_inch = raw_length + 3.0
+    gross_length_inch = raw_length + 4.0  # Chiều dài rập thô bao gồm lai gấu và đường may ráp
     width_multiplier = 2.45 if any(x in desc_upper for x in ["BAGGY", "FLARE", "WIDE LEG"]) else 2.32
+    
+    # Tính tổng diện tích hình học rập phẳng cho quần (Thân trước + Thân sau đối xứng)
     total_garment_area_sq_inch = gross_length_inch * width_multiplier * 2.0
     usable_area_per_yard_shell = w_shell * 36.0 * (eff_val / 100.0)
     net_consumption_shell = total_garment_area_sq_inch / usable_area_per_yard_shell
+    
+    # Nhân hệ số bù trừ độ co rút dọc bàn cắt và cộng hao hụt đầu cây 2%
     final_yards_shell = (net_consumption_shell / (1.0 - (s_shell_l / 100.0))) * 1.02
     
     clean_rows.append({
@@ -96,7 +98,7 @@ def python_consumption_sanity_check(bom_data: dict) -> dict:
         "shrinkage_warp_pct": f"{int(s_shell_l)}%", "shrinkage_weft_pct": f"{int(s_shell_w)}%",
         "marker_efficiency_pct": f"{int(eff_val)}%", "net_consumption_yds_pc": round(final_yards_shell, 3),
         "validation_status": "CRITICAL" if final_yards_shell > 2.2 else ("WARNING" if final_yards_shell > 1.8 else "PASS"),
-        "notes": "Tính toán diện tích hình học rập thành công từ khổ vải chỉ định."
+        "notes": "Tính toán diện tích hình học rập thành công dựa trên thông số thực tế."
     })
     
     # 🧵 DÒNG 2: TÍNH ĐỊNH MỨC KEO DỰNG (INTERLINING)
@@ -138,7 +140,7 @@ def ai_gemini_vision_pdf_parser(pdf_bytes, user_custom_prompt) -> dict:
                 "style_code": {"type": "STRING"},
                 "description": {"type": "STRING"},
                 "calculated_size": {"type": "STRING"},
-                "raw_length_inch": {"type": "NUMBER", "nullable": True}, # AI bóc tách thông số dài quần từ POM
+                "raw_length_inch": {"type": "NUMBER", "nullable": True},
                 "bom_rows": {
                     "type": "ARRAY",
                     "items": {
@@ -167,7 +169,7 @@ def ai_gemini_vision_pdf_parser(pdf_bytes, user_custom_prompt) -> dict:
         3. Phân tách danh sách theo dòng nguyên phụ liệu độc lập (Vải chính, Keo dựng, Vải lót) [INDEX]. 
         4. LUỒNG ĐỒNG BỘ THÔNG TIN TỪ Ô CHAT CỦA USER: Nếu người dùng có gõ chỉ định khổ vải riêng biệt ở câu lệnh chat (Ví dụ: "vai chính khổ 58, vải lót khổ 57, keo khổ 59"), bạn phải điền chính xác con số khổ vải đó vào trường `fabric_width_inch` của đúng dòng vật liệu tương ứng [INDEX].
 
-        YÊU CẦU BỔ SUNG TỪ USER: "{user_custom_prompt}"
+        YÊU CẦU BỔ SUNG TỪ Ô CHAT CỦA USER: "{user_custom_prompt}"
         """
 
         model = genai.GenerativeModel('gemini-2.5-flash')
@@ -222,7 +224,8 @@ if user_prompt:
         st.session_state.chat_history.append({"role": "assistant", "content": "⚠️ Vui lòng tải file PDF lên ở Bước 1 trước."})
         st.rerun()
     else:
-        with st.spinner("Hệ thống Python Matrix Engine đang thiết lập định mức Yards..."):
+        # BỎ HOÀN TOÀN CACHE: Ép buộc hệ thống gọi trực tiếp Gemini quét lại file PDF từ đầu [INDEX]
+        with st.spinner("Hệ thống Matrix Engine đang kết nối Gemini quét file và tự động tính toán số liệu..."):
             parsed_result = ai_gemini_vision_pdf_parser(st.session_state.saved_pdf_bytes, user_prompt)
             if parsed_result and "error" not in parsed_result:
                 st.session_state.gemini_parsed_bom_data = parsed_result
