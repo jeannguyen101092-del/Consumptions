@@ -411,7 +411,7 @@ def execute_marker_yardage_and_quality_gate(ai_blueprint: dict, user_chat: str) 
 
 
 # =====================================================================
-# ĐOẠN 3: TỐI ƯU BỐ CỤC PHẲNG & CHỐNG TRÀN KHUNG TERMINAL V15.5
+# ĐOẠN 3: SỬA LỖI CÚ PHÁP CHUỖI VÀ TỐI ƯU BỐ CỤC PHẲNG V15.6
 # =====================================================================
 import streamlit as st
 import json
@@ -446,7 +446,7 @@ st.markdown("""
         font-size: 14px;
     }
     
-    /* SỬA LỖI: Tự động xuống dòng khi text quá dài, chống tràn màn hình */
+    /* Tự động xuống dòng khi text quá dài, chống tràn màn hình */
     .chat-box {
         background-color: #161920;
         border-radius: 4px;
@@ -456,8 +456,8 @@ st.markdown("""
         font-family: Consolas, Monaco, monospace;
         font-size: 12px;
         border: 1px solid #2d3139;
-        white-space: pre-wrap;       /* Giữ định dạng dòng */
-        word-wrap: break-word;       /* Tự bẻ đôi từ khóa nếu quá dài */
+        white-space: pre-wrap;       
+        word-wrap: break-word;       
         word-break: break-all;
     }
     </style>
@@ -465,7 +465,7 @@ st.markdown("""
 
 if "bom_data" not in st.session_state: st.session_state.bom_data = None
 if "chat_history" not in st.session_state:
-    st.session_state.chat_history = [{"role": "assistant", "content": "[SYSTEM READY] V15.5 Auto-Dispatcher active."}]
+    st.session_state.chat_history = [{"role": "assistant", "content": "[SYSTEM READY] V15.6 Auto-Dispatcher active."}]
 
 # --- SIDEBAR CONTROL PANEL ---
 with st.sidebar:
@@ -481,16 +481,16 @@ with st.sidebar:
 
 # --- MAIN DASHBOARD INTERFACE ---
 st.title("🏭 AI CAD Fabric Consumption Engine")
-st.caption("Industrial Engineering Matrix Multiplier • Version 15.5")
+st.caption("Industrial Engineering Matrix Multiplier • Version 15.6")
 
-# SỬA LỖI: Chia cột với tỷ lệ vàng 5:5 cân bằng cấu trúc hai bên tả hữu
-col_left, col_right = st.columns([5, 5])
+# Chia cột với tỷ lệ vàng cân bằng cấu trúc hai bên tả hữu
+col_left, col_right = st.columns(2)
 
 with col_left:
     # KHỐI 1: UPLOAD TẬP TIN
     st.markdown('<div class="cad-card">', unsafe_allow_html=True)
     st.markdown('<div class="cad-header">📥 FILE INGESTION (PDF/TECHPACK)</div>', unsafe_allow_html=True)
-    uploaded_file = st.file_uploader("Upload", type=["pdf"], key="v155_uploader", label_visibility="collapsed")
+    uploaded_file = st.file_uploader("Upload", type=["pdf"], key="v156_uploader", label_visibility="collapsed")
     if uploaded_file is not None:
         st.session_state.pdf_bytes = uploaded_file.read()
         st.session_state.pdf_name = uploaded_file.name
@@ -502,7 +502,8 @@ with col_left:
     
     chat_html = '<div class="chat-box">'
     for chat in st.session_state.get("chat_history", []):
-        color = '#4facfe' if chat["role"] == "assistant" else #00f2fe
+        # ĐÃ SỬA LỖI: Bọc mã màu Hex chính xác trong chuỗi dấu nháy đơn
+        color = '#4facfe' if chat["role"] == "assistant" else '#00f2fe'
         prefix = "🤖 [AI]: " if chat["role"] == "assistant" else "👤 [USER]: "
         chat_html += f"<div style='margin-bottom:6px; color: {color}'>{prefix}{chat['content']}</div>"
     chat_html += '</div>'
@@ -512,7 +513,7 @@ with col_left:
     st.markdown('</div>', unsafe_allow_html=True)
 
 with col_right:
-    # KHỐI 3: EXECUTION WORKSPACE (Nằm gọn bên phải, không bị nhảy hàng)
+    # KHỐI 3: EXECUTION WORKSPACE
     st.markdown('<div class="cad-card" style="min-height: 440px;">', unsafe_allow_html=True)
     st.markdown('<div class="cad-header">🚀 EXECUTION HUB</div>', unsafe_allow_html=True)
     
