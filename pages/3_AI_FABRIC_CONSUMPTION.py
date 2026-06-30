@@ -70,8 +70,10 @@ def safe_float(val, default=0.0) -> float:
 # AI GEMINI VISION PARSER QUÉT CẤU TRÚC MAY RẬP THÔ THỰC TẾ
 # =====================================================================
 def ai_gemini_vision_pdf_parser(pdf_bytes, user_custom_prompt) -> dict:
-    """Quét bảng BOM từ PDF và trả về định mức dạng hàng dọc xuống (mỗi NPL một dòng).
-    Kiểm soát chặt chẽ để định mức thực tế không bị quá thấp."""
+    """
+    Quét bảng BOM từ PDF và trả về định mức dạng hàng dọc xuống (mỗi NPL một dòng).
+    Tự động phân tích sâu cấu trúc kỹ thuật rập để bù thông số, chống định mức bị thấp.
+    """
     try:
         if "GEMINI_API_KEY" in st.secrets: genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
         elif "gemini" in st.secrets: genai.configure(api_key=st.secrets["gemini"].get("api_key", ""))
@@ -81,56 +83,63 @@ def ai_gemini_vision_pdf_parser(pdf_bytes, user_custom_prompt) -> dict:
         pdf_blob = {"mime_type": "application/pdf", "data": pdf_bytes}
         
         base_prompt = f"""
-        Bạn là Chuyên gia tối ưu hóa định mức xưởng may (Garment Costing Master).
-        Hãy quét bảng BOM trong file PDF để trích xuất dữ liệu rập và tính định mức tiêu hao (Consumption).
+        Bạn là Chuyên gia tối ưu hóa định mức xưởng may và Trưởng phòng kỹ thuật rập CAD (Pattern & Garment Costing Master).
+        Hãy quét bảng BOM (Bill of Materials) và tài liệu kỹ thuật trong file PDF này để trích xuất dữ liệu rập và tính định mức tiêu hao thực tế (Consumption).
 
         🚨 QUY TẮC PHÂN DÒNG NGUYÊN PHỤ LIỆU (BẮT BUỘC):
         Hãy trả về kết quả theo dạng danh sách các dòng (Mỗi loại nguyên phụ liệu chiếm 1 dòng riêng biệt):
-        - Dòng 1: VÀI CHÍNH (SHELL) -> Gom tất cả chi tiết vải chính (thân, tay, nắp túi, cơi, đáp...) thành 1 dòng tổng.
-        - Dòng 2: VẢI LÓT (LINING) -> Nếu sản phẩm có lót.
-        - Dòng 3: KEO / DỰNG (INTERLINING) -> Nếu có keo ép mex.
-        - Dòng 4: RIB / CHỈ / GÒN... -> Các nguyên phụ liệu khác nếu bảng BOM yêu cầu.
+        - Dòng 1: VẢI CHÍNH (SHELL) -> Gom tất cả chi tiết cấu thành từ vải chính (thân, tay, nắp túi, cơi, đáp...) thành 1 dòng tổng duy nhất.
+        - Dòng 2: VẢI LÓT (LINING) -> Trích xuất riêng nếu sản phẩm có chi tiết lót.
+        - Dòng 3: KEO / DỰNG (INTERLINING) -> Trích xuất riêng nếu có keo ép mếch/mex.
+        - Dòng 4: RIB / CHỈ / GÒN... -> Các dòng nguyên phụ liệu phối khác nếu bảng BOM yêu cầu.
 
-        📉 QUY TẮC TÍNH TOÁN ĐỊNH MỨC CHUẨN XƯỞNG (CHỐNG QUÁ THẤP HOẶC QUÁ CAO):
-        - Kiểm tra kỹ độ co rút và hao hụt cắt thực tế. Định mức không được quá thấp dưới mức an toàn của bàn cắt.
-        - Đối với Quần (Pants) dáng dài/Flare Leg: Định mức Vải chính (Shell) thông thường phải nằm trong khoảng từ 1.20 yds đến 1.70 yds/pc tùy vào khổ vải và size. Nếu AI tính ra dưới 1.10 yds cho quần dài là QUÁ THẤP, hãy tính toán lại dựa trên chiều dài rập thô thực tế + đường may gấu + độ co,thông số phải cộng thêm xếp ly nếu có xếp ly,tà áo rời cũng phai công thêm,túi mổ phai có cơi túi đáp túi,túi cargo phải cần xem là loại túi gì có xêp ly không có thành túi không để cộng thêm thông số xếp ly vào,lai áo ,lai quần cần kiểm tra quy cách may đê lấy thông sô cho hợp lý.
-        - Đơn vị tính bắt buộc: Quy đổi toàn bộ về YARDS (yds/pc).
+        📉 QUY TẮC KIỂM TRA RẬP MAY VÀ BÙ THÔNG SỐ (CHỐNG TÍNH THIẾU/ĐỊNH MỨC QUÁ THẤP):
+        Hãy kiểm tra thật kỹ bản vẽ sơ đồ rập và quy cách may trong PDF để cộng thêm thông số vào định mức:
+        1. XẾP LY (Pleats/Tucks): Phải kiểm tra xem sản phẩm (thân áo, thân quần) có xếp ly không. Nếu có, bắt buộc phải CỘNG THÊM độ sâu của các nếp gấp ly vào thông số rập thô.
+        2. TÀ ÁO RỜI: Nếu sản phẩm có thiết kế tà rời, bắt buộc phải tính toán và CỘNG THÊM phần vải hao hụt của tà rời vào định mức tổng.
+        3. TÚI MỔ (Welt/Piping Pocket): Nếu có cấu trúc túi mổ, bắt buộc định mức vải phải bao gồm cả diện tích của Cơi túi và Đáp túi mổ thực tế, không được bỏ sót.
+        4. TÚI CARGO (Túi hộp): Phải xem kỹ đây là loại túi hộp gì, có xếp ly hộp không, có thành túi (Pocket Wall/Bellow) không. Nếu có, bắt buộc phải CỘNG THÊM thông số chiều cao thành túi và độ sâu xếp ly vào diện tích cắt vải.
+        5. QUY CÁCH MAY LAI (Gấu áo/Lai quần): Phải kiểm tra kỹ quy cách may lai (Ví dụ: lai cuộn lớn, lai gấp) để lấy thông số cộng thêm cho chiều dài rập hợp lý, an toàn tuyệt đối cho xưởng cắt.
+
+        🚨 LƯU Ý QUY ĐỔI ĐƠN VỊ:
+        - Tự động quét và quy đổi toàn bộ kết quả tính toán cuối cùng về đơn vị YARDS TRÊN MỖI SẢN PHẨM (yds/pc).
+        - Tuyệt đối không được sao chép các con số ví dụ trong cấu trúc mẫu bên dưới, phải tự tính toán số thực tế dựa trên dữ liệu đã bù trừ rập từ file PDF.
 
         YÊU CẦU BỔ SUNG TỪ Ô CHAT CỦA USER:
         "{user_custom_prompt}"
 
-        Trả về chuỗi JSON duy nhất theo cấu trúc chính xác sau (Tuyệt đối không viết thêm chữ giải thích bên ngoài):
+        Trả về chuỗi JSON duy nhất theo cấu trúc chính xác sau (Tuyệt đối không viết thêm chữ giải thích hay ký tự nào ngoài JSON):
         {{
-            "style_code": "Mã Style",
-            "description": "Mô tả dáng hàng (Ví dụ: LIGHT ORANGE MID-RISE FLARE LEG PANT)",
-            "structure": "Cấu trúc sản phẩm",
+            "style_code": "Điền mã Style thực tế quét được từ file",
+            "description": "Điền mô tả dáng hàng thực tế quét được từ file",
+            "structure": "Điền cấu trúc sản phẩm thực tế quét được từ file",
             "bom_rows": [
                 {{
                     "component_type": "VẢI CHÍNH (SHELL)",
-                    "fabric_width_inch": "58",
-                    "shrinkage_warp_pct": "5%",
-                    "shrinkage_weft_pct": "15%",
-                    "marker_efficiency_pct": "88%",
-                    "net_consumption_yds_pc": 1.47,
-                    "notes": "Gom tổng tất cả các chi tiết vải chính bao gồm cả thân, túi, bo cạp"
+                    "fabric_width_inch": "Điền khổ vải chính thực tế",
+                    "shrinkage_warp_pct": "Điền độ co dọc L %",
+                    "shrinkage_weft_pct": "Điền độ co ngang W %",
+                    "marker_efficiency_pct": "Điền hiệu suất sơ đồ %",
+                    "net_consumption_yds_pc": 0.00,
+                    "notes": "Ghi chú cụ thể các chi tiết vải chính đã được gom (thân, xếp ly, cơi/đáp túi, túi cargo...)"
                 }},
                 {{
                     "component_type": "VẢI LÓT (LINING)",
-                    "fabric_width_inch": "57",
-                    "shrinkage_warp_pct": "0%",
-                    "shrinkage_weft_pct": "0%",
-                    "marker_efficiency_pct": "85%",
-                    "net_consumption_yds_pc": 0.25,
-                    "notes": "Lót túi, lót đáp"
+                    "fabric_width_inch": "Điền khổ vải lót thực tế",
+                    "shrinkage_warp_pct": "Điền độ co dọc L %",
+                    "shrinkage_weft_pct": "Điền độ co ngang W %",
+                    "marker_efficiency_pct": "Điền hiệu suất sơ đồ %",
+                    "net_consumption_yds_pc": 0.00,
+                    "notes": "Ghi chú cụ thể các chi tiết lót bóc tách được"
                 }},
                 {{
                     "component_type": "KEO / DỰNG",
-                    "fabric_width_inch": "59",
-                    "shrinkage_warp_pct": "0%",
-                    "shrinkage_weft_pct": "0%",
-                    "marker_efficiency_pct": "90%",
-                    "net_consumption_yds_pc": 0.08,
-                    "notes": "Keo ép cạp quần, nắp túi"
+                    "fabric_width_inch": "Điền khổ keo thực tế",
+                    "shrinkage_warp_pct": "Điền độ co dọc L %",
+                    "shrinkage_weft_pct": "Điền độ co ngang W %",
+                    "marker_efficiency_pct": "Điền hiệu suất sơ đồ %",
+                    "net_consumption_yds_pc": 0.00,
+                    "notes": "Ghi chú cụ thể các chi tiết ép keo (cạp quần, nắp túi, cổ áo...)"
                 }}
             ]
         }}
