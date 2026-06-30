@@ -37,8 +37,8 @@ def get_dynamic_marker_efficiency(description: str, style_code: str) -> float:
 def python_consumption_sanity_check(bom_data: dict) -> dict:
     """
     THUẬT TOÁN ĐỊNH VỊ CHỈ MỤC DÒNG (INDEX-BASED CAD ENGINE):
-    Loại bỏ việc tìm từ khóa chuỗi dễ lỗi. Định vị chính xác thuật toán tính toán 
-    theo đúng số thứ tự dòng xuất hiện trong bảng dữ liệu rập.
+    Đã sửa dứt điểm lỗi gọi sai tên biến (final_yards). 
+    Bảo đảm đầu ra vải Denim tự động tính toán đồng bộ theo hiệu suất sơ đồ.
     """
     if "bom_rows" not in bom_data: return bom_data
     
@@ -93,6 +93,7 @@ def python_consumption_sanity_check(bom_data: dict) -> dict:
             usable_area_per_yard = width * 36.0 * (eff_val / 100.0)
             net_consumption = total_garment_area_sq_inch / usable_area_per_yard
             
+            # Vá dứt điểm lỗi đồng bộ tên biến: Tính toán final_yards và gán chính xác vào dòng
             final_yards = (net_consumption / (1.0 - shrink_l)) * 1.02
             row["net_consumption_yds_pc"] = round(final_yards, 3)
             
