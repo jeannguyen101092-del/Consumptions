@@ -70,8 +70,8 @@ def safe_float(val, default=0.0) -> float:
 # AI GEMINI VISION PARSER QUÉT CẤU TRÚC MAY RẬP THÔ THỰC TẾ
 # =====================================================================
 def ai_gemini_vision_pdf_parser(pdf_bytes, user_custom_prompt) -> dict:
-    """Ép buộc AI phân tích trực tiếp bảng BOM gốc từ PDF.
-    Quy tắc: Gom toàn bộ vải chính (Shell), tách riêng Keo, Lót, Rib và kiểm soát chặt định mức."""
+    """Quét bảng BOM từ PDF và trả về định mức dạng hàng dọc xuống (mỗi NPL một dòng).
+    Kiểm soát chặt chẽ để định mức thực tế không bị quá thấp."""
     try:
         if "GEMINI_API_KEY" in st.secrets: genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
         elif "gemini" in st.secrets: genai.configure(api_key=st.secrets["gemini"].get("api_key", ""))
@@ -81,43 +81,56 @@ def ai_gemini_vision_pdf_parser(pdf_bytes, user_custom_prompt) -> dict:
         pdf_blob = {"mime_type": "application/pdf", "data": pdf_bytes}
         
         base_prompt = f"""
-        Bạn là Chuyên gia tối ưu hóa định mức xưởng may (Garment Costing & Efficiency Master).
-        Nhiệm vụ của bạn là quét bảng BOM (Bill of Materials) trong file PDF để trích xuất dữ liệu rập thực tế.
+        Bạn là Chuyên gia tối ưu hóa định mức xưởng may (Garment Costing Master).
+        Hãy quét bảng BOM trong file PDF để trích xuất dữ liệu rập và tính định mức tiêu hao (Consumption).
 
-        🚨 QUY TẮC PHÂN LOẠI VÀ GOM ĐỊNH MỨC (BẮT BUỘC):
-        1. VẢI CHÍNH (SHELL): Gom TẤT CẢ các chi tiết cắt bằng vải chính (Thân trước, thân sau, tay, nắp túi, cơi túi, đáp...) thành DUY NHẤT 1 ĐỊNH MỨC TỔNG (Shell Net) cho mỗi mã hàng.
-        2. TÁCH RIÊNG NGUYÊN PHỤ LIỆU PHỐI: Tuyệt đối KHÔNG gom chung vào vải chính. Phải bóc tách thành các cột độc lập:
-           - LINING: Vải lót (Tách riêng).
-           - INTERLINING/KEO: Keo dựng, mếch vải (Tách riêng).
-           - RIB: Vải bo (Tách riêng).
-           - PADDING/GÒN: Gòn tấm/gòn thổi (Tách riêng).
-        
-        📉 QUY TẮC KIỂM SOÁT ĐỊNH MỨC (CHỐNG PHÌNH SỐ LIỆU):
-        - Đối với Quần (Pants) / Áo thun / Sơ mi: Định mức vải chính thông thường dao động từ 1.0 đến 1.8 Yds/pc tùy khổ vải.
-        - Đối với Áo khoác (Jacket/Vest): Định mức vải chính thường từ 1.8 đến 2.8 Yds/pc.
-        - Hãy kiểm tra lại phép tính của bạn: Đảm bảo định mức đầu ra (Net Consumption) phản ánh đúng diện tích thực tế trên sơ đồ, KHÔNG ĐƯỢC nhân trùng lặp hoặc tự ý cộng dồn hao hụt sơ đồ quá mức. Tất cả quy đổi về YARDS (yds/pc).
+        🚨 QUY TẮC PHÂN DÒNG NGUYÊN PHỤ LIỆU (BẮT BUỘC):
+        Hãy trả về kết quả theo dạng danh sách các dòng (Mỗi loại nguyên phụ liệu chiếm 1 dòng riêng biệt):
+        - Dòng 1: VÀI CHÍNH (SHELL) -> Gom tất cả chi tiết vải chính (thân, tay, nắp túi, cơi, đáp...) thành 1 dòng tổng.
+        - Dòng 2: VẢI LÓT (LINING) -> Nếu sản phẩm có lót.
+        - Dòng 3: KEO / DỰNG (INTERLINING) -> Nếu có keo ép mex.
+        - Dòng 4: RIB / CHỈ / GÒN... -> Các nguyên phụ liệu khác nếu bảng BOM yêu cầu.
+
+        📉 QUY TẮC TÍNH TOÁN ĐỊNH MỨC CHUẨN XƯỞNG (CHỐNG QUÁ THẤP HOẶC QUÁ CAO):
+        - Kiểm tra kỹ độ co rút và hao hụt cắt thực tế. Định mức không được quá thấp dưới mức an toàn của bàn cắt.
+        - Đối với Quần (Pants) dáng dài/Flare Leg: Định mức Vải chính (Shell) thông thường phải nằm trong khoảng từ 1.20 yds đến 1.70 yds/pc tùy vào khổ vải và size. Nếu AI tính ra dưới 1.10 yds cho quần dài là QUÁ THẤP, hãy tính toán lại dựa trên chiều dài rập thô thực tế + đường may gấu + độ co,thông số phải cộng thêm xếp ly nếu có xếp ly,tà áo rời cũng phai công thêm,túi mổ phai có cơi túi đáp túi,túi cargo phải cần xem là loại túi gì có xêp ly không có thành túi không để cộng thêm thông số xếp ly vào,lai áo ,lai quần cần kiểm tra quy cách may đê lấy thông sô cho hợp lý.
+        - Đơn vị tính bắt buộc: Quy đổi toàn bộ về YARDS (yds/pc).
 
         YÊU CẦU BỔ SUNG TỪ Ô CHAT CỦA USER:
         "{user_custom_prompt}"
 
-        Trả về chuỗi JSON duy nhất (Tuyệt đối không viết thêm chữ giải thích bên ngoài):
+        Trả về chuỗi JSON duy nhất theo cấu trúc chính xác sau (Tuyệt đối không viết thêm chữ giải thích bên ngoài):
         {{
-            "bom_table": [
+            "style_code": "Mã Style",
+            "description": "Mô tả dáng hàng (Ví dụ: LIGHT ORANGE MID-RISE FLARE LEG PANT)",
+            "structure": "Cấu trúc sản phẩm",
+            "bom_rows": [
                 {{
-                    "style_code": "Mã Style",
-                    "description": "Mô tả dáng hàng",
-                    "structure": "Cấu trúc sản phẩm",
-                    "fabric_width_inch": "Khổ vải (Ví dụ: 56)",
-                    "shrinkage_warp_pct": "Độ co L (Ví dụ: 5%)",
-                    "shrinkage_weft_pct": "Độ co W (Ví dụ: 5%)",
-                    "marker_efficiency_pct": "Hiệu suất (Ví dụ: 85%)",
-                    "shell_main_fabric_net_yds_pc": 1.35,
-                    "lining_net_yds_pc": 1.05,
-                    "interlining_keo_net_yds_pc": 0.25,
-                    "rib_net_yds_pc": 0.15,
-                    "padding_gon_net_yds_pc": 0.00,
-                    "total_yds_pc": 2.80,
-                    "notes": "Ghi chú nguyên liệu phối"
+                    "component_type": "VẢI CHÍNH (SHELL)",
+                    "fabric_width_inch": "58",
+                    "shrinkage_warp_pct": "5%",
+                    "shrinkage_weft_pct": "15%",
+                    "marker_efficiency_pct": "88%",
+                    "net_consumption_yds_pc": 1.47,
+                    "notes": "Gom tổng tất cả các chi tiết vải chính bao gồm cả thân, túi, bo cạp"
+                }},
+                {{
+                    "component_type": "VẢI LÓT (LINING)",
+                    "fabric_width_inch": "57",
+                    "shrinkage_warp_pct": "0%",
+                    "shrinkage_weft_pct": "0%",
+                    "marker_efficiency_pct": "85%",
+                    "net_consumption_yds_pc": 0.25,
+                    "notes": "Lót túi, lót đáp"
+                }},
+                {{
+                    "component_type": "KEO / DỰNG",
+                    "fabric_width_inch": "59",
+                    "shrinkage_warp_pct": "0%",
+                    "shrinkage_weft_pct": "0%",
+                    "marker_efficiency_pct": "90%",
+                    "net_consumption_yds_pc": 0.08,
+                    "notes": "Keo ép cạp quần, nắp túi"
                 }}
             ]
         }}
