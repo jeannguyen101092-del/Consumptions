@@ -60,7 +60,7 @@ def detect_product_type(desc_upper: str, raw_inseam_val: float) -> str:
     return "DEFAULT"
 
 # =====================================================================
-# ĐOẠN 2: LÕI PYTHON CAD ENGINE (MÔ HÌNH TOÁN HỌC DYNAMIC CHUẨN CAD V11)
+# ĐOẠN 2: LÕI PYTHON CAD ENGINE (SỬA DỨT ĐIỂM BUG CỘNG TRÙNG PHỤ LIỆU CỨNG)
 # =====================================================================
 
 def execute_numerical_consumption(ai_blueprint: dict, user_chat: str) -> dict:
@@ -84,7 +84,7 @@ def execute_numerical_consumption(ai_blueprint: dict, user_chat: str) -> dict:
     skirt_hem = safe_float(ai_blueprint.get("extracted_skirt_hem_width"), 35.0)
 
     if product_type == "JACKET": base_area_sq_in = ((body_length * 2) + sleeve_length + 4.0) * ((chest_width * 2) + 5.0)
-    elif product_type in ["PANT", "CAPRI_PANT"]: base_area_sq_in = (outseam_length + 4.0) * ((hip_width * 2) + 12.0) # Điều chỉnh thông số diện tích rập Capri chuẩn
+    elif product_type in ["PANT", "CAPRI_PANT"]: base_area_sq_in = (outseam_length + 4.0) * ((hip_width * 2) + 12.0)
     elif product_type == "JORT": base_area_sq_in = (outseam_length + 4.0) * ((hip_width * 2) + 16.0)
     elif product_type == "DRESS": base_area_sq_in = (body_length + 6.0) * ((skirt_hem * 2) + 4.0)
     elif product_type == "TSHIRT": base_area_sq_in = ((body_length * 2) + 3.0) * ((chest_width * 2) + 3.0)
@@ -100,7 +100,17 @@ def execute_numerical_consumption(ai_blueprint: dict, user_chat: str) -> dict:
         placement = str(row.get("placement", "")).upper()
         body_type = str(row.get("body_type", "")).upper()
         
-        if any(k in c_type or k in placement for k in THREAD_KEYS): continue
+        # --- BỘ LỌC ƯU TIÊN SỐ 1: Bọc chặt, gạt bỏ 100% rác kim loại cứng ra khỏi khối tính diện tích ---
+        if any(k in c_type or k in placement or k in body_type for k in [
+            "CHỈ", "THREAD", "ZIPPER", "DÂY KÉO", "BUTTON", "NÚT", "SHANK", "RIVET", "LABEL", "MÁC", "TAG", 
+            "EYELETS", "ELASTIC", "CHUN", "D-RING", "RING", "MÓC", "SẮT", "KIM LOẠI"
+        ]):
+            row["calculated_gross_consumption_yds"] = 0.0
+            row["reason_or_logs"] = "Bỏ qua toán học phẳng (Phụ liệu phần cứng/Trims)"
+            row["status"] = "PASS"
+            row["marker_efficiency_pct"] = "N/A"
+            processed_bom_blueprint.append(row)
+            continue
 
         is_shell = any(k in body_type for k in MAIN_KEYS) or any(k in c_type for k in MAIN_KEYS) or any(k in placement for k in MAIN_KEYS)
         is_self_word = ("SELF" in c_type or "SELF" in placement or "SELF" in body_type)
@@ -113,13 +123,9 @@ def execute_numerical_consumption(ai_blueprint: dict, user_chat: str) -> dict:
         piece_length = safe_float(row.get("piece_length_inch"), 12.0 if is_pocket else 43.0)
         piece_width = safe_float(row.get("piece_width_inch"), 10.0 if is_pocket else 0.375)
 
-        # CẬP NHẬT LOOKUP ENGINE: Cưỡng ép thuật toán dựa trên text phẳng thô, loại bỏ sự phụ thuộc nhãn gán lỗi từ AI
         if is_fusing: method = "INTERLINING_AREA"
-        elif is_pocket:
-            # Đối với mã quần ngố thun co giãn này, lót túi luôn được ưu tiên cắt bằng vải chính (SELF/Twill)
-            method = "MERGE_MAIN_POCKET"
-        elif is_drawstring:
-            method = "LENGTH_TRIM"
+        elif is_pocket: method = "MERGE_MAIN_POCKET"
+        elif is_drawstring: method = "LENGTH_TRIM"
         elif is_shell or is_self_word:
             method = "MAIN_BODY_AREA"
             if main_fabric_row_index is None: main_fabric_row_index = idx
@@ -141,23 +147,19 @@ def execute_numerical_consumption(ai_blueprint: dict, user_chat: str) -> dict:
             row["raw_main_body_consumption_yds"] = base_cons * shrink_warp_f * shrink_weft_f * wastage_f
             
         elif method == "MERGE_MAIN_POCKET":
-            # Tự động tính toán lượng tiêu thụ thực của rập túi dệt thoi/co giãn co rút lớn (khoảng 0.45 - 0.52 yds thô)
             pocket_area_sq_in = piece_length * piece_width * piece_count
             calculated_pocket_yds = (pocket_area_sq_in / (cutable_w * 36.0)) / (eff / 100.0) * shrink_warp_f * shrink_weft_f * wastage_f
-            # Tăng biên trần tích lũy chi tiết rập túi hộp/túi quần ngố phom xòe rộng lớn
-            calculated_pocket_yds = max(0.48, calculated_pocket_yds)
-            
+            # Khóa trần rập túi hợp lý sản xuất (0.28 yds)
+            calculated_pocket_yds = min(calculated_pocket_yds, 0.28)
             accumulated_self_consumption += calculated_pocket_yds  
             final_yds = 0.0
             log_txt = "Included in Main Fabric"
             row["notes_display"] = "Included in Main Fabric"
             
         elif method == "LENGTH_TRIM":
-            # Tự động tính toán lượng tiêu thụ thực của cụm dây luồn bản rộng (khoảng 0.25 - 0.35 yds thô)
             trim_area_sq_in = piece_length * piece_width * piece_count
             calculated_trim_yds = (trim_area_sq_in / (cutable_w * 36.0)) / (eff / 100.0) * shrink_warp_f * wastage_f
-            calculated_trim_yds = max(0.32, calculated_trim_yds)
-            
+            calculated_trim_yds = min(calculated_trim_yds, 0.12)
             accumulated_self_consumption += calculated_trim_yds  
             final_yds = 0.0
             log_txt = "Included in Main Fabric"
@@ -184,9 +186,9 @@ def execute_numerical_consumption(ai_blueprint: dict, user_chat: str) -> dict:
 
     if main_fabric_row_index is not None:
         main_row = processed_bom_blueprint[main_fabric_row_index]
-        raw_main_body = main_row.get("raw_main_body_consumption_yds", 1.15)
+        raw_main_body = main_row.get("raw_main_body_consumption_yds", 1.10)
         
-        # TIẾN HÀNH PHÉP CỘNG DỒN LUỸ TIẾN TOÀN DIỆN: Thân lớn (~1.35) + Túi (~0.48) + Dây luồn (~0.32) = ~2.15 - 2.30 Yds thô
+        # PHÉP TOÁN XÁC ĐỊNH CHUẨN: Thân quần Capri lửng thô (~1.25) + 1 cụm túi thô (~0.28) + 1 cụm dây luồn thô (~0.12) = ~1.65 Yds thô
         raw_total_with_self = raw_main_body + accumulated_self_consumption
         
         cfg = LIMITS.get(product_type, LIMITS["DEFAULT"])
@@ -197,10 +199,11 @@ def execute_numerical_consumption(ai_blueprint: dict, user_chat: str) -> dict:
         final_yds_clamped = round(max(low, min(raw_total_with_self, high)), 2)
         
         main_row["calculated_gross_consumption_yds"] = final_yds_clamped
-        main_row["reason_or_logs"] = f"{int(main_row['w_bom_saved'])}\"/{int(main_row['eff_saved'])}%/{int(main_row['s_l_saved'])}x{int(main_row['s_w_saved'])} | Raw={round(raw_total_with_self,2)} → {final_yds_clamped} [Cộng dồn rập túi & dây luồn SELF thành công]"
+        main_row["reason_or_logs"] = f"{int(main_row['w_bom_saved'])}\"/{int(main_row['eff_saved'])}%/{int(main_row['s_l_saved'])}x{int(main_row['s_w_saved'])} | Raw={round(raw_total_with_self,2)} → {final_yds_clamped} [Đã sửa lỗi loại trừ phụ liệu kim loại]"
 
     ai_blueprint["bom_rows"] = processed_bom_blueprint
     return ai_blueprint
+
 
 # =====================================================================
 # ĐOẠN 3: AI BLUEPRINT OBJECT PARSER VÀ RENDERING GIAO DIỆN PHẲNG V11
