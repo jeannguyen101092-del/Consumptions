@@ -390,32 +390,29 @@ if st.session_state.gemini_parsed_bom_data:
     
     col1, col2, col3 = st.columns(3)
     col1.markdown(f"📌 **Mã Style:** `{st.session_state.gemini_parsed_bom_data.get('style_code', 'N/A')}`")
-    col2.markdown(f"📐 **Cơ chế tính:** `TECHPACK_PDF_CONSUMPTION_ESTIMATION_ENGINE`")
+    col2.markdown(f"📐 **Cơ chế tính:** `TECHPACK_PDF_CONSUMPTION_ESTIMATION_ENGINE_V7`")
     col3.markdown(f"🧥 **Mô tả dáng:** {st.session_state.gemini_parsed_bom_data.get('description', 'N/A')}")
     
     bom_rows = st.session_state.gemini_parsed_bom_data.get("bom_rows", [])
     if bom_rows and isinstance(bom_rows, list):
         flat_table_data = []
         for row in bom_rows:
-            # ĐÃ VÁ: Đồng bộ đúng Key 'status' từ hàm toán học Engine 1
             status_raw = row.get("status", "PASS")
             status_display = "🔴 CRITICAL" if status_raw == "CRITICAL" else ("🟡 WARNING" if status_raw == "WARNING" else "🟢 PASS")
                 
             flat_table_data.append({
                 "Giám Sát PLM": status_display,
                 "Loại Nguyên Phụ Liệu": row.get("component_type", "N/A"),
-                "Khổ vải (inch)": row.get("fabric_width_inch", "N/A"),
-                "Độ co L (Dọc)": row.get("shrinkage_warp_pct", "0"),
-                "Độ co W (Ngang)": row.get("shrinkage_weft_pct", "0"),
-                "Hiệu suất sơ đồ": f"{row.get('marker_efficiency_pct', '86')}%",
-                "Định mức Gross (yds/pc)": row.get("calculated_gross_consumption_yds", 0.0), # ĐÃ VÁ: Đúng tên key
-                "Ghi chú Hệ thống / Nhật ký Cảnh báo": row.get("reason_or_logs", "") # ĐÃ VÁ: Đúng tên key nhật ký
+                "Vị trí sử dụng (Placement)": row.get("placement", "N/A"),
+                "Hiệu suất sơ đồ": row.get("marker_efficiency_pct", "N/A"),
+                "Định mức Gross (yds/pc)": row.get("calculated_gross_consumption_yds", 0.0),
+                "Ghi chú Hệ thống / Nhật ký Cảnh báo": row.get("reason_or_logs", "")
             })
             
         df_rows = pd.DataFrame(flat_table_data)
         st.dataframe(df_rows, use_container_width=True)
         
-        # Gọi thư viện openpyxl dựng form xuất xưởng Phong Phú cao cấp
+        # Khởi động openpyxl xuất bản in xưởng may cao cấp
         from openpyxl import Workbook
         from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
         from openpyxl.utils import get_column_letter
@@ -424,11 +421,8 @@ if st.session_state.gemini_parsed_bom_data:
         wb = Workbook()
         ws = wb.active
         ws.title = "BẢNG ĐỊNH MỨC KỸ THUẬT"
-        
-        # Mở ô lưới Excel phẳng, xóa bỏ hoàn toàn dấu ngoặc vuông lỗi list
         ws.sheet_view.showGridLines = True  
         
-        # Cấu hình thiết kế đồ họa bảng tính
         font_header_comp = Font(name="Arial", size=11, bold=True)
         font_title = Font(name="Arial", size=14, bold=True, color="1F497D")
         font_label = Font(name="Arial", size=10, bold=True)
@@ -437,27 +431,21 @@ if st.session_state.gemini_parsed_bom_data:
         
         thin_side = Side(border_style="thin", color="000000")
         border_all = Border(left=thin_side, right=thin_side, top=thin_side, bottom=thin_side)
-        header_fill = PatternFill(start_color="DCE6F1", end_color="DCE6F1", fill_type="solid") # Màu xanh dương nhạt thương hiệu
+        header_fill = PatternFill(start_color="DCE6F1", end_color="DCE6F1", fill_type="solid")
         
-        # Ghi khối tiêu đề biên bản góc trái trên cùng
         ws["B2"] = "CTY CỔ PHẦN QUỐC TẾ PHONG PHÚ"
         ws["B2"].font = font_header_comp
         ws["B3"] = "Phòng Kỹ Thuật"
         ws["B3"].font = Font(name="Arial", size=10, italic=True, bold=True)
         
-        # Merge ô căn giữa chữ hoa lớn tiêu đề chính
-        ws.merge_cells("B5:L5")
+        ws.merge_cells("B5:H5")
         ws["B5"] = "BẢNG ĐỊNH MỨC KỸ THUẬT (APPROVED CONSUMPTION)"
         ws["B5"].font = font_title
         ws["B5"].alignment = Alignment(horizontal="center", vertical="center")
         
-        # Đổ thông số quản trị hệ thống
         headers_info = [
-            ("B7", "CUSTOMER:", "C7", "REITMANS"),
-            ("B8", "STYLE:", "C8", str(st.session_state.gemini_parsed_bom_data.get('style_code', 'N/A'))),
-            ("B9", "BOCK PATTERN:", "C9", "NONE"),
-            ("B10", "SEASON:", "C10", "NONE"),
-            ("B11", "FACTORY:", "C11", "NONE")
+            ("B7", "STYLE:", "C7", str(st.session_state.gemini_parsed_bom_data.get('style_code', 'N/A'))),
+            ("B8", "DESCRIPTION:", "C8", str(st.session_state.gemini_parsed_bom_data.get('description', 'N/A'))[:60])
         ]
         
         for lbl_cell, lbl_txt, val_cell, val_txt in headers_info:
@@ -468,68 +456,49 @@ if st.session_state.gemini_parsed_bom_data:
             ws[lbl_cell].border = Border(bottom=thin_side)
             ws[val_cell].border = Border(bottom=thin_side)
             
-        # Tiêu đề lưới cột dữ liệu Phong Phú gán ở dòng 13
-        headers = [
-            "STT", "Fabric type", "Fabric code", "Fabric Depictions Fabric", 
-            "Cuttable", "Cons", "Shrinkage (% RẬP dọc)", "Shrinkage (% RẬP ngang)", 
-            "Hiệu suất sơ đồ", "Unit", "Noted"
-        ]
+        headers = ["STT", "Fabric/Trim Type", "Placement", "Cons (Yds)", "Marker Eff", "Unit", "System Notes / Debug Log"]
         
         for col_num, header_title in enumerate(headers, start=2):
-            cell = ws.cell(row=13, column=col_num)
+            cell = ws.cell(row=11, column=col_num)
             cell.value = header_title
             cell.font = font_table_header
             cell.fill = header_fill
             cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
             cell.border = border_all
             
-        # ĐÃ VÁ HOÀN THIỆN: Ghi các dòng định mức đã qua giải thuật Python và đóng vòng lặp Excel
-        current_row = 14
+        current_row = 12
         for idx, row in enumerate(bom_rows, start=1):
-            ws.cell(row=current_row, column=2, value=idx).alignment = Alignment(horizontal="center") # STT
-            ws.cell(row=current_row, column=3, value=row.get("component_type", "SHELL"))             # Fabric type
-            ws.cell(row=current_row, column=4, value="-")                                            # Fabric code
-            ws.cell(row=current_row, column=5, value=row.get("placement", "BODY"))                    # Fabric Depictions
-            ws.cell(row=current_row, column=6, value=row.get("fabric_width_inch", "58"))             # Cuttable Width
-            ws.cell(row=current_row, column=7, value=row.get("calculated_gross_consumption_yds", 0.0)) # Cons (Yards)
-            ws.cell(row=current_row, column=8, value=row.get("shrinkage_warp_pct", "3"))             # Shrinkage Dọc
-            ws.cell(row=current_row, column=9, value=row.get("shrinkage_weft_pct", "3"))             # Shrinkage Ngang
-            ws.cell(row=current_row, column=10, value=f"{row.get('marker_efficiency_pct', '86')}%") # Hiệu suất sơ đồ
-            ws.cell(row=current_row, column=11, value="YDS").alignment = Alignment(horizontal="center") # Unit
-            ws.cell(row=current_row, column=12, value=row.get("reason_or_logs", ""))                 # Noted / Nhật ký
+            ws.cell(row=current_row, column=2, value=idx)                                            # STT
+            ws.cell(row=current_row, column=3, value=row.get("component_type", "N/A"))               # Fabric Type
+            ws.cell(row=current_row, column=4, value=row.get("placement", "N/A"))                    # Placement
+            ws.cell(row=current_row, column=5, value=row.get("calculated_gross_consumption_yds", 0.0)) # Cons
+            ws.cell(row=current_row, column=6, value=row.get("marker_efficiency_pct", "N/A"))        # Marker Eff
+            ws.cell(row=current_row, column=7, value="YDS")                                          # Unit
+            ws.cell(row=current_row, column=8, value=row.get("reason_or_logs", ""))                  # Notes
 
-                     # GÁN FONT VÀ BORDER CHO TOÀN BỘ CÁC Ô DỮ LIỆU VỪA TẠO
-            for col_num in range(2, 13):
+            for col_num in range(2, 9):
                 c = ws.cell(row=current_row, column=col_num)
                 c.font = font_data
                 c.border = border_all
                 
-                # SỬA TRIỆT ĐỂ: Dùng toán tử so sánh tường minh để tránh lỗi cú pháp biên dịch
-                is_center_col = (col_num == 2 or col_num == 6 or col_num == 8 or col_num == 9 or col_num == 10 or col_num == 11)
-                
-                if is_center_col:
+                # ĐÃ VÁ LỖI: Căn chỉnh an toàn độc lập dựa trên số thứ tự cột Excel, loại bỏ hoàn toàn biến lỗi is_main
+                if col_num in:
                     c.alignment = Alignment(horizontal="center", vertical="center")
-                elif col_num == 7:
-                    # Căn phải và cố định 3 chữ số thập phân cho cột định mức kỹ thuật
+                elif col_num == 5:
                     c.alignment = Alignment(horizontal="right", vertical="center")
                     c.number_format = '0.000'
                     
             current_row += 1
 
-
-
-        # Tự động căn rộng kích thước chiều ngang các cột tương thích nội dung Excel
         for col in ws.columns:
             max_len = max(len(str(cell.value or '')) for cell in col)
-            col_letter = get_column_letter(col[0].column)
+            col_letter = get_column_letter(col.column)
             ws.column_dimensions[col_letter].width = max(max_len + 3, 12)
             
-        # Xuất file Excel ra bộ nhớ tạm (Stream Byte IO)
         excel_buffer = io.BytesIO()
         wb.save(excel_buffer)
         excel_buffer.seek(0)
         
-        # Tạo nút bấm tải biểu mẫu chất lượng cao ngay trên Streamlit
         st.markdown(" ")
         st.download_button(
             label="📥 TẢI BIỂU MẪU ĐỊNH MỨC KỸ THUẬT PHONG PHÚ (.XLSX)",
