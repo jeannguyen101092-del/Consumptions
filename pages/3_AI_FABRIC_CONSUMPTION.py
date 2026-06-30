@@ -59,6 +59,10 @@ def detect_product_type(desc_upper: str, raw_inseam_val: float) -> str:
         
     return "DEFAULT"
 
+# =====================================================================
+# ĐOẠN 2: LÕI PYTHON CAD ENGINE (TOÁN HỌC ĐỒNG BỘ CỘNG DỒN SAU CỦA PLM)
+# =====================================================================
+
 def execute_numerical_consumption(ai_blueprint: dict, user_chat: str) -> dict:
     w_chat, s_l_chat, s_w_chat = None, None, None
     chat_clean = str(user_chat).lower().strip()
@@ -74,45 +78,53 @@ def execute_numerical_consumption(ai_blueprint: dict, user_chat: str) -> dict:
     chest_width = safe_float(ai_blueprint.get("extracted_chest_width"), 20.0)
     
     product_type = ai_blueprint.get("detected_product_type", "DEFAULT")
-    
-    # Đồng bộ độ dài mặc định của phom đồ theo phân phân nhóm
-    if product_type == "CAPRI_PANT": default_outseam = 31.0
-    elif product_type == "CARGO_PANT": default_outseam = 41.0
-    elif product_type == "JORT": default_outseam = 14.0
-    else: default_outseam = 40.0
-        
+    default_outseam = 31.0 if product_type == "CAPRI_PANT" else (14.0 if product_type == "JORT" else 40.0)
     outseam_length = safe_float(ai_blueprint.get("extracted_outseam_length"), default_outseam)
     hip_width = safe_float(ai_blueprint.get("extracted_hip_width"), 21.0)
     skirt_hem = safe_float(ai_blueprint.get("extracted_skirt_hem_width"), 35.0)
 
-    # 1. ĐÃ SỬA: BỔ SUNG CÔNG THỨC DIỆN TÍCH CHO CẢ CAPRI_PANT VÀ CARGO_PANT TRÁNH DÙNG CHUNG PANT TRUYỀN THỐNG [INDEX]
-    if product_type == "JACKET": 
-        base_area_sq_in = ((body_length * 2) + sleeve_length + 4.0) * ((chest_width * 2) + 5.0)
-    elif product_type == "CAPRI_PANT": 
-        # Cấu trúc rập quần Capri nữ phom lửng gấu xẻ rộng ngang
-        base_area_sq_in = (outseam_length + 4.0) * ((hip_width * 2) + 12.0) [INDEX]
-    elif product_type == "CARGO_PANT":
-        # Cấu trúc rập quần túi hộp hầm hố, biên rộng nới lỏng để chứa diện tích rập hộp lớn
-        base_area_sq_in = (outseam_length + 4.0) * ((hip_width * 2) + 18.0)
-    elif product_type == "PANT": 
-        base_area_sq_in = (outseam_length + 3.0) * ((hip_width * 2) + 5.5)
-    elif product_type == "JORT": 
-        base_area_sq_in = (outseam_length + 4.0) * ((hip_width * 2) + 16.0)
-    elif product_type == "DRESS": 
-        base_area_sq_in = (body_length + 6.0) * ((skirt_hem * 2) + 4.0)
-    elif product_type == "TSHIRT": 
-        base_area_sq_in = ((body_length * 2) + 3.0) * ((chest_width * 2) + 3.0)
-    elif product_type == "SHIRT": 
-        base_area_sq_in = ((body_length * 2) + sleeve_length + 3.5) * ((chest_width * 2) + 4.5)
-    else: 
-        base_area_sq_in = 30.0 * 50.0
+    if product_type == "JACKET": base_area_sq_in = ((body_length * 2) + sleeve_length + 4.0) * ((chest_width * 2) + 5.0)
+    elif product_type in ["PANT", "CAPRI_PANT"]: base_area_sq_in = (outseam_length + 3.0) * ((hip_width * 2) + 5.5)
+    elif product_type == "JORT": base_area_sq_in = (outseam_length + 4.0) * ((hip_width * 2) + 16.0)
+    elif product_type == "DRESS": base_area_sq_in = (body_length + 6.0) * ((skirt_hem * 2) + 4.0)
+    elif product_type == "TSHIRT": base_area_sq_in = ((body_length * 2) + 3.0) * ((chest_width * 2) + 3.0)
+    elif product_type == "SHIRT": base_area_sq_in = ((body_length * 2) + sleeve_length + 3.5) * ((chest_width * 2) + 4.5)
+    else: base_area_sq_in = 30.0 * 50.0
 
     processed_bom_blueprint = []
     accumulated_self_consumption = 0.0  
     main_fabric_row_index = None        
 
     for idx, row in enumerate(ai_blueprint.get("bom_rows", [])):
-        material_classification = row.get("material_classification", "BYPASS")
+        c_type = str(row.get("component_type", "")).upper()
+        placement = str(row.get("placement", "")).upper()
+        body_type = str(row.get("body_type", "")).upper()
+        
+        if any(k in c_type or k in placement for k in THREAD_KEYS): continue
+
+        is_shell = any(k in body_type for k in MAIN_KEYS) or any(k in c_type for k in MAIN_KEYS) or any(k in placement for k in MAIN_KEYS)
+        is_self_word = ("SELF" in c_type or "SELF" in placement or "SELF" in body_type)
+        
+        is_pocket = any(k in body_type for k in POCKET_KEYS) or any(k in c_type for k in POCKET_KEYS) or any(k in placement for k in POCKET_KEYS)
+        is_fusing = any(k in body_type for k in FUSING_KEYS) or any(k in c_type for k in FUSING_KEYS) or any(k in placement for k in FUSING_KEYS)
+        is_drawstring = any(k in body_type for k in DRAWSTRING_KEYS) or any(k in c_type for k in DRAWSTRING_KEYS) or any(k in placement for k in DRAWSTRING_KEYS)
+
+        piece_count = safe_float(row.get("piece_count"), 2.0 if is_pocket else 1.0)
+        piece_length = safe_float(row.get("piece_length_inch"), 12.0 if is_pocket else 43.0)
+        piece_width = safe_float(row.get("piece_width_inch"), 10.0 if is_pocket else 0.375)
+
+        if is_fusing: method = "INTERLINING_AREA"
+        elif is_pocket and (is_shell or is_self_word): method = "MERGE_MAIN_POCKET"
+        elif is_pocket and not (is_shell or is_self_word): method = "POCKETING_FABRIC_ISOLATED"
+        elif is_drawstring and (is_shell or is_self_word): method = "LENGTH_TRIM"
+        elif is_shell:
+            row_w_check = safe_float(row.get("fabric_width_inch"), 0.0)
+            if (c_type == "SELF" or placement == "SELF") and row_w_check <= 0: method = "LENGTH_TRIM"
+            else:
+                method = "MAIN_BODY_AREA"
+                if main_fabric_row_index is None: main_fabric_row_index = idx
+        else: method = "BYPASS"
+
         w_bom = w_chat if w_chat is not None else safe_float(row.get("fabric_width_inch"), 56.0)
         s_l = s_l_chat if s_l_chat is not None else safe_float(row.get("shrinkage_warp_pct"), 5.0)
         s_w = s_w_chat if s_w_chat is not None else safe_float(row.get("shrinkage_weft_pct"), 10.0)
@@ -122,41 +134,33 @@ def execute_numerical_consumption(ai_blueprint: dict, user_chat: str) -> dict:
         shrink_warp_f, shrink_weft_f = 1.0 + (s_l / 100.0), 1.0 + (s_w / 100.0)
         wastage_f = 1.03
 
-        final_yds, log_txt, row_status = 0.0, f"Method: {material_classification}", "PASS"
+        final_yds, log_txt, row_status = 0.0, f"Method: {method}", "PASS"
 
-        if material_classification == "MAIN_FABRIC":
+        if method == "MAIN_BODY_AREA":
             base_cons = (base_area_sq_in / (cutable_w * 36.0)) / (eff / 100.0)
             row["raw_main_body_consumption_yds"] = base_cons * shrink_warp_f * shrink_weft_f * wastage_f
-            if main_fabric_row_index is None: main_fabric_row_index = idx
-
-        elif material_classification == "SELF_POCKET":
-            piece_count = safe_float(row.get("piece_count"), 2.0)
-            piece_len = safe_float(row.get("piece_length_inch"), 12.0)
-            piece_wid = safe_float(row.get("piece_width_inch"), 10.0)
             
-            pocket_area = piece_len * piece_wid * piece_count
-            calculated_pocket_yds = (pocket_area / (cutable_w * 36.0)) / (eff / 100.0) * shrink_warp_f * shrink_weft_f * wastage_f
-            accumulated_self_consumption += calculated_pocket_yds
+        elif method == "MERGE_MAIN_POCKET":
+            pocket_area_sq_in = piece_length * piece_width * piece_count
+            calculated_pocket_yds = (pocket_area_sq_in / (cutable_w * 36.0)) / (eff / 100.0) * shrink_warp_f * shrink_weft_f * wastage_f
+            accumulated_self_consumption += calculated_pocket_yds  
             final_yds = 0.0
-            log_txt = f"Included in Main Fabric"
+            log_txt = "Included in Main Fabric"
             row["notes_display"] = "Included in Main Fabric"
-
-        elif material_classification == "SELF_DRAWSTRING":
-            piece_len = safe_float(row.get("piece_length_inch"), 43.0)
-            piece_wid = safe_float(row.get("piece_width_inch"), 0.375)
             
-            trim_area = piece_len * piece_wid * 1.0
-            calculated_trim_yds = (trim_area / (cutable_w * 36.0)) / (eff / 100.0) * shrink_warp_f * wastage_f
-            accumulated_self_consumption += calculated_trim_yds
+        elif method == "LENGTH_TRIM":
+            trim_area_sq_in = piece_length * piece_width * piece_count
+            calculated_trim_yds = (trim_area_sq_in / (cutable_w * 36.0)) / (eff / 100.0) * shrink_warp_f * wastage_f
+            accumulated_self_consumption += calculated_trim_yds  
             final_yds = 0.0
-            log_txt = f"Included in Main Fabric"
+            log_txt = "Included in Main Fabric"
             row["notes_display"] = "Included in Main Fabric"
-
-        elif material_classification == "POCKETING_FABRIC":
+            
+        elif method == "POCKETING_FABRIC_ISOLATED":
             final_yds = 0.15 if product_type == "JORT" else 0.25
             log_txt = "Vải lót túi lót chuyên dụng độc lập"
             
-        elif material_classification == "INTERLINING_FUSING" or "INTERLINING" in material_classification:
+        elif method == "INTERLINING_AREA":
             final_yds = 0.10 if product_type in ["PANT", "JORT", "CAPRI_PANT", "CARGO_PANT"] else 0.65
             log_txt = "Diện tích dựng mếch keo phối chi tiết lưng"
             
@@ -167,17 +171,15 @@ def execute_numerical_consumption(ai_blueprint: dict, user_chat: str) -> dict:
         row["calculated_gross_consumption_yds"] = final_yds
         row["reason_or_logs"] = log_txt
         row["status"] = row_status
-        row["marker_efficiency_pct"] = f"{int(eff)}%" if material_classification in ["MAIN_FABRIC", "SELF_POCKET", "SELF_DRAWSTRING"] else "N/A"
+        row["marker_efficiency_pct"] = f"{int(eff)}%" if method in ["MAIN_BODY_AREA", "MERGE_MAIN_POCKET", "LENGTH_TRIM"] else "N/A"
         row["w_bom_saved"], row["eff_saved"], row["s_l_saved"], row["s_w_saved"] = w_bom, eff, s_l, s_w
         processed_bom_blueprint.append(row)
 
-    # --- 2. ĐÃ SỬA: ĐỒNG BỘ CLAMP DỮ LIỆU CỘNG DỒN THEO ĐÚNG DẢI BIÊN AN TOÀN CỦA CAPRI_PANT (1.15 - 2.45 YDS) [INDEX] ---
     if main_fabric_row_index is not None:
         main_row = processed_bom_blueprint[main_fabric_row_index]
         raw_main_body = main_row.get("raw_main_body_consumption_yds", 1.10)
         raw_total_with_self = raw_main_body + accumulated_self_consumption
         
-        # Nhận diện chính xác Key cấu hình (Nếu product_type=CAPRI_PANT sẽ bẫy trần đúng 2.45 yds) [INDEX]
         cfg = LIMITS.get(product_type, LIMITS["DEFAULT"])
         if raw_total_with_self > cfg["warn_thresh"]: main_row["status"] = "WARNING"
         if raw_total_with_self > 3.3: main_row["status"] = "CRITICAL"
@@ -190,6 +192,7 @@ def execute_numerical_consumption(ai_blueprint: dict, user_chat: str) -> dict:
 
     ai_blueprint["bom_rows"] = processed_bom_blueprint
     return ai_blueprint
+
 # =====================================================================
 # ĐOẠN 3: AI BLUEPRINT OBJECT PARSER VÀ RENDERING GIAO DIỆN PHẲNG V11
 # =====================================================================
