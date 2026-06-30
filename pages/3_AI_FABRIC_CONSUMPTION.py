@@ -477,13 +477,13 @@ if st.session_state.gemini_parsed_bom_data:
             ws.cell(row=current_row, column=11, value="YDS").alignment = Alignment(horizontal="center") # Unit
             ws.cell(row=current_row, column=12, value=row.get("reason_or_logs", ""))                 # Noted / Nhật ký
 
-                       # Gán font và border cho toàn bộ các ô dữ liệu vừa tạo
+                        # GÁN FONT VÀ BORDER CHO TOÀN BỘ CÁC Ô DỮ LIỆU VỪA TẠO
             for col_num in range(2, 13):
                 c = ws.cell(row=current_row, column=col_num)
                 c.font = font_data
                 c.border = border_all
                 
-                # ĐÃ VÁ: Căn giữa cho các cột STT(2), Khổ(6), Co dọc(8), Co ngang(9), Hiệu suất(10), Đơn vị(11)
+                # SỬA TRIỆT ĐỂ: Điền đầy đủ mảng số cột để Python biên dịch chính xác
                 if col_num in:
                     c.alignment = Alignment(horizontal="center", vertical="center")
                 elif col_num == 7:
@@ -491,6 +491,7 @@ if st.session_state.gemini_parsed_bom_data:
                     c.alignment = Alignment(horizontal="right", vertical="center")
                     
             current_row += 1
+
 
 
         # Tự động căn rộng kích thước chiều ngang các cột tương thích nội dung Excel
