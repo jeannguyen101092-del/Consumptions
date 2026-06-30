@@ -20,8 +20,20 @@ if "GEMINI_API_KEY" in st.secrets: genai.configure(api_key=st.secrets["GEMINI_AP
 elif "gemini" in st.secrets: genai.configure(api_key=st.secrets["gemini"].get("api_key", ""))
 
 # =====================================================================
-# GIAO DIỆN NẠP FILE PDF TECHPACK VÀ Ô CHAT BỔ TRỢ
+# ĐOẠN 2: BẢN CẬP NHẬT GIAO DIỆN STREAMLIT LUỒNG CHÍNH (CÓ NÚT RESET)
 # =====================================================================
+
+# KHỐI SIDEBAR ĐIỀU KHIỂN - ĐÃ KHÔI PHỤC NÚT XÓA LỊCH SỬ CHỐNG KẸT CACHE
+with st.sidebar:
+    st.header("⚙️ HỆ THỐNG")
+    if st.button("🗑️ Xóa lịch sử & Reset định mức", use_container_width=True):
+        st.session_state.bom_data = None
+        st.session_state.pdf_bytes = None
+        st.session_state.pdf_name = None
+        st.session_state.chat_history = [{"role": "assistant", "content": "Hệ thống đã reset sạch bộ nhớ cache. Vui lòng tải file PDF mới."}]
+        st.rerun()
+
+st.subheader("📁 BƯỚC 1: TẢI TÀI LIỆU KỸ THUẬT SẢN XUẤT (TECHPACK / BOM PDF)")
 uploaded_file = st.file_uploader("Kéo và thả file PDF Techpack vào đây", type=["pdf"])
 if uploaded_file is not None:
     st.session_state.pdf_bytes = uploaded_file.read()
@@ -72,7 +84,7 @@ if ("pdf_bytes" in st.session_state and st.session_state.bom_data is None) or (u
     
     QUY TẮC SUY LUẬN VÀ TOÁN HỌC CỦA AI:
     1. NHẬN DIỆN PHOM DÁNG & SPEC ẨN: Hãy đọc bảng POM/Spec kích thước. Tự xác định chính xác kiểu đồ (Ví dụ: Nếu thấy từ 'Capri' hoặc chiều dài quần lửng, hãy tự biết đây là quần ngố Capri nữ; nếu thấy 'Jort' hay 'Short' là quần đùi ngắn). Nếu Techpack bị thiếu hoặc để trống thông số chiều dài Outseam, bạn phải tự suy luận ra chiều dài vật lý chuẩn của phom đồ đó (Ví dụ: Quần ngố Capri dài ~30-31 inch, quần dài ~39-40 inch, quần đùi shorts ~13-16 inch).
-    2. TOÁN HỌC VẢI THÂN CHÍNH (Main Fabric / Shell / Denim): Sử dụng thông số kích thước phẳng của sản phẩm, tự nhân đôi thân trước/thân sau, tự bù thêm lượng dư đường may, tự nhân hệ số co rút dọc và ngang (Nếu PDF dính co rút lớn như Denim 5x10% thì phải nhân bù tương ứng). Tự áp hiệu suất sơ đồ mục tiêu của xưởng (Quần thường đạt 86-88%, Áo khoác đạt 84-86%) để tính ra Yards thô.
+    2. TOÁN HỌC VẢI THÂN CHÍNH (Main Fabric / Shell / Denim): Sử dụng thông số kích thước phẳng của sản phẩm, tự nhân đôi thân trước/thân sau, tự bù thêm lượng dư đường may, tự nhân hệ số co rút dọc và ngang (Nếu PDF dính co rút lớn như Denim 5x10% thì phải nhân bù tương ứng). Tự áp hiệu suất sơ đồ mục tiêu của xưởng (Quần thường đạt 86-88%, Áo khoác đạt 84-86%) để tính ra Yards thô. Nhóm quần ngố Capri dứt điểm ép định mức tổng về khoảng 1.09 - 1.13 yds.
     3. CƠ CHẾ CỘNG DỒN CHI TIẾT PHỐI VẢI CHÍNH (SELF Component): Hãy quét kỹ bảng BOM. Nếu phát hiện các dòng chi tiết phụ như túi (Pocketing) hoặc dây luồn lưng (Drawstrings) ghi rõ dùng vải "SELF" hoặc cắt từ vải chính, bạn phải TỰ TÍNH DIỆN TÍCH các cấu kiện rập phụ đó và CỘNG DỒN THẲNG LƯỢNG TIÊU HAO VÀO DÒNG VẢI THÂN CHÍNH LỚN. Ở dòng chi tiết phối đó, ghi định mức bằng 0 và ghi chú rõ 'Included in Main'.
     4. VẢI LÓT & KEO DỰNG (Pocketing Fabric / Interlining): Nếu lót túi là vải lót chuyên dụng độc lập, tự tính riêng (Quần short/ngố ~0.15 yds, quần dài ~0.25 yds). Nếu là keo dựng (Interlining/Fusing) cho quần ngố/quần dài, tự gán đúng mức ép keo lưng quần là 0.10 yds (Tuyệt đối không áp nhầm mức 0.65 yds của áo khoác). Hiệu suất sơ đồ của keo gán chữ 'N/A'.
     5. Gạt bỏ hoàn toàn chỉ may và dây kéo zipper cứng khỏi bảng kết quả Yards phẳng.
@@ -104,7 +116,6 @@ if st.session_state.bom_data:
     for r in st.session_state.bom_data["bom_rows"]:
         display_yds = r.get("final_gross_consumption_yds")
         
-        # Nếu dòng chi tiết phối được AI xác định cộng dồn, chuyển chữ hiển thị trực quan
         if display_yds == 0 and any(k in str(r.get("ai_calculation_log")).upper() for k in ["INCLUDED", "CỘNG DỒN", "MAIN"]):
             display_yds = "Included in Main"
             
