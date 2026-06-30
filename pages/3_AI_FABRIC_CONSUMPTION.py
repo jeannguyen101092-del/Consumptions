@@ -411,25 +411,22 @@ def execute_marker_yardage_and_quality_gate(ai_blueprint: dict, user_chat: str) 
 
 
 # =====================================================================
-# ĐOẠN 3: ĐỔI PHONG CÁCH GIAO DIỆN XÁM SÁNG CÔNG NGHIỆP PLM V15.7
+# ĐOẠN 3 & 4: RENDER BẢNG ĐỊNH MỨC VÀ TÍCH HỢP XUẤT FILE EXCEL V15.8
 # =====================================================================
 import streamlit as st
+import pandas as pd
+import io
 import json
 import re
 
 st.set_page_config(page_title="AI CAD Fabric Consumption Engine", layout="wide")
 
-# CSS Thay đổi màu sắc chủ đạo: Nền sáng xám nhạt, Chữ tối, Thẻ trắng tinh tế
+# CSS Đồng bộ màu xám sáng công nghiệp cao cấp
 st.markdown("""
     <style>
-    /* Nền ứng dụng xám sáng, chữ tối màu rõ nét */
     .stApp { background-color: #f4f6f9; color: #2d3748; }
-    
-    /* Thanh biên màu xám xanh nhã nhặn */
     [data-testid="stSidebar"] { background-color: #e2e8f0; border-right: 1px solid #cbd5e1; }
-    [data-testid="stSidebar"] .stMarkdown { color: #334155; }
     
-    /* Thẻ Card màu trắng bo góc, đổ bóng nhẹ kiểu giao diện ERP cao cấp */
     .cad-card {
         background-color: #ffffff;
         border: 1px solid #e2e8f0;
@@ -439,7 +436,6 @@ st.markdown("""
         box-shadow: 0 4px 10px rgba(0, 0, 0, 0.05);
     }
     
-    /* Tiêu đề cụm chức năng màu Xanh Dương Kỹ Thuật */
     .cad-header {
         font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
         color: #1e40af;
@@ -449,10 +445,8 @@ st.markdown("""
         margin-bottom: 16px;
         text-transform: uppercase;
         font-size: 14px;
-        letter-spacing: 0.5px;
     }
     
-    /* Khung Terminal mô phỏng console sáng sủa, bẻ dòng chống tràn */
     .chat-box {
         background-color: #f8fafc;
         border-radius: 6px;
@@ -461,23 +455,21 @@ st.markdown("""
         overflow-y: auto;
         font-family: 'Courier New', Courier, monospace;
         font-size: 13px;
-        font-weight: 600;
         border: 1px solid #cbd5e1;
         white-space: pre-wrap;       
         word-wrap: break-word;       
-        word-break: break-all;
     }
     </style>
 """, unsafe_allow_html=True)
 
 if "bom_data" not in st.session_state: st.session_state.bom_data = None
 if "chat_history" not in st.session_state:
-    st.session_state.chat_history = [{"role": "assistant", "content": "[SYSTEM READY] V15.7 Engine initialized in Industrial Light Mode."}]
+    st.session_state.chat_history = [{"role": "assistant", "content": "[SYSTEM READY] V15.8 Light Core active."}]
 
 # --- SIDEBAR CONTROL PANEL ---
 with st.sidebar:
     st.markdown('<div class="cad-header">⚙️ ENGINE CONTROLS</div>', unsafe_allow_html=True)
-    st.info("💡 **Hạn ngạch Google:** Để tránh vấp lỗi gián đoạn 429 Quota Exceeded khi phân rã rập liên tục, hãy cân nhắc nâng cấp tài khoản hoặc sử dụng API Key có định mức cao hơn.")
+    st.info("💡 **Hạn ngạch Google:** Để tránh vấp lỗi gián đoạn 429 Quota Exceeded khi phân rã rập liên tục, hãy nâng cấp tài khoản hoặc sử dụng API Key trả phí.")
     
     if st.button("🗑️ CLEAR SYSTEM MEMORY", use_container_width=True, type="secondary"):
         st.session_state.bom_data = None
@@ -488,47 +480,97 @@ with st.sidebar:
 
 # --- MAIN DASHBOARD INTERFACE ---
 st.title("🏭 AI CAD Fabric Consumption Engine")
-st.caption("PLM-Integrated Pattern Discovery & Marker Analytics • Version 15.7")
+st.caption("PLM-Integrated Pattern Discovery & Marker Analytics • Version 15.8")
 
 # Cấu trúc lưới hai cột đối xứng sạch sẽ
 col_left, col_right = st.columns(2)
 
 with col_left:
-    # KHỐI 1: UPLOAD FILE TECHPACK
     st.markdown('<div class="cad-card">', unsafe_allow_html=True)
     st.markdown('<div class="cad-header">📥 FILE INGESTION (PDF/TECHPACK)</div>', unsafe_allow_html=True)
-    uploaded_file = st.file_uploader("Upload Spec", type=["pdf"], key="v157_uploader", label_visibility="collapsed")
+    uploaded_file = st.file_uploader("Upload Spec", type=["pdf"], key="v158_uploader", label_visibility="collapsed")
     if uploaded_file is not None:
         st.session_state.pdf_bytes = uploaded_file.read()
         st.session_state.pdf_name = uploaded_file.name
     st.markdown('</div>', unsafe_allow_html=True)
 
-    # KHỐI 2: TERMINAL NHẬT KÝ HỆ THỐNG
     st.markdown('<div class="cad-card">', unsafe_allow_html=True)
     st.markdown('<div class="cad-header">💻 CAD LIVE LOG CONSOLE</div>', unsafe_allow_html=True)
-    
     chat_html = '<div class="chat-box">'
     for chat in st.session_state.get("chat_history", []):
-        # Đổi màu chữ tối tương phản tốt trên nền xám nhạt
         color = '#1e3a8a' if chat["role"] == "assistant" else '#b45309'
         prefix = "🤖 [CAD]: " if chat["role"] == "assistant" else "👤 [USER]: "
         chat_html += f"<div style='margin-bottom:8px; color: {color}'>{prefix}{chat['content']}</div>"
     chat_html += '</div>'
     st.markdown(chat_html, unsafe_allow_html=True)
-    
-    user_prompt = st.chat_input("Input override commands (e.g., Khổ vải 57 inch)...")
+    user_prompt = st.chat_input("Input override commands...")
     st.markdown('</div>', unsafe_allow_html=True)
 
 with col_right:
-    # KHỐI 3: KHU VỰC ĐIỀU KHIỂN CHẠY MÔ HÌNH
     st.markdown('<div class="cad-card" style="min-height: 450px;">', unsafe_allow_html=True)
     st.markdown('<div class="cad-header">🚀 EXECUTION WORKSPACE</div>', unsafe_allow_html=True)
-    
     st.markdown("<p style='color:#475569;'>Ready to process vector coordinate tables and apply structural seam/pleat adjustments.</p>", unsafe_allow_html=True)
     trigger_calc = st.button("RUN GEOMETRIC CALCULATION ENGINE", use_container_width=True, type="primary")
     
     if "pdf_bytes" not in st.session_state:
-        st.caption("⚪ SYSTEM STATUS: Directory unmounted. Upload a techpack file to activate.")
+        st.caption("⚪ SYSTEM STATE: Directory unmounted. Upload a techpack file to activate.")
     else:
         st.success(f"📎 BUFFERED OBJECT: `{st.session_state.pdf_name}` loaded successfully.")
+    st.markdown('</div>', unsafe_allow_html=True)
+
+
+# --- KHU VỰC HIỂN THỊ KẾT QUẢ VÀ XUẤT FILE EXCEL PHÍA DƯỚI GIAO DIỆN MÀN HÌNH ---
+# Điều kiện: Chỉ hiển thị khi st.session_state.bom_data chứa dữ liệu đã được xử lý từ Đoạn 2a2
+if st.session_state.bom_data and "bom_rows" in st.session_state.bom_data:
+    st.markdown('<div class="cad-card">', unsafe_allow_html=True)
+    st.markdown('<div class="cad-header">📊 CALCULATED FABRIC CONSUMPTION MATRIX (BOM RESULT)</div>', unsafe_allow_html=True)
+    
+    # 1. Chuyển đổi dữ liệu BOM thô sang DataFrame để hiển thị và xuất file
+    raw_rows = st.session_state.bom_data["bom_rows"]
+    
+    # Làm sạch các cột hiển thị ra màn hình cho chuyên nghiệp
+    display_data = []
+    for r in raw_rows:
+        display_data.append({
+            "Component Type": r.get("component_type", "N/A"),
+            "Placement": r.get("placement", "N/A"),
+            "Fabric Classification": r.get("fabric_classification", "MAIN_FABRIC"),
+            "Fabric Code": r.get("fabric_code", "MAIN"),
+            "Fabric Color": r.get("fabric_color", "COLOR"),
+            "Marker Efficiency": r.get("marker_efficiency_pct", "N/A"),
+            "Gross Consumption (Yds)": r.get("calculated_gross_consumption_yds", 0.0),
+            "Quality Status": r.get("status", "PASS"),
+            "System Notes": r.get("consumption_note", "")
+        })
+    
+    df_bom = pd.DataFrame(display_data)
+    
+    # 2. XỬ LÝ ĐÓNG GÓI EXCEL CHUẨN ĐƠN VỊ VÀ ĐĂNG KÝ NÚT BẤM DOWNLOAD
+    buffer = io.BytesIO()
+    with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+        df_bom.to_excel(writer, index=False, sheet_name='Fabric_Consumption_BOM')
+        # Tự động căn chỉnh độ rộng cột Excel
+        worksheet = writer.sheets['Fabric_Consumption_BOM']
+        for idx, col in enumerate(df_bom.columns):
+            max_len = max(df_bom[col].astype(str).map(len).max(), len(col)) + 3
+            worksheet.set_column(idx, idx, max_len)
+            
+    excel_data = buffer.getvalue()
+
+    # Layout nút xuất Excel nằm ngay phía trên bảng số liệu
+    col_table_hdr, col_btn_export = st.columns([3, 1])
+    with col_table_hdr:
+        st.write("Bản xem trước dữ liệu định mức tính toán tự động dựa trên sơ đồ rập:")
+    with col_btn_export:
+        # Nút bấm chính thức tải file Excel về hệ thống
+        st.download_button(
+            label="🟢 EXPORT TO EXCEL (.XLSX)",
+            data=excel_data,
+            file_name=f"AI_CAD_Fabric_BOM_{st.session_state.bom_data.get('style_code', 'GUEST')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True
+        )
+        
+    # Render bảng dữ liệu tương tác lên Streamlit màn hình sáng
+    st.dataframe(df_bom, use_container_width=True, hide_index=True)
     st.markdown('</div>', unsafe_allow_html=True)
