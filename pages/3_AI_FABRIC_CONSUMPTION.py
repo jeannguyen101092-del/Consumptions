@@ -310,7 +310,9 @@ if st.session_state.gemini_parsed_bom_data:
         wb = Workbook()
         ws = wb.active
         ws.title = "BẢNG ĐỊNH MỨC KỸ THUẬT"
-        ws.views.sheetView.showGridLines = True
+        
+        # VÁ LỖI QUAN TRỌNG: Sửa lại cách mở ô lưới Excel phẳng, xóa bỏ hoàn toàn dấu ngoặc vuông [0] lỗi list
+        ws.sheet_view.showGridLines = True  # [INDEX]
         
         # Cấu hình thiết kế đồ họa bảng tính
         font_header_comp = Font(name="Arial", size=11, bold=True)
@@ -393,16 +395,14 @@ if st.session_state.gemini_parsed_bom_data:
                     c.fill = PatternFill(start_color="FCE4D6", end_color="FCE4D6", fill_type="solid")
             current_row += 1
             
-        # VÁ LỖI QUAN TRỌNG: Duyệt cột theo dải số thứ tự chuẩn openpyxl từ cột B (2) đến L (12) [INDEX]
+        # Duyệt cột theo dải số thứ tự chuẩn openpyxl từ cột B (2) đến L (12)
         for col_idx in range(2, 13):
             max_len = 0
             col_letter = get_column_letter(col_idx)
-            # Quét qua tất cả các ô trong cột chỉ định để tìm ô dài nhất
             for row_idx in range(13, current_row):
                 cell_val = ws.cell(row=row_idx, column=col_idx).value
                 if cell_val:
                     max_len = max(max_len, len(str(cell_val)))
-            # Thiết lập độ rộng cột an toàn + thêm khoảng cách đệm
             ws.column_dimensions[col_letter].width = max(max_len + 3, 11)
             
         # Vẽ cụm ký tên biên bản đóng chân
