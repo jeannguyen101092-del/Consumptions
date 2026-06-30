@@ -5,20 +5,28 @@ import re
 import google.generativeai as genai
 from google.generativeai import types
 
-# CẤU HÌNH TRANG CHUẨN PLM ENTERPRISE
-st.set_page_config(page_title="AI CAD ENTERPRISE ENGINE", layout="wide")
-st.title("🧩 AI GENERATIVE PATTERN & DETAILED MARKER ENGINE (V12)")
-st.caption("Lõi CAD Thương mại: AI phân rã chi tiết rập phẳng từ Sketch - Python mô phỏng sơ đồ hình học")
-st.markdown("---")
+# =====================================================================
+# ĐOẠN 1: GLOBAL CONFIG REGISTRY & LÕI MÔ PHỎNG SƠ ĐỒ THƯƠNG MẠI (V12)
+# =====================================================================
 
-# QUẢN LÝ QUY TẮC PHÂN LOẠI VẬT LIỆU TOÀN CỤC
-VẬT_LIỆU_REGISTRY = {
-    "MAIN_FABRIC": ["SHELL", "MAIN", "BODY", "DENIM", "COTTON", "VẢI CHÍNH"],
-    "CONTRAST_FABRIC": ["CONTRAST", "PHỐI", "COMBINATION"],
-    "LINING_FABRIC": ["LINING", "MESH", "TAFFETA", "TRICOT", "LÓT"],
-    "POCKETING_FABRIC": ["POCKETING", "TÚI"],
-    "INTERLINING_FUSING": ["INTERLINING", "FUSING", "MECK", "MEX", "KEO", "DỰNG"]
+# KHỐI CẤU HÌNH BIÊN ĐỘ GIỚI HẠN KIỂM SOÁT RỦI RO TOÀN CỤC CHUẨN XƯỞNG
+LIMITS = {
+    "JACKET":     {"range": (1.65, 2.65), "warn_thresh": 2.5},
+    "PANT":       {"range": (1.15, 1.75), "warn_thresh": 1.6},  
+    "CAPRI_PANT": {"range": (1.15, 2.45), "warn_thresh": 2.2},  
+    "CARGO_PANT": {"range": (1.45, 2.85), "warn_thresh": 2.4},  
+    "JORT":       {"range": (1.05, 1.35), "warn_thresh": 1.25},
+    "DRESS":      {"range": (1.45, 3.25), "warn_thresh": 3.0},
+    "TSHIRT":     {"range": (0.65, 1.35), "warn_thresh": 1.4},
+    "SHIRT":      {"range": (1.15, 1.95), "warn_thresh": 2.0},
+    "DEFAULT":    {"range": (1.15, 2.20), "warn_thresh": 2.2}
 }
+
+MAIN_KEYS = ("MAIN FABRIC", "MAIN", "BODY", "SHELL", "SELF FABRIC", "SELFFABRIC", "SELF-FABRIC", "FACE", "OUTER", "PRIMARY", "FABRIC", "MAIN FABRIC", "THÂN", "VẢI CHÍNH", "DENIM", "COTTON")
+THREAD_KEYS = ("CHỈ", "THREAD", "ZIPPER", "DÂY KÉO", "BUTTON", "NÚT", "SHANK", "RIVET", "LABEL", "MÁC", "TAG", "EYELETS")
+POCKET_KEYS = ("POCKETING", "POCKET BAG", "POCKET", "TÚI", "TC POCKETING")
+FUSING_KEYS = ("INTERLINING", "FUSING", "LINING", "MECK", "MEX", "KEO", "LÓT", "DỰNG")
+DRAWSTRING_KEYS = ("DRAWSTRING", "DRAW CORD", "DRAWCORD", "DÂY RÚT", "DÂY LUỒN")
 
 def safe_float(val, default=0.0) -> float:
     if val is None: return default
@@ -27,28 +35,35 @@ def safe_float(val, default=0.0) -> float:
     try: return float(val_clean)
     except (ValueError, TypeError): return default
 
-# HÀM MÔ PHỎNG HIỆU SUẤT SƠ ĐỒ (MARKER EFFICIENCY SIMULATION) DỰA TRÊN ĐẶC TÍNH VẢI
 def simulate_marker_efficiency(fabric_type: str, grain_rule: str, width: float) -> float:
-    """Mô phỏng Gerber/Lectra Nesting: Tính % hao hụt sơ đồ dựa trên chiều cắt rập và vân vải."""
-    base_efficiency = 88.5  # Hiệu suất lý tưởng của máy tính
-    
-    # 1. Khấu trừ theo chiều cắt rập (Grain Line Rule)
+    """Mô phỏng Gerber/Lectra Nesting: Tính % hao hụt sơ đồ dựa trên đặc tính rập vải."""
+    base_efficiency = 88.5  
     if grain_rule == "ONE_WAY" or fabric_type in ["VELVET", "NHUNG", "TUYẾT"]:
-        base_efficiency -= 4.5  # Vải một chiều tốn vải hơn vì không được xoay đầu rập
+        base_efficiency -= 4.5  
     elif grain_rule == "STRIPE_MATCH" or grain_rule == "GRID_MATCH":
-        base_efficiency -= 6.0  # Vải kẻ caro/sọc phải canh trùng ô nên cực kỳ hao hụt
-        
-    # 2. Khấu trừ theo khổ vải cắt hữu ích
-    if width < 45.0: base_efficiency -= 3.0  # Khổ vải càng nhỏ càng khó xếp rập khít
-    
+        base_efficiency -= 6.0  
+    if width < 45.0: base_efficiency -= 3.0  
     return max(65.0, min(base_efficiency, 93.0))
+
+def calculate_cad_area(length: float, width: float, cutable_w: float, row_eff: float) -> float:
+    return ((length * width) / (cutable_w * 36.0)) / (row_eff / 100.0)
+
+def detect_product_type(desc_upper: str, raw_inseam_val: float) -> str:
+    if any(x in desc_upper for x in ["JACKET", "COAT", "VEST", "OUTERWEAR"]): return "JACKET"
+    elif any(x in desc_upper for x in ["JEAN", "DENIM", "PANT", "PANTS", "BAGGY", "TROUSER", "LEGGING", "JORT", "CAPRI", "CARGO"]):
+        if any(k in desc_upper for k in ["CARGO", "UTILITY", "CARPENTER", "DOUBLE KNEE"]): return "CARGO_PANT"
+        if any(k in desc_upper for k in ["CAPRI", "CROP PANT", "CROPPED", "CROP", "ANKLE PANT"]): return "CAPRI_PANT"
+        return "JORT" if raw_inseam_val < 15.0 else "PANT"
+    elif any(x in desc_upper for x in ["DRESS", "SKIRT", "VÁY", "ĐẦM", "MAXI"]): return "DRESS"
+    elif any(x in desc_upper for x in ["TSHIRT", "T-SHIRT", "TEE", "POLO", "ÁO THUN"]): return "TSHIRT"
+    elif any(x in desc_upper for x in ["SHIRT", "SƠ MI", "BLOUSE", "BUTTON DOWN"]): return "SHIRT"
+    return "DEFAULT"
+
+# =====================================================================
+# ĐOẠN 2: LÕI PYTHON CAD POLYGON & DYNAMIC OVERLAY ENGINE (V12)
+# =====================================================================
+
 def execute_cad_polygon_consumption(ai_blueprint: dict, user_chat: str) -> dict:
-    """
-    DETAILED CAD COMPONENT ENGINE:
-    Nhận mảng chi tiết rập ảo từ Gemini, tự động gom nhóm theo Fabric ID,
-    tính diện tích đa giác rập thực tế, áp độ co rút, hao hụt bàn cắt và kết xuất.
-    """
-    # 1. Bóc tách và ưu tiên số liệu đè từ cửa sổ Chat của User
     w_chat, s_l_chat, s_w_chat = None, None, None
     chat_clean = str(user_chat).lower().strip()
     match_w = re.search(r'(?:khổ|kho)\s*(\d+)', chat_clean)
@@ -59,17 +74,13 @@ def execute_cad_polygon_consumption(ai_blueprint: dict, user_chat: str) -> dict:
         s_w_chat = float(match_range.group(2))
 
     product_type = ai_blueprint.get("detected_product_type", "DEFAULT")
-    
-    # Khởi tạo Fabric Registry để quản lý định mức gom theo mã vải/loại vải rạch ròi
     fabric_registry = {}
     
-    # 2. VÒNG LẶP QUÉT VÀ PHÂN LOẠI CHI TIẾT RẬP (PIECE-BASED CAD ENGINE)
     for row in ai_blueprint.get("bom_rows", []):
         c_type = str(row.get("component_type", "")).upper()
         placement = str(row.get("placement", "")).upper()
         body_type = str(row.get("body_type", "")).upper()
         
-        # Loại bỏ 100% rác kim loại/phụ liệu cứng đếm chiếc khỏi bàn tính yards dài phẳng
         if any(k in c_type or k in placement or k in body_type for k in [
             "CHỈ", "THREAD", "ZIPPER", "DÂY KÉO", "BUTTON", "NÚT", "SHANK", "RIVET", "LABEL", "MÁC", "TAG", 
             "EYELETS", "SNAP", "HOOK", "LOOP", "STOPPER", "TOGGLE", "BUCKLE", "GROMMET"
@@ -80,25 +91,20 @@ def execute_cad_polygon_consumption(ai_blueprint: dict, user_chat: str) -> dict:
             row["marker_efficiency_pct"] = "N/A"
             continue
 
-        # Định danh nhóm vải độc lập (Fabric ID Mapping)
         fabric_id = row.get("fabric_id", "MAIN_SHELL")
         fabric_class = row.get("fabric_classification", "MAIN_FABRIC")
-        grain_rule = row.get("fabric_grain_rule", "TWO_WAY") # ONE_WAY, TWO_WAY, STRIPE_MATCH
+        grain_rule = row.get("fabric_grain_rule", "TWO_WAY") 
 
-        # Thu thập thông số vải vật lý nền
         w_bom = w_chat if w_chat is not None else safe_float(row.get("fabric_width_inch"), 56.0)
         s_l = s_l_chat if s_l_chat is not None else safe_float(row.get("shrinkage_warp_pct"), 3.0)
         s_w = s_w_chat if s_w_chat is not None else safe_float(row.get("shrinkage_weft_pct"), 3.0)
         
-        # Kích hoạt hàm mô phỏng hiệu suất sơ đồ động ở Đoạn 1 (Không hardcode)
         eff = simulate_marker_efficiency(fabric_class, grain_rule, w_bom)
-        
         cutable_w = max(40.0, w_bom - 1.5)
         shrink_warp_f = 1.0 + (s_l / 100.0)
         shrink_weft_f = 1.0 + (s_w / 100.0)
-        wastage_f = 1.03 # 3% hao hụt bàn cắt
+        wastage_f = 1.03
 
-        # Khởi tạo Fabric ID trong bộ nhớ đăng ký nếu chưa tồn tại
         if fabric_id not in fabric_registry:
             fabric_registry[fabric_id] = {
                 "accumulated_area_sq_in": 0.0,
@@ -111,7 +117,6 @@ def execute_cad_polygon_consumption(ai_blueprint: dict, user_chat: str) -> dict:
                 "w_saved": w_bom, "s_l_saved": s_l, "s_w_saved": s_w
             }
 
-        # 3. TOÁN HỌC ĐA GIÁC ĐỒNG BỘ: Tính tổng diện tích từ mảng chi tiết rập ảo (Panel Catalog)
         panels = row.get("panels_catalog", [])
         row_area_sq_in = 0.0
         
@@ -120,55 +125,45 @@ def execute_cad_polygon_consumption(ai_blueprint: dict, user_chat: str) -> dict:
                 p_count = safe_float(panel.get("piece_count"), 1.0)
                 p_len = safe_float(panel.get("piece_length_inch"), 0.0)
                 p_wid = safe_float(panel.get("piece_width_inch"), 0.0)
-                shape_factor = safe_float(panel.get("shape_factor"), 0.88) # Hệ số rã đa giác rập phẳng (hình thang, vát góc, lượn đũng)
+                shape_factor = safe_float(panel.get("shape_factor"), 0.88)
                 
-                # Tính diện tích thực của mảnh rập đa giác phẳng
                 panel_area = p_len * p_wid * p_count * shape_factor
                 row_area_sq_in += panel_area
         else:
-            # Dự phòng hình chữ nhật nền nếu Techpack bị lỗi bóc tách mảnh rập thô
             row_area_sq_in = safe_float(row.get("piece_length_inch"), 12.0) * safe_float(row.get("piece_width_inch"), 10.0) * safe_float(row.get("piece_count"), 2.0) * 0.88
 
-        # Tích lũy diện tích đa giác thô vào đúng Fabric ID quy định
         fabric_registry[fabric_id]["accumulated_area_sq_in"] += row_area_sq_in
         fabric_registry[fabric_id]["rows_to_update"].append(row)
         
-        # Đánh dấu trạng thái ban đầu
         row["calculated_gross_consumption_yds"] = 0.0
         row["marker_efficiency_pct"] = f"{int(eff)}%"
-        row["reason_or_logs"] = f"Cấu kiện rập [Diện tích: {round(row_area_sq_in, 1)} sq_in] -> Chờ cộng dồn vào Fabric ID: {fabric_id}"
+        row["reason_or_logs"] = f"Cấu kiện rập [Diện tích: {round(row_area_sq_in, 1)} sq_in] -> Chờ xử lý nhóm {fabric_id}"
         row["status"] = "PASS"
 
-    # --- 4. HỆ THỐNG PHÂN BỔ ĐỊNH MỨC XÁC ĐỊNH (FINAL FABRIC OVERLAY DISPATCHER) ---
     for f_id, data in fabric_registry.items():
         total_area = data["accumulated_area_sq_in"]
-        
-        # Công thức CAD đổi từ diện tích đa giác phẳng (Square Inches) sang Yards dài cây vải hữu ích
         base_cons = (total_area / (data["cutable_w"] * 36.0)) / (data["eff"] / 100.0)
-        final_yds = round(base_cons * data["shrink_warp_f"] * data["shrink_weft_f"] * data["data"]["wastage_f"] if "data" in data else base_cons * data["shrink_warp_f"] * data["shrink_weft_f"] * data["wastage_f"], 2)
+        final_yds = round(base_cons * data["shrink_warp_f"] * data["shrink_weft_f"] * data["wastage_f"], 2)
         
-        # Kiểm soát chất lượng thông minh: Kiểm tra Warning dựa trên Raw thực tế, KHÔNG CLAMP SỐ
         row_status = "PASS"
         cfg = LIMITS.get(product_type, LIMITS["DEFAULT"])
         if final_yds > cfg["warn_thresh"]: row_status = "WARNING"
         if final_yds > 3.5: row_status = "CRITICAL"
 
-        # Đổ con số định mức tổng xác định vào dòng Vải chính đại diện của nhóm Fabric ID đó
         rows = data["rows_to_update"]
         if rows:
-            # Dòng đầu tiên trong nhóm nhận tổng số Yards dài của cây vải
             main_row = rows[0]
             main_row["calculated_gross_consumption_yds"] = final_yds
             main_row["status"] = row_status
-            main_row["reason_or_logs"] = f"{int(data['w_saved'])}\"/{int(data['eff'])}%/{int(data['s_l_saved'])}x{int(data['s_w_saved'])} | Tổng diện tích rập {f_id}: {round(total_area,1)} sq_in -> Kết xuất phẳng chuẩn CAD"
+            main_row["reason_or_logs"] = f"{int(data['w_saved'])}\"/{int(data['eff'])}%/{int(data['s_l_saved'])}x{int(data['s_w_saved'])} | Diện tích rập {f_id}: {round(total_area,1)} sq_in -> Thiết kế CAD hoàn thiện"
             
-            # Các dòng phụ cấu kiện rập còn lại tự động gán nhãn trùng khít để kế toán mua hàng đối chiếu
             for sub_row in rows[1:]:
                 sub_row["calculated_gross_consumption_yds"] = "Included in " + f_id
                 sub_row["status"] = "PASS"
-                sub_row["reason_or_logs"] = f"Cấu kiện rập phụ phối đã được tính gộp diện tích hình học vào dòng tổng {f_id}"
+                sub_row["reason_or_logs"] = f"Diện tích hình học chi tiết rập phụ đã tính gộp đồng bộ vào dòng tổng {f_id}"
 
     return ai_blueprint
+
 # =====================================================================
 # ĐOẠN 3: AI BLUEGRAPH OBJECT PARSER VÀ RENDERING GIAO DIỆN PHẲNG V12
 # =====================================================================
