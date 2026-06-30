@@ -262,7 +262,7 @@ def execute_cad_polygon_consumption(ai_blueprint: dict, user_chat: str) -> dict:
         if total_yds_with_self > high_ceiling:
             row_status = "CRITICAL"
             exceed_val = round(total_yds_with_self - high_ceiling, 2)
-            log_output = f"{int(data['w_saved'])}\"/{int(data['eff'])}%/{int(data['s_l_saved'])}x{int(data['s_w_saved'])} | Diện tích rập {f_id}: {round(total_area,1)} sq_in. 🔴 VƯỢT TRẦN TIÊU CHUẨN (+{exceed_val} yds)" [INDEX]
+            log_output = f"{int(data['w_saved'])}\"/{int(data['eff'])}%/{int(data['s_l_saved'])}x{int(data['s_w_saved'])} | Diện tích rập {f_id}: {round(total_area,1)} sq_in. 🔴 VƯỢT TRẦN TIÊU CHUẨN (+{exceed_val} yds)"
         elif total_yds_with_self > cfg["warn_thresh"]:
             row_status = "WARNING"
             log_output = f"{int(data['w_saved'])}\"/{int(data['eff'])}%/{int(data['s_l_saved'])}x{int(data['s_w_saved'])} | Diện tích rập {f_id}: {round(total_area,1)} sq_in. 🟡 CẢNH BÁO PLM"
@@ -272,8 +272,8 @@ def execute_cad_polygon_consumption(ai_blueprint: dict, user_chat: str) -> dict:
         rows = data["rows_to_update"]
         if rows:
             # FIX DỨT ĐIỂM TYPEERROR: Trỏ đích danh dòng đầu tiên của nhóm vải Fabric ID nhận tổng số Yards [INDEX]
-            main_row = rows[0] [INDEX]
-            main_row["calculated_gross_consumption_yds"] = total_yds_with_self [INDEX]
+            main_row = rows[0]
+            main_row["calculated_gross_consumption_yds"] = total_yds_with_self
             main_row["status"] = row_status
             main_row["consumption_note"] = "Final Real Gross"
             main_row["reason_or_logs"] = log_output
