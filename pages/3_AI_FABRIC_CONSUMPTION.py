@@ -10,17 +10,17 @@ import io
 # =====================================================================
 st.set_page_config(page_title="3. AI FABRIC CONSUMPTION", layout="wide")
 st.title("📊 TRỢ LÝ ĐỊNH MỨC NGUYÊN PHỤ LIỆU TỰ ĐỘNG (BOM)")
-st.caption("Kiến trúc Techpack Engine - Tự động nhận diện Vị trí sử dụng (Placement) bóc tách từ BOM")
+st.caption("Kiến trúc Techpack Engine - Tự động tính bù keo ẩn (Cổ, nẹp tà, bo tay) & Ghim hiệu suất Vải chính")
 st.markdown("---")
 
 if "gemini_parsed_bom_data" not in st.session_state: st.session_state.gemini_parsed_bom_data = None
 if "saved_pdf_bytes" not in st.session_state: st.session_state.saved_pdf_bytes = None
 if "saved_pdf_name" not in st.session_state: st.session_state.saved_pdf_name = None
 if "chat_history" not in st.session_state:
-    st.session_state.chat_history = [{"role": "assistant", "content": "Xin chào! Vui lòng nạp file PDF Techpack lên, hệ thống sẽ tự động quét vị trí sử dụng trong BOM để tính định mức toán học."}]
+    st.session_state.chat_history = [{"role": "assistant", "content": "Xin chào! Vui lòng nạp file PDF Techpack lên, hệ thống sẽ tự động quét BOM và tự tính phụ liệu ẩn theo tiêu chuẩn phòng kỹ thuật."}]
 
 # =====================================================================
-# LÕI ENGINE 1: BỘ LỌC TOÁN HỌC DỰA TRÊN VỊ TRÍ SỬ DỤNG (PLACEMENT-BASED ENGINE)
+# LÕI ENGINE 1: BỘ LỌC TOÁN HỌC TỰ TÍNH PHỤ LIỆU ẨN & GHIM HIỆU SUẤT
 # =====================================================================
 def safe_float(val, default=0.0) -> float:
     """Chuyển đổi hoàn chỉnh các chuỗi 'null', 'unknown', None về số thực float an toàn."""
@@ -45,9 +45,10 @@ def get_dynamic_marker_efficiency(desc_upper: str) -> float:
 
 def python_consumption_sanity_check(bom_data: dict) -> dict:
     """
-    PLACEMENT-BASED CONSUMPTION ENGINE:
-    Dựa vào trường vị trí sử dụng (placement) do AI bóc tách từ bảng BOM để kích hoạt công thức 
-    hình học phẳng tương ứng, không phụ thuộc vào thứ tự dòng hay gán cứng vật liệu [INDEX].
+    TECHPACK PDF CONSUMPTION ESTIMATION ENGINE:
+    - Loại bỏ hoàn toàn chỉ may, phụ liệu dây kéo đếm cái.
+    - Chỉ gán hiệu suất sơ đồ cho dòng Vải chính (VC). Dòng Keo/Lót ghim chữ 'N/A'.
+    - Tự động tính bù diện tích keo cho Cổ, Nẹp tà, Bo tay áo khoác dù BOM không đề cập [INDEX].
     """
     desc_upper = (
         str(bom_data.get("description", "")) + " " +
@@ -75,32 +76,34 @@ def python_consumption_sanity_check(bom_data: dict) -> dict:
             final_gross_yards = 0.0
             
             c_type = str(row.get("component_type", "")).upper()
-            placement = str(row.get("placement", "")).upper() # Vị trí sử dụng bóc từ BOM [INDEX]
+            placement = str(row.get("placement", "")).upper()
             
-            # Đồng bộ thông số khổ vải, co rút, hiệu suất sơ đồ mục tiêu
+            # QUY TẮC THƯƠNG MẠI 1: Loại bỏ hoàn toàn chỉ may, dây kéo (zipper), nút bấm khỏi bảng yards phẳng
+            if any(k in c_type or k in placement for k in ["CHỈ", "THREAD", "ZIPPER", "DÂY KÉO", "BUTTON", "NÚT", "LABEL", "MÁC"]):
+                continue
+            
+            # Làm sạch dữ liệu khổ vải và co rút
             w_val = safe_float(row.get("fabric_width_inch"), default=58.0 if "KEO" not in c_type and "FUSING" not in c_type else 59.0)
             s_l = safe_float(row.get("shrinkage_warp_pct"), default=5.0 if "SHELL" in c_type or "DENIM" in c_type else 0.0)
             s_w = safe_float(row.get("shrinkage_weft_pct"), default=15.0 if "SHELL" in c_type or "DENIM" in c_type else 0.0)
             
-            raw_eff = row.get("marker_efficiency_pct", "")
-            eff_val = safe_float(raw_eff, default=default_eff) if raw_eff else default_eff
-            
-            # ----------------=====================================================
-            # MA TRẬN TOÁN HỌC KHÍCH HOẠT THEO VỊ TRÍ SỬ DỤNG (PLACEMENT LOGIC)
-            # ----------------=====================================================
-            
-            # NHÁNH 1: VỊ TRÍ THÂN CHÍNH (MAIN BODY / SHELL / GARMENT / THÂN ÁO / THÂN QUẦN) [INDEX]
+            # QUY TẮC THƯƠNG MẠI 2: Chỉ vải chính mới gán Hiệu suất sơ đồ thực tế, dòng Keo/Lót khóa chữ N/A
             if any(k in placement for k in ["BODY", "SHELL", "MAIN", "THÂN", "FABRIC"]) or any(k in c_type for k in ["SHELL", "DENIM", "VẢI CHÍNH"]):
+                raw_eff = row.get("marker_efficiency_pct", "")
+                eff_val = safe_float(raw_eff, default=default_eff) if raw_eff else default_eff
+                eff_display = f"{int(eff_val)}%"
+                
+                # Tính toán cấu trúc hình học Vải chính
                 if is_jacket:
                     jacket_total_length = body_length + sleeve_length + 3.5
                     jacket_width_factor = 28.5
                     total_area = jacket_total_length * jacket_width_factor * 2.0 * 1.25
-                    notes_log = f"Tính toán từ vị trí Thân Áo (Dài Áo: {body_length} in + Dài Tay: {sleeve_length} in)."
+                    notes_log = f"Định mức vải chính bóc tách dựa trên phom rập Jacket."
                 else:
                     pant_length = calculated_outseam + 4.0
                     body_width_factor = 27.2 if "BAGGY" in desc_upper else (25.0 if any(x in desc_upper for x in ["FLARE", "WIDE LEG"]) else 21.5)
                     total_area = pant_length * body_width_factor * 2.0 * 1.12
-                    notes_log = f"Tính toán từ vị trí Thân Quần (Inseam: {raw_inseam} in + Front Rise: {raw_rise} in)."
+                    notes_log = f"Định mức vải chính bóc tách dựa trên phom rập Quần Jean."
                 
                 usable_area = w_val * 36.0 * (eff_val / 100.0)
                 net_cons = total_area / usable_area
@@ -114,39 +117,50 @@ def python_consumption_sanity_check(bom_data: dict) -> dict:
                     
                 if final_gross_yards > 2.6: row_status = "CRITICAL"
                 elif final_gross_yards > 2.2: row_status = "WARNING"
-
-            # NHÁNH 2: VỊ TRÍ ÉP KEO CẠP VÀ VE NẸP CỔ (WAISTBAND / FACING / COLLAR / CẠP / NẸP CỔ) [INDEX]
+                
+            # QUY TẮC THƯƠNG MẠI 3: KEO DỰNG (Tự động cộng bù diện tích Cổ, Nẹp tà, Bo tay đối với Áo khoác) [INDEX]
             elif any(k in placement for k in ["WAISTBAND", "FACING", "COLLAR", "CẠP", "NẸP", "VE"]) or any(k in c_type for k in ["FUSING", "KEO", "MEX", "INTERLINING"]):
                 row_status = "PASS"
-                eff_val = 86.0 if is_jacket else 92.0
-                fusing_length = 14.0 if is_jacket else 4.5
-                final_gross_yards = (fusing_length * 38.0) / (w_val * 36.0 * (eff_val / 100.0))
-                notes_log = f"Tính toán hình học bản cạp/nẹp ve đúp bóc tách từ vị trí dựng keo trong BOM."
+                eff_display = "N/A"  # Ghim chữ N/A cho keo dựng vì không đi sơ đồ lồng rập lớn
+                
+                if is_jacket:
+                    # Tự động tính bù diện tích keo ẩn phòng kỹ thuật: [INDEX]
+                    # - 2 Nẹp tà trước: Dài áo (30") * Bản rộng nẹp (3.5") * 2 miếng = 210 sq_inch [INDEX]
+                    # - 1 Cổ áo đúp: Vòng cổ (18") * Bản dọc cổ (4.0") * 2 lớp = 144 sq_inch [INDEX]
+                    # - 2 Bo cổ tay áo: Vòng cổ tay (11") * Bản dọc bo (3.0") * 2 tay = 66 sq_inch [INDEX]
+                    total_fusing_area = 210.0 + 144.0 + 66.0
+                    # Chia diện tích hữu ích của khổ keo xả thẳng đạt 86% diện tích bàn ép
+                    final_gross_yards = total_fusing_area / (w_val * 36.0 * 0.86)
+                    notes_log = f"Tự động tính bù diện tích keo cho Cổ áo, Nẹp tà trước, và Bo tay áo Jacket chuẩn xưởng."
+                else:
+                    # Keo cạp quần Jean tiêu chuẩn
+                    final_gross_yards = (4.5 * 38.0) / (w_val * 36.0 * 0.92)
+                    notes_log = f"Tính toán hình học dải keo ép bản cạp lưng quần Jean thực tế."
+                    
                 if final_gross_yards > 0.50: row_status = "WARNING"
 
-            # NHÁNH 3: VỊ TRÍ PHỐI LÓT TÚI VÀ LÓT NGỰC TRONG (POCKET / LINING / LÓT TÚI / LÓT TRONG) [INDEX]
+            # QUY TẮC THƯƠNG MẠI 4: VẢI LÓT TÚI
             elif any(k in placement for k in ["POCKET", "LINING", "LÓT", "TÚI"]) or any(k in c_type for k in ["POCKETING", "LINING", "LÓT"]):
                 row_status = "PASS"
+                eff_display = "N/A"  # Ghim chữ N/A cho vải phối lót túi túi
                 if is_jacket:
                     final_gross_yards = 0.180
-                    eff_val = 85.0
                 else:
-                    eff_val = 91.0
-                    final_gross_yards = (19.5 * 12.0 * 2) / (w_val * 36.0 * (eff_val / 100.0))
-                notes_log = f"Tính toán định biên diện tích lót mổ hoặc túi cạp bóc tách từ vị trí lót trong BOM."
+                    final_gross_yards = (19.5 * 12.0 * 2) / (w_val * 36.0 * 0.91)
+                notes_log = f"Diện tích lót túi mổ hoặc cặp túi cạp trước quần Jean khít sơ đồ."
                 if final_gross_yards > 0.35: row_status = "WARNING"
                 
             else:
-                # Trường hợp phụ liệu khác, giữ nguyên số thô an toàn
+                eff_display = "N/A"
                 final_gross_yards = 0.15
-                notes_log = f"Vị trí phụ không nằm trong ma trận hình học Shell/Fusing/Lining."
+                notes_log = f"Phụ liệu thứ cấp."
 
             clean_rows.append({
                 "component_type": row.get("component_type", f"Vật liệu {idx}"),
                 "fabric_width_inch": str(int(w_val)),
                 "shrinkage_warp_pct": f"{int(s_l)}%",
                 "shrinkage_weft_pct": f"{int(s_w)}%",
-                "marker_efficiency_pct": f"{int(eff_val)}%",
+                "marker_efficiency_pct": eff_display,  # Trả chuỗi hiển thị phân biệt VC và Keo/Lót
                 "gross_consumption_yds_pc": round(final_gross_yards, 3),
                 "validation_status": row_status,
                 "notes": notes_log
@@ -154,6 +168,7 @@ def python_consumption_sanity_check(bom_data: dict) -> dict:
             
         bom_data["bom_rows"] = clean_rows
     return bom_data
+
 
 
 # =====================================================================
