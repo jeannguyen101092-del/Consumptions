@@ -9,18 +9,33 @@ from google.generativeai import types
 # =====================================================================
 st.set_page_config(page_title="3. AI FABRIC CONSUMPTION", layout="wide")
 st.title("📊 TRỢ LÝ ĐỊNH MỨC NGUYÊN PHỤ LIỆU TỰ ĐỘNG (BOM)")
-st.caption("Kiến trúc Toán học CAD Engine - Khởi tạo bảng mẫu cố định 3 dòng độc lập tuyệt đối")
+st.caption("Kiến trúc Toán học CAD Engine - Tích hợp bộ lọc safe_float khử lỗi chuyển đổi chuỗi")
 st.markdown("---")
 
 if "gemini_parsed_bom_data" not in st.session_state: st.session_state.gemini_parsed_bom_data = None
 if "saved_pdf_bytes" not in st.session_state: st.session_state.saved_pdf_bytes = None
 if "saved_pdf_name" not in st.session_state: st.session_state.saved_pdf_name = None
 if "chat_history" not in st.session_state:
-    st.session_state.chat_history = [{"role": "assistant", "content": "Xin chào! Vui lòng nạp file PDF Techpack lên để hệ thống phân tích định mức Yards."}]
+    st.session_state.chat_history = [{"role": "assistant", "content": "Xin chào! Vui lòng nạp file PDF Techpack lên để hệ thống tự động bóc tách và ước tính định mức Yards."}]
 
 # =====================================================================
-# LÕI ENGINE 1: THUẬT TOÁN ĐỊNH MỨC THEO BẢNG CẤU TRÚC ĐỘC LẬP CHUẨN XƯỞNG
+# LÕI ENGINE 1: BỘ LỌC AN TOÀN TOÁN HỌC KHỬ LỖI CHUỖI 'NULL'
 # =====================================================================
+def safe_float(val, default=0.0) -> float:
+    """
+    VÁ LỖI TOÀN DIỆN CỦA HỆ THỐNG:
+    Tự động chặn và chuyển đổi các giá trị chuỗi rác như 'null', 'UNKNOWN', None 
+    về dạng số thực float an toàn, chống làm sập luồng xử lý ứng dụng [INDEX].
+    """
+    if val is None: return default
+    val_clean = str(val).replace("%", "").replace('"', '').strip().lower()
+    if val_clean in ["null", "none", "unknown", "na", "n/a", ""]:
+        return default
+    try:
+        return float(val_clean)
+    except (ValueError, TypeError):
+        return default
+
 def get_dynamic_marker_efficiency(description: str, style_code: str) -> float:
     """Bộ lọc nhận diện phom dáng đặc thù để áp hiệu suất sơ đồ chuẩn mục tiêu của xưởng"""
     desc_upper = str(description).upper() + " " + str(style_code).upper()
@@ -36,60 +51,54 @@ def get_dynamic_marker_efficiency(description: str, style_code: str) -> float:
 
 def python_consumption_sanity_check(bom_data: dict) -> dict:
     """
-    BỘ KHUNG TOÁN HỌC ĐỘC LẬP CHUẨN XƯỞNG MAY:
-    Bảo đảm đầu ra tự động tính toán đồng bộ, dứt điểm lỗi sụt số và lỗi lệch dòng.
+    BỘ KHUNG MA TRẬN 3 DÒNG ĐỘC LẬP TỰ ĐỘNG CẬP NHẬT:
+    Ứng dụng hàm bọc safe_float để xử lý dứt điểm lỗi 'could not convert string to float' [INDEX].
     """
     desc_upper = str(bom_data.get("description", "")).upper()
     style_upper = str(bom_data.get("style_code", "")).upper()
     default_eff = get_dynamic_marker_efficiency(desc_upper, style_upper)
     
-    # Đọc dữ liệu chiều dài thô do AI bóc tách (Mặc định quần dài Flare Leg/Baggy là 40.5 inch)
-    raw_length = float(bom_data.get("raw_length_inch", 40.5)) if bom_data.get("raw_length_inch") else 40.5
+    # Sử dụng safe_float để bóc tách chiều dài thành phẩm an toàn (Mặc định quần dài là 40.5 inch)
+    raw_length = safe_float(bom_data.get("raw_length_inch"), default=40.5) [INDEX]
     
-    # Khởi tạo giá trị mặc định cho các biến cấu hình
+    # Thiết lập giá trị số nền tảng mặc định ban đầu cho 3 dòng vật liệu
     w_shell, w_fusing, w_lining = 58.0, 59.0, 57.0
     s_shell_l, s_shell_w = 5.0, 15.0
     eff_val = default_eff
     
-    # TRÍCH XUẤT TOÀN BỘ THÔNG SỐ ĐẦU VÀO DO AI BÓC ĐƯỢC TỪ PDF/Ô CHAT
+    # TRÍCH XUẤT THÔNG SỐ ĐẦU VÀO KHÔNG PHỤ THUỘC THỨ TỰ AI TRẢ VỀ
     if "bom_rows" in bom_data and isinstance(bom_data["bom_rows"], list):
         for row in bom_data["bom_rows"]:
             c_type = str(row.get("component_type", "")).upper()
-            width_val = float(str(row.get("fabric_width_inch", "0")).replace('"', '').strip()) if row.get("fabric_width_inch") else 0
             
-            # Quét gom thông số Vải chính
+            # Quét gom thông số Khổ vải vật lý bằng bộ safe_float bảo vệ
+            width_parsed = safe_float(row.get("fabric_width_inch"), default=0.0) [INDEX]
+            
             if any(k in c_type for k in ["SHELL", "DENIM", "VẢI CHÍNH", "MAIN"]):
-                if width_val > 0: w_shell = width_val
-                try: s_shell_l = float(str(row.get("shrinkage_warp_pct", "5")).replace("%", "").strip())
-                except: s_shell_l = 5.0
-                try: s_shell_w = float(str(row.get("shrinkage_weft_pct", "15")).replace("%", "").strip())
-                except: s_shell_w = 15.0
+                if width_parsed > 0: w_shell = width_parsed
+                s_shell_l = safe_float(row.get("shrinkage_warp_pct"), default=5.0) [INDEX]
+                s_shell_w = safe_float(row.get("shrinkage_weft_pct"), default=15.0) [INDEX]
                 
                 raw_eff = row.get("marker_efficiency_pct", "")
                 if raw_eff and "UNKNOWN" not in str(raw_eff).upper() and "NONE" not in str(raw_eff).upper():
-                    try: eff_val = float(str(raw_eff).replace("%", "").strip())
-                    except: eff_val = default_eff
+                    eff_val = safe_float(raw_eff, default=default_eff) [INDEX]
             
-            # Quét gom thông số Keo dựng
             elif any(k in c_type for k in ["FUSING", "KEO", "INTERLINING", "MEX"]):
-                if width_val > 0: w_fusing = width_val
+                if width_parsed > 0: w_fusing = width_parsed
                 
-            # Quét gom thông số Vải lót
             elif any(k in c_type for k in ["POCKETING", "LINING", "LÓT", "TÚI"]):
-                if width_val > 0: w_lining = width_val
+                if width_parsed > 0: w_lining = width_parsed
 
     clean_rows = []
     
-    # 🧵 DÒNG 1: TÍNH ĐỊNH MỨC VẢI CHÍNH (DENIM / SHELL) - ĐÃ NHÂN HỆ SỐ LỚP CẮT KHÍT SỐ
-    gross_length_inch = raw_length + 4.0  # Chiều dài rập thô bao gồm lai gấu và đường may ráp
+    # 🧵 DÒNG 1: TÍNH TOÁN ĐỊNH MỨC VẢI CHÍNH (DENIM / SHELL)
+    gross_length_inch = raw_length + 4.0
     width_multiplier = 2.45 if any(x in desc_upper for x in ["BAGGY", "FLARE", "WIDE LEG"]) else 2.32
     
-    # TOÁN HỌC CAD LÕI: Tính diện tích hữu ích 4 lớp thân quần jean + chi tiết đáp phụ [INDEX]
+    # Công thức nhân diện tích cụm rập thô 4 lớp thân chính hoàn chỉnh của quần [INDEX]
     total_garment_area_sq_inch = gross_length_inch * width_multiplier * 4.0 [INDEX]
     usable_area_per_yard_shell = w_shell * 36.0 * (eff_val / 100.0)
     net_consumption_shell = total_garment_area_sq_inch / usable_area_per_yard_shell
-    
-    # Nhân hệ số bù trừ độ co rút dọc bàn cắt và cộng hao hụt đầu cây 2%
     final_yards_shell = (net_consumption_shell / (1.0 - (s_shell_l / 100.0))) * 1.02
     
     clean_rows.append({
@@ -97,10 +106,10 @@ def python_consumption_sanity_check(bom_data: dict) -> dict:
         "shrinkage_warp_pct": f"{int(s_shell_l)}%", "shrinkage_weft_pct": f"{int(s_shell_w)}%",
         "marker_efficiency_pct": f"{int(eff_val)}%", "net_consumption_yds_pc": round(final_yards_shell, 3),
         "validation_status": "CRITICAL" if final_yards_shell > 2.2 else ("WARNING" if final_yards_shell > 1.8 else "PASS"),
-        "notes": "Tính toán diện tích hình học rập thành công dựa trên thông số thực tế."
+        "notes": "Tính toán diện tích hình học rập thành công dựa trên thông số thực tế xưởng may."
     })
     
-    # 🧵 DÒNG 2: TÍNH ĐỊNH MỨC KEO DỰNG (INTERLINING)
+    # 🧵 DÒNG 2: TÍNH TOÁN ĐỊNH MỨC KEO DỰNG (INTERLINING)
     calculated_fusing = (4.5 * 38.0) / (w_fusing * 36.0 * 0.90)
     clean_rows.append({
         "component_type": "Keo Dựng (Interlining/Mex)", "fabric_width_inch": str(int(w_fusing)),
@@ -110,7 +119,7 @@ def python_consumption_sanity_check(bom_data: dict) -> dict:
         "notes": "Tính toán diện tích bản cạp lưng quần thực tế."
     })
     
-    # 🧵 DÒNG 3: TÍNH ĐỊNH MỨC VẢI LÓT TÚI (LINING FABRIC)
+    # 🧵 DÒNG 3: TÍNH TOÁN ĐỊNH MỨC VẢI LÓT TÚI (LINING FABRIC)
     calculated_lining = (22.0 * 14.0 * 2) / (w_lining * 36.0 * 0.85)
     clean_rows.append({
         "component_type": "Vải Lót (Lining Fabric/Pocketing)", "fabric_width_inch": str(int(w_lining)),
@@ -140,6 +149,7 @@ def ai_gemini_vision_pdf_parser(pdf_bytes, user_custom_prompt) -> dict:
                 "description": {"type": "STRING"},
                 "calculated_size": {"type": "STRING"},
                 "consumption_type": {"type": "STRING"},
+                "raw_length_inch": {"type": "STRING"}, # Ép kiểu dữ liệu chuỗi STRING để AI trả về tự do
                 "bom_rows": {
                     "type": "ARRAY",
                     "items": {
@@ -164,11 +174,11 @@ def ai_gemini_vision_pdf_parser(pdf_bytes, user_custom_prompt) -> dict:
 
         🚨 QUY TẮC AN TOÀN TUYỆT ĐỐI (CẤM TỰ TÍNH TOÁN):
         1. Tuyệt đối KHÔNG ĐƯỢC tự tính toán định mức số Yards, không được điền trường net_consumption [INDEX].
-        2. Hãy tìm trong bảng thông số kích thước (POM) để lấy số chiều dài thành phẩm của quần dài (Outseam hoặc Inseam chiều dài từ cạp đến gấu quần, ví dụ: 39, 40, 41.5...) và điền vào trường `raw_length_inch` dạng số [INDEX]. Nếu tài liệu không ghi để null [INDEX].
+        2. Hãy tìm trong bảng thông số kích thước (POM) để lấy số chiều dài thành phẩm của quần dài (Outseam hoặc Inseam chiều dài từ cạp đến gấu quần, ví dụ: 39, 40, 41.5...) và điền vào trường `raw_length_inch` dạng chuỗi (Ví dụ: "40.5"). Nếu tài liệu không ghi bắt buộc điền chữ "null" [INDEX].
         3. Phân tách danh sách theo dòng nguyên phụ liệu độc lập (Vải chính, Keo dựng, Vải lót) [INDEX]. 
-        4. LUỒNG ĐỒNG BỘ THÔNG TIN TỪ Ô CHAT CỦA USER: Nếu người dùng có gõ chỉ định khổ vải riêng biệt ở câu lệnh chat (Ví dụ: "vai chính khổ 58, vải lót khổ 57, keo khổ 59"), bạn phải điền chính xác con số khổ vải đó vào trường `fabric_width_inch` của đúng dòng vật liệu tương ứng [INDEX].
+        4. LUỒNG ĐỒNG BỘ THÔNG TIN TỪ Ô CHAT CỦA USER: Nếu người dùng có gõ chỉ định khổ vải riêng biệt ở câu lệnh chat (Ví dụ: "khổ 58 co rút dọc 5 ngang 15"), bạn phải điền chính xác con số khổ vải đó vào trường `fabric_width_inch` của đúng dòng vật liệu tương ứng [INDEX].
 
-        YÊU CẦU BỔ SUNG TỪ Ô CHAT CỦA USER: "{user_custom_prompt}"
+        YÊU CẦU BỔ SUNG TỪ USER: "{user_custom_prompt}"
         """
 
         model = genai.GenerativeModel('gemini-2.5-flash')
@@ -223,8 +233,7 @@ if user_prompt:
         st.session_state.chat_history.append({"role": "assistant", "content": "⚠️ Vui lòng tải file PDF lên ở Bước 1 trước."})
         st.rerun()
     else:
-        # BỎ HOÀN TOÀN CACHE: Ép buộc hệ thống gọi trực tiếp Gemini quét lại file PDF từ đầu [INDEX]
-        with st.spinner("Hệ thống Matrix Engine đang kết nối Gemini quét file và tự động tính toán số liệu..."):
+        with st.spinner("Hệ thống Matrix Engine đang đồng bộ hóa tính toán số liệu Yards..."):
             parsed_result = ai_gemini_vision_pdf_parser(st.session_state.saved_pdf_bytes, user_prompt)
             if parsed_result and "error" not in parsed_result:
                 st.session_state.gemini_parsed_bom_data = parsed_result
