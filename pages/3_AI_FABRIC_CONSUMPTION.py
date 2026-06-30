@@ -242,39 +242,47 @@ if user_prompt:
         st.rerun()
 
 # =====================================================================
-# BẢNG HIỂN THỊ KẾT QUẢ ĐẦU RA THEO PHONG CÁCH BẢNG ĐỊNH MỨC MỌI BỘ
+# =====================================================================
+# BẢNG HIỂN THỊ ĐỊNH MỨC THEO HÀNG NGANG XUỐNG DÒNG (DỄ NHÌN)
 # =====================================================================
 if st.session_state.gemini_parsed_bom_data:
     st.markdown("---")
-    st.subheader("📊 BẢNG ĐỊNH MỨC MỌI BỘ - PHÂN TÁCH CHUẨN XƯỞNG")
+    st.subheader("📋 BẢNG ĐỊNH MỨC MỌI BỘ - PHÂN TÁCH THEO DÒNG NGUYÊN PHỤ LIỆU")
     
-    bom_data = st.session_state.gemini_parsed_bom_data.get("bom_table", [])
-    
-    if bom_data and isinstance(bom_data, list):
-        df_bom = pd.DataFrame(bom_data)
+    # Hiển thị thông tin chung của mã hàng ở phía trên bảng
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown(f"**Mã Style:** {st.session_state.gemini_parsed_bom_data.get('style_code', 'N/A')}")
+    with col2:
+        st.markdown(f"**Mô tả dáng:** {st.session_state.gemini_parsed_bom_data.get('description', 'N/A')}")
         
-        # Định nghĩa map tên cột mới bám sát yêu cầu tách biệt NPL của bạn
+    # Lấy danh sách các dòng nguyên phụ liệu
+    bom_rows = st.session_state.gemini_parsed_bom_data.get("bom_rows", [])
+    
+    if bom_rows and isinstance(bom_rows, list):
+        # Chuyển đổi sang bảng DataFrame
+        df_rows = pd.DataFrame(bom_rows)
+        
+        # Định nghĩa lại tiêu đề các cột cho chuẩn tiếng Việt chuyên ngành
         column_mapping = {
-            "style_code": "Style",
-            "description": "Mô tả",
-            "structure": "Cấu trúc",
+            "component_type": "Loại Nguyên Phụ Liệu",
             "fabric_width_inch": "Khổ vải (inch)",
-            "shrinkage_warp_pct": "Độ co L",
-            "shrinkage_weft_pct": "Độ co W",
-            "marker_efficiency_pct": "Hiệu suất",
-            "shell_main_fabric_net_yds_pc": "Shell (Vải chính Tổng) (yds/pc)",
-            "lining_net_yds_pc": "Lining (Vải lót) (yds/pc)",
-            "interlining_keo_net_yds_pc": "Keo / Dựng (yds/pc)",
-            "rib_net_yds_pc": "Rib (Bo) (yds/pc)",
-            "padding_gon_net_yds_pc": "Padding (Gòn) (yds/pc)",
-            "total_yds_pc": "Tổng yds/pc",
-            "notes": "Ghi chú"
+            "shrinkage_warp_pct": "Độ co L (Dọc)",
+            "shrinkage_weft_pct": "Độ co W (Ngang)",
+            "marker_efficiency_pct": "Hiệu suất sơ đồ",
+            "net_consumption_yds_pc": "Định mức Net (yds/pc)",
+            "notes": "Chi tiết / Ghi chú bóc tách từ BOM"
         }
         
-        # Đổi tên hiển thị cho bảng
-        df_bom = df_bom.rename(columns={k: v for k, v in column_mapping.items() if k in df_bom.columns})
-        st.dataframe(df_bom, use_container_width=True)
+        # Tiến hành đổi tên cột hiển thị
+        df_rows = df_rows.rename(columns={k: v for k, v in column_mapping.items() if k in df_rows.columns})
         
-        # Nút tải file
-        csv = df_bom.to_csv(index=False).encode('utf-8-sig')
-        st.download_button("📥 Tải bảng định mức sạch (.CSV)", data=csv, file_name="ai_clean_bom_report.csv", mime="text/csv")
+        # Render bảng ra giao diện chính dạng hàng dọc xếp chồng
+        st.dataframe(df_rows, use_container_width=True)
+        
+        # Nút tải file báo cáo sạch
+        csv = df_rows.to_csv(index=False).encode('utf-8-sig')
+        st.download_button("📥 Tải bảng định mức dọc (.CSV)", data=csv, file_name="ai_vertical_bom_report.csv", mime="text/csv")
+    else:
+        st.error("AI không trích xuất được cấu trúc hàng dọc. Dưới đây là dữ liệu thô JSON:")
+        st.json(st.session_state.gemini_parsed_bom_data)
