@@ -6,10 +6,10 @@ import google.generativeai as genai
 from google.generativeai import types
 
 # =====================================================================
-# ĐOẠN 1: GLOBAL CONFIG REGISTRY & LÕI MÔ PHỎNG SƠ ĐỒ THƯƠNG MẠI (V12)
+# ĐOẠN 1: GLOBAL CONFIG REGISTRY & LÕI MÔ PHỎNG SƠ ĐỒ THƯƠNG MẠI (V14.1)
 # =====================================================================
 
-# KHỐI CẤU HÌNH BIÊN ĐỘ GIỚI HẠN KIỂM SOÁT RỦI RO TOÀN CỤC CHUẨN XƯỞNG
+# KHỐI CỦA BẢNG CẤU HÌNH BIÊN ĐỘ GIỚI HẠN TẬP TRUNG KIỂM SOÁT CHẤT LƯỢNG PLM
 LIMITS = {
     "JACKET":     {"range": (1.65, 2.65), "warn_thresh": 2.5},
     "PANT":       {"range": (1.15, 1.75), "warn_thresh": 1.6},  
@@ -22,10 +22,11 @@ LIMITS = {
     "DEFAULT":    {"range": (1.15, 2.20), "warn_thresh": 2.2}
 }
 
-MAIN_KEYS = ("MAIN FABRIC", "MAIN", "BODY", "SHELL", "SELF FABRIC", "SELFFABRIC", "SELF-FABRIC", "FACE", "OUTER", "PRIMARY", "FABRIC", "MAIN FABRIC", "THÂN", "VẢI CHÍNH", "DENIM", "COTTON")
-THREAD_KEYS = ("CHỈ", "THREAD", "ZIPPER", "DÂY KÉO", "BUTTON", "NÚT", "SHANK", "RIVET", "LABEL", "MÁC", "TAG", "EYELETS")
+# CHUẨN HÓA TỪ KHÓA - LOẠI BỎ CÁC TỪ DỄ TRÙNG CHUỖI NHƯ "FABRIC", "COTTON", "DENIM"
+MAIN_KEYS = ("MAIN FABRIC", "MAIN", "BODY", "SHELL", "SELF FABRIC", "SELFFABRIC", "SELF-FABRIC", "FACE", "OUTER", "PRIMARY")
+THREAD_KEYS = ("CHỈ", "THREAD", "ZIPPER", "DÂY KÉO", "BUTTON", "NÚT", "SHANK", "RIVET", "LABEL", "MÁC", "TAG", "EYELETS", "SNAP", "VELCRO", "HOOK", "LOOP", "STOPPER", "TOGGLE", "BUCKLE", "GROMMET")
 POCKET_KEYS = ("POCKETING", "POCKET BAG", "POCKET", "TÚI", "TC POCKETING")
-FUSING_KEYS = ("INTERLINING", "FUSING", "LINING", "MECK", "MEX", "KEO", "LÓT", "DỰNG")
+FUSING_KEYS = ("INTERLINING", "FUSING", "MEX", "MECK", "KEO", "DỰNG") # Đã tách biệt hoàn toàn LINING độc lập
 DRAWSTRING_KEYS = ("DRAWSTRING", "DRAW CORD", "DRAWCORD", "DÂY RÚT", "DÂY LUỒN")
 
 def safe_float(val, default=0.0) -> float:
@@ -35,20 +36,46 @@ def safe_float(val, default=0.0) -> float:
     try: return float(val_clean)
     except (ValueError, TypeError): return default
 
-def simulate_marker_efficiency(fabric_type: str, grain_rule: str, width: float) -> float:
-    """Mô phỏng Gerber/Lectra Nesting: Tính % hao hụt sơ đồ dựa trên đặc tính rập vải."""
-    base_efficiency = 88.5  
-    if grain_rule == "ONE_WAY" or fabric_type in ["VELVET", "NHUNG", "TUYẾT"]:
-        base_efficiency -= 4.5  
-    elif grain_rule == "STRIPE_MATCH" or grain_rule == "GRID_MATCH":
-        base_efficiency -= 6.0  
-    if width < 45.0: base_efficiency -= 3.0  
-    return max(65.0, min(base_efficiency, 93.0))
+def normalize_fabric_class(raw_class: str) -> str:
+    """Chuẩn hóa dữ liệu đầu vào của Gemini về đúng 6 nhóm nguyên vật liệu tối cao [INDEX]"""
+    c_upper = str(raw_class).upper().strip()
+    if any(k in c_upper for k in ["MAIN", "SHELL", "BODY", "SELF FABRIC"]): return "MAIN_FABRIC"
+    if any(k in c_upper for k in ["POCKETING", "POCKET"]): return "POCKETING"
+    if any(k in c_upper for k in ["INTERLINING", "FUSING", "MEX", "MECK", "KEO", "DỰNG"]): return "FUSING"
+    if any(k in c_upper for k in ["LINING", "LÓT", "MESH", "TAFFETA"]): return "LINING"
+    if c_upper.startswith("SELF_") or "COMPONENT" in c_upper: return "SELF_COMPONENT"
+    return "TRIM"
 
-def calculate_cad_area(length: float, width: float, cutable_w: float, row_eff: float) -> float:
-    return ((length * width) / (cutable_w * 36.0)) / (row_eff / 100.0)
+def calculate_shoelace_polygon_area(points: list) -> float:
+    """True Polygon CAD Core: Tính toán diện tích đa giác khép kín bằng công thức Shoelace [INDEX]"""
+    if not points or len(points) < 3: return 0.0
+    try:
+        n = len(points)
+        area = 0.0
+        for i in range(n):
+            j = (i + 1) % n
+            p1, p2 = points[i], points[j]
+            x1 = float(p1 if isinstance(p1, (list, tuple)) else p1.get("x", 0.0))
+            y1 = float(p1 if isinstance(p1, (list, tuple)) else p1.get("y", 0.0))
+            x2 = float(p2 if isinstance(p2, (list, tuple)) else p2.get("x", 0.0))
+            y2 = float(p2 if isinstance(p2, (list, tuple)) else p2.get("y", 0.0))
+            area += (x1 * y2) - (x2 * y1)
+        return abs(area) / 2.0
+    except Exception: return 0.0
+
+def simulate_marker_efficiency_v14(panels: list, fabric_class: str, grain_rule: str, width: float, fabric_repeat_inch: float = 0.0) -> float:
+    """Marker Nesting Simulator: Áp phạt penalty cho cấu kiện vải một chiều, sọc kẻ, và cặp đối xứng [INDEX]"""
+    base_efficiency = 89.0
+    panel_count = len(panels) if panels else 4
+    if grain_rule == "ONE_WAY" or fabric_class in ["VELVET", "NHUNG", "TUYẾT"]: base_efficiency -= 4.0
+    elif grain_rule in ["STRIPE_MATCH", "GRID_MATCH"] or fabric_repeat_inch > 0: base_efficiency -= 6.5
+    if panel_count > 12: base_efficiency += 2.0
+    elif panel_count < 5: base_efficiency -= 3.5
+    if width < 45.0: base_efficiency -= 3.0
+    return max(60.0, min(base_efficiency, 94.0))
 
 def detect_product_type(desc_upper: str, raw_inseam_val: float) -> str:
+    """Quy trình nhận diện thứ tự phân tầng ưu tiên: CARGO -> CAPRI -> JORT -> PANT [INDEX]"""
     if any(x in desc_upper for x in ["JACKET", "COAT", "VEST", "OUTERWEAR"]): return "JACKET"
     elif any(x in desc_upper for x in ["JEAN", "DENIM", "PANT", "PANTS", "BAGGY", "TROUSER", "LEGGING", "JORT", "CAPRI", "CARGO"]):
         if any(k in desc_upper for k in ["CARGO", "UTILITY", "CARPENTER", "DOUBLE KNEE"]): return "CARGO_PANT"
@@ -60,10 +87,14 @@ def detect_product_type(desc_upper: str, raw_inseam_val: float) -> str:
     return "DEFAULT"
 
 # =====================================================================
-# ĐOẠN 2: LÕI PYTHON CAD POLYGON & DYNAMIC OVERLAY ENGINE (V12.1)
+# ĐOẠN 2a: PYTHON CAD ENGINE - PHÂN RÃ HÌNH HỌC ĐA GIÁC CHI TIẾT
 # =====================================================================
 
 def execute_cad_polygon_consumption(ai_blueprint: dict, user_chat: str) -> dict:
+    processed_bom_blueprint = []
+    fabric_registry = {}
+    accumulated_self_consumption_map = {} 
+
     w_chat, s_l_chat, s_w_chat = None, None, None
     chat_clean = str(user_chat).lower().strip()
     match_w = re.search(r'(?:khổ|kho)\s*(\d+)', chat_clean)
@@ -74,120 +105,182 @@ def execute_cad_polygon_consumption(ai_blueprint: dict, user_chat: str) -> dict:
         s_w_chat = float(match_range.group(2))
 
     product_type = ai_blueprint.get("detected_product_type", "DEFAULT")
-    fabric_registry = {}
-    
-    # 1. TRÍCH XUẤT VÀ SỬA LỖI THÔNG SỐ TRỤC HÌNH HỌC TỪ SPEC BẢNG ĐO
-    raw_inseam = safe_float(ai_blueprint.get("extracted_outseam_length") or ai_blueprint.get("extracted_inseam_length"), default=9.5)
-    if raw_inseam > 20.0: raw_inseam = 9.5  # Ép về thông số Inseam chuẩn của quần Bermuda (9 1/2")
-    
-    # Đọc thông số Front Rise thực tế trong bảng đo của bạn là 14"
-    raw_rise = 14.0 
-    calculated_outseam = raw_inseam + raw_rise # Chiều dài quần thực tế = 9.5 + 14 = 23.5 inch
-    
-    # VÁ BẪY LỖI BÓC NHẦM THÔNG SỐ MÔNG (HIP WIDTH)
-    hip_width = safe_float(ai_blueprint.get("extracted_hip_width"), default=21.0)
-    
-    # Nếu AI bóc nhầm số nguyên vòng (28.5) hoặc số hạ mông (8.0) -> Kích hoạt Rule tự động quy đổi từ Đùi (Thigh: 17.5") và Gấu (16")
-    if hip_width > 26.0 or hip_width < 15.0:
-        thigh_width = 17.5  # Thông số Leg-002: Thigh width từ bảng đo của bạn
-        leg_opening = 16.0  # Thông số Leg-006: Leg opening từ bảng đo của bạn
-        # Mông quần lửng Bermuda ống rộng ước tính bằng trung bình cộng Đùi và Gấu nhân tỷ lệ phom dáng
-        hip_width = round((thigh_width + leg_opening) * 0.70 + 8.5, 1) # Tự động điều chỉnh về mức xấp xỉ 22.0" half-hip chuẩn
+    body_length = safe_float(ai_blueprint.get("extracted_body_length"), 28.0)
+    sleeve_length = safe_float(ai_blueprint.get("extracted_sleeve_length"), 24.0)
+    chest_width = safe_float(ai_blueprint.get("extracted_chest_width"), 20.0)
+    outseam_length = safe_float(ai_blueprint.get("extracted_outseam_length"), 30.5 if product_type == "CAPRI_PANT" else 40.0)
+    hip_width = safe_float(ai_blueprint.get("extracted_hip_width"), 21.0)
+    skirt_hem = safe_float(ai_blueprint.get("extracted_skirt_hem_width"), 35.0)
 
-    # Tính toán lại diện tích bề mặt rập thực tế dựa trên thông số đã được sửa lỗi bảo vệ
-    if product_type == "JACKET": base_area_sq_in = (28.0 * 2 + 24.0 + 4.0) * (20.0 * 2 + 5.0)
-    elif product_type in ["PANT", "CAPRI_PANT", "CARGO_PANT", "JORT", "DEFAULT"]:
-        # Quần Bermuda túi đắp bản rộng: Tính diện tích Thân quần (Chiều dài outseam 23.5" * Chiều rộng mông nới lỏng đường may)
-        base_area_sq_in = (calculated_outseam + 3.5) * ((hip_width * 2) + 12.0)
-    else: base_area_sq_in = 30.0 * 50.0
+    if product_type == "JACKET": fallback_base_area = ((body_length * 2) + sleeve_length + 4.0) * ((chest_width * 2) + 5.0)
+    elif product_type in ["PANT", "CAPRI_PANT", "CARGO_PANT"]: fallback_base_area = (outseam_length + 4.0) * ((hip_width * 2) + 12.0)
+    elif product_type == "JORT": fallback_base_area = (outseam_length + 4.0) * ((hip_width * 2) + 16.0)
+    else: fallback_base_area = 30.0 * 50.0
 
-    for row in ai_blueprint.get("bom_rows", []):
+    all_rows = ai_blueprint.get("bom_rows", [])
+    
+    # Đăng ký trước tất cả các mã khóa sơ bộ của vải chính để bảo vệ target SELF
+    for row in all_rows:
+        f_class_raw = row.get("fabric_classification", "MAIN_FABRIC")
+        f_class_norm = normalize_fabric_class(f_class_raw)
+        f_code = str(row.get("fabric_code", "MAIN")).upper().strip().replace(" ", "_")
+        f_color = str(row.get("fabric_color", "COLOR")).upper().strip().replace(" ", "_")
+        grain_rule = row.get("fabric_grain_rule", "TWO_WAY")
+        fab_repeat = safe_float(row.get("fabric_repeat_inch"), 0.0)
+        
+        tmp_id = f"{f_code}_{f_color}_{grain_rule}_{int(fab_repeat)}"
+        w_b = w_chat if w_chat is not None else safe_float(row.get("fabric_width_inch"), 56.0)
+        s_warp = s_l_chat if s_l_chat is not None else safe_float(row.get("shrinkage_warp_pct"), 5.0)
+        s_weft = s_l_chat if s_l_chat is not None else safe_float(row.get("shrinkage_weft_pct"), 10.0)
+        
+        if f_class_norm == "MAIN_FABRIC" and tmp_id not in fabric_registry:
+            fabric_registry[tmp_id] = {
+                "accumulated_area_sq_in": 0.0, "cutable_w": max(40.0, w_b - 1.5), 
+                "eff": simulate_marker_efficiency_v14(row.get("panels_catalog", []), f_class_norm, grain_rule, w_b, fab_repeat),
+                "shrink_warp_f": 1.0 + (s_warp / 100.0), "shrink_weft_f": 1.0 + (s_weft / 100.0), "wastage_f": 1.03,
+                "rows_to_update": [], "w_saved": w_b, "s_l_saved": s_warp, "s_w_saved": s_weft, "f_class": f_class_norm
+            }
+
+    for row in all_rows:
         c_type = str(row.get("component_type", "")).upper()
         placement = str(row.get("placement", "")).upper()
         body_type = str(row.get("body_type", "")).upper()
         
         if any(k in c_type or k in placement or k in body_type for k in THREAD_KEYS):
             row["calculated_gross_consumption_yds"] = 0.0
-            row["reason_or_logs"] = "Bypass Hardware Trim"
+            row["reason_or_logs"] = "Hardware Trim Bypass"
             row["status"] = "PASS"
             row["marker_efficiency_pct"] = "N/A"
+            row["consumption_note"] = "Bypass"
+            processed_bom_blueprint.append(row)
             continue
 
-        fabric_id = row.get("fabric_id", "MAIN_SHELL")
-        fabric_class = row.get("fabric_classification", "MAIN_FABRIC")
-        grain_rule = row.get("fabric_grain_rule", "TWO_WAY") 
+        f_class_raw = row.get("fabric_classification", "MAIN_FABRIC")
+        f_class = normalize_fabric_class(f_class_raw)
+        
+        f_code = str(row.get("fabric_code", "MAIN")).upper().strip().replace(" ", "_")
+        f_color = str(row.get("fabric_color", "COLOR")).upper().strip().replace(" ", "_")
+        grain_rule = row.get("fabric_grain_rule", "TWO_WAY")
+        fab_repeat = safe_float(row.get("fabric_repeat_inch"), 0.0)
+        
+        fabric_id = f"{f_code}_{f_color}_{grain_rule}_{int(fab_repeat)}"
+        consume_target_id = str(row.get("consume_to_fabric_id", "")).upper().strip().replace(" ", "_")
 
         w_bom = w_chat if w_chat is not None else safe_float(row.get("fabric_width_inch"), 56.0)
         s_l = s_l_chat if s_l_chat is not None else safe_float(row.get("shrinkage_warp_pct"), 5.0)
         s_w = s_w_chat if s_w_chat is not None else safe_float(row.get("shrinkage_weft_pct"), 10.0)
         
-        eff = simulate_marker_efficiency(fabric_class, grain_rule, w_bom)
+        panels = row.get("panels_catalog", [])
+        eff = simulate_marker_efficiency_v14(panels, f_class, grain_rule, w_bom, fab_repeat)
+        
         cutable_w = max(40.0, w_bom - 1.5)
-        shrink_warp_f = 1.0 + (s_l / 100.0)
-        shrink_weft_f = 1.0 + (s_w / 100.0)
+        shrink_warp_f, shrink_weft_f = 1.0 + (s_l / 100.0), 1.0 + (s_w / 100.0)
         wastage_f = 1.03
 
         if fabric_id not in fabric_registry:
             fabric_registry[fabric_id] = {
-                "accumulated_area_sq_in": 0.0,
-                "cutable_w": cutable_w,
-                "eff": eff,
-                "shrink_warp_f": shrink_warp_f,
-                "shrink_weft_f": shrink_weft_f,
-                "wastage_f": wastage_f,
-                "rows_to_update": [],
-                "w_saved": w_bom, "s_l_saved": s_l, "s_w_saved": s_w
+                "accumulated_area_sq_in": 0.0, "cutable_w": cutable_w, "eff": eff,
+                "shrink_warp_f": shrink_warp_f, "shrink_weft_f": shrink_weft_f, "wastage_f": wastage_f,
+                "rows_to_update": [], "w_saved": w_bom, "s_l_saved": s_l, "s_w_saved": s_w, "f_class": f_class
             }
+        if fabric_id not in accumulated_self_consumption_map:
+            accumulated_self_consumption_map[fabric_id] = 0.0
 
-        panels = row.get("panels_catalog", [])
         row_area_sq_in = 0.0
+        is_main_shell = (f_class == "MAIN_FABRIC")
         
-        # KIẾN TRÚC MÔ PHỎNG DIỆN TÍCH PHẲNG RẬP CHI TIẾT CỦA CÁC CẤU KIỆN
-        if is_shell or "MAIN" in fabric_class:
-            # Thân chính quần Bermuda lớn diện tích chuẩn hình học rập thực tế
-            row_area_sq_in = base_area_sq_in
+        if panels:
+            for panel in panels:
+                p_count = safe_float(panel.get("piece_count"), 1.0)
+                polygon_points = panel.get("polygon_points", [])
+                
+                scale_factor = safe_float(panel.get("coordinate_scale"), 1.0)
+                scale_factor = max(0.001, min(scale_factor, 100.0))
+                
+                if polygon_points and isinstance(polygon_points, list) and len(polygon_points) >= 3:
+                    panel_area = calculate_shoelace_polygon_area(polygon_points) * p_count
+                    panel_area *= (scale_factor ** 2) 
+                else:
+                    p_len = safe_float(panel.get("piece_length_inch"), 0.0)
+                    p_wid = safe_float(panel.get("piece_width_inch"), 0.0)
+                    s_factor = safe_float(panel.get("shape_factor"), 0.88)
+                    panel_area = p_len * p_wid * p_count * s_factor
+                row_area_sq_in += panel_area
         else:
-            if panels:
-                for panel in panels:
-                    p_count = safe_float(panel.get("piece_count"), 1.0)
-                    p_len = safe_float(panel.get("piece_length_inch"), 12.0)
-                    p_wid = safe_float(panel.get("piece_width_inch"), 8.0)
-                    shape_factor = safe_float(panel.get("shape_factor"), 0.92)
-                    row_area_sq_in += (p_len * p_wid * p_count * shape_factor)
-            else:
-                row_area_sq_in = 150.0 # Diện tích rập phụ dự phòng tối thiểu
+            row_area_sq_in = fallback_base_area if is_main_shell else 150.0
 
-        fabric_registry[fabric_id]["accumulated_area_sq_in"] += row_area_sq_in
-        fabric_registry[fabric_id]["rows_to_update"].append(row)
-        
-        row["calculated_gross_consumption_yds"] = 0.0
-        row["marker_efficiency_pct"] = f"{int(eff)}%"
-        row["reason_or_logs"] = f"Cấu kiện rập [Diện tích: {round(row_area_sq_in, 1)} sq_in] -> Chờ xử lý nhóm {fabric_id}"
+        if is_main_shell and not panels: row_area_sq_in = fallback_base_area
+
+        if f_class.startswith("SELF_") or consume_target_id != "":
+            sub_cons = (row_area_sq_in / (cutable_w * 36.0)) / (eff / 100.0)
+            sub_yds = sub_cons * shrink_warp_f * shrink_weft_f * wastage_f
+            
+            final_target = consume_target_id if consume_target_id else fabric_id.replace("SELF_", "MAIN_FABRIC_")
+            
+            if final_target not in accumulated_self_consumption_map:
+                accumulated_self_consumption_map[final_target] = 0.0
+            accumulated_self_consumption_map[final_target] += sub_yds
+            
+            row["calculated_gross_consumption_yds"] = 0.0
+            row["consumption_note"] = f"Included in {final_target}"
+            row["reason_or_logs"] = f"Mảnh phối rập SELF [Diện tích: {round(row_area_sq_in,1)} sq_in] -> Đã kết chuyển thô +{round(sub_yds, 2)}yds"
+        else:
+            fabric_registry[fabric_id]["accumulated_area_sq_in"] += row_area_sq_in
+            row["calculated_gross_consumption_yds"] = 0.0
+            row["consumption_note"] = "Calculated"
+            row["reason_or_logs"] = f"Mảnh rập chính [Diện tích: {round(row_area_sq_in, 1)} sq_in]"
+            
         row["status"] = "PASS"
+        row["marker_efficiency_pct"] = f"{int(eff)}%" if f_class != "FUSING" else "N/A"
+        fabric_registry[fabric_id]["rows_to_update"].append(row)
+        processed_bom_blueprint.append(row)
+# =====================================================================
+# ĐOẠN 2b: PHÂN BỔ ĐỊNH MỨC THEO FABRIC ID & KIỂM SOÁT THỰC TẾ (V14.1)
+# =====================================================================
 
-    # PHÂN BỔ ĐỊNH MỨC KẾT XUẤT 
     for f_id, data in fabric_registry.items():
+        if data["f_class"] != "MAIN_FABRIC":
+            # Gán thông số mếch keo lót độc lập không chạy dồn thân chính
+            for r in data["rows_to_update"]:
+                if r["consumption_note"] == "Calculated":
+                    f_yds = 0.10 if product_type in ["PANT", "JORT", "CAPRI_PANT", "CARGO_PANT"] else 0.65
+                    r["calculated_gross_consumption_yds"] = f_yds
+            continue
+            
         total_area = data["accumulated_area_sq_in"]
         base_cons = (total_area / (data["cutable_w"] * 36.0)) / (data["eff"] / 100.0)
-        final_yds = round(base_cons * data["shrink_warp_f"] * data["shrink_weft_f"] * data["wastage_f"], 2)
+        final_raw_yds = base_cons * data["shrink_warp_f"] * data["shrink_weft_f"] * data["wastage_f"]
         
+        self_add = accumulated_self_consumption_map.get(f_id, 0.0)
+        total_yds_with_self = round(final_raw_yds + self_add, 2)
+
         row_status = "PASS"
         cfg = LIMITS.get(product_type, LIMITS["DEFAULT"])
-        if final_yds > cfg["warn_thresh"]: row_status = "WARNING"
+        high_ceiling = cfg["range"][1] # Lấy trần tối đa chặn rủi ro dữ liệu đầu vào [INDEX]
+        
+        # CHÈN BỘ KIỂM SOÁT IE CHẤT LƯỢNG - GIỮ NGUYÊN SỐ THỰC THÔ KHÔNG CLAMP [INDEX]
+        if total_yds_with_self > high_ceiling:
+            row_status = "CRITICAL"
+            exceed_val = round(total_yds_with_self - high_ceiling, 2)
+            log_output = f"{int(data['w_saved'])}\"/{int(data['eff'])}%/{int(data['s_l_saved'])}x{int(data['s_w_saved'])} | Diện tích rập {f_id}: {round(total_area,1)} sq_in. 🔴 VƯỢT TRẦN TIÊU CHUẨN (+{exceed_val} yds)" [INDEX]
+        elif total_yds_with_self > cfg["warn_thresh"]:
+            row_status = "WARNING"
+            log_output = f"{int(data['w_saved'])}\"/{int(data['eff'])}%/{int(data['s_l_saved'])}x{int(data['s_w_saved'])} | Diện tích rập {f_id}: {round(total_area,1)} sq_in. 🟡 CẢNH BÁO PLM"
+        else:
+            log_output = f"{int(data['w_saved'])}\"/{int(data['eff'])}%/{int(data['s_l_saved'])}x{int(data['s_w_saved'])} | Diện tích rập {f_id}: {round(total_area,1)} sq_in. 🟢 ĐẠT TIÊU CHUẨN MAY"
 
         rows = data["rows_to_update"]
         if rows:
-            main_row = rows[0]
-            main_row["calculated_gross_consumption_yds"] = final_yds
+            # FIX DỨT ĐIỂM TYPEERROR: Trỏ đích danh dòng đầu tiên của nhóm vải Fabric ID nhận tổng số Yards [INDEX]
+            main_row = rows[0] [INDEX]
+            main_row["calculated_gross_consumption_yds"] = total_yds_with_self [INDEX]
             main_row["status"] = row_status
-            main_row["reason_or_logs"] = f"{int(data['w_saved'])}\"/{int(data['eff'])}%/{int(data['s_l_saved'])}x{int(data['s_w_saved'])} | Tổng diện tích hình học rập thực tế: {round(total_area,1)} sq_in -> Thiết kế CAD kết xuất"
-            
-            for sub_row in rows[1:]:
-                sub_row["calculated_gross_consumption_yds"] = "Included in " + f_id
-                sub_row["status"] = "PASS"
-                sub_row["reason_or_logs"] = f"Diện tích hình học chi tiết rập phụ đã tính gộp đồng bộ vào dòng tổng {f_id}"
+            main_row["consumption_note"] = "Final Real Gross"
+            main_row["reason_or_logs"] = log_output
 
+    ai_blueprint["bom_rows"] = processed_bom_blueprint
     return ai_blueprint
+
 
 # =====================================================================
 # ĐOẠN 3: AI BLUEGRAPH OBJECT PARSER VÀ RENDERING GIAO DIỆN PHẲNG V12
