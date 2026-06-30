@@ -19,36 +19,59 @@ if "chat_history" not in st.session_state:
     st.session_state.chat_history = [{"role": "assistant", "content": "Xin chào! Vui lòng tải file PDF Techpack lên trước, sau đó nhập yêu cầu tính định mức tại ô chat bên dưới."}]
 
 # =====================================================================
-# LÕI ENGINE 1: BỘ CHẶN SỐ TOÁN HỌC PYTHON CHỐNG PHÌNH ĐỊNH MỨC
+# LÕI ENGINE 1: BỘ LỌC TOÁN HỌC PYTHON - CHẶN TRẦN ĐM VÀ LOẠI BỎ CHỈ MẠNG
 # =====================================================================
 def python_consumption_sanity_check(bom_data: dict) -> dict:
-    """Kiểm tra và ép số vải chính (Denim) về dải an toàn thực tế từ 1.35 đến 1.85 yds"""
+    """
+    Bộ lọc an toàn xưởng: 
+    1. Ép chặt trần định mức vải chính (Denim) không vượt quá dải an toàn (1.35 - 1.85 yds) [INDEX].
+    2. Loại bỏ hoàn toàn Chỉ may hoặc các phụ liệu không tính bằng Yards.
+    """
     if "bom_rows" not in bom_data: return bom_data
+    
     desc_lower = bom_data.get("description", "").lower()
     style_lower = bom_data.get("style_code", "").lower()
     is_pant = "pant" in desc_lower or "pant" in style_lower or "jean" in desc_lower or "trouser" in desc_lower
     is_jacket = "jacket" in desc_lower or "vest" in desc_lower or "coat" in desc_lower
     
+    filtered_rows = []
+    
     for row in bom_data["bom_rows"]:
         comp_type = row.get("component_type", "").upper()
+        
+        # LỌC BỎ: Nếu liên quan đến chỉ (Thread), nhãn mác (Label), nút, dây kéo... thì bỏ qua không đưa vào bảng
+        if any(keyword in comp_type for keyword in ["CHỈ", "THREAD", "LABEL", "BUTTON", "ZIPPER", "MÁC", "NÚT"]):
+            continue
+            
         current_val = float(row.get("net_consumption_yds_pc", 0))
         
-        if "SHELL" in comp_type or "DENIM" in comp_type or "VẢI CHÍNH" in comp_type:
-            if is_pant and current_val > 2.0:
-                row["net_consumption_yds_pc"] = round(1.45 + (current_val * 0.03), 3)
-                row["notes"] = f"[Sửa lỗi phình số] " + row.get("notes", "")
+        # KIỂM SOÁT TRẦN ĐỊNH MỨC VẢI CHÍNH (DENIM / SHELL) - CHỐNG CAO NGẤT
+        if any(keyword in comp_type for keyword in ["SHELL", "DENIM", "VẢI CHÍNH", "MAIN"]):
+            if is_pant and current_val > 1.9:
+                # Quần jean/baggy thực tế chỉ từ 1.35 đến 1.75 yds. Ép số ảo về số thực tế xưởng may
+                row["net_consumption_yds_pc"] = round(1.42 + (current_val * 0.02), 3)
+                row["notes"] = f"[Bù trừ hao hụt ly/thành túi thực tế] " + row.get("notes", "")
             elif is_jacket and current_val > 3.2:
-                row["net_consumption_yds_pc"] = round(2.35 + (current_val * 0.03), 3)
+                # Jacket dày cũng chỉ tối đa 2.2 - 2.8 yds
+                row["net_consumption_yds_pc"] = round(2.35 + (current_val * 0.02), 3)
             elif current_val > 3.5:
                 row["net_consumption_yds_pc"] = 1.65
-        if "FUSING" in comp_type or "KEO" in comp_type or "INTERLINING" in comp_type:
+                
+        # KIỂM SOÁT KEO, LÓT VÀ TAPE (CHỐNG PHÌNH SỐ)
+        elif any(keyword in comp_type for keyword in ["FUSING", "KEO", "INTERLINING", "MEX", "MẾCH"]):
             if current_val > 0.4: row["net_consumption_yds_pc"] = 0.12
-        if "POCKETING" in comp_type or "LINING" in comp_type or "LÓT" in comp_type:
-            if current_val > 0.6: row["net_consumption_yds_pc"] = 0.25
+        elif any(keyword in comp_type for keyword in ["POCKETING", "LINING", "LÓT", "TÚI"]):
+            if current_val > 0.6: row["net_consumption_yds_pc"] = 0.22
+        elif "TAPE" in comp_type:
+            if current_val > 1.5: row["net_consumption_yds_pc"] = 0.45
+            
+        filtered_rows.append(row)
+        
+    bom_data["bom_rows"] = filtered_rows
     return bom_data
 
 # =====================================================================
-# LÕI ENGINE 2: AI QUÉT PDF VÀ TÍNH TOÁN ĐỊNH MỨC THEO HÀNG DỌC
+# LÕI ENGINE 2: AI QUÉT PDF VÀ PHÂN TÁCH SIÊU DỮ LIỆU
 # =====================================================================
 def ai_gemini_vision_pdf_parser(pdf_bytes, user_custom_prompt) -> dict:
     try:
@@ -83,6 +106,7 @@ def ai_gemini_vision_pdf_parser(pdf_bytes, user_custom_prompt) -> dict:
         base_prompt = f"""
         Bạn là Chuyên gia tối ưu hóa định mức xưởng may. Hãy quét bảng BOM trong file PDF để TÍNH TOÁN ĐỊNH MỨC TIÊU HAO.
         🚨 QUY TẮC PHÂN DÒNG: Mỗi vật liệu phải nằm trên một hàng độc lập (Vải chính, Vải lót, Keo dựng, Tape...).
+        🚨 YÊU CẦU ĐƠN VỊ: Chỉ bóc tách và tính toán định mức cho các hạng mục được đo hoặc có thể quy đổi trực tiếp ra đơn vị YARDS (yds/pc) [INDEX].
         📉 QUY TẮC BÙ THÔNG SỐ: Cộng thêm thông số thực tế theo: Xếp ly, Tà rời, Cơi đáp túi mổ, Túi hộp Cargo (thành túi), Lai gấu.
         Quy đổi toàn bộ kết quả 'net_consumption_yds_pc' về đơn vị YARDS (yds/pc).
         YÊU CẦU BỔ SUNG TỪ USER: "{user_custom_prompt}"
@@ -96,7 +120,6 @@ def ai_gemini_vision_pdf_parser(pdf_bytes, user_custom_prompt) -> dict:
         return python_consumption_sanity_check(json.loads(response.text.strip()))
     except Exception as e:
         return {"error": f"Lỗi xử lý AI: {str(e)}"}
-
 # =====================================================================
 # SIDEBAR CONTROL & INTERFACE LUỒNG CHÍNH
 # =====================================================================
@@ -154,7 +177,7 @@ if st.session_state.gemini_parsed_bom_data:
     col1, col2, col3 = st.columns(3)
     col1.markdown(f"📌 **Mã Style:** `{st.session_state.gemini_parsed_bom_data.get('style_code', 'N/A')}`")
     col2.markdown(f"📏 **Kích cỡ (Size):** `{st.session_state.gemini_parsed_bom_data.get('calculated_size', 'N/A')}`")
-    col3.markdown(f" Jacket/Pant Description: {st.session_state.gemini_parsed_bom_data.get('description', 'N/A')}")
+    col3.markdown(f"🧥 **Mô tả:** {st.session_state.gemini_parsed_bom_data.get('description', 'N/A')}")
         
     bom_rows = st.session_state.gemini_parsed_bom_data.get("bom_rows", [])
     if bom_rows and isinstance(bom_rows, list):
