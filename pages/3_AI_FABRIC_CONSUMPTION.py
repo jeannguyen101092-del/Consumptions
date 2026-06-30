@@ -216,11 +216,6 @@ def python_consumption_sanity_check(bom_data: dict) -> dict:
 
 
 
-# =====================================================================
-# LÕI ENGINE 2: AI VISION PARSER KẾT HỢP BỘ LỌC REGEX ĐÈ SỐ Ô CHAT REALS
-# =====================================================================
-import re  # Gọi thư viện quét chuỗi văn bản hệ thống [INDEX]
-
 def ai_gemini_vision_pdf_parser(pdf_bytes, user_custom_prompt) -> dict:
     try:
         if "GEMINI_API_KEY" in st.secrets: genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
@@ -229,6 +224,7 @@ def ai_gemini_vision_pdf_parser(pdf_bytes, user_custom_prompt) -> dict:
         
         pdf_blob = {"mime_type": "application/pdf", "data": pdf_bytes}
         
+        # ĐÃ VÁ: Bổ sung shrinkage_weft_pct vào Schema để Gemini không bỏ sót độ co ngang từ PDF
         json_schema = {
             "type": "OBJECT",
             "properties": {
@@ -242,7 +238,10 @@ def ai_gemini_vision_pdf_parser(pdf_bytes, user_custom_prompt) -> dict:
                         "type": "OBJECT",
                         "properties": {
                             "component_type": {"type": "STRING"}, "placement": {"type": "STRING"},
-                            "fabric_width_inch": {"type": "STRING"}, "shrinkage_warp_pct": {"type": "STRING"}, "marker_efficiency_pct": {"type": "STRING"}
+                            "fabric_width_inch": {"type": "STRING"}, 
+                            "shrinkage_warp_pct": {"type": "STRING"},
+                            "shrinkage_weft_pct": {"type": "STRING"}, # Thêm trường co rút ngang
+                            "marker_efficiency_pct": {"type": "STRING"}
                         },
                         "required": ["component_type", "placement"]
                     }
@@ -264,35 +263,50 @@ def ai_gemini_vision_pdf_parser(pdf_bytes, user_custom_prompt) -> dict:
         )
         raw_json = json.loads(response.text.strip())
         
-        # 🚨 BỘ LỌC CỨNG PYTHON (TEXT REGEX PARSER) - ĐÈ SỐ LIỆU Ô CHAT: [INDEX]
-        # Nếu phát hiện người dùng chỉ định thông số ở ô chat, Python tự động bắt số gán đè trực tiếp [INDEX]
-        prompt_clean = str(user_custom_prompt).lower().replace(" ", "")
+        # 🚨 BỘ LỌC CỨNG PYTHON (ĐÃ SỬA CHỮA HOÀN TOÀN LỖI REGEX TRÙNG CHỮ)
+        # Giữ nguyên khoảng trắng và chữ thường để quét chính xác theo cụm từ kỹ thuật
+        prompt_clean = str(user_custom_prompt).lower().strip()
         
-        # Quét tìm con số đi sau chữ "khổ"
-        match_width = re.search(r'khổ(\d+)', prompt_clean)
-        # Quét tìm con số co dọc đi sau chữ "co" hoặc "rút"
-        match_warp = re.search(r'(?:co|rút|dọc)(\d+)', prompt_clean)
-        # Quét tìm con số co ngang đi sau chữ "ngang"
-        match_weft = re.search(r'ngang(\d+)', prompt_clean)
+        # Quét tìm con số đi sau chữ "khổ" hoặc "kho"
+        match_width = re.search(r'(?:khổ|kho)\s*(\d+)', prompt_clean)
         
-        # Nếu trong mảng bom_rows có dữ liệu vải chính, cưỡng ép gán số ô chat vào [INDEX]
+        # Bẫy lỗi trùng chữ "co": Tìm đích danh chữ "dọc" hoặc cụm "co rút dọc", "co dọc"
+        match_warp = re.search(r'(?:dọc|warp|co\s*rút\s*dọc|co\s*dọc)\s*(\d+)', prompt_clean)
+        
+        # Tìm đích danh chữ "ngang" hoặc cụm "co rút ngang", "co ngang"
+        match_weft = re.search(r'(?:ngang|weft|co\s*rút\s*ngang|co\s*ngang)\s*(\d+)', prompt_clean)
+        
+        # Cú pháp dự phòng: Nếu user viết dạng "co rút X - Y" hoặc "co rút X ngang Y"
+        if not match_warp or not match_weft:
+            match_range = re.search(r'(?:co\s*rút|co\s*rut)\s*(\d+)\s*(?:-|–|ngang)\s*(\d+)', prompt_clean)
+            if match_range:
+                if not match_warp: match_warp = match_range  # Group 1 là dọc
+                if not match_weft: 
+                    # Tạo một object giả lập group để đồng bộ logic bên dưới
+                    class MockMatch:
+                        def __init__(self, val): self.val = val
+                        def group(self, idx): return self.val
+                    match_weft = MockMatch(match_range.group(2))
+
+        # Ép số từ ô chat đè lên mảng dữ liệu gốc của Gemini
         if "bom_rows" in raw_json and isinstance(raw_json["bom_rows"], list):
             for row in raw_json["bom_rows"]:
                 c_t = str(row.get("component_type", "")).upper()
                 p_l = str(row.get("placement", "")).upper()
                 
-                # Định vị dòng vải chính để đè số [INDEX]
-                if any(k in p_l for k in ["BODY", "SHELL", "MAIN", "THÂN"]) or any(k in c_t for k in ["SHELL", "DENIM", "VẢI CHÍNH", "POLY"]):
+                # Định vị dòng vải chính để đè số
+                if any(k in p_l for k in ["BODY", "SHELL", "MAIN", "THÂN", "FABRIC"]) or any(k in c_t for k in ["SHELL", "DENIM", "VẢI CHÍNH", "POLY", "CANVAS"]):
                     if match_width: 
                         row["fabric_width_inch"] = str(match_width.group(1))
                     if match_warp: 
-                        row["shrinkage_warp_pct"] = str(match_warp.group(1)) + "%"
+                        row["shrinkage_warp_pct"] = str(match_warp.group(1)) # Không cộng dấu % ở đây để hàm sau safe_float dễ parse số thực
                     if match_weft: 
-                        row["shrinkage_weft_pct"] = str(match_weft.group(1)) + "%"
+                        row["shrinkage_weft_pct"] = str(match_weft.group(1))
                         
         return python_consumption_sanity_check(raw_json)
     except Exception as e:
         return {"error": f"Lỗi xử lý AI: {str(e)}"}
+
 
 
 
@@ -362,18 +376,19 @@ if st.session_state.gemini_parsed_bom_data:
     if bom_rows and isinstance(bom_rows, list):
         flat_table_data = []
         for row in bom_rows:
-            status_raw = row.get("validation_status", "PASS")
+            # ĐÃ VÁ: Đồng bộ đúng Key 'status' từ hàm toán học Engine 1
+            status_raw = row.get("status", "PASS")
             status_display = "🔴 CRITICAL" if status_raw == "CRITICAL" else ("🟡 WARNING" if status_raw == "WARNING" else "🟢 PASS")
                 
             flat_table_data.append({
                 "Giám Sát PLM": status_display,
-                "Loại Nguyên Phụ Liệu": row.get("component_type"),
-                "Khổ vải (inch)": row.get("fabric_width_inch"),
-                "Độ co L (Dọc)": row.get("shrinkage_warp_pct"),
-                "Độ co W (Ngang)": row.get("shrinkage_weft_pct"),
-                "Hiệu suất sơ đồ": row.get("marker_efficiency_pct"),
-                "Định mức Gross (yds/pc)": row.get("gross_consumption_yds_pc"),
-                "Ghi chú Hệ thống / Nhật ký Cảnh báo": row.get("notes")
+                "Loại Nguyên Phụ Liệu": row.get("component_type", "N/A"),
+                "Khổ vải (inch)": row.get("fabric_width_inch", "N/A"),
+                "Độ co L (Dọc)": row.get("shrinkage_warp_pct", "0"),
+                "Độ co W (Ngang)": row.get("shrinkage_weft_pct", "0"),
+                "Hiệu suất sơ đồ": f"{row.get('marker_efficiency_pct', '86')}%",
+                "Định mức Gross (yds/pc)": row.get("calculated_gross_consumption_yds", 0.0), # ĐÃ VÁ: Đúng tên key
+                "Ghi chú Hệ thống / Nhật ký Cảnh báo": row.get("reason_or_logs", "") # ĐÃ VÁ: Đúng tên key nhật ký
             })
             
         df_rows = pd.DataFrame(flat_table_data)
@@ -389,8 +404,8 @@ if st.session_state.gemini_parsed_bom_data:
         ws = wb.active
         ws.title = "BẢNG ĐỊNH MỨC KỸ THUẬT"
         
-        # VÁ LỖI QUAN TRỌNG: Sửa lại cách mở ô lưới Excel phẳng, xóa bỏ hoàn toàn dấu ngoặc vuông [0] lỗi list
-        ws.sheet_view.showGridLines = True  # [INDEX]
+        # Mở ô lưới Excel phẳng, xóa bỏ hoàn toàn dấu ngoặc vuông lỗi list
+        ws.sheet_view.showGridLines = True  
         
         # Cấu hình thiết kế đồ họa bảng tính
         font_header_comp = Font(name="Arial", size=11, bold=True)
@@ -447,55 +462,47 @@ if st.session_state.gemini_parsed_bom_data:
             cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
             cell.border = border_all
             
-        # Ghi các dòng định mức đã qua giải thuật Python
+        # ĐÃ VÁ HOÀN THIỆN: Ghi các dòng định mức đã qua giải thuật Python và đóng vòng lặp Excel
         current_row = 14
         for idx, row in enumerate(bom_rows, start=1):
-            ws.cell(row=current_row, column=2, value=idx).alignment = Alignment(horizontal="center")
-            ws.cell(row=current_row, column=3, value=row.get("component_type", "N/A"))
-            ws.cell(row=current_row, column=4, value="NONE")
-            ws.cell(row=current_row, column=5, value=str(st.session_state.gemini_parsed_bom_data.get('description', 'NONE')))
-            ws.cell(row=current_row, column=6, value=safe_float(row.get("fabric_width_inch"), 58.0)).alignment = Alignment(horizontal="center")
-            ws.cell(row=current_row, column=7, value=safe_float(row.get("gross_consumption_yds_pc"), 0.0)).alignment = Alignment(horizontal="right")
-            ws.cell(row=current_row, column=8, value=str(row.get("shrinkage_warp_pct", "0%"))).alignment = Alignment(horizontal="center")
-            ws.cell(row=current_row, column=9, value=str(row.get("shrinkage_weft_pct", "0%"))).alignment = Alignment(horizontal="center")
-            ws.cell(row=current_row, column=10, value=str(row.get("marker_efficiency_pct", "88%"))).alignment = Alignment(horizontal="center")
-            ws.cell(row=current_row, column=11, value="YDS/PC").alignment = Alignment(horizontal="center")
-            ws.cell(row=current_row, column=12, value=row.get("notes", ""))
-            
-            # Format kẻ khung lưới và bôi màu alert cảnh báo trực tiếp lên ô tính
-            for col_idx in range(2, 13):
-                c = ws.cell(row=current_row, column=col_idx)
+            ws.cell(row=current_row, column=2, value=idx).alignment = Alignment(horizontal="center") # STT
+            ws.cell(row=current_row, column=3, value=row.get("component_type", "SHELL"))             # Fabric type
+            ws.cell(row=current_row, column=4, value="-")                                            # Fabric code
+            ws.cell(row=current_row, column=5, value=row.get("placement", "BODY"))                    # Fabric Depictions
+            ws.cell(row=current_row, column=6, value=row.get("fabric_width_inch", "58"))             # Cuttable Width
+            ws.cell(row=current_row, column=7, value=row.get("calculated_gross_consumption_yds", 0.0)) # Cons (Yards)
+            ws.cell(row=current_row, column=8, value=row.get("shrinkage_warp_pct", "3"))             # Shrinkage Dọc
+            ws.cell(row=current_row, column=9, value=row.get("shrinkage_weft_pct", "3"))             # Shrinkage Ngang
+            ws.cell(row=current_row, column=10, value=f"{row.get('marker_efficiency_pct', '86')}%") # Hiệu suất sơ đồ
+            ws.cell(row=current_row, column=11, value="YDS").alignment = Alignment(horizontal="center") # Unit
+            ws.cell(row=current_row, column=12, value=row.get("reason_or_logs", ""))                 # Noted / Nhật ký
+
+            # Gán font và border cho toàn bộ các ô dữ liệu vừa tạo
+            for col_num in range(2, 13):
+                c = ws.cell(row=current_row, column=col_num)
                 c.font = font_data
                 c.border = border_all
-                if row.get("validation_status") == "WARNING":
-                    c.fill = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")
-                elif row.get("validation_status") == "CRITICAL":
-                    c.fill = PatternFill(start_color="FCE4D6", end_color="FCE4D6", fill_type="solid")
+                if col_num in:
+                    c.alignment = Alignment(horizontal="center")
             current_row += 1
+
+        # Tự động căn rộng kích thước chiều ngang các cột tương thích nội dung Excel
+        for col in ws.columns:
+            max_len = max(len(str(cell.value or '')) for cell in col)
+            col_letter = get_column_letter(col[0].column)
+            ws.column_dimensions[col_letter].width = max(max_len + 3, 12)
             
-        # Duyệt cột theo dải số thứ tự chuẩn openpyxl từ cột B (2) đến L (12)
-        for col_idx in range(2, 13):
-            max_len = 0
-            col_letter = get_column_letter(col_idx)
-            for row_idx in range(13, current_row):
-                cell_val = ws.cell(row=row_idx, column=col_idx).value
-                if cell_val:
-                    max_len = max(max_len, len(str(cell_val)))
-            ws.column_dimensions[col_letter].width = max(max_len + 3, 11)
-            
-        # Vẽ cụm ký tên biên bản đóng chân
-        ws.cell(row=current_row+2, column=4, value="Approved").font = font_label
-        ws.cell(row=current_row+2, column=9, value="Issued By Consumption").font = font_label
+        # Xuất file Excel ra bộ nhớ tạm (Stream Byte IO)
+        excel_buffer = io.BytesIO()
+        wb.save(excel_buffer)
+        excel_buffer.seek(0)
         
-        # Biên dịch luồng dữ liệu nhị phân xuất nút bấm tải file màu sắc chuẩn form hãng
-        excel_data = io.BytesIO()
-        wb.save(excel_data)
-        excel_data.seek(0)
-        
+        # Tạo nút bấm tải biểu mẫu chất lượng cao ngay trên Streamlit
+        st.markdown(" ")
         st.download_button(
             label="📥 TẢI BIỂU MẪU ĐỊNH MỨC KỸ THUẬT PHONG PHÚ (.XLSX)",
-            data=excel_data,
-            file_name=f"BOM_Approved_Report_{st.session_state.gemini_parsed_bom_data.get('style_code', 'Style')}.xlsx",
+            data=excel_buffer,
+            file_name=f"BOM_APPROVED_{st.session_state.gemini_parsed_bom_data.get('style_code', 'STYLE')}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True
         )
