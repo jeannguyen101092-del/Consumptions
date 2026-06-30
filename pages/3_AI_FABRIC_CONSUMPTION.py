@@ -184,8 +184,10 @@ def python_consumption_sanity_check(bom_data: dict) -> dict:
 
 
 # =====================================================================
-# LÕI ENGINE 2: AI QUÉT QUY CÁCH MAY VÀ BẢN VẼ ĐỂ DỰ ĐOÁN CHI TIẾT RẬP ĐÚP
+# LÕI ENGINE 2: AI VISION PARSER KẾT HỢP BỘ LỌC REGEX ĐÈ SỐ Ô CHAT REALS
 # =====================================================================
+import re  # Gọi thư viện quét chuỗi văn bản hệ thống [INDEX]
+
 def ai_gemini_vision_pdf_parser(pdf_bytes, user_custom_prompt) -> dict:
     try:
         if "GEMINI_API_KEY" in st.secrets: genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
@@ -197,22 +199,10 @@ def ai_gemini_vision_pdf_parser(pdf_bytes, user_custom_prompt) -> dict:
         json_schema = {
             "type": "OBJECT",
             "properties": {
-                "style_code": {"type": "STRING"}, "description": {"type": "STRING"},
-                "inseam": {"type": "STRING"}, "front_rise": {"type": "STRING"},
+                "style_code": {"type": "STRING"}, "style_name": {"type": "STRING"}, "description": {"type": "STRING"}, "calculated_size": {"type": "STRING"},
+                "inseam": {"type": "STRING"}, "front_rise": {"type": "STRING"}, "hip": {"type": "STRING"},
                 "body_length": {"type": "STRING"}, "sleeve_length": {"type": "STRING"},
-                "extracted_pattern_pieces": {
-                    "type": "ARRAY",
-                    "items": {
-                        "type": "OBJECT",
-                        "properties": {
-                            "piece_name": {"type": "STRING"}, 
-                            "length_inch": {"type": "NUMBER"}, 
-                            "width_inch": {"type": "NUMBER"},  
-                            "quantity": {"type": "NUMBER"}     
-                        },
-                        "required": ["piece_name", "length_inch", "width_inch", "quantity"]
-                    }
-                },
+                "consumption_type": {"type": "STRING"},
                 "bom_rows": {
                     "type": "ARRAY",
                     "items": {
@@ -229,18 +219,9 @@ def ai_gemini_vision_pdf_parser(pdf_bytes, user_custom_prompt) -> dict:
         }
 
         base_prompt = f"""
-        Bạn là Trưởng phòng Kỹ thuật rập và Trưởng bộ phận IE rà soát Costing rập mẫu bàn cắt.
-        Nhiệm vụ của bạn là quét sâu 100% file PDF này, kết hợp ĐỌC BẢNG QUY CÁCH MAY (Sewing Specification) và XEM HÌNH VẼ SKETCH ĐỐI XỨNG để dự đoán chính xác danh mục chi tiết rời cần cắt [INDEX].
-
-        🚨 QUY TẮC PHÂN TÍCH QUY CÁCH MAY ĐỂ DỰ ĐOÁN LỚP RẬP (CỐT LÕI):
-        1. Tuyệt đối KHÔNG dựa vào mỗi bảng POM văn bản. Bạn phải nhìn quy cách may lộn đúp của sản phẩm:
-           - Nếu quy cách may hoặc hình vẽ thể hiện có Túi đắp trước ngực/bụng có nắp túi (Flap pockets) -> Tư duy kỹ thuật bắt buộc phải tự hiểu Nắp túi là chi tiết lộn đúp (1 lớp trên, 1 lớp lót nắp). Nếu có 2 túi, số lượng nắp túi BẮT BUỘC phải là x4 miếng [INDEX].
-           - Nếu quy cách may thể hiện Cổ áo (Collar/Stand) -> Tự hiểu phải cắt lá cổ trên và lá cổ dưới kẹp mex dựng, số lượng cổ áo BẮT BUỘC phải là x2 miếng [INDEX].
-           - Nếu có bo cổ tay (Cuffs) ráp với 2 tay áo -> Số lượng bo tay BẮT BUỘC phải là x2 miếng hoặc x4 miếng nếu lộn đúp đai che [INDEX].
-           - Nếu có nẹp ve áo (Front Facing) hoặc nẹp che khóa dây kéo (Fly Facing) -> Phải tự động đưa vào danh mục cắt với số lượng lớp đối xứng thực tế (x2) [INDEX].
-        2. Điền toàn bộ các chi tiết rập ước lượng diện tích này vào mảng `extracted_pattern_pieces` [INDEX].
-        3. Quét bảng BOM trích xuất danh mục phụ liệu phẳng thực tế sang mảng `bom_rows`. Tuyệt đối không tự ý thêm dòng lót túi nếu tài liệu gốc không có [INDEX]. Gạt bỏ hoàn toàn chỉ may và dây kéo đếm chiếc [INDEX].
-        4. LUỒNG ĐỒNG BỘ CHAT: Điền thông số khổ vải hoặc co rút do người dùng gõ chỉ định ở ô chat vào trường dữ liệu vật liệu tương ứng [INDEX].
+        Bạn là Trợ lý AI bóc tách tài liệu kỹ thuật ngành may mặc chuyên nghiệp (Techpack & BOM Parser).
+        Nhiệm vụ: ĐỌC bảng BOM, bảng thông số kích thước POM trong file PDF để trích xuất siêu dữ liệu, tuyệt đối không tự tính Yards.
+        Gạt bỏ hoàn toàn chỉ may và dây kéo zipper khỏi mảng đầu ra.
         """
 
         model = genai.GenerativeModel('gemini-2.5-flash')
@@ -249,6 +230,33 @@ def ai_gemini_vision_pdf_parser(pdf_bytes, user_custom_prompt) -> dict:
             generation_config=types.GenerationConfig(response_mime_type="application/json", response_schema=json_schema, temperature=0.1)
         )
         raw_json = json.loads(response.text.strip())
+        
+        # 🚨 BỘ LỌC CỨNG PYTHON (TEXT REGEX PARSER) - ĐÈ SỐ LIỆU Ô CHAT: [INDEX]
+        # Nếu phát hiện người dùng chỉ định thông số ở ô chat, Python tự động bắt số gán đè trực tiếp [INDEX]
+        prompt_clean = str(user_custom_prompt).lower().replace(" ", "")
+        
+        # Quét tìm con số đi sau chữ "khổ"
+        match_width = re.search(r'khổ(\d+)', prompt_clean)
+        # Quét tìm con số co dọc đi sau chữ "co" hoặc "rút"
+        match_warp = re.search(r'(?:co|rút|dọc)(\d+)', prompt_clean)
+        # Quét tìm con số co ngang đi sau chữ "ngang"
+        match_weft = re.search(r'ngang(\d+)', prompt_clean)
+        
+        # Nếu trong mảng bom_rows có dữ liệu vải chính, cưỡng ép gán số ô chat vào [INDEX]
+        if "bom_rows" in raw_json and isinstance(raw_json["bom_rows"], list):
+            for row in raw_json["bom_rows"]:
+                c_t = str(row.get("component_type", "")).upper()
+                p_l = str(row.get("placement", "")).upper()
+                
+                # Định vị dòng vải chính để đè số [INDEX]
+                if any(k in p_l for k in ["BODY", "SHELL", "MAIN", "THÂN"]) or any(k in c_t for k in ["SHELL", "DENIM", "VẢI CHÍNH", "POLY"]):
+                    if match_width: 
+                        row["fabric_width_inch"] = str(match_width.group(1))
+                    if match_warp: 
+                        row["shrinkage_warp_pct"] = str(match_warp.group(1)) + "%"
+                    if match_weft: 
+                        row["shrinkage_weft_pct"] = str(match_weft.group(1)) + "%"
+                        
         return python_consumption_sanity_check(raw_json)
     except Exception as e:
         return {"error": f"Lỗi xử lý AI: {str(e)}"}
