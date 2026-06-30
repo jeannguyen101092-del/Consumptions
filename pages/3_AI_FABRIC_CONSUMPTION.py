@@ -219,10 +219,11 @@ def execute_cad_polygon_consumption(ai_blueprint: dict, user_chat: str) -> dict:
                     
                 row_area_sq_in += panel_area
         else:
-            row_area_sq_in = fallback_base_area
+            # ĐÃ VÁ DỨT ĐIỂM: Đồng bộ tên biến thô sang base_area_sq_in
+            row_area_sq_in = base_area_sq_in
 
         if is_main_shell and not panels: 
-            row_area_sq_in = fallback_base_area
+            row_area_sq_in = base_area_sq_in
 
         if f_class.startswith("SELF_") or consume_target_id != "":
             sub_cons = (row_area_sq_in / (cutable_w * 36.0)) / (eff / 100.0)
@@ -246,7 +247,6 @@ def execute_cad_polygon_consumption(ai_blueprint: dict, user_chat: str) -> dict:
         row["marker_efficiency_pct"] = f"{int(eff)}%" if f_class != "FUSING" else "N/A"
         fabric_registry[fabric_id]["rows_to_update"].append(row)
         processed_bom_blueprint.append(row)
-
 
 # =====================================================================
 # ĐOẠN 2b: PHÂN BỔ ĐỊNH MỨC THEO FABRIC ID & KIỂM SOÁT THỰC TẾ (V14.1)
