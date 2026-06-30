@@ -94,17 +94,21 @@ def check_material_type(body_type: str, c_type: str, placement: str) -> tuple:
 # ĐOẠN 2: LÕI TOÁN HỌC ĐỊNH MỨC & PHÂN TẦNG CẢNH BÁO PLM CHUẨN XƯỞNG MAY
 # =====================================================================
 
+# =====================================================================
+# ĐOẠN 2: LÕI TOÁN HỌC ĐỊNH MỨC & PHÂN TẦNG CẢNH BÁO PLM CHUẨN XƯỞNG MAY
+# =====================================================================
+
 def python_consumption_sanity_check(bom_data: dict) -> dict:
     if bom_data is None: bom_data = {}
     style_code_raw = str(bom_data.get("style_code", ""))
     desc_upper = (str(bom_data.get("description", "")) + " " + style_code_raw + " " + str(bom_data.get("style_name", ""))).upper()
     default_eff = get_dynamic_marker_efficiency(desc_upper, style_code_raw)
     
-    # Khôi phục bộ từ khóa toàn cục vào hàm để cô lập an toàn, LOẠI BỎ CHỮ "PC" TRÁNH TRÙNG "PCC INTERLINING"
+    # 2. VÁ LỖI TỪ KHÓA: Khóa chặt từ viết hoa nguyên vẹn, loại bỏ "LÓT", "KEO" ngắn dễ trùng chuỗi mô tả
     MAIN_KEYS = ("MAIN", "BODY", "SHELL", "SELF", "SELF FABRIC", "SELFFABRIC", "FACE", "OUTER", "PRIMARY", "FABRIC", "MAIN FABRIC", "SELF-FABRIC", "THÂN", "VẢI CHÍNH", "DENIM", "COTTON")
     THREAD_KEYS = ("CHỈ", "THREAD", "ZIPPER", "DÂY KÉO", "BUTTON", "NÚT", "SHANK", "RIVET", "LABEL", "MÁC", "TAG")
-    POCKET_KEYS = ("POCKETING", "TÚI", "POCKET", "POCKET BAG") # Chỉ giữ các từ khóa đặc trưng của túi
-    FUSING_KEYS = ("INTERLINING", "FUSING", "LINING", "MECK", "MEX", "KEO", "LÓT", "DỰNG")
+    POCKET_KEYS = ("POCKETING", "POCKET BAG", "POCKET")
+    FUSING_KEYS = ("INTERLINING", "FUSING", "LINING", "MECK", "MEX") # Tránh chữ ngắn như "LI" gây bắt nhầm từ "SLIT"
 
     LIMITS = {
         "JACKET": {"range": (1.65, 2.65), "warn_thresh": 2.5},
@@ -125,6 +129,9 @@ def python_consumption_sanity_check(bom_data: dict) -> dict:
     if raw_rise_val > 20.0: raw_rise_val = 11.5 
     
     raw_inseam_val = safe_float(bom_data.get("inseam") or bom_data.get("inseam_length"), default=13.0)
+    # Tự động đồng bộ nếu techpack bóc được thông số Inseam dài của quần Capri (ví dụ 21")
+    if raw_inseam_val < 5.0 or raw_inseam_val > 40.0: raw_inseam_val = 13.0
+    
     calculated_outseam = raw_inseam_val + raw_rise_val
     hip_width = safe_float(bom_data.get("hip") or bom_data.get("hip_width"), default=21.0)
 
@@ -159,20 +166,34 @@ def python_consumption_sanity_check(bom_data: dict) -> dict:
         
         if any(k in c_type or k in placement for k in THREAD_KEYS): continue
         
-        is_main = any(k in body_type for k in MAIN_KEYS) or any(k in c_type for k in MAIN_KEYS) or any(k in placement for k in MAIN_KEYS)
+        # Đọc thông số khổ vải của dòng hiện tại để bẫy lọc
+        row_width = safe_float(row.get("fabric_width_inch"), default=58.0)
         
-        # SỬA TRIỆT ĐỂ: Quét điều kiện Interlining trước để keo dán mang mã PCC không bị rơi nhầm vào Pocketing
+        # 1. VÁ LỖI LẶP DÒNG: Loại trừ hoàn toàn các dải viền phối nhỏ (như dây viền 3/8 inch) ra khỏi nhóm Vải chính
+        is_main = (
+            (any(k in body_type for k in MAIN_KEYS) or any(k in c_type for k in MAIN_KEYS) or any(k in placement for k in MAIN_KEYS))
+            and (row_width > 10.0 or row.get("fabric_width_inch") is None)
+        )
+        
         is_interlining = any(k in body_type for k in FUSING_KEYS) or any(k in c_type for k in FUSING_KEYS) or any(k in placement for k in FUSING_KEYS)
         
         is_pocketing = False
-        if not is_interlining: # Chỉ xét lót túi nếu dòng đó CHẮC CHẮN không phải keo dựng
+        if not is_interlining:
             if any(k in body_type for k in POCKET_KEYS) or any(k in c_type for k in POCKET_KEYS): is_pocketing = True
             elif any(k in placement for k in POCKET_KEYS) and not any(x in placement for x in ["MAIN", "SHELL", "BODY"]): is_pocketing = True
         
         row_status, notes_log, final_gross_yards = "PASS", "", 0.0
         
+        # Nếu dòng đó là dây viền phối khổ nhỏ (3/8"), cho qua không tính định mức Yards lớn thân chính
+        if not is_main and not is_interlining and not is_pocketing and row_width < 10.0 and row_width > 0:
+            notes_log = "Chi tiết phối/dây viền nhỏ - Tính theo mét dài thực tế"
+            row["marker_efficiency_pct"] = "N/A"
+            row["calculated_gross_consumption_yds"], row["status"], row["reason_or_logs"] = 0.0, "PASS", notes_log
+            clean_rows.append(row)
+            continue
+            
         if is_main:
-            w_shell = safe_float(row.get("fabric_width_inch"), default=58.0)
+            w_shell = row_width
             s_shell_l = safe_float(row.get("shrinkage_warp_pct"), default=3.0)
             s_shell_w = safe_float(row.get("shrinkage_weft_pct"), default=3.0)
             
@@ -184,7 +205,9 @@ def python_consumption_sanity_check(bom_data: dict) -> dict:
             if raw_eff: row_eff = max(80.0, min(safe_float(raw_eff, default_eff), 95.0))
             
             cutable_w = max(40.0, w_shell - 1.5)
-            shrink_f_warp, shrink_f_weft = 1.0 + (s_shell_l / 100.0), 1.0 + (s_shell_w / 100.0)
+            shrink_f_warp = 1.0 + (s_shell_l / 100.0)
+            shrink_f_weft = 1.0 + (s_shell_w / 100.0)
+            wastage_factor = 1.04
             
             if product_type == "JACKET":
                 base_cons = calculate_cad_area((body_length * 2) + sleeve_length + 4.0, (chest_width * 2) + 5.0, cutable_w, row_eff)
@@ -211,7 +234,8 @@ def python_consumption_sanity_check(bom_data: dict) -> dict:
             
             notes_log = f"{int(w_shell)}\"/{int(row_eff)}%/{int(s_shell_l)}x{int(s_shell_w)} | Raw={round(raw_total, 2)} → {final_gross_yards}"
             
-        elif is_interlining: # ĐƯA KEO DỰNG LÊN TRƯỚC ĐỂ ĐƯỢC ƯU TIÊN GÁN SỐ CHUẨN ĐẦU TIÊN
+        elif is_interlining:
+            # SỬA TRIỆT ĐỂ ĐỊNH MỨC KEO: Quần Capri nhận đúng dải định mức keo quần (0.10 yds) chứ không bị vọt lên áo khoác
             final_gross_yards = 0.10 if product_type in ["PANT", "JORT"] else 0.65  
             notes_log, row_status = "Định mức cụm keo dựng phối (Interlining)", "PASS"
             
@@ -225,6 +249,7 @@ def python_consumption_sanity_check(bom_data: dict) -> dict:
         
     bom_data["bom_rows"] = clean_rows
     return bom_data
+
 
 
 
