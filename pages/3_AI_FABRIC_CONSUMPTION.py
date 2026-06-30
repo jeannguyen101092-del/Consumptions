@@ -9,7 +9,7 @@ from google.generativeai import types
 # =====================================================================
 st.set_page_config(page_title="3. AI FABRIC CONSUMPTION", layout="wide")
 st.title("📊 TRỢ LÝ ĐỊNH MỨC NGUYÊN PHỤ LIỆU TỰ ĐỘNG (BOM)")
-st.caption("Kiến trúc Toán học CAD Engine - Tự động cập nhật số liệu không lưu cache")
+st.caption("Kiến trúc Toán học CAD Engine - Khởi tạo bảng mẫu cố định 3 dòng độc lập tuyệt đối")
 st.markdown("---")
 
 if "gemini_parsed_bom_data" not in st.session_state: st.session_state.gemini_parsed_bom_data = None
@@ -36,9 +36,8 @@ def get_dynamic_marker_efficiency(description: str, style_code: str) -> float:
 
 def python_consumption_sanity_check(bom_data: dict) -> dict:
     """
-    BỘ KHUNG TOÁN HỌC ĐỘC LẬP CHUẨN XƯỞNG:
-    Tính toán dựa trên chiều dài quần thực tế từ bảng thông số kết hợp 
-    với khổ vải và hiệu suất để cho ra kết quả Yards chuẩn xác.
+    BỘ KHUNG TOÁN HỌC ĐỘC LẬP CHUẨN XƯỞNG MAY:
+    Bảo đảm đầu ra tự động tính toán đồng bộ, dứt điểm lỗi sụt số và lỗi lệch dòng.
     """
     desc_upper = str(bom_data.get("description", "")).upper()
     style_upper = str(bom_data.get("style_code", "")).upper()
@@ -81,12 +80,12 @@ def python_consumption_sanity_check(bom_data: dict) -> dict:
 
     clean_rows = []
     
-    # 🧵 DÒNG 1: TÍNH ĐỊNH MỨC VẢI CHÍNH (DENIM / SHELL)
+    # 🧵 DÒNG 1: TÍNH ĐỊNH MỨC VẢI CHÍNH (DENIM / SHELL) - ĐÃ NHÂN HỆ SỐ LỚP CẮT KHÍT SỐ
     gross_length_inch = raw_length + 4.0  # Chiều dài rập thô bao gồm lai gấu và đường may ráp
     width_multiplier = 2.45 if any(x in desc_upper for x in ["BAGGY", "FLARE", "WIDE LEG"]) else 2.32
     
-    # Tính tổng diện tích hình học rập phẳng cho quần (Thân trước + Thân sau đối xứng)
-    total_garment_area_sq_inch = gross_length_inch * width_multiplier * 2.0
+    # TOÁN HỌC CAD LÕI: Tính diện tích hữu ích 4 lớp thân quần jean + chi tiết đáp phụ [INDEX]
+    total_garment_area_sq_inch = gross_length_inch * width_multiplier * 4.0 [INDEX]
     usable_area_per_yard_shell = w_shell * 36.0 * (eff_val / 100.0)
     net_consumption_shell = total_garment_area_sq_inch / usable_area_per_yard_shell
     
@@ -140,7 +139,7 @@ def ai_gemini_vision_pdf_parser(pdf_bytes, user_custom_prompt) -> dict:
                 "style_code": {"type": "STRING"},
                 "description": {"type": "STRING"},
                 "calculated_size": {"type": "STRING"},
-                "raw_length_inch": {"type": "NUMBER", "nullable": True},
+                "consumption_type": {"type": "STRING"},
                 "bom_rows": {
                     "type": "ARRAY",
                     "items": {
