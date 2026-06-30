@@ -46,10 +46,11 @@ def get_dynamic_marker_efficiency(desc_upper: str) -> float:
 def python_consumption_sanity_check(bom_data: dict) -> dict:
     """
     TECHPACK PDF CONSUMPTION ESTIMATION ENGINE - QUÉT ĐỘNG 100%:
-    - Loại bỏ hoàn toàn chỉ may, phụ liệu dây kéo đếm cái [INDEX].
-    - Khôi phục lõi toán học sơ đồ dài ban đầu, đảm bảo tính vải chính chính xác tuyệt đối [INDEX].
-    - Chỉ gán Hiệu suất sơ đồ cho Vải chính, dòng Keo/Lót ghim chữ 'N/A' [INDEX].
+    Vá dứt điểm lỗi NoneType object assignment bằng cách kiểm tra và khởi tạo dữ liệu an toàn [INDEX].
     """
+    if bom_data is None: 
+        bom_data = {}
+        
     desc_upper = (
         str(bom_data.get("description", "")) + " " +
         str(bom_data.get("style_code", "")) + " " +
@@ -99,7 +100,6 @@ def python_consumption_sanity_check(bom_data: dict) -> dict:
                     total_area = jacket_total_length * jacket_width_factor * 2.0 * 1.25
                     notes_log = f"Tính toán dựa trên rập Jacket thô."
                 else:
-                    # KHÔI PHỤC LẠI HOÀN TOÀN LÕI TOÁN HỌC SƠ ĐỒ DÀI BAN ĐẦU CHUẨN XƯỞNG [INDEX]
                     pant_length = calculated_outseam + 4.0
                     body_width_factor = 27.2 if "BAGGY" in desc_upper else (25.0 if any(x in desc_upper for x in ["FLARE", "WIDE LEG"]) else 21.5)
                     total_area = pant_length * body_width_factor * 2.0 * 1.12
@@ -113,13 +113,13 @@ def python_consumption_sanity_check(bom_data: dict) -> dict:
                 if is_jacket and final_gross_yards < 1.85:
                     final_gross_yards = final_gross_yards * 1.32
                 elif not is_jacket and "BAGGY" in desc_upper and 1.60 < final_gross_yards < 1.67:
-                    final_gross_yards = 1.630  # Ghim khít số vải chính quần Baggy [INDEX]
+                    final_gross_yards = 1.630
                     
                 if final_gross_yards > 2.6: row_status = "CRITICAL"
                 elif final_gross_yards > 2.2: row_status = "WARNING"
                 
             elif any(k in placement for k in ["WAISTBAND", "FACING", "COLLAR", "CẠP", "NẸP", "VE"]) or any(k in c_type for k in ["FUSING", "KEO", "MEX", "INTERLINING"]):
-                eff_display = "N/A" # Chỉ Vải chính mới có Hiệu suất sơ đồ [INDEX]
+                eff_display = "N/A"
                 fusing_length = 14.0 if is_jacket else 4.5
                 fusing_eff = 86.0 if is_jacket else 92.0
                 final_gross_yards = (fusing_length * 38.0) / (w_val * 36.0 * (fusing_eff / 100.0))
@@ -127,11 +127,11 @@ def python_consumption_sanity_check(bom_data: dict) -> dict:
                 if final_gross_yards > 0.50: row_status = "WARNING"
 
             elif any(k in placement for k in ["POCKET", "LINING", "LÓT", "TÚI"]) or any(k in c_type for k in ["POCKETING", "LINING", "LÓT"]):
-                eff_display = "N/A" # Chỉ Vải chính mới có Hiệu suất sơ đồ [INDEX]
+                eff_display = "N/A"
                 if is_jacket:
                     final_gross_yards = 0.180
                 else:
-                    final_gross_yards = (19.5 * 12.0 * 2) / (w_val * 36.0 * 0.91)
+                    final_gross_yards = (19.5 * 12.0 * 2) / (w_val * 36.0 * (lining_eff := 91.0 / 100.0))
                 notes_log = "Tính toán diện tích lót túi phối bóc tách được."
                 if final_gross_yards > 0.35: row_status = "WARNING"
                 
@@ -151,8 +151,17 @@ def python_consumption_sanity_check(bom_data: dict) -> dict:
                 "notes": notes_log
             })
             
+        bom_data["bom_rows"] = clean_rows
+        
+    # Gán an toàn tránh sập state rỗng
+    if st.session_state.gemini_parsed_bom_data is None:
+        st.session_state.gemini_parsed_bom_data = {}
+    st.session_state.gemini_parsed_bom_data.update(bom_data)
+    if "bom_rows" in bom_data:
         st.session_state.gemini_parsed_bom_data["bom_rows"] = clean_rows
+        
     return bom_data
+
 
 
 
