@@ -310,9 +310,7 @@ if st.session_state.gemini_parsed_bom_data:
         wb = Workbook()
         ws = wb.active
         ws.title = "BẢNG ĐỊNH MỨC KỸ THUẬT"
-        
-        # ĐIỂM SỬA ĐỐI CỐT LÕI: Sửa lại cú pháp chữ g viết thường chuẩnopenpyxl để mở lưới ô tính [INDEX]
-        ws.views.sheetView[0].showGridLines = True  # [INDEX]
+        ws.views.sheetView.showGridLines = True
         
         # Cấu hình thiết kế đồ họa bảng tính
         font_header_comp = Font(name="Arial", size=11, bold=True)
@@ -395,14 +393,16 @@ if st.session_state.gemini_parsed_bom_data:
                     c.fill = PatternFill(start_color="FCE4D6", end_color="FCE4D6", fill_type="solid")
             current_row += 1
             
-        # Thiết lập cơ chế Co giãn chiều rộng cột (Auto-fit Columns) chống lỗi tràn chữ ô tính
-        for col in ws.columns:
+        # VÁ LỖI QUAN TRỌNG: Duyệt cột theo dải số thứ tự chuẩn openpyxl từ cột B (2) đến L (12) [INDEX]
+        for col_idx in range(2, 13):
             max_len = 0
-            col_letter = get_column_letter(col.column)
-            if col.column < 2 or col.column > 12: continue
-            for cell in col:
-                if cell.row > 4 and cell.value:
-                    max_len = max(max_len, len(str(cell.value)))
+            col_letter = get_column_letter(col_idx)
+            # Quét qua tất cả các ô trong cột chỉ định để tìm ô dài nhất
+            for row_idx in range(13, current_row):
+                cell_val = ws.cell(row=row_idx, column=col_idx).value
+                if cell_val:
+                    max_len = max(max_len, len(str(cell_val)))
+            # Thiết lập độ rộng cột an toàn + thêm khoảng cách đệm
             ws.column_dimensions[col_letter].width = max(max_len + 3, 11)
             
         # Vẽ cụm ký tên biên bản đóng chân
