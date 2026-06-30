@@ -87,7 +87,7 @@ def detect_product_type(desc_upper: str, raw_inseam_val: float) -> str:
     return "DEFAULT"
 
 # =====================================================================
-# ĐOẠN 2a: PYTHON CAD ENGINE - PHÂN RÃ HÌNH HỌC ĐA GIÁC CHI TIẾT
+# ĐOẠN 2a: LÕI PYTHON CAD ENGINE - TỰ ĐỘNG CỘNG ĐƯỜNG MAY & XẾP LY (V14.4)
 # =====================================================================
 
 def execute_cad_polygon_consumption(ai_blueprint: dict, user_chat: str) -> dict:
@@ -108,18 +108,27 @@ def execute_cad_polygon_consumption(ai_blueprint: dict, user_chat: str) -> dict:
     body_length = safe_float(ai_blueprint.get("extracted_body_length"), 28.0)
     sleeve_length = safe_float(ai_blueprint.get("extracted_sleeve_length"), 24.0)
     chest_width = safe_float(ai_blueprint.get("extracted_chest_width"), 20.0)
-    outseam_length = safe_float(ai_blueprint.get("extracted_outseam_length"), 30.5 if product_type == "CAPRI_PANT" else 40.0)
+    outseam_length = safe_float(ai_blueprint.get("extracted_outseam_length"), 14.5 if product_type == "JORT" else 40.0)
     hip_width = safe_float(ai_blueprint.get("extracted_hip_width"), 21.0)
     skirt_hem = safe_float(ai_blueprint.get("extracted_skirt_hem_width"), 35.0)
 
-    if product_type == "JACKET": fallback_base_area = ((body_length * 2) + sleeve_length + 4.0) * ((chest_width * 2) + 5.0)
-    elif product_type in ["PANT", "CAPRI_PANT", "CARGO_PANT"]: fallback_base_area = (outseam_length + 4.0) * ((hip_width * 2) + 12.0)
-    elif product_type == "JORT": fallback_base_area = (outseam_length + 4.0) * ((hip_width * 2) + 16.0)
-    else: fallback_base_area = 30.0 * 50.0
+    # --- 1. QUY CÁCH BIÊN ĐỘ ĐƯỜNG MAY XƯỞNG MAY PHONG PHÚ (SEWING REGISTRY) ---
+    SEAM_INCH = 0.5 * 2         # May chắp hông sườn trái/phải (0.5 inch mỗi đường may)
+    HEM_INCH = 1.5              # Lai quần/Lai áo cuốn sạch tiêu chuẩn (Double Fold Hem)
+    WAISTBAND_INCH = 2.5        # Lượng dư rập để bọc bản thun lưng chun (Elastic Tunnel)
+    PLEAT_INCH = 1.5 * 2        # Lượng bù vải cho mỗi nếp xếp ly túi hộp hoặc ly thân trước
 
-    all_rows = ai_blueprint.get("bom_rows", [])
-    
-    # Đăng ký trước tất cả các mã khóa sơ bộ của vải chính để bảo vệ target SELF
+    # Tối ưu thông số trục hình học gốc thành thông số rập bán thành phẩm thực tế
+    if product_type in ["PANT", "CAPRI_PANT", "CARGO_PANT", "JORT", "DEFAULT"]:
+        # Dài rập thực tế = Thông số gốc + May lộn lưng + Cuốn lai gấu sạch
+        outseam_pattern = outseam_length + WAISTBAND_INCH + HEM_INCH
+        # Rộng rập thực tế = Thông số gốc nửa vòng + May chắp sườn hông + Lượng mở ly xếp túi
+        hip_pattern = hip_width + SEAM_INCH + PLEAT_INCH
+        base_area_sq_in = outseam_pattern * (hip_pattern * 2)
+    else:
+        base_area_sq_in = (outseam_length + 4.0) * ((hip_width * 2) + 12.0)
+
+    all_rows = ai_blueprint.get("bom_rows", []):
     for row in all_rows:
         f_class_raw = row.get("fabric_classification", "MAIN_FABRIC")
         f_class_norm = normalize_fabric_class(f_class_raw)
@@ -131,7 +140,7 @@ def execute_cad_polygon_consumption(ai_blueprint: dict, user_chat: str) -> dict:
         tmp_id = f"{f_code}_{f_color}_{grain_rule}_{int(fab_repeat)}"
         w_b = w_chat if w_chat is not None else safe_float(row.get("fabric_width_inch"), 56.0)
         s_warp = s_l_chat if s_l_chat is not None else safe_float(row.get("shrinkage_warp_pct"), 5.0)
-        s_weft = s_l_chat if s_l_chat is not None else safe_float(row.get("shrinkage_weft_pct"), 10.0)
+        s_weft = s_weft_chat if s_w_chat is not None else safe_float(row.get("shrinkage_weft_pct"), 10.0)
         
         if f_class_norm == "MAIN_FABRIC" and tmp_id not in fabric_registry:
             fabric_registry[tmp_id] = {
@@ -189,51 +198,65 @@ def execute_cad_polygon_consumption(ai_blueprint: dict, user_chat: str) -> dict:
         row_area_sq_in = 0.0
         is_main_shell = (f_class == "MAIN_FABRIC")
         
+        # --- 2. TOÁN HỌC PHẲNG CỘNG BÙ ALLOWANCE TRƯỚC KHI GIÁC SƠ ĐỒ ---
         if panels:
             for panel in panels:
                 p_count = safe_float(panel.get("piece_count"), 1.0)
                 polygon_points = panel.get("polygon_points", [])
-                
                 scale_factor = safe_float(panel.get("coordinate_scale"), 1.0)
                 scale_factor = max(0.001, min(scale_factor, 100.0))
                 
+                # Trích xuất diện tích rập gốc
                 if polygon_points and isinstance(polygon_points, list) and len(polygon_points) >= 3:
-                    panel_area = calculate_shoelace_polygon_area(polygon_points) * p_count
-                    panel_area *= (scale_factor ** 2) 
+                    panel_area = calculate_shoelace_polygon_area(polygon_points) * p_count * (scale_factor ** 2)
                 else:
                     p_len = safe_float(panel.get("piece_length_inch"), 0.0)
                     p_wid = safe_float(panel.get("piece_width_inch"), 0.0)
-                    s_factor = safe_float(panel.get("shape_factor"), 0.88)
-                    panel_area = p_len * p_wid * p_count * s_factor
+                    panel_area = p_len * p_wid * p_count * 0.88
+                
+                # TỰ ĐỘNG CỘNG BÙ HÌNH HỌC THEO QUY CÁCH MAY ĐA GIÁC CHUYÊN SÂU
+                p_name = str(panel.get("panel_name", "")).upper()
+                if "FRONT" in p_name or "BACK" in p_name or "THÂN" in p_name:
+                    # Bù đường may sườn hông và gấu cuốn sạch cho rập thân
+                    panel_area += (calculated_outseam * SEAM_INCH) + (hip_width * HEM_INCH)
+                elif "WAISTBAND" in p_name or "CẠP" in p_name or "LƯNG" in p_name:
+                    # Bù lượng vải gập cuộn hầm lưng chun
+                    panel_area += (p_len * WAISTBAND_INCH)
+                elif "POCKET" in p_name or "TÚI" in p_name:
+                    # Bù nếp xếp ly hộp căng của túi Cargo/Bermuda
+                    panel_area += (p_len * p_wid * PLEAT_INCH)
+                    
                 row_area_sq_in += panel_area
         else:
-            row_area_sq_in = fallback_base_area if is_main_shell else 150.0
+            row_area_sq_in = base_area_sq_in
 
-        if is_main_shell and not panels: row_area_sq_in = fallback_base_area
+        if is_main_shell and not panels: 
+            row_area_sq_in = base_area_sq_in
 
         if f_class.startswith("SELF_") or consume_target_id != "":
             sub_cons = (row_area_sq_in / (cutable_w * 36.0)) / (eff / 100.0)
             sub_yds = sub_cons * shrink_warp_f * shrink_weft_f * wastage_f
             
             final_target = consume_target_id if consume_target_id else fabric_id.replace("SELF_", "MAIN_FABRIC_")
-            
             if final_target not in accumulated_self_consumption_map:
                 accumulated_self_consumption_map[final_target] = 0.0
             accumulated_self_consumption_map[final_target] += sub_yds
             
             row["calculated_gross_consumption_yds"] = 0.0
             row["consumption_note"] = f"Included in {final_target}"
-            row["reason_or_logs"] = f"Mảnh phối rập SELF [Diện tích: {round(row_area_sq_in,1)} sq_in] -> Đã kết chuyển thô +{round(sub_yds, 2)}yds"
+            row["reason_or_logs"] = f"Mảnh phối rập SELF [Đã bù đường may & ly: {round(row_area_sq_in,1)} sq_in]"
         else:
             fabric_registry[fabric_id]["accumulated_area_sq_in"] += row_area_sq_in
             row["calculated_gross_consumption_yds"] = 0.0
             row["consumption_note"] = "Calculated"
-            row["reason_or_logs"] = f"Mảnh rập chính [Diện tích: {round(row_area_sq_in, 1)} sq_in]"
+            row["reason_or_logs"] = f"Mảnh rập chính [Đã bù đường may & lai: {round(row_area_sq_in, 1)} sq_in]"
             
         row["status"] = "PASS"
         row["marker_efficiency_pct"] = f"{int(eff)}%" if f_class != "FUSING" else "N/A"
         fabric_registry[fabric_id]["rows_to_update"].append(row)
         processed_bom_blueprint.append(row)
+
+
 # =====================================================================
 # ĐOẠN 2b: PHÂN BỔ ĐỊNH MỨC THEO FABRIC ID & KIỂM SOÁT THỰC TẾ (V14.1)
 # =====================================================================
@@ -283,13 +306,13 @@ def execute_cad_polygon_consumption(ai_blueprint: dict, user_chat: str) -> dict:
 
 
 # =====================================================================
-# ĐOẠN 3: AI BLUEGRAPH OBJECT PARSER VÀ RENDERING GIAO DIỆN PHẲNG V12
+# ĐOẠN 3: AI OBJECT BLUEPRINT Extractor VÀ RENDERING GIAO DIỆN PHẲNG V14.4
 # =====================================================================
 
-# KHỞI TẠO BỘ NHỚ STATE CHỐNG SẬP ỨNG DỤNG KHÔNG ĐÁNG CÓ
+# KHỞI TẠO BỘ NHỚ STATE CHỐNG SẬP ỨNG DỤNG AN TOÀN TUYỆT ĐỐI
 if "bom_data" not in st.session_state: st.session_state.bom_data = None
 if "chat_history" not in st.session_state:
-    st.session_state.chat_history = [{"role": "assistant", "content": "Hệ thống CAD V12 đã sẵn sàng. Tải tệp PDF lên để AI phân rã đa giác rập chi tiết phẳng."}]
+    st.session_state.chat_history = [{"role": "assistant", "content": "Hệ thống CAD V14.4 Sewing Allowance Engine đã sẵn sàng. Vui lòng tải tệp PDF Techpack lên."}]
 
 with st.sidebar:
     st.header("⚙️ HỆ THỐNG")
@@ -297,11 +320,11 @@ with st.sidebar:
         st.session_state.bom_data = None
         st.session_state.pdf_bytes = None
         st.session_state.pdf_name = None
-        st.session_state.chat_history = [{"role": "assistant", "content": "Hệ thống đã reset sạch cache. Vui lòng tải file PDF mới."}]
+        st.session_state.chat_history = [{"role": "assistant", "content": "Hệ thống đã reset sạch cache dữ liệu. Vui lòng tải file PDF mới."}]
         st.rerun()
 
 st.subheader("📁 BƯỚC 1: TẢI BIỂU MẪU SẢN XUẤT TECHPACK PDF")
-uploaded_file = st.file_uploader("Kéo và thả file PDF Techpack vào đây", type=["pdf"], key="final_v12_uploader")
+uploaded_file = st.file_uploader("Kéo và thả file PDF Techpack hoặc hình vẽ Sketch vào đây", type=["pdf"], key="final_v14_sewing_uploader")
 if uploaded_file is not None:
     st.session_state.pdf_bytes = uploaded_file.read()
     st.session_state.pdf_name = uploaded_file.name
@@ -311,48 +334,60 @@ with chat_container:
     for chat in st.session_state.get("chat_history", []):
         with st.chat_message(chat["role"]): st.markdown(chat["content"])
 
-user_prompt = st.chat_input("Nhập thông số cấu hình...")
+user_prompt = st.chat_input("Nhập thông số cấu hình vải thực tế (Khổ vải, co rút hai chiều)...")
 trigger_calc = st.button("🚀 KÍCH HOẠT AI PHÂN RÃ CHI TIẾT RẬP VÀ MÔ PHỎNG", use_container_width=True, type="primary")
 
 if (trigger_calc and "pdf_bytes" in st.session_state) or (user_prompt and "pdf_bytes" in st.session_state):
-    current_prompt = user_prompt if user_prompt else "Hãy tự động phân rã đa giác rập chi tiết cho file này."
+    current_prompt = user_prompt if user_prompt else "Hãy trích xuất hồ sơ dữ liệu rập đa giác khép kín cho file này."
     if user_prompt: st.session_state.chat_history.append({"role": "user", "content": user_prompt})
     
-    # SYSTEM JSON SCHEMA MÔ PHỎNG PHẦN MỀM CAD LECTRA/GERBER TIÊU CHUẨN
+    # SYSTEM JSON SCHEMA PHÂN RÃ CẤU KIỆN RẬP ĐA GIÁC ĐA ĐIỂM CHUẨN CAD/PLM V14.4
     json_schema = {
         "type": "OBJECT",
         "properties": {
             "style_code": {"type": "STRING"},
-            "detected_product_type": {"type": "STRING", "enum": ["JACKET", "PANT", "CAPRI_PANT", "CARGO_PANT", "JORT", "DRESS", "TSHIRT", "SHIRT", "DEFAULT"]},
-            "extracted_body_length": {"type": "STRING"}, "extracted_sleeve_length": {"type": "STRING"}, "extracted_chest_width": {"type": "STRING"},
-            "extracted_outseam_length": {"type": "STRING"}, "extracted_hip_width": {"type": "STRING"}, "extracted_skirt_hem_width": {"type": "STRING"},
+            "detected_product_type": {"type": "STRING", "enum": ["JACKET", "CARGO_PANT", "CAPRI_PANT", "JORT", "PANT", "DRESS", "TSHIRT", "SHIRT", "DEFAULT"]},
+            "extracted_body_length": {"type": "STRING"}, 
+            "extracted_sleeve_length": {"type": "STRING"}, 
+            "extracted_chest_width": {"type": "STRING"},
+            "extracted_outseam_length": {"type": "STRING"}, 
+            "extracted_hip_width": {"type": "STRING"}, 
+            "extracted_skirt_hem_width": {"type": "STRING"},
             "bom_rows": {
                 "type": "ARRAY",
                 "items": {
                     "type": "OBJECT",
                     "properties": {
                         "component_type": {"type": "STRING"}, "placement": {"type": "STRING"}, "body_type": {"type": "STRING"},
-                        "fabric_id": {"type": "STRING"}, # Mã nhóm định danh vải phẳng (V dụ: SHELL_A, LINING_B)
-                        "fabric_classification": {"type": "STRING", "enum": ["MAIN_FABRIC", "CONTRAST_FABRIC", "LINING_FABRIC", "POCKETING_FABRIC", "INTERLINING_FUSING"]},
+                        "fabric_code": {"type": "STRING"}, "fabric_color": {"type": "STRING"},
+                        "fabric_classification": {"type": "STRING", "enum": ["MAIN_FABRIC", "LINING", "POCKETING", "FUSING", "TRIM", "SELF_COMPONENT"]},
                         "fabric_grain_rule": {"type": "STRING", "enum": ["ONE_WAY", "TWO_WAY", "STRIPE_MATCH", "GRID_MATCH"]},
-                        "fabric_width_inch": {"type": "STRING"}, "marker_efficiency_pct": {"type": "STRING"}, "shrinkage_warp_pct": {"type": "STRING"}, "shrinkage_weft_pct": {"type": "STRING"},
-                        # KHỐI DANH MỤC MẢNH RẬP PHÂN RÃ HÌNH HỌC (PANEL CATALOG)
+                        "fabric_width_inch": {"type": "STRING"}, "fabric_repeat_inch": {"type": "STRING"},
+                        "marker_efficiency_pct": {"type": "STRING"}, "shrinkage_warp_pct": {"type": "STRING"}, "shrinkage_weft_pct": {"type": "STRING"},
+                        "consume_to_fabric_id": {"type": "STRING"}, 
                         "panels_catalog": {
                             "type": "ARRAY",
                             "items": {
                                 "type": "OBJECT",
                                 "properties": {
-                                    "panel_name": {"type": "STRING"},       # Tên mảnh rập thô (Ví dụ: Thân trước, Thân sau, Cổ áo)
-                                    "piece_count": {"type": "STRING"},      # Số lượng cấu kiện rập chi tiết cho 1 sản phẩm
-                                    "piece_length_inch": {"type": "STRING"},# Chiều dài bao rập thô của chi tiết
-                                    "piece_width_inch": {"type": "STRING"}, # Chiều rộng bao rập thô của chi tiết
-                                    "shape_factor": {"type": "STRING"}     # Hệ số rã hình đa giác phẳng (Ví dụ: 0.78 cho rập hình vát góc đũng)
+                                    "panel_name": {"type": "STRING"}, "piece_count": {"type": "STRING"},      
+                                    "piece_length_inch": {"type": "STRING"}, "piece_width_inch": {"type": "STRING"}, 
+                                    "shape_factor": {"type": "STRING"}, "coordinate_scale": {"type": "STRING"}, 
+                                    "coordinate_unit": {"type": "STRING", "enum": ["inch", "mm", "pixel"]}, 
+                                    "polygon_points": {
+                                        "type": "ARRAY",
+                                        "items": {
+                                            "type": "OBJECT",
+                                            "properties": {"x": {"type": "NUMBER"}, "y": {"type": "NUMBER"}},
+                                            "required": ["x", "y"]
+                                        }
+                                    }
                                 },
-                                "required": ["panel_name", "piece_count", "piece_length_inch", "piece_width_inch"]
+                                "required": ["panel_name", "piece_count", "coordinate_unit"]
                             }
                         }
                     },
-                    "required": ["component_type", "placement", "fabric_id", "fabric_classification"]
+                    "required": ["component_type", "placement", "fabric_classification"]
                 }
             }
         },
@@ -360,44 +395,53 @@ if (trigger_calc and "pdf_bytes" in st.session_state) or (user_prompt and "pdf_b
     }
 
     ocr_master_prompt = f"""
-    Bạn là Senior CAD Pattern & Data Engineer chuyên số hóa rập và bóc tách hồ sơ PLM.
-    Nhiệm vụ của bạn: Đọc file PDF Techpack kết hợp Sketch hình ảnh để lập Bản thiết kế đa giác rập chi tiết (Panel Catalog Blueprint).
+    Bạn là Senior CAD Pattern & Data Architect chuyên trách hệ thống phân rã sơ đồ rập Lectra/Gerber.
+    Nhiệm vụ của bạn: Đọc file PDF Techpack kết hợp Sketch hình dáng để xây dựng Bản thiết kế đa giác rập cấu kiện (BOM Blueprint JSON).
     
-    ⚠️ QUY TẮC CỐT LÕI: TUYỆT ĐỐI KHÔNG ĐƯỢC TỰ TÍNH TOÁN HOẶC ĐƯA RA CON SỐ ĐỊNH MỨC YARDS CUỐI CÙNG [INDEX].
+    ⚠️ QUY TẮC CỐT LÕI: TUYỆT ĐỐI CẤM KHÔNG ĐƯỢC TỰ TÍNH TOÁN HOẶC ĐƯA RA SỐ ĐỊNH MỨC YARDS CUỐI CÙNG [INDEX].
     
-    HƯỚNG DẪN TRÍCH XUẤT VÀ PHÂN RÃ CHI TIẾT RẬP:
-    1. ĐỌC BẢNG POM: Trích xuất thông số Spec nền hình học thô (Length, Ngực, Mông, Outseam...) điền ngoài Schema. Nhận diện kiểu đồ để gán loại trang phục chuẩn xác.
-    2. GOM NHÓM THEO FABRIC ID: Hãy đọc kỹ bảng BOM. Phân nhóm tất cả các dòng phụ liệu dùng chung một loại vải vào cùng 1 mã fabric_id (Ví dụ: Vải chính thân, túi cắt từ vải chính, dây luồn lưng cắt từ vải chính đều gán fabric_id='MAIN_FABRIC_SHELL').
-    3. PHÂN RÃ MẢNH RẬP ẢO (panels_catalog): Nhìn vào Sketch và bản vẽ kết cấu để phân rã nguyên liệu đó thành danh mục các mảnh rập chi tiết cấu kiện (Ví dụ: Dòng Vải chính gồm Front Panel x2, Back Panel x2, Pocket Flap x2...; Dòng dây rút gồm Waist Drawstring x1). Tìm hoặc tự suy luận thông số dài/rộng/số lượng mảnh của từng miếng rập phụ thuộc vào bảng Spec POM để điền vào Schema. Nếu chi tiết rập vát hình thang, lượn đũng cong tốn vải thì áp shape_factor trong dải từ 0.75 - 0.90 tùy độ phức tạp của chi tiết rập phẳng.
+    HƯỚNG DẪN TRÍCH XUẤT VÀ PHÂN LOẠI NGHIÊM NGẶT:
+    1. THỨ TỰ NHẬN DIỆN PHOM SẢN PHẨM: Đối chiếu bảng POM tuân thủ nghiêm ngặt trục quét phân tầng sau:
+       - Nếu có chi tiết túi hộp hông, carpenter, utility pocket hoặc double knee: Gán detected_product_type='CARGO_PANT'.
+       - Nếu mô tả là quần lửng, quần ngố nữ, Capri, Ankle, Crop hoặc Cropped Pant: Gán detected_product_type='CAPRI_PANT'.
+       - Nếu Inseam ngắn dưới 15 inch: Gán detected_product_type='JORT'.
+       - Nếu là quần dài basic bình thường: Gán detected_product_type='PANT'.
+    2. CHUẨN HÓA NHÃN NGUYÊN LIỆU (fabric_classification): Ép dữ liệu vào đúng 6 nhóm tối cao: MAIN_FABRIC, LINING, POCKETING, FUSING, TRIM, SELF_COMPONENT.
+       - Cụm chi tiết phối cắt từ vải chính (Túi phối vải chính, dây luồn lưng, nẹp phối cắt từ SELF): Gán nhãn 'SELF_COMPONENT'. Tìm mã Fabric ID thân lớn tương thích chỉ định vào trường consume_to_fabric_id.
+    3. TRÍCH XUẤT ĐA GIÁC RẬP ẢO (panels_catalog): Nhìn hình vẽ kết cấu phối để phân rã nguyên liệu thành mảng tọa độ vector điểm [x, y] khép kín của miếng rập thô. Đơn vị bắt buộc gán coordinate_unit='inch' [INDEX].
     
-    Yêu cầu bổ sung: {current_prompt}
+    Yêu cầu bổ sung của phòng IE: {current_prompt}
     """
 
-    with st.spinner("AI đang bóc tách kết cấu và phân rã mảnh rập cấu kiện..."):
+    with st.spinner("AI Enterprise Engine đang thực thi OCR bóc tách kết cấu đa giác..."):
         try:
             pdf_blob = {"mime_type": "application/pdf", "data": st.session_state.pdf_bytes}
             model = genai.GenerativeModel('gemini-2.5-flash')
             response = model.generate_content([pdf_blob, ocr_master_prompt], generation_config=types.GenerationConfig(response_mime_type="application/json", response_schema=json_schema, temperature=0.1))
             ai_blueprint = json.loads(response.text.strip())
             
-            # Gửi mảng chi tiết rập ảo qua bộ xử lý số học toán CAD phẳng ở Đoạn 2
+            # Khởi chạy Lõi toán học đa giác xác định của Python (Đoạn 2)
             st.session_state.bom_data = execute_cad_polygon_consumption(ai_blueprint, user_prompt)
-            st.session_state.chat_history.append({"role": "assistant", "content": "🤖 Thành công V12: AI đã rã mảnh rập ảo dựa trên Sketch, Python Engine đã mô phỏng sơ đồ cắt phẳng dứt điểm ổn định."})
+            st.session_state.chat_history.append({"role": "assistant", "content": "🤖 Đồng bộ thành công V14.4: Đã kích hoạt lõi cộng bù đường may bán thành phẩm và xếp ly rập."})
         except Exception as e:
-            st.session_state.chat_history.append({"role": "assistant", "content": f"❌ Lỗi: {str(e)}. Hãy chờ 1 phút rồi nhấn chạy lại nút 🚀."})
+            st.session_state.chat_history.append({"role": "assistant", "content": f"❌ Lỗi Quota API Google: {str(e)}. Vui lòng đợi 1 phút và nhấn chạy lại nút 🚀."})
     st.rerun()
 
-# KHỐI HIỂN THỊ BẢNG ĐỊNH MỨC CAO CẤP V12 THƯƠNG MẠI
+# RENDER BẢNG GIAO DIỆN PHẲNG THƯƠNG MẠI
 if st.session_state.get("bom_data"):
-    st.markdown(f"### 📋 BẢNG ĐỊNH MỨC CAD COMPONENT ENGINE - PHOM RẬP: `{st.session_state.bom_data.get('detected_product_type')}`")
+    st.markdown(f"### 📋 BẢNG ĐỊNH MỨC PLM DETECT ENGINE (Phom dáng rập: `{st.session_state.bom_data.get('detected_product_type')}` )")
     flat_rows = []
     for r in st.session_state.bom_data["bom_rows"]:
+        display_yds = r.get("calculated_gross_consumption_yds")
+        if str(r.get("consumption_note")).startswith("Included in"):
+            display_yds = "Included in Main"
+            
         flat_rows.append({
             "Giám Sát PLM": "🟢 PASS" if r.get("status") == "PASS" else ("🟡 WARNING" if r.get("status") == "WARNING" else "🔴 CRITICAL"),
             "Nguyên phụ liệu": r.get("component_type"), 
             "Vị trí sử dụng": r.get("placement"),
             "Hiệu suất sơ đồ": r.get("marker_efficiency_pct"), 
-            "Định mức Gross (Yds/Pc)": r.get("calculated_gross_consumption_yds"),
-            "Nhật ký Telemetry / Bản thiết kế sơ đồ CAD": r.get("reason_or_logs")
+            "Định mức Gross (Yds/Pc)": display_yds,
+            "Nhật ký Telemetry / Sơ đồ CAD Vector": r.get("reason_or_logs")
         })
     st.dataframe(pd.DataFrame(flat_rows), use_container_width=True)
