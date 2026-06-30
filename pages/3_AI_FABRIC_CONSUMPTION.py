@@ -428,7 +428,7 @@ with st.sidebar:
         st.rerun()
 
 st.subheader("📤 Upload Techpack")
-uploaded_file = st.file_uploader("Kéo và thả file PDF Techpack hoặc hình vẽ Sketch vào đây", type=["pdf"], key="final_v15_sewing_uploader")
+uploaded_file = st.file_uploader("Kéo và thả file PDF ", type=["pdf"], key="final_v15_sewing_uploader")
 if uploaded_file is not None:
     st.session_state.pdf_bytes = uploaded_file.read()
     st.session_state.pdf_name = uploaded_file.name
