@@ -90,13 +90,32 @@ def check_material_type(body_type: str, c_type: str, placement: str) -> tuple:
 # =====================================================================
 # LÕI ĐỘNG CƠ TÍNH TOÁN TOÁN HỌC (MAIN ENGINE)
 # =====================================================================
+# =====================================================================
+# ĐOẠN 2: LÕI TOÁN HỌC ĐỊNH MỨC & PHÂN TẦNG CẢNH BÁO PLM CHUẨN XƯỞNG MAY
+# =====================================================================
+
 def python_consumption_sanity_check(bom_data: dict) -> dict:
     if bom_data is None: bom_data = {}
     style_code_raw = str(bom_data.get("style_code", ""))
     desc_upper = (str(bom_data.get("description", "")) + " " + style_code_raw + " " + str(bom_data.get("style_name", ""))).upper()
     default_eff = get_dynamic_marker_efficiency(desc_upper, style_code_raw)
     
-    # Trích xuất thông số kỹ thuật đầu vào
+    # Khôi phục bộ từ khóa toàn cục vào hàm để cô lập an toàn, LOẠI BỎ CHỮ "PC" TRÁNH TRÙNG "PCC INTERLINING"
+    MAIN_KEYS = ("MAIN", "BODY", "SHELL", "SELF", "SELF FABRIC", "SELFFABRIC", "FACE", "OUTER", "PRIMARY", "FABRIC", "MAIN FABRIC", "SELF-FABRIC", "THÂN", "VẢI CHÍNH", "DENIM", "COTTON")
+    THREAD_KEYS = ("CHỈ", "THREAD", "ZIPPER", "DÂY KÉO", "BUTTON", "NÚT", "SHANK", "RIVET", "LABEL", "MÁC", "TAG")
+    POCKET_KEYS = ("POCKETING", "TÚI", "POCKET", "POCKET BAG") # Chỉ giữ các từ khóa đặc trưng của túi
+    FUSING_KEYS = ("INTERLINING", "FUSING", "LINING", "MECK", "MEX", "KEO", "LÓT", "DỰNG")
+
+    LIMITS = {
+        "JACKET": {"range": (1.65, 2.65), "warn_thresh": 2.5},
+        "PANT":   {"range": (1.15, 1.75), "warn_thresh": 1.8},
+        "JORT":   {"range": (1.05, 1.35), "warn_thresh": 1.25},
+        "DRESS":  {"range": (1.45, 3.25), "warn_thresh": 3.0},
+        "TSHIRT": {"range": (0.65, 1.35), "warn_thresh": 1.4},
+        "SHIRT":  {"range": (1.15, 1.95), "warn_thresh": 2.0},
+        "DEFAULT":{"range": (1.15, 2.20), "warn_thresh": 2.2}
+    }
+    
     body_length = safe_float(bom_data.get("body_length") or bom_data.get("length") or bom_data.get("center_back_length"), default=28.0)
     sleeve_length = safe_float(bom_data.get("sleeve_length") or bom_data.get("sleeve"), default=24.0)
     chest_width = safe_float(bom_data.get("chest") or bom_data.get("chest_width") or bom_data.get("bust"), default=20.0)
@@ -111,7 +130,6 @@ def python_consumption_sanity_check(bom_data: dict) -> dict:
 
     product_type = detect_product_type(desc_upper, raw_inseam_val)
 
-    # Đọc đè thông số cấu hình vải từ ô chat an toàn tuyệt đối
     chat_history = st.session_state.get("chat_history", [])
     chat_text = "".join(str(m.get("content", "")) for m in chat_history if m.get("role") == "user").lower()
     
@@ -143,11 +161,13 @@ def python_consumption_sanity_check(bom_data: dict) -> dict:
         
         is_main = any(k in body_type for k in MAIN_KEYS) or any(k in c_type for k in MAIN_KEYS) or any(k in placement for k in MAIN_KEYS)
         
-        is_pocketing = False
-        if any(k in body_type for k in POCKET_KEYS) or any(k in c_type for k in POCKET_KEYS): is_pocketing = True
-        elif any(k in placement for k in POCKET_KEYS) and not any(x in placement for x in ["MAIN", "SHELL", "BODY"]): is_pocketing = True
-            
+        # SỬA TRIỆT ĐỂ: Quét điều kiện Interlining trước để keo dán mang mã PCC không bị rơi nhầm vào Pocketing
         is_interlining = any(k in body_type for k in FUSING_KEYS) or any(k in c_type for k in FUSING_KEYS) or any(k in placement for k in FUSING_KEYS)
+        
+        is_pocketing = False
+        if not is_interlining: # Chỉ xét lót túi nếu dòng đó CHẮC CHẮN không phải keo dựng
+            if any(k in body_type for k in POCKET_KEYS) or any(k in c_type for k in POCKET_KEYS): is_pocketing = True
+            elif any(k in placement for k in POCKET_KEYS) and not any(x in placement for x in ["MAIN", "SHELL", "BODY"]): is_pocketing = True
         
         row_status, notes_log, final_gross_yards = "PASS", "", 0.0
         
@@ -189,16 +209,15 @@ def python_consumption_sanity_check(bom_data: dict) -> dict:
             final_gross_yards = round(max(low, min(raw_total, high)), 2)
             if raw_total > 3.3: row_status = "CRITICAL"
             
-            # --- 3. ĐÃ SỬA: PHÂN TÍCH RÚT GỌN LOG HỆ THỐNG PHẲNG DỄ ĐỌC PHÒNG SẢN XUẤT ---
             notes_log = f"{int(w_shell)}\"/{int(row_eff)}%/{int(s_shell_l)}x{int(s_shell_w)} | Raw={round(raw_total, 2)} → {final_gross_yards}"
+            
+        elif is_interlining: # ĐƯA KEO DỰNG LÊN TRƯỚC ĐỂ ĐƯỢC ƯU TIÊN GÁN SỐ CHUẨN ĐẦU TIÊN
+            final_gross_yards = 0.10 if product_type in ["PANT", "JORT"] else 0.65  
+            notes_log, row_status = "Định mức cụm keo dựng phối (Interlining)", "PASS"
             
         elif is_pocketing:
             final_gross_yards = 0.15 if product_type == "JORT" else 0.25  
             notes_log, row_status = "Định mức vải lót túi (Pocketing Fabric)", "PASS"
-            
-        elif is_interlining:
-            final_gross_yards = 0.10 if product_type in ["PANT", "JORT"] else 0.65  
-            notes_log, row_status = "Định mức cụm keo dựng phối (Interlining)", "PASS"
 
         row["marker_efficiency_pct"] = f"{int(row_eff)}%" if is_main else "N/A"
         row["calculated_gross_consumption_yds"], row["status"], row["reason_or_logs"] = final_gross_yards, row_status, notes_log
@@ -206,6 +225,7 @@ def python_consumption_sanity_check(bom_data: dict) -> dict:
         
     bom_data["bom_rows"] = clean_rows
     return bom_data
+
 
 
 
