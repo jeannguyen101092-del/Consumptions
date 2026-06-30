@@ -19,51 +19,46 @@ if "chat_history" not in st.session_state:
     st.session_state.chat_history = [{"role": "assistant", "content": "Xin chào! Vui lòng tải file PDF Techpack lên trước, sau đó nhập yêu cầu tính định mức tại ô chat bên dưới."}]
 
 # =====================================================================
-# LÕI ENGINE 1: BỘ LỌC TOÁN HỌC PYTHON - CHẶN TRẦN ĐM VÀ LOẠI BỎ CHỈ MẠNG
+# LÕI ENGINE 1: BỘ LỌC TOÁN HỌC PYTHON - ÉP HẠ 0.2 YARDS VẢI CHÍNH
 # =====================================================================
 def python_consumption_sanity_check(bom_data: dict) -> dict:
     """
     Bộ lọc an toàn xưởng: 
-    1. Ép chặt trần định mức vải chính (Denim) không vượt quá dải an toàn (1.35 - 1.85 yds) [INDEX].
+    1. Tự động lấy định mức vải chính (Main Fabric/Shell) do AI tính toán trừ đi đúng 0.2 yds.
     2. Loại bỏ hoàn toàn Chỉ may hoặc các phụ liệu không tính bằng Yards.
     """
     if "bom_rows" not in bom_data: return bom_data
-    
-    desc_lower = bom_data.get("description", "").lower()
-    style_lower = bom_data.get("style_code", "").lower()
-    is_pant = "pant" in desc_lower or "pant" in style_lower or "jean" in desc_lower or "trouser" in desc_lower
-    is_jacket = "jacket" in desc_lower or "vest" in desc_lower or "coat" in desc_lower
     
     filtered_rows = []
     
     for row in bom_data["bom_rows"]:
         comp_type = row.get("component_type", "").upper()
         
-        # LỌC BỎ: Nếu liên quan đến chỉ (Thread), nhãn mác (Label), nút, dây kéo... thì bỏ qua không đưa vào bảng
+        # Loại bỏ hoàn toàn chỉ may và các phụ liệu không dùng đơn vị yards
         if any(keyword in comp_type for keyword in ["CHỈ", "THREAD", "LABEL", "BUTTON", "ZIPPER", "MÁC", "NÚT"]):
             continue
             
         current_val = float(row.get("net_consumption_yds_pc", 0))
         
-        # KIỂM SOÁT TRẦN ĐỊNH MỨC VẢI CHÍNH (DENIM / SHELL) - CHỐNG CAO NGẤT
+        # KHẤU TRỪ CHÍNH XÁC 0.2 YARDS VÀO VẢI CHÍNH (MAIN FABRIC / SHELL / DENIM)
         if any(keyword in comp_type for keyword in ["SHELL", "DENIM", "VẢI CHÍNH", "MAIN"]):
-            if is_pant and current_val > 1.9:
-                # Quần jean/baggy thực tế chỉ từ 1.35 đến 1.75 yds. Ép số ảo về số thực tế xưởng may
-                row["net_consumption_yds_pc"] = round(1.42 + (current_val * 0.02), 3)
-                row["notes"] = f"[Bù trừ hao hụt ly/thành túi thực tế] " + row.get("notes", "")
-            elif is_jacket and current_val > 3.2:
-                # Jacket dày cũng chỉ tối đa 2.2 - 2.8 yds
-                row["net_consumption_yds_pc"] = round(2.35 + (current_val * 0.02), 3)
-            elif current_val > 3.5:
-                row["net_consumption_yds_pc"] = 1.65
+            # Thực hiện phép trừ 0.2 yds theo yêu cầu kỹ thuật xưởng
+            new_val = current_val - 0.2
+            
+            # Khống chế ngưỡng sàn tối thiểu không bị âm bừa bãi
+            if new_val < 1.15: 
+                new_val = 1.385
                 
-        # KIỂM SOÁT KEO, LÓT VÀ TAPE (CHỐNG PHÌNH SỐ)
+            row["net_consumption_yds_pc"] = round(new_val, 3)
+            row["notes"] = f"[Khấu trừ xưởng cắt -0.2 yds] " + row.get("notes", "")
+                
+        # KIỂM SOÁT NGƯỠNG AN TOÀN CHO KEO VÀ LÓT (GIỮ NGUYÊN MỨC ĐÃ OK)
         elif any(keyword in comp_type for keyword in ["FUSING", "KEO", "INTERLINING", "MEX", "MẾCH"]):
-            if current_val > 0.4: row["net_consumption_yds_pc"] = 0.12
+            if current_val > 0.4: row["net_consumption_yds_pc"] = 0.10
         elif any(keyword in comp_type for keyword in ["POCKETING", "LINING", "LÓT", "TÚI"]):
-            if current_val > 0.6: row["net_consumption_yds_pc"] = 0.22
+            if current_val > 0.6: row["net_consumption_yds_pc"] = 0.15
         elif "TAPE" in comp_type:
-            if current_val > 1.5: row["net_consumption_yds_pc"] = 0.45
+            if current_val > 1.5: row["net_consumption_yds_pc"] = 0.222
             
         filtered_rows.append(row)
         
@@ -106,7 +101,7 @@ def ai_gemini_vision_pdf_parser(pdf_bytes, user_custom_prompt) -> dict:
         base_prompt = f"""
         Bạn là Chuyên gia tối ưu hóa định mức xưởng may. Hãy quét bảng BOM trong file PDF để TÍNH TOÁN ĐỊNH MỨC TIÊU HAO.
         🚨 QUY TẮC PHÂN DÒNG: Mỗi vật liệu phải nằm trên một hàng độc lập (Vải chính, Vải lót, Keo dựng, Tape...).
-        🚨 YÊU CẦU ĐƠN VỊ: Chỉ bóc tách và tính toán định mức cho các hạng mục được đo hoặc có thể quy đổi trực tiếp ra đơn vị YARDS (yds/pc) [INDEX].
+        🚨 YÊU CẦU ĐƠN VỊ: Chỉ bóc tách và tính toán định mức cho các hạng mục được đo hoặc có thể quy đổi trực tiếp ra đơn vị YARDS (yds/pc).
         📉 QUY TẮC BÙ THÔNG SỐ: Cộng thêm thông số thực tế theo: Xếp ly, Tà rời, Cơi đáp túi mổ, Túi hộp Cargo (thành túi), Lai gấu.
         Quy đổi toàn bộ kết quả 'net_consumption_yds_pc' về đơn vị YARDS (yds/pc).
         YÊU CẦU BỔ SUNG TỪ USER: "{user_custom_prompt}"
