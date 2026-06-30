@@ -19,3 +19,8 @@ rapidfuzz==3.9.3
 supabase
 pypdf
 shapely
+ezdxf
+shapely
+google-generativeai
+pandas
+streamlit
