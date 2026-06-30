@@ -70,7 +70,8 @@ def safe_float(val, default=0.0) -> float:
 # AI GEMINI VISION PARSER QUÉT CẤU TRÚC MAY RẬP THÔ THỰC TẾ
 # =====================================================================
 def ai_gemini_vision_pdf_parser(pdf_bytes, user_custom_prompt) -> dict:
-    """Ép buộc AI đóng vai trò Pattern Maker bóc tách rập thô dựa trên kỹ thuật may ráp và yêu cầu riêng biệt từ ô chat"""
+    """Ép buộc AI đóng vai trò Chuyên viên định mức (BOM/Costing Specialist).
+    Trích xuất và tính toán toàn bộ định mức nguyên phụ liệu theo đơn vị YARDS giống mẫu."""
     try:
         if "GEMINI_API_KEY" in st.secrets: genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
         elif "gemini" in st.secrets: genai.configure(api_key=st.secrets["gemini"].get("api_key", ""))
@@ -80,38 +81,38 @@ def ai_gemini_vision_pdf_parser(pdf_bytes, user_custom_prompt) -> dict:
         pdf_blob = {"mime_type": "application/pdf", "data": pdf_bytes}
         
         base_prompt = f"""
-        Bạn là một Trưởng phòng kỹ thuật rập CAD (Pattern Master). Hãy phân tích toàn bộ tài liệu kỹ thuật PDF này (Bản vẽ Sketch, Bảng thông số, Mô tả quy cách may).
-        Nhiệm vụ bắt buộc là phải bóc tách đầy đủ các chi tiết rập thô (Gross Pattern Pieces) trước khi may ráp, cụ thể:
-        1. KIỂM TRA XẾP LY (Pleats/Tucks): Xem thân áo/quần hay túi hộp có xếp ly không. Nếu có, kích thước rập thô bắt buộc phải CỘNG THÊM độ sâu của ly.
-        2. KIỂM TRA CẤU TRÚC TÚI MỔ (Welt/Piping Pocket): Nếu có túi mổ, bắt buộc phải bóc tách thêm chi tiết vải chính gồm: Cơi túi (Welt), Đáp cơi túi (Facing), và các miếng Lót túi (Pocket Bag).
-        3. KIỂM TRA TÚI HỘP (Cargo Pocket): Xác định xem túi có thành túi (Pocket Wall/Bellow) và xếp ly không.
-        4. Tuyệt đối liệt kê đủ tất cả chi tiết vải chính (SHELL) cấu thành nên sản phẩm thật trên bàn cắt.
+        Bạn là một Trưởng phòng tài liệu kỹ thuật và tính toán định mức ngành may mặc (Costing & BOM Specialist).
+        Hãy phân tích tài liệu PDF này và trích xuất bảng định mức nguyên phụ liệu tự động.
+        
+        YÊU CẦU BẮT BUỘC KHÔNG ĐƯỢC SAI SÓT:
+        1. ĐƠN VỊ TÍNH: Tất cả định mức tiêu hao của nguyên phụ liệu (Vải chính, vải lót, gòn tấm/gòn thổi, keo...) PHẢI ĐƯỢC TÍNH HOẶC QUY ĐỔI VỀ ĐƠN VỊ YARDS TRÊN MỖI SẢN PHẨM (yds/pc).
+        2. TỔNG HỢP: Tính cột 'Tổng yds vải/pc' bằng tổng của (Shell Net + Lining Net + Padding Net) hoặc các thành phần chính tương đương của mã đó.
+        3. CHI TIẾT: Phân tách rõ ràng định mức của từng loại:
+           - Shell Net (yds/pc): Vải chính.
+           - Lining Net (yds/pc): Vải lót (nếu không có ghi N/A hoặc 0.00).
+           - Padding/Gòn Net (yds/pc): Gòn tấm hoặc gòn thổi quy đổi (nếu không có ghi N/A hoặc 0.00).
 
-        YÊU CẦU ĐẶC BIỆT TỪ NGƯỜI DÙNG TẠI Ô CHAT (Ưu tiên xử lý và tính định mức theo yêu cầu này):
+        YÊU CẦU BỔ SUNG TỪ Ô CHAT CỦA USER:
         "{user_custom_prompt}"
 
-        Trả về chuỗi JSON duy nhất theo cấu trúc chính xác dưới đây (Không viết thêm chữ gì ngoài JSON):
+        Trả về chuỗi JSON duy nhất theo cấu trúc chính xác sau (Không bao gồm text giải thích ngoài JSON):
         {{
-            "style_code": "Mã style hàng",
-            "description": "Mô tả sản phẩm",
-            "category": "pant hoặc jacket hoặc shirt",
-            "sewing_spec": {{
-                "hem_allowance_inch": 1.5
-            }},
-            "materials_bom": [
-                {{"placement": "SHELL", "width_inch": 58.0, "shrinkage_warp": 5.0, "shrinkage_weft": 15.0, "material_name": "Vải chính"}}
-            ],
-            "garment_panels": [
+            "bom_table": [
                 {{
-                    "panel_name": "Tên chi tiết rập thô",
-                    "quantity_per_garment": 2,
-                    "length_inch": 40.0,
-                    "width_inch": 12.0,
-                    "measurement_type": "half",
-                    "added_allowance_for_pleats_or_walls": "0"
+                    "style_code": "Mã Style (Ví dụ: EMV0017)",
+                    "description": "Mô tả sản phẩm (Ví dụ: M-RIDGEVENT VEST)",
+                    "structure": "Cấu trúc (Ví dụ: Puffer vest - gòn tấm 120gsm)",
+                    "fabric_width_inch": "Khổ vải dạng chuỗi hoặc số (Ví dụ: 56)",
+                    "shrinkage_warp_pct": "Độ co dọc L % (Ví dụ: 5%)",
+                    "shrinkage_weft_pct": "Độ co ngang W % (Ví dụ: 5%)",
+                    "marker_efficiency_pct": "Hiệu suất sơ đồ % (Ví dụ: 85%)",
+                    "shell_main_fabric_net_yds_pc": 1.30,
+                    "lining_net_yds_pc": 1.05,
+                    "padding_gon_net_yds_pc": 1.25,
+                    "total_yds_pc": 3.60,
+                    "notes": "Ghi chú chi tiết nguyên phụ liệu phối đi kèm (Ví dụ: Shell + lining DNBR-38; padding F-021)"
                 }}
-            ],
-            "ai_analysis_notes": "Ghi chú phân tích thông số và kết quả tính toán định mức theo yêu cầu chat của người dùng"
+            ]
         }}
         """
         model = genai.GenerativeModel('gemini-2.5-flash')
@@ -120,6 +121,7 @@ def ai_gemini_vision_pdf_parser(pdf_bytes, user_custom_prompt) -> dict:
         return json.loads(clean_text)
     except Exception as e:
         return {"error": f"Lỗi phân tích AI: {str(e)}"}
+
 
 # =====================================================================
 # SIDEBAR CONTROL: NÚT RESET HỆ THỐNG
