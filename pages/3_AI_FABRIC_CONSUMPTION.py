@@ -195,6 +195,12 @@ def execute_numerical_consumption(ai_blueprint: dict, user_chat: str) -> dict:
 # ĐOẠN 3: GEMINI CAD OBJECT PARSER & GIAO DIỆN STREAMLIT LUỒNG CHÍNH
 # =====================================================================
 
+# ĐÃ VÁ LỖI ATTRIBUTERROR: Khởi tạo biến nền an toàn vào Session State chống sập trang khi chưa nạp file
+if "bom_data" not in st.session_state: 
+    st.session_state.bom_data = None
+if "chat_history" not in st.session_state:
+    st.session_state.chat_history = [{"role": "assistant", "content": "Xin chào! Vui lòng nạp file PDF Techpack lên và nhập thông số vải (Khổ vải, co rút dọc/ngang) nếu có."}]
+
 st.subheader("📁 BẢNG ĐỊNH MỨC CAD COMPONENT ENGINE (V9)")
 uploaded_file = st.file_uploader("Kéo và thả file PDF Techpack hoặc bảng BOM vào đây", type=["pdf"], key="plm_pdf_uploader")
 
