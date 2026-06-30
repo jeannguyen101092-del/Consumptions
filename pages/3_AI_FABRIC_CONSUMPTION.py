@@ -411,7 +411,7 @@ def execute_marker_yardage_and_quality_gate(ai_blueprint: dict, user_chat: str) 
 
 
 # =====================================================================
-# ĐOẠN 3: SỬA LỖI CÚ PHÁP CHUỖI VÀ TỐI ƯU BỐ CỤC PHẲNG V15.6
+# ĐOẠN 3: ĐỔI PHONG CÁCH GIAO DIỆN XÁM SÁNG CÔNG NGHIỆP PLM V15.7
 # =====================================================================
 import streamlit as st
 import json
@@ -419,43 +419,50 @@ import re
 
 st.set_page_config(page_title="AI CAD Fabric Consumption Engine", layout="wide")
 
-# CSS Cao cấp: Sửa lỗi Word-Wrap chống tràn khung Terminal và đồng bộ lưới
+# CSS Thay đổi màu sắc chủ đạo: Nền sáng xám nhạt, Chữ tối, Thẻ trắng tinh tế
 st.markdown("""
     <style>
-    .stApp { background-color: #1e222b; color: #e3e6ed; }
-    [data-testid="stSidebar"] { background-color: #161920; border-right: 1px solid #2d3139; }
+    /* Nền ứng dụng xám sáng, chữ tối màu rõ nét */
+    .stApp { background-color: #f4f6f9; color: #2d3748; }
     
-    /* Thẻ Card đồng bộ độ cao */
+    /* Thanh biên màu xám xanh nhã nhặn */
+    [data-testid="stSidebar"] { background-color: #e2e8f0; border-right: 1px solid #cbd5e1; }
+    [data-testid="stSidebar"] .stMarkdown { color: #334155; }
+    
+    /* Thẻ Card màu trắng bo góc, đổ bóng nhẹ kiểu giao diện ERP cao cấp */
     .cad-card {
-        background-color: #242936;
-        border: 1px solid #343a46;
-        border-radius: 6px;
-        padding: 16px;
+        background-color: #ffffff;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        padding: 20px;
         margin-bottom: 16px;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.15);
+        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.05);
     }
     
+    /* Tiêu đề cụm chức năng màu Xanh Dương Kỹ Thuật */
     .cad-header {
-        font-family: 'Courier New', monospace;
-        color: #4facfe;
-        font-weight: bold;
-        border-bottom: 1px solid #343a46;
-        padding-bottom: 6px;
-        margin-bottom: 12px;
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        color: #1e40af;
+        font-weight: 700;
+        border-bottom: 2px solid #3b82f6;
+        padding-bottom: 8px;
+        margin-bottom: 16px;
         text-transform: uppercase;
         font-size: 14px;
+        letter-spacing: 0.5px;
     }
     
-    /* Tự động xuống dòng khi text quá dài, chống tràn màn hình */
+    /* Khung Terminal mô phỏng console sáng sủa, bẻ dòng chống tràn */
     .chat-box {
-        background-color: #161920;
-        border-radius: 4px;
-        padding: 12px;
+        background-color: #f8fafc;
+        border-radius: 6px;
+        padding: 14px;
         height: 280px;
         overflow-y: auto;
-        font-family: Consolas, Monaco, monospace;
-        font-size: 12px;
-        border: 1px solid #2d3139;
+        font-family: 'Courier New', Courier, monospace;
+        font-size: 13px;
+        font-weight: 600;
+        border: 1px solid #cbd5e1;
         white-space: pre-wrap;       
         word-wrap: break-word;       
         word-break: break-all;
@@ -465,63 +472,63 @@ st.markdown("""
 
 if "bom_data" not in st.session_state: st.session_state.bom_data = None
 if "chat_history" not in st.session_state:
-    st.session_state.chat_history = [{"role": "assistant", "content": "[SYSTEM READY] V15.6 Auto-Dispatcher active."}]
+    st.session_state.chat_history = [{"role": "assistant", "content": "[SYSTEM READY] V15.7 Engine initialized in Industrial Light Mode."}]
 
 # --- SIDEBAR CONTROL PANEL ---
 with st.sidebar:
     st.markdown('<div class="cad-header">⚙️ ENGINE CONTROLS</div>', unsafe_allow_html=True)
-    st.warning("⚠️ **Sửa lỗi Quota 429:** Hệ thống của bạn đang dùng tài khoản miễn phí nên bị Google chặn tần suất. Bạn cần đổi sang API Key trả phí (Pay-as-you-go) trong Google AI Studio để phân rã rập liên tục.")
+    st.info("💡 **Hạn ngạch Google:** Để tránh vấp lỗi gián đoạn 429 Quota Exceeded khi phân rã rập liên tục, hãy cân nhắc nâng cấp tài khoản hoặc sử dụng API Key có định mức cao hơn.")
     
-    if st.button("🗑️ PURGE CACHE & RESET", use_container_width=True):
+    if st.button("🗑️ CLEAR SYSTEM MEMORY", use_container_width=True, type="secondary"):
         st.session_state.bom_data = None
         st.session_state.pdf_bytes = None
         st.session_state.pdf_name = None
-        st.session_state.chat_history = [{"role": "assistant", "content": "[RESET] Cache cleared."}]
+        st.session_state.chat_history = [{"role": "assistant", "content": "[SYSTEM] Session cache purged."}]
         st.rerun()
 
 # --- MAIN DASHBOARD INTERFACE ---
 st.title("🏭 AI CAD Fabric Consumption Engine")
-st.caption("Industrial Engineering Matrix Multiplier • Version 15.6")
+st.caption("PLM-Integrated Pattern Discovery & Marker Analytics • Version 15.7")
 
-# Chia cột với tỷ lệ vàng cân bằng cấu trúc hai bên tả hữu
+# Cấu trúc lưới hai cột đối xứng sạch sẽ
 col_left, col_right = st.columns(2)
 
 with col_left:
-    # KHỐI 1: UPLOAD TẬP TIN
+    # KHỐI 1: UPLOAD FILE TECHPACK
     st.markdown('<div class="cad-card">', unsafe_allow_html=True)
     st.markdown('<div class="cad-header">📥 FILE INGESTION (PDF/TECHPACK)</div>', unsafe_allow_html=True)
-    uploaded_file = st.file_uploader("Upload", type=["pdf"], key="v156_uploader", label_visibility="collapsed")
+    uploaded_file = st.file_uploader("Upload Spec", type=["pdf"], key="v157_uploader", label_visibility="collapsed")
     if uploaded_file is not None:
         st.session_state.pdf_bytes = uploaded_file.read()
         st.session_state.pdf_name = uploaded_file.name
     st.markdown('</div>', unsafe_allow_html=True)
 
-    # KHỐI 2: TERMINAL CONSOLE
+    # KHỐI 2: TERMINAL NHẬT KÝ HỆ THỐNG
     st.markdown('<div class="cad-card">', unsafe_allow_html=True)
-    st.markdown('<div class="cad-header">💻 CAD LIVE TERMINAL</div>', unsafe_allow_html=True)
+    st.markdown('<div class="cad-header">💻 CAD LIVE LOG CONSOLE</div>', unsafe_allow_html=True)
     
     chat_html = '<div class="chat-box">'
     for chat in st.session_state.get("chat_history", []):
-        # ĐÃ SỬA LỖI: Bọc mã màu Hex chính xác trong chuỗi dấu nháy đơn
-        color = '#4facfe' if chat["role"] == "assistant" else '#00f2fe'
-        prefix = "🤖 [AI]: " if chat["role"] == "assistant" else "👤 [USER]: "
-        chat_html += f"<div style='margin-bottom:6px; color: {color}'>{prefix}{chat['content']}</div>"
+        # Đổi màu chữ tối tương phản tốt trên nền xám nhạt
+        color = '#1e3a8a' if chat["role"] == "assistant" else '#b45309'
+        prefix = "🤖 [CAD]: " if chat["role"] == "assistant" else "👤 [USER]: "
+        chat_html += f"<div style='margin-bottom:8px; color: {color}'>{prefix}{chat['content']}</div>"
     chat_html += '</div>'
     st.markdown(chat_html, unsafe_allow_html=True)
     
-    user_prompt = st.chat_input("Override fabric configurations...")
+    user_prompt = st.chat_input("Input override commands (e.g., Khổ vải 57 inch)...")
     st.markdown('</div>', unsafe_allow_html=True)
 
 with col_right:
-    # KHỐI 3: EXECUTION WORKSPACE
-    st.markdown('<div class="cad-card" style="min-height: 440px;">', unsafe_allow_html=True)
-    st.markdown('<div class="cad-header">🚀 EXECUTION HUB</div>', unsafe_allow_html=True)
+    # KHỐI 3: KHU VỰC ĐIỀU KHIỂN CHẠY MÔ HÌNH
+    st.markdown('<div class="cad-card" style="min-height: 450px;">', unsafe_allow_html=True)
+    st.markdown('<div class="cad-header">🚀 EXECUTION WORKSPACE</div>', unsafe_allow_html=True)
     
-    st.write("Nhấn lệnh bên dưới để phân rã sơ đồ hình học vector:")
-    trigger_calc = st.button("EXECUTE POLYGON DISCOVERY ENGINE", use_container_width=True, type="primary")
+    st.markdown("<p style='color:#475569;'>Ready to process vector coordinate tables and apply structural seam/pleat adjustments.</p>", unsafe_allow_html=True)
+    trigger_calc = st.button("RUN GEOMETRIC CALCULATION ENGINE", use_container_width=True, type="primary")
     
     if "pdf_bytes" not in st.session_state:
-        st.caption("⚪ SYSTEM STATE: Awaiting file attachment to mount workspace directory.")
+        st.caption("⚪ SYSTEM STATUS: Directory unmounted. Upload a techpack file to activate.")
     else:
-        st.success(f"📎 MOUNTED DATASET: `{st.session_state.pdf_name}` ready.")
+        st.success(f"📎 BUFFERED OBJECT: `{st.session_state.pdf_name}` loaded successfully.")
     st.markdown('</div>', unsafe_allow_html=True)
