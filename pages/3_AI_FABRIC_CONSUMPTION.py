@@ -45,6 +45,7 @@ def get_dynamic_marker_efficiency(description: str, style_code: str) -> float:
     return 86.0
 
 # =====================================================================
+# =====================================================================
 # ĐOẠN 2: LÕI TOÁN HỌC ĐỊNH MỨC & PHÂN TẦNG CẢNH BÁO PLM STANDARD
 # =====================================================================
 
@@ -77,6 +78,15 @@ def python_consumption_sanity_check(bom_data: dict) -> dict:
     match_range = re.search(r'(?:co\s*rút|co\s*rut)\s*(\d+)\s*(?:-|–|ngang)\s*(\d+)', chat_text)
     if match_range: s_shell_l, s_shell_w = float(match_range.group(1)), float(match_range.group(2))
 
+    # Đọc hiệu suất sơ đồ nền từ dòng đầu tiên có dữ liệu gốc
+    eff_val = default_eff
+    if "bom_rows" in bom_data and isinstance(bom_data["bom_rows"], list):
+        for row in bom_data["bom_rows"]:
+            raw_eff = row.get("marker_efficiency_pct", "")
+            if raw_eff:
+                eff_val = max(80.0, min(safe_float(raw_eff, default_eff), 95.0))
+                break
+
     clean_rows = []
     for row in bom_data.get("bom_rows", []):
         c_type, placement = str(row.get("component_type", "")).upper(), str(row.get("placement", "")).upper()
@@ -87,7 +97,7 @@ def python_consumption_sanity_check(bom_data: dict) -> dict:
         
         if is_main:
             raw_eff = row.get("marker_efficiency_pct", "")
-            eff_val = max(80.0, min(safe_float(raw_eff, default_eff) if raw_eff else default_eff, 95.0))
+            if raw_eff: eff_val = max(80.0, min(safe_float(raw_eff, default_eff), 95.0))
             cutable_w = max(40.0, w_shell - 1.5)
             shrink_f_warp, shrink_f_weft = 1.0 + (s_shell_l / 100.0), 1.0 + (s_shell_w / 100.0)
             
@@ -117,16 +127,20 @@ def python_consumption_sanity_check(bom_data: dict) -> dict:
             final_gross_yards = round(final_gross_yards, 2)
             if final_gross_yards > 3.3: row_status = "CRITICAL"
             notes_log = f"Bù co rút Warp x Weft, hao hụt xưởng cắt 4%"
-            row["marker_efficiency_pct"] = f"{int(eff_val)}%"
+            
         elif any(k in placement or k in c_type for k in ["LINING", "FUSING", "INTERLINING", "LÓT", "DỰNG", "KEO"]):
             final_gross_yards = 0.65 if (is_jacket or is_dress) else (0.25 if (is_pant or is_shirt) else 0.15)
-            notes_log, row["marker_efficiency_pct"] = "Định mức cụm keo dựng phối", "N/A"
+            notes_log = "Định mức cụm keo dựng dựng phối"
+            row_status = "PASS"
 
+        # ĐÃ VÁ DỨT ĐIỂM: Đẩy lệnh gán % ra ngoài khối điều kiện để keo dựng cũng có % đồng bộ
+        row["marker_efficiency_pct"] = f"{int(eff_val)}%"
         row["calculated_gross_consumption_yds"], row["status"], row["reason_or_logs"] = final_gross_yards, row_status, notes_log
         clean_rows.append(row)
         
     bom_data["bom_rows"] = clean_rows
     return bom_data
+
 
 
 
