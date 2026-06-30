@@ -262,13 +262,15 @@ if user_prompt:
             if parsed_result and "error" not in parsed_result:
                 st.session_state.gemini_parsed_bom_data = parsed_result
                 
+                final_outseam = parsed_result.get('outseam') or parsed_result.get('outseam_inch') or parsed_result.get('length') or 'N/A'
                 ai_response_text = f"**🤖 HỆ THỐNG ĐÃ XỬ LÝ XONG FILE:** `{st.session_state.saved_pdf_name}`\n\n* **Mã Style:** {parsed_result.get('style_code', 'N/A')} | **Tên hàng:** {parsed_result.get('style_name', 'N/A')}\n* **Mô tả:** {parsed_result.get('description', 'N/A')}\n* **Size bóc được:** `{parsed_result.get('calculated_size', 'N/A')}` | **Inseam:** `{parsed_result.get('inseam', 'N/A')}\"` | **Front Rise:** `{parsed_result.get('front_rise', 'N/A')}\"`"
                 st.session_state.chat_history.append({"role": "assistant", "content": ai_response_text})
             else:
                 st.session_state.chat_history.append({"role": "assistant", "content": f"❌ Lỗi: {parsed_result.get('error', 'Lỗi dữ liệu')}"})
         st.rerun()
-
-# BẢNG HIỂN THỊ ĐỊNH MỨC DẠNG HÀNG DỌC XẾP CHỒNG THEO TIÊU CHUẨN ĐỊNH MỨC GROSS
+# =====================================================================
+# KHỐI HIỂN THỊ VÀ KHỞI TẠO BIỂU MẪU ĐỒ HỌA EXCEL PHONG PHÚ (.XLSX)
+# =====================================================================
 if st.session_state.gemini_parsed_bom_data:
     st.markdown("---")
     st.subheader("📋 BẢNG ĐỊNH MỨC MỌI BỘ - HỆ THỐNG GIÁM SÁT PLM")
@@ -277,15 +279,13 @@ if st.session_state.gemini_parsed_bom_data:
     col1.markdown(f"📌 **Mã Style:** `{st.session_state.gemini_parsed_bom_data.get('style_code', 'N/A')}`")
     col2.markdown(f"📐 **Cơ chế tính:** `TECHPACK_PDF_CONSUMPTION_ESTIMATION_ENGINE`")
     col3.markdown(f"🧥 **Mô tả dáng:** {st.session_state.gemini_parsed_bom_data.get('description', 'N/A')}")
-        
+    
     bom_rows = st.session_state.gemini_parsed_bom_data.get("bom_rows", [])
     if bom_rows and isinstance(bom_rows, list):
         flat_table_data = []
         for row in bom_rows:
             status_raw = row.get("validation_status", "PASS")
-            if status_raw == "CRITICAL": status_display = "🔴 CRITICAL"
-            elif status_raw == "WARNING": status_display = "🟡 WARNING"
-            else: status_display = "🟢 PASS"
+            status_display = "🔴 CRITICAL" if status_raw == "CRITICAL" else ("🟡 WARNING" if status_raw == "WARNING" else "🟢 PASS")
                 
             flat_table_data.append({
                 "Giám Sát PLM": status_display,
@@ -301,5 +301,121 @@ if st.session_state.gemini_parsed_bom_data:
         df_rows = pd.DataFrame(flat_table_data)
         st.dataframe(df_rows, use_container_width=True)
         
-        csv = df_rows.to_csv(index=False).encode('utf-8-sig')
-        st.download_button("📥 Tải bảng định mức kiểm chuẩn (.CSV)", data=csv, file_name="validated_bom_report.csv", mime="text/csv")
+        # Gọi thư viện openpyxl dựng form xuất xưởng Phong Phú cao cấp
+        from openpyxl import Workbook
+        from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+        from openpyxl.utils import get_column_letter
+        import io
+        
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "BẢNG ĐỊNH MỨC KỸ THUẬT"
+        ws.views.sheetView.showGridLines = True
+        
+        # Cấu hình thiết kế đồ họa bảng tính
+        font_header_comp = Font(name="Arial", size=11, bold=True)
+        font_title = Font(name="Arial", size=14, bold=True, color="1F497D")
+        font_label = Font(name="Arial", size=10, bold=True)
+        font_data = Font(name="Arial", size=10, bold=False)
+        font_table_header = Font(name="Arial", size=9, bold=True)
+        
+        thin_side = Side(border_style="thin", color="000000")
+        border_all = Border(left=thin_side, right=thin_side, top=thin_side, bottom=thin_side)
+        header_fill = PatternFill(start_color="DCE6F1", end_color="DCE6F1", fill_type="solid") # Màu xanh dương nhạt thương hiệu
+        
+        # Ghi khối tiêu đề biên bản góc trái trên cùng
+        ws["B2"] = "CTY CỔ PHẦN QUỐC TẾ PHONG PHÚ"
+        ws["B2"].font = font_header_comp
+        ws["B3"] = "Phòng Kỹ Thuật"
+        ws["B3"].font = Font(name="Arial", size=10, italic=True, bold=True)
+        
+        # Merge ô căn giữa chữ hoa lớn tiêu đề chính
+        ws.merge_cells("B5:L5")
+        ws["B5"] = "BẢNG ĐỊNH MỨC KỸ THUẬT (APPROVED CONSUMPTION)"
+        ws["B5"].font = font_title
+        ws["B5"].alignment = Alignment(horizontal="center", vertical="center")
+        
+        # Đổ thông số quản trị hệ thống
+        headers_info = [
+            ("B7", "CUSTOMER:", "C7", "REITMANS"),
+            ("B8", "STYLE:", "C8", str(st.session_state.gemini_parsed_bom_data.get('style_code', 'N/A'))),
+            ("B9", "BOCK PATTERN:", "C9", "NONE"),
+            ("B10", "SEASON:", "C10", "NONE"),
+            ("B11", "FACTORY:", "C11", "NONE")
+        ]
+        
+        for lbl_cell, lbl_txt, val_cell, val_txt in headers_info:
+            ws[lbl_cell] = lbl_txt
+            ws[lbl_cell].font = font_label
+            ws[val_cell] = val_txt
+            ws[val_cell].font = font_data
+            ws[lbl_cell].border = Border(bottom=thin_side)
+            ws[val_cell].border = Border(bottom=thin_side)
+            
+        # Tiêu đề lưới cột dữ liệu Phong Phú gán ở dòng 13
+        headers = [
+            "STT", "Fabric type", "Fabric code", "Fabric Depictions Fabric", 
+            "Cuttable", "Cons", "Shrinkage (% RẬP dọc)", "Shrinkage (% RẬP ngang)", 
+            "Hiệu suất sơ đồ", "Unit", "Noted"
+        ]
+        
+        for col_num, header_title in enumerate(headers, start=2):
+            cell = ws.cell(row=13, column=col_num)
+            cell.value = header_title
+            cell.font = font_table_header
+            cell.fill = header_fill
+            cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+            cell.border = border_all
+            
+        # Ghi các dòng định mức đã qua giải thuật Python
+        current_row = 14
+        for idx, row in enumerate(bom_rows, start=1):
+            ws.cell(row=current_row, column=2, value=idx).alignment = Alignment(horizontal="center")
+            ws.cell(row=current_row, column=3, value=row.get("component_type", "N/A"))
+            ws.cell(row=current_row, column=4, value="NONE")
+            ws.cell(row=current_row, column=5, value=str(st.session_state.gemini_parsed_bom_data.get('description', 'NONE')))
+            ws.cell(row=current_row, column=6, value=safe_float(row.get("fabric_width_inch"), 58.0)).alignment = Alignment(horizontal="center")
+            ws.cell(row=current_row, column=7, value=safe_float(row.get("gross_consumption_yds_pc"), 0.0)).alignment = Alignment(horizontal="right")
+            ws.cell(row=current_row, column=8, value=str(row.get("shrinkage_warp_pct", "0%"))).alignment = Alignment(horizontal="center")
+            ws.cell(row=current_row, column=9, value=str(row.get("shrinkage_weft_pct", "0%"))).alignment = Alignment(horizontal="center")
+            ws.cell(row=current_row, column=10, value=str(row.get("marker_efficiency_pct", "88%"))).alignment = Alignment(horizontal="center")
+            ws.cell(row=current_row, column=11, value="YDS/PC").alignment = Alignment(horizontal="center")
+            ws.cell(row=current_row, column=12, value=row.get("notes", ""))
+            
+            # Format kẻ khung lưới và bôi màu alert cảnh báo trực tiếp lên ô tính
+            for col_idx in range(2, 13):
+                c = ws.cell(row=current_row, column=col_idx)
+                c.font = font_data
+                c.border = border_all
+                if row.get("validation_status") == "WARNING":
+                    c.fill = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")
+                elif row.get("validation_status") == "CRITICAL":
+                    c.fill = PatternFill(start_color="FCE4D6", end_color="FCE4D6", fill_type="solid")
+            current_row += 1
+            
+        # Thiết lập cơ chế Co giãn chiều rộng cột (Auto-fit Columns) chống lỗi tràn chữ ô tính
+        for col in ws.columns:
+            max_len = 0
+            col_letter = get_column_letter(col.column)
+            if col.column < 2 or col.column > 12: continue
+            for cell in col:
+                if cell.row > 4 and cell.value:
+                    max_len = max(max_len, len(str(cell.value)))
+            ws.column_dimensions[col_letter].width = max(max_len + 3, 11)
+            
+        # Vẽ cụm ký tên biên bản đóng chân
+        ws.cell(row=current_row+2, column=4, value="Approved").font = font_label
+        ws.cell(row=current_row+2, column=9, value="Issued By Consumption").font = font_label
+        
+        # Biên dịch luồng dữ liệu nhị phân xuất nút bấm tải file màu sắc chuẩn form hãng
+        excel_data = io.BytesIO()
+        wb.save(excel_data)
+        excel_data.seek(0)
+        
+        st.download_button(
+            label="📥 TẢI BIỂU MẪU ĐỊNH MỨC KỸ THUẬT PHONG PHÚ (.XLSX)",
+            data=excel_data,
+            file_name=f"BOM_Approved_Report_{st.session_state.gemini_parsed_bom_data.get('style_code', 'Style')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True
+        )
