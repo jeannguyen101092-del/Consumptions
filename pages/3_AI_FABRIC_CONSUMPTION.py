@@ -72,91 +72,126 @@ def safe_float(val, default=0.0) -> float:
 import streamlit as st
 import json
 import google.generativeai as genai
+from google.generativeai import types
 
 def ai_gemini_vision_pdf_parser(pdf_bytes, user_custom_prompt) -> dict:
     """
-    KIẾN TRÚC CAD/ERP CHUẨN CÔNG NGHIỆP:
-    AI đóng vai trò Bộ bóc tách siêu dữ liệu kỹ thuật phẳng (Flat Metadata Extractor).
-    Tuyệt đối KHÔNG tính toán, KHÔNG đoán (Hallucinate). Nếu không có dữ liệu => UNKNOWN.
-    Giao diện JSON Schema nghiêm ngặt, ổn định 100% khi parse qua Python json.loads().
+    LUỒNG VẬN HÀNH TỰ ĐỘNG: 
+    AI quét bảng BOM từ PDF, tự động áp dụng logic hình học may mặc để TÍNH TOÁN 
+    và trả về bảng định mức quy đổi hoàn toàn ra đơn vị YARDS (yds/pc) dạng hàng dọc xuống.
     """
     try:
-        if "GEMINI_API_KEY" in st.secrets: genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-        elif "gemini" in st.secrets: genai.configure(api_key=st.secrets["gemini"].get("api_key", ""))
+        if "GEMINI_API_KEY" in st.secrets: 
+            genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+        elif "gemini" in st.secrets: 
+            genai.configure(api_key=st.secrets["gemini"].get("api_key", ""))
         else:
             return {"error": "Chưa cấu hình GEMINI_API_KEY trong Streamlit Secrets."}
         
         pdf_blob = {"mime_type": "application/pdf", "data": pdf_bytes}
-        
+
+        # 1. Định nghĩa cấu trúc JSON Schema ép kiểu dữ liệu đầu ra nghiêm ngặt cho bảng định mức
+        json_schema = {
+            "type": "OBJECT",
+            "properties": {
+                "style_code": {"type": "STRING"},
+                "description": {"type": "STRING"},
+                "calculated_size": {"type": "STRING"},
+                "structure": {"type": "STRING"},
+                "bom_rows": {
+                    "type": "ARRAY",
+                    "items": {
+                        "type": "OBJECT",
+                        "properties": {
+                            "component_type": {"type": "STRING"},
+                            "fabric_width_inch": {"type": "STRING"},
+                            "shrinkage_warp_pct": {"type": "STRING"},
+                            "shrinkage_weft_pct": {"type": "STRING"},
+                            "marker_efficiency_pct": {"type": "STRING"},
+                            "net_consumption_yds_pc": {"type": "NUMBER"}, # Định mức tự động tính toán dạng số thập phân
+                            "notes": {"type": "STRING"}
+                        },
+                        "required": ["component_type", "net_consumption_yds_pc"]
+                    }
+                }
+            },
+            "required": ["style_code", "bom_rows"]
+        }
+
+        # 2. Xây dựng prompt chứa toàn bộ quy tắc tính toán định mức chuẩn xưởng của bạn
         base_prompt = f"""
-        Bạn là một Trợ lý AI chuyên trách cấu trúc hóa dữ liệu kỹ thuật may mặc (Techpack & BOM Parser) đầu vào cho hệ thống CAD/ERP.
-        Nhiệm vụ duy nhất: ĐỌC, PHÂN TÁCH và ĐIỀN dữ liệu thực tế từ file PDF vào hệ thống.
+        Bạn là Chuyên gia tối ưu hóa định mức xưởng may và Trưởng phòng kỹ thuật rập CAD (Pattern & Garment Costing Master).
+        Hãy quét bảng BOM (Bill of Materials) trong file PDF để bóc tách dữ liệu rập và TÍNH TOÁN ĐỊNH MỨC TIÊU HAO THỰC TẾ.
 
-        🚨 NGUYÊN TẮC BÓC TÁCH KHÔNG ĐOÁN ĐỊNH (CRITICAL RULES):
-        1. KHÔNG TỰ TÍNH TOÁN: Tuyệt đối không tự đoán, không tự tính toán consumption, không quy đổi đơn vị nếu tài liệu gốc không ghi.
-        2. CƠ CHẾ UNKNOWN: Nếu bất kỳ trường dữ liệu nào không được ghi rõ ràng trong file PDF => Bắt buộc điền "UNKNOWN" hoặc null / false tùy theo kiểu dữ liệu quy định. Không tự ý suy diễn (Ví dụ: Không tự đoán nap=true nếu Techpack không ghi rõ quy cách marker một chiều).
-        3. DỮ LIỆU ĐỘNG (DÒNG BOM): Không giới hạn số lượng vật liệu. Mỗi loại vật liệu xuất hiện trong bảng BOM gốc (Shell, Contrast, Pocketing, Mesh, Fusing, Rib, Elastic, Tape...) phải được bóc thành 1 Object độc lập trong mảng `bom_materials`.
+        🚨 QUY TẮC HIỂN THỊ DẠNG HÀNG DỌC (BẮT BUỘC):
+        Hãy phân tách kết quả theo dạng danh sách các dòng độc lập, mỗi loại vật liệu chiếm 1 dòng riêng biệt:
+        - VẢI CHÍNH (SHELL): Gom tổng tất cả chi tiết cấu thành từ vải chính (thân, túi, bo cạp...) thành 1 dòng duy nhất.
+        - VẢI LÓT (LINING): Tính toán riêng nếu sản phẩm có chi tiết lót.
+        - KEO / DỰNG (INTERLINING): Tính toán riêng nếu có keo ép mếch/mex.
+        - RIB / TAPE / POCKETING...: Phân dòng riêng cho từng vật liệu phối khác xuất hiện trong bảng BOM gốc.
 
-        YÊU CẦU BỔ SUNG TỪ Ô CHAT CỦA USER (NẾU CÓ):
+        📉 QUY TẮC TÍNH TOÁN VÀ BÙ THÔNG SỐ (CHỐNG ĐỊNH MỨC BỊ THẤP SAI THỰC TẾ):
+        Hãy dựa vào hình vẽ sơ đồ rập và quy cách may trong PDF để cộng thêm thông số vào phép tính định mức:
+        1. XẾP LY (Pleats/Tucks): Nếu sản phẩm có xếp ly, bắt buộc phải CỘNG THÊM độ sâu của các nếp gấp ly vào thông số tính vải.
+        2. TÀ ÁO RỜI: Nếu có thiết kế tà rời, phải tính toán cộng thêm phần vải hao hụt của tà rời vào dòng vải chính.
+        3. TÚI MỔ (Welt Pocket): Bắt buộc định mức vải chính phải bao gồm cả diện tích của Cơi túi và Đáp túi mổ.
+        4. TÚI CARGO (Túi hộp): Kiểm tra xem có xếp ly hộp hoặc có thành túi (Pocket Wall) không để cộng thêm vào diện tích vải cắt.
+        5. LAI GẤU (Lai áo/Lai quần): Kiểm tra quy cách may lai để lấy thông số chiều dài rập thô hợp lý, an toàn cho xưởng cắt.
+        6. KIỂM TRA LOGIC KEO VÀ LÓT: Không để định mức Lót và Keo bị quá thấp (Ví dụ như mức 0.03 yds là lỗi), lót túi phải đủ diện tích cho 2 túi trước (thường từ 0.18 - 0.30 yds), keo cạp quần phải đủ chiều dài vòng eo (thường từ 0.08 - 0.15 yds).
+
+        🚨 LƯU Ý QUY ĐỔI ĐƠN VỊ:
+        - Tất cả kết quả tính toán định mức cuối cùng ở trường `net_consumption_yds_pc` phải được quy đổi về đơn vị YARDS TRÊN MỖI SẢN PHẨM (yds/pc).
+
+        YÊU CẦU BỔ SUNG TỪ Ô CHAT CỦA USER:
         "{user_custom_prompt}"
-
-        Trả về chuỗi JSON duy nhất, KHÔNG bao gồm markdown (```json), KHÔNG có văn bản giải thích. Phải parse được trực tiếp bằng Python json.loads().
-        
-        [JSON SCHEMA BẮT BUỘC]:
-        {{
-            "style_code": "Mã Style thực tế từ file hoặc UNKNOWN",
-            "description": "Mô tả dáng hàng thực tế hoặc UNKNOWN",
-            "base_size": "Size gốc dùng thiết kế (Ví dụ: M, L, 32...) hoặc UNKNOWN",
-            "base_pattern_fit": "Kiểu dáng rập gốc (Ví dụ: Regular, Slim, Loose, Oversized...) hoặc UNKNOWN",
-            "grading_rule": "Quy tắc nhảy size (Ví dụ: 1 inch bệt vòng) hoặc UNKNOWN",
-            "technical_features": [
-                "Liệt kê phẳng các đặc tính kỹ thuật có trên sản phẩm: Ví dụ: Double Pleat, Cargo Pocket, Welt Pocket, Elastic Waist. Nếu không có để mảng rỗng []"
-            ],
-            "bom_materials": [
-                {{
-                    "material_type": "Phân loại chuẩn: SHELL, CONTRAST, LINING, POCKETING, FUSING, RIB, ELASTIC, hoặc TAPE...",
-                    "material_code": "Mã hiệu vải/NPL (Ví dụ: CB250, TR-01) hoặc UNKNOWN",
-                    "fabric_composition": "Thành phần vải (Ví dụ: 100% Cotton) hoặc UNKNOWN",
-                    "fabric_gsm": "Trọng lượng vải dạng số (Ví dụ: 280) hoặc UNKNOWN",
-                    "fabric_width_inch": "Khổ vải ghi trong tài liệu hoặc UNKNOWN",
-                    "shrinkage_warp_pct": "Độ co dọc L % từ tài liệu hoặc UNKNOWN",
-                    "shrinkage_weft_pct": "Độ co ngang W % từ tài liệu hoặc UNKNOWN",
-                    "marker_efficiency_target_pct": "Mục tiêu hiệu suất sơ đồ % hoặc UNKNOWN",
-                    "fabric_direction": "Hướng vải (Ví dụ: Lengthwise, Crosswise, Bias) hoặc UNKNOWN",
-                    "nap_required": "Chỉ điền true/false nếu tài liệu ghi rõ quy cách tuyết/vải 1 chiều, nếu không ghi bắt buộc điền UNKNOWN",
-                    "one_way": "Chỉ điền true/false nếu tài liệu ghi rõ quy cách sơ đồ 1 chiều, nếu không ghi bắt buộc điền UNKNOWN",
-                    "stripe_match": false, // Điền true nếu có yêu cầu đối kẻ sọc
-                    "plaid_match": false,  // Điền true nếu có yêu cầu đối caro
-                    "seam_allowance": "Thông số đường may (Ví dụ: 1cm, 3/8 inch) nếu có ghi, hoặc UNKNOWN",
-                    "raw_marker_length_from_pdf": "Chiều dài sơ đồ gốc có sẵn trong PDF hay không, nếu không ghi UNKNOWN",
-                    "raw_consumption_from_pdf": "Định mức định biên có sẵn trong PDF hay không, nếu không ghi UNKNOWN",
-                    "pieces": [
-                        {{
-                            "piece_name": "Tên chi tiết rập (Ví dụ: Front Panel, Sleeve, Waistband...)",
-                            "cut_qty": 2, // Số lượng chi tiết cần cắt trên 1 sản phẩm (Ví dụ: 2) dạng số hoặc UNKNOWN
-                            "mirror": "Trạng thái đối lật rập (true/false) hoặc UNKNOWN",
-                            "grainline": "Đường canh sợi chi tiết (Ví dụ: Lengthwise, Crosswise, Bias) hoặc UNKNOWN"
-                        }}
-                    ]
-                }}
-            ]
-        }}
         """
-        # Sử dụng cấu hình cấu trúc đầu ra nghiêm ngặt của Gemini 2.5
+
+        # 3. Gọi model với cấu hình SDK ép cấu hình JSON tự động
         model = genai.GenerativeModel('gemini-2.5-flash')
-        response = model.generate_content([pdf_blob, base_prompt])
+        response = model.generate_content(
+            [pdf_blob, base_prompt],
+            generation_config=types.GenerationConfig(
+                response_mime_type="application/json",
+                response_schema=json_schema,
+                temperature=0.2
+            )
+        )
         
-        # Loại bỏ các ký tự bọc khối mã nếu LLM cố tình thêm vào
-        clean_text = response.text.strip()
-        if clean_text.startswith("```json"): clean_text = clean_text[7:]
-        if clean_text.endswith("```"): clean_text = clean_text[:-3]
-        clean_text = clean_text.strip()
+        return json.loads(response.text.strip())
         
-        return json.loads(clean_text)
     except Exception as e:
-        return {"error": f"Lỗi bóc tách siêu dữ liệu AI: {str(e)}"}
+        return {"error": f"Lỗi bóc tách và tính toán AI: {str(e)}"}
+import streamlit as st
+import pandas as pd
+# Import hàm xử lý quét và tính toán từ file ai_engine.py
+from ai_engine import ai_gemini_vision_pdf_parser
 
+# =====================================================================
+# CẤU HÌNH TRANG VÀ KHÓA BỘ NHỚ FILE VĨNH VIỄN (STATE LOCK)
+# =====================================================================
+st.set_page_config(
+    page_title="3. AI FABRIC CONSUMPTION", 
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
+st.title("📊 TRỢ LÝ ĐỊNH MỨC NGUYÊN PHỤ LIỆU TỰ ĐỘNG (BOM)")
+st.caption("Cấu trúc lõi 13-Engine VECTOR CAD/AI - Phân tích rập thô xếp ly, cơi đáp túi mổ thực tế xưởng sản xuất")
+st.markdown("---")
+
+# Khởi tạo các Session State hệ thống chống mất file và đơ trang khi rerun
+if "width_inch_override" not in st.session_state: st.session_state.width_inch_override = None
+if "shrinkage_override" not in st.session_state: st.session_state.shrinkage_override = None
+if "is_calculated" not in st.session_state: st.session_state.is_calculated = False
+if "gemini_parsed_bom_data" not in st.session_state: st.session_state.gemini_parsed_bom_data = None
+if "saved_pdf_bytes" not in st.session_state: st.session_state.saved_pdf_bytes = None
+if "saved_pdf_name" not in st.session_state: st.session_state.saved_pdf_name = None
+
+# Khởi tạo lịch sử hội thoại chat ở trang chính
+if "chat_history" not in st.session_state:
+    st.session_state.chat_history = [
+        {"role": "assistant", "content": "Xin chào! Vui lòng tải file PDF Techpack lên trước, sau đó nhập yêu cầu tính định mức hoặc thông số bổ sung tại ô chat bên dưới."}
+    ]
 
 # =====================================================================
 # SIDEBAR CONTROL: NÚT RESET HỆ THỐNG
@@ -175,11 +210,12 @@ with st.sidebar:
         ]
         st.cache_data.clear()
         st.rerun()
+
 # =====================================================================
-# MAIN PAGE INTERFACE: LUỒNG GIAO DIỆN CHÍNH (NỐI TIẾP ĐOẠN 1)
+# MAIN PAGE INTERFACE: LUỒNG GIAO DIỆN CHÍNH (NẰM NGAY DƯỚI UPLOAD FILE)
 # =====================================================================
 
-# --- BƯỚC 1: TẢI TÀI LIỆU (MAIN PAGE) ---
+# --- BƯỚC 1: TẢI TÀI LIỆU ---
 st.subheader("📁 BƯỚC 1: TẢI TÀI LIỆU KỸ THUẬT SẢN XUẤT (TECHPACK / BOM)")
 uploaded_file = st.file_uploader(
     "Kéo và thả file PDF Techpack hoặc bảng BOM của bạn vào đây", 
@@ -187,106 +223,116 @@ uploaded_file = st.file_uploader(
     key="main_pdf_uploader"
 )
 
-# Nếu người dùng chọn file mới, cập nhật vào Session State chặn đứng tình trạng mất data khi rerun
+# Khóa cứng nhị phân file (bytes) vào RAM hệ thống ngay khi upload
 if uploaded_file is not None:
     file_bytes = uploaded_file.read()
     if st.session_state.saved_pdf_name != uploaded_file.name:
         st.session_state.saved_pdf_bytes = file_bytes
         st.session_state.saved_pdf_name = uploaded_file.name
-        st.toast(f"✅ Đã tải file: {uploaded_file.name}", icon="📎")
+        st.toast(f"✅ Đã nhận file dữ liệu: {uploaded_file.name}", icon="📎")
 
-# --- BƯỚC 2: CHAT AI NẰM NGAY DƯỚI UPLOAD FILE ---
+# --- BƯỚC 2: CHAT AI NẰM NGAY DƯỚI KHU VỰC UPLOAD ---
 st.markdown("---")
 st.subheader("💬 TRỢ LÝ SẢN XUẤT AI")
 
-# Khung hiển thị nội dung hội thoại chat ngay tại dòng chảy chính với chiều cao cố định
-chat_container = st.container(height=300)
+# Khung hiển thị tin nhắn chat độc lập ở Main Page với chiều cao cố định
+chat_container = st.container(height=280)
 with chat_container:
     for chat in st.session_state.chat_history:
         with st.chat_message(chat["role"]): 
             st.markdown(chat["content"])
 
-# Ô nhập liệu chat nằm ngay dưới lịch sử chat ở main page
+# Ô nhập liệu chat nằm ngay sát phía dưới khung chat
 user_prompt = st.chat_input("Nhập bổ sung thông tin vải, độ co rút hoặc yêu cầu tính định mức thực tế...", key="main_chat_input_unique")
 
-# XỬ LÝ LỆNH CHAT VÀ GỬI THẲNG FILE QUA GEMINI
+# XỬ LÝ SỰ KIỆN KHI NGƯỜI DÙNG GỬI CHAT
 if user_prompt:
     st.session_state.chat_history.append({"role": "user", "content": user_prompt})
     
-    # 1. Chạy NLP trích xuất nhanh thông số nếu có viết dạng text (ví dụ: "khổ 58 co dọc 5")
-    update_config_from_text(user_prompt)
-    
-    # 2. Kiểm tra điều kiện file PDF đã được upload chưa
+    # Kiểm tra xem người dùng đã thực hiện bước 1 tải file lên chưa
     if not st.session_state.saved_pdf_bytes:
         st.session_state.chat_history.append({
             "role": "assistant", 
-            "content": "⚠️ Bạn chưa tải lên file PDF nào ở Bước 1. Vui lòng chọn file PDF để tôi có thông số phân tích định mức nhé!"
+            "content": "⚠️ Hệ thống chưa nhận được file PDF từ Bước 1. Vui lòng tải file lên trước khi ra lệnh phân tích."
         })
         st.rerun()
     else:
-        # Tiến hành gọi Gemini quét file PDF kèm Prompt từ ô chat
-        with st.spinner("AI đang quét PDF độc lập và tính toán định mức theo yêu cầu..."):
+        # Gửi file PDF đồng thời qua Gemini để quét và tự động tính toán số liệu Yards
+        with st.spinner("AI đang tiến hành phân tích sâu tài liệu kĩ thuật và tính toán bảng định mức..."):
             parsed_result = ai_gemini_vision_pdf_parser(
                 st.session_state.saved_pdf_bytes, 
                 user_prompt
             )
             
             if parsed_result and "error" not in parsed_result:
-                # Lưu data bóc tách vào State để các phần vẽ bảng dữ liệu phía sau sử dụng
                 st.session_state.gemini_parsed_bom_data = parsed_result
                 st.session_state.is_calculated = True
                 
-                # Tạo nội dung phản hồi hiển thị lên chat
                 ai_response_text = f"""
 **🤖 AI ĐÃ PHÂN TÍCH XONG FILE:** `{st.session_state.saved_pdf_name}`
 
 * **Mã Style:** {parsed_result.get('style_code', 'N/A')}
 * **Mô tả:** {parsed_result.get('description', 'N/A')}
-* **Phân loại sản phẩm:** {parsed_result.get('category', 'N/A')}
+* **Kích cỡ tính toán (Size):** {parsed_result.get('calculated_size', 'N/A')}
 
-📝 **Kết quả tính định mức & Ghi chú kỹ thuật:**
-{parsed_result.get('ai_analysis_notes', 'Đã bóc tách thành công cấu trúc chi tiết, mời xem bảng dữ liệu rập phía dưới.')}
+👉 *Mời xem bảng phân tách định mức theo hàng dọc đã được tự động điền số liệu ở phía dưới.*
 """
                 st.session_state.chat_history.append({"role": "assistant", "content": ai_response_text})
             else:
-                error_msg = parsed_result.get("error", "Lỗi cấu trúc dữ liệu trả về từ AI.") if parsed_result else "Không nhận được phản hồi từ AI."
+                error_msg = parsed_result.get("error", "Lỗi dữ liệu hệ thống.") if parsed_result else "Không có phản hồi."
                 st.session_state.chat_history.append({
                     "role": "assistant", 
-                    "content": f"❌ Thất bại: {error_msg}"
+                    "content": f"❌ Lỗi xử lý: {error_msg}"
                 })
         st.rerun()
 
 # =====================================================================
-# BẢNG HIỂN THỊ ĐỊNH MỨC THEO HÀNG NGANG XUỐNG DÒNG (DỄ NHÌN)
-# Đoạn code mẫu gợi ý render dữ liệu tại app.py khi hiển thị cục JSON công nghiệp:
+# BẢNG HIỂN THỊ ĐỊNH MỨC HÀNG DỌC (XẾP CHỒNG THEO NPL)
+# =====================================================================
 if st.session_state.gemini_parsed_bom_data:
-    data = st.session_state.gemini_parsed_bom_data
+    st.markdown("---")
+    st.subheader("📋 BẢNG ĐỊNH MỨC MỌI BỘ - PHÂN TÁCH THEO DÒNG NGUYÊN PHỤ LIỆU")
     
-    st.markdown("### 🏬 SIÊU DỮ LIỆU SẢN XUẤT (CAD METADATA)")
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Mã Style", data.get("style_code"))
-    col2.metric("Size gốc (Base Size)", data.get("base_size"))
-    col3.metric("Phom dáng rập", data.get("base_pattern_fit"))
-    col4.metric("Đặc tính rập", f"{len(data.get('technical_features', []))} điểm lưu ý")
+    # Hiển thị thông số tổng quan đầu bảng
+    col1, col2, col3 = st.columns([1, 1, 2])
+    with col1:
+        st.markdown(f"📌 **Mã Style:** `{st.session_state.gemini_parsed_bom_data.get('style_code', 'N/A')}`")
+    with col2:
+        st.markdown(f"📏 **Kích cỡ (Size):** `{st.session_state.gemini_parsed_bom_data.get('calculated_size', 'N/A')}`")
+    with col3:
+        st.markdown(f"🧥 **Mô tả:** {st.session_state.gemini_parsed_bom_data.get('description', 'N/A')}")
+        
+    # Trích xuất danh sách các dòng nguyên phụ liệu từ dữ liệu AI trả về
+    bom_rows = st.session_state.gemini_parsed_bom_data.get("bom_rows", [])
     
-    st.markdown("### 📋 DANH SÁCH BOM & CHI TIẾT CẮT (PIECE LIST)")
-    
-    # Duyệt qua từng vật liệu động do AI quét được
-    for idx, mat in enumerate(data.get("bom_materials", [])):
-        with st.expander(f"📦 VẬT LIỆU {idx+1}: {mat.get('material_type')} [Mã: {mat.get('material_code')}]", expanded=True):
-            # Hiển thị thông số sơ đồ CAD thô
-            m_col1, m_col2, m_col3, m_col4 = st.columns(4)
-            m_col1.write(f"**Khổ vải:** {mat.get('fabric_width_inch')} inch")
-            m_col2.write(f"**Định lượng:** {mat.get('fabric_gsm')} GSM")
-            m_col3.write(f"**Độ co L/W:** {mat.get('shrinkage_warp_pct')} / {mat.get('shrinkage_weft_pct')}")
-            m_col4.write(f"**Đường may:** {mat.get('seam_allowance')}")
-            
-            # Chuyển đổi danh sách chi tiết (Pieces List) sang bảng DataFrame để hiển thị sạch sẽ
-            pieces_list = mat.get("pieces", [])
-            if pieces_list:
-                df_pieces = pd.DataFrame(pieces_list)
-                # Đổi tên cột hiển thị cho chuyên nghiệp
-                df_pieces.columns = ["Tên chi tiết rập", "Số lượng cắt (Cut Qty)", "Đối cặp (Mirror)", "Canh sợi (Grainline)"]
-                st.dataframe(df_pieces, use_container_width=True)
-            else:
-                st.info("Không tìm thấy danh sách chi tiết cắt cho loại vật liệu này trong BOM.")
+    if bom_rows and isinstance(bom_rows, list):
+        # Chuyển đổi JSON sang DataFrame để Streamlit render bảng
+        df_rows = pd.DataFrame(bom_rows)
+        
+        # Định nghĩa lại tiêu đề các cột chuẩn tiếng Việt ngành may
+        column_mapping = {
+            "component_type": "Loại Nguyên Phụ Liệu",
+            "fabric_width_inch": "Khổ vải (inch)",
+            "shrinkage_warp_pct": "Độ co L (Dọc)",
+            "shrinkage_weft_pct": "Độ co W (Ngang)",
+            "marker_efficiency_pct": "Hiệu suất sơ đồ",
+            "net_consumption_yds_pc": "Định mức Net (yds/pc)",
+            "notes": "Chi tiết / Ghi chú bóc tách từ BOM"
+        }
+        
+        df_rows = df_rows.rename(columns={k: v for k, v in column_mapping.items() if k in df_rows.columns})
+        
+        # Hiển thị bảng dữ liệu động ra màn hình, mở rộng tối đa chiều ngang
+        st.dataframe(df_rows, use_container_width=True)
+        
+        # Tạo nút tải file excel/csv sạch cho người sử dụng
+        csv = df_rows.to_csv(index=False).encode('utf-8-sig')
+        st.download_button(
+            label="📥 Tải bảng định mức dọc (.CSV)", 
+            data=csv, 
+            file_name=f"dinh_muc_{st.session_state.saved_pdf_name}.csv", 
+            mime="text/csv"
+        )
+    else:
+        st.error("Cấu trúc phản hồi không phù hợp để tạo bảng dòng dọc.")
+        st.json(st.session_state.gemini_parsed_bom_data)
