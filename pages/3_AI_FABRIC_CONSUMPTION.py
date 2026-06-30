@@ -45,8 +45,7 @@ def get_dynamic_marker_efficiency(description: str, style_code: str) -> float:
     return 86.0
 
 # =====================================================================
-# =====================================================================
-# ĐOẠN 2: LÕI TOÁN HỌC ĐỊNH MỨC & PHÂN TẦNG CẢNH BÁO PLM STANDARD
+# ĐOẠN 2: LÕI TOÁN HỌC ĐỊNH MỨC & PHÂN TẦNG CẢNH BÁO PLM CHUẨN XƯỞNG MAY
 # =====================================================================
 
 def python_consumption_sanity_check(bom_data: dict) -> dict:
@@ -57,7 +56,7 @@ def python_consumption_sanity_check(bom_data: dict) -> dict:
     
     # Phân loại trang phục tự động bằng từ khóa kỹ thuật rập
     is_jacket = any(x in desc_upper for x in ["JACKET", "COAT", "VEST", "OUTERWEAR"])
-    is_pant = any(x in desc_upper for x in ["JEAN", "DENIM", "PANT", "BAGGY", "SHORT", "TROUSER", "LEGGING"])
+    is_pant = any(x in desc_upper for x in ["JEAN", "DENIM", "PANT", "BAGGY", "SHORT", "TROUSER", "LEGGING", "JORT"])
     is_dress = any(x in desc_upper for x in ["DRESS", "SKIRT", "VÁY", "ĐẦM", "MAXI"])
     is_tshirt = any(x in desc_upper for x in ["TSHIRT", "T-SHIRT", "TEE", "POLO", "ÁO THUN"])
     is_shirt = any(x in desc_upper for x in ["SHIRT", "SƠ MI", "BLOUSE", "BUTTON DOWN"]) and not is_tshirt
@@ -67,7 +66,13 @@ def python_consumption_sanity_check(bom_data: dict) -> dict:
     sleeve_length = safe_float(bom_data.get("sleeve_length") or bom_data.get("sleeve"), default=24.0)
     chest_width = safe_float(bom_data.get("chest") or bom_data.get("chest_width") or bom_data.get("bust"), default=20.0)
     skirt_hem = safe_float(bom_data.get("hem") or bom_data.get("hem_width") or bom_data.get("sweep"), default=35.0)
-    calculated_outseam = safe_float(bom_data.get("inseam"), default=30.0) + safe_float(bom_data.get("front_rise"), default=11.0)
+    
+    # VÁ LỖI 1: Khống chế bẫy số Front Rise bóc tách lỗi từ AI (Ví dụ 31 1/2 dính dấu cách thành 31.5)
+    raw_rise_val = safe_float(bom_data.get("front_rise") or bom_data.get("rise"), default=11.5)
+    if raw_rise_val > 20.0: raw_rise_val = 11.5 # Ép về thông số đũng quần người lớn chuẩn kỹ thuật
+    
+    raw_inseam_val = safe_float(bom_data.get("inseam") or bom_data.get("inseam_length"), default=13.0)
+    calculated_outseam = raw_inseam_val + raw_rise_val
     hip_width = safe_float(bom_data.get("hip") or bom_data.get("hip_width"), default=21.0)
 
     # Đọc đè thông số cấu hình vải từ ô chat
@@ -75,8 +80,12 @@ def python_consumption_sanity_check(bom_data: dict) -> dict:
     chat_text = "".join([str(m["content"]) for m in st.session_state.chat_history if m["role"] == "user"][-1:]).lower()
     
     if re.search(r'(?:khổ|kho)\s*(\d+)', chat_text): w_shell = float(re.search(r'(?:khổ|kho)\s*(\d+)', chat_text).group(1))
-    match_range = re.search(r'(?:co\s*rút|co\s*rut)\s*(\d+)\s*(?:-|–|ngang)\s*(\d+)', chat_text)
-    if match_range: s_shell_l, s_shell_w = float(match_range.group(1)), float(match_range.group(2))
+    
+    # Sửa bộ quét co rút linh hoạt bắt đúng dải số cách nhau bằng dấu cách/gạch ngang
+    match_range = re.search(r'(?:co\s*rút|co\s*rut|co)\s*(\d+)\s*(?:-|–|ngang|\s+)\s*(\d+)', chat_text)
+    if match_range: 
+        s_shell_l = float(match_range.group(1))
+        s_shell_w = float(match_range.group(2))
 
     # Đọc hiệu suất sơ đồ nền từ dòng đầu tiên có dữ liệu gốc
     eff_val = default_eff
@@ -90,9 +99,12 @@ def python_consumption_sanity_check(bom_data: dict) -> dict:
     clean_rows = []
     for row in bom_data.get("bom_rows", []):
         c_type, placement = str(row.get("component_type", "")).upper(), str(row.get("placement", "")).upper()
-        if any(k in c_type or k in placement for k in ["CHỈ", "THREAD", "ZIPPER", "BUTTON", "LABEL", "TAG"]): continue
         
-        is_main = any(k in placement for k in ["BODY", "SHELL", "MAIN", "THÂN"]) or any(k in c_type for k in ["SHELL", "DENIM", "VẢI CHÍNH"])
+        # Loại bỏ phụ liệu phần cứng (Nut, Đinh tán Rivet, Nhãn mác) khỏi bảng tính diện tích phẳng
+        if any(k in c_type or k in placement for k in ["CHỈ", "THREAD", "ZIPPER", "BUTTON", "SHANK", "RIVET", "LABEL", "TAG"]): 
+            continue
+        
+        is_main = any(k in placement for k in ["BODY", "SHELL", "MAIN", "THÂN"]) or any(k in c_type for k in ["SHELL", "DENIM", "VẢI CHÍNH", "COTTON"])
         row_status, notes_log, final_gross_yards = "PASS", "", 0.0
         
         if is_main:
@@ -106,8 +118,15 @@ def python_consumption_sanity_check(bom_data: dict) -> dict:
                 final_gross_yards = max(1.65, min(base_cons * shrink_f_warp * shrink_f_weft * 1.04, 2.65))
                 row_status = "WARNING" if final_gross_yards > 2.5 else "PASS"
             elif is_pant:
+                # Tính toán sơ đồ rập cho Quần dài/Quần Shorts chuẩn diện tích bề mặt hình học
                 base_cons = ((calculated_outseam + 3.0) * ((hip_width * 2) + 6.0) / (cutable_w * 36.0)) / (eff_val / 100.0)
-                final_gross_yards = max(1.15, min(base_cons * shrink_f_warp * shrink_f_weft * 1.04, 1.75))
+                
+                # Nếu là quần Short (Jort) có Inseam ngắn dưới 15 inch, giới hạn định mức thực tế xưởng cắt
+                if raw_inseam_val < 15.0:
+                    final_gross_yards = max(0.65, min(base_cons * shrink_f_warp * shrink_f_weft * 1.04, 0.95))
+                else:
+                    final_gross_yards = max(1.15, min(base_cons * shrink_f_warp * shrink_f_weft * 1.04, 1.75))
+                    
                 row_status = "WARNING" if final_gross_yards > 1.8 else "PASS"
             elif is_dress:
                 base_cons = ((body_length + 6.0) * ((skirt_hem * 2) + 4.0) / (cutable_w * 36.0)) / (eff_val / 100.0)
@@ -128,12 +147,15 @@ def python_consumption_sanity_check(bom_data: dict) -> dict:
             if final_gross_yards > 3.3: row_status = "CRITICAL"
             notes_log = f"Bù co rút Warp x Weft, hao hụt xưởng cắt 4%"
             
-        elif any(k in placement or k in c_type for k in ["LINING", "FUSING", "INTERLINING", "LÓT", "DỰNG", "KEO"]):
-            final_gross_yards = 0.65 if (is_jacket or is_dress) else (0.25 if (is_pant or is_shirt) else 0.15)
+        # VÁ LỖI 2: Quét chặt chẽ từ khóa POCKETING / INTERLINING để tính vải lót phối túi
+        elif any(k in placement or k in c_type for k in ["LINING", "FUSING", "INTERLINING", "LÓT", "DỰNG", "KEO", "POCKETING", "TÚI"]):
+            if is_jacket or is_dress: final_gross_yards = 0.65
+            elif is_pant or is_shirt: final_gross_yards = 0.25  # Ép ra số 0.25 yds cho lót túi quần jean/short
+            else: final_gross_yards = 0.15
             notes_log = "Định mức cụm keo dựng dựng phối"
             row_status = "PASS"
 
-        # ĐÃ VÁ DỨT ĐIỂM: Đẩy lệnh gán % ra ngoài khối điều kiện để keo dựng cũng có % đồng bộ
+        # Đồng bộ hiển thị dấu % hiệu suất sơ đồ cho toàn bảng
         row["marker_efficiency_pct"] = f"{int(eff_val)}%"
         row["calculated_gross_consumption_yds"], row["status"], row["reason_or_logs"] = final_gross_yards, row_status, notes_log
         clean_rows.append(row)
