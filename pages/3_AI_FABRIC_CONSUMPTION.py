@@ -112,23 +112,20 @@ def execute_cad_polygon_consumption(ai_blueprint: dict, user_chat: str) -> dict:
     hip_width = safe_float(ai_blueprint.get("extracted_hip_width"), 21.0)
     skirt_hem = safe_float(ai_blueprint.get("extracted_skirt_hem_width"), 35.0)
 
-    # --- 1. QUY CÁCH BIÊN ĐỘ ĐƯỜNG MAY XƯỞNG MAY PHONG PHÚ (SEWING REGISTRY) ---
-    SEAM_INCH = 0.5 * 2         # May chắp hông sườn trái/phải (0.5 inch mỗi đường may)
-    HEM_INCH = 1.5              # Lai quần/Lai áo cuốn sạch tiêu chuẩn (Double Fold Hem)
-    WAISTBAND_INCH = 2.5        # Lượng dư rập để bọc bản thun lưng chun (Elastic Tunnel)
-    PLEAT_INCH = 1.5 * 2        # Lượng bù vải cho mỗi nếp xếp ly túi hộp hoặc ly thân trước
+    # QUY CÁCH BIÊN ĐỘ ĐƯỜNG MAY XƯỞNG MAY PHONG PHÚ
+    SEAM_INCH = 1.0              
+    HEM_INCH = 1.5              
+    WAISTBAND_INCH = 2.5        
+    PLEAT_INCH = 3.0        
 
-    # Tối ưu thông số trục hình học gốc thành thông số rập bán thành phẩm thực tế
     if product_type in ["PANT", "CAPRI_PANT", "CARGO_PANT", "JORT", "DEFAULT"]:
-        # Dài rập thực tế = Thông số gốc + May lộn lưng + Cuốn lai gấu sạch
         outseam_pattern = outseam_length + WAISTBAND_INCH + HEM_INCH
-        # Rộng rập thực tế = Thông số gốc nửa vòng + May chắp sườn hông + Lượng mở ly xếp túi
         hip_pattern = hip_width + SEAM_INCH + PLEAT_INCH
         base_area_sq_in = outseam_pattern * (hip_pattern * 2)
     else:
-        base_area_sq_in = (outseam_length + 4.0) * ((hip_width * 2) + 12.0)
+        base_area_sq_in = (body_length + 4.0) * ((chest_width * 2) + 12.0)
 
-    all_rows = ai_blueprint.get("bom_rows", []):
+    all_rows = ai_blueprint.get("bom_rows", [])
     for row in all_rows:
         f_class_raw = row.get("fabric_classification", "MAIN_FABRIC")
         f_class_norm = normalize_fabric_class(f_class_raw)
@@ -140,7 +137,7 @@ def execute_cad_polygon_consumption(ai_blueprint: dict, user_chat: str) -> dict:
         tmp_id = f"{f_code}_{f_color}_{grain_rule}_{int(fab_repeat)}"
         w_b = w_chat if w_chat is not None else safe_float(row.get("fabric_width_inch"), 56.0)
         s_warp = s_l_chat if s_l_chat is not None else safe_float(row.get("shrinkage_warp_pct"), 5.0)
-        s_weft = s_weft_chat if s_w_chat is not None else safe_float(row.get("shrinkage_weft_pct"), 10.0)
+        s_weft = s_w_chat if s_w_chat is not None else safe_float(row.get("shrinkage_weft_pct"), 10.0)
         
         if f_class_norm == "MAIN_FABRIC" and tmp_id not in fabric_registry:
             fabric_registry[tmp_id] = {
@@ -198,7 +195,6 @@ def execute_cad_polygon_consumption(ai_blueprint: dict, user_chat: str) -> dict:
         row_area_sq_in = 0.0
         is_main_shell = (f_class == "MAIN_FABRIC")
         
-        # --- 2. TOÁN HỌC PHẲNG CỘNG BÙ ALLOWANCE TRƯỚC KHI GIÁC SƠ ĐỒ ---
         if panels:
             for panel in panels:
                 p_count = safe_float(panel.get("piece_count"), 1.0)
@@ -206,7 +202,6 @@ def execute_cad_polygon_consumption(ai_blueprint: dict, user_chat: str) -> dict:
                 scale_factor = safe_float(panel.get("coordinate_scale"), 1.0)
                 scale_factor = max(0.001, min(scale_factor, 100.0))
                 
-                # Trích xuất diện tích rập gốc
                 if polygon_points and isinstance(polygon_points, list) and len(polygon_points) >= 3:
                     panel_area = calculate_shoelace_polygon_area(polygon_points) * p_count * (scale_factor ** 2)
                 else:
@@ -214,24 +209,20 @@ def execute_cad_polygon_consumption(ai_blueprint: dict, user_chat: str) -> dict:
                     p_wid = safe_float(panel.get("piece_width_inch"), 0.0)
                     panel_area = p_len * p_wid * p_count * 0.88
                 
-                # TỰ ĐỘNG CỘNG BÙ HÌNH HỌC THEO QUY CÁCH MAY ĐA GIÁC CHUYÊN SÂU
                 p_name = str(panel.get("panel_name", "")).upper()
                 if "FRONT" in p_name or "BACK" in p_name or "THÂN" in p_name:
-                    # Bù đường may sườn hông và gấu cuốn sạch cho rập thân
                     panel_area += (calculated_outseam * SEAM_INCH) + (hip_width * HEM_INCH)
                 elif "WAISTBAND" in p_name or "CẠP" in p_name or "LƯNG" in p_name:
-                    # Bù lượng vải gập cuộn hầm lưng chun
                     panel_area += (p_len * WAISTBAND_INCH)
                 elif "POCKET" in p_name or "TÚI" in p_name:
-                    # Bù nếp xếp ly hộp căng của túi Cargo/Bermuda
                     panel_area += (p_len * p_wid * PLEAT_INCH)
                     
                 row_area_sq_in += panel_area
         else:
-            row_area_sq_in = base_area_sq_in
+            row_area_sq_in = fallback_base_area
 
         if is_main_shell and not panels: 
-            row_area_sq_in = base_area_sq_in
+            row_area_sq_in = fallback_base_area
 
         if f_class.startswith("SELF_") or consume_target_id != "":
             sub_cons = (row_area_sq_in / (cutable_w * 36.0)) / (eff / 100.0)
