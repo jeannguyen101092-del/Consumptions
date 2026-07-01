@@ -535,32 +535,101 @@ with col_right:
     st.markdown('</div>', unsafe_allow_html=True)
 
 
+# =====================================================================
+# ĐOẠN 4: ENGINE XUẤT EXCEL THEO FORM MẪU BÁO CÁO PHONG PHÚ (V15.9)
+# =====================================================================
+import streamlit as st
+import pandas as pd
+import io
+import re
 
-
-
-
-        header_row = 10 # Định vị dòng 11 trong Excel làm tiêu đề cột
+def export_to_phong_phu_excel(bom_data, pdf_name):
+    """
+    Hàm đóng gói dữ liệu và tự động căn chỉnh format, font chữ, kẻ viền
+    để xuất ra file Excel giống hệt biểu mẫu Phong Phú thực tế.
+    """
+    buffer = io.BytesIO()
+    
+    with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+        workbook  = writer.book
+        font_name = 'Segoe UI' 
         
-        # Ghi các tiêu đề cột vào bảng
+        company_format = workbook.add_format({
+            'font_name': font_name, 'font_size': 11, 'bold': True, 'color': '#1e3a8a'
+        })
+        dept_format = workbook.add_format({
+            'font_name': font_name, 'font_size': 10, 'italic': True, 'color': '#475569'
+        })
+        title_format = workbook.add_format({
+            'font_name': font_name, 'font_size': 16, 'bold': True, 
+            'align': 'center', 'valign': 'vcenter', 'color': '#0f172a'
+        })
+        info_label_format = workbook.add_format({
+            'font_name': font_name, 'font_size': 10, 'bold': True, 'color': '#334155'
+        })
+        info_val_format = workbook.add_format({
+            'font_name': font_name, 'font_size': 10, 'color': '#0f172a'
+        })
+        header_format = workbook.add_format({
+            'font_name': font_name, 'font_size': 10, 'bold': True,
+            'align': 'center', 'valign': 'vcenter',
+            'bg_color': '#e0f2fe', 'color': '#0369a1',
+            'border': 1, 'border_color': '#cbd5e1'
+        })
+        
+        cell_center = workbook.add_format({'font_name': font_name, 'font_size': 10, 'align': 'center', 'border': 1, 'border_color': '#cbd5e1'})
+        cell_left   = workbook.add_format({'font_name': font_name, 'font_size': 10, 'align': 'left', 'border': 1, 'border_color': '#cbd5e1'})
+        cell_right  = workbook.add_format({'font_name': font_name, 'font_size': 10, 'align': 'right', 'border': 1, 'border_color': '#cbd5e1', 'num_format': '#,##0.000'})
+        
+        pass_format = workbook.add_format({'font_name': font_name, 'font_size': 10, 'align': 'center', 'bg_color': '#dcfce7', 'color': '#15803d', 'border': 1, 'border_color': '#cbd5e1', 'bold': True})
+        warn_format = workbook.add_format({'font_name': font_name, 'font_size': 10, 'align': 'center', 'bg_color': '#fef9c3', 'color': '#a16207', 'border': 1, 'border_color': '#cbd5e1', 'bold': True})
+        crit_format = workbook.add_format({'font_name': font_name, 'font_size': 10, 'align': 'center', 'bg_color': '#fee2e2', 'color': '#b91c1c', 'border': 1, 'border_color': '#cbd5e1', 'bold': True})
+        sign_title_format = workbook.add_format({'font_name': font_name, 'font_size': 10, 'bold': True, 'align': 'center'})
+
+        worksheet = workbook.add_worksheet('BẢNG ĐỊNH MỨC KỸ THUẬT')
+        worksheet.hide_gridlines(2) 
+        
+        worksheet.write('A1', 'CTY CỔ PHẦN QUỐC TẾ PHONG PHÚ', company_format)
+        worksheet.write('A2', '⚙️ Phòng Kỹ Thuật May - IE Engine Core', dept_format)
+        worksheet.merge_range('A4:I4', 'BẢNG ĐỊNH MỨC KỸ THUẬT (APPROVED CONSUMPTION)', title_format)
+        
+        style_code_extracted = str(bom_data.get("style_code", "R09-450416")).upper()
+        prod_type_extracted = str(bom_data.get("detected_product_type", "PANT")).upper()
+        
+        metadata = [
+            ('CUSTOMER:', 'REITMANS', 'SEASON:', 'NONE'),
+            ('STYLE:', style_code_extracted, 'FACTORY:', 'NONE'),
+            ('PRODUCT:', prod_type_extracted, 'STATUS:', 'APPROVED BY AI')
+        ]
+        
+        start_row = 5
+        for i, data_row in enumerate(metadata):
+            worksheet.write(start_row + i, 0, data_row[0], info_label_format)
+            worksheet.write(start_row + i, 1, data_row[1], info_val_format)
+            worksheet.write(start_row + i, 3, data_row[2], info_label_format)
+            worksheet.write(start_row + i, 4, data_row[3], info_val_format)
+
+        headers = [
+            "STT", "Phân loại vật tư (Fabric type)", "Mã vải (Code)", 
+            "Khổ (Cuttable)", "Định mức (Cons)", "Co rút dọc (% Warp)", 
+            "Co rút ngang (% Weft)", "Hiệu suất sơ đồ", "Trạng thái PLM"
+        ]
+        
+        header_row = 10
         for col_num, header_title in enumerate(headers):
             worksheet.write(header_row, col_num, header_title, header_format)
             
-        # E. ĐỔ DỮ LIỆU THỰC TẾ TỪ HÀM TÍNH TOÁN LÊN KHUNG BẢNG LƯỚI
         raw_rows = bom_data.get("bom_rows", [])
         current_data_row = header_row + 1
         stt = 1
         
         for r in raw_rows:
-            # Thu thập dữ liệu thực tế từ cấu trúc dữ liệu BOM
             comp_type = r.get("component_type", "MAIN_FABRIC")
             fabric_code = r.get("fabric_code", "MAIN")
             fabric_color = r.get("fabric_color", "COLOR")
             full_code = f"{fabric_code} - {fabric_color}"
-            
-            # Trích xuất dữ liệu ghi nhận từ 3 phân đoạn xử lý
             sys_notes = r.get("consumption_note", "")
             
-            # Quét tìm thông số Khổ vải bằng Regular Expression trong System Notes
             match_w = re.search(r'CutWidth:\s*([\d\.]+)', sys_notes)
             cut_width = f"{float(match_w.group(1))} inch" if match_w else "56.0 inch"
             
@@ -568,17 +637,15 @@ with col_right:
             marker_eff = r.get("marker_efficiency_pct", "N/A")
             q_status = r.get("status", "PASS")
             
-            # Ghi dữ liệu vào từng ô trong dòng dữ liệu hiện tại
             worksheet.write(current_data_row, 0, stt, cell_center)
             worksheet.write(current_data_row, 1, comp_type, cell_left)
             worksheet.write(current_data_row, 2, full_code, cell_left)
             worksheet.write(current_data_row, 3, cut_width, cell_center)
             worksheet.write(current_data_row, 4, gross_yds, cell_right)
-            worksheet.write(current_data_row, 5, "5.0%", cell_center)  # Co rút dọc mặc định
-            worksheet.write(current_data_row, 6, "10.0%", cell_center) # Co rút ngang mặc định
+            worksheet.write(current_data_row, 5, "5.0%", cell_center)  
+            worksheet.write(current_data_row, 6, "10.0%", cell_center) 
             worksheet.write(current_data_row, 7, marker_eff, cell_center)
             
-            # Áp dụng bộ màu cảnh báo động dựa trên nhãn trạng thái Quality Gate
             if "CRITICAL" in q_status:
                 worksheet.write(current_data_row, 8, "🔴 VƯỢT TRẦN", crit_format)
             elif "WARN" in q_status:
@@ -589,32 +656,44 @@ with col_right:
             current_data_row += 1
             stt += 1
             
-        # F. THIẾT LẬP KHỐI CHỮ KÝ PHÒNG BAN KÝ DUYỆT PHÍA DƯỚI BẢNG (Dưới 3 dòng)
         sign_row = current_data_row + 3
         worksheet.write(sign_row, 1, "NGƯỜI LẬP BIỂU\n(Phòng IE May)", sign_title_format)
         worksheet.write(sign_row, 4, "TRƯỞNG PHÒNG IE\n(Ký duyệt)", sign_title_format)
         worksheet.write(sign_row, 7, "GIÁM ĐỐC SẢN XUẤT\n(Phê duyệt)", sign_title_format)
         
-        # G. TỰ ĐỘNG CĂN CHỈNH ĐỘ RỘNG CÁC CỘT (AUTO-FIT WIDTH)
-        worksheet.set_column(0, 0, 6)   # STT
-        worksheet.set_column(1, 1, 30)  # Phân loại vật tư
-        worksheet.set_column(2, 2, 25)  # Mã vải
-        worksheet.set_column(3, 3, 15)  # Khổ
-        worksheet.set_column(4, 4, 15)  # Định mức
-        worksheet.set_column(5, 7, 18)  # Các cột thông số co rút / hiệu suất
-        worksheet.set_column(8, 8, 22)  # Trạng thái PLM
+        worksheet.set_column(0, 0, 6)   
+        worksheet.set_column(1, 1, 30)  
+        worksheet.set_column(2, 2, 25)  
+        worksheet.set_column(3, 3, 15)  
+        worksheet.set_column(4, 4, 15)  
+        worksheet.set_column(5, 7, 18)  
+        worksheet.set_column(8, 8, 22)  
 
     return buffer.getvalue()
 
 
-# =====================================================================
-# KHỐI HIỂN THỊ PHẦN MẪU BÁO CÁO PHONG PHÚ LÊN GIAO DIỆN CHÍNH
-# =====================================================================
-if st.session_state.bom_data and "bom_rows" in st.session_state.bom_data:
+# --- KHU VỰC HIỂN THỊ KẾT QUẢ VÀ XUẤT FILE EXCEL PHÍA DƯỚI GIAO DIỆN MÀN HÌNH ---
+if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data:
     st.markdown('<div class="cad-card">', unsafe_allow_html=True)
-    st.markdown('<div class="cad-header">📋 ĐỊNH MỨC VẬT TƯ THÀNH PHẨM (MẪU BÁO CÁO PHONG PHÚ)</div>', unsafe_allow_html=True)
+    st.markdown('<div class="cad-header">📊 CALCULATED FABRIC CONSUMPTION MATRIX (BOM RESULT)</div>', unsafe_allow_html=True)
     
-    # Kích hoạt Engine đóng gói dữ liệu Excel chuẩn Phong Phú
+    raw_rows_display = st.session_state.bom_data["bom_rows"]
+    display_data = []
+    for r in raw_rows_display:
+        display_data.append({
+            "Component Type": r.get("component_type", "N/A"),
+            "Placement": r.get("placement", "N/A"),
+            "Fabric Classification": r.get("fabric_classification", "MAIN_FABRIC"),
+            "Fabric Code": r.get("fabric_code", "MAIN"),
+            "Fabric Color": r.get("fabric_color", "COLOR"),
+            "Marker Efficiency": r.get("marker_efficiency_pct", "N/A"),
+            "Gross Consumption (Yds)": r.get("calculated_gross_consumption_yds", 0.0),
+            "Quality Status": r.get("status", "PASS"),
+            "System Notes": r.get("consumption_note", "")
+        })
+    df_bom = pd.DataFrame(display_data)
+
+    # Khởi tạo buffer tải file Excel Phong Phú
     pdf_name_clean = st.session_state.get("pdf_name", "F25R09-490416.pdf")
     phong_phu_excel_bytes = export_to_phong_phu_excel(st.session_state.bom_data, pdf_name_clean)
     
@@ -622,7 +701,6 @@ if st.session_state.bom_data and "bom_rows" in st.session_state.bom_data:
     with col_label_pp:
         st.write("Dữ liệu định mức kỹ thuật đã sẵn sàng xuất bản ra file Excel theo form hệ thống:")
     with col_btn_pp:
-        # Nút bấm chính thức tải file Excel Phong Phú
         st.download_button(
             label="📥 TẢI MẪU BÁO CÁO PHONG PHÚ (.XLSX)",
             data=phong_phu_excel_bytes,
@@ -631,6 +709,5 @@ if st.session_state.bom_data and "bom_rows" in st.session_state.bom_data:
             use_container_width=True
         )
         
-    # Render bảng xem trước dạng tinh gọn giống cấu trúc lưới Excel lên giao diện
     st.dataframe(df_bom, use_container_width=True, hide_index=True)
     st.markdown('</div>', unsafe_allow_html=True)
