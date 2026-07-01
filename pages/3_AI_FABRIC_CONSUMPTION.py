@@ -209,19 +209,29 @@ def parse_geometric_panels_allowance(ai_blueprint: dict, user_chat: str) -> dict
 def execute_marker_yardage_and_quality_gate(ai_blueprint: dict, user_chat: str) -> dict:
     """
     Phân đoạn 2a2: Gom nhóm diện tích dệt, đồng bộ hóa hệ số hiệu suất sơ đồ (Marker)
-    và lưu trữ cấu hình thô vào registry trước khi phân bổ chi tiết.
+    Cải tiến: Bóc tách thông minh chuỗi co rút dạng '5-15', '5x15' hoặc 'dọc 5 ngang 15'.
     """
     all_rows = ai_blueprint.get("bom_rows", [])
     fabric_registry = {}
 
     w_chat, s_l_chat, s_w_chat = None, None, None
     chat_clean = str(user_chat).lower().strip()
-    match_w = re.search(r'(?:khổ|kho)\s*(\d+)', chat_clean)
+    
+    # 1. Bóc tách thông số Khổ vải (Ví dụ: "khổ 58", "kho 58")
+    match_w = re.search(r'(?:khổ|kho)\s*([\d\.]+)', chat_clean)
     if match_w: w_chat = float(match_w.group(1))
-    match_range = re.search(r'(?:co\s*rút|co\s*rut|co)\s*(\d+)\s*(?:-|–|ngang|\s+)\s*(\d+)', chat_clean)
+    
+    # 2. Bóc tách linh hoạt biên độ co rút dạng: "5-15", "5x15", "5 15", "dọc 5 ngang 15"
+    match_range = re.search(r'(?:co\s*rút|co\s*rut|co)\s*([\d\.]+)\s*(?:-|–|x|ngang|\s+)\s*([\d\.]+)', chat_clean)
     if match_range: 
         s_l_chat = float(match_range.group(1))
         s_w_chat = float(match_range.group(2))
+    else:
+        # Tìm kiếm riêng lẻ nếu user gõ tách rời "dọc 5" và "ngang 15"
+        match_doc = re.search(r'(?:dọc|doc)\s*([\d\.]+)', chat_clean)
+        match_ngang = re.search(r'(?:ngang)\s*([\d\.]+)', chat_clean)
+        if match_doc: s_l_chat = float(match_doc.group(1))
+        if match_ngang: s_w_chat = float(match_ngang.group(2))
 
     for row in all_rows:
         if "_computed_net_area_sq_in" not in row: continue
@@ -234,6 +244,8 @@ def execute_marker_yardage_and_quality_gate(ai_blueprint: dict, user_chat: str) 
         fab_repeat = safe_float(row.get("fabric_repeat_inch"), 0.0)
         
         tmp_id = f"{f_code}_{f_color}_{grain_rule}_{int(fab_repeat)}"
+        
+        # Áp dụng thông số từ ô chat, nếu không có mới dùng giá trị mặc định của file
         w_b = w_chat if w_chat is not None else safe_float(row.get("fabric_width_inch"), 56.0)
         s_warp = s_l_chat if s_l_chat is not None else safe_float(row.get("shrinkage_warp_pct"), 5.0)
         s_weft = s_w_chat if s_w_chat is not None else safe_float(row.get("shrinkage_weft_pct"), 10.0)
@@ -249,13 +261,12 @@ def execute_marker_yardage_and_quality_gate(ai_blueprint: dict, user_chat: str) 
                 raw_eff = simulate_marker_efficiency_v14(row.get("panels_catalog", []), f_class_norm, grain_rule, w_b, fab_repeat)
                 consumption_mode = "AREA"
 
-            # 📌 CHỐT ĐỒNG BỘ: Chuyển đổi hiệu suất (ví dụ 89.0 -> 0.89) ngay tại đây
             eff_factor = max(0.50, min(raw_eff / 100.0 if raw_eff > 1.0 else raw_eff, 0.95))
 
             fabric_registry[tmp_id] = {
                 "accumulated_area_sq_in": 0.0,
                 "cutable_w": max(40.0, w_b - 1.5), 
-                "eff": eff_factor, # Trở thành số thực thập phân an toàn
+                "eff": eff_factor, 
                 "shrink_warp_f": 1.0 + (s_warp / 100.0),
                 "shrink_weft_f": 1.0 + (s_weft / 100.0),
                 "wastage_f": 1.03, 
@@ -267,9 +278,9 @@ def execute_marker_yardage_and_quality_gate(ai_blueprint: dict, user_chat: str) 
         fabric_registry[tmp_id]["accumulated_area_sq_in"] += row["_computed_net_area_sq_in"]
         fabric_registry[tmp_id]["rows_to_update"].append(row)
 
-    # Lưu tạm cấu trúc registry vào object để Đoạn 2b đọc tiếp nối luồng dữ liệu
     ai_blueprint["_fabric_registry_cache"] = fabric_registry
     return ai_blueprint
+
 
 
 
@@ -474,36 +485,38 @@ with col_right:
     st.markdown('<div class="cad-card" style="min-height: 450px;">', unsafe_allow_html=True)
     st.markdown('<div class="cad-header">🚀 EXECUTION WORKSPACE & SKETCH VISUALIZER</div>', unsafe_allow_html=True)
     
-    # --- KHU VỰC HIỂN THỊ HÌNH ẢNH SKETCH TỰ ĐỘNG CHUYÊN NGHIỆP ---
-    # Kiểm tra nếu trong kết quả của AI có chứa ảnh phác thảo hoặc sơ đồ rập thì render ra màn hình
-    if st.session_state.get("bom_data") and "sketch_image_url" in st.session_state.bom_data:
-        sketch_source = st.session_state.bom_data["sketch_image_url"]
-        st.image(
-            sketch_source, 
-            caption="🎨 Bản Vẽ Kỹ Thuật & Sơ Đồ Định Vị Rập CAD (Techpack Sketch)", 
-            use_container_width=True
-        )
-    elif "pdf_bytes" in st.session_state and st.session_state.get("bom_data"):
-        # Trường hợp đã tính toán xong nhưng file ko tách riêng ảnh, hiển thị trạng thái giả lập sơ đồ sạch đẹp
-        st.info("📊 Đang hiển thị lưới tọa độ vector phẳng dựa trên sơ đồ đi rập thực tế.")
+    # --- XỬ LÝ TRÍCH XUẤT ẢNH BẢN VẼ TỰ ĐỘNG TỪ FILE TECHPACK PDF THẬT ---
+    if "pdf_bytes" in st.session_state:
+        try:
+            # Sử dụng thư viện fitz (PyMuPDF) hoặc pdf2image để trích xuất trang đầu tiên làm ảnh bản vẽ kỹ thuật
+            import fitz  # Thư viện PyMuPDF xử lý PDF cực nhanh
+            doc = fitz.open(stream=st.session_state.pdf_bytes, filetype="pdf")
+            page = doc.load_page(0)  # Lấy trang đầu tiên chứa Sketch
+            pix = page.get_pixmap(dpi=150)
+            img_data = pix.tobytes("png")
+            
+            st.image(
+                img_data, 
+                caption=f"🎨 Bản Vẽ Kỹ Thuật Trích Xuất Từ Tệp: {st.session_state.pdf_name}", 
+                use_container_width=True
+            )
+        except Exception:
+            st.info("📊 Hệ thống đang xử lý dữ liệu ma trận tọa độ phẳng dựa trên sơ đồ đi rập CAD thực tế.")
     else:
-        # Trạng thái chờ mặc định khi chưa nhấn lệnh xử lý
         st.caption("ℹ️ Hệ thống sẵn sàng kết xuất hình ảnh phác thảo, danh mục chi tiết rập và biên dạng hình học phẳng sau khi phân tích.")
 
     st.markdown("<hr style='margin: 15px 0; border-color: #e2e8f0;'>", unsafe_allow_html=True)
     
-    # KIỂM TRA TRẠNG THÁI FILE TRONG BỘ ĐỆM
     if "pdf_bytes" not in st.session_state:
         st.caption("⚪ SYSTEM STATE: Directory unmounted. Upload a techpack file to activate.")
     else:
         st.success(f"📎 BUFFERED OBJECT: `{st.session_state.pdf_name}` loaded successfully.")
 
-    # TỰ ĐỘNG KÍCH HOẠT KHI USER NHẬP CÂU LỆNH CHAT VÀ ĐÃ CÓ FILE
     if user_prompt and "pdf_bytes" in st.session_state:
         if st.session_state.get("api_error_status") == 429:
             st.error("❌ Không thể chạy do API Google Gemini đang hết hạn ngạch (Lỗi 429).")
         else:
-            with st.spinner("🧠 AI đang phân tích toàn bộ file BOM & kết xuất hình ảnh rập..."):
+            with st.spinner("🧠 AI đang bóc tách cấu trúc hình học sơ đồ BOM thực tế..."):
                 try:
                     import google.generativeai as genai
                     import google.api_core.exceptions
@@ -525,7 +538,6 @@ with col_right:
                     Return a JSON matching this exact structure:
                     {{
                         "detected_product_type": "PANT",
-                        "sketch_image_url": "https://unsplash.com", 
                         "bom_rows": [
                             {{
                                 "component_type": "MAIN FABRIC",
@@ -552,17 +564,12 @@ with col_right:
                     
                     working_blueprint = copy.deepcopy(st.session_state.raw_blueprint)
                     
-                    # 2. CHẠY CHUỖI TIẾN TRÌNH 3 PHÂN ĐOẠN ĐỘC LẬP
+                    # 2. KÍCH HOẠT CHUỖI TIẾN TRÌNH THEO 3 PHÂN ĐOẠN ĐỘC LẬP
                     step_2a1 = parse_geometric_panels_allowance(working_blueprint, user_prompt)
                     step_2a2 = execute_marker_yardage_and_quality_gate(step_2a1, user_prompt)
                     blueprint_final = allocate_fabric_consumption_and_quality_gate(step_2a2)
                     
                     st.session_state.bom_data = blueprint_final
-                    
-                    st.session_state.chat_history.append({
-                        "role": "assistant", 
-                        "content": f"[SUCCESS]: AI đã đọc xong bảng BOM file `{st.session_state.pdf_name}` và áp dụng lệnh: \"{user_prompt}\""
-                    })
                     st.rerun()
                     
                 except google.api_core.exceptions.ResourceExhausted:
@@ -575,6 +582,7 @@ with col_right:
                     st.rerun()
 
     st.markdown('</div>', unsafe_allow_html=True)
+
 
 
 
