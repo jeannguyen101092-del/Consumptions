@@ -791,7 +791,8 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data:
     pdf_name_clean = st.session_state.get("pdf_name", "F25R09-490416.pdf")
     phong_phu_excel_bytes = export_to_phong_phu_excel(st.session_state.bom_data, pdf_name_clean)
     
-    col_label_pp, col_btn_pp = st.columns()
+    # 🟢 SỬA LỖI: Truyền số 2 vào st.columns(2) để chia layout thành 2 cột cân đối cho nút bấm
+    col_label_pp, col_btn_pp = st.columns(2)
     with col_label_pp:
         st.write("Dữ liệu định mức kỹ thuật đã sẵn sàng xuất bản ra file Excel theo form hệ thống:")
     with col_btn_pp:
