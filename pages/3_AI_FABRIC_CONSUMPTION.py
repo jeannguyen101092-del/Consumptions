@@ -494,33 +494,70 @@ def export_to_phong_phu_excel(bom_data, pdf_name):
     return buffer.getvalue()
 
 # =====================================================================
-# ĐOẠN 6: GIAO DIỆN CHÍNH THỰC THI (APP LAYOUT FRAMEWORK APPROVED)
+# ĐOẠN 6: GIAO DIỆN CHÍNH THỰC THI & CUSTOM STYLES (V16.6 RESTORED)
 # =====================================================================
 st.set_page_config(layout="wide", page_title="AI Fabric Consumption Matrix")
+
+# --- KHU VỰC CSS CUSTOM ĐỂ KHÔI PHỤC ĐÚNG GIAO DIỆN CHUYÊN NGHIỆP BAN ĐẦU ---
+st.markdown("""
+<style>
+    .cad-card {
+        background-color: #ffffff;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        padding: 20px;
+        margin-bottom: 20px;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+    }
+    .cad-header {
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        font-size: 14px;
+        font-weight: 700;
+        color: #0f172a;
+        letter-spacing: 0.05em;
+        margin-bottom: 15px;
+        padding-bottom: 8px;
+        border-bottom: 2px solid #cbd5e1;
+    }
+    .stButton>button {
+        background-color: #f1f5f9;
+        color: #475569;
+        border: 1px solid #cbd5e1;
+        font-weight: 600;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 if "bom_data" not in st.session_state: st.session_state.bom_data = None
 if "chat_history" not in st.session_state: st.session_state.chat_history = []
 
-# 🟢 SỬA LỖI TRIỆT ĐỂ: Truyền số 2 vào st.columns(2) để chia layout thành 2 cột cân đối trái/phải
 col_left, col_right = st.columns(2)
 
 with col_left:
-    st.title("💬 CAD LIVE LOG CONSOLE")
+    st.markdown('<div class="cad-card" style="min-height: 480px;">', unsafe_allow_html=True)
+    st.markdown('<div class="cad-header">💬 CAD LIVE LOG CONSOLE</div>', unsafe_allow_html=True)
+    
     user_prompt = st.chat_input("Input override commands...")
-    if st.button("🗑️ CLEAR SYSTEM MEMORY"):
+    
+    st.markdown("<div style='margin-top: 160px;'></div>", unsafe_allow_html=True)
+    if st.button("🗑️ CLEAR SYSTEM MEMORY", use_container_width=True):
         st.session_state.bom_data = None
         st.session_state.chat_history = []
         st.rerun()
+    st.markdown('</div>', unsafe_allow_html=True)
 
 with col_right:
+    st.markdown('<div class="cad-card" style="min-height: 480px; text-align: center;">', unsafe_allow_html=True)
+    st.markdown('<div class="cad-header">🎨 TECHPACK SKETCH VISUALIZER</div>', unsafe_allow_html=True)
     if "pdf_bytes" in st.session_state:
         try:
             import fitz  
             doc = fitz.open(stream=st.session_state.pdf_bytes, filetype="pdf")
-            st.image(doc.load_page(0).get_pixmap(dpi=150).tobytes("png"), caption="🎨 Sketch Layout", use_container_width=True)
+            st.image(doc.load_page(0).get_pixmap(dpi=150).tobytes("png"), use_container_width=True)
         except: pass
     else:
-        st.caption("ℹ️ Hệ thống sẵn sàng kết xuất hình ảnh.")
+        st.caption("ℹ️ Hệ thống sẵn sàng kết xuất hình ảnh phác thảo từ file PDF tải lên.")
+    st.markdown('</div>', unsafe_allow_html=True)
 
     if user_prompt and "pdf_bytes" in st.session_state:
         with st.spinner("🧠 AI đang bóc tách sơ đồ BOM thực tế..."):
@@ -585,7 +622,8 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data:
     phong_phu_excel_bytes = export_to_phong_phu_excel(st.session_state.bom_data, st.session_state.get("pdf_name", "file.pdf"))
     
     col_label_pp, col_btn_pp = st.columns(2)
-    with col_label_pp: st.write("Dữ liệu định mức kỹ thuật đã sẵn sàng xuất bản ra file Excel theo form hệ thống:")
+    with col_label_pp: 
+        st.markdown("<p style='font-weight:600; color:#334155; margin-top:5px;'>Dữ liệu định mức kỹ thuật đã sẵn sàng xuất bản ra file Excel theo form hệ thống:</p>", unsafe_allow_html=True)
     with col_btn_pp:
         st.download_button(
             label="📥 TẢI MẪU BÁO CÁO PHONG PHÚ (.XLSX)", data=phong_phu_excel_bytes,
