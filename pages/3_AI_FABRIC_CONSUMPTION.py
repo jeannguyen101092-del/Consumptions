@@ -386,8 +386,10 @@ def execute_marker_yardage_and_quality_gate(ai_blueprint: dict, user_chat: str) 
         words = chat_text.split()
         for idx, word in enumerate(words):
             if word in ["khổ", "kho"] and idx + 1 < len(words):
-                try: width = float(words[idx+1].replace('"', '').replace('inch', ''))
-                except ValueError: pass
+                try:
+                    width = float(words[idx+1].replace('"', '').replace('inch', ''))
+                except ValueError:
+                    pass
         for idx, word in enumerate(words):
             if word in ["dọc", "doc"] and idx + 1 < len(words):
                 try: warp = float(words[idx+1].replace("%", ""))
@@ -407,10 +409,12 @@ def execute_marker_yardage_and_quality_gate(ai_blueprint: dict, user_chat: str) 
                         try:
                             warp = float(parts[0].replace("%", ""))
                             weft = float(parts[1].replace("%", ""))
-                        except ValueError: pass
+                        except ValueError: 
+                            pass
         return width, warp, weft
 
     w_main, s_l_main, s_w_main = parse_specs_safe(chat_clean)
+
     for row in all_rows:
         if not row or not isinstance(row, dict) or "_computed_net_area_sq_in" not in row: 
             continue
@@ -457,6 +461,7 @@ def execute_marker_yardage_and_quality_gate(ai_blueprint: dict, user_chat: str) 
 
     ai_blueprint["_fabric_registry_cache"] = fabric_registry
     return ai_blueprint
+
 
 
 
