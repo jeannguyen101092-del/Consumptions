@@ -731,9 +731,20 @@ with col_right:
                         generation_config={"response_mime_type": "application/json"}
                     )
                     
-                    prompt_instruction = f"""
-                    You are an expert apparel IE system. Extract ALL fabric materials and Bill of Materials (BOM) from this techpack PDF.
-                    Return ONLY a valid JSON object matching this strict schema:
+                                        prompt_instruction = f"""
+                    You are an expert apparel IE system. Your task is to extract exact geometric measurement specifications from the Techpack PDF to calculate accurate fabric consumption.
+                    
+                    CRITICAL INSTRUCTION:
+                    1. Locate the "SIZE SPECIFICATION", "MEASUREMENT SHEET", or "BOM" section in the PDF.
+                    2. Identify the core dimension values for the base size (e.g., Outseam/Total Length, Hip Width, Waistband Width, Leg Opening, Thigh).
+                    3. For each main fabric component (FRONT BODY, BACK BODY, WAISTBAND, POCKET), you MUST generate a corresponding object inside the "panels_catalog" array using those exact extracted physical dimensions.
+                    
+                    Do NOT leave "panels_catalog" empty. If exact polygon points are not clear, fallback to standard rectangular garment bounding boxes using the extracted measurements:
+                    - FRONT BODY: piece_length_inch = Outseam length, piece_width_inch = Hip width * 0.5
+                    - BACK BODY: piece_length_inch = Outseam length, piece_width_inch = (Hip width * 0.5) + 1.0
+                    - WAISTBAND: piece_length_inch = Waist width * 2, piece_width_inch = Waistband height
+                    
+                    Return ONLY a valid JSON object with this strict structure:
                     {{
                       "detected_product_type": "PANT", 
                       "style_code": "R09-450416",
@@ -742,14 +753,36 @@ with col_right:
                           "component_type": "MAIN FABRIC",
                           "placement": "BODY",
                           "fabric_classification": "MAIN_FABRIC",
-                          "fabric_code": "DENIM01",
-                          "fabric_color": "INDIGO",
-                          "panels_catalog": []
+                          "fabric_code": "D-32777",
+                          "fabric_color": "LIGHT ORANGE",
+                          "panels_catalog": [
+                            {{
+                              "panel_name": "FRONT_PANEL",
+                              "panel_type": "FRONT",
+                              "piece_count": 2.0,
+                              "piece_length_inch": 40.0,  # Insert exact extracted outseam value here
+                              "piece_width_inch": 10.5,   # Insert exact extracted hip component value here
+                              "include_seam": false,
+                              "include_hem": false,
+                              "seam_allowance": true
+                            }},
+                            {{
+                              "panel_name": "BACK_PANEL",
+                              "panel_type": "BACK",
+                              "piece_count": 2.0,
+                              "piece_length_inch": 40.5,  # Insert exact extracted value here
+                              "piece_width_inch": 11.5,   # Insert exact extracted value here
+                              "include_seam": false,
+                              "include_hem": false,
+                              "seam_allowance": true
+                            }}
+                          ]
                         }}
                       ]
                     }}
-                    Never return an empty "bom_rows" array if any fabric exists. User directives: {active_prompt}
+                    User command overrides: {active_prompt}
                     """
+
                     
                     response = model.generate_content([
                         {"mime_type": "application/pdf", "data": st.session_state.pdf_bytes}, 
