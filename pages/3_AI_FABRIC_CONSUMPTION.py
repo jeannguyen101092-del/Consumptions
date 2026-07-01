@@ -209,51 +209,45 @@ def parse_geometric_panels_allowance(ai_blueprint: dict, user_chat: str) -> dict
 def execute_marker_yardage_and_quality_gate(ai_blueprint: dict, user_chat: str) -> dict:
     """
     Phân đoạn 2a2: Gom nhóm diện tích dệt và tự động phân tích lệnh chat (AI Parser Core)
-    Tự động bóc tách thông số Khổ vải & Co rút riêng biệt cho Vải chính hoặc Keo lót theo thời gian thực.
+    Đã sửa: Khổ gõ vào ô chat là khổ sơ đồ cắt thực tế (Không trừ biên). Nhận diện chữ 'dọc... ngang...'.
     """
     all_rows = ai_blueprint.get("bom_rows", [])
     fabric_registry = {}
 
     chat_clean = str(user_chat).lower().strip()
     
-    # 🟢 HÀM NỘI BỘ: Quét chuỗi tìm thông số khổ & co rút theo ngữ cảnh từng loại vật tư
     def parse_material_specs(chat_text, material_type="MAIN"):
         width, warp, weft = None, None, None
         
-        # Phân đoạn chuỗi chat để tìm đúng phân đoạn lệnh của vật tư đó
         target_segment = chat_text
         if material_type == "FUSING":
-            # Nếu tìm thông số cho keo lót/mex
             match_fuse = re.search(r'(?:keo|mex|fusing|dựng)\s+([^,;.]+)', chat_text)
             if match_fuse: target_segment = match_fuse.group(1)
         elif material_type == "MAIN":
-            # Nếu tìm thông số cho vải chính
             match_main = re.search(r'(?:vải\s+chính|vai\s+chinh|vải|vật\s+tư)\s+([^,;.]+)', chat_text)
             if match_main: target_segment = match_main.group(1)
 
-        # Quét Khổ vải (Ví dụ: "khổ 58", "kho 60")
+        # 1. Quét Khổ sơ đồ cắt
         w_match = re.search(r'(?:khổ|kho)\s*([\d\.]+)', target_segment)
         if w_match: width = float(w_match.group(1))
         elif material_type == "MAIN": 
-            # Fallback quét khổ chung nếu user không gõ chữ "vải chính"
             w_gen = re.search(r'(?:khổ|kho)\s*([\d\.]+)', chat_text)
             if w_gen: width = float(w_gen.group(1))
             
-        # Quét Co rút dạng phạm vi (Ví dụ: "co rút 5-15", "co 3-8")
+        # 2. Quét co rút dạng dải số (Ví dụ: "5-15", "5x15")
         c_range = re.search(r'(?:co\s*rút|co\s*rut|co)\s*([\d\.]+)\s*(?:-|–|x|ngang|\s+)\s*([\d\.]+)', target_segment)
         if c_range:
             warp = float(c_range.group(1))
             weft = float(c_range.group(2))
         else:
-            # Fallback quét co rút chung trên toàn chuỗi chat
-            c_gen = re.search(r'(?:co\s*rút|co\s*rut|co)\s*([\d\.]+)\s*(?:-|–|x|ngang|\s+)\s*([\d\.]+)', chat_text)
-            if c_gen:
-                warp = float(c_gen.group(1))
-                weft = float(c_gen.group(2))
+            # 🟢 CẢI TIẾN: Quét tách rời từ khóa "dọc... ngang..." nếu gõ văn bản tự do
+            match_doc = re.search(r'(?:dọc|doc|dọc\s*cơ|dọc\s*co)\s*([\d\.]+)', chat_text)
+            match_ngang = re.search(r'(?:ngang|ngang\s*co)\s*([\d\.]+)', chat_text)
+            if match_doc: warp = float(match_doc.group(1))
+            if match_ngang: weft = float(match_ngang.group(2))
                 
         return width, warp, weft
 
-    # Tiến hành phân tích lệnh chat cho từng loại vật liệu trước khi vào vòng lặp
     w_main, s_l_main, s_w_main = parse_material_specs(chat_clean, "MAIN")
     w_fuse, s_l_fuse, s_w_fuse = parse_material_specs(chat_clean, "FUSING")
 
@@ -269,15 +263,14 @@ def execute_marker_yardage_and_quality_gate(ai_blueprint: dict, user_chat: str) 
         
         tmp_id = f"{f_code}_{f_color}_{grain_rule}_{int(fab_repeat)}"
         
-        # 🟢 ĐIỀU PHỐI ĐỘNG: Gán thông số chuẩn theo phân loại vật tư được chỉ định trong ô chat
         if f_class_norm in ["FUSING", "LINING"] or "KEO" in str(row.get("component_type", "")).upper():
-            w_b = w_fuse if w_fuse is not None else safe_float(row.get("fabric_width_inch"), 44.0) # Mex keo lót thường khổ 44"
-            s_warp = s_l_fuse if s_l_fuse is not None else 0.0 # Keo lót mặc định hao hụt rất ít
+            w_b = w_fuse if w_fuse is not None else safe_float(row.get("fabric_width_inch"), 44.0)
+            s_warp = s_l_fuse if s_l_fuse is not None else 0.0 
             s_weft = s_w_fuse if s_w_fuse is not None else 0.0
         else:
-            w_b = w_main if w_main is not None else safe_float(row.get("fabric_width_inch"), 56.0)
+            w_b = w_main if w_main is not None else safe_float(row.get("fabric_width_inch"), 58.0)
             s_warp = s_l_main if s_l_main is not None else safe_float(row.get("shrinkage_warp_pct"), 5.0)
-            s_weft = s_w_main if s_w_main is not None else safe_float(row.get("shrinkage_weft_pct"), 10.0)
+            s_weft = s_w_main if s_w_main is not None else safe_float(row.get("shrinkage_weft_pct"), 15.0)
         
         if tmp_id not in fabric_registry:
             if f_class_norm == "RIB":
@@ -294,9 +287,10 @@ def execute_marker_yardage_and_quality_gate(ai_blueprint: dict, user_chat: str) 
 
             fabric_registry[tmp_id] = {
                 "accumulated_area_sq_in": 0.0,
-                "cutable_w": max(40.0, w_b - 1.5), 
+                # 🟢 CHỐT SỬA LỖI: Khổ sơ đồ cắt (cutable_w) bằng chính xác khổ vải nhập vào, không trừ 1.5 inch biên nữa
+                "cutable_w": w_b, 
                 "eff": eff_factor, 
-                "shrink_warp_f": 1.0 + (s_warp / 100.0), # Hệ số tự động nhân bù co rút trước wash
+                "shrink_warp_f": 1.0 + (s_warp / 100.0), 
                 "shrink_weft_f": 1.0 + (s_weft / 100.0),
                 "wastage_f": 1.03, 
                 "consumption_mode": consumption_mode,
