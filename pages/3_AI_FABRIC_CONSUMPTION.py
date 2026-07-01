@@ -483,17 +483,16 @@ with col_left:
 
 with col_right:
     # =====================================================================
-    # 🎨 VỊ TRÍ MỚI: ĐƯA HÌNH ẢNH SKETCH LÊN TRÊN CÙNG ĐỂ GIAO DIỆN ĐÚNG BỐ CỤC
+    # 🎨 VỊ TRÍ DUY NHẤT: HIỂN THỊ HÌNH ẢNH SKETCH LÊN TRÊN CÙNG
     # =====================================================================
     if "pdf_bytes" in st.session_state:
         try:
-            import fitz  # Thư viện PyMuPDF trích xuất PDF thành ảnh
+            import fitz  
             doc = fitz.open(stream=st.session_state.pdf_bytes, filetype="pdf")
-            page = doc.load_page(0)  # Lấy trang đầu tiên chứa phác thảo kĩ thuật
+            page = doc.load_page(0)  
             pix = page.get_pixmap(dpi=150)
             img_data = pix.tobytes("png")
             
-            # Đổ ảnh phẳng lên vị trí trên cùng màn hình bên phải
             st.image(
                 img_data, 
                 caption=f"🎨 Bản Vẽ Kỹ Thuật Trích Xuất Từ Tệp: {st.session_state.pdf_name}", 
@@ -502,17 +501,11 @@ with col_right:
         except Exception:
             pass
     else:
-        st.caption("ℹ️ Hệ thống sẵn sàng kết xuất hình ảnh phác thảo, danh mục chi tiết rập và biên dạng hình học phẳng sau khi phân tích.")
+        st.caption("ℹ️ Hệ thống sẵn sàng kết xuất hình ảnh phác thảo sau khi tải file.")
 
-    # --- KHU VỰC THẺ CARD WORKSPACE NẰM PHÍA DƯỚI ẢNH ---
-    st.markdown('<div class="cad-card" style="min-height: 250px;">', unsafe_allow_html=True)
-    st.markdown('<div class="cad-header">🚀 EXECUTION WORKSPACE & CAD MONITOR</div>', unsafe_allow_html=True)
-    st.markdown("<p style='color:#475569;'>Ready to process vector coordinate tables and apply structural seam/pleat adjustments.</p>", unsafe_allow_html=True)
-    
+    # --- CHỈ GIỮ LẠI LÕI ĐIỀU HƯỚNG CHẠY ĐỘNG (ẨN HẾT KHUNG TRỐNG THỪA) ---
     if "pdf_bytes" in st.session_state:
         st.success(f"📎 BUFFERED OBJECT: `{st.session_state.pdf_name}` loaded successfully.")
-    else:
-        st.caption("⚪ SYSTEM STATE: Directory unmounted. Upload a techpack file to activate.")
 
     # TỰ ĐỘNG KÍCH HOẠT KHI USER NHẬP CÂU LỆNH CHAT VÀ ĐÃ CÓ FILE
     if user_prompt and "pdf_bytes" in st.session_state:
@@ -529,7 +522,6 @@ with col_right:
                     st.session_state.chat_history.append({"role": "user", "content": user_prompt})
                     model = genai.GenerativeModel("gemini-2.5-flash", generation_config={"response_mime_type": "application/json"})
                     
-                    # Hệ thống Prompt ép AI đọc bảng kích thước thật, không dùng mẫu giả lập
                     prompt_instruction = f"""
                     You are an expert apparel CAD data extractor and PLM analyzer. Analyze the attached Techpack/PDF document.
                     Your goal is to extract the ACTUAL Bill of Materials (BOM) and technical measurement data from the file.
@@ -585,7 +577,6 @@ with col_right:
                     
                     working_blueprint = copy.deepcopy(st.session_state.raw_blueprint)
                     
-                    # Truyền dữ liệu chat qua cả 3 phân đoạn độc lập
                     step_2a1 = parse_geometric_panels_allowance(working_blueprint, user_prompt)
                     step_2a2 = execute_marker_yardage_and_quality_gate(step_2a1, user_prompt)
                     blueprint_final = allocate_fabric_consumption_and_quality_gate(step_2a2)
@@ -607,7 +598,6 @@ with col_right:
                     st.session_state.chat_history.append({"role": "assistant", "content": f"[CRASH]: {str(e)}"})
                     st.rerun()
 
-    st.markdown('</div>', unsafe_allow_html=True)
 
 
 
