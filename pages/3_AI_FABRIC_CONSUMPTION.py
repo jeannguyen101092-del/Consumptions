@@ -779,14 +779,27 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data:
     raw_rows_display = st.session_state.bom_data["bom_rows"]
     display_data = []
     
+    # 1. Trích xuất câu lệnh chat hiện tại của người dùng để phân tích thông số trực quan
+    chat_txt = str(user_prompt if user_prompt else "").lower()
+    
+    # Quét nhanh chuỗi tìm thông số co rút phòng cắt để hiển thị hiển thị ra ngoài màn hình
+    m_c = re.search(r'(?:co\s*rút|co\s*rut|co)\s*([\d\.]+)\s*(?:-|–|x|ngang|\s+)\s*([\d\.]+)', chat_txt)
+    if m_c:
+        warp_default = f"{float(m_c.group(1))}%"
+        weft_default = f"{float(m_c.group(2))}%"
+    else:
+        m_d = re.search(r'(?:dọc|doc|dọc\s*co)\s*([\d\.]+)', chat_txt)
+        m_n = re.search(r'(?:ngang|ngang\s*co)\s*([\d\.]+)', chat_txt)
+        warp_default = f"{float(m_d.group(1))}%" if m_d else "5.0%"
+        weft_default = f"{float(m_n.group(1))}%" if m_n else "15.0%"
+
+    # 2. Vòng lặp duyệt qua danh mục vật tư đã được phân tầng xử lý
     for r in raw_rows_display:
         sys_notes = r.get("consumption_note", "")
         current_gross = r.get("calculated_gross_consumption_yds", 0.0)
-        
-        # 🟢 GIẢI PHÁP AN TOÀN: Đọc trực tiếp giá trị log từ lý do hoặc ghi nhận mặc định an toàn
         reason_logs = str(r.get("reason_or_logs", ""))
         
-        # Trích xuất an toàn thông số khổ vải từ text ghi nhận của máy tính
+        # Trích xuất thông số khổ vải thô nguyên cây gốc
         match_w = re.search(r'Khổ vải:\s*([\d\.]+)', sys_notes)
         if match_w:
             cut_width_val = f"{float(match_w.group(1))} inch"
@@ -794,25 +807,16 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data:
             match_w_alt = re.search(r'CutWidth:\s*([\d\.]+)', sys_notes)
             cut_width_val = f"{float(match_w_alt.group(1))} inch" if match_w_alt else "58.0 inch"
             
-        # Đọc động thông số co rút từ chữ ghi chú log hệ thống
+        # Trích xuất thông số co rút từ log nội bộ (Nếu có dạng số_dọc x số_ngang)
         match_sh = re.search(r'([\d\.]+)x([\d\.]+)', reason_logs)
         if match_sh:
             warp_val = f"{float(match_sh.group(1))}%"
             weft_val = f"{float(match_sh.group(2))}%"
         else:
-            # Kiểm tra nhanh chuỗi chat để lấy thông số hiển thị trực quan
-            chat_txt = str(user_prompt if user_prompt else "").lower()
-            m_c = re.search(r'(?:co\s*rút|co\s*rut|co)\s*([\d\.]+)\s*(?:-|–|x|ngang|\s+)\s*([\d\.]+)', chat_txt)
-            if m_c:
-                warp_val = f"{float(m_c.group(1))}%"
-                weft_val = f"{float(m_c.group(2))}%"
-            else:
-                m_d = re.search(r'(?:dọc|doc)\s*([\d\.]+)', chat_txt)
-                m_n = re.search(r'(?:ngang)\s*([\d\.]+)', chat_txt)
-                warp_val = f"{float(m_d.group(1))}%" if m_d else "5.0%"
-                weft_val = f"{float(m_n.group(1))}%" if m_n else "15.0%"
+            warp_val = warp_default
+            weft_val = weft_default
         
-        # Ép nhãn trống cho cấu kiện phụ liệu phần cứng bypass
+        # Ẩn toàn bộ thông tin đối với nhóm phụ liệu cứng đã bypass về 0 yds
         if current_gross == 0.0 or "Bypass" in sys_notes:
             cut_width_val, warp_val, weft_val = "N/A", "N/A", "N/A"
             
@@ -833,7 +837,7 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data:
         
     df_bom = pd.DataFrame(display_data)
 
-    # Đóng gói và chuẩn bị file Excel mẫu Phong Phú
+    # Đóng gói và lưu trữ buffer xuất file Excel mẫu Phong Phú
     pdf_name_clean = st.session_state.get("pdf_name", "F25R09-490416.pdf")
     phong_phu_excel_bytes = export_to_phong_phu_excel(st.session_state.bom_data, pdf_name_clean)
     
