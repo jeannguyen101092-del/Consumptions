@@ -567,11 +567,13 @@ with col_left:
     
     user_prompt = st.chat_input("Gõ câu lệnh (Ví dụ: khổ 58 co rút dọc 5)...")
     st.markdown('</div>', unsafe_allow_html=True)
+# =====================================================================
+# ĐOẠN 7: BỘ THỰC THI API GEMINI VÀ RENDER BẢNG KẾT QUẢ DƯỚI CÙNG (V16.8)
+# =====================================================================
 with col_right:
     st.markdown('<div class="cad-card">', unsafe_allow_html=True)
     st.markdown('<div class="cad-header">🎨 TECHPACK SKETCH VISUALIZER</div>', unsafe_allow_html=True)
     
-    # 🟢 ĐÃ SỬA: Đẩy hình ảnh rập CAD lên trên cùng sát tiêu đề phẳng lỳ
     if st.session_state.pdf_bytes is not None:
         try:
             import fitz  
@@ -583,6 +585,7 @@ with col_right:
         st.caption("ℹ️ Hệ thống sẵn sàng kết xuất hình ảnh sau khi tải file PDF.")
     st.markdown('</div>', unsafe_allow_html=True)
 
+    # 🟢 SỬA LỖI ĐỘNG CƠ: Chạy API phân tích rập và lưu thẳng kết quả vào session_state mà không gây crash rerun
     if user_prompt and st.session_state.pdf_bytes is not None:
         with st.spinner("🧠 AI đang bóc tách sơ đồ BOM thực tế..."):
             try:
@@ -596,18 +599,21 @@ with col_right:
                 response = model.generate_content([{"mime_type": "application/pdf", "data": st.session_state.pdf_bytes}, prompt_instruction])
                 raw_blueprint = json.loads(response.text)
                 
+                # Thực thi chuỗi toán học rập Phong Phú May
                 step_2a1 = parse_geometric_panels_allowance(raw_blueprint, user_prompt)
                 step_2a2 = execute_marker_yardage_and_quality_gate(step_2a1, user_prompt)
                 blueprint_final = allocate_fabric_consumption_and_quality_gate(step_2a2)
                 
+                # Lưu trữ vết và ép tải lại trạng thái màn hình an toàn
                 st.session_state.bom_data = blueprint_final
                 st.rerun()
             except Exception:
-                st.error("💥 Lỗi xử lý tiến trình:")
+                st.error("💥 Lỗi xử lý tiến trình Phân đoạn 7:")
                 st.code(traceback.format_exc())
 
 # --- KHU VỰC HIỂN THỊ KẾT QUẢ VÀ XUẤT FILE EXCEL PHÍA DƯỚI GIAO DIỆN MÀN HÌNH ---
-if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data:
+# 🟢 ĐỒNG BỘ HIỂN THỊ: Đọc trực tiếp từ bộ đệm session_state giúp dữ liệu hiển thị ghim cứng cố định
+if st.session_state.bom_data and "bom_rows" in st.session_state.bom_data:
     st.markdown('<div class="cad-card">', unsafe_allow_html=True)
     st.markdown('<div class="cad-header">📊 CALCULATED FABRIC CONSUMPTION MATRIX (BOM RESULT)</div>', unsafe_allow_html=True)
     
@@ -617,6 +623,7 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data:
     
     display_data = []
     for r in st.session_state.bom_data["bom_rows"]:
+        if not r or not isinstance(r, dict): continue
         sys_notes = r.get("consumption_note", "")
         current_gross = r.get("calculated_gross_consumption_yds", 0.0)
         reason_logs = str(r.get("reason_or_logs", ""))
