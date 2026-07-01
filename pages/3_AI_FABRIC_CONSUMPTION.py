@@ -273,22 +273,106 @@ def parse_geometric_panels_allowance(ai_blueprint: dict, user_chat: str) -> dict
 
 
 
-# =====================================================================
-# ĐOẠN 2a2: ĐỊNH MỨC SƠ ĐỒ VÀ GOM NHÓM VẬT TƯ CHỐNG TRÙNG LẶP (V15.4)
-# =====================================================================
+    # 🟢 LÕI PHÂN TÍCH CHUỖI CHAT TỰ ĐỘNG CHUYỂN ĐỔI THÔNG SỐ ĐỘNG KHÔNG DÙNG REGEX GROUP
+    def parse_specs_safe(chat_text):
+        width, warp, weft = None, None, None
+        words = chat_text.split()
+        
+        # 1. Tìm thông số Khổ vải / Khổ sơ đồ cắt
+        for idx, word in enumerate(words):
+            if word in ["khổ", "kho"] and idx + 1 < len(words):
+                try:
+                    width = float(words[idx+1].replace('"', '').replace('inch', ''))
+                except ValueError:
+                    pass
+                    
+        # 2. Tìm thông số Co rút dọc (Warp)
+        for idx, word in enumerate(words):
+            if word in ["dọc", "doc"] and idx + 1 < len(words):
+                try: warp = float(words[idx+1].replace("%", ""))
+                except ValueError: pass
+            elif word in ["co", "rút", "rut"] and idx + 1 < len(words) and warp is None:
+                try: warp = float(words[idx+1].replace("%", ""))
+                except ValueError: pass
 
-def execute_marker_yardage_and_quality_gate(ai_blueprint: dict, user_chat: str) -> dict:
-    """
-    Phân đoạn 2a2: Gom nhóm diện tích dệt, đồng bộ hóa hệ số hiệu suất sơ đồ (Marker).
-    SỬA ĐỔI GỐC CHỐT: 
-    1. Chống tuyệt đối lỗi cộng dồn lặp diện tích giữa các dòng, giữ nguyên vẹn TT x2, TS x2.
-    2. Khổ gõ vào ô chat ăn thẳng vào khổ sơ đồ cắt thực tế (Không tự trừ 1.5").
-    3. Loại bỏ hoàn toàn Regex group nguy hiểm gây lỗi 'no such group'.
-    """
-    all_rows = ai_blueprint.get("bom_rows", [])
-    fabric_registry = {}
+        # 3. Tìm thông số Co rút ngang (Weft)
+        for idx, word in enumerate(words):
+            if word in ["ngang"] and idx + 1 < len(words):
+                try: weft = float(words[idx+1].replace("%", ""))
+                except ValueError: pass
 
-    chat_clean = " " + str(user_chat).lower().strip() + " "
+        # Trường hợp user gõ dạng chuỗi gạch ngang liền nhau "5-15"
+        if warp is None or weft is None:
+            for word in words:
+                if "-" in word:
+                    parts = word.split("-")
+                    if len(parts) == 2:
+                        try:
+                            warp = float(parts[0].replace("%", ""))
+                            weft = float(parts[1].replace("%", ""))
+                        except ValueError: pass
+                            
+        return width, warp, weft
+
+    # Gọi hàm trích xuất an toàn từ câu lệnh chat của người dùng
+    w_main, s_l_main, s_w_main = parse_specs_safe(chat_clean)
+
+    for row in all_rows:
+        if not row or not isinstance(row, dict) or "_computed_net_area_sq_in" not in row: 
+            continue
+
+        f_class_raw = row.get("fabric_classification", "MAIN_FABRIC")
+        f_class_norm = normalize_fabric_class(f_class_raw)
+        f_code = str(row.get("fabric_code", "MAIN")).upper().strip().replace(" ", "_")
+        f_color = str(row.get("fabric_color", "COLOR")).upper().strip().replace(" ", "_")
+        grain_rule = str(row.get("fabric_grain_rule", "TWO_WAY")).upper().strip().replace(" ", "_")
+        fab_repeat = safe_float(row.get("fabric_repeat_inch"), 0.0)
+        
+        tmp_id = f"{f_code}_{f_color}_{grain_rule}_{int(fab_repeat)}"
+        
+        # Đồng bộ thông số trích xuất động từ ô chat (nếu trống mới lấy mặc định)
+        w_b = w_main if w_main is not None else safe_float(row.get("fabric_width_inch"), 58.0)
+        s_warp = s_l_main if s_l_main is not None else safe_float(row.get("shrinkage_warp_pct"), 5.0)
+        s_weft = s_w_main if s_w_main is not None else safe_float(row.get("shrinkage_weft_pct"), 15.0)
+        
+        if tmp_id not in fabric_registry:
+            if f_class_norm == "RIB":
+                raw_eff = 95.0
+                consumption_mode = "LINEAR"
+            elif f_class_norm == "LINING":
+                raw_eff = 88.0
+                consumption_mode = "AREA"
+            else:
+                raw_eff = simulate_marker_efficiency_v14(row.get("panels_catalog", []), f_class_norm, grain_rule, w_b, fab_repeat)
+                consumption_mode = "AREA"
+
+            eff_factor = max(0.50, min(raw_eff / 100.0 if raw_eff > 1.0 else raw_eff, 0.95))
+
+            fabric_registry[tmp_id] = {
+                "accumulated_area_sq_in": 0.0,
+                "cutable_w": w_b, # Khổ sơ đồ cắt thực tế lấy bằng đúng khổ người dùng gõ công tác
+                "eff": eff_factor, 
+                "shrink_warp_f": 1.0 + (s_warp / 100.0), 
+                "shrink_weft_f": 1.0 + (s_weft / 100.0),
+                "wastage_f": 1.03, 
+                "consumption_mode": consumption_mode,
+                "rows_to_update": [],
+                "w_saved": w_b, "s_l_saved": s_warp, "s_w_saved": s_weft, "f_class": f_class_norm
+            }
+            # 🟢 CHỐT SỬA LỖI NHÂN CHỒNG: Khởi tạo giá trị diện tích nền gốc cho Fabric ID mới phát hiện
+            fabric_registry[tmp_id]["accumulated_area_sq_in"] = row["_computed_net_area_sq_in"]
+        else:
+            # 🟢 CHỐT SỬA ĐỐI XỨNG PHÒNG CẮT: Nếu mã Fabric ID này đã nhận diện diện tích toàn bộ 4 thân từ trước,
+            # kiểm tra giá trị bằng nhau của các dòng để loại bỏ không cộng lặp lặp chồng diện tích một lần nữa.
+            if abs(fabric_registry[tmp_id]["accumulated_area_sq_in"] - row["_computed_net_area_sq_in"]) > 15.0:
+                # Chỉ cộng dồn thêm khi phát hiện đây là cấu kiện hoàn toàn khác biệt (ví dụ vải phối túi rời)
+                fabric_registry[tmp_id]["accumulated_area_sq_in"] += row["_computed_net_area_sq_in"]
+        
+        fabric_registry[tmp_id]["rows_to_update"].append(row)
+
+    ai_blueprint["_fabric_registry_cache"] = fabric_registry
+    return ai_blueprint
+
     
     # =====================================================================
 # ĐOẠN 2a1: RẬP HÌNH HỌC & TỰ ĐỘNG BÙ TRỪ CHI TIẾT (V15.4 CẬP NHẬT CHUẨN KỸ THUẬT)
