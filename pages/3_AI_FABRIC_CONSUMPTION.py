@@ -373,37 +373,21 @@ def parse_geometric_panels_allowance(ai_blueprint: dict, user_chat: str) -> dict
 # ĐOẠN 2a2: ĐỊNH MỨC SƠ ĐỒ VÀ GOM NHÓM VẬT TƯ CHỐNG TRÙNG LẶP (V15.4)
 # =====================================================================
 
-# =====================================================================
-# ĐOẠN 2a2: ĐỊNH MỨC SƠ ĐỒ VÀ GOM NHÓM VẬT TƯ CHỐNG TRÙNG LẶP (V15.4)
-# =====================================================================
-
 def execute_marker_yardage_and_quality_gate(ai_blueprint: dict, user_chat: str) -> dict:
     """
     Phân đoạn 2a2: Gom nhóm diện tích dệt, đồng bộ hóa hệ số hiệu suất sơ đồ (Marker).
-    SỬA ĐỔI GỐC CHỐT: 
-    1. Chống tuyệt đối lỗi cộng dồn lặp diện tích giữa các dòng, giữ nguyên vẹn TT x2, TS x2.
-    2. Khổ gõ vào ô chat ăn thẳng vào khổ sơ đồ cắt thực tế (Không tự trừ 1.5").
-    3. Loại bỏ hoàn toàn Regex group nguy hiểm gây lỗi 'no such group'.
     """
     all_rows = ai_blueprint.get("bom_rows", [])
     fabric_registry = {}
-
     chat_clean = " " + str(user_chat).lower().strip() + " "
 
-    # LÕI PHÂN TÍCH CHUỒI CHAT TỰ ĐỘNG CHUYỂN ĐỔI THÔNG SỐ ĐỘNG KHÔNG DÙNG REGEX GROUP
     def parse_specs_safe(chat_text):
         width, warp, weft = None, None, None
         words = chat_text.split()
-        
-        # 1. Tìm thông số Khổ vải / Khổ sơ đồ cắt
         for idx, word in enumerate(words):
             if word in ["khổ", "kho"] and idx + 1 < len(words):
-                try:
-                    width = float(words[idx+1].replace('"', '').replace('inch', ''))
-                except ValueError:
-                    pass
-                    
-        # 2. Tìm thông số Co rút dọc (Warp)
+                try: width = float(words[idx+1].replace('"', '').replace('inch', ''))
+                except ValueError: pass
         for idx, word in enumerate(words):
             if word in ["dọc", "doc"] and idx + 1 < len(words):
                 try: warp = float(words[idx+1].replace("%", ""))
@@ -411,14 +395,10 @@ def execute_marker_yardage_and_quality_gate(ai_blueprint: dict, user_chat: str) 
             elif word in ["co", "rút", "rut"] and idx + 1 < len(words) and warp is None:
                 try: warp = float(words[idx+1].replace("%", ""))
                 except ValueError: pass
-
-        # 3. Tìm thông số Co rút ngang (Weft)
         for idx, word in enumerate(words):
             if word in ["ngang"] and idx + 1 < len(words):
                 try: weft = float(words[idx+1].replace("%", ""))
                 except ValueError: pass
-
-        # Trường hợp user gõ dạng chuỗi gạch ngang liền nhau "5-15"
         if warp is None or weft is None:
             for word in words:
                 if "-" in word:
@@ -428,12 +408,9 @@ def execute_marker_yardage_and_quality_gate(ai_blueprint: dict, user_chat: str) 
                             warp = float(parts[0].replace("%", ""))
                             weft = float(parts[1].replace("%", ""))
                         except ValueError: pass
-                            
         return width, warp, weft
 
-    # Gọi hàm trích xuất an toàn từ câu lệnh chat của người dùng
     w_main, s_l_main, s_w_main = parse_specs_safe(chat_clean)
-
     for row in all_rows:
         if not row or not isinstance(row, dict) or "_computed_net_area_sq_in" not in row: 
             continue
@@ -446,8 +423,6 @@ def execute_marker_yardage_and_quality_gate(ai_blueprint: dict, user_chat: str) 
         fab_repeat = safe_float(row.get("fabric_repeat_inch"), 0.0)
         
         tmp_id = f"{f_code}_{f_color}_{grain_rule}_{int(fab_repeat)}"
-        
-        # Đồng bộ thông số trích xuất động từ ô chat (nếu trống mới lấy mặc định)
         w_b = w_main if w_main is not None else safe_float(row.get("fabric_width_inch"), 58.0)
         s_warp = s_l_main if s_l_main is not None else safe_float(row.get("shrinkage_warp_pct"), 5.0)
         s_weft = s_w_main if s_w_main is not None else safe_float(row.get("shrinkage_weft_pct"), 15.0)
@@ -477,7 +452,6 @@ def execute_marker_yardage_and_quality_gate(ai_blueprint: dict, user_chat: str) 
                 "w_saved": w_b, "s_l_saved": s_warp, "s_w_saved": s_weft, "f_class": f_class_norm
             }
         
-        # Cộng dồn diện tích tự nhiên của tất cả các chi tiết rập (Thân trước + Thân sau) đầy đủ 4 thân
         fabric_registry[tmp_id]["accumulated_area_sq_in"] += row["_computed_net_area_sq_in"]
         fabric_registry[tmp_id]["rows_to_update"].append(row)
 
