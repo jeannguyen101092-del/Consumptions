@@ -672,7 +672,7 @@ with col_left:
     st.markdown('</div>', unsafe_allow_html=True)
 
 # =====================================================================
-# ĐOẠN 7: BỘ THỰC THI API GEMINI VÀ RENDER BẢNG KẾT QUẢ DƯỚI CÙNG (V16.9.3 APPROVED)
+# ĐOẠN 7: BỘ THỰC THI API GEMINI VÀ RENDER BẢNG KẾT QUẢ DƯỚI CÙNG (V16.9.7 FINAL)
 # =====================================================================
 with col_right:
     st.markdown('<div class="cad-card">', unsafe_allow_html=True)
@@ -690,17 +690,22 @@ with col_right:
         st.caption("ℹ️ Hệ thống sẵn sàng kết xuất hình ảnh sau khi tải file PDF.")
     st.markdown('</div>', unsafe_allow_html=True)
 
-    # 🟢 TỰ ĐỘNG CHẠY BÓC TÁCH KHI CÓ FILE PDF (KHÔNG CẦN CỜ TRIGGER NGOÀI)
+    # Đảm bảo các biến prompt không bị lỗi NameError vãng lai
+    safe_user_prompt = user_prompt if 'user_prompt' in globals() and user_prompt else ""
+    active_prompt = safe_user_prompt if safe_user_prompt else "khổ 58 co rút 5-15"
+
     if st.session_state.pdf_bytes is not None:
-        active_prompt = user_prompt if user_prompt else "khổ 58 co rút 5-15"
+        if "last_processed_prompt" not in st.session_state:
+            st.session_state.last_processed_prompt = None
+            
+        is_new_file = "bom_data" not in st.session_state
+        is_new_command = safe_user_prompt and (st.session_state.last_processed_prompt != safe_user_prompt)
         
-        # Chỉ kích hoạt gọi API khi bộ nhớ chưa có dữ liệu HOẶC người dùng nhấn gửi lệnh mới
-        if "bom_data" not in st.session_state or user_prompt:
-            with st.spinner("🧠 AI đang bóc tách sơ đồ BOM thực tế..."):
+        if is_new_file or is_new_command:
+            with st.spinner("🧠 AI đang bóc tách sơ đồ BOM thực tế từ Techpack..."):
                 try:
                     import google.generativeai as genai
-                    import json, copy, traceback
-                    import re
+                    import json, copy, traceback, re
                     import pandas as pd
                     
                     if "GEMINI_API_KEY" in st.secrets: 
@@ -711,88 +716,98 @@ with col_right:
                         generation_config={"response_mime_type": "application/json"}
                     )
                     
-                    prompt_instruction = f"Extract apparel BOM rows into structured JSON format with panels_catalog detail. User overrides: {active_prompt}"
+                    prompt_instruction = f"""
+                    You are an expert apparel IE system. Extract ALL fabric materials and Bill of Materials (BOM) from this techpack PDF.
+                    Return ONLY a valid JSON object matching this strict schema:
+                    {{
+                      "detected_product_type": "PANT", 
+                      "style_code": "R09-450416",
+                      "bom_rows": [
+                        {{
+                          "component_type": "MAIN FABRIC",
+                          "placement": "BODY",
+                          "fabric_classification": "MAIN_FABRIC",
+                          "fabric_code": "DENIM01",
+                          "fabric_color": "INDIGO",
+                          "panels_catalog": []
+                        }}
+                      ]
+                    }}
+                    Never return an empty "bom_rows" array if any fabric exists. User directives: {active_prompt}
+                    """
                     
                     response = model.generate_content([
                         {"mime_type": "application/pdf", "data": st.session_state.pdf_bytes}, 
                         prompt_instruction
                     ])
                     
-                    raw_blueprint = json.loads(response.text)
+                    # 🟢 IN DEBUG 1 LÊN MÀN HÌNH CHUẨN XÁC, KHÔNG BỊ TRÔI MẤT DỮ LIỆU
+                    with st.expander("🔍 DEBUG 1: Raw Gemini Response Text", expanded=True):
+                        st.code(response.text, language="json")
                     
-                    # Thực thi chuỗi hàm logic xử lý định mức song song
-                    step_2a1 = parse_geometric_panels_allowance(raw_blueprint, active_prompt)
-                    step_2a2 = execute_marker_yardage_and_quality_gate(step_2a1, active_prompt)
-                    blueprint_final = allocate_fabric_consumption_and_quality_gate(step_2a2)
+                    # Làm sạch chuỗi JSON phòng hờ markdown tag
+                    cleaned_text = response.text.strip()
+                    cleaned_text = re.sub(r"^```json\s*", "", cleaned_text, flags=re.IGNORECASE)
+                    cleaned_text = re.sub(r"\s*```$", "", cleaned_text)
                     
-                    # Ghi nhận vào bộ nhớ đệm hệ thống và ép render màn hình ngay lập tức
-                    st.session_state.bom_data = blueprint_final
-                    st.rerun()
+                    # 🟢 ĐIỂM 1: BỌC BẢO VỆ CHỐNG LỖI PARSE JSON
+                    try:
+                        raw_blueprint = json.loads(cleaned_text)
+                    except json.JSONDecodeError:
+                        st.error("💥 Lỗi: Gemini không trả về chuỗi JSON hợp lệ để hệ thống bóc tách.")
+                        raw_blueprint = {"bom_rows": []}
+                    
+                    # 🟢 ĐIỂM 2 & 3: KHÔNG DÙNG ST.STOP(), FALLBACK THÀNH MẢNG RỖNG ĐỂ CHỐNG CRASH MÀN HÌNH
+                    if not raw_blueprint or not raw_blueprint.get("bom_rows"):
+                        st.warning("⚠️ Gemini không trích xuất được mảng 'bom_rows' nào từ văn bản PDF.")
+                        st.session_state.bom_data = {"bom_rows": []}
+                    else:
+                        blueprint_worker = copy.deepcopy(raw_blueprint)
+                        step_2a1 = parse_geometric_panels_allowance(blueprint_worker, active_prompt)
+                        step_2a2 = execute_marker_yardage_and_quality_gate(step_2a1, active_prompt)
+                        blueprint_final = allocate_fabric_consumption_and_quality_gate(step_2a2)
+                        
+                        st.session_state.bom_data = blueprint_final
+                        if safe_user_prompt:
+                            st.session_state.last_processed_prompt = safe_user_prompt
+                    
+                    # Tạm thời tắt st.rerun() để giữ nguyên trạng thái hộp thoại expander debug
+                    # st.rerun()
                     
                 except Exception:
                     st.error("💥 Lỗi xử lý tiến trình Phân đoạn 7:")
                     st.code(traceback.format_exc())
 
-# --- KHU VỰC HIỂN THỊ KẾT QUẢ VÀ XUẤT FILE EXCEL PHÍA DƯỚI GIAO DIỆN (ĐÃ ĐƯA RA NGOÀI AN TOÀN) ---
-if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data:
+# --- KHU VỰC HIỂN THỊ KẾT QUẢ VÀ XUẤT FILE EXCEL PHÍA DƯỚI GIAO DIỆN ---
+if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data and st.session_state.bom_data["bom_rows"]:
     st.markdown('<div class="cad-card">', unsafe_allow_html=True)
     st.markdown('<div class="cad-header">📊 CALCULATED FABRIC CONSUMPTION MATRIX (BOM RESULT)</div>', unsafe_allow_html=True)
     
-    chat_txt = str(user_prompt if user_prompt else "").lower()
+    chat_txt = str(safe_user_prompt).lower()
     m_c = re.search(r'(?:co\s*rút|co\s*rut|co)\s*([\d\.]+)\s*(?:-|–|x|ngang|\s+)\s*([\d\.]+)', chat_txt)
     warp_default, weft_default = (f"{float(m_c.group(1))}%", f"{float(m_c.group(2))}%") if m_c else ("5.0%", "15.0%")
     
     display_data = []
     for r in st.session_state.bom_data["bom_rows"]:
-        if not r or not isinstance(r, dict): 
-            continue
+        if not r or not isinstance(r, dict): continue
         sys_notes = r.get("consumption_note", "")
         current_gross = r.get("calculated_gross_consumption_yds", 0.0)
         reason_logs = str(r.get("reason_or_logs", ""))
         
         match_w = re.search(r'Khổ vải:\s*([\d\.]+)', sys_notes)
-        if match_w:
-            cut_width_val = f"{float(match_w.group(1))} inch"
-        else:
-            match_w_alt = re.search(r'CutWidth:\s*([\d\.]+)', sys_notes)
-            cut_width_val = f"{float(match_w_alt.group(1))} inch" if match_w_alt else "58.0 inch"
+        cut_width_val = f"{float(match_w.group(1))} inch" if match_w else "58.0 inch"
         
         match_sh = re.search(r'([\d\.]+)x([\d\.]+)', reason_logs)
         warp_val, weft_val = (f"{float(match_sh.group(1))}%", f"{float(match_sh.group(2))}%") if match_sh else (warp_default, weft_default)
         
-        if current_gross == 0.0 or "Bypass" in sys_notes: 
-            cut_width_val, warp_val, weft_val = "N/A", "N/A", "N/A"
-            
         display_data.append({
-            "Component Type": r.get("component_type", "N/A"), 
-            "Placement": r.get("placement", "N/A"),
-            "Fabric Classification": r.get("fabric_classification", "MAIN_FABRIC"), 
-            "Fabric Code": r.get("fabric_code", "MAIN"),
-            "Fabric Color": r.get("fabric_color", "COLOR"), 
-            "Khổ vải (Width)": cut_width_val,
-            "Co rút dọc (% Warp)": warp_val, 
-            "Co rút ngang (% Weft)": weft_val,
-            "Marker Efficiency": r.get("marker_efficiency_pct", "N/A"), 
-            "Gross Consumption (Yds)": current_gross,
-            "Quality Status": r.get("status", "PASS"), 
-            "System Notes": sys_notes
+            "Component Type": r.get("component_type", "N/A"), "Placement": r.get("placement", "N/A"),
+            "Fabric Classification": r.get("fabric_classification", "MAIN_FABRIC"), "Fabric Code": r.get("fabric_code", "MAIN"),
+            "Fabric Color": r.get("fabric_color", "COLOR"), "Khổ vải (Width)": cut_width_val,
+            "Co rút dọc (% Warp)": warp_val, "Co rút ngang (% Weft)": weft_val,
+            "Marker Efficiency": r.get("marker_efficiency_pct", "N/A"), "Gross Consumption (Yds)": current_gross,
+            "Quality Status": r.get("status", "PASS"), "System Notes": sys_notes
         })
         
     df_bom = pd.DataFrame(display_data)
-    
-    if df_bom.empty:
-        st.warning("⚠️ Dữ liệu phân tách từ PDF không có dòng dữ liệu BOM hợp lệ.")
-    else:
-        phong_phu_excel_bytes = export_to_phong_phu_excel(st.session_state.bom_data, st.session_state.get("pdf_name", "file.pdf"))
-        
-        col_label_pp, col_btn_pp = st.columns(2)
-        with col_label_pp: 
-            st.markdown("<p style='font-weight:600; color:#334155; margin-top:5px;'>Dữ liệu định mức kỹ thuật đã sẵn sàng xuất bản ra file Excel theo form hệ thống:</p>", unsafe_allow_html=True)
-        with col_btn_pp:
-            st.download_button(
-                label="📥 TẢI MẪU BÁO CÁO PHONG PHÚ (.XLSX)", data=phong_phu_excel_bytes,
-                file_name=f"Bao_Cao_Dinh_Muc_Phong_Phu_{st.session_state.get('pdf_name', 'file').replace('.pdf', '')}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True
-            )
-        st.dataframe(df_bom, use_container_width=True, hide_index=True)
-    st.markdown('</div>', unsafe_allow_html=True)
+    st.dataframe(df_bom, use_container_width=True, hide_index=True)
