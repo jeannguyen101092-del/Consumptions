@@ -469,14 +469,21 @@ if "chat_history" not in st.session_state:
 # --- SIDEBAR CONTROL PANEL ---
 with st.sidebar:
     st.markdown('<div class="cad-header">⚙️ ENGINE CONTROLS</div>', unsafe_allow_html=True)
-    st.info("💡 **Hạn ngạch Google:** Để tránh vấp lỗi gián đoạn 429 Quota Exceeded khi phân rã rập liên tục, hãy nâng cấp tài khoản hoặc sử dụng API Key trả phí.")
+    
+    # 1. KIỂM TRA TRẠNG THÁI LỖI QUOTA TRONG SESSION STATE ĐỂ HIỂN THỊ TỰ ĐỘNG
+    if st.session_state.get("api_error_status") == 429:
+        st.error("🚨 **HỆ THỐNG HẾT DUNG LƯỢNG:** Hạn ngạch API hiện tại đã bị vượt quá (Error 429). Vui lòng nâng cấp tài khoản hoặc thử lại sau.")
+    else:
+        st.success("🟢 **API STATUS:** Hệ thống đang hoạt động trong hạn ngạch cho phép.")
     
     if st.button("🗑️ CLEAR SYSTEM MEMORY", use_container_width=True, type="secondary"):
         st.session_state.bom_data = None
         st.session_state.pdf_bytes = None
         st.session_state.pdf_name = None
+        st.session_state.api_error_status = None  # Xóa trạng thái lỗi khi reset hệ thống
         st.session_state.chat_history = [{"role": "assistant", "content": "[SYSTEM] Session cache purged."}]
         st.rerun()
+
 
 # --- MAIN DASHBOARD INTERFACE ---
 st.title("🏭 AI CAD Fabric Consumption Engine")
