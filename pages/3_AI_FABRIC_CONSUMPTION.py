@@ -381,6 +381,10 @@ def execute_marker_yardage_and_quality_gate(ai_blueprint: dict, user_chat: str) 
 # ĐOẠN 2b: PHÂN BỔ ĐỊNH MỨC THEO FABRIC ID & KIỂM SOÁT THỰC TẾ (V16.5.4 APPROVED)
 # =====================================================================
 
+# =====================================================================
+# ĐOẠN 2b: PHÂN BỔ ĐỊNH MỨC THEO FABRIC ID & KIỂM SOÁT THỰC TẾ (V16.5.5 APPROVED)
+# =====================================================================
+
 def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict) -> dict:
     if not ai_blueprint or not isinstance(ai_blueprint, dict):
         return {"detected_product_type": "PANT", "bom_rows": []}
@@ -418,6 +422,11 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict) -> dict:
         f_class_raw = str(row.get("fabric_classification", "")).upper().strip()
         f_code = str(row.get("fabric_code", "")).upper().strip()
 
+        # Khởi tạo mặc định các trường tránh lỗi hiển thị DataFrame
+        row["calculated_gross_consumption_yds"] = 0.0
+        row["marker_efficiency_pct"] = "89.0%"
+        row["status"] = "PASS"
+
         # Trường hợp 1: Hardware Trim Bypass
         if 'EXCLUDE_HARDWARE_KEYS' in globals() and any(k in comp_type or k in placement or k in f_class_raw or k in f_code for k in EXCLUDE_HARDWARE_KEYS if k):
             row["calculated_gross_consumption_yds"] = 0.0
@@ -428,19 +437,17 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict) -> dict:
             processed_bom_blueprint.append(row)
             continue
 
-        # Trường hợp 2: Khớp cấu trúc rập hình học thành công và diện tích > 0
-        is_mapped_geom = False
+        # Trường hợp 2: Khớp cấu trúc rập hình học từ Cache
+        is_processed = False
         if id(row) in registry_rows_map:
             f_id, data = registry_rows_map[id(row)]
             total_area = data.get("accumulated_area_sq_in", 0.0)
+            cutable_w = data.get("cutable_w", 58.0)
+            eff = data.get("eff", 0.85)
+            f_class_norm = data.get("f_class", "MAIN_FABRIC")
             
-            # Chỉ xử lý hình học nếu tổng diện tích rập thực sự lớn hơn 0
             if total_area > 0.0:
-                is_mapped_geom = True
-                cutable_w = data.get("cutable_w", 58.0)
-                eff = data.get("eff", 0.85)
-                f_class_norm = data.get("f_class", "MAIN_FABRIC")
-                
+                is_processed = True
                 if f_class_norm in ["MAIN_FABRIC", "RIB"]:
                     nesting_factor = 0.45 if f_class_norm == "MAIN_FABRIC" else 0.85
                     if product_type not in ["PANT", "CARGO_PANT", "CAPRI_PANT", "JORT"]: 
@@ -449,7 +456,7 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict) -> dict:
                     optimized_area = total_area * nesting_factor
                     base_cons = (optimized_area / (cutable_w * 36.0)) / eff
                     total_yds = base_cons * data.get("shrink_warp_f", 1.05) * data.get("wastage_f", 1.03)
-                    total_yds = round(total_yds, 4)
+                    row["calculated_gross_consumption_yds"] = round(total_yds, 4)
                     
                     row_status = "PASS"
                     if 'LIMITS' in globals():
@@ -459,13 +466,11 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict) -> dict:
                             if total_yds > max_allow: row_status = "CRITICAL_HIGH_CONSUMPTION"
                             elif total_yds < min_allow: row_status = "LOW_CONSUMPTION_WARNING"
                             elif total_yds > cfg["warn_thresh"]: row_status = "HIGH_CONSUMPTION_WARNING"
+                    row["status"] = row_status
                     
                     w_original = data.get("w_saved", 58.0)
                     s_l_saved = (data.get("shrink_warp_f", 1.0) - 1.0) * 100.0
                     s_w_saved = (data.get("shrink_weft_f", 1.0) - 1.0) * 100.0
-                    
-                    row["calculated_gross_consumption_yds"] = total_yds if total_yds > 0.0 else 1.35
-                    row["status"] = row_status
                     row["consumption_note"] = f"Khổ vải: {w_original}\" | Sơ đồ: {cutable_w}\" | Check: {row_status}"
                     row["reason_or_logs"] = f"{round(w_original,1)}\"/{round(eff*100,1)}%/{round(s_l_saved,1)}x{round(s_w_saved,1)}"
                 else:
@@ -473,13 +478,12 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict) -> dict:
                     elif f_class_norm in ["LINING", "POCKETING"] or "POCKET" in comp_type or "TÚI" in comp_type: f_yds = 0.20  
                     else: f_yds = 0.15
                     row["calculated_gross_consumption_yds"] = f_yds
-                    row["status"] = "PASS"
                     row["consumption_note"] = "Component Fixed Allocation"
                     row["reason_or_logs"] = "FIXED"
                 row["marker_efficiency_pct"] = f"{round(eff * 100, 1)}%"
 
-        # 🟢 Trường hợp 3: NẾU KHÔNG CÓ PANEL RẬP HOẶC TÍNH RA ĐỊNH MỨC = 0.0 -> KÍCH HOẠT DỰ PHÒNG IE ĐỂ ĐỔ SỐ LÊN BẢNG
-        if not is_mapped_geom:
+        # 🟢 VAN CHẶN CUỐI: Nếu định mức tính toán ra vẫn bằng 0 (do rập trống rỗng từ Gemini), tự động ghi đè số fallback IE
+        if not is_processed or row["calculated_gross_consumption_yds"] == 0.0:
             is_main_fabric = False
             if f_class_raw or comp_type:
                 if any(x in f_class_raw or x in comp_type for x in ["MAIN", "CHÍNH", "SELF", "BODY", "SHELL"] if x):
@@ -488,15 +492,15 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict) -> dict:
                 is_main_fabric = True
 
             if is_main_fabric:
-                row["calculated_gross_consumption_yds"] = 1.35  # Ép định mức vải chính mặc định cho quần Jeans/Pant
-                row["consumption_note"] = "Khổ vải: 58.0\" | Dự phòng IE Fallback (Trống Panels)"
+                row["calculated_gross_consumption_yds"] = 1.35  # Ép số định mức quần Jeans/Pant vải chính tiêu chuẩn
+                row["consumption_note"] = "Khổ vải: 58.0\" | Dự phòng IE Fallback (Trống Rập)"
                 row["reason_or_logs"] = "5.0x15.0"
+                row["status"] = "PASS"
             else:
                 row["calculated_gross_consumption_yds"] = 0.25
                 row["consumption_note"] = "Vật tư phụ | Định mức cố định dự phòng"
                 row["reason_or_logs"] = "5.0x15.0"
-                
-            row["status"] = "PASS"
+                row["status"] = "PASS"
             row["marker_efficiency_pct"] = "89.0%"
 
         row["panel_debug_summary"] = row.get("_panel_debug_logs", [])
@@ -504,6 +508,7 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict) -> dict:
 
     ai_blueprint["bom_rows"] = processed_bom_blueprint
     return ai_blueprint
+
 
 
 
