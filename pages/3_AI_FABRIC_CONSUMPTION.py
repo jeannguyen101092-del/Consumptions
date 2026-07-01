@@ -486,14 +486,15 @@ def export_to_phong_phu_excel(bom_data, pdf_name):
         for col_idx, w in enumerate(widths): worksheet.set_column(col_idx, col_idx, w)
     return buffer.getvalue()
 # =====================================================================
-# ĐOẠN 6: GIAO DIỆN CHÍNH THỰC THI (APP LAYOUT FRAMEWORK)
+# ĐOẠN 6: GIAO DIỆN CHÍNH THỰC THI (APP LAYOUT FRAMEWORK APPROVED)
 # =====================================================================
 st.set_page_config(layout="wide", page_title="AI Fabric Consumption Matrix")
 
 if "bom_data" not in st.session_state: st.session_state.bom_data = None
 if "chat_history" not in st.session_state: st.session_state.chat_history = []
 
-col_left, col_right = st.columns()
+# 🟢 SỬA LỖI TRIỆT ĐỂ: Truyền số 2 vào st.columns(2) để chia layout thành 2 cột cân đối trái/phải
+col_left, col_right = st.columns(2)
 
 with col_left:
     st.title("💬 CAD LIVE LOG CONSOLE")
