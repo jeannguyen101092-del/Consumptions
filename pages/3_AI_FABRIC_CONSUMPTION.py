@@ -672,18 +672,29 @@ with col_left:
     st.markdown('</div>', unsafe_allow_html=True)
 
 # =====================================================================
-# ĐOẠN 7: BỘ THỰC THI API GEMINI VÀ RENDER BẢNG KẾT QUẢ DƯỚI CÙNG (V16.9.2)
+# ĐOẠN 7: BỘ THỰC THI API GEMINI VÀ RENDER BẢNG KẾT QUẢ DƯỚI CÙNG (V16.9.3 APPROVED)
 # =====================================================================
 with col_right:
     st.markdown('<div class="cad-card">', unsafe_allow_html=True)
     st.markdown('<div class="cad-header">🎨 TECHPACK SKETCH VISUALIZER</div>', unsafe_allow_html=True)
     
-        # 🟢 CẢI TIẾN ĐOẠN 7: Tự động chạy bóc tách khi có file PDF, không bắt buộc phải có user_prompt
     if st.session_state.pdf_bytes is not None:
-        # Tạo prompt mặc định nếu người dùng để trống ô nhập lệnh
+        try:
+            import fitz  
+            doc = fitz.open(stream=st.session_state.pdf_bytes, filetype="pdf")
+            st.image(doc.load_page(0).get_pixmap(dpi=150).tobytes("png"), use_container_width=True)
+            st.success(f"📎 BUFFERED OBJECT: {st.session_state.pdf_name} loaded.")
+        except Exception: 
+            pass
+    else:
+        st.caption("ℹ️ Hệ thống sẵn sàng kết xuất hình ảnh sau khi tải file PDF.")
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    # 🟢 TỰ ĐỘNG CHẠY BÓC TÁCH KHI CÓ FILE PDF (KHÔNG CẦN CỜ TRIGGER NGOÀI)
+    if st.session_state.pdf_bytes is not None:
         active_prompt = user_prompt if user_prompt else "khổ 58 co rút 5-15"
         
-        # Chỉ kích hoạt gọi API khi chưa có dữ liệu hoặc người dùng đổi câu lệnh mới
+        # Chỉ kích hoạt gọi API khi bộ nhớ chưa có dữ liệu HOẶC người dùng nhấn gửi lệnh mới
         if "bom_data" not in st.session_state or user_prompt:
             with st.spinner("🧠 AI đang bóc tách sơ đồ BOM thực tế..."):
                 try:
@@ -714,7 +725,7 @@ with col_right:
                     step_2a2 = execute_marker_yardage_and_quality_gate(step_2a1, active_prompt)
                     blueprint_final = allocate_fabric_consumption_and_quality_gate(step_2a2)
                     
-                    # Ghi nhận vào bộ nhớ đệm hệ thống và ép render màn hình
+                    # Ghi nhận vào bộ nhớ đệm hệ thống và ép render màn hình ngay lập tức
                     st.session_state.bom_data = blueprint_final
                     st.rerun()
                     
@@ -722,72 +733,66 @@ with col_right:
                     st.error("💥 Lỗi xử lý tiến trình Phân đoạn 7:")
                     st.code(traceback.format_exc())
 
-
-    # --- ĐƯA KHU VỰC HIỂN THỊ VÀO TRONG ĐỂ ĐỒNG BỘ GIAO DIỆN CHUẨN ---
-    if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data:
-        st.markdown('<div class="cad-card">', unsafe_allow_html=True)
-        st.markdown('<div class="cad-header">📊 CALCULATED FABRIC CONSUMPTION MATRIX (BOM RESULT)</div>', unsafe_allow_html=True)
+# --- KHU VỰC HIỂN THỊ KẾT QUẢ VÀ XUẤT FILE EXCEL PHÍA DƯỚI GIAO DIỆN (ĐÃ ĐƯA RA NGOÀI AN TOÀN) ---
+if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data:
+    st.markdown('<div class="cad-card">', unsafe_allow_html=True)
+    st.markdown('<div class="cad-header">📊 CALCULATED FABRIC CONSUMPTION MATRIX (BOM RESULT)</div>', unsafe_allow_html=True)
+    
+    chat_txt = str(user_prompt if user_prompt else "").lower()
+    m_c = re.search(r'(?:co\s*rút|co\s*rut|co)\s*([\d\.]+)\s*(?:-|–|x|ngang|\s+)\s*([\d\.]+)', chat_txt)
+    warp_default, weft_default = (f"{float(m_c.group(1))}%", f"{float(m_c.group(2))}%") if m_c else ("5.0%", "15.0%")
+    
+    display_data = []
+    for r in st.session_state.bom_data["bom_rows"]:
+        if not r or not isinstance(r, dict): 
+            continue
+        sys_notes = r.get("consumption_note", "")
+        current_gross = r.get("calculated_gross_consumption_yds", 0.0)
+        reason_logs = str(r.get("reason_or_logs", ""))
         
-        chat_txt = str(user_prompt if user_prompt else "").lower()
-        m_c = re.search(r'(?:co\s*rút|co\s*rut|co)\s*([\d\.]+)\s*(?:-|–|x|ngang|\s+)\s*([\d\.]+)', chat_txt)
-        warp_default, weft_default = (f"{float(m_c.group(1))}%", f"{float(m_c.group(2))}%") if m_c else ("5.0%", "15.0%")
-        
-        display_data = []
-        for r in st.session_state.bom_data["bom_rows"]:
-            if not r or not isinstance(r, dict): 
-                continue
-            sys_notes = r.get("consumption_note", "")
-            current_gross = r.get("calculated_gross_consumption_yds", 0.0)
-            reason_logs = str(r.get("reason_or_logs", ""))
-            
-            match_w = re.search(r'Khổ vải:\s*([\d\.]+)', sys_notes)
-            if match_w:
-                cut_width_val = f"{float(match_w.group(1))} inch"
-            else:
-                match_w_alt = re.search(r'CutWidth:\s*([\d\.]+)', sys_notes)
-                cut_width_val = f"{float(match_w_alt.group(1))} inch" if match_w_alt else "58.0 inch"
-            
-            match_sh = re.search(r'([\d\.]+)x([\d\.]+)', reason_logs)
-            warp_val, weft_val = (f"{float(match_sh.group(1))}%", f"{float(match_sh.group(2))}%") if match_sh else (warp_default, weft_default)
-            
-            if current_gross == 0.0 or "Bypass" in sys_notes: 
-                cut_width_val, warp_val, weft_val = "N/A", "N/A", "N/A"
-                
-            display_data.append({
-                "Component Type": r.get("component_type", "N/A"), 
-                "Placement": r.get("placement", "N/A"),
-                "Fabric Classification": r.get("fabric_classification", "MAIN_FABRIC"), 
-                "Fabric Code": r.get("fabric_code", "MAIN"),
-                "Fabric Color": r.get("fabric_color", "COLOR"), 
-                "Khổ vải (Width)": cut_width_val,
-                "Co rút dọc (% Warp)": warp_val, 
-                "Co rút ngang (% Weft)": weft_val,
-                "Marker Efficiency": r.get("marker_efficiency_pct", "N/A"), 
-                "Gross Consumption (Yds)": current_gross,
-                "Quality Status": r.get("status", "PASS"), 
-                "System Notes": sys_notes
-            })
-            
-        df_bom = pd.DataFrame(display_data)
-        
-        # Nếu DataFrame trống, hiển thị cảnh báo thay vì để trống giao diện
-        if df_bom.empty:
-            st.warning("⚠️ Dữ liệu phân tách từ PDF không có dòng dữ liệu BOM hợp lệ.")
+        match_w = re.search(r'Khổ vải:\s*([\d\.]+)', sys_notes)
+        if match_w:
+            cut_width_val = f"{float(match_w.group(1))} inch"
         else:
-            phong_phu_excel_bytes = export_to_phong_phu_excel(st.session_state.bom_data, st.session_state.get("pdf_name", "file.pdf"))
+            match_w_alt = re.search(r'CutWidth:\s*([\d\.]+)', sys_notes)
+            cut_width_val = f"{float(match_w_alt.group(1))} inch" if match_w_alt else "58.0 inch"
+        
+        match_sh = re.search(r'([\d\.]+)x([\d\.]+)', reason_logs)
+        warp_val, weft_val = (f"{float(match_sh.group(1))}%", f"{float(match_sh.group(2))}%") if match_sh else (warp_default, weft_default)
+        
+        if current_gross == 0.0 or "Bypass" in sys_notes: 
+            cut_width_val, warp_val, weft_val = "N/A", "N/A", "N/A"
             
-            col_label_pp, col_btn_pp = st.columns(2)
-            with col_label_pp: 
-                st.markdown("<p style='font-weight:600; color:#334155; margin-top:5px;'>Dữ liệu định mức kỹ thuật đã sẵn sàng xuất bản ra file Excel theo form hệ thống:</p>", unsafe_allow_html=True)
-            with col_btn_pp:
-                st.download_button(
-                    label="📥 TẢI MẪU BÁO CÁO PHONG PHÚ (.XLSX)", data=phong_phu_excel_bytes,
-                    file_name=f"Bao_Cao_Dinh_Muc_Phong_Phu_{st.session_state.get('pdf_name', 'file').replace('.pdf', '')}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True
-                )
-            st.dataframe(df_bom, use_container_width=True, hide_index=True)
-        st.markdown('</div>', unsafe_allow_html=True)
-
-        # Ép buộc Streamlit cập nhật giao diện một lần duy nhất nếu vừa chạy xong API
-        if api_success_trigger:
-            st.rerun()
+        display_data.append({
+            "Component Type": r.get("component_type", "N/A"), 
+            "Placement": r.get("placement", "N/A"),
+            "Fabric Classification": r.get("fabric_classification", "MAIN_FABRIC"), 
+            "Fabric Code": r.get("fabric_code", "MAIN"),
+            "Fabric Color": r.get("fabric_color", "COLOR"), 
+            "Khổ vải (Width)": cut_width_val,
+            "Co rút dọc (% Warp)": warp_val, 
+            "Co rút ngang (% Weft)": weft_val,
+            "Marker Efficiency": r.get("marker_efficiency_pct", "N/A"), 
+            "Gross Consumption (Yds)": current_gross,
+            "Quality Status": r.get("status", "PASS"), 
+            "System Notes": sys_notes
+        })
+        
+    df_bom = pd.DataFrame(display_data)
+    
+    if df_bom.empty:
+        st.warning("⚠️ Dữ liệu phân tách từ PDF không có dòng dữ liệu BOM hợp lệ.")
+    else:
+        phong_phu_excel_bytes = export_to_phong_phu_excel(st.session_state.bom_data, st.session_state.get("pdf_name", "file.pdf"))
+        
+        col_label_pp, col_btn_pp = st.columns(2)
+        with col_label_pp: 
+            st.markdown("<p style='font-weight:600; color:#334155; margin-top:5px;'>Dữ liệu định mức kỹ thuật đã sẵn sàng xuất bản ra file Excel theo form hệ thống:</p>", unsafe_allow_html=True)
+        with col_btn_pp:
+            st.download_button(
+                label="📥 TẢI MẪU BÁO CÁO PHONG PHÚ (.XLSX)", data=phong_phu_excel_bytes,
+                file_name=f"Bao_Cao_Dinh_Muc_Phong_Phu_{st.session_state.get('pdf_name', 'file').replace('.pdf', '')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True
+            )
+        st.dataframe(df_bom, use_container_width=True, hide_index=True)
+    st.markdown('</div>', unsafe_allow_html=True)
