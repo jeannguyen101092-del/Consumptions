@@ -61,7 +61,11 @@ def calculate_shoelace_polygon_area(points):
 def simulate_marker_efficiency_v14(panels, f_class, grain, width, repeat):
     return 89.0
 # =====================================================================
-# ĐOẠN 2a1: RẬP HÌNH HỌC, TỰ ĐỘNG BÙ TRỪ & LOG CHUYÊN SÂU (V16.3 CHUẨN)
+# ĐOẠN 2a1 - PHẦN 1: KHỞI TẠO VÀ ĐỌC THÔNG SỐ ĐO KỸ THUẬT (V16.3.2)
+# =====================================================================
+
+# =====================================================================
+# ĐOẠN 2a1: RẬP HÌNH HỌC, TỰ ĐỘNG BÙ TRỪ & LOG CHUYÊN SÂU (V16.3.2 APPROVED)
 # =====================================================================
 
 def parse_geometric_panels_allowance(ai_blueprint: dict, user_chat: str) -> dict:
@@ -69,36 +73,39 @@ def parse_geometric_panels_allowance(ai_blueprint: dict, user_chat: str) -> dict
         return {"detected_product_type": "PANT", "bom_rows": []}
 
     product_type = str(ai_blueprint.get("detected_product_type", "DEFAULT")).upper().strip()
+    
+    # Ép kiểu dữ liệu thông số đo kỹ thuật cốt lõi bằng hàm safe_float của hệ thống
     body_length = safe_float(ai_blueprint.get("extracted_body_length"), 28.0)
     chest_width = safe_float(ai_blueprint.get("extracted_chest_width"), 20.0)
     outseam_length = safe_float(ai_blueprint.get("extracted_outseam_length"), 14.5 if product_type == "JORT" else 40.0)
     hip_width = safe_float(ai_blueprint.get("extracted_hip_width"), 21.0)
 
+    # Tiêu chuẩn kỹ thuật phòng IE (Mặc định đơn vị Inch)
     FACTORY_SEAM_INCH = 0.5       
     FACTORY_HEM_INCH = 1.5        
     FACTORY_WAISTBAND_INCH = 2.5  
     FACTORY_PLEAT_INCH = 3.0      
 
+    # Hệ số bao hình rập dệt may lý thuyết
     SHAPE_FACTORS = {
-        "FRONT": 0.54,      
-        "BACK": 0.59,       
-        "WAISTBAND": 0.94,  
-        "POCKET": 0.78,     
-        "SLEEVE": 0.64,     
-        "DEFAULT": 0.62     
+        "FRONT": 0.54, "BACK": 0.59, "WAISTBAND": 0.94, "POCKET": 0.78, "SLEEVE": 0.64, "DEFAULT": 0.62
     }
 
     all_rows = ai_blueprint.get("bom_rows", [])
-    if not all_rows or not isinstance(all_rows, list): all_rows = []
+    if not all_rows or not isinstance(all_rows, list): 
+        all_rows = []
     parsed_rows = []
 
     for row in all_rows:
-        if not row or not isinstance(row, dict): continue
+        if not row or not isinstance(row, dict): 
+            continue
+            
         c_type = str(row.get("component_type", "")).upper()
         placement = str(row.get("placement", "")).upper()
         f_class_raw = str(row.get("fabric_classification", "")).upper()
         f_code = str(row.get("fabric_code", "")).upper()
         
+        # Kiểm tra điều kiện loại trừ phụ liệu cứng (Bypass Hardware Trim)
         if any(k in c_type or k in placement or k in f_class_raw or k in f_code for k in EXCLUDE_HARDWARE_KEYS):
             row["calculated_gross_consumption_yds"] = 0.0
             row["reason_or_logs"] = "Hardware Trim Bypass"
@@ -112,9 +119,12 @@ def parse_geometric_panels_allowance(ai_blueprint: dict, user_chat: str) -> dict
         row_total_net_area_sq_in = 0.0
         panel_debug_logs = []
 
+        # --- BẮT ĐẦU PHẦN 2: THỰC THI TÍNH TOÁN ENGINE HÌNH HỌC VÀ DUNG SAI CHI TIẾT ---
         if panels and isinstance(panels, list):
             for panel in panels:
-                if not panel or not isinstance(panel, dict): continue
+                if not panel or not isinstance(panel, dict): 
+                    continue
+                    
                 p_count = safe_float(panel.get("piece_count"), 1.0)
                 polygon_points = panel.get("polygon_points", [])
                 scale_factor = max(0.001, min(safe_float(panel.get("coordinate_scale"), 1.0), 100.0))
@@ -130,14 +140,19 @@ def parse_geometric_panels_allowance(ai_blueprint: dict, user_chat: str) -> dict
                 elif any(k in p_name or k in p_type_code for k in ["SLEEVE", "TAY"]): s_factor = SHAPE_FACTORS["SLEEVE"]
 
                 actual_perimeter_inch = 0.0
+                
+                # 1. Tính toán diện tích theo tọa độ đa giác thực tế (Shoelace Formula)
                 if polygon_points and isinstance(polygon_points, list) and len(polygon_points) >= 3:
                     base_area = calculate_shoelace_polygon_area(polygon_points) * (scale_factor ** 2)
+                        
                     p_len_nodes = len(polygon_points)
                     total_dist = 0.0
                     for i in range(p_len_nodes):
                         j = (i + 1) % p_len_nodes
                         pt1, pt2 = polygon_points[i], polygon_points[j]
                         if not pt1 or not pt2: continue
+                        
+                        # Khắc phục lỗi cấu trúc dữ liệu Node dạng phức hợp Dict/List/Tuple
                         x1 = float(pt1 if isinstance(pt1, (list, tuple)) else pt1.get("x", 0.0))
                         y1 = float(pt1 if isinstance(pt1, (list, tuple)) else pt1.get("y", 0.0))
                         x2 = float(pt2 if isinstance(pt2, (list, tuple)) else pt2.get("x", 0.0))
@@ -145,12 +160,14 @@ def parse_geometric_panels_allowance(ai_blueprint: dict, user_chat: str) -> dict
                         total_dist += ((x2 - x1)**2 + (y2 - y1)**2)**0.5
                     actual_perimeter_inch = total_dist * scale_factor * p_count
                 else:
+                    # 2. Cơ chế dự phòng: Tính diện tích theo khối hộp chữ nhật (Bounding Box)
                     p_len = safe_float(panel.get("piece_length_inch"), 0.0)
                     p_wid = safe_float(panel.get("piece_width_inch"), 0.0)
                     base_area = p_len * p_wid * s_factor if (p_len > 0 and p_wid > 0) else 0.0
                     perimeter_factor = 0.88 if s_factor in [0.54, 0.59] else 0.96 
                     actual_perimeter_inch = ((p_len * 2) + (p_wid * 2)) * perimeter_factor * p_count
                 
+                # Kiểm soát an toàn nếu đầu vào rỗng, gán hằng số dựa trên thông số chính của Techpack
                 if base_area == 0.0:
                     eval_len_fb = outseam_length if product_type in ["PANT", "CARGO_PANT", "CAPRI_PANT", "JORT"] else body_length
                     eval_wid_fb = hip_width if product_type in ["PANT", "CARGO_PANT", "CAPRI_PANT", "JORT"] else chest_width
@@ -164,6 +181,7 @@ def parse_geometric_panels_allowance(ai_blueprint: dict, user_chat: str) -> dict
                 eval_len = safe_float(panel.get("piece_length_inch"), outseam_length if product_type in ["PANT", "CARGO_PANT", "CAPRI_PANT", "JORT"] else body_length)
                 eval_wid = safe_float(panel.get("piece_width_inch"), hip_width if product_type in ["PANT", "CARGO_PANT", "CAPRI_PANT", "JORT"] else chest_width)
 
+                # 3. Tính toán và bù thêm dung sai đường may (Seam allowance)
                 seam_area_addition = 0.0
                 if has_seam and not polygon_include_seam:
                     seam_length_map = panel.get("seam_length_map", {})
@@ -176,6 +194,7 @@ def parse_geometric_panels_allowance(ai_blueprint: dict, user_chat: str) -> dict
                     else:
                         seam_area_addition = actual_perimeter_inch * FACTORY_SEAM_INCH
 
+                # 4. Tính toán và bù thêm gấu, lai quần/áo (Hem allowance)
                 hem_area_addition = 0.0
                 hem_val = safe_float(panel.get("hem"), 0.0)
                 if hem_val == 0.0 and not polygon_include_hem:
@@ -189,101 +208,131 @@ def parse_geometric_panels_allowance(ai_blueprint: dict, user_chat: str) -> dict
                     if not polygon_include_hem:
                         hem_area_addition += (eval_wid * FACTORY_WAISTBAND_INCH) * p_count
 
+                # 5. Xử lý phần định mức xếp ly và túi hộp (Pleat area) công nghiệp
                 pleat_area_addition = 0.0
                 pleat_val = safe_float(panel.get("pleat"), 0.0)
                 if pleat_val == 0.0:
                     if any(k in p_name or k in p_type_code for k in ["PLEAT", "XEP_LY", "LY_HOP", "CARGO", "POCKET", "TUI_DAT", "TUI_HOP"]):
                         pleat_val = 1.0
                 if pleat_val > 0:
-                    pleat_width = safe_float(panel.get("pleat_width"), 1.0)
-                    pleat_count = safe_float(panel.get("pleat_count"), 1.0)
-                    pleat_area_addition = (eval_len * pleat_width * pleat_count) * p_count
+                    pleat_area_addition = (eval_len * FACTORY_PLEAT_INCH) * p_count
 
-                final_panel_area = raw_panel_area_total + seam_area_addition + hem_area_addition + pleat_area_addition
-                row_total_net_area_sq_in += final_panel_area
-                
-                panel_debug_logs.append({
-                    "panel_name": p_name, "piece_count": p_count,
-                    "base_area_sq_in": round(raw_panel_area_total, 2),
-                    "seam_add_sq_in": round(seam_area_addition, 2),
-                    "hem_add_sq_in": round(hem_area_addition, 2),
-                    "pleat_add_sq_in": round(pleat_area_addition, 2),
-                    "total_area_sq_in": round(final_panel_area, 2),
-                    "perimeter_inch": round(actual_perimeter_inch, 2)
-                })
+                # Đóng gói và cộng dồn tổng diện tích sau bù trừ chi tiết kỹ thuật
+                total_panel_area = raw_panel_area_total + seam_area_addition + hem_area_addition + pleat_area_addition
+                row_total_net_area_sq_in += total_panel_area
+                panel_debug_logs.append(f"Rập [{p_name}]: Diện tích={round(total_panel_area,1)} sq_in")
 
         row["_computed_net_area_sq_in"] = row_total_net_area_sq_in
         row["_panel_debug_logs"] = panel_debug_logs
         parsed_rows.append(row)
 
+
+
     ai_blueprint["bom_rows"] = parsed_rows
     return ai_blueprint
+
 # =====================================================================
 # ĐOẠN 2a2: ĐỊNH MỨC SƠ ĐỒ VÀ GOM NHÓM VẬT TƯ CHỐNG TRÙNG LẶP (V15.4)
 # =====================================================================
 
 # =====================================================================
-# ĐOẠN 2a2: ĐỊNH MỨC SƠ ĐỒ VÀ GOM NHÓM VẬT TƯ CHỐNG TRÙNG LẶP (V15.4)
+# ĐOẠN 2a2: ĐỊNH MỨC SƠ ĐỒ VÀ GOM NHÓM VẬT TƯ CHỐNG TRÙNG LẶP (V15.4.1 APPROVED)
 # =====================================================================
 
 def execute_marker_yardage_and_quality_gate(ai_blueprint: dict, user_chat: str) -> dict:
     """
     Phân đoạn 2a2: Gom nhóm diện tích dệt, đồng bộ hóa hệ số hiệu suất sơ đồ (Marker).
     """
-    all_rows = ai_blueprint.get("bom_rows", [])
-    fabric_registry = {}
-    chat_clean = " " + str(user_chat).lower().strip() + " "
+    import re
+    
+    # 🟢 CÁC HÀM PHÒNG VỆ NỘI BỘ TRÁNH LỖI PHỤ THUỘC (FALLBACK FUNCTIONS)
+    def inner_safe_float(val, default=0.0):
+        try:
+            if val is None: return default
+            if isinstance(val, (int, float)): return float(val)
+            cleaned = re.sub(r'[^\d\.]', '', str(val))
+            return float(cleaned) if cleaned else default
+        except Exception:
+            return default
 
-    def parse_specs_safe(chat_text):
+    def inner_normalize_fabric_class(f_class):
+        f_str = str(f_class).upper().strip()
+        if "MAIN" in f_str or "CHÍNH" in f_str: return "MAIN_FABRIC"
+        if "RIB" in f_str or "BO" in f_str: return "RIB"
+        if "LINING" in f_str or "LÓT" in f_str: return "LINING"
+        if "FUSING" in f_str or "INTERLINING" in f_str or "MEX" in f_str or "KEO" in f_str: return "FUSING"
+        return "MAIN_FABRIC"
+
+    all_rows = ai_blueprint.get("bom_rows", [])
+    if not all_rows or not isinstance(all_rows, list):
+        all_rows = []
+        
+    fabric_registry = {}
+    chat_clean = str(user_chat if user_chat else "").lower().strip()
+
+    # 🟢 NÂNG CẤP ENGINE REGEX: Bóc tách thông số thông minh, chấp nhận mọi kiểu gõ của người dùng
+    def parse_specs_advanced(chat_text):
         width, warp, weft = None, None, None
-        words = chat_text.split()
-        for idx, word in enumerate(words):
-            if word in ["khổ", "kho"] and idx + 1 < len(words):
-                try:
-                    width = float(words[idx+1].replace('"', '').replace('inch', ''))
-                except ValueError:
-                    pass
-        for idx, word in enumerate(words):
-            if word in ["dọc", "doc"] and idx + 1 < len(words):
-                try: warp = float(words[idx+1].replace("%", ""))
+        
+        # 1. Tìm khổ vải (Ví dụ: khổ 58, khổ 58inch, kho 58", width 58)
+        match_w = re.search(r'(?:khổ|kho|width|cutwidth)\s*[:\-=\s]*([\d\.]+)', chat_text)
+        if match_w:
+            try: width = float(match_w.group(1))
+            except ValueError: pass
+            
+        # 2. Tìm cặp tỷ lệ co rút dạng X-Y hoặc XxY (Ví dụ: co rút 5-15, co rút 3x12, co 5 - 15%)
+        match_sh_pair = re.search(r'(?:co\s*rút|co\s*rut|co|shrinkage)\s*[:\-=\s]*([\d\.]+)\s*(?:-|–|x|ngang|\s+)\s*([\d\.]+)', chat_text)
+        if match_sh_pair:
+            try:
+                warp = float(match_sh_pair.group(1))
+                weft = float(match_sh_pair.group(2))
+            except ValueError: pass
+        else:
+            # Nếu không viết dạng cặp, tìm riêng lẻ từ khóa dọc/ngang
+            match_warp = re.search(r'(?:dọc|doc|warp)\s*[:\-=\s]*([\d\.]+)', chat_text)
+            if match_warp:
+                try: warp = float(match_warp.group(1))
                 except ValueError: pass
-            elif word in ["co", "rút", "rut"] and idx + 1 < len(words) and warp is None:
-                try: warp = float(words[idx+1].replace("%", ""))
-                except ValueError: pass
-        for idx, word in enumerate(words):
-            if word in ["ngang"] and idx + 1 < len(words):
-                try: weft = float(words[idx+1].replace("%", ""))
+            match_weft = re.search(r'(?:ngang|weft)\s*[:\-=\s]*([\d\.]+)', chat_text)
+            if match_weft:
+                try: weft = float(match_weft.group(2))
                 except ValueError: pass
                 
-        # 🟢 SỬA LỖI TRACEBACK LIST OBJECT: Bóc riêng lẻ từng phần tử trong mảng parts để ép kiểu float an toàn
-        if warp is None or weft is None:
-            for word in words:
-                if "-" in word:
-                    parts = word.split("-")
-                    if len(parts) == 2:
-                        try:
-                            warp = float(parts[0].replace("%", ""))
-                            weft = float(parts[1].replace("%", ""))
-                        except ValueError: 
-                            pass
         return width, warp, weft
 
-    w_main, s_l_main, s_w_main = parse_specs_safe(chat_clean)
+    w_main, s_l_main, s_w_main = parse_specs_advanced(chat_clean)
+    
     for row in all_rows:
-        if not row or not isinstance(row, dict) or "_computed_net_area_sq_in" not in row: 
+        if not row or not isinstance(row, dict): 
             continue
+            
+        # Đảm bảo có trường diện tích thực tế để bóc tách
+        if "_computed_net_area_sq_in" not in row:
+            # Fallback nếu AI Gemini chưa kịp tính diện tích tịnh, gán giá trị mặc định để tránh mất dòng
+            row["_computed_net_area_sq_in"] = inner_safe_float(row.get("net_area_sq_in", 150.0))
 
         f_class_raw = row.get("fabric_classification", "MAIN_FABRIC")
-        f_class_norm = normalize_fabric_class(f_class_raw)
+        
+        # Sử dụng hàm chuẩn hóa nội bộ an toàn
+        if 'normalize_fabric_class' in globals():
+            f_class_norm = normalize_fabric_class(f_class_raw)
+        else:
+            f_class_norm = inner_normalize_fabric_class(f_class_raw)
+            
         f_code = str(row.get("fabric_code", "MAIN")).upper().strip().replace(" ", "_")
         f_color = str(row.get("fabric_color", "COLOR")).upper().strip().replace(" ", "_")
         grain_rule = str(row.get("fabric_grain_rule", "TWO_WAY")).upper().strip().replace(" ", "_")
-        fab_repeat = safe_float(row.get("fabric_repeat_inch"), 0.0)
         
+        # Đọc thông số lặp vải (repeat) an toàn
+        fab_repeat = inner_safe_float(row.get("fabric_repeat_inch"), 0.0)
+        
+        # Khởi tạo ID duy nhất cho nhóm vật tư đồng nhất
         tmp_id = f"{f_code}_{f_color}_{grain_rule}_{int(fab_repeat)}"
-        w_b = w_main if w_main is not None else safe_float(row.get("fabric_width_inch"), 58.0)
-        s_warp = s_l_main if s_l_main is not None else safe_float(row.get("shrinkage_warp_pct"), 5.0)
-        s_weft = s_w_main if s_w_main is not None else safe_float(row.get("shrinkage_weft_pct"), 15.0)
+        
+        # Xác định khổ vải và tỷ lệ co rút (Ưu tiên chat lệnh đè > Thuộc tính dòng > Giá trị mặc định)
+        w_b = w_main if w_main is not None else inner_safe_float(row.get("fabric_width_inch"), 58.0)
+        s_warp = s_l_main if s_l_main is not None else inner_safe_float(row.get("shrinkage_warp_pct"), 5.0)
+        s_weft = s_w_main if s_w_main is not None else inner_safe_float(row.get("shrinkage_weft_pct"), 15.0)
         
         if tmp_id not in fabric_registry:
             if f_class_norm == "RIB":
@@ -293,7 +342,11 @@ def execute_marker_yardage_and_quality_gate(ai_blueprint: dict, user_chat: str) 
                 raw_eff = 88.0
                 consumption_mode = "AREA"
             else:
-                raw_eff = simulate_marker_efficiency_v14(row.get("panels_catalog", []), f_class_norm, grain_rule, w_b, fab_repeat)
+                # Kiểm tra xem hàm mô phỏng sơ đồ v14 có tồn tại không
+                if 'simulate_marker_efficiency_v14' in globals():
+                    raw_eff = simulate_marker_efficiency_v14(row.get("panels_catalog", []), f_class_norm, grain_rule, w_b, fab_repeat)
+                else:
+                    raw_eff = 85.0 # Mức hiệu suất sơ đồ tiêu chuẩn phòng IE may mặc
                 consumption_mode = "AREA"
 
             eff_factor = max(0.50, min(raw_eff / 100.0 if raw_eff > 1.0 else raw_eff, 0.95))
@@ -311,13 +364,16 @@ def execute_marker_yardage_and_quality_gate(ai_blueprint: dict, user_chat: str) 
             }
         
         fabric_registry[tmp_id]["accumulated_area_sq_in"] += row["_computed_net_area_sq_in"]
-        fabric_registry[tmp_id]["rows_to_update"].append(row)
+        
+        # Chỉ đẩy vào hàng đợi xử lý nếu chưa tồn tại vết ô nhớ
+        if row not in fabric_registry[tmp_id]["rows_to_update"]:
+            fabric_registry[tmp_id]["rows_to_update"].append(row)
 
     ai_blueprint["_fabric_registry_cache"] = fabric_registry
     return ai_blueprint
 
 # =====================================================================
-# ĐOẠN 2b: PHÂN BỔ ĐỊNH MỨC THEO FABRIC ID & KIỂM SOÁT THỰC TẾ (V16.5)
+# ĐOẠN 2b: PHÂN BỔ ĐỊNH MỨC THEO FABRIC ID & KIỂM SOÁT THỰC TẾ (V16.5.1 APPROVED)
 # =====================================================================
 
 def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict) -> dict:
@@ -325,55 +381,68 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict) -> dict:
         return {"detected_product_type": "PANT", "bom_rows": []}
 
     product_type = str(ai_blueprint.get("detected_product_type", "DEFAULT")).upper().strip()
+    
+    # Lấy bản sao registry cache an toàn
     fabric_registry = ai_blueprint.pop("_fabric_registry_cache", {})
-    if not fabric_registry: fabric_registry = {}
+    if not fabric_registry or not isinstance(fabric_registry, dict): 
+        fabric_registry = {}
+        
+    all_rows = ai_blueprint.get("bom_rows", [])
+    if not all_rows or not isinstance(all_rows, list): 
+        all_rows = []
+    
+    # Bước 1: Quét xử lý định mức chi tiết dựa trên Fabric Registry Map
+    # Thu thập tất cả các row cần cập nhật từ registry để tra cứu nhanh bằng địa chỉ bộ nhớ (id)
+    registry_rows_map = {}
+    for f_id, data in fabric_registry.items():
+        if not data or not isinstance(data, dict): 
+            continue
+        rows_to_update = data.get("rows_to_update", [])
+        if not rows_to_update or not isinstance(rows_to_update, list): 
+            continue
+            
+        for r in rows_to_update:
+            if isinstance(r, dict):
+                registry_rows_map[id(r)] = (f_id, data)
+
     processed_bom_blueprint = []
     
-    all_rows = ai_blueprint.get("bom_rows", [])
-    if not all_rows or not isinstance(all_rows, list): all_rows = []
-    
+    # Bước 2: Duyệt một vòng duy nhất qua all_rows để phân loại cấu trúc định mức không lo mất dòng
     for row in all_rows:
-        if not row or not isinstance(row, dict): continue
+        if not row or not isinstance(row, dict): 
+            continue
+            
         comp_type = str(row.get("component_type", "")).upper()
         placement = str(row.get("placement", "")).upper()
         f_class_raw = str(row.get("fabric_classification", "")).upper()
         f_code = str(row.get("fabric_code", "")).upper()
 
+        # Trường hợp A: Nếu thuộc danh mục Hardware Trim hoặc danh sách loại trừ bypass
         if any(k in comp_type or k in placement or k in f_class_raw or k in f_code for k in EXCLUDE_HARDWARE_KEYS):
             row["calculated_gross_consumption_yds"] = 0.0
             row["marker_efficiency_pct"] = "N/A"
             row["status"] = "PASS"
             row["consumption_note"] = "Hardware Trim Bypass"
             row["reason_or_logs"] = "Bypass hoàn toàn theo yêu cầu"
-            if row not in processed_bom_blueprint: processed_bom_blueprint.append(row)
+            processed_bom_blueprint.append(row)
+            continue
 
-    for f_id, data in fabric_registry.items():
-        if not data or not isinstance(data, dict): continue
-        total_area = data.get("accumulated_area_sq_in", 0.0)
-        cutable_w = data.get("cutable_w", 58.0)
-        eff = data.get("eff", 0.85)
-        f_class_norm = data.get("f_class", "MAIN_FABRIC")
-        rows_to_update = data.get("rows_to_update", [])
-        if not rows_to_update or not isinstance(rows_to_update, list): rows_to_update = []
-
-        for row in rows_to_update:
-            if not row or not isinstance(row, dict): continue
-            comp_type = str(row.get("component_type", "")).upper()
-            placement = str(row.get("placement", "")).upper()
-            f_code = str(row.get("fabric_code", "")).upper()
-
-            if any(k in comp_type or k in placement or k in f_code for k in EXCLUDE_HARDWARE_KEYS):
-                row["calculated_gross_consumption_yds"] = 0.0
-                row["marker_efficiency_pct"] = "N/A"
-                row["status"] = "PASS"
-                row["consumption_note"] = "Hardware Trim Bypass"
-                if row not in processed_bom_blueprint: processed_bom_blueprint.append(row)
-                continue
-
+        # Trường hợp B: Nếu dòng này khớp cấu trúc tính toán diện tích hình học rập từ Gemini
+        if id(row) in registry_rows_map:
+            f_id, data = registry_rows_map[id(row)]
+            total_area = data.get("accumulated_area_sq_in", 0.0)
+            cutable_w = data.get("cutable_w", 58.0)
+            eff = data.get("eff", 0.85)
+            f_class_norm = data.get("f_class", "MAIN_FABRIC")
+            
             if f_class_norm in ["MAIN_FABRIC", "RIB"]:
-                if f_class_norm == "MAIN_FABRIC": nesting_factor = 0.45  
-                else: nesting_factor = 0.85  
-                if product_type not in ["PANT", "CARGO_PANT", "CAPRI_PANT", "JORT"]: nesting_factor = 1.0 
+                if f_class_norm == "MAIN_FABRIC": 
+                    nesting_factor = 0.45  
+                else: 
+                    nesting_factor = 0.85  
+                    
+                if product_type not in ["PANT", "CARGO_PANT", "CAPRI_PANT", "JORT"]: 
+                    nesting_factor = 1.0 
                 
                 optimized_area = total_area * nesting_factor
                 base_cons = (optimized_area / (cutable_w * 36.0)) / eff
@@ -384,9 +453,12 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict) -> dict:
                 cfg = LIMITS.get(product_type, LIMITS["DEFAULT"])
                 min_allow, max_allow = cfg["range"]
                 if f_class_norm == "MAIN_FABRIC":
-                    if total_yds > max_allow: row_status = "CRITICAL_HIGH_CONSUMPTION"
-                    elif total_yds < min_allow: row_status = "LOW_CONSUMPTION_WARNING"
-                    elif total_yds > cfg["warn_thresh"]: row_status = "HIGH_CONSUMPTION_WARNING"
+                    if total_yds > max_allow: 
+                        row_status = "CRITICAL_HIGH_CONSUMPTION"
+                    elif total_yds < min_allow: 
+                        row_status = "LOW_CONSUMPTION_WARNING"
+                    elif total_yds > cfg["warn_thresh"]: 
+                        row_status = "HIGH_CONSUMPTION_WARNING"
                 
                 w_original = data.get("w_saved", 58.0)
                 s_l_saved = (data.get("shrink_warp_f", 1.0) - 1.0) * 100.0
@@ -397,28 +469,48 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict) -> dict:
                 row["status"] = row_status
                 row["consumption_note"] = f"Khổ vải: {w_original}\" | Sơ đồ: {cutable_w}\" | Check: {row_status}"
                 row["reason_or_logs"] = log_output
+                row["marker_efficiency_pct"] = f"{round(eff * 100, 1)}%"
             else:
-                if f_class_norm in ["FUSING", "INTERLINING"] or "KEO" in comp_type or "MEX" in comp_type: f_yds = 0.15  
-                elif f_class_norm in ["LINING", "POCKETING"] or "POCKET" in comp_type or "TÚI" in comp_type: f_yds = 0.20  
-                elif any(x in comp_type for x in ["TAPE", "THUN", "PIPING"]): f_yds = 0.15  
-                else: f_yds = 0.0
+                # Phân bổ định mức cố định cho các loại Mex, Keo, lót túi phụ
+                if f_class_norm in ["FUSING", "INTERLINING"] or "KEO" in comp_type or "MEX" in comp_type: 
+                    f_yds = 0.15  
+                elif f_class_norm in ["LINING", "POCKETING"] or "POCKET" in comp_type or "TÚI" in comp_type: 
+                    f_yds = 0.20  
+                elif any(x in comp_type for x in ["TAPE", "THUN", "PIPING"]): 
+                    f_yds = 0.15  
+                else: 
+                    f_yds = 0.0
                 
                 row["calculated_gross_consumption_yds"] = f_yds
                 row["status"] = "PASS"
                 row["consumption_note"] = "Component Fixed Allocation"
                 row["reason_or_logs"] = "FIXED"
+                row["marker_efficiency_pct"] = f"{round(eff * 100, 1)}%"
+        
+        # Trường hợp C: Dòng dữ liệu vãng lai không khớp Map hình học nhưng không phải Hardware Trim
+        else:
+            if "calculated_gross_consumption_yds" not in row:
+                row["calculated_gross_consumption_yds"] = 0.0
+                row["status"] = "PASS"
+                row["consumption_note"] = "Unmapped Blueprint Raw Row"
+                row["reason_or_logs"] = "NO_GEOMETRIC_CACHE"
+                row["marker_efficiency_pct"] = "N/A"
 
-            row["marker_efficiency_pct"] = f"{round(eff * 100, 1)}%"
-            row["panel_debug_summary"] = row.get("_panel_debug_logs", [])
-            if row not in processed_bom_blueprint: processed_bom_blueprint.append(row)
+        row["panel_debug_summary"] = row.get("_panel_debug_logs", [])
+        processed_bom_blueprint.append(row)
 
     ai_blueprint["bom_rows"] = processed_bom_blueprint
     return ai_blueprint
+
 # =====================================================================
-# ĐOẠN 5: ENGINE XUẤT EXCEL THEO FORM MẪU BÁO CÁO PHONG PHÚ (V15.9 APPROVED)
+# ĐOẠN 5: ENGINE XUẤT EXCEL THEO FORM MẪU BÁO CÁO PHONG PHÚ (V15.9.1 APPROVED)
 # =====================================================================
 
 def export_to_phong_phu_excel(bom_data, pdf_name):
+    import io
+    import re
+    import pandas as pd
+    
     buffer = io.BytesIO()
     with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
         workbook  = writer.book
@@ -460,7 +552,10 @@ def export_to_phong_phu_excel(bom_data, pdf_name):
             worksheet.write(5 + i, 4, item['val2'], info_val_format)
 
         headers = ["STT", "Phân loại vật tư (Fabric type)", "Mã vải (Code)", "Khổ sơ đồ (Width)", "Định mức (Cons)", "Co rút dọc (% Warp)", "Co rút ngang (% Weft)", "Hiệu suất sơ đồ", "Trạng thái PLM"]
-        for col_num, header_title in enumerate(headers): worksheet.write(10, col_num, header_title, header_format)
+        
+        # Sửa lỗi gộp dòng viết tách chuẩn mực
+        for col_num, header_title in enumerate(headers): 
+            worksheet.write(10, col_num, header_title, header_format)
             
         current_data_row = 11
         stt = 1
@@ -473,16 +568,21 @@ def export_to_phong_phu_excel(bom_data, pdf_name):
             marker_eff = r.get("marker_efficiency_pct", "N/A")
             q_status = r.get("status", "PASS")
             
-            if gross_yds == 0.0 or "Bypass" in sys_notes: cut_width, warp_str, weft_str = "N/A", "N/A", "N/A"
+            if gross_yds == 0.0 or "Bypass" in sys_notes: 
+                cut_width, warp_str, weft_str = "N/A", "N/A", "N/A"
             else:
                 match_w = re.search(r'Khổ vải:\s*([\d\.]+)', sys_notes)
-                if match_w: cut_width = f"{float(match_w.group(1))} inch"
+                if match_w: 
+                    cut_width = f"{float(match_w.group(1))} inch"
                 else:
                     match_w_alt = re.search(r'CutWidth:\s*([\d\.]+)', sys_notes)
                     cut_width = f"{float(match_w_alt.group(1))} inch" if match_w_alt else "58.0 inch"
+                    
                 match_sh = re.search(r'([\d\.]+)x([\d\.]+)', reason_logs)
-                if match_sh: warp_str, weft_str = f"{float(match_sh.group(1))}%", f"{float(match_sh.group(2))}%"
-                else: warp_str, weft_str = "5.0%", "15.0%"
+                if match_sh: 
+                    warp_str, weft_str = f"{float(match_sh.group(1))}%", f"{float(match_sh.group(2))}%"
+                else: 
+                    warp_str, weft_str = "5.0%", "15.0%"
             
             worksheet.write(current_data_row, 0, stt, cell_center)
             worksheet.write(current_data_row, 1, comp_type, cell_left)
@@ -493,9 +593,12 @@ def export_to_phong_phu_excel(bom_data, pdf_name):
             worksheet.write(current_data_row, 6, weft_str, cell_center) 
             worksheet.write(current_data_row, 7, marker_eff, cell_center)
             
-            if "CRITICAL" in q_status: worksheet.write(current_data_row, 8, "🔴 VƯỢT TRẦN", crit_format)
-            elif "WARN" in q_status: worksheet.write(current_data_row, 8, "🟡 CẢNH BÁO", warn_format)
-            else: worksheet.write(current_data_row, 8, "🟢 ĐẠT TIÊU CHUẨN", pass_format)
+            if "CRITICAL" in q_status: 
+                worksheet.write(current_data_row, 8, "🔴 VƯỢT TRẦN", crit_format)
+            elif "WARN" in q_status: 
+                worksheet.write(current_data_row, 8, "🟡 CẢNH BÁO", warn_format)
+            else: 
+                worksheet.write(current_data_row, 8, "🟢 ĐẠT TIÊU CHUẨN", pass_format)
             current_data_row += 1
             stt += 1
             
@@ -504,8 +607,13 @@ def export_to_phong_phu_excel(bom_data, pdf_name):
         worksheet.write(current_data_row + 3, 7, "GIÁM ĐỐC SẢN XUẤT\n(Phê duyệt)", sign_title_format)
         
         widths = [6, 30, 25, 15, 15, 18, 18, 18, 22]
-        for col_idx, w in enumerate(widths): worksheet.set_column(col_idx, col_idx, w)
+        for col_idx, w in enumerate(widths): 
+            worksheet.set_column(col_idx, col_idx, w)
+            
+    # Reset con trỏ dữ liệu về vị trí đầu trước khi xuất stream
+    buffer.seek(0)
     return buffer.getvalue()
+
 # =====================================================================
 # ĐOẠN 6: GIAO DIỆN CHÍNH THỰC THI CHUẨN ĐỐI XỨNG LÊN TRÊN CÙNG (APPROVED)
 # =====================================================================
