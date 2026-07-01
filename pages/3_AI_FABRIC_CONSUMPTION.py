@@ -689,7 +689,7 @@ with col_left:
     st.markdown('</div>', unsafe_allow_html=True)
 
 # =====================================================================
-# ĐOẠN 7: BỘ THỰC THI API GEMINI VÀ RENDER BẢNG KẾT QUẢ DƯỚI CÙNG (V16.9.9 APPROVED)
+# ĐOẠN 7a: KHỐI THỰC THI API GEMINI QUÉT THÔNG SỐ SPEC THỰC TẾ (V16.9.9.2)
 # =====================================================================
 with col_right:
     st.markdown('<div class="cad-card">', unsafe_allow_html=True)
@@ -700,24 +700,24 @@ with col_right:
             import fitz  
             doc = fitz.open(stream=st.session_state.pdf_bytes, filetype="pdf")
             st.image(doc.load_page(0).get_pixmap(dpi=150).tobytes("png"), use_container_width=True)
-            st.summary_msg = st.success(f"📎 BUFFERED OBJECT: {st.session_state.pdf_name} loaded.")
+            st.success(f"📎 BUFFERED OBJECT: {st.session_state.pdf_name} loaded.")
         except Exception: 
             pass
     else:
         st.caption("ℹ️ Hệ thống sẵn sàng kết xuất hình ảnh sau khi tải file PDF.")
     st.markdown('</div>', unsafe_allow_html=True)
 
-    # Đảm bảo các biến prompt an toàn tuyệt đối
+    # Đảm bảo các biến prompt an toàn tuyệt đối không lỗi NameError
     safe_user_prompt = user_prompt if 'user_prompt' in globals() and user_prompt else ""
     active_prompt = safe_user_prompt if safe_user_prompt else "khổ 58 co rút 5-15"
 
-    # 🟢 NÚT PHÁ BĂNG CƯỠNG BỨC CHẠY NGAY TRÊN GIAO DIỆN CỘT PHẢI
+    # NÚT ÉP CHẠY LẠI AI ĐỂ PHÁ BĂNG TRIGGER TRÊN GIAO DIỆN
     btn_force_run = st.button("🚀 ÉP CHẠY LẠI AI BÓC TÁCH NGAY", use_container_width=True, type="primary")
 
-    # LUỒNG TRIGGER MỞ: Chạy khi chưa có bom_data HOẶC người dùng tương tác nút bấm / ô nhập lệnh
+    # LUỒNG TRIGGER: Tự động chạy khi tải file HOẶC khi nhấn nút / gửi lệnh mới
     if st.session_state.pdf_bytes is not None:
         if "bom_data" not in st.session_state or btn_force_run or safe_user_prompt:
-            with st.spinner("🧠 AI CORE: Đang phá băng luồng dữ liệu và ép Gemini bóc tách..."):
+            with st.spinner("🧠 AI CORE: Đang quét bảng thông số Spec thực tế từ PDF..."):
                 try:
                     import google.generativeai as genai
                     import json, copy, traceback, re
@@ -731,20 +731,21 @@ with col_right:
                         generation_config={"response_mime_type": "application/json"}
                     )
                     
-                                        prompt_instruction = f"""
+                    # PROMPT CHUYÊN SÂU: Ép đọc bảng Spec lấy kích thước thực tế để tính diện tích thật
+                    prompt_instruction = f"""
                     You are an expert apparel IE system. Your task is to extract exact geometric measurement specifications from the Techpack PDF to calculate accurate fabric consumption.
                     
                     CRITICAL INSTRUCTION:
-                    1. Locate the "SIZE SPECIFICATION", "MEASUREMENT SHEET", or "BOM" section in the PDF.
-                    2. Identify the core dimension values for the base size (e.g., Outseam/Total Length, Hip Width, Waistband Width, Leg Opening, Thigh).
-                    3. For each main fabric component (FRONT BODY, BACK BODY, WAISTBAND, POCKET), you MUST generate a corresponding object inside the "panels_catalog" array using those exact extracted physical dimensions.
+                    1. Locate the "SIZE SPECIFICATION", "MEASUREMENT SHEET", or "BOM" table inside the PDF.
+                    2. Identify the core measurement values for the base size (specifically: Outseam / Total Length, Hip Width, Waistband Width, Leg Opening).
+                    3. For each main fabric component (FRONT BODY, BACK BODY, WAISTBAND, POCKET), you MUST generate a corresponding object inside the "panels_catalog" array using those exact extracted physical dimensions from the text.
                     
-                    Do NOT leave "panels_catalog" empty. If exact polygon points are not clear, fallback to standard rectangular garment bounding boxes using the extracted measurements:
-                    - FRONT BODY: piece_length_inch = Outseam length, piece_width_inch = Hip width * 0.5
-                    - BACK BODY: piece_length_inch = Outseam length, piece_width_inch = (Hip width * 0.5) + 1.0
-                    - WAISTBAND: piece_length_inch = Waist width * 2, piece_width_inch = Waistband height
+                    Do NOT leave "panels_catalog" empty. If exact polygon coordinates are missing, you MUST create standard rectangular garment bounding boxes using the extracted measurements:
+                    - FRONT_PANEL: piece_length_inch = Extracted Outseam length, piece_width_inch = Extracted Hip width * 0.5
+                    - BACK_PANEL: piece_length_inch = Extracted Outseam length, piece_width_inch = (Extracted Hip width * 0.5) + 1.0
+                    - WAISTBAND: piece_length_inch = Extracted Waist width * 2, piece_width_inch = 2.5
                     
-                    Return ONLY a valid JSON object with this strict structure:
+                    Return ONLY a valid JSON object matching this strict structure:
                     {{
                       "detected_product_type": "PANT", 
                       "style_code": "R09-450416",
@@ -760,8 +761,8 @@ with col_right:
                               "panel_name": "FRONT_PANEL",
                               "panel_type": "FRONT",
                               "piece_count": 2.0,
-                              "piece_length_inch": 40.0,  # Insert exact extracted outseam value here
-                              "piece_width_inch": 10.5,   # Insert exact extracted hip component value here
+                              "piece_length_inch": 40.0,
+                              "piece_width_inch": 10.5,
                               "include_seam": false,
                               "include_hem": false,
                               "seam_allowance": true
@@ -770,8 +771,8 @@ with col_right:
                               "panel_name": "BACK_PANEL",
                               "panel_type": "BACK",
                               "piece_count": 2.0,
-                              "piece_length_inch": 40.5,  # Insert exact extracted value here
-                              "piece_width_inch": 11.5,   # Insert exact extracted value here
+                              "piece_length_inch": 40.5,
+                              "piece_width_inch": 11.5,
                               "include_seam": false,
                               "include_hem": false,
                               "seam_allowance": true
@@ -780,15 +781,15 @@ with col_right:
                         }}
                       ]
                     }}
-                    User command overrides: {active_prompt}
+                    User directive overrides: {active_prompt}
                     """
-
                     
                     response = model.generate_content([
                         {"mime_type": "application/pdf", "data": st.session_state.pdf_bytes}, 
                         prompt_instruction
                     ])
                     
+                    # Làm sạch chuỗi JSON phòng hờ markdown tag lỗi parse
                     cleaned_text = response.text.strip()
                     cleaned_text = re.sub(r"^```json\s*", "", cleaned_text, flags=re.IGNORECASE)
                     cleaned_text = re.sub(r"\s*```$", "", cleaned_text)
@@ -796,28 +797,26 @@ with col_right:
                     try:
                         raw_blueprint = json.loads(cleaned_text)
                     except json.JSONDecodeError:
-                        raw_blueprint = {"bom_rows": [{"component_type": "MAIN FABRIC", "placement": "BODY", "fabric_classification": "MAIN_FABRIC", "fabric_code": "FALLBACK", "fabric_color": "DEFAULT", "panels_catalog": []}]}
+                        raw_blueprint = {"bom_rows": []}
                     
-                    if not raw_blueprint or not raw_blueprint.get("bom_rows"):
-                        raw_blueprint = {"bom_rows": [{"component_type": "MAIN FABRIC", "placement": "BODY", "fabric_classification": "MAIN_FABRIC", "fabric_code": "FALLBACK", "fabric_color": "DEFAULT", "panels_catalog": []}]}
+                    if raw_blueprint and raw_blueprint.get("bom_rows"):
+                        blueprint_worker = copy.deepcopy(raw_blueprint)
+                        step_2a1 = parse_geometric_panels_allowance(blueprint_worker, active_prompt)
+                        step_2a2 = execute_marker_yardage_and_quality_gate(step_2a1, active_prompt)
+                        blueprint_final = allocate_fabric_consumption_and_quality_gate(step_2a2)
+                        
+                        st.session_state.bom_data = blueprint_final
                     
-                    blueprint_worker = copy.deepcopy(raw_blueprint)
-                    step_2a1 = parse_geometric_panels_allowance(blueprint_worker, active_prompt)
-                    step_2a2 = execute_marker_yardage_and_quality_gate(step_2a1, active_prompt)
-                    blueprint_final = allocate_fabric_consumption_and_quality_gate(step_2a2)
-                    
-                    # Cập nhật thẳng vào bộ nhớ đệm và cắt đứt luồng lặp bằng xóa vết trigger tạm
-                    st.session_state.bom_data = blueprint_final
-                    
-                    # Ép luồng làm mới màn hình để hiển thị ma trận
+                    # Ép luồng làm mới màn hình để hiển thị ma trận kết quả ngay lập tức
                     st.rerun()
                     
                 except Exception:
-                    st.error("💥 Lỗi xử lý tiến trình Phân đoạn 7:")
+                    st.error("💥 Lỗi xử lý tiến trình Phân đoạn 7a:")
                     st.code(traceback.format_exc())
-
-# --- KHU VỰC HIỂN THỊ KẾT QUẢ VÀ XUẤT FILE EXCEL PHÍA DƯỚI GIAO DIỆN MÀN HÌNH ---
-if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data:
+# =====================================================================
+# ĐOẠN 7b: KHU VỰC HIỂN THỊ KẾT QUẢ VÀ XUẤT FILE EXCEL PHÍA DƯỚI GIAO DIỆN (V16.9.9.2)
+# =====================================================================
+if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data and st.session_state.bom_data["bom_rows"]:
     st.markdown('<div class="cad-card">', unsafe_allow_html=True)
     st.markdown('<div class="cad-header">📊 CALCULATED FABRIC CONSUMPTION MATRIX (BOM RESULT)</div>', unsafe_allow_html=True)
     
