@@ -678,59 +678,50 @@ with col_right:
     st.markdown('<div class="cad-card">', unsafe_allow_html=True)
     st.markdown('<div class="cad-header">🎨 TECHPACK SKETCH VISUALIZER</div>', unsafe_allow_html=True)
     
+        # 🟢 CẢI TIẾN ĐOẠN 7: Tự động chạy bóc tách khi có file PDF, không bắt buộc phải có user_prompt
     if st.session_state.pdf_bytes is not None:
-        try:
-            import fitz  
-            doc = fitz.open(stream=st.session_state.pdf_bytes, filetype="pdf")
-            st.image(doc.load_page(0).get_pixmap(dpi=150).tobytes("png"), use_container_width=True)
-            st.success(f"📎 BUFFERED OBJECT: {st.session_state.pdf_name} loaded.")
-        except Exception: 
-            pass
-    else:
-        st.caption("ℹ️ Hệ thống sẵn sàng kết xuất hình ảnh sau khi tải file PDF.")
-    st.markdown('</div>', unsafe_allow_html=True)
-
-    # Khởi tạo cờ kiểm tra trạng thái chạy thành công
-    api_success_trigger = False
-
-    # 🟢 GIẢI PHÁP GỠ VÒNG LẶP VÀ ÉP ĐỔ SỐ TRỰC TIẾP
-    if user_prompt and st.session_state.pdf_bytes is not None:
-        with st.spinner("🧠 AI đang bóc tách sơ đồ BOM thực tế..."):
-            try:
-                import google.generativeai as genai
-                import json, copy, traceback
-                import re
-                import pandas as pd
-                
-                if "GEMINI_API_KEY" in st.secrets: 
-                    genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+        # Tạo prompt mặc định nếu người dùng để trống ô nhập lệnh
+        active_prompt = user_prompt if user_prompt else "khổ 58 co rút 5-15"
+        
+        # Chỉ kích hoạt gọi API khi chưa có dữ liệu hoặc người dùng đổi câu lệnh mới
+        if "bom_data" not in st.session_state or user_prompt:
+            with st.spinner("🧠 AI đang bóc tách sơ đồ BOM thực tế..."):
+                try:
+                    import google.generativeai as genai
+                    import json, copy, traceback
+                    import re
+                    import pandas as pd
                     
-                model = genai.GenerativeModel(
-                    "gemini-2.5-flash", 
-                    generation_config={"response_mime_type": "application/json"}
-                )
-                
-                prompt_instruction = f"Extract apparel BOM rows into structured JSON format with panels_catalog detail. User overrides: {user_prompt}"
-                
-                response = model.generate_content([
-                    {"mime_type": "application/pdf", "data": st.session_state.pdf_bytes}, 
-                    prompt_instruction
-                ])
-                
-                raw_blueprint = json.loads(response.text)
-                
-                # Thực thi chuỗi hàm logic xử lý định mức
-                step_2a1 = parse_geometric_panels_allowance(raw_blueprint, user_prompt)
-                step_2a2 = execute_marker_yardage_and_quality_gate(step_2a1, user_prompt)
-                blueprint_final = allocate_fabric_consumption_and_quality_gate(step_2a2)
-                
-                # Ghi nhận vào bộ nhớ đệm hệ thống
-                st.session_state.bom_data = blueprint_final
-                api_success_trigger = True
-                
-            except Exception:
-                st.error("💥 Lỗi xử lý tiến trình Phân đoạn 7:")
-                st.code(traceback.format_exc())
+                    if "GEMINI_API_KEY" in st.secrets: 
+                        genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+                        
+                    model = genai.GenerativeModel(
+                        "gemini-2.5-flash", 
+                        generation_config={"response_mime_type": "application/json"}
+                    )
+                    
+                    prompt_instruction = f"Extract apparel BOM rows into structured JSON format with panels_catalog detail. User overrides: {active_prompt}"
+                    
+                    response = model.generate_content([
+                        {"mime_type": "application/pdf", "data": st.session_state.pdf_bytes}, 
+                        prompt_instruction
+                    ])
+                    
+                    raw_blueprint = json.loads(response.text)
+                    
+                    # Thực thi chuỗi hàm logic xử lý định mức song song
+                    step_2a1 = parse_geometric_panels_allowance(raw_blueprint, active_prompt)
+                    step_2a2 = execute_marker_yardage_and_quality_gate(step_2a1, active_prompt)
+                    blueprint_final = allocate_fabric_consumption_and_quality_gate(step_2a2)
+                    
+                    # Ghi nhận vào bộ nhớ đệm hệ thống và ép render màn hình
+                    st.session_state.bom_data = blueprint_final
+                    st.rerun()
+                    
+                except Exception:
+                    st.error("💥 Lỗi xử lý tiến trình Phân đoạn 7:")
+                    st.code(traceback.format_exc())
+
 
     # --- ĐƯA KHU VỰC HIỂN THỊ VÀO TRONG ĐỂ ĐỒNG BỘ GIAO DIỆN CHUẨN ---
     if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data:
