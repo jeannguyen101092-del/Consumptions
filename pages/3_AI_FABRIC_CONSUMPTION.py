@@ -570,6 +570,9 @@ with col_left:
     user_prompt = st.chat_input("Gõ câu lệnh (Ví dụ: khổ 58 co rút dọc 5)...")
     st.markdown('</div>', unsafe_allow_html=True)
 
+# =====================================================================
+# ĐOẠN 7: BỘ THỰC THI API GEMINI VÀ RENDER BẢNG KẾT QUẢ DƯỚI CÙNG (V16.9.1)
+# =====================================================================
 with col_right:
     st.markdown('<div class="cad-card">', unsafe_allow_html=True)
     st.markdown('<div class="cad-header">🎨 TECHPACK SKETCH VISUALIZER</div>', unsafe_allow_html=True)
@@ -580,37 +583,53 @@ with col_right:
             doc = fitz.open(stream=st.session_state.pdf_bytes, filetype="pdf")
             st.image(doc.load_page(0).get_pixmap(dpi=150).tobytes("png"), use_container_width=True)
             st.success(f"📎 BUFFERED OBJECT: {st.session_state.pdf_name} loaded.")
-        except: pass
+        except Exception: 
+            pass
     else:
         st.caption("ℹ️ Hệ thống sẵn sàng kết xuất hình ảnh sau khi tải file PDF.")
     st.markdown('</div>', unsafe_allow_html=True)
 
-    # 🟢 CHỐT SỬA LỖI GỐC: Loại bỏ hoàn toàn st.rerun() để tránh vòng lặp treo vô hạn làm mất bảng dữ liệu
+    # 🟢 GIẢI PHÁP GỠ VÒNG LẶP: Đã cấu trúc lại khối lệnh API để tránh crash cú pháp
     if user_prompt and st.session_state.pdf_bytes is not None:
         with st.spinner("🧠 AI đang bóc tách sơ đồ BOM thực tế..."):
             try:
                 import google.generativeai as genai
                 import json, copy, traceback
-                if "GEMINI_API_KEY" in st.secrets: genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+                import re
+                import pandas as pd
                 
-                model = genai.GenerativeModel("gemini-2.5-flash", generation_config={"response_mime_type": "application/json"})
+                # Cấu hình API Gemini chuẩn quy cách xuống dòng
+                if "GEMINI_API_KEY" in st.secrets: 
+                    genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+                    
+                model = genai.GenerativeModel(
+                    "gemini-2.5-flash", 
+                    generation_config={"response_mime_type": "application/json"}
+                )
+                
                 prompt_instruction = f"Extract apparel BOM rows into structured JSON format with panels_catalog detail. User overrides: {user_prompt}"
                 
-                response = model.generate_content([{"mime_type": "application/pdf", "data": st.session_state.pdf_bytes}, prompt_instruction])
+                response = model.generate_content([
+                    {"mime_type": "application/pdf", "data": st.session_state.pdf_bytes}, 
+                    prompt_instruction
+                ])
+                
                 raw_blueprint = json.loads(response.text)
                 
+                # Thực thi chuỗi hàm logic xử lý định mức
                 step_2a1 = parse_geometric_panels_allowance(raw_blueprint, user_prompt)
                 step_2a2 = execute_marker_yardage_and_quality_gate(step_2a1, user_prompt)
                 blueprint_final = allocate_fabric_consumption_and_quality_gate(step_2a2)
                 
-                # Ghi nhận bộ dữ liệu vào bộ nhớ đệm
+                # Ghi nhận vào bộ nhớ đệm hệ thống
                 st.session_state.bom_data = blueprint_final
+                
             except Exception:
-                st.error("💥 Lỗi xử lý tiến trình:")
+                st.error("💥 Lỗi xử lý tiến trình Phân đoạn 7:")
                 st.code(traceback.format_exc())
+
 # --- KHU VỰC HIỂN THỊ KẾT QUẢ VÀ XUẤT FILE EXCEL PHÍA DƯỚI GIAO DIỆN MÀN HÌNH ---
-# 🟢 ĐỒNG BỘ HIỂN THỊ ĐỘNG: Đọc dữ liệu mượt mà, ghim cứng cố định bảng kết quả
-if st.session_state.bom_data and "bom_rows" in st.session_state.bom_data:
+if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data:
     st.markdown('<div class="cad-card">', unsafe_allow_html=True)
     st.markdown('<div class="cad-header">📊 CALCULATED FABRIC CONSUMPTION MATRIX (BOM RESULT)</div>', unsafe_allow_html=True)
     
@@ -620,7 +639,8 @@ if st.session_state.bom_data and "bom_rows" in st.session_state.bom_data:
     
     display_data = []
     for r in st.session_state.bom_data["bom_rows"]:
-        if not r or not isinstance(r, dict): continue
+        if not r or not isinstance(r, dict): 
+            continue
         sys_notes = r.get("consumption_note", "")
         current_gross = r.get("calculated_gross_consumption_yds", 0.0)
         reason_logs = str(r.get("reason_or_logs", ""))
@@ -635,15 +655,22 @@ if st.session_state.bom_data and "bom_rows" in st.session_state.bom_data:
         match_sh = re.search(r'([\d\.]+)x([\d\.]+)', reason_logs)
         warp_val, weft_val = (f"{float(match_sh.group(1))}%", f"{float(match_sh.group(2))}%") if match_sh else (warp_default, weft_default)
         
-        if current_gross == 0.0 or "Bypass" in sys_notes: cut_width_val, warp_val, weft_val = "N/A", "N/A", "N/A"
+        if current_gross == 0.0 or "Bypass" in sys_notes: 
+            cut_width_val, warp_val, weft_val = "N/A", "N/A", "N/A"
             
         display_data.append({
-            "Component Type": r.get("component_type", "N/A"), "Placement": r.get("placement", "N/A"),
-            "Fabric Classification": r.get("fabric_classification", "MAIN_FABRIC"), "Fabric Code": r.get("fabric_code", "MAIN"),
-            "Fabric Color": r.get("fabric_color", "COLOR"), "Khổ vải (Width)": cut_width_val,
-            "Co rút dọc (% Warp)": warp_val, "Co rút ngang (% Weft)": weft_val,
-            "Marker Efficiency": r.get("marker_efficiency_pct", "N/A"), "Gross Consumption (Yds)": current_gross,
-            "Quality Status": r.get("status", "PASS"), "System Notes": sys_notes
+            "Component Type": r.get("component_type", "N/A"), 
+            "Placement": r.get("placement", "N/A"),
+            "Fabric Classification": r.get("fabric_classification", "MAIN_FABRIC"), 
+            "Fabric Code": r.get("fabric_code", "MAIN"),
+            "Fabric Color": r.get("fabric_color", "COLOR"), 
+            "Khổ vải (Width)": cut_width_val,
+            "Co rút dọc (% Warp)": warp_val, 
+            "Co rút ngang (% Weft)": weft_val,
+            "Marker Efficiency": r.get("marker_efficiency_pct", "N/A"), 
+            "Gross Consumption (Yds)": current_gross,
+            "Quality Status": r.get("status", "PASS"), 
+            "System Notes": sys_notes
         })
         
     df_bom = pd.DataFrame(display_data)
