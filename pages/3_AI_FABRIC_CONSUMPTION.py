@@ -373,6 +373,10 @@ def parse_geometric_panels_allowance(ai_blueprint: dict, user_chat: str) -> dict
 # ĐOẠN 2a2: ĐỊNH MỨC SƠ ĐỒ VÀ GOM NHÓM VẬT TƯ CHỐNG TRÙNG LẶP (V15.4)
 # =====================================================================
 
+# =====================================================================
+# ĐOẠN 2a2: ĐỊNH MỨC SƠ ĐỒ VÀ GOM NHÓM VẬT TƯ CHỐNG TRÙNG LẶP (V15.4)
+# =====================================================================
+
 def execute_marker_yardage_and_quality_gate(ai_blueprint: dict, user_chat: str) -> dict:
     """
     Phân đoạn 2a2: Gom nhóm diện tích dệt, đồng bộ hóa hệ số hiệu suất sơ đồ (Marker).
@@ -386,7 +390,7 @@ def execute_marker_yardage_and_quality_gate(ai_blueprint: dict, user_chat: str) 
 
     chat_clean = " " + str(user_chat).lower().strip() + " "
 
-    # 🟢 LÕI PHÂN TÍCH CHUỖI CHAT TỰ ĐỘNG CHUYỂN ĐỔI THÔNG SỐ ĐỘNG KHÔNG DÙNG REGEX GROUP
+    # LÕI PHÂN TÍCH CHUỒI CHAT TỰ ĐỘNG CHUYỂN ĐỔI THÔNG SỐ ĐỘNG KHÔNG DÙNG REGEX GROUP
     def parse_specs_safe(chat_text):
         width, warp, weft = None, None, None
         words = chat_text.split()
@@ -430,7 +434,6 @@ def execute_marker_yardage_and_quality_gate(ai_blueprint: dict, user_chat: str) 
     # Gọi hàm trích xuất an toàn từ câu lệnh chat của người dùng
     w_main, s_l_main, s_w_main = parse_specs_safe(chat_clean)
 
-        # Tìm vòng lưới gom nhóm ở cuối Đoạn 2a2 và thay thế bằng block chuẩn này:
     for row in all_rows:
         if not row or not isinstance(row, dict) or "_computed_net_area_sq_in" not in row: 
             continue
@@ -444,6 +447,7 @@ def execute_marker_yardage_and_quality_gate(ai_blueprint: dict, user_chat: str) 
         
         tmp_id = f"{f_code}_{f_color}_{grain_rule}_{int(fab_repeat)}"
         
+        # Đồng bộ thông số trích xuất động từ ô chat (nếu trống mới lấy mặc định)
         w_b = w_main if w_main is not None else safe_float(row.get("fabric_width_inch"), 58.0)
         s_warp = s_l_main if s_l_main is not None else safe_float(row.get("shrinkage_warp_pct"), 5.0)
         s_weft = s_w_main if s_w_main is not None else safe_float(row.get("shrinkage_weft_pct"), 15.0)
@@ -473,7 +477,7 @@ def execute_marker_yardage_and_quality_gate(ai_blueprint: dict, user_chat: str) 
                 "w_saved": w_b, "s_l_saved": s_warp, "s_w_saved": s_weft, "f_class": f_class_norm
             }
         
-        # 🟢 ĐỒNG BỘ: Cộng dồn diện tích tự nhiên của tất cả linh kiện (Thân trước + Thân sau) để không bị hụt vải
+        # Cộng dồn diện tích tự nhiên của tất cả các chi tiết rập (Thân trước + Thân sau) đầy đủ 4 thân
         fabric_registry[tmp_id]["accumulated_area_sq_in"] += row["_computed_net_area_sq_in"]
         fabric_registry[tmp_id]["rows_to_update"].append(row)
 
