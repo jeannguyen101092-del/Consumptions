@@ -399,7 +399,7 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict) -> dict:
     ai_blueprint["bom_rows"] = processed_bom_blueprint
     return ai_blueprint
 # =====================================================================
-# ĐOẠN 5: ENGINE XUẤT EXCEL THEO FORM MẪU BÁO CÁO PHONG PHÚ (V15.9)
+# ĐOẠN 5: ENGINE XUẤT EXCEL THEO FORM MẪU BÁO CÁO PHONG PHÚ (V15.9 APPROVED)
 # =====================================================================
 
 def export_to_phong_phu_excel(bom_data, pdf_name):
@@ -430,13 +430,19 @@ def export_to_phong_phu_excel(bom_data, pdf_name):
         
         style_code_extracted = str(bom_data.get("style_code", "R09-450416")).upper()
         prod_type_extracted  = str(bom_data.get("detected_product_type", "PANT")).upper()
-        metadata = [('CUSTOMER:', 'REITMANS', 'SEASON:', 'NONE'), ('STYLE:', style_code_extracted, 'FACTORY:', 'NONE'), ('PRODUCT:', prod_type_extracted, 'STATUS:', 'APPROVED BY AI')]
         
-        for i, data_row in enumerate(metadata):
-            worksheet.write(5 + i, 0, data_row, info_label_format)
-            worksheet.write(5 + i, 1, data_row, info_val_format)
-            worksheet.write(5 + i, 3, data_row, info_label_format)
-            worksheet.write(5 + i, 4, data_row, info_val_format)
+        # 🟢 SỬA LỖI TUPLE CHUẨN: Tách rõ nhãn và giá trị riêng biệt để Excel ghi nhận an toàn
+        metadata = [
+            {'lbl1': 'CUSTOMER:', 'val1': 'REITMANS', 'lbl2': 'SEASON:', 'val2': 'NONE'},
+            {'lbl1': 'STYLE:', 'val1': style_code_extracted, 'lbl2': 'FACTORY:', 'val2': 'NONE'},
+            {'lbl1': 'PRODUCT:', 'val1': prod_type_extracted, 'lbl2': 'STATUS:', 'val2': 'APPROVED BY AI'}
+        ]
+        
+        for i, item in enumerate(metadata):
+            worksheet.write(5 + i, 0, item['lbl1'], info_label_format)
+            worksheet.write(5 + i, 1, item['val1'], info_val_format)
+            worksheet.write(5 + i, 3, item['lbl2'], info_label_format)
+            worksheet.write(5 + i, 4, item['val2'], info_val_format)
 
         headers = ["STT", "Phân loại vật tư (Fabric type)", "Mã vải (Code)", "Khổ sơ đồ (Width)", "Định mức (Cons)", "Co rút dọc (% Warp)", "Co rút ngang (% Weft)", "Hiệu suất sơ đồ", "Trạng thái PLM"]
         for col_num, header_title in enumerate(headers): worksheet.write(10, col_num, header_title, header_format)
@@ -482,9 +488,11 @@ def export_to_phong_phu_excel(bom_data, pdf_name):
         worksheet.write(current_data_row + 3, 4, "TRƯỞNG PHÒNG IE\n(Ký duyệt)", sign_title_format)
         worksheet.write(current_data_row + 3, 7, "GIÁM ĐỐC SẢN XUẤT\n(Phê duyệt)", sign_title_format)
         
-        widths = [6, 30, 25, 15, 15, 18, 18, 18, 22]
+        # 🟢 CỐ ĐỊNH CHUẨN ĐỘ RỘNG CỘT FILE BÁO CÁO EXCEL PHONG PHÚ
+        widths = [8, 30, 25, 18, 15, 18, 18, 18, 22]
         for col_idx, w in enumerate(widths): worksheet.set_column(col_idx, col_idx, w)
     return buffer.getvalue()
+
 # =====================================================================
 # ĐOẠN 6: GIAO DIỆN CHÍNH THỰC THI (APP LAYOUT FRAMEWORK APPROVED)
 # =====================================================================
