@@ -222,7 +222,14 @@ def parse_geometric_panels_allowance(ai_blueprint: dict, user_chat: str) -> dict
 # ĐOẠN 2a2: ĐỊNH MỨC SƠ ĐỒ VÀ GOM NHÓM VẬT TƯ CHỐNG TRÙNG LẶP (V15.4)
 # =====================================================================
 
+# =====================================================================
+# ĐOẠN 2a2: ĐỊNH MỨC SƠ ĐỒ VÀ GOM NHÓM VẬT TƯ CHỐNG TRÙNG LẶP (V15.4)
+# =====================================================================
+
 def execute_marker_yardage_and_quality_gate(ai_blueprint: dict, user_chat: str) -> dict:
+    """
+    Phân đoạn 2a2: Gom nhóm diện tích dệt, đồng bộ hóa hệ số hiệu suất sơ đồ (Marker).
+    """
     all_rows = ai_blueprint.get("bom_rows", [])
     fabric_registry = {}
     chat_clean = " " + str(user_chat).lower().strip() + " "
@@ -232,8 +239,10 @@ def execute_marker_yardage_and_quality_gate(ai_blueprint: dict, user_chat: str) 
         words = chat_text.split()
         for idx, word in enumerate(words):
             if word in ["khổ", "kho"] and idx + 1 < len(words):
-                try: width = float(words[idx+1].replace('"', '').replace('inch', ''))
-                except ValueError: pass
+                try:
+                    width = float(words[idx+1].replace('"', '').replace('inch', ''))
+                except ValueError:
+                    pass
         for idx, word in enumerate(words):
             if word in ["dọc", "doc"] and idx + 1 < len(words):
                 try: warp = float(words[idx+1].replace("%", ""))
@@ -245,21 +254,25 @@ def execute_marker_yardage_and_quality_gate(ai_blueprint: dict, user_chat: str) 
             if word in ["ngang"] and idx + 1 < len(words):
                 try: weft = float(words[idx+1].replace("%", ""))
                 except ValueError: pass
+                
+        # 🟢 SỬA LỖI TRACEBACK LIST OBJECT: Bóc riêng lẻ từng phần tử trong mảng parts để ép kiểu float an toàn
         if warp is None or weft is None:
             for word in words:
                 if "-" in word:
                     parts = word.split("-")
                     if len(parts) == 2:
                         try:
-                            warp = float(parts.replace("%", ""))
-                            weft = float(parts.replace("%", ""))
-                        except ValueError: pass
+                            warp = float(parts[0].replace("%", ""))
+                            weft = float(parts[1].replace("%", ""))
+                        except ValueError: 
+                            pass
         return width, warp, weft
 
     w_main, s_l_main, s_w_main = parse_specs_safe(chat_clean)
-
     for row in all_rows:
-        if not row or not isinstance(row, dict) or "_computed_net_area_sq_in" not in row: continue
+        if not row or not isinstance(row, dict) or "_computed_net_area_sq_in" not in row: 
+            continue
+
         f_class_raw = row.get("fabric_classification", "MAIN_FABRIC")
         f_class_norm = normalize_fabric_class(f_class_raw)
         f_code = str(row.get("fabric_code", "MAIN")).upper().strip().replace(" ", "_")
@@ -282,6 +295,7 @@ def execute_marker_yardage_and_quality_gate(ai_blueprint: dict, user_chat: str) 
             else:
                 raw_eff = simulate_marker_efficiency_v14(row.get("panels_catalog", []), f_class_norm, grain_rule, w_b, fab_repeat)
                 consumption_mode = "AREA"
+
             eff_factor = max(0.50, min(raw_eff / 100.0 if raw_eff > 1.0 else raw_eff, 0.95))
 
             fabric_registry[tmp_id] = {
@@ -295,11 +309,13 @@ def execute_marker_yardage_and_quality_gate(ai_blueprint: dict, user_chat: str) 
                 "rows_to_update": [],
                 "w_saved": w_b, "s_l_saved": s_warp, "s_w_saved": s_weft, "f_class": f_class_norm
             }
+        
         fabric_registry[tmp_id]["accumulated_area_sq_in"] += row["_computed_net_area_sq_in"]
         fabric_registry[tmp_id]["rows_to_update"].append(row)
 
     ai_blueprint["_fabric_registry_cache"] = fabric_registry
     return ai_blueprint
+
 # =====================================================================
 # ĐOẠN 2b: PHÂN BỔ ĐỊNH MỨC THEO FABRIC ID & KIỂM SOÁT THỰC TẾ (V16.5)
 # =====================================================================
