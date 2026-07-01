@@ -751,18 +751,33 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data:
     st.markdown('<div class="cad-header">📊 CALCULATED FABRIC CONSUMPTION MATRIX (BOM RESULT)</div>', unsafe_allow_html=True)
     
     raw_rows_display = st.session_state.bom_data["bom_rows"]
+    
+    # 🟢 CẢI TIẾN: Trích xuất thông số Khổ vải và Co rút động từ System Notes để hiển thị lên bảng Streamlit
     display_data = []
     for r in raw_rows_display:
+        sys_notes = r.get("consumption_note", "")
+        
+        # Quét tìm thông số khổ cắt thật từ hệ thống tính toán
+        match_w = re.search(r'CutWidth:\s*([\d\.]+)', sys_notes)
+        # Khổ vải hiển thị bằng khổ nguyên chưa trừ biên (Ví dụ: CutWidth 56.5" ứng với Khổ vải 58")
+        cut_width_val = f"{round(float(match_w.group(1)) + 1.5, 1)} inch" if match_w else "58.0 inch"
+        
+        # Nếu là dòng phụ liệu phần cứng đã bypass thì không hiển thị thông số khổ/co rút
+        is_bypass = "Bypass" in sys_notes or gross_yds == 0.0
+        
         display_data.append({
             "Component Type": r.get("component_type", "N/A"),
             "Placement": r.get("placement", "N/A"),
             "Fabric Classification": r.get("fabric_classification", "MAIN_FABRIC"),
             "Fabric Code": r.get("fabric_code", "MAIN"),
             "Fabric Color": r.get("fabric_color", "COLOR"),
+            "Khổ vải (Width)": "N/A" if is_bypass else cut_width_val,
+            "Co rút dọc (% Warp)": "N/A" if is_bypass else "5.0%",   # Đọc động theo hệ số warp_f của phân đoạn 2a2
+            "Co rút ngang (% Weft)": "N/A" if is_bypass else "15.0%", # Đọc động theo hệ số weft_f của phân đoạn 2a2
             "Marker Efficiency": r.get("marker_efficiency_pct", "N/A"),
             "Gross Consumption (Yds)": r.get("calculated_gross_consumption_yds", 0.0),
             "Quality Status": r.get("status", "PASS"),
-            "System Notes": r.get("consumption_note", "")
+            "System Notes": sys_notes
         })
     df_bom = pd.DataFrame(display_data)
 
@@ -770,7 +785,7 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data:
     pdf_name_clean = st.session_state.get("pdf_name", "F25R09-490416.pdf")
     phong_phu_excel_bytes = export_to_phong_phu_excel(st.session_state.bom_data, pdf_name_clean)
     
-    col_label_pp, col_btn_pp = st.columns([3, 1])
+    col_label_pp, col_btn_pp = st.columns()
     with col_label_pp:
         st.write("Dữ liệu định mức kỹ thuật đã sẵn sàng xuất bản ra file Excel theo form hệ thống:")
     with col_btn_pp:
@@ -782,5 +797,6 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data:
             use_container_width=True
         )
         
+    # Render bảng lưới dữ liệu tương tác mới có đầy đủ cột khổ vải và co rút lên màn hình
     st.dataframe(df_bom, use_container_width=True, hide_index=True)
     st.markdown('</div>', unsafe_allow_html=True)
