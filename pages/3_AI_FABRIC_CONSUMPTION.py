@@ -431,7 +431,6 @@ def export_to_phong_phu_excel(bom_data, pdf_name):
         style_code_extracted = str(bom_data.get("style_code", "R09-450416")).upper()
         prod_type_extracted  = str(bom_data.get("detected_product_type", "PANT")).upper()
         
-        # 🟢 SỬA LỖI TUPLE CHUẨN: Tách rõ nhãn và giá trị riêng biệt để Excel ghi nhận an toàn
         metadata = [
             {'lbl1': 'CUSTOMER:', 'val1': 'REITMANS', 'lbl2': 'SEASON:', 'val2': 'NONE'},
             {'lbl1': 'STYLE:', 'val1': style_code_extracted, 'lbl2': 'FACTORY:', 'val2': 'NONE'},
@@ -488,17 +487,14 @@ def export_to_phong_phu_excel(bom_data, pdf_name):
         worksheet.write(current_data_row + 3, 4, "TRƯỞNG PHÒNG IE\n(Ký duyệt)", sign_title_format)
         worksheet.write(current_data_row + 3, 7, "GIÁM ĐỐC SẢN XUẤT\n(Phê duyệt)", sign_title_format)
         
-        # 🟢 CỐ ĐỊNH CHUẨN ĐỘ RỘNG CỘT FILE BÁO CÁO EXCEL PHONG PHÚ
-        widths = [8, 30, 25, 18, 15, 18, 18, 18, 22]
+        widths = [6, 30, 25, 15, 15, 18, 18, 18, 22]
         for col_idx, w in enumerate(widths): worksheet.set_column(col_idx, col_idx, w)
     return buffer.getvalue()
-
 # =====================================================================
-# ĐOẠN 6: GIAO DIỆN CHÍNH THỰC THI & CUSTOM STYLES (V16.6 RESTORED)
+# ĐOẠN 6: GIAO DIỆN CHÍNH THỰC THI CHUẨN LAYOUT GỐC (APP FRAMEWORK)
 # =====================================================================
 st.set_page_config(layout="wide", page_title="AI Fabric Consumption Matrix")
 
-# --- KHU VỰC CSS CUSTOM ĐỂ KHÔI PHỤC ĐÚNG GIAO DIỆN CHUYÊN NGHIỆP BAN ĐẦU ---
 st.markdown("""
 <style>
     .cad-card {
@@ -506,60 +502,60 @@ st.markdown("""
         border: 1px solid #e2e8f0;
         border-radius: 8px;
         padding: 20px;
-        margin-bottom: 20px;
+        margin-top: 20px;
         box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
     }
     .cad-header {
-        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        font-family: 'Segoe UI', sans-serif;
         font-size: 14px;
         font-weight: 700;
-        color: #0f172a;
+        color: #0369a1;
         letter-spacing: 0.05em;
         margin-bottom: 15px;
         padding-bottom: 8px;
         border-bottom: 2px solid #cbd5e1;
-    }
-    .stButton>button {
-        background-color: #f1f5f9;
-        color: #475569;
-        border: 1px solid #cbd5e1;
-        font-weight: 600;
     }
 </style>
 """, unsafe_allow_html=True)
 
 if "bom_data" not in st.session_state: st.session_state.bom_data = None
 if "chat_history" not in st.session_state: st.session_state.chat_history = []
+if "pdf_bytes" not in st.session_state: st.session_state.pdf_bytes = None
+if "pdf_name" not in st.session_state: st.session_state.pdf_name = ""
 
 col_left, col_right = st.columns(2)
 
 with col_left:
-    st.markdown('<div class="cad-card" style="min-height: 480px;">', unsafe_allow_html=True)
-    st.markdown('<div class="cad-header">💬 CAD LIVE LOG CONSOLE</div>', unsafe_allow_html=True)
+    st.markdown('<h1 style="color:#1e3a8a; font-family:Segoe UI;">💬 CAD LIVE LOG CONSOLE</h1>', unsafe_allow_html=True)
+    st.sidebar.markdown("### ⚙️ ENGINE CONTROLS")
+    st.sidebar.markdown('<div style="background-color:#dcfce7; color:#15803d; padding:10px; border-radius:6px; font-weight:600; font-size:13px; margin-bottom:15px;">🟢 API STATUS: Hệ thống đang hoạt động trong hạn ngạch cho phép.</div>', unsafe_allow_html=True)
     
-    user_prompt = st.chat_input("Input override commands...")
-    
-    st.markdown("<div style='margin-top: 160px;'></div>", unsafe_allow_html=True)
-    if st.button("🗑️ CLEAR SYSTEM MEMORY", use_container_width=True):
+    if st.sidebar.button("🗑️ CLEAR SYSTEM MEMORY", use_container_width=True):
         st.session_state.bom_data = None
         st.session_state.chat_history = []
+        st.session_state.pdf_bytes = None
+        st.session_state.pdf_name = ""
         st.rerun()
-    st.markdown('</div>', unsafe_allow_html=True)
 
+    uploaded_file = st.file_uploader("📂 Tải lên tệp tài liệu kỹ thuật Techpack / BOM (PDF)", type=["pdf"])
+    if uploaded_file is not None:
+        st.session_state.pdf_bytes = uploaded_file.read()
+        st.session_state.pdf_name = uploaded_file.name
+
+    user_prompt = st.chat_input("Input override commands...")
 with col_right:
-    st.markdown('<div class="cad-card" style="min-height: 480px; text-align: center;">', unsafe_allow_html=True)
-    st.markdown('<div class="cad-header">🎨 TECHPACK SKETCH VISUALIZER</div>', unsafe_allow_html=True)
-    if "pdf_bytes" in st.session_state:
+    st.markdown('<div style="height:45px;"></div>', unsafe_allow_html=True)
+    if st.session_state.pdf_bytes is not None:
         try:
             import fitz  
             doc = fitz.open(stream=st.session_state.pdf_bytes, filetype="pdf")
-            st.image(doc.load_page(0).get_pixmap(dpi=150).tobytes("png"), use_container_width=True)
+            st.image(doc.load_page(0).get_pixmap(dpi=150).tobytes("png"), caption="🎨 Sketch Layout", use_container_width=True)
+            st.success(f"📎 BUFFERED OBJECT: {st.session_state.pdf_name} loaded successfully.")
         except: pass
     else:
-        st.caption("ℹ️ Hệ thống sẵn sàng kết xuất hình ảnh phác thảo từ file PDF tải lên.")
-    st.markdown('</div>', unsafe_allow_html=True)
+        st.caption("ℹ️ Hệ thống sẵn sàng kết xuất hình ảnh phác thảo sơ đồ rập phẳng sau khi tải file.")
 
-    if user_prompt and "pdf_bytes" in st.session_state:
+    if user_prompt and st.session_state.pdf_bytes is not None:
         with st.spinner("🧠 AI đang bóc tách sơ đồ BOM thực tế..."):
             try:
                 import google.generativeai as genai
@@ -567,7 +563,7 @@ with col_right:
                 if "GEMINI_API_KEY" in st.secrets: genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
                 
                 model = genai.GenerativeModel("gemini-2.5-flash", generation_config={"response_mime_type": "application/json"})
-                prompt_instruction = f"Extract apparel BOM rows into structured JSON format with panels_catalog detail for product type matching prompt: {user_prompt}"
+                prompt_instruction = f"Extract apparel BOM rows into structured JSON format with panels_catalog detail. User overrides: {user_prompt}"
                 
                 response = model.generate_content([{"mime_type": "application/pdf", "data": st.session_state.pdf_bytes}, prompt_instruction])
                 raw_blueprint = json.loads(response.text)
@@ -582,7 +578,6 @@ with col_right:
                 st.error("💥 Lỗi xử lý tiến trình:")
                 st.code(traceback.format_exc())
 
-# --- KHU VỰC HIỂN THỊ KẾT QUẢ VÀ XUẤT FILE EXCEL PHÍA DƯỚI GIAO DIỆN MÀN HÌNH ---
 if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data:
     st.markdown('<div class="cad-card">', unsafe_allow_html=True)
     st.markdown('<div class="cad-header">📊 CALCULATED FABRIC CONSUMPTION MATRIX (BOM RESULT)</div>', unsafe_allow_html=True)
@@ -598,8 +593,7 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data:
         reason_logs = str(r.get("reason_or_logs", ""))
         
         match_w = re.search(r'Khổ vải:\s*([\d\.]+)', sys_notes)
-        if match_w:
-            cut_width_val = f"{float(match_w.group(1))} inch"
+        if match_w: cut_width_val = f"{float(match_w.group(1))} inch"
         else:
             match_w_alt = re.search(r'CutWidth:\s*([\d\.]+)', sys_notes)
             cut_width_val = f"{float(match_w_alt.group(1))} inch" if match_w_alt else "58.0 inch"
@@ -622,8 +616,7 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data:
     phong_phu_excel_bytes = export_to_phong_phu_excel(st.session_state.bom_data, st.session_state.get("pdf_name", "file.pdf"))
     
     col_label_pp, col_btn_pp = st.columns(2)
-    with col_label_pp: 
-        st.markdown("<p style='font-weight:600; color:#334155; margin-top:5px;'>Dữ liệu định mức kỹ thuật đã sẵn sàng xuất bản ra file Excel theo form hệ thống:</p>", unsafe_allow_html=True)
+    with col_label_pp: st.write("Dữ liệu định mức kỹ thuật đã sẵn sàng xuất bản ra file Excel theo form hệ thống:")
     with col_btn_pp:
         st.download_button(
             label="📥 TẢI MẪU BÁO CÁO PHONG PHÚ (.XLSX)", data=phong_phu_excel_bytes,
