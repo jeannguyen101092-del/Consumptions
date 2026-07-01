@@ -451,52 +451,83 @@ with col_right:
     else:
         st.success(f"📎 BUFFERED OBJECT: `{st.session_state.pdf_name}` loaded successfully.")
 
-    # TỰ ĐỘNG KÍCH HOẠT LÕI TÍNH TOÁN KHI PHÁT HIỆN CÓ LỆNH CHAT MỚI VÀ ĐÃ UPLOAD FILE
+    # TỰ ĐỘNG KÍCH HOẠT KHI USER NHẬP CÂU LỆNH CHAT VÀ ĐÃ CÓ FILE
     if user_prompt and "pdf_bytes" in st.session_state:
         if st.session_state.get("api_error_status") == 429:
             st.error("❌ Không thể chạy do API Google Gemini đang hết hạn ngạch (Lỗi 429).")
         else:
-            with st.spinner("⏳ Khởi động Engine: Tự động tính toán theo lệnh phòng cắt..."):
+            with st.spinner("🧠 AI đang phân tích toàn bộ file BOM & tính toán định mức thực tế..."):
                 try:
-                    # Lưu tin nhắn của user vào lịch sử hội thoại trước
+                    # Lưu câu hỏi của người dùng vào lịch sử chat
                     st.session_state.chat_history.append({"role": "user", "content": user_prompt})
                     
-                    # 1. Khởi tạo dữ liệu thô giả lập (Thay bằng hàm gọi API thực tế nếu có)
-                    if "raw_blueprint" not in st.session_state:
-                        st.session_state.raw_blueprint = {
-                            "detected_product_type": "PANT",
-                            "bom_rows": [
-                                {
-                                    "component_type": "MAIN FABRIC", "placement": "FRONT PANEL",
-                                    "fabric_classification": "MAIN_FABRIC", "fabric_code": "DENIM_01", "fabric_color": "INDIGO",
-                                    "panels_catalog": [{"panel_name": "THÂN TRƯỚC", "piece_count": 2, "piece_length_inch": 40.0, "piece_width_inch": 12.0}]
-                                }
-                            ]
-                        }
-                    
-                    # Sao chép dữ liệu tránh xung đột vùng nhớ
+                    # =====================================================================
+                    # LÕI KẾT NỐI API GEMINI THỰC TẾ ĐỂ ĐỌC FILE PDF VÀ PHÂN TÍCH BOM
+                    # =====================================================================
+                    import google.generativeai as genai
+                    import json
                     import copy
+                    
+                    # Đảm bảo bạn đã cấu hình genai.configure(api_key="...") ở đầu file tổng
+                    model = genai.GenerativeModel("gemini-2.5-flash", generation_config={"response_mime_type": "application/json"})
+                    
+                    # Hệ thống Prompt ép AI bóc tách toàn bộ danh mục vật tư thành JSON cấu trúc
+                    prompt_instruction = f"""
+                    You are an expert apparel CAD data extractor. Analyze the attached Techpack/PDF document.
+                    Extract all raw materials from the Bill of Materials (BOM).
+                    Identify the product type (e.g., PANT, JACKET, SHIRT).
+                    
+                    Return a JSON matching this structure:
+                    {{
+                        "detected_product_type": "PANT",
+                        "bom_rows": [
+                            {{
+                                "component_type": "MAIN FABRIC",
+                                "placement": "FRONT/BACK PANEL",
+                                "fabric_classification": "MAIN_FABRIC",
+                                "fabric_code": "DENIM01",
+                                "fabric_color": "BLUE",
+                                "panels_catalog": [
+                                    {{"panel_name": "THÂN TRƯỚC", "piece_count": 2, "piece_length_inch": 40.0, "piece_width_inch": 12.0}}
+                                ]
+                            }}
+                        ]
+                    }}
+                    User dynamic override instructions to keep in mind: {user_prompt}
+                    """
+                    
+                    # Gửi file PDF dạng bytes thô trực tiếp lên API Gemini
+                    pdf_part = {"mime_type": "application/pdf", "data": st.session_state.pdf_bytes}
+                    response = model.generate_content([pdf_part, prompt_instruction])
+                    
+                    # Trích xuất và nạp dữ liệu thật từ AI trả về vào vùng nhớ hệ thống
+                    raw_blueprint = json.loads(response.text)
+                    st.session_state.raw_blueprint = raw_blueprint
+                    st.session_state.api_error_status = None
+                    
                     working_blueprint = copy.deepcopy(st.session_state.raw_blueprint)
                     
-                    # 2. CHẠY TUẦN TỰ THEO 3 PHÂN ĐOẠN ĐỘC LẬP THEO THÔNG TIN CHAT CỦA USER
+                    # 2. CHẠY CHUỖI 3 PHÂN ĐOẠN ĐỂ LOẠI TRỪ VẬT TƯ PHỤ VÀ TÍNH ĐỊNH MỨC YARDS ĐÚNG
                     step_2a1 = parse_geometric_panels_allowance(working_blueprint, user_prompt)
                     step_2a2 = execute_marker_yardage_and_quality_gate(step_2a1, user_prompt)
                     blueprint_final = allocate_fabric_consumption_and_quality_gate(step_2a2)
                     
-                    # 3. Lưu kết quả cuối cùng để render bảng dữ liệu bên dưới màn hình
+                    # 3. Đẩy dữ liệu thật lên màn hình và bảng Excel
                     st.session_state.bom_data = blueprint_final
                     
-                    # 4. Ghi nhận nhật ký thành công vào Live Log Console
                     st.session_state.chat_history.append({
                         "role": "assistant", 
-                        "content": f"[SUCCESS]: Đã cập nhật tính toán định mức dựa trên lệnh: \"{user_prompt}\""
+                        "content": f"[SUCCESS]: AI đã đọc xong bảng BOM file `{st.session_state.pdf_name}` và áp dụng lệnh: \"{user_prompt}\""
                     })
-                    
-                    # Tải lại trang để cập nhật giao diện
                     st.rerun()
                     
+                except google.api_core.exceptions.ResourceExhausted:
+                    # Tự động bắt lỗi 429 động nếu tần suất gửi lệnh quá nhanh
+                    st.session_state.api_error_status = 429
+                    st.session_state.chat_history.append({"role": "assistant", "content": "[🚨 API ERROR 429]: Hết hạn ngạch. Vui lòng thử lại sau ít phút."})
+                    st.rerun()
                 except Exception as e:
-                    st.error(f"💥 Lỗi tiến trình nội bộ: {str(e)}")
+                    st.error(f"💥 Lỗi phân tích: {str(e)}")
                     st.session_state.chat_history.append({"role": "assistant", "content": f"[CRASH]: {str(e)}"})
                     st.rerun()
 
