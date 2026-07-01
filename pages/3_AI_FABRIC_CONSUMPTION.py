@@ -407,8 +407,8 @@ def execute_marker_yardage_and_quality_gate(ai_blueprint: dict, user_chat: str) 
                     parts = word.split("-")
                     if len(parts) == 2:
                         try:
-                            warp = float(parts[0].replace("%", ""))
-                            weft = float(parts[1].replace("%", ""))
+                            warp = float(parts.replace("%", ""))
+                            weft = float(parts.replace("%", ""))
                         except ValueError: 
                             pass
         return width, warp, weft
@@ -461,18 +461,13 @@ def execute_marker_yardage_and_quality_gate(ai_blueprint: dict, user_chat: str) 
 
     ai_blueprint["_fabric_registry_cache"] = fabric_registry
     return ai_blueprint
-
-
-
-
-
+# =====================================================================
+# ĐOẠN 2b: PHÂN BỔ ĐỊNH MỨC THEO FABRIC ID & KIỂM SOÁT THỰC TẾ (V16.5)
+# =====================================================================
 
 def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict) -> dict:
     """
     Phân đoạn 2b: Tính toán định mức Yards thực tế chuẩn kỹ thuật phòng cắt Phong Phú.
-    CÂN BẰNG TỶ LỆ VÀNG (V16.5): 
-    1. Hạ nesting_factor vải chính xuống 0.45 để định mức đạt chuẩn ~1.6 Yds mục tiêu.
-    2. Cứu định mức mếch keo lót (FUSING) lên cố định 0.15 Yds và lót túi (POCKETING) lên 0.20 Yds.
     """
     if not ai_blueprint or not isinstance(ai_blueprint, dict):
         return {"detected_product_type": "PANT", "bom_rows": []}
@@ -482,7 +477,6 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict) -> dict:
     if not fabric_registry: fabric_registry = {}
     processed_bom_blueprint = []
     
-    # 1. Quét trước toàn bộ danh mục bom_rows để xử lý lọc sạch các dòng phụ liệu độc lập
     all_rows = ai_blueprint.get("bom_rows", [])
     if not all_rows or not isinstance(all_rows, list): all_rows = []
     
@@ -504,7 +498,6 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict) -> dict:
             if row not in processed_bom_blueprint:
                 processed_bom_blueprint.append(row)
 
-    # 2. Tính toán phân bổ định mức chiều dài Yards cho các nhóm dệt
     for f_id, data in fabric_registry.items():
         if not data or not isinstance(data, dict): continue
         
@@ -523,7 +516,6 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict) -> dict:
             placement = str(row.get("placement", "")).upper()
             f_code = str(row.get("fabric_code", "")).upper()
 
-            # Chặn rò rỉ nếu dòng vật tư cứng nằm lọt vào nhóm registry
             if any(k in comp_type or k in placement or k in f_code for k in EXCLUDE_HARDWARE_KEYS):
                 row["calculated_gross_consumption_yds"] = 0.0
                 row["marker_efficiency_pct"] = "N/A"
@@ -532,9 +524,7 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict) -> dict:
                 if row not in processed_bom_blueprint: processed_bom_blueprint.append(row)
                 continue
 
-            # 🟢 LUỒNG TÍNH TOÁN ĐỘNG CHO VẢI CHÍNH VÀ VẢI PHỐI MAY THÂN
             if f_class_norm in ["MAIN_FABRIC", "RIB"]:
-                # 📌 ĐÃ HIỆU CHỈNH: Hạ hệ số lồng sơ đồ xuống 0.45 để định mức vải chính về thẳng dải ~1.6 Yds mục tiêu
                 if f_class_norm == "MAIN_FABRIC":
                     nesting_factor = 0.45  
                 else:
@@ -570,12 +560,10 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict) -> dict:
                 row["reason_or_logs"] = log_output
                 
             else:
-                # 🟢 ĐÃ ĐỒNG BỘ ĐỊNH MỨC KỸ THUẬT AN TOÀN CHO KEO LÓT, LÓT TÚI VÀ PHỤ LIỆU CUỘN
-                # Giúp cứu mếch keo lót vọt từ 0.05Y lên mốc 0.15 Yds tiêu chuẩn sản xuất vững chắc
                 if f_class_norm in ["FUSING", "INTERLINING"] or "KEO" in comp_type or "MEX" in comp_type:
-                    f_yds = 0.15  # Ép cố định mếch keo lót cạp/nẹp khóa = 0.15 Yds chuẩn xưởng Phong Phú
+                    f_yds = 0.15  
                 elif f_class_norm in ["LINING", "POCKETING"] or "POCKET" in comp_type or "TÚI" in comp_type:
-                    f_yds = 0.20  # Ép lót túi TC Pocketing = 0.20 Yds chuẩn xưởng Phong Phú
+                    f_yds = 0.20  
                 elif any(x in comp_type for x in ["TAPE", "THUN", "PIPING"]):
                     f_yds = 0.15  
                 else:
@@ -593,6 +581,7 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict) -> dict:
 
     ai_blueprint["bom_rows"] = processed_bom_blueprint
     return ai_blueprint
+
 
 
 
