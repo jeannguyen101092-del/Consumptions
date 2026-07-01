@@ -239,13 +239,17 @@ def parse_geometric_panels_allowance(ai_blueprint: dict, user_chat: str) -> dict
 # ĐOẠN 2a2: ĐỊNH MỨC SƠ ĐỒ VÀ GOM NHÓM VẬT TƯ CHỐNG TRÙNG LẶP (V15.4.1 APPROVED)
 # =====================================================================
 
+# =====================================================================
+# ĐOẠN 2a2: ĐỊNH MỨC SƠ ĐỒ VÀ GOM NHÓM VẬT TƯ CHỐNG TRÙNG LẶP (V15.4.2 APPROVED)
+# =====================================================================
+
 def execute_marker_yardage_and_quality_gate(ai_blueprint: dict, user_chat: str) -> dict:
     """
     Phân đoạn 2a2: Gom nhóm diện tích dệt, đồng bộ hóa hệ số hiệu suất sơ đồ (Marker).
     """
     import re
     
-    # 🟢 CÁC HÀM PHÒNG VỆ NỘI BỘ TRÁNH LỖI PHỤ THUỘC (FALLBACK FUNCTIONS)
+    # Các hàm phòng vệ nội bộ tránh lỗi phụ thuộc module ngoài
     def inner_safe_float(val, default=0.0):
         try:
             if val is None: return default
@@ -270,17 +274,17 @@ def execute_marker_yardage_and_quality_gate(ai_blueprint: dict, user_chat: str) 
     fabric_registry = {}
     chat_clean = str(user_chat if user_chat else "").lower().strip()
 
-    # 🟢 NÂNG CẤP ENGINE REGEX: Bóc tách thông số thông minh, chấp nhận mọi kiểu gõ của người dùng
+    # ENGINE REGEX: Đã sửa lỗi IndexError bằng cách đưa group về nhóm số (1) chính xác
     def parse_specs_advanced(chat_text):
         width, warp, weft = None, None, None
         
-        # 1. Tìm khổ vải (Ví dụ: khổ 58, khổ 58inch, kho 58", width 58)
+        # 1. Tìm khổ vải (Ví dụ: khổ 58, khổ 58inch, width 58)
         match_w = re.search(r'(?:khổ|kho|width|cutwidth)\s*[:\-=\s]*([\d\.]+)', chat_text)
         if match_w:
             try: width = float(match_w.group(1))
             except ValueError: pass
             
-        # 2. Tìm cặp tỷ lệ co rút dạng X-Y hoặc XxY (Ví dụ: co rút 5-15, co rút 3x12, co 5 - 15%)
+        # 2. Tìm cặp tỷ lệ co rút dạng X-Y hoặc XxY (Ví dụ: co rút 5-15, co 5 x 15)
         match_sh_pair = re.search(r'(?:co\s*rút|co\s*rut|co|shrinkage)\s*[:\-=\s]*([\d\.]+)\s*(?:-|–|x|ngang|\s+)\s*([\d\.]+)', chat_text)
         if match_sh_pair:
             try:
@@ -288,14 +292,15 @@ def execute_marker_yardage_and_quality_gate(ai_blueprint: dict, user_chat: str) 
                 weft = float(match_sh_pair.group(2))
             except ValueError: pass
         else:
-            # Nếu không viết dạng cặp, tìm riêng lẻ từ khóa dọc/ngang
+            # Nếu không viết dạng cặp, tìm riêng lẻ từ khóa dọc/ngang độc lập
             match_warp = re.search(r'(?:dọc|doc|warp)\s*[:\-=\s]*([\d\.]+)', chat_text)
             if match_warp:
                 try: warp = float(match_warp.group(1))
                 except ValueError: pass
+                
             match_weft = re.search(r'(?:ngang|weft)\s*[:\-=\s]*([\d\.]+)', chat_text)
             if match_weft:
-                try: weft = float(match_weft.group(2))
+                try: weft = float(match_weft.group(1)) # 🟢 SỬA TẠI ĐÂY: group(2) -> group(1) thành công!
                 except ValueError: pass
                 
         return width, warp, weft
@@ -306,14 +311,11 @@ def execute_marker_yardage_and_quality_gate(ai_blueprint: dict, user_chat: str) 
         if not row or not isinstance(row, dict): 
             continue
             
-        # Đảm bảo có trường diện tích thực tế để bóc tách
         if "_computed_net_area_sq_in" not in row:
-            # Fallback nếu AI Gemini chưa kịp tính diện tích tịnh, gán giá trị mặc định để tránh mất dòng
             row["_computed_net_area_sq_in"] = inner_safe_float(row.get("net_area_sq_in", 150.0))
 
         f_class_raw = row.get("fabric_classification", "MAIN_FABRIC")
         
-        # Sử dụng hàm chuẩn hóa nội bộ an toàn
         if 'normalize_fabric_class' in globals():
             f_class_norm = normalize_fabric_class(f_class_raw)
         else:
@@ -323,13 +325,9 @@ def execute_marker_yardage_and_quality_gate(ai_blueprint: dict, user_chat: str) 
         f_color = str(row.get("fabric_color", "COLOR")).upper().strip().replace(" ", "_")
         grain_rule = str(row.get("fabric_grain_rule", "TWO_WAY")).upper().strip().replace(" ", "_")
         
-        # Đọc thông số lặp vải (repeat) an toàn
         fab_repeat = inner_safe_float(row.get("fabric_repeat_inch"), 0.0)
-        
-        # Khởi tạo ID duy nhất cho nhóm vật tư đồng nhất
         tmp_id = f"{f_code}_{f_color}_{grain_rule}_{int(fab_repeat)}"
         
-        # Xác định khổ vải và tỷ lệ co rút (Ưu tiên chat lệnh đè > Thuộc tính dòng > Giá trị mặc định)
         w_b = w_main if w_main is not None else inner_safe_float(row.get("fabric_width_inch"), 58.0)
         s_warp = s_l_main if s_l_main is not None else inner_safe_float(row.get("shrinkage_warp_pct"), 5.0)
         s_weft = s_w_main if s_w_main is not None else inner_safe_float(row.get("shrinkage_weft_pct"), 15.0)
@@ -342,11 +340,10 @@ def execute_marker_yardage_and_quality_gate(ai_blueprint: dict, user_chat: str) 
                 raw_eff = 88.0
                 consumption_mode = "AREA"
             else:
-                # Kiểm tra xem hàm mô phỏng sơ đồ v14 có tồn tại không
                 if 'simulate_marker_efficiency_v14' in globals():
                     raw_eff = simulate_marker_efficiency_v14(row.get("panels_catalog", []), f_class_norm, grain_rule, w_b, fab_repeat)
                 else:
-                    raw_eff = 85.0 # Mức hiệu suất sơ đồ tiêu chuẩn phòng IE may mặc
+                    raw_eff = 85.0
                 consumption_mode = "AREA"
 
             eff_factor = max(0.50, min(raw_eff / 100.0 if raw_eff > 1.0 else raw_eff, 0.95))
@@ -365,12 +362,12 @@ def execute_marker_yardage_and_quality_gate(ai_blueprint: dict, user_chat: str) 
         
         fabric_registry[tmp_id]["accumulated_area_sq_in"] += row["_computed_net_area_sq_in"]
         
-        # Chỉ đẩy vào hàng đợi xử lý nếu chưa tồn tại vết ô nhớ
         if row not in fabric_registry[tmp_id]["rows_to_update"]:
             fabric_registry[tmp_id]["rows_to_update"].append(row)
 
     ai_blueprint["_fabric_registry_cache"] = fabric_registry
     return ai_blueprint
+
 
 # =====================================================================
 # ĐOẠN 2b: PHÂN BỔ ĐỊNH MỨC THEO FABRIC ID & KIỂM SOÁT THỰC TẾ (V16.5.1 APPROVED)
