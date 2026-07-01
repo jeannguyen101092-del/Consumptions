@@ -653,28 +653,12 @@ def export_to_phong_phu_excel(bom_data, pdf_name):
         workbook  = writer.book
         font_name = 'Segoe UI' 
         
-        company_format = workbook.add_format({
-            'font_name': font_name, 'font_size': 11, 'bold': True, 'color': '#1e3a8a'
-        })
-        dept_format = workbook.add_format({
-            'font_name': font_name, 'font_size': 10, 'italic': True, 'color': '#475569'
-        })
-        title_format = workbook.add_format({
-            'font_name': font_name, 'font_size': 16, 'bold': True, 
-            'align': 'center', 'valign': 'vcenter', 'color': '#0f172a'
-        })
-        info_label_format = workbook.add_format({
-            'font_name': font_name, 'font_size': 10, 'bold': True, 'color': '#334155'
-        })
-        info_val_format = workbook.add_format({
-            'font_name': font_name, 'font_size': 10, 'color': '#0f172a'
-        })
-        header_format = workbook.add_format({
-            'font_name': font_name, 'font_size': 10, 'bold': True,
-            'align': 'center', 'valign': 'vcenter',
-            'bg_color': '#e0f2fe', 'color': '#0369a1',
-            'border': 1, 'border_color': '#cbd5e1'
-        })
+        company_format = workbook.add_format({'font_name': font_name, 'font_size': 11, 'bold': True, 'color': '#1e3a8a'})
+        dept_format    = workbook.add_format({'font_name': font_name, 'font_size': 10, 'italic': True, 'color': '#475569'})
+        title_format   = workbook.add_format({'font_name': font_name, 'font_size': 16, 'bold': True, 'align': 'center', 'valign': 'vcenter', 'color': '#0f172a'})
+        info_label_format = workbook.add_format({'font_name': font_name, 'font_size': 10, 'bold': True, 'color': '#334155'})
+        info_val_format   = workbook.add_format({'font_name': font_name, 'font_size': 10, 'color': '#0f172a'})
+        header_format  = workbook.add_format({'font_name': font_name, 'font_size': 10, 'bold': True, 'align': 'center', 'valign': 'vcenter', 'bg_color': '#e0f2fe', 'color': '#0369a1', 'border': 1, 'border_color': '#cbd5e1'})
         
         cell_center = workbook.add_format({'font_name': font_name, 'font_size': 10, 'align': 'center', 'border': 1, 'border_color': '#cbd5e1'})
         cell_left   = workbook.add_format({'font_name': font_name, 'font_size': 10, 'align': 'left', 'border': 1, 'border_color': '#cbd5e1'})
@@ -693,7 +677,7 @@ def export_to_phong_phu_excel(bom_data, pdf_name):
         worksheet.merge_range('A4:I4', 'BẢNG ĐỊNH MỨC KỸ THUẬT (APPROVED CONSUMPTION)', title_format)
         
         style_code_extracted = str(bom_data.get("style_code", "R09-450416")).upper()
-        prod_type_extracted = str(bom_data.get("detected_product_type", "PANT")).upper()
+        prod_type_extracted  = str(bom_data.get("detected_product_type", "PANT")).upper()
         
         metadata = [
             ('CUSTOMER:', 'REITMANS', 'SEASON:', 'NONE'),
@@ -710,7 +694,7 @@ def export_to_phong_phu_excel(bom_data, pdf_name):
 
         headers = [
             "STT", "Phân loại vật tư (Fabric type)", "Mã vải (Code)", 
-            "Khổ (Cuttable)", "Định mức (Cons)", "Co rút dọc (% Warp)", 
+            "Khổ sơ đồ (Width)", "Định mức (Cons)", "Co rút dọc (% Warp)", 
             "Co rút ngang (% Weft)", "Hiệu suất sơ đồ", "Trạng thái PLM"
         ]
         
@@ -728,21 +712,40 @@ def export_to_phong_phu_excel(bom_data, pdf_name):
             fabric_color = r.get("fabric_color", "COLOR")
             full_code = f"{fabric_code} - {fabric_color}"
             sys_notes = r.get("consumption_note", "")
-            
-            match_w = re.search(r'CutWidth:\s*([\d\.]+)', sys_notes)
-            cut_width = f"{float(match_w.group(1))} inch" if match_w else "56.0 inch"
+            reason_logs = str(r.get("reason_or_logs", ""))
             
             gross_yds = r.get("calculated_gross_consumption_yds", 0.0)
             marker_eff = r.get("marker_efficiency_pct", "N/A")
             q_status = r.get("status", "PASS")
+            
+            # 🟢 GIẢI PHÁP ĐỌC AN TOÀN ĐOẠN EXCEL: Trích xuất khổ và co rút bằng thuộc tính thô, ẩn đi nếu là bypass
+            if gross_yds == 0.0 or "Bypass" in sys_notes:
+                cut_width = "N/A"
+                warp_str = "N/A"
+                weft_str = "N/A"
+            else:
+                match_w = re.search(r'Khổ vải:\s*([\d\.]+)', sys_notes)
+                if match_w:
+                    cut_width = f"{float(match_w.group(1))} inch"
+                else:
+                    match_w_alt = re.search(r'CutWidth:\s*([\d\.]+)', sys_notes)
+                    cut_width = f"{float(match_w_alt.group(1))} inch" if match_w_alt else "58.0 inch"
+                
+                match_sh = re.search(r'([\d\.]+)x([\d\.]+)', reason_logs)
+                if match_sh:
+                    warp_str = f"{float(match_sh.group(1))}%"
+                    weft_str = f"{float(match_sh.group(2))}%"
+                else:
+                    warp_str = "5.0%"
+                    weft_str = "15.0%"
             
             worksheet.write(current_data_row, 0, stt, cell_center)
             worksheet.write(current_data_row, 1, comp_type, cell_left)
             worksheet.write(current_data_row, 2, full_code, cell_left)
             worksheet.write(current_data_row, 3, cut_width, cell_center)
             worksheet.write(current_data_row, 4, gross_yds, cell_right)
-            worksheet.write(current_data_row, 5, "5.0%", cell_center)  
-            worksheet.write(current_data_row, 6, "10.0%", cell_center) 
+            worksheet.write(current_data_row, 5, warp_str, cell_center)  
+            worksheet.write(current_data_row, 6, weft_str, cell_center) 
             worksheet.write(current_data_row, 7, marker_eff, cell_center)
             
             if "CRITICAL" in q_status:
@@ -769,6 +772,7 @@ def export_to_phong_phu_excel(bom_data, pdf_name):
         worksheet.set_column(8, 8, 22)  
 
     return buffer.getvalue()
+
 
 
 # --- KHU VỰC HIỂN THỊ KẾT QUẢ VÀ XUẤT FILE EXCEL PHÍA DƯỚI GIAO DIỆN MÀN HÌNH ---
