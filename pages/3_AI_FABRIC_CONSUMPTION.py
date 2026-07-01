@@ -216,6 +216,7 @@ def execute_marker_yardage_and_quality_gate(ai_blueprint: dict, user_chat: str) 
 
     chat_clean = str(user_chat).lower().strip()
     
+    # 🟢 LÕI PHÂN TÍCH CHUỖI CHAT TỰ ĐỘNG CHUYỂN ĐỔI THÔNG SỐ ĐỘNG
     def parse_material_specs(chat_text, material_type="MAIN"):
         width, warp, weft = None, None, None
         
@@ -240,7 +241,7 @@ def execute_marker_yardage_and_quality_gate(ai_blueprint: dict, user_chat: str) 
             warp = float(c_range.group(1))
             weft = float(c_range.group(2))
         else:
-            # 🟢 CẢI TIẾN: Quét tách rời từ khóa "dọc... ngang..." nếu gõ văn bản tự do
+            # Quét tách rời từ khóa "dọc... ngang..." nếu gõ văn bản tự do
             match_doc = re.search(r'(?:dọc|doc|dọc\s*cơ|dọc\s*co)\s*([\d\.]+)', chat_text)
             match_ngang = re.search(r'(?:ngang|ngang\s*co)\s*([\d\.]+)', chat_text)
             if match_doc: warp = float(match_doc.group(1))
@@ -248,6 +249,7 @@ def execute_marker_yardage_and_quality_gate(ai_blueprint: dict, user_chat: str) 
                 
         return width, warp, weft
 
+    # Gọi hàm trích xuất thông số từ câu lệnh chat của người dùng
     w_main, s_l_main, s_w_main = parse_material_specs(chat_clean, "MAIN")
     w_fuse, s_l_fuse, s_w_fuse = parse_material_specs(chat_clean, "FUSING")
 
@@ -263,11 +265,13 @@ def execute_marker_yardage_and_quality_gate(ai_blueprint: dict, user_chat: str) 
         
         tmp_id = f"{f_code}_{f_color}_{grain_rule}_{int(fab_repeat)}"
         
+        # Nếu là keo lót, mex dựng thì áp thông số keo lót
         if f_class_norm in ["FUSING", "LINING"] or "KEO" in str(row.get("component_type", "")).upper():
             w_b = w_fuse if w_fuse is not None else safe_float(row.get("fabric_width_inch"), 44.0)
             s_warp = s_l_fuse if s_l_fuse is not None else 0.0 
             s_weft = s_w_fuse if s_w_fuse is not None else 0.0
         else:
+            # Nếu là vải chính/vải phối, áp thông số trích xuất động từ ô chat (nếu trống mới lấy mặc định)
             w_b = w_main if w_main is not None else safe_float(row.get("fabric_width_inch"), 58.0)
             s_warp = s_l_main if s_l_main is not None else safe_float(row.get("shrinkage_warp_pct"), 5.0)
             s_weft = s_w_main if s_w_main is not None else safe_float(row.get("shrinkage_weft_pct"), 15.0)
@@ -287,8 +291,7 @@ def execute_marker_yardage_and_quality_gate(ai_blueprint: dict, user_chat: str) 
 
             fabric_registry[tmp_id] = {
                 "accumulated_area_sq_in": 0.0,
-                # 🟢 CHỐT SỬA LỖI: Khổ sơ đồ cắt (cutable_w) bằng chính xác khổ vải nhập vào, không trừ 1.5 inch biên nữa
-                "cutable_w": w_b, 
+                "cutable_w": w_b, # Khổ sơ đồ cắt thực tế lấy bằng đúng thông số nhập vào
                 "eff": eff_factor, 
                 "shrink_warp_f": 1.0 + (s_warp / 100.0), 
                 "shrink_weft_f": 1.0 + (s_weft / 100.0),
@@ -303,6 +306,7 @@ def execute_marker_yardage_and_quality_gate(ai_blueprint: dict, user_chat: str) 
 
     ai_blueprint["_fabric_registry_cache"] = fabric_registry
     return ai_blueprint
+
 
 
 
