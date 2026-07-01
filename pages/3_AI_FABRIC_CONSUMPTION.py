@@ -316,33 +316,29 @@ def execute_marker_yardage_and_quality_gate(ai_blueprint: dict, user_chat: str) 
 
 def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict) -> dict:
     """
-    Phân đoạn 2b: Tính toán định mức Yards thực tế và ép định mức = 0 cho nhóm phụ liệu phần cứng,
-    chỉ tính toán định mức cho Vải chính, Keo (Fusing), Lót (Lining/Pocketing), Phối, Rib, Tape, Thun, Piping.
+    Phân đoạn 2b: Đọc thông số co rút động đã lưu từ ô chat để nhân hệ số hao hụt trước wash,
+    ép định mức = 0 cho các loại phụ liệu cứng chỉ, nhãn, nút.
     """
     product_type = str(ai_blueprint.get("detected_product_type", "DEFAULT")).upper().strip()
     fabric_registry = ai_blueprint.pop("_fabric_registry_cache", {})
     processed_bom_blueprint = []
     
-    # 1. Quét trước toàn bộ bom_rows để xử lý lọc các dòng phụ liệu độc lập
     all_rows = ai_blueprint.get("bom_rows", [])
-    
     for row in all_rows:
         comp_type = str(row.get("component_type", "")).upper()
         placement = str(row.get("placement", "")).upper()
         f_class_raw = str(row.get("fabric_classification", "")).upper()
         f_code = str(row.get("fabric_code", "")).upper()
 
-        # Kiểm tra dính từ khóa loại trừ (chỉ, nhãn, nút, khóa, sticker...) -> Ép định mức về bằng 0 ngay
         if any(k in comp_type or k in placement or k in f_class_raw or k in f_code for k in EXCLUDE_HARDWARE_KEYS):
             row["calculated_gross_consumption_yds"] = 0.0
             row["marker_efficiency_pct"] = "N/A"
             row["status"] = "PASS"
             row["consumption_note"] = "Hardware Trim Bypass"
-            row["reason_or_logs"] = "Bypass hoàn toàn theo yêu cầu phòng cắt"
+            row["reason_or_logs"] = "Bypass theo yêu cầu"
             if row not in processed_bom_blueprint:
                 processed_bom_blueprint.append(row)
 
-    # 2. Tính toán định mức phân phối cho các nhóm dệt/phối/phụ liệu may mặc
     for f_id, data in fabric_registry.items():
         total_area = data["accumulated_area_sq_in"]
         cutable_w = data["cutable_w"]
@@ -354,25 +350,21 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict) -> dict:
             placement = str(row.get("placement", "")).upper()
             f_code = str(row.get("fabric_code", "")).upper()
 
-            # Chặn rò rỉ nếu dòng vật tư phụ nằm lẫn lộn trong nhóm fabric id
             if any(k in comp_type or k in placement or k in f_code for k in EXCLUDE_HARDWARE_KEYS):
                 row["calculated_gross_consumption_yds"] = 0.0
                 row["marker_efficiency_pct"] = "N/A"
                 row["status"] = "PASS"
                 row["consumption_note"] = "Hardware Trim Bypass"
-                if row not in processed_bom_blueprint:
-                    processed_bom_blueprint.append(row)
+                if row not in processed_bom_blueprint: processed_bom_blueprint.append(row)
                 continue
 
-            # Thực hiện tính toán định mức Yards dựa trên phân tầng nguyên vật liệu
             if f_class_norm == "MAIN_FABRIC":
-                # Vải chính: Tính toán dựa trên diện tích hình học rập thật từ CAD
+                # LÕI TÍNH TOÁN: Diện tích sơ đồ chia Khổ phẳng, nhân trực tiếp hệ số co rút dọc và ngang từ ô chat
                 base_cons = (total_area / (cutable_w * 36.0)) / eff
                 total_yds = base_cons * data["shrink_warp_f"] * data["shrink_weft_f"] * data["wastage_f"]
                 total_yds = round(total_yds, 4)
-                row_status = "PASS"
                 
-                # Cổng kiểm duyệt chất lượng PLM
+                row_status = "PASS"
                 cfg = LIMITS.get(product_type, LIMITS["DEFAULT"])
                 min_allow, max_allow = cfg["range"]
                 
@@ -380,12 +372,19 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict) -> dict:
                 elif total_yds < min_allow: row_status = "LOW_CONSUMPTION_WARNING"
                 elif total_yds > cfg["warn_thresh"]: row_status = "HIGH_CONSUMPTION_WARNING"
                 
+                # 🟢 ĐỒNG BỘ HIỂN THỊ LOG CHUỖI GỐC (Dữ liệu phục vụ vẽ bảng ngoài màn hình)
+                w_original = data["w_saved"]
+                s_l_saved = (data["shrink_warp_f"] - 1.0) * 100.0
+                s_w_saved = (data["shrink_weft_f"] - 1.0) * 100.0
+                
+                log_output = f"{round(w_original,1)}\"/{round(eff*100,1)}%/{round(s_l_saved,1)}x{round(s_w_saved,1)} | Rập {f_id}: {round(total_area,1)} sq_in."
+                
                 row["calculated_gross_consumption_yds"] = total_yds
                 row["status"] = row_status
-                row["consumption_note"] = f"Mode: AREA | CutWidth: {cutable_w}\" | Check: {row_status}"
+                row["consumption_note"] = f"Khổ vải: {w_original}\" | Sơ đồ: {cutable_w}\" | Check: {row_status}"
+                row["reason_or_logs"] = log_output
                 
             else:
-                # Định mức kỹ thuật cố định áp cho nhóm Keo lót / Rib / Tape / Thun / Piping
                 if f_class_norm in ["FUSING", "LINING", "POCKETING"] or any(x in comp_type for x in ["TAPE", "RIB", "THUN", "PIPING", "PHỐI"]):
                     f_yds = 0.15 if product_type in ["PANT", "JORT", "CAPRI_PANT", "CARGO_PANT"] else 0.65
                 else:
@@ -394,17 +393,16 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict) -> dict:
                 row["calculated_gross_consumption_yds"] = f_yds
                 row["status"] = "PASS"
                 row["consumption_note"] = "Component Fixed Allocation"
+                row["reason_or_logs"] = "FIXED"
 
             row["marker_efficiency_pct"] = f"{round(eff * 100, 1)}%"
             row["panel_debug_summary"] = row.get("_panel_debug_logs", [])
-            row.pop("_computed_net_area_sq_in", None)
-            row.pop("_panel_debug_logs", None)
-            
             if row not in processed_bom_blueprint:
                 processed_bom_blueprint.append(row)
 
     ai_blueprint["bom_rows"] = processed_bom_blueprint
     return ai_blueprint
+
 
 
 
