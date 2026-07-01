@@ -98,39 +98,60 @@ def detect_product_type(desc_upper: str, raw_inseam_val: float) -> str:
 # ĐOẠN 2a1: RẬP HÌNH HỌC & TỰ ĐỘNG BÙ TRỪ CHI TIẾT (V15.4 CẬP NHẬT)
 # =====================================================================
 
+# =====================================================================
+# ĐOẠN 2a1: RẬP HÌNH HỌC, TỰ ĐỘNG BÙ TRỪ & LOG CHUYÊN SÂU (V16.2)
+# =====================================================================
+
 def parse_geometric_panels_allowance(ai_blueprint: dict, user_chat: str) -> dict:
     """
     Phân đoạn 2a1: Đọc dữ liệu thô từ bản vẽ, quét từ khóa thông minh
-    để tính toán diện tích tịnh và cộng bù sai lệch hình học (Seam, Hem, Pleat) cho từng panel.
+    để tính toán diện tích tịnh và cộng bù sai lệch hình học (Seam, Hem, Pleat).
+    NÂNG CẤP V16.2: Tự động tính CHU VI THỰC từ tọa độ CAD (True Perimeter)
+    và tối ưu hóa bộ khung Shape Factor động để dễ hiệu chỉnh theo Gerber thực tế.
     """
+    if not ai_blueprint or not isinstance(ai_blueprint, dict):
+        return {"detected_product_type": "PANT", "bom_rows": []}
+
     product_type = str(ai_blueprint.get("detected_product_type", "DEFAULT")).upper().strip()
     
-    # Kích thước bao rập cơ sở phục vụ dải chu vi phẳng khi không có dữ liệu map
     body_length = safe_float(ai_blueprint.get("extracted_body_length"), 28.0)
     chest_width = safe_float(ai_blueprint.get("extracted_chest_width"), 20.0)
     outseam_length = safe_float(ai_blueprint.get("extracted_outseam_length"), 14.5 if product_type == "JORT" else 40.0)
     hip_width = safe_float(ai_blueprint.get("extracted_hip_width"), 21.0)
 
     # MA TRẬN HẰNG SỐ BÙ KỸ THUẬT PHÒNG IE MAY PHONG PHÚ
-    FACTORY_SEAM_INCH = 0.5       # Biên may chuẩn
-    FACTORY_HEM_INCH = 1.5        # Cuốn gấu lai sạch
-    FACTORY_WAISTBAND_INCH = 2.5  # Chun lưng quần
-    FACTORY_PLEAT_INCH = 3.0      # Hệ số bù ly túi hộp
+    FACTORY_SEAM_INCH = 0.5       
+    FACTORY_HEM_INCH = 1.5        
+    FACTORY_WAISTBAND_INCH = 2.5  
+    FACTORY_PLEAT_INCH = 3.0      
+
+    # 📊 BỘ CẤU HÌNH SHAPE FACTOR ĐỘNG - BẠN CÓ THỂ ĐIỀU CHỈNH CÁC HỆ SỐ NÀY ĐỂ KHỚP VỚI FILE GERBER THỰC TẾ
+    SHAPE_FACTORS = {
+        "FRONT": 0.54,      # Thân trước quần Jeans/Tây suông thực tế chiếm ~54% hình bao
+        "BACK": 0.59,       # Thân sau quần Jeans/Tây rộng hơn, chiếm ~59% hình bao
+        "WAISTBAND": 0.94,  # Cạp lưng quần, chiếm ~94% hình bao phẳng
+        "POCKET": 0.78,     # Lót túi/Đáp túi, chiếm ~78% hình bao
+        "SLEEVE": 0.64,     # Tay áo, chiếm ~64% hình bao
+        "DEFAULT": 0.62     # Linh kiện mặc định thông thường
+    }
 
     all_rows = ai_blueprint.get("bom_rows", [])
+    if not all_rows: all_rows = []
     parsed_rows = []
-
     for row in all_rows:
-        # Lấy nhãn thông tin để quét lọc chất liệu
+        if not row or not isinstance(row, dict): continue
+        
         c_type = str(row.get("component_type", "")).upper()
         placement = str(row.get("placement", "")).upper()
         f_class_raw = str(row.get("fabric_classification", "")).upper()
         f_code = str(row.get("fabric_code", "")).upper()
         
-        # 🟢 BỘ LỌC CHẶN TRƯỚC: Nếu dính từ khóa loại trừ phần cứng (chỉ, nhãn, nút, khóa, sticker...) -> Ép diện tích về 0 lập tức
         if any(k in c_type or k in placement or k in f_class_raw or k in f_code for k in EXCLUDE_HARDWARE_KEYS):
+            row["calculated_gross_consumption_yds"] = 0.0
+            row["reason_or_logs"] = "Hardware Trim Bypass"
+            row["status"] = "PASS"
+            row["consumption_note"] = "Bypass"
             row["_computed_net_area_sq_in"] = 0.0
-            row["_panel_debug_logs"] = [{"panel_name": "BYPASS_TRIM", "piece_count": 0, "computed_area_sq_in": 0.0}]
             parsed_rows.append(row)
             continue
 
@@ -138,57 +159,72 @@ def parse_geometric_panels_allowance(ai_blueprint: dict, user_chat: str) -> dict
         row_total_net_area_sq_in = 0.0
         panel_debug_logs = []
 
-        if panels:
+        if panels and isinstance(panels, list):
             for panel in panels:
+                if not panel or not isinstance(panel, dict): continue
+                    
                 p_count = safe_float(panel.get("piece_count"), 1.0)
                 polygon_points = panel.get("polygon_points", [])
                 scale_factor = max(0.001, min(safe_float(panel.get("coordinate_scale"), 1.0), 100.0))
                 
-                # 1. Tính toán diện tích hình học gốc bằng Shoelace hoặc công thức bao
-                if polygon_points and isinstance(polygon_points, list) and len(polygon_points) >= 3:
-                    base_area = calculate_shoelace_polygon_area(polygon_points) * (scale_factor ** 2)
-                else:
-                    p_len = safe_float(panel.get("piece_length_inch"), 0.0)
-                    p_wid = safe_float(panel.get("piece_width_inch"), 0.0)
-                    base_area = p_len * p_wid * 0.88 if (p_len > 0 and p_wid > 0) else 0.0
-                
-                if base_area == 0.0:
-                    # Phương án dự phòng (Fallback) nếu thiếu kích thước chi tiết từ AI
-                    eval_len_fb = outseam_length if product_type in ["PANT", "CARGO_PANT", "CAPRI_PANT", "JORT"] else body_length
-                    eval_wid_fb = hip_width if product_type in ["PANT", "CARGO_PANT", "CAPRI_PANT", "JORT"] else chest_width
-                    base_area = (eval_len_fb * eval_wid_fb * 0.25) # Giả lập diện tích 1 linh kiện trung bình
-                
-                net_panel_area = base_area * p_count
-                
-                # 2. Thuộc tính chống cộng trùng lặp (Double-Count Protection Flags)
-                polygon_include_seam = panel.get("include_seam", False) or str(panel.get("include_seam")).lower() == "true"
-                polygon_include_hem = panel.get("include_hem", False) or str(panel.get("include_hem")).lower() == "true"
-                
-                # 3. Trích xuất nhãn cấu trúc chữ để tự phân bổ lệnh cộng thêm
                 p_name = str(panel.get("panel_name", "")).upper().strip()
                 p_type_code = str(panel.get("panel_type", "")).upper().strip()
                 
+                # Áp hệ số biên dạng Gerber thực tế động dựa trên từ khóa
+                s_factor = SHAPE_FACTORS["DEFAULT"]
+                if any(k in p_name or k in p_type_code for k in ["FRONT", "TRƯỚC", "TRUOC"]): s_factor = SHAPE_FACTORS["FRONT"]
+                elif any(k in p_name or k in p_type_code for k in ["BACK", "SAU"]): s_factor = SHAPE_FACTORS["BACK"]
+                elif any(k in p_name or k in p_type_code for k in ["WAIST", "CẠP", "CAP", "LƯNG", "LUNG"]): s_factor = SHAPE_FACTORS["WAISTBAND"]
+                elif any(k in p_name or k in p_type_code for k in ["POCKET", "TÚI", "TUI"]): s_factor = SHAPE_FACTORS["POCKET"]
+                elif any(k in p_name or k in p_type_code for k in ["SLEEVE", "TAY"]): s_factor = SHAPE_FACTORS["SLEEVE"]
+
+                # 📐 A. TÍNH TOÁN TRUE PERIMETER (CHU VI THỰC TẾ) VÀ DIỆN TÍCH TỪ TỌA ĐỘ CAD POLYGON
+                actual_perimeter_inch = 0.0
+                if polygon_points and isinstance(polygon_points, list) and len(polygon_points) >= 3:
+                    # Tính diện tích thật bằng công thức Shoelace
+                    base_area = calculate_shoelace_polygon_area(polygon_points) * (scale_factor ** 2)
+                    
+                    # 🟢 THUẬT TOÁN TRUE PERIMETER: Cộng dồn khoảng cách Euclid giữa các điểm nối tiếp để ra chu vi thực 100%
+                    p_len_nodes = len(polygon_points)
+                    total_dist = 0.0
+                    for i in range(p_len_nodes):
+                        j = (i + 1) % p_len_nodes
+                        pt1, pt2 = polygon_points[i], polygon_points[j]
+                        x1 = float(pt1 if isinstance(pt1, (list, tuple)) else pt1.get("x", 0.0))
+                        y1 = float(pt1 if isinstance(pt1, (list, tuple)) else pt1.get("y", 0.0))
+                        x2 = float(pt2 if isinstance(pt2, (list, tuple)) else pt2.get("x", 0.0))
+                        y2 = float(pt2 if isinstance(pt2, (list, tuple)) else pt2.get("y", 0.0))
+                        # Công thức khoảng cách hình học phẳng
+                        total_dist += ((x2 - x1)**2 + (y2 - y1)**2)**0.5
+                    actual_perimeter_inch = total_dist * scale_factor * p_count
+                else:
+                    # Phương án Fallback hình bao nếu thiếu bản vẽ tọa độ chi tiết
+                    p_len = safe_float(panel.get("piece_length_inch"), 0.0)
+                    p_wid = safe_float(panel.get("piece_width_inch"), 0.0)
+                    base_area = p_len * p_wid * s_factor if (p_len > 0 and p_wid > 0) else 0.0
+                    
+                    # Áp chu vi thực tế tối ưu theo Shape Factor chi tiết thay vì hệ số kinh nghiệm chung chung
+                    perimeter_factor = 0.88 if s_factor in [0.54, 0.59] else 0.96 
+                    actual_perimeter_inch = ((p_len * 2) + (p_wid * 2)) * perimeter_factor * p_count
+                
+                if base_area == 0.0:
+                    eval_len_fb = outseam_length if product_type in ["PANT", "CARGO_PANT", "CAPRI_PANT", "JORT"] else body_length
+                    eval_wid_fb = hip_width if product_type in ["PANT", "CARGO_PANT", "CAPRI_PANT", "JORT"] else chest_width
+                    base_area = (eval_len_fb * eval_wid_fb * 0.30) # Giữ Fallback an toàn 0.30 chuẩn Gerber
+                
+                raw_panel_area_total = base_area * p_count
+                
+                # B. BÙ TRỪ ĐƯỜNG MAY, GAULAI VÀ CẠP LƯNG CHUN
+                polygon_include_seam = panel.get("include_seam", False) or str(panel.get("include_seam")).lower() == "true"
+                polygon_include_hem = panel.get("include_hem", False) or str(panel.get("include_hem")).lower() == "true"
                 has_seam = panel.get("seam_allowance", False) if str(panel.get("seam_allowance")).lower() == "false" else True
 
-                # Định vị đoạn Lai / Gấu / Ong quần để cộng thêm chiều rộng
-                hem_val = safe_float(panel.get("hem"), 0.0)
-                if hem_val == 0.0 and not polygon_include_hem:
-                    if any(k in p_name or k in p_type_code for k in ["LAI", "GAU", "HEM", "BOTTOM", "CUFF", "ONG_QUAN", "CHAN_VAY"]):
-                        hem_val = 1.0
-
-                # Định vị cụm Xếp Ly / Túi hộp Cargo để cộng thêm chiều rộng
-                pleat_val = safe_float(panel.get("pleat"), 0.0)
-                if pleat_val == 0.0:
-                    if any(k in p_name or k in p_type_code for k in ["PLEAT", "XEP_LY", "LY_HOP", "CARGO", "POCKET", "TUI_DAT", "TUI_HOP"]):
-                        pleat_val = 1.0
-
-                # Đồng bộ chiều dài/rộng bao mặc định theo sản phẩm may mặc
                 eval_len = safe_float(panel.get("piece_length_inch"), outseam_length if product_type in ["PANT", "CARGO_PANT", "CAPRI_PANT", "JORT"] else body_length)
                 eval_wid = safe_float(panel.get("piece_width_inch"), hip_width if product_type in ["PANT", "CARGO_PANT", "CAPRI_PANT", "JORT"] else chest_width)
 
-                # A. Xử lý bản đồ đường may (Seam Length Map) chính xác từ CAD
                 seam_area_addition = 0.0
                 if has_seam and not polygon_include_seam:
+                    # Ưu tiên lấy bản đồ đường may chi tiết từ Gerber gửi qua
                     seam_length_map = panel.get("seam_length_map", {})
                     if seam_length_map and isinstance(seam_length_map, dict):
                         actual_seam_length = sum(safe_float(v) for v in seam_length_map.values()) * p_count
@@ -197,31 +233,49 @@ def parse_geometric_panels_allowance(ai_blueprint: dict, user_chat: str) -> dict
                         elif seam_unit == "CM": actual_seam_length /= 2.54
                         seam_area_addition = actual_seam_length * FACTORY_SEAM_INCH
                     else:
-                        # Phương án dự phòng chu vi an toàn
-                        default_perimeter = ((eval_len * 2) + (eval_wid * 2)) * p_count
-                        seam_perimeter = safe_float(panel.get("seam_perimeter_inch"), default_perimeter)
-                        seam_area_addition = (seam_perimeter * 0.85) * FACTORY_SEAM_INCH
-                        
-                net_panel_area += seam_area_addition
+                        # Sử dụng chu vi thực tế True Perimeter đã được tính toán an toàn ở trên để bù đường may
+                        seam_area_addition = actual_perimeter_inch * FACTORY_SEAM_INCH
 
-                # B. Xử lý tính toán gấu lai áo / lai quần
+                hem_area_addition = 0.0
+                hem_val = safe_float(panel.get("hem"), 0.0)
+                if hem_val == 0.0 and not polygon_include_hem:
+                    if any(k in p_name or k in p_type_code for k in ["LAI", "GAU", "HEM", "BOTTOM", "CUFF", "ONG_QUAN", "CHAN_VAY"]):
+                        hem_val = 1.0
+
                 if hem_val > 0 and not polygon_include_hem:
                     current_hem = FACTORY_HEM_INCH
-                    if any(k in p_name or k in p_type_code for k in ["SLEEVE", "TAY"]):
-                        current_hem = 1.0  
-                    net_panel_area += (eval_wid * current_hem) * p_count
+                    if any(k in p_name or k in p_type_code for k in ["SLEEVE", "TAY"]): current_hem = 1.0  
+                    hem_area_addition = (eval_wid * current_hem) * p_count
 
-                # C. Xử lý độ mở xếp ly thực tế (Pleat Logic)
+                # Tích hợp biến nẹp cạp chun lưng FACTORY_WAISTBAND_INCH
+                if any(k in p_name or k in p_type_code for k in ["WAIST", "CẠP", "CAP", "LƯNG", "LUNG"]):
+                    if not polygon_include_hem:
+                        hem_area_addition += (eval_wid * FACTORY_WAISTBAND_INCH) * p_count
+
+                # Bù độ mở xếp ly (Pleat Logic)
+                pleat_area_addition = 0.0
+                pleat_val = safe_float(panel.get("pleat"), 0.0)
+                if pleat_val == 0.0:
+                    if any(k in p_name or k in p_type_code for k in ["PLEAT", "XEP_LY", "LY_HOP", "CARGO", "POCKET", "TUI_DAT", "TUI_HOP"]):
+                        pleat_val = 1.0
                 if pleat_val > 0:
                     pleat_width = safe_float(panel.get("pleat_width"), 1.0)
                     pleat_count = safe_float(panel.get("pleat_count"), 1.0)
-                    net_panel_area += (eval_len * pleat_width * pleat_count) * p_count
+                    pleat_area_addition = (eval_len * pleat_width * pleat_count) * p_count
 
-                row_total_net_area_sq_in += net_panel_area
+                # Tổng dồn diện tích phẳng
+                final_panel_area = raw_panel_area_total + seam_area_addition + hem_area_addition + pleat_area_addition
+                row_total_net_area_sq_in += final_panel_area
+                
+                # Ghi nhận log chi tiết từng linh kiện phục vụ công tác kiểm tra debug sai số
                 panel_debug_logs.append({
-                    "panel_name": p_name,
-                    "piece_count": p_count,
-                    "computed_area_sq_in": round(net_panel_area, 3)
+                    "panel_name": p_name, "piece_count": p_count,
+                    "base_area_sq_in": round(raw_panel_area_total, 2),
+                    "seam_add_sq_in": round(seam_area_addition, 2),
+                    "hem_add_sq_in": round(hem_area_addition, 2),
+                    "pleat_add_sq_in": round(pleat_area_addition, 2),
+                    "total_area_sq_in": round(final_panel_area, 2),
+                    "perimeter_inch": round(actual_perimeter_inch, 2)
                 })
 
         row["_computed_net_area_sq_in"] = row_total_net_area_sq_in
@@ -230,6 +284,7 @@ def parse_geometric_panels_allowance(ai_blueprint: dict, user_chat: str) -> dict
 
     ai_blueprint["bom_rows"] = parsed_rows
     return ai_blueprint
+
 
 
 # =====================================================================
