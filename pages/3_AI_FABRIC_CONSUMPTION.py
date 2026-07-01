@@ -689,7 +689,7 @@ with col_left:
     st.markdown('</div>', unsafe_allow_html=True)
 
 # =====================================================================
-# ĐOẠN 7a: KHỐI THỰC THI API GEMINI QUÉT THÔNG SỐ SPEC THỰC TẾ (V16.9.9.2)
+# ĐOẠN 7a: KHỐI THỰC THI API GEMINI QUÉT THÔNG SỐ SPEC THỰC TẾ (V16.9.9.3)
 # =====================================================================
 with col_right:
     st.markdown('<div class="cad-card">', unsafe_allow_html=True)
@@ -711,12 +711,9 @@ with col_right:
     safe_user_prompt = user_prompt if 'user_prompt' in globals() and user_prompt else ""
     active_prompt = safe_user_prompt if safe_user_prompt else "khổ 58 co rút 5-15"
 
-    # NÚT ÉP CHẠY LẠI AI ĐỂ PHÁ BĂNG TRIGGER TRÊN GIAO DIỆN
-    btn_force_run = st.button("🚀 ÉP CHẠY LẠI AI BÓC TÁCH NGAY", use_container_width=True, type="primary")
-
-    # LUỒNG TRIGGER: Tự động chạy khi tải file HOẶC khi nhấn nút / gửi lệnh mới
+    # LUỒNG TRIGGER TỰ ĐỘNG: Chạy khi có file PDF và chưa có dữ liệu hoặc có lệnh mới
     if st.session_state.pdf_bytes is not None:
-        if "bom_data" not in st.session_state or btn_force_run or safe_user_prompt:
+        if "bom_data" not in st.session_state or safe_user_prompt:
             with st.spinner("🧠 AI CORE: Đang quét bảng thông số Spec thực tế từ PDF..."):
                 try:
                     import google.generativeai as genai
@@ -789,7 +786,6 @@ with col_right:
                         prompt_instruction
                     ])
                     
-                    # Làm sạch chuỗi JSON phòng hờ markdown tag lỗi parse
                     cleaned_text = response.text.strip()
                     cleaned_text = re.sub(r"^```json\s*", "", cleaned_text, flags=re.IGNORECASE)
                     cleaned_text = re.sub(r"\s*```$", "", cleaned_text)
@@ -807,14 +803,13 @@ with col_right:
                         
                         st.session_state.bom_data = blueprint_final
                     
-                    # Ép luồng làm mới màn hình để hiển thị ma trận kết quả ngay lập tức
                     st.rerun()
                     
                 except Exception:
                     st.error("💥 Lỗi xử lý tiến trình Phân đoạn 7a:")
                     st.code(traceback.format_exc())
 # =====================================================================
-# ĐOẠN 7b: KHU VỰC HIỂN THỊ KẾT QUẢ VÀ XUẤT FILE EXCEL PHÍA DƯỚI GIAO DIỆN (V16.9.9.2)
+# ĐOẠN 7b: KHU VỰC HIỂN THỊ KẾT QUẢ VÀ XUẤT FILE EXCEL PHÍA DƯỚI GIAO DIỆN (V16.9.9.3)
 # =====================================================================
 if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data and st.session_state.bom_data["bom_rows"]:
     st.markdown('<div class="cad-card">', unsafe_allow_html=True)
