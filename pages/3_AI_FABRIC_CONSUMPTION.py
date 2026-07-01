@@ -485,13 +485,12 @@ with col_right:
     st.markdown('<div class="cad-card" style="min-height: 450px;">', unsafe_allow_html=True)
     st.markdown('<div class="cad-header">🚀 EXECUTION WORKSPACE & SKETCH VISUALIZER</div>', unsafe_allow_html=True)
     
-    # --- XỬ LÝ TRÍCH XUẤT ẢNH BẢN VẼ TỰ ĐỘNG TỪ FILE TECHPACK PDF THẬT ---
+    # --- RENDER HÌNH ẢNH SKETCH TRANG ĐẦU PDF THẬT ---
     if "pdf_bytes" in st.session_state:
         try:
-            # Sử dụng thư viện fitz (PyMuPDF) hoặc pdf2image để trích xuất trang đầu tiên làm ảnh bản vẽ kỹ thuật
-            import fitz  # Thư viện PyMuPDF xử lý PDF cực nhanh
+            import fitz  
             doc = fitz.open(stream=st.session_state.pdf_bytes, filetype="pdf")
-            page = doc.load_page(0)  # Lấy trang đầu tiên chứa Sketch
+            page = doc.load_page(0)  
             pix = page.get_pixmap(dpi=150)
             img_data = pix.tobytes("png")
             
@@ -512,6 +511,7 @@ with col_right:
     else:
         st.success(f"📎 BUFFERED OBJECT: `{st.session_state.pdf_name}` loaded successfully.")
 
+    # TỰ ĐỘNG KÍCH HOẠT KHI USER NHẬP CÂU LỆNH CHAT VÀ ĐÃ CÓ FILE
     if user_prompt and "pdf_bytes" in st.session_state:
         if st.session_state.get("api_error_status") == 429:
             st.error("❌ Không thể chạy do API Google Gemini đang hết hạn ngạch (Lỗi 429).")
@@ -526,33 +526,51 @@ with col_right:
                     st.session_state.chat_history.append({"role": "user", "content": user_prompt})
                     model = genai.GenerativeModel("gemini-2.5-flash", generation_config={"response_mime_type": "application/json"})
                     
+                    # 📌 CẢI TIẾN PROMPT: Ép AI đọc toàn bộ bảng vẽ chi tiết thật trong PDF, không lấy mẫu giả lập
                     prompt_instruction = f"""
-                    You are an expert apparel CAD data extractor. Analyze the attached Techpack/PDF document.
-                    Extract all raw materials from the Bill of Materials (BOM).
-                    Identify the product type (e.g., PANT, JACKET, SHIRT).
+                    You are an expert apparel CAD data extractor and PLM analyzer. Analyze the attached Techpack/PDF document.
+                    Your goal is to extract the ACTUAL Bill of Materials (BOM) and technical measurement data from the file.
                     
                     CRITICAL FILTRATION RULES FOR BOM EXTRACTION:
-                    1. ONLY extract: Main Fabric, Lining/Pocketing, Fusing/Interlining, Rib/Tape/Piping, Elastic.
-                    2. STRICTLY EXCLUDE: Thread, Labels/Tags, Buttons/Snaps, Zippers, Packaging.
+                    1. ONLY extract: Main Fabric (Vải chính), Lining/Pocketing (Vải lót túi), Fusing/Interlining (Keo dựng), Rib/Tape/Piping (Bo/Dây dệt/Viền), Elastic (Thun).
+                    2. STRICTLY EXCLUDE: Thread, Labels/Tags, Buttons/Snaps, Zippers, Packaging. Do not include these in 'bom_rows'.
+
+                    DATA EXTRACTION REQUIREMENTS:
+                    - Scan the document for garment measurement charts or CAD pattern panel specifications.
+                    - For each fabric/component row, look at the measurement sheet to estimate or extract the 'panels_catalog'.
+                    - If exact panel sizes are written (e.g., Waist, Hips, Inseam, Front Rise, Back Rise), use them to generate realistic 'piece_length_inch' and 'piece_width_inch' for the panels (such as Front Panel, Back Panel, Waistband, Pocket Bag) so that the calculated area is NOT zero.
+                    - Ensure 'piece_count' is correctly extracted (e.g., Front Panel count: 2, Back Panel count: 2).
 
                     Return a JSON matching this exact structure:
                     {{
                         "detected_product_type": "PANT",
+                        "extracted_body_length": 40.0,
                         "bom_rows": [
                             {{
                                 "component_type": "MAIN FABRIC",
-                                "placement": "FRONT/BACK PANEL",
+                                "placement": "SELF BODY",
                                 "fabric_classification": "MAIN_FABRIC",
-                                "fabric_code": "DENIM01",
-                                "fabric_color": "BLUE",
+                                "fabric_code": "Extract from document",
+                                "fabric_color": "Extract from document",
                                 "fabric_width_inch": 58.0,
                                 "panels_catalog": [
-                                    {{"panel_name": "THÂN TRƯỚC", "piece_count": 2, "piece_length_inch": 40.0, "piece_width_inch": 12.0}}
+                                    {{
+                                        "panel_name": "FRONT PANEL", 
+                                        "piece_count": 2, 
+                                        "piece_length_inch": 38.0, 
+                                        "piece_width_inch": 14.0
+                                    }},
+                                    {{
+                                        "panel_name": "BACK PANEL", 
+                                        "piece_count": 2, 
+                                        "piece_length_inch": 39.0, 
+                                        "piece_width_inch": 16.0
+                                    }}
                                 ]
                             }}
                         ]
                     }}
-                    User dynamic override instructions to keep in mind: {user_prompt}
+                    User prompt overrides for parsing parameters: {user_prompt}
                     """
                     
                     pdf_part = {"mime_type": "application/pdf", "data": st.session_state.pdf_bytes}
@@ -564,12 +582,17 @@ with col_right:
                     
                     working_blueprint = copy.deepcopy(st.session_state.raw_blueprint)
                     
-                    # 2. KÍCH HOẠT CHUỖI TIẾN TRÌNH THEO 3 PHÂN ĐOẠN ĐỘC LẬP
+                    # 🟢 ĐỒNG BỘ CHUỖI BIẾN USER CHAT VÀO CẢ 3 PHÂN ĐOẠN ĐỂ CẬP NHẬT THÔNG SỐ KHỔ/CO RÚT DỰA TRÊN Ô CHAT
                     step_2a1 = parse_geometric_panels_allowance(working_blueprint, user_prompt)
                     step_2a2 = execute_marker_yardage_and_quality_gate(step_2a1, user_prompt)
                     blueprint_final = allocate_fabric_consumption_and_quality_gate(step_2a2)
                     
                     st.session_state.bom_data = blueprint_final
+                    
+                    st.session_state.chat_history.append({
+                        "role": "assistant", 
+                        "content": f"[SUCCESS]: Đã trích xuất cấu trúc vải thực tế và áp dụng thông số: \"{user_prompt}\""
+                    })
                     st.rerun()
                     
                 except google.api_core.exceptions.ResourceExhausted:
@@ -582,6 +605,7 @@ with col_right:
                     st.rerun()
 
     st.markdown('</div>', unsafe_allow_html=True)
+
 
 
 
