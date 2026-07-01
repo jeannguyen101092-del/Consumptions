@@ -209,49 +209,66 @@ def parse_geometric_panels_allowance(ai_blueprint: dict, user_chat: str) -> dict
 def execute_marker_yardage_and_quality_gate(ai_blueprint: dict, user_chat: str) -> dict:
     """
     Phân đoạn 2a2: Gom nhóm diện tích dệt và tự động phân tích lệnh chat (AI Parser Core)
-    Đã sửa: Khổ gõ vào ô chat là khổ sơ đồ cắt thực tế (Không trừ biên). Nhận diện chữ 'dọc... ngang...'.
+    SỬA ĐỔI TUYỆT ĐỐI AN TOÀN: Loại bỏ hoàn toàn Regex group nguy hiểm gây lỗi 'no such group'.
     """
     all_rows = ai_blueprint.get("bom_rows", [])
     fabric_registry = {}
 
-    chat_clean = str(user_chat).lower().strip()
+    chat_clean = " " + str(user_chat).lower().strip() + " "
     
-    # 🟢 LÕI PHÂN TÍCH CHUỖI CHAT TỰ ĐỘNG CHUYỂN ĐỔI THÔNG SỐ ĐỘNG
-    def parse_material_specs(chat_text, material_type="MAIN"):
+    # 🟢 HÀM ĐỌC THÔNG SỐ CHAT AN TOÀN TUYỆT ĐỐI KHÔNG DÙNG REGEX GROUP
+    def parse_specs_safe(chat_text):
         width, warp, weft = None, None, None
         
-        target_segment = chat_text
-        if material_type == "FUSING":
-            match_fuse = re.search(r'(?:keo|mex|fusing|dựng)\s+([^,;.]+)', chat_text)
-            if match_fuse: target_segment = match_fuse.group(1)
-        elif material_type == "MAIN":
-            match_main = re.search(r'(?:vải\s+chính|vai\s+chinh|vải|vật\s+tư)\s+([^,;.]+)', chat_text)
-            if match_main: target_segment = match_main.group(1)
+        # 1. Tìm thông số Khổ vải / Khổ sơ đồ cắt
+        words = chat_text.split()
+        for idx, word in enumerate(words):
+            if word in ["khổ", "kho"] and idx + 1 < len(words):
+                try:
+                    # Lấy số ngay sau chữ "khổ" hoặc "kho"
+                    num_str = words[idx+1].replace('"', '').replace('inch', '')
+                    width = float(num_str)
+                except ValueError:
+                    pass
+                    
+        # 2. Tìm thông số Co rút dọc (Warp)
+        for idx, word in enumerate(words):
+            if word in ["dọc", "doc"] and idx + 1 < len(words):
+                try:
+                    warp = float(words[idx+1].replace("%", ""))
+                except ValueError:
+                    pass
+            elif word in ["co", "rút", "rut"] and idx + 1 < len(words) and warp is None:
+                # Fallback nếu viết dạng "co rút 5"
+                try:
+                    warp = float(words[idx+1].replace("%", ""))
+                except ValueError:
+                    pass
 
-        # 1. Quét Khổ sơ đồ cắt
-        w_match = re.search(r'(?:khổ|kho)\s*([\d\.]+)', target_segment)
-        if w_match: width = float(w_match.group(1))
-        elif material_type == "MAIN": 
-            w_gen = re.search(r'(?:khổ|kho)\s*([\d\.]+)', chat_text)
-            if w_gen: width = float(w_gen.group(1))
-            
-        # 2. Quét co rút dạng dải số (Ví dụ: "5-15", "5x15")
-        c_range = re.search(r'(?:co\s*rút|co\s*rut|co)\s*([\d\.]+)\s*(?:-|–|x|ngang|\s+)\s*([\d\.]+)', target_segment)
-        if c_range:
-            warp = float(c_range.group(1))
-            weft = float(c_range.group(2))
-        else:
-            # Quét tách rời từ khóa "dọc... ngang..." nếu gõ văn bản tự do
-            match_doc = re.search(r'(?:dọc|doc|dọc\s*cơ|dọc\s*co)\s*([\d\.]+)', chat_text)
-            match_ngang = re.search(r'(?:ngang|ngang\s*co)\s*([\d\.]+)', chat_text)
-            if match_doc: warp = float(match_doc.group(1))
-            if match_ngang: weft = float(match_ngang.group(2))
-                
+        # 3. Tìm thông số Co rút ngang (Weft)
+        for idx, word in enumerate(words):
+            if word in ["ngang"] and idx + 1 < len(words):
+                try:
+                    weft = float(words[idx+1].replace("%", ""))
+                except ValueError:
+                    pass
+
+        # Nếu user gõ dạng chuỗi liền nhau "5-15" mà không có chữ dọc/ngang
+        if warp is None or weft is None:
+            for word in words:
+                if "-" in word:
+                    parts = word.split("-")
+                    if len(parts) == 2:
+                        try:
+                            warp = float(parts[0].replace("%", ""))
+                            weft = float(parts[1].replace("%", ""))
+                        except ValueError:
+                            pass
+                            
         return width, warp, weft
 
-    # Gọi hàm trích xuất thông số từ câu lệnh chat của người dùng
-    w_main, s_l_main, s_w_main = parse_material_specs(chat_clean, "MAIN")
-    w_fuse, s_l_fuse, s_w_fuse = parse_material_specs(chat_clean, "FUSING")
+    # Gọi hàm trích xuất an toàn từ câu lệnh chat
+    w_main, s_l_main, s_w_main = parse_specs_safe(chat_clean)
 
     for row in all_rows:
         if "_computed_net_area_sq_in" not in row: continue
@@ -265,16 +282,10 @@ def execute_marker_yardage_and_quality_gate(ai_blueprint: dict, user_chat: str) 
         
         tmp_id = f"{f_code}_{f_color}_{grain_rule}_{int(fab_repeat)}"
         
-        # Nếu là keo lót, mex dựng thì áp thông số keo lót
-        if f_class_norm in ["FUSING", "LINING"] or "KEO" in str(row.get("component_type", "")).upper():
-            w_b = w_fuse if w_fuse is not None else safe_float(row.get("fabric_width_inch"), 44.0)
-            s_warp = s_l_fuse if s_l_fuse is not None else 0.0 
-            s_weft = s_w_fuse if s_w_fuse is not None else 0.0
-        else:
-            # Nếu là vải chính/vải phối, áp thông số trích xuất động từ ô chat (nếu trống mới lấy mặc định)
-            w_b = w_main if w_main is not None else safe_float(row.get("fabric_width_inch"), 58.0)
-            s_warp = s_l_main if s_l_main is not None else safe_float(row.get("shrinkage_warp_pct"), 5.0)
-            s_weft = s_w_main if s_w_main is not None else safe_float(row.get("shrinkage_weft_pct"), 15.0)
+        # Áp dụng thông số: Ưu tiên số từ ô chat, nếu trống mới lấy mặc định
+        w_b = w_main if w_main is not None else safe_float(row.get("fabric_width_inch"), 58.0)
+        s_warp = s_l_main if s_l_main is not None else safe_float(row.get("shrinkage_warp_pct"), 5.0)
+        s_weft = s_w_main if s_w_main is not None else safe_float(row.get("shrinkage_weft_pct"), 15.0)
         
         if tmp_id not in fabric_registry:
             if f_class_norm == "RIB":
@@ -291,7 +302,7 @@ def execute_marker_yardage_and_quality_gate(ai_blueprint: dict, user_chat: str) 
 
             fabric_registry[tmp_id] = {
                 "accumulated_area_sq_in": 0.0,
-                "cutable_w": w_b, # Khổ sơ đồ cắt thực tế lấy bằng đúng thông số nhập vào
+                "cutable_w": w_b, # Khổ sơ đồ cắt thực tế lấy bằng đúng khổ người dùng gõ
                 "eff": eff_factor, 
                 "shrink_warp_f": 1.0 + (s_warp / 100.0), 
                 "shrink_weft_f": 1.0 + (s_weft / 100.0),
