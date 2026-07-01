@@ -445,23 +445,22 @@ with col_right:
     st.markdown('<div class="cad-header">🚀 EXECUTION WORKSPACE</div>', unsafe_allow_html=True)
     st.markdown("<p style='color:#475569;'>Ready to process vector coordinate tables and apply structural seam/pleat adjustments.</p>", unsafe_allow_html=True)
     
-    trigger_calc = st.button("RUN GEOMETRIC CALCULATION ENGINE", use_container_width=True, type="primary")
-    
     # KIỂM TRA TRẠNG THÁI FILE TRONG BỘ ĐỆM
     if "pdf_bytes" not in st.session_state:
         st.caption("⚪ SYSTEM STATE: Directory unmounted. Upload a techpack file to activate.")
     else:
         st.success(f"📎 BUFFERED OBJECT: `{st.session_state.pdf_name}` loaded successfully.")
-        
-    # LÕI KÍCH HOẠT VÀ ĐIỀU HƯỚNG TÍNH TOÁN KHI BẤM NÚT
-    if trigger_calc:
-        if "pdf_bytes" not in st.session_state:
-            st.error("❌ Vui lòng upload file PDF/Techpack trước khi chạy tính toán!")
-        elif st.session_state.get("api_error_status") == 429:
+
+    # TỰ ĐỘNG KÍCH HOẠT LÕI TÍNH TOÁN KHI PHÁT HIỆN CÓ LỆNH CHAT MỚI VÀ ĐÃ UPLOAD FILE
+    if user_prompt and "pdf_bytes" in st.session_state:
+        if st.session_state.get("api_error_status") == 429:
             st.error("❌ Không thể chạy do API Google Gemini đang hết hạn ngạch (Lỗi 429).")
         else:
-            with st.spinner("⏳ Khởi động Engine: Đang đồng bộ ma trận sơ đồ CAD..."):
+            with st.spinner("⏳ Khởi động Engine: Tự động tính toán theo lệnh phòng cắt..."):
                 try:
+                    # Lưu tin nhắn của user vào lịch sử hội thoại trước
+                    st.session_state.chat_history.append({"role": "user", "content": user_prompt})
+                    
                     # 1. Khởi tạo dữ liệu thô giả lập (Thay bằng hàm gọi API thực tế nếu có)
                     if "raw_blueprint" not in st.session_state:
                         st.session_state.raw_blueprint = {
@@ -475,35 +474,34 @@ with col_right:
                             ]
                         }
                     
-                    # Sao chép dữ liệu để tránh ghi đè làm mất cấu trúc gốc
+                    # Sao chép dữ liệu tránh xung đột vùng nhớ
                     import copy
                     working_blueprint = copy.deepcopy(st.session_state.raw_blueprint)
                     
-                    # 2. CHẠY TUẦN TỰ THEO 3 PHÂN ĐOẠN ĐỘC LẬP
-                    st.info("⚙️ Bước 1: Tính bù trừ hình học rập (Đoạn 2a1)...")
-                    step_2a1 = parse_geometric_panels_allowance(working_blueprint, user_prompt if user_prompt else "")
-                    
-                    st.info("⚙️ Bước 2: Gom nhóm vật tư & đồng bộ hiệu suất (Đoạn 2a2)...")
-                    step_2a2 = execute_marker_yardage_and_quality_gate(step_2a1, user_prompt if user_prompt else "")
-                    
-                    st.info("⚙️ Bước 3: Tính toán Yards thực tế & Quality Gate (Đoạn 2b)...")
+                    # 2. CHẠY TUẦN TỰ THEO 3 PHÂN ĐOẠN ĐỘC LẬP THEO THÔNG TIN CHAT CỦA USER
+                    step_2a1 = parse_geometric_panels_allowance(working_blueprint, user_prompt)
+                    step_2a2 = execute_marker_yardage_and_quality_gate(step_2a1, user_prompt)
                     blueprint_final = allocate_fabric_consumption_and_quality_gate(step_2a2)
                     
-                    # 3. Lưu kết quả cuối cùng vào bộ nhớ hiển thị bảng tính
+                    # 3. Lưu kết quả cuối cùng để render bảng dữ liệu bên dưới màn hình
                     st.session_state.bom_data = blueprint_final
                     
                     # 4. Ghi nhận nhật ký thành công vào Live Log Console
                     st.session_state.chat_history.append({
                         "role": "assistant", 
-                        "content": f"[SUCCESS]: Đã tính toán xong định mức cho file {st.session_state.pdf_name}."
+                        "content": f"[SUCCESS]: Đã cập nhật tính toán định mức dựa trên lệnh: \"{user_prompt}\""
                     })
+                    
+                    # Tải lại trang để cập nhật giao diện
                     st.rerun()
                     
                 except Exception as e:
                     st.error(f"💥 Lỗi tiến trình nội bộ: {str(e)}")
                     st.session_state.chat_history.append({"role": "assistant", "content": f"[CRASH]: {str(e)}"})
+                    st.rerun()
 
     st.markdown('</div>', unsafe_allow_html=True)
+
 
 
 
