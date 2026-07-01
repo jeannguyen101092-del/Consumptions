@@ -317,7 +317,7 @@ def parse_geometric_panels_allowance(ai_blueprint: dict, user_chat: str) -> dict
     # Gọi hàm trích xuất an toàn từ câu lệnh chat của người dùng
     w_main, s_l_main, s_w_main = parse_specs_safe(chat_clean)
 
-    for row in all_rows:
+       for row in all_rows:
         if not row or not isinstance(row, dict) or "_computed_net_area_sq_in" not in row: 
             continue
 
@@ -350,7 +350,7 @@ def parse_geometric_panels_allowance(ai_blueprint: dict, user_chat: str) -> dict
 
             fabric_registry[tmp_id] = {
                 "accumulated_area_sq_in": 0.0,
-                "cutable_w": w_b, # Khổ sơ đồ cắt thực tế lấy bằng đúng khổ người dùng gõ công tác
+                "cutable_w": w_b, 
                 "eff": eff_factor, 
                 "shrink_warp_f": 1.0 + (s_warp / 100.0), 
                 "shrink_weft_f": 1.0 + (s_weft / 100.0),
@@ -359,15 +359,9 @@ def parse_geometric_panels_allowance(ai_blueprint: dict, user_chat: str) -> dict
                 "rows_to_update": [],
                 "w_saved": w_b, "s_l_saved": s_warp, "s_w_saved": s_weft, "f_class": f_class_norm
             }
-            # 🟢 CHỐT SỬA LỖI NHÂN CHỒNG: Khởi tạo giá trị diện tích nền gốc cho Fabric ID mới phát hiện
-            fabric_registry[tmp_id]["accumulated_area_sq_in"] = row["_computed_net_area_sq_in"]
-        else:
-            # 🟢 CHỐT SỬA ĐỐI XỨNG PHÒNG CẮT: Nếu mã Fabric ID này đã nhận diện diện tích toàn bộ 4 thân từ trước,
-            # kiểm tra giá trị bằng nhau của các dòng để loại bỏ không cộng lặp lặp chồng diện tích một lần nữa.
-            if abs(fabric_registry[tmp_id]["accumulated_area_sq_in"] - row["_computed_net_area_sq_in"]) > 15.0:
-                # Chỉ cộng dồn thêm khi phát hiện đây là cấu kiện hoàn toàn khác biệt (ví dụ vải phối túi rời)
-                fabric_registry[tmp_id]["accumulated_area_sq_in"] += row["_computed_net_area_sq_in"]
         
+        # 🟢 SỬA DỨT ĐIỂM: Cộng dồn tự nhiên diện tích của tất cả các dòng (Thân trước + Thân sau) để không bị hụt vải
+        fabric_registry[tmp_id]["accumulated_area_sq_in"] += row["_computed_net_area_sq_in"]
         fabric_registry[tmp_id]["rows_to_update"].append(row)
 
     ai_blueprint["_fabric_registry_cache"] = fabric_registry
