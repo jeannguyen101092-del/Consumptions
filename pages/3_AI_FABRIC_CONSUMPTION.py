@@ -121,8 +121,8 @@ def parse_geometric_panels_allowance(ai_blueprint: dict, user_chat: str) -> dict
     FACTORY_PLEAT_INCH = 3.0      
 
     SHAPE_FACTORS = {
-        "FRONT": 0.44,      
-        "BACK": 0.48,       
+        "FRONT": 0.63,      
+        "BACK": 0.75,       
         "WAISTBAND": 0.94,  
         "POCKET": 0.78,     
         "SLEEVE": 0.64,     
