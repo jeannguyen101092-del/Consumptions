@@ -491,11 +491,11 @@ def export_to_phong_phu_excel(bom_data, pdf_name):
         for col_idx, w in enumerate(widths): worksheet.set_column(col_idx, col_idx, w)
     return buffer.getvalue()
 # =====================================================================
-# ĐOẠN 6: GIAO DIỆN CHÍNH THỰC THI & CUSTOM CSS TỶ LỆ VÀNG (APPROVED)
+# ĐOẠN 6: GIAO DIỆN CHÍNH THỰC THI CHUẨN ĐỐI XỨNG LÊN TRÊN CÙNG (APPROVED)
 # =====================================================================
 st.set_page_config(layout="wide", page_title="AI Fabric Consumption Matrix")
 
-# Tích hợp CSS bọc card bo góc xám nhạt chuyên nghiệp và ghim hộp chat cân đối
+# Tinh chỉnh CSS xóa bỏ hoàn toàn min-height đặc cứng để đẩy nội dung lên sát đỉnh Card
 st.markdown("""
 <style>
     .cad-card {
@@ -524,7 +524,6 @@ if "chat_history" not in st.session_state: st.session_state.chat_history = []
 if "pdf_bytes" not in st.session_state: st.session_state.pdf_bytes = None
 if "pdf_name" not in st.session_state: st.session_state.pdf_name = ""
 
-# Thiết lập bảng điều khiển bên thanh Menu trái đặc trưng
 st.sidebar.markdown("### ⚙️ ENGINE CONTROLS")
 st.sidebar.markdown('<div style="background-color:#dcfce7; color:#15803d; padding:10px; border-radius:6px; font-weight:600; font-size:13px; margin-bottom:15px;">🟢 API STATUS: Hoạt động tốt.</div>', unsafe_allow_html=True)
 
@@ -535,33 +534,28 @@ if st.sidebar.button("🗑️ CLEAR SYSTEM MEMORY", use_container_width=True):
     st.session_state.pdf_name = ""
     st.rerun()
 
-# 🟢 LAYOUT VÀNG: Chia hai cột đối xứng trái/phải cân bằng tuyệt đối
+# Thiết lập layout chia đôi cột đối xứng
 col_left, col_right = st.columns(2)
 
 with col_left:
-    st.markdown('<div class="cad-card" style="min-height: 520px; display: flex; flex-direction: column; justify-content: space-between;">', unsafe_allow_html=True)
+    st.markdown('<div class="cad-card">', unsafe_allow_html=True)
     st.markdown('<div class="cad-header">📂 TECHPACK FILE UPLOADER & CONSOLE</div>', unsafe_allow_html=True)
     
-    # Khu vực tải file Techpack nằm ở nửa trên cột trái
     uploaded_file = st.file_uploader("Tải lên tệp tài liệu kỹ thuật Techpack / BOM (PDF)", type=["pdf"])
     if uploaded_file is not None:
         st.session_state.pdf_bytes = uploaded_file.read()
         st.session_state.pdf_name = uploaded_file.name
 
-    st.markdown("<div style='margin-top: 120px;'></div>", unsafe_allow_html=True)
+    st.markdown("<div style='margin-top: 20px;'></div>", unsafe_allow_html=True)
     st.markdown('<div style="font-weight: 600; color: #1e3a8a; margin-bottom: 5px;">💬 AI INPUT COMMANDS:</div>', unsafe_allow_html=True)
     
-    # Ô nhập lệnh chat ghim ngay dưới đáy của Card bên trái để đối xứng với hình bên phải
     user_prompt = st.chat_input("Gõ câu lệnh (Ví dụ: khổ 58 co rút dọc 5)...")
     st.markdown('</div>', unsafe_allow_html=True)
-# =====================================================================
-# ĐOẠN 7: BỘ THỰC THI API GEMINI VÀ RENDER BẢNG KẾT QUẢ DƯỚI CÙNG (V16.7)
-# =====================================================================
 with col_right:
-    st.markdown('<div class="cad-card" style="min-height: 520px; text-align: center;">', unsafe_allow_html=True)
+    st.markdown('<div class="cad-card">', unsafe_allow_html=True)
     st.markdown('<div class="cad-header">🎨 TECHPACK SKETCH VISUALIZER</div>', unsafe_allow_html=True)
     
-    # Hiển thị hình ảnh rập CAD ngay bên phải đối xứng cân bằng với cột trái
+    # 🟢 ĐÃ SỬA: Đẩy hình ảnh rập CAD lên trên cùng sát tiêu đề phẳng lỳ
     if st.session_state.pdf_bytes is not None:
         try:
             import fitz  
@@ -573,7 +567,6 @@ with col_right:
         st.caption("ℹ️ Hệ thống sẵn sàng kết xuất hình ảnh sau khi tải file PDF.")
     st.markdown('</div>', unsafe_allow_html=True)
 
-    # 🟢 SỬA LÕI LƯU TRỮ: Tự động tính toán dồn Yards và ghim cứng dữ liệu vào bộ nhớ đệm Session
     if user_prompt and st.session_state.pdf_bytes is not None:
         with st.spinner("🧠 AI đang bóc tách sơ đồ BOM thực tế..."):
             try:
@@ -587,12 +580,10 @@ with col_right:
                 response = model.generate_content([{"mime_type": "application/pdf", "data": st.session_state.pdf_bytes}, prompt_instruction])
                 raw_blueprint = json.loads(response.text)
                 
-                # Chạy chuỗi thuật toán toán học rập Phong Phú May
                 step_2a1 = parse_geometric_panels_allowance(raw_blueprint, user_prompt)
                 step_2a2 = execute_marker_yardage_and_quality_gate(step_2a1, user_prompt)
                 blueprint_final = allocate_fabric_consumption_and_quality_gate(step_2a2)
                 
-                # Ghim cứng kết quả tính toán vào bộ nhớ hệ thống
                 st.session_state.bom_data = blueprint_final
                 st.rerun()
             except Exception:
