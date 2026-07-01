@@ -491,10 +491,11 @@ def export_to_phong_phu_excel(bom_data, pdf_name):
         for col_idx, w in enumerate(widths): worksheet.set_column(col_idx, col_idx, w)
     return buffer.getvalue()
 # =====================================================================
-# ĐOẠN 6: GIAO DIỆN CHÍNH THỰC THI CHUẨN LAYOUT GỐC (APP FRAMEWORK)
+# ĐOẠN 6: GIAO DIỆN CHÍNH THỰC THI & CUSTOM CSS TỶ LỆ VÀNG (APPROVED)
 # =====================================================================
 st.set_page_config(layout="wide", page_title="AI Fabric Consumption Matrix")
 
+# Tích hợp CSS bọc card bo góc xám nhạt chuyên nghiệp và ghim hộp chat cân đối
 st.markdown("""
 <style>
     .cad-card {
@@ -502,7 +503,7 @@ st.markdown("""
         border: 1px solid #e2e8f0;
         border-radius: 8px;
         padding: 20px;
-        margin-top: 20px;
+        margin-top: 10px;
         box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
     }
     .cad-header {
@@ -511,8 +512,8 @@ st.markdown("""
         font-weight: 700;
         color: #0369a1;
         letter-spacing: 0.05em;
-        margin-bottom: 15px;
-        padding-bottom: 8px;
+        margin-bottom: 12px;
+        padding-bottom: 6px;
         border-bottom: 2px solid #cbd5e1;
     }
 </style>
@@ -523,37 +524,51 @@ if "chat_history" not in st.session_state: st.session_state.chat_history = []
 if "pdf_bytes" not in st.session_state: st.session_state.pdf_bytes = None
 if "pdf_name" not in st.session_state: st.session_state.pdf_name = ""
 
+# Thiết lập bảng điều khiển bên thanh Menu trái đặc trưng
+st.sidebar.markdown("### ⚙️ ENGINE CONTROLS")
+st.sidebar.markdown('<div style="background-color:#dcfce7; color:#15803d; padding:10px; border-radius:6px; font-weight:600; font-size:13px; margin-bottom:15px;">🟢 API STATUS: Hoạt động tốt.</div>', unsafe_allow_html=True)
+
+if st.sidebar.button("🗑️ CLEAR SYSTEM MEMORY", use_container_width=True):
+    st.session_state.bom_data = None
+    st.session_state.chat_history = []
+    st.session_state.pdf_bytes = None
+    st.session_state.pdf_name = ""
+    st.rerun()
+
+# 🟢 LAYOUT VÀNG: Chia hai cột đối xứng trái/phải cân bằng tuyệt đối
 col_left, col_right = st.columns(2)
 
 with col_left:
-    st.markdown('<h1 style="color:#1e3a8a; font-family:Segoe UI;">💬 CAD LIVE LOG CONSOLE</h1>', unsafe_allow_html=True)
-    st.sidebar.markdown("### ⚙️ ENGINE CONTROLS")
-    st.sidebar.markdown('<div style="background-color:#dcfce7; color:#15803d; padding:10px; border-radius:6px; font-weight:600; font-size:13px; margin-bottom:15px;">🟢 API STATUS: Hệ thống đang hoạt động trong hạn ngạch cho phép.</div>', unsafe_allow_html=True)
+    st.markdown('<div class="cad-card" style="min-height: 520px; display: flex; flex-direction: column; justify-content: space-between;">', unsafe_allow_html=True)
+    st.markdown('<div class="cad-header">📂 TECHPACK FILE UPLOADER & CONSOLE</div>', unsafe_allow_html=True)
     
-    if st.sidebar.button("🗑️ CLEAR SYSTEM MEMORY", use_container_width=True):
-        st.session_state.bom_data = None
-        st.session_state.chat_history = []
-        st.session_state.pdf_bytes = None
-        st.session_state.pdf_name = ""
-        st.rerun()
-
-    uploaded_file = st.file_uploader("📂 Tải lên tệp tài liệu kỹ thuật Techpack / BOM (PDF)", type=["pdf"])
+    # Khu vực tải file Techpack nằm ở nửa trên cột trái
+    uploaded_file = st.file_uploader("Tải lên tệp tài liệu kỹ thuật Techpack / BOM (PDF)", type=["pdf"])
     if uploaded_file is not None:
         st.session_state.pdf_bytes = uploaded_file.read()
         st.session_state.pdf_name = uploaded_file.name
 
-    user_prompt = st.chat_input("Input override commands...")
+    st.markdown("<div style='margin-top: 120px;'></div>", unsafe_allow_html=True)
+    st.markdown('<div style="font-weight: 600; color: #1e3a8a; margin-bottom: 5px;">💬 AI INPUT COMMANDS:</div>', unsafe_allow_html=True)
+    
+    # Ô nhập lệnh chat ghim ngay dưới đáy của Card bên trái để đối xứng với hình bên phải
+    user_prompt = st.chat_input("Gõ câu lệnh (Ví dụ: khổ 58 co rút dọc 5)...")
+    st.markdown('</div>', unsafe_allow_html=True)
 with col_right:
-    st.markdown('<div style="height:45px;"></div>', unsafe_allow_html=True)
+    st.markdown('<div class="cad-card" style="min-height: 520px; text-align: center;">', unsafe_allow_html=True)
+    st.markdown('<div class="cad-header">🎨 TECHPACK SKETCH VISUALIZER</div>', unsafe_allow_html=True)
+    
+    # Hiển thị hình ảnh rập CAD ngay bên phải đối xứng cân bằng với cột trái
     if st.session_state.pdf_bytes is not None:
         try:
             import fitz  
             doc = fitz.open(stream=st.session_state.pdf_bytes, filetype="pdf")
-            st.image(doc.load_page(0).get_pixmap(dpi=150).tobytes("png"), caption="🎨 Sketch Layout", use_container_width=True)
-            st.success(f"📎 BUFFERED OBJECT: {st.session_state.pdf_name} loaded successfully.")
+            st.image(doc.load_page(0).get_pixmap(dpi=150).tobytes("png"), use_container_width=True)
+            st.success(f"📎 BUFFERED OBJECT: {st.session_state.pdf_name} loaded.")
         except: pass
     else:
-        st.caption("ℹ️ Hệ thống sẵn sàng kết xuất hình ảnh phác thảo sơ đồ rập phẳng sau khi tải file.")
+        st.caption("ℹ️ Hệ thống sẵn sàng kết xuất hình ảnh sau khi tải file PDF.")
+    st.markdown('</div>', unsafe_allow_html=True)
 
     if user_prompt and st.session_state.pdf_bytes is not None:
         with st.spinner("🧠 AI đang bóc tách sơ đồ BOM thực tế..."):
@@ -578,6 +593,7 @@ with col_right:
                 st.error("💥 Lỗi xử lý tiến trình:")
                 st.code(traceback.format_exc())
 
+# --- KHU VỰC HIỂN THỊ KẾT QUẢ VÀ XUẤT FILE EXCEL PHÍA DƯỚI GIAO DIỆN MÀN HÌNH ---
 if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data:
     st.markdown('<div class="cad-card">', unsafe_allow_html=True)
     st.markdown('<div class="cad-header">📊 CALCULATED FABRIC CONSUMPTION MATRIX (BOM RESULT)</div>', unsafe_allow_html=True)
@@ -593,7 +609,8 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data:
         reason_logs = str(r.get("reason_or_logs", ""))
         
         match_w = re.search(r'Khổ vải:\s*([\d\.]+)', sys_notes)
-        if match_w: cut_width_val = f"{float(match_w.group(1))} inch"
+        if match_w:
+            cut_width_val = f"{float(match_w.group(1))} inch"
         else:
             match_w_alt = re.search(r'CutWidth:\s*([\d\.]+)', sys_notes)
             cut_width_val = f"{float(match_w_alt.group(1))} inch" if match_w_alt else "58.0 inch"
@@ -616,7 +633,8 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data:
     phong_phu_excel_bytes = export_to_phong_phu_excel(st.session_state.bom_data, st.session_state.get("pdf_name", "file.pdf"))
     
     col_label_pp, col_btn_pp = st.columns(2)
-    with col_label_pp: st.write("Dữ liệu định mức kỹ thuật đã sẵn sàng xuất bản ra file Excel theo form hệ thống:")
+    with col_label_pp: 
+        st.markdown("<p style='font-weight:600; color:#334155; margin-top:5px;'>Dữ liệu định mức kỹ thuật đã sẵn sàng xuất bản ra file Excel theo form hệ thống:</p>", unsafe_allow_html=True)
     with col_btn_pp:
         st.download_button(
             label="📥 TẢI MẪU BÁO CÁO PHONG PHÚ (.XLSX)", data=phong_phu_excel_bytes,
