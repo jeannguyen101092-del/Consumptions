@@ -558,6 +558,8 @@ with col_left:
     st.markdown('<div class="cad-header">📂 TECHPACK FILE UPLOADER & CONSOLE</div>', unsafe_allow_html=True)
     
     uploaded_file = st.file_uploader("Tải lên tệp tài liệu kỹ thuật Techpack / BOM (PDF)", type=["pdf"])
+    
+    # 🟢 CHỐT SỬA LỖI GỐC: Ghim chặt file PDF vào bộ nhớ session_state, không để bị xóa khi chat
     if uploaded_file is not None:
         st.session_state.pdf_bytes = uploaded_file.read()
         st.session_state.pdf_name = uploaded_file.name
@@ -567,6 +569,7 @@ with col_left:
     
     user_prompt = st.chat_input("Gõ câu lệnh (Ví dụ: khổ 58 co rút dọc 5)...")
     st.markdown('</div>', unsafe_allow_html=True)
+
 # =====================================================================
 # ĐOẠN 7: BỘ THỰC THI API GEMINI VÀ RENDER BẢNG KẾT QUẢ DƯỚI CÙNG (V16.8)
 # =====================================================================
