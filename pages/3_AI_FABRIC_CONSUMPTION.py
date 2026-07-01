@@ -453,10 +453,8 @@ with col_right:
     else:
         st.success(f"📎 BUFFERED OBJECT: `{st.session_state.pdf_name}` loaded successfully.")
         
-    # =====================================================================
     # LÕI KÍCH HOẠT VÀ ĐIỀU HƯỚNG TÍNH TOÁN KHI BẤM NÚT
-    # =====================================================================
-        if trigger_calc:
+    if trigger_calc:
         if "pdf_bytes" not in st.session_state:
             st.error("❌ Vui lòng upload file PDF/Techpack trước khi chạy tính toán!")
         elif st.session_state.get("api_error_status") == 429:
@@ -477,11 +475,11 @@ with col_right:
                             ]
                         }
                     
-                    # Copy deep dữ liệu gốc để tránh xung đột hoặc mất dữ liệu khi chạy lại nhiều lần
+                    # Sao chép dữ liệu để tránh ghi đè làm mất cấu trúc gốc
                     import copy
                     working_blueprint = copy.deepcopy(st.session_state.raw_blueprint)
                     
-                    # 2. CHẠY TUẦN TỰ THEO 3 PHÂN ĐOẠN ĐỘC LẬP NHƯ CŨ
+                    # 2. CHẠY TUẦN TỰ THEO 3 PHÂN ĐOẠN ĐỘC LẬP
                     st.info("⚙️ Bước 1: Tính bù trừ hình học rập (Đoạn 2a1)...")
                     step_2a1 = parse_geometric_panels_allowance(working_blueprint, user_prompt if user_prompt else "")
                     
@@ -491,7 +489,7 @@ with col_right:
                     st.info("⚙️ Bước 3: Tính toán Yards thực tế & Quality Gate (Đoạn 2b)...")
                     blueprint_final = allocate_fabric_consumption_and_quality_gate(step_2a2)
                     
-                    # 3. Lưu kết quả cuối cùng vào session_state để hiển thị lên bảng tính
+                    # 3. Lưu kết quả cuối cùng vào bộ nhớ hiển thị bảng tính
                     st.session_state.bom_data = blueprint_final
                     
                     # 4. Ghi nhận nhật ký thành công vào Live Log Console
@@ -499,8 +497,6 @@ with col_right:
                         "role": "assistant", 
                         "content": f"[SUCCESS]: Đã tính toán xong định mức cho file {st.session_state.pdf_name}."
                     })
-                    
-                    # Tải lại trang để cập nhật bảng số liệu và nút xuất Excel lên màn hình
                     st.rerun()
                     
                 except Exception as e:
@@ -508,6 +504,7 @@ with col_right:
                     st.session_state.chat_history.append({"role": "assistant", "content": f"[CRASH]: {str(e)}"})
 
     st.markdown('</div>', unsafe_allow_html=True)
+
 
 
 
