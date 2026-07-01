@@ -797,7 +797,7 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data:
         warp_default = f"{float(m_d.group(1))}%" if m_d else "5.0%"
         weft_default = f"{float(m_n.group(1))}%" if m_n else "15.0%"
 
-    # 2. Vòng lặp duyệt qua danh mục vật tư đã được phân tầng xử lý
+    # 2. Vòng lặp duyệt qua danh mục vật tư đã được xử lý
     for r in raw_rows_display:
         sys_notes = r.get("consumption_note", "")
         current_gross = r.get("calculated_gross_consumption_yds", 0.0)
@@ -841,7 +841,7 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data:
         
     df_bom = pd.DataFrame(display_data)
 
-    # Đóng gói và lưu trữ buffer xuất file Excel mẫu Phong Phú
+    # 🟢 SỬA LỖI GỐC: Gọi trực tiếp hàm xuất Excel Phong Phú đã sửa an toàn, loại bỏ đoạn viết đè ExcelWriter cũ lỗi Regex
     pdf_name_clean = st.session_state.get("pdf_name", "F25R09-490416.pdf")
     phong_phu_excel_bytes = export_to_phong_phu_excel(st.session_state.bom_data, pdf_name_clean)
     
