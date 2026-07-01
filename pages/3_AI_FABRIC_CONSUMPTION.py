@@ -26,8 +26,16 @@ LIMITS = {
 MAIN_KEYS = ("MAIN FABRIC", "MAIN", "BODY", "SHELL", "SELF FABRIC", "SELFFABRIC", "SELF-FABRIC", "FACE", "OUTER", "PRIMARY")
 THREAD_KEYS = ("CHỈ", "THREAD", "ZIPPER", "DÂY KÉO", "BUTTON", "NÚT", "SHANK", "RIVET", "LABEL", "MÁC", "TAG", "EYELETS", "SNAP", "VELCRO", "HOOK", "LOOP", "STOPPER", "TOGGLE", "BUCKLE", "GROMMET")
 POCKET_KEYS = ("POCKETING", "POCKET BAG", "POCKET", "TÚI", "TC POCKETING")
-FUSING_KEYS = ("INTERLINING", "FUSING", "MEX", "MECK", "KEO", "DỰNG") # Đã tách biệt hoàn toàn LINING độc lập
+FUSING_KEYS = ("INTERLINING", "FUSING", "MEX", "MECK", "KEO", "DỰNG") 
 DRAWSTRING_KEYS = ("DRAWSTRING", "DRAW CORD", "DRAWCORD", "DÂY RÚT", "DÂY LUỒN")
+
+# HẰNG SỐ BẮT BUỘC LOẠI TRỪ KHÔNG TÍNH ĐỊNH MỨC (ÉP VỀ 0 YDS)
+EXCLUDE_HARDWARE_KEYS = (
+    "CHỈ", "THREAD", "ZIPPER", "DÂY KÉO", "BUTTON", "NÚT", "SHANK", "RIVET", 
+    "LABEL", "MÁC", "TAG", "EYELETS", "SNAP", "VELCRO", "HOOK", "LOOP", 
+    "STOPPER", "TOGGLE", "BUCKLE", "GROMMET", "STICKER", "CARE WHITE", 
+    "HEAT STAMP", "HANGTAG", "POLYBAG", "BAO BÌ"
+)
 
 def safe_float(val, default=0.0) -> float:
     if val is None: return default
@@ -267,74 +275,96 @@ def execute_marker_yardage_and_quality_gate(ai_blueprint: dict, user_chat: str) 
 
 def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict) -> dict:
     """
-    Phân đoạn 2b: Trích xuất bộ đệm, tính toán định mức Yards thực tế chuẩn xác,
-    và áp dụng bộ gác cổng kiểm soát biên độ tiêu chuẩn PLM.
+    Phân đoạn 2b: Tính toán định mức Yards thực tế và ép định mức = 0 cho nhóm phụ liệu phần cứng,
+    chỉ tính toán định mức cho Vải chính, Keo (Fusing), Lót (Lining/Pocketing), Phối, Rib, Tape, Thun, Piping.
     """
     product_type = str(ai_blueprint.get("detected_product_type", "DEFAULT")).upper().strip()
     fabric_registry = ai_blueprint.pop("_fabric_registry_cache", {})
     processed_bom_blueprint = []
     
-    # Nạp trả phụ liệu phần cứng từ bước trước
+    # 1. Quét trước toàn bộ bom_rows để xử lý lọc các dòng phụ liệu độc lập
     all_rows = ai_blueprint.get("bom_rows", [])
+    
     for row in all_rows:
-        if "_computed_net_area_sq_in" not in row:
-            processed_bom_blueprint.append(row)
+        comp_type = str(row.get("component_type", "")).upper()
+        placement = str(row.get("placement", "")).upper()
+        f_class_raw = str(row.get("fabric_classification", "")).upper()
+        f_code = str(row.get("fabric_code", "")).upper()
 
+        # Kiểm tra dính từ khóa loại trừ (chỉ, nhãn, nút, khóa, sticker...) -> Ép định mức về bằng 0 ngay
+        if any(k in comp_type or k in placement or k in f_class_raw or k in f_code for k in EXCLUDE_HARDWARE_KEYS):
+            row["calculated_gross_consumption_yds"] = 0.0
+            row["marker_efficiency_pct"] = "N/A"
+            row["status"] = "PASS"
+            row["consumption_note"] = "Hardware Trim Bypass"
+            row["reason_or_logs"] = "Bypass hoàn toàn theo yêu cầu phòng cắt"
+            if row not in processed_bom_blueprint:
+                processed_bom_blueprint.append(row)
+
+    # 2. Tính toán định mức phân phối cho các nhóm dệt/phối/phụ liệu may mặc
     for f_id, data in fabric_registry.items():
-        if data["f_class"] != "MAIN_FABRIC":
-            for r in data["rows_to_update"]:
-                f_yds = 0.15 if product_type in ["PANT", "JORT", "CAPRI_PANT", "CARGO_PANT"] else 0.65
-                r["calculated_gross_consumption_yds"] = f_yds
-                r["marker_efficiency_pct"] = f"{round(data['eff'] * 100, 1)}%"
-                r["status"] = "PASS"
-                r["consumption_note"] = "Trim/Fusing Fixed"
-                r["panel_debug_summary"] = r.get("_panel_debug_logs", [])
-                r.pop("_computed_net_area_sq_in", None)
-                r.pop("_panel_debug_logs", None)
-                processed_bom_blueprint.append(r)
-            continue
-            
         total_area = data["accumulated_area_sq_in"]
         cutable_w = data["cutable_w"]
-        eff = data["eff"] # Nhận giá trị số thực thập phân an toàn (Ví dụ: 0.88)
-        
-        # 📌 SỬA LỖI CỐT LÕI: Công thức loại bỏ toán tử chia 100 bị lặp lại
-        base_cons = (total_area / (cutable_w * 36.0)) / eff
-        total_yds_with_self = base_cons * data["shrink_warp_f"] * data["shrink_weft_f"] * data["wastage_f"]
-        total_yds_with_self = round(total_yds_with_self, 4)
-
-        row_status = "PASS"
-        cfg = LIMITS.get(product_type, LIMITS["DEFAULT"])
-        min_allow, max_allow = cfg["range"]
-        high_ceiling = max_allow 
-        
-        if total_yds_with_self > high_ceiling:
-            row_status = "CRITICAL_HIGH_CONSUMPTION"
-            exceed_val = round(total_yds_with_self - high_ceiling, 2)
-            log_output = f"{int(data['w_saved'])}\"/{round(eff*100,1)}%/{int(data['s_l_saved'])}x{int(data['s_w_saved'])} | Rập {f_id}: {round(total_area,1)} sq_in. 🔴 VƯỢT TRẦN TIÊU CHUẨN (+{exceed_val} yds)"
-        elif total_yds_with_self < min_allow:
-            row_status = "LOW_CONSUMPTION_WARNING"
-            log_output = f"{int(data['w_saved'])}\"/{round(eff*100,1)}%/{int(data['s_l_saved'])}x{int(data['s_w_saved'])} | Rập {f_id}: {round(total_area,1)} sq_in. 🔵 ĐỊNH MỨC THẤP DƯỚI BIÊN ĐỘ"
-        elif total_yds_with_self > cfg["warn_thresh"]:
-            row_status = "HIGH_CONSUMPTION_WARNING"
-            log_output = f"{int(data['w_saved'])}\"/{round(eff*100,1)}%/{int(data['s_l_saved'])}x{int(data['s_w_saved'])} | Rập {f_id}: {round(total_area,1)} sq_in. 🟡 CẢNH BÁO PLM"
-        else:
-            log_output = f"{int(data['w_saved'])}\"/{round(eff*100,1)}%/{int(data['s_l_saved'])}x{int(data['s_w_saved'])} | Rập {f_id}: {round(total_area,1)} sq_in. 🟢 ĐẠT TIÊU CHUẨN MAY"
+        eff = data["eff"]
+        f_class_norm = data["f_class"]
 
         for row in data["rows_to_update"]:
-            row["calculated_gross_consumption_yds"] = total_yds_with_self
+            comp_type = str(row.get("component_type", "")).upper()
+            placement = str(row.get("placement", "")).upper()
+            f_code = str(row.get("fabric_code", "")).upper()
+
+            # Chặn rò rỉ nếu dòng vật tư phụ nằm lẫn lộn trong nhóm fabric id
+            if any(k in comp_type or k in placement or k in f_code for k in EXCLUDE_HARDWARE_KEYS):
+                row["calculated_gross_consumption_yds"] = 0.0
+                row["marker_efficiency_pct"] = "N/A"
+                row["status"] = "PASS"
+                row["consumption_note"] = "Hardware Trim Bypass"
+                if row not in processed_bom_blueprint:
+                    processed_bom_blueprint.append(row)
+                continue
+
+            # Thực hiện tính toán định mức Yards dựa trên phân tầng nguyên vật liệu
+            if f_class_norm == "MAIN_FABRIC":
+                # Vải chính: Tính toán dựa trên diện tích hình học rập thật từ CAD
+                base_cons = (total_area / (cutable_w * 36.0)) / eff
+                total_yds = base_cons * data["shrink_warp_f"] * data["shrink_weft_f"] * data["wastage_f"]
+                total_yds = round(total_yds, 4)
+                row_status = "PASS"
+                
+                # Cổng kiểm duyệt chất lượng PLM
+                cfg = LIMITS.get(product_type, LIMITS["DEFAULT"])
+                min_allow, max_allow = cfg["range"]
+                
+                if total_yds > max_allow: row_status = "CRITICAL_HIGH_CONSUMPTION"
+                elif total_yds < min_allow: row_status = "LOW_CONSUMPTION_WARNING"
+                elif total_yds > cfg["warn_thresh"]: row_status = "HIGH_CONSUMPTION_WARNING"
+                
+                row["calculated_gross_consumption_yds"] = total_yds
+                row["status"] = row_status
+                row["consumption_note"] = f"Mode: AREA | CutWidth: {cutable_w}\" | Check: {row_status}"
+                
+            else:
+                # Định mức kỹ thuật cố định áp cho nhóm Keo lót / Rib / Tape / Thun / Piping
+                if f_class_norm in ["FUSING", "LINING", "POCKETING"] or any(x in comp_type for x in ["TAPE", "RIB", "THUN", "PIPING", "PHỐI"]):
+                    f_yds = 0.15 if product_type in ["PANT", "JORT", "CAPRI_PANT", "CARGO_PANT"] else 0.65
+                else:
+                    f_yds = 0.0
+                
+                row["calculated_gross_consumption_yds"] = f_yds
+                row["status"] = "PASS"
+                row["consumption_note"] = "Component Fixed Allocation"
+
             row["marker_efficiency_pct"] = f"{round(eff * 100, 1)}%"
-            row["status"] = row_status
-            row["consumption_note"] = f"Mode: AREA | CutWidth: {cutable_w}\" | Check: {row_status}"
-            row["reason_or_logs"] = log_output
             row["panel_debug_summary"] = row.get("_panel_debug_logs", [])
-            
             row.pop("_computed_net_area_sq_in", None)
             row.pop("_panel_debug_logs", None)
-            processed_bom_blueprint.append(row)
+            
+            if row not in processed_bom_blueprint:
+                processed_bom_blueprint.append(row)
 
     ai_blueprint["bom_rows"] = processed_bom_blueprint
     return ai_blueprint
+
 
 
 # =====================================================================
