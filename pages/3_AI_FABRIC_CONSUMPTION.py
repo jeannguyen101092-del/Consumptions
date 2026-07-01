@@ -386,10 +386,8 @@ def execute_marker_yardage_and_quality_gate(ai_blueprint: dict, user_chat: str) 
         words = chat_text.split()
         for idx, word in enumerate(words):
             if word in ["khổ", "kho"] and idx + 1 < len(words):
-                try:
-                    width = float(words[idx+1].replace('"', '').replace('inch', ''))
-                except ValueError:
-                    pass
+                try: width = float(words[idx+1].replace('"', '').replace('inch', ''))
+                except ValueError: pass
         for idx, word in enumerate(words):
             if word in ["dọc", "doc"] and idx + 1 < len(words):
                 try: warp = float(words[idx+1].replace("%", ""))
@@ -407,14 +405,12 @@ def execute_marker_yardage_and_quality_gate(ai_blueprint: dict, user_chat: str) 
                     parts = word.split("-")
                     if len(parts) == 2:
                         try:
-                            warp = float(parts.replace("%", ""))
-                            weft = float(parts.replace("%", ""))
-                        except ValueError: 
-                            pass
+                            warp = float(parts[0].replace("%", ""))
+                            weft = float(parts[1].replace("%", ""))
+                        except ValueError: pass
         return width, warp, weft
 
     w_main, s_l_main, s_w_main = parse_specs_safe(chat_clean)
-
     for row in all_rows:
         if not row or not isinstance(row, dict) or "_computed_net_area_sq_in" not in row: 
             continue
@@ -461,9 +457,6 @@ def execute_marker_yardage_and_quality_gate(ai_blueprint: dict, user_chat: str) 
 
     ai_blueprint["_fabric_registry_cache"] = fabric_registry
     return ai_blueprint
-# =====================================================================
-# ĐOẠN 2b: PHÂN BỔ ĐỊNH MỨC THEO FABRIC ID & KIỂM SOÁT THỰC TẾ (V16.5)
-# =====================================================================
 
 def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict) -> dict:
     """
@@ -497,7 +490,6 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict) -> dict:
             row["reason_or_logs"] = "Bypass hoàn toàn theo yêu cầu"
             if row not in processed_bom_blueprint:
                 processed_bom_blueprint.append(row)
-
     for f_id, data in fabric_registry.items():
         if not data or not isinstance(data, dict): continue
         
@@ -581,6 +573,7 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict) -> dict:
 
     ai_blueprint["bom_rows"] = processed_bom_blueprint
     return ai_blueprint
+
 
 
 
