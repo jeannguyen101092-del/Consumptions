@@ -513,34 +513,89 @@ def parse_and_prepare_ie_panels(all_rows: list, product_type: str, user_prompt: 
 # =====================================================================
 # ĐOẠN 2b2: LÕI TOÁN HỌC PHÂN BỔ ĐỊNH MỨC & SỬA LỖI ĐỘNG KÍCH SỐ CARGO (V17.0.2.2 APPROVED)
 # =====================================================================
+# =====================================================================
+# ĐOẠN 2b2 - PHẦN A: KHỞI TẠO MA TRẬN ĐỘNG & NHẬN DIỆN CHỦNG LOẠI HÀNG
+# =====================================================================
 
 def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict, user_prompt: str = "") -> dict:
     """
-    Phân đoạn 2b2: Chạy công thức tính toán định mức dải sơ đồ lồng rập Cargo chuẩn nhà máy.
-    V17.0.2.2 FIXED LỖI KÍCH SỐ SƠ ĐỒ LỒNG GHÉP VẢI CHÍNH QUẦN CARGO
+    Phân đoạn 2b2: Bộ phân bổ định mức kỹ thuật đa chủng loại thích ứng động (Adaptive IE Engine).
+    Nâng cấp V17.6: Tích hợp ma trận hiệu suất sơ đồ động (Dynamic Marker Efficiency Matrix).
     """
     import streamlit as st
+    import re
+    import copy
+
+    # 1. KHỞI TẠO MA TRẬN HIỆU SUẤT SƠ ĐỒ ĐỘNG THEO CHỦNG LOẠI HÀNG (MARKER EFF CONFIG)
+    MARKER_EFF_CONFIG = {
+        "TSHIRT":      {"base": 0.88, "max": 0.92, "edge": 1.02, "warn": 1.4, "crit": 1.8},
+        "POLO":        {"base": 0.87, "max": 0.91, "edge": 1.02, "warn": 1.4, "crit": 1.8},
+        "SHIRT":       {"base": 0.85, "max": 0.90, "edge": 1.02, "warn": 1.4, "crit": 1.8},
+        "PANT":        {"base": 0.85, "max": 0.90, "edge": 1.03, "warn": 1.6, "crit": 1.8},
+        "CARGO_PANT":  {"base": 0.84, "max": 0.89, "edge": 1.03, "warn": 1.7, "crit": 1.9},
+        "SHORT":       {"base": 0.88, "max": 0.92, "edge": 1.02, "warn": 1.2, "crit": 1.45},
+        "JACKET":      {"base": 0.82, "max": 0.88, "edge": 1.05, "warn": 2.4, "crit": 2.8},
+        "HOODIE":      {"base": 0.84, "max": 0.89, "edge": 1.04, "warn": 2.2, "crit": 2.6},
+        "DRESS":       {"base": 0.83, "max": 0.88, "edge": 1.04, "warn": 2.8, "crit": 3.3},
+        "JEAN":        {"base": 0.84, "max": 0.89, "edge": 1.03, "warn": 1.8, "crit": 2.1},
+        "CHILDREN":    {"base": 0.91, "max": 0.95, "edge": 1.01, "warn": 0.8, "crit": 1.2},
+        "DEFAULT":     {"base": 0.85, "max": 0.90, "edge": 1.03, "warn": 1.62, "crit": 1.80}
+    }
+
+    global IE_CONSTANTS, EXCLUDE_HARDWARE_KEYS
+    if "IE_CONSTANTS" not in globals():
+        IE_CONSTANTS = {
+            "DEFAULT_WIDTH_MAIN": 58.0, "DEFAULT_WIDTH_FUSING": 44.0, 
+            "DEFAULT_WIDTH_LINING": 56.0, "DEFAULT_WIDTH_ELASTIC": 2.0,
+            "FIXED_EFF_TRIMS": 0.85, "WASTAGE_FACTOR": 1.05
+        }
+    if "EXCLUDE_HARDWARE_KEYS" not in globals():
+        EXCLUDE_HARDWARE_KEYS = ["ZIPPER", "BUTTON", "RIVET", "BUCKLE", "SNAP", "HOOK"]
+
+    def ie_safe_float(val, fallback=0.0):
+        try: return float(val) if val is not None else fallback
+        except: return fallback
 
     if not ai_blueprint or not isinstance(ai_blueprint, dict):
         return {"detected_product_type": "CARGO_PANT", "bom_rows": []}
 
+    # 2. NHẬN DIỆN CHỦNG LOẠI SẢN PHẨM & TRÍCH XUẤT THÔNG SỐ ĐỘNG
     product_type = str(ai_blueprint.get("detected_product_type", "DEFAULT")).upper().strip()
-    fabric_registry = ai_blueprint.get("_fabric_registry_cache", {})
-    if not fabric_registry or not isinstance(fabric_registry, dict): 
-        fabric_registry = {}
-        
-    all_rows = ai_blueprint.get("bom_rows", [])
-    if not all_rows or not isinstance(all_rows, list): 
-        all_rows = []
+    
+    # Định tuyến tìm cấu hình phù hợp trong ma trận MARKER_EFF_CONFIG
+    matched_cfg = MARKER_EFF_CONFIG["DEFAULT"]
+    for key, cfg in MARKER_EFF_CONFIG.items():
+        if key in product_type:
+            matched_cfg = cfg
+            break
 
-    # 1. Gọi Phân đoạn 2b1 để bóc tách thông số hình học BTP thô và số Eff chỉ định từ ô chat
-    prepared_rows, user_requested_eff = parse_and_prepare_ie_panels(all_rows, product_type, user_prompt)
+    # Gán biến điều khiển toán học từ cấu hình tra cứu được
+    base_eff = matched_cfg["base"]
+    max_allowed_eff = matched_cfg["max"]
+    edge_allowance = matched_cfg["edge"]
+    warn_thresh = matched_cfg["warn"]
+    critical_thresh = matched_cfg["crit"]
 
-    # Khởi tạo kho lưu trữ tích lũy luỹ kế dòng vật tư trong session chống lặp dòng
+    # Thiết lập dải dập biên an toàn (min_len, max_len) theo từng dòng sản phẩm
+    if "JACKET" in product_type: min_len, max_len, fallback_len = 24.0, 38.0, 30.0
+    elif "DRESS" in product_type: min_len, max_len, fallback_len = 35.0, 65.0, 48.0
+    elif "SHORT" in product_type: min_len, max_len, fallback_len = 12.0, 26.0, 18.0
+    else: min_len, max_len, fallback_len = 24.0, 52.0, 41.5
+
+    fabric_registry = ai_blueprint.get("_fabric_registry_cache", {}) or {}
+    all_rows = ai_blueprint.get("bom_rows", []) or []
+
+    if "parse_and_prepare_ie_panels" in globals():
+        prepared_rows, user_requested_eff = parse_and_prepare_ie_panels(all_rows, product_type, user_prompt)
+    else:
+        prepared_rows = copy.deepcopy(all_rows)
+        user_requested_eff = None
+
     if "accumulated_bom_rows" not in st.session_state:
         st.session_state.accumulated_bom_rows = {}
+    # 3. VÒNG LẶP PHÂN BỔ ĐỊNH MỨC VÀ KIỂM SOÁT QUALITY GATE (TIẾP THEO)
+    processed_bom_rows = []
 
-    # 2. VÒNG LẶP TOÁN HỌC HÌNH HỌC IE CẢI TIẾN ĐỒNG BỘ MẮT THẦN AI
     for row in prepared_rows:
         comp_type = str(row.get("component_type", "")).upper().strip()
         placement = str(row.get("placement", "")).upper().strip()
@@ -548,143 +603,106 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict, user_prompt
         f_code = str(row.get("fabric_code", "")).upper().strip()
         f_color = str(row.get("fabric_color", "")).upper().strip()
 
-        # Loại bỏ phần cứng bằng bộ hằng số cấp module (EXCLUDE_HARDWARE_KEYS)
+        # Loại bỏ phụ liệu cứng dệt thoi (Bypass Hardware Trim)
         if any(k in comp_type or k in placement or k in f_class_raw or k in f_code for k in EXCLUDE_HARDWARE_KEYS if k):
             row["calculated_gross_consumption_yds"] = 0.0
             row["marker_efficiency_pct"] = "N/A"
             row["consumption_note"] = "Hardware Trim Bypass"
             row["reason_or_logs"] = "Bypass"
             st.session_state.accumulated_bom_rows[f"HARDWARE_{f_code}"] = row
+            processed_bom_rows.append(row)
             continue
 
-        # Đọc lại các biến trạng thái hình học đã được chuẩn bị từ Đoạn 2b1
-        is_fusing = row["_is_fusing"]
-        is_lining = row["_is_lining"]
-        is_elastic_or_tape = row["_is_elastic_or_tape"]
-        total_panel_area = row["_btp_total_panel_area"]
-        total_piece_count = row["_btp_total_piece_count"]
+        is_fusing = row.get("_is_fusing", False)
+        is_lining = row.get("_is_lining", False)
+        is_elastic_or_tape = row.get("_is_elastic_or_tape", False)
+        total_panel_area = ie_safe_float(row.get("_btp_total_panel_area", 0.0))
+        total_piece_count = ie_safe_float(row.get("_btp_total_piece_count", 0.0))
 
-        # Duyệt động tìm chi tiết rập dài nhất (Thân quần ~41-43 inch) 
+        # Trích xuất chiều dài rập động lớn nhất của mã hàng
         max_piece_length = 0.0
         panels = row.get("panels_catalog", [])
         if panels and isinstance(panels, list):
             lengths = [ie_safe_float(p.get("piece_length_inch"), 0.0) for p in panels if isinstance(p, dict)]
             if lengths:
-                raw_max = max(lengths)
-                # Nếu chi tiết dài nhất nằm trong dải outseam quần hợp lệ (30 - 48 inch), khóa làm móng dải sơ đồ LINEAR
-                if 30.0 <= raw_max <= 48.0:
-                    max_piece_length = raw_max
-                else:
-                    # Nếu AI bóc tách bị lỗi, lọc lấy số lớn nhất nằm trong dải quần dài thực tế
-                    valid_lengths = [l for l in lengths if 30.0 <= l <= 48.0]
-                    max_piece_length = max(valid_lengths) if valid_lengths else 41.5
+                valid_lengths = [l for l in lengths if min_len <= l <= max_len]
+                max_piece_length = max(valid_lengths) if valid_lengths else (max(lengths) if max(lengths) < 100.0 else fallback_len)
 
-        # Thiết lập khóa định danh rút gọn để ép gộp dòng phụ liệu triệt tiêu lỗi lặp dòng vĩnh viễn
-        if is_fusing:
-            row_unique_key = f"FUSING_TOTAL_{f_code}"
-            default_width = IE_CONSTANTS["DEFAULT_WIDTH_FUSING"]
-        elif is_lining:
-            row_unique_key = f"LINING_TOTAL_{f_code}"
-            default_width = IE_CONSTANTS["DEFAULT_WIDTH_LINING"]
-        elif is_elastic_or_tape:
-            row_unique_key = f"ELASTIC_TOTAL_{f_code}"
-            default_width = IE_CONSTANTS["DEFAULT_WIDTH_ELASTIC"]
-        else:
-            row_unique_key = f"MAIN_FABRIC_TOTAL_{f_code}_{f_color}"
-            default_width = IE_CONSTANTS["DEFAULT_WIDTH_MAIN"]
+        # Áp khổ vải mặc định theo phân loại cấu trúc phụ liệu mềm
+        if is_fusing: default_width = IE_CONSTANTS["DEFAULT_WIDTH_FUSING"]
+        elif is_lining: default_width = IE_CONSTANTS["DEFAULT_WIDTH_LINING"]
+        elif is_elastic_or_tape: default_width = IE_CONSTANTS["DEFAULT_WIDTH_ELASTIC"]
+        else: default_width = IE_CONSTANTS["DEFAULT_WIDTH_MAIN"]
 
-        row["fabric_width_inch"] = row.get("fabric_width_inch", default_width) if row.get("fabric_width_inch", 0) > 0 else default_width
+        row["fabric_width_inch"] = row.get("fabric_width_inch", default_width) if ie_safe_float(row.get("fabric_width_inch", 0)) > 0 else default_width
+        current_width_val = row["fabric_width_inch"]
 
-        # Lookup Dictionary tốc độ cao bảo vệ RAM hệ thống
-        matched_cache_data = fabric_registry.get(f"{f_code}_{f_color}_TWO_WAY_0")
-        if not matched_cache_data:
-            matched_cache_data = next((c_data for f_id, c_data in fabric_registry.items() if f_code in f_id or f_class_raw in f_id), None)
+        # Tra cứu tỷ lệ co rút dệt phẳng (Shrinkage Lookup)
+        matched_cache_data = fabric_registry.get(f"{f_code}_{f_color}_TWO_WAY_0") or next((c_data for f_id, c_data in fabric_registry.items() if f_code in f_id or f_class_raw in f_id), None)
+        shrink_warp = matched_cache_data.get("shrink_warp_f", 1.03) if matched_cache_data else 1.03
+        shrink_weft = matched_cache_data.get("shrink_weft_f", 1.03) if matched_cache_data else 1.03
 
-        is_processed = False
+        # Khóa Unique Key an toàn tuyệt đối chống gộp nhầm chất liệu phối dệt
+        shrink_id_str = f"S{int(shrink_warp*100)}X{int(shrink_weft*100)}"
+        if is_fusing: row_unique_key = f"FUSING_TOTAL_{f_code}_W{int(current_width_val)}_{shrink_id_str}"
+        elif is_lining: row_unique_key = f"LINING_TOTAL_{f_code}_W{int(current_width_val)}_{shrink_id_str}"
+        elif is_elastic_or_tape: row_unique_key = f"ELASTIC_TOTAL_{f_code}_W{int(current_width_val)}"
+        else: row_unique_key = f"MAIN_FABRIC_{f_code}_{f_color}_W{int(current_width_val)}_{shrink_id_str}"
+
         if total_panel_area > 5.0:
-            is_processed = True
-            cutable_w = row["fabric_width_inch"]
-            
-            # Cấu hình hiệu suất sơ đồ động tỷ lệ nghịch định mức
+            # Đồng bộ hóa hiệu suất sơ đồ thích ứng
             if user_requested_eff is not None:
-                eff = user_requested_eff
+                eff = max(0.75, min(user_requested_eff, max_allowed_eff))
             else:
                 if not is_fusing and not is_lining and not is_elastic_or_tape:
-                    # Thuật toán cộng thưởng hiệu suất theo lượng chi tiết rập (Filler Bonus)
+                    # Thuật toán tăng Eff tuyến tính dựa trên mật độ chi tiết dập (Piece-count yield bonus)
                     bonus_eff = min(0.08, (total_piece_count - 4) * 0.008) if total_piece_count > 4 else 0.0
-                    eff = min(IE_CONSTANTS["MAX_ALLOWED_EFF"], IE_CONSTANTS["BASE_MARKER_EFF"] + bonus_eff)
+                    eff = min(max_allowed_eff, base_eff + bonus_eff)
                 else:
                     eff = IE_CONSTANTS["FIXED_EFF_TRIMS"]
-                
+                    
             row["marker_efficiency_pct"] = f"{round(eff * 100, 1)}%"
-            shrink_warp = matched_cache_data.get("shrink_warp_f", 1.03) if matched_cache_data else 1.03
             
-            # 🌟 CHỐT SỬA LỖI ĐIỀU KIỆN CHẶN: Ép hệ thống dùng thuật toán sơ đồ dài nếu rập thuộc nhóm quần dài
-            is_garment_pant = (product_type in ["PANT", "CARGO_PANT", "DEFAULT"] or "PANT" in product_type or max_piece_length > 30.0)
-            
-            if is_garment_pant and not is_fusing and not is_lining and not is_elastic_or_tape:
-                # 🟢 Thuật toán sơ đồ dải lồng rập: Tính theo chiều dài outseam chuẩn, chi tiết túi xếp chen khoảng hở
+            # Tiến hành chạy công thức toán học phân bổ định mức công nghiệp
+            if max_piece_length >= min_len and not is_fusing and not is_lining and not is_elastic_or_tape:
                 total_yds = (max_piece_length / 36.0) * shrink_warp * IE_CONSTANTS["WASTAGE_FACTOR"] / eff
-                total_yds *= IE_CONSTANTS["DUNG_SAI_BIEN_CARGO"]
-                
-                # Bẫy bảo vệ giới hạn rập lỗi hệ thống
-                if total_yds > 1.62:
-                    total_yds = IE_CONSTANTS["FALLBACK_MAIN_CONS"]
+                total_yds *= edge_allowance
+                row["consumption_note"] = f"Calculated by Max Piece Length (Adaptive Matrix for {product_type})"
             else:
-                # Các cụm phụ liệu tính gộp diện tích hình chữ nhật bao phủ phẳng
-                total_yds = (total_panel_area / (cutable_w * 36.0)) / eff * shrink_warp * IE_CONSTANTS["WASTAGE_FACTOR"]
-                
-            row["calculated_gross_consumption_yds"] = round(total_yds, 4)
-            row["consumption_note"] = f"Khổ vải: {cutable_w}\" | Sơ đồ dải thông minh lồng ghép chi tiết túi Cargo"
-            row["reason_or_logs"] = f"{cutable_w}\"/{row['marker_efficiency_pct']}/{round((shrink_warp-1)*100,1)}x0.0"
+                denom = (current_width_val * 36.0 * eff)
+                total_yds = (total_panel_area / denom) * shrink_warp * shrink_weft * IE_CONSTANTS["WASTAGE_FACTOR"] if denom > 0 else 0.0
+                row["consumption_note"] = "Calculated by Surface Area Yield"
 
-            # HỆ THỐNG QUALITY GATE ĐA TẦNG KIỂM SOÁT ĐẦU RA (PASS / WARN / CRITICAL)
-            if is_garment_pant and not is_fusing and not is_lining and not is_elastic_or_tape:
-                if total_yds >= IE_CONSTANTS["CRITICAL_PANT_THRESHOLD"]:
-                    row["status"] = "CRITICAL"
-                    row["consumption_note"] += " | 🔴 NGUY HIỂM: Định mức vượt trần nghiêm trọng!"
-                elif total_yds >= IE_CONSTANTS["WARN_PANT_THRESHOLD"]:
-                    row["status"] = "WARN"
-                    row["consumption_note"] += " | ⚠️ CẢNH BÁO: Định mức cao hơn dải an toàn"
-                else:
-                    row["status"] = "PASS"
+            total_yds = round(total_yds, 4)
+            row["calculated_gross_consumption_yds"] = total_yds
 
-        # Khối Fallback an toàn dựa trên bộ hằng số khi bảng Spec trống tài liệu
-        if not is_processed:
-            if is_fusing:
-                row["calculated_gross_consumption_yds"] = IE_CONSTANTS["FALLBACK_FUSING_CONS"]
-                row["consumption_note"] = f"Khổ mếch: {row['fabric_width_inch']}\" | Mex Keo tiêu chuẩn BTP"
-                row["reason_or_logs"] = f"{row['fabric_width_inch']}\"/85.0%/0.0x0.0"
-            elif is_lining:
-                row["calculated_gross_consumption_yds"] = IE_CONSTANTS["FALLBACK_LINING_CONS"]
-                row["consumption_note"] = f"Khổ lót: {row['fabric_width_inch']}\" | Lũy kế 4 Túi lót (Trước + Sau)"
-                row["reason_or_logs"] = f"{row['fabric_width_inch']}\"/85.0%/0.0x0.0"
-            elif is_elastic_or_tape:
-                row["calculated_gross_consumption_yds"] = IE_CONSTANTS["FALLBACK_ELASTIC_CONS"]
-                row["consumption_note"] = "Bản thun: 1.5\" | Định mức Chun cạp quần luồn BTP"
-                row["reason_or_logs"] = "1.5\"/95.0%/0.0x0.0"
-                row["marker_efficiency_pct"] = "95.0%"
+            # Áp dụng bộ lọc Quality Gate theo dải động
+            if total_yds >= critical_thresh:
+                row["quality_gate_status"] = "CRITICAL"
+                row["reason_or_logs"] = f"Yield {total_yds} Yds exceeds critical limit ({critical_thresh}) for {product_type}."
+            elif total_yds >= warn_thresh:
+                row["quality_gate_status"] = "WARNING"
+                row["reason_or_logs"] = f"Yield {total_yds} Yds exceeds tolerance ({warn_thresh}) for {product_type}."
             else:
-                row["calculated_gross_consumption_yds"] = IE_CONSTANTS["FALLBACK_MAIN_CONS"]
-                row["consumption_note"] = f"Khổ vải: {row['fabric_width_inch']}\" | Dự phòng hệ thống (Trống bảng Spec)"
-                row["reason_or_logs"] = f"{row['fabric_width_inch']}\"/87.0%/3.0x3.0"
-            
-            if not is_elastic_or_tape:
-                row["marker_efficiency_pct"] = f"{round(IE_CONSTANTS['FIXED_EFF_TRIMS']*100,1)}%" if (is_fusing or is_lining) else "87.0%"
-            row["status"] = "PASS"
+                row["quality_gate_status"] = "PASSED"
+                row["reason_or_logs"] = "Passed internal mathematical constraints validation."
 
-        # Loại bỏ các biến tạm nội bộ trước khi xuất dữ liệu ra bảng hiển thị để làm sạch cấu trúc JSON
-        for tmp_key in ["_btp_max_piece_length", "_btp_total_panel_area", "_btp_total_piece_count", "_is_fusing", "_is_lining", "_is_elastic_or_tape"]:
-            if tmp_key in row: del row[tmp_key]
+            # Thực hiện tích lũy và cộng dồn định mức theo nhóm Key đồng nhất
+            if row_unique_key in st.session_state.accumulated_bom_rows:
+                existing_row = st.session_state.accumulated_bom_rows[row_unique_key]
+                existing_row["calculated_gross_consumption_yds"] = round(existing_row["calculated_gross_consumption_yds"] + total_yds, 4)
+                row = existing_row
+            else:
+                st.session_state.accumulated_bom_rows[row_unique_key] = row
+        else:
+            row["calculated_gross_consumption_yds"] = 0.0
+            row["marker_efficiency_pct"] = "N/A"
+            row["quality_gate_status"] = "SKIPPED"
+            row["reason_or_logs"] = "Component area too trivial."
 
-        row["panel_debug_summary"] = row.get("_panel_debug_logs", [])
-        st.session_state.accumulated_bom_rows[row_unique_key] = row
+        processed_bom_rows.append(row)
 
-    # Đổ kho dữ liệu lũy kế sạch ra ngoài bảng render giao diện
-
-
-    # Đổ kho dữ liệu lũy kế sạch ra ngoài bảng render giao diện
-    ai_blueprint["bom_rows"] = list(st.session_state.accumulated_bom_rows.values())
+    ai_blueprint["bom_rows"] = processed_bom_rows
     return ai_blueprint
 
 
