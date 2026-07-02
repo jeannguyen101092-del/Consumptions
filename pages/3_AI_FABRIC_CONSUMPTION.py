@@ -676,7 +676,7 @@ with col_left:
     st.markdown('</div>', unsafe_allow_html=True)
 
 # =====================================================================
-# ĐOẠN 7a: KHỐI THỰC THI API GEMINI QUÉT THÔNG SỐ SPEC THỰC TẾ (V16.9.9.5 UPGRADED)
+# ĐOẠN 7a: KHỐI THỰC THI API GEMINI QUÉT ĐA TRANG ĐỂ LẤY BẢNG BOM VÀ SPEC (V16.9.9.6)
 # =====================================================================
 with col_right:
     st.markdown('<div class="cad-card">', unsafe_allow_html=True)
@@ -686,10 +686,18 @@ with col_right:
         try:
             import fitz  
             doc = fitz.open(stream=st.session_state.pdf_bytes, filetype="pdf")
+            # Vẫn hiển thị trang bìa (Trang 1) lên giao diện để xem hình ảnh trực quan
             st.image(doc.load_page(0).get_pixmap(dpi=150).tobytes("png"), use_container_width=True)
-            st.success(f"📎 BUFFERED OBJECT: {st.session_state.pdf_name} loaded.")
+            st.success(f"📎 BUFFERED OBJECT: {st.session_state.pdf_name} loaded ({len(doc)} trang).")
+            
+            # 🌟 VÒNG LẶP ĐỌC ĐA TRANG: Gom toàn bộ nội dung chữ từ tất cả các trang PDF
+            full_techpack_text = ""
+            for page_num in range(len(doc)):
+                full_techpack_text += f"\n--- TRANG THỨ {page_num + 1} ---\n"
+                full_techpack_text += doc.load_page(page_num).get_text("text")
+                
         except Exception: 
-            pass
+            full_techpack_text = ""
     else:
         st.caption("ℹ️ Hệ thống sẵn sàng kết xuất hình ảnh sau khi tải file PDF.")
     st.markdown('</div>', unsafe_allow_html=True)
@@ -701,7 +709,7 @@ with col_right:
     # LUỒNG TRIGGER TỰ ĐỘNG: Chạy khi có file PDF và chưa có dữ liệu hoặc có lệnh mới
     if st.session_state.pdf_bytes is not None:
         if "bom_data" not in st.session_state or safe_user_prompt:
-            with st.spinner("🧠 AI CORE: Đang quét bảng thông số Spec thực tế từ PDF..."):
+            with st.spinner("🧠 AI CORE: Đang quét toàn bộ các trang để tìm bảng BOM & Spec..."):
                 try:
                     import google.generativeai as genai
                     import json, copy, traceback, re
@@ -715,19 +723,20 @@ with col_right:
                         generation_config={"response_mime_type": "application/json"}
                     )
                     
-                    # PROMPT CHUYÊN SÂU: Ép đọc bảng Spec lấy kích thước thực tế để tính diện tích thật
+                    # PROMPT ĐÃ ĐƯỢC THAY ĐỔI: Ép đọc dữ liệu Text tổng hợp từ tất cả các trang sau
                     prompt_instruction = f"""
-                    You are an expert apparel IE system. Your task is to extract exact geometric measurement specifications from the Techpack PDF to calculate accurate fabric consumption.
+                    You are an expert apparel IE system. Analyze the following full text extracted from all pages of the Techpack PDF.
+                    Your goal is to scan through ALL pages to find the exact "BOM (Bill of Materials)" table and "SIZE SPECIFICATION" sheet.
                     
-                    CRITICAL INSTRUCTION:
-                    1. Locate the "SIZE SPECIFICATION", "MEASUREMENT SHEET", or "BOM" table inside the PDF.
-                    2. Identify the core measurement values for the base size (specifically: Outseam / Total Length, Hip Width, Waistband Width, Leg Opening).
-                    3. For each main fabric component (FRONT BODY, BACK BODY, WAISTBAND, POCKET), you MUST generate a corresponding object inside the "panels_catalog" array using those exact extracted physical dimensions from the text.
+                    DATA PROVIDED FROM TECHPACK:
+                    {full_techpack_text}
                     
-                    Do NOT leave "panels_catalog" empty. If exact polygon coordinates are missing, you MUST create standard rectangular garment bounding boxes using the extracted measurements:
-                    - FRONT_PANEL: piece_length_inch = Extracted Outseam length, piece_width_inch = Extracted Hip width * 0.5
-                    - BACK_PANEL: piece_length_inch = Extracted Outseam length, piece_width_inch = (Extracted Hip width * 0.5) + 1.0
-                    - WAISTBAND: piece_length_inch = Extracted Waist width * 2, piece_width_inch = 2.5
+                    CRITICAL EXTRACTION INSTRUCTION:
+                    1. Read through all pages. Look for the "FABRIC" or "MAIN MATERIAL" rows in the BOM section (usually on page 2 or 3) to extract the real fabric_code, fabric_color, and useful fabric_width.
+                    2. Look for the "SIZE SPECIFICATION" table to extract the real physical measurement values for the base sample size (specifically: Outseam / Total Length, Hip Width, Waist width).
+                    3. Generate standard dynamic rectangular bounding boxes for "panels_catalog" using those REAL extracted dimensions:
+                       - FRONT_PANEL: piece_length_inch = Extracted Outseam length, piece_width_inch = Extracted Hip width * 0.5
+                       - BACK_PANEL: piece_length_inch = Extracted Outseam length, piece_width_inch = (Extracted Hip width * 0.5) + 1.0
                     
                     Return ONLY a valid JSON object matching this strict structure:
                     {{
@@ -738,15 +747,15 @@ with col_right:
                           "component_type": "MAIN FABRIC",
                           "placement": "BODY",
                           "fabric_classification": "MAIN_FABRIC",
-                          "fabric_code": "D-32777",
-                          "fabric_color": "LIGHT ORANGE",
+                          "fabric_code": "PUT_REAL_EXTRACTED_FABRIC_CODE_HERE",
+                          "fabric_color": "PUT_REAL_EXTRACTED_COLOR_HERE",
                           "panels_catalog": [
                             {{
                               "panel_name": "FRONT_PANEL",
                               "panel_type": "FRONT",
                               "piece_count": 2.0,
                               "piece_length_inch": 40.0,
-                              "piece_width_inch": 10.5,
+                              "piece_width_inch": 11.0,
                               "include_seam": false,
                               "include_hem": false,
                               "seam_allowance": true
@@ -756,7 +765,7 @@ with col_right:
                               "panel_type": "BACK",
                               "piece_count": 2.0,
                               "piece_length_inch": 40.5,
-                              "piece_width_inch": 11.5,
+                              "piece_width_inch": 12.0,
                               "include_seam": false,
                               "include_hem": false,
                               "seam_allowance": true
@@ -765,13 +774,12 @@ with col_right:
                         }}
                       ]
                     }}
+                    Replace the placeholder values in JSON with the actual exact data discovered from the multi-page techpack text.
                     User directive overrides: {active_prompt}
                     """
                     
-                    response = model.generate_content([
-                        {"mime_type": "application/pdf", "data": st.session_state.pdf_bytes}, 
-                        prompt_instruction
-                    ])
+                    # Gửi prompt chứa toàn bộ nội dung text của file PDF lên Gemini
+                    response = model.generate_content(prompt_instruction)
                     
                     cleaned_text = response.text.strip()
                     cleaned_text = re.sub(r"^```json\s*", "", cleaned_text, flags=re.IGNORECASE)
@@ -780,46 +788,14 @@ with col_right:
                     try:
                         raw_blueprint = json.loads(cleaned_text)
                     except json.JSONDecodeError:
-                        raw_blueprint = {"detected_product_type": "PANT", "bom_rows": []}
+                        raw_blueprint = {"bom_rows": []}
                     
-                    # 🟢 CƠ CHẾ PHÒNG VỆ: Nếu Gemini trả về cấu trúc lỗi hoặc trống danh sách bom_rows
-                    if not raw_blueprint or not isinstance(raw_blueprint, dict) or "bom_rows" not in raw_blueprint or not raw_blueprint["bom_rows"]:
-                        # Tự động khởi tạo dữ liệu móng chuẩn dáng Baggy Jeans dựa trên Techpack để hệ thống không bị trắng màn hình
-                        raw_blueprint = {
-                            "detected_product_type": "PANT",
-                            "style_code": "F25R09-490416",
-                            "bom_rows": [
-                                {
-                                    "component_type": "MAIN FABRIC",
-                                    "placement": "BODY",
-                                    "fabric_classification": "MAIN_FABRIC",
-                                    "fabric_code": "DENIM-01",
-                                    "fabric_color": "LIGHT ORANGE",
-                                    "net_area_sq_in": 1200.0,
-                                    "panels_catalog": [
-                                        {"panel_name": "FRONT_PANEL", "panel_type": "FRONT", "piece_count": 2.0, "piece_length_inch": 41.0, "piece_width_inch": 13.5, "include_seam": True, "include_hem": True},
-                                        {"panel_name": "BACK_PANEL", "panel_type": "BACK", "piece_count": 2.0, "piece_length_inch": 42.0, "piece_width_inch": 16.0, "include_seam": True, "include_hem": True}
-                                    ]
-                                }
-                            ]
-                        }
-                    
-                    # Chạy chuỗi hàm phân tích logic định mức
                     if raw_blueprint and raw_blueprint.get("bom_rows"):
                         blueprint_worker = copy.deepcopy(raw_blueprint)
-                        
-                        # Đảm bảo các hàm trung gian chạy an toàn, nếu lỗi tự động bypass sang bước kế tiếp
-                        try:
-                            step_2a1 = parse_geometric_panels_allowance(blueprint_worker, active_prompt)
-                        except Exception:
-                            step_2a1 = blueprint_worker
-                            
-                        try:
-                            step_2a2 = execute_marker_yardage_and_quality_gate(step_2a1, active_prompt)
-                        except Exception:
-                            step_2a2 = step_2a1
-                            
+                        step_2a1 = parse_geometric_panels_allowance(blueprint_worker, active_prompt)
+                        step_2a2 = execute_marker_yardage_and_quality_gate(step_2a1, active_prompt)
                         blueprint_final = allocate_fabric_consumption_and_quality_gate(step_2a2)
+                        
                         st.session_state.bom_data = blueprint_final
                     
                     st.rerun()
@@ -827,6 +803,7 @@ with col_right:
                 except Exception:
                     st.error("💥 Lỗi xử lý tiến trình Phân đoạn 7a:")
                     st.code(traceback.format_exc())
+
 
 # =====================================================================
 # ĐOẠN 7b: KHU VỰC HIỂN THỊ KẾT QUẢ VÀ XUẤT FILE EXCEL (SỬA LỖI MẤT BẢNG)
