@@ -688,7 +688,7 @@ with col_left:
     st.markdown('</div>', unsafe_allow_html=True)
 
 # =====================================================================
-# ĐOẠN 7a: KHỐI AI LUỒNG XỬ LÝ & TÁI CẤU TRÚC GIAO DIỆN CÂN XỨNG (V17.3.0.0)
+# ĐOẠN 7a: KHỐI LUỒNG XỬ LÝ & ĐỒNG BỘ KHUNG CHAT + Ô NHẬP LỆNH XUỐNG DƯỚI (V17.4.0.0)
 # =====================================================================
 
 # --- KHU VỰC 1: HIỂN THỊ HÌNH ẢNH TECHPACK GỌN GÀNG Ở CỘT PHẢI ---
@@ -714,7 +714,6 @@ with col_right:
                     full_text += f"\n--- TRANG THỨ {page_num + 1} ---\n" + doc.load_page(page_num).get_text("text")
                 st.session_state.pdf_text_cache = full_text
             
-            # Hiển thị ảnh thu nhỏ gọn gàng, cân đối tỉ lệ góc nhìn
             st.image(st.session_state.pdf_page_one_image, use_container_width=True)
             st.success(f"📎 Techpack loaded.")
         except Exception:
@@ -724,9 +723,25 @@ with col_right:
     st.markdown('</div>', unsafe_allow_html=True)
 
 
-# --- KHU VỰC 2: KHỐI LUỒNG XỬ LÝ BACKGROUND (KHÔNG ĐỂ TRONG COL_RIGHT ĐỂ TRÁNH BÓ HẸP CHAT) ---
-safe_user_prompt = user_prompt if 'user_prompt' in globals() and user_prompt else ""
+# --- KHU VỰC 2: Ô NHẬP LỆNH VÀ HIỂN THỊ CHAT DI CHUYỂN TOÀN BỘ XUỐNG PHÍA DƯỚI BẢNG ---
+st.markdown('<br>', unsafe_allow_html=True)
+st.markdown('<div class="cad-card">', unsafe_allow_html=True)
+st.markdown('<div class="cad-header">💬 CHATGPT IE COLLABORATION WORKSPACE</div>', unsafe_allow_html=True)
 
+# 1. Hiển thị lịch sử chat full chiều ngang cực kỳ thoáng đãng
+if st.session_state.chat_history:
+    for msg in st.session_state.chat_history:
+        st.chat_message("user").write(msg["user"])
+        st.chat_message("assistant").write(msg["ai"])
+
+# 2. 🟢 CHUYỂN Ô NHẬP LỆNH XUỐNG DƯỚI CÙNG KHUNG CHAT ĐỂ ĐỐI THOẠI LIÊN TỤC CHUẨN CHATGPT
+# Thay thế st.text_input cũ ở phía trên bằng st.chat_input trực quan nằm ngay tại Workspace này
+safe_user_prompt = st.chat_input("Gõ câu lệnh hoặc yêu cầu điều chỉnh tại đây (Ví dụ: tính size 32 co rút 4-6, bổ sung thun...):")
+
+st.markdown('</div>', unsafe_allow_html=True)
+
+
+# --- KHU VỰC 3: KHỐI LUỒNG XỬ LÝ BACKGROUND KHI NGƯỜI DÙNG NHẬP LỆNH MỚI ---
 if st.session_state.pdf_bytes is not None and safe_user_prompt:
     if st.session_state.last_processed_prompt != safe_user_prompt:
         st.session_state.last_processed_prompt = safe_user_prompt
@@ -760,7 +775,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                   "calculated_on_size": "{target_size_cmd}",
                   "bom_rows": [
                     {{
-                      "component_type": "MAIN FABRIC", "placement": "BODY", "fabric_classification": "MAIN_FABRIC",
+                      "component_type": "MAIN FABRIC", "placement": "BODY", "fabric_classification": "MAIN_fabric",
                       "fabric_code": "REAL_CODE", "fabric_color": "REAL_COLOR",
                       "panels_catalog": [ {{ "panel_name": "FRONT_PANEL", "piece_count": 2.0, "piece_length_inch": 41.0, "piece_width_inch": 12.0 }} ]
                     }}
@@ -795,20 +810,6 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                 st.rerun()
             except Exception as e:
                 st.error(f"💥 Lỗi đối thoại: {str(e)}")
-
-
-# --- KHU VỰC 3: ĐƯA KHUNG CHAT RA NGOÀI TRUNG TÂM TOÀN MÀN HÌNH (DƯỚI HAI CỘT) ĐỂ CÂN ĐỐI BỐ CỤC ---
-if st.session_state.chat_history:
-    st.markdown('<br>', unsafe_allow_html=True)
-    st.markdown('<div class="cad-card">', unsafe_allow_html=True)
-    st.markdown('<div class="cad-header">💬 CHATGPT IE COLLABORATION WORKSPACE</div>', unsafe_allow_html=True)
-    
-    # Hiển thị lịch sử chat full chiều ngang cực kỳ đẹp mắt, thoáng đãng
-    for msg in st.session_state.chat_history:
-        st.chat_message("user").write(msg["user"])
-        st.chat_message("assistant").write(msg["ai"])
-        
-    st.markdown('</div>', unsafe_allow_html=True)
 
 # =====================================================================
 # ĐOẠN 7b: KHU VỰC HIỂN THỊ KẾT QUẢ ĐƠN MÃ, SIZE VÀ XUẤT EXCEL CHUẨN ĐẸP (V17.0.0.8)
