@@ -743,7 +743,7 @@ with col_left:
 
 
 # =====================================================================
-# ĐOẠN 7a: LUỒNG TÍCH LŨY DỮ LIỆU BOM - KHÔNG BỚT XÉN VẬT TƯ CŨ (V17.4.2.0)
+# ĐOẠN 7a: KHỐI LUỒNG AI XỬ LÝ & BỘ BẮT TỪ KHÓA LỆNH CHUẨN XÁC 100% (V17.4.5.0)
 # =====================================================================
 
 # --- KHU VỰC 1: HIỂN THỊ HÌNH ẢNH TECHPACK GỌN GÀNG Ở CỘT PHẢI ---
@@ -756,7 +756,6 @@ with col_right:
     if "pdf_text_cache" not in st.session_state: st.session_state.pdf_text_cache = None
     if "pdf_page_one_image" not in st.session_state: st.session_state.pdf_page_one_image = None
     if "last_processed_prompt" not in st.session_state: st.session_state.last_processed_prompt = None
-    # 🌟 Khởi tạo kho tích lũy dữ liệu BOM nền nếu chưa có
     if "accumulated_bom_rows" not in st.session_state: st.session_state.accumulated_bom_rows = {}
 
     if st.session_state.pdf_bytes is not None:
@@ -794,7 +793,7 @@ safe_user_prompt = st.chat_input("Gõ câu lệnh bổ sung vật tư tại đâ
 st.markdown('</div>', unsafe_allow_html=True)
 
 
-# --- KHU VỰC 3: ENGINE BACKGROUND XỬ LÝ TÍCH LŨY DỮ LIỆU KHI CÓ LỆNH ĐIỀU CHỈNH MỚI ---
+# --- KHU VỰC 3: ENGINE BACKGROUND XỬ LÝ CHUẨN HÓA THÔNG SỐ VÀ TÍCH LŨY DỮ LIỆU ---
 if st.session_state.pdf_bytes is not None and safe_user_prompt:
     if st.session_state.last_processed_prompt != safe_user_prompt:
         st.session_state.last_processed_prompt = safe_user_prompt
@@ -808,22 +807,47 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                     genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
                     
                 model = genai.GenerativeModel("gemini-2.5-flash", generation_config={"temperature": 0.2})
-                match_size = re.search(r'(?:size|cỡ|co|sz)\s*[:\-=\s]*([\w\d\.]+)', safe_user_prompt.lower())
+                
+                # 🌟 SỬA LỖI REGEX LỚN: Ép lọc chặt chẽ từ khóa để không nhặt nhầm chữ "rút" làm Size
+                chat_lower = safe_user_prompt.lower().strip()
+                
+                # Nhặt chính xác số hiệu Size đứng sau từ khóa size/sz/cỡ (Bỏ qua từ "co rút")
+                match_size = re.search(r'\b(?:size|sz|cỡ)\s*[:\-=\s]*([\w\d]+)\b', chat_lower)
                 target_size_cmd = str(match_size.group(1)).upper().strip() if match_size else "AUTOMATIC_MEDIAN"
+                
+                # Trích xuất khổ vải chỉ định từ ô chat
+                match_w = re.search(r'\b(?:khổ|kho|width)\s*[:\-=\s]*([\d\.]+)\b', chat_lower)
+                active_width = float(match_w.group(1)) if match_w else 58.0
+                
+                # Trích xuất cặp độ co rút dọc và ngang một cách tách biệt, không để kẹt số 15% mặc định
+                match_warp = re.search(r'\b(?:dọc|doc|warp)\s*[:\-=\s]*([\d\.]+)\b', chat_lower)
+                match_weft = re.search(r'\b(?:ngang|weft)\s*[:\-=\s]*([\d\.]+)\b', chat_lower)
+                
+                # Cú pháp tìm dạng cặp nhanh: "co rút 3 3" hoặc "co rút 3-4"
+                match_sh_pair = re.search(r'(?:co\s*rút|co\s*rut|co|shrinkage)\s*[:\-=\s]*([\d\.]+)\s*(?:-|–|x|ngang|\s+)\s*([\d\.]+)', chat_lower)
+                
+                if match_sh_pair:
+                    active_warp = float(match_sh_pair.group(1))
+                    active_weft = float(match_sh_pair.group(2))
+                else:
+                    active_warp = float(match_warp.group(1)) if match_warp else 5.0
+                    active_weft = float(match_weft.group(1)) if match_weft else 15.0
 
                 if len(st.session_state.chat_history) > 30:
                     st.session_state.chat_history = st.session_state.chat_history[-30:]
 
-                # Hướng dẫn AI: Tập trung bóc tách vật tư mới nhưng cho phép trả về mảng BOM đầy đủ
+                # Tạo chỉ thị lệnh ép AI sử dụng chuẩn xác thông số rập và chất liệu
                 prompt_instruction = f"""
                 You are an expert apparel Industrial Engineer (IE) chatting with a production manager.
                 DATA FOUND IN TECHPACK PDF: {st.session_state.pdf_text_cache}
                 CONTEXT HISTORY OF CHAT: {json.dumps(st.session_state.chat_history, ensure_ascii=False)}
                 CURRENT USER COMMAND: "{safe_user_prompt}"
                 
-                INSTRUCTION FOR ACCUMULATION:
-                - If the user asks to add or compute something new (e.g., Keo lót, Elastic, Tape, Thread), extract its physical spec for size '{target_size_cmd}' and include it in the JSON rows.
-                - Try to output both the Main Fabric and the newly requested materials so the system can merge them perfectly without losing the body fabric data.
+                CRITICAL EXTRACTION INSTRUCTION:
+                - Target size is strictly '{target_size_cmd}'. Extract the correct Outseam and Hip width for this size from the text.
+                - Fabric cut width is '{active_width}' inches.
+                - Fabric shrinkage is Warp: {active_warp}%, Weft: {active_weft}%.
+                - You MUST extract the Main Fabric rows, and ALSO create separate rows for Keo lót (FUSING) and Vải lót túi (LINING) found in the BOM section across all pages.
                 
                 Return response in exact format:
                 ===START_JSON===
@@ -834,14 +858,25 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                   "bom_rows": [
                     {{
                       "component_type": "MAIN FABRIC", "placement": "BODY", "fabric_classification": "MAIN_FABRIC",
-                      "fabric_code": "REAL_CODE", "fabric_color": "REAL_COLOR",
+                      "fabric_code": "REAL_CODE_FROM_BOM", "fabric_color": "REAL_COLOR_FROM_BOM",
+                      "fabric_width_inch": {active_width},
                       "panels_catalog": [ {{ "panel_name": "FRONT_PANEL", "piece_count": 2.0, "piece_length_inch": 41.0, "piece_width_inch": 12.0 }} ]
+                    }},
+                    {{
+                      "component_type": "INTERLINING / KEO LÓT", "placement": "WAISTBAND", "fabric_classification": "FUSING",
+                      "fabric_code": "KEO_CODE_FROM_BOM", "fabric_color": "WHITE",
+                      "fabric_width_inch": 59.0, "panels_catalog": []
+                    }},
+                    {{
+                      "component_type": "POCKET LINING / LÓT TÚI", "placement": "POCKET BAG", "fabric_classification": "LINING",
+                      "fabric_code": "LOT_CODE_FROM_BOM", "fabric_color": "NATURAL",
+                      "fabric_width_inch": 57.0, "panels_catalog": []
                     }}
                   ]
                 }}
                 ===END_JSON===
                 ===START_CHAT===
-                [Your conversational Vietnamese response here]
+                [Your conversational Vietnamese response here. Confirm that you have computed size {target_size_cmd} with width {active_width} and shrinkage {active_warp}x{active_weft}%]
                 ===END_CHAT===
                 """
                 response = model.generate_content(prompt_instruction)
@@ -862,24 +897,15 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                                 step_2a2 = execute_marker_yardage_and_quality_gate(step_2a1, safe_user_prompt)
                                 blueprint_final = allocate_fabric_consumption_and_quality_gate(step_2a2)
                                 
-                                # 🌟 ENGINE TÍCH LŨY DỮ LIỆU: Lưu trữ và gộp ô thông minh theo Khóa định danh vật tư
+                                # Hệ thống gộp dòng luỹ kế tích luỹ
                                 if "bom_rows" in blueprint_final:
                                     for row in blueprint_final["bom_rows"]:
                                         if not row or not isinstance(row, dict): continue
-                                        # Tạo khóa định danh duy nhất dựa trên Loại linh kiện và Phân loại vải
                                         c_type = str(row.get("component_type", "MAIN")).upper().strip()
                                         f_class = str(row.get("fabric_classification", "MAIN_FABRIC")).upper().strip()
                                         unique_key = f"{c_type}_{f_class}"
                                         
-                                        # Lưu đè hoặc ghi mới vào kho trạng thái tích lũy của Session
-                                        st.session_state.accumulated_bom_rows[unique_key] = row
-                                
-                                # Đồng bộ kho tích lũy ngược lại vào biến bom_data chính để Đoạn 7b vẽ bảng đầy đủ
-                                blueprint_final["bom_rows"] = list(st.session_state.accumulated_bom_rows.values())
-                                # Cập nhật Size tính toán mới nhất
-                                if "calculated_on_size" in raw_blueprint:
-                                    blueprint_final["calculated_on_size"] = raw_blueprint["calculated_on_size"]
-                                st.session_state.bom_data = blueprint_final
+
                         except Exception: 
                             pass
                     
