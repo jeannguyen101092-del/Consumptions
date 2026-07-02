@@ -514,19 +514,61 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict) -> dict:
 
 
 # =====================================================================
-# ĐOẠN 6: GIAO DIỆN CHÍNH - BẢNG THẺ TÓM TẮT THÔNG TIN MÃ HÀNG ERP (V17.6.0.0)
+# ĐOẠN 6: GIAO DIỆN CHÍNH - BANNER TIÊU ĐỀ & CHỈ SỐ KPIs ĐỈNH LAYOUT (V17.7.0.0)
 # =====================================================================
 st.set_page_config(layout="wide", page_title="AI Fabric Consumption Matrix")
 
-# Tinh chỉnh CSS đồng bộ giao diện gọn gàng, sắc nét, tạo layout ô thông tin tóm tắt
+# Tinh chỉnh CSS đồng bộ giao diện gọn gàng, sắc nét, tạo layout ô thông tin tóm tắt và khối KPIs
 st.markdown("""
 <style>
+    /* Khung Banner chính trên đỉnh */
+    .top-banner {
+        background: linear-gradient(135deg, #1e3a8a 0%, #0369a1 100%);
+        padding: 18px 24px;
+        border-radius: 8px;
+        color: #ffffff;
+        margin-bottom: 15px;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+    }
+    .top-title {
+        font-family: 'Segoe UI', sans-serif;
+        font-size: 22px;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+    }
+    .top-subtitle {
+        font-size: 12px;
+        color: #e0f2fe;
+        opacity: 0.85;
+        margin-top: 2px;
+    }
+    /* Thẻ KPIs mini */
+    .kpi-card {
+        background-color: #ffffff;
+        border: 1px solid #e2e8f0;
+        border-radius: 6px;
+        padding: 12px 16px;
+        text-align: center;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+    }
+    .kpi-num {
+        font-size: 20px;
+        font-weight: 700;
+        color: #0284c7;
+    }
+    .kpi-lbl {
+        font-size: 11px;
+        font-weight: 600;
+        color: #64748b;
+        text-transform: uppercase;
+        margin-top: 2px;
+    }
     .cad-card {
         background-color: #ffffff;
         border: 1px solid #e2e8f0;
         border-radius: 8px;
         padding: 20px;
-        margin-top: 10px;
+        margin-top: 0px;
         box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
     }
     .cad-header {
@@ -539,21 +581,18 @@ st.markdown("""
         padding-bottom: 6px;
         border-bottom: 2px solid #cbd5e1;
     }
-    /* Style cho các ô tóm tắt thông tin kỹ thuật */
     .meta-box {
         background-color: #f8fafc;
         border-left: 4px solid #0284c7;
         padding: 10px 14px;
         margin-bottom: 8px;
         border-radius: 0 6px 6px 0;
-        box-shadow: inset 0 1px 2px rgba(0,0,0,0.02);
     }
     .meta-label {
         font-size: 11px;
         font-weight: 700;
         color: #64748b;
         text-transform: uppercase;
-        letter-spacing: 0.03em;
     }
     .meta-value {
         font-size: 14px;
@@ -570,11 +609,46 @@ if "chat_history" not in st.session_state: st.session_state.chat_history = []
 if "pdf_bytes" not in st.session_state: st.session_state.pdf_bytes = None
 if "pdf_name" not in st.session_state: st.session_state.pdf_name = ""
 if "pdf_text_cache" not in st.session_state: st.session_state.pdf_text_cache = None
+if "accumulated_bom_rows" not in st.session_state: st.session_state.accumulated_bom_rows = {}
 
+# 🌟 1. ĐỔI MỚI: DỰNG THANH BANNER ĐỈNH TOÀN MÀN HÌNH ĐỂ LẤP KHOẢNG TRỐNG
+st.markdown("""
+<div class="top-banner">
+    <div class="top-title">📊 INTELLIGENT FABRIC CONSUMPTION PLATFORM</div>
+    <div class="top-subtitle">Hệ thống phân tích rập hình học và tự động tính toán định mức kỹ thuật dệt may bằng AI CORE</div>
+</div>
+""", unsafe_allow_html=True)
+
+# Trích xuất dữ liệu thô để làm căn cứ KPIs
+kpi_style_id = "N/A"
+total_materials = len(st.session_state.accumulated_bom_rows) if st.session_state.accumulated_bom_rows else 0
+main_fabric_cons = "0.000"
+
+if st.session_state.bom_data and "bom_rows" in st.session_state.bom_data:
+    kpi_style_id = str(st.session_state.bom_data.get("style_code", "R09-450416")).upper()
+    for row in st.session_state.bom_data["bom_rows"]:
+        if "MAIN" in str(row.get("fabric_classification", "")).upper():
+            main_fabric_cons = f"{row.get('calculated_gross_consumption_yds', 0.0):.3f} Yds"
+            break
+
+# 🌟 2. ĐỔI MỚI: LẮP RÁP CỤM KPIs DASHBOARD NHANH NGAY DƯỚI BANNER
+k_col1, k_col2, k_col3, k_col4 = st.columns(4)
+with k_col1:
+    st.markdown(f'<div class="kpi-card"><div class="kpi-num">{kpi_style_id}</div><div class="kpi-lbl">Mã hàng đang xử lý</div></div>', unsafe_allow_html=True)
+with k_col2:
+    st.markdown(f'<div class="kpi-card"><div class="kpi-num">{total_materials} Item(s)</div><div class="kpi-lbl">Tổng số vật tư kết xuất</div></div>', unsafe_allow_html=True)
+with k_col3:
+    st.markdown(f'<div class="kpi-card"><div class="kpi-num">{main_fabric_cons}</div><div class="kpi-lbl">Định mức vải chính dự kiến</div></div>', unsafe_allow_html=True)
+with k_col4:
+    active_size_kpi = "AUTOMATIC" if not st.session_state.bom_data else str(st.session_state.bom_data.get("calculated_on_size", "MEDIAN")).upper()
+    st.markdown(f'<div class="kpi-card"><div class="kpi-num" style="color:#16a34a;">{active_size_kpi}</div><div class="kpi-lbl">Cỡ hạt tính định mức</div></div>', unsafe_allow_html=True)
+
+st.markdown("<div style='margin-top: 15px;'></div>", unsafe_allow_html=True)
+
+# --- SIDEBAR ENGINE CONTROLS ---
 st.sidebar.markdown("### ⚙️ ENGINE CONTROLS")
 st.sidebar.markdown('<div style="background-color:#dcfce7; color:#15803d; padding:10px; border-radius:6px; font-weight:600; font-size:13px; margin-bottom:15px;">🟢 API STATUS: Hoạt động tốt.</div>', unsafe_allow_html=True)
 
-# Nút dọn dẹp hệ thống chuẩn kỹ thuật
 if st.sidebar.button("🗑️ CLEAR SYSTEM MEMORY", use_container_width=True):
     st.session_state.bom_data = None
     st.session_state.chat_history = []
@@ -585,25 +659,23 @@ if st.sidebar.button("🗑️ CLEAR SYSTEM MEMORY", use_container_width=True):
     if "accumulated_bom_rows" in st.session_state: del st.session_state["accumulated_bom_rows"]
     st.rerun()
 
-# Thiết lập layout chia đôi cột đối xứng cân bằng thị giác ở phía trên
+# Thiết lập layout chia đôi cột đối xứng phía dưới banner
 col_left, col_right = st.columns(2)
 
 with col_left:
     st.markdown('<div class="cad-card">', unsafe_allow_html=True)
     st.markdown('<div class="cad-header">📂 TECHPACK UPLOADER & PROFILE SUMMARY</div>', unsafe_allow_html=True)
     
-    uploaded_file = st.file_uploader("Tải lên tệp tài liệu kỹ thuật Techpack / BOM (PDF)", type=["pdf"])
+    uploaded_file = st.file_uploader("Tải lên tệp tài liệu kỹ thuật Techpack / BOM (PDF)", type=["pdf"], label_visibility="collapsed")
     
     if uploaded_file is not None:
         st.session_state.pdf_bytes = uploaded_file.read()
         st.session_state.pdf_name = uploaded_file.name
 
-    # 🌟 BIẾN ĐỔI: DỰNG BẢNG THẺ TÓM TẮT THÔNG TIN MÃ HÀNG KHI CÓ FILE
     if st.session_state.pdf_text_cache is not None:
         st.markdown("<div style='margin-top: 15px;'></div>", unsafe_allow_html=True)
         txt = st.session_state.pdf_text_cache
         
-        # Hàm Regex bóc nhanh các thông tin kỹ thuật cốt lõi từ trang bìa Techpack
         def get_meta(pattern, default="N/A"):
             m = re.search(pattern, txt, re.IGNORECASE)
             return m.group(1).strip() if m else default
@@ -614,7 +686,6 @@ with col_left:
         season = get_meta(r'(?:Season|Mùa hàng)\s*[:\-=\s]*([^\n]+)', "Fall 2025")
         fabric_type = get_meta(r'(?:Long Description|Chất liệu gốc)\s*[:\-=\s]*([^\n]+)', "LIGHT ORANGE - DENIM FABRIC")
 
-        # Chia lưới ô 2 cột nhỏ gọn gàng cân xứng để hiển thị thẻ tóm tắt
         m_col1, m_col2 = st.columns(2)
         with m_col1:
             st.markdown(f'<div class="meta-box"><div class="meta-label">Style Code / Mã hàng</div><div class="meta-value">{style_id}</div></div>', unsafe_allow_html=True)
@@ -622,7 +693,7 @@ with col_left:
             st.markdown(f'<div class="meta-box"><div class="meta-label">Season / Mùa sản xuất</div><div class="meta-value">{season}</div></div>', unsafe_allow_html=True)
         with m_col2:
             st.markdown(f'<div class="meta-box"><div class="meta-label">Garment Type / Kiểu dáng</div><div class="meta-value">{short_desc}</div></div>', unsafe_allow_html=True)
-            st.markdown(f'<div class="meta-box"><div class="meta-label">Material Spec / Mô tả vải</div><div class="meta-value">{fabric_type[:32]}...</div></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="meta-box"><div class="meta-label">Material Spec / Mô tả vải</div><div class="meta-value">{fabric_type[:30]}...</div></div>', unsafe_allow_html=True)
             st.markdown(f'<div class="meta-box"><div class="meta-label">Techpack Status / Hồ sơ</div><div class="meta-value" style="color: #16a34a;">🟢 READY TO BOM</div></div>', unsafe_allow_html=True)
     else:
         if st.session_state.pdf_bytes is None:
