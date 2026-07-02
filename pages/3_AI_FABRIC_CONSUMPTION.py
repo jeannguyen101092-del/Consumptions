@@ -864,7 +864,7 @@ st.markdown('</div>', unsafe_allow_html=True)
 st.markdown('<div class="main-body-spacer"></div>', unsafe_allow_html=True)
 
 # =====================================================================
-# ĐOẠN 6b: CONTROLS SIDEBAR & LƯỚI KHUNG NHÌN ĐỐI CHIẾU SÁNG RÕ NÉT (V18.3.1.0 APPROVED)
+# ĐOẠN 6b: CONTROLS SIDEBAR & SỬA TRIỆT ĐỂ LỖI Ô TRỐNG THỪA BÊN TRÁI (V18.3.2.0)
 # =====================================================================
 
 # --- SIDEBAR ENGINE CONTROLS CONTROL PANEL ---
@@ -879,14 +879,15 @@ if st.sidebar.button("🗑️ CLEAR SYSTEM MEMORY", use_container_width=True):
     if "accumulated_bom_rows" in st.session_state: del st.session_state["accumulated_bom_rows"]
     st.rerun()
 
-# LƯỚI CHIA ĐÔI CỘT ĐỐI XỨNG PHÍA DƯỚI BANNER
+# LƯỚI CHIA ĐÔI CỘT ĐỐI XỨNG CÂN BẰNG THỊ GIÁC ĐỀU NHAU
 col_left, col_right = st.columns(2)
 
 with col_left:
+    # 🌟 CHỈ MỞ DUY NHẤT 1 THẺ HỘP CHO CỘT TRÁI
     st.markdown('<div class="custom-erp-box">', unsafe_allow_html=True)
     st.markdown('<div class="cad-header-text">📂 TECHPACK UPLOADER & PROFILE SUMMARY</div>', unsafe_allow_html=True)
     
-    # Ép bộ uploader hiện lên rõ ràng, không bị ô trống
+    # Ghim trực tiếp bộ tải file nằm ngay dưới tiêu đề, không tạo ô trống
     uploaded_file = st.file_uploader("Upload PDF", type=["pdf"], label_visibility="collapsed")
     
     if uploaded_file is not None:
@@ -897,9 +898,9 @@ with col_left:
         st.session_state.pdf_bytes = uploaded_file.read()
         st.session_state.pdf_name = uploaded_file.name
 
-    # Đổ 6 ô thẻ tóm tắt hồ sơ kỹ thuật sáng sủa
+    # Đổ tiếp 6 ô thẻ tóm tắt hồ sơ kỹ thuật vào cùng một hộp
     if st.session_state.pdf_text_cache is not None:
-        st.markdown("<div style='margin-top: 10px;'></div>", unsafe_allow_html=True)
+        st.markdown("<div style='margin-top: 15px;'></div>", unsafe_allow_html=True)
         txt = st.session_state.pdf_text_cache
         
         import re
@@ -915,17 +916,18 @@ with col_left:
 
         m_col1, m_col2 = st.columns(2)
         with m_col1:
-            st.markdown(f'<div class="meta-box_light"><div class="meta-label-light">Style Code / Mã hàng</div><div class="meta-value_light"><b>{style_id}</b></div></div>', unsafe_allow_html=True)
-            st.markdown(f'<div class="meta-box_light"><div class="meta-label-light">Customer / Đối tác</div><div class="meta-value_light">{customer}</div></div>', unsafe_allow_html=True)
-            st.markdown(f'<div class="meta-box_light"><div class="meta-label-light">Season / Mùa sản xuất</div><div class="meta-value_light">{season}</div></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="meta-box-light"><div class="meta-label-light">Style Code / Mã hàng</div><div class="meta-value-light"><b>{style_id}</b></div></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="meta-box-light"><div class="meta-label-light">Customer / Đối tác</div><div class="meta-value-light">{customer}</div></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="meta-box-light"><div class="meta-label-light">Season / Mùa sản xuất</div><div class="meta-value-light">{season}</div></div>', unsafe_allow_html=True)
         with m_col2:
-            st.markdown(f'<div class="meta-box_light"><div class="meta-label-light">Garment Type / Kiểu dáng</div><div class="meta-value_light">{short_desc}</div></div>', unsafe_allow_html=True)
-            st.markdown(f'<div class="meta-box_light"><div class="meta-label-light">Material Spec / Mô tả vải</div><div class="meta-value_light">{fabric_type[:28]}...</div></div>', unsafe_allow_html=True)
-            st.markdown(f'<div class="meta-box_light"><div class="meta-label-light">Techpack Status</div><div class="meta-value_light" style="color: #16a34a;">🟢 READY TO BOM</div></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="meta-box-light"><div class="meta-label-light">Garment Type / Kiểu dáng</div><div class="meta-value-light">{short_desc}</div></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="meta-box-light"><div class="meta-label-light">Material Spec / Mô tả vải</div><div class="meta-value-light">{fabric_type[:28]}...</div></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="meta-box-light"><div class="meta-label-light">Techpack Status</div><div class="meta-value-light" style="color: #16a34a;">🟢 READY TO BOM</div></div>', unsafe_allow_html=True)
     else:
         if st.session_state.pdf_bytes is None:
-            st.markdown("<div style='margin-top: 40px; text-align: center; color: #64748b; font-size: 13px;'>Bảng tóm tắt thông số sản phẩm sẽ tự động hiển thị tại đây sau khi nạp file PDF.</div>", unsafe_allow_html=True)
+            st.markdown("<div style='margin-top: 30px; text-align: center; color: #64748b; font-size: 13px;'>Bảng tóm tắt thông số sản phẩm sẽ tự động hiển thị tại đây sau khi nạp file PDF.</div>", unsafe_allow_html=True)
         
+    # ĐÓNG DUY NHẤT 1 THẺ HỘP CHO CỘT TRÁI
     st.markdown('</div>', unsafe_allow_html=True)
 
 
