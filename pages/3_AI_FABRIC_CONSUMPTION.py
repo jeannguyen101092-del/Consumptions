@@ -418,24 +418,29 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict) -> dict:
             processed_bom_blueprint.append(row)
             continue
 
-        # 2. Xử lý trực tiếp KEO LÓT / MEX KEO / VẢI LÓT TÚI dựa trên từ khóa trong BOM
+               # 2. Xử lý trực tiếp KEO LÓT / MEX KEO / VẢI LÓT TÚI dựa trên từ khóa trong BOM
         is_trim_or_lining = False
         f_yds = 0.0
         note_text = ""
+        actual_width = 58.0  # Mặc định an toàn
         
         if any(x in f_class_raw or x in comp_type or x in placement for x in ["FUSING", "INTERLINING", "KEO", "MEX", "MẾCH"]):
             is_trim_or_lining = True
-            f_yds = 0.1500  # Định mức tiêu chuẩn cho Mex lưng quần Jeans
-            note_text = "Khổ mếch: 40\" | Định mức Mex Keo cố định"
+            f_yds = 0.1500  # Định mức tiêu chuẩn cho Mex lưng
+            actual_width = 59.0  # 🟢 CẬP NHẬT: Đổi sang Khổ keo 59 inch thực tế của bạn
+            note_text = "Khổ mếch: 59\" | Định mức Mex Keo cố định"
+            
         elif any(x in f_class_raw or x in comp_type or x in placement for x in ["LINING", "POCKET", "TÚI", "LÓT"]):
             is_trim_or_lining = True
-            f_yds = 0.2200  # Định mức tiêu chuẩn cho vải lót túi 2 bên
-            note_text = "Khổ lót: 44\" | Định mức Vải lót túi cố định"
+            f_yds = 0.2200  # Định mức tiêu chuẩn cho vải lót túi
+            actual_width = 57.0  # 🟢 CẬP NHẬT: Đổi sang Khổ lót 57 inch thực tế của bạn
+            note_text = "Khổ lót: 57\" | Định mức Vải lót túi cố định"
 
         if is_trim_or_lining:
             row["calculated_gross_consumption_yds"] = f_yds
+            row["fabric_width_inch"] = actual_width  # 🟢 Ép giá trị khổ vải thực tế vào bộ nhớ dòng
             row["consumption_note"] = note_text
-            row["reason_or_logs"] = "40.0\"/85.0%/0.0x0.0" if "Khổ mếch" in note_text else "44.0\"/85.0%/0.0x0.0"
+            row["reason_or_logs"] = f"{actual_width}\"/85.0%/0.0x0.0"
             row["marker_efficiency_pct"] = "85.0%"
             row["status"] = "PASS"
             processed_bom_blueprint.append(row)
@@ -799,7 +804,7 @@ with col_right:
 
 
 # =====================================================================
-# ĐOẠN 7b: KHU VỰC HIỂN THỊ KẾT QUẢ VÀ TÁCH THÔNG TIN CO RÚT LÊN GIAO DIỆN (V16.9.9.8 FIXED)
+# ĐOẠN 7b: KHU VỰC HIỂN THỊ KẾT QUẢ VÀ XUẤT FILE EXCEL CHUẨN ĐẸP (V16.9.9.9 FIXED)
 # =====================================================================
 if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data and st.session_state.bom_data["bom_rows"]:
     st.markdown('<div class="cad-card">', unsafe_allow_html=True)
@@ -816,33 +821,36 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data 
             
         sys_notes = r.get("consumption_note", "")
         current_gross = r.get("calculated_gross_consumption_yds", 0.0)
-        
-        # 🌟 SỬA LỖI BIẾN: Lấy đúng trường dữ liệu logic reason_or_logs từ cache hệ thống
         reason_logs = str(r.get("reason_or_logs", ""))
         
-        # Trích xuất khổ vải từ ghi chú hệ thống
-        match_w = re.search(r'Khổ vải:\s*([\d\.]+)', sys_notes)
-        cut_width_val = f"{float(match_w.group(1))} inch" if match_w else "58.0 inch"
+        # 🟢 ĐỒNG BỘ HIỂN THỊ KHỔ VẢI CHUẨN XÁC THEO YÊU CẦU THỰC TẾ
+        if "fabric_width_inch" in r and r["fabric_width_inch"] > 0:
+            cut_width_val = f"{float(r['fabric_width_inch'])} inch"
+        else:
+            match_w = re.search(r'Khổ vải:\s*([\d\.]+)', sys_notes)
+            if match_w:
+                cut_width_val = f"{float(match_w.group(1))} inch"
+            else:
+                match_w_alt = re.search(r'Khổ\s*(?:lót|mếch):\s*([\d\.]+)', sys_notes)
+                cut_width_val = f"{float(match_w_alt.group(1))} inch" if match_w_alt else "58.0 inch"
         
-        # 🌟 TÁCH NỔI THÔNG TIN CO RÚT: Phân rã chuỗi log dạng "58.0\"/76.0%/5.0x15.0" để lấy tỷ lệ co rút
+        # Phân tách thông tin độ co rút dọc / ngang
         warp_val = warp_default
         weft_val = weft_default
-        
         if "/" in reason_logs:
             parts = reason_logs.split("/")
             if len(parts) >= 3:
-                shrink_part = parts[2].strip() # Lấy đoạn "5.0x15.0"
+                shrink_part = parts[2].strip()
                 match_sh = re.search(r'([\d\.]+)\s*x\s*([\d\.]+)', shrink_part)
                 if match_sh:
                     warp_val = f"{float(match_sh.group(1))}%"
                     weft_val = f"{float(match_sh.group(2))}%"
-        elif "x" in reason_logs and "/" not in reason_logs:
-            match_sh = re.search(r'([\d\.]+)\s*x\s*([\d\.]+)', reason_logs)
-            if match_sh:
-                warp_val = f"{float(match_sh.group(1))}%"
-                weft_val = f"{float(match_sh.group(2))}%"
+        
+        # Ép độ co rút về 0% cho keo và lót phụ liệu nếu không có chỉ định wash đặc biệt
+        if any(x in str(r.get("fabric_classification", "")).upper() for x in ["FUSING", "LINING"]):
+            warp_val = "0.0%"
+            weft_val = "0.0%"
 
-        # Đẩy dữ liệu chuẩn hóa vào mảng cấu trúc để render lên bảng Streamlit
         display_data.append({
             "Component Type": r.get("component_type", "MAIN FABRIC"),
             "Placement": r.get("placement", "BODY"),
@@ -850,14 +858,110 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data 
             "Fabric Code": r.get("fabric_code", "D-32777"),
             "Fabric Color": r.get("fabric_color", "LIGHT ORANGE"),
             "Khổ vải (Width)": cut_width_val,
-            "Co rút dọc (% Warp)": warp_val,      # 🟢 Đã hiển thị tường minh lên giao diện
-            "Co rút ngang (% Weft)": weft_val,    # 🟢 Đã hiển thị tường minh lên giao diện
+            "Co rút dọc (% Warp)": warp_val,
+            "Co rút ngang (% Weft)": weft_val,
             "Marker Efficiency": r.get("marker_efficiency_pct", "76.0%"),
             "Gross Consumption (Yds)": current_gross,
             "Quality Status": r.get("status", "PASS"),
             "System Notes": sys_notes
         })
         
-    # Tạo DataFrame và hiển thị bảng dữ liệu sạch đẹp
+    # Tạo DataFrame và hiển thị bảng dữ liệu lên Streamlit
     df_bom = pd.DataFrame(display_data)
     st.dataframe(df_bom, use_container_width=True, hide_index=True)
+    st.markdown('</div>', unsafe_allow_html=True)
+    
+    # =====================================================================
+    # 🟢 KHỐI LOGIC TẠO FILE EXCEL REPORT ĐẸP TIÊU CHUẨN NHÀ MÁY
+    # =====================================================================
+    try:
+        import io
+        from openpyxl import Workbook
+        from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+        from openpyxl.utils import get_column_letter
+
+        # Tạo file Excel trong bộ nhớ tạm
+        output = io.BytesIO()
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "BOM Fabric Consumption"
+        
+        # Kích hoạt lưới hiển thị dòng trong Excel
+        ws.views.sheetView[0].showGridLines = True
+        
+        # Thiết kế bảng màu và định dạng font chữ chuyên nghiệp
+        font_title = Font(name="Calibri", size=14, bold=True, color="FFFFFF")
+        font_header = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
+        font_body = Font(name="Calibri", size=11, bold=False)
+        
+        fill_title = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid") # Xanh tối lịch sự
+        fill_header = PatternFill(start_color="2C3E50", end_color="2C3E50", fill_type="solid") # Xanh xám đậm
+        
+        align_center = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        align_left = Alignment(horizontal="left", vertical="center")
+        align_right = Alignment(horizontal="right", vertical="center")
+        
+        thin_side = Side(border_style="thin", color="D9D9D9")
+        thin_border = Border(left=thin_side, right=thin_side, top=thin_side, bottom=thin_side)
+        
+        # 1. Ghi tiêu đề lớn của bảng báo cáo
+        ws.merge_cells("A1:L1")
+        ws["A1"] = f"BÁO CÁO ĐỊNH MỨC VẬT TƯ VẢI & PHỤ LIỆU - STYLE: {st.session_state.bom_data.get('style_code', 'R09-450416')}"
+        ws["A1"].font = font_title
+        ws["A1"].fill = fill_title
+        ws["A1"].alignment = align_center
+        ws.row_dimensions[1].height = 40
+        
+        # 2. Ghi tiêu đề các cột dữ liệu
+        headers = list(df_bom.columns)
+        for col_num, header_title in enumerate(headers, 1):
+            cell = ws.cell(row=3, column=col_num)
+            cell.value = header_title
+            cell.font = font_header
+            cell.fill = fill_header
+            cell.alignment = align_center
+            cell.border = thin_border
+        ws.row_dimensions[3].height = 28
+        
+        # 3. Đổ dữ liệu nội dung vào thân bảng Excel
+        for row_num, row_data in enumerate(display_data, 4):
+            ws.row_dimensions[row_num].height = 22
+            for col_num, key in enumerate(headers, 1):
+                cell = ws.cell(row=row_num, column=col_num)
+                cell.value = row_data[key]
+                cell.font = font_body
+                cell.border = thin_border
+                
+                # Căn lề thông minh cho từng loại dữ liệu
+                if key in ["Gross Consumption (Yds)"]:
+                    cell.alignment = align_right
+                    cell.number_format = '#,##0.0000'
+                elif key in ["Khổ vải (Width)", "Co rút dọc (% Warp)", "Co rút ngang (% Weft)", "Marker Efficiency", "Quality Status"]:
+                    cell.alignment = align_center
+                else:
+                    cell.alignment = align_left
+        
+        # 4. Tự động co giãn bề rộng cột Excel vừa vặn nội dung chữ
+        for col in ws.columns:
+            max_len = 0
+            col_letter = get_column_letter(col[0].column)
+            for cell in col:
+                if cell.row == 1: continue # Bỏ qua hàng tiêu đề lớn đã gộp ô
+                if cell.value:
+                    max_len = max(max_len, len(str(cell.value)))
+            ws.column_dimensions[col_letter].width = max(max_len + 4, 12)
+            
+        wb.save(output)
+        excel_bytes = output.getvalue()
+        
+        # 5. DỰNG NÚT TẢI FILE EXCEL CHUẨN ĐẸP LÊN GIAO DIỆN
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.download_button(
+            label="📥 XUẤT FILE EXCEL ĐỊNH MỨC CHUẨN SẢN XUẤT",
+            data=excel_bytes,
+            file_name=f"BOM_Consumption_{st.session_state.bom_data.get('style_code', 'R09-450416')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True
+        )
+    except Exception as e:
+        st.warning(f"⚠️ Không thể khởi tạo nút xuất Excel cao cấp: {str(e)}")
