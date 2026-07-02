@@ -969,19 +969,19 @@ with col_right:
 
 
 # =====================================================================
-# ĐOẠN 7a: KHÔNG GIAN ĐỐI THOẠI & VÁ LỖI KHỞI TẠO BIẾN ẢNH SẬP NGUỒN (V17.6.7.0 APPROVED)
+# ĐOẠN 7a: KHÔNG GIAN ĐỐI THOẠI & BỘ TRÍCH XUẤT ẢNH BACKGROUND TỰ ĐỘNG (V17.6.8.0 APPROVED)
 # =====================================================================
 
 st.markdown('<br>', unsafe_allow_html=True)
 st.markdown('<div class="cad-card">', unsafe_allow_html=True)
 st.markdown('<div class="cad-header">💬 CHATGPT IE COLLABORATION WORKSPACE</div>', unsafe_allow_html=True)
 
-# 🌟 BẢO VỆ TUYỆT ĐỐI CHỐNG SẬP ĐỎ: Ép khởi tạo an toàn mọi biến ô đệm session nếu bị nút CLEAR xóa mất
+# Khởi tạo an toàn kho lưu trữ trạng thái hệ thống
 if "chat_history" not in st.session_state: st.session_state.chat_history = []
 if "pdf_page_one_image" not in st.session_state: st.session_state.pdf_page_one_image = None
 if "accumulated_bom_rows" not in st.session_state: st.session_state.accumulated_bom_rows = {}
 
-# Kết xuất lịch sử đối thoại liên tục chuẩn ChatGPT
+# Kết xuất lịch sử đối thoại liên tục chuẩn ChatGPT Workspace
 if st.session_state.chat_history:
     for msg in st.session_state.chat_history:
         st.chat_message("user").write(msg["user"])
@@ -990,14 +990,20 @@ if st.session_state.chat_history:
 safe_user_prompt = st.chat_input("Gõ câu lệnh điều chỉnh thông số tại đây (Ví dụ: khổ 57 co rút 3-3 size 10):")
 st.markdown('</div>', unsafe_allow_html=True)
 
-# Luồng xử lý background chỉ kích hoạt khi có file PDF và có ảnh trích xuất hợp lệ
-if st.session_state.pdf_bytes is not None and st.session_state.pdf_page_one_image is not None and safe_user_prompt:
+# 🌟 MỞ KHÓA ĐIỀU KIỆN CHẶN: Chỉ cần có file PDF và có lệnh chat là hệ thống bắt buộc phải thực thi tính toán
+if st.session_state.pdf_bytes is not None and safe_user_prompt:
     current_query = str(safe_user_prompt).strip()
     
-    with st.spinner("🧠 MẮT THẦN AI: Đang bóc tách rập ảnh Sketch phẳng và đối chiếu bảng BOM đa trang..."):
+    with st.spinner("🧠 AI Core đang xử lý thông số rập và bóc tách bảng BOM..."):
         try:
             import google.generativeai as genai
             import json, copy, traceback, re
+            import fitz # Thư viện đọc tệp PDF
+            
+            # 🌟 TỰ ĐỘNG BÙ TRÍCH XUẤT ẢNH: Nếu biến ảnh đệm đang rỗng (do clear memory), tự động tạo lại ảnh PNG ngay lập tức
+            if st.session_state.pdf_page_one_image is None:
+                doc_recovery = fitz.open(stream=st.session_state.pdf_bytes, filetype="pdf")
+                st.session_state.pdf_page_one_image = doc_recovery.load_page(0).get_pixmap(dpi=150).tobytes("png")
             
             if "GEMINI_API_KEY" in st.secrets: 
                 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
@@ -1005,6 +1011,7 @@ if st.session_state.pdf_bytes is not None and st.session_state.pdf_page_one_imag
             model = genai.GenerativeModel("gemini-2.5-flash", generation_config={"temperature": 0.2})
             chat_lower = current_query.lower()
             
+            # Bộ trích xuất thông số kỹ thuật động thông minh từ câu lệnh chat mới nhất của người dùng
             match_size = re.search(r'\b(?:size|sz|cỡ)\s*[:\-=\s]*([\w\d]+)\b', chat_lower)
             target_size_cmd = str(match_size.group(1)).upper().strip() if match_size else "AUTOMATIC_MEDIAN"
             
@@ -1029,7 +1036,7 @@ if st.session_state.pdf_bytes is not None and st.session_state.pdf_page_one_imag
             CURRENT USER COMMAND: "{current_query}"
             
             STRICT COMPONENT RULES:
-            1. Look at the sketch image. Front/Back bodies, Waistband, side cargo pockets, and pocket flaps must be allocated under "MAIN FABRIC".
+            1. Front/Back bodies, Waistband, side cargo pockets, and pocket flaps must be allocated under "MAIN FABRIC".
             2. Piped/Welt back pockets require pocket bags made of LINING fabric. Put this item under "POCKET LINING / LÓT TÚI".
             3. Waistband fusing requires fusible interlining. Put this item under "INTERLINING / KEO LÓT".
             4. You MUST structure the output JSON to include exactly THREE rows in the "bom_rows" array. Do NOT drop or omit rows.
@@ -1073,6 +1080,7 @@ if st.session_state.pdf_bytes is not None and st.session_state.pdf_page_one_imag
             ===END_CHAT===
             """
             
+            # Đóng gói ảnh payload gửi kèm lên Gemini API đa phương thức
             image_payload = {
                 "mime_type": "image/png",
                 "data": st.session_state.pdf_page_one_image
@@ -1092,6 +1100,7 @@ if st.session_state.pdf_bytes is not None and st.session_state.pdf_page_one_imag
                     if raw_blueprint and raw_blueprint.get("bom_rows"):
                         blueprint_worker = copy.deepcopy(raw_blueprint)
                         
+                        # Triển khai thuật toán xử lý phân bổ định mức chính (Đoạn 2b2)
                         blueprint_final = allocate_fabric_consumption_and_quality_gate(blueprint_worker, current_query)
                         
                         st.session_state.accumulated_bom_rows = {}
@@ -1113,8 +1122,10 @@ if st.session_state.pdf_bytes is not None and st.session_state.pdf_page_one_imag
             
             st.rerun()
         except Exception as e:
-            st.error(f"💥 Lỗi phân tích luồng đối thoại: {str(e)}")
+            st.error(f"💥 Lỗi luồng hội thoại: {str(e)}")
             st.code(traceback.format_exc())
+
+
 
 
 
