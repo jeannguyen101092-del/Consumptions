@@ -689,11 +689,11 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict, user_prompt
 
 
 # =====================================================================
-# ĐOẠN 6a: BANNER & KPIs GHIM CỐ ĐỊNH ĐỈNH - STICKY COMPACT THEME (V18.2.0.0 APPROVED)
+# ĐOẠN 6a: BANNER & KPIs GHIM CỐ ĐỊNH ĐỈNH - FIX KHUẤT THANH ĐIỀU HƯỚNG (V18.2.5.0 APPROVED)
 # =====================================================================
 st.set_page_config(layout="wide", page_title="AI Fabric Consumption Matrix")
 
-# 🌟 BỘ STYLING CSS CẤP CAO: Ẩn menu gốc của Streamlit và ép cố định dải đỉnh nổi trên mọi bề mặt
+# 🌟 BỘ STYLING CSS CẤP CAO: Hạ tọa độ ghim xuống dưới thanh điều hướng Streamlit để lộ toàn bộ Banner KPIs
 st.markdown("""
 <style>
     /* Trả nền ứng dụng về màu xám trắng dịu mắt chuẩn văn phòng ERP */
@@ -701,22 +701,16 @@ st.markdown("""
         background-color: #f8fafc !important;
     }
     
-    /* Can thiệp xóa bỏ khoảng hở đỉnh mặc định của Streamlit để dải ghim bám khít mép màn hình */
-    header[data-testid="stHeader"] {
-        background-color: transparent !important;
-        z-index: 999990 !important;
-    }
-    
-    /* 🌟 CỐ ĐỊNH ĐỈNH TUYỆT ĐỐI: Tạo container bọc ghim cứng nổi lên tầng cao nhất */
+    /* 🌟 FIX LỖI TRỐNG TRƠN: Đẩy vị trí ghim xuống top: 45px để lộ diện hoàn toàn dưới thanh điều hướng Streamlit */
     .sticky-top-container {
         position: fixed;
-        top: 0; 
+        top: 45px; 
         left: 0;
         right: 0;
-        padding: 15px 4rem 15px 4rem; 
-        background-color: #f8fafc !important; /* Đổ nền trắng để che chữ bên dưới khi cuộn qua */
-        z-index: 999999 !important; /* Ép tầng hiển thị cao nhất hệ thống, chống đè chữ */
-        box-shadow: 0 4px 10px rgba(0,0,0,0.04);
+        padding: 10px 4rem 10px 4rem; 
+        background-color: #f8fafc !important; /* Đổ màu nền trắng để che nội dung cuộn bên dưới */
+        z-index: 999999 !important; /* Ép nổi lên trên các khối card nội dung */
+        box-shadow: 0 4px 6px -1px rgba(0,0,0,0.02);
         width: 100%;
     }
 
@@ -742,7 +736,7 @@ st.markdown("""
         margin-top: 1px;
     }
     
-    /* Thẻ chỉ số KPIs sắc màu rực rỡ chữ trắng hiển thị rõ nét vĩnh viễn */
+    /* Thẻ chỉ số KPIs sắc màu rực rỡ chữ trắng hiển thị rõ nét */
     .kpi-card-colored {
         border-radius: 6px;
         padding: 10px 12px;
@@ -753,7 +747,7 @@ st.markdown("""
     .kpi-num-light {
         font-size: 18px;
         font-weight: 700;
-        color: #ffffff !important; /* Ép chữ luôn màu trắng nổi bật */
+        color: #ffffff !important; 
         font-family: 'Segoe UI', sans-serif;
     }
     .kpi-lbl-light {
@@ -771,9 +765,9 @@ st.markdown("""
     .bg-cons  { background: linear-gradient(135deg, #ea580c 0%, #c2410c 100%); }
     .bg-size  { background: linear-gradient(135deg, #16a34a 0%, #15803d 100%); }
 
-    /* Khung đệm spacer đẩy nội dung dưới sụp xuống hợp lý */
+    /* Khung đệm spacer đẩy nội dung dưới sụp xuống tránh bị Banner che khuất */
     .main-body-spacer {
-        margin-top: 190px; 
+        margin-top: 185px; 
     }
 
     /* Khung hộp chứa hồ sơ Techpack lồng rập trắng tinh */
@@ -832,7 +826,7 @@ if st.session_state.pdf_bytes is not None and st.session_state.pdf_text_cache is
         st.session_state.pdf_text_cache = full_text_extract
     except Exception: pass
 
-# ĐỒNG BỘ DỮ LIỆU KPIs BIẾN THIÊN
+# ĐỒNG BỘ DỮ LIỆU KPIs BIẾN THIÊN THEO THỜI GIAN THỰC
 kpi_style_id = "N/A"
 total_materials = len(st.session_state.accumulated_bom_rows) if st.session_state.accumulated_bom_rows else 0
 main_fabric_cons = "0.000"
@@ -850,7 +844,7 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data:
                 main_fabric_cons = f"{val_gross:.3f} Yds"
                 break
 
-# 🌟 CONTAINER GHIM ĐỈNH TUYỆT ĐỐI (ÉP NỔI TRÊN MỌI BỀ MẶT)
+# CONTAINER GHIM ĐỈNH (HẠ TOẠ ĐỘ XUỐNG DƯỚI THANH ĐIỀU HƯỚNG ĐỂ LỘ DIỆN BANNER KPIs)
 st.markdown('<div class="sticky-top-container">', unsafe_allow_html=True)
 st.markdown("""
 <div class="top-banner">
