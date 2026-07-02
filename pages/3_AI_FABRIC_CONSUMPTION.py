@@ -995,147 +995,150 @@ st.markdown('</div>', unsafe_allow_html=True)
 # =====================================================================
 # =====================================================================
 # =====================================================================
-# ĐOẠN 7a2: ENGINE BACKGROUND AI MẮT THẦN - FIXED TREO NGẦM HỆ THỐNG (V17.5.0.0 APPROVED)
+# =====================================================================
+# ĐOẠN 7a2: ENGINE BACKGROUND AI MẮT THẦN - LUỒNG CHAT LIÊN TỤC CHUẨN CHATGPT (V17.6.0.0)
 # =====================================================================
 
+# 🌟 ĐỔI MỚI: Kích hoạt luồng chạy ngay khi phát hiện có nội dung chữ mới từ st.chat_input (Đoạn 7a1)
 if st.session_state.pdf_bytes is not None and safe_user_prompt:
-    if st.session_state.last_processed_prompt != safe_user_prompt:
-        st.session_state.last_processed_prompt = safe_user_prompt
-        
-        with st.spinner("🧠 MẮT THẦN AI: Đang bóc tách rập ảnh Sketch phẳng và đối chiếu bảng BOM đa trang..."):
-            try:
-                import google.generativeai as genai
-                import json, copy, traceback, re
+    
+    # Ép lưu câu hỏi của người dùng vào bộ nhớ đệm lập tức để làm ngòi nổ đối thoại liên tục
+    current_query = str(safe_user_prompt).strip()
+    
+    with st.spinner("🧠 MẮT THẦN AI: Đang phân tích rập và đối chiếu bảng BOM đa trang..."):
+        try:
+            import google.generativeai as genai
+            import json, copy, traceback, re
+            
+            if "GEMINI_API_KEY" in st.secrets: 
+                genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
                 
-                if "GEMINI_API_KEY" in st.secrets: 
-                    genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-                    
-                model = genai.GenerativeModel("gemini-2.5-flash", generation_config={"temperature": 0.2})
-                chat_lower = safe_user_prompt.lower().strip()
-                
-                # Bộ trích xuất thông số động thông minh từ câu lệnh chat của người dùng
-                match_size = re.search(r'\b(?:size|sz|cỡ)\s*[:\-=\s]*([\w\d]+)\b', chat_lower)
-                target_size_cmd = str(match_size.group(1)).upper().strip() if match_size else "AUTOMATIC_MEDIAN"
-                
-                match_w = re.search(r'\b(?:khổ|kho|width)\s*[:\-=\s]*([\d\.]+)\b', chat_lower)
-                active_width = float(match_w.group(1)) if match_w else 57.0
-                
-                match_sh_pair = re.search(r'(?:co\s*rút|co\s*rut|co|shrinkage)\s*[:\-=\s]*([\d\.]+)\s*(?:-|–|x|ngang|dọc|\s+)\s*([\d\.]+)', chat_lower)
-                if match_sh_pair:
-                    active_warp = float(match_sh_pair.group(1))
-                    active_weft = float(match_sh_pair.group(2))
-                else:
-                    active_warp = 3.0
-                    active_weft = 3.0
+            model = genai.GenerativeModel("gemini-2.5-flash", generation_config={"temperature": 0.2})
+            chat_lower = current_query.lower()
+            
+            # Bộ trích xuất thông số kỹ thuật động thông minh từ câu lệnh chat mới nhất
+            match_size = re.search(r'\b(?:size|sz|cỡ)\s*[:\-=\s]*([\w\d]+)\b', chat_lower)
+            target_size_cmd = str(match_size.group(1)).upper().strip() if match_size else "AUTOMATIC_MEDIAN"
+            
+            match_w = re.search(r'\b(?:khổ|kho|width)\s*[:\-=\s]*([\d\.]+)\b', chat_lower)
+            active_width = float(match_w.group(1)) if match_w else 57.0
+            
+            match_sh_pair = re.search(r'(?:co\s*rút|co\s*rut|co|shrinkage)\s*[:\-=\s]*([\d\.]+)\s*(?:-|–|x|ngang|dọc|\s+)\s*([\d\.]+)', chat_lower)
+            if match_sh_pair:
+                active_warp = float(match_sh_pair.group(1))
+                active_weft = float(match_sh_pair.group(2))
+            else:
+                active_warp = 3.0
+                active_weft = 3.0
 
-                if len(st.session_state.chat_history) > 30:
-                    st.session_state.chat_history = st.session_state.chat_history[-30:]
+            # Khống chế dải lịch sử chat tuần hoàn tránh tràn token bộ nhớ RAM
+            if len(st.session_state.chat_history) > 30:
+                st.session_state.chat_history = st.session_state.chat_history[-30:]
 
-                # PROMPT SIÊU CẤP ĐA PHƯƠNG THỨC: Ép buộc Gemini trả về đúng và đủ cấu trúc 3 nhóm dòng vật tư may mặc quần Cargo
-                prompt_instruction = f"""
-                You are a senior apparel Industrial Engineer (IE). You are given BOTH the visual garment sketch image and the full techpack text data.
-                
-                DATA FOUND IN TECHPACK TEXT (BOM SHEET): 
-                {st.session_state.pdf_text_cache}
-                
-                CONTEXT HISTORY: {json.dumps(st.session_state.chat_history, ensure_ascii=False)}
-                CURRENT USER COMMAND: "{safe_user_prompt}"
-                
-                STRICT COMPONENT RULES:
-                1. Look at the sketch image. Identify Cargo pocket details. Front and Back bodies, Waistband, side cargo pockets, and pocket flaps must be allocated under "MAIN FABRIC".
-                2. Piped/Welt back pockets require pocket bags made of LINING fabric. Put this item under "POCKET LINING / LÓT TÚI".
-                3. Waistband fusing requires fusible interlining. Put this item under "INTERLINING / KEO LÓT".
-                4. You MUST structure the output JSON to include exactly THREE rows in the "bom_rows" array matching the template below. Do NOT drop or omit the Lining or Fusing rows.
-                
-                Target size: '{target_size_cmd}', Cut Width: {active_width} inches, Warp: {active_warp}%, Weft: {active_weft}%.
-                
-                Return response in exact format:
-                ===START_JSON===
+            # PROMPT ĐA PHƯƠNG THỨC GỬI LÊN GEMINI (Kèm theo ngữ cảnh lịch sử hội thoại cũ chat_history)
+            prompt_instruction = f"""
+            You are a senior apparel Industrial Engineer (IE). You are given BOTH the visual garment sketch image and the full techpack text data.
+            
+            DATA FOUND IN TECHPACK TEXT (BOM SHEET): 
+            {st.session_state.pdf_text_cache}
+            
+            CONTEXT HISTORY OF CONVERSATION (LỊCH SỬ CHAT CŨ - ĐỐI THOẠI LIÊN TỤC):
+            {json.dumps(st.session_state.chat_history, ensure_ascii=False)}
+            
+            CURRENT USER COMMAND (YÊU CẦU MỚI NHẤT): "{current_query}"
+            
+            STRICT COMPONENT RULES:
+            1. Look at the sketch image. Front/Back bodies, Waistband, side cargo pockets, and pocket flaps must be allocated under "MAIN FABRIC".
+            2. Piped/Welt back pockets require pocket bags made of LINING fabric. Put this item under "POCKET LINING / LÓT TÚI".
+            3. Waistband fusing requires fusible interlining. Put this item under "INTERLINING / KEO LÓT".
+            4. You MUST structure the output JSON to include exactly THREE rows in the "bom_rows" array matching the template below.
+            
+            Target size: '{target_size_cmd}', Cut Width: {active_width} inches, Warp: {active_warp}%, Weft: {active_weft}%.
+            
+            Return response in exact format:
+            ===START_JSON===
+            {{
+              "detected_product_type": "CARGO_PANT",
+              "style_code": "R09-500778",
+              "calculated_on_size": "{target_size_cmd}",
+              "bom_rows": [
                 {{
-                  "detected_product_type": "CARGO_PANT",
-                  "style_code": "R09-500778",
-                  "calculated_on_size": "{target_size_cmd}",
-                  "bom_rows": [
-                    {{
-                      "component_type": "MAIN FABRIC", "placement": "BODY/POCKETS", "fabric_classification": "MAIN_FABRIC",
-                      "fabric_code": "TCT0054", "fabric_color": "SOLID COLOR", "fabric_width_inch": {active_width},
-                      "panels_catalog": [
-                        {{ "panel_name": "FRONT_PANEL", "piece_count": 2.0, "piece_length_inch": 41.5, "piece_width_inch": 13.0 }},
-                        {{ "panel_name": "BACK_PANEL", "piece_count": 2.0, "piece_length_inch": 42.0, "piece_width_inch": 15.5 }},
-                        {{ "panel_name": "SIDE_CARGO_POCKET", "piece_count": 2.0, "piece_length_inch": 9.5, "piece_width_inch": 8.5 }},
-                        {{ "panel_name": "CARGO_POCKET_FLAP", "piece_count": 4.0, "piece_length_inch": 3.5, "piece_width_inch": 8.5 }},
-                        {{ "panel_name": "WAISTBAND", "piece_count": 2.0, "piece_length_inch": 34.0, "piece_width_inch": 3.5 }},
-                        {{ "panel_name": "BACK_POCKET", "piece_count": 2.0, "piece_length_inch": 6.5, "piece_width_inch": 6.0 }}
-                      ]
-                    }},
-                    {{
-                      "component_type": "INTERLINING / KEO LÓT", "placement": "WAISTBAND", "fabric_classification": "FUSING",
-                      "fabric_code": "RM30", "fabric_color": "DTM OR CLOSE TO MAIN FABRIC BACKGROUND COLOR", "fabric_width_inch": {active_width},
-                      "panels_catalog": []
-                    }},
-                    {{
-                      "component_type": "POCKET LINING / LÓT TÚI", "placement": "POCKET BAGS", "fabric_classification": "LINING",
-                      "fabric_code": "COTTON SHEETING", "fabric_color": "SOLID COLOR", "fabric_width_inch": {active_width},
-                      "panels_catalog": []
-                    }}
+                  "component_type": "MAIN FABRIC", "placement": "BODY/POCKETS", "fabric_classification": "MAIN_FABRIC",
+                  "fabric_code": "TCT0054", "fabric_color": "SOLID COLOR", "fabric_width_inch": {active_width},
+                  "panels_catalog": [
+                    {{ "panel_name": "FRONT_PANEL", "piece_count": 2.0, "piece_length_inch": 41.5, "piece_width_inch": 13.0 }},
+                    {{ "panel_name": "BACK_PANEL", "piece_count": 2.0, "piece_length_inch": 42.0, "piece_width_inch": 15.5 }},
+                    {{ "panel_name": "SIDE_CARGO_POCKET", "piece_count": 2.0, "piece_length_inch": 9.5, "piece_width_inch": 8.5 }},
+                    {{ "panel_name": "CARGO_POCKET_FLAP", "piece_count": 4.0, "piece_length_inch": 3.5, "piece_width_inch": 8.5 }},
+                    {{ "panel_name": "WAISTBAND", "piece_count": 2.0, "piece_length_inch": 34.0, "piece_width_inch": 3.5 }},
+                    {{ "panel_name": "BACK_POCKET", "piece_count": 2.0, "piece_length_inch": 6.5, "piece_width_inch": 6.0 }}
                   ]
+                }},
+                {{
+                  "component_type": "INTERLINING / KEO LÓT", "placement": "WAISTBAND", "fabric_classification": "FUSING",
+                  "fabric_code": "RM30", "fabric_color": "DTM OR CLOSE TO MAIN FABRIC BACKGROUND COLOR", "fabric_width_inch": {active_width},
+                  "panels_catalog": []
+                }},
+                {{
+                  "component_type": "POCKET LINING / LÓT TÚI", "placement": "POCKET BAGS", "fabric_classification": "LINING",
+                  "fabric_code": "COTTON SHEETING", "fabric_color": "SOLID COLOR", "fabric_width_inch": {active_width},
+                  "panels_catalog": []
                 }}
-                ===END_JSON===
-                ===START_CHAT===
-                [Your conversational Vietnamese response here. Confirm that you have structured all 3 materials based on visual sketch and BOM data.]
-                ===END_CHAT===
-                """
+              ]
+            }}
+            ===END_JSON===
+            ===START_CHAT===
+            [Your conversational Vietnamese response here. Confirm that you have understood the history context and updated the current calculation for command: {current_query}]
+            ===END_CHAT===
+            """
+            
+            # Đóng gói ảnh PNG gửi kèm lên Gemini API đa phương thức
+            image_payload = {"mime_type": "image/png", "data": st.session_state.pdf_page_one_image}
+            
+            response = model.generate_content([image_payload, prompt_instruction])
+            if response and response.text:
+                response_text = response.text.strip()
+                json_match = re.search(r'===START_JSON===\s*(.*?)\s*===END_JSON===', response_text, re.DOTALL)
+                chat_match = re.search(r'===START_CHAT===\s*(.*?)\s*===END_CHAT===', response_text, re.DOTALL)
                 
-                # Đóng gói ảnh PNG dạng bytes gửi kèm cùng prompt chữ lên Gemini API
-                image_payload = {
-                    "mime_type": "image/png",
-                    "data": st.session_state.pdf_page_one_image
-                }
-                
-                response = model.generate_content([image_payload, prompt_instruction])
-                if response and response.text:
-                    response_text = response.text.strip()
-                    json_match = re.search(r'===START_JSON===\s*(.*?)\s*===END_JSON===', response_text, re.DOTALL)
-                    chat_match = re.search(r'===START_CHAT===\s*(.*?)\s*===END_CHAT===', response_text, re.DOTALL)
+                if json_match:
+                    raw_json_str = json_match.group(1).strip()
+                    raw_json_str = re.sub(r"^```json\s*|\s*```$", "", raw_json_str, flags=re.IGNORECASE)
                     
-                    if json_match:
-                        raw_json_str = json_match.group(1).strip()
-                        raw_json_str = re.sub(r"^```json\s*|\s*```$", "", raw_json_str, flags=re.IGNORECASE)
+                    raw_blueprint = json.loads(raw_json_str)
+                    if raw_blueprint and raw_blueprint.get("bom_rows"):
+                        blueprint_worker = copy.deepcopy(raw_blueprint)
                         
-                        raw_blueprint = json.loads(raw_json_str)
-                        if raw_blueprint and raw_blueprint.get("bom_rows"):
-                            blueprint_worker = copy.deepcopy(raw_blueprint)
-                            
-                            # Chạy liên hoàn chuỗi hàm thuật toán hình học rập IE nền
-                            step_2a1 = parse_geometric_panels_allowance(blueprint_worker, safe_user_prompt)
-                            step_2a2 = execute_marker_yardage_and_quality_gate(step_2a1, safe_user_prompt)
-                            blueprint_final = allocate_fabric_consumption_and_quality_gate(step_2a2)
-                            
-                            # 🌟 VÁ LỖI TREO NGẦM: Đồng bộ làm sạch và ghi đè an toàn kho lũy kế toàn cục
-                            st.session_state.accumulated_bom_rows = {}
-                            if "bom_rows" in blueprint_final:
-                                for row in blueprint_final["bom_rows"]:
-                                    if not row or not isinstance(row, dict): continue
-                                    c_type = str(row.get("component_type", "MAIN")).upper().strip()
-                                    f_class = str(row.get("fabric_classification", "MAIN_FABRIC")).upper().strip()
-                                    unique_key = f"{c_type}_{f_class}"
-                                    st.session_state.accumulated_bom_rows[unique_key] = row
-                            
-                            blueprint_final["bom_rows"] = list(st.session_state.accumulated_bom_rows.values())
-                            if "calculated_on_size" in raw_blueprint:
-                                blueprint_final["calculated_on_size"] = raw_blueprint["calculated_on_size"]
-                            
-                            # Ép cập nhật ngược lại bộ nhớ session để kích hoạt Đoạn 7b vẽ bảng
-                            st.session_state.bom_data = blueprint_final
-                    
-                    ai_chat_response = chat_match.group(1).strip() if chat_match else "Tôi đã giải phóng bộ đệm và cập nhật lại bảng tính định mức thực tế theo quy cách may."
-                    st.session_state.chat_history.append({"user": safe_user_prompt, "ai": ai_chat_response})
+                        # Triển khai chuỗi thuật toán may nối tiếp (Truyền lệnh chat mới vào)
+                        blueprint_final = allocate_fabric_consumption_and_quality_gate(blueprint_worker, current_query)
+                        
+                        # Đồng bộ làm sạch kho lũy kế chống lặp dòng
+                        st.session_state.accumulated_bom_rows = {}
+                        if "bom_rows" in blueprint_final:
+                            for row in blueprint_final["bom_rows"]:
+                                if not row or not isinstance(row, dict): continue
+                                c_type = str(row.get("component_type", "MAIN")).upper().strip()
+                                f_class = str(row.get("fabric_classification", "MAIN_FABRIC")).upper().strip()
+                                unique_key = f"{c_type}_{f_class}"
+                                st.session_state.accumulated_bom_rows[unique_key] = row
+                        
+                        blueprint_final["bom_rows"] = list(st.session_state.accumulated_bom_rows.values())
+                        if "calculated_on_size" in raw_blueprint:
+                            blueprint_final["calculated_on_size"] = raw_blueprint["calculated_on_size"]
+                        
+                        # Cập nhật bộ nhớ hiển thị chính cho Đoạn 7b vẽ bảng
+                        st.session_state.bom_data = blueprint_final
                 
-                st.rerun()
-            except Exception as e:
-                # Nếu sập lỗi thật, in rõ ràng lỗi lên màn hình thay vì gọi st.rerun() vô hạn gây treo ngầm
-                st.error(f"💥 Lỗi phân tích hệ thống background: {str(e)}")
-                st.code(traceback.format_exc())
+                # Nạp cặp đối thoại mới vào lịch sử ChatGPT Workspace
+                ai_chat_response = chat_match.group(1).strip() if chat_match else "Tôi đã cập nhật định mức vật tư theo yêu cầu mới của anh."
+                st.session_state.chat_history.append({"user": current_query, "ai": ai_chat_response})
+            
+            # Ép hệ thống rerun để cập nhật giao diện chat và bảng tính mới ngay lập tức
+            st.rerun()
+            
+        except Exception as e:
+            st.error(f"💥 Lỗi luồng hội thoại liên tục: {str(e)}")
+            st.code(traceback.format_exc())
 
 
 
