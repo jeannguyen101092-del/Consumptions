@@ -377,7 +377,7 @@ def execute_marker_yardage_and_quality_gate(ai_blueprint: dict, user_chat: str) 
 
 
 # =====================================================================
-# ĐOẠN 2b: PHÂN BỔ ĐỊNH MỨC & THUẬT TOÁN TỰ TĂNG HIỆU SUẤT THEO CHI TIẾT RẬP (V16.5.20 APPROVED)
+# ĐOẠN 2b: PHÂN BỔ ĐỊNH MỨC ĐỘNG ĐỒNG BỘ MẮT THẦN AI (V16.5.25 APPROVED)
 # =====================================================================
 
 def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict) -> dict:
@@ -393,6 +393,7 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict) -> dict:
     if not all_rows or not isinstance(all_rows, list): 
         all_rows = []
 
+    # Khởi tạo bộ nhớ tích lũy dữ liệu BOM nền để gộp dòng an toàn
     if "accumulated_bom_rows" not in st.session_state:
         st.session_state.accumulated_bom_rows = {}
 
@@ -410,6 +411,7 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict) -> dict:
         row["marker_efficiency_pct"] = "85.0%"
         row["status"] = "PASS"
 
+        # 1. Hardware Trim Bypass
         if 'EXCLUDE_HARDWARE_KEYS' in globals() and any(k in comp_type or k in placement or k in f_class_raw or k in f_code for k in EXCLUDE_HARDWARE_KEYS if k):
             row["calculated_gross_consumption_yds"] = 0.0
             row["marker_efficiency_pct"] = "N/A"
@@ -419,10 +421,12 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict) -> dict:
             st.session_state.accumulated_bom_rows[f"HARDWARE_{f_code}"] = row
             continue
 
+        # Nhận diện chặt chẽ các loại chất liệu từ AI quét hình ảnh và đọc BOM
         is_fusing = any(x in f_class_raw or x in comp_type or x in placement for x in ["FUSING", "INTERLINING", "KEO", "MEX", "MẾCH"])
         is_lining = any(x in f_class_raw or x in comp_type or x in placement for x in ["LINING", "POCKET", "TÚI", "LÓT"])
         is_elastic_or_tape = any(x in f_class_raw or x in comp_type or x in placement for x in ["ELASTIC", "TAPE", "THUN", "CHUN", "DÂY"])
         
+        # Khóa chặt định danh để gộp dòng, triệt tiêu lỗi trùng lặp hàng keo lót
         if is_fusing:
             row_unique_key = f"FUSING_TOTAL_{f_code}"
             default_width = 57.0
@@ -444,11 +448,11 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict) -> dict:
                 matched_cache_data = c_data
                 break
 
-        # Bóc tách diện tích và đếm tổng số chi tiết rập bán thành phẩm (BTP)
+        # BỎ ĐOẠN FIXED DIỆN TÍCH CŨ -> ĐỌC ĐỘNG TẤT CẢ RẬP KEO LÓT DO MẮT THẦN AI TRẢ VỀ
         panels = row.get("panels_catalog", [])
         max_piece_length = 0.0
         total_panel_area = 0.0
-        total_piece_count = 0  # 🌟 Biến đếm tổng số lượng mảnh chi tiết rập trong sơ đồ
+        total_piece_count = 0
         
         if panels and isinstance(panels, list):
             valid_panels = [p for p in panels if isinstance(p, dict)]
@@ -457,6 +461,7 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict) -> dict:
                 w_val = float(p.get("piece_width_inch", 0.0))
                 c_val = float(p.get("piece_count", 1.0))
                 
+                # Cộng biên may bán thành phẩm BTP chuyên dụng
                 if is_fusing:
                     l_val += 1.0
                     w_val += 0.5
@@ -465,56 +470,56 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict) -> dict:
                     w_val += 0.5
                 
                 total_panel_area += (l_val * w_val * c_val)
-                total_piece_count += c_val # Cộng dồn số lượng mảnh rập
+                total_piece_count += c_val
                 if l_val > max_piece_length:
                     max_piece_length = l_val
 
-        # Tiến hành phân bổ tính toán định mức hình học
+        # Logic tính toán chính toán học hình học
         is_processed = False
         if total_panel_area > 5.0:
             is_processed = True
             cutable_w = row["fabric_width_inch"]
             
-            # 🌟 THUẬT TOÁN ĐỔI MỚI: Tự động cộng thưởng hiệu suất sơ đồ dựa trên tổng số mảnh rập
-            # Mặc định nền là 82%. Càng nhiều chi tiết nhỏ lấp hở (như quần Cargo 10-14 chi tiết), hiệu suất tự tăng lên dải 89% - 91%
+            # THUẬT TOÁN TỰ ĐỘNG TĂNG HIỆU SUẤT: Nhét chi tiết phụ lấp khoảng hở sơ đồ
             base_eff = 0.82
             if not is_fusing and not is_lining and not is_elastic_or_tape:
-                # Cộng thưởng 0.7% hiệu suất cho mỗi chi tiết phụ chèn hở đầu bàn
+                # Nếu sơ đồ có nhiều chi tiết nhỏ (như Cargo 10-14 mảnh rập rải rác), Eff tự động tăng lên 89.5% - 91%
                 bonus_eff = min(0.09, (total_piece_count - 4) * 0.007) if total_piece_count > 4 else 0.0
-                eff = min(0.92, base_eff + bonus_eff) # Khống chế trần hiệu suất sơ đồ may tối đa 92%
+                eff = min(0.92, base_eff + bonus_eff)
             else:
-                eff = 0.85
+                eff = 0.85 # Mức chuẩn cho sơ đồ keo phối hoặc lót túi độc lập
                 
             row["marker_efficiency_pct"] = f"{round(eff * 100, 1)}%"
-                
-            shrink_warp = matched_cache_data.get("shrink_warp_f", 1.05) if matched_cache_data else 1.05
+            shrink_warp = matched_cache_data.get("shrink_warp_f", 1.03) if matched_cache_data else 1.03
             wastage = 1.01  
             
             if product_type in ["PANT", "CARGO_PANT"] and not is_fusing and not is_lining and not is_elastic_or_tape:
-                # Tính định mức tự động co giãn theo Hiệu suất sơ đồ thông minh mới
+                # Tính định mức vải chính dựa trên dải sơ đồ dài lồng rập tối ưu chi tiết túi sườn
                 total_yds = (max_piece_length / 36.0) * shrink_warp * wastage / eff
-                total_yds *= 1.03  # Hệ số dung sai dải sơ đồ phụ
+                total_yds *= 1.03  # Cộng dung sai dải sơ đồ túi hộp
                 
-                # Van chặn khống chế an toàn cho vải chính (Bảo vệ rập lỗi hệ thống)
-                if total_yds > 1.62:
+                # Khống chế trần bảo vệ vải chính nghiêm ngặt chuẩn thực tế dệt may
+                if total_yds > 1.62: 
                     total_yds = 1.5450  
             else:
+                # Tính định mức cho Keo lót (Fusing) và Vải lót (Lining) dựa trên rập thực tế AI nhìn thấy từ hình Sketch
                 total_yds = (total_panel_area / (cutable_w * 36.0)) / eff * shrink_warp * wastage
                 
             row["calculated_gross_consumption_yds"] = round(total_yds, 4)
-            row["consumption_note"] = f"Khổ vải: {cutable_w}\" | Sơ đồ thông minh tự động tối ưu khoảng hở"
+            row["consumption_note"] = f"Khổ vải: {cutable_w}\" | Đồng bộ tính toán theo Mắt thần AI & Rập BTP"
             row["reason_or_logs"] = f"{cutable_w}\"/{row['marker_efficiency_pct']}/{round((shrink_warp-1)*100,1)}x0.0"
             row["status"] = "PASS"
 
-        # Khối gán số dự phòng an toàn (Fallback) khi rập trống
+        # Khối dự phòng Fallback an toàn (Chỉ kích hoạt nếu file PDF lỗi không có Spec hình học)
         if not is_processed:
             if is_fusing:
                 row["calculated_gross_consumption_yds"] = 0.1650  
                 row["consumption_note"] = "Khổ mếch: 57\" | Định mức Mex Keo tiêu chuẩn BTP"
                 row["reason_or_logs"] = "57.0\"/85.0%/0.0x0.0"
             elif is_lining:
-                row["calculated_gross_consumption_yds"] = 0.2650  
-                row["consumption_note"] = "Khổ lót: 57\" | Định mức Vải lót túi tiêu chuẩn BTP"
+                # Nếu rập lót trống, tự gán số tổng lũy kế cho 2 lót trước + 2 lót túi sau mổ cơi chuẩn xác
+                row["calculated_gross_consumption_yds"] = 0.4450  
+                row["consumption_note"] = "Khổ lót: 57\" | Định mức Lũy kế 4 Túi lót (Trước + Sau mổ)"
                 row["reason_or_logs"] = "57.0\"/85.0%/0.0x0.0"
             elif is_elastic_or_tape:
                 row["calculated_gross_consumption_yds"] = 0.8500  
@@ -536,6 +541,7 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict) -> dict:
 
     ai_blueprint["bom_rows"] = list(st.session_state.accumulated_bom_rows.values())
     return ai_blueprint
+
 
 
 
@@ -839,14 +845,15 @@ if st.session_state.chat_history:
 safe_user_prompt = st.chat_input("Gõ câu lệnh điều chỉnh thông số tại đây (Ví dụ: khổ 57 co rút 3-3 size 10):")
 st.markdown('</div>', unsafe_allow_html=True)
 # =====================================================================
-# ĐOẠN 7a2: ENGINE BACKGROUND SỬA TRIỆT ĐỂ LỖI KẸT CO RÚT NGANG NGẦM (V17.5.0.0 FIXED)
+# =====================================================================
+# ĐOẠN 7a2: ENGINE AI TRỰC QUAN MẮT THẦN - QUÉT ẢNH SKETCH + ĐỐI CHIẾU BOM (V17.5.5.0)
 # =====================================================================
 
 if st.session_state.pdf_bytes is not None and safe_user_prompt:
     if st.session_state.last_processed_prompt != safe_user_prompt:
         st.session_state.last_processed_prompt = safe_user_prompt
         
-        with st.spinner("🧠 AI Core đang xử lý thông số rập và co rút thực tế..."):
+        with st.spinner("🧠 MẮT THẦN AI: Đang phân tích ảnh Sketch phẳng và đối chiếu bảng BOM..."):
             try:
                 import google.generativeai as genai
                 import json, copy, traceback, re
@@ -857,40 +864,40 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                 model = genai.GenerativeModel("gemini-2.5-flash", generation_config={"temperature": 0.2})
                 chat_lower = safe_user_prompt.lower().strip()
                 
-                # 🌟 TRÍCH XUẤT CHẶN CHẼ: Tránh hoàn toàn lỗi bắt nhầm từ khóa
+                # Bộ trích xuất thông số động thông minh từ câu lệnh chat
                 match_size = re.search(r'\b(?:size|sz|cỡ)\s*[:\-=\s]*([\w\d]+)\b', chat_lower)
                 target_size_cmd = str(match_size.group(1)).upper().strip() if match_size else "AUTOMATIC_MEDIAN"
                 
                 match_w = re.search(r'\b(?:khổ|kho|width)\s*[:\-=\s]*([\d\.]+)\b', chat_lower)
                 active_width = float(match_w.group(1)) if match_w else 57.0
                 
-                # Sửa bộ bắt cặp co rút: Quét qua chuỗi "co rút 3-3" hoặc "co rút dọc 3 ngang 3"
                 match_sh_pair = re.search(r'(?:co\s*rút|co\s*rut|co|shrinkage)\s*[:\-=\s]*([\d\.]+)\s*(?:-|–|x|ngang|dọc|\s+)\s*([\d\.]+)', chat_lower)
-                match_warp = re.search(r'\b(?:dọc|doc|warp)\s*[:\-=\s]*([\d\.]+)\b', chat_lower)
-                match_weft = re.search(r'\b(?:ngang|weft)\s*[:\-=\s]*([\d\.]+)\b', chat_lower)
-                
                 if match_sh_pair:
                     active_warp = float(match_sh_pair.group(1))
                     active_weft = float(match_sh_pair.group(2))
                 else:
-                    active_warp = float(match_warp.group(1)) if match_warp else 3.0
-                    active_weft = float(match_weft.group(1)) if match_weft else 3.0
+                    active_warp = 3.0
+                    active_weft = 3.0
 
                 if len(st.session_state.chat_history) > 30:
                     st.session_state.chat_history = st.session_state.chat_history[-30:]
 
-                # Ép chỉ thị cấu trúc gửi lên Gemini
+                # 🌟 CHỈ THỊ IE TRỰC QUAN NÂNG CAO: Ép AI nhìn ảnh để phân tích quy cách may phối
                 prompt_instruction = f"""
-                You are an expert apparel Industrial Engineer (IE) system analyzing a Techpack PDF.
-                DATA FOUND IN TECHPACK PDF: {st.session_state.pdf_text_cache}
-                CONTEXT HISTORY OF CHAT: {json.dumps(st.session_state.chat_history, ensure_ascii=False)}
+                You are a senior apparel Industrial Engineer (IE). You are given BOTH the visual garment sketch image and the full techpack text data.
+                
+                DATA FOUND IN TECHPACK TEXT (BOM SHEET): 
+                {st.session_state.pdf_text_cache}
+                
+                CONTEXT HISTORY: {json.dumps(st.session_state.chat_history, ensure_ascii=False)}
                 CURRENT USER COMMAND: "{safe_user_prompt}"
                 
-                CRITICAL INSTRUCTION:
-                1. Target size is strictly '{target_size_cmd}'. Extract corresponding measurements.
-                2. Fabric cut width is exactly '{active_width}' inches.
-                3. Fabric shrinkage is strictly Warp: {active_warp}%, Weft: {active_weft}%. Do NOT use any other default shrinkage numbers.
-                4. Extract the Main Fabric row, and separate rows for FUSING (Keo lót) and LINING (Lót túi).
+                VISUAL AUDIT & RULES FOR ACCURACY:
+                1. Look closely at the provided sketch image to identify the garment's exact styling structure.
+                2. If you see side cargo pockets with flaps, understand that these outer pockets must be made of MAIN FABRIC (Vải chính) as per apparel standard.
+                3. If you see welt/piped pockets at the back (túi sau mổ cơi/viền), understand that they require internal POCKET BAGS made of LINING fabric (Vải lót túi), even if the lining text spec is brief.
+                4. Match your visual findings with the BOM text data. Cross-reference material codes (e.g., TCT0054 for Main, RM30 for Fusing).
+                5. Compute bounding boxes for size '{target_size_cmd}' using Cut Width: {active_width} inches, Warp: {active_warp}%, Weft: {active_weft}%.
                 
                 Return response in exact format:
                 ===START_JSON===
@@ -901,25 +908,31 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                   "bom_rows": [
                     {{
                       "component_type": "MAIN FABRIC", "placement": "BODY/POCKETS", "fabric_classification": "MAIN_FABRIC",
-                      "fabric_code": "TCT0054", "fabric_color": "SOLID COLOR",
-                      "fabric_width_inch": {active_width},
+                      "fabric_code": "TCT0054", "fabric_color": "SOLID COLOR", "fabric_width_inch": {active_width},
                       "panels_catalog": [
                         {{ "panel_name": "FRONT_PANEL", "piece_count": 2.0, "piece_length_inch": 41.5, "piece_width_inch": 13.0 }},
                         {{ "panel_name": "BACK_PANEL", "piece_count": 2.0, "piece_length_inch": 42.0, "piece_width_inch": 15.5 }},
                         {{ "panel_name": "SIDE_CARGO_POCKET", "piece_count": 2.0, "piece_length_inch": 9.5, "piece_width_inch": 8.5 }},
-                        {{ "panel_name": "CARGO_POCKET_FLAP", "piece_count": 4.0, "piece_length_inch": 3.5, "piece_width_inch": 8.5 }},
-                        {{ "panel_name": "WAISTBAND", "piece_count": 2.0, "piece_length_inch": 34.0, "piece_width_inch": 3.5 }},
-                        {{ "panel_name": "BACK_POCKET", "piece_count": 2.0, "piece_length_inch": 6.5, "piece_width_inch": 6.0 }}
+                        {{ "panel_name": "CARGO_POCKET_FLAP", "piece_count": 4.0, "piece_length_inch": 3.5, "piece_width_inch": 8.5 }}
                       ]
                     }}
                   ]
                 }}
                 ===END_JSON===
                 ===START_CHAT===
-                [Your conversational Vietnamese response here. Confirm you calculated size {target_size_cmd} with width {active_width} and shrinkage {active_warp}x{active_weft}%]
+                [Write a professional human-like response in Vietnamese. State what components you saw in the visual sketch (e.g., túi hộp sườn, túi mổ sau) and how you matched them with the BOM codes to calculate exact consumption.]
                 ===END_CHAT===
                 """
-                response = model.generate_content(prompt_instruction)
+                
+                # 🌟 BƯỚC ĐỘT PHÁ: Đóng gói ảnh PNG dạng bytes và gửi kèm cùng prompt chữ lên Gemini API
+                image_payload = {
+                    "mime_type": "image/png",
+                    "data": st.session_state.pdf_page_one_image
+                }
+                
+                # Gửi đồng thời cả Ảnh Sketch và Promt chữ chỉ đạo dữ liệu
+                response = model.generate_content([image_payload, prompt_instruction])
+                
                 if response and response.text:
                     response_text = response.text.strip()
                     json_match = re.search(r'===START_JSON===\s*(.*?)\s*===END_JSON===', response_text, re.DOTALL)
@@ -933,34 +946,30 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                         if raw_blueprint and raw_blueprint.get("bom_rows"):
                             blueprint_worker = copy.deepcopy(raw_blueprint)
                             
-                            # 🌟 ĐỒNG BỘ ĐỒNG NHẤT BIẾN LỆNH: Thay thế active_prompt lỗi thời bằng safe_user_prompt mới
                             step_2a1 = parse_geometric_panels_allowance(blueprint_worker, safe_user_prompt)
                             step_2a2 = execute_marker_yardage_and_quality_gate(step_2a1, safe_user_prompt)
                             blueprint_final = allocate_fabric_consumption_and_quality_gate(step_2a2)
                             
-                            # Đồng bộ lũy kế kho dữ liệu
                             if "bom_rows" in blueprint_final:
-                                # Xóa sạch vết dòng lượt cũ của file này trước khi ghi đè để triệt tiêu lỗi lặp dòng vĩnh viễn
                                 st.session_state.accumulated_bom_rows = {}
                                 for row in blueprint_final["bom_rows"]:
                                     if not row or not isinstance(row, dict): continue
                                     c_type = str(row.get("component_type", "MAIN")).upper().strip()
                                     f_class = str(row.get("fabric_classification", "MAIN_FABRIC")).upper().strip()
                                     unique_key = f"{c_type}_{f_class}"
-                                    
                                     st.session_state.accumulated_bom_rows[unique_key] = row
                             
                             blueprint_final["bom_rows"] = list(st.session_state.accumulated_bom_rows.values())
                             if "calculated_on_size" in raw_blueprint:
                                 blueprint_final["calculated_on_size"] = raw_blueprint["calculated_on_size"]
-                            
                             st.session_state.bom_data = blueprint_final
                     
-                    ai_chat_response = chat_match.group(1).strip() if chat_match else f"Đã cập nhật định mức hệ thống."
+                    ai_chat_response = chat_match.group(1).strip() if chat_match else "Đã hoàn thành phân tích quy cách may trực quan."
                     st.session_state.chat_history.append({"user": safe_user_prompt, "ai": ai_chat_response})
                 st.rerun()
             except Exception as e:
-                st.error(f"💥 Lỗi đối thoại hệ thống: {str(e)}")
+                st.error(f"💥 Lỗi đối thoại mắt thần hệ thống: {str(e)}")
+
 
 
 
