@@ -868,8 +868,23 @@ st.markdown('<div class="main-body-spacer"></div>', unsafe_allow_html=True)
 
 
 # =====================================================================
-# ĐOẠN 6b: CONTROLS SIDEBAR & SỬA TRIỆT ĐỂ LỖI Ô TRỐNG THỪA BÊN TRÁI (V18.3.2.0)
+# ĐOẠN 6b: KHỐI CHIA CỘT ĐỐI XỨNG - KHỐNG CHẾ TRỰC TIẾP CHIỀU CAO ẢNH (V18.3.5.0 APPROVED)
 # =====================================================================
+
+# 🌟 BỘ CSS PHÒNG VỆ: Ép trực tiếp mọi thẻ ảnh (img) nằm trong khung Sketch phải co nhỏ lại vừa vặn
+st.markdown("""
+<style>
+    /* Ép tất cả các hình ảnh nằm trong cột bên phải khống chế chiều cao tối đa, */
+    /* tự động giữ nguyên tỷ lệ rập phẳng mà không bị kéo giãn to đùng */
+    .sticky-sketch-box img {
+        max-height: 290px !important;
+        width: auto !important;
+        object-fit: contain !important;
+        margin: 0 auto !important;
+        display: block !important;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 # --- SIDEBAR ENGINE CONTROLS CONTROL PANEL ---
 st.sidebar.markdown("### ⚙️ ENGINE CONTROLS")
@@ -886,12 +901,11 @@ if st.sidebar.button("🗑️ CLEAR SYSTEM MEMORY", use_container_width=True):
 # LƯỚI CHIA ĐÔI CỘT ĐỐI XỨNG CÂN BẰNG THỊ GIÁC ĐỀU NHAU
 col_left, col_right = st.columns(2)
 
+# --- CỘT TRÁI: BỘ TẢI FILE & HỒ SƠ TÓM TẮT MÃ HÀNG ---
 with col_left:
-    # 🌟 CHỈ MỞ DUY NHẤT 1 THẺ HỘP CHO CỘT TRÁI
     st.markdown('<div class="custom-erp-box">', unsafe_allow_html=True)
     st.markdown('<div class="cad-header-text">📂 TECHPACK UPLOADER & PROFILE SUMMARY</div>', unsafe_allow_html=True)
     
-    # Ghim trực tiếp bộ tải file nằm ngay dưới tiêu đề, không tạo ô trống
     uploaded_file = st.file_uploader("Upload PDF", type=["pdf"], label_visibility="collapsed")
     
     if uploaded_file is not None:
@@ -902,9 +916,8 @@ with col_left:
         st.session_state.pdf_bytes = uploaded_file.read()
         st.session_state.pdf_name = uploaded_file.name
 
-    # Đổ tiếp 6 ô thẻ tóm tắt hồ sơ kỹ thuật vào cùng một hộp
     if st.session_state.pdf_text_cache is not None:
-        st.markdown("<div style='margin-top: 15px;'></div>", unsafe_allow_html=True)
+        st.markdown("<div style='margin-top: 10px;'></div>", unsafe_allow_html=True)
         txt = st.session_state.pdf_text_cache
         
         import re
@@ -922,17 +935,31 @@ with col_left:
         with m_col1:
             st.markdown(f'<div class="meta-box-light"><div class="meta-label-light">Style Code / Mã hàng</div><div class="meta-value-light"><b>{style_id}</b></div></div>', unsafe_allow_html=True)
             st.markdown(f'<div class="meta-box-light"><div class="meta-label-light">Customer / Đối tác</div><div class="meta-value-light">{customer}</div></div>', unsafe_allow_html=True)
-            st.markdown(f'<div class="meta-box-light"><div class="meta-label-light">Season / Mùa sản xuất</div><div class="meta-value-light">{season}</div></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="meta-box_light"><div class="meta-label-light">Season / Mùa sản xuất</div><div class="meta-value-light">{season}</div></div>', unsafe_allow_html=True)
         with m_col2:
             st.markdown(f'<div class="meta-box-light"><div class="meta-label-light">Garment Type / Kiểu dáng</div><div class="meta-value-light">{short_desc}</div></div>', unsafe_allow_html=True)
             st.markdown(f'<div class="meta-box-light"><div class="meta-label-light">Material Spec / Mô tả vải</div><div class="meta-value-light">{fabric_type[:28]}...</div></div>', unsafe_allow_html=True)
             st.markdown(f'<div class="meta-box-light"><div class="meta-label-light">Techpack Status</div><div class="meta-value-light" style="color: #16a34a;">🟢 READY TO BOM</div></div>', unsafe_allow_html=True)
     else:
         if st.session_state.pdf_bytes is None:
-            st.markdown("<div style='margin-top: 30px; text-align: center; color: #64748b; font-size: 13px;'>Bảng tóm tắt thông số sản phẩm sẽ tự động hiển thị tại đây sau khi nạp file PDF.</div>", unsafe_allow_html=True)
+            st.markdown("<div style='margin-top: 40px; text-align: center; color: #64748b; font-size: 13px;'>Bảng tóm tắt thông số sản phẩm sẽ tự động hiển thị tại đây sau khi nạp file PDF.</div>", unsafe_allow_html=True)
         
-    # ĐÓNG DUY NHẤT 1 THẺ HỘP CHO CỘT TRÁI
     st.markdown('</div>', unsafe_allow_html=True)
+
+
+# --- CỘT PHẢI: KHUNG XEM BẢN VẼ PHẲNG SKETCH (🌟 ĐÃ ÉP CO NHỎ ẢNH GỐC) ---
+with col_right:
+    # Bọc thêm một class định danh riêng sticky-sketch-box phục vụ ép co ảnh
+    st.markdown('<div class="custom-erp-box sticky-sketch-box">', unsafe_allow_html=True)
+    st.markdown('<div class="cad-header-text">🎨 TECHPACK SKETCH VISUALIZER</div>', unsafe_allow_html=True)
+    
+    if "pdf_page_one_image" in st.session_state and st.session_state.pdf_page_one_image is not None:
+        st.image(st.session_state.pdf_page_one_image, use_container_width=True)
+    else:
+        st.markdown("<div style='margin-top: 50px; text-align: center; color: #64748b; font-size: 13px;'>Hình vẽ phác họa phẳng (Sketch) trích xuất từ trang bìa PDF sẽ tự động hiển thị cân xứng tại đây.</div>", unsafe_allow_html=True)
+        
+    st.markdown('</div>', unsafe_allow_html=True)
+
 
 
 
