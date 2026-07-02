@@ -688,7 +688,7 @@ with col_left:
     st.markdown('</div>', unsafe_allow_html=True)
 
 # =====================================================================
-# ĐOẠN 7a: KHỐI LUỒNG XỬ LÝ & ĐỒNG BỘ KHUNG CHAT + Ô NHẬP LỆNH XUỐNG DƯỚI (V17.4.0.0)
+# ĐOẠN 7a: LUỒNG TÍCH LŨY DỮ LIỆU BOM - KHÔNG BỚT XÉN VẬT TƯ CŨ (V17.4.2.0)
 # =====================================================================
 
 # --- KHU VỰC 1: HIỂN THỊ HÌNH ẢNH TECHPACK GỌN GÀNG Ở CỘT PHẢI ---
@@ -701,6 +701,8 @@ with col_right:
     if "pdf_text_cache" not in st.session_state: st.session_state.pdf_text_cache = None
     if "pdf_page_one_image" not in st.session_state: st.session_state.pdf_page_one_image = None
     if "last_processed_prompt" not in st.session_state: st.session_state.last_processed_prompt = None
+    # 🌟 Khởi tạo kho tích lũy dữ liệu BOM nền nếu chưa có
+    if "accumulated_bom_rows" not in st.session_state: st.session_state.accumulated_bom_rows = {}
 
     if st.session_state.pdf_bytes is not None:
         try:
@@ -723,30 +725,26 @@ with col_right:
     st.markdown('</div>', unsafe_allow_html=True)
 
 
-# --- KHU VỰC 2: Ô NHẬP LỆNH VÀ HIỂN THỊ CHAT DI CHUYỂN TOÀN BỘ XUỐNG PHÍA DƯỚI BẢNG ---
+# --- KHU VỰC 2: Ô NHẬP LỆNH VÀ HIỂN THỊ CHAT BỐ CỤC CHATGPT PHÍA DƯỚI BẢNG ---
 st.markdown('<br>', unsafe_allow_html=True)
 st.markdown('<div class="cad-card">', unsafe_allow_html=True)
 st.markdown('<div class="cad-header">💬 CHATGPT IE COLLABORATION WORKSPACE</div>', unsafe_allow_html=True)
 
-# 1. Hiển thị lịch sử chat full chiều ngang cực kỳ thoáng đãng
 if st.session_state.chat_history:
     for msg in st.session_state.chat_history:
         st.chat_message("user").write(msg["user"])
         st.chat_message("assistant").write(msg["ai"])
 
-# 2. 🟢 CHUYỂN Ô NHẬP LỆNH XUỐNG DƯỚI CÙNG KHUNG CHAT ĐỂ ĐỐI THOẠI LIÊN TỤC CHUẨN CHATGPT
-# Thay thế st.text_input cũ ở phía trên bằng st.chat_input trực quan nằm ngay tại Workspace này
-safe_user_prompt = st.chat_input("Gõ câu lệnh hoặc yêu cầu điều chỉnh tại đây (Ví dụ: tính size 32 co rút 4-6, bổ sung thun...):")
-
+safe_user_prompt = st.chat_input("Gõ câu lệnh bổ sung vật tư tại đây (Ví dụ: tính thêm keo lót, bổ sung thun...):")
 st.markdown('</div>', unsafe_allow_html=True)
 
 
-# --- KHU VỰC 3: KHỐI LUỒNG XỬ LÝ BACKGROUND KHI NGƯỜI DÙNG NHẬP LỆNH MỚI ---
+# --- KHU VỰC 3: ENGINE BACKGROUND XỬ LÝ TÍCH LŨY DỮ LIỆU KHI CÓ LỆNH ĐIỀU CHỈNH MỚI ---
 if st.session_state.pdf_bytes is not None and safe_user_prompt:
     if st.session_state.last_processed_prompt != safe_user_prompt:
         st.session_state.last_processed_prompt = safe_user_prompt
         
-        with st.spinner("🧠 AI Core đang xử lý hội thoại..."):
+        with st.spinner("🧠 AI Core đang tính toán và tích hợp vật tư vào bảng BOM..."):
             try:
                 import google.generativeai as genai
                 import json, copy, traceback, re
@@ -761,11 +759,16 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                 if len(st.session_state.chat_history) > 30:
                     st.session_state.chat_history = st.session_state.chat_history[-30:]
 
+                # Hướng dẫn AI: Tập trung bóc tách vật tư mới nhưng cho phép trả về mảng BOM đầy đủ
                 prompt_instruction = f"""
                 You are an expert apparel Industrial Engineer (IE) chatting with a production manager.
                 DATA FOUND IN TECHPACK PDF: {st.session_state.pdf_text_cache}
-                CONTEXT HISTORY: {json.dumps(st.session_state.chat_history, ensure_ascii=False)}
-                CURRENT USER INPUT: "{safe_user_prompt}"
+                CONTEXT HISTORY OF CHAT: {json.dumps(st.session_state.chat_history, ensure_ascii=False)}
+                CURRENT USER COMMAND: "{safe_user_prompt}"
+                
+                INSTRUCTION FOR ACCUMULATION:
+                - If the user asks to add or compute something new (e.g., Keo lót, Elastic, Tape, Thread), extract its physical spec for size '{target_size_cmd}' and include it in the JSON rows.
+                - Try to output both the Main Fabric and the newly requested materials so the system can merge them perfectly without losing the body fabric data.
                 
                 Return response in exact format:
                 ===START_JSON===
@@ -775,7 +778,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                   "calculated_on_size": "{target_size_cmd}",
                   "bom_rows": [
                     {{
-                      "component_type": "MAIN FABRIC", "placement": "BODY", "fabric_classification": "MAIN_fabric",
+                      "component_type": "MAIN FABRIC", "placement": "BODY", "fabric_classification": "MAIN_FABRIC",
                       "fabric_code": "REAL_CODE", "fabric_color": "REAL_COLOR",
                       "panels_catalog": [ {{ "panel_name": "FRONT_PANEL", "piece_count": 2.0, "piece_length_inch": 41.0, "piece_width_inch": 12.0 }} ]
                     }}
@@ -795,6 +798,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                     if json_match:
                         raw_json_str = json_match.group(1).strip()
                         raw_json_str = re.sub(r"^```json\s*|\s*```$", "", raw_json_str, flags=re.IGNORECASE)
+                        
                         try: 
                             raw_blueprint = json.loads(raw_json_str)
                             if raw_blueprint and raw_blueprint.get("bom_rows"):
@@ -802,14 +806,34 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                                 step_2a1 = parse_geometric_panels_allowance(blueprint_worker, safe_user_prompt)
                                 step_2a2 = execute_marker_yardage_and_quality_gate(step_2a1, safe_user_prompt)
                                 blueprint_final = allocate_fabric_consumption_and_quality_gate(step_2a2)
+                                
+                                # 🌟 ENGINE TÍCH LŨY DỮ LIỆU: Lưu trữ và gộp ô thông minh theo Khóa định danh vật tư
+                                if "bom_rows" in blueprint_final:
+                                    for row in blueprint_final["bom_rows"]:
+                                        if not row or not isinstance(row, dict): continue
+                                        # Tạo khóa định danh duy nhất dựa trên Loại linh kiện và Phân loại vải
+                                        c_type = str(row.get("component_type", "MAIN")).upper().strip()
+                                        f_class = str(row.get("fabric_classification", "MAIN_FABRIC")).upper().strip()
+                                        unique_key = f"{c_type}_{f_class}"
+                                        
+                                        # Lưu đè hoặc ghi mới vào kho trạng thái tích lũy của Session
+                                        st.session_state.accumulated_bom_rows[unique_key] = row
+                                
+                                # Đồng bộ kho tích lũy ngược lại vào biến bom_data chính để Đoạn 7b vẽ bảng đầy đủ
+                                blueprint_final["bom_rows"] = list(st.session_state.accumulated_bom_rows.values())
+                                # Cập nhật Size tính toán mới nhất
+                                if "calculated_on_size" in raw_blueprint:
+                                    blueprint_final["calculated_on_size"] = raw_blueprint["calculated_on_size"]
                                 st.session_state.bom_data = blueprint_final
-                        except Exception: pass
+                        except Exception: 
+                            pass
                     
-                    ai_chat_response = chat_match.group(1).strip() if chat_match else "Đã cập nhật định mức theo lệnh."
+                    ai_chat_response = chat_match.group(1).strip() if chat_match else "Tôi đã cập nhật định mức vật tư phụ vào bảng dữ liệu hiện tại."
                     st.session_state.chat_history.append({"user": safe_user_prompt, "ai": ai_chat_response})
                 st.rerun()
             except Exception as e:
                 st.error(f"💥 Lỗi đối thoại: {str(e)}")
+
 
 # =====================================================================
 # ĐOẠN 7b: KHU VỰC HIỂN THỊ KẾT QUẢ ĐƠN MÃ, SIZE VÀ XUẤT EXCEL CHUẨN ĐẸP (V17.0.0.8)
