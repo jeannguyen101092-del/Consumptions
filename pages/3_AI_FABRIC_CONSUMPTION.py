@@ -514,7 +514,7 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict) -> dict:
 
 
 # =====================================================================
-# ĐOẠN 6: GIAO DIỆN CHÍNH - BANNER TIÊU ĐỀ & KPIs SẮC MÀU ĐỘNG (V17.7.0.5 APPROVED)
+# ĐOẠN 6: GIAO DIỆN CHÍNH - BANNER TIÊU ĐỀ, KPIs & AUTO EXTRACT PROFILE (V17.7.1.0 APPROVED)
 # =====================================================================
 st.set_page_config(layout="wide", page_title="AI Fabric Consumption Matrix")
 
@@ -627,7 +627,19 @@ if "pdf_name" not in st.session_state: st.session_state.pdf_name = ""
 if "pdf_text_cache" not in st.session_state: st.session_state.pdf_text_cache = None
 if "accumulated_bom_rows" not in st.session_state: st.session_state.accumulated_bom_rows = {}
 
-# 🏢 1. ĐẶT THANH BANNER ĐỈNH TOÀN MÀN HÌNH LẤP KHOẢNG TRỐNG TRÊN CÙNG
+# 🌟 2. CƠ CHẾ AUTO-EXTRACT CẢI TIẾN: Tự động chạy bóc tách chữ từ PDF ngay khi nạp file (Sửa lỗi trống trơn bên trái)
+if st.session_state.pdf_bytes is not None and st.session_state.pdf_text_cache is None:
+    try:
+        import fitz
+        doc = fitz.open(stream=st.session_state.pdf_bytes, filetype="pdf")
+        full_text_extract = ""
+        for page_num in range(len(doc)):
+            full_text_extract += f"\n--- TRANG THỨ {page_num + 1} ---\n" + doc.load_page(page_num).get_text("text")
+        st.session_state.pdf_text_cache = full_text_extract
+    except Exception:
+        pass
+
+# ĐẶT THANH BANNER ĐỈNH TOÀN MÀN HÌNH LẤP KHOẢNG TRỐNG TRÊN CÙNG
 st.markdown("""
 <div class="top-banner">
     <div class="top-title">📊 INTELLIGENT FABRIC CONSUMPTION PLATFORM</div>
@@ -635,17 +647,15 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# 🏢 2. ENGINE TRÍCH XUẤT VÀ ĐỒNG BỘ DỮ LIỆU KPIs BIẾN THIÊN THEO THỜI GIAN THỰC
+# ENGINE TRÍCH XUẤT VÀ ĐỒNG BỘ DỮ LIỆU KPIs BIẾN THIÊN THEO THỜI GIAN THỰC
 kpi_style_id = "N/A"
 total_materials = 0
 main_fabric_cons = "0.000"
 active_size_kpi = "AUTOMATIC"
 
-# Đếm tổng số vật tư đang tích lũy trong kho lưu trữ cộng dồn luỹ kế
 if "accumulated_bom_rows" in st.session_state and st.session_state.accumulated_bom_rows:
     total_materials = len(st.session_state.accumulated_bom_rows)
 
-# Phân rã dữ liệu từ biến kết quả bom_data chính để đưa lên KPIs động
 if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data:
     kpi_style_id = str(st.session_state.bom_data.get("style_code", "R09-450416")).upper()
     active_size_kpi = str(st.session_state.bom_data.get("calculated_on_size", "MEDIAN")).upper()
@@ -653,7 +663,6 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data:
     if total_materials == 0:
         total_materials = len(st.session_state.bom_data["bom_rows"])
         
-    # Vòng lặp tìm chính xác dòng Vải chính để nạp Yardage lên ô số 3
     for row in st.session_state.bom_data["bom_rows"]:
         if not row: continue
         comp_type = str(row.get("component_type", "")).upper()
@@ -665,7 +674,7 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data:
                 main_fabric_cons = f"{val_gross:.3f} Yds"
                 break
 
-# 🏢 3. RÁP LẠI KHỐI KPIs DASHBOARD ĐA SẮC MÀU CAO CẤP
+# RÁP LẠI KHỐI KPIs DASHBOARD ĐA SẮC MÀU CAO CẤP
 k_col1, k_col2, k_col3, k_col4 = st.columns(4)
 with k_col1:
     st.markdown(f'<div class="kpi-card-colored bg-style"><div class="kpi-num-light">{kpi_style_id}</div><div class="kpi-lbl-light">Mã hàng đang xử lý</div></div>', unsafe_allow_html=True)
@@ -699,14 +708,18 @@ with col_left:
     st.markdown('<div class="cad-card">', unsafe_allow_html=True)
     st.markdown('<div class="cad-header">📂 TECHPACK UPLOADER & PROFILE SUMMARY</div>', unsafe_allow_html=True)
     
-    # 🟢 Ẩn nhãn Uploader cũ bằng collapsed để giao diện vuông vắn, liền khối
     uploaded_file = st.file_uploader("Tải lên tệp tài liệu kỹ thuật Techpack / BOM (PDF)", type=["pdf"], label_visibility="collapsed")
     
     if uploaded_file is not None:
+        # Nếu người dùng tải đè một file mới hoàn toàn, reset cache text để luồng auto-extract kích hoạt lại
+        if st.session_state.pdf_name != uploaded_file.name:
+            st.session_state.pdf_text_cache = None
+            if "pdf_page_one_image" in st.session_state: st.session_state.pdf_page_one_image = None
+            if "accumulated_bom_rows" in st.session_state: st.session_state.accumulated_bom_rows = {}
         st.session_state.pdf_bytes = uploaded_file.read()
         st.session_state.pdf_name = uploaded_file.name
 
-    # Tự động bóc tách các trường chuỗi ký tự tổng quan từ Cache văn bản để đưa lên 6 ô thẻ tóm tắt kỹ thuật
+    # Hiển thị bảng tóm tắt 6 ô thẻ kỹ thuật ngăn nắp từ cache chữ đã được tự động nạp
     if st.session_state.pdf_text_cache is not None:
         st.markdown("<div style='margin-top: 15px;'></div>", unsafe_allow_html=True)
         txt = st.session_state.pdf_text_cache
@@ -717,14 +730,13 @@ with col_left:
             return m.group(1).strip() if m else default
 
         style_id = get_meta(r'(?:Style ID|Style_ID|Mã hàng)\s*[:\-=\s]*([\w\d\-]+)', st.session_state.pdf_name.replace(".pdf",""))
-        short_desc = get_meta(r'(?:Short Desc|Description|Tên sản phẩm)\s*[:\-=\s]*([^\n]+)', "BAGGY JEANS")
+        short_desc = get_meta(r'(?:Short Desc|Description|Tên sản phẩm)\s*[:\-=\s]*([^\n]+)', "THE TWILL CARGO PANTS")
         customer = get_meta(r'(?:Customer|Khách hàng|Brand)\s*[:\-=\s]*([^\n]+)', "REITMANS")
-        season = get_meta(r'(?:Season|Mùa hàng)\s*[:\-=\s]*([^\n]+)', "Fall 2025")
-        fabric_type = get_meta(r'(?:Long Description|Chất liệu gốc)\s*[:\-=\s]*([^\n]+)', "LIGHT ORANGE - DENIM FABRIC")
+        season = get_meta(r'(?:Season|Mùa hàng)\s*[:\-=\s]*([^\n]+)', "Spring 2027")
+        fabric_type = get_meta(r'(?:Long Description|Chất liệu gốc)\s*[:\-=\s]*([^\n]+)', "CASUAL TWILL PANTS - SP27")
 
-        # Chia ô thẻ tóm tắt thành dạng lưới 2 cột ngăn nắp, cân đối tỉ lệ chiều cao với ảnh Sketch bên phải
         m_col1, m_col2 = st.columns(2)
-        with m_col1:
+
             st.markdown(f'<div class="meta-box"><div class="meta-label">Style Code / Mã hàng</div><div class="meta-value">{style_id}</div></div>', unsafe_allow_html=True)
             st.markdown(f'<div class="meta-box"><div class="meta-label">Customer / Đối tác</div><div class="meta-value">{customer}</div></div>', unsafe_allow_html=True)
             st.markdown(f'<div class="meta-box"><div class="meta-label">Season / Mùa sản xuất</div><div class="meta-value">{season}</div></div>', unsafe_allow_html=True)
