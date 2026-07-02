@@ -688,155 +688,127 @@ with col_left:
     st.markdown('</div>', unsafe_allow_html=True)
 
 # =====================================================================
-# ĐOẠN 7a: TRỢ LÝ ĐỐI THOẠI KỸ THUẬT (IE CHAT CORE - OPTIMIZED V17.2.0.0)
+# ĐOẠN 7a: KHỐI AI LUỒNG XỬ LÝ & TÁI CẤU TRÚC GIAO DIỆN CÂN XỨNG (V17.3.0.0)
 # =====================================================================
+
+# --- KHU VỰC 1: HIỂN THỊ HÌNH ẢNH TECHPACK GỌN GÀNG Ở CỘT PHẢI ---
 with col_right:
     st.markdown('<div class="cad-card">', unsafe_allow_html=True)
-    st.markdown('<div class="cad-header">💬 TRỢ LÝ ĐỐI THOẠI ĐỊNH MỨC KỸ THUẬT (IE CHAT CORE)</div>', unsafe_allow_html=True)
+    st.markdown('<div class="cad-header">🎨 TECHPACK SKETCH VISUALIZER</div>', unsafe_allow_html=True)
     
-    # 1. Khởi tạo các cấu trúc lưu trữ bộ nhớ đệm tuần hoàn (Cache)
+    # Khởi tạo các cấu trúc lưu trữ bộ nhớ đệm tuần hoàn (Cache) nếu chưa có
     if "chat_history" not in st.session_state: st.session_state.chat_history = []
     if "pdf_text_cache" not in st.session_state: st.session_state.pdf_text_cache = None
     if "pdf_page_one_image" not in st.session_state: st.session_state.pdf_page_one_image = None
     if "last_processed_prompt" not in st.session_state: st.session_state.last_processed_prompt = None
 
-    # 2. Xử lý Trích xuất và Tải hình ảnh trang đầu (Chỉ chạy DUY NHẤT 1 LẦN khi nạp file)
     if st.session_state.pdf_bytes is not None:
         try:
             import fitz  
             if st.session_state.pdf_page_one_image is None or st.session_state.pdf_text_cache is None:
                 doc = fitz.open(stream=st.session_state.pdf_bytes, filetype="pdf")
-                # Cache ảnh trang đầu
                 st.session_state.pdf_page_one_image = doc.load_page(0).get_pixmap(dpi=150).tobytes("png")
-                # Cache RAG Text toàn bộ các trang để giảm token cuộc gọi
+                
                 full_text = ""
                 for page_num in range(len(doc)):
                     full_text += f"\n--- TRANG THỨ {page_num + 1} ---\n" + doc.load_page(page_num).get_text("text")
                 st.session_state.pdf_text_cache = full_text
             
+            # Hiển thị ảnh thu nhỏ gọn gàng, cân đối tỉ lệ góc nhìn
             st.image(st.session_state.pdf_page_one_image, use_container_width=True)
-            st.success(f"📎 BUFFERED OBJECT: {st.session_state.pdf_name} loaded.")
+            st.success(f"📎 Techpack loaded.")
         except Exception:
             pass
     else:
-        st.caption("ℹ️ Hệ thống sẵn sàng đối thoại sau khi tải file PDF Techpack.")
+        st.caption("ℹ️ Hệ thống sẵn sàng sau khi tải file PDF.")
     st.markdown('</div>', unsafe_allow_html=True)
 
-    # 3. Quản lý biến an toàn tránh lỗi NameError
-    safe_user_prompt = user_prompt if 'user_prompt' in globals() and user_prompt else ""
 
-    # 4. Kích hoạt luồng đối thoại liên tục (Chỉ chạy khi có câu lệnh chat mới)
-    if st.session_state.pdf_bytes is not None and safe_user_prompt:
-        if st.session_state.last_processed_prompt != safe_user_prompt:
-            st.session_state.last_processed_prompt = safe_user_prompt
-            
-            with st.spinner("🧠 AI Core: Đang xử lý hội thoại kỹ thuật..."):
-                try:
-                    import google.generativeai as genai
-                    import json, copy, traceback, re
-                    
-                    if "GEMINI_API_KEY" in st.secrets: 
-                        genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-                        
-                    # Cấu hình temperature thấp giúp JSON ổn định không bị nhảy số ngẫu nhiên
-                    model = genai.GenerativeModel(
-                        "gemini-2.5-flash",
-                        generation_config={"temperature": 0.2}
-                    )
-                    
-                    # Bóc tách từ khóa kích cỡ nhanh
-                    match_size = re.search(r'(?:size|cỡ|co|sz)\s*[:\-=\s]*([\w\d\.]+)', safe_user_prompt.lower())
-                    target_size_cmd = str(match_size.group(1)).upper().strip() if match_size else "AUTOMATIC_MEDIAN"
+# --- KHU VỰC 2: KHỐI LUỒNG XỬ LÝ BACKGROUND (KHÔNG ĐỂ TRONG COL_RIGHT ĐỂ TRÁNH BÓ HẸP CHAT) ---
+safe_user_prompt = user_prompt if 'user_prompt' in globals() and user_prompt else ""
 
-                    # 🌟 GIỚI HẠN TUẦN HOÀN: Khống chế lịch sử chat (30 tin nhắn) để bảo vệ RAM bộ nhớ
-                    if len(st.session_state.chat_history) > 30:
-                        st.session_state.chat_history = st.session_state.chat_history[-30:]
+if st.session_state.pdf_bytes is not None and safe_user_prompt:
+    if st.session_state.last_processed_prompt != safe_user_prompt:
+        st.session_state.last_processed_prompt = safe_user_prompt
+        
+        with st.spinner("🧠 AI Core đang xử lý hội thoại..."):
+            try:
+                import google.generativeai as genai
+                import json, copy, traceback, re
+                
+                if "GEMINI_API_KEY" in st.secrets: 
+                    genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+                    
+                model = genai.GenerativeModel("gemini-2.5-flash", generation_config={"temperature": 0.2})
+                match_size = re.search(r'(?:size|cỡ|co|sz)\s*[:\-=\s]*([\w\d\.]+)', safe_user_prompt.lower())
+                target_size_cmd = str(match_size.group(1)).upper().strip() if match_size else "AUTOMATIC_MEDIAN"
 
-                    # PROMPT ĐỐI THOẠI CHIẾN LƯỢC: Kết hợp RAG Text Cache và Ngữ cảnh cuộc trò chuyện cũ
-                    prompt_instruction = f"""
-                    You are an expert apparel Industrial Engineer (IE) chatting with a production manager.
-                    
-                    DATA FOUND IN TECHPACK PDF (CACHED DATA):
-                    {st.session_state.pdf_text_cache}
-                    
-                    CONTEXT HISTORY OF CONVERSATION (NGỮ CẢNH HỘI THOẠI CŨ):
-                    {json.dumps(st.session_state.chat_history, ensure_ascii=False)}
-                    
-                    LỆNH MỚI CỦA NGƯỜI DÙNG (CURRENT USER INPUT):
-                    "{safe_user_prompt}"
-                    
-                    CRITICAL AUDIT & OUTPUT RULES:
-                    1. Re-calculate BOM metrics ONLY if the user commands a change in size/shrinkage. Target size: '{target_size_cmd}'.
-                    2. If the user asks general technical questions, maintain the last calculated JSON but answer intelligently like a human peer in the CHAT section.
-                    3. Actively audit materials: if you spot Elastic Waistband or Tape requirements in text/sketch but it's missing in BOM, warn the user politely in Vietnamese.
-                    
-                    You MUST return your response in this exact format:
-                    ===START_JSON===
+                if len(st.session_state.chat_history) > 30:
+                    st.session_state.chat_history = st.session_state.chat_history[-30:]
+
+                prompt_instruction = f"""
+                You are an expert apparel Industrial Engineer (IE) chatting with a production manager.
+                DATA FOUND IN TECHPACK PDF: {st.session_state.pdf_text_cache}
+                CONTEXT HISTORY: {json.dumps(st.session_state.chat_history, ensure_ascii=False)}
+                CURRENT USER INPUT: "{safe_user_prompt}"
+                
+                Return response in exact format:
+                ===START_JSON===
+                {{
+                  "detected_product_type": "PANT",
+                  "style_code": "R09-450416",
+                  "calculated_on_size": "{target_size_cmd}",
+                  "bom_rows": [
                     {{
-                      "detected_product_type": "PANT",
-                      "style_code": "R09-450416",
-                      "calculated_on_size": "{target_size_cmd}",
-                      "bom_rows": [
-                        {{
-                          "component_type": "MAIN FABRIC",
-                          "placement": "BODY",
-                          "fabric_classification": "MAIN_FABRIC",
-                          "fabric_code": "REAL_CODE",
-                          "fabric_color": "REAL_COLOR",
-                          "panels_catalog": [
-                            {{ "panel_name": "FRONT_PANEL", "piece_count": 2.0, "piece_length_inch": 41.0, "piece_width_inch": 12.0 }}
-                          ]
-                        }}
-                      ]
+                      "component_type": "MAIN FABRIC", "placement": "BODY", "fabric_classification": "MAIN_FABRIC",
+                      "fabric_code": "REAL_CODE", "fabric_color": "REAL_COLOR",
+                      "panels_catalog": [ {{ "panel_name": "FRONT_PANEL", "piece_count": 2.0, "piece_length_inch": 41.0, "piece_width_inch": 12.0 }} ]
                     }}
-                    ===END_JSON===
-                    ===START_CHAT===
-                    [Your conversational Vietnamese response here]
-                    ===END_CHAT===
-                    """
+                  ]
+                }}
+                ===END_JSON===
+                ===START_CHAT===
+                [Your conversational Vietnamese response here]
+                ===END_CHAT===
+                """
+                response = model.generate_content(prompt_instruction)
+                if response and response.text:
+                    response_text = response.text.strip()
+                    json_match = re.search(r'===START_JSON===\s*(.*?)\s*===END_JSON===', response_text, re.DOTALL)
+                    chat_match = re.search(r'===START_CHAT===\s*(.*?)\s*===END_CHAT===', response_text, re.DOTALL)
                     
-                    response = model.generate_content(prompt_instruction)
+                    if json_match:
+                        raw_json_str = json_match.group(1).strip()
+                        raw_json_str = re.sub(r"^```json\s*|\s*```$", "", raw_json_str, flags=re.IGNORECASE)
+                        try: 
+                            raw_blueprint = json.loads(raw_json_str)
+                            if raw_blueprint and raw_blueprint.get("bom_rows"):
+                                blueprint_worker = copy.deepcopy(raw_blueprint)
+                                step_2a1 = parse_geometric_panels_allowance(blueprint_worker, safe_user_prompt)
+                                step_2a2 = execute_marker_yardage_and_quality_gate(step_2a1, safe_user_prompt)
+                                blueprint_final = allocate_fabric_consumption_and_quality_gate(step_2a2)
+                                st.session_state.bom_data = blueprint_final
+                        except Exception: pass
                     
-                    # Phòng vệ: Kiểm tra chuỗi phản hồi rỗng từ API
-                    if response and response.text:
-                        response_text = response.text.strip()
-                        
-                        # Bóc tách khối dữ liệu và làm sạch định dạng JSON của AI
-                        json_match = re.search(r'===START_JSON===\s*(.*?)\s*===END_JSON===', response_text, re.DOTALL)
-                        chat_match = re.search(r'===START_CHAT===\s*(.*?)\s*===END_CHAT===', response_text, re.DOTALL)
-                        
-                        if json_match:
-                            raw_json_str = json_match.group(1).strip()
-                            # Làm sạch triệt để các ký tự markdown thừa đầu cuối nếu AI trả sai định dạng
-                            raw_json_str = re.sub(r"^```json\s*", "", raw_json_str, flags=re.IGNORECASE)
-                            raw_json_str = re.sub(r"\s*```$", "", raw_json_str)
-                            
-                            try: 
-                                raw_blueprint = json.loads(raw_json_str)
-                                if raw_blueprint and raw_blueprint.get("bom_rows"):
-                                    blueprint_worker = copy.deepcopy(raw_blueprint)
-                                    step_2a1 = parse_geometric_panels_allowance(blueprint_worker, safe_user_prompt)
-                                    step_2a2 = execute_marker_yardage_and_quality_gate(step_2a1, safe_user_prompt)
-                                    blueprint_final = allocate_fabric_consumption_and_quality_gate(step_2a2)
-                                    st.session_state.bom_data = blueprint_final
-                            except Exception: 
-                                pass
-                        
-                        ai_chat_response = chat_match.group(1).strip() if chat_match else "Tôi đã cập nhật định mức vật tư hệ thống theo lệnh của anh/chị."
-                        # Ghi nhận cặp câu hỏi - phản hồi vào lịch sử ngữ cảnh
-                        st.session_state.chat_history.append({"user": safe_user_prompt, "ai": ai_chat_response})
-                    
-                    st.rerun()
-                except Exception:
-                    st.error("💥 Lỗi cục bộ trong tiến trình hội thoại Chat Core:")
-                    st.code(traceback.format_exc())
+                    ai_chat_response = chat_match.group(1).strip() if chat_match else "Đã cập nhật định mức theo lệnh."
+                    st.session_state.chat_history.append({"user": safe_user_prompt, "ai": ai_chat_response})
+                st.rerun()
+            except Exception as e:
+                st.error(f"💥 Lỗi đối thoại: {str(e)}")
 
-    # 5. Dựng khung hiển thị lịch sử đối thoại chuẩn văn phong ChatGPT
-    if st.session_state.chat_history:
-        st.markdown("### 💬 Lịch sử trao đổi kỹ thuật:")
-        for msg in st.session_state.chat_history:
-            st.chat_message("user").write(msg["user"])
-            st.chat_message("assistant").write(msg["ai"])
+
+# --- KHU VỰC 3: ĐƯA KHUNG CHAT RA NGOÀI TRUNG TÂM TOÀN MÀN HÌNH (DƯỚI HAI CỘT) ĐỂ CÂN ĐỐI BỐ CỤC ---
+if st.session_state.chat_history:
+    st.markdown('<br>', unsafe_allow_html=True)
+    st.markdown('<div class="cad-card">', unsafe_allow_html=True)
+    st.markdown('<div class="cad-header">💬 CHATGPT IE COLLABORATION WORKSPACE</div>', unsafe_allow_html=True)
+    
+    # Hiển thị lịch sử chat full chiều ngang cực kỳ đẹp mắt, thoáng đãng
+    for msg in st.session_state.chat_history:
+        st.chat_message("user").write(msg["user"])
+        st.chat_message("assistant").write(msg["ai"])
+        
+    st.markdown('</div>', unsafe_allow_html=True)
 
 # =====================================================================
 # ĐOẠN 7b: KHU VỰC HIỂN THỊ KẾT QUẢ ĐƠN MÃ, SIZE VÀ XUẤT EXCEL CHUẨN ĐẸP (V17.0.0.8)
