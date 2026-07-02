@@ -689,11 +689,11 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict, user_prompt
 
 
 # =====================================================================
-# ĐOẠN 6a: BANNER & KPIs GHIM CỐ ĐỊNH ĐỈNH - COBALT LIGHT PLM THEME (V18.1.0.0 APPROVED)
+# ĐOẠN 6a: BANNER & KPIs GHIM CỐ ĐỊNH ĐỈNH - STICKY COMPACT THEME (V18.2.0.0 APPROVED)
 # =====================================================================
 st.set_page_config(layout="wide", page_title="AI Fabric Consumption Matrix")
 
-# 🌟 BỘ STYLING CSS SÁNG SỦA, RÕ NÉT VÀ ÉP CHIỀU CAO CÂN XỨNG TUYỆT ĐỐI 1:1
+# 🌟 BỘ STYLING CSS CẤP CAO: Ẩn menu gốc của Streamlit và ép cố định dải đỉnh nổi trên mọi bề mặt
 st.markdown("""
 <style>
     /* Trả nền ứng dụng về màu xám trắng dịu mắt chuẩn văn phòng ERP */
@@ -701,29 +701,37 @@ st.markdown("""
         background-color: #f8fafc !important;
     }
     
-    /* Khung container cố định ghim chặt lên đỉnh màn hình */
+    /* Can thiệp xóa bỏ khoảng hở đỉnh mặc định của Streamlit để dải ghim bám khít mép màn hình */
+    header[data-testid="stHeader"] {
+        background-color: transparent !important;
+        z-index: 999990 !important;
+    }
+    
+    /* 🌟 CỐ ĐỊNH ĐỈNH TUYỆT ĐỐI: Tạo container bọc ghim cứng nổi lên tầng cao nhất */
     .sticky-top-container {
         position: fixed;
-        top: 40px; 
+        top: 0; 
         left: 0;
         right: 0;
-        padding: 0 4rem 15px 4rem; 
-        background-color: #f8fafc; /* Che nội dung cuộn bên dưới mượt mà */
-        z-index: 99999; 
+        padding: 15px 4rem 15px 4rem; 
+        background-color: #f8fafc !important; /* Đổ nền trắng để che chữ bên dưới khi cuộn qua */
+        z-index: 999999 !important; /* Ép tầng hiển thị cao nhất hệ thống, chống đè chữ */
+        box-shadow: 0 4px 10px rgba(0,0,0,0.04);
+        width: 100%;
     }
 
     /* Khung Banner chính trên đỉnh chuyển sắc xanh Coban công nghệ */
     .top-banner {
         background: linear-gradient(135deg, #1e3a8a 0%, #0284c7 100%);
-        padding: 14px 20px;
+        padding: 12px 20px;
         border-radius: 8px;
         color: #ffffff;
-        margin-bottom: 12px;
+        margin-bottom: 10px;
         box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
     }
     .top-title {
         font-family: 'Segoe UI', sans-serif;
-        font-size: 20px;
+        font-size: 18px;
         font-weight: 700;
         letter-spacing: 0.02em;
     }
@@ -734,28 +742,27 @@ st.markdown("""
         margin-top: 1px;
     }
     
-    /* Thẻ chỉ số KPIs sắc màu rực rỡ chữ trắng nổi bật */
+    /* Thẻ chỉ số KPIs sắc màu rực rỡ chữ trắng hiển thị rõ nét vĩnh viễn */
     .kpi-card-colored {
-        border-radius: 8px;
-        padding: 12px 14px;
+        border-radius: 6px;
+        padding: 10px 12px;
         text-align: center;
         box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
-        border: 1px solid rgba(0,0,0,0.02);
+        border: 1px solid rgba(255,255,255,0.1);
     }
     .kpi-num-light {
-        font-size: 20px;
+        font-size: 18px;
         font-weight: 700;
-        color: #ffffff;
+        color: #ffffff !important; /* Ép chữ luôn màu trắng nổi bật */
         font-family: 'Segoe UI', sans-serif;
     }
     .kpi-lbl-light {
         font-size: 10px;
         font-weight: 600;
-        color: #ffffff;
+        color: #ffffff !important;
         opacity: 0.9;
         text-transform: uppercase;
         margin-top: 2px;
-        letter-spacing: 0.02em;
         font-family: 'Segoe UI', sans-serif;
     }
     
@@ -764,12 +771,12 @@ st.markdown("""
     .bg-cons  { background: linear-gradient(135deg, #ea580c 0%, #c2410c 100%); }
     .bg-size  { background: linear-gradient(135deg, #16a34a 0%, #15803d 100%); }
 
-    /* Khung đệm spacer đẩy nội dung dưới sụp xuống, chống đè khuất bộ tải file */
+    /* Khung đệm spacer đẩy nội dung dưới sụp xuống hợp lý */
     .main-body-spacer {
-        margin-top: 185px; 
+        margin-top: 190px; 
     }
 
-    /* 🌟 FIX LỖI MẤT HỘP NỘI DUNG: Trả Card về màu trắng tinh, bọc viền sắc nét */
+    /* Khung hộp chứa hồ sơ Techpack lồng rập trắng tinh */
     .cad-card {
         background-color: #ffffff !important; 
         border: 1px solid #e2e8f0 !important; 
@@ -778,8 +785,8 @@ st.markdown("""
         margin-top: 0px;
         box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
         
-        # 🌟 CÂN BẰNG THỊ GIÁC ĐỒNG ĐỀU: Ép kéo dài hộp bên trái xuống đúng tầm ảnh bên phải
-        min-height: 520px; 
+        /* CÂN BẰNG TỶ LỆ 1:1: Ép chiều cao hộp trái bằng khít bản vẽ sườn phải */
+        min-height: 525px; 
         display: flex;
         flex-direction: column;
     }
@@ -787,14 +794,13 @@ st.markdown("""
         font-family: 'Segoe UI', sans-serif;
         font-size: 14px;
         font-weight: 700;
-        color: #0369a1; /* Chữ xanh đậm rõ ràng */
+        color: #0369a1; 
         letter-spacing: 0.05em;
         margin-bottom: 12px;
         padding-bottom: 6px;
         border-bottom: 2px solid #cbd5e1;
     }
     
-    /* Ô hiển thị thông tin thẻ hồ sơ tóm tắt ngăn nắp */
     .meta-box {
         background-color: #f8fafc; 
         border-left: 4px solid #0284c7;
@@ -802,25 +808,8 @@ st.markdown("""
         margin-bottom: 8px;
         border-radius: 0 6px 6px 0;
     }
-    .meta-label {
-        font-size: 11px;
-        font-weight: 700;
-        color: #64748b; 
-        text-transform: uppercase;
-        font-family: 'Segoe UI', sans-serif;
-    }
-    .meta-value {
-        font-size: 14px;
-        font-weight: 600;
-        color: #0f172a; 
-        margin-top: 2px;
-        font-family: 'Segoe UI', sans-serif;
-    }
-    
-    /* Đảm bảo toàn bộ chữ văn bản thô hiển thị rõ ràng sắc nét */
-    .stMarkdown, p, span, label {
-        color: #1e293b !important;
-    }
+    .meta-label { font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; }
+    .meta-value { font-size: 14px; font-weight: 600; color: #0f172a; margin-top: 2px; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -843,7 +832,7 @@ if st.session_state.pdf_bytes is not None and st.session_state.pdf_text_cache is
         st.session_state.pdf_text_cache = full_text_extract
     except Exception: pass
 
-# ĐỒNG BỘ DỮ LIỆU KPIs BIẾN THIÊN THEO THỜI GIAN THỰC
+# ĐỒNG BỘ DỮ LIỆU KPIs BIẾN THIÊN
 kpi_style_id = "N/A"
 total_materials = len(st.session_state.accumulated_bom_rows) if st.session_state.accumulated_bom_rows else 0
 main_fabric_cons = "0.000"
@@ -861,7 +850,7 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data:
                 main_fabric_cons = f"{val_gross:.3f} Yds"
                 break
 
-# GÓI CONTAINER CỐ ĐỊNH GHIM LÊN ĐỈNH MÀN HÌNH MÁY TÍNH
+# 🌟 CONTAINER GHIM ĐỈNH TUYỆT ĐỐI (ÉP NỔI TRÊN MỌI BỀ MẶT)
 st.markdown('<div class="sticky-top-container">', unsafe_allow_html=True)
 st.markdown("""
 <div class="top-banner">
@@ -879,6 +868,7 @@ st.markdown('</div>', unsafe_allow_html=True)
 
 # Khung đệm đẩy nội dung dưới
 st.markdown('<div class="main-body-spacer"></div>', unsafe_allow_html=True)
+
 # =====================================================================
 # ĐOẠN 6b: CONTROLS SIDEBAR & LƯỚI KHUNG NHÌN ĐỐI CHIẾU CÂN XỨNG BIÊN TRẮNG (V18.1.0.0)
 # =====================================================================
