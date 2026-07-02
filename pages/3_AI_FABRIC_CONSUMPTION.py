@@ -1361,46 +1361,44 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                 st.session_state.chat_history = st.session_state.chat_history[-30:]
 
             # 2. PROMPT AI ORCHESTRATOR: Chặn AI tự chế số diện tích hình học rập mẫu
+                       # 2. PROMPT AI ORCHESTRATOR CHUẨN SẢN XUẤT: Quét triệt để chi tiết Cargo trong Techpack
             prompt_instruction = f"""
-            You are an Apparel Orchestrator. Your ONLY job is to classify the components and map the fabric types based on the Techpack and Sketch.
-            DO NOT estimate or invent any numbers for area, length, or width. Leave them for the Geometry Engine.
+            You are an Apparel Orchestrator. Thoroughly scan the Techpack data for "CARGO", "FLAP", "POCKET".
+            If "CARGO" or side pockets are found, you must pass this information.
             
             DATA FOUND IN TECHPACK: {st.session_state.pdf_text_cache}
-            CONTEXT HISTORY: {json.dumps(st.session_state.chat_history, ensure_ascii=False)}
             CURRENT USER COMMAND: "{current_query}"
-            
-            Identify the actual product type (e.g., PANT, JACKET, SHIRT).
-            Structure the output JSON precisely, leaving numeric placeholders for the Geometry Engine to compute.
             
             Return response in exact format:
             ===START_JSON===
             {{
-              "detected_product_type": "PANT",
+              "detected_product_type": "CARGO_PANT",
               "style_code": "R09-490976",
               "calculated_on_size": "{target_size_cmd}",
               "bom_rows": [
                 {{
-                  "component_type": "MAIN FABRIC", "placement": "BODY/POCKETS", "fabric_classification": "MAIN_FABRIC",
-                  "fabric_code": "DENIM", "fabric_color": "LIGHT ORANGE", "fabric_width_inch": {active_width},
-                  "geometry_required": true, "geometry_source_layer": "MAIN_BODY_SKETCH"
+                  "component_type": "MAIN FABRIC", "placement": "BODY/POCKETS/CARGO", "fabric_classification": "MAIN_FABRIC",
+                  "fabric_code": "TWILL", "fabric_color": "TBA", "fabric_width_inch": {active_width},
+                  "geometry_required": true, "geometry_source_layer": "MAIN_BODY_CARGO"
                 }},
                 {{
-                  "component_type": "INTERLINING / KEO LÓT", "placement": "WAISTBAND", "fabric_classification": "FUSING",
-                  "fabric_code": "TRICOT FUSING", "fabric_color": "WHITE", "fabric_width_inch": {active_width},
-                  "_is_fusing": true, "geometry_required": true, "geometry_source_layer": "WAISTBAND_FUSING"
+                  "component_type": "INTERLINING", "placement": "WAISTBAND/FLAPS", "fabric_classification": "FUSING",
+                  "fabric_code": "LIGHT KNIT", "fabric_color": "DTM", "fabric_width_inch": {active_width},
+                  "_is_fusing": true, "geometry_required": true, "geometry_source_layer": "INTERLINING"
                 }},
                 {{
-                  "component_type": "POCKET LINING / LÓT TÚI", "placement": "POCKET BAGS", "fabric_classification": "LINING",
-                  "fabric_code": "TC POCKETING", "fabric_color": "NATURAL", "fabric_width_inch": {active_width},
-                  "_is_lining": true, "geometry_required": true, "geometry_source_layer": "POCKET_BAG"
+                  "component_type": "LINING", "placement": "POCKET BAGS FRONT/BACK", "fabric_classification": "LINING",
+                  "fabric_code": "COTTON SHEETING", "fabric_color": "TBA", "fabric_width_inch": {active_width},
+                  "_is_lining": true, "geometry_required": true, "geometry_source_layer": "LINING"
                 }}
               ]
             }}
             ===END_JSON===
             ===START_CHAT===
-            Tôi đã bóc tách cấu trúc BOM từ tài liệu kỹ thuật. Hệ thống đang kích hoạt Lõi hình học Vision V18 để đo trực tiếp tọa độ rập từ hình ảnh bản vẽ độc lập với sai số ước lượng.
+            Tôi đã bóc tách cấu trúc BOM từ tài liệu kỹ thuật, nhận diện chính xác kiểu dáng quần Cargo Pant có túi hộp và nắp túi bổ trợ để Lõi hình học V18 tính toán định mức vải chính và 4 cụm lót túi đầy đủ.
             ===END_CHAT===
             """
+
             
             image_payload = {"mime_type": "image/png", "data": st.session_state.pdf_page_one_image}
             response = model.generate_content([image_payload, prompt_instruction])
