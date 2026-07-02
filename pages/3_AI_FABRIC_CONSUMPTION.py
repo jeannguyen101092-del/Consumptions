@@ -791,7 +791,7 @@ with col_left:
 
 
 # =====================================================================
-# ĐOẠN 7a1: KHUNG NHÌN SKETCH VISUALIZER & WORKSPACE ĐỐI THOẠI (V17.4.7.0)
+# ĐOẠN 7a1: KHUNG NHÌN SKETCH VISUALIZER & WORKSPACE ĐỐI THOẠI CHUẨN BIẾN (V17.5.0.0 APPROVED)
 # =====================================================================
 
 # --- KHU VỰC 1: HIỂN THỊ HÌNH ẢNH TECHPACK GỌN GÀNG Ở CỘT PHẢI ---
@@ -799,7 +799,6 @@ with col_right:
     st.markdown('<div class="cad-card">', unsafe_allow_html=True)
     st.markdown('<div class="cad-header">🎨 TECHPACK SKETCH VISUALIZER</div>', unsafe_allow_html=True)
     
-    # Khởi tạo an toàn cấu trúc lưu trữ bộ nhớ đệm tuần hoàn (Cache) nếu chưa có
     if "chat_history" not in st.session_state: st.session_state.chat_history = []
     if "pdf_text_cache" not in st.session_state: st.session_state.pdf_text_cache = None
     if "pdf_page_one_image" not in st.session_state: st.session_state.pdf_page_one_image = None
@@ -826,31 +825,28 @@ with col_right:
         st.caption("ℹ️ Hệ thống sẵn sàng sau khi tải file PDF.")
     st.markdown('</div>', unsafe_allow_html=True)
 
-
 # --- KHU VỰC 2: KHUNG ĐỐI THOẠI TRỰC QUAN CHATGPT WORKSPACE PHÍA DƯỚI BẢNG ---
 st.markdown('<br>', unsafe_allow_html=True)
 st.markdown('<div class="cad-card">', unsafe_allow_html=True)
 st.markdown('<div class="cad-header">💬 CHATGPT IE COLLABORATION WORKSPACE</div>', unsafe_allow_html=True)
 
-# Hiển thị lịch sử hội thoại liên tục kỹ thuật
 if st.session_state.chat_history:
     for msg in st.session_state.chat_history:
         st.chat_message("user").write(msg["user"])
         st.chat_message("assistant").write(msg["ai"])
 
-# Thanh gõ lệnh chat chốt chặn thông minh cố định ở dưới cùng Workspace
-safe_user_prompt = st.chat_input("Gõ câu lệnh bổ sung vật tư tại đây (Ví dụ: tính thêm keo lót, bổ sung thun...):")
+# Biến nhận lệnh duy nhất toàn hệ thống từ khung gõ chat
+safe_user_prompt = st.chat_input("Gõ câu lệnh điều chỉnh thông số tại đây (Ví dụ: khổ 57 co rút 3-3 size 10):")
 st.markdown('</div>', unsafe_allow_html=True)
 # =====================================================================
-# =====================================================================
-# ĐOẠN 7a2: ENGINE BACKGROUND BÓC TÁCH TRỌN BỘ CHI TIẾT RẬP QUẦN CARGO PANTS (V17.4.8.0)
+# ĐOẠN 7a2: ENGINE BACKGROUND SỬA TRIỆT ĐỂ LỖI KẸT CO RÚT NGANG NGẦM (V17.5.0.0 FIXED)
 # =====================================================================
 
 if st.session_state.pdf_bytes is not None and safe_user_prompt:
     if st.session_state.last_processed_prompt != safe_user_prompt:
         st.session_state.last_processed_prompt = safe_user_prompt
         
-        with st.spinner("🧠 AI Core đang bóc tách trọn bộ chi tiết rập Cargo Pants và tính định mức..."):
+        with st.spinner("🧠 AI Core đang xử lý thông số rập và co rút thực tế..."):
             try:
                 import google.generativeai as genai
                 import json, copy, traceback, re
@@ -861,45 +857,40 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                 model = genai.GenerativeModel("gemini-2.5-flash", generation_config={"temperature": 0.2})
                 chat_lower = safe_user_prompt.lower().strip()
                 
-                # Bộ trích xuất thông số động thông minh từ câu lệnh chat
+                # 🌟 TRÍCH XUẤT CHẶN CHẼ: Tránh hoàn toàn lỗi bắt nhầm từ khóa
                 match_size = re.search(r'\b(?:size|sz|cỡ)\s*[:\-=\s]*([\w\d]+)\b', chat_lower)
                 target_size_cmd = str(match_size.group(1)).upper().strip() if match_size else "AUTOMATIC_MEDIAN"
                 
                 match_w = re.search(r'\b(?:khổ|kho|width)\s*[:\-=\s]*([\d\.]+)\b', chat_lower)
-                active_width = float(match_w.group(1)) if match_w else 58.0
+                active_width = float(match_w.group(1)) if match_w else 57.0
                 
+                # Sửa bộ bắt cặp co rút: Quét qua chuỗi "co rút 3-3" hoặc "co rút dọc 3 ngang 3"
+                match_sh_pair = re.search(r'(?:co\s*rút|co\s*rut|co|shrinkage)\s*[:\-=\s]*([\d\.]+)\s*(?:-|–|x|ngang|dọc|\s+)\s*([\d\.]+)', chat_lower)
                 match_warp = re.search(r'\b(?:dọc|doc|warp)\s*[:\-=\s]*([\d\.]+)\b', chat_lower)
                 match_weft = re.search(r'\b(?:ngang|weft)\s*[:\-=\s]*([\d\.]+)\b', chat_lower)
-                match_sh_pair = re.search(r'(?:co\s*rút|co\s*rut|co|shrinkage)\s*[:\-=\s]*([\d\.]+)\s*(?:-|–|x|ngang|\s+)\s*([\d\.]+)', chat_lower)
                 
                 if match_sh_pair:
                     active_warp = float(match_sh_pair.group(1))
                     active_weft = float(match_sh_pair.group(2))
                 else:
-                    active_warp = float(match_warp.group(1)) if match_warp else 5.0
-                    active_weft = float(match_weft.group(1)) if match_weft else 15.0
+                    active_warp = float(match_warp.group(1)) if match_warp else 3.0
+                    active_weft = float(match_weft.group(1)) if match_weft else 3.0
 
                 if len(st.session_state.chat_history) > 30:
                     st.session_state.chat_history = st.session_state.chat_history[-30:]
 
-                # 🌟 PROMPT NÂNG CẤP: Ép AI bóc tách chi tiết rập đầy đủ cho Quần Cargo (Túi hộp, cạp, nắp túi sườn)
+                # Ép chỉ thị cấu trúc gửi lên Gemini
                 prompt_instruction = f"""
-                You are an expert apparel Industrial Engineer (IE) system analyzing a CARGO PANT techpack.
+                You are an expert apparel Industrial Engineer (IE) system analyzing a Techpack PDF.
                 DATA FOUND IN TECHPACK PDF: {st.session_state.pdf_text_cache}
                 CONTEXT HISTORY OF CHAT: {json.dumps(st.session_state.chat_history, ensure_ascii=False)}
                 CURRENT USER COMMAND: "{safe_user_prompt}"
                 
-                CRITICAL CARGO PANT PATTERN EXTRACTION:
-                1. Target size is strictly '{target_size_cmd}'. Extract Outseam and Hip measurements.
-                2. For "MAIN FABRIC", a Cargo Pant has many panels. You MUST generate the complete "panels_catalog" including:
-                   - FRONT_PANEL (piece_count: 2.0, standard length based on outseam, width = Hip*0.5 + ngã đáy)
-                   - BACK_PANEL (piece_count: 2.0, standard length, width = Hip*0.5 + ngã đáy lớn)
-                   - SIDE_CARGO_POCKET (piece_count: 2.0, standard size e.g. length 9.5, width 8.5 inches)
-                   - CARGO_POCKET_FLAP (piece_count: 4.0, standard size e.g. length 3.5, width 8.5 inches)
-                   - WAISTBAND (piece_count: 2.0, length = Waist + 2.0, width = 3.5 inches)
-                   - BACK_POCKET (piece_count: 2.0, length 6.5, width 6.0 inches)
-                3. Compute using Width: {active_width} inches, Warp Shrinkage: {active_warp}%, Weft Shrinkage: {active_weft}%.
-                4. Extract rows for FUSING (Mex cạp) and LINING (Lót túi) from BOM text as well.
+                CRITICAL INSTRUCTION:
+                1. Target size is strictly '{target_size_cmd}'. Extract corresponding measurements.
+                2. Fabric cut width is exactly '{active_width}' inches.
+                3. Fabric shrinkage is strictly Warp: {active_warp}%, Weft: {active_weft}%. Do NOT use any other default shrinkage numbers.
+                4. Extract the Main Fabric row, and separate rows for FUSING (Keo lót) and LINING (Lót túi).
                 
                 Return response in exact format:
                 ===START_JSON===
@@ -910,7 +901,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                   "bom_rows": [
                     {{
                       "component_type": "MAIN FABRIC", "placement": "BODY/POCKETS", "fabric_classification": "MAIN_FABRIC",
-                      "fabric_code": "REAL_FABRIC_CODE", "fabric_color": "REAL_COLOR",
+                      "fabric_code": "TCT0054", "fabric_color": "SOLID COLOR",
                       "fabric_width_inch": {active_width},
                       "panels_catalog": [
                         {{ "panel_name": "FRONT_PANEL", "piece_count": 2.0, "piece_length_inch": 41.5, "piece_width_inch": 13.0 }},
@@ -925,7 +916,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                 }}
                 ===END_JSON===
                 ===START_CHAT===
-                [Your conversational Vietnamese response here. Note that you have extracted all 6 major cargo components (Front, Back, Cargo pockets, Flaps, Waistband, Back pockets) to calculate accurate consumption.]
+                [Your conversational Vietnamese response here. Confirm you calculated size {target_size_cmd} with width {active_width} and shrinkage {active_warp}x{active_weft}%]
                 ===END_CHAT===
                 """
                 response = model.generate_content(prompt_instruction)
@@ -942,11 +933,15 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                         if raw_blueprint and raw_blueprint.get("bom_rows"):
                             blueprint_worker = copy.deepcopy(raw_blueprint)
                             
+                            # 🌟 ĐỒNG BỘ ĐỒNG NHẤT BIẾN LỆNH: Thay thế active_prompt lỗi thời bằng safe_user_prompt mới
                             step_2a1 = parse_geometric_panels_allowance(blueprint_worker, safe_user_prompt)
                             step_2a2 = execute_marker_yardage_and_quality_gate(step_2a1, safe_user_prompt)
                             blueprint_final = allocate_fabric_consumption_and_quality_gate(step_2a2)
                             
+                            # Đồng bộ lũy kế kho dữ liệu
                             if "bom_rows" in blueprint_final:
+                                # Xóa sạch vết dòng lượt cũ của file này trước khi ghi đè để triệt tiêu lỗi lặp dòng vĩnh viễn
+                                st.session_state.accumulated_bom_rows = {}
                                 for row in blueprint_final["bom_rows"]:
                                     if not row or not isinstance(row, dict): continue
                                     c_type = str(row.get("component_type", "MAIN")).upper().strip()
@@ -961,11 +956,12 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                             
                             st.session_state.bom_data = blueprint_final
                     
-                    ai_chat_response = chat_match.group(1).strip() if chat_match else f"Đã đồng bộ tính toán định mức quần Cargo."
+                    ai_chat_response = chat_match.group(1).strip() if chat_match else f"Đã cập nhật định mức hệ thống."
                     st.session_state.chat_history.append({"user": safe_user_prompt, "ai": ai_chat_response})
                 st.rerun()
             except Exception as e:
                 st.error(f"💥 Lỗi đối thoại hệ thống: {str(e)}")
+
 
 
 
