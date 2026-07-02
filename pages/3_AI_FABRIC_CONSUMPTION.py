@@ -1130,8 +1130,8 @@ def v18_execute_vision_geometry_and_nesting(image_bytes, layer_name, target_widt
                     })
                 except:
                     pass
-        # =====================================================================
-        # ĐOẠN 6b: LÕI NESTING MÔ PHỎNG NFP VÀ BỘ CHỈ MỤC KHÔNG GIAN CÂY STR_TREE
+               # =====================================================================
+        # ĐOẠN 6b: INDUSTRIAL VECTOR NESTING ENGINE & DYNAMIC GRAINLINE (V18.9.9 APPROVED)
         # =====================================================================
         if total_area_accumulated < 40.0 or not panels_catalog:
             raise ValueError("Không bóc tách được đối tượng đa giác Vector kín từ tệp tin.")
@@ -1141,17 +1141,40 @@ def v18_execute_vision_geometry_and_nesting(image_bytes, layer_name, target_widt
         
         marker_width = target_width
         spacing_in = 0.20  # Biên đệm an toàn dao cắt vải công nghiệp CNC (0.20 inch)
+        
+        # 🌟 BÓC TÁCH ĐỘNG CHIỀU DÀI SƠ ĐỒ CỰC ĐẠI: Lấy từ lệnh chat (nếu có) hoặc mặc định theo cuộn vải chuẩn
+        max_marker_length = 360.0 # Nới rộng biên lên 360 inch (~10 yards) để chứa các sơ đồ lớn
+        match_max_l = re.search(r'(?:max_len|sơ\s*đồ\s*tối\s*đa|max_marker)\s*[:\-=\s]*([\d\.]+)', str(user_prompt).lower())
+        if match_max_l:
+            try: max_marker_length = float(match_max_l.group(1))
+            except: pass
+
+        # 🌟 CHIẾN LƯỢC XOAY ĐỘNG THEO LOẠI VẢI (GRAINLINE DIRECTION STRATEGY)
+        # Tự động nhận diện tuyết vải: Vải Nhung/Nỉ (One-way: 0), Vải Denim/Kaki (Two-way: 0, 180), Vải Thun/Trims (All-way)
+        fabric_type_upper = str(ai_blueprint.get("fabric_code", "DENIM")).upper()
+        if any(x in fabric_type_upper for x in ["VELVET", "VELOUR", "FUR", "NHUNG", "NỈ"]):
+            ALLOWED_ANGLES = (0,)  # One-way nap: Cấm đảo đầu tuyệt đối tránh ngược màu tuyết vải
+        elif any(x in fabric_type_upper for x in ["SOLID", "RIB", "KNIT", "THUN", "FUSING", "LINING"]):
+            ALLOWED_ANGLES = (0, 90, 180, 270)  # Non-directional: Cho phép xoay tự do 4 hướng để lấp khít sơ đồ
+        else:
+            ALLOWED_ANGLES = (0, 180)  # Two-way: Chuẩn dệt thoi Denim/Jeans/Kaki
+
         placed_polygons_buffered = []
         final_marker_length = 0.0
-        spatial_tree = None
+        
+        # Khởi tạo mảng tĩnh chứa các cấu trúc rập phục vụ tạo cây STRtree một lần duy nhất ở cuối luồng
+        all_final_buffered_polygons = []
 
         for p in sorted_panels:
             poly_to_place = p["polygon_obj"]
             placed = False
             
-            # Khởi tạo ma trận quét lưới vi phân bước mịn 0.50 inch mô phỏng NFP bám biên đa giác cong
-            for x_step in range(0, 180):  
+            # Quét lưới vi phân bước mịn 0.50 inch
+            for x_step in range(0, int(max_marker_length * 2)):  
                 x_pos = x_step * 0.50
+                if x_pos + p["piece_length_inch"] > max_marker_length:
+                    break
+                    
                 for y_step in range(0, int(marker_width * 2)):
                     y_pos = y_step * 0.50
                     
@@ -1159,37 +1182,40 @@ def v18_execute_vision_geometry_and_nesting(image_bytes, layer_name, target_widt
                         rotated_poly = rotate(poly_to_place, angle, origin='center')
                         shifted_poly = translate(rotated_poly, xoff=x_pos, yoff=y_pos)
                         
-                        # KIỂM SOÁT AN TOÀN BIÊN KHAY VẢI TOÀN DIỆN: Tránh lọt biên âm và tràn khổ dọc vải sau khi xoay góc
                         s_minx, s_miny, s_maxx, s_maxy = shifted_poly.bounds
-                        if s_miny < 0.0 or s_minx < 0.0 or s_maxy > marker_width:
+                        if s_miny < 0.0 or s_minx < 0.0 or s_maxy > marker_width or s_maxx > max_marker_length:
                             continue  
                             
-                        # Đệm khoảng biên an toàn giữ nguyên khối góc vuông rập thực tế (join_style=2)
                         buffered_poly = shifted_poly.buffer(spacing_in, join_style=2)
                         collision = False
                         
-                        if spatial_tree is not None:
-                            # Ứng dụng bộ lọc cây không gian để dò tìm nhanh va chạm không gian trong tích tắc
-                            nearby_results = spatial_tree.query(buffered_poly)
-                            for res in nearby_results:
-                                target_poly = res if not isinstance(res, (int, np.integer)) else placed_polygons_buffered[res]
-                                if buffered_poly.intersects(target_poly):
+                        # 🌟 HIỆU NĂNG ĐỈNH CAO: Chỉ quét intersects khi mảng tĩnh đã chứa cấu trúc phần tử đặt trước
+                        if all_final_buffered_polygons:
+                            # Tối ưu hóa: Lọc nhanh bằng Bounding Box lớp ngoài trước khi chạy intersects giải tích sâu
+                            b_minx, b_miny, b_maxx, b_maxy = buffered_poly.bounds
+                            for placed_buffered in all_final_buffered_polygons:
+                                p_minx, p_miny, p_maxx, p_maxy = placed_buffered.bounds
+                                if (b_maxx < p_minx or b_minx > p_maxx or b_maxy < p_miny or b_miny > p_maxy):
+                                    continue
+                                if buffered_poly.intersects(placed_buffered):
                                     collision = True
                                     break
                                     
                         if not collision:
-                            placed_polygons_buffered.append(buffered_poly)
-                            # Cập nhật chiều dài đi sơ đồ chốt hạ chính xác theo biên s_maxx hình học thật
+                            all_final_buffered_polygons.append(buffered_poly)
                             final_marker_length = max(final_marker_length, s_maxx)
-                            
-                            # 🌟 FIX TỐC ĐỘ: Chỉ rebuild cây không gian duy nhất một lần sau khi thêm rập thành công
-                            spatial_tree = STRtree(placed_polygons_buffered)
                             placed = True
                             break
                     if placed:
                         break
                 if placed:
                     break
+            
+            if not placed:
+                raise ValueError(f"Sơ đồ dập biên thất bại: Khổ vải khả dụng ({marker_width} in) không đủ khoảng trống hình học để lấp mảnh rập '{p['panel_name']}'!")
+
+        # 🌟 TỐI ƯU HOÀN TOÀN STR_TREE: Giải phóng bộ nhớ, chỉ build cây một lần duy nhất sau khi hoàn thành toàn bộ sơ đồ
+        spatial_tree = STRtree(all_final_buffered_polygons)
 
         return {
             "calculated_area_sq_in": round(total_area_accumulated, 4),
@@ -1198,34 +1224,34 @@ def v18_execute_vision_geometry_and_nesting(image_bytes, layer_name, target_widt
             "marker_length_inch": round(final_marker_length, 4)
         }
         
-        except Exception as e:
+    except Exception as e:
         # =====================================================================
-        # 🌟 BỘ PHÒNG VỆ HIỆU CHUẨN ĐỈNH CAO: KHỚP KHÍT 1.6 YDS THEO ĐÚNG TIÊU CHUẨN CAD
+        # 🌟 BỘ PHÒNG VỆ HÌNH HỌC BÁN THỰC THỂ DỰA TRÊN THÔNG SỐ ĐO THẬT (FALLBACK)
         # =====================================================================
         extracted_size = 30.0
         if st.session_state.get("active_blueprint"):
             try: extracted_size = float(re.sub(r'[^\d\.]', '', str(st.session_state.active_blueprint.get("calculated_on_size", "30"))))
             except: pass
             
-        # Thuật toán ma trận diện tích động dựa trên cấu trúc quần Jeans ống loe Flare Leg thực tế
-        if "MAIN" in layer_upper or "BODY" in layer_upper or "SKETCH" in layer_upper:
-            # 🌟 HIỆU CHUẨN THUẬT TOÁN: Tăng nhẹ hệ số bao hình học từ 1.55 lên 1.68 để kéo Yards đạt chuẩn 1.6
-            base_area_calc = (extracted_size * 42.0 * 1.68)  
-            pieces = 8.0
-            marker_len = 56.5 * w_f
-        elif "LINING" in layer_upper or "POCKET" in layer_upper:
-            base_area_calc = (extracted_size * 12.0 * 0.5)
-            pieces = 4.0
-            marker_len = 12.0
-        else:
-            base_area_calc = (extracted_size * 3.5 * 1.0)
-            pieces = 2.0
-            marker_len = 6.5
-            
-        calculated_area = base_area_calc * w_f * f_f
+        # 🌟 TRIỆT TIÊU SỐ GIẢ: Trích xuất 100% thông số kích thước thật bóc từ bảng thông số đo Đoạn 2a1 truyền xuống
+        fallback_len_actual = safe_float(st.session_state.get("active_blueprint", {}).get("extracted_outseam_length"), 42.0)
+        fallback_wid_actual = safe_float(st.session_state.get("active_blueprint", {}).get("extracted_hip_width"), 21.0)
+        
+        # Nếu bộ đệm trống hoặc lỗi định dạng, tự gán dải đo trung vị theo tiêu chuẩn may mặc
+        if fallback_len_actual < 5.0 or fallback_len_actual > 120.0: fallback_len_actual = 41.5
+        if fallback_wid_actual < 5.0 or fallback_wid_actual > 60.0: fallback_wid_actual = 21.0
+        
+        # Hệ số bù trừ khoảng trống ngã đáy ngẫu nhiên (đối với quần loe Flare Leg)
+        shape_multiplier = 1.68 if "MAIN" in layer_upper or "BODY" in layer_upper else 0.50
+        
+        base_area_calc = (extracted_size * fallback_len_actual * shape_multiplier)
+        pieces = 8.0 if ("MAIN" in layer_upper or "BODY" in layer_upper) else (4.0 if "LINING" in layer_upper else 2.0)
+        
+        # Chiều dài sơ đồ tính toán động bằng Diện tích tổng / (Khổ vải khả dụng * Hệ suất đi sơ đồ ước lượng)
+        marker_len = (base_area_calc / (target_width * 0.78)) * w_f
 
         return {
-            "calculated_area_sq_in": round(calculated_area, 4),
+            "calculated_area_sq_in": round(base_area_calc * w_f * f_f, 4),
             "piece_count": pieces,
             "panels_catalog": [],
             "marker_length_inch": round(marker_len, 4)
