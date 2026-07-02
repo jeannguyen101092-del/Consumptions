@@ -24,3 +24,7 @@ shapely
 google-generativeai
 pandas
 streamlit
+opencv-python-headless
+openpyxl
+pandas
+pymupdf
