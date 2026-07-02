@@ -914,15 +914,19 @@ st.markdown("""
 
 # --- SIDEBAR ENGINE CONTROLS CONTROL PANEL ---
 st.sidebar.markdown("### ⚙️ ENGINE CONTROLS")
-if st.sidebar.button("🗑️ CLEAR SYSTEM MEMORY", use_container_width=True):
-    st.session_state.bom_data = None
+if st.sidebar.button("🧹 CLEAR SYSTEM MEMORY", use_container_width=True):
+    # Dọn sạch toàn diện bộ đệm, ép hệ thống phải xóa sổ vĩnh viễn các dòng số cào bằng cũ
+    st.session_state.active_blueprint = None
+    st.session_state.accumulated_bom_rows = {}
     st.session_state.chat_history = []
-    st.session_state.pdf_bytes = None
-    st.session_state.pdf_name = ""
-    st.session_state.pdf_text_cache = None
-    if "pdf_page_one_image" in st.session_state: st.session_state.pdf_page_one_image = None
-    if "accumulated_bom_rows" in st.session_state: del st.session_state["accumulated_bom_rows"]
+    
+    # Reset dải co rút mặc định phòng IE
+    st.session_state.current_warp_pct = "3.0%"
+    st.session_state.current_weft_pct = "3.0%"
+    
+    st.success("Bộ nhớ đệm đã được giải phóng hoàn toàn!")
     st.rerun()
+
 
 # LƯỚI CHIA ĐÔI CỘT ĐỐI XỨNG CÂN BẰNG THỊ GIÁC ĐỀU NHAU
 col_left, col_right = st.columns(2)
