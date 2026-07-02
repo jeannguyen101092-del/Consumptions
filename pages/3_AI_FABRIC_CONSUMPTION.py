@@ -969,58 +969,30 @@ with col_right:
 
 
 # =====================================================================
-# ĐOẠN 7a1: KHUNG NHÌN SKETCH VISUALIZER & WORKSPACE ĐỐI THOẠI CHUẨN BIẾN (V17.5.0.0 APPROVED)
+# =====================================================================
+# ĐOẠN 7a1: KHÔNG GIAN ĐỐI THOẠI CHATGPT WORKSPACE CHUẨN KỸ THUẬT (V17.4.8.0 APPROVED)
 # =====================================================================
 
-# --- KHU VỰC 1: HIỂN THỊ HÌNH ẢNH TECHPACK GỌN GÀNG Ở CỘT PHẢI ---
-with col_right:
-    st.markdown('<div class="cad-card">', unsafe_allow_html=True)
-    st.markdown('<div class="cad-header">🎨 TECHPACK SKETCH VISUALIZER</div>', unsafe_allow_html=True)
-    
-    if "chat_history" not in st.session_state: st.session_state.chat_history = []
-    if "pdf_text_cache" not in st.session_state: st.session_state.pdf_text_cache = None
-    if "pdf_page_one_image" not in st.session_state: st.session_state.pdf_page_one_image = None
-    if "last_processed_prompt" not in st.session_state: st.session_state.last_processed_prompt = None
-    if "accumulated_bom_rows" not in st.session_state: st.session_state.accumulated_bom_rows = {}
-
-    if st.session_state.pdf_bytes is not None:
-        try:
-            import fitz  
-            if st.session_state.pdf_page_one_image is None or st.session_state.pdf_text_cache is None:
-                doc = fitz.open(stream=st.session_state.pdf_bytes, filetype="pdf")
-                st.session_state.pdf_page_one_image = doc.load_page(0).get_pixmap(dpi=150).tobytes("png")
-                
-                full_text = ""
-                for page_num in range(len(doc)):
-                    full_text += f"\n--- TRANG THỨ {page_num + 1} ---\n" + doc.load_page(page_num).get_text("text")
-                st.session_state.pdf_text_cache = full_text
-            
-            st.image(st.session_state.pdf_page_one_image, use_container_width=True)
-            st.success(f"📎 Techpack loaded.")
-        except Exception:
-            pass
-    else:
-        st.caption("ℹ️ Hệ thống sẵn sàng sau khi tải file PDF.")
-    st.markdown('</div>', unsafe_allow_html=True)
-
-# --- KHU VỰC 2: KHUNG ĐỐI THOẠI TRỰC QUAN CHATGPT WORKSPACE PHÍA DƯỚI BẢNG ---
+# Tạo khoảng cách an toàn và dựng khung card kính mờ đồng bộ giao diện chính
 st.markdown('<br>', unsafe_allow_html=True)
 st.markdown('<div class="cad-card">', unsafe_allow_html=True)
 st.markdown('<div class="cad-header">💬 CHATGPT IE COLLABORATION WORKSPACE</div>', unsafe_allow_html=True)
 
+# Khởi tạo an toàn kho lưu trữ lịch sử chat nếu hệ thống vừa clear memory
+if "chat_history" not in st.session_state: 
+    st.session_state.chat_history = []
+
+# Vòng lặp kết xuất lịch sử đối thoại liên tục, cho phép cuộn trượt xem lệnh cũ
 if st.session_state.chat_history:
     for msg in st.session_state.chat_history:
         st.chat_message("user").write(msg["user"])
         st.chat_message("assistant").write(msg["ai"])
 
-# Biến nhận lệnh duy nhất toàn hệ thống từ khung gõ chat
+# Khung gõ lệnh chat chốt chặn thông minh, nhận lệnh thay đổi khổ/co rút/size liên tục
 safe_user_prompt = st.chat_input("Gõ câu lệnh điều chỉnh thông số tại đây (Ví dụ: khổ 57 co rút 3-3 size 10):")
+
 st.markdown('</div>', unsafe_allow_html=True)
-# =====================================================================
-# =====================================================================
-# =====================================================================
-# =====================================================================
-# =====================================================================
+
 # ĐOẠN 7a2: ENGINE BACKGROUND AI MẮT THẦN - LUỒNG CHAT LIÊN TỤC CHUẨN CHATGPT (V17.6.0.0)
 # =====================================================================
 
