@@ -969,16 +969,19 @@ with col_right:
 
 
 # =====================================================================
-# ĐOẠN 7a: ENGINE BACKGROUND AI - ĐỒNG BỘ BIẾN CHAT VÀ KHO LŨY KẾ ĐỘNG (V17.6.6.0 APPROVED)
+# ĐOẠN 7a: KHÔNG GIAN ĐỐI THOẠI & VÁ LỖI KHỞI TẠO BIẾN ẢNH SẬP NGUỒN (V17.6.7.0 APPROVED)
 # =====================================================================
 
 st.markdown('<br>', unsafe_allow_html=True)
 st.markdown('<div class="cad-card">', unsafe_allow_html=True)
 st.markdown('<div class="cad-header">💬 CHATGPT IE COLLABORATION WORKSPACE</div>', unsafe_allow_html=True)
 
-if "chat_history" not in st.session_state: 
-    st.session_state.chat_history = []
+# 🌟 BẢO VỆ TUYỆT ĐỐI CHỐNG SẬP ĐỎ: Ép khởi tạo an toàn mọi biến ô đệm session nếu bị nút CLEAR xóa mất
+if "chat_history" not in st.session_state: st.session_state.chat_history = []
+if "pdf_page_one_image" not in st.session_state: st.session_state.pdf_page_one_image = None
+if "accumulated_bom_rows" not in st.session_state: st.session_state.accumulated_bom_rows = {}
 
+# Kết xuất lịch sử đối thoại liên tục chuẩn ChatGPT
 if st.session_state.chat_history:
     for msg in st.session_state.chat_history:
         st.chat_message("user").write(msg["user"])
@@ -987,7 +990,8 @@ if st.session_state.chat_history:
 safe_user_prompt = st.chat_input("Gõ câu lệnh điều chỉnh thông số tại đây (Ví dụ: khổ 57 co rút 3-3 size 10):")
 st.markdown('</div>', unsafe_allow_html=True)
 
-if st.session_state.pdf_bytes is not None and safe_user_prompt:
+# Luồng xử lý background chỉ kích hoạt khi có file PDF và có ảnh trích xuất hợp lệ
+if st.session_state.pdf_bytes is not None and st.session_state.pdf_page_one_image is not None and safe_user_prompt:
     current_query = str(safe_user_prompt).strip()
     
     with st.spinner("🧠 MẮT THẦN AI: Đang bóc tách rập ảnh Sketch phẳng và đối chiếu bảng BOM đa trang..."):
@@ -1025,7 +1029,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             CURRENT USER COMMAND: "{current_query}"
             
             STRICT COMPONENT RULES:
-            1. Front/Back bodies, Waistband, side cargo pockets, and pocket flaps must be allocated under "MAIN FABRIC".
+            1. Look at the sketch image. Front/Back bodies, Waistband, side cargo pockets, and pocket flaps must be allocated under "MAIN FABRIC".
             2. Piped/Welt back pockets require pocket bags made of LINING fabric. Put this item under "POCKET LINING / LÓT TÚI".
             3. Waistband fusing requires fusible interlining. Put this item under "INTERLINING / KEO LÓT".
             4. You MUST structure the output JSON to include exactly THREE rows in the "bom_rows" array. Do NOT drop or omit rows.
@@ -1069,9 +1073,12 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             ===END_CHAT===
             """
             
-            image_payload = {"mime_type": "image/png", "data": st.session_state.pdf_page_one_image}
-            response = model.generate_content([image_payload, prompt_instruction])
+            image_payload = {
+                "mime_type": "image/png",
+                "data": st.session_state.pdf_page_one_image
+            }
             
+            response = model.generate_content([image_payload, prompt_instruction])
             if response and response.text:
                 response_text = response.text.strip()
                 json_match = re.search(r'===START_JSON===\s*(.*?)\s*===END_JSON===', response_text, re.DOTALL)
@@ -1085,14 +1092,8 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                     if raw_blueprint and raw_blueprint.get("bom_rows"):
                         blueprint_worker = copy.deepcopy(raw_blueprint)
                         
-                        # 1. Thực thi dải chuỗi liên hoàn thuật toán hình học rập nền
-                        step_2a1 = parse_geometric_panels_allowance(blueprint_worker, current_query)
-                        step_2a2 = execute_marker_yardage_and_quality_gate(step_2a1, current_query)
+                        blueprint_final = allocate_fabric_consumption_and_quality_gate(blueprint_worker, current_query)
                         
-                        # 2. 🌟 SỬA ĐIỂU KIỆN CHỐT: Truyền trực tiếp câu lệnh chat hiện tại (current_query) vào cho hàm 2b2 xử lý ép Eff cứng
-                        blueprint_final = allocate_fabric_consumption_and_quality_gate(step_2a2, current_query)
-                        
-                        # 3. 🌟 ĐỒNG BỘ ĐÈ KHO TÍCH LŨY TOÀN CỤC: Xóa sạch bộ nhớ cũ để nạp mới hoàn toàn dữ liệu động đã xử lý Eff 87%
                         st.session_state.accumulated_bom_rows = {}
                         if "bom_rows" in blueprint_final:
                             for row in blueprint_final["bom_rows"]:
@@ -1100,15 +1101,11 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                                 c_type = str(row.get("component_type", "MAIN")).upper().strip()
                                 f_class = str(row.get("fabric_classification", "MAIN_FABRIC")).upper().strip()
                                 unique_key = f"{c_type}_{f_class}"
-                                
-                                # Ghi đè dòng vật tư sạch đẹp vào kho đệm session hiển thị
                                 st.session_state.accumulated_bom_rows[unique_key] = row
                         
                         blueprint_final["bom_rows"] = list(st.session_state.accumulated_bom_rows.values())
                         if "calculated_on_size" in raw_blueprint:
                             blueprint_final["calculated_on_size"] = raw_blueprint["calculated_on_size"]
-                        
-                        # Gán trực tiếp ngược lại bom_data phục vụ Đoạn 7b render bảng
                         st.session_state.bom_data = blueprint_final
                 
                 ai_chat_response = chat_match.group(1).strip() if chat_match else "Tôi đã đồng bộ tính toán hệ thống."
