@@ -514,7 +514,7 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict) -> dict:
 
 
 # =====================================================================
-# ĐOẠN 6: GIAO DIỆN CHÍNH - BANNER TIÊU ĐỀ, KPIs & AUTO EXTRACT PROFILE (V17.7.1.0 APPROVED)
+# ĐOẠN 6a: HỆ THỐNG CONFIG, BANNER TIÊU ĐỀ & ENGINE TÍNH TOÁN KPIs NỀN (V17.7.2.0)
 # =====================================================================
 st.set_page_config(layout="wide", page_title="AI Fabric Consumption Matrix")
 
@@ -554,7 +554,7 @@ st.markdown("""
     .kpi-num-light {
         font-size: 22px;
         font-weight: 700;
-        color: #ffffff; /* Chữ trắng nổi bật trên nền màu chuyển sắc */
+        color: #ffffff;
         font-family: 'Segoe UI', sans-serif;
     }
     .kpi-lbl-light {
@@ -569,10 +569,10 @@ st.markdown("""
     }
     
     /* Các dải màu chuyển sắc (Gradient) cho từng loại thẻ chỉ số */
-    .bg-style { background: linear-gradient(135deg, #334155 0%, #1e293b 100%); } /* Xanh Slate tối */
-    .bg-items { background: linear-gradient(135deg, #0d9488 0%, #0f766e 100%); } /* Xanh Teal thu mua */
-    .bg-cons  { background: linear-gradient(135deg, #ea580c 0%, #c2410c 100%); } /* Cam Amber nổi bật vải chính */
-    .bg-size  { background: linear-gradient(135deg, #16a34a 0%, #15803d 100%); } /* Xanh Lục rập mẫu */
+    .bg-style { background: linear-gradient(135deg, #334155 0%, #1e293b 100%); }
+    .bg-items { background: linear-gradient(135deg, #0d9488 0%, #0f766e 100%); }
+    .bg-cons  { background: linear-gradient(135deg, #ea580c 0%, #c2410c 100%); }
+    .bg-size  { background: linear-gradient(135deg, #16a34a 0%, #15803d 100%); }
 
     /* Khung chứa nội dung chính bên dưới */
     .cad-card {
@@ -627,7 +627,7 @@ if "pdf_name" not in st.session_state: st.session_state.pdf_name = ""
 if "pdf_text_cache" not in st.session_state: st.session_state.pdf_text_cache = None
 if "accumulated_bom_rows" not in st.session_state: st.session_state.accumulated_bom_rows = {}
 
-# 🌟 2. CƠ CHẾ AUTO-EXTRACT CẢI TIẾN: Tự động chạy bóc tách chữ từ PDF ngay khi nạp file (Sửa lỗi trống trơn bên trái)
+# CƠ CHẾ AUTO-EXTRACT: Tự động chạy bóc tách chữ từ PDF ngay khi nạp file
 if st.session_state.pdf_bytes is not None and st.session_state.pdf_text_cache is None:
     try:
         import fitz
@@ -673,8 +673,11 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data:
             if val_gross > 0.0:
                 main_fabric_cons = f"{val_gross:.3f} Yds"
                 break
+# =====================================================================
+# ĐOẠN 6b: KHỐI RÁP GIAO DIỆN KPIs SẮC MÀU & THẺ TÓM TẮT HỒ SƠ MÃ HÀNG (V17.7.2.0)
+# =====================================================================
 
-# RÁP LẠI KHỐI KPIs DASHBOARD ĐA SẮC MÀU CAO CẤP
+# 1. RÁP LẠI KHỐI KPIs DASHBOARD ĐA SẮC MÀU CAO CẤP
 k_col1, k_col2, k_col3, k_col4 = st.columns(4)
 with k_col1:
     st.markdown(f'<div class="kpi-card-colored bg-style"><div class="kpi-num-light">{kpi_style_id}</div><div class="kpi-lbl-light">Mã hàng đang xử lý</div></div>', unsafe_allow_html=True)
@@ -711,7 +714,6 @@ with col_left:
     uploaded_file = st.file_uploader("Tải lên tệp tài liệu kỹ thuật Techpack / BOM (PDF)", type=["pdf"], label_visibility="collapsed")
     
     if uploaded_file is not None:
-        # Nếu người dùng tải đè một file mới hoàn toàn, reset cache text để luồng auto-extract kích hoạt lại
         if st.session_state.pdf_name != uploaded_file.name:
             st.session_state.pdf_text_cache = None
             if "pdf_page_one_image" in st.session_state: st.session_state.pdf_page_one_image = None
@@ -736,20 +738,20 @@ with col_left:
         fabric_type = get_meta(r'(?:Long Description|Chất liệu gốc)\s*[:\-=\s]*([^\n]+)', "CASUAL TWILL PANTS - SP27")
 
         m_col1, m_col2 = st.columns(2)
-
+        with m_col1:
             st.markdown(f'<div class="meta-box"><div class="meta-label">Style Code / Mã hàng</div><div class="meta-value">{style_id}</div></div>', unsafe_allow_html=True)
             st.markdown(f'<div class="meta-box"><div class="meta-label">Customer / Đối tác</div><div class="meta-value">{customer}</div></div>', unsafe_allow_html=True)
             st.markdown(f'<div class="meta-box"><div class="meta-label">Season / Mùa sản xuất</div><div class="meta-value">{season}</div></div>', unsafe_allow_html=True)
         with m_col2:
-
             st.markdown(f'<div class="meta-box"><div class="meta-label">Garment Type / Kiểu dáng</div><div class="meta-value">{short_desc}</div></div>', unsafe_allow_html=True)
             st.markdown(f'<div class="meta-box"><div class="meta-label">Material Spec / Mô tả vải</div><div class="meta-value">{fabric_type[:30]}...</div></div>', unsafe_allow_html=True)
             st.markdown(f'<div class="meta-box"><div class="meta-label">Techpack Status / Hồ sơ</div><div class="meta-value" style="color: #16a34a;">🟢 READY TO BOM</div></div>', unsafe_allow_html=True)
     else:
         if st.session_state.pdf_bytes is None:
-            st.markdown("<div style='margin-top: 20px; text-align: center; color: #94a3b8; font-size: 13px;'>Bảng tóm tắt thông tin sản phẩm sẽ tự động phân tích và hiển thị ô thẻ ngăn nắp sau khi nạp file PDF.</div>", unsafe_allow_html=True)
+            st.markdown("<div style='margin-top: 20px; text-align: center; color: #94a3b8; font-size: 13px;'>Bảng tóm tắt thông số sản phẩm sẽ tự động phân tích và hiển thị ô thẻ ngăn nắp sau khi nạp file PDF.</div>", unsafe_allow_html=True)
         
     st.markdown('</div>', unsafe_allow_html=True)
+
 
 
 
