@@ -799,7 +799,7 @@ with col_right:
                     st.error("💥 Lỗi xử lý tiến trình Phân đoạn 7a:")
                     st.code(traceback.format_exc())
 # =====================================================================
-# ĐOẠN 7b: KHU VỰC HIỂN THỊ KẾT QUẢ ĐƠN MÃ VÀ XUẤT EXCEL (V17.0.0.4 FIXED TUPLE)
+# ĐOẠN 7b: KHU VỰC HIỂN THỊ KẾT QUẢ ĐƠN MÃ VÀ XUẤT EXCEL (V17.0.0.5 FIXED STRIP)
 # =====================================================================
 if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data and st.session_state.bom_data["bom_rows"]:
     st.markdown('<div class="cad-card">', unsafe_allow_html=True)
@@ -829,13 +829,13 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data 
                 match_w_alt = re.search(r'Khổ\s*(?:lót|mếch):\s*([\d\.]+)', sys_notes)
                 cut_width_val = f"{float(match_w_alt.group(1))} inch" if match_w_alt else "58.0 inch"
         
-        # Tách thông tin co rút dọc / ngang trước wash
+        # 🟢 SỬA LỖI TÁCH CHUỖI DANH SÁCH TẠI ĐÂY (FIXED ATTRIBUTEERROR):
         warp_val = warp_default
         weft_val = weft_default
         if "/" in reason_logs:
             parts = reason_logs.split("/")
             if len(parts) >= 3:
-                shrink_part = parts.strip()
+                shrink_part = parts[2].strip() # 🌟 Lấy đúng phần tử chứa chuỗi "5.0x15.0"
                 match_sh = re.search(r'([\d\.]+)\s*x\s*([\d\.]+)', shrink_part)
                 if match_sh:
                     warp_val = f"{float(match_sh.group(1))}%"
@@ -867,7 +867,7 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data 
     st.markdown('</div>', unsafe_allow_html=True)
     
     # =====================================================================
-    # KHỐI LOGIC TẠO FILE EXCEL REPORT (ĐÃ FIX LỖI TUPLE COLUMN TẬN GỐC)
+    # KHỐI LOGIC TẠO FILE EXCEL REPORT SẮC NÉT
     # =====================================================================
     try:
         import io
@@ -882,7 +882,6 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data 
         
         ws.sheet_view.showGridLines = True 
         
-        # Cấu hình phong cách bảng tính chuyên nghiệp
         font_title = Font(name="Calibri", size=14, bold=True, color="FFFFFF")
         font_header = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
         font_body = Font(name="Calibri", size=11, bold=False)
@@ -897,7 +896,6 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data 
         thin_side = Side(border_style="thin", color="D9D9D9")
         thin_border = Border(left=thin_side, right=thin_side, top=thin_side, bottom=thin_side)
         
-        # Viết dòng tiêu đề lớn gộp ô
         ws.merge_cells("A1:L1")
         ws["A1"] = f"BÁO CÁO ĐỊNH MỨC VẬT TƯ VẢI - STYLE: {st.session_state.bom_data.get('style_code', 'R09-450416')}"
         ws["A1"].font = font_title
@@ -905,7 +903,6 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data 
         ws["A1"].alignment = align_center
         ws.row_dimensions.height = 40
         
-        # Tạo thanh tiêu đề cột dữ liệu
         headers = list(df_bom.columns)
         for col_num, header_title in enumerate(headers, 1):
             cell = ws.cell(row=3, column=col_num)
@@ -916,7 +913,6 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data 
             cell.border = thin_border
         ws.row_dimensions.height = 28
         
-        # Đổ dữ liệu định mức vào các dòng tương ứng
         for row_num, row_data in enumerate(display_data, 4):
             ws.row_dimensions[row_num].height = 22
             for col_num, key in enumerate(headers, 1):
@@ -925,7 +921,6 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data 
                 cell.font = font_body
                 cell.border = thin_border
                 
-                # Căn lề và xử lý hiển thị số thập phân
                 if key in ["Gross Consumption (Yds)"]:
                     cell.alignment = align_right
                     cell.number_format = '#,##0.0000'
@@ -934,9 +929,8 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data 
                 else:
                     cell.alignment = align_left
         
-        # 🟢 LẬP TRÌNH LẠI KHỐI CO GIÃN CỘT: Duyệt trực tiếp theo danh sách cột để tránh lỗi tuple vĩnh viễn
         for col_idx, col_name in enumerate(headers, 1):
-            max_len = len(col_name) # Độ dài tối thiểu bằng tên tiêu đề cột
+            max_len = len(col_name)
             for row_num in range(4, 4 + len(display_data)):
                 val = ws.cell(row=row_num, column=col_idx).value
                 if val:
@@ -948,7 +942,6 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data 
         wb.save(output)
         excel_bytes = output.getvalue()
         
-        # NÚT XUẤT TẢI FILE EXCEL RA MÀN HÌNH GIAO DIỆN
         st.markdown("<br>", unsafe_allow_html=True)
         st.download_button(
             label="📥 XUẤT FILE EXCEL ĐỊNH MỨC CHUẨN SẢN XUẤT",
