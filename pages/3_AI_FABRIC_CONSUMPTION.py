@@ -688,45 +688,38 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict, user_prompt
     return ai_blueprint
 
 
-
-
-
-
-
-
-
-
-
-
-
-
 # =====================================================================
-# ĐOẠN 6a: BANNER TIÊU ĐỀ & KHỐI KPIs ĐỘNG GHIM CỐ ĐỊNH ĐỈNH (V17.8.1.0 APPROVED)
+# ĐOẠN 6a: HỆ THỐNG CONFIG NỀN TỐI SLATE & BANNER KPIs FIXED ĐỈNH (V18.0.1.0)
 # =====================================================================
 st.set_page_config(layout="wide", page_title="AI Fabric Consumption Matrix")
 
-# Tinh chỉnh CSS nâng cao: Ghim cứng dải Banner & KPIs lên đỉnh, tạo khoảng giãn cách chống đè chữ
+# 🌟 BỘ STYLING CSS DOANH NGHIỆP: NỀN TỐI INDUSTRIAL DARK MODE & FIXED KHỐI ĐỈNH
 st.markdown("""
 <style>
-    /* Ghim cố định toàn bộ container đỉnh */
+    /* Ép toàn bộ nền ứng dụng Streamlit sang màu xanh Slate Industrial tối */
+    .stApp {
+        background-color: #0f172a !important;
+    }
+    
+    /* Ghim cố định container Banner & KPIs sắc màu lên đỉnh màn hình */
     .sticky-top-container {
         position: fixed;
         top: 40px; 
         left: 0;
         right: 0;
         padding: 0 4rem 15px 4rem; 
-        background-color: #f8fafc; 
+        background-color: #0f172a; /* Nền tối đồng bộ che chữ khi cuộn qua */
         z-index: 99999; 
     }
 
-    /* Khung Banner chính chuyển sắc */
+    /* Khung Banner chính trên đỉnh chuyển sắc mịn màng */
     .top-banner {
         background: linear-gradient(135deg, #1e3a8a 0%, #0369a1 100%);
         padding: 14px 20px;
         border-radius: 8px;
         color: #ffffff;
         margin-bottom: 12px;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
     }
     .top-title {
         font-family: 'Segoe UI', sans-serif;
@@ -741,13 +734,13 @@ st.markdown("""
         margin-top: 1px;
     }
     
-    /* Thẻ KPIs mini sắc màu chữ trắng */
+    /* Thẻ KPIs mini chữ trắng sắc nét trên nền khối tối */
     .kpi-card-colored {
         border-radius: 8px;
         padding: 12px 14px;
         text-align: center;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
-        border: 1px solid rgba(0,0,0,0.05);
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2);
+        border: 1px solid rgba(255,255,255,0.05);
     }
     .kpi-num-light {
         font-size: 20px;
@@ -759,54 +752,78 @@ st.markdown("""
         font-size: 10px;
         font-weight: 600;
         color: #ffffff;
-        opacity: 0.9;
+        opacity: 0.85;
         text-transform: uppercase;
         margin-top: 2px;
-        letter-spacing: 0.02em;
         font-family: 'Segoe UI', sans-serif;
     }
     
-    .bg-style { background: linear-gradient(135deg, #334155 0%, #1e293b 100%); }
+    .bg-style { background: linear-gradient(135deg, #475569 0%, #334155 100%); }
     .bg-items { background: linear-gradient(135deg, #0d9488 0%, #0f766e 100%); }
     .bg-cons  { background: linear-gradient(135deg, #ea580c 0%, #c2410c 100%); }
     .bg-size  { background: linear-gradient(135deg, #16a34a 0%, #15803d 100%); }
 
-    /* Khung đệm đẩy nội dung sụp xuống dưới khối ghim đỉnh */
+    /* Khung đệm đẩy nội dung dưới không bị đè khuất sau dải ghim đỉnh */
     .main-body-spacer {
         margin-top: 185px; 
     }
 
+    /* THỂ CARD KÍNH MỜ CAO CẤP TRÊN NỀN TỐI (GLASSMORPHISM) */
     .cad-card {
-        background-color: #ffffff;
-        border: 1px solid #e2e8f0;
+        background-color: #1e293b !important; /* Xanh Navy tối */
+        border: 1px solid #334155 !important; /* Viền viền nhẹ */
         border-radius: 8px;
         padding: 20px;
         margin-top: 0px;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3);
+        
+        /* 🌟 KÉO DÀI CHIỀU CAO: Ép hộp cột trái dài bằng khít bản vẽ bên phải */
+        min-height: 520px; 
+        display: flex;
+        flex-direction: column;
     }
     .cad-header {
         font-family: 'Segoe UI', sans-serif;
         font-size: 14px;
         font-weight: 700;
-        color: #0369a1;
+        color: #38bdf8; /* Xanh Sky nổi bật trên nền tối */
         letter-spacing: 0.05em;
-        margin-bottom: 12px;
+        margin-bottom: 15px;
         padding-bottom: 6px;
-        border-bottom: 2px solid #cbd5e1;
+        border-bottom: 2px solid #334155;
     }
+    
+    /* Ô hiển thị thông tin hồ sơ tóm tắt dập khối */
     .meta-box {
-        background-color: #f8fafc;
+        background-color: #0f172a; 
         border-left: 4px solid #0284c7;
         padding: 10px 14px;
         margin-bottom: 8px;
         border-radius: 0 6px 6px 0;
     }
-    .meta-label { font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; }
-    .meta-value { font-size: 14px; font-weight: 600; color: #0f172a; margin-top: 2px; }
+    .meta-label {
+        font-size: 11px;
+        font-weight: 700;
+        color: #94a3b8; 
+        text-transform: uppercase;
+        font-family: 'Segoe UI', sans-serif;
+    }
+    .meta-value {
+        font-size: 14px;
+        font-weight: 600;
+        color: #f8fafc; /* Chữ bạc */
+        margin-top: 2px;
+        font-family: 'Segoe UI', sans-serif;
+    }
+    
+    /* Định hình văn bản phụ của app trên nền tối */
+    .stMarkdown, p, span, label {
+        color: #cbd5e1 !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
-# Khởi tạo trạng thái hệ thống nền
+# Khởi tạo an toàn các biến trạng thái hệ thống
 if "bom_data" not in st.session_state: st.session_state.bom_data = None
 if "chat_history" not in st.session_state: st.session_state.chat_history = []
 if "pdf_bytes" not in st.session_state: st.session_state.pdf_bytes = None
@@ -814,7 +831,7 @@ if "pdf_name" not in st.session_state: st.session_state.pdf_name = ""
 if "pdf_text_cache" not in st.session_state: st.session_state.pdf_text_cache = None
 if "accumulated_bom_rows" not in st.session_state: st.session_state.accumulated_bom_rows = {}
 
-# Khối tự động trích xuất chữ khi nạp file
+# Khối tự động trích xuất chữ khi nạp file PDF
 if st.session_state.pdf_bytes is not None and st.session_state.pdf_text_cache is None:
     try:
         import fitz
@@ -825,7 +842,7 @@ if st.session_state.pdf_bytes is not None and st.session_state.pdf_text_cache is
         st.session_state.pdf_text_cache = full_text_extract
     except Exception: pass
 
-# Đồng bộ số liệu KPIs động
+# ENGINE TRÍCH XUẤT VÀ ĐỒNG BỘ DỮ LIỆU KPIs BIẾN THIÊN THEO THỜI GIAN THỰC
 kpi_style_id = "N/A"
 total_materials = len(st.session_state.accumulated_bom_rows) if st.session_state.accumulated_bom_rows else 0
 main_fabric_cons = "0.000"
@@ -843,7 +860,7 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data:
                 main_fabric_cons = f"{val_gross:.3f} Yds"
                 break
 
-# 🌟 KHỐI CONTAINER DUY NHẤT GHIM ĐỈNH (VẼ KPIs TẠI ĐÂY)
+# GÓI CỐ ĐỊNH GHIM LÊN ĐỈNH MÀN HÌNH (XÓA BỎ LẶP HÀNG)
 st.markdown('<div class="sticky-top-container">', unsafe_allow_html=True)
 st.markdown("""
 <div class="top-banner">
@@ -859,17 +876,14 @@ with k_col3: st.markdown(f'<div class="kpi-card-colored bg-cons"><div class="kpi
 with k_col4: st.markdown(f'<div class="kpi-card-colored bg-size"><div class="kpi-num-light">{active_size_kpi}</div><div class="kpi-lbl-light">Cỡ hạt tính định mức</div></div>', unsafe_allow_html=True)
 st.markdown('</div>', unsafe_allow_html=True)
 
-# Khung đệm đẩy nội dung dưới không bị đè mất chữ
+# Chèn khung đệm đẩy nội dung dưới không bị đè mất chữ
 st.markdown('<div class="main-body-spacer"></div>', unsafe_allow_html=True)
-
-
 # =====================================================================
-# ĐOẠN 6b: SIDEBAR & KHỐI HIỂN THỊ HỒ SƠ CHIA CỘT TIÊU CHUẨN (V17.8.1.0 APPROVED)
+# ĐOẠN 6b: CONTROLS SIDEBAR & LƯỚI KHUNG NHÌN ĐỐI CHIẾU CÂN XỨNG 1:1 (V18.0.1.0)
 # =====================================================================
 
-# --- SIDEBAR ENGINE CONTROLS ---
+# --- SIDEBAR ENGINE CONTROLS CONTROL PANEL ---
 st.sidebar.markdown("### ⚙️ ENGINE CONTROLS")
-st.sidebar.markdown('<div style="background-color:#dcfce7; color:#15803d; padding:10px; border-radius:6px; font-weight:600; font-size:13px; margin-bottom:15px;">🟢 API STATUS: Hoạt động tốt.</div>', unsafe_allow_html=True)
 
 if st.sidebar.button("🗑️ CLEAR SYSTEM MEMORY", use_container_width=True):
     st.session_state.bom_data = None
@@ -881,7 +895,7 @@ if st.sidebar.button("🗑️ CLEAR SYSTEM MEMORY", use_container_width=True):
     if "accumulated_bom_rows" in st.session_state: del st.session_state["accumulated_bom_rows"]
     st.rerun()
 
-# --- THIẾT LẬP LAYOUT CHIA ĐÔI CỘT ĐỐI XỨNG PHÍA DƯỚI (ĐÃ BỎ KHỐI KPIs THỪA) ---
+# --- KHỐI LAYOUT CHIA ĐÔI CỘT ĐỐI XỨNG CÂN BẰNG THỊ GIÁC CHUẨN ERP ---
 col_left, col_right = st.columns(2)
 
 with col_left:
@@ -898,11 +912,12 @@ with col_left:
         st.session_state.pdf_bytes = uploaded_file.read()
         st.session_state.pdf_name = uploaded_file.name
 
-    # Đổ 6 ô thẻ tóm tắt hồ sơ kỹ thuật
+    # Đổ 6 ô thẻ tóm tắt hồ sơ kỹ thuật lên cạp kính mờ tối cột trái
     if st.session_state.pdf_text_cache is not None:
         st.markdown("<div style='margin-top: 15px;'></div>", unsafe_allow_html=True)
         txt = st.session_state.pdf_text_cache
         
+        import re
         def get_meta(pattern, default="N/A"):
             m = re.search(pattern, txt, re.IGNORECASE)
             return m.group(1).strip() if m else default
@@ -921,12 +936,13 @@ with col_left:
         with m_col2:
             st.markdown(f'<div class="meta-box"><div class="meta-label">Garment Type / Kiểu dáng</div><div class="meta-value">{short_desc}</div></div>', unsafe_allow_html=True)
             st.markdown(f'<div class="meta-box"><div class="meta-label">Material Spec / Mô tả vải</div><div class="meta-value">{fabric_type[:30]}...</div></div>', unsafe_allow_html=True)
-            st.markdown(f'<div class="meta-box"><div class="meta-label">Techpack Status / Hồ sơ</div><div class="meta-value" style="color: #16a34a;">🟢 READY TO BOM</div></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="meta-box"><div class="meta-label">Techpack Status / Hồ sơ</div><div class="meta-value" style="color: #4ade80;">🟢 READY TO BOM</div></div>', unsafe_allow_html=True)
     else:
         if st.session_state.pdf_bytes is None:
-            st.markdown("<div style='margin-top: 20px; text-align: center; color: #94a3b8; font-size: 13px;'>Bảng tóm tắt thông số sản phẩm sẽ tự động phân tích và hiển thị ô thẻ ngăn nắp sau khi nạp file PDF.</div>", unsafe_allow_html=True)
+            st.markdown("<div style='margin-top: 40px; text-align: center; color: #64748b; font-size: 13px;'>Bảng tóm tắt thông số sản phẩm sẽ tự động phân tích và hiển thị ô thẻ ngăn nắp sau khi nạp file PDF.</div>", unsafe_allow_html=True)
         
     st.markdown('</div>', unsafe_allow_html=True)
+
 
 
 
