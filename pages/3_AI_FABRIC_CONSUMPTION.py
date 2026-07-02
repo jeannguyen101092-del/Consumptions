@@ -2,7 +2,7 @@ import streamlit as st
 import re
 import pandas as pd
 
-# 1. CẤU HÌNH TRANG VÀ INJECT CSS 
+# 1. CẤU HÌNH TRANG VÀ INJECT CSS
 st.set_page_config(layout="wide", page_title="AI Fabric Consumption Platform")
 
 st.markdown("""
@@ -130,55 +130,52 @@ st.write("")
 # 7. KHÔNG GIAN LÀM VIỆC CHATGPT IE COLLABORATION & XỬ LÝ LỆNH TỰ ĐỘNG
 st.markdown("💬 **CHATGPT IE COLLABORATION WORKSPACE**")
 
-# Khối hiển thị lịch sử chat
 for chat in st.session_state.chat_history:
     if chat["role"] == "user":
         st.markdown(f"🔴 **tính:** {chat['content']}")
     else:
         st.markdown(f"🟠 **AI:** {chat['content']}")
 
-# 🌟 GIẢI PHÁP TRIỆT ĐỂ: Dùng st.form kết hợp clear_on_submit để khóa lỗi lặp dòng dữ liệu chat
-with st.form(key="ie_chat_form", clear_on_submit=True):
-    user_input = st.text_input(
-        "Gõ lệnh điều chỉnh thông số tại đây...", 
-        placeholder="Nhập cấu hình vải và thông số...", 
-        label_visibility="collapsed"
-    )
-    # Nút submit ẩn hoặc nhỏ gọn để giữ nguyên trải nghiệm gõ Enter
-    submit_button = st.form_submit_button("Gửi lệnh tinh chỉnh", use_container_width=False)
-
-if submit_button and user_input.strip():
-    user_prompt = user_input.strip()
-    
-    # NLP Parser bóc tách số liệu
+# 🌟 CẢI TIẾN TRẢI NGHIỆM GIAO DIỆN: Xử lý xóa text input qua bộ khóa Session Key (Không cần Form / Nút bấm)
+def on_chat_submitted():
+    user_prompt = st.session_state.current_prompt_value.strip()
+    if not user_prompt:
+        return
+        
     width_match = re.search(r"khổ\s*(\d+)", user_prompt.lower())
     warp_match = re.search(r"dọc\s*(\d+)", user_prompt.lower())
     weft_match = re.search(r"ngang\s*(\d+)", user_prompt.lower())
     
-    base_consumption = 1.325  
+    base_consumption = 1.250  
     width_val = float(width_match.group(1)) if width_match else 58.0
     warp_val = float(warp_match.group(1)) if warp_match else 0.0
     weft_val = float(weft_match.group(1)) if weft_match else 0.0
     
-    # Tính định mức thích ứng dệt may
     shrinkage_coefficient = (1 + (warp_val / 100)) * (1 + (weft_val / 100))
     width_penalty = 58.0 / width_val if width_val > 0 else 1.0
     final_consumption = base_consumption * shrinkage_coefficient * width_penalty
     
-    # Ghi nhận trạng thái hệ thống
     st.session_state.estimated_consumption = final_consumption
     st.session_state.total_items = "1 Item(s)"
     st.session_state.engine_mode = "ADAPTIVE IE"
 
-    # Đẩy dữ liệu vào lịch sử
     st.session_state.chat_history.append({"role": "user", "content": user_prompt})
     ai_response = f"Đã ghi nhận yêu cầu: '{user_prompt}'. Hệ thống đang tiến hành điều chỉnh ma trận xếp rập thích ứng. Kết quả định mức mới: {final_consumption:.3f} Yds."
     st.session_state.chat_history.append({"role": "assistant", "content": ai_response})
     
-    # Re-run tức thời sạch sẽ, xóa hoàn toàn chuỗi text cũ khỏi bộ nhớ đệm
-    st.rerun()
+    # Dọn dẹp chuỗi trong bộ nhớ widget ngay lập tức để khi render lại ô nhập sẽ trống rỗng
+    st.session_state.current_prompt_value = ""
 
-# 8. BẢNG XUẤT DỮ LIỆU BOM & NÚT TẢI EXCEL (BỔ SUNG TIỆN ÍCH CHO PHÒNG MUA HÀNG)
+# Ô nhập liệu thiết kế phẳng, gõ Enter ăn lệnh ngay lập tức
+st.text_input(
+    "Gõ lệnh điều chỉnh thông số tại đây...", 
+    placeholder="Nhập cấu hình vải và thông số...", 
+    label_visibility="collapsed",
+    key="current_prompt_value",
+    on_change=on_chat_submitted
+)
+
+# 8. BẢNG XUẤT DỮ LIỆU BOM & NÚT TẢI CSV
 if st.session_state.estimated_consumption > 0:
     st.write("---")
     st.markdown("📋 **BẢNG KẾT XUẤT ĐỊNH MỨC CHI TIẾT (AI BOM EXPORT)**")
@@ -193,7 +190,6 @@ if st.session_state.estimated_consumption > 0:
     df_bom = pd.DataFrame(bom_data)
     st.dataframe(df_bom, use_container_width=True, hide_index=True)
     
-    # Nút cho phép tải file báo giá định mức nhanh
     csv = df_bom.to_csv(index=False).encode('utf-8')
     st.download_button(
         label="📥 TẢI FILE BÁO GIÁ ĐỊNH MỨC VẬT TƯ (CSV)",
