@@ -689,11 +689,11 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict, user_prompt
 
 
 # =====================================================================
-# ĐOẠN 6a: BANNER, KPIs GHIM ĐỈNH & FIX TRIỆT ĐỂ Ô TRỐNG TO ĐÙNG (V18.3.3.0 APPROVED)
+# ĐOẠN 6a: BANNER, KPIs GHIM ĐỈNH & CÂN BẰNG CHIỀU CAO 1:1 ĐỐI XỨNG (V18.3.4.0 APPROVED)
 # =====================================================================
 st.set_page_config(layout="wide", page_title="AI Fabric Consumption Matrix")
 
-# 🌟 BỘ STYLING CSS CẢI TIẾN: XÓA MIN-HEIGHT CỨNG, ÉP HỘP TỰ CO GIÃN ĐỘ ĐỘNG
+# 🌟 BỘ STYLING CSS CẤP CAO: KHỐNG CHẾ MAX-HEIGHT CÂN XỨNG VÀ TẠO KHUNG CUỘN ĐỘC LẬP
 st.markdown("""
 <style>
     /* Trả nền ứng dụng về màu xám trắng dịu mắt chuẩn văn phòng ERP */
@@ -773,7 +773,8 @@ st.markdown("""
         margin-top: 175px; 
     }
 
-    /* 🌟 BƯỚC ĐỘT PHÁ SỬA LỖI Ô TRỐNG: Xóa bỏ min-height, chuyển sang chiều cao tự động co giãn */
+    /* 🌟 BƯỚC ĐỘT PHÁ CÂN BẰNG TỶ LỆ: Khống chế chặt chẽ chiều cao tối đa của 2 khối hộp, */
+    /* Tạo thanh cuộn trượt độc lập (overflow-y) để ảnh dài không đẩy vỡ bố cục */
     .custom-erp-box {
         background-color: #ffffff !important;
         border: 1px solid #cbd5e1 !important;
@@ -781,7 +782,9 @@ st.markdown("""
         padding: 20px;
         margin-bottom: 15px;
         box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.03);
-        height: auto !important; /* Tự động thu gọn ôm sát khi trống, tự nở ra khi có chữ */
+        
+        max-height: 380px !important; /* 🟢 Ép chiều cao tối đa bằng khít nhau */
+        overflow-y: auto !important;   /* 🟢 Tự động bật thanh cuộn nếu ảnh hoặc chữ quá dài */
     }
     
     .cad-header-text {
@@ -860,8 +863,8 @@ with k_col3: st.markdown(f'<div class="kpi-card-colored bg-cons"><div class="kpi
 with k_col4: st.markdown(f'<div class="kpi-card-colored bg-size"><div class="kpi-num-light">{active_size_kpi}</div><div class="kpi-lbl-light">Cỡ hạt tính định mức</div></div>', unsafe_allow_html=True)
 st.markdown('</div>', unsafe_allow_html=True)
 
-# Khung đệm đẩy nội dung dưới
 st.markdown('<div class="main-body-spacer"></div>', unsafe_allow_html=True)
+
 
 
 # =====================================================================
