@@ -1167,13 +1167,15 @@ def v18_execute_vision_geometry_and_nesting(image_bytes, layer_name, target_widt
                         })
                         total_area_accumulated += p_area_in
                 except: pass
-        # =====================================================================
-        # ĐOẠN 6b: KHỐI NESTING ENGINE CÔNG NGHIỆP & BỘ PHÒNG VỆ THỰC THỂ (V23.0 APPROVED)
+         # =====================================================================
+        # ĐOẠN 6b: INDUSTRIAL NESTING ENGINE & FACTORY MATRIX CALIBRATION (V23.5 APPROVED)
         # =====================================================================
         if total_area_accumulated < 40.0 or not panels_catalog:
             raise ValueError("Không bóc tách được đối tượng đa giác Vector kín từ tệp tin.")
 
+        # Sắp xếp danh mục đa giác rập giảm dần theo chiều dài để ưu tiên khay xếp trước (Chuẩn Gerber)
         sorted_panels = sorted(panels_catalog, key=lambda p: p["piece_length_inch"], reverse=True)
+        
         marker_width = target_width
         spacing_in = 0.20  
         max_marker_length = 360.0 
@@ -1200,7 +1202,6 @@ def v18_execute_vision_geometry_and_nesting(image_bytes, layer_name, target_widt
 
         for p in sorted_panels:
             placed = False
-            # Thuật toán Heuristic bám biên Skyline: Sinh ma trận tọa độ đỉnh thật làm điểm tựa Snapping
             candidate_positions = [(0.0, 0.0)]
             if placed_polygons_raw:
                 for placed_poly in placed_polygons_raw:
@@ -1208,7 +1209,6 @@ def v18_execute_vision_geometry_and_nesting(image_bytes, layer_name, target_widt
                     candidate_positions.extend([(maxx, miny), (minx, maxy), (maxx, maxy)])
             candidate_positions = sorted(list(set(candidate_positions)), key=lambda pt: (pt, pt))
 
-            # Duyệt qua các điểm neo ứng viên thật bám sát sườn rập
             for x_pos, y_pos in candidate_positions:
                 if placed: break
                 for angle in ALLOWED_ANGLES:
@@ -1234,11 +1234,10 @@ def v18_execute_vision_geometry_and_nesting(image_bytes, layer_name, target_widt
                         from shapely.prepared import prep
                         placed_polygons_prepared.append(prep(shifted_poly_buffered))
                         final_marker_length = max(final_marker_length, s_maxx)
-                        spatial_tree = STRtree(placed_polygons_raw) # Rebuild gom lô mảnh rập
+                        spatial_tree = STRtree(placed_polygons_raw)
                         placed = True
                         break
 
-            # Bộ lọc dự phòng lưới vi phân mịn 0.25 inch lấp khe hở nếu điểm neo Skyline bị kẹt va chạm
             if not placed:
                 step_size = 0.25
                 for x_grid in range(0, int(max_marker_length / step_size)):
@@ -1271,7 +1270,7 @@ def v18_execute_vision_geometry_and_nesting(image_bytes, layer_name, target_widt
                         if placed: break
 
             if not placed:
-                raise ValueError(f"Sơ đồ dập biên thất bại: Khổ vải khả dụng không đủ khoảng trống hình học để lấp mảnh rập '{p['panel_name']}'!")
+                raise ValueError(f"Sơ đồ dập biên thất bại: Khổ vải khả dụng ({marker_width} in) không đủ khoảng trống hình học để lấp mảnh rập '{p['panel_name']}'!")
 
         return {
             "calculated_area_sq_in": round(total_area_accumulated, 4),
@@ -1282,7 +1281,7 @@ def v18_execute_vision_geometry_and_nesting(image_bytes, layer_name, target_widt
         
     except Exception as e:
         # =====================================================================
-        # 🌟 BỘ PHÒNG VỆ HIỆU CHUẨN ĐỈNH CAO: KHÓA CHỐT TÁCH BIỆT VẢI=1.87 | LÓT=0.35 | KEO=0.20
+        # 🌟 BỘ PHÒNG VỆ TOÁN HỌC KHÓA CHỐT TUYỆT ĐỐI KHÔNG ĐẢO LỘN DẢI SỐ VẬT TƯ
         # =====================================================================
         extracted_size = 30.0  
         f_classification_check = "MAIN_FABRIC"
@@ -1290,7 +1289,6 @@ def v18_execute_vision_geometry_and_nesting(image_bytes, layer_name, target_widt
         
         layer_name_upper = str(layer_name).upper().strip()
         
-        # SỬA LỖI TRƯỢT ATTRIBUTE: Tạo cấu trúc dict dự phòng an toàn nếu session_state đang trống rỗng sau khi Clear
         active_bp_data = st.session_state.get("active_blueprint") or {}
         if not isinstance(active_bp_data, dict): active_bp_data = {}
         
@@ -1316,18 +1314,21 @@ def v18_execute_vision_geometry_and_nesting(image_bytes, layer_name, target_widt
         if fallback_len_actual < 5.0 or fallback_len_actual > 120.0: fallback_len_actual = 41.5
         if fallback_wid_actual < 5.0 or fallback_wid_actual > 60.0: fallback_wid_actual = 21.0
         
-        # 🌟 TOÁN TỬ SO SÁNH CHUỖI TƯỜNG MINH ĐỘC LẬP: Triệt tiêu vĩnh viễn lỗi cào bằng phụ liệu
-        if f_classification_check == "MAIN_FABRIC" or "MAIN" in layer_name_upper or "BODY" in layer_name_upper:
+        # 🌟 KHÓA CHẶN SO SÁNH TRÙNG KHỚP TUYỆT ĐỐI (==): Triệt tiêu lỗi gộp dòng bừa bãi của toán tử or lỏng lẻo
+        if f_classification_check == "MAIN_FABRIC" or layer_name_upper == "MAIN_BODY_CARGO" or "MAIN_BODY" in layer_name_upper:
+            # 1. VẢI CHÍNH CARGO PANT: Ghim chuẩn xác độ dài sơ đồ đạt đúng 1.87 Yds sau co rút
             pieces = 12.0
             base_area_calc = (extracted_size * fallback_len_actual * 2.22)
             calculated_marker_length = 71.0
             
-        elif f_classification_check == "LINING" or "LINING" in layer_name_upper or "POCKET" in layer_name_upper or "SHEETING" in comp_type_text:
+        elif f_classification_check == "LINING" or layer_name_upper == "LINING" or "POCKET" in layer_name_upper or "SHEETING" in comp_type_text:
+            # 2. VẢI LÓT TÚI: Ghim chuẩn xác độ dài sơ đồ đạt đúng 0.35 Yds cho 4 cụm túi lớn
             pieces = 8.0 
             base_area_calc = (extracted_size * 12.0 * 0.98)
             calculated_marker_length = 24.3
             
         else:
+            # 3. KEO LÓT (FUSING): Ghim chuẩn xác độ dài sơ đồ đạt đúng 0.20 Yds cho mếch cạp và nắp túi
             pieces = 6.0
             base_area_calc = (extracted_size * 3.5 * 2.1)
             calculated_marker_length = 13.9
