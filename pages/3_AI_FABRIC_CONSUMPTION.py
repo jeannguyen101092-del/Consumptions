@@ -511,124 +511,14 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict) -> dict:
 
 
 
-# =====================================================================
-# ĐOẠN 5: ENGINE XUẤT EXCEL THEO FORM MẪU BÁO CÁO PHONG PHÚ (V15.9.1 APPROVED)
-# =====================================================================
 
-def export_to_phong_phu_excel(bom_data, pdf_name):
-    import io
-    import re
-    import pandas as pd
-    
-    buffer = io.BytesIO()
-    with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
-        workbook  = writer.book
-        font_name = 'Segoe UI' 
-        company_format = workbook.add_format({'font_name': font_name, 'font_size': 11, 'bold': True, 'color': '#1e3a8a'})
-        dept_format    = workbook.add_format({'font_name': font_name, 'font_size': 10, 'italic': True, 'color': '#475569'})
-        title_format   = workbook.add_format({'font_name': font_name, 'font_size': 16, 'bold': True, 'align': 'center', 'valign': 'vcenter', 'color': '#0f172a'})
-        info_label_format = workbook.add_format({'font_name': font_name, 'font_size': 10, 'bold': True, 'color': '#334155'})
-        info_val_format   = workbook.add_format({'font_name': font_name, 'font_size': 10, 'color': '#0f172a'})
-        header_format  = workbook.add_format({'font_name': font_name, 'font_size': 10, 'bold': True, 'align': 'center', 'valign': 'vcenter', 'bg_color': '#e0f2fe', 'color': '#0369a1', 'border': 1, 'border_color': '#cbd5e1'})
-        
-        cell_center = workbook.add_format({'font_name': font_name, 'font_size': 10, 'align': 'center', 'border': 1, 'border_color': '#cbd5e1'})
-        cell_left   = workbook.add_format({'font_name': font_name, 'font_size': 10, 'align': 'left', 'border': 1, 'border_color': '#cbd5e1'})
-        cell_right  = workbook.add_format({'font_name': font_name, 'font_size': 10, 'align': 'right', 'border': 1, 'border_color': '#cbd5e1', 'num_format': '#,##0.000'})
-        pass_format = workbook.add_format({'font_name': font_name, 'font_size': 10, 'align': 'center', 'bg_color': '#dcfce7', 'color': '#15803d', 'border': 1, 'border_color': '#cbd5e1', 'bold': True})
-        warn_format = workbook.add_format({'font_name': font_name, 'font_size': 10, 'align': 'center', 'bg_color': '#fef9c3', 'color': '#a16207', 'border': 1, 'border_color': '#cbd5e1', 'bold': True})
-        crit_format = workbook.add_format({'font_name': font_name, 'font_size': 10, 'align': 'center', 'bg_color': '#fee2e2', 'color': '#b91c1c', 'border': 1, 'border_color': '#cbd5e1', 'bold': True})
-        sign_title_format = workbook.add_format({'font_name': font_name, 'font_size': 10, 'bold': True, 'align': 'center'})
-
-        worksheet = workbook.add_worksheet('BẢNG ĐỊNH MỨC KỸ THUẬT')
-        worksheet.hide_gridlines(2) 
-        worksheet.write('A1', 'CTY CỔ PHẦN QUỐC TẾ PHONG PHÚ', company_format)
-        worksheet.write('A2', '⚙️ Phòng Kỹ Thuật May - IE Engine Core', dept_format)
-        worksheet.merge_range('A4:I4', 'BẢNG ĐỊNH MỨC KỸ THUẬT (APPROVED CONSUMPTION)', title_format)
-        
-        style_code_extracted = str(bom_data.get("style_code", "R09-450416")).upper()
-        prod_type_extracted  = str(bom_data.get("detected_product_type", "PANT")).upper()
-        
-        metadata = [
-            {'lbl1': 'CUSTOMER:', 'val1': 'REITMANS', 'lbl2': 'SEASON:', 'val2': 'NONE'},
-            {'lbl1': 'STYLE:', 'val1': style_code_extracted, 'lbl2': 'FACTORY:', 'val2': 'NONE'},
-            {'lbl1': 'PRODUCT:', 'val1': prod_type_extracted, 'lbl2': 'STATUS:', 'val2': 'APPROVED BY AI'}
-        ]
-        
-        for i, item in enumerate(metadata):
-            worksheet.write(5 + i, 0, item['lbl1'], info_label_format)
-            worksheet.write(5 + i, 1, item['val1'], info_val_format)
-            worksheet.write(5 + i, 3, item['lbl2'], info_label_format)
-            worksheet.write(5 + i, 4, item['val2'], info_val_format)
-
-        headers = ["STT", "Phân loại vật tư (Fabric type)", "Mã vải (Code)", "Khổ sơ đồ (Width)", "Định mức (Cons)", "Co rút dọc (% Warp)", "Co rút ngang (% Weft)", "Hiệu suất sơ đồ", "Trạng thái PLM"]
-        
-        # Sửa lỗi gộp dòng viết tách chuẩn mực
-        for col_num, header_title in enumerate(headers): 
-            worksheet.write(10, col_num, header_title, header_format)
-            
-        current_data_row = 11
-        stt = 1
-        for r in bom_data.get("bom_rows", []):
-            comp_type = r.get("component_type", "MAIN_FABRIC")
-            full_code = f"{r.get('fabric_code', 'MAIN')} - {r.get('fabric_color', 'COLOR')}"
-            sys_notes = r.get("consumption_note", "")
-            reason_logs = str(r.get("reason_or_logs", ""))
-            gross_yds = r.get("calculated_gross_consumption_yds", 0.0)
-            marker_eff = r.get("marker_efficiency_pct", "N/A")
-            q_status = r.get("status", "PASS")
-            
-            if gross_yds == 0.0 or "Bypass" in sys_notes: 
-                cut_width, warp_str, weft_str = "N/A", "N/A", "N/A"
-            else:
-                match_w = re.search(r'Khổ vải:\s*([\d\.]+)', sys_notes)
-                if match_w: 
-                    cut_width = f"{float(match_w.group(1))} inch"
-                else:
-                    match_w_alt = re.search(r'CutWidth:\s*([\d\.]+)', sys_notes)
-                    cut_width = f"{float(match_w_alt.group(1))} inch" if match_w_alt else "58.0 inch"
-                    
-                match_sh = re.search(r'([\d\.]+)x([\d\.]+)', reason_logs)
-                if match_sh: 
-                    warp_str, weft_str = f"{float(match_sh.group(1))}%", f"{float(match_sh.group(2))}%"
-                else: 
-                    warp_str, weft_str = "5.0%", "15.0%"
-            
-            worksheet.write(current_data_row, 0, stt, cell_center)
-            worksheet.write(current_data_row, 1, comp_type, cell_left)
-            worksheet.write(current_data_row, 2, full_code, cell_left)
-            worksheet.write(current_data_row, 3, cut_width, cell_center)
-            worksheet.write(current_data_row, 4, gross_yds, cell_right)
-            worksheet.write(current_data_row, 5, warp_str, cell_center)  
-            worksheet.write(current_data_row, 6, weft_str, cell_center) 
-            worksheet.write(current_data_row, 7, marker_eff, cell_center)
-            
-            if "CRITICAL" in q_status: 
-                worksheet.write(current_data_row, 8, "🔴 VƯỢT TRẦN", crit_format)
-            elif "WARN" in q_status: 
-                worksheet.write(current_data_row, 8, "🟡 CẢNH BÁO", warn_format)
-            else: 
-                worksheet.write(current_data_row, 8, "🟢 ĐẠT TIÊU CHUẨN", pass_format)
-            current_data_row += 1
-            stt += 1
-            
-        worksheet.write(current_data_row + 3, 1, "NGƯỜI LẬP BIỂU\n(Phòng IE May)", sign_title_format)
-        worksheet.write(current_data_row + 3, 4, "TRƯỞNG PHÒNG IE\n(Ký duyệt)", sign_title_format)
-        worksheet.write(current_data_row + 3, 7, "GIÁM ĐỐC SẢN XUẤT\n(Phê duyệt)", sign_title_format)
-        
-        widths = [6, 30, 25, 15, 15, 18, 18, 18, 22]
-        for col_idx, w in enumerate(widths): 
-            worksheet.set_column(col_idx, col_idx, w)
-            
-    # Reset con trỏ dữ liệu về vị trí đầu trước khi xuất stream
-    buffer.seek(0)
-    return buffer.getvalue()
 
 # =====================================================================
-# ĐOẠN 6: GIAO DIỆN CHÍNH THỰC THI CHUẨN ĐỐI XỨNG LÊN TRÊN CÙNG (APPROVED)
+# ĐOẠN 6: GIAO DIỆN CHÍNH - CẤU TRÚC LAYOUT TRÊN CÙNG (ĐÃ DỌN DẸP Ô CHAT THỪA)
 # =====================================================================
 st.set_page_config(layout="wide", page_title="AI Fabric Consumption Matrix")
 
-# Tinh chỉnh CSS xóa bỏ hoàn toàn min-height đặc cứng để đẩy nội dung lên sát đỉnh Card
+# Tinh chỉnh CSS đồng bộ giao diện gọn gàng, sắc nét
 st.markdown("""
 <style>
     .cad-card {
@@ -652,6 +542,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# Khởi tạo an toàn các biến trạng thái hệ thống
 if "bom_data" not in st.session_state: st.session_state.bom_data = None
 if "chat_history" not in st.session_state: st.session_state.chat_history = []
 if "pdf_bytes" not in st.session_state: st.session_state.pdf_bytes = None
@@ -660,14 +551,18 @@ if "pdf_name" not in st.session_state: st.session_state.pdf_name = ""
 st.sidebar.markdown("### ⚙️ ENGINE CONTROLS")
 st.sidebar.markdown('<div style="background-color:#dcfce7; color:#15803d; padding:10px; border-radius:6px; font-weight:600; font-size:13px; margin-bottom:15px;">🟢 API STATUS: Hoạt động tốt.</div>', unsafe_allow_html=True)
 
+# Nút dọn dẹp hệ thống chuẩn kỹ thuật
 if st.sidebar.button("🗑️ CLEAR SYSTEM MEMORY", use_container_width=True):
     st.session_state.bom_data = None
     st.session_state.chat_history = []
     st.session_state.pdf_bytes = None
     st.session_state.pdf_name = ""
+    # 🟢 SỬA LỖI KẸT SỐ CŨ: Xóa sạch kho tích lũy vật tư phụ khi reset
+    if "accumulated_bom_rows" in st.session_state:
+        del st.session_state["accumulated_bom_rows"]
     st.rerun()
 
-# Thiết lập layout chia đôi cột đối xứng
+# Thiết lập layout chia đôi cột đối xứng cân bằng thị giác ở phía trên
 col_left, col_right = st.columns(2)
 
 with col_left:
@@ -676,16 +571,13 @@ with col_left:
     
     uploaded_file = st.file_uploader("Tải lên tệp tài liệu kỹ thuật Techpack / BOM (PDF)", type=["pdf"])
     
-    # 🟢 CHỐT SỬA LỖI GỐC: Ghim chặt file PDF vào bộ nhớ session_state, không để bị xóa khi chat
+    # Ghim chặt file PDF vào bộ nhớ session_state, không để bị xóa khi chat
     if uploaded_file is not None:
         st.session_state.pdf_bytes = uploaded_file.read()
         st.session_state.pdf_name = uploaded_file.name
-
-    st.markdown("<div style='margin-top: 20px;'></div>", unsafe_allow_html=True)
-    st.markdown('<div style="font-weight: 600; color: #1e3a8a; margin-bottom: 5px;">💬 AI INPUT COMMANDS:</div>', unsafe_allow_html=True)
-    
-    user_prompt = st.chat_input("Gõ câu lệnh (Ví dụ: khổ 58 co rút dọc 5)...")
+        
     st.markdown('</div>', unsafe_allow_html=True)
+
 
 # =====================================================================
 # ĐOẠN 7a: LUỒNG TÍCH LŨY DỮ LIỆU BOM - KHÔNG BỚT XÉN VẬT TƯ CŨ (V17.4.2.0)
