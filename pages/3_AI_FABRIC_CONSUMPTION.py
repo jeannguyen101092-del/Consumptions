@@ -10,17 +10,17 @@ import copy
 
 # 1. BỘ CẤU HÌNH HẰNG SỐ KỸ THUẬT CẤP MODULE (CHỐT SỐ KIẾN TRÚC SẠCH)
 IE_CONSTANTS = {
-    "DEFAULT_WIDTH_MAIN": 58.0,       # Đồng bộ khổ vải chính chuẩn công nghiệp 58 inch
-    "DEFAULT_WIDTH_FUSING": 44.0,     # Khổ dựng/keo lót tiêu chuẩn nhà máy 44 inch
+    "DEFAULT_WIDTH_MAIN": 58.0,       # Đồng bộ khổ vải chính chuẩn công nghiệp quần Jeans/Kaki 58 inch
+    "DEFAULT_WIDTH_FUSING": 44.0,     # Khổ keo/mex lót tiêu chuẩn nhà máy 44 inch
     "DEFAULT_WIDTH_LINING": 56.0,     # Khổ vải lót túi tiêu chuẩn 56 inch
     "DEFAULT_WIDTH_ELASTIC": 1.5,
     "BASE_MARKER_EFF": 0.85,          # Hiệu suất sơ đồ cơ sở (85%)
     "FIXED_EFF_TRIMS": 0.85,          # Hiệu suất sơ đồ cố định cho phụ liệu mềm dựng/lót
     "MIN_SAFETY_EFF": 0.75,       
     "MAX_ALLOWED_EFF": 0.92,      
-    "WASTAGE_FACTOR": 1.05,           # Hệ số hao hụt đầu cây và cắt lỗi (5%) theo quy trình nhà máy
+    "WASTAGE_FACTOR": 1.05,           # Hệ số hao hụt sản xuất cắt lỗi và đầu cây (5%) theo chuẩn IE nhà máy
     "DUNG_SAI_BIEN_CARGO": 1.03,
-    "FALLBACK_MAIN_CONS": 1.3500,     # Định mức phòng vệ chuẩn dáng slim/flare leg
+    "FALLBACK_MAIN_CONS": 1.3500,     # Định mức phòng vệ chuẩn dáng slim/flare leg khi thiếu ảnh rập
     "FALLBACK_FUSING_CONS": 0.1200,
     "FALLBACK_LINING_CONS": 0.2500,
     "FALLBACK_ELASTIC_CONS": 0.8500,
@@ -32,7 +32,7 @@ IE_CONSTANTS = {
     "SEAM_ALLOWANCE_LINING_W": 0.5
 }
 
-# 2. TỪ ĐIỂN PHÂN LOẠI VẬT TƯ VÀ GIỚI HẠN KIỂM SOÁT PLM/ERP
+# 2. TỪ ĐIỂN PHÂN LOẠI VẬT TƯ VÀ GIỚI HẠN KIỂM SOÁT AN TOÀN PLM/ERP
 LIMITS = {
     "JACKET":     {"range": (1.65, 2.65), "warn_thresh": 2.4},
     "PANT":       {"range": (1.10, 1.55), "warn_thresh": 1.6},  # Thu hẹp dải đo an toàn cho quần dáng ôm/loe
@@ -51,7 +51,7 @@ POCKET_KEYS = ("POCKETING", "POCKET BAG", "POCKET", "TÚI", "TC POCKETING", "LIN
 FUSING_KEYS = ("INTERLINING", "FUSING", "MEX", "MECK", "KEO", "DỰNG", "INTERLINING / KEO LÓT") 
 DRAWSTRING_KEYS = ("DRAWSTRING", "DRAW CORD", "DRAWCORD", "DÂY RÚT", "DÂY LUỒN")
 
-# Mảng hằng số loại trừ linh kiện cứng an toàn độc lập (Bypass Hardware)
+# Mảng hằng số loại trừ linh kiện cứng an toàn độc lập (Bypass Hardware tuyệt đối)
 EXCLUDE_HARDWARE_KEYS = (
     "CHỈ", "THREAD", "ZIPPER", "DÂY KÉO", "BUTTON", "NÚT", "SHANK", "RIVET", 
     "LABEL", "MÁC", "TAG", "EYELETS", "SNAP", "VELCRO", "HOOK", "LOOP", 
@@ -86,7 +86,7 @@ def normalize_fabric_class(f_class_raw):
     return "MAIN_FABRIC"
 
 def calculate_shoelace_polygon_area(points):
-    """Thuật toán Shoelace tính diện tích rập đa giác phi rect phẳng từ tọa độ điểm"""
+    """Thuật toán Shoelace tính diện tích rập đa giác phẳng từ tọa độ điểm điểm ảnh"""
     if not points or len(points) < 3: return 0.0
     n = len(points)
     area = 0.0
@@ -104,12 +104,15 @@ def calculate_shoelace_polygon_area(points):
 def simulate_marker_efficiency_v14(panels, f_class, grain, width, repeat):
     """Hàm giả lập hiệu suất sơ đồ mặc định tương thích ngược"""
     return 89.0
-
 # =====================================================================
-# ĐOẠN 2a1: RẬP HÌNH HỌC, TỰ ĐỘNG BÙ TRỪ & LOG CHUYÊN SÂU (V17.7.0.6 APPROVED)
+# ĐOẠN 2: RẬP HÌNH HỌC, TỰ ĐỘNG BÙ TRỪ & LOG CHUYÊN SÂU (V17.7.0.6 APPROVED)
 # =====================================================================
 
 def parse_geometric_panels_allowance(ai_blueprint: dict, user_chat: str) -> dict:
+    """
+    Phân đoạn 2: Tính toán diện tích hình học đa giác (Shoelace Formula),
+    tự động bù sai số đường may và lai gấu chuẩn kỹ thuật phòng IE.
+    """
     if not ai_blueprint or not isinstance(ai_blueprint, dict):
         return {"detected_product_type": "PANT", "bom_rows": []}
 
@@ -146,7 +149,7 @@ def parse_geometric_panels_allowance(ai_blueprint: dict, user_chat: str) -> dict
         f_class_raw = str(row.get("fabric_classification", "")).upper().strip()
         f_code = str(row.get("fabric_code", "")).upper().strip()
         
-        # 🌟 SỬA LỖI ĐỘNG CHỐT CHẶN: Kiểm tra trùng khớp từ độc lập thay vì quét chuỗi con (tránh bypass nhầm mã vải)
+        # 🌟 VÁ LỖI CHỐT CHẶN: Kiểm tra trùng khớp từ độc lập thay vì quét chuỗi con (Chống bắt nhầm phụ liệu)
         is_hardware = False
         for key in EXCLUDE_HARDWARE_KEYS:
             if not key: continue
@@ -154,7 +157,7 @@ def parse_geometric_panels_allowance(ai_blueprint: dict, user_chat: str) -> dict
                 is_hardware = True
                 break
 
-        # Khóa bảo vệ: Nếu là Vải chính, Keo lót (Fusing), Vải lót (Lining) thì TUYỆT ĐỐI KHÔNG bypass
+        # Khóa bảo vệ: Nếu là Vải chính, Keo lót (Fusing), Vải lót (Lining) thì TUYỆT ĐỐI KHÔNG bypass ra 0
         if "MAIN" in f_class_raw or "FUSING" in f_class_raw or "LINING" in f_class_raw:
             is_hardware = False
         
@@ -265,16 +268,14 @@ def parse_geometric_panels_allowance(ai_blueprint: dict, user_chat: str) -> dict
 
     ai_blueprint["bom_rows"] = parsed_rows
     return ai_blueprint
-
-
 # =====================================================================
-# ĐOẠN 2a2: ĐỊNH MỨC SƠ ĐỒ VÀ GOM NHÓM VẬT TƯ CHỐNG TRÙNG LẶP (V17.7.0.6 APPROVED)
+# ĐOẠN 3: ĐỊNH MỨC SƠ ĐỒ VÀ GOM NHÓM VẬT TƯ CHỐNG TRÙNG LẶP (V17.7.0.6 APPROVED)
 # =====================================================================
 
 def execute_marker_yardage_and_quality_gate(ai_blueprint: dict, user_chat: str) -> dict:
     """
-    Phân đoạn 2a2: Trích xuất thông số co rút từ câu lệnh, đồng bộ hóa hệ số ma trận hình học.
-    Gom nhóm diện tích dệt và cấu hình cache chuẩn hóa truyền trực tiếp xuống IE Engine.
+    Phân đoạn 3: Gom nhóm diện tích dệt, bóc tách thông số co rút từ câu lệnh,
+    chuẩn hóa hệ số toán học phần trăm và thiết lập cấu hình cache sơ đồ marker.
     """
     import re
     
@@ -337,7 +338,7 @@ def execute_marker_yardage_and_quality_gate(ai_blueprint: dict, user_chat: str) 
         if not row or not isinstance(row, dict): 
             continue
             
-        # Ưu tiên lấy diện tích đã bóc tách từ Lõi hình học rập thực tế
+        # Ưu tiên lấy diện tích đã bóc tách từ Lõi hình học rập thực tế sau dung sai
         if "_btp_total_panel_area" in row:
             row["_computed_net_area_sq_in"] = inner_safe_float(row["_btp_total_panel_area"])
         else:
@@ -366,13 +367,12 @@ def execute_marker_yardage_and_quality_gate(ai_blueprint: dict, user_chat: str) 
         s_warp = s_l_main if s_l_main is not None else inner_safe_float(row.get("shrinkage_warp_pct"), 3.0)
         st_weft_val = s_w_main if s_w_main is not None else inner_safe_float(row.get("shrinkage_weft_pct"), 3.0)
         
-        # Đồng bộ hóa ép kiểu hệ số co rút cho phụ liệu mềm dựng/lót về 0%
+        # Ép cứng tỷ lệ co rút cho phụ liệu dựng/lót về dạng phẳng tĩnh (0%)
         if f_class_norm in ["FUSING", "LINING"]:
             s_warp = 0.0
             st_weft_val = 0.0
 
         if tmp_id not in fabric_registry:
-            # MA TRẬN ĐỒNG BỘ HIỆU SUẤT ĐI SƠ ĐỒ (MARKER EFFICIENCY) CHUẨN CAD KHÔNG ĐOÁN MÒ
             if f_class_norm == "RIB":
                 raw_eff = 92.0
                 consumption_mode = "LINEAR"
@@ -383,9 +383,8 @@ def execute_marker_yardage_and_quality_gate(ai_blueprint: dict, user_chat: str) 
                 raw_eff = 85.0
                 consumption_mode = "AREA"
             else:
-                # Quần dáng ôm/loe ống thực tế ngã đáy hao hụt lớn, hiệu suất sơ đồ chuẩn dao động quanh 76% - 82%
                 if product_type in ["PANT", "CARGO_PANT"]:
-                    raw_eff = 78.0  
+                    raw_eff = 78.0  # Mức hiệu suất sơ đồ thực tế chuẩn rập quần ống ôm/loe loe
                     consumption_mode = "LINEAR"  
                 else:
                     if 'simulate_marker_efficiency_v14' in globals():
@@ -396,7 +395,7 @@ def execute_marker_yardage_and_quality_gate(ai_blueprint: dict, user_chat: str) 
 
             eff_factor = max(0.50, min(raw_eff / 100.0 if raw_eff > 1.0 else raw_eff, 0.95))
 
-            # 🌟 CHUẨN HOÁ HỆ SỐ CO RÚT: Biến đổi số thô (ví dụ: 15.0) thành hệ số nhân (1.15) để tránh lỗi nhân vọt định mức
+            # 🌟 CHUẨN HOÁ HỆ SỐ TOÁN HỌC % CO RÚT: Tránh lỗi nhân vọt thô hệ số 15
             factory_warp_factor = 1.0 + (s_warp / 100.0) if s_warp > 1.0 else 1.03
             factory_weft_factor = 1.0 + (st_weft_val / 100.0) if st_weft_val > 1.0 else 1.03
 
@@ -419,18 +418,14 @@ def execute_marker_yardage_and_quality_gate(ai_blueprint: dict, user_chat: str) 
 
     ai_blueprint["_fabric_registry_cache"] = fabric_registry
     return ai_blueprint
-
-
-
-
 # =====================================================================
-# ĐOẠN 2b1: BỘ PHÂN RÃ REGEX LỆNH CHAT & TRÍCH XUẤT THÔNG SỐ RẬP BTP (V17.7.0.6 APPROVED)
+# ĐOẠN 4: BỘ PHÂN RÃ REGEX LỆNH CHAT & TRÍCH XUẤT THÔNG SỐ RẬP BTP (V17.7.0.6 APPROVED)
 # =====================================================================
 
 def parse_and_prepare_ie_panels(all_rows: list, product_type: str, user_prompt: str = "") -> tuple:
     """
-    Phân đoạn 2b1: Bóc tách số hiệu suất chỉ định và tính diện tích rập bán thành phẩm (BTP).
-    Ưu tiên đồng bộ hóa diện tích từ Lõi hình học Vision V18 thực thể độc lập.
+    Phân đoạn 4: Bóc tách số hiệu suất chỉ định từ ô chat và tính diện tích rập bán thành phẩm.
+    Đồng bộ và bảo vệ diện tích thực tế từ Lõi đo đa giác hình học Vision V18 độc lập.
     """
     import re
     import streamlit as st
@@ -446,7 +441,7 @@ def parse_and_prepare_ie_panels(all_rows: list, product_type: str, user_prompt: 
         try:
             val_eff = float(match_eff.group(1))
             raw_eff = val_eff / 100.0 if val_eff > 1.0 else val_eff
-            # Giới hạn biên Eff an toàn, chặn lỗi nhập nhầm số quá lớn hoặc quá nhỏ
+            # Giới hạn biên Eff an toàn, chặn lỗi nhập nhầm số quá lớn hoặc quá nhỏ từ cấu hình Đoạn 1
             user_requested_eff = min(max(raw_eff, IE_CONSTANTS["MIN_SAFETY_EFF"]), IE_CONSTANTS["MAX_ALLOWED_EFF"])
         except ValueError:
             pass
@@ -462,7 +457,7 @@ def parse_and_prepare_ie_panels(all_rows: list, product_type: str, user_prompt: 
         f_class_raw = str(row.get("fabric_classification", "")).upper().strip()
         f_code = str(row.get("fabric_code", "")).upper().strip()
 
-        # Kiểm tra nhanh phân loại linh kiện bằng bộ khóa định nghĩa
+        # Kiểm tra phân loại linh kiện mềm bằng bộ khóa định nghĩa
         f_class_norm = normalize_fabric_class(f_class_raw if f_class_raw else comp_type)
         is_fusing = (f_class_norm == "FUSING" or any(x in comp_type or x in placement for x in ["KEO", "MEX", "MẾCH", "INTERLINING"]))
         is_lining = (f_class_norm == "POCKETING" or any(x in comp_type or x in placement for x in ["LINING", "POCKET", "TÚI", "LÓT"]))
@@ -473,12 +468,12 @@ def parse_and_prepare_ie_panels(all_rows: list, product_type: str, user_prompt: 
         total_piece_count = 0
         
         # 🌟 LIÊN KẾT THỰC THỂ HÌNH HỌC V18: 
-        # Nếu dòng BOM đã có sẵn diện tích thực tế đo từ đa giác điểm ảnh pixel, giữ lại để bảo vệ độ chính xác
+        # Nếu dòng BOM đã có sẵn diện tích thực tế đo từ ma trận đa giác điểm ảnh pixel, giữ lại để bảo vệ độ chính xác hình học
         if row.get("_btp_total_panel_area") and float(row["_btp_total_panel_area"]) > 0.0:
             total_panel_area = float(row["_btp_total_panel_area"])
             total_piece_count = float(row.get("_btp_total_piece_count", len(panels)))
             
-            # Quét tìm chiều dài chi tiết rập lớn nhất trực tiếp từ catalog hình học thật
+            # Quét tìm chiều dài chi tiết rập lớn nhất trực tiếp từ catalog hình học thật để nạp cho sơ đồ LINEAR
             if panels and isinstance(panels, list):
                 for p in panels:
                     if isinstance(p, dict):
@@ -486,7 +481,7 @@ def parse_and_prepare_ie_panels(all_rows: list, product_type: str, user_prompt: 
                         if l_val > max_piece_length:
                             max_piece_length = l_val
         else:
-            # Cơ chế dự phòng tính toán hình hộp thô nếu không chạy luồng đo Vision V18
+            # Cơ chế dự phòng tính toán hình hộp thô nếu không chạy qua luồng đo Vision V18 trước đó
             total_panel_area = 0.0
             if panels and isinstance(panels, list):
                 valid_panels = [p for p in panels if isinstance(p, dict)]
@@ -525,8 +520,144 @@ def parse_and_prepare_ie_panels(all_rows: list, product_type: str, user_prompt: 
         prepared_rows.append(row)
         
     return prepared_rows, user_requested_eff
+# =====================================================================
+# ĐOẠN 5a: LÕI TOÁN HỌC PHÂN BỔ ĐỊNH MỨC & CHỦNG LOẠI HÀNG (V17.7.0.6 APPROVED)
+# =====================================================================
 
-                    # Thuật toán tăng Eff tuyến tính dựa trên mật độ và số lượng chi tiết rập thực tế
+def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict, user_prompt: str = "") -> dict:
+    """
+    Phân đoạn 5a: Khởi tạo ma trận hiệu suất sơ đồ động theo chủng loại sản phẩm.
+    Định tuyến rập và khóa bảo vệ chốt chặn linh kiện cứng (Bypass Hardware).
+    """
+    import streamlit as st
+    import re
+    import copy
+
+    # 1. KHỞI TẠO MA TRẬN HIỆU SUẤT SƠ ĐỒ ĐỘNG THEO CHỦNG LOẠI HÀNG (MARKER EFF CONFIG)
+    MARKER_EFF_CONFIG = {
+        "TSHIRT":      {"base": 0.88, "max": 0.92, "edge": 1.02, "warn": 1.4, "crit": 1.8},
+        "POLO":        {"base": 0.87, "max": 0.91, "edge": 1.02, "warn": 1.4, "crit": 1.8},
+        "SHIRT":       {"base": 0.85, "max": 0.90, "edge": 1.02, "warn": 1.4, "crit": 1.8},
+        "PANT":        {"base": 0.85, "max": 0.90, "edge": 1.03, "warn": 1.6, "crit": 1.8},
+        "CARGO_PANT":  {"base": 0.84, "max": 0.89, "edge": 1.03, "warn": 1.7, "crit": 1.9},
+        "SHORT":       {"base": 0.88, "max": 0.92, "edge": 1.02, "warn": 1.2, "crit": 1.45},
+        "JACKET":      {"base": 0.82, "max": 0.88, "edge": 1.05, "warn": 2.4, "crit": 2.8},
+        "HOODIE":      {"base": 0.84, "max": 0.89, "edge": 1.04, "warn": 2.2, "crit": 2.6},
+        "DRESS":       {"base": 0.83, "max": 0.88, "edge": 1.04, "warn": 2.8, "crit": 3.3},
+        "JEAN":        {"base": 0.84, "max": 0.89, "edge": 1.03, "warn": 1.8, "crit": 2.1},
+        "CHILDREN":    {"base": 0.91, "max": 0.95, "edge": 1.01, "warn": 0.8, "crit": 1.2},
+        "DEFAULT":     {"base": 0.85, "max": 0.90, "edge": 1.03, "warn": 1.62, "crit": 1.80}
+    }
+
+    if not ai_blueprint or not isinstance(ai_blueprint, dict):
+        return {"detected_product_type": "PANT", "bom_rows": []}
+
+    # 2. NHẬN DIỆN CHỦNG LOẠI SẢN PHẨM & TRÍCH XUẤT THÔNG SỐ ĐỘNG
+    product_type = str(ai_blueprint.get("detected_product_type", "DEFAULT")).upper().strip()
+    
+    matched_cfg = MARKER_EFF_CONFIG["DEFAULT"]
+    for key, cfg in MARKER_EFF_CONFIG.items():
+        if key in product_type:
+            matched_cfg = cfg
+            break
+
+    base_eff = matched_cfg["base"]
+    max_allowed_eff = matched_cfg["max"]
+    edge_allowance = matched_cfg["edge"]
+    warn_thresh = matched_cfg["warn"]
+    critical_thresh = matched_cfg["crit"]
+
+    if "JACKET" in product_type: min_len, max_len, fallback_len = 24.0, 38.0, 30.0
+    elif "DRESS" in product_type: min_len, max_len, fallback_len = 35.0, 65.0, 48.0
+    elif "SHORT" in product_type: min_len, max_len, fallback_len = 12.0, 26.0, 18.0
+    else: min_len, max_len, fallback_len = 24.0, 52.0, 41.5
+
+    fabric_registry = ai_blueprint.get("_fabric_registry_cache", {}) or {}
+    all_rows = ai_blueprint.get("bom_rows", []) or []
+
+    if "parse_and_prepare_ie_panels" in globals():
+        prepared_rows, user_requested_eff = parse_and_prepare_ie_panels(all_rows, product_type, user_prompt)
+    else:
+        prepared_rows = copy.deepcopy(all_rows)
+        user_requested_eff = None
+
+    if "accumulated_bom_rows" not in st.session_state:
+        st.session_state.accumulated_bom_rows = {}
+        
+    processed_bom_rows = []
+
+    for row in prepared_rows:
+        comp_type = str(row.get("component_type", "")).upper().strip()
+        placement = str(row.get("placement", "")).upper().strip()
+        f_class_raw = str(row.get("fabric_classification", "")).upper().strip()
+        f_code = str(row.get("fabric_code", "")).upper().strip()
+        f_color = str(row.get("fabric_color", "")).upper().strip()
+
+        # 🌟 VÁ LỖI CHỐT CHẶN PHỤ LIỆU CỨNG: Kiểm tra trùng khớp độc lập từ tuyệt đối chống bắt nhầm chuỗi con
+        is_hardware = False
+        for key in EXCLUDE_HARDWARE_KEYS:
+            if not key: continue
+            if key == comp_type or key == placement or key in f_class_raw.split() or key == f_code:
+                is_hardware = True
+                break
+
+        if "MAIN" in f_class_raw or "FUSING" in f_class_raw or "LINING" in f_class_raw:
+            is_hardware = False
+
+        if is_hardware:
+            row["calculated_gross_consumption_yds"] = 0.0
+            row["marker_efficiency_pct"] = "N/A"
+            row["consumption_note"] = "Hardware Trim Bypass"
+            row["reason_or_logs"] = "Bypass Hardware"
+            st.session_state.accumulated_bom_rows[f"HARDWARE_{f_code}"] = row
+            processed_bom_rows.append(row)
+            continue
+        # =====================================================================
+        # ĐOẠN 5b: VÒNG LẶP PHÂN BỔ ĐỊNH MỨC TOÁN HỌC & QUALITY GATE (APPROVED)
+        # =====================================================================
+        is_fusing = row.get("_is_fusing", False)
+        is_lining = row.get("_is_lining", False)
+        is_elastic_or_tape = row.get("_is_elastic_or_tape", False)
+        total_panel_area = ie_safe_float(row.get("_btp_total_panel_area", 0.0))
+        total_piece_count = ie_safe_float(row.get("_btp_total_piece_count", 0.0))
+
+        # Trích xuất chiều dài rập động lớn nhất của mã hàng phục vụ sơ đồ LINEAR
+        max_piece_length = 0.0
+        panels = row.get("panels_catalog", [])
+        if panels and isinstance(panels, list):
+            lengths = [ie_safe_float(p.get("piece_length_inch"), 0.0) for p in panels if isinstance(p, dict)]
+            if lengths:
+                valid_lengths = [l for l in lengths if min_len <= l <= max_len]
+                max_piece_length = max(valid_lengths) if valid_lengths else (max(lengths) if max(lengths) < 100.0 else fallback_len)
+
+        # Áp khổ vải mặc định theo phân loại cấu trúc phụ liệu mềm
+        if is_fusing: default_width = IE_CONSTANTS["DEFAULT_WIDTH_FUSING"]
+        elif is_lining: default_width = IE_CONSTANTS["DEFAULT_WIDTH_LINING"]
+        elif is_elastic_or_tape: default_width = IE_CONSTANTS["DEFAULT_WIDTH_ELASTIC"]
+        else: default_width = IE_CONSTANTS["DEFAULT_WIDTH_MAIN"]
+
+        row["fabric_width_inch"] = row.get("fabric_width_inch", default_width) if ie_safe_float(row.get("fabric_width_inch", 0)) > 0 else default_width
+        current_width_val = row["fabric_width_inch"]
+
+        # Tra cứu tỷ lệ co rút dệt phẳng (Shrinkage Lookup)
+        matched_cache_data = fabric_registry.get(f"{f_code}_{f_color}_TWO_WAY_0") or next((c_data for f_id, c_data in fabric_registry.items() if f_code in f_id or f_class_raw in f_id), None)
+        shrink_warp = matched_cache_data.get("shrink_warp_f", 1.03) if matched_cache_data else 1.03
+        shrink_weft = matched_cache_data.get("shrink_weft_f", 1.03) if matched_cache_data else 1.03
+
+        # Khóa Unique Key an toàn tuyệt đối chống gộp nhầm chất liệu phối dệt
+        shrink_id_str = f"S{int(shrink_warp*100)}X{int(shrink_weft*100)}"
+        if is_fusing: row_unique_key = f"FUSING_TOTAL_{f_code}_W{int(current_width_val)}_{shrink_id_str}"
+        elif is_lining: row_unique_key = f"LINING_TOTAL_{f_code}_W{int(current_width_val)}_{shrink_id_str}"
+        elif is_elastic_or_tape: row_unique_key = f"ELASTIC_TOTAL_{f_code}_W{int(current_width_val)}"
+        else: row_unique_key = f"MAIN_FABRIC_{f_code}_{f_color}_W{int(current_width_val)}_{shrink_id_str}"
+
+        if total_panel_area > 5.0:
+            # Đồng bộ hóa hiệu suất sơ đồ thích ứng
+            if user_requested_eff is not None:
+                eff = max(0.75, min(user_requested_eff, max_allowed_eff))
+            else:
+                if not is_fusing and not is_lining and not is_elastic_or_tape:
+                    # Thuật toán tăng Eff tuyến tính dựa trên tối ưu khoảng trống rập thực tế
                     scale_factor = min(1.0, max(0.0, (max_piece_length - min_len) / (max_len - min_len + 1e-5)))
                     eff = base_eff + (max_allowed_eff - base_eff) * scale_factor
                 else:
@@ -534,60 +665,55 @@ def parse_and_prepare_ie_panels(all_rows: list, product_type: str, user_prompt: 
             
             # Kiểm soát giới hạn an toàn biên kỹ thuật (Edge Allowance Correction)
             if max_piece_length > (current_width_val * edge_allowance):
-                eff -= 0.05  # Phạt hiệu suất sơ đồ do rập vượt khổ vải cho phép
+                eff -= 0.05  # Phạt hiệu suất sơ đồ do rập quá khổ vải cho phép
                 reason_log = "Edge overflow penalty applied (-5% Eff)"
             else:
                 reason_log = "Normal efficiency allocation"
 
-            # Chuẩn hóa hệ số co rút nếu nhận vào số thô lớn từ cấu trúc cache dữ liệu bên ngoài
+            # 🌟 CHUẨN HOÁ HỆ SỐ CO RÚT: Chặn lỗi nhân vọt thô số nguyên (Ví dụ: 15.0 -> 1.15)
             if shrink_warp > 1.5: shrink_warp = 1.0 + (shrink_warp / 100.0) if shrink_warp < 100 else 1.03
             if shrink_weft > 1.5: shrink_weft = 1.0 + (shrink_weft / 100.0) if shrink_weft < 100 else 1.03
 
-            # 4. CÔNG THỨC TOÁN HỌC QUY ĐỔI ĐỊNH MỨC HAO HỤT TỔNG THỂ (GROSS CONSUMPTION YARDS)
-            # Diện tích thực tế (sq inches) -> Yards dài: (Area / (Width * 36)) / Eff * Wastage_Factor
+            # CÔNG THỨC TOÁN HỌC TÍNH ĐỊNH MỨC HAO HỤT TỔNG THỂ (GROSS CONSUMPTION YARDS)
             net_consumption_yds = (total_panel_area * shrink_warp * shrink_weft) / (current_width_val * 36.0)
             gross_consumption_yds = (net_consumption_yds / max(0.5, eff)) * IE_CONSTANTS["WASTAGE_FACTOR"]
 
-            # 5. BỘ KIỂM SOÁT CỔNG CHẤT LƯỢNG ĐỘNG (QUALITY GATE MONITORING)
+            # BỘ KIỂM SOÁT CỔNG CHẤT LƯỢNG ĐỘNG (QUALITY GATE MONITORING)
             consumption_per_piece = gross_consumption_yds / max(1.0, total_piece_count)
             
-            if consumption_per_piece >= critical_thresh:
-                gate_status = "CRITICAL"
-                consumption_note = f"Gate Blocked: Excess Consumption ({consumption_per_piece:.3f} yds/pc)"
-            elif consumption_per_piece >= warn_thresh:
-                gate_status = "WARNING"
-                consumption_note = f"High Consumption Alert ({consumption_per_piece:.3f} yds/pc)"
-            else:
+            if is_fusing or is_lining:
                 gate_status = "PASSED"
                 consumption_note = "Optimization Gate Passed"
-
+            else:
+                if consumption_per_piece >= critical_thresh:
+                    gate_status = "CRITICAL"
+                    consumption_note = f"Gate Blocked: Excess Consumption ({consumption_per_piece:.3f} yds/pc)"
+                elif consumption_per_piece >= warn_thresh:
+                    gate_status = "WARNING"
+                    consumption_note = f"High Consumption Alert ({consumption_per_piece:.3f} yds/pc)"
+                else:
+                    gate_status = "PASSED"
+                    consumption_note = "Optimization Gate Passed"
         else:
-            # Xử lý các chi tiết siêu nhỏ diện tích < 5.0 sq inch (Áp định mức khoán tối thiểu)
             eff = base_eff
             gross_consumption_yds = 0.005 * total_piece_count
             gate_status = "PASSED"
             consumption_note = "Micro panel fixed allocation"
             reason_log = "Area below threshold (<5.0 sq in)"
 
-        # 6. CẬP NHẬT THÔNG TIN DÒNG BOM & ĐỒNG BỘ SESSION STATE LŨY KẾ
+        # CẬP NHẬT THÔNG TIN DÒNG BOM & ĐỒNG BỘ SESSION STATE LŨY KẾ
         row["calculated_gross_consumption_yds"] = round(gross_consumption_yds, 4)
         row["marker_efficiency_pct"] = round(eff * 100, 2) if isinstance(eff, (int, float)) else eff
         row["consumption_note"] = consumption_note
         row["reason_or_logs"] = f"{reason_log} | Gate: {gate_status}"
         row["quality_gate_status"] = gate_status
 
-        # Tích lũy ma trận rập an toàn tránh gộp nhầm chất liệu phối dệt
         st.session_state.accumulated_bom_rows[row_unique_key] = copy.deepcopy(row)
         processed_bom_rows.append(row)
 
-    # 7. TRẢ VỀ KẾT QUẢ BLUEPRINT ĐÃ XỬ LÝ TOÁN HỌC HOÀN CHỈNH
     ai_blueprint["bom_rows"] = processed_bom_rows
-    ai_blueprint["ie_engine_status"] = "SUCCESS_V17.0.2.2"
-    
+    ai_blueprint["ie_engine_status"] = "SUCCESS_V17.7.0.6"
     return ai_blueprint
-
-
-
 # =====================================================================
 # ĐOẠN 6a: BANNER, KPIs GHIM ĐỈNH & CÂN BẰNG CHIỀU CAO 1:1 ĐỐI XỨNG (V18.3.4.0 APPROVED)
 # =====================================================================
@@ -634,7 +760,7 @@ st.markdown("""
         font-weight: 700;
         letter-spacing: 0.02em;
     }
-    .top-subtitle {
+    .top-banner .top-subtitle {
         font-size: 11px;
         color: #e0f2fe;
         opacity: 0.85;
@@ -711,7 +837,6 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # Khởi tạo an toàn cấu trúc trạng thái hệ thống
-if "bom_data" not in st.session_state: st.session_state.bom_data = None
 if "chat_history" not in st.session_state: st.session_state.chat_history = []
 if "pdf_bytes" not in st.session_state: st.session_state.pdf_bytes = None
 if "pdf_name" not in st.session_state: st.session_state.pdf_name = ""
@@ -729,19 +854,29 @@ if st.session_state.pdf_bytes is not None and st.session_state.pdf_text_cache is
         st.session_state.pdf_text_cache = full_text_extract
     except Exception: pass
 
-# ĐỒNG BỘ DỮ LIỆU KPIs BIẾN THIÊN THEO THỜI GIAN THỰC
-kpi_style_id = "N/A"
+# 🌟 ĐỒNG BỘ DỮ LIỆU KPIs THEO THỜI GIAN THỰC (ƯU TIÊN BỘ ĐỆM HÌNH HỌC THỰC THỂ)
+kpi_style_id = "R09-490976"
 total_materials = len(st.session_state.accumulated_bom_rows) if st.session_state.accumulated_bom_rows else 0
-main_fabric_cons = "0.000"
+main_fabric_cons = "0.000 Yds"
 active_size_kpi = "AUTOMATIC"
 
-if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data:
-    kpi_style_id = str(st.session_state.bom_data.get("style_code", "R09-450416")).upper()
-    active_size_kpi = str(st.session_state.bom_data.get("calculated_on_size", "MEDIAN")).upper()
-    if total_materials == 0: total_materials = len(st.session_state.bom_data["bom_rows"])
-    for row in st.session_state.bom_data["bom_rows"]:
+# Liên kết luồng đọc nguồn dữ liệu từ active_blueprint đã qua xử lý hình học
+active_kpi_source = None
+if st.session_state.get("active_blueprint") and "bom_rows" in st.session_state.active_blueprint:
+    active_kpi_source = st.session_state.active_blueprint
+elif st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data:
+    active_kpi_source = st.session_state.bom_data
+
+if active_kpi_source and active_kpi_source.get("bom_rows"):
+    kpi_style_id = str(active_kpi_source.get("style_code", "R09-490976")).upper()
+    active_size_kpi = str(active_kpi_source.get("calculated_on_size", "30")).upper()
+    total_materials = len(active_kpi_source["bom_rows"])
+    
+    for row in active_kpi_source["bom_rows"]:
         if not row: continue
-        if "MAIN" in str(row.get("fabric_classification", "")).upper() or "MAIN" in str(row.get("component_type", "")).upper():
+        f_class_check = str(row.get("fabric_classification", "")).upper()
+        c_type_check = str(row.get("component_type", "")).upper()
+        if "MAIN" in f_class_check or "MAIN" in c_type_check:
             val_gross = row.get("calculated_gross_consumption_yds", 0.0)
             if val_gross > 0.0:
                 main_fabric_cons = f"{val_gross:.3f} Yds"
@@ -766,7 +901,6 @@ st.markdown('</div>', unsafe_allow_html=True)
 st.markdown('<div class="main-body-spacer"></div>', unsafe_allow_html=True)
 
 
-
 # =====================================================================
 # ĐOẠN 6b: KHỐI CHIA CỘT ĐỐI XỨNG - KHỐNG CHẾ TRỰC TIẾP CHIỀU CAO ẢNH (V18.3.5.0 APPROVED)
 # =====================================================================
@@ -777,97 +911,15 @@ st.markdown("""
     /* Ép tất cả các hình ảnh nằm trong cột bên phải khống chế chiều cao tối đa, */
     /* tự động giữ nguyên tỷ lệ rập phẳng mà không bị kéo giãn to đùng */
     .sticky-sketch-box img {
-        max-height: 290px !important;
+        max-height: 320px !important;
         width: auto !important;
         object-fit: contain !important;
-        margin: 0 auto !important;
-        display: block !important;
+        display: block;
+        margin-left: auto;
+        margin-right: auto;
     }
 </style>
 """, unsafe_allow_html=True)
-
-# --- SIDEBAR ENGINE CONTROLS CONTROL PANEL ---
-st.sidebar.markdown("### ⚙️ ENGINE CONTROLS")
-if st.sidebar.button("🗑️ CLEAR SYSTEM MEMORY", use_container_width=True):
-    st.session_state.bom_data = None
-    st.session_state.chat_history = []
-    st.session_state.pdf_bytes = None
-    st.session_state.pdf_name = ""
-    st.session_state.pdf_text_cache = None
-    if "pdf_page_one_image" in st.session_state: st.session_state.pdf_page_one_image = None
-    if "accumulated_bom_rows" in st.session_state: del st.session_state["accumulated_bom_rows"]
-    st.rerun()
-
-# LƯỚI CHIA ĐÔI CỘT ĐỐI XỨNG CÂN BẰNG THỊ GIÁC ĐỀU NHAU
-col_left, col_right = st.columns(2)
-
-# --- CỘT TRÁI: BỘ TẢI FILE & HỒ SƠ TÓM TẮT MÃ HÀNG ---
-with col_left:
-    st.markdown('<div class="custom-erp-box">', unsafe_allow_html=True)
-    st.markdown('<div class="cad-header-text">📂 TECHPACK UPLOADER & PROFILE SUMMARY</div>', unsafe_allow_html=True)
-    
-    uploaded_file = st.file_uploader("Upload PDF", type=["pdf"], label_visibility="collapsed")
-    
-    if uploaded_file is not None:
-        if st.session_state.pdf_name != uploaded_file.name:
-            st.session_state.pdf_text_cache = None
-            if "pdf_page_one_image" in st.session_state: st.session_state.pdf_page_one_image = None
-            if "accumulated_bom_rows" in st.session_state: del st.session_state["accumulated_bom_rows"]
-        st.session_state.pdf_bytes = uploaded_file.read()
-        st.session_state.pdf_name = uploaded_file.name
-
-    if st.session_state.pdf_text_cache is not None:
-        st.markdown("<div style='margin-top: 10px;'></div>", unsafe_allow_html=True)
-        txt = st.session_state.pdf_text_cache
-        
-        import re
-        def get_meta(pattern, default="N/A"):
-            m = re.search(pattern, txt, re.IGNORECASE)
-            return m.group(1).strip() if m else default
-
-        style_id = get_meta(r'(?:Style ID|Style_ID|Mã hàng)\s*[:\-=\s]*([\w\d\-]+)', st.session_state.pdf_name.replace(".pdf",""))
-        short_desc = get_meta(r'(?:Short Desc|Description|Tên sản phẩm)\s*[:\-=\s]*([^\n]+)', "THE TWILL CARGO PANTS")
-        customer = get_meta(r'(?:Customer|Khách hàng|Brand)\s*[:\-=\s]*([^\n]+)', "REITMANS")
-        season = get_meta(r'(?:Season|Mùa hàng)\s*[:\-=\s]*([^\n]+)', "Spring 2027")
-        fabric_type = get_meta(r'(?:Long Description|Chất liệu gốc)\s*[:\-=\s]*([^\n]+)', "CASUAL TWILL PANTS - SP27")
-
-        m_col1, m_col2 = st.columns(2)
-        with m_col1:
-            st.markdown(f'<div class="meta-box-light"><div class="meta-label-light">Style Code / Mã hàng</div><div class="meta-value-light"><b>{style_id}</b></div></div>', unsafe_allow_html=True)
-            st.markdown(f'<div class="meta-box-light"><div class="meta-label-light">Customer / Đối tác</div><div class="meta-value-light">{customer}</div></div>', unsafe_allow_html=True)
-            st.markdown(f'<div class="meta-box_light"><div class="meta-label-light">Season / Mùa sản xuất</div><div class="meta-value-light">{season}</div></div>', unsafe_allow_html=True)
-        with m_col2:
-            st.markdown(f'<div class="meta-box-light"><div class="meta-label-light">Garment Type / Kiểu dáng</div><div class="meta-value-light">{short_desc}</div></div>', unsafe_allow_html=True)
-            st.markdown(f'<div class="meta-box-light"><div class="meta-label-light">Material Spec / Mô tả vải</div><div class="meta-value-light">{fabric_type[:28]}...</div></div>', unsafe_allow_html=True)
-            st.markdown(f'<div class="meta-box-light"><div class="meta-label-light">Techpack Status</div><div class="meta-value-light" style="color: #16a34a;">🟢 READY TO BOM</div></div>', unsafe_allow_html=True)
-    else:
-        if st.session_state.pdf_bytes is None:
-            st.markdown("<div style='margin-top: 40px; text-align: center; color: #64748b; font-size: 13px;'>Bảng tóm tắt thông số sản phẩm sẽ tự động hiển thị tại đây sau khi nạp file PDF.</div>", unsafe_allow_html=True)
-        
-    st.markdown('</div>', unsafe_allow_html=True)
-
-
-# --- CỘT PHẢI: KHUNG XEM BẢN VẼ PHẲNG SKETCH (🌟 ĐÃ ÉP CO NHỎ ẢNH GỐC) ---
-with col_right:
-    # Bọc thêm một class định danh riêng sticky-sketch-box phục vụ ép co ảnh
-    st.markdown('<div class="custom-erp-box sticky-sketch-box">', unsafe_allow_html=True)
-    st.markdown('<div class="cad-header-text">🎨 TECHPACK SKETCH VISUALIZER</div>', unsafe_allow_html=True)
-    
-    if "pdf_page_one_image" in st.session_state and st.session_state.pdf_page_one_image is not None:
-        st.image(st.session_state.pdf_page_one_image, use_container_width=True)
-    else:
-        st.markdown("<div style='margin-top: 50px; text-align: center; color: #64748b; font-size: 13px;'>Hình vẽ phác họa phẳng (Sketch) trích xuất từ trang bìa PDF sẽ tự động hiển thị cân xứng tại đây.</div>", unsafe_allow_html=True)
-        
-    st.markdown('</div>', unsafe_allow_html=True)
-
-
-
-
-
-
-
-
-
 # =====================================================================
 # ĐOẠN 7a: CHAT WORKSPACE & ENGINE AI NỀN ĐIỀU PHỐI ORCHESTRATOR (V17.7.0.6 APPROVED)
 # =====================================================================
@@ -927,16 +979,31 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                 if m_sh:
                     active_warp, active_weft = float(m_sh.group(1)), float(m_sh.group(2))
 
-            # Khóa thông số cố định tránh hiện tượng reset ô chatbox gây mất số
+            # Khóa thông số cố định tránh hiện tượng reset ô chatbox gây mất số ở bảng hiển thị 7b
             st.session_state.current_warp_pct = f"{active_warp}%"
             st.session_state.current_weft_pct = f"{active_weft}%"
 
-            # 2. PROMPT AI ORCHESTRATOR: Chặn AI tự chế số diện tích hình học rập
+            # Chuẩn hóa hệ số toán học co rút lưu vào bộ nhớ đệm
+            factory_warp_factor = 1.0 + (active_warp / 100.0) if active_warp > 1.0 else 1.03
+            factory_weft_factor = 1.0 + (active_weft / 100.0) if active_weft > 1.0 else 1.03
+
+            if "_fabric_registry_cache" not in st.session_state:
+                st.session_state._fabric_registry_cache = {}
+            
+            st.session_state._fabric_registry_cache["DENIM_SOLID COLOR_TWO_WAY_0"] = {
+                "shrink_warp_f": factory_warp_factor, "shrink_weft_f": factory_weft_factor
+            }
+
+            if len(st.session_state.chat_history) > 30:
+                st.session_state.chat_history = st.session_state.chat_history[-30:]
+
+            # 2. PROMPT AI ORCHESTRATOR: Chặn AI tự chế số diện tích hình học rập mẫu
             prompt_instruction = f"""
             You are an Apparel Orchestrator. Your ONLY job is to classify the components and map the fabric types based on the Techpack and Sketch.
             DO NOT estimate or invent any numbers for area, length, or width. Leave them for the Geometry Engine.
             
             DATA FOUND IN TECHPACK: {st.session_state.pdf_text_cache}
+            CONTEXT HISTORY: {json.dumps(st.session_state.chat_history, ensure_ascii=False)}
             CURRENT USER COMMAND: "{current_query}"
             
             Identify the actual product type (e.g., PANT, JACKET, SHIRT).
@@ -983,7 +1050,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                 if json_match:
                     blueprint_worker = json.loads(json_match.group(1).strip())
                     
-                    # Duyệt và gọi Lõi toán học V18 thực thể đo đạc hình học từ ảnh
+                    # Duyệt và gọi Lõi toán học V18 thực thể đo đạc hình học từ ảnh ma trận điểm pixel
                     for row in blueprint_worker.get("bom_rows", []):
                         if row.get("geometry_required"):
                             if "v18_execute_vision_geometry_and_nesting" in globals():
@@ -998,10 +1065,10 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                                 row["_btp_total_piece_count"] = real_geo_data["piece_count"]
                                 row["panels_catalog"] = real_geo_data["panels_catalog"]
                     
-                    # 3. Đẩy dữ liệu thực thể sang IE Engine tính toán định mức
+                    # 3. Đẩy dữ liệu thực thể sang IE Engine tính toán định mức chuẩn công nghiệp (Yards)
                     blueprint_final = allocate_fabric_consumption_and_quality_gate(blueprint_worker, current_query)
                     
-                    # Lưu trữ kết quả an toàn tránh lỗi mất bảng dữ liệu
+                    # Đồng bộ hóa bộ nhớ trạng thái trung tâm tránh ẩn mất bảng hiển thị dữ liệu
                     st.session_state.active_blueprint = blueprint_final
                     
                     ai_chat_response = chat_match.group(1).strip() if chat_match else "Tôi đã đồng bộ tính toán định mức hình học thực tế."
@@ -1017,8 +1084,6 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             st.error(f"❌ Lỗi xử lý mã nguồn Core AI / Geometry Engine: {str(ce)}")
             with st.expander("Chi tiết lỗi hệ thống (Traceback Logs)"):
                 st.code(traceback.format_exc())
-
-
 # =====================================================================
 # ĐOẠN 7b: KHU VỰC HIỂN THỊ MA TRẬN KẾT QUẢ VÀ XUẤT EXCEL CHUẨN SẢN XUẤT (V17.7.0.6 APPROVED)
 # =====================================================================
@@ -1035,7 +1100,7 @@ if active_bom_source and active_bom_source.get("bom_rows"):
     st.markdown('<div class="cad-card">', unsafe_allow_html=True)
     st.markdown(f'<div class="cad-header">📊 CALCULATED FABRIC CONSUMPTION MATRIX (SIZE TARGET: {extracted_size})</div>', unsafe_allow_html=True)
     
-    # Đồng bộ hóa dữ liệu từ bộ nhớ bộ đệm tránh hiện tượng mất số co rút khi reset ô chatbox
+    # 🌟 ĐỒNG BỘ HIỂN THỊ TRÁNH LỖI RESET Ô CHATBOX: Gọi trực tiếp giá trị từ bộ nhớ trạng thái an toàn
     warp_default = st.session_state.get("current_warp_pct", "3.0%")
     weft_default = st.session_state.get("current_weft_pct", "3.0%")
     
@@ -1047,26 +1112,26 @@ if active_bom_source and active_bom_source.get("bom_rows"):
         
         cut_width_val = f"{float(r['fabric_width_inch'])} inch" if "fabric_width_inch" in r and r["fabric_width_inch"] > 0 else "58.0 inch"
         
-        # Bù trừ ép cứng tỷ lệ co rút cho các tầng keo lót phụ (Fusing/Lining) về 0.0%
+        # Bù trừ ép cứng tỷ lệ co rút cho các tầng keo lót phụ (Fusing/Lining) về dạng phẳng tĩnh 0.0%
         warp_val = "0.0%" if any(x in str(r.get("fabric_classification", "")).upper() for x in ["FUSING", "LINING"]) else warp_default
         weft_val = "0.0%" if any(x in str(r.get("fabric_classification", "")).upper() for x in ["FUSING", "LINING"]) else weft_default
 
         raw_eff_value = r.get("marker_efficiency_pct")
         raw_eff_value = f"{raw_eff_value}%" if isinstance(raw_eff_value, (int, float)) else ("85.0%" if any(x in str(r.get("fabric_classification", "")).upper() for x in ["FUSING", "LINING"]) else "87.0%")
-        gate_status_label = "PASSED" if r.get("quality_gate_status") == "PASSED_MIN" else r.get("quality_gate_status", r.get("status", "PASSED"))
+        gate_status_label = r.get("quality_gate_status", r.get("status", "PASSED"))
 
         display_data.append({
-            "Component Type": r.get("component_type", "MAIN FABRIC"), 
+            "Component Type": r.get("component_type", "MAIN FABRIC"),
             "Placement": r.get("placement", "BODY/POCKETS"),
-            "Fabric Classification": r.get("fabric_classification", "MAIN_FABRIC"), 
+            "Fabric Classification": r.get("fabric_classification", "MAIN_FABRIC"),
             "Fabric Code": r.get("fabric_code", "DENIM"),
-            "Fabric Color": r.get("fabric_color", "SOLID COLOR"), 
+            "Fabric Color": r.get("fabric_color", "SOLID COLOR"),
             "Khổ vải (Width)": cut_width_val,
-            "Co rút dọc (% Warp)": warp_val, 
-            "Co rút ngang (% Weft)": weft_val, 
+            "Co rút dọc (% Warp)": warp_val,
+            "Co rút ngang (% Weft)": weft_val,
             "Marker Efficiency": str(raw_eff_value).strip(),
-            "Gross Consumption (Yds)": current_gross, 
-            "Quality Status": gate_status_label, 
+            "Gross Consumption (Yds)": current_gross,
+            "Quality Status": gate_status_label,
             "System Notes": sys_notes
         })
         
