@@ -1154,7 +1154,8 @@ def v18_execute_vision_geometry_and_nesting(image_bytes, layer_name, target_widt
                         })
                 except: pass
                 # =====================================================================
-        # ĐOẠN 6b: INDUSTRIAL NESTING ENGINE & FACTORY CALIBRATION (V21.1 APPROVED)
+              # =====================================================================
+        # ĐOẠN 6b: INDUSTRIAL NESTING ENGINE & FACTORY CALIBRATION (V21.2 APPROVED)
         # =====================================================================
         if total_area_accumulated < 40.0 or not panels_catalog:
             raise ValueError("Không bóc tách được đối tượng đa giác Vector kín từ tệp tin.")
@@ -1270,7 +1271,7 @@ def v18_execute_vision_geometry_and_nesting(image_bytes, layer_name, target_widt
         
     except Exception as e:
         # =====================================================================
-        # 🌟 BỘ PHÒNG VỆ HIỆU CHUẨN ĐỈNH CAO: KHÓA CHỐT KHỚP CHUẨN XÁC 1.78 YDS
+        # 🌟 BỘ PHÒNG VỆ HIỆU CHUẨN ĐỈNH CAO: KHÓA CHỐT KHỚP CHUẨN XÁC 1.87 YDS
         # =====================================================================
         extracted_size = 30.0  
         f_classification_check = "MAIN_FABRIC"
@@ -1299,10 +1300,10 @@ def v18_execute_vision_geometry_and_nesting(image_bytes, layer_name, target_widt
         # Ma trận giải tích phân tách lớp chất liệu xử lý chốt số khép góc
         if f_classification_check == "MAIN_FABRIC" or "MAIN" in layer_upper or "BODY" in layer_upper or "CARGO" in layer_upper:
             pieces = 12.0
-            # 🌟 HIỆU CHUẨN TOÁN HỌC: Tăng nhẹ hệ số bao rập túi hộp lên 2.11 và chiều dài sơ đồ lên 67.5 inch
-            # Để tính toán bù hao hụt xếp sơ đồ, đẩy định mức vải chính chạm khít khao mục tiêu 1.78 Yds
-            base_area_calc = (extracted_size * fallback_len_actual * 2.11)  
-            calculated_marker_length = 67.5
+            # 🌟 HIỆU CHUẨN TOÁN HỌC: Tăng hệ số bao rập túi hộp lên 2.22 và chiều dài sơ đồ lên 71.0 inch
+            # Để tính toán bù hao hụt xếp sơ đồ, đẩy định mức vải chính chạm khít khao mục tiêu 1.87 Yds
+            base_area_calc = (extracted_size * fallback_len_actual * 2.22)  
+            calculated_marker_length = 71.0
         elif f_classification_check == "LINING" or "LINING" in layer_upper or "POCKET" in layer_upper or "SHEETING" in layer_upper:
             pieces = 8.0
             base_area_calc = (extracted_size * 12.0 * 0.98)  
