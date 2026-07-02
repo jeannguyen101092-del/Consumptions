@@ -969,7 +969,7 @@ with col_right:
 
 
 # =====================================================================
-# ĐOẠN 7a: CHAT WORKSPACE & ENGINE AI NỀN - FIX TRÍCH XUẤT CO RÚT ĐỘC LẬP (V17.6.9.5 APPROVED)
+# ĐOẠN 7a: CHAT WORKSPACE & ENGINE AI NỀN - FIX TRIỆT ĐỂ ẨN BẢNG DỮ LIỆU (V17.7.0.0 APPROVED)
 # =====================================================================
 st.markdown('<br><div class="cad-card"><div class="cad-header">💬 CHATGPT IE COLLABORATION WORKSPACE</div>', unsafe_allow_html=True)
 
@@ -988,7 +988,7 @@ st.markdown('</div>', unsafe_allow_html=True)
 if st.session_state.pdf_bytes is not None and safe_user_prompt:
     current_query = str(safe_user_prompt).strip()
     
-    with st.spinner("🧠 AI Core đang xử lý toán học hình học rập và bóc tách bảng BOM..."):
+    with st.spinner("🧠 AI Core đang bóc tách rập ảnh Sketch phẳng và đối chiếu bảng BOM đa trang..."):
         try:
             import google.generativeai as genai
             import json, copy, traceback, re
@@ -998,34 +998,41 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                 doc_recovery = fitz.open(stream=st.session_state.pdf_bytes, filetype="pdf")
                 st.session_state.pdf_page_one_image = doc_recovery.load_page(0).get_pixmap(dpi=150).tobytes("png")
             
-            if "GEMINI_API_KEY" in st.secrets: genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+            if "GEMINI_API_KEY" in st.secrets: 
+                genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+                
             model = genai.GenerativeModel("gemini-2.5-flash", generation_config={"temperature": 0.2})
             chat_lower = current_query.lower()
             
-            # 🌟 BỘ LỌC ĐỘNG TỐI ƯU: Trích xuất thông số khổ vải và kích cỡ mục tiêu
+            # Bộ trích xuất thông số kỹ thuật động thông minh
             match_size = re.search(r'\b(?:size|sz|cỡ)\s*[:\-=\s]*([\w\d]+)\b', chat_lower)
-            target_size_cmd = str(match_size.group(1)).upper().strip() if match_size else "30" # Phòng vệ theo size target trên hình của anh
+            target_size_cmd = str(match_size.group(1)).upper().strip() if match_size else "30"
             
             match_w = re.search(r'\b(?:khổ|kho|width)\s*[:\-=\s]*([\d\.]+)\b', chat_lower)
             active_width = float(match_w.group(1)) if match_w else 58.0
             
-            # 🌟 THUẬT TOÁN SỬA LỖI TRÍCH XUẤT ĐỘ CO RÚT DỌC/NGANG TÁCH BIỆT:
+            # 🌟 VÁ LỖI AN TOÀN: Khởi tạo mặc định dải co rút dọc/ngang phòng vệ tránh sập nguồn
             active_warp = 3.0
             active_weft = 3.0
             
-            # Cách 1: Tìm riêng biệt từ khóa "dọc X" và "ngang Y" trong câu lệnh chat của anh
             match_warp = re.search(r'(?:dọc|doc|warp)\s*[:\-=\s]*([\d\.]+)', chat_lower)
             match_weft = re.search(r'(?:ngang|weft)\s*[:\-=\s]*([\d\.]+)', chat_lower)
             
-            if match_warp and match_weft:
-                active_warp = float(match_warp.group(1))
-                active_weft = float(match_weft.group(1))
-            else:
-                # Cách 2: Nếu viết dạng cặp số nối tiếp (ví dụ: co rút 5-15 hoặc co 5 x 15)
+            if match_warp:
+                try: active_warp = float(match_warp.group(1))
+                except Exception: pass
+            if match_weft:
+                try: active_weft = float(match_weft.group(1))
+                except Exception: pass
+                
+            # Nếu không tìm thấy từ khóa dọc/ngang đơn lẻ, quét cặp số liên tiếp (5-15)
+            if not match_warp or not match_weft:
                 match_sh_pair = re.search(r'(?:co\s*rút|co\s*rut|co|shrinkage)\s*[:\-=\s]*([\d\.]+)\s*(?:-|–|x|ngang|dọc|\s+)\s*([\d\.]+)', chat_lower)
                 if match_sh_pair:
-                    active_warp = float(match_sh_pair.group(1))
-                    active_weft = float(match_sh_pair.group(2))
+                    try:
+                        active_warp = float(match_sh_pair.group(1))
+                        active_weft = float(match_sh_pair.group(2))
+                    except Exception: pass
 
             if len(st.session_state.chat_history) > 30:
                 st.session_state.chat_history = st.session_state.chat_history[-30:]
@@ -1077,13 +1084,16 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             }}
             ===END_JSON===
             ===START_CHAT===
-            [Confirm in Vietnamese that you calculated using width {active_width} and precise shrinkage warp {active_warp}% and weft {active_weft}% as requested.]
+            [Confirm in Vietnamese that you calculated using width {active_width} and precise shrinkage warp {active_warp}% and weft {active_weft}% based on visual sketch and history context.]
             ===END_CHAT===
             """
             
-            image_payload = {"mime_type": "image/png", "data": st.session_state.pdf_page_one_image}
-            response = model.generate_content([image_payload, prompt_instruction])
+            image_payload = {
+                "mime_type": "image/png",
+                "data": st.session_state.pdf_page_one_image
+            }
             
+            response = model.generate_content([image_payload, prompt_instruction])
             if response and response.text:
                 response_text = response.text.strip()
                 json_match = re.search(r'===START_JSON===\s*(.*?)\s*===END_JSON===', response_text, re.DOTALL)
@@ -1119,6 +1129,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
         except Exception as e:
             st.error(f"💥 Lỗi phân tích luồng đối thoại: {str(e)}")
             st.code(traceback.format_exc())
+
 # =====================================================================
 # ĐOẠN 7b: KHU VỰC HIỂN THỊ KẾT QUẢ ĐƠN MÃ VÀ XUẤT EXCEL CHUẨN ĐỒNG BỘ CO RÚT ĐỘNG (V17.0.1.2)
 # =====================================================================
