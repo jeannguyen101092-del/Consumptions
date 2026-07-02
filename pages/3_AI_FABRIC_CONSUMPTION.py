@@ -377,7 +377,7 @@ def execute_marker_yardage_and_quality_gate(ai_blueprint: dict, user_chat: str) 
 
 
 # =====================================================================
-# ĐOẠN 2b: PHÂN BỔ ĐỊNH MỨC VÀ TỰ ĐỘNG TÍNH KEO LÓT TỪ BOM (V16.5.10 FIXED)
+# ĐOẠN 2b: PHÂN BỔ ĐỊNH MỨC THEO THÔNG SỐ THỰC TẾ TRÁNH BỊ KẸT FALLBACK (V16.5.12 FIXED)
 # =====================================================================
 
 def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict) -> dict:
@@ -418,82 +418,84 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict) -> dict:
             processed_bom_blueprint.append(row)
             continue
 
-               # 2. Xử lý trực tiếp KEO LÓT / MEX KEO / VẢI LÓT TÚI dựa trên từ khóa trong BOM
-        is_trim_or_lining = False
-        f_yds = 0.0
-        note_text = ""
-        actual_width = 58.0  # Mặc định an toàn
+        # Xác định khổ vải mặc định theo loại phụ liệu
+        is_fusing = any(x in f_class_raw or x in comp_type or x in placement for x in ["FUSING", "INTERLINING", "KEO", "MEX", "MẾCH"])
+        is_lining = any(x in f_class_raw or x in comp_type or x in placement for x in ["LINING", "POCKET", "TÚI", "LÓT"])
         
-        if any(x in f_class_raw or x in comp_type or x in placement for x in ["FUSING", "INTERLINING", "KEO", "MEX", "MẾCH"]):
-            is_trim_or_lining = True
-            f_yds = 0.1500  # Định mức tiêu chuẩn cho Mex lưng
-            actual_width = 59.0  # 🟢 CẬP NHẬT: Đổi sang Khổ keo 59 inch thực tế của bạn
-            note_text = "Khổ mếch: 59\" | Định mức Mex Keo cố định"
-            
-        elif any(x in f_class_raw or x in comp_type or x in placement for x in ["LINING", "POCKET", "TÚI", "LÓT"]):
-            is_trim_or_lining = True
-            f_yds = 0.2200  # Định mức tiêu chuẩn cho vải lót túi
-            actual_width = 57.0  # 🟢 CẬP NHẬT: Đổi sang Khổ lót 57 inch thực tế của bạn
-            note_text = "Khổ lót: 57\" | Định mức Vải lót túi cố định"
+        default_width = 58.0
+        if is_fusing: default_width = 59.0
+        elif is_lining: default_width = 57.0
+        
+        row["fabric_width_inch"] = row.get("fabric_width_inch", default_width) if row.get("fabric_width_inch", 0) > 0 else default_width
 
-        if is_trim_or_lining:
-            row["calculated_gross_consumption_yds"] = f_yds
-            row["fabric_width_inch"] = actual_width  # 🟢 Ép giá trị khổ vải thực tế vào bộ nhớ dòng
-            row["consumption_note"] = note_text
-            row["reason_or_logs"] = f"{actual_width}\"/85.0%/0.0x0.0"
-            row["marker_efficiency_pct"] = "85.0%"
-            row["status"] = "PASS"
-            processed_bom_blueprint.append(row)
-            continue
-
-        # 3. Khớp cấu trúc rập hình học cho VẢI CHÍNH từ Cache
+        # Tìm kiếm dữ liệu co rút từ Cache (nếu có)
         matched_cache_data = None
         for f_id, c_data in fabric_registry.items():
             if f_code in f_id or f_class_raw in f_id or f_id.startswith(f_code):
                 matched_cache_data = c_data
                 break
-                
+
+        # 🌟 ĐỌC THÔNG SỐ RẬP THỰC TẾ DO AI TRÍCH XUẤT TỪ FILE PDF HIỆN TẠI
+        panels = row.get("panels_catalog", [])
+        max_piece_length = 0.0
+        total_panel_area = 0.0
+        
+        if panels and isinstance(panels, list):
+            valid_panels = [p for p in panels if isinstance(p, dict)]
+            for p in valid_panels:
+                l_val = float(p.get("piece_length_inch", 0.0))
+                w_val = float(p.get("piece_width_inch", 0.0))
+                c_val = float(p.get("piece_count", 1.0))
+                total_panel_area += (l_val * w_val * c_val)
+                if l_val > max_piece_length:
+                    max_piece_length = l_val
+
+        # 🌟 LOGIC CẢI TIẾN: Ưu tiên tính trực tiếp từ thông số rập của file vừa tải lên
         is_processed = False
-        if matched_cache_data:
-            total_area = matched_cache_data.get("accumulated_area_sq_in", 0.0)
-            cutable_w = matched_cache_data.get("cutable_w", 58.0)
-            eff = matched_cache_data.get("eff", 0.76)
-            f_class_norm = matched_cache_data.get("f_class", "MAIN_FABRIC")
-            cons_mode = matched_cache_data.get("consumption_mode", "LINEAR")
+        if total_panel_area > 0.0:
+            is_processed = True
+            cutable_w = row["fabric_width_inch"]
             
-            panels = row.get("panels_catalog", [])
-            max_piece_length = 0.0
-            if panels and isinstance(panels, list):
-                max_piece_length = max([float(p.get("piece_length_inch", 0.0)) for p in panels if isinstance(p, dict)] or [0.0])
+            # Đặt hiệu suất sơ đồ thực tế
+            if is_fusing or is_lining:
+                eff = 0.85
+                row["marker_efficiency_pct"] = "85.0%"
+            else:
+                eff = 0.76 if product_type == "PANT" else 0.82
+                row["marker_efficiency_pct"] = f"{eff*100}%"
+                
+            # Lấy tỷ lệ co rút và hao hụt từ cache, nếu rỗng thì lấy mặc định an toàn
+            shrink_warp = matched_cache_data.get("shrink_warp_f", 1.05) if matched_cache_data else 1.05
+            wastage = matched_cache_data.get("wastage_f", 1.03) if matched_cache_data else 1.03
+            
+            # Tính toán định mức động theo kích thước rập thực tế trích xuất từ PDF
+            if product_type == "PANT" and not is_fusing and not is_lining:
+                total_yds = (max_piece_length / 36.0) * shrink_warp * wastage / eff
+            else:
+                total_yds = (total_panel_area / (cutable_w * 36.0)) / eff * shrink_warp * wastage
+                
+            row["calculated_gross_consumption_yds"] = round(total_yds, 4)
+            row["consumption_note"] = f"Khổ vải: {cutable_w}\" | Tính toán tự động theo Spec thực tế"
+            row["reason_or_logs"] = f"{cutable_w}\"/{row['marker_efficiency_pct']}/{round((shrink_warp-1)*100,1)}x0.0"
+            row["status"] = "PASS"
 
-            if total_area > 0.0 or max_piece_length > 0.0:
-                is_processed = True
-                if f_class_norm in ["MAIN_FABRIC", "RIB"]:
-                    if cons_mode == "LINEAR" and max_piece_length > 0.0:
-                        total_yds = (max_piece_length / 36.0) * matched_cache_data.get("shrink_warp_f", 1.05) * matched_cache_data.get("wastage_f", 1.03) / eff
-                    else:
-                        base_cons = (total_area / (cutable_w * 36.0)) / eff
-                        total_yds = base_cons * matched_cache_data.get("shrink_warp_f", 1.05) * matched_cache_data.get("wastage_f", 1.03)
-                    
-                    # Van chặn khống chế rập lỗi đẩy định mức vải chính vọt cao
-                    if product_type == "PANT" and total_yds > 1.7:
-                        total_yds = 1.5640
-                    
-                    row["calculated_gross_consumption_yds"] = round(total_yds, 4)
-                    row["marker_efficiency_pct"] = f"{round(eff * 100, 1)}%"
-                    
-                    w_original = matched_cache_data.get("w_saved", 58.0)
-                    s_l_saved = (matched_cache_data.get("shrink_warp_f", 1.0) - 1.0) * 100.0
-                    s_w_saved = (matched_cache_data.get("shrink_weft_f", 1.0) - 1.0) * 100.0
-                    row["consumption_note"] = f"Khổ vải: {w_original}\" | Sơ đồ: {cutable_w}\" | Check: PASS"
-                    row["reason_or_logs"] = f"{round(w_original,1)}\"/{round(eff*100,1)}%/{round(s_l_saved,1)}x{round(s_w_saved,1)}"
-
-        # 4. Van chặn dự phòng cuối cho vải chính
-        if not is_processed or row["calculated_gross_consumption_yds"] == 0.0:
-            row["calculated_gross_consumption_yds"] = 1.5450  
-            row["consumption_note"] = "Khổ vải: 58.0\" | Đồng bộ định mức thực tế sản xuất"
-            row["reason_or_logs"] = "58.0\"/76.0%/5.0x15.0"
-            row["marker_efficiency_pct"] = "76.0%"
+        # 4. Chỉ kích hoạt số cố định (Fallback) nếu file PDF hoàn toàn rỗng thông số
+        if not is_processed:
+            if is_fusing:
+                row["calculated_gross_consumption_yds"] = 0.1500
+                row["consumption_note"] = "Khổ mếch: 59\" | Định mức Mex Keo cố định dự phòng"
+                row["reason_or_logs"] = "59.0\"/85.0%/0.0x0.0"
+                row["marker_efficiency_pct"] = "85.0%"
+            elif is_lining:
+                row["calculated_gross_consumption_yds"] = 0.2200
+                row["consumption_note"] = "Khổ lót: 57\" | Định mức Vải lót túi cố định dự phòng"
+                row["reason_or_logs"] = "57.0\"/85.0%/0.0x0.0"
+                row["marker_efficiency_pct"] = "85.0%"
+            else:
+                row["calculated_gross_consumption_yds"] = 1.4520
+                row["consumption_note"] = "Khổ vải: 58.0\" | Dự phòng hệ thống (Trống bảng Spec)"
+                row["reason_or_logs"] = "58.0\"/76.0%/5.0x15.0"
+                row["marker_efficiency_pct"] = "76.0%"
             row["status"] = "PASS"
 
         row["panel_debug_summary"] = row.get("_panel_debug_logs", [])
@@ -797,7 +799,7 @@ with col_right:
                     st.error("💥 Lỗi xử lý tiến trình Phân đoạn 7a:")
                     st.code(traceback.format_exc())
 # =====================================================================
-# ĐOẠN 7b: KHU VỰC HIỂN THỊ KẾT QUẢ ĐƠN MÃ VÀ XUẤT EXCEL (V17.0.0.2 FIXED)
+# ĐOẠN 7b: KHU VỰC HIỂN THỊ KẾT QUẢ ĐƠN MÃ VÀ XUẤT EXCEL (V17.0.0.3 FIXED)
 # =====================================================================
 if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data and st.session_state.bom_data["bom_rows"]:
     st.markdown('<div class="cad-card">', unsafe_allow_html=True)
@@ -816,7 +818,7 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data 
         current_gross = r.get("calculated_gross_consumption_yds", 0.0)
         reason_logs = str(r.get("reason_or_logs", ""))
         
-        # ĐỒNG BỘ HIỂN THỊ KHỔ VẢI CHUẨN XÁC
+        # ĐỒNG BỘ HIỂN THỊ KHỔ VẢI CHUẨN XÁC CHẤT LIỆU
         if "fabric_width_inch" in r and r["fabric_width_inch"] > 0:
             cut_width_val = f"{float(r['fabric_width_inch'])} inch"
         else:
@@ -839,7 +841,7 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data 
                     warp_val = f"{float(match_sh.group(1))}%"
                     weft_val = f"{float(match_sh.group(2))}%"
                     
-        # Ép độ co rút về 0% cho phụ liệu keo lót
+        # Ép độ co rút về 0% cho phụ liệu keo lót (nếu không có chỉ định đặc biệt)
         if any(x in str(r.get("fabric_classification", "")).upper() for x in ["FUSING", "LINING"]):
             warp_val = "0.0%"
             weft_val = "0.0%"
@@ -859,12 +861,14 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data 
             "System Notes": sys_notes
         })
         
-    # Tạo DataFrame và hiển thị bảng dữ liệu lên giao diện
+    # Tạo DataFrame và hiển thị bảng dữ liệu lên giao diện Streamlit
     df_bom = pd.DataFrame(display_data)
     st.dataframe(df_bom, use_container_width=True, hide_index=True)
     st.markdown('</div>', unsafe_allow_html=True)
     
-    # EXCEL EXPORT ENGINE
+    # =====================================================================
+    # KHỐI LOGIC TẠO FILE EXCEL REPORT SẮC NÉT (ĐÃ SỬA LỖI SHOWGRIDLINES)
+    # =====================================================================
     try:
         import io
         from openpyxl import Workbook
@@ -875,8 +879,11 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data 
         wb = Workbook()
         ws = wb.active
         ws.title = "BOM Fabric Consumption"
-        ws.views.sheetView.showGridLines = True
         
+        # 🟢 CÚ PHÁP SỬA LỖI ĐƯỜNG LƯỚI EXCEL CHUẨN OPENPYXL
+        ws.sheet_view.showGridLines = True 
+        
+        # Cấu hình phong cách bảng tính chuyên nghiệp
         font_title = Font(name="Calibri", size=14, bold=True, color="FFFFFF")
         font_header = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
         font_body = Font(name="Calibri", size=11, bold=False)
@@ -891,6 +898,7 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data 
         thin_side = Side(border_style="thin", color="D9D9D9")
         thin_border = Border(left=thin_side, right=thin_side, top=thin_side, bottom=thin_side)
         
+        # Viết dòng tiêu đề lớn gộp ô
         ws.merge_cells("A1:L1")
         ws["A1"] = f"BÁO CÁO ĐỊNH MỨC VẬT TƯ VẢI - STYLE: {st.session_state.bom_data.get('style_code', 'R09-450416')}"
         ws["A1"].font = font_title
@@ -898,6 +906,7 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data 
         ws["A1"].alignment = align_center
         ws.row_dimensions.height = 40
         
+        # Tạo thanh tiêu đề cột dữ liệu
         headers = list(df_bom.columns)
         for col_num, header_title in enumerate(headers, 1):
             cell = ws.cell(row=3, column=col_num)
@@ -908,6 +917,7 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data 
             cell.border = thin_border
         ws.row_dimensions.height = 28
         
+        # Đổ dữ liệu định mức vào các dòng tương ứng
         for row_num, row_data in enumerate(display_data, 4):
             ws.row_dimensions[row_num].height = 22
             for col_num, key in enumerate(headers, 1):
@@ -916,6 +926,7 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data 
                 cell.font = font_body
                 cell.border = thin_border
                 
+                # Căn lề và xử lý hiển thị số thập phân
                 if key in ["Gross Consumption (Yds)"]:
                     cell.alignment = align_right
                     cell.number_format = '#,##0.0000'
@@ -924,6 +935,7 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data 
                 else:
                     cell.alignment = align_left
         
+        # Tự động căn rộng cột vừa khít độ dài của văn bản
         for col in ws.columns:
             max_len = 0
             col_letter = get_column_letter(col.column)
@@ -935,6 +947,7 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data 
         wb.save(output)
         excel_bytes = output.getvalue()
         
+        # NÚT XUẤT TẢI FILE EXCEL RA MÀN HÌNH GIAO DIỆN
         st.markdown("<br>", unsafe_allow_html=True)
         st.download_button(
             label="📥 XUẤT FILE EXCEL ĐỊNH MỨC CHUẨN SẢN XUẤT",
