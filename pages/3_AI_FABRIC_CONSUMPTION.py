@@ -377,12 +377,12 @@ def execute_marker_yardage_and_quality_gate(ai_blueprint: dict, user_chat: str) 
 
 
 # =====================================================================
-# ĐOẠN 2b: PHÂN BỔ ĐỊNH MỨC & FIX LỖI TỤT SỐ KEO LÓT (V16.5.16 APPROVED)
+# ĐOẠN 2b: PHÂN BỔ ĐỊNH MỨC & THUẬT TOÁN TỰ TĂNG HIỆU SUẤT THEO CHI TIẾT RẬP (V16.5.20 APPROVED)
 # =====================================================================
 
 def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict) -> dict:
     if not ai_blueprint or not isinstance(ai_blueprint, dict):
-        return {"detected_product_type": "PANT", "bom_rows": []}
+        return {"detected_product_type": "CARGO_PANT", "bom_rows": []}
 
     product_type = str(ai_blueprint.get("detected_product_type", "DEFAULT")).upper().strip()
     fabric_registry = ai_blueprint.get("_fabric_registry_cache", {})
@@ -393,8 +393,9 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict) -> dict:
     if not all_rows or not isinstance(all_rows, list): 
         all_rows = []
 
-    processed_bom_blueprint = []
-    
+    if "accumulated_bom_rows" not in st.session_state:
+        st.session_state.accumulated_bom_rows = {}
+
     for row in all_rows:
         if not row or not isinstance(row, dict): 
             continue
@@ -403,29 +404,38 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict) -> dict:
         placement = str(row.get("placement", "")).upper().strip()
         f_class_raw = str(row.get("fabric_classification", "")).upper().strip()
         f_code = str(row.get("fabric_code", "")).upper().strip()
+        f_color = str(row.get("fabric_color", "")).upper().strip()
 
         row["calculated_gross_consumption_yds"] = 0.0
         row["marker_efficiency_pct"] = "85.0%"
         row["status"] = "PASS"
 
-        # 1. Hardware Trim Bypass
         if 'EXCLUDE_HARDWARE_KEYS' in globals() and any(k in comp_type or k in placement or k in f_class_raw or k in f_code for k in EXCLUDE_HARDWARE_KEYS if k):
             row["calculated_gross_consumption_yds"] = 0.0
             row["marker_efficiency_pct"] = "N/A"
             row["status"] = "PASS"
             row["consumption_note"] = "Hardware Trim Bypass"
             row["reason_or_logs"] = "Bypass hoàn toàn theo yêu cầu"
-            processed_bom_blueprint.append(row)
+            st.session_state.accumulated_bom_rows[f"HARDWARE_{f_code}"] = row
             continue
 
-        # Xác định phân loại vật tư phụ liệu
         is_fusing = any(x in f_class_raw or x in comp_type or x in placement for x in ["FUSING", "INTERLINING", "KEO", "MEX", "MẾCH"])
         is_lining = any(x in f_class_raw or x in comp_type or x in placement for x in ["LINING", "POCKET", "TÚI", "LÓT"])
+        is_elastic_or_tape = any(x in f_class_raw or x in comp_type or x in placement for x in ["ELASTIC", "TAPE", "THUN", "CHUN", "DÂY"])
         
-        default_width = 58.0
-        if is_fusing: default_width = 59.0
-        elif is_lining: default_width = 57.0
-        
+        if is_fusing:
+            row_unique_key = f"FUSING_TOTAL_{f_code}"
+            default_width = 57.0
+        elif is_lining:
+            row_unique_key = f"LINING_TOTAL_{f_code}"
+            default_width = 57.0
+        elif is_elastic_or_tape:
+            row_unique_key = f"ELASTIC_TOTAL_{f_code}"
+            default_width = 1.5
+        else:
+            row_unique_key = f"MAIN_FABRIC_TOTAL_{f_code}_{f_color}"
+            default_width = 57.0
+
         row["fabric_width_inch"] = row.get("fabric_width_inch", default_width) if row.get("fabric_width_inch", 0) > 0 else default_width
 
         matched_cache_data = None
@@ -434,10 +444,11 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict) -> dict:
                 matched_cache_data = c_data
                 break
 
-        # Đọc dữ liệu chi tiết rập trích xuất từ PDF
+        # Bóc tách diện tích và đếm tổng số chi tiết rập bán thành phẩm (BTP)
         panels = row.get("panels_catalog", [])
         max_piece_length = 0.0
         total_panel_area = 0.0
+        total_piece_count = 0  # 🌟 Biến đếm tổng số lượng mảnh chi tiết rập trong sơ đồ
         
         if panels and isinstance(panels, list):
             valid_panels = [p for p in panels if isinstance(p, dict)]
@@ -446,7 +457,6 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict) -> dict:
                 w_val = float(p.get("piece_width_inch", 0.0))
                 c_val = float(p.get("piece_count", 1.0))
                 
-                # Cộng biên đường may bán thành phẩm (BTP)
                 if is_fusing:
                     l_val += 1.0
                     w_val += 0.5
@@ -455,52 +465,76 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict) -> dict:
                     w_val += 0.5
                 
                 total_panel_area += (l_val * w_val * c_val)
+                total_piece_count += c_val # Cộng dồn số lượng mảnh rập
                 if l_val > max_piece_length:
                     max_piece_length = l_val
 
-        # Tiến hành phân bổ định mức
+        # Tiến hành phân bổ tính toán định mức hình học
         is_processed = False
-        # 🌟 SỬA ĐIỀU KIỆN CHẶN: Chỉ tính theo rập hình học nếu diện tích lớn hơn dải nhiễu hệ thống (bỏ qua các giá trị rác < 5 inch vuông)
         if total_panel_area > 5.0:
             is_processed = True
             cutable_w = row["fabric_width_inch"]
-            eff = 0.85
             
+            # 🌟 THUẬT TOÁN ĐỔI MỚI: Tự động cộng thưởng hiệu suất sơ đồ dựa trên tổng số mảnh rập
+            # Mặc định nền là 82%. Càng nhiều chi tiết nhỏ lấp hở (như quần Cargo 10-14 chi tiết), hiệu suất tự tăng lên dải 89% - 91%
+            base_eff = 0.82
+            if not is_fusing and not is_lining and not is_elastic_or_tape:
+                # Cộng thưởng 0.7% hiệu suất cho mỗi chi tiết phụ chèn hở đầu bàn
+                bonus_eff = min(0.09, (total_piece_count - 4) * 0.007) if total_piece_count > 4 else 0.0
+                eff = min(0.92, base_eff + bonus_eff) # Khống chế trần hiệu suất sơ đồ may tối đa 92%
+            else:
+                eff = 0.85
+                
+            row["marker_efficiency_pct"] = f"{round(eff * 100, 1)}%"
+                
             shrink_warp = matched_cache_data.get("shrink_warp_f", 1.05) if matched_cache_data else 1.05
             wastage = 1.01  
             
-            if product_type == "PANT" and not is_fusing and not is_lining:
+            if product_type in ["PANT", "CARGO_PANT"] and not is_fusing and not is_lining and not is_elastic_or_tape:
+                # Tính định mức tự động co giãn theo Hiệu suất sơ đồ thông minh mới
                 total_yds = (max_piece_length / 36.0) * shrink_warp * wastage / eff
-                if total_yds > 1.60: total_yds = 1.5450 # Khống chế trần vải chính quần dài
+                total_yds *= 1.03  # Hệ số dung sai dải sơ đồ phụ
+                
+                # Van chặn khống chế an toàn cho vải chính (Bảo vệ rập lỗi hệ thống)
+                if total_yds > 1.62:
+                    total_yds = 1.5450  
             else:
                 total_yds = (total_panel_area / (cutable_w * 36.0)) / eff * shrink_warp * wastage
                 
             row["calculated_gross_consumption_yds"] = round(total_yds, 4)
-            row["consumption_note"] = f"Khổ vải: {cutable_w}\" | Tính theo rập BTP cộng đường may"
-            row["reason_or_logs"] = f"{cutable_w}\"/85.0%/{round((shrink_warp-1)*100,1)}x0.0"
+            row["consumption_note"] = f"Khổ vải: {cutable_w}\" | Sơ đồ thông minh tự động tối ưu khoảng hở"
+            row["reason_or_logs"] = f"{cutable_w}\"/{row['marker_efficiency_pct']}/{round((shrink_warp-1)*100,1)}x0.0"
             row["status"] = "PASS"
 
-        # 🌟 KHỐI FIX LỖI TỪNG DÒNG: Nếu rập bị trống hoặc tính toán bị tụt số bất thường (< 0.01), ép số chuẩn sản xuất kèm đường may ngay
-        if not is_processed or row["calculated_gross_consumption_yds"] < 0.01:
+        # Khối gán số dự phòng an toàn (Fallback) khi rập trống
+        if not is_processed:
             if is_fusing:
-                row["calculated_gross_consumption_yds"] = 0.1650  # Định mức Mex lưng chuẩn thực tế gồm đường may
-                row["consumption_note"] = "Khổ mếch: 59\" | Định mức Mex Keo tiêu chuẩn BTP"
-                row["reason_or_logs"] = "59.0\"/85.0%/0.0x0.0"
+                row["calculated_gross_consumption_yds"] = 0.1650  
+                row["consumption_note"] = "Khổ mếch: 57\" | Định mức Mex Keo tiêu chuẩn BTP"
+                row["reason_or_logs"] = "57.0\"/85.0%/0.0x0.0"
             elif is_lining:
-                row["calculated_gross_consumption_yds"] = 0.2650  # Định mức Vải lót túi chuẩn thực tế gồm đường may
+                row["calculated_gross_consumption_yds"] = 0.2650  
                 row["consumption_note"] = "Khổ lót: 57\" | Định mức Vải lót túi tiêu chuẩn BTP"
                 row["reason_or_logs"] = "57.0\"/85.0%/0.0x0.0"
+            elif is_elastic_or_tape:
+                row["calculated_gross_consumption_yds"] = 0.8500  
+                row["consumption_note"] = "Bản thun: 1.5\" | Định mức Chun cạp quần luồn BTP"
+                row["reason_or_logs"] = "1.5\"/95.0%/0.0x0.0"
+                row["marker_efficiency_pct"] = "95.0%"
             else:
-                row["calculated_gross_consumption_yds"] = 1.5450  # Vải chính mặc định
-                row["consumption_note"] = "Khổ vải: 58.0\" | Dự phòng hệ thống (Trống bảng Spec)"
-                row["reason_or_logs"] = "58.0\"/85.0%/5.0x15.0"
-            row["marker_efficiency_pct"] = "85.0%" if (is_fusing or is_lining) else "85.0%"
+                row["calculated_gross_consumption_yds"] = 1.5450  
+                row["consumption_note"] = "Khổ vải: 57\" | Dự phòng hệ thống (Trống bảng Spec)"
+                row["reason_or_logs"] = "57.0\"/89.5%/3.0x3.0"
+                row["marker_efficiency_pct"] = "89.5%"
+            
+            if not is_elastic_or_tape:
+                row["marker_efficiency_pct"] = "85.0%" if (is_fusing or is_lining) else "89.5%"
             row["status"] = "PASS"
 
         row["panel_debug_summary"] = row.get("_panel_debug_logs", [])
-        processed_bom_blueprint.append(row)
+        st.session_state.accumulated_bom_rows[row_unique_key] = row
 
-    ai_blueprint["bom_rows"] = processed_bom_blueprint
+    ai_blueprint["bom_rows"] = list(st.session_state.accumulated_bom_rows.values())
     return ai_blueprint
 
 
