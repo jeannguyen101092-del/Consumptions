@@ -969,40 +969,28 @@ with col_right:
 
 
 # =====================================================================
-# =====================================================================
-# ĐOẠN 7a1: KHÔNG GIAN ĐỐI THOẠI CHATGPT WORKSPACE CHUẨN KỸ THUẬT (V17.4.8.0 APPROVED)
+# ĐOẠN 7a: ENGINE BACKGROUND AI - ĐỒNG BỘ BIẾN CHAT VÀ KHO LŨY KẾ ĐỘNG (V17.6.6.0 APPROVED)
 # =====================================================================
 
-# Tạo khoảng cách an toàn và dựng khung card kính mờ đồng bộ giao diện chính
 st.markdown('<br>', unsafe_allow_html=True)
 st.markdown('<div class="cad-card">', unsafe_allow_html=True)
 st.markdown('<div class="cad-header">💬 CHATGPT IE COLLABORATION WORKSPACE</div>', unsafe_allow_html=True)
 
-# Khởi tạo an toàn kho lưu trữ lịch sử chat nếu hệ thống vừa clear memory
 if "chat_history" not in st.session_state: 
     st.session_state.chat_history = []
 
-# Vòng lặp kết xuất lịch sử đối thoại liên tục, cho phép cuộn trượt xem lệnh cũ
 if st.session_state.chat_history:
     for msg in st.session_state.chat_history:
         st.chat_message("user").write(msg["user"])
         st.chat_message("assistant").write(msg["ai"])
 
-# Khung gõ lệnh chat chốt chặn thông minh, nhận lệnh thay đổi khổ/co rút/size liên tục
 safe_user_prompt = st.chat_input("Gõ câu lệnh điều chỉnh thông số tại đây (Ví dụ: khổ 57 co rút 3-3 size 10):")
-
 st.markdown('</div>', unsafe_allow_html=True)
 
-# ĐOẠN 7a2: ENGINE BACKGROUND AI MẮT THẦN - LUỒNG CHAT LIÊN TỤC CHUẨN CHATGPT (V17.6.0.0)
-# =====================================================================
-
-# 🌟 ĐỔI MỚI: Kích hoạt luồng chạy ngay khi phát hiện có nội dung chữ mới từ st.chat_input (Đoạn 7a1)
 if st.session_state.pdf_bytes is not None and safe_user_prompt:
-    
-    # Ép lưu câu hỏi của người dùng vào bộ nhớ đệm lập tức để làm ngòi nổ đối thoại liên tục
     current_query = str(safe_user_prompt).strip()
     
-    with st.spinner("🧠 MẮT THẦN AI: Đang phân tích rập và đối chiếu bảng BOM đa trang..."):
+    with st.spinner("🧠 MẮT THẦN AI: Đang bóc tách rập ảnh Sketch phẳng và đối chiếu bảng BOM đa trang..."):
         try:
             import google.generativeai as genai
             import json, copy, traceback, re
@@ -1013,7 +1001,6 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             model = genai.GenerativeModel("gemini-2.5-flash", generation_config={"temperature": 0.2})
             chat_lower = current_query.lower()
             
-            # Bộ trích xuất thông số kỹ thuật động thông minh từ câu lệnh chat mới nhất
             match_size = re.search(r'\b(?:size|sz|cỡ)\s*[:\-=\s]*([\w\d]+)\b', chat_lower)
             target_size_cmd = str(match_size.group(1)).upper().strip() if match_size else "AUTOMATIC_MEDIAN"
             
@@ -1028,27 +1015,20 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                 active_warp = 3.0
                 active_weft = 3.0
 
-            # Khống chế dải lịch sử chat tuần hoàn tránh tràn token bộ nhớ RAM
             if len(st.session_state.chat_history) > 30:
                 st.session_state.chat_history = st.session_state.chat_history[-30:]
 
-            # PROMPT ĐA PHƯƠNG THỨC GỬI LÊN GEMINI (Kèm theo ngữ cảnh lịch sử hội thoại cũ chat_history)
             prompt_instruction = f"""
-            You are a senior apparel Industrial Engineer (IE). You are given BOTH the visual garment sketch image and the full techpack text data.
-            
-            DATA FOUND IN TECHPACK TEXT (BOM SHEET): 
-            {st.session_state.pdf_text_cache}
-            
-            CONTEXT HISTORY OF CONVERSATION (LỊCH SỬ CHAT CŨ - ĐỐI THOẠI LIÊN TỤC):
-            {json.dumps(st.session_state.chat_history, ensure_ascii=False)}
-            
-            CURRENT USER COMMAND (YÊU CẦU MỚI NHẤT): "{current_query}"
+            You are a senior apparel Industrial Engineer (IE). Analyze BOTH the visual sketch image and the techpack text data.
+            DATA FOUND IN TECHPACK TEXT (BOM SHEET): {st.session_state.pdf_text_cache}
+            CONTEXT HISTORY: {json.dumps(st.session_state.chat_history, ensure_ascii=False)}
+            CURRENT USER COMMAND: "{current_query}"
             
             STRICT COMPONENT RULES:
-            1. Look at the sketch image. Front/Back bodies, Waistband, side cargo pockets, and pocket flaps must be allocated under "MAIN FABRIC".
+            1. Front/Back bodies, Waistband, side cargo pockets, and pocket flaps must be allocated under "MAIN FABRIC".
             2. Piped/Welt back pockets require pocket bags made of LINING fabric. Put this item under "POCKET LINING / LÓT TÚI".
             3. Waistband fusing requires fusible interlining. Put this item under "INTERLINING / KEO LÓT".
-            4. You MUST structure the output JSON to include exactly THREE rows in the "bom_rows" array matching the template below.
+            4. You MUST structure the output JSON to include exactly THREE rows in the "bom_rows" array. Do NOT drop or omit rows.
             
             Target size: '{target_size_cmd}', Cut Width: {active_width} inches, Warp: {active_warp}%, Weft: {active_weft}%.
             
@@ -1085,14 +1065,13 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             }}
             ===END_JSON===
             ===START_CHAT===
-            [Your conversational Vietnamese response here. Confirm that you have understood the history context and updated the current calculation for command: {current_query}]
+            [Your conversational Vietnamese response here.]
             ===END_CHAT===
             """
             
-            # Đóng gói ảnh PNG gửi kèm lên Gemini API đa phương thức
             image_payload = {"mime_type": "image/png", "data": st.session_state.pdf_page_one_image}
-            
             response = model.generate_content([image_payload, prompt_instruction])
+            
             if response and response.text:
                 response_text = response.text.strip()
                 json_match = re.search(r'===START_JSON===\s*(.*?)\s*===END_JSON===', response_text, re.DOTALL)
@@ -1106,10 +1085,14 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                     if raw_blueprint and raw_blueprint.get("bom_rows"):
                         blueprint_worker = copy.deepcopy(raw_blueprint)
                         
-                        # Triển khai chuỗi thuật toán may nối tiếp (Truyền lệnh chat mới vào)
-                        blueprint_final = allocate_fabric_consumption_and_quality_gate(blueprint_worker, current_query)
+                        # 1. Thực thi dải chuỗi liên hoàn thuật toán hình học rập nền
+                        step_2a1 = parse_geometric_panels_allowance(blueprint_worker, current_query)
+                        step_2a2 = execute_marker_yardage_and_quality_gate(step_2a1, current_query)
                         
-                        # Đồng bộ làm sạch kho lũy kế chống lặp dòng
+                        # 2. 🌟 SỬA ĐIỂU KIỆN CHỐT: Truyền trực tiếp câu lệnh chat hiện tại (current_query) vào cho hàm 2b2 xử lý ép Eff cứng
+                        blueprint_final = allocate_fabric_consumption_and_quality_gate(step_2a2, current_query)
+                        
+                        # 3. 🌟 ĐỒNG BỘ ĐÈ KHO TÍCH LŨY TOÀN CỤC: Xóa sạch bộ nhớ cũ để nạp mới hoàn toàn dữ liệu động đã xử lý Eff 87%
                         st.session_state.accumulated_bom_rows = {}
                         if "bom_rows" in blueprint_final:
                             for row in blueprint_final["bom_rows"]:
@@ -1117,26 +1100,24 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                                 c_type = str(row.get("component_type", "MAIN")).upper().strip()
                                 f_class = str(row.get("fabric_classification", "MAIN_FABRIC")).upper().strip()
                                 unique_key = f"{c_type}_{f_class}"
+                                
+                                # Ghi đè dòng vật tư sạch đẹp vào kho đệm session hiển thị
                                 st.session_state.accumulated_bom_rows[unique_key] = row
                         
                         blueprint_final["bom_rows"] = list(st.session_state.accumulated_bom_rows.values())
                         if "calculated_on_size" in raw_blueprint:
                             blueprint_final["calculated_on_size"] = raw_blueprint["calculated_on_size"]
                         
-                        # Cập nhật bộ nhớ hiển thị chính cho Đoạn 7b vẽ bảng
+                        # Gán trực tiếp ngược lại bom_data phục vụ Đoạn 7b render bảng
                         st.session_state.bom_data = blueprint_final
                 
-                # Nạp cặp đối thoại mới vào lịch sử ChatGPT Workspace
-                ai_chat_response = chat_match.group(1).strip() if chat_match else "Tôi đã cập nhật định mức vật tư theo yêu cầu mới của anh."
+                ai_chat_response = chat_match.group(1).strip() if chat_match else "Tôi đã đồng bộ tính toán hệ thống."
                 st.session_state.chat_history.append({"user": current_query, "ai": ai_chat_response})
             
-            # Ép hệ thống rerun để cập nhật giao diện chat và bảng tính mới ngay lập tức
             st.rerun()
-            
         except Exception as e:
-            st.error(f"💥 Lỗi luồng hội thoại liên tục: {str(e)}")
+            st.error(f"💥 Lỗi phân tích luồng đối thoại: {str(e)}")
             st.code(traceback.format_exc())
-
 
 
 
