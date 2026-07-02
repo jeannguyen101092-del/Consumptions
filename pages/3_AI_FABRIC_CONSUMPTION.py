@@ -1148,11 +1148,20 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
 
 
 # =====================================================================
-# ĐOẠN 7b: KHU VỰC HIỂN THỊ KẾT QUẢ ĐƠN MÃ VÀ XUẤT EXCEL CHUẨN ĐỒNG BỘ CO RÚT ĐỘNG (V17.0.1.2)
+# ĐOẠN 7b: KHU VỰC HIỂN THỊ KẾT QUẢ ĐƠN MÃ VÀ XUẤT EXCEL CHUẨN ĐỒNG BỘ CO RÚT ĐỘNG (V17.7.0.0 APPROVED)
 # =====================================================================
-if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data and st.session_state.bom_data["bom_rows"]:
+# 🌟 ĐỒNG BỘ NGUỒN DỮ LIỆU: Ưu tiên lấy từ bộ nhớ trạng thái AI mới nhất, nếu không có sẽ lấy bộ nhớ lũy kế
+active_bom_source = None
+if st.session_state.get("active_blueprint") and "bom_rows" in st.session_state.active_blueprint:
+    active_bom_source = st.session_state.active_blueprint
+elif st.session_state.get("accumulated_bom_rows"):
+    # Phương án dự phòng hiển thị dữ liệu ban đầu khi chưa gõ lệnh Chat
+    active_bom_source = {"calculated_on_size": "30", "bom_rows": list(st.session_state.accumulated_bom_rows.values())}
+
+if active_bom_source and active_bom_source.get("bom_rows"):
+    import pandas as pd
     
-    extracted_size = st.session_state.bom_data.get("calculated_on_size", "30").upper()
+    extracted_size = active_bom_source.get("calculated_on_size", "30").upper()
     
     st.markdown('<div class="cad-card">', unsafe_allow_html=True)
     st.markdown(f'<div class="cad-header">📊 CALCULATED FABRIC CONSUMPTION MATRIX (SIZE TARGET: {extracted_size})</div>', unsafe_allow_html=True)
@@ -1174,7 +1183,7 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data 
             weft_default = f"{float(m_c.group(2))}%"
     
     display_data = []
-    for r in st.session_state.bom_data["bom_rows"]:
+    for r in active_bom_source["bom_rows"]:
         if not r or not isinstance(r, dict): continue
             
         sys_notes = r.get("consumption_note", "")
@@ -1195,7 +1204,10 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data 
             weft_val = "0.0%"
 
         raw_eff_value = r.get("marker_efficiency_pct")
-        if not raw_eff_value:
+        if raw_eff_value is not None:
+            if isinstance(raw_eff_value, (int, float)):
+                raw_eff_value = f"{raw_eff_value}%"
+        else:
             raw_eff_value = "85.0%" if any(x in str(r.get("fabric_classification", "")).upper() for x in ["FUSING", "LINING"]) else "87.0%"
 
         display_data.append({
@@ -1206,10 +1218,10 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data 
             "Fabric Color": r.get("fabric_color", "SOLID COLOR"),
             "Khổ vải (Width)": cut_width_val,
             "Co rút dọc (% Warp)": warp_val,
-            "Co rút ngang (% Weft)": weft_val, # 🟢 Đã hiển thị chuẩn xác 15.0% lên màn hình!
+            "Co rút ngang (% Weft)": weft_val,
             "Marker Efficiency": str(raw_eff_value).strip(),
             "Gross Consumption (Yds)": current_gross,
-            "Quality Status": r.get("status", "PASS"),
+            "Quality Status": r.get("quality_gate_status", r.get("status", "PASS")),
             "System Notes": sys_notes
         })
         
@@ -1294,3 +1306,5 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data 
         )
     except Exception as e:
         st.warning(f"⚠️ Không thể khởi tạo nút xuất Excel cao cấp: {str(e)}")
+else:
+    st.info("💡 Hệ thống đang chờ câu lệnh phân bổ dữ liệu rập hoặc BOM gốc...")
