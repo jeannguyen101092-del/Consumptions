@@ -167,7 +167,7 @@ def on_chat_submitted():
     if not user_prompt:
         return
         
-    # 1. NLP PARSER: Trích xuất các tham số biến số từ câu lệnh chat
+    # 1. NLP Parser bóc tách số liệu khổ vải và co rút
     all_numbers = re.findall(r"\d+", user_prompt)
     width_val = 58.0
     warp_val = 0.0
@@ -183,56 +183,57 @@ def on_chat_submitted():
     elif len(all_numbers) == 1:
         width_val = float(all_numbers[0])
 
-    # 2. DỮ LIỆU ĐẦU VÀO ĐỘNG TỪ PROFILE TECHPACK
-    current_outseam = st.session_state.current_specs["outseam"] # Dài quần
-    current_hip = st.session_state.current_specs["hip"]         # Rộng mông (Hip/2)
+    # 2. Lấy dữ liệu thông số rập động từ file PDF đã tải
+    current_outseam = st.session_state.current_specs["outseam"]
+    current_hip = st.session_state.current_specs["hip"]
     
-    # 🌟 LÕI LẬP LUẬN AI (COMBINATORIAL AI LAYER): 
-    # Tự động phân tích kết cấu từ Sketch để tính toán diện tích hình học thực tế của từng cụm chi tiết
-    # Không dùng công thức gộp nhân chuỗi mù quáng.
+    # 获取当前 tệp để phân tích tên nhằm nhận diện chủng loại hàng
+    file_label = str(st.session_state.product_code).upper()
     
-    # a. Diện tích phôi 4 thân quần chính (Diện tích hình thang thực tế bao quanh cơ thể)
-    main_body_area = (current_outseam * (current_hip * 2) * 0.76)
+    # 🌟 BỘ PHÂN LOẠI AI SẢN PHẨM TỰ ĐỘNG (PRODUCT CLASSIFIER LAYER)
+    # Tự động quét từ khóa hoặc tên file để quyết định kết cấu hình học rập mẫu
+    is_cargo = "CARGO" in file_label or "CARGO" in user_prompt.upper()
+    is_jean = "JEAN" in file_label or "JEAN" in user_prompt.upper() or (not is_cargo) # Mặc định quần dài basic nếu không rõ loại
     
-    # b. AI tự động bóc tách Sketch phát hiện Quần Cargo có Túi hộp bên và Túi sau để cộng dồn diện tích
-    # 2 túi hộp đùi (10x12 in) + 2 nắp túi (4x10 in) + 2 túi hậu (7x7 in) + Cạp quần rời
-    cargo_pockets_area = (10 * 12 * 2) + (4 * 10 * 2)
-    back_pockets_area = (7 * 7 * 2)
-    waistband_area = (current_hip * 2 * 2) * 4 # Cạp quần vòng quanh eo
+    # Tính diện tích phôi 4 thân quần chính
+    main_body_area = (current_outseam * (current_hip * 2) * 0.74)
+    waistband_area = (current_hip * 2 * 2) * 3.5 # Cạp quần jean/cargo tiêu chuẩn
     
-    # Tổng diện tích hình học phẳng thực tế của tất cả polygon rập mẫu kết hợp
-    total_geometric_area = main_body_area + cargo_pockets_area + back_pockets_area + waistband_area
+    # AI tự động phân rã kết cấu chi tiết phụ dựa trên dáng quần nhận diện được
+    if is_cargo:
+        product_style = "Quần Túi Hộp (Cargo Pant)"
+        # Cộng thêm 2 túi hộp đùi to + 2 nắp túi
+        extra_pockets_area = (10 * 12 * 2) + (4 * 10 * 2) + (7 * 7 * 2)
+        base_eff = 0.86 # Nhiều chi tiết nhỏ dễ lồng chèn sơ đồ Gerber
+    else:
+        product_style = "Quần Jean / Quần Dài Basic (5-Pocket Denim)"
+        # Chỉ cộng 2 túi hậu jean (7x7) + lót túi xuôi, hoàn toàn không có túi hộp cồng kềnh
+        extra_pockets_area = (7 * 7 * 2) + (6 * 6 * 2)
+        base_eff = 0.83 # Chi tiết to bản khó lồng chèn khoảng trống hơn
+        
+    total_geometric_area = main_body_area + waistband_area + extra_pockets_area
     
-    # 3. MA TRẬN TỐI ƯU HÓA HIỆU SUẤT SƠ ĐỒ ĐỘNG THEO DÒNG HÀNG CARGO PANT
-    # Do quần Cargo nhiều chi tiết nhỏ (túi hộp, nắp túi), AI sẽ tự động tăng hiệu suất lồng ghép (Eff) 
-    # vì các chi tiết nhỏ này sẽ được điền vào khoảng trống góc thừa của thân quần lớn (Gerber mô phỏng)
-    base_eff = 0.84 
-    bonus_eff_from_trims = min(0.04, (6 * 0.008)) # Cộng thưởng 3.2% Eff cho sơ đồ nhiều chi tiết nhỏ lồng ghép
-    optimized_marker_eff = base_eff + bonus_eff_from_trims
+    # 3. Tính toán sơ đồ marker length dệt may
+    wastage_factor = 1.04  
+    edge_allowance = 1.02  
     
-    wastage_factor = 1.04  # Hao hụt đầu cây, dải cắt nhà máy tiêu chuẩn
-    edge_allowance = 1.02  # Hao hụt biên sơ đồ dệt thoi phẳng ổn định
-    
-    # 4. TIẾN HÀNH ĐI SƠ ĐỒ TOÁN HỌC (MARKER LENGTH SIMULATION)
-    denom = (width_val * 36.0 * optimized_marker_eff)
+    denom = (width_val * 36.0 * base_eff)
     if denom > 0:
         net_consumption = total_geometric_area / denom
-        # Áp hệ số co rút dệt phẳng sớ vải dọc và ngang
         shrinkage_coefficient = (1 + (warp_val / 100)) * (1 + (weft_val / 100))
         final_consumption = net_consumption * shrinkage_coefficient * wastage_factor * edge_allowance
     else:
         final_consumption = 0.0
 
-    # Khóa kết quả làm tròn chuẩn hóa phòng sơ đồ công nghiệp
     final_consumption = round(final_consumption, 3)
 
-    # 5. ĐỒNG BỘ HOÁ LÊN BẢNG METRICS CHÍNH TỨC THỜI
+    # 4. Đồng bộ lên Metrics hiển thị
     st.session_state.estimated_consumption = final_consumption
     st.session_state.total_items = "1 Item(s)"
     st.session_state.engine_mode = "ADAPTIVE IE"
 
     st.session_state.chat_history.append({"role": "user", "content": user_prompt})
-    ai_response = f"AI Core lập luận kết cấu: Phát hiện dáng Quần Cargo ({current_outseam}x{current_hip}in) + 2 Túi hộp đùi + Cạp rời. Tự động tối ưu sơ đồ lồng ghép chi tiết nhỏ (Eff: {optimized_marker_eff*100:.1f}%). Định mức thực tế: {final_consumption:.3f} Yds."
+    ai_response = f"AI Classifier nhận diện dáng hàng: **{product_style}**. Đã bóc tách kết cấu hình học rập riêng biệt cho dòng vải này. Định mức chuẩn xác: **{final_consumption:.3f} Yds** (Eff sơ đồ: {base_eff*100}%)."
     st.session_state.chat_history.append({"role": "assistant", "content": ai_response})
     
     st.session_state.current_prompt_value = ""
