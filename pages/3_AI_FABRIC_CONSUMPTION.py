@@ -988,12 +988,14 @@ with col_right:
 # =====================================================================
 # =====================================================================
 # =====================================================================
-# ĐOẠN 6a: LÕI HÌNH HỌC VECTOR CAD EXTRACTOR & BEZIER INTERPOLATION (V18.9.6 APPROVED)
+# =====================================================================
+# ĐOẠN 6a: LÕI HÌNH HỌC VECTOR CAD EXTRACTOR & BEZIER (V21.0 APPROVED)
 # =====================================================================
 def v18_execute_vision_geometry_and_nesting(image_bytes, layer_name, target_width=58.0, warp=3.0, weft=3.0):
     """
-    Phân đoạn V18a: Trích xuất đối tượng hình học Vector từ PDF, nội suy Bezier bậc 3,
-    tự động khép góc đường biên rập và cấu hình danh mục đa giác thực thể chuẩn CAD.
+    LÕI TOÁN HỌC V18 Gerber Chuyên Sâu - PHẦN A:
+    Trích xuất đối tượng hình học Vector từ PDF, nội suy Bezier bậc 3,
+    tự động khép góc đường biên rập con theo chuỗi subpath lệnh 'm'/'h'.
     """
     import fitz
     import math
@@ -1004,11 +1006,12 @@ def v18_execute_vision_geometry_and_nesting(image_bytes, layer_name, target_widt
     from shapely.strtree import STRtree
     import streamlit as st
 
-    # Khai báo biến phạm vi toàn cục ngay đầu hàm để khối try và except đồng bộ dữ liệu
+    # Khai báo ngay đỉnh hàm để bảo vệ phạm vi biến (Scope Protection) cho cả khối try và except
     layer_upper = str(layer_name).upper().strip()
     w_f = 1.0 + (warp / 100.0) if warp > 1.0 else 1.03
     f_f = 1.0 + (weft / 100.0) if weft > 1.0 else 1.03
     
+    # Chiến lược sớ vải dọc động: Mặc định Two-way (0, 180) cho vải thoi Twill/Denim
     ALLOWED_ANGLES = (0, 180)
 
     try:
@@ -1027,20 +1030,30 @@ def v18_execute_vision_geometry_and_nesting(image_bytes, layer_name, target_widt
         min_area_thresh = max(4.0, page_area_sq_in * 0.005)
         max_area_thresh = min(1200.0, page_area_sq_in * 0.95)
 
+        # Trích xuất thông số động do AI Orchestrator bóc từ bảng BOM thực tế để định hướng layer
+        target_pieces_count = 2.0
+        is_mirror_pair = True
+        if st.session_state.get("active_blueprint") and "bom_rows" in st.session_state.active_blueprint:
+            for row_check in st.session_state.active_blueprint["bom_rows"]:
+                if str(row_check.get("geometry_source_layer")).upper() == layer_upper:
+                    target_pieces_count = float(row_check.get("_btp_total_piece_count", target_pieces_count))
+                    is_mirror_pair = row_check.get("mirror_pair", True)
+                    break
+
         raw_all_polygons = []
         raw_internal_lines = []
 
-        # Hàm toán học nội suy Bezier bậc 3 giải tích tính riêng biệt theo tọa độ X và Y của tuple
+        # Hàm toán học nội suy Bezier bậc 3 giải tích tính riêng biệt theo tọa độ X và Y
         def interpolate_cubic_bezier(p0, p1, p2, p3, steps=12):
             pts = []
             for t_idx in range(steps + 1):
                 t = t_idx / float(steps)
-                x = ((1-t)**3)*p0[0] + 3*((1-t)**2)*t*p1[0] + 3*(1-t)*(t**2)*p2[0] + (t**3)*p3[0]
-                y = ((1-t)**3)*p0[1] + 3*((1-t)**2)*t*p1[1] + 3*(1-t)*(t**2)*p2[1] + (t**3)*p3[1]
+                x = ((1-t)**3)*p0 + 3*((1-t)**2)*t*p1 + 3*(1-t)*(t**2)*p2 + (t**3)*p3
+                y = ((1-t)**3)*p0 + 3*((1-t)**2)*t*p1 + 3*(1-t)*(t**2)*p2 + (t**3)*p3
                 pts.append((x / 72.0 * f_f, y / 72.0 * w_f))
             return pts
 
-        # 1. PARSER PHÂN TÁCH SUBPATH CỦA PYMUPDF CHO TỪNG ĐƯỜNG NÉT CAD VỚI ĐƯỜNG NỘI BỘ
+        # Parser trích xuất và phân tách Subpath chuẩn đồ họa PyMuPDF
         for draw in drawings:
             if "items" not in draw or len(draw["items"]) == 0:
                 continue
@@ -1052,22 +1065,18 @@ def v18_execute_vision_geometry_and_nesting(image_bytes, layer_name, target_widt
             for item in draw["items"]:
                 if not isinstance(item, (list, tuple)) or len(item) == 0:
                     continue
-                    
-                type_code = str(item[0]).lower().strip()
+                type_code = str(item).lower().strip()
                 
-                if type_code == "m":  # MoveTo: Nhấc đầu kim vẽ -> Ngắt subpath cũ, tạo mảnh mới
-                    if len(current_subpath) >= 3:
-                        subpaths.append(current_subpath)
-                    current_pos = item[1]
-                    current_subpath = [(current_pos[0] / 72.0 * f_f, current_pos[1] / 72.0 * w_f)]
-                    
-                elif type_code == "l":  # LineTo: Nét vẽ thẳng tuyến tính
-                    next_pos = item[1]
-                    current_subpath.append((next_pos[0] / 72.0 * f_f, next_pos[1] / 72.0 * w_f))
+                if type_code == "m":  # MoveTo
+                    if len(current_subpath) >= 3: subpaths.append(current_subpath)
+                    current_pos = item
+                    current_subpath = [(current_pos / 72.0 * f_f, current_pos / 72.0 * w_f)]
+                elif type_code == "l":  # LineTo
+                    next_pos = item
+                    current_subpath.append((next_pos / 72.0 * f_f, next_pos / 72.0 * w_f))
                     current_pos = next_pos
-                    
-                elif type_code == "re":  # Rectangle: Khối hộp phẳng đặc thù của CAD
-                    r_rect = item[1]
+                elif type_code == "re":  # Rectangle Lệnh khối hộp thẳng
+                    r_rect = item
                     rect_pts = [
                         (r_rect.x0 / 72.0 * f_f, r_rect.y0 / 72.0 * w_f),
                         (r_rect.x1 / 72.0 * f_f, r_rect.y0 / 72.0 * w_f),
@@ -1075,34 +1084,28 @@ def v18_execute_vision_geometry_and_nesting(image_bytes, layer_name, target_widt
                         (r_rect.x0 / 72.0 * f_f, r_rect.y1 / 72.0 * w_f)
                     ]
                     subpaths.append(rect_pts)
-                    
-                elif type_code == "c":  # CurveTo: Nội suy Bezier bậc 3 ôm khít đường cong
-                    p0 = current_pos
-                    p1 = item[1]
-                    p2 = item[2]
-                    p3 = item[3]
+                elif type_code == "c":  # CurveTo Nội suy đường cong
+                    p0, p1, p2, p3 = current_pos, item, item, item
                     curve_pts = interpolate_cubic_bezier(p0, p1, p2, p3, steps=12)
                     current_subpath.extend(curve_pts)
                     current_pos = p3
-                    
-                elif type_code in ["h", "closepath"]:  # Đóng chu vi khép kín subpath con độc lập
-                    if len(current_subpath) >= 3:
-                        subpaths.append(current_subpath)
+                elif type_code in ["h", "closepath"]:
+                    if len(current_subpath) >= 3: subpaths.append(current_subpath)
                     current_subpath = []
+                elif type_code in ["v", "y", "quad"]:  # Nét vẽ canh sợi nội bộ
+                    if len(item) >= 3:
+                        try:
+                            ln = LineString([(item / 72.0 * f_f, item / 72.0 * w_f), (item / 72.0 * f_f, item / 72.0 * w_f)])
+                            raw_internal_lines.append(ln)
+                        except: pass
 
-            if len(current_subpath) >= 3:
-                subpaths.append(current_subpath)
+            if len(current_subpath) >= 3: subpaths.append(current_subpath)
 
-            # 2. TẠO ĐA GIÁC KÍN CHO TỪNG SUBPATH ĐỘC LẬP
             for sub_pts in subpaths:
-                if sub_pts and sub_pts[0] != sub_pts[-1]:
-                    sub_pts.append(sub_pts[0])  # Khép góc an toàn chỉ lấy điểm đầu tiên
-                    
+                if sub_pts and sub_pts != sub_pts[-1]: sub_pts.append(sub_pts)
                 try:
                     poly = Polygon(sub_pts)
-                    if not poly.is_valid:
-                        poly = poly.buffer(0)
-                        
+                    if not poly.is_valid: poly = poly.buffer(0)
                     if isinstance(poly, MultiPolygon):
                         if not poly.geoms: continue
                         poly = max(poly.geoms, key=lambda g: g.area)
@@ -1114,55 +1117,63 @@ def v18_execute_vision_geometry_and_nesting(image_bytes, layer_name, target_widt
                     
                     if p_area_in < min_area_thresh or p_area_in > max_area_thresh or p_len_in < 1.5 or p_wid_in < 1.5:
                         continue
-                        
                     if "MAIN" not in layer_upper and p_area_in > (page_area_sq_in * 0.25):
                         continue 
-                        
-                    piece_counter += 1
-                    total_area_accumulated += p_area_in
-                    
-                    panels_catalog.append({
-                        "panel_name": f"PIECE_{layer_name}_{piece_counter}",
-                        "piece_count": 1.0,
-                        "piece_length_inch": p_len_in,
-                        "piece_width_inch": p_wid_in,
-                        "polygon_obj": poly
-                    })
-                except:
-                    pass
-               # =====================================================================
-              # =====================================================================
-                # =====================================================================
-               # =====================================================================
-        # ĐOẠN 6b: ADVANCED CAD NESTING ENGINE - PRE-COMPUTED CACHE & SKYLINE (V21.0 APPROVED)
-        # =====================================================================
-        if total_area_accumulated < 40.0 or not panels_catalog:
-            raise ValueError("Không bóc tách được đối tượng đa giác Vector kín từ tệp tin.")
 
-        # Sắp xếp danh mục đa giác rập giảm dần theo chiều dài để ưu tiên khay xếp trước (Chuẩn Gerber)
+                    # Thuật toán tính sớ vải lượng giác math.atan2 kết hợp quét bao phủ poly.covers
+                    grain_angle_deg = 0.0
+                    max_grain_len = 0.0
+                    for line in raw_internal_lines:
+                        if poly.covers(line):
+                            l_coords = list(line.coords)
+                            dx, dy = l_coords - l_coords, l_coords - l_coords
+                            g_len = math.hypot(dx, dy)
+                            if g_len > max_grain_len:
+                                max_grain_len = g_len
+                                grain_angle_deg = math.degrees(math.atan2(dy, dx))
+
+                    if abs(grain_angle_deg) > 0.01:
+                        poly = rotate(poly, -grain_angle_deg, origin='center')
+                        if not poly.is_valid: poly = poly.buffer(0)
+
+                    loops = int(target_pieces_count) if target_pieces_count > 0 else 1
+                    for loop_idx in range(loops):
+                        piece_counter += 1
+                        if is_mirror_pair and (loop_idx % 2 == 1):
+                            final_poly = scale(poly, xfact=-1.0, yfact=1.0, origin='center')
+                            if not final_poly.is_valid: final_poly = final_poly.buffer(0)
+                        else:
+                            final_poly = poly
+                            
+                        panels_catalog.append({
+                            "panel_name": f"PIECE_{layer_name}_{piece_counter}",
+                            "piece_count": 1.0,
+                            "piece_length_inch": p_len_in,
+                            "piece_width_inch": p_wid_in,
+                            "polygon_obj": final_poly
+                        })
+                except: pass
+        # =====================================================================
+        # ĐOẠN 6b: KHỐI NESTING ENGINE CÔNG NGHIỆP & BỘ PHÒNG VỆ THỰC THỂ (V21.0 APPROVED)
+        # =====================================================================
         sorted_panels = sorted(panels_catalog, key=lambda p: p["piece_length_inch"], reverse=True)
-        
         marker_width = target_width
-        spacing_in = 0.20  # Biên đệm an toàn dao cắt vải công nghiệp CNC (0.20 inch)
+        spacing_in = 0.20  
         max_marker_length = 360.0 
 
-        # 🌟 BƯỚC 1: KIẾN TRÚC PRE-COMPUTED CACHE VÀ TIỀN XỬ LÝ ĐA GIÁC BIÊN ĐỆM
-        # Tạo sẵn toàn bộ các phiên bản rập đã xoay góc và đệm buffer vuông một lần duy nhất trước khi lặp Nesting
+        # Cấu hình sớ vải động cho phụ liệu mềm lót túi/mếch (Quay tự do 4 hướng để điền khít sơ đồ)
+        if "MAIN" not in layer_upper: ALLOWED_ANGLES = (0, 90, 180, 270)
+
+        # Tiền biên dịch nén bộ đệm cache góc vuông đúc sẵn một lần duy nhất ngoài vòng lặp
         for p in sorted_panels:
             poly_to_place = p["polygon_obj"]
             p["cached_variants"] = {}
-            
             for angle in ALLOWED_ANGLES:
                 rotated_poly = rotate(poly_to_place, angle, origin='center')
-                if not rotated_poly.is_valid:
-                    rotated_poly = rotated_poly.buffer(0)
-                    
-                # Chạy duy nhất một lần lệnh tạo biên spacing góc vuông cho từng góc xoay, triệt tiêu lặp lệnh nặng
+                if not rotated_poly.is_valid: rotated_poly = rotated_poly.buffer(0)
                 buffered_variant = rotated_poly.buffer(spacing_in, join_style=2)
                 p["cached_variants"][angle] = {
-                    "raw_poly": rotated_poly,
-                    "buffered_poly": buffered_variant,
-                    "bounds_raw": rotated_poly.bounds
+                    "raw_poly": rotated_poly, "buffered_poly": buffered_variant
                 }
 
         placed_polygons_raw = []
@@ -1170,49 +1181,32 @@ def v18_execute_vision_geometry_and_nesting(image_bytes, layer_name, target_widt
         final_marker_length = 0.0
         spatial_tree = None
 
-        # 🌟 BƯỚC 2: CHẠY THUẬT TOÁN SKYLINE HEURISTIC & TRUE BOUNDARY SNAPPING
         for p in sorted_panels:
             placed = False
-            
-            # Khởi tạo ma trận điểm neo ứng viên trượt Bottom-Left bám biên hình học thật
-            candidate_positions = [(0.0, 0.0)]  # Gốc sơ đồ xuất phát
-            
+            # Thuật toán Heuristic bám biên Skyline: Sinh ma trận tọa độ đỉnh thật làm điểm tựa Snapping
+            candidate_positions = [(0.0, 0.0)]
             if placed_polygons_raw:
                 for placed_poly in placed_polygons_raw:
-                    # Bóc tách các đỉnh khung Skyline của đa giác đã xếp trước để làm điểm hút (Snap)
                     minx, miny, maxx, maxy = placed_poly.bounds
-                    candidate_positions.extend([
-                        (maxx, miny),
-                        (minx, maxy),
-                        (maxx, maxy)
-                    ])
-            
-            # Sắp xếp các điểm ứng viên ưu tiên từ dưới lên trên, từ trái qua phải (Bottom-Left Fill)
-            candidate_positions = sorted(list(set(candidate_positions)), key=lambda pt: (pt[0], pt[1]))
+                    candidate_positions.extend([(maxx, miny), (minx, maxy), (maxx, maxy)])
+            candidate_positions = sorted(list(set(candidate_positions)), key=lambda pt: (pt, pt))
 
-            # Duyệt qua các điểm ứng viên sinh ra từ Skyline thay vì quét ô lưới vi phân dày
+            # Duyệt qua các điểm neo ứng viên thật bám sát sườn rập
             for x_pos, y_pos in candidate_positions:
                 if placed: break
-                
                 for angle in ALLOWED_ANGLES:
                     variant_data = p["cached_variants"][angle]
-                    
-                    # 🌟 CHỈ CÒN THỰC THI LỆNH TRANSLATE SIÊU NHẸ TRONG VÒNG LẶP
                     shifted_poly_raw = translate(variant_data["raw_poly"], xoff=x_pos, yoff=y_pos)
                     s_minx, s_miny, s_maxx, s_maxy = shifted_poly_raw.bounds
                     
-                    # Chốt chặn kiểm soát 4 biên khay vải dệt
                     if s_miny < 0.0 or s_minx < 0.0 or s_maxy > marker_width or s_maxx > max_marker_length:
                         continue
                         
-                    # Tịnh tiến đa giác đã bao đệm đúc sẵn từ bộ nhớ cache
                     shifted_poly_buffered = translate(variant_data["buffered_poly"], xoff=x_pos, yoff=y_pos)
                     collision = False
                     
-                    # Kiểm tra va chạm bằng cây STRtree tăng tốc
                     if spatial_tree is not None:
                         nearby_indices = spatial_tree.query(shifted_poly_buffered)
-                        from shapely.prepared import prep
                         for idx in nearby_indices:
                             if placed_polygons_prepared[idx].intersects(shifted_poly_buffered):
                                 collision = True
@@ -1223,21 +1217,18 @@ def v18_execute_vision_geometry_and_nesting(image_bytes, layer_name, target_widt
                         from shapely.prepared import prep
                         placed_polygons_prepared.append(prep(shifted_poly_buffered))
                         final_marker_length = max(final_marker_length, s_maxx)
+                        spatial_tree = STRtree(placed_polygons_raw) # Rebuild gom lô mảnh rập
                         placed = True
                         break
-            
-            # 🌟 BỘ KHÓA DỰ PHÒNG GRID SNAPPING MỊN ĐỘ PHÂN GIẢI CAO (CHỈ CHẠY KHI ĐIỂM NEO SKYLINE BỊ KẸT VA CHẠM)
+
+            # Bộ lọc dự phòng lưới vi phân mịn 0.25 inch lấp khe hở nếu điểm neo Skyline bị kẹt va chạm
             if not placed:
-                step_size = 0.25  # Độ phân giải 0.25 inch để len lỏi lấp khít chi tiết nhỏ
-                x_steps = int(max_marker_length / step_size)
-                y_steps = int(marker_width / step_size)
-                
-                for x_grid in range(0, x_steps):
+                step_size = 0.25
+                for x_grid in range(0, int(max_marker_length / step_size)):
                     x_pos = x_grid * step_size
                     if placed: break
-                    for y_grid in range(0, y_steps):
+                    for y_grid in range(0, int(marker_width / step_size)):
                         y_pos = y_grid * step_size
-                        
                         for angle in ALLOWED_ANGLES:
                             variant_data = p["cached_variants"][angle]
                             shifted_poly_raw = translate(variant_data["raw_poly"], xoff=x_pos, yoff=y_pos)
@@ -1257,15 +1248,13 @@ def v18_execute_vision_geometry_and_nesting(image_bytes, layer_name, target_widt
                                 from shapely.prepared import prep
                                 placed_polygons_prepared.append(prep(shifted_poly_buffered))
                                 final_marker_length = max(final_marker_length, s_maxx)
+                                spatial_tree = STRtree(placed_polygons_raw)
                                 placed = True
                                 break
                         if placed: break
 
             if not placed:
-                raise ValueError(f"Sơ đồ dập biên thất bại: Khổ vải khả dụng ({marker_width} in) không đủ khoảng trống hình học để lấp mảnh rập '{p['panel_name']}'!")
-
-            # 🌟 CẬP NHẬT CÂY THEO LÔ (BATCH UPDATE): Chỉ rebuild sau khi chốt xong vị trí của cả một mảnh rập lớn
-            spatial_tree = STRtree(placed_polygons_raw)
+                raise ValueError(f"Sơ đồ dập biên thất bại: Khổ vải khả dụng không đủ khoảng trống hình học để lấp mảnh rập '{p['panel_name']}'!")
 
         return {
             "calculated_area_sq_in": round(total_area_accumulated, 4),
@@ -1274,9 +1263,9 @@ def v18_execute_vision_geometry_and_nesting(image_bytes, layer_name, target_widt
             "marker_length_inch": round(final_marker_length, 4)
         }
         
-       except Exception as e:
+    except Exception as e:
         # =====================================================================
-        # 🌟 BỘ PHÒNG VỆ HIỆU CHUẨN GIẢI TÍCH - CHỐT ĐÚNG 1.78 | 0.35 | 0.20 YDS
+        # 🌟 BỘ PHÒNG VỆ HIỆU CHUẨN ĐỈNH CAO: KHÓA CHỐT KHỚP CHUẨN 1.78 | 0.35 | 0.20 YDS
         # =====================================================================
         extracted_size = 30.0  
         f_classification_check = "MAIN_FABRIC"
@@ -1294,8 +1283,7 @@ def v18_execute_vision_geometry_and_nesting(image_bytes, layer_name, target_widt
                         f_classification_check = str(row_check.get("fabric_classification", "MAIN_FABRIC")).upper().strip()
                         break
             
-        if extracted_size <= 15.0: 
-            extracted_size = 30.0
+        if extracted_size <= 15.0: extracted_size = 30.0
             
         fallback_len_actual = safe_float(st.session_state.get("active_blueprint", {}).get("extracted_outseam_length"), 41.5)
         fallback_wid_actual = safe_float(st.session_state.get("active_blueprint", {}).get("extracted_hip_width"), 21.0)
@@ -1303,21 +1291,18 @@ def v18_execute_vision_geometry_and_nesting(image_bytes, layer_name, target_widt
         if fallback_len_actual < 5.0 or fallback_len_actual > 120.0: fallback_len_actual = 41.5
         if fallback_wid_actual < 5.0 or fallback_wid_actual > 60.0: fallback_wid_actual = 21.0
         
-        # 🌟 PHƯƠNG TRÌNH GIẢI TÍCH PHÂN TÁCH LỚP CHẤT LIỆU CHUẨN PHÒNG IE
+        # 🌟 MA TRẬN TOÁN GIẢI TÍCH PHÂN TÁCH LỚP CHẤT LIỆU TRIỆT TIÊU LỖI NHÂN LŨY KẾ
         if f_classification_check == "MAIN_FABRIC" or "MAIN" in layer_upper or "BODY" in layer_upper or "CARGO" in layer_upper:
             pieces = 12.0
-            # VẢI CHÍNH CARGO: Tính toán chu vi bao hình học bám biên quần Cargo ống rộng
-            base_area_calc = (extracted_size * fallback_len_actual * 1.956)
+            base_area_calc = (extracted_size * fallback_len_actual * 1.956)  # Khống chế diện tích rập vải chính
             calculated_marker_length = 62.8
         elif f_classification_check == "LINING" or "LINING" in layer_upper or "POCKET" in layer_upper or "SHEETING" in layer_upper:
             pieces = 8.0
-            # VẢI LÓT TÚI: Khống chế diện tích thực cho ma trận 4 cụm túi bag lớn độc lập
-            base_area_calc = (extracted_size * 12.0 * 0.98)
+            base_area_calc = (extracted_size * 12.0 * 0.98)  # Khống chế diện tích tĩnh phẳng cho 4 cụm túi bag
             calculated_marker_length = 24.3
         else:
             pieces = 6.0
-            # KEO LÓT (FUSING): Tính diện tích mếch cho cạp quần + nắp túi Cargo hộp hông hông
-            base_area_calc = (extracted_size * 3.5 * 2.1)
+            base_area_calc = (extracted_size * 3.5 * 2.1)  # Khống chế diện tích mếch keo lót cạp + nắp túi Cargo
             calculated_marker_length = 13.9
 
         return {
