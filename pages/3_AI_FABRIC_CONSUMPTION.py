@@ -701,61 +701,77 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict, user_prompt
 
 
 # =====================================================================
-# ĐOẠN 6a: HỆ THỐNG CONFIG, BANNER TIÊU ĐỀ & ENGINE TÍNH TOÁN KPIs NỀN (V17.7.2.0)
+# ĐOẠN 6a: HỆ THỐNG CONFIG & BANNER TIÊU ĐỀ GHIM CỐ ĐỊNH TRÊN ĐỈNH (V17.8.0.0 APPROVED)
 # =====================================================================
 st.set_page_config(layout="wide", page_title="AI Fabric Consumption Matrix")
 
-# Tinh chỉnh CSS đồng bộ giao diện gọn gàng, tạo layout khối màu sắc chuyên nghiệp
+# 🌟 BỘ STYLING CSS CAO CẤP: Ghim chặt Banner + KPIs lên đỉnh màn hình, tạo khoảng giãn cách cho nội dung cuộn bên dưới
 st.markdown("""
 <style>
-    /* Khung Banner chính trên đỉnh màn hình */
+    /* Bọc toàn bộ khối đỉnh vào một container cố định */
+    .sticky-header-container {
+        position: fixed;
+        top: 40px; /* Né thanh menu mặc định của Streamlit */
+        left: 0;
+        right: 0;
+        width: 100%;
+        background-color: #f8fafc; /* Đổ màu nền tiệp với màu app để che nội dung cuộn bên dưới */
+        z-index: 99999; /* Ép luôn luôn nổi lên trên cùng */
+        padding: 0px 4rem 15px 4rem; /* Căn lề trái phải khít với layout wide */
+    }
+    
+    /* Khoảng đệm giả để đẩy nội dung bên dưới cột trái/phải không bị che lấp sau khối ghim */
+    .sticky-buffer {
+        margin-top: 195px; /* Chiều cao tương đương cụm Banner + KPIs */
+    }
+
+    /* Khung Banner chính chuyển sắc */
     .top-banner {
         background: linear-gradient(135deg, #1e3a8a 0%, #0369a1 100%);
-        padding: 18px 24px;
+        padding: 14px 20px;
         border-radius: 8px;
         color: #ffffff;
-        margin-bottom: 15px;
+        margin-bottom: 12px;
         box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
     }
     .top-title {
         font-family: 'Segoe UI', sans-serif;
-        font-size: 22px;
+        font-size: 20px;
         font-weight: 700;
         letter-spacing: 0.02em;
     }
     .top-subtitle {
-        font-size: 12px;
+        font-size: 11px;
         color: #e0f2fe;
         opacity: 0.85;
-        margin-top: 2px;
+        margin-top: 1px;
     }
     
-    /* Định hình cấu trúc khung thẻ KPIs màu sắc mềm mại */
+    /* Khung thẻ KPIs chuyển sắc dạng Grid */
     .kpi-card-colored {
         border-radius: 8px;
-        padding: 14px 16px;
+        padding: 12px 14px;
         text-align: center;
         box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
         border: 1px solid rgba(0,0,0,0.05);
     }
     .kpi-num-light {
-        font-size: 22px;
+        font-size: 20px;
         font-weight: 700;
         color: #ffffff;
         font-family: 'Segoe UI', sans-serif;
     }
     .kpi-lbl-light {
-        font-size: 11px;
+        font-size: 10px;
         font-weight: 600;
         color: #ffffff;
         opacity: 0.9;
         text-transform: uppercase;
-        margin-top: 4px;
+        margin-top: 2px;
         letter-spacing: 0.02em;
         font-family: 'Segoe UI', sans-serif;
     }
     
-    /* Các dải màu chuyển sắc (Gradient) cho từng loại thẻ chỉ số */
     .bg-style { background: linear-gradient(135deg, #334155 0%, #1e293b 100%); }
     .bg-items { background: linear-gradient(135deg, #0d9488 0%, #0f766e 100%); }
     .bg-cons  { background: linear-gradient(135deg, #ea580c 0%, #c2410c 100%); }
@@ -781,7 +797,6 @@ st.markdown("""
         border-bottom: 2px solid #cbd5e1;
     }
     
-    /* Ô hiển thị thông tin thẻ tóm tắt hồ sơ mã hàng */
     .meta-box {
         background-color: #f8fafc;
         border-left: 4px solid #0284c7;
@@ -794,19 +809,17 @@ st.markdown("""
         font-weight: 700;
         color: #64748b;
         text-transform: uppercase;
-        font-family: 'Segoe UI', sans-serif;
     }
     .meta-value {
         font-size: 14px;
         font-weight: 600;
         color: #0f172a;
         margin-top: 2px;
-        font-family: 'Segoe UI', sans-serif;
     }
 </style>
 """, unsafe_allow_html=True)
 
-# Khởi tạo an toàn các biến cấu trúc trạng thái hệ thống
+# Khởi tạo an toàn cấu trúc trạng thái hệ thống
 if "bom_data" not in st.session_state: st.session_state.bom_data = None
 if "chat_history" not in st.session_state: st.session_state.chat_history = []
 if "pdf_bytes" not in st.session_state: st.session_state.pdf_bytes = None
@@ -826,15 +839,7 @@ if st.session_state.pdf_bytes is not None and st.session_state.pdf_text_cache is
     except Exception:
         pass
 
-# ĐẶT THANH BANNER ĐỈNH TOÀN MÀN HÌNH LẤP KHOẢNG TRỐNG TRÊN CÙNG
-st.markdown("""
-<div class="top-banner">
-    <div class="top-title">📊 INTELLIGENT FABRIC CONSUMPTION PLATFORM</div>
-    <div class="top-subtitle">Hệ thống phân tích rập hình học và tự động tính toán định mức kỹ thuật dệt may bằng AI CORE</div>
-</div>
-""", unsafe_allow_html=True)
-
-# ENGINE TRÍCH XUẤT VÀ ĐỒNG BỘ DỮ LIỆU KPIs BIẾN THIÊN THEO THỜI GIAN THỰC
+# ENGINE TRÍCH XUẤT VÀ ĐỒNG BỘ DỮ LIỆU KPIs BIẾN THIÊN
 kpi_style_id = "N/A"
 total_materials = 0
 main_fabric_cons = "0.000"
@@ -860,6 +865,33 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data:
             if val_gross > 0.0:
                 main_fabric_cons = f"{val_gross:.3f} Yds"
                 break
+
+# 🌟 BẮT ĐẦU ÉP KHỐI FIXED CONTAINER LÊN ĐỈNH MÀN HÌNH MÁY TÍNH
+st.markdown('<div class="sticky-header-container">', unsafe_allow_html=True)
+
+st.markdown("""
+<div class="top-banner">
+    <div class="top-title">📊 INTELLIGENT FABRIC CONSUMPTION PLATFORM</div>
+    <div class="top-subtitle">Hệ thống phân tích rập hình học và tự động tính toán định mức kỹ thuật dệt may bằng AI CORE</div>
+</div>
+""", unsafe_allow_html=True)
+
+# Hiển thị lưới 4 ô KPIs đa màu sắc bên trong khung gố định đỉnh
+k_col1, k_col2, k_col3, k_col4 = st.columns(4)
+with k_col1:
+    st.markdown(f'<div class="kpi-card-colored bg-style"><div class="kpi-num-light">{kpi_style_id}</div><div class="kpi-lbl-light">Mã hàng đang xử lý</div></div>', unsafe_allow_html=True)
+with k_col2:
+    st.markdown(f'<div class="kpi-card-colored bg-items"><div class="kpi-num-light">{total_materials} Item(s)</div><div class="kpi-lbl-light">Tổng số vật tư kết xuất</div></div>', unsafe_allow_html=True)
+with k_col3:
+    st.markdown(f'<div class="kpi-card-colored bg-cons"><div class="kpi-num-light" style="font-size:24px;">{main_fabric_cons}</div><div class="kpi-lbl-light">Định mức vải chính dự kiến</div></div>', unsafe_allow_html=True)
+with k_col4:
+    st.markdown(f'<div class="kpi-card-colored bg-size"><div class="kpi-num-light">{active_size_kpi}</div><div class="kpi-lbl-light">Cỡ hạt tính định mức</div></div>', unsafe_allow_html=True)
+
+st.markdown('</div>', unsafe_allow_html=True) # Đóng container ghim đỉnh
+
+# 🌟 ĐẶT KHUNG ĐỆM GIẢ ĐỂ NỘI DUNG PHÍA DƯỚI BẮT ĐẦU CHẠY MƯỢT MÀ KHÔNG BỊ KHỐI GHIM ĐÈ LÊN MẤT CHỮ
+st.markdown('<div class="sticky-buffer"></div>', unsafe_allow_html=True)
+
 # =====================================================================
 # ĐOẠN 6b: KHỐI RÁP GIAO DIỆN KPIs SẮC MÀU & THẺ TÓM TẮT HỒ SƠ MÃ HÀNG (V17.7.2.0)
 # =====================================================================
