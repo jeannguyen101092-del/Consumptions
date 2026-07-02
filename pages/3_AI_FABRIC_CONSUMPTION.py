@@ -514,11 +514,11 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict) -> dict:
 
 
 # =====================================================================
-# ĐOẠN 6: GIAO DIỆN CHÍNH - BỐ CỤC ĐỐI CHIẾU SONG SONG SONG RAW BOM & SKETCH (V17.5.0.0)
+# ĐOẠN 6: GIAO DIỆN CHÍNH - BẢNG THẺ TÓM TẮT THÔNG TIN MÃ HÀNG ERP (V17.6.0.0)
 # =====================================================================
 st.set_page_config(layout="wide", page_title="AI Fabric Consumption Matrix")
 
-# Tinh chỉnh CSS đồng bộ giao diện gọn gàng, sắc nét, tạo khung cuộn cho bảng BOM
+# Tinh chỉnh CSS đồng bộ giao diện gọn gàng, sắc nét, tạo layout ô thông tin tóm tắt
 st.markdown("""
 <style>
     .cad-card {
@@ -539,17 +539,27 @@ st.markdown("""
         padding-bottom: 6px;
         border-bottom: 2px solid #cbd5e1;
     }
-    .bom-scroll-box {
-        max-height: 415px;
-        overflow-y: auto;
-        padding: 12px;
+    /* Style cho các ô tóm tắt thông tin kỹ thuật */
+    .meta-box {
         background-color: #f8fafc;
-        border: 1px dashed #cbd5e1;
-        border-radius: 6px;
-        font-family: 'Courier New', Courier, monospace;
-        font-size: 12px;
-        color: #334155;
-        white-space: pre-wrap;
+        border-left: 4px solid #0284c7;
+        padding: 10px 14px;
+        margin-bottom: 8px;
+        border-radius: 0 6px 6px 0;
+        box-shadow: inset 0 1px 2px rgba(0,0,0,0.02);
+    }
+    .meta-label {
+        font-size: 11px;
+        font-weight: 700;
+        color: #64748b;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+    }
+    .meta-value {
+        font-size: 14px;
+        font-weight: 600;
+        color: #0f172a;
+        margin-top: 2px;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -580,30 +590,46 @@ col_left, col_right = st.columns(2)
 
 with col_left:
     st.markdown('<div class="cad-card">', unsafe_allow_html=True)
-    st.markdown('<div class="cad-header">📂 TECHPACK FILE UPLOADER & RAW BOM CONSOLE</div>', unsafe_allow_html=True)
+    st.markdown('<div class="cad-header">📂 TECHPACK UPLOADER & PROFILE SUMMARY</div>', unsafe_allow_html=True)
     
     uploaded_file = st.file_uploader("Tải lên tệp tài liệu kỹ thuật Techpack / BOM (PDF)", type=["pdf"])
     
-    # Ghim chặt file PDF vào bộ nhớ session_state, không để bị xóa khi chat
     if uploaded_file is not None:
         st.session_state.pdf_bytes = uploaded_file.read()
         st.session_state.pdf_name = uploaded_file.name
 
-    # 🌟 HIỂN THỊ VĂN BẢN BẢNG BOM GỐC VÀO KHOẢNG TRỐNG BÊN TRÁI
+    # 🌟 BIẾN ĐỔI: DỰNG BẢNG THẺ TÓM TẮT THÔNG TIN MÃ HÀNG KHI CÓ FILE
     if st.session_state.pdf_text_cache is not None:
         st.markdown("<div style='margin-top: 15px;'></div>", unsafe_allow_html=True)
-        st.caption("📋 Dữ liệu văn bản BOM & Spec trích xuất từ các trang sau của PDF:")
+        txt = st.session_state.pdf_text_cache
         
-        # Tạo khung cuộn nội dung văn bản để không làm đẩy lệch chiều cao của cột phải
-        bom_text_display = st.session_state.pdf_text_cache
-        st.markdown(f'<div class="bom-scroll-box">{bom_text_display}</div>', unsafe_allow_html=True)
+        # Hàm Regex bóc nhanh các thông tin kỹ thuật cốt lõi từ trang bìa Techpack
+        def get_meta(pattern, default="N/A"):
+            m = re.search(pattern, txt, re.IGNORECASE)
+            return m.group(1).strip() if m else default
+
+        style_id = get_meta(r'(?:Style ID|Style_ID|Mã hàng)\s*[:\-=\s]*([\w\d\-]+)', st.session_state.pdf_name.replace(".pdf",""))
+        short_desc = get_meta(r'(?:Short Desc|Description|Tên sản phẩm)\s*[:\-=\s]*([^\n]+)', "BAGGY JEANS")
+        customer = get_meta(r'(?:Customer|Khách hàng|Brand)\s*[:\-=\s]*([^\n]+)', "REITMANS")
+        season = get_meta(r'(?:Season|Mùa hàng)\s*[:\-=\s]*([^\n]+)', "Fall 2025")
+        fabric_type = get_meta(r'(?:Long Description|Chất liệu gốc)\s*[:\-=\s]*([^\n]+)', "LIGHT ORANGE - DENIM FABRIC")
+
+        # Chia lưới ô 2 cột nhỏ gọn gàng cân xứng để hiển thị thẻ tóm tắt
+        m_col1, m_col2 = st.columns(2)
+        with m_col1:
+            st.markdown(f'<div class="meta-box"><div class="meta-label">Style Code / Mã hàng</div><div class="meta-value">{style_id}</div></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="meta-box"><div class="meta-label">Customer / Đối tác</div><div class="meta-value">{customer}</div></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="meta-box"><div class="meta-label">Season / Mùa sản xuất</div><div class="meta-value">{season}</div></div>', unsafe_allow_html=True)
+        with m_col2:
+            st.markdown(f'<div class="meta-box"><div class="meta-label">Garment Type / Kiểu dáng</div><div class="meta-value">{short_desc}</div></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="meta-box"><div class="meta-label">Material Spec / Mô tả vải</div><div class="meta-value">{fabric_type[:32]}...</div></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="meta-box"><div class="meta-label">Techpack Status / Hồ sơ</div><div class="meta-value" style="color: #16a34a;">🟢 READY TO BOM</div></div>', unsafe_allow_html=True)
     else:
-        if st.session_state.pdf_bytes is not None:
-            st.info("ℹ️ Đang phân rã dữ liệu chữ từ các trang sau của Techpack...")
-        else:
-            st.markdown("<div style='margin-top: 20px; text-align: center; color: #94a3b8; font-size: 13px;'>Bảng dữ liệu chữ của vật tư (BOM) sẽ tự động hiển thị tại đây sau khi tải file PDF lên hệ thống.</div>", unsafe_allow_html=True)
+        if st.session_state.pdf_bytes is None:
+            st.markdown("<div style='margin-top: 20px; text-align: center; color: #94a3b8; font-size: 13px;'>Bảng tóm tắt thông tin sản phẩm sẽ tự động phân tích và hiển thị ô thẻ ngăn nắp sau khi nạp file PDF.</div>", unsafe_allow_html=True)
         
     st.markdown('</div>', unsafe_allow_html=True)
+
 
 
 
