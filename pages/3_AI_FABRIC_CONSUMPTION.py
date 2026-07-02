@@ -689,121 +689,143 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict, user_prompt
 
 
 # =====================================================================
-# ĐOẠN 6a: BANNER & KPIs GHIM CỐ ĐỊNH ĐỈNH - FIX KHUẤT THANH ĐIỀU HƯỚNG (V18.2.5.0 APPROVED)
+# ĐOẠN 6a: INTERACTIVE ENTERPRISE HUB & KPI DASHBOARD (PRO VERSION)
 # =====================================================================
 st.set_page_config(layout="wide", page_title="AI Fabric Consumption Matrix")
 
-# 🌟 BỘ STYLING CSS CẤP CAO: Hạ tọa độ ghim xuống dưới thanh điều hướng Streamlit để lộ toàn bộ Banner KPIs
+# 🌟 BỘ STYLING CSS CẤP CAO: Thiết kế phẳng, tinh tế, font Inter/Segoe UI hiện đại
 st.markdown("""
 <style>
-    /* Trả nền ứng dụng về màu xám trắng dịu mắt chuẩn văn phòng ERP */
+    /* Nền ứng dụng màu xám dịu mắt chuẩn SaaS của các tập đoàn lớn */
     .stApp {
-        background-color: #f8fafc !important;
+        background-color: #f1f5f9 !important;
     }
     
-    /* 🌟 FIX LỖI TRỐNG TRƠN: Đẩy vị trí ghim xuống top: 45px để lộ diện hoàn toàn dưới thanh điều hướng Streamlit */
+    /* Container ghim đỉnh cao cấp - Thiết kế phẳng, đổ bóng mịn tinh tế */
     .sticky-top-container {
         position: fixed;
         top: 45px; 
         left: 0;
         right: 0;
-        padding: 10px 4rem 10px 4rem; 
-        background-color: #f8fafc !important; /* Đổ màu nền trắng để che nội dung cuộn bên dưới */
-        z-index: 999999 !important; /* Ép nổi lên trên các khối card nội dung */
-        box-shadow: 0 4px 6px -1px rgba(0,0,0,0.02);
+        padding: 16px 2rem; 
+        background-color: #ffffff !important; 
+        z-index: 99999 !important; 
+        border-bottom: 1px solid #e2e8f0;
+        box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05);
         width: 100%;
     }
 
-    /* Khung Banner chính trên đỉnh chuyển sắc xanh Coban công nghệ */
+    /* Banner chính tối giản, sang trọng theo tone màu xanh Navy doanh nghiệp */
     .top-banner {
-        background: linear-gradient(135deg, #1e3a8a 0%, #0284c7 100%);
-        padding: 12px 20px;
-        border-radius: 8px;
-        color: #ffffff;
-        margin-bottom: 10px;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 4px 0 16px 0;
+        border-bottom: 1px solid #f1f5f9;
+        margin-bottom: 16px;
     }
     .top-title {
-        font-family: 'Segoe UI', sans-serif;
-        font-size: 18px;
-        font-weight: 700;
-        letter-spacing: 0.02em;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        font-size: 20px;
+        font-weight: 600;
+        color: #0f172a;
+        letter-spacing: -0.025em;
     }
     .top-subtitle {
-        font-size: 11px;
-        color: #e0f2fe;
-        opacity: 0.85;
-        margin-top: 1px;
-    }
-    
-    /* Thẻ chỉ số KPIs sắc màu rực rỡ chữ trắng hiển thị rõ nét */
-    .kpi-card-colored {
-        border-radius: 6px;
-        padding: 10px 12px;
-        text-align: center;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
-        border: 1px solid rgba(255,255,255,0.1);
-    }
-    .kpi-num-light {
-        font-size: 18px;
-        font-weight: 700;
-        color: #ffffff !important; 
-        font-family: 'Segoe UI', sans-serif;
-    }
-    .kpi-lbl-light {
-        font-size: 10px;
-        font-weight: 600;
-        color: #ffffff !important;
-        opacity: 0.9;
-        text-transform: uppercase;
+        font-size: 13px;
+        color: #64748b;
         margin-top: 2px;
-        font-family: 'Segoe UI', sans-serif;
+    }
+    .badge-status {
+        background-color: #eff6ff;
+        color: #1d4ed8;
+        padding: 4px 12px;
+        border-radius: 9999px;
+        font-size: 12px;
+        font-weight: 500;
+        border: 1px solid #bfdbfe;
     }
     
-    .bg-style { background: linear-gradient(135deg, #334155 0%, #1e293b 100%); }
-    .bg-items { background: linear-gradient(135deg, #0d9488 0%, #0f766e 100%); }
-    .bg-cons  { background: linear-gradient(135deg, #ea580c 0%, #c2410c 100%); }
-    .bg-size  { background: linear-gradient(135deg, #16a34a 0%, #15803d 100%); }
+    /* Thẻ chỉ số KPIs thiết kế phẳng, viền xám nhẹ, chữ màu tối rõ nét */
+    .kpi-card-enterprise {
+        background: #ffffff !important;
+        border-radius: 8px;
+        padding: 16px;
+        text-align: left;
+        border: 1px solid #e2e8f0;
+        transition: all 0.2s ease;
+    }
+    .kpi-card-enterprise:hover {
+        border-color: #cbd5e1;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+    }
+    .kpi-lbl-dark {
+        font-size: 12px;
+        font-weight: 500;
+        color: #64748b;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        margin-bottom: 4px;
+        font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+    }
+    .kpi-num-dark {
+        font-size: 24px;
+        font-weight: 700;
+        color: #0f172a; 
+        font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+        display: flex;
+        align-items: center;
+    }
+    
+    /* Thanh chỉ báo màu sắc (Indicator) đặt cạnh tiêu đề thay cho khối màu đặc */
+    .indicator {
+        width: 4px;
+        height: 16px;
+        border-radius: 2px;
+        display: inline-block;
+        vertical-align: middle;
+        margin-right: 8px;
+    }
+    .ind-slate { background-color: #475569; }
+    .ind-teal { background-color: #0d9488; }
+    .ind-orange { background-color: #f97316; }
+    .ind-green { background-color: #22c55e; }
 
-    /* Khung đệm spacer đẩy nội dung dưới sụp xuống tránh bị Banner che khuất */
+    /* Khung đệm đẩy nội dung dưới để không bị che khuất */
     .main-body-spacer {
-        margin-top: 185px; 
+        margin-top: 210px; 
     }
 
-    /* Khung hộp chứa hồ sơ Techpack lồng rập trắng tinh */
+    /* Hộp chứa hồ sơ thiết kế Card chuyên nghiệp */
     .cad-card {
         background-color: #ffffff !important; 
         border: 1px solid #e2e8f0 !important; 
-        border-radius: 8px;
-        padding: 20px;
-        margin-top: 0px;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
-        
-        /* CÂN BẰNG TỶ LỆ 1:1: Ép chiều cao hộp trái bằng khít bản vẽ sườn phải */
+        border-radius: 12px;
+        padding: 24px;
+        box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05);
         min-height: 525px; 
         display: flex;
         flex-direction: column;
     }
     .cad-header {
-        font-family: 'Segoe UI', sans-serif;
-        font-size: 14px;
-        font-weight: 700;
-        color: #0369a1; 
-        letter-spacing: 0.05em;
-        margin-bottom: 12px;
-        padding-bottom: 6px;
-        border-bottom: 2px solid #cbd5e1;
+        font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+        font-size: 16px;
+        font-weight: 600;
+        color: #0f172a; 
+        margin-bottom: 16px;
+        padding-bottom: 12px;
+        border-bottom: 1px solid #e2e8f0;
     }
     
     .meta-box {
         background-color: #f8fafc; 
-        border-left: 4px solid #0284c7;
-        padding: 10px 14px;
-        margin-bottom: 8px;
-        border-radius: 0 6px 6px 0;
+        border: 1px solid #e2e8f0;
+        padding: 12px 16px;
+        margin-bottom: 12px;
+        border-radius: 6px;
     }
-    .meta-label { font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; }
-    .meta-value { font-size: 14px; font-weight: 600; color: #0f172a; margin-top: 2px; }
+    .meta-label { font-size: 11px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; }
+    .meta-value { font-size: 14px; font-weight: 500; color: #0f172a; margin-top: 4px; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -844,33 +866,41 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data:
                 main_fabric_cons = f"{val_gross:.3f} Yds"
                 break
 
-# CONTAINER GHIM ĐỈNH (HẠ TOẠ ĐỘ XUỐNG DƯỚI THANH ĐIỀU HƯỚNG ĐỂ LỘ DIỆN BANNER KPIs)
+# CONTAINER GHIM ĐỈNH CHUẨN ENTERPRISE PLATFORM
 st.markdown('<div class="sticky-top-container">', unsafe_allow_html=True)
 st.markdown("""
 <div class="top-banner">
-    <div class="top-title">📊 INTELLIGENT FABRIC CONSUMPTION PLATFORM</div>
-    <div class="top-subtitle">Hệ thống phân tích rập hình học và tự động tính toán định mức kỹ thuật dệt may bằng AI CORE</div>
+    <div>
+        <div class="top-title">AI Fabric Consumption Platform</div>
+        <div class="top-subtitle">Hệ thống phân tích rập hình học và tự động tính toán định mức kỹ thuật dệt may bằng AI CORE</div>
+    </div>
+    <div class="badge-status">● AI Engine Active</div>
 </div>
 """, unsafe_allow_html=True)
 
 k_col1, k_col2, k_col3, k_col4 = st.columns(4)
-with k_col1: st.markdown(f'<div class="kpi-card-colored bg-style"><div class="kpi-num-light">{kpi_style_id}</div><div class="kpi-lbl-light">Mã hàng đang xử lý</div></div>', unsafe_allow_html=True)
-with k_col2: st.markdown(f'<div class="kpi-card-colored bg-items"><div class="kpi-num-light">{total_materials} Item(s)</div><div class="kpi-lbl-light">Tổng số vật tư kết xuất</div></div>', unsafe_allow_html=True)
-with k_col3: st.markdown(f'<div class="kpi-card-colored bg-cons"><div class="kpi-num-light" style="font-size:22px;">{main_fabric_cons}</div><div class="kpi-lbl-light">Định mức vải chính dự kiến</div></div>', unsafe_allow_html=True)
-with k_col4: st.markdown(f'<div class="kpi-card-colored bg-size"><div class="kpi-num-light">{active_size_kpi}</div><div class="kpi-lbl-light">Cỡ hạt tính định mức</div></div>', unsafe_allow_html=True)
+with k_col1: 
+    st.markdown(f'<div class="kpi-card-enterprise"><div class="kpi-lbl-dark"><span class="indicator ind-slate"></span>Mã hàng đang xử lý</div><div class="kpi-num-dark">{kpi_style_id}</div></div>', unsafe_allow_html=True)
+with k_col2: 
+    st.markdown(f'<div class="kpi-card-enterprise"><div class="kpi-lbl-dark"><span class="indicator ind-teal"></span>Tổng số vật tư kết xuất</div><div class="kpi-num-dark">{total_materials} <span style="font-size:14px; color:#64748b; font-weight:400; margin-left:4px;">Item(s)</span></div></div>', unsafe_allow_html=True)
+with k_col3: 
+    st.markdown(f'<div class="kpi-card-enterprise"><div class="kpi-lbl-dark"><span class="indicator ind-orange"></span>Định mức vải chính dự kiến</div><div class="kpi-num-dark" style="color:#e06616;">{main_fabric_cons}</div></div>', unsafe_allow_html=True)
+with k_col4: 
+    st.markdown(f'<div class="kpi-card-enterprise"><div class="kpi-lbl-dark"><span class="indicator ind-green"></span>Cỡ hạt tính định mức</div><div class="kpi-num-dark">{active_size_kpi}</div></div>', unsafe_allow_html=True)
 st.markdown('</div>', unsafe_allow_html=True)
 
 # Khung đệm đẩy nội dung dưới
 st.markdown('<div class="main-body-spacer"></div>', unsafe_allow_html=True)
 
 # =====================================================================
-# ĐOẠN 6b: CONTROLS SIDEBAR & LƯỚI KHUNG NHÌN ĐỐI CHIẾU CÂN XỨNG BIÊN TRẮNG (V18.1.0.0)
+# ĐOẠN 6b: CONTROLS SIDEBAR & LƯỚI KHUNG NHÌN ĐỐI CHIẾU CÂN XỨNG (ENTERPRISE EDITION)
 # =====================================================================
 
 # --- SIDEBAR ENGINE CONTROLS CONTROL PANEL ---
-st.sidebar.markdown("### ⚙️ ENGINE CONTROLS")
+st.sidebar.markdown("### ⚙️ SYSTEM MANAGEMENT")
 
-if st.sidebar.button("🗑️ CLEAR SYSTEM MEMORY", use_container_width=True):
+# Sử dụng Streamlit Native Button để tự động đồng bộ hóa giao diện SaaS phẳng
+if st.sidebar.button("🗑️ CLEAR SYSTEM MEMORY", use_container_width=True, type="secondary"):
     st.session_state.bom_data = None
     st.session_state.chat_history = []
     st.session_state.pdf_bytes = None
@@ -885,9 +915,14 @@ col_left, col_right = st.columns(2)
 
 with col_left:
     st.markdown('<div class="cad-card">', unsafe_allow_html=True)
-    st.markdown('<div class="cad-header">📂 TECHPACK UPLOADER & PROFILE SUMMARY</div>', unsafe_allow_html=True)
+    st.markdown('<div class="cad-header">📂 Techpack Uploader & Profile Summary</div>', unsafe_allow_html=True)
     
-    uploaded_file = st.file_uploader("Tải lên tệp tài liệu kỹ thuật Techpack / BOM (PDF)", type=["pdf"], label_visibility="collapsed")
+    # Sử dụng vùng chứa tệp có độ tương phản nhẹ và chỉ dẫn trực quan
+    uploaded_file = st.file_uploader(
+        "Tải lên tệp tài liệu kỹ thuật Techpack / BOM (PDF)", 
+        type=["pdf"], 
+        label_visibility="collapsed"
+    )
     
     if uploaded_file is not None:
         if st.session_state.pdf_name != uploaded_file.name:
@@ -897,9 +932,9 @@ with col_left:
         st.session_state.pdf_bytes = uploaded_file.read()
         st.session_state.pdf_name = uploaded_file.name
 
-    # Đổ 6 ô thẻ hồ sơ kỹ thuật sáng sủa, ngăn nắp trên nắp hộp trắng
+    # Hiển thị lưới thông tin hồ sơ kỹ thuật dạng Thẻ Bảng phẳng (Data Grid Card)
     if st.session_state.pdf_text_cache is not None:
-        st.markdown("<div style='margin-top: 15px;'></div>", unsafe_allow_html=True)
+        st.markdown("<div style='margin-top: 20px;'></div>", unsafe_allow_html=True)
         txt = st.session_state.pdf_text_cache
         
         import re
@@ -913,6 +948,7 @@ with col_left:
         season = get_meta(r'(?:Season|Mùa hàng)\s*[:\-=\s]*([^\n]+)', "Spring 2027")
         fabric_type = get_meta(r'(?:Long Description|Chất liệu gốc)\s*[:\-=\s]*([^\n]+)', "CASUAL TWILL PANTS - SP27")
 
+        # Chia lưới 2 cột hiển thị gọn gàng, mượt mà
         m_col1, m_col2 = st.columns(2)
         with m_col1:
             st.markdown(f'<div class="meta-box"><div class="meta-label">Style Code / Mã hàng</div><div class="meta-value">{style_id}</div></div>', unsafe_allow_html=True)
@@ -921,10 +957,12 @@ with col_left:
         with m_col2:
             st.markdown(f'<div class="meta-box"><div class="meta-label">Garment Type / Kiểu dáng</div><div class="meta-value">{short_desc}</div></div>', unsafe_allow_html=True)
             st.markdown(f'<div class="meta-box"><div class="meta-label">Material Spec / Mô tả vải</div><div class="meta-value">{fabric_type[:30]}...</div></div>', unsafe_allow_html=True)
-            st.markdown(f'<div class="meta-box"><div class="meta-label">Techpack Status / Hồ sơ</div><div class="meta-value" style="color: #16a34a;">🟢 READY TO BOM</div></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="meta-box"><div class="meta-label">Techpack Status</div><div class="meta-value" style="color: #10b981; display:flex; align-items:center; gap:6px;"><span style="height:8px; width:8px; background-color:#10b981; border-radius:50%; display:inline-block;"></span>Ready to BOM</div></div>', unsafe_allow_html=True)
     else:
         if st.session_state.pdf_bytes is None:
-            st.markdown("<div style='margin-top: 40px; text-align: center; color: #64748b; font-size: 13px;'>Bảng tóm tắt thông số sản phẩm sẽ tự động phân tích và hiển thị ô thẻ ngăn nắp sau khi nạp file PDF.</div>", unsafe_allow_html=True)
+            # Trạng thái trống (Empty State) thiết kế sang trọng, tối giản bằng Streamlit native container
+            st.markdown("<div style='margin-top: 60px;'></div>", unsafe_allow_html=True)
+            st.caption("ℹ️ Bảng tóm tắt thông số sản phẩm sẽ tự động phân tích và hiển thị cấu trúc chi tiết ngay sau khi tệp Techpack (PDF) được tải lên hệ thống thành công.")
         
     st.markdown('</div>', unsafe_allow_html=True)
 
