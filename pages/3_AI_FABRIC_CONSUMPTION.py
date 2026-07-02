@@ -1519,22 +1519,25 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                 st.code(traceback.format_exc())
 
 # =====================================================================
-# ĐOẠN 7b: KHU VỰC HIỂN THỊ MA TRẬN KẾT QUẢ VÀ XUẤT EXCEL CHUẨN SẢN XUẤT (V22.5 APPROVED)
+# ĐOẠN 7b: KHU VỰC HIỂN THỊ MA TRẬN KẾT QUẢ VÀ XUẤT EXCEL CAO CẤP (V22.6 FIXED CLEAR)
 # =====================================================================
 active_bom_source = None
-if st.session_state.get("active_blueprint") and "bom_rows" in st.session_state.active_blueprint:
+
+# Sửa đổi quan trọng: Chốt chặn kiểm tra nghiêm ngặt, cấm tự động bốc dữ liệu lịch sử rác lên hiển thị lại
+if st.session_state.get("active_blueprint") and "bom_rows" in st.session_state.active_blueprint and st.session_state.active_blueprint["bom_rows"]:
     active_bom_source = st.session_state.active_blueprint
-elif st.session_state.get("accumulated_bom_rows"):
+elif st.session_state.get("accumulated_bom_rows") and len(st.session_state.accumulated_bom_rows) > 0:
     active_bom_source = {"calculated_on_size": "30", "bom_rows": list(st.session_state.accumulated_bom_rows.values())}
 
-if active_bom_source and active_bom_source.get("bom_rows"):
+# Chỉ render cấu trúc bảng hiển thị nếu thực sự tìm thấy dữ liệu dòng BOM hợp lệ khả dụng lớn hơn 0
+if active_bom_source and active_bom_source.get("bom_rows") and len(active_bom_source["bom_rows"]) > 0:
     import pandas as pd
     extracted_size = active_bom_source.get("calculated_on_size", "30").upper()
     
     st.markdown('<div class="cad-card">', unsafe_allow_html=True)
     st.markdown(f'<div class="cad-header">📊 CALCULATED FABRIC CONSUMPTION MATRIX (SIZE TARGET: {extracted_size})</div>', unsafe_allow_html=True)
     
-    # 🌟 ĐỒNG BỘ HIỂN THỊ TRÁNH LỖI RESET Ô CHATBOX: Gọi trực tiếp giá trị co rút từ bộ nhớ trạng thái an toàn
+    # Gọi trực tiếp giá trị co rút từ bộ nhớ trạng thái an toàn để ghim thông số trên giao diện web
     warp_default = st.session_state.get("current_warp_pct", "3.0%")
     weft_default = st.session_state.get("current_weft_pct", "3.0%")
     
@@ -1546,7 +1549,7 @@ if active_bom_source and active_bom_source.get("bom_rows"):
         
         cut_width_val = f"{float(r['fabric_width_inch'])} inch" if "fabric_width_inch" in r and r["fabric_width_inch"] > 0 else "57.0 inch"
         
-        # Phân rã dải co rút động: Chỉ ép phẳng về 0% đối với tầng Keo lót (Fusing), vải chính và lót túi đồng bộ theo sớ dệt
+        # Phân rã dải co rút động: Ép phẳng về 0% cho Keo lót (Fusing), vải chính và lót túi đồng bộ theo sớ vải chatbox
         f_class_upper = str(r.get("fabric_classification", "")).upper()
         if "FUSING" in f_class_upper:
             warp_val = "0.0%"
@@ -1596,7 +1599,6 @@ if active_bom_source and active_bom_source.get("bom_rows"):
         ws.sheet_view.showGridLines = True 
         
         ws.merge_cells("A1:L1")
-        # Đồng bộ chính xác mã hàng theo hồ sơ kỹ thuật thật: R09-490976
         ws["A1"] = f"BÁO CÁO ĐỊNH MỨC VẬT TƯ VẢI (SIZE: {extracted_size}) - STYLE: R09-490976"
         ws["A1"].font = Font(name="Calibri", size=14, bold=True, color="FFFFFF")
         ws["A1"].fill = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")
@@ -1636,5 +1638,5 @@ if active_bom_source and active_bom_source.get("bom_rows"):
     except Exception as e:
         st.warning(f"⚠️ Không thể khởi tạo nút xuất Excel cao cấp: {str(e)}")
 else:
-    st.info("💡 Hệ thống đang chờ câu lệnh phân bổ dữ liệu rập hoặc BOM gốc...")
-
+    # 🌟 KHI CLEAR TRỐNG HỆ THỐNG: Ẩn hoàn toàn bảng và hiển thị dòng chữ thông báo mồi
+    st.info("💡 Bộ nhớ đệm hệ thống đã được làm sạch hoàn toàn. Vui lòng nạp tệp PDF tài liệu và gõ câu lệnh chatbox để chạy luồng tự động toán học mới...")
