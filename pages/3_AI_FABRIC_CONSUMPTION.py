@@ -703,7 +703,7 @@ with col_left:
     st.markdown('</div>', unsafe_allow_html=True)
 
 # =====================================================================
-# ĐOẠN 7a: KHỐI AI QUÉT ĐA TRANG - TỰ ĐỘNG LẤY THÔNG SỐ RẬP CỦA KEO LÓT (V16.9.9.10)
+# ĐOẠN 7a: KHỐI AI QUÉT ĐA TRANG - TỰ ĐỘNG BẮT TỪ KHÓA SIZE TỪ Ô CHAT (V17.0.0.7)
 # =====================================================================
 with col_right:
     st.markdown('<div class="cad-card">', unsafe_allow_html=True)
@@ -720,22 +720,35 @@ with col_right:
             for page_num in range(len(doc)):
                 full_techpack_text += f"\n--- TRANG THỨ {page_num + 1} ---\n"
                 full_techpack_text += doc.load_page(page_num).get_text("text")
+                
         except Exception: 
             full_techpack_text = ""
     else:
         st.caption("ℹ️ Hệ thống sẵn sàng kết xuất hình ảnh sau khi tải file PDF.")
     st.markdown('</div>', unsafe_allow_html=True)
 
+    # Đảm bảo các biến prompt an toàn tuyệt đối không lỗi NameError
     safe_user_prompt = user_prompt if 'user_prompt' in globals() and user_prompt else ""
     active_prompt = safe_user_prompt if safe_user_prompt else "khổ 58 co rút 5-15"
 
+    # 🌟 BỘ TRÍCH XUẤT TỪ KHÓA SIZE TỪ Ô CHAT CHUYÊN DỤNG (REGEX ENGINE)
+    chat_txt_lower = str(safe_user_prompt).lower().strip()
+    match_size = re.search(r'(?:size|cỡ|co|sz)\s*[:\-=\s]*([\w\d\.]+)', chat_txt_lower)
+    
+    if match_size:
+        target_size_cmd = str(match_size.group(1)).upper().strip()
+        size_instruction = f"You MUST extract measurements strictly for '{target_size_cmd}' because the user explicitly requested this size in the command."
+    else:
+        target_size_cmd = "MEDIAN_SIZE"
+        size_instruction = "Scan the columns representing the grade of sizes. Identify the MEDIAN SIZE (the middle size of the production range, e.g., Size M, or Size 30/31). If there is an even number of sizes, pick the larger middle size. Extract physical dimensions strictly for that MEDIAN SIZE."
+
+    # LUỒNG TRIGGER TỰ ĐỘNG
     if st.session_state.pdf_bytes is not None:
         if "bom_data" not in st.session_state or safe_user_prompt:
-            with st.spinner("🧠 AI CORE: Đang quét chi tiết bảng BOM & Spec cho Vải chính, Keo và Lót..."):
+            with st.spinner(f"🧠 AI CORE: Đang phân tích bảng thông số Techpack nhắm vào Size: {target_size_cmd}..."):
                 try:
                     import google.generativeai as genai
-                    import json, copy, traceback, re
-                    import pandas as pd
+                    import json, copy, traceback
                     
                     if "GEMINI_API_KEY" in st.secrets: 
                         genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
@@ -745,49 +758,38 @@ with col_right:
                         generation_config={"response_mime_type": "application/json"}
                     )
                     
-                    # PROMPT ĐÃ ĐƯỢC THAY ĐỔI: Ép AI tìm thông số hình học cho cả Keo và Lót
+                    # PROMPT ĐỘNG PHỤ THUỘC VÀO SIZE TỪ Ô CHAT
                     prompt_instruction = f"""
-                    You are an expert apparel IE system. Analyze the full text extracted from the Techpack PDF.
-                    Your goal is to scan through ALL pages to find the exact "BOM" table and "SIZE SPECIFICATION" sheet for all materials.
+                    You are an expert apparel IE system. Analyze the full text extracted from all pages of the Techpack PDF to find the exact "BOM" table and "SIZE SPECIFICATION" sheet.
                     
                     DATA PROVIDED FROM TECHPACK:
                     {full_techpack_text}
                     
-                    CRITICAL DYNAMIC EXTRACTION INSTRUCTION:
-                    1. Identify product type (PANT, JACKET, DRESS, SHIRT, etc.).
-                    2. Locate the BOM and look for ALL fabric types: MAIN FABRIC, LINING (Vải lót), and FUSING/INTERLINING (Mex keo).
-                    3. Go to the MEASUREMENT SHEET and check if there are specific dimensions for LINING or FUSING components (e.g., Pocket bag length/width, lining length for dress/jacket).
-                    4. For EACH fabric material row (Main, Lining, Fusing):
-                       - IF you find specific measurements for that material in the sheet, you MUST populate its "panels_catalog" array with realistic bounding boxes (`piece_length_inch` and `piece_width_inch`) extracted from the text.
-                       - IF NO specific measurements are found in the PDF for Lining/Fusing, you may leave its "panels_catalog" empty, and the system will use a smart manufacturing fallback.
+                    CRITICAL SIZE-SELECTION INSTRUCTION:
+                    {size_instruction}
+                    
+                    CRITICAL EXTRACTION INSTRUCTION FOR MATERIALS:
+                    1. Extract ALL materials from BOM (MAIN FABRIC, LINING, FUSING).
+                    2. For MAIN FABRIC, populate "panels_catalog" using the extracted measurements of the TARGET SIZE mentioned above.
+                    3. For FUSING (Mex keo), ensure you look for its specific measurement for that target size. If the exact fusing width is missing in spec text but listed in BOM, assume piece_width_inch = 3.5 inches (standard waistband fusing width) instead of leaving it too small.
                     
                     Return ONLY a valid JSON object matching this strict structure:
                     {{
                       "detected_product_type": "PANT", 
                       "style_code": "R09-450416",
+                      "calculated_on_size": "{target_size_cmd if target_size_cmd != 'MEDIAN_SIZE' else 'AUTOMATIC_MEDIAN'}",
                       "bom_rows": [
                         {{
                           "component_type": "MAIN FABRIC",
                           "placement": "BODY",
                           "fabric_classification": "MAIN_FABRIC",
-                          "fabric_code": "REAL_MAIN_CODE",
+                          "fabric_code": "REAL_CODE",
                           "fabric_color": "REAL_COLOR",
-                          "panels_catalog": [
-                            {{ "panel_name": "FRONT_PANEL", "piece_count": 2.0, "piece_length_inch": 41.0, "piece_width_inch": 12.0 }}
-                          ]
-                        }},
-                        {{
-                          "component_type": "POCKET LINING",
-                          "placement": "POCKET BAG",
-                          "fabric_classification": "LINING",
-                          "fabric_code": "REAL_LINING_CODE",
-                          "fabric_color": "NATURAL",
-                          "panels_catalog": [
-                            {{ "panel_name": "POCKET_BAG", "piece_count": 4.0, "piece_length_inch": 13.0, "piece_width_inch": 7.5 }}
-                          ]
+                          "panels_catalog": [...]
                         }}
                       ]
                     }}
+                    Replace the placeholder values in JSON with the actual exact data discovered from the multi-page techpack text.
                     User directive overrides: {active_prompt}
                     """
                     
@@ -801,19 +803,17 @@ with col_right:
                     
                     if raw_blueprint and raw_blueprint.get("bom_rows"):
                         blueprint_worker = copy.deepcopy(raw_blueprint)
-                        try: step_2a1 = parse_geometric_panels_allowance(blueprint_worker, active_prompt)
-                        except Exception: step_2a1 = blueprint_worker
-                        
-                        try: step_2a2 = execute_marker_yardage_and_quality_gate(step_2a1, active_prompt)
-                        except Exception: step_2a2 = step_2a1
-                        
+                        step_2a1 = parse_geometric_panels_allowance(blueprint_worker, active_prompt)
+                        step_2a2 = execute_marker_yardage_and_quality_gate(step_2a1, active_prompt)
                         blueprint_final = allocate_fabric_consumption_and_quality_gate(step_2a2)
+                        
                         st.session_state.bom_data = blueprint_final
                     
                     st.rerun()
                 except Exception:
                     st.error("💥 Lỗi xử lý tiến trình Phân đoạn 7a:")
                     st.code(traceback.format_exc())
+
 # =====================================================================
 # ĐOẠN 7b: KHU VỰC HIỂN THỊ KẾT QUẢ ĐƠN MÃ VÀ XUẤT EXCEL (V17.0.0.5 FIXED STRIP)
 # =====================================================================
