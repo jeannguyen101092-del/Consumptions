@@ -1178,11 +1178,11 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
 
 
 # =====================================================================
-# ĐOẠN 7b: KHU VỰC HIỂN THỊ KẾT QUẢ ĐƠN MÃ, SIZE VÀ XUẤT EXCEL CHUẨN ĐẸP (V17.0.0.9 APPROVED)
+# ĐOẠN 7b: KHU VỰC HIỂN THỊ ĐỒNG BỘ HIỆU SUẤT ĐỘNG THỰC TẾ & EXCEL (V17.0.1.1 APPROVED)
 # =====================================================================
 if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data and st.session_state.bom_data["bom_rows"]:
     
-    # HIỂN THỊ THÔNG TIN SIZE ĐỘNG LÊN TIÊU ĐỀ BẢNG KẾT QUẢ
+    # 1. HIỂN THỊ THÔNG TIN SIZE ĐỘNG LÊN TIÊU ĐỀ BẢNG KẾT QUẢ
     extracted_size = st.session_state.bom_data.get("calculated_on_size")
     if not extracted_size:
         extracted_size = st.session_state.bom_data.get("calculated_size", "AUTOMATIC MEDIAN")
@@ -1191,11 +1191,9 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data 
     st.markdown('<div class="cad-card">', unsafe_allow_html=True)
     st.markdown(f'<div class="cad-header">📊 CALCULATED FABRIC CONSUMPTION MATRIX (SIZE TARGET: {extracted_size})</div>', unsafe_allow_html=True)
     
-    # 🌟 BÓC TÁCH CHUẨN ĐỘ CO RÚT TỪ Ô CHAT THỰC TẾ ĐỂ ĐỒNG BỘ HIỂN THỊ BẢNG
+    # Bóc tách độ co rút mặc định từ câu lệnh chat của người dùng làm phòng vệ
     chat_txt = str(safe_user_prompt if 'safe_user_prompt' in globals() and safe_user_prompt else "").lower()
     m_c = re.search(r'(?:co\s*rút|co\s*rut|co)\s*[:\-=\s]*([\d\.]+)\s*(?:-|–|x|ngang|\s+)\s*([\d\.]+)', chat_txt)
-    
-    # Nếu trong ô chat gõ co rút 3-3, warp_default và weft_default sẽ là 3.0% và 3.0%
     warp_default = f"{float(m_c.group(1))}%" if m_c else "3.0%"
     weft_default = f"{float(m_c.group(2))}%" if m_c else "3.0%"
     
@@ -1213,30 +1211,31 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data 
             cut_width_val = f"{float(r['fabric_width_inch'])} inch"
         else:
             match_w = re.search(r'Khổ vải:\s*([\d\.]+)', sys_notes)
-            if match_w:
-                cut_width_val = f"{float(match_w.group(1))} inch"
-            else:
-                match_w_alt = re.search(r'Khổ\s*(?:lót|mếch):\s*([\d\.]+)', sys_notes)
-                cut_width_val = f"{float(match_w_alt.group(1))} inch" if match_w_alt else "57.0 inch"
+            cut_width_val = f"{float(match_w.group(1))} inch" if match_w else "57.0 inch"
         
-        # ĐỒNG BỘ LẠI ĐỘ CO RÚT LÊN BẢNG HIỂN THỊ
+        # Đồng bộ độ co rút trước wash lên giao diện
         warp_val = warp_default
         weft_val = weft_default
-        
-        if "/" in reason_logs:
-            parts = reason_logs.split("/")
-            if len(parts) >= 3:
-                shrink_part = str(parts[2]).strip()
-                match_sh = re.search(r'([\d\.]+)\s*x\s*([\d\.]+)', shrink_part)
-                if match_sh:
-                    warp_val = f"{float(match_sh.group(1))}%"
-                    tmp_weft = float(match_sh.group(2))
-                    weft_val = f"{tmp_weft}%" if tmp_weft > 0.0 else weft_default
+        match_sh_direct = re.search(r'([\d\.]+)\s*x\s*([\d\.]+)', reason_logs)
+        if match_sh_direct:
+            tmp_warp = float(match_sh_direct.group(1))
+            tmp_weft = float(match_sh_direct.group(2))
+            warp_val = f"{tmp_warp}%" if tmp_warp > 0.0 else warp_default
+            weft_val = f"{tmp_weft}%" if tmp_weft > 0.0 else weft_default
                     
-        # Phụ liệu keo lót ép mặc định về 0% co rút (vì đã tính cộng biên BTP)
+        # Phụ liệu mếch keo lót ép mặc định về 0% co rút (vì đã tính cộng biên BTP)
         if any(x in str(r.get("fabric_classification", "")).upper() for x in ["FUSING", "LINING"]):
             warp_val = "0.0%"
             weft_val = "0.0%"
+
+        # 🌟 SỬA ĐIỀU KIỆN CHỐT: Đọc trực tiếp trường dữ liệu động do backend trả ra
+        # Nếu dòng vật tư không ghi nhận Eff, hệ thống mới tự nhảy về dải mặc định theo phân loại vật tư phụ
+        raw_eff_value = r.get("marker_efficiency_pct")
+        if not raw_eff_value:
+            if any(x in str(r.get("fabric_classification", "")).upper() for x in ["FUSING", "LINING"]):
+                raw_eff_value = "85.0%"
+            else:
+                raw_eff_value = "87.0%" # Mặc định vải chính quần dài
 
         display_data.append({
             "Component Type": r.get("component_type", "MAIN FABRIC"),
@@ -1246,8 +1245,8 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data 
             "Fabric Color": r.get("fabric_color", "SOLID COLOR"),
             "Khổ vải (Width)": cut_width_val,
             "Co rút dọc (% Warp)": warp_val,
-            "Co rút ngang (% Weft)": weft_val,  # 🟢 Đã hiển thị chuẩn xác 3.0% theo đúng ô chat!
-            "Marker Efficiency": r.get("marker_efficiency_pct", "85.0%"),
+            "Co rút ngang (% Weft)": weft_val,
+            "Marker Efficiency": str(raw_eff_value).strip(), # 🟢 ĐÃ KHÔI PHỤC GIÁ TRỊ ĐỘNG BIẾN THIÊN THỰC TẾ!
             "Gross Consumption (Yds)": current_gross,
             "Quality Status": r.get("status", "PASS"),
             "System Notes": sys_notes
@@ -1259,7 +1258,7 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data 
     st.markdown('</div>', unsafe_allow_html=True)
     
     # =====================================================================
-    # KHỐI LOGIC TẠO FILE EXCEL REPORT (ĐỒNG BỘ 100% SỐ CO RÚT MỚI)
+    # KHỐI LOGIC TẠO FILE EXCEL REPORT ĐỒNG BỘ 100% HIỆU SUẤT ĐỘNG MỚI
     # =====================================================================
     try:
         import io
@@ -1338,7 +1337,6 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data 
         wb.save(output)
         excel_bytes = output.getvalue()
         
-        # NÚT XUẤT TẢI FILE EXCEL RA MÀN HÌNH GIAO DIỆN
         st.markdown("<br>", unsafe_allow_html=True)
         st.download_button(
             label="📥 XUẤT FILE EXCEL ĐỊNH MỨC CHUẨN SẢN XUẤT",
