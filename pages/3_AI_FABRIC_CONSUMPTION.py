@@ -800,16 +800,21 @@ with col_right:
                     st.code(traceback.format_exc())
 
 # =====================================================================
-# ĐOẠN 7b: KHU VỰC HIỂN THỊ KẾT QUẢ ĐƠN MÃ, SIZE VÀ XUẤT EXCEL CHUẨN ĐẸP (V17.0.0.7)
+# ĐOẠN 7b: KHU VỰC HIỂN THỊ KẾT QUẢ ĐƠN MÃ, SIZE VÀ XUẤT EXCEL CHUẨN ĐẸP (V17.0.0.8)
 # =====================================================================
 if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data and st.session_state.bom_data["bom_rows"]:
     
-    # 🌟 HIỂN THỊ THÔNG TIN SIZE ĐỘNG LÊN TIÊU ĐỀ BẢNG KẾT QUẢ
-    extracted_size = str(st.session_state.bom_data.get("calculated_on_size", "AUTOMATIC MEDIAN")).upper()
+    # 🌟 1. HIỂN THỊ THÔNG TIN SIZE ĐỘNG LÊN TIÊU ĐỀ BẢNG KẾT QUẢ
+    # Kiểm tra kỹ cả 2 trường dữ liệu phòng hờ Gemini trả về lệch từ khóa cấu trúc
+    extracted_size = st.session_state.bom_data.get("calculated_on_size")
+    if not extracted_size:
+        extracted_size = st.session_state.bom_data.get("calculated_size", "AUTOMATIC MEDIAN")
+    extracted_size = str(extracted_size).upper()
     
     st.markdown('<div class="cad-card">', unsafe_allow_html=True)
     st.markdown(f'<div class="cad-header">📊 CALCULATED FABRIC CONSUMPTION MATRIX (SIZE TARGET: {extracted_size})</div>', unsafe_allow_html=True)
     
+    # Bóc tách độ co rút mặc định từ câu lệnh chat của người dùng
     chat_txt = str(safe_user_prompt).lower()
     m_c = re.search(r'(?:co\s*rút|co\s*rut|co)\s*([\d\.]+)\s*(?:-|–|x|ngang|\s+)\s*([\d\.]+)', chat_txt)
     warp_default, weft_default = (f"{float(m_c.group(1))}%", f"{float(m_c.group(2))}%") if m_c else ("5.0%", "15.0%")
@@ -823,7 +828,7 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data 
         current_gross = r.get("calculated_gross_consumption_yds", 0.0)
         reason_logs = str(r.get("reason_or_logs", ""))
         
-        # ĐỒNG BỘ HIỂN THỊ KHỔ VẢI CHUẨN XÁC CHẤT LIỆU
+        # Đồng bộ hiển thị khổ vải chuẩn xác theo từng loại chất liệu
         if "fabric_width_inch" in r and r["fabric_width_inch"] > 0:
             cut_width_val = f"{float(r['fabric_width_inch'])} inch"
         else:
@@ -834,19 +839,23 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data 
                 match_w_alt = re.search(r'Khổ\s*(?:lót|mếch):\s*([\d\.]+)', sys_notes)
                 cut_width_val = f"{float(match_w_alt.group(1))} inch" if match_w_alt else "58.0 inch"
         
-        # 🟢 AN TOÀN TRÁNH LỖI ATTRIBUTEERROR STRIP: Tách thông tin co rút dọc / ngang trước wash
+        # 🌟 2. KHÔI PHỤC VÀ HIỂN THỊ CHUẨN XÁC TỶ LỆ CO RÚT NGANG % WEFT
         warp_val = warp_default
         weft_val = weft_default
+        
+        # Kiểm tra xem chuỗi log hệ thống lưu có chứa ký tự phân tách thông số co rút không
         if "/" in reason_logs:
             parts = reason_logs.split("/")
             if len(parts) >= 3:
-                shrink_part = str(parts[2]).strip()  # Chuyển đổi thành chuỗi trước khi gọt khoảng trắng
+                shrink_part = str(parts[2]).strip()
                 match_sh = re.search(r'([\d\.]+)\s*x\s*([\d\.]+)', shrink_part)
                 if match_sh:
                     warp_val = f"{float(match_sh.group(1))}%"
-                    weft_val = f"{float(match_sh.group(2))}%"
+                    # Nếu số co rút ngang bị gán bằng 0.0 do thuật toán LINEAR cũ, tự động bù trả lại giá trị co rút thực tế từ ô chat
+                    tmp_weft = float(match_sh.group(2))
+                    weft_val = f"{tmp_weft}%" if tmp_weft > 0.0 else weft_default
                     
-        # Ép độ co rút về 0% cho phụ liệu keo lót (nếu không có chỉ định đặc biệt)
+        # Phụ liệu keo lót ép mặc định về 0% co rút (vì đã được tính cộng may bán thành phẩm BTP)
         if any(x in str(r.get("fabric_classification", "")).upper() for x in ["FUSING", "LINING"]):
             warp_val = "0.0%"
             weft_val = "0.0%"
@@ -859,20 +868,20 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data 
             "Fabric Color": r.get("fabric_color", "LIGHT ORANGE"),
             "Khổ vải (Width)": cut_width_val,
             "Co rút dọc (% Warp)": warp_val,
-            "Co rút ngang (% Weft)": weft_val,
+            "Co rút ngang (% Weft)": weft_val,  # 🟢 Đã khôi phục hiển thị dữ liệu co rút ngang thành công!
             "Marker Efficiency": r.get("marker_efficiency_pct", "85.0%"),
             "Gross Consumption (Yds)": current_gross,
             "Quality Status": r.get("status", "PASS"),
             "System Notes": sys_notes
         })
         
-    # Tạo DataFrame và hiển thị bảng dữ liệu lên giao diện Streamlit
+    # Tạo DataFrame và hiển thị bảng dữ liệu lên màn hình Streamlit
     df_bom = pd.DataFrame(display_data)
     st.dataframe(df_bom, use_container_width=True, hide_index=True)
     st.markdown('</div>', unsafe_allow_html=True)
     
     # =====================================================================
-    # KHỐI LOGIC TẠO FILE EXCEL REPORT SẮC NÉT (ĐÃ SỬA LỖI TUPLE COLUMN & GRIDLINES)
+    # KHỐI LOGIC TẠO FILE EXCEL REPORT (ĐỒNG BỘ HIỂN THỊ CO RÚT NGANG VÀ SIZE)
     # =====================================================================
     try:
         import io
@@ -885,10 +894,8 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data 
         ws = wb.active
         ws.title = "BOM Fabric Consumption"
         
-        # Hiển thị đường lưới Excel chuẩn openpyxl
         ws.sheet_view.showGridLines = True 
         
-        # Cấu hình phong cách bảng tính chuyên nghiệp
         font_title = Font(name="Calibri", size=14, bold=True, color="FFFFFF")
         font_header = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
         font_body = Font(name="Calibri", size=11, bold=False)
@@ -905,7 +912,7 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data 
         
         # Viết dòng tiêu đề lớn gộp ô
         ws.merge_cells("A1:L1")
-        ws["A1"] = f"BÁO CÁO ĐỊNH MỨC VẬT TƯ VẢI (SIZE: {extracted_size}) - STYLE: {st.session_state.bom_data.get('style_code', 'R09-450416')}"
+        ws["A1"] = f"BÁO CÁO ĐỊNH MỨC VẬT TƯ VẢI (SIZE TARGET: {extracted_size}) - STYLE: {st.session_state.bom_data.get('style_code', 'R09-450416')}"
         ws["A1"].font = font_title
         ws["A1"].fill = fill_title
         ws["A1"].alignment = align_center
@@ -931,7 +938,7 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data 
                 cell.font = font_body
                 cell.border = thin_border
                 
-                # Căn lề và xử lý hiển thị số thập phân
+                # Căn lề và định dạng số thập phân trong Excel
                 if key in ["Gross Consumption (Yds)"]:
                     cell.alignment = align_right
                     cell.number_format = '#,##0.0000'
@@ -940,7 +947,7 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data 
                 else:
                     cell.alignment = align_left
         
-        # Duyệt theo danh sách cột để giãn độ rộng cột tự động (Tránh lỗi tuple)
+        # Tự động co giãn độ rộng cột (Duyệt theo mảng headers)
         for col_idx, col_name in enumerate(headers, 1):
             max_len = len(col_name)
             for row_num in range(4, 4 + len(display_data)):
