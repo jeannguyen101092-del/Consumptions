@@ -688,81 +688,94 @@ with col_left:
     st.markdown('</div>', unsafe_allow_html=True)
 
 # =====================================================================
-# ĐOẠN 7a: KHỐI AI QUÉT ĐA TRANG - TỰ ĐỘNG BẮT TỪ KHÓA SIZE TỪ Ô CHAT (V17.0.0.7)
+# ĐOẠN 7a: TRỢ LÝ ĐỐI THOẠI KỸ THUẬT (IE CHAT CORE - OPTIMIZED V17.2.0.0)
 # =====================================================================
 with col_right:
     st.markdown('<div class="cad-card">', unsafe_allow_html=True)
-    st.markdown('<div class="cad-header">🎨 TECHPACK SKETCH VISUALIZER</div>', unsafe_allow_html=True)
+    st.markdown('<div class="cad-header">💬 TRỢ LÝ ĐỐI THOẠI ĐỊNH MỨC KỸ THUẬT (IE CHAT CORE)</div>', unsafe_allow_html=True)
     
+    # 1. Khởi tạo các cấu trúc lưu trữ bộ nhớ đệm tuần hoàn (Cache)
+    if "chat_history" not in st.session_state: st.session_state.chat_history = []
+    if "pdf_text_cache" not in st.session_state: st.session_state.pdf_text_cache = None
+    if "pdf_page_one_image" not in st.session_state: st.session_state.pdf_page_one_image = None
+    if "last_processed_prompt" not in st.session_state: st.session_state.last_processed_prompt = None
+
+    # 2. Xử lý Trích xuất và Tải hình ảnh trang đầu (Chỉ chạy DUY NHẤT 1 LẦN khi nạp file)
     if st.session_state.pdf_bytes is not None:
         try:
             import fitz  
-            doc = fitz.open(stream=st.session_state.pdf_bytes, filetype="pdf")
-            st.image(doc.load_page(0).get_pixmap(dpi=150).tobytes("png"), use_container_width=True)
-            st.success(f"📎 BUFFERED OBJECT: {st.session_state.pdf_name} loaded ({len(doc)} trang).")
+            if st.session_state.pdf_page_one_image is None or st.session_state.pdf_text_cache is None:
+                doc = fitz.open(stream=st.session_state.pdf_bytes, filetype="pdf")
+                # Cache ảnh trang đầu
+                st.session_state.pdf_page_one_image = doc.load_page(0).get_pixmap(dpi=150).tobytes("png")
+                # Cache RAG Text toàn bộ các trang để giảm token cuộc gọi
+                full_text = ""
+                for page_num in range(len(doc)):
+                    full_text += f"\n--- TRANG THỨ {page_num + 1} ---\n" + doc.load_page(page_num).get_text("text")
+                st.session_state.pdf_text_cache = full_text
             
-            full_techpack_text = ""
-            for page_num in range(len(doc)):
-                full_techpack_text += f"\n--- TRANG THỨ {page_num + 1} ---\n"
-                full_techpack_text += doc.load_page(page_num).get_text("text")
-                
-        except Exception: 
-            full_techpack_text = ""
+            st.image(st.session_state.pdf_page_one_image, use_container_width=True)
+            st.success(f"📎 BUFFERED OBJECT: {st.session_state.pdf_name} loaded.")
+        except Exception:
+            pass
     else:
-        st.caption("ℹ️ Hệ thống sẵn sàng kết xuất hình ảnh sau khi tải file PDF.")
+        st.caption("ℹ️ Hệ thống sẵn sàng đối thoại sau khi tải file PDF Techpack.")
     st.markdown('</div>', unsafe_allow_html=True)
 
-    # Đảm bảo các biến prompt an toàn tuyệt đối không lỗi NameError
+    # 3. Quản lý biến an toàn tránh lỗi NameError
     safe_user_prompt = user_prompt if 'user_prompt' in globals() and user_prompt else ""
-    active_prompt = safe_user_prompt if safe_user_prompt else "khổ 58 co rút 5-15"
 
-    # 🌟 BỘ TRÍCH XUẤT TỪ KHÓA SIZE TỪ Ô CHAT CHUYÊN DỤNG (REGEX ENGINE)
-    chat_txt_lower = str(safe_user_prompt).lower().strip()
-    match_size = re.search(r'(?:size|cỡ|co|sz)\s*[:\-=\s]*([\w\d\.]+)', chat_txt_lower)
-    
-    if match_size:
-        target_size_cmd = str(match_size.group(1)).upper().strip()
-        size_instruction = f"You MUST extract measurements strictly for '{target_size_cmd}' because the user explicitly requested this size in the command."
-    else:
-        target_size_cmd = "MEDIAN_SIZE"
-        size_instruction = "Scan the columns representing the grade of sizes. Identify the MEDIAN SIZE (the middle size of the production range, e.g., Size M, or Size 30/31). If there is an even number of sizes, pick the larger middle size. Extract physical dimensions strictly for that MEDIAN SIZE."
-
-    # LUỒNG TRIGGER TỰ ĐỘNG
-    if st.session_state.pdf_bytes is not None:
-        if "bom_data" not in st.session_state or safe_user_prompt:
-            with st.spinner(f"🧠 AI CORE: Đang phân tích bảng thông số Techpack nhắm vào Size: {target_size_cmd}..."):
+    # 4. Kích hoạt luồng đối thoại liên tục (Chỉ chạy khi có câu lệnh chat mới)
+    if st.session_state.pdf_bytes is not None and safe_user_prompt:
+        if st.session_state.last_processed_prompt != safe_user_prompt:
+            st.session_state.last_processed_prompt = safe_user_prompt
+            
+            with st.spinner("🧠 AI Core: Đang xử lý hội thoại kỹ thuật..."):
                 try:
                     import google.generativeai as genai
-                    import json, copy, traceback
+                    import json, copy, traceback, re
                     
                     if "GEMINI_API_KEY" in st.secrets: 
                         genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
                         
+                    # Cấu hình temperature thấp giúp JSON ổn định không bị nhảy số ngẫu nhiên
                     model = genai.GenerativeModel(
-                        "gemini-2.5-flash", 
-                        generation_config={"response_mime_type": "application/json"}
+                        "gemini-2.5-flash",
+                        generation_config={"temperature": 0.2}
                     )
                     
-                    # PROMPT ĐỘNG PHỤ THUỘC VÀO SIZE TỪ Ô CHAT
+                    # Bóc tách từ khóa kích cỡ nhanh
+                    match_size = re.search(r'(?:size|cỡ|co|sz)\s*[:\-=\s]*([\w\d\.]+)', safe_user_prompt.lower())
+                    target_size_cmd = str(match_size.group(1)).upper().strip() if match_size else "AUTOMATIC_MEDIAN"
+
+                    # 🌟 GIỚI HẠN TUẦN HOÀN: Khống chế lịch sử chat (30 tin nhắn) để bảo vệ RAM bộ nhớ
+                    if len(st.session_state.chat_history) > 30:
+                        st.session_state.chat_history = st.session_state.chat_history[-30:]
+
+                    # PROMPT ĐỐI THOẠI CHIẾN LƯỢC: Kết hợp RAG Text Cache và Ngữ cảnh cuộc trò chuyện cũ
                     prompt_instruction = f"""
-                    You are an expert apparel IE system. Analyze the full text extracted from all pages of the Techpack PDF to find the exact "BOM" table and "SIZE SPECIFICATION" sheet.
+                    You are an expert apparel Industrial Engineer (IE) chatting with a production manager.
                     
-                    DATA PROVIDED FROM TECHPACK:
-                    {full_techpack_text}
+                    DATA FOUND IN TECHPACK PDF (CACHED DATA):
+                    {st.session_state.pdf_text_cache}
                     
-                    CRITICAL SIZE-SELECTION INSTRUCTION:
-                    {size_instruction}
+                    CONTEXT HISTORY OF CONVERSATION (NGỮ CẢNH HỘI THOẠI CŨ):
+                    {json.dumps(st.session_state.chat_history, ensure_ascii=False)}
                     
-                    CRITICAL EXTRACTION INSTRUCTION FOR MATERIALS:
-                    1. Extract ALL materials from BOM (MAIN FABRIC, LINING, FUSING).
-                    2. For MAIN FABRIC, populate "panels_catalog" using the extracted measurements of the TARGET SIZE mentioned above.
-                    3. For FUSING (Mex keo), ensure you look for its specific measurement for that target size. If the exact fusing width is missing in spec text but listed in BOM, assume piece_width_inch = 3.5 inches (standard waistband fusing width) instead of leaving it too small.
+                    LỆNH MỚI CỦA NGƯỜI DÙNG (CURRENT USER INPUT):
+                    "{safe_user_prompt}"
                     
-                    Return ONLY a valid JSON object matching this strict structure:
+                    CRITICAL AUDIT & OUTPUT RULES:
+                    1. Re-calculate BOM metrics ONLY if the user commands a change in size/shrinkage. Target size: '{target_size_cmd}'.
+                    2. If the user asks general technical questions, maintain the last calculated JSON but answer intelligently like a human peer in the CHAT section.
+                    3. Actively audit materials: if you spot Elastic Waistband or Tape requirements in text/sketch but it's missing in BOM, warn the user politely in Vietnamese.
+                    
+                    You MUST return your response in this exact format:
+                    ===START_JSON===
                     {{
-                      "detected_product_type": "PANT", 
+                      "detected_product_type": "PANT",
                       "style_code": "R09-450416",
-                      "calculated_on_size": "{target_size_cmd if target_size_cmd != 'MEDIAN_SIZE' else 'AUTOMATIC_MEDIAN'}",
+                      "calculated_on_size": "{target_size_cmd}",
                       "bom_rows": [
                         {{
                           "component_type": "MAIN FABRIC",
@@ -770,34 +783,60 @@ with col_right:
                           "fabric_classification": "MAIN_FABRIC",
                           "fabric_code": "REAL_CODE",
                           "fabric_color": "REAL_COLOR",
-                          "panels_catalog": [...]
+                          "panels_catalog": [
+                            {{ "panel_name": "FRONT_PANEL", "piece_count": 2.0, "piece_length_inch": 41.0, "piece_width_inch": 12.0 }}
+                          ]
                         }}
                       ]
                     }}
-                    Replace the placeholder values in JSON with the actual exact data discovered from the multi-page techpack text.
-                    User directive overrides: {active_prompt}
+                    ===END_JSON===
+                    ===START_CHAT===
+                    [Your conversational Vietnamese response here]
+                    ===END_CHAT===
                     """
                     
                     response = model.generate_content(prompt_instruction)
-                    cleaned_text = response.text.strip()
-                    cleaned_text = re.sub(r"^```json\s*", "", cleaned_text, flags=re.IGNORECASE)
-                    cleaned_text = re.sub(r"\s*```$", "", cleaned_text)
                     
-                    try: raw_blueprint = json.loads(cleaned_text)
-                    except json.JSONDecodeError: raw_blueprint = {"bom_rows": []}
-                    
-                    if raw_blueprint and raw_blueprint.get("bom_rows"):
-                        blueprint_worker = copy.deepcopy(raw_blueprint)
-                        step_2a1 = parse_geometric_panels_allowance(blueprint_worker, active_prompt)
-                        step_2a2 = execute_marker_yardage_and_quality_gate(step_2a1, active_prompt)
-                        blueprint_final = allocate_fabric_consumption_and_quality_gate(step_2a2)
+                    # Phòng vệ: Kiểm tra chuỗi phản hồi rỗng từ API
+                    if response and response.text:
+                        response_text = response.text.strip()
                         
-                        st.session_state.bom_data = blueprint_final
+                        # Bóc tách khối dữ liệu và làm sạch định dạng JSON của AI
+                        json_match = re.search(r'===START_JSON===\s*(.*?)\s*===END_JSON===', response_text, re.DOTALL)
+                        chat_match = re.search(r'===START_CHAT===\s*(.*?)\s*===END_CHAT===', response_text, re.DOTALL)
+                        
+                        if json_match:
+                            raw_json_str = json_match.group(1).strip()
+                            # Làm sạch triệt để các ký tự markdown thừa đầu cuối nếu AI trả sai định dạng
+                            raw_json_str = re.sub(r"^```json\s*", "", raw_json_str, flags=re.IGNORECASE)
+                            raw_json_str = re.sub(r"\s*```$", "", raw_json_str)
+                            
+                            try: 
+                                raw_blueprint = json.loads(raw_json_str)
+                                if raw_blueprint and raw_blueprint.get("bom_rows"):
+                                    blueprint_worker = copy.deepcopy(raw_blueprint)
+                                    step_2a1 = parse_geometric_panels_allowance(blueprint_worker, safe_user_prompt)
+                                    step_2a2 = execute_marker_yardage_and_quality_gate(step_2a1, safe_user_prompt)
+                                    blueprint_final = allocate_fabric_consumption_and_quality_gate(step_2a2)
+                                    st.session_state.bom_data = blueprint_final
+                            except Exception: 
+                                pass
+                        
+                        ai_chat_response = chat_match.group(1).strip() if chat_match else "Tôi đã cập nhật định mức vật tư hệ thống theo lệnh của anh/chị."
+                        # Ghi nhận cặp câu hỏi - phản hồi vào lịch sử ngữ cảnh
+                        st.session_state.chat_history.append({"user": safe_user_prompt, "ai": ai_chat_response})
                     
                     st.rerun()
                 except Exception:
-                    st.error("💥 Lỗi xử lý tiến trình Phân đoạn 7a:")
+                    st.error("💥 Lỗi cục bộ trong tiến trình hội thoại Chat Core:")
                     st.code(traceback.format_exc())
+
+    # 5. Dựng khung hiển thị lịch sử đối thoại chuẩn văn phong ChatGPT
+    if st.session_state.chat_history:
+        st.markdown("### 💬 Lịch sử trao đổi kỹ thuật:")
+        for msg in st.session_state.chat_history:
+            st.chat_message("user").write(msg["user"])
+            st.chat_message("assistant").write(msg["ai"])
 
 # =====================================================================
 # ĐOẠN 7b: KHU VỰC HIỂN THỊ KẾT QUẢ ĐƠN MÃ, SIZE VÀ XUẤT EXCEL CHUẨN ĐẸP (V17.0.0.8)
