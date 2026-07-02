@@ -1427,15 +1427,14 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             if len(st.session_state.chat_history) > 30:
                 st.session_state.chat_history = st.session_state.chat_history[-30:]
 
-            # PROMPT AI ORCHESTRATOR CHUẨN SẢN XUẤT: Quét triệt để và truyền thông số rập Cargo
+            # 🌟 PROMPT AI ORCHESTRATOR MỞ KHÓA TƯ DUY PHÂN TÍCH NHẬT KÝ SẢN XUẤT CHUẨN KỸ THUẬT
             prompt_instruction = f"""
-            You are an Apparel Orchestrator. Thoroughly scan the Techpack data for "CARGO", "FLAP", "POCKET".
-            If "CARGO" or side pockets are found, you must pass this information.
+            You are a Senior Apparel IE Expert and CAD Master. Your job is to analyze the Techpack data and generate a professional, detailed log for the technician.
             
             DATA FOUND IN TECHPACK: {st.session_state.pdf_text_cache}
             CURRENT USER COMMAND: "{current_query}"
             
-            Return response in exact format:
+            Return response in EXACTLY this format:
             ===START_JSON===
             {{
               "detected_product_type": "CARGO_PANT",
@@ -1461,9 +1460,13 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             }}
             ===END_JSON===
             ===START_CHAT===
-            Tôi đã bóc tách cấu trúc BOM từ tài liệu kỹ thuật, nhận diện chính xác kiểu dáng quần Cargo Pant có túi hộp hông và nắp túi để Lõi hình học V18 tính toán định mức vải chính và 4 cụm lót túi đầy đủ.
+            [WRITE YOUR DETAILED TECHPACK ANALYSIS IN VIETNAMESE HERE]
+            - Hãy phân tích chi tiết kiểu dáng (Quần Casual Twill Cargo Pants ống rộng túi hộp hông có nắp).
+            - Giải trình rõ ràng danh sách chi tiết cấu trúc rập cần phân bổ (12 chi tiết vải chính gồm túi hộp súp ly đắp nổi; 4 cụm lót túi trước sau tương đương 8 mảnh; keo lót ép cạp nắp túi).
+            - Thuyết minh phép toán quy đổi tích phân diện tích hình học phẳng sang định mức hao hụt dệt dài dựa trên khổ dệt {active_width} inch và tỷ lệ co rút dọc {active_warp}% / ngang {active_weft}%.
             ===END_CHAT===
             """
+
 
 
             
