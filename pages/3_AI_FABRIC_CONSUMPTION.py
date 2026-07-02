@@ -1126,27 +1126,26 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                         blueprint_worker = copy.deepcopy(raw_blueprint)
                         blueprint_final = allocate_fabric_consumption_and_quality_gate(blueprint_worker, current_query)
                         
-                        st.session_state.accumulated_bom_rows = {}
-                        if "bom_rows" in blueprint_final:
-                            for row in blueprint_final["bom_rows"]:
-                                if not row or not isinstance(row, dict): continue
-                                c_type = str(row.get("component_type", "MAIN")).upper().strip()
-                                f_class = str(row.get("fabric_classification", "MAIN_FABRIC")).upper().strip()
-                                unique_key = f"{c_type}_{f_class}"
-                                st.session_state.accumulated_bom_rows[unique_key] = row
+                        # =====================================================================
+                        # FIX TRIỆT ĐỂ ẨN BẢNG: ĐỒNG BỘ DỮ LIỆU ĐỊNH MỨC VÀO SESSION STATE
+                        # =====================================================================
+                        st.session_state.active_blueprint = blueprint_final
                         
-                        blueprint_final["bom_rows"] = list(st.session_state.accumulated_bom_rows.values())
-                        if "calculated_on_size" in raw_blueprint:
-                            blueprint_final["calculated_on_size"] = raw_blueprint["calculated_on_size"]
-                        st.session_state.bom_data = blueprint_final
-                
-                ai_chat_response = chat_match.group(1).strip() if chat_match else "Tôi đã đồng bộ tính toán định mức."
-                st.session_state.chat_history.append({"user": current_query, "ai": ai_chat_response})
-            
-            st.rerun()
-        except Exception as e:
-            st.error(f"💥 Lỗi phân tích luồng đối thoại: {str(e)}")
-            st.code(traceback.format_exc())
+                        ai_chat_response = chat_match.group(1).strip() if chat_match else "Tôi đã đồng bộ tính toán định mức."
+                        st.session_state.chat_history.append({
+                            "user": current_query,
+                            "ai": ai_chat_response
+                        })
+                        
+                        st.rerun()
+                else:
+                    st.error("⚠️ AI Engine không xuất được cấu trúc JSON hợp lệ. Vui lòng thử lại câu lệnh.")
+                    
+        except Exception as ce:
+            st.error(f"❌ Lỗi xử lý Core AI Engine: {str(ce)}")
+            with st.expander("Chi tiết lỗi hệ thống (Traceback)"):
+                st.code(traceback.format_exc())
+
 
 # =====================================================================
 # ĐOẠN 7b: KHU VỰC HIỂN THỊ KẾT QUẢ ĐƠN MÃ VÀ XUẤT EXCEL CHUẨN ĐỒNG BỘ CO RÚT ĐỘNG (V17.0.1.2)
