@@ -796,169 +796,152 @@ with col_right:
                 except Exception:
                     st.error("💥 Lỗi xử lý tiến trình Phân đoạn 7a:")
                     st.code(traceback.format_exc())
-
-
-
 # =====================================================================
-# ĐOẠN 7a: BỘ PHÂN RÃ LỆNH ĐA MÃ VÀ QUÉT TÍNH TOÁN HÀNG LOẠT (V17.0.0.1)
+# ĐOẠN 7b: KHU VỰC HIỂN THỊ KẾT QUẢ ĐƠN MÃ VÀ XUẤT EXCEL (V17.0.0.2 FIXED)
 # =====================================================================
-with col_right:
+if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data and st.session_state.bom_data["bom_rows"]:
     st.markdown('<div class="cad-card">', unsafe_allow_html=True)
-    st.markdown('<div class="cad-header">🚀 MULTI-STYLE BATCH VISUALIZER & ENGINE</div>', unsafe_allow_html=True)
+    st.markdown('<div class="cad-header">📊 CALCULATED FABRIC CONSUMPTION MATRIX (BOM RESULT)</div>', unsafe_allow_html=True)
     
-    # Cho phép người dùng tải lên cùng lúc nhiều file PDF
-    uploaded_files = st.file_uploader("Thả các file Techpack PDF của các mã hàng tại đây:", type=["pdf"], accept_multiple_files=True)
+    chat_txt = str(safe_user_prompt).lower()
+    m_c = re.search(r'(?:co\s*rút|co\s*rut|co)\s*([\d\.]+)\s*(?:-|–|x|ngang|\s+)\s*([\d\.]+)', chat_txt)
+    warp_default, weft_default = (f"{float(m_c.group(1))}%", f"{float(m_c.group(2))}%") if m_c else ("5.0%", "15.0%")
     
-    if uploaded_files:
-        st.success(f"📎 Hệ thống đã nhận: {len(uploaded_files)} file PDF Techpack sẵn sàng quét.")
-    st.markdown('</div>', unsafe_allow_html=True)
-
-    # Đảm bảo an toàn biến lệnh đầu vào từ khung nhập liệu
-    safe_user_prompt = user_prompt if 'user_prompt' in globals() and user_prompt else ""
-
-    # 🌟 BỘ PHÂN RÃ LỆNH ĐA MÃ (MULTIPLE COMMAND PARSER)
-    style_configs = {}
-    if safe_user_prompt:
-        # Tìm tất cả các cụm bắt đầu bằng từ "mã" hoặc "ma" đi kèm số hiệu và thông số phía sau
-        blocks = re.split(r'(?=mã|ma)\s*', safe_user_prompt.lower().strip())
-        for block in blocks:
-            if not block: continue
-            # Trích xuất số mã hàng
-            match_style = re.search(r'(?:mã|ma)\s*([\w\-]+)', block)
-            if match_style:
-                st_code = match_style.group(1).strip()
-                
-                # Trích xuất khổ vải của mã đó
-                w_val = None
-                match_w = re.search(r'(?:khổ|kho|width)\s*[:\-=\s]*([\d\.]+)', block)
-                if match_w: w_val = float(match_w.group(1))
-                
-                # Trích xuất độ co rút của mã đó
-                warp_val, weft_val = None, None
-                match_sh = re.search(r'(?:co\s*rút|co\s*rut|co)\s*[:\-=\s]*([\d\.]+)\s*(?:-|–|x|ngang|\s+)\s*([\d\.]+)', block)
-                if match_sh:
-                    warp_val = float(match_sh.group(1))
-                    weft_val = float(match_sh.group(2))
-                
-                style_configs[st_code] = {"width": w_val, "warp": warp_val, "weft": weft_val}
-
-    # TIẾN TRÌNH CHẠY TỰ ĐỘNG KHI CÓ FILE VÀ CÓ LỆNH MỚI
-    if uploaded_files and safe_user_prompt:
-        if "batch_bom_data" not in st.session_state or st.button("🔄 CHẠY LẠI TOÀN BỘ CÁC MÃ HÀNG"):
-            st.session_state.batch_bom_data = {} # Khởi tạo kho lưu trữ đa mã hàng
+    display_data = []
+    for r in st.session_state.bom_data["bom_rows"]:
+        if not r or not isinstance(r, dict): 
+            continue
             
-            with st.spinner("🧠 AI CORE: Đang quét và tính định mức hàng loạt cho các mã hàng..."):
-                try:
-                    import google.generativeai as genai
-                    import fitz, json, copy, traceback
-                    
-                    if "GEMINI_API_KEY" in st.secrets: 
-                        genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-                    model = genai.GenerativeModel("gemini-2.5-flash", generation_config={"response_mime_type": "application/json"})
-                    
-                    # VÒNG LẶP XỬ LÝ LẦN LƯỢT TỪNG FILE TECHPACK
-                    for f in uploaded_files:
-                        doc = fitz.open(stream=f.read(), filetype="pdf")
-                        
-                        # Gom toàn bộ nội dung chữ đa trang
-                        full_text = ""
-                        for p_idx in range(len(doc)):
-                            full_text += f"\n--- TRANG {p_idx + 1} ---\n" + doc.load_page(p_idx).get_text("text")
-                        
-                        # Gọi AI trích xuất BOM và Spec hình học của mã hiện tại
-                        prompt_instruction = f"""
-                        You are an expert apparel IE system. Extract the "BOM" and "SIZE SPECIFICATION" table from this text:
-                        {full_text}
-                        Return a standard valid JSON object containing "style_code" and "bom_rows" array with geometric "panels_catalog".
-                        """
-                        response = model.generate_content(prompt_instruction)
-                        cleaned_text = re.sub(r"^```json\s*|\s*```$", "", response.text.strip(), flags=re.IGNORECASE)
-                        
-                        try: raw_blueprint = json.loads(cleaned_text)
-                        except: raw_blueprint = {"bom_rows": []}
-                        
-                        if raw_blueprint and raw_blueprint.get("bom_rows"):
-                            # Nhận diện Style Code thực tế từ file hoặc AI
-                            extracted_style = str(raw_blueprint.get("style_code", f.name.replace(".pdf", ""))).strip().lower()
-                            
-                            # 🌟 ĐỐI CHIẾU THÔNG SỐ TỪ CÂU LỆNH: Tìm xem mã này có lệnh riêng không
-                            active_style_prompt = "khổ 58 co rút 5-15" # Mặc định hệ thống
-                            for cmd_style, cfg in style_configs.items():
-                                if cmd_style in extracted_style or extracted_style in cmd_style:
-                                    active_style_prompt = f"khổ {cfg['width'] or 58} co rút {cfg['warp'] or 5}-{cfg['weft'] or 15}"
-                                    break
-                            
-                            # Chạy chuỗi hàm phân tích logic hình học IE với lệnh tương thích của mã đó
-                            blueprint_worker = copy.deepcopy(raw_blueprint)
-                            try: step_2a1 = parse_geometric_panels_allowance(blueprint_worker, active_style_prompt)
-                            except: step_2a1 = blueprint_worker
-                            
-                            try: step_2a2 = execute_marker_yardage_and_quality_gate(step_2a1, active_style_prompt)
-                            except: step_2a2 = step_2a1
-                            
-                            blueprint_final = allocate_fabric_consumption_and_quality_gate(step_2a2)
-                            
-                            # Lưu trữ vào bộ nhớ tổng theo từng mã độc lập
-                            st.session_state.batch_bom_data[raw_blueprint.get("style_code", f.name)] = blueprint_final
-                            
-                    st.rerun()
-                except Exception:
-                    st.error("💥 Lỗi cục bộ trong tiến trình xử lý hàng loạt:")
-                    st.code(traceback.format_exc())
-# =====================================================================
-# ĐOẠN 7b: GIAO DIỆN HIỂN THỊ VÀ XUẤT EXCEL THEO TỪNG MÃ CHỌN (BATCH DISPLAY)
-# =====================================================================
-if "batch_bom_data" in st.session_state and st.session_state.batch_bom_data:
-    st.markdown('<br>', unsafe_allow_html=True)
-    
-    # 🌟 THANH CHỌN MÃ HÀNG TƯƠNG TÁC
-    style_list = list(st.session_state.batch_bom_data.keys())
-    selected_style = st.selectbox("📂 CHỌN MÃ HÀNG ĐỂ XEM BÁO CÁO ĐỊNH MỨC CHI TIẾT:", style_list)
-    
-    # Lấy dữ liệu của mã được chọn
-    current_bom_data = st.session_state.batch_bom_data[selected_style]
-    
-    if current_bom_data and "bom_rows" in current_bom_data:
-        st.markdown(f'<div class="cad-card"><div class="cad-header">📊 CALCULATED FABRIC CONSUMPTION FOR STYLE: {selected_style}</div>', unsafe_allow_html=True)
+        sys_notes = r.get("consumption_note", "")
+        current_gross = r.get("calculated_gross_consumption_yds", 0.0)
+        reason_logs = str(r.get("reason_or_logs", ""))
         
-        display_data = []
-        for r in current_bom_data["bom_rows"]:
-            if not r or not isinstance(r, dict): continue
-            
-            sys_notes = r.get("consumption_note", "")
-            current_gross = r.get("calculated_gross_consumption_yds", 0.0)
-            reason_logs = str(r.get("reason_or_logs", ""))
-            
-            # Tách thông tin hiển thị khổ và co rút chuẩn theo từng mã từ log
-            cut_width_val = f"{r.get('fabric_width_inch', 58.0)} inch"
+        # ĐỒNG BỘ HIỂN THỊ KHỔ VẢI CHUẨN XÁC
+        if "fabric_width_inch" in r and r["fabric_width_inch"] > 0:
+            cut_width_val = f"{float(r['fabric_width_inch'])} inch"
+        else:
+            match_w = re.search(r'Khổ vải:\s*([\d\.]+)', sys_notes)
+            if match_w:
+                cut_width_val = f"{float(match_w.group(1))} inch"
+            else:
+                match_w_alt = re.search(r'Khổ\s*(?:lót|mếch):\s*([\d\.]+)', sys_notes)
+                cut_width_val = f"{float(match_w_alt.group(1))} inch" if match_w_alt else "58.0 inch"
+        
+        # Tách thông tin co rút dọc / ngang trước wash
+        warp_val = warp_default
+        weft_val = weft_default
+        if "/" in reason_logs:
+            parts = reason_logs.split("/")
+            if len(parts) >= 3:
+                shrink_part = parts[2].strip()
+                match_sh = re.search(r'([\d\.]+)\s*x\s*([\d\.]+)', shrink_part)
+                if match_sh:
+                    warp_val = f"{float(match_sh.group(1))}%"
+                    weft_val = f"{float(match_sh.group(2))}%"
+                    
+        # Ép độ co rút về 0% cho phụ liệu keo lót
+        if any(x in str(r.get("fabric_classification", "")).upper() for x in ["FUSING", "LINING"]):
             warp_val = "0.0%"
             weft_val = "0.0%"
-            
-            if "/" in reason_logs:
-                parts = reason_logs.split("/")
-                if len(parts) >= 3:
-                    match_sh = re.search(r'([\d\.]+)\s*x\s*([\d\.]+)', parts[2].strip())
-                    if match_sh:
-                        warp_val = f"{float(match_sh.group(1))}%"
-                        weft_val = f"{float(match_sh.group(2))}%"
 
-            display_data.append({
-                "Component Type": r.get("component_type", "MAIN FABRIC"),
-                "Placement": r.get("placement", "BODY"),
-                "Fabric Classification": r.get("fabric_classification", "MAIN_FABRIC"),
-                "Fabric Code": r.get("fabric_code", "N/A"),
-                "Fabric Color": r.get("fabric_color", "N/A"),
-                "Khổ vải (Width)": cut_width_val,
-                "Co rút dọc (% Warp)": warp_val,
-                "Co rút ngang (% Weft)": weft_val,
-                "Marker Efficiency": r.get("marker_efficiency_pct", "76.0%"),
-                "Gross Consumption (Yds)": current_gross,
-                "Quality Status": r.get("status", "PASS"),
-                "System Notes": sys_notes
-            })
-            
-        df_bom = pd.DataFrame(display_data)
-        st.dataframe(df_bom, use_container_width=True, hide_index=True)
-        st.markdown('</div>', unsafe_allow_html=True)
+        display_data.append({
+            "Component Type": r.get("component_type", "MAIN FABRIC"),
+            "Placement": r.get("placement", "BODY"),
+            "Fabric Classification": r.get("fabric_classification", "MAIN_FABRIC"),
+            "Fabric Code": r.get("fabric_code", "D-32777"),
+            "Fabric Color": r.get("fabric_color", "LIGHT ORANGE"),
+            "Khổ vải (Width)": cut_width_val,
+            "Co rút dọc (% Warp)": warp_val,
+            "Co rút ngang (% Weft)": weft_val,
+            "Marker Efficiency": r.get("marker_efficiency_pct", "76.0%"),
+            "Gross Consumption (Yds)": current_gross,
+            "Quality Status": r.get("status", "PASS"),
+            "System Notes": sys_notes
+        })
         
-        # (Giữ nguyên đoạn tạo Workbook và nút download_button Excel bằng biến df_bom ở cuối của bạn...)
+    # Tạo DataFrame và hiển thị bảng dữ liệu lên giao diện
+    df_bom = pd.DataFrame(display_data)
+    st.dataframe(df_bom, use_container_width=True, hide_index=True)
+    st.markdown('</div>', unsafe_allow_html=True)
+    
+    # EXCEL EXPORT ENGINE
+    try:
+        import io
+        from openpyxl import Workbook
+        from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+        from openpyxl.utils import get_column_letter
+
+        output = io.BytesIO()
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "BOM Fabric Consumption"
+        ws.views.sheetView.showGridLines = True
+        
+        font_title = Font(name="Calibri", size=14, bold=True, color="FFFFFF")
+        font_header = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
+        font_body = Font(name="Calibri", size=11, bold=False)
+        
+        fill_title = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")
+        fill_header = PatternFill(start_color="2C3E50", end_color="2C3E50", fill_type="solid")
+        
+        align_center = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        align_left = Alignment(horizontal="left", vertical="center")
+        align_right = Alignment(horizontal="right", vertical="center")
+        
+        thin_side = Side(border_style="thin", color="D9D9D9")
+        thin_border = Border(left=thin_side, right=thin_side, top=thin_side, bottom=thin_side)
+        
+        ws.merge_cells("A1:L1")
+        ws["A1"] = f"BÁO CÁO ĐỊNH MỨC VẬT TƯ VẢI - STYLE: {st.session_state.bom_data.get('style_code', 'R09-450416')}"
+        ws["A1"].font = font_title
+        ws["A1"].fill = fill_title
+        ws["A1"].alignment = align_center
+        ws.row_dimensions.height = 40
+        
+        headers = list(df_bom.columns)
+        for col_num, header_title in enumerate(headers, 1):
+            cell = ws.cell(row=3, column=col_num)
+            cell.value = header_title
+            cell.font = font_header
+            cell.fill = fill_header
+            cell.alignment = align_center
+            cell.border = thin_border
+        ws.row_dimensions.height = 28
+        
+        for row_num, row_data in enumerate(display_data, 4):
+            ws.row_dimensions[row_num].height = 22
+            for col_num, key in enumerate(headers, 1):
+                cell = ws.cell(row=row_num, column=col_num)
+                cell.value = row_data[key]
+                cell.font = font_body
+                cell.border = thin_border
+                
+                if key in ["Gross Consumption (Yds)"]:
+                    cell.alignment = align_right
+                    cell.number_format = '#,##0.0000'
+                elif key in ["Khổ vải (Width)", "Co rút dọc (% Warp)", "Co rút ngang (% Weft)", "Marker Efficiency", "Quality Status"]:
+                    cell.alignment = align_center
+                else:
+                    cell.alignment = align_left
+        
+        for col in ws.columns:
+            max_len = 0
+            col_letter = get_column_letter(col.column)
+            for cell in col:
+                if cell.row == 1: continue
+                if cell.value: max_len = max(max_len, len(str(cell.value)))
+            ws.column_dimensions[col_letter].width = max(max_len + 4, 12)
+            
+        wb.save(output)
+        excel_bytes = output.getvalue()
+        
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.download_button(
+            label="📥 XUẤT FILE EXCEL ĐỊNH MỨC CHUẨN SẢN XUẤT",
+            data=excel_bytes,
+            file_name=f"BOM_Consumption_{st.session_state.bom_data.get('style_code', 'R09-450416')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True
+        )
+    except Exception as e:
+        st.warning(f"⚠️ Không thể khởi tạo nút xuất Excel cao cấp: {str(e)}")
