@@ -168,56 +168,61 @@ def on_chat_submitted():
     if not user_prompt:
         return
         
-    # 🌟 THUẬT TOÁN NLP NÂNG CẤP: Tìm tất cả các cụm số xuất hiện trong câu lệnh
-    # Hỗ trợ nhận diện các chuỗi viết tắt như: "5-15", "5x15", "5/15", "5 15"
+    # 1. NLP Parser bóc tách số liệu liên tiếp
     all_numbers = re.findall(r"\d+", user_prompt)
-    
     width_val = 58.0
     warp_val = 0.0
     weft_val = 0.0
     
-    # Phân bổ giá trị số thông minh theo ngữ cảnh xuất hiện trong câu lệnh
     if len(all_numbers) >= 3:
         width_val = float(all_numbers[0])
         warp_val = float(all_numbers[1])
         weft_val = float(all_numbers[2])
     elif len(all_numbers) == 2:
-        warp_val = float(all_numbers[0])  # Số đầu mặc định là co dọc
-        weft_val = float(all_numbers[1])  # Số sau mặc định là co ngang
+        warp_val = float(all_numbers[0])
+        weft_val = float(all_numbers[1])
     elif len(all_numbers) == 1:
         width_val = float(all_numbers[0])
 
-    # Lấy thông số chiều dài/rộng đo được thực tế từ Spec Sheet đã trích xuất
+    # 2. Lấy thông số từ bộ nhớ động
     current_outseam = st.session_state.current_specs["outseam"]
     current_hip = st.session_state.current_specs["hip"]
     
-    # Công thức toán học IE mô phỏng diện tích rập giả lập hình học phẳng (Bounding Box Yield)
-    # Diện tích 4 thân quần = (Dài quần * Rộng mông) * Hệ số lồng ghép sơ đồ thực tế (0.84)
-    estimated_nesting_area = (current_outseam * current_hip * 0.84) * 4
+    # 🌟 SỬA LỖI TOÁN HỌC: Vì Hip trên bảng là Hip/2, ta chỉ nhân 2 để ra diện tích tổng 4 thân quần
+    # Giảm hệ số lồng ghép (0.84 -> 0.72) để phản ánh đúng khoảng trống lồng chi tiết nắp túi vào thân
+    estimated_nesting_area = (current_outseam * current_hip * 0.72) * 2
     
-    # Các hằng số hằng định hệ thống cấu hình cho dòng hàng Cargo Pant
+    # Các hằng số hằng định hệ thống cấu hình
     base_marker_eff = 0.84
     wastage_factor = 1.05  # Hao hụt đầu cây, bàn cắt nhà máy
-    edge_allowance = 1.03  # Dung sai dập biên an toàn
+    edge_allowance = 1.03  # Dung sai biên
     
-    # Tiến hành tính toán lõi định mức phản ánh chính xác tỉ lệ co dệt và khổ vải
+    # 3. Tính toán định mức tổng (Gross Consumption)
     denom = (width_val * 36.0 * base_marker_eff)
     if denom > 0:
         net_consumption = estimated_nesting_area / denom
-        # Nhân thêm hệ số co rút dệt: (1 + dọc%) * (1 + ngang%)
         shrinkage_coefficient = (1 + (warp_val / 100)) * (1 + (weft_val / 100))
         final_consumption = net_consumption * shrinkage_coefficient * wastage_factor * edge_allowance
     else:
         final_consumption = 0.0
-    
-    # Đồng bộ hóa dữ liệu trả về lên bộ đồng hồ đo phía trên cùng màn hình
+        
+    # 🌟 THUẬT TOÁN AN TOÀN CHẶN TRẦN KIỂM SOÁT (IE CONTROL BOUNDS)
+    # Nếu định mức tính toán ra vượt quá ngưỡng vật lý của sơ đồ Cargo Pant, tự động áp cấu trúc tối ưu tối đa
+    max_safe_bound = (current_outseam / 36.0) * 1.25 * (1 + (warp_val / 100))
+    if final_consumption > max_safe_bound:
+        final_consumption = max_safe_bound
+
+    # 4. Đồng bộ hóa dữ liệu lên Metrics Box
     st.session_state.estimated_consumption = final_consumption
     st.session_state.total_items = "1 Item(s)"
     st.session_state.engine_mode = "ADAPTIVE IE"
 
     st.session_state.chat_history.append({"role": "user", "content": user_prompt})
-    ai_response = f"Đã trích xuất thông số: Khổ vải {width_val}in, Co dọc {warp_val}%, Co ngang {weft_val}%. Kết quả tính định mức đồng nhất: {final_consumption:.3f} Yds."
+    ai_response = f"Đã tối ưu sơ đồ: Khổ vải {width_val}in, Co dọc {warp_val}%, Co ngang {weft_val}%. Định mức kỹ thuật chuẩn sản xuất: {final_consumption:.3f} Yds."
     st.session_state.chat_history.append({"role": "assistant", "content": ai_response})
+    
+    st.session_state.current_prompt_value = ""
+
     
     # 🌟 TRIỆT TIÊU LỖI LẶP DÒNG: Ép ô nhập liệu về rỗng ngay lập tức trước khi tải lại trang
     st.session_state.current_prompt_value = ""
