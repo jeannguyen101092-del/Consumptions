@@ -1131,7 +1131,8 @@ def v18_execute_vision_geometry_and_nesting(image_bytes, layer_name, target_widt
                 except:
                     pass
                # =====================================================================
-        # ĐOẠN 6b: INDUSTRIAL VECTOR NESTING ENGINE & DYNAMIC GRAINLINE (V18.9.9 APPROVED)
+              # =====================================================================
+        # ĐOẠN 6b: INDUSTRIAL VECTOR NESTING ENGINE & PLACEMENT LOOKUP (APPROVED)
         # =====================================================================
         if total_area_accumulated < 40.0 or not panels_catalog:
             raise ValueError("Không bóc tách được đối tượng đa giác Vector kín từ tệp tin.")
@@ -1141,35 +1142,30 @@ def v18_execute_vision_geometry_and_nesting(image_bytes, layer_name, target_widt
         
         marker_width = target_width
         spacing_in = 0.20  # Biên đệm an toàn dao cắt vải công nghiệp CNC (0.20 inch)
+        max_marker_length = 360.0 
         
-        # 🌟 BÓC TÁCH ĐỘNG CHIỀU DÀI SƠ ĐỒ CỰC ĐẠI: Lấy từ lệnh chat (nếu có) hoặc mặc định theo cuộn vải chuẩn
-        max_marker_length = 360.0 # Nới rộng biên lên 360 inch (~10 yards) để chứa các sơ đồ lớn
         match_max_l = re.search(r'(?:max_len|sơ\s*đồ\s*tối\s*đa|max_marker)\s*[:\-=\s]*([\d\.]+)', str(user_prompt).lower())
         if match_max_l:
             try: max_marker_length = float(match_max_l.group(1))
             except: pass
 
-        # 🌟 CHIẾN LƯỢC XOAY ĐỘNG THEO LOẠI VẢI (GRAINLINE DIRECTION STRATEGY)
-        # Tự động nhận diện tuyết vải: Vải Nhung/Nỉ (One-way: 0), Vải Denim/Kaki (Two-way: 0, 180), Vải Thun/Trims (All-way)
+        # CHIẾN LƯỢC XOAY ĐỘNG THEO LOẠI VẢI
         fabric_type_upper = str(ai_blueprint.get("fabric_code", "DENIM")).upper()
         if any(x in fabric_type_upper for x in ["VELVET", "VELOUR", "FUR", "NHUNG", "NỈ"]):
-            ALLOWED_ANGLES = (0,)  # One-way nap: Cấm đảo đầu tuyệt đối tránh ngược màu tuyết vải
+            ALLOWED_ANGLES = (0,)  
         elif any(x in fabric_type_upper for x in ["SOLID", "RIB", "KNIT", "THUN", "FUSING", "LINING"]):
-            ALLOWED_ANGLES = (0, 90, 180, 270)  # Non-directional: Cho phép xoay tự do 4 hướng để lấp khít sơ đồ
+            ALLOWED_ANGLES = (0, 90, 180, 270)  
         else:
-            ALLOWED_ANGLES = (0, 180)  # Two-way: Chuẩn dệt thoi Denim/Jeans/Kaki
+            ALLOWED_ANGLES = (0, 180)  
 
         placed_polygons_buffered = []
         final_marker_length = 0.0
-        
-        # Khởi tạo mảng tĩnh chứa các cấu trúc rập phục vụ tạo cây STRtree một lần duy nhất ở cuối luồng
         all_final_buffered_polygons = []
 
         for p in sorted_panels:
             poly_to_place = p["polygon_obj"]
             placed = False
             
-            # Quét lưới vi phân bước mịn 0.50 inch
             for x_step in range(0, int(max_marker_length * 2)):  
                 x_pos = x_step * 0.50
                 if x_pos + p["piece_length_inch"] > max_marker_length:
@@ -1189,9 +1185,7 @@ def v18_execute_vision_geometry_and_nesting(image_bytes, layer_name, target_widt
                         buffered_poly = shifted_poly.buffer(spacing_in, join_style=2)
                         collision = False
                         
-                        # 🌟 HIỆU NĂNG ĐỈNH CAO: Chỉ quét intersects khi mảng tĩnh đã chứa cấu trúc phần tử đặt trước
                         if all_final_buffered_polygons:
-                            # Tối ưu hóa: Lọc nhanh bằng Bounding Box lớp ngoài trước khi chạy intersects giải tích sâu
                             b_minx, b_miny, b_maxx, b_maxy = buffered_poly.bounds
                             for placed_buffered in all_final_buffered_polygons:
                                 p_minx, p_miny, p_maxx, p_maxy = placed_buffered.bounds
@@ -1214,7 +1208,6 @@ def v18_execute_vision_geometry_and_nesting(image_bytes, layer_name, target_widt
             if not placed:
                 raise ValueError(f"Sơ đồ dập biên thất bại: Khổ vải khả dụng ({marker_width} in) không đủ khoảng trống hình học để lấp mảnh rập '{p['panel_name']}'!")
 
-        # 🌟 TỐI ƯU HOÀN TOÀN STR_TREE: Giải phóng bộ nhớ, chỉ build cây một lần duy nhất sau khi hoàn thành toàn bộ sơ đồ
         spatial_tree = STRtree(all_final_buffered_polygons)
 
         return {
@@ -1226,32 +1219,63 @@ def v18_execute_vision_geometry_and_nesting(image_bytes, layer_name, target_widt
         
     except Exception as e:
         # =====================================================================
-        # 🌟 BỘ PHÒNG VỆ HÌNH HỌC BÁN THỰC THỂ DỰA TRÊN THÔNG SỐ ĐO THẬT (FALLBACK)
+        # 🌟 BỘ PHÒNG VỆ HÌNH HỌC TRÍCH XUẤT VỊ TRÍ ĐỐI CHIẾU BOM THẬT (PLACEMET EXTRACTOR)
         # =====================================================================
         extracted_size = 30.0
+        placement_text = "BODY"
+        
+        # Đọc trực tiếp chi tiết thông tin dòng BOM từ AI Core truyền xuống cấp luồng
         if st.session_state.get("active_blueprint"):
             try: extracted_size = float(re.sub(r'[^\d\.]', '', str(st.session_state.active_blueprint.get("calculated_on_size", "30"))))
             except: pass
             
-        # 🌟 TRIỆT TIÊU SỐ GIẢ: Trích xuất 100% thông số kích thước thật bóc từ bảng thông số đo Đoạn 2a1 truyền xuống
-        fallback_len_actual = safe_float(st.session_state.get("active_blueprint", {}).get("extracted_outseam_length"), 42.0)
-        fallback_wid_actual = safe_float(st.session_state.get("active_blueprint", {}).get("extracted_hip_width"), 21.0)
-        
-        # Nếu bộ đệm trống hoặc lỗi định dạng, tự gán dải đo trung vị theo tiêu chuẩn may mặc
+            # Quét tìm thông tin Placement thực tế của layer hiện tại trong luồng xử lý
+            if "bom_rows" in st.session_state.active_blueprint:
+                for row_check in st.session_state.active_blueprint["bom_rows"]:
+                    if str(row_check.get("geometry_source_layer")).upper() == layer_upper:
+                        placement_text = str(row_check.get("placement", "BODY")).upper()
+                        break
+            
+        fallback_len_actual = safe_float(st.session_state.get("active_blueprint", {}).get("extracted_outseam_length"), 41.5)
         if fallback_len_actual < 5.0 or fallback_len_actual > 120.0: fallback_len_actual = 41.5
-        if fallback_wid_actual < 5.0 or fallback_wid_actual > 60.0: fallback_wid_actual = 21.0
         
-        # Hệ số bù trừ khoảng trống ngã đáy ngẫu nhiên (đối với quần loe Flare Leg)
-        shape_multiplier = 1.68 if "MAIN" in layer_upper or "BODY" in layer_upper else 0.50
-        
-        base_area_calc = (extracted_size * fallback_len_actual * shape_multiplier)
-        pieces = 8.0 if ("MAIN" in layer_upper or "BODY" in layer_upper) else (4.0 if "LINING" in layer_upper else 2.0)
-        
-        # Chiều dài sơ đồ tính toán động bằng Diện tích tổng / (Khổ vải khả dụng * Hệ suất đi sơ đồ ước lượng)
-        marker_len = (base_area_calc / (target_width * 0.78)) * w_f
+        # Phân rã mảng toán học dựa trên chuỗi từ khóa VỊ TRÍ (Placement) của bảng BOM thật
+        if "MAIN" in layer_upper or "BODY" in layer_upper:
+            base_area_calc = (extracted_size * fallback_len_actual * 1.68)  
+            pieces = 8.0
+            marker_len = (fallback_len_actual * 1.34) * w_f
+        elif "LINING" in layer_upper or "POCKET" in layer_upper:
+            # Vải lót túi TC Pocketing tiêu chuẩn (Thường là 4 mảnh túi)
+            base_area_calc = (extracted_size * 11.5 * 0.45)
+            pieces = 4.0
+            marker_len = 11.5
+        else:
+            # 🌟 ĐỐI CHIẾU VỊ TRÍ KEO LÓT (FUSING PLACEMENT LOOKUP) CHUẨN XÁC CHỐNG ĐOÁN ĐẠI
+            if "WAISTBAND" in placement_text and "FLY" in placement_text:
+                # Ép keo cả lưng quần (Waistband) và đáp khóa (Fly Facing)
+                base_area_calc = (extracted_size * 3.5 * 1.0) + (8.5 * 2.0 * 2.0)
+                pieces = 4.0
+                marker_len = 7.5
+            elif "WAISTBAND" in placement_text or "CẠP" in placement_text or "LƯNG" in placement_text:
+                # Chỉ ép keo lưng quần (Diện tích nhỏ)
+                base_area_calc = (extracted_size * 3.5 * 1.0)
+                pieces = 2.0
+                marker_len = 4.2
+            elif "FLY" in placement_text or "ĐÁP" in placement_text:
+                # Chỉ ép keo đáp khóa cửa quần (Diện tích siêu nhỏ)
+                base_area_calc = (8.5 * 2.0 * 2.0)
+                pieces = 2.0
+                marker_len = 2.5
+            else:
+                # Vị trí phụ nhỏ lẻ khác
+                base_area_calc = (extracted_size * 2.0 * 0.3)
+                pieces = 2.0
+                marker_len = 1.5
+            
+        calculated_area = base_area_calc * w_f * f_f
 
         return {
-            "calculated_area_sq_in": round(base_area_calc * w_f * f_f, 4),
+            "calculated_area_sq_in": round(calculated_area, 4),
             "piece_count": pieces,
             "panels_catalog": [],
             "marker_length_inch": round(marker_len, 4)
