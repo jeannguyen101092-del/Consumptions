@@ -246,6 +246,7 @@ def parse_geometric_panels_allowance(ai_blueprint: dict, user_chat: str) -> dict
 def execute_marker_yardage_and_quality_gate(ai_blueprint: dict, user_chat: str) -> dict:
     """
     Phân đoạn 2a2: Gom nhóm diện tích dệt, đồng bộ hóa hệ số hiệu suất sơ đồ (Marker).
+    ĐÃ TỐI ƯU CÔNG THỨC ĐỊNH MỨC QUẦN THỰC TẾ TRÁNH BỊ THẤP (LOW CONSUMPTION)
     """
     import re
     
@@ -273,18 +274,17 @@ def execute_marker_yardage_and_quality_gate(ai_blueprint: dict, user_chat: str) 
         
     fabric_registry = {}
     chat_clean = str(user_chat if user_chat else "").lower().strip()
+    product_type = str(ai_blueprint.get("detected_product_type", "PANT")).upper()
 
-    # ENGINE REGEX: Đã sửa lỗi IndexError bằng cách đưa group về nhóm số (1) chính xác
+    # ENGINE REGEX: Trích xuất thông số từ câu lệnh người dùng
     def parse_specs_advanced(chat_text):
         width, warp, weft = None, None, None
         
-        # 1. Tìm khổ vải (Ví dụ: khổ 58, khổ 58inch, width 58)
         match_w = re.search(r'(?:khổ|kho|width|cutwidth)\s*[:\-=\s]*([\d\.]+)', chat_text)
         if match_w:
             try: width = float(match_w.group(1))
             except ValueError: pass
             
-        # 2. Tìm cặp tỷ lệ co rút dạng X-Y hoặc XxY (Ví dụ: co rút 5-15, co 5 x 15)
         match_sh_pair = re.search(r'(?:co\s*rút|co\s*rut|co|shrinkage)\s*[:\-=\s]*([\d\.]+)\s*(?:-|–|x|ngang|\s+)\s*([\d\.]+)', chat_text)
         if match_sh_pair:
             try:
@@ -292,7 +292,6 @@ def execute_marker_yardage_and_quality_gate(ai_blueprint: dict, user_chat: str) 
                 weft = float(match_sh_pair.group(2))
             except ValueError: pass
         else:
-            # Nếu không viết dạng cặp, tìm riêng lẻ từ khóa dọc/ngang độc lập
             match_warp = re.search(r'(?:dọc|doc|warp)\s*[:\-=\s]*([\d\.]+)', chat_text)
             if match_warp:
                 try: warp = float(match_warp.group(1))
@@ -300,7 +299,7 @@ def execute_marker_yardage_and_quality_gate(ai_blueprint: dict, user_chat: str) 
                 
             match_weft = re.search(r'(?:ngang|weft)\s*[:\-=\s]*([\d\.]+)', chat_text)
             if match_weft:
-                try: weft = float(match_weft.group(1)) # 🟢 SỬA TẠI ĐÂY: group(2) -> group(1) thành công!
+                try: weft = float(match_weft.group(1))
                 except ValueError: pass
                 
         return width, warp, weft
@@ -333,28 +332,35 @@ def execute_marker_yardage_and_quality_gate(ai_blueprint: dict, user_chat: str) 
         s_weft = s_w_main if s_w_main is not None else inner_safe_float(row.get("shrinkage_weft_pct"), 15.0)
         
         if tmp_id not in fabric_registry:
+            # TỐI ƯU HIỆU SUẤT SƠ ĐỒ (MARKER EFFICIENCY) THEO THỰC TẾ NGÀNH MAY
             if f_class_norm == "RIB":
-                raw_eff = 95.0
+                raw_eff = 92.0
                 consumption_mode = "LINEAR"
             elif f_class_norm == "LINING":
-                raw_eff = 88.0
+                raw_eff = 82.0
                 consumption_mode = "AREA"
             else:
-                if 'simulate_marker_efficiency_v14' in globals():
-                    raw_eff = simulate_marker_efficiency_v14(row.get("panels_catalog", []), f_class_norm, grain_rule, w_b, fab_repeat)
+                # Nếu là Quần (PANT), hiệu suất đi sơ đồ thực tế chỉ dao động từ 74% - 78% do phần ngã đáy trống nhiều
+                if product_type == "PANT":
+                    raw_eff = 76.0  # Mức chuẩn thực tế cho quần dài ống rộng
+                    consumption_mode = "LINEAR"  # Ép tính theo chiều dài sơ đồ chi tiết (Linear) thay vì tính diện tích gộp
                 else:
-                    raw_eff = 85.0
-                consumption_mode = "AREA"
+                    if 'simulate_marker_efficiency_v14' in globals():
+                        raw_eff = simulate_marker_efficiency_v14(row.get("panels_catalog", []), f_class_norm, grain_rule, w_b, fab_repeat)
+                    else:
+                        raw_eff = 82.0
+                    consumption_mode = "AREA"
 
             eff_factor = max(0.50, min(raw_eff / 100.0 if raw_eff > 1.0 else raw_eff, 0.95))
 
+            # Tăng hệ số hao hụt đầu bàn, lỗi cắt (wastage_f) thực tế từ 1.03 lên 1.05 (5% hao hụt sản xuất nhà máy)
             fabric_registry[tmp_id] = {
                 "accumulated_area_sq_in": 0.0,
                 "cutable_w": w_b, 
                 "eff": eff_factor, 
                 "shrink_warp_f": 1.0 + (s_warp / 100.0), 
                 "shrink_weft_f": 1.0 + (s_weft / 100.0),
-                "wastage_f": 1.03, 
+                "wastage_f": 1.05, 
                 "consumption_mode": consumption_mode,
                 "rows_to_update": [],
                 "w_saved": w_b, "s_l_saved": s_warp, "s_w_saved": s_weft, "f_class": f_class_norm
@@ -369,20 +375,9 @@ def execute_marker_yardage_and_quality_gate(ai_blueprint: dict, user_chat: str) 
     return ai_blueprint
 
 
-# =====================================================================
-# ĐOẠN 2b: PHÂN BỔ ĐỊNH MỨC THEO FABRIC ID & KIỂM SOÁT THỰC TẾ (V16.5.1 APPROVED)
-# =====================================================================
 
 # =====================================================================
-# ĐOẠN 2b: PHÂN BỔ ĐỊNH MỨC THEO FABRIC ID & KIỂM SOÁT THỰC TẾ (V16.5.2 APPROVED)
-# =====================================================================
-
-# =====================================================================
-# ĐOẠN 2b: PHÂN BỔ ĐỊNH MỨC THEO FABRIC ID & KIỂM SOÁT THỰC TẾ (V16.5.4 APPROVED)
-# =====================================================================
-
-# =====================================================================
-# ĐOẠN 2b: PHÂN BỔ ĐỊNH MỨC THEO FABRIC ID & KIỂM SOÁT THỰC TẾ (V16.5.5 APPROVED)
+# ĐOẠN 2b: PHÂN BỔ ĐỊNH MỨC THEO FABRIC ID & KIỂM SOÁT THỰC TẾ (V16.5.6 OPTIMIZED)
 # =====================================================================
 
 def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict) -> dict:
@@ -445,17 +440,34 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict) -> dict:
             cutable_w = data.get("cutable_w", 58.0)
             eff = data.get("eff", 0.85)
             f_class_norm = data.get("f_class", "MAIN_FABRIC")
+            cons_mode = data.get("consumption_mode", "AREA")
             
-            if total_area > 0.0:
+            # Lấy thông số chiều dài dài nhất của tấm rập để tính toán LINEAR (nếu có)
+            panels = row.get("panels_catalog", [])
+            max_piece_length = 0.0
+            if panels and isinstance(panels, list):
+                # Tìm chi tiết dài nhất (thường là Thân sau hoặc Thân trước quần)
+                max_piece_length = max([float(p.get("piece_length_inch", 0.0)) for p in panels if isinstance(p, dict)] or [0.0])
+
+            if total_area > 0.0 or max_piece_length > 0.0:
                 is_processed = True
                 if f_class_norm in ["MAIN_FABRIC", "RIB"]:
-                    nesting_factor = 0.45 if f_class_norm == "MAIN_FABRIC" else 0.85
-                    if product_type not in ["PANT", "CARGO_PANT", "CAPRI_PANT", "JORT"]: 
-                        nesting_factor = 1.0 
                     
-                    optimized_area = total_area * nesting_factor
-                    base_cons = (optimized_area / (cutable_w * 36.0)) / eff
-                    total_yds = base_cons * data.get("shrink_warp_f", 1.05) * data.get("wastage_f", 1.03)
+                    # ĐỔI MỚI LOGIC: Nếu cấu hình tính theo LINEAR (Quần dài), áp dụng công thức sơ đồ dài chuẩn công nghiệp
+                    if cons_mode == "LINEAR" and max_piece_length > 0.0:
+                        # Định mức = Chiều dài tấm rập lớn nhất * hệ số co rút dọc * hao hụt đầu bàn vải / eff sơ đồ / 36 inch
+                        total_yds = (max_piece_length / 36.0) * data.get("shrink_warp_f", 1.05) * data.get("wastage_f", 1.05) / eff
+                        # Nhân thêm hệ số bù khổ vải nếu độ co rút ngang quá lớn (>10%) làm hẹp khổ vải hữu ích
+                        if data.get("shrink_weft_f", 1.0) > 1.10:
+                            total_yds *= (data.get("shrink_weft_f", 1.0) * 0.95)
+                    else:
+                        # Mặc định quay về tính theo AREA cho áo hoặc các vật tư phụ khác
+                        nesting_factor = 1.0  # Loại bỏ việc ép giảm 0.45 gây thiếu định mức quần
+                        optimized_area = total_area * nesting_factor
+                        base_cons = (optimized_area / (cutable_w * 36.0)) / eff
+                        total_yds = base_cons * data.get("shrink_warp_f", 1.05) * data.get("wastage_f", 1.05)
+                    
+                    # Làm tròn định mức thực tế 4 chữ số thập phân
                     row["calculated_gross_consumption_yds"] = round(total_yds, 4)
                     
                     row_status = "PASS"
@@ -482,7 +494,7 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict) -> dict:
                     row["reason_or_logs"] = "FIXED"
                 row["marker_efficiency_pct"] = f"{round(eff * 100, 1)}%"
 
-        # 🟢 VAN CHẶN CUỐI: Nếu định mức tính toán ra vẫn bằng 0 (do rập trống rỗng từ Gemini), tự động ghi đè số fallback IE
+        # 🟢 VAN CHẶN CUỐI: Dự phòng an toàn nếu dữ liệu rập rỗng
         if not is_processed or row["calculated_gross_consumption_yds"] == 0.0:
             is_main_fabric = False
             if f_class_raw or comp_type:
@@ -492,7 +504,7 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict) -> dict:
                 is_main_fabric = True
 
             if is_main_fabric:
-                row["calculated_gross_consumption_yds"] = 1.35  # Ép số định mức quần Jeans/Pant vải chính tiêu chuẩn
+                row["calculated_gross_consumption_yds"] = 1.45  # Nâng số dự phòng quần dài thực tế tiêu chuẩn lên 1.45 Yds
                 row["consumption_note"] = "Khổ vải: 58.0\" | Dự phòng IE Fallback (Trống Rập)"
                 row["reason_or_logs"] = "5.0x15.0"
                 row["status"] = "PASS"
