@@ -681,7 +681,7 @@ with col_left:
     st.markdown('</div>', unsafe_allow_html=True)
 
 # =====================================================================
-# ĐOẠN 7a: KHỐI THỰC THI API GEMINI QUÉT ĐA TRANG ĐỂ LẤY BẢNG BOM VÀ SPEC (V16.9.9.6)
+# ĐOẠN 7a: KHỐI AI QUÉT ĐA TRANG - TRÍCH XUẤT TOÀN BỘ VẢI CHÍNH & KEO LÓT TỪ BOM (V16.9.9.9)
 # =====================================================================
 with col_right:
     st.markdown('<div class="cad-card">', unsafe_allow_html=True)
@@ -691,11 +691,9 @@ with col_right:
         try:
             import fitz  
             doc = fitz.open(stream=st.session_state.pdf_bytes, filetype="pdf")
-            # Vẫn hiển thị trang bìa (Trang 1) lên giao diện để xem hình ảnh trực quan
             st.image(doc.load_page(0).get_pixmap(dpi=150).tobytes("png"), use_container_width=True)
             st.success(f"📎 BUFFERED OBJECT: {st.session_state.pdf_name} loaded ({len(doc)} trang).")
             
-            # 🌟 VÒNG LẶP ĐỌC ĐA TRANG: Gom toàn bộ nội dung chữ từ tất cả các trang PDF
             full_techpack_text = ""
             for page_num in range(len(doc)):
                 full_techpack_text += f"\n--- TRANG THỨ {page_num + 1} ---\n"
@@ -707,14 +705,12 @@ with col_right:
         st.caption("ℹ️ Hệ thống sẵn sàng kết xuất hình ảnh sau khi tải file PDF.")
     st.markdown('</div>', unsafe_allow_html=True)
 
-    # Đảm bảo các biến prompt an toàn tuyệt đối không lỗi NameError
     safe_user_prompt = user_prompt if 'user_prompt' in globals() and user_prompt else ""
     active_prompt = safe_user_prompt if safe_user_prompt else "khổ 58 co rút 5-15"
 
-    # LUỒNG TRIGGER TỰ ĐỘNG: Chạy khi có file PDF và chưa có dữ liệu hoặc có lệnh mới
     if st.session_state.pdf_bytes is not None:
         if "bom_data" not in st.session_state or safe_user_prompt:
-            with st.spinner("🧠 AI CORE: Đang quét toàn bộ các trang để tìm bảng BOM & Spec..."):
+            with st.spinner("🧠 AI CORE: Đang quét toàn bộ bảng BOM chi tiết vải chính & keo lót..."):
                 try:
                     import google.generativeai as genai
                     import json, copy, traceback, re
@@ -728,20 +724,24 @@ with col_right:
                         generation_config={"response_mime_type": "application/json"}
                     )
                     
-                    # PROMPT ĐÃ ĐƯỢC THAY ĐỔI: Ép đọc dữ liệu Text tổng hợp từ tất cả các trang sau
                     prompt_instruction = f"""
-                    You are an expert apparel IE system. Analyze the following full text extracted from all pages of the Techpack PDF.
-                    Your goal is to scan through ALL pages to find the exact "BOM (Bill of Materials)" table and "SIZE SPECIFICATION" sheet.
+                    You are an expert apparel IE system. Analyze the full text extracted from the Techpack PDF to find the exact "BOM (Bill of Materials)" table.
                     
                     DATA PROVIDED FROM TECHPACK:
                     {full_techpack_text}
                     
                     CRITICAL EXTRACTION INSTRUCTION:
-                    1. Read through all pages. Look for the "FABRIC" or "MAIN MATERIAL" rows in the BOM section (usually on page 2 or 3) to extract the real fabric_code, fabric_color, and useful fabric_width.
-                    2. Look for the "SIZE SPECIFICATION" table to extract the real physical measurement values for the base sample size (specifically: Outseam / Total Length, Hip Width, Waist width).
-                    3. Generate standard dynamic rectangular bounding boxes for "panels_catalog" using those REAL extracted dimensions:
-                       - FRONT_PANEL: piece_length_inch = Extracted Outseam length, piece_width_inch = Extracted Hip width * 0.5
-                       - BACK_PANEL: piece_length_inch = Extracted Outseam length, piece_width_inch = (Extracted Hip width * 0.5) + 1.0
+                    1. Scan ALL pages to locate the BOM table.
+                    2. You MUST extract ALL fabric-related materials listed in the BOM. Do NOT extract only the Main Fabric. 
+                    3. Ensure you capture:
+                       - MAIN FABRIC (Self fabric for body)
+                       - LINING / POCKETING (Vải lót túi, lót quần)
+                       - FUSING / INTERLINING (Mex keo lót lưng quần, baguet...)
+                    4. For each material found, create an item inside the "bom_rows" array with its real fabric_code and fabric_color from the text.
+                    5. For MAIN FABRIC only, include the "panels_catalog" with rectangular boxes:
+                       - FRONT_PANEL: piece_length_inch = Extracted Outseam, piece_width_inch = (Extracted Hip * 0.5) + 1.5
+                       - BACK_PANEL: piece_length_inch = Extracted Outseam + 1.5, piece_width_inch = (Extracted Hip * 0.5) + 3.0
+                    6. For FUSING or LINING items, you can leave "panels_catalog" empty as they use fixed allocation or components bypass.
                     
                     Return ONLY a valid JSON object matching this strict structure:
                     {{
@@ -752,62 +752,51 @@ with col_right:
                           "component_type": "MAIN FABRIC",
                           "placement": "BODY",
                           "fabric_classification": "MAIN_FABRIC",
-                          "fabric_code": "PUT_REAL_EXTRACTED_FABRIC_CODE_HERE",
-                          "fabric_color": "PUT_REAL_EXTRACTED_COLOR_HERE",
-                          "panels_catalog": [
-                            {{
-                              "panel_name": "FRONT_PANEL",
-                              "panel_type": "FRONT",
-                              "piece_count": 2.0,
-                              "piece_length_inch": 40.0,
-                              "piece_width_inch": 11.0,
-                              "include_seam": false,
-                              "include_hem": false,
-                              "seam_allowance": true
-                            }},
-                            {{
-                              "panel_name": "BACK_PANEL",
-                              "panel_type": "BACK",
-                              "piece_count": 2.0,
-                              "piece_length_inch": 40.5,
-                              "piece_width_inch": 12.0,
-                              "include_seam": false,
-                              "include_hem": false,
-                              "seam_allowance": true
-                            }}
-                          ]
+                          "fabric_code": "REAL_MAIN_FABRIC_CODE",
+                          "fabric_color": "REAL_MAIN_COLOR",
+                          "panels_catalog": [...]
+                        }},
+                        {{
+                          "component_type": "FUSING",
+                          "placement": "WAISTBAND",
+                          "fabric_classification": "FUSING",
+                          "fabric_code": "REAL_FUSING_CODE_OR_MEX",
+                          "fabric_color": "WHITE_OR_BLACK",
+                          "panels_catalog": []
+                        }},
+                        {{
+                          "component_type": "POCKET LINING",
+                          "placement": "POCKET BAG",
+                          "fabric_classification": "LINING",
+                          "fabric_code": "REAL_LINING_CODE",
+                          "fabric_color": "MATCHING_COLOR",
+                          "panels_catalog": []
                         }}
                       ]
                     }}
-                    Replace the placeholder values in JSON with the actual exact data discovered from the multi-page techpack text.
                     User directive overrides: {active_prompt}
                     """
                     
-                    # Gửi prompt chứa toàn bộ nội dung text của file PDF lên Gemini
                     response = model.generate_content(prompt_instruction)
-                    
                     cleaned_text = response.text.strip()
                     cleaned_text = re.sub(r"^```json\s*", "", cleaned_text, flags=re.IGNORECASE)
                     cleaned_text = re.sub(r"\s*```$", "", cleaned_text)
                     
-                    try:
-                        raw_blueprint = json.loads(cleaned_text)
-                    except json.JSONDecodeError:
-                        raw_blueprint = {"bom_rows": []}
+                    try: raw_blueprint = json.loads(cleaned_text)
+                    except json.JSONDecodeError: raw_blueprint = {"bom_rows": []}
                     
                     if raw_blueprint and raw_blueprint.get("bom_rows"):
                         blueprint_worker = copy.deepcopy(raw_blueprint)
                         step_2a1 = parse_geometric_panels_allowance(blueprint_worker, active_prompt)
                         step_2a2 = execute_marker_yardage_and_quality_gate(step_2a1, active_prompt)
                         blueprint_final = allocate_fabric_consumption_and_quality_gate(step_2a2)
-                        
                         st.session_state.bom_data = blueprint_final
                     
                     st.rerun()
-                    
                 except Exception:
                     st.error("💥 Lỗi xử lý tiến trình Phân đoạn 7a:")
                     st.code(traceback.format_exc())
+
 
 
 # =====================================================================
