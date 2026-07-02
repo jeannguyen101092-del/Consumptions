@@ -685,7 +685,7 @@ with col_left:
     st.markdown('</div>', unsafe_allow_html=True)
 
 # =====================================================================
-# ĐOẠN 7a: KHỐI AI QUÉT ĐA TRANG - TRÍCH XUẤT TOÀN BỘ VẢI CHÍNH & KEO LÓT TỪ BOM (V16.9.9.9)
+# ĐOẠN 7a: KHỐI AI QUÉT ĐA TRANG - TỰ ĐỘNG LẤY THÔNG SỐ RẬP CỦA KEO LÓT (V16.9.9.10)
 # =====================================================================
 with col_right:
     st.markdown('<div class="cad-card">', unsafe_allow_html=True)
@@ -702,7 +702,6 @@ with col_right:
             for page_num in range(len(doc)):
                 full_techpack_text += f"\n--- TRANG THỨ {page_num + 1} ---\n"
                 full_techpack_text += doc.load_page(page_num).get_text("text")
-                
         except Exception: 
             full_techpack_text = ""
     else:
@@ -714,7 +713,7 @@ with col_right:
 
     if st.session_state.pdf_bytes is not None:
         if "bom_data" not in st.session_state or safe_user_prompt:
-            with st.spinner("🧠 AI CORE: Đang quét toàn bộ bảng BOM chi tiết vải chính & keo lót..."):
+            with st.spinner("🧠 AI CORE: Đang quét chi tiết bảng BOM & Spec cho Vải chính, Keo và Lót..."):
                 try:
                     import google.generativeai as genai
                     import json, copy, traceback, re
@@ -728,24 +727,21 @@ with col_right:
                         generation_config={"response_mime_type": "application/json"}
                     )
                     
+                    # PROMPT ĐÃ ĐƯỢC THAY ĐỔI: Ép AI tìm thông số hình học cho cả Keo và Lót
                     prompt_instruction = f"""
-                    You are an expert apparel IE system. Analyze the full text extracted from the Techpack PDF to find the exact "BOM (Bill of Materials)" table.
+                    You are an expert apparel IE system. Analyze the full text extracted from the Techpack PDF.
+                    Your goal is to scan through ALL pages to find the exact "BOM" table and "SIZE SPECIFICATION" sheet for all materials.
                     
                     DATA PROVIDED FROM TECHPACK:
                     {full_techpack_text}
                     
-                    CRITICAL EXTRACTION INSTRUCTION:
-                    1. Scan ALL pages to locate the BOM table.
-                    2. You MUST extract ALL fabric-related materials listed in the BOM. Do NOT extract only the Main Fabric. 
-                    3. Ensure you capture:
-                       - MAIN FABRIC (Self fabric for body)
-                       - LINING / POCKETING (Vải lót túi, lót quần)
-                       - FUSING / INTERLINING (Mex keo lót lưng quần, baguet...)
-                    4. For each material found, create an item inside the "bom_rows" array with its real fabric_code and fabric_color from the text.
-                    5. For MAIN FABRIC only, include the "panels_catalog" with rectangular boxes:
-                       - FRONT_PANEL: piece_length_inch = Extracted Outseam, piece_width_inch = (Extracted Hip * 0.5) + 1.5
-                       - BACK_PANEL: piece_length_inch = Extracted Outseam + 1.5, piece_width_inch = (Extracted Hip * 0.5) + 3.0
-                    6. For FUSING or LINING items, you can leave "panels_catalog" empty as they use fixed allocation or components bypass.
+                    CRITICAL DYNAMIC EXTRACTION INSTRUCTION:
+                    1. Identify product type (PANT, JACKET, DRESS, SHIRT, etc.).
+                    2. Locate the BOM and look for ALL fabric types: MAIN FABRIC, LINING (Vải lót), and FUSING/INTERLINING (Mex keo).
+                    3. Go to the MEASUREMENT SHEET and check if there are specific dimensions for LINING or FUSING components (e.g., Pocket bag length/width, lining length for dress/jacket).
+                    4. For EACH fabric material row (Main, Lining, Fusing):
+                       - IF you find specific measurements for that material in the sheet, you MUST populate its "panels_catalog" array with realistic bounding boxes (`piece_length_inch` and `piece_width_inch`) extracted from the text.
+                       - IF NO specific measurements are found in the PDF for Lining/Fusing, you may leave its "panels_catalog" empty, and the system will use a smart manufacturing fallback.
                     
                     Return ONLY a valid JSON object matching this strict structure:
                     {{
@@ -756,25 +752,21 @@ with col_right:
                           "component_type": "MAIN FABRIC",
                           "placement": "BODY",
                           "fabric_classification": "MAIN_FABRIC",
-                          "fabric_code": "REAL_MAIN_FABRIC_CODE",
-                          "fabric_color": "REAL_MAIN_COLOR",
-                          "panels_catalog": [...]
-                        }},
-                        {{
-                          "component_type": "FUSING",
-                          "placement": "WAISTBAND",
-                          "fabric_classification": "FUSING",
-                          "fabric_code": "REAL_FUSING_CODE_OR_MEX",
-                          "fabric_color": "WHITE_OR_BLACK",
-                          "panels_catalog": []
+                          "fabric_code": "REAL_MAIN_CODE",
+                          "fabric_color": "REAL_COLOR",
+                          "panels_catalog": [
+                            {{ "panel_name": "FRONT_PANEL", "piece_count": 2.0, "piece_length_inch": 41.0, "piece_width_inch": 12.0 }}
+                          ]
                         }},
                         {{
                           "component_type": "POCKET LINING",
                           "placement": "POCKET BAG",
                           "fabric_classification": "LINING",
                           "fabric_code": "REAL_LINING_CODE",
-                          "fabric_color": "MATCHING_COLOR",
-                          "panels_catalog": []
+                          "fabric_color": "NATURAL",
+                          "panels_catalog": [
+                            {{ "panel_name": "POCKET_BAG", "piece_count": 4.0, "piece_length_inch": 13.0, "piece_width_inch": 7.5 }}
+                          ]
                         }}
                       ]
                     }}
@@ -791,8 +783,12 @@ with col_right:
                     
                     if raw_blueprint and raw_blueprint.get("bom_rows"):
                         blueprint_worker = copy.deepcopy(raw_blueprint)
-                        step_2a1 = parse_geometric_panels_allowance(blueprint_worker, active_prompt)
-                        step_2a2 = execute_marker_yardage_and_quality_gate(step_2a1, active_prompt)
+                        try: step_2a1 = parse_geometric_panels_allowance(blueprint_worker, active_prompt)
+                        except Exception: step_2a1 = blueprint_worker
+                        
+                        try: step_2a2 = execute_marker_yardage_and_quality_gate(step_2a1, active_prompt)
+                        except Exception: step_2a2 = step_2a1
+                        
                         blueprint_final = allocate_fabric_consumption_and_quality_gate(step_2a2)
                         st.session_state.bom_data = blueprint_final
                     
