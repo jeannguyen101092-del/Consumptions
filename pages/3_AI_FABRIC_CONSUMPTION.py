@@ -689,11 +689,11 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict, user_prompt
 
 
 # =====================================================================
-# ĐOẠN 6a: BANNER TIÊU ĐỀ & KHỐI KPIs GHIM CỐ ĐỊNH ĐỈNH TUYỆT ĐỐI (V18.3.1.0 APPROVED)
+# ĐOẠN 6a: BANNER, KPIs GHIM ĐỈNH & FIX TRIỆT ĐỂ Ô TRỐNG TO ĐÙNG (V18.3.3.0 APPROVED)
 # =====================================================================
 st.set_page_config(layout="wide", page_title="AI Fabric Consumption Matrix")
 
-# 🌟 BỘ STYLING CSS CẤP CAO: Ép container ghim đỉnh nổi lên tầng cao nhất, chống đè mất chữ
+# 🌟 BỘ STYLING CSS CẢI TIẾN: XÓA MIN-HEIGHT CỨNG, ÉP HỘP TỰ CO GIÃN ĐỘ ĐỘNG
 st.markdown("""
 <style>
     /* Trả nền ứng dụng về màu xám trắng dịu mắt chuẩn văn phòng ERP */
@@ -773,7 +773,7 @@ st.markdown("""
         margin-top: 175px; 
     }
 
-    /* 🌟 FIX LỖI Ô TRỐNG: Card hiển thị trắng sáng trực quan, hiện bộ tải file rõ ràng */
+    /* 🌟 BƯỚC ĐỘT PHÁ SỬA LỖI Ô TRỐNG: Xóa bỏ min-height, chuyển sang chiều cao tự động co giãn */
     .custom-erp-box {
         background-color: #ffffff !important;
         border: 1px solid #cbd5e1 !important;
@@ -781,7 +781,7 @@ st.markdown("""
         padding: 20px;
         margin-bottom: 15px;
         box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.03);
-        min-height: 480px; /* Khống chế chiều cao đối xứng 1:1 mượt mà */
+        height: auto !important; /* Tự động thu gọn ôm sát khi trống, tự nở ra khi có chữ */
     }
     
     .cad-header-text {
@@ -862,6 +862,7 @@ st.markdown('</div>', unsafe_allow_html=True)
 
 # Khung đệm đẩy nội dung dưới
 st.markdown('<div class="main-body-spacer"></div>', unsafe_allow_html=True)
+
 
 # =====================================================================
 # ĐOẠN 6b: CONTROLS SIDEBAR & SỬA TRIỆT ĐỂ LỖI Ô TRỐNG THỪA BÊN TRÁI (V18.3.2.0)
