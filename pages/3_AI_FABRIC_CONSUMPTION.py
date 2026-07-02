@@ -799,7 +799,7 @@ with col_right:
                     st.error("💥 Lỗi xử lý tiến trình Phân đoạn 7a:")
                     st.code(traceback.format_exc())
 # =====================================================================
-# ĐOẠN 7b: KHU VỰC HIỂN THỊ KẾT QUẢ ĐƠN MÃ VÀ XUẤT EXCEL (V17.0.0.3 FIXED)
+# ĐOẠN 7b: KHU VỰC HIỂN THỊ KẾT QUẢ ĐƠN MÃ VÀ XUẤT EXCEL (V17.0.0.4 FIXED TUPLE)
 # =====================================================================
 if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data and st.session_state.bom_data["bom_rows"]:
     st.markdown('<div class="cad-card">', unsafe_allow_html=True)
@@ -835,7 +835,7 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data 
         if "/" in reason_logs:
             parts = reason_logs.split("/")
             if len(parts) >= 3:
-                shrink_part = parts[2].strip()
+                shrink_part = parts.strip()
                 match_sh = re.search(r'([\d\.]+)\s*x\s*([\d\.]+)', shrink_part)
                 if match_sh:
                     warp_val = f"{float(match_sh.group(1))}%"
@@ -867,7 +867,7 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data 
     st.markdown('</div>', unsafe_allow_html=True)
     
     # =====================================================================
-    # KHỐI LOGIC TẠO FILE EXCEL REPORT SẮC NÉT (ĐÃ SỬA LỖI SHOWGRIDLINES)
+    # KHỐI LOGIC TẠO FILE EXCEL REPORT (ĐÃ FIX LỖI TUPLE COLUMN TẬN GỐC)
     # =====================================================================
     try:
         import io
@@ -880,7 +880,6 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data 
         ws = wb.active
         ws.title = "BOM Fabric Consumption"
         
-        # 🟢 CÚ PHÁP SỬA LỖI ĐƯỜNG LƯỚI EXCEL CHUẨN OPENPYXL
         ws.sheet_view.showGridLines = True 
         
         # Cấu hình phong cách bảng tính chuyên nghiệp
@@ -935,14 +934,16 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data 
                 else:
                     cell.alignment = align_left
         
-        # Tự động căn rộng cột vừa khít độ dài của văn bản
-        for col in ws.columns:
-            max_len = 0
-            col_letter = get_column_letter(col.column)
-            for cell in col:
-                if cell.row == 1: continue
-                if cell.value: max_len = max(max_len, len(str(cell.value)))
-            ws.column_dimensions[col_letter].width = max(max_len + 4, 12)
+        # 🟢 LẬP TRÌNH LẠI KHỐI CO GIÃN CỘT: Duyệt trực tiếp theo danh sách cột để tránh lỗi tuple vĩnh viễn
+        for col_idx, col_name in enumerate(headers, 1):
+            max_len = len(col_name) # Độ dài tối thiểu bằng tên tiêu đề cột
+            for row_num in range(4, 4 + len(display_data)):
+                val = ws.cell(row=row_num, column=col_idx).value
+                if val:
+                    max_len = max(max_len, len(str(val)))
+            
+            col_letter = get_column_letter(col_idx)
+            ws.column_dimensions[col_letter].width = max(max_len + 5, 12)
             
         wb.save(output)
         excel_bytes = output.getvalue()
