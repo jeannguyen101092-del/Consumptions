@@ -514,11 +514,11 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict) -> dict:
 
 
 # =====================================================================
-# ĐOẠN 6: GIAO DIỆN CHÍNH - CẤU TRÚC LAYOUT TRÊN CÙNG (ĐÃ DỌN DẸP Ô CHAT THỪA)
+# ĐOẠN 6: GIAO DIỆN CHÍNH - BỐ CỤC ĐỐI CHIẾU SONG SONG SONG RAW BOM & SKETCH (V17.5.0.0)
 # =====================================================================
 st.set_page_config(layout="wide", page_title="AI Fabric Consumption Matrix")
 
-# Tinh chỉnh CSS đồng bộ giao diện gọn gàng, sắc nét
+# Tinh chỉnh CSS đồng bộ giao diện gọn gàng, sắc nét, tạo khung cuộn cho bảng BOM
 st.markdown("""
 <style>
     .cad-card {
@@ -539,6 +539,18 @@ st.markdown("""
         padding-bottom: 6px;
         border-bottom: 2px solid #cbd5e1;
     }
+    .bom-scroll-box {
+        max-height: 415px;
+        overflow-y: auto;
+        padding: 12px;
+        background-color: #f8fafc;
+        border: 1px dashed #cbd5e1;
+        border-radius: 6px;
+        font-family: 'Courier New', Courier, monospace;
+        font-size: 12px;
+        color: #334155;
+        white-space: pre-wrap;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -547,6 +559,7 @@ if "bom_data" not in st.session_state: st.session_state.bom_data = None
 if "chat_history" not in st.session_state: st.session_state.chat_history = []
 if "pdf_bytes" not in st.session_state: st.session_state.pdf_bytes = None
 if "pdf_name" not in st.session_state: st.session_state.pdf_name = ""
+if "pdf_text_cache" not in st.session_state: st.session_state.pdf_text_cache = None
 
 st.sidebar.markdown("### ⚙️ ENGINE CONTROLS")
 st.sidebar.markdown('<div style="background-color:#dcfce7; color:#15803d; padding:10px; border-radius:6px; font-weight:600; font-size:13px; margin-bottom:15px;">🟢 API STATUS: Hoạt động tốt.</div>', unsafe_allow_html=True)
@@ -557,9 +570,9 @@ if st.sidebar.button("🗑️ CLEAR SYSTEM MEMORY", use_container_width=True):
     st.session_state.chat_history = []
     st.session_state.pdf_bytes = None
     st.session_state.pdf_name = ""
-    # 🟢 SỬA LỖI KẸT SỐ CŨ: Xóa sạch kho tích lũy vật tư phụ khi reset
-    if "accumulated_bom_rows" in st.session_state:
-        del st.session_state["accumulated_bom_rows"]
+    st.session_state.pdf_text_cache = None
+    if "pdf_page_one_image" in st.session_state: st.session_state.pdf_page_one_image = None
+    if "accumulated_bom_rows" in st.session_state: del st.session_state["accumulated_bom_rows"]
     st.rerun()
 
 # Thiết lập layout chia đôi cột đối xứng cân bằng thị giác ở phía trên
@@ -567,7 +580,7 @@ col_left, col_right = st.columns(2)
 
 with col_left:
     st.markdown('<div class="cad-card">', unsafe_allow_html=True)
-    st.markdown('<div class="cad-header">📂 TECHPACK FILE UPLOADER & CONSOLE</div>', unsafe_allow_html=True)
+    st.markdown('<div class="cad-header">📂 TECHPACK FILE UPLOADER & RAW BOM CONSOLE</div>', unsafe_allow_html=True)
     
     uploaded_file = st.file_uploader("Tải lên tệp tài liệu kỹ thuật Techpack / BOM (PDF)", type=["pdf"])
     
@@ -575,8 +588,23 @@ with col_left:
     if uploaded_file is not None:
         st.session_state.pdf_bytes = uploaded_file.read()
         st.session_state.pdf_name = uploaded_file.name
+
+    # 🌟 HIỂN THỊ VĂN BẢN BẢNG BOM GỐC VÀO KHOẢNG TRỐNG BÊN TRÁI
+    if st.session_state.pdf_text_cache is not None:
+        st.markdown("<div style='margin-top: 15px;'></div>", unsafe_allow_html=True)
+        st.caption("📋 Dữ liệu văn bản BOM & Spec trích xuất từ các trang sau của PDF:")
+        
+        # Tạo khung cuộn nội dung văn bản để không làm đẩy lệch chiều cao của cột phải
+        bom_text_display = st.session_state.pdf_text_cache
+        st.markdown(f'<div class="bom-scroll-box">{bom_text_display}</div>', unsafe_allow_html=True)
+    else:
+        if st.session_state.pdf_bytes is not None:
+            st.info("ℹ️ Đang phân rã dữ liệu chữ từ các trang sau của Techpack...")
+        else:
+            st.markdown("<div style='margin-top: 20px; text-align: center; color: #94a3b8; font-size: 13px;'>Bảng dữ liệu chữ của vật tư (BOM) sẽ tự động hiển thị tại đây sau khi tải file PDF lên hệ thống.</div>", unsafe_allow_html=True)
         
     st.markdown('</div>', unsafe_allow_html=True)
+
 
 
 # =====================================================================
