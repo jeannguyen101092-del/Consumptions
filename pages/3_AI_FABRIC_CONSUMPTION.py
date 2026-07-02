@@ -760,7 +760,7 @@ st.markdown("""
         font-weight: 700;
         letter-spacing: 0.02em;
     }
-    .top-banner .top-subtitle {
+    .top-subtitle {
         font-size: 11px;
         color: #e0f2fe;
         opacity: 0.85;
@@ -837,6 +837,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # Khởi tạo an toàn cấu trúc trạng thái hệ thống
+if "bom_data" not in st.session_state: st.session_state.bom_data = None
 if "chat_history" not in st.session_state: st.session_state.chat_history = []
 if "pdf_bytes" not in st.session_state: st.session_state.pdf_bytes = None
 if "pdf_name" not in st.session_state: st.session_state.pdf_name = ""
@@ -854,29 +855,19 @@ if st.session_state.pdf_bytes is not None and st.session_state.pdf_text_cache is
         st.session_state.pdf_text_cache = full_text_extract
     except Exception: pass
 
-# 🌟 ĐỒNG BỘ DỮ LIỆU KPIs THEO THỜI GIAN THỰC (ƯU TIÊN BỘ ĐỆM HÌNH HỌC THỰC THỂ)
-kpi_style_id = "R09-490976"
+# ĐỒNG BỘ DỮ LIỆU KPIs BIẾN THIÊN THEO THỜI GIAN THỰC
+kpi_style_id = "N/A"
 total_materials = len(st.session_state.accumulated_bom_rows) if st.session_state.accumulated_bom_rows else 0
-main_fabric_cons = "0.000 Yds"
+main_fabric_cons = "0.000"
 active_size_kpi = "AUTOMATIC"
 
-# Liên kết luồng đọc nguồn dữ liệu từ active_blueprint đã qua xử lý hình học
-active_kpi_source = None
-if st.session_state.get("active_blueprint") and "bom_rows" in st.session_state.active_blueprint:
-    active_kpi_source = st.session_state.active_blueprint
-elif st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data:
-    active_kpi_source = st.session_state.bom_data
-
-if active_kpi_source and active_kpi_source.get("bom_rows"):
-    kpi_style_id = str(active_kpi_source.get("style_code", "R09-490976")).upper()
-    active_size_kpi = str(active_kpi_source.get("calculated_on_size", "30")).upper()
-    total_materials = len(active_kpi_source["bom_rows"])
-    
-    for row in active_kpi_source["bom_rows"]:
+if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data:
+    kpi_style_id = str(st.session_state.bom_data.get("style_code", "R09-450416")).upper()
+    active_size_kpi = str(st.session_state.bom_data.get("calculated_on_size", "MEDIAN")).upper()
+    if total_materials == 0: total_materials = len(st.session_state.bom_data["bom_rows"])
+    for row in st.session_state.bom_data["bom_rows"]:
         if not row: continue
-        f_class_check = str(row.get("fabric_classification", "")).upper()
-        c_type_check = str(row.get("component_type", "")).upper()
-        if "MAIN" in f_class_check or "MAIN" in c_type_check:
+        if "MAIN" in str(row.get("fabric_classification", "")).upper() or "MAIN" in str(row.get("component_type", "")).upper():
             val_gross = row.get("calculated_gross_consumption_yds", 0.0)
             if val_gross > 0.0:
                 main_fabric_cons = f"{val_gross:.3f} Yds"
@@ -901,6 +892,7 @@ st.markdown('</div>', unsafe_allow_html=True)
 st.markdown('<div class="main-body-spacer"></div>', unsafe_allow_html=True)
 
 
+
 # =====================================================================
 # ĐOẠN 6b: KHỐI CHIA CỘT ĐỐI XỨNG - KHỐNG CHẾ TRỰC TIẾP CHIỀU CAO ẢNH (V18.3.5.0 APPROVED)
 # =====================================================================
@@ -911,15 +903,89 @@ st.markdown("""
     /* Ép tất cả các hình ảnh nằm trong cột bên phải khống chế chiều cao tối đa, */
     /* tự động giữ nguyên tỷ lệ rập phẳng mà không bị kéo giãn to đùng */
     .sticky-sketch-box img {
-        max-height: 320px !important;
+        max-height: 290px !important;
         width: auto !important;
         object-fit: contain !important;
-        display: block;
-        margin-left: auto;
-        margin-right: auto;
+        margin: 0 auto !important;
+        display: block !important;
     }
 </style>
 """, unsafe_allow_html=True)
+
+# --- SIDEBAR ENGINE CONTROLS CONTROL PANEL ---
+st.sidebar.markdown("### ⚙️ ENGINE CONTROLS")
+if st.sidebar.button("🗑️ CLEAR SYSTEM MEMORY", use_container_width=True):
+    st.session_state.bom_data = None
+    st.session_state.chat_history = []
+    st.session_state.pdf_bytes = None
+    st.session_state.pdf_name = ""
+    st.session_state.pdf_text_cache = None
+    if "pdf_page_one_image" in st.session_state: st.session_state.pdf_page_one_image = None
+    if "accumulated_bom_rows" in st.session_state: del st.session_state["accumulated_bom_rows"]
+    st.rerun()
+
+# LƯỚI CHIA ĐÔI CỘT ĐỐI XỨNG CÂN BẰNG THỊ GIÁC ĐỀU NHAU
+col_left, col_right = st.columns(2)
+
+# --- CỘT TRÁI: BỘ TẢI FILE & HỒ SƠ TÓM TẮT MÃ HÀNG ---
+with col_left:
+    st.markdown('<div class="custom-erp-box">', unsafe_allow_html=True)
+    st.markdown('<div class="cad-header-text">📂 TECHPACK UPLOADER & PROFILE SUMMARY</div>', unsafe_allow_html=True)
+    
+    uploaded_file = st.file_uploader("Upload PDF", type=["pdf"], label_visibility="collapsed")
+    
+    if uploaded_file is not None:
+        if st.session_state.pdf_name != uploaded_file.name:
+            st.session_state.pdf_text_cache = None
+            if "pdf_page_one_image" in st.session_state: st.session_state.pdf_page_one_image = None
+            if "accumulated_bom_rows" in st.session_state: del st.session_state["accumulated_bom_rows"]
+        st.session_state.pdf_bytes = uploaded_file.read()
+        st.session_state.pdf_name = uploaded_file.name
+
+    if st.session_state.pdf_text_cache is not None:
+        st.markdown("<div style='margin-top: 10px;'></div>", unsafe_allow_html=True)
+        txt = st.session_state.pdf_text_cache
+        
+        import re
+        def get_meta(pattern, default="N/A"):
+            m = re.search(pattern, txt, re.IGNORECASE)
+            return m.group(1).strip() if m else default
+
+        style_id = get_meta(r'(?:Style ID|Style_ID|Mã hàng)\s*[:\-=\s]*([\w\d\-]+)', st.session_state.pdf_name.replace(".pdf",""))
+        short_desc = get_meta(r'(?:Short Desc|Description|Tên sản phẩm)\s*[:\-=\s]*([^\n]+)', "THE TWILL CARGO PANTS")
+        customer = get_meta(r'(?:Customer|Khách hàng|Brand)\s*[:\-=\s]*([^\n]+)', "REITMANS")
+        season = get_meta(r'(?:Season|Mùa hàng)\s*[:\-=\s]*([^\n]+)', "Spring 2027")
+        fabric_type = get_meta(r'(?:Long Description|Chất liệu gốc)\s*[:\-=\s]*([^\n]+)', "CASUAL TWILL PANTS - SP27")
+
+        m_col1, m_col2 = st.columns(2)
+        with m_col1:
+            st.markdown(f'<div class="meta-box-light"><div class="meta-label-light">Style Code / Mã hàng</div><div class="meta-value-light"><b>{style_id}</b></div></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="meta-box-light"><div class="meta-label-light">Customer / Đối tác</div><div class="meta-value-light">{customer}</div></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="meta-box_light"><div class="meta-label-light">Season / Mùa sản xuất</div><div class="meta-value-light">{season}</div></div>', unsafe_allow_html=True)
+        with m_col2:
+            st.markdown(f'<div class="meta-box-light"><div class="meta-label-light">Garment Type / Kiểu dáng</div><div class="meta-value-light">{short_desc}</div></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="meta-box-light"><div class="meta-label-light">Material Spec / Mô tả vải</div><div class="meta-value-light">{fabric_type[:28]}...</div></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="meta-box-light"><div class="meta-label-light">Techpack Status</div><div class="meta-value-light" style="color: #16a34a;">🟢 READY TO BOM</div></div>', unsafe_allow_html=True)
+    else:
+        if st.session_state.pdf_bytes is None:
+            st.markdown("<div style='margin-top: 40px; text-align: center; color: #64748b; font-size: 13px;'>Bảng tóm tắt thông số sản phẩm sẽ tự động hiển thị tại đây sau khi nạp file PDF.</div>", unsafe_allow_html=True)
+        
+    st.markdown('</div>', unsafe_allow_html=True)
+
+
+# --- CỘT PHẢI: KHUNG XEM BẢN VẼ PHẲNG SKETCH (🌟 ĐÃ ÉP CO NHỎ ẢNH GỐC) ---
+with col_right:
+    # Bọc thêm một class định danh riêng sticky-sketch-box phục vụ ép co ảnh
+    st.markdown('<div class="custom-erp-box sticky-sketch-box">', unsafe_allow_html=True)
+    st.markdown('<div class="cad-header-text">🎨 TECHPACK SKETCH VISUALIZER</div>', unsafe_allow_html=True)
+    
+    if "pdf_page_one_image" in st.session_state and st.session_state.pdf_page_one_image is not None:
+        st.image(st.session_state.pdf_page_one_image, use_container_width=True)
+    else:
+        st.markdown("<div style='margin-top: 50px; text-align: center; color: #64748b; font-size: 13px;'>Hình vẽ phác họa phẳng (Sketch) trích xuất từ trang bìa PDF sẽ tự động hiển thị cân xứng tại đây.</div>", unsafe_allow_html=True)
+        
+    st.markdown('</div>', unsafe_allow_html=True)
+
 # =====================================================================
 # ĐOẠN 7a: CHAT WORKSPACE & ENGINE AI NỀN ĐIỀU PHỐI ORCHESTRATOR (V17.7.0.6 APPROVED)
 # =====================================================================
