@@ -701,28 +701,22 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict, user_prompt
 
 
 # =====================================================================
-# ĐOẠN 6a: HỆ THỐNG CONFIG & BANNER TIÊU ĐỀ GHIM CỐ ĐỊNH TRÊN ĐỈNH (V17.8.0.0 APPROVED)
+# ĐOẠN 6a: BANNER TIÊU ĐỀ & KHỐI KPIs ĐỘNG GHIM CỐ ĐỊNH ĐỈNH (V17.8.1.0 APPROVED)
 # =====================================================================
 st.set_page_config(layout="wide", page_title="AI Fabric Consumption Matrix")
 
-# 🌟 BỘ STYLING CSS CAO CẤP: Ghim chặt Banner + KPIs lên đỉnh màn hình, tạo khoảng giãn cách cho nội dung cuộn bên dưới
+# Tinh chỉnh CSS nâng cao: Ghim cứng dải Banner & KPIs lên đỉnh, tạo khoảng giãn cách chống đè chữ
 st.markdown("""
 <style>
-    /* Bọc toàn bộ khối đỉnh vào một container cố định */
-    .sticky-header-container {
+    /* Ghim cố định toàn bộ container đỉnh */
+    .sticky-top-container {
         position: fixed;
-        top: 40px; /* Né thanh menu mặc định của Streamlit */
+        top: 40px; 
         left: 0;
         right: 0;
-        width: 100%;
-        background-color: #f8fafc; /* Đổ màu nền tiệp với màu app để che nội dung cuộn bên dưới */
-        z-index: 99999; /* Ép luôn luôn nổi lên trên cùng */
-        padding: 0px 4rem 15px 4rem; /* Căn lề trái phải khít với layout wide */
-    }
-    
-    /* Khoảng đệm giả để đẩy nội dung bên dưới cột trái/phải không bị che lấp sau khối ghim */
-    .sticky-buffer {
-        margin-top: 195px; /* Chiều cao tương đương cụm Banner + KPIs */
+        padding: 0 4rem 15px 4rem; 
+        background-color: #f8fafc; 
+        z-index: 99999; 
     }
 
     /* Khung Banner chính chuyển sắc */
@@ -747,7 +741,7 @@ st.markdown("""
         margin-top: 1px;
     }
     
-    /* Khung thẻ KPIs chuyển sắc dạng Grid */
+    /* Thẻ KPIs mini sắc màu chữ trắng */
     .kpi-card-colored {
         border-radius: 8px;
         padding: 12px 14px;
@@ -777,7 +771,11 @@ st.markdown("""
     .bg-cons  { background: linear-gradient(135deg, #ea580c 0%, #c2410c 100%); }
     .bg-size  { background: linear-gradient(135deg, #16a34a 0%, #15803d 100%); }
 
-    /* Khung chứa nội dung chính bên dưới */
+    /* Khung đệm đẩy nội dung sụp xuống dưới khối ghim đỉnh */
+    .main-body-spacer {
+        margin-top: 185px; 
+    }
+
     .cad-card {
         background-color: #ffffff;
         border: 1px solid #e2e8f0;
@@ -796,7 +794,6 @@ st.markdown("""
         padding-bottom: 6px;
         border-bottom: 2px solid #cbd5e1;
     }
-    
     .meta-box {
         background-color: #f8fafc;
         border-left: 4px solid #0284c7;
@@ -804,22 +801,12 @@ st.markdown("""
         margin-bottom: 8px;
         border-radius: 0 6px 6px 0;
     }
-    .meta-label {
-        font-size: 11px;
-        font-weight: 700;
-        color: #64748b;
-        text-transform: uppercase;
-    }
-    .meta-value {
-        font-size: 14px;
-        font-weight: 600;
-        color: #0f172a;
-        margin-top: 2px;
-    }
+    .meta-label { font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; }
+    .meta-value { font-size: 14px; font-weight: 600; color: #0f172a; margin-top: 2px; }
 </style>
 """, unsafe_allow_html=True)
 
-# Khởi tạo an toàn cấu trúc trạng thái hệ thống
+# Khởi tạo trạng thái hệ thống nền
 if "bom_data" not in st.session_state: st.session_state.bom_data = None
 if "chat_history" not in st.session_state: st.session_state.chat_history = []
 if "pdf_bytes" not in st.session_state: st.session_state.pdf_bytes = None
@@ -827,7 +814,7 @@ if "pdf_name" not in st.session_state: st.session_state.pdf_name = ""
 if "pdf_text_cache" not in st.session_state: st.session_state.pdf_text_cache = None
 if "accumulated_bom_rows" not in st.session_state: st.session_state.accumulated_bom_rows = {}
 
-# CƠ CHẾ AUTO-EXTRACT: Tự động chạy bóc tách chữ từ PDF ngay khi nạp file
+# Khối tự động trích xuất chữ khi nạp file
 if st.session_state.pdf_bytes is not None and st.session_state.pdf_text_cache is None:
     try:
         import fitz
@@ -836,39 +823,28 @@ if st.session_state.pdf_bytes is not None and st.session_state.pdf_text_cache is
         for page_num in range(len(doc)):
             full_text_extract += f"\n--- TRANG THỨ {page_num + 1} ---\n" + doc.load_page(page_num).get_text("text")
         st.session_state.pdf_text_cache = full_text_extract
-    except Exception:
-        pass
+    except Exception: pass
 
-# ENGINE TRÍCH XUẤT VÀ ĐỒNG BỘ DỮ LIỆU KPIs BIẾN THIÊN
+# Đồng bộ số liệu KPIs động
 kpi_style_id = "N/A"
-total_materials = 0
+total_materials = len(st.session_state.accumulated_bom_rows) if st.session_state.accumulated_bom_rows else 0
 main_fabric_cons = "0.000"
 active_size_kpi = "AUTOMATIC"
-
-if "accumulated_bom_rows" in st.session_state and st.session_state.accumulated_bom_rows:
-    total_materials = len(st.session_state.accumulated_bom_rows)
 
 if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data:
     kpi_style_id = str(st.session_state.bom_data.get("style_code", "R09-450416")).upper()
     active_size_kpi = str(st.session_state.bom_data.get("calculated_on_size", "MEDIAN")).upper()
-    
-    if total_materials == 0:
-        total_materials = len(st.session_state.bom_data["bom_rows"])
-        
+    if total_materials == 0: total_materials = len(st.session_state.bom_data["bom_rows"])
     for row in st.session_state.bom_data["bom_rows"]:
         if not row: continue
-        comp_type = str(row.get("component_type", "")).upper()
-        f_class = str(row.get("fabric_classification", "")).upper()
-        
-        if "MAIN" in comp_type or "MAIN" in f_class or "CHÍNH" in comp_type:
+        if "MAIN" in str(row.get("fabric_classification", "")).upper() or "MAIN" in str(row.get("component_type", "")).upper():
             val_gross = row.get("calculated_gross_consumption_yds", 0.0)
             if val_gross > 0.0:
                 main_fabric_cons = f"{val_gross:.3f} Yds"
                 break
 
-# 🌟 BẮT ĐẦU ÉP KHỐI FIXED CONTAINER LÊN ĐỈNH MÀN HÌNH MÁY TÍNH
-st.markdown('<div class="sticky-header-container">', unsafe_allow_html=True)
-
+# 🌟 KHỐI CONTAINER DUY NHẤT GHIM ĐỈNH (VẼ KPIs TẠI ĐÂY)
+st.markdown('<div class="sticky-top-container">', unsafe_allow_html=True)
 st.markdown("""
 <div class="top-banner">
     <div class="top-title">📊 INTELLIGENT FABRIC CONSUMPTION PLATFORM</div>
@@ -876,40 +852,22 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# Hiển thị lưới 4 ô KPIs đa màu sắc bên trong khung gố định đỉnh
 k_col1, k_col2, k_col3, k_col4 = st.columns(4)
-with k_col1:
-    st.markdown(f'<div class="kpi-card-colored bg-style"><div class="kpi-num-light">{kpi_style_id}</div><div class="kpi-lbl-light">Mã hàng đang xử lý</div></div>', unsafe_allow_html=True)
-with k_col2:
-    st.markdown(f'<div class="kpi-card-colored bg-items"><div class="kpi-num-light">{total_materials} Item(s)</div><div class="kpi-lbl-light">Tổng số vật tư kết xuất</div></div>', unsafe_allow_html=True)
-with k_col3:
-    st.markdown(f'<div class="kpi-card-colored bg-cons"><div class="kpi-num-light" style="font-size:24px;">{main_fabric_cons}</div><div class="kpi-lbl-light">Định mức vải chính dự kiến</div></div>', unsafe_allow_html=True)
-with k_col4:
-    st.markdown(f'<div class="kpi-card-colored bg-size"><div class="kpi-num-light">{active_size_kpi}</div><div class="kpi-lbl-light">Cỡ hạt tính định mức</div></div>', unsafe_allow_html=True)
+with k_col1: st.markdown(f'<div class="kpi-card-colored bg-style"><div class="kpi-num-light">{kpi_style_id}</div><div class="kpi-lbl-light">Mã hàng đang xử lý</div></div>', unsafe_allow_html=True)
+with k_col2: st.markdown(f'<div class="kpi-card-colored bg-items"><div class="kpi-num-light">{total_materials} Item(s)</div><div class="kpi-lbl-light">Tổng số vật tư kết xuất</div></div>', unsafe_allow_html=True)
+with k_col3: st.markdown(f'<div class="kpi-card-colored bg-cons"><div class="kpi-num-light" style="font-size:22px;">{main_fabric_cons}</div><div class="kpi-lbl-light">Định mức vải chính dự kiến</div></div>', unsafe_allow_html=True)
+with k_col4: st.markdown(f'<div class="kpi-card-colored bg-size"><div class="kpi-num-light">{active_size_kpi}</div><div class="kpi-lbl-light">Cỡ hạt tính định mức</div></div>', unsafe_allow_html=True)
+st.markdown('</div>', unsafe_allow_html=True)
 
-st.markdown('</div>', unsafe_allow_html=True) # Đóng container ghim đỉnh
+# Khung đệm đẩy nội dung dưới không bị đè mất chữ
+st.markdown('<div class="main-body-spacer"></div>', unsafe_allow_html=True)
 
-# 🌟 ĐẶT KHUNG ĐỆM GIẢ ĐỂ NỘI DUNG PHÍA DƯỚI BẮT ĐẦU CHẠY MƯỢT MÀ KHÔNG BỊ KHỐI GHIM ĐÈ LÊN MẤT CHỮ
-st.markdown('<div class="sticky-buffer"></div>', unsafe_allow_html=True)
 
 # =====================================================================
-# ĐOẠN 6b: KHỐI RÁP GIAO DIỆN KPIs SẮC MÀU & THẺ TÓM TẮT HỒ SƠ MÃ HÀNG (V17.7.2.0)
+# ĐOẠN 6b: SIDEBAR & KHỐI HIỂN THỊ HỒ SƠ CHIA CỘT TIÊU CHUẨN (V17.8.1.0 APPROVED)
 # =====================================================================
 
-# 1. RÁP LẠI KHỐI KPIs DASHBOARD ĐA SẮC MÀU CAO CẤP
-k_col1, k_col2, k_col3, k_col4 = st.columns(4)
-with k_col1:
-    st.markdown(f'<div class="kpi-card-colored bg-style"><div class="kpi-num-light">{kpi_style_id}</div><div class="kpi-lbl-light">Mã hàng đang xử lý</div></div>', unsafe_allow_html=True)
-with k_col2:
-    st.markdown(f'<div class="kpi-card-colored bg-items"><div class="kpi-num-light">{total_materials} Item(s)</div><div class="kpi-lbl-light">Tổng số vật tư kết xuất</div></div>', unsafe_allow_html=True)
-with k_col3:
-    st.markdown(f'<div class="kpi-card-colored bg-cons"><div class="kpi-num-light" style="font-size:24px;">{main_fabric_cons}</div><div class="kpi-lbl-light">Định mức vải chính dự kiến</div></div>', unsafe_allow_html=True)
-with k_col4:
-    st.markdown(f'<div class="kpi-card-colored bg-size"><div class="kpi-num-light">{active_size_kpi}</div><div class="kpi-lbl-light">Cỡ hạt tính định mức</div></div>', unsafe_allow_html=True)
-
-st.markdown("<div style='margin-top: 15px;'></div>", unsafe_allow_html=True)
-
-# --- SIDEBAR ENGINE CONTROLS CONTROL PANEL ---
+# --- SIDEBAR ENGINE CONTROLS ---
 st.sidebar.markdown("### ⚙️ ENGINE CONTROLS")
 st.sidebar.markdown('<div style="background-color:#dcfce7; color:#15803d; padding:10px; border-radius:6px; font-weight:600; font-size:13px; margin-bottom:15px;">🟢 API STATUS: Hoạt động tốt.</div>', unsafe_allow_html=True)
 
@@ -923,7 +881,7 @@ if st.sidebar.button("🗑️ CLEAR SYSTEM MEMORY", use_container_width=True):
     if "accumulated_bom_rows" in st.session_state: del st.session_state["accumulated_bom_rows"]
     st.rerun()
 
-# --- THIẾT LẬP LAYOUT CHIA ĐÔI CỘT ĐỐI XỨNG CÂN BẰNG PHÍA DƯỚI BANNER ---
+# --- THIẾT LẬP LAYOUT CHIA ĐÔI CỘT ĐỐI XỨNG PHÍA DƯỚI (ĐÃ BỎ KHỐI KPIs THỪA) ---
 col_left, col_right = st.columns(2)
 
 with col_left:
@@ -940,12 +898,11 @@ with col_left:
         st.session_state.pdf_bytes = uploaded_file.read()
         st.session_state.pdf_name = uploaded_file.name
 
-    # Hiển thị bảng tóm tắt 6 ô thẻ kỹ thuật ngăn nắp từ cache chữ đã được tự động nạp
+    # Đổ 6 ô thẻ tóm tắt hồ sơ kỹ thuật
     if st.session_state.pdf_text_cache is not None:
         st.markdown("<div style='margin-top: 15px;'></div>", unsafe_allow_html=True)
         txt = st.session_state.pdf_text_cache
         
-        import re
         def get_meta(pattern, default="N/A"):
             m = re.search(pattern, txt, re.IGNORECASE)
             return m.group(1).strip() if m else default
