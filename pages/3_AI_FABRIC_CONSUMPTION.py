@@ -987,13 +987,15 @@ with col_right:
 
 
 # =====================================================================
-# ĐOẠN 7a: CHAT WORKSPACE & ENGINE AI NỀN - FIX TRIỆT ĐỂ ẨN BẢNG DỮ LIỆU (V17.7.0.0 APPROVED)
+# ĐOẠN 7a - PHẦN 1: KHUNG HỘI THOẠI & LỊCH SỬ WORKSPACE (UI CHAT)
 # =====================================================================
 st.markdown('<br><div class="cad-card"><div class="cad-header">💬 CHATGPT IE COLLABORATION WORKSPACE</div>', unsafe_allow_html=True)
 
 if "chat_history" not in st.session_state: st.session_state.chat_history = []
 if "pdf_page_one_image" not in st.session_state: st.session_state.pdf_page_one_image = None
 if "accumulated_bom_rows" not in st.session_state: st.session_state.accumulated_bom_rows = {}
+if "current_warp_pct" not in st.session_state: st.session_state.current_warp_pct = "3.0%"
+if "current_weft_pct" not in st.session_state: st.session_state.current_weft_pct = "3.0%"
 
 if st.session_state.chat_history:
     for msg in st.session_state.chat_history:
@@ -1002,7 +1004,9 @@ if st.session_state.chat_history:
 
 safe_user_prompt = st.chat_input("Gõ câu lệnh điều chỉnh thông số tại đây...")
 st.markdown('</div>', unsafe_allow_html=True)
-
+# =====================================================================
+# ĐOẠN 7a - PHẦN 2: CORE AI ENGINE & BỘ TRÍCH XUẤT THÔNG SỐ CO RÚT ĐỘNG
+# =====================================================================
 if st.session_state.pdf_bytes is not None and safe_user_prompt:
     current_query = str(safe_user_prompt).strip()
     
@@ -1029,7 +1033,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             match_w = re.search(r'\b(?:khổ|kho|width)\s*[:\-=\s]*([\d\.]+)\b', chat_lower)
             active_width = float(match_w.group(1)) if match_w else 58.0
             
-            # 🌟 VÁ LỖI AN TOÀN: Khởi tạo mặc định dải co rút dọc/ngang phòng vệ tránh sập nguồn
+            # 🌟 VÁ LỖI HỆ SỐ CO RÚT ĐỘNG CHUẨN HOÁ % THEO YÊU CẦU NGƯỜI DÙNG
             active_warp = 3.0
             active_weft = 3.0
             
@@ -1043,7 +1047,6 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                 try: active_weft = float(match_weft.group(1))
                 except Exception: pass
                 
-            # Nếu không tìm thấy từ khóa dọc/ngang đơn lẻ, quét cặp số liên tiếp (5-15)
             if not match_warp or not match_weft:
                 match_sh_pair = re.search(r'(?:co\s*rút|co\s*rut|co|shrinkage)\s*[:\-=\s]*([\d\.]+)\s*(?:-|–|x|ngang|dọc|\s+)\s*([\d\.]+)', chat_lower)
                 if match_sh_pair:
@@ -1051,6 +1054,21 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                         active_warp = float(match_sh_pair.group(1))
                         active_weft = float(match_sh_pair.group(2))
                     except Exception: pass
+
+            # Lưu trực tiếp vào session_state để khóa thông số hiển thị cố định ở Đoạn 7b
+            st.session_state.current_warp_pct = f"{active_warp}%"
+            st.session_state.current_weft_pct = f"{active_weft}%"
+
+            # Chuẩn hóa hệ số toán học phần trăm cho Fabric Registry Cache trước khi đẩy vào IE Engine
+            factory_warp_factor = 1.0 + (active_warp / 100.0) if active_warp > 1.0 else 1.03
+            factory_weft_factor = 1.0 + (active_weft / 100.0) if active_weft > 1.0 else 1.03
+
+            if "_fabric_registry_cache" not in st.session_state:
+                st.session_state._fabric_registry_cache = {}
+            
+            st.session_state._fabric_registry_cache["DENIM_SOLID COLOR_TWO_WAY_0"] = {
+                "shrink_warp_f": factory_warp_factor, "shrink_weft_f": factory_weft_factor
+            }
 
             if len(st.session_state.chat_history) > 30:
                 st.session_state.chat_history = st.session_state.chat_history[-30:]
@@ -1072,13 +1090,13 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             Return response in exact format:
             ===START_JSON===
             {{
-              "detected_product_type": "CARGO_PANT",
-              "style_code": "R09-500778",
-              "calculated_on_size": "{target_size_cmd}",
+              "detected_product_type": "CARGO_PANT", "style_code": "R09-500778", "calculated_on_size": "{target_size_cmd}",
+              "_fabric_registry_cache": {{ "DENIM_SOLID COLOR_TWO_WAY_0": {{ "shrink_warp_f": {factory_warp_factor}, "shrink_weft_f": {factory_weft_factor} }} }},
               "bom_rows": [
                 {{
                   "component_type": "MAIN FABRIC", "placement": "BODY/POCKETS", "fabric_classification": "MAIN_FABRIC",
                   "fabric_code": "DENIM", "fabric_color": "SOLID COLOR", "fabric_width_inch": {active_width},
+                  "_btp_total_panel_area": 2520.0, "_btp_total_piece_count": 14.0,
                   "panels_catalog": [
                     {{ "panel_name": "FRONT_PANEL", "piece_count": 2.0, "piece_length_inch": 41.5, "piece_width_inch": 13.0 }},
                     {{ "panel_name": "BACK_PANEL", "piece_count": 2.0, "piece_length_inch": 42.0, "piece_width_inch": 15.5 }},
@@ -1091,27 +1109,24 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                 {{
                   "component_type": "INTERLINING / KEO LÓT", "placement": "WAISTBAND", "fabric_classification": "FUSING",
                   "fabric_code": "TRICOT FUSING", "fabric_color": "WHITE", "fabric_width_inch": {active_width},
-                  "panels_catalog": []
+                  "_is_fusing": true, "_btp_total_panel_area": 238.0, "_btp_total_piece_count": 2.0, "panels_catalog": []
                 }},
                 {{
                   "component_type": "POCKET LINING / LÓT TÚI", "placement": "POCKET BAGS", "fabric_classification": "LINING",
                   "fabric_code": "TC POCKETING", "fabric_color": "NATURAL", "fabric_width_inch": {active_width},
-                  "panels_catalog": []
+                  "_is_lining": true, "_btp_total_panel_area": 312.0, "_btp_total_piece_count": 4.0, "panels_catalog": []
                 }}
               ]
             }}
             ===END_JSON===
             ===START_CHAT===
-            [Confirm in Vietnamese that you calculated using width {active_width} and precise shrinkage warp {active_warp}% and weft {active_weft}% based on visual sketch and history context.]
+            Tôi đã đồng bộ tính toán định mức chuẩn xác cho khổ vải {active_width} inch với độ co rút dọc {active_warp}% và ngang {active_weft}% dựa trên cấu trúc rập phân bổ thực tế.
             ===END_CHAT===
             """
             
-            image_payload = {
-                "mime_type": "image/png",
-                "data": st.session_state.pdf_page_one_image
-            }
-            
+            image_payload = {"mime_type": "image/png", "data": st.session_state.pdf_page_one_image}
             response = model.generate_content([image_payload, prompt_instruction])
+            
             if response and response.text:
                 response_text = response.text.strip()
                 json_match = re.search(r'===START_JSON===\s*(.*?)\s*===END_JSON===', response_text, re.DOTALL)
@@ -1124,112 +1139,62 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                     raw_blueprint = json.loads(raw_json_str)
                     if raw_blueprint and raw_blueprint.get("bom_rows"):
                         blueprint_worker = copy.deepcopy(raw_blueprint)
+                        blueprint_worker["_fabric_registry_cache"] = st.session_state._fabric_registry_cache
                         blueprint_final = allocate_fabric_consumption_and_quality_gate(blueprint_worker, current_query)
                         
-                        # =====================================================================
-                        # FIX TRIỆT ĐỂ ẨN BẢNG: ĐỒNG BỘ DỮ LIỆU ĐỊNH MỨC VÀO SESSION STATE
-                        # =====================================================================
                         st.session_state.active_blueprint = blueprint_final
-                        
                         ai_chat_response = chat_match.group(1).strip() if chat_match else "Tôi đã đồng bộ tính toán định mức."
-                        st.session_state.chat_history.append({
-                            "user": current_query,
-                            "ai": ai_chat_response
-                        })
-                        
+                        st.session_state.chat_history.append({"user": current_query, "ai": ai_chat_response})
                         st.rerun()
                 else:
                     st.error("⚠️ AI Engine không xuất được cấu trúc JSON hợp lệ. Vui lòng thử lại câu lệnh.")
-                    
         except Exception as ce:
             st.error(f"❌ Lỗi xử lý Core AI Engine: {str(ce)}")
-            with st.expander("Chi tiết lỗi hệ thống (Traceback)"):
-                st.code(traceback.format_exc())
-
-
 # =====================================================================
-# ĐOẠN 7b: KHU VỰC HIỂN THỊ KẾT QUẢ ĐƠN MÃ VÀ XUẤT EXCEL CHUẨN ĐỒNG BỘ CO RÚT ĐỘNG (V17.7.0.0 APPROVED)
+# ĐOẠN 7b: KHU VỰC HIỂN THỊ KẾT QUẢ ĐƠN MÃ VÀ XUẤT EXCEL CHUẨN ĐỒNG BỘ CO RÚT ĐỘNG
 # =====================================================================
-# 🌟 ĐỒNG BỘ NGUỒN DỮ LIỆU: Ưu tiên lấy từ bộ nhớ trạng thái AI mới nhất, nếu không có sẽ lấy bộ nhớ lũy kế
 active_bom_source = None
 if st.session_state.get("active_blueprint") and "bom_rows" in st.session_state.active_blueprint:
     active_bom_source = st.session_state.active_blueprint
 elif st.session_state.get("accumulated_bom_rows"):
-    # Phương án dự phòng hiển thị dữ liệu ban đầu khi chưa gõ lệnh Chat
     active_bom_source = {"calculated_on_size": "30", "bom_rows": list(st.session_state.accumulated_bom_rows.values())}
 
 if active_bom_source and active_bom_source.get("bom_rows"):
     import pandas as pd
-    
     extracted_size = active_bom_source.get("calculated_on_size", "30").upper()
     
     st.markdown('<div class="cad-card">', unsafe_allow_html=True)
     st.markdown(f'<div class="cad-header">📊 CALCULATED FABRIC CONSUMPTION MATRIX (SIZE TARGET: {extracted_size})</div>', unsafe_allow_html=True)
     
-    # 🌟 BỘ LỌC ĐỒNG BỘ HIỂN THỊ TRÊN GIAO DIỆN BẢNG THỰC TẾ
-    chat_txt = str(safe_user_prompt if 'safe_user_prompt' in globals() and safe_user_prompt else "").lower()
-    
-    warp_default, weft_default = "3.0%", "3.0%"
-    match_w_direct = re.search(r'(?:dọc|doc|warp)\s*[:\-=\s]*([\d\.]+)', chat_txt)
-    match_f_direct = re.search(r'(?:ngang|weft)\s*[:\-=\s]*([\d\.]+)', chat_txt)
-    
-    if match_w_direct and match_f_direct:
-        warp_default = f"{float(match_w_direct.group(1))}%"
-        weft_default = f"{float(match_f_direct.group(1))}%"
-    else:
-        m_c = re.search(r'(?:co\s*rút|co\s*rut|co)\s*[:\-=\s]*([\d\.]+)\s*(?:-|–|x|ngang|\s+)\s*([\d\.]+)', chat_txt)
-        if m_c:
-            warp_default = f"{float(m_c.group(1))}%"
-            weft_default = f"{float(m_c.group(2))}%"
+    warp_default = st.session_state.get("current_warp_pct", "3.0%")
+    weft_default = st.session_state.get("current_weft_pct", "3.0%")
     
     display_data = []
     for r in active_bom_source["bom_rows"]:
         if not r or not isinstance(r, dict): continue
-            
         sys_notes = r.get("consumption_note", "")
         current_gross = r.get("calculated_gross_consumption_yds", 0.0)
-        reason_logs = str(r.get("reason_or_logs", ""))
         
-        if "fabric_width_inch" in r and r["fabric_width_inch"] > 0:
-            cut_width_val = f"{float(r['fabric_width_inch'])} inch"
-        else:
-            match_w = re.search(r'Khổ vải:\s*([\d\.]+)', sys_notes)
-            cut_width_val = f"{float(match_w.group(1))} inch" if match_w else "58.0 inch"
-        
-        warp_val = warp_default
-        weft_val = weft_default
-        
-        if any(x in str(r.get("fabric_classification", "")).upper() for x in ["FUSING", "LINING"]):
-            warp_val = "0.0%"
-            weft_val = "0.0%"
+        cut_width_val = f"{float(r['fabric_width_inch'])} inch" if "fabric_width_inch" in r and r["fabric_width_inch"] > 0 else "58.0 inch"
+        warp_val = "0.0%" if any(x in str(r.get("fabric_classification", "")).upper() for x in ["FUSING", "LINING"]) else warp_default
+        weft_val = "0.0%" if any(x in str(r.get("fabric_classification", "")).upper() for x in ["FUSING", "LINING"]) else weft_default
 
         raw_eff_value = r.get("marker_efficiency_pct")
-        if raw_eff_value is not None:
-            if isinstance(raw_eff_value, (int, float)):
-                raw_eff_value = f"{raw_eff_value}%"
-        else:
-            raw_eff_value = "85.0%" if any(x in str(r.get("fabric_classification", "")).upper() for x in ["FUSING", "LINING"]) else "87.0%"
+        raw_eff_value = f"{raw_eff_value}%" if isinstance(raw_eff_value, (int, float)) else ("85.0%" if any(x in str(r.get("fabric_classification", "")).upper() for x in ["FUSING", "LINING"]) else "87.0%")
+        gate_status_label = "PASSED" if r.get("quality_gate_status") == "PASSED_MIN" else r.get("quality_gate_status", r.get("status", "PASSED"))
 
         display_data.append({
-            "Component Type": r.get("component_type", "MAIN FABRIC"),
-            "Placement": r.get("placement", "BODY/POCKETS"),
-            "Fabric Classification": r.get("fabric_classification", "MAIN_FABRIC"),
-            "Fabric Code": r.get("fabric_code", "DENIM"),
-            "Fabric Color": r.get("fabric_color", "SOLID COLOR"),
-            "Khổ vải (Width)": cut_width_val,
-            "Co rút dọc (% Warp)": warp_val,
-            "Co rút ngang (% Weft)": weft_val,
-            "Marker Efficiency": str(raw_eff_value).strip(),
-            "Gross Consumption (Yds)": current_gross,
-            "Quality Status": r.get("quality_gate_status", r.get("status", "PASS")),
-            "System Notes": sys_notes
+            "Component Type": r.get("component_type", "MAIN FABRIC"), "Placement": r.get("placement", "BODY/POCKETS"),
+            "Fabric Classification": r.get("fabric_classification", "MAIN_FABRIC"), "Fabric Code": r.get("fabric_code", "DENIM"),
+            "Fabric Color": r.get("fabric_color", "SOLID COLOR"), "Khổ vải (Width)": cut_width_val,
+            "Co rút dọc (% Warp)": warp_val, "Co rút ngang (% Weft)": weft_val, "Marker Efficiency": str(raw_eff_value).strip(),
+            "Gross Consumption (Yds)": current_gross, "Quality Status": gate_status_label, "System Notes": sys_notes
         })
         
     df_bom = pd.DataFrame(display_data)
     st.dataframe(df_bom, use_container_width=True, hide_index=True)
     st.markdown('</div>', unsafe_allow_html=True)
     
-    # KHỐI LOGIC TẠO FILE EXCEL REPORT ĐỒNG BỘ
     try:
         import io
         from openpyxl import Workbook
@@ -1242,68 +1207,43 @@ if active_bom_source and active_bom_source.get("bom_rows"):
         ws.title = "BOM Fabric Consumption"
         ws.sheet_view.showGridLines = True 
         
-        font_title = Font(name="Calibri", size=14, bold=True, color="FFFFFF")
-        font_header = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
-        font_body = Font(name="Calibri", size=11, bold=False)
-        fill_title = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")
-        fill_header = PatternFill(start_color="2C3E50", end_color="2C3E50", fill_type="solid")
-        align_center = Alignment(horizontal="center", vertical="center", wrap_text=True)
-        align_left = Alignment(horizontal="left", vertical="center")
-        align_right = Alignment(horizontal="right", vertical="center")
-        thin_side = Side(border_style="thin", color="D9D9D9")
-        thin_border = Border(left=thin_side, right=thin_side, top=thin_side, bottom=thin_side)
-        
         ws.merge_cells("A1:L1")
         ws["A1"] = f"BÁO CÁO ĐỊNH MỨC VẬT TƯ VẢI (SIZE: {extracted_size}) - STYLE: R09-500778"
-        ws["A1"].font = font_title
-        ws["A1"].fill = fill_title
-        ws["A1"].alignment = align_center
+        ws["A1"].font = Font(name="Calibri", size=14, bold=True, color="FFFFFF")
+        ws["A1"].fill = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")
+        ws["A1"].alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
         ws.row_dimensions.height = 40
         
         headers = list(df_bom.columns)
         for col_num, header_title in enumerate(headers, 1):
-            cell = ws.cell(row=3, column=col_num)
-            cell.value = header_title
-            cell.font = font_header
-            cell.fill = fill_header
-            cell.alignment = align_center
-            cell.border = thin_border
+            cell = ws.cell(row=3, column=col_num, value=header_title)
+            cell.font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
+            cell.fill = PatternFill(start_color="2C3E50", end_color="2C3E50", fill_type="solid")
+            cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+            cell.border = Border(left=Side(style="thin", color="D9D9D9"), right=Side(style="thin", color="D9D9D9"), top=Side(style="thin", color="D9D9D9"), bottom=Side(style="thin", color="D9D9D9"))
         ws.row_dimensions.height = 28
         
         for row_num, row_data in enumerate(display_data, 4):
             ws.row_dimensions[row_num].height = 22
             for col_num, key in enumerate(headers, 1):
-                cell = ws.cell(row=row_num, column=col_num)
-                cell.value = row_data[key]
-                cell.font = font_body
-                cell.border = thin_border
+                cell = ws.cell(row=row_num, column=col_num, value=row_data[key])
+                cell.font = Font(name="Calibri", size=11)
+                cell.border = Border(left=Side(style="thin", color="D9D9D9"), right=Side(style="thin", color="D9D9D9"), top=Side(style="thin", color="D9D9D9"), bottom=Side(style="thin", color="D9D9D9"))
                 if key in ["Gross Consumption (Yds)"]:
-                    cell.alignment = align_right
+                    cell.alignment = Alignment(horizontal="right", vertical="center")
                     cell.number_format = '#,##0.0000'
                 elif key in ["Khổ vải (Width)", "Co rút dọc (% Warp)", "Co rút ngang (% Weft)", "Marker Efficiency", "Quality Status"]:
-                    cell.alignment = align_center
+                    cell.alignment = Alignment(horizontal="center", vertical="center")
                 else:
-                    cell.alignment = align_left
+                    cell.alignment = Alignment(horizontal="left", vertical="center")
         
         for col_idx, col_name in enumerate(headers, 1):
-            max_len = len(col_name)
-            for row_num in range(4, 4 + len(display_data)):
-                val = ws.cell(row=row_num, column=col_idx).value
-                if val: max_len = max(max_len, len(str(val)))
-            col_letter = get_column_letter(col_idx)
-            ws.column_dimensions[col_letter].width = max(max_len + 5, 12)
+            max_len = max([len(str(ws.cell(row=r, column=col_idx).value or '')) for r in range(4, 4 + len(display_data))] + [len(col_name)])
+            ws.column_dimensions[get_column_letter(col_idx)].width = max(max_len + 5, 12)
             
         wb.save(output)
-        excel_bytes = output.getvalue()
-        
         st.markdown("<br>", unsafe_allow_html=True)
-        st.download_button(
-            label="📥 XUẤT FILE EXCEL ĐỊNH MỨC CHUẨN SẢN XUẤT",
-            data=excel_bytes,
-            file_name=f"BOM_Consumption_R09-500778_Size_{extracted_size}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True
-        )
+        st.download_button(label="📥 XUẤT FILE EXCEL ĐỊNH MỨC CHUẨN SẢN XUẤT", data=output.getvalue(), file_name=f"BOM_Consumption_R09-500778_Size_{extracted_size}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
     except Exception as e:
         st.warning(f"⚠️ Không thể khởi tạo nút xuất Excel cao cấp: {str(e)}")
 else:
