@@ -855,14 +855,15 @@ st.markdown('</div>', unsafe_allow_html=True)
 # =====================================================================
 # =====================================================================
 # =====================================================================
-# ĐOẠN 7a2: ENGINE AI MẮT THẦN - KHÓA CHẶT ĐẦU RA 3 LOẠI VẬT TƯ CHUẨN KỸ THUẬT (V17.4.9.0)
+# =====================================================================
+# ĐOẠN 7a2: ENGINE BACKGROUND AI MẮT THẦN - FIXED TREO NGẦM HỆ THỐNG (V17.5.0.0 APPROVED)
 # =====================================================================
 
 if st.session_state.pdf_bytes is not None and safe_user_prompt:
     if st.session_state.last_processed_prompt != safe_user_prompt:
         st.session_state.last_processed_prompt = safe_user_prompt
         
-        with st.spinner("🧠 MẮT THẦN AI: Đang phân tích rập ảnh Sketch phẳng và đối chiếu bảng BOM đa trang..."):
+        with st.spinner("🧠 MẮT THẦN AI: Đang bóc tách rập ảnh Sketch phẳng và đối chiếu bảng BOM đa trang..."):
             try:
                 import google.generativeai as genai
                 import json, copy, traceback, re
@@ -891,7 +892,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                 if len(st.session_state.chat_history) > 30:
                     st.session_state.chat_history = st.session_state.chat_history[-30:]
 
-                # PROMPT KHÓA CHẶT: Ép buộc Gemini trả về đúng và đủ cấu trúc 3 nhóm dòng vật tư may mặc
+                # PROMPT SIÊU CẤP ĐA PHƯƠNG THỨC: Ép buộc Gemini trả về đúng và đủ cấu trúc 3 nhóm dòng vật tư may mặc quần Cargo
                 prompt_instruction = f"""
                 You are a senior apparel Industrial Engineer (IE). You are given BOTH the visual garment sketch image and the full techpack text data.
                 
@@ -930,12 +931,12 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                     }},
                     {{
                       "component_type": "INTERLINING / KEO LÓT", "placement": "WAISTBAND", "fabric_classification": "FUSING",
-                      "fabric_code": "RM30", "fabric_color": "DTM OR CLOSE TO MAIN FABRIC BACKGROUND COLOR", "fabric_width_inch": 57.0,
+                      "fabric_code": "RM30", "fabric_color": "DTM OR CLOSE TO MAIN FABRIC BACKGROUND COLOR", "fabric_width_inch": {active_width},
                       "panels_catalog": []
                     }},
                     {{
                       "component_type": "POCKET LINING / LÓT TÚI", "placement": "POCKET BAGS", "fabric_classification": "LINING",
-                      "fabric_code": "COTTON SHEETING", "fabric_color": "SOLID COLOR", "fabric_width_inch": 57.0,
+                      "fabric_code": "COTTON SHEETING", "fabric_color": "SOLID COLOR", "fabric_width_inch": {active_width},
                       "panels_catalog": []
                     }}
                   ]
@@ -966,13 +967,14 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                         if raw_blueprint and raw_blueprint.get("bom_rows"):
                             blueprint_worker = copy.deepcopy(raw_blueprint)
                             
+                            # Chạy liên hoàn chuỗi hàm thuật toán hình học rập IE nền
                             step_2a1 = parse_geometric_panels_allowance(blueprint_worker, safe_user_prompt)
                             step_2a2 = execute_marker_yardage_and_quality_gate(step_2a1, safe_user_prompt)
                             blueprint_final = allocate_fabric_consumption_and_quality_gate(step_2a2)
                             
+                            # 🌟 VÁ LỖI TREO NGẦM: Đồng bộ làm sạch và ghi đè an toàn kho lũy kế toàn cục
+                            st.session_state.accumulated_bom_rows = {}
                             if "bom_rows" in blueprint_final:
-                                # Xóa sạch kho lưu trữ đệm cũ trước khi nạp để chống lặp dòng tuyệt đối
-                                st.session_state.accumulated_bom_rows = {}
                                 for row in blueprint_final["bom_rows"]:
                                     if not row or not isinstance(row, dict): continue
                                     c_type = str(row.get("component_type", "MAIN")).upper().strip()
@@ -983,13 +985,19 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                             blueprint_final["bom_rows"] = list(st.session_state.accumulated_bom_rows.values())
                             if "calculated_on_size" in raw_blueprint:
                                 blueprint_final["calculated_on_size"] = raw_blueprint["calculated_on_size"]
+                            
+                            # Ép cập nhật ngược lại bộ nhớ session để kích hoạt Đoạn 7b vẽ bảng
                             st.session_state.bom_data = blueprint_final
                     
-                    ai_chat_response = chat_match.group(1).strip() if chat_match else "Tôi đã cập nhật lại bảng tính định mức thực tế theo quy cách may trực quan."
+                    ai_chat_response = chat_match.group(1).strip() if chat_match else "Tôi đã giải phóng bộ đệm và cập nhật lại bảng tính định mức thực tế theo quy cách may."
                     st.session_state.chat_history.append({"user": safe_user_prompt, "ai": ai_chat_response})
+                
                 st.rerun()
             except Exception as e:
-                st.error(f"💥 Lỗi đối thoại hệ thống: {str(e)}")
+                # Nếu sập lỗi thật, in rõ ràng lỗi lên màn hình thay vì gọi st.rerun() vô hạn gây treo ngầm
+                st.error(f"💥 Lỗi phân tích hệ thống background: {str(e)}")
+                st.code(traceback.format_exc())
+
 
 
 
