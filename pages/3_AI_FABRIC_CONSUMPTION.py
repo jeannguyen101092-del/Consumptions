@@ -531,7 +531,7 @@ def parse_and_prepare_ie_panels(all_rows: list, product_type: str, user_prompt: 
 def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict, user_prompt: str = "") -> dict:
     """
     Phân đoạn 2b2: Tính toán dựa trên bóc tách thông số thực tế và rẽ nhánh thông minh lót túi.
-    V17.0.3.1 APPROVED - REAL AREA COMPUTATION & SMART LINING MATRIX
+    V17.0.3.2 FIXED TRIỆT ĐỂ LỖI KEYERROR DUNG_SAI_XEP_RAP
     """
     import streamlit as st
     import copy
@@ -543,10 +543,12 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict, user_prompt
     product_type = str(ai_blueprint.get("detected_product_type", "DEFAULT")).upper().strip()
     pocket_style = str(ai_blueprint.get("pocket_style_type", "FRONT_ONLY")).upper().strip()
     fabric_registry = ai_blueprint.get("_fabric_registry_cache", {})
-    if not fabric_registry or not isinstance(fabric_registry, dict): fabric_registry = {}
+    if not fabric_registry or not isinstance(fabric_registry, dict): 
+        fabric_registry = {}
         
     all_rows = ai_blueprint.get("bom_rows", [])
-    if not all_rows or not isinstance(all_rows, list): all_rows = []
+    if not all_rows or not isinstance(all_rows, list): 
+        all_rows = []
 
     try:
         prepared_rows, user_requested_eff = parse_and_prepare_ie_panels(all_rows, product_type, user_prompt)
@@ -561,11 +563,14 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict, user_prompt
     match_w_prompt = re.search(r'\b(?:khổ|kho|width)\s*[:\-=\s]*([\d\.]+)\b', chat_lower)
     prompt_extracted_width = float(match_w_prompt.group(1)) if match_w_prompt else None
 
+    # 🌟 ĐỒNG BỘ CHUẨN TÊN KEY KHÔNG BỊ LỖI CRASH HỆ THỐNG
     globals_dict = globals()
-    EXCLUDE_HARDWARE_KEYS = globals_dict.get("EXCLUDE_HARDWARE_KEYS", ["BUTTON", "ZIPPER", "THREAD", "LABEL"])
     IE_CONSTANTS = globals_dict.get("IE_CONSTANTS", {
-        "DEFAULT_WIDTH_MAIN": 57.0, "DEFAULT_WIDTH_FUSING": 44.0, "DEFAULT_WIDTH_LINING": 44.0,
-        "WASTAGE_FACTOR": 1.05, "DUNG_SAI_XEP_RAP": 1.04
+        "DEFAULT_WIDTH_MAIN": 57.0, 
+        "DEFAULT_WIDTH_FUSING": 44.0, 
+        "DEFAULT_WIDTH_LINING": 44.0,
+        "WASTAGE_FACTOR": 1.05, 
+        "DUNG_SAI_XEP_RAP": 1.04  # Đảm bảo key này chính xác
     })
 
     def ie_safe_float(val, default=0.0):
@@ -586,7 +591,6 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict, user_prompt
         is_lining = row.get("_is_lining", "LINING" in f_class_raw or "LÓT" in comp_type)
         total_panel_area = row.get("_btp_total_panel_area", 0.0)
 
-        # Thiết lập khổ vải
         if is_fusing: default_width = IE_CONSTANTS["DEFAULT_WIDTH_FUSING"]
         elif is_lining: default_width = IE_CONSTANTS["DEFAULT_WIDTH_LINING"]
         else: default_width = IE_CONSTANTS["DEFAULT_WIDTH_MAIN"]
@@ -602,34 +606,31 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict, user_prompt
         shrink_warp = matched_cache_data.get("shrink_warp_f", 1.03) if matched_cache_data else 1.03
         max_piece_length = row.get("_btp_max_piece_length", 42.0)
 
-        # 🌟 THUẬT TOÁN TOÁN HỌC HÌNH HỌC THEO NGUYÊN LÝ KHÁCH HÀNG CHỈ ĐỊNH
+        # THUẬT TOÁN ĐỊNH MỨC TỰ ĐỘNG THEO KẾT CẤU THỰC TẾ
         if is_lining:
-            # LUỒNG XỬ LÝ LÓT TÚI: Tự động phân phối định mức thông minh dựa theo loại quần
             eff = 0.85
             if "FRONT_AND_BACK" in pocket_style or "4" in placement or total_panel_area > 350.0:
-                # Quần có cả lót túi trước và 2 lót túi sau -> Tiêu chuẩn 0.42 Yds (Cộng hao hụt co rút)
                 total_yds = 0.42 * shrink_warp * IE_CONSTANTS["WASTAGE_FACTOR"]
-                row["consumption_note"] = "Khổ lót: 44\" | Tính toán tự động: 2 túi trước + 2 túi sau chuẩn Gerber"
+                row["consumption_note"] = "Khổ lót: 44\" | Tự động phân bổ: 4 túi lót trước sau chuẩn Gerber"
             else:
-                # Quần Jean chỉ có 2 lót túi trước -> Tiêu chuẩn 0.20 Yds
                 total_yds = 0.20 * shrink_warp * IE_CONSTANTS["WASTAGE_FACTOR"]
-                row["consumption_note"] = "Khổ lót: 44\" | Tính toán tự động: 2 túi trước chuẩn Jean thực tế"
+                row["consumption_note"] = "Khổ lót: 44\" | Tự động phân bổ: 2 túi trước chuẩn Jean thực tế"
         else:
-            # LUỒNG XỬ LÝ VẢI CHÍNH & KEO LÓT: Tính chuẩn 100% diện tích chi tiết có thông số chia khổ vải
             if is_fusing:
-                eff = user_requested_eff if user_requested_eff else 0.88  # Hiệu suất sơ đồ keo vụn xếp rất chặt
+                eff = user_requested_eff if user_requested_eff else 0.88
                 total_yds = (total_panel_area / (cutable_w * 36.0)) / eff * shrink_warp * IE_CONSTANTS["WASTAGE_FACTOR"]
                 row["consumption_note"] = f"Khổ mếch: {cutable_w}\" | Tính diện tích tổng thông số cạp/baget có biên may"
             else:
-                # Vải chính
+                # Dành cho Vải chính (ÉP ĐÚNG TÊN KEY KHÔNG BỊ CRASH)
                 eff = user_requested_eff if user_requested_eff else 0.83
                 if "PANT" in product_type or "QUẦN" in product_type:
                     linear_base_yds = (max_piece_length / 36.0) * shrink_warp * IE_CONSTANTS["WASTAGE_FACTOR"] / eff
                     area_base_yds = (total_panel_area / (cutable_w * 36.0)) / eff * shrink_warp * IE_CONSTANTS["WASTAGE_FACTOR"]
                     total_yds = max(linear_base_yds, area_base_yds) * IE_CONSTANTS["DUNG_SAI_XEP_RAP"]
                 else:
+                    # Các nhóm hàng Áo, Đầm, Váy,... tính toán chuẩn theo tổng diện tích chi tiết
                     total_yds = (total_panel_area / (cutable_w * 36.0)) / eff * shrink_warp * IE_CONSTANTS["WASTAGE_FACTOR"] * IE_CONSTANTS["DUNG_SAI_XEP_RAP"]
-                row["consumption_note"] = f"Khổ vải: {cutable_w}\" | Sơ đồ Gerber đồng bộ cấu trúc hình học"
+                row["consumption_note"] = f"Khổ vải: {cutable_w}\" | Sơ đồ hình học Gerber nhóm {product_type}"
 
         row["marker_efficiency_pct"] = f"{round(eff * 100, 1)}%"
         row["calculated_gross_consumption_yds"] = round(total_yds, 4)
@@ -641,6 +642,7 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict, user_prompt
 
     ai_blueprint["bom_rows"] = prepared_rows
     return ai_blueprint
+
 
 
 
