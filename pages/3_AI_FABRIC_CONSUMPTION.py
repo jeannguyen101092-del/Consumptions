@@ -1034,7 +1034,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                 gemini_inputs = copy.deepcopy(st.session_state.pdf_page_images_list)
 
 # =====================================================================
-# ĐOẠN 7a2: AI CORE COGNITIVE ENGINE & POST-AI MIDDLEWARE GEOMETRY PROCESSOR (V20.0.4 CHUẨN MẢNG)
+# ĐOẠN 7a2: AI CORE COGNITIVE ENGINE & POST-AI MIDDLEWARE GEOMETRY PROCESSOR (V20.0.5 APPROVED)
 # =====================================================================
             if "GEMINI_API_KEY" in st.secrets: 
                 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
@@ -1127,18 +1127,10 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                         raw_specs.append(clean_s)
                     raw_blueprint["matched_measurements"] = raw_specs 
                     
-                    # 🌟 SỬA CHUẨN LUỒNG KIỂM TRA MẢNG: Kiểm tra sự tồn tại thực tế của mảng rập từ AI
+                    # 🌟 FIX CHUẨN LUỒNG KIỂM TRA MẢNG TRÁNH TREO CỨNG SESSION:
                     has_valid_evidence = len(raw_specs) >= 1
-                    
-                    has_valid_bom = False
                     bom_list = raw_blueprint.get("bom_rows", [])
-                    if isinstance(bom_list, list) and len(bom_list) > 0:
-                        # TRÍCH XUẤT ĐÚNG PHẦN TỬ ĐẦU TIÊN CỦA MẢNG LIST BẰNG CHỈ SỐ [0]
-                        first_row = bom_list[0]
-                        if isinstance(first_row, dict):
-                            first_catalog = first_row.get("panels_catalog", [])
-                            if isinstance(first_catalog, list) and len(first_catalog) > 0:
-                                has_valid_bom = True
+                    has_valid_bom = isinstance(bom_list, list) and len(bom_list) > 0
                     
                     # Khai báo phòng vệ hằng số hệ thống tránh bẫy lỗi KeyError
                     EXCLUDE_HARDWARE_KEYS = globals().get("EXCLUDE_HARDWARE_KEYS", ["BUTTON", "ZIPPER", "THREAD", "LABEL"])
@@ -1199,6 +1191,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
         except Exception as e:
             st.error(f"❌ Lỗi hệ thống tầng AI Core Post-Pipeline: {str(e)}")
             st.text(traceback.format_exc())
+
 
 
 
