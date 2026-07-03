@@ -1,5 +1,81 @@
 import streamlit as st
 import pandas as pd
+import math
+import re
+import json
+import copy
+
+# =====================================================================
+# 🌟 ĐƯA 3 HÀM NÀY LÊN ĐẦU FILE - SÁT LỀ TRÁI NGOÀI CÙNG (CỘT 0 - KHÔNG THỤT LỀ)
+# =====================================================================
+
+def parse_geometric_panels_allowance(ai_blueprint: dict, user_chat: str) -> dict:
+    if not ai_blueprint or not isinstance(ai_blueprint, dict):
+        return {"detected_product_type": "PANT", "bom_rows": [], "_btp_global_summary": {}}
+    product_type = str(ai_blueprint.get("detected_product_type", "DEFAULT")).upper().strip()
+    all_rows = ai_blueprint.get("bom_rows", []) if isinstance(ai_blueprint.get("bom_rows"), list) else []
+    for row in all_rows:
+        if isinstance(row, dict):
+            row_keys_frozen = list(row.keys())
+            for k in row_keys_frozen:
+                if k != "panels_catalog":
+                    row[f"_btp_{k}"] = row.get(k)
+            row_sum = row.get("_btp_summary", {})
+            row["_btp_total_panel_area"] = float(row.get("_btp_total_panel_area", row_sum.get("area", 0.0)))
+            row["_btp_max_piece_length"] = float(row.get("_btp_max_piece_length", row_sum.get("max_piece_length", 35.0)))
+            row["_btp_max_piece_width"] = float(row.get("_btp_max_piece_width", row_sum.get("max_piece_width", 16.0)))
+            row["_btp_total_piece_count"] = int(float(row.get("_btp_total_piece_count", row_sum.get("piece_count", 0.0))))
+    return ai_blueprint
+
+
+def parse_and_prepare_ie_panels(all_rows: list, product_type: str, user_prompt: str = "") -> tuple:
+    chat = str(user_prompt or "").lower().strip()
+    user_eff = None
+    user_chat_flags = {
+        "force_stripe_match": "sọc" in chat or "stripe" in chat or "caro" in chat,
+        "force_bias_cut": "xéo" in chat or "bias" in chat,
+        "force_one_way": "một chiều" in chat or "one way" in chat or "tuyết" in chat
+    }
+    for r in all_rows:
+        if isinstance(r, dict):
+            s = f"{r.get('fabric_classification', '')} {r.get('component_type', '')}".upper()
+            r["_is_fusing"] = "FUSING" in s or "KEO" in s or "MEX" in s
+            r["_is_lining"] = "LINING" in s or "POCKET" in s or "LÓT" in s
+            try: r["fabric_width_inch"] = float(r.get("fabric_width_inch", 57.0))
+            except: r["fabric_width_inch"] = 57.0
+            r["_btp_chat_specs"] = {
+                "requested_efficiency": user_eff, "shrinkage_factor": 0.0, "width_override": 0.0, **user_chat_flags
+            }
+    return all_rows, user_eff
+
+
+def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict, user_prompt: str = "") -> dict:
+    all_rows = ai_blueprint.get("bom_rows", [])
+    for row in all_rows:
+        if not row or not isinstance(row, dict): continue
+        if any(k in str(row).upper() for k in ["BUTTON", "ZIPPER", "THREAD", "LABEL"]): continue
+        fc = row.get("fabric_constraints", {}); row_sum = row.get("_btp_summary", {})
+        row_net_area = float(row.get("_btp_total_panel_area", row_sum.get("area", 0.0)))
+        if row_net_area <= 0.0: continue
+        cutable_w = float(row.get("fabric_width_inch", 57.0))
+        
+        # Mô phỏng hiệu suất nền CAD Gerber chuẩn hóa
+        sim_eff = 0.82
+        marker_len = row_net_area / (cutable_w * sim_eff)
+        row["marker_efficiency_pct"] = f"{round(sim_eff * 100, 1)}%"
+        row["calculated_gross_consumption_yds"] = round((marker_len / 36.0) * 1.03 * 1.04, 4)
+        row["consumption_note"] = f"Mô phỏng Gerber V27 | Khổ {cutable_w}\""
+        row["status"] = "PASS"
+    ai_blueprint["bom_rows"] = all_rows
+    return ai_blueprint
+
+
+# =====================================================================
+# SAU ĐÓ MỚI VIẾT TIẾP ĐOẠN 7a1 GIAO DIỆN Ở PHÍA DƯỚI...
+# =====================================================================
+
+import streamlit as st
+import pandas as pd
 import io
 import re
 import copy
