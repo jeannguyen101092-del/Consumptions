@@ -1034,7 +1034,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                 gemini_inputs = copy.deepcopy(st.session_state.pdf_page_images_list)
 
 # =====================================================================
-# ĐOẠN 7a2: AI CORE COGNITIVE ENGINE & POST-AI MIDDLEWARE GEOMETRY PROCESSOR (V20.0.3 COMPATIBLE)
+# ĐOẠN 7a2: AI CORE COGNITIVE ENGINE & POST-AI MIDDLEWARE GEOMETRY PROCESSOR (V20.0.4 CHUẨN MẢNG)
 # =====================================================================
             if "GEMINI_API_KEY" in st.secrets: 
                 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
@@ -1127,13 +1127,13 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                         raw_specs.append(clean_s)
                     raw_blueprint["matched_measurements"] = raw_specs 
                     
-                    # 🌟 CẢI TIẾN: NỚI LỎNG BIÊN KHỐI KIỂM TRA ĐẢM BẢO KHÔNG BỊ CHẶN LỖI ẢO
+                    # 🌟 SỬA CHUẨN LUỒNG KIỂM TRA MẢNG: Kiểm tra sự tồn tại thực tế của mảng rập từ AI
                     has_valid_evidence = len(raw_specs) >= 1
                     
                     has_valid_bom = False
                     bom_list = raw_blueprint.get("bom_rows", [])
                     if isinstance(bom_list, list) and len(bom_list) > 0:
-                        # Lấy phần tử đầu tiên của mảng bom_rows ra xử lý
+                        # TRÍCH XUẤT ĐÚNG PHẦN TỬ ĐẦU TIÊN CỦA MẢNG LIST BẰNG CHỈ SỐ [0]
                         first_row = bom_list[0]
                         if isinstance(first_row, dict):
                             first_catalog = first_row.get("panels_catalog", [])
@@ -1191,18 +1191,12 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                     else:
                         st.session_state.bom_data = None
                         err_reason = raw_blueprint.get('error_reason', 'Tài liệu thiếu bảng Spec số đo hoặc hệ thống chưa nhận diện đầy đủ phôi rập.')
-                        
-                        # In thông báo thô ngay trên giao diện khi bị lỗi để gỡ lỗi trực quan
-                        st.warning(f"⚠️ Kiểm tra dữ liệu AI phản hồi: {raw_blueprint}")
-                        
-                        ai_chat_response = f"❌ NGẰT LUỒNG: {err_reason}"
-                        st.error(ai_chat_response)
+                        ai_chat_response = f"❌ NGẮT LUỒNG LUYỆN: {err_reason}"
                         
                     st.session_state.chat_history.append({"user": current_query, "ai": ai_chat_response})
                     st.rerun()
                         
         except Exception as e:
-
             st.error(f"❌ Lỗi hệ thống tầng AI Core Post-Pipeline: {str(e)}")
             st.text(traceback.format_exc())
 
