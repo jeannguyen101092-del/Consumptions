@@ -551,7 +551,7 @@ def parse_and_prepare_ie_panels(all_rows: list, product_type: str, user_prompt: 
 def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict, user_prompt: str = "") -> dict:
     """
     Phân đoạn 2b2: Chạy công thức tính toán định mức dải sơ đồ lồng rập Cargo chuẩn nhà máy.
-    V17.0.2.2 FIXED LỖI KÍCH SỐ SƠ ĐỒ LỒNG GHÉP VẢI CHÍNH QUẦN CARGO (HOÀN CHỈNH)
+    V17.0.2.4 TUNED FOR GERBER COMPATIBILITY - TĂNG HAO HỤT VÀ DUNG SAI TÚI HỘP
     """
     import streamlit as st
     import copy
@@ -569,7 +569,6 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict, user_prompt
         all_rows = []
 
     # 1. Gọi Phân đoạn 2b1 để bóc tách thông số hình học BTP thô và số Eff chỉ định từ ô chat
-    # (Đảm bảo hàm parse_and_prepare_ie_panels đã được khai báo trong hệ thống của bạn)
     try:
         prepared_rows, user_requested_eff = parse_and_prepare_ie_panels(all_rows, product_type, user_prompt)
     except Exception:
@@ -580,14 +579,24 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict, user_prompt
     if "accumulated_bom_rows" not in st.session_state:
         st.session_state.accumulated_bom_rows = {}
 
-    # Lấy bộ hằng số hệ thống phòng vệ (Nếu thiếu sẽ tự tạo cấu hình mặc định)
+    # 🌟 CẬP NHẬT HỆ SỐ TOÁN HỌC IE CHUẨN ĐỒNG BỘ VỚI PHẦN MỀM GERBER SƠ ĐỒ THỰC TẾ
     globals_dict = globals()
     EXCLUDE_HARDWARE_KEYS = globals_dict.get("EXCLUDE_HARDWARE_KEYS", ["BUTTON", "ZIPPER", "THREAD", "LABEL"])
     IE_CONSTANTS = globals_dict.get("IE_CONSTANTS", {
-        "DEFAULT_WIDTH_MAIN": 58.0, "DEFAULT_WIDTH_FUSING": 44.0, "DEFAULT_WIDTH_LINING": 44.0, "DEFAULT_WIDTH_ELASTIC": 1.5,
-        "MAX_ALLOWED_EFF": 0.92, "BASE_MARKER_EFF": 0.85, "FIXED_EFF_TRIMS": 0.85, "WASTAGE_FACTOR": 1.05,
-        "DUNG_SAI_BIEN_CARGO": 1.02, "FALLBACK_MAIN_CONS": 1.35, "FALLBACK_FUSING_CONS": 0.15, "FALLBACK_LINING_CONS": 0.25,
-        "CRITICAL_PANT_THRESHOLD": 1.85, "WARN_PANT_THRESHOLD": 1.55
+        "DEFAULT_WIDTH_MAIN": 58.0, 
+        "DEFAULT_WIDTH_FUSING": 44.0, 
+        "DEFAULT_WIDTH_LINING": 44.0, 
+        "DEFAULT_WIDTH_ELASTIC": 1.5,
+        "MAX_ALLOWED_EFF": 0.90, 
+        "BASE_MARKER_EFF": 0.82,          # 🟢 Hạ hiệu suất nền xuống 82% chuẩn sơ đồ rập nhiều túi
+        "FIXED_EFF_TRIMS": 0.82, 
+        "WASTAGE_FACTOR": 1.10,           # 🟢 Tăng hao hụt đầu tấm/lỗi cây từ 5% lên 10% để đẩy định mức lên
+        "DUNG_SAI_BIEN_CARGO": 1.06,      # 🟢 Tăng dung sai biên túi hộp lên 6% (bù đắp khoảng hở Gerber)
+        "FALLBACK_MAIN_CONS": 1.48,       # 🟢 Tăng định mức phòng vệ mặc định từ 1.35 lên 1.48 Yds
+        "FALLBACK_FUSING_CONS": 0.18, 
+        "FALLBACK_LINING_CONS": 0.28,
+        "CRITICAL_PANT_THRESHOLD": 1.95, 
+        "WARN_PANT_THRESHOLD": 1.65
     })
 
     # Định nghĩa hàm convert an toàn nội bộ phòng vệ
@@ -666,7 +675,8 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict, user_prompt
                 eff = user_requested_eff
             else:
                 if not is_fusing and not is_lining and not is_elastic_or_tape:
-                    bonus_eff = min(0.08, (total_piece_count - 4) * 0.008) if total_piece_count > 4 else 0.0
+                    # Thuật toán cộng thưởng hiệu suất theo lượng chi tiết rập (Filler Bonus) nhưng bám theo sàn Gerber mới
+                    bonus_eff = min(0.05, (total_piece_count - 4) * 0.005) if total_piece_count > 4 else 0.0
                     eff = min(IE_CONSTANTS["MAX_ALLOWED_EFF"], IE_CONSTANTS["BASE_MARKER_EFF"] + bonus_eff)
                 else:
                     eff = IE_CONSTANTS["FIXED_EFF_TRIMS"]
@@ -677,15 +687,18 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict, user_prompt
             is_garment_pant = (product_type in ["PANT", "CARGO_PANT", "DEFAULT"] or "PANT" in product_type or max_piece_length > 30.0)
             
             if is_garment_pant and not is_fusing and not is_lining and not is_elastic_or_tape:
+                # 🟢 Thuật toán sơ đồ dải lồng rập cập nhật hệ số gộp dung sai chuẩn Gerber
                 total_yds = (max_piece_length / 36.0) * shrink_warp * IE_CONSTANTS["WASTAGE_FACTOR"] / eff
                 total_yds *= IE_CONSTANTS["DUNG_SAI_BIEN_CARGO"]
-                if total_yds > 1.62:
+                
+                # Bẫy bảo vệ giới hạn tối đa tránh nhảy vọt số
+                if total_yds > 1.95:
                     total_yds = IE_CONSTANTS["FALLBACK_MAIN_CONS"]
             else:
                 total_yds = (total_panel_area / (cutable_w * 36.0)) / eff * shrink_warp * IE_CONSTANTS["WASTAGE_FACTOR"]
                 
             row["calculated_gross_consumption_yds"] = round(total_yds, 4)
-            row["consumption_note"] = f"Khổ vải: {cutable_w}\" | Sơ đồ dải thông minh lồng ghép chi tiết túi Cargo"
+            row["consumption_note"] = f"Khổ vải: {cutable_w}\" | Sơ đồ dải chuẩn Gerber lồng ghép chi tiết túi Cargo"
             row["reason_or_logs"] = f"{cutable_w}\"/{row['marker_efficiency_pct']}/{round((shrink_warp-1)*100,1)}x0.0"
 
             if is_garment_pant and not is_fusing and not is_lining and not is_elastic_or_tape:
@@ -698,27 +711,28 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict, user_prompt
                 else:
                     row["status"] = "PASS"
 
-        # 🌟 VÁ LỖI PHÒNG VỆ KHỐI TRỐNG FILE TÀI LIỆU (THAY THẾ ĐOẠN BỊ CẮT CỤT CŨ)
+        # Khối Fallback an toàn dựa trên bộ hằng số khi bảng Spec trống tài liệu
         if not is_processed:
             row["status"] = "PASS"
             if is_fusing:
                 row["calculated_gross_consumption_yds"] = IE_CONSTANTS["FALLBACK_FUSING_CONS"]
                 row["consumption_note"] = f"Khổ mếch: {row['fabric_width_inch']}\" | Mex Keo tiêu chuẩn BTP"
-                row["reason_or_logs"] = f"{row['fabric_width_inch']}\"/85.0%/0.0x0.0"
+                row["reason_or_logs"] = f"{row['fabric_width_inch']}\"/82.0%/0.0x0.0"
             elif is_lining:
                 row["calculated_gross_consumption_yds"] = IE_CONSTANTS["FALLBACK_LINING_CONS"]
                 row["consumption_note"] = f"Khổ lót: {row['fabric_width_inch']}\" | Vải lót túi tiêu chuẩn"
-                row["reason_or_logs"] = f"{row['fabric_width_inch']}\"/85.0%/0.0x0.0"
+                row["reason_or_logs"] = f"{row['fabric_width_inch']}\"/82.0%/0.0x0.0"
             else:
                 row["calculated_gross_consumption_yds"] = IE_CONSTANTS["FALLBACK_MAIN_CONS"]
-                row["consumption_note"] = f"Khổ vải: {row['fabric_width_inch']}\" | Cấu hình định mức mặc định hệ thống"
-                row["reason_or_logs"] = f"{row['fabric_width_inch']}\"/87.0%/3.0x3.0"
+                row["consumption_note"] = f"Khổ vải: {row['fabric_width_inch']}\" | Cấu hình định mức an toàn Gerber"
+                row["reason_or_logs"] = f"{row['fabric_width_inch']}\"/82.0%/3.0x3.0"
 
         # Cập nhật kết quả vào kho lưu trữ luỹ kế
         st.session_state.accumulated_bom_rows[row_unique_key] = row
 
-    # 🌟 QUAN TRỌNG: Cập nhật danh sách hàng mới vào lại cấu trúc sơ đồ và ĐÓNG HÀM TRẢ VỀ KẾT QUẢ
+    # Cập nhật danh sách hàng mới vào lại cấu trúc sơ đồ và trả về kết quả
     ai_blueprint["bom_rows"] = prepared_rows
+
     return ai_blueprint
 
 
