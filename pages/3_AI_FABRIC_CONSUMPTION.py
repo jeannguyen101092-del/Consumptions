@@ -1022,12 +1022,12 @@ with col_right:
         
     st.markdown('</div>', unsafe_allow_html=True)
 # =====================================================================
-# ĐOẠN 7a1: INTERFACE WORKSPACE & HIGH-RES JPEG IMAGE PIPELINE (V29.6 AUTO-TRIGGER)
-# Thay thế trọn vẹn Đoạn 7a1 cũ để tự động kích hoạt khi có file PDF
+# ĐOẠN 7a1: INTERFACE WORKSPACE & HIGH-RES JPEG IMAGE PIPELINE (V29.7 HEAVY-FILE OPTIMIZER)
+# Thay thế trọn vẹn Đoạn 7a1 cũ để tự động xử lý file nặng 6MB+ chống kẹt RAM
 # =====================================================================
 st.markdown('<br><div class="cad-card"><div class="cad-header">💬 CHATGPT IE COLLABORATION WORKSPACE</div>', unsafe_allow_html=True)
 
-# Khởi tạo kho lưu trữ trạng thái hệ thống phòng vệ tránh lỗi mất Session State khi tương tác
+# Khởi tạo kho lưu trữ trạng thái hệ thống phòng vệ
 if "chat_history" not in st.session_state: st.session_state.chat_history = []
 if "pdf_page_images_list" not in st.session_state: st.session_state.pdf_page_images_list = None
 if "accumulated_bom_rows" not in st.session_state: st.session_state.accumulated_bom_rows = {}
@@ -1039,16 +1039,15 @@ if st.session_state.chat_history:
         st.chat_message("user").write(msg["user"])
         st.chat_message("assistant").write(msg["ai"])
 
-# 🌟 FIX CHIẾN LƯỢC HẠ TẦNG ID: Tạo một vùng chứa tĩnh độc lập cô lập ô chat input
+# Tạo một vùng chứa tĩnh độc lập cô lập ô chat input
 chat_input_container = st.container()
 with chat_input_container:
     safe_user_prompt = st.chat_input("Gõ câu lệnh điều chỉnh thông số tại đây...", key="ie_workspace_static_chat_input_key")
 
 st.markdown('</div>', unsafe_allow_html=True)
 
-# 🌟 FIX TỰ ĐỘNG CHẠY: Thay đổi điều kiện 'and' thành kiểm tra file PDF độc lập để tự động chạy ngay khi tải file
+# Tự động kích hoạt luồng chạy khi phát hiện có file PDF trong bộ nhớ
 if st.session_state.pdf_bytes is not None:
-    # Tự động gán câu lệnh mặc định nếu người dùng bỏ trống ô chat khi mới tải file lên
     current_query = str(safe_user_prompt).strip() if safe_user_prompt else "Tính định mức chuẩn mặc định"
     
     with st.spinner("🧠 AI Platform đang trích xuất dải ảnh kỹ thuật JPEG và xử lý rập phẳng..."):
@@ -1060,14 +1059,20 @@ if st.session_state.pdf_bytes is not None:
         try:
             doc_recovery = fitz.open(stream=st.session_state.pdf_bytes, filetype="pdf")
             total_pages = len(doc_recovery)
+            pdf_size_mb = len(st.session_state.pdf_bytes) / (1024 * 1024)
             
-            # Ép chuyển đổi sang định dạng hình ảnh JPEG (RGB) để triệt tiêu lỗi byte ảnh nhiễu
+            # 🌟 DYNAMIC DPI ADJUSTMENT: Tự động hạ DPI nếu file nặng trên 5MB để bảo vệ RAM máy chủ
+            if pdf_size_mb > 5.0:
+                target_dpi = 95  # Hạ độ phân giải ảnh xuống để nén file siêu nhẹ
+                max_scan_pages = min(total_pages, 8)  # Chỉ quét 8 trang cốt lõi chứa spec/BOM để tăng tốc 300%
+            else:
+                target_dpi = 140 if total_pages <= 5 else 110
+                max_scan_pages = min(total_pages, 16)
+            
             image_payloads = []
-            target_dpi = 180 if total_pages <= 5 else 130
-            max_scan_pages = min(total_pages, 16)
-            
             for page_num in range(max_scan_pages):
                 page = doc_recovery.load_page(page_num)
+                # Ép ảnh về dạng nén gọn để không làm treo container ngầm của Streamlit
                 pix = page.get_pixmap(dpi=target_dpi, colorspace=fitz.csRGB)
                 page_img_bytes = pix.tobytes("jpeg")
                 
