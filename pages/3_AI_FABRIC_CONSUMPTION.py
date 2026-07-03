@@ -1034,7 +1034,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                 gemini_inputs = copy.deepcopy(st.session_state.pdf_page_images_list)
 
 # =====================================================================
-# ĐOẠN 7a2: AI CORE COGNITIVE ENGINE & POST-AI MIDDLEWARE GEOMETRY PROCESSOR (V20.1 APPROVED)
+# ĐOẠN 7a2: AI CORE COGNITIVE ENGINE & POST-AI MIDDLEWARE GEOMETRY PROCESSOR (V21.0 CHUẨN OCR)
 # =====================================================================
             if "GEMINI_API_KEY" in st.secrets: 
                 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
@@ -1064,17 +1064,18 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             if len(st.session_state.chat_history) > 30:
                 st.session_state.chat_history = st.session_state.chat_history[-30:]
 
-            # 🌟 PROMPT ĐƯỢC NÂNG CẤP CHUYÊN SÂU: ÉP AI QUY ĐỔI THÔNG SỐ POM THÀNH KÍCH THƯỚC PHÔI RẬP PHẲNG KHÔNG ĐỂ BẰNG 0
+            # 🌟 PROMPT ĐƯỢC CHUẨN HÓA CAO CẤP: ÉP AI CHUYỂN PHÂN SỐ THÀNH THẬP PHÂN CHUẨN PHÔI RẬP PHẲNG PYTHON
             prompt_instruction = f"""
-            You are an expert apparel IE OCR system. Scan all provided pages to locate the size spec sheet and material table.
+            You are an expert apparel IE OCR system. Scan all provided page images to locate the size spec tables (especially Page 13 and Page 14).
             
-            RULES FOR REAL MANUFACTURING DECONSTRUCTION:
-            1. Target size is '{target_size_cmd}'. Thoroughly inspect the table on Page 13 to extract exact metrics for this size.
-            2. For Jeano/Pant garments, reconstruction requires flat marker boundary logic:
-               - FRONT/BACK PANEL Length: Use 'Inseam' length + 'Front rise' or 'Outseam' (~38 to 43 inches).
-               - FRONT/BACK PANEL Width: Extract from 'Pant/Skirt Waist width Along Edge/Seam' or 'Hip width' values divided by 2 or based on flat panels layout (~13 to 17 inches).
-               - WAISTBAND: Extract waistband width and length (e.g. Waist circumference).
-            3. Populate the "bom_rows" array dynamically. Ensure "piece_count", "piece_length_inch", and "piece_width_inch" are strictly GREATER THAN 0 for the main components. Do not leave them as 0.0.
+            REAL GARMENT RECONSTRUCTION RULES FOR PANT/JEANS:
+            1. Target size is '{target_size_cmd}'. You MUST read specifications across both Page 13 and Page 14.
+            2. Convert any fractional measurement notations to pure decimal numbers (e.g., convert '16 1/2' to 16.5, '17 1/4' to 17.25, '31 1/2' to 31.5).
+            3. Dynamically evaluate the overall flat pattern marker boundaries for a standard pant:
+               - FRONT_PANEL / BACK_PANEL Length: Use 'Inseam' length + 'Front rise' or total 'Outseam' value found in tables (~38 to 43 inches).
+               - FRONT_PANEL / BACK_PANEL Width: Use 'Hip width' or 'Pant/Skirt Waist width' value divided by 2 or formatted as flat cut panels width (~13 to 17 inches).
+               - WAISTBAND: Extract length based on waist specs (~32 to 36 inches) and width (~1.5 to 3.5 inches).
+            4. If no real spec numbers are located, set "status": "ERROR". Do NOT pass dummy fallback numbers.
             
             Output strictly in the specified JSON structure:
             ===START_JSON===
@@ -1082,7 +1083,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
               "status": "ERROR",
               "error_reason": "Missing size charts",
               "spec_sheet_found": false,
-              "spec_page": 0,
+              "spec_page": 13,
               "detected_product_type": "PANT",
               "style_code": "",
               "calculated_on_size": "{target_size_cmd}",
@@ -1101,10 +1102,10 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
               ]
             }}
             ===END_JSON===
-            If successfully extracted, flip "status" to "PASS", "spec_sheet_found" to true, list exact found lines inside "matched_measurements", and dynamically overwrite all 0.0 values with dynamic dimensions.
+            If successfully extracted, flip "status" to "PASS", "spec_sheet_found" to true, list clean readable strings inside "matched_measurements" (e.g. ["Waist width = 16.5 inch", "Inseam length = 31.5 inch"]), and dynamically calculate the dynamic dimensions inside "bom_rows".
             
             ===START_CHAT===
-            [Confirm in Vietnamese which page you located the spec table on, and list the exact measurements found.]
+            [Confirm in Vietnamese which pages you scanned (Page 13 and Page 14) and summarize the exact clean decimal dimensions found for size {target_size_cmd}.]
             ===END_CHAT===
             """
             
@@ -1126,14 +1127,13 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                     except json.JSONDecodeError:
                         raw_blueprint = {"status": "ERROR", "error_reason": "Malformed JSON structure."}
                     
-                    # KHỬ NHIỄU OCR KÝ TỰ VÀ ĐỒNG BỘ NGƯỢC VÀO BLUEPRINT GỐC
+                    # Khử nhiễu OCR và đồng bộ ngược dữ liệu sạch vào Blueprint gốc
                     raw_specs = []
                     for s in raw_blueprint.get("matched_measurements", []):
                         clean_s = str(s).upper().replace("I", "1").replace("S", "5").replace("O", "0")
                         raw_specs.append(clean_s)
                     raw_blueprint["matched_measurements"] = raw_specs 
                     
-                    # Luồng validate mảng an toàn
                     has_valid_evidence = len(raw_specs) >= 1
                     bom_list = raw_blueprint.get("bom_rows", [])
                     has_valid_bom = isinstance(bom_list, list) and len(bom_list) > 0
@@ -1183,15 +1183,16 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                         st.session_state.bom_data = blueprint_final
                         st.session_state.accumulated_bom_rows = blueprint_final.get("bom_rows", [])
                         
-                        ai_chat_response = f"✅ OCR & Mapping thành công! Trích xuất từ Spec Trang {raw_blueprint.get('spec_page')}."
+                        ai_chat_response = f"✅ OCR & Mapping thành công! Trích xuất đa trang sạch số đo thập phân."
                         if chat_match: ai_chat_response = chat_match.group(1).strip()
                     else:
                         st.session_state.bom_data = None
-                        err_reason = raw_blueprint.get('error_reason', 'Tài liệu thiếu bảng Spec số đo hoặc hệ thống chưa nhận diện đầy đủ phôi rập.')
-                        ai_chat_response = f"❌ NGẮT LUỒNG LUYỆN: {err_reason}"
+                        err_reason = raw_blueprint.get('error_reason', 'Tài liệu thiếu bảng Spec hoặc dữ liệu phân số chưa được chuẩn hóa.')
+                        ai_chat_response = f"❌ NGẤT LUỒNG: {err_reason}"
                         
                     st.session_state.chat_history.append({"user": current_query, "ai": ai_chat_response})
                     st.rerun()
+
                         
         except Exception as e:
             st.error(f"❌ Lỗi hệ thống tầng AI Core Post-Pipeline: {str(e)}")
