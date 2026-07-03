@@ -1238,6 +1238,7 @@ if gemini_inputs and current_query:
 # ĐOẠN 7b: HIỂN THỊ KẾT QUẢ ĐỊNH MỨC & BẢNG TRA CỨU THÔNG SỐ AI OCR (V20.5 APPROVED)
 # =====================================================================
 if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data and st.session_state.bom_data["bom_rows"]:
+    import pandas as pd
     
     extracted_size = st.session_state.bom_data.get("calculated_on_size", "30").upper()
     
@@ -1269,24 +1270,35 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data 
         if not r or not isinstance(r, dict): continue
             
         sys_notes = r.get("consumption_note", "")
-        current_gross = r.get("calculated_gross_consumption_yds", 0.0)
         
-        if "fabric_width_inch" in r and r["fabric_width_inch"] > 0:
-            cut_width_val = f"{float(r['fabric_width_inch'])} inch"
-        else:
-            match_w = re.search(r'Khổ vải:\s*([\d\.]+)', sys_notes)
-            cut_width_val = f"{float(match_w.group(1))} inch" if match_w else "57.0 inch"
+        # --- 👑 ĐOẠN ĐỒNG BỘ NÂNG CẤP: DÙNG PYTHON TÍNH TOÁN ĐỊNH MỨC YARD TỰ ĐỘNG ---
+        total_area = float(r.get("total_area_sq_inch", 0.0))
+        cut_width_val_raw = float(r.get("fabric_width_inch", 57.0))
+        cut_width_val = f"{cut_width_val_raw} inch"
+        
+        # Tính hiệu suất sơ đồ (Marker Efficiency)
+        is_fusing_or_lining = any(x in str(r.get("fabric_classification", "")).upper() for x in ["FUSING", "LINING"])
+        raw_eff_value = r.get("marker_efficiency_pct")
+        if not raw_eff_value:
+            raw_eff_value = "85.0%" if is_fusing_or_lining else "83.0%"
+            
+        try:
+            efficiency_num = float(str(raw_eff_value).replace("%", "").strip()) / 100.0
+        except Exception:
+            efficiency_num = 0.83
+            
+        # Giải thuật quy đổi Yard chuẩn công nghiệp hình học (Hao hụt bàn cắt mặc định 5%)
+        current_gross = r.get("calculated_gross_consumption_yds", 0.0)
+        if current_gross == 0.0 and total_area > 0 and cut_width_val_raw > 0:
+            current_gross = (total_area / (cut_width_val_raw * 36.0 * efficiency_num)) * 1.05
+            current_gross = round(current_gross, 4)
+        # ----------------------------------------------------------------------
         
         warp_val = warp_default
         weft_val = weft_default
-        
-        if any(x in str(r.get("fabric_classification", "")).upper() for x in ["FUSING", "LINING"]):
+        if is_fusing_or_lining:
             warp_val = "0.0%"
             weft_val = "0.0%"
-
-        raw_eff_value = r.get("marker_efficiency_pct")
-        if not raw_eff_value:
-            raw_eff_value = "85.0%" if any(x in str(r.get("fabric_classification", "")).upper() for x in ["FUSING", "LINING"]) else "83.0%"
 
         display_data.append({
             "Component Type": r.get("component_type", "MAIN FABRIC"),
@@ -1300,7 +1312,7 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data 
             "Marker Efficiency": str(raw_eff_value).strip(),
             "Gross Consumption (Yds)": current_gross,
             "Quality Status": r.get("status", "PASS"),
-            "System Notes": sys_notes
+            "System Notes": f"Diện tích rập hình học: {round(total_area,1)} sq.inch. {sys_notes}".strip()
         })
         
     df_bom = pd.DataFrame(display_data)
@@ -1308,7 +1320,7 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data 
     st.markdown('</div>', unsafe_allow_html=True)
     
     # =====================================================================
-    # 🌟 CẬP NHẬT: TRỰC QUAN HÓA BẢNG CHỨNG CỨ THÔNG SỐ AI OCR QUÉT ĐƯỢC
+    # 🌟 TRỰC QUAN HÓA BẢNG CHỨNG CỨ THÔNG SỐ AI OCR QUÉT ĐƯỢC
     # =====================================================================
     raw_evidence_list = st.session_state.bom_data.get("matched_measurements", [])
     if raw_evidence_list:
@@ -1316,7 +1328,6 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data 
         st.markdown('<div class="cad-card">', unsafe_allow_html=True)
         st.markdown(f'<div class="cad-header" style="background-color: #2C3E50;">🔍 BẰNG CHỨNG THÔNG SỐ SỐ ĐO GỐC (AI OCR EVIDENCE FOR SIZE: {extracted_size})</div>', unsafe_allow_html=True)
         
-        # Chuyển dải Text chứng cứ thô thành DataFrame dạng danh sách kiểm tra trực quan
         evidence_rows = [{"STT": idx + 1, "Thông số gốc bóc tách từ Spec (Trang 13)": str(item)} for idx, item in enumerate(raw_evidence_list)]
         df_evidence = pd.DataFrame(evidence_rows)
         st.dataframe(df_evidence, use_container_width=True, hide_index=True)
@@ -1374,7 +1385,7 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data 
                     cell.alignment = align_right
                     cell.number_format = '#,##0.0000'
                 elif key in ["Khổ vải (Width)", "Co rút dọc (% Warp)", "Co rút ngang (% Weft)", "Marker Efficiency", "Quality Status"]:
-                    cell.alignment = align_center
+                    cell.alignment = center
                 else:
                     cell.alignment = align_left
         
@@ -1390,6 +1401,7 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data 
         excel_bytes = output.getvalue()
         
         st.markdown("<br>", unsafe_allow_html=True)
+        # --- FIX LỖI ĐÓNG NGOẶC HÀM DOWNLOAD TẠI ĐÂY ---
         st.download_button(
             label="📥 XUẤT FILE EXCEL ĐỊNH MỨC CHUẨN SẢN XUẤT",
             data=excel_bytes,
@@ -1397,5 +1409,5 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data 
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True
         )
-    except Exception as e:
-        st.warning(f"⚠️ Không thể khởi tạo nút xuất Excel cao cấp: {str(e)}")
+    except Exception as excel_err:
+        st.error(f"❌ Không thể khởi tạo file Excel: {str(excel_err)}")
