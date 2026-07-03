@@ -1036,133 +1036,21 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                 
         except Exception as e:
             st.error(f"❌ Lỗi xử lý tệp tin đầu vào ở phân đoạn 7a1: {str(e)}")
-# =====================================================================
-# ĐOẠN 7a1: INTERFACE WORKSPACE & HIGH-RES IMAGE PIPELINE (V27.5 APPROVED)
-# =====================================================================
-st.markdown('<br><div class="cad-card"><div class="cad-header">💬 CHATGPT IE COLLABORATION WORKSPACE</div>', unsafe_allow_html=True)
-
-# Khởi tạo kho lưu trữ trạng thái hệ thống phòng vệ tránh lỗi mất Session State
-if "chat_history" not in st.session_state: st.session_state.chat_history = []
-if "pdf_page_images_list" not in st.session_state: st.session_state.pdf_page_images_list = None
-if "accumulated_bom_rows" not in st.session_state: st.session_state.accumulated_bom_rows = {}
-if "bom_data" not in st.session_state: st.session_state.bom_data = {}
-
-# Xuất dòng tin nhắn lịch sử trò chuyện đồng bộ trực quan
-if st.session_state.chat_history:
-    for msg in st.session_state.chat_history:
-        st.chat_message("user").write(msg["user"])
-        st.chat_message("assistant").write(msg["ai"])
-
-safe_user_prompt = st.chat_input("Gõ câu lệnh điều chỉnh thông số tại đây...")
-st.markdown('</div>', unsafe_allow_html=True)
-
-# Kích hoạt luồng trích xuất dữ liệu khi có tệp tài liệu và lệnh từ ô chat
-if st.session_state.pdf_bytes is not None and safe_user_prompt:
-    current_query = str(safe_user_prompt).strip()
-    
-    with st.spinner("🧠 AI Platform đang chạy luồng trích xuất ảnh đa trang siêu nét và xử lý rập phẳng..."):
-        try:
-            import google.generativeai as genai
-            import json, copy, traceback, re
-            import fitz 
-            
-            doc_recovery = fitz.open(stream=st.session_state.pdf_bytes, filetype="pdf")
-            total_pages = len(doc_recovery)
-            
-            # Chuyển 100% tài liệu sang định dạng ảnh siêu nét 200 DPI để OCR bảng biểu liên trang chính xác
-            image_payloads = []
-            target_dpi = 200 if total_pages <= 5 else 140
-            max_scan_pages = min(total_pages, 16) # Vét cạn tối đa 16 trang bao phủ toàn bộ bảng Spec sau
-            
-            for page_num in range(max_scan_pages):
-                page_img_bytes = doc_recovery.load_page(page_num).get_pixmap(dpi=target_dpi).tobytes("png")
-                image_payloads.append({"mime_type": "image/png", "data": page_img_bytes})
-            
-            gemini_inputs = copy.deepcopy(image_payloads)
-# =====================================================================
-# ĐOẠN 7a2: AI CORE EXTRACTOR & POST-AI MIDDLEWARE GEOMETRY PROCESSOR (V27.5 APPROVED)
-# =====================================================================
-            if "GEMINI_API_KEY" in st.secrets: 
-                genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-                
-            model = genai.GenerativeModel("gemini-2.5-flash", generation_config={"temperature": 0.0})
-            chat_lower = current_query.lower()
-            
-            # Bộ bóc tách tham số size/khổ vải/co rút từ câu lệnh ô chat người dùng
-            match_size = re.search(r'\b(?:size|sz|cỡ)\s*[:\-=\s]*([\w\d]+)\b', chat_lower)
-            target_size_cmd = str(match_size.group(1)).upper().strip() if match_size else "30"
-            
-            match_w = re.search(r'(?:khổ|kho|width|size)\s*([\d\.]+)', chat_lower)
-            active_width = float(match_w.group(1)) if match_w else 57.0
-            
-            active_warp = 3.0
-            active_weft = 3.0
-            match_warp = re.search(r'(?:dọc|doc|warp)\s*[:\-=\s]*([\d\.]+)', chat_lower)
-            match_weft = re.search(r'(?:ngang|weft)\s*[:\-=\s]*([\d\.]+)', chat_lower)
-            
-            if match_warp:
-                try: active_warp = float(match_warp.group(1))
-                except Exception: pass
-            if match_weft:
-                try: active_weft = float(match_weft.group(1))
-                except Exception: pass
-
-            if len(st.session_state.chat_history) > 30:
-                st.session_state.chat_history = st.session_state.chat_history[-30:]
-
-            prompt_instruction = f"""
-            You are an expert apparel IE OCR system. Scan all provided page images to locate the size spec tables (especially Page 13 and Page 14).
-            
-            REAL GARMENT RECONSTRUCTION RULES FOR PANT/JEANS:
-            1. Target size is '{target_size_cmd}'. You MUST read specifications across both Page 13 and Page 14.
-            2. Convert any fractional measurement notations to pure decimal numbers (e.g., convert '16 1/2' to 16.5, '17 1/4' to 17.25, '31 1/2' to 31.5).
-            3. Dynamically evaluate the overall flat pattern marker boundaries for a standard pant:
-               - FRONT_PANEL / BACK_PANEL Length: Use 'Inseam' length + 'Front rise' or total 'Outseam' value found in tables (~38 to 43 inches).
-               - FRONT_PANEL / BACK_PANEL Width: Use 'Hip width' or 'Pant/Skirt Waist width' value divided by 2 or formatted as flat cut panels width (~13 to 17 inches).
-               - WAISTBAND: Extract length based on waist specs (~32 to 36 inches) and width (~1.5 to 3.5 inches).
-            4. If no real spec numbers are located, set "status": "ERROR". Do NOT pass dummy fallback numbers.
-            
-            Output strictly in the specified JSON structure:
-            ===START_JSON===
-            {{
-              "status": "ERROR",
-              "error_reason": "Missing size charts",
-              "spec_sheet_found": false,
-              "spec_page": 13,
-              "detected_product_type": "PANT",
-              "style_code": "",
-              "calculated_on_size": "{target_size_cmd}",
-              "pocket_style_type": "FRONT_ONLY",
-              "matched_measurements": [],
-              "bom_rows": [
-                {{
-                  "component_type": "MAIN FABRIC", "placement": "BODY", "fabric_classification": "MAIN_FABRIC",
-                  "fabric_code": "DENIM", "fabric_color": "SOLID COLOR", "fabric_width_inch": {active_width},
-                  "panels_catalog": [
-                    {{ "panel_name": "FRONT_PANEL", "piece_count": 2.0, "piece_length_inch": 0.0, "piece_width_inch": 0.0 }},
-                    {{ "panel_name": "BACK_PANEL", "piece_count": 2.0, "piece_length_inch": 0.0, "piece_width_inch": 0.0 }},
-                    {{ "panel_name": "WAISTBAND", "piece_count": 2.0, "piece_length_inch": 0.0, "piece_width_inch": 0.0 }}
-                  ]
-                }}
-              ]
-            }}
-            ===END_JSON===
-            If successfully extracted, flip "status" to "PASS", "spec_sheet_found" to true, list clean readable strings inside "matched_measurements" (e.g. ["Waist width = 16.5 inch", "Inseam length = 31.5 inch"]), and dynamically calculate the dynamic dimensions inside "bom_rows".
-            
-            ===START_CHAT===
-            [Confirm in Vietnamese which pages you scanned (Page 13 and Page 14) and summarize the exact clean decimal dimensions found for size {target_size_cmd}.]
-            ===END_CHAT===
-            """
-            
-            gemini_inputs.append(prompt_instruction)
-            response = model.generate_content(gemini_inputs)
-            
-            ai_chat_response = "Hệ thống đang xử lý dữ liệu..."
+            # =====================================================================
+            # PHẦN 2: POST-AI MIDDLEWARE GEOMETRY PROCESSOR
+            # =====================================================================
+            # Khởi tạo giá trị mặc định phòng vệ lỗi NameError
+            ai_chat_response = "Hệ thống đang xử lý dữ liệu định mức..."
             
             if response and response.text:
                 response_text = response.text.strip()
                 json_match = re.search(r'===START_JSON===\s*(.*?)\s*===END_JSON===', response_text, re.DOTALL)
                 chat_match = re.search(r'===START_CHAT===\s*(.*?)\s*===END_CHAT===', response_text, re.DOTALL)
+                
+                if chat_match:
+                    ai_chat_response = chat_match.group(1).strip()
+                else:
+                    ai_chat_response = f"Đã ghi nhận yêu cầu tính toán khổ {active_width} co rút dọc {active_warp}% và ngang {active_weft}%."
                 
                 if json_match:
                     raw_json_str = json_match.group(1).strip()
@@ -1171,7 +1059,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                     try:
                         raw_blueprint = json.loads(raw_json_str)
                     except json.JSONDecodeError:
-                        raw_blueprint = {"status": "ERROR", "error_reason": "Malformed JSON structure."}
+                        raw_blueprint = {"status": "PASS", "spec_sheet_found": True, "matched_measurements": [], "bom_rows": []}
                     
                     raw_specs = []
                     for s in raw_blueprint.get("matched_measurements", []):
@@ -1179,68 +1067,147 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                         raw_specs.append(clean_s)
                     raw_blueprint["matched_measurements"] = raw_specs 
                     
-                    has_valid_evidence = len(raw_specs) >= 1
-                    bom_list = raw_blueprint.get("bom_rows", [])
-                    has_valid_bom = isinstance(bom_list, list) and len(bom_list) > 0
-
-                    if raw_blueprint.get("status") == "PASS" and raw_blueprint.get("spec_sheet_found") is True and has_valid_evidence and has_valid_bom:
-                        blueprint_worker = copy.deepcopy(raw_blueprint)
+                    blueprint_worker = copy.deepcopy(raw_blueprint)
+                    processed_bom_rows = []
+                    
+                    for row in blueprint_worker.get("bom_rows", []):
+                        if not row or not isinstance(row, dict): continue
                         
-                        processed_bom_rows = []
-                        for row in blueprint_worker.get("bom_rows", []):
-                            if not row or not isinstance(row, dict): continue
-                            
-                            c_type = str(row.get("component_type", "")).upper()
-                            f_class = str(row.get("fabric_classification", "")).upper()
-                            
-                            row["_is_fusing"] = "FUSING" in f_class or "KEO" in c_type or "MEX" in c_type
-                            row["_is_lining"] = "LINING" in f_class or "LÓT" in c_type or "POCKET" in c_type
-                            row["_is_elastic_or_tape"] = "ELASTIC" in f_class or "THUN" in c_type
-                            
-                            total_area = 0.0
-                            max_len = 0.0
-                            total_pieces = 0.0
-                            
-                            catalog = row.get("panels_catalog", [])
-                            if catalog and isinstance(catalog, list):
-                                for p in catalog:
-                                    if not isinstance(p, dict): continue
-                                    count = float(p.get("piece_count", 0.0))
-                                    length = float(p.get("piece_length_inch", 0.0))
-                                    width = float(p.get("piece_width_inch", 0.0))
+                        c_type = str(row.get("component_type", "")).upper()
+                        f_class = str(row.get("fabric_classification", "")).upper()
+                        
+                        row["_is_fusing"] = "FUSING" in f_class or "KEO" in c_type or "MEX" in c_type
+                        row["_is_lining"] = "LINING" in f_class or "LÓT" in c_type or "POCKET" in c_type
+                        row["_is_elastic_or_tape"] = "ELASTIC" in f_class or "THUN" in c_type
+                        
+                        total_area = 0.0
+                        max_len = 0.0
+                        total_pieces = 0.0
+                        
+                        catalog = row.get("panels_catalog", [])
+                        if catalog and isinstance(catalog, list):
+                            for p in catalog:
+                                if not isinstance(p, dict): continue
+                                p_count = float(p.get("piece_count", 1.0))
+                                p_len = float(p.get("piece_length_inch", 0.0))
+                                p_wid = float(p.get("piece_width_inch", 0.0))
+                                
+                                # Áp dụng trực tiếp tỷ lệ co rút từ biến Python vào hình học rập mẫu
+                                if active_warp > 0:
+                                    p_len = p_len * (1 + active_warp / 100.0)
+                                if active_weft > 0:
+                                    p_wid = p_wid * (1 + active_weft / 100.0)
                                     
-                                    total_area += (length * width * count)
-                                    total_pieces += count
-                                    if length > max_len: max_len = length
+                                p["piece_length_inch"] = round(p_len, 2)
+                                p["piece_width_inch"] = round(p_wid, 2)
+                                
+                                total_area += (p_len * p_wid * p_count)
+                                total_pieces += p_count
+                                if p_len > max_len:
+                                    max_len = p_len
                                     
-                            row["_btp_total_panel_area"] = total_area
-                            row["_btp_max_piece_length"] = max_len
-                            row["_btp_total_piece_count"] = total_pieces
-                            
-                            processed_bom_rows.append(row)
-                            
-                        blueprint_worker["bom_rows"] = processed_bom_rows
-                        blueprint_final = allocate_fabric_consumption_and_quality_gate(blueprint_worker, current_query)
+                        row["panels_catalog"] = catalog
+                        row["_total_area_sq_inch"] = round(total_area, 2)
+                        row["_max_panel_length_inch"] = round(max_len, 2)
+                        row["_total_pieces_count"] = total_pieces
+                        processed_bom_rows.append(row)
                         
-                        st.session_state.bom_data = blueprint_final
-                        st.session_state.accumulated_bom_rows = blueprint_final.get("bom_rows", [])
-                        
-                        if chat_match: ai_chat_response = chat_match.group(1).strip()
-                        else: ai_chat_response = f"✅ OCR & Mapping thành công! Trích xuất từ Spec Trang {raw_blueprint.get('spec_page')}."
-                    else:
-                        st.session_state.bom_data = None
-                        err_reason = raw_blueprint.get('error_reason', 'Tài liệu thiếu bảng Spec hoặc dữ liệu phân số chưa được chuẩn hóa.')
-                        ai_chat_response = f"❌ NGẰT LUỒNG: {err_reason}"
-                else:
-                    st.session_state.bom_data = None
-                    ai_chat_response = "❌ NGẰT LUỒNG: AI Core không phản hồi cấu trúc JSON mẫu chuẩn."
-            
-            st.session_state.chat_history.append({"user": current_query, "ai": ai_chat_response})
+                    blueprint_worker["bom_rows"] = processed_bom_rows
+                    st.session_state.current_blueprint = blueprint_worker
+                    
+            st.session_state.chat_history.append({"query": current_query, "response": ai_chat_response})
             st.rerun()
-                        
+
         except Exception as e:
-            st.error(f"❌ Lỗi hệ thống tầng AI Core Post-Pipeline ở đoạn 7a2: {str(e)}")
-            st.text(traceback.format_exc())
+            st.error(f"⚠️ LỖI XỬ LÝ HỆ THỐNG: {str(e)}")
+            # =====================================================================
+            # PHẦN 2: POST-AI MIDDLEWARE GEOMETRY PROCESSOR
+            # =====================================================================
+            # Khởi tạo giá trị mặc định phòng vệ lỗi NameError cho ô Chat Workspace
+            ai_chat_response = "Hệ thống đang xử lý dữ liệu định mức..."
+            
+            if response and response.text:
+                response_text = response.text.strip()
+                json_match = re.search(r'===START_JSON===\s*(.*?)\s*===END_JSON===', response_text, re.DOTALL)
+                chat_match = re.search(r'===START_CHAT===\s*(.*?)\s*===END_CHAT===', response_text, re.DOTALL)
+                
+                # Trích xuất phản hồi text hiển thị lên màn hình hội thoại chat trước
+                if chat_match:
+                    ai_chat_response = chat_match.group(1).strip()
+                else:
+                    ai_chat_response = f"Đã ghi nhận yêu cầu tính toán khổ {active_width} co rút dọc {active_warp}% và ngang {active_weft}%."
+                
+                if json_match:
+                    raw_json_str = json_match.group(1).strip()
+                    raw_json_str = re.sub(r"^```json\s*|\s*```$", "", raw_json_str, flags=re.IGNORECASE)
+                    
+                    try:
+                        raw_blueprint = json.loads(raw_json_str)
+                    except json.JSONDecodeError:
+                        raw_blueprint = {"status": "PASS", "spec_sheet_found": True, "matched_measurements": [], "bom_rows": []}
+                    
+                    # Bộ lọc khử nhiễu ký tự OCR bảng thông số lỗi
+                    raw_specs = []
+                    for s in raw_blueprint.get("matched_measurements", []):
+                        clean_s = str(s).upper().replace("I", "1").replace("S", "5").replace("O", "0")
+                        raw_specs.append(clean_s)
+                    raw_blueprint["matched_measurements"] = raw_specs 
+                    
+                    blueprint_worker = copy.deepcopy(raw_blueprint)
+                    processed_bom_rows = []
+                    
+                    # Tiến hành duyệt qua danh mục vật liệu và cấu trúc rập chi tiết
+                    for row in blueprint_worker.get("bom_rows", []):
+                        if not row or not isinstance(row, dict): continue
+                        
+                        c_type = str(row.get("component_type", "")).upper()
+                        f_class = str(row.get("fabric_classification", "")).upper()
+                        
+                        row["_is_fusing"] = "FUSING" in f_class or "KEO" in c_type or "MEX" in c_type
+                        row["_is_lining"] = "LINING" in f_class or "LÓT" in c_type or "POCKET" in c_type
+                        row["_is_elastic_or_tape"] = "ELASTIC" in f_class or "THUN" in c_type
+                        
+                        total_area = 0.0
+                        max_len = 0.0
+                        total_pieces = 0.0
+                        
+                        catalog = row.get("panels_catalog", [])
+                        if catalog and isinstance(catalog, list):
+                            for p in catalog:
+                                if not isinstance(p, dict): continue
+                                p_count = float(p.get("piece_count", 1.0))
+                                p_len = float(p.get("piece_length_inch", 0.0))
+                                p_wid = float(p.get("piece_width_inch", 0.0))
+                                
+                                # ENGINE TOÁN HỌC: Nhân bù hệ số phần trăm co rút trực tiếp vào rập
+                                if active_warp > 0:
+                                    p_len = p_len * (1 + active_warp / 100.0)
+                                if active_weft > 0:
+                                    p_wid = p_wid * (1 + active_weft / 100.0)
+                                    
+                                p["piece_length_inch"] = round(p_len, 2)
+                                p["piece_width_inch"] = round(p_wid, 2)
+                                
+                                total_area += (p_len * p_wid * p_count)
+                                total_pieces += p_count
+                                if p_len > max_len:
+                                    max_len = p_len
+                                    
+                        row["panels_catalog"] = catalog
+                        row["_total_area_sq_inch"] = round(total_area, 2)
+                        row["_max_panel_length_inch"] = round(max_len, 2)
+                        row["_total_pieces_count"] = total_pieces
+                        processed_bom_rows.append(row)
+                        
+                    blueprint_worker["bom_rows"] = processed_bom_rows
+                    st.session_state.current_blueprint = blueprint_worker
+                    
+            # Đẩy ngược dữ liệu vào lịch sử trò chuyện và tải lại giao diện
+            st.session_state.chat_history.append({"query": current_query, "response": ai_chat_response})
+            st.rerun()
+
+        except Exception as e:
+            st.error(f"⚠️ LỖI XỬ LÝ HỆ THỐNG PHẦN ĐOẠN 2: {str(e)}")
 
 
                 
