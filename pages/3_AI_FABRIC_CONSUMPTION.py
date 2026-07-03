@@ -1085,214 +1085,103 @@ if st.session_state.pdf_bytes is not None:
 
 
 
-            # =====================================================================
-            # ĐOẠN 7a2.1: AI COGNITIVE EXTRACTOR & DYNAMIC PROMPT LOCK (V50.2 APPROVED)
+                       # =====================================================================
+            # ĐOẠN 7a2.1: DYNAMIC AI GATEWAY & MULTI-LAYER FINGERPRINT LOCK (V52.0)
             # Nối tiếp ngay sau dòng: gemini_inputs = copy.deepcopy(image_payloads)
             # =====================================================================
             if "GEMINI_API_KEY" in st.secrets: 
                 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-                
             model = genai.GenerativeModel("gemini-2.5-flash", generation_config={"temperature": 0.0})
             chat_lower = current_query.lower()
             
-            # Bộ bẫy kiểm tra an toàn dữ liệu ban đầu
-            bom_state_data = st.session_state.get("bom_data")
-            doc_product_type_raw = str(bom_state_data.get("detected_product_type", "DEFAULT")).upper() if isinstance(bom_state_data, dict) else "DEFAULT"
-            inferred_is_upper = any(x in chat_lower or x in doc_product_type_raw for x in ["DRESS", "VÁY", "ĐẦM", "SHIRT", "SƠ MI", "TSHIRT", "JACKET", "HOODIE", "TOP", "ÁO"])
-            
-            # 🌟 CHỐT CHẶN SIZE 10: Nếu không gõ lệnh ở ô chat, hệ thống tự động nhận diện size mặc định là 10 (Grading Not Approved Chart)
+            # 1. Trích xuất tự động mục tiêu Size từ câu chat người dùng
             match_size = re.search(r'\b(?:size|sz|cỡ)\s*[:\-=\s]*([\w\d/]+)\b', chat_lower)
             target_size_cmd = str(match_size.group(1)).upper().strip() if match_size else "10"
             
-            # 🌟 CHỐT CHẶN KHỔ VẢI CHÍNH 57 INCH: Nếu không ra lệnh bằng chữ, ép cứng khổ vải dệt thoi thực tế là 57.0 inch chuẩn nhà máy
-            match_w = re.search(r'(?:khổ|kho|width|vải chính khổ)\s*([\d\.]+)', chat_lower)
-            try: 
-                active_width = float(match_w.group(1)) if match_w else 57.0
-            except (ValueError, TypeError): 
-                active_width = 57.0
+            # 2. Khống chế và bảo vệ an toàn khổ vải dệt thực tế hữu dụng
+            match_w = re.search(r'(?:khổ|kho|width)\s*([\d\.]+)', chat_lower)
+            try: active_width = float(match_w.group(1)) if match_w else 57.0
+            except: active_width = 57.0
             
-            # 🌟 PROMPT REVOLUTION V50.2: ĐÓNG ĐINH SIZE 10, KHỔ 57 VÀ ÉP BUỘC TRÍCH XUẤT TÚI HỘP CARGO
-            prompt_instruction = f"""
-            You are an expert apparel Industrial Engineering (IE) OCR and CAD Optimization system. Scan all provided techpack pages to analyze both the Sizing Charts and the Bill of Materials (BOM) / Material Fabric Specification tables.
+            # 3. 🔐 CHỮ KÝ SỐ BA LỚP CHỐT CHẶN CHỐNG KẸT VÒNG LẶP (DOCUMENT FINGERPRINT ENGINE)
+            # Tạo dấu vết định danh duy nhất cho phiên làm việc hiện tại, chống mù khi đổi PDF trùng prompt
+            pdf_bytes_len = len(st.session_state.pdf_bytes) if st.session_state.pdf_bytes else 0
+            current_signature = (
+                str(safe_user_prompt).strip(),
+                int(len(image_payloads)),
+                int(pdf_bytes_len)
+            )
             
-            STRICT REAL-WORLD PRODUCTION RULES (TARGET SIZE: {target_size_cmd}):
-            1. Target size is STRICTLY '{target_size_cmd}'. Look closely at the Grading Not Approved chart column '10'.
-            2. Extract EXACT fractional dimensions for size 10: Waist Width (WST-011 Along Edge) = 16.0 inch, Hip Width (HIP-020 Low hip width) = 21.5 inch, Inseam (LEG-012) = 28.0 inch, Thigh Width (LEG-002) = 13.25 inch. Convert fractional measurements to clean decimals.
-            3. ABSOLUTE BOM FIDELITY & CARGO MANDATE:
-               - This is a Cargo Pant. You MUST explicitly include CARGO_POCKET panels inside the panels_catalog for MAIN_FABRIC row. 
-               - From the POM specifications chart: Cargo Pocket Length = 7.25 inch, Cargo Pocket Width = 9.25 inch. Set piece_count = 2.0.
-            4. FABRIC WIDTH CONSTRAINT: Always set "fabric_width_inch": {active_width} for MAIN_FABRIC row. Never default to 58.
-            5. STRICT CRITICAL COMPLIANCE VALIDATION MANDATE: Every single numeric field must be a valid JSON number. Never output null, "" or "N/A" for dimensions or piece counts. If missing, estimate logically based on size 10 pattern.
-            
-            Output strictly in the specified TWO-TIER CAD-standard JSON structure below based on REAL and inferred data:
-            ===START_JSON===
-            {{
-              "status": "PASS",
-              "spec_sheet_found": true,
-              "spec_page": 1,
-              "detected_product_type": "PANT",
-              "style_code": "S27R09-500778",
-              "calculated_on_size": "{target_size_cmd}",
-              "matched_measurements": [
-                 "WST-011: WAIST WIDTH = 16.000 inch",
-                 "HIP-020: LOW HIP WIDTH = 21.500 inch",
-                 "LEG-012: INSEAM = 28.000 inch",
-                 "LEG-002: THIGH WIDTH = 13.250 inch"
-              ],
-              "_btp_global_summary": {{
-                "total_bom_rows": 1,
-                "total_panels": 3,
-                "total_pieces": 6,
-                "largest_piece_length": 38.0,
-                "largest_piece_width": 14.5,
-                "polygon_count": 0,
-                "bbox_count": 3,
-                "has_polygon": false,
-                "has_bbox": true,
-                "need_stripe_match": false,
-                "need_bias": false,
-                "need_one_way": true,
-                "need_fold": false
-              }},
-              "bom_rows": [
+            # Biến kiểm soát: Kích hoạt gọi AI khi chưa có dữ liệu HOẶC khi chữ ký số hệ thống thay đổi
+            has_no_data = not st.session_state.get("bom_data")
+            is_signature_changed = st.session_state.get("last_processed_signature") != current_signature
+
+            if has_no_data or is_signature_changed:
+                # 🌟 PROMPT DYNAMIC V52.0: CHUẨN HOÁ KHUÔN MẪU ĐỘNG CHỐT KHÓA CANH SỢI GERBER CAD
+                prompt_instruction = f"""
+                You are an expert apparel Industrial Engineering (IE) OCR and CAD Optimization system. Scan all provided techpack pages to systematically analyze both the Sizing Charts and the Bill of Materials (BOM) / Material Fabric Specification tables.
+                
+                STRICT PRODUCTION RULES (TARGET SIZE: {target_size_cmd}):
+                1. Dynamic Product Categorization: Determine the product type directly from the Techpack. Possible values: PANT, SHIRT, DRESS, JACKET, SKIRT, SHORT, HOODIE, TOP, OTHER.
+                2. Target Measurement Extraction: Identify the grading column for target size '{target_size_cmd}'. Extract ALL core body measurements (e.g., Waist, Hip, Chest, Inseam, Body Length) exactly as printed in the spec sheet. Convert all fractional measurements to clean decimals. Never fabricate values.
+                3. Absolute BOM Fidelity Rule: Scan the BOM material specification tables closely. Generate rows ONLY for components genuinely verified from the document. If minor panels or accessories (e.g., Cargo Pockets, Pocket Bags, Facings, Fusing) exist in the BOM, include them with their specific layout rules. Otherwise, completely omit them.
+                4. Dynamic Dimension Inference: If specific panel length or width properties are missing but can be logically deduced from the trated sizing chart specs, intelligently infer them. NEVER output 0.0 or 0 for active panels as it breaks the marker engine calculations.
+                5. Zero-Null Strict Compliance: Every single numeric attribute in the JSON output MUST be a valid JSON number (integer or float). Never output null, "", "N/A", or "unknown". If unavailable or unresolvable, use 0.0 or default safe industrial estimations.
+                
+                Output strictly in the specified TWO-TIER CAD-standard JSON schema below based on REAL data found:
+                ===START_JSON===
                 {{
-                  "component_type": "MAIN FABRIC", 
-                  "placement": "BODY/POCKETS", 
-                  "fabric_classification": "MAIN_FABRIC",
-                  "fabric_code": "TCT0054", 
-                  "fabric_color": "SOLID COLOR", 
-                  "fabric_width_inch": {active_width},
-                  "_btp_summary": {{
-                     "panel_count": 3,
-                     "piece_count": 6,
-                     "largest_piece_area": 551.0,
-                     "max_piece_length": 38.0,
-                     "max_piece_width": 14.5
+                  "status": "PASS",
+                  "detected_product_type": "<DETERMINED_TYPE_FROM_TECHPACK>",
+                  "calculated_on_size": "{target_size_cmd}",
+                  "matched_measurements": [
+                     "<POM_CODE>: <DESCRIPTION> = <DECIMAL_VALUE> inch"
+                  ],
+                  "_btp_global_summary": {{
+                    "total_bom_rows": 0, "total_panels": 0, "total_pieces": 0, "largest_piece_length": 0.0, "largest_piece_width": 0.0,
+                    "has_polygon": false, "has_bbox": true, "need_stripe_match": false, "need_bias": false, "need_one_way": true, "need_fold": false
                   }},
-                  "fabric_constraints": {{
-                     "fabric_grain_rule": "ONE_WAY",
-                     "marker_type": "OPEN_WIDTH",
-                     "shrinkage_warp_pct": 3.0,
-                     "shrinkage_weft_pct": 3.0,
-                     "nap_direction": "DOWN",
-                     "fabric_face": "FACE_TO_FACE",
-                     "fabric_splice_allowed": true,
-                     "face_up": true,
-                     "one_way": true,
-                     "two_way": false,
-                     "mirror_allowed": true,
-                     "pair_required": true,
-                     "stripe_repeat_inch": 0.0,
-                     "plaid_repeat_inch": 0.0,
-                     "nap_sensitive": true
-                  }},
-                  "panels_catalog": [
-                    {{ 
-                      "panel_name": "BACK_PANT_LEG", 
-                      "panel_type": "BODY",
-                      "piece_count": 2.0, 
-                      "piece_length_inch": 38.0, 
-                      "piece_width_inch": 14.5,
-                      "geometry_metadata": {{
-                         "polygon_points": [],
-                         "coordinate_scale": 1.0,
-                         "bounding_box": [0.0, 0.0, 14.5, 38.0],
-                         "polygon_area": 0.0,
-                         "polygon_perimeter": 0.0,
-                         "net_area": 551.0,
-                         "gross_area": 551.0,
-                         "include_seam": false,
-                         "include_hem": false,
-                         "seam_allowance": true,
-                         "seam_length_map": {{}},
-                         "hem": 1.5
+                  "bom_rows": [
+                    {{
+                      "component_type": "<MATERIAL_NAME_FROM_BOM_E_G_MAIN_FABRIC>",
+                      "fabric_classification": "<MAIN_FABRIC_OR_LINING_OR_FUSING_OR_ELASTIC>",
+                      "fabric_width_inch": {active_width},
+                      "_btp_summary": {{
+                         "panel_count": 0, "piece_count": 0, "area": 0.0, "max_piece_length": 0.0, "max_piece_width": 0.0
                       }},
-                      "panel_metadata": {{
-                         "grainline": "WARP",
-                         "stripe_match": false,
-                         "bias": false,
-                         "bias_degree": 0.0,
-                         "mirror_cut": true,
-                         "cut_on_fold": false,
-                         "panel_rotation": 0.0,
-                         "is_major_panel": true,
-                         "is_pair": true,
-                         "left_right": "PAIR",
-                         "can_rotate": true,
-                         "rotation_limit": 180.0,
-                         "nest_group": "A",
-                         "symmetry_axis": "Y",
-                         "match_group": "NONE",
-                         "panel_category": "MAJOR",
-                         "nest_priority": 1
-                      }}
-                    }},
-                    {{ 
-                      "panel_name": "CARGO_POCKET", 
-                      "panel_type": "POCKET",
-                      "piece_count": 2.0, 
-                      "piece_length_inch": 7.25, 
-                      "piece_width_inch": 9.25,
-                      "geometry_metadata": {{
-                         "polygon_points": [],
-                         "coordinate_scale": 1.0,
-                         "bounding_box": [0.0, 0.0, 9.25, 7.25],
-                         "polygon_area": 0.0,
-                         "polygon_perimeter": 0.0,
-                         "net_area": 67.06,
-                         "gross_area": 67.06,
-                         "include_seam": false,
-                         "include_hem": false,
-                         "seam_allowance": true,
-                         "seam_length_map": {{}},
-                         "hem": 1.0
+                      "fabric_constraints": {{
+                         "fabric_grain_rule": "ONE_WAY", "marker_type": "OPEN_WIDTH", "shrinkage_warp_pct": 0.0, "shrinkage_weft_pct": 0.0, "nap_sensitive": true
                       }},
-                      "panel_metadata": {{
-                         "grainline": "WARP",
-                         "stripe_match": false,
-                         "bias": false,
-                         "bias_degree": 0.0,
-                         "mirror_cut": false,
-                         "cut_on_fold": false,
-                         "panel_rotation": 180.0,
-                         "is_major_panel": false,
-                         "is_pair": true,
-                         "left_right": "PAIR",
-                         "can_rotate": true,
-                         "rotation_limit": 180.0,
-                         "nest_group": "B",
-                         "symmetry_axis": "NONE",
-                         "match_group": "NONE",
-                         "panel_category": "MINOR",
-                         "nest_priority": 2
-                      }}
+                      "panels_catalog": [
+                        {{ 
+                          "panel_name": "<PANEL_NAME_E_G_FRONT_OR_BACK>", 
+                          "panel_type": "<BODY_OR_POCKET_OR_WAISTBAND_OR_SLEEVE>",
+                          "piece_count": 1.0, 
+                          "piece_length_inch": 0.0, 
+                          "piece_width_inch": 0.0,
+                          "geometry_metadata": {{
+                             "polygon_points": [], "coordinate_scale": 1.0, "bounding_box": [0.0, 0.0, 0.0, 0.0], "net_area": 0.0, "include_seam": false, "include_hem": false, "seam_allowance": true, "hem": 0.0
+                          }},
+                          "panel_metadata": {{
+                             "grainline": "WARP", "stripe_match": false, "bias": false, "mirror_cut": false, "cut_on_fold": false, "panel_rotation": 0.0, "panel_category": "MAJOR", "nest_priority": 1
+                          }}
+                        }}
+                      ]
                     }}
                   ]
                 }}
-              ]
-            }}
-            ===END_JSON===
-            
-            Verify that NO strings leak into numerical attributes. Execute the validation sweep before delivering the text block.
-            
-            ===START_CHAT===
+                ===END_JSON===
+                ===START_CHAT=== [Confirm in Vietnamese which pages you scanned and summarize the exact clean verified dimensions and materials found for size {target_size_cmd}.] ===END_CHAT===
+                """
+                gemini_inputs.append(prompt_instruction)
+                response_text = ""
+                try:
+                    response = model.generate_content(gemini_inputs)
+                    if response: response_text = response.text.strip()
+                except Exception as e_api:
+                    st.error(f"💥 API Gemini Error: {str(e_api)}")
+                    response_text = ""
 
-            [Confirm in Vietnamese which pages you scanned and summarize the exact clean verified dimensions and materials found for size {target_size_cmd}.]
-            ===END_CHAT===
-            """
-
-            gemini_inputs.append(prompt_instruction)
-            response_text = ""
-
-            # Thực thi gọi content từ API Gemini
-            response = model.generate_content(gemini_inputs)
-            if response:
-                try: response_text = response.text.strip()
-                except Exception: response_text = ""
-            # =====================================================================
-                       # =====================================================================
-                      # =====================================================================
-                      # =====================================================================
             # ĐOẠN 7a2.2: POST-AI MIDDLEWARE CAD PIPELINE BRIDGE (V17.4.0 STABLE)
             # Nhiệm vụ: Đảm bảo biến an toàn chống lỗi NameError và kích nổ kết quả
             # =====================================================================
