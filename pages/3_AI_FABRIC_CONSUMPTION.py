@@ -1023,7 +1023,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             
             gemini_inputs = copy.deepcopy(image_payloads)
 # =====================================================================
-# ĐOẠN 7a2.1: AI CORE COGNITIVE ENGINE GENERATION (V29.5 APPROVED)
+# ĐOẠN 7a2.1: AI CORE COGNITIVE ENGINE GENERATION (V30.0 CHUẨN ĐỊNH MỨC PANT)
 # =====================================================================
             if "GEMINI_API_KEY" in st.secrets: 
                 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
@@ -1056,14 +1056,15 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             prompt_instruction = f"""
             You are an expert apparel IE OCR system. Scan all provided page images to locate the size spec tables (especially Page 13 and Page 14).
             
-            REAL GARMENT RECONSTRUCTION RULES FOR PANT/JEANS:
-            1. Target size is '{target_size_cmd}'. You MUST read specifications across both Page 13 and Page 14.
-            2. Convert any fractional measurement notations to pure decimal numbers (e.g., convert '16 1/2' to 16.5, '17 1/4' to 17.25, '31 1/2' to 31.5).
-            3. Dynamically evaluate the overall flat pattern marker boundaries for a standard pant:
-               - FRONT_PANEL / BACK_PANEL Length: Use 'Inseam' length + 'Front rise' or total 'Outseam' value found in tables (~38 to 43 inches).
-               - FRONT_PANEL / BACK_PANEL Width: Use 'Hip width' or 'Pant/Skirt Waist width' value divided by 2 or formatted as flat cut panels width (~13 to 17 inches).
-               - WAISTBAND: Extract length based on waist specs (~32 to 36 inches) and width (~1.5 to 3.5 inches).
-            4. If no real spec numbers are located, set "status": "ERROR". Do NOT pass dummy fallback numbers.
+            STRICT GARMENT RECONSTRUCTION RULES FOR PANT FLAT PATTERNS (SIZE {target_size_cmd}):
+            1. Target size is '{target_size_cmd}'. Read specifications across both Page 13 and Page 14.
+            2. Convert fractional notation to pure decimals (e.g., '16 1/2' to 16.5, '20 1/4' to 20.25).
+            3. 🌟 CRITICAL WIDTH RULE TO PREVENT OVER-CONSUMPTION: 
+               - The width value in the spec sheet represents a flat half-garment circumference measurement.
+               - Individual FRONT_PANEL and BACK_PANEL flat pattern piece width MUST be equal to (Hip Width or Waist Width found in table) DIVIDED BY 2 plus 1.0 inch seam allowance.
+               - For example, if Low Hip Width is 20.0 inch, the pattern 'piece_width_inch' for FRONT_PANEL and BACK_PANEL MUST be around 10.0 to 11.0 inches (NEVER use 20.0 directly).
+            4. FRONT_PANEL / BACK_PANEL Length: Use 'Inseam' length + 'Front rise' (~32.0 + 10.75 = ~42.75 inches).
+            5. WAISTBAND: Extract length based on full waist circumference (~32 to 34 inches) and height (~1.5 to 2.5 inches).
             
             Output strictly in the specified JSON structure:
             ===START_JSON===
@@ -1090,7 +1091,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
               ]
             }}
             ===END_JSON===
-            If successfully extracted, flip "status" to "PASS", "spec_sheet_found" to true, list clean readable strings inside "matched_measurements" (e.g. ["Waist width = 16.5 inch", "Inseam length = 31.5 inch"]), and dynamically calculate the dynamic dimensions inside "bom_rows".
+            If successfully extracted, flip "status" to "PASS", "spec_sheet_found" to true, list clean readable strings inside "matched_measurements", and populate the dynamic dimensions inside "bom_rows".
             
             ===START_CHAT===
             [Confirm in Vietnamese which pages you scanned (Page 13 and Page 14) and summarize the exact clean decimal dimensions found for size {target_size_cmd}.]
@@ -1099,6 +1100,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             
             gemini_inputs.append(prompt_instruction)
             response = model.generate_content(gemini_inputs)
+
 # =====================================================================
 # ĐOẠN 7a2.2: POST-AI MIDDLEWARE GEOMETRY PROCESSOR (V32.5 KHÓA REGEX ĐỘNG & ĐÓNG TRY)
 # =====================================================================
