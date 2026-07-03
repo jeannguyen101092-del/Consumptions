@@ -1249,22 +1249,28 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
 
 
 
-
 # =====================================================================
-# ĐOẠN 7b: HIỂN THỊ KẾT QUẢ ĐỊNH MỨC & BẢNG ĐỐI CHỨNG CHUẨN MATRIX ĐA CỘT (V38.0 APPROVED)
+# ĐOẠN 7b: HIỂN THỊ KẾT QUẢ ĐỊNH MỨC & BẢNG ĐỐI CHỨNG ĐA CỘT ĐỒNG BỘ SIZE (V46.0 APPROVED)
 # =====================================================================
 if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data and st.session_state.bom_data["bom_rows"]:
     
-    extracted_size = st.session_state.bom_data.get("calculated_on_size", "30").upper()
-    
-    st.markdown('<div class="cad-card">', unsafe_allow_html=True)
-    st.markdown(f'<div class="cad-header">📊 CALCULATED FABRIC CONSUMPTION MATRIX (SIZE TARGET: {extracted_size})</div>', unsafe_allow_html=True)
-    
+    # 🌟 NÂNG CẤP ĐỒNG BỘ: Giải phóng cache kẹt số 30 thô
     chat_txt = ""
     if 'safe_user_prompt' in locals() and safe_user_prompt:
         chat_txt = str(safe_user_prompt).lower()
     elif st.session_state.chat_history:
         chat_txt = str(st.session_state.chat_history[-1]["user"]).lower()
+        
+    # Bóc tách trực tiếp size người dùng gõ ở ô chat để in lên tiêu đề hiển thị
+    match_active_size = re.search(r'\b(?:size|sz|cỡ)\s*[:\-=\s]*([\w\d/]+)\b', chat_txt)
+    if match_active_size:
+        extracted_size = str(match_active_size.group(1)).upper().strip()
+    else:
+        # Nếu không gõ size, đọc trực tiếp số size thật do AI phản hồi trong database JSON
+        extracted_size = str(st.session_state.bom_data.get("calculated_on_size", "M")).upper().strip()
+    
+    st.markdown('<div class="cad-card">', unsafe_allow_html=True)
+    st.markdown(f'<div class="cad-header">📊 CALCULATED FABRIC CONSUMPTION MATRIX (SIZE TARGET: {extracted_size})</div>', unsafe_allow_html=True)
     
     warp_default, weft_default = "3.0%", "3.0%"
     match_w_direct = re.search(r'(?:dọc|doc|warp)\s*[:\-=\s]*([\d\.]+)', chat_txt)
@@ -1290,7 +1296,7 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data 
             cut_width_val = f"{float(r['fabric_width_inch'])} inch"
         else:
             match_w = re.search(r'Khổ vải:\s*([\d\.]+)', sys_notes)
-            cut_width_val = f"{float(match_w.group(1))} inch" if match_w else "57.0 inch"
+            cut_width_val = f"{float(match_w.group(1))} inch" if match_w else "56.0 inch"
         
         warp_val = warp_default
         weft_val = weft_default
@@ -1307,7 +1313,7 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data 
             "Component Type": r.get("component_type", "MAIN FABRIC"),
             "Placement": r.get("placement", "BODY/POCKETS"),
             "Fabric Classification": r.get("fabric_classification", "MAIN_FABRIC"),
-            "Fabric Code": r.get("fabric_code", "DENIM"),
+            "Fabric Code": r.get("fabric_code", "CASUAL_FABRIC"),
             "Fabric Color": r.get("fabric_color", "SOLID COLOR"),
             "Khổ vải (Width)": cut_width_val,
             "Co rút dọc (% Warp)": warp_val,
@@ -1322,7 +1328,7 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data 
     st.dataframe(df_bom, use_container_width=True, hide_index=True)
     st.markdown('</div>', unsafe_allow_html=True)
     
-    # TRỰC QUAN HÓA BẢNG ĐỐI CHỨNG ĐA CỘT PHAN TÁCH SIÊU ĐẸP
+    # TRỰC QUAN HÓA BẢNG ĐỐI CHỨNG ĐA CỘT PHÂN TÁCH SIÊU ĐẸP
     raw_evidence_list = st.session_state.bom_data.get("matched_measurements", [])
     if raw_evidence_list:
         st.markdown("<br>", unsafe_allow_html=True)
@@ -1362,7 +1368,7 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data 
         st.dataframe(df_evidence, use_container_width=True, hide_index=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
-    # KHỐI LOGIC XUẤT EXCEL CHUẨN ĐƯỢC VÁ SẠCH LỖI BIẾN LẶP DÒNG 1202
+    # KHỐI LOGIC XUẤT EXCEL CHUẨN ĐƯỢC VÁ SẠCH LỖI
     try:
         import io
         from openpyxl import Workbook
@@ -1403,7 +1409,6 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data 
             cell.border = thin_border
         ws.row_dimensions.height = 28
         
-        # 🌟 FIX DỨT ĐIỂM: Đồng bộ chuẩn chỉ số cột tránh nghẽn luồng đóng băng trang web
         for row_num, row_data in enumerate(display_data, 4):
             ws.row_dimensions[row_num].height = 22
             for col_idx, key in enumerate(headers, 1):
