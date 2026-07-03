@@ -109,21 +109,20 @@ def simulate_marker_efficiency_v14(panels, f_class, grain, width, repeat):
 # ĐOẠN 2a1 - PHẦN 1: KHỞI TẠO VÀ ĐỌC THÔNG SỐ ĐO KỸ THUẬT (V16.3.2)
 # =====================================================================
 
-# =====================================================================
-# ĐOẠN 2a1: RẬP HÌNH HỌC, TỰ ĐỘNG BÙ TRỪ & LOG CHUYÊN SÂU (V16.3.2 APPROVED)
-# =====================================================================
-
-def parse_geometric_panels_allowance(ai_blueprint: dict, user_chat: str) -> dict:
-    if not ai_blueprint or not isinstance(ai_blueprint, dict):
-        return {"detected_product_type": "PANT", "bom_rows": []}
-
-    product_type = str(ai_blueprint.get("detected_product_type", "DEFAULT")).upper().strip()
-    
-    # Ép kiểu dữ liệu thông số đo kỹ thuật cốt lõi bằng hàm safe_float của hệ thống
-    body_length = safe_float(ai_blueprint.get("extracted_body_length"), 28.0)
-    chest_width = safe_float(ai_blueprint.get("extracted_chest_width"), 20.0)
-    outseam_length = safe_float(ai_blueprint.get("extracted_outseam_length"), 14.5 if product_type == "JORT" else 40.0)
-    hip_width = safe_float(ai_blueprint.get("extracted_hip_width"), 21.0)
+def process_single_panel_geometry_and_flags(
+    panel: dict, 
+    product_type: str, 
+    body_length: float, 
+    chest_width: float, 
+    outseam_length: float, 
+    hip_width: float
+) -> dict:
+    """
+    ĐOẠN 1: ENGINE XỬ LÝ HÌNH HỌC VÀ DUNG SAI CHI TIẾT PANEL
+    Nhiệm vụ: Tính diện tích rập tinh, bù sai số IE và chuẩn hóa cờ kỹ thuật cho 1 chi tiết.
+    """
+    if not panel or not isinstance(panel, dict):
+        return {}
 
     # Tiêu chuẩn kỹ thuật phòng IE (Mặc định đơn vị Inch)
     FACTORY_SEAM_INCH = 0.5       
@@ -131,150 +130,324 @@ def parse_geometric_panels_allowance(ai_blueprint: dict, user_chat: str) -> dict
     FACTORY_WAISTBAND_INCH = 2.5  
     FACTORY_PLEAT_INCH = 3.0      
 
-    # Hệ số bao hình rập dệt may lý thuyết
     SHAPE_FACTORS = {
         "FRONT": 0.54, "BACK": 0.59, "WAISTBAND": 0.94, "POCKET": 0.78, "SLEEVE": 0.64, "DEFAULT": 0.62
+    }
+
+    p_count = safe_float(panel.get("piece_count"), 1.0)
+    polygon_points = panel.get("polygon_points", [])
+    scale_factor = max(0.001, min(safe_float(panel.get("coordinate_scale"), 1.0), 100.0))
+    
+    p_name = str(panel.get("panel_name", "")).upper().strip()
+    p_type_code = str(panel.get("panel_type", "")).upper().strip()
+    
+    # Xác định Shape Factor theo bộ phận rập
+    s_factor = SHAPE_FACTORS["DEFAULT"]
+    if any(k in p_name or k in p_type_code for k in ["FRONT", "TRƯỚC", "TRUOC"]): s_factor = SHAPE_FACTORS["FRONT"]
+    elif any(k in p_name or k in p_type_code for k in ["BACK", "SAU"]): s_factor = SHAPE_FACTORS["BACK"]
+    elif any(k in p_name or k in p_type_code for k in ["WAIST", "CẠP", "CAP", "LƯNG", "LUNG"]): s_factor = SHAPE_FACTORS["WAISTBAND"]
+    elif any(k in p_name or k in p_type_code for k in ["POCKET", "TÚI", "TUI"]): s_factor = SHAPE_FACTORS["POCKET"]
+    elif any(k in p_name or k in p_type_code for k in ["SLEEVE", "TAY"]): s_factor = SHAPE_FACTORS["SLEEVE"]
+
+    actual_perimeter_inch = 0.0
+    p_len = safe_float(panel.get("piece_length_inch"), 0.0)
+    p_wid = safe_float(panel.get("piece_width_inch"), 0.0)
+    geometry_type = "BBOX"
+    
+    # 1. Tính toán diện tích đa giác thực tế (Shoelace Formula)
+    if polygon_points and isinstance(polygon_points, list) and len(polygon_points) >= 3:
+        base_area = calculate_shoelace_polygon_area(polygon_points) * (scale_factor ** 2)
+        geometry_type = "POLYGON"
+            
+        p_len_nodes = len(polygon_points)
+        total_dist = 0.0
+        x_coords, y_coords = [], []
+        
+        for i in range(p_len_nodes):
+            j = (i + 1) % p_len_nodes
+            pt1, pt2 = polygon_points[i], polygon_points[j]
+            if not pt1 or not pt2: continue
+            
+            x1 = float(pt1 if isinstance(pt1, (list, tuple)) else pt1.get("x", 0.0))
+            y1 = float(pt1 if isinstance(pt1, (list, tuple)) else pt1.get("y", 0.0))
+            x2 = float(pt2 if isinstance(pt2, (list, tuple)) else pt2.get("x", 0.0))
+            y2 = float(pt2 if isinstance(pt2, (list, tuple)) else pt2.get("y", 0.0))
+            
+            x_coords.append(x1)
+            y_coords.append(y1)
+            total_dist += ((x2 - x1)**2 + (y2 - y1)**2)**0.5
+        
+        actual_perimeter_inch = total_dist * scale_factor * p_count
+        
+        # Trích xuất hình học bao khung trực tiếp từ đa giác nếu thiếu kích thước biên thô
+        if p_len == 0.0 and x_coords and y_coords:
+            p_len = (max(x_coords) - min(x_coords)) * scale_factor
+            p_wid = (max(y_coords) - min(y_coords)) * scale_factor
+    else:
+        # 2. Cơ chế dự phòng (Bounding Box Engine)
+        base_area = p_len * p_wid * s_factor if (p_len > 0 and p_wid > 0) else 0.0
+        perimeter_factor = 0.88 if s_factor in [0.54, 0.59] else 0.96 
+        actual_perimeter_inch = ((p_len * 2) + (p_wid * 2)) * perimeter_factor * p_count
+    
+    # An toàn kỹ thuật tránh Zero-Area
+    if base_area == 0.0:
+        p_len = outseam_length if product_type in ["PANT", "CARGO_PANT", "CAPRI_PANT", "JORT"] else body_length
+        p_wid = hip_width if product_type in ["PANT", "CARGO_PANT", "CAPRI_PANT", "JORT"] else chest_width
+        base_area = (p_len * p_wid * 0.30) 
+    
+    raw_panel_area_total = base_area * p_count
+    polygon_include_seam = panel.get("include_seam", False) or str(panel.get("include_seam")).lower() == "true"
+    polygon_include_hem = panel.get("include_hem", False) or str(panel.get("include_hem")).lower() == "true"
+    has_seam = panel.get("seam_allowance", False) if str(panel.get("seam_allowance")).lower() == "false" else True
+
+    # 3. Kỹ thuật phòng IE: Tính Seam Allowance
+    seam_area_addition = 0.0
+    if has_seam and not polygon_include_seam:
+        seam_length_map = panel.get("seam_length_map", {})
+        if seam_length_map and isinstance(seam_length_map, dict):
+            actual_seam_length = sum(safe_float(v) for v in seam_length_map.values()) * p_count
+            seam_unit = str(panel.get("seam_unit", "INCH")).upper().strip()
+            if seam_unit == "MM": actual_seam_length /= 25.4
+            elif seam_unit == "CM": actual_seam_length /= 2.54
+            seam_area_addition = actual_seam_length * FACTORY_SEAM_INCH
+        else:
+            seam_area_addition = actual_perimeter_inch * FACTORY_SEAM_INCH
+
+    # 4. Kỹ thuật phòng IE: Tính Hem Allowance
+    hem_area_addition = 0.0
+    if not polygon_include_hem:
+        hem_val = safe_float(panel.get("hem"), 0.0)
+        if hem_val == 0.0 and any(k in p_name or k in p_type_code for k in ["FRONT", "BACK", "SLEEVE", "TRƯỚC", "SAU", "TAY"]):
+            hem_val = FACTORY_HEM_INCH
+        hem_area_addition = p_wid * hem_val * p_count
+
+    # 5. Kỹ thuật phòng IE: Tính Waistband & Pleat Allowance
+    waist_pleat_addition = 0.0
+    if any(k in p_name or k in p_type_code for k in ["WAIST", "CẠP", "LƯNG"]):
+        waist_pleat_addition += p_len * FACTORY_WAISTBAND_INCH * p_count
+    if any(k in p_name or k in p_type_code for k in ["PLEAT", "LY", "NẾP"]):
+        waist_pleat_addition += p_wid * FACTORY_PLEAT_INCH * p_count
+
+    # Diện tích tích hợp dung sai kỹ thuật toàn phần
+    panel_final_area = raw_panel_area_total + seam_area_addition + hem_area_addition + waist_pleat_addition
+
+    # ĐÓNG GÓI SCHEMA HỆ THỐNG PANEL CHUẨN HOÁ (_btp_panel)
+    btp_panel = {}
+    for pk, pv in panel.items():
+        btp_panel[f"ai_{pk}"] = pv  # Lưu vết 100% dữ liệu gốc của AI phục vụ tương lai
+    
+    btp_panel["geometry_calculated_by"] = geometry_type
+    btp_panel["panel_area"] = round(panel_final_area, 4)
+    btp_panel["panel_perimeter"] = round(actual_perimeter_inch, 2)
+    btp_panel["panel_length"] = round(p_len, 2)
+    btp_panel["panel_width"] = round(p_wid, 2)
+    btp_panel["grain"] = str(panel.get("grain", panel.get("grainline", "WARP"))).upper()
+    btp_panel["bias"] = panel.get("bias", False) or "BIAS" in str(panel.get("grainline")).upper()
+    btp_panel["mirror"] = panel.get("mirror", panel.get("mirror_cut", False))
+    btp_panel["fold"] = panel.get("fold", panel.get("cut_on_fold", False))
+    btp_panel["pair"] = panel.get("pair", panel.get("symmetry", "") == "PAIR" or p_count % 2 == 0)
+    btp_panel["rotation"] = safe_float(panel.get("rotation", panel.get("panel_rotation", 0.0)))
+    btp_panel["matching"] = panel.get("matching", panel.get("stripe_match", False) or panel.get("stripe", False))
+
+    return btp_panel
+def parse_geometric_panels_allowance(ai_blueprint: dict, user_chat: str) -> dict:
+    """
+    ĐOẠN 2: TRUNG TÂM TỔNG HỢP VÀ ĐÓNG GÓI SCHEMA TOÀN DIỆN (_btp_)
+    Nhiệm vụ: Chạy vòng lặp dòng BOM, tích hợp Đoạn 1, quét sạch metadata và thống kê toàn cục.
+    """
+    if not ai_blueprint or not isinstance(ai_blueprint, dict):
+        return {"detected_product_type": "PANT", "bom_rows": [], "_btp_global_summary": {}}
+
+    # 1. Thu thập thông tin định dạng sản phẩm nền từ AI
+    product_type = str(ai_blueprint.get("detected_product_type", "DEFAULT")).upper().strip()
+    body_length = safe_float(ai_blueprint.get("extracted_body_length"), 28.0)
+    chest_width = safe_float(ai_blueprint.get("extracted_chest_width"), 20.0)
+    outseam_length = safe_float(ai_blueprint.get("extracted_outseam_length"), 14.5 if product_type == "JORT" else 40.0)
+    hip_width = safe_float(ai_blueprint.get("extracted_hip_width"), 21.0)
+
+    # Khởi tạo các thùng chứa dữ liệu thống kê toàn cục
+    g_total_area = 0.0
+    g_total_pieces = 0
+    g_total_panels = 0
+    g_largest_panel_area = 0.0
+    g_largest_len = 0.0
+    g_largest_wid = 0.0
+    g_polygon_count = 0
+    g_bbox_count = 0
+
+    fabric_groups, lining_groups, fusing_groups, hardware_groups = set(), set(), set(), set()
+    
+    g_flags = {
+        "need_stripe_match": False, "need_bias": False, "need_one_way": False, 
+        "need_pair": False, "need_fold": False, "has_polygon": False, "has_bbox": False
     }
 
     all_rows = ai_blueprint.get("bom_rows", [])
     if not all_rows or not isinstance(all_rows, list): 
         all_rows = []
+    
     parsed_rows = []
 
+    # 2. Pipeline xử lý chi tiết từng dòng vật tư BOM
     for row in all_rows:
         if not row or not isinstance(row, dict): 
             continue
             
         c_type = str(row.get("component_type", "")).upper()
         placement = str(row.get("placement", "")).upper()
-        f_class_raw = str(row.get("fabric_classification", "")).upper()
+        f_class = str(row.get("fabric_classification", "")).upper()
         f_code = str(row.get("fabric_code", "")).upper()
         
-        # Kiểm tra điều kiện loại trừ phụ liệu cứng (Bypass Hardware Trim)
-        if any(k in c_type or k in placement or k in f_class_raw or k in f_code for k in EXCLUDE_HARDWARE_KEYS):
+        # Gom nhóm phân loại vật tư lên mức hệ thống toàn cục
+        if "FABRIC" in f_class or "MAIN" in f_class: fabric_groups.add(f_code)
+        elif "LINING" in f_class: lining_groups.add(f_code)
+        elif "FUSING" in f_class or "INTERLINING" in f_class: fusing_groups.add(f_code)
+        elif "HARDWARE" in f_class or "TRIM" in f_class: hardware_groups.add(f_code)
+
+        # Sao chép động tất cả metadata dòng AI sang tiền tố hệ thống _btp_ (Row future-proof)
+        for k, v in row.items():
+            if k != "panels_catalog":
+                row[f"_btp_{k}"] = v
+
+        row_summary = {
+            "total_panel": 0, "total_piece": 0, "area": 0.0, 
+            "largest_piece_area": 0.0, "longest_piece": 0.0, "widest_piece": 0.0,
+            "polygon_exist": False, "bbox_exist": False
+        }
+
+        # Bypass bảo vệ đối với phụ liệu cứng (Hardware/Trims)
+        if any(k in c_type or k in placement or k in f_class or k in f_code for k in EXCLUDE_HARDWARE_KEYS):
             row["calculated_gross_consumption_yds"] = 0.0
-            row["reason_or_logs"] = "Hardware Trim Bypass"
+            row["_btp_summary"] = row_summary
+            row["_btp_total_panel_area"] = 0.0
             row["status"] = "PASS"
-            row["consumption_note"] = "Bypass"
-            row["_computed_net_area_sq_in"] = 0.0
             parsed_rows.append(row)
             continue
 
         panels = row.get("panels_catalog", [])
-        row_total_net_area_sq_in = 0.0
         panel_debug_logs = []
+        parsed_panels_catalog = []
 
-        # --- BẮT ĐẦU PHẦN 2: THỰC THI TÍNH TOÁN ENGINE HÌNH HỌC VÀ DUNG SAI CHI TIẾT ---
         if panels and isinstance(panels, list):
             for panel in panels:
                 if not panel or not isinstance(panel, dict): 
                     continue
-                    
+                
+                # Gọi ĐOẠN 1: Xử lý đóng gói hình học đa giác & dung sai của Panel
+                btp_panel = process_single_panel_geometry_and_flags(
+                    panel, product_type, body_length, chest_width, outseam_length, hip_width
+                )
+                
+                # Đếm bộ đếm thống kê
+                g_total_panels += 1
+                row_summary["total_panel"] += 1
                 p_count = safe_float(panel.get("piece_count"), 1.0)
-                polygon_points = panel.get("polygon_points", [])
-                scale_factor = max(0.001, min(safe_float(panel.get("coordinate_scale"), 1.0), 100.0))
-                
-                p_name = str(panel.get("panel_name", "")).upper().strip()
-                p_type_code = str(panel.get("panel_type", "")).upper().strip()
-                
-                s_factor = SHAPE_FACTORS["DEFAULT"]
-                if any(k in p_name or k in p_type_code for k in ["FRONT", "TRƯỚC", "TRUOC"]): s_factor = SHAPE_FACTORS["FRONT"]
-                elif any(k in p_name or k in p_type_code for k in ["BACK", "SAU"]): s_factor = SHAPE_FACTORS["BACK"]
-                elif any(k in p_name or k in p_type_code for k in ["WAIST", "CẠP", "CAP", "LƯNG", "LUNG"]): s_factor = SHAPE_FACTORS["WAISTBAND"]
-                elif any(k in p_name or k in p_type_code for k in ["POCKET", "TÚI", "TUI"]): s_factor = SHAPE_FACTORS["POCKET"]
-                elif any(k in p_name or k in p_type_code for k in ["SLEEVE", "TAY"]): s_factor = SHAPE_FACTORS["SLEEVE"]
+                g_total_pieces += int(p_count)
+                row_summary["total_piece"] += int(p_count)
 
-                actual_perimeter_inch = 0.0
-                
-                # 1. Tính toán diện tích theo tọa độ đa giác thực tế (Shoelace Formula)
-                if polygon_points and isinstance(polygon_points, list) and len(polygon_points) >= 3:
-                    base_area = calculate_shoelace_polygon_area(polygon_points) * (scale_factor ** 2)
-                        
-                    p_len_nodes = len(polygon_points)
-                    total_dist = 0.0
-                    for i in range(p_len_nodes):
-                        j = (i + 1) % p_len_nodes
-                        pt1, pt2 = polygon_points[i], polygon_points[j]
-                        if not pt1 or not pt2: continue
-                        
-                        # Khắc phục lỗi cấu trúc dữ liệu Node dạng phức hợp Dict/List/Tuple
-                        x1 = float(pt1 if isinstance(pt1, (list, tuple)) else pt1.get("x", 0.0))
-                        y1 = float(pt1 if isinstance(pt1, (list, tuple)) else pt1.get("y", 0.0))
-                        x2 = float(pt2 if isinstance(pt2, (list, tuple)) else pt2.get("x", 0.0))
-                        y2 = float(pt2 if isinstance(pt2, (list, tuple)) else pt2.get("y", 0.0))
-                        total_dist += ((x2 - x1)**2 + (y2 - y1)**2)**0.5
-                    actual_perimeter_inch = total_dist * scale_factor * p_count
+                # Ghi nhận trạng thái hình học để thống kê
+                if btp_panel["geometry_calculated_by"] == "POLYGON":
+                    g_polygon_count += 1
+                    row_summary["polygon_exist"] = True
+                    g_flags["has_polygon"] = True
                 else:
-                    # 2. Cơ chế dự phòng: Tính diện tích theo khối hộp chữ nhật (Bounding Box)
-                    p_len = safe_float(panel.get("piece_length_inch"), 0.0)
-                    p_wid = safe_float(panel.get("piece_width_inch"), 0.0)
-                    base_area = p_len * p_wid * s_factor if (p_len > 0 and p_wid > 0) else 0.0
-                    perimeter_factor = 0.88 if s_factor in [0.54, 0.59] else 0.96 
-                    actual_perimeter_inch = ((p_len * 2) + (p_wid * 2)) * perimeter_factor * p_count
+                    g_bbox_count += 1
+                    row_summary["bbox_exist"] = True
+                    g_flags["has_bbox"] = True
+
+                # Đánh giá cực đại kích thước hình học bao khung
+                p_len, p_wid = btp_panel["panel_length"], btp_panel["panel_width"]
+                if p_len > row_summary["longest_piece"]: row_summary["longest_piece"] = p_len
+                if p_wid > row_summary["widest_piece"]: row_summary["widest_piece"] = p_wid
+                if p_len > g_largest_len: g_largest_len = p_len
+                if p_wid > g_largest_wid: g_largest_wid = p_wid
+
+                # Tính tổng tích lũy diện tích sau dung sai
+                p_area = btp_panel["panel_area"]
+                row_summary["area"] += p_area
+                g_total_area += p_area
                 
-                # Kiểm soát an toàn nếu đầu vào rỗng, gán hằng số dựa trên thông số chính của Techpack
-                if base_area == 0.0:
-                    eval_len_fb = outseam_length if product_type in ["PANT", "CARGO_PANT", "CAPRI_PANT", "JORT"] else body_length
-                    eval_wid_fb = hip_width if product_type in ["PANT", "CARGO_PANT", "CAPRI_PANT", "JORT"] else chest_width
-                    base_area = (eval_len_fb * eval_wid_fb * 0.30) 
-                
-                raw_panel_area_total = base_area * p_count
-                polygon_include_seam = panel.get("include_seam", False) or str(panel.get("include_seam")).lower() == "true"
-                polygon_include_hem = panel.get("include_hem", False) or str(panel.get("include_hem")).lower() == "true"
-                has_seam = panel.get("seam_allowance", False) if str(panel.get("seam_allowance")).lower() == "false" else True
+                if p_area > row_summary["largest_piece_area"]: row_summary["largest_piece_area"] = p_area
+                if p_area > g_largest_panel_area: g_largest_panel_area = p_area
 
-                eval_len = safe_float(panel.get("piece_length_inch"), outseam_length if product_type in ["PANT", "CARGO_PANT", "CAPRI_PANT", "JORT"] else body_length)
-                eval_wid = safe_float(panel.get("piece_width_inch"), hip_width if product_type in ["PANT", "CARGO_PANT", "CAPRI_PANT", "JORT"] else chest_width)
+                # Đẩy trạng thái cờ may mặc từ panel chi tiết lên cờ Toàn Cục
+                if btp_panel["matching"]: g_flags["need_stripe_match"] = True
+                if btp_panel["bias"]: g_flags["need_bias"] = True
+                if btp_panel["mirror"] or btp_panel["pair"]: g_flags["need_pair"] = True
+                if btp_panel["fold"]: g_flags["need_fold"] = True
 
-                # 3. Tính toán và bù thêm dung sai đường may (Seam allowance)
-                seam_area_addition = 0.0
-                if has_seam and not polygon_include_seam:
-                    seam_length_map = panel.get("seam_length_map", {})
-                    if seam_length_map and isinstance(seam_length_map, dict):
-                        actual_seam_length = sum(safe_float(v) for v in seam_length_map.values()) * p_count
-                        seam_unit = str(panel.get("seam_unit", "INCH")).upper().strip()
-                        if seam_unit == "MM": actual_seam_length /= 25.4
-                        elif seam_unit == "CM": actual_seam_length /= 2.54
-                        seam_area_addition = actual_seam_length * FACTORY_SEAM_INCH
-                    else:
-                        seam_area_addition = actual_perimeter_inch * FACTORY_SEAM_INCH
+                # Tiêm schema chuẩn hóa hệ thống vào cấu trúc panel
+                panel["_btp_panel"] = btp_panel
+                parsed_panels_catalog.append(panel)
+                panel_debug_logs.append(f"[{panel.get('panel_name','')}]: Area={p_area:.1f}")
 
-                # 4. Tính toán và bù thêm gấu, lai quần/áo (Hem allowance)
-                hem_area_addition = 0.0
-                hem_val = safe_float(panel.get("hem"), 0.0)
-                if hem_val == 0.0 and not polygon_include_hem:
-                    if any(k in p_name or k in p_type_code for k in ["LAI", "GAU", "HEM", "BOTTOM", "CUFF", "ONG_QUAN", "CHAN_VAY"]):
-                        hem_val = 1.0
-                if hem_val > 0 and not polygon_include_hem:
-                    current_hem = FACTORY_HEM_INCH
-                    if any(k in p_name or k in p_type_code for k in ["SLEEVE", "TAY"]): current_hem = 1.0  
-                    hem_area_addition = (eval_wid * current_hem) * p_count
-                if any(k in p_name or k in p_type_code for k in ["WAIST", "CẠP", "CAP", "LƯNG", "LUNG"]):
-                    if not polygon_include_hem:
-                        hem_area_addition += (eval_wid * FACTORY_WAISTBAND_INCH) * p_count
-
-                # 5. Xử lý phần định mức xếp ly và túi hộp (Pleat area) công nghiệp
-                pleat_area_addition = 0.0
-                pleat_val = safe_float(panel.get("pleat"), 0.0)
-                if pleat_val == 0.0:
-                    if any(k in p_name or k in p_type_code for k in ["PLEAT", "XEP_LY", "LY_HOP", "CARGO", "POCKET", "TUI_DAT", "TUI_HOP"]):
-                        pleat_val = 1.0
-                if pleat_val > 0:
-                    pleat_area_addition = (eval_len * FACTORY_PLEAT_INCH) * p_count
-
-                # Đóng gói và cộng dồn tổng diện tích sau bù trừ chi tiết kỹ thuật
-                total_panel_area = raw_panel_area_total + seam_area_addition + hem_area_addition + pleat_area_addition
-                row_total_net_area_sq_in += total_panel_area
-                panel_debug_logs.append(f"Rập [{p_name}]: Diện tích={round(total_panel_area,1)} sq_in")
-
-        row["_computed_net_area_sq_in"] = row_total_net_area_sq_in
-        row["_panel_debug_logs"] = panel_debug_logs
+        # Đồng bộ dữ liệu thống kê cấp Dòng BOM vào Schema _btp_ cho Engine V25 đọc trực tiếp
+        row["panels_catalog"] = parsed_panels_catalog
+        row["_btp_total_panel_area"] = round(row_summary["area"], 4)
+        row["_btp_max_piece_length"] = round(row_summary["longest_piece"], 2)
+        row["_btp_max_piece_width"] = round(row_summary["widest_piece"], 2)
+        row["_btp_total_piece_count"] = int(row_summary["total_piece"])
+        
+        row["_btp_summary"] = {
+            "total_panel": row_summary["total_panel"],
+            "total_piece": row_summary["total_piece"],
+            "area": round(row_summary["area"], 4),
+            "largest_piece": round(row_summary["largest_piece_area"], 4),
+            "longest_piece": round(row_summary["longest_piece"], 2),
+            "widest_piece": round(row_summary["widest_piece"], 2),
+            "polygon_exist": row_summary["polygon_exist"],
+            "bbox_exist": row_summary["bbox_exist"]
+        }
+        
+        row["_computed_net_area_sq_in"] = row["_btp_total_panel_area"]
+        row["reason_or_logs"] = " | ".join(panel_debug_logs) if panel_debug_logs else "No panels found"
+        row["status"] = "SUCCESS"
         parsed_rows.append(row)
 
-
-
     ai_blueprint["bom_rows"] = parsed_rows
+
+    # 3. Thu hoạch Metadata AI mức toàn cục (Bắt bẫy hướng tuyết vải nếu có)
+    fabric_direction_raw = str(ai_blueprint.get("fabric_direction", "")).upper()
+    if "ONE" in fabric_direction_raw or "NAP" in fabric_direction_raw or ai_blueprint.get("nap") is True:
+        g_flags["need_one_way"] = True
+
+    # Khởi tạo Schema _btp_global_summary
+    g_summary = {
+        "total_area": round(g_total_area, 4),
+        "total_piece": int(g_total_pieces),
+        "total_panels": int(g_total_panels),
+        "largest_panel": round(g_largest_panel_area, 4),
+        "largest_length": round(g_largest_len, 2),
+        "largest_width": round(g_largest_wid, 2),
+        "average_piece_area": round(g_total_area / max(1, g_total_pieces), 4),
+        "fabric_groups": list(fabric_groups),
+        "lining_groups": list(lining_groups),
+        "fusing_groups": list(fusing_groups),
+        "hardware_groups": list(hardware_groups),
+        "total_polygon": int(g_polygon_count),
+        "total_bbox": int(g_bbox_count),
+        "has_polygon": g_flags["has_polygon"],
+        "has_bbox": g_flags["has_bbox"],
+        "need_stripe_match": g_flags["need_stripe_match"] or ai_blueprint.get("matching_required") is True or ai_blueprint.get("stripe_match") is True,
+        "need_bias": g_flags["need_bias"],
+        "need_one_way": g_flags["need_one_way"],
+        "need_pair": g_flags["need_pair"],
+        "need_fold": g_flags["need_fold"],
+        "system_pipeline_version": "V17.0.0-DECOUPLED-AGGREGATOR"
+    }
+
+    # BỘ THU GOM METADATA AI TOÀN CỤC CHỦ ĐỘNG (_btp_ai_metadata) - 100% TRƯỜNG DỮ LIỆU ĐƯỢC GIỮ LẠI
+    ai_metadata_schema = {}
+    for key, value in ai_blueprint.items():
+        if key.startswith("_btp_") or key == "bom_rows":
+            continue
+        ai_metadata_schema[key] = value
+
+    ai_blueprint["_btp_ai_metadata"] = ai_metadata_schema
+    ai_blueprint["_btp_global_summary"] = g_summary
+
     return ai_blueprint
+
 
 # =====================================================================
 # ĐOẠN 2a2: ĐỊNH MỨC SƠ ĐỒ VÀ GOM NHÓM VẬT TƯ CHỐNG TRÙNG LẶP (V15.4)
@@ -1004,7 +1177,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             
             gemini_inputs = copy.deepcopy(image_payloads)
 # =====================================================================
-# ĐOẠN 7a2.1: AI COGNITIVE EXTRACTOR & DYNAMIC GARMENT RECONSTRUCTION PIPELINE (V45.5 EXTREME)
+# ĐOẠN 7a2.1: AI COGNITIVE EXTRACTOR - REAL TECHPACK BOM READER (V47.0 APPROVED)
 # =====================================================================
             if "GEMINI_API_KEY" in st.secrets: 
                 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
@@ -1012,97 +1185,69 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             model = genai.GenerativeModel("gemini-2.5-flash", generation_config={"temperature": 0.0})
             chat_lower = current_query.lower()
             
-            # 🌟 FIX CHIẾN LƯỢC TUYỆT ĐỐI: Bẫy kiểm tra NoneType bằng cấu trúc rẽ nhánh một dòng an toàn
+            # Bẫy kiểm tra NoneType an toàn phòng vệ hệ thống ban đầu
             bom_state_data = st.session_state.get("bom_data")
             doc_product_type_raw = str(bom_state_data.get("detected_product_type", "DEFAULT")).upper() if isinstance(bom_state_data, dict) else "DEFAULT"
             
             inferred_is_upper = any(x in chat_lower or x in doc_product_type_raw for x in ["DRESS", "VÁY", "ĐẦM", "SHIRT", "SƠ MI", "TSHIRT", "JACKET", "HOODIE", "TOP", "ÁO"])
             
-            # Bộ bóc tách thông minh bắt trọn dải Size chữ (XS-XXL) lẫn Size số (26-40)
+            # Bộ bóc tách thông minh bắt trọn dải Size chữ lẫn Size số từ ô chat
             match_size = re.search(r'\b(?:size|sz|cỡ)\s*[:\-=\s]*([\w\d/]+)\b', chat_lower)
             target_size_cmd = str(match_size.group(1)).upper().strip() if match_size else ("M" if inferred_is_upper else "30")
             
-            # Bộ trích xuất đa khổ vải hữu dụng động dọc đường câu lệnh chat của bạn
             match_w = re.search(r'(?:khổ|kho|width|vải chính khổ)\s*([\d\.]+)', chat_lower)
             active_width = float(match_w.group(1)) if match_w else 56.0
-            
-            match_lining_w = re.search(r'(?:lót khổ|vải lót khổ)\s*([\d\.]+)', chat_lower)
-            active_lining_width = float(match_lining_w.group(1)) if match_lining_w else 57.0
-            
-            match_fusing_w = re.search(r'(?:keo khổ|mếch khổ|fusing khổ)\s*([\d\.]+)', chat_lower)
-            active_fusing_width = float(match_fusing_w.group(1)) if match_fusing_w else 59.0
-            
-            # Khởi tạo giá trị co rút động mặc định
-            active_warp = 3.0
-            active_weft = 3.0
-            match_warp = re.search(r'(?:dọc|doc|warp)\s*[:\-=\s]*([\d\.]+)', chat_lower)
-            match_weft = re.search(r'(?:ngang|weft)\s*[:\-=\s]*([\d\.]+)', chat_lower)
-            
-            if match_warp:
-                try: active_warp = float(match_warp.group(1))
-                except Exception: pass
-            if match_weft:
-                try: active_weft = float(match_weft.group(1))
-                except Exception: pass
 
             if len(st.session_state.chat_history) > 30:
                 st.session_state.chat_history = st.session_state.chat_history[-30:]
 
-            # PROMPT TIÊU CHUẨN ĐA SẢN PHẨM: TỰ ĐỘNG PHÂN RÃ THEO CHỦNG LOẠI HÀNG NGÀNH MAY
+            # 🌟 PROMPT REVOLUTION: XÓA BỎ HOÀN TOÀN KHUÔN MẪU CỐ ĐỊNH, ÉP AI ĐỌC DỮ LIỆU BOM THẬT
             prompt_instruction = f"""
-            You are an expert apparel Industrial Engineering (IE) OCR system. Your goal is to analyze the technical package, automatically detect the garment category, and reconstruct its flat cutting pattern blocks for size '{target_size_cmd}'.
+            You are an expert apparel Industrial Engineering (IE) OCR system. Scan all provided techpack pages to analyze both the Sizing Charts and the Bill of Materials (BOM) / Material Fabric Specification tables.
             
-            STRICT CROSS-CATEGORY INDUSTRIAL RULES (TARGET SIZE: {target_size_cmd}):
-            1. Read specifications across ALL sizing charts on all pages. Convert all fractional measurements to clean decimals.
-            2. Category Detection & Reconstruction Mapping:
-               - IF CATEGORY IS SHIRT / BLOUSE / JACKET / T-SHIRT (Hàng Áo):
-                 Set "detected_product_type": "SHIRT".
-                 FRONT_PANEL & BACK_PANEL: Length = Body length (Center Back/Front Length). Width = Chest width or Bust Spec.
-                 SLEEVE_PANEL (TAY ÁO): Length = Sleeve length. Width = Armhole or Bicep spec. Count = 2.0.
-                 *Note: All small parts (Cuffs, Collar bands, Flaps) are considered filler panels. Do NOT generate fabric rows for them to optimize marker length.
-               - IF CATEGORY IS DRESS / SKIRT / JUMPSUIT (Hàng Váy Đầm):
-                 Set "detected_product_type": "DRESS".
-                 FRONT_PANEL & BACK_PANEL: Length = Total Dress Length spec. Width = Hip Width or Bottom Sweep width.
-               - IF CATEGORY IS HOODIE / SWEATER (Hàng Hoodie):
-                 Set "detected_product_type": "HOODIE".
-                 Include FRONT_PANEL, BACK_PANEL, SLEEVE_PANEL, and HOOD_PANEL (Length/Width from Hood height/width specs, Count = 2.0).
-               - IF CATEGORY IS PANT / JEANS / SHORT (Hàng Quần):
-                 Set "detected_product_type": "PANT".
-                 FRONT_PANEL & BACK_PANEL: Length = Inseam + Front Rise. Width = Hip width divided by 2 plus 1 inch allowance.
-                 FRONT_POCKET_BAG (LÓT TÚI): Jeans/Shorts use folded bags, piece_count MUST be strictly 2.0.
-            3. Dynamic Material Row Injection:
-               - Always output MAIN FABRIC row.
-               - IF there's a Waistband or Collar requiring interfacing, inject an INTERLINING (FUSING) row (~2.5 inches width).
-               - IF it's a Pant or Jacket requiring lining pocket bags, inject a POCKET LINING (LINING) row.
+            STRICT REAL-WORLD PRODUCTION RULES (TARGET SIZE: {target_size_cmd}):
+            1. Target size is '{target_size_cmd}'. Convert fractional measurements to clean decimals.
+            2. 🌟 ABSOLUTE BOM FIDELITY RULE (NO FABRIC FABRICATION):
+               - Look closely at the fabric specifications and material descriptions in the document.
+               - DO NOT invent, assume, or output any material rows (such as POCKET LINING, FUSING, or RIB) if they are NOT explicitly listed in the techpack's BOM tables.
+               - If the garment is an unlined dress (like a simple mini dress) and the BOM only lists MAIN FABRIC, you MUST output EXACTLY ONE fabric row for MAIN FABRIC. Completely omit lining or fusing rows.
+            3. Dynamic Category Pattern Deconstruction:
+               - IF CATEGORY IS DRESS / SKIRT (Váy đầm): Set "detected_product_type": "DRESS". FRONT_PANEL & BACK_PANEL: Length = Total Body length or Front/Back Length spec. Width = Chest width or Bust Spec.
+               - IF CATEGORY IS PANT / JEANS (Quần): Set "detected_product_type": "PANT". FRONT_PANEL & BACK_PANEL: Length = Inseam + Front Rise. Width = Hip width divided by 2 plus 1 inch. Only include FRONT_POCKET_BAG (Count = 2.0) if pocket fabric is explicitly mentioned in the BOM.
             
-            Output strictly in the specified JSON structure:
+            Output strictly in the dynamic JSON structure based on REAL data found:
             ===START_JSON===
             {{
-              "status": "ERROR",
-              "error_reason": "Missing size charts",
-              "spec_sheet_found": false,
-              "spec_page": 1,
+              "status": "PASS",
+              "spec_sheet_found": true,
+              "spec_page": 13,
               "detected_product_type": "DRESS",
               "style_code": "",
               "calculated_on_size": "{target_size_cmd}",
-              "pocket_style_type": "FRONT_ONLY",
-              "matched_measurements": [],
+              "matched_measurements": [
+                 "A-11: FRONT LENGTH = 36.000 inch",
+                 "E-01: BUST/CHEST = 16.500 inch"
+              ],
               "bom_rows": [
                 {{
-                  "component_type": "MAIN FABRIC", "placement": "BODY", "fabric_classification": "MAIN_FABRIC",
-                  "fabric_code": "CASUAL_FABRIC", "fabric_color": "SOLID COLOR", "fabric_width_inch": {active_width},
+                  "component_type": "MAIN FABRIC", 
+                  "placement": "BODY", 
+                  "fabric_classification": "MAIN_FABRIC",
+                  "fabric_code": "CASUAL_TWILL", 
+                  "fabric_color": "SOLID COLOR", 
+                  "fabric_width_inch": {active_width},
                   "panels_catalog": [
-                    {{ "panel_name": "FRONT_PANEL", "piece_count": 1.0, "piece_length_inch": 0.0, "piece_width_inch": 0.0 }},
-                    {{ "panel_name": "BACK_PANEL", "piece_count": 1.0, "piece_length_inch": 0.0, "piece_width_inch": 0.0 }}
+                    {{ "panel_name": "FRONT_BODY", "piece_count": 1.0, "piece_length_inch": 36.0, "piece_width_inch": 16.5 }},
+                    {{ "panel_name": "BACK_BODY", "piece_count": 1.0, "piece_length_inch": 36.0, "piece_width_inch": 16.5 }}
                   ]
                 }}
               ]
             }}
             ===END_JSON===
-            If found and mapped, flip "status" to "PASS", "spec_sheet_found" to true, list extracted thô pairs as 'POM_CODE: Description = Value' inside "matched_measurements" using format 'POM_CODE: Description = Value', and dynamically populate the entire array with true pattern piece sizes.
+            Ensure that "bom_rows" contains ONLY the components genuinely verified from the document's fabric specifications. Populated dimensions inside panels_catalog MUST reflect actual specs found.
             
             ===START_CHAT===
-            [Confirm in Vietnamese which pages you located the spec table on for size {target_size_cmd}, and list the exact measurements found.]
+            [Confirm in Vietnamese which pages you scanned and summarize the exact clean verified dimensions and materials found for size {target_size_cmd}.]
             ===END_CHAT===
             """
             
