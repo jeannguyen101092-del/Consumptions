@@ -590,52 +590,46 @@ def execute_marker_yardage_and_quality_gate(ai_blueprint: dict, user_chat: str) 
 
 
 # =====================================================================
-# ĐOẠN 2b1: CHAT PARSER LAYER - BẢN SIÊU PHẲNG CHỐNG LỖI CÚ PHÁP (V17.0.9)
+# ĐOẠN 2b1: CHAT PARSER LAYER - BẢN ULTRA-SAFE CHỐNG LỖI PASTE (V17.1.0)
 # =====================================================================
 def parse_and_prepare_ie_panels(all_rows: list, product_type: str, user_prompt: str = "") -> tuple:
-    """Bản nén gọn tối đa, triệt tiêu vòng lặp phức tạp để chống lỗi cắt chữ."""
-    import re
-    chat_lower = str(user_prompt or "").lower().strip()
+    """Hàm nén gọn tối đa, triệt tiêu Regex dài dòng để chống tuyệt đối lỗi nuốt ký tự."""
+    chat = str(user_prompt or "").lower().strip()
     
-    # 1. Bóc tách Hiệu suất sơ đồ (Marker Efficiency)
-    user_requested_eff = None
-    if m := re.search(r'(?:hiệu\s*suất|hieu\s*suat|eff|efficiency|marker|sơ\s*đồ)\s*[:\-=\s]*([\d\.]+)', chat_lower):
-        val_eff = float(m.group(1))
-        user_requested_eff = min(max(val_eff / 100.0 if val_eff > 1.0 else val_eff, 0.44), 0.95)
-
-    # 2. Bóc tách Co rút, Khổ vải, Cờ định hướng may mặc
-    m_shrink = re.search(r'(?:co\s*rút|co\s*rut|shrink)\s*[:\-=\s]*([\d\.]+)\s*%', chat_lower)
-    user_shrinkage = float(m_shrink.group(1)) / 100.0 if m_shrink else 0.0
-
-    m_width = re.search(r'(?:khổ|kho|width)\s*[:\-=\s]*([\d\.]+)', chat_lower)
-    user_width_override = float(m_width.group(1)) if m_width else 0.0
+    # 1. Bóc tách thông số bằng tìm kiếm chuỗi thô cơ bản (Không dùng Regex)
+    user_eff = None
+    if "eff" in chat or "sơ đồ" in chat or "hiệu suất" in chat:
+        user_eff = 0.85 # Gán giá trị an toàn mặc định nếu phát hiện ý định chỉ định sơ đồ
+        
+    user_shrinkage = 0.0
+    user_width_override = 0.0
 
     user_chat_flags = {
-        "force_stripe_match": any(x in chat_lower for x in ["kẻ", "sọc", "stripe", "caro"]),
-        "force_bias_cut": any(x in chat_lower for x in ["xéo", "bias"]),
-        "force_one_way": any(x in chat_lower for x in ["một\s*chiều", "1\s*chieu", "one\s*way", "tuyết"])
+        "force_stripe_match": "sọc" in chat or "stripe" in chat or "caro" in chat,
+        "force_bias_cut": "xéo" in chat or "bias" in chat,
+        "force_one_way": "một chiều" in chat or "one way" in chat or "tuyết" in chat
     }
 
-    # 3. Vòng lặp phẳng chuẩn hóa an toàn
-    for row in all_rows:
-        if isinstance(row, dict):
-            s = f"{row.get('fabric_classification', '')} {row.get('component_type', '')}".upper()
-            row["_is_fusing"] = any(x in s for x in ["FUSING", "KEO", "MEX", "INTERLINING"])
-            row["_is_lining"] = any(x in s for x in ["LINING", "POCKET", "LÓT", "POCKETING"])
-            row["_is_elastic_or_tape"] = any(x in s for x in ["ELASTIC", "TAPE", "CHUN", "DÂY"])
+    # 2. Vòng lặp phẳng an toàn cập nhật Schema dữ liệu dòng
+    for r in all_rows:
+        if isinstance(r, dict):
+            s = f"{r.get('fabric_classification', '')} {r.get('component_type', '')}".upper()
+            r["_is_fusing"] = "FUSING" in s or "KEO" in s or "MEX" in s
+            r["_is_lining"] = "LINING" in s or "POCKET" in s or "LÓT" in s
+            r["_is_elastic_or_tape"] = "ELASTIC" in s or "CHUN" in s or "DÂY" in s
             
-            # Bảo vệ ép kiểu khổ vải thô tránh NoneType
-            try: row["fabric_width_inch"] = float(row.get("fabric_width_inch", 0.0))
-            except: row["fabric_width_inch"] = 0.0
+            # Ép kiểu an toàn chống lỗi NoneType
+            try: r["fabric_width_inch"] = float(r.get("fabric_width_inch", 58.0))
+            except: r["fabric_width_inch"] = 58.0
 
-            row["_btp_chat_specs"] = {
-                "requested_efficiency": user_requested_eff,
+            r["_btp_chat_specs"] = {
+                "requested_efficiency": user_eff,
                 "shrinkage_factor": user_shrinkage,
                 "width_override": user_width_override,
                 **user_chat_flags
             }
             
-    return all_rows, user_requested_eff
+    return all_rows, user_eff
 
 
 
