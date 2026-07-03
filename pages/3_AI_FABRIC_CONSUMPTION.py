@@ -530,7 +530,7 @@ def parse_and_prepare_ie_panels(all_rows: list, product_type: str, user_prompt: 
 
 def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict, user_prompt: str = "") -> dict:
     """
-    Phân đoạn 2b2: Tầng xử lý dữ liệu sau AI (Post-AI Data Engine) chuẩn Gerber.
+    Phân đoạn 2b2: Tầng xử lý dữ liệu sau AI (Post-AI Data Engine) chuẩn Gerber cho đa mã hàng.
     V17.0.4.0 APPROVED - FIXED DUPLICATE KEYS, DYNAMIC LOOKUP & STRICT SPEC VALIDATION
     """
     import streamlit as st
@@ -564,7 +564,7 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict, user_prompt
     match_w_prompt = re.search(r'\b(?:khổ|kho|width)\s*[:\-=\s]*([\d\.]+)\b', chat_lower)
     prompt_extracted_width = float(match_w_prompt.group(1)) if match_w_prompt else None
 
-    # Khởi tạo bộ hằng số hệ thống (Đã xóa trùng key DUNG_SAI_XEP_RAP)
+    # Khởi tạo bộ hằng số hệ thống tiêu chuẩn kỹ thuật
     globals_dict = globals()
     IE_CONSTANTS = globals_dict.get("IE_CONSTANTS", {
         "DEFAULT_WIDTH_MAIN": 57.0, 
@@ -589,14 +589,14 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict, user_prompt
         f_code = str(row.get("fabric_code", "")).upper().strip()
         f_color = str(row.get("fabric_color", "")).upper().strip()
 
-        # Bỏ qua phụ liệu kim loại/phần cứng
+        # Bỏ qua phụ liệu kim loại / phần cứng (Nút, khóa, nhãn...)
         if any(k in comp_type or k in placement or k in f_class_raw or k in f_code for k in EXCLUDE_HARDWARE_KEYS if k):
             continue
 
         is_fusing = row.get("_is_fusing", "FUSING" in f_class_raw or "KEO" in comp_type)
         is_lining = row.get("_is_lining", "LINING" in f_class_raw or "LÓT" in comp_type)
 
-        # Đọc dữ liệu hình học AI bắt buộc (Không tự ý gán số bừa bãi)
+        # Đọc dữ liệu hình học trung gian đã xử lý từ tầng Python Đoạn 7a2
         total_panel_area = row.get("_btp_total_panel_area")
         max_piece_length = row.get("_btp_max_piece_length")
         total_piece_count = row.get("_btp_total_piece_count", 0.0)
@@ -614,7 +614,7 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict, user_prompt
             row["calculated_gross_consumption_yds"] = 0.0
             continue
 
-        # Đọc khổ vải (Width)
+        # Xác định khổ vải (Width)
         if is_fusing: default_width = IE_CONSTANTS["DEFAULT_WIDTH_FUSING"]
         elif is_lining: default_width = IE_CONSTANTS["DEFAULT_WIDTH_LINING"]
         else: default_width = IE_CONSTANTS["DEFAULT_WIDTH_MAIN"]
@@ -633,7 +633,7 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict, user_prompt
             row["calculated_gross_consumption_yds"] = 0.0
             continue
 
-        # 🌟 DYNAMIC LOOKUP: Trích xuất dải co rút động theo hướng cắt (fabric_direction, nap, rotation) từ dữ liệu AI
+        # 🌟 DYNAMIC LOOKUP: Trích xuất dải co rút động theo hướng cắt (fabric_direction, nap) từ dữ liệu AI
         f_direction = str(row.get("fabric_direction", "TWO_WAY")).upper().strip()
         f_nap = str(row.get("nap", "0")).upper().strip()
         
@@ -641,14 +641,15 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict, user_prompt
         matched_cache_data = fabric_registry.get(cache_key)
         
         if not matched_cache_data:
-            # Fallback tìm kiếm tương đối nếu sai lệch nhẹ chuỗi key định danh
+            # Tra cứu tương đối theo mã vải nếu cấu hình định danh chuỗi bị lệch ký tự
             matched_cache_data = next((c_data for f_id, c_data in fabric_registry.items() if f_code in f_id), None)
             
         shrink_warp = matched_cache_data.get("shrink_warp_f", 1.03) if matched_cache_data else 1.03
         safety_allowance = IE_CONSTANTS.get("DUNG_SAI_XEP_RAP", 1.04)
 
-        # 3. LUỒNG TOÁN HỌC TÍNH TOÁN ĐỊNH MỨC AN TOÀN TRUYỀN SANG GERBER
+        # 3. LUỒNG TOÁN HỌC TÍNH TOÁN ĐỊNH MỨC AN TOÀN TRUYỀN SANG SƠ ĐỒ GERBER
         if is_lining:
+            # Luồng phụ liệu lót túi: Phân bổ thông minh dựa theo kết cấu túi
             eff = 0.85
             if "FRONT_AND_BACK" in pocket_style or "4" in placement or ie_safe_float(total_panel_area) > 350.0:
                 total_yds = 0.42 * shrink_warp * IE_CONSTANTS["WASTAGE_FACTOR"]
@@ -658,16 +659,19 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict, user_prompt
                 row["consumption_note"] = "Khổ lót: 44\" | Tự động phân bổ: 2 túi trước chuẩn Jean thực tế"
         else:
             if is_fusing:
+                # Luồng mếch keo lót: Đi sơ đồ khít, tính theo tổng diện tích phẳng chi tiết cạp/baget có biên may
                 eff = user_requested_eff if user_requested_eff else 0.88
                 total_yds = (ie_safe_float(total_panel_area) / (cutable_w * 36.0)) / eff * shrink_warp * IE_CONSTANTS["WASTAGE_FACTOR"]
                 row["consumption_note"] = f"Khổ mếch: {cutable_w}\" | Tính diện tích tổng thông số cạp/baget có biên may"
             else:
+                # Luồng vải chính: Tách luồng rẽ nhánh Quần dài và luồng Áo/Đầm/Váy
                 eff = user_requested_eff if user_requested_eff else 0.83
                 if "PANT" in product_type or "QUẦN" in product_type:
                     linear_base_yds = (ie_safe_float(max_piece_length) / 36.0) * shrink_warp * IE_CONSTANTS["WASTAGE_FACTOR"] / eff
                     area_base_yds = (ie_safe_float(total_panel_area) / (cutable_w * 36.0)) / eff * shrink_warp * IE_CONSTANTS["WASTAGE_FACTOR"]
                     total_yds = max(linear_base_yds, area_base_yds) * safety_allowance
                 else:
+                    # Các nhóm hàng Áo, Đầm, Váy, Jacket... tính toán tối ưu dựa trên tổng diện tích phôi phẳng rập
                     total_yds = (ie_safe_float(total_panel_area) / (cutable_w * 36.0)) / eff * shrink_warp * IE_CONSTANTS["WASTAGE_FACTOR"] * safety_allowance
                 row["consumption_note"] = f"Khổ vải: {cutable_w}\" | Sơ đồ hình học Gerber nhóm {product_type}"
 
@@ -969,15 +973,26 @@ with col_right:
 
 
 # =====================================================================
-# ĐOẠN 7a: CHAT WORKSPACE & ENGINE AI NỀN - QUÉT TOÀN BỘ FILE TÀI LIỆU SỐ (V17.8.5.0 APPROVED)
+# ĐOẠN 7a1: INTERFACE INTERACTION WORKSPACE & MULTI-PAGE DATA BATCHING (V20.0 APPROVED)
 # =====================================================================
+import streamlit as st
+import google.generativeai as genai
+import json
+import copy
+import traceback
+import re
+import fitz
+import pandas as pd
+
 st.markdown('<br><div class="cad-card"><div class="cad-header">💬 CHATGPT IE COLLABORATION WORKSPACE</div>', unsafe_allow_html=True)
 
+# Khởi tạo kho lưu trữ trạng thái hệ thống phòng vệ tránh lỗi mất Session State
 if "chat_history" not in st.session_state: st.session_state.chat_history = []
 if "pdf_page_images_list" not in st.session_state: st.session_state.pdf_page_images_list = None
 if "accumulated_bom_rows" not in st.session_state: st.session_state.accumulated_bom_rows = {}
 if "bom_data" not in st.session_state: st.session_state.bom_data = {}
 
+# Xuất dòng tin nhắn lịch sử trò chuyện đồng bộ trực quan
 if st.session_state.chat_history:
     for msg in st.session_state.chat_history:
         st.chat_message("user").write(msg["user"])
@@ -986,35 +1001,50 @@ if st.session_state.chat_history:
 safe_user_prompt = st.chat_input("Gõ câu lệnh điều chỉnh thông số tại đây...")
 st.markdown('</div>', unsafe_allow_html=True)
 
+# Kích hoạt luồng trích xuất dữ liệu khi có tệp tài liệu và lệnh từ ô chat
 if st.session_state.pdf_bytes is not None and safe_user_prompt:
     current_query = str(safe_user_prompt).strip()
     
-    with st.spinner("🧠 AI Core đang quét TOÀN BỘ các trang của tài liệu để truy tìm bảng thông số kỹ thuật..."):
+    with st.spinner("🧠 AI Platform đang chạy luồng trích xuất đa tầng và đồng bộ hình học bán thành phẩm..."):
         try:
-            import google.generativeai as genai
-            import json, copy, traceback, re
-            import fitz 
+            doc_recovery = fitz.open(stream=st.session_state.pdf_bytes, filetype="pdf")
+            total_pages = len(doc_recovery)
             
-            # 🌟 NÂNG CẤP: KHÔNG GIỚI HẠN SỐ TRANG - QUÉT SẠCH TỪ ĐẦU ĐẾN CUỐI FILE PDF
-            if st.session_state.pdf_page_images_list is None:
-                doc_recovery = fitz.open(stream=st.session_state.pdf_bytes, filetype="pdf")
-                image_payloads = []
-                
-                # Quét qua toàn bộ số trang của tài liệu, hạ DPI xuống 110 để tránh tràn bộ nhớ RAM hệ thống
-                for page_num in range(len(doc_recovery)):
-                    page_img_bytes = doc_recovery.load_page(page_num).get_pixmap(dpi=110).tobytes("png")
-                    image_payloads.append({
-                        "mime_type": "image/png",
-                        "data": page_img_bytes
-                    })
-                st.session_state.pdf_page_images_list = image_payloads
+            # 🌟 KIỂM TRA ĐA TRANG ĐỂ XÁC ĐỊNH SỰ TỒN TẠI CỦA PDF VECTOR CHUẨN XÁC
+            has_text_vector = any(
+                len(doc_recovery.load_page(i).get_text().strip()) > 20
+                for i in range(min(5, total_pages))
+            )
             
+            gemini_inputs = []
+            if has_text_vector:
+                # 🟢 LUỒNG VECTOR: Chỉ truyền duy nhất File PDF gốc để bảo vệ dải ngữ cảnh tối ưu
+                gemini_inputs.append({
+                    "mime_type": "application/pdf",
+                    "data": st.session_state.pdf_bytes
+                })
+            else:
+                # 🔴 LUỒNG SCAN: Chuyển đổi ảnh đa trang có chia BATCHING khống chế 15 trang bảo vệ Context
+                if st.session_state.pdf_page_images_list is None:
+                    image_payloads = []
+                    target_dpi = 200 if total_pages <= 5 else 130
+                    max_scan_pages = min(total_pages, 15)
+                    
+                    for page_num in range(max_scan_pages):
+                        page_img_bytes = doc_recovery.load_page(page_num).get_pixmap(dpi=target_dpi).tobytes("png")
+                        image_payloads.append({"mime_type": "image/png", "data": page_img_bytes})
+                    st.session_state.pdf_page_images_list = image_payloads
+                gemini_inputs = copy.deepcopy(st.session_state.pdf_page_images_list)
+# =====================================================================
+# ĐOẠN 7a2: AI CORE COGNITIVE ENGINE & POST-AI MIDDLEWARE GEOMETRY PROCESSOR (V20.0 APPROVED)
+# =====================================================================
             if "GEMINI_API_KEY" in st.secrets: 
                 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
                 
-            model = genai.GenerativeModel("gemini-2.5-flash", generation_config={"temperature": 0.1})
+            model = genai.GenerativeModel("gemini-2.5-flash", generation_config={"temperature": 0.0})
             chat_lower = current_query.lower()
             
+            # Bộ bóc tách tham số từ câu lệnh ô chat người dùng
             match_size = re.search(r'\b(?:size|sz|cỡ)\s*[:\-=\s]*([\w\d]+)\b', chat_lower)
             target_size_cmd = str(match_size.group(1)).upper().strip() if match_size else "30"
             
@@ -1023,7 +1053,6 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             
             active_warp = 3.0
             active_weft = 3.0
-            
             match_warp = re.search(r'(?:dọc|doc|warp)\s*[:\-=\s]*([\d\.]+)', chat_lower)
             match_weft = re.search(r'(?:ngang|weft)\s*[:\-=\s]*([\d\.]+)', chat_lower)
             
@@ -1037,58 +1066,48 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             if len(st.session_state.chat_history) > 30:
                 st.session_state.chat_history = st.session_state.chat_history[-30:]
 
-            # CẤU HÌNH LỆNH ÉP AI PHẢI DUYỆT TỪNG TRANG TRONG TOÀN BỘ MẢNG ẢNH TRUYỀN VÀO
+            # PROMPT TINH GIẢN SIÊU GỌN - ĐƯA TOÀN BỘ GIÁ TRỊ MẪU VỀ 0.0 ĐỂ ÉP AI OCR SỐ THỰC TẾ TRÊN FILE
             prompt_instruction = f"""
-            You are a senior apparel IE system. You are provided with ALL pages of the techpack document as images.
-            Your primary task is to scan EVERY SINGLE PAGE IMAGE to locate the Measurement Specification Chart (Spec Sheet / Size Chart). 
-            It could be located on any middle or trailing pages. Do not give up until you check all images.
+            You are an expert apparel IE OCR system. Scan all provided pages to locate the size spec sheet and material table.
             
-            STRICT DATA EXTRACTION & ANALYSIS RULES:
-            1. Find the target size '{target_size_cmd}' column inside the spec sheet tables across ALL provided page images.
-            2. 🌟 CRITICAL PLEATS/ELASTIC/SMOCKING RULE: If the product is a skirt, dress, or has elastic waistbands/pleats, you MUST scan the entire document for "Stretched", "Extended", "Max Stretch", or "Kéo căng" values.
-               - Always use the MAXIMUM stretched length and width values to represent the actual flat pattern pieces that will be laid out on the Gerber marker.
-            3. Dynamically extract the exact real dimensions from the located spec tables for the main fabric panels catalog (Length and Width) for size '{target_size_cmd}'. Do NOT use default or fallback values if real numbers are present.
-            4. Total rows in the "bom_rows" array must be exactly 3.
+            RULES:
+            1. Target size is '{target_size_cmd}'. For pleats/elastic/skirts, ALWAYS extract "Stretched"/"Max" specification numbers.
+            2. Dynamically extract the pattern parts (Front, Back, Waistband, Pockets, etc.) and dimensions strictly from the document.
+            3. If no spec chart or table is found, set "status": "ERROR", "spec_sheet_found": false. Do NOT output fake dummy dimensions.
             
-            Target size: '{target_size_cmd}', Cut Width: {active_width} inches, Warp: {active_warp}%, Weft: {active_weft}%.
-            
-            Return response in exact format:
+            Output strictly in the specified JSON structure:
             ===START_JSON===
             {{
-              "detected_product_type": "SKIRT",
-              "style_code": "R09-500778",
+              "status": "ERROR",
+              "error_reason": "Missing size charts",
+              "spec_sheet_found": false,
+              "spec_page": 0,
+              "detected_product_type": "UNKNOWN",
+              "style_code": "",
               "calculated_on_size": "{target_size_cmd}",
               "pocket_style_type": "FRONT_ONLY",
+              "matched_measurements": [],
               "bom_rows": [
                 {{
                   "component_type": "MAIN FABRIC", "placement": "BODY", "fabric_classification": "MAIN_FABRIC",
-                  "fabric_code": "WOVEN", "fabric_color": "SOLID COLOR", "fabric_width_inch": {active_width},
+                  "fabric_code": "", "fabric_color": "", "fabric_width_inch": {active_width},
                   "panels_catalog": [
-                    {{ "panel_name": "MAIN_PANEL", "piece_count": 2.0, "piece_length_inch": 28.0, "piece_width_inch": 38.5 }}
+                    {{ "panel_name": "", "piece_count": 0.0, "piece_length_inch": 0.0, "piece_width_inch": 0.0 }}
                   ]
-                }},
-                {{
-                  "component_type": "INTERLINING / KEO LÓT", "placement": "WAISTBAND", "fabric_classification": "FUSING",
-                  "fabric_code": "TRICOT FUSING", "fabric_color": "WHITE", "fabric_width_inch": 44.0,
-                  "panels_catalog": []
-                }},
-                {{
-                  "component_type": "POCKET LINING / LÓT TÚI", "placement": "POCKET", "fabric_classification": "LINING",
-                  "fabric_code": "TC POCKETING", "fabric_color": "NATURAL", "fabric_width_inch": 44.0,
-                  "panels_catalog": []
                 }}
               ]
             }}
             ===END_JSON===
+            If found, flip "status" to "PASS", "spec_sheet_found" to true, list extracted raw strings inside "matched_measurements" (e.g. ["Waist stretched = 16"]), and dynamically populate the "bom_rows" array with matching size dimensions.
+            
             ===START_CHAT===
-            [Confirm in Vietnamese that you thoroughly scanned all techpack page images, located the spec sheet on the respective page, and extracted the maximum stretched specifications for size {target_size_cmd} to feed the python geometry calculation engine.]
+            [Confirm in Vietnamese which page you located the spec table on, and list the exact measurements found.]
             ===END_CHAT===
             """
             
-            gemini_multipage_inputs = copy.deepcopy(st.session_state.pdf_page_images_list)
-            gemini_multipage_inputs.append(prompt_instruction)
+            gemini_inputs.append(prompt_instruction)
+            response = model.generate_content(gemini_inputs)
             
-            response = model.generate_content(gemini_multipage_inputs)
             if response and response.text:
                 response_text = response.text.strip()
                 json_match = re.search(r'===START_JSON===\s*(.*?)\s*===END_JSON===', response_text, re.DOTALL)
@@ -1098,23 +1117,90 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                     raw_json_str = json_match.group(1).strip()
                     raw_json_str = re.sub(r"^```json\s*|\s*```$", "", raw_json_str, flags=re.IGNORECASE)
                     
-                    raw_blueprint = json.loads(raw_json_str)
-                    if raw_blueprint and raw_blueprint.get("bom_rows"):
+                    try:
+                        raw_blueprint = json.loads(raw_json_str)
+                    except json.JSONDecodeError:
+                        raw_blueprint = {"status": "ERROR", "error_reason": "Malformed JSON structure."}
+                    
+                    # 🌟 KHỬ NHIỄU OCR KÝ TỰ VÀ ĐỒNG BỘ NGƯỢC VÀO BLUEPRINT GỐC
+                    raw_specs = []
+                    for s in raw_blueprint.get("matched_measurements", []):
+                        clean_s = str(s).upper().replace("I", "1").replace("S", "5").replace("O", "0")
+                        raw_specs.append(clean_s)
+                    raw_blueprint["matched_measurements"] = raw_specs 
+                    
+                    # BỘ LỌC VALIDATE SÂU TRÁNH CẤU TRÚC RỖNG TRƯỚC KHI GỌI PIPELINE PYTHON
+                    has_valid_evidence = len(raw_specs) >= 1 and any(re.search(r'\d+', str(x)) for x in raw_specs)
+                    
+                    has_valid_bom = False
+                    bom_list = raw_blueprint.get("bom_rows", [])
+                    if len(bom_list) > 0:
+                        first_catalog = bom_list[0].get("panels_catalog", [])
+                        if len(first_catalog) > 0 and any(str(p.get("panel_name")).strip() != "" for p in first_catalog if isinstance(p, dict)):
+                            has_valid_bom = True
+                    
+                    if raw_blueprint.get("status") == "PASS" and raw_blueprint.get("spec_sheet_found") is True and has_valid_evidence and has_valid_bom:
                         blueprint_worker = copy.deepcopy(raw_blueprint)
+                        
+                        # =====================================================================
+                        # 🌟 TẦNG MAPPING TRUNG GIAN PYTHON (MIDDLEWARE GEOMETRY PROCESSOR)
+                        # =====================================================================
+                        processed_bom_rows = []
+                        for row in blueprint_worker.get("bom_rows", []):
+                            if not row or not isinstance(row, dict): continue
+                            
+                            c_type = str(row.get("component_type", "")).upper()
+                            f_class = str(row.get("fabric_classification", "")).upper()
+                            
+                            row["_is_fusing"] = "FUSING" in f_class or "KEO" in c_type or "MEX" in c_type
+                            row["_is_lining"] = "LINING" in f_class or "LÓT" in c_type or "POCKET" in c_type
+                            row["_is_elastic_or_tape"] = "ELASTIC" in f_class or "THUN" in c_type
+                            
+                            total_area = 0.0
+                            max_len = 0.0
+                            total_pieces = 0.0
+                            
+                            catalog = row.get("panels_catalog", [])
+                            if catalog and isinstance(catalog, list):
+                                for p in catalog:
+                                    if not isinstance(p, dict): continue
+                                    count = float(p.get("piece_count", 0.0))
+                                    length = float(p.get("piece_length_inch", 0.0))
+                                    width = float(p.get("piece_width_inch", 0.0))
+                                    
+                                    total_area += (length * width * count)
+                                    total_pieces += count
+                                    if length > max_len: max_len = length
+                                    
+                            row["_btp_total_panel_area"] = total_area
+                            row["_btp_max_piece_length"] = max_len
+                            row["_btp_total_piece_count"] = total_pieces
+                            
+                            processed_bom_rows.append(row)
+                            
+                        blueprint_worker["bom_rows"] = processed_bom_rows
+                        
+                        # Gọi hàm 2b2 tính toán công thức hình học nâng cao chuẩn Gerber
                         blueprint_final = allocate_fabric_consumption_and_quality_gate(blueprint_worker, current_query)
                         
                         st.session_state.bom_data = blueprint_final
                         st.session_state.accumulated_bom_rows = blueprint_final.get("bom_rows", [])
                         
-                        ai_chat_response = "Tôi đã xử lý bóc tách định mức tự động."
+                        ai_chat_response = f"✅ OCR & Mapping thành công! Trích xuất từ Spec Trang {raw_blueprint.get('spec_page')}."
                         if chat_match: ai_chat_response = chat_match.group(1).strip()
-                            
-                        st.session_state.chat_history.append({"user": current_query, "ai": ai_chat_response})
-                        st.rerun()
+                    else:
+                        st.session_state.bom_data = None
+                        err_reason = raw_blueprint.get('error_reason', 'Tài liệu thiếu bảng Spec số đo hoặc thiếu danh sách rập mẫu.')
+                        ai_chat_response = f"❌ NGẮT LUỒNG: {err_reason}"
+                        st.error(ai_chat_response)
+                        
+                    st.session_state.chat_history.append({"user": current_query, "ai": ai_chat_response})
+                    st.rerun()
                         
         except Exception as e:
-            st.error(f"❌ Lỗi xử lý AI Core đa trang: {str(e)}")
+            st.error(f"❌ Lỗi hệ thống tầng AI Core Post-Pipeline: {str(e)}")
             st.text(traceback.format_exc())
+
 
 
 
