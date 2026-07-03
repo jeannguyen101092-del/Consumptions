@@ -1030,7 +1030,7 @@ if "uploaded_pdf_bytes" in st.session_state and st.session_state.uploaded_pdf_by
         st.error(f"❌ Lỗi nghiêm trọng tại tầng xử lý PDF 7a1: {str(pdf_err)}")
 
 # =====================================================================
-# ĐOẠN 7a2.1: AI CORE EXTRACTOR (V36.3 SHORT)
+# ĐOẠN 7a2.1: AI CORE EXTRACTOR & INTEGRATED CHAT INPUT (V36.4 PRO)
 # =====================================================================
 import concurrent.futures
 from fractions import Fraction
@@ -1048,7 +1048,7 @@ def safe_float(v, default=0.0):
         s_norm = s.strip().replace("-", " ")
         if " " in s_norm:
             parts = s_norm.split()
-            if len(parts) == 2 and "/" in parts[1]: return float(parts[0]) + float(Fraction(parts[1]))
+            if len(parts) == 2 and "/" in parts: return float(parts) + float(Fraction(parts))
         if "/" in s and " " not in s: return float(Fraction(s))
         num_m = re.search(r'([\d\.]+)', s)
         return float(num_m.group(1)) if num_m else float(s)
@@ -1056,12 +1056,20 @@ def safe_float(v, default=0.0):
 
 if "parsed_ai_response" not in st.session_state: st.session_state.parsed_ai_response = None
 if "ai_chat_response" not in st.session_state: st.session_state.ai_chat_response = ""
+if "current_query" not in st.session_state: st.session_state.current_query = ""
 
-if "gemini_inputs" in st.session_state and st.session_state.gemini_inputs and len(st.session_state.gemini_inputs) > 0:
+# KÍCH HOẠT Ô CHAT CỐ ĐỊNH Ở ĐÁY MÀN HÌNH - KHÔNG PHỤ THUỘC FILE PDF
+user_input = st.chat_input("Nhập câu lệnh của bạn tại đây (Ví dụ: Tính định mức size 32 khổ 57)...")
+if user_input:
+    st.session_state.current_query = user_input
+    st.rerun()
+
+# KHỐI LOGIC XỬ LÝ AI CHỈ CHẠY KHI ĐÃ CÓ FILE ẢNH VÀ CÓ CÂU LỆNH CHAT
+if "gemini_inputs" in st.session_state and st.session_state.gemini_inputs and len(st.session_state.gemini_inputs) > 0 and st.session_state.current_query:
     gemini_inputs = list(st.session_state.gemini_inputs)
     if "GEMINI_API_KEY" in st.secrets: genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
     
-    chat_lower = str(st.session_state.get("current_query", "")).lower()
+    chat_lower = str(st.session_state.current_query).lower()
     m_size = re.search(r'\b(?:size|sz|cỡ)\s*[:\-=\s]*([\w\d]+)\b', chat_lower)
     target_size_cmd = str(m_size.group(1)).upper().strip() if m_size else "30"
     
@@ -1107,7 +1115,12 @@ if "gemini_inputs" in st.session_state and st.session_state.gemini_inputs and le
                 if isinstance(e, (KeyError, TypeError, NameError, AttributeError)): break
                 continue
 else:
-    st.info("💡 Sẵn sàng. Hãy tải file Techpack lên ở bên trái để bắt đầu bóc tách.")
+    # Nếu chưa nạp file hoặc chưa chat, chỉ hiện nhắc nhở, ô chat ở trên vẫn giữ nguyên
+    if not "gemini_inputs" in st.session_state or len(st.session_state.gemini_inputs) == 0:
+        st.info("💡 Sẵn sàng. Hãy tải file Techpack lên ở bên trái để bắt đầu bóc tách.")
+    elif not st.session_state.current_query:
+        st.info("💬 File đã nạp thành công! Hãy nhập yêu cầu vào ô chat bên dưới để AI bắt đầu tính toán.")
+
 
 # =====================================================================
 # ĐOẠN 7a2.2: POST-AI MIDDLEWARE GEOMETRY PROCESSOR (V36.0 APPROVED)
