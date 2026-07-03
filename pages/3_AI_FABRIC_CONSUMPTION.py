@@ -973,19 +973,15 @@ with col_right:
 
 
 # =====================================================================
-# ĐOẠN 7a1: INTERFACE WORKSPACE & DYNAMIC MULTI-PAGE DATA BATCHING (V22.6 APPROVED)
+# ĐOẠN 7a1: INTERFACE WORKSPACE & DYNAMIC MULTI-PAGE DATA BATCHING (V23.5 APPROVED)
 # =====================================================================
 st.markdown('<br><div class="cad-card"><div class="cad-header">💬 CHATGPT IE COLLABORATION WORKSPACE</div>', unsafe_allow_html=True)
 
 # Khởi tạo kho lưu trữ trạng thái hệ thống phòng vệ tránh lỗi mất Session State
-if "chat_history" not in st.session_state:
-    st.session_state.chat_history = []
-if "pdf_page_images_list" not in st.session_state:
-    st.session_state.pdf_page_images_list = None
-if "accumulated_bom_rows" not in st.session_state:
-    st.session_state.accumulated_bom_rows = {}
-if "bom_data" not in st.session_state:
-    st.session_state.bom_data = {}
+if "chat_history" not in st.session_state: st.session_state.chat_history = []
+if "pdf_page_images_list" not in st.session_state: st.session_state.pdf_page_images_list = None
+if "accumulated_bom_rows" not in st.session_state: st.session_state.accumulated_bom_rows = {}
+if "bom_data" not in st.session_state: st.session_state.bom_data = {}
 
 # Xuất dòng tin nhắn lịch sử trò chuyện đồng bộ trực quan
 if st.session_state.chat_history:
@@ -993,30 +989,29 @@ if st.session_state.chat_history:
         st.chat_message("user").write(msg["user"])
         st.chat_message("assistant").write(msg["ai"])
 
-# 🌟 Ô CHAT ĐƯỢC ĐƯA RA NGOÀI HOÀN TOÀN ĐỂ KHÔNG BỊ KHÓA ĐỎ GIAO DIỆN
 safe_user_prompt = st.chat_input("Gõ câu lệnh điều chỉnh thông số tại đây...")
 st.markdown('</div>', unsafe_allow_html=True)
 
-# Khởi tạo dải tham số rỗng phòng vệ luồng dữ liệu
+# Khởi tạo dải tham số rỗng phòng vệ luồng dữ liệu trước khi chuyển giao
 gemini_inputs = []
 current_query = ""
 
-# Kích hoạt luồng trích xuất dữ liệu khi có tệp tài liệu và lệnh từ ô chat
-if st.session_state.get("pdf_bytes") is not None and safe_user_prompt:
+# Kích hoạt luồng khi có tệp tài liệu và lệnh từ ô chat
+if st.session_state.pdf_bytes is not None and safe_user_prompt:
     current_query = str(safe_user_prompt).strip()
     
     with st.spinner("🧠 AI Platform đang chạy luồng trích xuất đa tầng dữ liệu kỹ thuật..."):
         try:
             import google.generativeai as genai
             import json, copy, traceback, re
-            import fitz
+            import fitz 
             
             doc_recovery = fitz.open(stream=st.session_state.pdf_bytes, filetype="pdf")
             total_pages = len(doc_recovery)
             
             # Kiểm tra đa trang tìm cấu trúc PDF Vector
             has_text_vector = any(
-                len(doc_recovery.load_page(i).get_text().strip()) > 20 
+                len(doc_recovery.load_page(i).get_text().strip()) > 20
                 for i in range(min(5, total_pages))
             )
             
@@ -1027,7 +1022,7 @@ if st.session_state.get("pdf_bytes") is not None and safe_user_prompt:
                     "data": st.session_state.pdf_bytes
                 })
             else:
-                # 🔴 LUỒNG SCAN: ÉP BUỘC GIẢI PHÓNG CACHE CŨ - QUÉT LẠI DANH SÁCH ẢNH MỚI TOÀN DIỆN MỖI LẦN GỬI LỆNH
+                # 🔴 LUỒNG SCAN: Chuyển đổi ảnh đa trang có chia BATCHING khống chế 15 trang bảo vệ Context
                 image_payloads = []
                 target_dpi = 200 if total_pages <= 5 else 130
                 max_scan_pages = min(total_pages, 15)
@@ -1035,24 +1030,18 @@ if st.session_state.get("pdf_bytes") is not None and safe_user_prompt:
                 for page_num in range(max_scan_pages):
                     page_img_bytes = doc_recovery.load_page(page_num).get_pixmap(dpi=target_dpi).tobytes("png")
                     image_payloads.append({"mime_type": "image/png", "data": page_img_bytes})
-                    
+                
                 st.session_state.pdf_page_images_list = image_payloads
                 gemini_inputs = copy.deepcopy(st.session_state.pdf_page_images_list)
                 
         except Exception as e:
-            st.error(f"❌ Lỗi xử lý tệp tin đầu vào ở đoạn 7a1: {str(e)}")
-            st.text(traceback.format_exc())
-
-
+            st.error(f"❌ Lỗi xử lý tệp tin đầu vào ở phân đoạn 7a1: {str(e)}")
 # =====================================================================
-# ĐOẠN 7a2.1: AI CORE COGNITIVE ENGINE (CẤU HÌNH AI & PHÂN TÍCH LỆNH)
+# ĐOẠN 7a2: AI CORE COGNITIVE ENGINE & POST-AI MIDDLEWARE GEOMETRY PROCESSOR (V23.5 APPROVED)
 # =====================================================================
-if gemini_inputs and current_query:
-    with st.spinner("⚡ Đang gửi dữ liệu tới Gemini và xử lý hình học may mặc..."):
+if st.session_state.pdf_bytes is not None and safe_user_prompt and len(gemini_inputs) > 0:
+    with st.spinner("🧠 AI Core đang tiến hành xử lý nhận diện bảng thông số mở rộng..."):
         try:
-            import google.generativeai as genai
-            import json, copy, traceback, re
-            
             if "GEMINI_API_KEY" in st.secrets: 
                 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
                 
@@ -1081,6 +1070,7 @@ if gemini_inputs and current_query:
             if len(st.session_state.chat_history) > 30:
                 st.session_state.chat_history = st.session_state.chat_history[-30:]
 
+            # PROMPT CHUẨN HÓA KỸ THUẬT: QUY ĐỔI PHÂN SỐ THÀNH THẬP PHÂN CHUẨN PHÔI RẬP PHẲNG PYTHON
             prompt_instruction = f"""
             You are an expert apparel IE OCR system. Scan all provided page images to locate the size spec tables (especially Page 13 and Page 14).
             
@@ -1125,25 +1115,13 @@ if gemini_inputs and current_query:
             ===END_CHAT===
             """
             
-            # Gộp dữ liệu ảnh/vector và gửi lên Gemini
-            gemini_payload = gemini_inputs + [prompt_instruction]
-            response = model.generate_content(gemini_payload)
-                       # =====================================================================
-            # ĐOẠN 7a2.2: POST-AI MIDDLEWARE GEOMETRY PROCESSOR (BẢN SỬA LỖI ĐỊNH DẠNG CHAT)
-            # =====================================================================
+            gemini_inputs.append(prompt_instruction)
+            response = model.generate_content(gemini_inputs)
+            
             if response and response.text:
                 response_text = response.text.strip()
                 json_match = re.search(r'===START_JSON===\s*(.*?)\s*===END_JSON===', response_text, re.DOTALL)
                 chat_match = re.search(r'===START_CHAT===\s*(.*?)\s*===END_CHAT===', response_text, re.DOTALL)
-                
-                # SỬA LỖI TẠI ĐÂY: Nếu tìm thấy thẻ CHAT thì cắt, nếu không thấy thì dùng luôn response.text sạch (bỏ phần JSON)
-                if chat_match:
-                    ai_chat_feedback = chat_match.group(1).strip()
-                else:
-                    # Tự động loại bỏ khối JSON nếu có để giữ lại lời thoại sạch của AI
-                    ai_chat_feedback = re.sub(r'===START_JSON===.*?===END_JSON===', '', response_text, flags=re.DOTALL).strip()
-                    # Khử thêm các ký tự markdown thừa nếu có
-                    ai_chat_feedback = ai_chat_feedback.replace('===START_CHAT===', '').replace('===END_CHAT===', '').strip()
                 
                 if json_match:
                     raw_json_str = json_match.group(1).strip()
@@ -1164,7 +1142,7 @@ if gemini_inputs and current_query:
                     has_valid_evidence = len(raw_specs) >= 1
                     bom_list = raw_blueprint.get("bom_rows", [])
                     has_valid_bom = isinstance(bom_list, list) and len(bom_list) > 0
-                    
+
                     if raw_blueprint.get("status") == "PASS" and raw_blueprint.get("spec_sheet_found") is True and has_valid_evidence and has_valid_bom:
                         blueprint_worker = copy.deepcopy(raw_blueprint)
                         
@@ -1189,29 +1167,34 @@ if gemini_inputs and current_query:
                                 for p in catalog:
                                     if not isinstance(p, dict): continue
                                     count = float(p.get("piece_count", 0.0))
-                                    p_len = float(p.get("piece_length_inch", 0.0))
-                                    p_wid = float(p.get("piece_width_inch", 0.0))
+                                    length = float(p.get("piece_length_inch", 0.0))
+                                    width = float(p.get("piece_width_inch", 0.0))
                                     
-                                    # Phép toán tích hợp độ co rút hao hụt vải (Warp/Weft)
-                                    calc_len = p_len * (1.0 + active_warp / 100.0)
-                                    calc_wid = p_wid * (1.0 + active_weft / 100.0)
-                                    
-                                    total_area += (calc_len * calc_wid) * count
+                                    total_area += (length * width * count)
                                     total_pieces += count
-                                    if calc_len > max_len:
-                                        max_len = calc_len
-                                        
-                            row["total_area_sq_inch"] = total_area
-                            row["max_length_inch"] = max_len
-                            row["total_pieces_count"] = total_pieces
+                                    if length > max_len: max_len = length
+                                    
+                            row["_btp_total_panel_area"] = total_area
+                            row["_btp_max_piece_length"] = max_len
+                            row["_btp_total_piece_count"] = total_pieces
+                            
                             processed_bom_rows.append(row)
                             
                         blueprint_worker["bom_rows"] = processed_bom_rows
-                        st.session_state.bom_data = blueprint_worker
+                        blueprint_final = allocate_fabric_consumption_and_quality_gate(blueprint_worker, current_query)
+                        
+                        st.session_state.bom_data = blueprint_final
+                        st.session_state.accumulated_bom_rows = blueprint_final.get("bom_rows", [])
+                        
+                        ai_chat_response = f"✅ OCR & Mapping thành công! Trích xuất đa trang sạch số đo thập phân."
+                        if chat_match: ai_chat_response = chat_match.group(1).strip()
+                        st.session_state.chat_history.append({"user": current_query, "ai": ai_chat_response})
+                        st.rerun()
                     else:
-                        # Thay vì crash, ghi nhận lý do lỗi từ AI trực quan lên UI chat
-                        err_reason = raw_blueprint.get('error_reason', 'AI khước từ trích xuất do sai cấu trúc bảng thông số.')
-                        ai_chat_feedback += f"\n\n⚠️ **Hệ thống phản hồi:** {err_reason}"
+                        st.session_state.bom_data = None
+                        err_reason = raw_blueprint.get('error_reason', 'Tài liệu thiếu bảng Spec hoặc dữ liệu phân số chưa được chuẩn hóa.')
+                        ai_chat_response = f"❌ NGẰT LUỒNG: {err_reason}"
+
                 
                 # Cập nhật kết quả vào Lịch sử chat và kích hoạt reload giao diện ngay lập tức
                 st.session_state.chat_history.append({
@@ -1233,12 +1216,10 @@ if gemini_inputs and current_query:
 
 
 
-
 # =====================================================================
 # ĐOẠN 7b: HIỂN THỊ KẾT QUẢ ĐỊNH MỨC & BẢNG TRA CỨU THÔNG SỐ AI OCR (V20.5 APPROVED)
 # =====================================================================
 if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data and st.session_state.bom_data["bom_rows"]:
-    import pandas as pd
     
     extracted_size = st.session_state.bom_data.get("calculated_on_size", "30").upper()
     
@@ -1270,35 +1251,24 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data 
         if not r or not isinstance(r, dict): continue
             
         sys_notes = r.get("consumption_note", "")
-        
-        # --- 👑 ĐOẠN ĐỒNG BỘ NÂNG CẤP: DÙNG PYTHON TÍNH TOÁN ĐỊNH MỨC YARD TỰ ĐỘNG ---
-        total_area = float(r.get("total_area_sq_inch", 0.0))
-        cut_width_val_raw = float(r.get("fabric_width_inch", 57.0))
-        cut_width_val = f"{cut_width_val_raw} inch"
-        
-        # Tính hiệu suất sơ đồ (Marker Efficiency)
-        is_fusing_or_lining = any(x in str(r.get("fabric_classification", "")).upper() for x in ["FUSING", "LINING"])
-        raw_eff_value = r.get("marker_efficiency_pct")
-        if not raw_eff_value:
-            raw_eff_value = "85.0%" if is_fusing_or_lining else "83.0%"
-            
-        try:
-            efficiency_num = float(str(raw_eff_value).replace("%", "").strip()) / 100.0
-        except Exception:
-            efficiency_num = 0.83
-            
-        # Giải thuật quy đổi Yard chuẩn công nghiệp hình học (Hao hụt bàn cắt mặc định 5%)
         current_gross = r.get("calculated_gross_consumption_yds", 0.0)
-        if current_gross == 0.0 and total_area > 0 and cut_width_val_raw > 0:
-            current_gross = (total_area / (cut_width_val_raw * 36.0 * efficiency_num)) * 1.05
-            current_gross = round(current_gross, 4)
-        # ----------------------------------------------------------------------
+        
+        if "fabric_width_inch" in r and r["fabric_width_inch"] > 0:
+            cut_width_val = f"{float(r['fabric_width_inch'])} inch"
+        else:
+            match_w = re.search(r'Khổ vải:\s*([\d\.]+)', sys_notes)
+            cut_width_val = f"{float(match_w.group(1))} inch" if match_w else "57.0 inch"
         
         warp_val = warp_default
         weft_val = weft_default
-        if is_fusing_or_lining:
+        
+        if any(x in str(r.get("fabric_classification", "")).upper() for x in ["FUSING", "LINING"]):
             warp_val = "0.0%"
             weft_val = "0.0%"
+
+        raw_eff_value = r.get("marker_efficiency_pct")
+        if not raw_eff_value:
+            raw_eff_value = "85.0%" if any(x in str(r.get("fabric_classification", "")).upper() for x in ["FUSING", "LINING"]) else "83.0%"
 
         display_data.append({
             "Component Type": r.get("component_type", "MAIN FABRIC"),
@@ -1312,7 +1282,7 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data 
             "Marker Efficiency": str(raw_eff_value).strip(),
             "Gross Consumption (Yds)": current_gross,
             "Quality Status": r.get("status", "PASS"),
-            "System Notes": f"Diện tích rập hình học: {round(total_area,1)} sq.inch. {sys_notes}".strip()
+            "System Notes": sys_notes
         })
         
     df_bom = pd.DataFrame(display_data)
@@ -1320,7 +1290,7 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data 
     st.markdown('</div>', unsafe_allow_html=True)
     
     # =====================================================================
-    # 🌟 TRỰC QUAN HÓA BẢNG CHỨNG CỨ THÔNG SỐ AI OCR QUÉT ĐƯỢC
+    # 🌟 TRỰC QUAN HÓA BẢNG CHỨNG CỨ THÔNG SỐ AI OCR QUÉT ĐƯỢC LIÊN TRANG (13-14)
     # =====================================================================
     raw_evidence_list = st.session_state.bom_data.get("matched_measurements", [])
     if raw_evidence_list:
@@ -1328,7 +1298,7 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data 
         st.markdown('<div class="cad-card">', unsafe_allow_html=True)
         st.markdown(f'<div class="cad-header" style="background-color: #2C3E50;">🔍 BẰNG CHỨNG THÔNG SỐ SỐ ĐO GỐC (AI OCR EVIDENCE FOR SIZE: {extracted_size})</div>', unsafe_allow_html=True)
         
-        evidence_rows = [{"STT": idx + 1, "Thông số gốc bóc tách từ Spec (Trang 13)": str(item)} for idx, item in enumerate(raw_evidence_list)]
+        evidence_rows = [{"STT": idx + 1, "Thông số gốc bóc tách từ Spec (Trang 13-14)": str(item)} for idx, item in enumerate(raw_evidence_list)]
         df_evidence = pd.DataFrame(evidence_rows)
         st.dataframe(df_evidence, use_container_width=True, hide_index=True)
         st.markdown('</div>', unsafe_allow_html=True)
@@ -1376,8 +1346,8 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data 
         
         for row_num, row_data in enumerate(display_data, 4):
             ws.row_dimensions[row_num].height = 22
-            for col_num, key in enumerate(headers, 1):
-                cell = ws.cell(row=row_num, column=col_num)
+            for col_idx, key in enumerate(headers, 1):
+                cell = ws.cell(row=row_num, column=col_idx)
                 cell.value = row_data[key]
                 cell.font = font_body
                 cell.border = thin_border
@@ -1385,7 +1355,7 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data 
                     cell.alignment = align_right
                     cell.number_format = '#,##0.0000'
                 elif key in ["Khổ vải (Width)", "Co rút dọc (% Warp)", "Co rút ngang (% Weft)", "Marker Efficiency", "Quality Status"]:
-                    cell.alignment = center
+                    cell.alignment = align_center
                 else:
                     cell.alignment = align_left
         
@@ -1401,7 +1371,6 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data 
         excel_bytes = output.getvalue()
         
         st.markdown("<br>", unsafe_allow_html=True)
-        # --- FIX LỖI ĐÓNG NGOẶC HÀM DOWNLOAD TẠI ĐÂY ---
         st.download_button(
             label="📥 XUẤT FILE EXCEL ĐỊNH MỨC CHUẨN SẢN XUẤT",
             data=excel_bytes,
@@ -1409,5 +1378,5 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data 
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True
         )
-    except Exception as excel_err:
-        st.error(f"❌ Không thể khởi tạo file Excel: {str(excel_err)}")
+    except Exception as e:
+        st.warning(f"⚠️ Không thể khởi tạo nút xuất Excel cao cấp: {str(e)}")
