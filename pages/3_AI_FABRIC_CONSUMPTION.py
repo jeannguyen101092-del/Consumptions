@@ -1023,7 +1023,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             
             gemini_inputs = copy.deepcopy(image_payloads)
 # =====================================================================
-# ĐOẠN 7a2.1: AI CORE COGNITIVE ENGINE GENERATION (V30.0 CHUẨN ĐỊNH MỨC PANT)
+# ĐOẠN 7a2.1: AI CORE COGNITIVE ENGINE GENERATION (V32.0 APPROVED - FULL TRIMS & RIB)
 # =====================================================================
             if "GEMINI_API_KEY" in st.secrets: 
                 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
@@ -1059,12 +1059,13 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             STRICT GARMENT RECONSTRUCTION RULES FOR PANT FLAT PATTERNS (SIZE {target_size_cmd}):
             1. Target size is '{target_size_cmd}'. Read specifications across both Page 13 and Page 14.
             2. Convert fractional notation to pure decimals (e.g., '16 1/2' to 16.5, '20 1/4' to 20.25).
-            3. 🌟 CRITICAL WIDTH RULE TO PREVENT OVER-CONSUMPTION: 
-               - The width value in the spec sheet represents a flat half-garment circumference measurement.
+            3. CRITICAL WIDTH RULE TO PREVENT OVER-CONSUMPTION: 
                - Individual FRONT_PANEL and BACK_PANEL flat pattern piece width MUST be equal to (Hip Width or Waist Width found in table) DIVIDED BY 2 plus 1.0 inch seam allowance.
-               - For example, if Low Hip Width is 20.0 inch, the pattern 'piece_width_inch' for FRONT_PANEL and BACK_PANEL MUST be around 10.0 to 11.0 inches (NEVER use 20.0 directly).
             4. FRONT_PANEL / BACK_PANEL Length: Use 'Inseam' length + 'Front rise' (~32.0 + 10.75 = ~42.75 inches).
-            5. WAISTBAND: Extract length based on full waist circumference (~32 to 34 inches) and height (~1.5 to 2.5 inches).
+            5. 🌟 RECONSTRUCT COMPLETE TRIMS & ACCESSORIES ASSEMBLY: You MUST output exactly 3 main categories inside the "bom_rows" array:
+               - MAIN FABRIC (DENIM): Body Front, Back, and structural panels.
+               - INTERLINING / KEO LÓT (FUSING): Waistband fusing support panel and baget pocket reinforcements.
+               - RIB / ELASTIC TAPE (BO THUN): Pocket opening tabs or waistband hidden elastic stretch structures if mentioned.
             
             Output strictly in the specified JSON structure:
             ===START_JSON===
@@ -1084,14 +1085,27 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                   "fabric_code": "DENIM", "fabric_color": "SOLID COLOR", "fabric_width_inch": {active_width},
                   "panels_catalog": [
                     {{ "panel_name": "FRONT_PANEL", "piece_count": 2.0, "piece_length_inch": 0.0, "piece_width_inch": 0.0 }},
-                    {{ "panel_name": "BACK_PANEL", "piece_count": 2.0, "piece_length_inch": 0.0, "piece_width_inch": 0.0 }},
-                    {{ "panel_name": "WAISTBAND", "piece_count": 2.0, "piece_length_inch": 0.0, "piece_width_inch": 0.0 }}
+                    {{ "panel_name": "BACK_PANEL", "piece_count": 2.0, "piece_length_inch": 0.0, "piece_width_inch": 0.0 }}
+                  ]
+                }},
+                {{
+                  "component_type": "INTERLINING / KEO LÓT", "placement": "WAISTBAND", "fabric_classification": "FUSING",
+                  "fabric_code": "TRICOT_KEO", "fabric_color": "WHITE", "fabric_width_inch": 44.0,
+                  "panels_catalog": [
+                    {{ "panel_name": "WAISTBAND_FUSING", "piece_count": 2.0, "piece_length_inch": 16.5, "piece_width_inch": 2.5 }}
+                  ]
+                }},
+                {{
+                  "component_type": "RIB / ELASTIC TAPE", "placement": "WAIST/POCKET", "fabric_classification": "RIB",
+                  "fabric_code": "COTTON_RIB", "fabric_color": "MATCHING", "fabric_width_inch": 36.0,
+                  "panels_catalog": [
+                    {{ "panel_name": "RIB_PANEL", "piece_count": 2.0, "piece_length_inch": 8.0, "piece_width_inch": 2.0 }}
                   ]
                 }}
               ]
             }}
             ===END_JSON===
-            If successfully extracted, flip "status" to "PASS", "spec_sheet_found" to true, list clean readable strings inside "matched_measurements", and populate the dynamic dimensions inside "bom_rows".
+            If successfully extracted, flip "status" to "PASS", "spec_sheet_found" to true, list extracted items as clean 'POM_CODE: Description = Value' inside "matched_measurements", and dynamically overwrite 0.0 with calibrated panel sizes.
             
             ===START_CHAT===
             [Confirm in Vietnamese which pages you scanned (Page 13 and Page 14) and summarize the exact clean decimal dimensions found for size {target_size_cmd}.]
@@ -1100,6 +1114,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             
             gemini_inputs.append(prompt_instruction)
             response = model.generate_content(gemini_inputs)
+
 
 # =====================================================================
 # ĐOẠN 7a2.2: POST-AI MIDDLEWARE GEOMETRY PROCESSOR (V32.5 KHÓA REGEX ĐỘNG & ĐÓNG TRY)
@@ -1228,7 +1243,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
 
 
 # =====================================================================
-# ĐOẠN 7b: HIỂN THỊ KẾT QUẢ ĐỊNH MỨC & BẢNG TRA CỨU THÔNG SỐ AI OCR (V20.5 APPROVED)
+# ĐOẠN 7b: HIỂN THỊ KẾT QUẢ ĐỊNH MỨC & BẢNG TRA CỨU THÔNG SỐ CHUẨN MATRIX ĐA CỘT (V21.0 APPROVED)
 # =====================================================================
 if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data and st.session_state.bom_data["bom_rows"]:
     
@@ -1237,7 +1252,6 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data 
     st.markdown('<div class="cad-card">', unsafe_allow_html=True)
     st.markdown(f'<div class="cad-header">📊 CALCULATED FABRIC CONSUMPTION MATRIX (SIZE TARGET: {extracted_size})</div>', unsafe_allow_html=True)
     
-    # 🌟 PHÒNG VỆ BIẾN KHI LÀM MỚI TRANG (F5) - KHÔNG LO MẤT DỮ LIỆU HIỂN THỊ
     chat_txt = ""
     if 'safe_user_prompt' in locals() and safe_user_prompt:
         chat_txt = str(safe_user_prompt).lower()
@@ -1301,20 +1315,52 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data 
     st.markdown('</div>', unsafe_allow_html=True)
     
     # =====================================================================
-    # 🌟 TRỰC QUAN HÓA BẢNG CHỨNG CỨ THÔNG SỐ AI OCR QUÉT ĐƯỢC LIÊN TRANG (13-14)
+    # 🌟 FIX CHIẾN LƯỢC 2: TRỰC QUAN HÓA BẢNG ĐỐI CHỨNG ĐA CỘT PHÂN TÁCH SIÊU ĐẸP
     # =====================================================================
     raw_evidence_list = st.session_state.bom_data.get("matched_measurements", [])
     if raw_evidence_list:
         st.markdown("<br>", unsafe_allow_html=True)
         st.markdown('<div class="cad-card">', unsafe_allow_html=True)
-        st.markdown(f'<div class="cad-header" style="background-color: #2C3E50;">🔍 BẰNG CHỨNG THÔNG SỐ SỐ ĐO GỐC (AI OCR EVIDENCE FOR SIZE: {extracted_size})</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="cad-header" style="background-color: #2C3E50;">🔍 BẰNG CHỨNG SỐ ĐO GỐC TỪ TECHPACK (SIZE: {extracted_size})</div>', unsafe_allow_html=True)
         
-        evidence_rows = [{"STT": idx + 1, "Thông số gốc bóc tách từ Spec (Trang 13-14)": str(item)} for idx, item in enumerate(raw_evidence_list)]
-        df_evidence = pd.DataFrame(evidence_rows)
+        parsed_evidence_rows = []
+        for idx, item in enumerate(raw_evidence_list):
+            raw_str = str(item).strip()
+            
+            # Khởi tạo các dải phân mảnh cột mặc định phòng vệ dữ liệu
+            pom_code = "POM"
+            description = raw_str
+            measurement_val = "-"
+            
+            # Cắt chuỗi thông minh bằng dấu hai chấm hoặc dấu bằng
+            if ":" in raw_str:
+                parts = raw_str.split(":", 1)
+                pom_code = parts[0].strip()
+                remainder = parts[1].strip()
+                if "=" in remainder:
+                    sub_parts = remainder.split("=", 1)
+                    description = sub_parts[0].strip()
+                    measurement_val = sub_parts[1].strip()
+                else:
+                    description = remainder
+            elif "=" in raw_str:
+                parts = raw_str.split("=", 1)
+                description = parts[0].strip()
+                measurement_val = parts[1].strip()
+                
+            parsed_evidence_rows.append({
+                "STT": idx + 1,
+                "Mã POM": pom_code,
+                "Mô tả Thông số Kỹ thuật": description,
+                "Kích thước Đo thực tế (Inches)": measurement_val
+            })
+            
+        df_evidence = pd.DataFrame(parsed_evidence_rows)
+        # Ép bảng co giãn full màn hình nâng cao trải nghiệm UI/UX nhà máy
         st.dataframe(df_evidence, use_container_width=True, hide_index=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
-    # KHỐI LOGIC KHỞI TẠO FILE BÁO CÁO EXCEL CHUẨN NHÀ MÁY
+    # KHỐI LOGIC KHỞI TẠO FILE BÁO CÁO EXCEL CHUẨN SẢN XUẤT NHÀ MÁY
     try:
         import io
         from openpyxl import Workbook
