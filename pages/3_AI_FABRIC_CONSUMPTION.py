@@ -3,6 +3,9 @@ import pandas as pd
 import io
 import re
 import copy
+import math
+import re
+import json
 
 # =====================================================================
 # ĐOẠN 1: GLOBAL CONFIG REGISTRY & BỘ HẰNG SỐ KỸ THUẬT IE ENGINE (V17.1.0.0 APPROVED)
@@ -1380,109 +1383,18 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
 
 
 
-    # =====================================================================
-# 🚀 HỆ THỐNG PIPELINE CAD HÌNH HỌC & ĐỊNH MỨC SẢN XUẤT HỢP NHẤT TRỌN GÓI
-# =====================================================================
-import math
-import re
-import json
-
-def parse_geometric_panels_allowance(ai_blueprint: dict, user_chat: str) -> dict:
-    """ĐOẠN 2a1: Tầng tổng hợp dữ liệu AI và trích xuất thông số hình học rập."""
-    if not ai_blueprint or not isinstance(ai_blueprint, dict):
-        return {"detected_product_type": "PANT", "bom_rows": [], "_btp_global_summary": {}}
-    product_type = str(ai_blueprint.get("detected_product_type", "DEFAULT")).upper().strip()
-    all_rows = ai_blueprint.get("bom_rows", []) if isinstance(ai_blueprint.get("bom_rows"), list) else []
-    for row in all_rows:
-        if isinstance(row, dict):
-            row["_btp_total_panel_area"] = float(row.get("_btp_summary", {}).get("area", 0.0))
-            row["_btp_max_piece_length"] = float(row.get("_btp_summary", {}).get("max_piece_length", 30.0))
-            row["_btp_max_piece_width"] = float(row.get("_btp_summary", {}).get("max_piece_width", 15.0))
-            row["_btp_total_piece_count"] = int(float(row.get("_btp_summary", {}).get("piece_count", 0.0)))
-    return ai_blueprint
-
-def parse_and_prepare_ie_panels(all_rows: list, product_type: str, user_prompt: str = "") -> tuple:
-    """ĐOẠN 2b1: CHAT PARSER LAYER - Chuẩn cú pháp an toàn chống lỗi NoneType."""
-    chat = str(user_prompt or "").lower().strip()
-    user_eff = None
-    if "eff" in chat or "sơ đồ" in chat or "hiệu suất" in chat:
-        user_eff = 0.85
-    user_chat_flags = {
-        "force_stripe_match": "sọc" in chat or "stripe" in chat or "caro" in chat,
-        "force_bias_cut": "xéo" in chat or "bias" in chat,
-        "force_one_way": "một chiều" in chat or "one way" in chat or "tuyết" in chat
-    }
-    for r in all_rows:
-        if isinstance(r, dict):
-            s = f"{r.get('fabric_classification', '')} {r.get('component_type', '')}".upper()
-            r["_is_fusing"] = "FUSING" in s or "KEO" in s or "MEX" in s
-            r["_is_lining"] = "LINING" in s or "POCKET" in s or "LÓT" in s
-            try: r["fabric_width_inch"] = float(r.get("fabric_width_inch", 58.0))
-            except: r["fabric_width_inch"] = 58.0
-            r["_btp_chat_specs"] = {
-                "requested_efficiency": user_eff,
-                "shrinkage_factor": 0.0,
-                "width_override": 0.0,
-                **user_chat_flags
-            }
-    return all_rows, user_eff
-
-def analyze_panel_geometry_and_cad_constraints(panels: list, cutable_w: float) -> dict:
-    """ĐOẠN CON 2b2: Phân tích topo đa giác chi tiết từ AI V49."""
-    res = {"avg_compactness": 0.65, "bbox_packing_ratio": 1.0, "width_utilization_ratio": 0.0, "major_pieces_count": 0, "minor_pieces_count": 0, "total_pieces": 0, "max_p_len": 30.0, "max_p_wid": 15.0, "has_fold_penalty": False, "has_pair_constraint": False}
-    if not panels: return res
-    t_comp, t_bbox, t_net, max_l, max_w, maj, min_c, tot = 0.0, 0.0, 0.0, 0.0, 0.0, 0, 0, 0
-    has_f, has_p = False, False
-    for p in [p for p in panels if isinstance(p, dict)]:
-        p_m = p.get("panel_metadata", {}); g_m = p.get("geometry_metadata", {}); p_c = float(p.get("piece_count", 1.0)); tot += int(p_c)
-        l_v = float(g_m.get("panel_length", p.get("piece_length_inch", 0.0))); w_v = float(g_m.get("panel_width", p.get("piece_width_inch", 0.0)))
-        if l_v > max_l: max_l = l_v
-        if w_v > max_w: max_w = w_v
-        if "MAJOR" in str(p_m.get("panel_category", "")).upper(): maj += int(p_c)
-        else: min_c += int(p_c)
-        if p_m.get("cut_on_fold", False): has_f = True
-        if p_m.get("pair_required", False): has_p = True
-        p_a = float(g_m.get("polygon_area", g_m.get("net_area", l_v * w_v * 0.6))); p_pe = float(g_m.get("polygon_perimeter", 0.0)); t_net += p_a * p_c
-        t_comp += ((4.0 * math.pi * p_a) / (p_pe ** 2)) * p_c if p_pe > 0 else 0.65 * p_c
-        t_bbox += (l_v * w_v) * p_c
-    res.update({"avg_compactness": t_comp / max(1.0, tot), "bbox_packing_ratio": t_net / max(t_net, t_bbox), "width_utilization_ratio": max_w / max(1.0, cutable_w), "major_pieces_count": maj, "minor_pieces_count": min_c, "total_pieces": tot, "max_p_len": max_l, "max_p_wid": max_w, "has_fold_penalty": has_f, "has_pair_constraint": has_p})
-    return res
-
-def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict, user_prompt: str = "") -> dict:
-    """ĐOẠN CHÍNH 2b2: CAD-SIMULATION YARDAGE ENGINE - Giả lập Gerber CAM."""
-    all_rows = ai_blueprint.get("bom_rows", [])
-    product_type = str(ai_blueprint.get("detected_product_type", "DEFAULT")).upper().strip()
-    for row in all_rows:
-        if not row or not isinstance(row, dict): continue
-        if any(k in str(row).upper() for k in ["BUTTON", "ZIPPER", "THREAD", "LABEL"]): continue
-        fc = row.get("fabric_constraints", {}); row_sum = row.get("_btp_summary", {}); panels = row.get("panels_catalog", [])
-        row_net_area = float(row.get("_btp_total_panel_area", row_sum.get("area", 0.0)))
-        if row_net_area <= 0.0: continue
-        cutable_w = float(row.get("fabric_width_inch", 58.0))
-        topo = analyze_panel_geometry_and_cad_constraints(panels, cutable_w)
-        base_eff = 0.77 if topo["width_utilization_ratio"] > 0.90 else (0.81 if topo["width_utilization_ratio"] > 0.70 else 0.85)
-        nest_bonus = min(0.045, (float(topo["minor_pieces_count"]) / max(1.0, float(topo["total_pieces"]))) * 0.08)
-        penalty = max(0.0, (0.85 - topo["avg_compactness"]) * 0.1) + max(0.0, (0.85 - topo["bbox_packing_ratio"]) * 0.08)
-        if fc.get("one_way", False): penalty += 0.035
-        if topo["has_fold_penalty"]: penalty += 0.025
-        sim_eff = max(0.62, min(0.93, base_eff - penalty + nest_bonus))
-        marker_len = max(topo["max_p_len"] * 1.04, row_net_area / (cutable_w * sim_eff))
-        row["marker_efficiency_pct"] = f"{round(sim_eff * 100, 1)}%"
-        row["calculated_gross_consumption_yds"] = round((marker_len / 36.0) * 1.03 * 1.04, 4)
-        row["consumption_note"] = f"Mô phỏng Gerber V27 | Khổ {cutable_w}\" | Chiếm khổ={round(topo['width_utilization_ratio']*100,1)}%"
-        row["status"] = "PASS"
-    ai_blueprint["bom_rows"] = all_rows
-    return ai_blueprint
-
-# =====================================================================
-# CHÈN NỐI TIẾP VÀO: ĐOẠN 7a2.2 TRONG FILE CHÍNH STREAMLIT ĐỂ KÍCH HOẠT
-# =====================================================================
-# [Đoạn này đặt ngay sau câu lệnh: response = model.generate_content(gemini_inputs)]
+            # =====================================================================
+            # ĐOẠN 7a2.2: PIPELINE HỢP NHẤT HÌNH HỌC CAD VÀ TÍNH ĐỊNH MỨC (V17.0.7 FIXED)
+            # =====================================================================
             ai_chat_response = "Hệ thống đang xử lý dữ liệu..."
             response_text = ""
+            
             if response:
-                try: response_text = response.text.strip()
-                except Exception: response_text = ""
+                try:
+                    response_text = response.text.strip()
+                except Exception as e_text:
+                    response_text = ""
+                    st.error(f"⚠️ Không thể đọc thuộc tính text phản hồi từ AI: {str(e_text)}")
             
             if response_text:
                 json_match = re.search(r'(?:===START_JSON===\s*|```json\s*)(.*?)(?:\s*===END_JSON===|\s*```)', response_text, re.DOTALL)
@@ -1493,7 +1405,7 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict, user_prompt
                     try:
                         raw_blueprint = json.loads(raw_json_str)
                         if "bom_rows" in raw_blueprint:
-                            # Chạy tuần tự bộ lõi siêu máy tính 3 bước sạch
+                            # Thực thi chuỗi 3 bước xử lý hình học & định mức Gerber CAD phẳng
                             b1 = parse_geometric_panels_allowance(raw_blueprint, current_query)
                             b2_rows, _ = parse_and_prepare_ie_panels(b1.get("bom_rows", []), b1.get("detected_product_type"), current_query)
                             b1["bom_rows"] = b2_rows
@@ -1504,8 +1416,13 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict, user_prompt
                             ai_chat_response = chat_match.group(1).strip() if chat_match else "✅ Gerber CAD Simulation thành công!"
                             st.session_state.chat_history.append({"user": current_query, "ai": ai_chat_response})
                             st.rerun()
-                    except Exception as e:
-                        st.error(f"💥 Lỗi luồng tính định mức: {str(e)}")
+                    except Exception as e_pipeline:
+                        st.error(f"💥 Lỗi luồng thực thi toán học định mức: {str(e_pipeline)}")
+                else:
+                    st.warning("⚠️ Không tìm thấy khối START_JSON hợp lệ từ Gemini.")
+            else:
+                st.warning("⚠️ Gemini phản hồi nội dung trống.")
+
 
 
                 
