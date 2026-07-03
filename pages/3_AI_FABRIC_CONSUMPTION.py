@@ -590,67 +590,52 @@ def execute_marker_yardage_and_quality_gate(ai_blueprint: dict, user_chat: str) 
 
 
 # =====================================================================
-# ĐOẠN 2b1: CHAT PARSER LAYER - FIX CÚ PHÁP NGOẶC DICTIONARY (V17.0.8 STABLE)
+# ĐOẠN 2b1: CHAT PARSER LAYER - BẢN SIÊU PHẲNG CHỐNG LỖI CÚ PHÁP (V17.0.9)
 # =====================================================================
 def parse_and_prepare_ie_panels(all_rows: list, product_type: str, user_prompt: str = "") -> tuple:
-    """
-    Nhiệm vụ: Parse chỉ thị chat + Ép kiểu an toàn nghiêm ngặt để triệt tiêu lỗi NoneType.
-    Chuẩn cú pháp tuyệt đối, không thiếu ngoặc đóng.
-    """
+    """Bản nén gọn tối đa, triệt tiêu vòng lặp phức tạp để chống lỗi cắt chữ."""
     import re
-    chat_lower = str(user_prompt if user_prompt else "").lower().strip()
+    chat_lower = str(user_prompt or "").lower().strip()
     
     # 1. Bóc tách Hiệu suất sơ đồ (Marker Efficiency)
     user_requested_eff = None
-    if m_eff := re.search(r'(?:hiệu\s*suất|hieu\s*suat|eff|efficiency|marker|sơ\s*đồ)\s*[:\-=\s]*([\d\.]+)', chat_lower):
-        try:
-            val_eff = float(m_eff.group(1))
-            raw_eff = val_eff / 100.0 if val_eff > 1.0 else val_eff
-            user_requested_eff = min(max(raw_eff, 0.44), 0.95)
-        except (ValueError, TypeError): pass
+    if m := re.search(r'(?:hiệu\s*suất|hieu\s*suat|eff|efficiency|marker|sơ\s*đồ)\s*[:\-=\s]*([\d\.]+)', chat_lower):
+        val_eff = float(m.group(1))
+        user_requested_eff = min(max(val_eff / 100.0 if val_eff > 1.0 else val_eff, 0.44), 0.95)
 
-    # 2. Bóc tách Tỷ lệ co rút vải (Fabric Shrinkage %)
-    user_shrinkage = 0.0
-    if m_shrink := re.search(r'(?:co\s*rút|co\s*rut|shrink|shrinkage)\s*[:\-=\s]*([\d\.]+)\s*%', chat_lower):
-        try: user_shrinkage = float(m_shrink.group(1)) / 100.0
-        except (ValueError, TypeError): pass
+    # 2. Bóc tách Co rút, Khổ vải, Cờ định hướng may mặc
+    m_shrink = re.search(r'(?:co\s*rút|co\s*rut|shrink)\s*[:\-=\s]*([\d\.]+)\s*%', chat_lower)
+    user_shrinkage = float(m_shrink.group(1)) / 100.0 if m_shrink else 0.0
 
-    # 3. Bóc tách Khổ vải chỉ định thay thế (Fabric Width Override)
-    user_width_override = 0.0
-    if m_width := re.search(r'(?:khổ|kho|width|cut\s*width)\s*[:\-=\s]*([\d\.]+)', chat_lower):
-        try: user_width_override = float(m_width.group(1))
-        except (ValueError, TypeError): pass
+    m_width = re.search(r'(?:khổ|kho|width)\s*[:\-=\s]*([\d\.]+)', chat_lower)
+    user_width_override = float(m_width.group(1)) if m_width else 0.0
 
-    # 4. FIXED: Trích xuất các cờ chỉ thị định hướng cắt (Đầy đủ ngoặc đóng })
     user_chat_flags = {
-        "force_stripe_match": any(x in chat_lower for x in ["kẻ", "sọc", "stripe", "plaid", "caro"]),
+        "force_stripe_match": any(x in chat_lower for x in ["kẻ", "sọc", "stripe", "caro"]),
         "force_bias_cut": any(x in chat_lower for x in ["xéo", "bias"]),
         "force_one_way": any(x in chat_lower for x in ["một\s*chiều", "1\s*chieu", "one\s*way", "tuyết"])
     }
 
-    # 5. Pipeline cập nhật dữ liệu chống Null-Pointer cho các Engine sau
-    prepared_rows = []
-    for row in [r for r in all_rows if isinstance(r, dict)]:
-        s = f"{row.get('fabric_classification', '')} {row.get('component_type', '')}".upper()
-        
-        row["_is_fusing"] = any(x in s for x in ["FUSING", "KEO", "MEX", "MẾCH", "INTERLINING"])
-        row["_is_lining"] = any(x in s for x in ["LINING", "POCKET", "TÚI", "LÓT", "POCKETING"])
-        row["_is_elastic_or_tape"] = any(x in s for x in ["ELASTIC", "TAPE", "THUN", "CHUN", "DÂY"])
-        
-        raw_width = row.get("fabric_width_inch")
-        try: row["fabric_width_inch"] = float(raw_width) if raw_width is not None else 0.0
-        except (ValueError, TypeError): row["fabric_width_inch"] = 0.0
+    # 3. Vòng lặp phẳng chuẩn hóa an toàn
+    for row in all_rows:
+        if isinstance(row, dict):
+            s = f"{row.get('fabric_classification', '')} {row.get('component_type', '')}".upper()
+            row["_is_fusing"] = any(x in s for x in ["FUSING", "KEO", "MEX", "INTERLINING"])
+            row["_is_lining"] = any(x in s for x in ["LINING", "POCKET", "LÓT", "POCKETING"])
+            row["_is_elastic_or_tape"] = any(x in s for x in ["ELASTIC", "TAPE", "CHUN", "DÂY"])
+            
+            # Bảo vệ ép kiểu khổ vải thô tránh NoneType
+            try: row["fabric_width_inch"] = float(row.get("fabric_width_inch", 0.0))
+            except: row["fabric_width_inch"] = 0.0
 
-        # Tiêm gói thông số kỹ thuật chuẩn hóa sạch vào schema
-        row["_btp_chat_specs"] = {
-            "requested_efficiency": user_requested_eff,
-            "shrinkage_factor": user_shrinkage,
-            "width_override": user_width_override,
-            **user_chat_flags
-        }
-        prepared_rows.append(row)
-        
-    return prepared_rows, user_requested_eff
+            row["_btp_chat_specs"] = {
+                "requested_efficiency": user_requested_eff,
+                "shrinkage_factor": user_shrinkage,
+                "width_override": user_width_override,
+                **user_chat_flags
+            }
+            
+    return all_rows, user_requested_eff
 
 
 
