@@ -551,7 +551,7 @@ def parse_and_prepare_ie_panels(all_rows: list, product_type: str, user_prompt: 
 def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict, user_prompt: str = "") -> dict:
     """
     Phân đoạn 2b2: Chạy công thức tính toán định mức dải sơ đồ lồng rập Cargo chuẩn nhà máy.
-    V17.0.2.4 TUNED FOR GERBER COMPATIBILITY - TĂNG HAO HỤT VÀ DUNG SAI TÚI HỘP
+    V17.0.2.5 FIXED LỖI TYPEERROR ACCUMULATED_BOM_ROWS LIST INDICES
     """
     import streamlit as st
     import copy
@@ -575,11 +575,11 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict, user_prompt
         prepared_rows = all_rows
         user_requested_eff = None
 
-    # Khởi tạo kho lưu trữ tích lũy luỹ kế dòng vật tư trong session chống lặp dòng
-    if "accumulated_bom_rows" not in st.session_state:
+    # 🌟 FIX CHÍ MẠNG: Ép kiểu dữ liệu luôn là Dictionary để tránh xung đột kiểu List [] từ bên ngoài cấu trúc khác
+    if "accumulated_bom_rows" not in st.session_state or not isinstance(st.session_state.accumulated_bom_rows, dict):
         st.session_state.accumulated_bom_rows = {}
 
-    # 🌟 CẬP NHẬT HỆ SỐ TOÁN HỌC IE CHUẨN ĐỒNG BỘ VỚI PHẦN MỀM GERBER SƠ ĐỒ THỰC TẾ
+    # Cập nhật hệ số toán học IE chuẩn đồng bộ với phần mềm Gerber sơ đồ thực tế
     globals_dict = globals()
     EXCLUDE_HARDWARE_KEYS = globals_dict.get("EXCLUDE_HARDWARE_KEYS", ["BUTTON", "ZIPPER", "THREAD", "LABEL"])
     IE_CONSTANTS = globals_dict.get("IE_CONSTANTS", {
@@ -588,11 +588,11 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict, user_prompt
         "DEFAULT_WIDTH_LINING": 44.0, 
         "DEFAULT_WIDTH_ELASTIC": 1.5,
         "MAX_ALLOWED_EFF": 0.90, 
-        "BASE_MARKER_EFF": 0.82,          # 🟢 Hạ hiệu suất nền xuống 82% chuẩn sơ đồ rập nhiều túi
+        "BASE_MARKER_EFF": 0.82,          # Sàn hiệu suất nền 82% chuẩn Gerber sơ đồ túi hộp
         "FIXED_EFF_TRIMS": 0.82, 
-        "WASTAGE_FACTOR": 1.10,           # 🟢 Tăng hao hụt đầu tấm/lỗi cây từ 5% lên 10% để đẩy định mức lên
-        "DUNG_SAI_BIEN_CARGO": 1.06,      # 🟢 Tăng dung sai biên túi hộp lên 6% (bù đắp khoảng hở Gerber)
-        "FALLBACK_MAIN_CONS": 1.48,       # 🟢 Tăng định mức phòng vệ mặc định từ 1.35 lên 1.48 Yds
+        "WASTAGE_FACTOR": 1.10,           # Hao hụt đầu tấm/lỗi vải 10% giúp tăng định mức
+        "DUNG_SAI_BIEN_CARGO": 1.06,      # Dung sai biên túi hộp 6%
+        "FALLBACK_MAIN_CONS": 1.48,       
         "FALLBACK_FUSING_CONS": 0.18, 
         "FALLBACK_LINING_CONS": 0.28,
         "CRITICAL_PANT_THRESHOLD": 1.95, 
@@ -621,7 +621,7 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict, user_prompt
             st.session_state.accumulated_bom_rows[f"HARDWARE_{f_code}"] = row
             continue
 
-        # Đọc lại hoặc tự cấu hình các biến trạng thái hình học phòng vệ tránh lỗi KeyError
+        # Đọc lại các biến trạng thái hình học
         is_fusing = row.get("_is_fusing", "FUSING" in f_class_raw or "KEO" in comp_type)
         is_lining = row.get("_is_lining", "LINING" in f_class_raw or "LÓT" in comp_type)
         is_elastic_or_tape = row.get("_is_elastic_or_tape", "ELASTIC" in f_class_raw)
@@ -632,7 +632,7 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict, user_prompt
         row["_is_lining"] = is_lining
         row["_is_elastic_or_tape"] = is_elastic_or_tape
 
-        # Duyệt động tìm chi tiết rập dài nhất (Thân quần ~41-43 inch) 
+        # Duyệt động tìm chi tiết rập dài nhất 
         max_piece_length = 0.0
         panels = row.get("panels_catalog", [])
         if panels and isinstance(panels, list):
@@ -675,7 +675,6 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict, user_prompt
                 eff = user_requested_eff
             else:
                 if not is_fusing and not is_lining and not is_elastic_or_tape:
-                    # Thuật toán cộng thưởng hiệu suất theo lượng chi tiết rập (Filler Bonus) nhưng bám theo sàn Gerber mới
                     bonus_eff = min(0.05, (total_piece_count - 4) * 0.005) if total_piece_count > 4 else 0.0
                     eff = min(IE_CONSTANTS["MAX_ALLOWED_EFF"], IE_CONSTANTS["BASE_MARKER_EFF"] + bonus_eff)
                 else:
@@ -687,11 +686,8 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict, user_prompt
             is_garment_pant = (product_type in ["PANT", "CARGO_PANT", "DEFAULT"] or "PANT" in product_type or max_piece_length > 30.0)
             
             if is_garment_pant and not is_fusing and not is_lining and not is_elastic_or_tape:
-                # 🟢 Thuật toán sơ đồ dải lồng rập cập nhật hệ số gộp dung sai chuẩn Gerber
                 total_yds = (max_piece_length / 36.0) * shrink_warp * IE_CONSTANTS["WASTAGE_FACTOR"] / eff
                 total_yds *= IE_CONSTANTS["DUNG_SAI_BIEN_CARGO"]
-                
-                # Bẫy bảo vệ giới hạn tối đa tránh nhảy vọt số
                 if total_yds > 1.95:
                     total_yds = IE_CONSTANTS["FALLBACK_MAIN_CONS"]
             else:
@@ -727,13 +723,13 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict, user_prompt
                 row["consumption_note"] = f"Khổ vải: {row['fabric_width_inch']}\" | Cấu hình định mức an toàn Gerber"
                 row["reason_or_logs"] = f"{row['fabric_width_inch']}\"/82.0%/3.0x3.0"
 
-        # Cập nhật kết quả vào kho lưu trữ luỹ kế
+        # Ghi nhận kết quả dạng chuỗi khóa an toàn
         st.session_state.accumulated_bom_rows[row_unique_key] = row
 
     # Cập nhật danh sách hàng mới vào lại cấu trúc sơ đồ và trả về kết quả
     ai_blueprint["bom_rows"] = prepared_rows
-
     return ai_blueprint
+
 
 
 # =====================================================================
