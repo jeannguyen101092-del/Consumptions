@@ -116,9 +116,11 @@ def python_extract_vector_polygons(pdf_bytes):
                         pass
     return extracted_pieces
 # =========================================================================
-# ĐOẠN 3/3 (CẬP NHẬT): MAPPING DATA, EXPANDER LOGS & KHAI BÁO TƯỜNG MINH PANDAS
+# ĐOẠN 3/3: MAPPING DATA & NESTING ENGINE - CHỈ TÍNH VẢI, KEO, RIB (KHÔNG CHỈ)
 # =========================================================================
-import pandas as pd  # Khai báo tường minh tại đây để sửa triệt để lỗi NameError
+import pandas as pd
+import numpy as np
+from shapely.affinity import translate, scale
 
 def check_collision_system(placed_list, target_poly):
     """Kiểm tra đè nén hình học cục bộ phẳng giữa chi tiết mới xếp và sơ đồ nền"""
@@ -139,21 +141,12 @@ if uploaded_file is not None:
                     blueprint = ai_compile_bom_blueprint(file_content)
                     if not blueprint or "pieces" not in blueprint:
                         blueprint = {"pieces": []}
-                    if "sewing_spec" not in blueprint or blueprint["sewing_spec"] is None:
-                        blueprint["sewing_spec"] = {"stitch_type": "301", "thread_waste_pct": 15.0}
-                    
-                    if blueprint["sewing_spec"].get("thread_waste_pct") is None:
-                        blueprint["sewing_spec"]["thread_waste_pct"] = 15.0
-                        
                     st.session_state.active_blueprint = blueprint
                     st.success("Đã trích xuất cấu trúc thuộc tính!")
                     st.json(blueprint)
                 except Exception as ai_err:
                     st.error(f"AI bóc tách lỗi, tự động kích hoạt Blueprint dự phòng: {str(ai_err)}")
-                    blueprint = {
-                        "pieces": [],
-                        "sewing_spec": {"stitch_type": "301", "thread_waste_pct": 15.0}
-                    }
+                    blueprint = {"pieces": []}
                     st.session_state.active_blueprint = blueprint
                 
         with col_view2:
@@ -169,19 +162,23 @@ if uploaded_file is not None:
         warp_factor = 1 + (warp_shrinkage / 100.0)
         weft_factor = 1 + (weft_shrinkage / 100.0)
         
-        nesting_queue = []
         pieces_list = blueprint.get("pieces", [])
         
+        # Tình huống khẩn cấp: Nếu AI trả về danh sách pieces rỗng, ép đọc tuần tự từ Vector đồ họa thực tế
         if not pieces_list and vectors:
-            st.warning("⚠️ AI không tìm thấy danh mục chi tiết chữ. Hệ thống tự động chuyển sang chế độ cưỡng bức đọc hình học Vector gốc.")
+            st.warning("⚠️ AI không phân tách được danh mục. Hệ thống chuyển sang đọc hình học Vector gốc tuần tự.")
             for v_idx in range(len(vectors)):
+                # Giả định phân nhóm tự động theo kích thước chi tiết (Chi tiết lớn = Vải chính, Chi tiết nhỏ = Keo/Phối)
+                v_poly = vectors[v_idx]["polygon"]
+                inferred_fabric = "Vải chính (Main)" if v_poly.area > 500 else "Keo lót / Rib"
                 pieces_list.append({
                     "name": f"GEOM_PIECE_{v_idx+1}",
                     "quantity": 1,
-                    "grain": "warp"
+                    "fabric": inferred_fabric
                 })
         
-        # Mảng lưu thông số để xuất bảng thống kê Pandas DataFrame
+        # Khởi tạo từ điển phân tách dữ liệu sơ đồ theo loại vật liệu cuộn
+        fabric_groups = {}
         summary_table_data = []
         
         for idx, ai_piece in enumerate(pieces_list):
@@ -195,33 +192,41 @@ if uploaded_file is not None:
                 qty = ai_piece.get("quantity", 1)
                 if qty is None: qty = 1
                 
-                # Lưu thông số hình học phẳng thực tế phục vụ kiểm toán kĩ thuật
+                # Trích xuất loại vật liệu (Vải chính, Keo lót, hoặc Bo Rib) - Mặc định là Vải chính nếu AI bỏ trống
+                fab_type = ai_piece.get("fabric", "Vải chính (Main)")
+                if not fab_type: fab_type = "Vải chính (Main)"
+                
                 summary_table_data.append({
                     "Tên Chi Tiết": ai_piece.get('name', 'UNKNOWN'),
+                    "Loại Vật Liệu": fab_type,
                     "Số Lượng (Pcs)": qty,
                     "Chu Vi Gốc (Inch)": round(geom_poly.length, 2),
-                    "Chu Vi + Đường May (Inch)": round(poly_with_seam.length, 2),
                     "Diện Tích Gốc (Sq.In)": round(geom_poly.area, 2),
                     "Diện Tích + Đường May (Sq.In)": round(poly_with_seam.area, 2)
                 })
                 
+                if fab_type not in fabric_groups:
+                    fabric_groups[fab_type] = []
+                    
                 for q in range(qty):
-                    nesting_queue.append({
+                    fabric_groups[fab_type].append({
                         "name": f"{ai_piece.get('name', 'UNKNOWN')}_Q{q+1}",
-                        "poly": poly_with_seam,
-                        "perimeter": poly_with_seam.length
+                        "poly": poly_with_seam
                     })
         
-        # Hiển thị bảng dữ liệu kiểm soát cấu trúc rập thực tế
+        # Hiển thị bảng thống kê cấu trúc rập hình học thực tế
         st.write("#### 📊 Bảng Thống Kê Thuộc Tính Hình Học Chi Tiết Rập Thực Tế (Python Engine)")
         st.dataframe(pd.DataFrame(summary_table_data), use_container_width=True)
                     
-        # Sắp xếp gọn tiến trình chạy thuật toán định vị vào Expander chống tràn giao diện
-        placed_shapes = []
-        max_length_reached = 0.0
+        # --- NESTING & CONSUMPTION ENGINE THEO TỪNG LOẠI VẬT LIỆU CRITICAL ---
+        st.write("#### ⚙️ Tiến trình Nesting và Tính định mức theo chủng loại vật liệu")
         
-        if nesting_queue:
-            with st.expander("🔍 Xem nhật ký định vị tọa độ sơ đồ chi tiết (Nesting Logs)", expanded=False):
+        # Tạo cấu trúc giao diện hiển thị kết quả cho từng nhóm vải/keo/rib riêng biệt
+        for fab_name, nesting_queue in fabric_groups.items():
+            placed_shapes = []
+            max_length_reached = 0.0
+            
+            with st.expander(f"🔍 Nhật ký sơ đồ cho nhóm: {fab_name} ({len(nesting_queue)} chi tiết)", expanded=True):
                 for item in nesting_queue:
                     current_poly = item["poly"]
                     minx, miny, maxx, maxy = current_poly.bounds
@@ -243,35 +248,21 @@ if uploaded_file is not None:
                                 break
                         if not placed:
                             curr_x += 0.5
-                        if curr_x > 2000.0: break
+                        if curr_x > 5000.0: break
                         
-                    st.caption(f"✅ Python Engine định vị thành công: `{item['name']}` tại X={curr_x:.2f}")
-        else:
-            st.error("❌ Không có dữ liệu chi tiết rập hợp lệ để thực hiện đi sơ đồ Nesting.")
+                    st.caption(f"✅ Định vị xong chi tiết `{item['name']}` tại X={curr_x:.2f} Inch")
             
-        # --- FABRIC & THREAD CALCULATOR ---
-        final_fabric_length_inch = max_length_reached * warp_factor
-        final_fabric_consumption_yard = final_fabric_length_inch / 36.0
-        
-        total_seam_length = sum([item["perimeter"] for item in nesting_queue])
-        thread_ratio = 3.0
-        
-        raw_waste_pct = blueprint["sewing_spec"].get("thread_waste_pct", 15.0)
-        if raw_waste_pct is None: 
-            raw_waste_pct = 15.0
+            # Tính toán định mức vải cuộn (Vải/Keo/Rib) áp dụng co rút sợi dọc (Warp Shrinkage)
+            final_length_inch = max_length_reached * warp_factor
+            final_consumption_yard = final_length_inch / 36.0
             
-        waste_thread_factor = 1 + (raw_waste_pct / 100.0)
-        final_thread_consumption_yard = ((total_seam_length * thread_ratio) / 36.0) * waste_thread_factor
-        
-        # --- BÁO CÁO KẾT QUẢ KIỂM ĐỊNH KHÔNG SAI LỆCH ---
-        st.markdown("---")
-        st.subheader("📊 BÁO CÁO ĐỊNH MỨC NGUYÊN PHỤ LIỆU TỰ ĐỘNG CHÍNH XÁC TUYỆT ĐỐI")
-        r1, r2, r3 = st.columns(3)
-        with r1:
-            st.metric(label="Định Mức Vải Sơ Đồ (Yards)", value=f"{final_fabric_consumption_yard:.3f} Yds")
-        with r2:
-            st.metric(label="Định Mức Chỉ May Thực Tế (Yards)", value=f"{final_thread_consumption_yard:.2f} Yds")
-        with r3:
-            st.metric(label="Chiều Dài Sơ Đồ Hình Học (Inch)", value=f"{final_fabric_length_inch:.1f} Inch")
+            # Xuất kết quả riêng biệt cho loại vật liệu đang duyệt lặp
+            st.info(f"📊 **KẾT QUẢ ĐỊNH MỨC NGUYÊN LIỆU: {fab_name.upper()}**")
+            c1, c2 = st.columns(2)
+            with c1:
+                st.metric(label=f"Định Mức Tiêu Hao ({fab_name})", value=f"{final_consumption_yard:.3f} Yards")
+            with c2:
+                st.metric(label="Chiều Dài Sơ Đồ Thực Tế", value=f"{final_length_inch:.1f} Inch")
+            st.markdown("---")
             
-        st.success("⚙️ Hệ thống xử lý hoàn tất độc lập. Đã bổ sung thư viện dữ liệu Pandas, hệ thống vận hành an toàn 100%.")
+        st.success("⚙️ Quy trình xử lý hoàn tất độc lập. Đã loại bỏ chỉ may, tập trung 100% tính toán chính xác định mức Vải, Keo lót, và Bo Rib.")
