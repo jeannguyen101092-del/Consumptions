@@ -1381,8 +1381,9 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                 except Exception: response_text = ""
             # =====================================================================
                        # =====================================================================
-            # ĐOẠN 7a2.2: POST-AI MIDDLEWARE CAD PIPELINE BRIDGE (V17.2.5 STABLE)
-            # Nhiệm vụ: Vá dứt điểm lỗi "dictionary changed size during iteration"
+                      # =====================================================================
+            # ĐOẠN 7a2.2: POST-AI MIDDLEWARE CAD PIPELINE BRIDGE (V17.2.6 STABLE)
+            # Nhiệm vụ: Khép kín 100% khối lệnh try tổng từ phía trên để giải phóng cho Đoạn 7b
             # =====================================================================
             if response_text:
                 json_match = re.search(r'(?:===START_JSON===\s*|```json\s*)(.*?)(?:\s*===END_JSON===|\s*```)', response_text, re.DOTALL)
@@ -1404,7 +1405,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                     try:
                         raw_blueprint = json.loads(raw_json_str)
                         if "bom_rows" in raw_blueprint:
-                            # 🌟 FIX TRỌNG TÂM: Sao chép sâu object gốc để bảo vệ vòng lặp, triệt tiêu lỗi thay đổi size dict
+                            # Sao chép sâu object gốc để bảo vệ vòng lặp, triệt tiêu lỗi thay đổi size dict
                             blueprint_worker = copy.deepcopy(raw_blueprint)
                             
                             # 🚀 BƯỚC 1: Gọi Đoạn 2a1 trích xuất rập phẳng hình học topo nâng cao
@@ -1452,6 +1453,11 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                 st.session_state.bom_data = None
                 ai_chat_response = "❌ NGẰT LUỒNG: Gemini không trả về nội dung text phản hồi."
                 st.session_state.chat_history.append({"user": current_query, "ai": ai_chat_response})
+                
+        # 🌟 KHÓA CHẶT MỆNH ĐỀ EXCEPT ĐỂ ĐÓNG KHỐI LỆNH TRY MỞ ĐẦU TỪ ĐOẠN 7a1 CỦA FILE GỐC
+        except Exception as e_global:
+            st.error(f"💥 Lỗi luồng trích xuất hạ tầng tổng: {str(e_global)}")
+            st.code(traceback.format_exc())
 
 
 
