@@ -969,6 +969,7 @@ with col_right:
 
 
 # =====================================================================
+# =====================================================================
 # ĐOẠN 7a: CHAT WORKSPACE & ENGINE AI NỀN - FIX TRIỆT ĐỂ ẨN BẢNG DỮ LIỆU (V17.7.0.0 APPROVED)
 # =====================================================================
 st.markdown('<br><div class="cad-card"><div class="cad-header">💬 CHATGPT IE COLLABORATION WORKSPACE</div>', unsafe_allow_html=True)
@@ -976,6 +977,7 @@ st.markdown('<br><div class="cad-card"><div class="cad-header">💬 CHATGPT IE C
 if "chat_history" not in st.session_state: st.session_state.chat_history = []
 if "pdf_page_one_image" not in st.session_state: st.session_state.pdf_page_one_image = None
 if "accumulated_bom_rows" not in st.session_state: st.session_state.accumulated_bom_rows = {}
+if "bom_data" not in st.session_state: st.session_state.bom_data = {} # Khởi tạo phòng vệ cho Đoạn 7b
 
 if st.session_state.chat_history:
     for msg in st.session_state.chat_history:
@@ -1108,30 +1110,31 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                         blueprint_worker = copy.deepcopy(raw_blueprint)
                         blueprint_final = allocate_fabric_consumption_and_quality_gate(blueprint_worker, current_query)
                         
-                        st.session_state.accumulated_bom_rows = {}
-                        if "bom_rows" in blueprint_final:
-                            for row in blueprint_final["bom_rows"]:
-                                if not row or not isinstance(row, dict): continue
-                                c_type = str(row.get("component_type", "MAIN")).upper().strip()
-                                f_class = str(row.get("fabric_classification", "MAIN_FABRIC")).upper().strip()
-                                unique_key = f"{c_type}_{f_class}"
-                                st.session_state.accumulated_bom_rows[unique_key] = row
-                        
-                        blueprint_final["bom_rows"] = list(st.session_state.accumulated_bom_rows.values())
-                        if "calculated_on_size" in raw_blueprint:
-                            blueprint_final["calculated_on_size"] = raw_blueprint["calculated_on_size"]
+                        # 🌟 ĐỒNG BỘ ĐẦU RA VÀO KHO DỮ LIỆU CHUNG ĐỂ ĐOẠN 7b HIỂN THỊ ĐƯỢC
                         st.session_state.bom_data = blueprint_final
-                
-                ai_chat_response = chat_match.group(1).strip() if chat_match else "Tôi đã đồng bộ tính toán định mức."
-                st.session_state.chat_history.append({"user": current_query, "ai": ai_chat_response})
-            
-            st.rerun()
+                        st.session_state.accumulated_bom_rows = blueprint_final.get("bom_rows", [])
+                        
+                        # Trích xuất nội dung chat Tiếng Việt của AI
+                        ai_chat_response = "Tôi đã đồng bộ tính toán định mức."
+                        if chat_match:
+                            ai_chat_response = chat_match.group(1).strip()
+                            
+                        # Lưu lịch sử chat workspace
+                        st.session_state.chat_history.append({
+                            "user": current_query,
+                            "ai": ai_chat_response
+                        })
+                        
+                        # Ép giao diện làm mới ngay lập tức nhằm hiển thị bảng dữ liệu định mức
+                        st.rerun()
+                        
         except Exception as e:
-            st.error(f"💥 Lỗi phân tích luồng đối thoại: {str(e)}")
-            st.code(traceback.format_exc())
+            st.error(f"❌ Lỗi xử lý AI Core: {str(e)}")
+            st.text(traceback.format_exc())
+
 
 # =====================================================================
-# ĐOẠN 7b: KHU VỰC HIỂN THỊ KẾT QUẢ ĐƠN MÃ VÀ XUẤT EXCEL CHUẨN ĐỒNG BỘ CO RÚT ĐỘNG (V17.0.1.2)
+# ĐOẠN 7b: KHU VỰC HIỂN THỊ KẾT QUẢ ĐƠN MÃ VÀ XUẤT EXCEL CHUẨN ĐỒNG BỘ CO RÚT ĐỘNG (V17.0.1.2 APPROVED)
 # =====================================================================
 if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data and st.session_state.bom_data["bom_rows"]:
     
@@ -1140,8 +1143,13 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data 
     st.markdown('<div class="cad-card">', unsafe_allow_html=True)
     st.markdown(f'<div class="cad-header">📊 CALCULATED FABRIC CONSUMPTION MATRIX (SIZE TARGET: {extracted_size})</div>', unsafe_allow_html=True)
     
-    # 🌟 BỘ LỌC ĐỒNG BỘ HIỂN THỊ TRÊN GIAO DIỆN BẢNG THỰC TẾ
-    chat_txt = str(safe_user_prompt if 'safe_user_prompt' in globals() and safe_user_prompt else "").lower()
+    # 🌟 BỘ LỌC ĐỒNG BỘ HIỂN THỊ TRÊN GIAO DIỆN BẢNG THỰC TẾ (PHÒNG VỆ KHI LÀM MỚI TRANG)
+    chat_txt = ""
+    if 'safe_user_prompt' in locals() and safe_user_prompt:
+        chat_txt = str(safe_user_prompt).lower()
+    elif st.session_state.chat_history:
+        # Nếu mất biến local, tự động lấy câu lệnh cuối cùng trong lịch sử chat để tính toán co rút hiển thị
+        chat_txt = str(st.session_state.chat_history[-1]["user"]).lower()
     
     warp_default, weft_default = "3.0%", "3.0%"
     match_w_direct = re.search(r'(?:dọc|doc|warp)\s*[:\-=\s]*([\d\.]+)', chat_txt)
@@ -1189,7 +1197,7 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data 
             "Fabric Color": r.get("fabric_color", "SOLID COLOR"),
             "Khổ vải (Width)": cut_width_val,
             "Co rút dọc (% Warp)": warp_val,
-            "Co rút ngang (% Weft)": weft_val, # 🟢 Đã hiển thị chuẩn xác 15.0% lên màn hình!
+            "Co rút ngang (% Weft)": weft_val, 
             "Marker Efficiency": str(raw_eff_value).strip(),
             "Gross Consumption (Yds)": current_gross,
             "Quality Status": r.get("status", "PASS"),
@@ -1203,6 +1211,7 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data 
     # KHỐI LOGIC TẠO FILE EXCEL REPORT ĐỒNG BỘ
     try:
         import io
+        import pandas as pd
         from openpyxl import Workbook
         from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
         from openpyxl.utils import get_column_letter
