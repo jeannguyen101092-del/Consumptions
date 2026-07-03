@@ -1034,7 +1034,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                 gemini_inputs = copy.deepcopy(st.session_state.pdf_page_images_list)
 
 # =====================================================================
-# ĐOẠN 7a2: AI CORE COGNITIVE ENGINE & POST-AI MIDDLEWARE GEOMETRY PROCESSOR (V20.0 APPROVED)
+# ĐOẠN 7a2: AI CORE COGNITIVE ENGINE & POST-AI MIDDLEWARE GEOMETRY PROCESSOR (V20.0.2 FIXED)
 # =====================================================================
             if "GEMINI_API_KEY" in st.secrets: 
                 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
@@ -1064,7 +1064,6 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             if len(st.session_state.chat_history) > 30:
                 st.session_state.chat_history = st.session_state.chat_history[-30:]
 
-            # PROMPT TINH GIẢN SIÊU GỌN - ĐƯA TOÀN BỘ GIÁ TRỊ MẪU VỀ 0.0 ĐỂ ÉP AI OCR SỐ THỰC TẾ TRÊN FILE
             prompt_instruction = f"""
             You are an expert apparel IE OCR system. Scan all provided pages to locate the size spec sheet and material table.
             
@@ -1128,22 +1127,27 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                         raw_specs.append(clean_s)
                     raw_blueprint["matched_measurements"] = raw_specs 
                     
-                    # BỘ LỌC VALIDATE SÂU TRÁNH CẤU TRÚC RỖNG TRƯỚC KHI GỌI PIPELINE PYTHON
+                    # BỘ LỌC VALIDATE ĐƯỢC NỚI LỎNG AN TOÀN TRÁNH BẪY LỖI SẬP
                     has_valid_evidence = len(raw_specs) >= 1 and any(re.search(r'\d+', str(x)) for x in raw_specs)
                     
+                    # 🌟 FIX CHÍ MẠNG: Duyệt mảng Dictionary hợp lệ theo đúng cấu trúc dữ liệu JSON
                     has_valid_bom = False
                     bom_list = raw_blueprint.get("bom_rows", [])
-                    if len(bom_list) > 0:
-                        first_catalog = bom_list[0].get("panels_catalog", []) if isinstance(bom_list, list) else []
-                        if len(first_catalog) > 0 and any(str(p.get("panel_name")).strip() != "" for p in first_catalog if isinstance(p, dict)):
-                            has_valid_bom = True
+                    if isinstance(bom_list, list) and len(bom_list) > 0:
+                        first_row = bom_list[0]
+                        if isinstance(first_row, dict):
+                            first_catalog = first_row.get("panels_catalog", [])
+                            if isinstance(first_catalog, list) and len(first_catalog) > 0:
+                                if any(str(p.get("panel_name", "")).strip() != "" for p in first_catalog if isinstance(p, dict)):
+                                    has_valid_bom = True
                     
+                    # Đảm bảo biến hằng số loại bỏ phần cứng được khai báo phòng vệ
+                    EXCLUDE_HARDWARE_KEYS = globals().get("EXCLUDE_HARDWARE_KEYS", ["BUTTON", "ZIPPER", "THREAD", "LABEL"])
+
                     if raw_blueprint.get("status") == "PASS" and raw_blueprint.get("spec_sheet_found") is True and has_valid_evidence and has_valid_bom:
                         blueprint_worker = copy.deepcopy(raw_blueprint)
                         
-                        # =====================================================================
                         # TẦNG MAPPING TRUNG GIAN PYTHON (MIDDLEWARE GEOMETRY PROCESSOR)
-                        # =====================================================================
                         processed_bom_rows = []
                         for row in blueprint_worker.get("bom_rows", []):
                             if not row or not isinstance(row, dict): continue
@@ -1190,8 +1194,14 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                     else:
                         st.session_state.bom_data = None
                         err_reason = raw_blueprint.get('error_reason', 'Tài liệu thiếu bảng Spec số đo hoặc thiếu danh sách rập mẫu.')
+                        
+                        # In log phản hồi thô phục vụ gỡ lỗi trực quan
+                        st.warning(f"🔍 Dữ liệu thô AI trả về kiểm tra: {raw_blueprint}")
+                        
                         ai_chat_response = f"❌ NGẮT LUỒNG: {err_reason}"
                         st.error(ai_chat_response)
+
+                       
                         
                     st.session_state.chat_history.append({"user": current_query, "ai": ai_chat_response})
                     st.rerun()
