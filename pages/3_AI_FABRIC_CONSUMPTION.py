@@ -378,6 +378,7 @@ def v18_step3_execute_strip_nesting(panels_catalog, target_width=58.0, fabric_ty
     LÕI TOÁN HỌC V18 GERBER INDUSTRIAL - ĐOẠN 3A (Phần 1/2):
     Khởi tạo hệ thống Nesting Skyline thực thụ, cấu hình góc xoay tự động theo 
     loại vải từ BOM, xây dựng thuật toán gộp mảnh chân trời chống phân mảnh sơ đồ.
+    [VÁ LỖI CƠ SỞ]: Điều chỉnh STRtree.query() truy xuất qua Index để tương thích hoàn hảo Shapely 2.0+.
     """
     from shapely.geometry import Polygon
     from shapely.affinity import translate, rotate
@@ -406,20 +407,21 @@ def v18_step3_execute_strip_nesting(panels_catalog, target_width=58.0, fabric_ty
 
     # Chiến lược tham lam công nghiệp: Sắp xếp chi tiết rập giảm dần theo diện tích
     nested_queue = sorted(panels_catalog, key=lambda x: x["area"], reverse=True)
-    placed_polygons = []
     
-    # Khởi tạo cây không gian ban đầu với một đối tượng biên an toàn ảo để tránh lỗi cây rỗng của Shapely
+    # Khởi tạo mảng lưu trữ danh sách đa giác phẳng để đồng bộ chỉ số index với STRtree
     virtual_bound = Polygon([(-10, -10), (-9, -10), (-9, -9), (-10, -9)])
-    spatial_index = STRtree([virtual_bound])
+    placed_polygons = [virtual_bound]
+    spatial_index = STRtree(placed_polygons)
 
     # KHỞI TẠO SKYLINE THỰC: Phân đoạn ban đầu bao phủ toàn khổ rộng vải hữu dụng
     skyline = [{"x": 0.0, "y0": 0.0, "y1": STRIP_WIDTH}]
     current_marker_length = 0.0
 
-    def check_collision(candidate_poly, current_tree):
-        """Kiểm tra va chạm vật lý thông qua cấu trúc cây chỉ mục không gian"""
-        possible_collisions = current_tree.query(candidate_poly)
-        for placed in possible_collisions:
+    def check_collision(candidate_poly, current_tree, reference_list):
+        """Kiểm tra va chạm vật lý tối ưu bằng cách truy xuất Polygon qua mảng chỉ số Index từ STRtree"""
+        intersect_indices = current_tree.query(candidate_poly)
+        for idx in intersect_indices:
+            placed = reference_list[idx]  # Lấy đúng đối tượng Polygon từ danh sách tham chiếu dựa vào Index
             if candidate_poly.intersects(placed):
                 if candidate_poly.intersection(placed).area > 0.001:
                     return True
@@ -434,7 +436,6 @@ def v18_step3_execute_strip_nesting(panels_catalog, target_width=58.0, fabric_ty
         curr = sorted_segs[0]
         
         for next_seg in sorted_segs[1:]:
-            # Nếu hai đoạn kề nhau trên trục Y có cao độ X tiệm cận bằng nhau (Dung sai 0.005 inch)
             if abs(curr["y1"] - next_seg["y0"]) < 0.001 and abs(curr["x"] - next_seg["x"]) < 0.005:
                 curr["y1"] = next_seg["y1"]
                 curr["x"] = max(curr["x"], next_seg["x"])
@@ -443,10 +444,8 @@ def v18_step3_execute_strip_nesting(panels_catalog, target_width=58.0, fabric_ty
                 curr = next_seg
         merged.append(curr)
         return merged
-
-    # 🔗 KHỞI CHẠY VÒNG LẶP SẮP XẾP HẠT NHÂN CHUYỂN TIẾP SANG ĐOẠN 3B...
     # ==============================================================================
-    # PHẦN RUỘT VÒNG LẶP HẠT NHÂN QUET ĐA ĐIỂM SKYLINE & VECTOR SLIDING
+    # PHẦN RUỘT VÒNG LẶP HẠT NHÂN QUÉT ĐA ĐIỂM SKYLINE & VECTOR SLIDING (ĐÃ SỬA LỖI TRUY XUẤT)
     # ==============================================================================
     for item in nested_queue:
         poly_base = item["polygon"]
@@ -472,7 +471,6 @@ def v18_step3_execute_strip_nesting(panels_catalog, target_width=58.0, fabric_ty
             for seg in skyline:
                 seg_w = seg["y1"] - seg["y0"]
                 if seg_w >= w_piece:
-                    # QUÉT ĐA ĐIỂM TIẾP GIÁP THUNG LŨNG: Thử nghiệm đặt tại chân, đỉnh, và trung vị của phân đoạn Skyline
                     y_candidates = [seg["y0"], seg["y1"] - w_piece, seg["y0"] + (seg_w - w_piece) / 2.0]
                     
                     for y_cand in y_candidates:
@@ -485,19 +483,18 @@ def v18_step3_execute_strip_nesting(panels_catalog, target_width=58.0, fabric_ty
                         if t_miny < 0.0 or t_maxy > STRIP_WIDTH:
                             continue
                             
-                        # 🎰 MÔ PHỎNG NFP ĐA HƯỚNG (BINARY VECTOR SLIDING): Đẩy lùi liên tục đa trục đưa rập về điểm kịch biên tiếp xúc
-                        if not check_collision(test_poly, spatial_index):
+                        # Gọi hàm check_collision truyền thêm mảng tham chiếu đặt đặt rập
+                        if not check_collision(test_poly, spatial_index, placed_polygons):
                             low_factor = 0.0
                             high_factor = 1.0
                             optimal_dx = dx
                             
-                            # Chạy vòng lặp nhị phân 5 bước ép sát biên đa giác đã đặt trước đó dọc hướng vector sớ vải
                             for _ in range(5):
                                 mid_factor = (low_factor + high_factor) / 2.0
                                 shift_dx = x_cand - minx + (optimal_dx - (x_cand - minx)) * mid_factor
                                 shift_poly = translate(poly_rotated, xoff=shift_dx, yoff=dy)
                                 
-                                if not check_collision(shift_poly, spatial_index):
+                                if not check_collision(shift_poly, spatial_index, placed_polygons):
                                     optimal_dx = shift_dx
                                     high_factor = mid_factor
                                 else:
@@ -506,7 +503,6 @@ def v18_step3_execute_strip_nesting(panels_catalog, target_width=58.0, fabric_ty
                             final_test_poly = translate(poly_rotated, xoff=optimal_dx, yoff=dy)
                             _, _, final_maxx, _ = final_test_poly.bounds
                             
-                            # Chấm điểm nén diện tích sơ đồ: Ưu tiên tọa độ trục X kết thúc nhỏ nhất kịch tả ngạn
                             if final_maxx < best_x_score:
                                 best_x_score = final_maxx
                                 best_placed_poly = final_test_poly
@@ -515,8 +511,8 @@ def v18_step3_execute_strip_nesting(panels_catalog, target_width=58.0, fabric_ty
         if best_placed_poly is not None:
             placed_polygons.append(best_placed_poly)
             
-            # ✅ REBUILD CÂY IMMUTABLE TUYỆT ĐỐI SAU MỖI LƯỢT: Khắc phục triệt để lỗi lọt va chạm từ chi tiết 1-14
-            spatial_index = STRtree([virtual_bound] + placed_polygons)
+            # Tái tạo cây STRtree trên danh sách mảng phẳng đã cập nhật phần tử mới đặt
+            spatial_index = STRtree(placed_polygons)
             
             _, p_miny, _, p_maxy = best_placed_poly.bounds
             _, _, p_maxx, _ = best_placed_poly.bounds
@@ -550,24 +546,21 @@ def v18_step3_execute_strip_nesting(panels_catalog, target_width=58.0, fabric_ty
             fallback_dy = lowest_seg["y0"] - miny
             fallback_poly = translate(poly_base, xoff=fallback_dx, yoff=fallback_dy)
             
-            # Khử lỗi chồng lấn: Tịnh tiến dời trục Y vi phân liên tục nếu phát hiện va chạm vết rập kế bên
             y_shift_step = 0.5
             max_y_limit = STRIP_WIDTH - (maxy - miny)
             
-            while check_collision(fallback_poly, spatial_index) and fallback_dy <= max_y_limit:
+            while check_collision(fallback_poly, spatial_index, placed_polygons) and fallback_dy <= max_y_limit:
                 fallback_dy += y_shift_step
                 fallback_poly = translate(poly_base, xoff=fallback_dx, yoff=fallback_dy)
             
-            # Nếu đẩy kịch trần khổ rộng vải vẫn kẹt, cưỡng bức nhảy sang hữu ngạn sơ đồ trống tiếp theo
-            if check_collision(fallback_poly, spatial_index):
+            if check_collision(fallback_poly, spatial_index, placed_polygons):
                 fallback_dx = current_marker_length - minx
                 fallback_dy = 0.0 - miny
                 fallback_poly = translate(poly_base, xoff=fallback_dx, yoff=fallback_dy)
             
             placed_polygons.append(fallback_poly)
-            spatial_index = STRtree([virtual_bound] + placed_polygons)
+            spatial_index = STRtree(placed_polygons)
             
-            # ✅ VÁ LỖI BUG SKYLINE: Trích xuất chính xác 2 tọa độ số thực float miny/maxy thay vì ném tuple bounds hỏng dải chân trời
             f_minx, f_miny, f_maxx, f_maxy = fallback_poly.bounds
             if f_maxx > current_marker_length:
                 current_marker_length = f_maxx
@@ -575,7 +568,7 @@ def v18_step3_execute_strip_nesting(panels_catalog, target_width=58.0, fabric_ty
             skyline.append({"x": current_marker_length, "y0": f_miny, "y1": f_maxy})
             skyline = _merge_skyline(skyline)
 
-    # Tính toán hiệu suất định mức thực tế sử dụng sơ đồ (Marker Utilization %)
+    # Tính toán hiệu suất định mức thực tế sử dụng sơ đồ (Marker Utilization %) trừ đi phần đa giác mồi ảo [0]
     total_marker_area = current_marker_length * STRIP_WIDTH
     marker_utilization = (total_theoretical_area / total_marker_area * 100.0) if total_marker_area > 0 else 0.0
 
@@ -588,6 +581,7 @@ def v18_step3_execute_strip_nesting(panels_catalog, target_width=58.0, fabric_ty
         "marker_utilization_percent": round(marker_utilization, 2),
         "fabric_consumption_yard": round((current_marker_length / 36.0), 3)
     }
+
 # ==============================================================================
 # HỆ THỐNG TOÁN HỌC V18 GERBER INDUSTRIAL MARKER ENGINE
 # ĐOẠN 4: GIAO DIỆN NGƯỜI DÙNG STREAMLIT & ĐIỀU PHỐI LUỒNG TOÀN TRÌNH (PIPELINE UI)
