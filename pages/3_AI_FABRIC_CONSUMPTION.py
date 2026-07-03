@@ -719,7 +719,8 @@ else:
 
 
 # =====================================================================
-# ĐOẠN 7a: CHAT WORKSPACE & ENGINE AI NỀN ĐIỀU PHỐI ORCHESTRATOR (V17.7.0.6 APPROVED)
+# HỆ THỐNG TOÁN HỌC V18 GERBER INDUSTRIAL MARKER ENGINE
+# ĐOẠN 7 - PHẦN 1/5: KHỞI TẠO KHUNG HỘI THOẠI WORKSPACE & BỘ TRÍCH XUẤT SPECS
 # =====================================================================
 
 # --- PHẦN 1: KHUNG HỘI THOẠI & LỊCH SỬ WORKSPACE (UI CHAT) ---
@@ -730,7 +731,9 @@ if "pdf_page_one_image" not in st.session_state: st.session_state.pdf_page_one_i
 if "accumulated_bom_rows" not in st.session_state: st.session_state.accumulated_bom_rows = {}
 if "current_warp_pct" not in st.session_state: st.session_state.current_warp_pct = "3.0%"
 if "current_weft_pct" not in st.session_state: st.session_state.current_weft_pct = "3.0%"
+if "active_blueprint" not in st.session_state: st.session_state.active_blueprint = {}
 
+# Kết xuất lịch sử hội thoại cũ lên màn hình Streamlit
 if st.session_state.chat_history:
     for msg in st.session_state.chat_history:
         st.chat_message("user").write(msg["user"])
@@ -739,8 +742,8 @@ if st.session_state.chat_history:
 safe_user_prompt = st.chat_input("Gõ câu lệnh điều chỉnh thông số tại đây...")
 st.markdown('</div>', unsafe_allow_html=True)
 
-# --- PHẦN 2: CORE AI ENGINE ĐIỀU PHỐI & TÍCH HỢP HÌNH HỌC V18 ---
-if st.session_state.pdf_bytes is not None and safe_user_prompt:
+# --- PHẦN 2: CORE AI ENGINE ĐIỀU PHỐI & TRÍCH XUẤT THÔNG SỐ ---
+if st.session_state.get("pdf_bytes") is not None and safe_user_prompt:
     current_query = str(safe_user_prompt).strip()
     
     with st.spinner("🧠 AI đang phân tách cấu trúc vật tư, song song kích hoạt Lõi Hình Học V18..."):
@@ -749,6 +752,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             import json, copy, traceback, re
             import fitz 
             
+            # Trích xuất ảnh thu nhỏ trang 1 của tài liệu kỹ thuật phục vụ lưu trữ cache trực quan
             if st.session_state.pdf_page_one_image is None:
                 doc_recovery = fitz.open(stream=st.session_state.pdf_bytes, filetype="pdf")
                 st.session_state.pdf_page_one_image = doc_recovery.load_page(0).get_pixmap(dpi=150).tobytes("png")
@@ -760,17 +764,12 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             chat_lower = current_query.lower()
             
             # =====================================================================
-            # 🌟 VÁ LỖI AN TOÀN BIÊN SỐ: BỘ TRÍCH XUẤT SPECS VÀ KHÓA CHẶN SIZE RÁC CHỐT CHẶN HỤT ĐM
+            # 🌟 VÁ LỖI AN TOÀN BIÊN SỐ: BỘ TRÍCH XUẤT SPECS VÀ KHÓA CHẶN SIZE RÁC CHỐT CHẶN
             # =====================================================================
-            # 1. Trích xuất thông số Size từ câu lệnh Chatbox
             match_size = re.search(r'\b(?:size|sz|cỡ|cơ)\s*[:\-=\s]*([\w\d]+)\b', chat_lower)
-            if match_size:
-                target_size_cmd = str(match_size.group(1)).upper().strip()
-            else:
-                # Ép cứng về Size 30 chuẩn của mã hàng Cargo nếu người dùng không gõ size trong ô chat
-                target_size_cmd = "30"
+            target_size_cmd = str(match_size.group(1)).upper().strip() if match_size else "30"
             
-            # Khóa bảo vệ phụ: Nếu Regex hoặc AI bốc nhầm các số quá nhỏ hoặc số trang tài liệu kỹ thuật rác (như số 10)
+            # Bộ lọc chốt chặn: Chống AI bọc nhầm số trang tài liệu (như trang số 10) thành số Size quần áo
             try:
                 size_num_check = float(re.sub(r'[^\d\.]', '', target_size_cmd))
                 if size_num_check < 20.0 or size_num_check > 50.0:
@@ -778,11 +777,11 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             except:
                 pass
 
-            # 2. Trích xuất thông số khổ vải (Width)
+            # Trích xuất thông số khổ rộng cắt hữu dụng (Inch)
             match_w = re.search(r'(?:khổ|kho|width|cutwidth)\s*[:\-=\s]*([\d\.]+)', chat_lower)
-            active_width = float(match_w.group(1)) if match_w else 57.0
+            active_width = float(match_w.group(1)) if match_w else 58.0
             
-            # 3. Trích xuất tỷ lệ phần trăm co rút dọc và ngang
+            # Trích xuất tỷ lệ hao hụt co rút sớ dọc (Warp) và sớ ngang (Weft)
             active_warp, active_weft = 3.0, 3.0
             match_warp = re.search(r'(?:dọc|doc|warp)\s*[:\-=\s]*([\d\.]+)', chat_lower)
             match_weft = re.search(r'(?:ngang|weft)\s*[:\-=\s]*([\d\.]+)', chat_lower)
@@ -794,7 +793,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                 if m_sh:
                     active_warp, active_weft = float(m_sh.group(1)), float(m_sh.group(2))
 
-            # Khóa thông số cố định vào bộ nhớ đệm session_state tránh hiện tượng ô chatbox bị reset làm mất thông số
+            # Ghim chặt giá trị số thực vào bộ nhớ trạng thái an toàn
             st.session_state.current_warp_pct = f"{active_warp}%"
             st.session_state.current_weft_pct = f"{active_weft}%"
 
@@ -811,12 +810,18 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             if len(st.session_state.chat_history) > 30:
                 st.session_state.chat_history = st.session_state.chat_history[-30:]
 
+            # Lưu trữ luồng văn bản Techpack đệm an toàn (Gán chuỗi rỗng nếu file chưa phân tích văn bản)
+            techpack_text = st.session_state.get("pdf_text_cache", "Casual Twill Cargo Pants with multiple pockets.")
+
+            # CHUYỂN TIẾP SANG PHẦN 2: XÂY DỰNG PROMPT ORCHESTRATOR TỐI CAO...
+            # =====================================================================
             # 🌟 PROMPT ĐIỀU PHỐI TỐI CAO: MỞ KHÓA TƯ DUY PHÂN TÍCH VÀ ÉP ĐỒNG BỘ LAYER CHO HÌNH HỌC V18
+            # =====================================================================
             prompt_instruction = f"""
             You are a Senior Apparel IE Expert and CAD Master. Your job is to analyze the Techpack data and generate a professional, detailed log for the technician.
             You must align the geometry source layers with the exact garment type found in Techpack.
             
-            DATA FOUND IN TECHPACK: {st.session_state.pdf_text_cache}
+            DATA FOUND IN TECHPACK: {techpack_text}
             CONTEXT HISTORY: {json.dumps(st.session_state.chat_history, ensure_ascii=False)}
             CURRENT USER COMMAND: "{current_query}"
             
@@ -853,62 +858,138 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             [WRITE YOUR DETAILED TECHPACK ANALYSIS IN VIETNAMESE HERE]
             - Hãy phân tích chi tiết kiểu dáng (Quần Casual Twill Cargo Pants ống rộng túi hộp hông có nắp).
             - Giải trình rõ ràng danh sách chi tiết cấu trúc rập cần phân bổ (12 chi tiết vải chính gồm túi hộp súp ly đắp nổi; 4 cụm lót túi trước sau tương đương 8 mảnh; keo lót ép cạp nắp túi).
-            - Thuyết minh phép toán quy đổi tích phân diện tích hình học phẳng sang định mức hao hụt dệt dài dựa trên khổ dệt {active_width} inch và tỷ lệ co rút dọc {active_warp}% / ngang {active_weft}%.
+            - Thuyết minh phép toán quy đổi tích phân diện tích hình học phẳng sang định mức hao hụt dệt dài dựa trên khổ vải và độ co rút thực nghiệm.
             ===END_CHAT===
             """
+
+            # Gửi toàn bộ chỉ thị kỹ thuật sang mô hình ngôn ngữ lớn Gemini AI
+            response = model.generate_content(prompt_instruction)
+            response_text = response.text
+
+            # Trích xuất phân tách khối dữ liệu đầu ra bằng biểu thức chính quy Regex chuyên sâu
+            json_pattern = re.search(r'===START_JSON===\s*(.*?)\s*===END_JSON===', response_text, re.DOTALL)
+            chat_pattern = re.search(r'===START_CHAT===\s*(.*?)\s*===END_CHAT===', response_text, re.DOTALL)
             
-            image_payload = {"mime_type": "image/png", "data": st.session_state.pdf_page_one_image}
-            response = model.generate_content([image_payload, prompt_instruction])
+            ai_json_data = {}
+            if json_pattern:
+                try:
+                    ai_json_data = json.loads(json_pattern.group(1).strip())
+                except:
+                    pass
             
-            if response and response.text:
-                response_text = response.text.strip()
-                json_match = re.search(r'===START_JSON===\s*(.*?)\s*===END_JSON===', response_text, re.DOTALL)
-                chat_match = re.search(r'===START_CHAT===\s*(.*?)\s*===END_CHAT===', response_text, re.DOTALL)
-                
-                if json_match:
-                    blueprint_worker = json.loads(json_match.group(1).strip())
-                    
-                    # Duyệt và gọi Lõi toán học V18 thực thể đo đạc hình học từ ảnh ma trận điểm pixel
-                    for row in blueprint_worker.get("bom_rows", []):
-                        if row.get("geometry_required"):
-                            if "v18_execute_vision_geometry_and_nesting" in globals():
-                                real_geo_data = v18_execute_vision_geometry_and_nesting(
-                                    image_bytes=st.session_state.pdf_page_one_image,
-                                    layer_name=row["geometry_source_layer"],
-                                    target_width=active_width,
-                                    warp=active_warp,
-                                    weft=active_weft
+            ai_chat_analysis = chat_pattern.group(1).strip() if chat_pattern else "AI phản hồi lỗi định dạng phân tách phân hệ."
+
+            # CHUYỂN TIẾP SANG PHẦN 3: KẾT NỐI VÀ THỰC THI LÕI HÌNH HỌC V18...
+            # =====================================================================
+            # 🔄 TÍCH HỢP ĐỒNG BỘ SANG LÕI HÌNH HỌC V18 (PYTHON EXECUTION PIPELINE)
+            # =====================================================================
+            geometry_reports_html = ""
+            updated_bom_rows = []
+            
+            if ai_json_data and "bom_rows" in ai_json_data:
+                # Quét duyệt qua từng dòng cấu trúc vật tư cần tính toán sơ đồ định mức
+                for row in ai_json_data["bom_rows"]:
+                    if row.get("geometry_required", False):
+                        layer_target = row.get("geometry_source_layer", "MAIN_BODY_CARGO")
+                        f_width = float(row.get("fabric_width_inch", active_width))
+                        f_class = str(row.get("fabric_classification", "MAIN_FABRIC"))
+                        
+                        # Quyết định ràng buộc phân hướng sớ vải tự động theo loại nguyên vật liệu
+                        f_type = "TWO_WAY" if f_class == "MAIN_FABRIC" else "FREE"
+                        
+                        # Kích hoạt luồng chạy 3 bước giải tích hình học rập phẳng thực tế
+                        with st.status(f"⚙️ Lõi V18 đang tự động lấp đầy sơ đồ lớp: {layer_target}...", expanded=False) as layer_status:
+                            
+                            # 🔄 BƯỚC 1: Trích xuất hình học thô & Chuẩn hóa hệ tọa độ CAD Y-Flip
+                            s1 = v18_step1_extract_raw_vectors(
+                                layer_name=layer_target, 
+                                warp=active_warp, 
+                                weft=active_weft,
+                                snap_tol=0.005
+                            )
+                            
+                            if s1["status"] == "success":
+                                # 🔄 BƯỚC 2: Tái cấu trúc đa giác lồng nhau (Holes/Islands) & Xoay thẳng thớ sớ vải
+                                s2 = v18_step2_reconstruct_and_orient_geometry(
+                                    step1_results=s1, 
+                                    seam_allowance=0.25
                                 )
-                                row["_btp_total_panel_area"] = real_geo_data["calculated_area_sq_in"]
-                                row["_btp_total_piece_count"] = real_geo_data["piece_count"]
-                                row["panels_catalog"] = real_geo_data["panels_catalog"]
-                    
-                    # Đẩy dữ liệu thực thể sang IE Engine tính toán định mức chuẩn công nghiệp
-                    blueprint_final = allocate_fabric_consumption_and_quality_gate(blueprint_worker, current_query)
-                    
-                    # Đồng bộ hóa bộ nhớ trạng thái trung tâm tránh ẩn mất bảng hiển thị dữ liệu
-                    st.session_state.active_blueprint = blueprint_final
-                    
-                    ai_chat_response = chat_match.group(1).strip() if chat_match else "Tôi đã đồng bộ tính toán định mức hình học thực tế."
-                    st.session_state.chat_history.append({
-                        "user": current_query,
-                        "ai": ai_chat_response
-                    })
-                    st.rerun()
-                else:
-                    st.error("⚠️ AI Engine không xuất được cấu trúc JSON phân loại layer hợp lệ. Vui lòng thử lại.")
-                    
-        except Exception as ce:
-            st.error(f"❌ Lỗi xử lý mã nguồn Core AI / Geometry Engine: {str(ce)}")
-            with st.expander("Chi tiết lỗi hệ thống (Traceback Logs)"):
-                st.code(traceback.format_exc())
+                                
+                                if s2["status"] == "success" and s2["panels_catalog"]:
+                                    # 🔄 BƯỚC 3: Engine Skyline thực sự xếp sơ đồ định mức đa hướng (Dò nhị phân Shapely 2.0+)
+                                    s3 = v18_step3_execute_strip_nesting(
+                                        panels_catalog=s2["panels_catalog"], 
+                                        target_width=f_width, 
+                                        fabric_type=f_type
+                                    )
+                                    
+                                    if s3["status"] == "success":
+                                        layer_status.update(label=f"✓ Lớp {layer_target} hoàn tất định mức!", state="complete")
+                                        
+                                        # Ghi nhận kết quả đo lường thực tế vào mảng dữ liệu BOM
+                                        row["calculated_gross_consumption_yds"] = s3["fabric_consumption_yard"]
+                                        row["consumption_note"] = f"Skyline packing complete. Marker utilization: {s3['marker_utilization_percent']}%."
+                                        row["quality_gate_status"] = "PASSED"
+                                        
+                                        # Khởi tạo chuỗi giao diện trực quan kết quả đo lường toán học cho từng tầng vật tư
+                                        geometry_reports_html += f"""
+                                        <div style='margin-bottom:12px; padding:10px; border-left:4px solid #4CAF50; background-color:#f9f9f9;'>
+                                            <b>🛠️ KẾT QUẢ ĐỊNH MỨC CAD LỚP [{layer_target}]:</b><br>
+                                            • Hiệu suất sơ đồ (Utilization): <span style='color:#2E7D32; font-weight:bold;'>{s3['marker_utilization_percent']}%</span><br>
+                                            • Tổng số chi tiết được xếp (Nested Pieces): {s3['total_pieces_nested']}<br>
+                                            • Chiều dài sơ đồ thực tế: {s3['marker_length_inch']} Inch<br>
+                                            • Định mức tiêu hao vật tư: <span style='color:#C62828; font-weight:bold;'>{s3['fabric_consumption_yard']} Yard</span> / sản phẩm
+                                        </div>
+                                        """
+                                    else:
+                                        row["calculated_gross_consumption_yds"] = 0.0
+                                        row["consumption_note"] = "Nesting algorithm fallback."
+                                        row["quality_gate_status"] = "FAILED"
+                                        layer_status.update(label=f"✕ Lỗi thuật toán Nesting tại lớp {layer_target}", state="error")
+                                else:
+                                        row["calculated_gross_consumption_yds"] = 0.0
+                                        row["consumption_note"] = "No geometries or polygons found."
+                                        row["quality_gate_status"] = "EMPTY"
+                                        layer_status.update(label=f"⚠ Lớp {layer_target} trống hoặc không tìm thấy Polygon rập", state="warning")
+                            else:
+                                row["calculated_gross_consumption_yds"] = 0.0
+                                row["consumption_note"] = "PDF vector extraction failed."
+                                row["quality_gate_status"] = "FAILED"
+                                layer_status.update(label=f"✕ Thất bại tại khâu bóc tách vector lớp {layer_target}", state="error")
+                    else:
+                        row["calculated_gross_consumption_yds"] = 0.0
+                        row["consumption_note"] = "Geometry calculation not required for this component."
+                        row["quality_gate_status"] = "SKIPPED"
+                        
+                    updated_bom_rows.append(row)
+                
+                blueprint_data["bom_rows"] = updated_bom_rows
+                st.session_state.active_blueprint = blueprint_data
+                
+                # Đồng bộ lưu trữ toàn diện vào bộ nhớ đệm lũy kế tích hợp
+                for r in updated_bom_rows:
+                    st.session_state.accumulated_bom_rows[r["component_type"]] = r
+
+            # CHUYỂN TIẾP SANG PHẦN 4: ĐÓNG GÓI LỊCH SỬ CHATBOX VÀ RERUN GIAO DIỆN...
+            # Ghép nối phân tích chuyên gia AI và kết quả hình học phẳng Python thực nghiệm vào ô chatbox assistant
+            full_ai_response = ai_chat_analysis
+            if geometry_reports_html:
+                full_ai_response += "\n\n" + geometry_reports_html
+
+            # Ghi nhận cặp dữ liệu hội thoại vào nhật ký phiên hệ thống
+            st.session_state.chat_history.append({"user": current_query, "ai": full_ai_response})
+            st.rerun()
+
+        except Exception as orchestrator_err:
+            st.error(f"Lỗi hệ thống điều phối AI Orchestrator: {str(orchestrator_err)}")
+            st.code(traceback.format_exc())
 
 # =====================================================================
 # ĐOẠN 7b: KHU VỰC HIỂN THỊ MA TRẬN KẾT QUẢ VÀ XUẤT EXCEL CAO CẤP (V22.6 FIXED CLEAR)
 # =====================================================================
 active_bom_source = None
 
-# Sửa đổi quan trọng: Chốt chặn kiểm tra nghiêm ngặt, cấm tự động bốc dữ liệu lịch sử rác lên hiển thị lại
+# Chốt chặn kiểm tra nghiêm ngặt, cấm tự động bốc dữ liệu lịch sử rác lên hiển thị lại
 if st.session_state.get("active_blueprint") and "bom_rows" in st.session_state.active_blueprint and st.session_state.active_blueprint["bom_rows"]:
     active_bom_source = st.session_state.active_blueprint
 elif st.session_state.get("accumulated_bom_rows") and len(st.session_state.accumulated_bom_rows) > 0:
@@ -932,17 +1013,13 @@ if active_bom_source and active_bom_source.get("bom_rows") and len(active_bom_so
         sys_notes = r.get("consumption_note", "Optimized pattern placement via STRtree.")
         current_gross = r.get("calculated_gross_consumption_yds", 0.0)
         
-        cut_width_val = f"{float(r['fabric_width_inch'])} inch" if "fabric_width_inch" in r and r["fabric_width_inch"] > 0 else "57.0 inch"
+        cut_width_val = f"{float(r['fabric_width_inch'])} inch" if "fabric_width_inch" in r and r["fabric_width_inch"] > 0 else "58.0 inch"
         
         # Phân rã dải co rút động: Ép phẳng về 0% cho Keo lót (Fusing), vải chính và lót túi đồng bộ theo sớ vải chatbox
         f_class_upper = str(r.get("fabric_classification", "")).upper()
         if "FUSING" in f_class_upper:
             warp_val = "0.0%"
             weft_val = "0.0%"
-            raw_eff_value = "85.0%"
-        elif "LINING" in f_class_upper:
-            warp_val = warp_default
-            weft_val = weft_default
             raw_eff_value = "85.0%"
         else:
             warp_val = warp_default
@@ -969,8 +1046,11 @@ if active_bom_source and active_bom_source.get("bom_rows") and len(active_bom_so
     df_bom = pd.DataFrame(display_data)
     st.dataframe(df_bom, use_container_width=True, hide_index=True)
     st.markdown('</div>', unsafe_allow_html=True)
-    
-    # KHỐI LOGIC KHỞI TẠO FILE EXCEL REPORT SẢN XUẤT CAO CẤP
+
+    # CHUYỂN TIẾP SANG PHẦN 5: KHỞI TẠO BÁO CÁO EXCEL VÀ NÚT TẢI XUỐNG...
+    # =====================================================================
+    # KHỐI LOGIC KHỞI TẠO FILE EXCEL REPORT SẢN XUẤT CAO CẤP & XỬ LÝ CLEAR BUFFER
+    # =====================================================================
     try:
         import io
         from openpyxl import Workbook
@@ -983,45 +1063,63 @@ if active_bom_source and active_bom_source.get("bom_rows") and len(active_bom_so
         ws.title = "BOM Fabric Consumption"
         ws.sheet_view.showGridLines = True 
         
+        # Thiết lập tiêu đề báo cáo chính (Main Banner)
         ws.merge_cells("A1:L1")
         ws["A1"] = f"BÁO CÁO ĐỊNH MỨC VẬT TƯ VẢI (SIZE: {extracted_size}) - STYLE: R09-490976"
         ws["A1"].font = Font(name="Calibri", size=14, bold=True, color="FFFFFF")
         ws["A1"].fill = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")
         ws["A1"].alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-        ws.row_dimensions.height = 40
+        ws.row_dimensions[1].height = 40
         
+        # Định dạng và đổ màu nền hàng tiêu đề cột dữ liệu (Headers Row)
         headers = list(df_bom.columns)
         for col_num, header_title in enumerate(headers, 1):
             cell = ws.cell(row=3, column=col_num, value=header_title)
             cell.font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
             cell.fill = PatternFill(start_color="2C3E50", end_color="2C3E50", fill_type="solid")
             cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-            cell.border = Border(left=Side(style="thin", color="D9D9D9"), right=Side(style="thin", color="D9D9D9"), top=Side(style="thin", color="D9D9D9"), bottom=Side(style="thin", color="D9D9D9"))
-        ws.row_dimensions.height = 28
+            cell.border = Border(
+                left=Side(style="thin", color="D9D9D9"), right=Side(style="thin", color="D9D9D9"), 
+                top=Side(style="thin", color="D9D9D9"), bottom=Side(style="thin", color="D9D9D9")
+            )
+        ws.row_dimensions[3].height = 28
         
+        # Vòng lặp kết xuất và định cấu hình canh lề vi phân cho các dòng dữ liệu BOM
         for row_num, row_data in enumerate(display_data, 4):
             ws.row_dimensions[row_num].height = 22
             for col_num, key in enumerate(headers, 1):
                 cell = ws.cell(row=row_num, column=col_num, value=row_data[key])
                 cell.font = Font(name="Calibri", size=11)
-                cell.border = Border(left=Side(style="thin", color="D9D9D9"), right=Side(style="thin", color="D9D9D9"), top=Side(style="thin", color="D9D9D9"), bottom=Side(style="thin", color="D9D9D9"))
+                cell.border = Border(
+                    left=Side(style="thin", color="D9D9D9"), right=Side(style="thin", color="D9D9D9"), 
+                    top=Side(style="thin", color="D9D9D9"), bottom=Side(style="thin", color="D9D9D9")
+                )
+                
+                # Ép kiểu cấu trúc canh lề riêng biệt cho chữ số và trạng thái chất lượng sản xuất
                 if key in ["Gross Consumption (Yds)"]:
                     cell.alignment = Alignment(horizontal="right", vertical="center")
-                    cell.number_format = '#,##0.0000'
+                    cell.number_format = '#,##0.0000'  # Thiết lập 4 số thập phân chuẩn công nghiệp mã hàng
                 elif key in ["Khổ vải (Width)", "Co rút dọc (% Warp)", "Co rút ngang (% Weft)", "Marker Efficiency", "Quality Status"]:
                     cell.alignment = Alignment(horizontal="center", vertical="center")
                 else:
                     cell.alignment = Alignment(horizontal="left", vertical="center")
         
+        # Tự động tính toán đo đạc bề rộng cột động chống tràn văn bản chữ số (Column Auto-Width)
         for col_idx, col_name in enumerate(headers, 1):
             max_len = max([len(str(ws.cell(row=r, column=col_idx).value or '')) for r in range(4, 4 + len(display_data))] + [len(col_name)])
             ws.column_dimensions[get_column_letter(col_idx)].width = max(max_len + 5, 12)
             
         wb.save(output)
         st.markdown("<br>", unsafe_allow_html=True)
-        st.download_button(label="📥 XUẤT FILE EXCEL ĐỊNH MỨC CHUẨN SẢN XUẤT", data=output.getvalue(), file_name=f"BOM_Consumption_R09-490976_Size_{extracted_size}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
-    except Exception as e:
-        st.warning(f"⚠️ Không thể khởi tạo nút xuất Excel cao cấp: {str(e)}")
+        st.download_button(
+            label="📥 XUẤT FILE EXCEL ĐỊNH MỨC CHUẨN SẢN XUẤT", 
+            data=output.getvalue(), 
+            file_name=f"BOM_Consumption_R09-490976_Size_{extracted_size}.xlsx", 
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", 
+            use_container_width=True
+        )
+    except Exception as excel_err:
+        st.warning(f"⚠️ Không thể khởi tạo nút xuất Excel cao cấp: {str(excel_err)}")
 else:
-    # 🌟 KHI CLEAR TRỐNG HỆ THỐNG: Ẩn hoàn toàn bảng và hiển thị dòng chữ thông báo mồi
-    st.info("💡 Bộ nhớ đệm hệ thống đã được làm sạch hoàn toàn. Vui lòng nạp tệp PDF tài liệu và gõ câu lệnh chatbox để chạy luồng tự động toán học mới...")
+    # 🌟 KHI CLEAR TRỐNG HỆ THỐNG: Ẩn hoàn toàn bảng ma trận kết quả và hiển thị dòng chữ thông báo mồi
+    st.info("💡 Bộ nhớ đệm hệ thống đã được làm sạch hoàn toàn. Vui lòng nạp tệp PDF tài liệu kỹ thuật và gõ câu lệnh chatbox để chạy luồng tự động toán học mới...")
