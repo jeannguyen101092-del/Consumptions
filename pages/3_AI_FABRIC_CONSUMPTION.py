@@ -1004,7 +1004,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             
             gemini_inputs = copy.deepcopy(image_payloads)
 # =====================================================================
-# ĐOẠN 7a2.1: AI CORE COGNITIVE ENGINE GENERATION (V37.0 - FULL GEOMETRY SCHEMATIC)
+# ĐOẠN 7a2.1: AI COGNITIVE EXTRACTOR & DYNAMIC GARMENT RECONSTRUCTION PIPELINE (V45.0 PRODUCTION)
 # =====================================================================
             if "GEMINI_API_KEY" in st.secrets: 
                 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
@@ -1012,13 +1012,16 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             model = genai.GenerativeModel("gemini-2.5-flash", generation_config={"temperature": 0.0})
             chat_lower = current_query.lower()
             
-            # Bộ bóc tách tham số size từ câu lệnh ô chat người dùng
-            match_size = re.search(r'\b(?:size|sz|cỡ)\s*[:\-=\s]*([\w\d]+)\b', chat_lower)
-            target_size_cmd = str(match_size.group(1)).upper().strip() if match_size else "30"
+            # 1. BỘ TỰ ĐỘNG NHẬN DIỆN PRODUCT TYPE PHÒNG VỆ BAN ĐẦU
+            inferred_is_upper = any(x in chat_lower or x in product_type for x in ["DRESS", "VÁY", "ĐẦM", "SHIRT", "SƠ MI", "TSHIRT", "JACKET", "HOODIE", "TOP", "ÁO"])
             
-            # Bộ bóc tách đa khổ vải động dọc đường prompt chat của bạn
+            # Bộ bóc tách thông minh bắt trọn dải Size chữ (XS-XXL) lẫn Size số (26-40)
+            match_size = re.search(r'\b(?:size|sz|cỡ)\s*[:\-=\s]*([\w\d/]+)\b', chat_lower)
+            target_size_cmd = str(match_size.group(1)).upper().strip() if match_size else ("M" if inferred_is_upper else "30")
+            
+            # Bộ trích xuất đa khổ vải hữu dụng động dọc đường câu lệnh chat của bạn
             match_w = re.search(r'(?:khổ|kho|width|vải chính khổ)\s*([\d\.]+)', chat_lower)
-            active_width = float(match_w.group(1)) if match_w else 58.0
+            active_width = float(match_w.group(1)) if match_w else 56.0
             
             match_lining_w = re.search(r'(?:lót khổ|vải lót khổ)\s*([\d\.]+)', chat_lower)
             active_lining_width = float(match_lining_w.group(1)) if match_lining_w else 57.0
@@ -1026,8 +1029,9 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             match_fusing_w = re.search(r'(?:keo khổ|mếch khổ|fusing khổ)\s*([\d\.]+)', chat_lower)
             active_fusing_width = float(match_fusing_w.group(1)) if match_fusing_w else 59.0
             
-            active_warp = 5.0
-            active_weft = 15.0
+            # Khởi tạo giá trị co rút động mặc định
+            active_warp = 3.0
+            active_weft = 3.0
             match_warp = re.search(r'(?:dọc|doc|warp)\s*[:\-=\s]*([\d\.]+)', chat_lower)
             match_weft = re.search(r'(?:ngang|weft)\s*[:\-=\s]*([\d\.]+)', chat_lower)
             
@@ -1041,20 +1045,32 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             if len(st.session_state.chat_history) > 30:
                 st.session_state.chat_history = st.session_state.chat_history[-30:]
 
-            # PROMPT MỒI: CẤU HÌNH ĐẦY ĐỦ CÁC CHI TIẾT PHỤ ĐỂ ÉP AI PHÂN RÃ THÀNH CHUỖI SỐ THỰC
+            # 🌟 PROMPT ĐỈNH CAO: THIẾT KẾ THEO CHUẨN MA TRẬN RẼ NHÁNH TẤT CẢ CHỦNG LOẠI HÀNG NGÀNH MAY
             prompt_instruction = f"""
-            You are an expert apparel IE OCR system. Scan all provided page images to locate the size spec tables across Page 13 and Page 14.
+            You are an expert apparel Industrial Engineering (IE) OCR system. Your goal is to analyze the technical package, automatically detect the garment category, and reconstruct its flat cutting pattern blocks for size '{target_size_cmd}'.
             
-            STRICT GARMENT RECONSTRUCTION RULES FOR PANT FLAT PATTERNS (SIZE {target_size_cmd}):
-            1. Target size is '{target_size_cmd}'. Gather and compile measurements continuously from both split pages.
-            2. Convert fractional notations to clean decimals (e.g., '16 1/2' to 16.5).
-            3. WIDTH CALIBRATION: Flat piece width for FRONT_PANEL and BACK_PANEL MUST be equal to (Hip Width or Waist Width found in table) DIVIDED BY 2 plus 1.0 inch seam allowance (~10.5 to 11.5 inches).
-            4. Reconstruct the jeans catalog using physical pieces only:
-               - FRONT_PANEL & BACK_PANEL: Use Inseam + Front Rise (~42.75 inches).
-               - WAISTBAND_PANEL (CẠP QUẦN): Waist specs to establish realistic waistband cutting lengths and heights. Count = 2.0.
-               - BACK_POCKET_PANEL (TÚI ĐẮP SAU): Use pocket width/length like PKT-076/PKT-077 (~6.5 to 7.8 inches). Count = 2.0.
-               - FRONT_POCKET_FACING (ĐÁP TÚI TRƯỚC): Extract from pocket openings on Page 14 (~5.5 to 6.5 inches). Count = 2.0.
-               - FRONT_POCKET_BAG (LÓT TÚI): Jeans use folded pocket bags, count MUST be strictly 2.0 pieces.
+            STRICT CROSS-CATEGORY INDUSTRIAL RULES (TARGET SIZE: {target_size_cmd}):
+            1. Read specifications across ALL sizing charts on all pages. Convert all fractional measurements to clean decimals.
+            2. Category Detection & Reconstruction Mapping:
+               - IF CATEGORY IS SHIRT / BLOUSE / JACKET / T-SHIRT (Hàng Áo):
+                 Set "detected_product_type": "SHIRT".
+                 FRONT_PANEL & BACK_PANEL: Length = Body length (Center Back/Front Length). Width = Chest width or Bust Spec.
+                 SLEEVE_PANEL (TAY ÁO): Length = Sleeve length. Width = Armhole or Bicep spec. Count = 2.0.
+                 *Note: All small parts (Cuffs, Collar bands, Flaps) are considered filler panels. Do NOT generate fabric rows for them to optimize marker length.
+               - IF CATEGORY IS DRESS / SKIRT / JUMPSUIT (Hàng Váy Đầm):
+                 Set "detected_product_type": "DRESS".
+                 FRONT_PANEL & BACK_PANEL: Length = Total Dress Length spec. Width = Hip Width or Bottom Sweep width.
+               - IF CATEGORY IS HOODIE / SWEATER (Hàng Hoodie):
+                 Set "detected_product_type": "HOODIE".
+                 Include FRONT_PANEL, BACK_PANEL, SLEEVE_PANEL, and HOOD_PANEL (Length/Width from Hood height/width specs, Count = 2.0).
+               - IF CATEGORY IS PANT / JEANS / SHORT (Hàng Quần):
+                 Set "detected_product_type": "PANT".
+                 FRONT_PANEL & BACK_PANEL: Length = Inseam + Front Rise. Width = Hip width divided by 2 plus 1 inch allowance.
+                 FRONT_POCKET_BAG (LÓT TÚI): Jeans/Shorts use folded bags, piece_count MUST be strictly 2.0.
+            3. Dynamic Material Row Injection:
+               - Always output MAIN FABRIC row.
+               - IF there's a Waistband or Collar requiring interfacing, inject an INTERLINING (FUSING) row (~2.5 inches width).
+               - IF it's a Pant or Jacket requiring lining pocket bags, inject a POCKET LINING (LINING) row.
             
             Output strictly in the specified JSON structure:
             ===START_JSON===
@@ -1062,8 +1078,8 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
               "status": "ERROR",
               "error_reason": "Missing size charts",
               "spec_sheet_found": false,
-              "spec_page": 13,
-              "detected_product_type": "PANT",
+              "spec_page": 1,
+              "detected_product_type": "DRESS",
               "style_code": "",
               "calculated_on_size": "{target_size_cmd}",
               "pocket_style_type": "FRONT_ONLY",
@@ -1071,36 +1087,19 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
               "bom_rows": [
                 {{
                   "component_type": "MAIN FABRIC", "placement": "BODY", "fabric_classification": "MAIN_FABRIC",
-                  "fabric_code": "DENIM", "fabric_color": "SOLID COLOR", "fabric_width_inch": {active_width},
+                  "fabric_code": "CASUAL_FABRIC", "fabric_color": "SOLID COLOR", "fabric_width_inch": {active_width},
                   "panels_catalog": [
-                    {{ "panel_name": "FRONT_PANEL", "piece_count": 2.0, "piece_length_inch": 0.0, "piece_width_inch": 0.0 }},
-                    {{ "panel_name": "BACK_PANEL", "piece_count": 2.0, "piece_length_inch": 0.0, "piece_width_inch": 0.0 }},
-                    {{ "panel_name": "WAISTBAND_PANEL", "piece_count": 2.0, "piece_length_inch": 0.0, "piece_width_inch": 0.0 }},
-                    {{ "panel_name": "BACK_POCKET_PANEL", "piece_count": 2.0, "piece_length_inch": 0.0, "piece_width_inch": 0.0 }},
-                    {{ "panel_name": "FRONT_POCKET_FACING", "piece_count": 2.0, "piece_length_inch": 0.0, "piece_width_inch": 0.0 }}
-                  ]
-                }},
-                {{
-                  "component_type": "INTERLINING / KEO LÓT", "placement": "WAISTBAND", "fabric_classification": "FUSING",
-                  "fabric_code": "TRICOT_KEO", "fabric_color": "WHITE", "fabric_width_inch": {active_fusing_width},
-                  "panels_catalog": [
-                    {{ "panel_name": "WAISTBAND_FUSING", "piece_count": 2.0, "piece_length_inch": 16.5, "piece_width_inch": 2.5 }}
-                  ]
-                }},
-                {{
-                  "component_type": "POCKET LINING / LÓT TÚI", "placement": "FRONT_POCKET", "fabric_classification": "LINING",
-                  "fabric_code": "TC_POCKETING", "fabric_color": "NATURAL_WHITE", "fabric_width_inch": {active_lining_width},
-                  "panels_catalog": [
-                    {{ "panel_name": "FRONT_POCKET_BAG", "piece_count": 2.0, "piece_length_inch": 11.0, "piece_width_inch": 7.5 }}
+                    {{ "panel_name": "FRONT_PANEL", "piece_count": 1.0, "piece_length_inch": 0.0, "piece_width_inch": 0.0 }},
+                    {{ "panel_name": "BACK_PANEL", "piece_count": 1.0, "piece_length_inch": 0.0, "piece_width_inch": 0.0 }}
                   ]
                 }}
               ]
             }}
             ===END_JSON===
-            If successfully extracted, flip "status" to "PASS", "spec_sheet_found" to true, list ALL distinct extracted parameters inside "matched_measurements" using format 'POM_CODE: Description = Value', and dynamically overwrite 0.0 with calibrated pattern sizes.
+            If found and mapped, flip "status" to "PASS", "spec_sheet_found" to true, list extracted thô pairs as 'POM_CODE: Description = Value' inside "matched_measurements", and dynamically populate the entire array with true pattern piece sizes.
             
             ===START_CHAT===
-            [Confirm in Vietnamese which pages you scanned (Page 13 and Page 14) and summarize the exact clean decimal dimensions found for size {target_size_cmd}.]
+            [Confirm in Vietnamese which pages you located the spec table on for size {target_size_cmd}, and list the exact measurements found.]
             ===END_CHAT===
             """
             
