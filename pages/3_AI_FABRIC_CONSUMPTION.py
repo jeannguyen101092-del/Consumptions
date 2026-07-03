@@ -530,71 +530,91 @@ def parse_and_prepare_ie_panels(all_rows: list, product_type: str, user_prompt: 
 
 def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict, user_prompt: str = "") -> dict:
     """
-    Phân đoạn 2b2: Tính toán dựa trên bóc tách thông số thực tế và rẽ nhánh thông minh lót túi.
-    V17.0.3.3 FIXED SYNTAX CRASH 'DUNG_SAI_XEP_RAP' ABSOLUTELY
+    Phân đoạn 2b2: Tầng xử lý dữ liệu sau AI (Post-AI Data Engine) chuẩn Gerber.
+    V17.0.4.0 APPROVED - FIXED DUPLICATE KEYS, DYNAMIC LOOKUP & STRICT SPEC VALIDATION
     """
     import streamlit as st
-    import copy
     import re
 
+    # 1. VALIDATE SCHEMA AI: Kiểm tra dữ liệu đầu vào bắt buộc
     if not ai_blueprint or not isinstance(ai_blueprint, dict):
-        return {"detected_product_type": "DEFAULT", "bom_rows": []}
+        return {"detected_product_type": "DEFAULT", "bom_rows": [], "status": "ERROR", "error_log": "Invalid AI blueprint schema"}
+        
+    all_rows = ai_blueprint.get("bom_rows", [])
+    if not all_rows or not isinstance(all_rows, list): 
+        return {"detected_product_type": "DEFAULT", "bom_rows": [], "status": "ERROR", "error_log": "Missing or invalid bom_rows array"}
 
     product_type = str(ai_blueprint.get("detected_product_type", "DEFAULT")).upper().strip()
     pocket_style = str(ai_blueprint.get("pocket_style_type", "FRONT_ONLY")).upper().strip()
     fabric_registry = ai_blueprint.get("_fabric_registry_cache", {})
     if not fabric_registry or not isinstance(fabric_registry, dict): 
         fabric_registry = {}
-        
-    all_rows = ai_blueprint.get("bom_rows", [])
-    if not all_rows or not isinstance(all_rows, list): 
-        all_rows = []
 
     try:
         prepared_rows, user_requested_eff = parse_and_prepare_ie_panels(all_rows, product_type, user_prompt)
-    except Exception:
+    except Exception as e:
         prepared_rows = all_rows
         user_requested_eff = None
 
     if "accumulated_bom_rows" not in st.session_state or not isinstance(st.session_state.accumulated_bom_rows, dict):
         st.session_state.accumulated_bom_rows = {}
 
+    # Trích xuất nhanh khổ vải chỉ định từ prompt người dùng
     chat_lower = str(user_prompt).lower().strip()
     match_w_prompt = re.search(r'\b(?:khổ|kho|width)\s*[:\-=\s]*([\d\.]+)\b', chat_lower)
     prompt_extracted_width = float(match_w_prompt.group(1)) if match_w_prompt else None
 
-    # Khởi tạo bộ từ điển hằng số đồng bộ phím chữ viết hoa/thường tránh crash RAM
+    # Khởi tạo bộ hằng số hệ thống (Đã xóa trùng key DUNG_SAI_XEP_RAP)
     globals_dict = globals()
     IE_CONSTANTS = globals_dict.get("IE_CONSTANTS", {
         "DEFAULT_WIDTH_MAIN": 57.0, 
         "DEFAULT_WIDTH_FUSING": 44.0, 
         "DEFAULT_WIDTH_LINING": 44.0,
         "WASTAGE_FACTOR": 1.05, 
-        "DUNG_SAI_XEP_RAP": 1.04,   # Phòng vệ chữ D
-        "DUNG_SAI_XEP_RAP": 1.04    # Phòng vệ chữ Đ
+        "DUNG_SAI_XEP_RAP": 1.04
     })
-
-    # Đảm bảo biến hằng số loại bỏ phần cứng được khai báo
     EXCLUDE_HARDWARE_KEYS = globals_dict.get("EXCLUDE_HARDWARE_KEYS", ["BUTTON", "ZIPPER", "THREAD", "LABEL"])
 
     def ie_safe_float(val, default=0.0):
         try: return float(val) if val is not None else default
         except: return default
 
+    # 2. VÒNG LẶP TOÁN HỌC & KIỂM TRA CHẶT CHẼ TỪNG DÒNG VẬT TƯ (STRICT VALIDATION TIER)
     for row in prepared_rows:
+        if not row or not isinstance(row, dict): continue
+        
         comp_type = str(row.get("component_type", "")).upper().strip()
         placement = str(row.get("placement", "")).upper().strip()
         f_class_raw = str(row.get("fabric_classification", "")).upper().strip()
         f_code = str(row.get("fabric_code", "")).upper().strip()
         f_color = str(row.get("fabric_color", "")).upper().strip()
 
+        # Bỏ qua phụ liệu kim loại/phần cứng
         if any(k in comp_type or k in placement or k in f_class_raw or k in f_code for k in EXCLUDE_HARDWARE_KEYS if k):
             continue
 
         is_fusing = row.get("_is_fusing", "FUSING" in f_class_raw or "KEO" in comp_type)
         is_lining = row.get("_is_lining", "LINING" in f_class_raw or "LÓT" in comp_type)
-        total_panel_area = row.get("_btp_total_panel_area", 0.0)
 
+        # Đọc dữ liệu hình học AI bắt buộc (Không tự ý gán số bừa bãi)
+        total_panel_area = row.get("_btp_total_panel_area")
+        max_piece_length = row.get("_btp_max_piece_length")
+        total_piece_count = row.get("_btp_total_piece_count", 0.0)
+
+        # 🛑 CHẶN LỖI THIẾU THÔNG SỐ DIỆN TÍCH / SỐ LƯỢNG RẬP HOẶC THIẾU TÊN VẢI
+        if total_panel_area is None or max_piece_length is None or not f_code or not f_class_raw:
+            row["status"] = "ERROR"
+            row["consumption_note"] = "❌ LỖI HỆ THỐNG: AI Core trích xuất thiếu dữ liệu thông số rập"
+            row["calculated_gross_consumption_yds"] = 0.0
+            continue
+
+        if ie_safe_float(total_panel_area) <= 0.0 or ie_safe_float(total_piece_count) <= 0.0:
+            row["status"] = "ERROR"
+            row["consumption_note"] = "❌ LỖI KỸ THUẬT: Diện tích rập hoặc số lượng chi tiết bằng 0"
+            row["calculated_gross_consumption_yds"] = 0.0
+            continue
+
+        # Đọc khổ vải (Width)
         if is_fusing: default_width = IE_CONSTANTS["DEFAULT_WIDTH_FUSING"]
         elif is_lining: default_width = IE_CONSTANTS["DEFAULT_WIDTH_LINING"]
         else: default_width = IE_CONSTANTS["DEFAULT_WIDTH_MAIN"]
@@ -604,18 +624,33 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict, user_prompt
         else:
             row["fabric_width_inch"] = row.get("fabric_width_inch", default_width) if ie_safe_float(row.get("fabric_width_inch", 0)) > 0 else default_width
 
-        cutable_w = row["fabric_width_inch"]
+        cutable_w = ie_safe_float(row["fabric_width_inch"])
 
-        matched_cache_data = fabric_registry.get(f"{f_code}_{f_color}_TWO_WAY_0")
+        # 🛑 CHẶN LỖI SAI KHỔ VẢI
+        if cutable_w <= 0.0:
+            row["status"] = "ERROR"
+            row["consumption_note"] = "❌ LỖI SƠ ĐỒ: Khổ vải hữu dụng (Cut width) phải lớn hơn 0"
+            row["calculated_gross_consumption_yds"] = 0.0
+            continue
+
+        # 🌟 DYNAMIC LOOKUP: Trích xuất dải co rút động theo hướng cắt (fabric_direction, nap, rotation) từ dữ liệu AI
+        f_direction = str(row.get("fabric_direction", "TWO_WAY")).upper().strip()
+        f_nap = str(row.get("nap", "0")).upper().strip()
+        
+        cache_key = f"{f_code}_{f_color}_{f_direction}_{f_nap}"
+        matched_cache_data = fabric_registry.get(cache_key)
+        
+        if not matched_cache_data:
+            # Fallback tìm kiếm tương đối nếu sai lệch nhẹ chuỗi key định danh
+            matched_cache_data = next((c_data for f_id, c_data in fabric_registry.items() if f_code in f_id), None)
+            
         shrink_warp = matched_cache_data.get("shrink_warp_f", 1.03) if matched_cache_data else 1.03
-        max_piece_length = row.get("_btp_max_piece_length", 42.0)
+        safety_allowance = IE_CONSTANTS.get("DUNG_SAI_XEP_RAP", 1.04)
 
-        # Trích xuất dải dung sai an toàn bằng hàm kiểm tra phòng vệ
-        safety_allowance = IE_CONSTANTS.get("DUNG_SAI_XEP_RAP", IE_CONSTANTS.get("DUNG_SAI_XEP_RAP", 1.04))
-
+        # 3. LUỒNG TOÁN HỌC TÍNH TOÁN ĐỊNH MỨC AN TOÀN TRUYỀN SANG GERBER
         if is_lining:
             eff = 0.85
-            if "FRONT_AND_BACK" in pocket_style or "4" in placement or total_panel_area > 350.0:
+            if "FRONT_AND_BACK" in pocket_style or "4" in placement or ie_safe_float(total_panel_area) > 350.0:
                 total_yds = 0.42 * shrink_warp * IE_CONSTANTS["WASTAGE_FACTOR"]
                 row["consumption_note"] = "Khổ lót: 44\" | Tự động phân bổ: 4 túi lót trước sau chuẩn Gerber"
             else:
@@ -624,16 +659,16 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict, user_prompt
         else:
             if is_fusing:
                 eff = user_requested_eff if user_requested_eff else 0.88
-                total_yds = (total_panel_area / (cutable_w * 36.0)) / eff * shrink_warp * IE_CONSTANTS["WASTAGE_FACTOR"]
+                total_yds = (ie_safe_float(total_panel_area) / (cutable_w * 36.0)) / eff * shrink_warp * IE_CONSTANTS["WASTAGE_FACTOR"]
                 row["consumption_note"] = f"Khổ mếch: {cutable_w}\" | Tính diện tích tổng thông số cạp/baget có biên may"
             else:
                 eff = user_requested_eff if user_requested_eff else 0.83
                 if "PANT" in product_type or "QUẦN" in product_type:
-                    linear_base_yds = (max_piece_length / 36.0) * shrink_warp * IE_CONSTANTS["WASTAGE_FACTOR"] / eff
-                    area_base_yds = (total_panel_area / (cutable_w * 36.0)) / eff * shrink_warp * IE_CONSTANTS["WASTAGE_FACTOR"]
+                    linear_base_yds = (ie_safe_float(max_piece_length) / 36.0) * shrink_warp * IE_CONSTANTS["WASTAGE_FACTOR"] / eff
+                    area_base_yds = (ie_safe_float(total_panel_area) / (cutable_w * 36.0)) / eff * shrink_warp * IE_CONSTANTS["WASTAGE_FACTOR"]
                     total_yds = max(linear_base_yds, area_base_yds) * safety_allowance
                 else:
-                    total_yds = (total_panel_area / (cutable_w * 36.0)) / eff * shrink_warp * IE_CONSTANTS["WASTAGE_FACTOR"] * safety_allowance
+                    total_yds = (ie_safe_float(total_panel_area) / (cutable_w * 36.0)) / eff * shrink_warp * IE_CONSTANTS["WASTAGE_FACTOR"] * safety_allowance
                 row["consumption_note"] = f"Khổ vải: {cutable_w}\" | Sơ đồ hình học Gerber nhóm {product_type}"
 
         row["marker_efficiency_pct"] = f"{round(eff * 100, 1)}%"
@@ -646,6 +681,7 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict, user_prompt
 
     ai_blueprint["bom_rows"] = prepared_rows
     return ai_blueprint
+
 
 
 
