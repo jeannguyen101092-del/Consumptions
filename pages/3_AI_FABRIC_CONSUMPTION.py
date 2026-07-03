@@ -1030,7 +1030,7 @@ if "uploaded_pdf_bytes" in st.session_state and st.session_state.uploaded_pdf_by
         st.error(f"❌ Lỗi nghiêm trọng tại tầng xử lý PDF 7a1: {str(pdf_err)}")
 
 # =====================================================================
-# ĐOẠN 7a2.1: AI CORE EXTRACTOR & INTEGRATED CHAT INPUT (V36.4 PRO)
+# ĐOẠN 7a2.1: AI CORE EXTRACTOR & INTEGRATED CHAT INPUT (V36.5 FIXED)
 # =====================================================================
 import concurrent.futures
 from fractions import Fraction
@@ -1048,7 +1048,7 @@ def safe_float(v, default=0.0):
         s_norm = s.strip().replace("-", " ")
         if " " in s_norm:
             parts = s_norm.split()
-            if len(parts) == 2 and "/" in parts: return float(parts) + float(Fraction(parts))
+            if len(parts) == 2 and "/" in parts[1]: return float(parts[0]) + float(Fraction(parts[1]))
         if "/" in s and " " not in s: return float(Fraction(s))
         num_m = re.search(r'([\d\.]+)', s)
         return float(num_m.group(1)) if num_m else float(s)
@@ -1058,16 +1058,18 @@ if "parsed_ai_response" not in st.session_state: st.session_state.parsed_ai_resp
 if "ai_chat_response" not in st.session_state: st.session_state.ai_chat_response = ""
 if "current_query" not in st.session_state: st.session_state.current_query = ""
 
-# KÍCH HOẠT Ô CHAT CỐ ĐỊNH Ở ĐÁY MÀN HÌNH - KHÔNG PHỤ THUỘC FILE PDF
 user_input = st.chat_input("Nhập câu lệnh của bạn tại đây (Ví dụ: Tính định mức size 32 khổ 57)...")
 if user_input:
     st.session_state.current_query = user_input
     st.rerun()
 
-# KHỐI LOGIC XỬ LÝ AI CHỈ CHẠY KHI ĐÃ CÓ FILE ẢNH VÀ CÓ CÂU LỆNH CHAT
 if "gemini_inputs" in st.session_state and st.session_state.gemini_inputs and len(st.session_state.gemini_inputs) > 0 and st.session_state.current_query:
+    # Sao chép mảng gốc để không bị cộng dồn prompt cũ khi chat nhiều lần
     gemini_inputs = list(st.session_state.gemini_inputs)
-    if "GEMINI_API_KEY" in st.secrets: genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+    
+    if "GEMINI_API_KEY" in st.secrets: 
+        import google.generativeai as genai
+        genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
     
     chat_lower = str(st.session_state.current_query).lower()
     m_size = re.search(r'\b(?:size|sz|cỡ)\s*[:\-=\s]*([\w\d]+)\b', chat_lower)
@@ -1084,7 +1086,8 @@ if "gemini_inputs" in st.session_state and st.session_state.gemini_inputs and le
     prompt_instruction = f"Extract measurement charts for PANT. Target size: '{target_size_cmd}', Fabric width: {active_width} inch. Convert fractions to decimals."
     gemini_inputs.append(prompt_instruction)
     
-    with st.spinner("⏳ AI đang bóc tách thông số (Tối đa 40s)..."):
+    error_log = []
+    with st.spinner("⏳ AI đang bóc tách thông số tài liệu kỹ thuật (Tối đa 40s)..."):
         for attempt in range(3):
             if attempt > 0: time.sleep((2 ** attempt) + random.uniform(0.1, 0.3))
             try:
@@ -1092,34 +1095,55 @@ if "gemini_inputs" in st.session_state and st.session_state.gemini_inputs and le
                 with concurrent.futures.ThreadPoolExecutor(max_workers=1) as exec_p:
                     future = exec_p.submit(model.generate_content, gemini_inputs)
                     try: response = future.result(timeout=40)
-                    except concurrent.futures.TimeoutError: continue
+                    except concurrent.futures.TimeoutError: 
+                        error_log.append(f"Lượt {attempt+1}: Kết nối mạng tới Google bị Timeout.")
+                        continue
                 
-                if not response: continue
+                if not response: 
+                    error_log.append(f"Lượt {attempt+1}: Phản hồi rỗng từ API.")
+                    continue
+                
                 txt = ""
                 try: txt = response.text
                 except:
+                    # SỬA BUG CHÍNH XÁC: Truy cập phần tử [0] của danh sách candidates trước khi lấy content.parts
                     if hasattr(response, "candidates") and response.candidates:
-                        parts = getattr(response.candidates, "parts", [])
-                        txt = "".join(getattr(p, "text", "") for p in parts)
+                        first_candidate = response.candidates[0]
+                        if hasattr(first_candidate, "content") and first_candidate.content:
+                            parts = getattr(first_candidate.content, "parts", [])
+                            txt = "".join(getattr(p, "text", "") for p in parts)
                 
                 txt = txt.strip() if txt else ""
-                if not txt: continue
+                if not txt: 
+                    error_log.append(f"Lượt {attempt+1}: Văn bản phản hồi sau bóc tách bị rỗng.")
+                    continue
                 
-                try: local_parsed = json.loads(txt)
-                except json.JSONDecodeError: break
+                try: 
+                    local_parsed = json.loads(txt)
+                except json.JSONDecodeError: 
+                    error_log.append(f"Lượt {attempt+1}: Chuỗi trả về gãy cấu trúc JSON.")
+                    break
                 
                 if isinstance(local_parsed, dict):
                     st.session_state.parsed_ai_response = local_parsed
+                    error_log = [] # Xóa nhật ký lỗi nếu thành công
                     break
             except Exception as e:
+                error_log.append(f"Lượt {attempt+1} Lỗi hệ thống: {str(e)}")
                 if isinstance(e, (KeyError, TypeError, NameError, AttributeError)): break
                 continue
+
+    # Nếu chạy hết các lượt thử mà vẫn lỗi, in chi tiết lỗi lên màn hình để xử lý
+    if error_log:
+        st.error(f"❌ AI Core thất bại sau các lượt thử: {error_log[-1]}")
+        with st.expander("🔍 Xem chi tiết nhật ký lỗi API"):
+            for log in error_log: st.text(log)
 else:
-    # Nếu chưa nạp file hoặc chưa chat, chỉ hiện nhắc nhở, ô chat ở trên vẫn giữ nguyên
     if not "gemini_inputs" in st.session_state or len(st.session_state.gemini_inputs) == 0:
         st.info("💡 Sẵn sàng. Hãy tải file Techpack lên ở bên trái để bắt đầu bóc tách.")
     elif not st.session_state.current_query:
         st.info("💬 File đã nạp thành công! Hãy nhập yêu cầu vào ô chat bên dưới để AI bắt đầu tính toán.")
+
 
 
 # =====================================================================
