@@ -1021,6 +1021,59 @@ with col_right:
         st.markdown("<div style='margin-top: 50px; text-align: center; color: #64748b; font-size: 13px;'>Hình vẽ phác họa phẳng (Sketch) trích xuất từ trang bìa PDF sẽ tự động hiển thị cân xứng tại đây.</div>", unsafe_allow_html=True)
         
     st.markdown('</div>', unsafe_allow_html=True)
+# =====================================================================
+# ĐOẠN 7a1: INTERFACE WORKSPACE & HIGH-RES JPEG IMAGE PIPELINE (V29.5 FIXED)
+# =====================================================================
+st.markdown('<br><div class="cad-card"><div class="cad-header">💬 CHATGPT IE COLLABORATION WORKSPACE</div>', unsafe_allow_html=True)
+
+# Khởi tạo kho lưu trữ trạng thái hệ thống phòng vệ tránh lỗi mất Session State khi tương tác
+if "chat_history" not in st.session_state: st.session_state.chat_history = []
+if "pdf_page_images_list" not in st.session_state: st.session_state.pdf_page_images_list = None
+if "accumulated_bom_rows" not in st.session_state: st.session_state.accumulated_bom_rows = {}
+if "bom_data" not in st.session_state: st.session_state.bom_data = {}
+
+# Xuất dòng tin nhắn lịch sử trò chuyện đồng bộ trực quan lên màn hình
+if st.session_state.chat_history:
+    for msg in st.session_state.chat_history:
+        st.chat_message("user").write(msg["user"])
+        st.chat_message("assistant").write(msg["ai"])
+
+# 🌟 FIX CHIẾN LƯỢC HẠ TẦNG ID: Tạo một vùng chứa tĩnh độc lập cô lập ô chat input
+chat_input_container = st.container()
+with chat_input_container:
+    safe_user_prompt = st.chat_input("Gõ câu lệnh điều chỉnh thông số tại đây...", key="ie_workspace_static_chat_input_key")
+
+st.markdown('</div>', unsafe_allow_html=True)
+
+# Kích hoạt luồng trích xuất dữ liệu khi có tệp tài liệu và lệnh từ ô chat
+if st.session_state.pdf_bytes is not None and safe_user_prompt:
+    current_query = str(safe_user_prompt).strip()
+    
+    with st.spinner("🧠 AI Platform đang trích xuất dải ảnh kỹ thuật JPEG và xử lý rập phẳng..."):
+        import google.generativeai as genai
+        import json, copy, traceback, re
+        import fitz 
+        
+        gemini_inputs = []
+        try:
+            doc_recovery = fitz.open(stream=st.session_state.pdf_bytes, filetype="pdf")
+            total_pages = len(doc_recovery)
+            
+            # Ép chuyển đổi sang định dạng hình ảnh JPEG (RGB) để triệt tiêu lỗi byte ảnh nhiễu
+            image_payloads = []
+            target_dpi = 180 if total_pages <= 5 else 130
+            max_scan_pages = min(total_pages, 16)
+            
+            for page_num in range(max_scan_pages):
+                page = doc_recovery.load_page(page_num)
+                pix = page.get_pixmap(dpi=target_dpi, colorspace=fitz.csRGB)
+                page_img_bytes = pix.tobytes("jpeg")
+                
+                image_payloads.append({"mime_type": "image/jpeg", "data": page_img_bytes})
+            
+            gemini_inputs = copy.deepcopy(image_payloads)
+        except Exception as e_pdf:
+            st.error(f"💥 Lỗi phân tách dữ liệu hình ảnh từ file PDF: {str(e_pdf)}")
 
 
 
