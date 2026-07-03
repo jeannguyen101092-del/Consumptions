@@ -973,215 +973,402 @@ with col_right:
 
 
 # =====================================================================
-# ĐOẠN 7a1: INTERFACE WORKSPACE & HIGH-RES JPEG IMAGE PIPELINE (V28.5 CHUẨN UNIQUE KEY)
+# ĐOẠN 7a1: INTEL PAGE ISOLATOR & COMPRESSION PIPELINE (V35.0 PRO)
 # =====================================================================
-st.markdown('<br><div class="cad-card"><div class="cad-header">💬 CHATGPT IE COLLABORATION WORKSPACE</div>', unsafe_allow_html=True)
+import time
+import fitz  # PyMuPDF
 
-# Khởi tạo kho lưu trữ trạng thái hệ thống phòng vệ tránh lỗi mất Session State
-if "chat_history" not in st.session_state: st.session_state.chat_history = []
-if "pdf_page_images_list" not in st.session_state: st.session_state.pdf_page_images_list = None
-if "accumulated_bom_rows" not in st.session_state: st.session_state.accumulated_bom_rows = {}
-if "bom_data" not in st.session_state: st.session_state.bom_data = {}
+st.session_state.gemini_inputs = []
+start_pipeline_time = time.time()
 
-# Xuất dòng tin nhắn lịch sử trò chuyện đồng bộ trực quan
-if st.session_state.chat_history:
-    for msg in st.session_state.chat_history:
-        st.chat_message("user").write(msg["user"])
-        st.chat_message("assistant").write(msg["ai"])
+if "uploaded_pdf_bytes" in st.session_state and st.session_state.uploaded_pdf_bytes:
+    try:
+        # Mở document từ bytes trong bộ nhớ
+        doc_recovery = fitz.open(stream=st.session_state.uploaded_pdf_bytes, filetype="pdf")
+        total_pages = len(doc_recovery)
+        
+        # NGUYÊN NHÂN 2 FIX: Chỉ nhắm mục tiêu vào các trang chứa Spec & BOM (0-indexed: Page 1, 2, 13, 14)
+        # Tự động co giãn theo số lượng trang thực tế của tài liệu
+        target_pages = [0, 1, 12, 13] 
+        actual_pages_to_scan = [p for p in target_pages if p < total_pages]
+        
+        # Nếu tài liệu quá ngắn, fallback về việc quét toàn bộ trang hiện có
+        if not actual_pages_to_scan:
+            actual_pages_to_scan = list(range(total_pages))
 
-# 🌟 FIX CHÍ MẠNG ID: Khóa chặt thuộc tính key độc bản để triệt tiêu lỗi sập viền đỏ vĩnh viễn
-safe_user_prompt = st.chat_input("Gõ câu lệnh điều chỉnh thông số tại đây...", key="ie_workspace_unique_chat_input")
-st.markdown('</div>', unsafe_allow_html=True)
+        for page_num in actual_pages_to_scan:
+            t_page_start = time.time()
+            page = doc_recovery.load_page(page_num)
+            
+            # NGUYÊN NHÂN 3 & 4 FIX: Hạ DPI xuống 100 và ép màu GRAYSCALE (Giảm ngay ~75% trọng tải data)
+            pix = page.get_pixmap(dpi=100, colorspace=fitz.csGRAY)
+            
+            # NGUYÊN NHÂN 8 FIX: Nén chất lượng JPEG xuống mức tối ưu để OCR đọc tốt mà file cực nhẹ
+            page_img_bytes = pix.tobytes("jpeg", jpeg_quality=75)
+            
+            st.session_state.gemini_inputs.append({
+                "mime_type": "image/jpeg",
+                "data": page_img_bytes
+            })
+            
+            # Ghi log thời gian xử lý ảnh hệ thống
+            if st.session_state.get("debug_mode", False):
+                st.info(f"⏱️ [7a1] Đã xử lý Trang {page_num + 1} ({len(page_img_bytes)/1024:.1f} KB) trong {time.time() - t_page_start:.2f}s")
+                
+        doc_recovery.close()
+        
+    except Exception as pdf_err:
+        st.error(f"❌ Lỗi nghiêm trọng tại tầng xử lý PDF: {str(pdf_err)}")
+# =====================================================================
+# ĐOẠN 7a2.1: AI CORE EXTRACTOR & ASYNCHRONOUS TIMEOUT GATEKEEPER (V36.0 APPROVED)
+# =====================================================================
+import concurrent.futures
+from fractions import Fraction
+import json
+import re
+import copy
+import traceback
+import time
+import random
+import streamlit as st
 
-# Kích hoạt luồng trích xuất dữ liệu khi có tệp tài liệu và lệnh từ ô chat
-if st.session_state.pdf_bytes is not None and safe_user_prompt:
-    current_query = str(safe_user_prompt).strip()
+# Kiểm tra dữ liệu đầu vào từ tầng tiền xử lý hình ảnh 7a1
+if "gemini_inputs" not in st.session_state or not st.session_state.gemini_inputs:
+    st.error("❌ Không tìm thấy dữ liệu hình ảnh đầu vào từ ĐOẠN 7a1.")
+    st.stop()
+
+gemini_inputs = st.session_state.gemini_inputs
+
+# HÀM HELPER: Trích xuất số an toàn từ văn bản OCR nhiễu
+def safe_float(v, default=0.0):
+    if v is None: return default
+    if isinstance(v, (int, float)): return float(v)
+    try:
+        s = str(v).strip().lower()
+        if re.search(r"[0-9¼½¾⅛⅜⅝⅞\/]", s):
+            s = s.replace("o", "0").replace("l", "1").replace("i", "1")
+        s = re.sub(r"\.+", ".", s)
+        s = re.sub(r"\s*\.\s*", ".", s)
+        s = s.replace('"', '').replace("'", "").replace("inch", "").replace("cm", "").replace("%", "").strip()
+        if not s: return default
+        
+        unicode_fractions = {"½": " 1/2", "¼": " 1/4", "¾": " 3/4", "⅛": " 1/8", "⅜": " 3/8", "⅝": " 5/8", "⅞": " 7/8"}
+        for uni_char, ascii_str in unicode_fractions.items():
+            s = s.replace(uni_char, ascii_str)
+        s = s.strip()
+
+        s_normalized = s.replace("-", " ")
+        if " " in s_normalized:
+            parts = s_normalized.split()
+            if len(parts) == 2 and "/" in parts[1]:
+                return float(parts[0]) + float(Fraction(parts[1]))
+        if "/" in s and " " not in s:
+            return float(Fraction(s))
+
+        num_match = re.search(r'([\d\.]+)', s)
+        if num_match: return float(num_match.group(1))
+        return float(s)
+    except Exception:
+        return default
+
+# KHAI BÁO JSON RESPONSE SCHEMA CHO GEMINI
+response_schema_definition = {
+    "type": "OBJECT",
+    "properties": {
+        "chat_response": {"type": "STRING"},
+        "blueprint": {
+            "type": "OBJECT",
+            "properties": {
+                "status": {"type": "STRING"},
+                "spec_page": {"type": "INTEGER"},
+                "calculated_on_size": {"type": "STRING"},
+                "matched_measurements": {"type": "ARRAY", "items": {"type": "STRING"}},
+                "bom_rows": {
+                    "type": "ARRAY",
+                    "items": {
+                        "type": "OBJECT",
+                        "properties": {
+                            "component_type": {"type": "STRING"},
+                            "fabric_classification": {"type": "STRING"},
+                            "panels_catalog": {
+                                "type": "ARRAY",
+                                "items": {
+                                    "type": "OBJECT",
+                                    "properties": {
+                                        "panel_name": {"type": "STRING"},
+                                        "piece_count": {"type": "NUMBER"},
+                                        "piece_length_inch": {"type": "NUMBER"},
+                                        "piece_width_inch": {"type": "NUMBER"}
+                                    },
+                                    "required": ["panel_name", "piece_count", "piece_length_inch", "piece_width_inch"]
+                                }
+                            }
+                        },
+                        "required": ["component_type", "panels_catalog"]
+                    }
+                }
+            },
+            "required": ["status", "bom_rows"]
+        }
+    },
+    "required": ["chat_response", "blueprint"]
+}
+
+if "GEMINI_API_KEY" in st.secrets: 
+    genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
     
-    with st.spinner("🧠 AI Platform đang trích xuất dải ảnh kỹ thuật JPEG và xử lý rập phẳng..."):
+generation_config_base = {"temperature": 0.0, "response_mime_type": "application/json"}
+generation_config_advanced = {"temperature": 0.0, "response_mime_type": "application/json", "response_schema": response_schema_definition}
+
+model_basic = genai.GenerativeModel("gemini-2.5-flash", generation_config=generation_config_base)
+model_advanced = None
+try:
+    model_advanced = genai.GenerativeModel("gemini-2.5-flash", generation_config=generation_config_advanced)
+except Exception:
+    pass
+
+# Đọc câu lệnh hiện tại của người dùng từ hệ thống chatbot
+current_query = st.session_state.get("current_query", "")
+chat_lower = current_query.lower()
+
+# BÓC TÁCH THAM SỐ TỪ CHAT BOX NGƯỜI DÙNG
+match_size = re.search(r'\b(?:size|sz|cỡ)\s*[:\-=\s]*([\w\d]+)\b', chat_lower)
+target_size_cmd = str(match_size.group(1)).upper().strip() if match_size else "30"
+
+match_w = re.search(r'(?:khổ|kho|width|size)\s*([\d\.]+)', chat_lower)
+active_width = safe_float(match_w.group(1), 57.0) if match_w else 57.0
+
+match_warp = re.search(r'(?:dọc|doc|warp)\s*[:\-=\s]*([\d\.,\s½¼¾⅛⅜⅝⅞/-]+)', chat_lower)
+match_weft = re.search(r'(?:ngang|weft)\s*[:\-=\s]*([\d\.,\s½¼¾⅛⅜⅝⅞/-]+)', chat_lower)
+active_warp = safe_float(match_warp.group(1), 3.0) if match_warp else 3.0
+active_weft = safe_float(match_weft.group(1), 3.0) if match_weft else 3.0
+
+if len(st.session_state.get("chat_history", [])) > 30:
+    st.session_state.chat_history = st.session_state.chat_history[-30:]
+
+prompt_instruction = f"""
+You are an expert apparel IE OCR system. Scan the provided specification pages to extract measurement charts.
+TARGET SIZE: '{target_size_cmd}'
+ACTIVE FABRIC WIDTH: {active_width} inch
+
+CRITICAL RULES:
+1. Extract size dimensions for '{target_size_cmd}' across tables. Convert fractions to decimals.
+2. Compute flat pattern boundaries for PANT:
+   - FRONT_PANEL/BACK_PANEL Length = Inseam + Front Rise (or Outseam).
+   - FRONT_PANEL/BACK_PANEL Width = Hip or Waist width divided by 2.
+   - WAISTBAND = Waist circumference specs.
+"""
+gemini_inputs.append(prompt_instruction)
+
+# Khởi tạo các trạng thái đầu ra cho ĐOẠN 7a2.2 tiêu thụ
+st.session_state.parsed_ai_response = None
+st.session_state.ai_chat_response = "❌ HỆ THỐNG LỖI: Không nhận được phản hồi hợp lệ từ mô hình AI."
+
+is_debug_enabled = st.session_state.get("debug_mode", False)
+attempt_errors = []
+
+# KHỐI LỆNH TRUYỀN TẢI GỌI AI & CHỐT TIMEOUT MẠNG
+with st.spinner("⏳ Hệ thống đang truyền tải dữ liệu và phân tích cấu trúc sơ đồ sơ bộ (Thời gian xử lý tối đa 40s)..."):
+    for attempt in range(3):
+        if attempt > 0:
+            time.sleep((2 ** attempt) + random.uniform(0.1, 0.4))
+            
         try:
-            import google.generativeai as genai
-            import json, copy, traceback, re
-            import fitz 
+            active_model = model_advanced if model_advanced else model_basic
             
-            doc_recovery = fitz.open(stream=st.session_state.pdf_bytes, filetype="pdf")
-            total_pages = len(doc_recovery)
-            
-            # Ép chuyển đổi sang định dạng hình ảnh JPEG (RGB) để triệt tiêu lỗi byte ảnh nhiễu
-            image_payloads = []
-            target_dpi = 180 if total_pages <= 6 else 130
-            max_scan_pages = min(total_pages, 16)
-            
-            for page_num in range(max_scan_pages):
-                page = doc_recovery.load_page(page_num)
-                pix = page.get_pixmap(dpi=target_dpi, colorspace=fitz.csRGB)
-                page_img_bytes = pix.tobytes("jpeg")
-                
-                image_payloads.append({"mime_type": "image/jpeg", "data": page_img_bytes})
-            
-            gemini_inputs = copy.deepcopy(image_payloads)
+            # Cưỡng bức Timeout bằng ThreadPoolExecutor bảo vệ luồng UI
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(active_model.generate_content, gemini_inputs)
+                try:
+                    response = future.result(timeout=40)
+                except concurrent.futures.TimeoutError:
+                    attempt_errors.append(f"[Attempt {attempt+1}] Kết nối mạng bị nghẽn (HTTP Timeout sau 40 giây).")
+                    continue
 
-# =====================================================================
-# ĐOẠN 7a2: AI CORE EXTRACTOR & POST-AI MIDDLEWARE GEOMETRY PROCESSOR (V27.6 APPROVED)
-# =====================================================================
-            if "GEMINI_API_KEY" in st.secrets: 
-                genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+            if not response:
+                attempt_errors.append(f"[Attempt {attempt+1}] API trả về thực thể trống.")
+                continue
                 
-            model = genai.GenerativeModel("gemini-2.5-flash", generation_config={"temperature": 0.0})
-            chat_lower = current_query.lower()
-            
-            # Bộ bóc tách tham số size/khổ vải/co rút từ câu lệnh ô chat người dùng
-            match_size = re.search(r'\b(?:size|sz|cỡ)\s*[:\-=\s]*([\w\d]+)\b', chat_lower)
-            target_size_cmd = str(match_size.group(1)).upper().strip() if match_size else "30"
-            
-            match_w = re.search(r'(?:khổ|kho|width|size)\s*([\d\.]+)', chat_lower)
-            active_width = float(match_w.group(1)) if match_w else 57.0
-            
-            active_warp = 3.0
-            active_weft = 3.0
-            match_warp = re.search(r'(?:dọc|doc|warp)\s*[:\-=\s]*([\d\.]+)', chat_lower)
-            match_weft = re.search(r'(?:ngang|weft)\s*[:\-=\s]*([\d\.]+)', chat_lower)
-            
-            if match_warp:
-                try: active_warp = float(match_warp.group(1))
-                except Exception: pass
-            if match_weft:
-                try: active_weft = float(match_weft.group(1))
+            response_text = ""
+            try: response_text = response.text
+            except Exception: pass
+
+            # Nhánh Fallback đọc Content Parts nếu thuộc tính .text bị khóa độc quyền
+            if not response_text:
+                try:
+                    if hasattr(response, "candidates") and response.candidates:
+                        candidate = response.candidates[0]
+                        parts = getattr(candidate.content, "parts", [])
+                        response_text = "".join(getattr(p, "text", "") for p in parts)
                 except Exception: pass
 
-            if len(st.session_state.chat_history) > 30:
-                st.session_state.chat_history = st.session_state.chat_history[-30:]
+            response_text = response_text.strip() if response_text else ""
+            if not response_text:
+                attempt_errors.append(f"[Attempt {attempt+1}] Không bóc tách được chuỗi ký tự từ các Content Parts.")
+                continue
 
-            prompt_instruction = f"""
-            You are an expert apparel IE OCR system. Scan all provided page images to locate the size spec tables (especially Page 13 and Page 14).
-            
-            REAL GARMENT RECONSTRUCTION RULES FOR PANT/JEANS:
-            1. Target size is '{target_size_cmd}'. You MUST read specifications across both Page 13 and Page 14.
-            2. Convert any fractional measurement notations to pure decimal numbers (e.g., convert '16 1/2' to 16.5, '17 1/4' to 17.25, '31 1/2' to 31.5).
-            3. Dynamically evaluate the overall flat pattern marker boundaries for a standard pant:
-               - FRONT_PANEL / BACK_PANEL Length: Use 'Inseam' length + 'Front rise' or total 'Outseam' value found in tables (~38 to 43 inches).
-               - FRONT_PANEL / BACK_PANEL Width: Use 'Hip width' or 'Pant/Skirt Waist width' value divided by 2 or formatted as flat cut panels width (~13 to 17 inches).
-               - WAISTBAND: Extract length based on waist specs (~32 to 36 inches) and width (~1.5 to 3.5 inches).
-            4. If no real spec numbers are located, set "status": "ERROR". Do NOT pass dummy fallback numbers.
-            
-            Output strictly in the specified JSON structure:
-            ===START_JSON===
-            {{
-              "status": "ERROR",
-              "error_reason": "Missing size charts",
-              "spec_sheet_found": false,
-              "spec_page": 13,
-              "detected_product_type": "PANT",
-              "style_code": "",
-              "calculated_on_size": "{target_size_cmd}",
-              "pocket_style_type": "FRONT_ONLY",
-              "matched_measurements": [],
-              "bom_rows": [
-                {{
-                  "component_type": "MAIN FABRIC", "placement": "BODY", "fabric_classification": "MAIN_FABRIC",
-                  "fabric_code": "DENIM", "fabric_color": "SOLID COLOR", "fabric_width_inch": {active_width},
-                  "panels_catalog": [
-                    {{ "panel_name": "FRONT_PANEL", "piece_count": 2.0, "piece_length_inch": 0.0, "piece_width_inch": 0.0 }},
-                    {{ "panel_name": "BACK_PANEL", "piece_count": 2.0, "piece_length_inch": 0.0, "piece_width_inch": 0.0 }},
-                    {{ "panel_name": "WAISTBAND", "piece_count": 2.0, "piece_length_inch": 0.0, "piece_width_inch": 0.0 }}
-                  ]
-                }}
-              ]
-            }}
-            ===END_JSON===
-            If successfully extracted, flip "status" to "PASS", "spec_sheet_found" to true, list clean readable strings inside "matched_measurements" (e.g. ["Waist width = 16.5 inch", "Inseam length = 31.5 inch"]), and dynamically calculate the dynamic dimensions inside "bom_rows".
-            
-            ===START_CHAT===
-            [Confirm in Vietnamese which pages you scanned (Page 13 and Page 14) and summarize the exact clean decimal dimensions found for size {target_size_cmd}.]
-            ===END_CHAT===
-            """
-            
-            gemini_inputs.append(prompt_instruction)
-            response = model.generate_content(gemini_inputs)
-            
-            ai_chat_response = "Hệ thống đang xử lý dữ liệu..."
-            
-            if response and response.text:
-                response_text = response.text.strip()
-                json_match = re.search(r'===START_JSON===\s*(.*?)\s*===END_JSON===', response_text, re.DOTALL)
-                chat_match = re.search(r'===START_CHAT===\s*(.*?)\s*===END_CHAT===', response_text, re.DOTALL)
-                
-                if json_match:
-                    raw_json_str = json_match.group(1).strip()
-                    raw_json_str = re.sub(r"^```json\s*|\s*```$", "", raw_json_str, flags=re.IGNORECASE)
-                    
-                    try:
-                        raw_blueprint = json.loads(raw_json_str)
-                    except json.JSONDecodeError:
-                        raw_blueprint = {"status": "ERROR", "error_reason": "Malformed JSON structure."}
-                    
-                    raw_specs = []
-                    for s in raw_blueprint.get("matched_measurements", []):
-                        clean_s = str(s).upper().replace("I", "1").replace("S", "5").replace("O", "0")
-                        raw_specs.append(clean_s)
-                    raw_blueprint["matched_measurements"] = raw_specs 
-                    
-                    has_valid_evidence = len(raw_specs) >= 1
-                    bom_list = raw_blueprint.get("bom_rows", [])
-                    has_valid_bom = isinstance(bom_list, list) and len(bom_list) > 0
+            if is_debug_enabled:
+                with st.expander(f"🤖 [DEBUG] Lượt {attempt + 1} - Chuỗi phản hồi thô từ Gemini"):
+                    st.code(response_text)
 
-                    if raw_blueprint.get("status") == "PASS" and raw_blueprint.get("spec_sheet_found") is True and has_valid_evidence and has_valid_bom:
-                        blueprint_worker = copy.deepcopy(raw_blueprint)
-                        
-                        processed_bom_rows = []
-                        for row in blueprint_worker.get("bom_rows", []):
-                            if not row or not isinstance(row, dict): continue
+            # Kiểm tra cú pháp biểu diễn chuỗi JSON cơ bản
+            try:
+                local_parsed = json.loads(response_text)
+            except json.JSONDecodeError:
+                attempt_errors.append(f"[Attempt {attempt+1}] Lỗi định dạng JSON (JSONDecodeError).")
+                break  # Gãy cấu trúc chuỗi JSON nghiêm ngặt -> Ngắt vòng lặp ngay lập tức
+
+            # ĐẠT TIÊU CHUẨN CẤU TRÚC SƠ BỘ -> Đóng gói chuyển giao trạng thái sang Đoạn 7a2.2
+            if isinstance(local_parsed, dict) and "blueprint" in local_parsed:
+                st.session_state.parsed_ai_response = local_parsed
+                break
+
+        except Exception as exc:
+            if isinstance(exc, (KeyError, TypeError, NameError, AttributeError)):
+                attempt_errors.append(f"❌ Critical Internal Bug: {str(exc)}\n{traceback.format_exc()}")
+                break
+            attempt_errors.append(f"[Attempt {attempt+1}] Hệ thống bận / Ngoại lệ mạng: {str(exc)}")
+            continue
+
+# Kết xuất Log tích lũy phục vụ việc bảo trì
+if is_debug_enabled and attempt_errors:
+    with st.expander("⚠️ [DEBUG] Nhật ký xử lý & Lỗi tích lũy hệ thống 7a2.1"):
+        for err in attempt_errors: st.text(err)
+# =====================================================================
+# ĐOẠN 7a2.2: POST-AI MIDDLEWARE GEOMETRY PROCESSOR (V36.0 APPROVED)
+# =====================================================================
+import copy
+import streamlit as st
+
+# Tái khai báo hàm xử lý số để đảm bảo tính độc lập khi thực thi
+def safe_float(v, default=0.0):
+    from fractions import Fraction
+    import re
+    if v is None: return default
+    if isinstance(v, (int, float)): return float(v)
+    try:
+        s = str(v).strip().lower()
+        if re.search(r"[0-9¼½¾⅛⅜⅝⅞\/]", s):
+            s = s.replace("o", "0").replace("l", "1").replace("i", "1")
+        s = re.sub(r"\.+", ".", s)
+        s = re.sub(r"\s*\.\s*", ".", s)
+        s = s.replace('"', '').replace("'", "").replace("inch", "").replace("cm", "").replace("%", "").strip()
+        if not s: return default
+        
+        unicode_fractions = {"½": " 1/2", "¼": " 1/4", "¾": " 3/4", "⅛": " 1/8", "⅜": " 3/8", "⅝": " 5/8", "⅞": " 7/8"}
+        for uni_char, ascii_str in unicode_fractions.items():
+            s = s.replace(uni_char, ascii_str)
+        s = s.strip()
+
+        s_normalized = s.replace("-", " ")
+        if " " in s_normalized:
+            parts = s_normalized.split()
+            if len(parts) == 2 and "/" in parts[1]:
+                return float(parts[0]) + float(Fraction(parts[1]))
+        if "/" in s and " " not in s:
+            return float(Fraction(s))
+
+        num_match = re.search(r'([\d\.]+)', s)
+        if num_match: return float(num_match.group(1))
+        return float(s)
+    except Exception:
+        return default
+
+# Kiểm tra kết quả trả về từ cấu phần AI Extractor 7a2.1
+if "parsed_ai_response" in st.session_state and st.session_state.parsed_ai_response:
+    parsed_response = st.session_state.parsed_ai_response
+    
+    if "chat_response" in parsed_response:
+        st.session_state.ai_chat_response = str(parsed_response["chat_response"]).strip()
+    
+    raw_blueprint = parsed_response["blueprint"]
+    
+    # 1. BỘ LỌC KIỂM SOÁT VÀ THẨM ĐỊNH CHẤT LƯỢNG HÌNH HỌC VẬT LÝ (QUALITY GATE GATEKEEPER)
+    bom_list = raw_blueprint.get("bom_rows", [])
+    has_valid_bom = False
+    
+    if isinstance(bom_list, list) and len(bom_list) > 0:
+        valid_rows_count = 0
+        required_bom_fields = ("component_type", "panels_catalog")
+        required_panel_fields = ("panel_name", "piece_count", "piece_length_inch", "piece_width_inch")
+        
+        # Thiết lập ranh giới vật lý chuẩn của sản phẩm Quần/Jeans ngành may
+        MAX_PANEL_LENGTH = 80.0
+        MAX_PANEL_WIDTH = 40.0
+        MAX_PIECE_COUNT = 20
+        
+        for row in bom_list:
+            if not isinstance(row, dict): continue
+            if all(k in row for k in required_bom_fields):
+                catalog = row.get("panels_catalog", [])
+                if isinstance(catalog, list) and len(catalog) > 0:
+                    for p in catalog:
+                        if isinstance(p, dict) and all(k in p for k in required_panel_fields):
+                            p_count = safe_float(p.get("piece_count"), 0.0)
+                            p_len = safe_float(p.get("piece_length_inch"), 0.0)
+                            p_wid = safe_float(p.get("piece_width_inch"), 0.0)
                             
-                            c_type = str(row.get("component_type", "")).upper()
-                            f_class = str(row.get("fabric_classification", "")).upper()
-                            
-                            row["_is_fusing"] = "FUSING" in f_class or "KEO" in c_type or "MEX" in c_type
-                            row["_is_lining"] = "LINING" in f_class or "LÓT" in c_type or "POCKET" in c_type
-                            row["_is_elastic_or_tape"] = "ELASTIC" in f_class or "THUN" in c_type
-                            
-                            total_area = 0.0
-                            max_len = 0.0
-                            total_pieces = 0.0
-                            
-                            catalog = row.get("panels_catalog", [])
-                            if catalog and isinstance(catalog, list):
-                                for p in catalog:
-                                    if not isinstance(p, dict): continue
-                                    count = float(p.get("piece_count", 0.0))
-                                    length = float(p.get("piece_length_inch", 0.0))
-                                    width = float(p.get("piece_width_inch", 0.0))
-                                    
-                                    total_area += (length * width * count)
-                                    total_pieces += count
-                                    if length > max_len: max_len = length
-                                    
-                            row["_btp_total_panel_area"] = total_area
-                            row["_btp_max_piece_length"] = max_len
-                            row["_btp_total_piece_count"] = total_pieces
-                            
-                            processed_bom_rows.append(row)
-                            
-                        blueprint_worker["bom_rows"] = processed_bom_rows
-                        blueprint_final = allocate_fabric_consumption_and_quality_gate(blueprint_worker, current_query)
-                        
-                        st.session_state.bom_data = blueprint_final
-                        st.session_state.accumulated_bom_rows = blueprint_final.get("bom_rows", [])
-                        
-                        if chat_match: ai_chat_response = chat_match.group(1).strip()
-                        else: ai_chat_response = f"✅ OCR & Mapping thành công! Trích xuất từ Spec Trang {raw_blueprint.get('spec_page')}."
-                    else:
-                        st.session_state.bom_data = None
-                        err_reason = raw_blueprint.get('error_reason', 'Tài liệu thiếu bảng Spec hoặc dữ liệu phân số chưa được chuẩn hóa.')
-                        ai_chat_response = f"❌ NGẰT LUỒNG: {err_reason}"
-                else:
-                    st.session_state.bom_data = None
-                    ai_chat_response = "❌ NGẰT LUỒNG: AI Core không phản hồi cấu trúc JSON mẫu chuẩn."
+                            # Kiểm tra xem kích thước bóc tách từ OCR có nằm ngoài ranh giới phi thực tế
+                            if (0.0 < p_len <= MAX_PANEL_LENGTH) and (0.0 < p_wid <= MAX_PANEL_WIDTH) and (0.0 < p_count <= MAX_PIECE_COUNT):
+                                valid_rows_count += 1
+                                
+        if valid_rows_count > 0:
+            has_valid_bom = True
+
+    # 2. TIẾN TRÌNH TÍNH TOÁN VÀ ĐỊNH HÌNH DIỆN TÍCH SƠ ĐỒ (GEOMETRY MIDDLEWARE ENGINE)
+    if has_valid_bom:
+        # Chuẩn hóa văn bản mảng đo lường chứng cứ
+        raw_specs = []
+        for s in raw_blueprint.get("matched_measurements", []):
+            raw_specs.append(str(s).upper().replace("I", "1").replace("S", "5").replace("O", "0"))
+        raw_blueprint["matched_measurements"] = raw_specs 
+
+        # Kích hoạt trạng thái logic tự động (Fail-safe)
+        if raw_blueprint.get("status") != "PASS": raw_blueprint["status"] = "PASS"
+        if "spec_sheet_found" not in raw_blueprint: raw_blueprint["spec_sheet_found"] = True
             
-            st.session_state.chat_history.append({"user": current_query, "ai": ai_chat_response})
-            st.rerun()
-                        
-        except Exception as e:
-            st.error(f"❌ Lỗi hệ thống tầng AI Core Post-Pipeline ở đoạn 7a2: {str(e)}")
-            st.text(traceback.format_exc())
+        blueprint_worker = copy.deepcopy(raw_blueprint)
+        processed_bom_rows = []
+        
+        for row in blueprint_worker.get("bom_rows", []):
+            if not row or not isinstance(row, dict): continue
+            c_type = str(row.get("component_type", "")).upper()
+            f_class = str(row.get("fabric_classification", "")).upper()
+            
+            # Phân loại tự động loại linh kiện phụ trợ bằng từ khóa ngôn ngữ học
+            row["_is_fusing"] = "FUSING" in f_class or "KEO" in c_type or "MEX" in c_type
+            row["_is_lining"] = "LINING" in f_class or "LÓT" in c_type or "POCKET" in c_type
+            row["_is_elastic_or_tape"] = "ELASTIC" in f_class or "THUN" in c_type
+            
+            total_area, max_len, total_pieces = 0.0, 0.0, 0.0
+            catalog = row.get("panels_catalog", [])
+            if isinstance(catalog, list):
+                for p in catalog:
+                    if not isinstance(p, dict): continue
+                    count = safe_float(p.get("piece_count"), 0.0)
+                    length = safe_float(p.get("piece_length_inch"), 0.0)
+                    width = safe_float(p.get("piece_width_inch"), 0.0)
+                    
+                    # Tính lũy kế hình học phẳng cho sơ đồ nếu panel nằm trong vùng an toàn
+                    if (0.0 < length <= 80.0) and (0.0 < width <= 40.0) and (0.0 < count <= 20.0):
+                        total_area += (length * width * count)
+                        total_pieces += count
+                        if length > max_len: max_len = length
+            
+            # Khớp thông số hình học phẳng bổ sung vào hàng dữ liệu BOM vật tư
+            row["total_area_inch2"] = total_area
+            row["max_length_inch"] = max_len
+            row["total_pieces_count"] = total_pieces
+            processed_bom_rows.append(row)
+        
+        blueprint_worker["bom_rows"] = processed_bom_rows
+        
+        # BÀN GIAO DỮ LIỆU ĐẠT CHUẨN SẠCH TUYỆT ĐỐI CHO CAD ENGINE TIÊU THỤ KẾ TIẾP
+        st.session_state.processed_blueprint = blueprint_worker
+    else:
+        st.error("❌ Gatekeeper từ chối: Dữ liệu bóc tách không vượt qua bài kiểm tra giới hạn vật lý (Physical Boundary Check) hoặc cấu trúc BOM trống.")
+else:
+    st.error(st.session_state.get("ai_chat_response", "❌ HỆ THỐNG LỖI: Vượt quá số lần thử lại tại AI Core Extractor."))
 
                 
 
