@@ -1128,17 +1128,22 @@ if gemini_inputs and current_query:
             # Gộp dữ liệu ảnh/vector và gửi lên Gemini
             gemini_payload = gemini_inputs + [prompt_instruction]
             response = model.generate_content(gemini_payload)
-            # =====================================================================
-            # ĐOẠN 7a2.2: POST-AI MIDDLEWARE GEOMETRY PROCESSOR (XỬ LÝ HẬU AI & ĐÓNG BLOCK)
+                       # =====================================================================
+            # ĐOẠN 7a2.2: POST-AI MIDDLEWARE GEOMETRY PROCESSOR (BẢN SỬA LỖI ĐỊNH DẠNG CHAT)
             # =====================================================================
             if response and response.text:
                 response_text = response.text.strip()
                 json_match = re.search(r'===START_JSON===\s*(.*?)\s*===END_JSON===', response_text, re.DOTALL)
                 chat_match = re.search(r'===START_CHAT===\s*(.*?)\s*===END_CHAT===', response_text, re.DOTALL)
                 
-                ai_chat_feedback = "AI đã xử lý tài liệu nhưng cấu trúc chat phản hồi bị lỗi định dạng."
+                # SỬA LỖI TẠI ĐÂY: Nếu tìm thấy thẻ CHAT thì cắt, nếu không thấy thì dùng luôn response.text sạch (bỏ phần JSON)
                 if chat_match:
                     ai_chat_feedback = chat_match.group(1).strip()
+                else:
+                    # Tự động loại bỏ khối JSON nếu có để giữ lại lời thoại sạch của AI
+                    ai_chat_feedback = re.sub(r'===START_JSON===.*?===END_JSON===', '', response_text, flags=re.DOTALL).strip()
+                    # Khử thêm các ký tự markdown thừa nếu có
+                    ai_chat_feedback = ai_chat_feedback.replace('===START_CHAT===', '').replace('===END_CHAT===', '').strip()
                 
                 if json_match:
                     raw_json_str = json_match.group(1).strip()
@@ -1204,7 +1209,9 @@ if gemini_inputs and current_query:
                         blueprint_worker["bom_rows"] = processed_bom_rows
                         st.session_state.bom_data = blueprint_worker
                     else:
-                        st.error(f"⚠️ Không đủ điều kiện tính toán định mức hình học. Lý do: {raw_blueprint.get('error_reason', 'N/A')}")
+                        # Thay vì crash, ghi nhận lý do lỗi từ AI trực quan lên UI chat
+                        err_reason = raw_blueprint.get('error_reason', 'AI khước từ trích xuất do sai cấu trúc bảng thông số.')
+                        ai_chat_feedback += f"\n\n⚠️ **Hệ thống phản hồi:** {err_reason}"
                 
                 # Cập nhật kết quả vào Lịch sử chat và kích hoạt reload giao diện ngay lập tức
                 st.session_state.chat_history.append({
