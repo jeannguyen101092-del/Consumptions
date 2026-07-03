@@ -1393,8 +1393,8 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
 
 
 
-            # =====================================================================
-            # ĐOẠN 7a2.2: PIPELINE KẾT NỐI HÌNH HỌC CAD VÀ TÍNH ĐỊNH MỨC SẢN XUẤT (V17.0 UPGRADE)
+                       # =====================================================================
+            # ĐOẠN 7a2.2: PIPELINE KẾT NỐI HÌNH HỌC CAD VÀ TÍNH ĐỊNH MỨC SẢN XUẤT (V17.0.2 FIXED)
             # =====================================================================
             ai_chat_response = "Hệ thống đang xử lý dữ liệu..."
             
@@ -1415,7 +1415,20 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                 if json_match:
                     raw_json_str = json_match.group(1).strip()
                     raw_json_str = re.sub(r"^```json\s*|\s*```$", "", raw_json_str, flags=re.IGNORECASE)
+                elif "===START_JSON===" in response_text and "===END_JSON===" in response_text:
+                    # Fallback bẻ chuỗi chuẩn cú pháp Python
+                    parts = response_text.split("===START_JSON===")
+                    if len(parts) > 1:
+                        sub_parts = parts[1].split("===END_JSON===")
+                        raw_json_str = sub_parts[0].strip()
+                    else:
+                        raw_json_str = ""
+                else:
+                    # Tìm khối rỗng cuối cùng nếu có
+                    match_fallback = re.search(r'\{.*\}', response_text, re.DOTALL)
+                    raw_json_str = match_fallback.group(0).strip() if match_fallback else ""
                     
+                if raw_json_str:
                     try:
                         raw_blueprint = json.loads(raw_json_str)
                         if "status" not in raw_blueprint or raw_blueprint["status"] == "ERROR":
@@ -1443,7 +1456,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                             standardized_blueprint["bom_rows"] = prepared_rows
                             
                             # 🚀 BƯỚC 3: Gọi Đoạn 2b2 (CAD-Simulation Engine) để chạy bộ giả lập xếp sơ đồ Gerber
-                            st.info("📊 Bước 4: Máy tính Gerber CAD đang mô phỏng lồng rập & tính Yards...")
+                            st.info("📊 Bước 3: Máy tính Gerber CAD đang mô phỏng lồng rập & tính Yards...")
                             blueprint_final = allocate_fabric_consumption_and_quality_gate(
                                 ai_blueprint=standardized_blueprint,
                                 user_prompt=current_query
@@ -1456,7 +1469,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                             if chat_match: 
                                 ai_chat_response = chat_match.group(1).strip()
                             else: 
-                                ai_chat_response = f"✅ OCR & Gerber CAD Simulation thành công cho Size {blueprint_final.get('calculated_on_size')}!"
+                                ai_chat_response = f"✅ OCR & Gerber CAD Simulation thành công!"
                             
                             st.session_state.chat_history.append({"user": current_query, "ai": ai_chat_response})
                             st.success("🎉 Kết quả định mức đã được đồng bộ! Đang tải lại trang...")
@@ -1469,13 +1482,11 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                     else:
                         st.session_state.bom_data = None
                         err_reason = raw_blueprint.get('error_reason', 'Dữ liệu thông số hình học rập chưa được đồng bộ hoàn toàn.')
-                        ai_chat_response = f"❌ NGẮT LUỒNG: {err_reason}"
+                        ai_chat_response = f"❌ NGẰT LUỒNG: {err_reason}"
                         st.session_state.chat_history.append({"user": current_query, "ai": ai_chat_response})
                 else:
                     st.session_state.bom_data = None
-                    st.warning("⚠️ CẢNH BÁO KIỂM TOÁN: AI phản hồi sai định dạng thẻ JSON mẫu chuẩn. Nội dung thô thu được:")
-                    st.code(response_text, language="markdown")
-                    ai_chat_response = "❌ NGẰT LUỒNG: AI Core không phản hồi cấu trúc JSON mẫu chuẩn."
+                    ai_chat_response = "❌ NGẰT LUỒNG: Không tìm thấy chuỗi JSON hợp lệ trong phản hồi."
                     st.session_state.chat_history.append({"user": current_query, "ai": ai_chat_response})
             else:
                 st.session_state.bom_data = None
