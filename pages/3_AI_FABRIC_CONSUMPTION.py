@@ -1037,11 +1037,51 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
         except Exception as e:
             st.error(f"❌ Lỗi xử lý tệp tin đầu vào ở phân đoạn 7a1: {str(e)}")
 # =====================================================================
-# ĐOẠN 7a2: AI CORE EXTRACTOR & POST-AI MIDDLEWARE GEOMETRY PROCESSOR (V26.5 INTEGRATED)
+# ĐOẠN 7a1: INTERFACE WORKSPACE & HIGH-RES IMAGE PIPELINE (V27.5 APPROVED)
 # =====================================================================
-if st.session_state.pdf_bytes is not None and safe_user_prompt and len(gemini_inputs) > 0:
-    with st.spinner("🧠 AI Core đang tiến hành xử lý nhận diện bảng thông số mở rộng..."):
+st.markdown('<br><div class="cad-card"><div class="cad-header">💬 CHATGPT IE COLLABORATION WORKSPACE</div>', unsafe_allow_html=True)
+
+# Khởi tạo kho lưu trữ trạng thái hệ thống phòng vệ tránh lỗi mất Session State
+if "chat_history" not in st.session_state: st.session_state.chat_history = []
+if "pdf_page_images_list" not in st.session_state: st.session_state.pdf_page_images_list = None
+if "accumulated_bom_rows" not in st.session_state: st.session_state.accumulated_bom_rows = {}
+if "bom_data" not in st.session_state: st.session_state.bom_data = {}
+
+# Xuất dòng tin nhắn lịch sử trò chuyện đồng bộ trực quan
+if st.session_state.chat_history:
+    for msg in st.session_state.chat_history:
+        st.chat_message("user").write(msg["user"])
+        st.chat_message("assistant").write(msg["ai"])
+
+safe_user_prompt = st.chat_input("Gõ câu lệnh điều chỉnh thông số tại đây...")
+st.markdown('</div>', unsafe_allow_html=True)
+
+# Kích hoạt luồng trích xuất dữ liệu khi có tệp tài liệu và lệnh từ ô chat
+if st.session_state.pdf_bytes is not None and safe_user_prompt:
+    current_query = str(safe_user_prompt).strip()
+    
+    with st.spinner("🧠 AI Platform đang chạy luồng trích xuất ảnh đa trang siêu nét và xử lý rập phẳng..."):
         try:
+            import google.generativeai as genai
+            import json, copy, traceback, re
+            import fitz 
+            
+            doc_recovery = fitz.open(stream=st.session_state.pdf_bytes, filetype="pdf")
+            total_pages = len(doc_recovery)
+            
+            # Chuyển 100% tài liệu sang định dạng ảnh siêu nét 200 DPI để OCR bảng biểu liên trang chính xác
+            image_payloads = []
+            target_dpi = 200 if total_pages <= 5 else 140
+            max_scan_pages = min(total_pages, 16) # Vét cạn tối đa 16 trang bao phủ toàn bộ bảng Spec sau
+            
+            for page_num in range(max_scan_pages):
+                page_img_bytes = doc_recovery.load_page(page_num).get_pixmap(dpi=target_dpi).tobytes("png")
+                image_payloads.append({"mime_type": "image/png", "data": page_img_bytes})
+            
+            gemini_inputs = copy.deepcopy(image_payloads)
+# =====================================================================
+# ĐOẠN 7a2: AI CORE EXTRACTOR & POST-AI MIDDLEWARE GEOMETRY PROCESSOR (V27.5 APPROVED)
+# =====================================================================
             if "GEMINI_API_KEY" in st.secrets: 
                 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
                 
@@ -1117,10 +1157,8 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt and len(gemini_in
             gemini_inputs.append(prompt_instruction)
             response = model.generate_content(gemini_inputs)
             
-            # Khởi tạo giá trị mặc định cho biến phản hồi chat nhằm phòng vệ tuyệt đối lỗi NameError
             ai_chat_response = "Hệ thống đang xử lý dữ liệu..."
             
-            # XỬ LÝ DỮ LIỆU ĐẦU RA SAU KHI AI TRẢ VỀ PHẢN HỒI
             if response and response.text:
                 response_text = response.text.strip()
                 json_match = re.search(r'===START_JSON===\s*(.*?)\s*===END_JSON===', response_text, re.DOTALL)
@@ -1135,7 +1173,6 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt and len(gemini_in
                     except json.JSONDecodeError:
                         raw_blueprint = {"status": "ERROR", "error_reason": "Malformed JSON structure."}
                     
-                    # KHỬ NHIỄU OCR KÝ TỰ VÀ ĐỒNG BỘ NGƯỢC VÀO BLUEPRINT GỐC
                     raw_specs = []
                     for s in raw_blueprint.get("matched_measurements", []):
                         clean_s = str(s).upper().replace("I", "1").replace("S", "5").replace("O", "0")
@@ -1149,7 +1186,6 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt and len(gemini_in
                     if raw_blueprint.get("status") == "PASS" and raw_blueprint.get("spec_sheet_found") is True and has_valid_evidence and has_valid_bom:
                         blueprint_worker = copy.deepcopy(raw_blueprint)
                         
-                        # TẦNG MAPPING TRUNG GIAN PYTHON (MIDDLEWARE GEOMETRY PROCESSOR)
                         processed_bom_rows = []
                         for row in blueprint_worker.get("bom_rows", []):
                             if not row or not isinstance(row, dict): continue
@@ -1195,17 +1231,15 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt and len(gemini_in
                         st.session_state.bom_data = None
                         err_reason = raw_blueprint.get('error_reason', 'Tài liệu thiếu bảng Spec hoặc dữ liệu phân số chưa được chuẩn hóa.')
                         ai_chat_response = f"❌ NGẰT LUỒNG: {err_reason}"
-
                 else:
                     st.session_state.bom_data = None
                     ai_chat_response = "❌ NGẰT LUỒNG: AI Core không phản hồi cấu trúc JSON mẫu chuẩn."
             
-            # ĐỒNG BỘ BIẾN TIN NHẮN CUỐI CHUYỂN TOÀN BỘ SANG BIẾN CHUẨN ai_chat_response CHỐNG LỖI 1209
             st.session_state.chat_history.append({"user": current_query, "ai": ai_chat_response})
             st.rerun()
                         
         except Exception as e:
-            st.error(f"❌ Lỗi hệ thống tầng AI Core Post-Pipeline ở đoạn 7a2b: {str(e)}")
+            st.error(f"❌ Lỗi hệ thống tầng AI Core Post-Pipeline ở đoạn 7a2: {str(e)}")
             st.text(traceback.format_exc())
 
 
