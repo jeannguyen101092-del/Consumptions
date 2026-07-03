@@ -242,13 +242,17 @@ def v18_step3_execute_strip_nesting(panels_catalog, target_width=58.0, fabric_ty
                             f_minx, f_miny, f_maxx, f_maxy = final_p.bounds
                             if f_maxx < best_x_score: best_x_score, best_placed_poly = f_maxx, final_p
 # ==============================================================================
-# ĐOẠN 5.2/6 (SỬA ĐỔI): GIẢI CỨU LỖI KHÓA TRỤC SKYLINE - BUNG ĐỊNH MỨC THỰC TẾ
+# ĐOẠN 5.2/6 (CHUẨN HOÀN THIỆN): TRÍCH XUẤT ĐÚNG FLOAT CHỈ SỐ BOUNDS [2] VÀ [3]
 # ==============================================================================
         if best_placed_poly is not None:
             placed_polygons.append(best_placed_poly)
             spatial_index = STRtree(placed_polygons)
-            _, p_miny, _, p_maxy = best_placed_poly.bounds
-            p_maxx = best_placed_poly.bounds[2]  # ✅ ĐÃ SỬA: Lấy chính xác số thực float maxx
+            
+            # ✅ BÓC TÁCH FLOAT TỪNG CHỈ SỐ CHUẨN XÁC TUYỆT ĐỐI
+            p_bounds = best_placed_poly.bounds
+            p_miny = p_bounds[1]
+            p_maxx = p_bounds[2]  # [2] chính là maxx (độ dài thực trục X)
+            p_maxy = p_bounds[3]  # [3] chính là maxy
             
             new_skyline = []
             for seg in skyline:
@@ -271,7 +275,7 @@ def v18_step3_execute_strip_nesting(panels_catalog, target_width=58.0, fabric_ty
             sorted_segs = sorted(new_skyline, key=lambda s: s["y0"])
             merged = []
             if sorted_segs:
-                curr = sorted_segs[0]
+                curr = sorted_segs
                 for next_seg in sorted_segs[1:]:
                     if abs(curr["y1"] - next_seg["y0"]) < 0.001 and abs(curr["x"] - next_seg["x"]) < 0.005:
                         curr["y1"] = next_seg["y1"]
@@ -307,18 +311,22 @@ def v18_step3_execute_strip_nesting(panels_catalog, target_width=58.0, fabric_ty
             placed_polygons.append(fallback_poly)
             spatial_index = STRtree(placed_polygons)
             
-            f_minx, f_miny, f_maxx, f_maxy = fallback_poly.bounds
+            f_bounds = fallback_poly.bounds
+            f_miny = f_bounds[1]
+            f_maxx = f_bounds[2]
+            f_maxy = f_bounds[3]
+            
             if f_maxx > current_marker_length: 
                 current_marker_length = f_maxx
                 
-            # ✅ ĐÃ SỬA: Trích xuất chuẩn xác float f_miny và f_maxy thay vì quăng nguyên tuple bounds phá vỡ dải Y
+            # ✅ ĐÃ SỬA: Ép chuẩn xác float f_miny và f_maxy
             skyline.append({"x": current_marker_length, "y0": f_miny, "y1": f_maxy})
             
             # Gộp chân trời sau khi bổ sung phần tử Fallback
             sorted_segs = sorted(skyline, key=lambda s: s["y0"])
             merged = []
             if sorted_segs:
-                curr = sorted_segs[0]
+                curr = sorted_segs
                 for next_seg in sorted_segs[1:]:
                     if abs(curr["y1"] - next_seg["y0"]) < 0.001 and abs(curr["x"] - next_seg["x"]) < 0.005:
                         curr["y1"] = next_seg["y1"]
@@ -339,6 +347,7 @@ def v18_step3_execute_strip_nesting(panels_catalog, target_width=58.0, fabric_ty
         "marker_utilization_percent": round(marker_utilization, 2), 
         "fabric_consumption_yard": round((current_marker_length / 36.0), 3)
     }
+
 
 # PHẦN 6.1: KHÔNG GIAN CHAT WORKSPACE & BỘ TRÍCH XUẤT SPECS BIÊN
 # ==============================================================================
