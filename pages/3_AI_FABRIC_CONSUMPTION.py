@@ -594,111 +594,61 @@ def execute_marker_yardage_and_quality_gate(ai_blueprint: dict, user_chat: str) 
 
 
 
-# =====================================================================
-# ĐOẠN 2b1: BỘ PHÂN RÃ REGEX LỆNH CHAT & TRÍCH XUẤT THÔNG SỐ RẬP BTP (V17.0.2.0)
-# =====================================================================
+import re
 
 def parse_and_prepare_ie_panels(all_rows: list, product_type: str, user_prompt: str = "") -> tuple:
     """
-    Phân đoạn 2b1: Bóc tách số hiệu suất chỉ định và tính diện tích rập bán thành phẩm (BTP).
-    V17.0.2.7 APPROVED - CẬP NHẬT CỘNG BIÊN ĐƯỜNG MAY VẢI CHÍNH CHUẨN GERBER
+    ĐOẠN 2b1: CHAT PARSER LAYER (V17.0.3.0 STABLE)
+    Nhiệm vụ duy nhất: Bóc tách chỉ thị từ câu lệnh chat của người dùng.
+    Không tính toán hình học, không bù đường may nhằm triệt tiêu trùng lặp code.
     """
-    import re
-    import streamlit as st
-
-    globals_dict = globals()
-    IE_CONSTANTS = globals_dict.get("IE_CONSTANTS", {
-        "MIN_SAFETY_EFF": 0.44, "MAX_ALLOWED_EFF": 0.44,
-        "SEAM_ALLOWANCE_MAIN_L": 0.44,    # 🟢 Cộng thêm 0.75 inch vào chiều dài vải chính (Gấu, ráp cạp)
-        "SEAM_ALLOWANCE_MAIN_W": 0.44,    # 🟢 Cộng thêm 0.75 inch vào chiều rộng vải chính (Cuốn sườn, ráp túi)
-        "SEAM_ALLOWANCE_FUSING_L": 0.375, 
-        "SEAM_ALLOWANCE_FUSING_W": 0.375,
-        "SEAM_ALLOWANCE_LINING_L": 0.375, 
-        "SEAM_ALLOWANCE_LINING_W": 0.375
-    })
-
-    def ie_safe_float_local(val, default=0.0):
-        try: return float(val) if val is not None else default
-        except: return default
-
-    def normalize_fabric_class_local(raw_str):
-        s = str(raw_str if raw_str else "").upper().strip()
-        if any(x in s for x in ["FUSING", "KEO", "MEX", "MẾCH", "INTERLINING"]): return "FUSING"
-        if any(x in s for x in ["LINING", "POCKET", "TÚI", "LÓT", "POCKETING"]): return "POCKETING"
-        if any(x in s for x in ["ELASTIC", "TAPE", "THUN", "CHUN", "DÂY"]): return "ELASTIC"
-        return "MAIN_FABRIC"
-
     chat_lower = str(user_prompt if user_prompt else "").lower().strip()
+    
+    # 1. Bóc tách Hiệu suất sơ đồ (Marker Efficiency) - Giới hạn an toàn [0.44, 0.95]
     user_requested_eff = None
-    
-    pattern_eff = r'(?:hiệu\s*suất|hieu\s*suat|eff|efficiency|marker|sơ\s*đồ)\s*[:\-=\s]*([\d\.]+)'
-    match_eff = re.search(pattern_eff, chat_lower)
-    
-    if match_eff:
-        try:
-            val_eff = float(match_eff.group(1))
-            raw_eff = val_eff / 100.0 if val_eff > 1.0 else val_eff
-            user_requested_eff = min(max(raw_eff, IE_CONSTANTS.get("MIN_SAFETY_EFF", 0.50)), IE_CONSTANTS.get("MAX_ALLOWED_EFF", 0.92))
-        except ValueError: pass
+    if m_eff := re.search(r'(?:hiệu\s*suất|hieu\s*suat|eff|efficiency|marker|sơ\s*đồ)\s*[:\-=\s]*([\d\.]+)', chat_lower):
+        val_eff = float(m_eff.group(1))
+        raw_eff = val_eff / 100.0 if val_eff > 1.0 else val_eff
+        user_requested_eff = min(max(raw_eff, 0.44), 0.95)
 
+    # 2. Bóc tách Tỷ lệ co rút vải (Fabric Shrinkage %) nếu người dùng chỉ định nhanh
+    user_shrinkage = None
+    if m_shrink := re.search(r'(?:co\s*rút|co\s*rut|shrink|shrinkage)\s*[:\-=\s]*([\d\.]+)\s*%', chat_lower):
+        user_shrinkage = float(m_shrink.group(1)) / 100.0
+
+    # 3. Bóc tách Khổ vải chỉ định thay thế (Fabric Width Override)
+    user_width_override = None
+    if m_width := re.search(r'(?:khổ|kho|width|cut\s*width)\s*[:\-=\s]*([\d\.]+)', chat_lower):
+        user_width_override = float(m_width.group(1))
+
+    # 4. Trích xuất các cờ chỉ thị định hướng cắt (Cutting Directions Flags) từ câu chat
+    user_chat_flags = {
+        "force_stripe_match": any(x in chat_lower for x in ["kẻ", "sọc", "stripe", "plaid", "caro"]),
+        "force_bias_cut": any(x in chat_lower for x in ["xéo", "bias"]),
+        "force_one_way": any(x in chat_lower for x in ["một\s*chiều", "1\s*chieu", "one\s*way", "tuyết"]),
+    }
+
+    # 5. Pipeline cập nhật các chỉ thị chat vào Schema hệ thống của từng dòng BOM
     prepared_rows = []
-    
-    for row in all_rows:
-        if not row or not isinstance(row, dict): continue
-            
-        comp_type = str(row.get("component_type", "")).upper().strip()
-        placement = str(row.get("placement", "")).upper().strip()
-        f_class_raw = str(row.get("fabric_classification", "")).upper().strip()
-
-        f_class_norm = normalize_fabric_class_local(f_class_raw if f_class_raw else comp_type)
-        is_fusing = (f_class_norm == "FUSING")
-        is_lining = (f_class_norm == "POCKETING")
-        is_elastic_or_tape = (f_class_norm == "ELASTIC")
-
-        panels = row.get("panels_catalog", [])
-        max_piece_length = 0.0
-        total_panel_area = 0.0
-        total_piece_count = 0
+    for row in [r for r in all_rows if isinstance(r, dict)]:
+        # Đảm bảo các thuộc tính phân loại vải cốt lõi được duy trì cho tầng sau
+        s = f"{row.get('fabric_classification', '')} {row.get('component_type', '')}".upper()
         
-        if panels and isinstance(panels, list):
-            valid_panels = [p for p in panels if isinstance(p, dict)]
-            for p in valid_panels:
-                l_val = ie_safe_float_local(p.get("piece_length_inch"), 0.0)
-                w_val = ie_safe_float_local(p.get("piece_width_inch"), 0.0)
-                c_val = ie_safe_float_local(p.get("piece_count"), 1.0)
-                
-                # 🌟 VÁ LỖI CHÍ MẠNG: CỘNG DÙNG SAI ĐƯỜNG MAY (SEAM ALLOWANCE) CHO TỪNG CHI TIẾT
-                if is_fusing:
-                    l_val += IE_CONSTANTS.get("SEAM_ALLOWANCE_FUSING_L", 0.25)
-                    w_val += IE_CONSTANTS.get("SEAM_ALLOWANCE_FUSING_W", 0.25)
-                elif is_lining:
-                    l_val += IE_CONSTANTS.get("SEAM_ALLOWANCE_LINING_L", 0.375)
-                    w_val += IE_CONSTANTS.get("SEAM_ALLOWANCE_LINING_W", 0.375)
-                else:
-                    # Áp dụng cho VẢI CHÍNH (MAIN FABRIC)
-                    l_val += IE_CONSTANTS.get("SEAM_ALLOWANCE_MAIN_L", 0.75)
-                    w_val += IE_CONSTANTS.get("SEAM_ALLOWANCE_MAIN_W", 0.75)
-                
-                total_panel_area += (l_val * w_val * c_val)
-                total_piece_count += c_val
-                
-                if any(x in str(p.get("panel_name", "")).upper() for x in ["PANEL", "BODY", "FRONT", "BACK"]):
-                    if l_val > max_piece_length: max_piece_length = l_val
-
-        if max_piece_length == 0.0 and len(panels) > 0:
-            max_piece_length = max([ie_safe_float_local(p.get("piece_length_inch"), 0.0) for p in panels if isinstance(p, dict)] or [42.0])
-            if max_piece_length > 50.0: max_piece_length = 42.0
-
-        row["_btp_max_piece_length"] = max_piece_length
-        row["_btp_total_panel_area"] = total_panel_area
-        row["_btp_total_piece_count"] = total_piece_count
-        row["_is_fusing"] = is_fusing
-        row["_is_lining"] = is_lining
-        row["_is_elastic_or_tape"] = is_elastic_or_tape
+        row["_is_fusing"] = any(x in s for x in ["FUSING", "KEO", "MEX", "MẾCH", "INTERLINING"])
+        row["_is_lining"] = any(x in s for x in ["LINING", "POCKET", "TÚI", "LÓT", "POCKETING"])
+        row["_is_elastic_or_tape"] = any(x in s for x in ["ELASTIC", "TAPE", "THUN", "CHUN", "DÂY"])
         
+        # Tiêm các thông số vừa parse từ câu chat vào cấu trúc dữ liệu của dòng BOM
+        row["_btp_chat_specs"] = {
+            "requested_efficiency": user_requested_eff,
+            "shrinkage_factor": user_shrinkage,
+            "width_override": user_width_override,
+            **user_chat_flags
+        }
         prepared_rows.append(row)
         
     return prepared_rows, user_requested_eff
+
 
 
 def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict, user_prompt: str = "") -> dict:
