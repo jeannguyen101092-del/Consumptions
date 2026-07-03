@@ -1182,86 +1182,87 @@ if st.session_state.pdf_bytes is not None:
                     st.error(f"💥 API Gemini Error: {str(e_api)}")
                     response_text = ""
 
-            # ĐOẠN 7a2.2: POST-AI MIDDLEWARE CAD PIPELINE BRIDGE (V17.4.0 STABLE)
-            # Nhiệm vụ: Đảm bảo biến an toàn chống lỗi NameError và kích nổ kết quả
-            # =====================================================================
-            if response_text:
-                json_match = re.search(r'(?:===START_JSON===\s*|```json\s*)(.*?)(?:\s*===END_JSON===|\s*```)', response_text, re.DOTALL)
-                chat_match = re.search(r'(?:===START_CHAT===\s*|```markdown\s*|(?:\n|^)\s*\*\s*)(.*?)(?:\s*===END_CHAT===|\s*```|$)', response_text, re.DOTALL)
-                
-                raw_json_str = ""
-                if json_match:
-                    raw_json_str = json_match.group(1).strip()
-                    raw_json_str = re.sub(r"^```json\s*|\s*```$", "", raw_json_str, flags=re.IGNORECASE)
-                elif "===START_JSON===" in response_text and "===END_JSON===" in response_text:
-                    start_idx = response_text.find("===START_JSON===") + len("===START_JSON===")
-                    end_idx = response_text.find("===END_JSON===")
-                    raw_json_str = response_text[start_idx:end_idx].strip()
-                else:
-                    match_fallback = re.search(r'\{.*\}', response_text, re.DOTALL)
-                    raw_json_str = match_fallback.group(0).strip() if match_fallback else ""
+                           # =====================================================================
+                # ĐOẠN 7a2.2: POST-AI MIDDLEWARE CAD PIPELINE BRIDGE (V17.5.0 STABLE)
+                # Chốt khóa chữ ký số ba lớp để bẻ gãy hoàn toàn vòng lặp vô tận ngầm
+                # =====================================================================
+                if response_text:
+                    json_match = re.search(r'(?:===START_JSON===\s*|```json\s*)(.*?)(?:\s*===END_JSON===|\s*```)', response_text, re.DOTALL)
+                    chat_match = re.search(r'(?:===START_CHAT===\s*|```markdown\s*|(?:\n|^)\s*\*\s*)(.*?)(?:\s*===END_CHAT===|\s*```|$)', response_text, re.DOTALL)
                     
-                if raw_json_str:
-                    try:
-                        raw_blueprint = json.loads(raw_json_str)
-                        if "bom_rows" in raw_blueprint:
-                            # Bảo vệ vòng lặp, triệt tiêu lỗi thay đổi size dict
-                            blueprint_worker = copy.deepcopy(raw_blueprint)
-                            
-                            # 🌟 FIX AN TOÀN: Bẫy chuỗi chat rỗng để các hàm sau không bị lỗi NameError
-                            query_str = str(current_query) if 'current_query' in locals() else ""
-                            
-                            # 🚀 BƯỚC 1: Gọi Đoạn 2a1 trích xuất rập phẳng hình học topo nâng cao
-                            st.info("🔄 Bước 1: Đang chạy máy tính hình học phẳng topo rập...")
-                            standardized_blueprint = parse_geometric_panels_allowance(blueprint_worker, query_str)
-                            
-                            # 🚀 BƯỚC 2: Gọi Đoạn 2b1 (Chat Parser) xử lý chỉ thị ô chat
-                            st.info("💬 Bước 2: Đang quét chỉ thị kỹ thuật may...")
-                            prepared_rows, user_eff = parse_and_prepare_ie_panels(
-                                all_rows=standardized_blueprint.get("bom_rows", []),
-                                product_type=standardized_blueprint.get("detected_product_type", "DEFAULT"),
-                                user_prompt=query_str
-                            )
-                            standardized_blueprint["bom_rows"] = prepared_rows
-                            
-                            # 🚀 BƯỚC 3: Kích hoạt Đoạn 2b2 chạy bộ mô phỏng lồng sơ đồ hình học Gerber CAD tính Yards
-                            st.info("📊 Bước 3: Bộ giả lập Gerber CAD đang tính toán Yards định mức...")
-                            blueprint_final = allocate_fabric_consumption_and_quality_gate(
-                                ai_blueprint=standardized_blueprint,
-                                user_prompt=query_str
-                            )
-                            
-                            # Đồng bộ gói dữ liệu đã tính toán sạch vào Trạng thái Giao diện (Session State)
-                            st.session_state.bom_data = blueprint_final
-                            st.session_state.accumulated_bom_rows = blueprint_final.get("bom_rows", [])
-                            
-                            if chat_match: 
-                                ai_chat_response = chat_match.group(1).strip()
-                            else: 
-                                ai_chat_response = f"✅ OCR & Gerber CAD Simulation thành công!"
-                            
-                            st.session_state.chat_history.append({"user": query_str, "ai": ai_chat_response})
-                            st.success("🎉 Cập nhật ma trận định mức Yards thành công! Đang tải lại trang...")
-                            st.rerun()  # Ép giao diện tải lại và kết xuất bảng kết quả ngay lập tức
-                            
-                    except Exception as e_inner:
-                        st.error(f"💥 Lỗi tại Pipeline CAD hình học: {str(e_inner)}")
-                        import traceback
-                        st.code(traceback.format_exc())
+                    raw_json_str = ""
+                    if json_match:
+                        raw_json_str = json_match.group(1).strip()
+                        raw_json_str = re.sub(r"^```json\s*|\s*```$", "", raw_json_str, flags=re.IGNORECASE)
+                    elif "===START_JSON===" in response_text and "===END_JSON===" in response_text:
+                        start_idx = response_text.find("===START_JSON===") + len("===START_JSON===")
+                        end_idx = response_text.find("===END_JSON===")
+                        raw_json_str = response_text[start_idx:end_idx].strip()
+                    else:
+                        match_fallback = re.search(r'\{.*\}', response_text, re.DOTALL)
+                        raw_json_str = match_fallback.group(0).strip() if match_fallback else ""
+                        
+                    if raw_json_str:
+                        try:
+                            raw_blueprint = json.loads(raw_json_str)
+                            if "bom_rows" in raw_blueprint:
+                                # Sao chép sâu object gốc để bảo vệ vòng lặp, triệt tiêu lỗi changed size
+                                blueprint_worker = copy.deepcopy(raw_blueprint)
+                                query_str = str(current_query)
+                                
+                                # 🚀 BƯỚC 1: Gọi Đoạn 2a1 trích xuất rập phẳng hình học topo nâng cao
+                                st.info("🔄 Bước 1: Đang chạy máy tính hình học phẳng topo rập...")
+                                standardized_blueprint = parse_geometric_panels_allowance(blueprint_worker, query_str)
+                                
+                                # 🚀 BƯỚC 2: Gọi Đoạn 2b1 (Chat Parser) xử lý chỉ thị ô chat
+                                st.info("💬 Bước 2: Đang quét chỉ thị kỹ thuật may...")
+                                prepared_rows, user_eff = parse_and_prepare_ie_panels(
+                                    all_rows=standardized_blueprint.get("bom_rows", []),
+                                    product_type=standardized_blueprint.get("detected_product_type", "DEFAULT"),
+                                    user_prompt=query_str
+                                )
+                                standardized_blueprint["bom_rows"] = prepared_rows
+                                
+                                # 🚀 BƯỚC 3: Kích hoạt Đoạn 2b2 chạy bộ mô phỏng lồng sơ đồ hình học Gerber CAD tính Yards
+                                st.info("📊 Bước 3: Bộ giả lập Gerber CAD đang tính toán Yards định mức...")
+                                blueprint_final = allocate_fabric_consumption_and_quality_gate(
+                                    ai_blueprint=standardized_blueprint,
+                                    user_prompt=query_str
+                                )
+                                
+                                # Đồng bộ gói dữ liệu đã tính toán sạch vào Trạng thái Giao diện (Session State)
+                                st.session_state.bom_data = blueprint_final
+                                st.session_state.accumulated_bom_rows = blueprint_final.get("bom_rows", [])
+                                
+                                # 🌟 GHI NHẬN CHỮ KÝ SỐ: Lưu vết chữ ký số ba lớp để khóa chu kỳ kẹt tải trang
+                                if 'current_signature' in locals():
+                                    st.session_state["last_processed_signature"] = current_signature
+                                
+                                if chat_match: 
+                                    ai_chat_response = chat_match.group(1).strip()
+                                else: 
+                                    ai_chat_response = "✅ OCR & Gerber CAD Simulation thành công!"
+                                st.session_state.chat_history.append({"user": query_str, "ai": ai_chat_response})
+                                st.success("🎉 Kết quả định mức đã được đồng bộ! Đang tải lại trang...")
+                                st.rerun()  # Ép giao diện tải lại và kết xuất bảng kết quả ngay lập tức
+                                
+                        except Exception as e_inner:
+                            st.error(f"💥 Lỗi tại Pipeline CAD hình học: {str(e_inner)}")
+                            import traceback
+                            st.code(traceback.format_exc())
+                    else:
+                        st.session_state.bom_data = None
+                        ai_chat_response = "❌ NGẰT LUỒNG: Không tìm thấy chuỗi JSON hợp lệ trong phản hồi."
+                        st.session_state.chat_history.append({"user": current_query, "ai": ai_chat_response})
                 else:
                     st.session_state.bom_data = None
-                    ai_chat_response = "❌ NGẰT LUỒNG: Không tìm thấy chuỗi JSON hợp lệ trong phản hồi."
-                    st.session_state.chat_history.append({"user": current_query if 'current_query' in locals() else "", "ai": ai_chat_response})
-            else:
-                st.session_state.bom_data = None
-                ai_chat_response = "❌ NGẰT LUỒNG: Gemini không trả về nội dung text phản hồi."
-                st.session_state.chat_history.append({"user": current_query if 'current_query' in locals() else "", "ai": ai_chat_response})
-                
-        # 🌟 KHÓA CHẶT MỆNH ĐỀ EXCEPT ĐỂ ĐÓNG NGOẶC KHỐI TRY TỔNG TỪ ĐOẠN 7a1 TRÁNH LỖI CÚ PHÁP
+                    ai_chat_response = "❌ NGẰT LUỒNG: Gemini không trả về nội dung text phản hồi."
+                    st.session_state.chat_history.append({"user": current_query, "ai": ai_chat_response})
+                    
+        # 🌟 KHÓA CHẶT MỆNH ĐỀ EXCEPT ĐỂ ĐÓNG NGOẶC KHỐI TRY TỔNG TỪ ĐOẠN 7a1 TRÁNH LỖI CÚ PHÁP CHÍ MẠNG
         except Exception as e_global:
             st.error(f"💥 Lỗi luồng trích xuất hạ tầng tổng: {str(e_global)}")
             st.code(traceback.format_exc())
-
 
 
 
