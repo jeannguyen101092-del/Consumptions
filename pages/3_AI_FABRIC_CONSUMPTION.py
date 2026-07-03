@@ -969,7 +969,7 @@ with col_right:
 
 
 # =====================================================================
-# ĐOẠN 7a: CHAT WORKSPACE & ENGINE AI NỀN - QUÉT ĐA TRANG TÀI LIỆU SỐ (V17.8.0.0 APPROVED)
+# ĐOẠN 7a: CHAT WORKSPACE & ENGINE AI NỀN - QUÉT TOÀN BỘ FILE TÀI LIỆU SỐ (V17.8.5.0 APPROVED)
 # =====================================================================
 st.markdown('<br><div class="cad-card"><div class="cad-header">💬 CHATGPT IE COLLABORATION WORKSPACE</div>', unsafe_allow_html=True)
 
@@ -989,21 +989,20 @@ st.markdown('</div>', unsafe_allow_html=True)
 if st.session_state.pdf_bytes is not None and safe_user_prompt:
     current_query = str(safe_user_prompt).strip()
     
-    with st.spinner("🧠 AI Core đang quét toàn bộ các trang tài liệu PDF để bóc tách thông số kéo căng thực tế..."):
+    with st.spinner("🧠 AI Core đang quét TOÀN BỘ các trang của tài liệu để truy tìm bảng thông số kỹ thuật..."):
         try:
             import google.generativeai as genai
             import json, copy, traceback, re
             import fitz 
             
-            # 🌟 NÂNG CẤP: LUỒNG TRÍCH XUẤT ĐA TRANG (MULTI-PAGE SCAN) KHÔNG BỎ SÓT THÔNG SỐ Ở TRANG SAU
+            # 🌟 NÂNG CẤP: KHÔNG GIỚI HẠN SỐ TRANG - QUÉT SẠCH TỪ ĐẦU ĐẾN CUỐI FILE PDF
             if st.session_state.pdf_page_images_list is None:
                 doc_recovery = fitz.open(stream=st.session_state.pdf_bytes, filetype="pdf")
                 image_payloads = []
                 
-                # Quét qua tối đa 8 trang đầu tiên của Techpack để tối ưu tốc độ phân tích hình ảnh của AI
-                max_pages_to_scan = min(len(doc_recovery), 8)
-                for page_num in range(max_pages_to_scan):
-                    page_img_bytes = doc_recovery.load_page(page_num).get_pixmap(dpi=130).tobytes("png")
+                # Quét qua toàn bộ số trang của tài liệu, hạ DPI xuống 110 để tránh tràn bộ nhớ RAM hệ thống
+                for page_num in range(len(doc_recovery)):
+                    page_img_bytes = doc_recovery.load_page(page_num).get_pixmap(dpi=110).tobytes("png")
                     image_payloads.append({
                         "mime_type": "image/png",
                         "data": page_img_bytes
@@ -1016,7 +1015,6 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             model = genai.GenerativeModel("gemini-2.5-flash", generation_config={"temperature": 0.1})
             chat_lower = current_query.lower()
             
-            # Bộ trích xuất thông số kỹ thuật động thông minh từ câu lệnh chat
             match_size = re.search(r'\b(?:size|sz|cỡ)\s*[:\-=\s]*([\w\d]+)\b', chat_lower)
             target_size_cmd = str(match_size.group(1)).upper().strip() if match_size else "30"
             
@@ -1039,17 +1037,17 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             if len(st.session_state.chat_history) > 30:
                 st.session_state.chat_history = st.session_state.chat_history[-30:]
 
-            # LỆNH ĐIỀU KHIỂN AI ENGINE: Bắt buộc phân tích tất cả các trang ảnh được truyền vào
+            # CẤU HÌNH LỆNH ÉP AI PHẢI DUYỆT TỪNG TRANG TRONG TOÀN BỘ MẢNG ẢNH TRUYỀN VÀO
             prompt_instruction = f"""
-            You are a senior apparel IE system. You are provided with ALL pages of the techpack as images.
-            Carefully inspect EVERY SINGLE PAGE IMAGE provided to find the measurement specification sheet (Spec Sheet), which might be on Page 2, Page 3, or later.
+            You are a senior apparel IE system. You are provided with ALL pages of the techpack document as images.
+            Your primary task is to scan EVERY SINGLE PAGE IMAGE to locate the Measurement Specification Chart (Spec Sheet / Size Chart). 
+            It could be located on any middle or trailing pages. Do not give up until you check all images.
             
             STRICT DATA EXTRACTION & ANALYSIS RULES:
-            1. Find the target size '{target_size_cmd}' column inside the spec sheet text or tables across ALL page images.
-            2. 🌟 CRITICAL PLEATS/ELASTIC/SMOCKING RULE: If the product is a skirt, dress, or has elastic waistbands/pleats, you MUST scan the entire document for "Stretched", "Extended", "Max Stretch", or "Kéo căng" values. 
-               - NEVER extract the "Relaxed" or "Đo êm" specs for pleated or elasticated panels.
-               - Extract the MAXIMUM flat pattern cutting length and width dimensions from the techpack tables for that specific size.
-            3. Dynamically build the "panels_catalog" arrays with the EXACT real dimensions extracted from the techpack for the main fabric, fusing (fusing parts like waistband/fly), and lining. Do NOT copy the fallback prompt numbers if real data is found on any page.
+            1. Find the target size '{target_size_cmd}' column inside the spec sheet tables across ALL provided page images.
+            2. 🌟 CRITICAL PLEATS/ELASTIC/SMOCKING RULE: If the product is a skirt, dress, or has elastic waistbands/pleats, you MUST scan the entire document for "Stretched", "Extended", "Max Stretch", or "Kéo căng" values.
+               - Always use the MAXIMUM stretched length and width values to represent the actual flat pattern pieces that will be laid out on the Gerber marker.
+            3. Dynamically extract the exact real dimensions from the located spec tables for the main fabric panels catalog (Length and Width) for size '{target_size_cmd}'. Do NOT use default or fallback values if real numbers are present.
             4. Total rows in the "bom_rows" array must be exactly 3.
             
             Target size: '{target_size_cmd}', Cut Width: {active_width} inches, Warp: {active_warp}%, Weft: {active_weft}%.
@@ -1087,7 +1085,6 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             ===END_CHAT===
             """
             
-            # 🌟 ĐỒNG BỘ: Kết hợp danh sách TẤT CẢ CÁC TRANG ẢNH và chuỗi chỉ thị câu lệnh gửi lên Gemini
             gemini_multipage_inputs = copy.deepcopy(st.session_state.pdf_page_images_list)
             gemini_multipage_inputs.append(prompt_instruction)
             
@@ -1109,19 +1106,16 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                         st.session_state.bom_data = blueprint_final
                         st.session_state.accumulated_bom_rows = blueprint_final.get("bom_rows", [])
                         
-                        ai_chat_response = "Tôi đã đồng bộ tính toán định mức đa trang tài liệu."
-                        if chat_match:
-                            ai_chat_response = chat_match.group(1).strip()
+                        ai_chat_response = "Tôi đã xử lý bóc tách định mức tự động."
+                        if chat_match: ai_chat_response = chat_match.group(1).strip()
                             
-                        st.session_state.chat_history.append({
-                            "user": current_query,
-                            "ai": ai_chat_response
-                        })
+                        st.session_state.chat_history.append({"user": current_query, "ai": ai_chat_response})
                         st.rerun()
                         
         except Exception as e:
             st.error(f"❌ Lỗi xử lý AI Core đa trang: {str(e)}")
             st.text(traceback.format_exc())
+
 
 
 
