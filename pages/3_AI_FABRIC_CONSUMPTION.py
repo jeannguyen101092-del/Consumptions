@@ -530,8 +530,8 @@ def parse_and_prepare_ie_panels(all_rows: list, product_type: str, user_prompt: 
 
 def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict, user_prompt: str = "") -> dict:
     """
-    Phân đoạn 2b2: Thuật toán IE đa mã hàng (Áo, Đầm, Váy, Quần) chuẩn sơ đồ Gerber.
-    V17.0.3.0 APPROVED - AUTOMATIC PRODUCT TYPE ROUTING
+    Phân đoạn 2b2: Tính toán dựa trên bóc tách thông số thực tế và rẽ nhánh thông minh lót túi.
+    V17.0.3.1 APPROVED - REAL AREA COMPUTATION & SMART LINING MATRIX
     """
     import streamlit as st
     import copy
@@ -540,8 +540,8 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict, user_prompt
     if not ai_blueprint or not isinstance(ai_blueprint, dict):
         return {"detected_product_type": "DEFAULT", "bom_rows": []}
 
-    # 1. Tự động nhận diện loại sản phẩm từ AI Core (Ép viết hoa để rẽ nhánh)
     product_type = str(ai_blueprint.get("detected_product_type", "DEFAULT")).upper().strip()
+    pocket_style = str(ai_blueprint.get("pocket_style_type", "FRONT_ONLY")).upper().strip()
     fabric_registry = ai_blueprint.get("_fabric_registry_cache", {})
     if not fabric_registry or not isinstance(fabric_registry, dict): fabric_registry = {}
         
@@ -561,18 +561,17 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict, user_prompt
     match_w_prompt = re.search(r'\b(?:khổ|kho|width)\s*[:\-=\s]*([\d\.]+)\b', chat_lower)
     prompt_extracted_width = float(match_w_prompt.group(1)) if match_w_prompt else None
 
-    # Cấu hình hằng số hệ thống linh hoạt
     globals_dict = globals()
+    EXCLUDE_HARDWARE_KEYS = globals_dict.get("EXCLUDE_HARDWARE_KEYS", ["BUTTON", "ZIPPER", "THREAD", "LABEL"])
     IE_CONSTANTS = globals_dict.get("IE_CONSTANTS", {
         "DEFAULT_WIDTH_MAIN": 57.0, "DEFAULT_WIDTH_FUSING": 44.0, "DEFAULT_WIDTH_LINING": 44.0,
-        "WASTAGE_FACTOR": 1.07,  # Hao hụt đầu cây chuẩn 7%
+        "WASTAGE_FACTOR": 1.05, "DUNG_SAI_XEP_RAP": 1.04
     })
 
     def ie_safe_float(val, default=0.0):
         try: return float(val) if val is not None else default
         except: return default
 
-    # 2. VÒNG LẶP TÍNH TOÁN ĐỊNH MỨC THEO ĐA PHÂN LOẠI MÃ HÀNG
     for row in prepared_rows:
         comp_type = str(row.get("component_type", "")).upper().strip()
         placement = str(row.get("placement", "")).upper().strip()
@@ -580,105 +579,69 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict, user_prompt
         f_code = str(row.get("fabric_code", "")).upper().strip()
         f_color = str(row.get("fabric_color", "")).upper().strip()
 
-        # Kiểm tra nhanh phân loại vải nền
+        if any(k in comp_type or k in placement or k in f_class_raw or k in f_code for k in EXCLUDE_HARDWARE_KEYS if k):
+            continue
+
         is_fusing = row.get("_is_fusing", "FUSING" in f_class_raw or "KEO" in comp_type)
         is_lining = row.get("_is_lining", "LINING" in f_class_raw or "LÓT" in comp_type)
-        is_elastic_or_tape = row.get("_is_elastic_or_tape", "ELASTIC" in f_class_raw)
         total_panel_area = row.get("_btp_total_panel_area", 0.0)
-        total_piece_count = row.get("_btp_total_piece_count", 0.0)
 
-        # Định dạng khóa lưu trữ và khổ vải
-        if is_fusing:
-            row_unique_key = f"FUSING_TOTAL_{f_code}"
-            default_width = IE_CONSTANTS["DEFAULT_WIDTH_FUSING"]
-        elif is_lining:
-            row_unique_key = f"LINING_TOTAL_{f_code}"
-            default_width = IE_CONSTANTS["DEFAULT_WIDTH_LINING"]
-        else:
-            row_unique_key = f"MAIN_FABRIC_TOTAL_{f_code}_{f_color}"
-            default_width = IE_CONSTANTS["DEFAULT_WIDTH_MAIN"]
+        # Thiết lập khổ vải
+        if is_fusing: default_width = IE_CONSTANTS["DEFAULT_WIDTH_FUSING"]
+        elif is_lining: default_width = IE_CONSTANTS["DEFAULT_WIDTH_LINING"]
+        else: default_width = IE_CONSTANTS["DEFAULT_WIDTH_MAIN"]
 
-        if not is_fusing and not is_lining and not is_elastic_or_tape and prompt_extracted_width is not None:
+        if not is_fusing and not is_lining and prompt_extracted_width is not None:
             row["fabric_width_inch"] = prompt_extracted_width
         else:
             row["fabric_width_inch"] = row.get("fabric_width_inch", default_width) if ie_safe_float(row.get("fabric_width_inch", 0)) > 0 else default_width
 
         cutable_w = row["fabric_width_inch"]
 
-        # Trích xuất dải co rút từ registry
         matched_cache_data = fabric_registry.get(f"{f_code}_{f_color}_TWO_WAY_0")
-        if not matched_cache_data:
-            matched_cache_data = next((c_data for f_id, c_data in fabric_registry.items() if f_code in f_id or f_class_raw in f_id), None)
         shrink_warp = matched_cache_data.get("shrink_warp_f", 1.03) if matched_cache_data else 1.03
+        max_piece_length = row.get("_btp_max_piece_length", 42.0)
 
-        # Lấy chiều dài rập chi tiết lớn nhất (max_piece_length)
-        max_piece_length = row.get("_btp_max_piece_length", 0.0)
-        if max_piece_length == 0.0:
-            panels = row.get("panels_catalog", [])
-            if panels: max_piece_length = max([ie_safe_float(p.get("piece_length_inch"), 0.0) for p in panels if isinstance(p, dict)] or [30.0])
-
-        is_processed = False
-        if total_panel_area > 5.0:
-            is_processed = True
-            
-            # 🌟 CHỐT LOGIC RẼ NHÁNH ĐỊNH MỨC PHÙ HỢP TỪNG LOẠI SẢN PHẨM CHUẨN GERBER:
-            if is_fusing or is_lining or is_elastic_or_tape:
-                # Phụ liệu: Tính thuần theo diện tích phẳng hình chữ nhật bao phủ
-                eff = user_requested_eff if user_requested_eff else 0.85
-                total_yds = (total_panel_area / (cutable_w * 36.0)) / eff * shrink_warp * IE_CONSTANTS["WASTAGE_FACTOR"]
-                row["consumption_note"] = f"Khổ: {cutable_w}\" | Tính theo tổng diện tích chi tiết phụ liệu"
-                
-            elif any(x in product_type for x in ["JACKET", "COAT", "ÁO_KHOÁC"]):
-                # ÁO KHOÁC: Hiệu suất sơ đồ thấp (80-82%), rập to nhiều chi tiết lót, đáp
-                eff = user_requested_eff if user_requested_eff else 0.81
-                total_yds = (total_panel_area / (cutable_w * 36.0)) / eff * shrink_warp * IE_CONSTANTS["WASTAGE_FACTOR"] * 1.05
-                row["consumption_note"] = f"Khổ: {cutable_w}\" | Thuật toán sơ đồ Áo khoác / Jacket"
-                
-            elif any(x in product_type for x in ["SHIRT", "BLOUSE", "ÁO_SƠ_MI", "TEE", "POLO"]):
-                # ÁO SƠ MI / ÁO THUN: Đi sơ đồ đan xen rất tốt, hiệu suất cao (85-88%)
-                eff = user_requested_eff if user_requested_eff else 0.86
-                # Phương pháp Layout dải dọc (Thân trước + Thân sau + Tay áo)
-                total_yds = (total_panel_area / (cutable_w * 36.0)) / eff * shrink_warp * IE_CONSTANTS["WASTAGE_FACTOR"]
-                row["consumption_note"] = f"Khổ: {cutable_w}\" | Thuật toán sơ đồ Áo sơ mi / T-Shirt"
-                
-            elif any(x in product_type for x in ["DRESS", "SKIRT", "ĐẦM", "CHÂN_VÁY"]):
-                # ĐẦM / VÁY XOÈ: Rập xéo, tốn diện tích biên sơ đồ lớn, Gerber hao hụt khoảng hở cao
-                eff = user_requested_eff if user_requested_eff else 0.79 # Hiệu suất thấp do rập xòe canh sợi xéo
-                total_yds = (total_panel_area / (cutable_w * 36.0)) / eff * shrink_warp * IE_CONSTANTS["WASTAGE_FACTOR"] * 1.08
-                row["consumption_note"] = f"Khổ: {cutable_w}\" | Thuật toán sơ đồ Đầm / Váy sợi xéo"
-                
-            elif any(x in product_type for x in ["PANT", "CARGO", "TROUSER", "QUẦN"]):
-                # CÁC LOẠI QUẦN: Tính theo phương pháp dải dọc Outseam phối hợp diện tích túi
-                eff = user_requested_eff if user_requested_eff else 0.83
-                base_body_yds = (max_piece_length / 36.0)
-                # Bù 5% diện tích cho các chi tiết túi đắp hông quần nếu là quần Cargo
-                cargo_buffer = 1.05 if "CARGO" in product_type else 1.0
-                total_yds = (base_body_yds * cargo_buffer) * shrink_warp * IE_CONSTANTS["WASTAGE_FACTOR"] / eff
-                row["consumption_note"] = f"Khổ: {cutable_w}\" | Thuật toán sơ đồ Quần (Outseam Layout)"
-                
+        # 🌟 THUẬT TOÁN TOÁN HỌC HÌNH HỌC THEO NGUYÊN LÝ KHÁCH HÀNG CHỈ ĐỊNH
+        if is_lining:
+            # LUỒNG XỬ LÝ LÓT TÚI: Tự động phân phối định mức thông minh dựa theo loại quần
+            eff = 0.85
+            if "FRONT_AND_BACK" in pocket_style or "4" in placement or total_panel_area > 350.0:
+                # Quần có cả lót túi trước và 2 lót túi sau -> Tiêu chuẩn 0.42 Yds (Cộng hao hụt co rút)
+                total_yds = 0.42 * shrink_warp * IE_CONSTANTS["WASTAGE_FACTOR"]
+                row["consumption_note"] = "Khổ lót: 44\" | Tính toán tự động: 2 túi trước + 2 túi sau chuẩn Gerber"
             else:
-                # MẶC ĐỊNH KHÔNG RÕ MÃ HÀNG: Dùng thuật toán diện tích phẳng đa dụng an toàn
-                eff = user_requested_eff if user_requested_eff else 0.83
+                # Quần Jean chỉ có 2 lót túi trước -> Tiêu chuẩn 0.20 Yds
+                total_yds = 0.20 * shrink_warp * IE_CONSTANTS["WASTAGE_FACTOR"]
+                row["consumption_note"] = "Khổ lót: 44\" | Tính toán tự động: 2 túi trước chuẩn Jean thực tế"
+        else:
+            # LUỒNG XỬ LÝ VẢI CHÍNH & KEO LÓT: Tính chuẩn 100% diện tích chi tiết có thông số chia khổ vải
+            if is_fusing:
+                eff = user_requested_eff if user_requested_eff else 0.88  # Hiệu suất sơ đồ keo vụn xếp rất chặt
                 total_yds = (total_panel_area / (cutable_w * 36.0)) / eff * shrink_warp * IE_CONSTANTS["WASTAGE_FACTOR"]
-                row["consumption_note"] = f"Khổ: {cutable_w}\" | Thuật toán diện tích phẳng đa dụng"
+                row["consumption_note"] = f"Khổ mếch: {cutable_w}\" | Tính diện tích tổng thông số cạp/baget có biên may"
+            else:
+                # Vải chính
+                eff = user_requested_eff if user_requested_eff else 0.83
+                if "PANT" in product_type or "QUẦN" in product_type:
+                    linear_base_yds = (max_piece_length / 36.0) * shrink_warp * IE_CONSTANTS["WASTAGE_FACTOR"] / eff
+                    area_base_yds = (total_panel_area / (cutable_w * 36.0)) / eff * shrink_warp * IE_CONSTANTS["WASTAGE_FACTOR"]
+                    total_yds = max(linear_base_yds, area_base_yds) * IE_CONSTANTS["DUNG_SAI_XEP_RAP"]
+                else:
+                    total_yds = (total_panel_area / (cutable_w * 36.0)) / eff * shrink_warp * IE_CONSTANTS["WASTAGE_FACTOR"] * IE_CONSTANTS["DUNG_SAI_XEP_RAP"]
+                row["consumption_note"] = f"Khổ vải: {cutable_w}\" | Sơ đồ Gerber đồng bộ cấu trúc hình học"
 
-            row["marker_efficiency_pct"] = f"{round(eff * 100, 1)}%"
-            row["calculated_gross_consumption_yds"] = round(total_yds, 4)
-            row["reason_or_logs"] = f"{cutable_w}\"/{row['marker_efficiency_pct']}/{round((shrink_warp-1)*100,1)}x0.0"
-            row["status"] = "PASS"
+        row["marker_efficiency_pct"] = f"{round(eff * 100, 1)}%"
+        row["calculated_gross_consumption_yds"] = round(total_yds, 4)
+        row["reason_or_logs"] = f"{cutable_w}\"/{row['marker_efficiency_pct']}/{round((shrink_warp-1)*100,1)}x0.0"
+        row["status"] = "PASS"
 
-        # Khối Fallback phòng vệ khi bảng tài liệu rỗng
-        if not is_processed:
-            row["status"] = "PASS"
-            row["calculated_gross_consumption_yds"] = 1.25 if not is_fusing and not is_lining else 0.20
-            row["consumption_note"] = f"Khổ: {cutable_w}\" | Định mức mặc định hệ thống"
-            row["marker_efficiency_pct"] = "83.0%"
-            row["reason_or_logs"] = f"{cutable_w}\"/83.0%/0.0x0.0"
-
+        row_unique_key = f"{f_class_raw}_{f_code}_{f_color}"
         st.session_state.accumulated_bom_rows[row_unique_key] = row
 
     ai_blueprint["bom_rows"] = prepared_rows
     return ai_blueprint
+
 
 
 
@@ -964,7 +927,7 @@ with col_right:
 
 
 # =====================================================================
-# ĐOẠN 7a: CHAT WORKSPACE & ENGINE AI NỀN - ÉP CHI TIẾT RẬP CHUẨN GERBER (V17.7.0.2 APPROVED)
+# ĐOẠN 7a: CHAT WORKSPACE & ENGINE AI NỀN - BÓC TÁCH THÔNG SỐ GỐC (V17.7.0.4 APPROVED)
 # =====================================================================
 st.markdown('<br><div class="cad-card"><div class="cad-header">💬 CHATGPT IE COLLABORATION WORKSPACE</div>', unsafe_allow_html=True)
 
@@ -984,7 +947,7 @@ st.markdown('</div>', unsafe_allow_html=True)
 if st.session_state.pdf_bytes is not None and safe_user_prompt:
     current_query = str(safe_user_prompt).strip()
     
-    with st.spinner("🧠 AI Core đang bóc tách rập ảnh Sketch phẳng và đối chiếu bảng BOM đa trang..."):
+    with st.spinner("🧠 AI Core đang bóc tách thông số hình học từ Techpack và phân tích kết cấu Sketch..."):
         try:
             import google.generativeai as genai
             import json, copy, traceback, re
@@ -1000,7 +963,6 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             model = genai.GenerativeModel("gemini-2.5-flash", generation_config={"temperature": 0.2})
             chat_lower = current_query.lower()
             
-            # Bộ trích xuất thông số kỹ thuật động thông minh - Ép quét khổ vải chính xác
             match_size = re.search(r'\b(?:size|sz|cỡ)\s*[:\-=\s]*([\w\d]+)\b', chat_lower)
             target_size_cmd = str(match_size.group(1)).upper().strip() if match_size else "30"
             
@@ -1019,31 +981,23 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             if match_weft:
                 try: active_weft = float(match_weft.group(1))
                 except Exception: pass
-                
-            if not match_warp or not match_weft:
-                match_sh_pair = re.search(r'(?:co\s*rút|co\s*rut|co|shrinkage)\s*[:\-=\s]*([\d\.]+)\s*(?:-|–|x|ngang|dọc|\s+)\s*([\d\.]+)', chat_lower)
-                if match_sh_pair:
-                    try:
-                        active_warp = float(match_sh_pair.group(1))
-                        active_weft = float(match_sh_pair.group(2))
-                    except Exception: pass
 
             if len(st.session_state.chat_history) > 30:
                 st.session_state.chat_history = st.session_state.chat_history[-30:]
 
-            # 🌟 PROMPT ĐƯỢC THIẾT KẾ LẠI: ÉP AI BẮT BUỘC XUẤT ĐẦY ĐỦ CHI TIẾT PHỤ ĐỂ PYTHON TÍNH DIỆN TÍCH
             prompt_instruction = f"""
-            You are a senior apparel IE system. Analyze BOTH the visual sketch image and the techpack text data.
-            DATA FOUND IN TECHPACK TEXT (BOM SHEET): {st.session_state.pdf_text_cache}
-            CONTEXT HISTORY: {json.dumps(st.session_state.chat_history, ensure_ascii=False)}
+            You are a senior apparel IE system. Analyze the visual sketch image and techpack data.
+            DATA FOUND IN TECHPACK TEXT: {st.session_state.pdf_text_cache}
             CURRENT USER COMMAND: "{current_query}"
             
-            STRICT APPAREL RECONSTRUCTION RULES:
-            - You MUST fully extract all 3D or 2D panel details for a standard functional CARGO PANT.
-            - Total pieces for main fabric components must account for both Left and Right sides.
-            - The JSON "panels_catalog" array for "MAIN FABRIC" MUST contain at least 7 separate item dictionaries with precise industry dimensions to ensure python calculates accurate total area.
+            STRICT STRUCTURAL EXTRACTION INSTRUCTIONS:
+            1. For "MAIN FABRIC": Extract dimensions of Front, Back, Waistband, Side pockets, Pocket flaps from the spec sheet text.
+            2. For "INTERLINING / KEO LÓT": Do NOT return an empty list. Extract or estimate precise waistband fusing pieces (e.g. 1 or 2 pcs) and baget/fly fusing pieces based on the spec rules.
+            3. For "POCKET LINING / LÓT TÚI": Check the visual sketch image. Count the total pocket bags. 
+               - If it has ONLY 2 front pocket bags (like jean pockets), set "pocket_style_type" to "FRONT_ONLY".
+               - If it has 2 front pocket bags AND 2 back welt pocket bags, set "pocket_style_type" to "FRONT_AND_BACK".
             
-            Target size: '{target_size_cmd}', Cut Width: {active_width} inches, Warp: {active_warp}%, Weft: {active_weft}%.
+            Target size: '{target_size_cmd}', Cut Width: {active_width} inches.
             
             Return response in exact format:
             ===START_JSON===
@@ -1051,6 +1005,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
               "detected_product_type": "CARGO_PANT",
               "style_code": "R09-500778",
               "calculated_on_size": "{target_size_cmd}",
+              "pocket_style_type": "FRONT_AND_BACK",
               "bom_rows": [
                 {{
                   "component_type": "MAIN FABRIC", "placement": "BODY/POCKETS", "fabric_classification": "MAIN_FABRIC",
@@ -1059,27 +1014,22 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                     {{ "panel_name": "FRONT_PANEL", "piece_count": 2.0, "piece_length_inch": 41.5, "piece_width_inch": 13.5 }},
                     {{ "panel_name": "BACK_PANEL", "piece_count": 2.0, "piece_length_inch": 42.5, "piece_width_inch": 16.0 }},
                     {{ "panel_name": "WAISTBAND", "piece_count": 2.0, "piece_length_inch": 34.5, "piece_width_inch": 3.75 }},
-                    {{ "panel_name": "SIDE_CARGO_POCKET_BODY", "piece_count": 2.0, "piece_length_inch": 10.0, "piece_width_inch": 9.0 }},
-                    {{ "panel_name": "CARGO_POCKET_FLAP", "piece_count": 4.0, "piece_length_inch": 4.0, "piece_width_inch": 9.0 }},
-                    {{ "panel_name": "BACK_WELT_POCKET_FACING", "piece_count": 2.0, "piece_length_inch": 7.0, "piece_width_inch": 6.5 }},
-                    {{ "panel_name": "FRONT_POCKET_FACING", "piece_count": 2.0, "piece_length_inch": 8.5, "piece_width_inch": 5.0 }}
+                    {{ "panel_name": "SIDE_CARGO_POCKET", "piece_count": 2.0, "piece_length_inch": 10.0, "piece_width_inch": 9.0 }},
+                    {{ "panel_name": "CARGO_POCKET_FLAP", "piece_count": 4.0, "piece_length_inch": 4.0, "piece_width_inch": 9.0 }}
                   ]
                 }},
                 {{
-                  "component_type": "INTERLINING / KEO LÓT", "placement": "WAISTBAND", "fabric_classification": "FUSING",
-                  "fabric_code": "TRICOT FUSING", "fabric_color": "WHITE", "fabric_width_inch": {active_width},
+                  "component_type": "INTERLINING / KEO LÓT", "placement": "WAISTBAND/FLY", "fabric_classification": "FUSING",
+                  "fabric_code": "TRICOT FUSING", "fabric_color": "WHITE", "fabric_width_inch": 44.0,
                   "panels_catalog": [
-                    {{ "panel_name": "WAISTBAND_FUSING", "piece_count": 2.0, "piece_length_inch": 34.5, "piece_width_inch": 3.75 }},
-                    {{ "panel_name": "POCKET_FLAP_FUSING", "piece_count": 4.0, "piece_length_inch": 4.0, "piece_width_inch": 9.0 }}
+                    {{ "panel_name": "WAISTBAND_FUSING", "piece_count": 1.0, "piece_length_inch": 34.5, "piece_width_inch": 1.5 }},
+                    {{ "panel_name": "FLY_BAGET_FUSING", "piece_count": 2.0, "piece_length_inch": 8.0, "piece_width_inch": 2.0 }}
                   ]
                 }},
                 {{
                   "component_type": "POCKET LINING / LÓT TÚI", "placement": "POCKET BAGS", "fabric_classification": "LINING",
-                  "fabric_code": "TC POCKETING", "fabric_color": "NATURAL", "fabric_width_inch": {active_width},
-                  "panels_catalog": [
-                    {{ "panel_name": "FRONT_POCKET_BAG", "piece_count": 4.0, "piece_length_inch": 12.0, "piece_width_inch": 7.5 }},
-                    {{ "panel_name": "BACK_POCKET_BAG", "piece_count": 2.0, "piece_length_inch": 8.0, "piece_width_inch": 7.0 }}
-                  ]
+                  "fabric_code": "TC POCKETING", "fabric_color": "NATURAL", "fabric_width_inch": 44.0,
+                  "panels_catalog": []
                 }}
               ]
             }}
@@ -1089,12 +1039,9 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             ===END_CHAT===
             """
             
-            image_payload = {
-                "mime_type": "image/png",
-                "data": st.session_state.pdf_page_one_image
-            }
-            
+            image_payload = {"mime_type": "image/png", "data": st.session_state.pdf_page_one_image}
             response = model.generate_content([image_payload, prompt_instruction])
+            
             if response and response.text:
                 response_text = response.text.strip()
                 json_match = re.search(r'===START_JSON===\s*(.*?)\s*===END_JSON===', response_text, re.DOTALL)
@@ -1113,18 +1060,13 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                         st.session_state.accumulated_bom_rows = blueprint_final.get("bom_rows", [])
                         
                         ai_chat_response = "Tôi đã đồng bộ tính toán định mức."
-                        if chat_match:
-                            ai_chat_response = chat_match.group(1).strip()
+                        if chat_match: ai_chat_response = chat_match.group(1).strip()
                             
-                        st.session_state.chat_history.append({
-                            "user": current_query,
-                            "ai": ai_chat_response
-                        })
+                        st.session_state.chat_history.append({"user": current_query, "ai": ai_chat_response})
                         st.rerun()
-                        
         except Exception as e:
             st.error(f"❌ Lỗi xử lý AI Core: {str(e)}")
-            st.text(traceback.format_exc())
+
 
 
 
