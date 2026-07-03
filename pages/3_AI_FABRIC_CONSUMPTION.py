@@ -1034,7 +1034,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                 gemini_inputs = copy.deepcopy(st.session_state.pdf_page_images_list)
 
 # =====================================================================
-# ĐOẠN 7a2: AI CORE COGNITIVE ENGINE & POST-AI MIDDLEWARE GEOMETRY PROCESSOR (V21.0 CHUẨN OCR)
+# ĐOẠN 7a2: AI CORE COGNITIVE ENGINE & POST-AI MIDDLEWARE GEOMETRY PROCESSOR (V22.0 PRODUCTION)
 # =====================================================================
             if "GEMINI_API_KEY" in st.secrets: 
                 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
@@ -1064,7 +1064,6 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             if len(st.session_state.chat_history) > 30:
                 st.session_state.chat_history = st.session_state.chat_history[-30:]
 
-            # 🌟 PROMPT ĐƯỢC CHUẨN HÓA CAO CẤP: ÉP AI CHUYỂN PHÂN SỐ THÀNH THẬP PHÂN CHUẨN PHÔI RẬP PHẲNG PYTHON
             prompt_instruction = f"""
             You are an expert apparel IE OCR system. Scan all provided page images to locate the size spec tables (especially Page 13 and Page 14).
             
@@ -1127,17 +1126,19 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                     except json.JSONDecodeError:
                         raw_blueprint = {"status": "ERROR", "error_reason": "Malformed JSON structure."}
                     
-                    # Khử nhiễu OCR và đồng bộ ngược dữ liệu sạch vào Blueprint gốc
+                    # KHỬ NHIỄU OCR KÝ TỰ VÀ ĐỒNG BỘ NGƯỢC VÀO BLUEPRINT GỐC
                     raw_specs = []
                     for s in raw_blueprint.get("matched_measurements", []):
                         clean_s = str(s).upper().replace("I", "1").replace("S", "5").replace("O", "0")
                         raw_specs.append(clean_s)
                     raw_blueprint["matched_measurements"] = raw_specs 
                     
+                    # 🌟 FIX LUỒNG KIỂM TRA MẢNG TRÁNH LẶP VÒNG LẶP VÔ HẠN (INFINITE LOOP) GÂY ĐƠ TRANG
                     has_valid_evidence = len(raw_specs) >= 1
                     bom_list = raw_blueprint.get("bom_rows", [])
                     has_valid_bom = isinstance(bom_list, list) and len(bom_list) > 0
                     
+                    # Khai báo phòng vệ hằng số hệ thống tránh bẫy lỗi KeyError
                     EXCLUDE_HARDWARE_KEYS = globals().get("EXCLUDE_HARDWARE_KEYS", ["BUTTON", "ZIPPER", "THREAD", "LABEL"])
 
                     if raw_blueprint.get("status") == "PASS" and raw_blueprint.get("spec_sheet_found") is True and has_valid_evidence and has_valid_bom:
@@ -1185,9 +1186,12 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                         
                         ai_chat_response = f"✅ OCR & Mapping thành công! Trích xuất đa trang sạch số đo thập phân."
                         if chat_match: ai_chat_response = chat_match.group(1).strip()
+                        st.session_state.chat_history.append({"user": current_query, "ai": ai_chat_response})
+                        st.rerun()
                     else:
                         st.session_state.bom_data = None
                         err_reason = raw_blueprint.get('error_reason', 'Tài liệu thiếu bảng Spec hoặc dữ liệu phân số chưa được chuẩn hóa.')
+
                         ai_chat_response = f"❌ NGẤT LUỒNG: {err_reason}"
                         
                     st.session_state.chat_history.append({"user": current_query, "ai": ai_chat_response})
