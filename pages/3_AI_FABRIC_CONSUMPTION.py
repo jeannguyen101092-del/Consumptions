@@ -1111,184 +1111,138 @@ if st.session_state.pdf_bytes is not None:
 
 
 
-                       # =====================================================================
-            # ĐOẠN 7a2.1: DYNAMIC AI GATEWAY & MULTI-LAYER FINGERPRINT LOCK (V52.0)
-            # Nối tiếp ngay sau dòng: gemini_inputs = copy.deepcopy(image_payloads)
-            # =====================================================================
-            if "GEMINI_API_KEY" in st.secrets: 
-                genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-            model = genai.GenerativeModel("gemini-2.5-flash", generation_config={"temperature": 0.0})
-            chat_lower = current_query.lower()
-            
-            # 1. Trích xuất tự động mục tiêu Size từ câu chat người dùng
-            match_size = re.search(r'\b(?:size|sz|cỡ)\s*[:\-=\s]*([\w\d/]+)\b', chat_lower)
-            target_size_cmd = str(match_size.group(1)).upper().strip() if match_size else "10"
-            
-            # 2. Khống chế và bảo vệ an toàn khổ vải dệt thực tế hữu dụng
-            match_w = re.search(r'(?:khổ|kho|width)\s*([\d\.]+)', chat_lower)
-            try: active_width = float(match_w.group(1)) if match_w else 57.0
-            except: active_width = 57.0
-            
-            # 3. 🔐 CHỮ KÝ SỐ BA LỚP CHỐT CHẶN CHỐNG KẸT VÒNG LẶP (DOCUMENT FINGERPRINT ENGINE)
-            # Tạo dấu vết định danh duy nhất cho phiên làm việc hiện tại, chống mù khi đổi PDF trùng prompt
-            pdf_bytes_len = len(st.session_state.pdf_bytes) if st.session_state.pdf_bytes else 0
-            current_signature = (
-                str(safe_user_prompt).strip(),
-                int(len(image_payloads)),
-                int(pdf_bytes_len)
-            )
-            
-            # Biến kiểm soát: Kích hoạt gọi AI khi chưa có dữ liệu HOẶC khi chữ ký số hệ thống thay đổi
-            has_no_data = not st.session_state.get("bom_data")
-            is_signature_changed = st.session_state.get("last_processed_signature") != current_signature
+                # =====================================================================
+        # ĐOẠN 7a2.1: DYNAMIC AI GATEWAY & MULTI-LAYER FINGERPRINT LOCK (V53.0)
+        # Nối tiếp ngay sau khối trích xuất gemini_inputs của Đoạn 7a1
+        # =====================================================================
+        if "GEMINI_API_KEY" in st.secrets: 
+            genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+        chat_lower = current_query.lower()
+        
+        match_size = re.search(r'\b(?:size|sz|cỡ)\s*[:\-=\s]*([\w\d/]+)\b', chat_lower)
+        target_size_cmd = str(match_size.group(1)).upper().strip() if match_size else "10"
+        
+        match_w = re.search(r'(?:khổ|kho|width)\s*([\d\.]+)', chat_lower)
+        try: active_width = float(match_w.group(1)) if match_w else 57.0
+        except: active_width = 57.0
+        
+        # Thiết lập chữ ký số ba lớp kiểm soát vòng lặp kẹt tải trang
+        pdf_bytes_len = len(st.session_state.pdf_bytes) if st.session_state.pdf_bytes else 0
+        current_signature = (str(safe_user_prompt).strip(), int(len(image_payloads)), int(pdf_bytes_len))
+        
+        has_no_data = not st.session_state.get("bom_data") or st.session_state.get("bom_data") == {}
+        is_signature_changed = st.session_state.get("last_processed_signature") != current_signature
 
-            if has_no_data or is_signature_changed:
-                # 🌟 PROMPT DYNAMIC V52.0: CHUẨN HOÁ KHUÔN MẪU ĐỘNG CHỐT KHÓA CANH SỢI GERBER CAD
-                prompt_instruction = f"""
-                You are an expert apparel Industrial Engineering (IE) OCR and CAD Optimization system. Scan all provided techpack pages to systematically analyze both the Sizing Charts and the Bill of Materials (BOM) / Material Fabric Specification tables.
-                
-                STRICT PRODUCTION RULES (TARGET SIZE: {target_size_cmd}):
-                1. Dynamic Product Categorization: Determine the product type directly from the Techpack. Possible values: PANT, SHIRT, DRESS, JACKET, SKIRT, SHORT, HOODIE, TOP, OTHER.
-                2. Target Measurement Extraction: Identify the grading column for target size '{target_size_cmd}'. Extract ALL core body measurements (e.g., Waist, Hip, Chest, Inseam, Body Length) exactly as printed in the spec sheet. Convert all fractional measurements to clean decimals. Never fabricate values.
-                3. Absolute BOM Fidelity Rule: Scan the BOM material specification tables closely. Generate rows ONLY for components genuinely verified from the document. If minor panels or accessories (e.g., Cargo Pockets, Pocket Bags, Facings, Fusing) exist in the BOM, include them with their specific layout rules. Otherwise, completely omit them.
-                4. Dynamic Dimension Inference: If specific panel length or width properties are missing but can be logically deduced from the trated sizing chart specs, intelligently infer them. NEVER output 0.0 or 0 for active panels as it breaks the marker engine calculations.
-                5. Zero-Null Strict Compliance: Every single numeric attribute in the JSON output MUST be a valid JSON number (integer or float). Never output null, "", "N/A", or "unknown". If unavailable or unresolvable, use 0.0 or default safe industrial estimations.
-                
-                Output strictly in the specified TWO-TIER CAD-standard JSON schema below based on REAL data found:
-                ===START_JSON===
+        if has_no_data or is_signature_changed:
+            prompt_instruction = f"""
+            You are an expert apparel Industrial Engineering (IE) OCR system. Scan provided techpack pages to analyze size '{target_size_cmd}' and BOM material tables.
+            Determine product type from: PANT, SHIRT, DRESS, JACKET, SKIRT, SHORT, HOODIE, TOP, OTHER. Extract ALL dimensions for target size '{target_size_cmd}' exactly as printed. No nulls or empty strings allowed in numeric keys.
+            
+            Output strictly in this two-tier dynamic JSON structure below based on REAL data found:
+            ===START_JSON===
+            {{
+              "status": "PASS",
+              "detected_product_type": "<DETERMINED_TYPE_FROM_TECHPACK>",
+              "calculated_on_size": "{target_size_cmd}",
+              "matched_measurements": [
+                 "<POM_CODE>: <DESCRIPTION> = <DECIMAL_VALUE> inch"
+              ],
+              "_btp_global_summary": {{
+                "total_bom_rows": 0, "total_panels": 0, "total_pieces": 0, "largest_piece_length": 0.0, "largest_piece_width": 0.0,
+                "has_polygon": false, "has_bbox": true, "need_stripe_match": false, "need_bias": false, "need_one_way": true, "need_fold": false
+              }},
+              "bom_rows": [
                 {{
-                  "status": "PASS",
-                  "detected_product_type": "<DETERMINED_TYPE_FROM_TECHPACK>",
-                  "calculated_on_size": "{target_size_cmd}",
-                  "matched_measurements": [
-                     "<POM_CODE>: <DESCRIPTION> = <DECIMAL_VALUE> inch"
-                  ],
-                  "_btp_global_summary": {{
-                    "total_bom_rows": 0, "total_panels": 0, "total_pieces": 0, "largest_piece_length": 0.0, "largest_piece_width": 0.0,
-                    "has_polygon": false, "has_bbox": true, "need_stripe_match": false, "need_bias": false, "need_one_way": true, "need_fold": false
+                  "component_type": "<MATERIAL_NAME_FROM_BOM_E_G_MAIN_FABRIC>",
+                  "fabric_classification": "<MAIN_FABRIC_OR_LINING_OR_FUSING_OR_ELASTIC>",
+                  "fabric_width_inch": {active_width},
+                  "_btp_summary": {{
+                     "panel_count": 0, "piece_count": 0, "area": 0.0, "max_piece_length": 0.0, "max_piece_width": 0.0
                   }},
-                  "bom_rows": [
-                    {{
-                      "component_type": "<MATERIAL_NAME_FROM_BOM_E_G_MAIN_FABRIC>",
-                      "fabric_classification": "<MAIN_FABRIC_OR_LINING_OR_FUSING_OR_ELASTIC>",
-                      "fabric_width_inch": {active_width},
-                      "_btp_summary": {{
-                         "panel_count": 0, "piece_count": 0, "area": 0.0, "max_piece_length": 0.0, "max_piece_width": 0.0
+                  "fabric_constraints": {{
+                     "fabric_grain_rule": "ONE_WAY", "marker_type": "OPEN_WIDTH", "shrinkage_warp_pct": 0.0, "shrinkage_weft_pct": 0.0, "nap_sensitive": true
+                  }},
+                  "panels_catalog": [
+                    {{ 
+                      "panel_name": "<PANEL_NAME_E_G_FRONT_OR_BACK>", 
+                      "panel_type": "<BODY_OR_POCKET_OR_WAISTBAND_OR_SLEEVE>",
+                      "piece_count": 1.0, 
+                      "piece_length_inch": 0.0, 
+                      "piece_width_inch": 0.0,
+                      "geometry_metadata": {{
+                         "polygon_points": [], "coordinate_scale": 1.0, "bounding_box": [0.0, 0.0, 0.0, 0.0], "net_area": 0.0, "include_seam": false, "include_hem": false, "seam_allowance": true, "hem": 0.0
                       }},
-                      "fabric_constraints": {{
-                         "fabric_grain_rule": "ONE_WAY", "marker_type": "OPEN_WIDTH", "shrinkage_warp_pct": 0.0, "shrinkage_weft_pct": 0.0, "nap_sensitive": true
-                      }},
-                      "panels_catalog": [
-                        {{ 
-                          "panel_name": "<PANEL_NAME_E_G_FRONT_OR_BACK>", 
-                          "panel_type": "<BODY_OR_POCKET_OR_WAISTBAND_OR_SLEEVE>",
-                          "piece_count": 1.0, 
-                          "piece_length_inch": 0.0, 
-                          "piece_width_inch": 0.0,
-                          "geometry_metadata": {{
-                             "polygon_points": [], "coordinate_scale": 1.0, "bounding_box": [0.0, 0.0, 0.0, 0.0], "net_area": 0.0, "include_seam": false, "include_hem": false, "seam_allowance": true, "hem": 0.0
-                          }},
-                          "panel_metadata": {{
-                             "grainline": "WARP", "stripe_match": false, "bias": false, "mirror_cut": false, "cut_on_fold": false, "panel_rotation": 0.0, "panel_category": "MAJOR", "nest_priority": 1
-                          }}
-                        }}
-                      ]
+                      "panel_metadata": {{
+                         "grainline": "WARP", "stripe_match": false, "bias": false, "mirror_cut": false, "cut_on_fold": false, "panel_rotation": 0.0, "panel_category": "MAJOR", "nest_priority": 1
+                      }}
                     }}
                   ]
                 }}
-                ===END_JSON===
-                ===START_CHAT=== [Confirm in Vietnamese which pages you scanned and summarize the exact clean verified dimensions and materials found for size {target_size_cmd}.] ===END_CHAT===
-                """
-                gemini_inputs.append(prompt_instruction)
+              ]
+            }}
+            ===END_JSON===
+            ===START_CHAT=== [Confirm in Vietnamese which pages you scanned and summarize the exact clean verified dimensions and materials found for size {target_size_cmd}.] ===END_CHAT===
+            """
+            gemini_inputs.append(prompt_instruction)
+            response_text = ""
+            try:
+                response = model.generate_content(gemini_inputs)
+                if response: response_text = response.text.strip()
+            except Exception as e_api:
+                st.error(f"💥 API Gemini Error: {str(e_api)}")
                 response_text = ""
-                try:
-                    response = model.generate_content(gemini_inputs)
-                    if response: response_text = response.text.strip()
-                except Exception as e_api:
-                    st.error(f"💥 API Gemini Error: {str(e_api)}")
-                    response_text = ""
-
-                           # =====================================================================
-                # ĐOẠN 7a2.2: POST-AI MIDDLEWARE CAD PIPELINE BRIDGE (V17.5.0 STABLE)
-                # Chốt khóa chữ ký số ba lớp để bẻ gãy hoàn toàn vòng lặp vô tận ngầm
-                # =====================================================================
-                if response_text:
-                    json_match = re.search(r'(?:===START_JSON===\s*|```json\s*)(.*?)(?:\s*===END_JSON===|\s*```)', response_text, re.DOTALL)
-                    chat_match = re.search(r'(?:===START_CHAT===\s*|```markdown\s*|(?:\n|^)\s*\*\s*)(.*?)(?:\s*===END_CHAT===|\s*```|$)', response_text, re.DOTALL)
-                    
-                    raw_json_str = ""
-                    if json_match:
-                        raw_json_str = json_match.group(1).strip()
-                        raw_json_str = re.sub(r"^```json\s*|\s*```$", "", raw_json_str, flags=re.IGNORECASE)
-                    elif "===START_JSON===" in response_text and "===END_JSON===" in response_text:
-                        start_idx = response_text.find("===START_JSON===") + len("===START_JSON===")
-                        end_idx = response_text.find("===END_JSON===")
-                        raw_json_str = response_text[start_idx:end_idx].strip()
-                    else:
-                        match_fallback = re.search(r'\{.*\}', response_text, re.DOTALL)
-                        raw_json_str = match_fallback.group(0).strip() if match_fallback else ""
-                        
-                    if raw_json_str:
-                        try:
-                            raw_blueprint = json.loads(raw_json_str)
-                            if "bom_rows" in raw_blueprint:
-                                # Sao chép sâu object gốc để bảo vệ vòng lặp, triệt tiêu lỗi changed size
-                                blueprint_worker = copy.deepcopy(raw_blueprint)
-                                query_str = str(current_query)
-                                
-                                # 🚀 BƯỚC 1: Gọi Đoạn 2a1 trích xuất rập phẳng hình học topo nâng cao
-                                st.info("🔄 Bước 1: Đang chạy máy tính hình học phẳng topo rập...")
-                                standardized_blueprint = parse_geometric_panels_allowance(blueprint_worker, query_str)
-                                
-                                # 🚀 BƯỚC 2: Gọi Đoạn 2b1 (Chat Parser) xử lý chỉ thị ô chat
-                                st.info("💬 Bước 2: Đang quét chỉ thị kỹ thuật may...")
-                                prepared_rows, user_eff = parse_and_prepare_ie_panels(
-                                    all_rows=standardized_blueprint.get("bom_rows", []),
-                                    product_type=standardized_blueprint.get("detected_product_type", "DEFAULT"),
-                                    user_prompt=query_str
-                                )
-                                standardized_blueprint["bom_rows"] = prepared_rows
-                                
-                                # 🚀 BƯỚC 3: Kích hoạt Đoạn 2b2 chạy bộ mô phỏng lồng sơ đồ hình học Gerber CAD tính Yards
-                                st.info("📊 Bước 3: Bộ giả lập Gerber CAD đang tính toán Yards định mức...")
-                                blueprint_final = allocate_fabric_consumption_and_quality_gate(
-                                    ai_blueprint=standardized_blueprint,
-                                    user_prompt=query_str
-                                )
-                                
-                                # Đồng bộ gói dữ liệu đã tính toán sạch vào Trạng thái Giao diện (Session State)
-                                st.session_state.bom_data = blueprint_final
-                                st.session_state.accumulated_bom_rows = blueprint_final.get("bom_rows", [])
-                                
-                                # 🌟 GHI NHẬN CHỮ KÝ SỐ: Lưu vết chữ ký số ba lớp để khóa chu kỳ kẹt tải trang
-                                if 'current_signature' in locals():
-                                    st.session_state["last_processed_signature"] = current_signature
-                                
-                                if chat_match: 
-                                    ai_chat_response = chat_match.group(1).strip()
-                                else: 
-                                    ai_chat_response = "✅ OCR & Gerber CAD Simulation thành công!"
-                                st.session_state.chat_history.append({"user": query_str, "ai": ai_chat_response})
-                                st.success("🎉 Kết quả định mức đã được đồng bộ! Đang tải lại trang...")
-                                st.rerun()  # Ép giao diện tải lại và kết xuất bảng kết quả ngay lập tức
-                                
-                        except Exception as e_inner:
-                            st.error(f"💥 Lỗi tại Pipeline CAD hình học: {str(e_inner)}")
-                            import traceback
-                            st.code(traceback.format_exc())
-                    else:
-                        st.session_state.bom_data = None
-                        ai_chat_response = "❌ NGẰT LUỒNG: Không tìm thấy chuỗi JSON hợp lệ trong phản hồi."
-                        st.session_state.chat_history.append({"user": current_query, "ai": ai_chat_response})
+            # =====================================================================
+            # ĐOẠN 7a2.2: POST-AI MIDDLEWARE & VÁ TRỰC DIỆN LUỒNG DỮ LIỆU (V17.5.5)
+            # Dán nối tiếp ngay sau Đoạn 7a2.1 ở phía trên
+            # =====================================================================
+            if response_text:
+                json_match = re.search(r'(?:===START_JSON===\s*|```json\s*)(.*?)(?:\s*===END_JSON===|\s*```)', response_text, re.DOTALL)
+                chat_match = re.search(r'(?:===START_CHAT===\s*|```markdown\s*|(?:\n|^)\s*\*\s*)(.*?)(?:\s*===END_CHAT===|\s*```|$)', response_text, re.DOTALL)
+                
+                raw_json_str = ""
+                if json_match: raw_json_str = json_match.group(1).strip()
+                elif "===START_JSON===" in response_text and "===END_JSON===" in response_text:
+                    raw_json_str = response_text[response_text.find("===START_JSON===")+16:response_text.find("===END_JSON===")].strip()
                 else:
-                    st.session_state.bom_data = None
-                    ai_chat_response = "❌ NGẰT LUỒNG: Gemini không trả về nội dung text phản hồi."
-                    st.session_state.chat_history.append({"user": current_query, "ai": ai_chat_response})
-                    
-        # 🌟 KHÓA CHẶT MỆNH ĐỀ EXCEPT ĐỂ ĐÓNG NGOẶC KHỐI TRY TỔNG TỪ ĐOẠN 7a1 TRÁNH LỖI CÚ PHÁP CHÍ MẠNG
+                    match_fb = re.search(r'\{.*\}', response_text, re.DOTALL)
+                    raw_json_str = match_fb.group(0).strip() if match_fb else ""
+                
+                if raw_json_str:
+                    # 🌟 VÁ CHÍ MẠNG: Bộ sửa lỗi chuỗi JSON tự động, triệt tiêu dấu phẩy thừa gây crash loads()
+                    raw_json_str = re.sub(r',\s*([\]\}])', r'\1', raw_json_str) 
+                    try:
+                        raw_blueprint = json.loads(raw_json_str)
+                        if raw_blueprint and "bom_rows" in raw_blueprint:
+                            blueprint_worker = copy.deepcopy(raw_blueprint)
+                            query_str = str(current_query)
+                            
+                            # Chạy chuỗi pipeline máy tính 3 bước hình học phẳng CAD
+                            b1 = parse_geometric_panels_allowance(blueprint_worker, query_str)
+                            b2_rows, _ = parse_and_prepare_ie_panels(b1.get("bom_rows", []), b1.get("detected_product_type"), query_str)
+                            b1["bom_rows"] = b2_rows
+                            blueprint_final = allocate_fabric_consumption_and_quality_gate(b1, query_str)
+                            
+                            # Đổ dữ liệu sạch vào session và khóa chốt chặn chữ ký để tải trang vẽ bảng
+                            st.session_state.bom_data = blueprint_final
+                            st.session_state.accumulated_bom_rows = blueprint_final.get("bom_rows", [])
+                            st.session_state["last_processed_signature"] = current_signature
+                            
+                            st.success("🎉 Xử lý rập hình học phẳng CAD thành công!")
+                            st.rerun()
+                        else:
+                            st.error("⚠️ Khối JSON của AI thiếu trường danh mục bom_rows.")
+                    except json.JSONDecodeError:
+                        st.error(f"❌ THẤT BẠI PARSE JSON: Chuỗi sinh ra từ Gemini bị lỗi cấu trúc hình học.")
+                        st.code(raw_json_str, language="json")
+                else:
+                    st.error("❌ Không thể bóc tách START_JSON từ văn bản phản hồi thô của Gemini.")
+                    st.text_area("Nội dung AI trả về:", value=response_text, height=120)
+
+        # ĐÓNG NGOẶC KHỐI TRY TỔNG MỞ ĐẦU TỪ ĐOẠN 7A1 ĐỂ TRIỆT TIÊU VĨNH VIỄN SYNTAXERROR
         except Exception as e_global:
             st.error(f"💥 Lỗi luồng trích xuất hạ tầng tổng: {str(e_global)}")
             st.code(traceback.format_exc())
+
 
 
 
