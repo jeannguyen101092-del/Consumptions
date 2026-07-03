@@ -1037,7 +1037,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
         except Exception as e:
             st.error(f"❌ Lỗi xử lý tệp tin đầu vào ở phân đoạn 7a1: {str(e)}")
 # =====================================================================
-# ĐOẠN 7a2a: AI CORE GENERATION ENGINE (V26.0 APPROVED)
+# ĐOẠN 7a2: AI CORE EXTRACTOR & POST-AI MIDDLEWARE GEOMETRY PROCESSOR (V26.5 INTEGRATED)
 # =====================================================================
 if st.session_state.pdf_bytes is not None and safe_user_prompt and len(gemini_inputs) > 0:
     with st.spinner("🧠 AI Core đang tiến hành xử lý nhận diện bảng thông số mở rộng..."):
@@ -1116,9 +1116,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt and len(gemini_in
             
             gemini_inputs.append(prompt_instruction)
             response = model.generate_content(gemini_inputs)
-# =====================================================================
-# ĐOẠN 7a2b: POST-AI MIDDLEWARE GEOMETRY PROCESSOR (V26.0 APPROVED)
-# =====================================================================
+            
             # Khởi tạo giá trị mặc định cho biến phản hồi chat nhằm phòng vệ tuyệt đối lỗi NameError
             ai_chat_response = "Hệ thống đang xử lý dữ liệu..."
             
@@ -1197,6 +1195,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt and len(gemini_in
                         st.session_state.bom_data = None
                         err_reason = raw_blueprint.get('error_reason', 'Tài liệu thiếu bảng Spec hoặc dữ liệu phân số chưa được chuẩn hóa.')
                         ai_chat_response = f"❌ NGẰT LUỒNG: {err_reason}"
+
                 else:
                     st.session_state.bom_data = None
                     ai_chat_response = "❌ NGẰT LUỒNG: AI Core không phản hồi cấu trúc JSON mẫu chuẩn."
