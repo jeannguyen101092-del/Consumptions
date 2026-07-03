@@ -1004,7 +1004,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             
             gemini_inputs = copy.deepcopy(image_payloads)
 # =====================================================================
-# ĐOẠN 7a2.1: AI COGNITIVE EXTRACTOR & DYNAMIC GARMENT RECONSTRUCTION PIPELINE (V45.0 PRODUCTION)
+# ĐOẠN 7a2.1: AI COGNITIVE EXTRACTOR & DYNAMIC GARMENT RECONSTRUCTION PIPELINE (V45.2 STABLE)
 # =====================================================================
             if "GEMINI_API_KEY" in st.secrets: 
                 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
@@ -1012,8 +1012,9 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             model = genai.GenerativeModel("gemini-2.5-flash", generation_config={"temperature": 0.0})
             chat_lower = current_query.lower()
             
-            # 1. BỘ TỰ ĐỘNG NHẬN DIỆN PRODUCT TYPE PHÒNG VỆ BAN ĐẦU
-            inferred_is_upper = any(x in chat_lower or x in product_type for x in ["DRESS", "VÁY", "ĐẦM", "SHIRT", "SƠ MI", "TSHIRT", "JACKET", "HOODIE", "TOP", "ÁO"])
+            # 🌟 FIX CHÍ MẠNG: Sử dụng biến hệ thống an toàn thay thế cho biến product_type chưa khai báo
+            doc_product_type_raw = str(st.session_state.get("bom_data", {}).get("detected_product_type", "DEFAULT")).upper()
+            inferred_is_upper = any(x in chat_lower or x in doc_product_type_raw for x in ["DRESS", "VÁY", "ĐẦM", "SHIRT", "SƠ MI", "TSHIRT", "JACKET", "HOODIE", "TOP", "ÁO"])
             
             # Bộ bóc tách thông minh bắt trọn dải Size chữ (XS-XXL) lẫn Size số (26-40)
             match_size = re.search(r'\b(?:size|sz|cỡ)\s*[:\-=\s]*([\w\d/]+)\b', chat_lower)
@@ -1045,7 +1046,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             if len(st.session_state.chat_history) > 30:
                 st.session_state.chat_history = st.session_state.chat_history[-30:]
 
-            # 🌟 PROMPT ĐỈNH CAO: THIẾT KẾ THEO CHUẨN MA TRẬN RẼ NHÁNH TẤT CẢ CHỦNG LOẠI HÀNG NGÀNH MAY
+            # PROMPT TIÊU CHUẨN ĐA SẢN PHẨM: TỰ ĐỘNG PHÂN RÃ THEO CHỦNG LOẠI HÀNG NGÀNH MAY
             prompt_instruction = f"""
             You are an expert apparel Industrial Engineering (IE) OCR system. Your goal is to analyze the technical package, automatically detect the garment category, and reconstruct its flat cutting pattern blocks for size '{target_size_cmd}'.
             
@@ -1096,7 +1097,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
               ]
             }}
             ===END_JSON===
-            If found and mapped, flip "status" to "PASS", "spec_sheet_found" to true, list extracted thô pairs as 'POM_CODE: Description = Value' inside "matched_measurements", and dynamically populate the entire array with true pattern piece sizes.
+            If found and mapped, flip "status" to "PASS", "spec_sheet_found" to true, list extracted thô pairs as 'POM_CODE: Description = Value' inside "matched_measurements" using format 'POM_CODE: Description = Value', and dynamically populate the entire array with true pattern piece sizes.
             
             ===START_CHAT===
             [Confirm in Vietnamese which pages you located the spec table on for size {target_size_cmd}, and list the exact measurements found.]
