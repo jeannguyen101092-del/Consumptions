@@ -373,474 +373,129 @@ def v18_reconstruct_and_orient_geometry(step1_results, seam_allowance=0.0):
     except Exception as e:
         return {"status": "error", "message": str(e)}
 # ==============================================================================
-# HỆ THỐNG TOÁN HỌC V18 GERBER - PHẦN 3/3: HÀM BƯỚC 3 (ENGINE XẾP SƠ ĐỒ SKYLINE)
-# ==============================================================================
-
-def v18_step3_execute_strip_nesting(panels_catalog, target_width=58.0, fabric_type="ONE_WAY"):
-    """
-    HÀM BƯỚC 3: Thuật toán Skyline nén chặt sơ đồ kịch bên trái, dò nhị phân vector tiếp xúc 
-    mô phỏng NFP, tự động gộp dải chân trời và tính định mức tiêu hao vải theo Yard.
-    """
-    STRIP_WIDTH = float(target_width)
-    total_theoretical_area = sum(item["area"] for item in panels_catalog)
-    fabric_type_upper = str(fabric_type).upper().strip()
-    if fabric_type_upper in ["ONE_WAY", "NAP", "VELVET"]: allowed_rotations = (0,)
-    elif fabric_type_upper in ["TWO_WAY", "TWILL", "DENIM"]: allowed_rotations = (0, 180)
-    else: allowed_rotations = (0, 90, 180, 270)
-
-    nested_queue = sorted(panels_catalog, key=lambda x: x["area"], reverse=True)
-    virtual_bound = Polygon([(-10, -10), (-9, -10), (-9, -9), (-10, -9)])
-    placed_polygons = [virtual_bound]
-    spatial_index = STRtree(placed_polygons)
-    skyline = [{"x": 0.0, "y0": 0.0, "y1": STRIP_WIDTH}]
-    current_marker_length = 0.0
-
-    def check_collision(candidate_poly, current_tree, reference_list):
-        intersect_indices = current_tree.query(candidate_poly)
-        for idx in intersect_indices:
-            placed = reference_list[idx]
-            if candidate_poly.intersects(placed):
-                if candidate_poly.intersection(placed).area > 0.001: return True
-        return False
-
-    def _merge_skyline(segments):
-        if len(segments) <= 1: return segments
-        sorted_segs = sorted(segments, key=lambda s: s["y0"])
-        merged = []
-        curr = sorted_segs
-        for next_seg in sorted_segs[1:]:
-            if abs(curr["y1"] - next_seg["y0"]) < 0.001 and abs(curr["x"] - next_seg["x"]) < 0.005:
-                curr["y1"] = next_seg["y1"]
-                curr["x"] = max(curr["x"], next_seg["x"])
-            else:
-                merged.append(curr)
-                curr = next_seg
-        merged.append(curr)
-        return merged
-
-    for item in nested_queue:
-        poly_base = item["polygon"]
-        best_x_score = float('inf')
-        best_placed_poly = None
-        
-        for angle in allowed_rotations:
-            poly_rotated = poly_base if angle == 0 else rotate(poly_base, angle, origin='center')
-            if not poly_rotated.is_valid: poly_rotated = poly_rotated.buffer(0)
-            minx, miny, maxx, maxy = poly_rotated.bounds
-            w_piece = maxy - miny
-            l_piece = maxx - minx
-            if w_piece > STRIP_WIDTH: continue
-
-            for seg in skyline:
-                seg_w = seg["y1"] - seg["y0"]
-                if seg_w >= w_piece:
-                    y_candidates = [seg["y0"], seg["y1"] - w_piece, seg["y0"] + (seg_w - w_piece) / 2.0]
-                    for y_cand in y_candidates:
-                        x_cand = seg["x"]
-                        dx = x_cand - minx
-                        dy = y_cand - miny
-                        test_poly = translate(poly_rotated, xoff=dx, yoff=dy)
-                        _, t_miny, _, t_maxy = test_poly.bounds
-                        if t_miny < 0.0 or t_maxy > STRIP_WIDTH: continue
-                            
-                        if not check_collision(test_poly, spatial_index, placed_polygons):
-                            low_factor, high_factor, optimal_dx = 0.0, 1.0, dx
-                            for _ in range(5):
-                                mid_factor = (low_factor + high_factor) / 2.0
-                                shift_dx = x_cand - minx + (optimal_dx - (x_cand - minx)) * mid_factor
-                                shift_poly = translate(poly_rotated, xoff=shift_dx, yoff=dy)
-                                if not check_collision(shift_poly, spatial_index, placed_polygons):
-                                    optimal_dx = shift_dx
-                                    high_factor = mid_factor
-                                else: low_factor = mid_factor
-                            final_test_poly = translate(poly_rotated, xoff=optimal_dx, yoff=dy)
-                            _, _, final_maxx, _ = final_test_poly.bounds
-                            if final_maxx < best_x_score:
-                                best_x_score = final_maxx
-                                best_placed_poly = final_test_poly
-
-        if best_placed_poly is not None:
-            placed_polygons.append(best_placed_poly)
-            spatial_index = STRtree(placed_polygons)
-            _, p_miny, _, p_maxy = best_placed_poly.bounds
-            _, _, p_maxx, _ = best_placed_poly.bounds
-            new_skyline = []
-            for seg in skyline:
-                if seg["y0"] >= p_miny and seg["y1"] <= p_maxy:
-                    new_skyline.append({"x": max(seg["x"], p_maxx), "y0": seg["y0"], "y1": seg["y1"]})
-                elif seg["y0"] < p_miny and seg["y1"] > p_miny and seg["y1"] <= p_maxy:
-                    new_skyline.append({"x": seg["x"], "y0": seg["y0"], "y1": p_miny})
-                    new_skyline.append({"x": max(seg["x"], p_maxx), "y0": p_miny, "y1": seg["y1"]})
-                elif seg["y0"] >= p_miny and seg["y0"] < p_maxy and seg["y1"] > p_maxy:
-                    new_skyline.append({"x": max(seg["x"], p_maxx), "y0": p_maxy})
-                    new_skyline.append({"x": seg["x"], "y0": p_maxy, "y1": seg["y1"]})
-                elif seg["y0"] < p_miny and seg["y1"] > p_maxy:
-                    new_skyline.append({"x": seg["x"], "y0": seg["y0"], "y1": p_miny})
-                    new_skyline.append({"x": max(seg["x"], p_maxx), "y0": p_miny, "y1": p_maxy})
-                    new_skyline.append({"x": seg["x"], "y0": p_maxy, "y1": seg["y1"]})
-                else: new_skyline.append(seg)
-            skyline = _merge_skyline(new_skyline)
-            if p_maxx > current_marker_length: current_marker_length = p_maxx
-        else:
-            lowest_seg = min(skyline, key=lambda s: s["x"])
-            minx, miny, maxx, maxy = poly_base.bounds
-            fallback_dx = lowest_seg["x"] - minx
-            fallback_dy = lowest_seg["y0"] - miny
-            fallback_poly = translate(poly_base, xoff=fallback_dx, yoff=fallback_dy)
-            y_shift_step, max_y_limit = 0.5, STRIP_WIDTH - (maxy - miny)
-            while check_collision(fallback_poly, spatial_index, placed_polygons) and fallback_dy <= max_y_limit:
-                fallback_dy += y_shift_step
-                fallback_poly = translate(poly_base, xoff=fallback_dx, yoff=fallback_dy)
-            if check_collision(fallback_poly, spatial_index, placed_polygons):
-                fallback_dx, fallback_dy = current_marker_length - minx, 0.0 - miny
-                fallback_poly = translate(poly_base, xoff=fallback_dx, yoff=fallback_dy)
-            placed_polygons.append(fallback_poly)
-            spatial_index = STRtree(placed_polygons)
-            f_minx, f_miny, f_maxx, f_maxy = fallback_poly.bounds
-            if f_maxx > current_marker_length: current_marker_length = f_maxx
-            skyline.append({"x": current_marker_length, "y0": f_miny, "y1": f_maxy})
-            skyline = _merge_skyline(skyline)
-
-    total_marker_area = current_marker_length * STRIP_WIDTH
-    marker_utilization = (total_theoretical_area / total_marker_area * 100.0) if total_marker_area > 0 else 0.0
-    return {"status": "success", "total_pieces_nested": len(panels_catalog), "theoretical_area_sq_in": round(total_theoretical_area, 2), "marker_length_inch": round(current_marker_length, 2), "fabric_width_inch": STRIP_WIDTH, "marker_utilization_percent": round(marker_utilization, 2), "fabric_consumption_yard": round((current_marker_length / 36.0), 3)}
-
-# ==============================================================================
 # HỆ THỐNG TOÁN HỌC CAD-AI ĐỒNG BỘ GERBER V18 INDUSTRIAL ENGINE
-# ĐOẠN 9/12: LÕI XẾP SƠ ĐỒ BƯỚC 3 (PHẦN B) - VÒNG LẶP SKYLINE & SLIDING NFP
+# KHỐI ĐIỀU PHỐI KHẾP KÍN PYTHON PIPELINE - PHẦN 1 TRÊN 2
 # ==============================================================================
 
-    # ==============================================================================
-    # PHẦN RUỘT VÒNG LẶP HẠT NHÂN QUÉT ĐA ĐIỂM SKYLINE & VECTOR SLIDING
-    # ==============================================================================
-    for item in nested_queue:
-        poly_base = item["polygon"]
-        
-        best_x_score = float('inf')
-        best_placed_poly = None
-        
-        for angle in allowed_rotations:
-            if angle == 0:
-                poly_rotated = poly_base
-            else:
-                poly_rotated = rotate(poly_base, angle, origin='center')
-                if not poly_rotated.is_valid: 
-                    poly_rotated = poly_rotated.buffer(0)
-                
-            minx, miny, maxx, maxy = poly_rotated.bounds
-            w_piece = maxy - miny
-            l_piece = maxx - minx
+if ai_json_data and "bom_rows" in ai_json_data:
+    updated_bom_rows = []
+    
+    for row in ai_json_data.get("bom_rows", []):
+        if row.get("geometry_required", False):
+            layer_target = row.get("geometry_source_layer", "MAIN_BODY_CARGO")
+            f_width = float(row.get("fabric_width_inch", active_width))
+            f_class = str(row.get("fabric_classification", "MAIN_FABRIC"))
             
-            if w_piece > STRIP_WIDTH:
-                continue
-
-            for seg in skyline:
-                seg_w = seg["y1"] - seg["y0"]
-                if seg_w >= w_piece:
-                    # QUÉT ĐA ĐIỂM TIẾP GIÁP THUNG LŨNG: Thử đặt rập ở chân, đỉnh, và trung vị của phân đoạn Skyline
-                    y_candidates = [seg["y0"], seg["y1"] - w_piece, seg["y0"] + (seg_w - w_piece) / 2.0]
+            f_type = "TWO_WAY" if f_class == "MAIN_FABRIC" else "FREE"
+            
+            with st.status(f"⚙️ Lõi V18 đang tự động lấp đầy sơ đồ lớp: {layer_target}...", expanded=False) as layer_status:
+                s1 = v18_step1_extract_raw_vectors(layer_name=layer_target, warp=active_warp, weft=active_weft, snap_tol=0.005)
+                
+                if s1["status"] == "success":
+                    if "MAIN" in layer_target.upper():
+                        s1["target_pieces_count"] = 2.0
+                        s1["is_mirror_pair"] = True
+                    else:
+                        s1["target_pieces_count"] = 4.0
+                        s1["is_mirror_pair"] = False
                     
-                    for y_cand in y_candidates:
-                        x_cand = seg["x"]
-                        dx = x_cand - minx
-                        dy = y_cand - miny
-                        test_poly = translate(poly_rotated, xoff=dx, yoff=dy)
+                    s2 = v18_reconstruct_and_orient_geometry(step1_results=s1, seam_allowance=seam_allowance_input)
+                    
+                    if s2["status"] == "success" and s2["panels_catalog"]:
+                        s3 = v18_step3_execute_strip_nesting(panels_catalog=s2["panels_catalog"], target_width=f_width, fabric_type=f_type)
                         
-                        _, t_miny, _, t_maxy = test_poly.bounds
-                        if t_miny < 0.0 or t_maxy > STRIP_WIDTH:
-                            continue
-                            
-                        # 🎰 MÔ PHỎNG NFP ĐA HƯỚNG (BINARY VECTOR SLIDING): Đẩy lùi liên tục đa trục đưa rập về điểm kịch biên tiếp xúc
-                        if not check_collision(test_poly, spatial_index, placed_polygons):
-                            low_factor = 0.0
-                            high_factor = 1.0
-                            optimal_dx = dx
-                            
-                            # Chạy vòng lặp nhị phân 5 bước ép sát biên đa giác đã đặt trước đó dọc hướng vector sớ vải
-                            for _ in range(5):
-                                mid_factor = (low_factor + high_factor) / 2.0
-                                shift_dx = x_cand - minx + (optimal_dx - (x_cand - minx)) * mid_factor
-                                shift_poly = translate(poly_rotated, xoff=shift_dx, yoff=dy)
-                                
-                                if not check_collision(shift_poly, spatial_index, placed_polygons):
-                                    optimal_dx = shift_dx
-                                    high_factor = mid_factor
-                                else:
-                                    low_factor = mid_factor
-                            
-                            final_test_poly = translate(poly_rotated, xoff=optimal_dx, yoff=dy)
-                            _, _, final_maxx, _ = final_test_poly.bounds
-                            
-                            # Chấm điểm nén diện tích sơ đồ: Ưu tiên tọa độ trục X kết thúc nhỏ nhất kịch tả ngạn
-                            if final_maxx < best_x_score:
-                                best_x_score = final_maxx
-                                best_placed_poly = final_test_poly
-
-        # THỰC THI NEO ĐẶT CHI TIẾT VÀ TÁI CẤU TRÚC PHÂN ĐOẠN CHÂN TRỜI ĐỘNG
-        if best_placed_poly is not None:
-            placed_polygons.append(best_placed_poly)
-            
-            # ✅ REBUILD CÂY IMMUTABLE TUYỆT ĐỐI SAU MỖI LƯỢT: Khắc phục triệt để lỗi lọt va chạm cho Shapely 2.0+
-            spatial_index = STRtree(placed_polygons)
-            
-            _, p_miny, _, p_maxy = best_placed_poly.bounds
-            _, _, p_maxx, _ = best_placed_poly.bounds
-            
-            new_skyline = []
-            for seg in skyline:
-                if seg["y0"] >= p_miny and seg["y1"] <= p_maxy:
-                    new_skyline.append({"x": max(seg["x"], p_maxx), "y0": seg["y0"], "y1": seg["y1"]})
-                elif seg["y0"] < p_miny and seg["y1"] > p_miny and seg["y1"] <= p_maxy:
-                    new_skyline.append({"x": seg["x"], "y0": seg["y0"], "y1": p_miny})
-                    new_skyline.append({"x": max(seg["x"], p_maxx), "y0": p_miny, "y1": seg["y1"]})
-                elif seg["y0"] >= p_miny and seg["y0"] < p_maxy and seg["y1"] > p_maxy:
-                    new_skyline.append({"x": max(seg["x"], p_maxx), "y0": seg["y0"], "y1": p_maxy})
-                    ws_x = seg["x"]
-                    new_skyline.append({"x": ws_x, "y0": p_maxy, "y1": seg["y1"]})
-                elif seg["y0"] < p_miny and seg["y1"] > p_maxy:
-                    new_skyline.append({"x": seg["x"], "y0": seg["y0"], "y1": p_miny})
-                    new_skyline.append({"x": max(seg["x"], p_maxx), "y0": p_miny, "y1": p_maxy})
-                    new_skyline.append({"x": seg["x"], "y0": p_maxy, "y1": seg["y1"]})
-                else:
-                    new_skyline.append(seg)
-            
-            skyline = _merge_skyline(new_skyline)
-            if p_maxx > current_marker_length:
-                current_marker_length = p_maxx
-        else:
-            # ⚓ NHÁNH FALLBACK AN TOÀN TUYỆT ĐỐI (Safe Collision-Checked Fallback Engine)
-            lowest_seg = min(skyline, key=lambda s: s["x"])
-            minx, miny, maxx, maxy = poly_base.bounds
-            
-            fallback_dx = lowest_seg["x"] - minx
-            fallback_dy = lowest_seg["y0"] - miny
-            fallback_poly = translate(poly_base, xoff=fallback_dx, yoff=fallback_dy)
-            
-            # Khử lỗi chồng lấn: Tịnh tiến dời trục Y vi phân liên tục nếu phát hiện va chạm vết rập kế bên
-            y_shift_step = 0.5
-            max_y_limit = STRIP_WIDTH - (maxy - miny)
-            
-            while check_collision(fallback_poly, spatial_index, placed_polygons) and fallback_dy <= max_y_limit:
-                fallback_dy += y_shift_step
-                fallback_poly = translate(poly_base, xoff=fallback_dx, yoff=fallback_dy)
-            
-            if check_collision(fallback_poly, spatial_index, placed_polygons):
-                fallback_dx = current_marker_length - minx
-                fallback_dy = 0.0 - miny
-                fallback_poly = translate(poly_base, xoff=fallback_dx, yoff=fallback_dy)
-            
-            placed_polygons.append(fallback_poly)
-            spatial_index = STRtree(placed_polygons)
-            
-            # ✅ VÁ LỖI BUG SKYLINE: Trích xuất chính xác số thực float thay vì tuple hỏng dải chân trời
-            f_minx, f_miny, f_maxx, f_maxy = fallback_poly.bounds
-            if f_maxx > current_marker_length:
-                current_marker_length = f_maxx
-                
-            skyline.append({"x": current_marker_length, "y0": f_miny, "y1": f_maxy})
-            skyline = _merge_skyline(skyline)
-
-    # Tính toán hiệu suất định mức thực tế sử dụng sơ đồ (Marker Utilization %)
-    total_marker_area = current_marker_length * STRIP_WIDTH
-    marker_utilization = (total_theoretical_area / total_marker_area * 100.0) if total_marker_area > 0 else 0.0
-
-    return {
-        "status": "success",
-        "total_pieces_nested": len(panels_catalog),
-        "theoretical_area_sq_in": round(total_theoretical_area, 2),
-        "marker_length_inch": round(current_marker_length, 2),
-        "fabric_width_inch": STRIP_WIDTH,
-        "marker_utilization_percent": round(marker_utilization, 2),
-        "fabric_consumption_yard": round((current_marker_length / 36.0), 3)
-    }
-
-# 🔗 CHUYỂN TIẾP SANG ĐOẠN 10/12...
-# ==============================================================================
-# HỆ THỐNG TOÁN HỌC CAD-AI ĐỒNG BỘ GERBER V18 INDUSTRIAL ENGINE
-# ĐOẠN 10/12: KHỐI ĐIỀU PHỐI KHẾP KÍN PYTHON CORE PIPELINE (CĂN CHỈNH ĐỒNG BỘ CÚ PHÁP)
-# ==============================================================================
-
-            # =====================================================================
-            # 🔄 PYTHON GEOMETRY PIPELINE EXECUTION ENGINE (MẠCH LIÊN KẾT ĐỘC LẬP)
-            # =====================================================================
-            updated_bom_rows = []
-            geometry_reports_html = ""
-            
-            if ai_json_data and "bom_rows" in ai_json_data:
-                # Vòng lặp Python tự động tiếp quản xử lý tính toán hình học thực tế cho từng lớp vật liệu
-                for row in ai_json_data["bom_rows"]:
-                    if row.get("geometry_required", False):
-                        layer_target = row.get("geometry_source_layer", "MAIN_BODY_CARGO")
-                        f_width = float(row.get("fabric_width_inch", active_width))
-                        f_class = str(row.get("fabric_classification", "MAIN_FABRIC"))
-                        
-                        # Quyết định quy tắc hướng sớ sợi xoay rập dựa trên phân hạng vật tư thực tế
-                        f_type = "TWO_WAY" if f_class == "MAIN_FABRIC" else "FREE"
-                        
-                        # Hiển thị thanh tiến trình xử lý vi phân đồ họa cho từng lớp nguyên phụ liệu
-                        with st.status(f"⚙️ Lõi V18 đang tự động lấp đầy sơ đồ lớp: {layer_target}...", expanded=False) as layer_status:
-                            
-                            # 🔄 BƯỚC 1: Trích xuất hình học thô & Chuẩn hóa lật trục tọa độ CAD Y-Flip (Point -> Inch)
-                            s1 = v18_step1_extract_raw_vectors(
-                                layer_name=layer_target, 
-                                warp=active_warp, 
-                                weft=active_weft,
-                                snap_tol=0.005
-                            )
-                            
-                            if s1["status"] == "success":
-                                # Điền cấu hình số lượng chi tiết thực tế của lớp vật tư để Hàm 2 nhân bản đủ cặp rập
-                                if "MAIN" in layer_target.upper():
-                                    s1["target_pieces_count"] = 2.0  # Đảm bảo nhân bản đủ cặp đối xứng thân quần/áo
-                                    s1["is_mirror_pair"] = True
-                                else:
-                                    s1["target_pieces_count"] = 4.0  # Các cụm túi lót hoặc chi tiết phụ
-                                    s1["is_mirror_pair"] = False
-                                    
-                                # 🔄 BƯỚC 2: Tái cấu trúc đa giác đa vòng lồng nhau (Holes/Islands) & Xoay thẳng thớ sớ vải
-                                s2 = v18_step2_reconstruct_and_orient_geometry(
-                                    step1_results=s1, 
-                                    seam_allowance=seam_allowance_input
-                                )
-                                
-                                if s2["status"] == "success" and s2["panels_catalog"]:
-                                    # 🔄 BƯỚC 3: Engine Skyline thực sự xếp sơ đồ định mức đa hướng đa góc sớ
-                                    s3 = v18_step3_execute_strip_nesting(
-                                        panels_catalog=s2["panels_catalog"], 
-                                        target_width=f_width, 
-                                        fabric_type=f_type
-                                    )
-                                    
-                                    if s3["status"] == "success":
-                                        # ÉP NGƯỢC KẾT QUẢ ĐỊNH MỨC THỰC TẾ TFROM PYTHON VÀO BẢNG DỮ LIỆU VẬT TƯ
-                                        row["calculated_gross_consumption_yds"] = s3["fabric_consumption_yard"]
-                                        row["consumption_note"] = f"Skyline packing complete. Marker utilization: {s3['marker_utilization_percent']}%."
-                                        row["quality_gate_status"] = "PASSED"
-                                        layer_status.update(label=f"✓ Lớp {layer_target} hoàn tất định mức thực tế!", state="complete")
-                                    else:
-                                        row["calculated_gross_consumption_yds"] = 0.0
-                                        row["consumption_note"] = "Nesting optimization algorithm failed."
-                                        row["quality_gate_status"] = "FAILED"
-                                        layer_status.update(label=f"✕ Lỗi thuật toán Nesting tại lớp {layer_target}", state="error")
-                                else:
-                                        row["calculated_gross_consumption_yds"] = 0.0
-                                        row["consumption_note"] = "No valid pattern polygons found on this layer."
-                                        row["quality_gate_status"] = "EMPTY"
-                                        layer_status.update(label=f"⚠ Lớp {layer_target} trống hoặc không chứa Polygon rập", state="warning")
-                            else:
-                                row["calculated_gross_consumption_yds"] = 0.0
-                                row["consumption_note"] = "PDF vector parsing failed."
-                                row["quality_gate_status"] = "FAILED"
-                                layer_status.update(label=f"✕ Thất bại tại khâu bóc tách vector lớp {layer_target}", state="error")
+                        if s3["status"] == "success":
+                            row["calculated_gross_consumption_yds"] = s3["fabric_consumption_yard"]
+                            row["consumption_note"] = f"Skyline packing complete. Marker utilization: {s3['marker_utilization_percent']}%."
+                            row["quality_gate_status"] = "PASSED"
+                            layer_status.update(label=f"✓ Lớp {layer_target} hoàn tất định mức thực tế!", state="complete")
+                        else:
+                            row["calculated_gross_consumption_yds"] = 0.0
+                            row["consumption_note"] = "Nesting algorithm failed."
+                            row["quality_gate_status"] = "FAILED"
+                            layer_status.update(label=f"✕ Lỗi thuật toán Nesting tại lớp {layer_target}", state="error")
                     else:
                         row["calculated_gross_consumption_yds"] = 0.0
-                        row["consumption_note"] = "Geometry calculation skipped for non-pattern items."
-                        row["quality_gate_status"] = "SKIPPED"
-                        
-                    updated_bom_rows.append(row)
-                
-                ai_json_data["bom_rows"] = updated_bom_rows
-                st.session_state.active_blueprint = ai_json_data
-                
-                # Đồng bộ lưu trữ toàn diện vào bộ nhớ đệm lũy kế ma trận tổng hợp
-                for r in updated_bom_rows:
-                    st.session_state.accumulated_bom_rows[r["component_type"]] = r
+                        row["consumption_note"] = "No valid pattern polygons found."
+                        row["quality_gate_status"] = "EMPTY"
+                        layer_status.update(label=f"⚠ Lớp {layer_target} trống hoặc không chứa Polygon rập", state="warning")
+                else:
+                    row["calculated_gross_consumption_yds"] = 0.0
+                    row["consumption_note"] = "PDF vector parsing failed."
+                    row["quality_gate_status"] = "FAILED"
+                    layer_status.update(label=f"✕ Thất bại tại khâu bóc tách vector lớp {layer_target}", state="error")
+        else:
+            row["calculated_gross_consumption_yds"] = 0.0
+            row["consumption_note"] = "Calculation skipped."
+            row["quality_gate_status"] = "SKIPPED"
+            
+        updated_bom_rows.append(row)
+    
+    ai_json_data["bom_rows"] = updated_bom_rows
+    st.session_state.active_blueprint = ai_json_data
+    
+    for r in updated_bom_rows:
+        st.session_state.accumulated_bom_rows[r["component_type"]] = r
 
-            # Cập nhật lịch sử hội thoại hiển thị và kích hoạt reload đồng bộ giao diện người dùng
-            st.session_state.chat_history.append({"user": current_query, "ai": "Đã hoàn thành bóc tách tài liệu kỹ thuật ngữ nghĩa và cập nhật kết quả ma trận định mức CAD thực nghiệm bằng Python."})
-            st.rerun()
-
-        # ✅ FIXED INDENTATION: Đưa khối bẫy lỗi về kịch biên lề trái chuẩn xác ngang hàng với khối try ở Đoạn 4/12
-        except Exception as orchestrator_err:
-            st.error(f"Lỗi hệ thống nghiêm trọng tại lõi điều phối AI Orchestrator Pipeline: {str(orchestrator_err)}")
-            st.code(traceback.format_exc())
-
+    st.session_state.chat_history.append({
+        "user": current_query, 
+        "ai": "Đã hoàn thành bóc tách tài liệu kỹ thuật ngữ nghĩa và cập nhật kết quả ma trận định mức CAD thực nghiệm bằng Python."
+    })
+    st.rerun()
+# ==============================================================================
 # HỆ THỐNG TOÁN HỌC CAD-AI ĐỒNG BỘ GERBER V18 INDUSTRIAL ENGINE
-# ĐOẠN 11/12: KHỞI DỰNG VÀ RENDERING BẢNG MA TRẬN ĐỊNH MỨC TIÊU HAO VẬT TƯ
+# KHU VỰC RENDERING HIỂN THỊ MA TRẬN KẾT QUẢ SỐ LIỆU & EXCEL REPORT - PHẦN 2 TRÊN 2
 # ==============================================================================
 
-# --- PHẦN 3: HIỂN THỊ MA TRẬN KẾT QUẢ SỐ LIỆU ĐỊNH MỨC THỰC TẾ ---
 active_bom_source = None
-
-# Chốt chặn kiểm tra nghiêm ngặt: Ưu tiên dữ liệu phiên chạy mới, chống bốc nhầm lịch sử cũ lỗi thời
 if st.session_state.get("active_blueprint") and "bom_rows" in st.session_state.active_blueprint and st.session_state.active_blueprint["bom_rows"]:
     active_bom_source = st.session_state.active_blueprint
 elif st.session_state.get("accumulated_bom_rows") and len(st.session_state.accumulated_bom_rows) > 0:
     active_bom_source = {"calculated_on_size": "30", "bom_rows": list(st.session_state.accumulated_bom_rows.values())}
 
-# Chỉ thực hiện render cấu trúc bảng ma trận nếu tìm thấy dữ liệu dòng BOM khả dụng lớn hơn 0
 if active_bom_source and active_bom_source.get("bom_rows") and len(active_bom_source["bom_rows"]) > 0:
-    import pandas as pd
     extracted_size = active_bom_source.get("calculated_on_size", "30").upper()
-    
     st.markdown('<div class="cad-card">', unsafe_allow_html=True)
     st.markdown(f'<div class="cad-header">📊 CALCULATED FABRIC CONSUMPTION MATRIX (SIZE TARGET: {extracted_size})</div>', unsafe_allow_html=True)
     
-    # Truy xuất trực tiếp dải thông số co rút từ bộ nhớ trạng thái an toàn để ghim thông tin cố định trên web
     warp_default = st.session_state.get("current_warp_pct", "3.0%")
     weft_default = st.session_state.get("current_weft_pct", "3.0%")
     
     display_data = []
     for r in active_bom_source["bom_rows"]:
-        if not r or not isinstance(r, dict): 
-            continue
-            
+        if not r or not isinstance(r, dict): continue
         sys_notes = r.get("consumption_note", "Optimized pattern placement via STRtree.")
         current_gross = r.get("calculated_gross_consumption_yds", 0.0)
-        
-        # Đồng bộ cấu hình hiển thị thông số khổ vải rộng
         cut_width_val = f"{float(r['fabric_width_inch'])} inch" if "fabric_width_inch" in r and r["fabric_width_inch"] > 0 else f"{fabric_width_input} inch"
         f_class_upper = str(r.get("fabric_classification", "")).upper()
         
-        # ⚠️ NORMALIZE CO RÚT THEO CHỦ CHẤT NGUYÊN VẬT LIỆU: Ép phẳng về 0% cho Keo lót (Fusing) theo tiêu chuẩn kỹ thuật
-        if "FUSING" in f_class_upper or "_is_fusing" in r:
-            warp_val, weft_val = "0.0%", "0.0%"
-        else:
-            warp_val, weft_val = warp_default, weft_default
-            
+        warp_val, weft_val = ("0.0%", "0.0%") if "FUSING" in f_class_upper else (warp_default, weft_default)
         gate_status_label = r.get("quality_gate_status", r.get("status", "PASSED"))
 
         display_data.append({
-            "Component Type": r.get("component_type", "MAIN FABRIC"),
-            "Placement": r.get("placement", "BODY/POCKETS/CARGO"),
-            "Fabric Classification": r.get("fabric_classification", "MAIN_FABRIC"),
-            "Fabric Code": r.get("fabric_code", "TWILL"),
-            "Fabric Color": r.get("fabric_color", "TBA"),
-            "Khổ vải (Width)": cut_width_val,
-            "Co rút dọc (% Warp)": warp_val,
-            "Co rút ngang (% Weft)": weft_val,
-            "Marker Efficiency": "85.0%",
-            "Gross Consumption (Yds)": current_gross,
-            "Quality Status": gate_status_label,
-            "System Notes": sys_notes
+            "Component Type": r.get("component_type", "MAIN FABRIC"), "Placement": r.get("placement", "BODY/POCKETS/CARGO"),
+            "Fabric Classification": r.get("fabric_classification", "MAIN_FABRIC"), "Fabric Code": r.get("fabric_code", "TWILL"),
+            "Fabric Color": r.get("fabric_color", "TBA"), "Khổ vải (Width)": cut_width_val,
+            "Co rút dọc (% Warp)": warp_val, "Co rút ngang (% Weft)": weft_val,
+            "Marker Efficiency": "85.0%", "Gross Consumption (Yds)": current_gross,
+            "Quality Status": gate_status_label, "System Notes": sys_notes
         })
         
     df_bom = pd.DataFrame(display_data)
-    
-    # Kết xuất bảng ma trận số liệu mịn lên giao diện ứng dụng web Streamlit
     st.dataframe(df_bom, use_container_width=True, hide_index=True)
     st.markdown('</div>', unsafe_allow_html=True)
-
-# 🔗 CHUYỂN TIẾP SANG ĐOẠN 12/12 (MÔ-ĐUN EXCEL & RESET BUFFER CUỐI CÙNG)...
-# ==============================================================================
-# HỆ THỐNG TOÁN HỌC CAD-AI ĐỒNG BỘ GERBER V18 INDUSTRIAL ENGINE
-# ĐOẠN 12/12: LÕI KHỞI TẠO FILE EXCEL REPORT VÀ XỬ LÝ CLEAR BUFFER (PHẦN CUỐI DỰ ÁN)
-# ==============================================================================
-
-    # KHỞI TẠO CẤU TRÚC PHÔI BẢNG TÍNH EXCEL CHUYÊN DỤNG CHO XƯỞNG MAY SẢN XUẤT
+    
     try:
-        import io
         from openpyxl import Workbook
         from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
         from openpyxl.utils import get_column_letter
-
+        
         output = io.BytesIO()
         wb = Workbook()
         ws = wb.active
         ws.title = "BOM Fabric Consumption"
-        ws.sheet_view.showGridLines = True  # Đảm bảo hiển thị lưới ô ô tính Excel rõ ràng
+        ws.sheet_view.showGridLines = True
         
-        # Thiết kế khối Banner tiêu đề báo cáo chính (Main Corporate Title Banner)
         ws.merge_cells("A1:L1")
         ws["A1"] = f"BÁO CÁO ĐỊNH MỨC VẬT TƯ VẢI (SIZE: {extracted_size}) - STYLE: R09-490976"
         ws["A1"].font = Font(name="Calibri", size=14, bold=True, color="FFFFFF")
@@ -848,56 +503,37 @@ if active_bom_source and active_bom_source.get("bom_rows") and len(active_bom_so
         ws["A1"].alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
         ws.row_dimensions.height = 40
         
-        # Định dạng và đổ màu nền hàng tiêu đề cột dữ liệu (Headers Row)
         headers = list(df_bom.columns)
         for col_num, header_title in enumerate(headers, 1):
             cell = ws.cell(row=3, column=col_num, value=header_title)
             cell.font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
             cell.fill = PatternFill(start_color="2C3E50", end_color="2C3E50", fill_type="solid")
             cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-            cell.border = Border(
-                left=Side(style="thin", color="D9D9D9"), right=Side(style="thin", color="D9D9D9"), 
-                top=Side(style="thin", color="D9D9D9"), bottom=Side(style="thin", color="D9D9D9")
-            )
+            cell.border = Border(left=Side(style="thin", color="D9D9D9"), right=Side(style="thin", color="D9D9D9"), top=Side(style="thin", color="D9D9D9"), bottom=Side(style="thin", color="D9D9D9"))
         ws.row_dimensions.height = 28
         
-        # Vòng lặp kết xuất và định cấu hình canh lề vi phân từng ô dữ liệu BOM
         for row_num, row_data in enumerate(display_data, 4):
             ws.row_dimensions[row_num].height = 22
             for col_num, key in enumerate(headers, 1):
                 cell = ws.cell(row=row_num, column=col_num, value=row_data[key])
                 cell.font = Font(name="Calibri", size=11)
-                cell.border = Border(
-                    left=Side(style="thin", color="D9D9D9"), right=Side(style="thin", color="D9D9D9"), 
-                    top=Side(style="thin", color="D9D9D9"), bottom=Side(style="thin", color="D9D9D9")
-                )
-                
-                # Ép kiểu cấu trúc canh lề toán học riêng biệt cho chữ số và chữ văn bản
+                cell.border = Border(left=Side(style="thin", color="D9D9D9"), right=Side(style="thin", color="D9D9D9"), top=Side(style="thin", color="D9D9D9"), bottom=Side(style="thin", color="D9D9D9"))
                 if key in ["Gross Consumption (Yds)"]:
                     cell.alignment = Alignment(horizontal="right", vertical="center")
-                    cell.number_format = '#,##0.0000'  # Ghim đúng 4 số thập phân chống lệch định mức dệt
+                    cell.number_format = '#,##0.0000'
                 elif key in ["Khổ vải (Width)", "Co rút dọc (% Warp)", "Co rút ngang (% Weft)", "Marker Efficiency", "Quality Status"]:
                     cell.alignment = Alignment(horizontal="center", vertical="center")
                 else:
                     cell.alignment = Alignment(horizontal="left", vertical="center")
-        
-        # Tự động đo đạc kích thước chuỗi động để co giãn bề rộng cột Excel (Column Auto-Width Tuning)
+                    
         for col_idx, col_name in enumerate(headers, 1):
             max_len = max([len(str(ws.cell(row=r, column=col_idx).value or '')) for r in range(4, 4 + len(display_data))] + [len(col_name)])
             ws.column_dimensions[get_column_letter(col_idx)].width = max(max_len + 5, 12)
             
         wb.save(output)
         st.markdown("<br>", unsafe_allow_html=True)
-        st.download_button(
-            label="📥 XUẤT FILE EXCEL ĐỊNH MỨC CHUẨN SẢN XUẤT", 
-            data=output.getvalue(), 
-            file_name=f"BOM_Consumption_R09-490976_Size_{extracted_size}.xlsx", 
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", 
-            use_container_width=True,
-            key="btn_download_excel_v18_final_structural"  # Khóa ID tải tệp độc bản chống trùng
-        )
+        st.download_button(label="📥 XUẤT FILE EXCEL ĐỊNH MỨC CHUẨN SẢN XUẤT", data=output.getvalue(), file_name=f"BOM_Consumption_R09-490976_Size_{extracted_size}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True, key="btn_download_excel_v18_final_structural")
     except Exception as excel_err:
         st.warning(f"⚠️ Không thể khởi tạo nút xuất Excel báo cáo cao cấp: {str(excel_err)}")
 else:
-    # 🌟 KHI CLEAR TRỐNG HỆ THỐNG HOẶC MỚI KHỞI ĐỘNG TRANG: Ẩn hoàn toàn bảng ma trận, hiển thị thông báo mồi
-    st.info("💡 Bộ nhớ đệm hệ thống đã được làm sạch hoàn toàn. Vui lòng nạp tệp PDF tài liệu kỹ thuật và gõ câu lệnh chatbox để chạy luồng tự động toán học mới...")
+    st.info("💡 Bộ nhớ đệm hệ thống đã được làm sạch hoàn toàn. Vui lòng nạp tệp PDF tài liệu và gõ câu lệnh chatbox để chạy luồng tự động toán học mới...")
