@@ -1393,21 +1393,30 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
 
 
 
+                     # =====================================================================
+            # ĐOẠN 7a2.1 & 7a2.2 HỢP NHẤT KHÉP KÍN CÚ PHÁP (V17.0.6 MASTER)
             # =====================================================================
-            # ĐOẠN 7a2.2: PIPELINE HỢP NHẤT HÌNH HỌC CAD VÀ TÍNH ĐỊNH MỨC (V17.0.5 CLEAN)
-            # =====================================================================
+            gemini_inputs.append(prompt_instruction)
+            
+            # Khởi tạo giá trị an toàn ban đầu chống lỗi NameError
             ai_chat_response = "Hệ thống đang xử lý dữ liệu..."
             response_text = ""
             
-            if response:
-                try:
-                    response_text = response.text.strip()
-                except Exception:
-                    st.error("❌ LỖI HẠ TẦNG: Gemini không trả về thuộc tính text hợp lệ (Có thể do bộ lọc an toàn Blocked).")
-                    try: st.json(response.to_dict())
-                    except Exception: st.write(response)
-                    response_text = ""
-            
+            try:
+                response = model.generate_content(gemini_inputs)
+                if response:
+                    try:
+                        response_text = response.text.strip()
+                    except Exception:
+                        st.error("❌ LỖI HẠ TẦNG: Gemini không trả về thuộc tính text hợp lệ (Có thể do bộ lọc an toàn Blocked).")
+                        try: st.json(response.to_dict())
+                        except Exception: st.write(response)
+                        response_text = ""
+            except Exception as gemini_api_error:
+                st.error(f"💥 Lỗi kết nối gọi API Gemini: {str(gemini_api_error)}")
+                response_text = ""
+
+            # Khối phân rã dữ liệu và kích hoạt Pipeline hình học CAD
             if response_text:
                 json_match = re.search(r'(?:===START_JSON===\s*|```json\s*)(.*?)(?:\s*===END_JSON===|\s*```)', response_text, re.DOTALL)
                 chat_match = re.search(r'(?:===START_CHAT===\s*|```markdown\s*|(?:\n|^)\s*\*\s*)(.*?)(?:\s*===END_CHAT===|\s*```|$)', response_text, re.DOTALL)
@@ -1439,11 +1448,11 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
 
                     if raw_blueprint.get("status") == "PASS" and has_valid_bom:
                         try:
-                            # 🚀 BƯỚC 1: Gọi Đoạn 2a1 để quét và chuẩn hóa rập hình học phẳng
+                            # 🚀 BƯỚC 1: Chuẩn hóa rập hình học phẳng (parse_geometric_panels_allowance)
                             st.info("🔄 Bước 1: Đang chạy máy tính hình học phẳng topo rập...")
                             standardized_blueprint = parse_geometric_panels_allowance(raw_blueprint, current_query)
                             
-                            # 🚀 BƯỚC 2: Gọi Đoạn 2b1 (Chat Parser) để bóc tách chỉ thị từ ô chat người dùng
+                            # 🚀 BƯỚC 2: Bóc tách chỉ thị đè từ ô chat người dùng (parse_and_prepare_ie_panels)
                             st.info("💬 Bước 2: Đang quét chỉ thị kỹ thuật may từ ô chat...")
                             prepared_rows, user_eff = parse_and_prepare_ie_panels(
                                 all_rows=standardized_blueprint.get("bom_rows", []),
@@ -1452,21 +1461,21 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                             )
                             standardized_blueprint["bom_rows"] = prepared_rows
                             
-                            # 🚀 BƯỚC 3: Gọi Đoạn 2b2 (CAD-Simulation Engine) để chạy bộ giả lập xếp sơ đồ Gerber
+                            # 🚀 BƯỚC 3: Mô phỏng lồng sơ đồ Gerber tính Yards (allocate_fabric_consumption_and_quality_gate)
                             st.info("📊 Bước 3: Máy tính Gerber CAD đang mô phỏng lồng rập & tính Yards...")
                             blueprint_final = allocate_fabric_consumption_and_quality_gate(
                                 ai_blueprint=standardized_blueprint,
                                 user_prompt=current_query
                             )
                             
-                            # Lưu dữ liệu sạch vào hệ thống Streamlit để vẽ bảng
+                            # Cập nhật trạng thái hiển thị
                             st.session_state.bom_data = blueprint_final
                             st.session_state.accumulated_bom_rows = blueprint_final.get("bom_rows", [])
                             
                             if chat_match: 
                                 ai_chat_response = chat_match.group(1).strip()
                             else: 
-                                ai_chat_response = f"✅ OCR & Gerber CAD Simulation thành công!"
+                                ai_chat_response = "✅ OCR & Gerber CAD Simulation thành công!"
                             
                             st.session_state.chat_history.append({"user": current_query, "ai": ai_chat_response})
                             st.success("🎉 Kết quả định mức đã được đồng bộ! Đang tải lại trang...")
