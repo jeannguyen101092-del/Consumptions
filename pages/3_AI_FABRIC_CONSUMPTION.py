@@ -973,7 +973,7 @@ with col_right:
 
 
 # =====================================================================
-# ĐOẠN 7a1: INTERFACE WORKSPACE & MULTI-PAGE DATA BATCHING (V20.0.1 CHUẨN BIẾN)
+# ĐOẠN 7a1: INTERFACE WORKSPACE & DYNAMIC MULTI-PAGE DATA BATCHING (V22.5 APPROVED)
 # =====================================================================
 st.markdown('<br><div class="cad-card"><div class="cad-header">💬 CHATGPT IE COLLABORATION WORKSPACE</div>', unsafe_allow_html=True)
 
@@ -1019,19 +1019,18 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                     "data": st.session_state.pdf_bytes
                 })
             else:
-                # 🔴 LUỒNG SCAN: Chuyển đổi ảnh đa trang có chia BATCHING khống chế 15 trang bảo vệ Context
-                if st.session_state.pdf_page_images_list is None:
-                    image_payloads = []
-                    target_dpi = 200 if total_pages <= 5 else 130
-                    
-                    # 🌟 FIX ĐỒNG BỘ TÊN BIẾN: Khóa chuẩn một tên biến duy nhất
-                    max_scan_pages = min(total_pages, 15)
-                    
-                    for page_num in range(max_scan_pages):
-                        page_img_bytes = doc_recovery.load_page(page_num).get_pixmap(dpi=target_dpi).tobytes("png")
-                        image_payloads.append({"mime_type": "image/png", "data": page_img_bytes})
-                    st.session_state.pdf_page_images_list = image_payloads
+                # 🔴 LUỒNG SCAN: ÉP BUỘC GIẢI PHÓNG CACHE CŨ - QUÈT LẠI DANH SÁCH ẢNH MỚI TOÀN DIỆN MỖI LẦN GỬI LỆNH
+                image_payloads = []
+                target_dpi = 200 if total_pages <= 5 else 130
+                max_scan_pages = min(total_pages, 15)
+                
+                for page_num in range(max_scan_pages):
+                    page_img_bytes = doc_recovery.load_page(page_num).get_pixmap(dpi=target_dpi).tobytes("png")
+                    image_payloads.append({"mime_type": "image/png", "data": page_img_bytes})
+                
+                st.session_state.pdf_page_images_list = image_payloads
                 gemini_inputs = copy.deepcopy(st.session_state.pdf_page_images_list)
+
 
 # =====================================================================
 # ĐOẠN 7a2: AI CORE COGNITIVE ENGINE & POST-AI MIDDLEWARE GEOMETRY PROCESSOR (V22.0 PRODUCTION)
