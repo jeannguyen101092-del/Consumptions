@@ -719,7 +719,7 @@ else:
 
 # =====================================================================
 # HỆ THỐNG TOÁN HỌC V18 GERBER INDUSTRIAL MARKER ENGINE
-# ĐOẠN 7 - PHẦN 1/6: KHỞI TẠO KHUNG WORKSPACE CHAT & CƠ CHẾ RESET
+# ĐOẠN 7 - PHẦN 1/6: KHỞI TẠO KHUNG WORKSPACE CHAT & CƠ CHẾ RESET (FIXED COLUMNS)
 # =====================================================================
 
 # --- PHẦN 1: KHUNG HỘI THOẠI & LỊCH SỬ WORKSPACE (UI CHAT) ---
@@ -733,8 +733,8 @@ if "current_warp_pct" not in st.session_state: st.session_state.current_warp_pct
 if "current_weft_pct" not in st.session_state: st.session_state.current_weft_pct = "3.0%"
 if "active_blueprint" not in st.session_state: st.session_state.active_blueprint = {}
 
-# Layout căn biên phân bổ nút bấm Clear Chat bằng Key định danh độc bản chống trùng ID
-c_col1, c_col2 = st.columns()
+# ✅ SỬA LỖI CHIA CỘT: Truyền tham số số lượng cột [5, 1] để đẩy nút bấm thu gọn kịch về góc phải màn hình
+c_col1, c_col2 = st.columns([5, 1])
 with c_col2:
     if st.button("🗑️ Clear Chat", key="btn_clear_chat_v18_final", use_container_width=True):
         st.session_state.chat_history = []
@@ -751,11 +751,12 @@ if st.session_state.chat_history:
         st.chat_message("user").write(msg["user"])
         st.chat_message("assistant").write(msg["ai"])
 
-# ⚠️ Ô NHẬP LIỆU DUY NHẤT: Khử hoàn toàn lỗi StreamlitDuplicateElementId
+# Ô nhập liệu duy nhất khử trùng lặp Id
 safe_user_prompt = st.chat_input("Gõ câu lệnh điều chỉnh thông số tại đây...", key="main_chat_input_v18_final")
 st.markdown('</div>', unsafe_allow_html=True)
 
-# 🔗 CHUYỂN TIẾP SANG PHẦN 2: BỘ KHỬ NHIỄU BIÊN SỐ VÀ TRÍCH XUẤT SPECS CHẤM ĐIỂM...
+# 🔗 CHUYỂN TIẾP SANG PHẦN 2...
+
 # =====================================================================
 # HỆ THỐNG TOÁN HỌC V18 GERBER INDUSTRIAL MARKER ENGINE
 # ĐOẠN 7 - PHẦN 2/6: BỘ TRÍCH XUẤT SPECS VÀ BỘ LỌC AN TOÀN BIÊN SỐ
