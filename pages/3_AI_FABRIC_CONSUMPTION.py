@@ -242,17 +242,18 @@ def v18_step3_execute_strip_nesting(panels_catalog, target_width=58.0, fabric_ty
                             f_minx, f_miny, f_maxx, f_maxy = final_p.bounds
                             if f_maxx < best_x_score: best_x_score, best_placed_poly = f_maxx, final_p
 # ==============================================================================
-# ĐOẠN 5.2/6: LÕI HÌNH HỌC PHẲNG V18 - BƯỚC 3 (PHẦN ĐUÔI CẬP NHẬT CHÂN TRỜI SKYLINE)
+# ĐOẠN 5.2/6 (SỬA ĐỔI): GIẢI CỨU LỖI KHÓA TRỤC SKYLINE - BUNG ĐỊNH MỨC THỰC TẾ
 # ==============================================================================
         if best_placed_poly is not None:
             placed_polygons.append(best_placed_poly)
             spatial_index = STRtree(placed_polygons)
             _, p_miny, _, p_maxy = best_placed_poly.bounds
-            # ✅ FIXED: Trích xuất chỉ số float thứ 2 (maxx) từ tuple bounds chuẩn xác
-            p_maxx = best_placed_poly.bounds[2]
+            p_maxx = best_placed_poly.bounds[2]  # ✅ ĐÃ SỬA: Lấy chính xác số thực float maxx
+            
             new_skyline = []
             for seg in skyline:
-                if seg["y0"] >= p_miny and seg["y1"] <= p_maxy: new_skyline.append({"x": max(seg["x"], p_maxx), "y0": seg["y0"], "y1": seg["y1"]})
+                if seg["y0"] >= p_miny and seg["y1"] <= p_maxy: 
+                    new_skyline.append({"x": max(seg["x"], p_maxx), "y0": seg["y0"], "y1": seg["y1"]})
                 elif seg["y0"] < p_miny and seg["y1"] > p_miny and seg["y1"] <= p_maxy:
                     new_skyline.append({"x": seg["x"], "y0": seg["y0"], "y1": p_miny})
                     new_skyline.append({"x": max(seg["x"], p_maxx), "y0": p_miny, "y1": seg["y1"]})
@@ -263,45 +264,81 @@ def v18_step3_execute_strip_nesting(panels_catalog, target_width=58.0, fabric_ty
                     new_skyline.append({"x": seg["x"], "y0": seg["y0"], "y1": p_miny})
                     new_skyline.append({"x": max(seg["x"], p_maxx), "y0": p_miny, "y1": p_maxy})
                     new_skyline.append({"x": seg["x"], "y0": p_maxy, "y1": seg["y1"]})
-                else: new_skyline.append(seg)
+                else: 
+                    new_skyline.append(seg)
             
+            # Gộp sơ đồ chân trời liền kề chống nát sơ đồ
             sorted_segs = sorted(new_skyline, key=lambda s: s["y0"])
             merged = []
             if sorted_segs:
                 curr = sorted_segs[0]
                 for next_seg in sorted_segs[1:]:
                     if abs(curr["y1"] - next_seg["y0"]) < 0.001 and abs(curr["x"] - next_seg["x"]) < 0.005:
-                        curr["y1"], curr["x"] = next_seg["y1"], max(curr["x"], next_seg["x"])
-                    else: merged.append(curr); curr = next_seg
+                        curr["y1"] = next_seg["y1"]
+                        curr["x"] = max(curr["x"], next_seg["x"])
+                    else: 
+                        merged.append(curr)
+                        curr = next_seg
                 merged.append(curr)
             skyline = merged
-            if p_maxx > current_marker_length: current_marker_length = p_maxx
+            if p_maxx > current_marker_length: 
+                current_marker_length = p_maxx
         else:
+            # Nhánh bảo vệ Fallback bám dải biên ngoài
             lowest_seg = min(skyline, key=lambda s: s["x"])
             minx, miny, maxx, maxy = poly_base.bounds
-            fallback_dx, fallback_dy = lowest_seg["x"] - minx, lowest_seg["y0"] - miny
+            fallback_dx = lowest_seg["x"] - minx
+            fallback_dy = lowest_seg["y0"] - miny
             fallback_poly = translate(poly_base, xoff=fallback_dx, yoff=fallback_dy)
             scan_counter, max_y_limit = 0, STRIP_WIDTH - (maxy - miny)
+            
             while check_collision(fallback_poly, spatial_index, placed_polygons) and fallback_dy <= max_y_limit:
                 fallback_dy += 0.5
                 fallback_poly = translate(poly_base, xoff=fallback_dx, yoff=fallback_dy)
                 scan_counter += 1
-                if scan_counter > 30: break
+                if scan_counter > 30: 
+                    break
+                    
             if check_collision(fallback_poly, spatial_index, placed_polygons):
-                fallback_dx, fallback_dy = current_marker_length - minx, 0.0 - miny
+                fallback_dx = current_marker_length - minx
+                fallback_dy = 0.0 - miny
                 fallback_poly = translate(poly_base, xoff=fallback_dx, yoff=fallback_dy)
+                
             placed_polygons.append(fallback_poly)
             spatial_index = STRtree(placed_polygons)
             
-            # ✅ FIXED: Trích xuất chỉ số float thứ 2 (maxx) an toàn
-            f_maxx = fallback_poly.bounds[2]
-            if f_maxx > current_marker_length: current_marker_length = f_maxx
+            f_minx, f_miny, f_maxx, f_maxy = fallback_poly.bounds
+            if f_maxx > current_marker_length: 
+                current_marker_length = f_maxx
+                
+            # ✅ ĐÃ SỬA: Trích xuất chuẩn xác float f_miny và f_maxy thay vì quăng nguyên tuple bounds phá vỡ dải Y
+            skyline.append({"x": current_marker_length, "y0": f_miny, "y1": f_maxy})
             
-            # ✅ FIXED: Bóc tách float miny/maxy chuẩn xác thay vì quăng tuple hỏng dải chân trời
-            skyline.append({"x": current_marker_length, "y0": fallback_poly.bounds[1], "y1": fallback_poly.bounds[3]})
+            # Gộp chân trời sau khi bổ sung phần tử Fallback
+            sorted_segs = sorted(skyline, key=lambda s: s["y0"])
+            merged = []
+            if sorted_segs:
+                curr = sorted_segs[0]
+                for next_seg in sorted_segs[1:]:
+                    if abs(curr["y1"] - next_seg["y0"]) < 0.001 and abs(curr["x"] - next_seg["x"]) < 0.005:
+                        curr["y1"] = next_seg["y1"]
+                        curr["x"] = max(curr["x"], next_seg["x"])
+                    else: 
+                        merged.append(curr)
+                        curr = next_seg
+                merged.append(curr)
+            skyline = merged
 
     total_marker_area = current_marker_length * STRIP_WIDTH
-    return {"status": "success", "total_pieces_nested": len(panels_catalog), "marker_length_inch": round(current_marker_length, 2), "fabric_width_inch": STRIP_WIDTH, "marker_utilization_percent": round((total_theoretical_area / total_marker_area * 100.0) if total_marker_area > 0 else 0.0, 2), "fabric_consumption_yard": round((current_marker_length / 36.0), 3)}
+    marker_utilization = (total_theoretical_area / total_marker_area * 100.0) if total_marker_area > 0 else 0.0
+    return {
+        "status": "success", 
+        "total_pieces_nested": len(panels_catalog), 
+        "marker_length_inch": round(current_marker_length, 2), 
+        "fabric_width_inch": STRIP_WIDTH, 
+        "marker_utilization_percent": round(marker_utilization, 2), 
+        "fabric_consumption_yard": round((current_marker_length / 36.0), 3)
+    }
 
 # PHẦN 6.1: KHÔNG GIAN CHAT WORKSPACE & BỘ TRÍCH XUẤT SPECS BIÊN
 # ==============================================================================
