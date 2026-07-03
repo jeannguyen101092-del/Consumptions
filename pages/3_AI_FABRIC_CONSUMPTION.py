@@ -1030,7 +1030,7 @@ if "uploaded_pdf_bytes" in st.session_state and st.session_state.uploaded_pdf_by
         st.error(f"❌ Lỗi nghiêm trọng tại tầng xử lý PDF 7a1: {str(pdf_err)}")
 
 # =====================================================================
-# ĐOẠN 7a2.1: AI CORE EXTRACTOR & INTEGRATED CHAT INPUT (V36.6 ULTIMATE)
+# ĐOẠN 7a2.1: AI CORE EXTRACTOR & INTEGRATED CHAT INPUT (V36.7 FIXED)
 # =====================================================================
 import concurrent.futures
 from fractions import Fraction
@@ -1058,11 +1058,12 @@ if "parsed_ai_response" not in st.session_state: st.session_state.parsed_ai_resp
 if "ai_chat_response" not in st.session_state: st.session_state.ai_chat_response = ""
 if "current_query" not in st.session_state: st.session_state.current_query = ""
 
+# ĐĂNG KÝ Ô NHẬP LIỆU CHAT
 user_input = st.chat_input("Nhập câu lệnh của bạn tại đây (Ví dụ: Tính định mức size 32 khổ 57)...")
+
+# FIX IM LẶNG: Lưu câu lệnh mới vào trạng thái nền và tự động bóc tách PDF nếu có file mới mà KHÔNG DÙNG st.rerun()
 if user_input:
     st.session_state.current_query = user_input
-    
-    # ÉP LUỒNG 7a1 CHẠY LẠI: Nếu có file mới, buộc tầng xử lý ảnh dịch trang PDF ngay khi bấm gửi chat
     if "uploaded_pdf_bytes" in st.session_state and st.session_state.uploaded_pdf_bytes:
         import fitz
         try:
@@ -1084,18 +1085,20 @@ if user_input:
             if local_payloads:
                 st.session_state.gemini_inputs = local_payloads
         except Exception as e:
-            st.error(f"Lỗi nạp ảnh nhanh: {str(e)}")
-            
-    st.rerun()
+            st.error(f"Lỗi phân rã PDF nhanh: {str(e)}")
 
-if "gemini_inputs" in st.session_state and st.session_state.gemini_inputs and len(st.session_state.gemini_inputs) > 0 and st.session_state.current_query:
+# ĐỌC BIẾN HOẠT ĐỘNG HIỆN TẠI
+active_query = st.session_state.current_query
+
+# KHỐI LOGIC GỌI AI ENGINE
+if "gemini_inputs" in st.session_state and st.session_state.gemini_inputs and len(st.session_state.gemini_inputs) > 0 and active_query:
     gemini_inputs = list(st.session_state.gemini_inputs)
     
     if "GEMINI_API_KEY" in st.secrets: 
         import google.generativeai as genai
         genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
     
-    chat_lower = str(st.session_state.current_query).lower()
+    chat_lower = str(active_query).lower()
     m_size = re.search(r'\b(?:size|sz|cỡ)\s*[:\-=\s]*([\w\d]+)\b', chat_lower)
     target_size_cmd = str(m_size.group(1)).upper().strip() if m_size else "30"
     
@@ -1111,7 +1114,8 @@ if "gemini_inputs" in st.session_state and st.session_state.gemini_inputs and le
     gemini_inputs.append(prompt_instruction)
     
     error_log = []
-    with st.spinner(f"⏳ AI đang quét ảnh May mặc và xử lý lệnh: '{st.session_state.current_query}'..."):
+    # KÍCH HOẠT THANH XOAY VÒNG SPINNER TRỰC TIẾP TRÊN LUỒNG CHẠY THẲNG
+    with st.spinner(f"⏳ AI đang xử lý lệnh: '{active_query}'..."):
         for attempt in range(3):
             if attempt > 0: time.sleep((2 ** attempt) + random.uniform(0.1, 0.3))
             try:
@@ -1141,7 +1145,7 @@ if "gemini_inputs" in st.session_state and st.session_state.gemini_inputs and le
                 
                 if isinstance(local_parsed, dict):
                     st.session_state.parsed_ai_response = local_parsed
-                    st.session_state.current_query = "" # Giải phóng câu lệnh sau khi xong
+                    st.session_state.current_query = ""  # Xóa sạch câu lệnh sau khi xử lý xong
                     error_log = []
                     break
             except Exception as e:
@@ -1152,10 +1156,11 @@ if "gemini_inputs" in st.session_state and st.session_state.gemini_inputs and le
     if error_log:
         st.error(f"❌ AI Core gặp sự cố kết nối: {error_log[-1]}")
 else:
-    if not "gemini_inputs" in st.session_state or len(st.session_state.gemini_inputs) == 0:
+    if "gemini_inputs" not in st.session_state or len(st.session_state.gemini_inputs) == 0:
         st.info("💡 Sẵn sàng. Hãy tải file Techpack lên ở bên trái để bắt đầu bóc tách.")
-    elif not st.session_state.current_query:
+    elif not active_query:
         st.info("💬 File đã nạp thành công! Hãy nhập yêu cầu vào ô chat bên dưới để AI bắt đầu tính toán.")
+
 
 
 
