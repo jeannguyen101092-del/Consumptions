@@ -1206,7 +1206,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
 
 
 # =====================================================================
-# ĐOẠN 7b: KHU VỰC HIỂN THỊ KẾT QUẢ ĐƠN MÃ VÀ XUẤT EXCEL CHUẨN ĐỒNG BỘ CO RÚT ĐỘNG (V17.0.1.2 APPROVED)
+# ĐOẠN 7b: HIỂN THỊ KẾT QUẢ ĐỊNH MỨC & BẢNG TRA CỨU THÔNG SỐ AI OCR (V20.5 APPROVED)
 # =====================================================================
 if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data and st.session_state.bom_data["bom_rows"]:
     
@@ -1215,12 +1215,11 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data 
     st.markdown('<div class="cad-card">', unsafe_allow_html=True)
     st.markdown(f'<div class="cad-header">📊 CALCULATED FABRIC CONSUMPTION MATRIX (SIZE TARGET: {extracted_size})</div>', unsafe_allow_html=True)
     
-    # 🌟 BỘ LỌC ĐỒNG BỘ HIỂN THỊ TRÊN GIAO DIỆN BẢNG THỰC TẾ (PHÒNG VỆ KHI LÀM MỚI TRANG)
+    # 🌟 PHÒNG VỆ BIẾN KHI LÀM MỚI TRANG (F5) - KHÔNG LO MẤT DỮ LIỆU HIỂN THỊ
     chat_txt = ""
     if 'safe_user_prompt' in locals() and safe_user_prompt:
         chat_txt = str(safe_user_prompt).lower()
     elif st.session_state.chat_history:
-        # Nếu mất biến local, tự động lấy câu lệnh cuối cùng trong lịch sử chat để tính toán co rút hiển thị
         chat_txt = str(st.session_state.chat_history[-1]["user"]).lower()
     
     warp_default, weft_default = "3.0%", "3.0%"
@@ -1242,13 +1241,12 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data 
             
         sys_notes = r.get("consumption_note", "")
         current_gross = r.get("calculated_gross_consumption_yds", 0.0)
-        reason_logs = str(r.get("reason_or_logs", ""))
         
         if "fabric_width_inch" in r and r["fabric_width_inch"] > 0:
             cut_width_val = f"{float(r['fabric_width_inch'])} inch"
         else:
             match_w = re.search(r'Khổ vải:\s*([\d\.]+)', sys_notes)
-            cut_width_val = f"{float(match_w.group(1))} inch" if match_w else "58.0 inch"
+            cut_width_val = f"{float(match_w.group(1))} inch" if match_w else "57.0 inch"
         
         warp_val = warp_default
         weft_val = weft_default
@@ -1259,7 +1257,7 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data 
 
         raw_eff_value = r.get("marker_efficiency_pct")
         if not raw_eff_value:
-            raw_eff_value = "85.0%" if any(x in str(r.get("fabric_classification", "")).upper() for x in ["FUSING", "LINING"]) else "87.0%"
+            raw_eff_value = "85.0%" if any(x in str(r.get("fabric_classification", "")).upper() for x in ["FUSING", "LINING"]) else "83.0%"
 
         display_data.append({
             "Component Type": r.get("component_type", "MAIN FABRIC"),
@@ -1269,7 +1267,7 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data 
             "Fabric Color": r.get("fabric_color", "SOLID COLOR"),
             "Khổ vải (Width)": cut_width_val,
             "Co rút dọc (% Warp)": warp_val,
-            "Co rút ngang (% Weft)": weft_val, 
+            "Co rút ngang (% Weft)": weft_val,
             "Marker Efficiency": str(raw_eff_value).strip(),
             "Gross Consumption (Yds)": current_gross,
             "Quality Status": r.get("status", "PASS"),
@@ -1280,10 +1278,24 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data 
     st.dataframe(df_bom, use_container_width=True, hide_index=True)
     st.markdown('</div>', unsafe_allow_html=True)
     
-    # KHỐI LOGIC TẠO FILE EXCEL REPORT ĐỒNG BỘ
+    # =====================================================================
+    # 🌟 CẬP NHẬT: TRỰC QUAN HÓA BẢNG CHỨNG CỨ THÔNG SỐ AI OCR QUÉT ĐƯỢC
+    # =====================================================================
+    raw_evidence_list = st.session_state.bom_data.get("matched_measurements", [])
+    if raw_evidence_list:
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown('<div class="cad-card">', unsafe_allow_html=True)
+        st.markdown(f'<div class="cad-header" style="background-color: #2C3E50;">🔍 BẰNG CHỨNG THÔNG SỐ SỐ ĐO GỐC (AI OCR EVIDENCE FOR SIZE: {extracted_size})</div>', unsafe_allow_html=True)
+        
+        # Chuyển dải Text chứng cứ thô thành DataFrame dạng danh sách kiểm tra trực quan
+        evidence_rows = [{"STT": idx + 1, "Thông số gốc bóc tách từ Spec (Trang 13)": str(item)} for idx, item in enumerate(raw_evidence_list)]
+        df_evidence = pd.DataFrame(evidence_rows)
+        st.dataframe(df_evidence, use_container_width=True, hide_index=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    # KHỐI LOGIC KHỞI TẠO FILE BÁO CÁO EXCEL CHUẨN NHÀ MÁY
     try:
         import io
-        import pandas as pd
         from openpyxl import Workbook
         from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
         from openpyxl.utils import get_column_letter
@@ -1306,7 +1318,7 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data 
         thin_border = Border(left=thin_side, right=thin_side, top=thin_side, bottom=thin_side)
         
         ws.merge_cells("A1:L1")
-        ws["A1"] = f"BÁO CÁO ĐỊNH MỨC VẬT TƯ VẢI (SIZE: {extracted_size}) - STYLE: R09-500778"
+        ws["A1"] = f"BÁO CÁO ĐỊNH MỨC VẬT TƯ VẢI (SIZE: {extracted_size}) - STYLE: EXPORT_REPORT"
         ws["A1"].font = font_title
         ws["A1"].fill = fill_title
         ws["A1"].alignment = align_center
@@ -1352,7 +1364,7 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data 
         st.download_button(
             label="📥 XUẤT FILE EXCEL ĐỊNH MỨC CHUẨN SẢN XUẤT",
             data=excel_bytes,
-            file_name=f"BOM_Consumption_R09-500778_Size_{extracted_size}.xlsx",
+            file_name=f"BOM_Consumption_Size_{extracted_size}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True
         )
