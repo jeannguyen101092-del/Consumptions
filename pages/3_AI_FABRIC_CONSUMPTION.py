@@ -1434,8 +1434,9 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
 
 
 # =====================================================================
-# ĐOẠN 7b: HIỂN THỊ KẾT QUẢ ĐỊNH MỨC & BẢNG ĐỐI CHỨNG ĐA CỘT ĐỒNG BỘ SIZE (V46.0 APPROVED)
+# ĐOẠN 7b: HIỂN THỊ KẾT QUẢ ĐỊNH MỨC & BẢNG ĐỐI CHỨNG ĐA CỘT ĐỒNG BỘ SIZE (V46.5 FIXED)
 # =====================================================================
+# Đảm bảo khối lệnh được đưa ra sát lề trái cột 0 để chặn đứng SyntaxError
 if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data and st.session_state.bom_data["bom_rows"]:
     
     # 🌟 NÂNG CẤP ĐỒNG BỘ: Giải phóng cache kẹt số 30 thô
@@ -1476,8 +1477,10 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data 
         sys_notes = r.get("consumption_note", "")
         current_gross = r.get("calculated_gross_consumption_yds", 0.0)
         
-        if "fabric_width_inch" in r and r["fabric_width_inch"] > 0:
-            cut_width_val = f"{float(r['fabric_width_inch'])} inch"
+        # VÁ LỖI TRỐNG DỮ LIỆU: Kiểm tra an toàn chống lỗi ép kiểu NoneType
+        raw_width = r.get("fabric_width_inch")
+        if raw_width is not None and str(raw_width).strip() != "" and float(raw_width) > 0:
+            cut_width_val = f"{float(raw_width)} inch"
         else:
             match_w = re.search(r'Khổ vải:\s*([\d\.]+)', sys_notes)
             cut_width_val = f"{float(match_w.group(1))} inch" if match_w else "56.0 inch"
@@ -1552,7 +1555,7 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data 
         st.dataframe(df_evidence, use_container_width=True, hide_index=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
-    # KHỐI LOGIC XUẤT EXCEL CHUẨN ĐƯỢC VÁ SẠCH LỖI
+    # KHỐI LOGIC XUẤT EXCEL CHUẨN ĐƯỢC VÁ SẠCH LỖI VÀ ĐÓNG KHỐI KHÉP KÍN KHÔNG CỤT CHỮ
     try:
         import io
         from openpyxl import Workbook
@@ -1607,25 +1610,22 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data 
                     cell.alignment = align_center
                 else:
                     cell.alignment = align_left
-        
-        for col_idx, col_name in enumerate(headers, 1):
-            max_len = len(col_name)
-            for row_num in range(4, 4 + len(display_data)):
-                val = ws.cell(row=row_num, column=col_idx).value
-                if val: max_len = max(max_len, len(str(val)))
-            col_letter = get_column_letter(col_idx)
-            ws.column_dimensions[col_letter].width = max(max_len + 5, 12)
+
+        for col in ws.columns:
+            max_len = max(len(str(cell.value or '')) for cell in col)
+            col_letter = get_column_letter(col[0].column)
+            ws.column_dimensions[col_letter].width = max(max_len + 3, 12)
             
         wb.save(output)
-        excel_bytes = output.getvalue()
+        output.seek(0)
         
         st.markdown("<br>", unsafe_allow_html=True)
         st.download_button(
-            label="📥 XUẤT FILE EXCEL ĐỊNH MỨC CHUẨN SẢN XUẤT",
-            data=excel_bytes,
-            file_name=f"BOM_Consumption_Size_{extracted_size}.xlsx",
+            label="📥 Tải Báo Cáo Định Mức Excel (Chuẩn Nhà Máy)",
+            data=output,
+            file_name=f"BOM_Fabric_Consumption_Size_{extracted_size}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True
         )
-    except Exception as e:
-        st.warning(f"⚠️ Không thể khởi tạo nút xuất Excel cao cấp: {str(e)}")
+    except Exception as excel_err:
+        st.warning(f"⚠️ Trình xuất file Excel tạm thời gián đoạn: {str(excel_err)}")
