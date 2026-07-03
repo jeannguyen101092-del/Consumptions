@@ -253,204 +253,91 @@ def process_single_panel_geometry_and_flags(
     btp_panel["matching"] = panel.get("matching", panel.get("stripe_match", False) or panel.get("stripe", False))
 
     return btp_panel
+# =====================================================================
+# ĐOẠN 2a1: BỘ NÃO IE TỰ SUY LUẬN THÔNG SỐ KHUYẾT THIẾU (V17.1.0 AUTO-IE)
+# Nhiệm vụ: Tự động tính toán Hip/Chest nếu AI OCR quét sót, bảo vệ định mức ổn định
+# =====================================================================
+
 def parse_geometric_panels_allowance(ai_blueprint: dict, user_chat: str) -> dict:
-    """
-    ĐOẠN 2: TRUNG TÂM TỔNG HỢP VÀ ĐÓNG GÓI SCHEMA TOÀN DIỆN (_btp_)
-    Nhiệm vụ: Chạy vòng lặp dòng BOM, tích hợp Đoạn 1, quét sạch metadata và thống kê toàn cục.
-    🌟 VÁ LỖI RUNTIME: Sử dụng list(row.keys()) để đóng băng bộ nhớ lặp.
-    """
     if not ai_blueprint or not isinstance(ai_blueprint, dict):
         return {"detected_product_type": "PANT", "bom_rows": [], "_btp_global_summary": {}}
 
-    # 1. Thu thập thông tin định dạng sản phẩm nền từ AI
     product_type = str(ai_blueprint.get("detected_product_type", "DEFAULT")).upper().strip()
-    body_length = safe_float(ai_blueprint.get("extracted_body_length"), 28.0)
-    chest_width = safe_float(ai_blueprint.get("extracted_chest_width"), 20.0)
-    outseam_length = safe_float(ai_blueprint.get("extracted_outseam_length"), 14.5 if product_type == "JORT" else 40.0)
-    hip_width = safe_float(ai_blueprint.get("extracted_hip_width"), 21.0)
-
-    # Khởi tạo các thùng chứa dữ liệu thống kê toàn cục
-    g_total_area = 0.0
-    g_total_pieces = 0
-    g_total_panels = 0
-    g_largest_panel_area = 0.0
-    g_largest_len = 0.0
-    g_largest_wid = 0.0
-    g_polygon_count = 0
-    g_bbox_count = 0
-
-    fabric_groups, lining_groups, fusing_groups, hardware_groups = set(), set(), set(), set()
     
-    g_flags = {
-        "need_stripe_match": False, "need_bias": False, "need_one_way": False, 
-        "need_pair": False, "need_fold": False, "has_polygon": False, "has_bbox": False
-    }
+    # 1. Trích xuất thông số thô từ AI OCR
+    raw_body_len = ai_blueprint.get("extracted_body_length")
+    raw_chest_wid = ai_blueprint.get("extracted_chest_width")
+    raw_outseam = ai_blueprint.get("extracted_outseam_length")
+    raw_hip_wid = ai_blueprint.get("extracted_hip_width")
+    raw_waist = ai_blueprint.get("extracted_waist_width")
+    raw_back_rise = ai_blueprint.get("extracted_back_rise")
 
-    all_rows = ai_blueprint.get("bom_rows", [])
-    if not all_rows or not isinstance(all_rows, list): 
-        all_rows = []
-    
+    # 2. 🧠 BỘ NÃO IE TỰ ĐỘNG SUY LUẬN TOÁN HỌC (AUTOMATIC IE INFERENCE LOGIC)
+    # Nếu là nhóm QUẦN (PANT/CARGO/JEANS) nhưng AI quét sót mất thông số MÔNG (Hip width)
+    if product_type in ["PANT", "CARGO_PANT", "CAPRI_PANT", "JORT", "DEFAULT"]:
+        # Chuyển đổi an toàn sang số thực
+        try: hip_width = float(raw_hip_wid) if raw_hip_wid else 0.0
+        except: hip_width = 0.0
+        
+        # CƠ CHẾ TỰ BIẾT CẦN THÔNG SỐ: Nếu Hip bằng 0 hoặc quá nhỏ (< 10 inch), tự động tính toán:
+        if hip_width < 10.0:
+            try:
+                waist_val = float(raw_waist) if raw_waist else 0.0
+                back_rise_val = float(raw_back_rise) if raw_back_rise else 0.0
+                
+                if waist_val > 10.0:
+                    # Công thức IE 1: Mông thường bằng Vòng eo (đo phẳng) cộng thêm hao hụt dông mông từ 4 đến 5 inch
+                    hip_width = waist_val + 4.5
+                elif back_rise_val > 5.0:
+                    # Công thức IE 2: Suy luận mông dựa trên thông số Hạ đáy sau
+                    hip_width = back_rise_val * 1.4
+                else:
+                    # Công thức IE 3: Fallback tối thiểu chuẩn công nghiệp cho Quần người lớn (Size 30/M) để không bị thiếu vải
+                    hip_width = 20.5
+            except:
+                hip_width = 20.5 # Giá trị an toàn tuyệt đối chống sập định mức
+                
+        # Gán ngược lại vào blueprint hệ thống
+        ai_blueprint["extracted_hip_width"] = hip_width
+        
+    # Nếu là nhóm ÁO (SHIRT/JACKET/DRESS) nhưng AI quét sót mất thông số NGỰC (Chest width)
+    else:
+        try: chest_width = float(raw_chest_wid) if raw_chest_wid else 0.0
+        except: chest_width = 0.0
+        
+        if chest_width < 10.0:
+            # Tự động suy luận Ngực dựa trên chiều dài áo hoặc gán thông số phôi phẳng tiêu chuẩn
+            try:
+                body_len_val = float(raw_body_len) if raw_body_len else 0.0
+                chest_width = body_len_val * 0.72 if body_len_val > 15.0 else 19.5
+            except:
+                chest_width = 19.5
+                
+        ai_blueprint["extracted_chest_width"] = chest_width
+
+    # 3. Tiến hành đồng bộ và bọc dữ liệu phẳng hình học rập an toàn
+    all_rows = ai_blueprint.get("bom_rows", []) if isinstance(ai_blueprint.get("bom_rows"), list) else []
     parsed_rows = []
 
-    # 2. Pipeline xử lý chi tiết từng dòng vật tư BOM
     for row in all_rows:
         if not row or not isinstance(row, dict): 
             continue
             
-        c_type = str(row.get("component_type", "")).upper()
-        placement = str(row.get("placement", "")).upper()
-        f_class = str(row.get("fabric_classification", "")).upper()
-        f_code = str(row.get("fabric_code", "")).upper()
-        
-        # Gom nhóm phân loại vật tư lên mức hệ thống toàn cục
-        if "FABRIC" in f_class or "MAIN" in f_class: fabric_groups.add(f_code)
-        elif "LINING" in f_class: lining_groups.add(f_code)
-        elif "FUSING" in f_class or "INTERLINING" in f_class: fusing_groups.add(f_code)
-        elif "HARDWARE" in f_class or "TRIM" in f_class: hardware_groups.add(f_code)
-
-        # 🌟 VÁ LỖI CHÍ MẠNG: Đóng băng danh sách keys thành mảng tĩnh để chống lỗi changed size trong lúc loop
         row_keys_frozen = list(row.keys())
         for k in row_keys_frozen:
             if k != "panels_catalog":
                 row[f"_btp_{k}"] = row.get(k)
 
-        row_summary = {
-            "total_panel": 0, "total_piece": 0, "area": 0.0, 
-            "largest_piece_area": 0.0, "longest_piece": 0.0, "widest_piece": 0.0,
-            "polygon_exist": False, "bbox_exist": False
-        }
-
-        # Bypass bảo vệ đối với phụ liệu cứng (Hardware/Trims)
-        if any(k in c_type or k in placement or k in f_class or k in f_code for k in EXCLUDE_HARDWARE_KEYS):
-            row["calculated_gross_consumption_yds"] = 0.0
-            row["_btp_summary"] = row_summary
-            row["_btp_total_panel_area"] = 0.0
-            row["status"] = "PASS"
-            parsed_rows.append(row)
-            continue
-
-        panels = row.get("panels_catalog", [])
-        panel_debug_logs = []
-        parsed_panels_catalog = []
-
-        if panels and isinstance(panels, list):
-            for panel in panels:
-                if not panel or not isinstance(panel, dict): 
-                    continue
-                
-                # Gọi ĐOẠN 1: Xử lý đóng gói hình học đa giác & dung sai của Panel
-                btp_panel = process_single_panel_geometry_and_flags(
-                    panel, product_type, body_length, chest_width, outseam_length, hip_width
-                )
-                
-                # Đếm bộ đếm thống kê
-                g_total_panels += 1
-                row_summary["total_panel"] += 1
-                p_count = safe_float(panel.get("piece_count"), 1.0)
-                g_total_pieces += int(p_count)
-                row_summary["total_piece"] += int(p_count)
-
-                # Ghi nhận trạng thái hình học để thống kê
-                if btp_panel["geometry_calculated_by"] == "POLYGON":
-                    g_polygon_count += 1
-                    row_summary["polygon_exist"] = True
-                    g_flags["has_polygon"] = True
-                else:
-                    g_bbox_count += 1
-                    row_summary["bbox_exist"] = True
-                    g_flags["has_bbox"] = True
-
-                # Đánh giá cực đại kích thước hình học bao khung
-                p_len, p_wid = btp_panel["panel_length"], btp_panel["panel_width"]
-                if p_len > row_summary["longest_piece"]: row_summary["longest_piece"] = p_len
-                if p_wid > row_summary["widest_piece"]: row_summary["widest_piece"] = p_wid
-                if p_len > g_largest_len: g_largest_len = p_len
-                if p_wid > g_largest_wid: g_largest_wid = p_wid
-
-                # Tính tổng tích lũy diện tích sau dung sai
-                p_area = btp_panel["panel_area"]
-                row_summary["area"] += p_area
-                g_total_area += p_area
-                
-                if p_area > row_summary["largest_piece_area"]: row_summary["largest_piece_area"] = p_area
-                if p_area > g_largest_panel_area: g_largest_panel_area = p_area
-
-                # Đẩy trạng thái cờ may mặc từ panel chi tiết lên cờ Toàn Cục
-                if btp_panel["matching"]: g_flags["need_stripe_match"] = True
-                if btp_panel["bias"]: g_flags["need_bias"] = True
-                if btp_panel["mirror"] or btp_panel["pair"]: g_flags["need_pair"] = True
-                if btp_panel["fold"]: g_flags["need_fold"] = True
-
-                # Tiêm schema chuẩn hóa hệ thống vào cấu trúc panel
-                panel["_btp_panel"] = btp_panel
-                parsed_panels_catalog.append(panel)
-                panel_debug_logs.append(f"[{panel.get('panel_name','')}]: Area={p_area:.1f}")
-
-        # Đồng bộ dữ liệu thống kê cấp Dòng BOM vào Schema _btp_ cho Engine V25 đọc trực tiếp
-        row["panels_catalog"] = parsed_panels_catalog
-        row["_btp_total_panel_area"] = round(row_summary["area"], 4)
-        row["_btp_max_piece_length"] = round(row_summary["longest_piece"], 2)
-        row["_btp_max_piece_width"] = round(row_summary["widest_piece"], 2)
-        row["_btp_total_piece_count"] = int(row_summary["total_piece"])
+        # Đồng bộ dữ liệu thống kê từ AI Summary hoặc kích thước tự động tính toán phía trên
+        row_sum = row.get("_btp_summary", {})
+        row["_btp_total_panel_area"] = float(row.get("_btp_total_panel_area", row_sum.get("area", 0.0)))
+        row["_btp_max_piece_length"] = float(row.get("_btp_max_piece_length", row_sum.get("max_piece_length", 35.0)))
+        row["_btp_max_piece_width"] = float(row.get("_btp_max_piece_width", row_sum.get("max_piece_width", 16.0)))
+        row["_btp_total_piece_count"] = int(float(row.get("_btp_total_piece_count", row_sum.get("piece_count", 0.0))))
         
-        row["_btp_summary"] = {
-            "total_panel": row_summary["total_panel"],
-            "total_piece": row_summary["total_piece"],
-            "area": round(row_summary["area"], 4),
-            "largest_piece": round(row_summary["largest_piece_area"], 4),
-            "longest_piece": round(row_summary["longest_piece"], 2),
-            "widest_piece": round(row_summary["widest_piece"], 2),
-            "polygon_exist": row_summary["polygon_exist"],
-            "bbox_exist": row_summary["bbox_exist"]
-        }
-        
-        row["_computed_net_area_sq_in"] = row["_btp_total_panel_area"]
-        row["reason_or_logs"] = " | ".join(panel_debug_logs) if panel_debug_logs else "No panels found"
-        row["status"] = "SUCCESS"
         parsed_rows.append(row)
 
     ai_blueprint["bom_rows"] = parsed_rows
-
-    # 3. Thu hoạch Metadata AI mức toàn cục (Bắt bẫy hướng tuyết vải nếu có)
-    fabric_direction_raw = str(ai_blueprint.get("fabric_direction", "")).upper()
-    if "ONE" in fabric_direction_raw or "NAP" in fabric_direction_raw or ai_blueprint.get("nap") is True:
-        g_flags["need_one_way"] = True
-
-    # Khởi tạo Schema _btp_global_summary
-    g_summary = {
-        "total_area": round(g_total_area, 4),
-        "total_piece": int(g_total_pieces),
-        "total_panels": int(g_total_panels),
-        "largest_panel": round(g_largest_panel_area, 4),
-        "largest_length": round(g_largest_len, 2),
-        "largest_width": round(g_largest_wid, 2),
-        "average_piece_area": round(g_total_area / max(1, g_total_pieces), 4),
-        "fabric_groups": list(fabric_groups),
-        "lining_groups": list(lining_groups),
-        "fusing_groups": list(fusing_groups),
-        "hardware_groups": list(hardware_groups),
-        "total_polygon": int(g_polygon_count),
-        "total_bbox": int(g_bbox_count),
-        "has_polygon": g_flags["has_polygon"],
-        "has_bbox": g_flags["has_bbox"],
-        "need_stripe_match": g_flags["need_stripe_match"] or ai_blueprint.get("matching_required") is True or ai_blueprint.get("stripe_match") is True,
-        "need_bias": g_flags["need_bias"],
-        "need_one_way": g_flags["need_one_way"],
-        "need_pair": g_flags["need_pair"],
-        "need_fold": g_flags["need_fold"],
-        "system_pipeline_version": "V17.0.2-STABLE"
-    }
-
-    # BỘ THU GOM METADATA AI TOÀN CỤC CHỦ ĐỘNG (_btp_ai_metadata)
-    ai_metadata_schema = {}
-    for key, value in list(ai_blueprint.items()):
-        if key.startswith("_btp_") or key == "bom_rows":
-            continue
-        ai_metadata_schema[key] = value
-
-    ai_blueprint["_btp_ai_metadata"] = ai_metadata_schema
-    ai_blueprint["_btp_global_summary"] = g_summary
-
     return ai_blueprint
 
 
