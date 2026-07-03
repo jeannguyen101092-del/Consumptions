@@ -973,15 +973,19 @@ with col_right:
 
 
 # =====================================================================
-# ĐOẠN 7a1: INTERFACE WORKSPACE & DYNAMIC MULTI-PAGE DATA BATCHING (V22.5 APPROVED)
+# ĐOẠN 7a1: INTERFACE WORKSPACE & DYNAMIC MULTI-PAGE DATA BATCHING (V22.6 APPROVED)
 # =====================================================================
 st.markdown('<br><div class="cad-card"><div class="cad-header">💬 CHATGPT IE COLLABORATION WORKSPACE</div>', unsafe_allow_html=True)
 
 # Khởi tạo kho lưu trữ trạng thái hệ thống phòng vệ tránh lỗi mất Session State
-if "chat_history" not in st.session_state: st.session_state.chat_history = []
-if "pdf_page_images_list" not in st.session_state: st.session_state.pdf_page_images_list = None
-if "accumulated_bom_rows" not in st.session_state: st.session_state.accumulated_bom_rows = {}
-if "bom_data" not in st.session_state: st.session_state.bom_data = {}
+if "chat_history" not in st.session_state:
+    st.session_state.chat_history = []
+if "pdf_page_images_list" not in st.session_state:
+    st.session_state.pdf_page_images_list = None
+if "accumulated_bom_rows" not in st.session_state:
+    st.session_state.accumulated_bom_rows = {}
+if "bom_data" not in st.session_state:
+    st.session_state.bom_data = {}
 
 # Xuất dòng tin nhắn lịch sử trò chuyện đồng bộ trực quan
 if st.session_state.chat_history:
@@ -989,29 +993,33 @@ if st.session_state.chat_history:
         st.chat_message("user").write(msg["user"])
         st.chat_message("assistant").write(msg["ai"])
 
+# 🌟 Ô CHAT ĐƯỢC ĐƯA RA NGOÀI HOÀN TOÀN ĐỂ KHÔNG BỊ KHÓA ĐỎ GIAO DIỆN
 safe_user_prompt = st.chat_input("Gõ câu lệnh điều chỉnh thông số tại đây...")
 st.markdown('</div>', unsafe_allow_html=True)
 
+# Khởi tạo dải tham số rỗng phòng vệ luồng dữ liệu
+gemini_inputs = []
+current_query = ""
+
 # Kích hoạt luồng trích xuất dữ liệu khi có tệp tài liệu và lệnh từ ô chat
-if st.session_state.pdf_bytes is not None and safe_user_prompt:
+if st.session_state.get("pdf_bytes") is not None and safe_user_prompt:
     current_query = str(safe_user_prompt).strip()
     
     with st.spinner("🧠 AI Platform đang chạy luồng trích xuất đa tầng dữ liệu kỹ thuật..."):
         try:
             import google.generativeai as genai
             import json, copy, traceback, re
-            import fitz 
+            import fitz
             
             doc_recovery = fitz.open(stream=st.session_state.pdf_bytes, filetype="pdf")
             total_pages = len(doc_recovery)
             
             # Kiểm tra đa trang tìm cấu trúc PDF Vector
             has_text_vector = any(
-                len(doc_recovery.load_page(i).get_text().strip()) > 20
+                len(doc_recovery.load_page(i).get_text().strip()) > 20 
                 for i in range(min(5, total_pages))
             )
             
-            gemini_inputs = []
             if has_text_vector:
                 # 🟢 LUỒNG VECTOR: Chỉ truyền duy nhất File PDF gốc để bảo vệ Context
                 gemini_inputs.append({
@@ -1019,7 +1027,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                     "data": st.session_state.pdf_bytes
                 })
             else:
-                # 🔴 LUỒNG SCAN: ÉP BUỘC GIẢI PHÓNG CACHE CŨ - QUÈT LẠI DANH SÁCH ẢNH MỚI TOÀN DIỆN MỖI LẦN GỬI LỆNH
+                # 🔴 LUỒNG SCAN: ÉP BUỘC GIẢI PHÓNG CACHE CŨ - QUÉT LẠI DANH SÁCH ẢNH MỚI TOÀN DIỆN MỖI LẦN GỬI LỆNH
                 image_payloads = []
                 target_dpi = 200 if total_pages <= 5 else 130
                 max_scan_pages = min(total_pages, 15)
@@ -1027,14 +1035,24 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                 for page_num in range(max_scan_pages):
                     page_img_bytes = doc_recovery.load_page(page_num).get_pixmap(dpi=target_dpi).tobytes("png")
                     image_payloads.append({"mime_type": "image/png", "data": page_img_bytes})
-                
+                    
                 st.session_state.pdf_page_images_list = image_payloads
                 gemini_inputs = copy.deepcopy(st.session_state.pdf_page_images_list)
+                
+        except Exception as e:
+            st.error(f"❌ Lỗi xử lý tệp tin đầu vào ở đoạn 7a1: {str(e)}")
+            st.text(traceback.format_exc())
 
 
 # =====================================================================
-# ĐOẠN 7a2: AI CORE COGNITIVE ENGINE & POST-AI MIDDLEWARE GEOMETRY PROCESSOR (V22.0 PRODUCTION)
+# ĐOẠN 7a2.1: AI CORE COGNITIVE ENGINE (CẤU HÌNH AI & PHÂN TÍCH LỆNH)
 # =====================================================================
+if gemini_inputs and current_query:
+    with st.spinner("⚡ Đang gửi dữ liệu tới Gemini và xử lý hình học may mặc..."):
+        try:
+            import google.generativeai as genai
+            import json, copy, traceback, re
+            
             if "GEMINI_API_KEY" in st.secrets: 
                 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
                 
@@ -1107,14 +1125,20 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             ===END_CHAT===
             """
             
-            gemini_inputs.append(prompt_instruction)
-            response = model.generate_content(gemini_inputs)
-            
-            # XỬ LÝ DỮ LIỆU ĐẦU RA SAU KHI AI TRẢ VỀ PHẢN HỒI
+            # Gộp dữ liệu ảnh/vector và gửi lên Gemini
+            gemini_payload = gemini_inputs + [prompt_instruction]
+            response = model.generate_content(gemini_payload)
+            # =====================================================================
+            # ĐOẠN 7a2.2: POST-AI MIDDLEWARE GEOMETRY PROCESSOR (XỬ LÝ HẬU AI & ĐÓNG BLOCK)
+            # =====================================================================
             if response and response.text:
                 response_text = response.text.strip()
                 json_match = re.search(r'===START_JSON===\s*(.*?)\s*===END_JSON===', response_text, re.DOTALL)
                 chat_match = re.search(r'===START_CHAT===\s*(.*?)\s*===END_CHAT===', response_text, re.DOTALL)
+                
+                ai_chat_feedback = "AI đã xử lý tài liệu nhưng cấu trúc chat phản hồi bị lỗi định dạng."
+                if chat_match:
+                    ai_chat_feedback = chat_match.group(1).strip()
                 
                 if json_match:
                     raw_json_str = json_match.group(1).strip()
@@ -1132,14 +1156,10 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                         raw_specs.append(clean_s)
                     raw_blueprint["matched_measurements"] = raw_specs 
                     
-                    # 🌟 FIX LUỒNG KIỂM TRA MẢNG TRÁNH LẶP VÒNG LẶP VÔ HẠN (INFINITE LOOP) GÂY ĐƠ TRANG
                     has_valid_evidence = len(raw_specs) >= 1
                     bom_list = raw_blueprint.get("bom_rows", [])
                     has_valid_bom = isinstance(bom_list, list) and len(bom_list) > 0
                     
-                    # Khai báo phòng vệ hằng số hệ thống tránh bẫy lỗi KeyError
-                    EXCLUDE_HARDWARE_KEYS = globals().get("EXCLUDE_HARDWARE_KEYS", ["BUTTON", "ZIPPER", "THREAD", "LABEL"])
-
                     if raw_blueprint.get("status") == "PASS" and raw_blueprint.get("spec_sheet_found") is True and has_valid_evidence and has_valid_bom:
                         blueprint_worker = copy.deepcopy(raw_blueprint)
                         
@@ -1164,43 +1184,41 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                                 for p in catalog:
                                     if not isinstance(p, dict): continue
                                     count = float(p.get("piece_count", 0.0))
-                                    length = float(p.get("piece_length_inch", 0.0))
-                                    width = float(p.get("piece_width_inch", 0.0))
+                                    p_len = float(p.get("piece_length_inch", 0.0))
+                                    p_wid = float(p.get("piece_width_inch", 0.0))
                                     
-                                    total_area += (length * width * count)
+                                    # Phép toán tích hợp độ co rút hao hụt vải (Warp/Weft)
+                                    calc_len = p_len * (1.0 + active_warp / 100.0)
+                                    calc_wid = p_wid * (1.0 + active_weft / 100.0)
+                                    
+                                    total_area += (calc_len * calc_wid) * count
                                     total_pieces += count
-                                    if length > max_len: max_len = length
-                                    
-                            row["_btp_total_panel_area"] = total_area
-                            row["_btp_max_piece_length"] = max_len
-                            row["_btp_total_piece_count"] = total_pieces
-                            
+                                    if calc_len > max_len:
+                                        max_len = calc_len
+                                        
+                            row["total_area_sq_inch"] = total_area
+                            row["max_length_inch"] = max_len
+                            row["total_pieces_count"] = total_pieces
                             processed_bom_rows.append(row)
                             
                         blueprint_worker["bom_rows"] = processed_bom_rows
-                        blueprint_final = allocate_fabric_consumption_and_quality_gate(blueprint_worker, current_query)
-                        
-                        st.session_state.bom_data = blueprint_final
-                        st.session_state.accumulated_bom_rows = blueprint_final.get("bom_rows", [])
-                        
-                        ai_chat_response = f"✅ OCR & Mapping thành công! Trích xuất đa trang sạch số đo thập phân."
-                        if chat_match: ai_chat_response = chat_match.group(1).strip()
-                        st.session_state.chat_history.append({"user": current_query, "ai": ai_chat_response})
-                        st.rerun()
+                        st.session_state.bom_data = blueprint_worker
                     else:
-                        st.session_state.bom_data = None
-                        err_reason = raw_blueprint.get('error_reason', 'Tài liệu thiếu bảng Spec hoặc dữ liệu phân số chưa được chuẩn hóa.')
+                        st.error(f"⚠️ Không đủ điều kiện tính toán định mức hình học. Lý do: {raw_blueprint.get('error_reason', 'N/A')}")
+                
+                # Cập nhật kết quả vào Lịch sử chat và kích hoạt reload giao diện ngay lập tức
+                st.session_state.chat_history.append({
+                    "user": current_query,
+                    "ai": ai_chat_feedback
+                })
+                st.rerun()
 
-                        ai_chat_response = f"❌ NGẤT LUỒNG: {err_reason}"
-                        
-                    st.session_state.chat_history.append({"user": current_query, "ai": ai_chat_response})
-                    st.rerun()
-
-                        
         except Exception as e:
-            st.error(f"❌ Lỗi hệ thống tầng AI Core Post-Pipeline: {str(e)}")
-
+            st.error(f"❌ Lỗi hệ thống xử lý cốt lõi ở đoạn 7a2: {str(e)}")
             st.text(traceback.format_exc())
+
+                
+
 
 
 
