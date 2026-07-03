@@ -973,17 +973,17 @@ with col_right:
 
 
 # =====================================================================
-# ĐOẠN 7a1: INTERFACE WORKSPACE & DYNAMIC MULTI-PAGE DATA BATCHING (V23.5 APPROVED)
+# ĐOẠN 7a1: INTERFACE WORKSPACE & DYNAMIC MULTI-PAGE DATA BATCHING (V25.2 APPROVED)
 # =====================================================================
 st.markdown('<br><div class="cad-card"><div class="cad-header">💬 CHATGPT IE COLLABORATION WORKSPACE</div>', unsafe_allow_html=True)
 
-# Khởi tạo kho lưu trữ trạng thái hệ thống phòng vệ tránh lỗi mất Session State
+# Khởi tạo kho lưu trữ trạng thái hệ thống phòng vệ tránh lỗi mất Session State khi tương tác
 if "chat_history" not in st.session_state: st.session_state.chat_history = []
 if "pdf_page_images_list" not in st.session_state: st.session_state.pdf_page_images_list = None
 if "accumulated_bom_rows" not in st.session_state: st.session_state.accumulated_bom_rows = {}
 if "bom_data" not in st.session_state: st.session_state.bom_data = {}
 
-# Xuất dòng tin nhắn lịch sử trò chuyện đồng bộ trực quan
+# Xuất dòng tin nhắn lịch sử trò chuyện đồng bộ trực quan lên màn hình
 if st.session_state.chat_history:
     for msg in st.session_state.chat_history:
         st.chat_message("user").write(msg["user"])
@@ -992,11 +992,11 @@ if st.session_state.chat_history:
 safe_user_prompt = st.chat_input("Gõ câu lệnh điều chỉnh thông số tại đây...")
 st.markdown('</div>', unsafe_allow_html=True)
 
-# Khởi tạo dải tham số rỗng phòng vệ luồng dữ liệu trước khi chuyển giao
+# Khởi tạo dải tham số rỗng phòng vệ luồng dữ liệu trước khi chuyển giao hạ tầng
 gemini_inputs = []
 current_query = ""
 
-# Kích hoạt luồng khi có tệp tài liệu và lệnh từ ô chat
+# Kích hoạt luồng trích xuất khi có đồng thời tệp tài liệu và câu lệnh từ ô chat
 if st.session_state.pdf_bytes is not None and safe_user_prompt:
     current_query = str(safe_user_prompt).strip()
     
@@ -1009,20 +1009,20 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             doc_recovery = fitz.open(stream=st.session_state.pdf_bytes, filetype="pdf")
             total_pages = len(doc_recovery)
             
-            # Kiểm tra đa trang tìm cấu trúc PDF Vector
+            # Kiểm tra đa trang tự động tìm cấu trúc PDF Vector
             has_text_vector = any(
                 len(doc_recovery.load_page(i).get_text().strip()) > 20
                 for i in range(min(5, total_pages))
             )
             
             if has_text_vector:
-                # 🟢 LUỒNG VECTOR: Chỉ truyền duy nhất File PDF gốc để bảo vệ Context
+                # 🟢 LUỒNG VECTOR: Chỉ truyền duy nhất File PDF gốc để tối ưu dải ngữ cảnh
                 gemini_inputs.append({
                     "mime_type": "application/pdf",
                     "data": st.session_state.pdf_bytes
                 })
             else:
-                # 🔴 LUỒNG SCAN: Chuyển đổi ảnh đa trang có chia BATCHING khống chế 15 trang bảo vệ Context
+                # 🔴 LUỒNG SCAN: ÉP GIẢI PHÓNG CACHE CŨ - QUÉT LẠI DANH SÁCH ẢNH MỚI TOÀN DIỆN MỖI LẦN GỬI LỆNH
                 image_payloads = []
                 target_dpi = 200 if total_pages <= 5 else 130
                 max_scan_pages = min(total_pages, 15)
@@ -1037,7 +1037,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
         except Exception as e:
             st.error(f"❌ Lỗi xử lý tệp tin đầu vào ở phân đoạn 7a1: {str(e)}")
 # =====================================================================
-# ĐOẠN 7a2: AI CORE COGNITIVE ENGINE & POST-AI MIDDLEWARE GEOMETRY PROCESSOR (V24.2 APPROVED)
+# ĐOẠN 7a2a: AI CORE GENERATION ENGINE (V26.0 APPROVED)
 # =====================================================================
 if st.session_state.pdf_bytes is not None and safe_user_prompt and len(gemini_inputs) > 0:
     with st.spinner("🧠 AI Core đang tiến hành xử lý nhận diện bảng thông số mở rộng..."):
@@ -1048,7 +1048,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt and len(gemini_in
             model = genai.GenerativeModel("gemini-2.5-flash", generation_config={"temperature": 0.0})
             chat_lower = current_query.lower()
             
-            # Bộ bóc tách tham số từ câu lệnh ô chat người dùng
+            # Bộ bóc tách tham số size/khổ vải/co rút từ câu lệnh ô chat người dùng
             match_size = re.search(r'\b(?:size|sz|cỡ)\s*[:\-=\s]*([\w\d]+)\b', chat_lower)
             target_size_cmd = str(match_size.group(1)).upper().strip() if match_size else "30"
             
@@ -1116,6 +1116,11 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt and len(gemini_in
             
             gemini_inputs.append(prompt_instruction)
             response = model.generate_content(gemini_inputs)
+# =====================================================================
+# ĐOẠN 7a2b: POST-AI MIDDLEWARE GEOMETRY PROCESSOR (V26.0 APPROVED)
+# =====================================================================
+            # Khởi tạo giá trị mặc định cho biến phản hồi chat nhằm phòng vệ tuyệt đối lỗi NameError
+            ai_chat_response = "Hệ thống đang xử lý dữ liệu..."
             
             # XỬ LÝ DỮ LIỆU ĐẦU RA SAU KHI AI TRẢ VỀ PHẢN HỒI
             if response and response.text:
@@ -1186,33 +1191,24 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt and len(gemini_in
                         st.session_state.bom_data = blueprint_final
                         st.session_state.accumulated_bom_rows = blueprint_final.get("bom_rows", [])
                         
-                       
-
-                        
-                       
-                        
-
-                        
-                        ai_chat_response = f"✅ OCR & Mapping thành công! Trích xuất đa trang sạch số đo thập phân."
                         if chat_match: ai_chat_response = chat_match.group(1).strip()
-                        st.session_state.chat_history.append({"user": current_query, "ai": ai_chat_response})
-                        st.rerun()
+                        else: ai_chat_response = f"✅ OCR & Mapping thành công! Trích xuất từ Spec Trang {raw_blueprint.get('spec_page')}."
                     else:
                         st.session_state.bom_data = None
                         err_reason = raw_blueprint.get('error_reason', 'Tài liệu thiếu bảng Spec hoặc dữ liệu phân số chưa được chuẩn hóa.')
                         ai_chat_response = f"❌ NGẰT LUỒNG: {err_reason}"
-
-                
-                # Cập nhật kết quả vào Lịch sử chat và kích hoạt reload giao diện ngay lập tức
-                st.session_state.chat_history.append({
-                    "user": current_query,
-                    "ai": ai_chat_feedback
-                })
-                st.rerun()
-
+                else:
+                    st.session_state.bom_data = None
+                    ai_chat_response = "❌ NGẰT LUỒNG: AI Core không phản hồi cấu trúc JSON mẫu chuẩn."
+            
+            # ĐỒNG BỘ BIẾN TIN NHẮN CUỐI CHUYỂN TOÀN BỘ SANG BIẾN CHUẨN ai_chat_response CHỐNG LỖI 1209
+            st.session_state.chat_history.append({"user": current_query, "ai": ai_chat_response})
+            st.rerun()
+                        
         except Exception as e:
-            st.error(f"❌ Lỗi hệ thống xử lý cốt lõi ở đoạn 7a2: {str(e)}")
+            st.error(f"❌ Lỗi hệ thống tầng AI Core Post-Pipeline ở đoạn 7a2b: {str(e)}")
             st.text(traceback.format_exc())
+
 
                 
 
