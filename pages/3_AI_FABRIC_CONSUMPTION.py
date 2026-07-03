@@ -929,7 +929,7 @@ with col_right:
 
 
 # =====================================================================
-# ĐOẠN 7a: CHAT WORKSPACE & ENGINE AI NỀN - BÓC TÁCH THÔNG SỐ GỐC (V17.7.0.4 APPROVED)
+# ĐOẠN 7a: CHAT WORKSPACE & ENGINE AI NỀN - ÉP LẤY THÔNG SỐ KÉO CĂNG LỚN NHẤT (V17.7.0.5 APPROVED)
 # =====================================================================
 st.markdown('<br><div class="cad-card"><div class="cad-header">💬 CHATGPT IE COLLABORATION WORKSPACE</div>', unsafe_allow_html=True)
 
@@ -949,7 +949,7 @@ st.markdown('</div>', unsafe_allow_html=True)
 if st.session_state.pdf_bytes is not None and safe_user_prompt:
     current_query = str(safe_user_prompt).strip()
     
-    with st.spinner("🧠 AI Core đang bóc tách thông số hình học từ Techpack và phân tích kết cấu Sketch..."):
+    with st.spinner("🧠 AI Core đang quét tài liệu, bóc tách cột thông số kéo căng lớn nhất (Max Stretch)..."):
         try:
             import google.generativeai as genai
             import json, copy, traceback, re
@@ -965,6 +965,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             model = genai.GenerativeModel("gemini-2.5-flash", generation_config={"temperature": 0.2})
             chat_lower = current_query.lower()
             
+            # Bộ trích xuất thông số kỹ thuật động thông minh từ câu lệnh chat
             match_size = re.search(r'\b(?:size|sz|cỡ)\s*[:\-=\s]*([\w\d]+)\b', chat_lower)
             target_size_cmd = str(match_size.group(1)).upper().strip() if match_size else "30"
             
@@ -987,49 +988,45 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             if len(st.session_state.chat_history) > 30:
                 st.session_state.chat_history = st.session_state.chat_history[-30:]
 
+            # 🌟 PROMPT ĐƯỢC THIẾT KẾ LẠI: ÉP QUY TẮC PHẢI BẮT CỘT SỐ KÉO CĂNG (MAX STRETCH) CHO ĐẦM/VÁY XẾP LY
             prompt_instruction = f"""
-            You are a senior apparel IE system. Analyze the visual sketch image and techpack data.
-            DATA FOUND IN TECHPACK TEXT: {st.session_state.pdf_text_cache}
+            You are a senior apparel IE system. Analyze BOTH the visual sketch image and the techpack text data.
+            DATA FOUND IN TECHPACK TEXT (SPEC SHEET): {st.session_state.pdf_text_cache}
+            CONTEXT HISTORY: {json.dumps(st.session_state.chat_history, ensure_ascii=False)}
             CURRENT USER COMMAND: "{current_query}"
             
-            STRICT STRUCTURAL EXTRACTION INSTRUCTIONS:
-            1. For "MAIN FABRIC": Extract dimensions of Front, Back, Waistband, Side pockets, Pocket flaps from the spec sheet text.
-            2. For "INTERLINING / KEO LÓT": Do NOT return an empty list. Extract or estimate precise waistband fusing pieces (e.g. 1 or 2 pcs) and baget/fly fusing pieces based on the spec rules.
-            3. For "POCKET LINING / LÓT TÚI": Check the visual sketch image. Count the total pocket bags. 
-               - If it has ONLY 2 front pocket bags (like jean pockets), set "pocket_style_type" to "FRONT_ONLY".
-               - If it has 2 front pocket bags AND 2 back welt pocket bags, set "pocket_style_type" to "FRONT_AND_BACK".
+            STRICT APPAREL RECONSTRUCTION & GARMENT PATTERN RULES:
+            1. Identify the garment product type from the visual sketch or techpack text (e.g., SKIRT, DRESS, SHIRT, JACKET, PANT).
+            2. 🌟 CRITICAL SPEC RULE FOR PLEATS/ELASTIC/SMOCKING: If the garment contains pleats, gathers, smocking, or elastic components (especially for skirts and dresses), you MUST thoroughly scan the techpack for "Stretched", "Extended", "Max Stretch", or "Kéo căng" dimensions.
+               - NEVER extract the "Relaxed" or "Đo êm" dimensions for pleated or elastic panels.
+               - Always use the MAXIMUM stretched length and width values to represent the actual flat pattern pieces that will be laid out on the Gerber marker, otherwise the calculated fabric consumption will be short.
+            3. For "POCKET LINING / LÓT TÚI": If it's a pant, look at the visual sketch to detect the pocket bag count. If 4 bags are found, set "pocket_style_type" to "FRONT_AND_BACK". Otherwise, set to "FRONT_ONLY".
+            4. Total rows in "bom_rows" array must be exactly 3.
             
-            Target size: '{target_size_cmd}', Cut Width: {active_width} inches.
+            Target size: '{target_size_cmd}', Cut Width: {active_width} inches, Warp: {active_warp}%, Weft: {active_weft}%.
             
             Return response in exact format:
             ===START_JSON===
             {{
-              "detected_product_type": "CARGO_PANT",
+              "detected_product_type": "SKIRT",
               "style_code": "R09-500778",
               "calculated_on_size": "{target_size_cmd}",
-              "pocket_style_type": "FRONT_AND_BACK",
+              "pocket_style_type": "FRONT_ONLY",
               "bom_rows": [
                 {{
-                  "component_type": "MAIN FABRIC", "placement": "BODY/POCKETS", "fabric_classification": "MAIN_FABRIC",
-                  "fabric_code": "TWILL", "fabric_color": "SOLID COLOR", "fabric_width_inch": {active_width},
+                  "component_type": "MAIN FABRIC", "placement": "BODY", "fabric_classification": "MAIN_FABRIC",
+                  "fabric_code": "WOVEN", "fabric_color": "SOLID COLOR", "fabric_width_inch": {active_width},
                   "panels_catalog": [
-                    {{ "panel_name": "FRONT_PANEL", "piece_count": 2.0, "piece_length_inch": 41.5, "piece_width_inch": 13.5 }},
-                    {{ "panel_name": "BACK_PANEL", "piece_count": 2.0, "piece_length_inch": 42.5, "piece_width_inch": 16.0 }},
-                    {{ "panel_name": "WAISTBAND", "piece_count": 2.0, "piece_length_inch": 34.5, "piece_width_inch": 3.75 }},
-                    {{ "panel_name": "SIDE_CARGO_POCKET", "piece_count": 2.0, "piece_length_inch": 10.0, "piece_width_inch": 9.0 }},
-                    {{ "panel_name": "CARGO_POCKET_FLAP", "piece_count": 4.0, "piece_length_inch": 4.0, "piece_width_inch": 9.0 }}
+                    {{ "panel_name": "MAIN_SKIRT_PANEL", "piece_count": 2.0, "piece_length_inch": 28.0, "piece_width_inch": 38.5 }}
                   ]
                 }},
                 {{
-                  "component_type": "INTERLINING / KEO LÓT", "placement": "WAISTBAND/FLY", "fabric_classification": "FUSING",
+                  "component_type": "INTERLINING / KEO LÓT", "placement": "WAISTBAND", "fabric_classification": "FUSING",
                   "fabric_code": "TRICOT FUSING", "fabric_color": "WHITE", "fabric_width_inch": 44.0,
-                  "panels_catalog": [
-                    {{ "panel_name": "WAISTBAND_FUSING", "piece_count": 1.0, "piece_length_inch": 34.5, "piece_width_inch": 1.5 }},
-                    {{ "panel_name": "FLY_BAGET_FUSING", "piece_count": 2.0, "piece_length_inch": 8.0, "piece_width_inch": 2.0 }}
-                  ]
-                }},
+                  "panels_catalog": []
+                }}
                 {{
-                  "component_type": "POCKET LINING / LÓT TÚI", "placement": "POCKET BAGS", "fabric_classification": "LINING",
+                  "component_type": "POCKET LINING / LÓT TÚI", "placement": "POCKET", "fabric_classification": "LINING",
                   "fabric_code": "TC POCKETING", "fabric_color": "NATURAL", "fabric_width_inch": 44.0,
                   "panels_catalog": []
                 }}
@@ -1037,13 +1034,16 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             }}
             ===END_JSON===
             ===START_CHAT===
-            [Confirm in Vietnamese that you calculated using width {active_width} and precise shrinkage warp {active_warp}% and weft {active_weft}% based on visual sketch and history context.]
+            [Confirm in Vietnamese that you successfully detected the product design and extracted the maximum stretched/extended specifications for pleated/elastic components using cut width {active_width} and precise shrinkage to prevent fabric shortage in Gerber layout.]
             ===END_CHAT===
             """
             
-            image_payload = {"mime_type": "image/png", "data": st.session_state.pdf_page_one_image}
-            response = model.generate_content([image_payload, prompt_instruction])
+            image_payload = {
+                "mime_type": "image/png",
+                "data": st.session_state.pdf_page_one_image
+            }
             
+            response = model.generate_content([image_payload, prompt_instruction])
             if response and response.text:
                 response_text = response.text.strip()
                 json_match = re.search(r'===START_JSON===\s*(.*?)\s*===END_JSON===', response_text, re.DOTALL)
@@ -1062,12 +1062,19 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                         st.session_state.accumulated_bom_rows = blueprint_final.get("bom_rows", [])
                         
                         ai_chat_response = "Tôi đã đồng bộ tính toán định mức."
-                        if chat_match: ai_chat_response = chat_match.group(1).strip()
+                        if chat_match:
+                            ai_chat_response = chat_match.group(1).strip()
                             
-                        st.session_state.chat_history.append({"user": current_query, "ai": ai_chat_response})
+                        st.session_state.chat_history.append({
+                            "user": current_query,
+                            "ai": ai_chat_response
+                        })
                         st.rerun()
+                        
         except Exception as e:
             st.error(f"❌ Lỗi xử lý AI Core: {str(e)}")
+            st.text(traceback.format_exc())
+
 
 
 
