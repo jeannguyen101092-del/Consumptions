@@ -973,17 +973,8 @@ with col_right:
 
 
 # =====================================================================
-# ĐOẠN 7a1: INTERFACE INTERACTION WORKSPACE & MULTI-PAGE DATA BATCHING (V20.0 APPROVED)
+# ĐOẠN 7a1: INTERFACE WORKSPACE & MULTI-PAGE DATA BATCHING (V20.0 APPROVED)
 # =====================================================================
-import streamlit as st
-import google.generativeai as genai
-import json
-import copy
-import traceback
-import re
-import fitz
-import pandas as pd
-
 st.markdown('<br><div class="cad-card"><div class="cad-header">💬 CHATGPT IE COLLABORATION WORKSPACE</div>', unsafe_allow_html=True)
 
 # Khởi tạo kho lưu trữ trạng thái hệ thống phòng vệ tránh lỗi mất Session State
@@ -1005,12 +996,16 @@ st.markdown('</div>', unsafe_allow_html=True)
 if st.session_state.pdf_bytes is not None and safe_user_prompt:
     current_query = str(safe_user_prompt).strip()
     
-    with st.spinner("🧠 AI Platform đang chạy luồng trích xuất đa tầng và đồng bộ hình học bán thành phẩm..."):
+    with st.spinner("🧠 AI Platform đang chạy luồng trích xuất đa tầng dữ liệu kỹ thuật..."):
         try:
+            import google.generativeai as genai
+            import json, copy, traceback, re
+            import fitz 
+            
             doc_recovery = fitz.open(stream=st.session_state.pdf_bytes, filetype="pdf")
             total_pages = len(doc_recovery)
             
-            # 🌟 KIỂM TRA ĐA TRANG ĐỂ XÁC ĐỊNH SỰ TỒN TẠI CỦA PDF VECTOR CHUẨN XÁC
+            # Kiểm tra đa trang tìm cấu trúc PDF Vector
             has_text_vector = any(
                 len(doc_recovery.load_page(i).get_text().strip()) > 20
                 for i in range(min(5, total_pages))
@@ -1018,7 +1013,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             
             gemini_inputs = []
             if has_text_vector:
-                # 🟢 LUỒNG VECTOR: Chỉ truyền duy nhất File PDF gốc để bảo vệ dải ngữ cảnh tối ưu
+                # 🟢 LUỒNG VECTOR: Chỉ truyền duy nhất File PDF gốc để bảo vệ Context
                 gemini_inputs.append({
                     "mime_type": "application/pdf",
                     "data": st.session_state.pdf_bytes
@@ -1108,6 +1103,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             gemini_inputs.append(prompt_instruction)
             response = model.generate_content(gemini_inputs)
             
+            # XỬ LÝ DỮ LIỆU ĐẦU RA SAU KHI AI TRẢ VỀ PHẢN HỒI
             if response and response.text:
                 response_text = response.text.strip()
                 json_match = re.search(r'===START_JSON===\s*(.*?)\s*===END_JSON===', response_text, re.DOTALL)
@@ -1122,7 +1118,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                     except json.JSONDecodeError:
                         raw_blueprint = {"status": "ERROR", "error_reason": "Malformed JSON structure."}
                     
-                    # 🌟 KHỬ NHIỄU OCR KÝ TỰ VÀ ĐỒNG BỘ NGƯỢC VÀO BLUEPRINT GỐC
+                    # KHỬ NHIỄU OCR KÝ TỰ VÀ ĐỒNG BỘ NGƯỢC VÀO BLUEPRINT GỐC
                     raw_specs = []
                     for s in raw_blueprint.get("matched_measurements", []):
                         clean_s = str(s).upper().replace("I", "1").replace("S", "5").replace("O", "0")
@@ -1135,7 +1131,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                     has_valid_bom = False
                     bom_list = raw_blueprint.get("bom_rows", [])
                     if len(bom_list) > 0:
-                        first_catalog = bom_list[0].get("panels_catalog", [])
+                        first_catalog = bom_list[0].get("panels_catalog", []) if isinstance(bom_list, list) else []
                         if len(first_catalog) > 0 and any(str(p.get("panel_name")).strip() != "" for p in first_catalog if isinstance(p, dict)):
                             has_valid_bom = True
                     
@@ -1143,7 +1139,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                         blueprint_worker = copy.deepcopy(raw_blueprint)
                         
                         # =====================================================================
-                        # 🌟 TẦNG MAPPING TRUNG GIAN PYTHON (MIDDLEWARE GEOMETRY PROCESSOR)
+                        # TẦNG MAPPING TRUNG GIAN PYTHON (MIDDLEWARE GEOMETRY PROCESSOR)
                         # =====================================================================
                         processed_bom_rows = []
                         for row in blueprint_worker.get("bom_rows", []):
