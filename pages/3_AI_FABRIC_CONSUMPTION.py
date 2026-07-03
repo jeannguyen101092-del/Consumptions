@@ -973,7 +973,7 @@ with col_right:
 
 
 # =====================================================================
-# ĐOẠN 7a1: INTERFACE WORKSPACE & HIGH-RES JPEG IMAGE PIPELINE (V28.0 APPROVED)
+# ĐOẠN 7a1: INTERFACE WORKSPACE & HIGH-RES JPEG IMAGE PIPELINE (V28.5 CHUẨN UNIQUE KEY)
 # =====================================================================
 st.markdown('<br><div class="cad-card"><div class="cad-header">💬 CHATGPT IE COLLABORATION WORKSPACE</div>', unsafe_allow_html=True)
 
@@ -989,8 +989,8 @@ if st.session_state.chat_history:
         st.chat_message("user").write(msg["user"])
         st.chat_message("assistant").write(msg["ai"])
 
-# Khai báo duy nhất 1 ô nhập liệu tương tác chatbox trên toàn bộ giao diện trang
-safe_user_prompt = st.chat_input("Gõ câu lệnh điều chỉnh thông số tại đây...")
+# 🌟 FIX CHÍ MẠNG ID: Khóa chặt thuộc tính key độc bản để triệt tiêu lỗi sập viền đỏ vĩnh viễn
+safe_user_prompt = st.chat_input("Gõ câu lệnh điều chỉnh thông số tại đây...", key="ie_workspace_unique_chat_input")
 st.markdown('</div>', unsafe_allow_html=True)
 
 # Kích hoạt luồng trích xuất dữ liệu khi có tệp tài liệu và lệnh từ ô chat
@@ -1006,14 +1006,13 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             doc_recovery = fitz.open(stream=st.session_state.pdf_bytes, filetype="pdf")
             total_pages = len(doc_recovery)
             
-            # 🌟 ĐỒNG BỘ: Ép chuyển đổi sang định dạng hình ảnh JPEG (RGB) để triệt tiêu lỗi byte ảnh nhiễu
+            # Ép chuyển đổi sang định dạng hình ảnh JPEG (RGB) để triệt tiêu lỗi byte ảnh nhiễu
             image_payloads = []
             target_dpi = 180 if total_pages <= 6 else 130
             max_scan_pages = min(total_pages, 16)
             
             for page_num in range(max_scan_pages):
                 page = doc_recovery.load_page(page_num)
-                # Ép chặt ma trận màu RGB sang định dạng ảnh JPEG tiêu chuẩn của ngành OCR
                 pix = page.get_pixmap(dpi=target_dpi, colorspace=fitz.csRGB)
                 page_img_bytes = pix.tobytes("jpeg")
                 
