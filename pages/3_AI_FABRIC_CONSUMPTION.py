@@ -929,12 +929,12 @@ with col_right:
 
 
 # =====================================================================
-# ĐOẠN 7a: CHAT WORKSPACE & ENGINE AI NỀN - ÉP LẤY THÔNG SỐ KÉO CĂNG LỚN NHẤT (V17.7.0.5 APPROVED)
+# ĐOẠN 7a: CHAT WORKSPACE & ENGINE AI NỀN - QUÉT ĐA TRANG TÀI LIỆU SỐ (V17.8.0.0 APPROVED)
 # =====================================================================
 st.markdown('<br><div class="cad-card"><div class="cad-header">💬 CHATGPT IE COLLABORATION WORKSPACE</div>', unsafe_allow_html=True)
 
 if "chat_history" not in st.session_state: st.session_state.chat_history = []
-if "pdf_page_one_image" not in st.session_state: st.session_state.pdf_page_one_image = None
+if "pdf_page_images_list" not in st.session_state: st.session_state.pdf_page_images_list = None
 if "accumulated_bom_rows" not in st.session_state: st.session_state.accumulated_bom_rows = {}
 if "bom_data" not in st.session_state: st.session_state.bom_data = {}
 
@@ -949,20 +949,31 @@ st.markdown('</div>', unsafe_allow_html=True)
 if st.session_state.pdf_bytes is not None and safe_user_prompt:
     current_query = str(safe_user_prompt).strip()
     
-    with st.spinner("🧠 AI Core đang quét tài liệu, bóc tách cột thông số kéo căng lớn nhất (Max Stretch)..."):
+    with st.spinner("🧠 AI Core đang quét toàn bộ các trang tài liệu PDF để bóc tách thông số kéo căng thực tế..."):
         try:
             import google.generativeai as genai
             import json, copy, traceback, re
             import fitz 
             
-            if st.session_state.pdf_page_one_image is None:
+            # 🌟 NÂNG CẤP: LUỒNG TRÍCH XUẤT ĐA TRANG (MULTI-PAGE SCAN) KHÔNG BỎ SÓT THÔNG SỐ Ở TRANG SAU
+            if st.session_state.pdf_page_images_list is None:
                 doc_recovery = fitz.open(stream=st.session_state.pdf_bytes, filetype="pdf")
-                st.session_state.pdf_page_one_image = doc_recovery.load_page(0).get_pixmap(dpi=150).tobytes("png")
+                image_payloads = []
+                
+                # Quét qua tối đa 8 trang đầu tiên của Techpack để tối ưu tốc độ phân tích hình ảnh của AI
+                max_pages_to_scan = min(len(doc_recovery), 8)
+                for page_num in range(max_pages_to_scan):
+                    page_img_bytes = doc_recovery.load_page(page_num).get_pixmap(dpi=130).tobytes("png")
+                    image_payloads.append({
+                        "mime_type": "image/png",
+                        "data": page_img_bytes
+                    })
+                st.session_state.pdf_page_images_list = image_payloads
             
             if "GEMINI_API_KEY" in st.secrets: 
                 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
                 
-            model = genai.GenerativeModel("gemini-2.5-flash", generation_config={"temperature": 0.2})
+            model = genai.GenerativeModel("gemini-2.5-flash", generation_config={"temperature": 0.1})
             chat_lower = current_query.lower()
             
             # Bộ trích xuất thông số kỹ thuật động thông minh từ câu lệnh chat
@@ -988,20 +999,18 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             if len(st.session_state.chat_history) > 30:
                 st.session_state.chat_history = st.session_state.chat_history[-30:]
 
-            # 🌟 PROMPT ĐƯỢC THIẾT KẾ LẠI: ÉP QUY TẮC PHẢI BẮT CỘT SỐ KÉO CĂNG (MAX STRETCH) CHO ĐẦM/VÁY XẾP LY
+            # LỆNH ĐIỀU KHIỂN AI ENGINE: Bắt buộc phân tích tất cả các trang ảnh được truyền vào
             prompt_instruction = f"""
-            You are a senior apparel IE system. Analyze BOTH the visual sketch image and the techpack text data.
-            DATA FOUND IN TECHPACK TEXT (SPEC SHEET): {st.session_state.pdf_text_cache}
-            CONTEXT HISTORY: {json.dumps(st.session_state.chat_history, ensure_ascii=False)}
-            CURRENT USER COMMAND: "{current_query}"
+            You are a senior apparel IE system. You are provided with ALL pages of the techpack as images.
+            Carefully inspect EVERY SINGLE PAGE IMAGE provided to find the measurement specification sheet (Spec Sheet), which might be on Page 2, Page 3, or later.
             
-            STRICT APPAREL RECONSTRUCTION & GARMENT PATTERN RULES:
-            1. Identify the garment product type from the visual sketch or techpack text (e.g., SKIRT, DRESS, SHIRT, JACKET, PANT).
-            2. 🌟 CRITICAL SPEC RULE FOR PLEATS/ELASTIC/SMOCKING: If the garment contains pleats, gathers, smocking, or elastic components (especially for skirts and dresses), you MUST thoroughly scan the techpack for "Stretched", "Extended", "Max Stretch", or "Kéo căng" dimensions.
-               - NEVER extract the "Relaxed" or "Đo êm" dimensions for pleated or elastic panels.
-               - Always use the MAXIMUM stretched length and width values to represent the actual flat pattern pieces that will be laid out on the Gerber marker, otherwise the calculated fabric consumption will be short.
-            3. For "POCKET LINING / LÓT TÚI": If it's a pant, look at the visual sketch to detect the pocket bag count. If 4 bags are found, set "pocket_style_type" to "FRONT_AND_BACK". Otherwise, set to "FRONT_ONLY".
-            4. Total rows in "bom_rows" array must be exactly 3.
+            STRICT DATA EXTRACTION & ANALYSIS RULES:
+            1. Find the target size '{target_size_cmd}' column inside the spec sheet text or tables across ALL page images.
+            2. 🌟 CRITICAL PLEATS/ELASTIC/SMOCKING RULE: If the product is a skirt, dress, or has elastic waistbands/pleats, you MUST scan the entire document for "Stretched", "Extended", "Max Stretch", or "Kéo căng" values. 
+               - NEVER extract the "Relaxed" or "Đo êm" specs for pleated or elasticated panels.
+               - Extract the MAXIMUM flat pattern cutting length and width dimensions from the techpack tables for that specific size.
+            3. Dynamically build the "panels_catalog" arrays with the EXACT real dimensions extracted from the techpack for the main fabric, fusing (fusing parts like waistband/fly), and lining. Do NOT copy the fallback prompt numbers if real data is found on any page.
+            4. Total rows in the "bom_rows" array must be exactly 3.
             
             Target size: '{target_size_cmd}', Cut Width: {active_width} inches, Warp: {active_warp}%, Weft: {active_weft}%.
             
@@ -1017,14 +1026,14 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                   "component_type": "MAIN FABRIC", "placement": "BODY", "fabric_classification": "MAIN_FABRIC",
                   "fabric_code": "WOVEN", "fabric_color": "SOLID COLOR", "fabric_width_inch": {active_width},
                   "panels_catalog": [
-                    {{ "panel_name": "MAIN_SKIRT_PANEL", "piece_count": 2.0, "piece_length_inch": 28.0, "piece_width_inch": 38.5 }}
+                    {{ "panel_name": "MAIN_PANEL", "piece_count": 2.0, "piece_length_inch": 28.0, "piece_width_inch": 38.5 }}
                   ]
                 }},
                 {{
                   "component_type": "INTERLINING / KEO LÓT", "placement": "WAISTBAND", "fabric_classification": "FUSING",
                   "fabric_code": "TRICOT FUSING", "fabric_color": "WHITE", "fabric_width_inch": 44.0,
                   "panels_catalog": []
-                }}
+                }},
                 {{
                   "component_type": "POCKET LINING / LÓT TÚI", "placement": "POCKET", "fabric_classification": "LINING",
                   "fabric_code": "TC POCKETING", "fabric_color": "NATURAL", "fabric_width_inch": 44.0,
@@ -1034,16 +1043,15 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             }}
             ===END_JSON===
             ===START_CHAT===
-            [Confirm in Vietnamese that you successfully detected the product design and extracted the maximum stretched/extended specifications for pleated/elastic components using cut width {active_width} and precise shrinkage to prevent fabric shortage in Gerber layout.]
+            [Confirm in Vietnamese that you thoroughly scanned all techpack page images, located the spec sheet on the respective page, and extracted the maximum stretched specifications for size {target_size_cmd} to feed the python geometry calculation engine.]
             ===END_CHAT===
             """
             
-            image_payload = {
-                "mime_type": "image/png",
-                "data": st.session_state.pdf_page_one_image
-            }
+            # 🌟 ĐỒNG BỘ: Kết hợp danh sách TẤT CẢ CÁC TRANG ẢNH và chuỗi chỉ thị câu lệnh gửi lên Gemini
+            gemini_multipage_inputs = copy.deepcopy(st.session_state.pdf_page_images_list)
+            gemini_multipage_inputs.append(prompt_instruction)
             
-            response = model.generate_content([image_payload, prompt_instruction])
+            response = model.generate_content(gemini_multipage_inputs)
             if response and response.text:
                 response_text = response.text.strip()
                 json_match = re.search(r'===START_JSON===\s*(.*?)\s*===END_JSON===', response_text, re.DOTALL)
@@ -1061,7 +1069,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                         st.session_state.bom_data = blueprint_final
                         st.session_state.accumulated_bom_rows = blueprint_final.get("bom_rows", [])
                         
-                        ai_chat_response = "Tôi đã đồng bộ tính toán định mức."
+                        ai_chat_response = "Tôi đã đồng bộ tính toán định mức đa trang tài liệu."
                         if chat_match:
                             ai_chat_response = chat_match.group(1).strip()
                             
@@ -1072,7 +1080,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                         st.rerun()
                         
         except Exception as e:
-            st.error(f"❌ Lỗi xử lý AI Core: {str(e)}")
+            st.error(f"❌ Lỗi xử lý AI Core đa trang: {str(e)}")
             st.text(traceback.format_exc())
 
 
