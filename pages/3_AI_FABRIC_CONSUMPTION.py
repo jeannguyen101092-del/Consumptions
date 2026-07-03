@@ -1023,7 +1023,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             
             gemini_inputs = copy.deepcopy(image_payloads)
 # =====================================================================
-# ĐOẠN 7a2.1: AI CORE COGNITIVE ENGINE GENERATION (V32.0 APPROVED - FULL TRIMS & RIB)
+# ĐOẠN 7a2.1: AI CORE COGNITIVE ENGINE GENERATION (V33.0 APPROVED - COMPLETE POCKET LINING)
 # =====================================================================
             if "GEMINI_API_KEY" in st.secrets: 
                 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
@@ -1054,18 +1054,18 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                 st.session_state.chat_history = st.session_state.chat_history[-30:]
 
             prompt_instruction = f"""
-            You are an expert apparel IE OCR system. Scan all provided page images to locate the size spec tables (especially Page 13 and Page 14).
+            You are an expert apparel IE OCR system. Scan all provided page images to locate the size spec tables across Page 13 and Page 14.
             
             STRICT GARMENT RECONSTRUCTION RULES FOR PANT FLAT PATTERNS (SIZE {target_size_cmd}):
-            1. Target size is '{target_size_cmd}'. Read specifications across both Page 13 and Page 14.
-            2. Convert fractional notation to pure decimals (e.g., '16 1/2' to 16.5, '20 1/4' to 20.25).
-            3. CRITICAL WIDTH RULE TO PREVENT OVER-CONSUMPTION: 
-               - Individual FRONT_PANEL and BACK_PANEL flat pattern piece width MUST be equal to (Hip Width or Waist Width found in table) DIVIDED BY 2 plus 1.0 inch seam allowance.
+            1. Target size is '{target_size_cmd}'. Gather and compile measurements continuously from both split pages.
+            2. Convert fractional notations to clean decimals (e.g., '16 1/2' to 16.5, '20 1/4' to 20.25).
+            3. Individual FRONT_PANEL and BACK_PANEL flat pattern piece width MUST be equal to (Hip Width or Waist Width found in table) DIVIDED BY 2 plus 1.0 inch seam allowance.
             4. FRONT_PANEL / BACK_PANEL Length: Use 'Inseam' length + 'Front rise' (~32.0 + 10.75 = ~42.75 inches).
-            5. 🌟 RECONSTRUCT COMPLETE TRIMS & ACCESSORIES ASSEMBLY: You MUST output exactly 3 main categories inside the "bom_rows" array:
-               - MAIN FABRIC (DENIM): Body Front, Back, and structural panels.
-               - INTERLINING / KEO LÓT (FUSING): Waistband fusing support panel and baget pocket reinforcements.
-               - RIB / ELASTIC TAPE (BO THUN): Pocket opening tabs or waistband hidden elastic stretch structures if mentioned.
+            5. 🌟 RECONSTRUCT COMPLETE APPAREL TRIMS & LINING SCHEMATICS: You MUST output exactly 4 complete material rows inside the "bom_rows" array to support full factory consumption calculations:
+               - MAIN FABRIC (DENIM): Main body panels.
+               - INTERLINING / KEO LÓT (FUSING): Waistband fusing support and reinforcement trims.
+               - POCKET LINING / LÓT TÚI (LINING): Front pocket bags lining panels. Extract front pocket openings/lengths from Page 14.
+               - RIB / ELASTIC TAPE (BO THUN): Structural stretch tapes if required.
             
             Output strictly in the specified JSON structure:
             ===START_JSON===
@@ -1096,6 +1096,13 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                   ]
                 }},
                 {{
+                  "component_type": "POCKET LINING / LÓT TÚI", "placement": "FRONT_POCKET", "fabric_classification": "LINING",
+                  "fabric_code": "TC_POCKETING", "fabric_color": "NATURAL_WHITE", "fabric_width_inch": 44.0,
+                  "panels_catalog": [
+                    {{ "panel_name": "FRONT_POCKET_BAG", "piece_count": 4.0, "piece_length_inch": 11.0, "piece_width_inch": 7.5 }}
+                  ]
+                }},
+                {{
                   "component_type": "RIB / ELASTIC TAPE", "placement": "WAIST/POCKET", "fabric_classification": "RIB",
                   "fabric_code": "COTTON_RIB", "fabric_color": "MATCHING", "fabric_width_inch": 36.0,
                   "panels_catalog": [
@@ -1105,7 +1112,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
               ]
             }}
             ===END_JSON===
-            If successfully extracted, flip "status" to "PASS", "spec_sheet_found" to true, list extracted items as clean 'POM_CODE: Description = Value' inside "matched_measurements", and dynamically overwrite 0.0 with calibrated panel sizes.
+            If successfully extracted, flip "status" to "PASS", "spec_sheet_found" to true, list ALL distinct extracted parameters inside "matched_measurements" using format 'POM_CODE: Description = Value', and dynamically overwrite 0.0 with calibrated panel sizes.
             
             ===START_CHAT===
             [Confirm in Vietnamese which pages you scanned (Page 13 and Page 14) and summarize the exact clean decimal dimensions found for size {target_size_cmd}.]
