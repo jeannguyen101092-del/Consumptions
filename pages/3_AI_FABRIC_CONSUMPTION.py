@@ -251,34 +251,27 @@ if uploaded_file is not None:
         st.write("#### 📊 Bảng Thống Kê Thuộc Tính Hình Học Sau Khi Mapping & Khớp Cặp Đối Xứng")
         st.dataframe(pd.DataFrame(summary_table_data), use_container_width=True)
 
-        # =========================================================================
-        # PHẦN 3.2: INDUSTRIAL NESTING ENGINE - SKYLINE ALGORITHM & STRtree
+               # =========================================================================
+        # PHẦN 3.2 (SỬA LỖI ĐỊNH MỨC): SKYLINE NESTING ENGINE - CHÍNH XÁC KÍCH THƯỚC BIÊN
         # =========================================================================
         st.write("#### ⚙️ Tiến trình xếp sơ đồ công nghiệp độc lập theo từng nhóm nguyên liệu")
         
-        # Hàm bổ trợ kiểm tra va chạm phẳng sử dụng cây không gian STRtree tối ưu
         def check_collision_strtree(placed_polygons, test_poly):
             if not placed_polygons:
                 return False
-            # Dựng cây không gian từ danh sách đa giác đã xếp phẳng trước đó
             spatial_tree = STRtree(placed_polygons)
-            # Chỉ truy vấn các đa giác lân cận có khả năng giao cắt hình học phẳng
             possible_collisions = spatial_tree.query(test_poly)
             for nb in possible_collisions:
                 if test_poly.intersects(nb) and test_poly.intersection(nb).area > 0.001:
-                    return True  # Xảy ra va chạm đè nén hình học
+                    return True
             return False
 
-        # Khởi chạy vòng lặp xử lý đi sơ đồ độc lập cho từng loại vật liệu (Vải chính, Keo lót, Bo Rib)
         for fab_name, nesting_queue in fabric_groups.items():
-            # Chiến lược Greedy Sizing: Sắp xếp các chi tiết đa giác rập theo diện tích giảm dần để tăng hiệu suất sơ đồ
+            # Sắp xếp chi tiết lớn xếp trước, chi tiết nhỏ xếp sau
             nesting_queue.sort(key=lambda x: x["poly"].area, reverse=True)
             
-            placed_polygons = []  # Danh sách lưu trữ hình học đa giác đã xếp phẳng thành công
+            placed_polygons = []
             max_x_marker = 0.0
-            
-            # Khởi tạo đường chân trời Skyline dạng lưới bậc thang cơ bản: {vị trí_x: [biên_y_dưới, biên_y_trên]}
-            # Ban đầu sơ đồ trống là một đường thẳng đứng tại x=0.0 chạy suốt chiều rộng khổ vải
             skyline = {0.0: [0.0, fabric_width_input]} 
             
             with st.expander(f"🔍 Nhật ký xử lý thuật toán Skyline STRtree cho nhóm: {fab_name}", expanded=True):
@@ -288,28 +281,26 @@ if uploaded_file is not None:
                     best_y = 0.0
                     best_poly = None
                     
-                    # Quét tìm vị trí neo thích hợp dựa trên các góc xoay hướng sợi được phép (Grain Constraint)
                     for angle in item["allowed_rotations"]:
-                        # Nếu chi tiết có góc xoay, thực hiện phép xoay hình học bao quanh tâm chi tiết
                         rotated_poly = rotate(item["poly"], angle, origin='center') if angle != 0 else item["poly"]
-                        minx, miny, maxx, maxy = rotated_poly.bounds
-                        pw, ph = maxx - minx, maxy - miny
                         
-                        # Duyệt nhanh tìm các điểm neo trống trên trục đường chân trời Skyline (Điểm góc mút Bottom-Left)
+                        # Lấy kích thước thực tế của miếng rập (Width và Height thực)
+                        minx, miny, maxx, maxy = rotated_poly.bounds
+                        rập_width = maxx - minx
+                        rập_height = maxy - miny
+                        
                         for sky_x in sorted(skyline.keys()):
                             if sky_x >= best_x: 
-                                continue  # Bỏ qua nếu vị trí hiện tại đã dài hơn điểm tối ưu đã tìm được
+                                continue
                             
-                            # Quét dọc theo chiều rộng khổ rộng vải hữu dụng để khít các khe khuyết hình học
-                            for sky_y in np.arange(0.0, fabric_width_input - ph + 0.01, 0.5):
-                                # Dịch chuyển cấu trúc tọa độ rập đến điểm neo quét thử nghiệm trên lưới phẳng
+                            for sky_y in np.arange(0.0, fabric_width_input - rập_height + 0.01, 0.5):
+                                # Dịch chuyển tịnh tiến rập khít vào điểm neo Skyline
                                 test_poly = translate(rotated_poly, xoff=sky_x - minx, yoff=sky_y - miny)
                                 
-                                # Kiểm tra điều kiện biên an toàn xem có bị tràn biên khổ rộng vải hay không
-                                if test_poly.bounds[3] > fabric_width_input: 
+                                # Kiểm tra điều kiện không vượt quá biên khổ rộng vải
+                                if test_poly.bounds > fabric_width_input: 
                                     continue
                                     
-                                # Kiểm toán va chạm hình học phẳng tốc độ cao bằng cây tra cứu STRtree
                                 if not check_collision_strtree(placed_polygons, test_poly):
                                     if sky_x < best_x:
                                         best_x = sky_x
@@ -317,28 +308,30 @@ if uploaded_file is not None:
                                         best_poly = test_poly
                                         placed = True
                                         
-                    # Đưa chi tiết rập vào bản vẽ sơ đồ nếu tìm thấy khoảng không trống lọt lòng phù hợp
                     if placed and best_poly is not None:
                         placed_polygons.append(best_poly)
                         
-                        # Cập nhật điểm biên phải xa nhất để đo chiều dài sơ đồ tổng thể
-                        if best_poly.bounds[2] > max_x_marker:
-                            max_x_marker = best_poly.bounds[2]
+                        # SỬA LỖI CHÍNH: Chiều dài sơ đồ phải bằng vị trí đặt X cộng với Chiều rộng thực của miếng rập đó
+                        current_piece_end_x = best_x + (best_poly.bounds - best_poly.bounds)
+                        if current_piece_end_x > max_x_marker:
+                            max_x_marker = current_piece_end_x
                         
-                        # Cập nhật làm mới và nâng cấp sơ đồ mạng lưới Skyline
                         bx_min, by_min, bx_max, by_max = best_poly.bounds
                         skyline[bx_max] = [by_min, by_max]
                         
-                        st.caption(f"✅ Skyline STRtree định vị: `{item['name']}` xếp khít tại tọa độ X={best_x:.2f} in, Y={best_y:.2f} in")
+                        st.caption(f"✅ Định vị: `{item['name']}` tại X={best_x:.2f} in (Kích thước dài miếng rập: {best_poly.bounds - best_poly.bounds:.1f} in)")
                     else:
-                        st.caption(f"⚠️ Không tìm thấy vị trí khe trống Skyline cho chi tiết `{item['name']}`, tự động đẩy ra biên tiếp nối.")
-                        # Chế độ ép rập cưỡng bức đẩy ra cuối sơ đồ dài nếu rập quá khổng lồ không lọt vào các khe khuyết Skyline
+                        # Chế độ ép rập nối tiếp nếu không lọt khe trống
                         fallback_x = max_x_marker
                         minx, miny, maxx, maxy = item["poly"].bounds
                         moved_fb = translate(item["poly"], xoff=fallback_x - minx, yoff=0.0 - miny)
                         placed_polygons.append(moved_fb)
-                        if moved_fb.bounds[2] > max_x_marker:
-                            max_x_marker = moved_fb.bounds[2]
+                        
+                        # Cập nhật chiều dài tịnh tiến chính xác
+                        current_piece_end_x = fallback_x + (moved_fb.bounds - moved_fb.bounds)
+                        if current_piece_end_x > max_x_marker:
+                            max_x_marker = current_piece_end_x
+
             # =========================================================================
             # PHẦN 3.3: MATERIAL CALCULATION & INDUSTRIAL MARKS REPORT
             # =========================================================================
