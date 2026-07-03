@@ -257,6 +257,7 @@ def parse_geometric_panels_allowance(ai_blueprint: dict, user_chat: str) -> dict
     """
     ĐOẠN 2: TRUNG TÂM TỔNG HỢP VÀ ĐÓNG GÓI SCHEMA TOÀN DIỆN (_btp_)
     Nhiệm vụ: Chạy vòng lặp dòng BOM, tích hợp Đoạn 1, quét sạch metadata và thống kê toàn cục.
+    🌟 VÁ LỖI RUNTIME: Sử dụng list(row.keys()) để đóng băng bộ nhớ lặp.
     """
     if not ai_blueprint or not isinstance(ai_blueprint, dict):
         return {"detected_product_type": "PANT", "bom_rows": [], "_btp_global_summary": {}}
@@ -307,10 +308,11 @@ def parse_geometric_panels_allowance(ai_blueprint: dict, user_chat: str) -> dict
         elif "FUSING" in f_class or "INTERLINING" in f_class: fusing_groups.add(f_code)
         elif "HARDWARE" in f_class or "TRIM" in f_class: hardware_groups.add(f_code)
 
-        # Sao chép động tất cả metadata dòng AI sang tiền tố hệ thống _btp_ (Row future-proof)
-        for k, v in row.items():
+        # 🌟 VÁ LỖI CHÍ MẠNG: Đóng băng danh sách keys thành mảng tĩnh để chống lỗi changed size trong lúc loop
+        row_keys_frozen = list(row.keys())
+        for k in row_keys_frozen:
             if k != "panels_catalog":
-                row[f"_btp_{k}"] = v
+                row[f"_btp_{k}"] = row.get(k)
 
         row_summary = {
             "total_panel": 0, "total_piece": 0, "area": 0.0, 
@@ -436,12 +438,12 @@ def parse_geometric_panels_allowance(ai_blueprint: dict, user_chat: str) -> dict
         "need_one_way": g_flags["need_one_way"],
         "need_pair": g_flags["need_pair"],
         "need_fold": g_flags["need_fold"],
-        "system_pipeline_version": "V17.0.0-DECOUPLED-AGGREGATOR"
+        "system_pipeline_version": "V17.0.2-STABLE"
     }
 
-    # BỘ THU GOM METADATA AI TOÀN CỤC CHỦ ĐỘNG (_btp_ai_metadata) - 100% TRƯỜNG DỮ LIỆU ĐƯỢC GIỮ LẠI
+    # BỘ THU GOM METADATA AI TOÀN CỤC CHỦ ĐỘNG (_btp_ai_metadata)
     ai_metadata_schema = {}
-    for key, value in ai_blueprint.items():
+    for key, value in list(ai_blueprint.items()):
         if key.startswith("_btp_") or key == "bom_rows":
             continue
         ai_metadata_schema[key] = value
