@@ -973,52 +973,62 @@ with col_right:
 
 
 # =====================================================================
-# ĐOẠN 7a1: INTEL PAGE ISOLATOR & COMPRESSION PIPELINE (V35.0 PRO)
+# ĐOẠN 7a1: INTEL PAGE ISOLATOR & COMPRESSION PIPELINE (V36.1 FIXED)
 # =====================================================================
 import time
 import fitz  # PyMuPDF
+import streamlit as st
 
-st.session_state.gemini_inputs = []
+# CHỐT CHẶN: Khởi tạo biến lưu trữ bền vững, KHÔNG reset nếu nó đã có dữ liệu từ trước
+if "gemini_inputs" not in st.session_state:
+    st.session_state.gemini_inputs = []
+
 start_pipeline_time = time.time()
 
 if "uploaded_pdf_bytes" in st.session_state and st.session_state.uploaded_pdf_bytes:
     try:
-        # Mở document từ bytes trong bộ nhớ
+        # Mở tài liệu từ bộ nhớ đệm bytes
         doc_recovery = fitz.open(stream=st.session_state.uploaded_pdf_bytes, filetype="pdf")
         total_pages = len(doc_recovery)
         
-        # NGUYÊN NHÂN 2 FIX: Chỉ nhắm mục tiêu vào các trang chứa Spec & BOM (0-indexed: Page 1, 2, 13, 14)
-        # Tự động co giãn theo số lượng trang thực tế của tài liệu
-        target_pages = [0, 1, 12, 13] 
+        # Chỉ tập trung bóc tách các trang thông số cốt lõi (0-indexed: Trang 1, 2, 13, 14)
+        target_pages = [0, 1, 12, 13]
         actual_pages_to_scan = [p for p in target_pages if p < total_pages]
         
-        # Nếu tài liệu quá ngắn, fallback về việc quét toàn bộ trang hiện có
+        # Nếu tài liệu ngắn, quét toàn bộ số trang hiện có
         if not actual_pages_to_scan:
             actual_pages_to_scan = list(range(total_pages))
+
+        # Làm sạch mảng lưu trữ TRƯỚC KHI nạp dữ liệu của file mới vào
+        local_payloads = []
 
         for page_num in actual_pages_to_scan:
             t_page_start = time.time()
             page = doc_recovery.load_page(page_num)
             
-            # NGUYÊN NHÂN 3 & 4 FIX: Hạ DPI xuống 100 và ép màu GRAYSCALE (Giảm ngay ~75% trọng tải data)
+            # Giảm tải: Hạ xuống 100 DPI và chuyển hệ màu đen trắng (GRAYSCALE)
             pix = page.get_pixmap(dpi=100, colorspace=fitz.csGRAY)
             
-            # NGUYÊN NHÂN 8 FIX: Nén chất lượng JPEG xuống mức tối ưu để OCR đọc tốt mà file cực nhẹ
+            # Nén chất lượng ảnh xuống 75% để giảm dung lượng mạng tối đa
             page_img_bytes = pix.tobytes("jpeg", jpeg_quality=75)
             
-            st.session_state.gemini_inputs.append({
+            local_payloads.append({
                 "mime_type": "image/jpeg",
                 "data": page_img_bytes
             })
             
-            # Ghi log thời gian xử lý ảnh hệ thống
             if st.session_state.get("debug_mode", False):
                 st.info(f"⏱️ [7a1] Đã xử lý Trang {page_num + 1} ({len(page_img_bytes)/1024:.1f} KB) trong {time.time() - t_page_start:.2f}s")
                 
         doc_recovery.close()
         
+        # Gán toàn bộ mảng dữ liệu ảnh đã xử lý vào Session State một lần duy nhất
+        if local_payloads:
+            st.session_state.gemini_inputs = local_payloads
+        
     except Exception as pdf_err:
-        st.error(f"❌ Lỗi nghiêm trọng tại tầng xử lý PDF: {str(pdf_err)}")
+        st.error(f"❌ Lỗi nghiêm trọng tại tầng xử lý PDF 7a1: {str(pdf_err)}")
+
 # =====================================================================
 # ĐOẠN 7a2.1: AI CORE EXTRACTOR & ASYNCHRONOUS TIMEOUT GATEKEEPER (V36.0 APPROVED)
 # =====================================================================
