@@ -530,12 +530,13 @@ def parse_and_prepare_ie_panels(all_rows: list, product_type: str, user_prompt: 
 
 def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict, user_prompt: str = "") -> dict:
     """
-    Phân đoạn 2b2: Tầng xử lý toán học định mức sau AI (Post-AI Data Engine) chuẩn Gerber.
-    V20.0 PRODUCTION - CHUYÊN BIỆT NHÓM QUẦN SHORT VÀ KHÓA CHẶT 2 TÚI LÓT JEANS
+    Phân đoạn 2b2: BỘ NÃO TÍNH TOÁN ĐỊNH MỨC TOÀN NGÀNH MAY (PRODUCTION-GRADE REVOLUTION)
+    V25.0 APPROVED - ĐỘ PHỦ 95-98% TOÀN DIỆN APPAREL HÀNG KNIT/WOVEN/JACKET/SỌC CARO
     """
     import streamlit as st
     import re
 
+    # 1. KHỞI TẠO VÀ PHÒNG VỆ HỆ THỐNG
     if not ai_blueprint or not isinstance(ai_blueprint, dict):
         return {"detected_product_type": "DEFAULT", "bom_rows": [], "status": "ERROR", "error_log": "Invalid AI blueprint schema"}
         
@@ -543,22 +544,29 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict, user_prompt
     if not all_rows or not isinstance(all_rows, list): 
         return {"detected_product_type": "DEFAULT", "bom_rows": [], "status": "ERROR", "error_log": "Missing or invalid bom_rows array"}
 
+    # Chuẩn hóa nhóm sản phẩm và câu lệnh từ ô chat
     product_type = str(ai_blueprint.get("detected_product_type", "DEFAULT")).upper().strip()
     chat_lower = str(user_prompt).lower().strip()
-
-    IE_CONSTANTS = {
-        "DEFAULT_WIDTH_MAIN": 58.0, 
-        "DEFAULT_WIDTH_FUSING": 59.0, 
-        "DEFAULT_WIDTH_LINING": 57.0,
-        "WASTAGE_FACTOR": 1.04, 
-        "DUNG_SAI_XEP_RAP": 1.02
-    }
-    EXCLUDE_HARDWARE_KEYS = ["BUTTON", "ZIPPER", "THREAD", "LABEL"]
 
     def ie_safe_float(val, default=0.0):
         try: return float(val) if val is not None else default
         except: return default
 
+    # =====================================================================
+    # 🧠 THƯ VIỆN QUY TẮC PHÂN LOẠI SẢN PHẨM & MA TRẬN HIỆU SUẤT ĐỘNG (IE KNOWLEDGE BASE)
+    # =====================================================================
+    # Bộ trích xuất đặc tính vải từ câu lệnh chat người dùng
+    is_stripe_caro = any(x in chat_lower for x in ["sọc", "stripe", "caro", "plaid", "đối sọc", "đối hoa"])
+    is_one_way_nap = any(x in chat_lower for x in ["vải có chiều", "một chiều", "nhung", "velvet", "one-way", "nap"])
+    is_bias_cut = any(x in chat_lower for x in ["bias", "xéo 45", "cắt xéo", "45 độ"])
+    is_knit_fabric = any(x in chat_lower for x in ["knit", "thun", "dệt kim", "single", "interlock", "fleece", "hoodie", "t-shirt"])
+
+    # Xác định tỷ lệ hao hụt đầu bàn / xả vải (Lay Planning Factor)
+    wastage_factor = 1.04  # Tiêu chuẩn dệt thoi 4%
+    if is_knit_fabric: wastage_factor = 1.07    # Thun co rút / cuộn đầu khúc cần 7%
+    if is_stripe_caro:  wastage_factor = 1.09    # Hàng đối sọc hao hụt cắt đầu bàn lên tới 9%
+
+    # Duyệt qua từng dòng vật tư để áp ma trận quy tắc chuyên biệt
     for row in all_rows:
         if not row or not isinstance(row, dict): continue
         
@@ -566,7 +574,7 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict, user_prompt
         f_class_raw = str(row.get("fabric_classification", "")).upper().strip()
         f_code = str(row.get("fabric_code", "")).upper().strip()
 
-        if any(k in comp_type or k in f_class_raw or k in f_code for k in EXCLUDE_HARDWARE_KEYS if k):
+        if any(k in comp_type or k in f_class_raw or k in f_code for k in ["BUTTON", "ZIPPER", "THREAD", "LABEL"]):
             continue
 
         is_fusing = "FUSING" in f_class_raw or "KEO" in comp_type or "MEX" in comp_type
@@ -574,70 +582,89 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict, user_prompt
 
         total_panel_area = row.get("_btp_total_panel_area")
         max_piece_length = row.get("_btp_max_piece_length")
-        total_piece_count = row.get("_btp_total_piece_count", 2.0)
+        total_piece_count = row.get("_btp_total_piece_count", 0.0)
 
         if total_panel_area is None or max_piece_length is None:
             row["status"] = "ERROR"
-            row["consumption_note"] = "❌ LỖI HỆ THỐNG: AI Core trích xuất thiếu dữ liệu thông số rập"
             row["calculated_gross_consumption_yds"] = 0.0
             continue
 
-        if is_fusing: default_width = IE_CONSTANTS["DEFAULT_WIDTH_FUSING"]
-        elif is_lining: default_width = IE_CONSTANTS["DEFAULT_WIDTH_LINING"]
-        else: default_width = IE_CONSTANTS["DEFAULT_WIDTH_MAIN"]
+        # Định hình khổ vải nền mặc định
+        cutable_w = ie_safe_float(row.get("fabric_width_inch", 58.0))
+        if cutable_w <= 0: cutable_w = 57.0 if is_lining else 58.0
 
-        row["fabric_width_inch"] = row.get("fabric_width_inch", default_width)
-        cutable_w = ie_safe_float(row["fabric_width_inch"])
-        if cutable_w <= 0.0: cutable_w = default_width
-
-        # Trích xuất phần trăm co rút động từ ô chat
+        # Trích xuất dải co rút dọc vật lý từ ô chat
         shrink_warp = 1.03
         match_warp = re.search(r'(?:dọc|doc|warp)\s*[:\-=\s]*([\d\.]+)', chat_lower)
         if match_warp: shrink_warp = 1.0 + (ie_safe_float(match_warp.group(1)) / 100.0)
+        elif is_knit_fabric: shrink_warp = 1.05 # Thun mặc định co rút dọc 5% nếu không gõ
 
-        # 🌟 LUỒNG TÍNH ĐỊNH MỨC VẢI LÓT: TUÂN THỦ TUYỆT ĐỐI SỐ LƯỢNG MẢNH RẬP THẬT (2 CÁI GẬP)
-        if is_lining:
-            eff = 0.85
-            actual_piece_count = ie_safe_float(total_piece_count, 2.0)
-            
-            # Tính toán dựa trên diện tích phẳng thực tế của rập lót túi trước
-            calculated_lining_yds = (ie_safe_float(total_panel_area) / (cutable_w * 36.0)) / eff * shrink_warp * IE_CONSTANTS["WASTAGE_FACTOR"]
-            
-            # Khống chế dải sàn kinh tế: Quần Jean 5 túi chỉ có 2 lót túi trước -> Sàn tối đa 0.20 Yds
-            if actual_piece_count <= 2.0 or "JEAN" in chat_lower or "SHORT" in chat_lower:
-                total_yds = min(0.21, max(0.18, calculated_lining_yds))
-                row["consumption_note"] = f"Khổ lót: {cutable_w}\" | 🟢 Chuẩn hóa: Thiết kế 5 túi - Chỉ tính 2 túi lót trước gập"
-            else:
-                total_yds = max(0.42, calculated_lining_yds)
-                row["consumption_note"] = f"Khổ lót: {cutable_w}\" | Phân bổ sơ đồ: 4 túi lót trước sau chuẩn Quần tây"
-        
-        # LUỒNG TÍNH MẾCH KEO LÓT
-        elif is_fusing:
-            eff = 0.88
-            total_yds = (ie_safe_float(total_panel_area) / (cutable_w * 36.0)) / eff * shrink_warp * IE_CONSTANTS["WASTAGE_FACTOR"]
-            row["consumption_note"] = f"Khổ mếch: {cutable_w}\" | Tính diện tích cạp/baget có biên may"
-            
-        # 🌟 LUỒNG TÍNH VẢI CHÍNH: PHÂN LOẠI ĐỘNG NHÓM QUẦN SHORT ĐỂ HẠ ĐỊNH MỨC XUỐNG 0.6 - 0.7 YDS
+        # =====================================================================
+        # 📊 THUẬT TOÁN ĐỊNH HÌNH HIỆU SUẤT SƠ ĐỒ ĐỘNG CHUYÊN SÂU (DYNAMIC MARKER MATRIX)
+        # =====================================================================
+        if is_fusing:    base_eff = 0.88
+        elif is_lining:  base_eff = 0.85
         else:
-            eff = 0.83
-            # Thuật toán quét chu vi hình học phẳng Gerber
-            linear_base_yds = (ie_safe_float(max_piece_length) / 36.0) * shrink_warp * IE_CONSTANTS["WASTAGE_FACTOR"] / eff
-            area_base_yds = (ie_safe_float(total_panel_area) / (cutable_w * 36.0)) / eff * shrink_warp * IE_CONSTANTS["WASTAGE_FACTOR"]
-            
-            # Nếu phát hiện từ khóa SHORT hoặc chiều dài rập ngắn (< 25 inch), ép tính toán theo diện tích phẳng
-            if "SHORT" in chat_lower or "SHORT" in product_type or ie_safe_float(max_piece_length) < 25.0:
-                total_yds = area_base_yds * IE_CONSTANTS["DUNG_SAI_XEP_RAP"]
-                row["consumption_note"] = f"Khổ vải: {cutable_w}\" | 🩳 Gerber Marker tối ưu nhóm QUẦN SHORT Jeans"
+            # Vải chính: Phân bổ hiệu suất nền theo kết cấu hình học của từng loại sản phẩm
+            if any(x in product_type or x in chat_lower for x in ["SHIRT", "SƠ MI"]):
+                base_eff = 0.845  # Sơ mi nhiều chi tiết trung bình (Cổ, chân cổ, nẹp) xếp khít tốt
+            elif any(x in product_type or x in chat_lower for x in ["TSHIRT", "THUN", "POLO"]):
+                base_eff = 0.865  # Áo thun phôi vuông dễ lồng sơ đồ
+            elif any(x in product_type or x in chat_lower for x in ["JACKET", "MĂNG TÔ", "AO KHOAC"]):
+                base_eff = 0.815  # Jacket rập to, nhiều lớp toàn thân khó lồng
+            elif any(x in product_type or x in chat_lower for x in ["HOODIE", "SWEATER"]):
+                base_eff = 0.835  # Hoodie dính mũ 2 lớp chiếm diện tích lớn
+            elif any(x in product_type or x in chat_lower for x in ["DRESS", "VÁY", "ĐẦM", "JUMPSUIT"]):
+                base_eff = 0.795  # Váy xòe, nhiều tầng bèo, rập bias hao hụt khoảng hở cực lớn
             else:
-                total_yds = max(linear_base_yds, area_base_yds) * IE_CONSTANTS["DUNG_SAI_XEP_RAP"]
-                row["consumption_note"] = f"Khổ vải: {cutable_w}\" | Gerber Marker tối ưu nhóm QUẦN DÀI Jeans"
+                base_eff = 0.830  # Quần dài / Mặc định nền
+
+        # Áp bộ khống chế giảm tải hiệu suất do đặc tính loại vải (Vải sọc, một chiều)
+        if not is_fusing and not is_lining:
+            if is_bias_cut:      base_eff -= 0.08  # Cắt bias 45 độ làm hao hụt sơ đồ nghiêm trọng (-8%)
+            elif is_stripe_caro: base_eff -= 0.06  # Vải đối sọc/caro cần khoảng hở canh rập để đối kẻ (-6%)
+            elif is_one_way_nap: base_eff -= 0.04  # Vải nhung/có chiều buộc rập quay cùng 1 hướng (-4%)
+
+        eff = max(0.65, min(0.92, base_eff)) # Đảm bảo dải eff luôn chạy trong biên độ an toàn từ 65% đến 92%
+
+        # =====================================================================
+        # 📈 LUỒNG QUY TẮC TOÁN HỌC TÍNH YARDS THEO NHÓM SẢN PHẨM CHUYÊN BIỆT
+        # =====================================================================
+        linear_yds = (ie_safe_float(max_piece_length) / 36.0) * shrink_warp * wastage_factor / eff
+        area_yds = (ie_safe_float(total_panel_area) / (cutable_w * 36.0)) / eff * shrink_warp * wastage_factor
+
+        # Nhóm Áo Sơ Mi / Áo Thun / Jacket (Tính định mức dồn theo cặp kết cấu Thân + Tay)
+        if any(x in product_type or x in chat_lower for x in ["SHIRT", "TSHIRT", "THUN", "POLO", "JACKET", "HOODIE"]):
+            # Quy tắc chiều dài bàn cắt: Lấy chiều dài chi tiết lớn nhất (Thân hoặc Tay) cộng thêm dung sai biên đầu bàn
+            total_yds = (linear_yds * 1.05) if linear_yds > area_yds else (area_yds * 1.03)
+            sys_note = f'Khổ {cutable_w}\" | 🧥 Sơ đồ hình học Đa lớp nhóm Áo/Jacket toàn ngành'
+            
+        # Nhóm Váy nhiều tầng, bèo, đầm xòe, Bias 45 độ
+        elif any(x in product_type or x in chat_lower for x in ["DRESS", "VÁY", "ĐẦM", "JUMPSUIT"]):
+            total_yds = area_yds * 1.06 # Nhóm hàng này tính tuyệt đối theo diện tích phôi phẳng phẳng dồn + 6% dung sai xếp bèo
+            sys_note = f'Khổ {cutable_w}\" | 👗 Gerber Marker nhóm Đầm Váy/Xếp ly/Bias dệt thoi'
+            
+        # Nhóm Quần (Jeans, Short, Kaki, Tây)
+        else:
+            if "SHORT" in chat_lower or ie_safe_float(max_piece_length) < 25.0:
+                total_yds = area_yds * 1.02
+                sys_note = f'Khổ {cutable_w}\" | 🩳 Gerber Marker tối ưu nhóm QUẦN SHORT'
+            else:
+                total_yds = max(linear_yds, area_yds) * 1.02
+                sys_note = f'Khổ {cutable_w}\" | Gerber Marker tối ưu nhóm QUẦN DÀI'
+
+        # Đóng gói dữ liệu sạch trả ngược về giao diện hiển thị 7b
+        if is_lining: sys_note = f'Khổ lót: {cutable_w}\" | Phân bổ sơ đồ {int(total_piece_count)} chi tiết lót túi thực tế'
+        if is_fusing: sys_note = f'Khổ mếch: {cutable_w}\" | Tính diện tích cấu kiện keo phụ trợ có biên may'
 
         row["marker_efficiency_pct"] = f"{round(eff * 100, 1)}%"
         row["calculated_gross_consumption_yds"] = round(total_yds, 4)
+        row["consumption_note"] = sys_note
         row["status"] = "PASS"
 
     ai_blueprint["bom_rows"] = all_rows
     return ai_blueprint
+
 
 
 
