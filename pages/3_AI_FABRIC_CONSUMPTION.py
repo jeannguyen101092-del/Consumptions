@@ -1104,6 +1104,20 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             
             Target size: '{target_size_cmd}', Cut Width: {active_width} inches, Warp: {active_warp}%, Weft: {active_weft}%.
             
+                       # Thay thế đoạn prompt_instruction cũ của bạn bằng đoạn ép cấu hình rập chi tiết này:
+            prompt_instruction = f"""
+            You are a senior apparel IE system. Analyze BOTH the visual sketch image and the techpack text data.
+            DATA FOUND IN TECHPACK TEXT (BOM SHEET): {st.session_state.pdf_text_cache}
+            CONTEXT HISTORY: {json.dumps(st.session_state.chat_history, ensure_ascii=False)}
+            CURRENT USER COMMAND: "{current_query}"
+            
+            STRICT APPAREL RECONSTRUCTION RULES:
+            - You MUST fully extract all 3D or 2D panel details for a standard functional CARGO PANT.
+            - Total pieces for main fabric components must account for both Left and Right sides.
+            - The JSON "panels_catalog" array for "MAIN FABRIC" MUST contain at least 6 separate item dictionaries with precise industry dimensions.
+            
+            Target size: '{target_size_cmd}', Cut Width: {active_width} inches, Warp: {active_warp}%, Weft: {active_weft}%.
+            
             Return response in exact format:
             ===START_JSON===
             {{
@@ -1113,25 +1127,32 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
               "bom_rows": [
                 {{
                   "component_type": "MAIN FABRIC", "placement": "BODY/POCKETS", "fabric_classification": "MAIN_FABRIC",
-                  "fabric_code": "DENIM", "fabric_color": "SOLID COLOR", "fabric_width_inch": {active_width},
+                  "fabric_code": "TWILL", "fabric_color": "SOLID COLOR", "fabric_width_inch": {active_width},
                   "panels_catalog": [
-                    {{ "panel_name": "FRONT_PANEL", "piece_count": 2.0, "piece_length_inch": 41.5, "piece_width_inch": 13.0 }},
-                    {{ "panel_name": "BACK_PANEL", "piece_count": 2.0, "piece_length_inch": 42.0, "piece_width_inch": 15.5 }},
-                    {{ "panel_name": "SIDE_CARGO_POCKET", "piece_count": 2.0, "piece_length_inch": 9.5, "piece_width_inch": 8.5 }},
-                    {{ "panel_name": "CARGO_POCKET_FLAP", "piece_count": 4.0, "piece_length_inch": 3.5, "piece_width_inch": 8.5 }},
-                    {{ "panel_name": "WAISTBAND", "piece_count": 2.0, "piece_length_inch": 34.0, "piece_width_inch": 3.5 }},
-                    {{ "panel_name": "BACK_POCKET", "piece_count": 2.0, "piece_length_inch": 6.5, "piece_width_inch": 6.0 }}
+                    {{ "panel_name": "FRONT_PANEL", "piece_count": 2.0, "piece_length_inch": 41.5, "piece_width_inch": 13.5 }},
+                    {{ "panel_name": "BACK_PANEL", "piece_count": 2.0, "piece_length_inch": 42.5, "piece_width_inch": 16.0 }},
+                    {{ "panel_name": "WAISTBAND", "piece_count": 2.0, "piece_length_inch": 34.5, "piece_width_inch": 3.75 }},
+                    {{ "panel_name": "SIDE_CARGO_POCKET_BODY", "piece_count": 2.0, "piece_length_inch": 10.0, "piece_width_inch": 9.0 }},
+                    {{ "panel_name": "CARGO_POCKET_FLAP", "piece_count": 4.0, "piece_length_inch": 4.0, "piece_width_inch": 9.0 }},
+                    {{ "panel_name": "BACK_WELT_POCKET_FACING", "piece_count": 2.0, "piece_length_inch": 7.0, "piece_width_inch": 6.5 }},
+                    {{ "panel_name": "FRONT_POCKET_FACING", "piece_count": 2.0, "piece_length_inch": 8.5, "piece_width_inch": 5.0 }}
                   ]
                 }},
                 {{
                   "component_type": "INTERLINING / KEO LÓT", "placement": "WAISTBAND", "fabric_classification": "FUSING",
                   "fabric_code": "TRICOT FUSING", "fabric_color": "WHITE", "fabric_width_inch": {active_width},
-                  "panels_catalog": []
+                  "panels_catalog": [
+                    {{ "panel_name": "WAISTBAND_FUSING", "piece_count": 2.0, "piece_length_inch": 34.5, "piece_width_inch": 3.75 }},
+                    {{ "panel_name": "POCKET_FLAP_FUSING", "piece_count": 2.0, "piece_length_inch": 4.0, "piece_width_inch": 9.0 }}
+                  ]
                 }},
                 {{
                   "component_type": "POCKET LINING / LÓT TÚI", "placement": "POCKET BAGS", "fabric_classification": "LINING",
                   "fabric_code": "TC POCKETING", "fabric_color": "NATURAL", "fabric_width_inch": {active_width},
-                  "panels_catalog": []
+                  "panels_catalog": [
+                    {{ "panel_name": "FRONT_POCKET_BAG", "piece_count": 4.0, "piece_length_inch": 12.0, "piece_width_inch": 7.5 }},
+                    {{ "panel_name": "BACK_POCKET_BAG", "piece_count": 2.0, "piece_length_inch": 8.0, "piece_width_inch": 7.0 }}
+                  ]
                 }}
               ]
             }}
@@ -1140,6 +1161,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             [Confirm in Vietnamese that you calculated using width {active_width} and precise shrinkage warp {active_warp}% and weft {active_weft}% based on visual sketch and history context.]
             ===END_CHAT===
             """
+
             
             image_payload = {
                 "mime_type": "image/png",
