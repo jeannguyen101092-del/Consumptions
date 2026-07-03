@@ -1004,7 +1004,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             
             gemini_inputs = copy.deepcopy(image_payloads)
 # =====================================================================
-# ĐOẠN 7a2.1: AI COGNITIVE EXTRACTOR & DYNAMIC GARMENT RECONSTRUCTION PIPELINE (V45.2 STABLE)
+# ĐOẠN 7a2.1: AI COGNITIVE EXTRACTOR & DYNAMIC GARMENT RECONSTRUCTION PIPELINE (V45.5 EXTREME)
 # =====================================================================
             if "GEMINI_API_KEY" in st.secrets: 
                 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
@@ -1012,8 +1012,10 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             model = genai.GenerativeModel("gemini-2.5-flash", generation_config={"temperature": 0.0})
             chat_lower = current_query.lower()
             
-            # 🌟 FIX CHÍ MẠNG: Sử dụng biến hệ thống an toàn thay thế cho biến product_type chưa khai báo
-            doc_product_type_raw = str(st.session_state.get("bom_data", {}).get("detected_product_type", "DEFAULT")).upper()
+            # 🌟 FIX CHIẾN LƯỢC TUYỆT ĐỐI: Bẫy kiểm tra NoneType bằng cấu trúc rẽ nhánh một dòng an toàn
+            bom_state_data = st.session_state.get("bom_data")
+            doc_product_type_raw = str(bom_state_data.get("detected_product_type", "DEFAULT")).upper() if isinstance(bom_state_data, dict) else "DEFAULT"
+            
             inferred_is_upper = any(x in chat_lower or x in doc_product_type_raw for x in ["DRESS", "VÁY", "ĐẦM", "SHIRT", "SƠ MI", "TSHIRT", "JACKET", "HOODIE", "TOP", "ÁO"])
             
             # Bộ bóc tách thông minh bắt trọn dải Size chữ (XS-XXL) lẫn Size số (26-40)
@@ -1106,6 +1108,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             
             gemini_inputs.append(prompt_instruction)
             response = model.generate_content(gemini_inputs)
+
 
 
 
