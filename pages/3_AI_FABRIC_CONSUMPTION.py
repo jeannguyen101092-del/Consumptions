@@ -1267,7 +1267,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
 
 
 # =====================================================================
-# ĐOẠN 7b: HIỂN THỊ KẾT QUẢ ĐỊNH MỨC & BẢNG TRA CỨU THÔNG SỐ CHUẨN MATRIX ĐA CỘT (V21.0 APPROVED)
+# ĐOẠN 7b: HIỂN THỊ KẾT QUẢ ĐỊNH MỨC & BẢNG ĐỐI CHỨNG CHUẨN MATRIX ĐA CỘT (V38.0 APPROVED)
 # =====================================================================
 if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data and st.session_state.bom_data["bom_rows"]:
     
@@ -1338,9 +1338,7 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data 
     st.dataframe(df_bom, use_container_width=True, hide_index=True)
     st.markdown('</div>', unsafe_allow_html=True)
     
-    # =====================================================================
-    # 🌟 FIX CHIẾN LƯỢC 2: TRỰC QUAN HÓA BẢNG ĐỐI CHỨNG ĐA CỘT PHÂN TÁCH SIÊU ĐẸP
-    # =====================================================================
+    # TRỰC QUAN HÓA BẢNG ĐỐI CHỨNG ĐA CỘT PHAN TÁCH SIÊU ĐẸP
     raw_evidence_list = st.session_state.bom_data.get("matched_measurements", [])
     if raw_evidence_list:
         st.markdown("<br>", unsafe_allow_html=True)
@@ -1350,13 +1348,10 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data 
         parsed_evidence_rows = []
         for idx, item in enumerate(raw_evidence_list):
             raw_str = str(item).strip()
-            
-            # Khởi tạo các dải phân mảnh cột mặc định phòng vệ dữ liệu
             pom_code = "POM"
             description = raw_str
             measurement_val = "-"
             
-            # Cắt chuỗi thông minh bằng dấu hai chấm hoặc dấu bằng
             if ":" in raw_str:
                 parts = raw_str.split(":", 1)
                 pom_code = parts[0].strip()
@@ -1380,11 +1375,10 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data 
             })
             
         df_evidence = pd.DataFrame(parsed_evidence_rows)
-        # Ép bảng co giãn full màn hình nâng cao trải nghiệm UI/UX nhà máy
         st.dataframe(df_evidence, use_container_width=True, hide_index=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
-    # KHỐI LOGIC KHỞI TẠO FILE BÁO CÁO EXCEL CHUẨN SẢN XUẤT NHÀ MÁY
+    # KHỐI LOGIC XUẤT EXCEL CHUẨN ĐƯỢC VÁ SẠCH LỖI BIẾN LẶP DÒNG 1202
     try:
         import io
         from openpyxl import Workbook
@@ -1425,6 +1419,7 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data 
             cell.border = thin_border
         ws.row_dimensions.height = 28
         
+        # 🌟 FIX DỨT ĐIỂM: Đồng bộ chuẩn chỉ số cột tránh nghẽn luồng đóng băng trang web
         for row_num, row_data in enumerate(display_data, 4):
             ws.row_dimensions[row_num].height = 22
             for col_idx, key in enumerate(headers, 1):
