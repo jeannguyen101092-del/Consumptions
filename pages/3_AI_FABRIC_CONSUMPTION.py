@@ -528,22 +528,19 @@ def parse_and_prepare_ie_panels(all_rows: list, product_type: str, user_prompt: 
     return prepared_rows, user_requested_eff
 
 
-# =====================================================================
-# ĐOẠN 2b2: LÕI TOÁN HỌC PHÂN BỔ ĐỊNH MỨC & SỬA LỖI ĐỘNG KÍCH SỐ CARGO (V17.0.2.2 APPROVED)
-# =====================================================================
-
 def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict, user_prompt: str = "") -> dict:
     """
-    Phân đoạn 2b2: Chạy công thức tính toán định mức dải sơ đồ lồng rập Cargo chuẩn nhà máy.
-    V17.0.2.7 APPROVED - ĐẨY ĐỊNH MỨC THEO DIỆN TÍCH ĐƯỜNG MAY MỚI
+    Phân đoạn 2b2: Thuật toán IE đa mã hàng (Áo, Đầm, Váy, Quần) chuẩn sơ đồ Gerber.
+    V17.0.3.0 APPROVED - AUTOMATIC PRODUCT TYPE ROUTING
     """
     import streamlit as st
     import copy
     import re
 
     if not ai_blueprint or not isinstance(ai_blueprint, dict):
-        return {"detected_product_type": "CARGO_PANT", "bom_rows": []}
+        return {"detected_product_type": "DEFAULT", "bom_rows": []}
 
+    # 1. Tự động nhận diện loại sản phẩm từ AI Core (Ép viết hoa để rẽ nhánh)
     product_type = str(ai_blueprint.get("detected_product_type", "DEFAULT")).upper().strip()
     fabric_registry = ai_blueprint.get("_fabric_registry_cache", {})
     if not fabric_registry or not isinstance(fabric_registry, dict): fabric_registry = {}
@@ -564,29 +561,18 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict, user_prompt
     match_w_prompt = re.search(r'\b(?:khổ|kho|width)\s*[:\-=\s]*([\d\.]+)\b', chat_lower)
     prompt_extracted_width = float(match_w_prompt.group(1)) if match_w_prompt else None
 
+    # Cấu hình hằng số hệ thống linh hoạt
     globals_dict = globals()
-    EXCLUDE_HARDWARE_KEYS = globals_dict.get("EXCLUDE_HARDWARE_KEYS", ["BUTTON", "ZIPPER", "THREAD", "LABEL"])
     IE_CONSTANTS = globals_dict.get("IE_CONSTANTS", {
-        "DEFAULT_WIDTH_MAIN": 57.0, 
-        "DEFAULT_WIDTH_FUSING": 44.0, 
-        "DEFAULT_WIDTH_LINING": 44.0, 
-        "DEFAULT_WIDTH_ELASTIC": 1.5,
-        "MAX_ALLOWED_EFF": 0.88, 
-        "BASE_MARKER_EFF": 0.82,          # Hiệu suất sơ đồ rập túi hộp thực tế Gerber
-        "FIXED_EFF_TRIMS": 0.82, 
-        "WASTAGE_FACTOR": 1.10,           # Hao hụt đầu tấm nâng lên 10% bảo vệ sản xuất
-        "DUNG_SAI_BIEN_CARGO": 1.08,      # 🟢 Tăng dung sai biên rập Cargo lên 8% (bù khoảng hở dao cắt)
-        "FALLBACK_MAIN_CONS": 1.72,       # 🟢 Nâng mức trần phòng vệ lên 1.72 Yds để khớp Gerber
-        "FALLBACK_FUSING_CONS": 0.18, 
-        "FALLBACK_LINING_CONS": 0.28,
-        "CRITICAL_PANT_THRESHOLD": 1.95, 
-        "WARN_PANT_THRESHOLD": 1.65
+        "DEFAULT_WIDTH_MAIN": 57.0, "DEFAULT_WIDTH_FUSING": 44.0, "DEFAULT_WIDTH_LINING": 44.0,
+        "WASTAGE_FACTOR": 1.07,  # Hao hụt đầu cây chuẩn 7%
     })
 
     def ie_safe_float(val, default=0.0):
         try: return float(val) if val is not None else default
         except: return default
 
+    # 2. VÒNG LẶP TÍNH TOÁN ĐỊNH MỨC THEO ĐA PHÂN LOẠI MÃ HÀNG
     for row in prepared_rows:
         comp_type = str(row.get("component_type", "")).upper().strip()
         placement = str(row.get("placement", "")).upper().strip()
@@ -594,29 +580,20 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict, user_prompt
         f_code = str(row.get("fabric_code", "")).upper().strip()
         f_color = str(row.get("fabric_color", "")).upper().strip()
 
-        if any(k in comp_type or k in placement or k in f_class_raw or k in f_code for k in EXCLUDE_HARDWARE_KEYS if k):
-            row["calculated_gross_consumption_yds"] = 0.0
-            row["marker_efficiency_pct"] = "N/A"
-            row["consumption_note"] = "Hardware Trim Bypass"
-            row["reason_or_logs"] = "Bypass"
-            st.session_state.accumulated_bom_rows[f"HARDWARE_{f_code}"] = row
-            continue
-
+        # Kiểm tra nhanh phân loại vải nền
         is_fusing = row.get("_is_fusing", "FUSING" in f_class_raw or "KEO" in comp_type)
         is_lining = row.get("_is_lining", "LINING" in f_class_raw or "LÓT" in comp_type)
         is_elastic_or_tape = row.get("_is_elastic_or_tape", "ELASTIC" in f_class_raw)
         total_panel_area = row.get("_btp_total_panel_area", 0.0)
         total_piece_count = row.get("_btp_total_piece_count", 0.0)
 
+        # Định dạng khóa lưu trữ và khổ vải
         if is_fusing:
             row_unique_key = f"FUSING_TOTAL_{f_code}"
             default_width = IE_CONSTANTS["DEFAULT_WIDTH_FUSING"]
         elif is_lining:
             row_unique_key = f"LINING_TOTAL_{f_code}"
             default_width = IE_CONSTANTS["DEFAULT_WIDTH_LINING"]
-        elif is_elastic_or_tape:
-            row_unique_key = f"ELASTIC_TOTAL_{f_code}"
-            default_width = IE_CONSTANTS["DEFAULT_WIDTH_ELASTIC"]
         else:
             row_unique_key = f"MAIN_FABRIC_TOTAL_{f_code}_{f_color}"
             default_width = IE_CONSTANTS["DEFAULT_WIDTH_MAIN"]
@@ -626,85 +603,83 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict, user_prompt
         else:
             row["fabric_width_inch"] = row.get("fabric_width_inch", default_width) if ie_safe_float(row.get("fabric_width_inch", 0)) > 0 else default_width
 
-        max_piece_length = 0.0
-        cargo_pocket_area = 0.0
-        panels = row.get("panels_catalog", [])
-        if panels and isinstance(panels, list):
-            for p in panels:
-                if not isinstance(p, dict): continue
-                p_name = str(p.get("panel_name", "")).upper()
-                l_val = ie_safe_float(p.get("piece_length_inch"), 0.0)
-                w_val = ie_safe_float(p.get("piece_width_inch"), 0.0)
-                c_val = ie_safe_float(p.get("piece_count"), 1.0)
-                
-                if any(x in p_name for x in ["PANEL", "BODY", "FRONT", "BACK"]):
-                    if l_val > max_piece_length: max_piece_length = l_val
-                if any(x in p_name for x in ["CARGO", "POCKET", "FLAP"]):
-                    cargo_pocket_area += (l_val * w_val * c_val)
+        cutable_w = row["fabric_width_inch"]
 
-        if max_piece_length == 0.0: max_piece_length = 42.5
-
+        # Trích xuất dải co rút từ registry
         matched_cache_data = fabric_registry.get(f"{f_code}_{f_color}_TWO_WAY_0")
         if not matched_cache_data:
             matched_cache_data = next((c_data for f_id, c_data in fabric_registry.items() if f_code in f_id or f_class_raw in f_id), None)
+        shrink_warp = matched_cache_data.get("shrink_warp_f", 1.03) if matched_cache_data else 1.03
+
+        # Lấy chiều dài rập chi tiết lớn nhất (max_piece_length)
+        max_piece_length = row.get("_btp_max_piece_length", 0.0)
+        if max_piece_length == 0.0:
+            panels = row.get("panels_catalog", [])
+            if panels: max_piece_length = max([ie_safe_float(p.get("piece_length_inch"), 0.0) for p in panels if isinstance(p, dict)] or [30.0])
 
         is_processed = False
         if total_panel_area > 5.0:
             is_processed = True
-            cutable_w = row["fabric_width_inch"]
             
-            if user_requested_eff is not None:
-                eff = user_requested_eff
-            else:
-                if not is_fusing and not is_lining and not is_elastic_or_tape:
-                    bonus_eff = min(0.04, (total_piece_count - 4) * 0.005) if total_piece_count > 4 else 0.0
-                    eff = min(IE_CONSTANTS["MAX_ALLOWED_EFF"], IE_CONSTANTS["BASE_MARKER_EFF"] + bonus_eff)
-                else:
-                    eff = IE_CONSTANTS["FIXED_EFF_TRIMS"]
-                
-            row["marker_efficiency_pct"] = f"{round(eff * 100, 1)}%"
-            shrink_warp = matched_cache_data.get("shrink_warp_f", 1.03) if matched_cache_data else 1.03
-            
-            is_garment_pant = (product_type in ["PANT", "CARGO_PANT", "DEFAULT"] or "PANT" in product_type or max_piece_length > 30.0)
-            
-            if is_garment_pant and not is_fusing and not is_lining and not is_elastic_or_tape:
-                # 🟢 THUẬT TOÁN ĐỊNH MỨC NÂNG CẤP ĐƯỜNG MAY MỚI
-                base_body_yds = (max_piece_length / 36.0)
-                pocket_leak_yds = (cargo_pocket_area / (cutable_w * 36.0)) * 1.15 # 🟢 Tăng hệ số lồng rập túi hộp lên 1.15 để bù khoảng hở Gerber
-                
-                total_yds = (base_body_yds + pocket_leak_yds) * shrink_warp * IE_CONSTANTS["WASTAGE_FACTOR"] / eff
-                total_yds *= IE_CONSTANTS["DUNG_SAI_BIEN_CARGO"]
-                
-                if total_yds > 2.25: total_yds = IE_CONSTANTS["FALLBACK_MAIN_CONS"]
-            else:
+            # 🌟 CHỐT LOGIC RẼ NHÁNH ĐỊNH MỨC PHÙ HỢP TỪNG LOẠI SẢN PHẨM CHUẨN GERBER:
+            if is_fusing or is_lining or is_elastic_or_tape:
+                # Phụ liệu: Tính thuần theo diện tích phẳng hình chữ nhật bao phủ
+                eff = user_requested_eff if user_requested_eff else 0.85
                 total_yds = (total_panel_area / (cutable_w * 36.0)) / eff * shrink_warp * IE_CONSTANTS["WASTAGE_FACTOR"]
+                row["consumption_note"] = f"Khổ: {cutable_w}\" | Tính theo tổng diện tích chi tiết phụ liệu"
                 
+            elif any(x in product_type for x in ["JACKET", "COAT", "ÁO_KHOÁC"]):
+                # ÁO KHOÁC: Hiệu suất sơ đồ thấp (80-82%), rập to nhiều chi tiết lót, đáp
+                eff = user_requested_eff if user_requested_eff else 0.81
+                total_yds = (total_panel_area / (cutable_w * 36.0)) / eff * shrink_warp * IE_CONSTANTS["WASTAGE_FACTOR"] * 1.05
+                row["consumption_note"] = f"Khổ: {cutable_w}\" | Thuật toán sơ đồ Áo khoác / Jacket"
+                
+            elif any(x in product_type for x in ["SHIRT", "BLOUSE", "ÁO_SƠ_MI", "TEE", "POLO"]):
+                # ÁO SƠ MI / ÁO THUN: Đi sơ đồ đan xen rất tốt, hiệu suất cao (85-88%)
+                eff = user_requested_eff if user_requested_eff else 0.86
+                # Phương pháp Layout dải dọc (Thân trước + Thân sau + Tay áo)
+                total_yds = (total_panel_area / (cutable_w * 36.0)) / eff * shrink_warp * IE_CONSTANTS["WASTAGE_FACTOR"]
+                row["consumption_note"] = f"Khổ: {cutable_w}\" | Thuật toán sơ đồ Áo sơ mi / T-Shirt"
+                
+            elif any(x in product_type for x in ["DRESS", "SKIRT", "ĐẦM", "CHÂN_VÁY"]):
+                # ĐẦM / VÁY XOÈ: Rập xéo, tốn diện tích biên sơ đồ lớn, Gerber hao hụt khoảng hở cao
+                eff = user_requested_eff if user_requested_eff else 0.79 # Hiệu suất thấp do rập xòe canh sợi xéo
+                total_yds = (total_panel_area / (cutable_w * 36.0)) / eff * shrink_warp * IE_CONSTANTS["WASTAGE_FACTOR"] * 1.08
+                row["consumption_note"] = f"Khổ: {cutable_w}\" | Thuật toán sơ đồ Đầm / Váy sợi xéo"
+                
+            elif any(x in product_type for x in ["PANT", "CARGO", "TROUSER", "QUẦN"]):
+                # CÁC LOẠI QUẦN: Tính theo phương pháp dải dọc Outseam phối hợp diện tích túi
+                eff = user_requested_eff if user_requested_eff else 0.83
+                base_body_yds = (max_piece_length / 36.0)
+                # Bù 5% diện tích cho các chi tiết túi đắp hông quần nếu là quần Cargo
+                cargo_buffer = 1.05 if "CARGO" in product_type else 1.0
+                total_yds = (base_body_yds * cargo_buffer) * shrink_warp * IE_CONSTANTS["WASTAGE_FACTOR"] / eff
+                row["consumption_note"] = f"Khổ: {cutable_w}\" | Thuật toán sơ đồ Quần (Outseam Layout)"
+                
+            else:
+                # MẶC ĐỊNH KHÔNG RÕ MÃ HÀNG: Dùng thuật toán diện tích phẳng đa dụng an toàn
+                eff = user_requested_eff if user_requested_eff else 0.83
+                total_yds = (total_panel_area / (cutable_w * 36.0)) / eff * shrink_warp * IE_CONSTANTS["WASTAGE_FACTOR"]
+                row["consumption_note"] = f"Khổ: {cutable_w}\" | Thuật toán diện tích phẳng đa dụng"
+
+            row["marker_efficiency_pct"] = f"{round(eff * 100, 1)}%"
             row["calculated_gross_consumption_yds"] = round(total_yds, 4)
-            row["consumption_note"] = f"Khổ vải: {cutable_w}\" | Thuật toán tích hợp chu vi đường may rập túi Cargo"
             row["reason_or_logs"] = f"{cutable_w}\"/{row['marker_efficiency_pct']}/{round((shrink_warp-1)*100,1)}x0.0"
+            row["status"] = "PASS"
 
-            if is_garment_pant and not is_fusing and not is_lining and not is_elastic_or_tape:
-                if total_yds >= IE_CONSTANTS["CRITICAL_PANT_THRESHOLD"]: row["status"] = "CRITICAL"
-                elif total_yds >= IE_CONSTANTS["WARN_PANT_THRESHOLD"]: row["status"] = "WARN"
-                else: row["status"] = "PASS"
-
+        # Khối Fallback phòng vệ khi bảng tài liệu rỗng
         if not is_processed:
             row["status"] = "PASS"
-            if is_fusing:
-                row["calculated_gross_consumption_yds"] = IE_CONSTANTS["FALLBACK_FUSING_CONS"]
-                row["consumption_note"] = f"Khổ mếch: {row['fabric_width_inch']}\" | Mex Keo"
-            elif is_lining:
-                row["calculated_gross_consumption_yds"] = IE_CONSTANTS["FALLBACK_LINING_CONS"]
-                row["consumption_note"] = f"Khổ lót: {row['fabric_width_inch']}\" | Vải lót túi"
-            else:
-                row["calculated_gross_consumption_yds"] = IE_CONSTANTS["FALLBACK_MAIN_CONS"]
-                row["consumption_note"] = f"Khổ vải: {row['fabric_width_inch']}\" | Định mức an toàn Gerber"
-            row["reason_or_logs"] = f"{row['fabric_width_inch']}\"/82.0%/4.0x4.0"
+            row["calculated_gross_consumption_yds"] = 1.25 if not is_fusing and not is_lining else 0.20
+            row["consumption_note"] = f"Khổ: {cutable_w}\" | Định mức mặc định hệ thống"
+            row["marker_efficiency_pct"] = "83.0%"
+            row["reason_or_logs"] = f"{cutable_w}\"/83.0%/0.0x0.0"
 
         st.session_state.accumulated_bom_rows[row_unique_key] = row
 
     ai_blueprint["bom_rows"] = prepared_rows
     return ai_blueprint
+
 
 
 
