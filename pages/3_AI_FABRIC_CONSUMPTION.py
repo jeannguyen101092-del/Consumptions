@@ -717,6 +717,43 @@ else:
 
 
 
+# =====================================================================
+# HỆ THỐNG TOÁN HỌC V18 GERBER INDUSTRIAL MARKER ENGINE
+# ĐOẠN 7 - PHẦN 1/5 (BỔ SUNG NÚT CLEAR CHAT): KHỞI TẠO WORKSPACE
+# =====================================================================
+
+# --- PHẦN 1: KHUNG HỘI THOẠI & LỊCH SỬ WORKSPACE (UI CHAT) ---
+st.markdown('<br><div class="cad-card"><div class="cad-header">💬 CHATGPT IE COLLABORATION WORKSPACE</div>', unsafe_allow_html=True)
+
+# Khởi tạo các trạng thái Session State nếu chưa có
+if "chat_history" not in st.session_state: st.session_state.chat_history = []
+if "pdf_page_one_image" not in st.session_state: st.session_state.pdf_page_one_image = None
+if "accumulated_bom_rows" not in st.session_state: st.session_state.accumulated_bom_rows = {}
+if "current_warp_pct" not in st.session_state: st.session_state.current_warp_pct = "3.0%"
+if "current_weft_pct" not in st.session_state: st.session_state.current_weft_pct = "3.0%"
+if "active_blueprint" not in st.session_state: st.session_state.active_blueprint = {}
+
+# 🗑️ NÚT CLEAR CHAT CHUYÊN DỤNG (ĐẶT Ở GÓC TRÊN KHUNG CHAT)
+c_col1, c_col2 = st.columns([6, 1])
+with c_col2:
+    if st.button("🗑️ Clear Chat", use_container_width=True, help="Xóa sạch lịch sử hội thoại và bộ nhớ đệm định mức"):
+        # Đập tan và làm rỗng toàn bộ bộ nhớ đệm trạng thái phiên chạy
+        st.session_state.chat_history = []
+        st.session_state.active_blueprint = {}
+        st.session_state.accumulated_bom_rows = {}
+        st.session_state.current_warp_pct = "3.0%"
+        st.session_state.current_weft_pct = "3.0%"
+        st.toast("🧹 Đã làm sạch toàn bộ lịch sử chat và ma trận định mức!", icon="🗑️")
+        st.rerun()
+
+# Kết xuất lịch sử hội thoại cũ lên màn hình Streamlit (Nếu có)
+if st.session_state.chat_history:
+    for msg in st.session_state.chat_history:
+        st.chat_message("user").write(msg["user"])
+        st.chat_message("assistant").write(msg["ai"])
+
+safe_user_prompt = st.chat_input("Gõ câu lệnh điều chỉnh thông số tại đây...")
+st.markdown('</div>', unsafe_allow_html=True)
 
 # =====================================================================
 # HỆ THỐNG TOÁN HỌC V18 GERBER INDUSTRIAL MARKER ENGINE
