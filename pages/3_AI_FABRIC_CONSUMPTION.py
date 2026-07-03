@@ -1030,220 +1030,85 @@ if "uploaded_pdf_bytes" in st.session_state and st.session_state.uploaded_pdf_by
         st.error(f"❌ Lỗi nghiêm trọng tại tầng xử lý PDF 7a1: {str(pdf_err)}")
 
 # =====================================================================
-# ĐOẠN 7a2.1: AI CORE EXTRACTOR & ASYNCHRONOUS TIMEOUT GATEKEEPER (V36.0 APPROVED)
+# ĐOẠN 7a2.1: AI CORE EXTRACTOR (V36.3 SHORT)
 # =====================================================================
 import concurrent.futures
 from fractions import Fraction
-import json
-import re
-import copy
-import traceback
-import time
-import random
-import streamlit as st
+import json, re, time, random, streamlit as st
 
-# Kiểm tra dữ liệu đầu vào từ tầng tiền xử lý hình ảnh 7a1
-if "gemini_inputs" not in st.session_state or not st.session_state.gemini_inputs:
-    st.error("❌ Không tìm thấy dữ liệu hình ảnh đầu vào từ ĐOẠN 7a1.")
-    st.stop()
-
-gemini_inputs = st.session_state.gemini_inputs
-
-# HÀM HELPER: Trích xuất số an toàn từ văn bản OCR nhiễu
 def safe_float(v, default=0.0):
     if v is None: return default
     if isinstance(v, (int, float)): return float(v)
     try:
-        s = str(v).strip().lower()
-        if re.search(r"[0-9¼½¾⅛⅜⅝⅞\/]", s):
-            s = s.replace("o", "0").replace("l", "1").replace("i", "1")
-        s = re.sub(r"\.+", ".", s)
-        s = re.sub(r"\s*\.\s*", ".", s)
+        s = str(v).strip().lower().replace("o","0").replace("l","1").replace("i","1")
+        s = re.sub(r"\s*\.\s*", ".", re.sub(r"\.+", ".", s))
         s = s.replace('"', '').replace("'", "").replace("inch", "").replace("cm", "").replace("%", "").strip()
-        if not s: return default
-        
-        unicode_fractions = {"½": " 1/2", "¼": " 1/4", "¾": " 3/4", "⅛": " 1/8", "⅜": " 3/8", "⅝": " 5/8", "⅞": " 7/8"}
-        for uni_char, ascii_str in unicode_fractions.items():
-            s = s.replace(uni_char, ascii_str)
-        s = s.strip()
+        unicode_fracs = {"½":" 1/2", "¼":" 1/4", "¾":" 3/4", "⅛":" 1/8", "⅜":" 3/8", "⅝":" 5/8", "⅞":" 7/8"}
+        for k, v_str in unicode_fracs.items(): s = s.replace(k, v_str)
+        s_norm = s.strip().replace("-", " ")
+        if " " in s_norm:
+            parts = s_norm.split()
+            if len(parts) == 2 and "/" in parts[1]: return float(parts[0]) + float(Fraction(parts[1]))
+        if "/" in s and " " not in s: return float(Fraction(s))
+        num_m = re.search(r'([\d\.]+)', s)
+        return float(num_m.group(1)) if num_m else float(s)
+    except: return default
 
-        s_normalized = s.replace("-", " ")
-        if " " in s_normalized:
-            parts = s_normalized.split()
-            if len(parts) == 2 and "/" in parts[1]:
-                return float(parts[0]) + float(Fraction(parts[1]))
-        if "/" in s and " " not in s:
-            return float(Fraction(s))
+if "parsed_ai_response" not in st.session_state: st.session_state.parsed_ai_response = None
+if "ai_chat_response" not in st.session_state: st.session_state.ai_chat_response = ""
 
-        num_match = re.search(r'([\d\.]+)', s)
-        if num_match: return float(num_match.group(1))
-        return float(s)
-    except Exception:
-        return default
-
-# KHAI BÁO JSON RESPONSE SCHEMA CHO GEMINI
-response_schema_definition = {
-    "type": "OBJECT",
-    "properties": {
-        "chat_response": {"type": "STRING"},
-        "blueprint": {
-            "type": "OBJECT",
-            "properties": {
-                "status": {"type": "STRING"},
-                "spec_page": {"type": "INTEGER"},
-                "calculated_on_size": {"type": "STRING"},
-                "matched_measurements": {"type": "ARRAY", "items": {"type": "STRING"}},
-                "bom_rows": {
-                    "type": "ARRAY",
-                    "items": {
-                        "type": "OBJECT",
-                        "properties": {
-                            "component_type": {"type": "STRING"},
-                            "fabric_classification": {"type": "STRING"},
-                            "panels_catalog": {
-                                "type": "ARRAY",
-                                "items": {
-                                    "type": "OBJECT",
-                                    "properties": {
-                                        "panel_name": {"type": "STRING"},
-                                        "piece_count": {"type": "NUMBER"},
-                                        "piece_length_inch": {"type": "NUMBER"},
-                                        "piece_width_inch": {"type": "NUMBER"}
-                                    },
-                                    "required": ["panel_name", "piece_count", "piece_length_inch", "piece_width_inch"]
-                                }
-                            }
-                        },
-                        "required": ["component_type", "panels_catalog"]
-                    }
-                }
-            },
-            "required": ["status", "bom_rows"]
-        }
-    },
-    "required": ["chat_response", "blueprint"]
-}
-
-if "GEMINI_API_KEY" in st.secrets: 
-    genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+if "gemini_inputs" in st.session_state and st.session_state.gemini_inputs and len(st.session_state.gemini_inputs) > 0:
+    gemini_inputs = list(st.session_state.gemini_inputs)
+    if "GEMINI_API_KEY" in st.secrets: genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
     
-generation_config_base = {"temperature": 0.0, "response_mime_type": "application/json"}
-generation_config_advanced = {"temperature": 0.0, "response_mime_type": "application/json", "response_schema": response_schema_definition}
+    chat_lower = str(st.session_state.get("current_query", "")).lower()
+    m_size = re.search(r'\b(?:size|sz|cỡ)\s*[:\-=\s]*([\w\d]+)\b', chat_lower)
+    target_size_cmd = str(m_size.group(1)).upper().strip() if m_size else "30"
+    
+    m_w = re.search(r'(?:khổ|kho|width|size)\s*([\d\.]+)', chat_lower)
+    active_width = safe_float(m_w.group(1), 57.0) if m_w else 57.0
+    
+    m_warp = re.search(r'(?:dọc|doc|warp)\s*[:\-=\s]*([\d\.,\s½¼¾⅛⅜⅝⅞/-]+)', chat_lower)
+    m_weft = re.search(r'(?:ngang|weft)\s*[:\-=\s]*([\d\.,\s½¼¾⅛⅜⅝⅞/-]+)', chat_lower)
+    active_warp = safe_float(m_warp.group(1), 3.0) if m_warp else 3.0
+    active_weft = safe_float(m_weft.group(1), 3.0) if m_weft else 3.0
 
-model_basic = genai.GenerativeModel("gemini-2.5-flash", generation_config=generation_config_base)
-model_advanced = None
-try:
-    model_advanced = genai.GenerativeModel("gemini-2.5-flash", generation_config=generation_config_advanced)
-except Exception:
-    pass
-
-# Đọc câu lệnh hiện tại của người dùng từ hệ thống chatbot
-current_query = st.session_state.get("current_query", "")
-chat_lower = current_query.lower()
-
-# BÓC TÁCH THAM SỐ TỪ CHAT BOX NGƯỜI DÙNG
-match_size = re.search(r'\b(?:size|sz|cỡ)\s*[:\-=\s]*([\w\d]+)\b', chat_lower)
-target_size_cmd = str(match_size.group(1)).upper().strip() if match_size else "30"
-
-match_w = re.search(r'(?:khổ|kho|width|size)\s*([\d\.]+)', chat_lower)
-active_width = safe_float(match_w.group(1), 57.0) if match_w else 57.0
-
-match_warp = re.search(r'(?:dọc|doc|warp)\s*[:\-=\s]*([\d\.,\s½¼¾⅛⅜⅝⅞/-]+)', chat_lower)
-match_weft = re.search(r'(?:ngang|weft)\s*[:\-=\s]*([\d\.,\s½¼¾⅛⅜⅝⅞/-]+)', chat_lower)
-active_warp = safe_float(match_warp.group(1), 3.0) if match_warp else 3.0
-active_weft = safe_float(match_weft.group(1), 3.0) if match_weft else 3.0
-
-if len(st.session_state.get("chat_history", [])) > 30:
-    st.session_state.chat_history = st.session_state.chat_history[-30:]
-
-prompt_instruction = f"""
-You are an expert apparel IE OCR system. Scan the provided specification pages to extract measurement charts.
-TARGET SIZE: '{target_size_cmd}'
-ACTIVE FABRIC WIDTH: {active_width} inch
-
-CRITICAL RULES:
-1. Extract size dimensions for '{target_size_cmd}' across tables. Convert fractions to decimals.
-2. Compute flat pattern boundaries for PANT:
-   - FRONT_PANEL/BACK_PANEL Length = Inseam + Front Rise (or Outseam).
-   - FRONT_PANEL/BACK_PANEL Width = Hip or Waist width divided by 2.
-   - WAISTBAND = Waist circumference specs.
-"""
-gemini_inputs.append(prompt_instruction)
-
-# Khởi tạo các trạng thái đầu ra cho ĐOẠN 7a2.2 tiêu thụ
-st.session_state.parsed_ai_response = None
-st.session_state.ai_chat_response = "❌ HỆ THỐNG LỖI: Không nhận được phản hồi hợp lệ từ mô hình AI."
-
-is_debug_enabled = st.session_state.get("debug_mode", False)
-attempt_errors = []
-
-# KHỐI LỆNH TRUYỀN TẢI GỌI AI & CHỐT TIMEOUT MẠNG
-with st.spinner("⏳ Hệ thống đang truyền tải dữ liệu và phân tích cấu trúc sơ đồ sơ bộ (Thời gian xử lý tối đa 40s)..."):
-    for attempt in range(3):
-        if attempt > 0:
-            time.sleep((2 ** attempt) + random.uniform(0.1, 0.4))
-            
-        try:
-            active_model = model_advanced if model_advanced else model_basic
-            
-            # Cưỡng bức Timeout bằng ThreadPoolExecutor bảo vệ luồng UI
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-                future = executor.submit(active_model.generate_content, gemini_inputs)
-                try:
-                    response = future.result(timeout=40)
-                except concurrent.futures.TimeoutError:
-                    attempt_errors.append(f"[Attempt {attempt+1}] Kết nối mạng bị nghẽn (HTTP Timeout sau 40 giây).")
-                    continue
-
-            if not response:
-                attempt_errors.append(f"[Attempt {attempt+1}] API trả về thực thể trống.")
-                continue
-                
-            response_text = ""
-            try: response_text = response.text
-            except Exception: pass
-
-            # Nhánh Fallback đọc Content Parts nếu thuộc tính .text bị khóa độc quyền
-            if not response_text:
-                try:
-                    if hasattr(response, "candidates") and response.candidates:
-                        candidate = response.candidates[0]
-                        parts = getattr(candidate.content, "parts", [])
-                        response_text = "".join(getattr(p, "text", "") for p in parts)
-                except Exception: pass
-
-            response_text = response_text.strip() if response_text else ""
-            if not response_text:
-                attempt_errors.append(f"[Attempt {attempt+1}] Không bóc tách được chuỗi ký tự từ các Content Parts.")
-                continue
-
-            if is_debug_enabled:
-                with st.expander(f"🤖 [DEBUG] Lượt {attempt + 1} - Chuỗi phản hồi thô từ Gemini"):
-                    st.code(response_text)
-
-            # Kiểm tra cú pháp biểu diễn chuỗi JSON cơ bản
+    prompt_instruction = f"Extract measurement charts for PANT. Target size: '{target_size_cmd}', Fabric width: {active_width} inch. Convert fractions to decimals."
+    gemini_inputs.append(prompt_instruction)
+    
+    with st.spinner("⏳ AI đang bóc tách thông số (Tối đa 40s)..."):
+        for attempt in range(3):
+            if attempt > 0: time.sleep((2 ** attempt) + random.uniform(0.1, 0.3))
             try:
-                local_parsed = json.loads(response_text)
-            except json.JSONDecodeError:
-                attempt_errors.append(f"[Attempt {attempt+1}] Lỗi định dạng JSON (JSONDecodeError).")
-                break  # Gãy cấu trúc chuỗi JSON nghiêm ngặt -> Ngắt vòng lặp ngay lập tức
+                model = genai.GenerativeModel("gemini-2.5-flash", generation_config={"temperature": 0.0, "response_mime_type": "application/json"})
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as exec_p:
+                    future = exec_p.submit(model.generate_content, gemini_inputs)
+                    try: response = future.result(timeout=40)
+                    except concurrent.futures.TimeoutError: continue
+                
+                if not response: continue
+                txt = ""
+                try: txt = response.text
+                except:
+                    if hasattr(response, "candidates") and response.candidates:
+                        parts = getattr(response.candidates, "parts", [])
+                        txt = "".join(getattr(p, "text", "") for p in parts)
+                
+                txt = txt.strip() if txt else ""
+                if not txt: continue
+                
+                try: local_parsed = json.loads(txt)
+                except json.JSONDecodeError: break
+                
+                if isinstance(local_parsed, dict):
+                    st.session_state.parsed_ai_response = local_parsed
+                    break
+            except Exception as e:
+                if isinstance(e, (KeyError, TypeError, NameError, AttributeError)): break
+                continue
+else:
+    st.info("💡 Sẵn sàng. Hãy tải file Techpack lên ở bên trái để bắt đầu bóc tách.")
 
-            # ĐẠT TIÊU CHUẨN CẤU TRÚC SƠ BỘ -> Đóng gói chuyển giao trạng thái sang Đoạn 7a2.2
-            if isinstance(local_parsed, dict) and "blueprint" in local_parsed:
-                st.session_state.parsed_ai_response = local_parsed
-                break
-
-        except Exception as exc:
-            if isinstance(exc, (KeyError, TypeError, NameError, AttributeError)):
-                attempt_errors.append(f"❌ Critical Internal Bug: {str(exc)}\n{traceback.format_exc()}")
-                break
-            attempt_errors.append(f"[Attempt {attempt+1}] Hệ thống bận / Ngoại lệ mạng: {str(exc)}")
-            continue
-
-# Kết xuất Log tích lũy phục vụ việc bảo trì
-if is_debug_enabled and attempt_errors:
-    with st.expander("⚠️ [DEBUG] Nhật ký xử lý & Lỗi tích lũy hệ thống 7a2.1"):
-        for err in attempt_errors: st.text(err)
 # =====================================================================
 # ĐOẠN 7a2.2: POST-AI MIDDLEWARE GEOMETRY PROCESSOR (V36.0 APPROVED)
 # =====================================================================
