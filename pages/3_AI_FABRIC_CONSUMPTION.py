@@ -1020,15 +1020,14 @@ with col_right:
 
 
 # =====================================================================
-# =====================================================================
-# ĐOẠN 7a: CHAT WORKSPACE & ENGINE AI NỀN - FIX TRIỆT ĐỂ ẨN BẢNG DỮ LIỆU (V17.7.0.0 APPROVED)
+# ĐOẠN 7a: CHAT WORKSPACE & ENGINE AI NỀN - ÉP CHI TIẾT RẬP CHUẨN GERBER (V17.7.0.2 APPROVED)
 # =====================================================================
 st.markdown('<br><div class="cad-card"><div class="cad-header">💬 CHATGPT IE COLLABORATION WORKSPACE</div>', unsafe_allow_html=True)
 
 if "chat_history" not in st.session_state: st.session_state.chat_history = []
 if "pdf_page_one_image" not in st.session_state: st.session_state.pdf_page_one_image = None
 if "accumulated_bom_rows" not in st.session_state: st.session_state.accumulated_bom_rows = {}
-if "bom_data" not in st.session_state: st.session_state.bom_data = {} # Khởi tạo phòng vệ cho Đoạn 7b
+if "bom_data" not in st.session_state: st.session_state.bom_data = {}
 
 if st.session_state.chat_history:
     for msg in st.session_state.chat_history:
@@ -1057,14 +1056,13 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             model = genai.GenerativeModel("gemini-2.5-flash", generation_config={"temperature": 0.2})
             chat_lower = current_query.lower()
             
-            # Bộ trích xuất thông số kỹ thuật động thông minh
+            # Bộ trích xuất thông số kỹ thuật động thông minh - Ép quét khổ vải chính xác
             match_size = re.search(r'\b(?:size|sz|cỡ)\s*[:\-=\s]*([\w\d]+)\b', chat_lower)
             target_size_cmd = str(match_size.group(1)).upper().strip() if match_size else "30"
             
-            match_w = re.search(r'\b(?:khổ|kho|width)\s*[:\-=\s]*([\d\.]+)\b', chat_lower)
-            active_width = float(match_w.group(1)) if match_w else 58.0
+            match_w = re.search(r'(?:khổ|kho|width|size)\s*([\d\.]+)', chat_lower)
+            active_width = float(match_w.group(1)) if match_w else 57.0
             
-            # 🌟 VÁ LỖI AN TOÀN: Khởi tạo mặc định dải co rút dọc/ngang phòng vệ tránh sập nguồn
             active_warp = 3.0
             active_weft = 3.0
             
@@ -1078,7 +1076,6 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                 try: active_weft = float(match_weft.group(1))
                 except Exception: pass
                 
-            # Nếu không tìm thấy từ khóa dọc/ngang đơn lẻ, quét cặp số liên tiếp (5-15)
             if not match_warp or not match_weft:
                 match_sh_pair = re.search(r'(?:co\s*rút|co\s*rut|co|shrinkage)\s*[:\-=\s]*([\d\.]+)\s*(?:-|–|x|ngang|dọc|\s+)\s*([\d\.]+)', chat_lower)
                 if match_sh_pair:
@@ -1090,21 +1087,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             if len(st.session_state.chat_history) > 30:
                 st.session_state.chat_history = st.session_state.chat_history[-30:]
 
-            prompt_instruction = f"""
-            You are a senior apparel IE system. Analyze BOTH the visual sketch image and the techpack text data.
-            DATA FOUND IN TECHPACK TEXT (BOM SHEET): {st.session_state.pdf_text_cache}
-            CONTEXT HISTORY: {json.dumps(st.session_state.chat_history, ensure_ascii=False)}
-            CURRENT USER COMMAND: "{current_query}"
-            
-            STRICT COMPONENT RULES:
-            1. Front/Back bodies, Waistband, side cargo pockets, and pocket flaps must be allocated under "MAIN FABRIC".
-            2. Piped/Welt back pockets require pocket bags made of LINING fabric. Put this item under "POCKET LINING / LÓT TÚI".
-            3. Waistband fusing requires fusible interlining. Put this item under "INTERLINING / KEO LÓT".
-            4. You MUST structure the output JSON to include exactly THREE rows in the "bom_rows" array. Do NOT drop or omit rows.
-            
-            Target size: '{target_size_cmd}', Cut Width: {active_width} inches, Warp: {active_warp}%, Weft: {active_weft}%.
-            
-                       # Thay thế đoạn prompt_instruction cũ của bạn bằng đoạn ép cấu hình rập chi tiết này:
+            # 🌟 PROMPT ĐƯỢC THIẾT KẾ LẠI: ÉP AI BẮT BUỘC XUẤT ĐẦY ĐỦ CHI TIẾT PHỤ ĐỂ PYTHON TÍNH DIỆN TÍCH
             prompt_instruction = f"""
             You are a senior apparel IE system. Analyze BOTH the visual sketch image and the techpack text data.
             DATA FOUND IN TECHPACK TEXT (BOM SHEET): {st.session_state.pdf_text_cache}
@@ -1114,7 +1097,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             STRICT APPAREL RECONSTRUCTION RULES:
             - You MUST fully extract all 3D or 2D panel details for a standard functional CARGO PANT.
             - Total pieces for main fabric components must account for both Left and Right sides.
-            - The JSON "panels_catalog" array for "MAIN FABRIC" MUST contain at least 6 separate item dictionaries with precise industry dimensions.
+            - The JSON "panels_catalog" array for "MAIN FABRIC" MUST contain at least 7 separate item dictionaries with precise industry dimensions to ensure python calculates accurate total area.
             
             Target size: '{target_size_cmd}', Cut Width: {active_width} inches, Warp: {active_warp}%, Weft: {active_weft}%.
             
@@ -1143,7 +1126,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                   "fabric_code": "TRICOT FUSING", "fabric_color": "WHITE", "fabric_width_inch": {active_width},
                   "panels_catalog": [
                     {{ "panel_name": "WAISTBAND_FUSING", "piece_count": 2.0, "piece_length_inch": 34.5, "piece_width_inch": 3.75 }},
-                    {{ "panel_name": "POCKET_FLAP_FUSING", "piece_count": 2.0, "piece_length_inch": 4.0, "piece_width_inch": 9.0 }}
+                    {{ "panel_name": "POCKET_FLAP_FUSING", "piece_count": 4.0, "piece_length_inch": 4.0, "piece_width_inch": 9.0 }}
                   ]
                 }},
                 {{
@@ -1161,7 +1144,6 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             [Confirm in Vietnamese that you calculated using width {active_width} and precise shrinkage warp {active_warp}% and weft {active_weft}% based on visual sketch and history context.]
             ===END_CHAT===
             """
-
             
             image_payload = {
                 "mime_type": "image/png",
@@ -1183,27 +1165,23 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                         blueprint_worker = copy.deepcopy(raw_blueprint)
                         blueprint_final = allocate_fabric_consumption_and_quality_gate(blueprint_worker, current_query)
                         
-                        # 🌟 ĐỒNG BỘ ĐẦU RA VÀO KHO DỮ LIỆU CHUNG ĐỂ ĐOẠN 7b HIỂN THỊ ĐƯỢC
                         st.session_state.bom_data = blueprint_final
                         st.session_state.accumulated_bom_rows = blueprint_final.get("bom_rows", [])
                         
-                        # Trích xuất nội dung chat Tiếng Việt của AI
                         ai_chat_response = "Tôi đã đồng bộ tính toán định mức."
                         if chat_match:
                             ai_chat_response = chat_match.group(1).strip()
                             
-                        # Lưu lịch sử chat workspace
                         st.session_state.chat_history.append({
                             "user": current_query,
                             "ai": ai_chat_response
                         })
-                        
-                        # Ép giao diện làm mới ngay lập tức nhằm hiển thị bảng dữ liệu định mức
                         st.rerun()
                         
         except Exception as e:
             st.error(f"❌ Lỗi xử lý AI Core: {str(e)}")
             st.text(traceback.format_exc())
+
 
 
 # =====================================================================
