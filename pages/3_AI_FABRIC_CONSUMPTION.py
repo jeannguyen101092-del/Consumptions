@@ -1393,12 +1393,12 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
 
 
 
-                       # =====================================================================
-            # ĐOẠN 7a2.2: PIPELINE KẾT NỐI HÌNH HỌC CAD VÀ TÍNH ĐỊNH MỨC SẢN XUẤT (V17.0.2 FIXED)
+            # =====================================================================
+            # ĐOẠN 7a2.2: PIPELINE HỢP NHẤT HÌNH HỌC CAD VÀ TÍNH ĐỊNH MỨC (V17.0.5 CLEAN)
             # =====================================================================
             ai_chat_response = "Hệ thống đang xử lý dữ liệu..."
-            
             response_text = ""
+            
             if response:
                 try:
                     response_text = response.text.strip()
@@ -1412,19 +1412,16 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                 json_match = re.search(r'(?:===START_JSON===\s*|```json\s*)(.*?)(?:\s*===END_JSON===|\s*```)', response_text, re.DOTALL)
                 chat_match = re.search(r'(?:===START_CHAT===\s*|```markdown\s*|(?:\n|^)\s*\*\s*)(.*?)(?:\s*===END_CHAT===|\s*```|$)', response_text, re.DOTALL)
                 
+                raw_json_str = ""
                 if json_match:
                     raw_json_str = json_match.group(1).strip()
                     raw_json_str = re.sub(r"^```json\s*|\s*```$", "", raw_json_str, flags=re.IGNORECASE)
                 elif "===START_JSON===" in response_text and "===END_JSON===" in response_text:
-                    # Fallback bẻ chuỗi chuẩn cú pháp Python
                     parts = response_text.split("===START_JSON===")
                     if len(parts) > 1:
                         sub_parts = parts[1].split("===END_JSON===")
                         raw_json_str = sub_parts[0].strip()
-                    else:
-                        raw_json_str = ""
                 else:
-                    # Tìm khối rỗng cuối cùng nếu có
                     match_fallback = re.search(r'\{.*\}', response_text, re.DOTALL)
                     raw_json_str = match_fallback.group(0).strip() if match_fallback else ""
                     
@@ -1446,7 +1443,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                             st.info("🔄 Bước 1: Đang chạy máy tính hình học phẳng topo rập...")
                             standardized_blueprint = parse_geometric_panels_allowance(raw_blueprint, current_query)
                             
-                            # 🚀 BƯỚC 2: Gọi Đoạn 2b1 (Chat Parser) để bóc tách các chỉ thị đè từ ô chat
+                            # 🚀 BƯỚC 2: Gọi Đoạn 2b1 (Chat Parser) để bóc tách chỉ thị từ ô chat người dùng
                             st.info("💬 Bước 2: Đang quét chỉ thị kỹ thuật may từ ô chat...")
                             prepared_rows, user_eff = parse_and_prepare_ie_panels(
                                 all_rows=standardized_blueprint.get("bom_rows", []),
@@ -1473,7 +1470,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                             
                             st.session_state.chat_history.append({"user": current_query, "ai": ai_chat_response})
                             st.success("🎉 Kết quả định mức đã được đồng bộ! Đang tải lại trang...")
-                            st.rerun()  # Ép giao diện vẽ bảng kết quả ngay lập tức
+                            st.rerun()
                             
                         except Exception as inner_error:
                             st.error(f"💥 Lỗi tại Pipeline CAD hình học: {str(inner_error)}")
@@ -1492,6 +1489,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                 st.session_state.bom_data = None
                 ai_chat_response = "❌ NGẰT LUỒNG: Gemini không trả về nội dung text phản hồi."
                 st.session_state.chat_history.append({"user": current_query, "ai": ai_chat_response})
+
 
 
                 
