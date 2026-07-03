@@ -1,9 +1,9 @@
 # ==============================================================================
 # HỆ THỐNG TOÁN HỌC CAD-AI ĐỒNG BỘ GERBER V18 INDUSTRIAL ENGINE
-# ĐOẠN 1/12: KHAI BÁO THƯ VIỆN TOÀN CỤC VÀ KHỞI TẠO FRAMEWORK CẤU HÌNH GIAO DIỆN
+# ĐOẠN 1 -> 5: KHỞI TẠO FRAMEWORK, GIAO DIỆN CHATBOX VÀ AI ORCHESTRATOR NỀN
 # ==============================================================================
 
-import fitz  # Thư viện PyMuPDF trích xuất đồ họa giải tích và văn bản từ PDF
+import fitz  # PyMuPDF
 import math
 import json
 import re
@@ -17,16 +17,9 @@ from shapely.ops import unary_union, polygonize
 from shapely.affinity import translate, rotate, scale
 from shapely.strtree import STRtree
 import google.generativeai as genai
-from openpyxl import Workbook
-from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
-from openpyxl.utils import get_column_letter
 
 # 1. CẤU HÌNH KHUNG TRANG WEB STREAMLIT TOÀN CỤC
-st.set_page_config(
-    page_title="Gerber V18 CAD-AI Industrial Engine", 
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
+st.set_page_config(page_title="Gerber V18 CAD-AI Engine", layout="wide")
 
 # 2. KHỞI TẠO BỘ NHỚ TRẠNG THÁI PHIÊN CHẠY AN TOÀN (SESSION STATE BUFFER)
 if "pdf_bytes" not in st.session_state: st.session_state.pdf_bytes = None
@@ -39,271 +32,114 @@ if "current_weft_pct" not in st.session_state: st.session_state.current_weft_pct
 
 # 3. THIẾT LẬP THANH ĐIỀU KHIỂN CẤU HÌNH THÔNG SỐ (SIDEBAR CONTROLS)
 st.sidebar.header("🛠️ Tham Số Kỹ Thuật Hệ Thống")
-
-fabric_width_input = st.sidebar.number_input(
-    "Khổ rộng vải hữu dụng (Inch):", 
-    min_value=10.0, max_value=150.0, value=58.0, step=0.5,
-    help="Chiều rộng thực tế của khổ vải sau khi đã trừ biên dập của máy cắt."
-)
-
-seam_allowance_input = st.sidebar.slider(
-    "Hao hụt đường may - Seam Allowance (Inch):",
-    min_value=0.0, max_value=2.0, value=0.25, step=0.05,
-    help="Khoảng offset bù đường may kỹ thuật ra biên ngoài của rập."
-)
-
-st.sidebar.markdown("---")
-st.sidebar.subheader("📈 Hệ Số Co Rút Vật Liệu (%)")
+fabric_width_input = st.sidebar.number_input("Khổ rộng vải hữu dụng (Inch):", min_value=10.0, max_value=150.0, value=58.0, step=0.5)
+seam_allowance_input = st.sidebar.slider("Hao hụt đường may - Seam Allowance (Inch):", min_value=0.0, max_value=2.0, value=0.25, step=0.05)
 warp_shrinkage = st.sidebar.slider("Độ co rút sớ dọc (Warp %):", min_value=0.0, max_value=20.0, value=3.0, step=0.1)
 weft_shrinkage = st.sidebar.slider("Độ co rút sớ ngang (Weft %):", min_value=0.0, max_value=20.0, value=3.0, step=0.1)
 
-# Ghi nhận các giá trị mặc định ban đầu từ Sidebar vào bộ đệm an toàn
-st.session_state.current_warp_pct = f"{warp_shrinkage}%"
-st.session_state.current_weft_pct = f"{weft_shrinkage}%"
-
 st.title("🏭 Hệ Thống Tính Định Mức Sơ Đồ Gerber V18 CAD-AI")
-st.caption("Kiến trúc phân cấp: AI điều phối, trích xuất cấu trúc BOM và Specs ➡️ Python độc lập xử lý toán học hình học phẳng")
 
-# 🔗 CHUYỂN TIẾP SANG ĐOẠN 2/12...
-# ==============================================================================
-# HỆ THỐNG TOÁN HỌC CAD-AI ĐỒNG BỘ GERBER V18 INDUSTRIAL ENGINE
-# ĐOẠN 2/12: BỘ TIẾP NHẬN TỆP TIN & LÕI TRÍCH XUẤT VĂN BẢN KỸ THUẬT NỀN (FIXED SYNTAX)
-# ==============================================================================
+# 4. GIAO DIỆN TẢI TỆP TIN TÀI LIỆU KỸ THUẬT (TECHPACK PDF)
+uploaded_file = st.file_uploader("Tải lên tệp PDF Tài liệu Kỹ thuật (Techpack):", type=["pdf"], key="file_uploader_v18_clean")
 
-# 1. KHỐI GIAO DIỆN TẢI TỆP TIN TÀI LIỆU KỸ THUẬT (TECHPACK PDF)
-uploaded_file = st.file_uploader(
-    "Tải lên tệp PDF Tài liệu Kỹ thuật (Techpack Vector/Text):", 
-    type=["pdf"],
-    key="file_uploader_gerber_v18_final_fixed",
-    help="Tệp PDF kỹ thuật chứa thông tin bảng BOM vật tư và thông số size kích thước sản phẩm."
-)
-
-# 2. LÕI TỰ ĐỘNG QUÉT VÀ TRÍCH XUẤT VĂN BẢN NỀN (AUTOMATED TEXT EXTRACTION PIPELINE)
 if uploaded_file is not None:
-    # Đọc luồng nhị phân nguyên bản vào Session State
     file_bytes_read = uploaded_file.read()
-    
-    # Chỉ thực hiện phân tích và ghi đè Text Cache nếu phát hiện file mới hoàn toàn
     if st.session_state.pdf_bytes != file_bytes_read:
         st.session_state.pdf_bytes = file_bytes_read
-        st.session_state.pdf_text_cache = ""  # Reset bộ đệm văn bản cũ
-        st.session_state.active_blueprint = {} # Reset bảng dữ liệu sơ đồ cũ
+        st.session_state.pdf_text_cache = ""
+        st.session_state.active_blueprint = {}
         st.session_state.accumulated_bom_rows = {}
         
+        # Bọc try-except khép kín cho bộ đọc văn bản nền
         try:
-            # Mở luồng giải tích tệp tin PDF trong bộ nhớ đệm RAM
             doc_context = fitz.open(stream=file_bytes_read, filetype="pdf")
             extracted_text_list = []
-            
-            # Quét thu thập dữ liệu ký tự văn bản trên toàn bộ các trang tài liệu
             for page_num in range(len(doc_context)):
                 page_obj = doc_context.load_page(page_num)
                 page_text = page_obj.get_text("text")
                 if page_text.strip():
-                    extracted_text_list.append(f"--- PAGE {page_num + 1} --- \n{page_text}")
-                    
+                    extracted_text_list.append(page_text)
             doc_context.close()
-            
-            # Ghi nhận dải dữ liệu sạch vào bộ nhớ đệm phục vụ AI Orchestrator
             st.session_state.pdf_text_cache = "\n".join(extracted_text_list)
-            st.toast("✓ Đã quét và bóc tách thành công dữ liệu văn bản từ Techpack PDF!", icon="🔍")
-            
-        # ✅ KHÉP MẠCH LOGIC: Bổ sung khối bẫy lỗi để đóng mạch try phía trên, sửa lỗi SyntaxError tận gốc
+            st.toast("✓ Đã bóc tách dữ liệu văn bản từ Techpack PDF!", icon="🔍")
         except Exception as scan_err:
-            st.error(f"Lỗi cục bộ trong quá trình bóc tách văn bản tệp tài liệu: {str(scan_err)}")
-            st.session_state.pdf_text_cache = "Không thể trích xuất văn bản tự động từ file này."
-
+            st.session_state.pdf_text_cache = "Không thể trích xuất văn bản."
 else:
-    # Trường hợp kỹ thuật viên bấm Clear tệp tin, đưa toàn bộ hệ thống về trạng thái rỗng an toàn
     st.session_state.pdf_bytes = None
     st.session_state.pdf_text_cache = ""
     st.session_state.active_blueprint = {}
     st.session_state.accumulated_bom_rows = {}
 
-# 🔗 CHUYỂN TIẾP SANG ĐOẠN 3/12...
-
-# ==============================================================================
-# HỆ THỐNG TOÁN HỌC CAD-AI ĐỒNG BỘ GERBER V18 INDUSTRIAL ENGINE
-# ĐOẠN 3/12: KHUNG GIAO DIỆN CHATBOX & CƠ CHẾ RESET DỮ LIỆU ĐỒNG BỘ
-# ==============================================================================
-
-# 1. KHỞI DỰNG VÙNG LÀM VIỆC CỘNG TÁC (CHAT COLLABORATION WORKSPACE)
+# 5. KHỞI DỰNG VÙNG LÀM VIỆC CỘNG TÁC (CHAT WORKSPACE)
 st.markdown('<br><div class="cad-card"><div class="cad-header">💬 CHATGPT IE COLLABORATION WORKSPACE</div>', unsafe_allow_html=True)
-
-# Thiết lập layout chia cột thông minh để đẩy nút bấm Clear Chat về bên phải
-c_col1, c_col2 = st.columns([5, 1])
+c_col1, c_col2 = st.columns(2)
 with c_col2:
-    # Nút bấm làm sạch bộ đệm với Key định danh độc bản duy nhất trên hệ thống
-    if st.button("🗑️ Clear Chat", key="btn_clear_chat_v18_structural", use_container_width=True):
+    if st.button("🗑️ Clear Chat", key="btn_clear_v18_clean", use_container_width=True):
         st.session_state.chat_history = []
         st.session_state.active_blueprint = {}
         st.session_state.accumulated_bom_rows = {}
-        st.session_state.current_warp_pct = "3.0%"
-        st.session_state.current_weft_pct = "3.0%"
-        st.toast("🧹 Đã làm sạch toàn bộ lịch sử chatbox và ma trận kết quả!", icon="🗑️")
         st.rerun()
 
-# 2. XUẤT LỊCH SỬ BONG BÓNG HỘI THOẠI TRÊN GIAO DIỆN WEB
 if st.session_state.chat_history:
     for msg in st.session_state.chat_history:
         st.chat_message("user").write(msg["user"])
         st.chat_message("assistant").write(msg["ai"])
 
-# ⚠️ Ô NHẬP LIỆU DUY NHẤT: Khóa định danh độc bản triệt tiêu lỗi trùng ID phần tử
-safe_user_prompt = st.chat_input(
-    "Gõ câu lệnh điều chỉnh thông số (Ví dụ: Tính định mức vải chính khổ 58 co rút 3x3 size 32) tại đây...", 
-    key="main_chat_input_v18_structural"
-)
+safe_user_prompt = st.chat_input("Gõ câu lệnh điều chỉnh thông số tại đây...", key="input_v18_clean")
 st.markdown('</div>', unsafe_allow_html=True)
 
-# 🔗 CHUYỂN TIẾP SANG ĐOẠN 4/12...
-# ==============================================================================
-# HỆ THỐNG TOÁN HỌC CAD-AI ĐỒNG BỘ GERBER V18 INDUSTRIAL ENGINE
-# ĐOẠN 4/12: BỘ TRÍCH XUẤT SPECS VÀ BỘ LỌC AN TOÀN BIÊN SỐ CHỐT CHẶN
-# ==============================================================================
+# 6. KHỐI ĐIỀU PHỐI AI ORCHESTRATOR
+ai_json_data = {}
+active_warp, active_weft, active_width, target_size_cmd = 3.0, 3.0, 58.0, "30"
 
-# KÍCH HOẠT KHI PHÁT HIỆN CÓ ĐỦ TỆP TIN VÀ CÂU LỆNH MỚI TỪ NGƯỜI DÙNG
 if st.session_state.get("pdf_bytes") is not None and safe_user_prompt:
     current_query = str(safe_user_prompt).strip()
-    
-    with st.spinner("🧠 AI Orchestrator đang phân tách cấu trúc vật tư từ Techpack..."):
+    with st.spinner("🧠 AI Orchestrator đang phân tách cấu trúc vật tư..."):
         try:
             chat_lower = current_query.lower()
-            
-            # =====================================================================
-            # 🌟 BỘ TRÍCH XUẤT REgex: BÓC TÁCH SPECS TỪ CÂU LỆNH CỦA KỸ THUẬT VIÊN
-            # =====================================================================
-            # 1. Trích xuất cỡ mẫu mục tiêu (Size)
             match_size = re.search(r'\b(?:size|sz|cỡ|cơ)\s*[:\-=\s]*([\w\d]+)\b', chat_lower)
             target_size_cmd = str(match_size.group(1)).upper().strip() if match_size else "30"
-            
-            # Khóa an toàn: Chống bốc nhầm số trang tài liệu (ví dụ trang 10) thành số cỡ mẫu
-            try:
-                size_num_check = float(re.sub(r'[^\d\.]', '', target_size_cmd))
-                if size_num_check < 20.0 or size_num_check > 50.0:
-                    target_size_cmd = "30"
-            except:
-                pass
-
-            # 2. Trích xuất thông số khổ rộng cắt vải hữu dụng (Inch)
             match_w = re.search(r'(?:khổ|kho|width|cutwidth)\s*[:\-=\s]*([\d\.]+)', chat_lower)
             active_width = float(match_w.group(1)) if match_w else float(fabric_width_input)
             
-            # 3. Trích xuất tỉ lệ phần trăm co rút sợi dọc (Warp) và sợi ngang (Weft)
-            active_warp = float(warp_shrinkage)
-            active_weft = float(weft_shrinkage)
-            
             match_warp = re.search(r'(?:dọc|doc|warp)\s*[:\-=\s]*([\d\.]+)', chat_lower)
             match_weft = re.search(r'(?:ngang|weft)\s*[:\-=\s]*([\d\.]+)', chat_lower)
-            
             if match_warp: active_warp = float(match_warp.group(1))
             if match_weft: active_weft = float(match_weft.group(1))
-            if not match_warp or not match_weft:
-                # Quét cú pháp gõ nhanh dạng: co rut 3x3 hoặc co 3 - 3
-                m_sh = re.search(r'(?:co\s*rút|co\s*rut|co|shrinkage)\s*[:\-=\s]*([\d\.]+)\s*(?:-|–|x|ngang|\s+)\s*([\d\.]+)', chat_lower)
-                if m_sh:
-                    active_warp, active_weft = float(m_sh.group(1)), float(m_sh.group(2))
-
-            # Đồng bộ các thông số Specs làm sạch vào bộ nhớ trạng thái hệ thống
+            
             st.session_state.current_warp_pct = f"{active_warp}%"
             st.session_state.current_weft_pct = f"{active_weft}%"
-
-            # Thiết lập cấu hình API khóa bí mật kết nối mạng trí tuệ nhân tạo Gemini
-            if "GEMINI_API_KEY" in st.secrets: 
+            
+            if "GEMINI_API_KEY" in st.secrets:
                 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-            else:
-                # Khởi chạy chế độ mô phỏng cục bộ nếu thiếu API Key môi trường đám mây
-                pass
-                
             model = genai.GenerativeModel("gemini-2.5-flash", generation_config={"temperature": 0.0})
-            techpack_text_source = st.session_state.pdf_text_cache if st.session_state.pdf_text_cache else "Default Casual Techpack Text Context."
-
-# 🔗 CHUYỂN TIẾP SANG ĐOẠN 5/12...
-# ==============================================================================
-# HỆ THỐNG TOÁN HỌC CAD-AI ĐỒNG BỘ GERBER V18 INDUSTRIAL ENGINE
-# ĐOẠN 5/12: CHỈ THỊ PROMPT ORCHESTRATOR CAO CẤP & GỌI API GEMINI AI
-# ==============================================================================
-
-            # =====================================================================
-            # 🌟 PROMPT ORCHESTRATOR TỐI CAO: PHÂN TÍCH VẬT TƯ NGUYÊN BẢN TỪ TECHPACK
-            # =====================================================================
+            
             prompt_instruction = f"""
-            You are a Senior Apparel IE Expert and CAD Master. Your job is to strictly analyze the provided Techpack data text context and extract the Bill of Materials (BOM).
-            You must isolate components into structured classifications such as MAIN_FABRIC, LINING, or FUSING.
-            
-            DATA FOUND IN TECHPACK TEXT CONTEXT: {techpack_text_source}
-            CONTEXT HISTORY FLOW: {json.dumps(st.session_state.chat_history, ensure_ascii=False)}
-            CURRENT USER COMMAND REQUIREMENT: "{current_query}"
-            
-            CRITICAL EXTRACTION LOGIC FOR PYTHON PIPELINE:
-            1. Extract the product type and style code accurately.
-            2. Map each material row with its corresponding parameters.
-            3. "geometry_source_layer" MUST be determined purely based on component purpose:
-               - Main body fabrics -> "MAIN_BODY_CARGO"
-               - Fusing/Interlinings -> "INTERLINING"
-               - Pocket bags/Linings -> "LINING"
-            
-            Return response in EXACTLY this format and do NOT write any preamble conversational text around it:
+            You are a Senior Apparel IE Expert. Analyze Techpack and return the Bill of Materials (BOM) in JSON.
+            DATA: {st.session_state.pdf_text_cache[:4000]}
+            COMMAND: "{current_query}"
+            Return EXACTLY in this format:
             ===START_JSON===
             {{
-              "detected_product_type": "CARGO_PANT",
-              "style_code": "R09-490976",
-              "calculated_on_size": "{target_size_cmd}",
+              "detected_product_type": "CARGO_PANT", "style_code": "R09-490976", "calculated_on_size": "{target_size_cmd}",
               "bom_rows": [
-                {{
-                  "component_type": "MAIN FABRIC", 
-                  "placement": "BODY/POCKETS/CARGO", 
-                  "fabric_classification": "MAIN_FABRIC",
-                  "fabric_code": "TWILL", 
-                  "fabric_color": "KHAKI", 
-                  "fabric_width_inch": {active_width},
-                  "geometry_required": true, 
-                  "geometry_source_layer": "MAIN_BODY_CARGO"
-                }},
-                {{
-                  "component_type": "INTERLINING", 
-                  "placement": "WAISTBAND/FLAPS", 
-                  "fabric_classification": "FUSING",
-                  "fabric_code": "LIGHT KNIT", 
-                  "fabric_color": "DTM", 
-                  "fabric_width_inch": {active_width},
-                  "geometry_required": true, 
-                  "geometry_source_layer": "INTERLINING"
-                }},
-                {{
-                  "component_type": "LINING", 
-                  "placement": "POCKET BAGS FRONT/BACK", 
-                  "fabric_classification": "LINING",
-                  "fabric_code": "COTTON SHEETING", 
-                  "fabric_color": "WHITE", 
-                  "fabric_width_inch": {active_width},
-                  "geometry_required": true, 
-                  "geometry_source_layer": "LINING"
-                }}
+                {{"component_type": "MAIN FABRIC", "fabric_classification": "MAIN_FABRIC", "fabric_width_inch": {active_width}, "geometry_required": true, "geometry_source_layer": "MAIN_BODY_CARGO"}},
+                {{"component_type": "LINING", "fabric_classification": "LINING", "fabric_width_inch": {active_width}, "geometry_required": true, "geometry_source_layer": "LINING"}}
               ]
             }}
             ===END_JSON===
             """
-            
-            # Gửi toàn bộ chỉ thị phân tích cấu trúc sang mô hình trí tuệ nhân tạo
             response = model.generate_content(prompt_instruction)
-            resp_text = response.text
-
-            # Giải nén phân tách khối cấu trúc dữ liệu JSON thô bằng Regex biên
-            json_pattern = re.search(r'===START_JSON===\s*(.*?)\s*===END_JSON===', resp_text, re.DOTALL)
-            
-            ai_json_data = {}
+            json_pattern = re.search(r'===START_JSON===\s*(.*?)\s*===END_JSON===', response.text, re.DOTALL)
             if json_pattern:
-                try:
-                    ai_json_data = json.loads(json_pattern.group(1).strip())
-                except Exception as json_parse_err:
-                    st.error(f"Lỗi cú pháp phân rã cấu trúc JSON từ AI: {str(json_parse_err)}")
-            else:
-                st.error("AI Orchestrator phản hồi lỗi cấu trúc biên hoặc thiếu thẻ đánh dấu dữ liệu vật tư.")
+                ai_json_data = json.loads(json_pattern.group(1).strip())
+        except Exception as prompt_err:
+            st.error(f"Lỗi AI Orchestrator: {str(prompt_err)}")
 
-# 🔗 CHUYỂN TIẾP SANG ĐOẠN 6/12...
 # ==============================================================================
-# HỆ THỐNG TOÁN HỌC V18 GERBER - PHẦN 1/3: HÀM BƯỚC 1 (ĐỌC VECTOR PDF)
+# HỆ THỐNG SẼ TIẾP TỤC ĐƯỢC NỐI ĐUÔI BỞI CÁC HÀM TOÁN HỌC v18_step1, v18_step2...
+# ==============================================================================
+
 # ==============================================================================
 
 def v18_step1_extract_raw_vectors(layer_name, warp=3.0, weft=3.0, snap_tol=0.005):
