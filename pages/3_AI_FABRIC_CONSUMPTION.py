@@ -194,7 +194,8 @@ def v18_step2_reconstruct_and_orient_geometry(step1_results, seam_allowance=0.0)
         return {"status": "success", "panels_catalog": panels_catalog}
     except Exception as e: return {"status": "error", "message": str(e)}
 # ==============================================================================
-# ĐOẠN 5/6: LÕI HÌNH HỌC PHẲNG V18 - BƯỚC 3 (ENGINE SKYLINE CHỐNG XOAY TREO VÔ HẠN)
+# ==============================================================================
+# ĐOẠN 5.1/6: LÕI HÌNH HỌC PHẲNG V18 - BƯỚC 3 (PHẦN ĐẦU VÁ LỖI TUPLE BOUNDS)
 # ==============================================================================
 def v18_step3_execute_strip_nesting(panels_catalog, target_width=58.0, fabric_type="ONE_WAY"):
     STRIP_WIDTH = float(target_width)
@@ -225,22 +226,30 @@ def v18_step3_execute_strip_nesting(panels_catalog, target_width=58.0, fabric_ty
                     for y_cand in [seg["y0"], seg["y1"] - w_piece]:
                         dx, dy = seg["x"] - minx, y_cand - miny
                         test_poly = translate(poly_rotated, xoff=dx, yoff=dy)
-                        if test_poly.bounds < 0.0 or test_poly.bounds > STRIP_WIDTH: continue
+                        
+                        # ✅ FIXED CRITICAL: Bóc tách chính xác float từ tuple để so sánh giới hạn khổ vải
+                        t_minx, t_miny, t_maxx, t_maxy = test_poly.bounds
+                        if t_miny < 0.0 or t_maxy > STRIP_WIDTH: continue
+                        
                         if not check_collision(test_poly, spatial_index, placed_polygons):
                             low_f, high_factor, optimal_dx = 0.0, 1.0, dx
                             for _ in range(5):
                                 mid = (low_f + high_factor) / 2.0
                                 if not check_collision(translate(poly_rotated, xoff=seg["x"] - minx + (optimal_dx - (seg["x"] - minx)) * mid, yoff=dy), spatial_index, placed_polygons):
-                                    optimal_dx, high_factor = seg["x"] - minx + (optimal_dx - (x_cand - minx)) * mid, mid
+                                    optimal_dx, high_factor = seg["x"] - minx + (optimal_dx - (seg["x"] - minx)) * mid, mid
                                 else: low_f = mid
                             final_p = translate(poly_rotated, xoff=optimal_dx, yoff=dy)
-                            if final_p.bounds < best_x_score: best_x_score, best_placed_poly = final_p.bounds, final_p
-
+                            f_minx, f_miny, f_maxx, f_maxy = final_p.bounds
+                            if f_maxx < best_x_score: best_x_score, best_placed_poly = f_maxx, final_p
+# ==============================================================================
+# ĐOẠN 5.2/6: LÕI HÌNH HỌC PHẲNG V18 - BƯỚC 3 (PHẦN ĐUÔI CẬP NHẬT CHÂN TRỜI SKYLINE)
+# ==============================================================================
         if best_placed_poly is not None:
             placed_polygons.append(best_placed_poly)
             spatial_index = STRtree(placed_polygons)
             _, p_miny, _, p_maxy = best_placed_poly.bounds
-            p_maxx = best_placed_poly.bounds
+            # ✅ FIXED: Trích xuất chỉ số float thứ 2 (maxx) từ tuple bounds chuẩn xác
+            p_maxx = best_placed_poly.bounds[2]
             new_skyline = []
             for seg in skyline:
                 if seg["y0"] >= p_miny and seg["y1"] <= p_maxy: new_skyline.append({"x": max(seg["x"], p_maxx), "y0": seg["y0"], "y1": seg["y1"]})
@@ -259,7 +268,7 @@ def v18_step3_execute_strip_nesting(panels_catalog, target_width=58.0, fabric_ty
             sorted_segs = sorted(new_skyline, key=lambda s: s["y0"])
             merged = []
             if sorted_segs:
-                curr = sorted_segs
+                curr = sorted_segs[0]
                 for next_seg in sorted_segs[1:]:
                     if abs(curr["y1"] - next_seg["y0"]) < 0.001 and abs(curr["x"] - next_seg["x"]) < 0.005:
                         curr["y1"], curr["x"] = next_seg["y1"], max(curr["x"], next_seg["x"])
@@ -268,7 +277,6 @@ def v18_step3_execute_strip_nesting(panels_catalog, target_width=58.0, fabric_ty
             skyline = merged
             if p_maxx > current_marker_length: current_marker_length = p_maxx
         else:
-            # 🛡️ CHỐT CHẶN AN TOÀN TUYỆT ĐỐI CHỐNG FREEZE LUỒNG XOAY VÔ HẠN
             lowest_seg = min(skyline, key=lambda s: s["x"])
             minx, miny, maxx, maxy = poly_base.bounds
             fallback_dx, fallback_dy = lowest_seg["x"] - minx, lowest_seg["y0"] - miny
@@ -278,18 +286,23 @@ def v18_step3_execute_strip_nesting(panels_catalog, target_width=58.0, fabric_ty
                 fallback_dy += 0.5
                 fallback_poly = translate(poly_base, xoff=fallback_dx, yoff=fallback_dy)
                 scan_counter += 1
-                if scan_counter > 30: break # Bẻ gãy vòng lặp vô hạn nếu kẹt cứng va chạm
+                if scan_counter > 30: break
             if check_collision(fallback_poly, spatial_index, placed_polygons):
                 fallback_dx, fallback_dy = current_marker_length - minx, 0.0 - miny
                 fallback_poly = translate(poly_base, xoff=fallback_dx, yoff=fallback_dy)
             placed_polygons.append(fallback_poly)
             spatial_index = STRtree(placed_polygons)
-            if fallback_poly.bounds > current_marker_length: current_marker_length = fallback_poly.bounds
-            skyline.append({"x": current_marker_length, "y0": fallback_poly.bounds, "y1": fallback_poly.bounds})
+            
+            # ✅ FIXED: Trích xuất chỉ số float thứ 2 (maxx) an toàn
+            f_maxx = fallback_poly.bounds[2]
+            if f_maxx > current_marker_length: current_marker_length = f_maxx
+            
+            # ✅ FIXED: Bóc tách float miny/maxy chuẩn xác thay vì quăng tuple hỏng dải chân trời
+            skyline.append({"x": current_marker_length, "y0": fallback_poly.bounds[1], "y1": fallback_poly.bounds[3]})
 
     total_marker_area = current_marker_length * STRIP_WIDTH
     return {"status": "success", "total_pieces_nested": len(panels_catalog), "marker_length_inch": round(current_marker_length, 2), "fabric_width_inch": STRIP_WIDTH, "marker_utilization_percent": round((total_theoretical_area / total_marker_area * 100.0) if total_marker_area > 0 else 0.0, 2), "fabric_consumption_yard": round((current_marker_length / 36.0), 3)}
-# ==============================================================================
+
 # PHẦN 6.1: KHÔNG GIAN CHAT WORKSPACE & BỘ TRÍCH XUẤT SPECS BIÊN
 # ==============================================================================
 st.markdown('<br><div class="cad-card"><div class="cad-header">💬 CHATGPT IE COLLABORATION WORKSPACE</div>', unsafe_allow_html=True)
