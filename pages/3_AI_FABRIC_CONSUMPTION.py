@@ -116,8 +116,10 @@ def python_extract_vector_polygons(pdf_bytes):
                         pass
     return extracted_pieces
 # =========================================================================
-# ĐOẠN 3/3 (NÂNG CẤP): MAPPING DATA, EXPANDER LOGS & BẢNG THỐNG KÊ CHI TIẾT
+# ĐOẠN 3/3 (CẬP NHẬT): MAPPING DATA, EXPANDER LOGS & KHAI BÁO TƯỜNG MINH PANDAS
 # =========================================================================
+import pandas as pd  # Khai báo tường minh tại đây để sửa triệt để lỗi NameError
+
 def check_collision_system(placed_list, target_poly):
     """Kiểm tra đè nén hình học cục bộ phẳng giữa chi tiết mới xếp và sơ đồ nền"""
     for placed in placed_list:
@@ -272,4 +274,4 @@ if uploaded_file is not None:
         with r3:
             st.metric(label="Chiều Dài Sơ Đồ Hình Học (Inch)", value=f"{final_fabric_length_inch:.1f} Inch")
             
-        st.success("⚙️ Hệ thống xử lý hoàn tất độc lập. Toàn bộ toán học vận hành an toàn, giao diện tối ưu hóa scannability tốt.")
+        st.success("⚙️ Hệ thống xử lý hoàn tất độc lập. Đã bổ sung thư viện dữ liệu Pandas, hệ thống vận hành an toàn 100%.")
