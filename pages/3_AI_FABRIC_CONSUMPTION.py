@@ -1,203 +1,87 @@
 
-# ==============================================================================
+# =====================================================================
 # HỆ THỐNG TOÁN HỌC V18 GERBER INDUSTRIAL MARKER ENGINE
-# ĐOẠN 1: KHAI BÁO THƯ VIỆN & PARSER VECTOR CHUẨN HÓA HỆ TỌA ĐỘ CAD (ĐÃ VÁ LỖI NONETYPE)
-# ==============================================================================
+# ĐOẠN 7 - PHẦN 1/6: KHỞI TẠO KHUNG WORKSPACE CHAT & CƠ CHẾ RESET (ĐÃ SỬA LỖI ĐƠN VỊ ĐM)
+# =====================================================================
 
-import fitz  # Thư viện PyMuPDF trích xuất đồ họa giải tích từ PDF
-import math
-import numpy as np
-import streamlit as st
-from shapely.geometry import Polygon, MultiPolygon, LineString
-from shapely.ops import unary_union, polygonize
-from shapely.affinity import translate, rotate, scale
-from shapely.strtree import STRtree
+# --- PHẦN 1: KHUNG HỘI THOẠI & LỊCH SỬ WORKSPACE (UI CHAT) ---
+st.markdown('<br><div class="cad-card"><div class="cad-header">💬 CHATGPT IE COLLABORATION WORKSPACE</div>', unsafe_allow_html=True)
 
-def v18_step1_extract_raw_vectors(layer_name, warp=3.0, weft=3.0, snap_tol=0.005):
-    """
-    LÕI INDUSTRIAL V18 - ĐOẠN 1 (Phần A1):
-    Nâng cấp chuẩn hóa hệ tọa độ PDF -> CAD (Lật trục Y), sửa lỗi đóng trùng Contour,
-    làm sạch điểm bằng Snap Tolerance và lưu trữ Metadata đồ họa nâng cao (Width, Fill).
-    [VÁ LỖI CƠ SỞ]: Khử hoàn toàn lỗi 'NoneType' object is not subscriptable khi đọc màu PDF.
-    """
-    layer_upper = str(layer_name).upper().strip()
+if "chat_history" not in st.session_state: st.session_state.chat_history = []
+if "pdf_page_one_image" not in st.session_state: st.session_state.pdf_page_one_image = None
+if "accumulated_bom_rows" not in st.session_state: st.session_state.accumulated_bom_rows = {}
+if "current_warp_pct" not in st.session_state: st.session_state.current_warp_pct = "3.0%"
+if "current_weft_pct" not in st.session_state: st.session_state.current_weft_pct = "3.0%"
+if "active_blueprint" not in st.session_state: st.session_state.active_blueprint = {}
+
+c_col1, c_col2 = st.columns(2)
+with c_col2:
+    if st.button("🗑️ Clear Chat", key="btn_clear_chat_v18_final", use_container_width=True):
+        st.session_state.chat_history = []
+        st.session_state.active_blueprint = {}
+        st.session_state.accumulated_bom_rows = {}
+        st.session_state.current_warp_pct = "3.0%"
+        st.session_state.current_weft_pct = "3.0%"
+        st.toast("🧹 Đã dọn sạch lịch sử hội thoại và ma trận định mức!", icon="🗑️")
+        st.rerun()
+
+if st.session_state.chat_history:
+    for msg in st.session_state.chat_history:
+        st.chat_message("user").write(msg["user"])
+        st.chat_message("assistant").write(msg["ai"])
+
+safe_user_prompt = st.chat_input("Gõ câu lệnh điều chỉnh thông số tại đây...", key="main_chat_input_v18_final")
+st.markdown('</div>', unsafe_allow_html=True)
+
+# --- PHẦN 2: CORE AI ENGINE ĐIỀU PHỐI VÀ TRÍCH XUẤT THÔNG SỐ SPECS ---
+if st.session_state.get("pdf_bytes") is not None and safe_user_prompt:
+    current_query = str(safe_user_prompt).strip()
     
-    # Tính toán hệ số co rút vải hữu hiệu thực tế (Warp: Co dọc, Weft: Co ngang)
-    w_f = 1.0 + (warp / 100.0) if warp > 1.0 else 1.03
-    f_f = 1.0 + (weft / 100.0) if weft > 1.0 else 1.03
-    
-    raw_lines_metadata = []  # Danh sách phẳng lưu trữ nét vẽ nội bộ kèm siêu dữ liệu đồ họa
-    all_contours = []        # Lưu trữ chuỗi bao quanh ngoại vi chi tiết rập
-
-    def clean_and_snap_points(pts_list, tolerance):
-        """Hàm nội bộ băm nhỏ điểm trùng và làm sạch tọa độ vi phân cục bộ"""
-        if len(pts_list) < 2: 
-            return pts_list
-        cleaned = [pts_list[0]]
-        for pt in pts_list[1:]:
-            if math.hypot(pt[0] - cleaned[-1][0], pt[1] - cleaned[-1][1]) > tolerance:
-                cleaned.append(pt)
-        return cleaned
-
-    try:
-        # Kiểm tra sự tồn tại của luồng dữ liệu tệp nhị phân trong Streamlit Memory Buffer
-        if "pdf_bytes" not in st.session_state or st.session_state.pdf_bytes is None:
-            raise ValueError("Thiếu dữ liệu tệp PDF Vector nguyên bản trong Session State.")
-
-        doc = fitz.open(stream=st.session_state.pdf_bytes, filetype="pdf")
-        page = doc.load_page(0)
-        drawings = page.get_drawings()
-        
-        if not drawings:
-            raise ValueError("Phát hiện cấu trúc PDF lỗi hoặc tệp PDF Scan không chứa dữ liệu nét vẽ Vector.")
-
-        # LẤY THÔNG SỐ CHIỀU CAO TRANG ĐỂ CHUẨN HÓA HỆ TỌA ĐỘ CAD (y = page_height - y)
-        p_rect = page.rect
-        p_height = p_rect.height
-        page_area_sq_in = (p_rect.width / 72.0) * (p_rect.height / 72.0)
-
-        # Trích xuất cấu trúc định hướng thông số rập (BOM) do hệ thống phân phối quản lý
-        target_pieces_count = 2.0
-        is_mirror_pair = True
-        active_bp_data = st.session_state.get("active_blueprint") or {}
-        if isinstance(active_bp_data, dict) and "bom_rows" in active_bp_data:
-            for row in active_bp_data["bom_rows"]:
-                if str(row.get("geometry_source_layer")).upper() == layer_upper:
-                    target_pieces_count = float(row.get("_btp_total_piece_count", target_pieces_count))
-                    is_mirror_pair = row.get("mirror_pair", True)
-                    break
-
-        # 14. BÉZIER ADAPTIVE: Nội suy thích ứng bậc 3 + Chuyển đổi hệ tọa độ CAD Y-Flip thực tế
-        def interpolate_adaptive_bezier(p0, p1, p2, p3):
-            chord_len = math.hypot(p3[0] - p0[0], p3[1] - p0[1])
-            # Gerber AccuMark Standard: Đường cong càng lớn phân giải mắt lưới cơ sở càng mịn (Lên đến 96 bước)
-            steps = 16 if chord_len < 1.0 else (48 if chord_len < 5.0 else (72 if chord_len < 15.0 else 96))
-                
-            pts = []
-            for t_idx in range(steps + 1):
-                t = t_idx / float(steps)
-                x = ((1-t)**3)*p0[0] + 3*((1-t)**2)*t*p1[0] + 3*(1-t)*(t**2)*p2[0] + (t**3)*p3[0]
-                y = ((1-t)**3)*p0[1] + 3*((1-t)**2)*t*p1[1] + 3*(1-t)*(t**2)*p2[1] + (t**3)*p3[1]
-                
-                # 🔄 CHUẨN HÓA HỆ TỌA ĐỘ: PDF TO CAD TRONG LÚC NỘI SUY (Đổi trục Y gốc dưới tả ngạn)
-                cad_y = p_height - y
-                pts.append((x / 72.0 * f_f, cad_y / 72.0 * w_f))
-            return pts
-
-        # DUYỆT CẤU TRÚC ĐỒ HỌA GIẢI TÍCH PYMUPDF VÀ PHÂN NHÓM SIÊU DỮ LIỆU
-        for draw in drawings:
-            # 🛡️ VÁ LỖI CHỐT CHẶN NONETYPE: Kiểm tra và gán giá trị mặc định an toàn nếu thuộc tính rỗng
-            stroke_color = draw.get("color", (0, 0, 0))
-            if stroke_color is None: 
-                stroke_color = (0, 0, 0)
-                
-            fill_color = draw.get("fill", None)
-            line_width = draw.get("width", 1.0)
-            if line_width is None: 
-                line_width = 1.0
+    with st.spinner("🧠 AI đang phân tách cấu trúc vật tư, song song kích hoạt Lõi Hình Học V18..."):
+        try:
+            import google.generativeai as genai
+            import json, copy, traceback, re
+            import fitz 
             
-            # Định danh bảng màu RGB băm chuỗi phục vụ lọc tách phân rã đường nét (Đảm bảo an toàn kiểu dữ liệu)
+            if st.session_state.pdf_page_one_image is None:
+                doc_recovery = fitz.open(stream=st.session_state.pdf_bytes, filetype="pdf")
+                st.session_state.pdf_page_one_image = doc_recovery.load_page(0).get_pixmap(dpi=150).tobytes("png")
+            
+            if "GEMINI_API_KEY" in st.secrets: 
+                genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+                
+            model = genai.GenerativeModel("gemini-2.5-flash", generation_config={"temperature": 0.0})
+            chat_lower = current_query.lower()
+            
+            match_size = re.search(r'\b(?:size|sz|cỡ|cơ)\s*[:\-=\s]*([\w\d]+)\b', chat_lower)
+            target_size_cmd = str(match_size.group(1)).upper().strip() if match_size else "30"
+            
             try:
-                color_key = f"{stroke_color[0]:.2f}_{stroke_color[1]:.2f}_{stroke_color[2]:.2f}"
-            except (TypeError, IndexError):
-                color_key = "0.00_0.00_0.00"
+                size_num_check = float(re.sub(r'[^\d\.]', '', target_size_cmd))
+                if size_num_check < 20.0 or size_num_check > 50.0:
+                    target_size_cmd = "30"
+            except:
+                pass
+
+            match_w = re.search(r'(?:khổ|kho|width|cutwidth)\s*[:\-=\s]*([\d\.]+)', chat_lower)
+            active_width = float(match_w.group(1)) if match_w else 58.0
             
-            current_subpath = []
-            current_pos = (0.0, 0.0)
+            active_warp, active_weft = 3.0, 3.0
+            match_warp = re.search(r'(?:dọc|doc|warp)\s*[:\-=\s]*([\d\.]+)', chat_lower)
+            match_weft = re.search(r'(?:ngang|weft)\s*[:\-=\s]*([\d\.]+)', chat_lower)
             
-            if "items" not in draw or draw["items"] is None or len(draw["items"]) == 0:
-                continue
-                
-            for item in draw["items"]:
-                if not isinstance(item, (list, tuple)) or len(item) == 0:
-                    continue
-                type_code = str(item[0]).lower().strip()
-                
-                if type_code == "m":  # Lệnh MoveTo khởi tạo gốc chuỗi
-                    if len(current_subpath) >= 2:
-                        current_subpath = clean_and_snap_points(current_subpath, snap_tol)
-                        if current_subpath[0] != current_subpath[-1]:
-                            current_subpath.append(current_subpath[0])
-                        if len(current_subpath) >= 3:
-                            all_contours.append(LineString(current_subpath))
-                    
-                    raw_pos = item[1]
-                    current_pos = raw_pos
-                    current_subpath = [(raw_pos[0] / 72.0 * f_f, (p_height - raw_pos[1]) / 72.0 * w_f)]
-                    
-                elif type_code == "l":  # Lệnh LineTo dựng đường thẳng thẳng hướng
-                    next_pos = item[1]
-                    cad_next_y = (p_height - next_pos[1]) / 72.0 * w_f
-                    cad_curr_y = (p_height - current_pos[1]) / 72.0 * w_f
-                    
-                    current_subpath.append((next_pos[0] / 72.0 * f_f, cad_next_y))
-                    
-                    try:
-                        ln = LineString([(current_pos[0] / 72.0 * f_f, cad_curr_y), 
-                                        (next_pos[0] / 72.0 * f_f, cad_next_y)])
-                        raw_lines_metadata.append({
-                            "line": ln, 
-                            "color": color_key, 
-                            "width": line_width, 
-                            "is_filled": fill_color is not None
-                        })
-                    except: 
-                        pass
-                    current_pos = next_pos
-                    
-                elif type_code == "re":  # Lệnh vẽ khối HCN trực tiếp
-                    r = item[1]
-                    rect_pts = [
-                        (r.x0 / 72.0 * f_f, (p_height - r.y0) / 72.0 * w_f),
-                        (r.x1 / 72.0 * f_f, (p_height - r.y0) / 72.0 * w_f),
-                        (r.x1 / 72.0 * f_f, (p_height - r.y1) / 72.0 * w_f),
-                        (r.x0 / 72.0 * f_f, (p_height - r.y1) / 72.0 * w_f),
-                        (r.x0 / 72.0 * f_f, (p_height - r.y0) / 72.0 * w_f)
-                    ]
-                    rect_pts = clean_and_snap_points(rect_pts, snap_tol)
-                    all_contours.append(LineString(rect_pts))
-                    
-                elif type_code == "c":  # Lệnh CurveTo đường cong nội suy Bezier
-                    p0, p1, p2, p3 = current_pos, item[1], item[2], item[3]
-                    curve_pts = interpolate_adaptive_bezier(p0, p1, p2, p3)
-                    if curve_pts:
-                        if current_subpath: 
-                            current_subpath.extend(curve_pts[1:])
-                        else: 
-                            current_subpath.extend(curve_pts)
-                    current_pos = p3
-                    
-                elif type_code in ["h", "closepath"]:  # Lệnh khép góc chuỗi đồ họa hành trình
-                    if len(current_subpath) >= 2:
-                        current_subpath = clean_and_snap_points(current_subpath, snap_tol)
-                        if current_subpath[0] != current_subpath[-1]:
-                            current_subpath.append(current_subpath[0])
-                        if len(current_subpath) >= 3:
-                            all_contours.append(LineString(current_subpath))
-                    current_subpath = []
+            if match_warp: active_warp = float(match_warp.group(1))
+            if match_weft: active_weft = float(match_weft.group(1))
+            if not match_warp or not match_weft:
+                m_sh = re.search(r'(?:co\s*rút|co\s*rut|co|shrinkage)\s*[:\-=\s]*([\d\.]+)\s*(?:-|–|x|ngang|\s+)\s*([\d\.]+)', chat_lower)
+                if m_sh:
+                    active_warp, active_weft = float(m_sh.group(1)), float(m_sh.group(2))
 
-            if len(current_subpath) >= 2:
-                current_subpath = clean_and_snap_points(current_subpath, snap_tol)
-                if current_subpath[0] != current_subpath[-1]:
-                    current_subpath.append(current_subpath[0])
-                if len(current_subpath) >= 3:
-                    all_contours.append(LineString(current_subpath))
+            st.session_state.current_warp_pct = f"{active_warp}%"
+            st.session_state.current_weft_pct = f"{active_weft}%"
 
-        doc.close()
-        return {
-            "status": "success",
-            "all_contours": all_contours,
-            "raw_lines_metadata": raw_lines_metadata,
-            "page_area_sq_in": page_area_sq_in,
-            "target_pieces_count": target_pieces_count,
-            "is_mirror_pair": is_mirror_pair,
-            "layer_upper": layer_upper
-        }
+            techpack_text = st.session_state.get("pdf_text_cache", "Casual Twill Cargo Pants with multiple pockets.")
 
-    except Exception as e:
-
-        st.error(f"Lỗi hệ thống nghiêm trọng tại Đoạn 1 (Parser hình học): {str(e)}")
-        return {"status": "error", "message": str(e)}
 def v18_step2_reconstruct_and_orient_geometry(step1_results, seam_allowance=0.0):
     """
     LÕI INDUSTRIAL V18 - ĐOẠN 2 (Phần A2):
