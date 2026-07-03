@@ -116,7 +116,7 @@ def python_extract_vector_polygons(pdf_bytes):
                         pass
     return extracted_pieces
 # =========================================================================
-# ĐOẠN 3/3 (CẬP NHẬT): MAPPING DATA, NESTING ENGINE & SỬA LỖI BOUNDS TOÁN HỌC
+# ĐOẠN 3/3 (NÂNG CẤP): MAPPING DATA, EXPANDER LOGS & BẢNG THỐNG KÊ CHI TIẾT
 # =========================================================================
 def check_collision_system(placed_list, target_poly):
     """Kiểm tra đè nén hình học cục bộ phẳng giữa chi tiết mới xếp và sơ đồ nền"""
@@ -161,6 +161,7 @@ if uploaded_file is not None:
                 st.success(f"Trích xuất thành công {len(vectors)} đa giác hình học phẳng từ bản vẽ PDF!")
         
         # --- PIPELINE ĐỒNG BỘ MAPPING & TÍNH TOÁN TOÁN HỌC CHÍNH XÁC ---
+        st.markdown("---")
         st.write("### 📐 Tiến Trình Xử Lý Hình Học Hình Học Thực Tế & Thêm Đường Chừa May")
         
         warp_factor = 1 + (warp_shrinkage / 100.0)
@@ -178,6 +179,9 @@ if uploaded_file is not None:
                     "grain": "warp"
                 })
         
+        # Mảng lưu thông số để xuất bảng thống kê Pandas DataFrame
+        summary_table_data = []
+        
         for idx, ai_piece in enumerate(pieces_list):
             if idx < len(vectors):
                 geom_poly = vectors[idx]["polygon"]
@@ -189,43 +193,57 @@ if uploaded_file is not None:
                 qty = ai_piece.get("quantity", 1)
                 if qty is None: qty = 1
                 
+                # Lưu thông số hình học phẳng thực tế phục vụ kiểm toán kĩ thuật
+                summary_table_data.append({
+                    "Tên Chi Tiết": ai_piece.get('name', 'UNKNOWN'),
+                    "Số Lượng (Pcs)": qty,
+                    "Chu Vi Gốc (Inch)": round(geom_poly.length, 2),
+                    "Chu Vi + Đường May (Inch)": round(poly_with_seam.length, 2),
+                    "Diện Tích Gốc (Sq.In)": round(geom_poly.area, 2),
+                    "Diện Tích + Đường May (Sq.In)": round(poly_with_seam.area, 2)
+                })
+                
                 for q in range(qty):
                     nesting_queue.append({
                         "name": f"{ai_piece.get('name', 'UNKNOWN')}_Q{q+1}",
                         "poly": poly_with_seam,
                         "perimeter": poly_with_seam.length
                     })
+        
+        # Hiển thị bảng dữ liệu kiểm soát cấu trúc rập thực tế
+        st.write("#### 📊 Bảng Thống Kê Thuộc Tính Hình Học Chi Tiết Rập Thực Tế (Python Engine)")
+        st.dataframe(pd.DataFrame(summary_table_data), use_container_width=True)
                     
-        # Chạy thuật toán Nesting sắp xếp tối ưu hóa vải phẳng (Bottom-Left Sizing)
+        # Sắp xếp gọn tiến trình chạy thuật toán định vị vào Expander chống tràn giao diện
         placed_shapes = []
         max_length_reached = 0.0
         
         if nesting_queue:
-            for item in nesting_queue:
-                current_poly = item["poly"]
-                minx, miny, maxx, maxy = current_poly.bounds
-                pw, ph = maxx - minx, maxy - miny
-                
-                placed = False
-                curr_x = 0.0
-                while not placed:
-                    for curr_y in np.arange(0.0, fabric_width_input - ph + 0.01, 0.5):
-                        moved_poly = translate(current_poly, xoff=curr_x - minx, yoff=curr_y - miny)
-                        if not check_collision_system(placed_shapes, moved_poly):
-                            placed_shapes.append(moved_poly)
-                            
-                            # SỬA LỖI CHÍNH: Trích xuất phần tử chỉ số 2 (maxx) trong bộ .bounds để so sánh chiều dài sơ đồ
-                            moved_maxx = moved_poly.bounds[2]
-                            if moved_maxx > max_length_reached:
-                                max_length_reached = moved_maxx
-                                
-                            placed = True
-                            break
-                    if not placed:
-                        curr_x += 0.5
-                    if curr_x > 2000.0: break
+            with st.expander("🔍 Xem nhật ký định vị tọa độ sơ đồ chi tiết (Nesting Logs)", expanded=False):
+                for item in nesting_queue:
+                    current_poly = item["poly"]
+                    minx, miny, maxx, maxy = current_poly.bounds
+                    pw, ph = maxx - minx, maxy - miny
                     
-                st.caption(f"✅ Python Engine đã dựng hình và định vị xong: `{item['name']}`")
+                    placed = False
+                    curr_x = 0.0
+                    while not placed:
+                        for curr_y in np.arange(0.0, fabric_width_input - ph + 0.01, 0.5):
+                            moved_poly = translate(current_poly, xoff=curr_x - minx, yoff=curr_y - miny)
+                            if not check_collision_system(placed_shapes, moved_poly):
+                                placed_shapes.append(moved_poly)
+                                
+                                moved_maxx = moved_poly.bounds[2]
+                                if moved_maxx > max_length_reached:
+                                    max_length_reached = moved_maxx
+                                    
+                                placed = True
+                                break
+                        if not placed:
+                            curr_x += 0.5
+                        if curr_x > 2000.0: break
+                        
+                    st.caption(f"✅ Python Engine định vị thành công: `{item['name']}` tại X={curr_x:.2f}")
         else:
             st.error("❌ Không có dữ liệu chi tiết rập hợp lệ để thực hiện đi sơ đồ Nesting.")
             
@@ -254,4 +272,4 @@ if uploaded_file is not None:
         with r3:
             st.metric(label="Chiều Dài Sơ Đồ Hình Học (Inch)", value=f"{final_fabric_length_inch:.1f} Inch")
             
-        st.success("⚙️ Hệ thống xử lý hoàn tất độc lập. Toàn bộ toán học vận hành an toàn, giải quyết triệt để lỗi so sánh kiểu dữ liệu hình học.")
+        st.success("⚙️ Hệ thống xử lý hoàn tất độc lập. Toàn bộ toán học vận hành an toàn, giao diện tối ưu hóa scannability tốt.")
