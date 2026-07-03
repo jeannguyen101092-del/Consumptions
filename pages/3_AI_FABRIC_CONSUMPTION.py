@@ -117,7 +117,8 @@ def python_extract_vector_polygons(pdf_bytes):
     return extracted_pieces
 # =========================================================================
 # =========================================================================
-# PHẦN 3.1: INDUSTRIAL CAD ENGINE - SMART MAPPING & GRAPHIC MIRROR PAIR
+# =========================================================================
+# PHẦN 3.1 (SỬA LỖI): INDUSTRIAL CAD ENGINE - SMART MAPPING & GRAPHIC MIRROR PAIR
 # =========================================================================
 import pandas as pd
 import numpy as np
@@ -195,7 +196,8 @@ if uploaded_file is not None:
                 mapped_vectors.add(best_v_idx)
             elif vectors:
                 available_indices = list(set(range(len(vectors))) - mapped_vectors)
-                fallback_idx = available_indices if available_indices else 0
+                # SỬA LỖI CHÍNH: Lấy phần tử số nguyên đầu tiên [0] trong danh sách các chỉ số còn trống thay vì lấy cả mảng list
+                fallback_idx = available_indices[0] if available_indices else 0
                 geom_poly = vectors[fallback_idx]["polygon"]
                 mapped_vectors.add(fallback_idx)
             else:
@@ -211,7 +213,7 @@ if uploaded_file is not None:
             qty = ai_piece.get("quantity", 1)
             if qty is None: qty = 1
             is_mirror = ai_piece.get("mirror", False)
-            fab_type = ai_piece.get("fabric", "Main Fabric") # Khóa cứng vật liệu từ BOM, không tự đoán mò diện tích
+            fab_type = ai_piece.get("fabric", "Main Fabric") # Khóa cứng vật liệu từ BOM
             nap_rule = ai_piece.get("nap", "ONE_WAY")
             
             allowed_rotations = [0] if nap_rule == "ONE_WAY" else [0, 180]
@@ -224,7 +226,6 @@ if uploaded_file is not None:
                 final_piece_poly = poly_with_seam
                 piece_label = f"{ai_name}_Q{q+1}"
                 
-                # Nếu là chi tiết đối xứng rập và ở vị trí số lẻ, tiến hành lật trục x hình học
                 if is_mirror and (q % 2 == 1):
                     final_piece_poly = scale(poly_with_seam, xfact=-1, yfact=1, origin='center')
                     piece_label += "_MIRROR_RIGHT"
@@ -249,6 +250,7 @@ if uploaded_file is not None:
 
         st.write("#### 📊 Bảng Thống Kê Thuộc Tính Hình Học Sau Khi Mapping & Khớp Cặp Đối Xứng")
         st.dataframe(pd.DataFrame(summary_table_data), use_container_width=True)
+
         # =========================================================================
         # PHẦN 3.2: INDUSTRIAL NESTING ENGINE - SKYLINE ALGORITHM & STRtree
         # =========================================================================
