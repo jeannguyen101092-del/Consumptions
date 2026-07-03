@@ -1100,14 +1100,29 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             gemini_inputs.append(prompt_instruction)
             response = model.generate_content(gemini_inputs)
 # =====================================================================
-# ĐOẠN 7a2.2: POST-AI MIDDLEWARE GEOMETRY PROCESSOR (V29.5 APPROVED)
+# ĐOẠN 7a2.2: POST-AI MIDDLEWARE GEOMETRY PROCESSOR (V31.0 CHỐT KHÓA SẢN XUẤT)
 # =====================================================================
             # Khởi tạo giá trị mặc định cho biến phản hồi chat nhằm phòng vệ tuyệt đối lỗi NameError dứt điểm
             ai_chat_response = "Hệ thống đang xử lý dữ liệu..."
             
-            # XỬ LÝ DỮ LIỆU ĐẦU RA SAU KHI AI TRẢ VỀ PHẢN HỒI
-            if response and response.text:
-                response_text = response.text.strip()
+            # FIX CHIẾN LƯỢC: BẪY LỖI PHÒNG VỆ KHI RESPONSE.TEXT KHÔNG TỒN TẠI HOẶC BỊ BLOCKED
+            response_text = ""
+            if response:
+                try:
+                    response_text = response.text.strip()
+                except Exception:
+                    st.error("❌ LỖI HẠ TẦNG: Gemini không trả về thuộc tính text hợp lệ (Có thể do bộ lọc an toàn Blocked).")
+                    
+                    # 🌟 NÂNG CẤP: Xuất toàn bộ siêu dữ liệu API dạng JSON để truy vết lý do bị Block/Safety
+                    try:
+                        st.json(response.to_dict())
+                    except Exception:
+                        st.write(response)
+                        
+                    response_text = ""
+            
+            # Kích hoạt luồng bóc tách khi chuỗi text thô tồn tại hợp lệ
+            if response_text:
                 json_match = re.search(r'===START_JSON===\s*(.*?)\s*===END_JSON===', response_text, re.DOTALL)
                 chat_match = re.search(r'===START_CHAT===\s*(.*?)\s*===END_CHAT===', response_text, re.DOTALL)
                 
@@ -1181,8 +1196,15 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                         err_reason = raw_blueprint.get('error_reason', 'Tài liệu thiếu bảng Spec hoặc dữ liệu phân số chưa được chuẩn hóa.')
                         ai_chat_response = f"❌ NGẰT LUỒNG: {err_reason}"
                 else:
+                    # IN THẲNG PHẢN HỒI THÔ CỦA GEMINI RA MÀN HÌNH KHI SAI FORMAT THẺ JSON ĐỂ AUDIT LỖI TỨC THÌ
                     st.session_state.bom_data = None
+                    st.warning("⚠️ CẢNH BÁO KIỂM TOÁN: AI phản hồi sai định dạng thẻ JSON mẫu chuẩn. Nội dung thô thu được:")
+                    st.code(response_text, language="markdown")
                     ai_chat_response = "❌ NGẰT LUỒNG: AI Core không phản hồi cấu trúc JSON mẫu chuẩn."
+            else:
+                # 🌟 NÂNG CẤP: Khóng chế luồng phản hồi rỗng tránh đơ treo cứng giao diện web tĩnh
+                st.session_state.bom_data = None
+                ai_chat_response = "❌ NGẰT LUỒNG: Gemini không trả về nội dung text phản hồi."
             
             # ĐỒNG BỘ LỊCH SỬ CHAT VÀ RERUN AN TOÀN TRONG KHỐI TRY KHÉP KÍN TRUYỀN BIẾN SẠCH LỖI
             st.session_state.chat_history.append({"user": current_query, "ai": ai_chat_response})
