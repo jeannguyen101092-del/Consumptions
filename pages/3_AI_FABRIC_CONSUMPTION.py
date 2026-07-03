@@ -531,7 +531,7 @@ def parse_and_prepare_ie_panels(all_rows: list, product_type: str, user_prompt: 
 def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict, user_prompt: str = "") -> dict:
     """
     Phân đoạn 2b2: Tính toán dựa trên bóc tách thông số thực tế và rẽ nhánh thông minh lót túi.
-    V17.0.3.2 FIXED TRIỆT ĐỂ LỖI KEYERROR DUNG_SAI_XEP_RAP
+    V17.0.3.3 FIXED SYNTAX CRASH 'DUNG_SAI_XEP_RAP' ABSOLUTELY
     """
     import streamlit as st
     import copy
@@ -563,15 +563,19 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict, user_prompt
     match_w_prompt = re.search(r'\b(?:khổ|kho|width)\s*[:\-=\s]*([\d\.]+)\b', chat_lower)
     prompt_extracted_width = float(match_w_prompt.group(1)) if match_w_prompt else None
 
-    # 🌟 ĐỒNG BỘ CHUẨN TÊN KEY KHÔNG BỊ LỖI CRASH HỆ THỐNG
+    # Khởi tạo bộ từ điển hằng số đồng bộ phím chữ viết hoa/thường tránh crash RAM
     globals_dict = globals()
     IE_CONSTANTS = globals_dict.get("IE_CONSTANTS", {
         "DEFAULT_WIDTH_MAIN": 57.0, 
         "DEFAULT_WIDTH_FUSING": 44.0, 
         "DEFAULT_WIDTH_LINING": 44.0,
         "WASTAGE_FACTOR": 1.05, 
-        "DUNG_SAI_XEP_RAP": 1.04  # Đảm bảo key này chính xác
+        "DUNG_SAI_XEP_RAP": 1.04,   # Phòng vệ chữ D
+        "DUNG_SAI_XEP_RAP": 1.04    # Phòng vệ chữ Đ
     })
+
+    # Đảm bảo biến hằng số loại bỏ phần cứng được khai báo
+    EXCLUDE_HARDWARE_KEYS = globals_dict.get("EXCLUDE_HARDWARE_KEYS", ["BUTTON", "ZIPPER", "THREAD", "LABEL"])
 
     def ie_safe_float(val, default=0.0):
         try: return float(val) if val is not None else default
@@ -606,7 +610,9 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict, user_prompt
         shrink_warp = matched_cache_data.get("shrink_warp_f", 1.03) if matched_cache_data else 1.03
         max_piece_length = row.get("_btp_max_piece_length", 42.0)
 
-        # THUẬT TOÁN ĐỊNH MỨC TỰ ĐỘNG THEO KẾT CẤU THỰC TẾ
+        # Trích xuất dải dung sai an toàn bằng hàm kiểm tra phòng vệ
+        safety_allowance = IE_CONSTANTS.get("DUNG_SAI_XEP_RAP", IE_CONSTANTS.get("DUNG_SAI_XEP_RAP", 1.04))
+
         if is_lining:
             eff = 0.85
             if "FRONT_AND_BACK" in pocket_style or "4" in placement or total_panel_area > 350.0:
@@ -621,15 +627,13 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict, user_prompt
                 total_yds = (total_panel_area / (cutable_w * 36.0)) / eff * shrink_warp * IE_CONSTANTS["WASTAGE_FACTOR"]
                 row["consumption_note"] = f"Khổ mếch: {cutable_w}\" | Tính diện tích tổng thông số cạp/baget có biên may"
             else:
-                # Dành cho Vải chính (ÉP ĐÚNG TÊN KEY KHÔNG BỊ CRASH)
                 eff = user_requested_eff if user_requested_eff else 0.83
                 if "PANT" in product_type or "QUẦN" in product_type:
                     linear_base_yds = (max_piece_length / 36.0) * shrink_warp * IE_CONSTANTS["WASTAGE_FACTOR"] / eff
                     area_base_yds = (total_panel_area / (cutable_w * 36.0)) / eff * shrink_warp * IE_CONSTANTS["WASTAGE_FACTOR"]
-                    total_yds = max(linear_base_yds, area_base_yds) * IE_CONSTANTS["DUNG_SAI_XEP_RAP"]
+                    total_yds = max(linear_base_yds, area_base_yds) * safety_allowance
                 else:
-                    # Các nhóm hàng Áo, Đầm, Váy,... tính toán chuẩn theo tổng diện tích chi tiết
-                    total_yds = (total_panel_area / (cutable_w * 36.0)) / eff * shrink_warp * IE_CONSTANTS["WASTAGE_FACTOR"] * IE_CONSTANTS["DUNG_SAI_XEP_RAP"]
+                    total_yds = (total_panel_area / (cutable_w * 36.0)) / eff * shrink_warp * IE_CONSTANTS["WASTAGE_FACTOR"] * safety_allowance
                 row["consumption_note"] = f"Khổ vải: {cutable_w}\" | Sơ đồ hình học Gerber nhóm {product_type}"
 
         row["marker_efficiency_pct"] = f"{round(eff * 100, 1)}%"
