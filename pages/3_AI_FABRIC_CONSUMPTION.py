@@ -1030,11 +1030,16 @@ if "uploaded_pdf_bytes" in st.session_state and st.session_state.uploaded_pdf_by
         st.error(f"❌ Lỗi nghiêm trọng tại tầng xử lý PDF 7a1: {str(pdf_err)}")
 
 # =====================================================================
-# ĐOẠN 7a2.1: AI CORE EXTRACTOR & INTEGRATED CHAT INPUT (V36.7 FIXED)
+# ĐOẠN 7a2.1: AI CORE EXTRACTOR & INTEGRATED CHAT INPUT (V36.8 FINAL)
 # =====================================================================
 import concurrent.futures
 from fractions import Fraction
-import json, re, time, random, streamlit as st
+import json
+import re
+import time
+import random
+import streamlit as st
+import google.generativeai as genai  # KHẮC PHỤC LỖI IM LẶNG: Khai báo thư viện toàn cục tại đây
 
 def safe_float(v, default=0.0):
     if v is None: return default
@@ -1058,12 +1063,14 @@ if "parsed_ai_response" not in st.session_state: st.session_state.parsed_ai_resp
 if "ai_chat_response" not in st.session_state: st.session_state.ai_chat_response = ""
 if "current_query" not in st.session_state: st.session_state.current_query = ""
 
-# ĐĂNG KÝ Ô NHẬP LIỆU CHAT
+# ĐĂNG KÝ Ô NHẬP LIỆU CHAT CỐ ĐỊNH Ở ĐÁY MÀN HÌNH
 user_input = st.chat_input("Nhập câu lệnh của bạn tại đây (Ví dụ: Tính định mức size 32 khổ 57)...")
 
-# FIX IM LẶNG: Lưu câu lệnh mới vào trạng thái nền và tự động bóc tách PDF nếu có file mới mà KHÔNG DÙNG st.rerun()
+# Nếu người dùng nhập dữ liệu, cập nhật câu lệnh vào Session State nền
 if user_input:
     st.session_state.current_query = user_input
+    
+    # Ép luồng bóc tách nhanh hình ảnh nếu có tệp PDF mới tải lên
     if "uploaded_pdf_bytes" in st.session_state and st.session_state.uploaded_pdf_bytes:
         import fitz
         try:
@@ -1085,17 +1092,16 @@ if user_input:
             if local_payloads:
                 st.session_state.gemini_inputs = local_payloads
         except Exception as e:
-            st.error(f"Lỗi phân rã PDF nhanh: {str(e)}")
+            st.error(f"Lỗi nạp ảnh nhanh: {str(e)}")
 
-# ĐỌC BIẾN HOẠT ĐỘNG HIỆN TẠI
+# Đọc biến câu lệnh hoạt động
 active_query = st.session_state.current_query
 
-# KHỐI LOGIC GỌI AI ENGINE
+# KHỐI XỬ LÝ AI ENGINE CHẠY THẲNG TUYẾN
 if "gemini_inputs" in st.session_state and st.session_state.gemini_inputs and len(st.session_state.gemini_inputs) > 0 and active_query:
     gemini_inputs = list(st.session_state.gemini_inputs)
     
     if "GEMINI_API_KEY" in st.secrets: 
-        import google.generativeai as genai
         genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
     
     chat_lower = str(active_query).lower()
@@ -1114,7 +1120,7 @@ if "gemini_inputs" in st.session_state and st.session_state.gemini_inputs and le
     gemini_inputs.append(prompt_instruction)
     
     error_log = []
-    # KÍCH HOẠT THANH XOAY VÒNG SPINNER TRỰC TIẾP TRÊN LUỒNG CHẠY THẲNG
+    # BẬT THANH SPINNER QUÉT DỮ LIỆU
     with st.spinner(f"⏳ AI đang xử lý lệnh: '{active_query}'..."):
         for attempt in range(3):
             if attempt > 0: time.sleep((2 ** attempt) + random.uniform(0.1, 0.3))
@@ -1122,12 +1128,16 @@ if "gemini_inputs" in st.session_state and st.session_state.gemini_inputs and le
                 model = genai.GenerativeModel("gemini-2.5-flash", generation_config={"temperature": 0.0, "response_mime_type": "application/json"})
                 with concurrent.futures.ThreadPoolExecutor(max_workers=1) as exec_p:
                     future = exec_p.submit(model.generate_content, gemini_inputs)
-                    try: response = future.result(timeout=40)
+                    try: 
+                        response = future.result(timeout=40)
                     except concurrent.futures.TimeoutError: 
-                        error_log.append(f"Lượt {attempt+1}: Timeout.")
+                        error_log.append(f"Lượt {attempt+1}: Kết nối mạng bị Timeout.")
                         continue
                 
-                if not response: continue
+                if not response: 
+                    error_log.append(f"Lượt {attempt+1}: API trả về phản hồi rỗng.")
+                    continue
+                
                 txt = ""
                 try: txt = response.text
                 except:
@@ -1138,28 +1148,35 @@ if "gemini_inputs" in st.session_state and st.session_state.gemini_inputs and le
                             txt = "".join(getattr(p, "text", "") for p in parts)
                 
                 txt = txt.strip() if txt else ""
-                if not txt: continue
+                if not txt: 
+                    error_log.append(f"Lượt {attempt+1}: Văn bản phản hồi rỗng.")
+                    continue
                 
-                try: local_parsed = json.loads(txt)
-                except json.JSONDecodeError: break
+                try: 
+                    local_parsed = json.loads(txt)
+                except json.JSONDecodeError: 
+                    error_log.append(f"Lượt {attempt+1}: Dữ liệu AI trả về sai cấu trúc JSON.")
+                    break
                 
                 if isinstance(local_parsed, dict):
                     st.session_state.parsed_ai_response = local_parsed
-                    st.session_state.current_query = ""  # Xóa sạch câu lệnh sau khi xử lý xong
+                    st.session_state.current_query = ""  # Giải phóng câu lệnh sau khi hoàn tất
                     error_log = []
                     break
             except Exception as e:
-                error_log.append(f"Lỗi: {str(e)}")
+                error_log.append(f"Lượt {attempt+1} Ngoại lệ hệ thống: {str(e)}")
                 if isinstance(e, (KeyError, TypeError, NameError, AttributeError)): break
                 continue
 
     if error_log:
-        st.error(f"❌ AI Core gặp sự cố kết nối: {error_log[-1]}")
+        st.error(f"❌ Trục trặc API Core: {error_log[-1]}")
+        with st.expander("🔍 Chi tiết nhật ký lỗi"):
+            for log in error_log: st.text(log)
 else:
     if "gemini_inputs" not in st.session_state or len(st.session_state.gemini_inputs) == 0:
         st.info("💡 Sẵn sàng. Hãy tải file Techpack lên ở bên trái để bắt đầu bóc tách.")
     elif not active_query:
-        st.info("💬 File đã nạp thành công! Hãy nhập yêu cầu vào ô chat bên dưới để AI bắt đầu tính toán.")
+        st.info("💬 File đã nạp thành công! Hãy nhập yêu cầu (Ví dụ: 'tính size 32 khổ 57') vào ô chat bên dưới để AI bắt đầu.")
 
 
 
