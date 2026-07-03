@@ -1022,7 +1022,8 @@ with col_right:
         
     st.markdown('</div>', unsafe_allow_html=True)
 # =====================================================================
-# ĐOẠN 7a1: INTERFACE WORKSPACE & HIGH-RES JPEG IMAGE PIPELINE (V29.5 FIXED)
+# ĐOẠN 7a1: INTERFACE WORKSPACE & HIGH-RES JPEG IMAGE PIPELINE (V29.6 AUTO-TRIGGER)
+# Thay thế trọn vẹn Đoạn 7a1 cũ để tự động kích hoạt khi có file PDF
 # =====================================================================
 st.markdown('<br><div class="cad-card"><div class="cad-header">💬 CHATGPT IE COLLABORATION WORKSPACE</div>', unsafe_allow_html=True)
 
@@ -1045,9 +1046,10 @@ with chat_input_container:
 
 st.markdown('</div>', unsafe_allow_html=True)
 
-# Kích hoạt luồng trích xuất dữ liệu khi có tệp tài liệu và lệnh từ ô chat
-if st.session_state.pdf_bytes is not None and safe_user_prompt:
-    current_query = str(safe_user_prompt).strip()
+# 🌟 FIX TỰ ĐỘNG CHẠY: Thay đổi điều kiện 'and' thành kiểm tra file PDF độc lập để tự động chạy ngay khi tải file
+if st.session_state.pdf_bytes is not None:
+    # Tự động gán câu lệnh mặc định nếu người dùng bỏ trống ô chat khi mới tải file lên
+    current_query = str(safe_user_prompt).strip() if safe_user_prompt else "Tính định mức chuẩn mặc định"
     
     with st.spinner("🧠 AI Platform đang trích xuất dải ảnh kỹ thuật JPEG và xử lý rập phẳng..."):
         import google.generativeai as genai
