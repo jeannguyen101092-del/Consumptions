@@ -1023,8 +1023,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             
             gemini_inputs = copy.deepcopy(image_payloads)
 # =====================================================================
-# =====================================================================
-# ĐOẠN 7a2.1: AI CORE COGNITIVE ENGINE GENERATION (V33.5 PRO DYNAMIC TRIMS & LINING)
+# ĐOẠN 7a2.1: AI CORE COGNITIVE ENGINE GENERATION (V37.0 - FULL GEOMETRY SCHEMATIC)
 # =====================================================================
             if "GEMINI_API_KEY" in st.secrets: 
                 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
@@ -1036,7 +1035,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             match_size = re.search(r'\b(?:size|sz|cỡ)\s*[:\-=\s]*([\w\d]+)\b', chat_lower)
             target_size_cmd = str(match_size.group(1)).upper().strip() if match_size else "30"
             
-            # 🌟 BỘ TRÍCH XUẤT ĐA KHỔ VẢI ĐỘNG (DỌC ĐƯỜNG PROMPT CHAT CỦA BẠN)
+            # Bộ bóc tách đa khổ vải động dọc đường prompt chat của bạn
             match_w = re.search(r'(?:khổ|kho|width|vải chính khổ)\s*([\d\.]+)', chat_lower)
             active_width = float(match_w.group(1)) if match_w else 58.0
             
@@ -1046,7 +1045,6 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             match_fusing_w = re.search(r'(?:keo khổ|mếch khổ|fusing khổ)\s*([\d\.]+)', chat_lower)
             active_fusing_width = float(match_fusing_w.group(1)) if match_fusing_w else 59.0
             
-            # Khởi tạo dải co rút nền mặc định theo câu lệnh
             active_warp = 5.0
             active_weft = 15.0
             match_warp = re.search(r'(?:dọc|doc|warp)\s*[:\-=\s]*([\d\.]+)', chat_lower)
@@ -1062,21 +1060,20 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             if len(st.session_state.chat_history) > 30:
                 st.session_state.chat_history = st.session_state.chat_history[-30:]
 
-            # PROMPT CHUẨN HÓA SẢN XUẤT: ÉP ĐỒNG BỘ 4 DÒNG VẬT TƯ VÀ QUY ĐỔI SỐ THẬP PHÂN CHUẨN CAD
+            # PROMPT MỒI: CẤU HÌNH ĐẦY ĐỦ CÁC CHI TIẾT PHỤ ĐỂ ÉP AI PHÂN RÃ THÀNH CHUỖI SỐ THỰC
             prompt_instruction = f"""
             You are an expert apparel IE OCR system. Scan all provided page images to locate the size spec tables across Page 13 and Page 14.
             
             STRICT GARMENT RECONSTRUCTION RULES FOR PANT FLAT PATTERNS (SIZE {target_size_cmd}):
-            1. Target size is '{target_size_cmd}'. Gather and compile measurements continuously from both split pages (Page 13 and Page 14).
-            2. Convert fractional notation to pure decimals (e.g., '16 1/2' to 16.5, '20 1/4' to 20.25).
-            3. CRITICAL WIDTH RULE TO PREVENT OVER-CONSUMPTION: 
-               - Individual FRONT_PANEL and BACK_PANEL flat pattern piece width MUST be equal to (Hip Width or Waist Width found in table) DIVIDED BY 2 plus 1.0 inch seam allowance.
-            4. FRONT_PANEL / BACK_PANEL Length: Use 'Inseam' length + 'Front rise' (~32.0 + 10.75 = ~42.75 inches).
-            5. RECONSTRUCT COMPLETE APPAREL TRIMS & LINING SCHEMATICS: You MUST output exactly 4 complete material rows inside the "bom_rows" array to support full factory consumption calculations:
-               - MAIN FABRIC (DENIM): Main body panels.
-               - INTERLINING / KEO LÓT (FUSING): Waistband fusing support and reinforcement trims.
-               - POCKET LINING / LÓT TÚI (LINING): Front pocket bags lining panels. Extract front pocket openings/lengths from Page 14.
-               - RIB / ELASTIC TAPE (BO THUN): Structural stretch tapes if required.
+            1. Target size is '{target_size_cmd}'. Gather and compile measurements continuously from both split pages.
+            2. Convert fractional notations to clean decimals (e.g., '16 1/2' to 16.5).
+            3. WIDTH CALIBRATION: Flat piece width for FRONT_PANEL and BACK_PANEL MUST be equal to (Hip Width or Waist Width found in table) DIVIDED BY 2 plus 1.0 inch seam allowance (~10.5 to 11.5 inches).
+            4. Reconstruct the jeans catalog using physical pieces only:
+               - FRONT_PANEL & BACK_PANEL: Use Inseam + Front Rise (~42.75 inches).
+               - WAISTBAND_PANEL (CẠP QUẦN): Waist specs to establish realistic waistband cutting lengths and heights. Count = 2.0.
+               - BACK_POCKET_PANEL (TÚI ĐẮP SAU): Use pocket width/length like PKT-076/PKT-077 (~6.5 to 7.8 inches). Count = 2.0.
+               - FRONT_POCKET_FACING (ĐÁP TÚI TRƯỚC): Extract from pocket openings on Page 14 (~5.5 to 6.5 inches). Count = 2.0.
+               - FRONT_POCKET_BAG (LÓT TÚI): Jeans use folded pocket bags, count MUST be strictly 2.0 pieces.
             
             Output strictly in the specified JSON structure:
             ===START_JSON===
@@ -1096,7 +1093,10 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                   "fabric_code": "DENIM", "fabric_color": "SOLID COLOR", "fabric_width_inch": {active_width},
                   "panels_catalog": [
                     {{ "panel_name": "FRONT_PANEL", "piece_count": 2.0, "piece_length_inch": 0.0, "piece_width_inch": 0.0 }},
-                    {{ "panel_name": "BACK_PANEL", "piece_count": 2.0, "piece_length_inch": 0.0, "piece_width_inch": 0.0 }}
+                    {{ "panel_name": "BACK_PANEL", "piece_count": 2.0, "piece_length_inch": 0.0, "piece_width_inch": 0.0 }},
+                    {{ "panel_name": "WAISTBAND_PANEL", "piece_count": 2.0, "piece_length_inch": 0.0, "piece_width_inch": 0.0 }},
+                    {{ "panel_name": "BACK_POCKET_PANEL", "piece_count": 2.0, "piece_length_inch": 0.0, "piece_width_inch": 0.0 }},
+                    {{ "panel_name": "FRONT_POCKET_FACING", "piece_count": 2.0, "piece_length_inch": 0.0, "piece_width_inch": 0.0 }}
                   ]
                 }},
                 {{
@@ -1110,20 +1110,13 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                   "component_type": "POCKET LINING / LÓT TÚI", "placement": "FRONT_POCKET", "fabric_classification": "LINING",
                   "fabric_code": "TC_POCKETING", "fabric_color": "NATURAL_WHITE", "fabric_width_inch": {active_lining_width},
                   "panels_catalog": [
-                    {{ "panel_name": "FRONT_POCKET_BAG", "piece_count": 4.0, "piece_length_inch": 11.0, "piece_width_inch": 7.5 }}
-                  ]
-                }},
-                {{
-                  "component_type": "RIB / ELASTIC TAPE", "placement": "WAIST/POCKET", "fabric_classification": "RIB",
-                  "fabric_code": "COTTON_RIB", "fabric_color": "MATCHING", "fabric_width_inch": 36.0,
-                  "panels_catalog": [
-                    {{ "panel_name": "RIB_PANEL", "piece_count": 2.0, "piece_length_inch": 8.0, "piece_width_inch": 2.0 }}
+                    {{ "panel_name": "FRONT_POCKET_BAG", "piece_count": 2.0, "piece_length_inch": 11.0, "piece_width_inch": 7.5 }}
                   ]
                 }}
               ]
             }}
             ===END_JSON===
-            If successfully extracted, flip "status" to "PASS", "spec_sheet_found" to true, list ALL distinct extracted parameters inside "matched_measurements" using format 'POM_CODE: Description = Value', and dynamically overwrite 0.0 with calibrated panel sizes.
+            If successfully extracted, flip "status" to "PASS", "spec_sheet_found" to true, list ALL distinct extracted parameters inside "matched_measurements" using format 'POM_CODE: Description = Value', and dynamically overwrite 0.0 with calibrated pattern sizes.
             
             ===START_CHAT===
             [Confirm in Vietnamese which pages you scanned (Page 13 and Page 14) and summarize the exact clean decimal dimensions found for size {target_size_cmd}.]
@@ -1135,8 +1128,9 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
 
 
 
+
 # =====================================================================
-# ĐOẠN 7a2.2: POST-AI MIDDLEWARE GEOMETRY PROCESSOR (V32.5 KHÓA REGEX ĐỘNG & ĐÓNG TRY)
+# ĐOẠN 7a2.2: POST-AI MIDDLEWARE GEOMETRY PROCESSOR (V37.5 CHỐT KHÓA 50% AREA)
 # =====================================================================
             # Khởi tạo giá trị mặc định cho biến phản hồi chat nhằm phòng vệ tuyệt đối lỗi NameError dứt điểm
             ai_chat_response = "Hệ thống đang xử lý dữ liệu..."
@@ -1185,7 +1179,9 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                     if raw_blueprint.get("status") == "PASS" and has_valid_evidence and has_valid_bom:
                         blueprint_worker = copy.deepcopy(raw_blueprint)
                         
-                        # TẦNG MAPPING TRUNG GIAN PYTHON (MIDDLEWARE GEOMETRY PROCESSOR)
+                        # =====================================================================
+                        # TẦNG MAPPING TRUNG GIAN PYTHON VỚI THUẬT TOÁN ĐAN CÀI SƠ ĐỒ 50% AREA
+                        # =====================================================================
                         processed_bom_rows = []
                         for row in blueprint_worker.get("bom_rows", []):
                             if not row or not isinstance(row, dict): continue
@@ -1205,11 +1201,20 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                             if catalog and isinstance(catalog, list):
                                 for p in catalog:
                                     if not isinstance(p, dict): continue
+                                    p_name = str(p.get("panel_name", "")).upper()
                                     count = float(p.get("piece_count", 0.0))
                                     length = float(p.get("piece_length_inch", 0.0))
                                     width = float(p.get("piece_width_inch", 0.0))
                                     
-                                    total_area += (length * width * count)
+                                    # Kích thước phẳng bao phủ thô đầu vào
+                                    raw_piece_area = length * width * count
+                                    
+                                    # 🌟 THUẬT TOÁN IE ĐỘNG GIẢM TẢI 50% CHI TIẾT PHỤ ĐAN CÀI SƠ ĐỒ KHÍT
+                                    if "POCKET" in p_name or "FACING" in p_name or "FLY" in p_name or "BAGET" in p_name:
+                                        total_area += (raw_piece_area * 0.5) # Chỉ cộng 50% diện tích chiếm dụng thực tế
+                                    else:
+                                        total_area += raw_piece_area         # Thân chính và cạp quần giữ 100% diện tích
+                                        
                                     total_pieces += count
                                     if length > max_len: max_len = length
                                     
@@ -1246,7 +1251,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                 ai_chat_response = "❌ NGẰT LUỒNG: Gemini không trả về nội dung text phản hồi."
                 st.session_state.chat_history.append({"user": current_query, "ai": ai_chat_response})
                 
-        # 🌟 KHỐI ĐÓNG KHÉP KÍN BẪY LỖI CHO 7A1 TRÁNH LỖI SYNTAXERROR FILE GỐC
+        # KHỐI ĐÓNG KHÉP KÍN BẪY LỖI CHO 7A1/7A2 TRÁNH LỖI SYNTAXERROR FILE GỐC vĩnh viễn
         except Exception as e:
             st.error(f"❌ Lỗi hệ thống tầng AI Core Post-Pipeline ở đoạn 7a2.2: {str(e)}")
             st.text(traceback.format_exc())
