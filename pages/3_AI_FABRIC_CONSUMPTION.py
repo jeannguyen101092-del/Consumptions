@@ -1100,7 +1100,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             gemini_inputs.append(prompt_instruction)
             response = model.generate_content(gemini_inputs)
 # =====================================================================
-# ĐOẠN 7a2.2: POST-AI MIDDLEWARE GEOMETRY PROCESSOR (V32.0 KHÓA REGEX ĐỘNG)
+# ĐOẠN 7a2.2: POST-AI MIDDLEWARE GEOMETRY PROCESSOR (V32.5 KHÓA REGEX ĐỘNG & ĐÓNG TRY)
 # =====================================================================
             # Khởi tạo giá trị mặc định cho biến phản hồi chat nhằm phòng vệ tuyệt đối lỗi NameError dứt điểm
             ai_chat_response = "Hệ thống đang xử lý dữ liệu..."
@@ -1118,7 +1118,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             
             # Kích hoạt luồng bóc tách khi chuỗi text thô tồn tại hợp lệ
             if response_text:
-                # 🌟 NÂNG CẤP ĐỘNG: Quét vét cả cặp thẻ hệ thống HOẶC cặp thẻ ```json thô của Markdown
+                # NÂNG CẤP ĐỘNG: Quét vét cả cặp thẻ hệ thống HOẶC cặp thẻ ```json thô của Markdown
                 json_match = re.search(r'(?:===START_JSON===\s*|```json\s*)(.*?)(?:\s*===END_JSON===|\s*```)', response_text, re.DOTALL)
                 chat_match = re.search(r'(?:===START_CHAT===\s*|```markdown\s*|(?:\n|^)\s*\*\s*)(.*?)(?:\s*===END_CHAT===|\s*```|$)', response_text, re.DOTALL)
                 
@@ -1209,6 +1209,11 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                 st.session_state.bom_data = None
                 ai_chat_response = "❌ NGẰT LUỒNG: Gemini không trả về nội dung text phản hồi."
                 st.session_state.chat_history.append({"user": current_query, "ai": ai_chat_response})
+                
+        # 🌟 KHỐI ĐÓNG KHÉP KÍN BẪY LỖI CHO 7A1 TRÁNH LỖI SYNTAXERROR FILE GỐC
+        except Exception as e:
+            st.error(f"❌ Lỗi hệ thống tầng AI Core Post-Pipeline ở đoạn 7a2.2: {str(e)}")
+            st.text(traceback.format_exc())
 
 
                 
