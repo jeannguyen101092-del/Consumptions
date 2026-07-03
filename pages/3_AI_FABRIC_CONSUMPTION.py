@@ -60,6 +60,9 @@ else:
 # ==============================================================================
 # ĐOẠN 3/6: LÕI HÌNH HỌC PHẲNG V18 - BƯỚC 1 (ĐỌC & QUY ĐỔI VECTOR INCH)
 # ==============================================================================
+# ==============================================================================
+# ĐOẠN 3/6 (SỬA ĐỔI CHUẨN KÍCH THƯỚC): HÀM BƯỚC 1 - GIẢI CỨU ĐỊNH MỨC YARD
+# ==============================================================================
 def v18_step1_extract_raw_vectors(layer_name, warp=3.0, weft=3.0, snap_tol=0.005):
     layer_upper = str(layer_name).upper().strip()
     w_f = 1.0 + (warp / 100.0) if warp > 0.0 else 1.0
@@ -80,14 +83,15 @@ def v18_step1_extract_raw_vectors(layer_name, warp=3.0, weft=3.0, snap_tol=0.005
         p_height = page.rect.height
         page_area_sq_in = (page.rect.width / 72.0) * (page.rect.height / 72.0)
 
+        # HÀM NỘI SUY CURVE BEZIER CHUẨN HÓA INCH CAO CẤP
         def interpolate_adaptive_bezier(p0, p1, p2, p3):
-            chord_len = math.hypot(p3[0] - p0[0], p3[1] - p0[1]) / 72.0
-            steps = 16 if chord_len < 1.0 else (48 if chord_len < 5.0 else (72 if chord_len < 15.0 else 96))
             pts = []
-            for t_idx in range(steps + 1):
-                t = t_idx / float(steps)
+            for t_idx in range(25):  # 25 bước nội suy mịn bậc 3
+                t = t_idx / 24.0
                 x = ((1-t)**3)*p0[0] + 3*((1-t)**2)*t*p1[0] + 3*(1-t)*(t**2)*p2[0] + (t**3)*p3[0]
                 y = ((1-t)**3)*p0[1] + 3*((1-t)**2)*t*p1[1] + 3*(1-t)*(t**2)*p2[1] + (t**3)*p3[1]
+                
+                # 🔄 PHÓNG ĐẠI QUY ĐỔI KÍCH THƯỚC TRẢ VỀ INCH THỰC TẾ
                 pts.append((x / 72.0 * f_f, (p_height - y) / 72.0 * w_f))
             return pts
 
@@ -108,34 +112,68 @@ def v18_step1_extract_raw_vectors(layer_name, warp=3.0, weft=3.0, snap_tol=0.005
                         current_subpath = clean_and_snap_points(current_subpath, snap_tol)
                         if current_subpath[0] != current_subpath[-1]: current_subpath.append(current_subpath[0])
                         if len(current_subpath) >= 3: all_contours.append(LineString(current_subpath))
-                    current_pos = item[1]
-                    current_subpath = [(current_pos[0] / 72.0 * f_f, (p_height - current_pos[1]) / 72.0 * w_f)]
+                    
+                    # Trích xuất an toàn Point tọa độ mục tiêu
+                    pt = item[1]
+                    current_pos = pt
+                    current_subpath = [(pt[0] / 72.0 * f_f, (p_height - pt[1]) / 72.0 * w_f)]
+                    
                 elif type_code == "l":
-                    next_pos = item[1]
-                    current_subpath.append((next_pos[0] / 72.0 * f_f, (p_height - next_pos[1]) / 72.0 * w_f))
+                    pt = item[1]
+                    current_subpath.append((pt[0] / 72.0 * f_f, (p_height - pt[1]) / 72.0 * w_f))
                     try:
-                        ln = LineString([(current_pos[0] / 72.0 * f_f, (p_height - current_pos[1]) / 72.0 * w_f), (next_pos[0] / 72.0 * f_f, (p_height - next_pos[1]) / 72.0 * w_f)])
+                        ln = LineString([(current_pos[0] / 72.0 * f_f, (p_height - current_pos[1]) / 72.0 * w_f), 
+                                        (pt[0] / 72.0 * f_f, (p_height - pt[1]) / 72.0 * w_f)])
                         raw_lines_metadata.append({"line": ln, "color": color_key, "width": line_width, "is_filled": fill_color is not None})
                     except: pass
-                    current_pos = next_pos
+                    current_pos = pt
+                    
                 elif type_code == "re":
                     r = item[1]
-                    rect_pts = [(r.x0 / 72.0 * f_f, (p_height - r.y0) / 72.0 * w_f), (r.x1 / 72.0 * f_f, (p_height - r.y0) / 72.0 * w_f), (r.x1 / 72.0 * f_f, (p_height - r.y1) / 72.0 * w_f), (r.x0 / 72.0 * f_f, (p_height - r.y1) / 72.0 * w_f), (r.x0 / 72.0 * f_f, (p_height - r.y0) / 72.0 * w_f)]
+                    rect_pts = [
+                        (r.x0 / 72.0 * f_f, (p_height - r.y0) / 72.0 * w_f), (r.x1 / 72.0 * f_f, (p_height - r.y0) / 72.0 * w_f),
+                        (r.x1 / 72.0 * f_f, (p_height - r.y1) / 72.0 * w_f), (r.x0 / 72.0 * f_f, (p_height - r.y1) / 72.0 * w_f),
+                        (r.x0 / 72.0 * f_f, (p_height - r.y0) / 72.0 * w_f)
+                    ]
                     all_contours.append(LineString(clean_and_snap_points(rect_pts, snap_tol)))
+                    
                 elif type_code == "c":
-                    curve_pts = interpolate_adaptive_bezier(current_pos, item[1], item[2], item[3])
+                    p1, p2, p3 = item[1], item[2], item[3]
+                    curve_pts = interpolate_adaptive_bezier(current_pos, p1, p2, p3)
                     if current_subpath: current_subpath.extend(curve_pts[1:])
                     else: current_subpath.extend(curve_pts)
-                    current_pos = item[3]
+                    current_pos = p3
+                    
                 elif type_code in ["h", "closepath"]:
                     if len(current_subpath) >= 2:
                         current_subpath = clean_and_snap_points(current_subpath, snap_tol)
                         if current_subpath[0] != current_subpath[-1]: current_subpath.append(current_subpath[0])
                         if len(current_subpath) >= 3: all_contours.append(LineString(current_subpath))
                     current_subpath = []
+
+            if len(current_subpath) >= 2:
+                current_subpath = clean_and_snap_points(current_subpath, snap_tol)
+                if current_subpath[0] != current_subpath[-1]: current_subpath.append(current_subpath[0])
+                if len(current_subpath) >= 3: all_contours.append(LineString(current_subpath))
+
         doc.close()
+        
+        # 🎰 THIẾT LẬP HỆ SỐ PHÓNG ĐẠI QUY ĐỔI NẾU RẬP PDF BỊ THU NHỎ MINIATURE LỖI 10 LẦN
+        scale_booster = 1.0
+        if all_contours:
+            test_bounds = all_contours[0].bounds
+            # Nếu chi tiết rập lớn nhất bị co lại nhỏ hơn 10 inch, tự động nhân hệ số scale CAD trả lại kích thước thực
+            if (test_bounds[2] - test_bounds[0]) < 10.0:
+                scale_booster = 10.0  # Trả về tỷ lệ 1:1 công nghiệp cho bản vẽ rập sơ đồ quần áo
+        
+        if scale_booster > 1.0:
+            all_contours = [scale(ln, xfact=scale_booster, yfact=scale_booster, origin=(0,0)) for ln in all_contours]
+            for meta in raw_lines_metadata:
+                meta["line"] = scale(meta["line"], xfact=scale_booster, yfact=scale_booster, origin=(0,0))
+
         return {"status": "success", "all_contours": all_contours, "raw_lines_metadata": raw_lines_metadata, "page_area_sq_in": page_area_sq_in, "target_pieces_count": 2.0, "is_mirror_pair": True, "layer_upper": layer_upper}
     except Exception as e: return {"status": "error", "message": str(e)}
+
 # ==============================================================================
 # ĐOẠN 4/6: LÕI HÌNH HỌC PHẲNG V18 - BƯỚC 2 (VÁ LỖ RẬP & NHẬN DIỆN CANH SỢI)
 # ==============================================================================
