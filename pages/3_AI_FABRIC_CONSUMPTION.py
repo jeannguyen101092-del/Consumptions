@@ -887,13 +887,14 @@ def v18_step3_execute_strip_nesting(panels_catalog, target_width=58.0, fabric_ty
 # 🔗 CHUYỂN TIẾP SANG ĐOẠN 10/12...
 # ==============================================================================
 # HỆ THỐNG TOÁN HỌC CAD-AI ĐỒNG BỘ GERBER V18 INDUSTRIAL ENGINE
-# ĐOẠN 10/12: KHỐI ĐIỀU PHỐI KHẾP KÍN PYTHON CORE PIPELINE TỰ ĐỘNG TÍNH TOÁN THEO BOM
+# ĐOẠN 10/12: KHỐI ĐIỀU PHỐI KHẾP KÍN PYTHON CORE PIPELINE (CĂN CHỈNH ĐỒNG BỘ CÚ PHÁP)
 # ==============================================================================
 
             # =====================================================================
             # 🔄 PYTHON GEOMETRY PIPELINE EXECUTION ENGINE (MẠCH LIÊN KẾT ĐỘC LẬP)
             # =====================================================================
             updated_bom_rows = []
+            geometry_reports_html = ""
             
             if ai_json_data and "bom_rows" in ai_json_data:
                 # Vòng lặp Python tự động tiếp quản xử lý tính toán hình học thực tế cho từng lớp vật liệu
@@ -941,7 +942,7 @@ def v18_step3_execute_strip_nesting(panels_catalog, target_width=58.0, fabric_ty
                                     )
                                     
                                     if s3["status"] == "success":
-                                        # ÉP NGƯỢC KẾT QUẢ ĐỊNH MỨC THỰC TẾ TỪ PYTHON VÀO BẢNG DỮ LIỆU VẬT TƯ
+                                        # ÉP NGƯỢC KẾT QUẢ ĐỊNH MỨC THỰC TẾ TFROM PYTHON VÀO BẢNG DỮ LIỆU VẬT TƯ
                                         row["calculated_gross_consumption_yds"] = s3["fabric_consumption_yard"]
                                         row["consumption_note"] = f"Skyline packing complete. Marker utilization: {s3['marker_utilization_percent']}%."
                                         row["quality_gate_status"] = "PASSED"
@@ -979,12 +980,11 @@ def v18_step3_execute_strip_nesting(panels_catalog, target_width=58.0, fabric_ty
             st.session_state.chat_history.append({"user": current_query, "ai": "Đã hoàn thành bóc tách tài liệu kỹ thuật ngữ nghĩa và cập nhật kết quả ma trận định mức CAD thực nghiệm bằng Python."})
             st.rerun()
 
+        # ✅ FIXED INDENTATION: Đưa khối bẫy lỗi về kịch biên lề trái chuẩn xác ngang hàng với khối try ở Đoạn 4/12
         except Exception as orchestrator_err:
             st.error(f"Lỗi hệ thống nghiêm trọng tại lõi điều phối AI Orchestrator Pipeline: {str(orchestrator_err)}")
             st.code(traceback.format_exc())
 
-# 🔗 CHUYỂN TIẾP SANG ĐOẠN 11/12...
-# ==============================================================================
 # HỆ THỐNG TOÁN HỌC CAD-AI ĐỒNG BỘ GERBER V18 INDUSTRIAL ENGINE
 # ĐOẠN 11/12: KHỞI DỰNG VÀ RENDERING BẢNG MA TRẬN ĐỊNH MỨC TIÊU HAO VẬT TƯ
 # ==============================================================================
