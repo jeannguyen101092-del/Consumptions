@@ -435,11 +435,11 @@ def parse_and_prepare_ie_panels(all_rows: list, product_type: str, user_prompt: 
 
     globals_dict = globals()
     IE_CONSTANTS = globals_dict.get("IE_CONSTANTS", {
-        "MIN_SAFETY_EFF": 0.50, "MAX_ALLOWED_EFF": 0.92,
-        "SEAM_ALLOWANCE_MAIN_L": 0.75,    # 🟢 Cộng thêm 0.75 inch vào chiều dài vải chính (Gấu, ráp cạp)
-        "SEAM_ALLOWANCE_MAIN_W": 0.75,    # 🟢 Cộng thêm 0.75 inch vào chiều rộng vải chính (Cuốn sườn, ráp túi)
-        "SEAM_ALLOWANCE_FUSING_L": 0.25, 
-        "SEAM_ALLOWANCE_FUSING_W": 0.25,
+        "MIN_SAFETY_EFF": 0.44, "MAX_ALLOWED_EFF": 0.44,
+        "SEAM_ALLOWANCE_MAIN_L": 0.44,    # 🟢 Cộng thêm 0.75 inch vào chiều dài vải chính (Gấu, ráp cạp)
+        "SEAM_ALLOWANCE_MAIN_W": 0.44,    # 🟢 Cộng thêm 0.75 inch vào chiều rộng vải chính (Cuốn sườn, ráp túi)
+        "SEAM_ALLOWANCE_FUSING_L": 0.375, 
+        "SEAM_ALLOWANCE_FUSING_W": 0.375,
         "SEAM_ALLOWANCE_LINING_L": 0.375, 
         "SEAM_ALLOWANCE_LINING_W": 0.375
     })
