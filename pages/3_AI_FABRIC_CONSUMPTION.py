@@ -302,7 +302,7 @@ if st.session_state.get("pdf_bytes") is not None and safe_user_prompt:
 # 🔗 CHUYỂN TIẾP SANG ĐOẠN 6/12...
 # ==============================================================================
 # HỆ THỐNG TOÁN HỌC CAD-AI ĐỒNG BỘ GERBER V18 INDUSTRIAL ENGINE
-# ĐOẠN 6/12: LÕI GIẢI TÍCH HÌNH HỌC BƯỚC 1 - TRÍCH XUẤT VECTOR THÔ & FLIP TRỤC CAD Y
+# ĐOẠN 6/12: LÕI GIẢI TÍCH HÌNH HỌC BƯỚC 1 - TRÍCH XUẤT VECTOR THÔ & FLIP TRỤC CAD Y (FIXED SYNTAX)
 # ==============================================================================
 
 def v18_step1_extract_raw_vectors(layer_name, warp=3.0, weft=3.0, snap_tol=0.005):
@@ -310,7 +310,7 @@ def v18_step1_extract_raw_vectors(layer_name, warp=3.0, weft=3.0, snap_tol=0.005
     LÕI INDUSTRIAL V18 - HÀM BƯỚC 1:
     Nạp lớp rập vector từ PDF, chuẩn hóa hệ tọa độ CAD phẳng (Lật trục Y), làm sạch 
     điểm trùng bằng Snap Tolerance, đồng bộ hệ số co rút dệt và đóng gói siêu dữ liệu đồ họa.
-    • GIẢI QUYẾT TRIỆT ĐỂ LỖI ĐM THẤP: Quy đổi tỷ lệ Point -> Inch đồng bộ 100% trên mọi câu lệnh.
+    • VÁ LỖI CÚ PHÁP: Cân bằng thụt lề cho block try-except, đóng chuỗi chính xác.
     """
     import fitz
     import math
@@ -352,14 +352,13 @@ def v18_step1_extract_raw_vectors(layer_name, warp=3.0, weft=3.0, snap_tol=0.005
         p_height = p_rect.height
         page_area_sq_in = (p_rect.width / 72.0) * (p_rect.height / 72.0)
 
-        # Cấu hình số lượng chi tiết mặc định (Sẽ được ghi đè tự động bởi vòng lặp điều phối dựa vào lớp vật liệu)
+        # Cấu hình số lượng chi tiết mặc định
         target_pieces_count = 2.0
         is_mirror_pair = True
 
         # 🌟 BỘ NỘI SUY BÉZIER THÍCH ỨNG: Chuyển đổi chính xác 100% đơn vị Point sang Inch công nghiệp
         def interpolate_adaptive_bezier(p0, p1, p2, p3):
             chord_len = math.hypot(p3[0] - p0[0], p3[1] - p0[1]) / 72.0
-            # Phân bậc mắt lưới giải tích mịn theo chuẩn Gerber AccuMark (Lên đến 96 bước cho đường cong lớn)
             steps = 16 if chord_len < 1.0 else (48 if chord_len < 5.0 else (72 if chord_len < 15.0 else 96))
                 
             pts = []
@@ -381,7 +380,6 @@ def v18_step1_extract_raw_vectors(layer_name, warp=3.0, weft=3.0, snap_tol=0.005
             line_width = draw.get("width", 1.0)
             if line_width is None: line_width = 1.0
             
-            # Khử hoàn toàn lỗi NoneType bằng bộ lọc bẫy chuỗi màu RGB dự phòng
             try:
                 color_key = f"{stroke_color[0]:.2f}_{stroke_color[1]:.2f}_{stroke_color[2]:.2f}"
             except (TypeError, IndexError):
@@ -408,7 +406,6 @@ def v18_step1_extract_raw_vectors(layer_name, warp=3.0, weft=3.0, snap_tol=0.005
                     
                     raw_pos = item[1]
                     current_pos = raw_pos
-                    # ✅ FIX ĐỒNG BỘ: Chia 72.0 đưa về đơn vị Inch chuẩn xác ngay từ điểm khởi đầu
                     current_subpath = [(raw_pos[0] / 72.0 * f_f, (p_height - raw_pos[1]) / 72.0 * w_f)]
                     
                 elif type_code == "l":  # Lệnh LineTo - Dựng phân đoạn thẳng
@@ -478,7 +475,6 @@ def v18_step1_extract_raw_vectors(layer_name, warp=3.0, weft=3.0, snap_tol=0.005
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
-# 🔗 CHUYỂN TIẾP SANG ĐOẠN 7/12...
 # ==============================================================================
 # HỆ THỐNG TOÁN HỌC CAD-AI ĐỒNG BỘ GERBER V18 INDUSTRIAL ENGINE
 # ĐOẠN 7/12: LÕI GIẢI TÍCH HÌNH HỌC BƯỚC 2 - TÁI DỰNG ĐA GIÁC ĐA VÒNG LỒNG NHAU (HOLES)
