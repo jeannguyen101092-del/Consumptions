@@ -1,4 +1,9 @@
 
+# ==============================================================================
+# HỆ THỐNG TOÁN HỌC V18 GERBER INDUSTRIAL MARKER ENGINE
+# ĐOẠN 1: KHAI BÁO THƯ VIỆN & PARSER VECTOR CHUẨN HÓA HỆ TỌA ĐỘ CAD (ĐÃ VÁ LỖI NONETYPE)
+# ==============================================================================
+
 import fitz  # Thư viện PyMuPDF trích xuất đồ họa giải tích từ PDF
 import math
 import numpy as np
@@ -13,6 +18,7 @@ def v18_step1_extract_raw_vectors(layer_name, warp=3.0, weft=3.0, snap_tol=0.005
     LÕI INDUSTRIAL V18 - ĐOẠN 1 (Phần A1):
     Nâng cấp chuẩn hóa hệ tọa độ PDF -> CAD (Lật trục Y), sửa lỗi đóng trùng Contour,
     làm sạch điểm bằng Snap Tolerance và lưu trữ Metadata đồ họa nâng cao (Width, Fill).
+    [VÁ LỖI CƠ SỞ]: Khử hoàn toàn lỗi 'NoneType' object is not subscriptable khi đọc màu PDF.
     """
     layer_upper = str(layer_name).upper().strip()
     
@@ -80,16 +86,28 @@ def v18_step1_extract_raw_vectors(layer_name, warp=3.0, weft=3.0, snap_tol=0.005
 
         # DUYỆT CẤU TRÚC ĐỒ HỌA GIẢI TÍCH PYMUPDF VÀ PHÂN NHÓM SIÊU DỮ LIỆU
         for draw in drawings:
+            # 🛡️ VÁ LỖI CHỐT CHẶN NONETYPE: Kiểm tra và gán giá trị mặc định an toàn nếu thuộc tính rỗng
             stroke_color = draw.get("color", (0, 0, 0))
+            if stroke_color is None: 
+                stroke_color = (0, 0, 0)
+                
             fill_color = draw.get("fill", None)
             line_width = draw.get("width", 1.0)
+            if line_width is None: 
+                line_width = 1.0
             
-            # Định danh bảng màu RGB băm chuỗi phục vụ lọc tách phân rã đường nét
-            color_key = f"{stroke_color[0]:.2f}_{stroke_color[1]:.2f}_{stroke_color[2]:.2f}"
+            # Định danh bảng màu RGB băm chuỗi phục vụ lọc tách phân rã đường nét (Đảm bảo an toàn kiểu dữ liệu)
+            try:
+                color_key = f"{stroke_color[0]:.2f}_{stroke_color[1]:.2f}_{stroke_color[2]:.2f}"
+            except (TypeError, IndexError):
+                color_key = "0.00_0.00_0.00"
             
             current_subpath = []
             current_pos = (0.0, 0.0)
             
+            if "items" not in draw or draw["items"] is None or len(draw["items"]) == 0:
+                continue
+                
             for item in draw["items"]:
                 if not isinstance(item, (list, tuple)) or len(item) == 0:
                     continue
@@ -98,7 +116,6 @@ def v18_step1_extract_raw_vectors(layer_name, warp=3.0, weft=3.0, snap_tol=0.005
                 if type_code == "m":  # Lệnh MoveTo khởi tạo gốc chuỗi
                     if len(current_subpath) >= 2:
                         current_subpath = clean_and_snap_points(current_subpath, snap_tol)
-                        # ✅ VÁ LỖI LOGIC ĐÓNG CONTOUR: Sử dụng phần tử đầu tiên của chuỗi
                         if current_subpath[0] != current_subpath[-1]:
                             current_subpath.append(current_subpath[0])
                         if len(current_subpath) >= 3:
@@ -118,7 +135,6 @@ def v18_step1_extract_raw_vectors(layer_name, warp=3.0, weft=3.0, snap_tol=0.005
                     try:
                         ln = LineString([(current_pos[0] / 72.0 * f_f, cad_curr_y), 
                                         (next_pos[0] / 72.0 * f_f, cad_next_y)])
-                        # Đóng gói dữ liệu kèm cặp cấu trúc Metadata để bóc tách sớ vải công nghiệp
                         raw_lines_metadata.append({
                             "line": ln, 
                             "color": color_key, 
@@ -154,7 +170,6 @@ def v18_step1_extract_raw_vectors(layer_name, warp=3.0, weft=3.0, snap_tol=0.005
                 elif type_code in ["h", "closepath"]:  # Lệnh khép góc chuỗi đồ họa hành trình
                     if len(current_subpath) >= 2:
                         current_subpath = clean_and_snap_points(current_subpath, snap_tol)
-                        # ✅ VÁ LỖI LOGIC ĐÓNG CONTOUR CHUẨN XÁC
                         if current_subpath[0] != current_subpath[-1]:
                             current_subpath.append(current_subpath[0])
                         if len(current_subpath) >= 3:
@@ -180,6 +195,7 @@ def v18_step1_extract_raw_vectors(layer_name, warp=3.0, weft=3.0, snap_tol=0.005
         }
 
     except Exception as e:
+
         st.error(f"Lỗi hệ thống nghiêm trọng tại Đoạn 1 (Parser hình học): {str(e)}")
         return {"status": "error", "message": str(e)}
 def v18_step2_reconstruct_and_orient_geometry(step1_results, seam_allowance=0.0):
