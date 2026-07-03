@@ -1037,7 +1037,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
         except Exception as e:
             st.error(f"❌ Lỗi xử lý tệp tin đầu vào ở phân đoạn 7a1: {str(e)}")
 # =====================================================================
-# ĐOẠN 7a2: AI CORE COGNITIVE ENGINE & POST-AI MIDDLEWARE GEOMETRY PROCESSOR (V23.5 APPROVED)
+# ĐOẠN 7a2: AI CORE COGNITIVE ENGINE & POST-AI MIDDLEWARE GEOMETRY PROCESSOR (V24.0 APPROVED)
 # =====================================================================
 if st.session_state.pdf_bytes is not None and safe_user_prompt and len(gemini_inputs) > 0:
     with st.spinner("🧠 AI Core đang tiến hành xử lý nhận diện bảng thông số mở rộng..."):
@@ -1185,6 +1185,10 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt and len(gemini_in
                         
                         st.session_state.bom_data = blueprint_final
                         st.session_state.accumulated_bom_rows = blueprint_final.get("bom_rows", [])
+                        
+                       
+                        
+
                         
                         ai_chat_response = f"✅ OCR & Mapping thành công! Trích xuất đa trang sạch số đo thập phân."
                         if chat_match: ai_chat_response = chat_match.group(1).strip()
