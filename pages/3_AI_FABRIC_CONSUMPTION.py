@@ -973,7 +973,7 @@ with col_right:
 
 
 # =====================================================================
-# ĐOẠN 7a1: INTERFACE WORKSPACE & HIGH-RES IMAGE PIPELINE (V27.6 CHUẨN ID)
+# ĐOẠN 7a1: INTERFACE WORKSPACE & HIGH-RES JPEG IMAGE PIPELINE (V28.0 APPROVED)
 # =====================================================================
 st.markdown('<br><div class="cad-card"><div class="cad-header">💬 CHATGPT IE COLLABORATION WORKSPACE</div>', unsafe_allow_html=True)
 
@@ -997,7 +997,7 @@ st.markdown('</div>', unsafe_allow_html=True)
 if st.session_state.pdf_bytes is not None and safe_user_prompt:
     current_query = str(safe_user_prompt).strip()
     
-    with st.spinner("🧠 AI Platform đang chạy luồng trích xuất ảnh đa trang siêu nét và xử lý rập phẳng..."):
+    with st.spinner("🧠 AI Platform đang trích xuất dải ảnh kỹ thuật JPEG và xử lý rập phẳng..."):
         try:
             import google.generativeai as genai
             import json, copy, traceback, re
@@ -1006,16 +1006,21 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             doc_recovery = fitz.open(stream=st.session_state.pdf_bytes, filetype="pdf")
             total_pages = len(doc_recovery)
             
-            # Chuyển 100% tài liệu sang định dạng ảnh siêu nét 200 DPI để OCR bảng biểu liên trang chính xác
+            # 🌟 ĐỒNG BỘ: Ép chuyển đổi sang định dạng hình ảnh JPEG (RGB) để triệt tiêu lỗi byte ảnh nhiễu
             image_payloads = []
-            target_dpi = 200 if total_pages <= 5 else 140
+            target_dpi = 180 if total_pages <= 6 else 130
             max_scan_pages = min(total_pages, 16)
             
             for page_num in range(max_scan_pages):
-                page_img_bytes = doc_recovery.load_page(page_num).get_pixmap(dpi=target_dpi).tobytes("png")
-                image_payloads.append({"mime_type": "image/png", "data": page_img_bytes})
+                page = doc_recovery.load_page(page_num)
+                # Ép chặt ma trận màu RGB sang định dạng ảnh JPEG tiêu chuẩn của ngành OCR
+                pix = page.get_pixmap(dpi=target_dpi, colorspace=fitz.csRGB)
+                page_img_bytes = pix.tobytes("jpeg")
+                
+                image_payloads.append({"mime_type": "image/jpeg", "data": page_img_bytes})
             
             gemini_inputs = copy.deepcopy(image_payloads)
+
 # =====================================================================
 # ĐOẠN 7a2: AI CORE EXTRACTOR & POST-AI MIDDLEWARE GEOMETRY PROCESSOR (V27.6 APPROVED)
 # =====================================================================
