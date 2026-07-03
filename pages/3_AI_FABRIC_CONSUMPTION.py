@@ -1030,7 +1030,7 @@ if "uploaded_pdf_bytes" in st.session_state and st.session_state.uploaded_pdf_by
         st.error(f"❌ Lỗi nghiêm trọng tại tầng xử lý PDF 7a1: {str(pdf_err)}")
 
 # =====================================================================
-# ĐOẠN 7a2.1: AI CORE EXTRACTOR & INTEGRATED CHAT INPUT (V36.5 FIXED)
+# ĐOẠN 7a2.1: AI CORE EXTRACTOR & INTEGRATED CHAT INPUT (V36.6 ULTIMATE)
 # =====================================================================
 import concurrent.futures
 from fractions import Fraction
@@ -1048,7 +1048,7 @@ def safe_float(v, default=0.0):
         s_norm = s.strip().replace("-", " ")
         if " " in s_norm:
             parts = s_norm.split()
-            if len(parts) == 2 and "/" in parts[1]: return float(parts[0]) + float(Fraction(parts[1]))
+            if len(parts) == 2 and "/" in parts: return float(parts) + float(Fraction(parts))
         if "/" in s and " " not in s: return float(Fraction(s))
         num_m = re.search(r'([\d\.]+)', s)
         return float(num_m.group(1)) if num_m else float(s)
@@ -1061,10 +1061,34 @@ if "current_query" not in st.session_state: st.session_state.current_query = ""
 user_input = st.chat_input("Nhập câu lệnh của bạn tại đây (Ví dụ: Tính định mức size 32 khổ 57)...")
 if user_input:
     st.session_state.current_query = user_input
+    
+    # ÉP LUỒNG 7a1 CHẠY LẠI: Nếu có file mới, buộc tầng xử lý ảnh dịch trang PDF ngay khi bấm gửi chat
+    if "uploaded_pdf_bytes" in st.session_state and st.session_state.uploaded_pdf_bytes:
+        import fitz
+        try:
+            doc_recovery = fitz.open(stream=st.session_state.uploaded_pdf_bytes, filetype="pdf")
+            total_pages = len(doc_recovery)
+            target_pages = [0, 1, 12, 13]
+            actual_pages_to_scan = [p for p in target_pages if p < total_pages]
+            if not actual_pages_to_scan: actual_pages_to_scan = list(range(total_pages))
+            
+            local_payloads = []
+            for page_num in actual_pages_to_scan:
+                page = doc_recovery.load_page(page_num)
+                pix = page.get_pixmap(dpi=100, colorspace=fitz.csGRAY)
+                local_payloads.append({
+                    "mime_type": "image/jpeg",
+                    "data": pix.tobytes("jpeg", jpeg_quality=75)
+                })
+            doc_recovery.close()
+            if local_payloads:
+                st.session_state.gemini_inputs = local_payloads
+        except Exception as e:
+            st.error(f"Lỗi nạp ảnh nhanh: {str(e)}")
+            
     st.rerun()
 
 if "gemini_inputs" in st.session_state and st.session_state.gemini_inputs and len(st.session_state.gemini_inputs) > 0 and st.session_state.current_query:
-    # Sao chép mảng gốc để không bị cộng dồn prompt cũ khi chat nhiều lần
     gemini_inputs = list(st.session_state.gemini_inputs)
     
     if "GEMINI_API_KEY" in st.secrets: 
@@ -1083,11 +1107,11 @@ if "gemini_inputs" in st.session_state and st.session_state.gemini_inputs and le
     active_warp = safe_float(m_warp.group(1), 3.0) if m_warp else 3.0
     active_weft = safe_float(m_weft.group(1), 3.0) if m_weft else 3.0
 
-    prompt_instruction = f"Extract measurement charts for PANT. Target size: '{target_size_cmd}', Fabric width: {active_width} inch. Convert fractions to decimals."
+    prompt_instruction = f"Extract measurement charts for PANT. Target size: '{target_size_cmd}', Fabric width: {active_width} inch. Warp shrinkage: {active_warp}%, Weft shrinkage: {active_weft}%. Convert fractions to decimals."
     gemini_inputs.append(prompt_instruction)
     
     error_log = []
-    with st.spinner("⏳ AI đang bóc tách thông số tài liệu kỹ thuật (Tối đa 40s)..."):
+    with st.spinner(f"⏳ AI đang quét ảnh May mặc và xử lý lệnh: '{st.session_state.current_query}'..."):
         for attempt in range(3):
             if attempt > 0: time.sleep((2 ** attempt) + random.uniform(0.1, 0.3))
             try:
@@ -1096,17 +1120,13 @@ if "gemini_inputs" in st.session_state and st.session_state.gemini_inputs and le
                     future = exec_p.submit(model.generate_content, gemini_inputs)
                     try: response = future.result(timeout=40)
                     except concurrent.futures.TimeoutError: 
-                        error_log.append(f"Lượt {attempt+1}: Kết nối mạng tới Google bị Timeout.")
+                        error_log.append(f"Lượt {attempt+1}: Timeout.")
                         continue
                 
-                if not response: 
-                    error_log.append(f"Lượt {attempt+1}: Phản hồi rỗng từ API.")
-                    continue
-                
+                if not response: continue
                 txt = ""
                 try: txt = response.text
                 except:
-                    # SỬA BUG CHÍNH XÁC: Truy cập phần tử [0] của danh sách candidates trước khi lấy content.parts
                     if hasattr(response, "candidates") and response.candidates:
                         first_candidate = response.candidates[0]
                         if hasattr(first_candidate, "content") and first_candidate.content:
@@ -1114,35 +1134,29 @@ if "gemini_inputs" in st.session_state and st.session_state.gemini_inputs and le
                             txt = "".join(getattr(p, "text", "") for p in parts)
                 
                 txt = txt.strip() if txt else ""
-                if not txt: 
-                    error_log.append(f"Lượt {attempt+1}: Văn bản phản hồi sau bóc tách bị rỗng.")
-                    continue
+                if not txt: continue
                 
-                try: 
-                    local_parsed = json.loads(txt)
-                except json.JSONDecodeError: 
-                    error_log.append(f"Lượt {attempt+1}: Chuỗi trả về gãy cấu trúc JSON.")
-                    break
+                try: local_parsed = json.loads(txt)
+                except json.JSONDecodeError: break
                 
                 if isinstance(local_parsed, dict):
                     st.session_state.parsed_ai_response = local_parsed
-                    error_log = [] # Xóa nhật ký lỗi nếu thành công
+                    st.session_state.current_query = "" # Giải phóng câu lệnh sau khi xong
+                    error_log = []
                     break
             except Exception as e:
-                error_log.append(f"Lượt {attempt+1} Lỗi hệ thống: {str(e)}")
+                error_log.append(f"Lỗi: {str(e)}")
                 if isinstance(e, (KeyError, TypeError, NameError, AttributeError)): break
                 continue
 
-    # Nếu chạy hết các lượt thử mà vẫn lỗi, in chi tiết lỗi lên màn hình để xử lý
     if error_log:
-        st.error(f"❌ AI Core thất bại sau các lượt thử: {error_log[-1]}")
-        with st.expander("🔍 Xem chi tiết nhật ký lỗi API"):
-            for log in error_log: st.text(log)
+        st.error(f"❌ AI Core gặp sự cố kết nối: {error_log[-1]}")
 else:
     if not "gemini_inputs" in st.session_state or len(st.session_state.gemini_inputs) == 0:
         st.info("💡 Sẵn sàng. Hãy tải file Techpack lên ở bên trái để bắt đầu bóc tách.")
     elif not st.session_state.current_query:
         st.info("💬 File đã nạp thành công! Hãy nhập yêu cầu vào ô chat bên dưới để AI bắt đầu tính toán.")
+
 
 
 
