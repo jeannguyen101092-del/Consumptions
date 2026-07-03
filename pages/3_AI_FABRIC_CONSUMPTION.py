@@ -1022,8 +1022,9 @@ with col_right:
         
     st.markdown('</div>', unsafe_allow_html=True)
 # =====================================================================
-# ĐOẠN 7a1: INTERFACE WORKSPACE & HIGH-RES JPEG IMAGE PIPELINE (V29.7 HEAVY-FILE OPTIMIZER)
-# Thay thế trọn vẹn Đoạn 7a1 cũ để tự động xử lý file nặng 6MB+ chống kẹt RAM
+# =====================================================================
+# ĐOẠN 7a1: INTERFACE WORKSPACE & HIGH-RES JPEG IMAGE PIPELINE (V29.8 ULTRA-HEAVY OPTIMIZER)
+# Thay thế trọn vẹn Đoạn 7a1 cũ để bẻ gãy lỗi tràn RAM khi gánh file khủng 25MB+
 # =====================================================================
 st.markdown('<br><div class="cad-card"><div class="cad-header">💬 CHATGPT IE COLLABORATION WORKSPACE</div>', unsafe_allow_html=True)
 
@@ -1061,27 +1062,47 @@ if st.session_state.pdf_bytes is not None:
             total_pages = len(doc_recovery)
             pdf_size_mb = len(st.session_state.pdf_bytes) / (1024 * 1024)
             
-            # 🌟 DYNAMIC DPI ADJUSTMENT: Tự động hạ DPI nếu file nặng trên 5MB để bảo vệ RAM máy chủ
-            if pdf_size_mb > 5.0:
-                target_dpi = 95  # Hạ độ phân giải ảnh xuống để nén file siêu nhẹ
-                max_scan_pages = min(total_pages, 8)  # Chỉ quét 8 trang cốt lõi chứa spec/BOM để tăng tốc 300%
-            else:
-                target_dpi = 140 if total_pages <= 5 else 110
-                max_scan_pages = min(total_pages, 16)
-            
             image_payloads = []
-            for page_num in range(max_scan_pages):
-                page = doc_recovery.load_page(page_num)
-                # Ép ảnh về dạng nén gọn để không làm treo container ngầm của Streamlit
-                pix = page.get_pixmap(dpi=target_dpi, colorspace=fitz.csRGB)
-                page_img_bytes = pix.tobytes("jpeg")
+            
+            # 🌟 CHẾ ĐỘ SIÊU KHỦNG (FILE > 15MB): Trích xuất nhảy trang đích danh để bảo vệ RAM tuyệt đối
+            if pdf_size_mb > 15.0:
+                target_dpi = 85  # Tối ưu ảnh siêu nhẹ siêu nét
                 
-                image_payloads.append({"mime_type": "image/jpeg", "data": page_img_bytes})
+                # Quét lướt nhanh để tìm các trang chứa từ khóa cốt lõi mấu chốt
+                target_pages = []
+                for idx in range(total_pages):
+                    page_text = doc_recovery[idx].get_text("text").upper()
+                    if any(k in page_text for k in ["BOM", "BILL OF MATERIAL", "GRADING", "SPECIFICATION", "MEASUREMENT", "SIZE"]):
+                        target_pages.append(idx)
+                        if len(target_pages) >= 4:  # Giới hạn lấy tối đa 4 trang vàng chứa lõi dữ liệu
+                            break
+                            
+                # Nếu không quét được từ khóa bằng text phẳng, mặc định lấy 4 trang đầu tiên để phòng vệ
+                if not target_pages:
+                    target_pages = list(range(min(4, total_pages)))
+                    
+                for page_num in target_pages:
+                    page = doc_recovery.load_page(page_num)
+                    pix = page.get_pixmap(dpi=target_dpi, colorspace=fitz.csRGB)
+                    image_payloads.append({"mime_type": "image/jpeg", "data": pix.tobytes("jpeg")})
+            
+            # CHẾ ĐỘ FILE TIÊU CHUẨN THƯỜNG
+            else:
+                if pdf_size_mb > 5.0:
+                    target_dpi = 95
+                    max_scan_pages = min(total_pages, 6)
+                else:
+                    target_dpi = 130 if total_pages <= 5 else 110
+                    max_scan_pages = min(total_pages, 12)
+                    
+                for page_num in range(max_scan_pages):
+                    page = doc_recovery.load_page(page_num)
+                    pix = page.get_pixmap(dpi=target_dpi, colorspace=fitz.csRGB)
+                    image_payloads.append({"mime_type": "image/jpeg", "data": pix.tobytes("jpeg")})
             
             gemini_inputs = copy.deepcopy(image_payloads)
         except Exception as e_pdf:
             st.error(f"💥 Lỗi phân tách dữ liệu hình ảnh từ file PDF: {str(e_pdf)}")
-
 
 
 
