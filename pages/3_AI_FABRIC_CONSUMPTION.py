@@ -1037,7 +1037,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
         except Exception as e:
             st.error(f"❌ Lỗi xử lý tệp tin đầu vào ở phân đoạn 7a1: {str(e)}")
 # =====================================================================
-# ĐOẠN 7a2: AI CORE COGNITIVE ENGINE & POST-AI MIDDLEWARE GEOMETRY PROCESSOR (V24.0 APPROVED)
+# ĐOẠN 7a2: AI CORE COGNITIVE ENGINE & POST-AI MIDDLEWARE GEOMETRY PROCESSOR (V24.2 APPROVED)
 # =====================================================================
 if st.session_state.pdf_bytes is not None and safe_user_prompt and len(gemini_inputs) > 0:
     with st.spinner("🧠 AI Core đang tiến hành xử lý nhận diện bảng thông số mở rộng..."):
@@ -1070,7 +1070,6 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt and len(gemini_in
             if len(st.session_state.chat_history) > 30:
                 st.session_state.chat_history = st.session_state.chat_history[-30:]
 
-            # PROMPT CHUẨN HÓA KỸ THUẬT: QUY ĐỔI PHÂN SỐ THÀNH THẬP PHÂN CHUẨN PHÔI RẬP PHẲNG PYTHON
             prompt_instruction = f"""
             You are an expert apparel IE OCR system. Scan all provided page images to locate the size spec tables (especially Page 13 and Page 14).
             
@@ -1118,6 +1117,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt and len(gemini_in
             gemini_inputs.append(prompt_instruction)
             response = model.generate_content(gemini_inputs)
             
+            # XỬ LÝ DỮ LIỆU ĐẦU RA SAU KHI AI TRẢ VỀ PHẢN HỒI
             if response and response.text:
                 response_text = response.text.strip()
                 json_match = re.search(r'===START_JSON===\s*(.*?)\s*===END_JSON===', response_text, re.DOTALL)
@@ -1185,6 +1185,9 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt and len(gemini_in
                         
                         st.session_state.bom_data = blueprint_final
                         st.session_state.accumulated_bom_rows = blueprint_final.get("bom_rows", [])
+                        
+                       
+
                         
                        
                         
