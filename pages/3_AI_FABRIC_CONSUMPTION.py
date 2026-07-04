@@ -367,83 +367,240 @@ def parse_geometric_panels_allowance(ai_blueprint: dict, user_chat: str) -> dict
 
 # =====================================================================
 # ĐOẠN 2b: ALOCATE FABRIC CONSUMPTION AND QUALITY GATE (V23.0 PLATINUM)
-# ĐỒNG BỘ TUYỆT ĐỐI - CHỐNG GHI ĐÈ LỖI LOGIC VÀ KIỂM SOÁT ĐƠN VỊ CAD ĐA TẦNG
+# =====================================================================
+# ĐOẠN 2b - PHẦN 1: UNIVERSAL APPAREL GEOMETRIC ENGINE (V43.0 FACTORY PRODUCTION)
+# BỘ LỌC CHẶN PHỤ LIỆU CỨNG VÀ TRÍCH XUẤT ĐỘNG CO RÚT ĐẦU VÀO TỪ Ô CHAT NGƯỜI DÙNG
 # =====================================================================
 def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, query_string: str) -> dict:
-    st.warning("⚡ ENGINE EXECUTING: ALLOCATE_FABRIC_CONSUMPTION V23.0 INDUSTRIAL ACTIVATED")
+    st.warning("⚡ ENGINE EXECUTING: GEOMETRIC INTERPRETER CONTROL V43.0 ACTIVATED")
     
     if not blueprint_final or "bom_rows" not in blueprint_final:
         return blueprint_final
         
+    SEAM_ALLOWANCE = 0.44
+        
+    # TRÍCH XUẤT ĐỘNG TỶ LỆ CO RÚT TỪ Ô CHAT NGƯỜI DÙNG
+    chat_lower = str(query_string).lower()
+    match_shrink = re.search(r'(?:co rút|co rut|sh|shrinkage)\s*[:\-=\s]*([\d\.]+)\s*[\-,\s]\s*([\d\.]+)', chat_lower)
+    
+    if match_shrink:
+        try:
+            warp_val = f"{float(match_shrink.group(1))}%"
+            weft_val = f"{float(match_shrink.group(2))}%"
+            w_num = float(match_shrink.group(1)) / 100.0
+            f_num = float(match_shrink.group(2)) / 100.0
+        except:
+            warp_val, weft_val = "4.0%", "14.0%"
+            w_num, f_num = 0.04, 0.14
+    else:
+        warp_val, weft_val = "4.0%", "14.0%"
+        w_num, f_num = 0.04, 0.14
+        
+    shrink_factor = (1.0 + w_num) * (1.0 + f_num)
+    product_type = str(blueprint_final.get("detected_product_type", "PANT")).upper().strip()
+    
+    # TRÍCH XUẤT SỐ ĐO THỰC TẾ TỪ BẢNG THÔNG SỐ POM DO AI CUNG CẤP CỦA SIZE MỤC TIÊU
+    matched_list = blueprint_final.get("matched_measurements", [])
+    length_base, width_base, secondary_base = 0.0, 0.0, 0.0
+    
+    for item in matched_list:
+        item_str = str(item).upper()
+        if any(k in item_str for k in ["LENGTH", "OUTSEAM", "DÀI"]):
+            m_num = re.search(r'([\d\.]+)', item_str)
+            if m_num: length_base = float(m_num.group(1))
+        if any(k in item_str for k in ["CHEST", "HIP", "RỘNG MÔNG", "NGỰC"]):
+            m_num = re.search(r'([\d\.]+)', item_str)
+            if m_num: width_base = float(m_num.group(1))
+        if any(k in item_str for k in ["WAIST", "SLEEVE", "TAY", "BỤNG"]):
+            m_num = re.search(r'([\d\.]+)', item_str)
+            if m_num: secondary_base = float(m_num.group(1))
+
+    filtered_bom_rows = []
     for row in blueprint_final["bom_rows"]:
-        # 🌟 VÁ CHÍ MẠNG PHÒNG VỆ: Đọc từ trường dự phòng _btp_ trước để phá vỡ lỗi đè của hàm middleware ở giữa
-        width_inch = float(row.get("_btp_fabric_width_inch", row.get("fabric_width_inch", 57.0)) or 57.0)
-        if width_inch < 20.0: 
-            width_inch = 57.0
+        comp_type = (str(row.get("component_type", "")) + " " + str(row.get("fabric_classification", ""))).upper()
+        fab_class = str(row.get("fabric_classification", "")).upper()
+        
+        row["_btp_warp_pct"] = warp_val
+        row["_btp_weft_pct"] = weft_val
+        
+        # BỘ LỌC CHẶN PHỤ LIỆU CỨNG (THREAD, BUTTON, LABEL...)
+        if any(k in comp_type for k in ["BUTTON", "NÚT", "RIVET", "ĐINH TÁN", "LABEL", "NHÃN", "MÁC", "STICKER", "THREAD", "CHỈ"]):
+            continue
+            
+        width_inch = float(row.get("fabric_width_inch", 57.0))
+        if width_inch < 20.0: width_inch = 57.0
         row["fabric_width_inch"] = width_inch
             
-        total_panel_area = float(row.get("_btp_total_panel_area", 0.0) or 0.0)
+        panels = row.get("panels_catalog", [])
         
-        # Kiểm tra mảng rập phụ bổ sung để chống sót số liệu diện tích
-        catalog_area = 0.0
-        for panel in row.get("panels_catalog", []):
-            if not isinstance(panel, dict): 
-                continue
-            geo = panel.get("geometry_metadata", {})
-            area = float(geo.get("net_area", 0.0) or 0.0)
-            if area <= 0.0:
-                p_len = float(panel.get("piece_length_inch", 0.0) or 0.0)
-                p_wid = float(panel.get("piece_width_inch", 0.0) or 0.0)
-                p_cnt = float(panel.get("piece_count", 1.0) or 1.0)
-                area = p_len * p_wid * p_cnt
-            if area > 5.0:
-                catalog_area += area
+        # TỰ ĐỘNG BUNG DANH MỤC LINH KIỆN MẪU KHI MẢNG PANELS TRỐNG HOÀN TOÀN
+        if not panels and any(k in comp_type for k in ["MAIN", "DENIM", "CHÍNH", "SELF", "SHELL"]):
+            l_eff = length_base or 32.0
+            w_eff = width_base or 20.0
+            s_eff = secondary_base or 15.0
+            
+            if any(k in product_type for k in ["KNIT", "SHIRT", "HOODIE", "TOP", "ÁO"]):
+                if "SHIRT" in product_type:
+                    panels = [
+                        {"panel_name": "FRONT PANEL LEFT", "piece_length_inch": l_eff, "piece_width_inch": w_eff * 0.55, "piece_count": 1.0, "panel_metadata": {"mirror_cut": True}},
+                        {"panel_name": "FRONT PANEL RIGHT", "piece_length_inch": l_eff, "piece_width_inch": w_eff * 0.55, "piece_count": 1.0, "panel_metadata": {"mirror_cut": True}},
+                        {"panel_name": "BACK PANEL", "piece_length_inch": l_eff, "piece_width_inch": w_eff, "piece_count": 1.0, "panel_metadata": {"cut_on_fold": True}},
+                        {"panel_name": "SLEEVE", "piece_length_inch": s_eff or 24.0, "piece_width_inch": w_eff * 0.42, "piece_count": 2.0, "panel_metadata": {"mirror_cut": True}}
+                    ]
+                else:
+                    panels = [
+                        {"panel_name": "FRONT PANEL", "piece_length_inch": l_eff, "piece_width_inch": w_eff, "piece_count": 1.0},
+                        {"panel_name": "BACK PANEL", "piece_length_inch": l_eff, "piece_width_inch": w_eff, "piece_count": 1.0, "panel_metadata": {"cut_on_fold": True}},
+                        {"panel_name": "SLEEVE", "piece_length_inch": s_eff or 9.5, "piece_width_inch": w_eff * 0.45, "piece_count": 2.0, "panel_metadata": {"mirror_cut": True}}
+                    ]
+            else:
+                panels = [
+                    {"panel_name": "FRONT PANEL", "piece_length_inch": (l_eff - 10.0) if l_eff > 35 else l_eff * 0.75, "piece_width_inch": w_eff * 0.58, "piece_count": 2.0, "panel_metadata": {"mirror_cut": True}},
+                    {"panel_name": "BACK PANEL", "piece_length_inch": l_eff, "piece_width_inch": w_eff * 0.68, "piece_count": 2.0, "panel_metadata": {"mirror_cut": True}},
+                    {"panel_name": "WAISTBAND", "piece_length_inch": (s_eff * 2.0) if s_eff > 20 else w_eff * 1.5, "piece_width_inch": 3.5, "piece_count": 1.0, "panel_metadata": {"cut_on_fold": True}}
+                ]
+
+        total_panel_area = 0.0
+        is_calculated_from_data = False
+        actual_panel_count = len(panels)
+        actual_piece_count = 0.0
+        max_p_len, max_p_wid = 0.0, 0.0
+            
+        for p in panels:
+            if not isinstance(p, dict): continue
+            try:
+                L = float(p.get("piece_length_inch", 0.0) or 0.0)
+                W = float(p.get("piece_width_inch", 0.0) or 0.0)
+                C = float(p.get("piece_count", 1.0) or 1.0)
                 
-        if catalog_area > total_panel_area:
-            total_panel_area = catalog_area
+                p_name = str(p.get("panel_name", "")).upper()
+                p_meta = p.get("panel_metadata", {})
+                geo = p.get("geometry_metadata", {})
+                
+                # 🌟 SỬA ĐỔI VÀNG VÀ CHUẨN XÁC: Phân loại chi tiết rập dựa trên phân loại dòng vật tư lớn (fab_class)
+                # Giải quyết triệt tiêu lỗi lầm trùng từ khóa chữ LINING/POCKET làm mất vải chính Denim và keo dựng
+                if "POCKET" in fab_class or "LINING" in fab_class:
+                    # Nếu là hàng vải lót túi, CHỈ tính toán diện tích cho chi tiết túi phối lót
+                    if not any(k in p_name for k in ["POCKET BAG", "LÓT TÚI", "LÓT"]):
+                        continue
+                elif "FUSING" in fab_class or "INTERLINING" in fab_class:
+                    # Nếu là hàng keo dựng mếch, CHỈ tính toán diện tích cho chi tiết cạp quần hoặc nẹp khóa ép keo
+                    if not any(k in p_name for k in ["WAISTBAND", "CẠP", "FUSING", "MẾCH", "NẸP"]):
+                        continue
+                else:
+                    # Nếu là hàng VẢI CHÍNH DENIM, tính toán tất cả chi tiết thân, cạp, đô... trừ miếng vải lót túi mỏng ra
+                    if any(k in p_name for k in ["POCKET BAG", "LÓT TÚI"]):
+                        continue
+                
+                if C == 1.0 and p_meta.get("mirror_cut", False):
+                    C = 2.0
+                
+                if L > 0.0 and W > 0.0:
+                    L += (SEAM_ALLOWANCE * 2.0)
+                    W += (SEAM_ALLOWANCE * 2.0)
+                
+                if L > max_p_len: max_p_len = L
+                if W > max_p_wid: max_p_wid = W
+                actual_piece_count += C
+                
+                polygon_area = float(geo.get("net_area", 0.0) or 0.0)
+                if polygon_area > 5.0:
+                    p_area = polygon_area * C
+                else:
+                    if any(k in p_name for k in ["FRONT", "THÂN TRƯỚC"]): shape_factor = 0.68  
+                    elif any(k in p_name for k in ["BACK", "THÂN SAU"]): shape_factor = 0.76  
+                    elif any(k in p_name for k in ["SLEEVE", "TAY ÁO"]): shape_factor = 0.62  
+                    elif any(k in p_name for k in ["WAISTBAND", "CẠP", "COLLAR", "CỔ"]): shape_factor = 0.95  
+                    elif any(k in p_name for k in ["POCKET", "TÚI"]): shape_factor = 0.85  
+                    else: shape_factor = 0.72  
+                        
+                    p_area = L * W * C * shape_factor
+                
+                if p_area > 0.0:
+                    total_panel_area += p_area
+            except:
+                pass
+        if total_panel_area > 0.0:
+            is_calculated_from_data = True
+        else:
+            total_panel_area = float(row.get("_btp_total_panel_area", 0.0) or 0.0)
+            is_calculated_from_data = True if total_panel_area > 0.0 else False
             
-        # 🌟 CHUẨN HÓA ĐƠN VỊ DIỆN TÍCH KỸ THUẬT (INCH2 / CM2 / MM2)
-        unit = str(row.get("_btp_area_unit", row.get("area_unit", "inch2"))).lower().strip()
-        if "mm" in unit:
-            total_panel_area /= 645.16
-        elif "cm" in unit:
-            total_panel_area /= 6.4516
+        # Nếu khuyết thiếu thông số chi tiết của một hàng vật tư cụ thể, ép buộc trả về 0.000 chuẩn kiểm toán
+        if total_panel_area <= 0.0:
+            total_panel_area = 0.0
+            is_calculated_from_data = False
             
-        # 🌟 2️⃣ ĐỒNG BỘ NGƯỢC: Cập nhật lại giá trị cuối cùng vào Database Row để đồng bộ 100% pipeline
+        # ÁP DỤNG HỆ SỐ CO RÚT ĐỘNG
+        if total_panel_area > 0.0:
+            total_panel_area *= shrink_factor
+
+        row["_btp_summary"] = {
+            "panel_count": actual_panel_count, "piece_count": round(actual_piece_count, 1),
+            "area": round(total_panel_area, 2), "max_piece_length": max_p_len, "max_piece_width": max_p_wid
+        }
         row["_btp_total_panel_area"] = total_panel_area
 
-        # 🌟 1️⃣ SỬA LỖI VALUEERROR MARKER: Bóc tách chuỗi % an toàn tách biệt hoàn toàn khỏi float() trần
-        raw_eff = row.get("marker_efficiency", row.get("marker_efficiency_pct", 0.82))
+        # ĐỒNG BỘ HIỆU SUẤT ĐỘNG THEO DÒNG HÀNG THỰC TẾ
+        if "JEAN" in product_type or "PANT" in product_type or any(k in comp_type for k in ["DENIM", "MAIN"]):
+            default_efficiency = 0.87  # Denim: 87%
+        elif any(k in product_type for k in ["KNIT", "SHIRT", "HOODIE", "TOP"]) or any(k in comp_type for k in ["KNIT", "THUN"]):
+            default_efficiency = 0.84 # Knits: 84%
+        elif "JACKET" in product_type or "OUTERWEAR" in product_type:
+            default_efficiency = 0.86  # Outerwear: 86%
+        elif any(k in comp_type for k in ["POCKET", "LÓT", "LINING", "TC"]):
+            default_efficiency = 0.7218  # Lightweight Woven (Vải lót túi): 72.18%
+        elif "FORMAL" in product_type or "SUIT" in product_type:
+            default_efficiency = 0.88  # Formalwear: 88%
+        else:
+            default_efficiency = 0.87 # Casualwear: 87%
+            
+        raw_eff = row.get("marker_efficiency", row.get("marker_efficiency_pct", default_efficiency))
         if isinstance(raw_eff, str):
             try:
                 efficiency = float(raw_eff.replace("%", "").strip())
-                if efficiency > 1.0: 
-                    efficiency /= 100.0  # Đổi 82 về 0.82
-            except:
-                efficiency = 0.82
+                if efficiency > 1.0: efficiency /= 100.0
+            except: efficiency = default_efficiency
         else:
-            try:
-                efficiency = float(raw_eff)
-                if efficiency > 1.0: 
-                    efficiency /= 100.0
-            except:
-                efficiency = 0.82
+            try: efficiency = float(raw_eff)
+            except: efficiency = default_efficiency
                 
-        if efficiency < 0.55 or efficiency > 0.95:
-            efficiency = 0.82 
+        if efficiency < 0.55 or efficiency > 0.95: efficiency = default_efficiency 
         row["marker_efficiency_pct"] = f"{efficiency * 100.0:.1f}%"
         
-        # Kích hoạt luồng nhân chia toán học sơ đồ ra số Yards định mức Gross thực tế
+        unit = str(row.get("_btp_area_unit", row.get("area_unit", "inch2"))).lower().strip()
+        if "mm" in unit and total_panel_area > 0: total_panel_area /= 645.16
+        elif "cm" in unit and total_panel_area > 0: total_panel_area /= 6.4516
+            
+        row["_btp_total_panel_area"] = total_panel_area
+        
+        st.write({
+            "Garment Type": product_type,
+            "Material Checked": row.get("component_type", "FABRIC"),
+            "Shrinkage Applied Area (inch2)": round(total_panel_area, 2),
+            "Width (inch)": width_inch,
+            "Efficiency (Dynamic)": row["marker_efficiency_pct"]
+        })
+        
+        # PHÉP TOÁN YARDS GROSS ĐẦU RA CHÍNH THỨC
         if total_panel_area > 0.0:
             gross_yds = (total_panel_area / efficiency) / width_inch / 36.0
             row["calculated_gross_consumption_yds"] = round(gross_yds, 3)
-            row["status"] = "PASS"
-            row["consumption_note"] = "Mô phỏng hình học phẳng CAD Gerber Cloud kết xuất thành công."
-        else:
-            row["calculated_gross_consumption_yds"] = 1.380
-            row["status"] = "PASS"
-            row["consumption_note"] = "Định mức tiêu chuẩn cơ sở dựa trên dải cỡ hạt Techpack."
             
+            if is_calculated_from_data:
+                row["status"] = "PASS"
+                row["consumption_note"] = f"Mô phỏng rập CAD tích hợp biên {SEAM_ALLOWANCE} in, co rút và Shape Factor động thành công."
+            else:
+                row["status"] = "ESTIMATED"
+                row["consumption_note"] = "Định mức ước tính dựa trên phôi rập cơ sở (Khuyết thiếu số đo chi tiết)."
+        else:
+            row["calculated_gross_consumption_yds"] = 0.000
+            row["status"] = "NEEDS REVIEW"
+            row["consumption_note"] = "Bỏ qua: Khuyết thiếu diện tích chi tiết rập phẳng có trong tài liệu kỹ thuật."
+            
+        filtered_bom_rows.append(row)
+        
+    blueprint_final["bom_rows"] = filtered_bom_rows
     return blueprint_final
 
 
@@ -1525,14 +1682,13 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
 
 
 
-                             # =====================================================================
-            # ĐOẠN 7a - PHẦN 3: POST-AI MIDDLEWARE & VÁ TRỰC DIỆN LUỒNG DỮ LIỆU
-            # Xử lý kết quả trả về và đóng lệnh try bằng khối except e_global chuẩn chỉnh
+                        # =====================================================================
+            # ĐOẠN 7a - PHẦN 3: POST-AI MIDDLEWARE & VÁ TRỰC DIỆN LUỒNG DỮ LIỆU ĐA TẦNG
+            # SỬA LỖI KẸT CACHE CHỮ KÝ - ÉP BUỘC CẬP NHẬT TRỌN VẸN 3 LOẠI NGUYÊN LIỆU RA MÀN HÌNH
             # =====================================================================
             if response_text:
                 json_match = re.search(r'(?:===START_JSON===\s*|```json\s*)(.*?)(?:\s*===END_JSON===|\s*```)', response_text, re.DOTALL)
                 
-                # BÓC TÁCH KHỐI TEXT HỘI THOẠI CHAT ĐỂ TRẢ LỜI NGƯỜI DÙNG CHUẨN CHATGPT
                 chat_match = re.search(r'(?:===START_CHAT===\s*|```markdown\s*)(.*?)(?:\s*===END_CHAT===|\s*```|$)', response_text, re.DOTALL)
                 ai_conversation_reply = chat_match.group(1).strip() if chat_match else "Hệ thống đã cập nhật bảng tính toán định mức hình học phẳng CAD của mã hàng."
                 
@@ -1545,14 +1701,12 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                     match_fb = re.search(r'\{.*\}', response_text, re.DOTALL)
                     raw_json_str = match_fb.group(0).strip() if match_fb else ""
                 
-                # CẬP NHẬT LỊCH SỬ TRÒ CHUYỆN (LUÔN GHI NHẬN GIAO TIẾP THEO PHONG CÁCH OPENAI)
+                # CẬP NHẬT LỊCH SỬ TRÒ CHUYỆN THEO PHONG CÁCH OPENAI
                 st.session_state.chat_history.append({"user": current_query, "ai": ai_conversation_reply})
                 
                 if raw_json_str:
-                    # 🌟 VÁ CHÍ MẠNG: Bộ sửa lỗi chuỗi JSON tự động, triệt tiêu dấu phẩy thừa gây crash loads()
                     raw_json_str = re.sub(r',\s*([\]\}])', r'\1', raw_json_str) 
                     
-                    # BỌC BIÊN CÔ LẬP QUÁ TRÌNH PARSE JSON ĐỂ TRÁNH VĂNG SANG E_GLOBAL LÀM SẬP INTERFACE
                     try:
                         raw_blueprint = json.loads(raw_json_str)
                     except json.JSONDecodeError as json_err:
@@ -1564,15 +1718,20 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                         blueprint_worker = copy.deepcopy(raw_blueprint)
                         query_str = str(current_query)
                         
+                        # 🌟 CẢI TIẾN VÀNG: Xóa sạch bộ nhớ đệm kpi và tích lũy cũ trước khi chạy pipeline mới
+                        # Chặn đứng hiện tượng dữ liệu lót túi cũ đè bẹp vải chính Denim
+                        st.session_state.bom_data = {}
+                        st.session_state.accumulated_bom_rows = {}
+                        
                         # Chạy chuỗi pipeline máy tính 3 bước hình học phẳng CAD doanh nghiệp
                         b1 = parse_geometric_panels_allowance(blueprint_worker, query_str)
                         b2_rows, _ = parse_and_prepare_ie_panels(b1.get("bom_rows", []), b1.get("detected_product_type"), query_str)
                         b1["bom_rows"] = b2_rows
                         
-                        # Gọi lõi kiểm toán diện tích hình học phẳng CAD (Hàm 2b V31.0)
+                        # Gọi lõi kiểm toán diện tích hình học phẳng CAD (Hàm 2b V36.0 Master)
                         blueprint_final = allocate_fabric_consumption_and_quality_gate(b1, query_str)
                         
-                        # Đổ dữ liệu sạch vào session và khóa chốt chặn chữ ký để tải trang vẽ bảng tính
+                        # Đổ dữ liệu sạch mới tinh vào session và khóa chốt chặn chữ ký để tải trang vẽ bảng tính
                         st.session_state.bom_data = blueprint_final
                         st.session_state.accumulated_bom_rows = blueprint_final.get("bom_rows", [])
                         st.session_state["last_processed_signature"] = current_signature
@@ -1585,10 +1744,8 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                     st.error("❌ Không thể bóc tách START_JSON từ văn bản phản hồi thô của Gemini.")
                     st.text_area("Nội dung AI trả về:", value=response_text, height=120)
                 
-                # Ép làm mới giao diện ngay lập tức để hiển thị bong bóng phản hồi chat của AI
                 st.rerun()
 
-        # 🌟 ĐÓNG NGOẶC KHỐI TRY LỚN DUY NHẤT: Thụt lề đúng 8 khoảng trắng, thẳng hàng tuyệt đối với lệnh try ở đầu Đoạn 7a1
         except Exception as e_global:
             st.error(f"💥 Lỗi luồng trích xuất hạ tầng tổng toàn cục: {str(e_global)}")
             st.code(traceback.format_exc())
