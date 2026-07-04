@@ -1050,16 +1050,33 @@ with col_left:
     st.markdown('</div>', unsafe_allow_html=True)
 
 
-# --- CỘT PHẢI: KHUNG XEM BẢN VẼ PHẲNG SKETCH (🌟 ĐÃ ÉP CO NHỎ ẢNH GỐC) ---
+# --- CỘT PHẢI: KHUNG XEM BẢN VẼ PHẲNG SKETCH (🌟 ĐÃ ÉP CO NHỎ ẢNH GỐC ĐỐI XỨNG) ---
 with col_right:
-    # Bọc thêm một class định danh riêng sticky-sketch-box phục vụ ép co ảnh
-    st.markdown('<div class="custom-erp-box sticky-sketch-box">', unsafe_allow_html=True)
-    st.markdown('<div class="cad-header-text">🎨 TECHPACK SKETCH VISUALIZER</div>', unsafe_allow_html=True)
+    # 🟢 ĐỒNG BỘ MÀU SẮC PHẲNG: Chuyển từ class cũ custom-erp-box sang erp-main-card chuẩn SAP ERP
+    st.markdown('<div class="erp-main-card sticky-sketch-box">', unsafe_allow_html=True)
+    st.markdown('<div class="erp-header-title">🎨 TECHPACK SKETCH VISUALIZER</div>', unsafe_allow_html=True)
     
+    # 🟢 BỘ KHỞI TẠO VÀ TRÍCH XUẤT ẢNH TỰ ĐỘNG NGAY KHI CÓ FILE PDF TRONG HỆ THỐNG
+    if st.session_state.pdf_bytes is not None:
+        if "pdf_page_one_image" not in st.session_state or st.session_state.pdf_page_one_image is None:
+            try:
+                import fitz
+                doc_img = fitz.open(stream=st.session_state.pdf_bytes, filetype="pdf")
+                if len(doc_img) > 0:
+                    page = doc_img.load_page(0)
+                    # Thiết lập ma trận phóng nét và ép hệ màu kĩ thuật số RGB tránh sập luồng hiển thị
+                    pix = page.get_pixmap(matrix=fitz.Matrix(1.5, 1.5), colorspace=fitz.csRGB)
+                    st.session_state.pdf_page_one_image = pix.tobytes("png")
+            except Exception as e_img:
+                st.error(f"⚠️ Không thể hiển thị ảnh vẽ phác họa: {str(e_img)}")
+
+    # THỰC THI HIỂN THỊ HÌNH ẢNH SAU KHI ĐÃ CÓ CACHE SẠCH TRONG SESSION
     if "pdf_page_one_image" in st.session_state and st.session_state.pdf_page_one_image is not None:
-        st.image(st.session_state.pdf_page_one_image, use_container_width=True)
+        # 🌟 TINH CHỈNH VÀNG: Thay thế use_container_width=True bằng width=300 để ảnh thu nhỏ tinh tế,
+        # kết hợp với CSS căn giữa tự động ở đoạn 6a sẽ tạo ra sự đối xứng hình học hoàn hảo.
+        st.image(st.session_state.pdf_page_one_image, width=300)
     else:
-        st.markdown("<div style='margin-top: 50px; text-align: center; color: #64748b; font-size: 13px;'>Hình vẽ phác họa phẳng (Sketch) trích xuất từ trang bìa PDF sẽ tự động hiển thị cân xứng tại đây.</div>", unsafe_allow_html=True)
+        st.markdown("<div style='margin-top: 50px; text-align: center; color: #64748b; font-size: 13px;'>Hình vẽ phác họa phẳng (Sketch) trích xuất từ trang bìa PDF sẽ tự động hiển thị cân xứng tại đây sau khi nạp file thành công.</div>", unsafe_allow_html=True)
         
     st.markdown('</div>', unsafe_allow_html=True)
 
