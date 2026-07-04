@@ -801,116 +801,54 @@ import streamlit as st
 st.markdown("""
 <style>
     /* Trả nền ứng dụng về màu xám trắng dịu mắt chuẩn văn phòng ERP */
-    .stApp {
-        background-color: #f8fafc !important;
-    }
+    .stApp { background-color: #f8fafc !important; }
     
-    /* Can thiệp xóa bỏ hoàn toàn thanh Header mặc định của Streamlit để dải ghim không bị đè khuất */
-    header[data-testid="stHeader"] {
-        background-color: #f8fafc !important;
-        z-index: 999990 !important;
-    }
+    /* Can thiệp xóa bỏ hoàn toàn thanh Header mặc định của Streamlit */
+    header[data-testid="stHeader"] { background-color: #f8fafc !important; z-index: 999990 !important; }
     
-    /* CONTAINER GHIM ĐỈNH TUYỆT ĐỐI: Nổi lên tầng cao nhất, hiện chữ số rõ ràng */
+    /* CONTAINER GHIM ĐỈNH TUYỆT ĐỐI */
     .sticky-top-container {
-        position: fixed;
-        top: 0; 
-        left: 0;
-        right: 0;
-        padding: 10px 4rem 15px 4rem; 
-        background-color: #f8fafc !important; 
-        z-index: 999999 !important; 
-        box-shadow: 0 4px 12px rgba(0,0,0,0.05);
-        width: 100%;
+        position: fixed; top: 0; left: 0; right: 0;
+        padding: 10px 4rem 15px 4rem; background-color: #f8fafc !important; 
+        z-index: 999999 !important; box-shadow: 0 4px 12px rgba(0,0,0,0.05); width: 100%;
     }
 
     /* Khung Banner chính trên đỉnh chuyển sắc xanh Coban công nghệ */
     .top-banner {
         background: linear-gradient(135deg, #1e3a8a 0%, #0284c7 100%);
-        padding: 12px 20px;
-        border-radius: 8px;
-        color: #ffffff;
-        margin-bottom: 10px;
+        padding: 12px 20px; border-radius: 8px; color: #ffffff; margin-bottom: 10px;
     }
-    .top-title {
-        font-family: 'Segoe UI', sans-serif;
-        font-size: 18px;
-        font-weight: 700;
-        letter-spacing: 0.02em;
-    }
-    .top-subtitle {
-        font-size: 11px;
-        color: #e0f2fe;
-        opacity: 0.85;
-        margin-top: 1px;
-    }
+    .top-title { font-family: 'Segoe UI', sans-serif; font-size: 18px; font-weight: 700; letter-spacing: 0.02em; }
+    .top-subtitle { font-size: 11px; color: #e0f2fe; opacity: 0.85; margin-top: 1px; }
     
     /* Thẻ chỉ số KPIs sắc màu rực rỡ chữ trắng hiển thị rõ nét vĩnh viễn */
-    .kpi-card-colored {
-        border-radius: 6px;
-        padding: 10px 12px;
-        text-align: center;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.02);
-    }
-    .kpi-num-light {
-        font-size: 18px;
-        font-weight: 700;
-        color: #ffffff !important; 
-        font-family: 'Segoe UI', sans-serif;
-    }
-    .kpi-lbl-light {
-        font-size: 10px;
-        font-weight: 600;
-        color: #ffffff !important;
-        opacity: 0.9;
-        text-transform: uppercase;
-        margin-top: 2px;
-    }
+    .kpi-card-colored { border-radius: 6px; padding: 10px 12px; text-align: center; box-shadow: 0 2px 4px rgba(0,0,0,0.02); }
+    .kpi-num-light { font-size: 18px; font-weight: 700; color: #ffffff !important; font-family: 'Segoe UI', sans-serif; }
+    .kpi-lbl-light { font-size: 10px; font-weight: 600; color: #ffffff !important; opacity: 0.9; text-transform: uppercase; margin-top: 2px; }
     
     .bg-style { background: linear-gradient(135deg, #334155 0%, #1e293b 100%); }
     .bg-items { background: linear-gradient(135deg, #0d9488 0%, #0f766e 100%); }
     .bg-cons  { background: linear-gradient(135deg, #ea580c 0%, #c2410c 100%); }
     .bg-size  { background: linear-gradient(135deg, #16a34a 0%, #15803d 100%); }
 
-    /* Khung đệm spacer đẩy nội dung dưới sụp xuống hợp lý, chống lỗi đè mất chữ uploader */
-    .main-body-spacer {
-        margin-top: 175px; 
-    }
+    /* Thu hẹp khoảng trống đệm từ 175px xuống còn 125px để triệt tiêu khoảng trắng ở giữa */
+    .main-body-spacer { margin-top: 125px; }
 
-    /* 🌟 BƯỚC ĐỘT PHÁ CÂN BẰNG TỶ LỆ: Khống chế chặt chẽ chiều cao tối đa của 2 khối hộp, */
-    /* Tạo thanh cuộn trượt độc lập (overflow-y) để ảnh dài không đẩy vỡ bố cục */
+    /* Ép chiều cao tối đa bằng khít nhau và tự động bật thanh cuộn */
     .custom-erp-box {
-        background-color: #ffffff !important;
-        border: 1px solid #cbd5e1 !important;
-        border-radius: 8px;
-        padding: 20px;
-        margin-bottom: 15px;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.03);
-        
-        max-height: 380px !important; /* 🟢 Ép chiều cao tối đa bằng khít nhau */
-        overflow-y: auto !important;   /* 🟢 Tự động bật thanh cuộn nếu ảnh hoặc chữ quá dài */
+        background-color: #ffffff !important; border: 1px solid #e2e8f0 !important;
+        border-radius: 8px; padding: 18px; margin-bottom: 15px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+        max-height: 550px !important; overflow-y: auto !important;   
     }
-    
-    .cad-header-text {
-        font-family: 'Segoe UI', sans-serif;
-        font-size: 14px;
-        font-weight: 700;
-        color: #0369a1; 
-        margin-bottom: 15px;
-        padding-bottom: 6px;
-        border-bottom: 2px solid #e2e8f0;
-    }
+    .cad-header-text { font-family: 'Segoe UI', sans-serif; font-size: 14px; font-weight: 700; color: #0369a1; margin-bottom: 12px; padding-bottom: 6px; border-bottom: 2px solid #f1f5f9; }
 
     /* Thẻ hồ sơ tóm tắt mã hàng ngăn nắp */
-    .meta-box-light {
-        background-color: #f8fafc; 
-        border-left: 4px solid #0284c7;
-        padding: 8px 12px;
-        margin-bottom: 8px;
-        border-radius: 0 6px 6px 0;
-    }
+    .meta-box-light { background-color: #f8fafc; border-left: 4px solid #0284c7; padding: 8px 12px; margin-bottom: 8px; border-radius: 0 6px 6px 0; }
     .meta-label-light { font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; }
     .meta-value-light { font-size: 13px; font-weight: 600; color: #0f172a; margin-top: 1px; }
+
+    /* Ép tất cả các hình ảnh nằm trong cột bên phải khống chế chiều cao tối đa */
+    .sticky-sketch-box img { max-height: 430px !important; width: auto !important; object-fit: contain !important; margin: 0 auto !important; display: block !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -972,28 +910,9 @@ with k_col4: st.markdown(f'<div class="kpi-card-colored bg-size"><div class="kpi
 st.markdown('</div>', unsafe_allow_html=True)
 
 st.markdown('<div class="main-body-spacer"></div>', unsafe_allow_html=True)
-
-
 # =====================================================================
-# ĐOẠN 6b: KHỐI CHIA CỘT ĐỐI XỨNG - KHỐNG CHẾ TRỰC TIẾP CHIỀU CAO ẢNH (V18.3.5.0 APPROVED)
-# ĐÃ SỬA LỖI TYPO CLASS "meta-box_light" THÀNH "meta-box-light"
+# ĐOẠN 6b: KHỐI CHIA CỘT ĐỐI XỨNG - KHỐNG CHẾ TRỰC TIẾP CHIỀU CAO ẢNH
 # =====================================================================
-import streamlit as st
-
-# 🌟 BỘ CSS PHÒNG VỆ: Ép trực tiếp mọi thẻ ảnh (img) nằm trong khung Sketch phải co nhỏ lại vừa vặn
-st.markdown("""
-<style>
-    /* Ép tất cả các hình ảnh nằm trong cột bên phải khống chế chiều cao tối đa, */
-    /* tự động giữ nguyên tỷ lệ rập phẳng mà không bị kéo giãn to đùng */
-    .sticky-sketch-box img {
-        max-height: 290px !important;
-        width: auto !important;
-        object-fit: contain !important;
-        margin: 0 auto !important;
-        display: block !important;
-    }
-</style>
-""", unsafe_allow_html=True)
 
 # --- SIDEBAR ENGINE CONTROLS CONTROL PANEL ---
 st.sidebar.markdown("### ⚙️ ENGINE CONTROLS")
@@ -1044,31 +963,42 @@ with col_left:
         with m_col1:
             st.markdown(f'<div class="meta-box-light"><div class="meta-label-light">Style Code / Mã hàng</div><div class="meta-value-light"><b>{style_id}</b></div></div>', unsafe_allow_html=True)
             st.markdown(f'<div class="meta-box-light"><div class="meta-label-light">Customer / Đối tác</div><div class="meta-value-light">{customer}</div></div>', unsafe_allow_html=True)
-            # 🌟 ĐÃ SỬA: Thay dấu "_" bằng "-" tại tên class của khối Season bên dưới
             st.markdown(f'<div class="meta-box-light"><div class="meta-label-light">Season / Mùa sản xuất</div><div class="meta-value-light">{season}</div></div>', unsafe_allow_html=True)
         with m_col2:
             st.markdown(f'<div class="meta-box-light"><div class="meta-label-light">Garment Type / Kiểu dáng</div><div class="meta-value-light">{short_desc}</div></div>', unsafe_allow_html=True)
             st.markdown(f'<div class="meta-box-light"><div class="meta-label-light">Material Spec / Mô tả vải</div><div class="meta-value-light">{str(fabric_type)[:28]}...</div></div>', unsafe_allow_html=True)
-            st.markdown(f'<div class="meta-box-light"><div class="meta-label-light">Techpack Status</div><div class="meta-value-light" style="color: #16a34a;">🟢 READY TO BOM</div></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="meta-box-light"><div class="meta-label-light">File Status / Trạng thái</div><div class="meta-value-light" style="color:#16a34a; font-weight:700;">READY (PARSED)</div></div>', unsafe_allow_html=True)
     else:
-        if st.session_state.pdf_bytes is None:
-            st.markdown("<div style='margin-top: 40px; text-align: center; color: #64748b; font-size: 13px;'>Bảng tóm tắt thông số sản phẩm sẽ tự động hiển thị tại đây sau khi nạp file PDF.</div>", unsafe_allow_html=True)
+        st.info("👋 Vui lòng tải tài liệu kỹ thuật Techpack dạng file PDF lên để AI phân tích cấu trúc rập.")
         
     st.markdown('</div>', unsafe_allow_html=True)
 
-
-# --- CỘT PHẢI: KHUNG XEM BẢN VẼ PHẲNG SKETCH (🌟 ĐÃ ÉP CO NHỎ ẢNH GỐC) ---
+# --- CỘT PHẢI: TRỰC QUAN HÓA HÌNH VẼ PHẲNG CAD (SKETCH) ---
 with col_right:
-    # Bọc thêm một class định danh riêng sticky-sketch-box phục vụ ép co ảnh
     st.markdown('<div class="custom-erp-box sticky-sketch-box">', unsafe_allow_html=True)
     st.markdown('<div class="cad-header-text">🎨 TECHPACK SKETCH VISUALIZER</div>', unsafe_allow_html=True)
     
-    if "pdf_page_one_image" in st.session_state and st.session_state.pdf_page_one_image is not None:
-        st.image(st.session_state.pdf_page_one_image, use_container_width=True)
+    if st.session_state.pdf_bytes is not None:
+        if "pdf_page_one_image" not in st.session_state or st.session_state.pdf_page_one_image is None:
+            try:
+                import fitz
+                doc_img = fitz.open(stream=st.session_state.pdf_bytes, filetype="pdf")
+                if len(doc_img) > 0:
+                    page = doc_img.load_page(0)
+                    pix = page.get_pixmap(dpi=120)
+                    st.session_state.pdf_page_one_image = pix.tobytes("png")
+            except Exception as e_img:
+                st.error(f"⚠️ Không thể hiển thị ảnh vẽ phác họa: {str(e_img)}")
+                
+        if st.session_state.get("pdf_page_one_image") is not None:
+            st.image(st.session_state.pdf_page_one_image, use_container_width=True)
+        else:
+            st.warning("⚠️ Không tìm thấy ảnh phác họa rập trong tệp PDF này.")
     else:
-        st.markdown("<div style='margin-top: 50px; text-align: center; color: #64748b; font-size: 13px;'>Hình vẽ phác họa phẳng (Sketch) trích xuất từ trang bìa PDF sẽ tự động hiển thị cân xứng tại đây.</div>", unsafe_allow_html=True)
+        st.markdown("<p style='font-size:13px; color:#64748b; font-style:italic;'>Hình vẽ phác họa phẳng (Sketch) trích xuất từ trang bìa PDF sẽ tự động hiển thị cân xứng tại đây khi nạp file PDF...</p>", unsafe_allow_html=True)
         
     st.markdown('</div>', unsafe_allow_html=True)
+
 
 # =====================================================================
 # =====================================================================
