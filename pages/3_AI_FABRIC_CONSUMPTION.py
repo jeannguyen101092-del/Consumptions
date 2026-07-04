@@ -1585,8 +1585,9 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
 
                        # =====================================================================
                           # =====================================================================
-            # ĐOẠN 7a - PHẦN 2: DYNAMIC AI GATEWAY & ADAPTIVE SIZE MAPPING CORE (V47.0)
-            # 🌟 VÁ CHÍ MẠNG: KÍCH HOẠT BỘ TỰ QUY ĐỔI HỆ SIZE CHỮ (1X/2X) VÀ SỐ (30/32) THEO FILE
+                      # =====================================================================
+            # ĐOẠN 7a - PHẦN 2: DYNAMIC AI GATEWAY & JACKET DATA GATEWAY (V48.0)
+            # 🌟 BẺ GÃY NÚT THẮT KHUYẾT THÔNG SỐ: ÉP AI BẮT BUỘC TRÍCH XUẤT ĐỦ 12 MIẾNG RẬP ÁO JACKET
             # =====================================================================
             if "GEMINI_API_KEY" not in st.secrets:
                 st.error("💥 Lỗi hạ tầng: Thiếu cấu hình GEMINI_API_KEY trong hệ thống Secrets.")
@@ -1617,69 +1618,75 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                     st.stop()
                     
                 prompt_instruction = f"""
-                You are a highly accurate apparel Industrial Engineering (IE) Data Gateway. Your sole mission is to perform strict OCR text extraction and visual data capturing from the provided techpack pages [INDEX].
+                You are a world-class expert apparel IE CAD Data Gateway [INDEX]. Your mission is to scan ALL provided techpack pages to extract structural data for size '{target_size_cmd}' [INDEX].
+                This garment is a heavy JACKET/OUTERWEAR. You MUST exhaustively extract specifications for ALL component panels. DO NOT return a lazy or truncated panel list.
                 
-                🌟 SMART ADAPTIVE SIZE MAPPING RULE (CRITICAL FIX):
-                The user is targeted to evaluate size '{target_size_cmd}'. 
-                If the techpack table DOES NOT explicitly contain the numeric column '{target_size_cmd}', but instead uses lettered grading codes (such as XS, S, M, L, XL, 1X, 2X, 3X, 4X, 5X) or Sample sizes:
-                - You MUST automatically map the user's request to the closest corresponding size or the designated sample size available in the chart (e.g., Map size '30' or 'M' to '1X' or 'Sample Size' columns if that is the baseline standard listed in the document).
-                - DO NOT leave dimensions empty or return 0.0. Extract the real measurement numbers from that mapped chart column!
+                🌟 ADAPTIVE SIZE CODES SEARCH LAW:
+                The user requested size '{target_size_cmd}'. If the chart lacks a column named exactly '{target_size_cmd}' but utilizes grading columns like '1X', '2X', '3X', 'XL', or 'Sample Size', you MUST automatically extract metrics from the design base column (e.g., '1X' or 'Sample') and use those values for the panels. DO NOT output 0.0 or leave keys empty.
                 
-                CRITICAL SYSTEM BOUNDARY & HARD ENFORCEMENT RULES:
-                1. The output JSON is STRICTLY INVALID unless EVERY single material raw type found in the techpack (Main Fabric, Pocketing/Lining, and Fusing/Interlining) is captured inside 'bom_rows' [INDEX].
-                2. Return ONLY raw plain text JSON. DO NOT wrap the JSON inside markdown code blocks. DO NOT use ```json markers.
+                🌟 MANDATORY COMPONENT INSTRUCTION FOR JACKETS:
+                For the MAIN_FABRIC / CANVAS row, you MUST find or mathematically estimate the exact piece dimensions for ALL of the following 12 key jacket panels:
+                1. FRONT PANEL LEFT & RIGHT: length ~ Front Body Length/HSP, width ~ Chest Width divided by 2 [INDEX]. piece_count: 2.0
+                2. BACK PANEL: length ~ Back Body Length, width ~ Full Chest Width Flat [INDEX]. piece_count: 1.0 (with cut_on_fold: true)
+                3. SLEEVE LEFT & RIGHT: length ~ Sleeve length from center back minus half of shoulder width, width ~ Sleeve opening/Bicep [INDEX]. piece_count: 2.0
+                4. COLLAR & CHAN CỔ (COLLAR STAND): length ~ Neck circumference, width ~ 3.0 to 4.5 inch [INDEX]. piece_count: 2.0
+                5. FRONT FLY FACING (NẸP CHE KHÓA): length ~ Front Zipper length, width ~ 3.5 to 4.5 inch. piece_count: 2.0
+                6. WELT POCKET FLAPS / POCKET DETAILS (ĐÁP TÚI): length ~ Pocket opening, width ~ 2.5 to 3.5 inch. piece_count: 4.0
                 
-                🌟 MANDATORY REAL EVIDENCE BINDING (POM EXTRACTOR):
-                Locate the measurement spec tables. Extract ALL available dimensions for the target mapped size (e.g., Waist, Hip, Outseam, Chest, Length) [INDEX]. Store these metrics inside 'matched_measurements' using the format: "POM_CODE: Description = DECIMAL_VALUE inch" [INDEX].
+                🌟 MANDATORY FUSING/INTERLINING ANALYSIS:
+                Locate 'PCC INTERLINING RM 66' or any fusing row. You MUST find its specific technical notes. Its 'panels_catalog' MUST include the parts designated for fusing: Collar pieces, Front Facings/Nẹp khóa, and Pocket Welts. Extract their true physical length and width from the text notes or map them from the core garment specs.
                 
-                🌟 MANDATORY PANELS_CATALOG MAPPING:
-                Map out component parts for each row. If the file lacks exact piece shapes, map the raw Outseam/Length from the table directly into 'piece_length_inch', and raw Hip/Thigh/Waist into 'piece_width_inch' for the panels before output. Leave 'geometry_metadata' -> 'net_area' as 0.0, because the Python CAD engine downstream will compute it deterministically.
-                
-                Output strictly in this standardized JSON structure. Dynamically update ALL 'fabric_width_inch' fields to match the targeted width value {active_width}:
+                Output STRICTLY in this two-tier raw plain text JSON format without markdown markers. All 'fabric_width_inch' MUST match the value {active_width}:
                 ===START_JSON===
                 {{
                   "status": "PASS",
-                  "detected_product_type": "PANT",
+                  "detected_product_type": "JACKET",
                   "calculated_on_size": "{target_size_cmd}",
                   "matched_measurements": [
-                     "OUT-001: Total Outseam Length = <EXTRACTED_VALUE> inch",
-                     "HIP-002: Hip Width Flat = <EXTRACTED_VALUE> inch"
+                     "HSP-01: Front Body Length From HSP = <EXTRACTED_DECIMAL> inch",
+                     "CHS-02: Chest Width Below Armhole = <EXTRACTED_DECIMAL> inch",
+                     "SLV-03: Sleeve Length From Center Back = <EXTRACTED_DECIMAL> inch",
+                     "SHL-04: Shoulder Width Across = <EXTRACTED_DECIMAL> inch"
                   ],
                   "_btp_global_summary": {{
                     "total_bom_rows": 3,
-                    "total_panels": 12
+                    "total_panels": 16
                   }},
                   "bom_rows": [
                     {{
-                      "component_type": "<EXTRACTED_FABRIC_NAME>",
+                      "component_type": "Canvas Main Fabric",
                       "fabric_classification": "MAIN_FABRIC",
                       "fabric_width_inch": {active_width},
                       "panels_catalog": [
-                        {{ "panel_name": "FRONT PANEL", "piece_count": 2.0, "piece_length_inch": 39.5, "piece_width_inch": 11.5, "geometry_metadata": {{ "net_area": 0.0 }}, "panel_metadata": {{ "mirror_cut": true }} }},
-                        {{ "panel_name": "BACK PANEL", "piece_count": 2.0, "piece_length_inch": 40.0, "piece_width_inch": 12.5, "geometry_metadata": {{ "net_area": 0.0 }}, "panel_metadata": {{ "mirror_cut": true }} }}
+                        {{ "panel_name": "FRONT PANEL", "piece_count": 2.0, "piece_length_inch": <EXTRACTED_OR_MAPPED_VALUE>, "piece_width_inch": <EXTRACTED_OR_MAPPED_VALUE>, "geometry_metadata": {{ "net_area": 0.0 }}, "panel_metadata": {{ "mirror_cut": true }} }},
+                        {{ "panel_name": "BACK PANEL", "piece_count": 1.0, "piece_length_inch": <EXTRACTED_OR_MAPPED_VALUE>, "piece_width_inch": <EXTRACTED_OR_MAPPED_VALUE>, "geometry_metadata": {{ "net_area": 0.0 }}, "panel_metadata": {{ "cut_on_fold": true }} }},
+                        {{ "panel_name": "SLEEVE PANEL", "piece_count": 2.0, "piece_length_inch": <EXTRACTED_OR_MAPPED_VALUE>, "piece_width_inch": <EXTRACTED_OR_MAPPED_VALUE>, "geometry_metadata": {{ "net_area": 0.0 }}, "panel_metadata": {{ "mirror_cut": true }} }},
+                        {{ "panel_name": "COLLAR OVERLAY", "piece_count": 2.0, "piece_length_inch": <EXTRACTED_OR_MAPPED_VALUE>, "piece_width_inch": 4.0, "geometry_metadata": {{ "net_area": 0.0 }} }},
+                        {{ "panel_name": "FRONT FLY FACING", "piece_count": 2.0, "piece_length_inch": <EXTRACTED_OR_MAPPED_VALUE>, "piece_width_inch": 3.5, "geometry_metadata": {{ "net_area": 0.0 }} }}
                       ]
                     }},
                     {{
-                      "component_type": "<EXTRACTED_POCKETING_NAME>",
+                      "component_type": "Pocketing Fabric / Lining",
                       "fabric_classification": "LINING",
                       "fabric_width_inch": {active_width},
                       "panels_catalog": [
-                        {{ "panel_name": "POCKET BAG", "piece_count": 4.0, "piece_length_inch": 13.5, "piece_width_inch": 7.5, "geometry_metadata": {{ "net_area": 0.0 }} }}
+                        {{ "panel_name": "WELT POCKET BAGS", "piece_count": 4.0, "piece_length_inch": 9.0, "piece_width_inch": 8.0, "geometry_metadata": {{ "net_area": 0.0 }} }}
                       ]
                     }},
                     {{
-                      "component_type": "<EXTRACTED_FUSING_NAME>",
+                      "component_type": "PCC INTERLINING RM 66 / FUSING",
                       "fabric_classification": "FUSING",
                       "fabric_width_inch": {active_width},
                       "panels_catalog": [
-                        {{ "panel_name": "WAISTBAND INTERLINING", "piece_count": 2.0, "piece_length_inch": 32.0, "piece_width_inch": 3.0, "geometry_metadata": {{ "net_area": 0.0 }} }}
+                        {{ "panel_name": "COLLAR INTERLINING", "piece_count": 2.0, "piece_length_inch": <EXTRACTED_OR_MAPPED_VALUE>, "piece_width_inch": 4.0, "geometry_metadata": {{ "net_area": 0.0 }} }},
+                        {{ "panel_name": "FRONT FLY FUSING", "piece_count": 2.0, "piece_length_inch": <EXTRACTED_OR_MAPPED_VALUE>, "piece_width_inch": 3.5, "geometry_metadata": {{ "net_area": 0.0 }} }}
                       ]
                     }}
                   ]
                 }}
                 ===END_JSON===
                 
-                ===START_CHAT=== [Xác nhận bằng Tiếng Việt các trang bạn vừa quét, công bố rõ bạn đã tự động quy đổi size {target_size_cmd} sang cột kích thước nào tương ứng (ví dụ: 1X hoặc Sample) dựa trên cấu trúc tài liệu để bóc tách thông số.] ===END_CHAT===
+                ===START_CHAT=== [Xác nhận bằng Tiếng Việt dải linh kiện 12 mảnh rập Jacket bạn vừa bắt buộc trích xuất và quy đổi cho size {target_size_cmd}.] ===END_CHAT===
                 """
                 gemini_inputs.append(prompt_instruction)
                 
