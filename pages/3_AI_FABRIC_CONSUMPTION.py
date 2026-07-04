@@ -1072,8 +1072,8 @@ with col_right:
 
 # =====================================================================
 # =====================================================================
-# ĐOẠN 7a1: INTERFACE WORKSPACE & HIGH-RES JPEG IMAGE PIPELINE (V29.8 ULTRA-HEAVY OPTIMIZER)
-# Thay thế trọn vẹn Đoạn 7a1 cũ để bẻ gãy lỗi tràn RAM khi gánh file khủng 25MB+
+# ĐOẠN 7a - PHẦN 1: INTERFACE WORKSPACE & HIGH-RES JPEG IMAGE PIPELINE
+# Khởi tạo giao diện tĩnh và bọc toàn bộ luồng xử lý vào một khối try duy nhất
 # =====================================================================
 st.markdown('<br><div class="cad-card"><div class="cad-header">💬 CHATGPT IE COLLABORATION WORKSPACE</div>', unsafe_allow_html=True)
 
@@ -1105,7 +1105,7 @@ if st.session_state.pdf_bytes is not None:
         import json, copy, traceback, re
         import fitz 
         
-        gemini_inputs = []
+        # 🌟 BẮT ĐẦU MỞ KHỐI TRY LỚN DUY NHẤT BAO QUANH TOÀN BỘ HẠ TẦNG AI
         try:
             doc_recovery = fitz.open(stream=st.session_state.pdf_bytes, filetype="pdf")
             total_pages = len(doc_recovery)
@@ -1113,20 +1113,16 @@ if st.session_state.pdf_bytes is not None:
             
             image_payloads = []
             
-            # 🌟 CHẾ ĐỘ SIÊU KHỦNG (FILE > 15MB): Trích xuất nhảy trang đích danh để bảo vệ RAM tuyệt đối
+            # CHẾ ĐỘ SIÊU KHỦNG (FILE > 15MB): Trích xuất nhảy trang đích danh
             if pdf_size_mb > 15.0:
-                target_dpi = 85  # Tối ưu ảnh siêu nhẹ siêu nét
-                
-                # Quét lướt nhanh để tìm các trang chứa từ khóa cốt lõi mấu chốt
+                target_dpi = 85
                 target_pages = []
                 for idx in range(total_pages):
                     page_text = doc_recovery[idx].get_text("text").upper()
                     if any(k in page_text for k in ["BOM", "BILL OF MATERIAL", "GRADING", "SPECIFICATION", "MEASUREMENT", "SIZE"]):
                         target_pages.append(idx)
-                        if len(target_pages) >= 4:  # Giới hạn lấy tối đa 4 trang vàng chứa lõi dữ liệu
+                        if len(target_pages) >= 4:
                             break
-                            
-                # Nếu không quét được từ khóa bằng text phẳng, mặc định lấy 4 trang đầu tiên để phòng vệ
                 if not target_pages:
                     target_pages = list(range(min(4, total_pages)))
                     
@@ -1150,112 +1146,103 @@ if st.session_state.pdf_bytes is not None:
                     image_payloads.append({"mime_type": "image/jpeg", "data": pix.tobytes("jpeg")})
             
             gemini_inputs = copy.deepcopy(image_payloads)
-        except Exception as e_pdf:
-            st.error(f"💥 Lỗi phân tách dữ liệu hình ảnh từ file PDF: {str(e_pdf)}")
-        # =====================================================================
-        # ĐOẠN 7a2.1: DYNAMIC AI GATEWAY & MULTI-LAYER FINGERPRINT LOCK (V53.0)
-        # Nối tiếp ngay sau khối trích xuất gemini_inputs của Đoạn 7a1
-        # =====================================================================
-        if "GEMINI_API_KEY" in st.secrets: 
-            genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+            # =====================================================================
+            # ĐOẠN 7a - PHẦN 2: DYNAMIC AI GATEWAY & MULTI-LAYER FINGERPRINT LOCK
+            # Thụt lề 12 khoảng trắng (3 tabs) vì nằm hoàn toàn bên trong khối try lớn
+            # =====================================================================
+            if "GEMINI_API_KEY" in st.secrets: 
+                genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
             
-        # Khởi tạo phòng vệ đối tượng model nếu chưa tồn tại toàn cục
-        if "model" not in locals() and "model" not in globals():
             model = genai.GenerativeModel("gemini-2.5-flash")
+            chat_lower = current_query.lower()
             
-        chat_lower = current_query.lower()
-        
-        match_size = re.search(r'\b(?:size|sz|cỡ)\s*[:\-=\s]*([\w\d/]+)\b', chat_lower)
-        target_size_cmd = str(match_size.group(1)).upper().strip() if match_size else "10"
-        
-        match_w = re.search(r'(?:khổ|kho|width)\s*([\d\.]+)', chat_lower)
-        try: active_width = float(match_w.group(1)) if match_w else 57.0
-        except: active_width = 57.0
-        
-        # Thiết lập chữ ký số ba lớp kiểm soát vòng lặp kẹt tải trang
-        pdf_bytes_len = len(st.session_state.pdf_bytes) if st.session_state.pdf_bytes else 0
-        current_signature = (str(safe_user_prompt).strip(), int(len(image_payloads)), int(pdf_bytes_len))
-        
-        has_no_data = not st.session_state.get("bom_data") or st.session_state.get("bom_data") == {}
-        is_signature_changed = st.session_state.get("last_processed_signature") != current_signature
+            match_size = re.search(r'\b(?:size|sz|cỡ)\s*[:\-=\s]*([\w\d/]+)\b', chat_lower)
+            target_size_cmd = str(match_size.group(1)).upper().strip() if match_size else "10"
+            
+            match_w = re.search(r'(?:khổ|kho|width)\s*([\d\.]+)', chat_lower)
+            try: active_width = float(match_w.group(1)) if match_w else 57.0
+            except: active_width = 57.0
+            
+            pdf_bytes_len = len(st.session_state.pdf_bytes) if st.session_state.pdf_bytes else 0
+            current_signature = (str(safe_user_prompt).strip(), int(len(image_payloads)), int(pdf_bytes_len))
+            
+            has_no_data = not st.session_state.get("bom_data") or st.session_state.get("bom_data") == {}
+            is_signature_changed = st.session_state.get("last_processed_signature") != current_signature
 
-        response_text = ""
-        if has_no_data or is_signature_changed:
-            prompt_instruction = f"""
-            You are an expert apparel Industrial Engineering (IE) OCR system. Scan provided techpack pages to analyze size '{target_size_cmd}' and BOM material tables.
-            Determine product type from: PANT, SHIRT, DRESS, JACKET, SKIRT, SHORT, HOODIE, TOP, OTHER. Extract ALL dimensions for target size '{target_size_cmd}' exactly as printed. No nulls or empty strings allowed in numeric keys.
-            
-            Output strictly in this two-tier dynamic JSON structure below based on REAL data found:
-            ===START_JSON===
-            {{
-              "status": "PASS",
-              "detected_product_type": "<DETERMINED_TYPE_FROM_TECHPACK>",
-              "calculated_on_size": "{target_size_cmd}",
-              "matched_measurements": [
-                 "<POM_CODE>: <DESCRIPTION> = <DECIMAL_VALUE> inch"
-              ],
-              "_btp_global_summary": {{
-                "total_bom_rows": 0, "total_panels": 0, "total_pieces": 0, "largest_piece_length": 0.0, "largest_piece_width": 0.0,
-                "has_polygon": false, "has_bbox": true, "need_stripe_match": false, "need_bias": false, "need_one_way": true, "need_fold": false
-              }},
-              "bom_rows": [
+            response_text = ""
+            if has_no_data or is_signature_changed:
+                prompt_instruction = f"""
+                You are an expert apparel Industrial Engineering (IE) OCR system. Scan provided techpack pages to analyze size '{target_size_cmd}' and BOM material tables.
+                Determine product type from: PANT, SHIRT, DRESS, JACKET, SKIRT, SHORT, HOODIE, TOP, OTHER. Extract ALL dimensions for target size '{target_size_cmd}' exactly as printed. No nulls or empty strings allowed in numeric keys.
+                
+                Output strictly in this two-tier dynamic JSON structure below based on REAL data found:
+                ===START_JSON===
                 {{
-                  "component_type": "<MATERIAL_NAME_FROM_BOM_E_G_MAIN_FABRIC>",
-                  "fabric_classification": "<MAIN_FABRIC_OR_LINING_OR_FUSING_OR_ELASTIC>",
-                  "fabric_width_inch": {active_width},
-                  "_btp_summary": {{
-                     "panel_count": 0, "piece_count": 0, "area": 0.0, "max_piece_length": 0.0, "max_piece_width": 0.0
+                  "status": "PASS",
+                  "detected_product_type": "<DETERMINED_TYPE_FROM_TECHPACK>",
+                  "calculated_on_size": "{target_size_cmd}",
+                  "matched_measurements": [
+                     "<POM_CODE>: <DESCRIPTION> = <DECIMAL_VALUE> inch"
+                  ],
+                  "_btp_global_summary": {{
+                    "total_bom_rows": 0, "total_panels": 0, "total_pieces": 0, "largest_piece_length": 0.0, "largest_piece_width": 0.0,
+                    "has_polygon": false, "has_bbox": true, "need_stripe_match": false, "need_bias": false, "need_one_way": true, "need_fold": false
                   }},
-                  "fabric_constraints": {{
-                     "fabric_grain_rule": "ONE_WAY", "marker_type": "OPEN_WIDTH", "shrinkage_warp_pct": 0.0, "shrinkage_weft_pct": 0.0, "nap_sensitive": true
-                  }},
-                  "panels_catalog": [
-                    {{ 
-                      "panel_name": "<PANEL_NAME_E_G_FRONT_OR_BACK>", 
-                      "panel_type": "<BODY_OR_POCKET_OR_WAISTBAND_OR_SLEEVE>",
-                      "piece_count": 1.0, 
-                      "piece_length_inch": 0.0, 
-                      "piece_width_inch": 0.0,
-                      "geometry_metadata": {{
-                         "polygon_points": [], "coordinate_scale": 1.0, "bounding_box": [0.0, 0.0, 0.0, 0.0], "net_area": 0.0, "include_seam": false, "include_hem": false, "seam_allowance": true, "hem": 0.0
+                  "bom_rows": [
+                    {{
+                      "component_type": "<MATERIAL_NAME_FROM_BOM_E_G_MAIN_FABRIC>",
+                      "fabric_classification": "<MAIN_FABRIC_OR_LINING_OR_FUSING_OR_ELASTIC>",
+                      "fabric_width_inch": {active_width},
+                      "_btp_summary": {{
+                         "panel_count": 0, "piece_count": 0, "area": 0.0, "max_piece_length": 0.0, "max_piece_width": 0.0
                       }},
-                      "panel_metadata": {{
-                         "grainline": "WARP", "stripe_match": false, "bias": false, "mirror_cut": false, "cut_on_fold": false, "panel_rotation": 0.0, "panel_category": "MAJOR", "nest_priority": 1
-                      }}
+                      "fabric_constraints": {{
+                         "fabric_grain_rule": "ONE_WAY", "marker_type": "OPEN_WIDTH", "shrinkage_warp_pct": 0.0, "shrinkage_weft_pct": 0.0, "nap_sensitive": true
+                      }},
+                      "panels_catalog": [
+                        {{ 
+                          "panel_name": "<PANEL_NAME_E_G_FRONT_OR_BACK>", 
+                          "panel_type": "<BODY_OR_POCKET_OR_WAISTBAND_OR_SLEEVE>",
+                          "piece_count": 1.0, 
+                          "piece_length_inch": 0.0, 
+                          "piece_width_inch": 0.0,
+                          "geometry_metadata": {{
+                             "polygon_points": [], "coordinate_scale": 1.0, "bounding_box": [0.0, 0.0, 0.0, 0.0], "net_area": 0.0, "include_seam": false, "include_hem": false, "seam_allowance": true, "hem": 0.0
+                          }},
+                          "panel_metadata": {{
+                             "grainline": "WARP", "stripe_match": false, "bias": false, "mirror_cut": false, "cut_on_fold": false, "panel_rotation": 0.0, "panel_category": "MAJOR", "nest_priority": 1
+                          }}
+                        }}
+                      ]
                     }}
                   ]
                 }}
-              ]
-            }}
-            ===END_JSON===
-            ===START_CHAT=== [Confirm in Vietnamese which pages you scanned and summarize the exact clean verified dimensions and materials found for size {target_size_cmd}.] ===END_CHAT===
-            """
-            gemini_inputs.append(prompt_instruction)
-            try:
+                ===END_JSON===
+                ===START_CHAT=== [Confirm in Vietnamese which pages you scanned and summarize the exact clean verified dimensions and materials found for size {target_size_cmd}.] ===END_CHAT===
+                """
+                gemini_inputs.append(prompt_instruction)
                 response = model.generate_content(gemini_inputs)
                 if response: response_text = response.text.strip()
-            except Exception as e_api:
-                st.error(f"💥 API Gemini Error: {str(e_api)}")
-                response_text = ""
-               # =====================================================================
-        # ĐOẠN 7a2.2: POST-AI MIDDLEWARE & VÁ TRỰC DIỆN LUỒNG DỮ LIỆU (V17.5.5)
-        # =====================================================================
-        if response_text:
-            json_match = re.search(r'(?:===START_JSON===\s*|```json\s*)(.*?)(?:\s*===END_JSON===|\s*```)', response_text, re.DOTALL)
-            chat_match = re.search(r'(?:===START_CHAT===\s*|```markdown\s*|(?:\n|^)\s*\*\s*)(.*?)(?:\s*===END_CHAT===|\s*```|$)', response_text, re.DOTALL)
-            
-            raw_json_str = ""
-            if json_match: raw_json_str = json_match.group(1).strip()
-            elif "===START_JSON===" in response_text and "===END_JSON===" in response_text:
-                raw_json_str = response_text[response_text.find("===START_JSON===")+16:response_text.find("===END_JSON===")].strip()
-            else:
-                match_fb = re.search(r'\{.*\}', response_text, re.DOTALL)
-                raw_json_str = match_fb.group(0).strip() if match_fb else ""
-            
-            if raw_json_str:
-                raw_json_str = re.sub(r',\s*([\]\}])', r'\1', raw_json_str) 
-                try:
+            # =====================================================================
+            # ĐOẠN 7a - PHẦN 3: POST-AI MIDDLEWARE & VÁ TRỰC DIỆN LUỒNG DỮ LIỆU
+            # Xử lý kết quả trả về và đóng lệnh try bằng khối except e_global chuẩn chỉnh
+            # =====================================================================
+            if response_text:
+                json_match = re.search(r'(?:===START_JSON===\s*|```json\s*)(.*?)(?:\s*===END_JSON===|\s*```)', response_text, re.DOTALL)
+                chat_match = re.search(r'(?:===START_CHAT===\s*|```markdown\s*|(?:\n|^)\s*\*\s*)(.*?)(?:\s*===END_CHAT===|\s*```|$)', response_text, re.DOTALL)
+                
+                raw_json_str = ""
+                if json_match: raw_json_str = json_match.group(1).strip()
+                elif "===START_JSON===" in response_text and "===END_JSON===" in response_text:
+                    raw_json_str = response_text[response_text.find("===START_JSON===")+16:response_text.find("===END_JSON===")].strip()
+                else:
+                    match_fb = re.search(r'\{.*\}', response_text, re.DOTALL)
+                    raw_json_str = match_fb.group(0).strip() if match_fb else ""
+                
+                if raw_json_str:
+                    raw_json_str = re.sub(r',\s*([\]\}])', r'\1', raw_json_str) 
                     raw_blueprint = json.loads(raw_json_str)
+                    
                     if raw_blueprint and "bom_rows" in raw_blueprint:
                         blueprint_worker = copy.deepcopy(raw_blueprint)
                         query_str = str(current_query)
@@ -1273,12 +1260,14 @@ if st.session_state.pdf_bytes is not None:
                         st.rerun()
                     else:
                         st.error("⚠️ Khối JSON của AI thiếu trường danh mục bom_rows.")
-                except json.JSONDecodeError:
-                    st.error(f"❌ THẤT BẠI PARSE JSON: Chuỗi sinh ra từ Gemini bị lỗi cấu trúc hình học.")
-                    st.code(raw_json_str, language="json")
-            else:
-                st.error("❌ Không thể bóc tách START_JSON từ văn bản phản hồi thô của Gemini.")
-                st.text_area("Nội dung AI trả về:", value=response_text, height=120)
+                else:
+                    st.error("❌ Không thể bóc tách START_JSON từ văn bản phản hồi thô của Gemini.")
+                    st.text_area("Nội dung AI trả về:", value=response_text, height=120)
+
+        # 🌟 ĐÓNG NGOẶC KHỐI TRY LỚN DUY NHẤT: Thụt lề 8 khoảng trắng để khớp với lệnh try ở Đoạn 1
+        except Exception as e_global:
+            st.error(f"💥 Lỗi luồng trích xuất hạ tầng tổng: {str(e_global)}")
+            st.code(traceback.format_exc())
 
 # =====================================================================
 # ĐOẠN 7b: HIỂN THỊ KẾT QUẢ ĐỊNH MỨC & BẢNG ĐỐI CHỨNG ĐA CỘT ĐỒNG BỘ SIZE (V46.8 INDUSTRIAL)
