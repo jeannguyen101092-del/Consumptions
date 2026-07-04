@@ -1237,9 +1237,8 @@ if st.session_state.pdf_bytes is not None:
             except Exception as e_api:
                 st.error(f"💥 API Gemini Error: {str(e_api)}")
                 response_text = ""
-        # =====================================================================
+               # =====================================================================
         # ĐOẠN 7a2.2: POST-AI MIDDLEWARE & VÁ TRỰC DIỆN LUỒNG DỮ LIỆU (V17.5.5)
-        # Dán nối tiếp ngay sau Đoạn 7a2.1 ở phía trên
         # =====================================================================
         if response_text:
             json_match = re.search(r'(?:===START_JSON===\s*|```json\s*)(.*?)(?:\s*===END_JSON===|\s*```)', response_text, re.DOTALL)
@@ -1254,7 +1253,6 @@ if st.session_state.pdf_bytes is not None:
                 raw_json_str = match_fb.group(0).strip() if match_fb else ""
             
             if raw_json_str:
-                # 🌟 VÁ CHÍ MẠNG: Bộ sửa lỗi chuỗi JSON tự động, triệt tiêu dấu phẩy thừa gây crash loads()
                 raw_json_str = re.sub(r',\s*([\]\}])', r'\1', raw_json_str) 
                 try:
                     raw_blueprint = json.loads(raw_json_str)
@@ -1262,13 +1260,11 @@ if st.session_state.pdf_bytes is not None:
                         blueprint_worker = copy.deepcopy(raw_blueprint)
                         query_str = str(current_query)
                         
-                        # Chạy chuỗi pipeline máy tính 3 bước hình học phẳng CAD
                         b1 = parse_geometric_panels_allowance(blueprint_worker, query_str)
                         b2_rows, _ = parse_and_prepare_ie_panels(b1.get("bom_rows", []), b1.get("detected_product_type"), query_str)
                         b1["bom_rows"] = b2_rows
                         blueprint_final = allocate_fabric_consumption_and_quality_gate(b1, query_str)
                         
-                        # Đổ dữ liệu sạch vào session và khóa chốt chặn chữ ký để tải trang vẽ bảng
                         st.session_state.bom_data = blueprint_final
                         st.session_state.accumulated_bom_rows = blueprint_final.get("bom_rows", [])
                         st.session_state["last_processed_signature"] = current_signature
@@ -1283,19 +1279,6 @@ if st.session_state.pdf_bytes is not None:
             else:
                 st.error("❌ Không thể bóc tách START_JSON từ văn bản phản hồi thô của Gemini.")
                 st.text_area("Nội dung AI trả về:", value=response_text, height=120)
-
-
-
-
-
-
-                
-
-
-
-
-
-
 
 # =====================================================================
 # ĐOẠN 7b: HIỂN THỊ KẾT QUẢ ĐỊNH MỨC & BẢNG ĐỐI CHỨNG ĐA CỘT ĐỒNG BỘ SIZE (V46.8 INDUSTRIAL)
