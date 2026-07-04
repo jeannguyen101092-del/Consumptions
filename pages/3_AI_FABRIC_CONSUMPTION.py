@@ -1092,9 +1092,9 @@ with chat_input_container:
 
 st.markdown('</div>', unsafe_allow_html=True)
 
-# Tự động kích hoạt luồng chạy khi phát hiện có file PDF trong bộ nhớ
-if st.session_state.pdf_bytes is not None:
-    current_query = str(safe_user_prompt).strip() if safe_user_prompt else "Tính định mức chuẩn mặc định"
+# 🌟 VÁ CHÍ MẠNG: Thêm điều kiện 'and safe_user_prompt' để chặn AI tự động chạy khi vừa upload file PDF
+if st.session_state.pdf_bytes is not None and safe_user_prompt:
+    current_query = str(safe_user_prompt).strip()
     
     with st.spinner("🧠 AI Platform đang trích xuất dải ảnh kỹ thuật JPEG và xử lý rập phẳng..."):
         import google.generativeai as genai
@@ -1142,6 +1142,7 @@ if st.session_state.pdf_bytes is not None:
                     image_payloads.append({"mime_type": "image/jpeg", "data": pix.tobytes("jpeg")})
             
             gemini_inputs = copy.deepcopy(image_payloads)
+
             # =====================================================================
             # ĐOẠN 7a - PHẦN 2: DYNAMIC AI GATEWAY & MULTI-LAYER FINGERPRINT LOCK
             # Thụt lề 12 khoảng trắng (3 tabs) vì nằm hoàn toàn bên trong khối try lớn
