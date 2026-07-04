@@ -1067,8 +1067,8 @@ with col_right:
 
 
 # =====================================================================
-# ĐOẠN 7a - PHẦN 1: CHATGPT-STYLE WORKSPACE PIPELINE (V31.0 ENTERPRISE APPROVED)
-# GHI NHẬN TOÀN BỘ YÊU CẦU CHAT THEO PHONG CÁCH CHATGPT - KHÔNG ÉP BUỘC TỪ KHÓA MẪU
+# ĐOẠN 7a - PHẦN 1: CHATGPT-STYLE WORKSPACE PIPELINE (V32.0 ULTRA-SCANNER)
+# QUÉT 100% TẤT CẢ CÁC TRANG TRONG FILE PDF ĐỂ TRÁNH SÓT BẢNG BOM VÀ THÔNG SỐ
 # =====================================================================
 st.markdown('<br><div class="cad-card"><div class="cad-header">💬 CHATGPT IE COLLABORATION WORKSPACE</div>', unsafe_allow_html=True)
 
@@ -1095,7 +1095,7 @@ st.markdown('</div>', unsafe_allow_html=True)
 if st.session_state.pdf_bytes is not None and safe_user_prompt:
     current_query = str(safe_user_prompt).strip()
     
-    with st.spinner("🧠 AI Platform đang phân tích yêu cầu và trích xuất dữ liệu rập phẳng CAD..."):
+    with st.spinner("🧠 AI Platform đang quét TOÀN BỘ các trang tài liệu để trích xuất BOM và Bảng thông số..."):
         import google.generativeai as genai
         import json, copy, traceback, re
         import fitz 
@@ -1108,39 +1108,23 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             
             image_payloads = []
             
-            # CHẾ ĐỘ SIÊU KHỦNG (FILE > 15MB): Trích xuất nhảy trang đích danh
-            if pdf_size_mb > 15.0:
-                target_dpi = 85
-                target_pages = []
-                for idx in range(total_pages):
-                    page_text = doc_recovery[idx].get_text("text").upper()
-                    if any(k in page_text for k in ["BOM", "BILL OF MATERIAL", "GRADING", "SPECIFICATION", "MEASUREMENT", "SIZE"]):
-                        target_pages.append(idx)
-                        if len(target_pages) >= 4:
-                            break
-                if not target_pages:
-                    target_pages = list(range(min(4, total_pages)))
-                    
-                for page_num in target_pages:
-                    page = doc_recovery.load_page(page_num)
-                    pix = page.get_pixmap(dpi=target_dpi, colorspace=fitz.csRGB)
-                    image_payloads.append({"mime_type": "image/jpeg", "data": pix.tobytes("jpeg")})
-            
-            # CHẾ ĐỘ FILE TIÊU CHUẨN THƯỜNG
+            # 🟢 THUẬT TOÁN QUÉT TOÀN DIỆN (FULL-PAGE SCANNER):
+            # Tự động điều chỉnh độ phân giải DPI theo độ dài của file để bảo vệ RAM tuyệt đối không bị sập
+            if total_pages <= 5:
+                target_dpi = 120  # File ngắn: Quét ảnh siêu nét
+            elif total_pages <= 12:
+                target_dpi = 100  # File vừa: Giữ độ nét tối ưu
             else:
-                if pdf_size_mb > 5.0:
-                    target_dpi = 95
-                    max_scan_pages = min(total_pages, 6)
-                else:
-                    target_dpi = 130 if total_pages <= 5 else 110
-                    max_scan_pages = min(total_pages, 12)
-                    
-                for page_num in range(max_scan_pages):
-                    page = doc_recovery.load_page(page_num)
-                    pix = page.get_pixmap(dpi=target_dpi, colorspace=fitz.csRGB)
-                    image_payloads.append({"mime_type": "image/jpeg", "data": pix.tobytes("jpeg")})
+                target_dpi = 85   # File rất dài: Hạ nhẹ DPI để bảo vệ bộ nhớ, chữ vẫn đọc rõ ràng
+                
+            # Duyệt qua 100% số trang, không bỏ sót bất kỳ trang nào
+            for page_num in range(total_pages):
+                page = doc_recovery.load_page(page_num)
+                pix = page.get_pixmap(dpi=target_dpi, colorspace=fitz.csRGB)
+                image_payloads.append({"mime_type": "image/jpeg", "data": pix.tobytes("jpeg")})
             
             gemini_inputs = copy.deepcopy(image_payloads)
+
 
 
                        # =====================================================================
