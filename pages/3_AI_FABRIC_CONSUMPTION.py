@@ -949,8 +949,8 @@ st.markdown("<br>", unsafe_allow_html=True)
 # ĐỒNG BỘ CẤU TRÚC PHẲNG ERP CO GIÃN ĐỐI XỨNG THEO ĐỘ PHÂN GIẢI MÀN HÌNH
 # =====================================================================
 
-# THANH ĐIỀU KHIỂN HÀNH ĐỘNG TRUNG TÂM (ĐƯA NÚT RESET RA MÀN HÌNH CHÍNH)
-action_col1, action_col2 = st.columns()
+# 🌟 VÁ LỖI CHÍ MẠNG: Thêm tham số số 2 vào st.columns để kích hoạt lưới hành động
+action_col1, action_col2 = st.columns(2)
 with action_col2:
     if st.button("🗑️ RESET ENGINE SYSTEM", use_container_width=True, type="secondary"):
         for k in ["bom_data", "chat_history", "pdf_bytes", "pdf_name", "pdf_text_cache", "pdf_page_one_image"]:
@@ -1022,7 +1022,7 @@ with col_right:
                 st.error(f"⚠️ Không thể hiển thị ảnh vẽ phác họa: {str(e_img)}")
                 
         if st.session_state.get("pdf_page_one_image") is not None:
-            # 🌟 KHỐNG CHẾ CHIỀU RỘNG ẢNH BẰNG 300PX VÀ TỰ ĐỘNG CĂN GIỮA NHỜ CSS ĐOẠN 6A
+            # KHỐNG CHẾ CHIỀU RỘNG VÀ CĂN GIỮA ĐẸP MẮT THEO FILE SỬA ĐỔI
             st.image(st.session_state.pdf_page_one_image, width=300)
         else:
             st.warning("⚠️ Không tìm thấy ảnh phác họa rập trong tệp PDF này.")
