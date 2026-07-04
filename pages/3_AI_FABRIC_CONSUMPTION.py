@@ -886,17 +886,17 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, query_st
 
         # 3️⃣ 🌟 ĐỒNG BỘ HIỆU SUẤT ĐỘNG THEO ĐÚNG BẢNG SỐ LIỆU ĐỊNH DANH THỰC TẾ BẠN GỬI CUNG CẤP [INDEX]
         if "JEAN" in product_type or "PANT" in product_type or any(k in comp_type for k in ["DENIM", "MAIN"]):
-            default_efficiency = 0.8894  # 🟢 Denim thực tế của bạn: 88.94%
+            default_efficiency = 0.86  # 🟢 Denim thực tế của bạn: 86%
         elif any(k in product_type for k in ["KNIT", "SHIRT", "HOODIE", "TOP"]) or any(k in comp_type for k in ["KNIT", "THUN"]):
-            default_efficiency = 0.8449  # 🟢 Knits thực tế của bạn: 84.49%
+            default_efficiency = 0.82  # 🟢 Knits thực tế của bạn: 83%
         elif "JACKET" in product_type or "OUTERWEAR" in product_type:
-            default_efficiency = 0.8746  # 🟢 Outerwear thực tế của bạn: 87.46%
+            default_efficiency = 0.87  # 🟢 Outerwear thực tế của bạn: 87%
         elif any(k in comp_type for k in ["POCKET", "LÓT", "LINING", "TC"]):
             default_efficiency = 0.7218  # 🟢 Lightweight Woven thực tế của bạn: 72.18%
         elif "FORMAL" in product_type or "SUIT" in product_type:
-            default_efficiency = 0.8942  # 🟢 Formalwear thực tế của bạn: 89.42%
+            default_efficiency = 0.88  # 🟢 Formalwear thực tế của bạn: 88%
         else:
-            default_efficiency = 0.8939  # 🟢 Casualwear thực tế của bạn: 89.39%
+            default_efficiency = 0.87  # 🟢 Casualwear thực tế của bạn: 87%
             
         raw_eff = row.get("marker_efficiency", row.get("marker_efficiency_pct", default_efficiency))
         if isinstance(raw_eff, str):
