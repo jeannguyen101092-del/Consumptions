@@ -792,53 +792,65 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict, user_prompt
 
 
 # =====================================================================
-# ĐOẠN 6a: HỆ THỐNG GIAO DIỆN PHẲNG ENTERPRISE ERP (V21.0 INDIVIDUAL REFINED)
-# CẬP NHẬT 4 ĐIỂM CHỈNH SỬA THIẾT KẾ ĐẠT ĐỘ HOÀN HẢO ĐỐI XỨNG TUYỆT ĐỐI
+# ĐOẠN 6a: HỆ THỐNG GIAO DIỆN PHẲNG ENTERPRISE ERP - ULTRA WIDE GRID (V22.0)
+# ÉP BUNG RỘNG 100% TOÀN MÀN HÌNH - GIẢI QUYẾT TRIỆT TIÊU KHOẢNG TRẮNG HAI BÊN
 # =====================================================================
 import streamlit as st
 
-# 🌟 BỘ STYLE PHẲNG ĐỒNG BỘ (ENTERPRISE MINIMALISM)
+# 🌟 BỘ STYLE PHẲNG ĐỒNG BỘ - BUNG RỘNG TOÀN MÀN HÌNH (MAX WIDTH 100%)
 st.markdown("""
 <style>
-    /* 1️⃣ CẬP NHẬT FONT CHỮ INTER CHUẨN TOÀN CẦU CHO DOANH NGHIỆP */
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+    /* 1️⃣ ÉP TOÀN BỘ CONTAINER CỦA STREAMLIT BUNG RỘNG 95% - 100% MÀN HÌNH */
+    div[data-testid="stAppViewBlockContainer"] {
+        max-width: 96% !important;
+        padding-top: 2rem !important;
+        padding-left: 2rem !important;
+        padding-right: 2rem !important;
+        padding-bottom: 2rem !important;
+    }
+    
+    @import url('https://googleapis.com');
     
     .stApp, body {
         background-color: #f1f5f9 !important;
         font-family: 'Inter', -apple-system, sans-serif !important;
     }
     
-    header[data-testid="stHeader"] {
-        background-color: #f1f5f9 !important;
-    }
+    header[data-testid="stHeader"] { background-color: #f1f5f9 !important; }
 
-    /* 2️⃣ GIẢM CHIỀU CAO BANNER: TINH GỌN, TIẾT KIỆM KHÔNG GIAN */
+    /* 2️⃣ BANNER FULL CHIỀU NGANG - THIẾT KẾ PHẲNG SANG TRỌNG VỚI NÚT RESET LỒNG BÊN TRONG */
     .enterprise-banner {
         background-color: #0f172a;
-        padding: 16px 20px;
+        padding: 20px 24px;
         border-radius: 12px;
         color: #ffffff;
-        margin-bottom: 20px;
+        margin-bottom: 24px;
         border-left: 6px solid #2563eb;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
     }
-    .ent-title { font-size: 22px; font-weight: 700; letter-spacing: -0.02em; }
+    .ent-title-block { flex: 1; }
+    .ent-title { font-size: 24px; font-weight: 700; letter-spacing: -0.02em; }
     .ent-subtitle { font-size: 13px; color: #94a3b8; margin-top: 4px; }
 
-    /* THÈ CHỈ SỐ KPI THEO PHONG CÁCH TRỰC QUAN DASHBOARD HIỆN ĐẠI */
+    /* 3️⃣ MỞ RỘNG Ô KPI: ĐẠT CHIỀU CAO 95PX, CHỮ TO RÕ, CHỐNG TRÀN DÒNG CHỮ AUTOMATIC */
     .kpi-wrapper {
         background-color: #ffffff;
         border: 1px solid #e2e8f0;
         border-radius: 8px;
-        padding: 14px 16px;
+        padding: 16px 20px;
         box-shadow: 0 1px 3px rgba(0,0,0,0.02);
+        height: 95px !important;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
     }
     .kpi-lbl { font-size: 11px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; }
-    
-    /* 3️⃣ TĂNG CỠ SỐ KPI LÊN 24PX: RÕ RÀNG, DỄ QUAN SÁT */
-    .kpi-val { font-size: 24px; font-weight: 700; color: #0f172a; margin-top: 4px; font-family: 'Inter', sans-serif; }
+    .kpi-val { font-size: 24px; font-weight: 700; color: #0f172a; margin-top: 4px; font-family: 'Inter', sans-serif; white-space: nowrap; }
     .kpi-val-highlight { color: #2563eb !important; }
 
-    /* 4️⃣ ĐỘT PHÁ CƠ CHẾ CO GIÃN THEO KHUNG HÌNH (RESPONSIVE VIEWPORT) */
+    /* 4️⃣ PANEL DƯỚI CHIẾM HẾT CHIỀU NGANG MÀN HÌNH - CO GIÃN THÔNG MINH */
     .erp-main-card {
         background-color: #ffffff !important;
         border: 1px solid #e2e8f0 !important;
@@ -847,32 +859,31 @@ st.markdown("""
         margin-bottom: 20px;
         box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.02);
         
-        height: calc(100vh - 320px) !important;     /* Co giãn thông minh dựa theo màn hình */
-        min-height: 500px !important;                /* Chốt chặn chiều cao tối thiểu phòng vệ */
-        overflow-y: auto !important;                 /* Tự động bật thanh cuộn khi vượt khổ ảnh */
+        height: calc(100vh - 340px) !important;     /* Cân bằng tuyệt đối theo chiều dọc màn hình */
+        min-height: 520px !important;                
+        overflow-y: auto !important;                 
     }
     
     .erp-header-title {
         font-size: 15px; font-weight: 700; color: #0f172a;
         padding-bottom: 12px; border-bottom: 1px solid #f1f5f9; margin-bottom: 16px;
-        display: flex; align-items: center; gap: 8px;
     }
 
-    /* THẺ HỒ SƠ TÓM TẮT THÔNG TIN MÃ HÀNG GỌN GÀNG */
+    /* THÈ HỒ SƠ TÓM TẮT THÔNG TIN MÃ HÀNG */
     .profile-item {
         background-color: #f8fafc;
         border: 1px solid #f1f5f9;
         border-radius: 6px;
-        padding: 10px 14px;
-        margin-bottom: 10px;
+        padding: 12px 16px;
+        margin-bottom: 12px;
     }
     .profile-lbl { font-size: 10px; font-weight: 600; color: #94a3b8; text-transform: uppercase; }
-    .profile-val { font-size: 13px; font-weight: 600; color: #334155; margin-top: 2px; }
+    .profile-val { font-size: 14px; font-weight: 600; color: #334155; margin-top: 2px; }
 
-    /* KHỐNG CHẾ TRỰC DIỆN HÌNH ẢNH SKETCH THEO CHIỀU CAO KHUNG CO GIÃN */
+    /* KHỐNG CHẾ HÌNH ẢNH SKETCH KHÔNG BỊ VỠ */
     .sticky-sketch-box img {
-        max-height: calc(100vh - 410px) !important;
-        min-height: 380px !important;
+        max-height: calc(100vh - 430px) !important;
+        min-height: 400px !important;
         width: auto !important;
         object-fit: contain !important;
         margin: 0 auto !important;
@@ -880,7 +891,6 @@ st.markdown("""
         border-radius: 6px;
     }
 
-    /* THANH CUỘN SIÊU MỎNG THEO CHUẨN CAO CẤP */
     .erp-main-card::-webkit-scrollbar { width: 6px; }
     .erp-main-card::-webkit-scrollbar-track { background: #f1f5f9; }
     .erp-main-card::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
@@ -928,15 +938,28 @@ if st.session_state.get("bom_data") and isinstance(st.session_state.bom_data, di
                     break
             except: pass
 
-# HIỂN THỊ BANNER DOANH NGHIỆP CẤP CAO
-st.markdown("""
-<div class="enterprise-banner">
-    <div class="ent-title">INTELLIGENT FABRIC CONSUMPTION PLATFORM</div>
-    <div class="ent-subtitle">Hệ thống phân tích hình học phẳng CAD và tự động tính toán định mức dệt may bằng lõi công nghệ AI</div>
-</div>
-""", unsafe_allow_html=True)
+# 5️⃣ RE-DESIGN BANNER: ĐƯA NÚT RESET LỒNG THẲNG VÀO GÓC PHẢI BANNER THEO CHUẨN ERP CAO CẤP
+b_left, b_right = st.columns([0.82, 0.18])
+with b_left:
+    st.markdown(f"""
+    <div class="enterprise-banner" style="margin-bottom:0px; border-radius:12px 0 0 12px;">
+        <div class="ent-title-block">
+            <div class="ent-title">INTELLIGENT FABRIC CONSUMPTION PLATFORM</div>
+            <div class="ent-subtitle">Hệ thống phân tích hình học phẳng CAD và tự động tính toán định mức dệt may bằng lõi công nghệ AI</div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+with b_right:
+    st.markdown('<div class="enterprise-banner" style="margin-bottom:0px; background-color:#1e293b; border-radius:0 12px 12px 0; border-left:none; justify-content:center; padding:22px 24px;">', unsafe_allow_html=True)
+    if st.button("🗑️ RESET ENGINE", use_container_width=True, type="primary"):
+        for k in ["bom_data", "chat_history", "pdf_bytes", "pdf_name", "pdf_text_cache", "pdf_page_one_image"]:
+            if k in st.session_state: st.session_state[k] = None if k != "chat_history" else []
+        st.rerun()
+    st.markdown('</div>', unsafe_allow_html=True)
 
-# THÀNH PHẦN GRID KPIs TỐI GIẢN CHUYÊN NGHIỆP
+st.markdown("<div style='margin-top:20px;'></div>", unsafe_allow_html=True)
+
+# THÀNH PHẦN GRID KPIs TO RÕ, ĐƯỢC PHÂN BỔ TRÊN CỘT RỘNG TOÀN MÀN HÌNH
 k_col1, k_col2, k_col3, k_col4 = st.columns(4)
 with k_col1: st.markdown(f'<div class="kpi-wrapper"><div class="kpi-lbl">Mã hàng xử lý</div><div class="kpi-val">{kpi_style_id}</div></div>', unsafe_allow_html=True)
 with k_col2: st.markdown(f'<div class="kpi-wrapper"><div class="kpi-lbl">Tổng số vật tư</div><div class="kpi-val">{total_materials} Items</div></div>', unsafe_allow_html=True)
@@ -944,6 +967,7 @@ with k_col3: st.markdown(f'<div class="kpi-wrapper"><div class="kpi-lbl">Định
 with k_col4: st.markdown(f'<div class="kpi-wrapper"><div class="kpi-lbl">Cỡ hạt tính toán</div><div class="kpi-val">{active_size_kpi}</div></div>', unsafe_allow_html=True)
 
 st.markdown("<br>", unsafe_allow_html=True)
+
 # =====================================================================
 # ĐOẠN 6b: GRID KHÔNG GIAN LÀM VIỆC & NÚT RESET HỆ THỐNG TRUNG TÂM
 # ĐỒNG BỘ CẤU TRÚC PHẲNG ERP CO GIÃN ĐỐI XỨNG THEO ĐỘ PHÂN GIẢI MÀN HÌNH
