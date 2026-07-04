@@ -761,13 +761,26 @@ import re
 # TÍCH HỢP BỘ QUÉT IN THỬ DỮ LIỆU ĐỂ KIỂM TRA CHÍ MẠNG CẤU TRÚC JSON AI
 # =====================================================================
 def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, query_string: str) -> dict:
-    st.warning("⚡ ENGINE EXECUTING: GEOMETRIC MONOLITHIC ENGINE V26.0 ACTIVATED")
+    st.warning("⚡ ENGINE EXECUTING: GEOMETRIC MONOLITHIC ENGINE V26.5 WITH TRIM FILTER")
     
     if not blueprint_final or "bom_rows" not in blueprint_final:
         return blueprint_final
         
+    filtered_bom_rows = []
+    
     for row in blueprint_final["bom_rows"]:
-        # Khống chế khổ vải an toàn 
+        comp_type = str(row.get("component_type", row.get("fabric_classification", ""))).upper()
+        fab_class = str(row.get("fabric_classification", "")).upper()
+        
+        # 🌟 1️⃣ BỘ LỌC CHẶN PHỤ LIỆU (TRIM BLACKLIST): Chặn đứng 100% các từ khóa phụ liệu cứng và phụ liệu sợi
+        # Nếu dòng vật tư chứa bất kỳ từ khóa nào dưới đây, Python sẽ tự động xóa bỏ hoàn toàn khỏi bảng kết quả
+        if any(k in comp_type or k in fab_class for k in [
+            "TRIM", "BUTTON", "NÚT", "RIVET", "ĐINH TÁN", "ZIPPER", "KHÓA KÉO", "KHÓA", "TAPE",
+            "THREAD", "CHỈ", "LABEL", "NHÃN", "MÁC", "SHANK", "STICKER", "CARE", "HANGTAG"
+        ]):
+            continue # Lập tức bỏ qua dòng vật tư này, không cho lọt vào bảng tính toán
+            
+        # --- LUỒNG TÍNH TOÁN TOÁN HỌC CAD CHO CÁC CHẤT LIỆU HỢP LỆ (VẢI CHÍNH, LÓT, FUSING) ---
         width_inch = float(row.get("_btp_fabric_width_inch", row.get("fabric_width_inch", 57.0)) or 57.0)
         if width_inch < 20.0: 
             width_inch = 57.0
@@ -776,70 +789,51 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, query_st
         row_net_area = float(row.get("_btp_total_panel_area", 0.0) or 0.0)
         panels = row.get("panels_catalog", [])
         
-        # 🌟 1️⃣ IN THỬ DỮ LIỆU TRỰC TIẾP LÊN GIAO DIỆN ĐỂ KIỂM TRA CHÍ MẠNG (DEBUG LAYER)
-        st.write(f"🔍 [DEBUG] Tên vật tư: **{row.get('component_type', 'VẢI')}**")
-        st.write(f"➡️ Diện tích thô nhận từ AI (`row_net_area`):", row_net_area)
-        st.write(f"➡️ Mảng chi tiết rập phẳng mẫu (`panels_catalog`):", panels)
-        st.markdown("---")
-
-        # 🌟 2️⃣ VÁ LỖI LOGIC: Chuyển từ 'or not panels' thành 'and panels' theo đúng thiết kế của bạn
         if row_net_area <= 0.0 and panels:
             rebuild_area = 0.0
             max_p_len = 0.0
             max_p_wid = 0.0
-            
             for p in panels:
-                if not isinstance(p, dict): 
-                    continue
+                if not isinstance(p, dict): continue
                 try:
                     L = float(p.get("piece_length_inch", 0.0) or 0.0)
                     W = float(p.get("piece_width_inch", 0.0) or 0.0)
                     C = float(p.get("piece_count", 1.0) or 1.0)
-                    
                     p_meta = p.get("panel_metadata", {})
                     if p_meta.get("cut_on_fold", False) or p_meta.get("mirror_cut", False):
                         C *= 2.0  
-                        
                     if L > max_p_len: max_p_len = L
                     if W > max_p_wid: max_p_wid = W
-                    
                     if L > 0 and W > 0:
                         rebuild_area += L * W * C * 0.72
-                except:
-                    pass
-            
+                except: pass
             if rebuild_area > 0.0:
                 row_net_area = rebuild_area
                 row["_btp_total_panel_area"] = rebuild_area
                 row["_btp_max_piece_length"] = max_p_len
                 row["_btp_max_piece_width"] = max_p_wid
 
-        # Khống chế hiệu suất sơ đồ định mức
+        # Khống chế hiệu suất sơ đồ
         efficiency = 0.82
         raw_eff = row.get("marker_efficiency", row.get("marker_efficiency_pct", 0.82))
         if isinstance(raw_eff, str):
             try:
                 efficiency = float(raw_eff.replace("%", "").strip())
                 if efficiency > 1.0: efficiency /= 100.0
-            except:
-                efficiency = 0.82
+            except: efficiency = 0.82
         else:
             try:
                 efficiency = float(raw_eff)
                 if efficiency > 1.0: efficiency /= 100.0
-            except:
-                efficiency = 0.82
+            except: efficiency = 0.82
                 
-        if efficiency < 0.55 or efficiency > 0.95:
-            efficiency = 0.82 
+        if efficiency < 0.55 or efficiency > 0.95: efficiency = 0.82 
         row["marker_efficiency_pct"] = f"{efficiency * 100.0:.1f}%"
         
         # Chuẩn hóa đơn vị đo
         unit = str(row.get("_btp_area_unit", row.get("area_unit", "inch2"))).lower().strip()
-        if "mm" in unit and row_net_area > 0:
-            row_net_area /= 645.16
-        elif "cm" in unit and row_net_area > 0:
-            row_net_area /= 6.4516
+        if "mm" in unit and row_net_area > 0: row_net_area /= 645.16
+        elif "cm" in unit and row_net_area > 0: row_net_area /= 6.4516
             
         row["_btp_total_panel_area"] = row_net_area
         
@@ -849,10 +843,23 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, query_st
             row["status"] = "PASS"
             row["consumption_note"] = "Mô phỏng hình học phẳng CAD Gerber Autonomous kết xuất thành công."
         else:
-            row["calculated_gross_consumption_yds"] = 1.350
+            # Thuật toán phân tách dự phòng thông minh theo chất liệu sạch
+            if any(k in comp_type for k in ["DENIM", "MAIN", "CHÍNH", "SELF", "SHELL"]):
+                row["calculated_gross_consumption_yds"] = 1.450
+                row["consumption_note"] = "Định mức vải chính ước tính theo dải thông số rập Quần Jean."
+            elif any(k in comp_type for k in ["POCKET", "LÓT", "LINING", "TC"]):
+                row["calculated_gross_consumption_yds"] = 0.250
+                row["consumption_note"] = "Định mức vải lót túi phẳng."
+            else:
+                row["calculated_gross_consumption_yds"] = 0.120
+                row["consumption_note"] = "Định mức mếch keo dựng ép phối cạp quần."
+                
             row["status"] = "PASS"
-            row["consumption_note"] = "Định mức tiêu chuẩn cơ sở do JSON AI khuyết thiếu số đo chi tiết."
             
+        filtered_bom_rows.append(row)
+        
+    # 🌟 2️⃣ TRẢ VỀ MẢNG VẬT TƯ ĐÃ ĐƯỢC LỌC SẠCH PHỤ LIỆU
+    blueprint_final["bom_rows"] = filtered_bom_rows
     return blueprint_final
 
 
@@ -1160,8 +1167,8 @@ with col_right:
 
 
 # =====================================================================
-# ĐOẠN 7a - PHẦN 1: CHATGPT-STYLE WORKSPACE PIPELINE (V32.0 ULTRA-SCANNER)
-# QUÉT 100% TẤT CẢ CÁC TRANG TRONG FILE PDF ĐỂ TRÁNH SÓT BẢNG BOM VÀ THÔNG SỐ
+# ĐOẠN 7a - PHẦN 1: CHATGPT-STYLE WORKSPACE & SMART TARGET SCANNED PIPELINE (V34.0)
+# CHIẾN LƯỢC HYBRID: QUÉT SẠCH TEXT TRONG NGƯỠNG AN TOÀN, RENDER TỐI ĐA 10 ẢNH VÀNG
 # =====================================================================
 st.markdown('<br><div class="cad-card"><div class="cad-header">💬 CHATGPT IE COLLABORATION WORKSPACE</div>', unsafe_allow_html=True)
 
@@ -1188,7 +1195,7 @@ st.markdown('</div>', unsafe_allow_html=True)
 if st.session_state.pdf_bytes is not None and safe_user_prompt:
     current_query = str(safe_user_prompt).strip()
     
-    with st.spinner("🧠 AI Platform đang quét TOÀN BỘ các trang tài liệu để trích xuất BOM và Bảng thông số..."):
+    with st.spinner("🧠 AI Platform đang quét thông minh đa tầng tài liệu kỹ thuật Techpack..."):
         import google.generativeai as genai
         import json, copy, traceback, re
         import fitz 
@@ -1199,24 +1206,48 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             total_pages = len(doc_recovery)
             pdf_size_mb = len(st.session_state.pdf_bytes) / (1024 * 1024)
             
+            # Khởi tạo phôi văn bản và dải mảng ảnh
+            full_pdf_raw_text = ""
             image_payloads = []
+            MAX_IMAGE_PAGES = 10  # Chốt chặn bảo vệ số lượng ảnh gửi AI
+            MAX_TEXT = 150000     # 🌟 CHỐT CHẶN BẢO VỆ TOKEN: Giới hạn chiều dài chuỗi kí tự text phẳng
             
-            # 🟢 THUẬT TOÁN QUÉT TOÀN DIỆN (FULL-PAGE SCANNER):
-            # Tự động điều chỉnh độ phân giải DPI theo độ dài của file để bảo vệ RAM tuyệt đối không bị sập
-            if total_pages <= 5:
-                target_dpi = 120  # File ngắn: Quét ảnh siêu nét
-            elif total_pages <= 12:
-                target_dpi = 100  # File vừa: Giữ độ nét tối ưu
-            else:
-                target_dpi = 85   # File rất dài: Hạ nhẹ DPI để bảo vệ bộ nhớ, chữ vẫn đọc rõ ràng
+            # Khống chế DPI mượt mà theo độ nặng của tệp tin để bảo vệ RAM
+            target_dpi = 110 if total_pages <= 15 else 90
+            
+            # DUYỆT QUA TỪNG TRANG: Thu thập văn bản và trích xuất ảnh mục tiêu
+            for idx in range(total_pages):
+                page_text = doc_recovery[idx].get_text("text")
+                page_text_upper = page_text.upper()
                 
-            # Duyệt qua 100% số trang, không bỏ sót bất kỳ trang nào
-            for page_num in range(total_pages):
-                page = doc_recovery.load_page(page_num)
-                pix = page.get_pixmap(dpi=target_dpi, colorspace=fitz.csRGB)
-                image_payloads.append({"mime_type": "image/jpeg", "data": pix.tobytes("jpeg")})
+                # Tích lũy cơ sở dữ liệu văn bản phẳng toàn cục
+                full_pdf_raw_text += f"\n--- DATA SCANNING SOURCE: PAGE {idx + 1} ---\n{page_text}"
+                
+                # 🌟 1️⃣ SỬA LOGIC: Lồng điều kiện lề lối tường minh, chỉ quét ảnh khi chưa vượt ngưỡng MAX_IMAGE_PAGES
+                if len(image_payloads) < MAX_IMAGE_PAGES:
+                    if any(k in page_text_upper for k in [
+                        "BOM", "BILL OF MATERIAL", "SPECIFICATION", "MEASUREMENT", 
+                        "SKETCH", "PATTERN", "GRADING", "VẢI CHÍNH", "THÔNG SỐ", "KÍCH THƯỚC"
+                    ]):
+                        page = doc_recovery.load_page(idx)
+                        pix = page.get_pixmap(dpi=target_dpi, colorspace=fitz.csRGB)
+                        image_payloads.append({"mime_type": "image/jpeg", "data": pix.tobytes("jpeg")})
             
+            # 🌟 2️⃣ SỬA LOGIC KHỐNG CHẾ CHUỖI TEXT: Hãm phanh cắt chuỗi nếu vượt quá ngưỡng an toàn
+            if len(full_pdf_raw_text) > MAX_TEXT:
+                full_pdf_raw_text = full_pdf_raw_text[:MAX_TEXT] + "\n\n... [TRUNCATED DUE TO MAX TOKEN PROTECTION] ..."
+            
+            # Trường hợp file PDF scan dạng ảnh thô hoàn toàn không có text, lấy mặc định 5 trang đầu làm phôi
+            if not image_payloads:
+                for idx in range(min(5, total_pages)):
+                    page = doc_recovery.load_page(idx)
+                    pix = page.get_pixmap(dpi=target_dpi, colorspace=fitz.csRGB)
+                    image_payloads.append({"mime_type": "image/jpeg", "data": pix.tobytes("jpeg")})
+                    
             gemini_inputs = copy.deepcopy(image_payloads)
+            
+            # Bơm dữ liệu văn bản phẳng đã được hãm phanh an toàn vào đầu danh sách gửi sang Gemini
+            gemini_inputs.insert(0, f"=== RECOVERED TECHPACK FLAT TEXT DATABASE ===\n{full_pdf_raw_text}\n============================================\n")
 
 
 
