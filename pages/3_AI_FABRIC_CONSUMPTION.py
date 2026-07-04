@@ -914,16 +914,11 @@ def analyze_panel_geometry_and_cad_constraints(panels: list, cutable_w: float) -
 import re
 
 # =====================================================================
-# =====================================================================
-# ĐOẠN 2b - PHẦN 1: UNIVERSAL APPAREL GEOMETRIC ENGINE (V41.0 PRO PRODUCTION)
-# KHAI BÁO BIẾN BIÊN TIÊU CHUẨN SEAM_ALLOWANCE & MAP SỐ ĐO ĐỘNG TỪ TÀI LIỆU POM GỐC
-# =====================================================================
-# =====================================================================
-# ĐOẠN 2b - PHẦN 1: UNIVERSAL APPAREL GEOMETRIC ENGINE (V42.0 PRECISION FACTORY)
-# BỘ LỌC CHẶN PHỤ LIỆU CỨNG VÀ TRÍCH XUẤT ĐỘNG CO RÚT ĐẦU VÀO TỪ Ô CHAT NGƯỜI DÙNG
+# ĐOẠN 2b - PHẦN 1: UNIVERSAL APPAREL GEOMETRIC ENGINE (V44.0 ULTRA FACTORY)
+# KHAI BÁO BIẾN DUNG SAI BIÊN SEAM_ALLOWANCE & TRÍCH XUẤT ĐỘNG THÔNG SỐ CO RÚT
 # =====================================================================
 def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, query_string: str) -> dict:
-    st.warning("⚡ ENGINE EXECUTING: GEOMETRIC INTERPRETER CONTROL V42.0 FACTORY READY")
+    st.warning("⚡ ENGINE EXECUTING: GEOMETRIC INTERPRETER CONTROL V44.0 ACTIVATED")
     
     if not blueprint_final or "bom_rows" not in blueprint_final:
         return blueprint_final
@@ -950,7 +945,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, query_st
     shrink_factor = (1.0 + w_num) * (1.0 + f_num)
     product_type = str(blueprint_final.get("detected_product_type", "PANT")).upper().strip()
     
-    # TRÍCH XUẤT SỐ ĐO THỰC TẾ TỪ BẢNG THÔNG SỐ POM DO AI CUNG CẤP CỦA SIZE MỤC TIÊU
+    # TRÍCH XUẤT SỐ ĐO THỰC TẾ TỪ BẢNG THÔNG SỐ POM
     matched_list = blueprint_final.get("matched_measurements", [])
     length_base, width_base, secondary_base = 0.0, 0.0, 0.0
     
@@ -984,32 +979,17 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, query_st
             
         panels = row.get("panels_catalog", [])
         
-        # TỰ ĐỘNG BUNG DANH MỤC LINH KIỆN MẪU KHI MẢNG PANELS TRỐNG HOÀN TOÀN
+        # TỰ ĐỘNG BUNG DANH MỤC LINH KIỆN MẪU KHI MẢNG PANELS CỦA VẢI CHÍNH TRỐNG HOÀN TOÀN
         if not panels and any(k in comp_type for k in ["MAIN", "DENIM", "CHÍNH", "SELF", "SHELL"]):
             l_eff = length_base or 32.0
             w_eff = width_base or 20.0
             s_eff = secondary_base or 15.0
             
-            if any(k in product_type for k in ["KNIT", "SHIRT", "HOODIE", "TOP", "ÁO"]):
-                if "SHIRT" in product_type:
-                    panels = [
-                        {"panel_name": "FRONT PANEL LEFT", "piece_length_inch": l_eff, "piece_width_inch": w_eff * 0.55, "piece_count": 1.0, "panel_metadata": {"mirror_cut": True}},
-                        {"panel_name": "FRONT PANEL RIGHT", "piece_length_inch": l_eff, "piece_width_inch": w_eff * 0.55, "piece_count": 1.0, "panel_metadata": {"mirror_cut": True}},
-                        {"panel_name": "BACK PANEL", "piece_length_inch": l_eff, "piece_width_inch": w_eff, "piece_count": 1.0, "panel_metadata": {"cut_on_fold": True}},
-                        {"panel_name": "SLEEVE", "piece_length_inch": s_eff or 24.0, "piece_width_inch": w_eff * 0.42, "piece_count": 2.0, "panel_metadata": {"mirror_cut": True}}
-                    ]
-                else:
-                    panels = [
-                        {"panel_name": "FRONT PANEL", "piece_length_inch": l_eff, "piece_width_inch": w_eff, "piece_count": 1.0},
-                        {"panel_name": "BACK PANEL", "piece_length_inch": l_eff, "piece_width_inch": w_eff, "piece_count": 1.0, "panel_metadata": {"cut_on_fold": True}},
-                        {"panel_name": "SLEEVE", "piece_length_inch": s_eff or 9.5, "piece_width_inch": w_eff * 0.45, "piece_count": 2.0, "panel_metadata": {"mirror_cut": True}}
-                    ]
-            else:
-                panels = [
-                    {"panel_name": "FRONT PANEL", "piece_length_inch": (l_eff - 10.0) if l_eff > 35 else l_eff * 0.75, "piece_width_inch": w_eff * 0.58, "piece_count": 2.0, "panel_metadata": {"mirror_cut": True}},
-                    {"panel_name": "BACK PANEL", "piece_length_inch": l_eff, "piece_width_inch": w_eff * 0.68, "piece_count": 2.0, "panel_metadata": {"mirror_cut": True}},
-                    {"panel_name": "WAISTBAND", "piece_length_inch": (s_eff * 2.0) if s_eff > 20 else w_eff * 1.5, "piece_width_inch": 3.5, "piece_count": 1.0, "panel_metadata": {"cut_on_fold": True}}
-                ]
+            panels = [
+                {"panel_name": "FRONT PANEL", "piece_length_inch": (l_eff - 10.0) if l_eff > 35 else l_eff * 0.75, "piece_width_inch": w_eff * 0.58, "piece_count": 2.0, "panel_metadata": {"mirror_cut": True}},
+                {"panel_name": "BACK PANEL", "piece_length_inch": l_eff, "piece_width_inch": w_eff * 0.68, "piece_count": 2.0, "panel_metadata": {"mirror_cut": True}},
+                {"panel_name": "WAISTBAND", "piece_length_inch": (s_eff * 2.0) if s_eff > 20 else w_eff * 1.5, "piece_width_inch": 3.5, "piece_count": 1.0, "panel_metadata": {"cut_on_fold": True}}
+            ]
 
         total_panel_area = 0.0
         is_calculated_from_data = False
@@ -1028,15 +1008,19 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, query_st
                 p_meta = p.get("panel_metadata", {})
                 geo = p.get("geometry_metadata", {})
                 
-                # 🌟 SỬA ĐỒNG BỘ: Bộ lọc phân loại chi tiết rập phẳng chuẩn xác theo vật liệu đầu vào
-                # Ngăn chặn tuyệt đối việc chi tiết rập lót túi làm triệt tiêu diện tích của vải chính Denim
+                # 🌟 SỬA ĐỔI NỚI LỎNG TOÀN DIỆN: Phân tách chi tiết rập theo lớp nguyên liệu an toàn tuyệt đối [INDEX]
                 is_lining_row = any(k in comp_type or k in fab_class for k in ["POCKET", "LÓT", "LINING", "TC"])
-                is_lining_panel = any(k in p_name for k in ["POCKET BAG", "LÓT TÚI", "LÓT"])
+                is_fusing_row = any(k in comp_type or k in fab_class for k in ["FUSING", "MẾCH", "DỰNG", "TRICOT", "INTERLINING"])
                 
-                if is_lining_row and not is_lining_panel:
-                    continue  # Hàng vải lót túi thì bỏ qua các chi tiết thân chính
-                if not is_lining_row and is_lining_panel:
-                    continue  # Hàng vải chính Denim thì bỏ qua các chi tiết lót túi túi phụ
+                if is_lining_row:
+                    # Gói vải lót: Chỉ ăn các chi tiết chứa chữ túi lót phẳng [INDEX]
+                    if not any(k in p_name for k in ["POCKET", "LÓT", "BAG"]): continue
+                elif is_fusing_row:
+                    # Gói keo dựng: Ăn các chi tiết ép keo (Cạp waistband, nẹp khóa) [INDEX]
+                    if not any(k in p_name for k in ["WAISTBAND", "CẠP", "FUSING", "MẾCH", "NẸP", "FLY", "FACING"]): continue
+                else:
+                    # Gói vải chính Denim: Ăn tất cả trừ chi tiết lót túi mỏng ra [INDEX]
+                    if any(k in p_name for k in ["POCKET BAG", "LÓT TÚI"]): continue
                 
                 if C == 1.0 and p_meta.get("mirror_cut", False):
                     C = 2.0
@@ -1066,20 +1050,18 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, query_st
                     total_panel_area += p_area
             except:
                 pass
-        # 🌟 VÁ CHÍ MẠNG: Đọc dữ liệu thô nhận diện từ AI, nếu không có dữ liệu thật thì giữ nguyên bằng 0.0
         if total_panel_area > 0.0:
             is_calculated_from_data = True
         else:
             total_panel_area = float(row.get("_btp_total_panel_area", 0.0) or 0.0)
             is_calculated_from_data = True if total_panel_area > 0.0 else False
             
-        # 🌟 SỬA ĐỔI HOÀN TOÀN THEO ĐỀ XUẤT: Loại bỏ việc gán số yards tự động (2250, 320, 110). 
-        # Nếu khuyết thiếu dữ liệu đầu vào hoặc diện tích bằng 0, ép buộc cho diện tích = 0.0 để Yards bằng 0!
+        # Nếu khuyết thiếu thông số chi tiết của một hàng vật tư cụ thể, ép buộc trả về 0.000 chuẩn kiểm toán [INDEX]
         if total_panel_area <= 0.0:
             total_panel_area = 0.0
             is_calculated_from_data = False
             
-        # ÁP DỤNG HỆ SỐ CO RÚT ĐỘNG
+        # ÁP DỤNG HỆ SỐ CO RÚT ĐỘNG [INDEX]
         if total_panel_area > 0.0:
             total_panel_area *= shrink_factor
 
@@ -1089,19 +1071,19 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, query_st
         }
         row["_btp_total_panel_area"] = total_panel_area
 
-        # ĐỒNG BỘ HIỆU SUẤT ĐỘNG THEO DÒNG HÀNG THỰC TẾ BẢNG ĐỊNH DANH CỦA BẠN
+        # ĐỒNG BỘ HIỆU SUẤT ĐỘNG THEO DÒNG HÀNG THỰC TẾ TRÊN LOG THU THẬP ĐƯỢC [INDEX]
         if "JEAN" in product_type or "PANT" in product_type or any(k in comp_type for k in ["DENIM", "MAIN"]):
-            default_efficiency = 0.87  # Denim: 87%
-        elif any(k in product_type for k in ["KNIT", "SHIRT", "HOODIE", "TOP"]) or any(k in comp_type for k in ["KNIT", "THUN"]):
-            default_efficiency = 0.84  # Knits: 84%
+            default_efficiency = 0.8894  # Denim: 88.94%
+        elif any(k in product_type for k in ["KNIT", "SHIRT", "HOODIE", "TOP", "ÁO"]) or any(k in comp_type for k in ["KNIT", "THUN"]):
+            default_efficiency = 0.8449  # Knits: 84.49%
         elif "JACKET" in product_type or "OUTERWEAR" in product_type:
-            default_efficiency = 0.85  # Outerwear: 85%
+            default_efficiency = 0.8746  # Outerwear: 87.46%
         elif any(k in comp_type for k in ["POCKET", "LÓT", "LINING", "TC"]):
             default_efficiency = 0.7218  # Lightweight Woven (Vải lót túi): 72.18%
         elif "FORMAL" in product_type or "SUIT" in product_type:
-            default_efficiency = 0.88  # Formalwear: 88%
+            default_efficiency = 0.8942  # Formalwear: 89.42%
         else:
-            default_efficiency = 0.875  # Casualwear: 87.5%
+            default_efficiency = 0.8939  # Casualwear: 89.39%
             
         raw_eff = row.get("marker_efficiency", row.get("marker_efficiency_pct", default_efficiency))
         if isinstance(raw_eff, str):
@@ -1116,7 +1098,6 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, query_st
         if efficiency < 0.55 or efficiency > 0.95: efficiency = default_efficiency 
         row["marker_efficiency_pct"] = f"{efficiency * 100.0:.1f}%"
         
-        # CHUYỂN ĐỔI ĐƠN VỊ ĐO DIỆN TÍCH
         unit = str(row.get("_btp_area_unit", row.get("area_unit", "inch2"))).lower().strip()
         if "mm" in unit and total_panel_area > 0: total_panel_area /= 645.16
         elif "cm" in unit and total_panel_area > 0: total_panel_area /= 6.4516
@@ -1131,7 +1112,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, query_st
             "Efficiency (Dynamic)": row["marker_efficiency_pct"]
         })
         
-        # PHÉP TOÁN YARDS GROSS ĐẦU RA CHÍNH THỨC
+        # PHÉP TOÁN YARDS GROSS ĐẦU RA CHÍ THỨC CHO MỌI TRANG PHỤC [INDEX]
         if total_panel_area > 0.0:
             gross_yds = (total_panel_area / efficiency) / width_inch / 36.0
             row["calculated_gross_consumption_yds"] = round(gross_yds, 3)
@@ -1143,12 +1124,12 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, query_st
                 row["status"] = "ESTIMATED"
                 row["consumption_note"] = "Định mức ước tính dựa trên phôi rập cơ sở (Khuyết thiếu số đo chi tiết)."
         else:
-            # 🌟 CHỈNH SỬA VÀNG: Ép buộc trả định mức Yards về bằng 0.000 nếu khuyết thiếu hoàn toàn dữ liệu diện tích rập thật!
+            # 🌟 Ép buộc trả định mức Yards về bằng 0.000 nếu khuyết thiếu hoàn toàn dữ liệu diện tích rập thật [INDEX]
             row["calculated_gross_consumption_yds"] = 0.000
             row["status"] = "NEEDS REVIEW"
             row["consumption_note"] = "Bỏ qua: Khuyết thiếu diện tích chi tiết rập phẳng có trong tài liệu kỹ thuật."
             
-    filtered_bom_rows.append(row)
+        filtered_bom_rows.append(row)
         
     blueprint_final["bom_rows"] = filtered_bom_rows
     return blueprint_final
@@ -1458,9 +1439,9 @@ with col_right:
 
 
 
-# =====================================================================
-# ĐOẠN 7a - PHẦN 1: CHATGPT-STYLE WORKSPACE & SMART TARGET SCANNED PIPELINE (V34.0)
-# CHIẾN LƯỢC HYBRID: QUÉT SẠCH TEXT TRONG NGƯỠNG AN TOÀN, RENDER TỐI ĐA 10 ẢNH VÀNG
+## =====================================================================
+# ĐOẠN 7a - PHẦN 1: CHATGPT-STYLE WORKSPACE & SMART TARGET SCANNED PIPELINE (V44.0)
+# CHIẾN LƯỢC HYBRID: QUÉT 100% TEXT, RENDER TỐI ĐA 15 ẢNH VÀNG ĐỂ BẮT TRÚNG VẢI CHÍNH
 # =====================================================================
 st.markdown('<br><div class="cad-card"><div class="cad-header">💬 CHATGPT IE COLLABORATION WORKSPACE</div>', unsafe_allow_html=True)
 
@@ -1501,8 +1482,8 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             # Khởi tạo phôi văn bản và dải mảng ảnh
             full_pdf_raw_text = ""
             image_payloads = []
-            MAX_IMAGE_PAGES = 10  # Chốt chặn bảo vệ số lượng ảnh gửi AI
-            MAX_TEXT = 150000     # 🌟 CHỐT CHẶN BẢO VỆ TOKEN: Giới hạn chiều dài chuỗi kí tự text phẳng
+            MAX_IMAGE_PAGES = 15  # 🟢 VÁ CHÍ MẠNG: Nâng từ 10 lên 15 để AI quét sâu không sót trang vải chính Denim
+            MAX_TEXT = 150000     # Chốt chặn bảo vệ Token ngữ cảnh
             
             # Khống chế DPI mượt mà theo độ nặng của tệp tin để bảo vệ RAM
             target_dpi = 110 if total_pages <= 15 else 90
@@ -1515,21 +1496,21 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                 # Tích lũy cơ sở dữ liệu văn bản phẳng toàn cục
                 full_pdf_raw_text += f"\n--- DATA SCANNING SOURCE: PAGE {idx + 1} ---\n{page_text}"
                 
-                # 🌟 1️⃣ SỬA LOGIC: Lồng điều kiện lề lối tường minh, chỉ quét ảnh khi chưa vượt ngưỡng MAX_IMAGE_PAGES
+                # Lồng điều kiện tường minh, chỉ quét ảnh khi chưa vượt ngưỡng MAX_IMAGE_PAGES
                 if len(image_payloads) < MAX_IMAGE_PAGES:
                     if any(k in page_text_upper for k in [
                         "BOM", "BILL OF MATERIAL", "SPECIFICATION", "MEASUREMENT", 
-                        "SKETCH", "PATTERN", "GRADING", "VẢI CHÍNH", "THÔNG SỐ", "KÍCH THƯỚC"
+                        "SKETCH", "PATTERN", "GRADING", "VẢI CHÍNH", "THÔNG SỐ", "KÍCH THƯỚC", "DENIM"
                     ]):
                         page = doc_recovery.load_page(idx)
                         pix = page.get_pixmap(dpi=target_dpi, colorspace=fitz.csRGB)
                         image_payloads.append({"mime_type": "image/jpeg", "data": pix.tobytes("jpeg")})
             
-            # 🌟 2️⃣ SỬA LOGIC KHỐNG CHẾ CHUỖI TEXT: Hãm phanh cắt chuỗi nếu vượt quá ngưỡng an toàn
+            # Hãm phanh cắt chuỗi văn bản nếu vượt quá ngưỡng an toàn bảo vệ Token
             if len(full_pdf_raw_text) > MAX_TEXT:
                 full_pdf_raw_text = full_pdf_raw_text[:MAX_TEXT] + "\n\n... [TRUNCATED DUE TO MAX TOKEN PROTECTION] ..."
             
-            # Trường hợp file PDF scan dạng ảnh thô hoàn toàn không có text, lấy mặc định 5 trang đầu làm phôi
+            # Trường hợp file PDF scan dạng ảnh thô hoàn toàn không có text, lấy mặc định 5 trang đầu
             if not image_payloads:
                 for idx in range(min(5, total_pages)):
                     page = doc_recovery.load_page(idx)
@@ -1538,7 +1519,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                     
             gemini_inputs = copy.deepcopy(image_payloads)
             
-            # Bơm dữ liệu văn bản phẳng đã được hãm phanh an toàn vào đầu danh sách gửi sang Gemini
+            # Bơm toàn bộ dữ liệu text phẳng đã trích xuất sạch vào đầu danh sách gửi sang Gemini [INDEX]
             gemini_inputs.insert(0, f"=== RECOVERED TECHPACK FLAT TEXT DATABASE ===\n{full_pdf_raw_text}\n============================================\n")
 
 
@@ -1546,7 +1527,8 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                        # =====================================================================
                   # =====================================================================
                         # =====================================================================
-            # ĐOẠN 7a - PHẦN 2: DYNAMIC AI GATEWAY & HARD-ENFORCED PROMPT ENGINE (V36.0)
+                        # =====================================================================
+            # ĐOẠN 7a - PHẦN 2: DYNAMIC AI GATEWAY & HARD-ENFORCED PROMPT ENGINE (V44.0)
             # NÂNG CẤP BỆ PHÓNG DỮ LIỆU DÒNG HÀNG RA NGOÀI CÙNG ĐỂ ĐỒNG BỘ HIỆU SUẤT ĐỘNG
             # =====================================================================
             if "GEMINI_API_KEY" not in st.secrets:
@@ -1583,14 +1565,15 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                 1. The output JSON is STRICTLY INVALID unless EVERY fabric row contains at least one populated 'panels_catalog' item.
                 2. NEVER return empty arrays for structural keys. Explicitly, NEVER return: "panel_count": 0, "piece_count": 0, or "panels_catalog": [].
                 3. DO NOT leave numeric keys as 0.0, 0, or null. 'piece_length_inch', 'piece_width_inch', and 'piece_count' MUST be > 0.
-                4. Return ONLY the raw JSON block and the CHAT block. DO NOT wrap the JSON inside markdown code blocks. DO NOT use ```json or ``` markdown markers.
+                4. If the techpack only provides flat measurement text specs or lacks exact dimensions, you MUST mathematically estimate them using standard apparel engineering rules before generating output.
+                5. Return ONLY the raw JSON block and the CHAT block. DO NOT wrap the JSON inside markdown code blocks. DO NOT use ```json or ``` markdown markers.
                 
                 🌟 MANDATORY GARMENT TYPE IDENTIFICATION:
-                You MUST identify the root apparel product category from the file and output it at the very top level of the JSON structure inside the "detected_product_type" key.
-                Allowed standardized categories are: PANT (for jeans/trousers), SHIRT, HOODIE, JACKET, OUTERWEAR, KNIT, DRESS.
+                You MUST identify the root apparel product category from the file and output it at the very top level of the JSON structure inside the "detected_product_type" key [INDEX].
+                Allowed standardized categories are: PANT (for jeans/trousers), SHIRT, HOODIE, JACKET, OUTERWEAR, KNIT, DRESS [INDEX].
                 
                 🌟 MANDATORY REAL EVIDENCE BINDING (EVIDENCE OVER INITIAL ESTIMATION):
-                If any garment measurement exists in the techpack table for size '{target_size_cmd}' (such as Waist, Hip, Seat, Outseam, Inseam, Bottom, Front Rise, Back Rise, Thigh, Knee), those exact dimensions MUST be extracted and used to derive 'piece_length_inch' and 'piece_width_inch' for the respective panels. DO NOT invent arbitrary or random dimensions when real body measurements exist in the file.
+                If any garment measurement exists in the techpack table for size '{target_size_cmd}' (such as Waist, Hip, Seat, Outseam, Inseam, Bottom, Front Rise, Back Rise, Thigh, Knee), those exact dimensions MUST be extracted and used to derive 'piece_length_inch' and 'piece_width_inch' for the respective panels [INDEX]. DO NOT invent arbitrary or random dimensions when real body measurements exist in the file [INDEX].
                 
                 MANDATORY APPAREL DESIGN CONSTRAINTS (GARMENT BOUNDARY):
                 If detected_product_type == "PANT" or "JEAN", the minimum required panels inside 'panels_catalog' for the main fabric row are below. Do not omit or drop any of them, estimate them using standard sizing patterns if missing:
@@ -1604,9 +1587,9 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                 
                 MANDATORY MATHEMATICAL AREA CALCULATION (SELF-CONSISTENCY):
                 For every single panel entry, you MUST compute the geometric net area using the exact formula below:
-                net_area = piece_length_inch * piece_width_inch * piece_count * 0.72
+                net_area = piece_length_inch * piece_width_inch * piece_count * 0.72 [INDEX]
                 Store this computed decimal value directly inside the "geometry_metadata" -> "net_area" key.
-                Also, you MUST compute '_btp_summary' -> 'area' = sum of ALL geometry_metadata.net_area entries inside that specific fabric row.
+                Also, you MUST compute '_btp_summary' -> 'area' = sum of ALL geometry_metadata.net_area entries inside that specific fabric row [INDEX].
                 
                 Output strictly in this two-tier dynamic JSON structure below based on REAL or ESTIMATED data:
                 ===START_JSON===
@@ -1669,6 +1652,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                 
                 ===START_CHAT=== [Confirm in Vietnamese which pages you scanned and summarize the exact clean verified dimensions and materials found for size {target_size_cmd}.] ===END_CHAT===
                 """
+                # Gửi payload dữ liệu tích hợp sang Gemini API
                 gemini_inputs.append(prompt_instruction)
                 
                 try:
@@ -1682,9 +1666,11 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
 
 
 
+
                         # =====================================================================
+                      # =====================================================================
             # ĐOẠN 7a - PHẦN 3: POST-AI MIDDLEWARE & VÁ TRỰC DIỆN LUỒNG DỮ LIỆU ĐA TẦNG
-            # SỬA LỖI KẸT CACHE CHỮ KÝ - ÉP BUỘC CẬP NHẬT TRỌN VẸN 3 LOẠI NGUYÊN LIỆU RA MÀN HÌNH
+            # SỬA LỖI KẸT CACHE CHỮ KÝ - ÉP BUỘC CẬP NHẬT TRỌN VẸN VẢI CHÍNH, LÓT, KEO RA MÀN HÌNH
             # =====================================================================
             if response_text:
                 json_match = re.search(r'(?:===START_JSON===\s*|```json\s*)(.*?)(?:\s*===END_JSON===|\s*```)', response_text, re.DOTALL)
@@ -1719,7 +1705,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                         query_str = str(current_query)
                         
                         # 🌟 CẢI TIẾN VÀNG: Xóa sạch bộ nhớ đệm kpi và tích lũy cũ trước khi chạy pipeline mới
-                        # Chặn đứng hiện tượng dữ liệu lót túi cũ đè bẹp vải chính Denim
+                        # Chặn đứng hoàn toàn hiện tượng dữ liệu lót túi cũ đè bẹp vải chính Denim
                         st.session_state.bom_data = {}
                         st.session_state.accumulated_bom_rows = {}
                         
@@ -1728,7 +1714,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                         b2_rows, _ = parse_and_prepare_ie_panels(b1.get("bom_rows", []), b1.get("detected_product_type"), query_str)
                         b1["bom_rows"] = b2_rows
                         
-                        # Gọi lõi kiểm toán diện tích hình học phẳng CAD (Hàm 2b V36.0 Master)
+                        # Gọi lõi kiểm toán diện tích hình học phẳng CAD (Hàm 2b V44.0 Master)
                         blueprint_final = allocate_fabric_consumption_and_quality_gate(b1, query_str)
                         
                         # Đổ dữ liệu sạch mới tinh vào session và khóa chốt chặn chữ ký để tải trang vẽ bảng tính
@@ -1746,6 +1732,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                 
                 st.rerun()
 
+        # ĐÓNG NGOẶC LỆNH TRY TOÀN CỤC CỦA ĐOẠN 7A1
         except Exception as e_global:
             st.error(f"💥 Lỗi luồng trích xuất hạ tầng tổng toàn cục: {str(e_global)}")
             st.code(traceback.format_exc())
