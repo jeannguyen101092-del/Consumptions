@@ -1587,8 +1587,9 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                   # =====================================================================
                         # =====================================================================
                         # =====================================================================
-            # ĐOẠN 7a - PHẦN 2: DYNAMIC AI GATEWAY & HARD-ENFORCED PROMPT ENGINE (V44.0)
-            # NÂNG CẤP BỆ PHÓNG DỮ LIỆU DÒNG HÀNG RA NGOÀI CÙNG ĐỂ ĐỒNG BỘ HIỆU SUẤT ĐỘNG
+                       # =====================================================================
+            # ĐOẠN 7a - PHẦN 2: DYNAMIC AI GATEWAY & TRUSTED AUTOPILOT CORE (V46.0)
+            # GIẢI PHÓNG AI KHỎI PHÉP TÍNH TOÁN - TRẬP TRUNG OCR SỐ ĐO THỰC TẾ & BẢO TOÀN DANH MỤC TRỌNG YẾU
             # =====================================================================
             if "GEMINI_API_KEY" not in st.secrets:
                 st.error("💥 Lỗi hạ tầng: Thiếu cấu hình GEMINI_API_KEY trong hệ thống Secrets.")
@@ -1601,6 +1602,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             match_size = re.search(r'\b(?:size|sz|cỡ)\s*[:\-=\s]*([\w\d/]+)\b', chat_lower)
             target_size_cmd = str(match_size.group(1)).upper().strip() if match_size else "30"
             
+            # Bộ quét trích xuất khổ vải linh hoạt từ câu lệnh chat
             match_w = re.search(r'(?:khổ|kho|width|w)\s*[:\-=\s]*([\d\.]+)', chat_lower)
             active_width = float(match_w.group(1)) if match_w else 57.0
             if active_width < 20.0: active_width = 57.0
@@ -1618,100 +1620,67 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                     st.stop()
                     
                 prompt_instruction = f"""
-                You are an expert apparel Industrial Engineering (IE) CAD system. Scan provided techpack pages to analyze size '{target_size_cmd}' and BOM material tables.
+                You are a highly accurate apparel Industrial Engineering (IE) Data Gateway [INDEX]. Your sole mission is to perform strict OCR text extraction and visual data capturing from the provided techpack pages for size '{target_size_cmd}' [INDEX]. 
+                DO NOT perform any area multiplication or invent random dimensions. Focus entirely on extracting clean, raw textual evidence [INDEX].
                 
                 CRITICAL SYSTEM BOUNDARY & HARD ENFORCEMENT RULES:
-                1. The output JSON is STRICTLY INVALID unless EVERY fabric row contains at least one populated 'panels_catalog' item.
-                2. NEVER return empty arrays for structural keys. Explicitly, NEVER return: "panel_count": 0, "piece_count": 0, or "panels_catalog": [].
-                3. DO NOT leave numeric keys as 0.0, 0, or null. 'piece_length_inch', 'piece_width_inch', and 'piece_count' MUST be > 0.
-                4. If the techpack only provides flat measurement text specs or lacks exact dimensions, you MUST mathematically estimate them using standard apparel engineering rules before generating output.
-                5. Return ONLY the raw JSON block and the CHAT block. DO NOT wrap the JSON inside markdown code blocks. DO NOT use ```json or ``` markdown markers.
+                1. The output JSON is STRICTLY INVALID unless EVERY single material raw type found in the techpack (such as Main Fabric/Canvas, Pocketing/Lining, and Fusing/Interlining) is captured as an independent object inside the 'bom_rows' array [INDEX].
+                2. NEVER omit or drop the Fusing/Interlining or Pocketing rows if they are mentioned in the document text. All 3 categories must exist simultaneously [INDEX].
+                3. DO NOT wrap the JSON inside markdown code blocks. DO NOT use ```json or ``` markdown markers. Return ONLY raw plain text JSON.
                 
-                🌟 MANDATORY GARMENT TYPE IDENTIFICATION:
-                You MUST identify the root apparel product category from the file and output it at the very top level of the JSON structure inside the "detected_product_type" key [INDEX].
-                Allowed standardized categories are: PANT (for jeans/trousers), SHIRT, HOODIE, JACKET, OUTERWEAR, KNIT, DRESS [INDEX].
+                🌟 MANDATORY REAL EVIDENCE BINDING (POM EXTRACTOR):
+                Locate the spec/measurement tables and extract ALL available dimensions specifically for size '{target_size_cmd}' (e.g., Waist, Hip, Outseam, Thigh, Rise, Sleeve, Chest, Body Length). Store these clean raw metrics directly inside the 'matched_measurements' string array using the format: "POM_CODE: Description = DECIMAL_VALUE inch" [INDEX].
                 
-                🌟 MANDATORY REAL EVIDENCE BINDING (EVIDENCE OVER INITIAL ESTIMATION):
-                If any garment measurement exists in the techpack table for size '{target_size_cmd}' (such as Waist, Hip, Seat, Outseam, Inseam, Bottom, Front Rise, Back Rise, Thigh, Knee), those exact dimensions MUST be extracted and used to derive 'piece_length_inch' and 'piece_width_inch' for the respective panels [INDEX]. DO NOT invent arbitrary or random dimensions when real body measurements exist in the file [INDEX].
+                🌟 MANDATORY PANELS_CATALOG MAPPING:
+                For each fabric classification, map out its component parts. If the techpack explicitly lists piece dimensions, use them. If it only lists body measurements, map the raw Outseam/Length into 'piece_length_inch', and raw Hip/Thigh/Waist into 'piece_width_inch' for the primary panels before output. Leave the 'geometry_metadata' -> 'net_area' as 0.0, because the Python CAD engine downstream will compute it deterministically.
                 
-                MANDATORY APPAREL DESIGN CONSTRAINTS (GARMENT BOUNDARY):
-                If detected_product_type == "PANT" or "JEAN", the minimum required panels inside 'panels_catalog' for the main fabric row are below. Do not omit or drop any of them, estimate them using standard sizing patterns if missing:
-                - FRONT PANEL (piece_count: 2.0)
-                - BACK PANEL (piece_count: 2.0)
-                - WAISTBAND (piece_count: 2.0 or 1.0)
-                - BACK YOKE (piece_count: 2.0)
-                - FLY PIECE (piece_count: 1.0)
-                - POCKET BAG (piece_count: 4.0)
-                - COIN POCKET (piece_count: 1.0)
-                
-                MANDATORY MATHEMATICAL AREA CALCULATION (SELF-CONSISTENCY):
-                For every single panel entry, you MUST compute the geometric net area using the exact formula below:
-                net_area = piece_length_inch * piece_width_inch * piece_count * 0.72 [INDEX]
-                Store this computed decimal value directly inside the "geometry_metadata" -> "net_area" key.
-                Also, you MUST compute '_btp_summary' -> 'area' = sum of ALL geometry_metadata.net_area entries inside that specific fabric row [INDEX].
-                
-                Output strictly in this two-tier dynamic JSON structure below based on REAL or ESTIMATED data:
+                Output strictly in this standardized JSON structure. Dynamically update ALL 'fabric_width_inch' fields to matching the targeted width value {active_width} [INDEX]:
                 ===START_JSON===
                 {{
                   "status": "PASS",
                   "detected_product_type": "PANT",
                   "calculated_on_size": "{target_size_cmd}",
                   "matched_measurements": [
-                     "<POM_CODE>: <DESCRIPTION> = <DECIMAL_VALUE> inch"
+                     "WST-001: Waist Width Flat = 16.5 inch",
+                     "HIP-002: Hip Width Flat = 21.5 inch",
+                     "OUT-003: Outseam Total Length = 40.0 inch"
                   ],
                   "_btp_global_summary": {{
-                    "total_bom_rows": 3,
-                    "total_panels": 12,
-                    "total_pieces": 14,
-                    "largest_piece_length": 40.0,
-                    "largest_piece_width": 14.5
+                    "total_bom_rows": <COUNT_OF_MATERIAL_ROWS_EXTRACTED>,
+                    "total_panels": <TOTAL_PANEL_OBJECTS_FOUND>
                   }},
                   "bom_rows": [
                     {{
-                      "component_type": "Denim 99% Cotton, 1% Elastane",
+                      "component_type": "<EXTRACTED_RAW_FABRIC_NAME_FROM_BOM>",
                       "fabric_classification": "MAIN_FABRIC",
                       "fabric_width_inch": {active_width},
-                      "_btp_summary": {{ 
-                        "panel_count": 4, 
-                        "piece_count": 8, 
-                        "area": 1709.28, 
-                        "max_piece_length": 40.0, 
-                        "max_piece_width": 14.5 
-                      }},
                       "panels_catalog": [
-                        {{ 
-                          "panel_name": "FRONT PANEL", "piece_count": 2.0, "piece_length_inch": 39.0, "piece_width_inch": 12.0,
-                          "geometry_metadata": {{ "net_area": 673.92 }}, "panel_metadata": {{ "cut_on_fold": false, "mirror_cut": true }}
-                        }},
-                        {{ 
-                          "panel_name": "BACK PANEL", "piece_count": 2.0, "piece_length_inch": 40.0, "piece_width_inch": 14.0,
-                          "geometry_metadata": {{ "net_area": 806.40 }}, "panel_metadata": {{ "cut_on_fold": false, "mirror_cut": true }}
-                        }},
-                        {{ 
-                          "panel_name": "WAISTBAND", "piece_count": 2.0, "piece_length_inch": 32.0, "piece_width_inch": 3.0,
-                          "geometry_metadata": {{ "net_area": 138.24 }}, "panel_metadata": {{ "cut_on_fold": false, "mirror_cut": false }}
-                        }},
-                        {{ 
-                          "panel_name": "BACK YOKE", "piece_count": 2.0, "piece_length_inch": 14.0, "piece_width_inch": 4.5,
-                          "geometry_metadata": {{ "net_area": 90.72 }}, "panel_metadata": {{ "cut_on_fold": false, "mirror_cut": true }}
-                        }}
+                        {{ "panel_name": "FRONT PANEL", "piece_count": 2.0, "piece_length_inch": 39.5, "piece_width_inch": 11.5, "geometry_metadata": {{ "net_area": 0.0 }}, "panel_metadata": {{ "mirror_cut": true }} }},
+                        {{ "panel_name": "BACK PANEL", "piece_count": 2.0, "piece_length_inch": 40.0, "piece_width_inch": 12.5, "geometry_metadata": {{ "net_area": 0.0 }}, "panel_metadata": {{ "mirror_cut": true }} }}
+                      ]
+                    }},
+                    {{
+                      "component_type": "<EXTRACTED_RAW_POCKETING_NAME_FROM_BOM>",
+                      "fabric_classification": "LINING",
+                      "fabric_width_inch": {active_width},
+                      "panels_catalog": [
+                        {{ "panel_name": "POCKET BAG", "piece_count": 4.0, "piece_length_inch": 13.5, "piece_width_inch": 7.5, "geometry_metadata": {{ "net_area": 0.0 }} }}
+                      ]
+                    }},
+                    {{
+                      "component_type": "<EXTRACTED_RAW_FUSING_NAME_FROM_BOM>",
+                      "fabric_classification": "FUSING",
+                      "fabric_width_inch": {active_width},
+                      "panels_catalog": [
+                        {{ "panel_name": "WAISTBAND INTERLINING", "piece_count": 2.0, "piece_length_inch": 32.0, "piece_width_inch": 3.0, "geometry_metadata": {{ "net_area": 0.0 }} }}
                       ]
                     }}
                   ]
                 }}
                 ===END_JSON===
                 
-                CRITICAL SELF-VALIDATION CONSTRAINTS BEFORE OUTPUT:
-                Before returning the final output, you MUST self-verify the following criteria:
-                ✓ Is total_panels > 0 and total_pieces > 0?
-                ✓ Does every single bom row have a populated panels_catalog?
-                ✓ Does every panel entry have piece_length_inch > 0, piece_width_inch > 0, and piece_count > 0?
-                ✓ Is row '_btp_summary' -> 'area' exactly equal to the sum of all 'net_area' values inside its 'panels_catalog'?
-                If any validation check fails, recalculate or estimate the correct non-zero apparel values before rendering the output.
-                
-                ===START_CHAT=== [Confirm in Vietnamese which pages you scanned and summarize the exact clean verified dimensions and materials found for size {target_size_cmd}.] ===END_CHAT===
+                ===START_CHAT=== [Xác nhận bằng Tiếng Việt các trang bạn vừa quét trích xuất, liệt kê cụ thể tên 3 chất liệu và dải thông số thực tế tìm thấy cho size {target_size_cmd}.] ===END_CHAT===
                 """
-                # Gửi payload dữ liệu tích hợp sang Gemini API
                 gemini_inputs.append(prompt_instruction)
                 
                 try:
