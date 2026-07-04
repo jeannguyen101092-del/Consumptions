@@ -761,13 +761,16 @@ import re
 # ĐOẠN 2b - PHẦN 1: UNIVERSAL APPAREL GEOMETRIC ENGINE (V41.0 PRO PRODUCTION)
 # KHAI BÁO BIẾN BIÊN TIÊU CHUẨN SEAM_ALLOWANCE & MAP SỐ ĐO ĐỘNG TỪ TÀI LIỆU POM GỐC
 # =====================================================================
+# =====================================================================
+# ĐOẠN 2b - PHẦN 1: UNIVERSAL APPAREL GEOMETRIC ENGINE (V42.0 PRECISION FACTORY)
+# BỘ LỌC CHẶN PHỤ LIỆU CỨNG VÀ TRÍCH XUẤT ĐỘNG CO RÚT ĐẦU VÀO TỪ Ô CHAT NGƯỜI DÙNG
+# =====================================================================
 def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, query_string: str) -> dict:
-    st.warning("⚡ ENGINE EXECUTING: UNIVERSAL GEOMETRIC MONOLITHIC ENGINE V41.0 ACTIVATED")
+    st.warning("⚡ ENGINE EXECUTING: GEOMETRIC INTERPRETER CONTROL V42.0 FACTORY READY")
     
     if not blueprint_final or "bom_rows" not in blueprint_final:
         return blueprint_final
         
-    # 🌟 CẢI TIẾN 1: Khai báo dung sai đường may tiêu chuẩn tập trung ở đầu hàm [INDEX]
     SEAM_ALLOWANCE = 0.44
         
     # TRÍCH XUẤT ĐỘNG TỶ LỆ CO RÚT TỪ Ô CHAT NGƯỜI DÙNG
@@ -807,13 +810,14 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, query_st
             if m_num: secondary_base = float(m_num.group(1))
 
     filtered_bom_rows = []
-    
     for row in blueprint_final["bom_rows"]:
         comp_type = (str(row.get("component_type", "")) + " " + str(row.get("fabric_classification", ""))).upper()
+        fab_class = str(row.get("fabric_classification", "")).upper()
         
         row["_btp_warp_pct"] = warp_val
         row["_btp_weft_pct"] = weft_val
         
+        # BỘ LỌC CHẶN PHỤ LIỆU CỨNG (THREAD, BUTTON, LABEL...)
         if any(k in comp_type for k in ["BUTTON", "NÚT", "RIVET", "ĐINH TÁN", "LABEL", "NHÃN", "MÁC", "STICKER", "THREAD", "CHỈ"]):
             continue
             
@@ -823,7 +827,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, query_st
             
         panels = row.get("panels_catalog", [])
         
-        # 🌟 CẢI TIẾN 2: Giảm tối đa các giá trị hard-code, chia tỷ lệ động thông minh dựa theo dữ liệu thực từ POM
+        # TỰ ĐỘNG BUNG DANH MỤC LINH KIỆN MẪU KHI MẢNG PANELS TRỐNG HOÀN TOÀN
         if not panels and any(k in comp_type for k in ["MAIN", "DENIM", "CHÍNH", "SELF", "SHELL"]):
             l_eff = length_base or 32.0
             w_eff = width_base or 20.0
@@ -835,8 +839,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, query_st
                         {"panel_name": "FRONT PANEL LEFT", "piece_length_inch": l_eff, "piece_width_inch": w_eff * 0.55, "piece_count": 1.0, "panel_metadata": {"mirror_cut": True}},
                         {"panel_name": "FRONT PANEL RIGHT", "piece_length_inch": l_eff, "piece_width_inch": w_eff * 0.55, "piece_count": 1.0, "panel_metadata": {"mirror_cut": True}},
                         {"panel_name": "BACK PANEL", "piece_length_inch": l_eff, "piece_width_inch": w_eff, "piece_count": 1.0, "panel_metadata": {"cut_on_fold": True}},
-                        {"panel_name": "SLEEVE", "piece_length_inch": s_eff or 24.0, "piece_width_inch": w_eff * 0.42, "piece_count": 2.0, "panel_metadata": {"mirror_cut": True}},
-                        {"panel_name": "COLLAR PARTS", "piece_length_inch": (s_eff * 1.1) if s_eff > 10 else 17.0, "piece_width_inch": 3.0, "piece_count": 2.0}
+                        {"panel_name": "SLEEVE", "piece_length_inch": s_eff or 24.0, "piece_width_inch": w_eff * 0.42, "piece_count": 2.0, "panel_metadata": {"mirror_cut": True}}
                     ]
                 else:
                     panels = [
@@ -850,11 +853,11 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, query_st
                     {"panel_name": "BACK PANEL", "piece_length_inch": l_eff, "piece_width_inch": w_eff * 0.68, "piece_count": 2.0, "panel_metadata": {"mirror_cut": True}},
                     {"panel_name": "WAISTBAND", "piece_length_inch": (s_eff * 2.0) if s_eff > 20 else w_eff * 1.5, "piece_width_inch": 3.5, "piece_count": 1.0, "panel_metadata": {"cut_on_fold": True}}
                 ]
-        # TIẾN TRÌNH DUYỆT TÍNH TOÁN VÀ CỘNG BIÊN ĐƯỜNG MAY CAD
+
         total_panel_area = 0.0
-        is_calculated_from_data = False  # Khởi tạo mặc định
+        is_calculated_from_data = False
         actual_panel_count = len(panels)
-        actual_piece_count = 0.0  # Chuyển đổi sang định dạng float phòng vệ số thực miếng rập phối
+        actual_piece_count = 0.0
         max_p_len, max_p_wid = 0.0, 0.0
             
         for p in panels:
@@ -868,69 +871,58 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, query_st
                 p_meta = p.get("panel_metadata", {})
                 geo = p.get("geometry_metadata", {})
                 
-                # Không nhân đôi cut_on_fold bừa bãi, chỉ nhân đôi số lượng khi mirror_cut == True
+                # 🌟 SỬA ĐỒNG BỘ: Bộ lọc phân loại chi tiết rập phẳng chuẩn xác theo vật liệu đầu vào
+                # Ngăn chặn tuyệt đối việc chi tiết rập lót túi làm triệt tiêu diện tích của vải chính Denim
+                is_lining_row = any(k in comp_type or k in fab_class for k in ["POCKET", "LÓT", "LINING", "TC"])
+                is_lining_panel = any(k in p_name for k in ["POCKET BAG", "LÓT TÚI", "LÓT"])
+                
+                if is_lining_row and not is_lining_panel:
+                    continue  # Hàng vải lót túi thì bỏ qua các chi tiết thân chính
+                if not is_lining_row and is_lining_panel:
+                    continue  # Hàng vải chính Denim thì bỏ qua các chi tiết lót túi túi phụ
+                
                 if C == 1.0 and p_meta.get("mirror_cut", False):
                     C = 2.0
                 
-                # Áp dụng cộng dung sai đường may bằng biến SEAM_ALLOWANCE tập trung [INDEX]
                 if L > 0.0 and W > 0.0:
                     L += (SEAM_ALLOWANCE * 2.0)
                     W += (SEAM_ALLOWANCE * 2.0)
                 
                 if L > max_p_len: max_p_len = L
                 if W > max_p_wid: max_p_wid = W
-                
-                # 🌟 CẢI TIẾN 3: Sửa đổi hoàn toàn từ int(C) sang giữ nguyên float C để chống lệch dữ liệu rập phối mảnh
                 actual_piece_count += C
                 
-                # Polygon_area nhân trực tiếp với piece_count [INDEX]
                 polygon_area = float(geo.get("net_area", 0.0) or 0.0)
-                
                 if polygon_area > 5.0:
                     p_area = polygon_area * C
                 else:
-                    # Áp dụng Shape Factor thông minh theo loại chi tiết rập phẳng
-                    if any(k in p_name for k in ["FRONT", "THÂN TRƯỚC"]):
-                        shape_factor = 0.68  
-                    elif any(k in p_name for k in ["BACK", "THÂN SAU"]):
-                        shape_factor = 0.76  
-                    elif any(k in p_name for k in ["SLEEVE", "TAY ÁO"]):
-                        shape_factor = 0.62  
-                    elif any(k in p_name for k in ["WAISTBAND", "CẠP", "COLLAR", "CỔ"]):
-                        shape_factor = 0.95  
-                    elif any(k in p_name for k in ["POCKET", "TÚI"]):
-                        shape_factor = 0.85  
-                    else:
-                        shape_factor = 0.72  
+                    if any(k in p_name for k in ["FRONT", "THÂN TRƯỚC"]): shape_factor = 0.68  
+                    elif any(k in p_name for k in ["BACK", "THÂN SAU"]): shape_factor = 0.76  
+                    elif any(k in p_name for k in ["SLEEVE", "TAY ÁO"]): shape_factor = 0.62  
+                    elif any(k in p_name for k in ["WAISTBAND", "CẠP", "COLLAR", "CỔ"]): shape_factor = 0.95  
+                    elif any(k in p_name for k in ["POCKET", "TÚI"]): shape_factor = 0.85  
+                    else: shape_factor = 0.72  
                         
                     p_area = L * W * C * shape_factor
-                
-                if "POCKET BAG" in p_name or "LÓT TÚI" in p_name:
-                    if any(k in comp_type for k in ["MAIN", "DENIM", "CHÍNH"]):
-                        continue
                 
                 if p_area > 0.0:
                     total_panel_area += p_area
             except:
                 pass
-        # 🌟 CẢI TIẾN 4: Chỉ gán cờ dữ liệu thật is_calculated_from_data = True khi tổng diện tích thực tế tính được lớn hơn 0 [INDEX]
+        # 🌟 VÁ CHÍ MẠNG: Đọc dữ liệu thô nhận diện từ AI, nếu không có dữ liệu thật thì giữ nguyên bằng 0.0
         if total_panel_area > 0.0:
             is_calculated_from_data = True
         else:
             total_panel_area = float(row.get("_btp_total_panel_area", 0.0) or 0.0)
-            is_calculated_from_data = False
+            is_calculated_from_data = True if total_panel_area > 0.0 else False
             
-        # Luồng chốt chặn dự phòng an toàn cuối cùng bảo vệ luồng UI
+        # 🌟 SỬA ĐỔI HOÀN TOÀN THEO ĐỀ XUẤT: Loại bỏ việc gán số yards tự động (2250, 320, 110). 
+        # Nếu khuyết thiếu dữ liệu đầu vào hoặc diện tích bằng 0, ép buộc cho diện tích = 0.0 để Yards bằng 0!
         if total_panel_area <= 0.0:
+            total_panel_area = 0.0
             is_calculated_from_data = False
-            if "JEAN" in product_type or "PANT" in product_type or "MAIN" in comp_type:
-                total_panel_area = 2250.0  
-            elif any(k in comp_type for k in ["POCKET", "LÓT", "LINING", "TC"]):
-                total_panel_area = 320.0  
-            else:
-                total_panel_area = 110.0  
             
-        # ÁP DỤNG TRỰC TIẾP HỆ SỐ CO RÚT VÀO DIỆN TÍCH TỔNG CUỐI CÙNG [INDEX]
+        # ÁP DỤNG HỆ SỐ CO RÚT ĐỘNG
         if total_panel_area > 0.0:
             total_panel_area *= shrink_factor
 
@@ -940,19 +932,19 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, query_st
         }
         row["_btp_total_panel_area"] = total_panel_area
 
-        # ĐỒNG BỘ HIỆU SUẤT ĐỘNG THEO CHUẨN SỐ LIỆU ĐỊNH DANH THỰC TẾ PHÂN XƯỞNG CẮT [INDEX]
+        # ĐỒNG BỘ HIỆU SUẤT ĐỘNG THEO DÒNG HÀNG THỰC TẾ BẢNG ĐỊNH DANH CỦA BẠN
         if "JEAN" in product_type or "PANT" in product_type or any(k in comp_type for k in ["DENIM", "MAIN"]):
             default_efficiency = 0.87  # Denim: 87%
         elif any(k in product_type for k in ["KNIT", "SHIRT", "HOODIE", "TOP"]) or any(k in comp_type for k in ["KNIT", "THUN"]):
             default_efficiency = 0.84  # Knits: 84%
         elif "JACKET" in product_type or "OUTERWEAR" in product_type:
-            default_efficiency = 0.86  # Outerwear: 86%
+            default_efficiency = 0.85  # Outerwear: 85%
         elif any(k in comp_type for k in ["POCKET", "LÓT", "LINING", "TC"]):
-            default_efficiency = 0.71 # Lightweight Woven: 71%
+            default_efficiency = 0.7218  # Lightweight Woven (Vải lót túi): 72.18%
         elif "FORMAL" in product_type or "SUIT" in product_type:
             default_efficiency = 0.88  # Formalwear: 88%
         else:
-            default_efficiency = 0.882 # Casualwear: 88.2%
+            default_efficiency = 0.875  # Casualwear: 87.5%
             
         raw_eff = row.get("marker_efficiency", row.get("marker_efficiency_pct", default_efficiency))
         if isinstance(raw_eff, str):
@@ -967,7 +959,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, query_st
         if efficiency < 0.55 or efficiency > 0.95: efficiency = default_efficiency 
         row["marker_efficiency_pct"] = f"{efficiency * 100.0:.1f}%"
         
-        # CHUYỂN ĐỔI ĐƠN VỊ ĐO DIỆN TÍCH HÌNH HỌC PHẲNG CAD
+        # CHUYỂN ĐỔI ĐƠN VỊ ĐO DIỆN TÍCH
         unit = str(row.get("_btp_area_unit", row.get("area_unit", "inch2"))).lower().strip()
         if "mm" in unit and total_panel_area > 0: total_panel_area /= 645.16
         elif "cm" in unit and total_panel_area > 0: total_panel_area /= 6.4516
@@ -982,7 +974,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, query_st
             "Efficiency (Dynamic)": row["marker_efficiency_pct"]
         })
         
-        # PHÉP TOÁN YARDS GROSS ĐẦU RA CHO MỌI LOẠI TRANG PHỤC TOÀN CẦU [INDEX]
+        # PHÉP TOÁN YARDS GROSS ĐẦU RA CHÍNH THỨC
         if total_panel_area > 0.0:
             gross_yds = (total_panel_area / efficiency) / width_inch / 36.0
             row["calculated_gross_consumption_yds"] = round(gross_yds, 3)
@@ -992,11 +984,12 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, query_st
                 row["consumption_note"] = f"Mô phỏng rập CAD tích hợp biên {SEAM_ALLOWANCE} in, co rút và Shape Factor động thành công."
             else:
                 row["status"] = "ESTIMATED"
-                row["consumption_note"] = "Định mức ước tính chuẩn hóa dựa trên phôi rập cơ sở (Khuyết thiếu số đo chi tiết)."
+                row["consumption_note"] = "Định mức ước tính dựa trên phôi rập cơ sở (Khuyết thiếu số đo chi tiết)."
         else:
-            row["calculated_gross_consumption_yds"] = 1.350
+            # 🌟 CHỈNH SỬA VÀNG: Ép buộc trả định mức Yards về bằng 0.000 nếu khuyết thiếu hoàn toàn dữ liệu diện tích rập thật!
+            row["calculated_gross_consumption_yds"] = 0.000
             row["status"] = "NEEDS REVIEW"
-            row["consumption_note"] = "Cảnh báo hạ tầng: Khuyết thiếu hoàn toàn dữ liệu đầu vào. Cần kiểm tra lại tài liệu gốc."
+            row["consumption_note"] = "Bỏ qua: Khuyết thiếu diện tích chi tiết rập phẳng có trong tài liệu kỹ thuật."
             
     filtered_bom_rows.append(row)
         
