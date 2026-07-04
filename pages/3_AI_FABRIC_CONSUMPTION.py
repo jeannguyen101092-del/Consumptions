@@ -1112,10 +1112,11 @@ if st.session_state.pdf_bytes is not None:
 
 
 
-                # =====================================================================
+            # =====================================================================
         # ĐOẠN 7a2.1: DYNAMIC AI GATEWAY & MULTI-LAYER FINGERPRINT LOCK (V53.0)
         # Nối tiếp ngay sau khối trích xuất gemini_inputs của Đoạn 7a1
         # =====================================================================
+        # ĐẢM BẢO KHỐI NÀY THỤT VÀO ĐÚNG 8 KHOẢNG TRẮNG (HOẶC 2 TABS) ĐỂ NẰM TRONG KHỐI 'with st.spinner'
         if "GEMINI_API_KEY" in st.secrets: 
             genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
         chat_lower = current_query.lower()
@@ -1187,15 +1188,16 @@ if st.session_state.pdf_bytes is not None:
             gemini_inputs.append(prompt_instruction)
             response_text = ""
             try:
+                # Đảm bảo biến 'model' đã được định nghĩa ở phần code trước đó
                 response = model.generate_content(gemini_inputs)
                 if response: response_text = response.text.strip()
             except Exception as e_api:
                 st.error(f"💥 API Gemini Error: {str(e_api)}")
                 response_text = ""
-            # =====================================================================
-            # ĐOẠN 7a2.2: POST-AI MIDDLEWARE & VÁ TRỰC DIỆN LUỒNG DỮ LIỆU (V17.5.5)
-            # Dán nối tiếp ngay sau Đoạn 7a2.1 ở phía trên
-            # =====================================================================
+# =====================================================================
+# ĐOẠN 7a2.2: POST-AI MIDDLEWARE & VÁ TRỰC DIỆN LUỒNG DỮ LIỆU (V17.5.5)
+# Dán nối tiếp ngay sau Đoạn 7a2.1 ở phía trên
+# =====================================================================
             if response_text:
                 json_match = re.search(r'(?:===START_JSON===\s*|```json\s*)(.*?)(?:\s*===END_JSON===|\s*```)', response_text, re.DOTALL)
                 chat_match = re.search(r'(?:===START_CHAT===\s*|```markdown\s*|(?:\n|^)\s*\*\s*)(.*?)(?:\s*===END_CHAT===|\s*```|$)', response_text, re.DOTALL)
@@ -1239,7 +1241,7 @@ if st.session_state.pdf_bytes is not None:
                     st.error("❌ Không thể bóc tách START_JSON từ văn bản phản hồi thô của Gemini.")
                     st.text_area("Nội dung AI trả về:", value=response_text, height=120)
 
-        # ĐÓNG NGOẶC KHỐI TRY TỔNG MỞ ĐẦU TỪ ĐOẠN 7A1 ĐỂ TRIỆT TIÊU VĨNH VIỄN SYNTAXERROR
+        # ĐÓNG NGOẶC KHỐI TRY TỔNG MỞ ĐẦU TỪ ĐOẠN 7A1 - ĐÃ ĐƯỢC CĂN LỀ THẲNG HÀNG CHUẨN VỚI LỆNH TRY PHÍA TRÊN
         except Exception as e_global:
             st.error(f"💥 Lỗi luồng trích xuất hạ tầng tổng: {str(e_global)}")
             st.code(traceback.format_exc())
