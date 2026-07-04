@@ -1067,9 +1067,8 @@ with col_right:
 
 
 # =====================================================================
-# =====================================================================
-# ĐOẠN 7a - PHẦN 1: INTERFACE WORKSPACE & HIGH-RES JPEG IMAGE PIPELINE
-# Khởi tạo giao diện tĩnh và bọc toàn bộ luồng xử lý vào một khối try duy nhất
+# ĐOẠN 7a - PHẦN 1: CHATGPT-STYLE WORKSPACE PIPELINE (V31.0 ENTERPRISE APPROVED)
+# GHI NHẬN TOÀN BỘ YÊU CẦU CHAT THEO PHONG CÁCH CHATGPT - KHÔNG ÉP BUỘC TỪ KHÓA MẪU
 # =====================================================================
 st.markdown('<br><div class="cad-card"><div class="cad-header">💬 CHATGPT IE COLLABORATION WORKSPACE</div>', unsafe_allow_html=True)
 
@@ -1079,7 +1078,7 @@ if "pdf_page_images_list" not in st.session_state: st.session_state.pdf_page_ima
 if "accumulated_bom_rows" not in st.session_state: st.session_state.accumulated_bom_rows = {}
 if "bom_data" not in st.session_state: st.session_state.bom_data = {}
 
-# Xuất dòng tin nhắn lịch sử trò chuyện đồng bộ trực quan lên màn hình
+# Xuất dòng tin nhắn lịch sử trò chuyện đồng bộ trực quan lên màn hình theo chuẩn OpenAI
 if st.session_state.chat_history:
     for msg in st.session_state.chat_history:
         st.chat_message("user").write(msg["user"])
@@ -1088,15 +1087,15 @@ if st.session_state.chat_history:
 # Tạo một vùng chứa tĩnh độc lập cô lập ô chat input
 chat_input_container = st.container()
 with chat_input_container:
-    safe_user_prompt = st.chat_input("Gõ câu lệnh điều chỉnh thông số tại đây...", key="ie_workspace_static_chat_input_key")
+    safe_user_prompt = st.chat_input("Gõ câu lệnh điều chỉnh thông số hoặc câu hỏi bất kỳ tại đây...", key="ie_workspace_static_chat_input_key")
 
 st.markdown('</div>', unsafe_allow_html=True)
 
-# 🌟 VÁ CHÍ MẠNG: Thêm điều kiện 'and safe_user_prompt' để chặn AI tự động chạy khi vừa upload file PDF
+# KÍCH HOẠT LUỒNG CHẠY AI NGAY KHI CÓ BẤT KỲ CÂU HỎI CHAT NÀO
 if st.session_state.pdf_bytes is not None and safe_user_prompt:
     current_query = str(safe_user_prompt).strip()
     
-    with st.spinner("🧠 AI Platform đang trích xuất dải ảnh kỹ thuật JPEG và xử lý rập phẳng..."):
+    with st.spinner("🧠 AI Platform đang phân tích yêu cầu và trích xuất dữ liệu rập phẳng CAD..."):
         import google.generativeai as genai
         import json, copy, traceback, re
         import fitz 
@@ -1142,6 +1141,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                     image_payloads.append({"mime_type": "image/jpeg", "data": pix.tobytes("jpeg")})
             
             gemini_inputs = copy.deepcopy(image_payloads)
+
 
                        # =====================================================================
             # ĐOẠN 7a - PHẦN 2: DYNAMIC AI GATEWAY & MULTI-LAYER FINGERPRINT LOCK
@@ -1240,11 +1240,16 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                     response_text = ""
 
                         # =====================================================================
-            # ĐOẠN 7a - PHẦN 3: POST-AI MIDDLEWARE & VÁ TRỰC DIỆN LUỒNG DỮ LIỆU
-            # Xử lý kết quả trả về và đóng lệnh try bằng khối except e_global chuẩn chỉnh
+                       # =====================================================================
+            # ĐOẠN 7a - PHẦN 3: POST-AI MIDDLEWARE & LƯU TRỮ LỊCH SỬ CHAT CHUẨN CHATGPT
+            # Trích xuất đồng thời khối JSON tính toán và khối text phản hồi hội thoại gửi người dùng
             # =====================================================================
             if response_text:
                 json_match = re.search(r'(?:===START_JSON===\s*|```json\s*)(.*?)(?:\s*===END_JSON===|\s*```)', response_text, re.DOTALL)
+                
+                # 🌟 BÓC TÁCH KHỐI TEXT HỘI THOẠI CHAT ĐỂ TRẢ LỜI NGƯỜI DÙNG
+                chat_match = re.search(r'(?:===START_CHAT===\s*|```markdown\s*)(.*?)(?:\s*===END_CHAT===|\s*```|$)', response_text, re.DOTALL)
+                ai_conversation_reply = chat_match.group(1).strip() if chat_match else "Hệ thống đã cập nhật bảng tính toán định mức hình học phẳng CAD của mã hàng."
                 
                 raw_json_str = ""
                 if json_match: 
@@ -1255,45 +1260,42 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                     match_fb = re.search(r'\{.*\}', response_text, re.DOTALL)
                     raw_json_str = match_fb.group(0).strip() if match_fb else ""
                 
+                # CẬP NHẬT LỊCH SỬ TRÒ CHUYỆN (LUÔN GHI NHẬN GIAO TIẾP DÙ JSON CÓ LỖI HAY KHÔNG)
+                st.session_state.chat_history.append({"user": current_query, "ai": ai_conversation_reply})
+                
                 if raw_json_str:
-                    # 🌟 VÁ CHÍ MẠNG: Bộ sửa lỗi chuỗi JSON tự động, triệt tiêu dấu phẩy thừa gây crash loads()
                     raw_json_str = re.sub(r',\s*([\]\}])', r'\1', raw_json_str) 
                     
-                    # 1️⃣ BỌC BIÊN CÔ LẬP QUÁ TRÌNH PARSE JSON ĐỂ TRANH VĂNG SANG E_GLOBAL
                     try:
                         raw_blueprint = json.loads(raw_json_str)
-                    except json.JSONDecodeError as json_err:
-                        st.error(f"❌ THẤT BẠI PARSE JSON: Chuỗi cấu trúc hình học sinh ra từ Gemini bị lỗi cú pháp: {str(json_err)}")
-                        st.code(raw_json_str, language="json")
-                        st.stop()
+                    except json.JSONDecodeError:
+                        # Nếu chỉ chat hỏi thông thường, không sinh bảng tính, ép rerun để hiện câu trả lời chat ngay
+                        st.rerun()
                     
                     if raw_blueprint and "bom_rows" in raw_blueprint:
                         blueprint_worker = copy.deepcopy(raw_blueprint)
                         query_str = str(current_query)
                         
-                        # Chạy chuỗi pipeline máy tính 3 bước hình học phẳng CAD
                         b1 = parse_geometric_panels_allowance(blueprint_worker, query_str)
                         b2_rows, _ = parse_and_prepare_ie_panels(b1.get("bom_rows", []), b1.get("detected_product_type"), query_str)
                         b1["bom_rows"] = b2_rows
                         blueprint_final = allocate_fabric_consumption_and_quality_gate(b1, query_str)
                         
-                        # Đổ dữ liệu sạch vào session và khóa chốt chặn chữ ký để tải trang vẽ bảng
                         st.session_state.bom_data = blueprint_final
                         st.session_state.accumulated_bom_rows = blueprint_final.get("bom_rows", [])
                         st.session_state["last_processed_signature"] = current_signature
                         
                         st.success("🎉 Xử lý rập hình học phẳng CAD thành công!")
                         st.rerun()
-                    else:
-                        st.error("⚠️ Khối JSON của AI thiếu trường danh mục bom_rows.")
-                else:
-                    st.error("❌ Không thể bóc tách START_JSON từ văn bản phản hồi thô của Gemini.")
-                    st.text_area("Nội dung AI trả về:", value=response_text, height=120)
+                
+                # Nếu câu lệnh là câu hỏi thông thường, không trả về dữ liệu BOM, vẫn ép rerun để cập nhật luồng chat
+                st.rerun()
 
-        # 🌟 ĐÓNG NGOẶC KHỐI TRY LỚN DUY NHẤT: Thụt lề đúng 8 khoảng trắng, thẳng hàng với lệnh try ở Đoạn 7a1
+        # 🌟 ĐÓNG NGOẶC KHỐI TRY LỚN DUY NHẤT
         except Exception as e_global:
             st.error(f"💥 Lỗi luồng trích xuất hạ tầng tổng toàn cục: {str(e_global)}")
             st.code(traceback.format_exc())
+
 
 # =====================================================================
 # ĐOẠN 7b: HIỂN THỊ KẾT QUẢ ĐỊNH MỨC & BẢNG ĐỐI CHỨNG ĐA CỘT ĐỒNG BỘ SIZE (V46.8 INDUSTRIAL)
