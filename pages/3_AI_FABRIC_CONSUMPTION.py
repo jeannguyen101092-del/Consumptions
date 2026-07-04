@@ -1303,18 +1303,17 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
 
 # =====================================================================
 # ĐOẠN 7b: HIỂN THỊ KẾT QUẢ ĐỊNH MỨC & BẢNG ĐỐI CHỨNG ĐA CỘT ĐỒNG BỘ SIZE (V46.8 INDUSTRIAL)
-# Đưa sát ra lề trái ngoài cùng (Cột 0 - Không thụt lề đầu dòng) để chống treo giao diện
+# ĐƯA SÁT RA LỀ TRÁI NGOÀI CÙNG (CỘT 0 - KHÔNG THỤT LỀ ĐẦU DÒNG) ĐỂ CHỐNG TREO GIAO DIỆN
 # =====================================================================
-# Kiểm tra an toàn lỏng hơn để luôn chấp nhận dữ liệu đổ ra màn hình
 if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_rows"):
+    import pandas as pd
     
-    # Khôi phục hoặc tạo phôi dữ liệu an toàn tránh lỗi khuyết thiếu trường
     bom_source = st.session_state.get("bom_data", {})
-    if not isinstance(bom_source, dict):
+    if not isinstance(bom_source, dict): 
         bom_source = {}
         
     bom_rows_list = bom_source.get("bom_rows", st.session_state.get("accumulated_bom_rows", []))
-    if not isinstance(bom_rows_list, list):
+    if not isinstance(bom_rows_list, list): 
         bom_rows_list = []
 
     chat_txt = ""
@@ -1323,7 +1322,6 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
     elif st.session_state.chat_history:
         chat_txt = str(st.session_state.chat_history[-1]["user"]).lower()
         
-    # Trích xuất Size đích danh hiển thị lên tiêu đề
     match_active_size = re.search(r'\b(?:size|sz|cỡ)\s*[:\-=\s]*([\w\d/]+)\b', chat_txt)
     extracted_size = str(match_active_size.group(1)).upper().strip() if match_active_size else str(bom_source.get("calculated_on_size", "10")).upper().strip()
     
@@ -1335,11 +1333,8 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
     
     for r in bom_rows_list:
         if not r or not isinstance(r, dict): continue
-            
         sys_notes = r.get("consumption_note", "Mô phỏng CAD Gerber V27")
         current_gross = r.get("calculated_gross_consumption_yds", 0.0)
-        
-        # Đọc khổ vải an toàn từ nhiều tầng dữ liệu CAD tránh NoneType
         raw_width = r.get("fabric_width_inch", r.get("fabric_constraints", {}).get("fabric_width_inch", 57.0))
         try: cut_width_val = f"{float(raw_width)} inch"
         except: cut_width_val = "57.0 inch"
@@ -1366,7 +1361,7 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
         st.warning("⚠️ Hệ thống đã xử lý xong nhưng cấu trúc danh mục BOM trống dữ liệu thực tế.")
     st.markdown('</div>', unsafe_allow_html=True)
     
-    # TRỰC QUAN HÓA BẢNG ĐỐI CHỨNG SỐ ĐO GỐC (EVIDENCE BINDING)
+    # 🟢 BỘ VÁ AN TOÀN TRÁNH LỖI STRIP TRÊN LIST CỦA ĐOẠN 7B - GIÚP HIỂN THỊ SỐ ĐO Chuẩn Xác
     raw_evidence_list = bom_source.get("matched_measurements", [])
     if raw_evidence_list and isinstance(raw_evidence_list, list):
         st.markdown("<br>", unsafe_allow_html=True)
@@ -1379,14 +1374,17 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
             pom_code, description, measurement_val = "POM", raw_str, "-"
             if ":" in raw_str:
                 parts = raw_str.split(":", 1)
-                pom_code, remainder = parts[0].strip(), parts[1].strip()
-                if "=" in remainder:
-                    sub_parts = remainder.split("=", 1)
-                    description, measurement_val = sub_parts[0].strip(), sub_parts[1].strip()
-                else: description = remainder
+                # Sửa đổi lấy index của mảng list để thực hiện .strip() chuỗi con hợp lệ
+                pom_code = parts[0].strip()
+                description = parts[1].strip()
+                if "=" in description:
+                    sub_parts = description.split("=", 1)
+                    description = sub_parts[0].strip()
+                    measurement_val = sub_parts[1].strip()
             elif "=" in raw_str:
                 parts = raw_str.split("=", 1)
-                description, measurement_val = parts[0].strip(), parts[1].strip()
+                description = parts[0].strip()
+                measurement_val = parts[1].strip()
                 
             parsed_evidence_rows.append({
                 "STT": idx + 1, "Mã POM": pom_code, "Mô tả Thông số Kỹ thuật": description, "Kích thước Đo thực tế (Inches)": measurement_val
@@ -1396,7 +1394,7 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
         st.dataframe(df_evidence, use_container_width=True, hide_index=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
-    # KHỐI XUẤT FILE EXCEL PHÒNG VỆ AN TOÀN TUYỆT ĐỐI KHÔNG BỊ CỤT CHỮ
+    # KHỐI XUẤT FILE EXCEL PHÒNG VỆ
     if display_data:
         try:
             import io
@@ -1407,7 +1405,6 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
             ws.title = "BOM Consumption"
             ws.sheet_view.showGridLines = True
             
-            # Xuất tiêu đề và dữ liệu phẳng nhanh gọn
             ws.append([f"BÁO CÁO ĐỊNH MỨC VẬT TƯ VẢI (SIZE: {extracted_size})"])
             if 'df_bom' in locals():
                 ws.append(list(df_bom.columns))
