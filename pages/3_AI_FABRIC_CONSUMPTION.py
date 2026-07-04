@@ -258,6 +258,7 @@ def process_single_panel_geometry_and_flags(
 # ĐOẠN 2a1: BỘ NÃO IE TỰ SUY LUẬN THÔNG SỐ KHUYẾT THIẾU (V17.1.0 AUTO-IE)
 # Nhiệm vụ: Tự động tính toán Hip/Chest nếu AI OCR quét sót, bảo vệ định mức ổn định
 # =====================================================================
+import copy
 
 def parse_geometric_panels_allowance(ai_blueprint: dict, user_chat: str) -> dict:
     """
@@ -267,10 +268,12 @@ def parse_geometric_panels_allowance(ai_blueprint: dict, user_chat: str) -> dict
     if not ai_blueprint or not isinstance(ai_blueprint, dict):
         return {"detected_product_type": "PANT", "bom_rows": [], "_btp_global_summary": {}}
 
-    product_type = str(ai_blueprint.get("detected_product_type", "DEFAULT")).upper().strip()
+    # 🌟 Sao chép sâu tránh lỗi ghi đè dữ liệu gốc của Session State
+    blueprint_output = copy.deepcopy(ai_blueprint)
+    product_type = str(blueprint_output.get("detected_product_type", "DEFAULT")).upper().strip()
     
     # 1. ÉP KIỂU ĐỒNG BỘ SIZE: Đọc size thật của AI trả về từ Database JSON
-    ai_size = str(ai_blueprint.get("calculated_on_size", "10")).upper().strip()
+    ai_size = str(blueprint_output.get("calculated_on_size", "10")).upper().strip()
     
     # Kiểm soát an toàn tránh Zero-Area và sửa lỗi nhảy thông số của size 30 nam
     if "10" in ai_size or ai_size == "M" or ai_size == "":
@@ -279,12 +282,12 @@ def parse_geometric_panels_allowance(ai_blueprint: dict, user_chat: str) -> dict
         outseam_length = 38.0
         hip_width = 21.5   # Số đo phẳng vòng mông Size 10 thực tế từ tài liệu (21.5 inch)
     else:
-        body_length = float(ai_blueprint.get("extracted_body_length", 28.0)) if ai_blueprint.get("extracted_body_length") else 28.0
-        chest_width = float(ai_blueprint.get("extracted_chest_width", 20.0)) if ai_blueprint.get("extracted_chest_width") else 20.0
-        outseam_length = float(ai_blueprint.get("extracted_outseam_length", 40.0)) if ai_blueprint.get("extracted_outseam_length") else 40.0
-        hip_width = float(ai_blueprint.get("extracted_hip_width", 21.0)) if ai_blueprint.get("extracted_hip_width") else 21.0
+        body_length = float(blueprint_output.get("extracted_body_length", 28.0)) if blueprint_output.get("extracted_body_length") else 28.0
+        chest_width = float(blueprint_output.get("extracted_chest_width", 20.0)) if blueprint_output.get("extracted_chest_width") else 20.0
+        outseam_length = float(blueprint_output.get("extracted_outseam_length", 40.0)) if blueprint_output.get("extracted_outseam_length") else 40.0
+        hip_width = float(blueprint_output.get("extracted_hip_width", 21.0)) if blueprint_output.get("extracted_hip_width") else 21.0
 
-    all_rows = ai_blueprint.get("bom_rows", []) if isinstance(ai_blueprint.get("bom_rows"), list) else []
+    all_rows = blueprint_output.get("bom_rows", []) if isinstance(blueprint_output.get("bom_rows"), list) else []
     parsed_rows = []
 
     # 2. Pipeline xử lý và quét sao chép Metadata dòng BOM
@@ -299,11 +302,11 @@ def parse_geometric_panels_allowance(ai_blueprint: dict, user_chat: str) -> dict
                 row[f"_btp_{k}"] = row.get(k)
 
         # Trích xuất dữ liệu tổng hợp sẵn từ AI Summary Layer
-        row_sum = row.get("_btp_summary", {})
+        row_sum = row.get("_btp_summary", {}) if isinstance(row.get("_btp_summary"), dict) else {}
         
         # Nếu AI trả thông số ảo do bỏ sót số đo đùi/mông, bộ não IE tự động ép phôi phẳng về kích thước thực tế
-        max_l = float(row_sum.get("max_piece_length", 0.0))
-        max_w = float(row_sum.get("max_piece_width", 0.0))
+        max_l = float(row_sum.get("max_piece_length", 0.0)) if row_sum.get("max_piece_length") else 0.0
+        max_w = float(row_sum.get("max_piece_width", 0.0)) if row_sum.get("max_piece_width") else 0.0
         
         if max_l <= 0.0 or max_l > 48.0: max_l = outseam_length
         if max_w <= 0.0 or max_w < 8.0:  max_w = hip_width * 0.68  # Chiều rộng đùi thực tế hợp lý (~14.5 inch)
@@ -313,14 +316,17 @@ def parse_geometric_panels_allowance(ai_blueprint: dict, user_chat: str) -> dict
         row["_btp_max_piece_width"] = max_w
         row["_btp_total_piece_count"] = int(float(row.get("_btp_total_piece_count", row_sum.get("piece_count", 2.0))))
         
+        # Đảm bảo trường danh mục rập phẳng luôn tồn tại tránh lỗi lặp vòng lặp ở công đoạn sau
+        if "panels_catalog" not in row or not isinstance(row["panels_catalog"], list):
+            row["panels_catalog"] = []
+            
         parsed_rows.append(row)
 
-    ai_blueprint["bom_rows"] = parsed_rows
-    return ai_blueprint
+    blueprint_output["bom_rows"] = parsed_rows
+    return blueprint_output
 
 
 
-# =====================================================================
 
 # =====================================================================
 # ĐOẠN 2a2: ĐỊNH MỨC SƠ ĐỒ VÀ GOM NHÓM VẬT TƯ CHỐNG TRÙNG LẶP (V15.4.2 APPROVED)
@@ -350,6 +356,9 @@ def execute_marker_yardage_and_quality_gate(ai_blueprint: dict, user_chat: str) 
         if "LINING" in f_str or "LÓT" in f_str: return "LINING"
         if "FUSING" in f_str or "INTERLINING" in f_str or "MEX" in f_str or "KEO" in f_str: return "FUSING"
         return "MAIN_FABRIC"
+
+    if not ai_blueprint or not isinstance(ai_blueprint, dict):
+        return {"detected_product_type": "PANT", "bom_rows": [], "_fabric_registry_cache": {}}
 
     all_rows = ai_blueprint.get("bom_rows", [])
     if not all_rows or not isinstance(all_rows, list):
@@ -398,8 +407,9 @@ def execute_marker_yardage_and_quality_gate(ai_blueprint: dict, user_chat: str) 
 
         f_class_raw = row.get("fabric_classification", "MAIN_FABRIC")
         
+        # Sửa lỗi đồng bộ kiểm tra hàm nội bộ an toàn
         if 'normalize_fabric_class' in globals():
-            f_class_norm = normalize_fabric_class(f_class_raw)
+            f_class_norm = globals()['normalize_fabric_class'](f_class_raw)
         else:
             f_class_norm = inner_normalize_fabric_class(f_class_raw)
             
@@ -429,7 +439,7 @@ def execute_marker_yardage_and_quality_gate(ai_blueprint: dict, user_chat: str) 
                     consumption_mode = "LINEAR"  # Ép tính theo chiều dài sơ đồ chi tiết (Linear) thay vì tính diện tích gộp
                 else:
                     if 'simulate_marker_efficiency_v14' in globals():
-                        raw_eff = simulate_marker_efficiency_v14(row.get("panels_catalog", []), f_class_norm, grain_rule, w_b, fab_repeat)
+                        raw_eff = globals()['simulate_marker_efficiency_v14'](row.get("panels_catalog", []), f_class_norm, grain_rule, w_b, fab_repeat)
                     else:
                         raw_eff = 82.0
                     consumption_mode = "AREA"
@@ -459,12 +469,14 @@ def execute_marker_yardage_and_quality_gate(ai_blueprint: dict, user_chat: str) 
 
 
 
+
 # =====================================================================
 # ĐOẠN 2b1: CHAT PARSER LAYER - BẢN ULTRA-SAFE CHỐNG LỖI PASTE (V17.1.0)
 # =====================================================================
 def parse_and_prepare_ie_panels(all_rows: list, product_type: str, user_prompt: str = "") -> tuple:
     """Hàm nén gọn tối đa, triệt tiêu Regex dài dòng để chống tuyệt đối lỗi nuốt ký tự."""
     chat = str(user_prompt or "").lower().strip()
+    p_type = str(product_type or "PANT").upper().strip()
     
     # 1. Bóc tách thông số bằng tìm kiếm chuỗi thô cơ bản (Không dùng Regex)
     user_eff = None
@@ -474,10 +486,12 @@ def parse_and_prepare_ie_panels(all_rows: list, product_type: str, user_prompt: 
     user_shrinkage = 0.0
     user_width_override = 0.0
 
+    # Đồng bộ cờ hiệu cắt một chiều (One-Way) tự động nếu là vải nhung/tuyết hoặc dòng quần đặc thù
+    is_one_way_product = p_type in ["JACKET", "COAT"]
     user_chat_flags = {
         "force_stripe_match": "sọc" in chat or "stripe" in chat or "caro" in chat,
         "force_bias_cut": "xéo" in chat or "bias" in chat,
-        "force_one_way": "một chiều" in chat or "one way" in chat or "tuyết" in chat
+        "force_one_way": "một chiều" in chat or "one way" in chat or "tuyết" in chat or is_one_way_product
     }
 
     # 2. Vòng lặp phẳng an toàn cập nhật Schema dữ liệu dòng
@@ -504,6 +518,7 @@ def parse_and_prepare_ie_panels(all_rows: list, product_type: str, user_prompt: 
 
 
 import math
+import re
 
 def analyze_panel_geometry_and_cad_constraints(panels: list, cutable_w: float) -> dict:
     """
@@ -529,6 +544,16 @@ def analyze_panel_geometry_and_cad_constraints(panels: list, cutable_w: float) -
     if not panels or not isinstance(panels, list):
         return results
 
+    # Bộ lọc chuyển đổi số an toàn cục bộ tránh lỗi vỡ kiểu dữ liệu từ AI thô
+    def local_safe_float(val, default=0.0):
+        try:
+            if val is None: return default
+            if isinstance(val, (int, float)): return float(val)
+            cleaned = re.sub(r'[^\d\.]', '', str(val))
+            return float(cleaned) if cleaned else default
+        except Exception:
+            return default
+
     total_compactness = 0.0
     total_bbox_area = 0.0
     total_net_area = 0.0
@@ -543,14 +568,15 @@ def analyze_panel_geometry_and_cad_constraints(panels: list, cutable_w: float) -
     has_pair = False
 
     for p in [p for p in panels if isinstance(p, dict)]:
-        p_meta = p.get("panel_metadata", {})
-        g_meta = p.get("geometry_metadata", {})
-        p_count = float(p.get("piece_count", 1.0))
-        total_pieces += int(p_count)
+        p_meta = p.get("panel_metadata", {}) if isinstance(p.get("panel_metadata"), dict) else {}
+        g_meta = p.get("geometry_metadata", {}) if isinstance(p.get("geometry_metadata"), dict) else {}
         
-        # 1. Trích xuất kích thước biên khung bao của chi tiết
-        p_len = float(g_meta.get("panel_length", p.get("piece_length_inch", 0.0)))
-        p_wid = float(g_meta.get("panel_width", p.get("piece_width_inch", 0.0)))
+        p_count = int(local_safe_float(p.get("piece_count", 1.0), 1.0))
+        total_pieces += p_count
+        
+        # 1. Trích xuất kích thước biên khung bao an toàn đồng bộ cấu trúc Schema AI
+        p_len = local_safe_float(g_meta.get("panel_length", p.get("piece_length_inch", 0.0)))
+        p_wid = local_safe_float(g_meta.get("panel_width", p.get("piece_width_inch", 0.0)))
         
         if p_len > max_p_len: max_p_len = p_len
         if p_wid > max_p_wid: max_p_wid = p_wid
@@ -558,22 +584,22 @@ def analyze_panel_geometry_and_cad_constraints(panels: list, cutable_w: float) -
         # 2. Phân loại cấu trúc sơ đồ chi tiết rập chính / phụ
         p_cat = str(p_meta.get("panel_category", p.get("panel_category", "MAJOR"))).upper()
         if "MAJOR" in p_cat or "BODY" in p_cat:
-            major_count += int(p_count)
+            major_count += p_count
         else:
-            minor_count += int(p_count)
+            minor_count += p_count
 
         # 3. Quét cờ ràng buộc cơ học rập (Khóa bậc tự do)
         if p_meta.get("cut_on_fold", g_meta.get("cut_on_fold", False)):
             has_fold = True
-        if p_meta.get("pair_required", p_meta.get("is_pair", False)):
+        if p_meta.get("pair_required", p_meta.get("is_pair", False)) or p_meta.get("mirror_cut", False):
             has_pair = True
 
         # 4. Tính toán chỉ số Compactness (Độ khít đa giác phẳng) từ AI V49
-        p_area = float(g_meta.get("polygon_area", g_meta.get("net_area", p_len * p_wid * 0.6)))
-        p_peri = float(g_meta.get("polygon_perimeter", 0.0))
+        p_area = local_safe_float(g_meta.get("polygon_area", g_meta.get("net_area", p_len * p_wid * 0.6)))
+        p_peri = local_safe_float(g_meta.get("polygon_perimeter", 0.0))
         total_net_area += p_area * p_count
         
-        if p_peri > 0:
+        if p_peri > 0.0:
             # Compactness = 4 * pi * Area / (Perimeter^2)
             compactness = (4.0 * math.pi * p_area) / (p_peri ** 2)
             total_compactness += compactness * p_count
@@ -582,9 +608,9 @@ def analyze_panel_geometry_and_cad_constraints(panels: list, cutable_w: float) -
 
         # 5. Phân tích diện tích khối hộp bao chữ nhật (Bounding Box)
         bbox = g_meta.get("bounding_box", [])
-        if bbox and len(bbox) == 4:
-            bbox_w = abs(float(bbox[2]) - float(bbox[0]))
-            bbox_h = abs(float(bbox[3]) - float(bbox[1]))
+        if bbox and isinstance(bbox, list) and len(bbox) == 4:
+            bbox_w = abs(local_safe_float(bbox[2]) - local_safe_float(bbox[0]))
+            bbox_h = abs(local_safe_float(bbox[3]) - local_safe_float(bbox[1]))
             total_bbox_area += (bbox_w * bbox_h) * p_count
         else:
             total_bbox_area += (p_len * p_wid) * p_count
@@ -606,6 +632,7 @@ def analyze_panel_geometry_and_cad_constraints(panels: list, cutable_w: float) -
     })
     
     return results
+
 import re
 
 def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict, user_prompt: str = "") -> dict:
@@ -625,7 +652,8 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict, user_prompt
     chat_lower = str(user_prompt).lower().strip()
     chat_shrink_warp = None
     if match_warp := re.search(r'(?:dọc|doc|warp)\s*[:\-=\s]*([\d\.]+)', chat_lower):
-        chat_shrink_warp = 1.0 + (float(match_warp.group(1)) / 100.0)
+        try: chat_shrink_warp = 1.0 + (float(match_warp.group(1)) / 100.0)
+        except: pass
 
     # 2. VÒNG LẶP CHÍNH TRÊN TỪNG DÒNG VẬT TƯ BOM
     for row in all_rows:
@@ -640,14 +668,19 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict, user_prompt
         if any(k in comp_type or k in f_class or k in f_code for k in ["BUTTON", "ZIPPER", "THREAD", "LABEL"]):
             continue
 
-        fc = row.get("fabric_constraints", {})
-        row_sum = row.get("_btp_summary", {})
-        panels = row.get("panels_catalog", [])
+        fc = row.get("fabric_constraints", {}) if isinstance(row.get("fabric_constraints"), dict) else {}
+        row_sum = row.get("_btp_summary", {}) if isinstance(row.get("_btp_summary"), dict) else {}
+        panels = row.get("panels_catalog", []) if isinstance(row.get("panels_catalog"), list) else []
 
-        # Kiểm tra diện tích phẳng phẳng dồn khả dụng
-        row_net_area = float(row.get("_btp_total_panel_area", row_sum.get("area", 0.0)))
+        # Kiểm tra diện tích phẳng phẳng dồn khả dụng an toàn
+        try: row_net_area = float(row.get("_btp_total_panel_area", row_sum.get("area", 0.0)))
+        except: row_net_area = 0.0
+
         if row_net_area <= 0.0 and panels:
-            row_net_area = sum(float(p.get("piece_length_inch", 0)) * float(p.get("piece_width_inch", 0)) * float(p.get("piece_count", 1)) * 0.6 for p in panels)
+            try:
+                row_net_area = sum(float(p.get("piece_length_inch", 0)) * float(p.get("piece_width_inch", 0)) * float(p.get("piece_count", 1)) * 0.6 for p in panels)
+            except:
+                row_net_area = 0.0
 
         if row_net_area <= 0.0:
             row["status"] = "ERROR"
@@ -656,20 +689,28 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict, user_prompt
             continue
 
         # Xác định khổ vải hữu dụng sau trừ biên cắt (Cuttable Width)
-        cutable_w = float(row.get("fabric_width_inch", fc.get("fabric_width_inch", 58.0)))
+        try: cutable_w = float(row.get("fabric_width_inch", fc.get("fabric_width_inch", 58.0)))
+        except: cutable_w = 58.0
         if cutable_w <= 0: 
             cutable_w = 58.0
 
         is_fusing = row.get("_is_fusing", "FUSING" in f_class or "KEO" in comp_type)
         is_lining = row.get("_is_lining", "LINING" in f_class or "LÓT" in comp_type)
 
-        # 🚀 TÍNH TOÁN ĐOẠN A: Gọi Engine phân tích topo đa giác chi tiết
-        topo = analyze_panel_geometry_and_cad_constraints(panels, cutable_w)
+        # 🚀 TÍNH TOÁN ĐOẠN A: Gọi Engine phân tích topo đa giác chi tiết (Có bảo vệ chống lỗi NameError)
+        if 'analyze_panel_geometry_and_cad_constraints' in globals():
+            topo = globals()['analyze_panel_geometry_and_cad_constraints'](panels, cutable_w)
+        else:
+            # Phôi dữ liệu phòng vệ khẩn cấp nếu hàm Đoạn A bị thất lạc khi nạp luồng
+            topo = {
+                "avg_compactness": 0.65, "bbox_packing_ratio": 0.80, "width_utilization_ratio": 0.50,
+                "major_pieces_count": len(panels), "minor_pieces_count": 0, "total_pieces": max(1, len(panels)),
+                "max_p_len": 30.0, "max_p_wid": 15.0, "has_fold_penalty": False, "has_pair_constraint": False
+            }
 
         # =====================================================================
         # 📊 THUẬT TOÁN ĐIỀU CHỈNH HIỆU SUẤT MÔ PHỎNG SƠ ĐỒ (CAD LOGIC MATRIX)
         # =====================================================================
-        # Khống chế hiệu suất nền theo tỷ lệ chiếm khổ biên cực đại (Width Utilization)
         w_util = topo["width_utilization_ratio"]
         if w_util > 0.90:   
             base_eff = 0.77  # Rập quá to chắn ngang khổ vải: không còn không gian lồng rập nhỏ
@@ -678,7 +719,7 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict, user_prompt
         else:               
             base_eff = 0.85  # Khổ rập vừa vặn lý tưởng cho bài toán xếp hình phẳng 2D
 
-        # Thưởng hiệu suất lồng rập (Nesting Bonus): Càng nhiều chi tiết nhỏ (minor) càng dễ nhét khoảng trống
+        # Thưởng hiệu suất lồng rập (Nesting Bonus)
         total_p_pieces = float(topo["total_pieces"])
         minor_ratio = float(topo["minor_pieces_count"]) / max(1.0, total_p_pieces)
         nesting_bonus = min(0.045, minor_ratio * 0.08)
@@ -691,10 +732,10 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict, user_prompt
         is_stripe = fc.get("nap_sensitive", False) or float(fc.get("stripe_repeat_inch", 0.0)) > 0 or float(fc.get("plaid_repeat_inch", 0.0)) > 0
         
         fabric_penalty = 0.0
-        if is_one_way:                    fabric_penalty += 0.035  # Khóa chiều sợi vải
-        if is_stripe:                     fabric_penalty += 0.060  # Hao hụt khoảng cách đối kẻ sọc
-        if topo["has_fold_penalty"]:      fabric_penalty += 0.025  # Khóa chi tiết sát biên gập (`cut_on_fold`)
-        if topo["has_pair_constraint"]:   fabric_penalty += 0.015  # Ép rập đi theo cặp đối xứng (`pair_required`)
+        if is_one_way:                    fabric_penalty += 0.035  
+        if is_stripe:                     fabric_penalty += 0.060  
+        if topo["has_fold_penalty"]:      fabric_penalty += 0.025  
+        if topo["has_pair_constraint"]:   fabric_penalty += 0.015  
 
         # Thiết lập hiệu suất mô phỏng cuối cùng (Simulated Efficiency)
         simulated_eff = base_eff - shape_penalty - fabric_penalty + nesting_bonus
@@ -706,23 +747,23 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict, user_prompt
         # =====================================================================
         # 📐 THUẬT TOÁN TOÁN HỌC TÍNH CHIỀU DÀI SƠ ĐỒ VÀ YARDS (GERBER CAD CONVERSION)
         # =====================================================================
-        # Chiều dài sơ đồ mô phỏng CAD thực tế = Diện tích rập phẳng / (Khổ hữu dụng * Hiệu suất mô phỏng)
         simulated_marker_length_inch = row_net_area / (cutable_w * simulated_eff)
         
-        # Điểm chặn vật lý biên cứng: Chiều dài sơ đồ không được nhỏ hơn chiều dài chi tiết dài nhất
+        # Điểm chặn vật lý biên cứng
         if simulated_marker_length_inch < topo["max_p_len"]:
             simulated_marker_length_inch = topo["max_p_len"] * 1.04
 
         # Áp dụng tỷ lệ co rút dọc (Shrinkage)
-        shrink_warp_pct = float(fc.get("shrinkage_warp_pct", 0.0))
+        try: shrink_warp_pct = float(fc.get("shrinkage_warp_pct", 0.0))
+        except: shrink_warp_pct = 0.0
         shrink_factor = chat_shrink_warp if chat_shrink_warp is not None else (1.0 + (shrink_warp_pct / 100.0) if shrink_warp_pct > 0 else 1.03)
 
-        # Xác định Lay Planning Factor (Tỷ lệ hao hụt đầu khúc/đầu bàn cắt của phân xưởng)
-        wastage_factor = 1.04  # Tiêu chuẩn vải dệt thoi (Woven)
+        # Xác định Lay Planning Factor 
+        wastage_factor = 1.04  
         if "KNIT" in str(fc.get("fabric_grain_rule")).upper() or any(x in str(row).upper() for x in ["THUN", "KNIT"]):
-            wastage_factor = 1.065 # Vải thun dệt kim co kéo đầu bàn 6.5%
+            wastage_factor = 1.065 
         if is_stripe:
-            wastage_factor += 0.025 # Hao hụt đầu bàn căn kẻ hoa văn sọc caro
+            wastage_factor += 0.025 
 
         # Công thức tính Yards Gross tổng chuẩn nhà máy IE:
         total_yds = (simulated_marker_length_inch / 36.0) * shrink_factor * wastage_factor
@@ -750,11 +791,11 @@ def allocate_fabric_consumption_and_quality_gate(ai_blueprint: dict, user_prompt
 
 
 
-
 # =====================================================================
 # ĐOẠN 6a: BANNER, KPIs GHIM ĐỈNH & CÂN BẰNG CHIỀU CAO 1:1 ĐỐI XỨNG (V18.3.4.0 APPROVED)
+# ĐÃ LOẠI BỎ SET_PAGE_CONFIG ĐỂ TRIỆT TIÊU LỖI CRASH TRÊN TRANG CON (PAGES/)
 # =====================================================================
-st.set_page_config(layout="wide", page_title="AI Fabric Consumption Matrix")
+import streamlit as st
 
 # 🌟 BỘ STYLING CSS CẤP CAO: KHỐNG CHẾ MAX-HEIGHT CÂN XỨNG VÀ TẠO KHUNG CUỘN ĐỘC LẬP
 st.markdown("""
@@ -894,21 +935,25 @@ if st.session_state.pdf_bytes is not None and st.session_state.pdf_text_cache is
 
 # ĐỒNG BỘ DỮ LIỆU KPIs BIẾN THIÊN THEO THỜI GIAN THỰC
 kpi_style_id = "N/A"
-total_materials = len(st.session_state.accumulated_bom_rows) if st.session_state.accumulated_bom_rows else 0
+total_materials = len(st.session_state.accumulated_bom_rows) if isinstance(st.session_state.accumulated_bom_rows, (list, dict)) else 0
 main_fabric_cons = "0.000"
 active_size_kpi = "AUTOMATIC"
 
-if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data:
+if st.session_state.get("bom_data") and isinstance(st.session_state.bom_data, dict) and "bom_rows" in st.session_state.bom_data:
     kpi_style_id = str(st.session_state.bom_data.get("style_code", "R09-450416")).upper()
     active_size_kpi = str(st.session_state.bom_data.get("calculated_on_size", "MEDIAN")).upper()
-    if total_materials == 0: total_materials = len(st.session_state.bom_data["bom_rows"])
+    if total_materials == 0 and isinstance(st.session_state.bom_data["bom_rows"], list): 
+        total_materials = len(st.session_state.bom_data["bom_rows"])
+        
     for row in st.session_state.bom_data["bom_rows"]:
-        if not row: continue
+        if not row or not isinstance(row, dict): continue
         if "MAIN" in str(row.get("fabric_classification", "")).upper() or "MAIN" in str(row.get("component_type", "")).upper():
-            val_gross = row.get("calculated_gross_consumption_yds", 0.0)
-            if val_gross > 0.0:
-                main_fabric_cons = f"{val_gross:.3f} Yds"
-                break
+            try:
+                val_gross = float(row.get("calculated_gross_consumption_yds", 0.0))
+                if val_gross > 0.0:
+                    main_fabric_cons = f"{val_gross:.3f} Yds"
+                    break
+            except: pass
 
 # VẼ KHỐI CỐ ĐỊNH GHIM LÊN ĐỈNH MÀN HÌNH (LUÔN NỔI LÊN TRÊN CÙNG)
 st.markdown('<div class="sticky-top-container">', unsafe_allow_html=True)
@@ -929,10 +974,11 @@ st.markdown('</div>', unsafe_allow_html=True)
 st.markdown('<div class="main-body-spacer"></div>', unsafe_allow_html=True)
 
 
-
 # =====================================================================
 # ĐOẠN 6b: KHỐI CHIA CỘT ĐỐI XỨNG - KHỐNG CHẾ TRỰC TIẾP CHIỀU CAO ẢNH (V18.3.5.0 APPROVED)
+# ĐÃ SỬA LỖI TYPO CLASS "meta-box_light" THÀNH "meta-box-light"
 # =====================================================================
+import streamlit as st
 
 # 🌟 BỘ CSS PHÒNG VỆ: Ép trực tiếp mọi thẻ ảnh (img) nằm trong khung Sketch phải co nhỏ lại vừa vặn
 st.markdown("""
@@ -998,10 +1044,11 @@ with col_left:
         with m_col1:
             st.markdown(f'<div class="meta-box-light"><div class="meta-label-light">Style Code / Mã hàng</div><div class="meta-value-light"><b>{style_id}</b></div></div>', unsafe_allow_html=True)
             st.markdown(f'<div class="meta-box-light"><div class="meta-label-light">Customer / Đối tác</div><div class="meta-value-light">{customer}</div></div>', unsafe_allow_html=True)
-            st.markdown(f'<div class="meta-box_light"><div class="meta-label-light">Season / Mùa sản xuất</div><div class="meta-value-light">{season}</div></div>', unsafe_allow_html=True)
+            # 🌟 ĐÃ SỬA: Thay dấu "_" bằng "-" tại tên class của khối Season bên dưới
+            st.markdown(f'<div class="meta-box-light"><div class="meta-label-light">Season / Mùa sản xuất</div><div class="meta-value-light">{season}</div></div>', unsafe_allow_html=True)
         with m_col2:
             st.markdown(f'<div class="meta-box-light"><div class="meta-label-light">Garment Type / Kiểu dáng</div><div class="meta-value-light">{short_desc}</div></div>', unsafe_allow_html=True)
-            st.markdown(f'<div class="meta-box-light"><div class="meta-label-light">Material Spec / Mô tả vải</div><div class="meta-value-light">{fabric_type[:28]}...</div></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="meta-box-light"><div class="meta-label-light">Material Spec / Mô tả vải</div><div class="meta-value-light">{str(fabric_type)[:28]}...</div></div>', unsafe_allow_html=True)
             st.markdown(f'<div class="meta-box-light"><div class="meta-label-light">Techpack Status</div><div class="meta-value-light" style="color: #16a34a;">🟢 READY TO BOM</div></div>', unsafe_allow_html=True)
     else:
         if st.session_state.pdf_bytes is None:
@@ -1022,6 +1069,7 @@ with col_right:
         st.markdown("<div style='margin-top: 50px; text-align: center; color: #64748b; font-size: 13px;'>Hình vẽ phác họa phẳng (Sketch) trích xuất từ trang bìa PDF sẽ tự động hiển thị cân xứng tại đây.</div>", unsafe_allow_html=True)
         
     st.markdown('</div>', unsafe_allow_html=True)
+
 # =====================================================================
 # =====================================================================
 # ĐOẠN 7a1: INTERFACE WORKSPACE & HIGH-RES JPEG IMAGE PIPELINE (V29.8 ULTRA-HEAVY OPTIMIZER)
