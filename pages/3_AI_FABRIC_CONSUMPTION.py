@@ -1143,14 +1143,19 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             
             gemini_inputs = copy.deepcopy(image_payloads)
 
-            # =====================================================================
+                       # =====================================================================
             # ĐOẠN 7a - PHẦN 2: DYNAMIC AI GATEWAY & MULTI-LAYER FINGERPRINT LOCK
             # Thụt lề 12 khoảng trắng (3 tabs) vì nằm hoàn toàn bên trong khối try lớn
             # =====================================================================
-            if "GEMINI_API_KEY" in st.secrets: 
-                genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
             
+            # 2️⃣ KIỂM TRA CHẶT CHẼ API KEY TRƯỚC KHI KHỞI TẠO MÔ HÌNH
+            if "GEMINI_API_KEY" not in st.secrets:
+                st.error("💥 Lỗi hạ tầng: Thiếu cấu hình GEMINI_API_KEY trong hệ thống Secrets.")
+                st.stop()
+                
+            genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
             model = genai.GenerativeModel("gemini-2.5-flash")
+            
             chat_lower = current_query.lower()
             
             match_size = re.search(r'\b(?:size|sz|cỡ)\s*[:\-=\s]*([\w\d/]+)\b', chat_lower)
@@ -1168,6 +1173,12 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
 
             response_text = ""
             if has_no_data or is_signature_changed:
+                
+                # 3️⃣ CHẶN ĐỨNG LUỒNG GỌI AI NẾU DỮ LIỆU PAYLOADS ẢNH TRỐNG
+                if not image_payloads:
+                    st.error("⚠️ Hệ thống phòng vệ: Không trích xuất được dải ảnh kỹ thuật từ file PDF. Chặn luồng gửi AI.")
+                    st.stop()
+                    
                 prompt_instruction = f"""
                 You are an expert apparel Industrial Engineering (IE) OCR system. Scan provided techpack pages to analyze size '{target_size_cmd}' and BOM material tables.
                 Determine product type from: PANT, SHIRT, DRESS, JACKET, SKIRT, SHORT, HOODIE, TOP, OTHER. Extract ALL dimensions for target size '{target_size_cmd}' exactly as printed. No nulls or empty strings allowed in numeric keys.
@@ -1218,18 +1229,26 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                 ===START_CHAT=== [Confirm in Vietnamese which pages you scanned and summarize the exact clean verified dimensions and materials found for size {target_size_cmd}.] ===END_CHAT===
                 """
                 gemini_inputs.append(prompt_instruction)
-                response = model.generate_content(gemini_inputs)
-                if response: response_text = response.text.strip()
-            # =====================================================================
+                
+                # 1️⃣ BỌC BIÊN CÔ LẬP LỆNH GỌI GEMINI BẰNG TRY/EXCEPT CỤC BỘ KHÔNG LO SẬP LUỒNG
+                try:
+                    response = model.generate_content(gemini_inputs)
+                    if response and hasattr(response, "text"): 
+                        response_text = response.text.strip()
+                except Exception as e_api:
+                    st.error(f"💥 Gemini API Error: Lỗi kết nối luồng xử lý mô hình nâng cao: {str(e_api)}")
+                    response_text = ""
+
+                        # =====================================================================
             # ĐOẠN 7a - PHẦN 3: POST-AI MIDDLEWARE & VÁ TRỰC DIỆN LUỒNG DỮ LIỆU
             # Xử lý kết quả trả về và đóng lệnh try bằng khối except e_global chuẩn chỉnh
             # =====================================================================
             if response_text:
                 json_match = re.search(r'(?:===START_JSON===\s*|```json\s*)(.*?)(?:\s*===END_JSON===|\s*```)', response_text, re.DOTALL)
-                chat_match = re.search(r'(?:===START_CHAT===\s*|```markdown\s*|(?:\n|^)\s*\*\s*)(.*?)(?:\s*===END_CHAT===|\s*```|$)', response_text, re.DOTALL)
                 
                 raw_json_str = ""
-                if json_match: raw_json_str = json_match.group(1).strip()
+                if json_match: 
+                    raw_json_str = json_match.group(1).strip()
                 elif "===START_JSON===" in response_text and "===END_JSON===" in response_text:
                     raw_json_str = response_text[response_text.find("===START_JSON===")+16:response_text.find("===END_JSON===")].strip()
                 else:
@@ -1237,18 +1256,28 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                     raw_json_str = match_fb.group(0).strip() if match_fb else ""
                 
                 if raw_json_str:
+                    # 🌟 VÁ CHÍ MẠNG: Bộ sửa lỗi chuỗi JSON tự động, triệt tiêu dấu phẩy thừa gây crash loads()
                     raw_json_str = re.sub(r',\s*([\]\}])', r'\1', raw_json_str) 
-                    raw_blueprint = json.loads(raw_json_str)
+                    
+                    # 1️⃣ BỌC BIÊN CÔ LẬP QUÁ TRÌNH PARSE JSON ĐỂ TRANH VĂNG SANG E_GLOBAL
+                    try:
+                        raw_blueprint = json.loads(raw_json_str)
+                    except json.JSONDecodeError as json_err:
+                        st.error(f"❌ THẤT BẠI PARSE JSON: Chuỗi cấu trúc hình học sinh ra từ Gemini bị lỗi cú pháp: {str(json_err)}")
+                        st.code(raw_json_str, language="json")
+                        st.stop()
                     
                     if raw_blueprint and "bom_rows" in raw_blueprint:
                         blueprint_worker = copy.deepcopy(raw_blueprint)
                         query_str = str(current_query)
                         
+                        # Chạy chuỗi pipeline máy tính 3 bước hình học phẳng CAD
                         b1 = parse_geometric_panels_allowance(blueprint_worker, query_str)
                         b2_rows, _ = parse_and_prepare_ie_panels(b1.get("bom_rows", []), b1.get("detected_product_type"), query_str)
                         b1["bom_rows"] = b2_rows
                         blueprint_final = allocate_fabric_consumption_and_quality_gate(b1, query_str)
                         
+                        # Đổ dữ liệu sạch vào session và khóa chốt chặn chữ ký để tải trang vẽ bảng
                         st.session_state.bom_data = blueprint_final
                         st.session_state.accumulated_bom_rows = blueprint_final.get("bom_rows", [])
                         st.session_state["last_processed_signature"] = current_signature
@@ -1261,9 +1290,9 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                     st.error("❌ Không thể bóc tách START_JSON từ văn bản phản hồi thô của Gemini.")
                     st.text_area("Nội dung AI trả về:", value=response_text, height=120)
 
-        # 🌟 ĐÓNG NGOẶC KHỐI TRY LỚN DUY NHẤT: Thụt lề 8 khoảng trắng để khớp với lệnh try ở Đoạn 1
+        # 🌟 ĐÓNG NGOẶC KHỐI TRY LỚN DUY NHẤT: Thụt lề đúng 8 khoảng trắng, thẳng hàng với lệnh try ở Đoạn 7a1
         except Exception as e_global:
-            st.error(f"💥 Lỗi luồng trích xuất hạ tầng tổng: {str(e_global)}")
+            st.error(f"💥 Lỗi luồng trích xuất hạ tầng tổng toàn cục: {str(e_global)}")
             st.code(traceback.format_exc())
 
 # =====================================================================
