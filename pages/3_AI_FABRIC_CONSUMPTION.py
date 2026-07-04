@@ -1584,12 +1584,9 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
 
 
                        # =====================================================================
-                  # =====================================================================
-                        # =====================================================================
-                        # =====================================================================
-                       # =====================================================================
-            # ĐOẠN 7a - PHẦN 2: DYNAMIC AI GATEWAY & TRUSTED AUTOPILOT CORE (V46.0)
-            # GIẢI PHÓNG AI KHỎI PHÉP TÍNH TOÁN - TRẬP TRUNG OCR SỐ ĐO THỰC TẾ & BẢO TOÀN DANH MỤC TRỌNG YẾU
+                          # =====================================================================
+            # ĐOẠN 7a - PHẦN 2: DYNAMIC AI GATEWAY & ADAPTIVE SIZE MAPPING CORE (V47.0)
+            # 🌟 VÁ CHÍ MẠNG: KÍCH HOẠT BỘ TỰ QUY ĐỔI HỆ SIZE CHỮ (1X/2X) VÀ SỐ (30/32) THEO FILE
             # =====================================================================
             if "GEMINI_API_KEY" not in st.secrets:
                 st.error("💥 Lỗi hạ tầng: Thiếu cấu hình GEMINI_API_KEY trong hệ thống Secrets.")
@@ -1620,38 +1617,41 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                     st.stop()
                     
                 prompt_instruction = f"""
-                You are a highly accurate apparel Industrial Engineering (IE) Data Gateway [INDEX]. Your sole mission is to perform strict OCR text extraction and visual data capturing from the provided techpack pages for size '{target_size_cmd}' [INDEX]. 
-                DO NOT perform any area multiplication or invent random dimensions. Focus entirely on extracting clean, raw textual evidence [INDEX].
+                You are a highly accurate apparel Industrial Engineering (IE) Data Gateway. Your sole mission is to perform strict OCR text extraction and visual data capturing from the provided techpack pages [INDEX].
+                
+                🌟 SMART ADAPTIVE SIZE MAPPING RULE (CRITICAL FIX):
+                The user is targeted to evaluate size '{target_size_cmd}'. 
+                If the techpack table DOES NOT explicitly contain the numeric column '{target_size_cmd}', but instead uses lettered grading codes (such as XS, S, M, L, XL, 1X, 2X, 3X, 4X, 5X) or Sample sizes:
+                - You MUST automatically map the user's request to the closest corresponding size or the designated sample size available in the chart (e.g., Map size '30' or 'M' to '1X' or 'Sample Size' columns if that is the baseline standard listed in the document).
+                - DO NOT leave dimensions empty or return 0.0. Extract the real measurement numbers from that mapped chart column!
                 
                 CRITICAL SYSTEM BOUNDARY & HARD ENFORCEMENT RULES:
-                1. The output JSON is STRICTLY INVALID unless EVERY single material raw type found in the techpack (such as Main Fabric/Canvas, Pocketing/Lining, and Fusing/Interlining) is captured as an independent object inside the 'bom_rows' array [INDEX].
-                2. NEVER omit or drop the Fusing/Interlining or Pocketing rows if they are mentioned in the document text. All 3 categories must exist simultaneously [INDEX].
-                3. DO NOT wrap the JSON inside markdown code blocks. DO NOT use ```json or ``` markdown markers. Return ONLY raw plain text JSON.
+                1. The output JSON is STRICTLY INVALID unless EVERY single material raw type found in the techpack (Main Fabric, Pocketing/Lining, and Fusing/Interlining) is captured inside 'bom_rows' [INDEX].
+                2. Return ONLY raw plain text JSON. DO NOT wrap the JSON inside markdown code blocks. DO NOT use ```json markers.
                 
                 🌟 MANDATORY REAL EVIDENCE BINDING (POM EXTRACTOR):
-                Locate the spec/measurement tables and extract ALL available dimensions specifically for size '{target_size_cmd}' (e.g., Waist, Hip, Outseam, Thigh, Rise, Sleeve, Chest, Body Length). Store these clean raw metrics directly inside the 'matched_measurements' string array using the format: "POM_CODE: Description = DECIMAL_VALUE inch" [INDEX].
+                Locate the measurement spec tables. Extract ALL available dimensions for the target mapped size (e.g., Waist, Hip, Outseam, Chest, Length) [INDEX]. Store these metrics inside 'matched_measurements' using the format: "POM_CODE: Description = DECIMAL_VALUE inch" [INDEX].
                 
                 🌟 MANDATORY PANELS_CATALOG MAPPING:
-                For each fabric classification, map out its component parts. If the techpack explicitly lists piece dimensions, use them. If it only lists body measurements, map the raw Outseam/Length into 'piece_length_inch', and raw Hip/Thigh/Waist into 'piece_width_inch' for the primary panels before output. Leave the 'geometry_metadata' -> 'net_area' as 0.0, because the Python CAD engine downstream will compute it deterministically.
+                Map out component parts for each row. If the file lacks exact piece shapes, map the raw Outseam/Length from the table directly into 'piece_length_inch', and raw Hip/Thigh/Waist into 'piece_width_inch' for the panels before output. Leave 'geometry_metadata' -> 'net_area' as 0.0, because the Python CAD engine downstream will compute it deterministically.
                 
-                Output strictly in this standardized JSON structure. Dynamically update ALL 'fabric_width_inch' fields to matching the targeted width value {active_width} [INDEX]:
+                Output strictly in this standardized JSON structure. Dynamically update ALL 'fabric_width_inch' fields to match the targeted width value {active_width}:
                 ===START_JSON===
                 {{
                   "status": "PASS",
                   "detected_product_type": "PANT",
                   "calculated_on_size": "{target_size_cmd}",
                   "matched_measurements": [
-                     "WST-001: Waist Width Flat = 16.5 inch",
-                     "HIP-002: Hip Width Flat = 21.5 inch",
-                     "OUT-003: Outseam Total Length = 40.0 inch"
+                     "OUT-001: Total Outseam Length = <EXTRACTED_VALUE> inch",
+                     "HIP-002: Hip Width Flat = <EXTRACTED_VALUE> inch"
                   ],
                   "_btp_global_summary": {{
-                    "total_bom_rows": <COUNT_OF_MATERIAL_ROWS_EXTRACTED>,
-                    "total_panels": <TOTAL_PANEL_OBJECTS_FOUND>
+                    "total_bom_rows": 3,
+                    "total_panels": 12
                   }},
                   "bom_rows": [
                     {{
-                      "component_type": "<EXTRACTED_RAW_FABRIC_NAME_FROM_BOM>",
+                      "component_type": "<EXTRACTED_FABRIC_NAME>",
                       "fabric_classification": "MAIN_FABRIC",
                       "fabric_width_inch": {active_width},
                       "panels_catalog": [
@@ -1660,7 +1660,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                       ]
                     }},
                     {{
-                      "component_type": "<EXTRACTED_RAW_POCKETING_NAME_FROM_BOM>",
+                      "component_type": "<EXTRACTED_POCKETING_NAME>",
                       "fabric_classification": "LINING",
                       "fabric_width_inch": {active_width},
                       "panels_catalog": [
@@ -1668,7 +1668,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                       ]
                     }},
                     {{
-                      "component_type": "<EXTRACTED_RAW_FUSING_NAME_FROM_BOM>",
+                      "component_type": "<EXTRACTED_FUSING_NAME>",
                       "fabric_classification": "FUSING",
                       "fabric_width_inch": {active_width},
                       "panels_catalog": [
@@ -1679,7 +1679,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                 }}
                 ===END_JSON===
                 
-                ===START_CHAT=== [Xác nhận bằng Tiếng Việt các trang bạn vừa quét trích xuất, liệt kê cụ thể tên 3 chất liệu và dải thông số thực tế tìm thấy cho size {target_size_cmd}.] ===END_CHAT===
+                ===START_CHAT=== [Xác nhận bằng Tiếng Việt các trang bạn vừa quét, công bố rõ bạn đã tự động quy đổi size {target_size_cmd} sang cột kích thước nào tương ứng (ví dụ: 1X hoặc Sample) dựa trên cấu trúc tài liệu để bóc tách thông số.] ===END_CHAT===
                 """
                 gemini_inputs.append(prompt_instruction)
                 
@@ -1690,7 +1690,6 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                 except Exception as e_api:
                     st.error(f"💥 Gemini API Error: {str(e_api)}")
                     response_text = ""
-
 
 
 
