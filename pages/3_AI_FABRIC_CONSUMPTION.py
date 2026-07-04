@@ -1034,20 +1034,22 @@ with col_left:
         season = get_meta(r'(?:Season|Mùa hàng)\s*[:\-=\s]*([^\n]+)', "Spring 2027")
         fabric_type = get_meta(r'(?:Long Description|Chất liệu gốc)\s*[:\-=\s]*([^\n]+)', "CASUAL TWILL PANTS - SP27")
 
+               # 🟢 ĐỒNG BỘ LAYOUT ERP: Chuyển đổi sang class profile-item cao cấp đồng bộ với CSS Đoạn 6a
         m_col1, m_col2 = st.columns(2)
         with m_col1:
-            st.markdown(f'<div class="meta-box-light"><div class="meta-label-light">Style Code / Mã hàng</div><div class="meta-value-light"><b>{style_id}</b></div></div>', unsafe_allow_html=True)
-            st.markdown(f'<div class="meta-box-light"><div class="meta-label-light">Customer / Đối tác</div><div class="meta-value-light">{customer}</div></div>', unsafe_allow_html=True)
-            st.markdown(f'<div class="meta-box_light"><div class="meta-label-light">Season / Mùa sản xuất</div><div class="meta-value-light">{season}</div></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="profile-item"><div class="profile-lbl">Style Code / Mã hàng</div><div class="profile-val"><b>{style_id}</b></div></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="profile-item"><div class="profile-lbl">Customer / Đối tác</div><div class="profile-val">{customer}</div></div>', unsafe_allow_html=True)
+            # 🌟 ĐÃ VÁ LỖI TYPO: Sửa hoàn toàn từ "meta-box_light" thành "profile-item" sạch sẽ
+            st.markdown(f'<div class="profile-item"><div class="profile-lbl">Season / Mùa sản xuất</div><div class="profile-val">{season}</div></div>', unsafe_allow_html=True)
         with m_col2:
-            st.markdown(f'<div class="meta-box-light"><div class="meta-label-light">Garment Type / Kiểu dáng</div><div class="meta-value-light">{short_desc}</div></div>', unsafe_allow_html=True)
-            st.markdown(f'<div class="meta-box-light"><div class="meta-label-light">Material Spec / Mô tả vải</div><div class="meta-value-light">{fabric_type[:28]}...</div></div>', unsafe_allow_html=True)
-            st.markdown(f'<div class="meta-box-light"><div class="meta-label-light">Techpack Status</div><div class="meta-value-light" style="color: #16a34a;">🟢 READY TO BOM</div></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="profile-item"><div class="profile-lbl">Garment Type / Kiểu dáng</div><div class="profile-val">{short_desc}</div></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="profile-item"><div class="profile-lbl">Material Spec / Mô tả vải</div><div class="profile-val">{str(fabric_type)[:25]}...</div></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="profile-item"><div class="profile-lbl">Techpack Status</div><div class="profile-val" style="color: #2563eb; font-weight: 700;">READY TO BOM</div></div>', unsafe_allow_html=True)
     else:
-        if st.session_state.pdf_bytes is None:
-            st.markdown("<div style='margin-top: 40px; text-align: center; color: #64748b; font-size: 13px;'>Bảng tóm tắt thông số sản phẩm sẽ tự động hiển thị tại đây sau khi nạp file PDF.</div>", unsafe_allow_html=True)
+        st.markdown("<p style='font-size:13px; color:#94a3b8; font-style:italic; margin-top:30px;'>Hệ thống đang đợi tệp cấu trúc... Vui lòng tải tài liệu kỹ thuật Techpack dạng file PDF lên để kích hoạt lõi phân tích CAD hình học phẳng.</p>", unsafe_allow_html=True)
         
     st.markdown('</div>', unsafe_allow_html=True)
+
 
 
 # --- CỘT PHẢI: KHUNG XEM BẢN VẼ PHẲNG SKETCH (🌟 ĐÃ ÉP CO NHỎ ẢNH GỐC ĐỐI XỨNG) ---
