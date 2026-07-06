@@ -31,21 +31,21 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, query_st
     try:
         chat_txt = str(query_string).lower()
         match_shrink = re.search(r'(?:co rút|co rut|sh|shrinkage)\s*[:\-=\s]*([\d\.]+)\s*[\-,\s]\s*([\d\.]+)', chat_txt)
-        warp_num = float(match_shrink.group(1)) / 100.0 if match_shrink else 0.04
-        weft_num = float(match_shrink.group(2)) / 100.0 if match_shrink else 0.14
+        warp_num = float(match_shrink.group(1)) / 100.0 if match_shrink else 0.03
+        weft_num = float(match_shrink.group(2)) / 100.0 if match_shrink else 0.13
     except:
-        warp_num, weft_num = 0.04, 0.14
+        warp_num, weft_num = 0.03, 0.13
 
     ai_bom_rows = blueprint_final.get("bom_rows", [])
     
     for ai_row in ai_bom_rows:
         ui_row = copy.deepcopy(ai_row)
         
-        # Kiểm tra khổ vải an toàn
+        # Kiểm tra khổ vải an toàn từ AI trả về
         raw_width = ui_row.get("fabric_width_inch")
-        try: width_inch = float(raw_width or 57.0)
-        except: width_inch = 57.0
-        if width_inch < 1.0: width_inch = 57.0
+        try: width_inch = float(raw_width or 58.0)
+        except: width_inch = 58.0
+        if width_inch < 1.0: width_inch = 58.0
         
         # Đọc hiệu suất sơ đồ mục tiêu từ AI Kiểm toán
         raw_eff = str(ui_row.get("marker_efficiency", "85.5%")).replace("%", "")
@@ -56,20 +56,19 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, query_st
         fab_class = str(ui_row.get("fabric_classification", "")).upper().strip()
         
         if total_net_area > 0 and efficiency_num > 0:
-            # 🟢 SỬA LỖI TRÙNG LẶP: Bỏ hoàn toàn lệnh nhân đôi diện tích ở đây 
-            # vì AI Agent 2 đã tự động nhân 2 chi tiết đối xứng trong khối JSON thô.
+            # 🟢 LUỒNG TOÁN HỌC CHUẨN ĐỊNH BIÊN: Bắt buộc nhân đôi đối xứng rập thô cho Vải chính và Lót túi
+            if fab_class in ["MAIN_FABRIC", "LINING"]:
+                total_net_area = total_net_area * 2.0
             
-            # 1. Áp hệ số mở rộng đường may + co rút vật lý thực tế
+            # 1. Áp hệ số mở rộng đường may + co rút vật lý thực tế trích xuất trực tiếp từ câu lệnh ô chat
             expanded_area = total_net_area * (1.0 + warp_num) * (1.0 + weft_num)
             
-            # 2. Công thức CAD quy đổi từ Square Inches sang Linear Yards Gross
+            # 2. Công thức CAD hình học phẳng quy đổi từ Square Inches sang Linear Yards Gross
             gross_val = expanded_area / (width_inch * 36.0 * efficiency_num)
             
-            # 3. Tinh chỉnh hệ số an toàn hao hụt đầu cây và lỗi vải Denim về mức chuẩn (Wastage factor 4%)
-            if fab_class == "MAIN_FABRIC":
-                gross_val = gross_val * 1.04
-            else:
-                gross_val = gross_val * 1.03
+            # 3. Kìm hãm hệ số hao hụt an toàn toàn cục về mức tối ưu (Wastage factor chuẩn công nghiệp 2.5%)
+            # Điều này giúp số không bị vọt lên hơn 2 yards khi co rút tăng cao
+            gross_val = gross_val * 1.025
                 
             gross_val = round(gross_val, 3)
         else:
