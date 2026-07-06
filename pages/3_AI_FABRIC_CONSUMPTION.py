@@ -550,10 +550,18 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             }}
             ===END_JSON===
             """
+                       # =====================================================================
+            # ĐOẠN 7a - PHẦN 3a: DUAL-AGENT AI STREAM GENERATION (V92.1 FIXED COUPLING)
+            # 🌟 ĐÃ VÁ LỖI NAME_ERROR: KHỞI TẠO CHỮ KÝ TRẠNG THÁI TRƯỚC KHI GỌI BIẾN CHỐT CHẶN
             # =====================================================================
-            # ĐOẠN 7a - PHẦN 3a: DUAL-AGENT AI STREAM GENERATION (V92.0 CORE COUPLING)
-            # 🌟 LUỒNG GỌI CHUỖI API KÉP NỐI TIẾP TRỰC TIẾP BAO VỆ ĐỊNH MỨC CHỐNG SAI SỐ
-            # =====================================================================
+            pdf_bytes_len_p3 = len(st.session_state.pdf_bytes) if st.session_state.pdf_bytes else 0
+            current_signature_p3 = (str(safe_user_prompt).strip(), int(len(image_payloads)), int(pdf_bytes_len_p3))
+            
+            # Khởi tạo định nghĩa 2 biến phòng vệ chống sập NameError
+            has_no_data_p3 = not st.session_state.get("bom_data") or st.session_state.get("bom_data") == {}
+            is_signature_changed_p3 = st.session_state.get("last_processed_signature") != current_signature_p3
+
+            # KÍCH HOẠT CHUỖI API KÉP KHI ĐỦ ĐIỀU KIỆN CHỮ KÝ TRẠNG THÁI
             if has_no_data_p3 or is_signature_changed_p3:
                 try:
                     # -----------------------------------------------------------------
@@ -649,6 +657,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                 except Exception as api_err:
                     st.error(f"💥 Lỗi kết nối trực tiếp đến API chuỗi Agent Google Gemini: {str(api_err)}")
                     st.stop()
+
             # =====================================================================
             # ĐOẠN 7a - PHẦN 3b: POST-AI MIDDLEWARE GATEWAY (V92.0 PARSER COUPLING)
             # 🌟 HẠ TẦNG BÓC TÁCH CHUỖI STREAM: PARSE CHAT VÀ JSON KHÉP KÍN 100% UI
