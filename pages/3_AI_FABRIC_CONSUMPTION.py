@@ -581,9 +581,13 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
 # =====================================================================
 # =====================================================================
 # =====================================================================
-# ĐOẠN 7a - PHẦN 3a: INITIALIZATION & AGENT PROMPTS SETUP (V102.0 MULTI-ENGINE)
+# =====================================================================
+# =====================================================================
+# =====================================================================
+# =====================================================================
+# ĐOẠN 7a - PHẦN 3a: INITIALIZATION & AGENT PROMPTS SETUP (V102.1 SAFE-STRING)
 # 🌟 KIẾN TRÚC ROUTER: AI PHÂN LOẠI VẬT TƯ ĐỂ ĐỊNH TUYẾN SANG ENGINE RIÊNG BIỆT
-# 🌟 ĐÃ CÂN CHỈNH THẲNG HÀNG TUYỆT ĐỐI KHÔNG BỊ LỖI INDENTATION ERROR
+# 🌟 ĐÃ TÁCH BIẾN CHUỖI AN TOÀN TUYỆT ĐỐI CHỐNG LỖI SYNTAX COMPILER
 # =====================================================================
 response_text = ""
 pdf_bytes_len_p3 = len(st.session_state.pdf_bytes) if st.session_state.pdf_bytes else 0
@@ -605,6 +609,57 @@ You are Agent 1: An Apparel Technical Component Extractor. Scan techpack text/im
 Identify all individual pattern panels. Extract raw nominal lengths and widths. Do NOT skip any major body parts.
 Return strictly raw technical JSON array with bounding_box_length, bounding_box_width, piece_count. No consumption calculations.
 """
+
+# Khai báo chuỗi JSON thô độc lập để tránh xung đột trình biên dịch Python f-string
+dummy_json_payload = """
+{
+  "status": "PASS",
+  "detected_product_type": "DRESS",
+  "calculated_on_size": "SIZE_PLACEHOLDER",
+  "bom_rows": [
+    {
+      "component_name": "Main Fabric - Poplin",
+      "material_type": "Main Fabric",
+      "material_class": "FABRIC",
+      "uom": "YDS",
+      "engine": "FABRIC",
+      "fabric_width_inch": WIDTH_PLACEHOLDER,
+      "bounding_box_length": 65.0,
+      "bounding_box_width": 26.0,
+      "piece_count": 2,
+      "gather_type": "SIDE_RUCHE",
+      "gather_depth": "MEDIUM"
+    },
+    {
+      "component_name": "Braided Elastic Waistband",
+      "material_type": "Elastic",
+      "material_class": "ELASTIC",
+      "uom": "YDS",
+      "engine": "ELASTIC",
+      "length_inch": 28.0,
+      "piece_count": 2,
+      "stretch_pct": 1.20
+    },
+    {
+      "component_name": "Twill Tape Neck",
+      "material_type": "Twill Tape",
+      "material_class": "TAPE",
+      "uom": "MTR",
+      "engine": "TAPE",
+      "length_inch": 14.5,
+      "piece_count": 1
+    },
+    {
+      "component_name": "Front Main Button 24L",
+      "material_type": "Button",
+      "material_class": "BUTTON",
+      "uom": "PCS",
+      "engine": "COUNT",
+      "quantity_pcs": 8
+    }
+  ]
+}
+""".replace("SIZE_PLACEHOLDER", str(target_size_cmd)).replace("WIDTH_PLACEHOLDER", str(active_width))
 
 prompt_agent_2 = f"""
 You are Agent 2: The Enterprise Apparel Visual Auditor & Material Router. 
@@ -634,55 +689,10 @@ Output BOTH raw text JSON format (under ===START_JSON===) and markdown chat resp
 ===END_CHAT===
 
 ===START_JSON===
-{{
-  "status": "PASS",
-  "detected_product_type": "DRESS",
-  "calculated_on_size": "{target_size_cmd}",
-  "bom_rows": [
-    {{
-      "component_name": "Main Fabric - Poplin",
-      "material_type": "Main Fabric",
-      "material_class": "FABRIC",
-      "uom": "YDS",
-      "engine": "FABRIC",
-      "fabric_width_inch": {active_width},
-      "bounding_box_length": 65.0,
-      "bounding_box_width": 26.0,
-      "piece_count": 2,
-      "gather_type": "SIDE_RUCHE",
-      "gather_depth": "MEDIUM"
-    }},
-    {{
-      "component_name": "Braided Elastic Waistband",
-      "material_type": "Elastic",
-      "material_class": "ELASTIC",
-      "uom": "YDS",
-      "engine": "ELASTIC",
-      "length_inch": 28.0,
-      "piece_count": 2,
-      "stretch_pct": 1.20
-    }},
-    {{
-      "component_name": "Twill Tape Neck",
-      "material_type": "Twill Tape",
-      "material_class": "TAPE",
-      "uom": "MTR",
-      "engine": "TAPE",
-      "length_inch": 14.5,
-      "piece_count": 1
-    }},
-    {{
-      "component_name": "Front Main Button 24L",
-      "material_type": "Button",
-      "material_class": "BUTTON",
-      "uom": "PCS",
-      "engine": "COUNT",
-      "quantity_pcs": 8
-    }}
-  ]
-}}
+{dummy_json_payload}
 ===END_JSON===
 """
+
 
 
 
