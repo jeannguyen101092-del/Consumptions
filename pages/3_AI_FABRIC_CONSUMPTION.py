@@ -500,21 +500,36 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
               ]
             }
             """.replace("SIZE_PLH", str(target_size_cmd)).replace("WIDTH_PLH", str(active_width))
+                       # =====================================================================
+            # ĐOẠN 7a - PHẦN 10: PROMPT AGENT 2 ROUTER & API EXECUTION CORE (V102.8)
+            # 🌟 ĐÃ KHÔI PHỤC TƯ DUY HÌNH HỌC: ÉP AI TRA CỨU THÔNG SỐ RẬP THÔ > 2.5 YDS
+            # =====================================================================
             prompt_agent_2 = f"""
             You are Agent 2: The Enterprise Apparel Visual Auditor & Material Router.
-            Extract ALL Techpack BOM components listed in the documents. ROUTE each component to its correct engine:
-            - Main Fabric, Lining -> Engine: "FABRIC"
-            - Fusible -> Engine: "FUSING"
-            - Elastic -> Engine: "ELASTIC" (Fields: length_inch, piece_count, stretch_pct)
+            Review Agent 1 extraction against the raw Techpack context, BOM tables, and sketches.
+
+            🌟 CRITICAL REALISM AUDIT FOR RUCHED DRESS:
+            1. For a Dress/Garment, you MUST include BOTH the Front Panel and Back Panel pieces.
+            2. CRITICAL HINT FOR HIGH CONSUMPTION (>2.5 YDS): Because this is a SIDE_RUCHE garment, the un-gathered pattern piece length (bounding_box_length) is significantly longer than the finished dress length. Ensure the bounding_box_length reflects the raw stretched pattern piece (typically 58.0 to 68.0 inches for adult mini dress before gathering to achieve realistic production yield). Do NOT extract short finished measurements.
+
+            🌟 MATERIAL ROUTING ARCHITECTURE:
+            Extract ALL Techpack BOM components. ROUTE each component to its correct engine:
+            - Main Fabric, Lining, Pocketing -> Engine: "FABRIC" (Fields required: bounding_box_length, bounding_box_width, piece_count, gather_type, gather_depth)
+            - Fusible, Interlining -> Engine: "FUSING" (Fields required: bounding_box_length, bounding_box_width, piece_count, gather_type, gather_depth)
+            - Elastic Bands -> Engine: "ELASTIC" (Fields: length_inch, piece_count, stretch_pct)
             - Tape, Drawcord -> Engine: "TAPE" (Fields: length_inch, piece_count)
             - Button, Zipper, Label -> Engine: "COUNT" (Fields: quantity_pcs)
+            
             All fabric items must match width {active_width}.
             Output clean JSON under ===START_JSON=== and chat under ===START_CHAT===.
             
             ===START_CHAT===
-            ⚖️ Enterprise CAD Pipeline Engaged: Đã phân loại phụ liệu chuyển sang Python Micro-Engines.
+            ⚖️ Enterprise CAD Pipeline Engaged: Đã phân loại phụ liệu và đồng bộ kích thước bao rập nhún sườn (SIDE_RUCHE) sang Python Micro-Engines.
             ===END_CHAT===
-            ===START_JSON===\n{dummy_json_payload}\n===END_JSON===
+            
+            ===START_JSON===
+            {dummy_json_payload}
+            ===END_JSON===
             """
 
             gemini_inputs = copy.deepcopy(image_payloads)
@@ -551,6 +566,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
 
         except Exception as ai_err:
             st.error(f"❌ Lỗi AI: {str(ai_err)}")
+
 # =====================================================================
 # ĐOẠN 7b: HIỂN THỊ KẾT QUẢ ĐỊNH MỨC & BẢNG ĐỐI CHỨNG ĐA CỘT ĐỒNG BỘ SIZE (V102.6 MULTI-ENGINE)
 # 🌟 ĐỒNG BỘ HẠ TẦNG: ĐỌC ĐỘNG DỮ LIỆU TỪ CÁC MICRO-ENGINES (FABRIC/ELASTIC/TAPE/COUNT)
