@@ -365,11 +365,26 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# 🌟 TINH CHỈNH ĐỒ HỌA: CHUYỂN VIỀN ĐEN THÔ THÀNH VIỀN XÁM MỊN HIỆN ĐẠI, BO GÓC VÀ ĐỔ BÓNG NHẸ
+# 🌟 BẢN VÁ PHÒNG VỆ HIỂN THỊ CHỐNG MẤT HÌNH KHI CUỘN TRANG (STATIC FIXED CONTAINER)
 st.markdown("""
 <style>
+    /* Ép container đỉnh bao bọc khít toàn bộ chiều cao của cả khối màu và khối ảnh hình rập */
+    .sticky-top-container {
+        position: fixed !important;
+        top: 0 !important; 
+        left: 0 !important;
+        right: 0 !important;
+        padding: 10px 4rem 20px 4rem !important; 
+        background-color: #f8fafc !important; 
+        z-index: 999999 !important; 
+        box-shadow: 0 6px 16px rgba(0,0,0,0.06) !important;
+        width: 100% !important;
+        height: 275px !important;            /* ĐỊNH BIÊN CHIỀU CAO TRẦN ĐỂ CHỐNG TRÀN VÀ MẤT HÌNH */
+        overflow: visible !important;
+    }
+
     .kpi-card-colored {
-        border-radius: 6px 6px 0 0 !important; /* Bo góc trên để liền mạch với hộp ảnh dưới */
+        border-radius: 6px 6px 0 0 !important;
         padding: 8px 12px !important;
         text-align: center !important;
         height: 55px !important;
@@ -390,11 +405,10 @@ st.markdown("""
     }
 
     .image-placeholder-box {
-        /* Thay thế viền đen thô bằng viền xám mảnh tinh tế tinh xảo */
         border: 1px solid #cbd5e1 !important;
-        border-top: none !important; /* Triệt tiêu đường viền giữa khối màu và khối ảnh */
-        border-radius: 0 0 6px 6px !important; /* Bo góc dưới mềm mại */
-        padding: 10px !important;
+        border-top: none !important;
+        border-radius: 0 0 6px 6px !important;
+        padding: 5px !important;
         
         height: 140px !important;
         min-height: 140px !important;
@@ -403,7 +417,7 @@ st.markdown("""
         display: flex !important;
         align-items: center !important;
         justify-content: center !important;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05) !important; /* Thêm bóng mờ nhẹ tạo chiều sâu */
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.03) !important;
     }
     .image-placeholder-box img {
         max-height: 115px !important;
@@ -413,11 +427,15 @@ st.markdown("""
         margin: auto !important;
     }
     
-    /* Làm sáng nhẹ tone màu nền để giao diện trang nhã hơn */
     .color-ao   { background-color: #f8fafc !important; }
     .color-quan { background-color: #f4fbf9 !important; }
     .color-vest { background-color: #fffaf5 !important; }
     .color-vay  { background-color: #f5fcf7 !important; }
+
+    /* 🟢 NỚI RỘNG KHOẢNG ĐỆM SPACER LÊN 310PX ĐỂ ĐẨY NỘI DUNG DƯỚI KHÔNG BỊ ĐÈ CHÈN */
+    .main-body-spacer {
+        margin-top: 310px !important; 
+    }
 </style>
 """, unsafe_allow_html=True)
 
