@@ -1579,40 +1579,45 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
 
 
                          # =====================================================================
-                     # =====================================================================
-            # ĐOẠN 7a - PHẦN 2: DYNAMIC MULTI-PRODUCT AI GATEWAY (V65.0 PROMPT FIXED)
-            # 🌟 VÁ CHÍ MẠNG QUOTA: SỬ DỤNG GEMINI-2.5-FLASH ĐỂ CHẠY THƯƠNG MẠI MIỄN PHÍ VÀ ỔN ĐỊNH
-            # 🌟 CẤU TRÚC PROMPT CƯỠNG CHẾ HÀNH VI ÉP AI BẮT BUỘC PHẢI TRẢ DIỆN TÍCH MẢNH CON
+            # ĐOẠN 7a - PHẦN 2: DYNAMIC PROMPT CONFIGURATION (V71.0 CHUẨN LỀ 12)
+            # 🌟 KHỞI TẠO MÔ HÌNH VÀ CẤU TRÚC PROMPT ÉP AI TRẢ DIỆN TÍCH THỰC TRỰC QUAN
             # =====================================================================
             if "GEMINI_API_KEY" not in st.secrets:
                 st.error("💥 Lỗi hạ tầng: Thiếu cấu hình GEMINI_API_KEY trong hệ thống Secrets.")
                 st.stop()
                 
             genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-            
-            # 🟢 VÁ SỬA LỖI 429: Quay trở lại dòng model FLASH có hạn mức miễn phí lớn gấp nhiều lần bản PRO
             model = genai.GenerativeModel("gemini-2.5-flash")
             
             chat_lower = current_query.lower()
             match_size = re.search(r'\b(?:size|sz|cỡ)\s*[:\-=\s]*([\w\d/]+)\b', chat_lower)
             target_size_cmd = str(match_size.group(1)).upper().strip() if match_size else "30"
             
-            # Bộ quét trích xuất khổ vải linh hoạt từ câu lệnh chat
             match_w = re.search(r'(?:khổ|kho|width|w)\s*[:\-=\s]*([\d\.]+)', chat_lower)
             active_width = float(match_w.group(1)) if match_w else 57.0
             if active_width < 20.0: active_width = 57.0
             
-            # Cấu trúc Prompt mẫu ép buộc mô hình Flash phải tính toán hình học đa cấu kiện
             prompt_instruction = f"""
-            You are an expert apparel Industrial Engineer (IE) and CAD pattern master [INSTRUCT]. Your absolute priority is to analyze the provided techpack text and technical sketches to calculate precise individual piece areas for size '{target_size_cmd}' [INSTRUCT].
+            You are a world-class apparel Industrial Engineer (IE) and CAD pattern master. Your mission is to thoroughly scan ALL provided techpack pages (BOM, Measurement, and Technical Sketches) to extract structural data for size '{target_size_cmd}'.
 
-            🚨 STRICT GERBER-CAD PACKING LAWS (MANDATORY PROTECTION):
-            1. You MUST populate the 'panels_catalog' array for EVERY single material row discovered in the BOM. Leaving 'panels_catalog': [] or returning 0 for area is strict violation [INSTRUCT].
-            2. For EVERY panel, you MUST look at the Measurement chart and Technical Sketch to estimate its physical max height (length) and width. Then, calculate its TRUE geometric area ('calculated_net_area_sq_inch') [INSTRUCT].
-               - Formula example: Front Leg area = Length * Width * Shape_Factor (e.g., 40.5 inches length * 13.0 inches width * 0.90 shape vining = ~473.8 sq inches). DO NOT leave empty or output 0.0 [INSTRUCT].
-            3. At the top level inside '_btp_global_summary', you MUST aggregate all data and provide:
-               - 'total_net_area_sq_inch': The absolute mathematical sum of all panels multiplied by piece counts.
-               - 'estimated_marker_utilization': The overall layout efficiency (decimal between 0.72 and 0.92) based on how shapes interlock together on a standard marker sheet [INSTRUCT].
+            🌟 CORE CAD INFERENCE LAWS:
+            1. Detect the Garment Type and style profile directly from the sketches.
+            2. For EVERY single pattern panel, utilize the Sketches and measurement data to estimate its TRUE geometric polygon net area and bounding box. 
+            3. You MUST calculate and provide the following explicit fields for each panel inside 'panels_catalog':
+               - 'bounding_box_length_inch': Max height of the panel bounding box.
+               - 'bounding_box_width_inch': Max width of the panel bounding box.
+               - 'calculated_net_area_sq_inch': Calculated true geometric area of ONE single piece (in square inches).
+               - 'confidence': Confidence score (decimal between 0.0 and 1.0).
+               - 'is_primary_panel': Boolean value (true if it is a major component like FRONT LEG, BACK LEG, FRONT BODY, BACK BODY, SLEEVE, WAISTBAND).
+               - 'geometry_method': Method used (e.g., "POM+Sketch").
+               - 'geometry_source': Exact source items used (e.g., ["HIP-020", "LEG-012"]).
+            4. STRICT LAW: Never return 0 or null for any panel area or size metrics.
+
+            🌟 GLOBAL GERBER-STYLE MARKER LOGIC LAW:
+            At the top level of the JSON response (inside '_btp_global_summary'), you MUST aggregate data exactly like Gerber AccuMark nesting software:
+            - 'total_net_area_sq_inch': Absolute mathematical SUM of all calculated net areas for all pieces combined.
+            - 'estimated_marker_utilization': Predicted true overall marker efficiency percentage (decimal between 0.65 and 0.95).
+            - 'global_confidence_score': Average data confidence index.
 
             Output STRICTLY in this raw plain text JSON format without markdown markers. All 'fabric_width_inch' MUST match the value {active_width}:
             ===START_JSON===
@@ -1621,9 +1626,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
               "detected_product_type": "JEANS",
               "calculated_on_size": "{target_size_cmd}",
               "matched_measurements": [
-                 "WST-011: Pant/skirt waist width Along Edge = 16.5 inch",
-                 "HIP-020: Pant/Skirt - Low hip width = 21.5 inch",
-                 "LEG-012: Inseam = 31.5 inch"
+                 "<POM_CODE>: <POM_DESCRIPTION> = <EXTRACTED_DECIMAL> inch"
               ],
               "_btp_global_summary": {{
                 "total_bom_rows": 3,
@@ -1634,7 +1637,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
               }},
               "bom_rows": [
                 {{
-                  "component_type": "Denim Main Fabric",
+                  "component_type": "<EXTRACTED_MATERIAL_NAME>",
                   "fabric_classification": "MAIN_FABRIC",
                   "fabric_width_inch": {active_width},
                   "panels_catalog": [
@@ -1646,66 +1649,8 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                       "calculated_net_area_sq_inch": 435.5,
                       "confidence": 0.95,
                       "geometry_method": "POM+Sketch",
-                      "geometry_source": ["LEG-012", "HIP-020"],
+                      "geometry_source": ["HIP-020", "LEG-012"],
                       "is_primary_panel": true
-                    }},
-                    {{
-                      "panel_name": "BACK LEG PANEL",
-                      "piece_count": 2.0,
-                      "bounding_box_length_inch": 43.0,
-                      "bounding_box_width_inch": 14.5,
-                      "calculated_net_area_sq_inch": 485.0,
-                      "confidence": 0.95,
-                      "geometry_method": "POM+Sketch",
-                      "geometry_source": ["LEG-012", "HIP-020"],
-                      "is_primary_panel": true
-                    }},
-                    {{
-                      "panel_name": "WAISTBAND",
-                      "piece_count": 1.0,
-                      "bounding_box_length_inch": 35.0,
-                      "bounding_box_width_inch": 3.5,
-                      "calculated_net_area_sq_inch": 122.5,
-                      "confidence": 0.95,
-                      "geometry_method": "POM+Sketch",
-                      "geometry_source": ["WST-011"],
-                      "is_primary_panel": true
-                    }}
-                  ]
-                }},
-                {{
-                  "component_type": "TC Pocketing Fabric",
-                  "fabric_classification": "LINING",
-                  "fabric_width_inch": {active_width},
-                  "panels_catalog": [
-                    {{
-                      "panel_name": "POCKET BAG",
-                      "piece_count": 4.0,
-                      "bounding_box_length_inch": 11.5,
-                      "bounding_box_width_inch": 7.5,
-                      "calculated_net_area_sq_inch": 86.2,
-                      "confidence": 0.90,
-                      "geometry_method": "Visual Inference from Sketch",
-                      "geometry_source": ["Technical Sketch"],
-                      "is_primary_panel": false
-                    }}
-                  ]
-                }},
-                {{
-                  "component_type": "Tricot Fusing",
-                  "fabric_classification": "FUSING",
-                  "fabric_width_inch": {active_width},
-                  "panels_catalog": [
-                    {{
-                      "panel_name": "WAISTBAND FUSING",
-                      "piece_count": 1.0,
-                      "bounding_box_length_inch": 35.0,
-                      "bounding_box_width_inch": 3.5,
-                      "calculated_net_area_sq_inch": 122.5,
-                      "confidence": 0.95,
-                      "geometry_method": "CAD Mapping",
-                      "geometry_source": ["WST-011"],
-                      "is_primary_panel": false
                     }}
                   ]
                 }}
@@ -1713,20 +1658,14 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             }}
             ===END_JSON===
             """
-
-
-
-
-
-
-                         # =====================================================================
-            # ĐOẠN 7a - PHẦN 3: POST-AI MIDDLEWARE PURE CONNECTIVITY (V69.0 - VÁ CÚ PHÁP CHUẨN)
-            # 🌟 SỬA TRIỆT ĐỂ LỖI SYNTAXERROR BẰNG CÁCH KHAI TỬ KHỐI TRY-EXCEPT MỒ CÔI GÂY LỖI
+            # =====================================================================
+            # ĐOẠN 7a - PHẦN 3: POST-AI MIDDLEWARE & CLOSING GATE (V71.0)
             # 🌟 KHÓA CHẶT LUỒNG RERUN ĐỂ ÉP MÀN HÌNH ĐỨNG IM XẢ 100% CẤU TRÚC JSON GỐC
+            # 🌟 VÁ SỬA HOÀN TOÀN LỖI CÚ PHÁP SYNTAXERROR BẰNG ĐUÔI ĐÓNG LUỒNG TOÀN CỤC CHUẨN LỀ
             # =====================================================================
             response_text = ""
             
-            # Khởi tạo chữ ký và kiểm tra bộ nhớ đệm Cache chống kẹt
+            # Định nghĩa các biến kiểm tra trạng thái bộ nhớ đệm Cache chống kẹt
             pdf_bytes_len_p3 = len(st.session_state.pdf_bytes) if st.session_state.pdf_bytes else 0
             current_signature_p3 = (str(safe_user_prompt).strip(), int(len(image_payloads)), int(pdf_bytes_len_p3))
             
@@ -1782,15 +1721,11 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                 if raw_json_str:
                     raw_json_str = re.sub(r',\s*([\]\}])', r'\1', raw_json_str)
                     
-                    # 🟢 GIẢI PHÁP AN TOÀN TUYỆT ĐỐI: Tạo hàm nạp JSON cục bộ sạch sẽ, cấu trúc rõ ràng
-                    def safe_parse_json(json_string):
-                        try:
-                            return json.loads(json_string)
-                        except Exception as parse_err:
-                            st.error(f"❌ THẤT BẠI PARSE JSON PHÍA TRONG LUỒNG: {str(parse_err)}")
-                            return None
-
-                    blueprint_worker = safe_parse_json(raw_json_str)
+                    blueprint_worker = None
+                    try:
+                        blueprint_worker = json.loads(raw_json_str)
+                    except:
+                        st.stop()
                     
                     if blueprint_worker and "bom_rows" in blueprint_worker:
                         blueprint_final = allocate_fabric_consumption_and_quality_gate(blueprint_worker, str(current_query))
@@ -1798,13 +1733,17 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                         st.session_state.accumulated_bom_rows = blueprint_final.get("bom_rows", [])
                         st.session_state["last_processed_signature"] = current_signature_p3
                         st.success("🎉 Xử lý diện tích hình học phẳng CAD thành công theo kiến trúc V61!")
-                        # 🚨 KHÓA CHẶT RERUN: Để màn hình đứng im cho chúng ta soi khối st.json
+                        # 🚨 KHÓA CHẶT RERUN: Để màn hình đứng im cho chúng ta soi khối st.json thô nhằm debug
                         # st.rerun() 
                     else:
-                        st.error("⚠️ Khối JSON của AI thiếu trường danh mục bom_rows hoặc lỗi cấu trúc bên trong.")
+                        st.error("⚠️ Khối JSON của AI thiếu trường danh mục bom_rows.")
                 else:
                     st.error("❌ Không thể bóc tách START_JSON từ văn bản phản hồi thô của Gemini.")
 
+        # 🌟 KHỐI ĐÓNG LUỒNG TOÀN CỤC CHÍ MẠNG: Thụt lề chuẩn mực ra phía mép ngoài 8 dấu cách để đóng lệnh try từ Phần 1 mở ra
+        except Exception as e_global:
+            st.error(f"💥 Lỗi luồng trích xuất hạ tầng tổng toàn cục: {str(e_global)}")
+            st.code(traceback.format_exc())
 
 
 
