@@ -23,6 +23,10 @@ EXCLUDE_HARDWARE_KEYS = (
 # 🌟 VÁ LỖI REGEX THEO NGỮ CẢNH - KHỞI TẠO HỆ THỐNG THAM SỐ CẤU HÌNH ĐỘNG
 # =====================================================================
 def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, query_string: str) -> dict:
+    import copy
+    import re
+    import streamlit as st
+    
     st.warning("⚡ ENTERPRISE CAD ENGINE: DETERMINISTIC QUALITY GATEWAY V110.0 ACTIVATED")
     
     if not blueprint_final or "bom_rows" not in blueprint_final:
@@ -58,26 +62,24 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, query_st
         "JEANS": {"MAIN_FABRIC": 0.84, "LINING": 0.78, "FUSING": 0.80},
         "SHIRT": {"MAIN_FABRIC": 0.79, "LINING": 0.75, "FUSING": 0.75},
         "JACKET": {"MAIN_FABRIC": 0.81, "LINING": 0.80, "FUSING": 0.78},
-        "DRESS": {"MAIN_FABRIC": 0.75, "LINING": 0.72, "FUSING": 0.70},
+        "DRESS": {"MAIN_FABRIC": 0.78, "LINING": 0.72, "FUSING": 0.70}, # Tăng nhẹ biên dạng bao phủ váy
         "FLARE_SKIRT": {"MAIN_FABRIC": 0.62, "LINING": 0.60, "FUSING": 0.60},
         "DEFAULT": {"MAIN_FABRIC": 0.82, "LINING": 0.78, "FUSING": 0.78}
     }
     
+    # 🌟 ĐÃ ĐIỀU CHỈNH TỶ LỆ CO RÚT / NHÚN ĐỂ NÂNG CAO ĐỊNH MỨC THEO THỰC TẾ SẢN XUẤT ĐẦM RUCHED
     GATHER_RATIO_MATRIX = {
         "NONE": {"NONE": 1.00, "LIGHT": 1.05, "MEDIUM": 1.10, "HEAVY": 1.15},
-        "SIDE_RUCHE": {"NONE": 1.00, "LIGHT": 1.15, "MEDIUM": 1.30, "HEAVY": 1.50},
-        "WAIST_GATHER": {"NONE": 1.00, "LIGHT": 1.20, "MEDIUM": 1.40, "HEAVY": 1.65},
+        "SIDE_RUCHE": {"NONE": 1.00, "LIGHT": 1.20, "MEDIUM": 1.45, "HEAVY": 1.70}, # Tăng hệ số bù hao nhún sườn
+        "WAIST_GATHER": {"NONE": 1.00, "LIGHT": 1.25, "MEDIUM": 1.45, "HEAVY": 1.65},
         "FLARE_SKIRT": {"NONE": 1.00, "LIGHT": 1.25, "MEDIUM": 1.50, "HEAVY": 1.85}
     }
     
     PRODUCT_WASTAGE_MATRIX = {
-        "MAIN_FABRIC": 1.02, "LINING": 1.03, "FUSING": 1.03, 
+        "MAIN_FABRIC": 1.03, "LINING": 1.03, "FUSING": 1.03, # Nâng hao hụt đầu bàn vải chính lên 3%
         "KNIT_FABRIC": 1.04, "STRIPE_CHECK": 1.05, "DEFAULT": 1.03
     }
-    # =====================================================================
-    # ĐOẠN B - PHẦN 2: TECHNICAL QUALITY GATE & COMPUTATION LOOP (V110.0)
-    # 🌟 KIỂM TRA CHẤT LƯỢNG BIẾN - POLYGON DECOUPLING - TÍNH ĐỊNH MỨC CAD TUYỆT ĐỐI
-    # =====================================================================
+
     ai_bom_rows = blueprint_final.get("bom_rows", [])
     
     for ai_row in ai_bom_rows:
@@ -133,7 +135,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, query_st
         
         if raw_poly_area is not None and float(raw_poly_area or 0.0) > 0:
             total_net_area = float(raw_poly_area)
-            net_area_factor = 1.00 # LY KHAI HOÀN TOÀN HỆ SỐ KINH NGHIỆM KHI CÓ POLYGON THẬT
+            net_area_factor = 1.00 
             area_note = "📐 Diện tích Đa giác (DXF Real Area)"
         else:
             raw_length = ui_row.get("bounding_box_length", ui_row.get("length_inch", ui_row.get("length", 0.0)))
@@ -176,12 +178,12 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, query_st
             
         qa_summary = " | ".join(qa_logs) if qa_logs else "✅ DỮ LIỆU ĐẦU VÀO ĐẠT CHUẨN KIỂM TOÁN."
         ui_row["system_notes"] = f"{area_note} | Hiệu suất: {ui_source_tag} | Hao hụt: {round((active_wastage_factor-1)*100,1)}% | {g_type}_{g_depth}({active_gather_ratio}x) | [{qa_summary}]"
+        
+        # Fix đoạn lỗi cú pháp bị cắt ngắn của bạn:
         filtered_bom_rows.append(ui_row)
         
-    st.session_state["bom_rows"] = filtered_bom_rows
-    st.session_state["accumulated_bom_rows"] = filtered_bom_rows
-    st.session_state["bom_data"] = {"bom_rows": filtered_bom_rows, "detected_product_type": product_type, "calculated_on_size": blueprint_final.get("calculated_on_size", "30")}
-    return st.session_state["bom_data"]
+    blueprint_final["bom_rows"] = filtered_bom_rows
+    return blueprint_final
 
 
 
