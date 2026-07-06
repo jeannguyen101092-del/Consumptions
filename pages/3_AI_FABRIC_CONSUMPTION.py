@@ -1668,8 +1668,8 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
 
 
 
-                         # =====================================================================
-            # ĐOẠN 7a - PHẦN 2: DYNAMIC PROMPT CONFIGURATION (V71.0 CHUẨN LỀ 12)
+                  # =====================================================================
+            # ĐOẠN 7a - PHẦN 2: DYNAMIC PROMPT CONFIGURATION (V74.0 CHUẨN LỀ 12)
             # 🌟 KHỞI TẠO MÔ HÌNH VÀ CẤU TRÚC PROMPT ÉP AI TRẢ DIỆN TÍCH THỰC TRỰC QUAN
             # =====================================================================
             if "GEMINI_API_KEY" not in st.secrets:
@@ -1688,15 +1688,15 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             if active_width < 20.0: active_width = 57.0
             
             prompt_instruction = f"""
-            You are a world-class apparel Industrial Engineer (IE) and CAD pattern master. Your mission is to thoroughly scan ALL provided techpack pages (BOM, Measurement, and Technical Sketches) to extract structural data for size '{target_size_cmd}'.
+            You are a world-class apparel Industrial Engineer (IE) and CAD pattern master [INDEX]. Your mission is to thoroughly scan ALL provided techpack pages (BOM, Measurement, and Technical Sketches) to extract structural data for size '{target_size_cmd}' [INDEX].
 
             🌟 CORE CAD INFERENCE LAWS:
-            1. Detect the Garment Type and style profile directly from the sketches.
-            2. For EVERY single pattern panel, utilize the Sketches and measurement data to estimate its TRUE geometric polygon net area and bounding box. 
+            1. Detect the Garment Type and style profile directly from the sketches [INDEX].
+            2. For EVERY single pattern panel, utilize the Sketches and measurement data to estimate its TRUE geometric polygon net area and bounding box [INDEX]. 
             3. You MUST calculate and provide the following explicit fields for each panel inside 'panels_catalog':
                - 'bounding_box_length_inch': Max height of the panel bounding box.
                - 'bounding_box_width_inch': Max width of the panel bounding box.
-               - 'calculated_net_area_sq_inch': Calculated true geometric area of ONE single piece (in square inches).
+               - 'calculated_net_area_sq_inch': Calculated true geometric area of ONE single piece (in square inches) [INDEX].
                - 'confidence': Confidence score (decimal between 0.0 and 1.0).
                - 'is_primary_panel': Boolean value (true if it is a major component like FRONT LEG, BACK LEG, FRONT BODY, BACK BODY, SLEEVE, WAISTBAND).
                - 'geometry_method': Method used (e.g., "POM+Sketch").
@@ -1704,12 +1704,12 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             4. STRICT LAW: Never return 0 or null for any panel area or size metrics.
 
             🌟 GLOBAL GERBER-STYLE MARKER LOGIC LAW:
-            At the top level of the JSON response (inside '_btp_global_summary'), you MUST aggregate data exactly like Gerber AccuMark nesting software:
+            At the top level of the JSON response (inside '_btp_global_summary'), you MUST aggregate data exactly like Gerber AccuMark nesting software [INDEX]:
             - 'total_net_area_sq_inch': Absolute mathematical SUM of all calculated net areas for all pieces combined.
-            - 'estimated_marker_utilization': Predicted true overall marker efficiency percentage (decimal between 0.65 and 0.95).
+            - 'estimated_marker_utilization': Predicted true overall marker efficiency percentage (decimal between 0.65 and 0.95) [INDEX].
             - 'global_confidence_score': Average data confidence index.
 
-            Output STRICTLY in this raw plain text JSON format without markdown markers. All 'fabric_width_inch' MUST match the value {active_width}:
+            Output STRICTLY in this two-tier raw plain text JSON format without markdown markers. All 'fabric_width_inch' MUST match the value {active_width}:
             ===START_JSON===
             {{
               "status": "PASS",
@@ -1748,21 +1748,21 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             }}
             ===END_JSON===
             """
-                       # =====================================================================
-            # ĐOẠN 7a - PHẦN 3: POST-AI MIDDLEWARE ARCHITECTURE (V73.0 GOLD PRODUCTION)
-            # 🌟 KHẮC PHỤC TRIỆT ĐỂ LỖI KẸT VÒNG LẶP RERUN TỰ DO DÌM ĐỊNH MỨC VỀ SỐ 0
-            # 🌟 ĐỒNG BỘ KIẾN TRÚC V61: CHỈ CHO PHÉP RERUN KHI PARSE THÀNH CÔNG KHỐI BLUEPRINT GỐC
+            # =====================================================================
+            # ĐOẠN 7a - PHẦN 3: POST-AI MIDDLEWARE & CLOSING GATE (V74.0)
+            # 🌟 CHỈ RERUN KHI CÓ KẾT QUẢ THÀNH CÔNG - TRIỆT TIÊU HOÀN TOÀN LỖI LẶP VÔ HẠN
+            # 🌟 VÁ SỬA HOÀN TOÀN LỖI CÚ PHÁP SYNTAXERROR BẰNG ĐUÔI ĐÓNG LUỒNG TOÀN CỤC CHUẨN LỀ
             # =====================================================================
             response_text = ""
             
-            # Khởi tạo chữ ký và kiểm tra trạng thái bộ nhớ đệm Cache chống kẹt
+            # Định nghĩa các biến kiểm tra trạng thái bộ nhớ đệm Cache chống kẹt
             pdf_bytes_len_p3 = len(st.session_state.pdf_bytes) if st.session_state.pdf_bytes else 0
             current_signature_p3 = (str(safe_user_prompt).strip(), int(len(image_payloads)), int(pdf_bytes_len_p3))
             
             has_no_data_p3 = not st.session_state.get("bom_data") or st.session_state.get("bom_data") == {}
             is_signature_changed_p3 = st.session_state.get("last_processed_signature") != current_signature_p3
 
-            # Gọi trực tiếp API Google Gemini khi có lệnh mới hoặc khuyết dữ liệu cache
+            # Gọi trực tiếp API Google Gemini
             if has_no_data_p3 or is_signature_changed_p3:
                 try:
                     full_api_payload = gemini_inputs + [prompt_instruction]
@@ -1776,12 +1776,12 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             # Lấy chuỗi dữ liệu gốc từ bộ nhớ đệm ra xử lý (Bảo toàn dòng chảy dữ liệu khi Rerun)
             active_json_stream = st.session_state.get("_btp_master_raw_json_stream", response_text)
 
-            # Xử lý phân tách luồng dữ liệu hình học
+            # Xử lý điều hướng luồng dữ liệu hình học khi có phản hồi mới từ AI
             if active_json_stream:
                 json_match = re.search(r'(?:===START_JSON===\s*|```json\s*)(.*?)(?:\s*===END_JSON===|\s*```)', active_json_stream, re.DOTALL)
                 chat_match = re.search(r'(?:===START_CHAT===\s*|```markdown\s*)(.*?)(?:\s*===END_CHAT===|\s*```|$)', active_json_stream, re.DOTALL)
                 
-                # Nạp phản hồi hội thoại của AI lên khung chat (chỉ nạp một lần khi có response_text mới)
+                # Nạp phản hồi hội thoại của AI lên khung chat (chỉ nạp một lần khi có response_text thực tế)
                 if chat_match and response_text:
                     st.session_state.chat_history.append({
                         "user": current_query, 
@@ -1802,27 +1802,31 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                     try:
                         blueprint_worker = json.loads(raw_json_str)
                     except Exception as json_err:
-                        st.error(f"❌ LỖI PARSE JSON PHÍA TRONG LUỒNG: {str(json_err)}")
+                        st.error(f"❌ THẤT BẠI PARSE JSON PHÍA TRONG LUỒNG: {str(json_err)}")
                         st.code(raw_json_str, language="json")
                         st.stop()
                     
                     if blueprint_worker and "bom_rows" in blueprint_worker:
-                        # Thực thi lõi toán hình học CAD phẳng (Đoạn B V66.5 Tích hợp bộ Debug kiểm toán 3 tầng)
+                        # Gọi lõi toán hình học (Hàm Backend Đoạn B V66.5 chứa 3 bộ cảm biến Debug)
                         blueprint_final = allocate_fabric_consumption_and_quality_gate(blueprint_worker, str(safe_user_prompt).strip())
                         
-                        # Chốt khóa bộ nhớ đệm chữ ký tải trang
+                        st.session_state.bom_data = blueprint_final
+                        st.session_state.accumulated_bom_rows = blueprint_final.get("bom_rows", [])
+                        
                         if response_text:
                             st.session_state["last_processed_signature"] = current_signature_p3
                             st.success("🎉 Xử lý diện tích hình học phẳng CAD thành công theo kiến trúc V61!")
-                            
-                            # 🟢 CHỈ CHO PHÉP RERUN TẠI ĐÂY (NẰM SÂU TRONG CẤU TRÚC ĐIỀU KIỆN THÀNH CÔNG)
+                            # 🟢 CHỈ RERUN TẠI ĐÂY: Đồng bộ giao diện một lần duy nhất khi tính toán thành công
                             st.rerun() 
                     else:
                         st.error("⚠️ Khối JSON của AI thiếu trường danh mục bom_rows.")
                 else:
                     st.error("❌ Không thể bóc tách START_JSON từ văn bản phản hồi thô của Gemini.")
-            
-            # 🚨 🚨 🚨 TUYỆT ĐỐI KHÔNG ĐỂ BẤT KỲ LỆNH ST.RERUN() NÀO NẰM LƠ LỬNG Ở ĐÂY NỮA!
+
+        # 🌟 KHỐI ĐÓNG LUỒNG TOÀN CỤC CHÍ MẠNG: Thụt lề chuẩn mực ra mép ngoài 8 dấu cách để đóng lệnh try từ Phần 1 mở ra
+        except Exception as e_global:
+            st.error(f"💥 Lỗi luồng trích xuất hạ tầng tổng toàn cục: {str(e_global)}")
+            st.code(traceback.format_exc())
 
 
 
