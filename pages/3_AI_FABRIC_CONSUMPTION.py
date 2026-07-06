@@ -365,11 +365,11 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# CSS PHÒNG VỆ RIÊNG CHO ẢNH TRONG KHUNG VIỀN ĐEN
+# CSS KHỐNG CHẾ ẢNH TRONG KHUNG VIỀN ĐEN ĐỂ KHÔNG BỊ TRÀN KHUNG HỘP
 st.markdown("""
 <style>
     .image-placeholder-box img {
-        max-height: 140px !important;
+        max-height: 120px !important;
         width: auto !important;
         object-fit: contain !important;
         margin: 0 auto !important;
@@ -382,23 +382,24 @@ k_col1, k_col2, k_col3, k_col4 = st.columns(4)
 
 with k_col1: 
     st.markdown(f'<div class="kpi-card-colored bg-style"><div class="kpi-num-light">{kpi_style_id}</div><div class="kpi-lbl-light">Mã hàng đang xử lý</div></div>', unsafe_allow_html=True)
-    st.markdown('<div class="image-placeholder-box" style="text-align:center; padding:15px 5px;"><img src="https://unsplash.com" alt="Áo"><div style="font-size:11px; margin-top:5px; font-weight:bold;">Hiển thị hình ảnh Áo</div></div>', unsafe_allow_html=True)
+    st.markdown('<div class="image-placeholder-box" style="text-align:center; padding:15px 5px;"><img src="https://unsplash.com" alt="Áo"><div style="font-size:11px; margin-top:5px; font-weight:bold; color:#000000;">hiển thị hình ảnh<br>áo</div></div>', unsafe_allow_html=True)
 
 with k_col2: 
     st.markdown(f'<div class="kpi-card-colored bg-items"><div class="kpi-num-light">{total_materials} Item(s)</div><div class="kpi-lbl-light">Tổng số vật tư kết xuất</div></div>', unsafe_allow_html=True)
-    st.markdown('<div class="image-placeholder-box" style="text-align:center; padding:15px 5px;"><img src="https://unsplash.com" alt="Quần"><div style="font-size:11px; margin-top:5px; font-weight:bold;">Hiển thị hình ảnh Quần</div></div>', unsafe_allow_html=True)
+    st.markdown('<div class="image-placeholder-box" style="text-align:center; padding:15px 5px;"><img src="https://unsplash.com" alt="Quần"><div style="font-size:11px; margin-top:5px; font-weight:bold; color:#000000;">hiển thị hình ảnh<br>quần</div></div>', unsafe_allow_html=True)
 
 with k_col3: 
     st.markdown(f'<div class="kpi-card-colored bg-cons"><div class="kpi-num-light" style="font-size:22px;">{main_fabric_cons}</div><div class="kpi-lbl-light">Định mức vải chính dự kiến</div></div>', unsafe_allow_html=True)
-    st.markdown('<div class="image-placeholder-box" style="text-align:center; padding:15px 5px;"><img src="https://unsplash.com" alt="Vest"><div style="font-size:11px; margin-top:5px; font-weight:bold;">Hình ảnh Vest</div></div>', unsafe_allow_html=True)
+    st.markdown('<div class="image-placeholder-box" style="text-align:center; padding:15px 5px;"><img src="https://unsplash.com" alt="Vest"><div style="font-size:11px; margin-top:15px; font-weight:bold; color:#000000;">hình ảnh vest</div></div>', unsafe_allow_html=True)
 
 with k_col4: 
     st.markdown(f'<div class="kpi-card-colored bg-size"><div class="kpi-num-light">{active_size_kpi}</div><div class="kpi-lbl-light">Cỡ hạt tính định mức</div></div>', unsafe_allow_html=True)
-    st.markdown('<div class="image-placeholder-box" style="text-align:center; padding:15px 5px;"><img src="https://unsplash.com" alt="Váy"><div style="font-size:11px; margin-top:5px; font-weight:bold;">Hình ảnh Váy</div></div>', unsafe_allow_html=True)
+    st.markdown('<div class="image-placeholder-box" style="text-align:center; padding:15px 5px;"><img src="https://unsplash.com" alt="Váy"><div style="font-size:11px; margin-top:15px; font-weight:bold; color:#000000;">hình ảnh váy</div></div>', unsafe_allow_html=True)
 
 st.markdown('</div>', unsafe_allow_html=True)
 
 st.markdown('<div class="main-body-spacer"></div>', unsafe_allow_html=True)
+
 
 # =====================================================================
 # ĐOẠN 6b: KHỐI CHIA CỘT ĐỐI XỨNG - KHỐNG CHẾ TRỰC TIẾP CHIỀU CAO ẢNH (V18.3.5.0 APPROVED)
