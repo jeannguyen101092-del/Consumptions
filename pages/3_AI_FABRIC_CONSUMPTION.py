@@ -531,24 +531,6 @@ with col_left:
         
     st.markdown('</div>', unsafe_allow_html=True)
 
-    # 🌟 Ô TRỐNG BÊN TRÁI: ĐÃ BIẾN THÀNH KHỐI ĐỐI SOÁT CO RÚT & KHỔ VẢI ĐỘNG
-    st.markdown('<div class="custom-erp-box" style="height: 110px !important; min-height: 110px !important; padding: 12px 20px !important;">', unsafe_allow_html=True)
-    st.markdown('<div style="font-size:11px; font-weight:700; color:#475569; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:8px;">⚙️ KÍCH HOẠT THAM SỐ CO RÚT & KHỔ CẮT</div>', unsafe_allow_html=True)
-    
-    # Đọc động thông số khổ vải đang chạy từ dữ liệu kết quả để điền lên ô trống
-    active_w_view = "56.0 inch"
-    if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data:
-        for r in st.session_state.bom_data["bom_rows"]:
-            if r.get("engine") in ["FABRIC", "FUSING"]:
-                active_w_view = f"{r.get('fabric_width_inch', 56.0)} inch"
-                break
-                
-    v_col1, v_col2, v_col3 = st.columns(3)
-    with v_col1: st.markdown(f'<div style="font-size:10px; color:#64748b;">Co rút dọc (Warp)</div><div style="font-size:15px; font-weight:700; color:#0284c7;">3.0%</div>', unsafe_allow_html=True)
-    with v_col2: st.markdown(f'<div style="font-size:10px; color:#64748b;">Co rút ngang (Weft)</div><div style="font-size:15px; font-weight:700; color:#0284c7;">3.0%</div>', unsafe_allow_html=True)
-    with v_col3: st.markdown(f'<div style="font-size:10px; color:#64748b;">Khổ vải cắt thực tế</div><div style="font-size:15px; font-weight:700; color:#0f172a;">{active_w_view}</div>', unsafe_allow_html=True)
-    st.markdown('</div>', unsafe_allow_html=True)
-
 
 # --- CỘT PHẢI: KHUNG XEM BẢN VẼ PHẲNG SKETCH ---
 with col_right:
@@ -572,23 +554,6 @@ with col_right:
     else:
         st.markdown("<div style='margin-top: 50px; text-align: center; color: #64748b; font-size: 13px;'>Hình vẽ phác họa phẳng (Sketch) trích xuất từ trang bìa PDF sẽ tự động hiển thị cân xứng tại đây sau khi nạp file thành công.</div>", unsafe_allow_html=True)
         
-    st.markdown('</div>', unsafe_allow_html=True)
-
-    # 🌟 Ô TRỐNG BÊN PHẢI: ĐÃ BIẾN THÀNH KHỐI HIỆU SUẤT SƠ ĐỒ VÀ HAO HỤT ĐẦU BÀN CẮT
-    st.markdown('<div class="custom-erp-box" style="height: 110px !important; min-height: 110px !important; padding: 12px 20px !important;">', unsafe_allow_html=True)
-    st.markdown('<div style="font-size:11px; font-weight:700; color:#475569; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:8px;">📈 HIỆU SUẤT SƠ ĐỒ CAD & HAO HỤT SẢN XUẤT</div>', unsafe_allow_html=True)
-    
-    active_eff_view = "85.5%"
-    if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data:
-        for r in st.session_state.bom_data["bom_rows"]:
-            if r.get("engine") == "FABRIC":
-                active_eff_view = r.get('marker_efficiency', '85.5%')
-                break
-                
-    e_col1, e_col2, e_col3 = st.columns(3)
-    with e_col1: st.markdown(f'<div style="font-size:10px; color:#64748b;">Hiệu suất sơ đồ vải</div><div style="font-size:15px; font-weight:700; color:#10b981;">{active_eff_view}</div>', unsafe_allow_html=True)
-    with e_col2: st.markdown(f'<div style="font-size:10px; color:#64748b;">Hiệu suất sơ đồ keo</div><div style="font-size:15px; font-weight:700; color:#10b981;">88.0%</div>', unsafe_allow_html=True)
-    with e_col3: st.markdown(f'<div style="font-size:10px; color:#64748b;">Hao hụt cắt đầu bàn</div><div style="font-size:15px; font-weight:700; color:#f97316;">3.0%</div>', unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
 # =====================================================================
