@@ -1105,25 +1105,23 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, query_st
     return blueprint_final
 
 # =====================================================================
-# ĐOẠN B: GEOMETRIC CAD MONITOR ENGINE (V67.0 LIVE RADAR)
-# 🌟 CÀI CẮM CẢM BIẾN HIỂN THỊ: ÉP HỆ THỐNG VẼ TRỰC TIẾP DIỆN TÍCH RẬP LÊN GIAO DIỆN CHAT
-# 🌟 VẠCH TRẦN LÝ DO TẠI SAO DIỆN TÍCH BỊ SỤT VỀ 0 HOẶC KHÔNG ĂN KHỚP TÊN VẢI
+# ĐOẠN B: GEOMETRIC CAD COMPUTATION & REGEX EXTRACTOR ENGINE (V67.5 GOLD)
+# 🌟 VÁ CHÍ MẠNG LỖI NAME_ERROR: ĐỊNH NGHĨA BIẾN IS_CUSTOM_CRITICAL CHO TẤT CẢ CÁC NHÁNH
+# 🌟 PYTHON LÀM TRỌNG TÀI SỐ HỌC - ÉP XẢ SỐ ĐỊNH MỨC YARDS THỰC TẾ RA MÀN HÌNH UI
 # =====================================================================
-import streamlit as st
-import re
-
 def execute_geometric_cad_calculation_core(row: dict, product_type: str, efficiency: float, width_inch: float, shrink_factor_length: float, shrink_factor_width: float, length_base: float, width_base: float) -> dict:
     FACTORY_HISTORY_DATABASE = {
         "PANT": {"min_yds": 1.15, "max_yds": 1.95}, "JEANS": {"min_yds": 1.25, "max_yds": 2.15},
         "JEAN": {"min_yds": 1.25, "max_yds": 2.15}, "SHIRT": {"min_yds": 1.10, "max_yds": 1.65},
-        "T-SHIRT": {"min_yds": 0.75, "max_yds": 1.35}, "JACKET": {"min_yds": 1.65, "max_yds": 2.75}
+        "T-SHIRT": {"min_yds": 0.75, "max_yds": 1.35}, "KNIT": {"min_yds": 0.85, "max_yds": 1.45},
+        "JACKET": {"min_yds": 1.65, "max_yds": 2.75}, "SKIRT": {"min_yds": 0.80, "max_yds": 1.70},
+        "DRESS": {"min_yds": 1.80, "max_yds": 3.20}
     }
 
     ui_comp_type = (str(row.get("component_type", "")) + " " + str(row.get("fabric_classification", ""))).upper()
     fab_class = str(row.get("fabric_classification", "")).upper()
     panels = row.get("panels_catalog", [])
     
-    # 🌟 CẢM BIẾN 1: Kiểm tra chặng đón đầu danh mục rập của từng dòng vải
     st.markdown(f"### ⚙️ HỆ THỐNG QUÉT DÒNG VẢI: {row.get('component_type')}")
     st.write(f"🔹 Số lượng mảnh rập nhận được từ bộ não AI: **{len(panels)} mảnh**")
     
@@ -1153,12 +1151,15 @@ def execute_geometric_cad_calculation_core(row: dict, product_type: str, efficie
     total_area_x_confidence = 0.0
     accumulated_source_measurements = set()
         
-    # LUỒNG DUYỆT CHI TIẾT TỪNG MẢNH RẬP CON ĐỂ LỌC SỐ CHÍNH XÁC
+    # LUỒNG DUYỆT CHI TIẾT TỪNG MẢNH RẬP CON
     for p in panels:
         if not isinstance(p, dict): continue
         p_name = p.get("panel_name", "UNKNOWN PANEL").upper()
         
-        # Bộ phân loại và lọc vật tư mềm
+        # 🌟 VÁ CHÍ MẠNG 1: Khởi tạo mặc định thuộc tính Critical động tránh lỗi NameError mồ côi
+        is_custom_critical = bool(p.get("is_primary_panel", any(k in p_name for k in ["FRONT", "BACK", "THÂN", "LEG", "WAISTBAND", "CẠP", "SLEEVE", "TAY"])))
+        
+        # Bộ phân loại vật tư tương đối
         if any(k in ui_comp_type or k in fab_class for k in ["POCKET", "LÓT", "LINING", "TC"]):
             if not any(k in p_name for k in ["POCKET", "LÓT", "BAG"]): continue
         elif any(k in ui_comp_type or k in fab_class for k in ["FUSING", "KEO", "MẾCH", "TRICOT", "INTERLINING"]):
@@ -1166,14 +1167,14 @@ def execute_geometric_cad_calculation_core(row: dict, product_type: str, efficie
         else:
             if any(k in p_name for k in ["POCKET BAG", "LÓT TÚI"]): continue
 
-        # Trích xuất ròng số diện tích thực, loại bỏ chữ "inch" rác
+        # Tách số diện tích thực từ AI
         raw_area_val = p.get("calculated_net_area_sq_inch", p.get("net_area_sq_inch", p.get("calculated_area", p.get("net_area", p.get("area", 0.0)))))
         ai_calculated_net_area = 0.0
         if raw_area_val:
             match_area = re.search(r'([\d\.]+)', str(raw_area_val))
             if match_area: ai_calculated_net_area = float(match_area.group(1))
 
-        # Trích xuất ròng số mảnh (Piece Count)
+        # Tách số cơ số mảnh (Piece Count)
         raw_count_val = p.get("piece_count", p.get("count", 1.0))
         count = 1.0
         if raw_count_val:
@@ -1182,10 +1183,9 @@ def execute_geometric_cad_calculation_core(row: dict, product_type: str, efficie
                 
         confidence = float(p.get("confidence", 1.0))
         
-        # 🌟 CẢM BIẾN 2: In trực tiếp diện tích thô của từng cấu kiện rập con lên khung chat
         st.write(f" 🧩 Mảnh rập con: `{p_name}` | Số lượng: `{count}` | Diện tích thô từ AI: **{ai_calculated_net_area}** sq in")
         
-        # Bộ cứu hộ hình bao dữ liệu
+        # Bộ cứu hộ hình bao dữ liệu khi khuyết diện tích
         if ai_calculated_net_area <= 0.0:
             match_L = re.search(r'([\d\.]+)', str(p.get("bounding_box_length_inch", 0.0)))
             match_W = re.search(r'([\d\.]+)', str(p.get("bounding_box_width_inch", 0.0)))
@@ -1193,7 +1193,9 @@ def execute_geometric_cad_calculation_core(row: dict, product_type: str, efficie
                 ai_calculated_net_area = float(match_L.group(1)) * float(match_W.group(1)) * 0.90
                 st.warning(f"   ⚠️ Kích hoạt cứu hộ hình bao cho [{p_name}]: Dựng tạm diện tích = {round(ai_calculated_net_area, 1)}")
         
-        if ai_calculated_net_area <= 0.0: continue  
+        if ai_calculated_net_area <= 0.0:
+            if is_custom_critical: is_critical_missing = True
+            continue  
             
         current_panel_net_area = ai_calculated_net_area * count
         python_accumulated_net_area += current_panel_net_area
@@ -1202,8 +1204,11 @@ def execute_geometric_cad_calculation_core(row: dict, product_type: str, efficie
         src_measurements = p.get("source_measurements", p.get("geometry_source", []))
         for sm in src_measurements: accumulated_source_measurements.add(str(sm).strip())
         
-        b_L = float(re.search(r'([\d\.]+)', str(p.get("bounding_box_length_inch", 1.0))).group(1) if re.search(r'([\d\.]+)', str(p.get("bounding_box_length_inch", 1.0))) else 1.0)
-        b_W = float(re.search(r'([\d\.]+)', str(p.get("bounding_box_width_inch", 1.0))).group(1) if re.search(r'([\d\.]+)', str(p.get("bounding_box_width_inch", 1.0))) else 1.0)
+        # Tính toán toán học Shape Factor UI Audit
+        match_bL = re.search(r'([\d\.]+)', str(p.get("bounding_box_length_inch", 1.0)))
+        match_bW = re.search(r'([\d\.]+)', str(p.get("bounding_box_width_inch", 1.0)))
+        b_L = float(match_bL.group(1)) if match_bL else 1.0
+        b_W = float(match_bW.group(1)) if match_bW else 1.0
         audited_shape_factor = round(ai_calculated_net_area / (b_L * b_W), 2) if (b_L * b_W) > 0 else 1.00
         
         p["geometry_metadata"] = {
@@ -1216,15 +1221,15 @@ def execute_geometric_cad_calculation_core(row: dict, product_type: str, efficie
         }
         actual_piece_count += count
 
-    # 🌟 CẢM BIẾN 3: Kiểm toán tổng diện tích phẳng sạch tích lũy sau khi kết thúc luồng chạy
     st.write(f"📊 **TỔNG DIỆN TÍCH TÍCH LŨY THỰC TẾ** cho dòng vải này = **{python_accumulated_net_area}** sq in")
 
-    if python_accumulated_net_area <= 0.0:
+    if is_critical_missing or python_accumulated_net_area <= 0.0:
         row["gross_consumption"] = 0.0
         row["quality_status"] = "INSUFFICIENT_DATA"
-        st.error("❌ Kết luận chặng: Tổng diện tích bằng 0 nên định mức Yards bắt buộc bằng 0.")
+        st.error("❌ Kết luận chặng: Khuyết mảnh rập chính hoặc diện tích tổng bằng 0.")
         return row
 
+    # PHƯƠNG TRÌNH ĐỊNH MỨC GERBER VỐN DIỆN TÍCH THỰC SẠCH
     total_gross_fabric_area_square_inch = python_accumulated_net_area * shrink_area_factor
     denominator = width_inch * marker_utilization * 36.0
     gross_consumption_yds = total_gross_fabric_area_square_inch / denominator
@@ -1236,6 +1241,7 @@ def execute_geometric_cad_calculation_core(row: dict, product_type: str, efficie
     
     st.success(f"✅ Định mức Yards tính toán thành công: **{row['gross_consumption']} Yards**")
     return row
+
 
 
 
