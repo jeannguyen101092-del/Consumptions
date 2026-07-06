@@ -576,108 +576,113 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                         # =====================================================================
                         # =====================================================================
                         # =====================================================================
-            # =====================================================================
-            # ĐOẠN 7a - PHẦN 3a: INITIALIZATION & AGENT PROMPTS SETUP (V101.4 HIGH-CONSUMPTION)
-            # =====================================================================
-            response_text = ""
-            pdf_bytes_len_p3 = len(st.session_state.pdf_bytes) if st.session_state.pdf_bytes else 0
-            current_signature_p3 = (str(safe_user_prompt).strip(), int(len(image_payloads)), int(pdf_bytes_len_p3))
-            
-            has_no_data_p3 = not st.session_state.get("bom_data") or st.session_state.get("bom_data") == {}
-            is_signature_changed_p3 = st.session_state.get("last_processed_signature") != current_signature_p3
+          # =====================================================================
+# =====================================================================
+# =====================================================================
+# =====================================================================
+# ĐOẠN 7a - PHẦN 3a: INITIALIZATION & AGENT PROMPTS SETUP (V102.0 MULTI-ENGINE)
+# 🌟 KIẾN TRÚC ROUTER: AI PHÂN LOẠI VẬT TƯ ĐỂ ĐỊNH TUYẾN SANG ENGINE RIÊNG BIỆT
+# 🌟 ĐÃ CÂN CHỈNH THẲNG HÀNG TUYỆT ĐỐI KHÔNG BỊ LỖI INDENTATION ERROR
+# =====================================================================
+response_text = ""
+pdf_bytes_len_p3 = len(st.session_state.pdf_bytes) if st.session_state.pdf_bytes else 0
+current_signature_p3 = (str(safe_user_prompt).strip(), int(len(image_payloads)), int(pdf_bytes_len_p3))
 
-            chat_lower = current_query.lower()
-            match_size = re.search(r'\b(?:size|sz|cỡ)\s*[:\-=\s]*([\w\d/]+)\b', chat_lower)
-            target_size_cmd = str(match_size.group(1)).upper().strip() if match_size else "30"
-            
-            # 🟢 SỬA LỖI REGEX TRÍCH XUẤT KHỔ VẢI TỪ Ô CHAT ĐỂ NHẬN BIẾT ĐÚNG KHỔ 58, 60...
-            match_w = re.search(r'(?:khổ|kho|width|w)\s*[:\-=\s]*([\d\.]+)', chat_lower)
-            active_width = float(match_w.group(1)) if match_w else 56.0
-            if active_width < 20.0 or active_width > 80.0: active_width = 56.0
+has_no_data_p3 = not st.session_state.get("bom_data") or st.session_state.get("bom_data") == {}
+is_signature_changed_p3 = st.session_state.get("last_processed_signature") != current_signature_p3
 
-            prompt_agent_1 = f"""
-            You are Agent 1: An Apparel Technical Component Extractor. Scan techpack text/images for size '{target_size_cmd}'. 
-            Identify all individual pattern panels. Extract raw nominal lengths and widths. Do NOT skip any major body parts.
-            Return strictly raw technical JSON array with bounding_box_length, bounding_box_width, piece_count. No consumption calculations.
-            """
-            
-                        prompt_agent_2 = f"""
-            You are Agent 2: The Enterprise Apparel Visual Auditor & Material Router. 
-            Review Agent 1 extraction against the raw Techpack context, BOM tables, and sketches.
-            
-            🌟 CRITICAL MATERIAL ROUTING ARCHITECTURE:
-            1. You MUST extract ALL components listed in the Techpack BOM (Fabric, Elastic, Tape, Buttons, Zipper, Thread, Labels, etc.).
-            2. For EVERY single BOM component, determine its correct calculation engine based on the classification matrix:
-               - Main Fabric, Lining, Pocketing -> Engine: "FABRIC"
-               - Fusible, Interlining -> Engine: "FUSING"
-               - Elastic Bands, Elastic Cord -> Engine: "ELASTIC"
-               - Waist Tape, Twill Tape, Webbing, Drawcord -> Engine: "TAPE"
-               - Buttons, Zippers, Labels, Hanger Loops -> Engine: "COUNT"
-               - Sewing Thread (Spun, Textured) -> Engine: "THREAD"
-               
-            3. STRICT INJECTION RULES PER ENGINE (Do NOT mix fields):
-               - If "FABRIC" or "FUSING": Must provide 'bounding_box_length', 'bounding_box_width', 'piece_count', 'gather_type', 'gather_depth', 'fabric_width_inch'.
-               - If "ELASTIC": Must provide 'length_inch', 'piece_count', 'stretch_pct' (e.g., 1.20 for 120%). Do NOT include fabric width or efficiency.
-               - If "TAPE": Must provide 'length_inch', 'piece_count'. Do NOT include fabric width or areas.
-               - If "COUNT": Must provide 'quantity_pcs' (total count per garment).
-               - If "THREAD": Must provide 'stitch_type' (e.g., "301_LOCKSTITCH", "401_CHAINSTITCH") or leave for factory standard default.
+chat_lower = current_query.lower()
+match_size = re.search(r'\b(?:size|sz|cỡ)\s*[:\-=\s]*([\w\d/]+)\b', chat_lower)
+target_size_cmd = str(match_size.group(1)).upper().strip() if match_size else "30"
 
-            Output BOTH raw text JSON format (under ===START_JSON===) and markdown chat response (under ===START_CHAT===). All fabric items must match width {active_width}.
-            
-            ===START_CHAT===
-            ⚖️ **Enterprise CAD Routing Pipeline Engaged**: Hệ thống AI đã thực hiện phân rã toàn bộ bảng BOM, phân loại vật tư và định tuyến luồng tính toán sang các Python Micro-Engines chuyên biệt (Fabric/Elastic/Tape/Count/Thread).
-            ===END_CHAT===
+match_w = re.search(r'(?:khổ|kho|width|w)\s*[:\-=\s]*([\d\.]+)', chat_lower)
+active_width = float(match_w.group(1)) if match_w else 56.0
+if active_width < 20.0 or active_width > 80.0: active_width = 56.0
 
-            ===START_JSON===
-            {{
-              "status": "PASS",
-              "detected_product_type": "{product_type}",
-              "calculated_on_size": "{target_size_cmd}",
-              "bom_rows": [
-                {{
-                  "component_name": "Main Fabric - Poplin",
-                  "material_type": "Main Fabric",
-                  "material_class": "FABRIC",
-                  "uom": "YDS",
-                  "engine": "FABRIC",
-                  "fabric_width_inch": {active_width},
-                  "bounding_box_length": 65.0,
-                  "bounding_box_width": 26.0,
-                  "piece_count": 2,
-                  "gather_type": "SIDE_RUCHE",
-                  "gather_depth": "MEDIUM"
-                }},
-                {{
-                  "component_name": "Braided Elastic Waistband",
-                  "material_type": "Elastic",
-                  "material_class": "ELASTIC",
-                  "uom": "YDS",
-                  "engine": "ELASTIC",
-                  "length_inch": 28.0,
-                  "piece_count": 2,
-                  "stretch_pct": 1.20
-                }},
-                {{
-                  "component_name": "Twill Tape Neck",
-                  "material_type": "Twill Tape",
-                  "material_class": "TAPE",
-                  "uom": "MTR",
-                  "engine": "TAPE",
-                  "length_inch": 14.5,
-                  "piece_count": 1
-                }},
-                {{
-                  "component_name": "Front Main Button 24L",
-                  "material_type": "Button",
-                  "material_class": "BUTTON",
-                  "uom": "PCS",
-                  "engine": "COUNT",
-                  "quantity_pcs": 8
-                }}
-              ]
-            }}
-            ===END_JSON===
-            """
+prompt_agent_1 = f"""
+You are Agent 1: An Apparel Technical Component Extractor. Scan techpack text/images for size '{target_size_cmd}'. 
+Identify all individual pattern panels. Extract raw nominal lengths and widths. Do NOT skip any major body parts.
+Return strictly raw technical JSON array with bounding_box_length, bounding_box_width, piece_count. No consumption calculations.
+"""
+
+prompt_agent_2 = f"""
+You are Agent 2: The Enterprise Apparel Visual Auditor & Material Router. 
+Review Agent 1 extraction against the raw Techpack context, BOM tables, and sketches.
+
+🌟 CRITICAL MATERIAL ROUTING ARCHITECTURE:
+1. You MUST extract ALL components listed in the Techpack BOM (Fabric, Elastic, Tape, Buttons, Zipper, Thread, Labels, etc.).
+2. For EVERY single BOM component, determine its correct calculation engine based on the classification matrix:
+   - Main Fabric, Lining, Pocketing -> Engine: "FABRIC"
+   - Fusible, Interlining -> Engine: "FUSING"
+   - Elastic Bands, Elastic Cord -> Engine: "ELASTIC"
+   - Waist Tape, Twill Tape, Webbing, Drawcord -> Engine: "TAPE"
+   - Buttons, Zippers, Labels, Hanger Loops -> Engine: "COUNT"
+   - Sewing Thread (Spun, Textured) -> Engine: "THREAD"
+   
+3. STRICT INJECTION RULES PER ENGINE (Do NOT mix fields):
+   - If "FABRIC" or "FUSING": Must provide 'bounding_box_length', 'bounding_box_width', 'piece_count', 'gather_type', 'gather_depth', 'fabric_width_inch'.
+   - If "ELASTIC": Must provide 'length_inch', 'piece_count', 'stretch_pct' (e.g., 1.20 for 120%). Do NOT include fabric width or efficiency.
+   - If "TAPE": Must provide 'length_inch', 'piece_count'. Do NOT include fabric width or areas.
+   - If "COUNT": Must provide 'quantity_pcs' (total count per garment).
+   - If "THREAD": Must provide 'stitch_type' or leave for factory standard default.
+
+Output BOTH raw text JSON format (under ===START_JSON===) and markdown chat response (under ===START_CHAT===). All fabric items must match width {active_width}.
+
+===START_CHAT===
+⚖️ **Enterprise CAD Routing Pipeline Engaged**: Hệ thống AI đã thực hiện phân rã toàn bộ bảng BOM, phân loại vật tư và định tuyến luồng tính toán sang các Python Micro-Engines chuyên biệt (Fabric/Elastic/Tape/Count/Thread).
+===END_CHAT===
+
+===START_JSON===
+{{
+  "status": "PASS",
+  "detected_product_type": "DRESS",
+  "calculated_on_size": "{target_size_cmd}",
+  "bom_rows": [
+    {{
+      "component_name": "Main Fabric - Poplin",
+      "material_type": "Main Fabric",
+      "material_class": "FABRIC",
+      "uom": "YDS",
+      "engine": "FABRIC",
+      "fabric_width_inch": {active_width},
+      "bounding_box_length": 65.0,
+      "bounding_box_width": 26.0,
+      "piece_count": 2,
+      "gather_type": "SIDE_RUCHE",
+      "gather_depth": "MEDIUM"
+    }},
+    {{
+      "component_name": "Braided Elastic Waistband",
+      "material_type": "Elastic",
+      "material_class": "ELASTIC",
+      "uom": "YDS",
+      "engine": "ELASTIC",
+      "length_inch": 28.0,
+      "piece_count": 2,
+      "stretch_pct": 1.20
+    }},
+    {{
+      "component_name": "Twill Tape Neck",
+      "material_type": "Twill Tape",
+      "material_class": "TAPE",
+      "uom": "MTR",
+      "engine": "TAPE",
+      "length_inch": 14.5,
+      "piece_count": 1
+    }},
+    {{
+      "component_name": "Front Main Button 24L",
+      "material_type": "Button",
+      "material_class": "BUTTON",
+      "uom": "PCS",
+      "engine": "COUNT",
+      "quantity_pcs": 8
+    }}
+  ]
+}}
+===END_JSON===
+"""
+
 
 
 
