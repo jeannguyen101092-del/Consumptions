@@ -25,18 +25,38 @@ def compute_fabric_engine(row: dict, product_type: str, chat_txt: str) -> tuple:
         if weft_match: weft_num = float(weft_match.group(1)) / 100.0
     except: pass
 
+    # 🌟 NÂNG CẤP MA TRẬN: BỔ SUNG PHÂN HỆ CARGO_PANTS VỚI HỆ SỐ DIỆN TÍCH THỰC CAO HƠN CHÂN THỰC
     PRODUCT_NET_AREA_MATRIX = {
-        "JEANS": {"MAIN_FABRIC": 0.84, "LINING": 0.78, "DEFAULT": 0.80},
-        "DRESS": {"MAIN_FABRIC": 0.78, "LINING": 0.72, "DEFAULT": 0.75},
-        "DEFAULT": {"MAIN_FABRIC": 0.80, "DEFAULT": 0.80}
+        "JEANS": {"MAIN_FABRIC": 0.84, "LINING": 0.15, "FUSING": 0.10, "DEFAULT": 0.80},
+        "CARGO_PANTS": {
+            "MAIN_FABRIC": 1.15, # 🟢 Ép tăng 15% diện tích vải chính để bù hao rập túi hộp + nắp túi sườn
+            "LINING": 0.18,      # Bù thêm lót cơi hoặc lót nắp túi hộp nếu có
+            "FUSING": 0.35,      # Keo dựng tăng lên do phải ép gia cố toàn bộ hệ thống nắp túi hộp
+            "DEFAULT": 1.00
+        },
+        "DRESS": {"MAIN_FABRIC": 0.78, "LINING": 0.70, "FUSING": 0.25, "DEFAULT": 0.75},
+        "DEFAULT": {"MAIN_FABRIC": 0.80, "LINING": 0.20, "FUSING": 0.20, "DEFAULT": 0.80}
     }
+    
     GATHER_RATIO_MATRIX = {
         "NONE": {"NONE": 1.00, "LIGHT": 1.05, "MEDIUM": 1.10, "HEAVY": 1.15},
         "SIDE_RUCHE": {"NONE": 1.00, "LIGHT": 1.20, "MEDIUM": 1.45, "HEAVY": 1.70},
         "WAIST_GATHER": {"NONE": 1.00, "LIGHT": 1.25, "MEDIUM": 1.45, "HEAVY": 1.65}
     }
 
-    engine_target = str(row.get("engine", "FABRIC")).upper().strip()
+    # Đánh chặn từ khóa thông minh để chuyển đổi phân hệ sản phẩm
+    active_product = product_type
+    if "CARGO" in chat_txt or "TÚI HỘP" in chat_txt or "PANTS" in chat_txt:
+        active_product = "CARGO_PANTS"
+
+    mat_class = str(row.get("material_class", "FABRIC")).upper().strip()
+    if mat_class not in ["MAIN_FABRIC", "LINING", "FUSING"]:
+        comp_name = str(row.get("component_name", "")).upper()
+        if "MAIN" in comp_name: mat_class = "MAIN_FABRIC"
+        elif "POCKET" in comp_name or "LINING" in comp_name or "LÓT" in comp_name: mat_class = "LINING"
+        elif "FUSING" in comp_name or "KEO" in comp_name or "DỰNG" in comp_name: mat_class = "FUSING"
+        else: mat_class = "MAIN_FABRIC"
+
     raw_width = row.get("fabric_width_inch")
     try: 
         width_inch = float(raw_width or 56.0)
@@ -45,7 +65,8 @@ def compute_fabric_engine(row: dict, product_type: str, chat_txt: str) -> tuple:
     except: width_inch = 56.0
     
     p_count = int(row.get("piece_count", 1) or 1)
-    efficiency_num = 0.855 if engine_target == "FABRIC" else 0.880
+    efficiency_num = 0.855 if mat_class == "MAIN_FABRIC" else 0.880
+    
     b_length = float(row.get("bounding_box_length", 0.0) or 0.0)
     b_width = float(row.get("bounding_box_width", 0.0) or 0.0)
     
@@ -54,7 +75,11 @@ def compute_fabric_engine(row: dict, product_type: str, chat_txt: str) -> tuple:
     active_gather_ratio = GATHER_RATIO_MATRIX.get(g_type, GATHER_RATIO_MATRIX["NONE"]).get(g_depth, 1.00)
     
     raw_box_area = b_length * b_width * p_count
-    net_factor = PRODUCT_NET_AREA_MATRIX.get(product_type, PRODUCT_NET_AREA_MATRIX["DEFAULT"]).get(engine_target, 0.78)
+    
+    # Tra cứu chính xác hệ số biên dạng phủ túi hộp Cargo
+    product_map = PRODUCT_NET_AREA_MATRIX.get(active_product, PRODUCT_NET_AREA_MATRIX["DEFAULT"])
+    net_factor = product_map.get(mat_class, product_map.get("DEFAULT", 0.80))
+    
     total_net_area = raw_box_area * net_factor
     
     gross_val = 0.0
@@ -66,8 +91,9 @@ def compute_fabric_engine(row: dict, product_type: str, chat_txt: str) -> tuple:
         
     row["fabric_width_inch"] = width_inch
     row["marker_efficiency"] = f"{round(efficiency_num * 100, 1)}%"
-    note = f"FabricEngine | Rập: {b_length}x{b_width} | Nhún: {g_type}_{g_depth}({active_gather_ratio}x)"
+    note = f"FabricEngine ({mat_class}) | Phân hệ: {active_product} | Rập: {b_length}x{b_width} | Biên dạng: {net_factor}x"
     return gross_val, note
+
 def compute_elastic_engine(row: dict) -> tuple:
     """Engine chuyên tính toán cho Chun / Thun co giãn (Elastic)"""
     uom_target = str(row.get("uom", "YDS")).upper().strip()
