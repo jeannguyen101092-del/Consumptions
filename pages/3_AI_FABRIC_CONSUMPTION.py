@@ -19,7 +19,7 @@ EXCLUDE_HARDWARE_KEYS = (
 )
 
 def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, query_string: str) -> dict:
-    st.warning("⚡ ENGINE EXECUTING: PURE PYTHON DETERMINISTIC CAD ENGINE ACTIVATED")
+    st.warning("⚡ DETREMINISTIC INDUSTRIAL ENGINE: QUALITY GATEWAY V100.5 ACTIVATED")
     
     if not blueprint_final or "bom_rows" not in blueprint_final:
         return blueprint_final
@@ -27,67 +27,107 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, query_st
     filtered_bom_rows = []
     product_type = str(blueprint_final.get("detected_product_type", "JEANS")).upper().strip()
     
-    # Phân tích thông số co rút động từ ô nhớ UI để đưa vào công thức toán học
+    # =====================================================================
+    # 🧠 TẦNG 1: NÂNG CẤP BỘ LỌC REGEX ĐA BIẾN - TRÍCH XUẤT CO RÚT TUYỆT ĐỐI
+    # =====================================================================
+    warp_num, weft_num = 0.03, 0.03 # Giá trị dự phòng mặc định (3% dọc, 3% ngang)
     try:
         chat_txt = str(query_string).lower()
-        match_shrink = re.search(r'(?:co rút|co rut|sh|shrinkage)\s*[:\-=\s]*([\d\.]+)\s*[\-,\s]\s*([\d\.]+)', chat_txt)
-        warp_num = float(match_shrink.group(1)) / 100.0 if match_shrink else 0.03
-        weft_num = float(match_shrink.group(2)) / 100.0 if match_shrink else 0.13
-    except:
-        warp_num, weft_num = 0.03, 0.13
+        # Trích xuất tất cả các cụm số (kể cả số thập phân) xuất hiện trong câu lệnh chat
+        all_numbers = re.findall(r'[\d\.]+', chat_txt)
+        
+        if any(k in chat_txt for k in ["co rút", "co rut", "sh", "shrinkage"]):
+            # Lọc bỏ các số liên quan đến Size hoặc Khổ vải dựa trên vị trí từ khóa để cô lập số co rút
+            clean_shrink_numbers = []
+            for num_str in all_numbers:
+                # Nếu số này trùng với khổ vải hoặc kích cỡ đã nhận dạng thì bỏ qua không đưa vào mảng co rút
+                if "size" in chat_txt and num_str in chat_txt.split("size")[-1][:10]: continue
+                if "khổ" in chat_txt and num_str in chat_txt.split("khổ")[-1][:10]: continue
+                if "kho" in chat_txt and num_str in chat_txt.split("kho")[-1][:10]: continue
+                if "width" in chat_txt and num_str in chat_txt.split("width")[-1][:10]: continue
+                clean_shrink_numbers.append(num_str)
+                
+            if len(clean_shrink_numbers) >= 2:
+                warp_num = float(clean_shrink_numbers[-2]) / 100.0
+                weft_num = float(clean_shrink_numbers[-1]) / 100.0
+            elif len(clean_shrink_numbers) == 1:
+                warp_num = float(clean_shrink_numbers[0]) / 100.0
+                weft_num = float(clean_shrink_numbers[0]) / 100.0
+    except Exception:
+        warp_num, weft_num = 0.03, 0.03
 
     ai_bom_rows = blueprint_final.get("bom_rows", [])
     
     for ai_row in ai_bom_rows:
         ui_row = copy.deepcopy(ai_row)
         
-        # Kiểm tra khổ vải an toàn từ AI trả về
+        # 1. Thu thập và kiểm tra thông số Khổ vải an toàn
         raw_width = ui_row.get("fabric_width_inch")
-        try: width_inch = float(raw_width or 58.0)
-        except: width_inch = 58.0
-        if width_inch < 1.0: width_inch = 58.0
+        try: width_inch = float(raw_width or 56.0)
+        except: width_inch = 56.0
+        if width_inch < 1.0: width_inch = 56.0
         
-        # Đọc hiệu suất sơ đồ mục tiêu từ AI Kiểm toán
+        # =====================================================================
+        # ⚠️ TẦNG 2: TECHNICAL QUALITY GATE - THẨM ĐỊNH HIỆU SUẤT SƠ ĐỒ (MARKER EFFICIENCY)
+        # =====================================================================
         raw_eff = str(ui_row.get("marker_efficiency", "85.5%")).replace("%", "")
-        try: efficiency_num = float(raw_eff) / 100.0
-        except: efficiency_num = 0.855
-        
+        try: 
+            efficiency_num = float(raw_eff)
+            # Nếu AI trả về dạng số thập phân phẳng (VD: 0.855) thay vì phần trăm (85.5)
+            if efficiency_num < 1.0: efficiency_num = efficiency_num * 100.0
+            efficiency_num = efficiency_num / 100.0
+        except: 
+            efficiency_num = 0.855
+            
+        # CHỐT KHÓA RÀO CHẮN CHẤT LƯỢNG (QUALITY GATE): Giới hạn hiệu suất trong khoảng hợp lý [0.60 - 0.93]
+        if efficiency_num < 0.60 or efficiency_num > 0.93:
+            efficiency_num = 0.845 # Ép cưỡng bức về mức hiệu suất tiêu chuẩn an toàn của rập Jeans
+            ui_row["system_notes_qa"] = "⚠️ Hiệu suất AI dự đoán phi lý. Cổng bảo vệ tự động ép về mức an toàn 84.5%."
+        else:
+            ui_row["system_notes_qa"] = "✅ Thẩm định chất lượng sơ đồ: ĐẠT TIÊU CHUẨN."
+
+        # =====================================================================
+        # 🧮 TẦNG 3: DETERMINISTIC EXECUTION - ENGINE TÍNH TOÁN TOÁN HỌC PHẲNG CHUẨN
+        # =====================================================================
         total_net_area = float(ui_row.get("total_net_area_sq_inch", 0.0) or 0.0)
         fab_class = str(ui_row.get("fabric_classification", "")).upper().strip()
         
+        # CHỐT CHẶN KIỂM TRA DIỆN TÍCH ĐẦU VÀO CÓ HỢP LÝ KHÔNG (Diện tích phải > 0)
         if total_net_area > 0 and efficiency_num > 0:
-            # 🟢 LUỒNG TOÁN HỌC CHUẨN ĐỊNH BIÊN: Bắt buộc nhân đôi đối xứng rập thô cho Vải chính và Lót túi
-            if fab_class in ["MAIN_FABRIC", "LINING"]:
-                total_net_area = total_net_area * 2.0
+            # 🟢 SỬA LỖI LỚN NHẤT: Tuyệt đối KHÔNG nhân đôi diện tích ở đây nữa. 
+            # Giữ nguyên tổng diện tích thực tế của tất cả chi tiết do AI bóc tách sang.
             
-            # 1. Áp hệ số mở rộng đường may + co rút vật lý thực tế trích xuất trực tiếp từ câu lệnh ô chat
+            # Phép toán 1: Áp mở rộng co rút vật lý thực tế: Area * (1 + warp) * (1 + weft)
             expanded_area = total_net_area * (1.0 + warp_num) * (1.0 + weft_num)
             
-            # 2. Công thức CAD hình học phẳng quy đổi từ Square Inches sang Linear Yards Gross
+            # Phép toán 2: Công thức hình học phẳng CAD chuyển đổi sang Linear Yards Gross
             gross_val = expanded_area / (width_inch * 36.0 * efficiency_num)
             
-            # 3. Kìm hãm hệ số hao hụt an toàn toàn cục về mức tối ưu (Wastage factor chuẩn công nghiệp 2.5%)
-            # Điều này giúp số không bị vọt lên hơn 2 yards khi co rút tăng cao
-            gross_val = gross_val * 1.025
-                
-            gross_val = round(gross_val, 3)
+            # Phép toán 3: Thêm hệ số an toàn hao hụt vải đầu cây nhỏ chuẩn nhà máy (Wastage Buffer 3%)
+            gross_val = round(gross_val * 1.03, 3)
         else:
+            # Đối với các dòng phụ liệu Trim dệt sẵn không tính theo diện tích bề mặt (VD: Elastic)
             try: gross_val = round(float(ui_row.get("gross_consumption", 0.0)), 3)
             except: gross_val = 0.0
             
+        # Đồng bộ và đẩy toàn bộ dữ liệu sạch ra màn hình giao diện
         ui_row["fabric_width_inch"] = width_inch
         ui_row["gross_consumption"] = gross_val
         ui_row["marker_efficiency"] = f"{round(efficiency_num * 100, 1)}%"
-        ui_row["quality_status"] = "PASS"
-        ui_row["system_notes"] = ui_row.get("reasoning", "Đã xử lý số học qua Python CAD Engine.")
+        ui_row["_btp_warp_pct"] = f"{round(warp_num * 100, 1)}%"
+        ui_row["_btp_weft_pct"] = f"{round(weft_num * 100, 1)}%"
+        ui_row["quality_status"] = "PASS" if gross_val > 0 else "CHECK"
+        ui_row["system_notes"] = f"{ui_row.get('reasoning', '')} | {ui_row.get('system_notes_qa', '')}"
         
         filtered_bom_rows.append(ui_row)
         
+    # Ép đồng bộ bộ nhớ Streamlit vẽ lại bảng
     st.session_state["bom_rows"] = filtered_bom_rows
     st.session_state["accumulated_bom_rows"] = filtered_bom_rows
     st.session_state["bom_data"] = {"bom_rows": filtered_bom_rows, "detected_product_type": product_type, "calculated_on_size": blueprint_final.get("calculated_on_size", "30")}
     
     return st.session_state["bom_data"]
+
 
 
 
