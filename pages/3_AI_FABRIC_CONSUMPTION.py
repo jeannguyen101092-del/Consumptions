@@ -41,9 +41,12 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, query_st
     try:
         warp_match = re.search(r'(?:co rút dọc|co rut doc|warp|dọc|doc)\s*[:\-=\s]*([\d\.]+)', chat_txt)
         weft_match = re.search(r'(?:co rút ngang|co rut ngang|weft|ngang)\s*[:\-=\s]*([\d\.]+)', chat_txt)
-        if warp_match: warp_num = float(warp_match.group(1)) / 100.0
-        if weft_match: weft_num = float(weft_match.group(1)) / 100.0
-    except Exception: pass
+        if warp_match: 
+            warp_num = float(warp_match.group(1)) / 100.0
+        if weft_match: 
+            weft_num = float(weft_match.group(1)) / 100.0
+    except Exception: 
+        pass
 
     # 📐 MA TRẬN PHỤ TRỢ CHO FABRIC ENGINE
     PRODUCT_NET_AREA_MATRIX = {
@@ -74,8 +77,10 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, query_st
             try: 
                 width_inch = float(raw_width or 56.0)
                 match_w_direct = re.search(r'(?:khổ|kho|width|w)\s*[:\-=\s]*([\d\.]+)', chat_txt)
-                if match_w_direct: width_inch = float(match_w_direct.group(1))
-            except: width_inch = 56.0
+                if match_w_direct: 
+                    width_inch = float(match_w_direct.group(1))
+            except: 
+                width_inch = 56.0
             
             p_count = int(ui_row.get("piece_count", 1) or 1)
             efficiency_num = 0.855 if engine_target == "FABRIC" else 0.880
@@ -95,7 +100,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, query_st
             if total_net_area > 0 and width_inch > 0:
                 adjusted_area = total_net_area * active_gather_ratio
                 expanded_area = adjusted_area * (1.0 + warp_num) * (1.0 + weft_num)
-                gross_val = (expanded_area / (width_inch * 36.0 * efficiency_num)) * 1.03 # 3% wastage
+                gross_val = (expanded_area / (width_inch * 36.0 * efficiency_num)) * 1.03
                 gross_val = round(gross_val, 3)
                 
             ui_row["fabric_width_inch"] = width_inch
@@ -108,10 +113,9 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, query_st
         elif engine_target == "ELASTIC":
             e_length = float(ui_row.get("length_inch", 0.0) or 0.0)
             e_count = int(ui_row.get("piece_count", 1) or 1)
-            stretch = float(ui_row.get("stretch_pct", 1.00) or 1.00) # Hệ số căng khi may
+            stretch = float(ui_row.get("stretch_pct", 1.00) or 1.00)
             
-            # Quy đổi từ Inch sang Yards (chia 36) hoặc giữ nguyên tùy UOM
-            total_inches = e_length * e_count * stretch * 1.05 # 5% hao hụt đầu bàn thun
+            total_inches = e_length * e_count * stretch * 1.05
             if uom_target == "YDS":
                 gross_val = round(total_inches / 36.0, 3)
             elif uom_target == "MTR":
@@ -128,7 +132,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, query_st
             t_length = float(ui_row.get("length_inch", 0.0) or 0.0)
             t_count = int(ui_row.get("piece_count", 1) or 1)
             
-            total_inches = t_length * t_count * 1.03 # 3% hao hụt mối nối cắt dây
+            total_inches = t_length * t_count * 1.03
             if uom_target == "YDS":
                 gross_val = round(total_inches / 36.0, 3)
             elif uom_target == "MTR":
@@ -143,7 +147,6 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, query_st
         # -----------------------------------------------------------------
         elif engine_target == "COUNT":
             qty_pcs = int(ui_row.get("quantity_pcs", ui_row.get("piece_count", 1)) or 1)
-            # Đối với nút phụ liệu, nhà máy thường mua dư 1-2% bù rơi rớt
             gross_val = round(float(qty_pcs) * 1.01, 2) if uom_target == "PCS" else float(qty_pcs)
             calc_note = f"CountEngine | Đếm trực tiếp: {qty_pcs} PCS | Bù hao rơi: 1%"
 
@@ -151,7 +154,6 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, query_st
         # LAYER 5: THREAD ENGINE (Tính định mức chỉ may công nghiệp)
         # -----------------------------------------------------------------
         elif engine_target == "THREAD":
-            # Hệ số chỉ mặc định cho đầm hoặc quần jeans
             gross_val = 18.5
             calc_note = f"ThreadEngine | Tiêu chuẩn Factory Standard Sew-in Matrix"
 
