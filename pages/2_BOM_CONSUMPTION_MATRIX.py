@@ -2636,77 +2636,123 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
 
 
 
-def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, query_string: str) -> dict:
-    st.warning("⚡ ENGINE EXECUTING: PURE PYTHON DETERMINISTIC CAD ENGINE ACTIVATED")
-    
-    if not blueprint_final or "bom_rows" not in blueprint_final:
-        return blueprint_final
-        
-    filtered_bom_rows = []
-    product_type = str(blueprint_final.get("detected_product_type", "JEANS")).upper().strip()
-    
-    # Phân tích thông số co rút động từ ô nhớ UI để đưa vào công thức toán học
-    try:
-        chat_txt = str(query_string).lower()
-        match_shrink = re.search(r'(?:co rút|co rut|sh|shrinkage)\s*[:\-=\s]*([\d\.]+)\s*[\-,\s]\s*([\d\.]+)', chat_txt)
-        warp_num = float(match_shrink.group(1)) / 100.0 if match_shrink else 0.04
-        weft_num = float(match_shrink.group(2)) / 100.0 if match_shrink else 0.14
-    except:
-        warp_num, weft_num = 0.04, 0.14
+# =================================================================
+# ĐOẠN 6: GIAO DIỆN CHAT AI PHÂN TÍCH ĐỊNH MỨC VÀ SCRIPT AUTO-SCROLL
+# =================================================================
+if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption Matrix":
+    import streamlit as st
 
-    ai_bom_rows = blueprint_final.get("bom_rows", [])
-    
-    for ai_row in ai_bom_rows:
-        ui_row = copy.deepcopy(ai_row)
-        
-        # Kiểm tra khổ vải an toàn
-        raw_width = ui_row.get("fabric_width_inch")
-        try: width_inch = float(raw_width or 57.0)
-        except: width_inch = 57.0
-        if width_inch < 1.0: width_inch = 57.0
-        
-        # Đọc hiệu suất sơ đồ mục tiêu từ AI Kiểm toán
-        raw_eff = str(ui_row.get("marker_efficiency", "85.5%")).replace("%", "")
-        try: efficiency_num = float(raw_eff) / 100.0
-        except: efficiency_num = 0.855
-        
-        total_net_area = float(ui_row.get("total_net_area_sq_inch", 0.0) or 0.0)
-        fab_class = str(ui_row.get("fabric_classification", "")).upper().strip()
-        
-        if total_net_area > 0 and efficiency_num > 0:
-            # 🟢 SỬA LỖI TRÙNG LẶP: Bỏ hoàn toàn lệnh nhân đôi diện tích ở đây 
-            # vì AI Agent 2 đã tự động nhân 2 chi tiết đối xứng trong khối JSON thô.
-            
-            # 1. Áp hệ số mở rộng đường may + co rút vật lý thực tế
-            expanded_area = total_net_area * (1.0 + warp_num) * (1.0 + weft_num)
-            
-            # 2. Công thức CAD quy đổi từ Square Inches sang Linear Yards Gross
-            gross_val = expanded_area / (width_inch * 36.0 * efficiency_num)
-            
-            # 3. Tinh chỉnh hệ số an toàn hao hụt đầu cây và lỗi vải Denim về mức chuẩn (Wastage factor 4%)
-            if fab_class == "MAIN_FABRIC":
-                gross_val = gross_val * 1.04
-            else:
-                gross_val = gross_val * 1.03
-                
-            gross_val = round(gross_val, 3)
-        else:
-            try: gross_val = round(float(ui_row.get("gross_consumption", 0.0)), 3)
-            except: gross_val = 0.0
-            
-        ui_row["fabric_width_inch"] = width_inch
-        ui_row["gross_consumption"] = gross_val
-        ui_row["marker_efficiency"] = f"{round(efficiency_num * 100, 1)}%"
-        ui_row["quality_status"] = "PASS"
-        ui_row["system_notes"] = ui_row.get("reasoning", "Đã xử lý số học qua Python CAD Engine.")
-        
-        filtered_bom_rows.append(ui_row)
-        
-    st.session_state["bom_rows"] = filtered_bom_rows
-    st.session_state["accumulated_bom_rows"] = filtered_bom_rows
-    st.session_state["bom_data"] = {"bom_rows": filtered_bom_rows, "detected_product_type": product_type, "calculated_on_size": blueprint_final.get("calculated_on_size", "30")}
-    
-    return st.session_state["bom_data"]
+    # --- 1. PYTHON RULE ENGINE: XỬ LÝ SỐ LIỆU ĐĂNG TRƯỚC (DETERMINISTIC) ---
+    # Thu thập dữ liệu kỹ thuật sơ đồ CAD sâu (Bổ sung dữ liệu IE quan trọng)
+    cad_metrics = {
+        "calculated_consumption": globals().get("final_consumption", st.session_state.get("final_consumption", 0.0)),
+        "avg_area_growth_pct": st.session_state.get("avg_area_growth_pct", 0.0),
+        "marker_length": globals().get("marker_length", "N/A"),
+        "marker_width": globals().get("marker_width", "N/A"),
+        "total_fabric_area": globals().get("total_fabric_area", "N/A"),
+        "panel_utilization": globals().get("panel_utilization", "N/A"),
+        "waste_pct": globals().get("waste_pct", "N/A"),
+        "nesting_loss": globals().get("nesting_loss", "N/A"),
+        "relaxation_time": globals().get("relaxation_time", "N/A"),
+        "fabric_direction": globals().get("fabric_direction", "One-way / Nap / Stripe / Plaid Mặc định")
+    }
+
+    # Giả lập hoặc lấy danh sách Top 5 Mã tương đồng từ cơ sở dữ liệu lịch sử
+    top_5_historical_matches = globals().get("top_5_historical_styles", [
+        {"style": "ST-5662", "consumption": 1.43, "similarity": 98, "fabric_code": "DENIM-01", "width": "58IN", "efficiency": "86.5%"},
+        {"style": "ST-5661", "consumption": 1.42, "similarity": 97, "fabric_code": "DENIM-01", "width": "58IN", "efficiency": "86.2%"},
+        {"style": "ST-5665", "consumption": 1.45, "similarity": 95, "fabric_code": "DENIM-02", "width": "57IN", "efficiency": "85.8%"},
+        {"style": "ST-5658", "consumption": 1.41, "similarity": 95, "fabric_code": "DENIM-01", "width": "58IN", "efficiency": "87.0%"},
+        {"style": "ST-5420", "consumption": 1.46, "similarity": 92, "fabric_code": "DENIM-01", "width": "58IN", "efficiency": "84.9%"}
+    ])
+
+    # Trích xuất mã đối chứng tốt nhất để tính toán bước nhảy % định mức
+    best_match = top_5_historical_matches[0] if top_5_historical_matches else {"consumption": 0.0, "similarity": 100}
+    consumption_jump = 0.0
+    if best_match["consumption"] > 0:
+        consumption_jump = ((cad_metrics["calculated_consumption"] - best_match["consumption"]) / best_match["consumption"]) * 100
+
+    # Khởi chạy Python Rule Engine để quét lỗi tĩnh và chấm điểm cấu trúc tự động (Confidence Engine)
+    risk_flags = []
+    score_spec = 40 if best_match["similarity"] >= 95 else (20 if best_match["similarity"] >= 85 else 10)
+    score_fabric = 20 if cad_metrics["fabric_direction"] else 15
+    score_marker = 20 if str(cad_metrics["panel_utilization"]) != "N/A" else 10
+    score_shrinkage = 10 if str(cad_metrics["relaxation_time"]) != "N/A" else 5
+    score_history = 10 if len(top_5_historical_matches) >= 3 else 5
+
+    # Đưa ra các Cờ Rủi Ro bắt buộc dựa trên Luật Công Nghiệp
+    if best_match["similarity"] < 85:
+        risk_flags.append("CRITICAL: LOW_SPEC_SIMILARITY (Mã đối chứng không đủ tin cậy)")
+    if consumption_jump > 15.0:
+        risk_flags.append("WARNING: HIGH_CONSUMPTION_JUMP (Định mức tăng vọt > 15% so với lịch sử)")
+    elif consumption_jump < -15.0 and cad_metrics["calculated_consumption"] > 0:
+        risk_flags.append("WARNING: LOW_CONSUMPTION_DROP (Định mức thấp bất thường, nguy cơ thiếu rập sàn cắt)")
+
+    confidence_score = score_spec + score_fabric + score_marker + score_shrinkage + score_history
+    confidence_breakdown = f"Spec: {score_spec}/40 | Fabric: {score_fabric}/20 | Marker: {score_marker}/20 | Shrinkage: {score_shrinkage}/10 | History: {score_history}/10"
+
+    # --- 2. GIAO DIỆN STREAMLIT & QUẢN LÝ LỊCH SỬ CHAT ---
+    chat_header_col1, chat_header_col2 = st.columns([3.2, 0.8])
+    with chat_header_col1:
+        st.markdown("### 💬 TRỢ LÝ AI KIỂM SOÁT ĐỊNH MỨC (IE EXPERT v2.0)")
+    with chat_header_col2:
+        if st.button("🗑️ XÓA LỊCH SỬ CHAT", key="direct_clear_chat_btn", use_container_width=True):
+            st.session_state["consumption_chat_history"] = []
+            st.toast("♻️ Đã xóa sạch lịch sử chat tức thì!")
+            st.rerun()
+
+    chat_container = st.container()
+    with chat_container:
+        for chat in st.session_state.get("consumption_chat_history", []):
+            with st.chat_message("user"): st.write(chat["user"])
+            with st.chat_message("assistant"): st.write(chat["ai"])
+
+    if user_query := st.chat_input("Nhập câu hỏi (Ví dụ: 'phân tích' hoặc 'báo cáo' hoặc câu hỏi ngắn)..."):
+        if "consumption_chat_history" not in st.session_state:
+            st.session_state["consumption_chat_history"] = []
+
+        with chat_container:
+            with st.chat_message("user"): st.write(user_query)
+            with st.chat_message("assistant"):
+                with st.spinner("🤖 Chuyên gia IE AI đang đánh giá cờ rủi ro..."):
+                    try:
+                        # --- 3. ĐÓNG GÓI TOKEN THÔNG MINH (CHỈ CHỨA BIẾN ĐỘNG / KHÔNG LẶP PROMPT HỆ THỐNG) ---
+                        # Toàn bộ luật vận hành đã được nạp cứng vào bộ não AI thông qua API System Role/Instruction.
+                        # Lượt chat này chỉ truyền duy nhất DỮ LIỆU ĐẦU VÀO và câu hỏi để triệt tiêu chi phí token.
+                        
+                        dynamic_user_context = (
+                            f"[DỮ LIỆU CẬP NHẬT TỪ ENGINE PYTHON]\n"
+                            f"- Định mức tính ra hiện tại: {cad_metrics['calculated_consumption']} YRD\n"
+                            f"- Tỷ lệ biến thiên diện tích rập thông số: {cad_metrics['avg_area_growth_pct']}%\n"
+                            f"- Chi tiết thông số sơ đồ CAD: Dài={cad_metrics['marker_length']}, Rộng={cad_metrics['marker_width']}, Hiệu suất={cad_metrics['panel_utilization']}, Hao hụt sơ đồ lồng={cad_metrics['nesting_loss']}, Cấu trúc sợi={cad_metrics['fabric_direction']}\n"
+                            f"- KẾT QUẢ PYTHON RULE ENGINE: Confidence Score = {confidence_score}/100 ({confidence_breakdown})\n"
+                            f"- Danh sách cờ rủi ro kích hoạt (Risk Flags): {risk_flags}\n"
+                            f"- Top 5 mã lịch sử tương đồng: {top_5_historical_matches}\n\n"
+                            f"Kỹ sư IE hỏi: {user_query}"
+                        )
+
+                        if "ai_consumption_analyst_engine" in globals():
+                            # LƯU Ý: Khối khởi tạo API phía sau của bạn cần được cấu hình truyền cấu trúc chuẩn:
+                            # client.chat.completions.create( model=..., messages=[{"role": "system", "content": SYSTEM_INSTRUCTION}, {"role": "user", "content": dynamic_user_context}] )
+                            ai_reply = ai_consumption_analyst_engine(
+                                client=globals().get("client"),
+                                user_message=dynamic_user_context,
+                                matched_techpack=st.session_state.get("matched_techpack"),
+                                bom_records=st.session_state.get("bom_records"),
+                                new_style_measurements=globals().get("new_style_measurements_dict"),
+                                target_new_sketch_bytes=globals().get("target_new_sketch_bytes"),
+                                detected_size=st.session_state.get("new_style_base_size", "N/A")
+                            )
+                        else:
+                            ai_reply = "⚠️ Khối phân tích `ai_consumption_analyst_engine` chưa được khởi tạo trong mã nguồn hệ thống."
+                    except Exception as chat_err:
+                        ai_reply = f"❌ Sự cố kết nối AI Agent: {str(chat_err)}"
+
+                    st.write(ai_reply)
+                    st.session_state["consumption_chat_history"].append({"user": user_query, "ai": ai_reply})
+
+        js_scroll = "<script>var d=window.parent.document; var s=d.querySelectorAll('section.main'); if(s.length>0){s[0].scrollTo({top:s[0].scrollHeight,behavior:'smooth'});}</script>"
+        st.components.v1.html(js_scroll, height=0)
 
 
 
