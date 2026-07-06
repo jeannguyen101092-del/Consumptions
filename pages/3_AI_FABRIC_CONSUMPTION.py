@@ -172,7 +172,13 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, query_st
     for ai_row in blueprint_final.get("bom_rows", []):
         ui_row = copy.deepcopy(ai_row)
         engine_target = str(ui_row.get("engine", "FABRIC")).upper().strip()
+        comp_name = str(ui_row.get("component_name", "")).upper()
         
+        # 🌟 KHỐI ĐÁNH CHẶN NGHIÊM NGẶT: Loại bỏ phụ liệu cứng, chỉ giữ lại nguyên liệu may (Vải, dựng, keo, thun, chỉ)
+        # Nếu trùng bất kỳ từ khóa nào trong danh mục EXCLUDE_HARDWARE_KEYS hoặc thuộc nhóm COUNT, bỏ qua không đưa vào bảng
+        if engine_target == "COUNT" or any(key in comp_name for key in EXCLUDE_HARDWARE_KEYS):
+            continue
+            
         if engine_target in ["FABRIC", "FUSING"]:
             gross_val, calc_note = compute_fabric_engine(ui_row, product_type, chat_txt)
             
@@ -182,15 +188,11 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, query_st
         elif engine_target in ["TAPE", "CORD", "WEBBING"]:
             gross_val, calc_note = compute_tape_engine(ui_row)
             
-        elif engine_target == "COUNT":
-            gross_val, calc_note = compute_count_engine(ui_row)
-            
         elif engine_target == "THREAD":
             gross_val, calc_note = compute_thread_engine()
             
         else:
-            gross_val = 0.0
-            calc_note = f"⚠️ Không tìm thấy Engine phù hợp cho nhóm {engine_target}"
+            continue
 
         ui_row["gross_consumption"] = gross_val
         ui_row["quality_status"] = "PASS" if gross_val > 0 else "QA_FAIL"
@@ -200,6 +202,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, query_st
         
     blueprint_final["bom_rows"] = router_bom_rows
     return blueprint_final
+
 # =====================================================================
 # ĐOẠN 6a: BANNER, KPIs GHIM ĐỈNH & CÂN BẰNG CHIỀU CAO 1:1 ĐỐI XỨNG (V18.3.4.0 APPROVED)
 # =====================================================================
@@ -542,37 +545,35 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             # 🌟 ĐÃ KHÔI PHỤC TƯ DUY HÌNH HỌC: ÉP AI TRA CỨU THÔNG SỐ RẬP THÔ > 2.5 YDS
             # =====================================================================
                         # =====================================================================
-            # ĐOẠN 7a - PHẦN 10: PROMPT AGENT 2 ROUTER & API EXECUTION CORE (V103.0 HIGH-YIELD)
-            # 🌟 ÉP BIÊN THÔNG SỐ: SỬA LỖI AI BÓC THIẾU KÍCH THƯỚC KEO LÓT TÚI HỘP CARGO
+                        # =====================================================================
+            # ĐOẠN 7a - PHẦN 10: PROMPT AGENT 2 ROUTER & API EXECUTION CORE (V103.5 RAW MATERIAL ONLY)
+            # 🌟 CHỈ TÍNH NGUYÊN LIỆU MAY: LOẠI BỎ TOÀN BỘ DANH MỤC PHỤ LIỆU ĐẾM CHIẾC (BUTTON, ZIPPER...)
             # =====================================================================
             prompt_agent_2 = f"""
             You are Agent 2: The Enterprise Apparel Visual Auditor & Material Router.
             Review Agent 1 extraction against the raw Techpack context, BOM tables, and sketches.
 
-            🌟 CRITICAL REALISM AUDIT FOR CARGO PANTS:
-            1. For Main Fabric, ensure the full leg panels and all pocket bags are covered.
-            2. CRITICAL FOR POCKETING/LINING: This is a Cargo Pants with heavy utility pockets. Pocketing fabric rows (Lining) MUST account for full front pocket bags. Bounding box length for pocketing should realistically fall between 18.0 and 24.0 inches (not tiny fragments).
-            3. CRITICAL FOR FUSING/INTERLINING: Because this garment has multiple Cargo Pocket Flaps (Nắp túi hộp), the Fusible component MUST include BOTH the waistband fusing AND all pocket flap fusing panels. Ensure the total bounding_box_length for FUSING reflects the cumulative length of all fused parts (typically 38.0 to 45.0 inches cumulative length). Do NOT let it drop below realistic production yield.
-
-            🌟 MATERIAL ROUTING ARCHITECTURE:
-            Extract ALL Techpack BOM components. ROUTE each component to its correct engine:
-            - Main Fabric, Lining, Pocketing -> Engine: "FABRIC" (Fields: bounding_box_length, bounding_box_width, piece_count, gather_type, gather_depth)
-            - Fusible, Interlining -> Engine: "FUSING" (Fields: bounding_box_length, bounding_box_width, piece_count, gather_type, gather_depth)
-            - Elastic Bands -> Engine: "ELASTIC" (Fields: length_inch, piece_count, stretch_pct)
-            - Tape, Drawcord -> Engine: "TAPE" (Fields: length_inch, piece_count)
-            - Button, Zipper, Label -> Engine: "COUNT" (Fields: quantity_pcs)
+            🌟 STUCT RULES: ONLY EXTRACT RAW SEWING MATERIALS. 
+            Do NOT extract or include hardware or trim counts (No Buttons, No Zippers, No Labels, No Price Tags, No Polybags). Completely ignore them.
             
+            ONLY route and extract the following raw sewing components:
+            - Main Fabric, Lining, Pocketing -> Engine: "FABRIC"
+            - Fusible, Interlining -> Engine: "FUSING"
+            - Elastic Bands -> Engine: "ELASTIC"
+            - Sewing Thread -> Engine: "THREAD"
+
             All fabric/fusing items must match width {active_width}.
             Output clean JSON under ===START_JSON=== and chat under ===START_CHAT===.
             
             ===START_CHAT===
-            ⚖️ Enterprise CAD Pipeline Engaged: Đã cấu trúc lại định biên kích thước bao rập keo phối nắp túi và vải lót túi hộp sườn sang Python Micro-Engines.
+            ⚖️ Enterprise CAD Pipeline Engaged: Đã lọc bỏ toàn bộ phụ liệu đếm chiếc, hệ thống chỉ tập trung kết xuất định mức các cấu phần nguyên liệu may cấu thành.
             ===END_CHAT===
             
             ===START_JSON===
             {dummy_json_payload}
             ===END_JSON===
             """
+
 
             gemini_inputs = copy.deepcopy(image_payloads)
             gemini_inputs.insert(0, f"=== TECHPACK TEXT ===\n{full_pdf_raw_text}\n")
