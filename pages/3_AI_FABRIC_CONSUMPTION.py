@@ -907,18 +907,28 @@ def analyze_panel_geometry_and_cad_constraints(panels: list, cutable_w: float) -
 import re
 
 # =====================================================================
-# ĐOẠN A: UNIVERSAL PARAMETER & FALLBACK MAPPER ENGINE (V53.5)
-# LỚP PHÂN TÍCH THÔNG SỐ VÀ KHỞI TẠO NỀN TẢNG CAD ĐA SẢN PHẨM
+# ĐOẠN A: UNIVERSAL PARAMETER & FALLBACK MAPPER ENGINE (V61.6 PRODUCTION)
+# LỚP PHÂN TÍCH THÔNG SỐ VÀ ĐẢM BẢO DÒNG CHẢY DIỆN TÍCH AI NGUYÊN VẸN 100%
+# 🌟 BỔ SUNG CÁC LỆNH PRINT DEBUG KIỂM TOÁN TẠI KHỐI ĐẦU VÀ KHỐI CUỐI CỦA LUỒNG TRUYỀN
 # =====================================================================
 import streamlit as st
 import re
 import copy
 
 def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, query_string: str) -> dict:
-    st.warning("⚡ ENGINE EXECUTING: UNIVERSAL DYNAMIC CAD ENGINE V53.5 ACTIVATED")
+    st.warning("⚡ ENGINE EXECUTING: UNIVERSAL DYNAMIC CAD ENGINE V61.6 ACTIVATED")
     
     if not blueprint_final or "bom_rows" not in blueprint_final:
         return blueprint_final
+        
+    # 🌟 ĐIỂM DEBUG 1 THEO YÊU CẦU: Kiểm tra ngay sau khi nhận dữ liệu từ Middleware xem AI có trả trường diện tích không
+    try:
+        if "bom_rows" in blueprint_final and len(blueprint_final["bom_rows"]) > 0:
+            first_row = blueprint_final["bom_rows"][0]
+            if "panels_catalog" in first_row and len(first_row["panels_catalog"]) > 0:
+                print("\n[DEBUG 1 - MIDDLEWARE TO ENGINE OUPUT]:", first_row["panels_catalog"][0])
+    except Exception as db1_err:
+        print("[DEBUG 1 ERROR]: Cannot print blueprint entry:", str(db1_err))
         
     # 1. TRÍCH XUẤT THÔNG SỐ CO RÚT ĐẦU CÂY VẢI TỪ CÂU LỆNH CHAT CỦA NGƯỜI DÙNG
     chat_lower = str(query_string).lower()
@@ -935,24 +945,21 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, query_st
             warp, weft = 0.04, 0.14
             warp_val, weft_val = "4.0%", "14.0%"
     else:
-        # Nếu câu lệnh không yêu cầu co rút, tự động tìm xem AI có bóc được tỷ lệ co rút từ Techpack không
         warp_val = blueprint_final.get("_btp_global_summary", {}).get("detected_warp_shrinkage", "4.0%")
         weft_val = blueprint_final.get("_btp_global_summary", {}).get("detected_weft_shrinkage", "14.0%")
         try:
-            warp = float(warp_val.replace("%","").strip()) / 100.0
-            weft = float(weft_val.replace("%","").strip()) / 100.0
+            warp = float(str(warp_val).replace("%","").strip()) / 100.0
+            weft = float(str(weft_val).replace("%","").strip()) / 100.0
         except:
             warp, weft = 0.04, 0.14
 
-    # Hệ số nhân co rút diện tích toàn phần (Áp dụng cho chiều dài và chiều rộng)
     shrink_factor_length = 1.0 + warp
     shrink_factor_width = 1.0 + weft
-    
     product_type = str(blueprint_final.get("detected_product_type", "PANT")).upper().strip()
 
-    # 2. TRÍCH XUẤT SỐ ĐO THỰC TẾ TỪ BẢNG THÔNG SỐ POM (DÙNG ĐỂ TỰ ĐỘNG BÙ ĐẮP NẾU AI THIẾU KÍCH THƯỚC RẬP)
+    # 2. TRÍCH XUẤT SỐ ĐO THỰC TẾ TỪ BẢNG THÔNG SỐ POM PHỤC VỤ HỆ THỐNG KIỂM TOÁN
     matched_list = blueprint_final.get("matched_measurements", [])
-    length_base, width_base, secondary_base = 0.0, 0.0, 0.0
+    length_base, width_base = 0.0, 0.0
     for item in matched_list:
         item_str = str(item).upper()
         if any(k in item_str for k in ["LENGTH", "OUTSEAM", "INSEAM", "DÀI"]):
@@ -961,39 +968,32 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, query_st
         if any(k in item_str for k in ["CHEST", "HIP", "RỘNG MÔNG", "NGỰC", "MÔNG"]):
             m_num = re.search(r'([\d\.]+)', item_str)
             if m_num: width_base = float(m_num.group(1))
-        if any(k in item_str for k in ["WAIST", "SLEEVE", "TAY", "BỤNG", "CẠP"]):
-            m_num = re.search(r'([\d\.]+)', item_str)
-            if m_num: secondary_base = float(m_num.group(1))
 
     filtered_bom_rows = []
     
-    # Duyệt qua từng dòng nguyên phụ liệu trong BOM để gán hiệu suất sơ đồ động
+    # Duyệt qua từng dòng vải trong bảng dữ liệu BOM
     for row in blueprint_final.get("bom_rows", []):
         comp_type = (str(row.get("component_type", "")) + " " + str(row.get("fabric_classification", ""))).upper()
         
         row["_btp_warp_pct"] = warp_val
         row["_btp_weft_pct"] = weft_val
         
-        # Bỏ qua phụ liệu kim loại/nhãn mác không tính bằng mét vải
         if any(k in comp_type for k in ["BUTTON", "NÚT", "RIVET", "ĐINH TÁN", "LABEL", "NHÃN", "MÁC", "STICKER", "THREAD", "CHỈ"]):
             continue
             
-        # Lấy khổ vải thực tế
         width_inch = float(row.get("fabric_width_inch", 57.0))
         if width_inch < 20.0: width_inch = 57.0
         row["fabric_width_inch"] = width_inch
 
-        # 3. MÔ HÌNH HIỆU SUẤT SƠ ĐỒ ĐỘNG (ADAPTIVE EFFICIENCY MODEL) CHO TỪNG DÒNG HÀNG
+        # 3. MÔ HÌNH HIỆU SUẤT SƠ ĐỒ ĐỘNG NỀN TẢNG (CHỈ DÙNG LÀM BASE TRƯỚC KHI AI ÁP UTILIZATION)
         if "JEAN" in product_type or "PANT" in product_type or any(k in comp_type for k in ["DENIM", "MAIN_FABRIC"]):
-            efficiency = 0.8250  # Quần Jeans, quần tây: 82.5% do hở đáy lớn
+            efficiency = 0.8250  
         elif any(k in product_type for k in ["JACKET", "OUTERWEAR", "COAT"]):
-            efficiency = 0.8650  # Áo khoác lớn: 86.5%
-        elif any(k in product_type for k in ["KNIT", "SHIRT", "T-SHIRT", "HOODIE", "TOP", "ÁO"]):
-            efficiency = 0.8450  # Áo thun, sơ mi dệt kim: 84.5%
+            efficiency = 0.8650  
         elif any(k in comp_type for k in ["POCKET", "LÓT", "LINING", "TC"]):
-            efficiency = 0.7500  # Vải lót túi: 75.0%
+            efficiency = 0.7500  
         else:
-            efficiency = 0.8500  # Các mặt hàng khác mặc định: 85.0%
+            efficiency = 0.8500  
 
         raw_eff = row.get("marker_efficiency", row.get("marker_efficiency_pct", efficiency))
         if isinstance(raw_eff, str):
@@ -1003,14 +1003,24 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, query_st
                 efficiency = efficiency_read
             except: pass
             
-        row["marker_efficiency"] = f"{round(efficiency * 100, 2)}%"
-        
-        # CHUYỂN TIẾP SANG ĐOẠN B ĐỂ XỬ LÝ HÌNH HỌC CHI TIẾT
+        # Nạp khối dữ liệu tệp Summary cha vào bên trong từng row con để Đoạn B dễ dàng trích xuất Utilization toàn cục
+        if "_btp_global_summary" in blueprint_final:
+            row["_btp_global_summary"] = blueprint_final["_btp_global_summary"]
+
+        # 🌟 ĐIỂM DEBUG 2 THEO YÊU CẦU: In ra ngay trước khi chuyển giao sang Engine toán Đoạn B
+        try:
+            if "panels_catalog" in row and len(row["panels_catalog"]) > 0:
+                print(f"[DEBUG 2 - IMMEDIATELY BEFORE CORE ENTRY FOR {row.get('component_type')}]:", row["panels_catalog"][0])
+        except Exception as db2_err:
+            print("[DEBUG 2 ERROR]: Cannot print row panels entry:", str(db2_err))
+
+        # 🚀 CHUYỂN GIAO NGUYÊN VẸN TOÀN BỘ SỐ LIỆU SẠCH SANG ĐOẠN B ĐỂ XỬ LÝ SỐ HỌC
         row = execute_geometric_cad_calculation_core(row, product_type, efficiency, width_inch, shrink_factor_length, shrink_factor_width, length_base, width_base)
         filtered_bom_rows.append(row)
         
     blueprint_final["bom_rows"] = filtered_bom_rows
     return blueprint_final
+
 # =====================================================================
 # ĐOẠN B: GEOMETRIC CAD COMPUTATION & QUALITY EDGE ENGINE (V61.0 MASTER PRODUCTION)
 # 🌟 KIẾN TRÚC TOÀN DIỆN V61: PYTHON CHỈ KIỂM TOÁN VÀ THỰC THI TOÁN SỐ HỌC TOÀN CỤC (PURE CALCULATOR)
@@ -1612,22 +1622,22 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
 
 
                            # =====================================================================
-                      # =====================================================================
-            # ĐOẠN 7a - PHẦN 3: POST-AI MIDDLEWARE & LUỒNG KẾT NỐI API THỰC TẾ (V61.1)
-            # 🌟 VÁ CHÍ MẠNG LỖI NAME_ERROR: ĐỊNH NGHĨA BIẾN CHỮ KÝ VÀ ĐỒNG BỘ KIẾN TRÚC V61 TOÀN CỤC
+                         # =====================================================================
+            # ĐOẠN 7a - PHẦN 3: POST-AI MIDDLEWARE PURE CONNECTIVITY (V61.5 GOLD)
+            # 🌟 ĐỒNG BỘ KIẾN TRÚC V61: CHO PHÉP DỮ LIỆU DIỆN TÍCH AI ĐI THẲNG VÀO ENGINE ĐOẠN B
+            # 🌟 LOẠI BỎ CÁC HÀM PARSER CŨ GÂY XOÁ SẠCH DỮ LIỆU DIỆN TÍCH THỰC CỦA GEMINI
             # =====================================================================
             
-            # 🟢 VÁ SỬA LỖI: Định nghĩa lại chính xác hai biến kiểm tra trạng thái bộ nhớ đệm
+            # Định nghĩa lại các biến kiểm tra trạng thái bộ nhớ đệm chống kẹt cache
             pdf_bytes_len_p3 = len(st.session_state.pdf_bytes) if st.session_state.pdf_bytes else 0
             current_signature_p3 = (str(safe_user_prompt).strip(), int(len(image_payloads)), int(pdf_bytes_len_p3))
             
             has_no_data_p3 = not st.session_state.get("bom_data") or st.session_state.get("bom_data") == {}
             is_signature_changed_p3 = st.session_state.get("last_processed_signature") != current_signature_p3
 
-            # Thực hiện gọi API Gemini để trích xuất dữ liệu rập phẳng hình học
+            # Thực thi kết nối trực tiếp gọi API Gemini
             if has_no_data_p3 or is_signature_changed_p3:
                 try:
-                    # Gửi toàn bộ dữ liệu (Text phẳng + Mảng ảnh BOM/Thông số/Sketch + Prompt V61)
                     full_api_payload = gemini_inputs + [prompt_instruction]
                     api_response = model.generate_content(full_api_payload)
                     response_text = api_response.text
@@ -1636,17 +1646,19 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                     st.stop()
 
             if response_text:
-                # Trích xuất khối cấu trúc JSON định mức hình học từ AI trả về
+                # Phân tách khối văn bản tự do và khối JSON hình học
                 json_match = re.search(r'(?:===START_JSON===\s*|```json\s*)(.*?)(?:\s*===END_JSON===|\s*```)', response_text, re.DOTALL)
                 chat_match = re.search(r'(?:===START_CHAT===\s*|```markdown\s*)(.*?)(?:\s*===END_CHAT===|\s*```|$)', response_text, re.DOTALL)
                 
                 if chat_match:
                     ai_conversation_reply = chat_match.group(1).strip()
                 else:
-                    # Tự động gom tất cả văn bản tự do ngoài khối JSON làm câu trả lời chat trực quan cho IE
                     clean_reply = re.sub(r'(?:===START_JSON===|```json).*?(?:===END_JSON===|```)', '', response_text, flags=re.DOTALL).strip()
-                    ai_conversation_reply = clean_reply if clean_reply else "Hệ thống đã nhận diện thành công cấu trúc hình học từ Techpack và cập nhật bảng tính định mức CAD."
-
+                    ai_conversation_reply = clean_reply if clean_reply else "Hệ thống đã cập nhật bảng tính toán định mức hình học phẳng CAD của mã hàng."
+                
+                # Đồng bộ lịch sử trò chuyện trực quan
+                st.session_state.chat_history.append({"user": current_query, "ai": ai_conversation_reply})
+                
                 raw_json_str = ""
                 if json_match: 
                     raw_json_str = json_match.group(1).strip()
@@ -1656,17 +1668,13 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                     match_fb = re.search(r'\{.*\}', response_text, re.DOTALL)
                     raw_json_str = match_fb.group(0).strip() if match_fb else ""
                 
-                # CẬP NHẬT LỊCH SỬ TRÒ CHUYỆN THEO PHONG CÁCH OPENAI
-                st.session_state.chat_history.append({"user": current_query, "ai": ai_conversation_reply})
-                
                 if raw_json_str:
-                    # Sửa lỗi dấu phẩy thừa (Trailing commas) trước khi thực hiện parse JSON
-                    raw_json_str = re.sub(r',\s*([\]\}])', r'\1', raw_json_str) 
+                    raw_json_str = re.sub(r',\s*([\]\}])', r'\1', raw_json_str) # Sửa lỗi dấu phẩy thừa
                     
                     try:
                         raw_blueprint = json.loads(raw_json_str)
                     except json.JSONDecodeError as json_err:
-                        st.error(f"❌ THẤT BẠI PARSE JSON: Chuỗi cấu trúc sinh ra từ Gemini bị lỗi cú pháp: {str(json_err)}")
+                        st.error(f"❌ THẤT BẠI PARSE JSON: Chuỗi cấu trúc sinh ra từ Gemini bị lỗi: {str(json_err)}")
                         st.code(raw_json_str, language="json")
                         st.stop()
                     
@@ -1674,29 +1682,29 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                         blueprint_worker = copy.deepcopy(raw_blueprint)
                         query_str = str(current_query)
                         
-                        # Giải phóng bộ nhớ đệm cũ để nạp khối dữ liệu tính toán mới tinh của kiến trúc V61
+                        # Xóa bộ nhớ đệm cũ để chuẩn bị nạp dữ liệu sạch
                         st.session_state.bom_data = {}
                         st.session_state.accumulated_bom_rows = {}
                         
-                        # Gọi lõi máy toán hình học phẳng CAD (Hàm Đoạn B V61.0 - Thực thi kiểm toán diện tích sạch)
+                        # 🟢 VÁ SỬA LỖI TRÙNG LẶP: Đưa thẳng dữ liệu gốc từ AI vào Engine tính toán Đoạn B V61.2
+                        # Không chạy qua bất kỳ hàm parse rập trung gian cũ nào để bảo toàn 100% trường diện tích thực
                         blueprint_final = allocate_fabric_consumption_and_quality_gate(blueprint_worker, query_str)
                         
-                        # Lưu trữ kết quả sạch và chốt khóa chữ ký tải trang
+                        # Ghi dữ liệu sạch vào session và chốt chữ ký tải trang vẽ bảng tính định mức
                         st.session_state.bom_data = blueprint_final
                         st.session_state.accumulated_bom_rows = blueprint_final.get("bom_rows", [])
                         st.session_state["last_processed_signature"] = current_signature_p3
                         
-                        st.success(f"🎉 Xử lý rập hình học phẳng CAD thành công cho loại sản phẩm: {blueprint_final.get('detected_product_type', 'Động')}!")
+                        st.success("🎉 Xử lý diện tích hình học phẳng CAD thành công theo kiến trúc V61!")
                         st.rerun()
                     else:
                         st.error("⚠️ Khối JSON của AI thiếu trường danh mục bom_rows.")
                 else:
                     st.error("❌ Không thể bóc tách START_JSON từ văn bản phản hồi thô của Gemini.")
-                    st.text_area("Nội dung AI trả về thực tế:", value=response_text, height=150)
+                    st.text_area("Nội dung AI trả về thực tế:", value=response_text, height=120)
                 
                 st.rerun()
 
-        # ĐÓNG NGOẶC LỆNH TRY TOÀN CỤC CỦA ĐOẠN 7A1
         except Exception as e_global:
             st.error(f"💥 Lỗi luồng trích xuất hạ tầng tổng toàn cục: {str(e_global)}")
             st.code(traceback.format_exc())
