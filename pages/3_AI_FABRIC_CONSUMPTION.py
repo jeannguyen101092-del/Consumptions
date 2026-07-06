@@ -551,8 +551,8 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             ===END_JSON===
             """
 # =====================================================================
-# ĐOẠN 7a - PHẦN 3: POST-AI MIDDLEWARE GATEWAY (V80.0 FINAL PROD)
-# 🌟 ĐẢM BẢO 100% SỐ YARDS ĐƯỢC HIỂN THỊ ĐÈ LÊN MÀN HÌNH CHAT
+# ĐOẠN 7a - PHẦN 3: POST-AI MIDDLEWARE GATEWAY (V81.0 FIXED SYNCHRONIZATION)
+# 🌟 SỬA LỖI ĐỒNG BỘ: ÉP BIẾN ĐỘNG TỪ Ô CHAT THẲNG VÀO MẢNG TRƯỚC KHI QUA GATEWAY
 # =====================================================================
             response_text = ""
             
@@ -598,13 +598,13 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                         st.stop()
                     
                     if blueprint_worker and "bom_rows" in blueprint_worker:
-                        # Thêm khóa bổ trợ để đoạn 7b có thể nhận diện size trực tiếp từ JSON
                         blueprint_worker["calculated_on_size"] = target_size_cmd
                         
-                        # Thêm thông tin co rút cục bộ vào từng dòng rập để đồng bộ sang bảng vẽ hiển thị ở đoạn 7b
+                        # 🟢 VÁ LỖI KHÓA CHÍ MẠNG: Ép đè giá trị khổ và co rút động trích xuất từ câu lệnh vào từng dòng rập
                         for row in blueprint_worker.get("bom_rows", []):
-                            row["_btp_warp_pct"] = warp_val
-                            row["_btp_weft_pct"] = weft_val
+                            row["fabric_width_inch"] = active_width  # Đồng bộ khổ vải thực tế (ví dụ: 58.0)
+                            row["_btp_warp_pct"] = warp_val          # Đồng bộ co rút dọc thực tế (ví dụ: 3.0%)
+                            row["_btp_weft_pct"] = weft_val          # Đồng bộ co rút ngang thực tế (ví dụ: 13.0%)
                         
                         # Gọi thẳng hàm nạp và hiển thị dữ liệu Yards lên UI
                         blueprint_final = allocate_fabric_consumption_and_quality_gate(blueprint_worker, str(safe_user_prompt).strip())
@@ -615,7 +615,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                         if response_text:
                             st.session_state["last_processed_signature"] = current_signature_p3
                             st.success("🎉 Xử lý định mức tự động toàn phần thành công!")
-                            st.rerun() # Ép tải lại trang để hiển thị kết quả Yards thực tế ngay lập tức
+                            st.rerun() 
                     else:
                         st.error("⚠️ Khối JSON của AI thiếu trường danh mục bom_rows.")
                 else:
@@ -625,8 +625,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             st.error(f"💥 Lỗi luồng trích xuất hạ tầng tổng toàn cục: {str(e_global)}")
             st.code(traceback.format_exc())
 # =====================================================================
-# ĐOẠN 7b: HIỂN THỊ KẾT QUẢ ĐỊNH MỨC & BẢNG ĐỐI CHỨNG ĐA CỘT ĐỒNG BỘ SIZE (V47.0 MASTER DYNAMIC)
-# ĐỒNG BỘ ĐỘNG ĐỘ CO RÚT, KHỔ VẢI VÀ HIỆU SUẤT TỪ HÀM TÍNH TOÁN 2B RA GIAO DIỆN
+# ĐOẠN 7b: HIỂN THỊ KẾT QUẢ ĐỊNH MỨC & BẢNG ĐỐI CHỨNG ĐA CỘT ĐỒNG BỘ SIZE (V47.2 SYNC ALIGNED)
 # =====================================================================
 if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_rows"):
     import pandas as pd
@@ -657,16 +656,15 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
         if not r or not isinstance(r, dict): 
             continue
             
-        # 🟢 ĐỒNG BỘ KHÓA TIẾP NHẬN: Đọc trực tiếp từ bộ não AI Pass Gateway V80.0 đảm bảo hiển thị đúng số Yards
         current_gross = r.get("gross_consumption", 0.0)
         sys_notes = r.get("reasoning", r.get("system_notes", "Mô phỏng CAD Gerber V27"))
         
-        # Đọc khổ vải an toàn đã được chốt chặn chống số 0 từ Đoạn 2b / Gateway V80.0
+        # 🟢 ĐỌC ĐỘNG KHỔ VẢI THỰC TẾ ĐÃ ĐƯỢC ĐỒNG BỘ TỪ ĐOẠN 3
         raw_width = r.get("fabric_width_inch", 57.0)
         try: cut_width_val = f"{float(raw_width)} inch"
         except: cut_width_val = "57.0 inch"
 
-        # 🌟 ĐỒNG BỘ ĐỘNG CHÍ MẠNG: Đọc chính xác độ co rút động và hiệu suất từ Gateway V80.0 truyền sang
+        # 🟢 ĐỌC ĐỘNG CHÍ MẠNG TOÀN BỘ THÔNG SỐ ĐÃ ĐƯỢC MIDDLEWARE ĐÓNG GÓI
         warp_dynamic = r.get("_btp_warp_pct", "3.0%")
         weft_dynamic = r.get("_btp_weft_pct", "13.0%")
         eff_dynamic = r.get("marker_efficiency", "88.9%")
@@ -706,16 +704,16 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
             pom_code, description, measurement_val = "POM", raw_str, "-"
             if ":" in raw_str:
                 parts = raw_str.split(":", 1)
-                pom_code = parts[0].strip()
-                description = parts[1].strip()
+                pom_code = parts.strip()
+                description = parts.strip()
                 if "=" in description:
                     sub_parts = description.split("=", 1)
-                    description = sub_parts[0].strip()
-                    measurement_val = sub_parts[1].strip()
+                    description = sub_parts.strip()
+                    measurement_val = sub_parts.strip()
             elif "=" in raw_str:
                 parts = raw_str.split("=", 1)
-                description = parts[0].strip()
-                measurement_val = parts[1].strip()
+                description = parts.strip()
+                measurement_val = parts.strip()
                 
             parsed_evidence_rows.append({
                 "STT": idx + 1, "Mã POM": pom_code, "Mô tả Thông số Kỹ thuật": description, "Kích thước Đo thực tế (Inches)": measurement_val
