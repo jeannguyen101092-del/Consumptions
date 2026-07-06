@@ -27,12 +27,7 @@ def compute_fabric_engine(row: dict, product_type: str, chat_txt: str) -> tuple:
 
     PRODUCT_NET_AREA_MATRIX = {
         "JEANS": {"MAIN_FABRIC": 0.84, "LINING": 0.15, "FUSING": 0.10, "DEFAULT": 0.80},
-        "CARGO_PANTS": {
-            "MAIN_FABRIC": 1.15, 
-            "LINING": 0.75,   # Đưa lót túi về hệ số diện tích bao chuẩn hình học quần
-            "FUSING": 0.72,   # Đưa keo dựng về hệ số diện tích bao chuẩn hình học nắp phối
-            "DEFAULT": 1.00
-        },
+        "CARGO_PANTS": {"MAIN_FABRIC": 1.15, "LINING": 0.75, "FUSING": 0.72, "DEFAULT": 1.00},
         "DRESS": {"MAIN_FABRIC": 0.78, "LINING": 0.70, "FUSING": 0.25, "DEFAULT": 0.75},
         "DEFAULT": {"MAIN_FABRIC": 0.80, "LINING": 0.20, "FUSING": 0.20, "DEFAULT": 0.80}
     }
@@ -44,31 +39,34 @@ def compute_fabric_engine(row: dict, product_type: str, chat_txt: str) -> tuple:
     }
 
     active_product = product_type
-    if "CARGO" in chat_txt or "TÚI HỘP" in chat_txt or "PANTS" in chat_txt:
+    if "CARGO" in chat_txt or "TÚI HỘP" in chat_txt or "PANTS" in chat_txt or "PANTS" in product_type:
         active_product = "CARGO_PANTS"
 
     mat_class = str(row.get("material_class", "FABRIC")).upper().strip()
     if mat_class not in ["MAIN_FABRIC", "LINING", "FUSING"]:
         comp_name = str(row.get("component_name", "")).upper()
-        if "MAIN" in comp_name: mat_class = "MAIN_FABRIC"
+        if "MAIN" in comp_name or "BODY" in comp_name: mat_class = "MAIN_FABRIC"
         elif "POCKET" in comp_name or "LINING" in comp_name or "LÓT" in comp_name: mat_class = "LINING"
         elif "FUSING" in comp_name or "KEO" in comp_name or "DỰNG" in comp_name: mat_class = "FUSING"
         else: mat_class = "MAIN_FABRIC"
 
-    # 🌟 KHỐI CHỐT CHẶN BẢO VỆ (CHỈ SỬA KEO LÓT KHI THIẾU THÔNG SỐ, KHÔNG ĐỘNG ĐẾN VẢI CHÍNH)
+    # Đọc thông số rập thô ban đầu từ AI bóc tách
     b_length = float(row.get("bounding_box_length", 0.0) or 0.0)
     b_width = float(row.get("bounding_box_width", 0.0) or 0.0)
     p_count = int(row.get("piece_count", 1) or 1)
 
-    if active_product == "CARGO_PANTS":
-        if mat_class == "LINING" and (b_length < 15.0 or b_width < 10.0):
-            # Nếu AI bóc rập lót túi quá nhỏ hoặc không có thông số, ép sàn kích thước túi xéo trước tiêu chuẩn nhà máy
-            b_length = 22.0
-            b_width = 14.0
+    # 🌟 VÁ LỖI LOGIC: Ép sàn kích thước rập mẫu cho TOÀN BỘ nhóm quần khi AI trả về thông số rỗng hoặc 0.0
+    if active_product in ["CARGO_PANTS", "PANTS", "JEANS"]:
+        if mat_class == "MAIN_FABRIC" and (b_length <= 0.0 or b_width <= 0.0):
+            b_length = 42.0   # Chiều dài rập quần dài tiêu chuẩn
+            b_width = 25.0    # Chiều rộng rập đùi/mông tiêu chuẩn
+            p_count = 2       # Thân trước + Thân sau
+        elif mat_class == "LINING" and (b_length < 15.0 or b_width < 10.0 or b_length <= 0.0):
+            b_length = 22.0   # Chiều dài lót túi xéo trước
+            b_width = 14.0    # Chiều rộng lót túi
             p_count = 2
-        elif mat_class == "FUSING" and (b_length < 35.0 or b_length * b_width < 100.0):
-            # Nếu AI bóc thiếu keo nắp túi hộp, ép sàn kích thước cạp quần cộng dồn tổng diện tích các nắp túi sườn
-            b_length = 42.0
+        elif mat_class == "FUSING" and (b_length < 35.0 or b_length * b_width < 100.0 or b_length <= 0.0):
+            b_length = 42.0   # Chiều dài keo ép cạp + nắp túi phối
             b_width = 4.5
             p_count = 2
 
@@ -85,8 +83,8 @@ def compute_fabric_engine(row: dict, product_type: str, chat_txt: str) -> tuple:
     g_depth = str(row.get("gather_depth", "NONE")).upper().strip()
     active_gather_ratio = GATHER_RATIO_MATRIX.get(g_type, GATHER_RATIO_MATRIX["NONE"]).get(g_depth, 1.00)
     
+    # Thực thi tính toán toán học phẳng CAD
     raw_box_area = b_length * b_width * p_count
-    
     product_map = PRODUCT_NET_AREA_MATRIX.get(active_product, PRODUCT_NET_AREA_MATRIX["DEFAULT"])
     net_factor = product_map.get(mat_class, product_map.get("DEFAULT", 0.80))
     
@@ -99,9 +97,8 @@ def compute_fabric_engine(row: dict, product_type: str, chat_txt: str) -> tuple:
         gross_val = (expanded_area / (width_inch * 36.0 * efficiency_num)) * 1.03
         gross_val = round(gross_val, 3)
         
-    row["fabric_width_inch"] = width_inch
-    row["marker_efficiency"] = f"{round(efficiency_num * 100, 1)}%"
-    note = f"FabricEngine ({mat_class}) | Phân hệ: {active_product} | Rập hình học: {b_length}x{b_width} ({net_factor}x)"
+    row["fabric_consumption"] = gross_val # Bảo vệ biến hiển thị
+    note = f"FabricEngine ({mat_class}) | Rập: {b_length}x{b_width} | Diện tích thô: {raw_box_area}\""
     return gross_val, note
 
 
