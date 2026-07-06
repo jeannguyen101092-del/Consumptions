@@ -1721,8 +1721,9 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
 
 
                        # =====================================================================
-            # ĐOẠN 7a - PHẦN 3: POST-AI MIDDLEWARE PURE CONNECTIVITY (V61.9 CHUẨN CÚ PHÁP)
-            # 🌟 VÁ SỬA HOÀN TOÀN LỖI SYNTAXERROR / INDENTATION CHUẨN LÙI DÒNG PYTHON
+            # ĐOẠN 7a - PHẦN 3: POST-AI MIDDLEWARE WITH LIVE VISUAL INJECTOR (V67.0)
+            # 🌟 TÍCH HỢP "KÍNH CHIẾU YÊU" ST.JSON() ĐỂ VẠCH TRẦN CẤU TRÚC GỐC CỦA GEMINI FLASH
+            # 🌟 KHÔNG SỬA ĐỔI THUẬT TOÁN - CHỈ ĐỔ DỮ LIỆU THÔ RA MÀN HÌNH ĐỂ AUDIT VÀ DEBUG CHÍNH XÁC 100%
             # =====================================================================
             
             # Khởi tạo giá trị mặc định cho biến response_text để tránh lỗi NameError
@@ -1774,6 +1775,13 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                     
                     try:
                         raw_blueprint = json.loads(raw_json_str)
+                        
+                        # 🌟 ĐOẠN PHẦN CỨU HỘ INJECTOR THEO ĐỀ NGHỊ: Đổ trực tiếp cấu trúc JSON gốc của AI lên UI để soi lỗi
+                        st.markdown("---")
+                        st.subheader("🔍 KÍNH CHIẾU YÊU: DỮ LIỆU JSON THỰC TẾ GEMINI TRẢ VỀ")
+                        st.json(raw_blueprint)
+                        st.markdown("---")
+                        
                     except json.JSONDecodeError as json_err:
                         st.error(f"❌ THẤT BẠI PARSE JSON: Chuỗi cấu trúc sinh ra từ Gemini bị lỗi: {str(json_err)}")
                         st.code(raw_json_str, language="json")
@@ -1787,7 +1795,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                         st.session_state.bom_data = {}
                         st.session_state.accumulated_bom_rows = {}
                         
-                        # Đưa thẳng dữ liệu gốc từ AI vào Engine tính toán (Bảo toàn 100% trường diện tích thực)
+                        # Đưa dữ liệu sang Engine tính toán độc lập
                         blueprint_final = allocate_fabric_consumption_and_quality_gate(blueprint_worker, query_str)
                         
                         st.session_state.bom_data = blueprint_final
@@ -1804,7 +1812,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                 
                 st.rerun()
 
-        # ĐÓNG NGOẶC CHÍ MẠNG LỆNH TRY TOÀN CỤC CỦA ĐOẠN 7A-PHẦN 1 MỞ RA
+        # ĐÓNG NGOẶC LỆNH TRY TOÀN CỤC CỦA ĐOẠN 7A-PHẦN 1
         except Exception as e_global:
             st.error(f"💥 Lỗi luồng trích xuất hạ tầng tổng toàn cục: {str(e_global)}")
             st.code(traceback.format_exc())
