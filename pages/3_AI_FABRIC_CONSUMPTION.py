@@ -455,8 +455,9 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             # Đưa trực tiếp câu lệnh hiện tại của người dùng vào danh sách đầu vào của Gemini
             gemini_inputs.append(f"\n[USER COMMAND]: {current_query}")
 
-            # ĐOẠN 7a - PHẦN 3a: INITIALIZATION & AGENT PROMPTS SETUP (V100.1 ST STRICT)
-            # 🌟 ĐÃ ÉP CẤU TRÚC THẺ ĐÁNH DẤU CHẶT CHẼ TRÁNH LỖI PHÂN TÁCH JSON
+                       # =====================================================================
+            # ĐOẠN 7a - PHẦN 3a: INITIALIZATION & AGENT PROMPTS SETUP (V100.2 FIXED)
+            # 🌟 ĐÃ KHẮC PHỤC TRIỆT ĐỂ LỖI NAME_ERROR CỦA CÁC BIẾN CHAT COMMAND
             # =====================================================================
             response_text = ""
             
@@ -466,7 +467,20 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             has_no_data_p3 = not st.session_state.get("bom_data") or st.session_state.get("bom_data") == {}
             is_signature_changed_p3 = st.session_state.get("last_processed_signature") != current_signature_p3
 
-            # THIẾT LẬP CHUỖI PHÒNG VỆ AGENT 1 & AGENT 2
+            # 🟢 VÁ LỖI TRÍCH XUẤT BIẾN TỪ Ô CHAT ĐỂ KHÔNG BỊ NAME_ERROR
+            chat_lower = current_query.lower()
+            match_size = re.search(r'\b(?:size|sz|cỡ)\s*[:\-=\s]*([\w\d/]+)\b', chat_lower)
+            target_size_cmd = str(match_size.group(1)).upper().strip() if match_size else "30"
+            
+            match_w = re.search(r'(?:khổ|kho|width|w)\s*[:\-=\s]*([\d\.]+)', chat_lower)
+            active_width = float(match_w.group(1)) if match_w else 57.0
+            if active_width < 20.0: active_width = 57.0
+            
+            match_shrink = re.search(r'(?:co rút|co rut|sh|shrinkage)\s*[:\-=\s]*([\d\.]+)\s*[\-,\s]\s*([\d\.]+)', chat_lower)
+            warp_val = f"{match_shrink.group(1)}%" if match_shrink else "3.0%"
+            weft_val = f"{match_shrink.group(2)}%" if match_shrink else "13.0%"
+
+            # THIẾT LẬP CHUỒI PHÒNG VỆ AGENT 1 & AGENT 2 CHẶT CHẼ
             prompt_agent_1 = f"""
             You are Agent 1: A Textile CAD Geometry Specialist. Scan techpack text/images for size '{target_size_cmd}'. 
             Calculate raw surface areas of fabric panels including shrinkage. Look for Pocketing (lót túi), Elastic (chun), Tape (dây dệt).
@@ -474,7 +488,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             """
             
             prompt_agent_2 = f"""
-            You are Agent 2: The Senior Apparel IE Auditor. Review Agent 1 JSON against the raw Techpack context.
+            You are Agent 2: The Senior Apparel Industrial Engineer (IE) Auditor. Review Agent 1 JSON against the raw Techpack context.
             🌟 EXHAUSTIVE RULES: Generate rows for EVERY component needing yardage (Main Fabric, Pocketing, Elastic, Tape).
             Set realistic 'marker_efficiency': Denim/Jeans major fabric strictly 85.5% (NEVER use 88%+), Lining/Fusing 85.5%, Trims 95%.
             
@@ -503,6 +517,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             }}
             ===END_JSON===
             """
+
 
             # =====================================================================
             # ĐOẠN 7a - PHẦN 3b: DUAL-AGENT API EXECUTION SEQUENCE (V100.0)
