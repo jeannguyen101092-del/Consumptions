@@ -591,13 +591,9 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                         # =====================================================================
                         # =====================================================================
                         # =====================================================================
+                        # =====================================================================
             # =====================================================================
-            # =====================================================================
-            # =====================================================================
-            # ĐOẠN 7a - PHẦN 3a: INITIALIZATION & AGENT PROMPTS SETUP (V101.3 STRICT - OPTIMIZED)
-            # 🌟 ĐÃ KHÓA CỨNG DUMMY JSON SANG DRESS ĐỂ AI KHÔNG BỊ BIAS QUẦN JEANS CŨ
-            # 🌟 ÉP TẦNG 2 CHỐT ĐÚNG TAG PHOM DÁNG ĐỂ PYTHON KÍCH HOẠT MA TRẬN NHÚN
-            # 🌟 ĐÃ ĐIỀU CHỈNH THÔNG SỐ RẬP THÔ VÀ DIỆN TÍCH ĐỂ KHẮC PHỤC LỖI THIẾU ĐỊNH MỨC
+            # ĐOẠN 7a - PHẦN 3a: INITIALIZATION & AGENT PROMPTS SETUP (V101.4 HIGH-CONSUMPTION)
             # =====================================================================
             response_text = ""
             pdf_bytes_len_p3 = len(st.session_state.pdf_bytes) if st.session_state.pdf_bytes else 0
@@ -610,9 +606,10 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             match_size = re.search(r'\b(?:size|sz|cỡ)\s*[:\-=\s]*([\w\d/]+)\b', chat_lower)
             target_size_cmd = str(match_size.group(1)).upper().strip() if match_size else "30"
             
+            # 🟢 SỬA LỖI REGEX TRÍCH XUẤT KHỔ VẢI TỪ Ô CHAT ĐỂ NHẬN BIẾT ĐÚNG KHỔ 58, 60...
             match_w = re.search(r'(?:khổ|kho|width|w)\s*[:\-=\s]*([\d\.]+)', chat_lower)
             active_width = float(match_w.group(1)) if match_w else 56.0
-            if active_width < 20.0: active_width = 56.0
+            if active_width < 20.0 or active_width > 80.0: active_width = 56.0
 
             prompt_agent_1 = f"""
             You are Agent 1: An Apparel Technical Component Extractor. Scan techpack text/images for size '{target_size_cmd}'. 
@@ -626,10 +623,10 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             🌟 CRITICAL AREA REALISM AUDIT:
             1. You MUST verify that the extracted dimensions represent the FULL garment. For a Dress/Garment, you MUST include BOTH the Front Panel and Back Panel. 
             2. Cross-examine the product type. Look at the sketch images and text metadata carefully. If the file is a Dress, you MUST output 'detected_product_type' as 'DRESS'. Override any 'Pants' or 'Twill Pants' text metadata bias from the cache.
-            3. For adult Dress/Mini Dress major fabric panels, the realistic total raw combined net area 'total_net_area_sq_inch' MUST fall logically between 1800.0 and 2800.0 square inches. (Elevated for ruched/gathering allowance).
+            3. For adult Dress/Mini Dress major fabric panels, the realistic total raw combined net area 'total_net_area_sq_inch' MUST fall logically between 2200.0 and 3200.0 square inches. (Elevated for high-yield ruched/gathering allowance).
             4. Classify 'gather_type' as strictly one of: ['NONE', 'SIDE_RUCHE', 'WAIST_GATHER', 'FLARE_SKIRT']. For this Side Ruched Dress, it MUST be 'SIDE_RUCHE'.
             5. Classify intensity 'gather_depth' as strictly one of: ['NONE', 'LIGHT', 'MEDIUM', 'HEAVY']. For this dress, set it to 'MEDIUM' or 'HEAVY'.
-            6. CRITICAL FOR RUCHED DRESS: Because this is a SIDE_RUCHE garment, the un-gathered pattern piece length (bounding_box_length) is significantly longer than the finished dress length. Ensure the bounding_box_length reflects the raw stretched pattern piece (typically 48.0 - 55.0 inches for adult mini dress before gathering).
+            6. CRITICAL FOR RUCHED DRESS: Because this is a SIDE_RUCHE garment, the un-gathered pattern piece length (bounding_box_length) is significantly longer than the finished dress length. Ensure the bounding_box_length reflects the raw stretched pattern piece (typically 58.0 - 68.0 inches for adult mini dress before gathering to achieve realistic production yield).
             7. Do NOT calculate final yards. Only output clean numbers for Python engine.
 
             Output BOTH raw text JSON format (under ===START_JSON===) and markdown chat response (under ===START_CHAT===). All 'fabric_width_inch' must match {active_width}.
@@ -648,7 +645,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                   "component_type": "Main Fabric - Poplin",
                   "fabric_classification": "MAIN_FABRIC",
                   "fabric_width_inch": {active_width},
-                  "bounding_box_length": 52.0,
+                  "bounding_box_length": 65.0,
                   "bounding_box_width": 26.0,
                   "piece_count": 2,
                   "gather_type": "SIDE_RUCHE",
@@ -659,6 +656,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             }}
             ===END_JSON===
             """
+
 
 
 
