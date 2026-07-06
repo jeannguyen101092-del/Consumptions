@@ -1749,9 +1749,9 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             ===END_JSON===
             """
                        # =====================================================================
-            # ĐOẠN 7a - PHẦN 3: POST-AI MIDDLEWARE ARCHITECTURE (V72.0 GOLD)
-            # 🌟 GIẢI QUYẾT TRIỆT ĐỂ LỖI KẸT CACHE DÌM ĐỊNH MỨC VỀ SỐ 0 KHI REFRESH TRANG
-            # 🌟 ĐỒNG BỘ KIẾN TRÚC V61: ÉP PYTHON VẬN HÀNH TOÁN HỌC TRÊN DỮ LIỆU GỐC CỦA AI
+            # ĐOẠN 7a - PHẦN 3: POST-AI MIDDLEWARE ARCHITECTURE (V73.0 GOLD PRODUCTION)
+            # 🌟 KHẮC PHỤC TRIỆT ĐỂ LỖI KẸT VÒNG LẶP RERUN TỰ DO DÌM ĐỊNH MỨC VỀ SỐ 0
+            # 🌟 ĐỒNG BỘ KIẾN TRÚC V61: CHỈ CHO PHÉP RERUN KHI PARSE THÀNH CÔNG KHỐI BLUEPRINT GỐC
             # =====================================================================
             response_text = ""
             
@@ -1762,29 +1762,27 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             has_no_data_p3 = not st.session_state.get("bom_data") or st.session_state.get("bom_data") == {}
             is_signature_changed_p3 = st.session_state.get("last_processed_signature") != current_signature_p3
 
-            # CHẶNG 1: Gọi API trực tiếp đến Google Gemini khi có thay đổi chữ ký lệnh hoặc chưa có dữ liệu
+            # Gọi trực tiếp API Google Gemini khi có lệnh mới hoặc khuyết dữ liệu cache
             if has_no_data_p3 or is_signature_changed_p3:
                 try:
                     full_api_payload = gemini_inputs + [prompt_instruction]
                     api_response = model.generate_content(full_api_payload)
                     response_text = api_response.text
-                    
-                    # 🟢 VÁ SỬA LỖI: Sao lưu chuỗi phản hồi gốc của AI vào Session State để bảo toàn dòng chảy dữ liệu
                     st.session_state["_btp_master_raw_json_stream"] = response_text
                 except Exception as api_err:
                     st.error(f"💥 Lỗi kết nối trực tiếp đến API Google Gemini: {str(api_err)}")
                     st.stop()
 
-            # Lấy chuỗi dữ liệu gốc từ bộ nhớ đệm ra xử lý (Triệt tiêu lỗi mất dữ liệu khi Rerun)
+            # Lấy chuỗi dữ liệu gốc từ bộ nhớ đệm ra xử lý (Bảo toàn dòng chảy dữ liệu khi Rerun)
             active_json_stream = st.session_state.get("_btp_master_raw_json_stream", response_text)
 
-            # CHẶNG 2: Bộ lọc phân tách và trích xuất khối START_JSON
+            # Xử lý phân tách luồng dữ liệu hình học
             if active_json_stream:
                 json_match = re.search(r'(?:===START_JSON===\s*|```json\s*)(.*?)(?:\s*===END_JSON===|\s*```)', active_json_stream, re.DOTALL)
                 chat_match = re.search(r'(?:===START_CHAT===\s*|```markdown\s*)(.*?)(?:\s*===END_CHAT===|\s*```|$)', active_json_stream, re.DOTALL)
                 
-                # Cập nhật phản hồi hội thoại của AI lên khung chat
-                if chat_match and response_text: # Chỉ append vào history ở lượt chạy đầu tiên có response thực tế
+                # Nạp phản hồi hội thoại của AI lên khung chat (chỉ nạp một lần khi có response_text mới)
+                if chat_match and response_text:
                     st.session_state.chat_history.append({
                         "user": current_query, 
                         "ai": chat_match.group(1).strip()
@@ -1798,40 +1796,34 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                     raw_json_str = match_fb.group(0).strip() if match_fb else ""
                 
                 if raw_json_str:
-                    raw_json_str = re.sub(r',\s*([\]\}])', r'\1', raw_json_str) # Sửa lỗi dấu phẩy thừa của JSON
+                    raw_json_str = re.sub(r',\s*([\]\}])', r'\1', raw_json_str) # Lọc dấu phẩy thừa JSON
                     
-                    # Giải pháp parse an toàn
                     blueprint_worker = None
                     try:
                         blueprint_worker = json.loads(raw_json_str)
                     except Exception as json_err:
-                        st.error(f"❌ LỖI HẠ TẦNG PARSE JSON GỐC: {str(json_err)}")
+                        st.error(f"❌ LỖI PARSE JSON PHÍA TRONG LUỒNG: {str(json_err)}")
                         st.code(raw_json_str, language="json")
                         st.stop()
                     
                     if blueprint_worker and "bom_rows" in blueprint_worker:
-                        # 🟢 VÁ SỬA LỖI CHÍ MẠNG: Bất kể tải lại trang hay không, luôn ép hàm toán học vận hành
-                        # Đưa dữ liệu gốc sạch từ AI vào Engine Đoạn B V64.0 (Bản xử lý so khớp từ khóa mềm)
+                        # Thực thi lõi toán hình học CAD phẳng (Đoạn B V66.5 Tích hợp bộ Debug kiểm toán 3 tầng)
                         blueprint_final = allocate_fabric_consumption_and_quality_gate(blueprint_worker, str(safe_user_prompt).strip())
                         
-                        # Đồng bộ và đổ dữ liệu Yards sạch vào Session State để vẽ bảng tính hiển thị
-                        st.session_state.bom_data = blueprint_final
-                        st.session_state.accumulated_bom_rows = blueprint_final.get("bom_rows", [])
-                        
-                        # Khóa chốt chặn chữ ký tải trang để hoàn tất phiên chat
+                        # Chốt khóa bộ nhớ đệm chữ ký tải trang
                         if response_text:
                             st.session_state["last_processed_signature"] = current_signature_p3
-                            st.success("🎉 Xử lý rập hình học phẳng CAD thành công theo kiến trúc V61!")
-                            st.rerun() # Chỉ rerun duy nhất một lần ở lượt nhận dữ liệu đầu tiên từ API
+                            st.success("🎉 Xử lý diện tích hình học phẳng CAD thành công theo kiến trúc V61!")
+                            
+                            # 🟢 CHỈ CHO PHÉP RERUN TẠI ĐÂY (NẰM SÂU TRONG CẤU TRÚC ĐIỀU KIỆN THÀNH CÔNG)
+                            st.rerun() 
                     else:
                         st.error("⚠️ Khối JSON của AI thiếu trường danh mục bom_rows.")
                 else:
                     st.error("❌ Không thể bóc tách START_JSON từ văn bản phản hồi thô của Gemini.")
+            
+            # 🚨 🚨 🚨 TUYỆT ĐỐI KHÔNG ĐỂ BẤT KỲ LỆNH ST.RERUN() NÀO NẰM LƠ LỬNG Ở ĐÂY NỮA!
 
-        # Khối đóng luồng tổng toàn cục khép kín cho lệnh try ở Phần 1 mở ra
-        except Exception as e_global:
-            st.error(f"💥 Lỗi luồng trích xuất hạ tầng tổng toàn cục: {str(e_global)}")
-            st.code(traceback.format_exc())
 
 
 
