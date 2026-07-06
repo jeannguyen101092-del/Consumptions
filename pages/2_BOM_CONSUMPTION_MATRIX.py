@@ -2504,7 +2504,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         addon_fabric_consumption = 0.0
         addon_notes = []
 
-        # VÒNG LẶP PHÂN TẦNG VẬT TƯ VÀ TÍCH HỢP ĐỊNH MỨC MẪU MỚI
+               # VÒNG LẶP PHÂN TẦNG VẬT TƯ VÀ TÍCH HỢP ĐỊNH MỨC MẪU MỚI (Cấu trúc giữ nguyên gốc)
         projection_rows = []
         if not final_old_bom_summary:
             final_old_bom_summary = {"MAIN FABRIC": 0.8275, "INTERLINING": 0.1200, "POCKETING FABRIC": 0.1575}
@@ -2524,7 +2524,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                 base_projected = avg_old_qty * (1 + adjusted_shape_factor / 100)
                 projected_dm = base_projected * (1 + wastage_buffer / 100)
                 
-                # RÀO CHẮN ÉP ĐỊNH MỨC THỰC TẾ THEO TIÊU CHUẨN SÀN CẮT PPJ
+                # 🛠️ GIỮ NGUYÊN KHÓA CỦA BẠN: Vượt cao (>= 15%) và định mức nhỏ hơn sàn thì ép về 1.05 lần định mức cũ
                 if shape_factor >= 15.0 and projected_dm < 1.05:
                     projected_dm = round(avg_old_qty * 1.05, 4)
                 
@@ -2535,9 +2535,11 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
                     note = f"Vải chính: Hệ số rập ({actual_fabric_factor}) × Biến thiên phom ({round(shape_factor, 2)}%)"
                 
             elif any(k in ctype_upper for k in ["LINING", "RIB", "COMBINATION", "POCKET", "INTERLINING", "POCKETING"]):
-                # Vải phụ/Lót túi: Bản chất quần giống nhau nên giữ nguyên định mức gốc kho, tính hao hụt sản xuất tĩnh
-                projected_dm = avg_old_qty * (1 + wastage_buffer / 100)
-                note = f"Vải lót/phụ: Giữ ổn định theo phom cũ (Không tăng diện tích đáp túi)"
+                # 🛠️ CHỈ SỬA VÙNG NÀY: Cho phép định mức vải phụ/lót giảm theo % rập túi khi thông số âm
+                base_projected = avg_old_qty * (1 + shape_factor / 100)
+                projected_dm = base_projected * (1 + wastage_buffer / 100)
+                
+                note = f"Vải lót/phụ: Biến thiên tự động theo tỷ lệ thông số phom rập ({round(shape_factor, 2)}%)"
                 
             else:
                 projected_dm = avg_old_qty * (1 + wastage_buffer / 100)
@@ -2552,7 +2554,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
 
         # HIỂN THỊ BẢNG KẾT QUẢ DỰ PHÓNG HOÀN CHỈNH
         df_projection = pd.DataFrame(projection_rows)
-        st.dataframe(df_projection, use_container_width=True, hide_index=True)
+        st.dataframe(df_projection)
 
 
     
