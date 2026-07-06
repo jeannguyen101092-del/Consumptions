@@ -1579,16 +1579,19 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
 
 
                          # =====================================================================
-            # ĐOẠN 7a - PHẦN 2: DYNAMIC MULTI-PRODUCT AI GATEWAY (V61.9 CƯỠNG CHẾ SINH DIỆN TÍCH)
-            # 🌟 ÉP AI BẮT BUỘC PHẢI TỰ NHÂN VÀ ĐIỀU CHỈNH SỐ DIỆN TÍCH THỰC (CALCULATED_NET_AREA_SQ_INCH)
-            # 🌟 TUYỆT ĐỐI KHÔNG CHO PHÉP AI BỎ TRỐNG MẢNG PANELS KHIẾN ĐỊNH MỨC BẰNG 0
+                       # =====================================================================
+            # ĐOẠN 7a - PHẦN 2: DYNAMIC MULTI-PRODUCT AI GATEWAY (V64.0 PRO ENGINE)
+            # 🌟 NÂNG CẤP LÊN MODEL PRO ĐỂ TRÁNH LỖI AI "LƯỜI" BỎ TRỐNG MẢNG PANELS KHIẾN ĐỊNH MỨC BẰNG 0
             # =====================================================================
             if "GEMINI_API_KEY" not in st.secrets:
                 st.error("💥 Lỗi hạ tầng: Thiếu cấu hình GEMINI_API_KEY trong hệ thống Secrets.")
                 st.stop()
                 
             genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-            model = genai.GenerativeModel("gemini-2.5-flash")
+            
+            # 🟢 VÁ CHÍ MẠNG: Đổi từ "gemini-2.5-flash" sang "gemini-2.5-pro" (hoặc "gemini-1.5-pro")
+            # Dòng Pro có lõi tư duy chuỗi (Reasoning) cực mạnh, ép buộc tuân thủ 100% lệnh sinh diện tích rập
+            model = genai.GenerativeModel("gemini-2.5-pro")
             
             chat_lower = current_query.lower()
             match_size = re.search(r'\b(?:size|sz|cỡ)\s*[:\-=\s]*([\w\d/]+)\b', chat_lower)
@@ -1598,6 +1601,9 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             match_w = re.search(r'(?:khổ|kho|width|w)\s*[:\-=\s]*([\d\.]+)', chat_lower)
             active_width = float(match_w.group(1)) if match_w else 57.0
             if active_width < 20.0: active_width = 57.0
+            
+            # Giữ nguyên khối prompt_instruction V61.9 cưỡng chế sinh diện tích phía dưới...
+
             
             # Cấu trúc Prompt cưỡng chế hành vi suy luận của Gemini Flash
             prompt_instruction = f"""
