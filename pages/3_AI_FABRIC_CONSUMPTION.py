@@ -693,15 +693,18 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                     st.error(f"💥 Lỗi kết nối trực tiếp đến chuỗi Agent API: {str(api_err)}")
                     st.stop()
 
-            # =====================================================================
-            # ĐOẠN 7a - PHẦN 3c: POST-AI MIDDLEWARE PARSER & UI SYNC (V100.0)
+                        # =====================================================================
+            # ĐOẠN 7a - PHẦN 3c: POST-AI MIDDLEWARE PARSER & DEBUG ENGINE (V110.2)
+            # 🌟 ĐÃ TÍCH HỢP ST.JSON() ĐỂ IN TRỰC TIẾP KHỐI DỮ LIỆU THÔ ĐỐI SOÁT PHÍM
             # =====================================================================
             active_json_stream = st.session_state.get("_btp_master_raw_json_stream", response_text)
 
             if active_json_stream:
+                # Phân tách khối văn bản chat và khối cấu trúc JSON phẳng bằng Regex thông minh
                 json_match = re.search(r'(?:===START_JSON===\s*|```json\s*)(.*?)(?:\s*===END_JSON===|\s*```)', active_json_stream, re.DOTALL)
                 chat_match = re.search(r'(?:===START_CHAT===\s*|```markdown\s*)(.*?)(?:\s*===END_CHAT===|\s*```|$)', active_json_stream, re.DOTALL)
                 
+                # Lưu vết lịch sử tin nhắn trò chuyện chuẩn phong cách ChatGPT OpenAI
                 if chat_match and response_text:
                     st.session_state.chat_history.append({"user": current_query, "ai": chat_match.group(1).strip()})
 
@@ -711,27 +714,39 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                     raw_json_str = match_fb.group(0).strip() if match_fb else ""
                 
                 if raw_json_str:
+                    # Chốt chặn xóa dấu phẩy thừa (Trailing Commas) chống sập parser
                     raw_json_str = re.sub(r',\s*([\]\}])', r'\1', raw_json_str)
-                    try: blueprint_worker = json.loads(raw_json_str)
-                    except: st.stop()
+                    blueprint_worker = None
+                    try: 
+                        blueprint_worker = json.loads(raw_json_str)
+                    except: 
+                        st.stop()
                     
                     if blueprint_worker and "bom_rows" in blueprint_worker:
                         blueprint_worker["calculated_on_size"] = target_size_cmd
                         
-                        for row in blueprint_worker.get("bom_rows", []):
-                            if row.get("fabric_classification") == "MAIN_FABRIC" or "fabric_width_inch" not in row:
-                                row["fabric_width_inch"] = active_width
-                            row["_btp_warp_pct"] = warp_val
-                            row["_btp_weft_pct"] = weft_val
+                        # 🟢 KHỐI DEBUG CHỐT CHẶN: In trực tiếp cấu trúc JSON thật từ AI trả về lên màn hình UI
+                        st.info("🔍 ĐỐI SOÁT DỮ LIỆU THÔ JSON TỪ BỘ NÃO AI TRẢ VỀ:")
+                        st.json(blueprint_worker)
                         
+                        # Ủy quyền nạp và thực thi các phép toán toán học hình học phẳng qua Python Engine
                         blueprint_final = allocate_fabric_consumption_and_quality_gate(blueprint_worker, str(safe_user_prompt).strip())
                         st.session_state.bom_data = blueprint_final
                         st.session_state.accumulated_bom_rows = blueprint_final.get("bom_rows", [])
                         
+                        # Khóa chữ ký và ép làm tươi màn hình hiển thị ngay lập tức
                         if response_text:
                             st.session_state["last_processed_signature"] = current_signature_p3
-                            st.success("🎉 Xử lý định mức tự động toàn phần thành công!")
                             st.rerun()
+                    else:
+                        st.error("⚠️ Khối JSON của AI Kiểm toán thiếu trường danh mục bắt buộc 'bom_rows'.")
+                else:
+                    st.error("❌ Không thể bóc tách START_JSON từ văn bản phản hồi thô của Agent Kiểm toán.")
+                    
+        except Exception as e_global:
+            st.error(f"💥 Lỗi luồng trích xuất hạ tầng tổng toàn cục: {str(e_global)}")
+            st.code(traceback.format_exc())
+
 
 
 
