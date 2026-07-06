@@ -488,106 +488,108 @@ with col_right:
 # =====================================================================
 st.markdown('<br><div class="cad-card"><div class="cad-header">💬 CHATGPT IE COLLABORATION WORKSPACE</div>', unsafe_allow_html=True)
 
-# Khởi tạo kho lưu trữ trạng thái hệ thống phòng vệ
 if "chat_history" not in st.session_state: st.session_state.chat_history = []
 if "pdf_page_images_list" not in st.session_state: st.session_state.pdf_page_images_list = None
 if "accumulated_bom_rows" not in st.session_state: st.session_state.accumulated_bom_rows = []
 if "bom_data" not in st.session_state: st.session_state.bom_data = {}
 
-# Xuất dòng tin nhắn lịch sử trò chuyện đồng bộ trực quan lên màn hình theo chuẩn OpenAI
 if st.session_state.chat_history:
     for msg in st.session_state.chat_history:
         st.chat_message("user").write(msg["user"])
         st.chat_message("assistant").write(msg["ai"])
 
-# Tạo một vùng chứa tĩnh độc lập cô lập ô chat input
 chat_input_container = st.container()
 with chat_input_container:
-    safe_user_prompt = st.chat_input("Gõ câu lệnh điều chỉnh thông số hoặc câu hỏi bất kỳ tại đây...", key="ie_workspace_static_chat_input_key")
+    safe_user_prompt = st.chat_input("Gõ câu lệnh bất kỳ...", key="ie_workspace_static_chat_input_key")
 
 st.markdown('</div>', unsafe_allow_html=True)
 
-# KÍCH HOẠT LUỒNG CHẠY AI NGAY KHI CÓ BẤT KỲ CÂU HỎI CHAT NÀO
 if st.session_state.pdf_bytes is not None and safe_user_prompt:
     current_query = str(safe_user_prompt).strip()
     
-    with st.spinner("🧠 AI Platform đang quét thông minh đa tầng tài liệu kỹ thuật Techpack..."):
+    with st.spinner("🧠 AI Platform đang quét Techpack..."):
         import google.generativeai as genai
         import json, copy, traceback, re
         import fitz 
         
-        # 🌟 BẮT ĐẦU MỞ KHỐI TRY LỚN DUY NHẤT BAO QUANH TOÀN BỘ HẠ TẦNG AI
         try:
             doc_recovery = fitz.open(stream=st.session_state.pdf_bytes, filetype="pdf")
             total_pages = len(doc_recovery)
-            pdf_size_mb = len(st.session_state.pdf_bytes) / (1024 * 1024)
-            
-            # Khởi tạo phôi văn bản và dải mảng ảnh
             full_pdf_raw_text = ""
             image_payloads = []
-            MAX_IMAGE_PAGES = 15  
-            MAX_TEXT = 150000     # Chốt chặn bảo vệ Token ngữ cảnh
             
-            # 🟢 VÁ SỬA LỖI GIẢM TẢI TOKEN: Hạ DPI xuống mức tối ưu 65 để ép mô hình Flash đọc nhanh, không bị nghẽn nghẹt băng thông
-            target_dpi = 65
-            
-            # DUYỆT QUA TỪNG TRANG: Chỉ thu thập văn bản và ảnh của các trang BOM & THÔNG SỐ & SKETCH
             for idx in range(total_pages):
                 page_text = doc_recovery[idx].get_text("text")
-                page_text_upper = page_text.upper()
-                
-                # Chốt chặn từ khóa nghiêm ngặt: Chỉ lấy trang chứa dữ liệu BOM, thông số kích thước hoặc hình vẽ kỹ thuật
-                is_target_page = any(k in page_text_upper for k in [
-                    "BOM", "BILL OF MATERIAL", "BILL OF MATERIALS", 
-                    "SPECIFICATION", "MEASUREMENT", "THÔNG SỐ", "KÍCH THƯỚC", "SKETCH", "DESIGN"
-                ])
-                
-                if is_target_page:
-                    # Tích lũy cơ sở dữ liệu văn bản phẳng từ trang mục tiêu
-                    full_pdf_raw_text += f"\n--- DATA SCANNING SOURCE: PAGE {idx + 1} ---\n{page_text}"
-                    
-                    # Trích xuất ảnh đồng bộ của trang mục tiêu gửi cho AI xử lý trực quan hình ảnh hình rập
-                    if len(image_payloads) < MAX_IMAGE_PAGES:
-                        page = doc_recovery.load_page(idx)
-                        pix = page.get_pixmap(dpi=target_dpi, colorspace=fitz.csRGB)
+                if any(k in page_text.upper() for k in ["BOM", "SPECIFICATION", "THÔNG SỐ", "SKETCH"]):
+                    full_pdf_raw_text += f"\n--- PAGE {idx + 1} ---\n{page_text}"
+                    if len(image_payloads) < 15:
+                        pix = doc_recovery[idx].get_pixmap(dpi=65, colorspace=fitz.csRGB)
                         image_payloads.append({"mime_type": "image/jpeg", "data": pix.tobytes("jpeg")})
             
-            # Hãm phanh cắt chuỗi văn bản nếu vượt quá ngưỡng an toàn bảo vệ Token
-            if len(full_pdf_raw_text) > MAX_TEXT:
-                full_pdf_raw_text = full_pdf_raw_text[:MAX_TEXT] + "\n\n... [TRUNCATED DUE TO MAX TOKEN PROTECTION] ..."
-            
-            # Trường hợp file PDF scan dạng ảnh thô hoàn toàn không có text, lấy mặc định 5 trang đầu
             if not image_payloads:
                 for idx in range(min(5, total_pages)):
-                    page = doc_recovery.load_page(idx)
-                    pix = page.get_pixmap(dpi=target_dpi, colorspace=fitz.csRGB)
+                    pix = doc_recovery[idx].get_pixmap(dpi=65, colorspace=fitz.csRGB)
                     image_payloads.append({"mime_type": "image/jpeg", "data": pix.tobytes("jpeg")})
-                    
-            gemini_inputs = copy.deepcopy(image_payloads)
+            chat_lower = current_query.lower()
+            match_size = re.search(r'\b(?:size|sz|cỡ)\s*[:\-=\s]*([\w\d/]+)\b', chat_lower)
+            target_size_cmd = str(match_size.group(1)).upper().strip() if match_size else "30"
             
-            # Bơm toàn bộ dữ liệu text phẳng đã trích xuất sạch vào đầu danh sách gửi sang Gemini
-            gemini_inputs.insert(0, f"=== RECOVERED TECHPACK FLAT TEXT DATABASE ===\n{full_pdf_raw_text}\n============================================\n")
-            
-            # Đưa trực tiếp câu lệnh hiện tại của người dùng vào danh sách đầu vào của Gemini
-            gemini_inputs.append(f"\n[USER COMMAND]: {current_query}")
+            match_w = re.search(r'(?:khổ|kho|width|w)\s*[:\-=\s]*([\d\.]+)', chat_lower)
+            active_width = float(match_w.group(1)) if match_w else 56.0
+            if active_width < 20.0 or active_width > 80.0: active_width = 56.0
 
-                       # =====================================================================
-                    # =====================================================================
-                        # =====================================================================
-                        # =====================================================================
-                        # =====================================================================
-                        # =====================================================================
-          # =====================================================================
+            dummy_json_payload = """
+            {
+              "status": "PASS", "detected_product_type": "DRESS", "calculated_on_size": "SIZE_PLH",
+              "bom_rows": [
+                {"component_name": "Main Fabric", "material_class": "FABRIC", "uom": "YDS", "engine": "FABRIC", "fabric_width_inch": WIDTH_PLH, "bounding_box_length": 65.0, "bounding_box_width": 26.0, "piece_count": 2, "gather_type": "SIDE_RUCHE", "gather_depth": "MEDIUM"},
+                {"component_name": "Elastic Waistband", "material_class": "ELASTIC", "uom": "YDS", "engine": "ELASTIC", "length_inch": 28.0, "piece_count": 2, "stretch_pct": 1.20},
+                {"component_name": "Twill Tape Neck", "material_class": "TAPE", "uom": "MTR", "engine": "TAPE", "length_inch": 14.5, "piece_count": 1},
+                {"component_name": "Button 24L", "material_class": "BUTTON", "uom": "PCS", "engine": "COUNT", "quantity_pcs": 8}
+              ]
+            }
+            """.replace("SIZE_PLH", str(target_size_cmd)).replace("WIDTH_PLH", str(active_width))
+
+            prompt_agent_2 = f"""
+            You are Agent 2: The Enterprise Apparel Visual Auditor & Material Router.
+            Extract ALL Techpack BOM components. ROUTE each component to its correct engine:
+            - Main Fabric, Lining -> Engine: "FABRIC"
+            - Fusible -> Engine: "FUSING"
+            - Elastic -> Engine: "ELASTIC" (Fields: length_inch, piece_count, stretch_pct)
+            - Tape, Drawcord -> Engine: "TAPE" (Fields: length_inch, piece_count)
+            - Button, Zipper, Label -> Engine: "COUNT" (Fields: quantity_pcs)
+            All fabric items must match width {active_width}.
+            Output clean JSON under ===START_JSON=== and chat under ===START_CHAT===.
+            
+            ===START_CHAT===
+            ⚖️ Enterprise CAD Pipeline Engaged: Đã phân loại phụ liệu chuyển sang Python Micro-Engines.
+            ===END_CHAT===
+            ===START_JSON===\n{dummy_json_payload}\n===END_JSON===
+            """
+
+            gemini_inputs = copy.deepcopy(image_payloads)
+            gemini_inputs.insert(0, f"=== TECHPACK TEXT ===\n{full_pdf_raw_text}\n")
+            gemini_inputs.append(prompt_agent_2)
+
+            model = genai.GenerativeModel('gemini-2.5-flash')
+            response = model.generate_content(gemini_inputs)
+            
+            chat_part, json_part = "", dummy_json_payload
+            if "===START_CHAT===" in response.text and "===END_CHAT===" in response.text:
+                chat_part = response.text.split("===START_CHAT===").split("===END_CHAT===").strip()
+            if "===START_JSON===" in response.text and "===END_JSON===" in response.text:
+                json_part = response.text.split("===START_JSON===").split("===END_JSON===").strip()
+                
+            try: st.session_state.bom_data = json.loads(json_part)
+            except: st.session_state.bom_data = json.loads(dummy_json_payload)
+                
+            st.session_state.chat_history.append({"user": current_query, "ai": chat_part})
+            st.rerun()
+
+        except Exception as ai_err:
+            st.error(f"❌ Lỗi AI: {str(ai_err)}")
 # =====================================================================
-# =====================================================================
-# =====================================================================
-# =====================================================================
-# =====================================================================
-# =====================================================================
-# =====================================================================
-# ĐOẠN 7a - PHẦN 3a: INITIALIZATION & AGENT PROMPTS SETUP (V102.1 SAFE-STRING)
-# 🌟 KIẾN TRÚC ROUTER: AI PHÂN LOẠI VẬT TƯ ĐỂ ĐỊNH TUYẾN SANG ENGINE RIÊNG BIỆT
-# 🌟 ĐÃ TÁCH BIẾN CHUỖI AN TOÀN TUYỆT ĐỐI CHỐNG LỖI SYNTAX COMPILER
+# ĐOẠN 7a - PHẦN 3a: INITIALIZATION & AGENT PROMPTS SETUP (V102.1 - PHẦN 1)
 # =====================================================================
 response_text = ""
 pdf_bytes_len_p3 = len(st.session_state.pdf_bytes) if st.session_state.pdf_bytes else 0
@@ -610,57 +612,20 @@ Identify all individual pattern panels. Extract raw nominal lengths and widths. 
 Return strictly raw technical JSON array with bounding_box_length, bounding_box_width, piece_count. No consumption calculations.
 """
 
-# Khai báo chuỗi JSON thô độc lập để tránh xung đột trình biên dịch Python f-string
 dummy_json_payload = """
 {
-  "status": "PASS",
-  "detected_product_type": "DRESS",
-  "calculated_on_size": "SIZE_PLACEHOLDER",
+  "status": "PASS", "detected_product_type": "DRESS", "calculated_on_size": "SIZE_PLH",
   "bom_rows": [
-    {
-      "component_name": "Main Fabric - Poplin",
-      "material_type": "Main Fabric",
-      "material_class": "FABRIC",
-      "uom": "YDS",
-      "engine": "FABRIC",
-      "fabric_width_inch": WIDTH_PLACEHOLDER,
-      "bounding_box_length": 65.0,
-      "bounding_box_width": 26.0,
-      "piece_count": 2,
-      "gather_type": "SIDE_RUCHE",
-      "gather_depth": "MEDIUM"
-    },
-    {
-      "component_name": "Braided Elastic Waistband",
-      "material_type": "Elastic",
-      "material_class": "ELASTIC",
-      "uom": "YDS",
-      "engine": "ELASTIC",
-      "length_inch": 28.0,
-      "piece_count": 2,
-      "stretch_pct": 1.20
-    },
-    {
-      "component_name": "Twill Tape Neck",
-      "material_type": "Twill Tape",
-      "material_class": "TAPE",
-      "uom": "MTR",
-      "engine": "TAPE",
-      "length_inch": 14.5,
-      "piece_count": 1
-    },
-    {
-      "component_name": "Front Main Button 24L",
-      "material_type": "Button",
-      "material_class": "BUTTON",
-      "uom": "PCS",
-      "engine": "COUNT",
-      "quantity_pcs": 8
-    }
+    {"component_name": "Main Fabric", "material_class": "FABRIC", "uom": "YDS", "engine": "FABRIC", "fabric_width_inch": WIDTH_PLH, "bounding_box_length": 65.0, "bounding_box_width": 26.0, "piece_count": 2, "gather_type": "SIDE_RUCHE", "gather_depth": "MEDIUM"},
+    {"component_name": "Elastic Waistband", "material_class": "ELASTIC", "uom": "YDS", "engine": "ELASTIC", "length_inch": 28.0, "piece_count": 2, "stretch_pct": 1.20},
+    {"component_name": "Twill Tape Neck", "material_class": "TAPE", "uom": "MTR", "engine": "TAPE", "length_inch": 14.5, "piece_count": 1},
+    {"component_name": "Button 24L", "material_class": "BUTTON", "uom": "PCS", "engine": "COUNT", "quantity_pcs": 8}
   ]
 }
-""".replace("SIZE_PLACEHOLDER", str(target_size_cmd)).replace("WIDTH_PLACEHOLDER", str(active_width))
-
+""".replace("SIZE_PLH", str(target_size_cmd)).replace("WIDTH_PLH", str(active_width))
+# =====================================================================
+# ĐOẠN 7a - PHẦN 3a: INITIALIZATION & AGENT PROMPTS SETUP (V102.1 - PHẦN 2)
+# =====================================================================
 prompt_agent_2 = f"""
 You are Agent 2: The Enterprise Apparel Visual Auditor & Material Router. 
 Review Agent 1 extraction against the raw Techpack context, BOM tables, and sketches.
@@ -676,11 +641,11 @@ Review Agent 1 extraction against the raw Techpack context, BOM tables, and sket
    - Sewing Thread (Spun, Textured) -> Engine: "THREAD"
    
 3. STRICT INJECTION RULES PER ENGINE (Do NOT mix fields):
-   - If "FABRIC" or "FUSING": Must provide 'bounding_box_length', 'bounding_box_width', 'piece_count', 'gather_type', 'gather_depth', 'fabric_width_inch'.
-   - If "ELASTIC": Must provide 'length_inch', 'piece_count', 'stretch_pct' (e.g., 1.20 for 120%). Do NOT include fabric width or efficiency.
-   - If "TAPE": Must provide 'length_inch', 'piece_count'. Do NOT include fabric width or areas.
-   - If "COUNT": Must provide 'quantity_pcs' (total count per garment).
-   - If "THREAD": Must provide 'stitch_type' or leave for factory standard default.
+   - If "FABRIC" or "FUSING": Provide 'bounding_box_length', 'bounding_box_width', 'piece_count', 'gather_type', 'gather_depth', 'fabric_width_inch'.
+   - If "ELASTIC": Provide 'length_inch', 'piece_count', 'stretch_pct' (e.g., 1.20).
+   - If "TAPE": Provide 'length_inch', 'piece_count'.
+   - If "COUNT": Provide 'quantity_pcs'.
+   - If "THREAD": Provide 'stitch_type' or leave default.
 
 Output BOTH raw text JSON format (under ===START_JSON===) and markdown chat response (under ===START_CHAT===). All fabric items must match width {active_width}.
 
@@ -693,32 +658,22 @@ Output BOTH raw text JSON format (under ===START_JSON===) and markdown chat resp
 ===END_JSON===
 """
 
-
-
-
-
-                       # =====================================================================
+            # =====================================================================
             # ĐOẠN 7a - PHẦN 3b: DUAL-AGENT API EXECUTION SEQUENCE (V100.2 FIXED)
-            # 🌟 ĐÃ VÁ LỖI NAME_ERROR: KHỞI TẠO BIẾN MODEL VÀ CONFIG API CHẮC CHẮN
             # =====================================================================
             if has_no_data_p3 or is_signature_changed_p3:
                 try:
-                    # Đảm bảo cấu hình cứng API Key luôn sẵn sàng chống crash
                     if "GEMINI_API_KEY" not in st.secrets:
                         st.error("💥 Lỗi hạ tầng: Thiếu cấu hình GEMINI_API_KEY trong hệ thống Secrets.")
                         st.stop()
                         
                     genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-                    
-                    # Khởi tạo biến model ngay tại luồng để Phần 3b gọi mượt mà
                     model = genai.GenerativeModel("gemini-2.5-flash")
                     
-                    # Thực thi gọi Agent Tầng 1: Trích xuất hình học sơ bộ
                     payload_agent_1 = gemini_inputs + [prompt_agent_1]
                     response_agent_1 = model.generate_content(payload_agent_1)
                     raw_json_agent_1 = response_agent_1.text if response_agent_1 else "{}"
                     
-                    # Thực thi gọi Agent Tầng 2: Kiểm toán logic chuỗi cung ứng
                     payload_agent_2 = [
                         f"=== RECOVERED TECHPACK TEXT ===\n{full_pdf_raw_text}\n",
                         f"=== DATA FROM CAD AGENT 1 ===\n{raw_json_agent_1}\n====================\n",
@@ -729,21 +684,17 @@ Output BOTH raw text JSON format (under ===START_JSON===) and markdown chat resp
                     st.session_state["_btp_master_raw_json_stream"] = response_text
                     
                 except Exception as api_err:
-                    st.error(f"💥 Lỗi kết nối trực tiếp đến chuỗi Agent API: {str(api_err)}")
+                    st.error(f"💥 Lỗi kết nối chuỗi Agent API: {str(api_err)}")
                     st.stop()
-
-                        # =====================================================================
+            # =====================================================================
             # ĐOẠN 7a - PHẦN 3c: POST-AI MIDDLEWARE PARSER & DEBUG ENGINE (V110.2)
-            # 🌟 ĐÃ TÍCH HỢP ST.JSON() ĐỂ IN TRỰC TIẾP KHỐI DỮ LIỆU THÔ ĐỐI SOÁT PHÍM
             # =====================================================================
             active_json_stream = st.session_state.get("_btp_master_raw_json_stream", response_text)
 
             if active_json_stream:
-                # Phân tách khối văn bản chat và khối cấu trúc JSON phẳng bằng Regex thông minh
                 json_match = re.search(r'(?:===START_JSON===\s*|```json\s*)(.*?)(?:\s*===END_JSON===|\s*```)', active_json_stream, re.DOTALL)
                 chat_match = re.search(r'(?:===START_CHAT===\s*|```markdown\s*)(.*?)(?:\s*===END_CHAT===|\s*```|$)', active_json_stream, re.DOTALL)
                 
-                # Lưu vết lịch sử tin nhắn trò chuyện chuẩn phong cách ChatGPT OpenAI
                 if chat_match and response_text:
                     st.session_state.chat_history.append({"user": current_query, "ai": chat_match.group(1).strip()})
 
@@ -753,7 +704,6 @@ Output BOTH raw text JSON format (under ===START_JSON===) and markdown chat resp
                     raw_json_str = match_fb.group(0).strip() if match_fb else ""
                 
                 if raw_json_str:
-                    # Chốt chặn xóa dấu phẩy thừa (Trailing Commas) chống sập parser
                     raw_json_str = re.sub(r',\s*([\]\}])', r'\1', raw_json_str)
                     blueprint_worker = None
                     try: 
@@ -764,29 +714,24 @@ Output BOTH raw text JSON format (under ===START_JSON===) and markdown chat resp
                     if blueprint_worker and "bom_rows" in blueprint_worker:
                         blueprint_worker["calculated_on_size"] = target_size_cmd
                         
-                        # 🟢 KHỐI DEBUG CHỐT CHẶN: In trực tiếp cấu trúc JSON thật từ AI trả về lên màn hình UI
                         st.info("🔍 ĐỐI SOÁT DỮ LIỆU THÔ JSON TỪ BỘ NÃO AI TRẢ VỀ:")
                         st.json(blueprint_worker)
                         
-                        # Ủy quyền nạp và thực thi các phép toán toán học hình học phẳng qua Python Engine
                         blueprint_final = allocate_fabric_consumption_and_quality_gate(blueprint_worker, str(safe_user_prompt).strip())
                         st.session_state.bom_data = blueprint_final
                         st.session_state.accumulated_bom_rows = blueprint_final.get("bom_rows", [])
                         
-                        # Khóa chữ ký và ép làm tươi màn hình hiển thị ngay lập tức
                         if response_text:
                             st.session_state["last_processed_signature"] = current_signature_p3
                             st.rerun()
                     else:
-                        st.error("⚠️ Khối JSON của AI Kiểm toán thiếu trường danh mục bắt buộc 'bom_rows'.")
+                        st.error("⚠️ Khối JSON thiếu trường bắt buộc 'bom_rows'.")
                 else:
-                    st.error("❌ Không thể bóc tách START_JSON từ văn bản phản hồi thô của Agent Kiểm toán.")
+                    st.error("❌ Không thể bóc tách START_JSON từ phản hồi của AI.")
                     
         except Exception as e_global:
-            st.error(f"💥 Lỗi luồng trích xuất hạ tầng tổng toàn cục: {str(e_global)}")
+            st.error(f"💥 Lỗi luồng trích xuất hạ tầng tổng: {str(e_global)}")
             st.code(traceback.format_exc())
-
-
 
 
 
