@@ -19,7 +19,7 @@ EXCLUDE_HARDWARE_KEYS = (
 )
 
 def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, query_string: str) -> dict:
-    st.warning("⚡ DETREMINISTIC INDUSTRIAL ENGINE: QUALITY GATEWAY V100.5 ACTIVATED")
+    st.warning("⚡ DETREMINISTIC CAD ENGINE: QUALITY GATEWAY V101.0 ACTIVATED")
     
     if not blueprint_final or "bom_rows" not in blueprint_final:
         return blueprint_final
@@ -27,106 +27,115 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, query_st
     filtered_bom_rows = []
     product_type = str(blueprint_final.get("detected_product_type", "JEANS")).upper().strip()
     
-    # =====================================================================
-    # 🧠 TẦNG 1: NÂNG CẤP BỘ LỌC REGEX ĐA BIẾN - TRÍCH XUẤT CO RÚT TUYỆT ĐỐI
-    # =====================================================================
-    warp_num, weft_num = 0.03, 0.03 # Giá trị dự phòng mặc định (3% dọc, 3% ngang)
+    # 🟢 TẦNG 1: BỘ LỌC REGEX ĐA BIẾN - TRÍCH XUẤT CO RÚT ĐỘNG TỪ Ô CHAT ĐỐI SOÁT
+    warp_num, weft_num = 0.03, 0.03
     try:
         chat_txt = str(query_string).lower()
-        # Trích xuất tất cả các cụm số (kể cả số thập phân) xuất hiện trong câu lệnh chat
         all_numbers = re.findall(r'[\d\.]+', chat_txt)
-        
         if any(k in chat_txt for k in ["co rút", "co rut", "sh", "shrinkage"]):
-            # Lọc bỏ các số liên quan đến Size hoặc Khổ vải dựa trên vị trí từ khóa để cô lập số co rút
             clean_shrink_numbers = []
             for num_str in all_numbers:
-                # Nếu số này trùng với khổ vải hoặc kích cỡ đã nhận dạng thì bỏ qua không đưa vào mảng co rút
                 if "size" in chat_txt and num_str in chat_txt.split("size")[-1][:10]: continue
                 if "khổ" in chat_txt and num_str in chat_txt.split("khổ")[-1][:10]: continue
                 if "kho" in chat_txt and num_str in chat_txt.split("kho")[-1][:10]: continue
                 if "width" in chat_txt and num_str in chat_txt.split("width")[-1][:10]: continue
                 clean_shrink_numbers.append(num_str)
-                
             if len(clean_shrink_numbers) >= 2:
                 warp_num = float(clean_shrink_numbers[-2]) / 100.0
                 weft_num = float(clean_shrink_numbers[-1]) / 100.0
             elif len(clean_shrink_numbers) == 1:
-                warp_num = float(clean_shrink_numbers[0]) / 100.0
-                weft_num = float(clean_shrink_numbers[0]) / 100.0
+                warp_num = float(clean_shrink_numbers) / 100.0
+                weft_num = float(clean_shrink_numbers) / 100.0
     except Exception:
         warp_num, weft_num = 0.03, 0.03
 
+    # =====================================================================
+    # 🎯 LÕI CỨNG CAD LOGIC CÔNG NGHIỆP: MA TRẬN HỆ SỐ NHÚN (GATHER RATIO MATRIX)
+    # =====================================================================
+    GATHER_RATIO_MATRIX = {
+        "NONE": {"NONE": 1.00, "LIGHT": 1.05, "MEDIUM": 1.10, "HEAVY": 1.15},
+        "SIDE_RUCHE": {"NONE": 1.00, "LIGHT": 1.15, "MEDIUM": 1.30, "HEAVY": 1.50},
+        "WAIST_GATHER": {"NONE": 1.00, "LIGHT": 1.20, "MEDIUM": 1.40, "HEAVY": 1.65},
+        "FLARE_SKIRT": {"NONE": 1.00, "LIGHT": 1.25, "MEDIUM": 1.50, "HEAVY": 1.85}
+    }
+    
     ai_bom_rows = blueprint_final.get("bom_rows", [])
     
     for ai_row in ai_bom_rows:
         ui_row = copy.deepcopy(ai_row)
         
-        # 1. Thu thập và kiểm tra thông số Khổ vải an toàn
+        # 1. Thu thập thông số Khổ vải an toàn
         raw_width = ui_row.get("fabric_width_inch")
         try: width_inch = float(raw_width or 56.0)
         except: width_inch = 56.0
         if width_inch < 1.0: width_inch = 56.0
         
-        # =====================================================================
-        # ⚠️ TẦNG 2: TECHNICAL QUALITY GATE - THẨM ĐỊNH HIỆU SUẤT SƠ ĐỒ (MARKER EFFICIENCY)
-        # =====================================================================
-        raw_eff = str(ui_row.get("marker_efficiency", "85.5%")).replace("%", "")
-        try: 
-            efficiency_num = float(raw_eff)
-            # Nếu AI trả về dạng số thập phân phẳng (VD: 0.855) thay vì phần trăm (85.5)
-            if efficiency_num < 1.0: efficiency_num = efficiency_num * 100.0
-            efficiency_num = efficiency_num / 100.0
-        except: 
-            efficiency_num = 0.855
-            
-        # CHỐT KHÓA RÀO CHẮN CHẤT LƯỢNG (QUALITY GATE): Giới hạn hiệu suất trong khoảng hợp lý [0.60 - 0.93]
-        if efficiency_num < 0.60 or efficiency_num > 0.93:
-            efficiency_num = 0.845 # Ép cưỡng bức về mức hiệu suất tiêu chuẩn an toàn của rập Jeans
-            ui_row["system_notes_qa"] = "⚠️ Hiệu suất AI dự đoán phi lý. Cổng bảo vệ tự động ép về mức an toàn 84.5%."
+        # 2. Cố định Hiệu suất sơ đồ (Marker Efficiency) chuẩn nhà máy theo Phân loại vật tư
+        fab_class = str(ui_row.get("fabric_classification", "MAIN_FABRIC")).upper().strip()
+        if fab_class == "MAIN_FABRIC":
+            efficiency_num = 0.855  # Khóa cứng 85.5% cho vải chính denim/twill
+        elif fab_class in ["LINING", "FUSING"]:
+            efficiency_num = 0.865  # Khóa cứng 86.5% cho mex và lót túi
         else:
-            ui_row["system_notes_qa"] = "✅ Thẩm định chất lượng sơ đồ: ĐẠT TIÊU CHUẨN."
-
-        # =====================================================================
-        # 🧮 TẦNG 3: DETERMINISTIC EXECUTION - ENGINE TÍNH TOÁN TOÁN HỌC PHẲNG CHUẨN
-        # =====================================================================
-        total_net_area = float(ui_row.get("total_net_area_sq_inch", 0.0) or 0.0)
-        fab_class = str(ui_row.get("fabric_classification", "")).upper().strip()
+            efficiency_num = 0.950  # Khóa cứng 95.0% cho các loại tape dệt dây dài
+            
+        # 3. Thu thập thuộc tính phom dáng từ Thư ký AI gửi sang
+        g_type = str(ui_row.get("gather_type", "NONE")).upper().strip()
+        g_depth = str(ui_row.get("gather_depth", "NONE")).upper().strip()
         
-        # CHỐT CHẶN KIỂM TRA DIỆN TÍCH ĐẦU VÀO CÓ HỢP LÝ KHÔNG (Diện tích phải > 0)
-        if total_net_area > 0 and efficiency_num > 0:
-            # 🟢 SỬA LỖI LỚN NHẤT: Tuyệt đối KHÔNG nhân đôi diện tích ở đây nữa. 
-            # Giữ nguyên tổng diện tích thực tế của tất cả chi tiết do AI bóc tách sang.
+        # Đọc hệ số co giãn rập từ Ma trận lõi cứng của Python
+        ratio_type_map = GATHER_RATIO_MATRIX.get(g_type, GATHER_RATIO_MATRIX["NONE"])
+        active_gather_ratio = ratio_type_map.get(g_depth, 1.00)
+        
+        # Thu thập kích thước hình học thô
+        b_length = float(ui_row.get("bounding_box_length", 0.0) or 0.0)
+        b_width = float(ui_row.get("bounding_box_width", 0.0) or 0.0)
+        p_count = int(ui_row.get("piece_count", 1) or 1)
+        
+        # =====================================================================
+        # 🧮 LÕI THỰC THI PHÉP TOÁN TOÁN HỌC PHẲNG CAD GERBER TUYỆT ĐỐI
+        # =====================================================================
+        if b_length > 0 and b_width > 0 and width_inch > 0:
+            # Phép toán 1: Tính diện tích hình chữ nhật bao quanh chi tiết rập thô
+            raw_box_area = b_length * b_width * p_count
             
-            # Phép toán 1: Áp mở rộng co rút vật lý thực tế: Area * (1 + warp) * (1 + weft)
-            expanded_area = total_net_area * (1.0 + warp_num) * (1.0 + weft_num)
+            # Phép toán 2: Áp hệ số bo đường cong rập phi tuyến tính chuẩn nhà máy (Hệ số diện tích tịnh thực tế ~88%)
+            # Trừ hao khoảng vát nách áo, vát đáy quần không phải hình chữ nhật đặc
+            net_area_factor = 0.88 if fab_class in ["MAIN_FABRIC", "LINING"] else 1.00
+            net_calculated_area = raw_box_area * net_area_factor
             
-            # Phép toán 2: Công thức hình học phẳng CAD chuyển đổi sang Linear Yards Gross
+            # Phép toán 3: Nhân hệ số phóng rập rút nhún/độ xòe trích xuất động từ Ma trận Python
+            gathere_adjusted_area = net_calculated_area * active_gather_ratio
+            
+            # Phép toán 4: Áp mở rộng co rút vật lý thực tế: Area * (1 + warp) * (1 + weft)
+            expanded_area = gathere_adjusted_area * (1.0 + warp_num) * (1.0 + weft_num)
+            
+            # Phép toán 5: Công thức CAD quy đổi sang Linear Yards Gross chốt hạ
             gross_val = expanded_area / (width_inch * 36.0 * efficiency_num)
             
-            # Phép toán 3: Thêm hệ số an toàn hao hụt vải đầu cây nhỏ chuẩn nhà máy (Wastage Buffer 3%)
+            # Phép toán 6: Thêm hệ số an toàn hao hụt đầu cây vải chuẩn công nghiệp (Wastage factor 3%)
             gross_val = round(gross_val * 1.03, 3)
         else:
-            # Đối với các dòng phụ liệu Trim dệt sẵn không tính theo diện tích bề mặt (VD: Elastic)
             try: gross_val = round(float(ui_row.get("gross_consumption", 0.0)), 3)
             except: gross_val = 0.0
             
-        # Đồng bộ và đẩy toàn bộ dữ liệu sạch ra màn hình giao diện
-        ui_row["fabric_width_inch"] = width_inch
+        # Nạp dữ liệu đồng bộ ra giao diện hiển thị
         ui_row["gross_consumption"] = gross_val
+        ui_row["fabric_width_inch"] = width_inch
         ui_row["marker_efficiency"] = f"{round(efficiency_num * 100, 1)}%"
         ui_row["_btp_warp_pct"] = f"{round(warp_num * 100, 1)}%"
         ui_row["_btp_weft_pct"] = f"{round(weft_num * 100, 1)}%"
         ui_row["quality_status"] = "PASS" if gross_val > 0 else "CHECK"
-        ui_row["system_notes"] = f"{ui_row.get('reasoning', '')} | {ui_row.get('system_notes_qa', '')}"
+        ui_row["system_notes"] = f"CAD Logic: {g_type}_{g_depth} (Ratio: {active_gather_ratio}x) | {ui_row.get('reasoning', '')}"
         
         filtered_bom_rows.append(ui_row)
         
-    # Ép đồng bộ bộ nhớ Streamlit vẽ lại bảng
     st.session_state["bom_rows"] = filtered_bom_rows
     st.session_state["accumulated_bom_rows"] = filtered_bom_rows
     st.session_state["bom_data"] = {"bom_rows": filtered_bom_rows, "detected_product_type": product_type, "calculated_on_size": blueprint_final.get("calculated_on_size", "30")}
     
     return st.session_state["bom_data"]
+
 
 
 
@@ -529,9 +538,10 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             gemini_inputs.append(f"\n[USER COMMAND]: {current_query}")
 
                        # =====================================================================
-                       # =====================================================================
-            # ĐOẠN 7a - PHẦN 3a: INITIALIZATION & DETERMINISTIC PROMPTS (V100.3)
-            # 🌟 ÉP AI CHỈ TRÍCH XUẤT DIỆN TÍCH TỊNH (NET AREA) - CẤM TỰ TÍNH YARDS
+                    # =====================================================================
+            # ĐOẠN 7a - PHẦN 3a: ARCHITECTURE V101.0 - PURE STRUCTURAL MULTIMODAL EXTRACTOR
+            # 🌟 TƯỚC ĐOẠT 100% QUYỀN LÀM TOÁN CỦA AI - TRIỆT TIÊU TOÀN BỘ ĐỘ NHIỄU BIẾN THIÊN
+            # 🌟 AI CHỈ TRẢ VỀ THẺ THUỘC TÍNH (GATHER_TYPE, GATHER_DEPTH) VÀ KÍCH THƯỚC HỘP BAO
             # =====================================================================
             response_text = ""
             
@@ -553,54 +563,52 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             warp_val = f"{match_shrink.group(1)}%" if match_shrink else "3.0%"
             weft_val = f"{match_shrink.group(2)}%" if match_shrink else "13.0%"
 
-            # TẦNG 1: TRÍCH XUẤT CHI TIẾT RẬP PHI TUYẾN TÍNH
+            # TẦNG 1: AGENT 1 - BÓC TÁCH KÍCH THƯỚC HỘP BAO VÀ PHÂN LOẠI CHI TIẾT
             prompt_agent_1 = f"""
-            You are Agent 1: An Apparel Technical Pattern Extractor. Scan techpack text/images for size '{target_size_cmd}'.
-            Identify all individual pattern panels. For non-rectangular panels (front/back legs), estimate the net mathematical surface area.
-            Return strictly a temporary technical JSON with components and their estimated net areas. Do NOT calculate yardage consumption.
+            You are Agent 1: An Apparel Technical Component Extractor. Your SOLE job is to scan the techpack text, BOM, and charts for target size '{target_size_cmd}'.
+            Identify all material rows and pattern panels. For each piece, extract raw nominal metrics without calculating anything.
+            Return strictly a plain JSON array of raw panels with bounding box length and width.
             """
             
-            # TẦNG 2: KIỂM TOÁN LOGIC VÀ TỔNG HỢP DIỆN TÍCH SỐ SẠCH
+            # TẦNG 2: AGENT 2 - IE SPECIFICATION AUDITOR & VISUAL FEATURE CLASSIFIER
             prompt_agent_2 = f"""
-            You are Agent 2: The Senior Apparel IE Validator. Review Agent 1's data against the Techpack.
-            🌟 CRITICAL REALISM MANDATE:
-            1. Scan for missing rows (Main Fabric, Pocketing, Fusing, Tape/Elastic) from BOM.
-            2. For 'total_net_area_sq_inch', output the exact realistic aggregate net area sum of all panels combined for that material class. For adult Jeans denim major panels, the true combined net area typically ranges from 1200.0 to 1550.0 square inches. Do NOT overestimate.
-            3. Set factory realistic 'marker_efficiency_target': Denim major fabric 85.5%, Lining/Fusing 85.5%, Trims 95.0%.
-            4. You are strictly FORBIDDEN from calculating final yards. Python engine will do the math.
+            You are Agent 2: The Senior Apparel IE Visual Auditor. Your job is to cross-examine Agent 1's temporary data against the raw Techpack context and visual sketch layouts.
+            
+            🌟 VISION FEATURE VALIDATION MANDATE:
+            1. Look at the sketch images and text metadata carefully to determine the true overall product type and override text biases.
+            2. For every pattern panel or material group, you MUST visually inspect and classify its geometric gathering traits. Categorize 'gather_type' as strictly one of these tokens: ['NONE', 'SIDE_RUCHE', 'WAIST_GATHER', 'FLARE_SKIRT'].
+            3. Classify the visible intensive fullness or depth 'gather_depth' strictly as one of these tokens: ['NONE', 'LIGHT', 'MEDIUM', 'HEAVY'].
+            4. Do NOT calculate or guess any surface area or numeric consumption fields. 
 
-            Output BOTH raw text JSON format (under ===START_JSON===) and markdown chat response (under ===START_CHAT===). All 'fabric_width_inch' must match {active_width}.
+            CRITICAL PLAIN DATA JSON FORMAT REQUIREMENT:
+            Output BOTH raw text JSON format (under ===START_JSON===) and markdown chat response (under ===START_CHAT===). No language formulas or dynamic instructions inside the fields.
             
             ===START_CHAT===
-            ⚖️ **Deterministic Framework Activated**: Đã chuyển giao toàn bộ tham số diện tích phẳng tịnh (Net Area) đã qua kiểm toán sang cho máy tính Python tự động nhân chia định mức, triệt tiêu lỗi AI tính gộp làm vọt số.
+            ⚖️ **Deterministic SaaS Pipeline Engaged**: Hệ thống AI đã chuyển giao 100% dữ liệu thuộc tính phom dáng, kiểu nhún rập và kích thước hình học thô dạng số phẳng sạch sang cho Python Deterministic CAD Engine xử lý toán học độc lập.
             ===END_CHAT===
 
             ===START_JSON===
             {{
               "status": "PASS",
-              "detected_product_type": "JEANS",
+              "detected_product_type": "DRESS",
               "calculated_on_size": "{target_size_cmd}",
               "bom_rows": [
                 {{
-                  "component_type": "Main Fabric",
+                  "component_name": "Main Fabric",
                   "fabric_classification": "MAIN_FABRIC",
                   "fabric_width_inch": {active_width},
-                  "marker_efficiency": "85.5%", 
-                  "total_net_area_sq_inch": 1380.0,
-                  "reasoning": "Auditor Verified: Summed true curved surface area of front/back legs, waistband, and yokes."
-                }},
-                {{
-                  "component_type": "Pocketing Fabric",
-                  "fabric_classification": "LINING",
-                  "fabric_width_inch": 44.0,
-                  "marker_efficiency": "85.5%",
-                  "total_net_area_sq_inch": 210.0,
-                  "reasoning": "Auditor Extracted: Real surface area for front pocket bags."
+                  "bounding_box_length": 32.5,
+                  "bounding_box_width": 14.0,
+                  "piece_count": 2,
+                  "gather_type": "SIDE_RUCHE",
+                  "gather_depth": "MEDIUM",
+                  "reasoning": "Auditor Extracted: Visual sketch confirms dress with mid-depth side seam ruched ripples."
                 }}
               ]
             }}
             ===END_JSON===
             """
+
 
 
                        # =====================================================================
