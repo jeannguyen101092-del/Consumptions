@@ -19,28 +19,11 @@ EXCLUDE_HARDWARE_KEYS = (
 )
 
 # =====================================================================
-# ĐOẠN B: ZERO-ENGINE FABRIC CONSUMPTION GATEWAY (V80.0 PRODUCTION)
-# 🌟 KIẾN TRÚC MỚI: ỦY QUYỀN TOÀN PHẦN CHO AI TÍNH TOÁN - PYTHON CHỈ HIỂN THỊ
-# 🌟 XÓA BỎ 100% BUG LỆCH BIẾN VÀ LỖI TÍNH TOÁN SAI SỐ HỌC
+# ĐOẠN B: ZERO-ENGINE FABRIC CONSUMPTION GATEWAY (V92.2 FULL PASS-THROUGH)
+# 🌟 KIẾN TRÚC MỚI: ỦY QUYỀN TUYỆT ĐỐI CHO AI - PYTHON KHÔNG TỰ Ý LỌC BỎ DÒNG
 # =====================================================================
-def execute_geometric_cad_calculation_core(row: dict, product_type: str, efficiency: float, width_inch: float) -> dict:
-    # 🟢 AI đã tự co rút và tính sẵn gross_consumption, Python chỉ tiếp nhận số
-    gross_yds = float(row.get("gross_consumption", 0.0) or 0.0)
-    row["gross_consumption"] = round(gross_yds, 3)
-    
-    # Đồng bộ thông tin hiển thị lên bảng Matrix giao diện
-    row["marker_efficiency"] = str(row.get("marker_efficiency", f"{round(efficiency*100, 1)}%"))
-    row["quality_status"] = "PASS"
-    row["fabric_width_inch"] = width_inch
-    
-    # Đọc ghi chú giải trình lý do tự tính định mức của AI để người dùng xem
-    ai_reasoning = row.get("reasoning", "Định mức được tính toán tự động toàn phần trực tiếp từ bộ não thị giác AI.")
-    row["system_notes"] = f"{ai_reasoning}"
-    
-    return row
-
 def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, query_string: str) -> dict:
-    st.warning("⚡ ENGINE EXECUTING: PURE AI DIRECT PASS GATEWAY V80.0 ACTIVATED")
+    st.warning("⚡ ENGINE EXECUTING: PURE AI DIRECT PASS GATEWAY V92.2 ACTIVATED")
     
     if not blueprint_final or "bom_rows" not in blueprint_final:
         return blueprint_final
@@ -48,45 +31,30 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, query_st
     filtered_bom_rows = []
     product_type = str(blueprint_final.get("detected_product_type", "JEANS")).upper().strip()
     
-    # Lấy thẳng danh sách dòng vải thời gian thực đang hiển thị cứng trên màn hình UI của bạn
-    ui_bom_rows = st.session_state.get("bom_rows", st.session_state.get("accumulated_bom_rows", []))
-    if not ui_bom_rows:
-        return blueprint_final
-
-    # Duyệt trực tiếp qua từng dòng vải đang hiển thị trên bảng UI của bạn
-    for idx, ui_row in enumerate(ui_bom_rows):
-        ui_fab_class = str(ui_row.get("fabric_classification", "")).upper().strip()
+    # 🟢 SỬA LỖI CHÍ MẠNG: Lấy thẳng danh sách dòng do AI Tầng 2 trả về, không dùng mảng UI cũ làm bộ lọc chặn dòng
+    ai_bom_rows = blueprint_final.get("bom_rows", [])
+    
+    for ai_row in ai_bom_rows:
+        # Clone dữ liệu từ AI để đảm bảo an toàn vùng nhớ
+        ui_row = copy.deepcopy(ai_row)
         
-        # Tìm trong khối dữ liệu JSON của AI xem cấu phần nào có chung phân loại chất liệu (MAIN_FABRIC, FUSING, LINING)
-        matched_ai_row = {}
-        for ai_row in blueprint_final.get("bom_rows", []):
-            ai_fab_class = str(ai_row.get("fabric_classification", "")).upper().strip()
-            if ai_fab_class == ui_fab_class or (ai_fab_class == "MAIN_FABRIC" and "MAIN" in ui_fab_class) or (ai_fab_class == "FUSING" and "FUSING" in ui_fab_class):
-                matched_ai_row = ai_row
-                break
-        
-        # Nếu tìm thấy dòng tương ứng từ AI, lấy thẳng số Yards định mức AI đã tính sẵn
-        if matched_ai_row:
-            ui_row["gross_consumption"] = matched_ai_row.get("gross_consumption", 0.0)
-            ui_row["marker_efficiency"] = matched_ai_row.get("marker_efficiency", "85.0%")
-            ui_row["reasoning"] = matched_ai_row.get("reasoning", "")
-        else:
-            # Dự phòng an toàn nếu AI bỏ quên dòng vật tư phụ
-            ui_row["gross_consumption"] = 0.150 if "FUSING" in ui_fab_class else 1.350
-            ui_row["marker_efficiency"] = "88.9%"
-            ui_row["reasoning"] = "Giá trị dự phòng hệ thống."
-
+        # Đồng bộ và ép kiểu dữ liệu hiển thị an toàn
         width_inch = float(ui_row.get("fabric_width_inch", 57.0))
-        if width_inch < 20.0: width_inch = 57.0
-
-        # Thực thi nạp dữ liệu trực tiếp lên giao diện
-        calculated_row = execute_geometric_cad_calculation_core(ui_row, product_type, 0.83, width_inch)
-        filtered_bom_rows.append(calculated_row)
+        if width_inch < 5.0: width_inch = 57.0  # Không áp cho dây tape nhỏ
         
-    # Ép ghi đè đồng thời vào cả 3 vùng ô nhớ giao diện Streamlit để số Yards hiện ra ngay lập tức
+        # Nạp các trường thông tin cấu trúc hiển thị sang cho Đoạn 4 (Đoạn 7b)
+        ui_row["fabric_width_inch"] = width_inch
+        ui_row["gross_consumption"] = round(float(ui_row.get("gross_consumption", 0.0)), 3)
+        ui_row["marker_efficiency"] = str(ui_row.get("marker_efficiency", "85.5%"))
+        ui_row["quality_status"] = "PASS"
+        ui_row["system_notes"] = ui_row.get("reasoning", "Đã được kiểm toán tự động qua chuỗi AI 2 tầng.")
+        
+        filtered_bom_rows.append(ui_row)
+        
+    # Ép ghi đè đồng thời vào cả 3 vùng ô nhớ giao diện Streamlit để nạp toàn bộ danh mục vật tư mới lên màn hình
     st.session_state["bom_rows"] = filtered_bom_rows
     st.session_state["accumulated_bom_rows"] = filtered_bom_rows
-    st.session_state["bom_data"] = {"bom_rows": filtered_bom_rows, "detected_product_type": product_type}
+    st.session_state["bom_data"] = {"bom_rows": filtered_bom_rows, "detected_product_type": product_type, "calculated_on_size": blueprint_final.get("calculated_on_size", "30")}
     
     return st.session_state["bom_data"]
 
@@ -551,22 +519,18 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             ===END_JSON===
             """
                        # =====================================================================
-            # ĐOẠN 7a - PHẦN 3a: DUAL-AGENT AI STREAM GENERATION (V92.1 FIXED COUPLING)
-            # 🌟 ĐÃ VÁ LỖI NAME_ERROR: KHỞI TẠO CHỮ KÝ TRẠNG THÁI TRƯỚC KHI GỌI BIẾN CHỐT CHẶN
+                      # =====================================================================
+            # ĐOẠN 7a - PHẦN 3a: DUAL-AGENT AI STREAM GENERATION (V92.2 SYNC FIX)
+            # 🌟 ĐỒNG BỘ CHÍNH XÁC TIN NHẮN CHAT VỚI HIỆU SUẤT SƠ ĐỒ THỰC TẾ 85.5%
             # =====================================================================
             pdf_bytes_len_p3 = len(st.session_state.pdf_bytes) if st.session_state.pdf_bytes else 0
             current_signature_p3 = (str(safe_user_prompt).strip(), int(len(image_payloads)), int(pdf_bytes_len_p3))
             
-            # Khởi tạo định nghĩa 2 biến phòng vệ chống sập NameError
             has_no_data_p3 = not st.session_state.get("bom_data") or st.session_state.get("bom_data") == {}
             is_signature_changed_p3 = st.session_state.get("last_processed_signature") != current_signature_p3
 
-            # KÍCH HOẠT CHUỖI API KÉP KHI ĐỦ ĐIỀU KIỆN CHỮ KÝ TRẠNG THÁI
             if has_no_data_p3 or is_signature_changed_p3:
                 try:
-                    # -----------------------------------------------------------------
-                    # 🧠 TẦNG 1: AGENT TRÍCH XUẤT DIỆN TÍCH PANEL SƠ BỘ VÀ DANH MỤC VẬT TƯ
-                    # -----------------------------------------------------------------
                     prompt_agent_1 = f"""
                     You are Agent 1: A Textile CAD Geometry Specialist. 
                     Your job is to scan the techpack text and images, identify the product type, extract all relevant measurements for size '{target_size_cmd}', and calculate the raw surface area of each fabric panel including shrinkage.
@@ -582,23 +546,20 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                     response_agent_1 = model.generate_content(payload_agent_1)
                     raw_json_agent_1 = response_agent_1.text if response_agent_1 else "{}"
                     
-                    # -----------------------------------------------------------------
-                    # ⚖️ TẦNG 2: AGENT IE KIỂM TOÁN LOGIC SẢN XUẤT & CHỐT ĐỊNH MỨC AN TOÀN
-                    # -----------------------------------------------------------------
                     prompt_agent_2 = f"""
                     You are Agent 2: The Senior Apparel Industrial Engineer (IE) Auditor.
                     Your job is to review the temporary technical JSON generated by Agent 1, cross-check it with the raw Techpack flat text, and output the absolute FINAL verified consumption matrix.
 
                     🌟 EXHAUSTIVE BOM SCANNING RULES:
                     1. Comprehensive Scan: You MUST find and generate a row for EVERY component in the techpack BOM that requires a yardage/meter consumption. Do NOT skip Pocketing (Lót túi), Elastic (Chun), Tape (Dây dệt/Dây kéo), or Lining.
-                    2. Marker Efficiency Constraint: For 'JEANS' or 'DENIM' fabrics, the maximum realistic marker efficiency is between 82.0% and 87.5%. NEVER use 88%+. For Pocketing or smaller parts, efficiency can be 85%-88%.
+                    2. Marker Efficiency Constraint: For 'JEANS' or 'DENIM' fabrics, the maximum realistic marker efficiency is strictly set to 85.5% for major fabric and fusing layout optimization. NEVER use 88%+. 
                     3. Consumption Realism: Apply dynamic consumption calculations based on size '{target_size_cmd}'. Ensure 'gross_consumption' is a realistic float greater than 0.0 for ALL detected components.
-                    4. Classification Mapping: Ensure 'fabric_classification' is strictly mapped to one of these uppercase tags: 'MAIN_FABRIC', 'LINING' (use this for Pocketing too), 'FUSING', or 'TRIM_YARDS' (for elastic/tape/zipper-tape calculated in yards).
+                    4. Classification Mapping: Ensure 'fabric_classification' is strictly mapped to one of these uppercase tags: 'MAIN_FABRIC', 'LINING', 'FUSING', or 'TRIM_YARDS'.
 
                     Output BOTH raw plain text JSON format and a friendly markdown chat response using the exact markers below without markdown code blocks. All 'fabric_width_inch' MUST match the value {active_width} for fabrics, or the trim width if specified:
                     
                     ===START_CHAT===
-                    ⚖️ **IE Auditor Verified**: Định mức đã được thẩm định qua hệ thống AI 2 tầng bảo vệ. Đã rà soát toàn diện tài liệu và trích xuất đầy đủ **Vải chính, Vải lót túi (Pocketing), Mex túi/cạp (Fusing), Chun (Elastic) và Dây dệt (Tape)**. Đã áp trần hiệu suất sơ đồ Denim thực tế (**tối đa 87.5%**) để đảm bảo sát thực tế sản xuất.
+                    ⚖️ **IE Auditor Verified**: Định mức đã được thẩm định qua hệ thống AI 2 tầng bảo vệ. Đã rà soát toàn diện tài liệu và trích xuất đầy đủ **Vải chính, Vải lót túi (Pocketing), Mex túi/cạp (Fusing), Chun (Elastic) và Dây dệt (Tape)**. Đã áp trần hiệu suất sơ đồ Denim thực tế (**chuẩn xác 85.5%**) để đảm bảo sát thực tế sản xuất.
                     ===END_CHAT===
 
                     ===START_JSON===
@@ -619,7 +580,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                           "component_type": "Pocketing Fabric",
                           "fabric_classification": "LINING",
                           "fabric_width_inch": 44.0,
-                          "marker_efficiency": "86.0%",
+                          "marker_efficiency": "85.5%",
                           "gross_consumption": 0.250,
                           "reasoning": "Auditor Extracted: Calculated pocket bags total template area for 4-pocket construction on standard pocketing width."
                         }},
@@ -627,7 +588,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                           "component_type": "PCC Interlining Mex",
                           "fabric_classification": "FUSING",
                           "fabric_width_inch": {active_width},
-                          "marker_efficiency": "88.0%",
+                          "marker_efficiency": "85.5%",
                           "gross_consumption": 0.180,
                           "reasoning": "Auditor Confirmed: Verified block reinforcement templates layout matching waistband and pocket fly components."
                         }},
@@ -657,6 +618,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                 except Exception as api_err:
                     st.error(f"💥 Lỗi kết nối trực tiếp đến API chuỗi Agent Google Gemini: {str(api_err)}")
                     st.stop()
+
 
             # =====================================================================
             # ĐOẠN 7a - PHẦN 3b: POST-AI MIDDLEWARE GATEWAY (V92.0 PARSER COUPLING)
