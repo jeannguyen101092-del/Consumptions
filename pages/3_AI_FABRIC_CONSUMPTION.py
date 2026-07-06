@@ -657,7 +657,6 @@ Output BOTH raw text JSON format (under ===START_JSON===) and markdown chat resp
 {dummy_json_payload}
 ===END_JSON===
 """
-
             # =====================================================================
             # ĐOẠN 7a - PHẦN 3b: DUAL-AGENT API EXECUTION SEQUENCE (V100.2 FIXED)
             # =====================================================================
