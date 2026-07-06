@@ -530,27 +530,32 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             # ĐOẠN 7a - PHẦN 10: PROMPT AGENT 2 ROUTER & API EXECUTION CORE (V102.8)
             # 🌟 ĐÃ KHÔI PHỤC TƯ DUY HÌNH HỌC: ÉP AI TRA CỨU THÔNG SỐ RẬP THÔ > 2.5 YDS
             # =====================================================================
+                        # =====================================================================
+            # ĐOẠN 7a - PHẦN 10: PROMPT AGENT 2 ROUTER & API EXECUTION CORE (V103.0 HIGH-YIELD)
+            # 🌟 ÉP BIÊN THÔNG SỐ: SỬA LỖI AI BÓC THIẾU KÍCH THƯỚC KEO LÓT TÚI HỘP CARGO
+            # =====================================================================
             prompt_agent_2 = f"""
             You are Agent 2: The Enterprise Apparel Visual Auditor & Material Router.
             Review Agent 1 extraction against the raw Techpack context, BOM tables, and sketches.
 
-            🌟 CRITICAL REALISM AUDIT FOR RUCHED DRESS:
-            1. For a Dress/Garment, you MUST include BOTH the Front Panel and Back Panel pieces.
-            2. CRITICAL HINT FOR HIGH CONSUMPTION (>2.5 YDS): Because this is a SIDE_RUCHE garment, the un-gathered pattern piece length (bounding_box_length) is significantly longer than the finished dress length. Ensure the bounding_box_length reflects the raw stretched pattern piece (typically 58.0 to 68.0 inches for adult mini dress before gathering to achieve realistic production yield). Do NOT extract short finished measurements.
+            🌟 CRITICAL REALISM AUDIT FOR CARGO PANTS:
+            1. For Main Fabric, ensure the full leg panels and all pocket bags are covered.
+            2. CRITICAL FOR POCKETING/LINING: This is a Cargo Pants with heavy utility pockets. Pocketing fabric rows (Lining) MUST account for full front pocket bags. Bounding box length for pocketing should realistically fall between 18.0 and 24.0 inches (not tiny fragments).
+            3. CRITICAL FOR FUSING/INTERLINING: Because this garment has multiple Cargo Pocket Flaps (Nắp túi hộp), the Fusible component MUST include BOTH the waistband fusing AND all pocket flap fusing panels. Ensure the total bounding_box_length for FUSING reflects the cumulative length of all fused parts (typically 38.0 to 45.0 inches cumulative length). Do NOT let it drop below realistic production yield.
 
             🌟 MATERIAL ROUTING ARCHITECTURE:
             Extract ALL Techpack BOM components. ROUTE each component to its correct engine:
-            - Main Fabric, Lining, Pocketing -> Engine: "FABRIC" (Fields required: bounding_box_length, bounding_box_width, piece_count, gather_type, gather_depth)
-            - Fusible, Interlining -> Engine: "FUSING" (Fields required: bounding_box_length, bounding_box_width, piece_count, gather_type, gather_depth)
+            - Main Fabric, Lining, Pocketing -> Engine: "FABRIC" (Fields: bounding_box_length, bounding_box_width, piece_count, gather_type, gather_depth)
+            - Fusible, Interlining -> Engine: "FUSING" (Fields: bounding_box_length, bounding_box_width, piece_count, gather_type, gather_depth)
             - Elastic Bands -> Engine: "ELASTIC" (Fields: length_inch, piece_count, stretch_pct)
             - Tape, Drawcord -> Engine: "TAPE" (Fields: length_inch, piece_count)
             - Button, Zipper, Label -> Engine: "COUNT" (Fields: quantity_pcs)
             
-            All fabric items must match width {active_width}.
+            All fabric/fusing items must match width {active_width}.
             Output clean JSON under ===START_JSON=== and chat under ===START_CHAT===.
             
             ===START_CHAT===
-            ⚖️ Enterprise CAD Pipeline Engaged: Đã phân loại phụ liệu và đồng bộ kích thước bao rập nhún sườn (SIDE_RUCHE) sang Python Micro-Engines.
+            ⚖️ Enterprise CAD Pipeline Engaged: Đã cấu trúc lại định biên kích thước bao rập keo phối nắp túi và vải lót túi hộp sườn sang Python Micro-Engines.
             ===END_CHAT===
             
             ===START_JSON===
