@@ -1022,13 +1022,12 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, query_st
     return blueprint_final
 
 # =====================================================================
-# ĐOẠN B: GEOMETRIC CAD COMPUTATION & QUALITY EDGE ENGINE (V61.0 MASTER PRODUCTION)
-# 🌟 KIẾN TRÚC TOÀN DIỆN V61: PYTHON CHỈ KIỂM TOÁN VÀ THỰC THI TOÁN SỐ HỌC TOÀN CỤC (PURE CALCULATOR)
-# 🌟 ĐỌC THẲNG TỔNG DIỆN TÍCH VÀ UTILIZATION TỪ AI - TRIỆT TIÊU HOÀN TOÀN SAI SỐ NHÂN TRÙNG LẶP WASTE
+# ĐOẠN B: GEOMETRIC CAD COMPUTATION & QUALITY EDGE ENGINE (V63.0 CHUẨN GO-LIVE)
+# 🌟 KIẾN TRÚC V63: PYTHON TỰ TÍNH TỔNG DIỆN TÍCH TỪ MẢNH CON - ÉP SỬ DỤNG UTILIZATION CỦA AI
+# 🌟 CHỐT CHẶN BẢO VỆ TUYỆT ĐỐI: CHẶN ĐỨNG HOÀN TOÀN HIỆN TƯỢNG ĐỊNH MỨC BẰNG 0
 # =====================================================================
 def execute_geometric_cad_calculation_core(row: dict, product_type: str, efficiency: float, width_inch: float, shrink_factor_length: float, shrink_factor_width: float, length_base: float, width_base: float) -> dict:
     
-    # CƠ SỞ DỮ LIỆU BIÊN ĐỘ KIỂM TOÁN LỊCH SỬ CỦA NHÀ MÁY (DÙNG ĐỂ KIỂM TRA HẬU KỲ)
     FACTORY_HISTORY_DATABASE = {
         "PANT": {"min_yds": 1.15, "max_yds": 1.95}, "JEANS": {"min_yds": 1.25, "max_yds": 2.15},
         "JEAN": {"min_yds": 1.25, "max_yds": 2.15}, "SHIRT": {"min_yds": 1.10, "max_yds": 1.65},
@@ -1040,91 +1039,146 @@ def execute_geometric_cad_calculation_core(row: dict, product_type: str, efficie
     comp_type = (str(row.get("component_type", "")) + " " + str(row.get("fabric_classification", ""))).upper()
     panels = row.get("panels_catalog", [])
     
+    # 🚨 CHỐT CHẶN BẢO VỆ 1: Nếu AI lười lách luật trả về mảng rỗng -> Báo lỗi dứt khoát không tính mù
     if not panels:
         row["gross_consumption"] = 0.0
         row["quality_status"] = "INSUFFICIENT_DATA"
-        row["system_notes"] = "Thất bại: Danh mục mảnh rập trống hoàn toàn. AI không thể bóc tách từ Techpack."
+        row["system_notes"] = "Thất bại: Mảng panels_catalog bị trống. AI vi phạm luật bóc tách tài liệu."
         return row
 
     # Hệ số co rút diện tích phẳng hai chiều bề mặt vải
     shrink_area_factor = shrink_factor_length * shrink_factor_width
     
-    # Đọc cấu trúc Summary toàn cục do AI tổng hợp theo chuẩn Gerber AccuMark [INDEX]
+    # Quét thu thập khối thông tin Summary toàn cục nạp từ Đoạn A
     global_summary = row.get("_btp_global_summary", {})
-    if not global_summary:
-        # Fallback tự động quét tìm khối summary ở cấp cha nếu cấu trúc JSON bị xáo trộn vị trí
-        global_summary = row.get("geometry_metadata", {})
-        
-    # 🌟 NÂNG CẤP CHÍ MẠNG 1: ĐỌC THẲNG TỔNG DIỆN TÍCH VÀ HIỆU SUẤT SƠ ĐỒ DO AI TÍNH TOÁN
-    ai_total_net_area = float(global_summary.get("total_net_area_sq_inch", 0.0) or 0.0)
-    marker_utilization = float(global_summary.get("estimated_marker_utilization", efficiency) or efficiency)
-    global_confidence = float(global_summary.get("global_confidence_score", 1.00) or 1.00)
-
-    # Chốt chặn bảo vệ: Nếu AI lười không tính tổng diện tích toàn cục, tự động tính tổng bù đắp từ các panel thành phần
-    if ai_total_net_area <= 0.0:
-        for p in panels:
-            if not isinstance(p, dict): continue
-            p_area = float(p.get("calculated_net_area_sq_inch", 0.0) or 0.0)
-            p_count = float(p.get("piece_count", p.get("count", 1.0)) or 1.0)
-            ai_total_net_area += (p_area * p_count)
-
-    if ai_total_net_area <= 0.0:
-        row["gross_consumption"] = 0.0
-        row["quality_status"] = "INSUFFICIENT_DATA"
-        row["system_notes"] = "Thất bại: Không thu thập được dữ liệu tổng diện tích sạch từ AI."
-        return row
-
-    # 🌟 NÂNG CẤP CHÍ MẠNG 2: THUẬT TOÁN PHẠT TUYẾN TÍNH THEO TRỌNG SỐ CONFIDENCE TOÀN CỤC CỦA AI
-    if global_confidence < 0.95:
-        penalty_factor = max(0.95, min(0.99, 1.0 - ((1.0 - global_confidence) * 0.15)))
-        marker_utilization = marker_utilization * penalty_factor
-
-    # 🌟 BƯỚC 1: QUY ĐỔI DIỆN TÍCH SẠCH SANG DIỆN TÍCH THỰC TẾ SAU KHI ÉP CO RÚT VẢI
-    total_gross_fabric_area_square_inch = ai_total_net_area * shrink_area_factor
-
-    # 🌟 BƯỚC 2: PHƯƠNG TRÌNH ĐỊNH MỨC GERBER V61 (TINH GỌN, CHÍNH XÁC TUYỆT ĐỐI)
-    # Định mức Yards = Tổng diện tích sau co rút / (Khổ vải * Hiệu suất sơ đồ thực tế * 36 inch)
-    denominator = width_inch * marker_utilization * 36.0
-    gross_consumption_yds = total_gross_fabric_area_square_inch / denominator
     
-    # Cộng thêm biên an toàn hao hụt cắt đầu cây vải (End-loss phụ thêm 3%)
-    row["gross_consumption"] = round(gross_consumption_yds * 1.03, 3)
+    # 🌟 NÂNG CẤP CHÍ MẠNG 1: ÉP BUỘC ĐỌC VÀ SỬ DỤNG ESTIMATED_MARKER_UTILIZATION DO AI TRẢ VỀ
+    # Chỉ sử dụng con số mặc định của hệ thống làm phương án dự phòng cuối cùng (Fallback)
+    ai_utilization = global_summary.get("estimated_marker_utilization", global_summary.get("marker_utilization"))
+    if ai_utilization is not None:
+        try:
+            marker_utilization = float(ai_utilization)
+            if marker_utilization > 1.0: marker_utilization /= 100.0
+            if not (0.50 <= marker_utilization <= 0.98): # Biên kiểm soát kỹ thuật sơ đồ
+                marker_utilization = efficiency
+        except:
+            marker_utilization = efficiency
+    else:
+        marker_utilization = efficiency
 
-    # 🌟 BƯỚC 3: ĐÓNG GÓI METADATA TỪNG PANEL ĐỂ PHỤC VỤ CÔNG TÁC AUDIT VÀ DEBUG CỦA KỸ SƯ IE
+    global_confidence = float(global_summary.get("global_confidence_score", global_summary.get("confidence", 1.00)) or 1.00)
+
+    # Các biến phục vụ luồng tích lũy số học của Python
+    python_accumulated_net_area = 0.0
+    actual_piece_count = 0.0
+    is_critical_missing = False
+    system_issue_logs = []
+    
+    total_area_x_confidence = 0.0
     accumulated_source_measurements = set()
+        
+    # LUỒNG DUYỆT CHI TIẾT TỪNG MẢNH RẬP CON ĐỂ TÍCH LŨY DIỆN TÍCH SẠCH
     for p in panels:
         if not isinstance(p, dict): continue
-        p_name = p.get("panel_name", "UNKNOWN").upper()
-        bbox_L = float(p.get("bounding_box_length_inch", 0.0) or 0.0)
-        bbox_W = float(p.get("bounding_box_width_inch", 0.0) or 0.0)
-        p_area = float(p.get("calculated_net_area_sq_inch", 0.0) or 0.0)
         
-        audited_shape_factor = round(p_area / (bbox_L * bbox_W), 2) if (bbox_L * bbox_W) > 0 else 1.00
+        p_name = p.get("panel_name", "UNKNOWN PANEL").upper()
+        is_custom_critical = bool(p.get("is_primary_panel", any(k in p_name for k in ["FRONT", "BACK", "THÂN", "LEG", "WAISTBAND", "CẠP", "SLEEVE", "TAY"])))
+        
+        # Quét đa biến đón đầu trường diện tích thực tế của mảnh con
+        ai_calculated_net_area = float(p.get("calculated_net_area_sq_inch", p.get("net_area_sq_inch", p.get("calculated_area", p.get("net_area", p.get("area", 0.0))))) or 0.0)
+        count = float(p.get("piece_count", p.get("count", p.get("quantity", 1.0))) or 1.0)
+        confidence = float(p.get("confidence", 1.0))
+        
+        # 🚨 CHỐT CHẶN BẢO VỆ 2: Tự động kích hoạt Fallback cứu hộ diện tích bằng Kích thước bao (Bounding Box)
+        if ai_calculated_net_area <= 0.0:
+            bbox_L = float(p.get("bounding_box_length_inch", p.get("length", 0.0)) or 0.0)
+            bbox_W = float(p.get("bounding_box_width_inch", p.get("width", 0.0)) or 0.0)
+            if bbox_L > 0 and bbox_W > 0:
+                ai_calculated_net_area = bbox_L * bbox_W * 0.90 # Áp dụng hệ số vát phôi an toàn
+        
+        # Nếu đã quét đa key và cứu hộ hình bao vẫn bằng 0 -> Đánh dấu khuyết thông số
+        if ai_calculated_net_area <= 0.0:
+            if is_custom_critical:
+                is_critical_missing = True
+                system_issue_logs.append(f"Mảnh rập CHÍNH [{p_name}] bị khuyết diện tích.")
+            continue  
+            
+        # 🌟 BƯỚC 1: PYTHON TỰ LẬP LUẬN TÍCH LŨY DỒN DIỆN TÍCH SẠCH CỦA MẢNH CON
+        # Công thức: Tổng diện tích = sum(Diện tích mảnh con * Số lượng mảnh)
+        current_panel_net_area = ai_calculated_net_area * count
+        python_accumulated_net_area += current_panel_net_area
+        
+        # Tính trọng số tin cậy phục vụ tính phạt an toàn
+        total_area_x_confidence += (current_panel_net_area * confidence)
+        
+        # Thu thập thông tin kiểm toán mã đo POM
         src_measurements = p.get("source_measurements", p.get("geometry_source", []))
         for sm in src_measurements: accumulated_source_measurements.add(str(sm).strip())
         
+        # Vẽ cấu trúc hình học phục vụ UI hiển thị hậu kỳ
+        b_L = float(p.get("bounding_box_length_inch", p.get("length", 1.0)))
+        b_W = float(p.get("bounding_box_width_inch", p.get("width", 1.0)))
+        audited_shape_factor = round(ai_calculated_net_area / (b_L * b_W), 2) if (b_L * b_W) > 0 else 1.00
+        
         p["geometry_metadata"] = {
+            "net_area": round(current_panel_net_area * shrink_area_factor, 2),
             "audited_shape_factor": audited_shape_factor,
-            "confidence_score": float(p.get("confidence", 1.0)),
+            "confidence_score": confidence,
             "geometry_method": p.get("geometry_method", "POM+Sketch"),
-            "geometry_source_audit": src_measurements
+            "geometry_source_audit": src_measurements,
+            "panel_priority": "CRITICAL" if is_custom_critical else "NON-CRITICAL"
         }
+        actual_piece_count += count
 
-    # 🌟 BƯỚC 4: KIỂM TOÁN CHẤT LƯỢNG HẬU KỲ (QUALITY GATE)
+    # 🌟 NÂNG CẤP CHÍ MẠNG 2: ĐỐI CHIẾU SỰ ĐỒNG NHẤT VÀ PHẠT HIỆU SUẤT THEO TRỌNG SỐ CONFIDENCE THỰC TẾ
+    if python_accumulated_net_area > 0:
+        weighted_confidence = total_area_x_confidence / python_accumulated_net_area
+        if weighted_confidence < 0.95:
+            penalty_factor = max(0.95, min(0.99, 1.0 - ((1.0 - weighted_confidence) * 0.15)))
+            marker_utilization = marker_utilization * penalty_factor
+            system_issue_logs.append(f"Hạ {round((1.0 - penalty_factor)*100, 1)}% sơ đồ do weighted confidence đạt {round(weighted_confidence*100,1)}%.")
+            
+        # So sánh đối chiếu diện tích tự tính toán của Python với diện tích tổng AI gửi (Dùng để ghi log kiểm toán)
+        ai_reported_total_area = float(global_summary.get("total_net_area_sq_inch", 0.0))
+        if ai_reported_total_area > 0:
+            variance_pct = abs(python_accumulated_net_area - ai_reported_total_area) / python_accumulated_net_area
+            if variance_pct > 0.05:
+                system_issue_logs.append(f"IE Audit: Lệch diện tích {round(variance_pct*100,1)}% giữa Tổng AI báo và Python tích lũy con.")
+
+    # 🚨 CHỐT CHẶN PHÒNG VỆ TỐI CAO: Ngắt luồng ngay lập tức nếu thiếu cấu kiện cốt lõi hoặc diện tích bằng 0
+    if is_critical_missing or python_accumulated_net_area <= 0.0:
+        row["gross_consumption"] = 0.0
+        row["quality_status"] = "INSUFFICIENT_DATA"
+        row["system_notes"] = f"Thất bại nghiêm trọng: Khuyết diện tích rập cấu kiện chính dệt may. {'; '.join(system_issue_logs)}"
+        return row
+
+    # 🌟 BƯỚC 2: QUY ĐỔI SANG DIỆN TÍCH THỰC TẾ SAU KHI ÉP HỆ SỐ CO RÚT VẢI HAI CHIỀU
+    total_gross_fabric_area_square_inch = python_accumulated_net_area * shrink_area_factor
+
+    # 🌟 BƯỚC 3: PHƯƠNG TRÌNH ĐỊNH MỨC GERBER CHUẨN HÓA TOÀN DIỆN
+    # Định mức Yards = Diện tích dồn sau co rút / (Khổ vải * Marker Utilization của AI * 36 inch)
+    denominator = width_inch * marker_utilization * 36.0
+    gross_consumption_yds = total_gross_fabric_area_square_inch / denominator
+    row["gross_consumption"] = round(gross_consumption_yds * 1.03, 3) # Cộng biên độ an toàn cắt đầu cây vải 3%
+
+    # 🌟 BƯỚC 4: KIỂM TOÁN CHẤT LƯỢNG HẬU KỲ VÀ ĐỔ DỮ LIỆU LÊN GIAO DIỆN MÀN HÌNH
     row["marker_efficiency"] = f"{round(marker_utilization * 100, 2)}%"
-    main_panel_log = f" [Bằng chứng hình học bóc từ mã POM/Sketch: {', '.join(sorted(list(accumulated_source_measurements)))}]" if accumulated_source_measurements else ""
+    main_panel_log = f" [Bằng chứng bóc từ POM/Sketch: {', '.join(sorted(list(accumulated_source_measurements)))}]" if accumulated_source_measurements else ""
     target_gate = FACTORY_HISTORY_DATABASE.get(product_type, {"min_yds": 0.80, "max_yds": 2.50})
     
     if any(k in comp_type for k in ["MAIN", "DENIM", "CHÍNH", "SELF", "SHELL"]):
         if row["gross_consumption"] < target_gate["min_yds"] or row["gross_consumption"] > target_gate["max_yds"]:
             row["quality_status"] = "NEEDS REVIEW"
-            row["system_notes"] = f"Cảnh báo: Định mức tổng ({row['gross_consumption']} Yds) lệch biên an toàn lịch sử dòng {product_type}.{main_panel_log}"
+            row["system_notes"] = f"Cảnh báo: Định mức rập ({row['gross_consumption']} Yds) lệch biên an toàn lịch sử dòng {product_type}.{main_panel_log}"
         else:
             row["quality_status"] = "PASS"
             row["system_notes"] = f"Định mức CAD đạt tiêu chuẩn sản xuất.{main_panel_log}"
     else:
         row["quality_status"] = "PASS"
         row["system_notes"] = f"Định mức vật tư phụ trợ tính động theo diện tích sơ đồ AI.{main_panel_log}"
+        
+    if system_issue_logs:
+        row["system_notes"] += " | Nhật ký vận hành: " + " | ".join(system_issue_logs)
         
     return row
 
@@ -1525,12 +1579,9 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
 
 
                          # =====================================================================
-                      # =====================================================================
-                      # =====================================================================
-                       # =====================================================================
-            # ĐOẠN 7a - PHẦN 2: DYNAMIC MULTI-PRODUCT AI GATEWAY (V61.0 COGNITIVE ENGINE)
-            # 🌟 KIẾN TRÚC TOÀN DIỆN V61: AI TỰ TÍNH TỔNG DIỆN TÍCH VÀ HIỆU SUẤT SƠ ĐỒ TOÀN CỤC (UTILIZATION)
-            # 🌟 PYTHON TUYỆT ĐỐI KHÔNG TÍNH LẠI HÌNH HỌC - TRIỆT TIÊU HOÀN TOÀN LỖI PHẠT TRÙNG WASTE HAI LẦN
+            # ĐOẠN 7a - PHẦN 2: DYNAMIC MULTI-PRODUCT AI GATEWAY (V61.9 CƯỠNG CHẾ SINH DIỆN TÍCH)
+            # 🌟 ÉP AI BẮT BUỘC PHẢI TỰ NHÂN VÀ ĐIỀU CHỈNH SỐ DIỆN TÍCH THỰC (CALCULATED_NET_AREA_SQ_INCH)
+            # 🌟 TUYỆT ĐỐI KHÔNG CHO PHÉP AI BỎ TRỐNG MẢNG PANELS KHIẾN ĐỊNH MỨC BẰNG 0
             # =====================================================================
             if "GEMINI_API_KEY" not in st.secrets:
                 st.error("💥 Lỗi hạ tầng: Thiếu cấu hình GEMINI_API_KEY trong hệ thống Secrets.")
@@ -1548,67 +1599,108 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             active_width = float(match_w.group(1)) if match_w else 57.0
             if active_width < 20.0: active_width = 57.0
             
-            # Thiết lập cấu trúc Prompt V61.0 tối ưu hóa phân rã nhiệm vụ CAD công nghiệp
+            # Cấu trúc Prompt cưỡng chế hành vi suy luận của Gemini Flash
             prompt_instruction = f"""
-            You are a world-class apparel Industrial Engineer (IE) and CAD pattern master [INDEX]. Your mission is to thoroughly scan ALL provided techpack pages (BOM, Measurement, and Technical Sketches) to extract structural data for size '{target_size_cmd}' [INDEX].
+            You are an expert apparel IE and CAD pattern engineer [INSTRUCT]. Your absolute priority is to analyze the techpack text and sketches to extract and calculate pattern piece geometric net areas for size '{target_size_cmd}' [INSTRUCT].
 
-            🌟 CORE CAD INFERENCE LAWS:
-            1. Detect the Garment Type (e.g., JEANS, PANTS, JACKET, SHIRT, T-SHIRT) and style profile (e.g., Slim, Skinny, Loose Baggy, Cargo, Oversized) directly from the sketches [INDEX].
-            2. For EVERY single pattern panel discovered in the techpack, utilize the Technical Sketches and measurement data simultaneously to estimate its TRUE geometric polygon net area and bounding box [INDEX]. Do not use fixed mathematical fallback ratios unless supported by Techpack notes.
-            3. Extract every possible measurement from the Techpack. Only estimate dimensions when absolutely no explicit measurement exists, by inferring from the strongest related visual evidence.
-            4. You MUST calculate and provide the following explicit fields for each panel inside 'panels_catalog':
-               - 'bounding_box_length_inch': The maximum physical height/length of the panel bounding box (for IE audit and display).
-               - 'bounding_box_width_inch': The maximum physical width of the panel bounding box (for IE audit and display).
-               - 'calculated_net_area_sq_inch': The calculated true geometric area of ONE single piece (in square inches), taking into account curves, waist slopes, neck drops, and armhole cutouts directly from sketches [INDEX].
-               - 'confidence': Confidence score (decimal between 0.0 and 1.0) specific to this panel's data strength.
-               - 'is_primary_panel': Boolean value (true if it is a major component like FRONT LEG, BACK LEG, FRONT BODY, BACK BODY, SLEEVE, WAISTBAND; false for minor items like pocket bags, flaps, belt loops).
-               - 'geometry_method': String explaining the mathematical or visual method used (e.g., "POM+Sketch", "Visual Inference").
-               - 'geometry_source': Array of strings listing the exact source items used to derive the area (e.g., ["HIP-020", "LEG-012", "Technical Sketch Page 3"]).
-            5. STRICT LAW: Never return 0 or null for any panel area or size metrics. If exact values cannot be extracted, infer them logically from the strongest available evidence and report a confidence score.
+            🚨 STRICT LAWS (CRITICAL PROTECTION):
+            1. You MUST populate the 'panels_catalog' list for EVERY material row in the BOM. Leaving 'panels_catalog': [] or returning 0 for area is strict violation [INSTRUCT].
+            2. For EVERY panel, you MUST look at the Measurement chart and Technical Sketch to estimate its physical height (length) and width. Then, calculate its TRUE geometric area ('calculated_net_area_sq_inch') [INSTRUCT].
+               - For example, if a Front Leg of a pant has an Outseam length of ~40 inches and Thigh/Hip width of ~12 inches, its calculated net area should be mathematically derived (e.g., 40 * 12 * 0.90 = ~432.0 sq inches). DO NOT output 0.0 [INSTRUCT].
+            3. At the top level inside '_btp_global_summary', you MUST provide 'total_net_area_sq_inch' (the mathematical sum of all panels multiplied by piece counts) and 'estimated_marker_utilization' (overall marker layout efficiency, between 0.75 and 0.90) [INSTRUCT].
 
-            🌟 GLOBAL GERBER-STYLE MARKER LOGIC LAW:
-            At the top level of the JSON response (inside '_btp_global_summary'), you MUST aggregate the total geometry data and predict the marker efficiency exactly like Gerber AccuMark nesting software [INDEX]. You MUST return:
-            - 'total_net_area_sq_inch': The absolute mathematical SUM of all calculated net areas for all pieces combined (taking 'piece_count' into account for each panel).
-            - 'estimated_marker_utilization': The predicted true overall marker efficiency percentage (decimal between 0.65 and 0.95) based on the collective panel shapes interlocking on a standard marker layout [INDEX]. (e.g., around 0.81-0.84 for curvy flared baggy jeans, 0.85-0.88 for boxy jackets, 0.72-0.76 for pocketing/lining fabric rows) [INDEX].
-            - 'global_confidence_score': Average weighted data confidence across the entire garment setup.
-
-            Output STRICTLY in this two-tier raw plain text JSON format without markdown markers. All 'fabric_width_inch' MUST match the value {active_width}:
+            Output STRICTLY in this raw plain text JSON format without markdown markers. All 'fabric_width_inch' MUST match the value {active_width}:
             ===START_JSON===
             {{
               "status": "PASS",
               "detected_product_type": "JEANS",
               "calculated_on_size": "{target_size_cmd}",
               "matched_measurements": [
-                 "<POM_CODE>: <POM_DESCRIPTION> = <EXTRACTED_DECIMAL> inch"
+                 "WST-011: Pant/skirt waist width Along Edge = 16.5 inch",
+                 "HIP-020: Pant/Skirt - Low hip width = 21.5 inch",
+                 "LEG-012: Inseam = 31.5 inch"
               ],
               "_btp_global_summary": {{
                 "total_bom_rows": 3,
                 "total_panels": 5,
-                "total_net_area_sq_inch": <ABSOLUTE_SUM_OF_ALL_PIECES_AREA_IN_SQ_INCHES>,
-                "estimated_marker_utilization": <REALISTIC_MARKER_EFFICIENCY_DECIMAL_E_G_0_835>,
-                "global_confidence_score": <DECIMAL_0_0_TO_1_0>
+                "total_net_area_sq_inch": 1824.5,
+                "estimated_marker_utilization": 0.835,
+                "global_confidence_score": 0.95
               }},
               "bom_rows": [
                 {{
-                  "component_type": "<EXTRACTED_MATERIAL_NAME_E_G_DENIM_MAIN_FABRIC>",
-                  "fabric_classification": "<MAIN_FABRIC_OR_LINING_OR_FUSING>",
+                  "component_type": "Denim Main Fabric",
+                  "fabric_classification": "MAIN_FABRIC",
                   "fabric_width_inch": {active_width},
                   "panels_catalog": [
                     {{
-                      "panel_name": "<PANEL_NAME_E_G_FRONT_LEG_PANEL_OR_FRONT_BODY>",
+                      "panel_name": "FRONT LEG PANEL",
                       "piece_count": 2.0,
-                      "bounding_box_length_inch": <MAX_LENGTH_DECIMAL>,
-                      "bounding_box_width_inch": <MAX_WIDTH_DECIMAL>,
-                      "calculated_net_area_sq_inch": <DYNAMIC_AI_CALCULATED_TRUE_AREA_IN_SQ_INCHES>,
-                      "confidence": <DECIMAL_BETWEEN_0_0_AND_1_0_BASED_ON_DATA_STRENGTH>,
-                      "estimation_source": "<DETAILED_EXPLANATION_OF_HOW_AREA_WAS_GEOMETRICALLY_INFERRED_FROM_SKETCH_AND_POM>",
+                      "bounding_box_length_inch": 41.5,
+                      "bounding_box_width_inch": 13.0,
+                      "calculated_net_area_sq_inch": 435.5,
+                      "confidence": 0.95,
                       "geometry_method": "POM+Sketch",
-                      "geometry_source": [
-                         "HIP-020",
-                         "LEG-012",
-                         "Technical Sketch Page 3"
-                      ],
+                      "geometry_source": ["LEG-012", "HIP-020"],
                       "is_primary_panel": true
+                    }},
+                    {{
+                      "panel_name": "BACK LEG PANEL",
+                      "piece_count": 2.0,
+                      "bounding_box_length_inch": 43.0,
+                      "bounding_box_width_inch": 14.5,
+                      "calculated_net_area_sq_inch": 485.0,
+                      "confidence": 0.95,
+                      "geometry_method": "POM+Sketch",
+                      "geometry_source": ["LEG-012", "HIP-020"],
+                      "is_primary_panel": true
+                    }},
+                    {{
+                      "panel_name": "WAISTBAND",
+                      "piece_count": 1.0,
+                      "bounding_box_length_inch": 35.0,
+                      "bounding_box_width_inch": 3.5,
+                      "calculated_net_area_sq_inch": 122.5,
+                      "confidence": 0.95,
+                      "geometry_method": "POM+Sketch",
+                      "geometry_source": ["WST-011"],
+                      "is_primary_panel": true
+                    }}
+                  ]
+                }},
+                {{
+                  "component_type": "TC Pocketing Fabric",
+                  "fabric_classification": "LINING",
+                  "fabric_width_inch": {active_width},
+                  "panels_catalog": [
+                    {{
+                      "panel_name": "POCKET BAG",
+                      "piece_count": 4.0,
+                      "bounding_box_length_inch": 11.5,
+                      "bounding_box_width_inch": 7.5,
+                      "calculated_net_area_sq_inch": 86.2,
+                      "confidence": 0.90,
+                      "geometry_method": "Visual Inference from Sketch",
+                      "geometry_source": ["Technical Sketch"],
+                      "is_primary_panel": false
+                    }}
+                  ]
+                }},
+                {{
+                  "component_type": "Tricot Fusing",
+                  "fabric_classification": "FUSING",
+                  "fabric_width_inch": {active_width},
+                  "panels_catalog": [
+                    {{
+                      "panel_name": "WAISTBAND FUSING",
+                      "piece_count": 1.0,
+                      "bounding_box_length_inch": 35.0,
+                      "bounding_box_width_inch": 3.5,
+                      "calculated_net_area_sq_inch": 122.5,
+                      "confidence": 0.95,
+                      "geometry_method": "CAD Mapping",
+                      "geometry_source": ["WST-011"],
+                      "is_primary_panel": false
                     }}
                   ]
                 }}
@@ -1616,6 +1708,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             }}
             ===END_JSON===
             """
+
 
 
 
