@@ -356,19 +356,10 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data:
                 main_fabric_cons = f"{val_gross:.3f} Yds"
                 break
 
-# VẼ KHỐI CỐ ĐỊNH GHIM LÊN ĐỈNH MÀN HÌNH (LUÔN NỔI LÊN TRÊN CÙNG)
-st.markdown('<div class="sticky-top-container">', unsafe_allow_html=True)
-st.markdown("""
-<div class="top-banner">
-    <div class="top-title">📊 INTELLIGENT FABRIC CONSUMPTION PLATFORM</div>
-    <div class="top-subtitle">Hệ thống phân tích rập hình học và tự động tính toán định mức kỹ thuật dệt may bằng AI CORE</div>
-</div>
-""", unsafe_allow_html=True)
-
-# 🌟 BẢN VÁ PHÒNG VỆ HIỂN THỊ CHỐNG MẤT HÌNH KHI CUỘN TRANG (STATIC FIXED CONTAINER)
+# 🌟 BẢN VÁ TỔNG TOÀN CỤC CHỐNG LỖI LẠC MẤT CHỮ TRÊN GHIM ĐỈNH (Enterprise ERP Sticky v2)
 st.markdown("""
 <style>
-    /* Ép container đỉnh bao bọc khít toàn bộ chiều cao của cả khối màu và khối ảnh hình rập */
+    /* Nới rộng chiều cao trần lên 295px để bọc trọn vẹn cả 3 tầng nội dung */
     .sticky-top-container {
         position: fixed !important;
         top: 0 !important; 
@@ -379,12 +370,12 @@ st.markdown("""
         z-index: 999999 !important; 
         box-shadow: 0 6px 16px rgba(0,0,0,0.06) !important;
         width: 100% !important;
-        height: 275px !important;            /* ĐỊNH BIÊN CHIỀU CAO TRẦN ĐỂ CHỐNG TRÀN VÀ MẤT HÌNH */
+        height: 295px !important;            
         overflow: visible !important;
     }
 
     .kpi-card-colored {
-        border-radius: 6px 6px 0 0 !important;
+        border-radius: 6px 6px 0 0 !important; /* Liền mạch khít rạt với hộp ảnh ở dưới */
         padding: 8px 12px !important;
         text-align: center !important;
         height: 55px !important;
@@ -406,7 +397,7 @@ st.markdown("""
 
     .image-placeholder-box {
         border: 1px solid #cbd5e1 !important;
-        border-top: none !important;
+        border-top: none !important; /* Xóa viền giữa để nhìn như một cặp khối đồng bộ */
         border-radius: 0 0 6px 6px !important;
         padding: 5px !important;
         
@@ -417,7 +408,7 @@ st.markdown("""
         display: flex !important;
         align-items: center !important;
         justify-content: center !important;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.03) !important;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.02) !important;
     }
     .image-placeholder-box img {
         max-height: 115px !important;
@@ -432,11 +423,22 @@ st.markdown("""
     .color-vest { background-color: #fffaf5 !important; }
     .color-vay  { background-color: #f5fcf7 !important; }
 
-    /* 🟢 NỚI RỘNG KHOẢNG ĐỆM SPACER LÊN 310PX ĐỂ ĐẨY NỘI DUNG DƯỚI KHÔNG BỊ ĐÈ CHÈN */
+    /* Đẩy nội dung uploader bên dưới sụp xuống 340px hợp lý, chống lỗi đè chữ */
     .main-body-spacer {
-        margin-top: 310px !important; 
+        margin-top: 340px !important; 
     }
 </style>
+""", unsafe_allow_html=True)
+
+# 🟢 KHỞI ĐỘNG CONTAINER GHIM ĐỈNH (TẤT CẢ NẰM BÊN TRONG KHỐI NÀY SẼ GHIM CỐ ĐỊNH)
+st.markdown('<div class="sticky-top-container">', unsafe_allow_html=True)
+
+# TẦNG 1: BANNER XANH CHỦ ĐẠO
+st.markdown("""
+<div class="top-banner">
+    <div class="top-title">📊 INTELLIGENT FABRIC CONSUMPTION PLATFORM</div>
+    <div class="top-subtitle">Hệ thống phân tích rập hình học và tự động tính toán định mức kỹ thuật dệt may bằng AI CORE</div>
+</div>
 """, unsafe_allow_html=True)
 
 # Chuỗi URL-encoded mã hóa của hình ảnh vector đồ họa mịn
@@ -445,6 +447,7 @@ encoded_quan = "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.
 encoded_vest = "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%27100%27%20height%3D%27100%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23c2410c%27%20stroke-width%3D%271.25%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M4%202v20l8-4%208%204V2l-8%204-8-4z%27%2F%3E%3Cpath%20d%3D%27M12%206v12%27%2F%3E%3Cpath%20d%3D%27M4%208h16%27%2F%3E%3C%2Fsvg%3E"
 encoded_vay = "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%27100%27%20height%3D%27100%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%2315803d%27%20stroke-width%3D%271.25%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M6%202h12l3%207-9%2013-9-7%203-7z%27%2F%3E%3Cpath%20d%3D%27M6%209h12%27%2F%3E%3Cpath%20d%3D%27M12%202v7%27%2F%3E%3C%2Fsvg%3E"
 
+# TẦNG 2 & TẦNG 3: BỐ CỤC 4 CỘT CHỨA KPIs MÀU VÀ HỘP ẢNH
 k_col1, k_col2, k_col3, k_col4 = st.columns(4)
 
 with k_col1: 
@@ -463,8 +466,10 @@ with k_col4:
     st.markdown(f'<div class="kpi-card-colored bg-size"><div class="kpi-num-light">{active_size_kpi}</div><div class="kpi-lbl-light">Cỡ hạt tính định mức</div></div>', unsafe_allow_html=True)
     st.markdown(f'<div class="image-placeholder-box color-vay"><img src="{encoded_vay}" alt="Vay"></div>', unsafe_allow_html=True)
 
-st.markdown('</div>', unsafe_allow_html=True)
+st.markdown('</div>', unsafe_allow_html=True) # 🟢 ĐÓNG KHỐI CONTAINER GHIM ĐỈNH BIÊN TRẦN TRƯỚC KHI XUẤT SPACER
+
 st.markdown('<div class="main-body-spacer"></div>', unsafe_allow_html=True)
+
 
 
 
