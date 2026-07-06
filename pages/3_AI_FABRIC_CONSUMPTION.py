@@ -365,36 +365,54 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# Chuỗi hình ảnh rập phẳng PNG thực tế được mã hóa Base64 chuẩn hóa 100% hiển thị
-png_ao = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAACXBIWXMAAAsTAAALEwEAmpwYAAABXklEQVR4nO2VwU3EMBRF30gN0AAl0AF0QAl0QAegg6gB6IB0QAd0QAlQAw1wXpYcoMRYIEuWscS7z0mWhA9/v30idmYgIiIiIiIi/p0u6byu6H6Wvukv6XwV24voforunbI/F/AkeXjZgOf8bsh79p7vFXjN95q8Z+/5XpHXfK/Je75XvDfgM9XgK9XgK9XgK9XgK9XgK9XgK9XgK/9uwCHV4CGqwSGqwSGl3Q0OKe1ucEhpd4NDSrsbHFLao8EZpd0Njijt0eCM0u4GR5R2NziltMeCs0p7LDirtMeCs0p77I7S7gZ7lXbX3TvsVdpdd+fS7gZ7lnbXXS/tbrBn6XfVv9O79LtqV/bT7y6w7M7+MvK7C6S7s7+O/O4C6W43OKK0u8ERpd0NjijtbnBEaY8GZ5V2NziltLvBIaXdDQ4p7W5wSGl3g69Ug4eoBoeoBoeoBoeU9tcX/AFrX0M9T/qZzwAAAABJRU5ErkJggg=="
-png_quan = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAACXBIWXMAAAsTAAALEwEAmpwYAAABS0lEQVR4nO3VwVHEMAwF0E4N0AAl0AF0QAlQAw2QAAdQA9QAHZABOqADStDLOpZs62SJLFlOnHeGZIn896wUWhEREREREZGb9EnXdEUvs/RFf0m369hehE/S66btWficX4bcnV/G3InN+T6Q7S6szveBbHdhdb4PZLsLq/NdWe4WunZluVvovbLcLXTtynK30Dey3C30S5a7hV7IcrdQtjvL3ULZ7hbeW+7KcreQuzvL3UKu7ix3C7m6s9wl5M6d5S4hd+4scwtN7swttCtzC+3K3EK7MrcwM3ML7crcoq3MLbQrc4u2Mrdoa9vcom2ZW7S1uUW7M7doW5m7XpS560WZu76vMnd9X+aud4OZuVvoWZlhZm7hWeYWevWeYThembuFst1Z7hbKdmfeG8p2Z7lb6N0sVwtdurLcLfReWe4WunZluVvovbLcLfQPpYV7YmQpCzoAAAAASUVORK5CYII="
-png_vest = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAACXBIWXMAAAsTAAALEwEAmpwYAAABS0lEQVR4nO3VwVHEMAwF0E4N0AAl0AF0QAlQAw2QAAdQA9QAHZABOqADStDLOpZs62SJLFlOnHeGZIn896wUWhEREREREZGb9EnXdEUvs/RFf0m369hehE/S66btWficX4bcnV/G3InN+T6Q7S6szveBbHdhdb4PZLsLq/NdWe4WunZluVvovbLcLXTtynK30Dey3C30S5a7hV7IcrdQtjvL3ULZ7hbeW+7KcreQuzvL3UKu7ix3C7m6s9wl5M6d5S4hd+4scwtN7swttCtzC+3K3EK7MrcwM3ML7crcoq3MLbQrc4u2Mrdoa9vcom2ZW7S1uUW7M7doW5m7XpS560WZu76vMnd9X+aud4OZuVvoWZlhZm7hWeYWevWeYThembuFst1Z7hbKdmfeG8p2Z7lb6N0sVwtdurLcLfReWe4WunZluVvovbLcLfQPpYV7YmQpCzoAAAAASUVORK5CYII="
-png_vay = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAACXBIWXMAAAsTAAALEwEAmpwYAAABUElEQVR4nO3VwVHDUAwF0IkaqIFKoAPogA7ogA5IB1ED0gHpgA7ogBKoARosX1Y6mNHeSJaVshw/M5pIsr7fkhB2RERERERERH6mDzqvK7qfpW/6SzpfxY4iup+ie6fsTws4Sg6eFuA5vxvynr3ne0Ve870m7/lekdd8r8l7vle8t+A11+Ar1+Ar1+Ar1+Ar1+Ar1+Ar1+Ar1/7dgGOuwUdSg2NKA0u7A8eUdgcOSm6xPXBwcnOL6cDFyS02Of/qf0+uU3KLDc6/Ztxig5NbbHD+F9YpucUGZ/fS7sAZpd0Bzr6zBwOcfWcPTm7w3e6Awf7mFoOTWwxObtFf2R3g/KvtDnD+6wYH9/fS7gA9SrsDnLdzgJ6l3QHO3jnwSml3gCNKe7T7f2Lpa9jnST/zPmsYd/pY1XjIAAAAAElFTkSuQmCC"
+# CSS Phụ trợ để căn chỉnh text và nút của Streamlit đồng bộ khoảng cách
+st.markdown("""
+<style>
+    div[data-testid="stColumn"] button {
+        border: 2px solid #000000 !important;
+        border-radius: 4px !important;
+        color: #000000 !important;
+        background-color: #ffffff !important;
+        pointer-events: none !important;
+        padding: 10px !important;
+        text-align: center !important;
+        font-weight: bold !important;
+        font-size: 13px !important;
+    }
+</style>
+""", unsafe_allow_html=True)
 
-# 🌟 DÙNG INLINE STYLE CỨNG ĐỂ KHÓA CHẶT ĐƯỜNG VIỀN ĐEN DÀY CHO 4 KHUNG HỘP KPIs
-box_css = 'style="border: 3px solid #000000 !important; border-radius: 4px !important; padding: 25px 5px !important; text-align: center !important; min-height: 180px !important; background-color: #ffffff !important; margin-top: 10px !important; display: flex !important; flex-direction: column !important; align-items: center !important; justify-content: center !important; box-shadow: none !important;"'
-text_css = 'style="font-family: \'Segoe UI\', sans-serif !important; font-size: 13px !important; font-weight: bold !important; color: #000000 !important; margin-top: 10px !important; line-height: 1.3 !important;"'
+# 🌟 DÙNG TOÀN BỘ LOGIC VECTOR MÃ HÓA NỘI TẠI NÊN KHÔNG LO LỖI MẠNG CHẶN ẢNH
+b64_ao_clean = "data:image/svg+xml;utf8,<svg xmlns='http://w3.org' width='100' height='100' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.5'><path d='M20.38 3.46L16 2a4 4 0 0 0-8 0l-4.38 1.46a2 2 0 0 0-1.37 2l.35 11.23a2 2 0 0 0 2 1.94h14.8a2 2 0 0 0 2-1.94l.35-11.23a2 2 0 0 0-1.37-2z'/><path d='M12 5v16'/></svg>"
+b64_quan_clean = "data:image/svg+xml;utf8,<svg xmlns='http://w3.org' width='100' height='100' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.5'><path d='M4 2h16l-2 20H6L4 2z'/><path d='M12 2v20'/></svg>"
+b64_vest_clean = "data:image/svg+xml;utf8,<svg xmlns='http://w3.org' width='100' height='100' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.5'><path d='M4 2v20l8-4 8 4V2l-8 4-8-4z'/><path d='M12 6v12'/></svg>"
+b64_vay_clean = "data:image/svg+xml;utf8,<svg xmlns='http://w3.org' width='100' height='100' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.5'><path d='M6 2h12l3 7-9 13-9-7 3-7z'/><path d='M6 9h12'/></svg>"
 
 k_col1, k_col2, k_col3, k_col4 = st.columns(4)
 
 with k_col1: 
     st.markdown(f'<div class="kpi-card-colored bg-style"><div class="kpi-num-light">{kpi_style_id}</div><div class="kpi-lbl-light">Mã hàng đang xử lý</div></div>', unsafe_allow_html=True)
-    st.markdown(f'<div {box_css}><img src="{png_ao}" style="max-height:85px !important; width:auto !important; display:block !important; margin:0 auto !important;"><div {text_css}>hiển thị hình ảnh<br>áo</div></div>', unsafe_allow_html=True)
+    st.image(b64_ao_clean, width=70)
+    st.button("hiển thị hình ảnh\náo", key="btn_caption_ao", use_container_width=True)
 
 with k_col2: 
     st.markdown(f'<div class="kpi-card-colored bg-items"><div class="kpi-num-light">{total_materials} Item(s)</div><div class="kpi-lbl-light">Tổng số vật tư kết xuất</div></div>', unsafe_allow_html=True)
-    st.markdown(f'<div {box_css}><img src="{png_quan}" style="max-height:85px !important; width:auto !important; display:block !important; margin:0 auto !important;"><div {text_css}>hiển thị hình ảnh<br>quần</div></div>', unsafe_allow_html=True)
+    st.image(b64_quan_clean, width=70)
+    st.button("hiển thị hình ảnh\nquần", key="btn_caption_quan", use_container_width=True)
 
 with k_col3: 
     st.markdown(f'<div class="kpi-card-colored bg-cons"><div class="kpi-num-light" style="font-size:22px;">{main_fabric_cons}</div><div class="kpi-lbl-light">Định mức vải chính dự kiến</div></div>', unsafe_allow_html=True)
-    st.markdown(f'<div {box_css}><img src="{png_vest}" style="max-height:85px !important; width:auto !important; display:block !important; margin:0 auto !important;"><div {text_css}>hình ảnh vest</div></div>', unsafe_allow_html=True)
+    st.image(b64_vest_clean, width=70)
+    st.button("hình ảnh vest", key="btn_caption_vest", use_container_width=True)
 
 with k_col4: 
     st.markdown(f'<div class="kpi-card-colored bg-size"><div class="kpi-num-light">{active_size_kpi}</div><div class="kpi-lbl-light">Cỡ hạt tính định mức</div></div>', unsafe_allow_html=True)
-    st.markdown(f'<div {box_css}><img src="{png_vay}" style="max-height:85px !important; width:auto !important; display:block !important; margin:0 auto !important;"><div {text_css}>hình ảnh váy</div></div>', unsafe_allow_html=True)
+    st.image(b64_vay_clean, width=70)
+    st.button("hình ảnh váy", key="btn_caption_vay", use_container_width=True)
 
 st.markdown('</div>', unsafe_allow_html=True)
 st.markdown('<div class="main-body-spacer"></div>', unsafe_allow_html=True)
+
 
 
 
