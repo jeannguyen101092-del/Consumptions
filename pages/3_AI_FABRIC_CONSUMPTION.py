@@ -365,15 +365,13 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# 🌟 BẢN VÁ PHẲNG TUYỆT ĐỐI: ĐỒNG BỘ CHIỀU CAO KHỐI KPIs MÀU VÀ KHỐI HỘP VIỀN ĐEN CHỐNG TRỒI SỤT
+# 🌟 TINH CHỈNH ĐỒ HỌA: CHUYỂN VIỀN ĐEN THÔ THÀNH VIỀN XÁM MỊN HIỆN ĐẠI, BO GÓC VÀ ĐỔ BÓNG NHẸ
 st.markdown("""
 <style>
-    /* Ép tất cả các khối KPIs màu trên đỉnh có cùng chiều cao chính xác là 55px */
     .kpi-card-colored {
-        border-radius: 6px !important;
+        border-radius: 6px 6px 0 0 !important; /* Bo góc trên để liền mạch với hộp ảnh dưới */
         padding: 8px 12px !important;
         text-align: center !important;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.02) !important;
         height: 55px !important;
         min-height: 55px !important;
         max-height: 55px !important;
@@ -383,7 +381,6 @@ st.markdown("""
         justify-content: center !important;
     }
     
-    /* Đồng bộ kích thước font chữ số KPIs của cả 4 ô thẳng tắp */
     .kpi-num-light {
         font-size: 18px !important;
         font-weight: 700 !important;
@@ -392,11 +389,12 @@ st.markdown("""
         line-height: 1.2 !important;
     }
 
-    /* Ép cứng chiều cao 140px cho các khối hộp viền đen */
     .image-placeholder-box {
-        border: 3px solid #000000 !important;
-        border-radius: 4px !important;
-        padding: 5px !important;
+        /* Thay thế viền đen thô bằng viền xám mảnh tinh tế tinh xảo */
+        border: 1px solid #cbd5e1 !important;
+        border-top: none !important; /* Triệt tiêu đường viền giữa khối màu và khối ảnh */
+        border-radius: 0 0 6px 6px !important; /* Bo góc dưới mềm mại */
+        padding: 10px !important;
         
         height: 140px !important;
         min-height: 140px !important;
@@ -405,27 +403,29 @@ st.markdown("""
         display: flex !important;
         align-items: center !important;
         justify-content: center !important;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05) !important; /* Thêm bóng mờ nhẹ tạo chiều sâu */
     }
     .image-placeholder-box img {
-        max-height: 110px !important;
+        max-height: 115px !important;
         width: auto !important;
         object-fit: contain !important;
         display: block !important;
         margin: auto !important;
     }
     
-    .color-ao   { background-color: #f0f9ff !important; }
-    .color-quan { background-color: #f0fdfa !important; }
-    .color-vest { background-color: #fff7ed !important; }
-    .color-vay  { background-color: #f0fdf4 !important; }
+    /* Làm sáng nhẹ tone màu nền để giao diện trang nhã hơn */
+    .color-ao   { background-color: #f8fafc !important; }
+    .color-quan { background-color: #f4fbf9 !important; }
+    .color-vest { background-color: #fffaf5 !important; }
+    .color-vay  { background-color: #f5fcf7 !important; }
 </style>
 """, unsafe_allow_html=True)
 
-# Chuỗi URL-encoded mã hóa của hình ảnh vector đồ họa mun
-encoded_ao = "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%27100%27%20height%3D%27100%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23000000%27%20stroke-width%3D%271.5%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M20.38%203.46L16%202a4%204%200%200%200-8%200l-4.38%201.46a2%202%200%200%200-1.37%202l.35%2011.23a2%202%200%200%200%202%201.94h14.8a2%202%200%200%200%202-1.94l.35-11.23a2%202%200%200%200-1.37-2z%27%2F%3E%3Cpath%20d%3D%27M12%205v16%27%2F%3E%3Cpath%20d%3D%27M4%2010h16%27%2F%3E%3C%2Fsvg%3E"
-encoded_quan = "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%27100%27%20height%3D%27100%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23000000%27%20stroke-width%3D%271.5%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M4%202h16l-2%2020H6L4%202z%27%2F%3E%3Cpath%20d%3D%27M12%202v20%27%2F%3E%3Cpath%20d%3D%27M5%208h14%27%2F%3E%3C%2Fsvg%3E"
-encoded_vest = "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%27100%27%20height%3D%27100%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23000000%27%20stroke-width%3D%271.5%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M4%202v20l8-4%208%204V2l-8%204-8-4z%27%2F%3E%3Cpath%20d%3D%27M12%206v12%27%2F%3E%3Cpath%20d%3D%27M4%208h16%27%2F%3E%3C%2Fsvg%3E"
-encoded_vay = "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%27100%27%20height%3D%27100%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23000000%27%20stroke-width%3D%271.5%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M6%202h12l3%207-9%2013-9-7%203-7z%27%2F%3E%3Cpath%20d%3D%27M6%209h12%27%2F%3E%3Cpath%20d%3D%27M12%202v7%27%2F%3E%3C%2Fsvg%3E"
+# Chuỗi URL-encoded mã hóa của hình ảnh vector đồ họa mịn
+encoded_ao = "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%27100%27%20height%3D%27100%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23334155%27%20stroke-width%3D%271.25%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M20.38%203.46L16%202a4%204%200%200%200-8%200l-4.38%201.46a2%202%200%200%200-1.37%202l.35%2011.23a2%202%200%200%200%202%201.94h14.8a2%202%200%200%200%202-1.94l.35-11.23a2%202%200%200%200-1.37-2z%27%2F%3E%3Cpath%20d%3D%27M12%205v16%27%2F%3E%3Cpath%20d%3D%27M4%2010h16%27%2F%3E%3C%2Fsvg%3E"
+encoded_quan = "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%27100%27%20height%3D%27100%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%230f766e%27%20stroke-width%3D%271.25%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M4%202h16l-2%2020H6L4%202z%27%2F%3E%3Cpath%20d%3D%27M12%202v20%27%2F%3E%3Cpath%20d%3D%27M5%208h14%27%2F%3E%3C%2Fsvg%3E"
+encoded_vest = "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%27100%27%20height%3D%27100%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23c2410c%27%20stroke-width%3D%271.25%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M4%202v20l8-4%208%204V2l-8%204-8-4z%27%2F%3E%3Cpath%20d%3D%27M12%206v12%27%2F%3E%3Cpath%20d%3D%27M4%208h16%27%2F%3E%3C%2Fsvg%3E"
+encoded_vay = "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%27100%27%20height%3D%27100%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%2315803d%27%20stroke-width%3D%271.25%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M6%202h12l3%207-9%2013-9-7%203-7z%27%2F%3E%3Cpath%20d%3D%27M6%209h12%27%2F%3E%3Cpath%20d%3D%27M12%202v7%27%2F%3E%3C%2Fsvg%3E"
 
 k_col1, k_col2, k_col3, k_col4 = st.columns(4)
 
@@ -438,7 +438,6 @@ with k_col2:
     st.markdown(f'<div class="image-placeholder-box color-quan"><img src="{encoded_quan}" alt="Quan"></div>', unsafe_allow_html=True)
 
 with k_col3: 
-    # 🟢 ĐÃ LOẠI BỎ LỖI PHÌNH CHỮ: Đưa ô Cam về font chữ chuẩn 18px giống hệt các ô khác để khôi phục hàng lối thẳng hàng
     st.markdown(f'<div class="kpi-card-colored bg-cons"><div class="kpi-num-light">{main_fabric_cons}</div><div class="kpi-lbl-light">Định mức vải chính dự kiến</div></div>', unsafe_allow_html=True)
     st.markdown(f'<div class="image-placeholder-box color-vest"><img src="{encoded_vest}" alt="Vest"></div>', unsafe_allow_html=True)
 
