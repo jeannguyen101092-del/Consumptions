@@ -1499,8 +1499,8 @@ with col_right:
 
 
 ## =====================================================================
-# ĐOẠN 7a - PHẦN 1: CHATGPT-STYLE WORKSPACE & SMART TARGET SCANNED PIPELINE (V44.0)
-# CHIẾN LƯỢC HYBRID: QUÉT 100% TEXT, RENDER TỐI ĐA 15 ẢNH VÀNG ĐỂ BẮT TRÚNG VẢI CHÍNH
+# ĐOẠN 7a - PHẦN 1: CHATGPT-STYLE WORKSPACE & SMART TARGET SCANNED PIPELINE (V44.1)
+# CHIẾN LƯỢC HYBRID: CHỈ QUÉT TRANG BOM VÀ THÔNG SỐ ĐỂ TRÁNH LỖI NHẬN DIỆN SAI SẢN PHẨM
 # =====================================================================
 st.markdown('<br><div class="cad-card"><div class="cad-header">💬 CHATGPT IE COLLABORATION WORKSPACE</div>', unsafe_allow_html=True)
 
@@ -1541,26 +1541,29 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             # Khởi tạo phôi văn bản và dải mảng ảnh
             full_pdf_raw_text = ""
             image_payloads = []
-            MAX_IMAGE_PAGES = 15  # 🟢 VÁ CHÍ MẠNG: Nâng từ 10 lên 15 để AI quét sâu không sót trang vải chính Denim
+            MAX_IMAGE_PAGES = 15  
             MAX_TEXT = 150000     # Chốt chặn bảo vệ Token ngữ cảnh
             
             # Khống chế DPI mượt mà theo độ nặng của tệp tin để bảo vệ RAM
             target_dpi = 110 if total_pages <= 15 else 90
             
-            # DUYỆT QUA TỪNG TRANG: Thu thập văn bản và trích xuất ảnh mục tiêu
+            # DUYỆT QUA TỪNG TRANG: Chỉ thu thập văn bản và ảnh của các trang BOM & THÔNG SỐ
             for idx in range(total_pages):
                 page_text = doc_recovery[idx].get_text("text")
                 page_text_upper = page_text.upper()
                 
-                # Tích lũy cơ sở dữ liệu văn bản phẳng toàn cục
-                full_pdf_raw_text += f"\n--- DATA SCANNING SOURCE: PAGE {idx + 1} ---\n{page_text}"
+                # Chốt chặn từ khóa nghiêm ngặt: Chỉ lấy trang chứa dữ liệu BOM hoặc thông số kích thước
+                is_target_page = any(k in page_text_upper for k in [
+                    "BOM", "BILL OF MATERIAL", "BILL OF MATERIALS", 
+                    "SPECIFICATION", "MEASUREMENT", "THÔNG SỐ", "KÍCH THƯỚC"
+                ])
                 
-                # Lồng điều kiện tường minh, chỉ quét ảnh khi chưa vượt ngưỡng MAX_IMAGE_PAGES
-                if len(image_payloads) < MAX_IMAGE_PAGES:
-                    if any(k in page_text_upper for k in [
-                        "BOM", "BILL OF MATERIAL", "SPECIFICATION", "MEASUREMENT", 
-                        "SKETCH", "PATTERN", "GRADING", "VẢI CHÍNH", "THÔNG SỐ", "KÍCH THƯỚC", "DENIM"
-                    ]):
+                if is_target_page:
+                    # Tích lũy cơ sở dữ liệu văn bản phẳng từ trang mục tiêu
+                    full_pdf_raw_text += f"\n--- DATA SCANNING SOURCE: PAGE {idx + 1} ---\n{page_text}"
+                    
+                    # Trích xuất ảnh đồng bộ của trang mục tiêu gửi cho AI xử lý trực quan
+                    if len(image_payloads) < MAX_IMAGE_PAGES:
                         page = doc_recovery.load_page(idx)
                         pix = page.get_pixmap(dpi=target_dpi, colorspace=fitz.csRGB)
                         image_payloads.append({"mime_type": "image/jpeg", "data": pix.tobytes("jpeg")})
@@ -1578,22 +1581,25 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                     
             gemini_inputs = copy.deepcopy(image_payloads)
             
-            # Bơm toàn bộ dữ liệu text phẳng đã trích xuất sạch vào đầu danh sách gửi sang Gemini [INDEX]
+            # Bơm toàn bộ dữ liệu text phẳng đã trích xuất sạch vào đầu danh sách gửi sang Gemini
             gemini_inputs.insert(0, f"=== RECOVERED TECHPACK FLAT TEXT DATABASE ===\n{full_pdf_raw_text}\n============================================\n")
+            
+            # 🌟 VÁ CHÍ MẠNG: Đưa trực tiếp câu lệnh hiện tại của người dùng vào danh sách đầu vào của Gemini
+            gemini_inputs.append(f"\n[USER COMMAND]: {current_query}")
 
 
 
-                       # =====================================================================
-                          # =====================================================================
-                      # =====================================================================
-            # ĐOẠN 7a - PHẦN 2: DYNAMIC AI GATEWAY & JACKET DATA GATEWAY (V48.0)
-            # 🌟 BẺ GÃY NÚT THẮT KHUYẾT THÔNG SỐ: ÉP AI BẮT BUỘC TRÍCH XUẤT ĐỦ 12 MIẾNG RẬP ÁO JACKET
+                     # =====================================================================
+            # ĐOẠN 7a - PHẦN 2: DYNAMIC MULTI-PRODUCT AI GATEWAY (V48.1)
+            # 🌟 GIẢI PHÁP ĐỘNG: TỰ ĐỘNG PHÂN LOẠI SẢN PHẨM VÀ BÓC TÁCH THEO THỰC TẾ TECHPACK
             # =====================================================================
             if "GEMINI_API_KEY" not in st.secrets:
                 st.error("💥 Lỗi hạ tầng: Thiếu cấu hình GEMINI_API_KEY trong hệ thống Secrets.")
                 st.stop()
                 
             genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+            
+            # Sử dụng gemini-2.5-pro (hoặc flash) để xử lý cấu trúc logic phức tạp
             model = genai.GenerativeModel("gemini-2.5-flash")
             
             chat_lower = current_query.lower()
@@ -1617,40 +1623,36 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                     st.error("⚠️ Hệ thống phòng vệ: Không trích xuất được ảnh kỹ thuật từ file PDF.")
                     st.stop()
                     
+                # 🎯 THAY THẾ PROMPT CỨNG BẰNG PROMPT ĐỘNG THÔNG MINH ĐA SẢN PHẨM
                 prompt_instruction = f"""
-                You are a world-class expert apparel IE CAD Data Gateway [INDEX]. Your mission is to scan ALL provided techpack pages to extract structural data for size '{target_size_cmd}' [INDEX].
-                This garment is a heavy JACKET/OUTERWEAR. You MUST exhaustively extract specifications for ALL component panels. DO NOT return a lazy or truncated panel list.
-                
+                You are a world-class apparel Industrial Engineer (IE) and CAD pattern master [INDEX]. Your mission is to thoroughly scan the provided techpack data to extract structural information for size '{target_size_cmd}' [INDEX].
+
+                🌟 STEP 1: GARMENT TYPE IDENTIFICATION
+                First, look at the Style Description / Garment Type in the Techpack to determine what product this is (e.g., JEANS, PANTS, JACKET, T-SHIRT, HOODIE). Do not assume it is always a jacket.
+
+                🌟 STEP 2: MEASUREMENT CODES & PATTERN MAPPING LAW
+                - If it is JEANS/PANTS: Look for specs like Waist, Hip, Inseam, Outseam, Front Rise, Back Rise, Thigh, Knee, Leg Opening. Map them into logical pant panels (e.g., FRONT LEG PANEL x2, BACK LEG PANEL x2, WAISTBAND x1, FRONT FLY FACING x2, POCKET BAGS, COIN POCKET).
+                - If it is a JACKET: Look for HSP Length, Chest Width, Sleeve Length, Shoulder Width. Map them into jacket panels (e.g., FRONT PANEL x2, BACK PANEL x1, SLEEVE PANEL x2, COLLAR, FACING).
+
                 🌟 ADAPTIVE SIZE CODES SEARCH LAW:
                 The user requested size '{target_size_cmd}'. If the chart lacks a column named exactly '{target_size_cmd}' but utilizes grading columns like '1X', '2X', '3X', 'XL', or 'Sample Size', you MUST automatically extract metrics from the design base column (e.g., '1X' or 'Sample') and use those values for the panels. DO NOT output 0.0 or leave keys empty.
-                
-                🌟 MANDATORY COMPONENT INSTRUCTION FOR JACKETS:
-                For the MAIN_FABRIC / CANVAS row, you MUST find or mathematically estimate the exact piece dimensions for ALL of the following 12 key jacket panels:
-                1. FRONT PANEL LEFT & RIGHT: length ~ Front Body Length/HSP, width ~ Chest Width divided by 2 [INDEX]. piece_count: 2.0
-                2. BACK PANEL: length ~ Back Body Length, width ~ Full Chest Width Flat [INDEX]. piece_count: 1.0 (with cut_on_fold: true)
-                3. SLEEVE LEFT & RIGHT: length ~ Sleeve length from center back minus half of shoulder width, width ~ Sleeve opening/Bicep [INDEX]. piece_count: 2.0
-                4. COLLAR & CHAN CỔ (COLLAR STAND): length ~ Neck circumference, width ~ 3.0 to 4.5 inch [INDEX]. piece_count: 2.0
-                5. FRONT FLY FACING (NẸP CHE KHÓA): length ~ Front Zipper length, width ~ 3.5 to 4.5 inch. piece_count: 2.0
-                6. WELT POCKET FLAPS / POCKET DETAILS (ĐÁP TÚI): length ~ Pocket opening, width ~ 2.5 to 3.5 inch. piece_count: 4.0
-                
-                🌟 MANDATORY FUSING/INTERLINING ANALYSIS:
-                Locate 'PCC INTERLINING RM 66' or any fusing row. You MUST find its specific technical notes. Its 'panels_catalog' MUST include the parts designated for fusing: Collar pieces, Front Facings/Nẹp khóa, and Pocket Welts. Extract their true physical length and width from the text notes or map them from the core garment specs.
-                
+
+                🌟 MANDATORY BOM MATERIAL ANALYSIS:
+                Locate the primary fabric (MAIN_FABRIC/CANVAS), Lining (if any), and Interlining/Fusing (e.g., PCC INTERLINING) row in the Techpack. Extract their true physical length and width from the text notes or map them from the core garment specs.
+
                 Output STRICTLY in this two-tier raw plain text JSON format without markdown markers. All 'fabric_width_inch' MUST match the value {active_width}:
                 ===START_JSON===
                 {{
                   "status": "PASS",
-                  "detected_product_type": "JACKET",
+                  "detected_product_type": "<JEANS_OR_PANTS_OR_JACKET_DEPENDING_ON_TECHPACK>",
                   "calculated_on_size": "{target_size_cmd}",
                   "matched_measurements": [
-                     "HSP-01: Front Body Length From HSP = <EXTRACTED_DECIMAL> inch",
-                     "CHS-02: Chest Width Below Armhole = <EXTRACTED_DECIMAL> inch",
-                     "SLV-03: Sleeve Length From Center Back = <EXTRACTED_DECIMAL> inch",
-                     "SHL-04: Shoulder Width Across = <EXTRACTED_DECIMAL> inch"
+                     "<CODE_1>: <NAME_1> = <EXTRACTED_DECIMAL> inch",
+                     "<CODE_2>: <NAME_2> = <EXTRACTED_DECIMAL> inch"
                   ],
                   "_btp_global_summary": {{
                     "total_bom_rows": 3,
-                    "total_panels": 16
+                    "total_panels": <DYNAMIC_COUNT_OF_ALL_PIECES>
                   }},
                   "bom_rows": [
                     {{
@@ -1658,60 +1660,45 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                       "fabric_classification": "MAIN_FABRIC",
                       "fabric_width_inch": {active_width},
                       "panels_catalog": [
-                        {{ "panel_name": "FRONT PANEL", "piece_count": 2.0, "piece_length_inch": <EXTRACTED_OR_MAPPED_VALUE>, "piece_width_inch": <EXTRACTED_OR_MAPPED_VALUE>, "geometry_metadata": {{ "net_area": 0.0 }}, "panel_metadata": {{ "mirror_cut": true }} }},
-                        {{ "panel_name": "BACK PANEL", "piece_count": 1.0, "piece_length_inch": <EXTRACTED_OR_MAPPED_VALUE>, "piece_width_inch": <EXTRACTED_OR_MAPPED_VALUE>, "geometry_metadata": {{ "net_area": 0.0 }}, "panel_metadata": {{ "cut_on_fold": true }} }},
-                        {{ "panel_name": "SLEEVE PANEL", "piece_count": 2.0, "piece_length_inch": <EXTRACTED_OR_MAPPED_VALUE>, "piece_width_inch": <EXTRACTED_OR_MAPPED_VALUE>, "geometry_metadata": {{ "net_area": 0.0 }}, "panel_metadata": {{ "mirror_cut": true }} }},
-                        {{ "panel_name": "COLLAR OVERLAY", "piece_count": 2.0, "piece_length_inch": <EXTRACTED_OR_MAPPED_VALUE>, "piece_width_inch": 4.0, "geometry_metadata": {{ "net_area": 0.0 }} }},
-                        {{ "panel_name": "FRONT FLY FACING", "piece_count": 2.0, "piece_length_inch": <EXTRACTED_OR_MAPPED_VALUE>, "piece_width_inch": 3.5, "geometry_metadata": {{ "net_area": 0.0 }} }}
-                      ]
-                    }},
-                    {{
-                      "component_type": "Pocketing Fabric / Lining",
-                      "fabric_classification": "LINING",
-                      "fabric_width_inch": {active_width},
-                      "panels_catalog": [
-                        {{ "panel_name": "WELT POCKET BAGS", "piece_count": 4.0, "piece_length_inch": 9.0, "piece_width_inch": 8.0, "geometry_metadata": {{ "net_area": 0.0 }} }}
-                      ]
-                    }},
-                    {{
-                      "component_type": "PCC INTERLINING RM 66 / FUSING",
-                      "fabric_classification": "FUSING",
-                      "fabric_width_inch": {active_width},
-                      "panels_catalog": [
-                        {{ "panel_name": "COLLAR INTERLINING", "piece_count": 2.0, "piece_length_inch": <EXTRACTED_OR_MAPPED_VALUE>, "piece_width_inch": 4.0, "geometry_metadata": {{ "net_area": 0.0 }} }},
-                        {{ "panel_name": "FRONT FLY FUSING", "piece_count": 2.0, "piece_length_inch": <EXTRACTED_OR_MAPPED_VALUE>, "piece_width_inch": 3.5, "geometry_metadata": {{ "net_area": 0.0 }} }}
+                        {{ "panel_name": "<PANEL_NAME_E_G_FRONT_LEG_OR_FRONT_PANEL>", "piece_count": 2.0, "piece_length_inch": <EXTRACTED_OR_MAPPED_VALUE>, "piece_width_inch": <EXTRACTED_OR_MAPPED_VALUE>, "geometry_metadata": {{ "net_area": 0.0 }}, "panel_metadata": {{ "mirror_cut": true }} }}
                       ]
                     }}
                   ]
                 }}
                 ===END_JSON===
-                
-                ===START_CHAT=== [Xác nhận bằng Tiếng Việt dải linh kiện 12 mảnh rập Jacket bạn vừa bắt buộc trích xuất và quy đổi cho size {target_size_cmd}.] ===END_CHAT===
                 """
-                gemini_inputs.append(prompt_instruction)
-                
-                try:
-                    response = model.generate_content(gemini_inputs)
-                    if response and hasattr(response, "text"): 
-                        response_text = response.text.strip()
-                except Exception as e_api:
-                    st.error(f"💥 Gemini API Error: {str(e_api)}")
-                    response_text = ""
 
 
-
-
-                        # =====================================================================
-                      # =====================================================================
-            # ĐOẠN 7a - PHẦN 3: POST-AI MIDDLEWARE & VÁ TRỰC DIỆN LUỒNG DỮ LIỆU ĐA TẦNG
-            # SỬA LỖI KẸT CACHE CHỮ KÝ - ÉP BUỘC CẬP NHẬT TRỌN VẸN VẢI CHÍNH, LÓT, KEO RA MÀN HÌNH
+                           # =====================================================================
+            # ĐOẠN 7a - PHẦN 3: POST-AI MIDDLEWARE & LUỒNG KẾT NỐI API THỰC TẾ (V48.1)
+            # 🌟 VÁ LỖI THIẾU GỌI API VÀ TỐI ƯU HÓA BỘ PHÂN TÁCH JSON / CHAT ĐỘNG
             # =====================================================================
+            
+            # 🟢 VÁ CHÍ MẠNG 1: Thực hiện gọi API Gemini để lấy kết quả (Bản cũ bị thiếu)
+            if has_no_data or is_signature_changed:
+                try:
+                    # Gửi toàn bộ dữ liệu (Text + Mảng ảnh trang BOM/Thông số + Prompt chỉ dẫn) sang Gemini
+                    full_api_payload = gemini_inputs + [prompt_instruction]
+                    api_response = model.generate_content(full_api_payload)
+                    response_text = api_response.text
+                except Exception as api_err:
+                    st.error(f"💥 Lỗi kết nối trực tiếp đến API Google Gemini: {str(api_err)}")
+                    st.stop()
+
             if response_text:
+                # Trích xuất khối cấu trúc JSON định mức hình học
                 json_match = re.search(r'(?:===START_JSON===\s*|```json\s*)(.*?)(?:\s*===END_JSON===|\s*```)', response_text, re.DOTALL)
                 
+                # Trích xuất lời thoại tư vấn của AI (nếu có), nếu AI không trả về thẻ chat thì lấy các đoạn giải thích text tự do bên ngoài khối JSON
                 chat_match = re.search(r'(?:===START_CHAT===\s*|```markdown\s*)(.*?)(?:\s*===END_CHAT===|\s*```|$)', response_text, re.DOTALL)
-                ai_conversation_reply = chat_match.group(1).strip() if chat_match else "Hệ thống đã cập nhật bảng tính toán định mức hình học phẳng CAD của mã hàng."
                 
+                if chat_match:
+                    ai_conversation_reply = chat_match.group(1).strip()
+                else:
+                    # Tự động gom tất cả các dòng văn bản không nằm trong khối JSON làm câu trả lời chat trực quan cho người dùng
+                    clean_reply = re.sub(r'(?:===START_JSON===|```json).*?(?:===END_JSON===|```)', '', response_text, flags=re.DOTALL).strip()
+                    ai_conversation_reply = clean_reply if clean_reply else "Hệ thống đã nhận diện thành công loại sản phẩm từ Techpack và cập nhật bảng tính định mức CAD."
+
                 raw_json_str = ""
                 if json_match: 
                     raw_json_str = json_match.group(1).strip()
@@ -1721,16 +1708,17 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                     match_fb = re.search(r'\{.*\}', response_text, re.DOTALL)
                     raw_json_str = match_fb.group(0).strip() if match_fb else ""
                 
-                # CẬP NHẬT LỊCH SỬ TRÒ CHUYỆN THEO PHONG CÁCH OPENAI
+                # CẬP NHẬT LỊCH SỬ TRÒ CHUYỆN ĐỒNG BỘ THEO PHONG CÁCH OPENAI
                 st.session_state.chat_history.append({"user": current_query, "ai": ai_conversation_reply})
                 
                 if raw_json_str:
+                    # Sửa lỗi dấu phẩy thừa trong chuỗi JSON (Trailing commas) trước khi thực hiện parse
                     raw_json_str = re.sub(r',\s*([\]\}])', r'\1', raw_json_str) 
                     
                     try:
                         raw_blueprint = json.loads(raw_json_str)
                     except json.JSONDecodeError as json_err:
-                        st.error(f"❌ THẤT BẠI PARSE JSON: Chuỗi cấu trúc hình học sinh ra từ Gemini bị lỗi cú pháp: {str(json_err)}")
+                        st.error(f"❌ THẤT BẠI PARSE JSON: Chuỗi cấu trúc sinh ra từ Gemini bị lỗi cú pháp: {str(json_err)}")
                         st.code(raw_json_str, language="json")
                         st.stop()
                     
@@ -1738,8 +1726,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                         blueprint_worker = copy.deepcopy(raw_blueprint)
                         query_str = str(current_query)
                         
-                        # 🌟 CẢI TIẾN VÀNG: Xóa sạch bộ nhớ đệm kpi và tích lũy cũ trước khi chạy pipeline mới
-                        # Chặn đứng hoàn toàn hiện tượng dữ liệu lót túi cũ đè bẹp vải chính Denim
+                        # Xóa sạch bộ nhớ đệm kpi và tích lũy cũ để tránh hiện tượng dính nhớ cache của mã hàng trước
                         st.session_state.bom_data = {}
                         st.session_state.accumulated_bom_rows = {}
                         
@@ -1756,20 +1743,21 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                         st.session_state.accumulated_bom_rows = blueprint_final.get("bom_rows", [])
                         st.session_state["last_processed_signature"] = current_signature
                         
-                        st.success("🎉 Xử lý rập hình học phẳng CAD thành công!")
+                        st.success(f"🎉 Xử lý rập hình học phẳng CAD thành công cho loại sản phẩm: {blueprint_final.get('detected_product_type', 'Động')}!")
                         st.rerun()
                     else:
                         st.error("⚠️ Khối JSON của AI thiếu trường danh mục bom_rows.")
                 else:
                     st.error("❌ Không thể bóc tách START_JSON từ văn bản phản hồi thô của Gemini.")
-                    st.text_area("Nội dung AI trả về:", value=response_text, height=120)
+                    st.text_area("Nội dung AI trả về thực tế:", value=response_text, height=150)
                 
                 st.rerun()
 
-        # ĐÓNG NGOẶC LỆNH TRY TOÀN CỤC CỦA ĐOẠN 7A1
+        # ĐÓNG NGOẶC LỆNH TRY TOÀN CỤC CỦA ĐOẠN 7A
         except Exception as e_global:
             st.error(f"💥 Lỗi luồng trích xuất hạ tầng tổng toàn cục: {str(e_global)}")
             st.code(traceback.format_exc())
+
 
 
 # =====================================================================
