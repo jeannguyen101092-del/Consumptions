@@ -1719,10 +1719,10 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
 
 
 
-                       # =====================================================================
-            # ĐOẠN 7a - PHẦN 3: POST-AI MIDDLEWARE PURE CONNECTIVITY (V68.6 CHUẨN CÚ PHÁP)
+                         # =====================================================================
+            # ĐOẠN 7a - PHẦN 3: POST-AI MIDDLEWARE PURE CONNECTIVITY (V69.0 - VÁ CÚ PHÁP CHUẨN)
+            # 🌟 SỬA TRIỆT ĐỂ LỖI SYNTAXERROR BẰNG CÁCH KHAI TỬ KHỐI TRY-EXCEPT MỒ CÔI GÂY LỖI
             # 🌟 KHÓA CHẶT LUỒNG RERUN ĐỂ ÉP MÀN HÌNH ĐỨNG IM XẢ 100% CẤU TRÚC JSON GỐC
-            # 🌟 VÁ TRIỆT ĐỂ LỖI LOGIC THỪA ELSE KHÔNG ĐỒNG CẤP GÂY SYNTAXERROR
             # =====================================================================
             response_text = ""
             
@@ -1759,7 +1759,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                         st.error(f"Lỗi cấu trúc cú pháp chuỗi JSON: {str(json_err)}")
                         st.code(json_match.group(1).strip(), language="json")
 
-            # Xử lý điều hướng luồng dữ liệu hình học
+            # Xử lý điều hướng luồng dữ liệu hình học khi có phản hồi mới từ AI
             if response_text:
                 json_match = re.search(r'(?:===START_JSON===\s*|```json\s*)(.*?)(?:\s*===END_JSON===|\s*```)', response_text, re.DOTALL)
                 chat_match = re.search(r'(?:===START_CHAT===\s*|```markdown\s*)(.*?)(?:\s*===END_CHAT===|\s*```|$)', response_text, re.DOTALL)
@@ -1782,11 +1782,15 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                 if raw_json_str:
                     raw_json_str = re.sub(r',\s*([\]\}])', r'\1', raw_json_str)
                     
-                    blueprint_worker = None
-                    try:
-                        blueprint_worker = json.loads(raw_json_str)
-                    except:
-                        st.stop()
+                    # 🟢 GIẢI PHÁP AN TOÀN TUYỆT ĐỐI: Tạo hàm nạp JSON cục bộ sạch sẽ, cấu trúc rõ ràng
+                    def safe_parse_json(json_string):
+                        try:
+                            return json.loads(json_string)
+                        except Exception as parse_err:
+                            st.error(f"❌ THẤT BẠI PARSE JSON PHÍA TRONG LUỒNG: {str(parse_err)}")
+                            return None
+
+                    blueprint_worker = safe_parse_json(raw_json_str)
                     
                     if blueprint_worker and "bom_rows" in blueprint_worker:
                         blueprint_final = allocate_fabric_consumption_and_quality_gate(blueprint_worker, str(current_query))
@@ -1797,7 +1801,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                         # 🚨 KHÓA CHẶT RERUN: Để màn hình đứng im cho chúng ta soi khối st.json
                         # st.rerun() 
                     else:
-                        st.error("⚠️ Khối JSON của AI thiếu trường danh mục bom_rows.")
+                        st.error("⚠️ Khối JSON của AI thiếu trường danh mục bom_rows hoặc lỗi cấu trúc bên trong.")
                 else:
                     st.error("❌ Không thể bóc tách START_JSON từ văn bản phản hồi thô của Gemini.")
 
