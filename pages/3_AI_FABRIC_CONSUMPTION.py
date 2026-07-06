@@ -398,7 +398,7 @@ with col_right:
 
 
 
-## =====================================================================
+# =====================================================================
 # ĐOẠN 7a - PHẦN 1: CHATGPT-STYLE WORKSPACE & SMART TARGET SCANNED PIPELINE (V65.0)
 # CHIẾN LƯỢC HYBRID: GIẢM TẢI DPI XUỐNG 65 ĐỂ KHẮC PHỤC TRIỆT ĐỂ LỖI QUOTA 429
 # =====================================================================
@@ -407,7 +407,7 @@ st.markdown('<br><div class="cad-card"><div class="cad-header">💬 CHATGPT IE C
 # Khởi tạo kho lưu trữ trạng thái hệ thống phòng vệ
 if "chat_history" not in st.session_state: st.session_state.chat_history = []
 if "pdf_page_images_list" not in st.session_state: st.session_state.pdf_page_images_list = None
-if "accumulated_bom_rows" not in st.session_state: st.session_state.accumulated_bom_rows = {}
+if "accumulated_bom_rows" not in st.session_state: st.session_state.accumulated_bom_rows = []
 if "bom_data" not in st.session_state: st.session_state.bom_data = {}
 
 # Xuất dòng tin nhắn lịch sử trò chuyện đồng bộ trực quan lên màn hình theo chuẩn OpenAI
@@ -486,10 +486,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             
             # Đưa trực tiếp câu lệnh hiện tại của người dùng vào danh sách đầu vào của Gemini
             gemini_inputs.append(f"\n[USER COMMAND]: {current_query}")
-
-
-
-                        # =====================================================================
+# =====================================================================
             # ĐOẠN 7a - PHẦN 2: DYNAMIC AI PROMPT GATEWAY (V80.0 ZERO-ENGINE)
             # 🌟 PROMPT SIÊU THÔNG MINH: ÉP AI TỰ CO RÚT, TỰ ĐI SƠ ĐỒ VÀ TỰ TRẢ KẾT QUẢ YARDS CHUẨN XÁC
             # =====================================================================
@@ -521,7 +518,12 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             2. Apply the requested fabric width ({active_width} inches) and shrinkage parameters (Warp: {warp_val}, Weft: {weft_val}) directly [INSTRUCT].
             3. You MUST directly calculate the final consumption value inside 'gross_consumption' as a realistic decimal number (e.g., between 1.15 and 1.85 yards for pant/shirt main fabric, 0.12 and 0.35 yards for fusing/lining). NEVER return 0.0 [INSTRUCT].
 
-            Output STRICTLY in this raw plain text JSON format without markdown markers. All 'fabric_width_inch' MUST match the value {active_width}:
+            Output BOTH raw plain text JSON format and a friendly markdown chat response using the exact markers below without markdown code blocks:
+            
+            ===START_CHAT===
+            🤖 AI đã hoàn tất phân tích hình học layout rập cho **Size {target_size_cmd}** (Khổ: {active_width}\", Co rút: Dọc {warp_val}/Ngang {weft_val}). Đã tự động đi sơ đồ giả lập và ép số Yards Gross Consumption trực tiếp lên bảng dữ liệu.
+            ===END_CHAT===
+
             ===START_JSON===
             {{
               "status": "PASS",
@@ -549,9 +551,9 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             ===END_JSON===
             """
 # =====================================================================
-            # ĐOẠN 7a - PHẦN 3: POST-AI MIDDLEWARE GATEWAY (V80.0 FINAL PROD)
-            # 🌟 ĐẢM BẢO 100% SỐ YARDS ĐƯỢC HIỂN THỊ ĐÈ LÊN MÀN HÌNH CHAT
-            # =====================================================================
+# ĐOẠN 7a - PHẦN 3: POST-AI MIDDLEWARE GATEWAY (V80.0 FINAL PROD)
+# 🌟 ĐẢM BẢO 100% SỐ YARDS ĐƯỢC HIỂN THỊ ĐÈ LÊN MÀN HÌNH CHAT
+# =====================================================================
             response_text = ""
             
             pdf_bytes_len_p3 = len(st.session_state.pdf_bytes) if st.session_state.pdf_bytes else 0
@@ -580,7 +582,8 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                     st.session_state.chat_history.append({"user": current_query, "ai": chat_match.group(1).strip()})
 
                 raw_json_str = ""
-                if json_match: raw_json_str = json_match.group(1).strip()
+                if json_match: 
+                    raw_json_str = json_match.group(1).strip()
                 else:
                     match_fb = re.search(r'\{.*\}', active_json_stream, re.DOTALL)
                     raw_json_str = match_fb.group(0).strip() if match_fb else ""
@@ -595,6 +598,14 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                         st.stop()
                     
                     if blueprint_worker and "bom_rows" in blueprint_worker:
+                        # Thêm khóa bổ trợ để đoạn 7b có thể nhận diện size trực tiếp từ JSON
+                        blueprint_worker["calculated_on_size"] = target_size_cmd
+                        
+                        # Thêm thông tin co rút cục bộ vào từng dòng rập để đồng bộ sang bảng vẽ hiển thị ở đoạn 7b
+                        for row in blueprint_worker.get("bom_rows", []):
+                            row["_btp_warp_pct"] = warp_val
+                            row["_btp_weft_pct"] = weft_val
+                        
                         # Gọi thẳng hàm nạp và hiển thị dữ liệu Yards lên UI
                         blueprint_final = allocate_fabric_consumption_and_quality_gate(blueprint_worker, str(safe_user_prompt).strip())
                         
@@ -613,11 +624,6 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
         except Exception as e_global:
             st.error(f"💥 Lỗi luồng trích xuất hạ tầng tổng toàn cục: {str(e_global)}")
             st.code(traceback.format_exc())
-
-
-
-
-
 # =====================================================================
 # ĐOẠN 7b: HIỂN THỊ KẾT QUẢ ĐỊNH MỨC & BẢNG ĐỐI CHỨNG ĐA CỘT ĐỒNG BỘ SIZE (V47.0 MASTER DYNAMIC)
 # ĐỒNG BỘ ĐỘNG ĐỘ CO RÚT, KHỔ VẢI VÀ HIỆU SUẤT TỪ HÀM TÍNH TOÁN 2B RA GIAO DIỆN
@@ -650,31 +656,33 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
     for r in bom_rows_list:
         if not r or not isinstance(r, dict): 
             continue
-        sys_notes = r.get("consumption_note", "Mô phỏng CAD Gerber V27")
-        current_gross = r.get("calculated_gross_consumption_yds", 0.0)
+            
+        # 🟢 ĐỒNG BỘ KHÓA TIẾP NHẬN: Đọc trực tiếp từ bộ não AI Pass Gateway V80.0 đảm bảo hiển thị đúng số Yards
+        current_gross = r.get("gross_consumption", 0.0)
+        sys_notes = r.get("reasoning", r.get("system_notes", "Mô phỏng CAD Gerber V27"))
         
-        # Đọc khổ vải an toàn đã được chốt chặn chống số 0 từ Đoạn 2b
+        # Đọc khổ vải an toàn đã được chốt chặn chống số 0 từ Đoạn 2b / Gateway V80.0
         raw_width = r.get("fabric_width_inch", 57.0)
         try: cut_width_val = f"{float(raw_width)} inch"
         except: cut_width_val = "57.0 inch"
 
-        # 🌟 ĐỒNG BỘ ĐỘNG CHÍ MẠNG: Đọc chính xác độ co rút động và hiệu suất từ Đoạn 2b truyền sang
-        warp_dynamic = r.get("_btp_warp_pct", "4.0%")
-        weft_dynamic = r.get("_btp_weft_pct", "14.0%")
-        eff_dynamic = r.get("marker_efficiency_pct", "88.9%")
+        # 🌟 ĐỒNG BỘ ĐỘNG CHÍ MẠNG: Đọc chính xác độ co rút động và hiệu suất từ Gateway V80.0 truyền sang
+        warp_dynamic = r.get("_btp_warp_pct", "3.0%")
+        weft_dynamic = r.get("_btp_weft_pct", "13.0%")
+        eff_dynamic = r.get("marker_efficiency", "88.9%")
 
         display_data.append({
-            "Component Type": r.get("component_type", "MAIN FABRIC"),
+            "Component Type": r.get("component_type", r.get("fabric_classification", "MAIN FABRIC")).upper().replace("_", " "),
             "Placement": r.get("placement", "BODY/POCKETS"),
             "Fabric Classification": r.get("fabric_classification", "MAIN_FABRIC"),
             "Fabric Code": r.get("fabric_code", r.get("fabric_classification", "FABRIC")),
             "Fabric Color": r.get("fabric_color", "SOLID COLOR"),
             "Khổ vải (Width)": cut_width_val,
-            "Co rút dọc (% Warp)": warp_dynamic,     # 🟢 Đã đổi sang biến động
-            "Co rút ngang (% Weft)": weft_dynamic,   # 🟢 Đã đổi sang biến động
-            "Marker Efficiency": eff_dynamic,         # 🟢 Đã đổi sang biến động theo bảng
+            "Co rút dọc (% Warp)": warp_dynamic,     
+            "Co rút ngang (% Weft)": weft_dynamic,   
+            "Marker Efficiency": eff_dynamic,         
             "Gross Consumption (Yds)": current_gross,
-            "Quality Status": r.get("status", "PASS"),
+            "Quality Status": r.get("quality_status", "PASS"),
             "System Notes": sys_notes
         })
         
