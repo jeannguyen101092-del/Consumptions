@@ -522,10 +522,10 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                       # =====================================================================
                         # =====================================================================
                        # =====================================================================
-            # ĐOẠN 7a - PHẦN 3a: TRIPLE-AGENT AUTONOMOUS CAD PIPELINE (V96.0 COUPLING)
-            # 🌟 AGENT 1: PATTERN EXTRACTOR & NET AREA ESTIMATOR (GIẢI QUYẾT RẬP PHI TUYẾN TÍNH)
-            # 🌟 AGENT 2: IE LOGIC AUDITOR (NEVER TRUST AGENT 1 - TỔNG HỢP SỐ PHẲNG)
-            # 🌟 AGENT 3: PURE ARITHMETIC CALCULATOR (MÁY TÍNH KHÔNG SUY LUẬN, KHÔNG ĐỌC TECHPACK)
+                        # =====================================================================
+            # ĐOẠN 7a - PHẦN 3a: TRIPLE-AGENT AUTONOMOUS CAD PIPELINE (V96.1 FACTORY OPTIMIZED)
+            # 🌟 ĐÃ ĐỊNH BIÊN HIỆU SUẤT SƠ ĐỒ CHUẨN NHÀ MÁY ĐỂ KÌM ĐỊNH MỨC VẢI CHÍNH
+            # 🌟 ĐẢM BẢO QUÉT ĐỦ 100% CÁC DÒNG VẬT TƯ NHƯNG SỐ SÁT THỰC TẾ SẢN XUẤT
             # =====================================================================
             response_text = ""
             
@@ -573,17 +573,22 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                     json_agent_1 = response_agent_1.text if response_agent_1 else "{}"
                     
                     # -----------------------------------------------------------------
-                    # ⚖️ TẦNG 2: AGENT 2 - IE LOGIC AUDITOR (NỘI QUY: NEVER TRUST AGENT 1)
+                    # ⚖️ TẦNG 2: AGENT 2 - IE LOGIC AUDITOR (ĐỊNH BIÊN HIỆU SUẤT MỤC TIÊU)
                     # -----------------------------------------------------------------
                     prompt_agent_2 = f"""
                     You are Agent 2: The Senior Apparel Industrial Engineer (IE) Auditor.
                     
                     🌟 CRITICAL OPERATIONAL MANDATE:
                     - NEVER trust Agent 1. It frequently misses hidden components, trim segments, pocket linings, or fusing blocks.
-                    - You must independently verify every material class against the raw Techpack context.
-                    - If Agent 1 missed any pattern component, pocketing fabric, waist lining, fusing sheets, elastic, or tape, DISCARD its partial list and rebuild the structure from the Techpack.
-                    - Group and calculate the exact aggregate sum of net areas ('total_raw_pieces_area_sq_inch') for each material classification. Your output must contain actual numbers, NOT text formulas or instructions.
-                    - Determine the realistic factory target 'marker_efficiency_target' percentage based on the product type (e.g., lower efficiency for complex curved interlocks like jeans denim, higher for simpler trims). Do NOT use hardcoded placeholders.
+                    - You must independently verify every material class against the raw Techpack context. If anything is missed, rebuild it.
+                    - Group and calculate the exact aggregate sum of net areas ('total_raw_pieces_area_sq_inch') for each material classification. Your output must contain actual computed numbers.
+                    
+                    🌟 STRICT MARKER EFFICIENCY CONSTRAINTS (FACTORY STANDARD):
+                    You must audit and determine a realistic 'marker_efficiency_target' for each material class:
+                    - For MAIN_FABRIC (Denim/Jeans): Factory standard marker layouts for large pieces MUST fall strictly between 83.5% and 86.5%. NEVER drop below 83% (causes high consumption) and NEVER exceed 87% (unrealistic).
+                    - For LINING (Pocketing bags): Efficiency should be optimized between 85.0% and 88.0%.
+                    - For FUSING (Mex): Efficiency should be between 85.0% and 88.0%.
+                    - For TRIM_YARDS (Tape/Elastic): Layout efficiency is extremely high, set strictly to 95.0%.
 
                     Output strictly a verified technical data JSON without natural language instructions inside the fields:
                     {{
@@ -609,25 +614,25 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                     json_agent_2 = response_agent_2.text if response_agent_2 else "{}"
 
                     # -----------------------------------------------------------------
-                    # 🧮 TẦNG 3: AGENT 3 - PURE ARITHMETIC CALCULATOR (MÁY TÍNH BỊT MẮT)
+                    # 🧮 TẦNG 3: AGENT 3 - PURE ARITHMETIC CALCULATOR
                     # -----------------------------------------------------------------
                     prompt_agent_3 = f"""
                     You are Agent 3: A Pure Arithmetic Clothing Calculator.
                     Your SOLE job is to execute mechanical mathematics based on physical parameters provided by Agent 2.
-                    You are strictly PROHIBITED from inferring, estimating, or reading the Techpack. Do not inspect styles or guess logic. Only process the numbers.
+                    You are strictly PROHIBITED from inferring, estimating, or reading the Techpack. Only process the numbers.
 
                     🌟 STRICT DYNAMIC MATHEMATICAL RULES:
                     1. Calculate dynamically. Return the value calculated strictly from the uploaded inputs. 
                     2. Never reuse numeric examples. Every numeric field must be derived purely from the structured parameters. If data differs, returned numbers MUST differ.
                     3. Execution Formula for gross yardage:
                        Gross Consumption (Yds) = [total_raw_pieces_area_sq_inch * (1 + Warp Shrinkage) * (1 + Weft Shrinkage)] / [fabric_width_inch * 36 * (marker_efficiency_target / 100)]
-                    4. Note: Shrinkage values to apply for this execution are Warp: {warp_val} and Weft: {weft_val}. Convert percentages properly before multiplying.
+                    4. Note: Shrinkage values to apply for this execution are Warp: {warp_val} and Weft: {weft_val}. Convert percentages properly (e.g., 3% becomes 0.03) before multiplying.
                     5. Process every row present in the verified input structure.
 
                     Output BOTH a friendly markdown text summary and the final structured JSON format. Use the exact layout markers below without markdown brackets around the blocks:
 
                     ===START_CHAT===
-                    ⚖️ **Autonomous Triple-Agent Framework Engaged**: Quy trình tính toán định mức vải đã hoàn thành thông qua 3 Agent độc lập tách biệt vai trò (Extractor → Auditor → Calculator). Số liệu Gross Consumption được tính toán số học động 100% dựa trên tổng diện tích thực của hình rập phi tuyến tính, triệt tiêu hoàn toàn rủi ro dao động số và neo số mẫu.
+                    ⚖️ **Autonomous Triple-Agent Framework Engaged**: Quy trình tính toán định mức vải đã hoàn thành thông qua 3 Agent độc lập tách biệt vai trò. Đã áp quy tắc hiệu suất sơ đồ chuẩn nhà máy may (**Vải chính Denim: 83.5% - 86.5%**) giúp kìm hãm hao hụt ảo và kéo con số định mức Gross Consumption về trạng thái tối ưu, sát thực tế sản xuất nhất.
                     ===END_CHAT===
 
                     ===START_JSON===
@@ -659,6 +664,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                 except Exception as api_err:
                     st.error(f"💥 Lỗi kết nối trực tiếp đến chuỗi Triple-Agent API: {str(api_err)}")
                     st.stop()
+
 
 
 
