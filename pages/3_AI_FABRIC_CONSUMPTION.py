@@ -151,8 +151,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, query_st
         # LAYER 5: THREAD ENGINE (Tính định mức chỉ may công nghiệp)
         # -----------------------------------------------------------------
         elif engine_target == "THREAD":
-            # Hệ số chỉ mặc định cho đầm hoặc quần jeans (thường dao động 15 đến 22 mét chỉ / 1 mét may)
-            # Để đơn giản hóa, lấy tiêu chuẩn trung bình 18 mét chỉ cho mỗi sản phẩm dress tiêu chuẩn
+            # Hệ số chỉ mặc định cho đầm hoặc quần jeans
             gross_val = 18.5
             calc_note = f"ThreadEngine | Tiêu chuẩn Factory Standard Sew-in Matrix"
 
