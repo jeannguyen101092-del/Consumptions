@@ -25,13 +25,12 @@ def compute_fabric_engine(row: dict, product_type: str, chat_txt: str) -> tuple:
         if weft_match: weft_num = float(weft_match.group(1)) / 100.0
     except: pass
 
-    # 🌟 NÂNG CẤP MA TRẬN: BỔ SUNG PHÂN HỆ CARGO_PANTS VỚI HỆ SỐ DIỆN TÍCH THỰC CAO HƠN CHÂN THỰC
     PRODUCT_NET_AREA_MATRIX = {
         "JEANS": {"MAIN_FABRIC": 0.84, "LINING": 0.15, "FUSING": 0.10, "DEFAULT": 0.80},
         "CARGO_PANTS": {
-            "MAIN_FABRIC": 1.15, # 🟢 Ép tăng 15% diện tích vải chính để bù hao rập túi hộp + nắp túi sườn
-            "LINING": 0.18,      # Bù thêm lót cơi hoặc lót nắp túi hộp nếu có
-            "FUSING": 0.35,      # Keo dựng tăng lên do phải ép gia cố toàn bộ hệ thống nắp túi hộp
+            "MAIN_FABRIC": 1.15, 
+            "LINING": 0.75,   # Đưa lót túi về hệ số diện tích bao chuẩn hình học quần
+            "FUSING": 0.72,   # Đưa keo dựng về hệ số diện tích bao chuẩn hình học nắp phối
             "DEFAULT": 1.00
         },
         "DRESS": {"MAIN_FABRIC": 0.78, "LINING": 0.70, "FUSING": 0.25, "DEFAULT": 0.75},
@@ -44,7 +43,6 @@ def compute_fabric_engine(row: dict, product_type: str, chat_txt: str) -> tuple:
         "WAIST_GATHER": {"NONE": 1.00, "LIGHT": 1.25, "MEDIUM": 1.45, "HEAVY": 1.65}
     }
 
-    # Đánh chặn từ khóa thông minh để chuyển đổi phân hệ sản phẩm
     active_product = product_type
     if "CARGO" in chat_txt or "TÚI HỘP" in chat_txt or "PANTS" in chat_txt:
         active_product = "CARGO_PANTS"
@@ -57,6 +55,23 @@ def compute_fabric_engine(row: dict, product_type: str, chat_txt: str) -> tuple:
         elif "FUSING" in comp_name or "KEO" in comp_name or "DỰNG" in comp_name: mat_class = "FUSING"
         else: mat_class = "MAIN_FABRIC"
 
+    # 🌟 KHỐI CHỐT CHẶN BẢO VỆ (CHỈ SỬA KEO LÓT KHI THIẾU THÔNG SỐ, KHÔNG ĐỘNG ĐẾN VẢI CHÍNH)
+    b_length = float(row.get("bounding_box_length", 0.0) or 0.0)
+    b_width = float(row.get("bounding_box_width", 0.0) or 0.0)
+    p_count = int(row.get("piece_count", 1) or 1)
+
+    if active_product == "CARGO_PANTS":
+        if mat_class == "LINING" and (b_length < 15.0 or b_width < 10.0):
+            # Nếu AI bóc rập lót túi quá nhỏ hoặc không có thông số, ép sàn kích thước túi xéo trước tiêu chuẩn nhà máy
+            b_length = 22.0
+            b_width = 14.0
+            p_count = 2
+        elif mat_class == "FUSING" and (b_length < 35.0 or b_length * b_width < 100.0):
+            # Nếu AI bóc thiếu keo nắp túi hộp, ép sàn kích thước cạp quần cộng dồn tổng diện tích các nắp túi sườn
+            b_length = 42.0
+            b_width = 4.5
+            p_count = 2
+
     raw_width = row.get("fabric_width_inch")
     try: 
         width_inch = float(raw_width or 56.0)
@@ -64,11 +79,7 @@ def compute_fabric_engine(row: dict, product_type: str, chat_txt: str) -> tuple:
         if match_w_direct: width_inch = float(match_w_direct.group(1))
     except: width_inch = 56.0
     
-    p_count = int(row.get("piece_count", 1) or 1)
     efficiency_num = 0.855 if mat_class == "MAIN_FABRIC" else 0.880
-    
-    b_length = float(row.get("bounding_box_length", 0.0) or 0.0)
-    b_width = float(row.get("bounding_box_width", 0.0) or 0.0)
     
     g_type = str(row.get("gather_type", "NONE")).upper().strip()
     g_depth = str(row.get("gather_depth", "NONE")).upper().strip()
@@ -76,7 +87,6 @@ def compute_fabric_engine(row: dict, product_type: str, chat_txt: str) -> tuple:
     
     raw_box_area = b_length * b_width * p_count
     
-    # Tra cứu chính xác hệ số biên dạng phủ túi hộp Cargo
     product_map = PRODUCT_NET_AREA_MATRIX.get(active_product, PRODUCT_NET_AREA_MATRIX["DEFAULT"])
     net_factor = product_map.get(mat_class, product_map.get("DEFAULT", 0.80))
     
@@ -91,8 +101,9 @@ def compute_fabric_engine(row: dict, product_type: str, chat_txt: str) -> tuple:
         
     row["fabric_width_inch"] = width_inch
     row["marker_efficiency"] = f"{round(efficiency_num * 100, 1)}%"
-    note = f"FabricEngine ({mat_class}) | Phân hệ: {active_product} | Rập: {b_length}x{b_width} | Biên dạng: {net_factor}x"
+    note = f"FabricEngine ({mat_class}) | Phân hệ: {active_product} | Rập hình học: {b_length}x{b_width} ({net_factor}x)"
     return gross_val, note
+
 
 def compute_elastic_engine(row: dict) -> tuple:
     """Engine chuyên tính toán cho Chun / Thun co giãn (Elastic)"""
