@@ -365,53 +365,66 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# CSS Phụ trợ để căn chỉnh text và nút của Streamlit đồng bộ khoảng cách
+# ÉP CỨNG STYLE ĐƯỜNG VIỀN ĐEN DÀY VÀ CÂN GIỮA ĐỒ HỌA
 st.markdown("""
 <style>
-    div[data-testid="stColumn"] button {
-        border: 2px solid #000000 !important;
+    .image-placeholder-box {
+        border: 3px solid #000000 !important;
         border-radius: 4px !important;
-        color: #000000 !important;
-        background-color: #ffffff !important;
-        pointer-events: none !important;
-        padding: 10px !important;
+        padding: 15px 5px !important;
         text-align: center !important;
+        min-height: 180px !important;
+        background-color: #ffffff !important;
+        margin-top: 10px !important;
+        display: flex !important;
+        flex-direction: column !important;
+        align-items: center !important;
+        justify-content: center !important;
+    }
+    .image-placeholder-box img {
+        max-height: 90px !important;
+        width: auto !important;
+        object-fit: contain !important;
+        display: block !important;
+        margin: 0 auto 5px auto !important;
+    }
+    .box-caption {
+        font-family: 'Segoe UI', sans-serif !important;
+        font-size: 12px !important;
         font-weight: bold !important;
-        font-size: 13px !important;
+        color: #000000 !important;
+        line-height: 1.3 !important;
     }
 </style>
 """, unsafe_allow_html=True)
 
-# 🌟 DÙNG TOÀN BỘ LOGIC VECTOR MÃ HÓA NỘI TẠI NÊN KHÔNG LO LỖI MẠNG CHẶN ẢNH
-b64_ao_clean = "data:image/svg+xml;utf8,<svg xmlns='http://w3.org' width='100' height='100' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.5'><path d='M20.38 3.46L16 2a4 4 0 0 0-8 0l-4.38 1.46a2 2 0 0 0-1.37 2l.35 11.23a2 2 0 0 0 2 1.94h14.8a2 2 0 0 0 2-1.94l.35-11.23a2 2 0 0 0-1.37-2z'/><path d='M12 5v16'/></svg>"
-b64_quan_clean = "data:image/svg+xml;utf8,<svg xmlns='http://w3.org' width='100' height='100' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.5'><path d='M4 2h16l-2 20H6L4 2z'/><path d='M12 2v20'/></svg>"
-b64_vest_clean = "data:image/svg+xml;utf8,<svg xmlns='http://w3.org' width='100' height='100' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.5'><path d='M4 2v20l8-4 8 4V2l-8 4-8-4z'/><path d='M12 6v12'/></svg>"
-b64_vay_clean = "data:image/svg+xml;utf8,<svg xmlns='http://w3.org' width='100' height='100' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.5'><path d='M6 2h12l3 7-9 13-9-7 3-7z'/><path d='M6 9h12'/></svg>"
+# CHUỖI ĐỒ HỌA VECTOR ĐÃ ĐƯỢC MÃ HÓA URL (URL-ENCODED) CHUẨN HIỂN THỊ 100% TRÊN CHROME/EDGE
+encoded_ao = "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%27100%27%20height%3D%27100%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23000000%27%20stroke-width%3D%271.5%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M20.38%203.46L16%202a4%204%200%200%200-8%200l-4.38%201.46a2%202%200%200%200-1.37%202l.35%2011.23a2%202%200%200%200%202%201.94h14.8a2%202%200%200%200%202-1.94l.35-11.23a2%202%200%200%200-1.37-2z%27%2F%3E%3Cpath%20d%3D%27M12%205v16%27%2F%3E%3Cpath%20d%3D%27M4%2010h16%27%2F%3E%3C%2Fsvg%3E"
+encoded_quan = "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%27100%27%20height%3D%27100%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23000000%27%20stroke-width%3D%271.5%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M4%202h16l-2%2020H6L4%202z%27%2F%3E%3Cpath%20d%3D%27M12%202v20%27%2F%3E%3Cpath%20d%3D%27M5%208h14%27%2F%3E%3C%2Fsvg%3E"
+encoded_vest = "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%27100%27%20height%3D%27100%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23000000%27%20stroke-width%3D%271.5%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M4%202v20l8-4%208%204V2l-8%204-8-4z%27%2F%3E%3Cpath%20d%3D%27M12%206v12%27%2F%3E%3Cpath%20d%3D%27M4%208h16%27%2F%3E%3C%2Fsvg%3E"
+encoded_vay = "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%27100%27%20height%3D%27100%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23000000%27%20stroke-width%3D%271.5%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M6%202h12l3%207-9%2013-9-7%203-7z%27%2F%3E%3Cpath%20d%3D%27M6%209h12%27%2F%3E%3Cpath%20d%3D%27M12%202v7%27%2F%3E%3C%2Fsvg%3E"
 
 k_col1, k_col2, k_col3, k_col4 = st.columns(4)
 
 with k_col1: 
     st.markdown(f'<div class="kpi-card-colored bg-style"><div class="kpi-num-light">{kpi_style_id}</div><div class="kpi-lbl-light">Mã hàng đang xử lý</div></div>', unsafe_allow_html=True)
-    st.image(b64_ao_clean, width=70)
-    st.button("hiển thị hình ảnh\náo", key="btn_caption_ao", use_container_width=True)
+    st.markdown(f'<div class="image-placeholder-box"><img src="{encoded_ao}" alt="Ao"><div class="box-caption">hiển thị hình ảnh<br>áo</div></div>', unsafe_allow_html=True)
 
 with k_col2: 
     st.markdown(f'<div class="kpi-card-colored bg-items"><div class="kpi-num-light">{total_materials} Item(s)</div><div class="kpi-lbl-light">Tổng số vật tư kết xuất</div></div>', unsafe_allow_html=True)
-    st.image(b64_quan_clean, width=70)
-    st.button("hiển thị hình ảnh\nquần", key="btn_caption_quan", use_container_width=True)
+    st.markdown(f'<div class="image-placeholder-box"><img src="{encoded_quan}" alt="Quan"><div class="box-caption">hiển thị hình ảnh<br>quần</div></div>', unsafe_allow_html=True)
 
 with k_col3: 
     st.markdown(f'<div class="kpi-card-colored bg-cons"><div class="kpi-num-light" style="font-size:22px;">{main_fabric_cons}</div><div class="kpi-lbl-light">Định mức vải chính dự kiến</div></div>', unsafe_allow_html=True)
-    st.image(b64_vest_clean, width=70)
-    st.button("hình ảnh vest", key="btn_caption_vest", use_container_width=True)
+    st.markdown(f'<div class="image-placeholder-box"><img src="{encoded_vest}" alt="Vest"><div class="box-caption">hình ảnh vest</div></div>', unsafe_allow_html=True)
 
 with k_col4: 
     st.markdown(f'<div class="kpi-card-colored bg-size"><div class="kpi-num-light">{active_size_kpi}</div><div class="kpi-lbl-light">Cỡ hạt tính định mức</div></div>', unsafe_allow_html=True)
-    st.image(b64_vay_clean, width=70)
-    st.button("hình ảnh váy", key="btn_caption_vay", use_container_width=True)
+    st.markdown(f'<div class="image-placeholder-box"><img src="{encoded_vay}" alt="Vay"><div class="box-caption">hình ảnh váy</div></div>', unsafe_allow_html=True)
 
 st.markdown('</div>', unsafe_allow_html=True)
 st.markdown('<div class="main-body-spacer"></div>', unsafe_allow_html=True)
+
 
 
 
