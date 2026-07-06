@@ -365,45 +365,40 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# 🌟 BẢN VÁ LỖI TOÁN HỌC PHẲNG GIAO DIỆN: ÉP CỨNG CHIỀU CAO 180PX ĐỂ 4 HỘP BẰNG NHAU TĂM TẮP
+# 🌟 BẢN VÁ PHẲNG DIỆN TÍCH: ĐÃ LOẠI BỎ CHỮ, ÉP CỐ ĐỊNH CHIỀU CAO VÀ NHÚNG NỀN MÀU THEO PHÂN HỆ
 st.markdown("""
 <style>
     .image-placeholder-box {
         border: 3px solid #000000 !important;
         border-radius: 4px !important;
-        padding: 15px 5px !important;
+        padding: 5px !important;
         
-        height: 180px !important;        /* 🟢 ÉP CHẶT CHIỀU CAO CỐ ĐỊNH CHỐNG CAO THẤP LỆCH NHAU */
-        min-height: 180px !important;
-        max-height: 180px !important;
+        height: 150px !important;        /* 🟢 KHÓA CHIỀU CAO THẤP XUỐNG VÌ ĐÃ BỎ CHỮ */
+        min-height: 150px !important;
+        max-height: 150px !important;
         
-        background-color: #ffffff !important;
-        margin-top: 10px !important;
         display: flex !important;
-        flex-direction: column !important;
         align-items: center !important;
-        justify-content: space-between !important; /* 🟢 TỰ ĐỘNG ĐẨY ẢNH TRÊN ĐỈNH VÀ CHỮ XUỐNG ĐÁY ĐỒNG ĐỀU */
+        justify-content: center !important;
     }
     .image-placeholder-box img {
-        max-height: 95px !important;
+        max-height: 110px !important;
         width: auto !important;
         object-fit: contain !important;
         display: block !important;
-        margin: auto auto 5px auto !important;
+        margin: auto !important;
+        filter: drop-shadow(0px 2px 4px rgba(0,0,0,0.15)); /* Tăng độ nổi bật cho rập nét */
     }
-    .box-caption {
-        font-family: 'Segoe UI', sans-serif !important;
-        font-size: 12px !important;
-        font-weight: bold !important;
-        color: #000000 !important;
-        text-align: center !important;
-        line-height: 1.3 !important;
-        margin-top: auto !important; /* Đảm bảo khối chữ luôn chạm đáy đều nhau */
-    }
+    
+    /* Ma trận màu nền phẳng dịu nhẹ đổ trực tiếp vào 4 hộp */
+    .color-ao   { background-color: #f0f9ff !important; } /* Nhóm màu Áo xanh nhạt */
+    .color-quan { background-color: #f0fdfa !important; } /* Nhóm màu Quần ngọc nhạt */
+    .color-vest { background-color: #fff7ed !important; } /* Nhóm màu Vest cam nhạt */
+    .color-vay  { background-color: #f0fdf4 !important; } /* Nhóm màu Váy lá nhạt */
 </style>
 """, unsafe_allow_html=True)
 
-# Chuỗi URL-encoded mã hóa đầu vào của hình ảnh vector nội tại
+# Chuỗi URL-encoded mã hóa của hình ảnh vector đồ họa mun
 encoded_ao = "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%27100%27%20height%3D%27100%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23000000%27%20stroke-width%3D%271.5%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M20.38%203.46L16%202a4%204%200%200%200-8%200l-4.38%201.46a2%202%200%200%200-1.37%202l.35%2011.23a2%202%200%200%200%202%201.94h14.8a2%202%200%200%200%202-1.94l.35-11.23a2%202%200%200%200-1.37-2z%27%2F%3E%3Cpath%20d%3D%27M12%205v16%27%2F%3E%3Cpath%20d%3D%27M4%2010h16%27%2F%3E%3C%2Fsvg%3E"
 encoded_quan = "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%27100%27%20height%3D%27100%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23000000%27%20stroke-width%3D%271.5%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M4%202h16l-2%2020H6L4%202z%27%2F%3E%3Cpath%20d%3D%27M12%202v20%27%2F%3E%3Cpath%20d%3D%27M5%208h14%27%2F%3E%3C%2Fsvg%3E"
 encoded_vest = "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%27100%27%20height%3D%27100%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23000000%27%20stroke-width%3D%271.5%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M4%202v20l8-4%208%204V2l-8%204-8-4z%27%2F%3E%3Cpath%20d%3D%27M12%206v12%27%2F%3E%3Cpath%20d%3D%27M4%208h16%27%2F%3E%3C%2Fsvg%3E"
@@ -413,19 +408,19 @@ k_col1, k_col2, k_col3, k_col4 = st.columns(4)
 
 with k_col1: 
     st.markdown(f'<div class="kpi-card-colored bg-style"><div class="kpi-num-light">{kpi_style_id}</div><div class="kpi-lbl-light">Mã hàng đang xử lý</div></div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="image-placeholder-box"><img src="{encoded_ao}" alt="Ao"><div class="box-caption">hiển thị hình ảnh<br>áo</div></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="image-placeholder-box color-ao"><img src="{encoded_ao}" alt="Ao"></div>', unsafe_allow_html=True)
 
 with k_col2: 
     st.markdown(f'<div class="kpi-card-colored bg-items"><div class="kpi-num-light">{total_materials} Item(s)</div><div class="kpi-lbl-light">Tổng số vật tư kết xuất</div></div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="image-placeholder-box"><img src="{encoded_quan}" alt="Quan"><div class="box-caption">hiển thị hình ảnh<br>quần</div></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="image-placeholder-box color-quan"><img src="{encoded_quan}" alt="Quan"></div>', unsafe_allow_html=True)
 
 with k_col3: 
     st.markdown(f'<div class="kpi-card-colored bg-cons"><div class="kpi-num-light" style="font-size:22px;">{main_fabric_cons}</div><div class="kpi-lbl-light">Định mức vải chính dự kiến</div></div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="image-placeholder-box"><img src="{encoded_vest}" alt="Vest"><div class="box-caption">hình ảnh vest</div></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="image-placeholder-box color-vest"><img src="{encoded_vest}" alt="Vest"></div>', unsafe_allow_html=True)
 
 with k_col4: 
     st.markdown(f'<div class="kpi-card-colored bg-size"><div class="kpi-num-light">{active_size_kpi}</div><div class="kpi-lbl-light">Cỡ hạt tính định mức</div></div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="image-placeholder-box"><img src="{encoded_vay}" alt="Vay"><div class="box-caption">hình ảnh váy</div></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="image-placeholder-box color-vay"><img src="{encoded_vay}" alt="Vay"></div>', unsafe_allow_html=True)
 
 st.markdown('</div>', unsafe_allow_html=True)
 st.markdown('<div class="main-body-spacer"></div>', unsafe_allow_html=True)
