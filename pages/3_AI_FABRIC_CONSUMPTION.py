@@ -1720,11 +1720,10 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
 
 
                        # =====================================================================
-            # ĐOẠN 7a - PHẦN 3: POST-AI MIDDLEWARE PURE CONNECTIVITY (V68.5 MASTER DEBUG LOCK)
+            # ĐOẠN 7a - PHẦN 3: POST-AI MIDDLEWARE PURE CONNECTIVITY (V68.6 CHUẨN CÚ PHÁP)
             # 🌟 KHÓA CHẶT LUỒNG RERUN ĐỂ ÉP MÀN HÌNH ĐỨNG IM XẢ 100% CẤU TRÚC JSON GỐC
-            # 🌟 VÁ SỬA LỖI LOGIC QUERY_STR TRUYỀN VÀO HÀM TOÁN HỆ THỐNG
+            # 🌟 VÁ TRIỆT ĐỂ LỖI LOGIC THỪA ELSE KHÔNG ĐỒNG CẤP GÂY SYNTAXERROR
             # =====================================================================
-            
             response_text = ""
             
             # Khởi tạo chữ ký và kiểm tra bộ nhớ đệm Cache chống kẹt
@@ -1740,8 +1739,6 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                     full_api_payload = gemini_inputs + [prompt_instruction]
                     api_response = model.generate_content(full_api_payload)
                     response_text = api_response.text
-                    
-                    # Sao lưu text thô vào bộ nhớ đệm để ép in ra màn hình liên tục
                     st.session_state["_btp_debug_raw_text_v68"] = response_text
                 except Exception as api_err:
                     st.error(f"💥 Lỗi kết nối trực tiếp đến API Google Gemini: {str(api_err)}")
@@ -1785,27 +1782,25 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                 if raw_json_str:
                     raw_json_str = re.sub(r',\s*([\]\}])', r'\1', raw_json_str)
                     
+                    blueprint_worker = None
                     try:
                         blueprint_worker = json.loads(raw_json_str)
                     except:
                         st.stop()
                     
                     if blueprint_worker and "bom_rows" in blueprint_worker:
-                        # 🟢 VÁ SỬA LỖI 1: Đồng bộ hóa chính xác câu lệnh query truyền vào engine toán học
                         blueprint_final = allocate_fabric_consumption_and_quality_gate(blueprint_worker, str(current_query))
-                        
-                        # Tích lũy dữ liệu vào session state hệ thống
                         st.session_state.bom_data = blueprint_final
                         st.session_state.accumulated_bom_rows = blueprint_final.get("bom_rows", [])
                         st.session_state["last_processed_signature"] = current_signature_p3
-                        
                         st.success("🎉 Xử lý diện tích hình học phẳng CAD thành công theo kiến trúc V61!")
-                        # 🚨 VÁ SỬA LỖI 2 (CHÍ MẠNG): Comment khóa chặt lệnh st.rerun() để ép màn hình đứng im cho chúng ta xem JSON thô
+                        # 🚨 KHÓA CHẶT RERUN: Để màn hình đứng im cho chúng ta soi khối st.json
                         # st.rerun() 
                     else:
                         st.error("⚠️ Khối JSON của AI thiếu trường danh mục bom_rows.")
                 else:
                     st.error("❌ Không thể bóc tách START_JSON từ văn bản phản hồi thô của Gemini.")
+
 
 
 
