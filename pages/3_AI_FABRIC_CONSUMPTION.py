@@ -698,7 +698,8 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
 
 
 # =====================================================================
-# ĐOẠN 7b: HIỂN THỊ KẾT QUẢ ĐỊNH MỨC & BẢNG ĐỐI CHỨNG ĐA CỘT ĐỒNG BỘ SIZE (V47.2 SYNC ALIGNED)
+# ĐOẠN 7b: HIỂN THỊ KẾT QUẢ ĐỊNH MỨC & BẢNG ĐỐI CHỨNG ĐA CỘT ĐỒNG BỘ SIZE (V100.4 SYNC)
+# 🌟 ĐỒNG BỘ HẠ TẦNG: ĐỌC DỮ LIỆU ĐÃ ĐƯỢC PYTHON CAD ENGINE TÍNH TOÁN VÀ ĐỔ RA BẢNG
 # =====================================================================
 if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_rows"):
     import pandas as pd
@@ -729,22 +730,22 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
         if not r or not isinstance(r, dict): 
             continue
             
+        # 🟢 LẤY ĐÚNG SỐ YARDS DO ĐOẠN B PYTHON TỰ TÍNH (TRÁNH BỊ 0.0 HOẶC TRỐNG)
         current_gross = r.get("gross_consumption", 0.0)
         sys_notes = r.get("reasoning", r.get("system_notes", "Mô phỏng CAD Gerber V27"))
         
-        # 🟢 ĐỌC ĐỘNG KHỔ VẢI THỰC TẾ ĐÃ ĐƯỢC ĐỒNG BỘ TỪ ĐOẠN 3
         raw_width = r.get("fabric_width_inch", 57.0)
         try: cut_width_val = f"{float(raw_width)} inch"
-        except: cut_width_val = "57.0 inch"
+        except: cut_width_val = f"{raw_width} inch"
 
-        # 🟢 ĐỌC ĐỘNG CHÍ MẠNG TOÀN BỘ THÔNG SỐ ĐÃ ĐƯỢC MIDDLEWARE ĐÓNG GÓI
+        # Đọc động thông số co rút và hiệu suất sơ đồ đã được đồng bộ hóa từ Đoạn B sang
         warp_dynamic = r.get("_btp_warp_pct", "3.0%")
         weft_dynamic = r.get("_btp_weft_pct", "13.0%")
-        eff_dynamic = r.get("marker_efficiency", "88.9%")
+        eff_dynamic = r.get("marker_efficiency", "85.5%")
 
         display_data.append({
             "Component Type": r.get("component_type", r.get("fabric_classification", "MAIN FABRIC")).upper().replace("_", " "),
-            "Placement": r.get("placement", "BODY/POCKETS"),
+            "Placement": "BODY/POCKETS LAYOUT OPTIMIZED",
             "Fabric Classification": r.get("fabric_classification", "MAIN_FABRIC"),
             "Fabric Code": r.get("fabric_code", r.get("fabric_classification", "FABRIC")),
             "Fabric Color": r.get("fabric_color", "SOLID COLOR"),
