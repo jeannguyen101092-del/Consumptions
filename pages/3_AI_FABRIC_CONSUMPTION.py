@@ -1734,7 +1734,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                         st.session_state["last_processed_signature"] = current_signature_p3
                         st.success("🎉 Xử lý diện tích hình học phẳng CAD thành công theo kiến trúc V61!")
                         # 🚨 KHÓA CHẶT RERUN: Để màn hình đứng im cho chúng ta soi khối st.json thô nhằm debug
-                        # st.rerun() 
+                        st.rerun() 
                     else:
                         st.error("⚠️ Khối JSON của AI thiếu trường danh mục bom_rows.")
                 else:
