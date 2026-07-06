@@ -19,11 +19,11 @@ EXCLUDE_HARDWARE_KEYS = (
 )
 
 # =====================================================================
-# ĐOẠN B: ZERO-ENGINE FABRIC CONSUMPTION GATEWAY (V92.2 FULL PASS-THROUGH)
-# 🌟 KIẾN TRÚC MỚI: ỦY QUYỀN TUYỆT ĐỐI CHO AI - PYTHON KHÔNG TỰ Ý LỌC BỎ DÒNG
+# ĐOẠN B: ZERO-ENGINE FABRIC CONSUMPTION GATEWAY (V92.3 PRODUCTION FIXED)
+# 🌟 ĐÃ VÁ LỖI NONETYPE: CHỐT CHẶN AN TOÀN TRÁNH SẬP KHI AI TRẢ VỀ KHỔ VẢI RỖNG
 # =====================================================================
 def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, query_string: str) -> dict:
-    st.warning("⚡ ENGINE EXECUTING: PURE AI DIRECT PASS GATEWAY V92.2 ACTIVATED")
+    st.warning("⚡ ENGINE EXECUTING: PURE AI DIRECT PASS GATEWAY V92.3 ACTIVATED")
     
     if not blueprint_final or "bom_rows" not in blueprint_final:
         return blueprint_final
@@ -31,27 +31,39 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, query_st
     filtered_bom_rows = []
     product_type = str(blueprint_final.get("detected_product_type", "JEANS")).upper().strip()
     
-    # 🟢 SỬA LỖI CHÍ MẠNG: Lấy thẳng danh sách dòng do AI Tầng 2 trả về, không dùng mảng UI cũ làm bộ lọc chặn dòng
     ai_bom_rows = blueprint_final.get("bom_rows", [])
     
     for ai_row in ai_bom_rows:
-        # Clone dữ liệu từ AI để đảm bảo an toàn vùng nhớ
         ui_row = copy.deepcopy(ai_row)
         
-        # Đồng bộ và ép kiểu dữ liệu hiển thị an toàn
-        width_inch = float(ui_row.get("fabric_width_inch", 57.0))
-        if width_inch < 5.0: width_inch = 57.0  # Không áp cho dây tape nhỏ
+        # 🟢 VÁ LỖI CHÍ MẠNG: Kiểm tra và bọc giá trị None trước khi ép kiểu float()
+        raw_width = ui_row.get("fabric_width_inch")
+        if raw_width is None or str(raw_width).strip() == "" or str(raw_width).lower() == "none":
+            width_inch = 57.0
+        else:
+            try:
+                width_inch = float(raw_width)
+            except Exception:
+                width_inch = 57.0
+                
+        if width_inch < 1.0: width_inch = 57.0  # Dự phòng an toàn chống số không
         
-        # Nạp các trường thông tin cấu trúc hiển thị sang cho Đoạn 4 (Đoạn 7b)
+        # Kiểm tra và bọc giá trị định mức gross_consumption an toàn chống NoneType
+        raw_gross = ui_row.get("gross_consumption")
+        try:
+            gross_val = round(float(raw_gross or 0.0), 3)
+        except Exception:
+            gross_val = 0.0
+        
+        # Nạp dữ liệu cấu trúc hiển thị sang cho bảng vẽ
         ui_row["fabric_width_inch"] = width_inch
-        ui_row["gross_consumption"] = round(float(ui_row.get("gross_consumption", 0.0)), 3)
+        ui_row["gross_consumption"] = gross_val
         ui_row["marker_efficiency"] = str(ui_row.get("marker_efficiency", "85.5%"))
         ui_row["quality_status"] = "PASS"
         ui_row["system_notes"] = ui_row.get("reasoning", "Đã được kiểm toán tự động qua chuỗi AI 2 tầng.")
         
         filtered_bom_rows.append(ui_row)
         
-    # Ép ghi đè đồng thời vào cả 3 vùng ô nhớ giao diện Streamlit để nạp toàn bộ danh mục vật tư mới lên màn hình
     st.session_state["bom_rows"] = filtered_bom_rows
     st.session_state["accumulated_bom_rows"] = filtered_bom_rows
     st.session_state["bom_data"] = {"bom_rows": filtered_bom_rows, "detected_product_type": product_type, "calculated_on_size": blueprint_final.get("calculated_on_size", "30")}
