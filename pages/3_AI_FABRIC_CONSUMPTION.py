@@ -56,10 +56,8 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, query_st
         fab_class = str(ui_row.get("fabric_classification", "")).upper().strip()
         
         if total_net_area > 0 and efficiency_num > 0:
-            # 🟢 VÁ LỖI LOGIC: Nếu AI chỉ trả diện tích 1 bên rập phẳng, tự động nhân hệ số đối xứng (x2) 
-            # để đảm bảo đủ diện tích cắt 2 thân trước, 2 thân sau, 2 lót túi.
-            if fab_class in ["MAIN_FABRIC", "LINING"]:
-                total_net_area = total_net_area * 2.0
+            # 🟢 SỬA LỖI TRÙNG LẶP: Bỏ hoàn toàn lệnh nhân đôi diện tích ở đây 
+            # vì AI Agent 2 đã tự động nhân 2 chi tiết đối xứng trong khối JSON thô.
             
             # 1. Áp hệ số mở rộng đường may + co rút vật lý thực tế
             expanded_area = total_net_area * (1.0 + warp_num) * (1.0 + weft_num)
@@ -67,11 +65,11 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, query_st
             # 2. Công thức CAD quy đổi từ Square Inches sang Linear Yards Gross
             gross_val = expanded_area / (width_inch * 36.0 * efficiency_num)
             
-            # 3. Thay vì 3%, tăng hệ số an toàn bù lỗi sợi, đầu cây vải và hao hụt biên rập cong Denim lên mức thực tế (Wastage factor 8%)
+            # 3. Tinh chỉnh hệ số an toàn hao hụt đầu cây và lỗi vải Denim về mức chuẩn (Wastage factor 4%)
             if fab_class == "MAIN_FABRIC":
-                gross_val = gross_val * 1.08
+                gross_val = gross_val * 1.04
             else:
-                gross_val = gross_val * 1.05
+                gross_val = gross_val * 1.03
                 
             gross_val = round(gross_val, 3)
         else:
