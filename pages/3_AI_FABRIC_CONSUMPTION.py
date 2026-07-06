@@ -658,34 +658,54 @@ Output BOTH raw text JSON format (under ===START_JSON===) and markdown chat resp
 ===END_JSON===
 """
 # =====================================================================
-# ĐOẠN 7a - PHẦN 3b: DUAL-AGENT API EXECUTION SEQUENCE (V102.5 FLATTENED)
-# 🌟 CẤU TRÚC PHẲNG LY KHAI: TRIỆT TIÊU HOÀN TOÀN LỖI THỤT LỀ INDENTATION
+# ĐOẠN 7a - PHẦN 3b: POST-AI MIDDLEWARE GATEWAY (FLATTENED ALIGNMENT)
 # =====================================================================
-if 'current_query' in locals() and (has_no_data_p3 or is_signature_changed_p3):
-    try:
-        if "GEMINI_API_KEY" not in st.secrets:
-            st.error("💥 Lỗi hạ tầng: Thiếu cấu hình GEMINI_API_KEY trong hệ thống Secrets.")
+active_json_stream = st.session_state.get("_btp_master_raw_json_stream", globals().get("response_text", ""))
+
+if active_json_stream:
+    json_match = re.search(r'(?:===START_JSON===\s*|```json\s*)(.*?)(?:\s*===END_JSON===|\s*```)', active_json_stream, re.DOTALL)
+    chat_match = re.search(r'(?:===START_CHAT===\s*|```markdown\s*)(.*?)(?:\s*===END_CHAT===|\s*```|$)', active_json_stream, re.DOTALL)
+    
+    if chat_match and 'response_text' in locals() and response_text:
+        st.session_state.chat_history.append({"user": current_query, "ai": chat_match.group(1).strip()})
+
+    raw_json_str = ""
+    if json_match:
+        raw_json_str = json_match.group(1).strip()
+    else:
+        match_fb = re.search(r'\{.*\}', active_json_stream, re.DOTALL)
+        raw_json_str = match_fb.group(0).strip() if match_fb else ""
+    if raw_json_str:
+        raw_json_str = re.sub(r',\s*([\]\}])', r'\1', raw_json_str)
+        blueprint_worker = None
+        try:
+            blueprint_worker = json.loads(raw_json_str)
+        except:
             st.stop()
+        
+        if blueprint_worker and "bom_rows" in blueprint_worker:
+            blueprint_worker["calculated_on_size"] = globals().get("target_size_cmd", "30")
             
-        genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-        model = genai.GenerativeModel("gemini-2.5-flash")
-        
-        payload_agent_1 = gemini_inputs + [prompt_agent_1]
-        response_agent_1 = model.generate_content(payload_agent_1)
-        raw_json_agent_1 = response_agent_1.text if response_agent_1 else "{}"
-        
-        payload_agent_2 = [
-            f"=== RECOVERED TECHPACK TEXT ===\n{full_pdf_raw_text}\n",
-            f"=== DATA FROM CAD AGENT 1 ===\n{raw_json_agent_1}\n====================\n",
-            prompt_agent_2
-        ]
-        api_response = model.generate_content(payload_agent_2)
-        response_text = api_response.text
-        st.session_state["_btp_master_raw_json_stream"] = response_text
-        
-    except Exception as api_err:
-        st.error(f"💥 Lỗi kết nối chuỗi Agent API: {str(api_err)}")
-        st.stop()
+            for row in blueprint_worker.get("bom_rows", []):
+                if row.get("fabric_classification") == "MAIN_FABRIC" or "fabric_width_inch" not in row:
+                    row["fabric_width_inch"] = globals().get("active_width", 56.0)
+            
+            st.info("🔍 ĐỐI SOÁT DỮ LIỆU THÔ JSON TỪ BỘ NÃO AI TRẢ VỀ:")
+            st.json(blueprint_worker)
+            
+            blueprint_final = allocate_fabric_consumption_and_quality_gate(blueprint_worker, str(safe_user_prompt).strip())
+            st.session_state.bom_data = blueprint_final
+            st.session_state.accumulated_bom_rows = blueprint_final.get("bom_rows", [])
+            
+            if 'response_text' in locals() and response_text:
+                st.session_state["last_processed_signature"] = current_signature_p3
+                st.success("🎉 Xử lý kiểm toán định mức thành công!")
+                st.rerun()
+        else:
+            st.error("⚠️ Khối JSON thiếu trường bắt buộc 'bom_rows'.")
+    else:
+        st.error("❌ Không thể bóc tách START_JSON từ phản hồi của AI.")
+
 # =====================================================================
 # ĐOẠN 7a - PHẦN 3c: POST-AI MIDDLEWARE PARSER & DEBUG ENGINE (V102.5 FLATTENED)
 # =====================================================================
