@@ -1488,8 +1488,8 @@ with col_right:
 
 
 ## =====================================================================
-# ĐOẠN 7a - PHẦN 1: CHATGPT-STYLE WORKSPACE & SMART TARGET SCANNED PIPELINE (V44.1)
-# CHIẾN LƯỢC HYBRID: CHỈ QUÉT TRANG BOM VÀ THÔNG SỐ ĐỂ TRÁNH LỖI NHẬN DIỆN SAI SẢN PHẨM
+# ĐOẠN 7a - PHẦN 1: CHATGPT-STYLE WORKSPACE & SMART TARGET SCANNED PIPELINE (V65.0)
+# CHIẾN LƯỢC HYBRID: GIẢM TẢI DPI XUỐNG 65 ĐỂ KHẮC PHỤC TRIỆT ĐỂ LỖI QUOTA 429
 # =====================================================================
 st.markdown('<br><div class="cad-card"><div class="cad-header">💬 CHATGPT IE COLLABORATION WORKSPACE</div>', unsafe_allow_html=True)
 
@@ -1533,25 +1533,25 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             MAX_IMAGE_PAGES = 15  
             MAX_TEXT = 150000     # Chốt chặn bảo vệ Token ngữ cảnh
             
-            # Khống chế DPI mượt mà theo độ nặng của tệp tin để bảo vệ RAM
-            target_dpi = 110 if total_pages <= 15 else 90
+            # 🟢 VÁ SỬA LỖI GIẢM TẢI TOKEN: Hạ DPI xuống mức tối ưu 65 để ép mô hình Flash đọc nhanh, không bị nghẽn nghẹt băng thông
+            target_dpi = 65
             
-            # DUYỆT QUA TỪNG TRANG: Chỉ thu thập văn bản và ảnh của các trang BOM & THÔNG SỐ
+            # DUYỆT QUA TỪNG TRANG: Chỉ thu thập văn bản và ảnh của các trang BOM & THÔNG SỐ & SKETCH
             for idx in range(total_pages):
                 page_text = doc_recovery[idx].get_text("text")
                 page_text_upper = page_text.upper()
                 
-                # Chốt chặn từ khóa nghiêm ngặt: Chỉ lấy trang chứa dữ liệu BOM hoặc thông số kích thước
+                # Chốt chặn từ khóa nghiêm ngặt: Chỉ lấy trang chứa dữ liệu BOM, thông số kích thước hoặc hình vẽ kỹ thuật
                 is_target_page = any(k in page_text_upper for k in [
                     "BOM", "BILL OF MATERIAL", "BILL OF MATERIALS", 
-                    "SPECIFICATION", "MEASUREMENT", "THÔNG SỐ", "KÍCH THƯỚC"
+                    "SPECIFICATION", "MEASUREMENT", "THÔNG SỐ", "KÍCH THƯỚC", "SKETCH", "DESIGN"
                 ])
                 
                 if is_target_page:
                     # Tích lũy cơ sở dữ liệu văn bản phẳng từ trang mục tiêu
                     full_pdf_raw_text += f"\n--- DATA SCANNING SOURCE: PAGE {idx + 1} ---\n{page_text}"
                     
-                    # Trích xuất ảnh đồng bộ của trang mục tiêu gửi cho AI xử lý trực quan
+                    # Trích xuất ảnh đồng bộ của trang mục tiêu gửi cho AI xử lý trực quan hình ảnh hình rập
                     if len(image_payloads) < MAX_IMAGE_PAGES:
                         page = doc_recovery.load_page(idx)
                         pix = page.get_pixmap(dpi=target_dpi, colorspace=fitz.csRGB)
@@ -1573,15 +1573,16 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             # Bơm toàn bộ dữ liệu text phẳng đã trích xuất sạch vào đầu danh sách gửi sang Gemini
             gemini_inputs.insert(0, f"=== RECOVERED TECHPACK FLAT TEXT DATABASE ===\n{full_pdf_raw_text}\n============================================\n")
             
-            # 🌟 VÁ CHÍ MẠNG: Đưa trực tiếp câu lệnh hiện tại của người dùng vào danh sách đầu vào của Gemini
+            # Đưa trực tiếp câu lệnh hiện tại của người dùng vào danh sách đầu vào của Gemini
             gemini_inputs.append(f"\n[USER COMMAND]: {current_query}")
 
 
 
                          # =====================================================================
-                       # =====================================================================
-            # ĐOẠN 7a - PHẦN 2: DYNAMIC MULTI-PRODUCT AI GATEWAY (V64.0 PRO ENGINE)
-            # 🌟 NÂNG CẤP LÊN MODEL PRO ĐỂ TRÁNH LỖI AI "LƯỜI" BỎ TRỐNG MẢNG PANELS KHIẾN ĐỊNH MỨC BẰNG 0
+                     # =====================================================================
+            # ĐOẠN 7a - PHẦN 2: DYNAMIC MULTI-PRODUCT AI GATEWAY (V65.0 PROMPT FIXED)
+            # 🌟 VÁ CHÍ MẠNG QUOTA: SỬ DỤNG GEMINI-2.5-FLASH ĐỂ CHẠY THƯƠNG MẠI MIỄN PHÍ VÀ ỔN ĐỊNH
+            # 🌟 CẤU TRÚC PROMPT CƯỠNG CHẾ HÀNH VI ÉP AI BẮT BUỘC PHẢI TRẢ DIỆN TÍCH MẢNH CON
             # =====================================================================
             if "GEMINI_API_KEY" not in st.secrets:
                 st.error("💥 Lỗi hạ tầng: Thiếu cấu hình GEMINI_API_KEY trong hệ thống Secrets.")
@@ -1589,9 +1590,8 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                 
             genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
             
-            # 🟢 VÁ CHÍ MẠNG: Đổi từ "gemini-2.5-flash" sang "gemini-2.5-pro" (hoặc "gemini-1.5-pro")
-            # Dòng Pro có lõi tư duy chuỗi (Reasoning) cực mạnh, ép buộc tuân thủ 100% lệnh sinh diện tích rập
-            model = genai.GenerativeModel("gemini-2.5-pro")
+            # 🟢 VÁ SỬA LỖI 429: Quay trở lại dòng model FLASH có hạn mức miễn phí lớn gấp nhiều lần bản PRO
+            model = genai.GenerativeModel("gemini-2.5-flash")
             
             chat_lower = current_query.lower()
             match_size = re.search(r'\b(?:size|sz|cỡ)\s*[:\-=\s]*([\w\d/]+)\b', chat_lower)
@@ -1602,18 +1602,17 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             active_width = float(match_w.group(1)) if match_w else 57.0
             if active_width < 20.0: active_width = 57.0
             
-            # Giữ nguyên khối prompt_instruction V61.9 cưỡng chế sinh diện tích phía dưới...
-
-            
-            # Cấu trúc Prompt cưỡng chế hành vi suy luận của Gemini Flash
+            # Cấu trúc Prompt mẫu ép buộc mô hình Flash phải tính toán hình học đa cấu kiện
             prompt_instruction = f"""
-            You are an expert apparel IE and CAD pattern engineer [INSTRUCT]. Your absolute priority is to analyze the techpack text and sketches to extract and calculate pattern piece geometric net areas for size '{target_size_cmd}' [INSTRUCT].
+            You are an expert apparel Industrial Engineer (IE) and CAD pattern master [INSTRUCT]. Your absolute priority is to analyze the provided techpack text and technical sketches to calculate precise individual piece areas for size '{target_size_cmd}' [INSTRUCT].
 
-            🚨 STRICT LAWS (CRITICAL PROTECTION):
-            1. You MUST populate the 'panels_catalog' list for EVERY material row in the BOM. Leaving 'panels_catalog': [] or returning 0 for area is strict violation [INSTRUCT].
-            2. For EVERY panel, you MUST look at the Measurement chart and Technical Sketch to estimate its physical height (length) and width. Then, calculate its TRUE geometric area ('calculated_net_area_sq_inch') [INSTRUCT].
-               - For example, if a Front Leg of a pant has an Outseam length of ~40 inches and Thigh/Hip width of ~12 inches, its calculated net area should be mathematically derived (e.g., 40 * 12 * 0.90 = ~432.0 sq inches). DO NOT output 0.0 [INSTRUCT].
-            3. At the top level inside '_btp_global_summary', you MUST provide 'total_net_area_sq_inch' (the mathematical sum of all panels multiplied by piece counts) and 'estimated_marker_utilization' (overall marker layout efficiency, between 0.75 and 0.90) [INSTRUCT].
+            🚨 STRICT GERBER-CAD PACKING LAWS (MANDATORY PROTECTION):
+            1. You MUST populate the 'panels_catalog' array for EVERY single material row discovered in the BOM. Leaving 'panels_catalog': [] or returning 0 for area is strict violation [INSTRUCT].
+            2. For EVERY panel, you MUST look at the Measurement chart and Technical Sketch to estimate its physical max height (length) and width. Then, calculate its TRUE geometric area ('calculated_net_area_sq_inch') [INSTRUCT].
+               - Formula example: Front Leg area = Length * Width * Shape_Factor (e.g., 40.5 inches length * 13.0 inches width * 0.90 shape vining = ~473.8 sq inches). DO NOT leave empty or output 0.0 [INSTRUCT].
+            3. At the top level inside '_btp_global_summary', you MUST aggregate all data and provide:
+               - 'total_net_area_sq_inch': The absolute mathematical sum of all panels multiplied by piece counts.
+               - 'estimated_marker_utilization': The overall layout efficiency (decimal between 0.72 and 0.92) based on how shapes interlock together on a standard marker sheet [INSTRUCT].
 
             Output STRICTLY in this raw plain text JSON format without markdown markers. All 'fabric_width_inch' MUST match the value {active_width}:
             ===START_JSON===
@@ -1714,6 +1713,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             }}
             ===END_JSON===
             """
+
 
 
 
