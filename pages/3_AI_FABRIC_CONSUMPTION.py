@@ -27,163 +27,147 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, query_st
     import re
     import streamlit as st
     
-    st.warning("⚡ ENTERPRISE CAD ENGINE: DETERMINISTIC QUALITY GATEWAY V110.0 ACTIVATED")
+    st.info("🚀 ENTERPRISE MULTI-ENGINE CAD ROUTER V120.0 ACTIVATED")
     
     if not blueprint_final or "bom_rows" not in blueprint_final:
         return blueprint_final
         
-    filtered_bom_rows = []
-    product_type = str(blueprint_final.get("detected_product_type", "JEANS")).upper().strip()
+    router_bom_rows = []
+    product_type = str(blueprint_final.get("detected_product_type", "DRESS")).upper().strip()
     
-    # 🟢 TRÍCH XUẤT CO RÚT THEO TỪ KHÓA NGỮ CẢNH NGHIÊM NGẶT
-    warp_num, weft_num = 0.03, 0.03 # Giá trị dự phòng mặc định (3% dọc, 3% ngang)
+    # 🟢 1. TRÍCH XUẤT CÁC BIẾN ÉP TỪ Ô CHAT (DÙNG CHO FABRIC ENGINE)
+    warp_num, weft_num = 0.03, 0.03
+    chat_txt = str(query_string).lower()
     try:
-        chat_txt = str(query_string).lower()
-        warp_match = re.search(r'(?:co rút dọc|co rut doc|warp|sh_length|dọc|doc)\s*[:\-=\s]*([\d\.]+)', chat_txt)
-        weft_match = re.search(r'(?:co rút ngang|co rut ngang|weft|sh_width|ngang|ngang)\s*[:\-=\s]*([\d\.]+)', chat_txt)
-        
+        warp_match = re.search(r'(?:co rút dọc|co rut doc|warp|dọc|doc)\s*[:\-=\s]*([\d\.]+)', chat_txt)
+        weft_match = re.search(r'(?:co rút ngang|co rut ngang|weft|ngang)\s*[:\-=\s]*([\d\.]+)', chat_txt)
         if warp_match: warp_num = float(warp_match.group(1)) / 100.0
         if weft_match: weft_num = float(weft_match.group(1)) / 100.0
-        
-        # Fallback xử lý chuỗi số đôi liền nhau (VD: "co rút 3 3")
-        if not warp_match and not weft_match and any(k in chat_txt for k in ["co rút", "co rut", "shrinkage"]):
-            all_nums = re.findall(r'[\d\.]+', chat_txt.split("co rut")[-1].split("co rút")[-1])
-            if len(all_nums) >= 2:
-                warp_num = float(all_nums[0]) / 100.0
-                weft_num = float(all_nums[1]) / 100.0
-            elif len(all_nums) == 1:
-                warp_num = float(all_nums[0]) / 100.0
-                weft_num = float(all_nums[0]) / 100.0
-    except Exception:
-        warp_num, weft_num = 0.03, 0.03
+    except Exception: pass
 
-    # HẠ TẦNG MA TRẬN ĐỘNG THAY THẾ TOÀN BỘ CÁC HẰNG SỐ GIẢ ĐỊNH CŨ
+    # 📐 MA TRẬN PHỤ TRỢ CHO FABRIC ENGINE
     PRODUCT_NET_AREA_MATRIX = {
-        "JEANS": {"MAIN_FABRIC": 0.84, "LINING": 0.78, "FUSING": 0.80},
-        "SHIRT": {"MAIN_FABRIC": 0.79, "LINING": 0.75, "FUSING": 0.75},
-        "JACKET": {"MAIN_FABRIC": 0.81, "LINING": 0.80, "FUSING": 0.78},
-        "DRESS": {"MAIN_FABRIC": 0.78, "LINING": 0.72, "FUSING": 0.70}, # Tăng nhẹ biên dạng bao phủ váy
-        "FLARE_SKIRT": {"MAIN_FABRIC": 0.62, "LINING": 0.60, "FUSING": 0.60},
-        "DEFAULT": {"MAIN_FABRIC": 0.82, "LINING": 0.78, "FUSING": 0.78}
+        "JEANS": {"MAIN_FABRIC": 0.84, "LINING": 0.78, "DEFAULT": 0.80},
+        "DRESS": {"MAIN_FABRIC": 0.78, "LINING": 0.72, "DEFAULT": 0.75},
+        "DEFAULT": {"MAIN_FABRIC": 0.80, "DEFAULT": 0.80}
     }
-    
-    # 🌟 ĐÃ ĐIỀU CHỈNH TỶ LỆ CO RÚT / NHÚN ĐỂ NÂNG CAO ĐỊNH MỨC THEO THỰC TẾ SẢN XUẤT ĐẦM RUCHED
     GATHER_RATIO_MATRIX = {
         "NONE": {"NONE": 1.00, "LIGHT": 1.05, "MEDIUM": 1.10, "HEAVY": 1.15},
-        "SIDE_RUCHE": {"NONE": 1.00, "LIGHT": 1.20, "MEDIUM": 1.45, "HEAVY": 1.70}, # Tăng hệ số bù hao nhún sườn
-        "WAIST_GATHER": {"NONE": 1.00, "LIGHT": 1.25, "MEDIUM": 1.45, "HEAVY": 1.65},
-        "FLARE_SKIRT": {"NONE": 1.00, "LIGHT": 1.25, "MEDIUM": 1.50, "HEAVY": 1.85}
-    }
-    
-    PRODUCT_WASTAGE_MATRIX = {
-        "MAIN_FABRIC": 1.03, "LINING": 1.03, "FUSING": 1.03, # Nâng hao hụt đầu bàn vải chính lên 3%
-        "KNIT_FABRIC": 1.04, "STRIPE_CHECK": 1.05, "DEFAULT": 1.03
+        "SIDE_RUCHE": {"NONE": 1.00, "LIGHT": 1.20, "MEDIUM": 1.45, "HEAVY": 1.70},
+        "WAIST_GATHER": {"NONE": 1.00, "LIGHT": 1.25, "MEDIUM": 1.45, "HEAVY": 1.65}
     }
 
-    ai_bom_rows = blueprint_final.get("bom_rows", [])
-    
-    for ai_row in ai_bom_rows:
+    # 🟢 2. VÒNG LẶP ĐỊNH TUYẾN DỮ LIỆU ĐẾN TỪNG ENGINE RIÊNG BIỆT
+    for ai_row in blueprint_final.get("bom_rows", []):
         ui_row = copy.deepcopy(ai_row)
-        fab_class = str(ui_row.get("fabric_classification", "MAIN_FABRIC")).upper().strip()
-        qa_logs = []
+        engine_target = str(ui_row.get("engine", "FABRIC")).upper().strip()
+        uom_target = str(ui_row.get("uom", "PCS")).upper().strip()
         
-        # ⚠️ TẦNG 2: TECHNICAL QUALITY GATE - PHÒNG VỆ KIỂM TRA LỖI BIẾN SỐ SẢN XUẤT
-        raw_width = ui_row.get("fabric_width_inch")
-        try: 
-            width_inch = float(raw_width or 56.0)
-            if width_inch < 20.0 or width_inch > 80.0:
-                width_inch = 56.0
-                qa_logs.append("⚠️ Khổ vải lỗi [20-80], ép về 56\".")
-        except Exception: 
-            width_inch = 56.0
-            
-        try:
-            p_count = int(ui_row.get("piece_count", 1) or 1)
-            if p_count <= 0:
-                p_count = 1
-                qa_logs.append("⚠️ Chi tiết <=0, ép về 1.")
-        except Exception:
-            p_count = 1
-
-        # Đấu nối và thẩm định hiệu suất sơ đồ động từ Nesting Engine
-        if "algorithmic_efficiency" in ui_row and ui_row.get("algorithmic_efficiency") is not None:
+        gross_val = 0.0
+        calc_note = ""
+        
+        # -----------------------------------------------------------------
+        # LAYER 1: FABRIC & FUSING ENGINE (Tính theo diện tích & sơ đồ CAD)
+        # -----------------------------------------------------------------
+        if engine_target in ["FABRIC", "FUSING"]:
+            raw_width = ui_row.get("fabric_width_inch")
             try: 
-                efficiency_num = float(ui_row.get("algorithmic_efficiency"))
-                if efficiency_num < 1.0: efficiency_num = efficiency_num * 100.0
-                efficiency_num = efficiency_num / 100.0
-                if efficiency_num < 0.60 or efficiency_num > 0.95:
-                    efficiency_num = 0.855
-                    qa_logs.append("⚠️ Hiệu suất Nesting lỗi [60-95], ép về 85.5%.")
-            except Exception: 
-                efficiency_num = 0.855
-            ui_source_tag = "Nesting Engine"
-        else:
-            if fab_class == "MAIN_FABRIC": efficiency_num = 0.855  
-            elif fab_class in ["LINING", "FUSING"]: efficiency_num = 0.865  
-            else: efficiency_num = 0.950  
-            ui_source_tag = "Factory Standard"
+                width_inch = float(raw_width or 56.0)
+                match_w_direct = re.search(r'(?:khổ|kho|width|w)\s*[:\-=\s]*([\d\.]+)', chat_txt)
+                if match_w_direct: width_inch = float(match_w_direct.group(1))
+            except: width_inch = 56.0
             
-        g_type = str(ui_row.get("gather_type", "NONE")).upper().strip()
-        g_depth = str(ui_row.get("gather_depth", "NONE")).upper().strip()
-        
-        ratio_type_map = GATHER_RATIO_MATRIX.get(g_type, GATHER_RATIO_MATRIX["NONE"])
-        active_gather_ratio = ratio_type_map.get(g_depth, 1.00)
-        active_wastage_factor = PRODUCT_WASTAGE_MATRIX.get(fab_class, PRODUCT_WASTAGE_MATRIX["DEFAULT"])
-        
-        # 📐 TẦNG 3: POLYGON ENGINE DECOUPLING & DETERMINISTIC CALCULATOR
-        raw_poly_area = ui_row.get("net_area_polygon_sq_inch")
-        
-        if raw_poly_area is not None and float(raw_poly_area or 0.0) > 0:
-            total_net_area = float(raw_poly_area)
-            net_area_factor = 1.00 
-            area_note = "📐 Diện tích Đa giác (DXF Real Area)"
-        else:
-            raw_length = ui_row.get("bounding_box_length", ui_row.get("length_inch", ui_row.get("length", 0.0)))
-            raw_width_val = ui_row.get("bounding_box_width", ui_row.get("width_inch", ui_row.get("width", 0.0)))
-            try: b_length = float(raw_length or 0.0)
-            except: b_length = 0.0
-            try: b_width = float(raw_width_val or 0.0)
-            except: b_width = 0.0
+            p_count = int(ui_row.get("piece_count", 1) or 1)
+            efficiency_num = 0.855 if engine_target == "FABRIC" else 0.880
             
-            if b_length <= 0 or b_width <= 0:
-                b_length, b_width = 0.0, 0.0
-                qa_logs.append("❌ LỖI HÌNH HỌC: Kích thước chi tiết rập âm hoặc rỗng.")
-                
+            b_length = float(ui_row.get("bounding_box_length", 0.0) or 0.0)
+            b_width = float(ui_row.get("bounding_box_width", 0.0) or 0.0)
+            
+            g_type = str(ui_row.get("gather_type", "NONE")).upper().strip()
+            g_depth = str(ui_row.get("gather_depth", "NONE")).upper().strip()
+            active_gather_ratio = GATHER_RATIO_MATRIX.get(g_type, GATHER_RATIO_MATRIX["NONE"]).get(g_depth, 1.00)
+            
+            # Tính diện tích thực tế
             raw_box_area = b_length * b_width * p_count
-            product_map = PRODUCT_NET_AREA_MATRIX.get(product_type, PRODUCT_NET_AREA_MATRIX["DEFAULT"])
-            net_area_factor = product_map.get(fab_class, 0.80)
-            total_net_area = raw_box_area * net_area_factor
-            area_note = f"📐 Bounding Box × Biên dạng {product_type} ({net_area_factor}x)"
+            net_factor = PRODUCT_NET_AREA_MATRIX.get(product_type, PRODUCT_NET_AREA_MATRIX["DEFAULT"]).get(engine_target, 0.78)
+            total_net_area = raw_box_area * net_factor
+            
+            if total_net_area > 0 and width_inch > 0:
+                adjusted_area = total_net_area * active_gather_ratio
+                expanded_area = adjusted_area * (1.0 + warp_num) * (1.0 + weft_num)
+                gross_val = (expanded_area / (width_inch * 36.0 * efficiency_num)) * 1.03 # 3% wastage
+                gross_val = round(gross_val, 3)
+                
+            ui_row["fabric_width_inch"] = width_inch
+            ui_row["marker_efficiency"] = f"{round(efficiency_num * 100, 1)}%"
+            calc_note = f"FabricEngine | Rập: {b_length}x{b_width} | Nhún: {g_type}_{g_depth}({active_gather_ratio}x)"
 
-        # THỰC THI PHÉP TOÁN TOÁN HỌC PHẲNG CAD KHÔNG SAI LỆCH SỐ
-        if total_net_area > 0 and efficiency_num > 0 and width_inch > 0:
-            gathere_adjusted_area = total_net_area * active_gather_ratio
-            expanded_area = gathere_adjusted_area * (1.0 + warp_num) * (1.0 + weft_num)
-            gross_val = expanded_area / (width_inch * 36.0 * efficiency_num)
-            gross_val = round(gross_val * active_wastage_factor, 3)
-        else:
-            try: gross_val = round(float(ui_row.get("gross_consumption", 0.0)), 3)
-            except: gross_val = 0.0
+        # -----------------------------------------------------------------
+        # LAYER 2: ELASTIC ENGINE (Tính chiều dài + Tỷ lệ co giãn/Đầu bàn)
+        # -----------------------------------------------------------------
+        elif engine_target == "ELASTIC":
+            e_length = float(ui_row.get("length_inch", 0.0) or 0.0)
+            e_count = int(ui_row.get("piece_count", 1) or 1)
+            stretch = float(ui_row.get("stretch_pct", 1.00) or 1.00) # Hệ số căng khi may
             
+            # Quy đổi từ Inch sang Yards (chia 36) hoặc giữ nguyên tùy UOM
+            total_inches = e_length * e_count * stretch * 1.05 # 5% hao hụt đầu bàn thun
+            if uom_target == "YDS":
+                gross_val = round(total_inches / 36.0, 3)
+            elif uom_target == "MTR":
+                gross_val = round(total_inches * 0.0254, 3)
+            else:
+                gross_val = round(total_inches, 3)
+                
+            calc_note = f"ElasticEngine | Dài: {e_length}\" | Số lượng: {e_count} | Độ giãn: {stretch}x | Hao hụt: 5%"
+
+        # -----------------------------------------------------------------
+        # LAYER 3: TAPE & CORD ENGINE (Tính chiều dài tuyến tính đơn thuần)
+        # -----------------------------------------------------------------
+        elif engine_target in ["TAPE", "CORD", "WEBBING"]:
+            t_length = float(ui_row.get("length_inch", 0.0) or 0.0)
+            t_count = int(ui_row.get("piece_count", 1) or 1)
+            
+            total_inches = t_length * t_count * 1.03 # 3% hao hụt mối nối cắt dây
+            if uom_target == "YDS":
+                gross_val = round(total_inches / 36.0, 3)
+            elif uom_target == "MTR":
+                gross_val = round(total_inches * 0.0254, 3)
+            else:
+                gross_val = round(total_inches, 3)
+                
+            calc_note = f"TapeEngine | Chiều dài: {t_length}\" | Số lượng: {t_count} | Hao hụt: 3%"
+
+        # -----------------------------------------------------------------
+        # LAYER 4: COUNT ENGINE (Nút, Khóa, Nhãn - Đếm trực tiếp theo PCS)
+        # -----------------------------------------------------------------
+        elif engine_target == "COUNT":
+            qty_pcs = int(ui_row.get("quantity_pcs", ui_row.get("piece_count", 1)) or 1)
+            # Đối với nút phụ liệu, nhà máy thường mua dư 1-2% bù rơi rớt
+            gross_val = round(float(qty_pcs) * 1.01, 2) if uom_target == "PCS" else float(qty_pcs)
+            calc_note = f"CountEngine | Đếm trực tiếp: {qty_pcs} PCS | Bù hao rơi: 1%"
+
+        # -----------------------------------------------------------------
+        # LAYER 5: THREAD ENGINE (Tính định mức chỉ may công nghiệp)
+        # -----------------------------------------------------------------
+        elif engine_target == "THREAD":
+            # Hệ số chỉ mặc định cho đầm hoặc quần jeans (thường dao động 15 đến 22 mét chỉ / 1 mét may)
+            # Để đơn giản hóa, lấy tiêu chuẩn trung bình 18 mét chỉ cho mỗi sản phẩm dress tiêu chuẩn
+            gross_val = 18.5
+            calc_note = f"ThreadEngine | Tiêu chuẩn Factory Standard Sew-in Matrix"
+
+        # -----------------------------------------------------------------
+        # ĐỒNG BỘ ĐẦU RA CHO BẢNG CONSUMPTION MATRIX
+        # -----------------------------------------------------------------
         ui_row["gross_consumption"] = gross_val
-        ui_row["fabric_width_inch"] = width_inch
-        ui_row["marker_efficiency"] = f"{round(efficiency_num * 100, 1)}%"
-        ui_row["_btp_warp_pct"] = f"{round(warp_num * 100, 1)}%"
-        ui_row["_btp_weft_pct"] = f"{round(weft_num * 100, 1)}%"
+        ui_row["quality_status"] = "PASS" if gross_val > 0 else "QA_FAIL"
+        ui_row["system_notes"] = calc_note
         
-        if gross_val > 0 and not any("❌" in log for log in qa_logs):
-            ui_row["quality_status"] = "PASS"
-        else:
-            ui_row["quality_status"] = "QA_FAIL"
-            
-        qa_summary = " | ".join(qa_logs) if qa_logs else "✅ DỮ LIỆU ĐẦU VÀO ĐẠT CHUẨN KIỂM TOÁN."
-        ui_row["system_notes"] = f"{area_note} | Hiệu suất: {ui_source_tag} | Hao hụt: {round((active_wastage_factor-1)*100,1)}% | {g_type}_{g_depth}({active_gather_ratio}x) | [{qa_summary}]"
+        router_bom_rows.append(ui_row)
         
-        # Fix đoạn lỗi cú pháp bị cắt ngắn của bạn:
-        filtered_bom_rows.append(ui_row)
-        
-    blueprint_final["bom_rows"] = filtered_bom_rows
+    blueprint_final["bom_rows"] = router_bom_rows
     return blueprint_final
+
 
 
 
@@ -617,46 +601,83 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             Return strictly raw technical JSON array with bounding_box_length, bounding_box_width, piece_count. No consumption calculations.
             """
             
-            prompt_agent_2 = f"""
-            You are Agent 2: The Senior Apparel IE Visual Auditor. Review Agent 1 JSON against raw Techpack context and sketches.
+                        prompt_agent_2 = f"""
+            You are Agent 2: The Enterprise Apparel Visual Auditor & Material Router. 
+            Review Agent 1 extraction against the raw Techpack context, BOM tables, and sketches.
             
-            🌟 CRITICAL AREA REALISM AUDIT:
-            1. You MUST verify that the extracted dimensions represent the FULL garment. For a Dress/Garment, you MUST include BOTH the Front Panel and Back Panel. 
-            2. Cross-examine the product type. Look at the sketch images and text metadata carefully. If the file is a Dress, you MUST output 'detected_product_type' as 'DRESS'. Override any 'Pants' or 'Twill Pants' text metadata bias from the cache.
-            3. For adult Dress/Mini Dress major fabric panels, the realistic total raw combined net area 'total_net_area_sq_inch' MUST fall logically between 2200.0 and 3200.0 square inches. (Elevated for high-yield ruched/gathering allowance).
-            4. Classify 'gather_type' as strictly one of: ['NONE', 'SIDE_RUCHE', 'WAIST_GATHER', 'FLARE_SKIRT']. For this Side Ruched Dress, it MUST be 'SIDE_RUCHE'.
-            5. Classify intensity 'gather_depth' as strictly one of: ['NONE', 'LIGHT', 'MEDIUM', 'HEAVY']. For this dress, set it to 'MEDIUM' or 'HEAVY'.
-            6. CRITICAL FOR RUCHED DRESS: Because this is a SIDE_RUCHE garment, the un-gathered pattern piece length (bounding_box_length) is significantly longer than the finished dress length. Ensure the bounding_box_length reflects the raw stretched pattern piece (typically 58.0 - 68.0 inches for adult mini dress before gathering to achieve realistic production yield).
-            7. Do NOT calculate final yards. Only output clean numbers for Python engine.
+            🌟 CRITICAL MATERIAL ROUTING ARCHITECTURE:
+            1. You MUST extract ALL components listed in the Techpack BOM (Fabric, Elastic, Tape, Buttons, Zipper, Thread, Labels, etc.).
+            2. For EVERY single BOM component, determine its correct calculation engine based on the classification matrix:
+               - Main Fabric, Lining, Pocketing -> Engine: "FABRIC"
+               - Fusible, Interlining -> Engine: "FUSING"
+               - Elastic Bands, Elastic Cord -> Engine: "ELASTIC"
+               - Waist Tape, Twill Tape, Webbing, Drawcord -> Engine: "TAPE"
+               - Buttons, Zippers, Labels, Hanger Loops -> Engine: "COUNT"
+               - Sewing Thread (Spun, Textured) -> Engine: "THREAD"
+               
+            3. STRICT INJECTION RULES PER ENGINE (Do NOT mix fields):
+               - If "FABRIC" or "FUSING": Must provide 'bounding_box_length', 'bounding_box_width', 'piece_count', 'gather_type', 'gather_depth', 'fabric_width_inch'.
+               - If "ELASTIC": Must provide 'length_inch', 'piece_count', 'stretch_pct' (e.g., 1.20 for 120%). Do NOT include fabric width or efficiency.
+               - If "TAPE": Must provide 'length_inch', 'piece_count'. Do NOT include fabric width or areas.
+               - If "COUNT": Must provide 'quantity_pcs' (total count per garment).
+               - If "THREAD": Must provide 'stitch_type' (e.g., "301_LOCKSTITCH", "401_CHAINSTITCH") or leave for factory standard default.
 
-            Output BOTH raw text JSON format (under ===START_JSON===) and markdown chat response (under ===START_CHAT===). All 'fabric_width_inch' must match {active_width}.
+            Output BOTH raw text JSON format (under ===START_JSON===) and markdown chat response (under ===START_CHAT===). All fabric items must match width {active_width}.
             
             ===START_CHAT===
-            ⚖️ **Enterprise CAD Pipeline Engaged**: Đã sửa lỗi ngộ nhận loại hàng. Hệ thống AI đã ép cứng định biên phom dáng **Đầm Liền Thân (DRESS)**, dán nhãn thuộc tính rút nhún sườn **SIDE_RUCHE_MEDIUM** sạch chuyển sang cho Python CAD Engine tự động tra cứu ma trận số học.
+            ⚖️ **Enterprise CAD Routing Pipeline Engaged**: Hệ thống AI đã thực hiện phân rã toàn bộ bảng BOM, phân loại vật tư và định tuyến luồng tính toán sang các Python Micro-Engines chuyên biệt (Fabric/Elastic/Tape/Count/Thread).
             ===END_CHAT===
 
             ===START_JSON===
             {{
               "status": "PASS",
-              "detected_product_type": "DRESS",
+              "detected_product_type": "{product_type}",
               "calculated_on_size": "{target_size_cmd}",
               "bom_rows": [
                 {{
-                  "component_type": "Main Fabric - Poplin",
-                  "fabric_classification": "MAIN_FABRIC",
+                  "component_name": "Main Fabric - Poplin",
+                  "material_type": "Main Fabric",
+                  "material_class": "FABRIC",
+                  "uom": "YDS",
+                  "engine": "FABRIC",
                   "fabric_width_inch": {active_width},
                   "bounding_box_length": 65.0,
                   "bounding_box_width": 26.0,
                   "piece_count": 2,
                   "gather_type": "SIDE_RUCHE",
-                  "gather_depth": "MEDIUM",
-                  "reasoning": "Auditor Confirmed: Overrode to DRESS classification. Extracted full body coverage stretched pattern panels layout including side seam gathering traits."
+                  "gather_depth": "MEDIUM"
+                }},
+                {{
+                  "component_name": "Braided Elastic Waistband",
+                  "material_type": "Elastic",
+                  "material_class": "ELASTIC",
+                  "uom": "YDS",
+                  "engine": "ELASTIC",
+                  "length_inch": 28.0,
+                  "piece_count": 2,
+                  "stretch_pct": 1.20
+                }},
+                {{
+                  "component_name": "Twill Tape Neck",
+                  "material_type": "Twill Tape",
+                  "material_class": "TAPE",
+                  "uom": "MTR",
+                  "engine": "TAPE",
+                  "length_inch": 14.5,
+                  "piece_count": 1
+                }},
+                {{
+                  "component_name": "Front Main Button 24L",
+                  "material_type": "Button",
+                  "material_class": "BUTTON",
+                  "uom": "PCS",
+                  "engine": "COUNT",
+                  "quantity_pcs": 8
                 }}
               ]
             }}
             ===END_JSON===
             """
-
 
 
 
