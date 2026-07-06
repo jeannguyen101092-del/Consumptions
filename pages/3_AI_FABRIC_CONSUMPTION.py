@@ -519,17 +519,28 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             """
 
 
-            # =====================================================================
-            # ĐOẠN 7a - PHẦN 3b: DUAL-AGENT API EXECUTION SEQUENCE (V100.0)
+                       # =====================================================================
+            # ĐOẠN 7a - PHẦN 3b: DUAL-AGENT API EXECUTION SEQUENCE (V100.2 FIXED)
+            # 🌟 ĐÃ VÁ LỖI NAME_ERROR: KHỞI TẠO BIẾN MODEL VÀ CONFIG API CHẮC CHẮN
             # =====================================================================
             if has_no_data_p3 or is_signature_changed_p3:
                 try:
-                    # Chạy Tầng 1: Trích xuất hình học
+                    # Đảm bảo cấu hình cứng API Key luôn sẵn sàng chống crash
+                    if "GEMINI_API_KEY" not in st.secrets:
+                        st.error("💥 Lỗi hạ tầng: Thiếu cấu hình GEMINI_API_KEY trong hệ thống Secrets.")
+                        st.stop()
+                        
+                    genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+                    
+                    # Khởi tạo biến model ngay tại luồng để Phần 3b gọi mượt mà
+                    model = genai.GenerativeModel("gemini-2.5-flash")
+                    
+                    # Thực thi gọi Agent Tầng 1: Trích xuất hình học sơ bộ
                     payload_agent_1 = gemini_inputs + [prompt_agent_1]
                     response_agent_1 = model.generate_content(payload_agent_1)
                     raw_json_agent_1 = response_agent_1.text if response_agent_1 else "{}"
                     
-                    # Chạy Tầng 2: Kiểm toán & chốt dữ liệu
+                    # Thực thi gọi Agent Tầng 2: Kiểm toán logic chuỗi cung ứng
                     payload_agent_2 = [
                         f"=== RECOVERED TECHPACK TEXT ===\n{full_pdf_raw_text}\n",
                         f"=== DATA FROM CAD AGENT 1 ===\n{raw_json_agent_1}\n====================\n",
@@ -542,6 +553,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                 except Exception as api_err:
                     st.error(f"💥 Lỗi kết nối trực tiếp đến chuỗi Agent API: {str(api_err)}")
                     st.stop()
+
             # =====================================================================
             # ĐOẠN 7a - PHẦN 3c: POST-AI MIDDLEWARE PARSER & UI SYNC (V100.0)
             # =====================================================================
