@@ -907,59 +907,155 @@ def analyze_panel_geometry_and_cad_constraints(panels: list, cutable_w: float) -
 import re
 
 # =====================================================================
-# ĐOẠN A: UNIVERSAL PARAMETER & FALLBACK MAPPER ENGINE (V61.6 PRODUCTION)
-# LỚP PHÂN TÍCH THÔNG SỐ VÀ ĐẢM BẢO DÒNG CHẢY DIỆN TÍCH AI NGUYÊN VẸN 100%
-# 🌟 BỔ SUNG CÁC LỆNH PRINT DEBUG KIỂM TOÁN TẠI KHỐI ĐẦU VÀ KHỐI CUỐI CỦA LUỒNG TRUYỀN
+# ĐOẠN BACKEND TỔNG HỢP: UNIVERSAL CAD CALCULATOR PIPELINE (V66.5 COGNITIVE DEBUG)
+# 🌟 TÍCH HỢP 3 BỘ CẢM BIẾN DEBUG ĐỘC LẬP THEO CHỈ ĐỊNH CỦA CHUYÊN GIA
+# 🌟 ĐỒNG BỘ ĐỒNG THỜI VÀO CẢ 3 VÙNG BIẾN CHẶN ĐỨNG LỖI LỆCH PHA SESSION STATE GIAO DIỆN
 # =====================================================================
 import streamlit as st
 import re
 import copy
 
-def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, query_string: str) -> dict:
-    st.warning("⚡ ENGINE EXECUTING: UNIVERSAL DYNAMIC CAD ENGINE V61.6 ACTIVATED")
+def execute_geometric_cad_calculation_core(row: dict, product_type: str, efficiency: float, width_inch: float, shrink_factor_length: float, shrink_factor_width: float, length_base: float, width_base: float) -> dict:
+    FACTORY_HISTORY_DATABASE = {
+        "PANT": {"min_yds": 1.15, "max_yds": 1.95}, "JEANS": {"min_yds": 1.25, "max_yds": 2.15},
+        "JEAN": {"min_yds": 1.25, "max_yds": 2.15}, "SHIRT": {"min_yds": 1.10, "max_yds": 1.65},
+        "JACKET": {"min_yds": 1.65, "max_yds": 2.75}
+    }
+
+    comp_type = (str(row.get("component_type", "")) + " " + str(row.get("fabric_classification", ""))).upper()
+    panels = row.get("panels_catalog", [])
     
+    # 🌟 BỘ CẢM BIẾN DEBUG 2: Kiểm tra chặng đầu vào của lõi toán hình học Gerber
+    st.markdown("---")
+    st.write("🟢 [DEBUG 2] ENTER CORE DETECTED")
+    st.write(f"Vật tư xử lý: **{row.get('component_type')}**")
+    st.write(f"Cơ số mảnh rập AI bàn giao: **{len(panels)}**")
+    
+    if not panels:
+        row["gross_consumption"] = 0.0
+        row["quality_status"] = "INSUFFICIENT_DATA"
+        row["system_notes"] = "Mảng panels_catalog rỗng."
+        return row
+
+    shrink_area_factor = shrink_factor_length * shrink_factor_width
+    global_summary = row.get("_btp_global_summary", {})
+    
+    # Ép kiểu dữ liệu an toàn cho Marker Utilization toàn cục
+    ai_utilization = global_summary.get("estimated_marker_utilization", global_summary.get("marker_utilization"))
+    if ai_utilization is not None:
+        try:
+            match_util = re.search(r'([\d\.]+)', str(ai_utilization))
+            marker_utilization = float(match_util.group(1)) if match_util else efficiency
+            if marker_utilization > 1.0: marker_utilization /= 100.0
+        except:
+            marker_utilization = efficiency
+    else:
+        marker_utilization = efficiency
+
+    total_net_fabric_area_square_inch = 0.0
+    total_area_x_confidence = 0.0
+    accumulated_source_measurements = set()
+        
+    # LUỒNG DUYỆT CHI TIẾT TỪNG MẢNH RẬP CON ĐỂ LỌC SỐ CHÍNH XÁC
+    for p in panels:
+        if not isinstance(p, dict): continue
+        p_name = p.get("panel_name", "UNKNOWN PANEL").upper()
+        
+        # Sửa cơ chế lọc vải chính và lót túi tương đối tránh trùng lặp
+        if any(k in comp_type for k in ["POCKET", "LÓT", "LINING", "TC"]):
+            if not any(k in p_name for k in ["POCKET", "LÓT", "BAG"]): continue
+        else:
+            if any(k in p_name for k in ["POCKET BAG", "LÓT TÚI"]): continue
+
+        # Trích xuất ròng số diện tích thực, loại bỏ chữ "inch" rác
+        raw_area_val = p.get("calculated_net_area_sq_inch", p.get("net_area_sq_inch", p.get("net_area", p.get("area", 0.0))))
+        ai_calculated_net_area = 0.0
+        if raw_area_val:
+            match_area = re.search(r'([\d\.]+)', str(raw_area_val))
+            if match_area: ai_calculated_net_area = float(match_area.group(1))
+
+        # Trích xuất ròng số mảnh (Piece Count)
+        raw_count_val = p.get("piece_count", p.get("count", 1.0))
+        count = 1.0
+        if raw_count_val:
+            match_count = re.search(r'([\d\.]+)', str(raw_count_val))
+            if match_count: count = float(match_count.group(1))
+                
+        confidence = float(p.get("confidence", 1.0))
+        
+        if ai_calculated_net_area <= 0.0:
+            match_L = re.search(r'([\d\.]+)', str(p.get("bounding_box_length_inch", 0.0)))
+            match_W = re.search(r'([\d\.]+)', str(p.get("bounding_box_width_inch", 0.0)))
+            if match_L and match_W:
+                ai_calculated_net_area = float(match_L.group(1)) * float(match_W.group(1)) * 0.90
+        
+        if ai_calculated_net_area <= 0.0: continue  
+            
+        current_panel_net_area = ai_calculated_net_area * count
+        total_net_fabric_area_square_inch += current_panel_net_area
+        total_area_x_confidence += (current_panel_net_area * confidence)
+        
+        src_measurements = p.get("source_measurements", p.get("geometry_source", []))
+        for sm in src_measurements: accumulated_source_measurements.add(str(sm).strip())
+
+    # 🌟 BƯỚC CẢM BIẾN DEBUG 3: Kiểm tra tổng diện tích phẳng sau khi kết thúc luồng tích lũy con
+    st.write(f"🔥 [DEBUG 3] TOTAL AREA FOR **{row.get('component_type')}** = **{total_net_fabric_area_square_inch}** sq in")
+    st.markdown("---")
+
+    if total_net_fabric_area_square_inch <= 0.0:
+        row["gross_consumption"] = 0.0
+        row["quality_status"] = "INSUFFICIENT_DATA"
+        return row
+
+    # Áp co rút diện tích toàn cục diện rộng
+    total_gross_fabric_area_square_inch = total_net_fabric_area_square_inch * shrink_area_factor
+
+    # Biểu thức quy đổi Yards chuẩn Gerber AccuMark
+    denominator = width_inch * marker_utilization * 36.0
+    gross_consumption_yds = total_gross_fabric_area_square_inch / denominator
+    row["gross_consumption"] = round(gross_consumption_yds * 1.03, 3)
+
+    row["marker_efficiency"] = f"{round(marker_utilization * 100, 2)}%"
+    row["quality_status"] = "PASS"
+    row["system_notes"] = f"Tính toán động từ rập diện tích phẳng thực."
+    return row
+
+
+def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, query_string: str) -> dict:
     if not blueprint_final or "bom_rows" not in blueprint_final:
         return blueprint_final
         
-    # 🌟 ĐIỂM DEBUG 1 THEO YÊU CẦU: Kiểm tra ngay sau khi nhận dữ liệu từ Middleware xem AI có trả trường diện tích không
-    try:
-        if "bom_rows" in blueprint_final and len(blueprint_final["bom_rows"]) > 0:
-            first_row = blueprint_final["bom_rows"][0]
-            if "panels_catalog" in first_row and len(first_row["panels_catalog"]) > 0:
-                print("\n[DEBUG 1 - MIDDLEWARE TO ENGINE OUPUT]:", first_row["panels_catalog"][0])
-    except Exception as db1_err:
-        print("[DEBUG 1 ERROR]: Cannot print blueprint entry:", str(db1_err))
-        
-    # 1. TRÍCH XUẤT THÔNG SỐ CO RÚT ĐẦU CÂY VẢI TỪ CÂU LỆNH CHAT CỦA NGƯỜI DÙNG
+    # Trích xuất thông số co rút đầu cây vải
     chat_lower = str(query_string).lower()
     match_shrink = re.search(r'(?:co rút|co rut|sh|shrinkage)\s*[:\-=\s]*([\d\.]+)\s*[\-,\s]\s*([\d\.]+)', chat_lower)
-    
     if match_shrink:
         try:
-            warp_pct = float(match_shrink.group(1))
-            weft_pct = float(match_shrink.group(2))
-            warp = warp_pct / 100.0
-            weft = weft_pct / 100.0
-            warp_val, weft_val = f"{warp_pct}%", f"{weft_pct}%"
-        except:
-            warp, weft = 0.04, 0.14
-            warp_val, weft_val = "4.0%", "14.0%"
+            warp = float(match_shrink.group(1)) / 100.0
+            weft = float(match_shrink.group(2)) / 100.0
+            warp_val, weft_val = f"{match_shrink.group(1)}%", f"{match_shrink.group(2)}%"
+        except: warp, weft = 0.04, 0.14; warp_val, weft_val = "4.0%", "14.0%"
     else:
         warp_val = blueprint_final.get("_btp_global_summary", {}).get("detected_warp_shrinkage", "4.0%")
         weft_val = blueprint_final.get("_btp_global_summary", {}).get("detected_weft_shrinkage", "14.0%")
         try:
             warp = float(str(warp_val).replace("%","").strip()) / 100.0
             weft = float(str(weft_val).replace("%","").strip()) / 100.0
-        except:
-            warp, weft = 0.04, 0.14
+        except: warp, weft = 0.04, 0.14
 
     shrink_factor_length = 1.0 + warp
     shrink_factor_width = 1.0 + weft
     product_type = str(blueprint_final.get("detected_product_type", "PANT")).upper().strip()
 
-    # 2. TRÍCH XUẤT SỐ ĐO THỰC TẾ TỪ BẢNG THÔNG SỐ POM PHỤC VỤ HỆ THỐNG KIỂM TOÁN
-    matched_list = blueprint_final.get("matched_measurements", [])
+    # 🌟 BƯỚC CẢM BIẾN DEBUG 1: Kiểm tra ngay chặng đầu vào khi nhận JSON từ mô hình AI
+    st.subheader("🛠️ KHỐI KIỂM TOÁN VẬN HÀNH LOGIC HỆ THỐNG")
+    try:
+        first_row = blueprint_final["bom_rows"][0]
+        st.write(f"📊 [DEBUG 1] PANELS FOR FIRST MATERIAL ROW = **{len(first_row.get('panels_catalog', []))}**")
+    except Exception as db1_err:
+        st.write("[DEBUG 1 ERROR]: Khối bom_rows trống hoặc lỗi truy cập cấu trúc.")
+
     length_base, width_base = 0.0, 0.0
+    matched_list = blueprint_final.get("matched_measurements", [])
     for item in matched_list:
         item_str = str(item).upper()
         if any(k in item_str for k in ["LENGTH", "OUTSEAM", "INSEAM", "DÀI"]):
@@ -970,55 +1066,42 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, query_st
             if m_num: width_base = float(m_num.group(1))
 
     filtered_bom_rows = []
-    
-    # Duyệt qua từng dòng vải trong bảng dữ liệu BOM
     for row in blueprint_final.get("bom_rows", []):
         comp_type = (str(row.get("component_type", "")) + " " + str(row.get("fabric_classification", ""))).upper()
-        
-        row["_btp_warp_pct"] = warp_val
-        row["_btp_weft_pct"] = weft_val
-        
-        if any(k in comp_type for k in ["BUTTON", "NÚT", "RIVET", "ĐINH TÁN", "LABEL", "NHÃN", "MÁC", "STICKER", "THREAD", "CHỈ"]):
-            continue
+        if any(k in comp_type for k in ["BUTTON", "NÚT", "RIVET", "ĐINH TÁN", "LABEL", "NHÃN", "MÁC", "STICKER", "THREAD", "CHỈ"]): continue
             
         width_inch = float(row.get("fabric_width_inch", 57.0))
         if width_inch < 20.0: width_inch = 57.0
         row["fabric_width_inch"] = width_inch
 
-        # 3. MÔ HÌNH HIỆU SUẤT SƠ ĐỒ ĐỘNG NỀN TẢNG (CHỈ DÙNG LÀM BASE TRƯỚC KHI AI ÁP UTILIZATION)
-        if "JEAN" in product_type or "PANT" in product_type or any(k in comp_type for k in ["DENIM", "MAIN_FABRIC"]):
-            efficiency = 0.8250  
-        elif any(k in product_type for k in ["JACKET", "OUTERWEAR", "COAT"]):
-            efficiency = 0.8650  
-        elif any(k in comp_type for k in ["POCKET", "LÓT", "LINING", "TC"]):
-            efficiency = 0.7500  
-        else:
-            efficiency = 0.8500  
+        if "JEAN" in product_type or "PANT" in product_type or any(k in comp_type for k in ["DENIM", "MAIN_FABRIC"]): efficiency = 0.8250  
+        elif any(k in product_type for k in ["JACKET", "OUTERWEAR", "COAT"]): efficiency = 0.8650  
+        elif any(k in comp_type for k in ["POCKET", "LÓT", "LINING", "TC"]): efficiency = 0.7500  
+        else: efficiency = 0.8500  
 
         raw_eff = row.get("marker_efficiency", row.get("marker_efficiency_pct", efficiency))
         if isinstance(raw_eff, str):
             try:
-                efficiency_read = float(raw_eff.replace("%", "").strip())
-                if efficiency_read > 1.0: efficiency_read /= 100.0
-                efficiency = efficiency_read
+                eff_read = float(raw_eff.replace("%", "").strip())
+                if eff_read > 1.0: eff_read /= 100.0
+                efficiency = eff_read
             except: pass
             
-        # Nạp khối dữ liệu tệp Summary cha vào bên trong từng row con để Đoạn B dễ dàng trích xuất Utilization toàn cục
         if "_btp_global_summary" in blueprint_final:
             row["_btp_global_summary"] = blueprint_final["_btp_global_summary"]
 
-        # 🌟 ĐIỂM DEBUG 2 THEO YÊU CẦU: In ra ngay trước khi chuyển giao sang Engine toán Đoạn B
-        try:
-            if "panels_catalog" in row and len(row["panels_catalog"]) > 0:
-                print(f"[DEBUG 2 - IMMEDIATELY BEFORE CORE ENTRY FOR {row.get('component_type')}]:", row["panels_catalog"][0])
-        except Exception as db2_err:
-            print("[DEBUG 2 ERROR]: Cannot print row panels entry:", str(db2_err))
-
-        # 🚀 CHUYỂN GIAO NGUYÊN VẸN TOÀN BỘ SỐ LIỆU SẠCH SANG ĐOẠN B ĐỂ XỬ LÝ SỐ HỌC
-        row = execute_geometric_cad_calculation_core(row, product_type, efficiency, width_inch, shrink_factor_length, shrink_factor_width, length_base, width_base)
-        filtered_bom_rows.append(row)
+        # Gọi lõi toán hình học Đoạn B xử lý Yards thực tế
+        calculated_row = execute_geometric_cad_calculation_core(row, product_type, efficiency, width_inch, shrink_factor_length, shrink_factor_width, length_base, width_base)
+        filtered_bom_rows.append(calculated_row)
         
     blueprint_final["bom_rows"] = filtered_bom_rows
+    
+    # 🌟 VÁ CHÍ MẠNG TOÀN DIỆN SESSION STATE: Đổ đồng thời dữ liệu Yards mới vào cả 3 vùng ô nhớ giao diện
+    # Thao tác này triệt tiêu hoàn toàn lỗi UI đọc sai địa chỉ ô nhớ kẹt số cũ của xưởng may
+    st.session_state["bom_rows"] = filtered_bom_rows
+    st.session_state["accumulated_bom_rows"] = filtered_bom_rows
+    st.session_state["bom_data"] = blueprint_final
+    
     return blueprint_final
 
 # =====================================================================
