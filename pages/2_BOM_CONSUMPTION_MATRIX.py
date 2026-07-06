@@ -2351,7 +2351,7 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
 
 
         
-                # =========================================================================
+                 # =========================================================================
         # 📐 [ĐOẠN 5/6 CHUẨN ERP] - CHỈ TRÍCH XUẤT THÔNG SỐ CƠ BẢN ĐỂ TÍNH ĐỊNH MỨC VẢI
         # =========================================================================
         # Khởi tạo các mảng phân tầng trục tọa độ rập mẫu
@@ -2401,13 +2401,15 @@ if 'menu_selection' in globals() and menu_selection == "🧵 BOM & Consumption M
         avg_area_growth_pct = round((geometric_area_multiplier - 1) * 100, 2)
 
         # RÀO CHẮN BẢO VỆ TUYỆT ĐỐI KHÔNG CHO TRÀN SỐ TRÊN GIAO DIỆN
-        # 🛠️ SỬA LỖI: Đổi điều kiện `<= 0.0` thành `< 0.0`. Khi khớp hết (0.0%), hệ thống sẽ giữ nguyên 0.0% thay vì nhảy sang 4.25%
-        if avg_area_growth_pct > 15.0 or avg_area_growth_pct < 0.0:
-            avg_area_growth_pct = 4.25  # Ép về biên độ tăng diện tích sơ đồ chuẩn để định mức vải chính đạt ~1.05 lân
+        # 🛠️ SỬA LỖI: Bỏ điều kiện `< 0.0`. Cho phép phần trăm âm chạy tự do để lên đúng giao diện UI.
+        # Hệ thống chỉ ép cứng về 4.25% khi phom rập nhảy vóc dương quá lớn (> 15.0%)
+        if avg_area_growth_pct > 15.0:
+            avg_area_growth_pct = 4.25  
 
         # Truyền tải an toàn sang bộ nhớ toàn cục và Streamlit State để chuyển tiếp sang Đoạn 6/6
         globals()["avg_area_growth_pct"] = float(avg_area_growth_pct)
         st.session_state["avg_area_growth_pct"] = float(avg_area_growth_pct)
+
 
 
 
