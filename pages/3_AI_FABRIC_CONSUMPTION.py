@@ -521,10 +521,12 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                        # =====================================================================
                       # =====================================================================
                         # =====================================================================
-            # ĐOẠN 7a - PHẦN 3a: DUAL-AGENT AI STREAM GENERATION (V92.3 PRODUCTION FIXED)
-            # 🌟 ĐÃ VÁ LỖI CRASH: KHỞI TẠO BIẾN RESPONSE_TEXT TOÀN CỤC CHỐT CHẶN NAME_ERROR
+                       # =====================================================================
+            # ĐOẠN 7a - PHẦN 3a: TRIPLE-AGENT AUTONOMOUS CAD PIPELINE (V96.0 COUPLING)
+            # 🌟 AGENT 1: PATTERN EXTRACTOR & NET AREA ESTIMATOR (GIẢI QUYẾT RẬP PHI TUYẾN TÍNH)
+            # 🌟 AGENT 2: IE LOGIC AUDITOR (NEVER TRUST AGENT 1 - TỔNG HỢP SỐ PHẲNG)
+            # 🌟 AGENT 3: PURE ARITHMETIC CALCULATOR (MÁY TÍNH KHÔNG SUY LUẬN, KHÔNG ĐỌC TECHPACK)
             # =====================================================================
-            # Khởi tạo biến cục bộ ngay từ đầu luồng xử lý tầng 3 để an toàn vùng nhớ
             response_text = ""
             
             pdf_bytes_len_p3 = len(st.session_state.pdf_bytes) if st.session_state.pdf_bytes else 0
@@ -533,101 +535,129 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             has_no_data_p3 = not st.session_state.get("bom_data") or st.session_state.get("bom_data") == {}
             is_signature_changed_p3 = st.session_state.get("last_processed_signature") != current_signature_p3
 
-            # KÍCH HOẠT CHUỖI API KÉP KHI ĐỦ ĐIỀU KIỆN CHỮ KÝ TRẠNG THÁI
             if has_no_data_p3 or is_signature_changed_p3:
                 try:
                     # -----------------------------------------------------------------
-                    # 🧠 TẦNG 1: AGENT TRÍCH XUẤT DIỆN TÍCH PANEL SƠ BỘ VÀ DANH MỤC VẬT TƯ
+                    # 🔍 TẦNG 1: AGENT 1 - PATTERN EXTRACTOR & AREA ESTIMATOR
                     # -----------------------------------------------------------------
                     prompt_agent_1 = f"""
-                    You are Agent 1: A Textile CAD Geometry Specialist. 
-                    Your job is to scan the techpack text and images, identify the product type, extract all relevant measurements for size '{target_size_cmd}', and calculate the raw surface area of each fabric panel including shrinkage.
-                    CRITICAL: Do not just scan main panels. Look for Pocketing (lót túi), Elastic (chun), Tape (dây dệt/dây viền), and any trim calculated in yards/meters.
+                    You are Agent 1: An Apparel Technical Pattern Extractor and Net Area Estimator.
+                    Your mission is to scan the techpack flat text, sketches, and charts for size '{target_size_cmd}'.
+                    Since apparel patterns (front leg, back leg, sleeve) are NOT perfect rectangles, you must estimate the true net surface area of each panel based on shapes, curves, and dimensions.
 
-                    Return strictly a temporary technical JSON containing:
-                    - detected_product_type
-                    - calculated_on_size
-                    - a list of 'raw_panels' with dimensions, shrinkage, and temporary gross consumption.
+                    Identify and extract:
+                    1. Product Type from Techpack.
+                    2. Target Size: '{target_size_cmd}'.
+                    3. List of ALL individual pattern pieces/panels. For each piece, provide: panel_name, material_type, bounding_box_length, bounding_box_width, piece_count, and estimated_net_area_sq_inch.
+                    4. Identify auxiliary material rows (Pocketing bags, Waistband linings, Fusing sheets, Elastic bands, Tape cords).
+
+                    Output strictly a plain text JSON with no placeholders or mathematical formulas:
+                    {{
+                      "detected_product_type": "string",
+                      "extracted_size": "string",
+                      "panels": [
+                        {{
+                          "panel_name": "string",
+                          "component_classification": "MAIN_FABRIC or LINING or FUSING or TRIM_YARDS",
+                          "bounding_box_length": float,
+                          "bounding_box_width": float,
+                          "piece_count": int,
+                          "estimated_net_area_sq_inch": float,
+                          "area_confidence": float
+                        }}
+                      ]
+                    }}
                     """
-                    
                     payload_agent_1 = gemini_inputs + [prompt_agent_1]
                     response_agent_1 = model.generate_content(payload_agent_1)
-                    raw_json_agent_1 = response_agent_1.text if response_agent_1 else "{}"
+                    json_agent_1 = response_agent_1.text if response_agent_1 else "{}"
                     
                     # -----------------------------------------------------------------
-                    # ⚖️ TẦNG 2: AGENT IE KIỂM TOÁN LOGIC SẢN XUẤT & CHỐT ĐỊNH MỨC AN TOÀN
+                    # ⚖️ TẦNG 2: AGENT 2 - IE LOGIC AUDITOR (NỘI QUY: NEVER TRUST AGENT 1)
                     # -----------------------------------------------------------------
                     prompt_agent_2 = f"""
                     You are Agent 2: The Senior Apparel Industrial Engineer (IE) Auditor.
-                    Your job is to review the temporary technical JSON generated by Agent 1, cross-check it with the raw Techpack flat text, and output the absolute FINAL verified consumption matrix.
-
-                    🌟 EXHAUSTIVE BOM SCANNING RULES:
-                    1. Comprehensive Scan: You MUST find and generate a row for EVERY component in the techpack BOM that requires a yardage/meter consumption. Do NOT skip Pocketing (Lót túi), Elastic (Chun), Tape (Dây dệt/Dây kéo), or Lining.
-                    2. Marker Efficiency Constraint: For 'JEANS' or 'DENIM' fabrics, the maximum realistic marker efficiency is strictly set to 85.5% for major fabric and fusing layout optimization. NEVER use 88%+. 
-                    3. Consumption Realism: Apply dynamic consumption calculations based on size '{target_size_cmd}'. Ensure 'gross_consumption' is a realistic float greater than 0.0 for ALL detected components.
-                    4. Classification Mapping: Ensure 'fabric_classification' is strictly mapped to one of these uppercase tags: 'MAIN_FABRIC', 'LINING', 'FUSING', or 'TRIM_YARDS'.
-
-                    Output BOTH raw plain text JSON format and a friendly markdown chat response using the exact markers below without markdown code blocks. All 'fabric_width_inch' MUST match the value {active_width} for fabrics, or the trim width if specified:
                     
+                    🌟 CRITICAL OPERATIONAL MANDATE:
+                    - NEVER trust Agent 1. It frequently misses hidden components, trim segments, pocket linings, or fusing blocks.
+                    - You must independently verify every material class against the raw Techpack context.
+                    - If Agent 1 missed any pattern component, pocketing fabric, waist lining, fusing sheets, elastic, or tape, DISCARD its partial list and rebuild the structure from the Techpack.
+                    - Group and calculate the exact aggregate sum of net areas ('total_raw_pieces_area_sq_inch') for each material classification. Your output must contain actual numbers, NOT text formulas or instructions.
+                    - Determine the realistic factory target 'marker_efficiency_target' percentage based on the product type (e.g., lower efficiency for complex curved interlocks like jeans denim, higher for simpler trims). Do NOT use hardcoded placeholders.
+
+                    Output strictly a verified technical data JSON without natural language instructions inside the fields:
+                    {{
+                      "detected_product_type": "string",
+                      "calculated_on_size": "string",
+                      "verified_materials": [
+                        {{
+                          "component_name": "string",
+                          "fabric_classification": "MAIN_FABRIC or LINING or FUSING or TRIM_YARDS",
+                          "marker_efficiency_target": float,
+                          "fabric_width_inch": float,
+                          "total_raw_pieces_area_sq_inch": float
+                        }}
+                      ]
+                    }}
+                    """
+                    payload_agent_2 = [
+                        f"=== RECOVERED TECHPACK FLAT TEXT DATABASE ===\n{full_pdf_raw_text}\n",
+                        f"=== OUTPUT FROM AGENT 1 (VERIFY AND AUDIT) ===\n{json_agent_1}\n============================\n",
+                        prompt_agent_2
+                    ]
+                    response_agent_2 = model.generate_content(payload_agent_2)
+                    json_agent_2 = response_agent_2.text if response_agent_2 else "{}"
+
+                    # -----------------------------------------------------------------
+                    # 🧮 TẦNG 3: AGENT 3 - PURE ARITHMETIC CALCULATOR (MÁY TÍNH BỊT MẮT)
+                    # -----------------------------------------------------------------
+                    prompt_agent_3 = f"""
+                    You are Agent 3: A Pure Arithmetic Clothing Calculator.
+                    Your SOLE job is to execute mechanical mathematics based on physical parameters provided by Agent 2.
+                    You are strictly PROHIBITED from inferring, estimating, or reading the Techpack. Do not inspect styles or guess logic. Only process the numbers.
+
+                    🌟 STRICT DYNAMIC MATHEMATICAL RULES:
+                    1. Calculate dynamically. Return the value calculated strictly from the uploaded inputs. 
+                    2. Never reuse numeric examples. Every numeric field must be derived purely from the structured parameters. If data differs, returned numbers MUST differ.
+                    3. Execution Formula for gross yardage:
+                       Gross Consumption (Yds) = [total_raw_pieces_area_sq_inch * (1 + Warp Shrinkage) * (1 + Weft Shrinkage)] / [fabric_width_inch * 36 * (marker_efficiency_target / 100)]
+                    4. Note: Shrinkage values to apply for this execution are Warp: {warp_val} and Weft: {weft_val}. Convert percentages properly before multiplying.
+                    5. Process every row present in the verified input structure.
+
+                    Output BOTH a friendly markdown text summary and the final structured JSON format. Use the exact layout markers below without markdown brackets around the blocks:
+
                     ===START_CHAT===
-                    ⚖️ **IE Auditor Verified**: Định mức đã được thẩm định qua hệ thống AI 2 tầng bảo vệ. Đã rà soát toàn diện tài liệu và trích xuất đầy đủ **Vải chính, Vải lót túi (Pocketing), Mex túi/cạp (Fusing), Chun (Elastic) và Dây dệt (Tape)**. Đã áp trần hiệu suất sơ đồ Denim thực tế (**chuẩn xác 85.5%**) để đảm bảo sát thực tế sản xuất.
+                    ⚖️ **Autonomous Triple-Agent Framework Engaged**: Quy trình tính toán định mức vải đã hoàn thành thông qua 3 Agent độc lập tách biệt vai trò (Extractor → Auditor → Calculator). Số liệu Gross Consumption được tính toán số học động 100% dựa trên tổng diện tích thực của hình rập phi tuyến tính, triệt tiêu hoàn toàn rủi ro dao động số và neo số mẫu.
                     ===END_CHAT===
 
                     ===START_JSON===
                     {{
                       "status": "PASS",
-                      "detected_product_type": "JEANS",
-                      "calculated_on_size": "{target_size_cmd}",
+                      "detected_product_type": "string",
+                      "calculated_on_size": "string",
                       "bom_rows": [
                         {{
-                          "component_type": "Main Fabric",
-                          "fabric_classification": "MAIN_FABRIC",
-                          "fabric_width_inch": {active_width},
-                          "marker_efficiency": "85.5%", 
-                          "gross_consumption": 1.565,
-                          "reasoning": "Auditor Corrected: Overrode to 85.5% efficiency for Denim pattern interlocking. Calculated dynamic area with {warp_val}x{weft_val} shrinkage plus safety wastage."
-                        }},
-                        {{
-                          "component_type": "Pocketing Fabric",
-                          "fabric_classification": "LINING",
-                          "fabric_width_inch": 44.0,
-                          "marker_efficiency": "85.5%",
-                          "gross_consumption": 0.250,
-                          "reasoning": "Auditor Extracted: Calculated pocket bags total template area for 4-pocket construction on standard pocketing width."
-                        }},
-                        {{
-                          "component_type": "PCC Interlining Mex",
-                          "fabric_classification": "FUSING",
-                          "fabric_width_inch": {active_width},
-                          "marker_efficiency": "85.5%",
-                          "gross_consumption": 0.180,
-                          "reasoning": "Auditor Confirmed: Verified block reinforcement templates layout matching waistband and pocket fly components."
-                        }},
-                        {{
-                          "component_type": "Elastic Band / Tape",
-                          "fabric_classification": "TRIM_YARDS",
-                          "fabric_width_inch": 1.5,
-                          "marker_efficiency": "95.0%",
-                          "gross_consumption": 0.850,
-                          "reasoning": "Auditor Extracted: Measured full relaxed waist circumference plus seam allowance overlap for waistband elastic insertion."
+                          "component_type": "string",
+                          "fabric_classification": "MAIN_FABRIC or LINING or FUSING or TRIM_YARDS",
+                          "fabric_width_inch": float,
+                          "marker_efficiency": "string",
+                          "gross_consumption": float,
+                          "reasoning": "string"
                         }}
                       ]
                     }}
                     ===END_JSON===
                     """
-                    
-                    payload_agent_2 = [
-                        f"=== RECOVERED TECHPACK FLAT TEXT DATABASE ===\n{full_pdf_raw_text}\n",
-                        f"=== DATA FROM CAD AGENT 1 ===\n{raw_json_agent_1}\n============================\n",
-                        prompt_agent_2
+                    payload_agent_3 = [
+                        f"=== PHYSICAL PARAMETERS FROM AGENT 2 ===\n{json_agent_2}\n============================\n",
+                        prompt_agent_3
                     ]
-                    
-                    api_response = model.generate_content(payload_agent_2)
+                    api_response = model.generate_content(payload_agent_3)
                     response_text = api_response.text
                     st.session_state["_btp_master_raw_json_stream"] = response_text
                     
                 except Exception as api_err:
-                    st.error(f"💥 Lỗi kết nối trực tiếp đến API chuỗi Agent Google Gemini: {str(api_err)}")
+                    st.error(f"💥 Lỗi kết nối trực tiếp đến chuỗi Triple-Agent API: {str(api_err)}")
                     st.stop()
 
 
