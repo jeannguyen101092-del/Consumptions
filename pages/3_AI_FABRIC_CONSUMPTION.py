@@ -657,81 +657,77 @@ Output BOTH raw text JSON format (under ===START_JSON===) and markdown chat resp
 {dummy_json_payload}
 ===END_JSON===
 """
-            # =====================================================================
-            # ĐOẠN 7a - PHẦN 3b: DUAL-AGENT API EXECUTION SEQUENCE (V100.2 FIXED)
-            # =====================================================================
-            if has_no_data_p3 or is_signature_changed_p3:
-                try:
-                    if "GEMINI_API_KEY" not in st.secrets:
-                        st.error("💥 Lỗi hạ tầng: Thiếu cấu hình GEMINI_API_KEY trong hệ thống Secrets.")
-                        st.stop()
-                        
-                    genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-                    model = genai.GenerativeModel("gemini-2.5-flash")
-                    
-                    payload_agent_1 = gemini_inputs + [prompt_agent_1]
-                    response_agent_1 = model.generate_content(payload_agent_1)
-                    raw_json_agent_1 = response_agent_1.text if response_agent_1 else "{}"
-                    
-                    payload_agent_2 = [
-                        f"=== RECOVERED TECHPACK TEXT ===\n{full_pdf_raw_text}\n",
-                        f"=== DATA FROM CAD AGENT 1 ===\n{raw_json_agent_1}\n====================\n",
-                        prompt_agent_2
-                    ]
-                    api_response = model.generate_content(payload_agent_2)
-                    response_text = api_response.text
-                    st.session_state["_btp_master_raw_json_stream"] = response_text
-                    
-                except Exception as api_err:
-                    st.error(f"💥 Lỗi kết nối chuỗi Agent API: {str(api_err)}")
-                    st.stop()
-            # =====================================================================
-            # ĐOẠN 7a - PHẦN 3c: POST-AI MIDDLEWARE PARSER & DEBUG ENGINE (V110.2)
-            # =====================================================================
-            active_json_stream = st.session_state.get("_btp_master_raw_json_stream", response_text)
+# =====================================================================
+# ĐOẠN 7a - PHẦN 3b: DUAL-AGENT API EXECUTION SEQUENCE (V102.5 FLATTENED)
+# 🌟 CẤU TRÚC PHẲNG LY KHAI: TRIỆT TIÊU HOÀN TOÀN LỖI THỤT LỀ INDENTATION
+# =====================================================================
+if 'current_query' in locals() and (has_no_data_p3 or is_signature_changed_p3):
+    try:
+        if "GEMINI_API_KEY" not in st.secrets:
+            st.error("💥 Lỗi hạ tầng: Thiếu cấu hình GEMINI_API_KEY trong hệ thống Secrets.")
+            st.stop()
+            
+        genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+        model = genai.GenerativeModel("gemini-2.5-flash")
+        
+        payload_agent_1 = gemini_inputs + [prompt_agent_1]
+        response_agent_1 = model.generate_content(payload_agent_1)
+        raw_json_agent_1 = response_agent_1.text if response_agent_1 else "{}"
+        
+        payload_agent_2 = [
+            f"=== RECOVERED TECHPACK TEXT ===\n{full_pdf_raw_text}\n",
+            f"=== DATA FROM CAD AGENT 1 ===\n{raw_json_agent_1}\n====================\n",
+            prompt_agent_2
+        ]
+        api_response = model.generate_content(payload_agent_2)
+        response_text = api_response.text
+        st.session_state["_btp_master_raw_json_stream"] = response_text
+        
+    except Exception as api_err:
+        st.error(f"💥 Lỗi kết nối chuỗi Agent API: {str(api_err)}")
+        st.stop()
+# =====================================================================
+# ĐOẠN 7a - PHẦN 3c: POST-AI MIDDLEWARE PARSER & DEBUG ENGINE (V102.5 FLATTENED)
+# =====================================================================
+active_json_stream = st.session_state.get("_btp_master_raw_json_stream", globals().get("response_text", ""))
 
-            if active_json_stream:
-                json_match = re.search(r'(?:===START_JSON===\s*|```json\s*)(.*?)(?:\s*===END_JSON===|\s*```)', active_json_stream, re.DOTALL)
-                chat_match = re.search(r'(?:===START_CHAT===\s*|```markdown\s*)(.*?)(?:\s*===END_CHAT===|\s*```|$)', active_json_stream, re.DOTALL)
-                
-                if chat_match and response_text:
-                    st.session_state.chat_history.append({"user": current_query, "ai": chat_match.group(1).strip()})
+if active_json_stream:
+    json_match = re.search(r'(?:===START_JSON===\s*|```json\s*)(.*?)(?:\s*===END_JSON===|\s*```)', active_json_stream, re.DOTALL)
+    chat_match = re.search(r'(?:===START_CHAT===\s*|```markdown\s*)(.*?)(?:\s*===END_CHAT===|\s*```|$)', active_json_stream, re.DOTALL)
+    
+    if chat_match and 'response_text' in locals() and response_text:
+        st.session_state.chat_history.append({"user": current_query, "ai": chat_match.group(1).strip()})
 
-                raw_json_str = json_match.group(1).strip() if json_match else ""
-                if not raw_json_str:
-                    match_fb = re.search(r'\{.*\}', active_json_stream, re.DOTALL)
-                    raw_json_str = match_fb.group(0).strip() if match_fb else ""
-                
-                if raw_json_str:
-                    raw_json_str = re.sub(r',\s*([\]\}])', r'\1', raw_json_str)
-                    blueprint_worker = None
-                    try: 
-                        blueprint_worker = json.loads(raw_json_str)
-                    except: 
-                        st.stop()
-                    
-                    if blueprint_worker and "bom_rows" in blueprint_worker:
-                        blueprint_worker["calculated_on_size"] = target_size_cmd
-                        
-                        st.info("🔍 ĐỐI SOÁT DỮ LIỆU THÔ JSON TỪ BỘ NÃO AI TRẢ VỀ:")
-                        st.json(blueprint_worker)
-                        
-                        blueprint_final = allocate_fabric_consumption_and_quality_gate(blueprint_worker, str(safe_user_prompt).strip())
-                        st.session_state.bom_data = blueprint_final
-                        st.session_state.accumulated_bom_rows = blueprint_final.get("bom_rows", [])
-                        
-                        if response_text:
-                            st.session_state["last_processed_signature"] = current_signature_p3
-                            st.rerun()
-                    else:
-                        st.error("⚠️ Khối JSON thiếu trường bắt buộc 'bom_rows'.")
-                else:
-                    st.error("❌ Không thể bóc tách START_JSON từ phản hồi của AI.")
-                    
-        except Exception as e_global:
-            st.error(f"💥 Lỗi luồng trích xuất hạ tầng tổng: {str(e_global)}")
-            st.code(traceback.format_exc())
-
+    raw_json_str = json_match.group(1).strip() if json_match else ""
+    if not raw_json_str:
+        match_fb = re.search(r'\{.*\}', active_json_stream, re.DOTALL)
+        raw_json_str = match_fb.group(0).strip() if match_fb else ""
+    
+    if raw_json_str:
+        raw_json_str = re.sub(r',\s*([\]\}])', r'\1', raw_json_str)
+        blueprint_worker = None
+        try: 
+            blueprint_worker = json.loads(raw_json_str)
+        except: 
+            st.stop()
+        
+        if blueprint_worker and "bom_rows" in blueprint_worker:
+            blueprint_worker["calculated_on_size"] = globals().get("target_size_cmd", "30")
+            
+            st.info("🔍 ĐỐI SOÁT DỮ LIỆU THÔ JSON TỪ BỘ NÃO AI TRẢ VỀ:")
+            st.json(blueprint_worker)
+            
+            blueprint_final = allocate_fabric_consumption_and_quality_gate(blueprint_worker, str(safe_user_prompt).strip())
+            st.session_state.bom_data = blueprint_final
+            st.session_state.accumulated_bom_rows = blueprint_final.get("bom_rows", [])
+            
+            if 'response_text' in locals() and response_text:
+                st.session_state["last_processed_signature"] = current_signature_p3
+                st.rerun()
+        else:
+            st.error("⚠️ Khối JSON thiếu trường bắt buộc 'bom_rows'.")
+    else:
+        st.error("❌ Không thể bóc tách START_JSON từ phản hồi của AI.")
 
 
 
@@ -800,8 +796,8 @@ Output BOTH raw text JSON format (under ===START_JSON===) and markdown chat resp
 
 
 # =====================================================================
-# ĐOẠN 7b: HIỂN THỊ KẾT QUẢ ĐỊNH MỨC & BẢNG ĐỐI CHỨNG ĐA CỘT ĐỒNG BỘ SIZE (V100.4 SYNC)
-# 🌟 ĐỒNG BỘ HẠ TẦNG: ĐỌC DỮ LIỆU ĐÃ ĐƯỢC PYTHON CAD ENGINE TÍNH TOÁN VÀ ĐỔ RA BẢNG
+# ĐOẠN 7b: HIỂN THỊ KẾT QUẢ ĐỊNH MỨC & BẢNG ĐỐI CHỨNG ĐA CỘT ĐỒNG BỘ SIZE (V102.6 MULTI-ENGINE)
+# 🌟 ĐỒNG BỘ HẠ TẦNG: ĐỌC ĐỘNG DỮ LIỆU TỪ CÁC MICRO-ENGINES (FABRIC/ELASTIC/TAPE/COUNT)
 # =====================================================================
 if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_rows"):
     import pandas as pd
@@ -824,7 +820,7 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
     extracted_size = str(match_active_size.group(1)).upper().strip() if match_active_size else str(bom_source.get("calculated_on_size", "30")).upper().strip()
     
     st.markdown('<div class="cad-card">', unsafe_allow_html=True)
-    st.markdown(f'<div class="cad-header">📊 CALCULATED FABRIC CONSUMPTION MATRIX (SIZE TARGET: {extracted_size})</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="cad-header">📊 CALCULATED MATERIAL CONSUMPTION MATRIX (SIZE TARGET: {extracted_size})</div>', unsafe_allow_html=True)
     
     display_data = []
     
@@ -832,32 +828,35 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
         if not r or not isinstance(r, dict): 
             continue
             
-        # 🟢 LẤY ĐÚNG SỐ YARDS DO ĐOẠN B PYTHON TỰ TÍNH (TRÁNH BỊ 0.0 HOẶC TRỐNG)
         current_gross = r.get("gross_consumption", 0.0)
-        sys_notes = r.get("reasoning", r.get("system_notes", "Mô phỏng CAD Gerber V27"))
-        
-        raw_width = r.get("fabric_width_inch", 57.0)
-        try: cut_width_val = f"{float(raw_width)} inch"
-        except: cut_width_val = f"{raw_width} inch"
+        sys_notes = r.get("system_notes", "Mô phỏng CAD Gerber V27")
+        engine_target = str(r.get("engine", "FABRIC")).upper().strip()
+        uom_display = str(r.get("uom", "YDS")).upper().strip()
 
-        # Đọc động thông số co rút và hiệu suất sơ đồ đã được đồng bộ hóa từ Đoạn B sang
-        warp_dynamic = r.get("_btp_warp_pct", "3.0%")
-        weft_dynamic = r.get("_btp_weft_pct", "13.0%")
-        eff_dynamic = r.get("marker_efficiency", "85.5%")
+        # 🟢 ĐỒNG BỘ ĐỘNG TRỰC QUAN: Nếu không phải nhóm vải/dựng, ẩn các thông số hình học CAD
+        if engine_target in ["FABRIC", "FUSING"]:
+            raw_width = r.get("fabric_width_inch", 56.0)
+            cut_width_val = f"{float(raw_width)} inch" if isinstance(raw_width, (int, float)) else f"{raw_width} inch"
+            warp_dynamic = r.get("_btp_warp_pct", "3.0%")
+            weft_dynamic = r.get("_btp_weft_pct", "3.0%")
+            eff_dynamic = r.get("marker_efficiency", "85.5%")
+        else:
+            cut_width_val = "N/A (Linear/Count)"
+            warp_dynamic = "-"
+            weft_dynamic = "-"
+            eff_dynamic = "-"
 
         display_data.append({
-            "Component Type": r.get("component_type", r.get("fabric_classification", "MAIN FABRIC")).upper().replace("_", " "),
-            "Placement": "BODY/POCKETS LAYOUT OPTIMIZED",
-            "Fabric Classification": r.get("fabric_classification", "MAIN_FABRIC"),
-            "Fabric Code": r.get("fabric_code", r.get("fabric_classification", "FABRIC")),
-            "Fabric Color": r.get("fabric_color", "SOLID COLOR"),
+            "Component Name": r.get("component_name", "Unnamed Material"),
+            "Material Class": r.get("material_class", engine_target),
+            "UOM": uom_display,
             "Khổ vải (Width)": cut_width_val,
             "Co rút dọc (% Warp)": warp_dynamic,     
             "Co rút ngang (% Weft)": weft_dynamic,   
             "Marker Efficiency": eff_dynamic,         
-            "Gross Consumption (Yds)": current_gross,
+            "Gross Consumption": current_gross,
             "Quality Status": r.get("quality_status", "PASS"),
-            "System Notes": sys_notes
+            "System Calculation Notes": sys_notes
         })
         
     if display_data:
@@ -880,16 +879,16 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
             pom_code, description, measurement_val = "POM", raw_str, "-"
             if ":" in raw_str:
                 parts = raw_str.split(":", 1)
-                pom_code = parts.strip()
-                description = parts.strip()
+                pom_code = parts[0].strip()
+                description = parts[1].strip()
                 if "=" in description:
                     sub_parts = description.split("=", 1)
-                    description = sub_parts.strip()
-                    measurement_val = sub_parts.strip()
+                    description = sub_parts[0].strip()
+                    measurement_val = sub_parts[1].strip()
             elif "=" in raw_str:
                 parts = raw_str.split("=", 1)
-                description = parts.strip()
-                measurement_val = parts.strip()
+                description = parts[0].strip()
+                measurement_val = parts[1].strip()
                 
             parsed_evidence_rows.append({
                 "STT": idx + 1, "Mã POM": pom_code, "Mô tả Thông số Kỹ thuật": description, "Kích thước Đo thực tế (Inches)": measurement_val
@@ -910,7 +909,7 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
             ws.title = "BOM Consumption"
             ws.sheet_view.showGridLines = True
             
-            ws.append([f"BÁO CÁO ĐỊNH MỨC VẬT TƯ VẢI (SIZE: {extracted_size})"])
+            ws.append([f"BÁO CÁO ĐỊNH MỨC VẬT TƯ SẢN XUẤT ĐA PHÂN HỆ (SIZE: {extracted_size})"])
             if 'df_bom' in locals():
                 ws.append(list(df_bom.columns))
                 for index, row_excel in df_bom.iterrows():
@@ -920,11 +919,12 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
             
             st.markdown("<br>", unsafe_allow_html=True)
             st.download_button(
-                label="📥 Tải Báo Cáo Định Mức Excel (Chuẩn Nhà Máy)",
+                label="📥 Tải Báo Cáo Định Mức Phụ Liệu Excel (Chuẩn Nhà Máy)",
                 data=output,
-                file_name=f"BOM_Fabric_Consumption_Size_{extracted_size}.xlsx",
+                file_name=f"BOM_Production_Consumption_Size_{extracted_size}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True
             )
         except Exception as excel_err:
             pass
+
