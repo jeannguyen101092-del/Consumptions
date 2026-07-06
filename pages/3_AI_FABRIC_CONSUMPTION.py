@@ -524,7 +524,9 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                        # =====================================================================
                         # =====================================================================
                        # =====================================================================
-            # ĐOẠN 7a - PHẦN 3a: INITIALIZATION & AGENT PROMPTS SETUP (V100.0)
+                       # =====================================================================
+            # ĐOẠN 7a - PHẦN 3a: INITIALIZATION & AGENT PROMPTS SETUP (V100.1 ST STRICT)
+            # 🌟 ĐÃ ÉP CẤU TRÚC THẺ ĐÁNH DẤU CHẶT CHẼ TRÁNH LỖI PHÂN TÁCH JSON
             # =====================================================================
             response_text = ""
             
@@ -545,8 +547,33 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             You are Agent 2: The Senior Apparel IE Auditor. Review Agent 1 JSON against the raw Techpack context.
             🌟 EXHAUSTIVE RULES: Generate rows for EVERY component needing yardage (Main Fabric, Pocketing, Elastic, Tape).
             Set realistic 'marker_efficiency': Denim/Jeans major fabric strictly 85.5% (NEVER use 88%+), Lining/Fusing 85.5%, Trims 95%.
-            Output BOTH raw text JSON format (under ===START_JSON===) and markdown chat response (under ===START_CHAT===). All 'fabric_width_inch' must match {active_width}.
+            
+            CRITICAL OUTPUT FORMAT REQUIREMENT:
+            You MUST wrap your output text strictly using the exact markers below without code blocks:
+            
+            ===START_CHAT===
+            [Insert your friendly markdown factory summary here]
+            ===END_CHAT===
+
+            ===START_JSON===
+            {{
+              "status": "PASS",
+              "detected_product_type": "JEANS",
+              "calculated_on_size": "{target_size_cmd}",
+              "bom_rows": [
+                {{
+                  "component_type": "Main Fabric",
+                  "fabric_classification": "MAIN_FABRIC",
+                  "fabric_width_inch": {active_width},
+                  "marker_efficiency": "85.5%", 
+                  "gross_consumption": 1.565,
+                  "reasoning": "Auditor Corrected: Processed dynamic area with shrinkage plus safety wastage."
+                }}
+              ]
+            }}
+            ===END_JSON===
             """
+
             # =====================================================================
             # ĐOẠN 7a - PHẦN 3b: DUAL-AGENT API EXECUTION SEQUENCE (V100.0)
             # =====================================================================
