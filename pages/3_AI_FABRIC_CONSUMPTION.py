@@ -454,77 +454,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             
             # Đưa trực tiếp câu lệnh hiện tại của người dùng vào danh sách đầu vào của Gemini
             gemini_inputs.append(f"\n[USER COMMAND]: {current_query}")
-# =====================================================================
-            # ĐOẠN 7a - PHẦN 2: DYNAMIC AI PROMPT GATEWAY (V80.0 ZERO-ENGINE)
-            # 🌟 PROMPT SIÊU THÔNG MINH: ÉP AI TỰ CO RÚT, TỰ ĐI SƠ ĐỒ VÀ TỰ TRẢ KẾT QUẢ YARDS CHUẨN XÁC
-            # =====================================================================
-            if "GEMINI_API_KEY" not in st.secrets:
-                st.error("💥 Lỗi hạ tầng: Thiếu cấu hình GEMINI_API_KEY trong hệ thống Secrets.")
-                st.stop()
-                
-            genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-            model = genai.GenerativeModel("gemini-2.5-flash")
-            
-            chat_lower = current_query.lower()
-            match_size = re.search(r'\b(?:size|sz|cỡ)\s*[:\-=\s]*([\w\d/]+)\b', chat_lower)
-            target_size_cmd = str(match_size.group(1)).upper().strip() if match_size else "30"
-            
-            match_w = re.search(r'(?:khổ|kho|width|w)\s*[:\-=\s]*([\d\.]+)', chat_lower)
-            active_width = float(match_w.group(1)) if match_w else 57.0
-            if active_width < 20.0: active_width = 57.0
-            
-            # Trích xuất thông số co rút từ câu chat của người dùng
-            match_shrink = re.search(r'(?:co rút|co rut|sh|shrinkage)\s*[:\-=\s]*([\d\.]+)\s*[\-,\s]\s*([\d\.]+)', chat_lower)
-            warp_val = f"{match_shrink.group(1)}%" if match_shrink else "3.0%"
-            weft_val = f"{match_shrink.group(2)}%" if match_shrink else "13.0%"
-            
-            prompt_instruction = f"""
-            You are a world-class apparel Industrial Engineer (IE) and CAD software gateway [INSTRUCT]. Your mission is to directly calculate the FINAL gross fabric consumption in YARDS for size '{target_size_cmd}' [INSTRUCT].
 
-            🌟 MANDATORY CALCULATOR RULES:
-            1. Scan the techpack flat text and technical layouts to calculate the true mathematical pattern area of ALL panels combined [INSTRUCT].
-            2. Apply the requested fabric width ({active_width} inches) and shrinkage parameters (Warp: {warp_val}, Weft: {weft_val}) directly [INSTRUCT].
-            3. You MUST directly calculate the final consumption value inside 'gross_consumption' as a realistic decimal number (e.g., between 1.15 and 1.85 yards for pant/shirt main fabric, 0.12 and 0.35 yards for fusing/lining). NEVER return 0.0 [INSTRUCT].
-
-            Output BOTH raw plain text JSON format and a friendly markdown chat response using the exact markers below without markdown code blocks:
-            
-            ===START_CHAT===
-            🤖 AI đã hoàn tất phân tích hình học layout rập cho **Size {target_size_cmd}** (Khổ: {active_width}\", Co rút: Dọc {warp_val}/Ngang {weft_val}). Đã tự động đi sơ đồ giả lập và ép số Yards Gross Consumption trực tiếp lên bảng dữ liệu.
-            ===END_CHAT===
-
-            ===START_JSON===
-            {{
-              "status": "PASS",
-              "detected_product_type": "JEANS",
-              "calculated_on_size": "{target_size_cmd}",
-              "bom_rows": [
-                {{
-                  "component_type": "Main Fabric",
-                  "fabric_classification": "MAIN_FABRIC",
-                  "fabric_width_inch": {active_width},
-                  "marker_efficiency": "88.9%",
-                  "gross_consumption": 1.425,
-                  "reasoning": "AI Calculated: Derived total panel layout area including {warp_val}x{weft_val} shrinkage factor at 88.9% marker efficiency."
-                }},
-                {{
-                  "component_type": "Fusing",
-                  "fabric_classification": "FUSING",
-                  "fabric_width_inch": {active_width},
-                  "marker_efficiency": "88.9%",
-                  "gross_consumption": 0.215,
-                  "reasoning": "AI Calculated: Estimated for collar and placket reinforcement block templates layout."
-                }}
-              ]
-            }}
-            ===END_JSON===
-            """
-                       # =====================================================================
-                      # =====================================================================
-                        # =====================================================================
-                       # =====================================================================
-                        # =====================================================================
-                       # =====================================================================
-                       # =====================================================================
             # ĐOẠN 7a - PHẦN 3a: INITIALIZATION & AGENT PROMPTS SETUP (V100.1 ST STRICT)
             # 🌟 ĐÃ ÉP CẤU TRÚC THẺ ĐÁNH DẤU CHẶT CHẼ TRÁNH LỖI PHÂN TÁCH JSON
             # =====================================================================
