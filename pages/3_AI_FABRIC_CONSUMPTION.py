@@ -1621,12 +1621,14 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
 
 
 
-                           # =====================================================================
                          # =====================================================================
-            # ĐOẠN 7a - PHẦN 3: POST-AI MIDDLEWARE PURE CONNECTIVITY (V61.5 GOLD)
-            # 🌟 ĐỒNG BỘ KIẾN TRÚC V61: CHO PHÉP DỮ LIỆU DIỆN TÍCH AI ĐI THẲNG VÀO ENGINE ĐOẠN B
-            # 🌟 LOẠI BỎ CÁC HÀM PARSER CŨ GÂY XOÁ SẠCH DỮ LIỆU DIỆN TÍCH THỰC CỦA GEMINI
+            # ĐOẠN 7a - PHẦN 3: POST-AI MIDDLEWARE PURE CONNECTIVITY (V61.7 GOLD)
+            # 🌟 VÁ CHÍ MẠNG LỖI NAME_ERROR CỦA RESPONSE_TEXT BẰNG LOGIC KHỞI TẠO AN TOÀN
+            # 🌟 ĐỒNG BỘ KIẾN TRÚC V61 KHÔNG CÒN HIỆN TƯỢNG BỊ CRASH KHI REFRESH TRANG
             # =====================================================================
+            
+            # 🟢 VÁ SỬA LỖI: Khởi tạo giá trị mặc định cho biến response_text để tránh NameError khi bỏ qua khối IF
+            response_text = ""
             
             # Định nghĩa lại các biến kiểm tra trạng thái bộ nhớ đệm chống kẹt cache
             pdf_bytes_len_p3 = len(st.session_state.pdf_bytes) if st.session_state.pdf_bytes else 0
@@ -1635,7 +1637,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             has_no_data_p3 = not st.session_state.get("bom_data") or st.session_state.get("bom_data") == {}
             is_signature_changed_p3 = st.session_state.get("last_processed_signature") != current_signature_p3
 
-            # Thực thi kết nối trực tiếp gọi API Gemini
+            # Thực thi kết nối trực tiếp gọi API Gemini khi có thay đổi chữ ký hoặc chưa có dữ liệu
             if has_no_data_p3 or is_signature_changed_p3:
                 try:
                     full_api_payload = gemini_inputs + [prompt_instruction]
@@ -1645,6 +1647,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                     st.error(f"💥 Lỗi kết nối trực tiếp đến API Google Gemini: {str(api_err)}")
                     st.stop()
 
+            # Chỉ thực hiện xử lý hình học CAD khi biến response_text có chứa dữ liệu thực tế từ API trả về
             if response_text:
                 # Phân tách khối văn bản tự do và khối JSON hình học
                 json_match = re.search(r'(?:===START_JSON===\s*|```json\s*)(.*?)(?:\s*===END_JSON===|\s*```)', response_text, re.DOTALL)
@@ -1686,8 +1689,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                         st.session_state.bom_data = {}
                         st.session_state.accumulated_bom_rows = {}
                         
-                        # 🟢 VÁ SỬA LỖI TRÙNG LẶP: Đưa thẳng dữ liệu gốc từ AI vào Engine tính toán Đoạn B V61.2
-                        # Không chạy qua bất kỳ hàm parse rập trung gian cũ nào để bảo toàn 100% trường diện tích thực
+                        # Đưa thẳng dữ liệu gốc từ AI vào Engine tính toán Đoạn B V61.2 (Bảo toàn 100% trường diện tích thực)
                         blueprint_final = allocate_fabric_consumption_and_quality_gate(blueprint_worker, query_str)
                         
                         # Ghi dữ liệu sạch vào session và chốt chữ ký tải trang vẽ bảng tính định mức
@@ -1705,9 +1707,6 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                 
                 st.rerun()
 
-        except Exception as e_global:
-            st.error(f"💥 Lỗi luồng trích xuất hạ tầng tổng toàn cục: {str(e_global)}")
-            st.code(traceback.format_exc())
 
 
 
