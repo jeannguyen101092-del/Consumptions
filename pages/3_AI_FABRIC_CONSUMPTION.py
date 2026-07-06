@@ -586,12 +586,12 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
 
                        # =====================================================================
                     # =====================================================================
-            # ĐOẠN 7a - PHẦN 3a: ARCHITECTURE V101.0 - PURE STRUCTURAL MULTIMODAL EXTRACTOR
-            # 🌟 TƯỚC ĐOẠT 100% QUYỀN LÀM TOÁN CỦA AI - TRIỆT TIÊU TOÀN BỘ ĐỘ NHIỄU BIẾN THIÊN
-            # 🌟 AI CHỈ TRẢ VỀ THẺ THUỘC TÍNH (GATHER_TYPE, GATHER_DEPTH) VÀ KÍCH THƯỚC HỘP BAO
+                        # =====================================================================
+            # ĐOẠN 7a - PHẦN 3a: INITIALIZATION & AGENT PROMPTS SETUP (V101.2 FIXED)
+            # 🌟 ĐÃ VÁ LỖI HỤT DIỆN TÍCH: ÉP AI PHẢI CỘNG ĐỦ CẢ THÂN TRƯỚC VÀ THÂN SAU
+            # 🌟 CHỐT ĐỊNH BIÊN DIỆN TÍCH TỊNH KHÔNG ĐỂ AI TRẢ SỐ QUÁ NHỎ CHO ĐẦM/VÁY
             # =====================================================================
             response_text = ""
-            
             pdf_bytes_len_p3 = len(st.session_state.pdf_bytes) if st.session_state.pdf_bytes else 0
             current_signature_p3 = (str(safe_user_prompt).strip(), int(len(image_payloads)), int(pdf_bytes_len_p3))
             
@@ -603,35 +603,29 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             target_size_cmd = str(match_size.group(1)).upper().strip() if match_size else "30"
             
             match_w = re.search(r'(?:khổ|kho|width|w)\s*[:\-=\s]*([\d\.]+)', chat_lower)
-            active_width = float(match_w.group(1)) if match_w else 57.0
-            if active_width < 20.0: active_width = 57.0
-            
-            match_shrink = re.search(r'(?:co rút|co rut|sh|shrinkage)\s*[:\-=\s]*([\d\.]+)\s*[\-,\s]\s*([\d\.]+)', chat_lower)
-            warp_val = f"{match_shrink.group(1)}%" if match_shrink else "3.0%"
-            weft_val = f"{match_shrink.group(2)}%" if match_shrink else "13.0%"
+            active_width = float(match_w.group(1)) if match_w else 56.0
+            if active_width < 20.0: active_width = 56.0
 
-            # TẦNG 1: AGENT 1 - BÓC TÁCH KÍCH THƯỚC HỘP BAO VÀ PHÂN LOẠI CHI TIẾT
             prompt_agent_1 = f"""
-            You are Agent 1: An Apparel Technical Component Extractor. Your SOLE job is to scan the techpack text, BOM, and charts for target size '{target_size_cmd}'.
-            Identify all material rows and pattern panels. For each piece, extract raw nominal metrics without calculating anything.
-            Return strictly a plain JSON array of raw panels with bounding box length and width.
+            You are Agent 1: An Apparel Technical Component Extractor. Scan techpack text/images for size '{target_size_cmd}'. 
+            Identify all individual pattern panels. Extract raw nominal lengths and widths. Do NOT skip any major body parts.
+            Return strictly raw technical JSON array with bounding_box_length, bounding_box_width, piece_count. No consumption calculations.
             """
             
-            # TẦNG 2: AGENT 2 - IE SPECIFICATION AUDITOR & VISUAL FEATURE CLASSIFIER
             prompt_agent_2 = f"""
-            You are Agent 2: The Senior Apparel IE Visual Auditor. Your job is to cross-examine Agent 1's temporary data against the raw Techpack context and visual sketch layouts.
+            You are Agent 2: The Senior Apparel IE Visual Auditor. Review Agent 1 JSON against raw Techpack context and sketches.
             
-            🌟 VISION FEATURE VALIDATION MANDATE:
-            1. Look at the sketch images and text metadata carefully to determine the true overall product type and override text biases.
-            2. For every pattern panel or material group, you MUST visually inspect and classify its geometric gathering traits. Categorize 'gather_type' as strictly one of these tokens: ['NONE', 'SIDE_RUCHE', 'WAIST_GATHER', 'FLARE_SKIRT'].
-            3. Classify the visible intensive fullness or depth 'gather_depth' strictly as one of these tokens: ['NONE', 'LIGHT', 'MEDIUM', 'HEAVY'].
-            4. Do NOT calculate or guess any surface area or numeric consumption fields. 
+            🌟 CRITICAL AREA REALISM AUDIT:
+            1. You MUST verify that the extracted dimensions represent the FULL garment. For a Dress/Garment, you MUST include BOTH the Front Panel (Thân trước) and Back Panel (Thân sau). If Agent 1 only provides one side, you must independently extract the other side.
+            2. For adult Dress/Mini Dress major fabric panels, the realistic total raw combined net area 'total_net_area_sq_inch' MUST fall logically between 1400.0 and 2200.0 square inches. Never return values like 300 or 400 as it's physically impossible to cut a dress from that.
+            3. Classify 'gather_type' as strictly one of: ['NONE', 'SIDE_RUCHE', 'WAIST_GATHER', 'FLARE_SKIRT'].
+            4. Classify intensity 'gather_depth' as strictly one of: ['NONE', 'LIGHT', 'MEDIUM', 'HEAVY'].
+            5. Do NOT calculate final yards. Only output clean numbers for Python engine.
 
-            CRITICAL PLAIN DATA JSON FORMAT REQUIREMENT:
-            Output BOTH raw text JSON format (under ===START_JSON===) and markdown chat response (under ===START_CHAT===). No language formulas or dynamic instructions inside the fields.
+            Output BOTH raw text JSON format (under ===START_JSON===) and markdown chat response (under ===START_CHAT===). All 'fabric_width_inch' must match {active_width}.
             
             ===START_CHAT===
-            ⚖️ **Deterministic SaaS Pipeline Engaged**: Hệ thống AI đã chuyển giao 100% dữ liệu thuộc tính phom dáng, kiểu nhún rập và kích thước hình học thô dạng số phẳng sạch sang cho Python Deterministic CAD Engine xử lý toán học độc lập.
+            ⚖ *Enterprise CAD Pipeline Engaged*: Đã hiệu chỉnh rào chắn kiểm toán diện tích. Hệ thống AI đã gom đủ dữ liệu hộp bao của cả Thân trước, Thân sau và dán nhãn thuộc tính phom dáng rút nhún sạch chuyển sang cho Python CAD Engine tính toán số học độc lập.
             ===END_CHAT===
 
             ===START_JSON===
@@ -641,15 +635,15 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
               "calculated_on_size": "{target_size_cmd}",
               "bom_rows": [
                 {{
-                  "component_name": "Main Fabric",
+                  "component_type": "Main Fabric - Denim",
                   "fabric_classification": "MAIN_FABRIC",
                   "fabric_width_inch": {active_width},
-                  "bounding_box_length": 32.5,
-                  "bounding_box_width": 14.0,
+                  "bounding_box_length": 34.0,
+                  "bounding_box_width": 24.0,
                   "piece_count": 2,
                   "gather_type": "SIDE_RUCHE",
                   "gather_depth": "MEDIUM",
-                  "reasoning": "Auditor Extracted: Visual sketch confirms dress with mid-depth side seam ruched ripples."
+                  "reasoning": "Auditor Confirmed: Summed full body coverage panels (Front bodice + Back bodice layout) including dynamic side ruched attributes."
                 }}
               ]
             }}
