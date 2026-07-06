@@ -18,8 +18,12 @@ EXCLUDE_HARDWARE_KEYS = (
     "HEAT STAMP", "HANGTAG", "POLYBAG", "BAO BÌ"
 )
 
+# =====================================================================
+# ĐOẠN B - PHẦN 1: DETERMINISTIC CAD CORE & SYSTEM MATRIX SETUP (V110.0)
+# 🌟 VÁ LỖI REGEX THEO NGỮ CẢNH - KHỞI TẠO HỆ THỐNG THAM SỐ CẤU HÌNH ĐỘNG
+# =====================================================================
 def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, query_string: str) -> dict:
-    st.warning("⚡ DETREMINISTIC CAD ENGINE: QUALITY GATEWAY V101.0 ACTIVATED")
+    st.warning("⚡ ENTERPRISE CAD ENGINE: DETERMINISTIC QUALITY GATEWAY V110.0 ACTIVATED")
     
     if not blueprint_final or "bom_rows" not in blueprint_final:
         return blueprint_final
@@ -27,31 +31,38 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, query_st
     filtered_bom_rows = []
     product_type = str(blueprint_final.get("detected_product_type", "JEANS")).upper().strip()
     
-    # 🟢 TẦNG 1: BỘ LỌC REGEX ĐA BIẾN - TRÍCH XUẤT CO RÚT ĐỘNG TỪ Ô CHAT ĐỐI SOÁT
-    warp_num, weft_num = 0.03, 0.03
+    # 🟢 TRÍCH XUẤT CO RÚT THEO TỪ KHÓA NGỮ CẢNH NGHIÊM NGẶT
+    warp_num, weft_num = 0.03, 0.03 # Giá trị dự phòng mặc định (3% dọc, 3% ngang)
     try:
         chat_txt = str(query_string).lower()
-        all_numbers = re.findall(r'[\d\.]+', chat_txt)
-        if any(k in chat_txt for k in ["co rút", "co rut", "sh", "shrinkage"]):
-            clean_shrink_numbers = []
-            for num_str in all_numbers:
-                if "size" in chat_txt and num_str in chat_txt.split("size")[-1][:10]: continue
-                if "khổ" in chat_txt and num_str in chat_txt.split("khổ")[-1][:10]: continue
-                if "kho" in chat_txt and num_str in chat_txt.split("kho")[-1][:10]: continue
-                if "width" in chat_txt and num_str in chat_txt.split("width")[-1][:10]: continue
-                clean_shrink_numbers.append(num_str)
-            if len(clean_shrink_numbers) >= 2:
-                warp_num = float(clean_shrink_numbers[-2]) / 100.0
-                weft_num = float(clean_shrink_numbers[-1]) / 100.0
-            elif len(clean_shrink_numbers) == 1:
-                warp_num = float(clean_shrink_numbers) / 100.0
-                weft_num = float(clean_shrink_numbers) / 100.0
+        warp_match = re.search(r'(?:co rút dọc|co rut doc|warp|sh_length|dọc|doc)\s*[:\-=\s]*([\d\.]+)', chat_txt)
+        weft_match = re.search(r'(?:co rút ngang|co rut ngang|weft|sh_width|ngang|ngang)\s*[:\-=\s]*([\d\.]+)', chat_txt)
+        
+        if warp_match: warp_num = float(warp_match.group(1)) / 100.0
+        if weft_match: weft_num = float(weft_match.group(1)) / 100.0
+        
+        # Fallback xử lý chuỗi số đôi liền nhau (VD: "co rút 3 3")
+        if not warp_match and not weft_match and any(k in chat_txt for k in ["co rút", "co rut", "shrinkage"]):
+            all_nums = re.findall(r'[\d\.]+', chat_txt.split("co rut")[-1].split("co rút")[-1])
+            if len(all_nums) >= 2:
+                warp_num = float(all_nums[0]) / 100.0
+                weft_num = float(all_nums[1]) / 100.0
+            elif len(all_nums) == 1:
+                warp_num = float(all_nums[0]) / 100.0
+                weft_num = float(all_nums[0]) / 100.0
     except Exception:
         warp_num, weft_num = 0.03, 0.03
 
-    # =====================================================================
-    # 🎯 LÕI CỨNG CAD LOGIC CÔNG NGHIỆP: MA TRẬN HỆ SỐ NHÚN (GATHER RATIO MATRIX)
-    # =====================================================================
+    # HẠ TẦNG MA TRẬN ĐỘNG THAY THẾ TOÀN BỘ CÁC HẰNG SỐ GIẢ ĐỊNH CŨ
+    PRODUCT_NET_AREA_MATRIX = {
+        "JEANS": {"MAIN_FABRIC": 0.84, "LINING": 0.78, "FUSING": 0.80},
+        "SHIRT": {"MAIN_FABRIC": 0.79, "LINING": 0.75, "FUSING": 0.75},
+        "JACKET": {"MAIN_FABRIC": 0.81, "LINING": 0.80, "FUSING": 0.78},
+        "DRESS": {"MAIN_FABRIC": 0.75, "LINING": 0.72, "FUSING": 0.70},
+        "FLARE_SKIRT": {"MAIN_FABRIC": 0.62, "LINING": 0.60, "FUSING": 0.60},
+        "DEFAULT": {"MAIN_FABRIC": 0.82, "LINING": 0.78, "FUSING": 0.78}
+    }
+    
     GATHER_RATIO_MATRIX = {
         "NONE": {"NONE": 1.00, "LIGHT": 1.05, "MEDIUM": 1.10, "HEAVY": 1.15},
         "SIDE_RUCHE": {"NONE": 1.00, "LIGHT": 1.15, "MEDIUM": 1.30, "HEAVY": 1.50},
@@ -59,81 +70,117 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, query_st
         "FLARE_SKIRT": {"NONE": 1.00, "LIGHT": 1.25, "MEDIUM": 1.50, "HEAVY": 1.85}
     }
     
+    PRODUCT_WASTAGE_MATRIX = {
+        "MAIN_FABRIC": 1.02, "LINING": 1.03, "FUSING": 1.03, 
+        "KNIT_FABRIC": 1.04, "STRIPE_CHECK": 1.05, "DEFAULT": 1.03
+    }
+    # =====================================================================
+    # ĐOẠN B - PHẦN 2: TECHNICAL QUALITY GATE & COMPUTATION LOOP (V110.0)
+    # 🌟 KIỂM TRA CHẤT LƯỢNG BIẾN - POLYGON DECOUPLING - TÍNH ĐỊNH MỨC CAD TUYỆT ĐỐI
+    # =====================================================================
     ai_bom_rows = blueprint_final.get("bom_rows", [])
     
     for ai_row in ai_bom_rows:
         ui_row = copy.deepcopy(ai_row)
-        
-        # 1. Thu thập thông số Khổ vải an toàn
-        raw_width = ui_row.get("fabric_width_inch")
-        try: width_inch = float(raw_width or 56.0)
-        except: width_inch = 56.0
-        if width_inch < 1.0: width_inch = 56.0
-        
-        # 2. Cố định Hiệu suất sơ đồ (Marker Efficiency) chuẩn nhà máy theo Phân loại vật tư
         fab_class = str(ui_row.get("fabric_classification", "MAIN_FABRIC")).upper().strip()
-        if fab_class == "MAIN_FABRIC":
-            efficiency_num = 0.855  # Khóa cứng 85.5% cho vải chính denim/twill
-        elif fab_class in ["LINING", "FUSING"]:
-            efficiency_num = 0.865  # Khóa cứng 86.5% cho mex và lót túi
-        else:
-            efficiency_num = 0.950  # Khóa cứng 95.0% cho các loại tape dệt dây dài
+        qa_logs = []
+        
+        # ⚠️ TẦNG 2: TECHNICAL QUALITY GATE - PHÒNG VỆ KIỂM TRA LỖI BIẾN SỐ SẢN XUẤT
+        raw_width = ui_row.get("fabric_width_inch")
+        try: 
+            width_inch = float(raw_width or 56.0)
+            if width_inch < 20.0 or width_inch > 80.0:
+                width_inch = 56.0
+                qa_logs.append("⚠️ Khổ vải lỗi [20-80], ép về 56\".")
+        except Exception: 
+            width_inch = 56.0
             
-        # 3. Thu thập thuộc tính phom dáng từ Thư ký AI gửi sang
+        try:
+            p_count = int(ui_row.get("piece_count", 1) or 1)
+            if p_count <= 0:
+                p_count = 1
+                qa_logs.append("⚠️ Chi tiết <=0, ép về 1.")
+        except Exception:
+            p_count = 1
+
+        # Đấu nối và thẩm định hiệu suất sơ đồ động từ Nesting Engine
+        if "algorithmic_efficiency" in ui_row and ui_row.get("algorithmic_efficiency") is not None:
+            try: 
+                efficiency_num = float(ui_row.get("algorithmic_efficiency"))
+                if efficiency_num < 1.0: efficiency_num = efficiency_num * 100.0
+                efficiency_num = efficiency_num / 100.0
+                if efficiency_num < 0.60 or efficiency_num > 0.95:
+                    efficiency_num = 0.855
+                    qa_logs.append("⚠️ Hiệu suất Nesting lỗi [60-95], ép về 85.5%.")
+            except Exception: 
+                efficiency_num = 0.855
+            ui_source_tag = "Nesting Engine"
+        else:
+            if fab_class == "MAIN_FABRIC": efficiency_num = 0.855  
+            elif fab_class in ["LINING", "FUSING"]: efficiency_num = 0.865  
+            else: efficiency_num = 0.950  
+            ui_source_tag = "Factory Standard"
+            
         g_type = str(ui_row.get("gather_type", "NONE")).upper().strip()
         g_depth = str(ui_row.get("gather_depth", "NONE")).upper().strip()
         
-        # Đọc hệ số co giãn rập từ Ma trận lõi cứng của Python
         ratio_type_map = GATHER_RATIO_MATRIX.get(g_type, GATHER_RATIO_MATRIX["NONE"])
         active_gather_ratio = ratio_type_map.get(g_depth, 1.00)
+        active_wastage_factor = PRODUCT_WASTAGE_MATRIX.get(fab_class, PRODUCT_WASTAGE_MATRIX["DEFAULT"])
         
-        # Thu thập kích thước hình học thô
-        b_length = float(ui_row.get("bounding_box_length", 0.0) or 0.0)
-        b_width = float(ui_row.get("bounding_box_width", 0.0) or 0.0)
-        p_count = int(ui_row.get("piece_count", 1) or 1)
+        # 📐 TẦNG 3: POLYGON ENGINE DECOUPLING & DETERMINISTIC CALCULATOR
+        raw_poly_area = ui_row.get("net_area_polygon_sq_inch")
         
-        # =====================================================================
-        # 🧮 LÕI THỰC THI PHÉP TOÁN TOÁN HỌC PHẲNG CAD GERBER TUYỆT ĐỐI
-        # =====================================================================
-        if b_length > 0 and b_width > 0 and width_inch > 0:
-            # Phép toán 1: Tính diện tích hình chữ nhật bao quanh chi tiết rập thô
+        if raw_poly_area is not None and float(raw_poly_area or 0.0) > 0:
+            total_net_area = float(raw_poly_area)
+            net_area_factor = 1.00 # LY KHAI HOÀN TOÀN HỆ SỐ KINH NGHIỆM KHI CÓ POLYGON THẬT
+            area_note = "📐 Diện tích Đa giác (DXF Real Area)"
+        else:
+            raw_length = ui_row.get("bounding_box_length", ui_row.get("length_inch", ui_row.get("length", 0.0)))
+            raw_width_val = ui_row.get("bounding_box_width", ui_row.get("width_inch", ui_row.get("width", 0.0)))
+            try: b_length = float(raw_length or 0.0)
+            except: b_length = 0.0
+            try: b_width = float(raw_width_val or 0.0)
+            except: b_width = 0.0
+            
+            if b_length <= 0 or b_width <= 0:
+                b_length, b_width = 0.0, 0.0
+                qa_logs.append("❌ LỖI HÌNH HỌC: Kích thước chi tiết rập âm hoặc rỗng.")
+                
             raw_box_area = b_length * b_width * p_count
-            
-            # Phép toán 2: Áp hệ số bo đường cong rập phi tuyến tính chuẩn nhà máy (Hệ số diện tích tịnh thực tế ~88%)
-            # Trừ hao khoảng vát nách áo, vát đáy quần không phải hình chữ nhật đặc
-            net_area_factor = 0.88 if fab_class in ["MAIN_FABRIC", "LINING"] else 1.00
-            net_calculated_area = raw_box_area * net_area_factor
-            
-            # Phép toán 3: Nhân hệ số phóng rập rút nhún/độ xòe trích xuất động từ Ma trận Python
-            gathere_adjusted_area = net_calculated_area * active_gather_ratio
-            
-            # Phép toán 4: Áp mở rộng co rút vật lý thực tế: Area * (1 + warp) * (1 + weft)
+            product_map = PRODUCT_NET_AREA_MATRIX.get(product_type, PRODUCT_NET_AREA_MATRIX["DEFAULT"])
+            net_area_factor = product_map.get(fab_class, 0.80)
+            total_net_area = raw_box_area * net_area_factor
+            area_note = f"📐 Bounding Box × Biên dạng {product_type} ({net_area_factor}x)"
+
+        # THỰC THI PHÉP TOÁN TOÁN HỌC PHẲNG CAD KHÔNG SAI LỆCH SỐ
+        if total_net_area > 0 and efficiency_num > 0 and width_inch > 0:
+            gathere_adjusted_area = total_net_area * active_gather_ratio
             expanded_area = gathere_adjusted_area * (1.0 + warp_num) * (1.0 + weft_num)
-            
-            # Phép toán 5: Công thức CAD quy đổi sang Linear Yards Gross chốt hạ
             gross_val = expanded_area / (width_inch * 36.0 * efficiency_num)
-            
-            # Phép toán 6: Thêm hệ số an toàn hao hụt đầu cây vải chuẩn công nghiệp (Wastage factor 3%)
-            gross_val = round(gross_val * 1.03, 3)
+            gross_val = round(gross_val * active_wastage_factor, 3)
         else:
             try: gross_val = round(float(ui_row.get("gross_consumption", 0.0)), 3)
             except: gross_val = 0.0
             
-        # Nạp dữ liệu đồng bộ ra giao diện hiển thị
         ui_row["gross_consumption"] = gross_val
         ui_row["fabric_width_inch"] = width_inch
         ui_row["marker_efficiency"] = f"{round(efficiency_num * 100, 1)}%"
         ui_row["_btp_warp_pct"] = f"{round(warp_num * 100, 1)}%"
         ui_row["_btp_weft_pct"] = f"{round(weft_num * 100, 1)}%"
-        ui_row["quality_status"] = "PASS" if gross_val > 0 else "CHECK"
-        ui_row["system_notes"] = f"CAD Logic: {g_type}_{g_depth} (Ratio: {active_gather_ratio}x) | {ui_row.get('reasoning', '')}"
         
+        if gross_val > 0 and not any("❌" in log for log in qa_logs):
+            ui_row["quality_status"] = "PASS"
+        else:
+            ui_row["quality_status"] = "QA_FAIL"
+            
+        qa_summary = " | ".join(qa_logs) if qa_logs else "✅ DỮ LIỆU ĐẦU VÀO ĐẠT CHUẨN KIỂM TOÁN."
+        ui_row["system_notes"] = f"{area_note} | Hiệu suất: {ui_source_tag} | Hao hụt: {round((active_wastage_factor-1)*100,1)}% | {g_type}_{g_depth}({active_gather_ratio}x) | [{qa_summary}]"
         filtered_bom_rows.append(ui_row)
         
     st.session_state["bom_rows"] = filtered_bom_rows
     st.session_state["accumulated_bom_rows"] = filtered_bom_rows
     st.session_state["bom_data"] = {"bom_rows": filtered_bom_rows, "detected_product_type": product_type, "calculated_on_size": blueprint_final.get("calculated_on_size", "30")}
-    
     return st.session_state["bom_data"]
 
 
