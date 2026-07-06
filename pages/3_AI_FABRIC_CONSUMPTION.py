@@ -1612,14 +1612,22 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
 
 
                            # =====================================================================
-            # ĐOẠN 7a - PHẦN 3: POST-AI MIDDLEWARE & LUỒNG KẾT NỐI API THỰC TẾ (V48.1)
-            # 🌟 VÁ LỖI THIẾU GỌI API VÀ TỐI ƯU HÓA BỘ PHÂN TÁCH JSON / CHAT ĐỘNG
+                      # =====================================================================
+            # ĐOẠN 7a - PHẦN 3: POST-AI MIDDLEWARE & LUỒNG KẾT NỐI API THỰC TẾ (V61.1)
+            # 🌟 VÁ CHÍ MẠNG LỖI NAME_ERROR: ĐỊNH NGHĨA BIẾN CHỮ KÝ VÀ ĐỒNG BỘ KIẾN TRÚC V61 TOÀN CỤC
             # =====================================================================
             
-            # 🟢 VÁ CHÍ MẠNG 1: Thực hiện gọi API Gemini để lấy kết quả (Bản cũ bị thiếu)
-            if has_no_data or is_signature_changed:
+            # 🟢 VÁ SỬA LỖI: Định nghĩa lại chính xác hai biến kiểm tra trạng thái bộ nhớ đệm
+            pdf_bytes_len_p3 = len(st.session_state.pdf_bytes) if st.session_state.pdf_bytes else 0
+            current_signature_p3 = (str(safe_user_prompt).strip(), int(len(image_payloads)), int(pdf_bytes_len_p3))
+            
+            has_no_data_p3 = not st.session_state.get("bom_data") or st.session_state.get("bom_data") == {}
+            is_signature_changed_p3 = st.session_state.get("last_processed_signature") != current_signature_p3
+
+            # Thực hiện gọi API Gemini để trích xuất dữ liệu rập phẳng hình học
+            if has_no_data_p3 or is_signature_changed_p3:
                 try:
-                    # Gửi toàn bộ dữ liệu (Text + Mảng ảnh trang BOM/Thông số + Prompt chỉ dẫn) sang Gemini
+                    # Gửi toàn bộ dữ liệu (Text phẳng + Mảng ảnh BOM/Thông số/Sketch + Prompt V61)
                     full_api_payload = gemini_inputs + [prompt_instruction]
                     api_response = model.generate_content(full_api_payload)
                     response_text = api_response.text
@@ -1628,18 +1636,16 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                     st.stop()
 
             if response_text:
-                # Trích xuất khối cấu trúc JSON định mức hình học
+                # Trích xuất khối cấu trúc JSON định mức hình học từ AI trả về
                 json_match = re.search(r'(?:===START_JSON===\s*|```json\s*)(.*?)(?:\s*===END_JSON===|\s*```)', response_text, re.DOTALL)
-                
-                # Trích xuất lời thoại tư vấn của AI (nếu có), nếu AI không trả về thẻ chat thì lấy các đoạn giải thích text tự do bên ngoài khối JSON
                 chat_match = re.search(r'(?:===START_CHAT===\s*|```markdown\s*)(.*?)(?:\s*===END_CHAT===|\s*```|$)', response_text, re.DOTALL)
                 
                 if chat_match:
                     ai_conversation_reply = chat_match.group(1).strip()
                 else:
-                    # Tự động gom tất cả các dòng văn bản không nằm trong khối JSON làm câu trả lời chat trực quan cho người dùng
+                    # Tự động gom tất cả văn bản tự do ngoài khối JSON làm câu trả lời chat trực quan cho IE
                     clean_reply = re.sub(r'(?:===START_JSON===|```json).*?(?:===END_JSON===|```)', '', response_text, flags=re.DOTALL).strip()
-                    ai_conversation_reply = clean_reply if clean_reply else "Hệ thống đã nhận diện thành công loại sản phẩm từ Techpack và cập nhật bảng tính định mức CAD."
+                    ai_conversation_reply = clean_reply if clean_reply else "Hệ thống đã nhận diện thành công cấu trúc hình học từ Techpack và cập nhật bảng tính định mức CAD."
 
                 raw_json_str = ""
                 if json_match: 
@@ -1650,11 +1656,11 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                     match_fb = re.search(r'\{.*\}', response_text, re.DOTALL)
                     raw_json_str = match_fb.group(0).strip() if match_fb else ""
                 
-                # CẬP NHẬT LỊCH SỬ TRÒ CHUYỆN ĐỒNG BỘ THEO PHONG CÁCH OPENAI
+                # CẬP NHẬT LỊCH SỬ TRÒ CHUYỆN THEO PHONG CÁCH OPENAI
                 st.session_state.chat_history.append({"user": current_query, "ai": ai_conversation_reply})
                 
                 if raw_json_str:
-                    # Sửa lỗi dấu phẩy thừa trong chuỗi JSON (Trailing commas) trước khi thực hiện parse
+                    # Sửa lỗi dấu phẩy thừa (Trailing commas) trước khi thực hiện parse JSON
                     raw_json_str = re.sub(r',\s*([\]\}])', r'\1', raw_json_str) 
                     
                     try:
@@ -1668,22 +1674,17 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                         blueprint_worker = copy.deepcopy(raw_blueprint)
                         query_str = str(current_query)
                         
-                        # Xóa sạch bộ nhớ đệm kpi và tích lũy cũ để tránh hiện tượng dính nhớ cache của mã hàng trước
+                        # Giải phóng bộ nhớ đệm cũ để nạp khối dữ liệu tính toán mới tinh của kiến trúc V61
                         st.session_state.bom_data = {}
                         st.session_state.accumulated_bom_rows = {}
                         
-                        # Chạy chuỗi pipeline máy tính 3 bước hình học phẳng CAD doanh nghiệp
-                        b1 = parse_geometric_panels_allowance(blueprint_worker, query_str)
-                        b2_rows, _ = parse_and_prepare_ie_panels(b1.get("bom_rows", []), b1.get("detected_product_type"), query_str)
-                        b1["bom_rows"] = b2_rows
+                        # Gọi lõi máy toán hình học phẳng CAD (Hàm Đoạn B V61.0 - Thực thi kiểm toán diện tích sạch)
+                        blueprint_final = allocate_fabric_consumption_and_quality_gate(blueprint_worker, query_str)
                         
-                        # Gọi lõi kiểm toán diện tích hình học phẳng CAD (Hàm 2b V44.0 Master)
-                        blueprint_final = allocate_fabric_consumption_and_quality_gate(b1, query_str)
-                        
-                        # Đổ dữ liệu sạch mới tinh vào session và khóa chốt chặn chữ ký để tải trang vẽ bảng tính
+                        # Lưu trữ kết quả sạch và chốt khóa chữ ký tải trang
                         st.session_state.bom_data = blueprint_final
                         st.session_state.accumulated_bom_rows = blueprint_final.get("bom_rows", [])
-                        st.session_state["last_processed_signature"] = current_signature
+                        st.session_state["last_processed_signature"] = current_signature_p3
                         
                         st.success(f"🎉 Xử lý rập hình học phẳng CAD thành công cho loại sản phẩm: {blueprint_final.get('detected_product_type', 'Động')}!")
                         st.rerun()
@@ -1695,7 +1696,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                 
                 st.rerun()
 
-        # ĐÓNG NGOẶC LỆNH TRY TOÀN CỤC CỦA ĐOẠN 7A
+        # ĐÓNG NGOẶC LỆNH TRY TOÀN CỤC CỦA ĐOẠN 7A1
         except Exception as e_global:
             st.error(f"💥 Lỗi luồng trích xuất hạ tầng tổng toàn cục: {str(e_global)}")
             st.code(traceback.format_exc())
