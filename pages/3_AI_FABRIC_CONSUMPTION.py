@@ -523,9 +523,8 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                         # =====================================================================
                        # =====================================================================
                         # =====================================================================
-            # ĐOẠN 7a - PHẦN 3a: TRIPLE-AGENT AUTONOMOUS CAD PIPELINE (V96.1 FACTORY OPTIMIZED)
-            # 🌟 ĐÃ ĐỊNH BIÊN HIỆU SUẤT SƠ ĐỒ CHUẨN NHÀ MÁY ĐỂ KÌM ĐỊNH MỨC VẢI CHÍNH
-            # 🌟 ĐẢM BẢO QUÉT ĐỦ 100% CÁC DÒNG VẬT TƯ NHƯNG SỐ SÁT THỰC TẾ SẢN XUẤT
+                       # =====================================================================
+            # ĐOẠN 7a - PHẦN 3a: INITIALIZATION & AGENT PROMPTS SETUP (V100.0)
             # =====================================================================
             response_text = ""
             
@@ -535,135 +534,82 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             has_no_data_p3 = not st.session_state.get("bom_data") or st.session_state.get("bom_data") == {}
             is_signature_changed_p3 = st.session_state.get("last_processed_signature") != current_signature_p3
 
+            # THIẾT LẬP CHUỖI PHÒNG VỆ AGENT 1 & AGENT 2
+            prompt_agent_1 = f"""
+            You are Agent 1: A Textile CAD Geometry Specialist. Scan techpack text/images for size '{target_size_cmd}'. 
+            Calculate raw surface areas of fabric panels including shrinkage. Look for Pocketing (lót túi), Elastic (chun), Tape (dây dệt).
+            Return strictly raw technical JSON with fields: detected_product_type, calculated_on_size, raw_panels.
+            """
+            
+            prompt_agent_2 = f"""
+            You are Agent 2: The Senior Apparel IE Auditor. Review Agent 1 JSON against the raw Techpack context.
+            🌟 EXHAUSTIVE RULES: Generate rows for EVERY component needing yardage (Main Fabric, Pocketing, Elastic, Tape).
+            Set realistic 'marker_efficiency': Denim/Jeans major fabric strictly 85.5% (NEVER use 88%+), Lining/Fusing 85.5%, Trims 95%.
+            Output BOTH raw text JSON format (under ===START_JSON===) and markdown chat response (under ===START_CHAT===). All 'fabric_width_inch' must match {active_width}.
+            """
+            # =====================================================================
+            # ĐOẠN 7a - PHẦN 3b: DUAL-AGENT API EXECUTION SEQUENCE (V100.0)
+            # =====================================================================
             if has_no_data_p3 or is_signature_changed_p3:
                 try:
-                    # -----------------------------------------------------------------
-                    # 🔍 TẦNG 1: AGENT 1 - PATTERN EXTRACTOR & AREA ESTIMATOR
-                    # -----------------------------------------------------------------
-                    prompt_agent_1 = f"""
-                    You are Agent 1: An Apparel Technical Pattern Extractor and Net Area Estimator.
-                    Your mission is to scan the techpack flat text, sketches, and charts for size '{target_size_cmd}'.
-                    Since apparel patterns (front leg, back leg, sleeve) are NOT perfect rectangles, you must estimate the true net surface area of each panel based on shapes, curves, and dimensions.
-
-                    Identify and extract:
-                    1. Product Type from Techpack.
-                    2. Target Size: '{target_size_cmd}'.
-                    3. List of ALL individual pattern pieces/panels. For each piece, provide: panel_name, material_type, bounding_box_length, bounding_box_width, piece_count, and estimated_net_area_sq_inch.
-                    4. Identify auxiliary material rows (Pocketing bags, Waistband linings, Fusing sheets, Elastic bands, Tape cords).
-
-                    Output strictly a plain text JSON with no placeholders or mathematical formulas:
-                    {{
-                      "detected_product_type": "string",
-                      "extracted_size": "string",
-                      "panels": [
-                        {{
-                          "panel_name": "string",
-                          "component_classification": "MAIN_FABRIC or LINING or FUSING or TRIM_YARDS",
-                          "bounding_box_length": float,
-                          "bounding_box_width": float,
-                          "piece_count": int,
-                          "estimated_net_area_sq_inch": float,
-                          "area_confidence": float
-                        }}
-                      ]
-                    }}
-                    """
+                    # Chạy Tầng 1: Trích xuất hình học
                     payload_agent_1 = gemini_inputs + [prompt_agent_1]
                     response_agent_1 = model.generate_content(payload_agent_1)
-                    json_agent_1 = response_agent_1.text if response_agent_1 else "{}"
+                    raw_json_agent_1 = response_agent_1.text if response_agent_1 else "{}"
                     
-                    # -----------------------------------------------------------------
-                    # ⚖️ TẦNG 2: AGENT 2 - IE LOGIC AUDITOR (ĐỊNH BIÊN HIỆU SUẤT MỤC TIÊU)
-                    # -----------------------------------------------------------------
-                    prompt_agent_2 = f"""
-                    You are Agent 2: The Senior Apparel Industrial Engineer (IE) Auditor.
-                    
-                    🌟 CRITICAL OPERATIONAL MANDATE:
-                    - NEVER trust Agent 1. It frequently misses hidden components, trim segments, pocket linings, or fusing blocks.
-                    - You must independently verify every material class against the raw Techpack context. If anything is missed, rebuild it.
-                    - Group and calculate the exact aggregate sum of net areas ('total_raw_pieces_area_sq_inch') for each material classification. Your output must contain actual computed numbers.
-                    
-                    🌟 STRICT MARKER EFFICIENCY CONSTRAINTS (FACTORY STANDARD):
-                    You must audit and determine a realistic 'marker_efficiency_target' for each material class:
-                    - For MAIN_FABRIC (Denim/Jeans): Factory standard marker layouts for large pieces MUST fall strictly between 83.5% and 86.5%. NEVER drop below 83% (causes high consumption) and NEVER exceed 87% (unrealistic).
-                    - For LINING (Pocketing bags): Efficiency should be optimized between 85.0% and 88.0%.
-                    - For FUSING (Mex): Efficiency should be between 85.0% and 88.0%.
-                    - For TRIM_YARDS (Tape/Elastic): Layout efficiency is extremely high, set strictly to 95.0%.
-
-                    Output strictly a verified technical data JSON without natural language instructions inside the fields:
-                    {{
-                      "detected_product_type": "string",
-                      "calculated_on_size": "string",
-                      "verified_materials": [
-                        {{
-                          "component_name": "string",
-                          "fabric_classification": "MAIN_FABRIC or LINING or FUSING or TRIM_YARDS",
-                          "marker_efficiency_target": float,
-                          "fabric_width_inch": float,
-                          "total_raw_pieces_area_sq_inch": float
-                        }}
-                      ]
-                    }}
-                    """
+                    # Chạy Tầng 2: Kiểm toán & chốt dữ liệu
                     payload_agent_2 = [
-                        f"=== RECOVERED TECHPACK FLAT TEXT DATABASE ===\n{full_pdf_raw_text}\n",
-                        f"=== OUTPUT FROM AGENT 1 (VERIFY AND AUDIT) ===\n{json_agent_1}\n============================\n",
+                        f"=== RECOVERED TECHPACK TEXT ===\n{full_pdf_raw_text}\n",
+                        f"=== DATA FROM CAD AGENT 1 ===\n{raw_json_agent_1}\n====================\n",
                         prompt_agent_2
                     ]
-                    response_agent_2 = model.generate_content(payload_agent_2)
-                    json_agent_2 = response_agent_2.text if response_agent_2 else "{}"
-
-                    # -----------------------------------------------------------------
-                    # 🧮 TẦNG 3: AGENT 3 - PURE ARITHMETIC CALCULATOR
-                    # -----------------------------------------------------------------
-                    prompt_agent_3 = f"""
-                    You are Agent 3: A Pure Arithmetic Clothing Calculator.
-                    Your SOLE job is to execute mechanical mathematics based on physical parameters provided by Agent 2.
-                    You are strictly PROHIBITED from inferring, estimating, or reading the Techpack. Only process the numbers.
-
-                    🌟 STRICT DYNAMIC MATHEMATICAL RULES:
-                    1. Calculate dynamically. Return the value calculated strictly from the uploaded inputs. 
-                    2. Never reuse numeric examples. Every numeric field must be derived purely from the structured parameters. If data differs, returned numbers MUST differ.
-                    3. Execution Formula for gross yardage:
-                       Gross Consumption (Yds) = [total_raw_pieces_area_sq_inch * (1 + Warp Shrinkage) * (1 + Weft Shrinkage)] / [fabric_width_inch * 36 * (marker_efficiency_target / 100)]
-                    4. Note: Shrinkage values to apply for this execution are Warp: {warp_val} and Weft: {weft_val}. Convert percentages properly (e.g., 3% becomes 0.03) before multiplying.
-                    5. Process every row present in the verified input structure.
-
-                    Output BOTH a friendly markdown text summary and the final structured JSON format. Use the exact layout markers below without markdown brackets around the blocks:
-
-                    ===START_CHAT===
-                    ⚖️ **Autonomous Triple-Agent Framework Engaged**: Quy trình tính toán định mức vải đã hoàn thành thông qua 3 Agent độc lập tách biệt vai trò. Đã áp quy tắc hiệu suất sơ đồ chuẩn nhà máy may (**Vải chính Denim: 83.5% - 86.5%**) giúp kìm hãm hao hụt ảo và kéo con số định mức Gross Consumption về trạng thái tối ưu, sát thực tế sản xuất nhất.
-                    ===END_CHAT===
-
-                    ===START_JSON===
-                    {{
-                      "status": "PASS",
-                      "detected_product_type": "string",
-                      "calculated_on_size": "string",
-                      "bom_rows": [
-                        {{
-                          "component_type": "string",
-                          "fabric_classification": "MAIN_FABRIC or LINING or FUSING or TRIM_YARDS",
-                          "fabric_width_inch": float,
-                          "marker_efficiency": "string",
-                          "gross_consumption": float,
-                          "reasoning": "string"
-                        }}
-                      ]
-                    }}
-                    ===END_JSON===
-                    """
-                    payload_agent_3 = [
-                        f"=== PHYSICAL PARAMETERS FROM AGENT 2 ===\n{json_agent_2}\n============================\n",
-                        prompt_agent_3
-                    ]
-                    api_response = model.generate_content(payload_agent_3)
+                    api_response = model.generate_content(payload_agent_2)
                     response_text = api_response.text
                     st.session_state["_btp_master_raw_json_stream"] = response_text
                     
                 except Exception as api_err:
-                    st.error(f"💥 Lỗi kết nối trực tiếp đến chuỗi Triple-Agent API: {str(api_err)}")
+                    st.error(f"💥 Lỗi kết nối trực tiếp đến chuỗi Agent API: {str(api_err)}")
                     st.stop()
+            # =====================================================================
+            # ĐOẠN 7a - PHẦN 3c: POST-AI MIDDLEWARE PARSER & UI SYNC (V100.0)
+            # =====================================================================
+            active_json_stream = st.session_state.get("_btp_master_raw_json_stream", response_text)
+
+            if active_json_stream:
+                json_match = re.search(r'(?:===START_JSON===\s*|```json\s*)(.*?)(?:\s*===END_JSON===|\s*```)', active_json_stream, re.DOTALL)
+                chat_match = re.search(r'(?:===START_CHAT===\s*|```markdown\s*)(.*?)(?:\s*===END_CHAT===|\s*```|$)', active_json_stream, re.DOTALL)
+                
+                if chat_match and response_text:
+                    st.session_state.chat_history.append({"user": current_query, "ai": chat_match.group(1).strip()})
+
+                raw_json_str = json_match.group(1).strip() if json_match else ""
+                if not raw_json_str:
+                    match_fb = re.search(r'\{.*\}', active_json_stream, re.DOTALL)
+                    raw_json_str = match_fb.group(0).strip() if match_fb else ""
+                
+                if raw_json_str:
+                    raw_json_str = re.sub(r',\s*([\]\}])', r'\1', raw_json_str)
+                    try: blueprint_worker = json.loads(raw_json_str)
+                    except: st.stop()
+                    
+                    if blueprint_worker and "bom_rows" in blueprint_worker:
+                        blueprint_worker["calculated_on_size"] = target_size_cmd
+                        
+                        for row in blueprint_worker.get("bom_rows", []):
+                            if row.get("fabric_classification") == "MAIN_FABRIC" or "fabric_width_inch" not in row:
+                                row["fabric_width_inch"] = active_width
+                            row["_btp_warp_pct"] = warp_val
+                            row["_btp_weft_pct"] = weft_val
+                        
+                        blueprint_final = allocate_fabric_consumption_and_quality_gate(blueprint_worker, str(safe_user_prompt).strip())
+                        st.session_state.bom_data = blueprint_final
+                        st.session_state.accumulated_bom_rows = blueprint_final.get("bom_rows", [])
+                        
+                        if response_text:
+                            st.session_state["last_processed_signature"] = current_signature_p3
+                            st.success("🎉 Xử lý định mức tự động toàn phần thành công!")
+                            st.rerun()
+
 
 
 
