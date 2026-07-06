@@ -365,17 +365,42 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# 🌟 BẢN VÁ PHẲNG DIỆN TÍCH: ĐÃ LOẠI BỎ CHỮ, ÉP CỐ ĐỊNH CHIỀU CAO VÀ NHÚNG NỀN MÀU THEO PHÂN HỆ
+# 🌟 BẢN VÁ PHẲNG TUYỆT ĐỐI: ĐỒNG BỘ CHIỀU CAO KHỐI KPIs MÀU VÀ KHỐI HỘP VIỀN ĐEN CHỐNG TRỒI SỤT
 st.markdown("""
 <style>
+    /* Ép tất cả các khối KPIs màu trên đỉnh có cùng chiều cao chính xác là 55px */
+    .kpi-card-colored {
+        border-radius: 6px !important;
+        padding: 8px 12px !important;
+        text-align: center !important;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.02) !important;
+        height: 55px !important;
+        min-height: 55px !important;
+        max-height: 55px !important;
+        display: flex !important;
+        flex-direction: column !important;
+        align-items: center !important;
+        justify-content: center !important;
+    }
+    
+    /* Đồng bộ kích thước font chữ số KPIs của cả 4 ô thẳng tắp */
+    .kpi-num-light {
+        font-size: 18px !important;
+        font-weight: 700 !important;
+        color: #ffffff !important; 
+        font-family: 'Segoe UI', sans-serif !important;
+        line-height: 1.2 !important;
+    }
+
+    /* Ép cứng chiều cao 140px cho các khối hộp viền đen */
     .image-placeholder-box {
         border: 3px solid #000000 !important;
         border-radius: 4px !important;
         padding: 5px !important;
         
-        height: 150px !important;        /* 🟢 KHÓA CHIỀU CAO THẤP XUỐNG VÌ ĐÃ BỎ CHỮ */
-        min-height: 150px !important;
-        max-height: 150px !important;
+        height: 140px !important;
+        min-height: 140px !important;
+        max-height: 140px !important;
         
         display: flex !important;
         align-items: center !important;
@@ -387,14 +412,12 @@ st.markdown("""
         object-fit: contain !important;
         display: block !important;
         margin: auto !important;
-        filter: drop-shadow(0px 2px 4px rgba(0,0,0,0.15)); /* Tăng độ nổi bật cho rập nét */
     }
     
-    /* Ma trận màu nền phẳng dịu nhẹ đổ trực tiếp vào 4 hộp */
-    .color-ao   { background-color: #f0f9ff !important; } /* Nhóm màu Áo xanh nhạt */
-    .color-quan { background-color: #f0fdfa !important; } /* Nhóm màu Quần ngọc nhạt */
-    .color-vest { background-color: #fff7ed !important; } /* Nhóm màu Vest cam nhạt */
-    .color-vay  { background-color: #f0fdf4 !important; } /* Nhóm màu Váy lá nhạt */
+    .color-ao   { background-color: #f0f9ff !important; }
+    .color-quan { background-color: #f0fdfa !important; }
+    .color-vest { background-color: #fff7ed !important; }
+    .color-vay  { background-color: #f0fdf4 !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -415,7 +438,8 @@ with k_col2:
     st.markdown(f'<div class="image-placeholder-box color-quan"><img src="{encoded_quan}" alt="Quan"></div>', unsafe_allow_html=True)
 
 with k_col3: 
-    st.markdown(f'<div class="kpi-card-colored bg-cons"><div class="kpi-num-light" style="font-size:22px;">{main_fabric_cons}</div><div class="kpi-lbl-light">Định mức vải chính dự kiến</div></div>', unsafe_allow_html=True)
+    # 🟢 ĐÃ LOẠI BỎ LỖI PHÌNH CHỮ: Đưa ô Cam về font chữ chuẩn 18px giống hệt các ô khác để khôi phục hàng lối thẳng hàng
+    st.markdown(f'<div class="kpi-card-colored bg-cons"><div class="kpi-num-light">{main_fabric_cons}</div><div class="kpi-lbl-light">Định mức vải chính dự kiến</div></div>', unsafe_allow_html=True)
     st.markdown(f'<div class="image-placeholder-box color-vest"><img src="{encoded_vest}" alt="Vest"></div>', unsafe_allow_html=True)
 
 with k_col4: 
