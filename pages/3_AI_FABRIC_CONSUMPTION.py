@@ -5,76 +5,21 @@ import copy
 
 import re
 
+import re
+
 # =====================================================================
-# KIẾN TRÚC V34.0: ENTERPRISE INDUSTRIAL CAM CORE (DATA-DRIVEN)
-# 🌟 ARCHITECTURE APPROVED BY SENIOR INDUSTRIAL ENGINEERING (IE) ARCHITECT
+# ĐOẠN 7: PURE CAM MATHEMATICAL CORE ENGINE (v34.0 DATA-DRIVEN)
+# 🌟 BẢN VÁ SỬA LỖI LỆCH LỀ INDENTATIONERROR TUYỆT ĐỐI
 # =====================================================================
 
-class IndustrialGeometryEngine:
-    """Module chuyên trách xử lý hình học đa giác Polygon CAD và Convex Hull Fallback"""
-    
-    @staticmethod
-    def convert_to_sq_inches(area: float, unit: str) -> float:
-        """Bộ chuyển đổi đơn vị đo lường vạn năng bám sát hệ thống Gerber/Lectra"""
-        u = str(unit).upper().strip()
-        if u in ["CM2", "CMSQ", "SQUARE_CM"]:
-            return area / 6.4516  # 1 inch² = 6.4516 cm²
-        if u in ["MM2", "MMSQ", "SQUARE_MM"]:
-            return area / 645.16  # 1 inch² = 645.16 mm²
-        return area  # Mặc định IN2 / INCH2
-
-    @classmethod
-    def compute_net_area(cls, row: dict, product_type: str, mat_class: str, p_count: int) -> tuple:
-        poly_area = float(row.get("polygon_net_area", 0.0) or 0.0)
-        area_mode = str(row.get("polygon_area_mode", "PER_PIECE")).upper().strip()
-        poly_unit = str(row.get("polygon_unit", "IN2")).upper().strip()
-        
-        comp_name = str(row.get("component_name", "")).upper()
-        
-        # 1. ƯU TIÊN TỐI CAO: Diện tích đa giác thực tế Polygon CAD trích xuất từ file Gerber/Lectra DXF
-        if poly_area > 0.0:
-            converted_poly = cls.convert_to_sq_inches(poly_area, poly_unit)
-            if area_mode == "TOTAL":
-                return converted_poly, f"Gerber/Lectra Polygon DXF ({poly_unit} -> IN2 Total)"
-            return converted_poly * p_count, f"Gerber/Lectra Polygon DXF ({poly_unit} -> IN2 Per-Piece)"
-
-        # 2. PHƯƠNG ÁN DỰ PHÒNG (Fallback): Sử dụng Convex Hull lồng ma trận hệ số góc khuyết rập
-        b_length = float(row.get("bounding_box_length", 0.0) or 0.0)
-        b_width = float(row.get("bounding_box_width", 0.0) or 0.0)
-        raw_box_area = b_length * b_width * p_count
-        
-        # Ma trận hệ số diện tích thực (Net Factor Matrix) triệt tiêu sai số Bounding Box khuyết mông/đùi
-        if any(k in comp_name for k in ["POCKET", "FLAP", "BAG", "TÚI", "NẮP"]):
-            net_factor = 0.85  # Rập túi đắp vuông vức ít góc khuyết
-        elif any(k in comp_name for k in ["WAISTBAND", "CẠP", "FLY", "NẸP"]):
-            net_factor = 0.95  # Rập cạp thẳng bảo toàn diện tích
-        elif mat_class in ["MAIN_FABRIC", "FABRIC", "SELF"] or "BODY" in comp_name or "THÂN" in comp_name:
-            net_factor = 0.72 if product_type in ["CARGO_PANTS", "JEANS"] else 0.78
-        else:
-            net_factor = 0.80
-            
-        inferred_area = raw_box_area * net_factor
-        return inferred_area, f"CAD Convex Hull Inferred (Factor: {net_factor})"
-
-
-class IndustrialLossEngine:
-    """Module chuyên tách biệt ma trận 7 lỗi hao hụt xưởng cắt may nhà máy"""
-    
-    INDUSTRIAL_LOSS_MATRIX = {
-        "DENIM": {"marker_end": 0.008, "spread_waste": 0.012, "relaxation": 0.005, "defect_cut": 0.010, "roll_end": 0.005},
-        "WOVEN": {"marker_end": 0.006, "spread_waste": 0.010, "relaxation": 0.004, "defect_cut": 0.005, "roll_end": 0.005},
-        "KNIT":  {"marker_end": 0.010, "spread_waste": 0.015, "relaxation": 0.020, "defect_cut": 0.008, "roll_end": 0.007}
-    }
-
-    @classmethod
-    def get_factory_loss(cls, chat_clean: str) -> float:
-        fabric_group = "WOVEN"
-        if any(k in chat_clean for k in ["DENIM", "JEANS", "THÔ DÀY"]): fabric_group = "DENIM"
-        elif any(k in chat_clean for k in ["KNIT", "THUN", "JERSEY", "RIB", "LEN"]): fabric_group = "KNIT"
-        
-        loss_set = cls.INDUSTRIAL_LOSS_MATRIX[fabric_group]
-        return sum(loss_set.values())
-
+def convert_to_sq_inches(area: float, unit: str) -> float:
+    """Bộ chuyển đổi đơn vị đo lường vạn năng bám sát hệ thống Gerber/Lectra"""
+    u = str(unit).upper().strip()
+    if u in ["CM2", "CMSQ", "SQUARE_CM"]:
+        return area / 6.4516  # 1 inch² = 6.4516 cm²
+    if u in ["MM2", "MMSQ", "SQUARE_MM"]:
+        return area / 645.16  # 1 inch² = 645.16 mm²
+    return area  # Mặc định IN2 / INCH2
 
 def compute_fabric_engine(row: dict, product_type: str, chat_txt: str) -> tuple:
     """
@@ -90,9 +35,36 @@ def compute_fabric_engine(row: dict, product_type: str, chat_txt: str) -> tuple:
     # STEP 1: READ GEOMETRY & PIECE CLASSIFIER (Đọc dữ liệu và đếm chi tiết)
     # -----------------------------------------------------------------
     p_count = int(row.get("piece_count", 1) or 1)
+    poly_area = float(row.get("polygon_net_area", 0.0) or 0.0)
+    area_mode = str(row.get("polygon_area_mode", "PER_PIECE")).upper().strip()
+    poly_unit = str(row.get("polygon_unit", "IN2")).upper().strip()
     
-    # Kích hoạt Động cơ hình học: Trích xuất diện tích Net Area thực tế
-    total_net_area, geo_source = IndustrialGeometryEngine.compute_net_area(row, product_type, current_mat_class, p_count)
+    # 🟢 THUẬT TOÁN ĐO DIỆN TÍCH NET AREA ƯU TIÊN POLYGON CAD TRÊN CÙNG LỀ
+    if poly_area > 0.0:
+        converted_poly = convert_to_sq_inches(poly_area, poly_unit)
+        if area_mode == "TOTAL":
+            total_net_area = converted_poly
+            geo_source = f"Gerber/Lectra Polygon DXF ({poly_unit} -> IN2 Total)"
+        else:
+            total_net_area = converted_poly * p_count
+            geo_source = f"Gerber/Lectra Polygon DXF ({poly_unit} -> IN2 Per-Piece)"
+    else:
+        # Fallback về Bounding Box nhân hệ số rập phẳng nếu thiếu dữ liệu Polygon thực
+        b_length = float(row.get("bounding_box_length", 0.0) or 0.0)
+        b_width = float(row.get("bounding_box_width", 0.0) or 0.0)
+        raw_box_area = b_length * b_width * p_count
+        
+        if any(k in current_comp_name for k in ["POCKET", "FLAP", "BAG", "TÚI", "NẮP"]):
+            net_factor = 0.85  # Rập túi đắp vuông vức ít góc khuyết
+        elif any(k in current_comp_name for k in ["WAISTBAND", "CẠP", "FLY", "NẸP"]):
+            net_factor = 0.95  # Rập cạp thẳng bảo toàn diện tích
+        elif current_mat_class in ["MAIN_FABRIC", "FABRIC", "SELF"] or "BODY" in current_comp_name or "THÂN" in current_comp_name:
+            net_factor = 0.72 if product_type in ["CARGO_PANTS", "JEANS"] else 0.78
+        else:
+            net_factor = 0.80
+            
+        total_net_area = raw_box_area * net_factor
+        geo_source = f"CAD Convex Hull Inferred (Factor: {net_factor})"
 
     # -----------------------------------------------------------------
     # STEP 2: MARKER WIDTH EXTRACTION (Trích xuất khổ vải thực tế từ BOM)
@@ -123,9 +95,8 @@ def compute_fabric_engine(row: dict, product_type: str, chat_txt: str) -> tuple:
     # -----------------------------------------------------------------
     base_eff = 0.835  # Sàn mặc định cho Woven
     if product_type in ["CARGO_PANTS", "JEANS"]: base_eff = 0.855
-    elif product_type == "DRESS": base_eff = 0.770  # Vạt cong hao hụt đầu sơ đồ lớn
+    elif product_type == "DRESS": base_eff = 0.770  # Vạt cong hao hụt lớn
     
-    # Phạt hiệu suất theo đặc tính vân sọc vải và sơ đồ định hướng (Nap / Stripe Matching)
     if any(k in chat_clean for k in ["STRIPE", "VÂN SỌC", "KẺ CARO", "PLAID"]): base_eff -= 0.06
     if any(k in chat_clean for k in ["ONE WAY LAYOUT", "SƠ ĐỒ MỘT CHIỀU", "NAP"]): base_eff -= 0.03
     if width_inch >= 60.0: base_eff += 0.015
@@ -134,40 +105,44 @@ def compute_fabric_engine(row: dict, product_type: str, chat_txt: str) -> tuple:
     ai_marker_efficiency = round(max(0.50, min(0.96, base_eff)), 3)
 
     # -----------------------------------------------------------------
-    # STEP 5: PURE CAM MATHEMATICAL CORE (Phép toán toán học phẳng CAM)
+    # STEP 5: PURE CAM MATHEMATICAL CORE (Phép toán ma trận hao hụt)
     # -----------------------------------------------------------------
-    gross_val = 0.0
-    total_industrial_loss = IndustrialLossEngine.get_factory_loss(chat_clean)
+    # Phân tách ma trận 5 lỗi hao hụt xưởng cắt may theo chủng loại vải
+    INDUSTRIAL_LOSS_MATRIX = {
+        "DENIM": {"marker_end": 0.008, "spread_waste": 0.012, "relaxation": 0.005, "defect_cut": 0.010, "roll_end": 0.005},
+        "WOVEN": {"marker_end": 0.006, "spread_waste": 0.010, "relaxation": 0.004, "defect_cut": 0.005, "roll_end": 0.005},
+        "KNIT":  {"marker_end": 0.010, "spread_waste": 0.015, "relaxation": 0.020, "defect_cut": 0.008, "roll_end": 0.007}
+    }
     
-    # Tự động đọc hệ số nhún ly bù hao vải của rập Cargo đắp ly nổi
+    fabric_group = "WOVEN"
+    if any(k in chat_clean for k in ["DENIM", "JEANS", "THÔ DÀY"]): fabric_group = "DENIM"
+    elif any(k in chat_clean for k in ["KNIT", "THUN", "JERSEY", "RIB", "LEN"]): fabric_group = "KNIT"
+    
+    total_industrial_loss = sum(INDUSTRIAL_LOSS_MATRIX[fabric_group].values())
+    
+    # Hệ số nhún ly của rập Cargo đắp ly nổi
     gather_ratio = 1.00
     g_type = str(row.get("gather_type", "NONE")).upper().strip()
     g_depth = str(row.get("gather_depth", "NONE")).upper().strip()
     if g_type == "SIDE_RUCHE" and g_depth == "MEDIUM": gather_ratio = 1.45
     if any(k in chat_clean for k in ["RUCHE", "SIDE_RUCHE", "NHÚN SƯỜN"]): gather_ratio = 1.45
 
+    gross_val = 0.0
     if total_net_area > 0 and width_inch > 0:
-        # Tầng A: Diện tích thực sau nhún ly rập
         adjusted_area = total_net_area * gather_ratio
-        
-        # Tầng B: Nhân nhân ma trận co rút đa lớp biên dạng phòng Lab
         expanded_area = adjusted_area * (1.0 + warp_num) * (1.0 + weft_num)
         
-        # Tầng C: Công thức toán học vạt chia sơ đồ CAM phẳng (Tuyệt đối không nhân đôi *2.0 cảm tính)
+        # Công thức vạt chia sơ đồ CAM phẳng phẳng trần
         math_cad_yardage = expanded_area / (width_inch * 36.0 * ai_marker_efficiency)
-        
-        # Tầng D: Áp dụng ma trận hao hụt nhà máy cắt may công nghiệp (Industrial Multi-Loss Matrix)
         gross_val = math_cad_yardage * (1.0 + total_industrial_loss)
         gross_val = round(max(0.0, gross_val), 3)
 
     # -----------------------------------------------------------------
     # STEP 6: DATA EXPORT FOR UI AUDIT TRAIL (Kết xuất dữ liệu thô cho UI)
     # -----------------------------------------------------------------
-    # Chỉ ghi đè vào chính chiếc từ điển dữ liệu dòng hiện tại (Cô lập bộ nhớ bảo vệ hệ thống)
     row["fabric_consumption"] = gross_val
     row["gross_consumption"] = gross_val
     
-    # Trả về siêu dữ liệu (Metadata) thô cho lớp UI đọc hiển thị, tuyệt đối không gọi st.write ngầm
     row["cad_geometry_source"] = geo_source
     row["cad_calculated_net_area"] = round(total_net_area, 1)
     row["cad_inferred_efficiency"] = ai_marker_efficiency
