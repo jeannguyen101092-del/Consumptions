@@ -356,27 +356,38 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data:
                 main_fabric_cons = f"{val_gross:.3f} Yds"
                 break
 
-# 🌟 BẢN VÁ TỔNG TOÀN CỤC CHỐNG LỖI LẠC MẤT CHỮ TRÊN GHIM ĐỈNH (Enterprise ERP Sticky v2)
+# 🌟 BẢN VÁ TỔNG TOÀN CỤC CHỐNG LỖI LẠC MẤT CHỮ TRÊN GHIM ĐỈNH (Enterprise ERP Sticky v3)
 st.markdown("""
 <style>
-    /* Nới rộng chiều cao trần lên 295px để bọc trọn vẹn cả 3 tầng nội dung */
+    /* Giảm chiều cao trần xuống 230px, sửa lỗi tràn layout và khoảng trắng khổng lồ */
     .sticky-top-container {
         position: fixed !important;
         top: 0 !important; 
         left: 0 !important;
         right: 0 !important;
-        padding: 10px 4rem 20px 4rem !important; 
-        background-color: #f8fafc !important; 
+        padding: 15px 4rem 15px 4rem !important; 
+        background-color: #ffffff !important; 
         z-index: 999999 !important; 
-        box-shadow: 0 6px 16px rgba(0,0,0,0.06) !important;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.08) !important;
         width: 100% !important;
-        height: 295px !important;            
-        overflow: visible !important;
+        height: 230px !important;            
+        overflow: hidden !important;
+    }
+
+    /* Khối chứa tiêu đề chữ nhỏ trên đầu ô màu, chống lỗi mất chữ */
+    .kpi-title-text {
+        font-size: 11px !important;
+        text-transform: uppercase !important;
+        letter-spacing: 0.5px !important;
+        color: rgba(255, 255, 255, 0.9) !important;
+        font-weight: 600 !important;
+        margin-bottom: 2px !important;
+        font-family: 'Segoe UI', sans-serif !important;
     }
 
     .kpi-card-colored {
-        border-radius: 6px 6px 0 0 !important; /* Liền mạch khít rạt với hộp ảnh ở dưới */
-        padding: 8px 12px !important;
+        border-radius: 6px 6px 0 0 !important; 
+        padding: 6px 12px !important;
         text-align: center !important;
         height: 55px !important;
         min-height: 55px !important;
@@ -388,16 +399,16 @@ st.markdown("""
     }
     
     .kpi-num-light {
-        font-size: 18px !important;
+        font-size: 16px !important;
         font-weight: 700 !important;
         color: #ffffff !important; 
         font-family: 'Segoe UI', sans-serif !important;
-        line-height: 1.2 !important;
+        line-height: 1.1 !important;
     }
 
     .image-placeholder-box {
         border: 1px solid #cbd5e1 !important;
-        border-top: none !important; /* Xóa viền giữa để nhìn như một cặp khối đồng bộ */
+        border-top: none !important; 
         border-radius: 0 0 6px 6px !important;
         padding: 5px !important;
         
@@ -418,21 +429,20 @@ st.markdown("""
         margin: auto !important;
     }
     
-    .color-ao   { background-color: #f8fafc !important; }
-    .color-quan { background-color: #f4fbf9 !important; }
-    .color-vest { background-color: #fffaf5 !important; }
-    .color-vay  { background-color: #f5fcf7 !important; }
+    .color-ao   { background-color: #1e293b !important; } /* Đổi nền tối để chữ trắng nổi bật */
+    .color-quan { background-color: #0f766e !important; }
+    .color-vest { background-color: #c2410c !important; }
+    .color-vay  { background-color: #15803d !important; }
 
-    /* Đẩy nội dung uploader bên dưới sụp xuống 340px hợp lý, chống lỗi đè chữ */
+    /* Thu hẹp khoảng đệm từ 340px xuống 250px giúp đẩy uploader lên sát, triệt tiêu khoảng trắng */
     .main-body-spacer {
-        margin-top: 340px !important; 
+        margin-top: 250px !important; 
     }
 </style>
 """, unsafe_allow_html=True)
 
-# 🟢 KHỞI ĐỘNG CONTAINER GHIM ĐỈNH (TẤT CẢ NẰM BÊN TRONG KHỐI NÀY SẼ GHIM CỐ ĐỊNH)
+# 🟢 KHỞI ĐỘNG CONTAINER GHIM ĐỈNH
 st.markdown('<div class="sticky-top-container">', unsafe_allow_html=True)
-
 # TẦNG 1: BANNER XANH CHỦ ĐẠO
 st.markdown("""
 <div class="top-banner">
