@@ -256,6 +256,48 @@ def is_hardware_component(component_name: str, material_class: str) -> bool:
             return True
             
     return False
+# =====================================================================
+# KHỐI HÀM PHỤ TRỢ TÍNH TOÁN ĐỊNH MỨC TĨNH CHO THUN / TAPE / CHỈ MAY
+# 🌟 ĐỒNG BỘ 100% ĐẦU RA 3 THAM SỐ (YARDS, METERS, NOTE) THEO CAM CORE v44.0
+# =====================================================================
+
+def compute_elastic_engine(row: dict) -> tuple:
+    """Engine chuyên tính toán cho Chun / Thun co giãn (Elastic)"""
+    uom_target = str(row.get("uom", "YDS")).upper().strip()
+    e_length = float(row.get("length_inch", 0.0) or 0.0)
+    e_count = int(row.get("piece_count", 1) or 1)
+    stretch = float(row.get("stretch_pct", 1.00) or 1.00)
+    
+    # Công thức: Chiều dài x Số lượng x Độ giãn thun x 5% hao hụt đầu bàn thun
+    total_inches = e_length * e_count * stretch * 1.05
+    gross_yards = round(total_inches / 36.0, 4)
+    gross_meters = round(gross_yards * 0.9144, 4)
+    
+    note = f"ElasticEngine | Dài: {e_length}\" | Số lượng: {e_count} | Độ giãn: {stretch}x | Hao hụt: 5%"
+    return gross_yards, gross_meters, note
+
+
+def compute_tape_engine(row: dict) -> tuple:
+    """Engine chuyên tính toán cho Dây Tape / Dây Viền / Dây dệt (Tape/Cord)"""
+    uom_target = str(row.get("uom", "MTR")).upper().strip()
+    t_length = float(row.get("length_inch", 0.0) or 0.0)
+    t_count = int(row.get("piece_count", 1) or 1)
+    
+    # Công thức: Chiều dài x Số lượng x 3% hao hụt cắt nối dây viền
+    total_inches = t_length * t_count * 1.03
+    gross_yards = round(total_inches / 36.0, 4)
+    gross_meters = round(gross_yards * 0.9144, 4)
+    
+    note = f"TapeEngine | Chiều dài: {t_length}\" | Số lượng: {t_count} | Hao hụt: 3%"
+    return gross_yards, gross_meters, note
+
+
+def compute_thread_engine() -> tuple:
+    """Engine tính định mức Chỉ may công nghiệp theo ma trận tiêu chuẩn (Thread)"""
+    gross_yards = 18.5000
+    gross_meters = round(gross_yards * 0.9144, 4)
+    note = f"ThreadEngine | Tiêu chuẩn Factory Standard Sew-in Matrix"
+    return gross_yards, gross_meters, note
 
 def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, *args, **kwargs) -> dict:
     """
