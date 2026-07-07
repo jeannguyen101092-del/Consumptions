@@ -668,44 +668,36 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             }
             """.replace("SIZE_PLH", str(target_size_cmd)).replace("WIDTH_PLH", str(active_width))
                        # =====================================================================
-            # ĐOẠN 7a - PHẦN 10: PROMPT AGENT 2 ROUTER & API EXECUTION CORE (V102.8)
-            # 🌟 ĐÃ KHÔI PHỤC TƯ DUY HÌNH HỌC: ÉP AI TRA CỨU THÔNG SỐ RẬP THÔ > 2.5 YDS
-            # =====================================================================
-                        # =====================================================================
-                        # =====================================================================
-                     # =====================================================================
-            # ĐOẠN 7a - PHẦN 10: PROMPT AGENT 2 ROUTER & INDUSTRIAL CAD AUDITOR (v104.0)
+                       # ĐOẠN 7a - PHẦN 10: PROMPT AGENT 2 ROUTER & INDUSTRIAL CAD AUDITOR (v104.0)
             # 🌟 CHỈ TÍNH NGUYÊN LIỆU MAY - ĐỒNG BỘ POLYGON CAD & PIECE CLASSIFIER
             # =====================================================================
             prompt_agent_2 = f"""
-            You are Agent 2: The Enterprise Apparel CAD Auditor & Raw Material Router.
-            Review Agent 1 extraction against the raw Techpack context, BOM tables, and sketches.
+            You are an Enterprise Apparel CAD Auditor.
+            Task: Audit Agent 1 extraction using Techpack context.
 
-            🌟 STRICT SYSTEM RULE: ONLY EXTRACT RAW SEWING MATERIALS. 
-            Completely exclude and ignore hardware or counts (No Buttons, No Zippers, No Labels, No Polybags, No Hardware).
-            
-            ONLY route and extract the following industrial raw sewing components:
-            - Main Fabric, Lining, Pocketing, Contrast Fabric -> Engine: "FABRIC"
-            - Fusible Interlining, Tape, Collar Stay -> Engine: "FUSING"
-            - Elastic Bands, Elastic Webbing -> Engine: "ELASTIC"
-            - Sewing Thread (Spun / Filament) -> Engine: "THREAD"
+            Extract ONLY sewing materials (Engine):
+            - Main Fabric, Lining, Pocketing, Contrast Fabric -> "FABRIC"
+            - Fusible Interlining, Tape, Collar Stay -> "FUSING"
+            - Elastic Bands, Elastic Webbing -> "ELASTIC"
+            - Sewing Thread -> "THREAD"
 
-            🌟 CAD PATTERN & GEOMETRY EXTRACTION INSTRUCTIONS (98% Accuracy Target):
-            1. PIECE CLASSIFIER: For each component, audit the structural symmetry. Identify if it is a 'Pair', 'Mirror', or 'Cut on Fold' layout. Ensure 'piece_count' represents the TOTAL actual pieces cut in production (e.g., Jeans Front Panel must be 2, Cargo Pocket Body must be 2).
-            2. POLYGON AREA PRIORITY: Look for any exact square inch area or CAD system outputs (Gerber/Lectra tables) in the Techpack. If found, populate 'polygon_net_area' and set 'polygon_area_mode' to "TOTAL" or "PER_PIECE".
-            3. GEOMETRY FALLBACK: If polygon area is missing, you MUST extract the 'bounding_box_length' and 'bounding_box_width' of the gross pattern block. Never output 0.0 or null for geometric shapes.
-            4. MARKET WIDTH TRACKING: Do NOT force active width {active_width} on all items. Scan the BOM table carefully: extract the SPECIFIC width for Lining (e.g., 44") or Interlining (e.g., 36") if specified. Use {active_width} only as a baseline fallback for Main Fabric.
+            Ignore: Buttons, Zippers, Labels, Polybags, Hangtags, Hardware.
 
-            Output clean executable JSON under ===START_JSON=== and chat summary under ===START_CHAT===.
-            
-            ===START_CHAT===
-            ⚖️ Industrial CAD Pipeline Engaged: Đã dọn sạch phụ liệu đếm chiếc. Hệ thống tự động phân loại cấu trúc rập đối xứng (Pair/Mirror), ưu tiên trích xuất diện tích đa giác CAD và khổ rộng thực tế của từng phân hệ vật tư từ BOM Techpack.
-            ===END_CHAT===
-            
+            Rules:
+            1. piece_count = total actual pieces cut in production (handle Pairs, Mirrors, Cut on Fold).
+            2. Use CAD polygon_net_area if available; otherwise use bounding_box_length * bounding_box_width. Never output 0.
+            3. Extract specific fabric_width_inch from BOM for each material type; use {active_width} only as baseline fallback.
+
+            Return:
             ===START_JSON===
             {dummy_json_payload}
             ===END_JSON===
+
+            ===START_CHAT===
+            Industrial CAD audit completed.
+            ===END_CHAT===
             """
+
 
 
 
