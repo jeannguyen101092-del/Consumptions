@@ -571,17 +571,33 @@ st.markdown("""
 """, unsafe_allow_html=True)
 import streamlit as st
 
+import streamlit as st
+
+# ==============================================================================
+# ĐOẠN 2: BANNER TIÊU ĐỀ, LƯỚI 4 CỘT KPIs VÀ KHỐI UPLOADER CÂN BẰNG ĐỐI XỨNG
+# ==============================================================================
+
 # 4 Ô chỉ số KPIs Native phẳng hoàn toàn
 k_col1, k_col2, k_col3, k_col4 = st.columns(4)
-for col, bg, num, lbl, img, c_bg in [
-    (k_col1, "bg-style", kpi_style_id, "Mã hàng đang xử lý", "M20.38 3.46L16 2a4 4 0 0 0-8 0l-4.38 1.46a2 2 0 0 0-1.37 2l.35 11.23a2 2 0 0 0 2 1.94h14.8a2 2 0 0 0 2-1.94l.35-11.23a2 2 0 0 0-1.37-2zM12 5v16M4 10h16", "color-ao"),
-    (k_col2, "bg-items", f"{total_materials} Item(s)", "Tổng số vật tư kết xuất", "M4 2h16l-2 20H6L4 2zM12 2v20M5 8h14", "color-quan"),
-    (k_col3, "bg-cons", main_fabric_cons, "Định mức vải chính dự kiến", "M4 2v20l8-4 8 4V2l-8 4-8-4zM12 6v12M4 8h16", "color-vest"),
-    (k_col4, "bg-size", active_size_kpi, "Cỡ hạt tính định mức", "M6 2h12l3 7-9 13-9-7 3-7zM6 9h12M12 2v7", "color-vay")
-]:
-    with col:
-        st.markdown(f'<div class="kpi-card-colored {bg}"><div class="kpi-num-light">{num}</div><div class="kpi-lbl-light">{lbl}</div></div>', unsafe_allow_html=True)
-        st.markdown(f'<div class="image-placeholder-box {c_bg}"><img src="data:image/svg+xml;utf8,<svg xmlns=\'http://w3.org\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'%23334155\' stroke-width=\'1.25\' stroke-linecap=\'round\' stroke-linejoin=\'round\'><path d=\'{img}\'/></svg>"></div>', unsafe_allow_html=True)
+
+# Chuỗi vector đồ họa chuẩn hóa cách ly hoàn toàn dấu ngoặc đơn
+encoded_ao = "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%27100%27%20height%3D%27100%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23334155%27%20stroke-width%3D%271.25%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M20.38%203.46L16%202a4%204%200%200%200-8%200l-4.38%201.46a2%202%200%200%200-1.37%202l.35%2011.23a2%202%200%200%200%202%201.94h14.8a2%202%200%200%200%202-1.94l.35-11.23a2%202%200%200%200-1.37-2z%27%2F%3E%3Cpath%20d%3D%27M12%205v16%27%2F%3E%3Cpath%20d%3D%27M4%2010h16%27%2F%3E%3C%2Fsvg%3E"
+encoded_quan = "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%27100%27%20height%3D%27100%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%230f766e%27%20stroke-width%3D%271.25%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M4%202h16l-2%2020H6L4%202z%27%2F%3E%3Cpath%20d%3D%27M12%202v20%27%2F%3E%3Cpath%20d%3D%27M5%208h14%27%2F%3E%3C%2Fsvg%3E"
+encoded_vest = "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%27100%27%20height%3D%27100%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23c2410c%27%20stroke-width%3D%271.25%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M4%202v20l8-4%208%204V2l-8%204-8-4z%27%2F%3E%3Cpath%20d%3D%27M12%206v12%27%2F%3E%3Cpath%20d%3D%27M4%208h16%27%2F%3E%3C%2Fsvg%3E"
+encoded_vay = "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%27100%27%20height%3D%27100%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%2315803d%27%20stroke-width%3D%271.25%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M6%202h12l3%207-9%2013-9-7%203-7z%27%2F%3E%3Cpath%20d%3D%27M6%209h12%27%2F%3E%3Cpath%20d%3D%27M12%202v7%27%2F%3E%3C%2Fsvg%3E"
+
+with k_col1:
+    st.markdown(f'<div class="kpi-card-colored bg-style"><div class="kpi-num-light">{kpi_style_id}</div><div class="kpi-lbl-light">Mã hàng đang xử lý</div></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="image-placeholder-box color-ao"><img src="{encoded_ao}" alt="Ao"></div>', unsafe_allow_html=True)
+with k_col2:
+    st.markdown(f'<div class="kpi-card-colored bg-items"><div class="kpi-num-light">{total_materials} Item(s)</div><div class="kpi-lbl-light">Tổng số vật tư kết xuất</div></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="image-placeholder-box color-quan"><img src="{encoded_quan}" alt="Quan"></div>', unsafe_allow_html=True)
+with k_col3:
+    st.markdown(f'<div class="kpi-card-colored bg-cons"><div class="kpi-num-light">{main_fabric_cons}</div><div class="kpi-lbl-light">Định mức vải chính dự kiến</div></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="image-placeholder-box color-vest"><img src="{encoded_vest}" alt="Vest"></div>', unsafe_allow_html=True)
+with k_col4:
+    st.markdown(f'<div class="kpi-card-colored bg-size"><div class="kpi-num-light">{active_size_kpi}</div><div class="kpi-lbl-light">Cỡ hạt tính định mức</div></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="image-placeholder-box color-vay"><img src="{encoded_vay}" alt="Vay"></div>', unsafe_allow_html=True)
 
 # Lưới chia đôi cột chính co sát lên trên cùng
 col_left, col_right = st.columns(2)
@@ -625,6 +641,7 @@ with col_right:
     else:
         st.markdown("<div style='margin-top:70px; text-align:center; color:#64748b; font-size:13px;'>Hình vẽ phác họa phẳng (Sketch) trích xuất từ trang bìa PDF sẽ tự động hiển thị cân xứng tại đây sau khi nạp file thành công.</div>", unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
+
 
 
 
