@@ -372,7 +372,7 @@ import streamlit as st
 # 1. Khai báo bản vá cấu trúc CSS sửa lỗi ẩn mất hàng chữ trên đầu
 st.markdown("""
 <style>
-    /* Thiết lập khung ghim trần cố định và khống chế chiều cao tổng */
+    /* Khóa chết vị trí container trên cùng lớp hiển thị, chống bị đè khi re-run */
     .sticky-top-container {
         position: fixed !important;
         top: 0 !important; 
@@ -380,11 +380,19 @@ st.markdown("""
         right: 0 !important;
         padding: 10px 4rem 15px 4rem !important; 
         background-color: #ffffff !important; 
-        z-index: 999999 !important; 
+        z-index: 99999999 !important; /* Tăng tối đa z-index để không lớp nào đè được */
         box-shadow: 0 4px 15px rgba(0,0,0,0.08) !important;
         width: 100% !important;
         height: 295px !important;            
-        overflow: hidden !important;
+        overflow: visible !important; /* Đổi sang visible để giữ chữ không bị cắt */
+    }
+
+    /* Gỡ bỏ khoảng trống thừa mặc định phía trên cùng của giao diện Streamlit */
+    .stApp header {
+        z-index: 0 !important;
+    }
+    .block-container {
+        padding-top: 2rem !important;
     }
 
     /* Banner tiêu đề chính Tầng 1 */
@@ -444,7 +452,7 @@ st.markdown("""
     .kpi-lbl-light {
         font-size: 10px !important;
         font-weight: 500 !important;
-        color: rgba(255, 255, 255, 0.9) !important; /* Buộc chữ hiển thị màu trắng rõ ràng */
+        color: rgba(255, 255, 255, 0.95) !important; /* Làm nổi bật chữ màu trắng */
         font-family: 'Segoe UI', sans-serif !important;
         margin-top: 2px !important;
         white-space: nowrap !important;
@@ -557,6 +565,7 @@ st.markdown('</div>', unsafe_allow_html=True) # Đóng container ghim đỉnh
 
 # Khối tạo khoảng trống đẩy phần thân (uploader, widgets) xuống để tránh đè chữ
 st.markdown('<div class="main-body-spacer"></div>', unsafe_allow_html=True)
+
 
 
 
