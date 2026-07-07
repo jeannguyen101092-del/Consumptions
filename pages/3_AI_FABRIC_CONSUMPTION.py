@@ -820,11 +820,12 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             # Xóa bỏ hoàn toàn dummy_json cũ cồng kềnh
 
                          # =====================================================================
-            # ĐOẠN 7a - PHẦN 10: PROMPT AGENT 2 ROUTER & INDUSTRIAL CAD AUDITOR (v115.0)
-            # 🌟 KHÓA CHẶT ĐIỂM MÙ AI: Ép Gemini bắt buộc phải quét thị giác toàn bộ trang ảnh để lấy L/W thật
+                       # =====================================================================
+            # ĐOẠN 7a - PHẦN 10: PROMPT AGENT 2 ROUTER & INDUSTRIAL CAD AUDITOR (v116.0)
+            # 🌟 CHỐNG QUÁ TẢI RPM 429: Bộ khóa Cache Tĩnh ngăn AI gọi trùng Request khi Rerun
             # =====================================================================
             
-            # 1. JSON Schema cấu trúc cứng đồng bộ hóa dữ liệu số thực
+            # 1. Khai báo JSON Schema cấu trúc cứng đồng bộ
             raw_json_schema = {
                 "type": "OBJECT",
                 "properties": {
@@ -853,8 +854,8 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                                 "polygon_net_area": {"type": "NUMBER", "description": "Diện tích đa giác hệ CAD nếu có"},
                                 "polygon_area_mode": {"type": "STRING", "description": "TOTAL hoặc PER_PIECE"},
                                 "polygon_unit": {"type": "STRING", "description": "CM2 hoặc IN2"},
-                                "bounding_box_length": {"type": "NUMBER", "description": "Chiều dài khối rập thật trích xuất được. KHÔNG ĐỂ 0."},
-                                "bounding_box_width": {"type": "NUMBER", "description": "Chiều rộng khối rập thật trích xuất được. KHÔNG ĐỂ 0."},
+                                "bounding_box_length": {"type": "NUMBER", "description": "Chiều dài rập thô chi tiết (L)"},
+                                "bounding_box_width": {"type": "NUMBER", "description": "Chiều rộng rập thô chi tiết (W)"},
                                 "fabric_width_inch": {"type": "NUMBER", "description": "Khổ rộng vật tư tương ứng trích xuất từ bảng BOM"}
                             },
                             "required": ["component_name", "material_class", "uom", "piece_count"]
@@ -864,79 +865,85 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                 "required": ["detected_product_type", "spec_meta", "bom_rows"]
             }
 
-            # 2. Prompt chữ nâng cấp năng lực quét thị giác đa trang (Multi-Page Vision Scan)
-            prompt_agent_2 = f"""
-            You are an Enterprise Apparel CAD Auditor equipped with advanced computer vision.
-            Task: Thoroughly scan EVERY SINGLE PAGE in the provided images and text to extract pattern dimensions.
+            # Tạo chữ ký định danh duy nhất cho lượt chạy này (Chặn click trùng)
+            current_run_signature = (str(safe_user_prompt).strip(), int(len(image_payloads)), int(len(st.session_state.pdf_bytes)))
+            last_run_signature = st.session_state.get("last_processed_signature")
 
-            🌟 USER CHAT COMMAND CONTEXT (CRITICAL):
-            You MUST update 'warp_shrink' and 'weft_shrink' inside 'spec_meta' exactly as requested here:
-            "{str(safe_user_prompt).strip()}"
+            # 🌟 KHÓA CHẶT RPM CHÍ MẠNG: Nếu trùng chữ ký (đã chạy xong rồi và chỉ tải lại trang), bỏ qua không gọi API Gemini nữa
+            if last_run_signature == current_run_signature and st.session_state.get("bom_data"):
+                st.info("🔄 Hệ thống nạp dữ liệu từ Bộ nhớ đệm (Cache tĩnh) - Đã chặn lặp lệnh API 429.")
+            else:
+                prompt_agent_2 = f"""
+                You are an Enterprise Apparel CAD Auditor.
+                Task: Audit and extract ALL components from the Techpack context, drawings, BOM tables, and sketches.
 
-            STRICT AUDIT & VISION RULES:
-            - CRITICAL: Do NOT get distracted by the user command. You MUST scan all pages to find the actual dimensions for MAIN FABRIC, FRONT PANEL, BACK PANEL, and WAISTBAND.
-            - Look closely at pattern tables, diagram sketches, and measurement charts scattered across the pages. 
-            - Extract valid, non-zero numeric values for 'bounding_box_length' and 'bounding_box_width' for the main garment panels. If a front panel is found, its length cannot be 0. Find it from the spec sheets!
-            - Ensure 'piece_count' matches actual production cut pieces (e.g., Front Panel = 2, Back Panel = 2).
-            - For fabric_width_inch, extract specific values from BOM; if not specified, fallback to {active_width}.
-            """
+                🌟 USER CHAT COMMAND CONTEXT (CRITICAL):
+                You MUST update 'warp_shrink' and 'weft_shrink' inside 'spec_meta' exactly as requested here:
+                "{str(safe_user_prompt).strip()}"
 
-            # 3. Chuẩn bị mảng đầu vào nạp thẳng vào Gemini API
-            gemini_inputs = copy.deepcopy(image_payloads)
-            gemini_inputs.insert(0, f"=== USER CHAT COMMAND ===\n{str(safe_user_prompt).strip()}\n\n=== TECHPACK TEXT ===\n{full_pdf_raw_text}\n")
-            gemini_inputs.append(prompt_agent_2)
+                STRICT AUDIT & VISION RULES:
+                - Scan all pages to extract valid numeric values for 'bounding_box_length' and 'bounding_box_width' for front/back panels. Do not leave them as 0.
+                - For fabric_width_inch, extract specific values from BOM; if not specified, fallback to {active_width}.
+                """
 
-            # 4. Gọi API Gemini 2.5 Flash
-            model = genai.GenerativeModel('gemini-2.5-flash')
-            response = model.generate_content(
-                gemini_inputs,
-                generation_config={
-                    "response_mime_type": "application/json",
-                    "response_schema": raw_json_schema,
-                    "temperature": 0.1
-                }
-            )
-            
-            # Giải mã gói tin JSON sạch
-            blueprint_worker = json.loads(response.text)
+                gemini_inputs = copy.deepcopy(image_payloads)
+                gemini_inputs.insert(0, f"=== USER CHAT COMMAND ===\n{str(safe_user_prompt).strip()}\n\n=== TECHPACK TEXT ===\n{full_pdf_raw_text}\n")
+                gemini_inputs.append(prompt_agent_2)
+
+                # Gọi API thực tế
+                model = genai.GenerativeModel('gemini-2.5-flash')
+                response = model.generate_content(
+                    gemini_inputs,
+                    generation_config={
+                        "response_mime_type": "application/json",
+                        "response_schema": raw_json_schema,
+                        "temperature": 0.1
+                    }
+                )
                 
-            if blueprint_worker and "bom_rows" in blueprint_worker:
-                blueprint_worker["calculated_on_size"] = target_size_cmd
-                
-                # Ép kiểu dữ liệu số thực cưỡng bức ngay tại mảng dữ liệu thật từ AI gửi qua
-                for row in blueprint_worker.get("bom_rows", []):
-                    try: row["bounding_box_length"] = float(row.get("bounding_box_length", 0.0))
-                    except: row["bounding_box_length"] = 0.0
+                blueprint_worker = json.loads(response.text)
                     
-                    try: row["bounding_box_width"] = float(row.get("bounding_box_width", 0.0))
-                    except: row["bounding_box_width"] = 0.0
+                if blueprint_worker and "bom_rows" in blueprint_worker:
+                    blueprint_worker["calculated_on_size"] = target_size_cmd
                     
-                    try: row["polygon_net_area"] = float(row.get("polygon_net_area", 0.0))
-                    except: row["polygon_net_area"] = 0.0
-                    
-                    try: row["piece_count"] = int(float(row.get("piece_count", 1)))
-                    except: row["piece_count"] = 1
+                    # Ép kiểu dữ liệu số thực cưỡng bức 
+                    for row in blueprint_worker.get("bom_rows", []):
+                        try: row["bounding_box_length"] = float(row.get("bounding_box_length", 0.0))
+                        except: row["bounding_box_length"] = 0.0
+                        
+                        try: row["bounding_box_width"] = float(row.get("bounding_box_width", 0.0))
+                        except: row["bounding_box_width"] = 0.0
+                        
+                        try: row["polygon_net_area"] = float(row.get("polygon_net_area", 0.0))
+                        except: row["polygon_net_area"] = 0.0
+                        
+                        try: row["piece_count"] = int(float(row.get("piece_count", 1)))
+                        except: row["piece_count"] = 1
 
-                    try:
-                        w_val = row.get("fabric_width_inch")
-                        if w_val is None or str(w_val).strip() == "" or float(w_val) <= 0.0:
+                        try:
+                            w_val = row.get("fabric_width_inch")
+                            if w_val is None or str(w_val).strip() == "" or float(w_val) <= 0.0:
+                                row["fabric_width_inch"] = float(active_width)
+                            else:
+                                row["fabric_width_inch"] = float(w_val)
+                        except:
                             row["fabric_width_inch"] = float(active_width)
-                        else:
-                            row["fabric_width_inch"] = float(w_val)
-                    except:
-                        row["fabric_width_inch"] = float(active_width)
-                
-                # Đẩy gói tin vào lõi Router Python tính toán định mức toán học phẳng
-                blueprint_final = allocate_fabric_consumption_and_quality_gate(blueprint_worker, str(safe_user_prompt).strip())
-                
-                st.session_state.bom_data = blueprint_final
-                st.session_state.accumulated_bom_rows = blueprint_final.get("bom_rows", [])
-                st.session_state["raw_ai_debug_payload"] = blueprint_worker
-                st.session_state["last_processed_signature"] = (str(safe_user_prompt).strip(), int(len(image_payloads)), int(len(st.session_state.pdf_bytes)))
-                st.rerun()
+                    
+                    # Đẩy vào lõi Router Python tính toán định mức toán học phẳng v52.0 & Lõi v54.0
+                    blueprint_final = allocate_fabric_consumption_and_quality_gate(blueprint_worker, str(safe_user_prompt).strip())
+                    
+                    # Khóa trạng thái cứng vào bộ nhớ đệm Session State tĩnh
+                    st.session_state.bom_data = blueprint_final
+                    st.session_state.accumulated_bom_rows = blueprint_final.get("bom_rows", [])
+                    st.session_state["raw_ai_debug_payload"] = blueprint_worker
+                    
+                    # Ghi nhận dấu vân tay chữ ký của lượt chạy thành công
+                    st.session_state["last_processed_signature"] = current_run_signature
+                    st.rerun()
 
         except Exception as ai_err:
             st.error(f"❌ Lỗi AI: {str(ai_err)}")
+
 
 
 
