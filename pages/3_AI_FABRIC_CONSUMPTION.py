@@ -423,18 +423,17 @@ if st.sidebar.button("🗑️ CLEAR SYSTEM MEMORY", use_container_width=True):
     st.rerun()
 
 
-# =====================================================================
-# 🟢 LƯỚI CHIA ĐÔI CỘT CHÍNH THỰC TẾ (CHỈ GIỮ LẠI ĐÚNG 1 KHỐI NÀY TRÊN FILE)
-# =====================================================================
+# ------------------------------------------------------------------------------
+# LƯỚI CHIA ĐÔI CỘT CHÍNH THỰC TẾ (HỢP NHẤT THẺ ĐÓNG HTML KHÍT RẠT)
+# ------------------------------------------------------------------------------
 col_left, col_right = st.columns(2)
 
 # --- CỘT TRÁI: BỘ TẢI FILE & HỒ SƠ TÓM TẮT MÃ HÀNG MÀU XANH ---
 with col_left:
-    # GỘP CHUNG THẺ MỞ HỘP VÀ TIÊU ĐỀ VÀO MỘT LỆNH ST.MARKDOWN DUY NHẤT ĐỂ TRÁNH SINH BLOCK RỖNG
+    # Mở hộp custom-erp-box-flat và viết tiêu đề trong cùng 1 lệnh st.markdown
     st.markdown('<div class="custom-erp-box-flat"><div class="cad-header-text-flat">📂 TECHPACK UPLOADER & PROFILE SUMMARY</div>', unsafe_allow_html=True)
     
     uploaded_file = st.file_uploader("Upload PDF", type=["pdf"], label_visibility="collapsed")
-
     
     if uploaded_file is not None:
         if st.session_state.pdf_name != uploaded_file.name:
@@ -465,20 +464,21 @@ with col_left:
             st.markdown(f'<div class="meta-box-light-flat"><div class="meta-label-flat">Customer / Đối tác</div><div class="meta-value-flat">{customer}</div></div>', unsafe_allow_html=True)
             st.markdown(f'<div class="meta-box-light-flat"><div class="meta-label-flat">Season / Mùa sản xuất</div><div class="meta-value-flat">{season}</div></div>', unsafe_allow_html=True)
         with m_col2:
-            st.markdown(f'<div class="meta-box-light-flat"><div class="meta-label-flat">Garment Type / Kiểu dáng</div><div class="meta-value-light">{short_desc}</div></div>', unsafe_allow_html=True)
-            st.markdown(f'<div class="meta-box-light-flat"><div class="meta-label-flat">Material Spec / Mô tả vải</div><div class="meta-value-light">{fabric_type[:25]}...</div></div>', unsafe_allow_html=True)
-            st.markdown(f'<div class="meta-box-light-flat"><div class="meta-label-flat">Techpack Status</div><div class="meta-value-flat" style="color: #16a34a; font-weight: bold;">🟢 READY TO BOM</div></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="meta-box-light-flat"><div class="meta-label-flat">Garment Type / Kiểu dáng</div><div class="meta-value-flat">{short_desc}</div></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="meta-box-light-flat"><div class="meta-label-flat">Material Spec / Mô tả vải</div><div class="meta-value-flat">{fabric_type[:25]}...</div></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="meta-box-light-flat"><div class="meta-label-flat">Techpack Status</div><div class="meta-value-light" style="color: #16a34a; font-weight: bold;">🟢 READY TO BOM</div></div>', unsafe_allow_html=True)
     else:
         if st.session_state.pdf_bytes is None:
             st.markdown("<div style='margin-top: 60px; text-align: center; color: #64748b; font-size: 13px;'>Bảng tóm tắt thông số sản phẩm sẽ tự động hiển thị tại đây sau khi nạp file PDF.</div>", unsafe_allow_html=True)
         
+    # 🟢 CHUYỂN THÈ ĐÓNG HỘP XUỐNG ĐÂY (Sau khi tất cả nội dung bên trong đã chạy xong)
     st.markdown('</div>', unsafe_allow_html=True)
 
 
-# --- CỘT PHẢI: KHUNG XEM BẢN VẼ PHẲNG SKETCH ---
+# --- CỘT PHẢI: KHUNG XEM BẢN VẼ PHẲNG SKETCH VÀNG VÀNG ---
 with col_right:
-    st.markdown('<div class="custom-erp-box-flat sticky-sketch-box-flat">', unsafe_allow_html=True)
-    st.markdown('<div class="cad-header-text-flat">🎨 TECHPACK SKETCH VISUALIZER</div>', unsafe_allow_html=True)
+    # Mở hộp custom-erp-box-flat và viết tiêu đề trong cùng 1 lệnh st.markdown
+    st.markdown('<div class="custom-erp-box-flat sticky-sketch-box-flat"><div class="cad-header-text-flat">🎨 TECHPACK SKETCH VISUALIZER</div>', unsafe_allow_html=True)
     
     if st.session_state.pdf_bytes is not None:
         if "pdf_page_one_image" not in st.session_state or st.session_state.pdf_page_one_image is None:
@@ -497,7 +497,9 @@ with col_right:
     else:
         st.markdown("<div style='margin-top: 70px; text-align: center; color: #64748b; font-size: 13px;'>Hình vẽ phác họa phẳng (Sketch) trích xuất từ trang bìa PDF sẽ tự động hiển thị cân xứng tại đây sau khi nạp file thành công.</div>", unsafe_allow_html=True)
         
+    # 🟢 CHUYỂN THÈ ĐÓNG HỘP XUỐNG ĐÂY (Sau khi ảnh hoặc chữ sketch đã vẽ xong)
     st.markdown('</div>', unsafe_allow_html=True)
+
 
 
 
