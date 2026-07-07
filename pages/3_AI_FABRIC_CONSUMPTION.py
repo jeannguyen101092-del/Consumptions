@@ -364,10 +364,8 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data:
 import streamlit as st
 
 # ==============================================================================
-# ĐOẠN B: HỆ THỐNG CSS TOÀN CỤC & HÀM KẾT XUẤT COMPONENT HEADER ENTERPRISE
+# ĐOẠN 1: HỆ THỐNG CSS TOÀN CỤC - STATIC CSS CONFIG (Enterprise v14 APPROVED)
 # ==============================================================================
-
-# 1. Nhúng bản vá cấu hình CSS tĩnh (Chỉ render 1 lần duy nhất)
 st.markdown("""
 <style>
     /* Giải phóng thuộc tính overflow của các lớp cha để cố định layout mượt mà */
@@ -512,16 +510,25 @@ st.markdown("""
     }
 </style>
 """, unsafe_allow_html=True)
+import streamlit as st
 
+# ==============================================================================
+# ĐOẠN 2: HÀM KHỞI DỰNG LAYOUT HTML VÀ TRUYỀN BIẾN ĐỘNG KPIs THEO REALTIME
+# ==============================================================================
 
-# 2. Định nghĩa hàm kết xuất HTML Template truyền biến động từ Python (Đã xóa chú thích)
 def render_enterprise_sticky_header(style_id, materials_count, fabric_consumption, active_size):
+    """
+    Hàm đóng gói khuôn mẫu giao diện Header độc lập cao cấp.
+    Sử dụng phương thức replace chuỗi an toàn tuyệt đối chống lỗi SyntaxError cú pháp Python.
+    """
+    # Chuỗi mã hóa vector đồ họa của 4 form trang phục gốc
     encoded_ao = "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%27100%27%20height%3D%27100%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23334155%27%20stroke-width%3D%271.25%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M20.38%203.46L16%202a4%204%200%200%200-8%200l-4.38%201.46a2%202%200%200%200-1.37%202l.35%2011.23a2%202%200%200%200%202%201.94h14.8a2%202%200%200%200%202-1.94l.35-11.23a2%202%200%200%200-1.37-2z%27%2F%3E%3Cpath%20d%3D%27M12%205v16%27%2F%3E%3Cpath%20d%3D%27M4%2010h16%27%2F%3E%3C%2Fsvg%3E"
     encoded_quan = "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%27100%27%20height%3D%27100%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%230f766e%27%20stroke-width%3D%271.25%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M4%202h16l-2%2020H6L4%202z%27%2F%3E%3Cpath%20d%3D%27M12%202v20%27%2F%3E%3Cpath%20d%3D%27M5%208h14%27%2F%3E%3C%2Fsvg%3E"
     encoded_vest = "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%27100%27%20height%3D%27100%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23c2410c%27%20stroke-width%3D%271.25%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M4%202v20l8-4%208%204V2l-8%204-8-4z%27%2F%3E%3Cpath%20d%3D%27M12%206v12%27%2F%3E%3Cpath%20d%3D%27M4%208h16%27%2F%3E%3C%2Fsvg%3E"
     encoded_vay = "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%27100%27%20height%3D%27100%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%2315803d%27%20stroke-width%3D%271.25%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M6%202h12l3%207-9%2013-9-7%203-7z%27%2F%3E%3Cpath%20d%3D%27M6%209h12%27%2F%3E%3Cpath%20d%3D%27M12%202v7%27%2F%3E%3C%2Fsvg%3E"
 
-    st.markdown(f"""
+    # Mẫu thiết kế HTML Template tĩnh hoàn toàn không chứa ngoặc nhọn biến động f-string
+    html_template = """
     <div class="erp-enterprise-header notranslate" translate="no">
         <div class="top-banner">
             <div class="top-title">📊 INTELLIGENT FABRIC CONSUMPTION PLATFORM</div>
@@ -531,34 +538,63 @@ def render_enterprise_sticky_header(style_id, materials_count, fabric_consumptio
         <div class="kpi-flex-wrapper">
             <div class="kpi-column-box">
                 <div class="kpi-card-colored bg-style">
-                    <div class="kpi-num-light">{style_id}</div>
+                    <div class="kpi-num-light">__STYLE_ID__</div>
                     <div class="kpi-lbl-light">Mã hàng đang xử lý</div>
                 </div>
                 <div class="image-placeholder-box color-ao">
-                    <img src="{encoded_ao}" alt="Ao">
+                    <img src="__IMG_AO__" alt="Ao">
                 </div>
             </div>
             <div class="kpi-column-box">
                 <div class="kpi-card-colored bg-items">
-                    <div class="kpi-num-light">{materials_count} Item(s)</div>
+                    <div class="kpi-num-light">__MATERIALS_COUNT__ Item(s)</div>
                     <div class="kpi-lbl-light">Tổng số vật tư kết xuất</div>
                 </div>
                 <div class="image-placeholder-box color-quan">
-                    <img src="{encoded_quan}" alt="Quan">
+                    <img src="__IMG_QUAN__" alt="Quan">
                 </div>
             </div>
             <div class="kpi-column-box">
                 <div class="kpi-card-colored bg-cons">
-                    <div class="kpi-num-light">{fabric_consumption}</div>
+                    <div class="kpi-num-light">__FABRIC_CONSUMPTION__</div>
                     <div class="kpi-lbl-light">Định mức vải chính dự kiến</div>
                 </div>
                 <div class="image-placeholder-box color-vest">
-                    <img src="{encoded_vest}" alt="Vest">
+                    <img src="__IMG_VEST__" alt="Vest">
                 </div>
             </div>
             <div class="kpi-column-box">
                 <div class="kpi-card-colored bg-size">
-                    <div class="kpi-num-light">{active_size}</div>
+                    <div class="kpi-num-light">__ACTIVE_SIZE__</div>
+                    <div class="kpi-lbl-light">Cỡ hạt tính định mức</div>
+                </div>
+                <div class="image-placeholder-box color-vay">
+                    <img src="__IMG_VAY__" alt="Vay">
+                </div>
+            </div>
+        </div>
+    </div>
+    """
+
+    # Thực hiện thay thế chuỗi an toàn tuyệt đối chống hoàn toàn lỗi cú pháp biên dịch Python
+    html_output = html_template.replace("__STYLE_ID__", str(style_id))\
+                               .replace("__MATERIALS_COUNT__", str(materials_count))\
+                               .replace("__FABRIC_CONSUMPTION__", str(fabric_consumption))\
+                               .replace("__ACTIVE_SIZE__", str(active_size))\
+                               .replace("__IMG_AO__", encoded_ao)\
+                               .replace("__IMG_QUAN__", encoded_quan)\
+                               .replace("__IMG_VEST__", encoded_vest)\
+                               .replace("__IMG_VAY__", encoded_vay)
+
+    st.markdown(html_output, unsafe_allow_html=True)
+
+# Gọi hàm thực thi kết xuất giao diện thực tế
+render_enterprise_sticky_header(
+    style_id=kpi_style_id,
+    materials_count=total_materials,
+    fabric_consumption=main_fabric_cons,
+    active_size=active_size_kpi
+)
 
 
 
@@ -566,13 +602,21 @@ def render_enterprise_sticky_header(style_id, materials_count, fabric_consumptio
 
 
 
+
+import streamlit as st
 
 # =====================================================================
-# ĐOẠN 6b: KHỐI CHIA CỘT ĐỐI XỨNG - KHỐNG CHẾ TRỰC TIẾP CHIỀU CAO ẢNH (V18.3.5.0 APPROVED)
+# ĐOẠN 6b: KHỒI CHIA CỘT ĐỐI XỨNG - CÂN BẰNG TỌA ĐỘ NỘI DUNG THÂN TRANG
 # =====================================================================
 
 st.markdown("""
 <style>
+    /* BẢN VÁ SỬA LỖI LỆCH KHUNG: Đồng bộ lại khoảng cách đệm cho phần lưới chia cột */
+    div[data-testid="stHorizontalBlock"] {
+        margin-top: 0px !important;
+        padding-top: 5px !important;
+    }
+
     /* Ép tất cả các hình ảnh nằm trong cột bên phải khống chế chiều cao tối đa, */
     /* tự động giữ nguyên tỷ lệ rập phẳng mà không bị kéo giãn to đùng */
     .sticky-sketch-box img {
@@ -581,6 +625,49 @@ st.markdown("""
         object-fit: contain !important;
         margin: 0 auto !important;
         display: block !important;
+    }
+
+    /* Tạo khối bao bọc thống nhất độ cao cho các hộp ERP dưới trần ghim */
+    .custom-erp-box {
+        background-color: #ffffff !important;
+        border: 1px solid #e2e8f0 !important;
+        border-radius: 6px !important;
+        padding: 15px !important;
+        min-height: 380px !important; /* Đảm bảo 2 hộp trái phải luôn cao bằng nhau */
+        box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05) !important;
+        box-sizing: border-box !important;
+    }
+
+    .cad-header-text {
+        font-family: 'Segoe UI', sans-serif !important;
+        font-size: 13px !important;
+        font-weight: 700 !important;
+        color: #1e3a8a !important;
+        margin-bottom: 15px !important;
+        letter-spacing: 0.3px !important;
+    }
+
+    /* Định dạng hộp tóm tắt thông số kỹ thuật tinh gọn */
+    .meta-box-light {
+        background-color: #f8fafc !important;
+        border: 1px solid #f1f5f9 !important;
+        border-radius: 4px !important;
+        padding: 6px 10px !important;
+        margin-bottom: 8px !important;
+    }
+    .meta-label-light {
+        font-size: 10px !important;
+        color: #64748b !important;
+        text-transform: uppercase !important;
+        font-weight: 500 !important;
+    }
+    .meta-value-light {
+        font-size: 12px !important;
+        color: #0f172a !important;
+        margin-top: 1px !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        white-space: nowrap !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -616,7 +703,7 @@ with col_left:
         st.session_state.pdf_name = uploaded_file.name
 
     if st.session_state.pdf_text_cache is not None:
-        st.markdown("<div style='margin-top: 10px;'></div>", unsafe_allow_html=True)
+        st.markdown("<div style='margin-top: 5px;'></div>", unsafe_allow_html=True)
         txt = st.session_state.pdf_text_cache
         
         import re
@@ -637,11 +724,11 @@ with col_left:
             st.markdown(f'<div class="meta-box-light"><div class="meta-label-light">Season / Mùa sản xuất</div><div class="meta-value-light">{season}</div></div>', unsafe_allow_html=True)
         with m_col2:
             st.markdown(f'<div class="meta-box-light"><div class="meta-label-light">Garment Type / Kiểu dáng</div><div class="meta-value-light">{short_desc}</div></div>', unsafe_allow_html=True)
-            st.markdown(f'<div class="meta-box-light"><div class="meta-label-light">Material Spec / Mô tả vải</div><div class="meta-value-light">{fabric_type[:28]}...</div></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="meta-box-light"><div class="meta-label-light">Material Spec / Mô tả vải</div><div class="meta-value-light">{fabric_type[:25]}...</div></div>', unsafe_allow_html=True)
             st.markdown(f'<div class="meta-box-light"><div class="meta-label-light">Techpack Status</div><div class="meta-value-light" style="color: #16a34a; font-weight: bold;">🟢 READY TO BOM</div></div>', unsafe_allow_html=True)
     else:
         if st.session_state.pdf_bytes is None:
-            st.markdown("<div style='margin-top: 40px; text-align: center; color: #64748b; font-size: 13px;'>Bảng tóm tắt thông số sản phẩm sẽ tự động hiển thị tại đây sau khi nạp file PDF.</div>", unsafe_allow_html=True)
+            st.markdown("<div style='margin-top: 60px; text-align: center; color: #64748b; font-size: 13px;'>Bảng tóm tắt thông số sản phẩm sẽ tự động hiển thị tại đây sau khi nạp file PDF.</div>", unsafe_allow_html=True)
         
     st.markdown('</div>', unsafe_allow_html=True)
 
@@ -666,9 +753,10 @@ with col_right:
     if "pdf_page_one_image" in st.session_state and st.session_state.pdf_page_one_image is not None:
         st.image(st.session_state.pdf_page_one_image, width=300)
     else:
-        st.markdown("<div style='margin-top: 50px; text-align: center; color: #64748b; font-size: 13px;'>Hình vẽ phác họa phẳng (Sketch) trích xuất từ trang bìa PDF sẽ tự động hiển thị cân xứng tại đây sau khi nạp file thành công.</div>", unsafe_allow_html=True)
+        st.markdown("<div style='margin-top: 70px; text-align: center; color: #64748b; font-size: 13px;'>Hình vẽ phác họa phẳng (Sketch) trích xuất từ trang bìa PDF sẽ tự động hiển thị cân xứng tại đây sau khi nạp file thành công.</div>", unsafe_allow_html=True)
         
     st.markdown('</div>', unsafe_allow_html=True)
+
 
 # =====================================================================
 # ĐOẠN 7a - PHẦN 1: CHATGPT-STYLE WORKSPACE & SMART TARGET SCANNED PIPELINE (V65.0)
