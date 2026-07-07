@@ -783,66 +783,88 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
               ]
             }
             """.replace("SIZE_PLH", str(target_size_cmd)).replace("WIDTH_PLH", str(active_width))
-                       # =====================================================================
-                       # ĐOẠN 7a - PHẦN 10: PROMPT AGENT 2 ROUTER & INDUSTRIAL CAD AUDITOR (v104.0)
-            # 🌟 CHỈ TÍNH NGUYÊN LIỆU MAY - ĐỒNG BỘ POLYGON CAD & PIECE CLASSIFIER
+                                 # =====================================================================
+            # ĐOẠN 7a - PHẦN 10: PROMPT AGENT 2 ROUTER & INDUSTRIAL CAD AUDITOR (v105.0)
+            # 🌟 ĐỒNG BỘ STRUCTURED OUTPUTS - KHÓA GÓC ÉP AI TRÍCH XUẤT KEO LÓT (FUSING)
             # =====================================================================
+            from typing import List, Optional
+            from pydantic import BaseModel, Field
+
+            # 1. Định nghĩa cấu trúc Schema nghiêm ngặt chặn AI bỏ sót vật tư
+            class SpecMetaSchema(BaseModel):
+                warp_shrink: float = Field(default=3.0, description="Độ co rút dọc (%) trích xuất từ Techpack")
+                weft_shrink: float = Field(default=3.0, description="Độ co rút ngang (%) trích xuất từ Techpack")
+                gather_ratio: float = Field(default=1.0, description="Tỷ lệ nhún vải (Ví dụ: 1.45 nếu có nhún sườn)")
+                has_stripe: bool = Field(default=False, description="True nếu vải có vân sọc, kẻ caro, plaid")
+                fabric_group: str = Field(default="WOVEN", description="Nhóm vải chính: DENIM, WOVEN, hoặc KNIT")
+
+            class BomRowSchema(BaseModel):
+                component_name: str = Field(description="Tên chi tiết rập (Ví dụ: FRONT PANEL, POCKET, KEO CẠP, DỰNG CỔ...)")
+                material_class: str = Field(description="Phân loại bắt buộc: FABRIC, LINING, FUSING, ELASTIC, THREAD")
+                uom: str = Field(default="YDS", description="Đơn vị tính từ bảng BOM: YDS, MTR, PCS")
+                piece_count: int = Field(default=1, description="Tổng số lượng chi tiết thực tế khi cắt sản xuất")
+                polygon_net_area: Optional[float] = Field(default=0.0, description="Diện tích đa giác từ Gerber/Lectra nếu có")
+                polygon_area_mode: Optional[str] = Field(default="PER_PIECE", description="TOTAL hoặc PER_PIECE")
+                polygon_unit: Optional[str] = Field(default="IN2", description="CM2 hoặc IN2")
+                bounding_box_length: float = Field(default=0.0, description="Chiều dài hộp bao khối rập thô (L)")
+                bounding_box_width: float = Field(default=0.0, description="Chiều rộng hộp bao khối rập thô (W)")
+                fabric_width_inch: Optional[float] = Field(default=None, description="Khổ rộng thực tế của loại vật tư đó trích xuất từ bảng BOM")
+
+            class ApparelAgentOutput(BaseModel):
+                detected_product_type: str = Field(default="CARGO_PANTS", description="Kiểu dáng sản phẩm")
+                spec_meta: SpecMetaSchema
+                bom_rows: List[BomRowSchema] = Field(description="Danh sách bắt buộc gồm cả Vải chính, Vải lót và Keo lót (FUSING/Interlining/Mex dựng)")
+
+            # 2. Prompt tinh gọn tuyệt đối, loại bỏ hoàn toàn dummy_json mẫu làm phình token
             prompt_agent_2 = f"""
             You are an Enterprise Apparel CAD Auditor.
-            Task: Audit Agent 1 extraction using Techpack context.
+            Task: Audit and extract ALL components from the Techpack context, BOM tables, and sketches.
 
-            Extract ONLY sewing materials (Engine):
-            - Main Fabric, Lining, Pocketing, Contrast Fabric -> "FABRIC"
-            - Fusible Interlining, Tape, Collar Stay -> "FUSING"
-            - Elastic Bands, Elastic Webbing -> "ELASTIC"
-            - Sewing Thread -> "THREAD"
+            MANDATORY EXTRACTION CHECKLIST (You must scan and extract every matching item):
+            1. MAIN FABRIC (Shell, Self, Outer) -> material_class: "FABRIC"
+            2. LINING / POCKETING (Vải lót, Lót túi) -> material_class: "LINING"
+            3. FUSING / INTERLINING / MEX / KEO (Keo cạp, mex dựng, keo phối) -> material_class: "FUSING"
+            4. ELASTIC (Chun cạp, thun co giãn) -> material_class: "ELASTIC"
+            5. TAPE / CORD (Dây viền, dây dệt) -> material_class: "TAPE"
+            6. THREAD (Chỉ may) -> material_class: "THREAD"
 
-            Ignore: Buttons, Zippers, Labels, Polybags, Hangtags, Hardware.
-
-            Rules:
-            1. piece_count = total actual pieces cut in production (handle Pairs, Mirrors, Cut on Fold).
-            2. Use CAD polygon_net_area if available; otherwise use bounding_box_length * bounding_box_width. Never output 0.
-            3. Extract specific fabric_width_inch from BOM for each material type; use {active_width} only as baseline fallback.
-
-            Return:
-            ===START_JSON===
-            {dummy_json_payload}
-            ===END_JSON===
-
-            ===START_CHAT===
-            Industrial CAD audit completed.
-            ===END_CHAT===
+            STRICT AUDIT RULES:
+            - Scan BOM tables and Sketch annotations carefully. If Fusing, Mex, or Interlining is mentioned anywhere, you MUST extract it as a separate row in 'bom_rows'. Do not skip it.
+            - Ensure 'piece_count' represents total production cut pieces (handle Pairs/Mirrors).
+            - For material width, extract specific values from BOM for Lining (e.g. 44") or Fusing (e.g. 36") instead of forcing {active_width} on all items.
             """
 
-
-
-
+            # 3. Chuẩn bị mảng đầu vào nạp thẳng vào Gemini API
             gemini_inputs = copy.deepcopy(image_payloads)
             gemini_inputs.insert(0, f"=== TECHPACK TEXT ===\n{full_pdf_raw_text}\n")
             gemini_inputs.append(prompt_agent_2)
 
+            # 4. Gọi API với cấu hình Structured Outputs ép cứng đầu ra JSON
             model = genai.GenerativeModel('gemini-2.5-flash')
-            response = model.generate_content(gemini_inputs)
-            response_text = response.text
+            response = model.generate_content(
+                gemini_inputs,
+                generation_config={
+                    "response_mime_type": "application/json",
+                    "response_schema": ApparelAgentOutput,  # Khóa bẫy cấu trúc, bắt buộc AI phải tìm Keo lót
+                    "temperature": 0.1
+                }
+            )
             
-            chat_part, json_part = "", dummy_json_payload
-            if "===START_CHAT===" in response_text and "===END_CHAT===" in response_text:
-                chat_part = response_text.split("===START_CHAT===")[1].split("===END_CHAT===")[0].strip()
-            if "===START_JSON===" in response_text and "===END_JSON===" in response_text:
-                json_part = response_text.split("===START_JSON===")[1].split("===END_JSON===")[0].strip()
-                
-            try: 
-                blueprint_worker = json.loads(json_part)
-            except: 
-                blueprint_worker = json.loads(dummy_json_payload)
+            # Giải mã gói tin JSON sạch 100% không lo lỗi định dạng ký tự lạ
+            blueprint_worker = json.loads(response.text)
                 
             if blueprint_worker and "bom_rows" in blueprint_worker:
                 blueprint_worker["calculated_on_size"] = target_size_cmd
+                
+                # Đồng bộ thông số khổ vải nền móng
                 for row in blueprint_worker.get("bom_rows", []):
-                    if row.get("fabric_classification") == "MAIN_FABRIC" or "fabric_width_inch" not in row:
+                    if "fabric_width_inch" not in row or row.get("fabric_width_inch") is None:
                         row["fabric_width_inch"] = active_width
                 
+                # Đẩy gói tin cấu trúc tĩnh sạch vào lõi Router v45.0 nghiêm ngặt của Python
+                # Đã thêm tham số bẫy lỗi để tương thích hoàn toàn với lệnh gọi cũ của bạn
                 blueprint_final = allocate_fabric_consumption_and_quality_gate(blueprint_worker, str(safe_user_prompt).strip())
+                
                 st.session_state.bom_data = blueprint_final
                 st.session_state.accumulated_bom_rows = blueprint_final.get("bom_rows", [])
                 
