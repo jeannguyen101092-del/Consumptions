@@ -112,6 +112,7 @@ def compute_fabric_engine(row: dict, product_type: str, chat_txt: str) -> tuple:
        # =====================================================================
         # =====================================================================
        # =====================================================================
+        # =====================================================================
     # ĐOẠN 7: INDUSTRIAL CARGO ACCUMULATOR & DIAGNOSTIC AUDIT LOG ENGINE
     # =====================================================================
     # 1. Đọc thông số hình học ban đầu của cấu phần hiện tại từ AI
@@ -126,7 +127,7 @@ def compute_fabric_engine(row: dict, product_type: str, chat_txt: str) -> tuple:
     
     product_map = PRODUCT_NET_AREA_MATRIX.get(active_product, PRODUCT_NET_AREA_MATRIX["DEFAULT"])
     
-    # Mở rộng bộ lọc vạn năng nhận diện Vải chính (Triệt tiêu lỗi QA_FAIL dòng FABRIC)
+    # Mở rộng bộ lọc vạn năng nhận diện Vải chính
     is_main_fabric = False
     if current_mat_class in ["MAIN_FABRIC", "FABRIC", "SELF", "SHELL", "OUTER"] or "MAIN" in current_mat_class or "BODY" in current_comp_name:
         net_factor = product_map.get("MAIN_FABRIC", 0.80)
@@ -143,9 +144,9 @@ def compute_fabric_engine(row: dict, product_type: str, chat_txt: str) -> tuple:
     MAIN_KEYS = ["MAIN", "BODY", "FABRIC", "SHELL", "SELF", "OUTER", "VẢI CHÍNH", "VAI CHINH"]
 
     cargo_pocket_accumulated_area = 0.0
-    debug_captured_rows = [] # Mảng lưu vết phục vụ việc hiển thị Audit Log
+    debug_captured_rows = [] 
 
-    # 2. TỰ ĐỘNG QUÉT VÀ CỘNG DỒN DIỆN TÍCH TÚI (ƯU TIÊN POLYGON CAD)
+    # 2. TỰ ĐỘNG QUÉT VÀ CỘNG DỒN DIỆN TÍCH TÚI (BẢN VÁ LOẠI TRỪ THÂN CHÍNH CHỐNG CỘNG LẶP)
     if active_product == "CARGO_PANTS" and is_main_fabric:
         if "bom_data" in st.session_state and st.session_state.bom_data and "bom_rows" in st.session_state.bom_data:
             
@@ -153,6 +154,10 @@ def compute_fabric_engine(row: dict, product_type: str, chat_txt: str) -> tuple:
                 if not b_row: continue
                 c_name = str(b_row.get("component_name", "")).upper()
                 m_class = str(b_row.get("material_class", "")).upper()
+                
+                # 🟢 BẢN VÁ: Nếu dòng phụ này là THÂN CHÍNH (Body/Main Fabric/Thân trước/Thân sau) -> BỎ QUA, KHÔNG CỘNG LẶP VÀO DIỆN TÍCH TÚI
+                if any(k in c_name for k in ["THÂN QUẦN", "THAN QUAN", "FRONT PANEL", "BACK PANEL", "ALLOVER BODY"]) and not any(p in c_name for p in ["POCKET", "TÚI"]):
+                    continue
                 
                 # Điều kiện kiểm tra mở rộng thông minh
                 is_pocket_component = any(k in c_name for k in POCKET_KEYS)
@@ -164,16 +169,13 @@ def compute_fabric_engine(row: dict, product_type: str, chat_txt: str) -> tuple:
                     p_cnt = int(b_row.get("piece_count", 1) or 1)
                     poly_net = float(b_row.get("polygon_net_area", 0.0) or 0.0)
                     
-                    # 🟢 THUẬT TOÁN ĐO DIỆN TÍCH TÚI ƯU TIÊN POLYGON CAD KHÔNG DÙNG BBOX CỐ ĐỊNH
                     if poly_net > 0.0:
                         pocket_area = poly_net
                         calc_type = "CAD Poly"
                     else:
-                        # Fallback về Bounding Box trừ hao góc khuyết nếu không có dữ liệu Polygon thực tế
                         pocket_area = p_len * p_wid * 0.85
                         calc_type = "BBox Fallback"
                     
-                    # Ép sàn kích thước rập túi Cargo tối thiểu (8"x7") nếu AI trả về thông số hình học rỗng
                     if pocket_area <= 0.0:
                         pocket_area = 8.0 * 7.0 * 0.85
                         calc_type = "Gate Default (56 sq\")"
@@ -181,7 +183,6 @@ def compute_fabric_engine(row: dict, product_type: str, chat_txt: str) -> tuple:
                     current_piece_total = pocket_area * p_cnt
                     cargo_pocket_accumulated_area += current_piece_total
                     
-                    # Lưu log chi tiết của dòng chi tiết phụ này
                     debug_captured_rows.append(f"🔹 {c_name} ({p_cnt} Pcs) | {calc_type}: {current_piece_total:.1f} sq\"")
             
             # Thực thi cộng tích lũy dồn vào tổng diện tích sản phẩm
@@ -210,10 +211,10 @@ def compute_fabric_engine(row: dict, product_type: str, chat_txt: str) -> tuple:
                 st.write("**Danh sách các dòng BOM túi lọt qua bộ lọc:**")
                 for log in debug_captured_rows: st.markdown(log)
             else:
-                st.warning("⚠️ Cảnh báo: Không có dòng BOM túi nào lọt qua bộ lọc. Kiểm tra lại cấu trúc dữ liệu đầu vào.")
+                st.warning("⚠️ Cảnh báo: Không có dòng BOM túi nào lọc qua bộ lọc. Kiểm tra lại cấu trúc dữ liệu đầu vào.")
             st.write(f"**Tổng diện tích CAD thực tế (Thân + Túi):** `{total_net_area:.1f} sq in` ➔ **Định mức:** `{gross_val:.3f} Yds`")
 
-    note = f"DynamicCargoEngine v26 | Net Area: {total_net_area:.1f} sq in | Eff: {active_eff*100}%"
+    note = f"DynamicCargoEngine v27 | Net Area: {total_net_area:.1f} sq in | Eff: {active_eff*100}%"
     return gross_val, note
 
 
