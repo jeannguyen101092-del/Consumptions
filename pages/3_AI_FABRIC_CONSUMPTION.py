@@ -7,10 +7,19 @@ import re
 
 import re
 
+import re
+
 # =====================================================================
-# ĐOẠN 7: PURE CAM MATHEMATICAL CORE ENGINE (v34.0 DATA-DRIVEN)
-# 🌟 BẢN VÁ SỬA LỖI LỆCH LỀ INDENTATIONERROR TUYỆT ĐỐI
+# ĐOẠN 7: PURE CAM MATHEMATICAL CORE ENGINE (v34.1 INTEGRATED)
+# 🌟 BẢN VÁ LỖI DEFINED - ĐỒNG BỘ HOÀN CHỈNH BIẾN HỆ THỐNG
 # =====================================================================
+
+EXCLUDE_HARDWARE_KEYS = (
+    "CHỈ", "THREAD", "ZIPPER", "DÂY KÉO", "BUTTON", "NÚT", "SHANK", "RIVET", 
+    "LABEL", "MÁC", "TAG", "EYELETS", "SNAP", "VELCRO", "HOOK", "LOOP", 
+    "STOPPER", "TOGGLE", "BUCKLE", "GROMMET", "STICKER", "CARE WHITE", 
+    "HEAT STAMP", "HANGTAG", "POLYBAG", "BAO BÌ"
+)
 
 def convert_to_sq_inches(area: float, unit: str) -> float:
     """Bộ chuyển đổi đơn vị đo lường vạn năng bám sát hệ thống Gerber/Lectra"""
@@ -23,7 +32,7 @@ def convert_to_sq_inches(area: float, unit: str) -> float:
 
 def compute_fabric_engine(row: dict, product_type: str, chat_txt: str) -> tuple:
     """
-    Industrial Consumption CAM Core Engine v34.0.
+    Industrial Consumption CAM Core Engine v34.1.
     100% Data-Driven: Loại bỏ hoàn toàn UI code, triệt tiêu lỗi ghi đè, 
     ưu tiên Polygon CAD đầu vào và xử lý ma trận chuyển đổi đơn vị vạn năng.
     """
@@ -39,7 +48,7 @@ def compute_fabric_engine(row: dict, product_type: str, chat_txt: str) -> tuple:
     area_mode = str(row.get("polygon_area_mode", "PER_PIECE")).upper().strip()
     poly_unit = str(row.get("polygon_unit", "IN2")).upper().strip()
     
-    # 🟢 THUẬT TOÁN ĐO DIỆN TÍCH NET AREA ƯU TIÊN POLYGON CAD TRÊN CÙNG LỀ
+    # THUẬT TOÁN ĐO DIỆN TÍCH NET AREA ƯU TIÊN POLYGON CAD TRÊN CÙNG LỀ
     if poly_area > 0.0:
         converted_poly = convert_to_sq_inches(poly_area, poly_unit)
         if area_mode == "TOTAL":
@@ -147,9 +156,9 @@ def compute_fabric_engine(row: dict, product_type: str, chat_txt: str) -> tuple:
     row["cad_calculated_net_area"] = round(total_net_area, 1)
     row["cad_inferred_efficiency"] = ai_marker_efficiency
     row["cad_total_industrial_loss"] = round(total_industrial_loss * 100, 2)
-    row["cad_engine_version"] = "CAM-v34.0-Enterprise"
+    row["cad_engine_version"] = "CAM-v34.1-Enterprise"
 
-    note = f"CAM Core v34 | Area: {total_net_area:.1f} sq in | Eff: {ai_marker_efficiency*100}%"
+    note = f"CAM Core v34.1 | Area: {total_net_area:.1f} sq in | Eff: {ai_marker_efficiency*100}%"
     return gross_val, note
 
 
