@@ -845,9 +845,9 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                        # =====================================================================
                        # =====================================================================
                        # =====================================================================
-            # ĐOẠN 7a - PHẦN 10: PROMPT AGENT 2 ROUTER & INDUSTRIAL CAD AUDITOR (v111.0)
-            # 🌟 SMART DEBUG MONITOR: BẬT MÀN HÌNH IN DỮ LIỆU THÔ CỦA AI XEM LỖI Ở ĐÂU
-            # 🌟 ĐỒNG BỘ LỆNH USER CHAT -> ÉP AI CẬP NHẬT ĐỘ CO RÚT THEO YÊU CẦU
+                       # =====================================================================
+            # ĐOẠN 7a - PHẦN 10: PROMPT AGENT 2 ROUTER & INDUSTRIAL CAD AUDITOR (v112.0)
+            # 🌟 KHÓA CHẶT TRẠNG THÁI SESSION STATE - CHỐNG MẤT ĐỊNH MỨC KHI RERUN
             # =====================================================================
             
             # 1. JSON Schema cấu trúc cứng bắt AI điền thông số co rút từ lệnh chat và kích thước rập thật
@@ -904,7 +904,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
 
             STRICT AUDIT RULES:
             - Update 'warp_shrink' and 'weft_shrink' inside 'spec_meta' exactly as requested in the user command above (e.g., if user says co rut doc 5 ngang 3, set warp_shrink to 5.0 and weft_shrink to 3.0).
-            - Extract the EXACT numeric values for bounding_box_length and bounding_box_width for every single component. Do not alter or fabricate data. If you cannot find them, try to read closely from pattern tables or text diagrams.
+            - Extract the EXACT numeric values for bounding_box_length and bounding_box_width for every single component. Do not alter or fabricate data. If you cannot find them, look closely at sample spec sheets.
             - For fabric_width_inch, if not specified in BOM, use {active_width} as a baseline fallback.
             """
 
@@ -926,10 +926,6 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             
             # Giải mã gói tin JSON sạch chứa số liệu thật 100% từ AI
             blueprint_worker = json.loads(response.text)
-            
-            # 🌟 🌟 🌟 KHỐI DEBUG ĐẶC BIỆT: IN TRỰC TIẾP DỮ LIỆU GỐC AI TRẢ VỀ RA MÀN HÌNH CHAT
-            st.warning("🔍 [DEBUG MONITOR] DỮ LIỆU THÔ CHƯA QUA TÍNH TOÁN DO AI (GEMINI) TRẢ VỀ:")
-            st.json(blueprint_worker)
                 
             if blueprint_worker and "bom_rows" in blueprint_worker:
                 blueprint_worker["calculated_on_size"] = target_size_cmd
@@ -960,23 +956,37 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                 # Đẩy gói tin số thực sạch 100% vào lõi Router Python tính toán định mức toán học phẳng
                 blueprint_final = allocate_fabric_consumption_and_quality_gate(blueprint_worker, str(safe_user_prompt).strip())
                 
+                # 🌟 🌟 🌟 KHÓA CHẶT DỮ LIỆU: Lưu trữ trực tiếp kết quả xử lý vào Session State tĩnh
                 st.session_state.bom_data = blueprint_final
                 st.session_state.accumulated_bom_rows = blueprint_final.get("bom_rows", [])
                 
+                # In đè khối dữ liệu thô thu được từ AI trực tiếp vào vùng an toàn của Session State để Debug bền vững
+                st.session_state["raw_ai_debug_payload"] = blueprint_worker
+                
                 st.session_state["last_processed_signature"] = (str(safe_user_prompt).strip(), int(len(image_payloads)), int(len(st.session_state.pdf_bytes)))
+                
+                # Tải lại trang an toàn để DataFrame nạp số liệu mới nhất từ session_state vừa khóa
                 st.rerun()
 
         except Exception as ai_err:
             st.error(f"❌ Lỗi AI: {str(ai_err)}")
 
 
+
 # =====================================================================
-# ĐOẠN 7b: HIỂN THỊ KẾT QUẢ ĐỊNH MỨC & BẢNG ĐỐI CHỨNG ĐA CỘT ĐỒNG BỘ SIZE (V102.6 MULTI-ENGINE)
-# 🌟 ĐỒNG BỘ HẠ TẦNG: ĐỌC ĐỘNG DỮ LIỆU TỪ CÁC MICRO-ENGINES (FABRIC/ELASTIC/TAPE/COUNT)
+# ĐOẠN 7b: HIỂN THỊ KẾT QUẢ ĐỊNH MỨC & BẢNG ĐỐI CHỨNG ĐA CỘT ĐỒNG BỘ SIZE (V103.0)
+# 🌟 ĐỒNG BỘ TUYỆT ĐỐI CẤU TRÚC JSON SCHEMA & BẬT EXPANDER DEBUG MONITOR CỐ ĐỊNH
 # =====================================================================
+import pandas as pd
+import re
+
+# 🌟 🌟 🌟 KHỐI DEBUG SMART MONITOR CỐ ĐỊNH (CHỐNG MẤT KHI RERUN)
+# Giúp bạn nhìn thấy trực quan 100% dữ liệu gốc AI trả về để đối chiếu tại sao Python gán lỗi
+if "raw_ai_debug_payload" in st.session_state and st.session_state["raw_ai_debug_payload"]:
+    with st.expander("🔍 [DEBUG MONITOR] XEM DỮ LIỆU THÔ CHƯA QUA TÍNH TOÁN DO AI (GEMINI) TRẢ VỀ"):
+        st.json(st.session_state["raw_ai_debug_payload"])
+
 if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_rows"):
-    import pandas as pd
-    
     bom_source = st.session_state.get("bom_data", {})
     if not isinstance(bom_source, dict): 
         bom_source = {}
@@ -994,6 +1004,11 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
     match_active_size = re.search(r'\b(?:size|sz|cỡ)\s*[:\-=\s]*([\w\d/]+)\b', chat_txt)
     extracted_size = str(match_active_size.group(1)).upper().strip() if match_active_size else str(bom_source.get("calculated_on_size", "30")).upper().strip()
     
+    # Trích xuất thông số siêu dữ liệu co rút động thực tế từ spec_meta gốc của gói tin AI
+    ai_meta_data = bom_source.get("spec_meta", {})
+    current_warp_shrink = f"{ai_meta_data.get('warp_shrink', 3.0)}%"
+    current_weft_shrink = f"{ai_meta_data.get('weft_shrink', 3.0)}%"
+    
     st.markdown('<div class="cad-card">', unsafe_allow_html=True)
     st.markdown(f'<div class="cad-header">📊 CALCULATED MATERIAL CONSUMPTION MATRIX (SIZE TARGET: {extracted_size})</div>', unsafe_allow_html=True)
     
@@ -1008,12 +1023,20 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
         engine_target = str(r.get("engine", "FABRIC")).upper().strip()
         uom_display = str(r.get("uom", "YDS")).upper().strip()
 
+        # Đọc thông số hình học thật từ dòng rập để xuất thẳng ra màn hình hiển thị
+        b_len_val = r.get("bounding_box_length", 0.0)
+        b_wid_val = r.get("bounding_box_width", 0.0)
+        p_count_val = r.get("piece_count", 1)
+
         if engine_target in ["FABRIC", "FUSING"]:
             raw_width = r.get("fabric_width_inch", 56.0)
             cut_width_val = f"{float(raw_width)} inch" if isinstance(raw_width, (int, float)) else f"{raw_width} inch"
-            warp_dynamic = r.get("_btp_warp_pct", "3.0%")
-            weft_dynamic = r.get("_btp_weft_pct", "3.0%")
-            eff_dynamic = r.get("marker_efficiency", "85.5%")
+            
+            # ĐỒNG BỘ CHÍNH XÁC: Đọc trực tiếp biến co rút động đã cập nhật từ lệnh chat
+            warp_dynamic = current_warp_shrink
+            weft_dynamic = current_weft_shrink
+            eff_dynamic = f"{float(r.get('marker_efficiency', 0.855)) * 100 if isinstance(r.get('marker_efficiency'), (int,float)) else r.get('marker_efficiency', '85.5%')}"
+            if "%" not in eff_dynamic: eff_dynamic += "%"
         else:
             cut_width_val = "N/A (Linear/Count)"
             warp_dynamic = "-"
@@ -1024,6 +1047,9 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
             "Component Name": r.get("component_name", "Unnamed Material"),
             "Material Class": r.get("material_class", engine_target),
             "UOM": uom_display,
+            "Số lượng rập (Pcs)": p_count_val,               # 🌟 HIỂN THỊ THÊM ĐỂ ĐỐI CHIẾU
+            "Dài bao thô (L-Inch)": b_len_val,               # 🌟 HIỂN THỊ THÊM ĐỂ ĐỐI CHIẾU
+            "Rộng bao thô (W-Inch)": b_wid_val,              # 🌟 HIỂN THỊ THÊM ĐỂ ĐỐI CHIẾU
             "Khổ vải (Width)": cut_width_val,
             "Co rút dọc (% Warp)": warp_dynamic,     
             "Co rút ngang (% Weft)": weft_dynamic,   
@@ -1072,7 +1098,7 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
         st.dataframe(df_evidence, use_container_width=True, hide_index=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
-    # KHỐI XUẤT FILE EXCEL PHÒNG VỆ AN TOÀN TRÊN MÀN HÌNH CHÍNH
+    # KHỐI XUẤT FILE EXCEL
     if display_data:
         try:
             import io
