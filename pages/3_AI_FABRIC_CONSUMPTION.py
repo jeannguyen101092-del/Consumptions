@@ -107,132 +107,71 @@ def compute_fabric_engine(row: dict, product_type: str, chat_txt: str) -> tuple:
     g_type = str(row.get("gather_type", "NONE")).upper().strip()
     g_depth = str(row.get("gather_depth", "NONE")).upper().strip()
     active_gather_ratio = GATHER_RATIO_MATRIX.get(g_type, GATHER_RATIO_MATRIX["NONE"]).get(g_depth, 1.00)
+       # =====================================================================
+    # ĐOẠN 7: PURE MATH CAD CALCULATOR - THUẬT TOÁN RÃ DÒNG ĐỘC LẬP CHUẨN IE
     # =====================================================================
-       # =====================================================================
-       # =====================================================================
-        # =====================================================================
-       # =====================================================================
-        # =====================================================================
-        # =====================================================================
-        # =====================================================================
-    # ĐOẠN 7: PURE MATHEMATICAL CAD CALCULATOR - TÍNH ĐÚNG THEO SỐ LIỆU THỰC TẾ
-    # =====================================================================
-    # 1. Đọc thông số hình học ban đầu của cấu phần hiện tại từ AI trích xuất
+    # 1. Đọc thông số hình học thô trực tiếp từ dòng dữ liệu thực tế của AI
     b_length = float(row.get("bounding_box_length", 0.0) or 0.0)
     b_width = float(row.get("bounding_box_width", 0.0) or 0.0)
     p_count = int(row.get("piece_count", 1) or 1)
     
-    # 🌟 BỘ LỌC HIỆU CHỈNH HÌNH HỌC (CAD Sanity Gate):
-    # Nếu AI đọc nhầm chiều rộng rập bằng khổ vải (ví dụ: 56 inch) hoặc đếm thừa số lượng chi tiết quần thành 4 hoặc 6
-    if b_width >= 40.0 and p_count >= 2:
-        b_width = b_width / p_count  # Trả chiều rộng về đúng kích thước của 1 thân rập đơn lẻ
-    if p_count > 2 and any(k in str(row.get("component_name", "")).upper() for k in ["BODY", "THÂN", "PANEL"]):
-        p_count = 2  # Quần dài tiêu chuẩn gồm: 2 thân trước + 2 thân sau (tổng 2 cặp rập đối xứng)
-        
+    # Tính diện tích thô ban đầu dựa trên thông số hình học của chi tiết hiện tại
     raw_box_area = b_length * b_width * p_count
     
     current_mat_class = str(row.get("material_class", "FABRIC")).upper().strip()
     current_comp_name = str(row.get("component_name", "")).upper()
     
+    # Đồng bộ hóa ma trận hệ số diện tích thực (Net Factor) theo loại sản phẩm
     product_map = PRODUCT_NET_AREA_MATRIX.get(active_product, PRODUCT_NET_AREA_MATRIX["DEFAULT"])
     
-    # Nhận diện phân hệ Vải chính vạn năng
-    is_main_fabric = False
-    if current_mat_class in ["MAIN_FABRIC", "FABRIC", "SELF", "SHELL", "OUTER"] or "MAIN" in current_mat_class or "BODY" in current_comp_name:
+    # Phân loại cấu phần thông minh để áp dụng hệ số thu hẹp hình học rập
+    if "POCKET" in current_comp_name or "FLAP" in current_comp_name or "BAG" in current_comp_name or "TÚI" in current_comp_name:
+        # Nhóm chi tiết túi đắp, nắp túi (Hình chữ nhật vuông vức, ít góc khuyết)
+        net_factor = 0.85
+    elif "WAISTBAND" in current_comp_name or "CẠP" in current_comp_name or "FLY" in current_comp_name:
+        # Nhóm cạp, nẹp (Chi tiết thẳng, giữ nguyên diện tích)
+        net_factor = 0.95
+    elif current_mat_class in ["MAIN_FABRIC", "FABRIC", "SELF", "SHELL", "OUTER"] or "MAIN" in current_mat_class or "BODY" in current_comp_name:
+        # Thân quần chính (Có góc lượn đùi, mông, ống quần)
         net_factor = product_map.get("MAIN_FABRIC", 0.80)
-        is_main_fabric = True
-    elif current_mat_class in ["LINING", "POCKETING"] or "POCKET" in current_comp_name:
-        net_factor = product_map.get("LINING", 0.20)
     else:
         net_factor = product_map.get(current_mat_class, product_map.get("DEFAULT", 0.80))
         
+    # Tính diện tích thực tế của một chi tiết (Triệt tiêu hoàn toàn Bounding Box)
     total_net_area = raw_box_area * net_factor
 
-    POCKET_KEYS = ["POCKET", "PATCH", "CARGO", "FLAP", "BAG", "WELT", "TÚI", "NẮP"]
-    MAIN_KEYS = ["MAIN", "BODY", "FABRIC", "SHELL", "SELF", "OUTER", "VẢI CHÍNH", "VAI CHINH"]
-
-    cargo_pocket_accumulated_area = 0.0
-    debug_captured_rows = [] 
-
-    # 2. TỰ ĐỘNG TÍCH LŨY DIỆN TÍCH TÚI THEO TOÁN HỌC DỰA TRÊN SỐ LIỆU ĐẦU VÀO
-    if active_product == "CARGO_PANTS" and is_main_fabric:
-        if "bom_data" in st.session_state and st.session_state.bom_data and "bom_rows" in st.session_state.bom_data:
-            
-            for b_row in st.session_state.bom_data["bom_rows"]:
-                if not b_row: continue
-                c_name = str(b_row.get("component_name", "")).upper()
-                m_class = str(b_row.get("material_class", "")).upper()
-                
-                # Loại trừ nghiêm ngặt các dòng thân chính lớn để tránh bị cộng lặp
-                if any(k in c_name for k in ["THÂN QUẦN", "THAN QUAN", "FRONT PANEL", "BACK PANEL", "ALLOVER BODY", "MAIN BODY"]) and not any(p in c_name for p in ["POCKET", "TÚI"]):
-                    continue
-                
-                is_pocket_component = any(k in c_name for k in POCKET_KEYS)
-                is_shell_material = any(m in m_class or m in c_name for m in MAIN_KEYS)
-                
-                if is_pocket_component and is_shell_material:
-                    p_len = float(b_row.get("bounding_box_length", 0.0) or 0.0)
-                    p_wid = float(b_row.get("bounding_box_width", 0.0) or 0.0)
-                    p_cnt = int(b_row.get("piece_count", 1) or 1)
-                    poly_net = float(b_row.get("polygon_net_area", 0.0) or 0.0)
-                    
-                    # Sửa lỗi: Khống chế chiều rộng túi nếu bị AI đọc sai bằng khổ vải
-                    if p_wid >= 40.0: p_wid = 8.5 
-                    
-                    if poly_net > 0.0:
-                        pocket_area = poly_net
-                        calc_type = "CAD Poly"
-                    else:
-                        pocket_area = p_len * p_wid * 0.85
-                        calc_type = "BBox Fallback"
-                    
-                    if pocket_area <= 0.0:
-                        pocket_area = 8.0 * 7.0 * 0.85
-                        calc_type = "Gate Default"
-                        
-                    current_piece_total = pocket_area * p_cnt
-                    cargo_pocket_accumulated_area += current_piece_total
-                    debug_captured_rows.append(f"🔹 {c_name} ({p_cnt} Pcs) | {calc_type}: {current_piece_total:.1f} sq\"")
-            
-            # Cộng dồn diện tích túi thực tế vào tổng bài toán toán học
-            total_net_area += cargo_pocket_accumulated_area
-
-    # 3. CHUẨN HÓA ĐƠN VỊ ĐO LƯỜNG HÌNH HỌC TỰ ĐỘNG (CM² TO INCH²)
+    # 🌟 KIỂM TRA ĐƠN VỊ ĐO LƯỜNG TỰ ĐỘNG (CM² TO INCH²)
     unit_log = "Square Inches (inch²)"
     if total_net_area > 3500.0:
         total_net_area = total_net_area / 6.4516
-        unit_log = "Auto-Converted from CM² to INCH² (Divided by 6.45)"
+        unit_log = "Auto-Converted from CM² to INCH²"
 
-    # 4. THỰC THI CÔNG THỨC TOÁN HỌC PHẲNG CAD/CAM NGUYÊN BẢN CỦA NHÀ MÁY
+    # 2. THỰC THI CÔNG THỨC TOÁN HỌC PHẲNG CAD/CAM NGUYÊN BẢN CỦA NHÀ MÁY
     gross_val = 0.0
     active_width = width_inch if 'width_inch' in locals() and width_inch > 0 else 56.0
     active_eff = efficiency_num if 'efficiency_num' in locals() and efficiency_num > 0 else 0.855
     
     if total_net_area > 0 and active_width > 0:
+        # Bù hao tỷ lệ nhún ly nếu dòng chi tiết này là dòng túi hoặc cạp nhún
         adjusted_area = total_net_area * active_gather_ratio
+        
+        # Cộng dồn tỷ lệ co rút vải ma trận phòng Lab (3% dọc + 3% ngang)
         expanded_area = adjusted_area * (1.0 + warp_num) * (1.0 + weft_num)
         
-        # Áp dụng công thức phân rã vạt chia sơ đồ tiêu chuẩn công nghiệp
-        gross_val = (expanded_area / (active_width * 36.0 * active_eff)) * 1.03
-        gross_val = round(gross_val, 3)
+        # Công thức vạt chia sơ đồ CAD: Diện tích thực / (Khổ vải * 36 * Hiệu suất giác)
+        math_cad_yardage = expanded_area / (active_width * 36.0 * active_eff)
+        
+        # Nhân hệ số hao hụt bàn cắt và xéo biên công nghiệp (1.03)
+        gross_val = math_cad_yardage * 1.03
+        gross_val = round(max(0.0, gross_val), 3)
         
     # Đồng bộ bộ nhớ trạng thái hệ thống
     row["fabric_consumption"] = gross_val 
     row["gross_consumption"] = gross_val   
 
-    # 5. KHỐI TRỰC QUAN HÓA TIẾN TRÌNH AUDIT LOG ĐỂ IE ĐỐI CHIẾU SỐ LIỆU THỰC
-    if active_product == "CARGO_PANTS" and is_main_fabric:
-        with st.expander("🔍 CAD ENGINE AUDIT TRAIL - SỐ LIỆU TOÁN HỌC THỰC TẾ", expanded=True):
-            st.write(f"**Đơn vị đo lường:** `{unit_log}`")
-            st.write(f"**Thông số thân sau lọc nhiễu:** Rập thô = {b_length}l x {b_width}w x {p_count}pcs = {raw_box_area:.1f} sq\"")
-            st.write(f"**Diện tích tích lũy cụm túi Cargo:** `{cargo_pocket_accumulated_area:.1f} sq in`")
-            if debug_captured_rows:
-                st.write("**Chi tiết diện tích từng dòng rập túi:**")
-                for log in debug_captured_rows: st.markdown(log)
-            st.write(f"**Tổng diện tích CAD thực tế đầu vào (Thân + Túi):** `{total_net_area:.1f} sq in` ➔ **Định mức đúng:** `{gross_val:.3f} Yds`")
-
-    note = f"DynamicCargoEngine v30 | Net Area: {total_net_area:.1f} sq in | Eff: {active_eff*100}%"
+    note = f"CAD Core v31 | Component Net Area: {total_net_area:.1f} sq in | Eff: {active_eff*100}%"
     return gross_val, note
+
 
 
 
