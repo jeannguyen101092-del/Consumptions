@@ -810,12 +810,12 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
 
             # Xóa bỏ hoàn toàn dummy_json cũ cồng kềnh
 
-                        # =====================================================================
-            # ĐOẠN 7a - PHẦN 10: PROMPT AGENT 2 ROUTER & INDUSTRIAL CAD AUDITOR (v114.0)
-            # 🌟 GIẢI PHÓNG MẢNG RỖNG: Nới lỏng chốt chặn JSON Schema để AI tự do đổ dòng vật tư
+                         # =====================================================================
+            # ĐOẠN 7a - PHẦN 10: PROMPT AGENT 2 ROUTER & INDUSTRIAL CAD AUDITOR (v115.0)
+            # 🌟 KHÓA CHẶT ĐIỂM MÙ AI: Ép Gemini bắt buộc phải quét thị giác toàn bộ trang ảnh để lấy L/W thật
             # =====================================================================
             
-            # 1. JSON Schema cấu trúc linh hoạt: Chỉ bắt buộc tên chi tiết và phân loại nguyên liệu
+            # 1. JSON Schema cấu trúc cứng đồng bộ hóa dữ liệu số thực
             raw_json_schema = {
                 "type": "OBJECT",
                 "properties": {
@@ -844,11 +844,10 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                                 "polygon_net_area": {"type": "NUMBER", "description": "Diện tích đa giác hệ CAD nếu có"},
                                 "polygon_area_mode": {"type": "STRING", "description": "TOTAL hoặc PER_PIECE"},
                                 "polygon_unit": {"type": "STRING", "description": "CM2 hoặc IN2"},
-                                "bounding_box_length": {"type": "NUMBER", "description": "Chiều dài rập thô chi tiết trích xuất được"},
-                                "bounding_box_width": {"type": "NUMBER", "description": "Chiều rộng rập thô chi tiết trích xuất được"},
+                                "bounding_box_length": {"type": "NUMBER", "description": "Chiều dài khối rập thật trích xuất được. KHÔNG ĐỂ 0."},
+                                "bounding_box_width": {"type": "NUMBER", "description": "Chiều rộng khối rập thật trích xuất được. KHÔNG ĐỂ 0."},
                                 "fabric_width_inch": {"type": "NUMBER", "description": "Khổ rộng vật tư tương ứng trích xuất từ bảng BOM"}
                             },
-                            # 🌟 CẢI TIẾN: Chỉ bắt buộc các trường định danh tên và phân loại, cho phép L/W linh hoạt để tránh bị nghẽn mảng []
                             "required": ["component_name", "material_class", "uom", "piece_count"]
                         }
                     }
@@ -856,20 +855,21 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                 "required": ["detected_product_type", "spec_meta", "bom_rows"]
             }
 
-            # 2. Prompt chữ tập trung bắt ép lấy thông tin từ mọi vị trí (bảng số liệu hoặc chữ ghi chú trên rập)
+            # 2. Prompt chữ nâng cấp năng lực quét thị giác đa trang (Multi-Page Vision Scan)
             prompt_agent_2 = f"""
-            You are an Enterprise Apparel CAD Auditor.
-            Task: Audit and extract ALL apparel components and pattern pieces from the Techpack context, drawings, BOM tables, and sketches.
+            You are an Enterprise Apparel CAD Auditor equipped with advanced computer vision.
+            Task: Thoroughly scan EVERY SINGLE PAGE in the provided images and text to extract pattern dimensions.
 
             🌟 USER CHAT COMMAND CONTEXT (CRITICAL):
-            The user has specified custom shrinkage/adjustments in their chat. You MUST obey this command when filling 'spec_meta':
+            You MUST update 'warp_shrink' and 'weft_shrink' inside 'spec_meta' exactly as requested here:
             "{str(safe_user_prompt).strip()}"
 
-            STRICT AUDIT RULES:
-            - Update 'warp_shrink' and 'weft_shrink' inside 'spec_meta' exactly as requested in the user command above (e.g., set warp_shrink to 3.0 and weft_shrink to 14.0 based on user input).
-            - Extract every single pattern piece or fabric material item you can find in the Techpack text or sketch drawing annotations (e.g., BODY, WAISTBAND, POCKETING, FUSING). Put them into 'bom_rows'. Do not return an empty array.
-            - Search for dimensions (length and width) inside the specification tables or annotated layout drawings. If specified, put them into 'bounding_box_length' and 'bounding_box_width'.
-            - For fabric_width_inch, if not specified, use {active_width} as a baseline fallback.
+            STRICT AUDIT & VISION RULES:
+            - CRITICAL: Do NOT get distracted by the user command. You MUST scan all pages to find the actual dimensions for MAIN FABRIC, FRONT PANEL, BACK PANEL, and WAISTBAND.
+            - Look closely at pattern tables, diagram sketches, and measurement charts scattered across the pages. 
+            - Extract valid, non-zero numeric values for 'bounding_box_length' and 'bounding_box_width' for the main garment panels. If a front panel is found, its length cannot be 0. Find it from the spec sheets!
+            - Ensure 'piece_count' matches actual production cut pieces (e.g., Front Panel = 2, Back Panel = 2).
+            - For fabric_width_inch, extract specific values from BOM; if not specified, fallback to {active_width}.
             """
 
             # 3. Chuẩn bị mảng đầu vào nạp thẳng vào Gemini API
@@ -928,7 +928,6 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
 
         except Exception as ai_err:
             st.error(f"❌ Lỗi AI: {str(ai_err)}")
-
 
 
 
