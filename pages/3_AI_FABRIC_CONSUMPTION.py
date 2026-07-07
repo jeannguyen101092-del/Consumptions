@@ -541,7 +541,9 @@ if st.sidebar.button("🗑️ CLEAR SYSTEM MEMORY", use_container_width=True):
     st.rerun()
 
 
-# --- LƯỚI CHIA ĐÔI CỘT CHÍNH THỰC TẾ (NẰM KHÍT SÁT NGAY BÊN DƯỚI) ---
+# ------------------------------------------------------------------------------
+# LƯỚI CHIA ĐÔI CỘT CHÍNH THỰC TẾ (CHỈ GIỮ LẠI ĐÚNG 1 LẦN GỌI NÀY)
+# ------------------------------------------------------------------------------
 col_left, col_right = st.columns(2)
 
 # --- CỘT TRÁI: BỘ TẢI FILE & HỒ SƠ TÓM TẮT MÃ HÀNG ---
@@ -613,7 +615,6 @@ with col_right:
         st.markdown("<div style='margin-top: 70px; text-align: center; color: #64748b; font-size: 13px;'>Hình vẽ phác họa phẳng (Sketch) trích xuất từ trang bìa PDF sẽ tự động hiển thị cân xứng tại đây sau khi nạp file thành công.</div>", unsafe_allow_html=True)
         
     st.markdown('</div>', unsafe_allow_html=True)
-
 
 
 
