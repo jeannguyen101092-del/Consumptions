@@ -785,11 +785,12 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             """.replace("SIZE_PLH", str(target_size_cmd)).replace("WIDTH_PLH", str(active_width))
                                  # =====================================================================
                      # =====================================================================
-            # ĐOẠN 7a - PHẦN 10: PROMPT AGENT 2 ROUTER & INDUSTRIAL CAD AUDITOR (v106.0)
-            # 🌟 ĐỒNG BỘ NATIVE JSON SCHEMA - TƯƠNG THÍCH MỌI PHIÊN BẢN GOOGLE IE SDK
+                      # =====================================================================
+            # ĐOẠN 7a - PHẦN 10: PROMPT AGENT 2 ROUTER & INDUSTRIAL CAD AUDITOR (v107.0)
+            # 🌟 ÉP BUỘC ĐIỀN THÔNG SỐ HÌNH HỌC (REQUIRED GEOMETRY GATE) -> KÍCH HOẠT ĐỊNH MỨC
             # =====================================================================
             
-            # 1. Định nghĩa cấu trúc Native JSON Schema thay vì truyền trực tiếp lớp Pydantic
+            # 1. Định nghĩa cấu trúc Native JSON Schema ép AI bắt buộc điền thông số L/W và Width
             raw_json_schema = {
                 "type": "OBJECT",
                 "properties": {
@@ -818,23 +819,27 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                                 "polygon_net_area": {"type": "NUMBER", "description": "Diện tích đa giác hệ CAD nếu có"},
                                 "polygon_area_mode": {"type": "STRING", "description": "TOTAL hoặc PER_PIECE"},
                                 "polygon_unit": {"type": "STRING", "description": "CM2 hoặc IN2"},
-                                "bounding_box_length": {"type": "NUMBER", "description": "Chiều dài hộp bao khối rập thô (L)"},
-                                "bounding_box_width": {"type": "NUMBER", "description": "Chiều rộng hộp bao khối rập thô (W)"},
-                                "fabric_width_inch": {"type": "NUMBER", "description": "Khổ rộng vật tư tương ứng trích xuất từ BOM"}
+                                "bounding_box_length": {"type": "NUMBER", "description": "Chiều dài hộp bao khối rập thô hoặc chiều dài cắt chi tiết (L)"},
+                                "bounding_box_width": {"type": "NUMBER", "description": "Chiều rộng hộp bao khối rập thô hoặc chiều rộng cắt chi tiết (W)"},
+                                "fabric_width_inch": {"type": "NUMBER", "description": "Khổ rộng vật tư tương ứng trích xuất từ bảng BOM Techpack"}
                             },
-                            "required": ["component_name", "material_class", "uom", "piece_count", "bounding_box_length", "bounding_box_width"]
+                            # 🌟 QUAN TRỌNG: Ép các trường kích thước vào required để AI không bỏ trống dữ liệu hình học
+                            "required": [
+                                "component_name", "material_class", "uom", "piece_count", 
+                                "bounding_box_length", "bounding_box_width", "fabric_width_inch"
+                            ]
                         }
                     }
                 },
                 "required": ["detected_product_type", "spec_meta", "bom_rows"]
             }
 
-            # 2. Prompt tinh gọn tuyệt đối, loại bỏ hoàn toàn dummy_json mẫu làm phình token
+            # 2. Prompt tinh gọn, tập trung bắt ép lấy thông số số liệu
             prompt_agent_2 = f"""
             You are an Enterprise Apparel CAD Auditor.
             Task: Audit and extract ALL components from the Techpack context, BOM tables, and sketches.
 
-            MANDATORY EXTRACTION CHECKLIST (You must scan and extract every matching item):
+            MANDATORY EXTRACTION CHECKLIST:
             1. MAIN FABRIC (Shell, Self, Outer) -> material_class: "FABRIC"
             2. LINING / POCKETING (Vải lót, Lót túi) -> material_class: "LINING"
             3. FUSING / INTERLINING / MEX / KEO (Keo cạp, mex dựng, keo phối) -> material_class: "FUSING"
@@ -843,9 +848,10 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             6. THREAD (Chỉ may) -> material_class: "THREAD"
 
             STRICT AUDIT RULES:
-            - Scan BOM tables and Sketch annotations carefully. If Fusing, Mex, or Interlining is mentioned anywhere, you MUST extract it as a separate row in 'bom_rows'. Do not skip it.
+            - Scan BOM tables and Sketch annotations carefully. You MUST extract dimensions for bounding_box_length, bounding_box_width, and fabric_width_inch for EVERY component. Do not output 0 or null for these fields.
+            - If Fusing, Mex, or Interlining is mentioned anywhere, you MUST extract it as a separate row in 'bom_rows'.
             - Ensure 'piece_count' represents total production cut pieces (handle Pairs/Mirrors).
-            - For material width, extract specific values from BOM for Lining (e.g. 44") or Fusing (e.g. 36") instead of forcing {active_width} on all items.
+            - For fabric_width_inch, extract specific values from BOM (e.g. 56" for Fabric, 44" for Lining/Fusing). If not specified, use {active_width} as a fallback.
             """
 
             # 3. Chuẩn bị mảng đầu vào nạp thẳng vào Gemini API
@@ -853,13 +859,13 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             gemini_inputs.insert(0, f"=== TECHPACK TEXT ===\n{full_pdf_raw_text}\n")
             gemini_inputs.append(prompt_agent_2)
 
-            # 4. Gọi API với cấu hình Native Schema tương thích 100%
+            # 4. Gọi API với cấu hình Native Schema ép cứng số liệu hình học
             model = genai.GenerativeModel('gemini-2.5-flash')
             response = model.generate_content(
                 gemini_inputs,
                 generation_config={
                     "response_mime_type": "application/json",
-                    "response_schema": raw_json_schema,  # Sử dụng Dict Native Schema chặn đứng lỗi Unknown field
+                    "response_schema": raw_json_schema,
                     "temperature": 0.1
                 }
             )
@@ -870,12 +876,13 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             if blueprint_worker and "bom_rows" in blueprint_worker:
                 blueprint_worker["calculated_on_size"] = target_size_cmd
                 
-                # Đồng bộ thông số khổ vải nền móng
+                # Đồng bộ thông số khổ vải nền móng dự phòng
                 for row in blueprint_worker.get("bom_rows", []):
-                    if "fabric_width_inch" not in row or row.get("fabric_width_inch") is None:
+                    w_val = row.get("fabric_width_inch", 0)
+                    if w_val is None or float(w_val) <= 0.0:
                         row["fabric_width_inch"] = active_width
                 
-                # Đẩy gói tin vào lõi Router v45.0 nghiêm ngặt của Python
+                # Đẩy gói tin đầy đủ số liệu hình học vào lõi Router v45.0 nghiêm ngặt của Python
                 blueprint_final = allocate_fabric_consumption_and_quality_gate(blueprint_worker, str(safe_user_prompt).strip())
                 
                 st.session_state.bom_data = blueprint_final
@@ -885,7 +892,8 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                 st.rerun()
 
         except Exception as ai_err:
-            st.error(f"❌ Lỗi AI: {str(ai_err)}")
+            st.error(f"❌ Lỗi AI: {str(api_err)}")
+
 
 # =====================================================================
 # ĐOẠN 7b: HIỂN THỊ KẾT QUẢ ĐỊNH MỨC & BẢNG ĐỐI CHỨNG ĐA CỘT ĐỒNG BỘ SIZE (V102.6 MULTI-ENGINE)
