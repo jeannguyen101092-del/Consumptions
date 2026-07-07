@@ -571,16 +571,14 @@ st.markdown("""
 """, unsafe_allow_html=True)
 import streamlit as st
 
-import streamlit as st
-
 # ==============================================================================
-# ĐOẠN 2: BANNER TIÊU ĐỀ, LƯỚI 4 CỘT KPIs VÀ KHỐI UPLOADER CÂN BẰNG ĐỐI XỨNG
+# ĐOẠN 2: BANNER, KPIs VÀ LỚP PHÂN BỔ NỘI DUNG LẤP ĐẦY 2 Ô TRỐNG HÀNG GIỮA
 # ==============================================================================
 
-# 4 Ô chỉ số KPIs Native phẳng hoàn toàn
+# 4 Ô chỉ số KPIs Native phẳng hoàn toàn phía trên cùng
 k_col1, k_col2, k_col3, k_col4 = st.columns(4)
 
-# Chuỗi vector đồ họa chuẩn hóa cách ly hoàn toàn dấu ngoặc đơn
+# Chuỗi vector đồ họa chuẩn hóa cách ly
 encoded_ao = "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%27100%27%20height%3D%27100%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23334155%27%20stroke-width%3D%271.25%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M20.38%203.46L16%202a4%204%200%200%200-8%200l-4.38%201.46a2%202%200%200%200-1.37%202l.35%2011.23a2%202%200%200%200%202%201.94h14.8a2%202%200%200%200%202-1.94l.35-11.23a2%202%200%200%200-1.37-2z%27%2F%3E%3Cpath%20d%3D%27M12%205v16%27%2F%3E%3Cpath%20d%3D%27M4%2010h16%27%2F%3E%3C%2Fsvg%3E"
 encoded_quan = "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%27100%27%20height%3D%27100%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%230f766e%27%20stroke-width%3D%271.25%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M4%202h16l-2%2020H6L4%202z%27%2F%3E%3Cpath%20d%3D%27M12%202v20%27%2F%3E%3Cpath%20d%3D%27M5%208h14%27%2F%3E%3C%2Fsvg%3E"
 encoded_vest = "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%27100%27%20height%3D%27100%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23c2410c%27%20stroke-width%3D%271.25%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M4%202v20l8-4%208%204V2l-8%204-8-4z%27%2F%3E%3Cpath%20d%3D%27M12%206v12%27%2F%3E%3Cpath%20d%3D%27M4%208h16%27%2F%3E%3C%2Fsvg%3E"
@@ -599,11 +597,30 @@ with k_col4:
     st.markdown(f'<div class="kpi-card-colored bg-size"><div class="kpi-num-light">{active_size_kpi}</div><div class="kpi-lbl-light">Cỡ hạt tính định mức</div></div>', unsafe_allow_html=True)
     st.markdown(f'<div class="image-placeholder-box color-vay"><img src="{encoded_vay}" alt="Vay"></div>', unsafe_allow_html=True)
 
-# Lưới chia đôi cột chính co sát lên trên cùng
+
+# --- HỆ THỐNG ĐIỀU KHIỂN SIDEBAR ---
+st.sidebar.markdown("### ⚙️ ENGINE CONTROLS")
+if st.sidebar.button("🗑️ CLEAR SYSTEM MEMORY", use_container_width=True):
+    st.session_state.bom_data = None
+    st.session_state.chat_history = []
+    st.session_state.pdf_bytes = None
+    st.session_state.pdf_name = ""
+    st.session_state.pdf_text_cache = None
+    if "pdf_page_one_image" in st.session_state: st.session_state.pdf_page_one_image = None
+    if "accumulated_bom_rows" in st.session_state: st.session_state.accumulated_bom_rows = []
+    st.rerun()
+
+
+# ------------------------------------------------------------------------------
+# 🟢 LƯỚI CHIA ĐÔI CỘT CHÍNH: LẤP ĐẦY TRỰC TIẾP NỘI DUNG VÀO HAI Ô TRẮNG HÀNG GIỮA
+# ------------------------------------------------------------------------------
 col_left, col_right = st.columns(2)
 
+# --- CỘT TRÁI: BỘ TẢI FILE & HỒ SƠ TÓM TẮT MÃ HÀNG MÀU XANH ---
 with col_left:
-    st.markdown('<div class="custom-erp-box"><div class="cad-header-text">📂 TECHPACK UPLOADER & PROFILE SUMMARY</div>', unsafe_allow_html=True)
+    st.markdown('<div class="custom-erp-box">', unsafe_allow_html=True)
+    st.markdown('<div class="cad-header-text">📂 TECHPACK UPLOADER & PROFILE SUMMARY</div>', unsafe_allow_html=True)
+    
     uploaded_file = st.file_uploader("Upload PDF", type=["pdf"], label_visibility="collapsed")
     if uploaded_file:
         if st.session_state.pdf_name != uploaded_file.name:
@@ -628,14 +645,18 @@ with col_left:
         st.markdown("<div style='margin-top:70px; text-align:center; color:#64748b; font-size:13px;'>Bảng tóm tắt thông số sản phẩm sẽ tự động hiển thị tại đây sau khi nạp file PDF.</div>", unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
+# --- CỘT PHẢI: KHUNG XEM BẢN VẼ PHẲNG SKETCH VÀNG VÀNG ---
 with col_right:
-    st.markdown('<div class="custom-erp-box sticky-sketch-box"><div class="cad-header-text">🎨 TECHPACK SKETCH VISUALIZER</div>', unsafe_allow_html=True)
+    st.markdown('<div class="custom-erp-box sticky-sketch-box">', unsafe_allow_html=True)
+    st.markdown('<div class="cad-header-text">🎨 TECHPACK SKETCH VISUALIZER</div>', unsafe_allow_html=True)
+    
     if st.session_state.pdf_bytes and not st.session_state.get("pdf_page_one_image"):
         try:
             import fitz
             doc_img = fitz.open(stream=st.session_state.pdf_bytes, filetype="pdf")
             if len(doc_img) > 0: st.session_state.pdf_page_one_image = doc_img.load_page(0).get_pixmap(matrix=fitz.Matrix(1.5, 1.5), colorspace=fitz.csRGB).tobytes("png")
         except: pass
+        
     if st.session_state.get("pdf_page_one_image"):
         st.image(st.session_state.pdf_page_one_image, width=300)
     else:
