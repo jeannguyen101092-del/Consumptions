@@ -229,66 +229,39 @@ def preprocess_bom_and_execute(agent_output_json: dict, product_type: str) -> li
 import copy
 import streamlit as st
 
-# Đồng bộ tập từ khóa loại trừ tĩnh
-EXCLUDE_HARDWARE_KEYS = (
-    "CHỈ", "THREAD", "ZIPPER", "DÂY KÉO", "BUTTON", "NÚT", "SHANK", "RIVET", 
-    "LABEL", "MÁC", "TAG", "EYELETS", "SNAP", "VELCRO", "HOOK", "LOOP", 
-    "STOPPER", "TOGGLE", "BUCKLE", "GROMMET", "STICKER", "CARE WHITE", 
-    "HEAT STAMP", "HANGTAG", "POLYBAG", "BAO BÌ"
-)
+# 🌟 CẢI TIẾN: Thu hẹp danh sách chặn, tuyệt đối loại bỏ các từ "CHỈ", "CHI TIẾT" 
+# Chỉ chặn các linh kiện phần cứng đếm chiếc độc lập
+HARDWARE_WORDS = {
+    "ZIPPER", "BUTTON", "NÚT", "SHANK", "RIVET", "TAG", 
+    "EYELETS", "SNAP", "VELCRO", "HOOK", "LOOP", "STOPPER", "TOGGLE", 
+    "BUCKLE", "GROMMET", "STICKER", "POLYBAG", "BAO BÌ"
+}
 
-def compute_elastic_engine(row: dict) -> tuple:
-    """Engine chuyên tính toán cho Chun / Thun co giãn (Elastic)"""
-    uom_target = str(row.get("uom", "YDS")).upper().strip()
-    e_length = float(row.get("length_inch", 0.0) or 0.0)
-    e_count = int(row.get("piece_count", 1) or 1)
-    stretch = float(row.get("stretch_pct", 1.00) or 1.00)
+def is_hardware_component(component_name: str, material_class: str) -> bool:
+    """Bộ kiểm tra an toàn: Tuyệt đối không chặn nhầm Keo, Lót, Thun, Chỉ cuộn"""
+    c_text = f" {str(component_name).upper().strip()} "
+    m_text = f" {str(material_class).upper().strip()} "
     
-    # Công thức: Chiều dài x Số lượng x Độ giãn thun x 5% hao hụt đầu bàn thun
-    total_inches = e_length * e_count * stretch * 1.05
-    
-    if uom_target == "YDS":
-        gross_yards = round(total_inches / 36.0, 4)
-    else:
-        # Nếu UOM thô là MTR hoặc đơn vị khác, mặc định quy đổi yard cho bảng vải chính trước
-        gross_yards = round(total_inches / 36.0, 4)
+    # Cho phép các từ khóa liên quan đến keo lót đi qua ngay lập tức, không xét bộ lọc chặn
+    if any(k in c_text or k in m_text for k in ["KEO", "DỰNG", "FUSING", "INTERLINING", "MEX", "LÓT"]):
+        return False
         
-    gross_meters = round(gross_yards * 0.9144, 4)
-    note = f"ElasticEngine | Dài: {e_length}\" | Số lượng: {e_count} | Độ giãn: {stretch}x | Hao hụt: 5%"
-    return gross_yards, gross_meters, note
-
-
-def compute_tape_engine(row: dict) -> tuple:
-    """Engine chuyên tính toán cho Dây Tape / Dây Viền / Dây dệt (Tape/Cord)"""
-    uom_target = str(row.get("uom", "MTR")).upper().strip()
-    t_length = float(row.get("length_inch", 0.0) or 0.0)
-    t_count = int(row.get("piece_count", 1) or 1)
-    
-    # Công thức: Chiều dài x Số lượng x 3% hao hụt cắt nối dây viền
-    total_inches = t_length * t_count * 1.03
-    gross_yards = round(total_inches / 36.0, 4)
-    gross_meters = round(gross_yards * 0.9144, 4)
-    
-    note = f"TapeEngine | Chiều dài: {t_length}\" | Số lượng: {t_count} | Hao hụt: 3%"
-    return gross_yards, gross_meters, note
-
-
-def compute_thread_engine() -> tuple:
-    """Engine tính định mức Chỉ may công nghiệp theo ma trận tiêu chuẩn (Thread)"""
-    gross_yards = 18.5000
-    gross_meters = round(gross_yards * 0.9144, 4)
-    note = f"ThreadEngine | Tiêu chuẩn Factory Standard Sew-in Matrix"
-    return gross_yards, gross_meters, note
-
+    # Loại bỏ nhãn mác đếm chiếc (nếu thuộc nhóm COUNT)
+    if "COUNT" in m_text and any(k in c_text for k in ["LABEL", "MÁC", "TAG", "HANGTAG"]):
+        return True
+        
+    # So khớp chính xác tách từ cho phụ liệu cứng
+    for word in HARDWARE_WORDS:
+        if f" {word} " in c_text or f" {word} " in m_text:
+            return True
+            
+    return False
 
 def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, *args, **kwargs) -> dict:
     """
-    Enterprise Multi-Engine CAD Router v43.0.
-    🌟 TỰ ĐỘNG BÙ KEO LÓT: Nếu bảng BOM thiếu hàng Keo lót (FUSING), tự động nội suy sinh dòng Keo cạp từ rập cạp chính.
+    Enterprise Multi-Engine CAD Router v44.0.
+    🌟 FIX DỨT ĐIỂM MẤT KEO LÓT: Vừa bảo vệ dòng keo từ Agent, vừa cưỡng bức tự động sinh nếu thiếu.
     """
-    import copy
-    import streamlit as st
-    
     st.info("🚀 ENTERPRISE MULTI-ENGINE CAD ROUTER ACTIVATED")
     
     if not blueprint_final or "bom_rows" not in blueprint_final:
@@ -304,13 +277,13 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, *args, *
         "gather_ratio": float(ai_meta.get("gather_ratio", 1.00)),
         "has_stripe": bool(ai_meta.get("has_stripe", False)),
         "fabric_group": str(ai_meta.get("fabric_group", "WOVEN")).upper().strip(),
-        "cargo_pocket_accumulated_area": 0.0  # Chống cộng trùng làm phình số liệu vải chính
+        "cargo_pocket_accumulated_area": 0.0
     }
 
     has_fusing = False
-    waistband_row_backup = None
+    main_fabric_row_backup = None
 
-    # Duyệt hàng bảng BOM
+    # Duyệt và xử lý từng dòng rập
     for ai_row in blueprint_final.get("bom_rows", []):
         if not ai_row: continue
         ui_row = copy.deepcopy(ai_row)
@@ -319,11 +292,12 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, *args, *
         mat_class = str(ui_row.get("material_class", ui_row.get("engine", "FABRIC"))).upper().strip()
         uom_target = str(ui_row.get("uom", "YDS")).upper().strip()
         
-        if mat_class == "COUNT" or any(key in comp_name or key in mat_class for key in EXCLUDE_HARDWARE_KEYS):
+        # 1. Khối đánh chặn an toàn thông minh
+        if is_hardware_component(comp_name, mat_class):
             continue
             
-        # Kiểm định tuyến nhóm nguyên liệu
-        if any(k in comp_name or k in mat_class for k in ["KEO", "DỰNG", "FUSING", "INTERLINING"]):
+        # 2. Định tuyến phân hệ chuẩn
+        if any(k in comp_name or k in mat_class for k in ["KEO", "DỰNG", "FUSING", "INTERLINING", "MEX"]):
             engine_target = "FUSING"
             has_fusing = True
         elif any(k in comp_name or k in mat_class for k in ["LÓT", "LINING", "POCKETING"]):
@@ -335,10 +309,11 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, *args, *
         else:
             engine_target = "FABRIC"
 
-        # Sao lưu thông số chi tiết Cạp quần phòng khi cần tự động sinh Keo dựng cạp
-        if "WAISTBAND" in comp_name or "CẠP" in comp_name:
-            waistband_row_backup = copy.deepcopy(ui_row)
+        # Sao lưu dòng vải chính để làm phôi nội suy keo lót nếu AI bỏ sót hoàn toàn
+        if engine_target == "FABRIC" and ("MAIN" in comp_name or "FABRIC" in mat_class or "SELF" in mat_class):
+            main_fabric_row_backup = copy.deepcopy(ui_row)
 
+        # 3. Kích hoạt tính toán
         if engine_target in ["FABRIC", "FUSING"]:
             gross_yds, gross_mtr, calc_note = compute_fabric_engine(ui_row, product_type, spec_meta)
             gross_val = gross_mtr if uom_target == "MTR" else gross_yds
@@ -362,24 +337,35 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, *args, *
         
         router_bom_rows.append(ui_row)
 
-    # 🌟 KHỐI ĐIỀU TIẾT THÔNG MINH: Nếu AI bỏ sót hoàn toàn Keo lót (FUSING) ra khỏi mảng
-    if not has_fusing and waistband_row_backup:
-        # Tự động tạo dòng Keo dựng cạp (Fusible Interlining) dựa trên kích thước rập cạp chính
-        fusing_row = copy.deepcopy(waistband_row_backup)
-        fusing_row["component_name"] = "Waistband Interlining (Keo Cạp Tự Động)"
+    # 🌟 CƠ CHẾ CƯỠNG BỨC TỰ ĐỘNG SINH KEO LÓT NẾU HỆ THỐNG TRỐNG TRƠN DÒNG FUSING
+    if not has_fusing and main_fabric_row_backup:
+        fusing_row = copy.deepcopy(main_fabric_row_backup)
+        fusing_row["component_name"] = "Waistband Interlining (Keo Cạp Quần Tự Động)"
         fusing_row["material_class"] = "FUSING"
         fusing_row["engine"] = "FUSING"
-        fusing_row["fabric_width_inch"] = 44.0  # Khổ keo dựng mặc định hẹp hơn khổ vải chính
+        fusing_row["fabric_width_inch"] = 44.0  # Khổ keo lót tiêu chuẩn nhà máy
         
-        gross_yds, gross_mtr, calc_note = compute_fabric_engine(fusing_row, product_type, spec_meta)
-        fusing_row["gross_consumption"] = gross_mtr if fusing_row.get("uom") == "MTR" else gross_yds
+        # Keo cạp thường tính dựa trên thông số bounding box khối cạp hoặc nội suy bằng 15% diện tích quần vải chính
+        # Ép sàn diện tích rập keo cạp về mức thực tế (ví dụ chiều dài cạp x rộng cạp)
+        if fusing_row.get("bounding_box_length", 0) > 0:
+            # Nếu giữ nguyên phôi Thân Quần, ép hệ số diện tích keo lót về 0.15 (Keo cạp chiếm 15% định mức quần)
+            spec_meta_fusing = copy.deepcopy(spec_meta)
+            gross_yds, gross_mtr, calc_note = compute_fabric_engine(fusing_row, product_type, spec_meta_fusing)
+            # Hệ số keo cạp thực tế bằng khoảng 12% - 15% vải chính
+            gross_val = (gross_mtr if fusing_row.get("uom") == "MTR" else gross_yds) * 0.15
+        else:
+            gross_val = 0.220  # Định mức Keo cạp mặc định an toàn phòng IE (Yards)
+            calc_note = "IE Factory Standard Default Value"
+
+        fusing_row["gross_consumption"] = round(gross_val, 4)
         fusing_row["quality_status"] = "PASS"
-        fusing_row["system_notes"] = f"Auto-Generated | {calc_note}"
+        fusing_row["system_notes"] = f"Auto-Generated Gate | Quy đổi 15% diện tích vải chính chuẩn IE"
         
         router_bom_rows.append(fusing_row)
         
     blueprint_final["bom_rows"] = router_bom_rows
     return blueprint_final
+
 
 
 import streamlit as st
