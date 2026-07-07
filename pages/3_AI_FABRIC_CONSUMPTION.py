@@ -48,14 +48,14 @@ def convert_to_sq_inches(area: float, unit: str) -> float:
 
 def compute_fabric_engine(row: dict, product_type: str, spec_meta: dict) -> tuple:
     """
-    Industrial Consumption CAM Core Engine v48.0.
-    🌟 GIẢI CỨU ĐỊNH MỨC 0: Tự động nội suy thông số hình học an toàn chuẩn IE nếu AI trả về bằng 0.
+    Industrial Consumption CAM Core Engine v46.0.
+    🌟 KHẮC PHỤC TRIỆT ĐỂ ĐM 0: Ép kiểu dữ liệu số thực cưỡng bức, bảo toàn 100% kích thước AI trả về.
     """
     current_mat_class = str(row.get("material_class", "FABRIC")).upper().strip()
     current_comp_name = str(row.get("component_name", "")).upper()
     
     PRODUCT_NET_AREA_MATRIX = {
-        "JEANS": {"MAIN_FABRIC": 0.82, "LINING": 0.75, "FUSING": 0.10, "DEFAULT": 0.80},
+        "JEANS": {"MAIN_FABRIC": 0.82, "LINING": 0.78, "FUSING": 0.15, "DEFAULT": 0.80},
         "CARGO_PANTS": {"MAIN_FABRIC": 0.82, "LINING": 0.78, "FUSING": 0.15, "DEFAULT": 0.80},
         "DEFAULT": {"MAIN_FABRIC": 0.80, "LINING": 0.75, "FUSING": 0.20, "DEFAULT": 0.80}
     }
@@ -64,7 +64,6 @@ def compute_fabric_engine(row: dict, product_type: str, spec_meta: dict) -> tupl
 
     is_main_fabric = False
     is_pocket_fabric = False
-    is_fusing_material = "FUSING" in current_mat_class or any(k in current_comp_name for k in ["KEO", "DỰNG", "MEX"])
     
     if current_mat_class in ["MAIN_FABRIC", "FABRIC", "SELF", "SHELL", "OUTER"] or "MAIN" in current_mat_class or "BODY" in current_comp_name:
         if not any(k in current_comp_name for k in ["POCKET", "POCKETING", "LÓT"]):
@@ -73,7 +72,7 @@ def compute_fabric_engine(row: dict, product_type: str, spec_meta: dict) -> tupl
     if any(k in current_comp_name for k in ["POCKET", "POCKETING", "LÓT"]) or current_mat_class == "LINING":
         is_pocket_fabric = True
 
-    # 1. BỘ ÉP KIỂU SỐ THỰC CƯỠNG BỨC
+    # ÉP KIỂU SỐ THỰC TUYỆT ĐỐI CHỐNG LỖI STRING
     try: p_count = int(float(row.get("piece_count", 1) or 1))
     except: p_count = 1
         
@@ -89,34 +88,12 @@ def compute_fabric_engine(row: dict, product_type: str, spec_meta: dict) -> tupl
     try: b_width = float(row.get("bounding_box_width", 0.0) or 0.0)
     except: b_width = 0.0
     
-    # 2. 🌟 KHỐI NỘI SUY KÍCH THƯỚC AN TOÀN CHUẨN IE (NẾU AI TRẢ VỀ L/W BẰNG 0)
-    geo_source = "CAD Convex Hull Inferred"
-    if poly_area <= 0.0 and (b_length <= 0.0 or b_width <= 0.0):
-        geo_source = "IE Factory Safety Default Inferred"
-        if is_main_fabric:
-            b_length = 42.0  # Chiều dài trung bình thân quần Jeans (inch)
-            b_width = 14.5   # Chiều rộng trung bình vạt rập thân (inch)
-            p_count = 2      # Thân quần luôn cắt đôi (Pair)
-        elif is_pocket_fabric:
-            b_length = 12.0  # Kích thước lót túi tiêu chuẩn
-            b_width = 7.5
-            p_count = 2
-        elif is_fusing_material:
-            b_length = 32.0  # Kích thước mếch cạp quần
-            b_width = 2.5
-            p_count = 1
-        else:
-            b_length = 15.0  # Các chi tiết phụ khác (Nắp túi, cơi túi...)
-            b_width = 4.0
-            p_count = 1
-
     # CAD Sanity Gate
     if b_width >= 40.0 and p_count >= 2:
         b_width = b_width / p_count  
     if p_count > 2 and is_main_fabric:
         p_count = 2  
 
-    # 3. TÍNH TOÁN DIỆN TÍCH NET AREA THEO SỐ LIỆU ĐÃ ĐƯỢC BẢO VỆ
     if poly_area > 0.0:
         converted_poly = convert_to_sq_inches(poly_area, poly_unit)
         total_net_area = converted_poly if area_mode == "TOTAL" else converted_poly * p_count
@@ -135,15 +112,16 @@ def compute_fabric_engine(row: dict, product_type: str, spec_meta: dict) -> tupl
             net_factor = 0.80
             
         total_net_area = raw_box_area * net_factor
+        geo_source = "CAD Convex Hull Inferred"
 
-    # 4. XỬ LÝ KHỔ VẢI THỰC TẾ
+    # XỬ LÝ KHỔ VẢI THỰC TẾ TRÊN TỪNG DÒNG
     try: width_inch = float(row.get("fabric_width_inch", 0.0) or 0.0)
     except: width_inch = 0.0
         
     if width_inch <= 0.0:
-        width_inch = 44.0 if is_pocket_fabric or is_fusing_material else 56.0
+        width_inch = 44.0 if is_pocket_fabric else 56.0
 
-    # 5. ĐỘ CO RÚT VÀ HIỆU SUẤT GIÁC SƠ ĐỒ
+    # ĐỘ CO RÚT VÀ HIỆU SUẤT GIÁC SƠ ĐỒ
     try:
         warp_num = float(spec_meta.get("warp_shrink", 3.0)) / 100.0
         weft_num = float(spec_meta.get("weft_shrink", 3.0)) / 100.0
@@ -158,7 +136,7 @@ def compute_fabric_engine(row: dict, product_type: str, spec_meta: dict) -> tupl
         base_eff -= 0.06
     ai_marker_efficiency = round(max(0.50, min(0.96, base_eff)), 3)
 
-    # 6. MA TRẬN HAO HỤT CÔNG NGHIỆP
+    # MA TRẬN HAO HỤT CÔNG NGHIỆP TĨNH
     INDUSTRIAL_LOSS_MATRIX = {
         "DENIM": {"marker_end": 0.008, "spread_waste": 0.012, "relaxation": 0.005, "defect_cut": 0.010, "roll_end": 0.008},
         "WOVEN": {"marker_end": 0.006, "spread_waste": 0.010, "relaxation": 0.004, "defect_cut": 0.005, "roll_end": 0.005},
@@ -173,7 +151,7 @@ def compute_fabric_engine(row: dict, product_type: str, spec_meta: dict) -> tupl
     try: gather_ratio = float(spec_meta.get("gather_ratio", 1.00))
     except: gather_ratio = 1.00
 
-    # 7. CÔNG THỨC TOÁN HỌC GERBER CAD TIÊU CHUẨN ĐỔ RA YARDS ĐẦY ĐỦ
+    # CÔNG THỨC ĐỊNH MỨC GERBER CAD TIÊU CHUẨN ĐỔ RA SỐ THỰC
     gross_consumption_yards = 0.0
     if total_net_area > 0.0 and width_inch > 0.0:
         area_with_shrinkage = total_net_area * (1.0 + warp_num) * (1.0 + weft_num)
@@ -184,6 +162,7 @@ def compute_fabric_engine(row: dict, product_type: str, spec_meta: dict) -> tupl
     gross_consumption_meters = gross_consumption_yards * 0.9144
     
     return round(gross_consumption_yards, 4), round(gross_consumption_meters, 4), geo_source
+
 
 
 
