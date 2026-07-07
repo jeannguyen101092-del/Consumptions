@@ -768,8 +768,8 @@ with col_right:
 
 
 # =====================================================================
-# ĐOẠN 7a - PHẦN 1: CHATGPT-STYLE WORKSPACE & FULL TECHPACK PIPELINE (V113.0)
-# 🌟 GIẢI PHÓNG TOÀN TRANG: Quét 100% các trang PDF để nhặt đầy đủ sơ đồ kích thước rập CAD
+# ĐOẠN 7a - PHẦN 1: CHATGPT-STYLE WORKSPACE & SINGLE-CALL PIPELINE (V67.0)
+# 🌟 TUYỆT KHỬ LỖI 429: Gom toàn bộ trang PDF nạp đúng 1 lần API duy nhất, không dùng vòng lặp gọi AI theo trang
 # =====================================================================
 st.markdown('<br><div class="cad-card"><div class="cad-header">💬 CHATGPT IE COLLABORATION WORKSPACE</div>', unsafe_allow_html=True)
 
@@ -787,40 +787,44 @@ st.markdown('</div>', unsafe_allow_html=True)
 if st.session_state.pdf_bytes is not None and safe_user_prompt:
     current_query = str(safe_user_prompt).strip()
     
-    with st.spinner("🧠 AI Platform đang quét TOÀN BỘ file Techpack (Không bỏ sót trang)..."):
-        import google.generativeai as genai
-        import json, copy, traceback, re
-        import fitz 
-        
-        try:
-            doc_recovery = fitz.open(stream=st.session_state.pdf_bytes, filetype="pdf")
-            total_pages = len(doc_recovery)
-            full_pdf_raw_text = ""
-            image_payloads = []
+    # Tạo chữ ký định danh vân tay để chặn người dùng double-click gây lặp lệnh
+    current_run_signature = (current_query, int(len(st.session_state.pdf_bytes)))
+    
+    if st.session_state.get("last_processed_signature") == current_run_signature and st.session_state.get("bom_data"):
+        st.info("🔄 Dữ liệu được nạp trực tiếp từ Bộ nhớ đệm (Cache) - Đã chặn đứng cuộc gọi API trùng lặp.")
+    else:
+        with st.spinner("🧠 Hệ thống đang gom toàn bộ trang Techpack nạp gói API đơn..."):
+            import google.generativeai as genai
+            import json, copy, traceback, re
+            import fitz 
             
-            # 🌟 ĐÃ NÂNG CẤP: Quét sạch 100% không bỏ sót bất kỳ trang ảnh sơ đồ rập nào
-            for idx in range(total_pages):
-                page_text = doc_recovery[idx].get_text("text")
-                full_pdf_raw_text += f"\n--- PAGE {idx + 1} ---\n{page_text}"
+            try:
+                doc_recovery = fitz.open(stream=st.session_state.pdf_bytes, filetype="pdf")
+                total_pages = len(doc_recovery)
+                full_pdf_raw_text = ""
+                image_payloads = []
                 
-                # Khống chế số lượng trang hình ảnh an toàn cho tài khoản Gemini (Tối đa 16 trang)
-                if len(image_payloads) < 16:
-                    # Giữ DPI ở mức 60-65 để nạp ảnh siêu nhẹ, khắc phục triệt để lỗi Quota 429
-                    pix = doc_recovery[idx].get_pixmap(dpi=60, colorspace=fitz.csRGB)
-                    image_payloads.append({"mime_type": "image/jpeg", "data": pix.tobytes("jpeg")})
-            
-            chat_lower = current_query.lower()
-            match_size = re.search(r'\b(?:size|sz|cỡ)\s*[:\-=\s]*([\w\d/]+)\b', chat_lower)
-            target_size_cmd = str(match_size.group(1)).upper().strip() if match_size else "30"
-            
-            match_w = re.search(r'(?:khổ|kho|width|w)\s*[:\-=\s]*([\d\.]+)', chat_lower)
-            active_width = float(match_w.group(1)) if match_w else 56.0
-            if active_width < 20.0 or active_width > 80.0: active_width = 56.0
+                # 1. BƯỚC GOM TĨNH BẰNG PYTHON (TUYỆT ĐỐI KHÔNG GỌI AI TRONG VÒNG LẶP NÀY)
+                for idx in range(total_pages):
+                    page_text = doc_recovery[idx].get_text("text")
+                    full_pdf_raw_text += f"\n--- PAGE {idx + 1} ---\n{page_text}"
+                    
+                    # Giới hạn tối đa nạp 12 trang ảnh siêu nhẹ để bảo vệ băng thông RPM
+                    if len(image_payloads) < 12:
+                        # Hạ DPI xuống mốc 50 để ảnh cực nhẹ, tối ưu hóa dung lượng request
+                        pix = doc_recovery[idx].get_pixmap(dpi=50, colorspace=fitz.csRGB)
+                        image_payloads.append({"mime_type": "image/jpeg", "data": pix.tobytes("jpeg")})
+                
+                chat_lower = current_query.lower()
+                match_size = re.search(r'\b(?:size|sz|cỡ)\s*[:\-=\s]*([\w\d/]+)\b', chat_lower)
+                target_size_cmd = str(match_size.group(1)).upper().strip() if match_size else "30"
+                
+                match_w = re.search(r'(?:khổ|kho|width|w)\s*[:\-=\s]*([\d\.]+)', chat_lower)
+                active_width = float(match_w.group(1)) if match_w else 56.0
+                if active_width < 20.0 or active_width > 80.0: active_width = 56.0
 
-            # Xóa bỏ hoàn toàn dummy_json cũ cồng kềnh
+                # Tiến hành nối tiếp trực tiếp sang khối Prompt Agent 2 và gọi duy nhất 1 lệnh model.generate_content bên dưới...
 
-                         # =====================================================================
-                       # =====================================================================
             # ĐOẠN 7a - PHẦN 10: PROMPT AGENT 2 ROUTER & INDUSTRIAL CAD AUDITOR (v116.0)
             # 🌟 CHỐNG QUÁ TẢI RPM 429: Bộ khóa Cache Tĩnh ngăn AI gọi trùng Request khi Rerun
             # =====================================================================
