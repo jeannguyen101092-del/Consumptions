@@ -200,12 +200,14 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, query_st
     blueprint_final["bom_rows"] = router_bom_rows
     return blueprint_final
 
+import streamlit as st
+
 # =====================================================================
-# ĐOẠN 6a: BANNER, KPIs GHIM ĐỈNH & CÂN BẰNG CHIỀU CAO 1:1 ĐỐI XỨNG (V18.3.4.0 APPROVED)
+# ĐOẠN 6a: BANNER, KPIs NATIVE - TRIỆT TIÊU VĨNH VIỄN KHOẢNG TRỐNG LỖI
 # =====================================================================
 st.set_page_config(layout="wide", page_title="AI Fabric Consumption Matrix")
 
-# 🌟 BỘ STYLING CSS CẤP CAO: KHỐNG CHẾ MAX-HEIGHT CÂN XỨNG VÀ TẠO KHUNG CUỘN ĐỘC LẬP
+# 🌟 BỘ STYLING CSS PHẲNG CHUẨN NATIVE
 st.markdown("""
 <style>
     /* Trả nền ứng dụng về màu xám trắng dịu mắt chuẩn văn phòng ERP */
@@ -213,23 +215,10 @@ st.markdown("""
         background-color: #f8fafc !important;
     }
     
-    /* Can thiệp xóa bỏ hoàn toàn thanh Header mặc định của Streamlit để dải ghim không bị đè khuất */
-    header[data-testid="stHeader"] {
-        background-color: #f8fafc !important;
-        z-index: 999990 !important;
-    }
-    
-    /* CONTAINER GHIM ĐỈNH TUYỆT ĐỐI: Nổi lên tầng cao nhất, hiện chữ số rõ ràng */
-    .sticky-top-container {
-        position: fixed;
-        top: 0; 
-        left: 0;
-        right: 0;
-        padding: 10px 4rem 15px 4rem; 
-        background-color: #f8fafc !important; 
-        z-index: 999999 !important; 
-        box-shadow: 0 4px 12px rgba(0,0,0,0.05);
-        width: 100%;
+    /* Cân bằng khoảng đệm đỉnh trần mặc định của Streamlit */
+    .block-container {
+        padding-top: 2rem !important; 
+        margin-top: 0px !important;
     }
 
     /* Khung Banner chính trên đỉnh chuyển sắc xanh Coban công nghệ */
@@ -238,7 +227,8 @@ st.markdown("""
         padding: 12px 20px;
         border-radius: 8px;
         color: #ffffff;
-        margin-bottom: 10px;
+        margin-bottom: 20px;
+        text-align: center;
     }
     .top-title {
         font-family: 'Segoe UI', sans-serif;
@@ -259,6 +249,7 @@ st.markdown("""
         padding: 10px 12px;
         text-align: center;
         box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+        margin-bottom: 25px; /* Tạo khoảng cách tự nhiên với các ô phía dưới */
     }
     .kpi-num-light {
         font-size: 18px;
@@ -280,12 +271,7 @@ st.markdown("""
     .bg-cons  { background: linear-gradient(135deg, #ea580c 0%, #c2410c 100%); }
     .bg-size  { background: linear-gradient(135deg, #16a34a 0%, #15803d 100%); }
 
-    /* Khung đệm spacer đẩy nội dung dưới sụp xuống hợp lý, chống lỗi đè mất chữ uploader */
-    .main-body-spacer {
-        margin-top: 175px; 
-    }
-
-    /* 🌟 BƯỚC ĐỘT PHÁ CÂN BẰNG TỶ LỆ: Khống chế chặt chẽ chiều cao tối đa của 2 khối hộp */
+    /* CÂN BẰNG TỶ LỆ THÂN TRANG: Khống chế chiều cao tối đa bằng khít nhau */
     .custom-erp-box {
         background-color: #ffffff !important;
         border: 1px solid #cbd5e1 !important;
@@ -293,8 +279,10 @@ st.markdown("""
         padding: 20px;
         margin-bottom: 15px;
         box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.03);
-        max-height: 380px !important; /* 🟢 Ép chiều cao tối đa bằng khít nhau */
-        overflow-y: auto !important;   /* 🟢 Tự động bật thanh cuộn nếu ảnh hoặc chữ quá dài */
+        max-height: 380px !important; 
+        min-height: 380px !important; /* Khóa chết 2 bên bằng nhau tăm tắp */
+        overflow-y: auto !important;   
+        box-sizing: border-box !important;
     }
     
     .cad-header-text {
@@ -319,6 +307,7 @@ st.markdown("""
     .meta-value-light { font-size: 13px; font-weight: 600; color: #0f172a; margin-top: 1px; }
 </style>
 """, unsafe_allow_html=True)
+
 import streamlit as st
 
 if "bom_data" not in st.session_state: st.session_state.bom_data = None
