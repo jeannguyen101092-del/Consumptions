@@ -311,7 +311,7 @@ st.markdown("""
 import streamlit as st
 
 # ==============================================================================
-# ĐOẠN 1: KHỞI TẠO AN TOÀN, XỬ LÝ LOGIC DỮ LIỆU & BỘ STYLING CSS PHẲNG NATIVE
+# ĐOẠN 1: KHỞI TẠO AN TOÀN, XỬ LÝ LOGIC DỮ LIỆU & BỘ CSS VÁ TRIỆT TIÊU Ô TRỐNG
 # ==============================================================================
 
 # Khởi tạo cấu hình trang rộng toàn màn hình chuẩn ERP
@@ -354,31 +354,35 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data:
                 main_fabric_cons = f"{val_gross:.3f} Yds"
                 break
 
-# 🌟 BỘ STYLING CSS PHẲNG CHUẨN SAAS/ERP: TRIỆT TIÊU VĨNH VIỄN 2 Ô TRỐNG KHỔNG LỒ
+# 🌟 BẢN VÁ KHÓA CHẾT Ô TRỐNG RỖNG
 st.markdown("""
 <style>
-    /* Đổi màu nền ứng dụng về màu xám nhạt dịu mắt */
     .stApp {
         background-color: #f8fafc !important;
     }
-
-    /* Đưa thanh Header mặc định của Streamlit đồng bộ màu nền */
     header[data-testid="stHeader"] {
         background-color: #f8fafc !important;
         z-index: 999 !important;
     }
-    
-    /* Ép khoảng đệm trần của Streamlit về mặc định, xóa vĩnh viễn khoảng hở */
     .block-container {
-        padding-top: 2rem !important; 
+        padding-top: 1.5rem !important; 
         margin-top: 0px !important;
         max-width: 100% !important;
     }
-    
-    /* Đồng bộ khối chia lưới, ép co sát sát lên mép trên cùng */
     div[data-testid="stHorizontalBlock"] {
         margin-top: 0px !important;
         padding-top: 0px !important;
+    }
+
+    /* 🟢 BỘ LỌC ÉP ẨN VĨNH VIỄN HAI Ô TRỐNG RỖNG KHÔNG CHỨA CHỮ VÀ BỘ TẢI FILE */
+    div[data-testid="stHorizontalBlock"]:has(div.custom-erp-box):not(:has(.cad-header-text)),
+    div[data-testid="stHorizontalBlock"]:has(div.custom-erp-box):not(:has(input[type="file"])),
+    div[data-testid="stHorizontalBlock"]:empty,
+    .main-body-spacer {
+        display: none !important;
+        height: 0px !important;
+        margin: 0 !important;
+        padding: 0 !important;
     }
 
     /* Khung Banner tiêu đề chính chuyển sắc xanh công nghệ */
@@ -429,7 +433,6 @@ st.markdown("""
         margin-top: 2px;
     }
     
-    /* Giải dải chuyển màu gradient sắc nét của 4 ô thông số */
     .bg-style { background: linear-gradient(135deg, #334155 0%, #1e293b 100%); }
     .bg-items { background: linear-gradient(135deg, #0d9488 0%, #0f766e 100%); }
     .bg-cons  { background: linear-gradient(135deg, #ea580c 0%, #c2410c 100%); }
@@ -456,13 +459,12 @@ st.markdown("""
         margin: auto !important;
     }
     
-    /* Màu nền dịu nhẹ tương ứng bên dưới hình vẽ rập thiết kế */
     .color-ao   { background-color: #f8fafc !important; }
     .color-quan { background-color: #f4fbf9 !important; }
     .color-vest { background-color: #fffaf5 !important; }
     .color-vay  { background-color: #f5fcf7 !important; }
 
-    /* 🟢 KHỐNG CHẾ CHẶT CHẼ ĐỘ CAO 1:1 ĐỐI XỨNG CHO PHẦN THÂN DƯỚI */
+    /* KHỐNG CHẾ CHẶT CHẼ ĐỘ CAO THÂN DƯỚI */
     .custom-erp-box {
         background-color: #ffffff !important;
         border: 1px solid #cbd5e1 !important;
@@ -471,8 +473,8 @@ st.markdown("""
         margin-bottom: 15px;
         box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.03);
         max-height: 380px !important; 
-        min-height: 380px !important; /* Khóa cứng chiều cao 2 bên bằng khít nhau */
-        overflow-y: auto !important;   /* Tự động xuất hiện thanh cuộn nếu chữ hoặc ảnh quá dài */
+        min-height: 380px !important; 
+        overflow-y: auto !important;   
         box-sizing: border-box !important;
     }
     
@@ -486,7 +488,6 @@ st.markdown("""
         border-bottom: 2px solid #e2e8f0;
     }
 
-    /* Thẻ hồ sơ tóm tắt mã hàng ngăn nắp */
     .meta-box-light {
         background-color: #f8fafc; 
         border-left: 4px solid #0284c7;
@@ -497,7 +498,6 @@ st.markdown("""
     .meta-label-light { font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; }
     .meta-value-light { font-size: 13px; font-weight: 600; color: #0f172a; margin-top: 1px; }
 
-    /* Khống chế hình vẽ rập phẳng bên phải không bị kéo giãn quá đà */
     .sticky-sketch-box img {
         max-height: 290px !important;
         width: auto !important;
@@ -505,18 +505,9 @@ st.markdown("""
         margin: 0 auto !important;
         display: block !important;
     }
-
-    /* 🟢 BẢN VÁ TRIỆT TIÊU KHỐI RỖNG: Ẩn vĩnh viễn các hộp spacer vô hình */
-    .main-body-spacer, 
-    div[data-testid="stHorizontalBlock"]:empty,
-    div[smart-fixed-container] {
-        display: none !important;
-        height: 0px !important;
-        margin: 0 !important;
-        padding: 0 !important;
-    }
 </style>
 """, unsafe_allow_html=True)
+
 import streamlit as st
 
 st.set_page_config(layout="wide", page_title="AI Fabric Consumption Matrix")
