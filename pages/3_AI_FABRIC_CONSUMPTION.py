@@ -366,30 +366,35 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data:
 import streamlit as st
 
 # ==============================================================================
-# PHẦN B: GIAO DIỆN GHIM KHÓA CHẾT ĐỈNH TRẦN (LUÔN CHẠY THEO KHI CUỘN TRANG)
+# PHẦN B: GIAO DIỆN GHIM KHÓA CHẾT ĐỈNH TRẦN (ÉP CHỐNG ĐÈ KHI CUỘN TRANG)
 # ==============================================================================
 
-# 1. Khai báo CSS cấu trúc cô lập tọa độ lớp trên cùng
+# 1. Khai báo CSS cấu trúc cô lập tọa độ lớp trên cùng toàn diện
 st.markdown("""
 <style>
-    /* Ép ghim cố định cụm banner và 4 ô màu lên trên cùng màn hình */
+    /* Ép tất cả các container mặc định của Streamlit phải hiển thị bên dưới khối ghim */
+    [data-testid="stAppViewContainer"], .stApp, .main, [data-testid="stMainBlockContainer"] {
+        overflow: visible !important;
+    }
+
+    /* Ép ghim cố định cụm banner và 4 ô màu lên trên cùng màn hình tuyệt đối */
     .smart-fixed-container {
         position: fixed !important;
         top: 2.85rem !important; /* Đặt ngay dưới thanh top-bar mặc định của Streamlit */
         left: 0 !important;
         right: 0 !important;
         width: 100% !important;
-        height: 250px !important; /* Khống chế chiều cao trần vừa vặn */
+        height: 255px !important; /* Khống chế chiều cao trần vừa vặn */
         background-color: #ffffff !important;
-        z-index: 9999999 !important; /* Đảm bảo luôn nổi trên phần uploader và nội dung dưới */
+        z-index: 999999999 !important; /* Đặt chỉ số z-index tối đa để chống bị đè */
         padding: 10px 4rem 15px 4rem !important;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.06) !important;
+        box-shadow: 0 6px 20px rgba(0,0,0,0.1) !important;
         box-sizing: border-box !important;
     }
 
     /* Gỡ bỏ khoảng trống thừa đỉnh trần của Streamlit */
     [data-testid="stHeader"] {
-        z-index: 9999998 !important;
+        z-index: 999999990 !important;
     }
 
     /* Banner tiêu đề chính Tầng 1 */
@@ -496,7 +501,7 @@ st.markdown("""
 
     /* ĐẨY NỘI DUNG THÂN TRANG XUỐNG: Ngăn chặn uploader bị đè dưới khối ghim */
     .main-body-spacer {
-        margin-top: 270px !important; 
+        margin-top: 280px !important; 
     }
 </style>
 """, unsafe_allow_html=True)
@@ -562,8 +567,9 @@ st.markdown(f"""
 
 st.markdown('</div>', unsafe_allow_html=True) # 🟢 ĐÓNG KHỐI CONTAINER CỐ ĐỊNH
 
-# Đẩy phần thân trang (uploader, bảng biểu...) xuống dưới 270px để tránh bị đè chữ
+# Đẩy phần thân trang (uploader, bảng biểu...) xuống dưới để tránh bị đè chữ
 st.markdown('<div class="main-body-spacer"></div>', unsafe_allow_html=True)
+
 
 
 
