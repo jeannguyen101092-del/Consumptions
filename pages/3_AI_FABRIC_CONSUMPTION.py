@@ -274,14 +274,16 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, query_st
 
 import streamlit as st
 
+import streamlit as st
+
 # =====================================================================
-# ĐOẠN A: KHỞI TẠO BỘ NHỚ STATE & CẤU HÌNH CSS PHẲNG NATIVE CHUẨN ERP
+# ĐOẠN 6a: KHỞI TẠO BỘ NHỚ STATE & CẤU HÌNH CSS PHẲNG NATIVE CHUẨN ERP
 # =====================================================================
 
-# 1. Cấu hình trang rộng toàn màn hình chuẩn hệ thống SaaS/ERP
+# 1. Cấu hình trang rộng toàn màn hình chuẩn hệ thống SaaS/ERP Văn phòng
 st.set_page_config(layout="wide", page_title="AI Fabric Consumption Matrix")
 
-# 2. Khởi tạo an toàn cấu trúc trạng thái bộ nhớ (Session State)
+# 2. Khởi tạo an toàn cấu trúc trạng thái bộ nhớ hệ thống (Session State)
 if "bom_data" not in st.session_state: st.session_state.bom_data = None
 if "chat_history" not in st.session_state: st.session_state.chat_history = []
 if "pdf_bytes" not in st.session_state: st.session_state.pdf_bytes = None
@@ -298,16 +300,17 @@ if st.session_state.pdf_bytes is not None and st.session_state.pdf_text_cache is
         for page_num in range(len(doc)):
             full_text_extract += f"\n--- TRANG THỨ {page_num + 1} ---\n" + doc.load_page(page_num).get_text("text")
         st.session_state.pdf_text_cache = full_text_extract
-    except Exception: pass
+    except Exception: 
+        pass
 
-# 4. Engine đồng bộ dữ liệu KPIs động biến thiên theo thời gian thực
+# 4. Engine đồng bộ dữ liệu KPIs động biến thiên theo thời gian thực trên đỉnh trần
 kpi_style_id = "N/A"
 total_materials = len(st.session_state.accumulated_bom_rows) if st.session_state.accumulated_bom_rows else 0
 main_fabric_cons = "0.000 Yds"
 active_size_kpi = "AUTOMATIC"
 
 if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data:
-    kpi_style_id = str(st.session_state.bom_data.get("style_code", "R09-450416")).upper()
+    kpi_style_id = str(st.session_state.bom_data.get("style_code", "R09-500778")).upper()
     active_size_kpi = str(st.session_state.bom_data.get("calculated_on_size", "MEDIAN")).upper()
     if total_materials == 0: total_materials = len(st.session_state.bom_data["bom_rows"])
     for row in st.session_state.bom_data["bom_rows"]:
@@ -318,10 +321,10 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data:
                 main_fabric_cons = f"{val_gross:.3f} Yds"
                 break
 
-# 5. Bộ cấu hình định dạng CSS phẳng triệt tiêu vĩnh viễn 2 ô trống khổng lồ
+# 5. Bộ cấu hình định dạng CSS phẳng triệt tiêu vĩnh viễn mọi ô trống khổng lồ
 st.markdown("""
 <style>
-    /* Trả nền ứng dụng về màu xám trắng dịu mắt */
+    /* Trả màu nền ứng dụng về màu xám trắng dịu mắt chuẩn văn phòng */
     .stApp {
         background-color: #f8fafc !important;
     }
@@ -403,8 +406,8 @@ st.markdown("""
         margin-bottom: 15px !important;
         box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.03) !important;
         max-height: 380px !important; 
-        min-height: 380px !important; 
-        overflow-y: auto !important;   
+        min-height: 380px !important; /* Khóa cứng chiều cao 2 bên bằng khít nhau tăm tắp */
+        overflow-y: auto !important;   /* Tự động bật thanh cuộn dọc nếu chữ hoặc ảnh dài */
         box-sizing: border-box !important;
     }
     
@@ -448,6 +451,7 @@ st.markdown("""
     }
 </style>
 """, unsafe_allow_html=True)
+
 
 
 import streamlit as st
