@@ -843,11 +843,13 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                       # =====================================================================
                      # =====================================================================
                        # =====================================================================
-            # ĐOẠN 7a - PHẦN 10: PROMPT AGENT 2 ROUTER & INDUSTRIAL CAD AUDITOR (v109.0)
-            # 🌟 ĐỒNG BỘ LỆNH USER CHAT -> ÉP AI ĐỔI ĐỘ CO RÚT THEO YÊU CẦU THỰC TẾ
+                       # =====================================================================
+            # ĐOẠN 7a - PHẦN 10: PROMPT AGENT 2 ROUTER & INDUSTRIAL CAD AUDITOR (v110.0)
+            # 🌟 STRICT DATA-DRIVEN: 100% LẤY SỐ LIỆU THẬT CỦA AI, KHÔNG TỰ BỊA KÍCH THƯỚC
+            # 🌟 ĐỒNG BỘ LỆNH USER CHAT -> ÉP AI CẬP NHẬT ĐỘ CO RÚT THEO YÊU CẦU
             # =====================================================================
             
-            # 1. Định nghĩa JSON Schema cấu trúc cứng tương thích 100%
+            # 1. JSON Schema cấu trúc cứng bắt AI điền thông số co rút từ lệnh chat và kích thước rập thật
             raw_json_schema = {
                 "type": "OBJECT",
                 "properties": {
@@ -855,8 +857,8 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                     "spec_meta": {
                         "type": "OBJECT",
                         "properties": {
-                            "warp_shrink": {"type": "NUMBER", "description": "Độ co rút dọc (%). BẮT BUỘC ĐỌC THEO LỆNH CHAT CỦA USER NẾU CÓ TRUYỀN."},
-                            "weft_shrink": {"type": "NUMBER", "description": "Độ co rút ngang (%). BẮT BUỘC ĐỌC THEO LỆNH CHAT CỦA USER NẾU CÓ TRUYỀN."},
+                            "warp_shrink": {"type": "NUMBER", "description": "Độ co rút dọc (%). BẮT BUỘC ĐỌC VÀ ĐIỀN THEO LỆNH CHAT CỦA USER NẾU CÓ TRUYỀN."},
+                            "weft_shrink": {"type": "NUMBER", "description": "Độ co rút ngang (%). BẮT BUỘC ĐỌC VÀ ĐIỀN THEO LỆNH CHAT CỦA USER NẾU CÓ TRUYỀN."},
                             "gather_ratio": {"type": "NUMBER", "description": "Tỷ lệ nhún vải (Ví dụ: 1.45 nếu có)"},
                             "has_stripe": {"type": "BOOLEAN", "description": "True nếu vải có vân sọc, kẻ caro"},
                             "fabric_group": {"type": "STRING", "description": "Nhóm vải chính: DENIM, WOVEN, hoặc KNIT"}
@@ -865,20 +867,20 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                     },
                     "bom_rows": {
                         "type": "ARRAY",
-                        "description": "Danh sách bắt buộc gồm cả Vải chính, Vải lót túi và Keo lót (FUSING)",
+                        "description": "Danh sách chi tiết rập trích xuất từ bảng BOM Techpack",
                         "items": {
                             "type": "OBJECT",
                             "properties": {
-                                "component_name": {"type": "STRING", "description": "Tên chi tiết rập (Ví dụ: FRONT PANEL, POCKET, KEO CẠP...)"},
+                                "component_name": {"type": "STRING", "description": "Tên chi tiết rập (Ví dụ: FRONT PANEL, POCKET...)"},
                                 "material_class": {"type": "STRING", "description": "Phân loại bắt buộc: FABRIC, LINING, FUSING, ELASTIC, THREAD"},
                                 "uom": {"type": "STRING", "description": "Đơn vị tính từ bảng BOM: YDS, MTR, PCS"},
                                 "piece_count": {"type": "INTEGER", "description": "Tổng số lượng chi tiết thực tế khi cắt sản xuất"},
                                 "polygon_net_area": {"type": "NUMBER", "description": "Diện tích đa giác hệ CAD nếu có"},
                                 "polygon_area_mode": {"type": "STRING", "description": "TOTAL hoặc PER_PIECE"},
                                 "polygon_unit": {"type": "STRING", "description": "CM2 hoặc IN2"},
-                                "bounding_box_length": {"type": "NUMBER", "description": "Chiều dài rập thô chi tiết (L). TUYỆT ĐỐI KHÔNG ĐỂ NULL HOẶC 0."},
-                                "bounding_box_width": {"type": "NUMBER", "description": "Chiều rộng rập thô chi tiết (W). TUYỆT ĐỐI KHÔNG ĐỂ NULL HOẶC 0."},
-                                "fabric_width_inch": {"type": "NUMBER", "description": "Khổ rộng vật tư tương ứng trích xuất từ bảng BOM Techpack"}
+                                "bounding_box_length": {"type": "NUMBER", "description": "Chiều dài hộp bao khối rập thật trích xuất từ Techpack"},
+                                "bounding_box_width": {"type": "NUMBER", "description": "Chiều rộng hộp bao khối rập thật trích xuất từ Techpack"},
+                                "fabric_width_inch": {"type": "NUMBER", "description": "Khổ rộng vật tư tương ứng trích xuất từ bảng BOM"}
                             },
                             "required": [
                                 "component_name", "material_class", "uom", "piece_count", 
@@ -890,28 +892,27 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                 "required": ["detected_product_type", "spec_meta", "bom_rows"]
             }
 
-            # 2. Prompt tinh gọn, lồng câu lệnh chat của bạn vào tâm điểm xử lý của AI
+            # 2. Prompt chữ tích hợp câu lệnh chat của bạn vào tâm điểm xử lý của AI
             prompt_agent_2 = f"""
             You are an Enterprise Apparel CAD Auditor.
             Task: Audit and extract ALL components from the Techpack context, BOM tables, and sketches.
 
-            🌟 USER COMMAND CONTEXT (CRITICAL):
-            The user has requested the following special adjustments in their chat. You MUST prioritize and obey this command when filling 'spec_meta':
+            🌟 USER CHAT COMMAND CONTEXT (CRITICAL):
+            The user has specified custom shrinkage/adjustments in their chat. You MUST obey this command when filling 'spec_meta':
             "{str(safe_user_prompt).strip()}"
 
             STRICT AUDIT RULES:
-            - Based on the user command above, extract the correct values for 'warp_shrink' and 'weft_shrink'. (e.g., if the user mentions co rut doc 5 ngang 3, set warp_shrink to 5.0 and weft_shrink to 3.0).
-            - You MUST extract non-zero numeric values for bounding_box_length, bounding_box_width, and fabric_width_inch for EVERY component in 'bom_rows'.
-            - Ensure 'piece_count' represents total production cut pieces (handle Pairs/Mirrors).
-            - For fabric_width_inch, if not specified in BOM, use {active_width} as a fallback.
+            - Update 'warp_shrink' and 'weft_shrink' inside 'spec_meta' exactly as requested in the user command above (e.g., if user says co rut doc 5 ngang 3, set warp_shrink to 5.0 and weft_shrink to 3.0).
+            - Extract the EXACT numeric values for bounding_box_length and bounding_box_width for every single component. Do not alter or fabricate data.
+            - For fabric_width_inch, if not specified in BOM, use {active_width} as a baseline fallback.
             """
 
-            # 3. Chuẩn bị mảng đầu vào: NẠP THẲNG CÂU LỆNH CHAT VÀO CƠ SỞ DỮ LIỆU ĐẦU VÀO AI
+            # 3. Chuẩn bị mảng đầu vào: Tiêm câu lệnh chat thẳng vào ngữ cảnh đầu vào của Gemini
             gemini_inputs = copy.deepcopy(image_payloads)
             gemini_inputs.insert(0, f"=== USER CHAT COMMAND ===\n{str(safe_user_prompt).strip()}\n\n=== TECHPACK TEXT ===\n{full_pdf_raw_text}\n")
             gemini_inputs.append(prompt_agent_2)
 
-            # 4. Gọi API Gemini
+            # 4. Gọi API Gemini 2.5 Flash
             model = genai.GenerativeModel('gemini-2.5-flash')
             response = model.generate_content(
                 gemini_inputs,
@@ -922,23 +923,19 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                 }
             )
             
-            # Giải mã gói tin JSON sạch
+            # Giải mã gói tin JSON sạch chứa số liệu thật 100% từ AI
             blueprint_worker = json.loads(response.text)
                 
             if blueprint_worker and "bom_rows" in blueprint_worker:
                 blueprint_worker["calculated_on_size"] = target_size_cmd
                 
-                # Ép kiểu dữ liệu số thực cưỡng bức ngay lập tức chặn góc lỗi String/Zero
+                # Làm sạch dữ liệu và ÉP KIỂU SỐ THỰC TUYỆT ĐỐI (Strict Type Casting) dựa trên 100% SỐ THỰC CỦA AI gửi qua
                 for row in blueprint_worker.get("bom_rows", []):
-                    try: 
-                        l_val = float(row.get("bounding_box_length", 0.0))
-                        row["bounding_box_length"] = l_val if l_val > 0 else 42.0 # Bù kích thước mặc định Jeans an toàn nếu AI điền hụt
-                    except: row["bounding_box_length"] = 42.0
+                    try: row["bounding_box_length"] = float(row.get("bounding_box_length", 0.0))
+                    except: row["bounding_box_length"] = 0.0
                     
-                    try: 
-                        aa_w = float(row.get("bounding_box_width", 0.0))
-                        row["bounding_box_width"] = aa_w if aa_w > 0 else 14.5
-                    except: row["bounding_box_width"] = 14.5
+                    try: row["bounding_box_width"] = float(row.get("bounding_box_width", 0.0))
+                    except: row["bounding_box_width"] = 0.0
                     
                     try: row["polygon_net_area"] = float(row.get("polygon_net_area", 0.0))
                     except: row["polygon_net_area"] = 0.0
@@ -946,13 +943,16 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                     try: row["piece_count"] = int(float(row.get("piece_count", 1)))
                     except: row["piece_count"] = 1
 
-                    w_val = row.get("fabric_width_inch")
-                    if w_val is None or str(w_val).strip() == "" or float(w_val) <= 0.0:
+                    try:
+                        w_val = row.get("fabric_width_inch")
+                        if w_val is None or str(w_val).strip() == "" or float(w_val) <= 0.0:
+                            row["fabric_width_inch"] = float(active_width)
+                        else:
+                            row["fabric_width_inch"] = float(w_val)
+                    except:
                         row["fabric_width_inch"] = float(active_width)
-                    else:
-                        row["fabric_width_inch"] = float(w_val)
                 
-                # Đẩy gói tin vào hàm Router v47.1 nghiêm ngặt đã vá lỗi chính tả
+                # Đẩy gói tin số thực sạch 100% vào lõi Router Python tính toán định mức toán học phẳng
                 blueprint_final = allocate_fabric_consumption_and_quality_gate(blueprint_worker, str(safe_user_prompt).strip())
                 
                 st.session_state.bom_data = blueprint_final
