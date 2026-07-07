@@ -283,8 +283,9 @@ def compute_thread_engine() -> tuple:
 
 def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, *args, **kwargs) -> dict:
     """
-    Enterprise Multi-Engine CAD Router v40.1.
-    🌟 BẪY LỖI THỪA THAM SỐ: Tự động nuốt các tham số cũ (query_string, chat_txt) để tránh lỗi 2 arguments.
+    Enterprise Multi-Engine CAD Router v41.2.
+    🌟 ĐỒNG BỘ 100% CỘT GIAO DIỆN: Gán trực tiếp vào 'gross_consumption' và 'system_notes'.
+    Bảo toàn và tính chính xác Keo lót (FUSING), Vải lót túi (LINING).
     """
     import copy
     import streamlit as st
@@ -297,7 +298,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, *args, *
     router_bom_rows = []
     product_type = str(blueprint_final.get("detected_product_type", "DRESS")).upper().strip()
     
-    # Đọc spec_meta cấu trúc JSON từ AI
+    # Giải mã cấu trúc spec_meta
     ai_meta = blueprint_final.get("spec_meta", {})
     spec_meta = {
         "warp_shrink": float(ai_meta.get("warp_shrink", 3.0)),
@@ -308,7 +309,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, *args, *
         "cargo_pocket_accumulated_area": 0.0
     }
     
-    # Tính toán tích lũy diện tích túi Cargo (Quét 1 lần)
+    # Tính diện tích tích lũy túi Cargo
     if "CARGO" in product_type or spec_meta["fabric_group"] == "DENIM":
         total_cargo_area = 0.0
         for b_row in blueprint_final.get("bom_rows", []):
@@ -319,50 +320,65 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, *args, *
                 p_wid = float(b_row.get("bounding_box_width", 0.0) or 0.0)
                 p_cnt = int(b_row.get("piece_count", 1) or 1)
                 p_poly = float(b_row.get("polygon_net_area", 0.0) or 0.0)
-                
                 pocket_area = p_poly if p_poly > 0.0 else (p_len * p_wid * 0.85)
                 if pocket_area <= 0.0 and any(f in c_name for f in ["CARGO", "TÚI HỘP"]):
                     pocket_area = 9.0 * 8.0 * 0.85
                 total_cargo_area += (pocket_area * p_cnt)
         spec_meta["cargo_pocket_accumulated_area"] = total_cargo_area
 
-    # Điều phối phân nhánh xử lý kết quả tĩnh
+    # Duyệt hàng bảng BOM
     for ai_row in blueprint_final.get("bom_rows", []):
         if not ai_row: continue
         ui_row = copy.deepcopy(ai_row)
         
+        # Đọc engine định tuyến: ưu tiên 'engine', fallback sang 'material_class' để không rớt keo/lót
         engine_target = str(ui_row.get("engine", ui_row.get("material_class", "FABRIC"))).upper().strip()
         comp_name = str(ui_row.get("component_name", "")).upper()
         mat_class = str(ui_row.get("material_class", "")).upper()
+        uom_target = str(ui_row.get("uom", "YDS")).upper().strip()
         
-        # Loại bỏ phụ liệu cứng đếm chiếc
+        # ĐÁNH CHẶN LOẠI TRỪ PHẦN CỨNG ĐẾM CHIẾC (CÚC, KHÓA, NHÃN)
         if engine_target == "COUNT" or any(key in comp_name or key in mat_class for key in EXCLUDE_HARDWARE_KEYS):
             continue
             
-        if engine_target in ["FABRIC", "FUSING"]:
+        # ĐIỀU PHỐI ENGINE TÍNH TOÁN
+        if engine_target in ["FABRIC", "FUSING", "LINING", "INTERLINING"]:
             gross_yds, gross_mtr, calc_note = compute_fabric_engine(ui_row, product_type, spec_meta)
+            # Chọn đơn vị đầu ra tương ứng theo cấu hình UOM của Techpack
+            gross_val = gross_mtr if uom_target == "MTR" else gross_yds
             
         elif engine_target == "ELASTIC":
             gross_yds, gross_mtr, calc_note = compute_elastic_engine(ui_row)
+            gross_val = gross_mtr if uom_target == "MTR" else gross_yds
             
         elif engine_target in ["TAPE", "CORD", "WEBBING"]:
             gross_yds, gross_mtr, calc_note = compute_tape_engine(ui_row)
+            gross_val = gross_mtr if uom_target == "MTR" else gross_yds
             
         elif engine_target == "THREAD":
             gross_yds, gross_mtr, calc_note = compute_thread_engine()
+            gross_val = gross_yds
             
         else:
-            continue
+            # Nếu lọt các nhóm rập phụ khác, ép chạy qua lõi Fabric để tính toán diện tích phẳng tránh mất dữ liệu
+            gross_yds, gross_mtr, calc_note = compute_fabric_engine(ui_row, product_type, spec_meta)
+            gross_val = gross_mtr if uom_target == "MTR" else gross_yds
 
+        # 🌟 ĐỒNG BỘ CHÍNH XÁC VỚI KEY TRÊN MÀN HÌNH DF HIỆN TẠI
+        ui_row["gross_consumption"] = gross_val
+        ui_row["quality_status"] = "PASS" if gross_val > 0 else "QA_FAIL"
+        ui_row["system_notes"] = calc_note  # Ép vào đúng cột "System Calculation Notes" trên màn hình
+        
+        # Đồng bộ ngược lại các biến phụ phòng khi các phần code khác cần đọc
         ui_row["calculated_consumption_yards"] = gross_yds
         ui_row["calculated_consumption_meters"] = gross_mtr
-        ui_row["quality_status"] = "PASS" if gross_yds > 0 else "QA_FAIL"
         ui_row["geometry_source_audit"] = calc_note
         
         router_bom_rows.append(ui_row)
         
     blueprint_final["bom_rows"] = router_bom_rows
     return blueprint_final
+
 
 import streamlit as st
 
