@@ -48,9 +48,8 @@ def convert_to_sq_inches(area: float, unit: str) -> float:
 
 def compute_fabric_engine(row: dict, product_type: str, spec_meta: dict) -> tuple:
     """
-    Industrial Consumption CAM Core Engine v52.0.
-    🌟 SỬA LỖI ĐỊNH MỨC CAO: Tự động phát hiện và chia đôi chiều rộng rộng bao (b_width) 
-    của Thân trước/Thân sau nếu AI trích xuất nhầm tổng chiều rộng cặp vạt.
+    Industrial Consumption CAM Core Engine v53.0.
+    🌟 ĐỒNG BỘ HIỆU SUẤT ĐỘNG: Trả trực tiếp biến marker_efficiency về dict để hiển thị động lên màn hình.
     """
     current_mat_class = str(row.get("material_class", "FABRIC")).upper().strip()
     current_comp_name = str(row.get("component_name", "")).upper()
@@ -73,7 +72,7 @@ def compute_fabric_engine(row: dict, product_type: str, spec_meta: dict) -> tupl
     if any(k in current_comp_name for k in ["POCKET", "POCKETING", "LÓT"]) or current_mat_class == "LINING":
         is_pocket_fabric = True
 
-    # 1. ÉP KIỂU DỮ LIỆU SỐ THỰC
+    # 1. ÉP KIỂU SỐ THỰC TUYỆT ĐỐI
     try: p_count = int(float(row.get("piece_count", 1) or 1))
     except: p_count = 1
         
@@ -89,20 +88,17 @@ def compute_fabric_engine(row: dict, product_type: str, spec_meta: dict) -> tupl
     try: b_width = float(row.get("bounding_box_width", 0.0) or 0.0)
     except: b_width = 0.0
     
-    # 2. 🌟 BỘ KHỬ LỖI PHỒNG DIỆN TÍCH THÂN QUẦN (CHÍ MẠNG)
-    # Nếu chi tiết là Thân trước/sau lớn mà width vượt quá biên độ vạt đơn (> 20 inch) và cắt cặp (p_count=2)
+    # Bộ khử lỗi phồng diện tích thân quần Jeans
     if is_main_fabric and any(k in current_comp_name for k in ["FRONT", "BACK", "THÂN"]):
         if b_width >= 20.0 and p_count == 2:
-            # Ép chiều rộng về kích thước vạt đơn chuẩn để nhân số lượng đại diện
             b_width = b_width / 2.0  
 
-    # CAD Sanity Gate phụ trợ
     if b_width >= 40.0 and p_count >= 2:
         b_width = b_width / p_count  
     if p_count > 2 and is_main_fabric:
         p_count = 2  
 
-    # 3. TÍNH DIỆN TÍCH NET AREA TỰ ĐỘNG HIỆU CHUẨN
+    # 2. TÍNH DIỆN TÍCH NET AREA
     if poly_area > 0.0:
         converted_poly = convert_to_sq_inches(poly_area, poly_unit)
         total_net_area = converted_poly if area_mode == "TOTAL" else converted_poly * p_count
@@ -123,14 +119,13 @@ def compute_fabric_engine(row: dict, product_type: str, spec_meta: dict) -> tupl
         total_net_area = raw_box_area * net_factor
         geo_source = "CAD Convex Hull Inferred"
 
-    # 4. XỬ LÝ KHỔ VẢI THỰC TẾ
+    # XỬ LÝ KHỔ VẢI
     try: width_inch = float(row.get("fabric_width_inch", 0.0) or 0.0)
     except: width_inch = 0.0
-        
     if width_inch <= 0.0:
         width_inch = 44.0 if is_pocket_fabric else 56.0
 
-    # 5. ĐỘ CO RÚT VÀ HIỆU SUẤT GIÁC SƠ ĐỒ
+    # ĐỘ CO RÚT VÀ HIỆU SUẤT GIÁC SƠ ĐỒ ĐỘNG
     try:
         warp_num = float(spec_meta.get("warp_shrink", 3.0)) / 100.0
         weft_num = float(spec_meta.get("weft_shrink", 3.0)) / 100.0
@@ -138,14 +133,19 @@ def compute_fabric_engine(row: dict, product_type: str, spec_meta: dict) -> tupl
         warp_num, weft_num = 0.03, 0.03
 
     base_eff = 0.835  
-    if active_product in ["CARGO_PANTS", "JEANS"]: base_eff = 0.855
-    if is_pocket_fabric: base_eff = 0.820
+    if active_product in ["CARGO_PANTS", "JEANS"]: 
+        base_eff = 0.865  # Định mức Jeans nhảy động mốc sơ đồ 86.5%
+    if is_pocket_fabric: 
+        base_eff = 0.820
     
     if spec_meta.get("has_stripe", False): 
         base_eff -= 0.06
     ai_marker_efficiency = round(max(0.50, min(0.96, base_eff)), 3)
+    
+    # 🌟 GÁN NGƯỢC BIẾN HIỆU SUẤT ĐỘNG VÀO ROW ĐỂ HIỂN THỊ RA MÀN HÌNH ĐOẠN 7B
+    row["marker_efficiency"] = ai_marker_efficiency
 
-    # 6. MA TRẬN HAO HỤT CÔNG NGHIỆP
+    # MA TRẬN HAO HỤT CÔNG NGHIỆP TĨNH
     INDUSTRIAL_LOSS_MATRIX = {
         "DENIM": {"marker_end": 0.008, "spread_waste": 0.012, "relaxation": 0.005, "defect_cut": 0.010, "roll_end": 0.008},
         "WOVEN": {"marker_end": 0.006, "spread_waste": 0.010, "relaxation": 0.004, "defect_cut": 0.005, "roll_end": 0.005},
@@ -160,7 +160,7 @@ def compute_fabric_engine(row: dict, product_type: str, spec_meta: dict) -> tupl
     try: gather_ratio = float(spec_meta.get("gather_ratio", 1.00))
     except: gather_ratio = 1.00
 
-    # 7. CÔNG THỨC TOÁN HỌC GERBER CAD TIÊU CHUẨN
+    # CÔNG THỨC ĐỊNH MỨC GERBER CAD TIÊU CHUẨN ĐỔ RA YARDS
     gross_consumption_yards = 0.0
     if total_net_area > 0.0 and width_inch > 0.0:
         area_with_shrinkage = total_net_area * (1.0 + warp_num) * (1.0 + weft_num)
@@ -171,6 +171,7 @@ def compute_fabric_engine(row: dict, product_type: str, spec_meta: dict) -> tupl
     gross_consumption_meters = gross_consumption_yards * 0.9144
     
     return round(gross_consumption_yards, 4), round(gross_consumption_meters, 4), geo_source
+
 
 
 
@@ -321,9 +322,8 @@ def compute_thread_engine() -> tuple:
 
 def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, *args, **kwargs) -> dict:
     """
-    Enterprise Multi-Engine CAD Router v51.0 - STABLE GEOMETRY GATE.
-    🌟 ĐỒNG BỘ ÉP KIỂU ĐẦU VÀO: Ép cưỡng bức kiểu float() cho tất cả các giá trị dài rộng thô 
-    để giải phóng hoàn toàn các chi tiết có số thực như PE FLY, POCKETING.
+    Enterprise Multi-Engine CAD Router v52.0.
+    🌟 MỞ KHÓA LUỒNG TÍNH TOÁN: Khóa chặt lỗi nuốt định mức do AI gán nhầm nhãn đơn vị PCS cho vạt rập vải cuộn.
     """
     import copy
     import streamlit as st
@@ -368,7 +368,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, *args, *
         else:
             engine_target = "FABRIC"
 
-        # 🌟 🌟 🌟 KHỐI ÉP KIỂU CHUẨN SỐ THỰC TẠI TẦNG ROUTER (CHÍ MẠNG)
+        # ÉP KIỂU SỐ THỰC TẠI TẦNG ROUTER
         try: b_len = float(ui_row.get("bounding_box_length", 0.0))
         except: b_len = 0.0
             
@@ -384,14 +384,13 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, *args, *
         try: width_inch = float(ui_row.get("fabric_width_inch", 57.0))
         except: width_inch = 57.0
             
-        # Đồng bộ ngược lại mảng số thực sạch vào đối tượng row để xử lý thuật toán nhân chia diện tích
         ui_row["bounding_box_length"] = b_len
         ui_row["bounding_box_width"] = b_wid
         ui_row["polygon_net_area"] = poly_area
         ui_row["piece_count"] = p_count
         ui_row["fabric_width_inch"] = width_inch
 
-        # CHỐT CHẶN BẢO VỆ HÌNH HỌC (Nếu tất cả bằng 0 thật sự thì định mức bằng 0)
+        # CHỐT CHẶN BẢO VỆ HÌNH HỌC
         if engine_target != "THREAD" and b_len <= 0.0 and b_wid <= 0.0 and poly_area <= 0.0:
             ui_row["engine"] = engine_target
             ui_row["gross_consumption"] = 0.0
@@ -402,13 +401,15 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, *args, *
 
         try:
             if engine_target in ["FABRIC", "FUSING"]:
+                # Gọi lõi tính toán và nhận kết quả Yards/Meters thực tế
                 gross_yds, gross_mtr, calc_note = compute_fabric_engine(ui_row, product_type, spec_meta)
+                # 🌟 SỬA SAI: Đối với vải phẳng cuộn, luôn gán gross_val bằng giá trị Yards thực tế bất chấp nhãn PCS của AI
                 gross_val = gross_mtr if uom_target == "MTR" else gross_yds
                 
             elif engine_target == "ELASTIC":
                 if "length_inch" not in ui_row or float(ui_row.get("length_inch", 0.0)) <= 0.0:
                     ui_row["length_inch"] = b_len if b_len > 0 else b_wid
-                gross_yds, gross_mtr, calc_note = copy.deepcopy(compute_elastic_engine(ui_row))
+                gross_yds, gross_mtr, calc_note = compute_elastic_engine(ui_row)
                 gross_val = gross_mtr if uom_target == "MTR" else gross_yds
                 
             elif engine_target in ["TAPE", "CORD", "WEBBING"]:
@@ -424,12 +425,15 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, *args, *
                 gross_yds, gross_mtr, calc_note = compute_fabric_engine(ui_row, product_type, spec_meta)
                 gross_val = gross_mtr if uom_target == "MTR" else gross_yds
 
+            # Ghi nhận kết quả sạch đồng bộ cột giao diện DataFrame
             ui_row["engine"] = engine_target
             ui_row["gross_consumption"] = gross_val
             ui_row["quality_status"] = "PASS" if gross_val > 0 else "QA_FAIL"
             ui_row["system_notes"] = calc_note
             ui_row["calculated_consumption_yards"] = gross_yds
             ui_row["calculated_consumption_meters"] = gross_mtr
+            # Đồng bộ ngược lại giá trị hiệu suất sơ đồ động từ hàm lõi tính toán ra bảng Router chính
+            ui_row["marker_efficiency"] = ui_row.get("marker_efficiency", 0.855)
             
         except Exception as row_calc_err:
             st.warning(f"⚠️ Dòng rập '{comp_name}' bị lỗi tính toán: {str(row_calc_err)}")
