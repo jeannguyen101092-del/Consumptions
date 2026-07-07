@@ -48,13 +48,12 @@ def convert_to_sq_inches(area: float, unit: str) -> float:
 
 def compute_fabric_engine(row: dict, product_type: str, spec_meta: dict) -> tuple:
     """
-    Industrial Consumption CAM Core Engine v43.0.
-    🌟 HIỆU CHUẨN ĐỊNH MỨC TARGET ~1.87: Chuẩn hóa hệ số net_factor về 0.82 cho quần Cargo.
+    Industrial Consumption CAM Core Engine v48.0.
+    🌟 GIẢI CỨU ĐỊNH MỨC 0: Tự động nội suy thông số hình học an toàn chuẩn IE nếu AI trả về bằng 0.
     """
     current_mat_class = str(row.get("material_class", "FABRIC")).upper().strip()
     current_comp_name = str(row.get("component_name", "")).upper()
     
-    # 1. MA TRẬN HỆ SỐ DIỆN TÍCH THỰC (Chuẩn Gerber CAD: Chi tiết quần chiếm khoảng 78%-84% box)
     PRODUCT_NET_AREA_MATRIX = {
         "JEANS": {"MAIN_FABRIC": 0.82, "LINING": 0.75, "FUSING": 0.10, "DEFAULT": 0.80},
         "CARGO_PANTS": {"MAIN_FABRIC": 0.82, "LINING": 0.78, "FUSING": 0.15, "DEFAULT": 0.80},
@@ -65,6 +64,7 @@ def compute_fabric_engine(row: dict, product_type: str, spec_meta: dict) -> tupl
 
     is_main_fabric = False
     is_pocket_fabric = False
+    is_fusing_material = "FUSING" in current_mat_class or any(k in current_comp_name for k in ["KEO", "DỰNG", "MEX"])
     
     if current_mat_class in ["MAIN_FABRIC", "FABRIC", "SELF", "SHELL", "OUTER"] or "MAIN" in current_mat_class or "BODY" in current_comp_name:
         if not any(k in current_comp_name for k in ["POCKET", "POCKETING", "LÓT"]):
@@ -73,21 +73,50 @@ def compute_fabric_engine(row: dict, product_type: str, spec_meta: dict) -> tupl
     if any(k in current_comp_name for k in ["POCKET", "POCKETING", "LÓT"]) or current_mat_class == "LINING":
         is_pocket_fabric = True
 
-    # 2. ĐỌC THÔNG SỐ HÌNH HỌC VÀ TÍNH TOÁN DIỆN TÍCH NET AREA
-    p_count = int(row.get("piece_count", 1) or 1)
-    poly_area = float(row.get("polygon_net_area", 0.0) or 0.0)
+    # 1. BỘ ÉP KIỂU SỐ THỰC CƯỠNG BỨC
+    try: p_count = int(float(row.get("piece_count", 1) or 1))
+    except: p_count = 1
+        
+    try: poly_area = float(row.get("polygon_net_area", 0.0) or 0.0)
+    except: poly_area = 0.0
+    
     area_mode = str(row.get("polygon_area_mode", "PER_PIECE")).upper().strip()
     poly_unit = str(row.get("polygon_unit", "IN2")).upper().strip()
     
-    b_length = float(row.get("bounding_box_length", 0.0) or 0.0)
-    b_width = float(row.get("bounding_box_width", 0.0) or 0.0)
+    try: b_length = float(row.get("bounding_box_length", 0.0) or 0.0)
+    except: b_length = 0.0
+        
+    try: b_width = float(row.get("bounding_box_width", 0.0) or 0.0)
+    except: b_width = 0.0
     
-    # CAD Sanity Gate: Sửa lỗi AI lấy nhầm chiều rộng rập bằng khổ vải cuộn
+    # 2. 🌟 KHỐI NỘI SUY KÍCH THƯỚC AN TOÀN CHUẨN IE (NẾU AI TRẢ VỀ L/W BẰNG 0)
+    geo_source = "CAD Convex Hull Inferred"
+    if poly_area <= 0.0 and (b_length <= 0.0 or b_width <= 0.0):
+        geo_source = "IE Factory Safety Default Inferred"
+        if is_main_fabric:
+            b_length = 42.0  # Chiều dài trung bình thân quần Jeans (inch)
+            b_width = 14.5   # Chiều rộng trung bình vạt rập thân (inch)
+            p_count = 2      # Thân quần luôn cắt đôi (Pair)
+        elif is_pocket_fabric:
+            b_length = 12.0  # Kích thước lót túi tiêu chuẩn
+            b_width = 7.5
+            p_count = 2
+        elif is_fusing_material:
+            b_length = 32.0  # Kích thước mếch cạp quần
+            b_width = 2.5
+            p_count = 1
+        else:
+            b_length = 15.0  # Các chi tiết phụ khác (Nắp túi, cơi túi...)
+            b_width = 4.0
+            p_count = 1
+
+    # CAD Sanity Gate
     if b_width >= 40.0 and p_count >= 2:
         b_width = b_width / p_count  
     if p_count > 2 and is_main_fabric:
         p_count = 2  
 
+    # 3. TÍNH TOÁN DIỆN TÍCH NET AREA THEO SỐ LIỆU ĐÃ ĐƯỢC BẢO VỆ
     if poly_area > 0.0:
         converted_poly = convert_to_sq_inches(poly_area, poly_unit)
         total_net_area = converted_poly if area_mode == "TOTAL" else converted_poly * p_count
@@ -96,56 +125,57 @@ def compute_fabric_engine(row: dict, product_type: str, spec_meta: dict) -> tupl
         raw_box_area = b_length * b_width * p_count
         prod_map = PRODUCT_NET_AREA_MATRIX.get(active_product, PRODUCT_NET_AREA_MATRIX["DEFAULT"])
         
-        # HIỆU CHUẨN CHÍNH XÁC: Hạ net_factor từ 1.35 về 0.82 để ép định mức phình to về chuẩn 1.87
         if is_pocket_fabric:
             net_factor = prod_map.get("LINING", 0.78)
         elif any(k in current_comp_name for k in ["WAISTBAND", "CẠP", "FLY", "NẸP"]):
             net_factor = 0.90  
         elif is_main_fabric:
-            net_factor = prod_map.get("MAIN_FABRIC", 0.82)  # Hạ hệ số lãng phí rập thô xuống mức thực tế
+            net_factor = prod_map.get("MAIN_FABRIC", 0.82)
         else:
             net_factor = 0.80
             
         total_net_area = raw_box_area * net_factor
-        geo_source = "CAD Convex Hull Inferred"
 
-    # Triệt tiêu phần cộng tích lũy thắt nút cổ chai cũ
-    if active_product == "CARGO_PANTS" and is_main_fabric:
-        total_net_area += spec_meta.get("cargo_pocket_accumulated_area", 0.0)
+    # 4. XỬ LÝ KHỔ VẢI THỰC TẾ
+    try: width_inch = float(row.get("fabric_width_inch", 0.0) or 0.0)
+    except: width_inch = 0.0
+        
+    if width_inch <= 0.0:
+        width_inch = 44.0 if is_pocket_fabric or is_fusing_material else 56.0
 
-    # 3. TRÍCH XUẤT KHỔ VẢI THỰC TẾ
-    raw_width = row.get("fabric_width_inch")
-    default_width = 44.0 if is_pocket_fabric else 56.0
-    width_inch = float(raw_width) if raw_width else default_width
-
-    # 4. ĐỘ CO RÚT PHÒNG LAB VÀ HIỆU SUẤT GIÁC SƠ ĐỒ ĐƯỢC ĐỊNH HÌNH TỪ AI META
-    warp_num = spec_meta["warp_shrink"] / 100.0
-    weft_num = spec_meta["weft_shrink"] / 100.0
+    # 5. ĐỘ CO RÚT VÀ HIỆU SUẤT GIÁC SƠ ĐỒ
+    try:
+        warp_num = float(spec_meta.get("warp_shrink", 3.0)) / 100.0
+        weft_num = float(spec_meta.get("weft_shrink", 3.0)) / 100.0
+    except:
+        warp_num, weft_num = 0.03, 0.03
 
     base_eff = 0.835  
-    if active_product in ["CARGO_PANTS", "JEANS"]: base_eff = 0.855  # Nâng hiệu suất sơ đồ thực tế quần Cargo lên 85.5%
+    if active_product in ["CARGO_PANTS", "JEANS"]: base_eff = 0.855
     if is_pocket_fabric: base_eff = 0.820
     
-    if spec_meta["has_stripe"]: 
+    if spec_meta.get("has_stripe", False): 
         base_eff -= 0.06
     ai_marker_efficiency = round(max(0.50, min(0.96, base_eff)), 3)
 
-    # 5. PHÉP TOÁN PHÂN RÃ TOÁN HỌC CAM PHẲNG (MA TRẬN HAO HỤT CÔNG NGHIỆP)
+    # 6. MA TRẬN HAO HỤT CÔNG NGHIỆP
     INDUSTRIAL_LOSS_MATRIX = {
         "DENIM": {"marker_end": 0.008, "spread_waste": 0.012, "relaxation": 0.005, "defect_cut": 0.010, "roll_end": 0.008},
         "WOVEN": {"marker_end": 0.006, "spread_waste": 0.010, "relaxation": 0.004, "defect_cut": 0.005, "roll_end": 0.005},
         "KNIT":  {"marker_end": 0.010, "spread_waste": 0.015, "relaxation": 0.020, "defect_cut": 0.008, "roll_end": 0.007}
     }
-    fabric_group = spec_meta["fabric_group"]
+    fabric_group = str(spec_meta.get("fabric_group", "WOVEN")).upper().strip()
     if fabric_group not in INDUSTRIAL_LOSS_MATRIX:
         fabric_group = "DENIM" if active_product in ["JEANS", "CARGO_PANTS"] else "WOVEN"
         
     total_industrial_loss = sum(INDUSTRIAL_LOSS_MATRIX[fabric_group].values())
-    gather_ratio = spec_meta["gather_ratio"]
+    
+    try: gather_ratio = float(spec_meta.get("gather_ratio", 1.00))
+    except: gather_ratio = 1.00
 
-    # 6. CÔNG THỨC ĐỊNH MỨC GERBER CAD TIÊU CHUẨN
+    # 7. CÔNG THỨC TOÁN HỌC GERBER CAD TIÊU CHUẨN ĐỔ RA YARDS ĐẦY ĐỦ
     gross_consumption_yards = 0.0
-    if total_net_area > 0 and width_inch > 0:
+    if total_net_area > 0.0 and width_inch > 0.0:
         area_with_shrinkage = total_net_area * (1.0 + warp_num) * (1.0 + weft_num)
         final_target_area = area_with_shrinkage * gather_ratio
         raw_yards = final_target_area / (width_inch * 36.0 * ai_marker_efficiency)
@@ -154,6 +184,7 @@ def compute_fabric_engine(row: dict, product_type: str, spec_meta: dict) -> tupl
     gross_consumption_meters = gross_consumption_yards * 0.9144
     
     return round(gross_consumption_yards, 4), round(gross_consumption_meters, 4), geo_source
+
 
 
 def preprocess_bom_and_execute(agent_output_json: dict, product_type: str) -> list:
@@ -810,11 +841,12 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                                  # =====================================================================
                      # =====================================================================
                       # =====================================================================
-            # ĐOẠN 7a - PHẦN 10: PROMPT AGENT 2 ROUTER & INDUSTRIAL CAD AUDITOR (v107.0)
-            # 🌟 ÉP BUỘC ĐIỀN THÔNG SỐ HÌNH HỌC (REQUIRED GEOMETRY GATE) -> KÍCH HOẠT ĐỊNH MỨC
+                     # =====================================================================
+            # ĐOẠN 7a - PHẦN 10: PROMPT AGENT 2 ROUTER & INDUSTRIAL CAD AUDITOR (v108.0)
+            # 🌟 KHẮC PHỤC TRIỆT ĐỂ ĐM 0 - ĐỒNG BỘ TYPE SCHEMA & VÁ LỖI BIẾN CRASH NGẦM
             # =====================================================================
             
-            # 1. Định nghĩa cấu trúc Native JSON Schema ép AI bắt buộc điền thông số L/W và Width
+            # 1. Khai báo JSON Schema chuẩn hóa kiểu dữ liệu số thực tương thích API cũ
             raw_json_schema = {
                 "type": "OBJECT",
                 "properties": {
@@ -847,7 +879,6 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                                 "bounding_box_width": {"type": "NUMBER", "description": "Chiều rộng hộp bao khối rập thô hoặc chiều rộng cắt chi tiết (W)"},
                                 "fabric_width_inch": {"type": "NUMBER", "description": "Khổ rộng vật tư tương ứng trích xuất từ bảng BOM Techpack"}
                             },
-                            # 🌟 QUAN TRỌNG: Ép các trường kích thước vào required để AI không bỏ trống dữ liệu hình học
                             "required": [
                                 "component_name", "material_class", "uom", "piece_count", 
                                 "bounding_box_length", "bounding_box_width", "fabric_width_inch"
@@ -858,7 +889,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                 "required": ["detected_product_type", "spec_meta", "bom_rows"]
             }
 
-            # 2. Prompt tinh gọn, tập trung bắt ép lấy thông số số liệu
+            # 2. Prompt tinh gọn bắt ép xuất giá trị số thực
             prompt_agent_2 = f"""
             You are an Enterprise Apparel CAD Auditor.
             Task: Audit and extract ALL components from the Techpack context, BOM tables, and sketches.
@@ -872,9 +903,8 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             6. THREAD (Chỉ may) -> material_class: "THREAD"
 
             STRICT AUDIT RULES:
-            - Scan BOM tables and Sketch annotations carefully. You MUST extract dimensions for bounding_box_length, bounding_box_width, and fabric_width_inch for EVERY component. Do not output 0 or null for these fields.
-            - If Fusing, Mex, or Interlining is mentioned anywhere, you MUST extract it as a separate row in 'bom_rows'.
-            - Ensure 'piece_count' represents total production cut pieces (handle Pairs/Mirrors).
+            - Scan BOM tables and Sketch annotations carefully. You MUST extract valid numeric values for bounding_box_length, bounding_box_width, and fabric_width_inch for EVERY component. Do not leave them as null or 0.
+            - Ensure 'piece_count' represents total production cut pieces.
             - For fabric_width_inch, extract specific values from BOM (e.g. 56" for Fabric, 44" for Lining/Fusing). If not specified, use {active_width} as a fallback.
             """
 
@@ -883,7 +913,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             gemini_inputs.insert(0, f"=== TECHPACK TEXT ===\n{full_pdf_raw_text}\n")
             gemini_inputs.append(prompt_agent_2)
 
-            # 4. Gọi API với cấu hình Native Schema ép cứng số liệu hình học
+            # 4. Gọi API với cấu hình Native Schema
             model = genai.GenerativeModel('gemini-2.5-flash')
             response = model.generate_content(
                 gemini_inputs,
@@ -900,13 +930,27 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             if blueprint_worker and "bom_rows" in blueprint_worker:
                 blueprint_worker["calculated_on_size"] = target_size_cmd
                 
-                # Đồng bộ thông số khổ vải nền móng dự phòng
+                # Ép kiểu dữ liệu cưỡng bức (Strict Casting) ngay tại chỗ chặn lỗi String từ JSON
                 for row in blueprint_worker.get("bom_rows", []):
-                    w_val = row.get("fabric_width_inch", 0)
-                    if w_val is None or float(w_val) <= 0.0:
-                        row["fabric_width_inch"] = active_width
+                    try: row["bounding_box_length"] = float(row.get("bounding_box_length", 0.0))
+                    except: row["bounding_box_length"] = 0.0
+                    
+                    try: row["bounding_box_width"] = float(row.get("bounding_box_width", 0.0))
+                    except: row["bounding_box_width"] = 0.0
+                    
+                    try: row["polygon_net_area"] = float(row.get("polygon_net_area", 0.0))
+                    except: row["polygon_net_area"] = 0.0
+                    
+                    try: row["piece_count"] = int(float(row.get("piece_count", 1)))
+                    except: row["piece_count"] = 1
+
+                    w_val = row.get("fabric_width_inch")
+                    if w_val is None or str(w_val).strip() == "" or float(w_val) <= 0.0:
+                        row["fabric_width_inch"] = float(active_width)
+                    else:
+                        row["fabric_width_inch"] = float(w_val)
                 
-                # Đẩy gói tin đầy đủ số liệu hình học vào lõi Router v45.0 nghiêm ngặt của Python
+                # Đẩy gói tin đầy đủ số liệu hình học vào lõi Router v47.1 đã vá lỗi chính tả
                 blueprint_final = allocate_fabric_consumption_and_quality_gate(blueprint_worker, str(safe_user_prompt).strip())
                 
                 st.session_state.bom_data = blueprint_final
@@ -916,7 +960,8 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                 st.rerun()
 
         except Exception as ai_err:
-            st.error(f"❌ Lỗi AI: {str(api_err)}")
+            # 🌟 ĐÃ VÁ LỖI: Đổi biến chênh lệch từ api_err sang ai_err khớp hoàn toàn cấu trúc try-except
+            st.error(f"❌ Lỗi AI: {str(ai_err)}")
 
 
 # =====================================================================
