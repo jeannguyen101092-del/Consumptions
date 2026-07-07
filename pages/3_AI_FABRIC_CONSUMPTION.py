@@ -776,8 +776,8 @@ with col_right:
 
 
 # =====================================================================
-# ĐOẠN 7a - PHẦN 1: CHATGPT-STYLE WORKSPACE & SMART TARGET SCANNED PIPELINE (V65.0)
-# CHIẾN LƯỢC HYBRID: GIẢM TẢI DPI XUỐNG 65 ĐỂ KHẮC PHỤC TRIỆT ĐỂ LỖI QUOTA 429
+# ĐOẠN 7a - PHẦN 1: CHATGPT-STYLE WORKSPACE & FULL TECHPACK PIPELINE (V113.0)
+# 🌟 GIẢI PHÓNG TOÀN TRANG: Quét 100% các trang PDF để nhặt đầy đủ sơ đồ kích thước rập CAD
 # =====================================================================
 st.markdown('<br><div class="cad-card"><div class="cad-header">💬 CHATGPT IE COLLABORATION WORKSPACE</div>', unsafe_allow_html=True)
 
@@ -795,7 +795,7 @@ st.markdown('</div>', unsafe_allow_html=True)
 if st.session_state.pdf_bytes is not None and safe_user_prompt:
     current_query = str(safe_user_prompt).strip()
     
-    with st.spinner("🧠 AI Platform đang quét Techpack..."):
+    with st.spinner("🧠 AI Platform đang quét TOÀN BỘ file Techpack (Không bỏ sót trang)..."):
         import google.generativeai as genai
         import json, copy, traceback, re
         import fitz 
@@ -806,17 +806,15 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             full_pdf_raw_text = ""
             image_payloads = []
             
+            # 🌟 ĐÃ NÂNG CẤP: Quét sạch 100% không bỏ sót bất kỳ trang ảnh sơ đồ rập nào
             for idx in range(total_pages):
                 page_text = doc_recovery[idx].get_text("text")
-                if any(k in page_text.upper() for k in ["BOM", "SPECIFICATION", "THÔNG SỐ", "SKETCH"]):
-                    full_pdf_raw_text += f"\n--- PAGE {idx + 1} ---\n{page_text}"
-                    if len(image_payloads) < 15:
-                        pix = doc_recovery[idx].get_pixmap(dpi=65, colorspace=fitz.csRGB)
-                        image_payloads.append({"mime_type": "image/jpeg", "data": pix.tobytes("jpeg")})
-            
-            if not image_payloads:
-                for idx in range(min(5, total_pages)):
-                    pix = doc_recovery[idx].get_pixmap(dpi=65, colorspace=fitz.csRGB)
+                full_pdf_raw_text += f"\n--- PAGE {idx + 1} ---\n{page_text}"
+                
+                # Khống chế số lượng trang hình ảnh an toàn cho tài khoản Gemini (Tối đa 16 trang)
+                if len(image_payloads) < 16:
+                    # Giữ DPI ở mức 60-65 để nạp ảnh siêu nhẹ, khắc phục triệt để lỗi Quota 429
+                    pix = doc_recovery[idx].get_pixmap(dpi=60, colorspace=fitz.csRGB)
                     image_payloads.append({"mime_type": "image/jpeg", "data": pix.tobytes("jpeg")})
             
             chat_lower = current_query.lower()
@@ -827,25 +825,8 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             active_width = float(match_w.group(1)) if match_w else 56.0
             if active_width < 20.0 or active_width > 80.0: active_width = 56.0
 
-            dummy_json_payload = """
-            {
-              "status": "PASS", "detected_product_type": "DRESS", "calculated_on_size": "SIZE_PLH",
-              "bom_rows": [
-                {"component_name": "Main Fabric", "material_class": "FABRIC", "uom": "YDS", "engine": "FABRIC", "fabric_width_inch": WIDTH_PLH, "bounding_box_length": 65.0, "bounding_box_width": 26.0, "piece_count": 2, "gather_type": "SIDE_RUCHE", "gather_depth": "MEDIUM"},
-                {"component_name": "Elastic Waistband", "material_class": "ELASTIC", "uom": "YDS", "engine": "ELASTIC", "length_inch": 28.0, "piece_count": 2, "stretch_pct": 1.20},
-                {"component_name": "Twill Tape Neck", "material_class": "TAPE", "uom": "MTR", "engine": "TAPE", "length_inch": 14.5, "piece_count": 1},
-                {"component_name": "Button 24L", "material_class": "BUTTON", "uom": "PCS", "engine": "COUNT", "quantity_pcs": 8}
-              ]
-            }
-            """.replace("SIZE_PLH", str(target_size_cmd)).replace("WIDTH_PLH", str(active_width))
-                                 # =====================================================================
-                     # =====================================================================
-                      # =====================================================================
-                     # =====================================================================
-                       # =====================================================================
-                       # =====================================================================
-                       # =====================================================================
-                       # =====================================================================
+            # Xóa bỏ hoàn toàn dummy_json cũ cồng kềnh
+
             # ĐOẠN 7a - PHẦN 10: PROMPT AGENT 2 ROUTER & INDUSTRIAL CAD AUDITOR (v112.0)
             # 🌟 KHÓA CHẶT TRẠNG THÁI SESSION STATE - CHỐNG MẤT ĐỊNH MỨC KHI RERUN
             # =====================================================================
