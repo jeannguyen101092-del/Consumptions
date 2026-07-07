@@ -508,19 +508,24 @@ with k_col4:
 import streamlit as st
 
 # =====================================================================
-# ĐOẠN 6b: KHỒI CHIA CỘT ĐỐI XỨNG - CÂN BẰNG TỌA ĐỘ NỘI DUNG THÂN TRANG
+# ĐOẠN 6b: BẢN VÁ TRIỆT TIÊU KHOẢNG TRỐNG TRẮNG - RESET LAYOUT PHẲNG
 # =====================================================================
 
 st.markdown("""
 <style>
-    /* BẢN VÁ SỬA LỖI LỆCH KHUNG: Đồng bộ lại khoảng cách đệm cho phần lưới chia cột */
+    /* Ép reset lại toàn bộ khoảng đệm đỉnh trần của Streamlit về mặc định */
+    .block-container {
+        padding-top: 2rem !important; 
+        margin-top: 0px !important;
+    }
+    
+    /* Đồng bộ lại khoảng cách sát dải chia lưới */
     div[data-testid="stHorizontalBlock"] {
         margin-top: 0px !important;
-        padding-top: 5px !important;
+        padding-top: 0px !important;
     }
 
-    /* Ép tất cả các hình ảnh nằm trong cột bên phải khống chế chiều cao tối đa, */
-    /* tự động giữ nguyên tỷ lệ rập phẳng mà không bị kéo giãn to đùng */
+    /* Khống chế hình ảnh rập phẳng bên phải không bị kéo giãn */
     .sticky-sketch-box img {
         max-height: 290px !important;
         width: auto !important;
@@ -529,13 +534,13 @@ st.markdown("""
         display: block !important;
     }
 
-    /* Tạo khối bao bọc thống nhất độ cao cho các hộp ERP dưới trần ghim */
+    /* Hộp ERP bao bọc nội dung phẳng */
     .custom-erp-box {
         background-color: #ffffff !important;
         border: 1px solid #e2e8f0 !important;
         border-radius: 6px !important;
         padding: 15px !important;
-        min-height: 380px !important; /* Đảm bảo 2 hộp trái phải luôn cao bằng nhau */
+        min-height: 380px !important; /* Giữ 2 hộp cân bằng chiều cao đều nhau */
         box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05) !important;
         box-sizing: border-box !important;
     }
@@ -549,7 +554,6 @@ st.markdown("""
         letter-spacing: 0.3px !important;
     }
 
-    /* Định dạng hộp tóm tắt thông số kỹ thuật tinh gọn */
     .meta-box-light {
         background-color: #f8fafc !important;
         border: 1px solid #f1f5f9 !important;
@@ -567,9 +571,6 @@ st.markdown("""
         font-size: 12px !important;
         color: #0f172a !important;
         margin-top: 1px !important;
-        overflow: hidden !important;
-        text-overflow: ellipsis !important;
-        white-space: nowrap !important;
     }
 </style>
 """, unsafe_allow_html=True)
