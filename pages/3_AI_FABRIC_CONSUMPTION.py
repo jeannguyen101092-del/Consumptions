@@ -366,40 +366,46 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data:
 import streamlit as st
 
 # ==============================================================================
-# PHẦN B: GIAO DIỆN GHIM ĐỈNH THÔNG MINH (CHỈ CỐ ĐỊNH RIÊNG CỤM BANNER & 4 Ô)
+# PHẦN B: GIAO DIỆN GHIM KHÓA CHẾT ĐỈNH TRẦN (LUÔN CHẠY THEO KHI CUỘN TRANG)
 # ==============================================================================
 
-# 1. Bản vá CSS khóa trần đồng bộ layout Streamlit
+# 1. Khai báo CSS cấu trúc cô lập tọa độ lớp trên cùng
 st.markdown("""
 <style>
-    /* Nhắm trực tiếp vào khối container chính của Streamlit để nhúng tầng ghim */
-    [data-testid="stMainBlockContainer"] {
-        position: relative !important;
+    /* Ép ghim cố định cụm banner và 4 ô màu lên trên cùng màn hình */
+    .smart-fixed-container {
+        position: fixed !important;
+        top: 2.85rem !important; /* Đặt ngay dưới thanh top-bar mặc định của Streamlit */
+        left: 0 !important;
+        right: 0 !important;
+        width: 100% !important;
+        height: 250px !important; /* Khống chế chiều cao trần vừa vặn */
+        background-color: #ffffff !important;
+        z-index: 9999999 !important; /* Đảm bảo luôn nổi trên phần uploader và nội dung dưới */
+        padding: 10px 4rem 15px 4rem !important;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.06) !important;
+        box-sizing: border-box !important;
     }
 
-    /* Tạo khối bao bọc khóa chết vị trí khi cuộn trang */
-    .smart-sticky-wrapper {
-        position: sticky !important;
-        top: 2.85rem !important; /* Ghim khít ngay bên dưới thanh top-bar gốc của Streamlit */
-        background-color: #ffffff !important;
-        z-index: 99999 !important; /* Đảm bảo nổi lên trên phần uploader bên dưới */
-        padding: 15px 0 !important;
-        margin-bottom: 20px !important;
-        border-bottom: 1px solid #e2e8f0 !important;
+    /* Gỡ bỏ khoảng trống thừa đỉnh trần của Streamlit */
+    [data-testid="stHeader"] {
+        z-index: 9999998 !important;
     }
 
     /* Banner tiêu đề chính Tầng 1 */
     .top-banner {
         background: linear-gradient(135deg, #1e3a8a, #0f172a) !important;
-        padding: 14px 20px !important;
+        padding: 10px 20px !important;
         border-radius: 6px !important;
-        margin-bottom: 15px !important;
+        margin-bottom: 12px !important;
         color: #ffffff !important;
         text-align: center !important;
+        width: 100% !important;
+        box-sizing: border-box !important;
     }
     .top-title {
         font-family: 'Segoe UI', sans-serif !important;
-        font-size: 16px !important;
+        font-size: 15px !important;
         font-weight: 700 !important;
         letter-spacing: 0.5px !important;
     }
@@ -407,75 +413,98 @@ st.markdown("""
         font-family: 'Segoe UI', sans-serif !important;
         font-size: 11px !important;
         opacity: 0.75 !important;
-        margin-top: 3px !important;
+        margin-top: 2px !important;
+    }
+
+    /* ÉP LAYOUT CHIA CỘT THUẦN FLEXBOX: Chống vỡ hàng và mất chữ do Streamlit tái nạp */
+    .kpi-flex-wrapper {
+        display: flex !important;
+        gap: 1rem !important;
+        width: 100% !important;
+        justify-content: space-between !important;
+    }
+    .kpi-column-box {
+        flex: 1 !important;
+        display: flex !important;
+        flex-direction: column !important;
     }
 
     /* Thẻ tiêu đề màu chứa thông số KPIs Tầng 2 */
     .kpi-card-colored {
         border-radius: 6px 6px 0 0 !important; 
-        padding: 8px 10px !important;
+        padding: 6px 8px !important;
         text-align: center !important;
-        height: 55px !important;
+        height: 52px !important;
+        min-height: 52px !important;
+        max-height: 52px !important;
         display: flex !important;
         flex-direction: column !important;
         align-items: center !important;
         justify-content: center !important;
+        box-sizing: border-box !important;
     }
     .kpi-num-light {
-        font-size: 15px !important;
+        font-size: 14px !important;
         font-weight: 700 !important;
         color: #ffffff !important; 
         font-family: 'Segoe UI', sans-serif !important;
         line-height: 1.2 !important;
     }
     .kpi-lbl-light {
-        font-size: 10px !important;
+        font-size: 9px !important;
         font-weight: 500 !important;
         color: rgba(255, 255, 255, 0.9) !important; 
         font-family: 'Segoe UI', sans-serif !important;
         margin-top: 2px !important;
         text-transform: uppercase !important;
+        white-space: nowrap !important;
     }
 
-    /* Định nghĩa bảng màu nền tương ứng của bạn */
+    /* Bảng màu nền tương ứng */
     .bg-style { background-color: #1e293b !important; } 
     .bg-items { background-color: #0f766e !important; } 
     .bg-cons  { background-color: #c2410c !important; } 
     .bg-size  { background-color: #15803d !important; } 
 
-    /* Hộp trắng bao bọc hình vẽ vector Tầng 3 */
+    /* Hộp chứa hình vẽ vector Tầng 3 */
     .image-placeholder-box {
         border: 1px solid #e2e8f0 !important;
         border-top: none !important; 
         border-radius: 0 0 6px 6px !important;
-        padding: 10px 5px !important;
-        height: 140px !important;
+        padding: 5px !important;
+        height: 110px !important;
+        min-height: 110px !important;
+        max-height: 110px !important;
         display: flex !important;
         align-items: center !important;
         justify-content: center !important;
+        box-sizing: border-box !important;
     }
     .image-placeholder-box img {
-        max-height: 105px !important;
+        max-height: 90px !important;
         width: auto !important;
         object-fit: contain !important;
-        display: block;
-        margin: auto;
+        display: block !important;
+        margin: auto !important;
     }
     
-    /* Màu nền nhẹ dưới ảnh rập thiết kế */
+    /* Màu nền dịu dưới ảnh thiết kế rập */
     .color-ao   { background-color: #f8fafc !important; }
     .color-quan { background-color: #f4fbf9 !important; }
     .color-vest { background-color: #fffaf5 !important; }
     .color-vay  { background-color: #f5fcf7 !important; }
+
+    /* ĐẨY NỘI DUNG THÂN TRANG XUỐNG: Ngăn chặn uploader bị đè dưới khối ghim */
+    .main-body-spacer {
+        margin-top: 270px !important; 
+    }
 </style>
 """, unsafe_allow_html=True)
 
-# 2. Khởi động khối ghim thông minh chống ảnh hưởng Google dịch
-st.markdown('<div class="smart-sticky-wrapper notranslate" translate="no">', unsafe_allow_html=True)
+# 2. Khởi động Container Khóa Đỉnh độc lập, chặn tính năng tự động dịch của trình duyệt
+st.markdown('<div class="smart-fixed-container notranslate" translate="no">', unsafe_allow_html=True)
 
-# ------------------------------------------------------------------------------
 # TẦNG 1: BANNER TIÊU ĐỀ CHÍNH MÀU XANH
-# ------------------------------------------------------------------------------
 st.markdown("""
 <div class="top-banner">
     <div class="top-title">📊 INTELLIGENT FABRIC CONSUMPTION PLATFORM</div>
@@ -489,26 +518,53 @@ encoded_quan = "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.
 encoded_vest = "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%27100%27%20height%3D%27100%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23c2410c%27%20stroke-width%3D%271.25%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M4%202v20l8-4%208%204V2l-8%204-8-4z%27%2F%3E%3Cpath%20d%3D%27M12%206v12%27%2F%3E%3Cpath%20d%3D%27M4%208h16%27%2F%3E%3C%2Fsvg%3E"
 encoded_vay = "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%27100%27%20height%3D%27100%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%2315803d%27%20stroke-width%3D%271.25%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M6%202h12l3%207-9%2013-9-7%203-7z%27%2F%3E%3Cpath%20d%3D%27M6%209h12%27%2F%3E%3Cpath%20d%3D%27M12%202v7%27%2F%3E%3C%2Fsvg%3E"
 
-# TẦNG 2 & TẦNG 3: BỐ CỤC 4 CỘT HIỂN THỊ DỰA TRÊN CHIA CỘT MẶC ĐỊNH
-k_col1, k_col2, k_col3, k_col4 = st.columns(4)
+# TẦNG 2 & TẦNG 3: LIÊN KẾT KHỐI BẰNG FLEXBOX THUẦN ĐỂ KHÓA CHỮ KHÔNG MẤT TOẠ ĐỘ
+st.markdown(f"""
+<div class="kpi-flex-wrapper">
+    <div class="kpi-column-box">
+        <div class="kpi-card-colored bg-style">
+            <div class="kpi-num-light">{kpi_style_id}</div>
+            <div class="kpi-lbl-light">Mã hàng đang xử lý</div>
+        </div>
+        <div class="image-placeholder-box color-ao">
+            <img src="{encoded_ao}" alt="Ao">
+        </div>
+    </div>
+    <div class="kpi-column-box">
+        <div class="kpi-card-colored bg-items">
+            <div class="kpi-num-light">{total_materials} Item(s)</div>
+            <div class="kpi-lbl-light">Tổng số vật tư kết xuất</div>
+        </div>
+        <div class="image-placeholder-box color-quan">
+            <img src="{encoded_quan}" alt="Quan">
+        </div>
+    </div>
+    <div class="kpi-column-box">
+        <div class="kpi-card-colored bg-cons">
+            <div class="kpi-num-light">{main_fabric_cons}</div>
+            <div class="kpi-lbl-light">Định mức vải chính dự kiến</div>
+        </div>
+        <div class="image-placeholder-box color-vest">
+            <img src="{encoded_vest}" alt="Vest">
+        </div>
+    </div>
+    <div class="kpi-column-box">
+        <div class="kpi-card-colored bg-size">
+            <div class="kpi-num-light">{active_size_kpi}</div>
+            <div class="kpi-lbl-light">Cỡ hạt tính định mức</div>
+        </div>
+        <div class="image-placeholder-box color-vay">
+            <img src="{encoded_vay}" alt="Vay">
+        </div>
+    </div>
+</div>
+""", unsafe_allow_html=True)
 
-with k_col1: 
-    st.markdown(f'<div class="kpi-card-colored bg-style"><div class="kpi-num-light">{kpi_style_id}</div><div class="kpi-lbl-light">Mã hàng đang xử lý</div></div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="image-placeholder-box color-ao"><img src="{encoded_ao}" alt="Ao"></div>', unsafe_allow_html=True)
+st.markdown('</div>', unsafe_allow_html=True) # 🟢 ĐÓNG KHỐI CONTAINER CỐ ĐỊNH
 
-with k_col2: 
-    st.markdown(f'<div class="kpi-card-colored bg-items"><div class="kpi-num-light">{total_materials} Item(s)</div><div class="kpi-lbl-light">Tổng số vật tư kết xuất</div></div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="image-placeholder-box color-quan"><img src="{encoded_quan}" alt="Quan"></div>', unsafe_allow_html=True)
+# Đẩy phần thân trang (uploader, bảng biểu...) xuống dưới 270px để tránh bị đè chữ
+st.markdown('<div class="main-body-spacer"></div>', unsafe_allow_html=True)
 
-with k_col3: 
-    st.markdown(f'<div class="kpi-card-colored bg-cons"><div class="kpi-num-light">{main_fabric_cons}</div><div class="kpi-lbl-light">Định mức vải chính dự kiến</div></div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="image-placeholder-box color-vest"><img src="{encoded_vest}" alt="Vest"></div>', unsafe_allow_html=True)
-
-with k_col4: 
-    st.markdown(f'<div class="kpi-card-colored bg-size"><div class="kpi-num-light">{active_size_kpi}</div><div class="kpi-lbl-light">Cỡ hạt tính định mức</div></div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="image-placeholder-box color-vay"><img src="{encoded_vay}" alt="Vay"></div>', unsafe_allow_html=True)
-
-st.markdown('</div>', unsafe_allow_html=True) # 🟢 ĐÓNG KHỐI GHIM THÔNG MINH
 
 
 
