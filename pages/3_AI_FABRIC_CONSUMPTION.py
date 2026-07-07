@@ -110,59 +110,74 @@ def compute_fabric_engine(row: dict, product_type: str, chat_txt: str) -> tuple:
     # =====================================================================
        # =====================================================================
        # =====================================================================
-    # ĐOẠN 7: DYNAMIC CARGO ACCUMULATOR ENGINE - TÍCH LŨY SỐ LIỆU THỰC TỪ AI
+        # =====================================================================
+    # ĐOẠN 7: DYNAMIC CARGO ACCUMULATOR ENGINE - BẢN SỬA LỖI ĐỒNG BỘ KHÓA DỮ LIỆU
     # =====================================================================
-    # 1. Đọc thông số rập gốc của chi tiết hiện tại từ AI bóc tách
+    # 1. Đọc thông số hình học hình phẳng ban đầu từ AI trích xuất
     b_length = float(row.get("bounding_box_length", 0.0) or 0.0)
     b_width = float(row.get("bounding_box_width", 0.0) or 0.0)
     p_count = int(row.get("piece_count", 1) or 1)
     
-    # Tính diện tích hình học phẳng CAD gốc của chi tiết hiện tại
+    # Tính diện tích thô ban đầu
     raw_box_area = b_length * b_width * p_count
-    product_map = PRODUCT_NET_AREA_MATRIX.get(active_product, PRODUCT_NET_AREA_MATRIX["DEFAULT"])
-    net_factor = product_map.get(mat_class, product_map.get("DEFAULT", 0.80))
     
+    # Chuẩn hóa ma trận ánh xạ net_factor của sản phẩm
+    product_map = PRODUCT_NET_AREA_MATRIX.get(active_product, PRODUCT_NET_AREA_MATRIX["DEFAULT"])
+    
+    # BẢN VÁ: Nhận diện vạn năng mọi biến thể tên gọi vải chính do AI bóc tách
+    is_main_fabric = False
+    if mat_class in ["MAIN_FABRIC", "FABRIC"] or "MAIN" in mat_class or "BODY" in str(row.get("component_name", "")).upper():
+        net_factor = product_map.get("MAIN_FABRIC", 0.80)
+        is_main_fabric = True
+    elif mat_class == "LINING" or "POCKET" in str(row.get("component_name", "")).upper():
+        net_factor = product_map.get("LINING", 0.20)
+    else:
+        net_factor = product_map.get(mat_class, product_map.get("DEFAULT", 0.80))
+        
     total_net_area = raw_box_area * net_factor
 
-    # 2. 🌟 TỰ ĐỘNG QUÉT VÀ CỘNG DỒN THÔNG SỐ TÚI DYNAMIC THEO DỮ LIỆU THỰC TỪ AI
-    # Nếu đang tính vải chính cho quần Cargo, Engine sẽ quét tất cả các dòng chi tiết phụ trong BOM
-    if active_product == "CARGO_PANTS" and mat_class == "MAIN_FABRIC":
+    # 2. TỰ ĐỘNG CỘNG TÍCH LŨY DIỆN TÍCH TÚI THEO THÔNG SỐ THỰC CỦA AI TRẢ VỀ
+    if active_product == "CARGO_PANTS" and is_main_fabric:
         if "bom_data" in st.session_state and st.session_state.bom_data and "bom_rows" in st.session_state.bom_data:
             cargo_pocket_accumulated_area = 0.0
             
-            # Vòng lặp quét xuyên suốt bảng vật tư BOM do AI trích xuất
+            # Vòng lặp quét xuyên suốt bảng vật tư BOM để tìm chi tiết túi hộp
             for b_row in st.session_state.bom_data["bom_rows"]:
                 if not b_row: continue
                 c_name = str(b_row.get("component_name", "")).upper()
                 m_class = str(b_row.get("material_class", "")).upper()
                 
-                # Chỉ nhặt các chi tiết phụ thuộc hệ túi hộp (Cargo Pocket, Flap, Nắp túi) làm bằng VẢI CHÍNH
-                if any(k in c_name for k in ["POCKET", "TÚI HỘP", "FLAP", "NẮP TÚI"]) and "MAIN" in m_class:
+                # Nhặt các chi tiết túi đắp, nắp túi làm bằng vải chính
+                if any(k in c_name for k in ["POCKET", "TÚI HỘP", "FLAP", "NẮP TÚI"]) and any(m in m_class or m in c_name for m in ["MAIN", "FABRIC", "BODY"]):
                     p_len = float(b_row.get("bounding_box_length", 0.0) or 0.0)
                     p_wid = float(b_row.get("bounding_box_width", 0.0) or 0.0)
                     p_cnt = int(b_row.get("piece_count", 1) or 1)
                     
                     # Tích lũy diện tích thực tế của cụm túi đắp vào bài toán
-                    cargo_pocket_accumulated_area += (p_len * p_wid * p_cnt * 0.85) # Hệ số rập túi đắp hình chữ nhật phẳng
+                    cargo_pocket_accumulated_area += (p_len * p_wid * p_cnt * 0.85)
             
-            # Cộng dồn toàn bộ diện tích túi thực tế do AI trích xuất vào diện tích thân chính
+            # Cộng dồn toàn bộ diện tích túi thực tế do AI bóc tách vào diện tích thân chính
             if cargo_pocket_accumulated_area > 0.0:
                 total_net_area += cargo_pocket_accumulated_area
 
-    # 3. Phép toán toán học CAD phân rã phẳng trần chuẩn công nghiệp
+    # 3. Phép toán toán học CAD phân rã phẳng trần chuẩn công nghiệp (Đảm bảo an toàn mẫu số)
     gross_val = 0.0
-    if total_net_area > 0 and width_inch > 0:
+    active_width = width_inch if 'width_inch' in locals() and width_inch > 0 else 56.0
+    active_eff = efficiency_num if 'efficiency_num' in locals() and efficiency_num > 0 else 0.855
+    
+    if total_net_area > 0 and active_width > 0:
         adjusted_area = total_net_area * active_gather_ratio
         expanded_area = adjusted_area * (1.0 + warp_num) * (1.0 + weft_num)
-        gross_val = (expanded_area / (width_inch * 36.0 * efficiency_num)) * 1.03
+        gross_val = (expanded_area / (active_width * 36.0 * active_eff)) * 1.03
         gross_val = round(gross_val, 3)
         
     # Đồng bộ trạng thái và hiển thị KPIs thời gian thực lên đỉnh ứng dụng
     row["fabric_consumption"] = gross_val 
     row["gross_consumption"] = gross_val   
     
-    note = f"DynamicCargoEngine ({mat_class}) | AI Active Accumulation | Diện tích rập thực tế: {total_net_area:.1f} sq in"
+    note = f"DynamicCargoEngine ({mat_class}) | AI Active Accumulation | Net Area: {total_net_area:.1f} sq in"
     return gross_val, note
+
 
 
 def compute_elastic_engine(row: dict) -> tuple:
