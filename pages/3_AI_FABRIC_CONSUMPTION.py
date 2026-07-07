@@ -111,56 +111,83 @@ def compute_fabric_engine(row: dict, product_type: str, chat_txt: str) -> tuple:
        # =====================================================================
        # =====================================================================
         # =====================================================================
-    # ĐOẠN 7: DYNAMIC CARGO ACCUMULATOR ENGINE - BẢN SỬA LỖI ĐỒNG BỘ KHÓA DỮ LIỆU
+       # =====================================================================
+    # ĐOẠN 7: INDUSTRIAL CARGO ACCUMULATOR & DIAGNOSTIC AUDIT LOG ENGINE
     # =====================================================================
-    # 1. Đọc thông số hình học hình phẳng ban đầu từ AI trích xuất
+    # 1. Đọc thông số hình học ban đầu của cấu phần hiện tại từ AI
     b_length = float(row.get("bounding_box_length", 0.0) or 0.0)
     b_width = float(row.get("bounding_box_width", 0.0) or 0.0)
     p_count = int(row.get("piece_count", 1) or 1)
     
-    # Tính diện tích thô ban đầu
     raw_box_area = b_length * b_width * p_count
     
-    # Chuẩn hóa ma trận ánh xạ net_factor của sản phẩm
+    current_mat_class = str(row.get("material_class", "FABRIC")).upper().strip()
+    current_comp_name = str(row.get("component_name", "")).upper()
+    
     product_map = PRODUCT_NET_AREA_MATRIX.get(active_product, PRODUCT_NET_AREA_MATRIX["DEFAULT"])
     
-    # BẢN VÁ: Nhận diện vạn năng mọi biến thể tên gọi vải chính do AI bóc tách
+    # Mở rộng bộ lọc vạn năng nhận diện Vải chính (Triệt tiêu lỗi QA_FAIL dòng FABRIC)
     is_main_fabric = False
-    if mat_class in ["MAIN_FABRIC", "FABRIC"] or "MAIN" in mat_class or "BODY" in str(row.get("component_name", "")).upper():
+    if current_mat_class in ["MAIN_FABRIC", "FABRIC", "SELF", "SHELL", "OUTER"] or "MAIN" in current_mat_class or "BODY" in current_comp_name:
         net_factor = product_map.get("MAIN_FABRIC", 0.80)
         is_main_fabric = True
-    elif mat_class == "LINING" or "POCKET" in str(row.get("component_name", "")).upper():
+    elif current_mat_class in ["LINING", "POCKETING"] or "POCKET" in current_comp_name:
         net_factor = product_map.get("LINING", 0.20)
     else:
-        net_factor = product_map.get(mat_class, product_map.get("DEFAULT", 0.80))
+        net_factor = product_map.get(current_mat_class, product_map.get("DEFAULT", 0.80))
         
     total_net_area = raw_box_area * net_factor
 
-    # 2. TỰ ĐỘNG CỘNG TÍCH LŨY DIỆN TÍCH TÚI THEO THÔNG SỐ THỰC CỦA AI TRẢ VỀ
+    # Danh sách từ khóa mở rộng bám sát cấu trúc phân tách Techpack thực tế
+    POCKET_KEYS = ["POCKET", "PATCH", "CARGO", "FLAP", "BAG", "WELT", "TÚI", "NẮP"]
+    MAIN_KEYS = ["MAIN", "BODY", "FABRIC", "SHELL", "SELF", "OUTER", "VẢI CHÍNH", "VAI CHINH"]
+
+    cargo_pocket_accumulated_area = 0.0
+    debug_captured_rows = [] # Mảng lưu vết phục vụ việc hiển thị Audit Log
+
+    # 2. TỰ ĐỘNG QUÉT VÀ CỘNG DỒN DIỆN TÍCH TÚI (ƯU TIÊN POLYGON CAD)
     if active_product == "CARGO_PANTS" and is_main_fabric:
         if "bom_data" in st.session_state and st.session_state.bom_data and "bom_rows" in st.session_state.bom_data:
-            cargo_pocket_accumulated_area = 0.0
             
-            # Vòng lặp quét xuyên suốt bảng vật tư BOM để tìm chi tiết túi hộp
             for b_row in st.session_state.bom_data["bom_rows"]:
                 if not b_row: continue
                 c_name = str(b_row.get("component_name", "")).upper()
                 m_class = str(b_row.get("material_class", "")).upper()
                 
-                # Nhặt các chi tiết túi đắp, nắp túi làm bằng vải chính
-                if any(k in c_name for k in ["POCKET", "TÚI HỘP", "FLAP", "NẮP TÚI"]) and any(m in m_class or m in c_name for m in ["MAIN", "FABRIC", "BODY"]):
+                # Điều kiện kiểm tra mở rộng thông minh
+                is_pocket_component = any(k in c_name for k in POCKET_KEYS)
+                is_shell_material = any(m in m_class or m in c_name for m in MAIN_KEYS)
+                
+                if is_pocket_component and is_shell_material:
                     p_len = float(b_row.get("bounding_box_length", 0.0) or 0.0)
                     p_wid = float(b_row.get("bounding_box_width", 0.0) or 0.0)
                     p_cnt = int(b_row.get("piece_count", 1) or 1)
+                    poly_net = float(b_row.get("polygon_net_area", 0.0) or 0.0)
                     
-                    # Tích lũy diện tích thực tế của cụm túi đắp vào bài toán
-                    cargo_pocket_accumulated_area += (p_len * p_wid * p_cnt * 0.85)
+                    # 🟢 THUẬT TOÁN ĐO DIỆN TÍCH TÚI ƯU TIÊN POLYGON CAD KHÔNG DÙNG BBOX CỐ ĐỊNH
+                    if poly_net > 0.0:
+                        pocket_area = poly_net
+                        calc_type = "CAD Poly"
+                    else:
+                        # Fallback về Bounding Box trừ hao góc khuyết nếu không có dữ liệu Polygon thực tế
+                        pocket_area = p_len * p_wid * 0.85
+                        calc_type = "BBox Fallback"
+                    
+                    # Ép sàn kích thước rập túi Cargo tối thiểu (8"x7") nếu AI trả về thông số hình học rỗng
+                    if pocket_area <= 0.0:
+                        pocket_area = 8.0 * 7.0 * 0.85
+                        calc_type = "Gate Default (56 sq\")"
+                        
+                    current_piece_total = pocket_area * p_cnt
+                    cargo_pocket_accumulated_area += current_piece_total
+                    
+                    # Lưu log chi tiết của dòng chi tiết phụ này
+                    debug_captured_rows.append(f"🔹 {c_name} ({p_cnt} Pcs) | {calc_type}: {current_piece_total:.1f} sq\"")
             
-            # Cộng dồn toàn bộ diện tích túi thực tế do AI bóc tách vào diện tích thân chính
-            if cargo_pocket_accumulated_area > 0.0:
-                total_net_area += cargo_pocket_accumulated_area
+            # Thực thi cộng tích lũy dồn vào tổng diện tích sản phẩm
+            total_net_area += cargo_pocket_accumulated_area
 
-    # 3. Phép toán toán học CAD phân rã phẳng trần chuẩn công nghiệp (Đảm bảo an toàn mẫu số)
+    # 3. Phép toán toán học CAD phân rã phẳng trần chuẩn công nghiệp
     gross_val = 0.0
     active_width = width_inch if 'width_inch' in locals() and width_inch > 0 else 56.0
     active_eff = efficiency_num if 'efficiency_num' in locals() and efficiency_num > 0 else 0.855
@@ -171,12 +198,24 @@ def compute_fabric_engine(row: dict, product_type: str, chat_txt: str) -> tuple:
         gross_val = (expanded_area / (active_width * 36.0 * active_eff)) * 1.03
         gross_val = round(gross_val, 3)
         
-    # Đồng bộ trạng thái và hiển thị KPIs thời gian thực lên đỉnh ứng dụng
     row["fabric_consumption"] = gross_val 
     row["gross_consumption"] = gross_val   
-    
-    note = f"DynamicCargoEngine ({mat_class}) | AI Active Accumulation | Net Area: {total_net_area:.1f} sq in"
+
+    # 4. KHỐI TRỰC QUAN HÓA AUDIT LOG CHO KỸ SƯ IE ĐỐI CHIẾU TRÊN MÀN HÌNH MÁY CHỦ
+    if active_product == "CARGO_PANTS" and is_main_fabric:
+        with st.expander("🔍 CAD ENGINE AUDIT TRAIL - CHI TIẾT TÍCH LŨY TÚI CARGO", expanded=False):
+            st.write(f"**Thông số thân chính:** Rập thô = {raw_box_area:.1f} sq\" | Net Area Thân = {raw_box_area*net_factor:.1f} sq\"")
+            st.write(f"**Tổng diện tích túi tích lũy bổ sung:** `{cargo_pocket_accumulated_area:.1f} sq in`")
+            if debug_captured_rows:
+                st.write("**Danh sách các dòng BOM túi lọt qua bộ lọc:**")
+                for log in debug_captured_rows: st.markdown(log)
+            else:
+                st.warning("⚠️ Cảnh báo: Không có dòng BOM túi nào lọt qua bộ lọc. Kiểm tra lại cấu trúc dữ liệu đầu vào.")
+            st.write(f"**Tổng diện tích CAD thực tế (Thân + Túi):** `{total_net_area:.1f} sq in` ➔ **Định mức:** `{gross_val:.3f} Yds`")
+
+    note = f"DynamicCargoEngine v26 | Net Area: {total_net_area:.1f} sq in | Eff: {active_eff*100}%"
     return gross_val, note
+
 
 
 
@@ -655,33 +694,40 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             # =====================================================================
                         # =====================================================================
                         # =====================================================================
-            # ĐOẠN 7a - PHẦN 10: PROMPT AGENT 2 ROUTER & API EXECUTION CORE (V103.5 RAW MATERIAL ONLY)
-            # 🌟 CHỈ TÍNH NGUYÊN LIỆU MAY: LOẠI BỎ TOÀN BỘ DANH MỤC PHỤ LIỆU ĐẾM CHIẾC (BUTTON, ZIPPER...)
+                     # =====================================================================
+            # ĐOẠN 7a - PHẦN 10: PROMPT AGENT 2 ROUTER & INDUSTRIAL CAD AUDITOR (v104.0)
+            # 🌟 CHỈ TÍNH NGUYÊN LIỆU MAY - ĐỒNG BỘ POLYGON CAD & PIECE CLASSIFIER
             # =====================================================================
             prompt_agent_2 = f"""
-            You are Agent 2: The Enterprise Apparel Visual Auditor & Material Router.
+            You are Agent 2: The Enterprise Apparel CAD Auditor & Raw Material Router.
             Review Agent 1 extraction against the raw Techpack context, BOM tables, and sketches.
 
-            🌟 STUCT RULES: ONLY EXTRACT RAW SEWING MATERIALS. 
-            Do NOT extract or include hardware or trim counts (No Buttons, No Zippers, No Labels, No Price Tags, No Polybags). Completely ignore them.
+            🌟 STRICT SYSTEM RULE: ONLY EXTRACT RAW SEWING MATERIALS. 
+            Completely exclude and ignore hardware or counts (No Buttons, No Zippers, No Labels, No Polybags, No Hardware).
             
-            ONLY route and extract the following raw sewing components:
-            - Main Fabric, Lining, Pocketing -> Engine: "FABRIC"
-            - Fusible, Interlining -> Engine: "FUSING"
-            - Elastic Bands -> Engine: "ELASTIC"
-            - Sewing Thread -> Engine: "THREAD"
+            ONLY route and extract the following industrial raw sewing components:
+            - Main Fabric, Lining, Pocketing, Contrast Fabric -> Engine: "FABRIC"
+            - Fusible Interlining, Tape, Collar Stay -> Engine: "FUSING"
+            - Elastic Bands, Elastic Webbing -> Engine: "ELASTIC"
+            - Sewing Thread (Spun / Filament) -> Engine: "THREAD"
 
-            All fabric/fusing items must match width {active_width}.
-            Output clean JSON under ===START_JSON=== and chat under ===START_CHAT===.
+            🌟 CAD PATTERN & GEOMETRY EXTRACTION INSTRUCTIONS (98% Accuracy Target):
+            1. PIECE CLASSIFIER: For each component, audit the structural symmetry. Identify if it is a 'Pair', 'Mirror', or 'Cut on Fold' layout. Ensure 'piece_count' represents the TOTAL actual pieces cut in production (e.g., Jeans Front Panel must be 2, Cargo Pocket Body must be 2).
+            2. POLYGON AREA PRIORITY: Look for any exact square inch area or CAD system outputs (Gerber/Lectra tables) in the Techpack. If found, populate 'polygon_net_area' and set 'polygon_area_mode' to "TOTAL" or "PER_PIECE".
+            3. GEOMETRY FALLBACK: If polygon area is missing, you MUST extract the 'bounding_box_length' and 'bounding_box_width' of the gross pattern block. Never output 0.0 or null for geometric shapes.
+            4. MARKET WIDTH TRACKING: Do NOT force active width {active_width} on all items. Scan the BOM table carefully: extract the SPECIFIC width for Lining (e.g., 44") or Interlining (e.g., 36") if specified. Use {active_width} only as a baseline fallback for Main Fabric.
+
+            Output clean executable JSON under ===START_JSON=== and chat summary under ===START_CHAT===.
             
             ===START_CHAT===
-            ⚖️ Enterprise CAD Pipeline Engaged: Đã lọc bỏ toàn bộ phụ liệu đếm chiếc, hệ thống chỉ tập trung kết xuất định mức các cấu phần nguyên liệu may cấu thành.
+            ⚖️ Industrial CAD Pipeline Engaged: Đã dọn sạch phụ liệu đếm chiếc. Hệ thống tự động phân loại cấu trúc rập đối xứng (Pair/Mirror), ưu tiên trích xuất diện tích đa giác CAD và khổ rộng thực tế của từng phân hệ vật tư từ BOM Techpack.
             ===END_CHAT===
             
             ===START_JSON===
             {dummy_json_payload}
             ===END_JSON===
             """
+
 
 
             gemini_inputs = copy.deepcopy(image_payloads)
