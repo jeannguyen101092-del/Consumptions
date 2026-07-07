@@ -365,6 +365,8 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data:
                 break
 import streamlit as st
 
+import streamlit as st
+
 # ==============================================================================
 # PHẦN B: TOÀN BỘ GIAO DIỆN HIỂN THỊ VÀ BẢN VÁ ĐỊNH DẠNG CSS TOÀN CỤC
 # ==============================================================================
@@ -380,14 +382,13 @@ st.markdown("""
         right: 0 !important;
         padding: 10px 4rem 15px 4rem !important; 
         background-color: #ffffff !important; 
-        z-index: 99999999 !important; /* Tăng tối đa z-index để không lớp nào đè được */
+        z-index: 99999999 !important; 
         box-shadow: 0 4px 15px rgba(0,0,0,0.08) !important;
         width: 100% !important;
         height: 295px !important;            
-        overflow: visible !important; /* Đổi sang visible để giữ chữ không bị cắt */
+        overflow: visible !important; 
     }
 
-    /* Gỡ bỏ khoảng trống thừa mặc định phía trên cùng của giao diện Streamlit */
     .stApp header {
         z-index: 0 !important;
     }
@@ -452,13 +453,12 @@ st.markdown("""
     .kpi-lbl-light {
         font-size: 10px !important;
         font-weight: 500 !important;
-        color: rgba(255, 255, 255, 0.95) !important; /* Làm nổi bật chữ màu trắng */
+        color: rgba(255, 255, 255, 0.95) !important; 
         font-family: 'Segoe UI', sans-serif !important;
         margin-top: 2px !important;
         white-space: nowrap !important;
     }
 
-    /* Bảng màu nền tương ứng */
     .bg-style { background-color: #1e293b !important; } 
     .bg-items { background-color: #0f766e !important; } 
     .bg-cons  { background-color: #c2410c !important; } 
@@ -485,21 +485,19 @@ st.markdown("""
         margin: auto !important;
     }
     
-    /* Màu nền dịu nhẹ dưới ảnh rập thiết kế */
     .color-ao   { background-color: #f8fafc !important; }
     .color-quan { background-color: #f4fbf9 !important; }
     .color-vest { background-color: #fffaf5 !important; }
     .color-vay  { background-color: #f5fcf7 !important; }
 
-    /* Đẩy phần nội dung uploader bên dưới sụp xuống tránh khoảng trắng hoặc đè chữ */
     .main-body-spacer {
         margin-top: 320px !important; 
     }
 </style>
 """, unsafe_allow_html=True)
 
-# 2. Khởi động Container Ghim Đỉnh
-st.markdown('<div class="sticky-top-container">', unsafe_allow_html=True)
+# 2. Khởi động Container Ghim Đỉnh tích hợp class chống Google dịch đè dữ liệu
+st.markdown('<div class="sticky-top-container notranslate" translate="no">', unsafe_allow_html=True)
 
 # TẦNG 1: BANNER TIÊU ĐỀ CHÍNH
 st.markdown("""
@@ -515,7 +513,7 @@ encoded_quan = "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.
 encoded_vest = "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%27100%27%20height%3D%27100%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23c2410c%27%20stroke-width%3D%271.25%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M4%202v20l8-4%208%204V2l-8%204-8-4z%27%2F%3E%3Cpath%20d%3D%27M12%206v12%27%2F%3E%3Cpath%20d%3D%27M4%208h16%27%2F%3E%3C%2Fsvg%3E"
 encoded_vay = "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%27100%27%20height%3D%27100%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%2315803d%27%20stroke-width%3D%271.25%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M6%202h12l3%207-9%2013-9-7%203-7z%27%2F%3E%3Cpath%20d%3D%27M6%209h12%27%2F%3E%3Cpath%20d%3D%27M12%202v7%27%2F%3E%3C%2Fsvg%3E"
 
-# TẦNG 2 & TẦNG 3: BỐ CỤC KHỐI ĐỒNG BỘ NẰM TRONG MỘT LUỒNG FLEXBOX THUẦN
+# TẦNG 2 & TẦNG 3: LUỒNG FLEXBOX THUẦN
 st.markdown(f"""
 <div class="kpi-flex-wrapper">
     <!-- KHỐI 1: ÁO -->
@@ -561,11 +559,9 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-st.markdown('</div>', unsafe_allow_html=True) # Đóng container ghim đỉnh
+st.markdown('</div>', unsafe_allow_html=True)
 
-# Khối tạo khoảng trống đẩy phần thân (uploader, widgets) xuống để tránh đè chữ
 st.markdown('<div class="main-body-spacer"></div>', unsafe_allow_html=True)
-
 
 
 
