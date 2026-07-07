@@ -366,31 +366,48 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data:
 import streamlit as st
 
 # ==============================================================================
-# PHẦN B: GIAO DIỆN HIỂN THỊ TRUYỀN THỐNG (BỎ CỐ ĐỊNH GHIM ĐỈNH)
+# PHẦN B: GIAO DIỆN GHIM ĐỈNH THÔNG MINH (CHỈ CỐ ĐỊNH RIÊNG CỤM BANNER & 4 Ô)
 # ==============================================================================
 
-# 1. Cấu hình lại các class CSS hiển thị dạng hộp cơ bản
+# 1. Bản vá CSS khóa trần đồng bộ layout Streamlit
 st.markdown("""
 <style>
+    /* Nhắm trực tiếp vào khối container chính của Streamlit để nhúng tầng ghim */
+    [data-testid="stMainBlockContainer"] {
+        position: relative !important;
+    }
+
+    /* Tạo khối bao bọc khóa chết vị trí khi cuộn trang */
+    .smart-sticky-wrapper {
+        position: sticky !important;
+        top: 2.85rem !important; /* Ghim khít ngay bên dưới thanh top-bar gốc của Streamlit */
+        background-color: #ffffff !important;
+        z-index: 99999 !important; /* Đảm bảo nổi lên trên phần uploader bên dưới */
+        padding: 15px 0 !important;
+        margin-bottom: 20px !important;
+        border-bottom: 1px solid #e2e8f0 !important;
+    }
+
     /* Banner tiêu đề chính Tầng 1 */
     .top-banner {
+        background: linear-gradient(135deg, #1e3a8a, #0f172a) !important;
+        padding: 14px 20px !important;
+        border-radius: 6px !important;
+        margin-bottom: 15px !important;
+        color: #ffffff !important;
         text-align: center !important;
-        margin-bottom: 25px !important;
-        padding-bottom: 15px !important;
-        border-bottom: 1px solid #f1f5f9 !important;
     }
     .top-title {
         font-family: 'Segoe UI', sans-serif !important;
         font-size: 16px !important;
-        font-weight: 800 !important;
-        color: #0f172a !important;
+        font-weight: 700 !important;
         letter-spacing: 0.5px !important;
     }
     .top-subtitle {
         font-family: 'Segoe UI', sans-serif !important;
-        font-size: 12px !important;
-        color: #64748b !important;
-        margin-top: 4px !important;
+        font-size: 11px !important;
+        opacity: 0.75 !important;
+        margin-top: 3px !important;
     }
 
     /* Thẻ tiêu đề màu chứa thông số KPIs Tầng 2 */
@@ -417,9 +434,10 @@ st.markdown("""
         color: rgba(255, 255, 255, 0.9) !important; 
         font-family: 'Segoe UI', sans-serif !important;
         margin-top: 2px !important;
+        text-transform: uppercase !important;
     }
 
-    /* Định nghĩa bảng màu nền */
+    /* Định nghĩa bảng màu nền tương ứng của bạn */
     .bg-style { background-color: #1e293b !important; } 
     .bg-items { background-color: #0f766e !important; } 
     .bg-cons  { background-color: #c2410c !important; } 
@@ -435,10 +453,9 @@ st.markdown("""
         display: flex !important;
         align-items: center !important;
         justify-content: center !important;
-        margin-bottom: 20px !important;
     }
     .image-placeholder-box img {
-        max-height: 110px !important;
+        max-height: 105px !important;
         width: auto !important;
         object-fit: contain !important;
         display: block;
@@ -453,8 +470,11 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# 2. Khởi động khối ghim thông minh chống ảnh hưởng Google dịch
+st.markdown('<div class="smart-sticky-wrapper notranslate" translate="no">', unsafe_allow_html=True)
+
 # ------------------------------------------------------------------------------
-# TẦNG 1: BANNER TIÊU ĐỀ CHÍNH
+# TẦNG 1: BANNER TIÊU ĐỀ CHÍNH MÀU XANH
 # ------------------------------------------------------------------------------
 st.markdown("""
 <div class="top-banner">
@@ -469,9 +489,7 @@ encoded_quan = "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.
 encoded_vest = "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%27100%27%20height%3D%27100%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23c2410c%27%20stroke-width%3D%271.25%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M4%202v20l8-4%208%204V2l-8%204-8-4z%27%2F%3E%3Cpath%20d%3D%27M12%206v12%27%2F%3E%3Cpath%20d%3D%27M4%208h16%27%2F%3E%3C%2Fsvg%3E"
 encoded_vay = "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%27100%27%20height%3D%27100%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%2315803d%27%20stroke-width%3D%271.25%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M6%202h12l3%207-9%2013-9-7%203-7z%27%2F%3E%3Cpath%20d%3D%27M6%209h12%27%2F%3E%3Cpath%20d%3D%27M12%202v7%27%2F%3E%3C%2Fsvg%3E"
 
-# ------------------------------------------------------------------------------
-# TẦNG 2 & TẦNG 3: BỐ CỤC 4 CỘT HIỂN THỊ MẶC ĐỊNH BẰNG ST.COLUMNS
-# ------------------------------------------------------------------------------
+# TẦNG 2 & TẦNG 3: BỐ CỤC 4 CỘT HIỂN THỊ DỰA TRÊN CHIA CỘT MẶC ĐỊNH
 k_col1, k_col2, k_col3, k_col4 = st.columns(4)
 
 with k_col1: 
@@ -489,6 +507,8 @@ with k_col3:
 with k_col4: 
     st.markdown(f'<div class="kpi-card-colored bg-size"><div class="kpi-num-light">{active_size_kpi}</div><div class="kpi-lbl-light">Cỡ hạt tính định mức</div></div>', unsafe_allow_html=True)
     st.markdown(f'<div class="image-placeholder-box color-vay"><img src="{encoded_vay}" alt="Vay"></div>', unsafe_allow_html=True)
+
+st.markdown('</div>', unsafe_allow_html=True) # 🟢 ĐÓNG KHỐI GHIM THÔNG MINH
 
 
 
