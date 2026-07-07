@@ -653,6 +653,41 @@ with col_right:
     else:
         st.markdown("<div style='margin-top:70px; text-align:center; color:#64748b; font-size:13px;'>Hình vẽ phác họa phẳng (Sketch) trích xuất từ trang bìa PDF sẽ tự động hiển thị cân xứng tại đây sau khi nạp file thành công.</div>", unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
+# =====================================================================
+# TẬP LỆNH JAVASCRIPT KHÓA CHẾT VÀ XÓA BỎ 2 Ô TRỐNG KHỔNG LỒ SÓT LẠI
+# =====================================================================
+
+st.markdown("""
+<script>
+    // Hàm quét tìm và tự động xóa bỏ các khối chia cột trống không có nội dung thực tế
+    function clearEmptyErpBoxes() {
+        // Tìm tất cả các hàng chia cột của Streamlit
+        const blocks = document.querySelectorAll('div[data-testid="stHorizontalBlock"]');
+        
+        blocks.forEach(block => {
+            // Kiểm tra xem hàng này có chứa hộp custom-erp-box hay không
+            const hasErpBox = block.querySelector('.custom-erp-box');
+            
+            if (hasErpBox) {
+                // Nếu có hộp ERP nhưng TRỐNG RỖNG (không chứa chữ tiêu đề thực tế)
+                const hasHeaderText = block.querySelector('.cad-header-text');
+                const hasUploader = block.querySelector('input[type="file"]');
+                
+                // Ép xóa sổ vĩnh viễn khối chia cột trống này ra khỏi màn hình
+                if (!hasHeaderText && !hasUploader) {
+                    block.style.display = 'none';
+                    block.style.height = '0px';
+                    block.style.margin = '0px';
+                    block.style.padding = '0px';
+                }
+            }
+        });
+    }
+
+    // Chạy kích hoạt quét dọn liên tục để chống lỗi khi Streamlit rerun dữ liệu
+    setInterval(clearEmptyErpBoxes, 300);
+</script>
+""", unsafe_allow_html=True)
 
 
 
