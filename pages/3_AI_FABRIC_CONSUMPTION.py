@@ -844,8 +844,9 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                      # =====================================================================
                        # =====================================================================
                        # =====================================================================
-            # ĐOẠN 7a - PHẦN 10: PROMPT AGENT 2 ROUTER & INDUSTRIAL CAD AUDITOR (v110.0)
-            # 🌟 STRICT DATA-DRIVEN: 100% LẤY SỐ LIỆU THẬT CỦA AI, KHÔNG TỰ BỊA KÍCH THƯỚC
+                       # =====================================================================
+            # ĐOẠN 7a - PHẦN 10: PROMPT AGENT 2 ROUTER & INDUSTRIAL CAD AUDITOR (v111.0)
+            # 🌟 SMART DEBUG MONITOR: BẬT MÀN HÌNH IN DỮ LIỆU THÔ CỦA AI XEM LỖI Ở ĐÂU
             # 🌟 ĐỒNG BỘ LỆNH USER CHAT -> ÉP AI CẬP NHẬT ĐỘ CO RÚT THEO YÊU CẦU
             # =====================================================================
             
@@ -903,7 +904,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
 
             STRICT AUDIT RULES:
             - Update 'warp_shrink' and 'weft_shrink' inside 'spec_meta' exactly as requested in the user command above (e.g., if user says co rut doc 5 ngang 3, set warp_shrink to 5.0 and weft_shrink to 3.0).
-            - Extract the EXACT numeric values for bounding_box_length and bounding_box_width for every single component. Do not alter or fabricate data.
+            - Extract the EXACT numeric values for bounding_box_length and bounding_box_width for every single component. Do not alter or fabricate data. If you cannot find them, try to read closely from pattern tables or text diagrams.
             - For fabric_width_inch, if not specified in BOM, use {active_width} as a baseline fallback.
             """
 
@@ -925,6 +926,10 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             
             # Giải mã gói tin JSON sạch chứa số liệu thật 100% từ AI
             blueprint_worker = json.loads(response.text)
+            
+            # 🌟 🌟 🌟 KHỐI DEBUG ĐẶC BIỆT: IN TRỰC TIẾP DỮ LIỆU GỐC AI TRẢ VỀ RA MÀN HÌNH CHAT
+            st.warning("🔍 [DEBUG MONITOR] DỮ LIỆU THÔ CHƯA QUA TÍNH TOÁN DO AI (GEMINI) TRẢ VỀ:")
+            st.json(blueprint_worker)
                 
             if blueprint_worker and "bom_rows" in blueprint_worker:
                 blueprint_worker["calculated_on_size"] = target_size_cmd
