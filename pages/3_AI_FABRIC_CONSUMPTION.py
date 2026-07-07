@@ -784,36 +784,50 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             }
             """.replace("SIZE_PLH", str(target_size_cmd)).replace("WIDTH_PLH", str(active_width))
                                  # =====================================================================
-            # ĐOẠN 7a - PHẦN 10: PROMPT AGENT 2 ROUTER & INDUSTRIAL CAD AUDITOR (v105.0)
-            # 🌟 ĐỒNG BỘ STRUCTURED OUTPUTS - KHÓA GÓC ÉP AI TRÍCH XUẤT KEO LÓT (FUSING)
+                     # =====================================================================
+            # ĐOẠN 7a - PHẦN 10: PROMPT AGENT 2 ROUTER & INDUSTRIAL CAD AUDITOR (v106.0)
+            # 🌟 ĐỒNG BỘ NATIVE JSON SCHEMA - TƯƠNG THÍCH MỌI PHIÊN BẢN GOOGLE IE SDK
             # =====================================================================
-            from typing import List, Optional
-            from pydantic import BaseModel, Field
-
-            # 1. Định nghĩa cấu trúc Schema nghiêm ngặt chặn AI bỏ sót vật tư
-            class SpecMetaSchema(BaseModel):
-                warp_shrink: float = Field(default=3.0, description="Độ co rút dọc (%) trích xuất từ Techpack")
-                weft_shrink: float = Field(default=3.0, description="Độ co rút ngang (%) trích xuất từ Techpack")
-                gather_ratio: float = Field(default=1.0, description="Tỷ lệ nhún vải (Ví dụ: 1.45 nếu có nhún sườn)")
-                has_stripe: bool = Field(default=False, description="True nếu vải có vân sọc, kẻ caro, plaid")
-                fabric_group: str = Field(default="WOVEN", description="Nhóm vải chính: DENIM, WOVEN, hoặc KNIT")
-
-            class BomRowSchema(BaseModel):
-                component_name: str = Field(description="Tên chi tiết rập (Ví dụ: FRONT PANEL, POCKET, KEO CẠP, DỰNG CỔ...)")
-                material_class: str = Field(description="Phân loại bắt buộc: FABRIC, LINING, FUSING, ELASTIC, THREAD")
-                uom: str = Field(default="YDS", description="Đơn vị tính từ bảng BOM: YDS, MTR, PCS")
-                piece_count: int = Field(default=1, description="Tổng số lượng chi tiết thực tế khi cắt sản xuất")
-                polygon_net_area: Optional[float] = Field(default=0.0, description="Diện tích đa giác từ Gerber/Lectra nếu có")
-                polygon_area_mode: Optional[str] = Field(default="PER_PIECE", description="TOTAL hoặc PER_PIECE")
-                polygon_unit: Optional[str] = Field(default="IN2", description="CM2 hoặc IN2")
-                bounding_box_length: float = Field(default=0.0, description="Chiều dài hộp bao khối rập thô (L)")
-                bounding_box_width: float = Field(default=0.0, description="Chiều rộng hộp bao khối rập thô (W)")
-                fabric_width_inch: Optional[float] = Field(default=None, description="Khổ rộng thực tế của loại vật tư đó trích xuất từ bảng BOM")
-
-            class ApparelAgentOutput(BaseModel):
-                detected_product_type: str = Field(default="CARGO_PANTS", description="Kiểu dáng sản phẩm")
-                spec_meta: SpecMetaSchema
-                bom_rows: List[BomRowSchema] = Field(description="Danh sách bắt buộc gồm cả Vải chính, Vải lót và Keo lót (FUSING/Interlining/Mex dựng)")
+            
+            # 1. Định nghĩa cấu trúc Native JSON Schema thay vì truyền trực tiếp lớp Pydantic
+            raw_json_schema = {
+                "type": "OBJECT",
+                "properties": {
+                    "detected_product_type": {"type": "STRING", "description": "Kiểu dáng sản phẩm, ví dụ: CARGO_PANTS, JEANS"},
+                    "spec_meta": {
+                        "type": "OBJECT",
+                        "properties": {
+                            "warp_shrink": {"type": "NUMBER", "description": "Độ co rút dọc (%)"},
+                            "weft_shrink": {"type": "NUMBER", "description": "Độ co rút ngang (%)"},
+                            "gather_ratio": {"type": "NUMBER", "description": "Tỷ lệ nhún vải (Ví dụ: 1.45 nếu có)"},
+                            "has_stripe": {"type": "BOOLEAN", "description": "True nếu vải có vân sọc, kẻ caro"},
+                            "fabric_group": {"type": "STRING", "description": "Nhóm vải chính: DENIM, WOVEN, hoặc KNIT"}
+                        },
+                        "required": ["warp_shrink", "weft_shrink", "gather_ratio", "has_stripe", "fabric_group"]
+                    },
+                    "bom_rows": {
+                        "type": "ARRAY",
+                        "description": "Danh sách bắt buộc gồm cả Vải chính, Vải lót túi và Keo lót (FUSING/Interlining/Mex dựng)",
+                        "items": {
+                            "type": "OBJECT",
+                            "properties": {
+                                "component_name": {"type": "STRING", "description": "Tên chi tiết rập (Ví dụ: FRONT PANEL, POCKET, KEO CẠP...)"},
+                                "material_class": {"type": "STRING", "description": "Phân loại bắt buộc: FABRIC, LINING, FUSING, ELASTIC, THREAD"},
+                                "uom": {"type": "STRING", "description": "Đơn vị tính từ bảng BOM: YDS, MTR, PCS"},
+                                "piece_count": {"type": "INTEGER", "description": "Tổng số lượng chi tiết thực tế khi cắt sản xuất"},
+                                "polygon_net_area": {"type": "NUMBER", "description": "Diện tích đa giác hệ CAD nếu có"},
+                                "polygon_area_mode": {"type": "STRING", "description": "TOTAL hoặc PER_PIECE"},
+                                "polygon_unit": {"type": "STRING", "description": "CM2 hoặc IN2"},
+                                "bounding_box_length": {"type": "NUMBER", "description": "Chiều dài hộp bao khối rập thô (L)"},
+                                "bounding_box_width": {"type": "NUMBER", "description": "Chiều rộng hộp bao khối rập thô (W)"},
+                                "fabric_width_inch": {"type": "NUMBER", "description": "Khổ rộng vật tư tương ứng trích xuất từ BOM"}
+                            },
+                            "required": ["component_name", "material_class", "uom", "piece_count", "bounding_box_length", "bounding_box_width"]
+                        }
+                    }
+                },
+                "required": ["detected_product_type", "spec_meta", "bom_rows"]
+            }
 
             # 2. Prompt tinh gọn tuyệt đối, loại bỏ hoàn toàn dummy_json mẫu làm phình token
             prompt_agent_2 = f"""
@@ -839,18 +853,18 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             gemini_inputs.insert(0, f"=== TECHPACK TEXT ===\n{full_pdf_raw_text}\n")
             gemini_inputs.append(prompt_agent_2)
 
-            # 4. Gọi API với cấu hình Structured Outputs ép cứng đầu ra JSON
+            # 4. Gọi API với cấu hình Native Schema tương thích 100%
             model = genai.GenerativeModel('gemini-2.5-flash')
             response = model.generate_content(
                 gemini_inputs,
                 generation_config={
                     "response_mime_type": "application/json",
-                    "response_schema": ApparelAgentOutput,  # Khóa bẫy cấu trúc, bắt buộc AI phải tìm Keo lót
+                    "response_schema": raw_json_schema,  # Sử dụng Dict Native Schema chặn đứng lỗi Unknown field
                     "temperature": 0.1
                 }
             )
             
-            # Giải mã gói tin JSON sạch 100% không lo lỗi định dạng ký tự lạ
+            # Giải mã gói tin JSON sạch
             blueprint_worker = json.loads(response.text)
                 
             if blueprint_worker and "bom_rows" in blueprint_worker:
@@ -861,8 +875,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                     if "fabric_width_inch" not in row or row.get("fabric_width_inch") is None:
                         row["fabric_width_inch"] = active_width
                 
-                # Đẩy gói tin cấu trúc tĩnh sạch vào lõi Router v45.0 nghiêm ngặt của Python
-                # Đã thêm tham số bẫy lỗi để tương thích hoàn toàn với lệnh gọi cũ của bạn
+                # Đẩy gói tin vào lõi Router v45.0 nghiêm ngặt của Python
                 blueprint_final = allocate_fabric_consumption_and_quality_gate(blueprint_worker, str(safe_user_prompt).strip())
                 
                 st.session_state.bom_data = blueprint_final
