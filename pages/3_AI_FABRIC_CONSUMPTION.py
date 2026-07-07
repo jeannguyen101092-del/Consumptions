@@ -364,9 +364,10 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data:
 import streamlit as st
 
 # ==============================================================================
-# ĐOẠN B1: HỆ THỐNG ĐỊNH DẠNG CSS STATIC CONFIG (CHỈ RENDER TĨNH 1 LẦN)
+# ĐOẠN B: HỆ THỐNG CSS TOÀN CỤC & HÀM KẾT XUẤT COMPONENT HEADER ENTERPRISE
 # ==============================================================================
 
+# 1. Nhúng bản vá cấu hình CSS tĩnh (Chỉ render 1 lần duy nhất)
 st.markdown("""
 <style>
     /* Giải phóng thuộc tính overflow của các lớp cha để cố định layout mượt mà */
@@ -511,18 +512,10 @@ st.markdown("""
     }
 </style>
 """, unsafe_allow_html=True)
-import streamlit as st
 
-# ==============================================================================
-# ĐOẠN B2: HÀM KHỞI DỰNG LAYOUT HTML VÀ TRUYỀN BIẾN ĐỘNG KPIs THEO REALTIME
-# ==============================================================================
 
+# 2. Định nghĩa hàm kết xuất HTML Template truyền biến động từ Python (Đã xóa chú thích)
 def render_enterprise_sticky_header(style_id, materials_count, fabric_consumption, active_size):
-    """
-    Hàm đóng gói khuôn mẫu giao diện Header độc lập cao cấp.
-    Tự động khóa dịch trình duyệt Chrome và nhận tham số biến động thời gian thực.
-    """
-    # Chuỗi mã hóa vector đồ họa của 4 form trang phục gốc
     encoded_ao = "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%27100%27%20height%3D%27100%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23334155%27%20stroke-width%3D%271.25%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M20.38%203.46L16%202a4%204%200%200%200-8%200l-4.38%201.46a2%202%200%200%200-1.37%202l.35%2011.23a2%202%200%200%200%202%201.94h14.8a2%202%200%200%200%202-1.94l.35-11.23a2%202%200%200%200-1.37-2z%27%2F%3E%3Cpath%20d%3D%27M12%205v16%27%2F%3E%3Cpath%20d%3D%27M4%2010h16%27%2F%3E%3C%2Fsvg%3E"
     encoded_quan = "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%27100%27%20height%3D%27100%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%230f766e%27%20stroke-width%3D%271.25%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M4%202h16l-2%2020H6L4%202z%27%2F%3E%3Cpath%20d%3D%27M12%202v20%27%2F%3E%3Cpath%20d%3D%27M5%208h14%27%2F%3E%3C%2Fsvg%3E"
     encoded_vest = "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%27100%27%20height%3D%27100%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23c2410c%27%20stroke-width%3D%271.25%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M4%202v20l8-4%208%204V2l-8%204-8-4z%27%2F%3E%3Cpath%20d%3D%27M12%206v12%27%2F%3E%3Cpath%20d%3D%27M4%208h16%27%2F%3E%3C%2Fsvg%3E"
@@ -566,23 +559,6 @@ def render_enterprise_sticky_header(style_id, materials_count, fabric_consumptio
             <div class="kpi-column-box">
                 <div class="kpi-card-colored bg-size">
                     <div class="kpi-num-light">{active_size}</div>
-                    <div class="kpi-lbl-light">Cỡ hạt tính định mức</div>
-                </div>
-                <div class="image-placeholder-box color-vay">
-                    <img src="{encoded_vay}" alt="Vay">
-                </div>
-            </div>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-
-# Gọi hàm kết xuất giao diện thực tế
-render_enterprise_sticky_header(
-    style_id=kpi_style_id,
-    materials_count=total_materials,
-    fabric_consumption=main_fabric_cons,
-    active_size=active_size_kpi
-)
 
 
 
