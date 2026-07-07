@@ -316,12 +316,8 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-import streamlit as st
-
-import streamlit as st
-
 # =====================================================================
-# ĐOẠN 6a: KHỞI TẠO HỆ THỐNG VÀ BỘ CONFIG STYLE ENTERPRISE UI PHẲNG
+# ĐOẠN 6a: KHỞI TẠO HỆ THỐNG VÀ BỘ CONFIG STYLE ENTERPRISE UI LIỀN KHỐI
 # =====================================================================
 import streamlit as st
 
@@ -365,171 +361,110 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data:
                 main_fabric_cons = f"{val_gross:.3f} Yds"
                 break
 
-# 5. 🌟 BỘ STYLE SẠCH: THAY THẾ GRADIENT BẰNG THIẾT KẾ PHẲNG SANG TRỌNG CỦA CTY LỚN
+# 5. 🌟 BỘ STYLE SẠCH THAY THẾ TOÀN BỘ PHẦN CSS CŨ
 st.markdown("""
 <style>
-    /* Nhúng Font chữ Inter cao cấp được các tập đoàn lớn ưu chuộng */
+    /* Sửa lại link nhúng font Inter chuẩn Google Fonts */
     @import url('https://googleapis.com');
 
-    /* Áp dụng font Inter toàn hệ thống và chuyển nền ứng dụng về màu xám nhẹ sang trọng */
     html, body, [data-testid="stAppViewContainer"], .stApp {
-        font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important;
         background-color: #f8fafc !important;
     }
-    
-    /* Đồng bộ thanh Header mặc định của Streamlit */
-    header[data-testid="stHeader"] {
-        background-color: #f8fafc !important;
-        z-index: 999 !important;
-    }
-    
-    /* Reset khoảng đệm trần mặc định của Streamlit, ép dọn sạch các ô trống */
-    .block-container {
-        padding-top: 1.5rem !important; 
-        margin-top: 0px !important;
-        max-width: 100% !important;
-    }
-    
-    /* Ép tất cả các hàng chia cột mặc định phải co khít sát lên trên cùng */
-    div[data-testid="stHorizontalBlock"] {
-        margin-top: 0px !important;
-        padding-top: 0px !important;
-    }
-
-    /* ------------------------------------------------------------- */
-    /* THÈ KPI MỚI: NỀN TRẮNG TINH KHIẾT, CĂN TRÁI CHUẨN SAAS CÔNG NGHỆ */
-    /* ------------------------------------------------------------- */
-    .kpi-card-colored {
-        border-radius: 8px 8px 0 0 !important;
-        padding: 14px 16px;
-        text-align: left !important; /* Căn trái tạo cảm giác chuyên nghiệp hơn */
-        background-color: #ffffff !important; /* Ép phẳng nền trắng */
-        border: 1px solid #e2e8f0 !important;
-        border-bottom: none !important;
-        box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.02) !important;
-        box-sizing: border-box !important;
-    }
-    
-    /* Tăng kích cỡ, đổi số sang màu đen xám Slate đậm lịch lãm */
-    .kpi-num-light {
-        font-size: 20px !important; 
-        font-weight: 700 !important;
-        color: #0f172a !important; 
-        line-height: 1.2;
-    }
-    
-    /* Chuyển chữ chú thích về màu xám phụ tinh tế, tăng khoảng cách chữ mở rộng góc nhìn */
-    .kpi-lbl-light {
-        font-size: 10px !important;
-        font-weight: 600;
-        color: #64748b !important;
-        text-transform: uppercase;
-        letter-spacing: 0.05em !important;
-        margin-top: 4px !important;
-    }
-    
-    /* Thay đổi Gradient bằng các dải viền mỏng 4px tinh xảo trên đỉnh đầu mỗi Card */
-    .bg-style { border-top: 4px solid #334155 !important; background: #ffffff !important; } /* Chì Đậm */
-    .bg-items { border-top: 4px solid #0ea5e9 !important; background: #ffffff !important; } /* Xanh Dương Ocean */
-    .bg-cons  { border-top: 4px solid #f97316 !important; background: #ffffff !important; } /* Cam Soft */
-    .bg-size  { border-top: 4px solid #10b981 !important; background: #ffffff !important; } /* Xanh Mint */
-
-    /* HỘP CHỨA HÌNH VẼ ĐỈNH THU GỌN CHUYÊN NGHIỆP */
-    .image-placeholder-box {
-        border: 1px solid #e2e8f0 !important;
-        border-top: none !important; 
-        border-radius: 0 0 8px 8px !important;
-        padding: 12px !important;
-        height: 120px !important; /* Hạ chiều cao gọn gàng vừa vặn tầm mắt */
-        display: flex !important;
-        align-items: center !important;
-        justify-content: center !important;
-        box-sizing: border-box !important;
-        margin-bottom: 25px !important;
-        background-color: #ffffff !important;
-    }
-    
-    /* Tạo lớp nền xám siêu nhạt bọc bên dưới rập vải giúp các nét rập đen hiển thị nổi bật cực đẹp */
-    .color-ao, .color-quan, .color-vest, .color-vay { 
-        width: 100% !important;
-        height: 100% !important;
-        border-radius: 6px !important;
-        display: flex !important;
-        align-items: center !important;
-        justify-content: center !important;
+    header[data-testid="stHeader"] { 
         background-color: #f8fafc !important; 
+        z-index: 999 !important; 
     }
-    
-    .image-placeholder-box img {
-        max-height: 90px !important;
-        width: auto !important;
-        object-fit: contain !important;
-        display: block !important;
-        margin: auto !important;
+    .block-container { 
+        padding-top: 1rem !important; 
+        max-width: 100% !important; 
+    }
+    div[data-testid="stHorizontalBlock"] { 
+        margin-top: 0px !important; 
+        padding-top: 0px !important; 
     }
 
-    /* ------------------------------------------------------------- */
-    /* KHỐNG CHẾ CHẶT CHẼ ĐỘ CAO 1:1 ĐỐI XỨNG CHO 2 HỘP THÂN DƯỚI */
-    /* ------------------------------------------------------------- */
+    /* --- KHỐI THẺ KPI LIỀN KHỐI CHUẨN TẬP ĐOÀN LỚN --- */
+    .enterprise-kpi-card {
+        background-color: #ffffff !important;
+        border: 1px solid #e2e8f0 !important;
+        border-radius: 8px !important;
+        padding: 16px !important;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.02) !important;
+        margin-bottom: 20px !important;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+    }
+    
+    /* Đường line viền màu mảnh định danh trên đỉnh */
+    .border-style { border-top: 4px solid #334155 !important; }
+    .border-items { border-top: 4px solid #0ea5e9 !important; }
+    .border-cons  { border-top: 4px solid #f97316 !important; }
+    .border-size  { border-top: 4px solid #10b981 !important; }
+
+    .kpi-header { text-align: left !important; margin-bottom: 12px; }
+    .kpi-num-light { font-size: 22px !important; font-weight: 700 !important; color: #0f172a !important; line-height: 1.1; }
+    .kpi-lbl-light { font-size: 10px !important; font-weight: 600; color: #64748b !important; text-transform: uppercase; letter-spacing: 0.05em; margin-top: 4px; }
+
+    /* Hộp lót ảnh bên trong, bo tròn nằm trọn trong thẻ trắng không lo tràn viền */
+    .kpi-image-container {
+        background-color: #f8fafc !important;
+        border-radius: 6px !important;
+        height: 100px !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        padding: 10px !important;
+    }
+    .kpi-image-container img { max-height: 75px !important; width: auto !important; object-fit: contain !important; }
+
+    /* --- KHU VỰC THÂN DƯỚI ĐỐI XỨNG CÂN BẰNG --- */
     .custom-erp-box {
         background-color: #ffffff !important;
         border: 1px solid #e2e8f0 !important;
-        border-radius: 12px; /* Bo góc mềm mại, sang trọng hơn */
+        border-radius: 12px;
         padding: 24px;
-        margin-bottom: 15px;
-        box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05) !important;
-        max-height: 400px !important; 
-        min-height: 400px !important; /* Đảm bảo hai bên cân xứng tuyệt đối */
-        overflow-y: auto !important;   
+        min-height: 420px !important;
+        max-height: 420px !important;
+        overflow-y: auto !important;
         box-sizing: border-box !important;
     }
-    
-    /* Chuyển tiêu đề về chữ hoa nhỏ, xám đậm tối giản tinh tế */
     .cad-header-text {
         font-size: 12px !important;
         font-weight: 700 !important;
-        color: #0f172a !important; 
+        color: #0f172a !important;
         text-transform: uppercase;
         letter-spacing: 0.05em;
-        margin-bottom: 16px;
-        padding-bottom: 8px;
+        margin-bottom: 20px;
+        padding-bottom: 10px;
         border-bottom: 1px solid #f1f5f9;
     }
-
-    /* Thẻ hồ sơ tóm tắt thông số mã hàng ngăn nắp */
-    .meta-box-light {
-        background-color: #f8fafc; 
-        border-left: 3px solid #0ea5e9; /* Đường line chỉ thị mỏng màu xanh */
-        padding: 8px 12px;
-        margin-bottom: 8px;
-        border-radius: 0 6px 6px 0;
+    
+    /* Trạng thái trống (Empty State) tinh tế */
+    .empty-state-container {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        height: 260px;
+        color: #94a3b8;
+        text-align: center;
     }
-    .meta-label-light { font-size: 10px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.02em; }
+    .empty-state-text { font-size: 13px; margin-top: 8px; color: #64748b; }
+
+    .meta-box-light { background-color: #f8fafc; border-left: 3px solid #0ea5e9; padding: 10px 14px; margin-bottom: 8px; border-radius: 0 6px 6px 0; }
+    .meta-label-light { font-size: 10px; font-weight: 600; color: #64748b; text-transform: uppercase; }
     .meta-value-light { font-size: 13px; font-weight: 500; color: #0f172a; margin-top: 2px; }
 
-    /* Khống chế hình vẽ rập phẳng bên phải không bị kéo giãn */
-    .sticky-sketch-box img {
-        max-height: 300px !important;
-        width: auto !important;
-        object-fit: contain !important;
-        margin: 0 auto !important;
-        display: block !important;
-    }
-
-    /* BẢN VÁ TRIỆT TIÊU KHỐI TRỐNG */
-    .main-body-spacer, 
-    .sticky-top-container,
-    div[smart-fixed-container],
-    div[data-testid="stHorizontalBlock"]:empty {
-        display: none !important;
-        height: 0px !important;
-        margin: 0 !important;
-        padding: 0 !important;
-    }
+    /* Làm sạch Sidebar */
+    section[data-testid="stSidebar"] { background-color: #ffffff !important; border-right: 1px solid #e2e8f0 !important; }
+    section[data-testid="stSidebar"] h3 { font-size: 11px !important; font-weight: 700 !important; color: #64748b !important; letter-spacing: 0.05em; }
+    section[data-testid="stSidebar"] button { background-color: #fff !important; color: #ef4444 !important; border: 1px solid #fee2e2 !important; border-radius: 6px !important; font-size: 12px !important; transition: all 0.2s; }
+    section[data-testid="stSidebar"] button:hover { background-color: #fef2f2 !important; border-color: #fca5a5 !important; }
+    div[data-testid="stFileUploader"] section { background-color: #f8fafc !important; border: 1px dashed #cbd5e1 !important; border-radius: 8px !important; padding: 12px !important; margin-bottom: 15px; }
 </style>
 """, unsafe_allow_html=True)
-
-
 # =====================================================================
 # ĐOẠN 6b: GIAO DIỆN HIỂN THỊ KPIs VÀ LƯỚI CHIA CỘT UPLOADER CHUẨN PHẲNG
 # =====================================================================
@@ -540,68 +475,56 @@ encoded_quan = "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.
 encoded_vest = "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%27100%27%20height%3D%27100%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%2364748b%27%20stroke-width%3D%271.25%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M4%202v20l8-4%208%204V2l-8%204-8-4z%27%2F%3E%3Cpath%20d%3D%27M12%206v12%27%2F%3E%3Cpath%20d%3D%27M4%208h16%27%2F%3E%3C%2Fsvg%3E"
 encoded_vay = "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%27100%27%20height%3D%27100%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%2364748b%27%20stroke-width%3D%271.25%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M6%202h12l3%207-9%2013-9-7%203-7z%27%2F%3E%3Cpath%20d%3D%27M6%209h12%27%2F%3E%3Cpath%20d%3D%27M12%202v7%27%2F%3E%3C%2Fsvg%3E"
 
-# 1. Thêm CSS cục bộ để xử lý dọn sạch Sidebar & Hộp kéo thả file (st.file_uploader)
-st.markdown("""
-<style>
-    /* Làm sạch Sidebar theo lối thiết kế tối giản phẳng */
-    section[data-testid="stSidebar"] {
-        background-color: #ffffff !important;
-        border-right: 1px solid #e2e8f0 !important;
-    }
-    section[data-testid="stSidebar"] h3 {
-        font-size: 11px !important;
-        font-weight: 700 !important;
-        color: #64748b !important;
-        letter-spacing: 0.05em;
-        margin-bottom: 12px !important;
-    }
-    /* Chỉnh sửa nút xóa bộ nhớ thành dạng viền mảnh nhẹ nhàng tinh tế */
-    section[data-testid="stSidebar"] button {
-        background-color: #fff !important;
-        color: #ef4444 !important;
-        border: 1px solid #fee2e2 !important;
-        border-radius: 6px !important;
-        font-size: 12px !important;
-        font-weight: 500 !important;
-        transition: all 0.2s;
-    }
-    section[data-testid="stSidebar"] button:hover {
-        background-color: #fef2f2 !important;
-        border-color: #fca5a5 !important;
-    }
-    
-    /* Giao diện nút kéo thả PDF tinh tế dạng đường đứt đoạn */
-    div[data-testid="stFileUploader"] section {
-        background-color: #f8fafc !important;
-        border: 1px dashed #cbd5e1 !important;
-        border-radius: 8px !important;
-        padding: 12px !important;
-    }
-</style>
-""", unsafe_allow_html=True)
-
-# LƯỚI CHIA 4 CỘT HIỂN THỊ HÀNG TRÊN CỦA STREAMLIT
+# LƯỚI CHIA 4 CỘT HIỂN THỊ HÀNG TRÊN CỦA STREAMLIT (Cấu trúc HTML mới bọc liền khối)
 k_col1, k_col2, k_col3, k_col4 = st.columns(4)
 
 with k_col1: 
-    st.markdown(f'<div class="kpi-card-colored bg-style"><div class="kpi-num-light">{kpi_style_id}</div><div class="kpi-lbl-light">Mã hàng đang xử lý</div></div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="image-placeholder-box color-ao"><img src="{encoded_ao}" alt="Ao"></div>', unsafe_allow_html=True)
+    st.markdown(f'''
+    <div class="enterprise-kpi-card border-style">
+        <div class="kpi-header">
+            <div class="kpi-num-light">{kpi_style_id}</div>
+            <div class="kpi-lbl-light">Mã hàng đang xử lý</div>
+        </div>
+        <div class="kpi-image-container"><img src="{encoded_ao}" alt="Ao"></div>
+    </div>
+    ''', unsafe_allow_html=True)
 
 with k_col2: 
-    st.markdown(f'<div class="kpi-card-colored bg-items"><div class="kpi-num-light">{total_materials} Item(s)</div><div class="kpi-lbl-light">Tổng số vật tư kết xuất</div></div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="image-placeholder-box color-quan"><img src="{encoded_quan}" alt="Quan"></div>', unsafe_allow_html=True)
+    st.markdown(f'''
+    <div class="enterprise-kpi-card border-items">
+        <div class="kpi-header">
+            <div class="kpi-num-light">{total_materials} Item(s)</div>
+            <div class="kpi-lbl-light">Tổng số vật tư kết xuất</div>
+        </div>
+        <div class="kpi-image-container"><img src="{encoded_quan}" alt="Quan"></div>
+    </div>
+    ''', unsafe_allow_html=True)
 
 with k_col3: 
-    st.markdown(f'<div class="kpi-card-colored bg-cons"><div class="kpi-num-light">{main_fabric_cons}</div><div class="kpi-lbl-light">Định mức vải chính dự kiến</div></div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="image-placeholder-box color-vest"><img src="{encoded_vest}" alt="Vest"></div>', unsafe_allow_html=True)
+    st.markdown(f'''
+    <div class="enterprise-kpi-card border-cons">
+        <div class="kpi-header">
+            <div class="kpi-num-light">{main_fabric_cons}</div>
+            <div class="kpi-lbl-light">Định mức vải chính dự kiến</div>
+        </div>
+        <div class="kpi-image-container"><img src="{encoded_vest}" alt="Vest"></div>
+    </div>
+    ''', unsafe_allow_html=True)
 
 with k_col4: 
-    st.markdown(f'<div class="kpi-card-colored bg-size"><div class="kpi-num-light">{active_size_kpi}</div><div class="kpi-lbl-light">Cỡ hạt tính định mức</div></div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="image-placeholder-box color-vay"><img src="{encoded_vay}" alt="Vay"></div>', unsafe_allow_html=True)
+    st.markdown(f'''
+    <div class="enterprise-kpi-card border-size">
+        <div class="kpi-header">
+            <div class="kpi-num-light">{active_size_kpi}</div>
+            <div class="kpi-lbl-light">Cỡ hạt tính định mức</div>
+        </div>
+        <div class="kpi-image-container"><img src="{encoded_vay}" alt="Vay"></div>
+    </div>
+    ''', unsafe_allow_html=True)
 
 
 # --- SIDEBAR ENGINE CONTROLS CONTROL PANEL ---
-st.sidebar.markdown("### ENGINE CONTROLS")
+st.sidebar.markdown("### ⚙️ ENGINE CONTROLS")
 if st.sidebar.button("🗑️ CLEAR SYSTEM MEMORY", use_container_width=True):
     st.session_state.bom_data = None
     st.session_state.chat_history = []
@@ -623,6 +546,7 @@ with col_left:
     st.markdown('<div class="custom-erp-box">', unsafe_allow_html=True)
     st.markdown('<div class="cad-header-text">📂 TECHPACK UPLOADER & PROFILE SUMMARY</div>', unsafe_allow_html=True)
     
+    # Nút upload đặt trang trọng lên trên cùng của hộp theo đúng tư duy UI dòng chảy dữ liệu từ trên xuống
     uploaded_file = st.file_uploader("Upload PDF", type=["pdf"], label_visibility="collapsed")
     
     if uploaded_file is not None:
@@ -634,7 +558,6 @@ with col_left:
         st.session_state.pdf_name = uploaded_file.name
 
     if st.session_state.pdf_text_cache is not None:
-        st.markdown("<div style='margin-top: 5px;'></div>", unsafe_allow_html=True)
         txt = st.session_state.pdf_text_cache
         
         import re
@@ -659,19 +582,34 @@ with col_left:
             st.markdown(f'<div class="meta-box-light"><div class="meta-label-light">Techpack Status</div><div class="meta-value-light" style="color: #10b981; font-weight: bold;">🟢 READY TO BOM</div></div>', unsafe_allow_html=True)
     else:
         if st.session_state.pdf_bytes is None:
-            st.markdown("<div style='margin-top: 60px; text-align: center; color: #64748b; font-size: 13px;'>Bảng tóm tắt thông số sản phẩm sẽ tự động hiển thị tại đây sau khi nạp file PDF.</div>", unsafe_allow_html=True)
+            # Giao diện Empty State dạng phẳng tối giản cho phần tóm tắt thông số
+            st.markdown('''
+            <div class="empty-state-container">
+                <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/></svg>
+                <div class="empty-state-text">Bảng tóm tắt thông số mã hàng sẽ tự động hiển thị tại đây sau khi nạp file PDF.</div>
+            </div>
+            ''', unsafe_allow_html=True)
         
     st.markdown('</div>', unsafe_allow_html=True)
 
 
 # --- CỘT PHẢI: KHUNG XEM BẢN VẼ PHẲNG SKETCH ---
 with col_right:
-    st.markdown('<div class="custom-erp-box sticky-sketch-box">', unsafe_allow_html=True)
+    st.markdown('<div class="custom-erp-box">', unsafe_allow_html=True)
     st.markdown('<div class="cad-header-text">🎨 TECHPACK SKETCH VISUALIZER</div>', unsafe_allow_html=True)
     
-    # [Logic render ảnh hoặc bản vẽ của bạn sẽ đặt tiếp tục ở đây...]
-    
-    st.markdown('</div>', unsafe_allow_html=True)  # Đã vá thẻ đóng hoàn chỉnh bảo toàn bố cục ứng dụng
+    if st.session_state.get("pdf_page_one_image") is not None:
+        st.image(st.session_state.pdf_page_one_image, use_container_width=True)
+    else:
+        # Giao diện Empty State tinh tế cho phần hiển thị bản vẽ kỹ thuật hình ảnh
+        st.markdown('''
+        <div class="empty-state-container">
+            <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+            <div class="empty-state-text">Hình ảnh kết cấu rập kĩ thuật (Technical Sketch) sẽ được nhận diện tự động từ tệp tin.</div>
+        </div>
+        ''', unsafe_allow_html=True)
+        
+    st.markdown('</div>', unsafe_allow_html=True) # Vá thành công toàn bộ thẻ đóng của cột phải
 
 
 
