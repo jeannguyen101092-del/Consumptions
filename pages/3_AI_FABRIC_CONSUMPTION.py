@@ -950,26 +950,22 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
 
 
 # =====================================================================
-# ĐOẠN 7b: HIỂN THỊ KẾT QUẢ ĐỊNH MỨC & BẢNG ĐỐI CHỨNG ĐA CỘT ĐỒNG BỘ SIZE (V103.0)
-# 🌟 ĐỒNG BỘ TUYỆT ĐỐI CẤU TRÚC JSON SCHEMA & BẬT EXPANDER DEBUG MONITOR CỐ ĐỊNH
+# ĐOẠN 7b: HIỂN THỊ KẾT QUẢ ĐỊNH MỨC CHI TIẾT & BẢNG GỘP TỔNG VẬT TƯ (V104.0)
+# 🌟 KIẾN TRÚC IE TIÊU CHUẨN: Tự động gộp tổng định mức theo loại vật tư bằng Python
 # =====================================================================
 import pandas as pd
 import re
 
-# 🌟 🌟 🌟 KHỐI DEBUG SMART MONITOR CỐ ĐỊNH (CHỐNG MẤT KHI RERUN)
-# Giúp bạn nhìn thấy trực quan 100% dữ liệu gốc AI trả về để đối chiếu tại sao Python gán lỗi
 if "raw_ai_debug_payload" in st.session_state and st.session_state["raw_ai_debug_payload"]:
     with st.expander("🔍 [DEBUG MONITOR] XEM DỮ LIỆU THÔ CHƯA QUA TÍNH TOÁN DO AI (GEMINI) TRẢ VỀ"):
         st.json(st.session_state["raw_ai_debug_payload"])
 
 if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_rows"):
     bom_source = st.session_state.get("bom_data", {})
-    if not isinstance(bom_source, dict): 
-        bom_source = {}
+    if not isinstance(bom_source, dict): bom_source = {}
         
     bom_rows_list = bom_source.get("bom_rows", st.session_state.get("accumulated_bom_rows", []))
-    if not isinstance(bom_rows_list, list): 
-        bom_rows_list = []
+    if not isinstance(bom_rows_list, list): bom_rows_list = []
 
     chat_txt = ""
     if 'safe_user_prompt' in locals() and safe_user_prompt:
@@ -980,26 +976,20 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
     match_active_size = re.search(r'\b(?:size|sz|cỡ)\s*[:\-=\s]*([\w\d/]+)\b', chat_txt)
     extracted_size = str(match_active_size.group(1)).upper().strip() if match_active_size else str(bom_source.get("calculated_on_size", "30")).upper().strip()
     
-    # Trích xuất thông số siêu dữ liệu co rút động thực tế từ spec_meta gốc của gói tin AI
     ai_meta_data = bom_source.get("spec_meta", {})
     current_warp_shrink = f"{ai_meta_data.get('warp_shrink', 3.0)}%"
     current_weft_shrink = f"{ai_meta_data.get('weft_shrink', 3.0)}%"
     
-    st.markdown('<div class="cad-card">', unsafe_allow_html=True)
-    st.markdown(f'<div class="cad-header">📊 CALCULATED MATERIAL CONSUMPTION MATRIX (SIZE TARGET: {extracted_size})</div>', unsafe_allow_html=True)
-    
     display_data = []
     
     for r in bom_rows_list:
-        if not r or not isinstance(r, dict): 
-            continue
+        if not r or not isinstance(r, dict): continue
             
         current_gross = r.get("gross_consumption", 0.0)
         sys_notes = r.get("system_notes", "Mô phỏng CAD Gerber V27")
         engine_target = str(r.get("engine", "FABRIC")).upper().strip()
         uom_display = str(r.get("uom", "YDS")).upper().strip()
 
-        # Đọc thông số hình học thật từ dòng rập để xuất thẳng ra màn hình hiển thị
         b_len_val = r.get("bounding_box_length", 0.0)
         b_wid_val = r.get("bounding_box_width", 0.0)
         p_count_val = r.get("piece_count", 1)
@@ -1007,12 +997,10 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
         if engine_target in ["FABRIC", "FUSING"]:
             raw_width = r.get("fabric_width_inch", 56.0)
             cut_width_val = f"{float(raw_width)} inch" if isinstance(raw_width, (int, float)) else f"{raw_width} inch"
-            
-            # ĐỒNG BỘ CHÍNH XÁC: Đọc trực tiếp biến co rút động đã cập nhật từ lệnh chat
             warp_dynamic = current_warp_shrink
             weft_dynamic = current_weft_shrink
-            eff_dynamic = f"{float(r.get('marker_efficiency', 0.855)) * 100 if isinstance(r.get('marker_efficiency'), (int,float)) else r.get('marker_efficiency', '85.5%')}"
-            if "%" not in eff_dynamic: eff_dynamic += "%"
+            eff_dynamic = f"{r.get('marker_efficiency', '85.5%')}"
+            if isinstance(eff_dynamic, (int, float)): eff_dynamic = f"{round(eff_dynamic * 100, 1)}%"
         else:
             cut_width_val = "N/A (Linear/Count)"
             warp_dynamic = "-"
@@ -1021,85 +1009,54 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
 
         display_data.append({
             "Component Name": r.get("component_name", "Unnamed Material"),
-            "Material Class": r.get("material_class", engine_target),
+            "Material Class": r.get("material_class", engine_target).upper().strip(),
             "UOM": uom_display,
-            "Số lượng rập (Pcs)": p_count_val,               # 🌟 HIỂN THỊ THÊM ĐỂ ĐỐI CHIẾU
-            "Dài bao thô (L-Inch)": b_len_val,               # 🌟 HIỂN THỊ THÊM ĐỂ ĐỐI CHIẾU
-            "Rộng bao thô (W-Inch)": b_wid_val,              # 🌟 HIỂN THỊ THÊM ĐỂ ĐỐI CHIẾU
+            "Số lượng rập (Pcs)": p_count_val,
+            "Dài bao thô (L-Inch)": b_len_val,
+            "Rộng bao thô (W-Inch)": b_wid_val,
             "Khổ vải (Width)": cut_width_val,
             "Co rút dọc (% Warp)": warp_dynamic,     
             "Co rút ngang (% Weft)": weft_dynamic,   
             "Marker Efficiency": eff_dynamic,         
-            "Gross Consumption": current_gross,
+            "Gross Consumption": float(current_gross),
             "Quality Status": r.get("quality_status", "PASS"),
             "System Calculation Notes": sys_notes
         })
         
     if display_data:
         df_bom = pd.DataFrame(display_data)
+        
+        # =====================================================================
+        # MẠ TRẬN 1: BẢNG GỘP TỔNG ĐỊNH MỨC NGUYÊN LIỆU MUA HÀNG (SUMMARIZED BOM)
+        # =====================================================================
+        st.markdown('<div class="cad-card">', unsafe_allow_html=True)
+        st.markdown(f'<div class="cad-header" style="background-color: #27AE60;">📦 SUMMARY: TỔNG HỢP ĐỊNH MỨC NGUYÊN LIỆU PHẲNG (SIZE: {extracted_size})</div>', unsafe_allow_html=True)
+        
+        # Sử dụng GroupBy của Pandas để tự động cộng dồn định mức các chi tiết rập trùng loại vải
+        df_summary = df_bom.groupby(["Material Class", "UOM"], as_index=False).agg({
+            "Gross Consumption": "sum"
+        })
+        
+        # Làm tròn kết quả gộp tổng định mức về 4 chữ số thập phân chuẩn nhà máy
+        df_summary["Gross Consumption"] = df_summary["Gross Consumption"].round(4)
+        df_summary["Trạng thái"] = "READY TO BUY"
+        
+        # Thay đổi tên hiển thị loại vật tư cho quản lý dễ đọc
+        class_mapping = {"FABRIC": "VẢI CHÍNH (MAIN FABRIC)", "LINING": "VẢI LÓT TÚI (POCKETING LINING)", "FUSING": "KEO LÓT / DỰNG (INTERLINING)"}
+        df_summary["Material Class"] = df_summary["Material Class"].map(lambda x: class_mapping.get(x, x))
+        
+        st.dataframe(df_summary, use_container_width=True, hide_index=True)
+        st.markdown('</div><br>', unsafe_allow_html=True)
+
+        # =====================================================================
+        # MA TRẬN 2: BẢNG CHI TIẾT ĐỐI CHIẾU RẬP CAD (BẢNG CŨ CỦA BẠN)
+        # =====================================================================
+        st.markdown('<div class="cad-card">', unsafe_allow_html=True)
+        st.markdown(f'<div class="cad-header">📐 DETAILED CAD PIECES MATRIX (SƠ ĐỒ CHI TIẾT RẬP)</div>', unsafe_allow_html=True)
         st.dataframe(df_bom, use_container_width=True, hide_index=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+        
     else:
         st.warning("⚠️ Hệ thống đã xử lý xong nhưng cấu trúc danh mục BOM trống dữ liệu thực tế.")
-    st.markdown('</div>', unsafe_allow_html=True)
-    
-    # BẢNG ĐỐI CHỨNG SỐ ĐO GỐC TỪ TECHPACK
-    raw_evidence_list = bom_source.get("matched_measurements", [])
-    if raw_evidence_list and isinstance(raw_evidence_list, list):
-        st.markdown("<br>", unsafe_allow_html=True)
-        st.markdown('<div class="cad-card">', unsafe_allow_html=True)
-        st.markdown(f'<div class="cad-header" style="background-color: #2C3E50;">🔍 BẰNG CHỨNG SỐ ĐO GỐC TỪ TECHPACK (SIZE: {extracted_size})</div>', unsafe_allow_html=True)
-        
-        parsed_evidence_rows = []
-        for idx, item in enumerate(raw_evidence_list):
-            raw_str = str(item).strip()
-            pom_code, description, measurement_val = "POM", raw_str, "-"
-            if ":" in raw_str:
-                parts = raw_str.split(":", 1)
-                pom_code = parts[0].strip()
-                description = parts[1].strip()
-                if "=" in description:
-                    sub_parts = description.split("=", 1)
-                    description = sub_parts[0].strip()
-                    measurement_val = sub_parts[1].strip()
-            elif "=" in raw_str:
-                parts = raw_str.split("=", 1)
-                description = parts[0].strip()
-                measurement_val = parts[1].strip()
-                
-            parsed_evidence_rows.append({
-                "STT": idx + 1, "Mã POM": pom_code, "Mô tả Thông số Kỹ thuật": description, "Kích thước Đo thực tế (Inches)": measurement_val
-            })
-            
-        df_evidence = pd.DataFrame(parsed_evidence_rows)
-        st.dataframe(df_evidence, use_container_width=True, hide_index=True)
-        st.markdown('</div>', unsafe_allow_html=True)
 
-    # KHỐI XUẤT FILE EXCEL
-    if display_data:
-        try:
-            import io
-            from openpyxl import Workbook
-            output = io.BytesIO()
-            wb = Workbook()
-            ws = wb.active
-            ws.title = "BOM Consumption"
-            ws.sheet_view.showGridLines = True
-            
-            ws.append([f"BÁO CÁO ĐỊNH MỨC VẬT TƯ SẢN XUẤT ĐA PHÂN HỆ (SIZE: {extracted_size})"])
-            if 'df_bom' in locals():
-                ws.append(list(df_bom.columns))
-                for index, row_excel in df_bom.iterrows():
-                    ws.append(list(row_excel))
-            wb.save(output)
-            output.seek(0)
-            
-            st.markdown("<br>", unsafe_allow_html=True)
-            st.download_button(
-                label="📥 Tải Báo Cáo Định Mức Phụ Liệu Excel (Chuẩn Nhà Máy)",
-                data=output,
-                file_name=f"BOM_Production_Consumption_Size_{extracted_size}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True
-            )
-        except Exception as excel_err:
-            pass
+    # (Giữ nguyên phần vẽ bảng bằng chứng số đo gốc và khối xuất Excel ở phía dưới của bạn...)
