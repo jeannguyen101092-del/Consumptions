@@ -301,10 +301,14 @@ def compute_thread_engine() -> tuple:
 
 def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, *args, **kwargs) -> dict:
     """
-    Enterprise Multi-Engine CAD Router v44.0.
-    🌟 FIX DỨT ĐIỂM MẤT KEO LÓT: Vừa bảo vệ dòng keo từ Agent, vừa cưỡng bức tự động sinh nếu thiếu.
+    Enterprise Multi-Engine CAD Router v45.0 - STRICT IE COMPLIANCE.
+    🌟 ĐÚNG BẢN CHẤT BOM: Chỉ tính toán dựa trên dữ liệu thực tế Agent trích xuất từ BOM Techpack.
+    🌟 KHÔNG TỰ SINH DỮ LIỆU: BOM không có dòng hoặc thiếu thông số hình học hình chữ nhật bao -> định mức = 0.
     """
-    st.info("🚀 ENTERPRISE MULTI-ENGINE CAD ROUTER ACTIVATED")
+    import copy
+    import streamlit as st
+    
+    st.info("🚀 ENTERPRISE MULTI-ENGINE CAD ROUTER ACTIVATED (STRICT BOM MODE)")
     
     if not blueprint_final or "bom_rows" not in blueprint_final:
         return blueprint_final
@@ -312,6 +316,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, *args, *
     router_bom_rows = []
     product_type = str(blueprint_final.get("detected_product_type", "DRESS")).upper().strip()
     
+    # Giải mã spec_meta tĩnh từ dữ liệu gốc của AI
     ai_meta = blueprint_final.get("spec_meta", {})
     spec_meta = {
         "warp_shrink": float(ai_meta.get("warp_shrink", 3.0)),
@@ -319,13 +324,10 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, *args, *
         "gather_ratio": float(ai_meta.get("gather_ratio", 1.00)),
         "has_stripe": bool(ai_meta.get("has_stripe", False)),
         "fabric_group": str(ai_meta.get("fabric_group", "WOVEN")).upper().strip(),
-        "cargo_pocket_accumulated_area": 0.0
+        "cargo_pocket_accumulated_area": 0.0  # Khóa chặt chống phình định mức vải chính
     }
 
-    has_fusing = False
-    main_fabric_row_backup = None
-
-    # Duyệt và xử lý từng dòng rập
+    # Duyệt trực tiếp bảng dữ liệu thực tế từ BOM, không chèn thêm hàng ảo
     for ai_row in blueprint_final.get("bom_rows", []):
         if not ai_row: continue
         ui_row = copy.deepcopy(ai_row)
@@ -334,14 +336,13 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, *args, *
         mat_class = str(ui_row.get("material_class", ui_row.get("engine", "FABRIC"))).upper().strip()
         uom_target = str(ui_row.get("uom", "YDS")).upper().strip()
         
-        # 1. Khối đánh chặn an toàn thông minh
-        if is_hardware_component(comp_name, mat_class):
+        # 1. KHỐI LOẠI TRỪ PHẦN CỨNG ĐẾM CHIẾC CHUẨN (CÚC, KHÓA, NHÃN)
+        if mat_class == "COUNT" or any(key in comp_name or key in mat_class for key in EXCLUDE_HARDWARE_KEYS):
             continue
             
-        # 2. Định tuyến phân hệ chuẩn
+        # 2. ĐỊNH TUYẾN CHUẨN HÓA THEO ENGINE THỰC TẾ CỦA DÒNG ĐÓ
         if any(k in comp_name or k in mat_class for k in ["KEO", "DỰNG", "FUSING", "INTERLINING", "MEX"]):
             engine_target = "FUSING"
-            has_fusing = True
         elif any(k in comp_name or k in mat_class for k in ["LÓT", "LINING", "POCKETING"]):
             engine_target = "FABRIC"
         elif "THUN" in comp_name or "CHUN" in comp_name or "ELASTIC" in mat_class:
@@ -351,20 +352,38 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, *args, *
         else:
             engine_target = "FABRIC"
 
-        # Sao lưu dòng vải chính để làm phôi nội suy keo lót nếu AI bỏ sót hoàn toàn
-        if engine_target == "FABRIC" and ("MAIN" in comp_name or "FABRIC" in mat_class or "SELF" in mat_class):
-            main_fabric_row_backup = copy.deepcopy(ui_row)
+        # 3. KIỂM TRA GATE BẢO VỆ: Nếu thiếu thông số kích thước hình học thô, ép định mức về 0, không tính bừa
+        b_len = float(ui_row.get("bounding_box_length", 0.0) or 0.0)
+        b_wid = float(ui_row.get("bounding_box_width", 0.0) or 0.0)
+        poly_area = float(ui_row.get("polygon_net_area", 0.0) or 0.0)
+        
+        if engine_target != "THREAD" and b_len <= 0.0 and b_wid <= 0.0 and poly_area <= 0.0:
+            ui_row["engine"] = engine_target
+            ui_row["gross_consumption"] = 0.0
+            ui_row["quality_status"] = "QA_FAIL"
+            ui_row["system_notes"] = "BOM missing geometric data (L/W/Area) -> Set to 0"
+            router_bom_rows.append(ui_row)
+            continue
 
-        # 3. Kích hoạt tính toán
+        # 4. KÍCH HOẠT ĐÚNG ENGINE TÍNH TOÁN THEO THÔNG SỐ RIÊNG CỦA DÒNG ĐÓ
         if engine_target in ["FABRIC", "FUSING"]:
             gross_yds, gross_mtr, calc_note = compute_fabric_engine(ui_row, product_type, spec_meta)
             gross_val = gross_mtr if uom_target == "MTR" else gross_yds
+            
         elif engine_target == "ELASTIC":
+            # Sử dụng đúng dữ liệu length_inch/piece_count riêng của dòng thun trong BOM
+            # Fallback về bounding_box_length nếu AI bóc tách đặt sai cột tên key
+            if "length_inch" not in ui_row or float(ui_row.get("length_inch", 0.0)) <= 0.0:
+                ui_row["length_inch"] = b_len if b_len > 0 else b_wid
             gross_yds, gross_mtr, calc_note = compute_elastic_engine(ui_row)
             gross_val = gross_mtr if uom_target == "MTR" else gross_yds
+            
         elif engine_target in ["TAPE", "CORD", "WEBBING"]:
+            if "length_inch" not in ui_row or float(ui_row.get("length_inch", 0.0)) <= 0.0:
+                ui_row["length_inch"] = b_len if b_len > 0 else b_wid
             gross_yds, gross_mtr, calc_note = compute_tape_engine(ui_row)
             gross_val = gross_mtr if uom_target == "MTR" else gross_yds
+            
         elif engine_target == "THREAD":
             gross_yds, gross_mtr, calc_note = compute_thread_engine()
             gross_val = gross_yds
@@ -372,38 +391,17 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, *args, *
             gross_yds, gross_mtr, calc_note = compute_fabric_engine(ui_row, product_type, spec_meta)
             gross_val = gross_mtr if uom_target == "MTR" else gross_yds
 
+        # Ghi nhận kết quả sạch đồng bộ cột giao diện DataFrame
         ui_row["engine"] = engine_target
         ui_row["gross_consumption"] = gross_val
         ui_row["quality_status"] = "PASS" if gross_val > 0 else "QA_FAIL"
         ui_row["system_notes"] = calc_note
         
+        # Lưu trữ dự phòng biến đổi đơn vị
+        ui_row["calculated_consumption_yards"] = gross_yds
+        ui_row["calculated_consumption_meters"] = gross_mtr
+        
         router_bom_rows.append(ui_row)
-
-    # 🌟 CƠ CHẾ CƯỠNG BỨC TỰ ĐỘNG SINH KEO LÓT NẾU HỆ THỐNG TRỐNG TRƠN DÒNG FUSING
-    if not has_fusing and main_fabric_row_backup:
-        fusing_row = copy.deepcopy(main_fabric_row_backup)
-        fusing_row["component_name"] = "Waistband Interlining (Keo Cạp Quần Tự Động)"
-        fusing_row["material_class"] = "FUSING"
-        fusing_row["engine"] = "FUSING"
-        fusing_row["fabric_width_inch"] = 44.0  # Khổ keo lót tiêu chuẩn nhà máy
-        
-        # Keo cạp thường tính dựa trên thông số bounding box khối cạp hoặc nội suy bằng 15% diện tích quần vải chính
-        # Ép sàn diện tích rập keo cạp về mức thực tế (ví dụ chiều dài cạp x rộng cạp)
-        if fusing_row.get("bounding_box_length", 0) > 0:
-            # Nếu giữ nguyên phôi Thân Quần, ép hệ số diện tích keo lót về 0.15 (Keo cạp chiếm 15% định mức quần)
-            spec_meta_fusing = copy.deepcopy(spec_meta)
-            gross_yds, gross_mtr, calc_note = compute_fabric_engine(fusing_row, product_type, spec_meta_fusing)
-            # Hệ số keo cạp thực tế bằng khoảng 12% - 15% vải chính
-            gross_val = (gross_mtr if fusing_row.get("uom") == "MTR" else gross_yds) * 0.15
-        else:
-            gross_val = 0.220  # Định mức Keo cạp mặc định an toàn phòng IE (Yards)
-            calc_note = "IE Factory Standard Default Value"
-
-        fusing_row["gross_consumption"] = round(gross_val, 4)
-        fusing_row["quality_status"] = "PASS"
-        fusing_row["system_notes"] = f"Auto-Generated Gate | Quy đổi 15% diện tích vải chính chuẩn IE"
-        
-        router_bom_rows.append(fusing_row)
         
     blueprint_final["bom_rows"] = router_bom_rows
     return blueprint_final
