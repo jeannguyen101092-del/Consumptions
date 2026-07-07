@@ -9,22 +9,40 @@ import copy
 # 🌟 AI TỰ SUY LUẬN DIỆN TÍCH THỰC - PYTHON THỰC THI PHÉP CHIA TUYỆT ĐỐI KHÔNG SAI LỆCH
 # =====================================================================
 
+import re
+
+# =====================================================================
+# ĐOẠN 1: KHAI BÁO THƯ VIỆN, DANH SÁCH LOẠI TRỪ VÀ KHỞI TẠO HÀM CAD CORE
+# =====================================================================
+
+# Danh sách phụ liệu phần cứng hệ thống tự động bỏ qua khi tính toán định mức vải
 EXCLUDE_HARDWARE_KEYS = (
     "CHỈ", "THREAD", "ZIPPER", "DÂY KÉO", "BUTTON", "NÚT", "SHANK", "RIVET", 
     "LABEL", "MÁC", "TAG", "EYELETS", "SNAP", "VELCRO", "HOOK", "LOOP", 
     "STOPPER", "TOGGLE", "BUCKLE", "GROMMET", "STICKER", "CARE WHITE", 
     "HEAT STAMP", "HANGTAG", "POLYBAG", "BAO BÌ"
 )
+
 def compute_fabric_engine(row: dict, product_type: str, chat_txt: str) -> tuple:
-    """Engine chuyên tính toán cho Vải và Dựng (Fabric / Fusing)"""
+    """
+    Engine chuyên tính toán Định mức phẳng Kỹ thuật dệt may (Vải và Dựng).
+    Sử dụng phương pháp bóc tách toán học hình học CAD nguyên bản.
+    """
+    # Khởi tạo mặc định tỷ lệ co rút vải an toàn phòng Lab
     warp_num, weft_num = 0.03, 0.03
+    # =====================================================================
+    # ĐOẠN 2: LOGIC TRÍCH XUẤT THÔNG SỐ CO RÚT LAB-TEST QUA REGEX
+    # =====================================================================
     try:
-        warp_match = re.search(r'(?:co rút dọc|co rut doc|warp|dọc|doc)\s*[:\-=\s]*([\d\.]+)', chat_txt)
-        weft_match = re.search(r'(?:co rút ngang|co rut ngang|weft|ngang)\s*[:\-=\s]*([\d\.]+)', chat_txt)
+        warp_match = re.search(r'(?:co rút dọc|co rut doc|warp|dọc|doc)\s*[:\-=\s]*([\d\.]+)', chat_txt, re.IGNORECASE)
+        weft_match = re.search(r'(?:co rút ngang|co rut ngang|weft|ngang)\s*[:\-=\s]*([\d\.]+)', chat_txt, re.IGNORECASE)
         if warp_match: warp_num = float(warp_match.group(1)) / 100.0
         if weft_match: weft_num = float(weft_match.group(1)) / 100.0
-    except: pass
-
+    except: 
+        pass
+    # =====================================================================
+    # ĐOẠN 3: MA TRẬN DIỆN TÍCH THỰC PRODUCT VÀ TỶ LỆ NHÚN VẢI GATHER RATIO
+    # =====================================================================
     PRODUCT_NET_AREA_MATRIX = {
         "JEANS": {"MAIN_FABRIC": 0.84, "LINING": 0.15, "FUSING": 0.10, "DEFAULT": 0.80},
         "CARGO_PANTS": {"MAIN_FABRIC": 1.15, "LINING": 0.75, "FUSING": 0.72, "DEFAULT": 1.00},
@@ -37,9 +55,11 @@ def compute_fabric_engine(row: dict, product_type: str, chat_txt: str) -> tuple:
         "SIDE_RUCHE": {"NONE": 1.00, "LIGHT": 1.20, "MEDIUM": 1.45, "HEAVY": 1.70},
         "WAIST_GATHER": {"NONE": 1.00, "LIGHT": 1.25, "MEDIUM": 1.45, "HEAVY": 1.65}
     }
-
+    # =====================================================================
+    # ĐOẠN 4: SUY LUẬN NHÓM SẢN PHẨM VÀ ÁNH XẠ PHÂN LOẠI VẬT TƯ BOM MAPPING
+    # =====================================================================
     active_product = product_type
-    if "CARGO" in chat_txt or "TÚI HỘP" in chat_txt or "PANTS" in chat_txt or "PANTS" in product_type:
+    if "CARGO" in chat_txt.upper() or "TÚI HỘP" in chat_txt.upper() or "PANTS" in chat_txt.upper() or "PANTS" in product_type.upper():
         active_product = "CARGO_PANTS"
 
     mat_class = str(row.get("material_class", "FABRIC")).upper().strip()
@@ -49,46 +69,63 @@ def compute_fabric_engine(row: dict, product_type: str, chat_txt: str) -> tuple:
         elif "POCKET" in comp_name or "LINING" in comp_name or "LÓT" in comp_name: mat_class = "LINING"
         elif "FUSING" in comp_name or "KEO" in comp_name or "DỰNG" in comp_name: mat_class = "FUSING"
         else: mat_class = "MAIN_FABRIC"
-
-    # Đọc thông số rập thô ban đầu từ AI bóc tách
+    # =====================================================================
+    # ĐOẠN 5: ĐỌC THÔNG SỐ RẬP VÀ ÉP SÀN KÍCH THƯỚC MẪU AN TOÀN CHỐNG 0.0
+    # =====================================================================
+    # Đọc thông số rập thô ban đầu từ AI bóc tách dữ liệu hình học
     b_length = float(row.get("bounding_box_length", 0.0) or 0.0)
     b_width = float(row.get("bounding_box_width", 0.0) or 0.0)
     p_count = int(row.get("piece_count", 1) or 1)
 
-    # 🌟 VÁ LỖI LOGIC: Ép sàn kích thước rập mẫu cho TOÀN BỘ nhóm quần khi AI trả về thông số rỗng hoặc 0.0
+    # Khung xử lý kỹ thuật: Khôi phục kích thước rập quần dài nếu AI trả về rỗng hoặc bằng 0
     if active_product in ["CARGO_PANTS", "PANTS", "JEANS"]:
         if mat_class == "MAIN_FABRIC" and (b_length <= 0.0 or b_width <= 0.0):
-            b_length = 42.0   # Chiều dài rập quần dài tiêu chuẩn
-            b_width = 25.0    # Chiều rộng rập đùi/mông tiêu chuẩn
-            p_count = 2       # Thân trước + Thân sau
+            b_length = 42.0   # Chiều dài rập quần tiêu chuẩn công nghiệp (inch)
+            b_width = 25.0    # Chiều rộng rập mông/đùi mạ phẳng
+            p_count = 2       # Cấu phần đối xứng thân trước và thân sau
         elif mat_class == "LINING" and (b_length < 15.0 or b_width < 10.0 or b_length <= 0.0):
             b_length = 22.0   # Chiều dài lót túi xéo trước
-            b_width = 14.0    # Chiều rộng lót túi
+            b_width = 14.0    
             p_count = 2
         elif mat_class == "FUSING" and (b_length < 35.0 or b_length * b_width < 100.0 or b_length <= 0.0):
-            b_length = 42.0   # Chiều dài keo ép cạp + nắp túi phối
+            b_length = 42.0   # Chiều dài keo ép dựng cạp quần phối
             b_width = 4.5
             p_count = 2
-
+    # =====================================================================
+    # ĐOẠN 6: TRÍCH XUẤT KHỔ VẢI THỰC TẾ VÀ HỆ SỐ HIỆU SUẤT SƠ ĐỒ AI GIÁC
+    # =====================================================================
     raw_width = row.get("fabric_width_inch")
     try: 
         width_inch = float(raw_width or 56.0)
-        match_w_direct = re.search(r'(?:khổ|kho|width|w)\s*[:\-=\s]*([\d\.]+)', chat_txt)
+        match_w_direct = re.search(r'(?:khổ|kho|width|w)\s*[:\-=\s]*([\d\.]+)', chat_txt, re.IGNORECASE)
         if match_w_direct: width_inch = float(match_w_direct.group(1))
-    except: width_inch = 56.0
+    except: 
+        width_inch = 56.0
     
     efficiency_num = 0.855 if mat_class == "MAIN_FABRIC" else 0.880
     
     g_type = str(row.get("gather_type", "NONE")).upper().strip()
     g_depth = str(row.get("gather_depth", "NONE")).upper().strip()
     active_gather_ratio = GATHER_RATIO_MATRIX.get(g_type, GATHER_RATIO_MATRIX["NONE"]).get(g_depth, 1.00)
-    
-    # Thực thi tính toán toán học phẳng CAD
+    # =====================================================================
+       # =====================================================================
+    # ĐOẠN 7: PHÉP TOÁN FLAT CAD CỘNG TÍCH LŨY TÚI CARGO & ĐỒNG BỘ KPIs
+    # =====================================================================
+    # 1. Tính toán diện tích phẳng CAD hình học cho phần thân chính
     raw_box_area = b_length * b_width * p_count
     product_map = PRODUCT_NET_AREA_MATRIX.get(active_product, PRODUCT_NET_AREA_MATRIX["DEFAULT"])
     net_factor = product_map.get(mat_class, product_map.get("DEFAULT", 0.80))
     
     total_net_area = raw_box_area * net_factor
+    
+    # 2. 🌟 PHÂN HỆ CARGO ACCUMULATOR: Tự động cộng thêm diện tích rập của hệ thống túi hộp
+    if active_product == "CARGO_PANTS" and mat_class == "MAIN_FABRIC":
+        # Chiều rộng khổ rập túi hộp đắp hông thông thường khoảng 8" x 9" nhân 2 bên (Trái/Phải)
+        cargo_pocket_body_area = (9.0 * 8.0) * 2.0  # Thân túi hộp xếp ly
+        cargo_pocket_flap_area = (3.5 * 8.0) * 2.0  # Nắp túi hộp đắp bổ sung
+        
+        # Cộng tích lũy thêm diện tích rập túi hộp vào tổng diện tích thực của sản phẩm
+        total_net_area += (cargo_pocket_body_area + cargo_pocket_flap_area)
     
     gross_val = 0.0
     if total_net_area > 0 and width_inch > 0:
@@ -97,8 +134,11 @@ def compute_fabric_engine(row: dict, product_type: str, chat_txt: str) -> tuple:
         gross_val = (expanded_area / (width_inch * 36.0 * efficiency_num)) * 1.03
         gross_val = round(gross_val, 3)
         
-    row["fabric_consumption"] = gross_val # Bảo vệ biến hiển thị
-    note = f"FabricEngine ({mat_class}) | Rập: {b_length}x{b_width} | Diện tích thô: {raw_box_area}\""
+    # Đồng bộ đồng thời cả 2 khóa để bảo vệ hiển thị trên đỉnh Banner KPIs chuẩn realtime
+    row["fabric_consumption"] = gross_val 
+    row["gross_consumption"] = gross_val   
+    
+    note = f"CargoFabricEngine ({mat_class}) | Body+Pockets | Tổng diện tích CAD thực: {total_net_area:.1f}sq\""
     return gross_val, note
 
 
