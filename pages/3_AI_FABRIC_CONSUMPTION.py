@@ -321,11 +321,11 @@ st.markdown("""
 """, unsafe_allow_html=True)
 import streamlit as st
 
-# ==============================================================================
-# ĐOẠN A: KHỞI TẠO TRẠNG THÁI & ĐỒNG BỘ LOGIC DỮ LIỆU ERP THỜI GIAN THỰC
-# ==============================================================================
+import streamlit as st
 
-# Khởi tạo an toàn cấu trúc trạng thái hệ thống
+# ==============================================================================
+# 1. KHỞI TẠO AN TOÀN & XỬ LÝ LOGIC DỮ LIỆU HỆ THỐNG
+# ==============================================================================
 if "bom_data" not in st.session_state: st.session_state.bom_data = None
 if "chat_history" not in st.session_state: st.session_state.chat_history = []
 if "pdf_bytes" not in st.session_state: st.session_state.pdf_bytes = None
@@ -361,54 +361,24 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data:
             if val_gross > 0.0:
                 main_fabric_cons = f"{val_gross:.3f} Yds"
                 break
-import streamlit as st
+
 
 # ==============================================================================
-# ĐOẠN 1: HỆ THỐNG CSS TOÀN CỤC - STATIC CSS CONFIG (Enterprise v14 APPROVED)
+# 2. KHAI BÁO LỚP ĐỊNH DẠNG CSS PHẲNG MẶC ĐỊNH (KHÔNG GHIM CỐ ĐỊNH)
 # ==============================================================================
 st.markdown("""
 <style>
-    /* Giải phóng thuộc tính overflow của các lớp cha để cố định layout mượt mà */
-    section.main, [data-testid="stAppViewContainer"] {
-        overflow: visible !important;
-    }
-
-    /* ĐỒNG BỘ KHOẢNG ĐỆM CHUẨN: Đẩy toàn bộ nội dung Streamlit phía dưới (uploader, tables...) 
-       xuống một khoảng an toàn cố định, không lo chữ đè chữ bất kể zoom màn hình hay đổi kích thước font */
+    /* Reset lại khoảng đệm block về mặc định, xóa bỏ khoảng trống trắng */
     .block-container {
-        padding-top: 275px !important; 
-        overflow: visible !important;
-    }
-
-    /* ĐÓNG GÓI HEADER ĐỘC LẬP CAO CẤP */
-    .erp-enterprise-header {
-        position: fixed !important;
-        top: 2.85rem !important; /* Khít gầm thanh top-bar mặc định của Streamlit */
-        left: auto !important;
-        right: auto !important;
-        
-        /* ĐỒNG BỘ SIDEBAR & CHIỀU RỘNG CHUẨN: Tự động co giãn khít rạt với 
-           phần nội dung chính (.block-container) kể cả khi đóng/mở Sidebar */
-        width: 100% !important;
-        max-width: 46rem !important; /* Tương thích theo cấu trúc Layout gốc của Streamlit */
-        
-        height: auto !important;         /* Không gán cứng chiều cao để chống vỡ khi chữ xuống dòng */
-        min-height: 245px !important;    /* Khung neo tối thiểu cố định */
-        
-        background-color: #ffffff !important; /* Đổ đặc nền trắng chống lỗi xuyên thấu dữ liệu */
-        z-index: 999995 !important;      /* Nhường chỗ cho st.dialog và st.toast hiển thị lớp trên */
-        padding: 10px 0px 15px 0px !important;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05) !important;
-        box-sizing: border-box !important;
-        isolation: isolate !important;   /* Tạo ngữ cảnh cô lập z-index toàn cục */
+        padding-top: 2rem !important; 
     }
 
     /* Banner tiêu đề chính Tầng 1 */
     .top-banner {
         background: linear-gradient(135deg, #1e3a8a, #0f172a) !important;
-        padding: 12px 20px !important;
+        padding: 14px 20px !important;
         border-radius: 6px !important;
-        margin-bottom: 12px !important;
+        margin-bottom: 20px !important;
         color: #ffffff !important;
         text-align: center !important;
         width: 100% !important;
@@ -416,37 +386,23 @@ st.markdown("""
     }
     .top-title {
         font-family: 'Segoe UI', sans-serif !important;
-        font-size: 15px !important;
+        font-size: 16px !important;
         font-weight: 700 !important;
         letter-spacing: 0.5px !important;
     }
     .top-subtitle {
         font-family: 'Segoe UI', sans-serif !important;
-        font-size: 11px !important;
-        opacity: 0.75 !important;
-        margin-top: 2px !important;
-    }
-
-    /* ĐÁP ỨNG RESPONSIVE: Tự động bẻ hàng xuống dưới (wrap) nếu màn hình nhỏ / người dùng zoom lớn */
-    .kpi-flex-wrapper {
-        display: flex !important;
-        flex-wrap: wrap !important; 
-        gap: 1rem !important;
-        width: 100% !important;
-        justify-content: space-between !important;
-    }
-    .kpi-column-box {
-        flex: 1 1 200px !important; /* Cho phép các ô thu hẹp tối thiểu 200px trước khi tự động xuống hàng */
-        display: flex !important;
-        flex-direction: column !important;
+        font-size: 12px !important;
+        opacity: 0.8 !important;
+        margin-top: 3px !important;
     }
 
     /* Thẻ tiêu đề màu chứa thông số KPIs Tầng 2 */
     .kpi-card-colored {
         border-radius: 6px 6px 0 0 !important; 
-        padding: 6px 8px !important;
+        padding: 8px 10px !important;
         text-align: center !important;
-        height: 52px !important;
+        height: 55px !important;
         display: flex !important;
         flex-direction: column !important;
         align-items: center !important;
@@ -454,23 +410,22 @@ st.markdown("""
         box-sizing: border-box !important;
     }
     .kpi-num-light {
-        font-size: 14px !important;
+        font-size: 15px !important;
         font-weight: 700 !important;
         color: #ffffff !important; 
         font-family: 'Segoe UI', sans-serif !important;
         line-height: 1.2 !important;
     }
     .kpi-lbl-light {
-        font-size: 9px !important;
+        font-size: 10px !important;
         font-weight: 500 !important;
         color: rgba(255, 255, 255, 0.9) !important; 
         font-family: 'Segoe UI', sans-serif !important;
         margin-top: 2px !important;
         text-transform: uppercase !important;
-        white-space: nowrap !important;
     }
 
-    /* Bảng màu phân hệ thông tin */
+    /* Bảng màu nền các phân hệ */
     .bg-style { background-color: #1e293b !important; } 
     .bg-items { background-color: #0f766e !important; } 
     .bg-cons  { background-color: #c2410c !important; } 
@@ -481,120 +436,67 @@ st.markdown("""
         border: 1px solid #e2e8f0 !important;
         border-top: none !important; 
         border-radius: 0 0 6px 6px !important;
-        padding: 5px !important;
-        height: 110px !important;
+        padding: 10px 5px !important;
+        height: 140px !important;
         display: flex !important;
         align-items: center !important;
         justify-content: center !important;
         box-sizing: border-box !important;
+        margin-bottom: 25px !important;
     }
     .image-placeholder-box img {
-        max-height: 90px !important;
+        max-height: 110px !important;
         width: auto !important;
         object-fit: contain !important;
         display: block !important;
         margin: auto !important;
     }
     
-    /* Màu nền dịu nhẹ tương ứng bên dưới hình vẽ hình học */
+    /* Màu nền dịu nhẹ tương ứng bên dưới hình vẽ rập phẳng */
     .color-ao   { background-color: #f8fafc !important; }
     .color-quan { background-color: #f4fbf9 !important; }
     .color-vest { background-color: #fffaf5 !important; }
     .color-vay  { background-color: #f5fcf7 !important; }
-
-    /* Mở rộng chiều rộng tối đa cho màn hình Wide mode nếu người dùng bật chế độ màn hình rộng */
-    @media (min-width: 1200px) {
-        .erp-enterprise-header {
-            max-width: calc(100% - 8rem) !important;
-        }
-    }
 </style>
 """, unsafe_allow_html=True)
-import streamlit as st
+
 
 # ==============================================================================
-# ĐOẠN 2: HÀM KHỞI DỰNG LAYOUT HTML VÀ TRUYỀN BIẾN ĐỘNG KPIs THEO REALTIME
+# 3. GIAO DIỆN HIỂN THỊ NATIVE BẰNG LỆNH GỐC STREAMLIT (KHÔNG SỬ DỤNG FIXED/STICKY)
 # ==============================================================================
 
-def render_enterprise_sticky_header(style_id, materials_count, fabric_consumption, active_size):
-    """
-    Hàm đóng gói khuôn mẫu giao diện Header độc lập cao cấp.
-    Sử dụng phương thức replace chuỗi an toàn tuyệt đối chống lỗi SyntaxError cú pháp Python.
-    """
-    # Chuỗi mã hóa vector đồ họa của 4 form trang phục gốc
-    encoded_ao = "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%27100%27%20height%3D%27100%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23334155%27%20stroke-width%3D%271.25%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M20.38%203.46L16%202a4%204%200%200%200-8%200l-4.38%201.46a2%202%200%200%200-1.37%202l.35%2011.23a2%202%200%200%200%202%201.94h14.8a2%202%200%200%200%202-1.94l.35-11.23a2%202%200%200%200-1.37-2z%27%2F%3E%3Cpath%20d%3D%27M12%205v16%27%2F%3E%3Cpath%20d%3D%27M4%2010h16%27%2F%3E%3C%2Fsvg%3E"
-    encoded_quan = "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%27100%27%20height%3D%27100%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%230f766e%27%20stroke-width%3D%271.25%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M4%202h16l-2%2020H6L4%202z%27%2F%3E%3Cpath%20d%3D%27M12%202v20%27%2F%3E%3Cpath%20d%3D%27M5%208h14%27%2F%3E%3C%2Fsvg%3E"
-    encoded_vest = "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%27100%27%20height%3D%27100%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23c2410c%27%20stroke-width%3D%271.25%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M4%202v20l8-4%208%204V2l-8%204-8-4z%27%2F%3E%3Cpath%20d%3D%27M12%206v12%27%2F%3E%3Cpath%20d%3D%27M4%208h16%27%2F%3E%3C%2Fsvg%3E"
-    encoded_vay = "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%27100%27%20height%3D%27100%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%2315803d%27%20stroke-width%3D%271.25%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M6%202h12l3%207-9%2013-9-7%203-7z%27%2F%3E%3Cpath%20d%3D%27M6%209h12%27%2F%3E%3Cpath%20d%3D%27M12%202v7%27%2F%3E%3C%2Fsvg%3E"
+# TẦNG 1: BANNER TIÊU ĐỀ CHÍNH
+st.markdown("""
+<div class="top-banner">
+    <div class="top-title">📊 INTELLIGENT FABRIC CONSUMPTION PLATFORM</div>
+    <div class="top-subtitle">Hệ thống phân tích rập hình học và tự động tính toán định mức kỹ thuật dệt may bằng AI CORE</div>
+</div>
+""", unsafe_allow_html=True)
 
-    # Mẫu thiết kế HTML Template tĩnh hoàn toàn không chứa ngoặc nhọn biến động f-string
-    html_template = """
-    <div class="erp-enterprise-header notranslate" translate="no">
-        <div class="top-banner">
-            <div class="top-title">📊 INTELLIGENT FABRIC CONSUMPTION PLATFORM</div>
-            <div class="top-subtitle">Hệ thống phân tích rập hình học và tự động tính toán định mức kỹ thuật dệt may bằng AI CORE</div>
-        </div>
+# Chuỗi mã hóa vector đồ họa của 4 form trang phục
+encoded_ao = "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%27100%27%20height%3D%27100%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23334155%27%20stroke-width%3D%271.25%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M20.38%203.46L16%202a4%204%200%200%200-8%200l-4.38%201.46a2%202%200%200%200-1.37%202l.35%2011.23a2%202%200%200%200%202%201.94h14.8a2%202%200%200%200%202-1.94l.35-11.23a2%202%200%200%200-1.37-2z%27%2F%3E%3Cpath%20d%3D%27M12%205v16%27%2F%3E%3Cpath%20d%3D%27M4%2010h16%27%2F%3E%3C%2Fsvg%3E"
+encoded_quan = "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%27100%27%20height%3D%27100%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%230f766e%27%20stroke-width%3D%271.25%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M4%202h16l-2%2020H6L4%202z%27%2F%3E%3Cpath%20d%3D%27M12%202v20%27%2F%3E%3Cpath%20d%3D%27M5%208h14%27%2F%3E%3C%2Fsvg%3E"
+encoded_vest = "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%27100%27%20height%3D%27100%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23c2410c%27%20stroke-width%3D%271.25%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M4%202v20l8-4%208%204V2l-8%204-8-4z%27%2F%3E%3Cpath%20d%3D%27M12%206v12%27%2F%3E%3Cpath%20d%3D%27M4%208h16%27%2F%3E%3C%2Fsvg%3E"
+encoded_vay = "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%27100%27%20height%3D%27100%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%2315803d%27%20stroke-width%3D%271.25%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M6%202h12l3%207-9%2013-9-7%203-7z%27%2F%3E%3Cpath%20d%3D%27M6%209h12%27%2F%3E%3Cpath%20d%3D%27M12%202v7%27%2F%3E%3C%2Fsvg%3E"
 
-        <div class="kpi-flex-wrapper">
-            <div class="kpi-column-box">
-                <div class="kpi-card-colored bg-style">
-                    <div class="kpi-num-light">__STYLE_ID__</div>
-                    <div class="kpi-lbl-light">Mã hàng đang xử lý</div>
-                </div>
-                <div class="image-placeholder-box color-ao">
-                    <img src="__IMG_AO__" alt="Ao">
-                </div>
-            </div>
-            <div class="kpi-column-box">
-                <div class="kpi-card-colored bg-items">
-                    <div class="kpi-num-light">__MATERIALS_COUNT__ Item(s)</div>
-                    <div class="kpi-lbl-light">Tổng số vật tư kết xuất</div>
-                </div>
-                <div class="image-placeholder-box color-quan">
-                    <img src="__IMG_QUAN__" alt="Quan">
-                </div>
-            </div>
-            <div class="kpi-column-box">
-                <div class="kpi-card-colored bg-cons">
-                    <div class="kpi-num-light">__FABRIC_CONSUMPTION__</div>
-                    <div class="kpi-lbl-light">Định mức vải chính dự kiến</div>
-                </div>
-                <div class="image-placeholder-box color-vest">
-                    <img src="__IMG_VEST__" alt="Vest">
-                </div>
-            </div>
-            <div class="kpi-column-box">
-                <div class="kpi-card-colored bg-size">
-                    <div class="kpi-num-light">__ACTIVE_SIZE__</div>
-                    <div class="kpi-lbl-light">Cỡ hạt tính định mức</div>
-                </div>
-                <div class="image-placeholder-box color-vay">
-                    <img src="__IMG_VAY__" alt="Vay">
-                </div>
-            </div>
-        </div>
-    </div>
-    """
+# TẦNG 2 & TẦNG 3: BỐ CỤC 4 CỘT TIÊU CHUẨN NATIVE BẰNG LỆNH ST.COLUMNS GỐC
+k_col1, k_col2, k_col3, k_col4 = st.columns(4)
 
-    # Thực hiện thay thế chuỗi an toàn tuyệt đối chống hoàn toàn lỗi cú pháp biên dịch Python
-    html_output = html_template.replace("__STYLE_ID__", str(style_id))\
-                               .replace("__MATERIALS_COUNT__", str(materials_count))\
-                               .replace("__FABRIC_CONSUMPTION__", str(fabric_consumption))\
-                               .replace("__ACTIVE_SIZE__", str(active_size))\
-                               .replace("__IMG_AO__", encoded_ao)\
-                               .replace("__IMG_QUAN__", encoded_quan)\
-                               .replace("__IMG_VEST__", encoded_vest)\
-                               .replace("__IMG_VAY__", encoded_vay)
+with k_col1: 
+    st.markdown(f'<div class="kpi-card-colored bg-style"><div class="kpi-num-light">{kpi_style_id}</div><div class="kpi-lbl-light">Mã hàng đang xử lý</div></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="image-placeholder-box color-ao"><img src="{encoded_ao}" alt="Ao"></div>', unsafe_allow_html=True)
 
-    st.markdown(html_output, unsafe_allow_html=True)
+with k_col2: 
+    st.markdown(f'<div class="kpi-card-colored bg-items"><div class="kpi-num-light">{total_materials} Item(s)</div><div class="kpi-lbl-light">Tổng số vật tư kết xuất</div></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="image-placeholder-box color-quan"><img src="{encoded_quan}" alt="Quan"></div>', unsafe_allow_html=True)
 
-# Gọi hàm thực thi kết xuất giao diện thực tế
-render_enterprise_sticky_header(
-    style_id=kpi_style_id,
-    materials_count=total_materials,
-    fabric_consumption=main_fabric_cons,
-    active_size=active_size_kpi
-)
+with k_col3: 
+    st.markdown(f'<div class="kpi-card-colored bg-cons"><div class="kpi-num-light">{main_fabric_cons}</div><div class="kpi-lbl-light">Định mức vải chính dự kiến</div></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="image-placeholder-box color-vest"><img src="{encoded_vest}" alt="Vest"></div>', unsafe_allow_html=True)
+
+with k_col4: 
+    st.markdown(f'<div class="kpi-card-colored bg-size"><div class="kpi-num-light">{active_size_kpi}</div><div class="kpi-lbl-light">Cỡ hạt tính định mức</div></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="image-placeholder-box color-vay"><img src="{encoded_vay}" alt="Vay"></div>', unsafe_allow_html=True)
 
 
 
