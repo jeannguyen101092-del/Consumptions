@@ -48,9 +48,9 @@ def convert_to_sq_inches(area: float, unit: str) -> float:
 
 def compute_fabric_engine(row: dict, product_type: str, spec_meta: dict) -> tuple:
     """
-    Industrial Consumption CAM Core Engine v54.0.
-    🌟 HIỆU CHUẨN ĐỊNH MỨC TIÊU CHUẨN AN TOÀN: Điều chỉnh Marker Efficiency về mốc thực tế sơ đồ đơn lẻ 
-    (76.5% - 78.5%) để nâng tổng định mức vải chính vọt lên mốc an toàn ~1.35 - 1.55 Yds.
+    Industrial Consumption CAM Core Engine v54.1 - INLINE ARCHITECTURE.
+    🌟 TỰ CHỦ TUYỆT ĐỐI: Nhúng tĩnh bộ quy đổi đơn vị vào bên trong hàm.
+    Khóa chặt 100% logic tĩnh, tuyệt đối không chạm vào bất kỳ API nào của Google.
     """
     current_mat_class = str(row.get("material_class", "FABRIC")).upper().strip()
     current_comp_name = str(row.get("component_name", "")).upper()
@@ -102,7 +102,15 @@ def compute_fabric_engine(row: dict, product_type: str, spec_meta: dict) -> tupl
 
     # 2. PHÉP TOÁN NHÂN DIỆN TÍCH NET AREA TỰ ĐỘNG HIỆU CHUẨN
     if poly_area > 0.0:
-        converted_poly = convert_to_sq_inches(poly_area, poly_unit)
+        # 🌟 NHÚNG BỘ QUY ĐỔI ĐƠN VỊ TĨNH NATIVE (CHỐNG GỌI HÀM NGOẠI VI RÒ RỈ API)
+        u_unit = poly_unit.upper().strip()
+        if u_unit in ["CM2", "CMSQ", "SQUARE_CM"]:
+            converted_poly = poly_area / 6.4516
+        elif u_unit in ["MM2", "MMSQ", "SQUARE_MM"]:
+            converted_poly = poly_area / 645.16
+        else:
+            converted_poly = poly_area
+
         total_net_area = converted_poly if area_mode == "TOTAL" else converted_poly * p_count
         geo_source = "Gerber/Lectra Polygon DXF"
     else:
@@ -135,8 +143,8 @@ def compute_fabric_engine(row: dict, product_type: str, spec_meta: dict) -> tupl
     except:
         warp_num, weft_num = 0.03, 0.03
 
-    # 🌟 🌟 🌟 ĐIỀU CHỈNH CHÍ MẠNG: Hạ hiệu suất sơ đồ đơn về mức thực tế bàn cắt xưởng
-    base_eff = 0.765  # Giác sơ đồ đơn lẻ size quần Jeans đạt mức hiệu quả ~76.5% - 78.5%
+    # Điều chỉnh mốc hiệu suất sơ đồ đơn lẻ xưởng đạt mức hiệu quả thực tế ~78.5%
+    base_eff = 0.765  
     if active_product in ["CARGO_PANTS", "JEANS"]: 
         base_eff = 0.785
     if is_pocket_fabric: 
@@ -175,6 +183,7 @@ def compute_fabric_engine(row: dict, product_type: str, spec_meta: dict) -> tupl
     gross_consumption_meters = gross_consumption_yards * 0.9144
     
     return round(gross_consumption_yards, 4), round(gross_consumption_meters, 4), geo_source
+
 
 
 
