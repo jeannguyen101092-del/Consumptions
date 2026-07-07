@@ -380,8 +380,10 @@ st.markdown("""
 
 import streamlit as st
 
+import streamlit as st
+
 # =====================================================================
-# ĐOẠN 6b: GIAO DIỆN HIỂN THỊ KPIs VÀ LƯỚI CHIA CỘT UPLOADER CHUẨN PHẲNG
+# ĐOẠN B: GIAO DIỆN HIỂN THỊ KPIs MÀU SẮC ĐỘNG & GRID THÂN TRANG HỢP NHẤT
 # =====================================================================
 
 # Chuỗi mã hóa hình ảnh vector đồ họa gốc của 4 ô trang phục
@@ -390,28 +392,27 @@ encoded_quan = "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.
 encoded_vest = "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%27100%27%20height%3D%27100%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23c2410c%27%20stroke-width%3D%271.25%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M4%202v20l8-4%208%204V2l-8%204-8-4z%27%2F%3E%3Cpath%20d%3D%27M12%206v12%27%2F%3E%3Cpath%20d%3D%27M4%208h16%27%2F%3E%3C%2Fsvg%3E"
 encoded_vay = "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%27100%27%20height%3D%27100%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%2315803d%27%20stroke-width%3D%271.25%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M6%202h12l3%207-9%2013-9-7%203-7z%27%2F%3E%3Cpath%20d%3D%27M6%209h12%27%2F%3E%3Cpath%20d%3D%27M12%202v7%27%2F%3E%3C%2Fsvg%3E"
 
-# LƯỚI CHIA 4 CỘT HIỂN THỊ HÀNG TRÊN CỦA STREAMLIT
+# Phân bổ lưới 4 ô KPIs Native gốc của Streamlit
 k_col1, k_col2, k_col3, k_col4 = st.columns(4)
 
-# Ép inline style background trực tiếp để tránh bị CSS mặc định của Streamlit đè mất màu nền
 with k_col1: 
-    st.markdown(f'<div class="kpi-card-colored" style="background: linear-gradient(135deg, #334155 0%, #1e293b 100%) !important;"><div class="kpi-num-light">{kpi_style_id}</div><div class="kpi-lbl-light">Mã hàng đang xử lý</div></div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="image-placeholder-box color-ao"><img src="{encoded_ao}" alt="Ao"></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="kpi-box-flat-matrix bg-style-erp"><div class="kpi-num-flat-matrix">{kpi_style_id}</div><div class="kpi-lbl-flat-matrix">Mã hàng đang xử lý</div></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="image-placeholder-box-flat"><img src="{encoded_ao}" alt="Ao"></div>', unsafe_allow_html=True)
 
 with k_col2: 
-    st.markdown(f'<div class="kpi-card-colored" style="background: linear-gradient(135deg, #0d9488 0%, #0f766e 100%) !important;"><div class="kpi-num-light">{total_materials} Item(s)</div><div class="kpi-lbl-light">Tổng số vật tư kết xuất</div></div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="image-placeholder-box color-quan"><img src="{encoded_quan}" alt="Quan"></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="kpi-box-flat-matrix bg-items-erp"><div class="kpi-num-flat-matrix">{total_materials} Item(s)</div><div class="kpi-lbl-flat-matrix">Tổng số vật tư kết xuất</div></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="image-placeholder-box-flat"><img src="{encoded_quan}" alt="Quan"></div>', unsafe_allow_html=True)
 
 with k_col3: 
-    st.markdown(f'<div class="kpi-card-colored" style="background: linear-gradient(135deg, #ea580c 0%, #c2410c 100%) !important;"><div class="kpi-num-light">{main_fabric_cons}</div><div class="kpi-lbl-light">Định mức vải chính dự kiến</div></div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="image-placeholder-box color-vest"><img src="{encoded_vest}" alt="Vest"></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="kpi-box-flat-matrix bg-cons-erp"><div class="kpi-num-flat-matrix">{main_fabric_cons}</div><div class="kpi-lbl-flat-matrix">Định mức vải chính dự kiến</div></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="image-placeholder-box-flat"><img src="{encoded_vest}" alt="Vest"></div>', unsafe_allow_html=True)
 
 with k_col4: 
-    st.markdown(f'<div class="kpi-card-colored" style="background: linear-gradient(135deg, #16a34a 0%, #15803d 100%) !important;"><div class="kpi-num-light">{active_size_kpi}</div><div class="kpi-lbl-light">Cỡ hạt tính định mức</div></div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="image-placeholder-box color-vay"><img src="{encoded_vay}" alt="Vay"></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="kpi-box-flat-matrix bg-size-erp"><div class="kpi-num-flat-matrix">{active_size_kpi}</div><div class="kpi-lbl-flat-matrix">Cỡ hạt tính định mức</div></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="image-placeholder-box-flat"><img src="{encoded_vay}" alt="Vay"></div>', unsafe_allow_html=True)
 
 
-# --- SIDEBAR ENGINE CONTROLS CONTROL PANEL ---
+# --- BẢNG ĐIỀU KHIỂN SIDEBAR MÁY CHỦ ---
 st.sidebar.markdown("### ⚙️ ENGINE CONTROLS")
 if st.sidebar.button("🗑️ CLEAR SYSTEM MEMORY", use_container_width=True):
     st.session_state.bom_data = None
@@ -424,13 +425,13 @@ if st.sidebar.button("🗑️ CLEAR SYSTEM MEMORY", use_container_width=True):
     st.rerun()
 
 
-# --- LƯỚI CHIA ĐÔI CỘT CHÍNH THỰC TẾ ---
+# --- LƯỚI CHIA ĐÔI CỘT CHÍNH THỰC TẾ (LẤP ĐẦY TRỰC TIẾP HÀNG TIẾP THEO) ---
 col_left, col_right = st.columns(2)
 
 # --- CỘT TRÁI: BỘ TẢI FILE & HỒ SƠ TÓM TẮT MÃ HÀNG ---
 with col_left:
-    st.markdown('<div class="custom-erp-box">', unsafe_allow_html=True)
-    st.markdown('<div class="cad-header-text">📂 TECHPACK UPLOADER & PROFILE SUMMARY</div>', unsafe_allow_html=True)
+    st.markdown('<div class="custom-erp-box-flat">', unsafe_allow_html=True)
+    st.markdown('<div class="cad-header-text-flat">📂 TECHPACK UPLOADER & PROFILE SUMMARY</div>', unsafe_allow_html=True)
     
     uploaded_file = st.file_uploader("Upload PDF", type=["pdf"], label_visibility="collapsed")
     
@@ -459,13 +460,13 @@ with col_left:
 
         m_col1, m_col2 = st.columns(2)
         with m_col1:
-            st.markdown(f'<div class="meta-box-light"><div class="meta-label-light">Style Code / Mã hàng</div><div class="meta-value-light"><b>{style_id}</b></div></div>', unsafe_allow_html=True)
-            st.markdown(f'<div class="meta-box-light"><div class="meta-label-light">Customer / Đối tác</div><div class="meta-value-light">{customer}</div></div>', unsafe_allow_html=True)
-            st.markdown(f'<div class="meta-box-light"><div class="meta-label-light">Season / Mùa sản xuất</div><div class="meta-value-light">{season}</div></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="meta-box-light-flat"><div class="meta-label-flat">Style Code / Mã hàng</div><div class="meta-value-flat"><b>{style_id}</b></div></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="meta-box-light-flat"><div class="meta-label-flat">Customer / Đối tác</div><div class="meta-value-flat">{customer}</div></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="meta-box-light-flat"><div class="meta-label-flat">Season / Mùa sản xuất</div><div class="meta-value-flat">{season}</div></div>', unsafe_allow_html=True)
         with m_col2:
-            st.markdown(f'<div class="meta-box-light"><div class="meta-label-light">Garment Type / Kiểu dáng</div><div class="meta-value-light">{short_desc}</div></div>', unsafe_allow_html=True)
-            st.markdown(f'<div class="meta-box-light"><div class="meta-label-light">Material Spec / Mô tả vải</div><div class="meta-value-light">{fabric_type[:25]}...</div></div>', unsafe_allow_html=True)
-            st.markdown(f'<div class="meta-box-light"><div class="meta-label-light">Techpack Status</div><div class="meta-value-light" style="color: #16a34a; font-weight: bold;">🟢 READY TO BOM</div></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="meta-box-light-flat"><div class="meta-label-flat">Garment Type / Kiểu dáng</div><div class="meta-value-light">{short_desc}</div></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="meta-box-light-flat"><div class="meta-label-flat">Material Spec / Mô tả vải</div><div class="meta-value-flat">{fabric_type[:25]}...</div></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="meta-box-light-flat"><div class="meta-label-flat">Techpack Status</div><div class="meta-value-flat" style="color: #16a34a; font-weight: bold;">🟢 READY TO BOM</div></div>', unsafe_allow_html=True)
     else:
         if st.session_state.pdf_bytes is None:
             st.markdown("<div style='margin-top: 60px; text-align: center; color: #64748b; font-size: 13px;'>Bảng tóm tắt thông số sản phẩm sẽ tự động hiển thị tại đây sau khi nạp file PDF.</div>", unsafe_allow_html=True)
@@ -475,8 +476,8 @@ with col_left:
 
 # --- CỘT PHẢI: KHUNG XEM BẢN VẼ PHẲNG SKETCH ---
 with col_right:
-    st.markdown('<div class="custom-erp-box sticky-sketch-box">', unsafe_allow_html=True)
-    st.markdown('<div class="cad-header-text">🎨 TECHPACK SKETCH VISUALIZER</div>', unsafe_allow_html=True)
+    st.markdown('<div class="custom-erp-box-flat sticky-sketch-box-flat">', unsafe_allow_html=True)
+    st.markdown('<div class="cad-header-text-flat">🎨 TECHPACK SKETCH VISUALIZER</div>', unsafe_allow_html=True)
     
     if st.session_state.pdf_bytes is not None:
         if "pdf_page_one_image" not in st.session_state or st.session_state.pdf_page_one_image is None:
@@ -496,6 +497,7 @@ with col_right:
         st.markdown("<div style='margin-top: 70px; text-align: center; color: #64748b; font-size: 13px;'>Hình vẽ phác họa phẳng (Sketch) trích xuất từ trang bìa PDF sẽ tự động hiển thị cân xứng tại đây sau khi nạp file thành công.</div>", unsafe_allow_html=True)
         
     st.markdown('</div>', unsafe_allow_html=True)
+
 
 
 
