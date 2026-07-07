@@ -301,14 +301,14 @@ def compute_thread_engine() -> tuple:
 
 def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, *args, **kwargs) -> dict:
     """
-    Enterprise Multi-Engine CAD Router v45.0 - STRICT IE COMPLIANCE.
-    🌟 ĐÚNG BẢN CHẤT BOM: Chỉ tính toán dựa trên dữ liệu thực tế Agent trích xuất từ BOM Techpack.
-    🌟 KHÔNG TỰ SINH DỮ LIỆU: BOM không có dòng hoặc thiếu thông số hình học hình chữ nhật bao -> định mức = 0.
+    Enterprise Multi-Engine CAD Router v47.0 - STRICT IE COMPLIANCE.
+    🌟 FIX TRIỆT ĐỂ ĐỊNH MỨC 0: Ép kiểu số thực (Strict Type Casting) ngay tại tầng Router 
+    để vượt qua chốt chặn hình học an toàn.
     """
     import copy
     import streamlit as st
     
-    st.info("🚀 ENTERPRISE MULTI-ENGINE CAD ROUTER ACTIVATED (STRICT BOM MODE)")
+    st.info("🚀 ENTERPRISE MULTI-ENGINE CAD ROUTER ACTIVATED (STRICT TYPE MODE)")
     
     if not blueprint_final or "bom_rows" not in blueprint_final:
         return blueprint_final
@@ -316,7 +316,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, *args, *
     router_bom_rows = []
     product_type = str(blueprint_final.get("detected_product_type", "DRESS")).upper().strip()
     
-    # Giải mã spec_meta tĩnh từ dữ liệu gốc của AI
+    # Giải mã spec_meta tĩnh an toàn
     ai_meta = blueprint_final.get("spec_meta", {})
     spec_meta = {
         "warp_shrink": float(ai_meta.get("warp_shrink", 3.0)),
@@ -324,10 +324,10 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, *args, *
         "gather_ratio": float(ai_meta.get("gather_ratio", 1.00)),
         "has_stripe": bool(ai_meta.get("has_stripe", False)),
         "fabric_group": str(ai_meta.get("fabric_group", "WOVEN")).upper().strip(),
-        "cargo_pocket_accumulated_area": 0.0  # Khóa chặt chống phình định mức vải chính
+        "cargo_pocket_accumulated_area": 0.0
     }
 
-    # Duyệt trực tiếp bảng dữ liệu thực tế từ BOM, không chèn thêm hàng ảo
+    # Duyệt trực tiếp bảng dữ liệu thực tế từ BOM
     for ai_row in blueprint_final.get("bom_rows", []):
         if not ai_row: continue
         ui_row = copy.deepcopy(ai_row)
@@ -340,7 +340,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, *args, *
         if mat_class == "COUNT" or any(key in comp_name or key in mat_class for key in EXCLUDE_HARDWARE_KEYS):
             continue
             
-        # 2. ĐỊNH TUYẾN CHUẨN HÓA THEO ENGINE THỰC TẾ CỦA DÒNG ĐÓ
+        # 2. ĐỊNH TUYẾN CHUẨN HÓA THEO ENGINE THỰC TẾ
         if any(k in comp_name or k in mat_class for k in ["KEO", "DỰNG", "FUSING", "INTERLINING", "MEX"]):
             engine_target = "FUSING"
         elif any(k in comp_name or k in mat_class for k in ["LÓT", "LINING", "POCKETING"]):
@@ -352,11 +352,28 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, *args, *
         else:
             engine_target = "FABRIC"
 
-        # 3. KIỂM TRA GATE BẢO VỆ: Nếu thiếu thông số kích thước hình học thô, ép định mức về 0, không tính bừa
-        b_len = float(ui_row.get("bounding_box_length", 0.0) or 0.0)
-        b_wid = float(ui_row.get("bounding_box_width", 0.0) or 0.0)
-        poly_area = float(ui_row.get("polygon_net_area", 0.0) or 0.0)
-        
+        # 3. 🌟 ÉP KIỂU SỐ THỰC NGAY TẠI ROUTER CHỐNG LỖI STRING
+        try:
+            b_len = float(ui_row.get("bounding_box_length", 0.0) or 0.0)
+        except:
+            b_len = 0.0
+            
+        try:
+            b_wid = float(ui_row.get("bounding_box_width", 0.0) or 0.0)
+        except:
+            b_wid = 0.0
+            
+        try:
+            poly_area = float(ui_row.get("polygon_net_area", 0.0) or 0.0)
+        except:
+            poly_area = 0.0
+            
+        # Cập nhật lại giá trị đã ép kiểu vào dict để truyền tiếp vào lõi con
+        ui_row["bounding_box_length"] = b_len
+        ui_row["bounding_box_width"] = b_wid
+        ui_row["polygon_net_area"] = poly_area
+
+        # 4. CHỐT CHẶN BẢO VỆ HÌNH HỌC (Đã sửa lỗi so sánh chuỗi văn bản)
         if engine_target != "THREAD" and b_len <= 0.0 and b_wid <= 0.0 and poly_area <= 0.0:
             ui_row["engine"] = engine_target
             ui_row["gross_consumption"] = 0.0
@@ -365,14 +382,12 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, *args, *
             router_bom_rows.append(ui_row)
             continue
 
-        # 4. KÍCH HOẠT ĐÚNG ENGINE TÍNH TOÁN THEO THÔNG SỐ RIÊNG CỦA DÒNG ĐÓ
+        # 5. KÍCH HOẠT ENGINE TÍNH TOÁN THEO THÔNG SỐ RIÊNG
         if engine_target in ["FABRIC", "FUSING"]:
             gross_yds, gross_mtr, calc_note = compute_fabric_engine(ui_row, product_type, spec_meta)
             gross_val = gross_mtr if uom_target == "MTR" else gross_yds
             
         elif engine_target == "ELASTIC":
-            # Sử dụng đúng dữ liệu length_inch/piece_count riêng của dòng thun trong BOM
-            # Fallback về bounding_box_length nếu AI bóc tách đặt sai cột tên key
             if "length_inch" not in ui_row or float(ui_row.get("length_inch", 0.0)) <= 0.0:
                 ui_row["length_inch"] = b_len if b_len > 0 else b_wid
             gross_yds, gross_mtr, calc_note = compute_elastic_engine(ui_row)
@@ -386,7 +401,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, *args, *
             
         elif engine_target == "THREAD":
             gross_yds, gross_mtr, calc_note = compute_thread_engine()
-            gross_val = gross_yds
+            gross_val = gross_yards
         else:
             gross_yds, gross_mtr, calc_note = compute_fabric_engine(ui_row, product_type, spec_meta)
             gross_val = gross_mtr if uom_target == "MTR" else gross_yds
@@ -397,7 +412,6 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, *args, *
         ui_row["quality_status"] = "PASS" if gross_val > 0 else "QA_FAIL"
         ui_row["system_notes"] = calc_note
         
-        # Lưu trữ dự phòng biến đổi đơn vị
         ui_row["calculated_consumption_yards"] = gross_yds
         ui_row["calculated_consumption_meters"] = gross_mtr
         
