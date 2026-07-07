@@ -380,8 +380,6 @@ st.markdown("""
 
 import streamlit as st
 
-import streamlit as st
-
 # =====================================================================
 # ĐOẠN B: GIAO DIỆN HIỂN THỊ KPIs MÀU SẮC ĐỘNG & GRID THÂN TRANG HỢP NHẤT
 # =====================================================================
@@ -425,7 +423,9 @@ if st.sidebar.button("🗑️ CLEAR SYSTEM MEMORY", use_container_width=True):
     st.rerun()
 
 
-# --- LƯỚI CHIA ĐÔI CỘT CHÍNH THỰC TẾ (LẤP ĐẦY TRỰC TIẾP HÀNG TIẾP THEO) ---
+# =====================================================================
+# 🟢 LƯỚI CHIA ĐÔI CỘT CHÍNH THỰC TẾ (CHỈ GIỮ LẠI ĐÚNG 1 KHỐI NÀY TRÊN FILE)
+# =====================================================================
 col_left, col_right = st.columns(2)
 
 # --- CỘT TRÁI: BỘ TẢI FILE & HỒ SƠ TÓM TẮT MÃ HÀNG ---
@@ -465,7 +465,7 @@ with col_left:
             st.markdown(f'<div class="meta-box-light-flat"><div class="meta-label-flat">Season / Mùa sản xuất</div><div class="meta-value-flat">{season}</div></div>', unsafe_allow_html=True)
         with m_col2:
             st.markdown(f'<div class="meta-box-light-flat"><div class="meta-label-flat">Garment Type / Kiểu dáng</div><div class="meta-value-light">{short_desc}</div></div>', unsafe_allow_html=True)
-            st.markdown(f'<div class="meta-box-light-flat"><div class="meta-label-flat">Material Spec / Mô tả vải</div><div class="meta-value-flat">{fabric_type[:25]}...</div></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="meta-box-light-flat"><div class="meta-label-flat">Material Spec / Mô tả vải</div><div class="meta-value-light">{fabric_type[:25]}...</div></div>', unsafe_allow_html=True)
             st.markdown(f'<div class="meta-box-light-flat"><div class="meta-label-flat">Techpack Status</div><div class="meta-value-flat" style="color: #16a34a; font-weight: bold;">🟢 READY TO BOM</div></div>', unsafe_allow_html=True)
     else:
         if st.session_state.pdf_bytes is None:
