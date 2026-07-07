@@ -44,6 +44,7 @@ def compute_fabric_engine(row: dict, product_type: str, chat_txt: str) -> tuple:
     }
     active_product = "CARGO_PANTS" if any(k in chat_clean or k in str(product_type).upper() for k in ["CARGO", "PANTS", "JEANS"]) else product_type
     # =====================================================================
+       # =====================================================================
     # ĐOẠN TÍNH ĐM - PHẦN 2: BỘ LỌC CAD SANITY GATE & TRÍCH XUẤT DIỆN TÍCH LÓT
     # =====================================================================
     
@@ -88,6 +89,102 @@ def compute_fabric_engine(row: dict, product_type: str, chat_txt: str) -> tuple:
             
         total_net_area = raw_box_area * net_factor
         geo_source = "CAD Convex Hull Inferred"
+    # =====================================================================
+    # ĐOẠN TÍNH ĐM - PHẦN 3: TÍCH LŨY CARGO DYNAMIC VÀ CÔNG THỨC CAM PHẲNG
+    # =====================================================================
+    
+    # --- STEP 3: DYNAMIC CARGO POCKET ACCUMULATOR ---
+    # Tự động quét xuyên suốt bảng BOM để nhặt diện tích rập túi đắp nổi hông cộng dồn vào vải chính
+    cargo_pocket_accumulated_area = 0.0
+    if active_product == "CARGO_PANTS" and is_main_fabric:
+        if "bom_data" in st.session_state and st.session_state.bom_data and "bom_rows" in st.session_state.bom_data:
+            for b_row in st.session_state.bom_data["bom_rows"]:
+                if not b_row: continue
+                c_name = str(b_row.get("component_name", "")).upper()
+                m_class = str(b_row.get("material_class", "")).upper()
+                
+                # Nhặt chính xác chi tiết túi đắp hoặc nắp túi Cargo làm bằng vải chính
+                if any(k in c_name for k in ["CARGO", "PATCH POCKET", "TÚI HỘP", "FLAP", "NẮP TÚI"]):
+                    p_len = float(b_row.get("bounding_box_length", 0.0) or 0.0)
+                    p_wid = float(b_row.get("bounding_box_width", 0.0) or 0.0)
+                    p_cnt = int(b_row.get("piece_count", 1) or 1)
+                    p_poly = float(b_row.get("polygon_net_area", 0.0) or 0.0)
+                    
+                    pocket_area = p_poly if p_poly > 0.0 else (p_len * p_wid * 0.85)
+                    if pocket_area <= 0.0 and any(f in c_name for f in ["CARGO", "TÚI HỘP"]):
+                        pocket_area = 9.0 * 8.0 * 0.85  # Bù thông số rập túi hộp đắp thực tế
+                        
+                    cargo_pocket_accumulated_area += (pocket_area * p_cnt)
+            
+            if cargo_pocket_accumulated_area > 0.0:
+                total_net_area += cargo_pocket_accumulated_area
+
+    # --- STEP 4: TRÍCH XUẤT KHỔ VẢI THỰC TẾ ---
+    raw_width = row.get("fabric_width_inch")
+    try:
+        width_inch = float(raw_width) if raw_width else (44.0 if current_mat_class == "LINING" else 56.0)
+        match_w = re.search(r'(?:KHỔ|KHO|WIDTH|W)\s*[:\-=\s]*([\d\.]+)', chat_clean)
+        if match_w: width_inch = float(match_w.group(1))
+    except:
+        width_inch = 56.0
+
+    # --- STEP 5: ĐỘ CO RÚT LAB-TEST VÀ HIỆU SUẤT AI GIÁC ---
+    warp_num, weft_num = 0.03, 0.03  
+    match_warp = re.search(r'(?:CO RÚT DỌC|WARP|DỌC|DOC)\s*[:\-=\s]*([\d\.]+)', chat_clean)
+    match_weft = re.search(r'(?:CO RÚT NGANG|WEFT|NGANG)\s*[:\-=\s]*([\d\.]+)', chat_clean)
+    if match_warp: warp_num = float(match_warp.group(1)) / 100.0
+    if match_weft: weft_num = float(match_weft.group(1)) / 100.0
+    
+    if "GARMENT DYE" in chat_clean: warp_num += 0.025; weft_num += 0.020
+    if "ENZYME WASH" in chat_clean: warp_num += 0.015; weft_num += 0.010
+
+    base_eff = 0.835  
+    if active_product in ["CARGO_PANTS", "JEANS"]: base_eff = 0.855
+    if current_mat_class == "LINING": base_eff = 0.820 
+    
+    if any(k in chat_clean for k in ["STRIPE", "VÂN SỌC", "KẺ CARO", "PLAID"]): base_eff -= 0.06
+    if width_inch >= 60.0: base_eff += 0.015
+    elif width_inch <= 45.0: base_eff -= 0.035
+    
+    ai_marker_efficiency = round(max(0.50, min(0.96, base_eff)), 3)
+
+    # --- STEP 6: PHÉP TOÁN PHÂN RÃ TOÁN HỌC CAM NHÀ MÁY ---
+    INDUSTRIAL_LOSS_MATRIX = {
+        "DENIM": {"marker_end": 0.008, "spread_waste": 0.012, "relaxation": 0.005, "defect_cut": 0.010, "roll_end": 0.005},
+        "WOVEN": {"marker_end": 0.006, "spread_waste": 0.010, "relaxation": 0.004, "defect_cut": 0.005, "roll_end": 0.005},
+        "KNIT":  {"marker_end": 0.010, "spread_waste": 0.015, "relaxation": 0.020, "defect_cut": 0.008, "roll_end": 0.007}
+    }
+    fabric_group = "DENIM" if active_product in ["JEANS", "CARGO_PANTS"] else "WOVEN"
+    total_industrial_loss = sum(INDUSTRIAL_LOSS_MATRIX[fabric_group].values())
+    
+    gather_ratio = 1.00
+    if any(k in chat_clean for k in ["RUCHE", "SIDE_RUCHE", "NHÚN SƯỜN"]): gather_ratio = 1.45
+
+    gross_val = 0.0
+    if total_net_area > 0 and width_inch > 0:
+        adjusted_area = total_net_area * gather_ratio
+        expanded_area = adjusted_area * (1.0 + warp_num) * (1.0 + weft_num)
+        
+        # Áp dụng công thức vạt chia sơ đồ phẳng CAM
+        math_cad_yardage = expanded_area / (width_inch * 36.0 * ai_marker_efficiency)
+        gross_val = math_cad_yardage * (1.0 + total_industrial_loss)
+        gross_val = round(max(0.0, gross_val), 3)
+
+    # --- STEP 7: EXPORT DỮ LIỆU ĐỒNG BỘ VÀ KHÓA CHẾT GIÁ TRỊ TRẢ VỀ CHỐNG LỖI UNPACK ---
+    row["fabric_consumption"] = gross_val
+    row["gross_consumption"] = gross_val
+    
+    row["cad_geometry_source"] = geo_source
+    row["cad_calculated_net_area"] = round(total_net_area, 1)
+    row["cad_inferred_efficiency"] = ai_marker_efficiency
+    row["cad_total_industrial_loss"] = round(total_industrial_loss * 100, 2)
+    row["cad_engine_version"] = "CAM-v35.1-Enterprise"
+
+    note = f"CAM Core v35.1 | Area: {total_net_area:.1f} sq in | Eff: {ai_marker_efficiency*100}%"
+    
+    # Khóa chết cấu trúc tuple đầu ra bảo vệ lệnh gán của Streamlit luôn thành công
+    return gross_val, note
+
 
 
 
