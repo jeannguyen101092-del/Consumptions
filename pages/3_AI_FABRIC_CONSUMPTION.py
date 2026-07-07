@@ -301,9 +301,9 @@ def compute_thread_engine() -> tuple:
 
 def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, *args, **kwargs) -> dict:
     """
-    Enterprise Multi-Engine CAD Router v47.0 - STRICT IE COMPLIANCE.
-    🌟 FIX TRIỆT ĐỂ ĐỊNH MỨC 0: Ép kiểu số thực (Strict Type Casting) ngay tại tầng Router 
-    để vượt qua chốt chặn hình học an toàn.
+    Enterprise Multi-Engine CAD Router v47.1 - STRICT IE COMPLIANCE.
+    🌟 VÁ LỖI CHÍNH TẢ BIẾN CHỈ: Sửa lỗi gross_yards -> gross_yds tại nhánh THREAD.
+    🌟 SMART DEBUG GATE: Tự động in log cảnh báo lên Streamlit nếu lỗi ngầm, không âm thầm trả về 0.
     """
     import copy
     import streamlit as st
@@ -352,7 +352,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, *args, *
         else:
             engine_target = "FABRIC"
 
-        # 3. 🌟 ÉP KIỂU SỐ THỰC NGAY TẠI ROUTER CHỐNG LỖI STRING
+        # 3. ÉP KIỂU SỐ THỰC NGAY TẠI ROUTER CHỐNG LỖI STRING CHUỖI VĂN BẢN
         try:
             b_len = float(ui_row.get("bounding_box_length", 0.0) or 0.0)
         except:
@@ -368,12 +368,12 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, *args, *
         except:
             poly_area = 0.0
             
-        # Cập nhật lại giá trị đã ép kiểu vào dict để truyền tiếp vào lõi con
+        # Cập nhật lại giá trị đã ép kiểu số thực vào dict để truyền tiếp vào lõi con
         ui_row["bounding_box_length"] = b_len
         ui_row["bounding_box_width"] = b_wid
         ui_row["polygon_net_area"] = poly_area
 
-        # 4. CHỐT CHẶN BẢO VỆ HÌNH HỌC (Đã sửa lỗi so sánh chuỗi văn bản)
+        # 4. CHỐT CHẶN BẢO VỆ HÌNH HỌC AN TOÀN
         if engine_target != "THREAD" and b_len <= 0.0 and b_wid <= 0.0 and poly_area <= 0.0:
             ui_row["engine"] = engine_target
             ui_row["gross_consumption"] = 0.0
@@ -382,43 +382,53 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, *args, *
             router_bom_rows.append(ui_row)
             continue
 
-        # 5. KÍCH HOẠT ENGINE TÍNH TOÁN THEO THÔNG SỐ RIÊNG
-        if engine_target in ["FABRIC", "FUSING"]:
-            gross_yds, gross_mtr, calc_note = compute_fabric_engine(ui_row, product_type, spec_meta)
-            gross_val = gross_mtr if uom_target == "MTR" else gross_yds
-            
-        elif engine_target == "ELASTIC":
-            if "length_inch" not in ui_row or float(ui_row.get("length_inch", 0.0)) <= 0.0:
-                ui_row["length_inch"] = b_len if b_len > 0 else b_wid
-            gross_yds, gross_mtr, calc_note = compute_elastic_engine(ui_row)
-            gross_val = gross_mtr if uom_target == "MTR" else gross_yds
-            
-        elif engine_target in ["TAPE", "CORD", "WEBBING"]:
-            if "length_inch" not in ui_row or float(ui_row.get("length_inch", 0.0)) <= 0.0:
-                ui_row["length_inch"] = b_len if b_len > 0 else b_wid
-            gross_yds, gross_mtr, calc_note = compute_tape_engine(ui_row)
-            gross_val = gross_mtr if uom_target == "MTR" else gross_yds
-            
-        elif engine_target == "THREAD":
-            gross_yds, gross_mtr, calc_note = compute_thread_engine()
-            gross_val = gross_yards
-        else:
-            gross_yds, gross_mtr, calc_note = compute_fabric_engine(ui_row, product_type, spec_meta)
-            gross_val = gross_mtr if uom_target == "MTR" else gross_yds
+        # 5. KÍCH HOẠT ENGINE TÍNH TOÁN VÀ BẪY LỖI NGẦM LOGIC
+        try:
+            if engine_target in ["FABRIC", "FUSING"]:
+                gross_yds, gross_mtr, calc_note = compute_fabric_engine(ui_row, product_type, spec_meta)
+                gross_val = gross_mtr if uom_target == "MTR" else gross_yds
+                
+            elif engine_target == "ELASTIC":
+                if "length_inch" not in ui_row or float(ui_row.get("length_inch", 0.0)) <= 0.0:
+                    ui_row["length_inch"] = b_len if b_len > 0 else b_wid
+                gross_yds, gross_mtr, calc_note = compute_elastic_engine(ui_row)
+                gross_val = gross_mtr if uom_target == "MTR" else gross_yds
+                
+            elif engine_target in ["TAPE", "CORD", "WEBBING"]:
+                if "length_inch" not in ui_row or float(ui_row.get("length_inch", 0.0)) <= 0.0:
+                    ui_row["length_inch"] = b_len if b_len > 0 else b_wid
+                gross_yds, gross_mtr, calc_note = compute_tape_engine(ui_row)
+                gross_val = gross_mtr if uom_target == "MTR" else gross_yds
+                
+            elif engine_target == "THREAD":
+                gross_yds, gross_mtr, calc_note = compute_thread_engine()
+                # 🌟 ĐÃ FIX: Đổi gross_yards thành gross_yds để đồng bộ chính xác biến cục bộ
+                gross_val = gross_yds
+            else:
+                gross_yds, gross_mtr, calc_note = compute_fabric_engine(ui_row, product_type, spec_meta)
+                gross_val = gross_mtr if uom_target == "MTR" else gross_yds
 
-        # Ghi nhận kết quả sạch đồng bộ cột giao diện DataFrame
-        ui_row["engine"] = engine_target
-        ui_row["gross_consumption"] = gross_val
-        ui_row["quality_status"] = "PASS" if gross_val > 0 else "QA_FAIL"
-        ui_row["system_notes"] = calc_note
-        
-        ui_row["calculated_consumption_yards"] = gross_yds
-        ui_row["calculated_consumption_meters"] = gross_mtr
-        
+            # Ghi nhận kết quả sạch đồng bộ cột giao diện DataFrame
+            ui_row["engine"] = engine_target
+            ui_row["gross_consumption"] = gross_val
+            ui_row["quality_status"] = "PASS" if gross_val > 0 else "QA_FAIL"
+            ui_row["system_notes"] = calc_note
+            ui_row["calculated_consumption_yards"] = gross_yds
+            ui_row["calculated_consumption_meters"] = gross_mtr
+            
+        except Exception as row_calc_err:
+            # Nếu một dòng bất kỳ bị crash thuật toán, in trực tiếp thông báo lên màn hình để xử lý ngay
+            st.warning(f"⚠️ Dòng rập '{comp_name}' bị lỗi tính toán: {str(row_calc_err)}")
+            ui_row["engine"] = engine_target
+            ui_row["gross_consumption"] = 0.0
+            ui_row["quality_status"] = "QA_FAIL"
+            ui_row["system_notes"] = f"Crash error: {str(row_calc_err)}"
+
         router_bom_rows.append(ui_row)
         
     blueprint_final["bom_rows"] = router_bom_rows
     return blueprint_final
+
 
 
 
