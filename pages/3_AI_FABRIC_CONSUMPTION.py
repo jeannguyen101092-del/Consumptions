@@ -530,15 +530,12 @@ def render_enterprise_sticky_header(style_id, materials_count, fabric_consumptio
 
     st.markdown(f"""
     <div class="erp-enterprise-header notranslate" translate="no">
-        <!-- TẦNG 1: BANNER TIÊU ĐỀ CHÍNH -->
         <div class="top-banner">
             <div class="top-title">📊 INTELLIGENT FABRIC CONSUMPTION PLATFORM</div>
             <div class="top-subtitle">Hệ thống phân tích rập hình học và tự động tính toán định mức kỹ thuật dệt may bằng AI CORE</div>
         </div>
 
-        <!-- TẦNG 2 & TẦNG 3: FLEXBOX RESPONSIVE TRUYỀN DỮ LIỆU ĐỘNG -->
         <div class="kpi-flex-wrapper">
-            <!-- CỘT 1 -->
             <div class="kpi-column-box">
                 <div class="kpi-card-colored bg-style">
                     <div class="kpi-num-light">{style_id}</div>
@@ -548,7 +545,6 @@ def render_enterprise_sticky_header(style_id, materials_count, fabric_consumptio
                     <img src="{encoded_ao}" alt="Ao">
                 </div>
             </div>
-            <!-- CỘT 2 -->
             <div class="kpi-column-box">
                 <div class="kpi-card-colored bg-items">
                     <div class="kpi-num-light">{materials_count} Item(s)</div>
@@ -558,7 +554,6 @@ def render_enterprise_sticky_header(style_id, materials_count, fabric_consumptio
                     <img src="{encoded_quan}" alt="Quan">
                 </div>
             </div>
-            <!-- CỘT 3 -->
             <div class="kpi-column-box">
                 <div class="kpi-card-colored bg-cons">
                     <div class="kpi-num-light">{fabric_consumption}</div>
@@ -568,7 +563,6 @@ def render_enterprise_sticky_header(style_id, materials_count, fabric_consumptio
                     <img src="{encoded_vest}" alt="Vest">
                 </div>
             </div>
-            <!-- CỘT 4 -->
             <div class="kpi-column-box">
                 <div class="kpi-card-colored bg-size">
                     <div class="kpi-num-light">{active_size}</div>
