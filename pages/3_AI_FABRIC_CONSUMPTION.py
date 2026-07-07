@@ -428,12 +428,13 @@ if st.sidebar.button("🗑️ CLEAR SYSTEM MEMORY", use_container_width=True):
 # =====================================================================
 col_left, col_right = st.columns(2)
 
-# --- CỘT TRÁI: BỘ TẢI FILE & HỒ SƠ TÓM TẮT MÃ HÀNG ---
+# --- CỘT TRÁI: BỘ TẢI FILE & HỒ SƠ TÓM TẮT MÃ HÀNG MÀU XANH ---
 with col_left:
-    st.markdown('<div class="custom-erp-box-flat">', unsafe_allow_html=True)
-    st.markdown('<div class="cad-header-text-flat">📂 TECHPACK UPLOADER & PROFILE SUMMARY</div>', unsafe_allow_html=True)
+    # GỘP CHUNG THẺ MỞ HỘP VÀ TIÊU ĐỀ VÀO MỘT LỆNH ST.MARKDOWN DUY NHẤT ĐỂ TRÁNH SINH BLOCK RỖNG
+    st.markdown('<div class="custom-erp-box-flat"><div class="cad-header-text-flat">📂 TECHPACK UPLOADER & PROFILE SUMMARY</div>', unsafe_allow_html=True)
     
     uploaded_file = st.file_uploader("Upload PDF", type=["pdf"], label_visibility="collapsed")
+
     
     if uploaded_file is not None:
         if st.session_state.pdf_name != uploaded_file.name:
