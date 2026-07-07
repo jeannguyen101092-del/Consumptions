@@ -310,6 +310,14 @@ st.markdown("""
 
 import streamlit as st
 
+# ==============================================================================
+# ĐOẠN 1: KHỞI TẠO AN TOÀN, XỬ LÝ LOGIC DỮ LIỆU & BỘ STYLING CSS PHẲNG NATIVE
+# ==============================================================================
+
+# Khởi tạo cấu hình trang rộng toàn màn hình chuẩn ERP
+st.set_page_config(layout="wide", page_title="AI Fabric Consumption Matrix")
+
+# Khởi tạo an toàn cấu trúc trạng thái hệ thống (Session State)
 if "bom_data" not in st.session_state: st.session_state.bom_data = None
 if "chat_history" not in st.session_state: st.session_state.chat_history = []
 if "pdf_bytes" not in st.session_state: st.session_state.pdf_bytes = None
@@ -317,7 +325,7 @@ if "pdf_name" not in st.session_state: st.session_state.pdf_name = ""
 if "pdf_text_cache" not in st.session_state: st.session_state.pdf_text_cache = None
 if "accumulated_bom_rows" not in st.session_state: st.session_state.accumulated_bom_rows = []
 
-# Tự động trích xuất chữ khi nạp file PDF
+# Khối tự động trích xuất chữ khi nạp file PDF bằng PyMuPDF (fitz)
 if st.session_state.pdf_bytes is not None and st.session_state.pdf_text_cache is None:
     try:
         import fitz
@@ -328,7 +336,7 @@ if st.session_state.pdf_bytes is not None and st.session_state.pdf_text_cache is
         st.session_state.pdf_text_cache = full_text_extract
     except Exception: pass
 
-# ĐỒNG BỘ DỮ LIỆU KPIs BIẾN THIÊN THEO THỜI GIAN THỰC
+# ĐỒNG BỘ DỮ LIỆU KPIs BIẾN THIÊN THEO THỜI GIAN THỰC TỪ TRANG BÌA TECHPACK
 kpi_style_id = "N/A"
 total_materials = len(st.session_state.accumulated_bom_rows) if st.session_state.accumulated_bom_rows else 0
 main_fabric_cons = "0.000 Yds"
@@ -345,36 +353,151 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data:
             if val_gross > 0.0:
                 main_fabric_cons = f"{val_gross:.3f} Yds"
                 break
-# CSS định dạng phẳng mặc định (Xóa sạch khoảng trống lỗi)
-import streamlit as st
 
-# =====================================================================
-# ĐOẠN 6b: ĐỒNG BỘ LAYOUT PHẲNG - XÓA TẬN GỐC KHỐI TRỐNG SÓT LẠI
-# =====================================================================
-
+# 🌟 BỘ STYLING CSS PHẲNG CHUẨN SAAS/ERP: TRIỆT TIÊU VĨNH VIỄN 2 Ô TRỐNG KHỔNG LỒ
 st.markdown("""
 <style>
-    /* Ép reset lại toàn bộ khoảng đệm đỉnh trần của Streamlit về mặc định */
+    /* Đổi màu nền ứng dụng về màu xám nhạt dịu mắt */
+    .stApp {
+        background-color: #f8fafc !important;
+    }
+
+    /* Đưa thanh Header mặc định của Streamlit đồng bộ màu nền */
+    header[data-testid="stHeader"] {
+        background-color: #f8fafc !important;
+        z-index: 999 !important;
+    }
+    
+    /* Ép khoảng đệm trần của Streamlit về mặc định, xóa vĩnh viễn khoảng hở */
     .block-container {
         padding-top: 2rem !important; 
         margin-top: 0px !important;
+        max-width: 100% !important;
     }
     
-    /* ẨN VĨNH VIỄN CÁC KHỐI CHIA CỘT RỖNG BỊ SÓT TRONG FILE */
-    div[data-testid="stHorizontalBlock"]:not(:has(.custom-erp-box)) {
-        display: none !important;
-        height: 0px !important;
-        margin: 0 !important;
-        padding: 0 !important;
-    }
-
-    /* Đưa lưới chia cột chính co sát lên mép trên */
+    /* Đồng bộ khối chia lưới, ép co sát sát lên mép trên cùng */
     div[data-testid="stHorizontalBlock"] {
         margin-top: 0px !important;
         padding-top: 0px !important;
     }
 
-    /* Khống chế hình vẽ rập phẳng bên phải không bị kéo giãn */
+    /* Khung Banner tiêu đề chính chuyển sắc xanh công nghệ */
+    .top-banner {
+        background: linear-gradient(135deg, #1e3a8a 0%, #0284c7 100%);
+        padding: 14px 20px;
+        border-radius: 8px;
+        color: #ffffff;
+        margin-bottom: 18px;
+        text-align: center;
+        width: 100%;
+        box-sizing: border-box;
+    }
+    .top-title {
+        font-family: 'Segoe UI', sans-serif;
+        font-size: 18px;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+    }
+    .top-subtitle {
+        font-size: 11px;
+        color: #e0f2fe;
+        opacity: 0.85;
+        margin-top: 1px;
+    }
+    
+    /* Hộp chỉ số động KPIs chữ trắng sắc nét nổi bật */
+    .kpi-card-colored {
+        border-radius: 6px 6px 0 0 !important;
+        padding: 10px 12px;
+        text-align: center;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+        box-sizing: border-box !important;
+    }
+    .kpi-num-light {
+        font-size: 18px;
+        font-weight: 700;
+        color: #ffffff !important; 
+        font-family: 'Segoe UI', sans-serif;
+        line-height: 1.2;
+    }
+    .kpi-lbl-light {
+        font-size: 10px;
+        font-weight: 600;
+        color: #ffffff !important;
+        opacity: 0.95;
+        text-transform: uppercase;
+        margin-top: 2px;
+    }
+    
+    /* Giải dải chuyển màu gradient sắc nét của 4 ô thông số */
+    .bg-style { background: linear-gradient(135deg, #334155 0%, #1e293b 100%); }
+    .bg-items { background: linear-gradient(135deg, #0d9488 0%, #0f766e 100%); }
+    .bg-cons  { background: linear-gradient(135deg, #ea580c 0%, #c2410c 100%); }
+    .bg-size  { background: linear-gradient(135deg, #16a34a 0%, #15803d 100%); }
+
+    /* Hộp trắng bao bọc hình vẽ rập vector hình học ngay hàng thẳng lối */
+    .image-placeholder-box {
+        border: 1px solid #cbd5e1 !important;
+        border-top: none !important; 
+        border-radius: 0 0 6px 6px !important;
+        padding: 10px 5px !important;
+        height: 140px !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        box-sizing: border-box !important;
+        margin-bottom: 25px !important;
+    }
+    .image-placeholder-box img {
+        max-height: 110px !important;
+        width: auto !important;
+        object-fit: contain !important;
+        display: block !important;
+        margin: auto !important;
+    }
+    
+    /* Màu nền dịu nhẹ tương ứng bên dưới hình vẽ rập thiết kế */
+    .color-ao   { background-color: #f8fafc !important; }
+    .color-quan { background-color: #f4fbf9 !important; }
+    .color-vest { background-color: #fffaf5 !important; }
+    .color-vay  { background-color: #f5fcf7 !important; }
+
+    /* 🟢 KHỐNG CHẾ CHẶT CHẼ ĐỘ CAO 1:1 ĐỐI XỨNG CHO PHẦN THÂN DƯỚI */
+    .custom-erp-box {
+        background-color: #ffffff !important;
+        border: 1px solid #cbd5e1 !important;
+        border-radius: 8px;
+        padding: 20px;
+        margin-bottom: 15px;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.03);
+        max-height: 380px !important; 
+        min-height: 380px !important; /* Khóa cứng chiều cao 2 bên bằng khít nhau */
+        overflow-y: auto !important;   /* Tự động xuất hiện thanh cuộn nếu chữ hoặc ảnh quá dài */
+        box-sizing: border-box !important;
+    }
+    
+    .cad-header-text {
+        font-family: 'Segoe UI', sans-serif;
+        font-size: 14px;
+        font-weight: 700;
+        color: #0369a1; 
+        margin-bottom: 15px;
+        padding-bottom: 6px;
+        border-bottom: 2px solid #e2e8f0;
+    }
+
+    /* Thẻ hồ sơ tóm tắt mã hàng ngăn nắp */
+    .meta-box-light {
+        background-color: #f8fafc; 
+        border-left: 4px solid #0284c7;
+        padding: 8px 12px;
+        margin-bottom: 8px;
+        border-radius: 0 6px 6px 0;
+    }
+    .meta-label-light { font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; }
+    .meta-value-light { font-size: 13px; font-weight: 600; color: #0f172a; margin-top: 1px; }
+
+    /* Khống chế hình vẽ rập phẳng bên phải không bị kéo giãn quá đà */
     .sticky-sketch-box img {
         max-height: 290px !important;
         width: auto !important;
@@ -383,131 +506,124 @@ st.markdown("""
         display: block !important;
     }
 
-    /* Hộp ERP bao bọc dữ liệu phẳng chuẩn */
-    .custom-erp-box {
-        background-color: #ffffff !important;
-        border: 1px solid #e2e8f0 !important;
-        border-radius: 6px !important;
-        padding: 15px !important;
-        min-height: 380px !important; /* Giữ 2 hộp cân bằng chiều cao đều nhau */
-        box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05) !important;
-        box-sizing: border-box !important;
-    }
-
-    .cad-header-text {
-        font-family: 'Segoe UI', sans-serif !important;
-        font-size: 13px !important;
-        font-weight: 700 !important;
-        color: #1e3a8a !important;
-        margin-bottom: 15px !important;
-        letter-spacing: 0.3px !important;
-    }
-
-    .meta-box-light {
-        background-color: #f8fafc !important;
-        border: 1px solid #f1f5f9 !important;
-        border-radius: 4px !important;
-        padding: 6px 10px !important;
-        margin-bottom: 8px !important;
-    }
-    .meta-label-light {
-        font-size: 10px !important;
-        color: #64748b !important;
-        text-transform: uppercase !important;
-        font-weight: 500 !important;
-    }
-    .meta-value-light {
-        font-size: 12px !important;
-        color: #0f172a !important;
+    /* 🟢 BẢN VÁ TRIỆT TIÊU KHỐI RỖNG: Ẩn vĩnh viễn các hộp spacer vô hình */
+    .main-body-spacer, 
+    div[data-testid="stHorizontalBlock"]:empty,
+    div[smart-fixed-container] {
+        display: none !important;
+        height: 0px !important;
+        margin: 0 !important;
+        padding: 0 !important;
     }
 </style>
 """, unsafe_allow_html=True)
+import streamlit as st
 
-# --- SIDEBAR ENGINE CONTROLS CONTROL PANEL ---
-st.sidebar.markdown("### ⚙️ ENGINE CONTROLS")
-if st.sidebar.button("🗑️ CLEAR SYSTEM MEMORY", use_container_width=True):
-    st.session_state.bom_data = None
-    st.session_state.chat_history = []
-    st.session_state.pdf_bytes = None
-    st.session_state.pdf_name = ""
-    st.session_state.pdf_text_cache = None
-    if "pdf_page_one_image" in st.session_state: st.session_state.pdf_page_one_image = None
-    if "accumulated_bom_rows" in st.session_state: st.session_state.accumulated_bom_rows = []
-    st.rerun()
+st.set_page_config(layout="wide", page_title="AI Fabric Consumption Matrix")
 
-# ------------------------------------------------------------------------------
-# LƯỚI CHIA ĐÔI CỘT ĐỐI XỨNG PHẲNG THẬT (GẮN CLASS CUSTOM-ERP-BOX ĐỂ GIỮ LẠI)
-# ------------------------------------------------------------------------------
+# Khởi tạo an toàn Session State
+for key, val in [("bom_data", None), ("chat_history", []), ("pdf_bytes", None), ("pdf_name", ""), ("pdf_text_cache", None), ("accumulated_bom_rows", [])]:
+    if key not in st.session_state: st.session_state[key] = val
+
+# Trích xuất chữ từ PDF
+if st.session_state.pdf_bytes and st.session_state.pdf_text_cache is None:
+    try:
+        import fitz
+        doc = fitz.open(stream=st.session_state.pdf_bytes, filetype="pdf")
+        st.session_state.pdf_text_cache = "".join([f"\n--- TRANG {i+1} ---\n" + doc.load_page(i).get_text("text") for i in range(len(doc))])
+    except: pass
+
+# Đồng bộ thông số dữ liệu động KPIs
+kpi_style_id, total_materials, main_fabric_cons, active_size_kpi = "N/A", len(st.session_state.accumulated_bom_rows), "0.000 Yds", "AUTOMATIC"
+if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data:
+    kpi_style_id = str(st.session_state.bom_data.get("style_code", "R09-450416")).upper()
+    active_size_kpi = str(st.session_state.bom_data.get("calculated_on_size", "MEDIAN")).upper()
+    if total_materials == 0: total_materials = len(st.session_state.bom_data["bom_rows"])
+    for row in st.session_state.bom_data["bom_rows"]:
+        if row and any(k in str(row.get("material_class", "")).upper() for k in ["MAIN", "FABRIC"]) and row.get("gross_consumption", 0.0) > 0:
+            main_fabric_cons = f"{row['gross_consumption']:.3f} Yds"; break
+
+# CSS phẳng siêu gọn - Xóa sạch 2 ô trống khổng lồ
+st.markdown("""
+<style>
+    .stApp { background-color: #f8fafc !important; }
+    header[data-testid="stHeader"] { background-color: #f8fafc !important; }
+    .block-container { padding-top: 1.5rem !important; margin-top: 0px !important; }
+    div[data-testid="stHorizontalBlock"] { margin-top: 0px !important; padding-top: 0px !important; }
+    .kpi-card-colored { border-radius: 6px 6px 0 0 !important; padding: 10px; text-align: center; }
+    .kpi-num-light { font-size: 16px !important; font-weight: 700 !important; color: #ffffff !important; font-family: 'Segoe UI', sans-serif; }
+    .kpi-lbl-light { font-size: 9px !important; font-weight: 600; color: #ffffff !important; text-transform: uppercase; margin-top: 2px; }
+    .bg-style { background: linear-gradient(135deg, #334155, #1e293b); }
+    .bg-items { background: linear-gradient(135deg, #0d9488, #0f766e); }
+    .bg-cons  { background: linear-gradient(135deg, #ea580c, #c2410c); }
+    .bg-size  { background: linear-gradient(135deg, #16a34a, #15803d); }
+    .image-placeholder-box { border: 1px solid #cbd5e1 !important; border-top: none !important; border-radius: 0 0 6px 6px !important; padding: 5px; height: 120px !important; display: flex !important; align-items: center !important; justify-content: center !important; margin-bottom: 20px !important; }
+    .image-placeholder-box img { max-height: 95px !important; width: auto !important; object-fit: contain !important; display: block !important; }
+    .color-ao { background-color: #f8fafc !important; } .color-quan { background-color: #f4fbf9 !important; } .color-vest { background-color: #fffaf5 !important; } .color-vay { background-color: #f5fcf7 !important; }
+    .custom-erp-box { background-color: #ffffff !important; border: 1px solid #cbd5e1 !important; border-radius: 8px; padding: 18px; min-height: 380px !important; max-height: 380px !important; overflow-y: auto !important; box-sizing: border-box !important; }
+    .cad-header-text { font-family: 'Segoe UI', sans-serif; font-size: 13px; font-weight: 700; color: #0369a1; margin-bottom: 12px; padding-bottom: 5px; border-bottom: 2px solid #e2e8f0; }
+    .meta-box-light { background-color: #f8fafc; border-left: 4px solid #0284c7; padding: 6px 10px; margin-bottom: 6px; border-radius: 0 4px 4px 0; }
+    .meta-label-light { font-size: 10px; font-weight: 700; color: #64748b; text-transform: uppercase; }
+    .meta-value-light { font-size: 12px; font-weight: 600; color: #0f172a; }
+    .sticky-sketch-box img { max-height: 290px !important; width: auto !important; object-fit: contain !important; margin: 0 auto !important; display: block !important; }
+    .main-body-spacer, div[data-testid="stHorizontalBlock"]:empty, div[smart-fixed-container], .sticky-top-container { display: none !important; height: 0px !important; margin: 0 !important; padding: 0 !important; }
+</style>
+""", unsafe_allow_html=True)
+import streamlit as st
+
+# 4 Ô chỉ số KPIs Native phẳng hoàn toàn
+k_col1, k_col2, k_col3, k_col4 = st.columns(4)
+for col, bg, num, lbl, img, c_bg in [
+    (k_col1, "bg-style", kpi_style_id, "Mã hàng đang xử lý", "M20.38 3.46L16 2a4 4 0 0 0-8 0l-4.38 1.46a2 2 0 0 0-1.37 2l.35 11.23a2 2 0 0 0 2 1.94h14.8a2 2 0 0 0 2-1.94l.35-11.23a2 2 0 0 0-1.37-2zM12 5v16M4 10h16", "color-ao"),
+    (k_col2, "bg-items", f"{total_materials} Item(s)", "Tổng số vật tư kết xuất", "M4 2h16l-2 20H6L4 2zM12 2v20M5 8h14", "color-quan"),
+    (k_col3, "bg-cons", main_fabric_cons, "Định mức vải chính dự kiến", "M4 2v20l8-4 8 4V2l-8 4-8-4zM12 6v12M4 8h16", "color-vest"),
+    (k_col4, "bg-size", active_size_kpi, "Cỡ hạt tính định mức", "M6 2h12l3 7-9 13-9-7 3-7zM6 9h12M12 2v7", "color-vay")
+]:
+    with col:
+        st.markdown(f'<div class="kpi-card-colored {bg}"><div class="kpi-num-light">{num}</div><div class="kpi-lbl-light">{lbl}</div></div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="image-placeholder-box {c_bg}"><img src="data:image/svg+xml;utf8,<svg xmlns=\'http://w3.org\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'%23334155\' stroke-width=\'1.25\' stroke-linecap=\'round\' stroke-linejoin=\'round\'><path d=\'{img}\'/></svg>"></div>', unsafe_allow_html=True)
+
+# Lưới chia đôi cột chính co sát lên trên cùng
 col_left, col_right = st.columns(2)
 
-# --- CỘT TRÁI: BỘ TẢI FILE & HỒ SƠ TÓM TẮT MÃ HÀNG ---
 with col_left:
-    st.markdown('<div class="custom-erp-box">', unsafe_allow_html=True)
-    st.markdown('<div class="cad-header-text">📂 TECHPACK UPLOADER & PROFILE SUMMARY</div>', unsafe_allow_html=True)
-    
+    st.markdown('<div class="custom-erp-box"><div class="cad-header-text">📂 TECHPACK UPLOADER & PROFILE SUMMARY</div>', unsafe_allow_html=True)
     uploaded_file = st.file_uploader("Upload PDF", type=["pdf"], label_visibility="collapsed")
-    
-    if uploaded_file is not None:
+    if uploaded_file:
         if st.session_state.pdf_name != uploaded_file.name:
-            st.session_state.pdf_text_cache = None
-            if "pdf_page_one_image" in st.session_state: st.session_state.pdf_page_one_image = None
-            if "accumulated_bom_rows" in st.session_state: st.session_state.accumulated_bom_rows = []
-        st.session_state.pdf_bytes = uploaded_file.read()
-        st.session_state.pdf_name = uploaded_file.name
+            st.session_state.pdf_text_cache, st.session_state.pdf_page_one_image, st.session_state.accumulated_bom_rows = None, None, []
+        st.session_state.pdf_bytes, st.session_state.pdf_name = uploaded_file.read(), uploaded_file.name
 
-    if st.session_state.pdf_text_cache is not None:
-        st.markdown("<div style='margin-top: 5px;'></div>", unsafe_allow_html=True)
-        txt = st.session_state.pdf_text_cache
-        
+    if st.session_state.pdf_text_cache:
         import re
-        def get_meta(pattern, default="N/A"):
-            m = re.search(pattern, txt, re.IGNORECASE)
-            return m.group(1).strip() if m else default
-
-        style_id = get_meta(r'(?:Style ID|Style_ID|Mã hàng)\s*[:\-=\s]*([\w\d\-]+)', st.session_state.pdf_name.replace(".pdf",""))
-        short_desc = get_meta(r'(?:Short Desc|Description|Tên sản phẩm)\s*[:\-=\s]*([^\n]+)', "THE RUCHED MINI DRESS")
-        customer = get_meta(r'(?:Customer|Khách hàng|Brand)\s*[:\-=\s]*([^\n]+)', "FACTORY STANDARD")
-        season = get_meta(r'(?:Season|Mùa hàng)\s*[:\-=\s]*([^\n]+)', "FALL Winter 2026")
-        fabric_type = get_meta(r'(?:Long Description|Chất liệu gốc)\s*[:\-=\s]*([^\n]+)', "POPLIN FABRIC COTTON - SP26")
-
-        m_col1, m_col2 = st.columns(2)
-        with m_col1:
-            st.markdown(f'<div class="meta-box-light"><div class="meta-label-light">Style Code / Mã hàng</div><div class="meta-value-light"><b>{style_id}</b></div></div>', unsafe_allow_html=True)
-            st.markdown(f'<div class="meta-box-light"><div class="meta-label-light">Customer / Đối tác</div><div class="meta-value-light">{customer}</div></div>', unsafe_allow_html=True)
-            st.markdown(f'<div class="meta-box-light"><div class="meta-label-light">Season / Mùa sản xuất</div><div class="meta-value-light">{season}</div></div>', unsafe_allow_html=True)
-        with m_col2:
-            st.markdown(f'<div class="meta-box-light"><div class="meta-label-light">Garment Type / Kiểu dáng</div><div class="meta-value-light">{short_desc}</div></div>', unsafe_allow_html=True)
-            st.markdown(f'<div class="meta-box-light"><div class="meta-label-light">Material Spec / Mô tả vải</div><div class="meta-value-light">{fabric_type[:25]}...</div></div>', unsafe_allow_html=True)
-            st.markdown(f'<div class="meta-box-light"><div class="meta-label-light">Techpack Status</div><div class="meta-value-light" style="color: #16a34a; font-weight: bold;">🟢 READY TO BOM</div></div>', unsafe_allow_html=True)
-    else:
-        if st.session_state.pdf_bytes is None:
-            st.markdown("<div style='margin-top: 60px; text-align: center; color: #64748b; font-size: 13px;'>Bảng tóm tắt thông số sản phẩm sẽ tự động hiển thị tại đây sau khi nạp file PDF.</div>", unsafe_allow_html=True)
+        txt = st.session_state.pdf_text_cache
+        get_m = lambda p, d: (re.search(p, txt, re.I).group(1).strip() if re.search(p, txt, re.I) else d)
         
+        m_c1, m_c2 = st.columns(2)
+        with m_c1:
+            st.markdown(f'<div class="meta-box-light"><div class="meta-label-light">Style Code / Mã hàng</div><div class="meta-value-light"><b>{get_m(r"(?:Style ID|Mã hàng)[:\-=\s]*([\w\d\-]+)", st.session_state.pdf_name.replace(".pdf",""))}</b></div></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="meta-box-light"><div class="meta-label-light">Customer / Đối tác</div><div class="meta-value-light">{get_m(r"(?:Customer|Brand)[:\-=\s]*([^\n]+)", "FACTORY STANDARD")}</div></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="meta-box-light"><div class="meta-label-light">Season / Mùa sản xuất</div><div class="meta-value-light">{get_m(r"(?:Season|Mùa hàng)[:\-=\s]*([^\n]+)", "FALL Winter 2026")}</div></div>', unsafe_allow_html=True)
+        with m_c2:
+            st.markdown(f'<div class="meta-box-light"><div class="meta-label-light">Garment Type / Kiểu dáng</div><div class="meta-value-light">{get_m(r"(?:Short Desc|Description)[:\-=\s]*([^\n]+)", "THE RUCHED MINI DRESS")}</div></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="meta-box-light"><div class="meta-label-light">Material Spec / Mô tả vải</div><div class="meta-value-light">{get_m(r"(?:Long Description|Chất liệu gốc)[:\-=\s]*([^\n]+)", "POPLIN COTTON")[:22]}...</div></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="meta-box-light"><div class="meta-label-light">Techpack Status</div><div class="meta-value-light" style="color:#16a34a; font-weight:bold;">🟢 READY TO BOM</div></div>', unsafe_allow_html=True)
+    elif not st.session_state.pdf_bytes:
+        st.markdown("<div style='margin-top:70px; text-align:center; color:#64748b; font-size:13px;'>Bảng tóm tắt thông số sản phẩm sẽ tự động hiển thị tại đây sau khi nạp file PDF.</div>", unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
-
-# --- CỘT PHẢI: KHUNG XEM BẢN VẼ PHẲNG SKETCH ---
 with col_right:
-    st.markdown('<div class="custom-erp-box sticky-sketch-box">', unsafe_allow_html=True)
-    st.markdown('<div class="cad-header-text">🎨 TECHPACK SKETCH VISUALIZER</div>', unsafe_allow_html=True)
-    
-    if st.session_state.pdf_bytes is not None:
-        if "pdf_page_one_image" not in st.session_state or st.session_state.pdf_page_one_image is None:
-            try:
-                import fitz
-                doc_img = fitz.open(stream=st.session_state.pdf_bytes, filetype="pdf")
-                if len(doc_img) > 0:
-                    page = doc_img.load_page(0)
-                    pix = page.get_pixmap(matrix=fitz.Matrix(1.5, 1.5), colorspace=fitz.csRGB)
-                    st.session_state.pdf_page_one_image = pix.tobytes("png")
-            except Exception as e_img:
-                st.error(f"⚠️ Không thể hiển thị ảnh vẽ phác họa: {str(e_img)}")
-
-    if "pdf_page_one_image" in st.session_state and st.session_state.pdf_page_one_image is not None:
+    st.markdown('<div class="custom-erp-box sticky-sketch-box"><div class="cad-header-text">🎨 TECHPACK SKETCH VISUALIZER</div>', unsafe_allow_html=True)
+    if st.session_state.pdf_bytes and not st.session_state.get("pdf_page_one_image"):
+        try:
+            import fitz
+            doc_img = fitz.open(stream=st.session_state.pdf_bytes, filetype="pdf")
+            if len(doc_img) > 0: st.session_state.pdf_page_one_image = doc_img.load_page(0).get_pixmap(matrix=fitz.Matrix(1.5, 1.5), colorspace=fitz.csRGB).tobytes("png")
+        except: pass
+    if st.session_state.get("pdf_page_one_image"):
         st.image(st.session_state.pdf_page_one_image, width=300)
     else:
-        st.markdown("<div style='margin-top: 70px; text-align: center; color: #64748b; font-size: 13px;'>Hình vẽ phác họa phẳng (Sketch) trích xuất từ trang bìa PDF sẽ tự động hiển thị cân xứng tại đây sau khi nạp file thành công.</div>", unsafe_allow_html=True)
-        
+        st.markdown("<div style='margin-top:70px; text-align:center; color:#64748b; font-size:13px;'>Hình vẽ phác họa phẳng (Sketch) trích xuất từ trang bìa PDF sẽ tự động hiển thị cân xứng tại đây sau khi nạp file thành công.</div>", unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
 
