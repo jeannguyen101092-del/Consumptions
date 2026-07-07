@@ -769,7 +769,7 @@ with col_right:
 
 # =====================================================================
 # ĐOẠN 7a - PHẦN 1: CHATGPT-STYLE WORKSPACE & SINGLE-CALL PIPELINE (V67.0)
-# 🌟 TUYỆT KHỬ LỖI 429: Gom toàn bộ trang PDF nạp đúng 1 lần API duy nhất, không dùng vòng lặp gọi AI theo trang
+# 🌟 TUYỆT KHỬ LỖI 429: Gom dữ liệu tĩnh, không gọi AI lặp trong vòng lặp trang PDF
 # =====================================================================
 st.markdown('<br><div class="cad-card"><div class="cad-header">💬 CHATGPT IE COLLABORATION WORKSPACE</div>', unsafe_allow_html=True)
 
@@ -787,7 +787,7 @@ st.markdown('</div>', unsafe_allow_html=True)
 if st.session_state.pdf_bytes is not None and safe_user_prompt:
     current_query = str(safe_user_prompt).strip()
     
-    # Tạo chữ ký định danh vân tay để chặn người dùng double-click gây lặp lệnh
+    # Tạo chữ ký định danh vân tay độc bản chặn lệnh click trùng
     current_run_signature = (current_query, int(len(st.session_state.pdf_bytes)))
     
     if st.session_state.get("last_processed_signature") == current_run_signature and st.session_state.get("bom_data"):
@@ -804,14 +804,13 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                 full_pdf_raw_text = ""
                 image_payloads = []
                 
-                # 1. BƯỚC GOM TĨNH BẰNG PYTHON (TUYỆT ĐỐI KHÔNG GỌI AI TRONG VÒNG LẶP NÀY)
+                # Gom dữ liệu thô toàn bộ các trang bằng code Python tĩnh
                 for idx in range(total_pages):
                     page_text = doc_recovery[idx].get_text("text")
                     full_pdf_raw_text += f"\n--- PAGE {idx + 1} ---\n{page_text}"
                     
-                    # Giới hạn tối đa nạp 12 trang ảnh siêu nhẹ để bảo vệ băng thông RPM
                     if len(image_payloads) < 12:
-                        # Hạ DPI xuống mốc 50 để ảnh cực nhẹ, tối ưu hóa dung lượng request
+                        # Hạ DPI xuống mốc 50 để nạp tệp ảnh siêu nhẹ bảo vệ băng thông RPM
                         pix = doc_recovery[idx].get_pixmap(dpi=50, colorspace=fitz.csRGB)
                         image_payloads.append({"mime_type": "image/jpeg", "data": pix.tobytes("jpeg")})
                 
@@ -822,61 +821,49 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                 match_w = re.search(r'(?:khổ|kho|width|w)\s*[:\-=\s]*([\d\.]+)', chat_lower)
                 active_width = float(match_w.group(1)) if match_w else 56.0
                 if active_width < 20.0 or active_width > 80.0: active_width = 56.0
-
-                # Tiến hành nối tiếp trực tiếp sang khối Prompt Agent 2 và gọi duy nhất 1 lệnh model.generate_content bên dưới...
-
-            # ĐOẠN 7a - PHẦN 10: PROMPT AGENT 2 ROUTER & INDUSTRIAL CAD AUDITOR (v116.0)
-            # 🌟 CHỐNG QUÁ TẢI RPM 429: Bộ khóa Cache Tĩnh ngăn AI gọi trùng Request khi Rerun
-            # =====================================================================
-            
-            # 1. Khai báo JSON Schema cấu trúc cứng đồng bộ
-            raw_json_schema = {
-                "type": "OBJECT",
-                "properties": {
-                    "detected_product_type": {"type": "STRING", "description": "Kiểu dáng sản phẩm, ví dụ: CARGO_PANTS, JEANS"},
-                    "spec_meta": {
-                        "type": "OBJECT",
-                        "properties": {
-                            "warp_shrink": {"type": "NUMBER", "description": "Độ co rút dọc (%)"},
-                            "weft_shrink": {"type": "NUMBER", "description": "Độ co rút ngang (%)"},
-                            "gather_ratio": {"type": "NUMBER", "description": "Tỷ lệ nhún vải (Ví dụ: 1.45 nếu có)"},
-                            "has_stripe": {"type": "BOOLEAN", "description": "True nếu vải có vân sọc, kẻ caro"},
-                            "fabric_group": {"type": "STRING", "description": "Nhóm vải chính: DENIM, WOVEN, hoặc KNIT"}
-                        },
-                        "required": ["warp_shrink", "weft_shrink", "gather_ratio", "has_stripe", "fabric_group"]
-                    },
-                    "bom_rows": {
-                        "type": "ARRAY",
-                        "description": "Danh sách chi tiết rập trích xuất từ bảng BOM hoặc hình ảnh Sketch của Techpack",
-                        "items": {
+                # =====================================================================
+                # ĐOẠN 7a - PHẦN 10: PROMPT AGENT 2 ROUTER & INDUSTRIAL CAD AUDITOR (v116.0)
+                # 🌟 ĐỒNG BỘ NATIVE JSON SCHEMA CHẶN LỖI SÓT KEO LÓT VÀ KHÓA CHẶT BIẾN SỐ THỰC
+                # =====================================================================
+                raw_json_schema = {
+                    "type": "OBJECT",
+                    "properties": {
+                        "detected_product_type": {"type": "STRING", "description": "Kiểu dáng sản phẩm, ví dụ: CARGO_PANTS, JEANS"},
+                        "spec_meta": {
                             "type": "OBJECT",
                             "properties": {
-                                "component_name": {"type": "STRING", "description": "Tên chi tiết rập (Ví dụ: FRONT PANEL, POCKET, KEO CẠP...)"},
-                                "material_class": {"type": "STRING", "description": "Phân loại bắt buộc: FABRIC, LINING, FUSING, ELASTIC, THREAD"},
-                                "uom": {"type": "STRING", "description": "Đơn vị tính từ bảng BOM: YDS, MTR, PCS"},
-                                "piece_count": {"type": "INTEGER", "description": "Tổng số lượng chi tiết thực tế khi cắt sản xuất"},
-                                "polygon_net_area": {"type": "NUMBER", "description": "Diện tích đa giác hệ CAD nếu có"},
-                                "polygon_area_mode": {"type": "STRING", "description": "TOTAL hoặc PER_PIECE"},
-                                "polygon_unit": {"type": "STRING", "description": "CM2 hoặc IN2"},
-                                "bounding_box_length": {"type": "NUMBER", "description": "Chiều dài rập thô chi tiết (L)"},
-                                "bounding_box_width": {"type": "NUMBER", "description": "Chiều rộng rập thô chi tiết (W)"},
-                                "fabric_width_inch": {"type": "NUMBER", "description": "Khổ rộng vật tư tương ứng trích xuất từ bảng BOM"}
+                                "warp_shrink": {"type": "NUMBER", "description": "Độ co rút dọc (%)"},
+                                "weft_shrink": {"type": "NUMBER", "description": "Độ co rút ngang (%)"},
+                                "gather_ratio": {"type": "NUMBER", "description": "Tỷ lệ nhún vải (Ví dụ: 1.45 nếu có)"},
+                                "has_stripe": {"type": "BOOLEAN", "description": "True nếu vải có vân sọc, kẻ caro"},
+                                "fabric_group": {"type": "STRING", "description": "Nhóm vải chính: DENIM, WOVEN, hoặc KNIT"}
                             },
-                            "required": ["component_name", "material_class", "uom", "piece_count"]
+                            "required": ["warp_shrink", "weft_shrink", "gather_ratio", "has_stripe", "fabric_group"]
+                        },
+                        "bom_rows": {
+                            "type": "ARRAY",
+                            "description": "Danh sách chi tiết rập trích xuất từ bảng BOM hoặc hình ảnh Sketch của Techpack",
+                            "items": {
+                                "type": "OBJECT",
+                                "properties": {
+                                    "component_name": {"type": "STRING", "description": "Tên chi tiết rập (Ví dụ: FRONT PANEL, POCKET, KEO CẠP...)"},
+                                    "material_class": {"type": "STRING", "description": "Phân loại bắt buộc: FABRIC, LINING, FUSING, ELASTIC, THREAD"},
+                                    "uom": {"type": "STRING", "description": "Đơn vị tính từ bảng BOM: YDS, MTR, PCS"},
+                                    "piece_count": {"type": "INTEGER", "description": "Tổng số lượng chi tiết thực tế khi cắt sản xuất"},
+                                    "polygon_net_area": {"type": "NUMBER", "description": "Diện tích đa giác hệ CAD nếu có"},
+                                    "polygon_area_mode": {"type": "STRING", "description": "TOTAL hoặc PER_PIECE"},
+                                    "polygon_unit": {"type": "STRING", "description": "CM2 hoặc IN2"},
+                                    "bounding_box_length": {"type": "NUMBER", "description": "Chiều dài rập thô chi tiết (L)"},
+                                    "bounding_box_width": {"type": "NUMBER", "description": "Chiều rộng rập thô chi tiết (W)"},
+                                    "fabric_width_inch": {"type": "NUMBER", "description": "Khổ rộng vật tư tương ứng trích xuất từ bảng BOM"}
+                                },
+                                "required": ["component_name", "material_class", "uom", "piece_count"]
+                            }
                         }
-                    }
-                },
-                "required": ["detected_product_type", "spec_meta", "bom_rows"]
-            }
+                    },
+                    "required": ["detected_product_type", "spec_meta", "bom_rows"]
+                }
 
-            # Tạo chữ ký định danh duy nhất cho lượt chạy này (Chặn click trùng)
-            current_run_signature = (str(safe_user_prompt).strip(), int(len(image_payloads)), int(len(st.session_state.pdf_bytes)))
-            last_run_signature = st.session_state.get("last_processed_signature")
-
-            # 🌟 KHÓA CHẶT RPM CHÍ MẠNG: Nếu trùng chữ ký (đã chạy xong rồi và chỉ tải lại trang), bỏ qua không gọi API Gemini nữa
-            if last_run_signature == current_run_signature and st.session_state.get("bom_data"):
-                st.info("🔄 Hệ thống nạp dữ liệu từ Bộ nhớ đệm (Cache tĩnh) - Đã chặn lặp lệnh API 429.")
-            else:
                 prompt_agent_2 = f"""
                 You are an Enterprise Apparel CAD Auditor.
                 Task: Audit and extract ALL components from the Techpack context, drawings, BOM tables, and sketches.
@@ -894,7 +881,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                 gemini_inputs.insert(0, f"=== USER CHAT COMMAND ===\n{str(safe_user_prompt).strip()}\n\n=== TECHPACK TEXT ===\n{full_pdf_raw_text}\n")
                 gemini_inputs.append(prompt_agent_2)
 
-                # Gọi API thực tế
+                # Gọi duy nhất 1 lệnh API cho toàn bộ tệp tài liệu đa trang
                 model = genai.GenerativeModel('gemini-2.5-flash')
                 response = model.generate_content(
                     gemini_inputs,
@@ -910,7 +897,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                 if blueprint_worker and "bom_rows" in blueprint_worker:
                     blueprint_worker["calculated_on_size"] = target_size_cmd
                     
-                    # Ép kiểu dữ liệu số thực cưỡng bức 
+                    # Ép kiểu dữ liệu số thực cưỡng bức bẻ gãy lỗi String từ AI
                     for row in blueprint_worker.get("bom_rows", []):
                         try: row["bounding_box_length"] = float(row.get("bounding_box_length", 0.0))
                         except: row["bounding_box_length"] = 0.0
@@ -933,20 +920,22 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                         except:
                             row["fabric_width_inch"] = float(active_width)
                     
-                    # Đẩy vào lõi Router Python tính toán định mức toán học phẳng v52.0 & Lõi v54.0
+                    # Kích hoạt lõi Router Python điều phối thuật toán tính toán định mức cuộn tĩnh
                     blueprint_final = allocate_fabric_consumption_and_quality_gate(blueprint_worker, str(safe_user_prompt).strip())
                     
-                    # Khóa trạng thái cứng vào bộ nhớ đệm Session State tĩnh
+                    # Khóa trạng thái an toàn vào bộ nhớ đệm Session State tĩnh
                     st.session_state.bom_data = blueprint_final
                     st.session_state.accumulated_bom_rows = blueprint_final.get("bom_rows", [])
                     st.session_state["raw_ai_debug_payload"] = blueprint_worker
                     
-                    # Ghi nhận dấu vân tay chữ ký của lượt chạy thành công
+                    # Đóng dấu vân tay chữ ký hoàn thành
                     st.session_state["last_processed_signature"] = current_run_signature
                     st.rerun()
 
-        except Exception as ai_err:
-            st.error(f"❌ Lỗi AI: {str(ai_err)}")
+            except Exception as ai_err:
+                st.error(f"❌ Lỗi AI: {str(ai_err)}")
+                traceback.print_exc()
+
 
 
 
