@@ -281,11 +281,14 @@ def compute_thread_engine() -> tuple:
     return gross_yards, gross_meters, note
 
 
-def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict) -> dict:
+def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, *args, **kwargs) -> dict:
     """
-    Enterprise Multi-Engine CAD Router v40.0.
-    100% Data-Driven: Đọc trực tiếp spec_meta từ cấu trúc JSON, triệt tiêu hoàn toàn chuỗi text AI.
+    Enterprise Multi-Engine CAD Router v40.1.
+    🌟 BẪY LỖI THỪA THAM SỐ: Tự động nuốt các tham số cũ (query_string, chat_txt) để tránh lỗi 2 arguments.
     """
+    import copy
+    import streamlit as st
+    
     st.info("🚀 ENTERPRISE MULTI-ENGINE CAD ROUTER ACTIVATED")
     
     if not blueprint_final or "bom_rows" not in blueprint_final:
@@ -294,8 +297,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict) -> dict:
     router_bom_rows = []
     product_type = str(blueprint_final.get("detected_product_type", "DRESS")).upper().strip()
     
-    # Gọi hàm tiền xử lý dữ liệu để lấy spec_meta chuẩn hóa và tổng diện tích túi Cargo
-    # Hàm này tự động bóc tách 'spec_meta' JSON từ AI và tính trước phần tích lũy túi hộp
+    # Đọc spec_meta cấu trúc JSON từ AI
     ai_meta = blueprint_final.get("spec_meta", {})
     spec_meta = {
         "warp_shrink": float(ai_meta.get("warp_shrink", 3.0)),
@@ -306,7 +308,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict) -> dict:
         "cargo_pocket_accumulated_area": 0.0
     }
     
-    # Tính toán trước diện tích túi Cargo tích lũy (Chỉ quét 1 lần duy nhất cho toàn bộ bảng)
+    # Tính toán tích lũy diện tích túi Cargo (Quét 1 lần)
     if "CARGO" in product_type or spec_meta["fabric_group"] == "DENIM":
         total_cargo_area = 0.0
         for b_row in blueprint_final.get("bom_rows", []):
@@ -324,21 +326,19 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict) -> dict:
                 total_cargo_area += (pocket_area * p_cnt)
         spec_meta["cargo_pocket_accumulated_area"] = total_cargo_area
 
-    # Duyệt và phân phối xử lý theo từng Engine vật tư
+    # Điều phối phân nhánh xử lý kết quả tĩnh
     for ai_row in blueprint_final.get("bom_rows", []):
         if not ai_row: continue
         ui_row = copy.deepcopy(ai_row)
         
-        # Đọc engine định tuyến từ AI (Mặc định lọc về FABRIC)
         engine_target = str(ui_row.get("engine", ui_row.get("material_class", "FABRIC"))).upper().strip()
         comp_name = str(ui_row.get("component_name", "")).upper()
         mat_class = str(ui_row.get("material_class", "")).upper()
         
-        # Khối chặn cứng: Loại bỏ phụ liệu đếm chiếc (Buttons, Zippers, Labels...)
+        # Loại bỏ phụ liệu cứng đếm chiếc
         if engine_target == "COUNT" or any(key in comp_name or key in mat_class for key in EXCLUDE_HARDWARE_KEYS):
             continue
             
-        # Điều phối phân nhánh Engine tính toán tĩnh
         if engine_target in ["FABRIC", "FUSING"]:
             gross_yds, gross_mtr, calc_note = compute_fabric_engine(ui_row, product_type, spec_meta)
             
@@ -354,7 +354,6 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict) -> dict:
         else:
             continue
 
-        # Đồng bộ cấu trúc dữ liệu kết quả đầu ra
         ui_row["calculated_consumption_yards"] = gross_yds
         ui_row["calculated_consumption_meters"] = gross_mtr
         ui_row["quality_status"] = "PASS" if gross_yds > 0 else "QA_FAIL"
@@ -364,7 +363,6 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict) -> dict:
         
     blueprint_final["bom_rows"] = router_bom_rows
     return blueprint_final
-
 
 import streamlit as st
 
