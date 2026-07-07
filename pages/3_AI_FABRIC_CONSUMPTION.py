@@ -40,14 +40,24 @@ def compute_fabric_engine(row: dict, product_type: str, chat_txt: str) -> tuple:
     current_mat_class = str(row.get("material_class", "FABRIC")).upper().strip()
     current_comp_name = str(row.get("component_name", "")).upper()
     
-    # -----------------------------------------------------------------
-    # STEP 1: READ GEOMETRY & PIECE CLASSIFIER (Đọc dữ liệu và đếm chi tiết)
+       # -----------------------------------------------------------------
+    # STEP 1: READ GEOMETRY & CAD SANITY GATE (Đọc và lọc nhiễu hình học AI)
     # -----------------------------------------------------------------
     p_count = int(row.get("piece_count", 1) or 1)
     poly_area = float(row.get("polygon_net_area", 0.0) or 0.0)
     area_mode = str(row.get("polygon_area_mode", "PER_PIECE")).upper().strip()
     poly_unit = str(row.get("polygon_unit", "IN2")).upper().strip()
     
+    # 🟢 BẢN VÁ BIẾN CỤC BỘ: Đọc thông số chiều dài và chiều rộng rập từ AI
+    b_length = float(row.get("bounding_box_length", 0.0) or 0.0)
+    b_width = float(row.get("bounding_box_width", 0.0) or 0.0)
+    
+    # 🌟 CAD SANITY GATE: Tự động phát hiện nếu AI lấy nhầm chiều rộng rập bằng khổ vải (>= 40 inch)
+    if b_width >= 40.0 and p_count >= 2:
+        b_width = b_width / p_count  # Trả chiều rộng về đúng kích thước của 1 thân rập quần đơn lẻ
+    if p_count > 2 and any(k in current_comp_name for k in ["BODY", "THÂN", "PANEL", "FABRIC"]):
+        p_count = 2  # Quần dài tiêu chuẩn gồm: 2 thân trước + 2 thân sau (tổng 2 cặp rập đối xứng)
+        
     # THUẬT TOÁN ĐO DIỆN TÍCH NET AREA ƯU TIÊN POLYGON CAD TRÊN CÙNG LỀ
     if poly_area > 0.0:
         converted_poly = convert_to_sq_inches(poly_area, poly_unit)
@@ -58,9 +68,7 @@ def compute_fabric_engine(row: dict, product_type: str, chat_txt: str) -> tuple:
             total_net_area = converted_poly * p_count
             geo_source = f"Gerber/Lectra Polygon DXF ({poly_unit} -> IN2 Per-Piece)"
     else:
-        # Fallback về Bounding Box nhân hệ số rập phẳng nếu thiếu dữ liệu Polygon thực
-        b_length = float(row.get("bounding_box_length", 0.0) or 0.0)
-        b_width = float(row.get("bounding_box_width", 0.0) or 0.0)
+        # Fallback về Bounding Box nhân hệ số rập phẳng sau khi đã lọc nhiễu kích thước
         raw_box_area = b_length * b_width * p_count
         
         if any(k in current_comp_name for k in ["POCKET", "FLAP", "BAG", "TÚI", "NẮP"]):
@@ -74,6 +82,7 @@ def compute_fabric_engine(row: dict, product_type: str, chat_txt: str) -> tuple:
             
         total_net_area = raw_box_area * net_factor
         geo_source = f"CAD Convex Hull Inferred (Factor: {net_factor})"
+
 
     # -----------------------------------------------------------------
     # STEP 2: MARKER WIDTH EXTRACTION (Trích xuất khổ vải thực tế từ BOM)
