@@ -203,10 +203,10 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, query_st
 import streamlit as st
 
 # =====================================================================
-# ĐOẠN 6a: KHỞI TẠO BIẾN TRƯỚC, ĐỒNG BỘ DATA VÀ CONFIG STYLE NATIVE
+# ĐOẠN A: KHỞI TẠO BỘ NHỚ STATE & CẤU HÌNH CSS PHẲNG NATIVE CHUẨN ERP
 # =====================================================================
 
-# 1. Khởi tạo cấu hình trang rộng toàn màn hình chuẩn ERP
+# 1. Cấu hình trang rộng toàn màn hình chuẩn hệ thống SaaS/ERP
 st.set_page_config(layout="wide", page_title="AI Fabric Consumption Matrix")
 
 # 2. Khởi tạo an toàn cấu trúc trạng thái bộ nhớ (Session State)
@@ -228,7 +228,7 @@ if st.session_state.pdf_bytes is not None and st.session_state.pdf_text_cache is
         st.session_state.pdf_text_cache = full_text_extract
     except Exception: pass
 
-# 4. 🌟 ĐỊNH NGHĨA BIẾN TRƯỚC KHI GỌI: Đồng bộ dữ liệu KPIs động từ Session State
+# 4. Engine đồng bộ dữ liệu KPIs động biến thiên theo thời gian thực
 kpi_style_id = "N/A"
 total_materials = len(st.session_state.accumulated_bom_rows) if st.session_state.accumulated_bom_rows else 0
 main_fabric_cons = "0.000 Yds"
@@ -246,52 +246,62 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data:
                 main_fabric_cons = f"{val_gross:.3f} Yds"
                 break
 
-# 5. Bộ định dạng CSS phẳng chuẩn văn phòng dệt may
+# 5. Bộ cấu hình định dạng CSS phẳng triệt tiêu vĩnh viễn 2 ô trống khổng lồ
 st.markdown("""
 <style>
+    /* Trả nền ứng dụng về màu xám trắng dịu mắt */
     .stApp {
         background-color: #f8fafc !important;
     }
     header[data-testid="stHeader"] {
         background-color: #f8fafc !important;
-        z-index: 999 !important;
     }
+    
+    /* Ép khoảng đệm trần Streamlit về mặc định, triệt tiêu vĩnh viễn khoảng hở */
     .block-container {
         padding-top: 1.5rem !important; 
         margin-top: 0px !important;
         max-width: 100% !important;
     }
+    
+    /* Ép tất cả các hàng chia cột mặc định phải co khít sát lên trên cùng */
     div[data-testid="stHorizontalBlock"] {
         margin-top: 0px !important;
         padding-top: 0px !important;
     }
-    .kpi-card-colored {
+
+    /* Thẻ chỉ số KPIs sắc màu rực rỡ chữ trắng hiển thị rõ nét vĩnh viễn */
+    .kpi-box-flat-matrix {
         border-radius: 6px 6px 0 0 !important;
-        padding: 10px 12px;
-        text-align: center;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+        padding: 10px 12px !important;
+        text-align: center !important;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.02) !important;
         box-sizing: border-box !important;
     }
-    .kpi-num-light {
-        font-size: 17px !important;
+    .kpi-num-flat-matrix {
+        font-size: 16px !important;
         font-weight: 700 !important;
         color: #ffffff !important; 
-        font-family: 'Segoe UI', sans-serif;
-        line-height: 1.2;
+        font-family: 'Segoe UI', sans-serif !important;
+        line-height: 1.2 !important;
     }
-    .kpi-lbl-light {
-        font-size: 10px;
-        font-weight: 600;
+    .kpi-lbl-flat-matrix {
+        font-size: 9px !important;
+        font-weight: 600 !important;
         color: #ffffff !important;
-        opacity: 0.95;
-        text-transform: uppercase;
-        margin-top: 2px;
+        opacity: 0.95 !important;
+        text-transform: uppercase !important;
+        margin-top: 2px !important;
     }
-    .bg-style { background: linear-gradient(135deg, #334155 0%, #1e293b 100%); }
-    .bg-items { background: linear-gradient(135deg, #0d9488 0%, #0f766e 100%); }
-    .bg-cons  { background: linear-gradient(135deg, #ea580c 0%, #c2410c 100%); }
-    .bg-size  { background: linear-gradient(135deg, #16a34a 0%, #15803d 100%); }
-    .image-placeholder-box {
+
+    /* Đóng gói dải màu phân hệ động sắc nét */
+    .bg-style-erp { background: linear-gradient(135deg, #334155 0%, #1e293b 100%) !important; }
+    .bg-items-erp { background: linear-gradient(135deg, #0d9488 0%, #0f766e 100%) !important; }
+    .bg-cons-erp  { background: linear-gradient(135deg, #ea580c 0%, #c2410c 100%) !important; }
+    .bg-size-erp  { background: linear-gradient(135deg, #16a34a 0%, #15803d 100%) !important; }
+
+    /* Hộp trắng bao bọc hình vẽ rập vector hình học gọn gàng 140px */
+    .image-placeholder-box-flat {
         border: 1px solid #cbd5e1 !important;
         border-top: none !important; 
         border-radius: 0 0 6px 6px !important;
@@ -302,56 +312,63 @@ st.markdown("""
         justify-content: center !important;
         box-sizing: border-box !important;
         margin-bottom: 25px !important;
+        background-color: #ffffff !important;
     }
-    .image-placeholder-box img {
+    .image-placeholder-box-flat img {
         max-height: 110px !important;
         width: auto !important;
         object-fit: contain !important;
         display: block !important;
         margin: auto !important;
     }
-    .color-ao   { background-color: #ffffff !important; }
-    .color-quan { background-color: #ffffff !important; }
-    .color-vest { background-color: #ffffff !important; }
-    .color-vay  { background-color: #ffffff !important; }
-    .custom-erp-box {
+
+    /* Khống chế chiều cao 1:1 đối xứng phần thân dưới khít rạt */
+    .custom-erp-box-flat {
         background-color: #ffffff !important;
         border: 1px solid #cbd5e1 !important;
-        border-radius: 8px;
-        padding: 20px;
-        margin-bottom: 15px;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.03);
+        border-radius: 8px !important;
+        padding: 20px !important;
+        margin-bottom: 15px !important;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.03) !important;
         max-height: 380px !important; 
         min-height: 380px !important; 
         overflow-y: auto !important;   
         box-sizing: border-box !important;
     }
-    .cad-header-text {
-        font-family: 'Segoe UI', sans-serif;
-        font-size: 14px;
-        font-weight: 700;
-        color: #0369a1; 
-        margin-bottom: 15px;
-        padding-bottom: 6px;
-        border-bottom: 2px solid #e2e8f0;
+    
+    .cad-header-text-flat {
+        font-family: 'Segoe UI', sans-serif !important;
+        font-size: 14px !important;
+        font-weight: 700 !important;
+        color: #0369a1 !important; 
+        margin-bottom: 15px !important;
+        padding-bottom: 6px !important;
+        border-bottom: 2px solid #e2e8f0 !important;
     }
-    .meta-box-light {
-        background-color: #f8fafc; 
-        border-left: 4px solid #0284c7;
-        padding: 8px 12px;
-        margin-bottom: 8px;
-        border-radius: 0 6px 6px 0;
+
+    .meta-box-light-flat {
+        background-color: #f8fafc !important; 
+        border-left: 4px solid #0284c7 !important;
+        padding: 8px 12px !important;
+        margin-bottom: 8px !important;
+        border-radius: 0 6px 6px 0 !important;
     }
-    .meta-label-light { font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; }
-    .meta-value-light { font-size: 13px; font-weight: 600; color: #0f172a; margin-top: 1px; }
-    .sticky-sketch-box img {
+    .meta-label-flat { font-size: 11px !important; font-weight: 700 !important; color: #64748b !important; text-transform: uppercase !important; }
+    .meta-value-flat { font-size: 13px !important; font-weight: 600 !important; color: #0f172a !important; margin-top: 1px !important; }
+
+    .sticky-sketch-box-flat img {
         max-height: 290px !important;
         width: auto !important;
         object-fit: contain !important;
         margin: 0 auto !important;
         display: block !important;
     }
-    .main-body-spacer, .sticky-top-container, div[smart-fixed-container], div[data-testid="stHorizontalBlock"]:empty {
+
+    /* Khóa chết và ép ẩn toàn diện mọi class ghim đỉnh hoặc hàng rỗng cũ bị dính đệm */
+    .main-body-spacer, 
+    .sticky-top-container, 
+    div[smart-fixed-container], 
+    div[data-testid="stHorizontalBlock"]:empty {
         display: none !important;
         height: 0px !important;
         margin: 0 !important;
@@ -359,6 +376,7 @@ st.markdown("""
     }
 </style>
 """, unsafe_allow_html=True)
+
 
 import streamlit as st
 
