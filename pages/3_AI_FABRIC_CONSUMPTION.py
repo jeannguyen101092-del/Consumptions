@@ -4,16 +4,13 @@ import json
 import copy
 
 import re
-
-import re
-
-import re
+import streamlit as st
 
 # =====================================================================
-# ĐOẠN 7: PURE CAM MATHEMATICAL CORE ENGINE (v34.1 INTEGRATED)
-# 🌟 BẢN VÁ LỖI DEFINED - ĐỒNG BỘ HOÀN CHỈNH BIẾN HỆ THỐNG
+# ĐOẠN TÍNH ĐM - PHẦN 1: MA TRẬN PHỤ LIỆU, CHUYỂN ĐƠN VỊ VÀ KHỞI TẠO ĐẦU VÀO
 # =====================================================================
 
+# Danh sách mã từ khóa để loại trừ phụ liệu đếm chiếc phần cứng khỏi lõi vải chính
 EXCLUDE_HARDWARE_KEYS = (
     "CHỈ", "THREAD", "ZIPPER", "DÂY KÉO", "BUTTON", "NÚT", "SHANK", "RIVET", 
     "LABEL", "MÁC", "TAG", "EYELETS", "SNAP", "VELCRO", "HOOK", "LOOP", 
@@ -25,150 +22,72 @@ def convert_to_sq_inches(area: float, unit: str) -> float:
     """Bộ chuyển đổi đơn vị đo lường vạn năng bám sát hệ thống Gerber/Lectra"""
     u = str(unit).upper().strip()
     if u in ["CM2", "CMSQ", "SQUARE_CM"]:
-        return area / 6.4516  # 1 inch² = 6.4516 cm²
+        return area / 6.4516  # Quy đổi từ CM² về INCH²
     if u in ["MM2", "MMSQ", "SQUARE_MM"]:
-        return area / 645.16  # 1 inch² = 645.16 mm²
-    return area  # Mặc định IN2 / INCH2
+        return area / 645.16  # Quy đổi từ MM² về INCH²
+    return area  # Giữ nguyên nếu đã là IN2 / INCH2
 
 def compute_fabric_engine(row: dict, product_type: str, chat_txt: str) -> tuple:
     """
-    Industrial Consumption CAM Core Engine v34.1.
-    100% Data-Driven: Loại bỏ hoàn toàn UI code, triệt tiêu lỗi ghi đè, 
-    ưu tiên Polygon CAD đầu vào và xử lý ma trận chuyển đổi đơn vị vạn năng.
+    Industrial Consumption CAM Core Engine v35.0.
+    Xử lý cấu trúc rập rã dòng tự động và chuẩn hóa đơn vị đo lường CAD.
     """
     chat_clean = str(chat_txt).upper().strip()
     current_mat_class = str(row.get("material_class", "FABRIC")).upper().strip()
     current_comp_name = str(row.get("component_name", "")).upper()
     
-       # -----------------------------------------------------------------
-    # STEP 1: READ GEOMETRY & CAD SANITY GATE (Đọc và lọc nhiễu hình học AI)
-    # -----------------------------------------------------------------
+    # Ma trận hệ số hao hụt diện tích mẫu mặc định theo sản phẩm
+    PRODUCT_NET_AREA_MATRIX = {
+        "JEANS": {"MAIN_FABRIC": 0.84, "LINING": 0.75, "FUSING": 0.10, "DEFAULT": 0.80},
+        "CARGO_PANTS": {"MAIN_FABRIC": 0.82, "LINING": 0.80, "FUSING": 0.72, "DEFAULT": 0.80},
+        "DEFAULT": {"MAIN_FABRIC": 0.80, "LINING": 0.75, "FUSING": 0.20, "DEFAULT": 0.80}
+    }
+    active_product = "CARGO_PANTS" if any(k in chat_clean or k in str(product_type).upper() for k in ["CARGO", "PANTS", "JEANS"]) else product_type
+    # =====================================================================
+    # ĐOẠN TÍNH ĐM - PHẦN 2: BỘ LỌC CAD SANITY GATE & TRÍCH XUẤT DIỆN TÍCH LÓT
+    # =====================================================================
+    
+    # --- STEP 1: ĐỌC DỮ LIỆU HÌNH HỌC VÀ LỌC NHIỄU BỞI CAD SANITY GATE ---
     p_count = int(row.get("piece_count", 1) or 1)
     poly_area = float(row.get("polygon_net_area", 0.0) or 0.0)
     area_mode = str(row.get("polygon_area_mode", "PER_PIECE")).upper().strip()
     poly_unit = str(row.get("polygon_unit", "IN2")).upper().strip()
     
-    # 🟢 BẢN VÁ BIẾN CỤC BỘ: Đọc thông số chiều dài và chiều rộng rập từ AI
     b_length = float(row.get("bounding_box_length", 0.0) or 0.0)
     b_width = float(row.get("bounding_box_width", 0.0) or 0.0)
     
-    # 🌟 CAD SANITY GATE: Tự động phát hiện nếu AI lấy nhầm chiều rộng rập bằng khổ vải (>= 40 inch)
+    # CAD Sanity Gate: Phát hiện và xử lý lỗi AI lấy nhầm chiều rộng rập bằng khổ vải (>= 40 inch)
     if b_width >= 40.0 and p_count >= 2:
-        b_width = b_width / p_count  # Trả chiều rộng về đúng kích thước của 1 thân rập quần đơn lẻ
-    if p_count > 2 and any(k in current_comp_name for k in ["BODY", "THÂN", "PANEL", "FABRIC"]):
-        p_count = 2  # Quần dài tiêu chuẩn gồm: 2 thân trước + 2 thân sau (tổng 2 cặp rập đối xứng)
-        
-    # THUẬT TOÁN ĐO DIỆN TÍCH NET AREA ƯU TIÊN POLYGON CAD TRÊN CÙNG LỀ
+        b_width = b_width / p_count  
+    if p_count > 2 and any(k in current_comp_name for k in ["BODY", "THÂN", "PANEL", "FABRIC"]) and "POCKET" not in current_comp_name:
+        p_count = 2  
+
+    # Nhận diện phân hệ Vải chính vạn năng
+    is_main_fabric = False
+    if current_mat_class in ["MAIN_FABRIC", "FABRIC", "SELF", "SHELL", "OUTER"] or "MAIN" in current_mat_class or "BODY" in current_comp_name:
+        is_main_fabric = True
+
+    # --- STEP 2: THUẬT TOÁN ĐO DIỆN TÍCH NET AREA GỐC CHUẨN CAD/CAM ---
     if poly_area > 0.0:
         converted_poly = convert_to_sq_inches(poly_area, poly_unit)
-        if area_mode == "TOTAL":
-            total_net_area = converted_poly
-            geo_source = f"Gerber/Lectra Polygon DXF ({poly_unit} -> IN2 Total)"
-        else:
-            total_net_area = converted_poly * p_count
-            geo_source = f"Gerber/Lectra Polygon DXF ({poly_unit} -> IN2 Per-Piece)"
+        total_net_area = converted_poly if area_mode == "TOTAL" else converted_poly * p_count
+        geo_source = "Gerber/Lectra Polygon DXF"
     else:
-        # Fallback về Bounding Box nhân hệ số rập phẳng sau khi đã lọc nhiễu kích thước
         raw_box_area = b_length * b_width * p_count
+        prod_map = PRODUCT_NET_AREA_MATRIX.get(active_product, PRODUCT_NET_AREA_MATRIX["DEFAULT"])
         
-        if any(k in current_comp_name for k in ["POCKET", "FLAP", "BAG", "TÚI", "NẮP"]):
-            net_factor = 0.85  # Rập túi đắp vuông vức ít góc khuyết
+        # 🟢 GIẢI PHÁP SỬA LỖI VẢI LÓT: Tách biệt hệ số để bảo vệ và tính đúng diện tích cho cụm 4 lót túi gộp dòng
+        if any(k in current_comp_name for k in ["POCKETING", "POCKET", "LÓT TÚI"]) or current_mat_class == "LINING":
+            net_factor = prod_map.get("LINING", 0.80)  # Tăng hệ số lên 0.80 để tính đúng dải 0.8 Yds cho lót gộp dòng
         elif any(k in current_comp_name for k in ["WAISTBAND", "CẠP", "FLY", "NẸP"]):
-            net_factor = 0.95  # Rập cạp thẳng bảo toàn diện tích
-        elif current_mat_class in ["MAIN_FABRIC", "FABRIC", "SELF"] or "BODY" in current_comp_name or "THÂN" in current_comp_name:
-            net_factor = 0.72 if product_type in ["CARGO_PANTS", "JEANS"] else 0.78
+            net_factor = 0.95  
+        elif is_main_fabric:
+            net_factor = prod_map.get("MAIN_FABRIC", 0.82)
         else:
             net_factor = 0.80
             
         total_net_area = raw_box_area * net_factor
-        geo_source = f"CAD Convex Hull Inferred (Factor: {net_factor})"
-
-
-    # -----------------------------------------------------------------
-    # STEP 2: MARKER WIDTH EXTRACTION (Trích xuất khổ vải thực tế từ BOM)
-    # -----------------------------------------------------------------
-    raw_width = row.get("fabric_width_inch")
-    try:
-        width_inch = float(raw_width) if raw_width else 56.0
-        match_w = re.search(r'(?:KHỔ|KHO|WIDTH|W)\s*[:\-=\s]*([\d\.]+)', chat_clean)
-        if match_w: width_inch = float(match_w.group(1))
-    except:
-        width_inch = 56.0
-
-    # -----------------------------------------------------------------
-    # STEP 3: ADVANCED SHRINKAGE ENGINE (Động cơ co rút Lab-Test đa tầng)
-    # -----------------------------------------------------------------
-    warp_num, weft_num = 0.02, 0.02  # Điểm sàn mặc định của vải mộc
-    match_warp = re.search(r'(?:CO RÚT DỌC|WARP|DỌC|DOC)\s*[:\-=\s]*([\d\.]+)', chat_clean)
-    match_weft = re.search(r'(?:CO RÚT NGANG|WEFT|NGANG)\s*[:\-=\s]*([\d\.]+)', chat_clean)
-    if match_warp: warp_num = float(match_warp.group(1)) / 100.0
-    if match_weft: weft_num = float(match_weft.group(1)) / 100.0
-    
-    # Cộng dồn độ co rút xử lý hoàn tất ướt của nhà máy giặt nhuộm
-    if "GARMENT DYE" in chat_clean: warp_num += 0.025; weft_num += 0.020
-    if "ENZYME WASH" in chat_clean: warp_num += 0.015; weft_num += 0.010
-
-    # -----------------------------------------------------------------
-    # STEP 4: AI MARKER EFFICIENCY INFERENCE (Suy luận hiệu suất sơ đồ)
-    # -----------------------------------------------------------------
-    base_eff = 0.835  # Sàn mặc định cho Woven
-    if product_type in ["CARGO_PANTS", "JEANS"]: base_eff = 0.855
-    elif product_type == "DRESS": base_eff = 0.770  # Vạt cong hao hụt lớn
-    
-    if any(k in chat_clean for k in ["STRIPE", "VÂN SỌC", "KẺ CARO", "PLAID"]): base_eff -= 0.06
-    if any(k in chat_clean for k in ["ONE WAY LAYOUT", "SƠ ĐỒ MỘT CHIỀU", "NAP"]): base_eff -= 0.03
-    if width_inch >= 60.0: base_eff += 0.015
-    elif width_inch <= 45.0: base_eff -= 0.035
-    
-    ai_marker_efficiency = round(max(0.50, min(0.96, base_eff)), 3)
-
-    # -----------------------------------------------------------------
-    # STEP 5: PURE CAM MATHEMATICAL CORE (Phép toán ma trận hao hụt)
-    # -----------------------------------------------------------------
-    # Phân tách ma trận 5 lỗi hao hụt xưởng cắt may theo chủng loại vải
-    INDUSTRIAL_LOSS_MATRIX = {
-        "DENIM": {"marker_end": 0.008, "spread_waste": 0.012, "relaxation": 0.005, "defect_cut": 0.010, "roll_end": 0.005},
-        "WOVEN": {"marker_end": 0.006, "spread_waste": 0.010, "relaxation": 0.004, "defect_cut": 0.005, "roll_end": 0.005},
-        "KNIT":  {"marker_end": 0.010, "spread_waste": 0.015, "relaxation": 0.020, "defect_cut": 0.008, "roll_end": 0.007}
-    }
-    
-    fabric_group = "WOVEN"
-    if any(k in chat_clean for k in ["DENIM", "JEANS", "THÔ DÀY"]): fabric_group = "DENIM"
-    elif any(k in chat_clean for k in ["KNIT", "THUN", "JERSEY", "RIB", "LEN"]): fabric_group = "KNIT"
-    
-    total_industrial_loss = sum(INDUSTRIAL_LOSS_MATRIX[fabric_group].values())
-    
-    # Hệ số nhún ly của rập Cargo đắp ly nổi
-    gather_ratio = 1.00
-    g_type = str(row.get("gather_type", "NONE")).upper().strip()
-    g_depth = str(row.get("gather_depth", "NONE")).upper().strip()
-    if g_type == "SIDE_RUCHE" and g_depth == "MEDIUM": gather_ratio = 1.45
-    if any(k in chat_clean for k in ["RUCHE", "SIDE_RUCHE", "NHÚN SƯỜN"]): gather_ratio = 1.45
-
-    gross_val = 0.0
-    if total_net_area > 0 and width_inch > 0:
-        adjusted_area = total_net_area * gather_ratio
-        expanded_area = adjusted_area * (1.0 + warp_num) * (1.0 + weft_num)
-        
-        # Công thức vạt chia sơ đồ CAM phẳng phẳng trần
-        math_cad_yardage = expanded_area / (width_inch * 36.0 * ai_marker_efficiency)
-        gross_val = math_cad_yardage * (1.0 + total_industrial_loss)
-        gross_val = round(max(0.0, gross_val), 3)
-
-    # -----------------------------------------------------------------
-    # STEP 6: DATA EXPORT FOR UI AUDIT TRAIL (Kết xuất dữ liệu thô cho UI)
-    # -----------------------------------------------------------------
-    row["fabric_consumption"] = gross_val
-    row["gross_consumption"] = gross_val
-    
-    row["cad_geometry_source"] = geo_source
-    row["cad_calculated_net_area"] = round(total_net_area, 1)
-    row["cad_inferred_efficiency"] = ai_marker_efficiency
-    row["cad_total_industrial_loss"] = round(total_industrial_loss * 100, 2)
-    row["cad_engine_version"] = "CAM-v34.1-Enterprise"
-
-    note = f"CAM Core v34.1 | Area: {total_net_area:.1f} sq in | Eff: {ai_marker_efficiency*100}%"
-    return gross_val, note
+        geo_source = "CAD Convex Hull Inferred"
 
 
 
