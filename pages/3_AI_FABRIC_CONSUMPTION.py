@@ -337,9 +337,9 @@ def compute_thread_engine() -> tuple:
 
 def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, *args, **kwargs) -> dict:
     """
-    Enterprise Multi-Engine CAD Router v64.5 - WAISTBAND DOUBLE PIECE ENGINE.
-    🌟 SỬA CHÍ MẠNG: Tự động ép số lượng rập CẠP LƯNG (Waistband) và Keo cạp lên 2 Pcs để may lộn (khử lỗi AI đếm thiếu 1 miếng).
-    🔒 TOÀN DIỆN: Giữ nguyên thuật toán diện tích phẳng tính thật tất cả chi tiết nhỏ trên khổ 57".
+    Enterprise Multi-Engine CAD Router v65.5 - FULL SEAM ALLOWANCE ENGINE.
+    🌟 SỬA CHÍ MẠNG: Tự động cộng thêm +0.44" đường may vào DÀI và RỘNG của TẤT CẢ chi tiết nhỏ (Vải phụ, Keo lót).
+    🔒 KHÓA CHẶT TRỤC DỌC: Thân trước/sau gánh khung sơ đồ lồng cố định, Cạp lưng ép cứng x2 miếng chuẩn xưởng.
     """
     import copy
     
@@ -377,8 +377,11 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, *args, *
     pants_base_length_inch = fixed_back_panel_len * warp_shrink_factor
     total_pants_base_yds = (pants_base_length_inch / (36.0 * marker_eff_major)) * (1.0 + denim_industrial_loss)
 
+    # Các từ khóa nhận diện thân quần lớn (Không cộng thêm đường may để tránh phồng tổng khung)
+    MAJOR_PANELS = ["FRONT PANEL", "BACK PANEL", "THÂN TRƯỚC", "THÂN SAU"]
+
     # =====================================================================
-    # 2. VÒNG LẶP PYTHON DUYỆT TÍNH TOÁN ĐỊNH MỨC VÀ SỬA LỖI ĐẾM THIẾU CẠP
+    # 2. VÒNG LẶP PYTHON DUYỆT TÍNH TOÁN ĐỊNH MỨC & CỘNG BÙ ĐƯỜNG MAY
     # =====================================================================
     for ai_row in blueprint_final.get("bom_rows", []):
         if not ai_row: continue
@@ -414,26 +417,31 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, *args, *
         # Khởi tạo ghi chú hệ thống
         calc_note = ""
 
-        # 🛠️ QUY TẮC HIỆU CHỈNH CHÍ MẠNG: Ép cứng số lượng Cạp lưng và Keo cạp lên 2 miếng để lộn cạp
+        # 🛠️ QUY TẮC HIỆU CHỈNH 1: Ép số lượng rập Cạp lưng và Keo cạp lên 2 miếng để lộn cạp
         if "WAISTBAND" in comp_name or "CẠP" in comp_name or "LƯNG" in comp_name:
             p_count = 2
-            calc_note = "📌 [IE RULE] Tự động nâng lên 2 miếng rập cạp để may lộn | "
+            calc_note = "📌 [IE RULE] Tự động nâng số lượng lên 2 miếng để may lộn | "
 
         # Ép thông số hiển thị khổ vải lót về mức 44.0 inch ngay trên bảng chi tiết
         if engine_target == "LINING":
             width_inch = 44.0
 
-        # Xử lý Keo Mex dựng (FUSING) cơi túi mổ và bù đường may
-        if engine_target == "FUSING":
+        # 🛠️ QUY TẮC HIỆU CHỈNH 2: Ép rộng cơi túi mổ về 3 inch trước khi cộng đường may
+        if engine_target == "FUSING" or engine_target == "FABRIC":
             if any(kw in comp_name for kw in ["WELT", "PIP", "CƠI", "MỔ"]):
-                b_wid = 3.0  # Ép rộng cơi túi mổ về 3 inch cho tất cả mã hàng
-                calc_note = "📌 [IE RULE] Ép chiều rộng keo cơi túi mổ về 3.0 inch | "
-            
-            # Cộng bù 0.44 inch đường may xung quanh rập thành phẩm cho keo Mex
+                b_wid = 3.0
+                calc_note = "📌 [IE RULE] Ép chiều rộng cơi túi mổ về 3.0 inch | "
+
+        # 🛠️ QUY TẮC HIỆU CHỈNH CHÍ MẠNG: Tự động cộng bù +0.44 inch đường may cho TẤT CẢ chi tiết nhỏ
+        # Loại trừ Thân trước và Thân sau lớn để bảo vệ khung sơ đồ chính
+        is_major_panel = any(kw == comp_name for kw in MAJOR_PANELS)
+        
+        if not is_major_panel and engine_target != "ELASTIC":
             b_len = b_len + 0.44
             b_wid = b_wid + 0.44
+            calc_note = calc_note + "➕ Cộng bù +0.44\" đường may xung quanh | "
 
-        # Gán thông số hình học chuẩn hóa lên giao diện bảng Streamlit
+        # Gán thông số hình học đã được nới rộng lên giao diện bảng Streamlit
         ui_row["bounding_box_length"] = b_len
         ui_row["bounding_box_width"] = b_wid
         ui_row["piece_count"] = p_count
@@ -458,7 +466,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, *args, *
                     ui_row["marker_efficiency"] = marker_eff_major
                 
                 else:
-                    # Thuật toán diện tích phẳng tính cho toàn bộ linh kiện nhỏ vải chính (Túi, cạp x2, nẹp fly...)
+                    # Thuật toán diện tích phẳng tính cho linh kiện nhỏ (đã được cộng thêm 0.44 inch thông số ở trên)
                     raw_piece_area = b_len * b_wid * p_count * 0.85
                     area_with_shrinkage = raw_piece_area * warp_shrink_factor * weft_shrink_factor
                     
@@ -468,7 +476,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, *args, *
                 
                 gross_val = gross_yds * 0.9144 if uom_target == "MTR" else gross_yds
 
-            # 📐 PHÂN HỆ VẢI LÓT TÚI (LINING)
+            # 📐 PHÂN HỆ VẢI LÓT TÚI (LINING) - ĐÃ ĐƯỢC CỘNG BÙ ĐƯỜNG MAY
             elif engine_target == "LINING":
                 eff_lining = 0.78
                 raw_area = b_len * b_wid * p_count * 0.85
@@ -476,9 +484,9 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, *args, *
                 gross_yds = (area_with_shrinkage / (44.0 * 36.0 * eff_lining)) * (1.0 + denim_industrial_loss)
                 ui_row["marker_efficiency"] = eff_lining
                 gross_val = gross_yds * 0.9144 if uom_target == "MTR" else gross_yds
-                calc_note = "CAM LiningCore | Tính định mức lót túi chuẩn xác trên khổ 44.0 inch"
+                calc_note = calc_note + "CAM LiningCore | Tính định mức lót túi chuẩn trên khổ 44.0 inch"
 
-            # 📐 PHÂN HỆ KEO DỰNG / MEX LÓT (FUSING) - ĐÃ ĐỒNG BỘ ÉP SỐ LƯỢNG KEO CẠP LÊN 2 MIẾNG
+            # 📐 PHÂN HỆ KEO DỰNG / MEX LÓT (FUSING) - ĐÃ ĐƯỢC CỘNG BÙ ĐƯỜNG MAY
             elif engine_target == "FUSING":
                 eff_fusing = 0.85
                 fusing_width = 56.0
@@ -486,7 +494,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, *args, *
                 gross_yds = (raw_fusing_area / (fusing_width * 36.0 * eff_fusing)) * (1.0 + denim_industrial_loss)
                 ui_row["marker_efficiency"] = eff_fusing
                 gross_val = gross_yds * 0.9144 if uom_target == "MTR" else gross_yds
-                calc_note = calc_note + "CAM FusingCore | Định mức keo Mex đã cộng bù +0.44\" đường may"
+                calc_note = calc_note + "CAM FusingCore | Định mức keo Mex tính theo diện tích"
 
             elif engine_target == "ELASTIC":
                 total_inches = b_len * p_count * 1.05
@@ -513,6 +521,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, *args, *
 
     blueprint_final["bom_rows"] = router_bom_rows
     return blueprint_final
+
 
 
 
