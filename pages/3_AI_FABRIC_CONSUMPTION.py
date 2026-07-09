@@ -421,6 +421,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
 
     MAJOR_PANELS = ["FRONT PANEL", "BACK PANEL", "THÂN TRƯỚC", "THÂN SAU"]
     # =====================================================================
+       # =====================================================================
     # PHẦN 2: VÒNG LẶP PYTHON DUYỆT TÍNH TOÁN ĐỊNH MỨC THEO MA TRẬN PHÂN HỆ ĐỘNG
     # =====================================================================
     for ai_row in blueprint_final.get("bom_rows", []):
@@ -474,7 +475,6 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
             p_count = p_count * 2
             calc_note = calc_note + "✂️ [IE SPLIT] Rập quá khổ -> Tự động rã đôi rập & nhân đôi sản lượng | "
 
-        # 🔒 ĐỒNG BỘ BIẾN TUYỆT ĐỐI: Khử hoàn toàn lỗi đỏ sập app Streamlit nhờ biến is_dress_mode thống nhất toàn diện
         if not is_dress_mode and (engine_target == "FUSING" or engine_target == "FABRIC"):
             if any(kw in comp_name for kw in ["WELT", "PIP", "CƠI", "MỔ", "FLAP", "NẮP", "FLY", "BAGET", "FACING"]):
                 b_wid = 3.0
@@ -555,16 +555,25 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
                         ui_row["marker_efficiency"] = marker_eff_minor
                 gross_val = gross_yds * 0.9144 if uom_target == "MTR" else gross_yds
 
-            # 📐 PHÂN HỆ VẢI LÓT TÚI (LINING)
+            # 📐 PHÂN HỆ VẢI LÓT TÚI (LINING) - 🌟 SỬA ĐÚNG CÔNG THỨC GIÀN HÀNG NGANG ĐỘC LẬP
             elif engine_target == "LINING":
                 eff_lining = 0.78
+                
+                # Tính xem 1 hàng ngang khổ vải lót chứa được tối đa bao nhiêu rập lót túi (có chừa biên rác vải 0.1")
                 pieces_per_row = max(1, int(width_inch / (b_wid + 0.1)))
+                
+                # Tính tổng số hàng dọc cần thiết để chứa hết lượng rập (ví dụ 4 miếng lót trước xếp vừa 1 hàng ngang)
                 required_vertical_rows = math.ceil(p_count / float(pieces_per_row))
+                
+                # 🛠️ KHÓA CHẶT CHIỀU DÀI DỌC THỰC TẾ: Lấy chiều dài rập x Số hàng dọc x Hệ số co rút dọc dọc
                 allocated_lining_len_inch = b_len * required_vertical_rows * warp_shrink_factor
+                
+                # Công thức ra Yards: Chiều dài inch / (36 * Hiệu suất 78%) + Hao hụt công nghiệp
                 gross_yds = (allocated_lining_len_inch / (36.0 * eff_lining)) * (1.0 + denim_industrial_loss)
+                
                 ui_row["marker_efficiency"] = eff_lining
                 gross_val = gross_yds * 0.9144 if uom_target == "MTR" else gross_yds
-                calc_note = calc_note + f"👔 Sơ đồ lót giàn hàng ngang độc lập khổ động {width_inch}\""
+                calc_note = calc_note + f"👔 Sơ đồ lót giàn hàng ngang độc lập ({pieces_per_row} rập/hàng) khổ động {width_inch}\""
 
             # 📐 PHÂN HỆ KEO DỰNG / MEX LÓT (FUSING)
             elif engine_target == "FUSING":
@@ -586,6 +595,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
             ui_row["gross_consumption"] = round(max(0.0001, gross_val), 4)
             ui_row["quality_status"] = "PASS"
             ui_row["system_notes"] = calc_note
+           
             ui_row["calculated_consumption_yards"] = round(gross_yds, 4)
             ui_row["calculated_consumption_meters"] = round(gross_val * 0.9144 if uom_target == "YDS" else gross_val, 4)
             
