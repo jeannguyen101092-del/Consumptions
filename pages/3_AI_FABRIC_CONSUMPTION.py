@@ -886,17 +886,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             if blueprint_worker and "bom_rows" in blueprint_worker:
                 blueprint_worker["calculated_on_size"] = target_size_cmd
                 
-                # --- KHỞI TẠO BỘ LỌC ĐÚNG VỊ TRÍ VÀ THỤT LỀ ---
-                filtered_bom_rows = []
-                has_elastic = any(str(r.get("material_class")).upper().strip() == "ELASTIC" for r in blueprint_worker.get("bom_rows", []))
-                
                 for row in blueprint_worker.get("bom_rows", []):
-                    # Kiểm tra điều kiện loại bỏ chi tiết nhỏ và lưng thun
-                    c_name = str(row.get("component_name", "")).upper()
-                    m_class = str(row.get("material_class", "")).upper()
-                    if any(x in c_name for x in ["BACK POCKET", "BAGET", "BAGUET", "COI TUI"]) and "CARGO" not in c_name: continue
-                    if ("WAISTBAND" in c_name or "LUNG" in c_name) and has_elastic and m_class == "FABRIC": continue
-                    
                     try: row["bounding_box_length"] = float(row.get("bounding_box_length", 0.0))
                     except: row["bounding_box_length"] = 0.0
                     
@@ -917,11 +907,28 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                             row["fabric_width_inch"] = float(w_val)
                     except:
                         row["fabric_width_inch"] = float(active_width)
-                    
-                    filtered_bom_rows.append(row)
-                blueprint_worker["bom_rows"] = filtered_bom_rows
                 
-                # [Dán tiếp đoạn xử lý định mức blueprint_final của anh tại đây]
+                # 🛠️ PHẦN KHÔI PHỤC BỊ THIẾU TỪ ĐÂY 🛠️
+                # Gọi hàm xử lý tính toán định mức (bạn cần đảm bảo hàm này đã được định nghĩa ở trên)
+                if 'allocate_fabric_consumption' in globals() or 'allocate_fabric_consumption' in locals():
+                    blueprint_final = allocate_fabric_consumption(blueprint_worker)
+                else:
+                    blueprint_final = blueprint_worker  # Dự phòng nếu chưa khai báo hàm
+                
+                # Cập nhật kết quả vào session state của hệ thống
+                st.session_state.last_active_blueprint = blueprint_final
+                
+                # Ghi nhận phản hồi thành công từ AI vào lịch sử Chat
+                ai_response_text = f"✅ Đã quét thành công Techpack cho Cỡ (Size): **{target_size_cmd}**. Đã bóc tách được {len(blueprint_worker['bom_rows'])} chi tiết trong bảng dữ liệu BOM vật tư."
+                st.session_state.chat_history.append({"user": current_query, "ai": ai_response_text})
+                
+                # Ép làm mới giao diện ngay lập tức để hiển thị nội dung chat mới nhất
+                st.rerun()
+                
+        except Exception as e:
+            st.error(f"❌ Pipeline Lỗi: {str(e)}")
+            st.code(traceback.format_exc())
+
 
 # =====================================================================
 # ĐOẠN 7b: HIỂN THỊ KẾT QUẢ ĐỊNH MỨC CHI TIẾT & BẢNG GỘP TỔNG VẬT TƯ (V104.5)
