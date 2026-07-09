@@ -524,25 +524,24 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
             marker_efficiency = nesting_data[0]
             nesting_utilization = nesting_data[1]
 
-            # 🌟 BỘ PHÒNG VỆ KHỬ LỖI OCR (AI CONFIDENCE GUARD) - THAY THẾ HOÀN TOÀN HARDCODE 26.5 & 11.0
-            # Nếu chi tiết là Thân áo/Thân quần đơn lẻ mà chiều rộng quét vượt quá khổ ngang sơ đồ hoặc bắp tay áo > 14 inch
-            if sub_component == "BODY" and sunk_wid_check := (shrunk_wid / active_wid) > 0.85:
-                # Đối với rập 1/2 vòng thân áo khoác, bản rộng sơ đồ dẹt thực tế lý tưởng chiếm khoảng 45% -> 50% khổ vải ngang
+            # 🌟 BỘ PHÒNG VỆ KHỬ LỖI OCR (AI CONFIDENCE GUARD) - ĐÃ SỬA LỖI SYNTAX TRIỆT ĐỂ
+            if sub_component == "BODY" and (shrunk_wid / active_wid) > 0.85:
                 shrunk_wid = active_wid * 0.48 
                 calc_note = calc_note + "⚠️ [AI-OCR GUARD] Phát hiện lỗi dồn vòng thân -> Tự sửa sai về mốc an toàn CAD | "
             elif sub_component == "SLEEVE" and raw_wid > 14.0:
-                # Rập bắp tay áo khoác dẹt thực tế trên sơ đồ dao động trong mốc tỷ lệ chuẩn kỹ thuật
                 shrunk_wid = 11.5 * weft_shrink_factor
                 calc_note = calc_note + "⚠️ [AI-OCR GUARD] Phát hiện lỗi nhân đôi bắp tay -> Ép về bản rập dẹt 11.5\" | "
 
             # 📐 PHÂN HỆ VẢI CHÍNH (FABRIC)
             if engine_target == "FABRIC":
-                # Thuật toán tính toán định mức diện tích CAD lồng ghép động (True Geometry Area Nesting)
-                # Loại bỏ việc x2 chi tiết lớn có thông số rộng bao trùm nửa vòng sơ đồ
                 adjusted_count = 1.0 if (sub_component == "BODY" and active_count >= 2) else float(active_count)
                 
-                raw_piece_area = shrunk_len * shrunk_wid * adjusted_count
-                gross_yds = (raw_piece_area / (active_wid * 36.0 * marker_efficiency * nesting_utilization)) * (1.0 + industrial_loss)
+                if is_long_sash:
+                    raw_piece_area = shrunk_len * shrunk_wid * active_count * 0.90
+                    gross_yds = (raw_piece_area / (active_wid * 36.0 * marker_efficiency)) * (1.0 + industrial_loss)
+                else:
+                    raw_piece_area = shrunk_len * shrunk_wid * adjusted_count
+                    gross_yds = (raw_piece_area / (active_wid * 36.0 * marker_efficiency * nesting_utilization)) * (1.0 + industrial_loss)
                 calc_note = calc_note + f"⚡ CAD Nesting Engine (Eff: {int(marker_efficiency*100)}% | Util: {int(nesting_utilization*100)}%) | "
 
             # 📐 PHÂN HỆ VẢI LÓT TÚI (LINING)
@@ -555,17 +554,16 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
                 marker_efficiency = eff_lining
                 calc_note = calc_note + f"Xếp hàng ngang lót túi ({pieces_per_row} chi tiết/hàng) | "
 
-            # 📐 PHÂN HỆ KEO MEX DỰNG (FUSING) - SỬA LỖI ĐỊNH MỨC CAO NGẤT CHO KEO GỘP
+            # 📐 PHÂN HỆ KEO MEX DỰNG (FUSING)
             elif engine_target == "FUSING":
                 eff_fusing = 0.80
                 if sub_component == "PLACKET" and shrunk_wid > 4.0: 
-                    shrunk_wid = 2.0  # Bản mếch nẹp áo khoác/sơ mi dẹt thực tế chỉ rộng 2 inch
+                    shrunk_wid = 2.0  
                 
                 raw_fusing_area = shrunk_len * shrunk_wid * active_count
                 fusing_utilization = 0.88 if sub_component == "PLACKET" else 0.78
                 gross_yds = (raw_fusing_area / (active_wid * 36.0 * eff_fusing * fusing_utilization)) * (1.0 + industrial_loss)
                 
-                # Khống chế trần bảo vệ cho mếch keo linh kiện nhỏ
                 max_allowable_yds = (shrunk_len / 36.0) * (1.0 + industrial_loss)
                 if gross_yds > max_allowable_yds and sub_component != "PLACKET":
                     gross_yds = max_allowable_yds
