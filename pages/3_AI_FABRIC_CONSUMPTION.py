@@ -524,6 +524,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
         try:
             # 🧼 CÔ LẬP DỮ LIỆU: Chỉ đọc từ key tiếng Anh gốc của AI quét, bỏ qua các cột hiển thị tiếng Việt bị dồn số
             is_main_body = any(kw in comp_name for kw in ["FRONT", "BACK", "BODY", "THÂN"])
+            is_sleeve = "SLEEVE" in comp_name or "TAY" in comp_name
             is_fusing_placket = "PLACKET" in comp_name or "NẸP" in comp_name
             is_long_sash = any(kw in comp_name for kw in ["SASH", "STRAP", "BELT", "ĐAI"])
             
@@ -537,7 +538,12 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
             if raw_wid_origin <= 0:
                 raw_wid_origin = float(ai_row.get("Rộng sản xuất (W-inch)", 0.0))
 
-            # 🌟 ĐÁNH CHẶN LỖI LỆCH THÔNG SỐ: Ép dứt điểm bề rộng thân áo khoác về mốc Spec chuẩn 26.5" cho size 1X
+            # 🌟 ĐÁNH CHẶN LỖI AI QUÉT TAY ÁO QUÁ TO: Ép rộng rập tay áo về mốc chuẩn sơ đồ dẹt 11.0 inch
+            if is_sleeve and raw_wid_origin > 14.0:
+                raw_wid_origin = 11.0
+                calc_note = calc_note + "✂️ [IE SLEEVE] Hạ rộng bắp tay về bản rập sơ đồ dẹt 11.0\" | "
+
+            # 🌟 ĐÁNH CHẶN LỖI LỆCH THÔNG SỐ THÂN: Ép dứt điểm bề rộng thân về mốc Spec chuẩn 26.5" cho size 1X
             if is_main_body:
                 raw_wid_origin = 26.5
 
@@ -563,10 +569,9 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
                     ui_row["Marker Efficiency"] = active_eff
                     
                 elif is_jacket_mode:
-                    # 👔 THUẬT TOÁN ÁO KHOÁC/SƠ MI CHUẨN XÁC
-                    active_eff = marker_eff_major if (is_main_body or "SLEEVE" in comp_name) else marker_eff_minor
+                    # 👔 THUẬT TOÁN ÁO KHOÁC/SƠ MI CHUẨN XÁC ĐÃ SỬA LỖI TAY ÁO
+                    active_eff = marker_eff_major if (is_main_body or is_sleeve) else marker_eff_minor
                     
-                    # 🌟 ĐÁNH CHẶN CHI TIẾT QUÁ DÀI (SASH/BELT): Tính lồng dạt theo diện tích thay vì kéo dài sơ đồ dọc
                     if is_long_sash:
                         raw_piece_area = shrunk_len * shrunk_wid * active_count * 0.90
                         gross_yds = (raw_piece_area / (active_wid * 36.0 * active_eff)) * (1.0 + denim_industrial_loss)
@@ -574,7 +579,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
                         # TRIỆT TIÊU X2 VẢI CHÍNH: Thân áo rộng nửa vòng 26.5" đã bao trọn bề ngang sơ đồ
                         adjusted_count = 1.0 if is_main_body else float(active_count)
                         raw_piece_area = (shrunk_len + 1.44) * (shrunk_wid + 0.88) * adjusted_count
-                        nesting_utilization = 0.85 if is_main_body else (0.80 if "SLEEVE" in comp_name else 0.72)
+                        nesting_utilization = 0.85 if is_main_body else (0.80 if is_sleeve else 0.72)
                         gross_yds = (raw_piece_area / (active_wid * 36.0 * active_eff * nesting_utilization)) * (1.0 + denim_industrial_loss)
                     
                     ui_row["marker_efficiency"] = active_eff
@@ -591,7 +596,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
                     else:
                         raw_piece_area = shrunk_len * shrunk_wid * active_count * 0.85
                         gross_yds = (raw_piece_area / (active_wid * 36.0 * marker_eff_minor)) * (1.0 + denim_industrial_loss)
-                        ui_row["marker_efficiency"] = minor
+                        ui_row["marker_efficiency"] = marker_eff_minor
 
             # 📐 PHÂN HỆ VẢI LÓT TÚI (LINING)
             elif engine_target == "LINING":
@@ -603,21 +608,27 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
                 ui_row["marker_efficiency"] = eff_lining
                 ui_row["Marker Efficiency"] = eff_lining
 
-            # 📐 PHÂN HỆ KEO MEX DỰNG (FUSING)
+            # 📐 PHÂN HỆ KEO MEX DỰNG (FUSING) - SỬA LỖI CHI TIẾT GỘP "INTERLINING"
             elif engine_target == "FUSING":
                 eff_fusing = 0.80  
                 fusing_shrunk_len = raw_len_origin * warp_shrink_factor
                 fusing_shrunk_wid = raw_wid_origin * weft_shrink_factor
-                if is_fusing_placket and fusing_shrunk_wid > 4.0:
-                    fusing_shrunk_wid = 2.0  
-                    
-                raw_fusing_area = fusing_shrunk_len * fusing_shrunk_wid * active_count
-                fusing_utilization = 0.88 if is_fusing_placket else 0.78
-                gross_yds = (raw_fusing_area / (active_wid * 36.0 * eff_fusing * fusing_utilization)) * (1.0 + denim_industrial_loss)
                 
-                max_allowable_yds = (fusing_shrunk_len / 36.0) * (1.0 + denim_industrial_loss)
-                if gross_yds > max_allowable_yds and not is_fusing_placket:
-                    gross_yds = max_allowable_yds
+                # Nếu AI quét gộp nguyên mảng keo lớn (Interlining tổng), xử lý theo diện tích sơ đồ thoáng tính phối hợp hiệu suất
+                if "INTERLINING" in comp_name and active_count == 1:
+                    raw_fusing_area = fusing_shrunk_len * fusing_shrunk_wid * active_count
+                    gross_yds = (raw_fusing_area / (active_wid * 36.0 * eff_fusing * 0.85)) * (1.0 + denim_industrial_loss)
+                    calc_note = calc_note + "⚡ Sơ đồ diện tích Keo mếch tổng hợp | "
+                else:
+                    if is_fusing_placket and fusing_shrunk_wid > 4.0:
+                        fusing_shrunk_wid = 2.0  
+                    raw_fusing_area = fusing_shrunk_len * fusing_shrunk_wid * active_count
+                    fusing_utilization = 0.88 if is_fusing_placket else 0.78
+                    gross_yds = (raw_fusing_area / (active_wid * 36.0 * eff_fusing * fusing_utilization)) * (1.0 + denim_industrial_loss)
+                    
+                    max_allowable_yds = (fusing_shrunk_len / 36.0) * (1.0 + denim_industrial_loss)
+                    if gross_yds > max_allowable_yds and not is_fusing_placket:
+                        gross_yds = max_allowable_yds
                     
                 ui_row["marker_efficiency"] = eff_fusing
                 ui_row["Marker Efficiency"] = eff_fusing
@@ -647,6 +658,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
 
     blueprint_final["bom_rows"] = router_bom_rows
     return blueprint_final
+
 
 
 
