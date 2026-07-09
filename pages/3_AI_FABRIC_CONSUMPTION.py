@@ -565,7 +565,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
                     # 👔 THUẬT TOÁN ÁO KHOÁC/SƠ MI CHUẨN XÁC
                     active_eff = marker_eff_major if (is_main_body or "SLEEVE" in comp_name) else marker_eff_minor
                     
-                    # 🌟 TRIỆT TIÊU X2: Thân áo rộng nửa vòng 26.5" đã bao trọn bề ngang sơ đồ, điều chỉnh adjusted_count về 1 chi tiết hình chữ nhật bao phủ ngang
+                    # 🌟 TRIỆT TIÊU X2 VẢI CHÍNH: Thân áo rộng nửa vòng 26.5" đã bao trọn bề ngang sơ đồ, điều chỉnh adjusted_count về 1 chi tiết hình chữ nhật bao phủ ngang
                     adjusted_count = 1.0 if is_main_body else float(active_count)
                     
                     raw_piece_area = (shrunk_len + 1.44) * (shrunk_wid + 0.88) * adjusted_count
@@ -598,21 +598,31 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
                 ui_row["marker_efficiency"] = eff_lining
                 ui_row["Marker Efficiency"] = eff_lining
 
-            # 📐 PHÂN HỆ KEO MEX DỰNG (FUSING) - TRIỆT TIÊU LỖI CAO NGẤT
+            # 📐 PHÂN HỆ KEO MEX DỰNG (FUSING) - 🌟 BẢN VÁ TRIỆT TIÊU LỖI KEO CAO NGẤT 2.4 YDS
             elif engine_target == "FUSING":
-                eff_fusing = 0.82  
+                # CHUYỂN SANG THUẬT TOÁN LỒNG DIỆN TÍCH: Bẻ gãy logic tính dồn chiều dài cơ học đơn lẻ gây cao ngất
+                eff_fusing = 0.80  # Hiệu suất sơ đồ mếch keo mục tiêu 80%
+                
+                # Bảo vệ thông số bản rộng keo nẹp (Placket), không lấy mảng rộng thân nếu AI quét nhầm
                 fusing_shrunk_len = raw_len_origin * warp_shrink_factor
                 fusing_shrunk_wid = raw_wid_origin * weft_shrink_factor
-                
-                # Khống chế bản rộng keo nẹp áo khoác thành phẩm thực tế (khoảng 2.5 inch)
                 if is_fusing_placket and fusing_shrunk_wid > 4.0:
-                    fusing_shrunk_wid = 2.5
+                    fusing_shrunk_wid = 2.0  # Bản mếch nẹp áo thực tế chỉ rộng khoảng 2.0 inch
+                    
+                # Tính tổng diện tích hình học thực tế của chi tiết keo dựng đã tính co rút
+                raw_fusing_area = fusing_shrunk_len * fusing_shrunk_wid * active_count
                 
-                pieces_per_row = max(1, int(active_wid / (fusing_shrunk_wid + 0.05)))
-                required_vertical_rows = math.ceil(active_count / float(pieces_per_row))
-                allocated_fusing_len_inch = fusing_shrunk_len * required_vertical_rows
+                # Hệ số sử dụng định mức diện tích thực tế cho mếch keo (Mex thẳng, dẹt nên tỷ lệ điền đầy rất cao)
+                fusing_utilization = 0.88 if is_fusing_placket else 0.78
                 
-                gross_yds = (allocated_fusing_len_inch / (36.0 * eff_fusing)) * (1.0 + denim_industrial_loss)
+                # Công thức định mức diện tích CAD tiêu chuẩn cho Keo Mex
+                gross_yds = (raw_fusing_area / (active_wid * 36.0 * eff_fusing * fusing_utilization)) * (1.0 + denim_industrial_loss)
+                
+                # Đánh chặn khống chế trần bảo vệ: Định mức 1 linh kiện nhỏ không được vượt quá chiều dài tuyệt đối của chính nó quy ra yard
+                max_allowable_yds = (fusing_shrunk_len / 36.0) * (1.0 + denim_industrial_loss)
+                if gross_yds > max_allowable_yds and not is_fusing_placket:
+                    gross_yds = max_allowable_yds
+                    
                 ui_row["marker_efficiency"] = eff_fusing
                 ui_row["Marker Efficiency"] = eff_fusing
 
