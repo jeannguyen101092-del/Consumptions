@@ -409,6 +409,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
        # =====================================================================
         # =====================================================================
        # =====================================================================
+        # =====================================================================
     # PHẦN 2: VÒNG LẶP PYTHON DUYỆT TÍNH TOÁN ĐỊNH MỨC THEO MA TRẬN PHÂN HỆ ĐỘNG
     # =====================================================================
     for ai_row in blueprint_final.get("bom_rows", []):
@@ -450,20 +451,20 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
         elif engine_target == "FUSING":
             width_inch = parsed_fusing_width
 
-        # 🌟 THUẬT TOÁN MỚI: Tự động rã đôi rập đối với chi tiết xòe tầng quá khổ vải (Triệt tiêu lỗi chiều dài nhảy lên 60")
+        # 🌟 THUẬT TOÁN RÃ ĐÔI RẬP QUÁ KHỔ: Giữ nguyên trục thông số Techpack, không làm phồng chiều dài gấu váy
         if engine_target in ["FABRIC", "FUSING"] and b_wid >= width_inch:
-            # Rã đôi chiều rộng để rập lọt lòng khổ 57", đồng thời nhân đôi số lượng mảnh cắt May gộp
             b_wid = b_wid / 2.0
             p_count = p_count * 2
-            calc_note = calc_note + "✂️ [IE SPLIT] Chi tiết quá khổ -> Tự động rã đôi rập & nhân đôi sản lượng cắt | "
+            calc_note = calc_note + "✂️ [IE SPLIT] Rập quá khổ -> Tự động rã đôi rập & nhân đôi sản lượng | "
 
-        if not is_dress_product and (engine_target == "FUSING" or engine_target == "FABRIC"):
+        # 🌟 ĐỒNG BỘ TÊN BIẾN CHUẨN XÁC: Khử lỗi sập app Streamlit nhờ biến is_dress_mode thống nhất
+        if not is_dress_mode and (engine_target == "FUSING" or engine_target == "FABRIC"):
             if any(kw in comp_name for kw in ["WELT", "PIP", "CƠI", "MỔ", "FLAP", "NẮP", "FLY", "BAGET", "FACING"]):
                 b_wid = 3.0
                 calc_note = calc_note + "Ép rộng cấu phần túi về 3.0\" | "
 
         # MA TRẬN BÙ ĐƯỜNG MAY CHUẨN CÔNG NGHIỆP IE ĐỘNG
-        if is_dress_product:
+        if is_dress_mode:
             if engine_target != "ELASTIC":
                 if "TIER" in comp_name or "LAI VÁY" in comp_name:
                     b_len = b_len + 0.44 + hem_allowance
@@ -502,23 +503,22 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
         try:
             # 📐 PHÂN HỆ VẢI CHÍNH (FABRIC)
             if engine_target == "FABRIC":
-                if is_dress_product:
+                if is_dress_mode:
                     active_eff = marker_eff_major if "BODICE" in comp_name else marker_eff_minor
-                    
                     is_bias_binding = any(kw in comp_name for kw in ["BINDING", "BIAS", "TRIM", "STRAP", "PIPING", "RIBBON"])
                     is_narrow_strip = b_wid < 4.0
                     
                     if is_bias_binding or is_narrow_strip:
                         raw_piece_area = b_len * b_wid * p_count * 0.80
+                        area_with_shrinkage = raw_piece_area * warp_shrink_factor * weft_shrink_factor
+                        gross_yds = (area_with_shrinkage / (width_inch * 36.0 * active_eff)) * (1.0 + denim_industrial_loss)
                         calc_note = calc_note + "➕ Dây viền/Linh kiện nhỏ lồng diện tích ngang | "
                     else:
-                        # Cơ chế xếp lồng cặp đối đầu khít khao an toàn
                         effective_count = p_count / 2.0 if p_count >= 2 else float(p_count)
                         raw_piece_area = b_len * b_wid * effective_count * 0.85
+                        area_with_shrinkage = raw_piece_area * warp_shrink_factor * weft_shrink_factor
+                        gross_yds = (area_with_shrinkage / (width_inch * 36.0 * active_eff)) * (1.0 + denim_industrial_loss)
                         calc_note = calc_note + "⚡ Sơ đồ lồng cặp xen kẽ dọc | "
-                        
-                    area_with_shrinkage = raw_piece_area * warp_shrink_factor * weft_shrink_factor
-                    gross_yds = (area_with_shrinkage / (width_inch * 36.0 * active_eff)) * (1.0 + denim_industrial_loss)
                     ui_row["marker_efficiency"] = active_eff
                 else:
                     if "FRONT PANEL" in comp_name or "THÂN TRƯỚC" in comp_name:
@@ -537,7 +537,6 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
                         gross_yds = (area_with_shrinkage / (width_inch * 36.0 * marker_eff_minor)) * (1.0 + denim_industrial_loss)
                         calc_note = calc_note + f"⚡ Sơ đồ diện tích lồng ngang khổ động {width_inch}\""
                         ui_row["marker_efficiency"] = marker_eff_minor
-                
                 gross_val = gross_yds * 0.9144 if uom_target == "MTR" else gross_yds
 
             # 📐 PHÂN HỆ VẢI LÓT TÚI (LINING)
