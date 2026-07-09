@@ -422,10 +422,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
 
     MAJOR_PANELS = ["FRONT PANEL", "BACK PANEL", "THÂN TRƯỚC", "THÂN SAU"]
 
-        # =====================================================================
-        # =====================================================================
-        # =====================================================================
-    # =====================================================================
+         # =====================================================================
     # PHẦN 2: VÒNG LẶP PYTHON DUYỆT TÍNH TOÁN ĐỊNH MỨC THEO MA TRẬN PHÂN HỆ ĐỘNG
     # =====================================================================
     for ai_row in blueprint_final.get("bom_rows", []):
@@ -467,13 +464,12 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
         elif engine_target == "FUSING":
             width_inch = parsed_fusing_width
 
-        # 🌟 THUẬT TOÁN CAD XOAY RẬP ĐỘNG 90 ĐỘ: Giải cứu chi tiết rộng quá khổ vải (ví dụ tầng váy rộng 59", 65")
+        # 🌟 THUẬT TOÁN MỚI: Tự động rã đôi rập đối với chi tiết xòe tầng quá khổ vải (Triệt tiêu lỗi chiều dài nhảy lên 60")
         if engine_target in ["FABRIC", "FUSING"] and b_wid >= width_inch:
-            # Hoán đổi Dài và Rộng cho nhau để mô phỏng thợ sơ đồ xoay rập đặt lọt lòng khổ vải dọc biên
-            temp_len = b_len
-            b_len = b_wid
-            b_wid = temp_len
-            calc_note = calc_note + "🔄 [CAD RULE] Tự động xoay rập 90° để vừa lòng khổ vải | "
+            # Rã đôi chiều rộng để rập lọt lòng khổ 57", đồng thời nhân đôi số lượng mảnh cắt May gộp
+            b_wid = b_wid / 2.0
+            p_count = p_count * 2
+            calc_note = calc_note + "✂️ [IE SPLIT] Chi tiết quá khổ -> Tự động rã đôi rập & nhân đôi sản lượng cắt | "
 
         if not is_dress_product and (engine_target == "FUSING" or engine_target == "FABRIC"):
             if any(kw in comp_name for kw in ["WELT", "PIP", "CƠI", "MỔ", "FLAP", "NẮP", "FLY", "BAGET", "FACING"]):
@@ -526,11 +522,11 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
                     is_bias_binding = any(kw in comp_name for kw in ["BINDING", "BIAS", "TRIM", "STRAP", "PIPING", "RIBBON"])
                     is_narrow_strip = b_wid < 4.0
                     
-                    # Tính toán định mức dựa trên sơ đồ diện tích lồng ghép khít khao sau xoay rập
                     if is_bias_binding or is_narrow_strip:
                         raw_piece_area = b_len * b_wid * p_count * 0.80
                         calc_note = calc_note + "➕ Dây viền/Linh kiện nhỏ lồng diện tích ngang | "
                     else:
+                        # Cơ chế xếp lồng cặp đối đầu khít khao an toàn
                         effective_count = p_count / 2.0 if p_count >= 2 else float(p_count)
                         raw_piece_area = b_len * b_wid * effective_count * 0.85
                         calc_note = calc_note + "⚡ Sơ đồ lồng cặp xen kẽ dọc | "
