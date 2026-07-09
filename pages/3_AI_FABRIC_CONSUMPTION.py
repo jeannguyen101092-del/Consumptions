@@ -387,7 +387,6 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
     match_fusing = re.search(r'(?:keo|fusing|mex)\s*(?:khổ|kho)\s*[:\-=\s]*([\d\.]+)', query_lower)
     if match_fusing:
         parsed_fusing_width = float(match_fusing.group(1))
-
     # =====================================================================
     # 🔍 BỘ TỰ ĐỘNG PHÂN LOẠI MÃ HÀNG NGÀNH MAY CẢI TIẾN THÔNG MINH VÁ LỖI AI
     # =====================================================================
@@ -420,10 +419,8 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
     total_pants_base_yds = (pants_base_length_inch / (36.0 * marker_eff_major)) * (1.0 + denim_industrial_loss)
 
     MAJOR_PANELS = ["FRONT PANEL", "BACK PANEL", "THÂN TRƯỚC", "THÂN SAU"]
+
     # =====================================================================
-       # =====================================================================
-        # =====================================================================
-       # =====================================================================
     # PHẦN 2: VÒNG LẶP PYTHON DUYỆT TÍNH TOÁN ĐỊNH MỨC THEO MA TRẬN PHÂN HỆ ĐỘNG
     # =====================================================================
     for ai_row in blueprint_final.get("bom_rows", []):
@@ -464,9 +461,8 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
         else:
             calc_note = f"📌 {product_label} | "
 
-        # 🌟 BỘ PHÒNG VỆ KEO MEX ĐỌC BOM CHUẨN KỸ THUẬT: Đánh chặn triệt để lỗi AI đọc nhầm mã RM 56 thành chiều dài
+        # 🌟 BỘ PHÒNG VỆ KEO MEX ĐỌC BOM CHUẨN KỸ THUẬT
         if engine_target == "FUSING" and b_len > 45.0:
-            # Ép chiều dài keo Mex dán mếch nẹp/nhãn về mốc tiêu hao thực tế trong danh mục BOM (khoảng 12.0 inch)
             b_len = 12.0
             calc_note = "📌 [IE BOM RULE] Khống chế lỗi AI dồn mã số vật tư vào chiều dài keo Mex | "
 
@@ -477,7 +473,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
         elif engine_target == "FUSING":
             width_inch = parsed_fusing_width
 
-        # Thuật toán rã đôi rập đối với chi tiết xòe tầng đầm váy quá khổ vải rộng hơn 57"
+        # Thuật toán rã đôi rập đối với chi tiết xòe tầng đầm váy quá khổ vải rộng hơn khổ vải
         if engine_target in ["FABRIC", "FUSING"] and b_wid >= width_inch:
             b_wid = b_wid / 2.0
             p_count = p_count * 2
@@ -524,7 +520,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
 
         if b_len <= 0.0 and b_wid <= 0.0:
             continue
-
+        gross_yds = 0.0
         try:
             # 📐 PHÂN HỆ VẢI CHÍNH (FABRIC)
             if engine_target == "FABRIC":
@@ -538,84 +534,71 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
                         gross_yds = (area_with_shrinkage / (width_inch * 36.0 * active_eff)) * (1.0 + denim_industrial_loss)
                         calc_note = calc_note + "➕ Dây viền/Linh kiện nhỏ lồng diện tích ngang | "
                     else:
-                        effective_count = p_count / 2.0 if p_count >= 2 else float(p_count)
-                        raw_piece_area = b_len * b_wid * effective_count * 0.85
-                        area_with_shrinkage = raw_piece_area * warp_shrink_factor * weft_shrink_factor
-                        gross_yds = (area_with_shrinkage / (width_inch * 36.0 * active_eff)) * (1.0 + denim_industrial_loss)
-                        calc_note = calc_note + "⚡ Sơ đồ lồng cặp xen kẽ dọc | "
+                        shrunk_len = b_len * warp_shrink_factor
+                        shrunk_wid = b_wid * weft_shrink_factor
+                        pieces_per_width = max(1, int(width_inch / shrunk_wid))
+                        needed_rows = math.ceil(p_count / float(pieces_per_width))
+                        gross_yds = ((shrunk_len * needed_rows) / (36.0 * active_eff)) * (1.0 + denim_industrial_loss)
+                        calc_note = calc_note + "⚡ Sơ đồ lồng cặp xen kẽ dọc theo hàng | "
                     ui_row["marker_efficiency"] = active_eff
                 else:
                     if "FRONT PANEL" in comp_name or "THÂN TRƯỚC" in comp_name:
                         proportion = fixed_front_panel_len / (fixed_front_panel_len + fixed_back_panel_len)
-                        gross_yds = total_pants_base_yds * proportion
-                        calc_note = calc_note + "Thân trước lồng sơ đồ"
+                        gross_yds = (total_pants_base_yds * proportion) / 2.0
+                        calc_note = calc_note + "Thân trước phân bổ sơ đồ tổng | "
                         ui_row["marker_efficiency"] = marker_eff_major
                     elif "BACK PANEL" in comp_name or "THÂN SAU" in comp_name:
                         proportion = fixed_back_panel_len / (fixed_front_panel_len + fixed_back_panel_len)
-                        gross_yds = total_pants_base_yds * proportion
-                        calc_note = calc_note + "Thân sau gánh khung lai sơ đồ"
+                        gross_yds = (total_pants_base_yds * proportion) / 2.0
+                        calc_note = calc_note + "Thân sau phân bổ gánh khung sơ đồ tổng | "
                         ui_row["marker_efficiency"] = marker_eff_major
                     else:
                         raw_piece_area = b_len * b_wid * p_count * 0.85
                         area_with_shrinkage = raw_piece_area * warp_shrink_factor * weft_shrink_factor
                         gross_yds = (area_with_shrinkage / (width_inch * 36.0 * marker_eff_minor)) * (1.0 + denim_industrial_loss)
-                        calc_note = calc_note + f"⚡ Sơ đồ diện tích lồng ngang khổ động {width_inch}\""
+                        calc_note = calc_note + f"⚡ Sơ đồ diện tích lồng ngang khổ động {width_inch}\" | "
                         ui_row["marker_efficiency"] = marker_eff_minor
-                gross_val = gross_yds * 0.9144 if uom_target == "MTR" else gross_yds
 
             # 📐 PHÂN HỆ VẢI LÓT TÚI (LINING)
             elif engine_target == "LINING":
                 eff_lining = 0.78
-                pieces_per_row = max(1, int(width_inch / (b_wid + 0.1)))
+                shrunk_wid = b_wid * weft_shrink_factor
+                shrunk_len = b_len * warp_shrink_factor
+                pieces_per_row = max(1, int(width_inch / (shrunk_wid + 0.1)))
                 required_vertical_rows = math.ceil(p_count / float(pieces_per_row))
-                allocated_lining_len_inch = b_len * required_vertical_rows * warp_shrink_factor
+                allocated_lining_len_inch = shrunk_len * required_vertical_rows
                 gross_yds = (allocated_lining_len_inch / (36.0 * eff_lining)) * (1.0 + denim_industrial_loss)
                 ui_row["marker_efficiency"] = eff_lining
-                gross_val = gross_yds * 0.9144 if uom_target == "MTR" else gross_yds
-                calc_note = calc_note + f"👔 Sơ đồ lót giàn hàng ngang độc lập ({pieces_per_row} rập/hàng) khổ động {width_inch}\""
+                calc_note = calc_note + f"Xếp hàng ngang lót túi ({pieces_per_row} chi tiết/hàng) | "
 
-            # 📐 PHÂN HỆ KEO DỰNG / MEX LÓT (FUSING) - 🌟 SỬA ĐỔI: TÍNH TIẾN THẲNG THEO CHIỀU DÀI DANH MỤC BOM ĐỘC LẬP
+            # 📐 PHÂN HỆ KEO MEX DỰNG (FUSING)
             elif engine_target == "FUSING":
-                eff_fusing = 0.85
-                
-                # Tính định mức keo Mex theo chiều dài dọc sơ đồ tiến thẳng của danh mục BOM phụ liệu
-                # Nhân thêm hệ số co rút dọc 3% và chia đều cho số lượng rập cặp đối xứng lồng nhau trên khổ keo chat động (59 inch)
-                effective_fusing_count = p_count / 2.0 if p_count >= 2 else float(p_count)
-                allocated_fusing_len_inch = b_len * effective_fusing_count * warp_shrink_factor
-                
-                # Công thức chiều dài Yards keo: Chiều dài inch / (36.0 * Hiệu suất keo 85%) + Hao hụt công nghiệp 4.3%
+                eff_fusing = 0.80
+                shrunk_wid = b_wid * weft_shrink_factor
+                shrunk_len = b_len * warp_shrink_factor
+                pieces_per_row = max(1, int(width_inch / (shrunk_wid + 0.1)))
+                required_vertical_rows = math.ceil(p_count / float(pieces_per_row))
+                allocated_fusing_len_inch = shrunk_len * required_vertical_rows
                 gross_yds = (allocated_fusing_len_inch / (36.0 * eff_fusing)) * (1.0 + denim_industrial_loss)
-                
                 ui_row["marker_efficiency"] = eff_fusing
-                gross_val = gross_yds * 0.9144 if uom_target == "MTR" else gross_yds
-                calc_note = calc_note + f"🎯 CAM FusingBOM | Tính tiến thẳng chiều dài keo Mex theo danh mục BOM trên khổ động {width_inch}\""
+                calc_note = calc_note + f"Xếp hàng ngang keo dựng ({pieces_per_row} chi tiết/hàng) | "
 
+            # 📐 PHÂN HỆ THUN CHUN (ELASTIC)
             elif engine_target == "ELASTIC":
-                total_inches = b_len * p_count * 1.05
-
-                gross_yds = total_inches / 36.0
+                gross_yds = ((b_len * p_count) / 36.0) * 1.05
                 ui_row["marker_efficiency"] = 1.0
-                gross_val = gross_yds * 0.9144 if uom_target == "MTR" else gross_yds
-                calc_note = calc_note + "Tính chun co giãn thun eo hao hụt 5%"
+                calc_note = calc_note + "Tính thẳng theo chiều dài trục dây thun | "
 
-           
+            # Chuyển đổi đơn vị sang YDS hoặc MTR
+            gross_val = gross_yds * 0.9144 if uom_target == "MTR" else gross_yds
+            ui_row["calculated_consumption"] = round(gross_val, 4)
+            ui_row["engine_route"] = engine_target
+            ui_row["calculation_note"] = calc_note.strip(" | ")
 
-            ui_row["engine"] = engine_target
-            ui_row["gross_consumption"] = round(max(0.0001, gross_val), 4)
-            ui_row["quality_status"] = "PASS"
-            ui_row["system_notes"] = calc_note
-           
-            ui_row["calculated_consumption_yards"] = round(gross_yds, 4)
-            ui_row["calculated_consumption_meters"] = round(gross_val * 0.9144 if uom_target == "YDS" else gross_val, 4)
-            
-        except Exception as inline_err:
-            ui_row["engine"] = engine_target
-            ui_row["gross_consumption"] = 0.0
-            ui_row["quality_status"] = "QA_FAIL"
-            ui_row["system_notes"] = f"Lỗi Python: {str(inline_err)}"
-            
+        except Exception as e:
+            ui_row["calculated_consumption"] = 0.0
+            ui_row["calculation_note"] = f"❌ Lỗi tính toán định mức: {str(e)}"
 
-            
         router_bom_rows.append(ui_row)
 
     blueprint_final["bom_rows"] = router_bom_rows
