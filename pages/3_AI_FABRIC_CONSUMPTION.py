@@ -406,6 +406,8 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
 
     MAJOR_PANELS = ["FRONT PANEL", "BACK PANEL", "THÂN TRƯỚC", "THÂN SAU"]
         # =====================================================================
+       # =====================================================================
+        # =====================================================================
     # PHẦN 2: VÒNG LẶP PYTHON DUYỆT TÍNH TOÁN ĐỊNH MỨC VÀ ÁP MA TRẬN ĐƯỜNG MAY IE
     # =====================================================================
     for ai_row in blueprint_final.get("bom_rows", []):
@@ -438,6 +440,21 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
         try: width_inch = float(ui_row.get("fabric_width_inch", 57.0))
         except: width_inch = 57.0
 
+        # 🌟 BỘ PHÒNG VỆ HÌNH HỌC IE: Vá lỗi chí mạng khi AI quét mất dữ liệu (trả về 0 hoặc thông số quá nhỏ)
+        if b_len <= 1.0 or b_wid <= 1.0:
+            if "FRONT PANEL" in comp_name or "THÂN TRƯỚC" in comp_name:
+                b_len, b_wid, p_count = 39.0, 10.5, 2
+            elif "BACK PANEL" in comp_name or "THÂN SAU" in comp_name:
+                b_len, b_wid, p_count = 44.5, 11.5, 2
+            elif "CARGO" in comp_name or "TÚI HỘP" in comp_name:
+                b_len, b_wid, p_count = 9.25, 7.25, 2
+            elif "POCKET BAG" in comp_name or "LÓT" in comp_name or engine_target == "LINING":
+                b_len, b_wid, p_count = 12.0, 7.5, 4
+            elif "WAISTBAND" in comp_name or "CẠP" in comp_name or "LƯNG" in comp_name:
+                b_len, b_wid, p_count = 32.0, 2.0, 2
+            else:
+                b_len, b_wid, p_count = 6.0, 3.0, 2
+
         calc_note = f"📌 {product_label} | "
 
         if engine_target == "FABRIC":
@@ -454,6 +471,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
 
         is_major_panel = any(kw == comp_name for kw in MAJOR_PANELS)
 
+        # Áp dụng ma trận cộng bù đường may chuẩn công nghiệp
         if is_major_panel:
             b_wid = b_wid + (0.44 * 2)
             b_len = b_len + 0.44 + hem_allowance
@@ -499,18 +517,12 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
                     ui_row["marker_efficiency"] = marker_eff_minor
                 gross_val = gross_yds * 0.9144 if uom_target == "MTR" else gross_yds
 
-            # 📐 PHÂN HỆ VẢI LÓT TÚI (LINING) - 🌟 SỬA ĐỔI: TÍNH THEO CHIỀU DÀI TIẾN THẲNG ĐỘC LẬP
+            # 📐 PHÂN HỆ VẢI LÓT TÚI (LINING) - SƠ ĐỒ TIẾN THẲNG ĐỘC LẬP CHUẨN XƯỞNG LÓT
             elif engine_target == "LINING":
                 eff_lining = 0.78
-                
-                # Sơ đồ lót đi độc lập, xếp nối tiếp cặp đối nhau -> chiều dài sơ đồ dọc đóng góp = b_len * (p_count / 2)
-                # Nhân thêm hệ số co rút dọc để đảm bảo an toàn cho vải lót
                 effective_lining_count = p_count / 2.0 if p_count >= 2 else float(p_count)
                 allocated_lining_len_inch = b_len * effective_lining_count * warp_shrink_factor
-                
-                # Công thức chiều dài chuẩn: Chiều dài inch / (36 * Hiệu suất 78%) + Hao hụt công nghiệp
                 gross_yds = (allocated_lining_len_inch / (36.0 * eff_lining)) * (1.0 + denim_industrial_loss)
-                
                 ui_row["marker_efficiency"] = eff_lining
                 gross_val = gross_yds * 0.9144 if uom_target == "MTR" else gross_yds
                 calc_note = calc_note + f"👔 Sơ đồ lót tiến thẳng độc lập khổ động {width_inch}\""
@@ -548,6 +560,8 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
 
     blueprint_final["bom_rows"] = router_bom_rows
     return blueprint_final
+
+
 
 
 
