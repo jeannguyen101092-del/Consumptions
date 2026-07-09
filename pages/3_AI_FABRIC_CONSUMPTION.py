@@ -699,9 +699,15 @@ if st.sidebar.button("🗑️ CLEAR SYSTEM MEMORY", use_container_width=True):
     st.session_state.pdf_bytes = None
     st.session_state.pdf_name = ""
     st.session_state.pdf_text_cache = None
+    
+    # 🌟 BỔ SUNG 2 DÒNG NÀY ĐỂ XÓA SẠCH DỮ LIỆU TẬN GỐC 🌟
+    if "last_active_blueprint" in st.session_state: st.session_state.last_active_blueprint = None
+    if "raw_ai_debug_payload" in st.session_state: st.session_state.raw_ai_debug_payload = None
+    
     if "pdf_page_one_image" in st.session_state: st.session_state.pdf_page_one_image = None
     if "accumulated_bom_rows" in st.session_state: st.session_state.accumulated_bom_rows = []
     st.rerun()
+
 
 
 # ------------------------------------------------------------------------------
