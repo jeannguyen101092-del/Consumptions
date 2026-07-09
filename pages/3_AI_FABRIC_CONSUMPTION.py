@@ -423,6 +423,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
     # =====================================================================
        # =====================================================================
         # =====================================================================
+       # =====================================================================
     # PHẦN 2: VÒNG LẶP PYTHON DUYỆT TÍNH TOÁN ĐỊNH MỨC THEO MA TRẬN PHÂN HỆ ĐỘNG
     # =====================================================================
     for ai_row in blueprint_final.get("bom_rows", []):
@@ -436,8 +437,6 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
         if any(key in comp_name or key in mat_class for key in EXCLUDE_HARDWARE_AND_THREAD) or mat_class in ["COUNT", "THREAD"]:
             continue
             
-        # 🌟 VÁ LỖI CHÍ MẠNG TẠI ĐÂY: Quét từ khóa tên chi tiết trước. 
-        # Nếu chứa chữ BAG, LINING, LÓT, POCKETING -> Ép cứng Engine về LINING, hủy bỏ nhãn FABRIC sai của AI
         if any(k in comp_name for k in ["LÓT", "LINING", "POCKETING", "BAG"]):
             engine_target = "LINING"
         elif any(k in comp_name or k in mat_class for k in ["KEO", "DỰNG", "FUSING", "INTERLINING", "MEX"]):
@@ -465,6 +464,12 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
         else:
             calc_note = f"📌 {product_label} | "
 
+        # 🌟 BỘ PHÒNG VỆ KEO MEX ĐỌC BOM CHUẨN KỸ THUẬT: Đánh chặn triệt để lỗi AI đọc nhầm mã RM 56 thành chiều dài
+        if engine_target == "FUSING" and b_len > 45.0:
+            # Ép chiều dài keo Mex dán mếch nẹp/nhãn về mốc tiêu hao thực tế trong danh mục BOM (khoảng 12.0 inch)
+            b_len = 12.0
+            calc_note = "📌 [IE BOM RULE] Khống chế lỗi AI dồn mã số vật tư vào chiều dài keo Mex | "
+
         if engine_target == "FABRIC":
             width_inch = parsed_main_width
         elif engine_target == "LINING":
@@ -478,7 +483,6 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
             p_count = p_count * 2
             calc_note = calc_note + "✂️ [IE SPLIT] Rập quá khổ -> Tự động rã đôi rập & nhân đôi sản lượng | "
 
-        # Khử hoàn toàn lỗi đỏ sập app Streamlit nhờ biến is_dress_mode thống nhất toàn diện
         if not is_dress_mode and (engine_target == "FUSING" or engine_target == "FABRIC"):
             if any(kw in comp_name for kw in ["WELT", "PIP", "CƠI", "MỔ", "FLAP", "NẮP", "FLY", "BAGET", "FACING"]):
                 b_wid = 3.0
@@ -559,33 +563,36 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
                         ui_row["marker_efficiency"] = marker_eff_minor
                 gross_val = gross_yds * 0.9144 if uom_target == "MTR" else gross_yds
 
-            # 📐 PHÂN HỆ VẢI LÓT TÚI (LINING) - 🌟 KHÓA CHẶT LUỒNG GIÀN HÀNG NGANG KHÔNG CHO VỌT SỐ
+            # 📐 PHÂN HỆ VẢI LÓT TÚI (LINING)
             elif engine_target == "LINING":
                 eff_lining = 0.78
-                
-                # Tính số lượng rập lót đặt đặt vừa lòng khổ vải (cộng hở biên rập 0.1")
                 pieces_per_row = max(1, int(width_inch / (b_wid + 0.1)))
                 required_vertical_rows = math.ceil(p_count / float(pieces_per_row))
-                
-                # Chiều dọc sơ đồ lót thực tế chỉ tốn 1 hàng duy nhất cho 2 hoặc 4 cái lót túi
                 allocated_lining_len_inch = b_len * required_vertical_rows * warp_shrink_factor
                 gross_yds = (allocated_lining_len_inch / (36.0 * eff_lining)) * (1.0 + denim_industrial_loss)
-                
                 ui_row["marker_efficiency"] = eff_lining
                 gross_val = gross_yds * 0.9144 if uom_target == "MTR" else gross_yds
                 calc_note = calc_note + f"👔 Sơ đồ lót giàn hàng ngang độc lập ({pieces_per_row} rập/hàng) khổ động {width_inch}\""
 
-            # 📐 PHÂN HỆ KEO DỰNG / MEX LÓT (FUSING)
+            # 📐 PHÂN HỆ KEO DỰNG / MEX LÓT (FUSING) - 🌟 SỬA ĐỔI: TÍNH TIẾN THẲNG THEO CHIỀU DÀI DANH MỤC BOM ĐỘC LẬP
             elif engine_target == "FUSING":
                 eff_fusing = 0.85
-                raw_fusing_area = b_len * b_wid * p_count * 0.90
-                gross_yds = (raw_fusing_area / (width_inch * 36.0 * eff_fusing)) * (1.0 + denim_industrial_loss)
+                
+                # Tính định mức keo Mex theo chiều dài dọc sơ đồ tiến thẳng của danh mục BOM phụ liệu
+                # Nhân thêm hệ số co rút dọc 3% và chia đều cho số lượng rập cặp đối xứng lồng nhau trên khổ keo chat động (59 inch)
+                effective_fusing_count = p_count / 2.0 if p_count >= 2 else float(p_count)
+                allocated_fusing_len_inch = b_len * effective_fusing_count * warp_shrink_factor
+                
+                # Công thức chiều dài Yards keo: Chiều dài inch / (36.0 * Hiệu suất keo 85%) + Hao hụt công nghiệp 4.3%
+                gross_yds = (allocated_fusing_len_inch / (36.0 * eff_fusing)) * (1.0 + denim_industrial_loss)
+                
                 ui_row["marker_efficiency"] = eff_fusing
                 gross_val = gross_yds * 0.9144 if uom_target == "MTR" else gross_yds
-                calc_note = calc_note + f"Định mức keo Mex tính trên khổ động {width_inch}\""
+                calc_note = calc_note + f"🎯 CAM FusingBOM | Tính tiến thẳng chiều dài keo Mex theo danh mục BOM trên khổ động {width_inch}\""
 
             elif engine_target == "ELASTIC":
                 total_inches = b_len * p_count * 1.05
+
                 gross_yds = total_inches / 36.0
                 ui_row["marker_efficiency"] = 1.0
                 gross_val = gross_yds * 0.9144 if uom_target == "MTR" else gross_yds
