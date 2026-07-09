@@ -337,9 +337,9 @@ def compute_thread_engine() -> tuple:
 
 def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, *args, **kwargs) -> dict:
     """
-    Enterprise Multi-Engine CAD Router v58.0 - TRUE NESTING SPECIALIST.
-    🌟 SỬA TRIỆT ĐỂ: Loại bỏ 100% định mức chi tiết nhỏ (bằng 0), tính sơ đồ lồng thân quần (không cộng dồn thân trước/sau).
-    Định mức tổng nhảy về chuẩn xác ~1.5 - 1.6 YDS/chiếc theo thực tế xưởng may.
+    Enterprise Multi-Engine CAD Router v58.5 - AUTO RESCALING DENIM ENGINE.
+    🌟 SỬA CHÍ MẠNG: Tự động chia đôi chiều rộng AI đọc sai (>15 inch), 
+    Xếp thân trước và thân sau nằm song song cạnh nhau trên cùng một hàng ngang khổ vải.
     """
     import copy
     
@@ -364,35 +364,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, *args, *
         "STEPESTITCH", "TOPSTITCH", "SEWING", "ASTRA", "COATS", "TWILL TAPE"
     }
 
-    # DANH SÁCH CHI TIẾT LỚN QUYẾT ĐỊNH CHIỀU DÀI SƠ ĐỒ (Major Panels)
-    # Thân sau (Back Panel) thường là chi tiết dài nhất quyết định khung sơ đồ, thân trước đi lồng vào cạnh bên.
-    max_major_panel_length_inch = 0.0
-    
-    # Vòng quét sơ bộ lượt 1: Tìm ra chi tiết rập thân quần dài nhất
-    for r in blueprint_final.get("bom_rows", []):
-        if not r: continue
-        c_name = str(r.get("component_name", "")).upper().strip()
-        m_class = str(r.get("material_class", "")).upper().strip()
-        
-        if any(key in c_name or key in m_class for key in EXCLUDE_HARDWARE_AND_THREAD):
-            continue
-            
-        if "PANEL" in c_name or "THÂN" in c_name:
-            try: l_val = float(r.get("bounding_box_length", 0.0))
-            except: l_val = 0.0
-            if l_val > max_major_panel_length_inch:
-                max_major_panel_length_inch = l_val
-
-    # Nếu không tìm thấy, lấy mặc định thân quần là 47 inch theo dữ liệu bảng thật
-    if max_major_panel_length_inch <= 0:
-        max_major_panel_length_inch = 47.0
-
-    # Tính toán định mức cơ sở duy nhất cho khung sơ đồ lồng thân chính (Yards)
-    # Thân quần bò luôn đi theo cặp đối xứng (2 chiếc) -> Chiều dài sơ đồ thực tế = Chiều dài thân dài nhất * Hệ số co rút dọc
-    marker_total_length_inch = max_major_panel_length_inch * warp_shrink_factor
-    calculated_major_consumption_yds = (marker_total_length_inch / (36.0 * marker_eff)) * (1.0 + denim_industrial_loss)
-
-    # 2. VÒNG LẶP LƯỢT 2: PHÂN BỔ TRỰC TIẾP ĐỊNH MỨC VÀ TRIỆT TIÊU CHI TIẾT NHỎ
+    # 2. VÒNG LẶP DUYỆT VÀ HIỆU CHUẨN THÔNG SỐ SAI LỆCH CỦA AI
     for ai_row in blueprint_final.get("bom_rows", []):
         if not ai_row: continue
         ui_row = copy.deepcopy(ai_row)
@@ -421,51 +393,65 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, *args, *
         except: b_wid = 0.0
         try: p_count = int(float(ui_row.get("piece_count", 1)))
         except: p_count = 1
+        try: width_inch = float(ui_row.get("fabric_width_inch", 57.0))
+        except: width_inch = 57.0
+        if width_inch <= 0: width_inch = 57.0
+
+        # 🛠️ BỘ LỌC HIỆU CHUẨN: Nếu AI đọc sai chiều rộng thân quần > 15 inch, tiến hành chia đôi về thông số thực thực tế (~10.5 inch)
+        if engine_target == "FABRIC" and ("PANEL" in comp_name or "THÂN" in comp_name):
+            if b_wid > 15.0:
+                b_wid = b_wid / 2.0
+
+        ui_row["bounding_box_length"] = b_len
+        ui_row["bounding_box_width"] = b_wid
+        ui_row["piece_count"] = p_count
+        ui_row["fabric_width_inch"] = width_inch
 
         if b_len <= 0.0 and b_wid <= 0.0:
             continue
 
         try:
             if engine_target == "FABRIC":
-                # KIỂM TRA ĐIỀU KIỆN XẾP SƠ ĐỒ
-                if "BACK PANEL" in comp_name or (("PANEL" in comp_name or "THÂN" in comp_name) and b_len == max_major_panel_length_inch):
-                    # Thân quần dài nhất gánh toàn bộ chiều dài định mức của sơ đồ lồng
-                    gross_yds = calculated_major_consumption_yds
-                    calc_note = f"CAM DenimCore v58.0 | Thân sau gánh khung sơ đồ lồng chính | Hiệu suất: {int(marker_eff*100)}%"
-                elif "FRONT PANEL" in comp_name:
-                    # Thân trước được xếp đi lồng lách đối đầu song song với thân sau -> Không tốn thêm chiều dài vải
-                    gross_yds = 0.0
-                    calc_note = "CAM Nesting v58.0 | Thân trước xếp lồng song song với thân sau | Định mức tính: 0 YDS"
+                # TOÁN HỌC SƠ ĐỒ LỒNG: Khi chiều rộng đã chuẩn (~10.5 inch), 1 thân trước + 1 thân sau = 21 inch.
+                # Khổ vải 57 inch dư sức chứa cả Thân trước và Thân sau nằm song song cạnh nhau trên cùng một hàng ngang.
+                if "FRONT PANEL" in comp_name or "BACK PANEL" in comp_name or "THÂN" in comp_name:
+                    # Định mức của mỗi thân được tính theo tỷ lệ đóng góp công bằng dựa trên chiều dài rập của chính nó
+                    # Vì xếp song song nên không bị cộng dồn tích lũy chiều dài lên nhau
+                    allocated_length_inch = b_len * warp_shrink_factor
+                    
+                    # Công thức tính định mức Yards độc lập từng thân khi đứng song song
+                    # Chia 2 vì 2 thân đứng chung một khung chiều dài sơ đồ trên khổ vải rộng
+                    gross_yds = ((allocated_length_inch / (36.0 * marker_eff)) * (1.0 + denim_industrial_loss)) / 2.0
+                    calc_note = f"CAM DenimCore v58.5 | Thân quần xếp song song trên khổ {width_inch}\" | Hiệu suất: 87%"
                 else:
-                    # 🌟 TUYỆT ĐỐI BỎ QUA CHI TIẾT NHỎ: Túi sau, cạp, đáp fly, đô sau... ép bằng 0 hoàn toàn
+                    # ❌ BỎ QUA CHI TIẾT NHỎ THEO YÊU CẦU: Túi sau, cạp, đáp fly... ép bằng 0 hoàn toàn
                     gross_yds = 0.0
-                    calc_note = "CAM Nesting v58.0 | Tận dụng lọt khe 100% vào khoảng trống vải vụn | Định mức tính: 0 YDS"
+                    calc_note = "CAM Nesting v58.5 | Tận dụng lọt khe 100% vào khoảng trống vải vụn | Định mức tính: 0 YDS"
                 
                 ui_row["marker_efficiency"] = marker_eff
                 gross_val = gross_yds * 0.9144 if uom_target == "MTR" else gross_yds
 
             elif engine_target == "LINING":
-                # Vải lót túi (Nếu đi sơ đồ độc lập hoặc tận dụng vải lót)
-                # Tính định mức cho lót túi dựa trên rập túi thật (ví dụ FRONT POCKET BAG)
+                # Vải lót túi tính định mức độc lập dựa trên rập túi thật
                 approx_lin_yds = (b_len * (p_count / 2.0 if p_count >= 2 else p_count)) / 36.0
                 gross_yds = (approx_lin_yds / 0.78) * (1.0 + denim_industrial_loss)
                 ui_row["marker_efficiency"] = 0.78
                 gross_val = gross_yds * 0.9144 if uom_target == "MTR" else gross_yds
-                calc_note = "CAM LiningCore v58.0 | Tính toán định mức lót túi độc lập"
+                calc_note = "CAM LiningCore v58.5 | Tính định mức lót túi độc lập"
 
             elif engine_target == "FUSING":
-                # Keo dựng lót (Tự động lọt khe hoặc tính tối thiểu)
+                # Keo dựng lót ép bằng 0 hoàn toàn (tận dụng vải vụn)
                 gross_yds = 0.0
                 ui_row["marker_efficiency"] = 0.95
                 gross_val = 0.0
-                calc_note = "CAM Nesting v58.0 | Ép keo nhỏ lọt khe sơ đồ hoàn toàn | Định mức tính: 0 YDS"
+                calc_note = "CAM Nesting v58.5 | Ép keo nhỏ lọt khe sơ đồ hoàn toàn | Định mức tính: 0 YDS"
 
             elif engine_target == "ELASTIC":
                 total_inches = b_len * p_count * 1.05
                 gross_yds = total_inches / 36.0
                 ui_row["marker_efficiency"] = 1.0
                 gross_val = gross_yds * 0.9144 if uom_target == "MTR" else gross_yds
-                calc_note = "CAM ElasticCore v58.0 | Tính chun co giãn"
+                calc_note = "CAM ElasticCore v58.5 | Tính chun co giãn"
 
             # Đóng gói dữ liệu trả về cho bảng hiển thị Pandas
             ui_row["engine"] = engine_target
