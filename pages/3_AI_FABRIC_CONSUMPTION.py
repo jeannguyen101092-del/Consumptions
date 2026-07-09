@@ -583,6 +583,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
                     calc_note = calc_note + f"⚡ Sơ đồ CAD Áo khoác động (Khổ vải {active_wid}\") | "
                     ui_row["marker_efficiency"] = active_eff
                     ui_row["Marker Efficiency"] = active_eff
+
                 else:
                     if "FRONT PANEL" in comp_name or "THÂN TRƯỚC" in comp_name:
                         proportion = fixed_front_panel_len / (fixed_front_panel_len + fixed_back_panel_len)
