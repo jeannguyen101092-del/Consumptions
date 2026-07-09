@@ -388,6 +388,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
     if match_fusing:
         parsed_fusing_width = float(match_fusing.group(1))
        # =====================================================================
+        # =====================================================================
     # 🔍 BỘ TỰ ĐỘNG PHÂN LOẠI MÃ HÀNG NGÀNH MAY CẢI TIẾN THÔNG MINH VÁ LỖI AI
     # =====================================================================
     is_dress_mode = False
@@ -443,12 +444,11 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
             
         if any(k in comp_name for k in ["LÓT", "LINING", "POCKETING", "BAG"]):
             engine_target = "LINING"
-        elif any(k in comp_name or key in mat_class for key in ["KEO", "DỰNG", "FUSING", "INTERLINING", "MEX"]):
+        elif any(k in comp_name or k in mat_class for k in ["KEO", "DỰNG", "FUSING", "INTERLINING", "MEX"]):
             engine_target = "FUSING"
         else:
             engine_target = "FABRIC"
 
-        # Đọc thông số rập gốc trực tiếp không qua bộ lọc dồn lỗi
         try: b_len = float(ui_row.get("Dài sản xuất (L-inch)", ui_row.get("bounding_box_length", 0.0)))
         except: b_len = 0.0
         try: b_wid = float(ui_row.get("Rộng sản xuất (W-inch)", ui_row.get("bounding_box_width", 0.0)))
@@ -469,32 +469,25 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
         elif engine_target == "FUSING":
             width_inch = parsed_fusing_width
 
-        # 🌟 MA TRẬN BÙ BIÊN ĐƯỜNG MAY CHUẨN ĐÃ SỬA LỖI ĐÈ CHI TIẾT
         if is_jacket_mode:
             is_main_body = any(kw in comp_name for kw in ["FRONT", "BACK", "THÂN"])
             
             if engine_target == "FUSING":
-                # Keo mếch dựng cắt nhỏ hơn hoặc bằng rập thành phẩm, giữ nguyên kích thước gốc không cộng biên đường may dư
                 calc_note = calc_note + "Keo mếch dựng cắt sát thành phẩm | "
             else:
                 if is_main_body or "SLEEVE" in comp_name:
-                    # Thân áo vải chính giữ nguyên thông số rộng gốc (ví dụ 26.5) chỉ cộng thêm biên may
                     b_wid = b_wid + (0.44 * 2)
                     b_len = b_len + 0.44 + hem_allowance
                     calc_note = calc_note + f"Thân áo biên rộng +0.88\", Biên dài +0.44\" + Lai gấu +{hem_allowance}\" | "
                 else:
-                    # Linh kiện nhỏ của vải chính
                     b_wid = b_wid + (0.44 * 2)
                     b_len = b_len + (0.44 * 2)
                     calc_note = calc_note + "Linh kiện áo cộng biên đều +0.88\" | "
                     
-                # 🚫 KHỬ LỖI ÉP RỘNG NHẦM CHI TIẾT: Chỉ ép rộng về túi mổ nhỏ nếu là phân hệ quần Jeans cũ
                 if any(kw in comp_name for kw in ["WELT", "PIP", "CƠI", "MỔ", "FLAP", "NẮP"]) and b_wid > 15.0:
                     b_wid = 3.5
                     calc_note = calc_note + "Ép rộng chi tiết túi mổ nhỏ về 3.5\" | "
-
         else:
-            # Logic xử lý Quần Jeans và Đầm váy giữ nguyên
             if is_dress_mode:
                 if "TIER" in comp_name or "LAI VÁY" in comp_name:
                     b_len = b_len + 0.44 + hem_allowance
@@ -513,7 +506,6 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
                     b_wid = b_wid + (0.44 * 2)
                     b_len = b_len + (0.44 * 2)
 
-        # Đồng bộ lưu lại giá trị vào cả 2 loại key dữ liệu
         ui_row["Dài sản xuất (L-inch)"] = b_len
         ui_row["Rộng sản xuất (W-inch)"] = b_wid
         ui_row["Số lượng rập (Pcs)"] = p_count
@@ -526,6 +518,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
 
         if b_len <= 0.0 and b_wid <= 0.0:
             continue
+
 
         gross_yds = 0.0
         try:
