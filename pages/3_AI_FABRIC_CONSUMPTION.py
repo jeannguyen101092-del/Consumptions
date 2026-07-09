@@ -496,7 +496,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
                     b_wid = b_wid + (0.44 * 2)
                     calc_note = calc_note + "Bù biên đều +0.88\" đường may xung quanh | "
         else:
-            is_major_panel = any(kw == comp_name for kw in MAJOR_PANELS)
+            is_major_panel = any(kw in comp_name for kw in MAJOR_PANELS)
             if is_major_panel:
                 b_wid = b_wid + (0.44 * 2)
                 b_len = b_len + 0.44 + hem_allowance
@@ -596,8 +596,10 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
             ui_row["calculation_note"] = calc_note.strip(" | ")
 
         except Exception as e:
+            import traceback
             ui_row["calculated_consumption"] = 0.0
-            ui_row["calculation_note"] = f"❌ Lỗi tính toán định mức: {str(e)}"
+            ui_row["calculation_note"] = f"❌ Lỗi hệ thống: {str(e)} | Chi tiết: {traceback.format_exc().splitlines()[-1]}"
+
 
         router_bom_rows.append(ui_row)
 
