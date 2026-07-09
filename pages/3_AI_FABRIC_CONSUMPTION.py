@@ -578,19 +578,16 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
                     # 👔 THUẬT TOÁN ĐA SẢN PHẨM (ÁO KHOÁC/SƠ MI)
                     is_main_body = any(kw in comp_name for kw in ["FRONT", "BACK", "THÂN"])
                     active_eff = marker_eff_major if (is_main_body or "SLEEVE" in comp_name) else marker_eff_minor
-
-                    # 🌟 ĐÁNH CHẶN LỖI NHÂN ĐÔI: Nếu là thân áo có thông số 1/2 vòng, giảm một nửa số lượng tính toán diện tích
+                    
+                    # 🌟 ĐÁNH CHẶN LỖI NHÂN ĐÔI VÒNG THÂN ÁO:
                     adjusted_count = active_count / 2.0 if (is_main_body and active_count >= 2) else float(active_count)
-
+                    
                     raw_piece_area = shrunk_len * shrunk_wid * adjusted_count
                     nesting_utilization = 0.85 if is_main_body else (0.80 if "SLEEVE" in comp_name else 0.72)
-
                     gross_yds = (raw_piece_area / (active_wid * 36.0 * active_eff * nesting_utilization)) * (1.0 + denim_industrial_loss)
                     calc_note = calc_note + f"⚡ Sơ đồ CAD Áo khoác động (Khổ vải {active_wid}\") | "
                     ui_row["marker_efficiency"] = active_eff
                     ui_row["Marker Efficiency"] = active_eff
-
-
                 else:
                     if "FRONT PANEL" in comp_name or "THÂN TRƯỚC" in comp_name:
                         proportion = fixed_front_panel_len / (fixed_front_panel_len + fixed_back_panel_len)
@@ -622,16 +619,34 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
                 ui_row["Marker Efficiency"] = eff_lining
                 calc_note = calc_note + f"Xếp hàng ngang lót túi ({pieces_per_row} chi tiết/hàng) | "
 
-            # 📐 PHÂN HỆ KEO MEX DỰNG (FUSING)
+            # 📐 PHÂN HỆ KEO MEX DỰNG (FUSING) - 🌟 ĐÃ SỬA: SỬA LỖI ĐỘC LẬP TẠI ĐÂY
             elif engine_target == "FUSING":
-                eff_fusing = 0.80
-                pieces_per_row = max(1, int(active_wid / (shrunk_wid + 0.1)))
+                eff_fusing = 0.82  # Tăng nhẹ hiệu suất xếp sơ đồ mếch keo vì rập thẳng dẹt dễ lồng
+                
+                # 🛠️ Trả chiều dài và rộng về kích thước rập gốc của AI (Trừ đi lượng biên may dư bị cộng nhầm ở Đoạn 2)
+                is_fusing_placket = "PLACKET" in comp_name or "NẸP" in comp_name
+                
+                # Nẹp áo mếch keo không có biên dài, các cấu phần khác giữ nguyên dài rập gốc
+                corrected_len = (b_len - 0.44 - hem_allowance) if is_fusing_placket else (b_len - 0.44 * 2)
+                corrected_wid = b_wid - (0.44 * 2)
+                
+                # Khống chế phòng vệ nếu trừ ra âm thì lấy mốc tối thiểu rập gốc ban đầu
+                if corrected_len <= 0 or corrected_wid <= 0:
+                    corrected_len = b_len
+                    corrected_wid = b_wid
+                
+                # Tính lại thông số co rút thực tế cho Keo dựng thành phẩm
+                fusing_shrunk_len = corrected_len * warp_shrink_factor
+                fusing_shrunk_wid = corrected_wid * weft_shrink_factor
+                
+                pieces_per_row = max(1, int(active_wid / (fusing_shrunk_wid + 0.05)))
                 required_vertical_rows = math.ceil(active_count / float(pieces_per_row))
-                allocated_fusing_len_inch = shrunk_len * required_vertical_rows
+                allocated_fusing_len_inch = fusing_shrunk_len * required_vertical_rows
+                
                 gross_yds = (allocated_fusing_len_inch / (36.0 * eff_fusing)) * (1.0 + denim_industrial_loss)
                 ui_row["marker_efficiency"] = eff_fusing
                 ui_row["Marker Efficiency"] = eff_fusing
-                calc_note = calc_note + f"Xếp hàng ngang keo dựng ({pieces_per_row} chi tiết/hàng) | "
+                calc_note = calc_note + f"Xếp sơ đồ Keo dựng chuẩn thành phẩm ({pieces_per_row} lồng ngang) | "
 
             # 📐 PHÂN HỆ THUN CHUN (ELASTIC)
             elif engine_target == "ELASTIC":
@@ -642,9 +657,9 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
 
             # Quy đổi đơn vị tiêu hao cuối cùng (YDS / MTR)
             gross_val = gross_yds * 0.9144 if uom_target == "MTR" else gross_yds
-            final_rounded_value = round(gross_val, 4)
+            final_rounded_value = max(0.0001, round(gross_val, 4)) # Đảm bảo không bị về 0 tuyệt đối cho chi tiết quá nhỏ
 
-            # 🌟 BẢN VÁ ĐA TẦNG KEY: Ghi đè vào mọi biến thể viết hoa/viết thường để Streamlit render chuẩn
+            # 🌟 BẢN VÁ ĐA TẦNG KEY: Đồng bộ ghi đè toàn diện giao diện hiển thị
             ui_row["Gross Consumption"] = final_rounded_value
             ui_row["gross_consumption"] = final_rounded_value
             ui_row["calculated_consumption"] = final_rounded_value
@@ -653,7 +668,6 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
             ui_row["Calculation Note"] = calc_note.strip(" | ")
 
         except Exception as e:
-            # Bẫy lỗi hiển thị trực tiếp ra màn hình thay vì giữ số 0 ẩn danh
             ui_row["Gross Consumption"] = 0.0
             ui_row["gross_consumption"] = 0.0
             ui_row["calculated_consumption"] = 0.0
