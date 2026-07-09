@@ -405,11 +405,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
     total_pants_base_yds = (pants_base_length_inch / (36.0 * marker_eff_major)) * (1.0 + denim_industrial_loss)
 
     MAJOR_PANELS = ["FRONT PANEL", "BACK PANEL", "THÂN TRƯỚC", "THÂN SAU"]
-        # =====================================================================
-       # =====================================================================
-        # =====================================================================
-       # =====================================================================
-        # =====================================================================
+      # =====================================================================
     # PHẦN 2: VÒNG LẶP PYTHON DUYỆT TÍNH TOÁN ĐỊNH MỨC THEO MA TRẬN PHÂN HỆ ĐỘNG
     # =====================================================================
     for ai_row in blueprint_final.get("bom_rows", []):
@@ -451,19 +447,19 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
         elif engine_target == "FUSING":
             width_inch = parsed_fusing_width
 
-        # 🌟 THUẬT TOÁN RÃ ĐÔI RẬP QUÁ KHỔ: Giữ nguyên trục thông số Techpack, không làm phồng chiều dài gấu váy
+        # Thuật toán rã đôi rập đối với chi tiết xòe tầng quá khổ vải rộng hơn 57"
         if engine_target in ["FABRIC", "FUSING"] and b_wid >= width_inch:
             b_wid = b_wid / 2.0
             p_count = p_count * 2
             calc_note = calc_note + "✂️ [IE SPLIT] Rập quá khổ -> Tự động rã đôi rập & nhân đôi sản lượng | "
 
-        # 🌟 ĐỒNG BỘ TÊN BIẾN CHUẨN XÁC: Khử lỗi sập app Streamlit nhờ biến is_dress_mode thống nhất
+        # 🌟 ĐÃ SỬA LỖI ĐỒNG BỘ: Đổi chữ 'is_dress_product' thành 'is_dress_mode' tại dòng 460 để khử lỗi sập app
         if not is_dress_mode and (engine_target == "FUSING" or engine_target == "FABRIC"):
             if any(kw in comp_name for kw in ["WELT", "PIP", "CƠI", "MỔ", "FLAP", "NẮP", "FLY", "BAGET", "FACING"]):
                 b_wid = 3.0
                 calc_note = calc_note + "Ép rộng cấu phần túi về 3.0\" | "
 
-        # MA TRẬN BÙ ĐƯỜNG MAY CHUẨN CÔNG NGHIỆP IE ĐỘNG
+        # Ma trận bù đường may chuẩn công nghiệp IE động theo phân hệ sản phẩm
         if is_dress_mode:
             if engine_target != "ELASTIC":
                 if "TIER" in comp_name or "LAI VÁY" in comp_name:
@@ -583,6 +579,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
 
     blueprint_final["bom_rows"] = router_bom_rows
     return blueprint_final
+
 
 
 
