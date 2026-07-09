@@ -337,10 +337,9 @@ def compute_thread_engine() -> tuple:
 
 def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, *args, **kwargs) -> dict:
     """
-    Enterprise Multi-Engine CAD Router v63.0 - AREA CARGO OPTIMIZATION.
-    🌟 SỬA CHÍ MẠNG: Đổi công thức túi Cargo và Nắp túi sang tính Diện tích phẳng (Area Nesting),
-    Xếp lồng ngang trên khổ 57", hạ định mức túi từ 0.63 YDS về mốc chuẩn xưởng ~0.16 YDS.
-    🔒 KHÓA CHẶT THÂN QUẦN: Giữ nguyên mốc lồng đối đầu chuẩn của cụm thân trước/sau.
+    Enterprise Multi-Engine CAD Router v64.0 - ALL PIECES AREA ENGINE.
+    🌟 CẢI TIẾN TOÀN DIỆN: Tính toán định mức thật cho TẤT CẢ các chi tiết lớn nhỏ bằng thuật toán diện tích phẳng.
+    🔒 KHÓA CHẶT TRỤC DỌC: Thân trước và thân sau gánh khung sơ đồ lồng cố định, triệt tiêu lỗi phồng định mức tổng.
     """
     import copy
     
@@ -361,7 +360,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, *args, *
 
     denim_industrial_loss = 0.043 # Hao hụt công nghiệp 4.3%
     marker_eff_major = 0.87       # Hiệu suất sơ đồ cố định 87% cho thân lớn Denim
-    marker_eff_cargo = 0.88       # Hiệu suất sơ đồ lồng ghép đạt 88% cho linh kiện túi Cargo
+    marker_eff_minor = 0.88       # Hiệu suất sơ đồ lồng ghép đạt 88% cho linh kiện và chi tiết nhỏ
 
     # Danh sách lọc sạch phụ liệu cứng và chỉ may
     EXCLUDE_HARDWARE_AND_THREAD = {
@@ -379,7 +378,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, *args, *
     total_pants_base_yds = (pants_base_length_inch / (36.0 * marker_eff_major)) * (1.0 + denim_industrial_loss)
 
     # =====================================================================
-    # 2. VÒNG LẶP PYTHON DUYỆT CHI TIẾT RẬP & TỐI ƯU DIỆN TÍCH TÚI CARGO
+    # 2. VÒNG LẶP PYTHON DUYỆT TÍNH TOÁN ĐỊNH MỨC CHO TẤT CẢ CHI TIẾT
     # =====================================================================
     for ai_row in blueprint_final.get("bom_rows", []):
         if not ai_row: continue
@@ -439,7 +438,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, *args, *
             continue
 
         try:
-            # 📐 PHÂN HỆ VẢI CHÍNH (FABRIC)
+            # 📐 PHÂN HỆ VẢI CHÍNH (FABRIC) - TÍNH ĐỊNH MỨC CHO TẤT CẢ LINH KIỆN
             if engine_target == "FABRIC":
                 if "FRONT PANEL" in comp_name or "THÂN TRƯỚC" in comp_name:
                     proportion = fixed_front_panel_len / (fixed_front_panel_len + fixed_back_panel_len)
@@ -453,20 +452,15 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, *args, *
                     calc_note = "CAM DenimCore | Thân sau phân bổ theo tỷ lệ chiều dài sơ đồ lồng cố định"
                     ui_row["marker_efficiency"] = marker_eff_major
                 
-                elif "CARGO" in comp_name or "TÚI HỘP" in comp_name or "FLAP" in comp_name or "NẮP TÚI" in comp_name:
-                    # 🛠️ CÔNG THỨC DIỆN TÍCH PHẲNG MỚI: Xếp lồng ngang trên khổ 57" để triệt tiêu việc phồng chiều dài dọc
-                    # Công thức Gerber CAD: (Dài x Rộng x Số lượng x Hệ số net 0.85 x Co rút) / (Khổ vải 57 * 36 * Hiệu suất 88%)
-                    raw_cargo_area = b_len * b_wid * p_count * 0.85
-                    area_with_shrinkage = raw_cargo_area * warp_shrink_factor * weft_shrink_factor
-                    
-                    gross_yds = (area_with_shrinkage / (57.0 * 36.0 * marker_eff_cargo)) * (1.0 + denim_industrial_loss)
-                    calc_note = f"⚡ CAM CargoNesting | Xếp lồng ngang tối ưu trên khổ {width_inch}\""
-                    ui_row["marker_efficiency"] = marker_eff_cargo
-                
                 else:
-                    gross_yds = 0.0
-                    calc_note = "CAM Nesting | Tận dụng lọt khe 100% vào khoảng trống vải vụn | Tính: 0 YDS"
-                    ui_row["marker_efficiency"] = marker_eff_major
+                    # 🛠️ CÔNG THỨC DIỆN TÍCH PHẲNG MỞ RỘNG: Tính cho toàn bộ chi tiết nhỏ khác (Cargo, Flap, Waistband, Fly...)
+                    # Công thức Gerber CAD hình học: (Dài x Rộng x Số lượng x Hệ số net 0.85 x Co rút) / (Khổ 57 * 36 * Hiệu suất 88%) + Hao hụt
+                    raw_piece_area = b_len * b_wid * p_count * 0.85
+                    area_with_shrinkage = raw_piece_area * warp_shrink_factor * weft_shrink_factor
+                    
+                    gross_yds = (area_with_shrinkage / (57.0 * 36.0 * marker_eff_minor)) * (1.0 + denim_industrial_loss)
+                    calc_note = f"⚡ CAM AreaNesting | Tính định mức linh kiện lồng ngang khổ {width_inch}\""
+                    ui_row["marker_efficiency"] = marker_eff_minor
                 
                 gross_val = gross_yds * 0.9144 if uom_target == "MTR" else gross_yds
 
@@ -499,7 +493,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, *args, *
 
             # Đóng gói dữ liệu đầu ra trả về bảng tính
             ui_row["engine"] = engine_target
-            ui_row["gross_consumption"] = round(max(0.0001, gross_val), 4) # Đảm bảo số thực nhảy chuẩn xác
+            ui_row["gross_consumption"] = round(max(0.0001, gross_val), 4)
             ui_row["quality_status"] = "PASS"
             ui_row["system_notes"] = calc_note
             ui_row["calculated_consumption_yards"] = round(gross_yds, 4)
@@ -515,6 +509,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, *args, *
 
     blueprint_final["bom_rows"] = router_bom_rows
     return blueprint_final
+
 
 
 
