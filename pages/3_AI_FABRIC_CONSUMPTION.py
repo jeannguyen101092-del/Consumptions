@@ -576,13 +576,20 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
                     ui_row["Marker Efficiency"] = active_eff
                 elif is_jacket_mode:
                     # 👔 THUẬT TOÁN ĐA SẢN PHẨM (ÁO KHOÁC/SƠ MI)
-                    active_eff = marker_eff_major if any(kw in comp_name for kw in ["FRONT", "BACK", "SLEEVE"]) else marker_eff_minor
-                    raw_piece_area = shrunk_len * shrunk_wid * active_count
-                    nesting_utilization = 0.82 if any(kw in comp_name for kw in ["FRONT", "BACK", "SLEEVE"]) else 0.70
+                    is_main_body = any(kw in comp_name for kw in ["FRONT", "BACK", "THÂN"])
+                    active_eff = marker_eff_major if (is_main_body or "SLEEVE" in comp_name) else marker_eff_minor
+
+                    # 🌟 ĐÁNH CHẶN LỖI NHÂN ĐÔI: Nếu là thân áo có thông số 1/2 vòng, giảm một nửa số lượng tính toán diện tích
+                    adjusted_count = active_count / 2.0 if (is_main_body and active_count >= 2) else float(active_count)
+
+                    raw_piece_area = shrunk_len * shrunk_wid * adjusted_count
+                    nesting_utilization = 0.85 if is_main_body else (0.80 if "SLEEVE" in comp_name else 0.72)
+
                     gross_yds = (raw_piece_area / (active_wid * 36.0 * active_eff * nesting_utilization)) * (1.0 + denim_industrial_loss)
                     calc_note = calc_note + f"⚡ Sơ đồ CAD Áo khoác động (Khổ vải {active_wid}\") | "
                     ui_row["marker_efficiency"] = active_eff
                     ui_row["Marker Efficiency"] = active_eff
+
 
                 else:
                     if "FRONT PANEL" in comp_name or "THÂN TRƯỚC" in comp_name:
