@@ -767,7 +767,8 @@ with col_right:
 
 
 # =====================================================================
-# ĐOẠN 7a.1: CHAT WORKSPACE & PIPELINE TRÍCH XUẤT DETAILED CAD MATRIX
+# ĐOẠN 7a - PHẦN 1 & 10: SINGLE-CALL PIPELINE CHỐNG TRÀO REQUEST (V118.0)
+# 🌟 KHÓA CHẶT RPM CHÍ MẠNG: Chỉ chạy quét AI khi có sự kiện nút bấm chat mới
 # =====================================================================
 st.markdown('<br><div class="cad-card"><div class="cad-header">💬 CHATGPT IE COLLABORATION WORKSPACE</div>', unsafe_allow_html=True)
 
@@ -881,36 +882,46 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             )
             
             blueprint_worker = json.loads(response.text)
-                            # =====================================================================
-                # ĐOẠN 7a.2 RÚT GỌN: LỌC CHI TIẾT THEO TIÊU CHUẨN SẢN XUẤT
-                # =====================================================================
+                
+            if blueprint_worker and "bom_rows" in blueprint_worker:
+                blueprint_worker["calculated_on_size"] = target_size_cmd
+                
+                # --- KHỞI TẠO BỘ LỌC ĐÚNG VỊ TRÍ VÀ THỤT LỀ ---
                 filtered_bom_rows = []
                 has_elastic = any(str(r.get("material_class")).upper().strip() == "ELASTIC" for r in blueprint_worker.get("bom_rows", []))
                 
                 for row in blueprint_worker.get("bom_rows", []):
-                    name = str(row.get("component_name", "")).upper()
+                    # Kiểm tra điều kiện loại bỏ chi tiết nhỏ và lưng thun
+                    c_name = str(row.get("component_name", "")).upper()
                     m_class = str(row.get("material_class", "")).upper()
+                    if any(x in c_name for x in ["BACK POCKET", "BAGET", "BAGUET", "COI TUI"]) and "CARGO" not in c_name: continue
+                    if ("WAISTBAND" in c_name or "LUNG" in c_name) and has_elastic and m_class == "FABRIC": continue
                     
-                    # 1. Bỏ qua túi sau, baget, cơi túi (Giữ lại nếu có chữ CARGO)
-                    if any(x in name for x in ["BACK POCKET", "BAGET", "BAGUET", "COI TUI"]) and "CARGO" not in name:
-                        continue
+                    try: row["bounding_box_length"] = float(row.get("bounding_box_length", 0.0))
+                    except: row["bounding_box_length"] = 0.0
                     
-                    # 2. Lưng có thun -> Không tính chi tiết Lưng vải chính (FABRIC)
-                    if ("WAISTBAND" in name or "LUNG" in name) and has_elastic and m_class == "FABRIC":
-                        continue
+                    try: row["bounding_box_width"] = float(row.get("bounding_box_width", 0.0))
+                    except: row["bounding_box_width"] = 0.0
                     
-                    # Chuẩn hóa dữ liệu số nhanh
-                    row["bounding_box_length"] = float(row.get("bounding_box_length") or 0.0)
-                    row["bounding_box_width"] = float(row.get("bounding_box_width") or 0.0)
-                    row["polygon_net_area"] = float(row.get("polygon_net_area") or 0.0)
-                    row["piece_count"] = int(float(row.get("piece_count") or 1))
+                    try: row["polygon_net_area"] = float(row.get("polygon_net_area", 0.0))
+                    except: row["polygon_net_area"] = 0.0
                     
-                    w_val = row.get("fabric_width_inch")
-                    row["fabric_width_inch"] = float(w_val) if w_val and float(w_val) > 0 else float(active_width)
+                    try: row["piece_count"] = int(float(row.get("piece_count", 1)))
+                    except: row["piece_count"] = 1
+
+                    try:
+                        w_val = row.get("fabric_width_inch")
+                        if w_val is None or str(w_val).strip() == "" or float(w_val) <= 0.0:
+                            row["fabric_width_inch"] = float(active_width)
+                        else:
+                            row["fabric_width_inch"] = float(w_val)
+                    except:
+                        row["fabric_width_inch"] = float(active_width)
                     
                     filtered_bom_rows.append(row)
-                
                 blueprint_worker["bom_rows"] = filtered_bom_rows
+                
+                # [Dán tiếp đoạn xử lý định mức blueprint_final của anh tại đây]
 
 # =====================================================================
 # ĐOẠN 7b: HIỂN THỊ KẾT QUẢ ĐỊNH MỨC CHI TIẾT & BẢNG GỘP TỔNG VẬT TƯ (V104.5)
