@@ -425,6 +425,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
         # =====================================================================
         # =====================================================================
         # =====================================================================
+    # =====================================================================
     # PHẦN 2: VÒNG LẶP PYTHON DUYỆT TÍNH TOÁN ĐỊNH MỨC THEO MA TRẬN PHÂN HỆ ĐỘNG
     # =====================================================================
     for ai_row in blueprint_final.get("bom_rows", []):
@@ -466,12 +467,20 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
         elif engine_target == "FUSING":
             width_inch = parsed_fusing_width
 
+        # 🌟 THUẬT TOÁN CAD XOAY RẬP ĐỘNG 90 ĐỘ: Giải cứu chi tiết rộng quá khổ vải (ví dụ tầng váy rộng 59", 65")
+        if engine_target in ["FABRIC", "FUSING"] and b_wid >= width_inch:
+            # Hoán đổi Dài và Rộng cho nhau để mô phỏng thợ sơ đồ xoay rập đặt lọt lòng khổ vải dọc biên
+            temp_len = b_len
+            b_len = b_wid
+            b_wid = temp_len
+            calc_note = calc_note + "🔄 [CAD RULE] Tự động xoay rập 90° để vừa lòng khổ vải | "
+
         if not is_dress_product and (engine_target == "FUSING" or engine_target == "FABRIC"):
             if any(kw in comp_name for kw in ["WELT", "PIP", "CƠI", "MỔ", "FLAP", "NẮP", "FLY", "BAGET", "FACING"]):
                 b_wid = 3.0
                 calc_note = calc_note + "Ép rộng cấu phần túi về 3.0\" | "
 
-        # 🛠️ MA TRẬN BÙ ĐƯỜNG MAY CHUẨN CÔNG NGHIỆP IE ĐỘNG
+        # MA TRẬN BÙ ĐƯỜNG MAY CHUẨN CÔNG NGHIỆP IE ĐỘNG
         if is_dress_product:
             if engine_target != "ELASTIC":
                 if "TIER" in comp_name or "LAI VÁY" in comp_name:
@@ -514,32 +523,22 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
                 if is_dress_product:
                     active_eff = marker_eff_major if "BODICE" in comp_name else marker_eff_minor
                     
-                    # 🌟 ĐÁNH CHẶN DÂY VIỀN / NẸP BẢN NHỎ: Dù dài mấy cũng không cho chạy dọc gánh khung sơ đồ
                     is_bias_binding = any(kw in comp_name for kw in ["BINDING", "BIAS", "TRIM", "STRAP", "PIPING", "RIBBON"])
-                    is_narrow_strip = b_wid < 4.0 # Rộng dưới 4 inch tự động coi là dây viền/đáp nhỏ
+                    is_narrow_strip = b_wid < 4.0
                     
-                    if (b_wid >= width_inch) and not is_bias_binding and not is_narrow_strip:
-                        # Chỉ các tầng váy siêu rộng quá khổ mới xếp tiến thẳng dọc nối tiếp
-                        allocated_length_inch = b_len * float(p_count) * warp_shrink_factor
-                        calc_note = calc_note + f"🛑 Tầng váy quá khổ {width_inch}\" | Sơ đồ tiến thẳng dọc nối tiếp | "
+                    # Tính toán định mức dựa trên sơ đồ diện tích lồng ghép khít khao sau xoay rập
+                    if is_bias_binding or is_narrow_strip:
+                        raw_piece_area = b_len * b_wid * p_count * 0.80
+                        calc_note = calc_note + "➕ Dây viền/Linh kiện nhỏ lồng diện tích ngang | "
                     else:
-                        # 🌟 Dây viền xéo hoặc Thân áo đầm (Bodice) -> Ép chạy diện tích phẳng lồng ngang để lấp lách rác vải vụn biên sơ đồ
-                        # Biện pháp này triệt tiêu hoàn toàn con số 4.03 YDS vô lý của dây viền
-                        if is_bias_binding or is_narrow_strip:
-                            raw_piece_area = b_len * b_wid * p_count * 0.80 # Hiệu suất net dây viền tinh gọn 80%
-                            calc_note = calc_note + "➕ Dây viền/Linh kiện nhỏ lồng lách sơ đồ diện tích ngang | "
-                        else:
-                            effective_count = p_count / 2.0 if p_count >= 2 else float(p_count)
-                            raw_piece_area = b_len * b_wid * effective_count * 0.85
-                            calc_note = calc_note + "⚡ Sơ đồ lồng cặp xen kẽ dọc | "
-                            
-                        area_with_shrinkage = raw_piece_area * warp_shrink_factor * weft_shrink_factor
-                        gross_yds = (area_with_shrinkage / (width_inch * 36.0 * active_eff)) * (1.0 + denim_industrial_loss)
-                    
-                    gross_yds = (b_len * float(p_count) * warp_shrink_factor / (36.0 * active_eff)) * (1.0 + denim_industrial_loss) if ((b_wid >= width_inch) and not is_bias_binding and not is_narrow_strip) else gross_yds
+                        effective_count = p_count / 2.0 if p_count >= 2 else float(p_count)
+                        raw_piece_area = b_len * b_wid * effective_count * 0.85
+                        calc_note = calc_note + "⚡ Sơ đồ lồng cặp xen kẽ dọc | "
+                        
+                    area_with_shrinkage = raw_piece_area * warp_shrink_factor * weft_shrink_factor
+                    gross_yds = (area_with_shrinkage / (width_inch * 36.0 * active_eff)) * (1.0 + denim_industrial_loss)
                     ui_row["marker_efficiency"] = active_eff
                 else:
-                    # Phân hệ quần Jeans gốc giữ nguyên
                     if "FRONT PANEL" in comp_name or "THÂN TRƯỚC" in comp_name:
                         proportion = fixed_front_panel_len / (fixed_front_panel_len + fixed_back_panel_len)
                         gross_yds = total_pants_base_yds * proportion
@@ -591,9 +590,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
             ui_row["quality_status"] = "PASS"
             ui_row["system_notes"] = calc_note
             ui_row["calculated_consumption_yards"] = round(gross_yds, 4)
-
-
-            
+            ui_row["calculated_consumption_meters"] = round(gross_val * 0.9144 if uom_target == "YDS" else gross_val, 4)
             
         except Exception as inline_err:
             ui_row["engine"] = engine_target
@@ -605,6 +602,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
 
     blueprint_final["bom_rows"] = router_bom_rows
     return blueprint_final
+
 
 
 
