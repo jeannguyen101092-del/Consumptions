@@ -337,9 +337,9 @@ def compute_thread_engine() -> tuple:
 
 def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, *args, **kwargs) -> dict:
     """
-    Enterprise Multi-Engine CAD Router v58.5 - AUTO RESCALING DENIM ENGINE.
-    🌟 SỬA CHÍ MẠNG: Tự động chia đôi chiều rộng AI đọc sai (>15 inch), 
-    Xếp thân trước và thân sau nằm song song cạnh nhau trên cùng một hàng ngang khổ vải.
+    Enterprise Multi-Engine CAD Router v59.0 - CARGO PANTS EXPERT.
+    🌟 ĐÃ SỬA CHÍ MẠNG: Bắt buộc tính định mức độc lập cho túi hộp CARGO lớn.
+    Đồng bộ công thức Gerber CAD kích hoạt định mức nhảy số chuẩn cho Lót túi (LINING) và Keo lót (FUSING).
     """
     import copy
     
@@ -348,14 +348,18 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, *args, *
         
     router_bom_rows = []
     
-    # 1. ĐỌC THÔNG SỐ CO RÚT VÀ HAO HỤT CÔNG NGHIỆP
+    # 1. ĐỌC THÔNG SỐ CO RÚT VÀ HAO HỤT CÔNG NGHIỆP TỪ SPEC_META
     ai_meta = blueprint_final.get("spec_meta", {})
     try: warp_shrink = float(ai_meta.get("warp_shrink", 3.0))
     except: warp_shrink = 3.0
     warp_shrink_factor = 1.0 + (warp_shrink / 100.0)
 
+    try: weft_shrink = float(ai_meta.get("weft_shrink", 3.0))
+    except: weft_shrink = 3.0
+    weft_shrink_factor = 1.0 + (weft_shrink / 100.0)
+
     denim_industrial_loss = 0.043 # Hao hụt công nghiệp 4.3%
-    marker_eff = 0.87 # Hiệu suất sơ đồ cố định 87% cho hàng Denim 5 túi
+    marker_eff_major = 0.87       # Hiệu suất sơ đồ cố định cho vải chính
 
     # Danh sách lọc sạch phụ liệu cứng và chỉ may
     EXCLUDE_HARDWARE_AND_THREAD = {
@@ -364,7 +368,10 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, *args, *
         "STEPESTITCH", "TOPSTITCH", "SEWING", "ASTRA", "COATS", "TWILL TAPE"
     }
 
-    # 2. VÒNG LẶP DUYỆT VÀ HIỆU CHUẨN THÔNG SỐ SAI LỆCH CỦA AI
+    # CHI TIẾT LỚN QUYẾT ĐỊNH KHUNG CHIỀU DÀI SƠ ĐỒ ĐỘC LẬP
+    MAJOR_KEYWORDS = ["FRONT", "BACK", "THÂN", "PANEL"]
+
+    # 2. VÒNG LẶP DUYỆT VÀ PHÂN BỔ ĐỊNH MỨC TRỰC TIẾP QUA THUẬT TOÁN PYTHON
     for ai_row in blueprint_final.get("bom_rows", []):
         if not ai_row: continue
         ui_row = copy.deepcopy(ai_row)
@@ -377,10 +384,10 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, *args, *
         if any(key in comp_name or key in mat_class for key in EXCLUDE_HARDWARE_AND_THREAD) or mat_class in ["COUNT", "THREAD"]:
             continue
             
-        # Phân loại nhóm vật tư mềm
+        # Phân loại chính xác nhóm Engine vật tư mềm
         if any(k in comp_name or k in mat_class for k in ["KEO", "DỰNG", "FUSING", "INTERLINING", "MEX"]):
             engine_target = "FUSING"
-        elif any(k in comp_name or k in mat_class for k in ["LÓT", "LINING", "POCKETING"]):
+        elif any(k in comp_name or k in mat_class for k in ["LÓT", "LINING", "POCKETING", "POCKET BAG"]):
             engine_target = "LINING"
         elif "THUN" in comp_name or "CHUN" in comp_name or "ELASTIC" in mat_class:
             engine_target = "ELASTIC"
@@ -397,8 +404,8 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, *args, *
         except: width_inch = 57.0
         if width_inch <= 0: width_inch = 57.0
 
-        # 🛠️ BỘ LỌC HIỆU CHUẨN: Nếu AI đọc sai chiều rộng thân quần > 15 inch, tiến hành chia đôi về thông số thực thực tế (~10.5 inch)
-        if engine_target == "FABRIC" and ("PANEL" in comp_name or "THÂN" in comp_name):
+        # Hiệu chuẩn chiều rộng AI đọc sai (>15 inch) đưa về mốc thực tế rập thân quần lẻ (~10.6 inch)
+        if engine_target == "FABRIC" and any(kw in comp_name for kw in MAJOR_KEYWORDS):
             if b_wid > 15.0:
                 b_wid = b_wid / 2.0
 
@@ -411,49 +418,74 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, *args, *
             continue
 
         try:
+            # 📐 PHÂN HỆ VẢI CHÍNH (FABRIC)
             if engine_target == "FABRIC":
-                # TOÁN HỌC SƠ ĐỒ LỒNG: Khi chiều rộng đã chuẩn (~10.5 inch), 1 thân trước + 1 thân sau = 21 inch.
-                # Khổ vải 57 inch dư sức chứa cả Thân trước và Thân sau nằm song song cạnh nhau trên cùng một hàng ngang.
-                if "FRONT PANEL" in comp_name or "BACK PANEL" in comp_name or "THÂN" in comp_name:
-                    # Định mức của mỗi thân được tính theo tỷ lệ đóng góp công bằng dựa trên chiều dài rập của chính nó
-                    # Vì xếp song song nên không bị cộng dồn tích lũy chiều dài lên nhau
-                    allocated_length_inch = b_len * warp_shrink_factor
-                    
-                    # Công thức tính định mức Yards độc lập từng thân khi đứng song song
-                    # Chia 2 vì 2 thân đứng chung một khung chiều dài sơ đồ trên khổ vải rộng
-                    gross_yds = ((allocated_length_inch / (36.0 * marker_eff)) * (1.0 + denim_industrial_loss)) / 2.0
-                    calc_note = f"CAM DenimCore v58.5 | Thân quần xếp song song trên khổ {width_inch}\" | Hiệu suất: 87%"
-                else:
-                    # ❌ BỎ QUA CHI TIẾT NHỎ THEO YÊU CẦU: Túi sau, cạp, đáp fly... ép bằng 0 hoàn toàn
-                    gross_yds = 0.0
-                    calc_note = "CAM Nesting v58.5 | Tận dụng lọt khe 100% vào khoảng trống vải vụn | Định mức tính: 0 YDS"
+                is_row_major = any(kw in comp_name for kw in MAJOR_KEYWORDS)
                 
-                ui_row["marker_efficiency"] = marker_eff
+                # BẮT BUỘC: Nếu là túi hộp Cargo lớn hoặc nắp túi lớn (Flap) -> Kích hoạt tính định mức độc lập
+                is_cargo_parts = any(kw in comp_name for kw in ["CARGO", "TÚI HỘP"])
+                
+                if is_row_major or is_cargo_parts:
+                    # Các chi tiết lớn hoặc túi hộp lớn: Tính toán định mức theo sơ đồ song song / lồng khung chiều dài
+                    # Do thân trước/thân sau xếp song song trên khổ vải 57", ta chia 2 đối với thân quần đi cặp đôi
+                    divisor = 2.0 if (is_row_major and p_count >= 2) else 1.0
+                    
+                    allocated_length_inch = b_len * warp_shrink_factor * p_count / divisor
+                    gross_yds = (allocated_length_inch / (36.0 * marker_eff_major)) * (1.0 + denim_industrial_loss)
+                    calc_note = f"CAM CargoCore v59.0 | Chi tiết lớn bắt buộc tính | Hiệu suất: 87%"
+                else:
+                    # Tuyệt đối bỏ qua các chi tiết phụ nhỏ khác (đáp, fly, đai cạp nhỏ dưới 3")
+                    if b_wid < 3.0 or b_len < 6.0:
+                        gross_yds = 0.0
+                        calc_note = "CAM Nesting v59.0 | Tận dụng lọt khe 100% vào khoảng trống vải vụn | Định mức tính: 0 YDS"
+                    else:
+                        # Các chi tiết vải chính cỡ vừa nếu không lọt được khe
+                        allocated_length_inch = b_len * warp_shrink_factor * p_count
+                        gross_yds = (allocated_length_inch / (36.0 * marker_eff_major)) * (1.0 + denim_industrial_loss)
+                        calc_note = "CAM CargoCore v59.0 | Chi tiết vải chính cỡ vừa"
+                
+                ui_row["marker_efficiency"] = marker_eff_major
                 gross_val = gross_yds * 0.9144 if uom_target == "MTR" else gross_yds
 
+            # 📐 PHÂN HỆ VẢI LÓT TÚI (LINING) - KÍCH HOẠT NHẢY SỐ ĐỊNH MỨC THẬT CHUẨN CAD
             elif engine_target == "LINING":
-                # Vải lót túi tính định mức độc lập dựa trên rập túi thật
-                approx_lin_yds = (b_len * (p_count / 2.0 if p_count >= 2 else p_count)) / 36.0
-                gross_yds = (approx_lin_yds / 0.78) * (1.0 + denim_industrial_loss)
-                ui_row["marker_efficiency"] = 0.78
+                eff_lining = 0.78 # Hiệu suất sơ đồ vải lót lót túi đạt 78%
+                
+                # Công thức diện tích phẳng quy đổi Gerber CAD sang chiều rộng khổ vải lót thực tế
+                # Nếu khổ vải lót hiển thị chữ N/A hoặc bằng 0, ép tính toán theo khổ lót tiêu chuẩn là 44 inch
+                lining_width = width_inch if (width_inch > 0 and width_inch != 57.0) else 44.0
+                
+                # Công thức: (Dài rập x Rộng rập x Số lượng x Hệ số net 0.85 x Hệ số co rút) / (Khổ vải lót * 36 * Hiệu suất)
+                raw_area = b_len * b_wid * p_count * 0.85
+                area_with_shrinkage = raw_area * warp_shrink_factor * weft_shrink_factor
+                gross_yds = (area_with_shrinkage / (lining_width * 36.0 * eff_lining)) * (1.0 + denim_industrial_loss)
+                
+                ui_row["marker_efficiency"] = eff_lining
+                ui_row["fabric_width_inch"] = lining_width
                 gross_val = gross_yds * 0.9144 if uom_target == "MTR" else gross_yds
-                calc_note = "CAM LiningCore v58.5 | Tính định mức lót túi độc lập"
+                calc_note = f"CAM LiningCore v59.0 | Kích hoạt nhảy số định mức lót túi trên khổ {lining_width}\""
 
+            # 📐 PHÂN HỆ KEO DỰNG / MEX LÓT (FUSING) - KÍCH HOẠT NHẢY SỐ ĐỊNH MỨC THẬT CHUẨN CAD
             elif engine_target == "FUSING":
-                # Keo dựng lót ép bằng 0 hoàn toàn (tận dụng vải vụn)
-                gross_yds = 0.0
-                ui_row["marker_efficiency"] = 0.95
-                gross_val = 0.0
-                calc_note = "CAM Nesting v58.5 | Ép keo nhỏ lọt khe sơ đồ hoàn toàn | Định mức tính: 0 YDS"
+                eff_fusing = 0.85 # Hiệu suất sơ đồ keo lót đạt 85%
+                fusing_width = width_inch if width_inch > 0 else 56.0
+                
+                # Công thức Gerber CAD tính keo: (Dài x Rộng x Số lượng x 0.90) / (Khổ keo * 36 * Hiệu suất)
+                raw_fusing_area = b_len * b_wid * p_count * 0.90
+                gross_yds = (raw_fusing_area / (fusing_width * 36.0 * eff_fusing)) * (1.0 + denim_industrial_loss)
+                
+                ui_row["marker_efficiency"] = eff_fusing
+                gross_val = gross_yds * 0.9144 if uom_target == "MTR" else gross_yds
+                calc_note = f"CAM FusingCore v59.0 | Kích hoạt nhảy số định mức keo dựng trên khổ {fusing_width}\""
 
             elif engine_target == "ELASTIC":
                 total_inches = b_len * p_count * 1.05
                 gross_yds = total_inches / 36.0
                 ui_row["marker_efficiency"] = 1.0
                 gross_val = gross_yds * 0.9144 if uom_target == "MTR" else gross_yds
-                calc_note = "CAM ElasticCore v58.5 | Tính chun co giãn"
+                calc_note = "CAM ElasticCore v59.0 | Tính chun co giãn"
 
-            # Đóng gói dữ liệu trả về cho bảng hiển thị Pandas
+            # Đóng gói dữ liệu đầu ra đổ lên DataFrame hiển thị
             ui_row["engine"] = engine_target
             ui_row["gross_consumption"] = round(gross_val, 4)
             ui_row["quality_status"] = "PASS"
@@ -465,7 +497,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, *args, *
             ui_row["engine"] = engine_target
             ui_row["gross_consumption"] = 0.0
             ui_row["quality_status"] = "QA_FAIL"
-            ui_row["system_notes"] = f"Lỗi: {str(inline_err)}"
+            ui_row["system_notes"] = f"Lỗi Python: {str(inline_err)}"
             
         router_bom_rows.append(ui_row)
 
