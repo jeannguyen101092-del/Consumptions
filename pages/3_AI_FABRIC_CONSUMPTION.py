@@ -881,61 +881,35 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             )
             
             blueprint_worker = json.loads(response.text)
-            # =====================================================================
-            # ĐOẠN 7a.2: LOGIC BỘ LỌC CHI TIẾT THEO TIÊU CHUẨN SẢN XUẤT
-            # =====================================================================
-            if blueprint_worker and "bom_rows" in blueprint_worker:
-                blueprint_worker["calculated_on_size"] = target_size_cmd
-                
+                            # =====================================================================
+                # ĐOẠN 7a.2 RÚT GỌN: LỌC CHI TIẾT THEO TIÊU CHUẨN SẢN XUẤT
+                # =====================================================================
                 filtered_bom_rows = []
+                has_elastic = any(str(r.get("material_class")).upper().strip() == "ELASTIC" for r in blueprint_worker.get("bom_rows", []))
                 
-                # Bước 1: Quét kiểm tra điều kiện Lưng Thun (Có vật tư ELASTIC hay không)
-                has_elastic_in_bom = any(
-                    str(row.get("material_class")).upper().strip() == "ELASTIC" 
-                    for row in blueprint_worker.get("bom_rows", [])
-                )
-                
-                # Bước 2: Duyệt từng chi tiết rập để xử lý loại bỏ chi tiết nhỏ và kiểm tra lưng
                 for row in blueprint_worker.get("bom_rows", []):
-                    comp_name = str(row.get("component_name", "")).upper().strip()
-                    mat_class = str(row.get("material_class", "")).upper().strip()
+                    name = str(row.get("component_name", "")).upper()
+                    m_class = str(row.get("material_class", "")).upper()
                     
-                    # 1. Loại bỏ các chi tiết phụ nhỏ (túi sau, baget, baguet, cơi túi...) ngoại trừ túi CARGO lớn
-                    if any(x in comp_name for x in ["BACK POCKET", "BAGET", "BAGUET", "COI TUI"]):
-                        if "CARGO" not in comp_name:
-                            continue  # Bỏ qua không đưa vào tính định mức vải chính
+                    # 1. Bỏ qua túi sau, baget, cơi túi (Giữ lại nếu có chữ CARGO)
+                    if any(x in name for x in ["BACK POCKET", "BAGET", "BAGUET", "COI TUI"]) and "CARGO" not in name:
+                        continue
                     
-                    # 2. Áp dụng điều kiện Lưng (Waistband): Chỉ tính lưng vải chính khi KHÔNG có thun
-                    if "WAISTBAND" in comp_name or "LUNG" in comp_name:
-                        if has_elastic_in_bom and mat_class == "FABRIC":
-                            continue  # Lưng có thun -> Loại trừ chi tiết Lưng của vải chính khỏi định mức
+                    # 2. Lưng có thun -> Không tính chi tiết Lưng vải chính (FABRIC)
+                    if ("WAISTBAND" in name or "LUNG" in name) and has_elastic and m_class == "FABRIC":
+                        continue
                     
-                    # 3. Ép kiểu dữ liệu an toàn & chuẩn hóa định dạng số cho chi tiết hợp lệ giữ lại
-                    try: row["bounding_box_length"] = float(row.get("bounding_box_length", 0.0))
-                    except: row["bounding_box_length"] = 0.0
+                    # Chuẩn hóa dữ liệu số nhanh
+                    row["bounding_box_length"] = float(row.get("bounding_box_length") or 0.0)
+                    row["bounding_box_width"] = float(row.get("bounding_box_width") or 0.0)
+                    row["polygon_net_area"] = float(row.get("polygon_net_area") or 0.0)
+                    row["piece_count"] = int(float(row.get("piece_count") or 1))
                     
-                    try: row["bounding_box_width"] = float(row.get("bounding_box_width", 0.0))
-                    except: row["bounding_box_width"] = 0.0
+                    w_val = row.get("fabric_width_inch")
+                    row["fabric_width_inch"] = float(w_val) if w_val and float(w_val) > 0 else float(active_width)
                     
-                    try: row["polygon_net_area"] = float(row.get("polygon_net_area", 0.0))
-                    except: row["polygon_net_area"] = 0.0
-                    
-                    try: row["piece_count"] = int(float(row.get("piece_count", 1)))
-                    except: row["piece_count"] = 1
-
-                    try:
-                        w_val = row.get("fabric_width_inch")
-                        if w_val is None or str(w_val).strip() == "" or float(w_val) <= 0.0:
-                            row["fabric_width_inch"] = float(active_width)
-                        else:
-                            row["fabric_width_inch"] = float(w_val)
-                    except:
-                        row["fabric_width_inch"] = float(active_width)
-                    
-                    # Nạp dòng chi tiết đạt tiêu chuẩn lọc vào mảng tính định mức cuối cùng
                     filtered_bom_rows.append(row)
                 
-                # Cập nhật danh sách chi tiết rập đã lọc sạch lại vào blueprint_worker
                 blueprint_worker["bom_rows"] = filtered_bom_rows
 
 # =====================================================================
