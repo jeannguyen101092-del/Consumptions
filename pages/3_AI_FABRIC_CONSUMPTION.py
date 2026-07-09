@@ -520,7 +520,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
 
         if b_len <= 0.0 and b_wid <= 0.0:
             continue
-                gross_yds = 0.0
+        gross_yds = 0.0
         try:
             # 🧼 BỘ KHỬ LỖI DỮ LIỆU: Ép kiểu an toàn tuyệt đối từ màn hình Streamlit
             shrunk_len = float(b_len) * warp_shrink_factor
