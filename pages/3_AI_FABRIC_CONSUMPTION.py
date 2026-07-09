@@ -337,9 +337,9 @@ def compute_thread_engine() -> tuple:
 
 def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, *args, **kwargs) -> dict:
     """
-    Enterprise Multi-Engine CAD Router v61.5 - LOCKDOWN MODE.
-    🔒 KHÓA CHẶT TUYỆT ĐỐI VẢI CHÍNH: Ép cứng công thức thân lồng đối đầu + túi Cargo lớn [ĐÚNG KHÍT MỐC 1.8437 YDS].
-    🔥 SỬA TRIỆT ĐỂ: Ép số hiển thị khổ vải lót thành 44.0 inch lên bảng chi tiết, xử lý keo cơi túi mổ rộng 3".
+    Enterprise Multi-Engine CAD Router v62.5 - DYNAMIC CARGO QUANTITY.
+    🌟 TÔN TRỌNG AI 100%: AI trả về số lượng túi Cargo bao nhiêu (2, 4, hay 5), Python tự động nhân bấy nhiêu.
+    📐 HIỆU CHUẨN CÔNG THỨC: Chi tiết Cargo tính theo chiều dài tiến thẳng xếp nối tiếp (b_len * p_count) chuẩn sơ đồ.
     """
     import copy
     
@@ -377,7 +377,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, *args, *
     total_pants_base_yds = (pants_base_length_inch / (36.0 * marker_eff)) * (1.0 + denim_industrial_loss)
 
     # =====================================================================
-    # 2. VÒNG LẶP PYTHON DUYỆT CHI TIẾT RẬP & ÉP HIỂN THỊ SỐ LIỆU CHUẨN XƯỞNG
+    # 2. VÒNG LẶP PYTHON DUYỆT CHI TIẾT RẬP & TỰ ĐỘNG NHÂN THEO SỐ LƯỢNG AI
     # =====================================================================
     for ai_row in blueprint_final.get("bom_rows", []):
         if not ai_row: continue
@@ -413,11 +413,11 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, *args, *
         # Khởi tạo ghi chú hệ thống
         calc_note = ""
 
-        # 🛠️ HIỆU CHỈNH 1: Ép cứng thông số hiển thị khổ vải lót về mức 44.0 inch ngay trên bảng chi tiết
+        # Ép thông số hiển thị khổ vải lót về mức 44.0 inch ngay trên bảng chi tiết
         if engine_target == "LINING":
             width_inch = 44.0
 
-        # 🛠️ HIỆU CHỈNH 2: Xử lý Keo Mex dựng (FUSING) cơi túi mổ và bù đường may
+        # Xử lý Keo Mex dựng (FUSING) cơi túi mổ và bù đường may
         if engine_target == "FUSING":
             if any(kw in comp_name for kw in ["WELT", "PIP", "CƠI", "MỔ"]):
                 b_wid = 3.0  # Ép rộng cơi túi mổ về 3 inch cho tất cả mã hàng
@@ -427,7 +427,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, *args, *
             b_len = b_len + 0.44
             b_wid = b_wid + 0.44
 
-        # Gán lại thông số hình học chuẩn hóa lên giao diện bảng Streamlit
+        # Gán thông số hình học chuẩn hóa lên giao diện bảng Streamlit
         ui_row["bounding_box_length"] = b_len
         ui_row["bounding_box_width"] = b_wid
         ui_row["piece_count"] = p_count
@@ -437,58 +437,51 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, *args, *
             continue
 
         try:
-            # 📐 PHÂN HỆ VẢI CHÍNH (FABRIC) - 🔒 KHÓA CHẶT ĐỊNH MỨC CỐ ĐỊNH BAN ĐẦU
+            # 📐 PHÂN HỆ VẢI CHÍNH (FABRIC) - ĐỘNG THEO SỐ LƯỢNG TÚI CỦA AI
             if engine_target == "FABRIC":
                 if "FRONT PANEL" in comp_name or "THÂN TRƯỚC" in comp_name:
-                    # Ép cứng tỷ lệ đóng góp chiều dài thân trước rập chuẩn (39 inch) -> Ra đúng khít 0.7135 YDS
                     proportion = fixed_front_panel_len / (fixed_front_panel_len + fixed_back_panel_len)
                     gross_yds = total_pants_base_yds * proportion
                     calc_note = "CAM DenimCore | Thân trước phân bổ theo tỷ lệ chiều dài sơ đồ lồng cố định"
                 
                 elif "BACK PANEL" in comp_name or "THÂN SAU" in comp_name:
-                    # Ép cứng tỷ lệ đóng góp chiều dài thân sau rập chuẩn (44.5 inch) -> Ra đúng khít 1.5264 YDS cho khung
                     proportion = fixed_back_panel_len / (fixed_front_panel_len + fixed_back_panel_len)
                     gross_yds = total_pants_base_yds * proportion
                     calc_note = "CAM DenimCore | Thân sau phân bổ theo tỷ lệ chiều dài sơ đồ lồng cố định"
                 
                 elif "CARGO" in comp_name or "TÚI HỘP" in comp_name:
-                    # Tính toán độc lập riêng cho túi hộp lớn Cargo theo thông số thật -> Ra đúng khít 0.3173 YDS
-                    cargo_length_inch = b_len * (p_count / 2.0 if p_count >= 2 else float(p_count)) * warp_shrink_factor
+                    # 🛠️ CÔNG THỨC TUYỆT ĐỐI ĐỘNG: Lấy chiều dài rập x ĐÚNG SỐ LƯỢNG AI TRẢ VỀ (p_count) x Co rút dọc
+                    # Xếp nối tiếp nhau trên sơ đồ dọc nên tổng inch = b_len * p_count
+                    cargo_length_inch = b_len * float(p_count) * warp_shrink_factor
                     gross_yds = (cargo_length_inch / (36.0 * marker_eff)) * (1.0 + denim_industrial_loss)
-                    calc_note = "🔥 CAM CargoCore | Túi hộp lớn bắt buộc tính định mức độc lập riêng"
+                    calc_note = f"🔥 CAM CargoCore | Tự động nhân theo {p_count} túi Cargo độc lập từ AI"
                 
                 else:
-                    # Toàn bộ chi tiết nhỏ khác (đai cạp waistband, đáp fly, flap...) bằng 0 để lọt khe vải vụn
                     gross_yds = 0.0
                     calc_note = "CAM Nesting | Tận dụng lọt khe 100% vào khoảng trống vải vụn | Tính: 0 YDS"
                 
                 ui_row["marker_efficiency"] = marker_eff
                 gross_val = gross_yds * 0.9144 if uom_target == "MTR" else gross_yds
 
-            # 📐 PHÂN HỆ VẢI LÓT TÚI (LINING) - ĐÃ KÍCH HOẠT HIỂN THỊ VÀ TÍNH TRÊN KHỔ 44 INCH
+            # 📐 PHÂN HỆ VẢI LÓT TÚI (LINING)
             elif engine_target == "LINING":
                 eff_lining = 0.78
                 raw_area = b_len * b_wid * p_count * 0.85
                 area_with_shrinkage = raw_area * warp_shrink_factor * weft_shrink_factor
-                
-                # Công thức chuẩn Yards lót túi chia trực tiếp cho khổ vải 44 inch đã được sửa lỗi hiển thị
                 gross_yds = (area_with_shrinkage / (44.0 * 36.0 * eff_lining)) * (1.0 + denim_industrial_loss)
-                
                 ui_row["marker_efficiency"] = eff_lining
                 gross_val = gross_yds * 0.9144 if uom_target == "MTR" else gross_yds
-                calc_note = "CAM LiningCore v61.5 | Tính định mức lót túi chuẩn xác trên khổ 44.0 inch"
+                calc_note = "CAM LiningCore | Tính định mức lót túi chuẩn xác trên khổ 44.0 inch"
 
-            # 📐 PHÂN HỆ KEO DỰNG / MEX LÓT (FUSING) - ĐÃ ĐỒNG BỘ ÉP RỘNG 3" CHO CƠI TÚI MỔ
+            # 📐 PHÂN HỆ KEO DỰNG / MEX LÓT (FUSING)
             elif engine_target == "FUSING":
                 eff_fusing = 0.85
                 fusing_width = 56.0
-                
                 raw_fusing_area = b_len * b_wid * p_count * 0.90
                 gross_yds = (raw_fusing_area / (fusing_width * 36.0 * eff_fusing)) * (1.0 + denim_industrial_loss)
-                
                 ui_row["marker_efficiency"] = eff_fusing
                 gross_val = gross_yds * 0.9144 if uom_target == "MTR" else gross_yds
-                calc_note = calc_note + "CAM FusingCore v61.5 | Định mức keo Mex đã cộng bù +0.44\" đường may"
+                calc_note = calc_note + "CAM FusingCore | Định mức keo Mex đã cộng bù +0.44\" đường may"
 
             elif engine_target == "ELASTIC":
                 total_inches = b_len * p_count * 1.05
@@ -515,6 +508,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, *args, *
 
     blueprint_final["bom_rows"] = router_bom_rows
     return blueprint_final
+
 
 
 
