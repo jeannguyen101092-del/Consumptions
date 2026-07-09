@@ -1087,10 +1087,15 @@ import streamlit as st
 from openpyxl import Workbook
 
 # 1. ĐỒNG BỘ NGUỒN DỮ LIỆU TỪ PIPELINE SANG BỘ HIỂN THỊ GIAO DIỆN
+# =====================================================================
+# ĐOẠN 7b - MỤC 1: SỬA TRIỆT ĐỂ LỖI TRỒI SỤT - LÀM SẠCH BỘ NHỚ TẠM
+# =====================================================================
 if "last_active_blueprint" in st.session_state and st.session_state.last_active_blueprint:
+    # 🔒 KHÓA BẢO VỆ: Luôn tạo một bản sao độc lập (Deepcopy) từ dữ liệu gốc của Techpack
+    # Tuyệt đối không cho phép Python lấy rập đã tính ở lượt bấm trước để tính chồng lên lượt sau
     blueprint_worker = copy.deepcopy(st.session_state.last_active_blueprint)
     
-    # Dò tìm nội dung tin nhắn chat mới nhất để lấy văn bản lệnh chat truyền sang Đoạn A
+    # Trích xuất văn bản câu lệnh chat mới nhất để lấy thông số khổ vải động
     chat_txt = ""
     if 'safe_user_prompt' in locals() and safe_user_prompt:
         chat_txt = str(safe_user_prompt).lower()
@@ -1100,15 +1105,16 @@ if "last_active_blueprint" in st.session_state and st.session_state.last_active_
     match_active_size = re.search(r'\b(?:size|sz|cỡ)\s*[:\-=\s]*([\w\d/]+)\b', chat_txt)
     extracted_size = str(match_active_size.group(1)).upper().strip() if match_active_size else str(blueprint_worker.get("calculated_on_size", "30")).upper().strip()
     
-    # KÍCH HOẠT HÀM ROUTER CỦA PHẦN A ĐỂ LUÂN CHUYỂN DỮ LIỆU PYTHON TÍNH TOÁN KHỔ ĐỘNG
+    # Kích hoạt hàm Router của Đoạn A để tính toán ma trận đường may từ rập gốc sạch
     if 'allocate_fabric_consumption_and_quality_gate' in globals():
         blueprint_processed = allocate_fabric_consumption_and_quality_gate(blueprint_worker, current_query=chat_txt)
     else:
         blueprint_processed = blueprint_worker
 
-    # Đồng bộ vào cấu trúc lưu trữ session_state để chuẩn bị vẽ bảng
+    # 🧹 BỘ LỌC LÀM SẠCH: Xóa bỏ hoàn toàn mảng cũ, ép bộ nhớ tạm ghi nhận dữ liệu mới tinh
     st.session_state["bom_data"] = blueprint_processed
-    st.session_state["accumulated_bom_rows"] = blueprint_processed.get("bom_rows", [])
+    st.session_state["accumulated_bom_rows"] = copy.deepcopy(blueprint_processed.get("bom_rows", []))
+
 
 # 2. KHỐI DEBUG MONITOR GIÁM SÁT PAYLOAD THÔ TỪ GEMINI
 if "raw_ai_debug_payload" in st.session_state and st.session_state["raw_ai_debug_payload"]:
