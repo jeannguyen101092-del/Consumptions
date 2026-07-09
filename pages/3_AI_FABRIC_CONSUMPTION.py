@@ -767,8 +767,7 @@ with col_right:
 
 
 # =====================================================================
-# ĐOẠN 7a - PHẦN 1 & 10: SINGLE-CALL PIPELINE CHỐNG TRÀO REQUEST (V118.0)
-# 🌟 KHÓA CHẶT RPM CHÍ MẠNG: Chỉ chạy quét AI khi có sự kiện nút bấm chat mới
+# ĐOẠN 7a.1: CHAT WORKSPACE & PIPELINE TRÍCH XUẤT DETAILED CAD MATRIX
 # =====================================================================
 st.markdown('<br><div class="cad-card"><div class="cad-header">💬 CHATGPT IE COLLABORATION WORKSPACE</div>', unsafe_allow_html=True)
 
@@ -882,11 +881,36 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             )
             
             blueprint_worker = json.loads(response.text)
-                
+            # =====================================================================
+            # ĐOẠN 7a.2: LOGIC BỘ LỌC CHI TIẾT THEO TIÊU CHUẨN SẢN XUẤT
+            # =====================================================================
             if blueprint_worker and "bom_rows" in blueprint_worker:
                 blueprint_worker["calculated_on_size"] = target_size_cmd
                 
+                filtered_bom_rows = []
+                
+                # Bước 1: Quét kiểm tra điều kiện Lưng Thun (Có vật tư ELASTIC hay không)
+                has_elastic_in_bom = any(
+                    str(row.get("material_class")).upper().strip() == "ELASTIC" 
+                    for row in blueprint_worker.get("bom_rows", [])
+                )
+                
+                # Bước 2: Duyệt từng chi tiết rập để xử lý loại bỏ chi tiết nhỏ và kiểm tra lưng
                 for row in blueprint_worker.get("bom_rows", []):
+                    comp_name = str(row.get("component_name", "")).upper().strip()
+                    mat_class = str(row.get("material_class", "")).upper().strip()
+                    
+                    # 1. Loại bỏ các chi tiết phụ nhỏ (túi sau, baget, baguet, cơi túi...) ngoại trừ túi CARGO lớn
+                    if any(x in comp_name for x in ["BACK POCKET", "BAGET", "BAGUET", "COI TUI"]):
+                        if "CARGO" not in comp_name:
+                            continue  # Bỏ qua không đưa vào tính định mức vải chính
+                    
+                    # 2. Áp dụng điều kiện Lưng (Waistband): Chỉ tính lưng vải chính khi KHÔNG có thun
+                    if "WAISTBAND" in comp_name or "LUNG" in comp_name:
+                        if has_elastic_in_bom and mat_class == "FABRIC":
+                            continue  # Lưng có thun -> Loại trừ chi tiết Lưng của vải chính khỏi định mức
+                    
+                    # 3. Ép kiểu dữ liệu an toàn & chuẩn hóa định dạng số cho chi tiết hợp lệ giữ lại
                     try: row["bounding_box_length"] = float(row.get("bounding_box_length", 0.0))
                     except: row["bounding_box_length"] = 0.0
                     
@@ -907,19 +931,13 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                             row["fabric_width_inch"] = float(w_val)
                     except:
                         row["fabric_width_inch"] = float(active_width)
+                    
+                    # Nạp dòng chi tiết đạt tiêu chuẩn lọc vào mảng tính định mức cuối cùng
+                    filtered_bom_rows.append(row)
                 
-                blueprint_final = allocate_fabric_consumption_and_quality_gate(blueprint_worker, current_query)
-                
-                st.session_state.bom_data = blueprint_final
-                st.session_state.accumulated_bom_rows = blueprint_final.get("bom_rows", [])
-                st.session_state["raw_ai_debug_payload"] = blueprint_worker
-                st.session_state["last_processed_signature"] = (current_query, int(len(image_payloads)), int(len(st.session_state.pdf_bytes)))
-                st.session_state.chat_history.append({"user": current_query, "ai": "Industrial CAD Analysis completed with shrinkage warp/weft update."})
-                st.rerun()
+                # Cập nhật danh sách chi tiết rập đã lọc sạch lại vào blueprint_worker
+                blueprint_worker["bom_rows"] = filtered_bom_rows
 
-        except Exception as ai_err:
-            st.error(f"❌ Lỗi API: {str(ai_err)}")
-            traceback.print_exc()
 # =====================================================================
 # ĐOẠN 7b: HIỂN THỊ KẾT QUẢ ĐỊNH MỨC CHI TIẾT & BẢNG GỘP TỔNG VẬT TƯ (V104.5)
 # 🌟 ĐỒNG BỘ ĐẦU RẠNG: Tách biệt bảng gộp tổng mua hàng và sơ đồ chi tiết rập CAD
