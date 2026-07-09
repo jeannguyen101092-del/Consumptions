@@ -359,7 +359,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
     except: weft_shrink = 3.0
     weft_shrink_factor = 1.0 + (weft_shrink / 100.0)
 
-    denim_industrial_loss = 0.043 # Hao hụt công nghiệp nhà máy 4.3%
+    denim_industrial_loss = 0.043  # Hao hụt công nghiệp nhà máy 4.3%
 
     # Danh sách lọc sạch phụ liệu cứng và chỉ may
     EXCLUDE_HARDWARE_AND_THREAD = {
@@ -391,20 +391,31 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
     # 🔍 BỘ TỰ ĐỘNG PHÂN LOẠI MÃ HÀNG NGÀNH MAY CẢI TIẾN THÔNG MINH VÁ LỖI AI
     # =====================================================================
     is_dress_mode = False
+    is_jacket_mode = False
+    
     for r in blueprint_final.get("bom_rows", []):
         if not r: continue
-        name_check = str(r.get("component_name", "")).upper().strip()
+        # Lấy tên cấu phần linh hoạt, hỗ trợ cả key viết hoa "Component Name" hoặc chữ thường "component_name"
+        name_check = str(r.get("Component Name", r.get("component_name", ""))).upper().strip()
         
         # Đánh chặn thông minh các biến thể đặt tên đầm liền thân của AI
-        if any(kw in name_check for kw in ["DRESS", "VÁY", "BODICE", "TIER", "SKIRT", "BODY", "OVERALL", "STRIPE"]):
+        if any(kw in name_check for kw in ["DRESS", "VÁY", "BODICE", "TIER", "SKIRT", "BODY", "OVERALL"]):
             is_dress_mode = True
             break
+        # Nhận diện thông minh phân hệ Áo khoác/Áo sơ mi dựa theo bộ rập thực tế trong ảnh
+        if any(kw in name_check for kw in ["JACKET", "COAT", "ÁO", "SLEEVE", "CUFF", "COLLAR"]):
+            is_jacket_mode = True
 
     if is_dress_mode:
         product_label = "WOMENS DRESS (ĐẦM VÁY TẦNG)"
         marker_eff_major = 0.75 # Hiệu suất thân áo đầm 75%
         marker_eff_minor = 0.72 # Hiệu suất tầng váy xòe tròn hạ kịch trần 72%
         hem_allowance = 1.50    # Gấu lai đầm chừa 1.5 inch để cuốn biên to bản
+    elif is_jacket_mode:
+        product_label = "JACKET/SHIRT (ÁO KHOÁC/SƠ MI)"
+        marker_eff_major = 0.85 # Hiệu suất thân áo 85%
+        marker_eff_minor = 0.80 # Hiệu suất tay/cổ/linh kiện áo 80%
+        hem_allowance = 1.00    # Lai gấu áo 1.0 inch
     else:
         product_label = "JEANS/CARGO (QUẦN BÒ TÚI HỘP)"
         marker_eff_major = 0.87 # Hiệu suất thân quần Jeans 87%
@@ -418,7 +429,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
     pants_base_length_inch = adjusted_back_panel_len * warp_shrink_factor
     total_pants_base_yds = (pants_base_length_inch / (36.0 * marker_eff_major)) * (1.0 + denim_industrial_loss)
 
-    MAJOR_PANELS = ["FRONT PANEL", "BACK PANEL", "THÂN TRƯỚC", "THÂN SAU"]
+    MAJOR_PANELS = ["FRONT PANEL", "BACK PANEL", "THÂN TRƯỚC", "THÂN SAU", "SLEEVE", "TAY ÁO"]
 
     # =====================================================================
     # PHẦN 2: VÒNG LẶP PYTHON DUYỆT TÍNH TOÁN ĐỊNH MỨC THEO MA TRẬN PHÂN HỆ ĐỘNG
@@ -427,9 +438,10 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
         if not ai_row: continue
         ui_row = copy.deepcopy(ai_row)
         
-        comp_name = str(ui_row.get("component_name", "")).upper().strip()
-        mat_class = str(ui_row.get("material_class", ui_row.get("engine", "FABRIC"))).upper().strip()
-        uom_target = str(ui_row.get("uom", "YDS")).upper().strip()
+        # Đồng bộ hóa đọc key thông minh hỗ trợ cả chữ HOA lẫn chữ thường từ Streamlit
+        comp_name = str(ui_row.get("Component Name", ui_row.get("component_name", ""))).upper().strip()
+        mat_class = str(ui_row.get("Material Class", ui_row.get("material_class", ui_row.get("engine", "FABRIC")))).upper().strip()
+        uom_target = str(ui_row.get("UOM", ui_row.get("uom", "YDS"))).upper().strip()
         
         if any(key in comp_name or key in mat_class for key in EXCLUDE_HARDWARE_AND_THREAD) or mat_class in ["COUNT", "THREAD"]:
             continue
@@ -443,19 +455,20 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
         else:
             engine_target = "FABRIC"
 
-        try: b_len = float(ui_row.get("bounding_box_length", 0.0))
+        # Đọc thông số hình học rập (Hỗ trợ tự động các cột viết hoa chữ đầu từ Streamlit DataFrame)
+        try: b_len = float(ui_row.get("Dài sản xuất (L-inch)", ui_row.get("bounding_box_length", 0.0)))
         except: b_len = 0.0
-        try: b_wid = float(ui_row.get("bounding_box_width", 0.0))
+        try: b_wid = float(ui_row.get("Rộng sản xuất (W-inch)", ui_row.get("bounding_box_width", 0.0)))
         except: b_wid = 0.0
-        try: p_count = int(float(ui_row.get("piece_count", 1)))
+        try: p_count = int(float(ui_row.get("Số lượng rập (Pcs)", ui_row.get("piece_count", 1))))
         except: p_count = 1
         
-        try: width_inch = float(ui_row.get("fabric_width_inch", 57.0))
+        try: width_inch = float(ui_row.get("Khổ vải (Width)", ui_row.get("fabric_width_inch", 57.0)))
         except: width_inch = 57.0
 
         # Khống chế chiều dài tối đa dây viền tránh lỗi AI dồn số từ khung chat vào rập
-        is_bias_binding = any(kw in comp_name for kw in ["BINDING", "BIAS", "TRIM", "STRAP", "PIPING", "RIBBON"])
-        if is_bias_binding and b_len > 25.0:
+        is_bias_binding = any(kw in comp_name for kw in ["BINDING", "BIAS", "TRIM", "STRAP", "PIPING", "RIBBON", "BELT", "SASH"])
+        if is_bias_binding and b_len > 35.0 and not is_jacket_mode:
             b_len = 14.5
             calc_note = "📌 [IE CORRECTION] Đánh chặn lỗi AI dồn thông số dây viền | "
         else:
@@ -473,13 +486,13 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
         elif engine_target == "FUSING":
             width_inch = parsed_fusing_width
 
-        # Thuật toán rã đôi rập đối với chi tiết xòe tầng đầm váy quá khổ vải rộng hơn khổ vải
+        # Thuật toán rã đôi rập đối với chi tiết xòe tầng đầm váy quá khổ vải rộng hơn khổ vải thực tế
         if engine_target in ["FABRIC", "FUSING"] and b_wid >= width_inch:
             b_wid = b_wid / 2.0
             p_count = p_count * 2
             calc_note = calc_note + "✂️ [IE SPLIT] Rập quá khổ -> Tự động rã đôi rập & nhân đôi sản lượng | "
 
-        if not is_dress_mode and (engine_target == "FUSING" or engine_target == "FABRIC"):
+        if not is_dress_mode and not is_jacket_mode and (engine_target == "FUSING" or engine_target == "FABRIC"):
             if any(kw in comp_name for kw in ["WELT", "PIP", "CƠI", "MỔ", "FLAP", "NẮP", "FLY", "BAGET", "FACING"]):
                 b_wid = 3.0
                 calc_note = calc_note + "Ép rộng cấu phần túi về 3.0\" | "
@@ -495,6 +508,16 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
                     b_len = b_len + (0.44 * 2)
                     b_wid = b_wid + (0.44 * 2)
                     calc_note = calc_note + "Bù biên đều +0.88\" đường may xung quanh | "
+        elif is_jacket_mode:
+            # Bù biên đường may chuẩn cho Áo khoác/Sơ mi
+            if any(kw in comp_name for kw in ["FRONT", "BACK", "SLEEVE"]):
+                b_wid = b_wid + (0.44 * 2)
+                b_len = b_len + 0.44 + hem_allowance
+                calc_note = calc_note + f"Thân áo biên rộng +0.88\", Biên dài +0.44\" + Lai gấu +{hem_allowance}\" | "
+            elif engine_target != "ELASTIC":
+                b_wid = b_wid + (0.44 * 2)
+                b_len = b_len + (0.44 * 2)
+                calc_note = calc_note + "Linh kiện áo cộng biên đều +0.88\" | "
         else:
             is_major_panel = any(kw in comp_name for kw in MAJOR_PANELS)
             if is_major_panel:
@@ -513,6 +536,12 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
             if "WAISTBAND" in comp_name or "CẠP" in comp_name or "LƯNG" in comp_name:
                 p_count = 2
 
+        # Đồng bộ hóa ghi lại dữ liệu đã bù biên vào cả 2 dạng key chữ HOA và chữ thường
+        ui_row["Dài sản xuất (L-inch)"] = b_len
+        ui_row["Rộng sản xuất (W-inch)"] = b_wid
+        ui_row["Số lượng rập (Pcs)"] = p_count
+        ui_row["Khổ vải (Width)"] = width_inch
+        
         ui_row["bounding_box_length"] = b_len
         ui_row["bounding_box_width"] = b_wid
         ui_row["piece_count"] = p_count
@@ -522,7 +551,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
             continue
         gross_yds = 0.0
         try:
-            # 🧼 BỘ KHỬ LỖI DỮ LIỆU: Ép kiểu an toàn tuyệt đối từ màn hình Streamlit
+            # 🧼 BỘ KHỬ LỖI DỮ LIỆU: Ép kiểu an toàn từ màn hình Streamlit DataFrame
             shrunk_len = float(b_len) * warp_shrink_factor
             shrunk_wid = float(b_wid) * weft_shrink_factor
             active_wid = float(width_inch) if float(width_inch) > 0 else 57.0
@@ -544,19 +573,35 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
                         gross_yds = ((shrunk_len * needed_rows) / (36.0 * active_eff)) * (1.0 + denim_industrial_loss)
                         calc_note = calc_note + "⚡ Sơ đồ lồng cặp xen kẽ dọc theo hàng | "
                     ui_row["marker_efficiency"] = active_eff
-                else:
-                    # 👔 THUẬT TOÁN ĐA SẢN PHẨM (ÁO KHOÁC/QUẦN JEANS): Nếu là chi tiết lớn hoặc linh kiện thông thường
-                    active_eff = marker_eff_major if any(kw in comp_name for kw in MAJOR_PANELS or ["SLEEVE", "COLLAR"]) else marker_eff_minor
-                    
-                    # Tính định mức tự động dựa trên diện tích hình chữ nhật bao bọc (Bounding Box Nesting)
+                    ui_row["Marker Efficiency"] = active_eff
+                elif is_jacket_mode:
+                    # 👔 THUẬT TOÁN ĐA SẢN PHẨM (ÁO KHOÁC/SƠ MI)
+                    active_eff = marker_eff_major if any(kw in comp_name for kw in ["FRONT", "BACK", "SLEEVE"]) else marker_eff_minor
                     raw_piece_area = shrunk_len * shrunk_wid * active_count
-                    
-                    # Hệ số đi sơ đồ thực tế (Hệ số điền đầy sơ đồ ngành may cho chi tiết nhỏ/lớn)
-                    nesting_utilization = 0.82 if any(kw in comp_name for kw in MAJOR_PANELS) else 0.70
-                    
+                    nesting_utilization = 0.82 if any(kw in comp_name for kw in ["FRONT", "BACK", "SLEEVE"]) else 0.70
                     gross_yds = (raw_piece_area / (active_wid * 36.0 * active_eff * nesting_utilization)) * (1.0 + denim_industrial_loss)
-                    calc_note = calc_note + f"⚡ Sơ đồ CAD tự động (Khổ vải {active_wid}\") | "
+                    calc_note = calc_note + f"⚡ Sơ đồ CAD Áo khoác động (Khổ vải {active_wid}\") | "
                     ui_row["marker_efficiency"] = active_eff
+                    ui_row["Marker Efficiency"] = active_eff
+                else:
+                    if "FRONT PANEL" in comp_name or "THÂN TRƯỚC" in comp_name:
+                        proportion = fixed_front_panel_len / (fixed_front_panel_len + fixed_back_panel_len)
+                        gross_yds = (total_pants_base_yds * proportion) / 2.0
+                        calc_note = calc_note + "Thân trước phân bổ sơ đồ tổng | "
+                        ui_row["marker_efficiency"] = marker_eff_major
+                        ui_row["Marker Efficiency"] = marker_eff_major
+                    elif "BACK PANEL" in comp_name or "THÂN SAU" in comp_name:
+                        proportion = fixed_back_panel_len / (fixed_front_panel_len + fixed_back_panel_len)
+                        gross_yds = (total_pants_base_yds * proportion) / 2.0
+                        calc_note = calc_note + "Thân sau phân bổ gánh khung sơ đồ tổng | "
+                        ui_row["marker_efficiency"] = marker_eff_major
+                        ui_row["Marker Efficiency"] = marker_eff_major
+                    else:
+                        raw_piece_area = shrunk_len * shrunk_wid * active_count * 0.85
+                        gross_yds = (raw_piece_area / (active_wid * 36.0 * marker_eff_minor)) * (1.0 + denim_industrial_loss)
+                        calc_note = calc_note + f"⚡ Sơ đồ diện tích lồng ngang khổ động {active_wid}\" | "
+                        ui_row["marker_efficiency"] = marker_eff_minor
+                        ui_row["Marker Efficiency"] = marker_eff_minor
 
             # 📐 PHÂN HỆ VẢI LÓT TÚI (LINING)
             elif engine_target == "LINING":
@@ -566,6 +611,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
                 allocated_lining_len_inch = shrunk_len * required_vertical_rows
                 gross_yds = (allocated_lining_len_inch / (36.0 * eff_lining)) * (1.0 + denim_industrial_loss)
                 ui_row["marker_efficiency"] = eff_lining
+                ui_row["Marker Efficiency"] = eff_lining
                 calc_note = calc_note + f"Xếp hàng ngang lót túi ({pieces_per_row} chi tiết/hàng) | "
 
             # 📐 PHÂN HỆ KEO MEX DỰNG (FUSING)
@@ -576,24 +622,35 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
                 allocated_fusing_len_inch = shrunk_len * required_vertical_rows
                 gross_yds = (allocated_fusing_len_inch / (36.0 * eff_fusing)) * (1.0 + denim_industrial_loss)
                 ui_row["marker_efficiency"] = eff_fusing
+                ui_row["Marker Efficiency"] = eff_fusing
                 calc_note = calc_note + f"Xếp hàng ngang keo dựng ({pieces_per_row} chi tiết/hàng) | "
 
             # 📐 PHÂN HỆ THUN CHUN (ELASTIC)
             elif engine_target == "ELASTIC":
                 gross_yds = ((shrunk_len * active_count) / 36.0) * 1.05
                 ui_row["marker_efficiency"] = 1.0
+                ui_row["Marker Efficiency"] = 1.0
                 calc_note = calc_note + "Tính thẳng theo chiều dài trục dây thun | "
 
-            # Chuyển đổi đơn vị sang YDS hoặc MTR
+            # Quy đổi đơn vị tiêu hao cuối cùng (YDS / MTR)
             gross_val = gross_yds * 0.9144 if uom_target == "MTR" else gross_yds
-            ui_row["calculated_consumption"] = round(gross_val, 4)
+            final_rounded_value = round(gross_val, 4)
+
+            # 🌟 BẢN VÁ ĐA TẦNG KEY: Ghi đè vào mọi biến thể viết hoa/viết thường để Streamlit render chuẩn
+            ui_row["Gross Consumption"] = final_rounded_value
+            ui_row["gross_consumption"] = final_rounded_value
+            ui_row["calculated_consumption"] = final_rounded_value
             ui_row["engine_route"] = engine_target
             ui_row["calculation_note"] = calc_note.strip(" | ")
+            ui_row["Calculation Note"] = calc_note.strip(" | ")
 
         except Exception as e:
-            # Bẫy lỗi hiển thị trực tiếp ra màn hình thay vì ẩn đi thành số 0
+            # Bẫy lỗi hiển thị trực tiếp ra màn hình thay vì giữ số 0 ẩn danh
+            ui_row["Gross Consumption"] = 0.0
+            ui_row["gross_consumption"] = 0.0
             ui_row["calculated_consumption"] = 0.0
             ui_row["calculation_note"] = f"❌ Lỗi toán học chi tiết: {str(e)}"
+            ui_row["Calculation Note"] = f"❌ Lỗi toán học chi tiết: {str(e)}"
 
         router_bom_rows.append(ui_row)
 
