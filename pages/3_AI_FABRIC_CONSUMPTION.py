@@ -407,6 +407,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
     MAJOR_PANELS = ["FRONT PANEL", "BACK PANEL", "THÂN TRƯỚC", "THÂN SAU"]
         # =====================================================================
        # =====================================================================
+        # =====================================================================
     # PHẦN 2: VÒNG LẶP PYTHON DUYỆT TÍNH TOÁN ĐỊNH MỨC VÀ ÁP MA TRẬN ĐƯỜNG MAY IE
     # =====================================================================
     for ai_row in blueprint_final.get("bom_rows", []):
@@ -540,6 +541,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
 
     blueprint_final["bom_rows"] = router_bom_rows
     return blueprint_final
+
 
 
 
