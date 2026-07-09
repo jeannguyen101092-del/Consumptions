@@ -341,8 +341,9 @@ import math
 
 def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_query: str = "", *args, **kwargs) -> dict:
     """
-    Enterprise Multi-Engine CAD Router v69.0 - MULTI-PRODUCT ROUTER ARCHITECTURE.
-    🌟 PHẦN 1: Tự động bóc tách khổ vải động từ câu lệnh chat và tự động phân loại mã hàng (Dress vs Jeans).
+    Enterprise Multi-Engine CAD Router v69.5 - ROBUST DRESS OVERRIDE.
+    🌟 SỬA CHÍ MẠNG: Bổ sung từ khóa BODY/STRIPE đánh chặn lỗi AI tráo tên chi tiết đầm váy làm vọt định mức.
+    🔒 PHÂN HỆ ĐẦM: Ép chạy toán học diện tích phẳng độc lập, khống chế hiệu suất sơ đồ quạt xòe tròn kịch trần 72% - 75%.
     """
     if not blueprint_final or "bom_rows" not in blueprint_final:
         return blueprint_final
@@ -388,12 +389,16 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
     if match_fusing:
         parsed_fusing_width = float(match_fusing.group(1))
 
-    # TỰ ĐỘNG PHÂN LOẠI MÃ HÀNG NGÀNH MAY (DRESS VS JEANS)
+    # =====================================================================
+    # 🔍 BỘ TỰ ĐỘNG PHÂN LOẠI MÃ HÀNG NGÀNH MAY CẢI TIẾN THÔNG MINH VÁ LỖI AI
+    # =====================================================================
     is_dress_product = False
     for r in blueprint_final.get("bom_rows", []):
         if not r: continue
         name_check = str(r.get("component_name", "")).upper().strip()
-        if any(kw in name_check for kw in ["DRESS", "VÁY", "BODICE", "TIER", "SKIRT"]):
+        
+        # 🛠️ VÁ LỖI TẠI ĐÂY: Thêm từ khóa BODY, ALL OVER, STRIPE để bắt trọn gói các biến thể tên đầm áo liền thân
+        if any(kw in name_check for kw in ["DRESS", "VÁY", "BODICE", "TIER", "SKIRT", "BODY", "OVERALL", "STRIPE"]):
             is_dress_product = True
             break
 
@@ -416,6 +421,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
     total_pants_base_yds = (pants_base_length_inch / (36.0 * marker_eff_major)) * (1.0 + denim_industrial_loss)
 
     MAJOR_PANELS = ["FRONT PANEL", "BACK PANEL", "THÂN TRƯỚC", "THÂN SAU"]
+
     # =====================================================================
     # PHẦN 2: VÒNG LẶP PYTHON DUYỆT TÍNH TOÁN ĐỊNH MỨC THEO MA TRẬN PHÂN HỆ ĐỘNG
     # =====================================================================
