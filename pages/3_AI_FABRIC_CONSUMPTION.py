@@ -424,6 +424,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
 
         # =====================================================================
         # =====================================================================
+        # =====================================================================
     # PHẦN 2: VÒNG LẶP PYTHON DUYỆT TÍNH TOÁN ĐỊNH MỨC THEO MA TRẬN PHÂN HỆ ĐỘNG
     # =====================================================================
     for ai_row in blueprint_final.get("bom_rows", []):
@@ -511,24 +512,34 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
             # 📐 PHÂN HỆ VẢI CHÍNH (FABRIC)
             if engine_target == "FABRIC":
                 if is_dress_product:
-                    # 👗 CÔNG THỨC ĐẦM VÁY WALMART KIỂM TRA QUÁ KHỔ VẢI ĐỘNG
                     active_eff = marker_eff_major if "BODICE" in comp_name else marker_eff_minor
                     
-                    # KIỂM TRA ĐIỀU KIỆN CHÍ MẠNG: Nếu rộng chi tiết lớn hơn hoặc bằng khổ vải (ví dụ tầng váy xòe rộng 59", 65")
-                    if b_wid >= width_inch:
-                        # Rập quá khổ không thể đặt song song hay lồng cặp đối đầu -> Bắt buộc xếp nối tiếp tiến thẳng chiều dọc 100%
-                        allocated_length_inch = b_len * float(p_count) * warp_shrink_factor
-                        calc_note = calc_note + f"🛑 Rập quá khổ {width_inch}\" | Sơ đồ xếp tiến thẳng dọc nối tiếp | "
-                    else:
-                        # Rập nhỏ (Thân áo Bodice rộng 25") -> Cho phép lật đầu lồng xen kẽ cặp đối symmetry chia đôi
-                        effective_count = p_count / 2.0 if p_count >= 2 else float(p_count)
-                        allocated_length_inch = b_len * effective_count * warp_shrink_factor
-                        calc_note = calc_note + f"⚡ Sơ đồ lồng cặp xen kẽ dọc | "
+                    # 🌟 ĐÁNH CHẶN DÂY VIỀN / NẸP BẢN NHỎ: Dù dài mấy cũng không cho chạy dọc gánh khung sơ đồ
+                    is_bias_binding = any(kw in comp_name for kw in ["BINDING", "BIAS", "TRIM", "STRAP", "PIPING", "RIBBON"])
+                    is_narrow_strip = b_wid < 4.0 # Rộng dưới 4 inch tự động coi là dây viền/đáp nhỏ
                     
-                    gross_yds = (allocated_length_inch / (36.0 * active_eff)) * (1.0 + denim_industrial_loss)
+                    if (b_wid >= width_inch) and not is_bias_binding and not is_narrow_strip:
+                        # Chỉ các tầng váy siêu rộng quá khổ mới xếp tiến thẳng dọc nối tiếp
+                        allocated_length_inch = b_len * float(p_count) * warp_shrink_factor
+                        calc_note = calc_note + f"🛑 Tầng váy quá khổ {width_inch}\" | Sơ đồ tiến thẳng dọc nối tiếp | "
+                    else:
+                        # 🌟 Dây viền xéo hoặc Thân áo đầm (Bodice) -> Ép chạy diện tích phẳng lồng ngang để lấp lách rác vải vụn biên sơ đồ
+                        # Biện pháp này triệt tiêu hoàn toàn con số 4.03 YDS vô lý của dây viền
+                        if is_bias_binding or is_narrow_strip:
+                            raw_piece_area = b_len * b_wid * p_count * 0.80 # Hiệu suất net dây viền tinh gọn 80%
+                            calc_note = calc_note + "➕ Dây viền/Linh kiện nhỏ lồng lách sơ đồ diện tích ngang | "
+                        else:
+                            effective_count = p_count / 2.0 if p_count >= 2 else float(p_count)
+                            raw_piece_area = b_len * b_wid * effective_count * 0.85
+                            calc_note = calc_note + "⚡ Sơ đồ lồng cặp xen kẽ dọc | "
+                            
+                        area_with_shrinkage = raw_piece_area * warp_shrink_factor * weft_shrink_factor
+                        gross_yds = (area_with_shrinkage / (width_inch * 36.0 * active_eff)) * (1.0 + denim_industrial_loss)
+                    
+                    gross_yds = (b_len * float(p_count) * warp_shrink_factor / (36.0 * active_eff)) * (1.0 + denim_industrial_loss) if ((b_wid >= width_inch) and not is_bias_binding and not is_narrow_strip) else gross_yds
                     ui_row["marker_efficiency"] = active_eff
                 else:
-                    # 👖 PHÂN HỆ QUẦN JEANS GỐC (🔒 KHÓA CHẶT)
+                    # Phân hệ quần Jeans gốc giữ nguyên
                     if "FRONT PANEL" in comp_name or "THÂN TRƯỚC" in comp_name:
                         proportion = fixed_front_panel_len / (fixed_front_panel_len + fixed_back_panel_len)
                         gross_yds = total_pants_base_yds * proportion
@@ -572,7 +583,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
                 total_inches = b_len * p_count * 1.05
                 gross_yds = total_inches / 36.0
                 ui_row["marker_efficiency"] = 1.0
-                gross_val = gross_mtr if uom_target == "MTR" else gross_yds
+                gross_val = gross_yds * 0.9144 if uom_target == "MTR" else gross_yds
                 calc_note = calc_note + "Tính chun co giãn thun eo hao hụt 5%"
 
             ui_row["engine"] = engine_target
@@ -580,7 +591,9 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
             ui_row["quality_status"] = "PASS"
             ui_row["system_notes"] = calc_note
             ui_row["calculated_consumption_yards"] = round(gross_yds, 4)
-            ui_row["calculated_consumption_meters"] = round(gross_val * 0.9144 if uom_target == "YDS" else gross_val, 4)
+
+
+            
             
         except Exception as inline_err:
             ui_row["engine"] = engine_target
