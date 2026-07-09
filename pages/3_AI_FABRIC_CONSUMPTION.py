@@ -423,6 +423,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
     MAJOR_PANELS = ["FRONT PANEL", "BACK PANEL", "THÂN TRƯỚC", "THÂN SAU"]
 
         # =====================================================================
+        # =====================================================================
     # PHẦN 2: VÒNG LẶP PYTHON DUYỆT TÍNH TOÁN ĐỊNH MỨC THEO MA TRẬN PHÂN HỆ ĐỘNG
     # =====================================================================
     for ai_row in blueprint_final.get("bom_rows", []):
@@ -472,10 +473,10 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
         # 🛠️ MA TRẬN BÙ ĐƯỜNG MAY CHUẨN CÔNG NGHIỆP IE ĐỘNG
         if is_dress_product:
             if engine_target != "ELASTIC":
-                if "BOTTOM TIER" in comp_name or "LAI VÁY" in comp_name:
+                if "TIER" in comp_name or "LAI VÁY" in comp_name:
                     b_len = b_len + 0.44 + hem_allowance
                     b_wid = b_wid + (0.44 * 2)
-                    calc_note = calc_note + f"Biên rộng +0.88\", Biên trên +0.44\" + Gấu đầm xòe +{hem_allowance}\" | "
+                    calc_note = calc_note + f"Biên rộng +0.88\", Biên dài +0.44\" + Gấu đầm xòe +{hem_allowance}\" | "
                 else:
                     b_len = b_len + (0.44 * 2)
                     b_wid = b_wid + (0.44 * 2)
@@ -507,20 +508,27 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
             continue
 
         try:
-            # 📐 PHÂN HỆ VẢI CHÍNH (FABRIC) - ĐỒNG BỘ THUẬT TOÁN LỒNG XEN KẼ GIỐNG QUẦN JEANS
+            # 📐 PHÂN HỆ VẢI CHÍNH (FABRIC)
             if engine_target == "FABRIC":
                 if is_dress_product:
-                    # 👗 CÔNG THỨC LỒNG XEN KẼ CHO ĐẦM VÁY: Xếp đảo đầu cặp chi tiết trên sơ đồ dọc khổ rộng 57"
+                    # 👗 CÔNG THỨC ĐẦM VÁY WALMART KIỂM TRA QUÁ KHỔ VẢI ĐỘNG
                     active_eff = marker_eff_major if "BODICE" in comp_name else marker_eff_minor
                     
-                    # Do xếp xen kẽ đối xứng lồng nhau trên khổ 57", chiều dài sơ đồ thực tế của cụm cặp được chia đôi
-                    effective_count = p_count / 2.0 if p_count >= 2 else float(p_count)
-                    allocated_length_inch = b_len * effective_count * warp_shrink_factor
+                    # KIỂM TRA ĐIỀU KIỆN CHÍ MẠNG: Nếu rộng chi tiết lớn hơn hoặc bằng khổ vải (ví dụ tầng váy xòe rộng 59", 65")
+                    if b_wid >= width_inch:
+                        # Rập quá khổ không thể đặt song song hay lồng cặp đối đầu -> Bắt buộc xếp nối tiếp tiến thẳng chiều dọc 100%
+                        allocated_length_inch = b_len * float(p_count) * warp_shrink_factor
+                        calc_note = calc_note + f"🛑 Rập quá khổ {width_inch}\" | Sơ đồ xếp tiến thẳng dọc nối tiếp | "
+                    else:
+                        # Rập nhỏ (Thân áo Bodice rộng 25") -> Cho phép lật đầu lồng xen kẽ cặp đối symmetry chia đôi
+                        effective_count = p_count / 2.0 if p_count >= 2 else float(p_count)
+                        allocated_length_inch = b_len * effective_count * warp_shrink_factor
+                        calc_note = calc_note + f"⚡ Sơ đồ lồng cặp xen kẽ dọc | "
                     
-                    gross_yds = (allocated_length_inch / (width_inch * 36.0 * active_eff)) * (1.0 + denim_industrial_loss)
-                    calc_note = calc_note + f"⚡ Sơ đồ lồng cặp xen kẽ dọc khổ {width_inch}\""
+                    gross_yds = (allocated_length_inch / (36.0 * active_eff)) * (1.0 + denim_industrial_loss)
                     ui_row["marker_efficiency"] = active_eff
                 else:
+                    # 👖 PHÂN HỆ QUẦN JEANS GỐC (🔒 KHÓA CHẶT)
                     if "FRONT PANEL" in comp_name or "THÂN TRƯỚC" in comp_name:
                         proportion = fixed_front_panel_len / (fixed_front_panel_len + fixed_back_panel_len)
                         gross_yds = total_pants_base_yds * proportion
@@ -537,6 +545,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
                         gross_yds = (area_with_shrinkage / (width_inch * 36.0 * marker_eff_minor)) * (1.0 + denim_industrial_loss)
                         calc_note = calc_note + f"⚡ Sơ đồ diện tích lồng ngang khổ động {width_inch}\""
                         ui_row["marker_efficiency"] = marker_eff_minor
+                
                 gross_val = gross_yds * 0.9144 if uom_target == "MTR" else gross_yds
 
             # 📐 PHÂN HỆ VẢI LÓT TÚI (LINING)
@@ -563,7 +572,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
                 total_inches = b_len * p_count * 1.05
                 gross_yds = total_inches / 36.0
                 ui_row["marker_efficiency"] = 1.0
-                gross_val = gross_yds * 0.9144 if uom_target == "MTR" else gross_yds
+                gross_val = gross_mtr if uom_target == "MTR" else gross_yds
                 calc_note = calc_note + "Tính chun co giãn thun eo hao hụt 5%"
 
             ui_row["engine"] = engine_target
@@ -583,6 +592,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
 
     blueprint_final["bom_rows"] = router_bom_rows
     return blueprint_final
+
 
 
 
